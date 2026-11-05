@@ -1749,3 +1749,234 @@ def test_join_scalar_projection_does_not_open_other_sites(tmp_path, target, site
         *(["match_condition_not_in_row_domain"] if site == "on" else []),
         "join_shape_not_admitted_in_slice7",
     ]
+
+
+def _float_rows(tmp_path, target, body):
+    """A self JOIN or correlated read of the published source's Float field."""
+    base = probe.fixture(target)
+    header = base["source"].split("table result:", 1)[0]
+    contract = json.loads(base["contract"])
+    contract["environment"].append(
+        {
+            "key": "identifier_case",
+            "scope": "statement",
+            "value": "quoted_exact"
+            if target == "postgres"
+            else "lower_case_table_names=0",
+        }
+    )
+    _, outcome = probe.build_case(
+        tmp_path, header + body, probe.encoded(contract).decode(), "preserve_literals"
+    )
+    return outcome
+
+
+def located(outcome):
+    """Each public blocker's code, detail and (line, column, end line, end
+    column) in main.pietto, or None when it has no location."""
+    found = []
+    for blocker in document(outcome)["blockers"]:
+        where = blocker["location"]
+        if where is not None:
+            assert where["path"] == "main.pietto"
+            where = (
+                where["line"],
+                where["column"],
+                where["end_line"],
+                where["end_column"],
+            )
+        found.append((blocker["code"], blocker["subject"]["detail"], where))
+    return found
+
+
+# Each site: its lines after `from rows`, the PostgreSQL SQL spelling, and the
+# MySQL blocker's location, the enclosing ON clause or WHERE filter. `query
+# result:` is line 8 of the source, so the last authored line is 11 or 12.
+FLOAT_ROW_READS = {
+    "inner_on": (
+        "    let o = rows\n    inner join o on rows.ratio == o.ratio\n",
+        " INNER JOIN ",
+        (11, 18, 11, 42),
+    ),
+    "left_on": (
+        "    let o = rows\n    left join o on rows.ratio == o.ratio\n",
+        " LEFT JOIN ",
+        (11, 17, 11, 41),
+    ),
+    "where_across_inputs": (
+        "    let o = rows\n    inner join o on rows.id == o.id\n"
+        "    where rows.ratio == o.ratio\n",
+        " INNER JOIN ",
+        (12, 5, 12, 32),
+    ),
+    "correlated_any": (
+        "    let z = rows\n    where any(z.ratio == rows.ratio for z in z)\n",
+        " WHERE EXISTS (",
+        (11, 5, 11, 48),
+    ),
+    "correlated_not_any": (
+        "    let z = rows\n    where not any(z.ratio == rows.ratio for z in z)\n",
+        "NOT EXISTS (",
+        (11, 5, 11, 52),
+    ),
+    # MySQL's parser turns NOT (x <> y) into x = y, so `!=` is gated too.
+    "negated_inequality_on": (
+        "    let o = rows\n    inner join o on not (rows.ratio != o.ratio)\n",
+        " INNER JOIN ",
+        (11, 18, 11, 48),
+    ),
+    "negated_inequality_across_inputs": (
+        "    let o = rows\n    inner join o on rows.id == o.id\n"
+        "    where not (rows.ratio != o.ratio)\n",
+        " INNER JOIN ",
+        (12, 5, 12, 38),
+    ),
+    "negated_inequality_any": (
+        "    let z = rows\n    where any(not (z.ratio != rows.ratio) for z in z)\n",
+        " WHERE EXISTS (",
+        (11, 5, 11, 54),
+    ),
+}
+
+
+@pytest.mark.parametrize("target", TARGETS)
+@pytest.mark.parametrize("site", tuple(FLOAT_ROW_READS))
+def test_a_float_equality_between_two_row_reads_is_postgres_only(
+    tmp_path, target, site
+):
+    """Branch B: MySQL picks its own join and semijoin plans for this equality,
+    and a semijoin forced to materialize over a wide key returned outer rows
+    twice; it keeps one comparison blocker, located at its enclosing ON clause
+    or WHERE filter. PostgreSQL emits the plain `=`."""
+    lines, spelling, location = FLOAT_ROW_READS[site]
+    outcome = _float_rows(
+        tmp_path,
+        target,
+        "query result:\n    from rows\n"
+        + lines
+        + "    select:\n        a = rows.ratio\n",
+    )
+    if target == "mysql":
+        assert outcome.status == "BLOCKED" and outcome.artifact is None
+        assert located(outcome) == [
+            ("PIE-B1003", "comparison_type_pair_not_admitted", location)
+        ]
+        return
+    assert outcome.status == "VERIFIED", outcome.blockers
+    assert spelling in public(outcome)["sql"]
+
+
+@pytest.mark.parametrize("site", tuple(FLOAT_ROW_READS))
+def test_the_verifier_reads_the_rows_of_a_mysql_float_equality_itself(
+    tmp_path, monkeypatch, site
+):
+    """Builder and verifier each find the row reads: with the builder made to
+    see none, the MySQL equality reaches the verifier, which refuses it from
+    the SQL operands alone."""
+    from pietto._project import project_sql_emission_rows as rows
+
+    monkeypatch.setattr(rows, "_reads_row", lambda value: False)
+    outcome = _float_rows(
+        tmp_path,
+        "mysql",
+        "query result:\n    from rows\n"
+        + FLOAT_ROW_READS[site][0]
+        + "    select:\n        a = rows.ratio\n",
+    )
+    assert outcome.status == "BLOCKED" and outcome.artifact is None
+    assert [(b.code, b.detail) for b in outcome.blockers] == [
+        ("PIE-B1008", "plan_ast_correspondence")
+    ]
+
+
+@pytest.mark.parametrize("target", TARGETS)
+def test_a_float_equality_with_a_scalar_block_read_is_postgres_only(tmp_path, target):
+    """A scalar block read reads rows, so on MySQL `ratio == scalar m.a` keeps
+    the comparison blocker at its WHERE filter (line 14)."""
+    outcome = _float_rows(
+        tmp_path,
+        target,
+        "query result:\n    let m:\n        from rows\n        select:\n"
+        "            a = avg(id)\n    from rows\n    where ratio == scalar m.a\n"
+        "    select:\n        r = ratio\n",
+    )
+    if target == "mysql":
+        assert outcome.status == "BLOCKED" and outcome.artifact is None
+        assert located(outcome) == [
+            ("PIE-B1003", "comparison_type_pair_not_admitted", (14, 5, 14, 30))
+        ]
+        return
+    assert outcome.status == "VERIFIED", outcome.blockers
+
+
+@pytest.mark.parametrize("target", TARGETS)
+@pytest.mark.parametrize(
+    "lines",
+    (
+        "    let o = rows\n    inner join o on rows.id == o.id and rows.ratio < o.ratio\n",
+        "    let z = rows\n    where any(z.ratio < rows.ratio for z in z)\n",
+        "    let z = rows\n    where any(z.ratio == 0.0 for z in z)\n",
+        "    let z = rows\n    where not any(z.ratio == -0.0 for z in z)\n",
+    ),
+)
+def test_float_inequalities_and_constant_equalities_emit_on_both_targets(
+    tmp_path, target, lines
+):
+    """An ordering inequality is never an equality key, and a constant operand
+    reads no row, so neither can become a MySQL hash or semijoin key over two
+    inputs."""
+    outcome = _float_rows(
+        tmp_path,
+        target,
+        "query result:\n    from rows\n"
+        + lines
+        + "    select:\n        a = rows.ratio\n",
+    )
+    assert outcome.status == "VERIFIED", outcome.blockers
+    public(outcome)
+
+
+@pytest.mark.parametrize("target", TARGETS)
+@pytest.mark.parametrize(
+    ("condition", "postgres_detail", "mysql_detail"),
+    (
+        (
+            "rows.ratio == o.ratio",
+            "full_join_equality_outside_reviewed_int_domain",
+            "comparison_type_pair_not_admitted",
+        ),
+        (
+            "rows.text == o.text",
+            "full_join_equality_outside_reviewed_int_domain",
+            "mysql_full_join_approved_non_support",
+        ),
+        (
+            "rows.ratio < o.ratio",
+            "full_join_condition_not_an_equality",
+            "mysql_full_join_approved_non_support",
+        ),
+        (
+            "rows.text != o.text",
+            "full_join_condition_not_an_equality",
+            "mysql_full_join_approved_non_support",
+        ),
+    ),
+)
+def test_a_full_join_outside_its_reviewed_rule_is_refused_at_its_on_clause(
+    tmp_path, target, condition, postgres_detail, mysql_detail
+):
+    """PostgreSQL FULL JOIN admits only its reviewed Int equality tree and
+    MySQL none; every refusal, a Float or Text equality, another shape, or
+    MySQL non-support, is located at the ON clause (line 11, from `on`). MySQL
+    refuses a Float equality of two row reads first, at the same clause."""
+    outcome = _float_rows(
+        tmp_path,
+        target,
+        "query result:\n    from rows\n    let o = rows\n"
+        f"    full join o on {condition}\n"
+        "    select:\n        a = rows.ratio\n",
+    )
+    assert outcome.status == "BLOCKED" and outcome.artifact is None
+    detail = postgres_detail if target == "postgres" else mysql_detail
+    on_clause = (11, 17, 11, 17 + len(f"on {condition}"))
+    assert located(outcome) == [("PIE-B1003", detail, on_clause)]

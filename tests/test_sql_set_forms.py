@@ -220,7 +220,9 @@ def test_positions_labels_and_arity_are_set_owned(target):
 
 @pytest.mark.parametrize("target", TARGETS)
 def test_domains_keep_exact_representations_and_refuse_mismatches(target):
-    """C18: no common type, no widening; Float travels only through UNION ALL."""
+    """C18: no common type, no widening. A PostgreSQL Float compares in every
+    form; MySQL keeps Float to UNION ALL (its INTERSECT/EXCEPT keep -0.0 and 0.0
+    apart, and its deduplicating hash does so beside a wide key)."""
     decimal = emit(target, "S_set_domains", "decimal_intersect_all")
     assert decimal.status == "VERIFIED", blockers(decimal)
     (column,) = public(decimal)["columns"]
@@ -238,19 +240,92 @@ def test_domains_keep_exact_representations_and_refuse_mismatches(target):
     (column,) = public(floats)["columns"]
     assert column["logical_type"]["name"] == "Float"
     assert generated(public(floats), "set_row_equivalence") == []
+    q = Q[target]
     for kind, quantifier in FORMS[1:]:
-        rejected = emit_source(
+        outcome = emit_source(
             target,
             "table a:\n    from rows\n    select:\n        r = ratio\n"
             f"query result:\n    {kind} {quantifier}:\n        from a\n        from a\n",
         )
-        assert rejected.status == "BLOCKED" and rejected.artifact is None
-        assert "PIE-S2344" in [d.code for d in rejected.diagnostics]
+        assert outcome.diagnostics == ()
+        if target == "mysql":
+            assert outcome.status == "BLOCKED" and outcome.artifact is None
+            assert [(b.code, b.detail) for b in outcome.blockers] == [
+                ("PIE-B1003", "set_row_equivalence_domain_unsupported")
+            ]
+            assert public(outcome)["blockers"][0]["location"]["line"] == 13
+            continue
+        assert outcome.status == "VERIFIED", blockers(outcome)
+        spelling = f") {kind.upper()} {quantifier.upper()} ("
+        assert final_statement(sql_of(outcome)) == (
+            f"(SELECT {q}o0{q}.{q}c0{q} AS {q}r{q} FROM {q}p0{q} AS {q}o0{q}"
+            f"{spelling}SELECT {q}o1{q}.{q}c0{q} AS {q}r{q} FROM {q}p0{q} AS {q}o1{q})"
+        )
+        assert len(generated(public(outcome), "set_row_equivalence")) == 1
+        probe.decode_public(serialize_project_sql_emission(outcome))
     mismatch = emit(target, "V_set_blocked", "physical_mismatch")
     assert mismatch.status == "BLOCKED" and mismatch.artifact is None
     assert blockers(mismatch) == ["set_column_physical_representation_mismatch"]
     assert [b.code for b in mismatch.blockers] == ["PIE-B1002"]
     assert mismatch.diagnostics == ()
+
+
+def test_the_verifier_refuses_a_mysql_float_intersect_on_its_own(monkeypatch):
+    """With the builder's carrier test made to accept either family's Float, a
+    MySQL Float INTERSECT unit reaches the verifier, whose own set-column twin
+    refuses it."""
+    strict = setting.rows.float_carrier
+    monkeypatch.setattr(
+        setting.rows,
+        "float_carrier",
+        lambda realization, family=None, **options: strict(realization, **options),
+    )
+    outcome = emit_source(
+        "mysql",
+        "table a:\n    from rows\n    select:\n        r = ratio\n"
+        "query result:\n    intersect distinct:\n        from a\n        from a\n",
+    )
+    assert outcome.status == "BLOCKED" and outcome.artifact is None
+    assert [(b.code, b.detail) for b in outcome.blockers] == [
+        ("PIE-B1008", "plan_ast_correspondence")
+    ]
+
+
+@pytest.mark.parametrize("target", TARGETS)
+def test_window_distribution_results_keep_union_all_only(target):
+    """L13: a percent_rank result (domain float64) keeps today's UNION ALL rule;
+    every equivalence form over it stays refused on both targets."""
+    tables = (
+        "table a:\n    from rows\n    select:\n        id\n"
+        "        pr = percent_rank() window(order by id)\n"
+        "table b:\n    from rows\n    select:\n        id\n"
+        "        pr = percent_rank() window(order by id)\n"
+    )
+    union = emit_source(
+        target,
+        tables + "query result:\n    union all:\n        from a\n        from b\n",
+    )
+    assert union.status == "VERIFIED", blockers(union)
+    q = Q[target]
+    assert final_statement(sql_of(union)) == (
+        f"(SELECT {q}o0{q}.{q}c0{q} AS {q}id{q}, {q}o0{q}.{q}c1{q} AS {q}pr{q}"
+        f" FROM {q}p1{q} AS {q}o0{q}) UNION ALL (SELECT {q}o1{q}.{q}c0{q} AS"
+        f" {q}id{q}, {q}o1{q}.{q}c1{q} AS {q}pr{q} FROM {q}p3{q} AS {q}o1{q})"
+    )
+    column = public(union)["columns"][1]
+    assert column["representation"]["domain"] == {"kind": "float64"}
+    assert column["representation"]["storage"] == {
+        "kind": "pg_float8" if target == "postgres" else "my_double"
+    }
+    for form in ("union distinct", "intersect distinct"):
+        refused = emit_source(
+            target,
+            tables + f"query result:\n    {form}:\n        from a\n        from b\n",
+        )
+        assert refused.status == "BLOCKED" and refused.diagnostics == ()
+        assert [(b.code, b.detail) for b in refused.blockers] == [
+            ("PIE-B1003", "set_row_equivalence_domain_unsupported")
+        ]
 
 
 @pytest.mark.parametrize("target", TARGETS)

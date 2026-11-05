@@ -77,11 +77,13 @@ DIRECTIONS = {"asc": "ASC", "desc": "DESC"}
 # posture, so every emitted key keeps the target's own native NULL order. No
 # spelling and no discriminator helper is generated for it.
 NULL_POSTURE = "target_defined"
-# R19 orders the same exact comparison domain the window stage admits; a Float
-# key stays outside relation ORDER exactly as it stays outside window ORDER.
-# A UUID is DISTINCT everywhere and orders only where its unsigned big-endian
-# byte order is reviewed (`rows.uuid_ordered`).
-ORDER_TAGS = frozenset({"Int", "Bool", "Text", "Decimal", "Timestamp", "Date"})
+# R19 orders the exact comparison domain the window stage admits and, on
+# PostgreSQL, a finite Float by its real value (-0.0 and 0.0 tie); window ORDER
+# and PARTITION keep Float out. MySQL keeps -0.0 and 0.0 apart in a deduplicating
+# hash over a wide key, so its Float DISTINCT, and through order_admitted its
+# Float relation ORDER, stay refused. A UUID is DISTINCT everywhere and orders
+# only where its unsigned big-endian byte order is reviewed (`rows.uuid_ordered`).
+ORDER_TAGS = frozenset({"Int", "Bool", "Text", "Decimal", "Timestamp", "Date", "Float"})
 DISTINCT_TAGS = ORDER_TAGS | {"UUID"}
 
 
@@ -123,7 +125,10 @@ def _count(value: Any) -> int | str:
 def distinct_problem(family: str, realization: rows.Realization) -> str | None:
     """Admit exact DISTINCT over one reviewed carrier representation; the
     temporal carriers it checks are also the ones ORDER compares."""
-    if realization.tag not in DISTINCT_TAGS:
+    if realization.tag not in DISTINCT_TAGS or (
+        realization.tag == "Float"
+        and not (family == "postgres" and rows.float_carrier(realization, family))
+    ):
         return "distinct_field_comparison_domain_unsupported"
     if realization.tag == "Timestamp" and (
         realization.storage

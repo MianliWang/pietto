@@ -1512,12 +1512,12 @@ def test_registered_mutations_and_source_negatives_have_exact_distinct_outcomes(
         ),
         "general_call": ("planning", [], ["expression_evidence_unavailable"]),
         "order_evidence": ("planning", [], ["order"]),
-        "float_distinct": (
+        "json_distinct": (
             "semantic",
             ["PIE-S2339"],
             ["semantic_result_unsuccessful", "active_output_unavailable"],
         ),
-        "float_set": (
+        "json_set": (
             "semantic",
             ["PIE-S2344", "PIE-S2344"],
             ["semantic_result_unsuccessful", "active_output_unavailable"],

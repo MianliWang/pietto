@@ -2758,8 +2758,7 @@ def _capability_key(
     if (
         kind not in {"builtin", "enum"}
         or type(name) is not str
-        or reason
-        not in {None, "unsupported_type", "float_equivalence_deferred_to_phase72"}
+        or reason not in {None, "unsupported_type"}
     ):
         raise ValueError("Set requires concrete canonical type evidence.")
     if requires_equivalence and reason is not None:
@@ -2778,11 +2777,7 @@ def _capability_key(
         "Json",
     }:
         raise ValueError("Unknown builtin type capability.")
-    if (
-        requires_equivalence
-        and kind == "builtin"
-        and name in {"Float", "Any", "Bytes", "Json"}
-    ):
+    if requires_equivalence and kind == "builtin" and name in {"Any", "Bytes", "Json"}:
         raise ValueError("Unsupported row-equivalence domain.")
     decimal = data["decimal"]
     if name == "Decimal":

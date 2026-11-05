@@ -39,7 +39,7 @@ def _realization(family: str, tag: str) -> rows.Realization:
 
 def _compared(family, left, right, operator):
     return rows.resolved_comparison_realization(
-        family, "Bool", True, left, right, operator
+        family, "Bool", True, left, right, operator, rows_both_sides=True
     )[1]
 
 

@@ -123,6 +123,103 @@ def test_a_postgresql_uuid_order_replays_from_compiled_input(tmp_path):
         _compare_refinement(original.artifact)
 
 
+@pytest.mark.parametrize(
+    "target,variant",
+    (
+        ("postgres", "fo_ascending"),
+        ("postgres", "fg_ratio"),
+        ("postgres", "fd_rows"),
+        ("postgres", "fi_all"),
+        ("postgres", "fj_inner"),
+        ("postgres", "fx_any"),
+        ("postgres", "fc_rows"),
+        ("mysql", "fc_rows"),
+        ("mysql", "fc_where"),
+        ("mysql", "fw_windows"),
+    ),
+)
+def test_float_equality_and_order_replay_from_compiled_input(tmp_path, target, variant):
+    """Lane E: Float ORDER, GROUP BY, DISTINCT, INTERSECT, JOIN and correlated
+    equalities and literal comparisons replay; R2 refuses a Float coordinate,
+    as it refuses a UUID one."""
+    original = build(tmp_path, target, emission.FLOAT_CASE, variant)
+    assert original.status == "VERIFIED" and original.artifact is not None
+    _compare(original.artifact, refinement=False)
+    if variant == "fo_ascending":
+        with pytest.raises(ValueError, match="^REFINEMENT_COMPARISON_DOMAIN$"):
+            _compare_refinement(original.artifact)
+
+
+@pytest.mark.parametrize("target", ("postgres", "mysql"))
+def test_a_compiled_float_equality_of_two_row_reads_is_refused_on_mysql(
+    tmp_path, target, monkeypatch
+):
+    """Branch B on the compiled path: a record forged from `ratio < ratio` to
+    `ratio == ratio` derives on PostgreSQL only; on MySQL derivation refuses it
+    and the independent verifier refuses a derivation forged past that law."""
+    from dataclasses import replace
+    from pietto._project import project_sql_emission_rows as physical
+    from pietto._project.project_completed_semantics import (
+        derive_compiled_semantics,
+        verify_compiled_semantics,
+    )
+    from pietto._project.project_compiled_schema import (
+        FIELDS,
+        CompiledError,
+        Record,
+        content_pin,
+        encode,
+    )
+
+    item = emission.fixture(target, "V_row_blocked", "float_comparison")
+    source = item["source"].replace("same = ratio == ratio", "same = ratio < ratio")
+    checked, original = emission.build_case(
+        tmp_path, source, item["contract"], item["policy"]
+    )
+    assert checked.verified and original.status == "VERIFIED"
+    built = build_compiled(original.artifact)
+    (comparison,) = (
+        r
+        for r in built.root.description.records
+        if r.address.kind == "operation" and r.get("operator") == ("comparison", "<")
+    )
+    values = list(comparison.values)
+    values[FIELDS["operation"].index("operator")] = ("comparison", "==")
+    forged = Record(comparison.address, tuple(values))
+    description = replace(
+        built.root.description,
+        members=tuple(
+            (name, tuple(forged if r.address == forged.address else r for r in members))
+            for name, members in built.root.description.members
+        ),
+    )
+    raw = encode(description)
+    root = load_compiled(
+        raw,
+        expected_pin=content_pin(raw),
+        accepted_producer=built.producer,
+        accepted_compatibility=built.compatibility,
+    )
+    if target == "postgres":
+        verify_compiled_semantics(derive_compiled_semantics(root, ()))
+        return
+    with pytest.raises(CompiledError):
+        derive_compiled_semantics(root, ())
+    law = physical.resolved_comparison_realization
+    with monkeypatch.context() as patch:
+        patch.setattr(
+            physical,
+            "resolved_comparison_realization",
+            lambda *args, operator, rows_both_sides: law(
+                *args, operator=operator, rows_both_sides=False
+            ),
+        )
+        derived = derive_compiled_semantics(root, ())
+    # The verifier's own comparison law raises its PIE-B1003 detail.
+    with pytest.raises(ValueError, match="comparison_type_pair_not_admitted"):
+        verify_compiled_semantics(derived)
+
+
 @pytest.mark.parametrize("target", ("postgres", "mysql"))
 @pytest.mark.parametrize("variant", ("let_key", "bind"))
 def test_computed_let_determinant_replays_from_compiled_input(
@@ -2250,7 +2347,7 @@ def test_repinned_cross_family_comparison_refuses_derivation_and_verification(
         patch.setattr(
             physical,
             "resolved_comparison_realization",
-            lambda family, tag, nullable, left, right, *, operator: (
+            lambda family, tag, nullable, left, right, *, operator, rows_both_sides: (
                 physical._bool(family, False),
                 None,
             ),

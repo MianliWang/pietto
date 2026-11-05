@@ -317,12 +317,13 @@ def test_filter_preserves_bag_multiplicity_of_surviving_rows(built, target):
             "PIE-B1002",
             "unary_result_outside_physical_range",
         ),
+        # Branch B: a MySQL Float `==` whose operands both read rows.
+        ("mysql", "float_comparison", "PIE-B1003", "comparison_type_pair_not_admitted"),
         *(
             (target, variant, code, detail)
             for target in ("postgres", "mysql")
             for variant, code, detail in (
                 ("float_arithmetic", "PIE-B1003", "float_literal_operands_required"),
-                ("float_comparison", "PIE-B1003", "comparison_type_pair_not_admitted"),
                 ("bool_comparison", "PIE-B1003", "comparison_type_pair_not_admitted"),
                 ("modulo", "PIE-B1003", "binary_operator_not_admitted"),
             )
@@ -342,6 +343,107 @@ def test_row_boundaries_keep_no_usable_partial_sql(
     assert "sql" not in public and public["artifact"] is None
     assert code in [b["code"] for b in public["blockers"]]
     assert detail in [b["subject"]["detail"] for b in public["blockers"]]
+
+
+def _float_rows(tmp_path, target, body):
+    item = probe.fixture(target, "V_row_blocked", "float_comparison")
+    source = item["source"].split("table result:", 1)[0] + body
+    checked, outcome = probe.build_case(
+        tmp_path, source, item["contract"], item["policy"]
+    )
+    assert checked.verified
+    return outcome
+
+
+FLOAT_COMPARISONS = (
+    "query result:\n    from rows\n    where ratio == -0.0\n    select:\n"
+    "        r = ratio\n        a = ratio == 0.0\n        b = ratio != 0.0\n"
+    "        c = ratio < 1.5\n        d = ratio <= 1.5\n        e = ratio > -0.0\n"
+    "        f = ratio >= 0.0\n        g = 0.5 <= ratio <= 10.0\n"
+)
+
+
+@pytest.mark.parametrize("target", ("postgres", "mysql"))
+def test_float_comparisons_use_one_float_equality(tmp_path, target):
+    """F2: every comparison of a finite Float against a literal emits the plain
+    SQL operator over the typed binary64 carrier; `-0.0` keeps its own spelling."""
+    outcome = _float_rows(tmp_path, target, FLOAT_COMPARISONS)
+    assert outcome.status == "VERIFIED", serialize_project_sql_emission(outcome)
+    artifact = outcome.artifact
+    assert artifact is not None
+    assert verify_project_sql_emission(artifact, artifact.request).verified
+    probe.decode_public(serialize_project_sql_emission(outcome))
+    if target == "postgres":
+        q, zero, neg, one, half, ten = (
+            '"',
+            "CAST('0.0' AS pg_catalog.float8)",
+            "(-CAST('0.0' AS pg_catalog.float8))",
+            "CAST('1.5' AS pg_catalog.float8)",
+            "CAST('0.5' AS pg_catalog.float8)",
+            "CAST('10.0' AS pg_catalog.float8)",
+        )
+    else:
+        q, zero, neg, one, half, ten = (
+            "`",
+            "CAST(0.0e0 AS DOUBLE)",
+            "(-CAST(0.0e0 AS DOUBLE))",
+            "CAST(1.5e0 AS DOUBLE)",
+            "CAST(0.5e0 AS DOUBLE)",
+            "CAST(10.0e0 AS DOUBLE)",
+        )
+    sql = artifact.rendered.sql.decode("utf-8")
+    c = f"{q}t1{q}.{q}c4{q}"
+    assert f"WHERE ({q}s0{q}.{q}ratio value{q} = {neg})" in sql
+    assert sql.endswith(
+        f" SELECT {c} AS {q}r{q}, ({c} = {zero}) AS {q}a{q},"
+        f" ({c} <> {zero}) AS {q}b{q}, ({c} < {one}) AS {q}c{q},"
+        f" ({c} <= {one}) AS {q}d{q}, ({c} > {neg}) AS {q}e{q},"
+        f" ({c} >= {zero}) AS {q}f{q}, ({c} BETWEEN {half} AND {ten}) AS {q}g{q}"
+        f" FROM {q}p0{q} AS {q}t1{q}"
+    )
+
+
+@pytest.mark.parametrize("target", ("postgres", "mysql"))
+@pytest.mark.parametrize(
+    "expression,postgres,mysql",
+    (
+        # Branch B: MySQL may hash an equality whose operands both read rows.
+        ("ratio == ratio", None, "comparison_type_pair_not_admitted"),
+        # MySQL's parser turns NOT (x <> y) into x = y.
+        ("ratio != ratio", None, "comparison_type_pair_not_admitted"),
+        # An ordering inequality is never an equality key.
+        ("ratio < ratio", None, None),
+        # O2: Float against Int stays refused on both targets.
+        (
+            "ratio > 1",
+            "comparison_type_pair_not_admitted",
+            "comparison_type_pair_not_admitted",
+        ),
+    ),
+)
+def test_float_comparisons_with_rows_on_both_sides(
+    tmp_path, target, expression, postgres, mysql
+):
+    outcome = _float_rows(
+        tmp_path,
+        target,
+        f"query result:\n    from rows\n    select:\n        x = {expression}\n",
+    )
+    detail = postgres if target == "postgres" else mysql
+    public = probe.decode_public(serialize_project_sql_emission(outcome))
+    if detail is None:
+        assert outcome.status == "VERIFIED", public["blockers"]
+        q = '"' if target == "postgres" else "`"
+        column = f"{q}s0{q}.{q}ratio value{q}"
+        authored = expression.split()[1]
+        operator = {"==": "=", "!=": "<>"}.get(authored, authored)
+        assert f"({column} {operator} {column}) AS {q}x{q}" in public["sql"]
+        return
+    assert outcome.status == "BLOCKED" and outcome.artifact is None
+    assert [
+        (b["code"], b["subject"]["detail"], b["location"]["column"])
+        for b in public["blockers"]
+    ] == [("PIE-B1003", detail, 9)]
 
 
 @pytest.mark.parametrize("target", ("postgres", "mysql"))

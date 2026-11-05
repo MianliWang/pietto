@@ -856,3 +856,39 @@ def test_handwritten_on_over_keyless_inputs_records_its_equality_without_keys(
     )
     (equality,) = (r for r in document.records if r.kind is kinds.PREDICATE_EQUALITY)
     assert {item.key: item.value for item in equality.fields}["calls"] == absent
+
+
+@pytest.mark.parametrize("form", ("distinct", "intersect"))
+def test_float_equivalence_capability_admits_only_a_null_reason(tmp_path, form):
+    """Float DISTINCT and set capabilities decode; a forged non-null reason on
+    a capability that requires row equivalence is still rejected."""
+    from _pietto_ir_sources import distinct_source, set_source
+
+    source = (
+        distinct_source("Float")
+        if form == "distinct"
+        else set_source("intersect", "distinct", right_type="Float").replace(
+            "id: Int", "id: Float"
+        )
+    )
+    document = _build(tmp_path, source)[3].document
+    evaluate = pure.evaluate_project_query_block_ir_document
+    assert evaluate(document).status is pure.ProjectQueryBlockIRPureStatus.OK
+    kind = pure.ProjectQueryBlockIRRecordKind.TYPE_EQUIVALENCE
+    positions = [i for i, r in enumerate(document.records) if r.kind is kind]
+    assert positions
+    for position in positions:
+        capability = _field(document.records[position], "capability")
+        text = document.records[position].fields[capability].value.text
+        assert text is not None and text.count('"reason":null') == 1, text
+        forged = _replace_field(
+            document,
+            position,
+            capability,
+            pure.project_query_block_ir_pure_text(
+                text.replace('"reason":null', '"reason":"unsupported_type"')
+            ),
+        )
+        outcome = evaluate(forged)
+        assert outcome.status is not pure.ProjectQueryBlockIRPureStatus.OK
+        assert outcome.canonical_bytes is None

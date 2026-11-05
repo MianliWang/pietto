@@ -285,7 +285,7 @@ def test_invalid_limits_keep_actual_upstream_diagnostics(tmp_path, literal, join
     assert isinstance(build_project_sql_plan(*roots), ProjectSQLPlanUnavailable)
 
 
-@pytest.mark.parametrize("type_name", ["Float", "Any", "Bytes", "Json", "Decimal"])
+@pytest.mark.parametrize("type_name", ["Any", "Bytes", "Json", "Decimal"])
 def test_distinct_domain_negatives_and_nonvisible_float(tmp_path, type_name):
     roots = _roots(tmp_path, _source(type_name=type_name))
     assert not roots[0].ok
@@ -306,35 +306,29 @@ def test_alias_resolution_and_decimal_parent_identity(tmp_path, type_name):
     source = f"type Base = {type_name}\ntype Alias = Base\n" + _source(
         type_name="Alias"
     )
+    source = (
+        source.replace("query result:", "table typed:")
+        + "query result:\n    from typed\n    select distinct:\n        value\n"
+    )
+    _, plan, view = _product(tmp_path, source)
+    assert len(view.distincts) == 2
+    original, child = view.quotient_fields
+    assert original.equivalence.resolution is not None
+    assert [
+        alias.declared_name for alias in original.equivalence.resolution.alias_chain
+    ] == ["Alias", "Base"]
+    assert child.equivalence.parents is child.equivalence.selected.type_sources
+    assert child.equivalence.decimal_type_expr is original.equivalence.decimal_type_expr
     if type_name == "Float":
-        roots = _roots(tmp_path, source)
-        assert not roots[0].ok and [d.code for d in roots[0].diagnostics] == [
-            "PIE-S2339"
-        ]
+        assert child.equivalence.decimal is None
     else:
-        source = (
-            source.replace("query result:", "table typed:")
-            + "query result:\n    from typed\n    select distinct:\n        value\n"
-        )
-        _, plan, view = _product(tmp_path, source)
-        assert len(view.distincts) == 2
-        original, child = view.quotient_fields
-        assert original.equivalence.resolution is not None
-        assert [
-            alias.declared_name for alias in original.equivalence.resolution.alias_chain
-        ] == ["Alias", "Base"]
-        assert child.equivalence.parents is child.equivalence.selected.type_sources
-        assert (
-            child.equivalence.decimal_type_expr
-            is original.equivalence.decimal_type_expr
-        )
         assert child.equivalence.decimal is not None
         assert (
             child.equivalence.decimal.precision == 18
             and child.equivalence.decimal.scale == 4
         )
-        assert view.distincts[0].source is not view.distincts[1].source
-        assert len(plan.result_exports) == 2
+    assert view.distincts[0].source is not view.distincts[1].source
+    assert len(plan.result_exports) == 2
 
 
 @pytest.mark.parametrize(
@@ -982,21 +976,19 @@ def test_repeated_visible_images_and_order_items_keep_all_occurrences(tmp_path, 
 
 
 def test_finite_float_literal_and_computed_decimal_keep_upstream_outcomes(tmp_path):
-    for name, source in [
-        ("float", _source("    select distinct:\n        finite = 1.5\n")),
-        (
-            "decimal",
-            _source(
-                "    select distinct:\n        changed = value + value\n",
-                type_name="Decimal(10, 2)",
-            ),
+    _, _, view = _product(
+        tmp_path / "float", _source("    select distinct:\n        finite = 1.5\n")
+    )
+    assert len(view.distincts) == 1
+    roots = _roots(
+        tmp_path / "decimal",
+        _source(
+            "    select distinct:\n        changed = value + value\n",
+            type_name="Decimal(10, 2)",
         ),
-    ]:
-        roots = _roots(tmp_path / name, source)
-        assert not roots[0].ok and [d.code for d in roots[0].diagnostics] == [
-            "PIE-S2339"
-        ]
-        assert isinstance(build_project_sql_plan(*roots), ProjectSQLPlanUnavailable)
+    )
+    assert not roots[0].ok and [d.code for d in roots[0].diagnostics] == ["PIE-S2339"]
+    assert isinstance(build_project_sql_plan(*roots), ProjectSQLPlanUnavailable)
 
 
 @pytest.mark.parametrize(

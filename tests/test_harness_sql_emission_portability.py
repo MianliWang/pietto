@@ -1183,6 +1183,52 @@ def test_mysql_derived_date_order_keeps_its_closed_carrier(tmp_path):
     )
 
 
+def test_a_finite_float_orders_only_a_postgresql_result(tmp_path_factory):
+    """A PostgreSQL Float relation ORDER decodes; a Float window key, a MySQL
+    Float relation ORDER (Branch B) and a foreign Float carrier stay refused."""
+    _, ordered = _observed(
+        tmp_path_factory, "postgres", emission.FLOAT_CASE, "fo_ascending"
+    )
+    assert _status(ordered) == (OK, None)
+    _, windows = _observed(tmp_path_factory, "postgres", "A_window_ranking", "peers")
+    _, mysql = _observed(tmp_path_factory, "mysql", "O_result_order", "ordinary_desc")
+    finite = {"format": "binary64", "kind": "finite_float"}
+
+    def carrier(kind, storage):
+        """Forge the read source field and every stage that reads it to one
+        Float carrier, so only the Float order or window arm can refuse."""
+        forged = {"tag": "Float", "storage": {"kind": storage}, "domain": finite}
+
+        def edit(candidate):
+            for item in _records(candidate, kind):
+                field = _record(candidate, item["read"])["field"]
+                assert field is not None
+                bound = _record(candidate, field)
+                bound["logical"]["name"] = "Float"
+                representation = json.loads(bound["representation"])
+                representation.update(storage=forged["storage"], domain=finite)
+                bound["representation"] = json.dumps(
+                    representation, sort_keys=True, separators=(",", ":")
+                )
+                for row in candidate["records"]:
+                    if row["fields"].get("field") == field:
+                        _record(candidate, row["fields"]["realization"]).update(forged)
+                return
+            raise AssertionError(kind)
+
+        return edit
+
+    for data, kind, storage, reason in (
+        (ordered, "result_order_item", "my_double", "result order carrier"),
+        (windows, "window_order_item", "pg_float8", "window comparison carrier"),
+        (mysql, "result_order_item", "my_double", "result order carrier"),
+    ):
+        assert _status(_mutated(data, carrier(kind, storage))) == (
+            pure.Status.INVALID_RELATION,
+            reason,
+        )
+
+
 def test_sql_only_and_sidecar_only_corruptions_reject(tmp_path_factory):
     _, data = _observed(
         tmp_path_factory, "postgres", "R_fixed_direct", "table_preserve"

@@ -269,7 +269,46 @@ VARIANTS = {
         "union_filter_outer",
         "union_filter_operands",
     ),
+    # Phase72 Lane E: the Float value contract (F2-F5) over the published ±0
+    # seeds; `fp_*` bind a header parameter. See FLOAT_BODIES.
+    "F_float_values": (
+        "fc_where",
+        "fc_rows",
+        "fp_zeros",
+        "fw_windows",
+        "fh_average",
+        "fh_key",
+        "fj_inner",
+        "fj_left",
+        "fx_any",
+        "fx_not_any",
+        "fo_ascending",
+        "fo_descending",
+        "fo_limit",
+        "fd_rows",
+        "fd_negative",
+        "fd_positive",
+        "fu_left_right",
+        "fu_negative",
+        "fi_distinct",
+        "fi_all",
+        "fi_negative",
+        "fe_distinct",
+        "fe_all",
+        "fe_rows_all",
+        "fv_distinct",
+        "fv_union",
+        "fg_ratio",
+        "fg_signed_let",
+        "fg_widened",
+    ),
 }
+FLOAT_CASE = "F_float_values"
+# Comparisons with a constant operand, membership, nullif, window ratios and
+# avg(Int): MySQL emits these in Branch B as well.
+FLOAT_ON_BOTH_TARGETS = frozenset(
+    {"fc_where", "fc_rows", "fp_zeros", "fw_windows", "fh_average"}
+)
 SET_CASES = frozenset(
     {
         "S_set_forms",
@@ -416,8 +455,21 @@ def range_thresholds_exact(realization, direction, offsets):
 
 
 GROUPING_TAGS = frozenset(
-    {"Int", "Bool", "Text", "Decimal", "Timestamp", "Date", "UUID"}
+    {"Int", "Bool", "Text", "Decimal", "Timestamp", "Date", "UUID", "Float"}
 )
+FINITE_FLOAT = {"kind": "finite_float", "format": "binary64"}
+
+
+def _pg_finite_float(realization) -> bool:
+    """A Float groups, deduplicates, orders and sets by equality only on
+    PostgreSQL, over its finite binary64 carrier (MySQL stays refused)."""
+    return (
+        realization["tag"] == "Float"
+        and realization["storage"] == {"kind": "pg_float8"}
+        and realization["domain"] == FINITE_FLOAT
+    )
+
+
 COUNT_STORAGE = {"postgres": "pg_int8", "mysql": "my_bigint"}
 COUNT_MAX = (1 << 63) - 1
 # Q1/Q2 evidence: a bigint result the target's checked operation bounds.
@@ -489,6 +541,8 @@ def fixture(target, case="G_emission_table_bag", variant="bag"):
         raise ValueError("unknown emission fixture")
     if (case, variant) in CORRECTIVE_BODIES:
         return corrective_fixture(target, case, variant)
+    if case == FLOAT_CASE:
+        return float_fixture(target, variant)
     if case == "P_native_identifiers":
         return native_fixture(target, variant)
     if case == "Q_query_parameters":
@@ -856,6 +910,7 @@ PARAMETER_BINDINGS = {
     ("Q_query_parameters", "result_contains_a"): {"low": 1, "label": "a"},
     ("Q_query_parameters", "result_null_label"): {"low": 1, "label": None},
     ("Q_query_parameters", "let_bind"): {"low": 4, "label": "x"},
+    (FLOAT_CASE, "fp_zeros"): {"p": -0.0, "q": 0.0},
 }
 
 
@@ -3475,6 +3530,236 @@ def set_fixture(target, case, variant):
     }
 
 
+# Phase72 Lane E (B10): Pietto-emitted Float programs over the published seeds.
+# `rows` holds ratio -0, -0, 1.5, +0 at ids BIG, BIG, 0, 1; `sa` holds 1.5, -0,
+# +0 and `sb` 1.5, +0, +0. Each body names the sources it reads beside `rows`
+# (empty: `rows` only); the oracle is _pietto_target_conformance_cases.
+# FLOAT_EXPECTED.
+FLOAT_SELECT = "    select:\n        record_id = id\n        r = ratio\n"
+FLOAT_ZEROS = (
+    "    let zeros:\n        from sb\n        where ratio < 1.0\n"
+    "        select:\n            z = ratio\n"
+)
+FLOAT_NEGATIVES = "table negatives:\n    from rows\n    where id > 1\n    select:\n        r = ratio\n"
+FLOAT_SET_TABLES = (
+    "table a:\n    from sa\n    select:\n        r = ratio\n"
+    "table b:\n    from sb\n    select:\n        r = ratio\n"
+)
+FLOAT_VALUES = (
+    "table zero:\n    values(r: Float):\n        0.0\n"
+    "table negative:\n    values(r: Float):\n        -0.0\n"
+)
+
+
+def _float_set(operator, left, right, tables=FLOAT_SET_TABLES):
+    return tables + (
+        f"query result:\n    {operator}:\n        from {left}\n        from {right}\n"
+    )
+
+
+FLOAT_BODIES = {
+    # Cells are merged into few programs: each public document is about 73 KB
+    # (PostgreSQL), and the receipt reader has a fixed byte reserve.
+    "fc_where": (
+        (),
+        "query result:\n    from rows\n"
+        "    where ratio == 0.0 and ratio == -0.0 and 0.0 <= ratio <= 0.0\n"
+        + FLOAT_SELECT,
+    ),
+    # One truth table per row: every comparison, `in`, relation membership,
+    # `nullif` and Float(Int). Both reads go through `seeded`, so no physical
+    # scan is added (as in L_relation_membership).
+    "fc_rows": (
+        (),
+        "table seeded:\n    from rows\n    select:\n        record_id = id\n"
+        "        r = ratio\n"
+        "table seeded_negatives:\n    from seeded\n    where record_id > 1\n"
+        "    select:\n        n = r\n"
+        "query result:\n    from seeded\n    select:\n        record_id\n        r\n"
+        "        eq = r == 0.0\n        eq_negative = r == -0.0\n"
+        "        ne = r != 0.0\n        lt = r < 0.0\n"
+        "        le = r <= -0.0\n        gt = r > -0.0\n        ge = r >= 0.0\n"
+        "        listed = r in (-0.0)\n        unlisted = r not in (-0.0)\n"
+        "        member = r in seeded_negatives\n"
+        "        outsider = r not in seeded_negatives\n"
+        "        unless_zero = nullif(r, 0.0)\n"
+        "        unless_negative_zero = nullif(r, -0.0)\n"
+        "        widened = Float(record_id)\n"
+        "        widened_big = Float(record_id) == 9007199254740992.0\n",
+    ),
+    "fp_zeros": (
+        (),
+        "query result(p: Float, q: Float):\n    from rows\n"
+        "    where ratio == p and ratio == q\n" + FLOAT_SELECT,
+    ),
+    "fw_windows": (
+        (),
+        "query result:\n    from rows\n    select:\n        record_id = id\n"
+        "        p = percent_rank() window(order by id)\n"
+        "        c = cume_dist() window(order by id)\n"
+        "    qualify:\n        p > 0.5 or c <= 0.25\n",
+    ),
+    "fh_average": (
+        (),
+        "query result:\n    from rows\n    group by:\n        id\n"
+        "    select:\n        record_id = id\n        a = avg(id)\n"
+        "    having:\n        a < 2.0\n",
+    ),
+    "fh_key": (
+        (),
+        "query result:\n    from rows\n    group by:\n        ratio\n"
+        "    select:\n        ratio\n        n = count()\n"
+        "    having:\n        ratio == 0.0\n",
+    ),
+    "fj_inner": (
+        ("sa", "sb"),
+        "query result:\n    from sa\n    let o = sb\n"
+        "    inner join o on sa.ratio == o.ratio\n"
+        "    select:\n        left_ratio = sa.ratio\n        right_ratio = o.ratio\n",
+    ),
+    "fj_left": (
+        ("sa", "sb"),
+        "query result:\n"
+        + FLOAT_ZEROS
+        + "    from sa\n    let o = zeros\n    left join o on sa.ratio == o.z\n"
+        "    select:\n        left_ratio = sa.ratio\n        right_ratio = o.z\n",
+    ),
+    **{
+        name: (
+            ("sa", "sb"),
+            # ANY reads a named producer, so the zeros are a table here.
+            "table zeros:\n    from sb\n    where ratio < 1.0\n"
+            "    select:\n        z = ratio\n"
+            "query result:\n    from sa\n    let x = zeros\n"
+            f"    where {negation}any(x.z == sa.ratio for x in x)\n"
+            "    select:\n        r = sa.ratio\n",
+        )
+        for name, negation in (("fx_any", ""), ("fx_not_any", "not "))
+    },
+    **{
+        name: (
+            (),
+            "query result:\n    from rows\n    select:\n        record_id = id\n"
+            f"        ratio\n    order by:\n        ratio{direction}\n{limit}",
+        )
+        for name, direction, limit in (
+            ("fo_ascending", "", ""),
+            ("fo_descending", " desc", ""),
+            ("fo_limit", "", "    limit 2\n"),
+        )
+    },
+    "fd_rows": (
+        (),
+        "query result:\n    from rows\n    select distinct:\n        r = ratio\n",
+    ),
+    "fd_negative": (
+        (),
+        "query result:\n    from rows\n    where id > 1\n"
+        "    select distinct:\n        r = ratio\n",
+    ),
+    "fd_positive": (
+        ("sb",),
+        "query result:\n    from sb\n    where ratio < 1.0\n"
+        "    select distinct:\n        r = ratio\n",
+    ),
+    "fu_left_right": (("sa", "sb"), _float_set("union distinct", "a", "b")),
+    "fu_negative": (
+        (),
+        _float_set("union distinct", "negatives", "negatives", FLOAT_NEGATIVES),
+    ),
+    "fi_distinct": (("sa", "sb"), _float_set("intersect distinct", "a", "b")),
+    "fi_all": (("sa", "sb"), _float_set("intersect all", "a", "b")),
+    "fi_negative": (
+        (),
+        _float_set("intersect distinct", "negatives", "negatives", FLOAT_NEGATIVES),
+    ),
+    "fe_distinct": (("sa", "sb"), _float_set("except distinct", "a", "b")),
+    "fe_all": (("sa", "sb"), _float_set("except all", "a", "b")),
+    "fe_rows_all": (
+        ("rows", "sa"),
+        _float_set(
+            "except all",
+            "every",
+            "a",
+            "table every:\n    from rows\n    select:\n        r = ratio\n"
+            "table a:\n    from sa\n    select:\n        r = ratio\n",
+        ),
+    ),
+    "fv_distinct": (
+        (),
+        "query result:\n    let pair:\n        values(r: Float):\n"
+        "            0.0\n            -0.0\n"
+        "    from pair\n    select distinct:\n        r\n",
+    ),
+    "fv_union": (
+        (),
+        _float_set("union distinct", "negative", "zero", FLOAT_VALUES),
+    ),
+    "fg_ratio": (
+        (),
+        "query result:\n    from rows\n    group by:\n        ratio\n"
+        "    select:\n        ratio\n        n = count()\n",
+    ),
+    "fg_signed_let": (
+        (),
+        "query result:\n    from rows\n    let k = -0.0 if id > 1 else 0.0\n"
+        "    group by:\n        k\n    select:\n        k\n        n = count()\n",
+    ),
+    "fg_widened": (
+        (),
+        "query result:\n    from rows\n    let k = Float(id)\n"
+        "    group by:\n        k\n    select:\n        k\n        n = count()\n",
+    ),
+}
+
+
+def float_fixture(target, variant):
+    """One Lane E Float program over `rows` and the Agg seeds it names."""
+    sources, body = FLOAT_BODIES[variant]
+    base = fixture(target)
+    header = base["source"].split("table result:", 1)[0]
+    contract = json.loads(base["contract"])
+    contract["environment"].append(
+        {
+            "key": "identifier_case",
+            "scope": "statement",
+            "value": "quoted_exact"
+            if target == "postgres"
+            else "lower_case_table_names=0",
+        }
+    )
+    if variant.startswith("fp_"):
+        contract["environment"].append(
+            {
+                "key": "parameter_protocol",
+                "scope": "statement",
+                "value": "postgres_extended"
+                if target == "postgres"
+                else "mysql_prepared",
+            }
+        )
+    agg = tuple(name for name in sources if name != "rows")
+    if agg:
+        if "rows" not in sources:
+            # Only read sources are declared, as a compiled export binds each.
+            header = header.split("source rows:", 1)[0]
+            contract["sources"] = []
+        header += AGGREGATE_HEADER.format(target=target).split("source agg:", 1)[0]
+        header += "".join(
+            f'source {name}: Agg = {target}.table("{name}.locator.not.sql")\n'
+            for name in agg
+        )
+        contract["sources"].extend(
+            _aggregate_descriptor(target, name, AGGREGATE_RELATIONS[name])
+            for name in agg
+        )
+    return {
+        "source": header + body,
+        "contract": encoded(contract).decode(),
+        "policy": "preserve_literals",
+    }
+
+
 def row_fixture(target, case, variant):
     """Ordered LET stages, a retained filter and admitted scalar projections."""
     base = fixture(target)
@@ -4077,6 +4362,24 @@ PER_TARGET_STATUS = {
     **{
         ("L_relation_collect", variant): {"postgres": "VERIFIED", "mysql": "BLOCKED"}
         for variant in COLLECT_VARIANTS
+    },
+    # Phase72 Lane E (Branch B): MySQL keeps Float GROUP BY, DISTINCT, UNION
+    # DISTINCT, relation ORDER and `==` between two row reads refused (it kept
+    # -0.0 and 0.0 apart beside a wide key), and refuses Float INTERSECT/EXCEPT
+    # and VALUES; PostgreSQL emits each of these programs.
+    **{
+        key: {"postgres": "VERIFIED", "mysql": "BLOCKED"}
+        for key in (
+            ("V_row_blocked", "float_comparison"),
+            ("V_aggregate_blocked", "float_key"),
+            ("V_result_blocked", "float_distinct"),
+            ("V_set_blocked", "float_intersect_all"),
+            *(
+                (FLOAT_CASE, variant)
+                for variant in VARIANTS[FLOAT_CASE]
+                if variant not in FLOAT_ON_BOTH_TARGETS
+            ),
+        )
     },
 }
 
@@ -8727,8 +9030,18 @@ def _decode_fixed_public(document, limits):
             )
             result = row_bool(nullable)
         elif node["kind"] == "between":
+            # A window distribution result (float64) compares with finite bounds.
+            float_chain = all(
+                item["tag"] == "Float"
+                and item["storage"] == operands[0]["storage"]
+                and item["domain"] in (FINITE_FLOAT, {"kind": "float64"})
+                for item in operands
+            )
             _need(
-                all(compatible(operands[0], item) for item in operands[1:])
+                (
+                    float_chain
+                    or all(compatible(operands[0], item) for item in operands[1:])
+                )
                 and (
                     operands[0]["tag"] in COMPARABLE
                     or operands[0]["tag"] == "UUID"
@@ -10429,6 +10742,10 @@ def _decode_fixed_public(document, limits):
                                 realization["domain"].get(k) is not None
                                 for k in ("precision", "scale")
                             )
+                        )
+                        and (
+                            realization["tag"] != "Float"
+                            or _pg_finite_float(realization)
                         ),
                         "group determinant comparison domain",
                     )
@@ -11032,6 +11349,7 @@ def _decode_fixed_public(document, limits):
                     and (
                         read["realization"]["tag"] in ("Int", "Bool", "Text", "Decimal")
                         or _temporal_carrier(read["realization"], family)
+                        or _pg_finite_float(read["realization"])
                         or family == "postgres"
                         and read["realization"]["tag"] == "UUID"
                         and read["realization"]["storage"] == {"kind": "pg_uuid"},
@@ -11168,7 +11486,12 @@ def _decode_fixed_public(document, limits):
         if distinct is not None:
             _need(
                 all(
-                    column["realization"]["tag"] in GROUPING_TAGS for column in visible
+                    column["realization"]["tag"] in GROUPING_TAGS
+                    and (
+                        column["realization"]["tag"] != "Float"
+                        or _pg_finite_float(column["realization"])
+                    )
+                    for column in visible
                 ),
                 "DISTINCT comparison domain",
             )
@@ -11436,6 +11759,10 @@ def _decode_fixed_public(document, limits):
         _need(
             tag in {"Int", "Bool", "Text", "Decimal"}
             or (union_all and tag == "Float")
+            or (
+                tag == "Float"
+                and all(_pg_finite_float(r["realization"]) for r in reads)
+            )
             or (kind == "union" and tag == "Timestamp"),
             "SET comparison domain",
         )

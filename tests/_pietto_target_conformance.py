@@ -656,7 +656,7 @@ def verify_emission_generation(value, target, expected):
                 or (
                     record["id"] == "V_row_blocked"
                     and record["variant"]
-                    in {"between", "int_overflow", "unary_overflow"}
+                    in {"between", "int_overflow", "unary_overflow", "float_comparison"}
                 )
                 else "query"
             )
@@ -719,15 +719,16 @@ def verify_emission_generation(value, target, expected):
                     "from_last": "PIE-B1003",
                     "offset_range_keys": "PIE-B1003",
                     "exclude": "PIE-B1003",
-                    # Slice10: R20 keeps the hidden STRICT-FD ORDER pending,
-                    # D07 keeps Float outside row equivalence upstream, and a
-                    # computed ORDER key needs an established port.
+                    # Slice10: R20 keeps the hidden STRICT-FD ORDER pending and
+                    # a computed ORDER key needs an established port. Phase72:
+                    # MySQL keeps Float DISTINCT refused (Branch B).
                     "hidden_strict_fd": "PIE-B1003",
                     "float_distinct": "PIE-B1003",
                     "order_expression": "PIE-B1003",
                     # Slice11: R22 refuses a physical representation mismatch
-                    # at emission; Float equality forms, arity and logical type
-                    # mismatches stay upstream semantic rejections.
+                    # at emission; arity and logical type mismatches stay
+                    # upstream semantic rejections. Phase72: MySQL refuses a
+                    # Float INTERSECT/EXCEPT at the set body.
                     "physical_mismatch": "PIE-B1002",
                     "float_intersect_all": "PIE-B1003",
                     "arity_mismatch": "PIE-B1003",
@@ -739,6 +740,13 @@ def verify_emission_generation(value, target, expected):
                     # Phase70 S15: MySQL refuses generate_series, joined or not.
                     "ascending": "PIE-B1003",
                     "joined": "PIE-B1003",
+                    # Phase72 Lane E (Branch B): each MySQL Float refusal is
+                    # PIE-B1003 (a VALUES-only cell adds a second one,
+                    # zero_physical_source_not_admitted_on_target);
+                    # PostgreSQL emits every F_float_values cell.
+                    **dict.fromkeys(
+                        emission.VARIANTS[emission.FLOAT_CASE], "PIE-B1003"
+                    ),
                 }[record["variant"]]
             )
             if code not in [b["code"] for b in document["blockers"]]:

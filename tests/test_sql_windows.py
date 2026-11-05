@@ -708,3 +708,72 @@ def test_temporal_and_uuid_window_keys(tmp_path, target):
         " and current row)\n",
     )
     assert outcome.status == "BLOCKED" and outcome.artifact is None
+
+
+@pytest.mark.parametrize("target", TARGETS)
+def test_window_distribution_results_compare_but_never_key(target):
+    """L13: percent_rank and cume_dist results are finite Floats in [0, 1]; they
+    compare with a literal (and in a chain), but stay outside DISTINCT, GROUP BY
+    and relation ORDER, and Float stays outside window PARTITION and ORDER."""
+    q = '"' if target == "postgres" else "`"
+    half, quarter = (
+        ("CAST('0.5' AS pg_catalog.float8)", "CAST('0.25' AS pg_catalog.float8)")
+        if target == "postgres"
+        else ("CAST(0.5e0 AS DOUBLE)", "CAST(0.25e0 AS DOUBLE)")
+    )
+    for window, condition, spelling in (
+        ("percent_rank", "p > 0.5", f"> {half}"),
+        ("cume_dist", "p <= 0.5", f"<= {half}"),
+        ("cume_dist", "0.25 <= p <= 0.5", f"BETWEEN {quarter} AND {half}"),
+    ):
+        outcome = emit(
+            target,
+            "query result:\n    from rows\n    select:\n        id\n"
+            f"        p = {window}() window(order by id)\n"
+            f"    qualify:\n        {condition}\n",
+        )
+        assert outcome.status == "VERIFIED", outcome.blockers
+        public = probe.decode_public(serialize_project_sql_emission(outcome))
+        assert f"WHERE ({q}t1{q}.{q}c5{q} {spelling}))" in public["sql"]
+    table = (
+        "table w:\n    from rows\n    select:\n"
+        "        p = percent_rank() window(order by id)\n"
+    )
+    for body, detail, line in (
+        (
+            "    select distinct:\n        p\n",
+            "distinct_field_comparison_domain_unsupported",
+            15,
+        ),
+        (
+            "    group by:\n        p\n    select:\n        p\n        n = count()\n",
+            "group_key_type_outside_reviewed_comparison_domain",
+            15,
+        ),
+        (
+            "    select:\n        p\n    order by:\n        p\n",
+            "order_comparison_domain_unsupported",
+            17,
+        ),
+    ):
+        outcome = emit(target, table + "query result:\n    from w\n" + body)
+        assert outcome.status == "BLOCKED" and outcome.diagnostics == ()
+        public = probe.decode_public(serialize_project_sql_emission(outcome))
+        assert [
+            (b["code"], b["subject"]["detail"], b["location"]["line"])
+            for b in public["blockers"]
+        ] == [("PIE-B1003", detail, line)]
+    for spec, detail in (
+        (
+            "partition by ratio order by id",
+            "window_partition_comparison_domain_unsupported",
+        ),
+        ("order by ratio", "window_order_comparison_domain_unsupported"),
+    ):
+        outcome = emit(
+            target,
+            "query result:\n    from rows\n    select:\n"
+            f"        n = row_number() window({spec})\n",
+        )
+        assert outcome.status == "BLOCKED"
+        assert [(b.code, b.detail) for b in outcome.blockers] == [("PIE-B1002", detail)]

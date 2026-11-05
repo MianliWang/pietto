@@ -7,6 +7,7 @@ from datetime import datetime
 from decimal import Decimal
 import json
 import hashlib
+import math
 from typing import Any
 from uuid import UUID
 import _pietto_sql_emission as emission
@@ -2000,6 +2001,458 @@ def check_result_case(observation, document, target, case_id, variant):
         raise ValueError("result boundary positional logical metadata mismatch")
 
 
+# Phase72 Lane E (B10): the independent merged-class oracle. It evaluates each
+# F_float_values program over the literal seed tuples with Python float `==`
+# and `<` (filters, joins, comparisons) and Counter classes (merges), never the
+# emitter. Transport rows are bit-exact (P3); a merged zero may show any sign
+# that some member of its class has, and a one-sign class must show that sign
+# (P2, F4); ORDER is a sequence of tie groups with free order inside each and a
+# LIMIT cut may take any part of its boundary group (P4).
+FLOAT_ROWS = ((BIG, -0.0), (BIG, -0.0), (0, 1.5), (1, 0.0))
+FLOAT_SA = tuple(row[5] for row in AGGREGATE_TABLE_ROWS["phase66 set left é"])
+FLOAT_SB = tuple(row[5] for row in AGGREGATE_TABLE_ROWS["phase66 set right é"])
+FLOAT_AGG = tuple(row[5] for row in AGGREGATE_TABLE_ROWS["phase66 agg é"])
+FLOAT_PHYSICAL = {
+    "postgres": {"Int": 20, "Float": 701, "Bool": 16},
+    "mysql": {"Int": 8, "Float": 5, "Bool": 8},
+}
+
+
+class FloatWithin:
+    """A projected window quotient: finite, inside (low, high], never its bits."""
+
+    def __init__(self, low: float, high: float) -> None:
+        self.low, self.high = low, high
+
+    def admits(self, value: Any) -> bool:
+        return type(value) is float and self.low < value <= self.high
+
+
+def _float_class(value: Any) -> Any:
+    """F2's class of one cell: -0.0 and 0.0 are one value; NULL is its own."""
+    return 0.0 if type(value) is float and value == 0 else value
+
+
+def _signs(values) -> frozenset[str]:
+    return frozenset("-" if math.copysign(1.0, v) < 0 else "+" for v in values)
+
+
+def _merged(rows, members):
+    """Merged rows over class representatives, with each zero class's member
+    signs taken across every input of the merging operation."""
+    return ("merged", tuple(rows), _signs(v for v in members if v == 0))
+
+
+def _percent_rank(ids, value):
+    below = sum(other < value for other in ids)
+    return below / (len(ids) - 1)
+
+
+def _cume_dist(ids, value):
+    return sum(other <= value for other in ids) / len(ids)
+
+
+def _float_expected() -> dict[tuple[str, str], tuple[Any, ...]]:
+    rows, sa, sb = FLOAT_ROWS, FLOAT_SA, FLOAT_SB
+    ratios = tuple(r for _, r in rows)
+    ids = tuple(i for i, _ in rows)
+    zeros = tuple(v for v in sb if v < 1.0)
+    negatives = tuple(r for i, r in rows if i > 1)
+    case = emission.FLOAT_CASE
+    select, ratio = ("record_id", "r"), ("Int", "Float")
+
+    def bag(*filtered):
+        return ("bag", tuple(filtered))
+
+    def where(predicate):
+        return bag(*((i, r) for i, r in rows if predicate(r)))
+
+    def counted(values):
+        counts = Counter(_float_class(v) for v in values)
+        return [(value, n) for value, n in counts.items()]
+
+    def bag_minus(left, right):
+        remaining = Counter(_float_class(v) for v in left)
+        remaining.subtract(_float_class(v) for v in right)
+        return [value for value, n in remaining.items() for _ in range(max(n, 0))]
+
+    def bag_meet(left, right):
+        common = Counter(_float_class(v) for v in left) & Counter(
+            _float_class(v) for v in right
+        )
+        return list(common.elements())
+
+    def classes(*values):
+        return list(dict.fromkeys(_float_class(v) for v in values))
+
+    def ordered(reverse, limit=None):
+        keyed = sorted(rows, key=lambda item: item[1], reverse=reverse)
+        groups: list[list[tuple[int, float]]] = []
+        for item in keyed:
+            if groups and groups[-1][0][1] == item[1]:
+                groups[-1].append(item)
+            else:
+                groups.append([item])
+        return ("ordered", tuple(map(tuple, groups)), limit)
+
+    expected: dict[tuple[str, str], tuple[Any, ...]] = {
+        (case, "fc_where"): (
+            select,
+            ratio,
+            where(lambda r: r == 0.0 and r == -0.0 and 0.0 <= r <= 0.0),
+        ),
+        (case, "fc_rows"): (
+            (
+                *select,
+                "eq",
+                "eq_negative",
+                "ne",
+                "lt",
+                "le",
+                "gt",
+                "ge",
+                "listed",
+                "unlisted",
+                "member",
+                "outsider",
+                "unless_zero",
+                "unless_negative_zero",
+                "widened",
+                "widened_big",
+            ),
+            (*ratio, *("Bool",) * 11, "Float", "Float", "Float", "Bool"),
+            bag(
+                *(
+                    (
+                        i,
+                        r,
+                        r == 0.0,
+                        r == -0.0,
+                        r != 0.0,
+                        r < 0.0,
+                        r <= -0.0,
+                        r > -0.0,
+                        r >= 0.0,
+                        any(r == v for v in (-0.0,)),
+                        not any(r == v for v in (-0.0,)),
+                        any(r == n for n in negatives),
+                        not any(r == n for n in negatives),
+                        None if r == 0.0 else r,
+                        None if r == -0.0 else r,
+                        float(i),
+                        float(i) == 9007199254740992.0,
+                    )
+                    for i, r in rows
+                )
+            ),
+        ),
+        (case, "fp_zeros"): (select, ratio, where(lambda r: r == -0.0 and r == 0.0)),
+        # percent_rank 2/3 is a quotient: compared only against its threshold.
+        (case, "fw_windows"): (
+            ("record_id", "p", "c"),
+            ("Int", "Float", "Float"),
+            bag(
+                *(
+                    (
+                        i,
+                        _percent_rank(ids, i)
+                        if _percent_rank(ids, i) in (0.0, 1.0)
+                        else FloatWithin(0.5, 1.0),
+                        _cume_dist(ids, i),
+                    )
+                    for i in ids
+                    if _percent_rank(ids, i) > 0.5 or _cume_dist(ids, i) <= 0.25
+                )
+            ),
+        ),
+        (case, "fh_average"): (
+            ("record_id", "a"),
+            ("Int", "Float"),
+            bag(*((i, float(i)) for i in dict.fromkeys(ids) if float(i) < 2.0)),
+        ),
+        (case, "fh_key"): (
+            ("ratio", "n"),
+            ("Float", "Int"),
+            _merged(
+                [(v, n) for v, n in counted(ratios) if v == 0.0],
+                ratios,
+            ),
+        ),
+        (case, "fj_inner"): (
+            ("left_ratio", "right_ratio"),
+            ("Float", "Float"),
+            bag(*((left, right) for left in sa for right in sb if left == right)),
+        ),
+        (case, "fj_left"): (
+            ("left_ratio", "right_ratio"),
+            ("Float", "Float"),
+            bag(
+                *(
+                    pair
+                    for left in sa
+                    for pair in (
+                        [(left, z) for z in zeros if z == left] or [(left, None)]
+                    )
+                )
+            ),
+        ),
+        (case, "fx_any"): (
+            ("r",),
+            ("Float",),
+            bag(*((v,) for v in sa if any(z == v for z in zeros))),
+        ),
+        (case, "fx_not_any"): (
+            ("r",),
+            ("Float",),
+            bag(*((v,) for v in sa if not any(z == v for z in zeros))),
+        ),
+        (case, "fo_ascending"): (("record_id", "ratio"), ratio, ordered(False)),
+        (case, "fo_descending"): (("record_id", "ratio"), ratio, ordered(True)),
+        (case, "fo_limit"): (("record_id", "ratio"), ratio, ordered(False, 2)),
+        (case, "fd_rows"): (
+            ("r",),
+            ("Float",),
+            _merged([(v,) for v in classes(*ratios)], ratios),
+        ),
+        (case, "fd_negative"): (
+            ("r",),
+            ("Float",),
+            _merged([(v,) for v in classes(*negatives)], negatives),
+        ),
+        (case, "fd_positive"): (
+            ("r",),
+            ("Float",),
+            _merged([(v,) for v in classes(*zeros)], zeros),
+        ),
+        **{
+            (case, name): (
+                ("r",),
+                ("Float",),
+                _merged([(v,) for v in classes(*sa, *sb)], (*sa, *sb)),
+            )
+            for name in ("fu_left_right",)
+        },
+        (case, "fu_negative"): (
+            ("r",),
+            ("Float",),
+            _merged([(v,) for v in classes(*negatives)], negatives),
+        ),
+        (case, "fi_distinct"): (
+            ("r",),
+            ("Float",),
+            _merged([(v,) for v in dict.fromkeys(bag_meet(sa, sb))], (*sa, *sb)),
+        ),
+        (case, "fi_all"): (
+            ("r",),
+            ("Float",),
+            _merged([(v,) for v in bag_meet(sa, sb)], (*sa, *sb)),
+        ),
+        (case, "fi_negative"): (
+            ("r",),
+            ("Float",),
+            _merged([(v,) for v in classes(*negatives)], negatives),
+        ),
+        (case, "fe_distinct"): (
+            ("r",),
+            ("Float",),
+            _merged(
+                [(v,) for v in classes(*sa) if v not in map(_float_class, sb)],
+                (*sa, *sb),
+            ),
+        ),
+        (case, "fe_all"): (
+            ("r",),
+            ("Float",),
+            _merged([(v,) for v in bag_minus(sa, sb)], (*sa, *sb)),
+        ),
+        (case, "fe_rows_all"): (
+            ("r",),
+            ("Float",),
+            _merged([(v,) for v in bag_minus(ratios, sa)], (*ratios, *sa)),
+        ),
+        (case, "fv_distinct"): (
+            ("r",),
+            ("Float",),
+            _merged([(v,) for v in classes(0.0, -0.0)], (0.0, -0.0)),
+        ),
+        (case, "fv_union"): (
+            ("r",),
+            ("Float",),
+            _merged([(v,) for v in classes(-0.0, 0.0)], (-0.0, 0.0)),
+        ),
+        (case, "fg_ratio"): (
+            ("ratio", "n"),
+            ("Float", "Int"),
+            _merged(counted(ratios), ratios),
+        ),
+        (case, "fg_signed_let"): (
+            ("k", "n"),
+            ("Float", "Int"),
+            _merged(
+                counted(-0.0 if i > 1 else 0.0 for i in ids),
+                tuple(-0.0 if i > 1 else 0.0 for i in ids),
+            ),
+        ),
+        (case, "fg_widened"): (
+            ("k", "n"),
+            ("Float", "Int"),
+            _merged(counted(float(i) for i in ids), tuple(float(i) for i in ids)),
+        ),
+        # The four Float witnesses that now emit on PostgreSQL.
+        ("V_row_blocked", "float_comparison"): (
+            ("same",),
+            ("Bool",),
+            bag(*((r == r,) for r in ratios)),
+        ),
+        ("V_aggregate_blocked", "float_key"): (
+            ("r", "total"),
+            ("Float", "Int"),
+            _merged(counted(FLOAT_AGG), FLOAT_AGG),
+        ),
+        ("V_result_blocked", "float_distinct"): (
+            ("r",),
+            ("Float",),
+            _merged([(v,) for v in classes(*ratios)], ratios),
+        ),
+        ("V_set_blocked", "float_intersect_all"): (
+            ("r",),
+            ("Float",),
+            _merged([(v,) for v in bag_meet(ratios, ratios)], ratios),
+        ),
+    }
+    return expected
+
+
+FLOAT_EXPECTED = _float_expected()
+
+
+def _float_value(cell: Any, logical: str) -> Any:
+    """One receipt cell as the Python value the oracle compares."""
+    check_cell(cell, array=False)
+    kind = cell["kind"]
+    if kind == "null":
+        return None
+    if logical == "Float" and kind == "float":
+        return float.fromhex(cell["value"])
+    if logical == "Int" and kind == "int":
+        return int(cell["value"])
+    if logical == "Bool" and kind == "bool":
+        return cell["value"]
+    if logical == "Bool" and kind == "int" and cell["value"] in {"0", "1"}:
+        return cell["value"] == "1"
+    raise ValueError("Float cell kind mismatch")
+
+
+def _float_identity(row: tuple[Any, ...]) -> tuple[Any, ...]:
+    """A transported row's exact identity: each Float by its bits."""
+    return tuple(v.hex() if type(v) is float else v for v in row)
+
+
+def check_float_rows(observed, expected) -> None:
+    """P1-P5 over decoded rows; raises ValueError on the first violation."""
+    kind = expected[0]
+    if kind == "bag":
+        remaining = list(map(_float_identity, observed))
+        for row in expected[1]:
+            for index, candidate in enumerate(remaining):
+                if len(candidate) == len(row) and all(
+                    type(got) is str and want.admits(float.fromhex(got))
+                    if isinstance(want, FloatWithin)
+                    else got == _float_identity((want,))[0]
+                    for want, got in zip(row, candidate)
+                ):
+                    del remaining[index]
+                    break
+            else:
+                raise ValueError("Float transport bag mismatch")
+        if remaining:
+            raise ValueError("Float transport bag mismatch")
+        return
+    if kind == "merged":
+        rows, signs = expected[1], expected[2]
+        if Counter(tuple(map(_float_class, row)) for row in observed) != Counter(
+            tuple(map(_float_class, row)) for row in rows
+        ):
+            raise ValueError("Float merged class multiplicity mismatch")
+        for row in observed:
+            for value in row:
+                if type(value) is float and value == 0 and _signs((value,)) - signs:
+                    raise ValueError("Float merged zero shows a sign no member has")
+        return
+    groups, limit = expected[1], expected[2]
+    total = sum(len(group) for group in groups)
+    if len(observed) != (total if limit is None else min(limit, total)):
+        raise ValueError("Float ORDER row count mismatch")
+    position = 0
+    for group in groups:
+        taken = observed[position : position + len(group)]
+        if not taken:
+            break
+        wanted = Counter(map(_float_identity, group))
+        got = Counter(map(_float_identity, taken))
+        if got - wanted or (len(taken) == len(group) and got != wanted):
+            raise ValueError("Float ORDER tie group mismatch")
+        position += len(taken)
+
+
+def float_witness(expected) -> list[tuple[Any, ...]]:
+    """One observation the oracle must accept, stated from the seeds alone: a
+    merged zero shows a member's sign and a window quotient a value inside."""
+    kind = expected[0]
+    if kind == "ordered":
+        rows = [row for group in expected[1] for row in group]
+        return rows if expected[2] is None else rows[: expected[2]]
+    zero = -0.0 if kind == "merged" and expected[2] == {"-"} else 0.0
+    return [
+        tuple(
+            (v.low + v.high) / 2
+            if isinstance(v, FloatWithin)
+            else zero
+            if kind == "merged" and type(v) is float and v == 0
+            else v
+            for v in row
+        )
+        for row in expected[1]
+    ]
+
+
+def float_receipt_rows(target, case_id, variant_name):
+    """(cells, labels, physical types) of one acceptable Float observation."""
+    labels, logical, expected = FLOAT_EXPECTED[case_id, variant_name]
+
+    def cell(value, tag):
+        if value is None:
+            return dict(NULL)
+        if tag == "Float":
+            return _float(value)
+        return _bool(target, value) if tag == "Bool" else _integer(str(value))
+
+    rows = [
+        [cell(value, tag) for value, tag in zip(row, logical, strict=True)]
+        for row in float_witness(expected)
+    ]
+    return rows, list(labels), [FLOAT_PHYSICAL[target][tag] for tag in logical]
+
+
+def check_float_case(observation, document, target, case_id, variant_name):
+    labels, logical, expected = FLOAT_EXPECTED[case_id, variant_name]
+    columns = document["columns"]
+    if [c["label"] for c in columns] != list(labels) or [
+        c["logical_type"]["name"] for c in columns
+    ] != list(logical):
+        raise ValueError("Float positional logical metadata mismatch")
+    if [m[:2] for m in observation["metadata"]] != [
+        [label, FLOAT_PHYSICAL[target][tag]]
+        for label, tag in zip(labels, logical, strict=True)
+    ]:
+        raise ValueError("Float positional physical metadata mismatch")
+    observed = [
+        tuple(_float_value(cell, tag) for cell, tag in zip(row, logical, strict=True))
+        for row in observation["rows"]
+    ]
+    check_float_rows(observed, expected)
+
+
 def check_emission_case(case, target, generation):
     """Receipt v3 stores each public document once, in its generation record.
 
@@ -2065,6 +2518,9 @@ def check_emission_variant(observation, document, target, case_id, variant_name)
         raise ValueError("emitted artifact/submission mismatch")
     check_complete(observation)
     check_identity(observation, target, "query", prepared=True)
+    if (case_id, variant_name) in FLOAT_EXPECTED:
+        check_float_case(observation, document, target, case_id, variant_name)
+        return
     if case_id in {"R_fixed_direct", "S_fixed_named"}:
         named = case_id == "S_fixed_named"
         expected_rows = fixed_rows(

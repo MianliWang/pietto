@@ -1122,7 +1122,11 @@ def valid_receipts(
                         rows = cases.truth_rows(target)
                         names = [str(label) for label in probe.TRUTH_LABELS]
                         types = [16 if target == "postgres" else 8] * len(names)
-                    if case_id in {
+                    if (case_id, record["variant"]) in cases.FLOAT_EXPECTED:
+                        rows, names, types = cases.float_receipt_rows(
+                            target, case_id, record["variant"]
+                        )
+                    elif case_id in {
                         "W_join_shapes",
                         "W_join_values",
                         "V_join_full",
@@ -2708,3 +2712,138 @@ def test_retained_fixture_is_available_in_the_isolated_copied_probe(tmp_path):
         check=False,
     )
     assert result.returncode == 0, result.stderr
+
+
+BIG = cases.BIG
+
+
+def test_every_postgres_float_cell_has_one_merged_class_oracle():
+    """Each F_float_values program and each Float witness that now emits on
+    PostgreSQL has exactly one oracle, which accepts an observation built from
+    the seeds; MySQL runs only the Branch B cells."""
+    emission = facility.emission
+    float_keys = {
+        (emission.FLOAT_CASE, v) for v in emission.VARIANTS[emission.FLOAT_CASE]
+    }
+    migrated = {
+        ("V_row_blocked", "float_comparison"),
+        ("V_aggregate_blocked", "float_key"),
+        ("V_result_blocked", "float_distinct"),
+        ("V_set_blocked", "float_intersect_all"),
+    }
+    assert set(cases.FLOAT_EXPECTED) == float_keys | migrated
+    for key, (labels, logical, expected) in cases.FLOAT_EXPECTED.items():
+        assert emission.expected_status(*key, "postgres") == "VERIFIED"
+        assert emission.expected_status(*key, "mysql") == (
+            "VERIFIED"
+            if key[0] == emission.FLOAT_CASE
+            and key[1] in emission.FLOAT_ON_BOTH_TARGETS
+            else "BLOCKED"
+        )
+        assert len(labels) == len(logical)
+        cases.check_float_rows(cases.float_witness(expected), expected)
+
+
+@pytest.mark.parametrize(
+    "variant,observed",
+    (
+        # A mixed zero class may show either sign (F4).
+        ("fd_rows", [(-0.0,), (1.5,)]),
+        ("fd_rows", [(0.0,), (1.5,)]),
+        ("fg_ratio", [(-0.0, 3), (1.5, 1)]),
+        ("fi_all", [(1.5,), (-0.0,), (0.0,)]),
+        ("fe_rows_all", [(-0.0,)]),
+        # ORDER ties are free inside a group; LIMIT may cut any boundary member.
+        ("fo_ascending", [(1, 0.0), (BIG, -0.0), (BIG, -0.0), (0, 1.5)]),
+        ("fo_descending", [(0, 1.5), (BIG, -0.0), (1, 0.0), (BIG, -0.0)]),
+        ("fo_limit", [(1, 0.0), (BIG, -0.0)]),
+    ),
+)
+def test_the_float_oracle_admits_any_member_sign_of_a_merged_class(variant, observed):
+    _, _, expected = cases.FLOAT_EXPECTED[facility.emission.FLOAT_CASE, variant]
+    cases.check_float_rows(observed, expected)
+
+
+@pytest.mark.parametrize(
+    "variant,observed,reason",
+    (
+        ("fd_rows", [(-0.0,), (0.0,), (1.5,)], "multiplicity"),
+        ("fu_left_right", [(-0.0,), (0.0,), (1.5,)], "multiplicity"),
+        ("fd_negative", [(0.0,)], "sign no member"),
+        ("fd_positive", [(-0.0,)], "sign no member"),
+        ("fi_negative", [(0.0,)], "sign no member"),
+        (
+            "fc_where",
+            [(BIG, 0.0), (BIG, -0.0), (1, 0.0)],
+            "transport",
+        ),
+        (
+            "fw_windows",
+            [(BIG, 0.4, 1.0), (BIG, 0.75, 1.0), (0, 0.0, 0.25)],
+            "transport",
+        ),
+        ("fg_widened", [(9007199254740994.0, 2), (0.0, 1), (1.0, 1)], "multiplicity"),
+        ("fg_ratio", [(0.0, 2), (-0.0, 1), (1.5, 1)], "multiplicity"),
+        ("fo_limit", [(BIG, -0.0), (0, 1.5)], "tie group"),
+        ("fo_ascending", [(0, 1.5), (BIG, -0.0), (BIG, -0.0), (1, 0.0)], "tie group"),
+        ("fo_ascending", [(BIG, -0.0), (BIG, -0.0), (0, 1.5)], "row count"),
+        (
+            "fj_left",
+            [(1.5, None), (-0.0, None), (0.0, 0.0), (0.0, 0.0)],
+            "transport",
+        ),
+        ("fe_all", [(-0.0,)], "multiplicity"),
+        ("fx_any", [(0.0,), (0.0,)], "transport"),
+    ),
+)
+def test_the_float_oracle_refuses_each_contract_violation(variant, observed, reason):
+    """Two rows for one class, a one-sign class with the other sign, a changed
+    transport bit, a wrong count, a LIMIT outside the boundary tie group and a
+    NULL-extended zero LEFT JOIN row each fail (P1-P5)."""
+    _, _, expected = cases.FLOAT_EXPECTED[facility.emission.FLOAT_CASE, variant]
+    with pytest.raises(ValueError, match=reason):
+        cases.check_float_rows(observed, expected)
+
+
+def _float_document(variant):
+    labels, logical, _ = cases.FLOAT_EXPECTED[facility.emission.FLOAT_CASE, variant]
+    return {
+        "columns": [
+            {"label": label, "logical_type": {"name": tag}}
+            for label, tag in zip(labels, logical, strict=True)
+        ]
+    }
+
+
+@pytest.mark.parametrize("target", ("postgres", "mysql"))
+def test_a_float_observation_decodes_cells_and_checks_metadata(target):
+    """Receipt cells decode by logical type (a MySQL Bool is an int 0/1 cell)
+    and the physical metadata is positional."""
+    case = facility.emission.FLOAT_CASE
+    physical = cases.FLOAT_PHYSICAL[target]
+    rows = [
+        [{"kind": "int", "value": str(i)}, {"kind": "float", "value": r.hex()}]
+        for i, r in cases.FLOAT_ROWS
+        if r == 0
+    ]
+    observation = {
+        "rows": rows,
+        "metadata": [["record_id", physical["Int"]], ["r", physical["Float"]]],
+    }
+    document = _float_document("fc_where")
+    cases.check_float_case(observation, document, target, case, "fc_where")
+    rows[0][1] = {"kind": "float", "value": (0.0).hex()}
+    with pytest.raises(ValueError, match="transport"):
+        cases.check_float_case(observation, document, target, case, "fc_where")
+    observation["metadata"][1][1] = physical["Int"]
+    with pytest.raises(ValueError, match="physical metadata"):
+        cases.check_float_case(observation, document, target, case, "fc_where")
+    cells, labels, types = cases.float_receipt_rows(target, case, "fc_rows")
+    assert {cell["kind"] for row in cells for cell in row[2:13]} == {
+        "bool" if target == "postgres" else "int"
+    }
+    truth = {
+        "rows": cells,
+        "metadata": [[label, kind] for label, kind in zip(labels, types)],
+    }
+    cases.check_float_case(truth, _float_document("fc_rows"), target, case, "fc_rows")

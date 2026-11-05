@@ -1953,9 +1953,16 @@ class _Check:
                     "order item",
                 )
                 read = doc[fields["read"]]
+                realization = doc[read["realization"]]
+                # A finite Float orders a PostgreSQL result only; window keys
+                # (_is_key_value) keep Float out on both families.
                 _require(
                     _source_field_matches_stage(doc, read)
-                    and _is_key_value(doc[read["realization"]], self.family),
+                    and (
+                        _is_key_value(realization, self.family)
+                        or self.family == "postgres"
+                        and _is_pg_float(realization)
+                    ),
                     "result order carrier",
                 )
         for ref in doc.all("window_frame"):

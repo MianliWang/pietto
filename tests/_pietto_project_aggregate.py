@@ -220,6 +220,7 @@ query aggregate_pair_shared_inputs:
 
 def _build(
     root: Path,
+    source: str | None = None,
 ) -> tuple[
     ProjectSemanticResult,
     ProjectConcreteCompletedSemanticResult,
@@ -230,7 +231,9 @@ def _build(
     (root / "pietto.toml").write_text(
         'schema_version = 2\n\n[sources]\ninclude = ["*.pietto"]\n', encoding="utf-8"
     )
-    (root / "main.pietto").write_text(_source(), encoding="utf-8")
+    (root / "main.pietto").write_text(
+        _source() if source is None else source, encoding="utf-8"
+    )
     parsed = check_project_parse_only(root)
     assert parsed.ok, parsed.diagnostics
     completed = build_project_completed_semantic_result(

@@ -30,7 +30,6 @@ __all__: tuple[str, ...] = ()
 
 class ProjectRowEquivalenceReason(StrEnum):
     UNKNOWN_TYPE = "unknown_type"
-    FLOAT_EQUIVALENCE_DEFERRED = "float_equivalence_deferred_to_phase72"
     UNSUPPORTED_TYPE = "unsupported_type"
     DECIMAL_PARAMETERS_MISSING = "decimal_parameters_missing_or_unpropagated"
     DECIMAL_PARAMETERS_INVALID = "decimal_parameters_invalid"
@@ -106,18 +105,18 @@ def resolved_builtin_equivalence_reason(
     name: str,
 ) -> ProjectRowEquivalenceReason | None:
     """The existing capability rule after exact builtin type resolution."""
-    if name == "Float":
-        return ProjectRowEquivalenceReason.FLOAT_EQUIVALENCE_DEFERRED
-    if name not in {"Bool", "Int", "Text", "Date", "Timestamp", "UUID", "Decimal"}:
+    if name not in {
+        "Bool",
+        "Int",
+        "Text",
+        "Date",
+        "Timestamp",
+        "UUID",
+        "Decimal",
+        "Float",
+    }:
         return ProjectRowEquivalenceReason.UNSUPPORTED_TYPE
     return None
-
-
-def equivalence_reason_text(reason: ProjectRowEquivalenceReason) -> str:
-    """Diagnostic wording for one reason; the retained reason value is unchanged."""
-    if reason is ProjectRowEquivalenceReason.FLOAT_EQUIVALENCE_DEFERRED:
-        return "Float equality is not supported yet"
-    return reason.value
 
 
 @dataclass(frozen=True, slots=True, kw_only=True, eq=False)

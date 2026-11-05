@@ -1218,13 +1218,17 @@ NEGATIVE_CORPUS = (
         "order",
     ),
     (
-        "float_distinct",
-        CONTROL.replace("id: Int", "id: Float").replace(
+        "json_distinct",
+        CONTROL.replace("id: Int", "id: Json").replace(
             "    select:", "    select distinct:"
         ),
         "PIE-S2339",
     ),
-    ("float_set", SET_FLOAT.replace("union all", "union distinct"), "PIE-S2344"),
+    (
+        "json_set",
+        SET_FLOAT.replace("Float", "Json").replace("union all", "union distinct"),
+        "PIE-S2344",
+    ),
     (
         "set_group",
         _NEGATIVE_SET

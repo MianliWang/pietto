@@ -1355,7 +1355,13 @@ def _row_realization(request, expression, operands, operand_values):
             )
         else:
             result, problem = rows.resolved_comparison_realization(
-                request.family, tag, nullable, operands[0], operands[1], operator
+                request.family,
+                tag,
+                nullable,
+                operands[0],
+                operands[1],
+                operator,
+                rows_both_sides=all(_reads_row(value) for value in operand_values),
             )
         if result is None:
             raise ValueError(problem)
@@ -1388,8 +1394,12 @@ def resolved_row_realization(
     *,
     direct_decimal_sources=False,
     float_values=None,
+    rows_both_sides=None,
 ):
-    """Existing independent physical-law checker over closed resolved inputs."""
+    """Existing independent physical-law checker over closed resolved inputs.
+
+    A comparison requires ``rows_both_sides`` (see the shared comparison law).
+    """
     if kind == "null_test":
         if tag != "Bool" or nullable is not False:
             raise ValueError("null test result")
@@ -1397,9 +1407,17 @@ def resolved_row_realization(
             "Bool", {"kind": rows.BOOL_RESULT[family]}, nullable, {"kind": "bool01"}
         )
     if kind == "comparison":
+        if type(rows_both_sides) is not bool:
+            raise ValueError("comparison row reads")
         left, right = operands
         result, problem = rows.resolved_comparison_realization(
-            family, tag, nullable, left, right, operator
+            family,
+            tag,
+            nullable,
+            left,
+            right,
+            operator,
+            rows_both_sides=rows_both_sides,
         )
         if result is None:
             raise ValueError(problem)
@@ -1432,6 +1450,11 @@ def resolved_row_realization(
             for value in (lower, upper)
         ):
             raise ValueError("temporal or UUID between carrier")
+        if first.tag == "Float" and not all(
+            _float_carrier(value, family, distribution=True)
+            for value in (first, lower, upper)
+        ):
+            raise ValueError("float between carrier")
         return rows.Realization(
             "Bool", {"kind": rows.BOOL_RESULT[family]}, nullable, {"kind": "bool01"}
         )
@@ -1622,6 +1645,37 @@ def _uuid_carrier(realization, family):
         == {"kind": "pg_uuid" if family == "postgres" else "my_uuid_bytes"}
         and realization.domain == {"kind": "uuid", "encoding": "standard_bytes"}
     )
+
+
+def _float_carrier(realization, family=None, *, distribution=False):
+    """Independent finite binary64 carrier of one family (either without one);
+    ``distribution`` also admits a window distribution result (comparisons)."""
+    storages = (
+        ({"kind": "pg_float8"}, {"kind": "my_double"})
+        if family is None
+        else ({"kind": "pg_float8" if family == "postgres" else "my_double"},)
+    )
+    domains = ({"kind": "finite_float", "format": "binary64"},) + (
+        ({"kind": "float64"},) if distribution else ()
+    )
+    return (
+        realization.tag == "Float"
+        and realization.storage in storages
+        and realization.domain in domains
+    )
+
+
+def _reads_row(value):
+    """Independent row-read test: only a literal chain, a header parameter or an
+    operation over those reads no row."""
+    if type(value) is rows.SQLOperation:
+        return not value.operands or any(_reads_row(item) for item in value.operands)
+    return type(value) not in {
+        rows.SQLParameterRead,
+        parameters.SQLAnchor,
+        parameters.SQLUnary,
+        parameters.SQLNull,
+    }
 
 
 def _partition_key(realization, family):
@@ -2134,7 +2188,7 @@ def _verify_aggregate_body(
             or not _same_read(column.read, read)
             or retained is None
             or (read.realization.tag, read.realization.nullable) != retained
-            or grouping.grouping_problem(read.realization) is not None
+            or grouping.group_key_problem(read.realization) is not None
             or column.label != label
             or column.symbol.position != index + 1
             or column.symbol.binding is not export.ref
@@ -4193,7 +4247,10 @@ def _verify_result_body(
                     )
                     or realized.nulls is not None
                     or realized.carrier != carrier
-                    or not _order_key(read.realization, request.family)
+                    or not (
+                        _order_key(read.realization, request.family)
+                        or _float_carrier(read.realization, request.family)
+                    )
                     or resulting.distinct_problem(request.family, read.realization)
                     is not None
                     or rows.value_tag(item.source) != read.realization.tag
@@ -4352,8 +4409,14 @@ def resolved_set_column_realization(
         raise ValueError("set column tags")
     (tag,) = tags
     union_all = (kind, quantifier) == (Kind.UNION, Quantifier.ALL)
-    if tag not in {"Int", "Bool", "Text", "Decimal"} and not (
-        union_all and tag == "Float" or kind is Kind.UNION and tag == "Timestamp"
+    if tag not in {"Int", "Bool", "Text", "Decimal", "Float"} and not (
+        kind is Kind.UNION and tag == "Timestamp"
+    ):
+        raise ValueError("set comparison domain")
+    if (
+        tag == "Float"
+        and not union_all
+        and not all(_float_carrier(read.realization, "postgres") for read in reads)
     ):
         raise ValueError("set comparison domain")
     if not union_all and any(reason is not None for reason in equivalence_reasons):

@@ -300,6 +300,32 @@ def test_text_parameters_compare_and_project_with_unbound_widths(
 
 
 @pytest.mark.parametrize("target", ("postgres", "mysql"))
+def test_a_float_parameter_compares_as_a_constant_on_both_targets(
+    tmp_path: Path, target: str
+) -> None:
+    """A header parameter reads no row, so even a MySQL Float `==` against it
+    cannot become a join or semijoin key; every bound -0.0 keeps its own bits."""
+    body = (
+        "query result(p: Float):\n"
+        "    from rows\n"
+        "    where ratio == p and ratio <= p\n"
+        "    select:\n"
+        "        r = ratio\n"
+    )
+    _, outcome = _case(tmp_path, target, body, "preserve_literals")
+    document = _document(outcome)
+    assert outcome.status == "VERIFIED", document
+    anchor = (
+        "CAST($1 AS pg_catalog.float8)" if target == "postgres" else "CAST(? AS DOUBLE)"
+    )
+    assert document["sql"].count(anchor) == 2
+    for value in (-0.0, 0.0):
+        assert parameters.value_valid("Float", value, target)
+    # F8: binding identity is bitwise while the comparison law is value equality.
+    assert not parameters.same_value(-0.0, 0.0) and -0.0 == 0.0
+
+
+@pytest.mark.parametrize("target", ("postgres", "mysql"))
 def test_a_parameter_needs_the_declared_parameter_protocol(
     tmp_path: Path, target: str
 ) -> None:

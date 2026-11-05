@@ -1730,3 +1730,66 @@ def test_timestamp_set_export_keeps_kind_quantifier_and_operand_order(
         )
         with pytest.raises(wire.CompiledError):
             verify_export(changed, outcome.artifact)
+
+
+@pytest.mark.parametrize(
+    "target,case,variant",
+    (
+        ("postgres", "F_float_values", "fi_distinct"),
+        ("postgres", "F_float_values", "fe_all"),
+        ("mysql", "S_set_domains", "float_union_all"),
+    ),
+)
+def test_float_set_export_keeps_kind_quantifier_and_operand_order(
+    tmp_path, target, case, variant
+):
+    """A PostgreSQL Float INTERSECT/EXCEPT exports as authored; a MySQL Float
+    UNION ALL forged into an INTERSECT, the form MySQL refuses, is refused by
+    the export check and, re-pinned, by the compiled set-domain law."""
+    import _pietto_sql_emission as probe
+    from pietto._project.project_compiled_build import build_compiled
+    from pietto._project.project_compiled_loading import load_compiled
+    from pietto._project.project_compiled_verification import verify_export
+    from pietto._project.project_completed_semantics import derive_compiled_semantics
+
+    item = probe.fixture(target, case, variant)
+    _, outcome = probe.build_case(
+        tmp_path / "source", item["source"], item["contract"], item["policy"]
+    )
+    assert outcome.artifact is not None
+    built = build_compiled(outcome.artifact)
+    verify_export(built.root.description, outcome.artifact)
+    operation = next(
+        r for r in built.root.description.records if r.address.kind == "set"
+    )
+    forgeries = (
+        (("kind", "intersect"),)
+        if target == "mysql"
+        else (
+            ("kind", "union"),
+            (
+                "quantifier",
+                "all" if operation.get("quantifier") != "all" else "distinct",
+            ),
+            ("operands", tuple(reversed(operation.get("operands")))),
+        )
+    )
+    for field, value in forgeries:
+        changed = _forged(
+            built.root.description,
+            lambda r: _set(r, field, value) if r is operation else r,
+        )
+        with pytest.raises(wire.CompiledError):
+            verify_export(changed, outcome.artifact)
+        if target == "mysql":
+            raw = wire.encode(changed)
+            with pytest.raises(wire.CompiledError, match="^COMPILED_SET_DOMAIN$"):
+                derive_compiled_semantics(
+                    load_compiled(
+                        raw,
+                        expected_pin=wire.content_pin(raw),
+                        accepted_producer=built.producer,
+                        accepted_compatibility=built.compatibility,
+                    ),
+                    (),
+                )

@@ -954,3 +954,152 @@ def test_a_parameter_operand_keeps_its_binding_obligation() -> None:
         "postgres",
         _operation("arithmetic", "+", (parameter, _point("pg_int8", 1)), realized),
     )
+
+
+def _float_carrier(storage: str, domain: dict) -> rows.Realization:
+    return rows.Realization("Float", {"kind": storage}, False, domain)
+
+
+FINITE = {"kind": "finite_float", "format": "binary64"}
+DISTRIBUTION = {"kind": "float64"}
+# Each Float arm reads one carrier predicate. A window distribution result
+# compares (and BETWEENs) but never groups, deduplicates, orders or sets.
+FLOAT_CARRIERS = {
+    "pg": _float_carrier("pg_float8", FINITE),
+    "my": _float_carrier("my_double", FINITE),
+    "pg_distribution": _float_carrier("pg_float8", DISTRIBUTION),
+    "my_distribution": _float_carrier("my_double", DISTRIBUTION),
+    "pg_unreviewed": _float_carrier("pg_float8", {"kind": "float32"}),
+    "my_unreviewed": _float_carrier("my_double", {"kind": "float32"}),
+}
+
+
+def _compares(family, left, right, operator="<", *, rows_both_sides=False):
+    built = rows.resolved_comparison_realization(
+        family, "Bool", False, left, right, operator, rows_both_sides=rows_both_sides
+    )
+    try:
+        verification.resolved_row_realization(
+            family,
+            "comparison",
+            operator,
+            "Bool",
+            False,
+            (left, right),
+            rows_both_sides=rows_both_sides,
+        )
+    except ValueError:
+        independent = False
+    else:
+        independent = True
+    assert (built[1] is None) is independent, built
+    return independent
+
+
+def _betweens(family, values):
+    built = rows.resolved_between_realization(family, "Bool", False, values)
+    try:
+        verification.resolved_row_realization(
+            family, "between", None, "Bool", False, values
+        )
+    except ValueError:
+        independent = False
+    else:
+        independent = True
+    assert (built[1] is None) is independent, built
+    return independent
+
+
+@pytest.mark.parametrize("family", ("postgres", "mysql"))
+@pytest.mark.parametrize("name", tuple(FLOAT_CARRIERS))
+def test_float_comparison_and_between_admit_one_reviewed_carrier(family, name):
+    """F2/L13: builder and independent verifier agree on every carrier; only the
+    family's own finite or window distribution carrier compares."""
+    value = FLOAT_CARRIERS[name]
+    own = name.startswith("pg" if family == "postgres" else "my")
+    admitted = own and not name.endswith("unreviewed")
+    literal = FLOAT_CARRIERS["pg" if family == "postgres" else "my"]
+    assert _compares(family, value, literal) is admitted
+    assert _compares(family, literal, value, "==") is admitted
+    assert _betweens(family, (value, literal, literal)) is admitted
+    assert _betweens(family, (literal, value, literal)) is admitted
+    # O2: Float against Int stays refused on both targets.
+    assert not _compares(family, value, _integer(family))
+
+
+@pytest.mark.parametrize("family", ("postgres", "mysql"))
+@pytest.mark.parametrize("operator", ("==", "!=", "<", "<=", ">", ">="))
+def test_mysql_float_equality_between_two_row_reads_stays_refused(family, operator):
+    """Branch B: MySQL kept -0.0 and 0.0 apart in a hash over a wide key, so a
+    Float `==` whose operands both read rows (a join, semijoin or hash key) is
+    refused there, and so is `!=`, which MySQL's parser negates into `=` under
+    `not`; PostgreSQL and every ordering inequality stay admitted."""
+    value = FLOAT_CARRIERS["pg" if family == "postgres" else "my"]
+    refused = family == "mysql" and operator in {"==", "!="}
+    assert _compares(family, value, value, operator, rows_both_sides=True) is (
+        not refused
+    )
+    assert _compares(family, value, value, operator, rows_both_sides=False)
+
+
+def test_the_comparison_row_read_fact_is_required():
+    value = FLOAT_CARRIERS["my"]
+    with pytest.raises(TypeError):
+        rows.resolved_comparison_realization(  # type: ignore[call-arg]
+            "mysql", "Bool", False, value, value, "=="
+        )
+    with pytest.raises(ValueError, match="comparison row reads"):
+        verification.resolved_row_realization(
+            "mysql", "comparison", "==", "Bool", False, (value, value)
+        )
+
+
+@pytest.mark.parametrize("name", tuple(FLOAT_CARRIERS))
+def test_float_equivalence_and_order_arms_admit_postgres_finite_only(name):
+    """Group keys, DISTINCT, relation ORDER and the equivalence set forms admit
+    only the PostgreSQL finite carrier (Branch B); UNION ALL transports any
+    matching Float carrier exactly as before."""
+    from pietto._project import project_sql_emission_aggregation as aggregation
+    from pietto._project import project_sql_emission_results as results
+    from pietto._project import project_sql_emission_sets as setting
+    from pietto.ast_nodes import SetOperationKind as Kind
+    from pietto.ast_nodes import SetOperationQuantifier as Quantifier
+
+    value = FLOAT_CARRIERS[name]
+    admitted = name == "pg"
+    assert (aggregation.group_key_problem(value) is None) is admitted
+    for family in ("postgres", "mysql"):
+        assert (results.distinct_problem(family, value) is None) is (
+            admitted and family == "postgres"
+        )
+        assert results.order_admitted(family, value) is (
+            admitted and family == "postgres"
+        )
+    assert verification._float_carrier(value, "postgres") is admitted
+    reads = (SimpleNamespace(realization=value), SimpleNamespace(realization=value))
+    for kind, quantifier in (
+        (Kind.UNION, Quantifier.ALL),
+        (Kind.UNION, Quantifier.DISTINCT),
+        (Kind.INTERSECT, Quantifier.ALL),
+        (Kind.EXCEPT, Quantifier.DISTINCT),
+    ):
+        expected = admitted or (kind, quantifier) == (Kind.UNION, Quantifier.ALL)
+        realized, problem = setting.resolved_column_realization(
+            kind, quantifier, False, reads, (None, None)
+        )
+        assert (problem is None) is expected, problem
+        if not expected:
+            assert problem == ("PIE-B1003", "set_row_equivalence_domain_unsupported")
+            with pytest.raises(ValueError, match="set comparison domain"):
+                verification.resolved_set_column_realization(
+                    kind, quantifier, False, reads, (None, None)
+                )
+        else:
+            assert realized is not None
+            checked = verification.resolved_set_column_realization(
+                kind, quantifier, False, reads, (None, None)
+            )
+            assert (checked.storage, checked.domain) == (
+                realized.storage,
+                realized.domain,
+            )

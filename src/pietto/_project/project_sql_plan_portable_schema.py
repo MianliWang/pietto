@@ -4786,7 +4786,6 @@ RECORD_RULES: Mapping[str, RecordRule] = MappingProxyType(
                     union(
                         enum(
                             "unknown_type",
-                            "float_equivalence_deferred_to_phase72",
                             "unsupported_type",
                             "decimal_parameters_missing_or_unpropagated",
                             "decimal_parameters_invalid",

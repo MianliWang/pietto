@@ -31,10 +31,12 @@ QUANTIFIER_SPELLING = {
     SetOperationQuantifier.ALL: "ALL",
     SetOperationQuantifier.DISTINCT: "DISTINCT",
 }
-# R22: the five equality forms compare V01-V04; UNION ALL additionally transports
-# finite Float (V06) without any equality requirement.
-EQUIVALENCE_TAGS = frozenset({"Int", "Bool", "Text", "Decimal"})
-TRANSPORT_TAGS = EQUIVALENCE_TAGS | {"Float"}
+# R22: the five equality forms compare V01-V04 and, on PostgreSQL, a finite
+# Float by float equality (-0.0 == 0.0); UNION ALL transports any Float carrier
+# without an equality requirement. MySQL INTERSECT and EXCEPT compare -0.0 and
+# 0.0 as different values, and its deduplicating hash over a wide key keeps them
+# apart, so a MySQL Float set is UNION ALL only.
+EQUIVALENCE_TAGS = frozenset({"Int", "Bool", "Text", "Decimal", "Float"})
 NULLABILITY = {
     ProjectRowFieldNullability.NON_NULL: False,
     ProjectRowFieldNullability.NULLABLE: True,
@@ -212,19 +214,20 @@ def column_realization(kind, quantifier, column, inputs, evidence):
 
 def resolved_column_realization(
     kind, quantifier, expected_nullability, inputs, equivalence_reasons
-):
+) -> tuple[rows.Realization | None, tuple[str, str] | None]:
     """Original R22 representation rule over complete resolved operand facts."""
     first = inputs[0].realization
     tag = first.tag
     if any(item.realization.tag != tag for item in inputs):
         return None, ("PIE-B1002", "set_column_logical_type_drift")
-    allowed = (
-        TRANSPORT_TAGS
-        if (kind, quantifier) == (SetOperationKind.UNION, SetOperationQuantifier.ALL)
-        else EQUIVALENCE_TAGS
-    )
-    if tag not in allowed and not (
+    if tag not in EQUIVALENCE_TAGS and not (
         kind is SetOperationKind.UNION and tag == "Timestamp"
+    ):
+        return None, ("PIE-B1003", "set_row_equivalence_domain_unsupported")
+    if (
+        tag == "Float"
+        and (kind, quantifier) != (SetOperationKind.UNION, SetOperationQuantifier.ALL)
+        and not rows.float_carrier(first, "postgres")
     ):
         return None, ("PIE-B1003", "set_row_equivalence_domain_unsupported")
     storage = first.storage

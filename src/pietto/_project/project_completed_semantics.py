@@ -2508,6 +2508,18 @@ def _null_arithmetic_type(token, typed, operand_kinds):
     return typed
 
 
+def _compiled_reads_row(records, address) -> bool:
+    """The compiled row-read test of the comparison law: only a literal, a
+    header parameter or an operation over only those reads no row."""
+    record = records[address]
+    kind = record.address.kind
+    if kind in {"literal", "null_literal", "parameter_read"}:
+        return False
+    if kind != "operation" or not record.get("operands"):
+        return True
+    return any(_compiled_reads_row(records, child) for child in record.get("operands"))
+
+
 def derive_compiled_semantics(root, values, parameters=None):
     """Derive resolved scalar inputs without calling any source elaborator.
 
@@ -3524,7 +3536,15 @@ def derive_compiled_semantics(root, values, parameters=None):
                             )
                             if token in ("like", "not like")
                             else physical.resolved_comparison_realization(
-                                family, tag, nullable, *inputs, operator=token
+                                family,
+                                tag,
+                                nullable,
+                                *inputs,
+                                operator=token,
+                                rows_both_sides=all(
+                                    _compiled_reads_row(records, child)
+                                    for child in operands
+                                ),
                             )
                         )
                     elif role in {"null_test", "exists"}:
@@ -4806,6 +4826,14 @@ def verify_compiled_semantics(value):
                                     and math.isfinite(item.value)
                                     for item in inputs
                                 )
+                                else None
+                            ),
+                            rows_both_sides=(
+                                all(
+                                    _compiled_reads_row(records, child)
+                                    for child in children
+                                )
+                                if role == "comparison"
                                 else None
                             ),
                         )

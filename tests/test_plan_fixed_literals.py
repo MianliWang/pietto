@@ -415,7 +415,9 @@ def test_set_membership_keeps_equal_definitions_and_limit_zero(tmp_path, operati
         "except distinct",
     ),
 )
-def test_finite_float_binding_does_not_approve_row_equivalence(tmp_path, operation):
+def test_finite_float_binding_plans_every_postgres_set_form(tmp_path, operation):
+    # Float equality is Python's float equality, so PostgreSQL project SQL
+    # admits every set form over a bound finite Float.
     source = _source("    select:\n        id = 1.5\n").replace(
         "query result:", "table operand:"
     )
@@ -424,17 +426,12 @@ def test_finite_float_binding_does_not_approve_row_equivalence(tmp_path, operati
     )
     roots = _roots(tmp_path, source)
     plan = planner.build_project_sql_plan(*roots, literal_policy=P.BIND_SAFE_LITERALS)
-    if operation == "union all":
-        assert isinstance(plan, planner.ProjectSQLPlan)
-        assert verification.verify_project_sql_plan(
-            plan, *roots, literal_policy=P.BIND_SAFE_LITERALS
-        ).verified
-        assert (
-            len(plan.literal_slots) == 1 and not plan.set_bodies[0].requires_equivalence
-        )
-    else:
-        assert not roots[0].ok and isinstance(plan, planner.ProjectSQLPlanUnavailable)
-        assert roots[0].diagnostics
+    assert roots[0].ok and isinstance(plan, planner.ProjectSQLPlan)
+    assert verification.verify_project_sql_plan(
+        plan, *roots, literal_policy=P.BIND_SAFE_LITERALS
+    ).verified
+    assert len(plan.literal_slots) == 1
+    assert plan.set_bodies[0].requires_equivalence is (operation != "union all")
 
 
 @pytest.mark.parametrize("bridge", (False, True))

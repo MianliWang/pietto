@@ -2499,11 +2499,11 @@ query aggregates:
         c = max(amount)
         d = min(price)
 
-query float_group:
-    from items
-    group by price
+query ratio_group:
+    from ranked
+    group by pr
     select:
-        price
+        pr
         n = count()
 
 query renamed:
@@ -2521,6 +2521,11 @@ query plain:
     from items
     select:
         id
+
+table ranked:
+    from items
+    select:
+        pr = percent_rank() window(order by qty)
 """
 
 
@@ -2625,13 +2630,24 @@ def test_blockers_name_their_own_reason_place_and_remedy(tmp_path: Path) -> None
         "blocker PIE-B1003 UNSUPPORTED_RULE:"
         f" min_argument_outside_reviewed_int_domain (main.pietto:19:9)\n{aggregate_hint}",
     )
-    # A refused group key is at its GROUP BY item.
-    assert _reasons(tmp_path, "float_group", contract) == (
+    # A refused group key is at its GROUP BY item: a window distribution
+    # result compares but never groups (a plain Float field now groups).
+    assert _reasons(tmp_path, "ratio_group", contract) == (
         1,
         "pietto.sql-emission.v1 BLOCKED\n"
         "blocker PIE-B1003 UNSUPPORTED_RULE:"
         " group_key_type_outside_reviewed_comparison_domain (main.pietto:23:14)\n"
         "  hint: Use a reviewed direct projection or grouping/order/set form with matching carriers, or keep this declaration in check/plan; do not widen equality or coerce operands to force emission.\n",
+    )
+    # A MySQL Float INTERSECT/EXCEPT is refused at its set body; the remedy
+    # names the set forms each target reviews.
+    assert blocker_suggestion(
+        "PIE-B1003", "set_row_equivalence_domain_unsupported", "mysql"
+    ) == (
+        "Use Int, Bool, Text, Decimal or Float with exact matching carriers. On"
+        " MySQL a Float set is limited to UNION ALL, a window distribution result"
+        " is limited to UNION ALL on both targets, and Timestamp to"
+        " UNION ALL/DISTINCT; keep other unreviewed set carriers in check --project."
     )
     # A plan-stage refusal is at its clause, not the whole declaration.
     assert _reasons(tmp_path, "renamed", contract) == (
@@ -2747,11 +2763,11 @@ def test_selection_and_contract_errors_name_their_fault(tmp_path: Path) -> None:
     )
     assert message((6, "table")) == (
         "emission_selector None: main.pietto declares no table named by --name;"
-        " its tables: none."
+        " its tables: ranked."
     )
     assert message((8, "absent")) == (
         "emission_selector None: main.pietto declares no query named by --name;"
-        " its queries: aggregates, arithmetic, float_group, plain, renamed."
+        " its queries: aggregates, arithmetic, plain, ratio_group, renamed."
     )
 
     def contract_message(data: bytes) -> str:

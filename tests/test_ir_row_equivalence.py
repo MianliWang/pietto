@@ -27,7 +27,6 @@ from pietto._project.project_ir_relational_properties import (
     ProjectIRProvidedIntrinsicGrain,
 )
 from pietto._project.project_final_outputs import ProjectDistinctUnsupported
-from pietto._project.project_row_equivalence import ProjectRowEquivalenceReason
 from pietto.parser_api import parse_source
 from pietto.ast_nodes import QueryDef, TableDef
 from pietto.semantic import analyze
@@ -67,16 +66,6 @@ def test_visible_int_completes(tmp_path: Path, distinct: bool) -> None:
         assert isinstance(
             result.effective_outputs.entries[-1], ProjectCompletedEffectiveOutput
         )
-
-
-def test_visible_float_is_unsupported(tmp_path: Path) -> None:
-    result = _completed(tmp_path, _source("Float"))
-    assert not result.ok
-    assert [d.code for d in result.diagnostics] == ["PIE-S2339"]
-    # The message words the reason; its retained identifier stays unchanged.
-    assert result.diagnostics[0].message.endswith(
-        "has unsupported row equivalence: Float equality is not supported yet."
-    )
 
 
 def test_a_visible_window_value_of_a_shape_is_unsupported(tmp_path: Path) -> None:
@@ -149,7 +138,17 @@ def test_unapproved_spellings_rejected(spelling: str) -> None:
 
 @pytest.mark.parametrize("mode", tuple(CheckMode))
 @pytest.mark.parametrize(
-    "type_name", ("Int", "Bool", "Text", "Date", "Timestamp", "UUID", "Decimal(12, 2)")
+    "type_name",
+    (
+        "Int",
+        "Bool",
+        "Text",
+        "Date",
+        "Timestamp",
+        "UUID",
+        "Decimal(12, 2)",
+        "Float",
+    ),
 )
 def test_support_domain(tmp_path: Path, mode: CheckMode, type_name: str) -> None:
     result = _completed(tmp_path, f"mode {mode.value}\n" + _source(type_name))
@@ -177,7 +176,7 @@ def test_support_domain(tmp_path: Path, mode: CheckMode, type_name: str) -> None
 @pytest.mark.parametrize("mode", tuple(CheckMode))
 @pytest.mark.parametrize(
     "type_name",
-    ("Float", "Any", "Bytes", "Json", "Decimal", "Decimal(0, 2)", "Decimal(8, 9)"),
+    ("Any", "Bytes", "Json", "Decimal", "Decimal(0, 2)", "Decimal(8, 9)"),
 )
 @pytest.mark.parametrize("nullability", ("| None", ""))
 def test_unsupported_domains_never_publish_proofs(
@@ -212,40 +211,30 @@ def test_unsupported_domains_never_publish_proofs(
     assert isinstance(failure, ProjectDistinctUnsupported)
     assert not failure.equivalence.supported
     assert not hasattr(failure, "origin") and not hasattr(failure, "uniqueness")
-    if type_name == "Float":
-        assert (
-            failure.equivalence.evidence[0].reason
-            is ProjectRowEquivalenceReason.FLOAT_EQUIVALENCE_DEFERRED
-        )
 
 
 @pytest.mark.parametrize("expression", ("1.25", "value + 1.0", "avg(value)"))
-def test_float_computed_and_finite_literal_not_exempt(
+def test_float_computed_and_finite_literal_complete(
     tmp_path: Path, expression: str
 ) -> None:
     source = _source().replace(
         "        value\n", f"        result_value = {expression}\n"
     )
     result = _completed(tmp_path, source)
-    assert [d.code for d in result.diagnostics] == ["PIE-S2339"]
-    assert "Float" in result.diagnostics[0].message
+    assert result.ok, result.diagnostics
+    distinct = _entry(result).row_domain.distinct
+    assert distinct is not None and distinct.equivalence.supported
+    assert distinct.uniqueness.nulls_equal
 
 
 @pytest.mark.parametrize("type_name", ("Float", "Decimal(10, 2)"))
 def test_alias_chain_uses_existing_resolution(tmp_path: Path, type_name: str) -> None:
     source = f"type Base = {type_name}\ntype Alias = Base\n" + _source("Alias")
     result = _completed(tmp_path, source)
-    if type_name == "Float":
-        assert [d.code for d in result.diagnostics] == ["PIE-S2339"]
-        terminal = result.effective_outputs.entries[-1]
-        assert isinstance(terminal, ProjectEffectiveOutputCompletionTerminal)
-        assert isinstance(terminal.blocker, ProjectDistinctUnsupported)
-        assessment = terminal.blocker.equivalence
-    else:
-        assert result.ok, result.diagnostics
-        distinct = _entry(result).row_domain.distinct
-        assert distinct is not None
-        assessment = distinct.equivalence
+    assert result.ok, result.diagnostics
+    distinct = _entry(result).row_domain.distinct
+    assert distinct is not None
+    assessment = distinct.equivalence
     resolution = assessment.evidence[0].resolution
     assert resolution is not None
     assert [i.declared_name for i in resolution.alias_chain] == ["Alias", "Base"]
@@ -578,7 +567,7 @@ def test_unpropagated_decimal_computation_fails_closed(tmp_path: Path) -> None:
     assert "missing_or_unpropagated" in result.diagnostics[0].message
 
 
-@pytest.mark.parametrize("type_name", ("Float", "Decimal(9, 2)"))
+@pytest.mark.parametrize("type_name", ("Float", "Decimal(9, 2)", "Json"))
 def test_imported_alias_resolution(tmp_path: Path, type_name: str) -> None:
     (tmp_path / "types.pietto").write_text(
         f"type Base = {type_name}\nexport type Base\n"
@@ -588,14 +577,17 @@ def test_imported_alias_resolution(tmp_path: Path, type_name: str) -> None:
     )
     source = 'from "facade.pietto" import type Public as Alias\n' + _source("Alias")
     result = _completed(tmp_path, source)
-    if type_name == "Float":
+    if type_name == "Json":
         assert [d.code for d in result.diagnostics] == ["PIE-S2339"]
     else:
         assert result.ok, result.diagnostics
         distinct = _entry(result).row_domain.distinct
         assert distinct is not None
         evidence = distinct.equivalence.evidence[0]
-        assert evidence.decimal is not None and evidence.decimal.precision == 9
+        if type_name == "Float":
+            assert evidence.decimal is None
+        else:
+            assert evidence.decimal is not None and evidence.decimal.precision == 9
         assert (
             evidence.resolution is not None
             and evidence.resolution.direct_symbol is not None
@@ -629,18 +621,20 @@ def test_distinct_import_reexport_and_downstream_join(tmp_path: Path) -> None:
     )
 
 
-def test_float_window_result_is_deferred(tmp_path: Path) -> None:
+def test_float_window_result_completes(tmp_path: Path) -> None:
+    """A window distribution result is a Float: DISTINCT over it completes in
+    check. Its emission stays refused (tests/test_sql_windows.py)."""
     source = _source().replace(
         "        value\n",
         "        fraction = percent_rank() window(order by value)\n",
     )
     result = _completed(tmp_path, source)
-    assert [d.code for d in result.diagnostics] == ["PIE-S2339"]
-    assert "Float" in result.diagnostics[0].message
+    assert result.ok, result.diagnostics
+    assert _entry(result).row_domain.distinct is not None
 
 
 def test_unrelated_branch_and_diagnostics_survive(tmp_path: Path) -> None:
-    source = _source("Float").replace("query result:", "query unsupported:")
+    source = _source("Json").replace("query result:", "query unsupported:")
     source += "query result:\n    from rows\n    select distinct:\n        yes = True\n"
     result = _completed(tmp_path, source)
     assert not result.ok
@@ -701,10 +695,13 @@ def test_distinct_join_keeps_its_actual_input_diagnostics(
             "    inner join missing on True\n",
         )
     else:
-        prefix += """table unavailable:
-    from rhs
+        prefix += """shape Payload:
+    body: Json
+source payloads: Payload = postgres.table("payloads")
+table unavailable:
+    from payloads
     select distinct:
-        id = Float(id)
+        body
 """
         query = query.replace("    let r = rhs\n", "    let r = unavailable\n")
     source = prefix + "query result:" + query.replace("select:", "select distinct:")
@@ -864,7 +861,7 @@ def test_order_evidence_cannot_be_removed(tmp_path: Path) -> None:
 
 
 @pytest.mark.parametrize("mode", tuple(CheckMode))
-@pytest.mark.parametrize("type_name", ("Int", "Float"))
+@pytest.mark.parametrize("type_name", ("Int", "Float", "Json"))
 def test_public_explicit_check_keeps_json_shape(
     tmp_path: Path, capsys: pytest.CaptureFixture[str], mode: CheckMode, type_name: str
 ) -> None:
@@ -873,8 +870,8 @@ def test_public_explicit_check_keeps_json_shape(
     captured = capsys.readouterr()
     document = json.loads(captured.out)
     assert not captured.err
-    assert code == (0 if type_name == "Int" else 1)
-    assert document["ok"] is (type_name == "Int")
+    assert code == (1 if type_name == "Json" else 0)
+    assert document["ok"] is (type_name != "Json")
     assert set(document) == {
         "schema_version",
         "command",
@@ -886,7 +883,7 @@ def test_public_explicit_check_keeps_json_shape(
         "cli_errors",
         "result",
     }
-    if type_name == "Float":
+    if type_name == "Json":
         assert [(d["code"], d["severity"]) for d in document["diagnostics"]] == [
             ("PIE-S2339", "error")
         ]

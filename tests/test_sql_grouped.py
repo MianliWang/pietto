@@ -12,8 +12,12 @@ from typing import Any
 import pytest
 
 import _pietto_sql_emission as probe
+from pietto._project import project_sql_emission_aggregation as grouping
 from pietto._project.project_sql_emission_ast import SQLRowQuery
 from pietto._project.project_sql_emission import serialize_project_sql_emission
+from pietto._project.project_sql_emission_verification import (
+    verify_project_sql_emission,
+)
 
 TARGETS = ("postgres", "mysql")
 SIGNED64 = "9223372036854775807"
@@ -311,14 +315,21 @@ def test_a_computed_let_determinant_groups_by_its_let_stage_column(
         ("grp = lower(label)", ("Text", None), False),
         ("grp = abs(amount)", ("Decimal", {"precision": 9, "scale": 2}), False),
         ("grp = key + 0", ("Int", None), "unknown"),
-        ("grp = 1.5 + 0.5", None, None),
-        ("grp = ratio", None, None),
+        ("grp = 1.5 + 0.5", ("Float", None), "unknown"),
+        ("grp = Float(key)", ("Float", None), True),
+        ("grp = abs(ratio)", ("Float", None), False),
+        ("grp = -0.0 if key > 0 else 0.0", ("Float", None), False),
+        ("grp = ratio * 2.0", None, None),
     ),
 )
 def test_computed_determinants_keep_the_reviewed_comparison_domains(
     tmp_path, target, let, logical, nullable
 ):
-    """Bool, Text, Decimal and Int keep their domains; Float stays refused."""
+    """Bool, Text, Decimal, Int and (on PostgreSQL) Float keep their domains.
+    MySQL kept -0.0 and 0.0 in two groups beside a wide key, so its Float key
+    stays refused; Float field arithmetic stays refused on both targets."""
+    if logical is not None and logical[0] == "Float" and target == "mysql":
+        logical = None
     # A refused key is not selected, so its one blocker is the key's own.
     selected = "" if logical is None else "        g = grp\n"
     outcome = emit_source(
@@ -338,6 +349,9 @@ def test_computed_determinants_keep_the_reviewed_comparison_domains(
         assert data["status"] == "BLOCKED"
         (blocker,) = data["blockers"]
         assert blocker["code"] == "PIE-B1003"
+        if "*" in let:
+            assert blocker["subject"]["detail"] == "float_literal_operands_required"
+            return
         assert blocker["subject"] == {
             "reference": {"kind": "group_key", "position": 0},
             "detail": "group_key_type_outside_reviewed_comparison_domain",
@@ -346,6 +360,9 @@ def test_computed_determinants_keep_the_reviewed_comparison_domains(
         quote = '"' if target == "postgres" else "`"
         assert data["status"] == "VERIFIED"
         assert f" GROUP BY {quote}t1{quote}.{quote}c7{quote}" in data["sql"]
+        if "-0.0" in let:
+            # The LET stage computes the key once; -0.0 keeps its own carrier.
+            assert "THEN (-CAST('0.0' AS pg_catalog.float8)) ELSE" in data["sql"]
         key = column(data, "g")
         name, parameters = logical
         assert key["logical_type"] == {
@@ -1337,13 +1354,71 @@ def test_numeric_aggregate_domains_require_proofs_beyond_source_declarations(
 
 
 @pytest.mark.parametrize("target", TARGETS)
-def test_a_float_determinant_stays_outside_group_comparison(tmp_path, target):
+def test_a_float_determinant_groups_by_float_equality_on_postgres(tmp_path, target):
+    """F2/F4: a PostgreSQL Float key groups -0.0 with 0.0 by the target's own
+    GROUP BY; MySQL keeps one group-key blocker at the GROUP BY item."""
     outcome = emit(tmp_path, target, "V_aggregate_blocked", "float_key")
-    assert outcome.status == "BLOCKED"
-    assert any(
-        item.detail == "group_key_type_outside_reviewed_comparison_domain"
-        for item in outcome.blockers
+    if target == "mysql":
+        assert outcome.status == "BLOCKED"
+        (blocker,) = public(outcome)["blockers"]
+        # At the GROUP BY item `ratio`, line 14.
+        assert (blocker["code"], blocker["subject"], blocker["location"]) == (
+            "PIE-B1003",
+            {
+                "reference": {"kind": "group_key", "position": 0},
+                "detail": "group_key_type_outside_reviewed_comparison_domain",
+            },
+            {
+                "path": "main.pietto",
+                "line": 14,
+                "column": 9,
+                "end_line": 14,
+                "end_column": 14,
+            },
+        )
+        return
+    assert outcome.status == "VERIFIED", outcome.blockers
+    data = public(outcome)
+    assert ' GROUP BY "s0"."ratio value"' in data["sql"]
+    assert column(data, "r")["logical_type"]["name"] == "Float"
+
+
+def test_the_verifier_refuses_a_mysql_float_group_key_artifact(tmp_path, monkeypatch):
+    """A MySQL artifact built while the group-key law admitted every Float is
+    refused by verify_project_sql_emission once the law is the real one."""
+    strict = grouping.group_key_problem
+    with monkeypatch.context() as patched:
+        patched.setattr(
+            grouping,
+            "group_key_problem",
+            lambda realization: (
+                None if realization.tag == "Float" else strict(realization)
+            ),
+        )
+        outcome = emit(tmp_path, "mysql", "V_aggregate_blocked", "float_key")
+    artifact = outcome.artifact
+    assert outcome.status == "VERIFIED" and artifact is not None, outcome.blockers
+    checked = verify_project_sql_emission(artifact, artifact.request)
+    assert not checked.verified and "plan_ast_correspondence" in checked.issues
+
+
+@pytest.mark.parametrize("target", TARGETS)
+def test_a_float_having_filter_compares_a_target_average(tmp_path, target):
+    """R5: avg(Int) is the target's own Float; a literal comparison filters it."""
+    outcome = emit_source(
+        tmp_path,
+        target,
+        "query result:\n    from agg\n    group by:\n        key\n    select:\n"
+        "        key\n        a = avg(value)\n    having:\n        a < 15.0\n",
     )
+    data = public(outcome)
+    assert data["status"] == "VERIFIED", data["blockers"]
+    carrier = (
+        "CAST('15.0' AS pg_catalog.float8)"
+        if target == "postgres"
+        else "CAST(15.0e0 AS DOUBLE)"
+    )
+    assert f" < {carrier})" in data["sql"]
 
 
 @pytest.mark.parametrize("target", TARGETS)

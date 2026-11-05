@@ -813,6 +813,81 @@ def test_contextual_null_is_literal_not_native_parameter(tmp_path, target):
     assert type(value.operands[-1]) is parameters.SQLNull
 
 
+FLOAT_ZERO_BODY = """table result:
+    from rows
+    let zero_member = ratio in (-0.0, 1.5)
+    let zero_excluded = ratio not in (0.0)
+    let inside = -0.0 <= ratio <= 1.5
+    let unless_zero = nullif(ratio, 0.0)
+    let unless_negative_zero = nullif(ratio, -0.0)
+    select:
+        zero_member
+        zero_excluded
+        inside
+        unless_zero
+        unless_negative_zero
+"""
+
+
+@pytest.mark.parametrize("target", TARGETS)
+def test_float_zero_literals_keep_their_carriers_in_every_equality(tmp_path, target):
+    """F2/F6: `in`, a chain and `nullif` compare by Float equality; each `-0.0`
+    keeps its own typed carrier, so the target sees a real -0."""
+    checked, outcome = emit(tmp_path, target, FLOAT_ZERO_BODY)
+    assert checked.verified and outcome.status == "VERIFIED", outcome.blockers
+    artifact = outcome.artifact
+    assert artifact is not None
+    assert verify_project_sql_emission(artifact, artifact.request).verified
+    sql = probe.decode_public(serialize_project_sql_emission(outcome))["sql"]
+    zero, neg, one = (
+        (
+            "CAST('0.0' AS pg_catalog.float8)",
+            "(-CAST('0.0' AS pg_catalog.float8))",
+            "CAST('1.5' AS pg_catalog.float8)",
+        )
+        if target == "postgres"
+        else (
+            "CAST(0.0e0 AS DOUBLE)",
+            "(-CAST(0.0e0 AS DOUBLE))",
+            "CAST(1.5e0 AS DOUBLE)",
+        )
+    )
+    for spelling in (
+        f" IN ({neg}, {one}))",
+        f" NOT IN ({zero}))",
+        f" BETWEEN {neg} AND {one})",
+        f", {zero}) AS ",
+        f", {neg}) AS ",
+    ):
+        assert sql.count(spelling) == 1, (spelling, sql)
+    assert sql.count("NULLIF(") == 2
+
+
+@pytest.mark.parametrize("target", TARGETS)
+def test_bound_float_zeros_differ_in_identity_not_in_value(tmp_path, target):
+    """F6/F8: under bind-safe literals `-0.0` binds 0.0 under its own unary
+    minus, so the target computes a real -0; `== 0.0` binds the same value
+    without it. The SQL differs (bits witness); one Float equality (value)."""
+    documents = {}
+    for name, literal in (("negative", "-0.0"), ("positive", "0.0")):
+        checked, outcome = emit(
+            tmp_path / name,
+            target,
+            f"table result:\n    from rows\n    select:\n        z = ratio == {literal}\n",
+            policy="bind_safe_literals",
+        )
+        assert checked.verified and outcome.status == "VERIFIED", outcome.blockers
+        documents[name] = probe.decode_public(serialize_project_sql_emission(outcome))
+    negative, positive = documents["negative"], documents["positive"]
+    assert [v["value"] for v in negative["fixed_values"]] == ["0x0.0p+0"]
+    assert [v["value"] for v in positive["fixed_values"]] == ["0x0.0p+0"]
+    anchor = (
+        "CAST($1 AS pg_catalog.float8)" if target == "postgres" else "CAST(? AS DOUBLE)"
+    )
+    assert f"= (-{anchor}))" in negative["sql"]
+    assert f"= {anchor})" in positive["sql"] and "(-CAST(" not in positive["sql"]
+
+
 @pytest.mark.parametrize("target", TARGETS)
 def test_all_null_q1_call_remains_fail_closed(tmp_path, target):
     checked, outcome = emit(tmp_path, target, ALL_NULL_BODY)
@@ -1329,7 +1404,12 @@ def test_same_value_emission_refuses_the_operands_equality_refuses(
     left, right = operands
     same = blockers("call", f"same_value({left}, {right})")
     assert same[0] == "BLOCKED"
-    assert same == blockers("equality", f"{left} == {right}")
+    if left == "ratio":
+        # The Float value contract admits PostgreSQL `==`, but no database run
+        # has checked a NULL-safe Float equality, so `same_value` stays refused.
+        assert same == ("BLOCKED", ["comparison_type_pair_not_admitted"])
+    else:
+        assert same == blockers("equality", f"{left} == {right}")
 
 
 @pytest.mark.parametrize("target", TARGETS)

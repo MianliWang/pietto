@@ -431,6 +431,37 @@ def test_postgres_group_keys_render_in_ir_source_order_with_qualified_alias() ->
     )
 
 
+@pytest.mark.parametrize(
+    ("connector", "emitter", "q"),
+    (("postgres.table", emit_postgres_sql, '"'), ("mysql.table", emit_mysql_sql, "`")),
+)
+def test_single_file_float_group_by_and_zero_literal_keep_their_bytes(
+    connector: str, emitter: Callable[[ScriptIR], SqlResult], q: str
+) -> None:
+    """B3: single-file Float GROUP BY is the target's own GROUP BY, which puts
+    -0.0 and 0.0 in one group; a single-file `-0.0` stays bare SQL text."""
+    result = emitter(
+        _compile_source(
+            "shape M:\n    price: Float\n"
+            f'source m: M = {connector}("m")\n'
+            "table grouped:\n    from m\n    group by:\n        price\n"
+            "    select:\n        price\n        n = count()\n"
+            "table zero:\n    from m\n    select:\n        z = -0.0\n"
+        )
+    )
+    assert result.diagnostics == ()
+    grouped, zero = (artifact.sql for artifact in result.artifacts)
+    assert grouped == (
+        "SELECT\n"
+        f"    {q}price{q} AS {q}price{q},\n"
+        f"    COUNT(*) AS {q}n{q}\n"
+        f"FROM {q}m{q}\n"
+        "GROUP BY\n"
+        f"    {q}price{q}"
+    )
+    assert zero == f"SELECT\n    -0.0 AS {q}z{q}\nFROM {q}m{q}"
+
+
 _DIALECTS = (
     ("postgres.table", emit_postgres_sql, "PostgreSQL"),
     ("mysql.table", emit_mysql_sql, "MySQL"),

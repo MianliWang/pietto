@@ -97,6 +97,17 @@ def public(outcome) -> dict:
     return json.loads(serialize_project_sql_emission(outcome).decode())
 
 
+def located(line: int, column: int, end_column: int) -> dict:
+    """A one-line public location in the authored main.pietto."""
+    return {
+        "path": "main.pietto",
+        "line": line,
+        "column": column,
+        "end_line": line,
+        "end_column": end_column,
+    }
+
+
 def final_select(sql: str) -> str:
     """The final returning SELECT: everything after the last CTE body closes."""
     depth, start = 0, 0
@@ -365,17 +376,36 @@ def test_grouped_order_helper_drift_is_rejected_independently(mutation):
 
 
 @pytest.mark.parametrize("target", TARGETS)
-def test_float_distinct_stays_an_upstream_typed_error(target):
-    """R18/D07: Float row equivalence is refused upstream; no SQL is built."""
+def test_float_distinct_merges_zeros_on_postgres_only(target):
+    """R18/F2: Float DISTINCT is exact SELECT DISTINCT on PostgreSQL. MySQL kept
+    -0.0 and 0.0 apart beside a wide key, so it keeps the DISTINCT blocker."""
     outcome = emit(
         target,
         "query result:\n    from rows\n    select distinct:\n        r = ratio\n",
     )
-    assert outcome.status == "BLOCKED" and outcome.artifact is None
-    assert [d.code for d in outcome.diagnostics] == ["PIE-S2339"]
-    assert "semantic_result_unsuccessful" in blockers(outcome)
-    document = public(outcome)
-    assert "sql" not in document and document["artifact"] is None
+    assert outcome.diagnostics == ()
+    if target == "mysql":
+        assert outcome.status == "BLOCKED" and outcome.artifact is None
+        (blocker,) = public(outcome)["blockers"]
+        # At the DISTINCT field `r = ratio`, line 11.
+        assert (blocker["code"], blocker["subject"], blocker["location"]) == (
+            "PIE-B1003",
+            {
+                "reference": {"kind": "quotient_field", "position": 0},
+                "detail": "distinct_field_comparison_domain_unsupported",
+            },
+            located(11, 9, 18),
+        )
+        return
+    assert outcome.status == "VERIFIED", blockers(outcome)
+    assert sql_of(outcome) == (
+        'WITH "p0" ("c0") AS (SELECT "s0"."ratio value" AS "c0" FROM'
+        ' "public"."phase66 source é" AS "s0") SELECT DISTINCT "t0"."c0" AS "r"'
+        ' FROM "p0" AS "t0"'
+    )
+    artifact = artifact_of(outcome)
+    assert verify_project_sql_emission(artifact, artifact.request).verified
+    probe.decode_public(serialize_project_sql_emission(outcome))
 
 
 @pytest.mark.parametrize("target", TARGETS)
@@ -499,14 +529,44 @@ def test_a_computed_order_expression_is_an_exact_typed_blocker(target):
 
 
 @pytest.mark.parametrize("target", TARGETS)
-def test_float_order_key_is_outside_the_comparison_domain(target):
+@pytest.mark.parametrize(
+    "clause,suffix",
+    [
+        ("        ratio\n", " ASC"),
+        ("        ratio desc\n", " DESC"),
+        ("        ratio\n    limit 2\n", " ASC LIMIT 2"),
+    ],
+)
+def test_float_order_key_orders_by_value_on_postgres_only(target, clause, suffix):
+    """R19/F3: a PostgreSQL Float key orders by real value (-0.0 and 0.0 tie).
+    MySQL relation ORDER stays coupled to its refused Float DISTINCT."""
     outcome = emit(
         target,
-        "query result:\n    from rows\n    select:\n        record_id = id\n"
-        "    order by:\n        ratio\n",
+        "query result:\n    from rows\n    select:\n        ratio\n    order by:\n"
+        + clause,
     )
-    assert outcome.status == "BLOCKED"
-    assert blockers(outcome) == ["order_comparison_domain_unsupported"]
+    if target == "mysql":
+        assert outcome.status == "BLOCKED"
+        (blocker,) = public(outcome)["blockers"]
+        # At the ORDER BY item, line 13.
+        item = clause.splitlines()[0].strip()
+        assert (blocker["code"], blocker["subject"], blocker["location"]) == (
+            "PIE-B1003",
+            {
+                "reference": {"kind": "order_item", "position": 0},
+                "detail": "order_comparison_domain_unsupported",
+            },
+            located(13, 9, 9 + len(item)),
+        )
+        return
+    assert outcome.status == "VERIFIED", blockers(outcome)
+    # The key is its own carried column beside the projected one.
+    assert final_select(sql_of(outcome)) == (
+        'SELECT "t0"."c0" AS "ratio" FROM "p0" AS "t0" ORDER BY "t0"."c1"' + suffix
+    )
+    artifact = artifact_of(outcome)
+    assert verify_project_sql_emission(artifact, artifact.request).verified
+    probe.decode_public(serialize_project_sql_emission(outcome))
 
 
 @pytest.mark.parametrize("target", TARGETS)
@@ -637,7 +697,7 @@ def _with_final(query, body):
         "limit_zero_deleted",
         "visible_field_omitted",
         "quotient_reordered",
-        "float_accepted",
+        "forged_reason",
     ],
 )
 def test_plan_ast_corruptions_are_rejected_independently(mutation):
@@ -735,7 +795,7 @@ def test_plan_ast_corruptions_are_rejected_independently(mutation):
             ),
         )
     else:
-        assert mutation == "float_accepted"
+        assert mutation == "forged_reason"
         field = plan.quotient_fields[0]
         object.__setattr__(field.equivalence, "reason", "float_equivalence_deferred")
         changed = body

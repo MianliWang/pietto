@@ -125,31 +125,26 @@ def test_outer_select_consumes_set_terminal(tmp_path, kind, quantifier):
 
 
 @pytest.mark.parametrize("kind,quantifier", OPERATIONS)
-def test_float_union_all_does_not_invent_equivalence(tmp_path, kind, quantifier):
+def test_float_set_bodies_build_and_verify(tmp_path, kind, quantifier):
     source = _source(kind, quantifier, right_type="Float").replace(
         "id: Int", "id: Float"
     )
     roots = _roots(tmp_path, source)
-    if (kind, quantifier) == ("union", "all"):
-        assert roots[0].ok
-        plan = build_project_sql_plan(*roots)
-        assert isinstance(plan, ProjectSQLPlan)
-        checked = verify_project_sql_plan(plan, *roots)
-        assert checked.verified, checked.issues
-        view = inspect_project_sql_plan(checked)
-        assert all(
-            image.evidence.reason is not None and image.evidence.type_concrete
-            for image in view.set_inputs
-        )
-        assert not any(
-            d.kind is sets.ProjectSQLSetDemandKind.COMPARISON
-            for d in view.set_requirements(view.set_bodies[0].ref)
-        )
-    else:
-        assert not roots[0].ok and any(
-            d.code == "PIE-S2344" for d in roots[0].diagnostics
-        )
-        assert isinstance(build_project_sql_plan(*roots), ProjectSQLPlanUnavailable)
+    assert roots[0].ok, roots[0].diagnostics
+    plan = build_project_sql_plan(*roots)
+    assert isinstance(plan, ProjectSQLPlan)
+    checked = verify_project_sql_plan(plan, *roots)
+    assert checked.verified, checked.issues
+    view = inspect_project_sql_plan(checked)
+    assert all(
+        image.evidence.reason is None and image.evidence.type_concrete
+        for image in view.set_inputs
+    )
+    # UNION ALL still has no row-equivalence demand; the other five do.
+    assert any(
+        d.kind is sets.ProjectSQLSetDemandKind.COMPARISON
+        for d in view.set_requirements(view.set_bodies[0].ref)
+    ) is ((kind, quantifier) != ("union", "all"))
 
 
 def test_decimal_parents_cross_set_and_distinct_without_reconstruction(tmp_path):

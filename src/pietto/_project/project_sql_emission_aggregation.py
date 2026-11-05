@@ -38,7 +38,8 @@ EXTREMA_FUNCTIONS = frozenset({"min", "max"})
 COUNT_STORAGE = {"postgres": "pg_int8", "mysql": "my_bigint"}
 COUNT_MAX = (1 << 63) - 1
 # R12 group comparison stays inside the reviewed V01-V04 domains. V05 keeps its
-# meaning limits and V06 transport never becomes Float grouping or equality.
+# meaning limits. A Float group key is admitted only by group_key_problem, so
+# window partitions and string_agg order, which read this table, exclude Float.
 GROUPING_TAGS = frozenset(
     {"Int", "Bool", "Text", "Decimal", "Timestamp", "Date", "UUID"}
 )
@@ -345,6 +346,17 @@ def grouping_problem(realization: rows.Realization):
     ):
         return "PIE-B1002", "group_key_uuid_physical_representation_mismatch"
     return None
+
+
+def group_key_problem(realization: rows.Realization):
+    """A GROUP BY key: the grouping law, or a PostgreSQL finite Float. Floats group
+    by float equality (-0.0 == 0.0); MySQL kept -0.0 and 0.0 in two groups over
+    a wide key in the real-database campaign, so its Float keys stay refused."""
+    if realization.tag != "Float":
+        return grouping_problem(realization)
+    if rows.float_carrier(realization, "postgres"):
+        return None
+    return "PIE-B1003", "group_key_type_outside_reviewed_comparison_domain"
 
 
 def result_value(source):
@@ -768,7 +780,7 @@ def build_stage(
                 None,
                 (("PIE-B1002", "group_key_logical_type_or_null_drift", key.ref, None),),
             )
-        problem = grouping_problem(read.realization)
+        problem = group_key_problem(read.realization)
         if problem is not None:
             item = getattr(key.source, "item", None)
             return None, None, ((*problem, key.ref, getattr(item, "span", None)),)
@@ -1066,7 +1078,7 @@ def build_compiled_stage(plan, record, arguments):
         if expression.address.kind == "read":
             if (
                 type(argument) is not rows.SQLStageReference
-                or grouping_problem(argument.realization) is not None
+                or group_key_problem(argument.realization) is not None
                 or delimiters
                 or order_by_values
             ):

@@ -29,7 +29,7 @@ COMPARISONS = {
     "like": " LIKE ",
     "not like": " NOT LIKE ",
 }
-COMPARABLE = ("Int", "Text", "Decimal", "Timestamp", "Date")
+COMPARABLE = ("Int", "Text", "Decimal", "Timestamp", "Date", "Float")
 # One carrier's values order by their exact civil instant or day.
 TEMPORAL = ("Timestamp", "Date")
 
@@ -39,6 +39,31 @@ def uuid_ordered(family: str) -> bool:
     PostgreSQL's uuid_cmp compares them; MySQL keeps equality only until its
     BINARY(16) order has a real-database differential."""
     return family == "postgres"
+
+
+FINITE_FLOAT = {"kind": "finite_float", "format": "binary64"}
+# percent_rank / cume_dist results (windows.py): finite, in [0, 1].
+DISTRIBUTION_FLOAT = {"kind": "float64"}
+
+
+def float_carrier(realization, family=None, *, distribution=False) -> bool:
+    """One reviewed finite binary64 carrier; with a family, that family's storage.
+
+    A Float compares, groups and deduplicates by Python float equality, so
+    -0.0 and 0.0 are one value. ``distribution`` also admits a window
+    distribution result, for comparisons only.
+    """
+    storages = (
+        ({"kind": "pg_float8"}, {"kind": "my_double"})
+        if family is None
+        else ({"kind": "pg_float8" if family == "postgres" else "my_double"},)
+    )
+    domains = (FINITE_FLOAT, DISTRIBUTION_FLOAT) if distribution else (FINITE_FLOAT,)
+    return (
+        realization.tag == "Float"
+        and realization.storage in storages
+        and realization.domain in domains
+    )
 
 
 # SQL IN is only emitted for carriers with an established equality operation.
@@ -1522,7 +1547,13 @@ def _comparison(
         )
     else:
         checked, problem = resolved_comparison_realization(
-            request.family, tag, nullable, left, right, operator
+            request.family,
+            tag,
+            nullable,
+            left,
+            right,
+            operator,
+            rows_both_sides=all(_reads_row(value) for value in values),
         )
     if checked is None:
         assert problem is not None
@@ -1553,10 +1584,34 @@ def _between(
     return SQLOperation(expression, "between", values, checked), None
 
 
+def _reads_row(value) -> bool:
+    """A field, captured outer field or block read; a literal or a header
+    parameter reads no row."""
+    return any(
+        type(node) in {SQLStageReference, SQLCapturedReference, SQLBlockRead}
+        for node in value_nodes(value)
+    )
+
+
 def resolved_comparison_realization(
-    family, tag, nullable, left, right, operator: str | None = None
+    family,
+    tag,
+    nullable,
+    left,
+    right,
+    operator: str | None = None,
+    *,
+    rows_both_sides: bool,
 ):
-    """Original comparison-domain law over already resolved physical inputs."""
+    """Original comparison-domain law over already resolved physical inputs.
+
+    ``rows_both_sides`` is required: MySQL picks its own join and semijoin
+    plans for a Float ``==`` whose operands both read rows, and a semijoin
+    forced to materialize over a wide key returned outer rows twice (narrow
+    keys and every JOIN tried matched -0.0 with 0.0; real-database campaign,
+    Phase72 B10), so it stays refused there. So does ``!=``: MySQL's parser
+    turns ``NOT (x <> y)``, also through De Morgan, into the equality ``x = y``.
+    """
     if tag != "Bool":
         return None, ("PIE-B1002", "comparison_result_not_bool")
     if left.tag != right.tag:
@@ -1574,6 +1629,14 @@ def resolved_comparison_realization(
         return None, ("PIE-B1003", "comparison_type_pair_not_admitted")
     if left.tag in TEMPORAL and (
         left.storage != right.storage or left.domain != right.domain
+    ):
+        return None, ("PIE-B1003", "comparison_type_pair_not_admitted")
+    if left.tag == "Float" and (
+        not float_carrier(left, family, distribution=True)
+        or not float_carrier(right, family, distribution=True)
+        or family == "mysql"
+        and operator in {"==", "!="}
+        and rows_both_sides
     ):
         return None, ("PIE-B1003", "comparison_type_pair_not_admitted")
     if left.tag == "Text" and _text_domain(left) != _text_domain(right):
@@ -1610,8 +1673,9 @@ def resolved_between_realization(family, tag, nullable, values):
     ):
         return None, ("PIE-B1003", "between_type_pair_not_admitted")
     for bound in (lower, upper):
+        # A chain is two inequalities, never an equality key.
         checked, problem = resolved_comparison_realization(
-            family, tag, nullable, first, bound
+            family, tag, nullable, first, bound, rows_both_sides=False
         )
         if checked is None:
             return None, problem
@@ -2050,7 +2114,13 @@ def resolved_scalar_call_realization(
         if nullable is not False:
             return None, ("PIE-B1003", "scalar_call_signature_not_admitted")
         left, right = values
-        return resolved_comparison_realization(family, tag, nullable, left, right, "==")
+        if left.tag == "Float":
+            # The Float value contract admits `==`, but no database run has
+            # checked a NULL-safe Float equality yet.
+            return None, ("PIE-B1003", "comparison_type_pair_not_admitted")
+        return resolved_comparison_realization(
+            family, tag, nullable, left, right, "==", rows_both_sides=True
+        )
     if (
         name in {"contains", "starts_with", "ends_with"}
         and len(values) == 2

@@ -5559,7 +5559,7 @@ def _verify_compiled_emission(artifact, request):
                     need(
                         record.address.kind == "aggregate"
                         and column.key.ref is refs[expression]
-                        and grouping.grouping_problem(column.read.realization) is None,
+                        and grouping.group_key_problem(column.read.realization) is None,
                         "EMISSION_GROUP_KEY",
                     )
                     origin = column.column.aggregate

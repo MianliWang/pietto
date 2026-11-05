@@ -2,6 +2,7 @@
 
 from pathlib import Path
 from collections import Counter
+import math
 from itertools import product
 
 import pytest
@@ -178,25 +179,62 @@ def test_union_all_separates_type_from_equivalence(
     assert isinstance(entry, ProjectCompletedSetOutput)
     assert not entry.root.requires_equivalence and entry.uniqueness is None
     assert all(
-        use.fields[0].type_concrete and use.fields[0].reason is not None
+        use.fields[0].type_concrete
+        and (use.fields[0].reason is None) is (type_name == "Float")
         for use in entry.root.uses
     )
 
 
+@pytest.mark.parametrize("type_name", ("Float", "Json"))
 @pytest.mark.parametrize("kind,quantifier", OPERATIONS[1:])
 def test_comparison_required_even_for_intersect_except_all(
-    tmp_path: Path, kind: str, quantifier: str
+    tmp_path: Path, kind: str, quantifier: str, type_name: str
 ) -> None:
-    source = _source(kind, quantifier, right_type="Float").replace(
-        "id: Int", "id: Float | None"
+    source = _source(kind, quantifier, right_type=type_name).replace(
+        "id: Int", f"id: {type_name} | None"
     )
     completed = _completed(tmp_path, source)
+    if type_name == "Float":
+        assert completed.ok, completed.diagnostics
+        entry = _entry(completed)
+        assert isinstance(entry, ProjectCompletedSetOutput)
+        assert entry.root.requires_equivalence
+        assert all(use.fields[0].reason is None for use in entry.root.uses)
+        return
     assert not completed.ok
     errors = tuple(d for d in completed.diagnostics if d.code == "PIE-S2344")
     assert len(errors) == 2 and all(
-        "Float equality is not supported yet" in d.message for d in errors
+        "lacks required row equivalence: unsupported_type." in d.message for d in errors
     )
     assert all(d.code not in {"PIE-S2337", "PIE-S2339"} for d in completed.diagnostics)
+
+
+@pytest.mark.parametrize(
+    "kind,quantifier,expected",
+    (
+        ("union", "distinct", 1),
+        ("intersect", "distinct", 1),
+        ("intersect", "all", 1),
+        ("except", "distinct", 0),
+        ("except", "all", 0),
+    ),
+)
+def test_float_zero_signs_are_one_equivalence_class(
+    tmp_path: Path, kind: str, quantifier: str, expected: int
+) -> None:
+    """F2: -0.0 and 0.0 are one class. The oracle inputs keep their signs
+    (bits witness); the IR set tree merges them (value witness)."""
+    source = _source(kind, quantifier, right_type="Float", replay=False).replace(
+        "id: Int", "id: Float | None"
+    )
+    completed = _completed(tmp_path, source)
+    assert completed.ok, completed.diagnostics
+    leaves = {"lhs": Counter({(-0.0,): 1}), "rhs": Counter({(0.0,): 1})}
+    assert [math.copysign(1.0, row[0]) for c in leaves.values() for row in c] == [
+        -1.0,
+        1.0,
+    ]
+    assert sum(_evaluate(_entry(completed), leaves).values()) == expected
 
 
 @pytest.mark.parametrize(

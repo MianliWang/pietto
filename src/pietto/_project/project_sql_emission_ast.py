@@ -1866,7 +1866,13 @@ def _join_body(
             join, tuple(matches), predicate, request.family
         )
         if problem is not None:
-            return None, (*problem, join.ref, None)
+            # Every FULL JOIN rule refusal is about its ON clause.
+            site = join.site
+            return None, (
+                *problem,
+                join.ref,
+                None if site is None else site.occurrence.span,
+            )
     membership = joining.MEMBERSHIP.get(join.kind)
     if membership is not None and predicate is None and not matches:
         return None, ("PIE-B1004", "membership_condition_missing", join.ref, None)
