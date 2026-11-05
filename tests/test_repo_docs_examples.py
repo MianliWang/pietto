@@ -5,7 +5,8 @@ strict` checks it. With nothing after `pietto` on its opening fence line it
 reports no diagnostic; otherwise the words after `pietto` are the codes it
 reports, in report order (an example that shows a diagnostic, or a form that a
 single file refuses, such as a project-only one). See docs/style.md,
-Documentation examples.
+Documentation examples. Every block is also already formatted: `pietto fmt`
+leaves it unchanged.
 """
 
 from __future__ import annotations
@@ -18,6 +19,7 @@ import pytest
 from pietto.errors import Severity
 from pietto.parser_api import parse_source
 from pietto.semantic import CheckMode, analyze
+from pietto.source_format import format_source
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
 DOCUMENTS = ("README.md", "docs/language.md", "docs/style.md")
@@ -48,3 +50,10 @@ def test_documented_example_reports_exactly_its_marked_codes(
         result = analyze(parsed.ast, mode_override=CheckMode.STRICT)
         diagnostics += result.diagnostics
     assert [d.code for d in diagnostics] == codes, [d.message for d in diagnostics]
+
+
+@pytest.mark.parametrize(("source", "codes"), _examples())
+def test_documented_example_is_already_formatted(source: str, codes: list[str]) -> None:
+    del codes  # the shared parametrization; the codes are checked above
+    result = format_source(source)
+    assert result.source == source, [d.message for d in result.diagnostics]

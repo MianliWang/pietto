@@ -178,6 +178,7 @@ The source-only `migrate PATH` command is separate from project invocation
 and from JSON v1/v2. It emits a complete migrated source or a refusal with no
 partial source; it does not introduce a project mode, command tag, output
 metadata field or JSON envelope into this contract.
+The single-file `fmt PATH` command is likewise outside this contract.
 
 ## Exit Codes
 

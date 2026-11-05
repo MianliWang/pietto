@@ -54,6 +54,13 @@ The migration-specific PIE-P1011 and modern parser rewrite suggestions are
 specified in [Diagnostics](diagnostics.md) and
 [Source migration](../language.md#migrating-old-source).
 
+`pietto fmt [--check | --write] PATH` is outside this JSON contract too and
+has no `--format json` mode. It writes the complete formatted source to stdout,
+or with `--write` to the file, never JSON; `--check` writes nothing and reports
+`would reformat: PATH` on stderr. Diagnostics and errors go to stderr as text,
+and the exit code is `0`, `1` or `2`; see
+[Formatting source](../language.md#formatting-source).
+
 ## Invocation
 
 The supported JSON forms are:

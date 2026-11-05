@@ -20,6 +20,7 @@ from pietto.ir.diagnostics import join_explain_diagnostics
 import pietto.sql as sql_api
 import pietto.sql.mysql as mysql_backend
 from pietto import cli_json
+from pietto.source_format import FormatRefusedError, format_file
 from pietto.source_migration import migrate_file
 from pietto._metadata.builder import build_semantic_metadata_artifact
 from pietto._metadata.serializer import (
@@ -215,6 +216,8 @@ def _main(argv: Sequence[str] | None = None) -> int:
         return _run_explain_command(namespace)
     if namespace.command == "migrate":
         return _run_migrate(namespace.path)
+    if namespace.command == "fmt":
+        return _run_fmt(namespace.path, check=namespace.check, write=namespace.write)
     return 0
 
 
@@ -252,6 +255,20 @@ def _build_parser() -> argparse.ArgumentParser:
         help="write migrated Pietto source to stdout without changing the input",
     )
     migrate_parser.add_argument("path", type=Path, help="Pietto source file")
+    fmt_parser = subparsers.add_parser(
+        "fmt",
+        help="write formatted Pietto source to stdout, or check or rewrite the file",
+    )
+    fmt_parser.add_argument("path", type=Path, help="Pietto source file")
+    fmt_mode = fmt_parser.add_mutually_exclusive_group()
+    fmt_mode.add_argument(
+        "--check",
+        action="store_true",
+        help="exit 1 if the file is not formatted; never write",
+    )
+    fmt_mode.add_argument(
+        "--write", action="store_true", help="replace the file if it is not formatted"
+    )
     return parser
 
 
@@ -767,6 +784,60 @@ def _run_migrate(path: Path) -> int:
         return _EXIT_DIAGNOSTIC_ERROR
     _write_stdout(result.source.encode("utf-8"))
     return 0
+
+
+def _run_fmt(path: Path, *, check: bool, write: bool) -> int:
+    """Format one file, or refuse it whole when it does not parse cleanly."""
+
+    try:
+        if write:
+            _refuse_unsafe_source(path)
+    except (OSError, ValueError) as error:
+        _print_cli_error(path, _cli_error_message(error, path))
+        return _EXIT_USAGE_ERROR
+    try:
+        result = format_file(path)
+    except (OSError, UnicodeError) as error:
+        _print_cli_error(path, _cli_error_message(error, path))
+        return _EXIT_USAGE_ERROR
+    except FormatRefusedError as error:
+        _print_cli_error(path, str(error))
+        return _EXIT_DIAGNOSTIC_ERROR
+    _render_diagnostics(result.diagnostics, fallback_path=path)
+    if result.source is None:
+        return _EXIT_DIAGNOSTIC_ERROR
+    if check:
+        if not result.changed:
+            return 0
+        _write_stderr(f"would reformat: {_escape_cli_text(str(path))}\n")
+        return _EXIT_DIAGNOSTIC_ERROR
+    if not write:
+        _write_stdout(result.source.encode("utf-8"))
+        return 0
+    try:
+        _refuse_unsafe_source(path)  # again, as it may have changed since
+        if result.changed:
+            _replace_file(
+                path,
+                result.source.encode("utf-8"),
+                "source file",
+                expected=result.input_text.encode("utf-8"),
+            )
+    except (OSError, ValueError) as error:
+        _print_cli_error(path, _cli_error_message(error, path))
+        return _EXIT_USAGE_ERROR
+    return 0
+
+
+def _refuse_unsafe_source(path: Path) -> None:
+    """Refuse, before it is opened, a symbolic link or a path that is neither
+    a regular file nor a directory; reading reports a missing path or a
+    directory."""
+
+    if path.is_symlink():
+        raise ValueError("source file must not be a symbolic link")
+    if path.exists() and not path.is_file() and not path.is_dir():
+        raise ValueError("source file must be a regular file")
 
 
 def _run_check(
@@ -1355,19 +1426,33 @@ def _write_sql_artifacts(
 
     if not artifacts:
         raise ValueError("no SQL artifacts to write; the output file was not changed")
-    if is_read_only(output_path):
-        raise ValueError("output file is read-only; the output file was not changed")
-    if is_owned_by_another_user(output_path):
-        raise ValueError(
-            "output file belongs to another user; the output file was not changed"
-        )
     data = f"{_format_sql_artifacts(artifacts)}\n".encode("utf-8")
+    _replace_file(output_path, data, "output file")
+
+
+def _replace_file(
+    path: Path, data: bytes, noun: str, *, expected: bytes | None = None
+) -> None:
+    """Atomically replace one regular file, which is never left half written,
+    and, given ``expected``, only while it still holds those bytes."""
+
+    if is_read_only(path):
+        raise ValueError(f"{noun} is read-only; the {noun} was not changed")
+    if is_owned_by_another_user(path):
+        raise ValueError(f"{noun} belongs to another user; the {noun} was not changed")
     temporary_path: Path | None = None
     try:
-        temporary, temporary_path = open_replacement(output_path)
+        temporary, temporary_path = open_replacement(path)
         with temporary:
             temporary.write(data)
-        os.replace(temporary_path, output_path)
+        if expected is not None:
+            with path.open("rb") as current:
+                if current.read(len(expected) + 1) != expected:
+                    raise ValueError(
+                        f"{noun} changed while it was formatted; "
+                        f"the {noun} was not changed"
+                    )
+        os.replace(temporary_path, path)
         temporary_path = None
     finally:
         if temporary_path is not None:

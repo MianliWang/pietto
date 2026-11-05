@@ -118,6 +118,51 @@ call, and `def any(...)` and fields named `for` are not banned. Only the exact
 `None`, `True`, `False`, Boolean operators and `window` are reserved in their
 expression roles. String contents and comments are never rewritten as keywords.
 
+### Formatting source
+
+```bash
+pietto fmt shop.pietto            # print the formatted source
+pietto fmt --check shop.pietto    # exit 1 if the file is not formatted
+pietto fmt --write shop.pietto    # replace the file if it is not formatted
+```
+
+`fmt` changes only whitespace outside tokens. It never adds, removes, reorders
+or respells a token, and keeps the spaces between two tokens of a line and the
+text of every comment except its trailing spaces and tabs. The header lines at
+the start of a file (`pietto`, `mode`, `dialect`, `encoding`) are kept as
+written apart from their line ending.
+
+- Blocks are indented by four spaces; a line inside parentheses moves with the
+  line it continues.
+- A comment line takes the indentation of the line that follows it in its
+  block; an end-of-line comment is preceded by two spaces.
+- Exactly one blank line separates two top-level declarations, one-line or
+  not, except that consecutive imports and exports have none between them, as
+  in Python. The comment lines at the left margin over a declaration belong to
+  it: the blank line goes above them, and no blank line stays among them or
+  under them. The header lines and the comment lines over them stay together,
+  and one blank line separates them from the first declaration and the comment
+  lines over it. Comment lines at the left margin that no declaration follows
+  (after the last declaration, in a file of comments, or under a header with
+  nothing below) keep the blank lines written among and above them, one at
+  most in a row. Other runs of blank lines become one, and blank lines at the
+  start and end of the file are removed.
+- Trailing spaces and tabs are removed, also at the end of a comment.
+- Every line ends with the file's first line ending, a non-empty file ends
+  with one line ending, and a leading BOM is kept.
+
+The result is lexed again and must give the same tokens, blocks, code lines,
+comments and text apart from blanks; when it does not, or when it would exceed
+the source size limit, nothing is printed or written and `fmt` exits 1. A file
+with parser errors is refused with the diagnostics `check` reports and exit 1;
+diagnostics refer to the file as read. `--check` never writes. `--write`
+refuses with exit 2, before reading it, a symbolic link or a file that is not
+regular. It replaces
+the file atomically only when it changes, and then also refuses with exit 2 a
+read-only file, a file that belongs to another user, a file that changed after
+it was read, or a file it cannot replace. `fmt` takes one file and has no style
+options.
+
 ### Migrating old source
 
 The public parser uses modern spelling by default. Retired spellings receive
@@ -626,7 +671,9 @@ shape Region:
     region_key = unique(id)
 
 source orders: Order = postgres.table("shop.orders")
+
 source customers: Customer = postgres.table("shop.customers")
+
 source regions: Region = postgres.table("shop.regions")
 
 relationship ActiveOrderCustomer(order: Order, customer: Customer):
@@ -725,6 +772,7 @@ shape Customer:
     status: Text | None
 
 source orders: Order = postgres.table("shop.orders")
+
 source customers: Customer = postgres.table("shop.customers")
 
 relationship ActiveOrderCustomer(order: Order, customer: Customer):
@@ -763,7 +811,9 @@ shape Region:
     id: Int
 
 source orders: Order = postgres.table("shop.orders")
+
 source customers: Customer = postgres.table("shop.customers")
+
 source regions: Region = postgres.table("shop.regions")
 
 relationship ActiveOrderCustomer(order: Order, customer: Customer):
@@ -1142,7 +1192,9 @@ shape Region:
     region_key = unique(id)
 
 source customers: Customer = postgres.table("customers")
+
 source orders: Order = postgres.table("orders")
+
 source regions: Region = postgres.table("regions")
 
 relationship CustomerRegion(customer: Customer, region: Region): customer.region_id == region.id
@@ -1713,7 +1765,9 @@ an Unnest let that a JOIN then reads:
 shape Order:
     id: Int
     customer_id: Int
+
 source orders: Order = postgres.table("orders")
+
 query customers_with_orders:
     let recent:
         from orders
@@ -1724,6 +1778,7 @@ query customers_with_orders:
     select:
         customer_id
         recent_orders = collect recent
+
 query expanded:
     from customers_with_orders
     let o = unnest(customers_with_orders.recent_orders)
@@ -3033,6 +3088,7 @@ shape Order:
     amount: Int
 
 source customers: Customer = postgres.table("customers")
+
 source orders: Order = postgres.table("orders")
 
 relationship OrderCustomer(order: Order, customer: Customer):
@@ -3366,7 +3422,6 @@ from "shared/types.pietto" import (
     type UserId,
     shape User as SharedUser,
 )
-
 export type UserId, shape SharedUser
 ```
 

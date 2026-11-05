@@ -97,6 +97,7 @@ shape Order:
     amount: Int
 
 source customers: Customer = postgres.table("shop.customers")
+
 source orders: Order = postgres.table("shop.orders")
 
 relationship PlacedBy(order: Order, customer: Customer):
@@ -237,8 +238,9 @@ lists every command.
   grouping, bounded window expressions and reusable scalar `def` functions,
   which expand at compile time.
 - Single-file `check`, `explain` and `emit-sql` commands with text or JSON
-  output, `migrate` for 0.1.4 sources, and deterministic diagnostics that carry
-  source locations where the stage reporting them has one.
+  output, `migrate` for 0.1.4 sources, `fmt` to format a source file, and
+  deterministic diagnostics that carry source locations where the stage
+  reporting them has one.
 - Single-file INNER, LEFT, RIGHT, FULL and CROSS JOINs, `any` and `not any`
   filters, input-qualified field reads and aggregates guarded against JOIN
   fan-out, for `check` and PostgreSQL and MySQL `emit-sql`, within the

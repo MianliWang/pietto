@@ -24,13 +24,13 @@ diagnostics, or uses a form that a single file refuses, such as a project-only
 form, write the codes it reports after the language word, in report order:
 `pietto PIE-S2105` on the fence line. A clause or grammar fragment that is not
 a complete file uses a `text` fence. Renderers show only the language word, so
-readers do not see the codes.
+readers do not see the codes. Each example is also already formatted: `pietto
+fmt` leaves it unchanged.
 
 ## A complete file
 
 ```pietto
 # shop.pietto: the ten biggest paid orders from Europe
-
 enum Status: pending, paid, shipped
 
 shape Customer:
@@ -45,6 +45,7 @@ shape Order:
     amount_cents: Int
 
 source customers: Customer = postgres.table("shop.customers")
+
 source orders: Order = postgres.table("shop.orders")
 
 query big_paid_orders:
@@ -89,9 +90,9 @@ A bare type never holds None. Add `| None` to a field whose column may be NULL:
 
 ```pietto
 shape Customer:
-    id: Int                # never None
-    name: Text             # never None
-    email: Text | None     # may be None
+    id: Int  # never None
+    name: Text  # never None
+    email: Text | None  # may be None
 
 source customers: Customer = postgres.table("customers")
 
@@ -246,6 +247,7 @@ shape Order:
     customer_id: Int | None
 
 source customers: Customer = postgres.table("customers")
+
 source orders: Order = postgres.table("orders")
 
 query orders_with_customer:
@@ -272,6 +274,7 @@ shape Order:
     customer_id: Int
 
 source customers: Customer = postgres.table("customers")
+
 source orders: Order = postgres.table("orders")
 
 relationship order_customer(order: Order, customer: Customer): order.customer_id == customer.id
@@ -298,6 +301,7 @@ shape Order:
     customer_id: Int
 
 source customers: Customer = postgres.table("customers")
+
 source orders: Order = postgres.table("orders")
 
 query customers_with_orders:
@@ -374,6 +378,7 @@ shape Order:
     customer_id: Int
 
 source customers: Customer = postgres.table("customers")
+
 source orders: Order = postgres.table("orders")
 
 query orders_with_european_customer:
