@@ -997,7 +997,7 @@ class AstBuilder(PiettoVisitor):
         if ctx.AS() is None:
             return JoinClause(
                 span=self._span(ctx),
-                kind=AuthoredJoinKind(ctx.start.text),
+                kind=AuthoredJoinKind(ctx.joinKind().getText()),
                 target_relation_name=identifiers[0].getText(),
                 target_binding_name=identifiers[0].getText(),
                 source_binding_name=None,
@@ -1013,6 +1013,7 @@ class AstBuilder(PiettoVisitor):
                 ),
                 target_binding_span=self._span(identifiers[0]),
                 uses_named_input=True,
+                asof=ctx.ASOF() is not None,
             )
         return JoinClause(
             span=self._span(ctx),

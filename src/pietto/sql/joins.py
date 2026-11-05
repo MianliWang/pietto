@@ -18,6 +18,7 @@ from pietto.ir.model import (
 from pietto.sql.expressions import refuse_text_null_condition, render_expression_sql
 from pietto.sql.mysql_expressions import render_mysql_expression
 from pietto.sql.mysql_render import MySqlRenderError
+from pietto.sql.render import quote_identifier
 
 _JOIN_KEYWORDS = {
     JoinKindIR.INNER: "INNER JOIN",
@@ -107,6 +108,21 @@ def render_join_sql(
         if join.condition is not None:
             conjuncts.append(target.render(join.condition))
         joined = inputs[join.target_input]
+        if join.latest is not None:
+            if target is not POSTGRESQL:
+                raise target.error(
+                    f"{target.name} has no ASOF JOIN yet; emit with --dialect postgres"
+                )
+            # The latest matching row: the declared unique of the keys and
+            # the time makes it one row, and a NULL time never matches.
+            alias = quote_identifier(relation.inputs[join.target_input].binding)
+            lines.append(
+                f"{_JOIN_KEYWORDS[kind]} LATERAL (SELECT * FROM {joined} "
+                f"WHERE {render_conjunction_sql(conjuncts)} "
+                f"ORDER BY {target.render(join.latest)} DESC LIMIT 1) "
+                f"AS {alias} ON TRUE"
+            )
+            continue
         if kind in _EXISTS_KEYWORDS:
             pending.append(
                 f"{_EXISTS_KEYWORDS[kind]} (SELECT 1 FROM {joined} "

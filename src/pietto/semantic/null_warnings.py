@@ -176,11 +176,24 @@ def _left_join_where(
     for target in sorted(first):
         test, leaf = first[target]
         binding = info.inputs[target].binding
+        asof = any(
+            join.target_input == target and join.latest is not None
+            for join in info.joins
+        )
         found.append(
             Diagnostic(
                 code="PIE-S2383",
                 severity=Severity.WARNING,
                 message=(
+                    f"`{_text(leaf)}` is None where `asof left join {binding}` "
+                    "finds no match, so this WHERE test is never True on those "
+                    f"rows and drops them, as `asof inner join {binding}` would; "
+                    f"to keep them, write `x = {_text(leaf)} if <test> else None` "
+                    f"in select, or write `asof inner join {binding}` if only "
+                    "matched rows are wanted"
+                )
+                if asof
+                else (
                     f"`{_text(leaf)}` is None where `left join {binding}` finds "
                     "no match, so this WHERE test is never True on those rows "
                     f"and drops them, as `inner join {binding}` would; to keep "

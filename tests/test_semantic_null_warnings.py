@@ -418,3 +418,28 @@ def test_an_empty_in_list_is_a_constant_and_gets_no_null_warning(body: str) -> N
     # `not in ()` is True and `in ()` False whatever the value is, so the
     # value's None never decides the test.
     assert _check(body) == []
+
+
+def test_a_where_test_of_an_asof_left_join_target_names_the_asof_remedies() -> None:
+    from _pietto_semantic_join_asof import KEY, TIME, asof_query
+
+    source = asof_query(
+        f"asof left join price on {KEY} and {TIME}",
+        after="    where price.amount_cents > 3\n",
+    )
+    parsed = parse_source(source, path="asof.pietto")
+    assert parsed.ast is not None
+    assert [
+        (item.code, item.severity, item.message)
+        for item in analyze(parsed.ast).diagnostics
+    ] == [
+        (
+            "PIE-S2383",
+            Severity.WARNING,
+            "`price.amount_cents` is None where `asof left join price` finds no "
+            "match, so this WHERE test is never True on those rows and drops "
+            "them, as `asof inner join price` would; to keep them, write "
+            "`x = price.amount_cents if <test> else None` in select, or write "
+            "`asof inner join price` if only matched rows are wanted",
+        )
+    ]

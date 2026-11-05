@@ -1133,3 +1133,47 @@ def test_a_join_binding_name_keeps_its_own_span() -> None:
         source_binding_name=None,
     )
     assert built.target_binding_span is None
+
+
+@pytest.mark.parametrize("kind", ["left", "inner", "right"])
+def test_an_asof_join_keeps_its_kind_marker_on_and_spans(kind: str) -> None:
+    on = "o.id == p.id and o.at >= p.at"
+    source = (
+        "query q:\n    from o\n    let p = r\n"
+        f"    asof {kind} join p on {on}\n    select id = o.id\n"
+    )
+    parsed = parse_source(source, path="asof.pietto")
+    assert parsed.ast is not None and parsed.diagnostics == ()
+    (query,) = parsed.ast.definitions
+    assert isinstance(query, QueryDef)
+    (join,) = query.join_clauses
+    assert (join.kind, join.asof, join.uses_named_input) == (
+        AuthoredJoinKind(kind),
+        True,
+        True,
+    )
+    assert (join.target_relation_name, join.target_binding_name) == ("p", "p")
+    end = 5 + len(f"asof {kind} join p on {on}")
+    assert (join.span.line, join.span.column, join.span.end_column) == (4, 5, end)
+    assert join.on_clause is not None
+    assert join.on_clause.span.column == 5 + len(f"asof {kind} join p ")
+    plain = parse_source(source.replace(f"asof {kind}", kind), path="plain.pietto")
+    assert plain.ast is not None
+    (plain_join,) = plain.ast.definitions[0].join_clauses  # type: ignore[union-attr]
+    assert plain_join.asof is False
+
+
+def test_asof_stays_a_name_and_an_asof_marker_needs_a_named_input() -> None:
+    parsed = parse_source(
+        "query asof:\n    from asof\n    select asof = asof.asof\n", path="n.pietto"
+    )
+    assert parsed.ast is not None and parsed.diagnostics == ()
+    with pytest.raises(TypeError, match="asof JOIN marker"):
+        JoinClause(
+            span=Span(path="x", line=1, column=1, end_line=1, end_column=2),
+            kind=AuthoredJoinKind.LEFT,
+            target_relation_name="p",
+            target_binding_name="p",
+            source_binding_name=None,
+            asof=True,
+        )

@@ -377,7 +377,37 @@ def _predicate_key_dependencies(
                 determinants = _key_determinants(pairs, target, key)
                 if determinants is not None:
                     dependencies.append(_KeyDependency(determinants, target, nulls))
+    for join in info.joins:
+        if join.latest is not None:
+            # An asof JOIN keeps at most one target row per earlier row: the
+            # earlier inputs its `on` reads determine it.
+            dependencies.append(
+                _KeyDependency(
+                    tuple(frozenset({item}) for item in _earlier_reads(info, join)),
+                    join.target_input,
+                )
+            )
     return tuple(dependencies)
+
+
+def _earlier_reads(info: RelationJoinsInfo, join: JoinInfo) -> tuple[int, ...]:
+    """The earlier inputs a JOIN's `on` reads, ascending."""
+
+    read: set[int] = set()
+    pending = [] if join.condition is None else [join.condition]
+    while pending:
+        node = pending.pop()
+        ref = (
+            info.field_reads.get(node)
+            if isinstance(node, (NameExpr, DottedNameExpr))
+            else None
+        )
+        if ref is not None and ref.input < join.target_input:
+            read.add(ref.input)
+        pending.extend(child_expressions(node))
+    return tuple(sorted(read))
+
+
 
 
 def _anti_join_dependencies(
@@ -612,14 +642,15 @@ def _message(
         return info.inputs[position].binding
 
     reached = _closure(seed, key_dependencies)
+    repeating = tuple(
+        join
+        for join in info.joins
+        if join.kind not in _NOT_FACTORS
+        and join.target_input not in nulled
+        and _repeats(info, join, factors, reached)
+    )
     repeated = tuple(
-        dict.fromkeys(
-            f"JOIN {binding(join.target_input)}"
-            for join in info.joins
-            if join.kind not in _NOT_FACTORS
-            and join.target_input not in nulled
-            and _repeats(info, join, factors, reached)
-        )
+        dict.fromkeys(f"JOIN {binding(join.target_input)}" for join in repeating)
     )
 
     # Group keys: the source factors, each dropped when the rest still close.
@@ -645,6 +676,12 @@ def _message(
         if repeated
         else "An aggregate may read rows that a JOIN repeats"
     )
+    if repeating and all(join.latest is not None for join in repeating):
+        # An asof JOIN already matches its keys in `on`.
+        return (
+            f"{cause}; use `any(...)` for an input that only filters rows, or "
+            "aggregate in a separate query first"
+        )
     if not picked:
         return cause
 

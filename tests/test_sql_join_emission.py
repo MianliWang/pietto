@@ -13,6 +13,7 @@ from pathlib import Path
 import pytest
 
 import pietto.cli as cli
+from _pietto_semantic_join_asof import KEY, TIME, asof_query
 from pietto.errors import Diagnostic, Severity, SourceLocation
 from pietto.ir import (
     AggregateCallIR,
@@ -2458,3 +2459,112 @@ def test_join_golden_is_deterministic_across_hash_seeds(command: str) -> None:
         assert completed.returncode == 0, completed.stderr
         outputs.append((completed.stdout, completed.stderr))
     assert outputs[0] == outputs[1]
+
+
+_ASOF_PG = (
+    'SELECT\n    "orders"."id" AS "order_id",\n    "{t}"."amount_cents" AS "c"\n'
+    'FROM "shop"."orders" AS "orders"\n'
+    '{kind} JOIN LATERAL (SELECT * FROM "shop"."{table}" AS "{t}" WHERE {where} '
+    'ORDER BY "{t}"."valid_from" DESC LIMIT 1) AS "{t}" ON TRUE'
+)
+_ASOF_KEY = '("orders"."product_id" = "price"."product_id")'
+_ASOF_TIME = '("orders"."ordered_at" >= "price"."valid_from")'
+_ASOF_SEMI = (
+    "let s = prices\n    where any(s.product_id == orders.product_id for s in s)\n"
+    "    let price = prices"
+)
+
+
+def _asof_sql(dialect: str, **query: str) -> tuple[list[str], list[tuple[str, str]]]:
+    source = asof_query(
+        connector="mysql" if dialect == "mysql" else "postgres", **query
+    )
+    parsed = parse_source(source, path="asof.pietto")
+    assert parsed.ast is not None
+    semantic = analyze(parsed.ast)
+    assert semantic.diagnostics == () and semantic.script is not None
+    lowered = build_ir(semantic.script, semantic.model)
+    assert lowered.ir is not None
+    emit = emit_postgres_sql if dialect == "postgres" else emit_mysql_sql
+    result = emit(lowered.ir)
+    return (
+        [item.sql for item in result.artifacts if item.name == "q"],
+        [(item.code, item.message) for item in result.diagnostics],
+    )
+
+
+@pytest.mark.parametrize(
+    ("query", "sql"),
+    [
+        (
+            {"join": f"asof left join price on {KEY} and {TIME}"},
+            _ASOF_PG.format(
+                t="price",
+                kind="LEFT",
+                table="prices",
+                where=f"{_ASOF_KEY} AND {_ASOF_TIME}",
+            ),
+        ),
+        (
+            {"join": f"asof inner join price on {KEY} and {TIME}"},
+            _ASOF_PG.format(
+                t="price",
+                kind="INNER",
+                table="prices",
+                where=f"{_ASOF_KEY} AND {_ASOF_TIME}",
+            ),
+        ),
+        (
+            {
+                "join": f"asof left join price on {KEY} and orders.region == "
+                f"price.region and {TIME}",
+                "let": "let price = prices3",
+            },
+            _ASOF_PG.format(
+                t="price",
+                kind="LEFT",
+                table="prices3",
+                where=f'({_ASOF_KEY} AND ("orders"."region" = "price"."region")) '
+                f"AND {_ASOF_TIME}",
+            ),
+        ),
+        (
+            {
+                "join": "asof inner join price on orders.ordered_at >= price.valid_from",
+                "let": "let price = rates",
+            },
+            _ASOF_PG.format(
+                t="price", kind="INNER", table="rates", where=_ASOF_TIME[1:-1]
+            ),
+        ),
+        (
+            {"join": f"asof left join price on {KEY} and {TIME}", "let": _ASOF_SEMI},
+            _ASOF_PG.format(
+                t="price",
+                kind="LEFT",
+                table="prices",
+                where=f"{_ASOF_KEY} AND {_ASOF_TIME}",
+            )
+            + '\nWHERE EXISTS (SELECT 1 FROM "shop"."prices" AS "_pietto_any_1" '
+            'WHERE "_pietto_any_1"."product_id" = "orders"."product_id")',
+        ),
+    ],
+    ids=["left", "inner", "two_keys", "zero_keys", "semi_first"],
+)
+def test_postgresql_renders_an_asof_join_as_the_latest_lateral_row(
+    query: dict[str, str], sql: str
+) -> None:
+    assert _asof_sql("postgres", **query) == ([sql], [])
+
+
+def test_mysql_refuses_an_asof_join_at_its_relation() -> None:
+    assert _asof_sql("mysql", join=f"asof left join price on {KEY} and {TIME}") == (
+        [],
+        [
+            (
+                "PIE-B1000",
+                "MySQL SQL emission is not implemented for RelationIR: q. "
+                "MySQL has no ASOF JOIN yet; emit with --dialect postgres",
+            )
+        ],
+    )

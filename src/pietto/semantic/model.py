@@ -282,6 +282,7 @@ class JoinInfo:
     equalities: tuple[JoinEqualityInfo, ...]  # oriented source = target; () for M3, M5
     condition: Expression | None  # M3, M4: clause.on_clause.expression (typed)
     null_extends: tuple[int, ...]  # inputs this JOIN null-extends, ascending
+    latest: JoinFieldRef | None = None  # an asof JOIN: its joined time field
 
 
 @dataclass(frozen=True, slots=True)

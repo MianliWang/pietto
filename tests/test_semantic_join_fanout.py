@@ -705,3 +705,24 @@ def test_refined_left_subtree_cannot_determine_an_earlier_cross_input(
         ]
     )
     assert located(result.diagnostics) == expected
+
+
+def test_an_asof_join_repeats_no_earlier_row_but_may_repeat_a_joined_one() -> None:
+    from _pietto_semantic_join_asof import KEY, TIME, asof_query
+
+    join = f"asof left join price on {KEY} and {TIME}"
+
+    def found(select: str) -> list[tuple[str, str]]:
+        parsed = parse_source(asof_query(join, select=select), path="asof.pietto")
+        assert parsed.ast is not None
+        return [(item.code, item.message) for item in analyze(parsed.ast).diagnostics]
+
+    assert found("select total = sum(orders.amount)") == []
+    assert found("select total = sum(price.amount_cents)") == [
+        (
+            "PIE-S2381",
+            "An aggregate may read rows repeated by JOIN price; use `any(...)` "
+            "for an input that only filters rows, or aggregate in a separate "
+            "query first",
+        )
+    ]

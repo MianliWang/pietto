@@ -742,7 +742,8 @@ class JoinClause(Node):
     ``source_binding_name`` and ``traversal_steps`` belong to the retired
     ``from``/``via`` form. Modern parsed JOINs set ``uses_named_input`` and
     leave both absent; a hand-built clause may leave ``target_binding_span``
-    absent.
+    absent. ``asof`` marks a modern ``asof <kind> join``: the latest joined
+    row whose time test holds, at most one per earlier row.
     """
 
     kind: AuthoredJoinKind
@@ -753,10 +754,13 @@ class JoinClause(Node):
     on_clause: JoinOnClause | None = None
     target_binding_span: Span | None = None
     uses_named_input: bool = False
+    asof: bool = False
 
     def __post_init__(self) -> None:
         if type(self.uses_named_input) is not bool:
             raise TypeError("join named-input marker must be an exact bool")
+        if type(self.asof) is not bool or (self.asof and not self.uses_named_input):
+            raise TypeError("an asof JOIN marker is an exact bool of a named input")
         if type(self.kind) is not AuthoredJoinKind:
             raise TypeError("join kind must be an exact authored JOIN kind")
         if type(self.traversal_steps) is not tuple or any(

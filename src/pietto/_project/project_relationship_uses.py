@@ -542,6 +542,9 @@ def project_join_mode(clause: JoinClause) -> str:
 
 
 def project_join_combination_error(clause: JoinClause) -> str | None:
+    if clause.asof:
+        # No asof JOIN reaches the project SQL plan or the portable encoder.
+        return "asof JOIN is not available in projects yet."
     if clause.kind is AuthoredJoinKind.CROSS and clause.on_clause is not None:
         return "CROSS JOIN cannot have ON or VIA."
     return None

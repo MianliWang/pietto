@@ -145,10 +145,24 @@ _CLAUSE_WORDS = {
             PiettoParser.FULL,
             PiettoParser.SEMI,
             PiettoParser.ANTI,
+            PiettoParser.ASOF,
         ),
         "join",
     ),
 }
+_JOIN_KINDS = frozenset(
+    (
+        PiettoParser.INNER,
+        PiettoParser.LEFT,
+        PiettoParser.CROSS,
+        PiettoParser.RIGHT,
+        PiettoParser.FULL,
+        PiettoParser.SEMI,
+        PiettoParser.ANTI,
+    )
+)
+_ASOF_KIND_HINT = "Write `asof left join` or `asof inner join`."
+_ASOF_LINE_HINT = "Write the asof `on` on one line."
 _RELATION_BODY_CONTEXTS = (
     PiettoParser.TableBodyContext,
     PiettoParser.TableDefinitionContext,
@@ -414,6 +428,9 @@ class SyntaxErrorReporter(DefaultErrorStrategy):
         )
         if self._from_parenthesis(recognizer, token):
             message += " " + _FROM_HINT
+        asof = self._asof_hint(token)
+        if asof is not None:
+            message += " " + asof
         self._append(token, message)
 
     def report_out_of_order(self, token: Token) -> None:
@@ -427,6 +444,113 @@ class SyntaxErrorReporter(DefaultErrorStrategy):
 
     def _token(self, index: int) -> Token | None:
         return self.tokens[index] if 0 <= index < len(self.tokens) else None
+
+    def _line_start(self, index: int) -> int:
+        """The index of the first token of the logical line holding ``index``."""
+
+        return self._line_starts[index] if 0 <= index < len(self.tokens) else index
+
+    @cached_property
+    def _line_starts(self) -> list[int]:
+        """The first token of each token's logical line, in one pass, so a
+        message costs the same however long its line is."""
+
+        starts: list[int] = []
+        start = 0
+        for index, token in enumerate(self.tokens):
+            starts.append(start)
+            if token.type in _LAYOUT_TOKEN_TYPES:
+                start = index + 1
+        return starts
+
+    def _asof_hint(self, token: Token) -> str | None:
+        """A hint for an asof JOIN line written in another form."""
+
+        index = _index(token)
+        start = self._line_start(index)
+        first = self._token(start)
+        previous = self._token(index - 1)
+        if (
+            token.type == PiettoParser.ASOF
+            and previous is not None
+            and previous.type in _JOIN_KINDS
+            and start == index - 1
+        ):
+            if previous.type in {PiettoParser.INNER, PiettoParser.LEFT}:
+                return (
+                    f"Write `asof {previous.text} join NAME on ...`; `asof` "
+                    "comes before the kind."
+                )
+            return _ASOF_KIND_HINT
+        if first is None or first.type != PiettoParser.ASOF or start == index:
+            return None
+        if token.type == PiettoParser.JOIN and index == start + 1:
+            return _ASOF_KIND_HINT
+        if not self._asof_join_line(start):
+            # `asof` stays a name: a line that only starts with it keeps its
+            # own message.
+            return None
+        kind = self._token(start + 1)
+        target = self._token(start + 3)
+        if token.type == PiettoParser.AS and kind is not None and target is not None:
+            alias = self._token(index + 1)
+            name = "p" if alias is None or not alias.text else alias.text
+            return (
+                f"First `let {name} = {target.text}`, then "
+                f"`asof {kind.text} join {name} on ...`."
+            )
+        if token.type == PiettoParser.BY and target is not None:
+            earlier = self._from_binding(start)
+            return (
+                f"Match keys in `on`: `on {earlier}.k == {target.text}.k and "
+                f"{earlier}.t >= {target.text}.t`."
+            )
+        if token.type == PiettoParser.NEWLINE:
+            return _ASOF_LINE_HINT
+        return None
+
+    def _asof_join_line(self, start: int) -> bool:
+        """Whether the logical line at ``start`` begins `asof <kind> join`."""
+
+        kind, join = self._token(start + 1), self._token(start + 2)
+        return (
+            self.tokens[start].type == PiettoParser.ASOF
+            and kind is not None
+            and kind.type in _JOIN_KINDS
+            and join is not None
+            and join.type == PiettoParser.JOIN
+        )
+
+    def _asof_name_step(self, recognizer: Any, token: Token) -> Token | None:
+        """The line-initial `asof` of a relation step that is no JOIN, such as
+        `asof = 1`: the grammar reads it as an asof JOIN missing its kind, but
+        the author wrote a name, as before `asof` was a word."""
+
+        index = _index(token)
+        asof, before = self._token(index - 1), self._token(index - 2)
+        following = self._token(index + 1)
+        if (
+            isinstance(recognizer._ctx, PiettoParser.JoinKindContext)
+            and asof is not None
+            and asof.type == PiettoParser.ASOF
+            and (before is None or before.type in _LAYOUT_TOKEN_TYPES)
+            and token.type != PiettoParser.JOIN
+            and (following is None or following.type != PiettoParser.JOIN)
+        ):
+            return asof
+        return None
+
+    def _from_binding(self, index: int) -> str:
+        """The FROM input named on the nearest `from` line before ``index``."""
+
+        while index > 0:
+            index -= 1
+            token = self.tokens[index]
+            if token.type == PiettoParser.FROM and self._line_start(index) == index:
+                following = self._token(index + 1)
+                if following is not None and following.text:
+                    return following.text
+        return "earlier"
 
     def _from_parenthesis(self, recognizer: Any, token: Token) -> bool:
         """Whether ``token`` is a '(' where a FROM clause expects its relation.
@@ -519,8 +643,17 @@ class SyntaxErrorReporter(DefaultErrorStrategy):
         line_start = previous is None or previous.type in _LAYOUT_TOKEN_TYPES
         expected_types = frozenset(expected) if expected is not None else frozenset()
         clause = _CLAUSE_WORDS.get(token.type)
+        if token.type == PiettoParser.ASOF and not self._asof_join_line(_index(token)):
+            # `asof` stays a name: only `asof <kind> join` is a JOIN line.
+            clause = None
         body_line = line_start and isinstance(recognizer._ctx, _RELATION_BODY_CONTEXTS)
-        if body_line and clause is not None:
+        name = self._asof_name_step(recognizer, token)
+        if name is not None:
+            token, message = (
+                name,
+                f"Unknown clause {token_display(name)}; {_CLAUSE_ORDER}",
+            )
+        elif body_line and clause is not None:
             message = _out_of_order(clause)
         elif body_line and token.type not in _LAYOUT_TOKEN_TYPES:
             message = f"Unknown clause {token_display(token)}; {_CLAUSE_ORDER}"
@@ -529,6 +662,8 @@ class SyntaxErrorReporter(DefaultErrorStrategy):
                 message += " " + hint
         elif token.type == PiettoParser.INDENT:
             message = UNEXPECTED_INDENTATION
+            if self._asof_join_line(self._line_start(max(_index(token) - 1, 0))):
+                message += " " + _ASOF_LINE_HINT
         elif PiettoParser.INDENT in expected_types and expected_types <= {
             PiettoParser.INDENT,
             PiettoParser.NEWLINE,
@@ -561,6 +696,9 @@ class SyntaxErrorReporter(DefaultErrorStrategy):
 
         text = token.text or ""
         following = self._token(_index(token) + 1)
+        asof = self._asof_hint(token)
+        if asof is not None:
+            return asof
         if token.type == PiettoParser.WINDOW and isinstance(
             recognizer._ctx, PiettoParser.SelectLineContext
         ):

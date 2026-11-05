@@ -358,6 +358,7 @@ joinClause
     | joinKind JOIN identifier AS identifier NEWLINE
     | joinKind JOIN identifier AS identifier COLON joinInlineStep
     | joinKind JOIN identifier (ON expression)? NEWLINE
+    | ASOF joinKind JOIN identifier (ON expression)? NEWLINE
     ;
 
 joinKind
@@ -811,7 +812,7 @@ identifier
     | LEFT
     | JOIN
     | VIA
-    | CROSS | RIGHT | FULL | SEMI | ANTI
+    | CROSS | RIGHT | FULL | SEMI | ANTI | ASOF
     | UNION | INTERSECT | EXCEPT | ALL | DISTINCT
     | IF | ELSE | IN | CAST
     | VALUES | EXISTS | CAPTURE | SCALAR
@@ -876,6 +877,7 @@ RIGHT: 'right';
 FULL: 'full';
 SEMI: 'semi';
 ANTI: 'anti';
+ASOF: 'asof';
 UNION: 'union';
 INTERSECT: 'intersect';
 EXCEPT: 'except';

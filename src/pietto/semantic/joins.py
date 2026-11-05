@@ -23,6 +23,7 @@ if TYPE_CHECKING:
 from collections.abc import Callable, Iterable, Iterator, Mapping, Sequence
 from dataclasses import dataclass
 
+from pietto import _asof_join as asof
 from pietto._flat_relational_admission import (
     availability_diagnostic,
 )
@@ -40,6 +41,7 @@ from pietto.ast_nodes import (
     NameExpr,
     QueryDef,
     Script,
+    ShapeDef,
     SourceDef,
     Span,
     TableDef,
@@ -56,6 +58,7 @@ from pietto.semantic.existence_generators import written_read
 from pietto.semantic.expressions import (
     _FailedRelationshipTypes,
     _UNKNOWN_VALUE_TYPE,
+    _canonical_resolved_type,
     infer_row_expression,
     is_unknown_function_call,
 )
@@ -231,7 +234,9 @@ def _structure(
             # A self-join of a source without a shape says so for each input.
             found.extend(item for item in opened if item is not None)
         named = _binding_name_diagnostic(definition, ordinal)
-        combined = _combination_diagnostic(clause)
+        combined = _combination_diagnostic(
+            clause, definition.join_clauses[: ordinal - 1]
+        )
         found.extend(item for item in (named, combined) if item is not None)
         if isinstance(target, Diagnostic) or any(opened) or combined is not None:
             continue
@@ -273,8 +278,10 @@ def _without_on_diagnostic(clause: JoinClause, source: JoinInputInfo) -> Diagnos
     return _diagnostic(
         clause.span,
         "PIE-S2335",
-        f"JOIN {clause.target_binding_name}: write `on` with the condition that "
-        f"matches {source.binding} to {clause.target_relation_name}",
+        asof.missing_on_message(source.binding, clause.target_binding_name)
+        if clause.asof
+        else f"JOIN {clause.target_binding_name}: write `on` with the condition "
+        f"that matches {source.binding} to {clause.target_relation_name}",
     )
 
 
@@ -353,9 +360,16 @@ def _binding_name_diagnostic(
     return _diagnostic(clause.target_binding_span or clause.span, "PIE-S2335", message)
 
 
-def _combination_diagnostic(clause: JoinClause) -> Diagnostic | None:
-    """Refuse a CROSS JOIN with `on` (PIE-S2336)."""
+def _combination_diagnostic(
+    clause: JoinClause, earlier: Sequence[JoinClause] = ()
+) -> Diagnostic | None:
+    """Refuse a CROSS JOIN with `on`, an asof JOIN of another kind than LEFT
+    or INNER, and a second asof JOIN in one relation (PIE-S2336)."""
 
+    if clause.asof and clause.kind not in asof.ASOF_KINDS:
+        return _diagnostic(clause.span, "PIE-S2336", asof.ASOF_KIND_MESSAGE)
+    if clause.asof and any(item.asof for item in earlier):
+        return _diagnostic(clause.span, "PIE-S2336", asof.ASOF_SECOND_MESSAGE)
     if clause.kind is AuthoredJoinKind.CROSS and clause.on_clause is not None:
         return _diagnostic(
             clause.span, "PIE-S2336", "CROSS JOIN cannot have ON or VIA."
@@ -641,6 +655,7 @@ def check_join_semantics(
     type_expansions: Mapping[TypeExpr, ResolvedType],
     failed_relationship_calls: Sequence[RelationshipCallFailure] = (),
     any_binders: Mapping[str, str] | None = None,
+    type_symbols: Mapping[str, Definition] | None = None,
 ) -> JoinChecks:
     """Resolve the reads and type the `on` of each JOIN relation.
 
@@ -704,6 +719,7 @@ def check_join_semantics(
             reads=reads,
             failed_relationship_calls=failed_relationship_calls,
             any_binders=any_binders or {},
+            type_symbols=type_symbols or {},
         )
         if info is not None:
             facts[definition] = info
@@ -728,6 +744,7 @@ def _relation_joins(
     reads: dict[SourceLocation, Diagnostic],
     failed_relationship_calls: Sequence[RelationshipCallFailure],
     any_binders: Mapping[str, str],
+    type_symbols: Mapping[str, Definition],
 ) -> RelationJoinsInfo | None:
     """Resolve one structured relation's reads and type its `on` conditions;
     its facts when no read fails and no `on` has an error."""
@@ -784,6 +801,7 @@ def _relation_joins(
                     )
             fail(leaf, "PIE-S2102", message)
     joins: list[JoinInfo] = []
+    latest: dict[int, JoinFieldRef] = {}
     for join, on_row in zip(structure.joins, rows.on, strict=True):
         on_clause = join.clause.on_clause
         if on_clause is not None:
@@ -842,7 +860,28 @@ def _relation_joins(
             clean = clean and not any(
                 diagnostic.severity is Severity.ERROR for diagnostic in found
             )
-        joins.append(_join_info(join, _visible_before(definition, join.ordinal)))
+            if join.clause.asof and not failed and not found:
+                # A conjunct with its own error gets no form message.
+                checked = _asof_diagnostic(
+                    definition,
+                    join,
+                    found_inputs,
+                    expression_value_types=expression_value_types,
+                    type_expansions=type_expansions,
+                    type_symbols=type_symbols,
+                )
+                if isinstance(checked, Diagnostic):
+                    diagnostics.append(checked)
+                    clean = False
+                else:
+                    latest[join.ordinal] = checked
+        joins.append(
+            _join_info(
+                join,
+                _visible_before(definition, join.ordinal),
+                latest.get(join.ordinal),
+            )
+        )
     if not clean:
         return None
     return RelationJoinsInfo(
@@ -934,7 +973,72 @@ def _type_join_on(
     return found
 
 
-def _join_info(join: StructuredJoin, earlier: tuple[int, ...]) -> JoinInfo:
+def _asof_diagnostic(
+    definition: DerivedRelation,
+    join: StructuredJoin,
+    inputs: _Inputs,
+    *,
+    expression_value_types: Mapping[Expression, ValueType],
+    type_expansions: Mapping[TypeExpr, ResolvedType],
+    type_symbols: Mapping[str, Definition],
+) -> Diagnostic | JoinFieldRef:
+    """An asof JOIN's form, time and key types and uniqueness (PIE-S2336,
+    PIE-S2386); its joined time field when all hold."""
+
+    clause = join.clause
+    earlier = _visible_before(definition, join.ordinal)
+    names = [inputs.infos[item].binding for item in earlier]
+    form = asof.asof_form(clause, names, names[0])
+    if isinstance(form, asof.AsofRefusal):
+        return _diagnostic(form.span, "PIE-S2336", form.message)
+
+    def canonical(leaf: Expression) -> str | None:
+        found = _canonical_resolved_type(expression_value_types[leaf], type_expansions)
+        return (
+            None
+            if found is None or found.kind is not TypeKind.BUILTIN
+            else (found.name)
+        )
+
+    for left, right in form.keys:
+        message = asof.key_type_message(canonical(left)) or asof.key_type_message(
+            canonical(right)
+        )
+        if message is not None:
+            return _diagnostic(left.span, "PIE-S2336", message)
+    left, right = form.time
+    message = asof.time_type_message(canonical(left), canonical(right))
+    if message is not None:
+        return _diagnostic(left.span, "PIE-S2336", message)
+    target = inputs.infos[join.ordinal].relation
+    shape = (
+        type_symbols.get(target.shape_name)
+        if isinstance(target, SourceDef) and target.shape_name is not None
+        else None
+    )
+    if not isinstance(shape, ShapeDef):
+        return _diagnostic(clause.span, "PIE-S2386", asof.ASOF_SOURCE_MESSAGE)
+    message = asof.unique_message(
+        form,
+        first=names[0],
+        target=clause.target_binding_name,
+        shape=shape.name,
+        uniques=[(item.name, item.field_names) for item in shape.uniques],
+        earlier_fields=[
+            (inputs.infos[item].binding, inputs.schemas[item].fields)
+            for item in earlier
+        ],
+    )
+    if message is not None:
+        return _diagnostic(clause.span, "PIE-S2386", message)
+    return JoinFieldRef(input=join.ordinal, field=right.parts[1])
+
+
+def _join_info(
+    join: StructuredJoin,
+    earlier: tuple[int, ...],
+    latest: JoinFieldRef | None = None,
+) -> JoinInfo:
     """One JOIN's facts: an `on` JOIN or a CROSS JOIN, which no relationship
     resolves, from the FROM input."""
 
@@ -952,6 +1056,7 @@ def _join_info(join: StructuredJoin, earlier: tuple[int, ...]) -> JoinInfo:
         equalities=(),
         condition=None if clause.on_clause is None else clause.on_clause.expression,
         null_extends=_null_extends(clause.kind, join.ordinal, earlier),
+        latest=latest,
     )
 
 

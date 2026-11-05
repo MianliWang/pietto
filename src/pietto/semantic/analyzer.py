@@ -809,6 +809,7 @@ def _analyze(
             type_expansions=type_expansions,
             failed_relationship_calls=failed_relationship_calls,
             any_binders=any_binders(existence_generators),
+            type_symbols=type_symbols,
         )
         diagnostics.extend(checks.diagnostics)
         for definition, info in checks.facts.items():

@@ -12,6 +12,7 @@ from _pietto_parser_layout import layout_free
 from pietto import cli, source_format
 from pietto.indentation import IndentationResult, find_leading_tab_diagnostics
 from pietto.parser_api import parse_source
+from pietto.semantic import analyze
 from pietto.source_format import FormatRefusedError, format_source
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
@@ -517,3 +518,35 @@ def test_output_over_the_size_budget_is_refused(
     )
     with pytest.raises(FormatRefusedError, match="would exceed the maximum supported"):
         format_source(source)
+
+
+def test_the_asof_join_example_is_a_fixed_point_and_only_reindents() -> None:
+    from _pietto_semantic_join_asof import CANONICAL
+
+    assert _formatted(CANONICAL) == CANONICAL
+    narrow = CANONICAL.replace("\n    ", "\n  ")
+    assert narrow != CANONICAL and _formatted(narrow) == CANONICAL
+
+
+def test_an_asof_join_fmt_cannot_admit_stays_refused_or_byte_identical() -> None:
+    from _pietto_semantic_join_asof import CANONICAL
+
+    line = (
+        "asof left join price on orders.product_id == price.product_id and "
+        "orders.ordered_at >= price.valid_from"
+    )
+    parenthesized = CANONICAL.replace(
+        line,
+        "asof left join price on (orders.product_id == price.product_id\n"
+        "        and orders.ordered_at >= price.valid_from)",
+    )
+    result = format_source(parenthesized)
+    assert result.source is None
+    assert [item.code for item in result.diagnostics] == ["PIE-P1000"]
+    reversed_ = CANONICAL.replace(
+        "orders.ordered_at >= price.valid_from", "price.valid_from <= orders.ordered_at"
+    )
+    assert _formatted(reversed_) == reversed_
+    parsed = parse_source(reversed_, path="asof.pietto")
+    assert parsed.ast is not None
+    assert [item.code for item in analyze(parsed.ast).diagnostics] == ["PIE-S2336"]

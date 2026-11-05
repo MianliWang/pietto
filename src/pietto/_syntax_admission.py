@@ -457,6 +457,29 @@ def _follows_select(declaration: Any) -> bool:
     return type(declaration.parentCtx).__name__ == "TableBodyContext"
 
 
+def _first_parenthesis(tree: Any) -> Any:
+    """The '(' of the first grouping `( expression )` inside a parse subtree,
+    or None; a call's or an `in` list's parentheses are no grouping."""
+
+    from antlr4.tree.Tree import TerminalNodeImpl
+
+    pending = [] if tree is None else [tree]
+    while pending:
+        node = pending.pop()
+        if isinstance(node, TerminalNodeImpl):
+            continue
+        children: list[Any] = list(getattr(node, "children", None) or ())
+        if (
+            type(node).__name__ == "PrimaryExpressionContext"
+            and children
+            and isinstance(children[0], TerminalNodeImpl)
+            and children[0].getSymbol().text == "("
+        ):
+            return children[0].getSymbol()
+        pending.extend(reversed(children))
+    return None
+
+
 def modern_spelling_diagnostics(
     tree: object, *, path: str | Path | None = None, cancel: Event | None = None
 ) -> tuple[Diagnostic, ...]:
@@ -550,6 +573,13 @@ def modern_spelling_diagnostics(
         elif kind == "RelationshipDefinitionContext":
             token = node.start
             suggestion = "Declare a shape-typed 'relationship Name(role: Shape, ...):' predicate; source-bound metadata requires an explicit migration review."
+        elif kind == "JoinClauseContext" and context.ASOF() is not None:
+            # Line breaks inside parentheses are joined before parsing, and the
+            # builder steps through them, so they are refused on the tree.
+            paren = _first_parenthesis(context.expression())
+            if paren is not None:
+                token = paren
+                suggestion = "Write the asof `on` on one line without parentheses."
         elif kind == "JoinClauseContext" and context.start.text in {"semi", "anti"}:
             # Every semi/anti JOIN becomes an any() filter, never a left join.
             join = context.start.text

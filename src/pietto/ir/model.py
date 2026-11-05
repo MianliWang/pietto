@@ -506,6 +506,7 @@ class JoinIR:
     condition: ExpressionIR | None  # M3, M4: the lowered `on`, typed Bool
     null_extends: tuple[int, ...]
     span: SourceSpan  # the JoinClause
+    latest: FieldRefIR | None = None  # an asof JOIN: its joined time field
 
 
 @dataclass(frozen=True, slots=True)

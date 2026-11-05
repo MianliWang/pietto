@@ -10,10 +10,13 @@ from collections.abc import Callable, Iterator, Mapping
 from contextlib import contextmanager
 from dataclasses import dataclass
 
+from pietto._asof_join import conjuncts
 from pietto.ast_nodes import (
     AuthoredJoinKind,
+    ComparisonExpr,
     DottedNameExpr,
     Expression,
+    JoinClause,
     NameExpr,
     Node,
     QueryDef,
@@ -213,16 +216,43 @@ def _facts_describe(definition: TableDef | QueryDef, info: RelationJoinsInfo) ->
             or (clause.on_clause is None and clause.kind is not AuthoredJoinKind.CROSS)
             or join.relationship is not None
             or join.equalities
+            or join.latest != _asof_time(clause, item.ordinal)
         ):
             return False
     ordinals = range(len(info.inputs))
     return all(reference.input in ordinals for reference in info.field_reads.values())
 
 
+def _asof_time(clause: JoinClause, target: int) -> JoinFieldRef | None:
+    """The joined field of an asof JOIN's final `>=` test, as written; None
+    for any other JOIN. A dropped time field would render a fan-out JOIN."""
+
+    if not clause.asof or clause.on_clause is None:
+        return None
+    last = conjuncts(clause.on_clause.expression)[-1]
+    if (
+        type(last) is not ComparisonExpr
+        or last.operator != ">="
+        or type(last.right) is not DottedNameExpr
+        or len(last.right.parts) != 2
+        or last.right.parts[0] != clause.target_binding_name
+    ):
+        return None
+    return JoinFieldRef(input=target, field=last.right.parts[1])
+
+
 def _lower_join(
     join: JoinInfo,
     lower_condition: Callable[[Expression], ExpressionIR],
 ) -> JoinIR:
+    latest = None
+    if join.latest is not None:
+        assert join.condition is not None
+        last = conjuncts(join.condition)[-1]
+        assert type(last) is ComparisonExpr
+        latest = lower_condition(last.right)
+        if type(latest) is not FieldRefIR:
+            raise JoinLoweringError(join.clause, "asof JOIN time field")
     return JoinIR(
         ordinal=join.ordinal,
         kind=JoinKindIR(join.kind.value),
@@ -233,6 +263,7 @@ def _lower_join(
         condition=None if join.condition is None else lower_condition(join.condition),
         null_extends=join.null_extends,
         span=lower_span(join.clause.span),
+        latest=latest,
     )
 
 

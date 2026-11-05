@@ -1455,3 +1455,215 @@ def test_message_and_suggestion_templates_teach_only_modern_spelling() -> None:
     assert [
         (fragment, where) for fragment, where in fragments if fragment in retired
     ] == []
+
+
+_ASOF_ON = (
+    "orders.product_id == price.product_id and orders.ordered_at >= price.valid_from"
+)
+
+
+@pytest.mark.parametrize(
+    ("join", "position", "message"),
+    [
+        (
+            f"inner asof join price on {_ASOF_ON}",
+            (7, 11),
+            "Unexpected 'asof'. Write `asof inner join NAME on ...`; `asof` comes "
+            "before the kind.",
+        ),
+        (
+            f"left asof join price on {_ASOF_ON}",
+            (7, 10),
+            "Unexpected 'asof'. Write `asof left join NAME on ...`; `asof` comes "
+            "before the kind.",
+        ),
+        (
+            f"right asof join price on {_ASOF_ON}",
+            (7, 11),
+            "Unexpected 'asof'. Write `asof left join` or `asof inner join`.",
+        ),
+        (
+            f"asof join price on {_ASOF_ON}",
+            (7, 10),
+            "Missing 'inner', 'left', 'cross', 'right', 'full', 'semi' or 'anti' "
+            "before 'join'. Write `asof left join` or `asof inner join`.",
+        ),
+        (
+            f"asof left join prices as p on {_ASOF_ON}",
+            (7, 27),
+            "Unexpected 'as'; expected 'on' or end of line. First `let p = "
+            "prices`, then `asof left join p on ...`.",
+        ),
+        (
+            "asof left join price by product_id on orders.ordered_at >= price.valid_from",
+            (7, 26),
+            "Unexpected 'by'; expected 'on' or end of line. Match keys in `on`: "
+            "`on orders.k == price.k and orders.t >= price.t`.",
+        ),
+        (
+            "asof left join price on orders.product_id == price.product_id and\n"
+            "        orders.ordered_at >= price.valid_from",
+            (7, 70),
+            "Unexpected end of line; expected an expression. Write the asof `on` "
+            "on one line.",
+        ),
+        (
+            "asof left join price on orders.product_id == price.product_id\n"
+            "        and orders.ordered_at >= price.valid_from",
+            (8, 9),
+            "Unexpected indentation. Write the asof `on` on one line.",
+        ),
+        (
+            "asof left join price on (orders.product_id == price.product_id) and "
+            "orders.ordered_at >= price.valid_from",
+            (7, 29),
+            "This spelling is not accepted by the modern syntax. Write the asof "
+            "`on` on one line without parentheses.",
+        ),
+        (
+            "asof left join price on (orders.product_id == price.product_id\n"
+            "        and orders.ordered_at >= price.valid_from)",
+            (7, 29),
+            "This spelling is not accepted by the modern syntax. Write the asof "
+            "`on` on one line without parentheses.",
+        ),
+    ],
+    ids=[
+        "inner_asof",
+        "left_asof",
+        "other_kind_asof",
+        "no_kind",
+        "as_alias",
+        "by_keys",
+        "break_after_and",
+        "leading_and",
+        "parentheses",
+        "parentheses_lines",
+    ],
+)
+def test_asof_join_lines_in_another_form_are_refused_with_the_asof_form(
+    join: str, position: tuple[int, int], message: str
+) -> None:
+    let = "" if " as p" in join else "    let price = prices\n"
+    source = (
+        'shape R:\n    id: Int\nsource orders: R = postgres.table("o")\n'
+        'source prices: R = postgres.table("p")\nquery q:\n    from orders\n'
+        f"{let}    {join}\n    select id = orders.id\n"
+    )
+    position = (position[0] + bool(let), position[1])
+    found = parse_source(source, path="asof.pietto").diagnostics
+    assert [
+        (item.code, (item.location.line, item.location.column), item.message)
+        for item in found
+    ] == [("PIE-P1000", position, message)]
+
+
+@pytest.mark.parametrize(
+    "lines",
+    [
+        "shape S:\n    {name}:\n",
+        "shape S:\n    {name}: Timestamp\n        id: Int\n",
+        "shape S:\n    {name} Int\n",
+        "query q:\n    from orders\n    select:\n        {name} =\n",
+        "query q:\n    from orders\n    select:\n        {name} = orders.id +\n",
+        "query q:\n    from orders\n    select:\n        {name} = orders.id as x\n",
+        "query q:\n    from orders\n    select:\n        {name} = orders.id by x\n",
+        "query q:\n    from orders\n    select:\n        {name} = orders.id\n"
+        "            id = orders.id\n",
+        "query q:\n    from orders\n    {name}\n    select id = orders.id\n",
+        "query q:\n    from orders\n    {name} = 1\n    select id = orders.id\n",
+        "query q:\n    {name} = 1\n    from orders\n    select id = orders.id\n",
+        "query q:\n    from orders\n    select id = orders.id\n    {name} = 1\n",
+        "query q:\n    from orders\n    group by orders.id\n    {name}\n"
+        "    select id = orders.id\n",
+        "query q:\n    let t:\n        {name}: Int\n        from orders\n"
+        "        select id = orders.id\n    from t\n    select id = t.id\n",
+    ],
+    ids=[
+        "field_no_type",
+        "field_then_indent",
+        "field_no_colon",
+        "select_no_value",
+        "select_line_break",
+        "select_as",
+        "select_by",
+        "select_then_indent",
+        "step_alone",
+        "step_assign",
+        "before_from",
+        "after_select",
+        "after_group_by",
+        "let_block_before_from",
+    ],
+)
+def test_an_invalid_line_that_names_asof_keeps_the_message_of_any_other_name(
+    lines: str,
+) -> None:
+    def found(name: str) -> list[tuple[str, int, int, str]]:
+        source = 'shape R:\n    id: Int\nsource orders: R = postgres.table("o")\n'
+        return [
+            (item.code, item.location.line, item.location.column, item.message)
+            for item in parse_source(
+                source + lines.format(name=name), path="asof.pietto"
+            ).diagnostics
+        ]
+
+    other = found("tick")
+    assert other
+    assert found("asof") == [
+        (code, line, column, message.replace("'tick'", "'asof'"))
+        for code, line, column, message in other
+    ]
+
+
+@pytest.mark.parametrize("line", ["    {name}\n", "    {name} = 1\n"])
+def test_a_capitalized_asof_line_gets_the_keyword_case_hint_as_left_does(
+    line: str,
+) -> None:
+    def found(name: str) -> list[tuple[str, int, int, str]]:
+        source = (
+            'shape R:\n    id: Int\nsource orders: R = postgres.table("o")\n'
+            "query q:\n    from orders\n"
+            + line.format(name=name)
+            + "    select id = orders.id\n"
+        )
+        return [
+            (item.code, item.location.line, item.location.column, item.message)
+            for item in parse_source(source, path="asof.pietto").diagnostics
+        ]
+
+    other = found("Tick")
+    assert len(other) == 1
+    for name in ("Asof", "Left"):
+        assert found(name) == [
+            (
+                code,
+                line_number,
+                column,
+                message.replace("'Tick'", f"'{name}'")
+                + f" Keywords are lowercase: write `{name.lower()}`.",
+            )
+            for code, line_number, column, message in other
+        ]
+
+
+@pytest.mark.parametrize(
+    "before",
+    [
+        "    select id = orders.id\n",
+        "    let w = window(order by orders.id)\n    where orders.id > 1\n",
+    ],
+)
+def test_an_asof_join_out_of_order_is_a_join_clause_out_of_order(before: str) -> None:
+    source = (
+        'shape R:\n    id: Int\nsource orders: R = postgres.table("o")\n'
+        "query q:\n    from orders\n    let price = orders\n"
+        + before
+        + "    asof left join price on orders.id >= price.id\n"
+        + ("" if "select" in before else "    select id = orders.id\n")
+    )
+    (found,) = parse_source(source, path="asof.pietto").diagnostics
+    assert (found.code, found.message) == (
+        "PIE-P1000",
+        "Clause `join` is out of order or repeated; " + _ORDER,
+    )

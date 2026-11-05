@@ -1949,3 +1949,36 @@ def test_build_after_failed_tail_check_reports_the_unresolved_field_read() -> No
             selected.span.column,
         )
     ]
+
+
+def test_an_asof_join_lowers_its_joined_time_field_and_needs_it() -> None:
+    from _pietto_semantic_join_asof import CANONICAL
+
+    parsed = parse_source(CANONICAL, path="asof.pietto")
+    assert parsed.ast is not None
+    semantic = analyze(parsed.ast)
+    assert semantic.script is not None
+    lowered = build_ir(semantic.script, semantic.model)
+    assert lowered.ir is not None and lowered.diagnostics == ()
+    (relation,) = [
+        item for item in lowered.ir.definitions if isinstance(item, RelationIR)
+    ]
+    (join,) = relation.joins
+    assert join.latest is not None
+    assert (join.latest.qualifier, join.latest.name) == (("price",), "valid_from")
+    assert join.latest.field == FieldId(
+        owner=relation.inputs[1].target, name="valid_from", input=1
+    )
+    # Facts that drop the time field would render a fan-out LEFT JOIN.
+    (query,) = [
+        item for item in semantic.script.definitions if isinstance(item, QueryDef)
+    ]
+    facts = semantic.model.relation_joins[query]
+    damaged = replace(facts, joins=(replace(facts.joins[0], latest=None),))
+    result = build_ir(
+        semantic.script, replace(semantic.model, relation_joins={query: damaged})
+    )
+    assert result.ir is None
+    assert [(item.code, item.message) for item in result.diagnostics] == [
+        ("PIE-I1000", FACT_FAILURE + "resolved JOIN facts")
+    ]
