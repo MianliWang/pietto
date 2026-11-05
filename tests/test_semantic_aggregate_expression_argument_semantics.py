@@ -461,6 +461,18 @@ def test_unread_let_keeps_independent_aggregate_type_errors(grouped: bool) -> No
             "    select:\n        c = count(lower(x + 1))\n",
             _COUNT_ARGUMENT_ERROR + (5, 13),
         ),
+        # `concat` of any arity gives a Text, which `sum` does not take.
+        (
+            "    group by kind\n    select:\n        kind\n"
+            "        s = sum(concat(t, u, t))\n",
+            (
+                "PIE-S2314",
+                "Aggregate function sum expects Int, Float, or Decimal field "
+                "argument, got Text",
+                7,
+                13,
+            ),
+        ),
         (
             "    select:\n        c = count((x + 1) and y)\n",
             _COUNT_ARGUMENT_ERROR + (5, 13),

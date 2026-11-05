@@ -353,7 +353,6 @@ _COLLECT = (
     [
         ("length(email)", "use `len(Text)` instead"),
         ("char_length(email)", "use `len(Text)` instead"),
-        ('concat(email, "!")', "string concatenation is not supported yet"),
         (
             "generate_series(1, 3, 1)",
             "it is a table function, read with `from generate_series(start, stop, "
@@ -372,6 +371,9 @@ _COLLECT = (
         # A name written with capitals gets the hint of its lowercase spelling.
         ("LENGTH(email)", "use `len(Text)` instead"),
         ("Median(count)", _AGGREGATES),
+        # Lowercase `concat` is a builtin.
+        ('CONCAT(email, "!")', "write `concat(...)` in lowercase"),
+        ("Concat(email, email)", "write `concat(...)` in lowercase"),
     ],
 )
 def test_unknown_function_of_a_sql_or_python_habit_names_the_pietto_form(
@@ -533,6 +535,118 @@ def test_q1_closed_builtin_catalog_has_typed_nullable_results() -> None:
     assert all(
         value_type.nullability is EffectiveNullability.NULLABLE for value_type in types
     )
+
+
+_CONCAT_SOURCE = (
+    "type Label = Text\n"
+    "shape Item:\n"
+    "    code: Text\n"
+    "    note: Text | None\n"
+    "    tag: Label\n"
+    "    qty: Int\n"
+    "    amount: Decimal\n"
+    'source items: Item = postgres.table("items")\n'
+    "table projected:\n"
+    "    from items\n"
+    "    select:\n"
+)
+
+
+def test_concat_joins_text_and_is_null_when_any_argument_is() -> None:
+    result = analyze(
+        _parse(
+            _CONCAT_SOURCE + '        pair = concat(code, "-")\n'
+            "        triple = concat(code, note, tag)\n"
+            "        nulled = concat(code, None)\n"
+            '        framed = concat("[", tag, "]")\n'
+        )
+    )
+    table = _table(result)
+    types = tuple(
+        result.model.expression_value_types[item.expression]
+        for item in table.select_items
+    )
+
+    assert result.diagnostics == ()
+    assert {value_type.resolved_type.name for value_type in types} == {"Text"}
+    assert tuple(value_type.nullability for value_type in types) == (
+        EffectiveNullability.NON_NULL,
+        EffectiveNullability.NULLABLE,
+        EffectiveNullability.NULLABLE,
+        EffectiveNullability.NON_NULL,
+    )
+    # A None argument is read as a Text, as for the other Text builtins.
+    null_argument = table.select_items[2].expression
+    assert isinstance(null_argument, CallExpr)
+    assert (
+        result.model.expression_value_types[
+            null_argument.arguments[1]
+        ].resolved_type.name
+        == "Text"
+    )
+
+
+@pytest.mark.parametrize(
+    ("call", "message"),
+    [
+        (
+            "concat(code)",
+            "Invalid arguments for function concat: expected at least 2, got 1",
+        ),
+        (
+            "concat()",
+            "Invalid arguments for function concat: expected at least 2, got 0",
+        ),
+        (
+            "concat(code, qty)",
+            "Invalid argument type for function concat at position 2: "
+            "expected Text, got Int",
+        ),
+        (
+            "concat(code, tag, True)",
+            "Invalid argument type for function concat at position 3: "
+            "expected Text, got Bool",
+        ),
+        (
+            "concat(code, amount / 2)",
+            "Invalid argument type for function concat at position 2: "
+            "expected Text, got numeric",
+        ),
+    ],
+)
+def test_concat_refuses_one_argument_and_a_non_text_argument(
+    call: str, message: str
+) -> None:
+    result = analyze(_parse(_CONCAT_SOURCE + f"        value = {call}\n"))
+
+    assert [(d.code, d.message) for d in result.diagnostics] == [("PIE-S2104", message)]
+
+
+@pytest.mark.parametrize(
+    ("body", "expected"),
+    [
+        (
+            "    select:\n        v = not concat(t, u)\n",
+            ("PIE-S2105", "Invalid operands for operator not: expected Bool operand"),
+        ),
+        (
+            "    where concat(t, u)\n    select:\n        t\n",
+            ("PIE-S2202", "Expected Bool expression in where clause"),
+        ),
+    ],
+)
+def test_concat_is_text_in_a_condition_over_a_row_of_unknown_type(
+    body: str, expected: tuple[str, str]
+) -> None:
+    result = analyze(
+        _parse(
+            'source items = postgres.table("items")\nquery q:\n    from items\n' + body
+        )
+    )
+
+    assert [
+        (d.code, d.message) for d in result.diagnostics if d.severity is Severity.ERROR
+    ] == [expected]
 
 
 def test_abs_keeps_its_argument_type_and_nullability() -> None:

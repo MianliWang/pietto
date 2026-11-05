@@ -285,7 +285,7 @@ def test_a_legacy_flat_check_reports_each_expression_error_as_a_single_file_does
             "PIE-S2105",
             (path, line, 13, line, 19),
             "Invalid operands for operator +: expected numeric operands; "
-            "string concatenation is not supported yet",
+            "use `concat(...)` with `Text(n)` to join Text values",
         ),
         (
             "PIE-S2105",
@@ -343,6 +343,87 @@ def test_a_legacy_flat_check_names_a_constraint_or_derive_of_another_file(
     ]
 
 
+def test_a_legacy_flat_check_keeps_a_derive_named_concat_of_another_file(
+    tmp_path: Path,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    """Its files are one callable namespace, so a `derive concat` of another
+    file keeps `concat` from naming the builtin, as in 0.1.7: a call says
+    that it cannot be called, and `+` of a Text does not point to it."""
+    root = _project_root(tmp_path, include=("*.pietto",))
+    _write(
+        root,
+        "a.pietto",
+        _FLAT_HEAD + "derive concat(x: Text, y: Text) -> Text:\n    return x\n",
+    )
+    _write(
+        root,
+        "b.pietto",
+        "query q:\n    from src\n    select:\n        id\n"
+        "        v = concat(t, t)\n        w = t + t\n",
+    )
+
+    assert cli.main(["check", "--project", str(root), "--format", "json"]) == 1
+
+    assert _located(_read_json_document(capsys)) == [
+        (
+            "PIE-S2103",
+            ("b.pietto", 5, 13, 5, 25),
+            "Unknown function: concat; concat is a derive, which cannot be "
+            "called; write a `def` instead",
+        ),
+        (
+            "PIE-S2105",
+            ("b.pietto", 6, 13, 6, 18),
+            "Invalid operands for operator +: expected numeric operands; "
+            "string concatenation is not supported yet",
+        ),
+    ]
+
+
+@pytest.mark.parametrize(
+    ("name", "broken", "hint"),
+    [
+        ("concat", False, "String concatenation with `||` is not supported yet."),
+        ("concat", True, "String concatenation with `||` is not supported yet."),
+        (
+            "normalized",
+            True,
+            "Write `concat(a, b)` to join Text, or `or` for a condition.",
+        ),
+    ],
+    ids=["concat", "concat-unparsed", "other"],
+)
+def test_a_legacy_flat_double_pipe_hint_reads_the_callables_of_every_file(
+    tmp_path: Path,
+    capsys: pytest.CaptureFixture[str],
+    name: str,
+    broken: bool,
+    hint: str,
+) -> None:
+    """Beside a `derive concat` of another file, also one that does not parse,
+    `||` keeps the 0.1.7 hint, as `concat` names that derive."""
+    root = _project_root(tmp_path, include=("*.pietto",))
+    _write(
+        root,
+        "a.pietto",
+        _FLAT_HEAD
+        + f"derive {name}(x: Text, y: Text) -> Text:\n    return x\n"
+        + ("shape Broken\n" if broken else ""),
+    )
+    _write(root, "b.pietto", "query q:\n    from src\n    select v = t || t\n")
+
+    assert cli.main(["check", "--project", str(root), "--format", "json"]) == 1
+
+    located = _located(_read_json_document(capsys))
+    assert [item[1][0] for item in located] == ["a.pietto"] * broken + ["b.pietto"]
+    assert located[-1] == (
+        "PIE-P1000",
+        ("b.pietto", 3, 18, None, None),
+        "Unexpected '|'. " + hint,
+    )
+
+
 def test_a_legacy_flat_check_reports_its_model_errors_first_and_once(
     tmp_path: Path,
     capsys: pytest.CaptureFixture[str],
@@ -366,7 +447,7 @@ def test_a_legacy_flat_check_reports_its_model_errors_first_and_once(
             "PIE-S2105",
             ("main.pietto", 9, 13, 9, 19),
             "Invalid operands for operator +: expected numeric operands; "
-            "string concatenation is not supported yet",
+            "use `concat(...)` with `Text(n)` to join Text values",
         ),
     ]
 
@@ -400,7 +481,7 @@ def test_a_legacy_flat_check_past_the_expression_bound_reports_its_model_errors(
             "PIE-S2105",
             ("a.pietto", 9, 13, 9, 19),
             "Invalid operands for operator +: expected numeric operands; "
-            "string concatenation is not supported yet",
+            "use `concat(...)` with `Text(n)` to join Text values",
         ),
     ]
 
@@ -481,7 +562,7 @@ _LEGACY_FLAT_LET_EXTREMA = _FLAT_HEAD + (
 )
 _PLUS_TEXT = (
     "Invalid operands for operator +: expected numeric operands; "
-    "string concatenation is not supported yet"
+    "use `concat(...)` with `Text(n)` to join Text values"
 )
 # A legacy-flat project has no JOIN in the current syntax: each JOIN `on` of
 # these sources is PIE-S2334 there, before the shared diagnostics.
@@ -835,8 +916,8 @@ def test_a_legacy_flat_check_refuses_each_join_and_any_once_in_source_order(
 
 
 _TEXT_PLUS = (
-    "Invalid operands for operator +: expected numeric operands; string "
-    "concatenation is not supported yet"
+    "Invalid operands for operator +: expected numeric operands; "
+    "use `concat(...)` with `Text(n)` to join Text values"
 )
 _NO_DISTINCT = (
     "SELECT DISTINCT is available only when an EXPLICIT_MODULES project "

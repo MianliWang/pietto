@@ -163,7 +163,7 @@ def test_unary_numeric_semantics_remain_unchanged(
         (
             "status + amount",
             "Invalid operands for operator +: expected numeric operands; "
-            "string concatenation is not supported yet",
+            "use `concat(...)` with `Text(n)` to join Text values",
         ),
         (
             "active * amount",

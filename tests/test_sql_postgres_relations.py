@@ -60,6 +60,81 @@ def test_source_backed_relation_emits_select_from_where_and_projections() -> Non
     assert result.diagnostics == ()
 
 
+def test_concat_emits_the_null_propagating_postgres_operator() -> None:
+    result = emit_postgres_sql(
+        _compile(
+            "type Label = Text\n"
+            "shape Item:\n"
+            "    code: Text\n"
+            "    note: Text | None\n"
+            "    tag: Label\n"
+            'source items: Item = postgres.table("public.items")\n'
+            "table labelled:\n"
+            "    from items\n"
+            "    select:\n"
+            '        pair = concat(code, "-", tag)\n'
+            "        nulled = concat(note, None)\n"
+        )
+    )
+
+    assert result.diagnostics == ()
+    assert result.artifacts[0].sql == (
+        "SELECT\n"
+        '    ("code" || \'-\' || "tag") AS "pair",\n'
+        '    ("note" || NULL) AS "nulled"\n'
+        'FROM "public"."items"'
+    )
+
+
+_CONCAT_POSITIONS = (
+    "shape Item:\n    code: Text\n    note: Text | None\n    qty: Int\n"
+    'source items: Item = {}.table("public.items")\n'
+    'def tagged(x: Text) -> Text: return concat(x, "!")\n'
+    "query q:\n    from items\n"
+    '    where concat(code, "-") == "a-" or concat(concat(code, note), "x") != code\n'
+    "    select:\n"
+    '        nested = concat(concat(code, "-"), concat(note, Text(qty)))\n'
+    "        nulls = concat(None, None)\n"
+    "        defd = tagged(code)\n"
+    "    order by:\n"
+    '        concat(code, "z")\n'
+)
+_SHAPELESS_CONCAT = (
+    'source raw = {}.table("events")\n'
+    "query q:\n    from raw\n    select:\n"
+    "        merged = concat(payload, extra)\n"
+    "        nulls = concat(None, None)\n"
+)
+
+
+def test_concat_nests_in_every_position_and_casts_an_operand_of_unknown_type() -> None:
+    parsed = parser_api.parse_source(_CONCAT_POSITIONS.format("postgres"))
+    assert parsed.diagnostics == () and parsed.ast is not None
+    checked = semantic_api.analyze(parsed.ast)
+    assert checked.diagnostics == () and checked.script is not None
+    lowered = build_ir(checked.script, checked.model)
+    assert lowered.diagnostics == () and lowered.ir is not None
+    assert emit_postgres_sql(lowered.ir).artifacts[0].sql == (
+        "SELECT\n"
+        '    (("code" || \'-\') || ("note" || (CAST("qty" AS text)))) AS "nested",\n'
+        '    (NULL || NULL) AS "nulls",\n'
+        '    ("code" || \'!\') AS "defd"\n'
+        'FROM "public"."items"\n'
+        'WHERE (("code" || \'-\') = \'a-\') OR ((("code" || "note") || \'x\') <> "code")\n'
+        "ORDER BY\n"
+        "    (\"code\" || 'z') ASC"
+    )
+    # A field of a source without a shape may be jsonb, an array or a bytea,
+    # whose `||` joins no text.
+    result = emit_postgres_sql(_compile(_SHAPELESS_CONCAT.format("postgres")))
+    assert result.artifacts[0].sql == (
+        "SELECT\n"
+        '    (CAST("payload" AS text) || CAST("extra" AS text)) AS "merged",\n'
+        '    (NULL || NULL) AS "nulls"\n'
+        'FROM "events"'
+    )
+
+
 def test_relation_without_filter_omits_where() -> None:
     script_ir = _compile(
         SOURCE + "query user_emails:\n    from users\n    select:\n        email\n"

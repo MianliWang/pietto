@@ -44,13 +44,20 @@ from pietto._project.trusted_source import (
     ProjectTrustedSourceSnapshot,
     _load_trusted_source,
 )
-from pietto.errors import Diagnostic, Severity, SourceLocation
+from pietto.errors import (
+    PIPE_HINT,
+    Diagnostic,
+    Severity,
+    SourceLocation,
+    with_unjoined_pipe_hints,
+)
 from pietto.semantic.analyzer import (
     analyze_project_namespace,
     module_statement_diagnostics,
     name_uncallable_calls,
     recursion_limit_diagnostic,
 )
+from pietto.semantic.constructor_calls import builtin_shadows
 from pietto.semantic.existence_generators import without_any
 from pietto.semantic.inline_functions import (
     drop_repeated_operand_diagnostics,
@@ -169,6 +176,16 @@ def _check_project_parse_only(root: str | Path) -> ProjectParseCheckResult:
             )
             break
 
+    if (
+        selection_result.compilation_mode is ProjectCompilationMode.LEGACY_FLAT
+        and any(item.message.endswith(PIPE_HINT) for item in diagnostics)
+        and any(
+            parser_api.source_declares_concat(item.source_text)
+            for item in trusted_source_snapshots
+        )
+    ):
+        # One namespace: a file's `concat` names another file's callable.
+        diagnostics = list(with_unjoined_pipe_hints(diagnostics))
     final_inputs = tuple(inputs)
     final_parsed_inputs = tuple(parsed_inputs)
     result = ProjectParseCheckResult(
@@ -593,9 +610,10 @@ def _parse_selected_input(
             # Every later reader, and the capture and header checks, see each
             # module-local def call inlined.
             before_inlining = script
-            script, inlined = inline_functions(
-                script, occurrence_observer=any_trace.record
-            )
+            with builtin_shadows(parse_result.ast):
+                script, inlined = inline_functions(
+                    script, occurrence_observer=any_trace.record
+                )
             existence_generators = rebind_existence_generators(
                 before_inlining, script, existence_generators
             )

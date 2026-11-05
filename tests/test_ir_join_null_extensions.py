@@ -30,7 +30,7 @@ from pietto._project.project_query_block_ir import (
     ProjectIRQueryBlockTerminal,
 )
 from pietto import cli
-from pietto.ast_nodes import AuthoredJoinKind
+from pietto.ast_nodes import AuthoredJoinKind, QueryDef
 from pietto.ir import RelationIR, build_ir
 from pietto.parser_api import parse_source
 from pietto.semantic import analyze
@@ -925,6 +925,25 @@ query dependent:
             for cycle in blocker.cycles
             for diagnostic in cycle.diagnostics
         )
+
+
+def test_concat_of_a_null_extended_operand_is_null_as_lower_of_it() -> None:
+    from pietto._project.project_joined_aggregation import written_values
+
+    parsed = parse_source(
+        'source r = postgres.table("r")\nquery q:\n    from r\n    select:\n'
+        '        a = lower(code)\n        b = concat(code, "-")\n'
+    )
+    assert parsed.ast is not None
+    query = parsed.ast.definitions[-1]
+    assert isinstance(query, QueryDef)
+    lowered, joined = (item.expression for item in query.select_items)
+
+    def leaf(_node):
+        return frozenset(("null",)), "code"
+
+    assert written_values(joined, leaf) == written_values(lowered, leaf)
+    assert written_values(joined, leaf) == frozenset(("null",))
 
 
 @pytest.mark.parametrize("kind", ("right", "full"))

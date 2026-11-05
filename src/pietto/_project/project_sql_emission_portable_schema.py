@@ -864,6 +864,7 @@ OPERATORS = {
         "minute",
         "round",
         "date_trunc",
+        "concat",
     ),
 }
 COMPARISON_SPELLING = {

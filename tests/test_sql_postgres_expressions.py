@@ -158,6 +158,30 @@ def test_lower_and_trim_calls_render_recursively() -> None:
     assert render_expression_sql(expression) == 'lower(trim("email"))'
 
 
+def test_concat_uses_the_null_propagating_postgres_operator() -> None:
+    # PostgreSQL concat() skips NULL arguments; Pietto concat is NULL then.
+    text = _builtin_type("Text", NullabilityIR.NULLABLE)
+
+    def typed(value: StaticValue) -> LiteralIR:
+        return LiteralIR(span=SPAN, value_type=text, value=value)
+
+    code = _typed_field("code", text)
+    assert render_expression_sql(_call("concat", code, typed("-"))) == (
+        "(\"code\" || '-')"
+    )
+    lowered = replace(_call("lower", code), value_type=text)
+    assert render_expression_sql(
+        _call("concat", typed("雪"), lowered, typed(None))
+    ) == ("('雪' || lower(\"code\") || NULL)")
+    # `||` of a jsonb, an array or a bytea is no text: an operand not known
+    # to be Text is cast.
+    assert render_expression_sql(
+        _call("concat", _field("payload"), _literal(None))
+    ) == ('(CAST("payload" AS text) || CAST(NULL AS text))')
+    with pytest.raises(ValueError, match="concat expects at least 2"):
+        render_expression_sql(_call("concat", code))
+
+
 def test_len_call_uses_postgres_length() -> None:
     assert render_expression_sql(_call("len", _field("email"))) == 'length("email")'
 

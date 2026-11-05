@@ -831,7 +831,7 @@ def test_a_project_let_value_ill_typed_once_the_null_it_reads_has_a_type_is_an_e
     )
     not_numeric = (
         "Invalid operands for operator +: expected numeric operands; "
-        "string concatenation is not supported yet"
+        "use `concat(...)` with `Text(n)` to join Text values"
     )
     written_in = spelling["I1"] != "i1"
     assert _def_check(tmp_path, capsys, {"a.pietto": source}) == [
@@ -1278,7 +1278,7 @@ DECLARATION_DIAGNOSTICS = {
             5,
             25,
             "Invalid operands for operator +: expected numeric operands; "
-            "string concatenation is not supported yet",
+            "use `concat(...)` with `Text(n)` to join Text values",
         ),
         ("PIE-S2202", "a.pietto", 6, 18, "Expected Bool expression in shape check"),
         ("PIE-S2004", "a.pietto", 7, 10, _SCALE),
@@ -1396,8 +1396,7 @@ def test_a_module_checks_its_declarations_with_the_types_it_imports(
             "main.pietto",
             22,
             17,
-            "Invalid operands for operator +: expected numeric operands; "
-            "string concatenation is not supported yet",
+            "Invalid operands for operator +: expected numeric operands",
         ),
         (
             "PIE-S2402",

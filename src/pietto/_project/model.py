@@ -78,6 +78,7 @@ from pietto.semantic.capability_profiles import (
     CapabilityProfileReference,
     CapabilityProfileTarget,
 )
+from pietto._builtin_shadows import builtin_shadows
 
 if TYPE_CHECKING:
     from pietto.semantic.existence_generators import AnyUseInfo, AnyValueInfo
@@ -1727,6 +1728,20 @@ def build_empty_project_semantic_result(
 
     if type(parse_result) is not ProjectParseCheckResult:
         raise TypeError("Project semantics require an exact parse result carrier.")
+    with builtin_shadows(
+        *(item.script for item in parse_result.parsed_inputs),
+        defs=(
+            item
+            for parsed in parse_result.parsed_inputs
+            for item in parsed.scalar_callables
+        ),
+    ):
+        return _project_semantic_result(parse_result)
+
+
+def _project_semantic_result(
+    parse_result: ProjectParseCheckResult,
+) -> ProjectSemanticResult:
     if type(parse_result.compilation_mode) is not ProjectCompilationMode:
         raise TypeError("Project semantics require an exact compilation mode.")
     if parse_result.compilation_mode not in (

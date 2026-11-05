@@ -68,6 +68,7 @@ from pietto.semantic.callables import (
     check_callable_signatures,
 )
 from pietto.semantic.catalog import BUILTIN_TYPE_NAMES
+from pietto.semantic.constructor_calls import builtin_shadows
 from pietto.semantic.expressions import (
     null_numbers,
     type_callable_bodies,
@@ -174,7 +175,7 @@ def analyze(
 ) -> SemanticResult:
     """Build the incremental semantic model and ordered diagnostics."""
 
-    with null_numbers():
+    with null_numbers(), builtin_shadows(script):
         result = _analyze_script(script, mode_override=mode_override, single_file=True)
     statements = module_statement_diagnostics(script, legacy_flat=False)
     if not statements:
@@ -248,7 +249,8 @@ def analyze_project_namespace(script: Script) -> SemanticResult:
     do not take.
     """
 
-    return _analyze_script(script, mode_override=CheckMode.LOOSE, single_file=False)
+    with builtin_shadows(script):
+        return _analyze_script(script, mode_override=CheckMode.LOOSE, single_file=False)
 
 
 def _analyze_script(

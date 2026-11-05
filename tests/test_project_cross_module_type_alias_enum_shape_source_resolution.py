@@ -997,6 +997,70 @@ def test_a_project_types_an_imported_enum_field_and_its_alias_as_the_enum(
     ]
 
 
+def test_a_project_reads_an_imported_text_alias_as_text_in_concat(
+    tmp_path: Path,
+) -> None:
+    """`concat` takes a field of a Text alias of another module as a Text, and
+    refuses one argument, an enum argument and Text `+` as a single file does."""
+    _, semantic = _semantic_project(
+        tmp_path,
+        {
+            "a.pietto": (
+                'from "b.pietto" import (\n'
+                "    type Label,\n"
+                "    enum Status)\n"
+                "shape U:\n"
+                "    id: Int\n"
+                "    code: Label\n"
+                "    note: Text | None\n"
+                "    st: Status\n"
+                'source us: U = postgres.table("us")\n'
+                "query q:\n"
+                "    from us\n"
+                "    select:\n"
+                "        id\n"
+                '        a = concat(code, "-", note)\n'
+                "        b = concat(code)\n"
+                "        c = concat(code, st)\n"
+                "        d = code + note\n"
+            ),
+            "b.pietto": (
+                "type Label = Text\n"
+                "enum Status:\n"
+                "    active\n"
+                "export (\n"
+                "    type Label,\n"
+                "    enum Status)\n"
+            ),
+        },
+    )
+    assert [
+        (item.code, item.message, item.location.line, item.location.column)
+        for item in build_project_completed_semantic_result(semantic).diagnostics
+    ] == [
+        (
+            "PIE-S2104",
+            "Invalid arguments for function concat: expected at least 2, got 1",
+            15,
+            13,
+        ),
+        (
+            "PIE-S2104",
+            "Invalid argument type for function concat at position 2: expected Text, "
+            "got Status",
+            16,
+            13,
+        ),
+        (
+            "PIE-S2105",
+            "Invalid operands for operator +: expected numeric operands; "
+            "use `concat(...)` to join Text values",
+            17,
+            13,
+        ),
+    ]
+
+
 _SHAPE_FIELDS = """shape Address:
     city: Text
 shape Customer:
@@ -2742,6 +2806,203 @@ def test_project_float_constructor_scope_stays_local_to_its_module(
             entry, (ProjectExistingEffectiveOutput, ProjectCompletedEffectiveOutput)
         )
         assert _entry_schema(entry).fields["value"].resolved_type.name == expected
+
+
+def test_project_concat_builtin_scope_stays_local_to_its_module(
+    tmp_path: Path,
+) -> None:
+    """A module's own `def concat` keeps that name there, as `def Float`
+    does; another module calls the builtin."""
+    from pietto._project.project_completion import ProjectExistingEffectiveOutput
+    from pietto._project.project_final_outputs import (
+        ProjectCompletedEffectiveOutput,
+        _entry_schema,
+    )
+
+    _, semantic = _semantic_project(
+        tmp_path,
+        {
+            "defs.pietto": (
+                "shape Row:\n    id: Int\n    a: Text\n"
+                'source rows: Row = postgres.table("rows")\n'
+                "def concat(x: Text) -> Int: return len(x)\n"
+                "query local:\n    from rows\n    select value = concat(a)\n"
+                "export shape Row, source rows\n"
+            ),
+            "main.pietto": (
+                'from "defs.pietto" import source rows\n'
+                'query output:\n    from rows\n    select value = concat(a, "-")\n'
+            ),
+        },
+    )
+    completed = build_project_completed_semantic_result(semantic)
+    assert isinstance(completed, ProjectConcreteCompletedSemanticResult)
+    assert completed.ok, completed.diagnostics
+    schemas = {
+        entry.owner.definition.name: entry
+        for entry in completed.roots.effective_outputs.entries
+        if entry.owner.definition.name in {"local", "output"}
+    }
+    assert set(schemas) == {"local", "output"}
+    for name, expected in (("local", "Int"), ("output", "Text")):
+        entry = schemas[name]
+        assert isinstance(
+            entry, (ProjectExistingEffectiveOutput, ProjectCompletedEffectiveOutput)
+        )
+        assert _entry_schema(entry).fields["value"].resolved_type.name == expected
+
+
+def test_project_concat_keeps_the_name_of_a_module_callable(
+    tmp_path: Path,
+) -> None:
+    """In a module that declares a `def`, `constraint`, `derive` or
+    relationship template named `concat`, a call of it, `+` of a Text and
+    `CONCAT` keep their 0.1.7 meaning and messages, also after the module's
+    def calls are inlined and in a JOIN body; a module that only imports
+    from it calls the builtin."""
+    rows = (
+        "shape {0}:\n    id: Int\n    a: Text\n    b: Text\n"
+        'source {1}: {0} = postgres.table("{1}")\n'
+    )
+    _, semantic = _semantic_project(
+        tmp_path,
+        {
+            "con.pietto": rows.format("Row4", "rows4")
+            + "constraint concat(x: Text, y: Text) -> Bool:\n    return x == y\n"
+            "query q4:\n    from rows4\n    select:\n        v = concat(a, b)\n"
+            "        w = a + b\n",
+            "fn.pietto": rows.format("Row5", "rows5")
+            + "def concat(x: Text, y: Text) -> Int: return len(x) + len(y)\n"
+            "query q5:\n    from rows5\n    select:\n        v = concat(a, b) + 1\n"
+            "        w = a + b\n        u = CONCAT(a, b)\n",
+            "drv.pietto": rows.format("Row2", "rows2")
+            + "derive concat(x: Text, y: Text) -> Text:\n    return x\n"
+            "query q2:\n    from rows2\n    select:\n        v = concat(a, b)\n"
+            "        w = a + b\n"
+            "export shape Row2, source rows2\n",
+            "rel.pietto": rows.format("Row3", "rows3")
+            + "relationship concat(row: Row3):\n    row.id > 0\n"
+            "query q3:\n    from rows3\n    where concat(rows3)\n    select:\n"
+            "        v = a\n    order by:\n        concat(a, b)\n"
+            "query q5:\n    from rows3\n    select:\n        w = a + b\n",
+            "join.pietto": rows.format("Row6", "rows6")
+            + rows.format("Row7", "rows7")
+            + "def concat(x: Text, y: Text) -> Int: return len(x) + len(y)\n"
+            "query q6:\n    from rows6\n    let c = rows7\n"
+            "    inner join c on rows6.id == c.id\n    select:\n"
+            "        n = concat(rows6.a, c.b) + 1\n        w = rows6.a + c.b\n"
+            "        u = CONCAT(rows6.a, c.b)\n",
+            "main.pietto": 'from "drv.pietto" import source rows2\n'
+            "query output:\n    from rows2\n    select:\n        v = concat(a, b)\n"
+            "        w = a + b\n",
+        },
+    )
+    unjoined = (
+        "Invalid operands for operator +: expected numeric operands; "
+        "string concatenation is not supported yet"
+    )
+    assert [
+        (
+            Path(str(item.location.path)).name,
+            item.code,
+            item.message,
+            item.location.line,
+            item.location.column,
+        )
+        for item in build_project_completed_semantic_result(semantic).diagnostics
+    ] == [
+        (
+            "con.pietto",
+            "PIE-S2103",
+            "Unknown function: concat; concat is a constraint, which cannot be "
+            "called; write a `def` instead",
+            11,
+            13,
+        ),
+        ("con.pietto", "PIE-S2105", unjoined, 12, 13),
+        (
+            "drv.pietto",
+            "PIE-S2103",
+            "Unknown function: concat; concat is a derive, which cannot be called; "
+            "write a `def` instead",
+            11,
+            13,
+        ),
+        ("drv.pietto", "PIE-S2105", unjoined, 12, 13),
+        ("fn.pietto", "PIE-S2105", unjoined, 11, 13),
+        (
+            "fn.pietto",
+            "PIE-S2103",
+            "Unknown function: CONCAT; string concatenation is not supported yet",
+            12,
+            13,
+        ),
+        ("join.pietto", "PIE-S2105", unjoined, 18, 13),
+        (
+            "join.pietto",
+            "PIE-S2103",
+            "Unknown function: CONCAT; string concatenation is not supported yet",
+            19,
+            13,
+        ),
+        (
+            "main.pietto",
+            "PIE-S2105",
+            "Invalid operands for operator +: expected numeric operands; "
+            "use `concat(...)` to join Text values",
+            6,
+            13,
+        ),
+        (
+            "rel.pietto",
+            "PIE-S2103",
+            "Unknown function: concat; string concatenation is not supported yet",
+            14,
+            9,
+        ),
+        ("rel.pietto", "PIE-S2105", unjoined, 18, 13),
+    ]
+
+
+def test_project_def_body_keeps_its_module_derive_named_concat(
+    tmp_path: Path,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    """A def body is inlined with its module's own callables in view: its
+    `concat` call names the module's derive, at the call in the body, as in
+    0.1.7."""
+    root = _configured_project(
+        tmp_path,
+        {
+            "m.pietto": (
+                "shape Row:\n    id: Int\n    a: Text\n    b: Text\n"
+                'source rows: Row = postgres.table("rows")\n'
+                "derive concat(x: Text, y: Text) -> Text:\n    return x\n"
+                "def wrap(x: Text) -> Text: return concat(x, x)\n"
+                "query q:\n    from rows\n    select:\n        v = wrap(a)\n"
+            ),
+        },
+    )
+    assert cli.main(["check", "--project", str(root), "--format", "json"]) == 1
+    assert [
+        (
+            item["code"],
+            item["message"],
+            item["location"]["path"],
+            item["location"]["line"],
+            item["location"]["column"],
+        )
+        for item in json.loads(capsys.readouterr().out)["diagnostics"]
+    ] == [
+        (
+            "PIE-S2103",
+            "Unknown function: concat; concat is a derive, which cannot be called; "
+            "write a `def` instead",
+            "m.pietto",
+            8,
+            35,
+        )
+    ]
 
 
 def test_project_relationship_float_body_and_call_copies_use_imported_rows(

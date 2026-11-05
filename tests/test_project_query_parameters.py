@@ -273,6 +273,10 @@ REFUSED = {
         "    select:\n        id\n        r = replace(label, word, label)\n",
         [(POSITION, 5, 28)],
     ),
+    "concat_argument": (
+        "    select:\n        id\n        c = concat(label, word)\n",
+        [(POSITION, 5, 27)],
+    ),
     "matches_argument": (
         "    where matches(label, word)\n    select:\n        id\n",
         [(POSITION, 3, 26)],

@@ -65,7 +65,12 @@ from pietto.semantic.aggregates import (
     semantic_aggregate_call_name,
     semantic_projection_aggregate_result_value_type,
 )
-from pietto.semantic.catalog import BUILTIN_FUNCTIONS, BuiltinFunction
+from pietto.semantic.catalog import (
+    BuiltinFunction,
+    builtin_signature,
+    is_builtin_function_name,
+)
+from pietto.semantic.constructor_calls import in_concat_file
 from pietto.semantic.model import (
     EffectiveNullability,
     ResolvedType,
@@ -3481,11 +3486,14 @@ def _binary_value_type(
         type_expansions=type_expansions,
         relation_columns=relation_columns,
     )
+    # The `+` hints point to `concat` where it is the builtin.
+    joins = not in_concat_file(expression)
     # An operator reads a type alias as the type it expands to.
     result, expected = resolved_binary_value_type(
         expression.operator,
         _canonical_value_type(left_type, type_expansions),
         _canonical_value_type(right_type, type_expansions),
+        joins=joins,
     )
     if (
         expression.operator in {"and", "or"}
@@ -3529,7 +3537,7 @@ def _binary_value_type(
             ):
                 canonical = _canonical_value_type(other_type, type_expansions)
                 typed, expected = resolved_binary_value_type(
-                    expression.operator, canonical, canonical
+                    expression.operator, canonical, canonical, joins=joins
                 )
                 if expected is None and not _has_error(diagnostics[start:]):
                     if typed.kind is ValueTypeKind.KNOWN:
@@ -3547,11 +3555,14 @@ def _binary_value_type(
             # An operand that is a number of unknown type (`_UNKNOWN_NUMBER`).
             expected = _number_misfit(
                 lambda types: resolved_binary_value_type(
-                    expression.operator, types[0], types[1]
+                    expression.operator, types[0], types[1], joins=joins
                 )[1],
                 (left_type, right_type),
                 type_expansions,
             )
+            if expected == _TEXT_INT_JOIN:
+                # Such a number is no Int, which `Text(n)` alone takes.
+                expected = _TEXT_JOIN
             if expected is None and _of_numbers(
                 (left_type, right_type),
                 type_expansions,
@@ -3603,9 +3614,16 @@ def _canonical_value_type(
 
 
 def resolved_binary_value_type(
-    operator: str, left_type: ValueType, right_type: ValueType
+    operator: str,
+    left_type: ValueType,
+    right_type: ValueType,
+    *,
+    joins: bool = True,
 ) -> tuple[ValueType, str | None]:
-    """Original binary rule; no expression, name lookup or source elaboration."""
+    """Original binary rule; no expression, name lookup or source elaboration.
+
+    Without ``joins``, as in a file whose own callable `concat` takes that name
+    (`in_concat_file`), `+` of a Text keeps the 0.1.7 hint."""
     if (
         left_type.kind is ValueTypeKind.UNKNOWN
         or right_type.kind is ValueTypeKind.UNKNOWN
@@ -3640,15 +3658,31 @@ def resolved_binary_value_type(
         name = _binary_arithmetic_result_type(operator, left_type, right_type)
         if name is not None:
             return _builtin_value_type(name, EffectiveNullability.UNKNOWN), None
-        if operator == "+" and (
-            _is_builtin(left_type, "Text") or _is_builtin(right_type, "Text")
-        ):
-            return (
-                _UNKNOWN_VALUE_TYPE,
-                "numeric operands; string concatenation is not supported yet",
-            )
+        if operator == "+" and _is_builtin(left_type, "Text"):
+            return _UNKNOWN_VALUE_TYPE, _text_plus_expected(right_type, joins)
+        if operator == "+" and _is_builtin(right_type, "Text"):
+            return _UNKNOWN_VALUE_TYPE, _text_plus_expected(left_type, joins)
         return _UNKNOWN_VALUE_TYPE, "numeric operands"
     return _UNKNOWN_VALUE_TYPE, None
+
+
+_TEXT_JOIN = "numeric operands; use `concat(...)` to join Text values"
+_TEXT_INT_JOIN = (
+    "numeric operands; use `concat(...)` with `Text(n)` to join Text values"
+)
+
+
+def _text_plus_expected(partner: ValueType, joins: bool) -> str:
+    """What `+` of a Text and ``partner`` expects: `concat` joins a Text, and
+    an Int through `Text(n)`; it joins a value of no other type."""
+
+    if not joins:
+        return "numeric operands; string concatenation is not supported yet"
+    if _is_builtin(partner, "Text"):
+        return _TEXT_JOIN
+    if _is_builtin(partner, "Int"):
+        return _TEXT_INT_JOIN
+    return "numeric operands"
 
 
 # Builtin families from the canonical scalar type registry trait vocabulary;
@@ -4356,7 +4390,19 @@ def _call_value_type(
             lets=bare_value_expressions,
         )
 
-    signature = BUILTIN_FUNCTIONS.get(function_name)
+    if function_name == "concat" and len(argument_types) < 2:
+        diagnostics.append(
+            _call_diagnostic(
+                expression,
+                code="PIE-S2104",
+                message=(
+                    "Invalid arguments for function concat: expected at least 2, "
+                    f"got {len(argument_types)}"
+                ),
+            )
+        )
+        return _UNKNOWN_VALUE_TYPE
+    signature = builtin_signature(function_name, len(argument_types))
     if signature is None:
         if cascade:
             return _UNKNOWN_VALUE_TYPE
@@ -4517,7 +4563,7 @@ def null_arithmetic_argument_diagnostics(
         call = cast(CallExpr, node)
         if value_types.get(call, _UNKNOWN_VALUE_TYPE).kind is not ValueTypeKind.UNKNOWN:
             continue
-        signature = BUILTIN_FUNCTIONS.get(_callee_name(call))
+        signature = builtin_call_signature(call)
         if signature is None or len(call.arguments) != len(signature.parameter_types):
             continue
         argument_types = tuple(
@@ -4572,7 +4618,7 @@ def condition_value_type(
     if name in {"sign", "year", "month", "day"}:
         result = "Int" if len(call.arguments) == 1 else None
     else:
-        signature = BUILTIN_FUNCTIONS.get(name)
+        signature = builtin_call_signature(call)
         result = (
             None
             if signature is None
@@ -4852,7 +4898,7 @@ def _number_call_type(
         if _of_numbers(argument_types, type_expansions):
             return _UNKNOWN_NUMBER
         return value_type
-    signature = BUILTIN_FUNCTIONS.get(name)
+    signature = builtin_call_signature(expression)
     parameters = (
         ("Date or Timestamp",)
         if name in {"year", "month", "day"}
@@ -6181,7 +6227,9 @@ _AGGREGATE_NAMES = sorted(SEMANTIC_AGGREGATE_NAMES)
 _UNKNOWN_FUNCTION_HINTS = {
     "length": "use `len(Text)` instead",
     "char_length": "use `len(Text)` instead",
-    "concat": "string concatenation is not supported yet",
+    # Lowercase `concat` is a builtin, unless its file declares a callable of
+    # that name (`in_concat_file`).
+    "concat": "write `concat(...)` in lowercase",
     "generate_series": "it is a table function, read with "
     "`from generate_series(start, stop, step) as n` in an EXPLICIT_MODULES project",
     # D71.01/D71.02: the nested-relation spellings no call writes.
@@ -6221,13 +6269,21 @@ def is_unknown_function_call(expression: CallExpr) -> bool:
     from pietto.semantic.window_semantics import WINDOW_FUNCTION_NAMES
 
     name = _callee_name(expression)
-    return not (
-        name
-        in {"coalesce", "nullif", "sign", "year", "month", "day", "round", "date_trunc"}
+    return (name == "concat" and in_concat_file(expression)) or not (
+        is_builtin_function_name(name)
         or is_semantic_aggregate_call(expression)
-        or name in BUILTIN_FUNCTIONS
         or name in WINDOW_FUNCTION_NAMES
     )
+
+
+def builtin_call_signature(call: CallExpr) -> BuiltinFunction | None:
+    """The closed signature of ``call`` (`builtin_signature`), which a call
+    that is an unknown function (`is_unknown_function_call`) has none of."""
+
+    name = _callee_name(call)
+    if name == "concat" and in_concat_file(call):
+        return None
+    return builtin_signature(name, len(call.arguments))
 
 
 def _unknown_function_diagnostic(
@@ -6236,7 +6292,12 @@ def _unknown_function_diagnostic(
 ) -> Diagnostic:
     """Report a call target absent from the explicit built-in catalog."""
 
-    hint = _UNKNOWN_FUNCTION_HINTS.get(function_name.lower())
+    hint = (
+        # The 0.1.7 hint, in a file whose own callable `concat` the call names.
+        "string concatenation is not supported yet"
+        if function_name.lower() == "concat" and in_concat_file(expression)
+        else _UNKNOWN_FUNCTION_HINTS.get(function_name.lower())
+    )
     return _call_diagnostic(
         expression,
         code="PIE-S2103",

@@ -1507,3 +1507,25 @@ def test_a_narrow_operation_over_a_parameter_read_is_proved_statically(
         '(CAST(NULLIF("s0"."order.id", CAST($1 AS pg_catalog.int8))'
         ' AS pg_catalog.int8) + "s0"."order.id") AS "summed"'
     ) in document["sql"]
+
+
+def test_concat_of_a_binding_width_text_has_no_result_bound(tmp_path: Path) -> None:
+    """`concat` is as wide as all its arguments together, so a Text whose
+    width each binding fixes leaves it unbounded, as for `replace` (PostgreSQL:
+    MySQL project SQL refuses every `concat`)."""
+    body = (
+        "query result(label: Text):\n"
+        "    let kept:\n"
+        "        from rows\n"
+        "        select:\n"
+        "            id\n"
+        "            echo = label\n"
+        "    from kept\n"
+        "    select:\n"
+        '        joined = concat(echo, "x")\n'
+    )
+    _, outcome = _case(tmp_path, "postgres", body)
+    assert outcome.status == "BLOCKED" and outcome.artifact is None
+    assert [(b.code, b.detail) for b in outcome.blockers] == [
+        ("PIE-B1004", "text_concat_result_bound_missing")
+    ]

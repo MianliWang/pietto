@@ -1190,6 +1190,25 @@ def _render_call(expression: CallIR) -> str:
             )
             + ")"
         )
+    if expression.callee == "concat":
+        if len(expression.arguments) < 2:
+            raise ValueError(
+                "PostgreSQL function concat expects at least 2 argument(s)"
+            )
+        # PostgreSQL concat() skips NULL; `||` is NULL when any argument is.
+        # An operand not known to be Text is cast to text, which `||` of a
+        # jsonb, an array or a bytea value would not give.
+        return (
+            "("
+            + " || ".join(
+                _render_expression_sql(argument, nested=True)
+                if argument.value_type.canonical_kind is TypeKindIR.BUILTIN
+                and argument.value_type.canonical_name == "Text"
+                else f"CAST({_render_expression_sql(argument, nested=True)} AS text)"
+                for argument in expression.arguments
+            )
+            + ")"
+        )
     if expression.callee == "round":
         return _render_round_call(expression)
     if expression.callee == "date_trunc":

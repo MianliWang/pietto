@@ -119,6 +119,7 @@ from pietto.semantic.analyzer import (
     check_module_declarations,
     name_uncallable_calls,
 )
+from pietto.semantic.constructor_calls import builtin_shadows
 from pietto.semantic.expressions import type_source_connector_arguments
 from pietto.semantic.source_connectors import check_source_connectors
 from pietto._project.project_relationship_predicates import (
@@ -2112,11 +2113,20 @@ def build_project_completed_semantic_result(
             reason=reason,
         )
 
-    return ProjectConcreteCompletedSemanticResult(
-        roots=_ProjectCompletedSemanticRoots(
-            semantic_result=semantic_result,
-        )
+    parsed = tuple(
+        module.parsed_input
+        for module in semantic_result.modules
+        if module.parsed_input is not None
     )
+    with builtin_shadows(
+        *(item.script for item in parsed),
+        defs=(item for module in parsed for item in module.scalar_callables),
+    ):
+        return ProjectConcreteCompletedSemanticResult(
+            roots=_ProjectCompletedSemanticRoots(
+                semantic_result=semantic_result,
+            )
+        )
 
 
 def with_project_single_match_requests(
@@ -2658,9 +2668,9 @@ def derive_compiled_semantics(root, values, parameters=None):
                             and port.get("owner") == use.get("producer")
                         )
                     elif role == "scalar_call":
-                        from pietto.semantic.catalog import BUILTIN_FUNCTIONS
+                        from pietto.semantic.catalog import builtin_signature
 
-                        signature = BUILTIN_FUNCTIONS.get(token)
+                        signature = builtin_signature(token, len(parent_operands))
                         if signature is not None and position < len(
                             signature.parameter_types
                         ):
@@ -3125,7 +3135,7 @@ def derive_compiled_semantics(root, values, parameters=None):
                         arguments[0].nullability,
                     )
                 elif role == "scalar_call":
-                    from pietto.semantic.catalog import BUILTIN_FUNCTIONS
+                    from pietto.semantic.catalog import builtin_signature
 
                     if token in {"coalesce", "nullif"}:
                         error = (
@@ -3162,7 +3172,7 @@ def derive_compiled_semantics(root, values, parameters=None):
                         )
                         typed = ValueType(arguments[0].resolved_type, nullability)
                     else:
-                        signature = BUILTIN_FUNCTIONS.get(token)
+                        signature = builtin_signature(token, len(arguments))
                         special = token in {"sign", "year", "month", "day"}
                         c5_kept = (
                             token == "round"
@@ -3861,9 +3871,9 @@ def verify_compiled_semantics(value):
                             and port.get("owner") == use.get("producer")
                         )
                     elif role == "scalar_call":
-                        from pietto.semantic.catalog import BUILTIN_FUNCTIONS
+                        from pietto.semantic.catalog import builtin_signature
 
-                        signature = BUILTIN_FUNCTIONS.get(token)
+                        signature = builtin_signature(token, len(parent_operands))
                         if signature is not None and position < len(
                             signature.parameter_types
                         ):
@@ -4309,7 +4319,7 @@ def verify_compiled_semantics(value):
                         inputs[0].value_type.nullability,
                     )
                 elif role == "scalar_call":
-                    from pietto.semantic.catalog import BUILTIN_FUNCTIONS
+                    from pietto.semantic.catalog import builtin_signature
 
                     arguments = tuple(item.value_type for item in inputs)
                     if token in {"coalesce", "nullif"}:
@@ -4347,7 +4357,7 @@ def verify_compiled_semantics(value):
                         )
                         typed = ValueType(arguments[0].resolved_type, nullability)
                     else:
-                        signature = BUILTIN_FUNCTIONS.get(token)
+                        signature = builtin_signature(token, len(arguments))
                         special = token in {"sign", "year", "month", "day"}
                         c5_kept = (
                             token == "round"

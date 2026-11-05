@@ -923,13 +923,14 @@ def _render_call(expression: CallIR) -> str:
         raise MySqlRenderError(
             f"Unsupported MySQL function identity: {expression.callee}"
         )
-    if expression.callee == "coalesce":
+    if expression.callee in {"coalesce", "concat"}:
         if len(expression.arguments) < 2:
             raise MySqlRenderError(
-                "MySQL function coalesce expects at least 2 argument(s)"
+                f"MySQL function {expression.callee} expects at least 2 argument(s)"
             )
         return (
-            "COALESCE("
+            expression.callee.upper()
+            + "("
             + ", ".join(
                 _render_mysql_expression(argument, nested=True)
                 for argument in expression.arguments

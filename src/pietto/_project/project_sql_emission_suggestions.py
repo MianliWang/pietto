@@ -219,6 +219,7 @@ _GROUPS = (
                 "substring_result_bound_missing",
                 "sum_int_aggregate_range_proof_missing",
                 "text_case_result_bound_missing",
+                "text_concat_result_bound_missing",
                 "text_length_bound_missing",
                 "text_replace_result_bound_missing",
                 "validated_decimal_parameters_missing",

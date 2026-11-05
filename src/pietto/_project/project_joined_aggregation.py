@@ -1810,7 +1810,7 @@ def _argument_factors(
 
 
 _NULL_PROPAGATING_CALLS = frozenset(
-    {*semantic_catalog.BUILTIN_FUNCTIONS, "sign", "year", "month", "day"}
+    {*semantic_catalog.BUILTIN_FUNCTIONS, "sign", "year", "month", "day", "concat"}
 )
 
 # What one expression can be in the rows where some inputs are all

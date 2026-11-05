@@ -129,6 +129,17 @@ def test_approved_function_mappings_are_uppercase_and_recursive() -> None:
     )
 
 
+def test_concat_uses_mysql_concat() -> None:
+    assert (
+        render_mysql_expression(
+            _call("concat", _field("code"), _literal("雪"), _literal(None))
+        )
+        == "CONCAT(`code`, '雪', NULL)"
+    )
+    with pytest.raises(MySqlRenderError, match="concat expects at least 2"):
+        render_mysql_expression(_call("concat", _field("code")))
+
+
 def test_mysql_only_emits_proven_decimal_round_and_int_text_cast() -> None:
     decimal = _builtin_type("Decimal", NullabilityIR.NULLABLE)
     int_type = _builtin_type("Int", NullabilityIR.NON_NULL)

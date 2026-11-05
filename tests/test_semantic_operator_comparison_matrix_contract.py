@@ -84,7 +84,7 @@ def test_binary_numeric_decimal_modulo_and_division_matrix_preserves_behavior() 
         (
             "status + status",
             "+",
-            "numeric operands; string concatenation is not supported yet",
+            "numeric operands; use `concat(...)` to join Text values",
         ),
         ("active * amount", "*", "numeric operands"),
         ("score % amount", "%", "Int operands"),
@@ -273,7 +273,7 @@ def test_a_null_arithmetic_operand_takes_the_type_of_the_other_operand() -> None
         (
             "status + None",
             "+",
-            "numeric operands; string concatenation is not supported yet",
+            "numeric operands; use `concat(...)` to join Text values",
         ),
         ("None - active", "-", "numeric operands"),
         ("order_date * None", "*", "numeric operands"),

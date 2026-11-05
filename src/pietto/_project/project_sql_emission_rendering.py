@@ -537,6 +537,9 @@ class _Writer:
                     "abs": "abs",
                     "nullif": "NULLIF",
                     "coalesce": "COALESCE",
+                    # PostgreSQL concat() skips NULL; `||` is NULL when any
+                    # argument is.
+                    "concat": "",
                 },
                 "mysql": {
                     "lower": "LOWER",
@@ -801,9 +804,10 @@ class _Writer:
             if spelling is None or not value.operands:
                 raise ValueError("unrenderable scalar call")
             self.emit(spelling + "(", "syntax", "scalar_call_open", reference)
+            separator = " || " if spelling == "" else ", "
             for position, operand in enumerate(value.operands):
                 if position:
-                    self.emit(", ", "syntax", "scalar_call_separator", reference)
+                    self.emit(separator, "syntax", "scalar_call_separator", reference)
                 self.operand(value, position, alias)
             self.emit(")", "syntax", "scalar_call_close", reference)
             self.enclose("scalar_call", reference, start)

@@ -599,8 +599,9 @@ PRESENTATION_CASES = {
             ),
         ],
     ),
-    # A name `collect` keeps the 0.1.5 hints, no Collect hint goes outside a
-    # select line, and `Collect` is not a miscased keyword.
+    # A name `collect` keeps the ordinary hints, not the Collect one, no
+    # Collect hint goes outside a select line, and `Collect` is not a
+    # miscased keyword.
     "a_name_collect_keeps_its_hints": (
         _query("    select:\n        collect;\n")
         + 'query q2:\n    from r\n    select:\n        x = collect || "a"\n'
@@ -614,7 +615,8 @@ PRESENTATION_CASES = {
             (
                 11,
                 21,
-                "Unexpected '|'. String concatenation with `||` is not supported yet.",
+                "Unexpected '|'. Write `concat(a, b)` to join Text, or `or` for a "
+                "condition.",
             ),
             (
                 15,
@@ -742,8 +744,8 @@ PRESENTATION_CASES = {
             (
                 6,
                 20,
-                "Unexpected '|'; expected ',' or end of line. String concatenation "
-                "with `||` is not supported yet.",
+                "Unexpected '|'; expected ',' or end of line. Write `concat(a, b)` "
+                "to join Text, or `or` for a condition.",
             ),
             (14, 14, "Unexpected 'a'; expected end of line. " + _QUALIFY_BLOCK),
         ],
@@ -799,6 +801,37 @@ def test_syntax_errors_name_the_problem_once_per_declaration(case: str) -> None:
         (item.code, item.location.line, item.location.column, item.message)
         for item in result.diagnostics
     ] == [("PIE-P1000", *item) for item in expected]
+
+
+_UNJOINED_PIPE = "String concatenation with `||` is not supported yet."
+_PIPE = "Write `concat(a, b)` to join Text, or `or` for a condition."
+
+
+@pytest.mark.parametrize(
+    ("declaration", "hint"),
+    [
+        ("def concat(x: Text) -> Text: return x\n", _UNJOINED_PIPE),
+        ("constraint concat(x: Text) -> Bool:\n    return x == x\n", _UNJOINED_PIPE),
+        ("derive concat(x: Text) -> Text:\n    return x\n", _UNJOINED_PIPE),
+        ("relationship concat(row: R):\n    row.a > 0\n", _UNJOINED_PIPE),
+        # A relationship that is no template, and a call, declare no callable.
+        ("relationship concat: r.a == r.a\n", _PIPE),
+        ("def wrap(x: Text) -> Text: return concat(x, x)\n", _PIPE),
+    ],
+    ids=["def", "constraint", "derive", "template", "relationship", "call"],
+)
+def test_double_pipe_keeps_the_0_1_7_hint_where_concat_names_a_callable(
+    declaration: str, hint: str
+) -> None:
+    # There `concat(...)` names the file's own callable, declared before or
+    # after the `||`.
+    result = parse_source(_query('    select b = "x" || "y"\n') + declaration)
+
+    assert result.ast is None
+    assert [
+        (item.code, item.location.line, item.location.column, item.message)
+        for item in result.diagnostics
+    ] == [("PIE-P1000", 6, 20, "Unexpected '|'; expected ',' or end of line. " + hint)]
 
 
 def _message_lines(source: str) -> int:

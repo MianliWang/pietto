@@ -100,6 +100,7 @@ def _scalar_function_evidence(
         "day",
         "round",
         "date_trunc",
+        "concat",
     }
     if c5_signature:
         postgres_reference = {
@@ -184,6 +185,7 @@ def _scalar_function_evidence(
         "trim": "test_text_transform_function_returns_text",
         "len": "test_len_returns_int",
         "matches": "test_matches_returns_bool_and_is_valid_where_predicate",
+        "concat": "test_concat_joins_text_and_is_null_when_any_argument_is",
     }.get(name, "closed scalar function result tests")
     ir_test = (
         "test_matches_call_lowers_as_bool_expression"
@@ -195,30 +197,36 @@ def _scalar_function_evidence(
         "trim": "test_lower_and_trim_calls_render_recursively",
         "len": "test_len_call_uses_postgres_length",
         "matches": "test_matches_call_uses_postgres_regex_operator",
+        "concat": "test_concat_uses_the_null_propagating_postgres_operator",
     }.get(name, "closed scalar call rendering tests")
-    mysql_path = (
-        "tests/test_sql_mysql_relations.py"
-        if name == "matches"
-        else "tests/test_sql_mysql_expressions.py"
+    mysql_path = {
+        "matches": "tests/test_sql_mysql_relations.py",
+        "concat": "tests/test_sql_project_scalar_expressions.py",
+    }.get(name, "tests/test_sql_mysql_expressions.py")
+    mysql_test = {
+        "matches": "test_matches_relation_fails_closed_without_approximation",
+        "concat": "test_mysql_project_sql_refuses_concat",
+    }.get(name, "test_approved_function_mappings_are_uppercase_and_recursive")
+    # Single-file MySQL renders CONCAT; MySQL project emission refuses it,
+    # as it refuses an Int-to-Text cast.
+    mysql_backend = (
+        "src/pietto/_project/project_sql_emission_rows.py"
+        if name == "concat"
+        else "src/pietto/sql/mysql_expressions.py"
     )
-    mysql_test = (
-        "test_matches_relation_fails_closed_without_approximation"
-        if name == "matches"
-        else "test_approved_function_mappings_are_uppercase_and_recursive"
-    )
-    mysql_reference = (
-        "_render_call rejects matches"
-        if name == "matches"
-        else "_FUNCTION_NAMES and _render_call"
-    )
+    mysql_reference = {
+        "matches": "_render_call rejects matches",
+        "concat": "resolved_scalar_call_realization concat branch",
+    }.get(name, "_FUNCTION_NAMES and _render_call")
     mysql_reason = (
-        CapabilityReasonCode.DIALECT_LOWERING_GAP if name == "matches" else None
+        CapabilityReasonCode.DIALECT_LOWERING_GAP
+        if name in {"matches", "concat"}
+        else None
     )
-    postgres_reference = (
-        "_FUNCTION_ARITIES and _render_call matches branch"
-        if name == "matches"
-        else "_FUNCTION_NAMES, _FUNCTION_ARITIES, and _render_call"
-    )
+    postgres_reference = {
+        "matches": "_FUNCTION_ARITIES and _render_call matches branch",
+        "concat": "_render_call concat branch",
+    }.get(name, "_FUNCTION_NAMES, _FUNCTION_ARITIES, and _render_call")
     evidence = (
         _evidence(
             CapabilityEvidenceSource.GRAMMAR_AST,
@@ -265,7 +273,7 @@ def _scalar_function_evidence(
         ),
         _evidence(
             CapabilityEvidenceSource.BACKEND,
-            "src/pietto/sql/mysql_expressions.py",
+            mysql_backend,
             mysql_reference,
             mysql_reason,
             dialect="mysql",
@@ -285,10 +293,18 @@ def _scalar_function_evidence(
             postgres_test,
         ),
         _evidence(CapabilityEvidenceSource.TEST, mysql_path, mysql_test),
-        _evidence(
-            CapabilityEvidenceSource.SPEC,
-            "docs/spec/operator-comparison-matrix-contract-v1.md",
-            "Scalar Function Boundary",
+        (
+            _evidence(
+                CapabilityEvidenceSource.SPEC,
+                "docs/spec/diagnostics.md",
+                "PIE-S2104 scalar forms",
+            )
+            if name == "concat"
+            else _evidence(
+                CapabilityEvidenceSource.SPEC,
+                "docs/spec/operator-comparison-matrix-contract-v1.md",
+                "Scalar Function Boundary",
+            )
         ),
     )
     if name != "matches":
@@ -503,6 +519,7 @@ _SCALAR_SIGNATURES = (
     ("Text", "len", ("Int", "unknown")),
     ("Text", "substr", ("Int", "Int", "Text", "unknown")),
     ("Text", "replace", ("Text", "Text", "Text", "unknown")),
+    ("Text", "concat", ("Text", "Text", "unknown")),
     ("Text", "contains", ("Text", "Bool", "unknown")),
     ("Text", "starts_with", ("Text", "Bool", "unknown")),
     ("Text", "ends_with", ("Text", "Bool", "unknown")),
@@ -1130,6 +1147,10 @@ def _schema_is_complete(key: CapabilityKey) -> bool:
             )
         if key.subject == "ValueTypeKind.KNOWN" and key.operation == "conditional":
             return key.operands == ("Bool", "ValueTypeKind.KNOWN", "unknown")
+        if key.subject == "Text" and key.operation == "concat":
+            # One representative fact, as for coalesce: another arity is
+            # unknown, not absent.
+            return key.operands == ("Text", "Text", "unknown")
         if key.subject == "ValueTypeKind.KNOWN" and key.operation in {"in", "not in"}:
             return key.operands == ("Bool", "unknown")
         return (
@@ -1216,6 +1237,7 @@ def _unknown_reason(key: CapabilityKey) -> CapabilityReasonCode | None:
             ("Float", "round", ("Float", "unknown")),
             ("Text", "date_trunc", ("Date", "Date", "unknown")),
             ("Text", "date_trunc", ("Timestamp", "Timestamp", "unknown")),
+            ("Text", "concat", ("Text", "Text", "unknown")),
         }:
             return CapabilityReasonCode.DIALECT_LOWERING_GAP
     if key == CapabilityKey(

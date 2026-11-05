@@ -2,8 +2,8 @@
 
 from __future__ import annotations
 
-from collections.abc import Iterable
-from dataclasses import dataclass
+from collections.abc import Iterable, Sequence
+from dataclasses import dataclass, replace
 from enum import StrEnum
 from functools import cached_property
 from pathlib import Path
@@ -189,6 +189,18 @@ _FROM_HINT = (
     "`let x:` at the start of the body and write `from x` (EXPLICIT_MODULES "
     "projects)."
 )
+# The `||` hint, and the 0.1.7 one where `concat` names a callable of the
+# program's own (`declares_concat`), not the builtin.
+PIPE_HINT = "Write `concat(a, b)` to join Text, or `or` for a condition."
+UNJOINED_PIPE_HINT = "String concatenation with `||` is not supported yet."
+_CALLABLE_KEYWORDS = frozenset(
+    {
+        PiettoParser.DEF,
+        PiettoParser.CONSTRAINT,
+        PiettoParser.DERIVE,
+        PiettoParser.RELATIONSHIP,
+    }
+)
 # Words that an expression follows, so a '(' after them is not a call's;
 # `exists` and `scalar` read a relation, as a subquery would.
 _EXPRESSION_WORDS = frozenset(
@@ -273,6 +285,37 @@ def quoted_source_text(text: str) -> str:
         else:
             escaped.append(character)
     return "'" + "".join(escaped) + "'"
+
+
+def declares_concat(tokens: Sequence[Token]) -> bool:
+    """Whether ``tokens`` declare a callable `concat`: a `def`, `constraint`,
+    `derive` or relationship template of that name (`shadowed_builtin_names`),
+    read from the tokens, so also in source that does not parse."""
+
+    return any(
+        keyword.type in _CALLABLE_KEYWORDS
+        and name.text == "concat"
+        and parenthesis.type == PiettoParser.LPAREN
+        for keyword, name, parenthesis in zip(tokens, tokens[1:], tokens[2:])
+    )
+
+
+def with_unjoined_pipe_hints(
+    diagnostics: Iterable[Diagnostic],
+) -> tuple[Diagnostic, ...]:
+    """``diagnostics`` with the 0.1.7 `||` hint, for the files of a
+    schema_version = 1 project, one namespace, one of which declares a
+    callable `concat` (`declares_concat`)."""
+
+    return tuple(
+        replace(
+            item,
+            message=item.message.removesuffix(PIPE_HINT) + UNJOINED_PIPE_HINT,
+        )
+        if item.code == "PIE-P1000" and item.message.endswith(PIPE_HINT)
+        else item
+        for item in diagnostics
+    )
 
 
 def _index(token: Token) -> int:
@@ -400,6 +443,13 @@ class SyntaxErrorReporter(DefaultErrorStrategy):
             # The name is a rule of its own inside the FROM clause.
             and isinstance(recognizer._ctx.parentCtx, PiettoParser.FromClauseContext)
         )
+
+    @cached_property
+    def _declares_concat(self) -> bool:
+        """Whether the file declares a callable `concat`; as for
+        `_parenthesized`, the first message that asks makes the one pass."""
+
+        return declares_concat(self.tokens)
 
     @cached_property
     def _parenthesized(self) -> list[bool]:
@@ -581,7 +631,7 @@ class SyntaxErrorReporter(DefaultErrorStrategy):
             and following is not None
             and following.type == PiettoParser.PIPE
         ):
-            return "String concatenation with `||` is not supported yet."
+            return UNJOINED_PIPE_HINT if self._declares_concat else PIPE_HINT
         before = self._token(_index(token) - 2)
         if (
             previous is not None

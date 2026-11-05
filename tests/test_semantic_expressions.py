@@ -362,7 +362,7 @@ def test_a_case_coalesce_or_nullif_of_only_nulls_takes_the_type_beside_it() -> N
     )
     numeric = (
         "Invalid operands for operator +: expected numeric operands; "
-        "string concatenation is not supported yet"
+        "use `concat(...)` with `Text(n)` to join Text values"
     )
     assert [
         (d.code, d.message, d.location.line, d.location.column)

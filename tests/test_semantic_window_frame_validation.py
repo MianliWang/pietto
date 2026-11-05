@@ -815,7 +815,7 @@ def test_single_file_check_judges_frame_offsets_after_let_inlining(
                 (
                     "PIE-S2105",
                     "Invalid operands for operator +: expected numeric operands; "
-                    "string concatenation is not supported yet",
+                    "use `concat(...)` with `Text(n)` to join Text values",
                 )
             ],
         ),

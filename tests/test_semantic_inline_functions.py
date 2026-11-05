@@ -1299,8 +1299,10 @@ ILL_TYPED = {
     "I9": "lower(coalesce(None, 1)) is None",
 }
 NOT_NUMERIC = "Invalid operands for operator {}: expected numeric operands"
-# `+` with a Text operand also says that Text does not concatenate.
-TEXT_PLUS = NOT_NUMERIC.format("+") + "; string concatenation is not supported yet"
+# `+` of a Text and an Int also points to `concat(...)` and `Text(n)`.
+TEXT_PLUS = (
+    NOT_NUMERIC.format("+") + "; use `concat(...)` with `Text(n)` to join Text values"
+)
 LOWER_OF_INT = (
     "Invalid argument type for function lower at position 1: expected Text, got Int"
 )
@@ -2140,7 +2142,7 @@ def test_a_call_typed_beside_an_unknown_argument_is_checked_for_its_type_alone()
             33,
             13,
             "Invalid operands for operator +: expected numeric operands; "
-            "string concatenation is not supported yet",
+            "use `concat(...)` with `Text(n)` to join Text values",
         ),
     ]
 
@@ -2797,7 +2799,7 @@ CHAIN_ONCE_IN_TEXT_ORDER = {
                 6,
                 9,
                 "Invalid operands for operator +: expected numeric operands; "
-                "string concatenation is not supported yet",
+                "use `concat(...)` with `Text(n)` to join Text values",
             )
         ],
     ),
@@ -3719,6 +3721,138 @@ def test_float_constructor_keeps_relationship_and_qualified_calls() -> None:
     relation = normalized.definitions[-1]
     assert type(relation) is ast.QueryDef
     assert type(relation.select_items[0].expression) is ast.CallExpr
+
+
+_CONCAT_ROWS = (
+    "shape Row:\n    id: Int\n    a: Text\n    b: Text\n"
+    'source rows: Row = postgres.table("rows")\n'
+)
+
+
+@pytest.mark.parametrize("after", [False, True], ids=["before-call", "after-call"])
+def test_authored_concat_function_wins_regardless_of_order_or_arity(
+    after: bool,
+) -> None:
+    from pietto import ast_nodes as ast
+    from pietto.ir import build_ir
+
+    declaration = "def concat(x: Text) -> Int: return len(x)\n"
+    query = "query q:\n    from rows\n    select:\n        v = concat(a)\n"
+    parsed = parse_source(
+        _CONCAT_ROWS + (query + declaration if after else declaration + query)
+    )
+    assert parsed.diagnostics == () and parsed.ast is not None
+    result = analyze(parsed.ast)
+    assert result.diagnostics == ()
+    relation = result.model.relation_symbols["q"]
+    assert type(relation) is ast.QueryDef
+    expression = relation.select_items[0].expression
+    assert type(expression) is CallExpr and type(expression.callee) is NameExpr
+    assert expression.callee.name == "len"
+    assert result.model.expression_value_types[expression].resolved_type.name == "Int"
+    assert result.script is not None
+    lowered = build_ir(result.script, result.model)
+    assert lowered.diagnostics == () and lowered.ir is not None
+
+
+def test_shadowed_concat_wrong_arity_is_a_user_function_error() -> None:
+    source = (
+        _CONCAT_ROWS
+        + 'def concat(x: Text, y: Text) -> Text: return lower(x) if y == "" else y\n'
+        "query q:\n    from rows\n    select:\n        v = concat(a, b, a)\n"
+    )
+    assert _errors(source) == [
+        ("PIE-S2395", 10, 13, "Invalid arguments for def concat: expected 2, got 3")
+    ]
+
+
+@pytest.mark.parametrize(
+    ("kind", "declaration"),
+    [
+        (
+            "constraint",
+            "constraint concat(x: Text, y: Text) -> Bool:\n    return x == y\n",
+        ),
+        ("derive", "derive concat(x: Text, y: Text) -> Text:\n    return x\n"),
+    ],
+)
+def test_concat_does_not_take_an_existing_callable_name(
+    kind: str, declaration: str
+) -> None:
+    # Each call is the 0.1.7 unknown function, its rows unread, and another
+    # spelling keeps the 0.1.7 hint in such a file.
+    source = (
+        _CONCAT_ROWS + declaration + "query q:\n    from rows\n    select:\n"
+        "        v = concat(a, b) + 1\n"
+        "        w = not concat(rows, 1)\n"
+        "        u = Concat(a, b)\n"
+    )
+    uncallable = (
+        f"Unknown function: concat; concat is a {kind}, which cannot be called; "
+        "write a `def` instead"
+    )
+    assert _errors(source) == [
+        ("PIE-S2103", 11, 13, uncallable),
+        ("PIE-S2103", 12, 17, uncallable),
+        (
+            "PIE-S2103",
+            13,
+            13,
+            "Unknown function: Concat; string concatenation is not supported yet",
+        ),
+    ]
+
+
+def test_concat_relationship_template_keeps_its_meaning() -> None:
+    relationship = "relationship concat(row: Row):\n    row.id > 0\n"
+    query = (
+        "query q:\n    from rows\n    where concat(rows)\n    select:\n        v = a\n"
+    )
+    parsed = parse_source(_CONCAT_ROWS + relationship + query)
+    assert parsed.diagnostics == () and parsed.ast is not None
+    checked = analyze(parsed.ast)
+    assert checked.diagnostics == ()
+    assert len(checked.model.relationship_calls) == 1
+    # Where no relationship call binds it, the name is the 0.1.7 unknown
+    # function, also in a def body.
+    unknown = "Unknown function: concat; string concatenation is not supported yet"
+    assert _errors(
+        _CONCAT_ROWS + relationship + query + "    order by:\n        concat(a, b)\n"
+    ) == [("PIE-S2103", 14, 9, unknown)]
+    assert _errors(
+        _CONCAT_ROWS
+        + relationship
+        + "def wrap(x: Text) -> Text: return concat(x, x)\n"
+        + query
+        + "        w = wrap(a)\n"
+    ) == [("PIE-S2103", 8, 35, unknown)]
+
+
+@pytest.mark.parametrize(
+    "declaration",
+    [
+        'def concat(x: Text, y: Text) -> Text: return lower(x) if y == "" else y\n',
+        "constraint concat(x: Text, y: Text) -> Bool:\n    return x == y\n",
+        "derive concat(x: Text, y: Text) -> Text:\n    return x\n",
+        "relationship concat(row: Row):\n    row.id > 0\n",
+    ],
+    ids=["def", "constraint", "derive", "relationship"],
+)
+def test_text_plus_keeps_the_0_1_7_hint_where_concat_names_a_callable(
+    declaration: str,
+) -> None:
+    # There `concat(...)` names the file's own callable, so `+` of a Text
+    # points to it beside no operand.
+    first = (_CONCAT_ROWS + declaration).count("\n") + 4
+    unjoined = (
+        "Invalid operands for operator +: expected numeric operands; "
+        "string concatenation is not supported yet"
+    )
+    assert _errors(
+        _CONCAT_ROWS + declaration + "query q:\n    from rows\n    select:\n"
+        "        v = a + b\n        w = id + a\n        x = a + None\n"
+        "        y = a + True\n"
+    ) == [("PIE-S2105", first + index, 13, unjoined) for index in range(4)]
 
 
 def test_float_constructor_leaves_a_window_or_table_function_call() -> None:

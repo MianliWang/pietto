@@ -31,6 +31,7 @@ from pietto.errors import (
     Severity,
     SourceLocation,
     SyntaxErrorReporter,
+    declares_concat,
     source_path,
 )
 from pietto.generated.PiettoLexer import PiettoLexer
@@ -821,6 +822,14 @@ def parse_file(path: str | Path) -> ParseResult:
             column=1,
         )
     return parse_source(source_bytes.decode("utf-8"), path=source_path_value)
+
+
+def source_declares_concat(source: str) -> bool:
+    """Whether ``source`` declares a callable `concat` (`declares_concat`)."""
+
+    lexer = _PiettoLexer(InputStream(source))
+    lexer.removeErrorListeners()
+    return declares_concat(_read_tokens(lexer, path=None)[0])
 
 
 def _read_tokens(

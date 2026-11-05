@@ -7191,7 +7191,14 @@ def _decode_fixed_public(document, limits):
                     "COALESCE(": "coalesce",
                 },
             }[family]
-            if opening == "round(" and family == "postgres":
+            if opening == "(" and family == "postgres":
+                operands = [row_parse(block, port_kind)]
+                while peek() == "scalar_call_separator":
+                    take("syntax", "scalar_call_separator", " || ", original)
+                    operands.append(row_parse(block, port_kind))
+                _need(len(operands) >= 2, "concat arity")
+                name, close = "concat", ")"
+            elif opening == "round(" and family == "postgres":
                 operands = [row_parse(block, port_kind)]
                 if peek() == "scalar_call_separator":
                     take("syntax", "scalar_call_separator", ", CAST(", original)
@@ -8293,6 +8300,18 @@ def _decode_fixed_public(document, limits):
                     (text, needle, replacement),
                     text["domain"]["max_characters"]
                     * max(1, replacement["domain"]["max_characters"]),
+                )
+            if name == "concat" and len(operands) >= 2:
+                _need(
+                    all(item["tag"] == "Text" for item in operands), "concat operands"
+                )
+                return text_carrier_result(
+                    operands,
+                    sum(
+                        item["domain"]["max_characters"]
+                        for item in operands
+                        if not item.get("null")
+                    ),
                 )
             if name in {"contains", "starts_with", "ends_with"} and len(operands) == 2:
                 _need(

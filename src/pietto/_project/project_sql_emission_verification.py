@@ -6636,6 +6636,7 @@ def verify_row_bytes(query, rendered):
                         "abs": "abs",
                         "nullif": "NULLIF",
                         "coalesce": "COALESCE",
+                        "concat": "",
                     },
                     "mysql": {
                         "lower": "LOWER",
@@ -6923,9 +6924,10 @@ def verify_row_bytes(query, rendered):
                 if spelling is None or not value.operands:
                     raise ValueError("scalar call spelling")
                 take("syntax", "scalar_call_open", reference, spelling + "(")
+                separator = " || " if spelling == "" else ", "
                 for position in range(len(value.operands)):
                     if position:
-                        take("syntax", "scalar_call_separator", reference, ", ")
+                        take("syntax", "scalar_call_separator", reference, separator)
                     operation_operand(value, position, alias)
                 take("syntax", "scalar_call_close", reference, ")")
                 spans.append(("scalar_call", reference, start, offset))

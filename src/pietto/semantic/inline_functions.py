@@ -77,7 +77,9 @@ __all__: tuple[str, ...] = ()
 
 # A def parameter or result is exactly one of these builtin scalars.
 _SCALAR_TYPES = ("Bool", "Int", "Float", "Decimal", "Text", "Date", "Timestamp", "UUID")
-# Every name a call may already denote; a def never shadows one.
+# Every name a call may already denote; a def never shadows one, except
+# `concat`, which a `def concat` keeps, as `def Float` does
+# (`shadowed_builtin_names`).
 _RESERVED_NAMES = frozenset(
     {
         *BUILTIN_FUNCTIONS,
@@ -86,7 +88,7 @@ _RESERVED_NAMES = frozenset(
         *WINDOW_FUNCTION_NAMES,
         "generate_series",
     }
-)
+) - {"concat"}
 # One expansion, with its arguments, has at most this many expression nodes
 # and this nesting depth.
 _MAX_EXPANSION_NODES = 1000

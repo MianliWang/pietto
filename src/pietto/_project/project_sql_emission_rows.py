@@ -1965,6 +1965,26 @@ def resolved_scalar_call_realization(
         )
         if result is not None:
             return result, None
+    if name == "concat":
+        # NULL when any argument is; otherwise as wide as all of them. MySQL
+        # types a CONCAT from storage lengths and a literal's UTF-8 bytes, not
+        # from these widths, so MySQL project SQL refuses it.
+        concrete = tuple(item for item in values if not _typed_null(item))
+        if (
+            family != "postgres"
+            or len(values) < 2
+            or tag != "Text"
+            or not concrete
+            or any(item.tag != "Text" for item in values)
+            or any(_text_domain(item) != _text_domain(concrete[0]) for item in concrete)
+        ):
+            return None, ("PIE-B1003", "scalar_call_signature_not_admitted")
+        widths = tuple(item.domain.get("max_characters") for item in concrete)
+        if any(type(width) is not int for width in widths):
+            return None, ("PIE-B1004", "text_concat_result_bound_missing")
+        result = _text_carrier_result(family, values, nullable, sum(widths))
+        if result is not None:
+            return result, None
     if (
         name in {"contains", "starts_with", "ends_with"}
         and len(values) == 2

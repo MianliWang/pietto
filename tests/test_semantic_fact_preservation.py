@@ -3738,7 +3738,7 @@ def test_a_repeated_output_name_reports_as_in_a_single_file(
         (
             "PIE-S2105",
             "Invalid operands for operator +: expected numeric operands; "
-            "string concatenation is not supported yet",
+            "use `concat(...)` with `Text(n)` to join Text values",
             at["several"] + 9,
             14,
         ),

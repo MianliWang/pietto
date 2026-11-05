@@ -171,6 +171,7 @@ def test_scalar_function_facts_cover_the_closed_builtin_catalog() -> None:
         ("Text", "len", ("Int", "unknown")),
         ("Text", "substr", ("Int", "Int", "Text", "unknown")),
         ("Text", "replace", ("Text", "Text", "Text", "unknown")),
+        ("Text", "concat", ("Text", "Text", "unknown")),
         ("Text", "contains", ("Text", "Bool", "unknown")),
         ("Text", "starts_with", ("Text", "Bool", "unknown")),
         ("Text", "ends_with", ("Text", "Bool", "unknown")),
@@ -401,10 +402,12 @@ def test_scalar_function_fact_is_found(
 
 
 def test_mysql_gaps_are_provenance_not_generic_fact_support() -> None:
+    # MySQL project SQL refuses `concat` and an Int-to-Text cast; single-file
+    # MySQL renders both.
     scalar_facts = tuple(
         fact
         for fact in _facts("_SCALAR_FUNCTION_FACTS")
-        if fact.key.operation in {"round", "date_trunc"}
+        if fact.key.operation in {"round", "date_trunc", "concat"}
     )
     text_conversion = _facts("_CONVERSION_FACTS")[1]
     for fact in (*scalar_facts, text_conversion):
@@ -703,6 +706,13 @@ def test_signature_completeness_schemas_are_exact() -> None:
             ),
         ),
         replace(complete_absences[5], operands=("Bogus", "non_null")),
+        # One representative concat fact, as for coalesce: another arity is
+        # unknown, not absent.
+        replace(
+            complete_absences[0],
+            operation="concat",
+            operands=("Text", "Text", "Text", "unknown"),
+        ),
         CapabilityKey(
             CapabilityDomain.AGGREGATE,
             subject="Int",
@@ -808,12 +818,16 @@ def test_incomplete_and_division_lookups_are_unknown_with_exact_reasons() -> Non
         context="expression",
         dialect="mysql",
     )
+    concat_mysql = replace(
+        date_trunc_mysql, operation="concat", operands=("Text", "Text", "unknown")
+    )
     expected = (
         (division, CapabilityReasonCode.NO_CURRENT_RESULT_RULE),
         (matches_mysql, CapabilityReasonCode.DIALECT_LOWERING_GAP),
         (float_round_mysql, CapabilityReasonCode.DIALECT_LOWERING_GAP),
         (date_trunc_mysql, CapabilityReasonCode.DIALECT_LOWERING_GAP),
         (text_conversion_mysql, CapabilityReasonCode.DIALECT_LOWERING_GAP),
+        (concat_mysql, CapabilityReasonCode.DIALECT_LOWERING_GAP),
     )
     for key, reason in expected:
         _, complete, actual_reason = _inputs(key)

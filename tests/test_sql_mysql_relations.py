@@ -65,6 +65,78 @@ def test_source_backed_relation_renders_approved_format() -> None:
     assert result.diagnostics == ()
 
 
+def test_concat_renders_mysql_concat() -> None:
+    result = emit_mysql_sql(
+        _compile(
+            "type Label = Text\n"
+            "shape Item:\n"
+            "    code: Text\n"
+            "    note: Text | None\n"
+            "    tag: Label\n"
+            'source items: Item = mysql.table("app.items")\n'
+            "table labelled:\n"
+            "    from items\n"
+            "    select:\n"
+            '        pair = concat(code, "雪", tag)\n'
+            "        nulled = concat(note, None)\n"
+        )
+    )
+
+    assert result.diagnostics == ()
+    assert result.artifacts[0].sql == (
+        "SELECT\n"
+        "    CONCAT(`code`, '雪', `tag`) AS `pair`,\n"
+        "    CONCAT(`note`, NULL) AS `nulled`\n"
+        "FROM `app`.`items`"
+    )
+
+
+_CONCAT_POSITIONS = (
+    "shape Item:\n    code: Text\n    note: Text | None\n    qty: Int\n"
+    'source items: Item = {}.table("public.items")\n'
+    'def tagged(x: Text) -> Text: return concat(x, "!")\n'
+    "query q:\n    from items\n"
+    '    where concat(code, "-") == "a-" or concat(concat(code, note), "x") != code\n'
+    "    select:\n"
+    '        nested = concat(concat(code, "-"), concat(note, Text(qty)))\n'
+    "        nulls = concat(None, None)\n"
+    "        defd = tagged(code)\n"
+    "    order by:\n"
+    '        concat(code, "z")\n'
+)
+_SHAPELESS_CONCAT = (
+    'source raw = {}.table("events")\n'
+    "query q:\n    from raw\n    select:\n"
+    "        merged = concat(payload, extra)\n"
+    "        nulls = concat(None, None)\n"
+)
+
+
+def test_concat_nests_in_every_position_and_converts_any_operand() -> None:
+    assert emit_mysql_sql(_compile(_CONCAT_POSITIONS.format("mysql"))).artifacts[
+        0
+    ].sql == (
+        "SELECT\n"
+        "    CONCAT(CONCAT(`code`, '-'), CONCAT(`note`, (CAST(`qty` AS CHAR)))) "
+        "AS `nested`,\n"
+        "    CONCAT(NULL, NULL) AS `nulls`,\n"
+        "    CONCAT(`code`, '!') AS `defd`\n"
+        "FROM `public`.`items`\n"
+        "WHERE (CONCAT(`code`, '-') = 'a-') OR "
+        "(CONCAT(CONCAT(`code`, `note`), 'x') <> `code`)\n"
+        "ORDER BY\n"
+        "    CONCAT(`code`, 'z') ASC"
+    )
+    assert emit_mysql_sql(_compile(_SHAPELESS_CONCAT.format("mysql"))).artifacts[
+        0
+    ].sql == (
+        "SELECT\n"
+        "    CONCAT(`payload`, `extra`) AS `merged`,\n"
+        "    CONCAT(NULL, NULL) AS `nulls`\n"
+        "FROM `events`"
+    )
+
+
 def test_decimal_int_membership_renders_as_written() -> None:
     # `amount in (1, 2)` checks like `amount == 1 or amount == 2`; neither
     # side is cast.

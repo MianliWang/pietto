@@ -6,6 +6,11 @@ from collections.abc import Callable
 from typing import cast
 
 from pietto import ast_nodes as ast
+from pietto._builtin_shadows import (
+    builtin_shadows as builtin_shadows,
+    in_concat_file as in_concat_file,
+    shadowed_builtin_names as shadowed_builtin_names,
+)
 from pietto.errors import Diagnostic
 
 __all__: tuple[str, ...] = ()
@@ -26,14 +31,7 @@ def normalize_float_calls(
     )
 
     constructors = frozenset({"Float", "Text"})
-    shadowed = frozenset(
-        item.name
-        for item in script.definitions
-        if type(item) in (ast.FunctionDef, ast.ConstraintDef, ast.DeriveDef)
-        and item.name in constructors
-    ) | frozenset(
-        item.name for item in script.relationship_templates if item.name in constructors
-    )
+    shadowed = shadowed_builtin_names(script)
     diagnostics: list[Diagnostic] = []
     # A window's or a table function's own call stays a call, whose reader
     # checks its name: `Float(x) window(...)` is an unknown window function,

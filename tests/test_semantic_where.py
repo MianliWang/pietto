@@ -310,7 +310,7 @@ def test_a_built_in_call_over_an_unknown_row_has_its_result_type_everywhere() ->
 
     plus = (
         "Invalid operands for operator +: expected numeric operands; "
-        "string concatenation is not supported yet"
+        "use `concat(...)` with `Text(n)` to join Text values"
     )
     assert _errors(source) == [
         ("PIE-S2303", 1, 1, "Source raw has no bound shape; row schema is unknown"),

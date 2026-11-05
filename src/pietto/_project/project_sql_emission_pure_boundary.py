@@ -1605,7 +1605,7 @@ class _Check:
                 count = len(op["operands"])
                 _require(
                     count >= 2
-                    if op["operator"] == "coalesce"
+                    if op["operator"] in {"coalesce", "concat"}
                     else count in arities.get(op["operator"], set()),
                     "operation arity",
                 )
@@ -1642,6 +1642,8 @@ class _Check:
                         ),
                         "int_to_text realization",
                     )
+            elif op["kind"] == "scalar_call" and op["operator"] == "concat":
+                _require(family == "postgres", "concat family")
             elif op["kind"] == "scalar_call" and op["operator"] == "round":
                 _require(family == "postgres", "round family")
                 value = _value_realization(doc, operands[0])
@@ -2833,7 +2835,10 @@ class _Tokens:
                     expected = simple.get(name, "") + "("
                 _require(bool(expected) and text == expected, "scalar call spelling")
             elif role == "scalar_call_close":
-                if name in {"substr", "starts_with", "ends_with"} or name in simple:
+                if (
+                    name in {"substr", "starts_with", "ends_with", "concat"}
+                    or name in simple
+                ):
                     expected = ")"
                 elif name == "date_of":
                     expected = " AS date)" if self.family == "postgres" else ")"
@@ -2852,6 +2857,8 @@ class _Tokens:
                     in (
                         {" FROM ", " FOR "}
                         if self.family == "postgres" and name == "substr"
+                        else {" || "}
+                        if self.family == "postgres" and name == "concat"
                         else {", "}
                     ),
                     "scalar call separator",

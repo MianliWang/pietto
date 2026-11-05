@@ -584,7 +584,7 @@ def test_alias_arguments_and_conditions_are_checked_as_their_base_type() -> None
         (
             "PIE-S2105",
             "Invalid operands for operator +: expected numeric operands; "
-            "string concatenation is not supported yet",
+            "use `concat(...)` with `Text(n)` to join Text values",
             24,
             13,
         ),

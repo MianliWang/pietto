@@ -191,7 +191,7 @@ def test_invalid_arithmetic_reports_s2105() -> None:
         (
             "PIE-S2105",
             "Invalid operands for operator +: expected numeric operands; "
-            "string concatenation is not supported yet",
+            "use `concat(...)` with `Text(n)` to join Text values",
         )
     ]
     _assert_diagnostic_span(semantic.diagnostics[0], expression)
@@ -547,7 +547,7 @@ def test_a_null_number_fits_beside_numbers_as_the_database_reads_it(
             "PIE-S2105",
             18,
             "Invalid operands for operator +: expected numeric operands; "
-            "string concatenation is not supported yet",
+            "use `concat(...)` with `Text(n)` to join Text values",
         ),
         ("PIE-S2105", 19, "Invalid operands for operator %: expected Int operands"),
         (
@@ -1227,7 +1227,7 @@ def test_abs_of_a_number_of_unknown_type_is_one() -> None:
         (
             "PIE-S2105",
             "Invalid operands for operator +: expected numeric operands; "
-            "string concatenation is not supported yet",
+            "use `concat(...)` to join Text values",
             13,
             13,
         ),

@@ -835,10 +835,16 @@ def test_q1_membership_refuses_types_without_a_reviewed_sql_equality(tag):
     assert problem == ("PIE-B1003", "membership_type_pair_not_admitted")
 
 
-@pytest.mark.parametrize("target", TARGETS)
 @pytest.mark.parametrize("mutation", ("operands", "callee", "rendered_sql"))
-def test_q1_scalar_ast_and_bytes_tampering_are_rejected(tmp_path, target, mutation):
-    _, outcome = emit(tmp_path, target, Q1_BODY)
+@pytest.mark.parametrize(
+    ("target", "callee"),
+    (("postgres", "lower"), ("mysql", "lower"), ("postgres", "concat")),
+)
+def test_q1_scalar_ast_and_bytes_tampering_are_rejected(
+    tmp_path, target, mutation, callee
+):
+    body = Q1_BODY if callee == "lower" else POSTGRES_TEXT_GROWTH_BODY
+    _, outcome = emit(tmp_path, target, body)
     artifact = outcome.artifact
     assert artifact is not None
     body_index, lower = next(
@@ -848,7 +854,7 @@ def test_q1_scalar_ast_and_bytes_tampering_are_rejected(tmp_path, target, mutati
         if type(column) is RowValueColumn
         and type(column.value) is rows.SQLOperation
         and column.value.kind == "scalar_call"
-        and column.value.original.callee_symbol.name == "lower"
+        and column.value.original.callee_symbol.name == callee
     )
     query = row_query(artifact)
     body = query.bodies[body_index]
@@ -902,8 +908,11 @@ def test_q1_scalar_ast_and_bytes_tampering_are_rejected(tmp_path, target, mutati
         )
     else:
         sql = artifact.rendered.sql
-        before = b"lower(" if target == "postgres" else b"LOWER("
-        after = b"upper(" if target == "postgres" else b"UPPER("
+        before, after = {
+            ("lower", "postgres"): (b"lower(", b"upper("),
+            ("lower", "mysql"): (b"LOWER(", b"UPPER("),
+            ("concat", "postgres"): (b" || ", b", "),
+        }[callee, target]
         changed_sql = sql.replace(before, after, 1)
         assert changed_sql != sql
         changed = replace(
@@ -974,6 +983,31 @@ TEXT_GROWTH_BODY = """table result:
         growing = replace(text, text, text)
         reverse_coalesced = coalesce("x", text)
 """
+# PostgreSQL project SQL also joins Text; MySQL project SQL refuses `concat`
+# (test_mysql_project_sql_refuses_concat).
+POSTGRES_TEXT_GROWTH_BODY = """table result:
+    from rows
+    let joined = concat(text, "雪é", text)
+    select:
+        growing = replace(text, text, text)
+        reverse_coalesced = coalesce("x", text)
+        joined
+        nulled = concat(text, None)
+"""
+# PostgreSQL concat() skips NULL; `||` is NULL when any argument is. The same
+# bytes for both literal policies: a call argument stays a literal.
+POSTGRES_TEXT_GROWTH_SQL = (
+    'WITH "p0" ("c0", "c1", "c2", "c3", "c4", "c5") AS (SELECT '
+    '"s0"."order.id" AS "c0", "s0"."flag value" AS "c1", '
+    '"s0"."text `""é" AS "c2", "s0"."amount value" AS "c3", '
+    '"s0"."ratio value" AS "c4", ("s0"."text `""é" || '
+    "CAST(E'\\351\\233\\252\\303\\251' AS pg_catalog.text) COLLATE \"C\" || "
+    '"s0"."text `""é") AS "c5" FROM "public"."phase66 source é" AS "s0") '
+    'SELECT replace("t1"."c2", "t1"."c2", "t1"."c2") AS "growing", '
+    'COALESCE(CAST(E\'\\170\' AS pg_catalog.text) COLLATE "C", "t1"."c2") '
+    'AS "reverse_coalesced", "t1"."c5" AS "joined", ("t1"."c2" || NULL) '
+    'AS "nulled" FROM "p0" AS "t1"'
+)
 
 
 @pytest.mark.parametrize("target", TARGETS)
@@ -1035,19 +1069,163 @@ def test_q1_bind_safe_scalar_call_literals_remain_verified_call_arguments(
 def test_q1_text_result_growth_uses_the_derived_bound_not_input_length(
     tmp_path, target, policy
 ):
-    checked, outcome = emit(tmp_path, target, TEXT_GROWTH_BODY, policy)
+    body = POSTGRES_TEXT_GROWTH_BODY if target == "postgres" else TEXT_GROWTH_BODY
+    checked, outcome = emit(tmp_path, target, body, policy)
     assert checked.verified and outcome.status == "VERIFIED"
     artifact = outcome.artifact
     assert artifact is not None
     assert verify_project_sql_emission(artifact, artifact.request).verified
 
+    observed = portable.export_emission_observation(artifact, artifact.request)
+    assert observed.canonical_bytes is not None
+    assert (
+        pure.parse_emission_observation(observed.canonical_bytes).status
+        is pure.Status.OK
+    )
+    assert portable.verify_emission_observation(
+        observed.canonical_bytes, artifact, artifact.request
+    ).corresponds
+
     document = probe.decode_public(serialize_project_sql_emission(outcome))
     columns = {column["label"]: column for column in document["columns"]}
-    for label, width in {"growing": 4096, "reverse_coalesced": 64}.items():
+    widths = {"growing": 4096, "reverse_coalesced": 64}
+    if target == "postgres":
+        assert document["sql"] == POSTGRES_TEXT_GROWTH_SQL
+        # A concat is as wide as all its arguments; a None adds nothing.
+        widths.update(joined=130, nulled=64)
+        assert [columns[label]["nullable"] for label in ("joined", "nulled")] == [
+            False,
+            True,
+        ]
+    for label, width in widths.items():
         representation = columns[label]["representation"]
         assert representation["domain"]["max_characters"] == width
         if target == "mysql":
             assert representation["storage"] == {"kind": "my_varchar", "length": width}
+
+    from pietto._project.project_compiled_build import build_compiled
+    from pietto._project.project_compiled_loading import load_compiled
+    from pietto._project.project_compiled_lowering import emit_compiled
+
+    built = build_compiled(artifact)
+    loaded = load_compiled(
+        built.payload,
+        expected_pin=built.pin,
+        accepted_producer=built.producer,
+        accepted_compatibility=built.compatibility,
+    )
+    from pietto._project.project_result_output import prepare_output
+
+    replayed = emit_compiled(loaded, ())
+    assert replayed.rendered.sql == artifact.rendered.sql
+    assert [
+        (column.label, column.realization.nullable, column.realization.domain)
+        for column in prepare_output(replayed).columns
+    ] == [
+        (column.label, column.realization.nullable, column.realization.domain)
+        for column in prepare_output(artifact).columns
+    ]
+
+
+def test_concat_of_only_none_stays_fail_closed(tmp_path):
+    checked, outcome = emit(
+        tmp_path,
+        "postgres",
+        "table result:\n    from rows\n    select:\n"
+        "        unknown = concat(None, None)\n",
+    )
+    assert checked.verified
+    assert outcome.status == "BLOCKED" and outcome.artifact is None
+    assert [(blocker.code, blocker.detail) for blocker in outcome.blockers] == [
+        ("PIE-B1003", "scalar_call_signature_not_admitted")
+    ]
+
+
+@pytest.mark.parametrize(
+    ("body", "location"),
+    (
+        # At the first refused statement part: the let, before `nulled`.
+        (POSTGRES_TEXT_GROWTH_BODY, (10, 5)),
+        (
+            'table result:\n    from rows\n    where concat(text, "-") == "x"\n'
+            "    select:\n        id\n",
+            (10, 5),
+        ),
+        # At the select item whose inlined def body calls it.
+        (
+            'def tag(x: Text) -> Text: return concat(x, "-")\n'
+            "table result:\n    from rows\n    select:\n        tagged = tag(text)\n",
+            (12, 9),
+        ),
+    ),
+    ids=("let_and_select", "where", "def_body"),
+)
+def test_mysql_project_sql_refuses_concat(tmp_path, body, location):
+    """MySQL types a CONCAT from its arguments' storage lengths and counts a
+    literal's UTF-8 bytes, not from the declared widths, so MySQL project SQL
+    refuses `concat`, as it refuses `round` and `date_trunc`; single-file
+    MySQL SQL renders CONCAT."""
+    checked, outcome = emit(tmp_path, "mysql", body)
+    assert checked.verified
+    document = json.loads(serialize_project_sql_emission(outcome))
+    assert document["status"] == "BLOCKED" and document["diagnostics"] == []
+    assert [
+        (
+            b["code"],
+            b["subject"]["detail"],
+            b["location"]["line"],
+            b["location"]["column"],
+        )
+        for b in document["blockers"]
+    ] == [("PIE-B1003", "scalar_call_signature_not_admitted", *location)]
+
+
+@pytest.mark.parametrize("target", TARGETS)
+def test_concat_reads_an_imported_text_alias_field_as_text(tmp_path, target):
+    base = probe.fixture(target)
+    header = base["source"].split("table result:", 1)[0]
+    contract = json.loads(base["contract"])
+    contract["environment"].append(
+        {
+            "key": "identifier_case",
+            "scope": "statement",
+            "value": "quoted_exact"
+            if target == "postgres"
+            else "lower_case_table_names=0",
+        }
+    )
+    assert "    text: Text\n" in header
+    _, outcome = probe.build_case(
+        tmp_path,
+        {
+            "types.pietto": "type Label = Text\nexport type Label\n",
+            "main.pietto": 'from "types.pietto" import type Label\n'
+            + header.replace("    text: Text\n", "    text: Label\n")
+            + "table result:\n    from rows\n    select:\n"
+            '        joined = concat(text, "-")\n',
+        },
+        probe.encoded(contract).decode(),
+        "preserve_literals",
+    )
+    document = json.loads(serialize_project_sql_emission(outcome))
+    if target == "mysql":
+        assert document["status"] == "BLOCKED" and document["diagnostics"] == []
+        assert [
+            (
+                b["code"],
+                b["subject"]["detail"],
+                b["location"]["path"],
+                b["location"]["line"],
+                b["location"]["column"],
+            )
+            for b in document["blockers"]
+        ] == [("PIE-B1003", "scalar_call_signature_not_admitted", "main.pietto", 12, 9)]
+        return
+    assert document["status"] == "VERIFIED", document
+    assert document["sql"] == (
+        'SELECT ("s0"."text `""é" || CAST(E\'\\055\' AS pg_catalog.text) '
+        'COLLATE "C") AS "joined" FROM "public"."phase66 source é" AS "s0"'
+    )
 
 
 @pytest.mark.parametrize("target", TARGETS)
