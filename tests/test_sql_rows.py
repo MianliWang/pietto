@@ -346,10 +346,9 @@ def test_row_boundaries_keep_no_usable_partial_sql(
 
 
 def _float_rows(tmp_path, target, body):
-    item = probe.fixture(target, "V_row_blocked", "float_comparison")
-    source = item["source"].split("table result:", 1)[0] + body
+    item = probe.parameterized_fixture(target, body, protocol=False)
     checked, outcome = probe.build_case(
-        tmp_path, source, item["contract"], item["policy"]
+        tmp_path, item["source"], item["contract"], item["policy"]
     )
     assert checked.verified
     return outcome

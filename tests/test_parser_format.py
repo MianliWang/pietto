@@ -29,16 +29,18 @@ def _formatted(source: str) -> str:
     return result.source
 
 
-def _parseable(name: str) -> str:
-    """A corpus file's text; the acceptance corpus is its parseable files."""
+def _parseable(name: str) -> tuple[str, str]:
+    """A corpus file's text and its formatted text; the acceptance corpus is
+    its parseable files."""
 
     try:
         source = (REPO_ROOT / name).read_bytes().decode("utf-8")
     except UnicodeDecodeError:
         pytest.skip("the file is not UTF-8")
-    if format_source(source).source is None:
+    formatted = format_source(source).source
+    if formatted is None:
         pytest.skip("the file has parser errors")
-    return source
+    return source, formatted
 
 
 def _non_blank(source: str) -> str:
@@ -86,14 +88,14 @@ def _observed(
 
 
 @pytest.mark.parametrize("name", CORPUS)
-def test_corpus_formatting_is_idempotent_and_keeps_comments_and_ast(
-    name: str,
+def test_corpus_formatting_is_idempotent_and_keeps_comments_ast_and_output(
+    name: str, tmp_path: Path, capsys: pytest.CaptureFixture[str]
 ) -> None:
-    source = _parseable(name)
-    formatted = _formatted(source)
+    source, formatted = _parseable(name)
     assert _formatted(formatted) == formatted
     # Indentation, trailing blanks and blank runs added to either give one result.
-    assert _formatted(_messy(source)) == _formatted(_messy(formatted))
+    messy = _formatted(_messy(source))
+    assert messy == _formatted(_messy(formatted))
     assert _comments(formatted) == _comments(source)
     assert _non_blank(formatted) == _non_blank(source)
     before, after = parse_source(source), parse_source(formatted)
@@ -101,18 +103,12 @@ def test_corpus_formatting_is_idempotent_and_keeps_comments_and_ast(
     assert [item.code for item in after.diagnostics] == [
         item.code for item in before.diagnostics
     ]
-
-
-@pytest.mark.parametrize("name", CORPUS)
-def test_corpus_checks_and_emits_the_same_after_formatting(
-    name: str, tmp_path: Path, capsys: pytest.CaptureFixture[str]
-) -> None:
-    source = _parseable(name)
+    # `check` and both dialects' `emit-sql`, observed fresh before formatting.
     copy = tmp_path / Path(name).name
     copy.write_bytes(source.encode("utf-8"))
     expected = _observed(copy, capsys)
-    for formatted in (_formatted(source), _formatted(_messy(source))):
-        copy.write_bytes(formatted.encode("utf-8"))
+    for candidate in (formatted, messy):
+        copy.write_bytes(candidate.encode("utf-8"))
         assert _observed(copy, capsys) == expected
 
 

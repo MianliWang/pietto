@@ -766,8 +766,7 @@ def test_a_stddev_template_binds_its_header_read_and_renders_the_same_sql(tmp_pa
 
 
 @pytest.mark.parametrize("target", ("postgres", "mysql"))
-@pytest.mark.parametrize("route", ("compiled", "live"))
-def test_a_half_open_range_template_renders_the_emitted_sql(tmp_path, target, route):
+def test_a_half_open_range_template_renders_the_emitted_sql(tmp_path, target):
     """The recommended half-open range `start <= ts < stop` in a query, over
     Timestamp and Date with distinct start and stop fields, binds through a
     loaded compiled bundle and a live template and renders the emitted SQL
@@ -795,26 +794,24 @@ def test_a_half_open_range_template_renders_the_emitted_sql(tmp_path, target, ro
     )
     assert checked.verified and outcome.status == "VERIFIED", outcome.blockers
     assert outcome.artifact is not None
-    if route == "live":
-        template = prepare_live_template(outcome.artifact)
-    else:
-        built = build_compiled(outcome.artifact)
-        template = prepare_compiled_template(
-            load_compiled(
-                built.payload,
-                expected_pin=built.pin,
-                accepted_producer=built.producer,
-                accepted_compatibility=built.compatibility,
-            )
+    built = build_compiled(outcome.artifact)
+    compiled = prepare_compiled_template(
+        load_compiled(
+            built.payload,
+            expected_pin=built.pin,
+            accepted_producer=built.producer,
+            accepted_compatibility=built.compatibility,
         )
-    bound = bind_values(template, ())
-    assert bound.artifact.rendered.sql == outcome.artifact.rendered.sql
+    )
     q = '"' if target == "postgres" else "`"
-    for start, value, stop in (("ts2", "ts", "ts3"), ("d2", "d", "d3")):
-        assert (
-            f"(({q}s0{q}.{q}{start}{q} <= {q}s0{q}.{q}{value}{q}) AND "
-            f"({q}s0{q}.{q}{value}{q} < {q}s0{q}.{q}{stop}{q}))"
-        ).encode() in bound.artifact.rendered.sql
+    for template in (compiled, prepare_live_template(outcome.artifact)):
+        bound = bind_values(template, ())
+        assert bound.artifact.rendered.sql == outcome.artifact.rendered.sql
+        for start, value, stop in (("ts2", "ts", "ts3"), ("d2", "d", "d3")):
+            assert (
+                f"(({q}s0{q}.{q}{start}{q} <= {q}s0{q}.{q}{value}{q}) AND "
+                f"({q}s0{q}.{q}{value}{q} < {q}s0{q}.{q}{stop}{q}))"
+            ).encode() in bound.artifact.rendered.sql
 
 
 # Phase70 S11 x S10/S12/S14: header reads inside lets with capture lines.

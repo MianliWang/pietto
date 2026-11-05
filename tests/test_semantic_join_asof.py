@@ -99,7 +99,6 @@ def test_admitted_asof_joins_check_clean(kind: str, join: str, let: str) -> None
         select=_ONLY_ORDERS,
     )
     assert _diagnostics(source) == []
-    assert _diagnostics(CANONICAL) == []
 
 
 _REFUSED = {
@@ -590,7 +589,8 @@ def _project_diagnostics(root: Path, source: str) -> list[tuple[str, str]]:
     return [(item.code, item.message) for item in _project_found(root, source)]
 
 
-def test_a_project_admits_the_asof_join_example(tmp_path: Path) -> None:
+def test_a_file_and_a_project_admit_the_asof_join_example(tmp_path: Path) -> None:
+    assert _diagnostics(CANONICAL) == []
     assert _project_diagnostics(tmp_path / "p", CANONICAL) == []
 
 

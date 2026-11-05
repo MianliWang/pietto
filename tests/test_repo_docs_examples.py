@@ -39,7 +39,10 @@ def _examples() -> list[object]:
     return examples
 
 
-@pytest.mark.parametrize(("source", "codes"), _examples())
+EXAMPLES = _examples()
+
+
+@pytest.mark.parametrize(("source", "codes"), EXAMPLES)
 def test_documented_example_reports_exactly_its_marked_codes(
     source: str, codes: list[str]
 ) -> None:
@@ -52,7 +55,7 @@ def test_documented_example_reports_exactly_its_marked_codes(
     assert [d.code for d in diagnostics] == codes, [d.message for d in diagnostics]
 
 
-@pytest.mark.parametrize(("source", "codes"), _examples())
+@pytest.mark.parametrize(("source", "codes"), EXAMPLES)
 def test_documented_example_is_already_formatted(source: str, codes: list[str]) -> None:
     del codes  # the shared parametrization; the codes are checked above
     result = format_source(source)

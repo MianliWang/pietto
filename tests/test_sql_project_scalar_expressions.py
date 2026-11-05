@@ -1262,30 +1262,21 @@ def test_mysql_project_sql_refuses_concat(tmp_path, body, location):
 
 @pytest.mark.parametrize("target", TARGETS)
 def test_concat_reads_an_imported_text_alias_field_as_text(tmp_path, target):
-    base = probe.fixture(target)
-    header = base["source"].split("table result:", 1)[0]
-    contract = json.loads(base["contract"])
-    contract["environment"].append(
-        {
-            "key": "identifier_case",
-            "scope": "statement",
-            "value": "quoted_exact"
-            if target == "postgres"
-            else "lower_case_table_names=0",
-        }
+    item = probe.parameterized_fixture(
+        target,
+        'table result:\n    from rows\n    select:\n        joined = concat(text, "-")\n',
+        protocol=False,
     )
-    assert "    text: Text\n" in header
+    assert "    text: Text\n" in item["source"]
     _, outcome = probe.build_case(
         tmp_path,
         {
             "types.pietto": "type Label = Text\nexport type Label\n",
             "main.pietto": 'from "types.pietto" import type Label\n'
-            + header.replace("    text: Text\n", "    text: Label\n")
-            + "table result:\n    from rows\n    select:\n"
-            '        joined = concat(text, "-")\n',
+            + item["source"].replace("    text: Text\n", "    text: Label\n"),
         },
-        probe.encoded(contract).decode(),
-        "preserve_literals",
+        item["contract"],
+        item["policy"],
     )
     document = json.loads(serialize_project_sql_emission(outcome))
     if target == "mysql":

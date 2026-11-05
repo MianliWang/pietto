@@ -1753,20 +1753,9 @@ def test_join_scalar_projection_does_not_open_other_sites(tmp_path, target, site
 
 def _float_rows(tmp_path, target, body):
     """A self JOIN or correlated read of the published source's Float field."""
-    base = probe.fixture(target)
-    header = base["source"].split("table result:", 1)[0]
-    contract = json.loads(base["contract"])
-    contract["environment"].append(
-        {
-            "key": "identifier_case",
-            "scope": "statement",
-            "value": "quoted_exact"
-            if target == "postgres"
-            else "lower_case_table_names=0",
-        }
-    )
+    item = probe.parameterized_fixture(target, body, protocol=False)
     _, outcome = probe.build_case(
-        tmp_path, header + body, probe.encoded(contract).decode(), "preserve_literals"
+        tmp_path, item["source"], item["contract"], item["policy"]
     )
     return outcome
 

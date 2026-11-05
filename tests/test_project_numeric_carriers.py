@@ -969,13 +969,12 @@ def _float_carrier(storage: str, domain: dict) -> rows.Realization:
     return rows.Realization("Float", {"kind": storage}, False, domain)
 
 
-FINITE = {"kind": "finite_float", "format": "binary64"}
 DISTRIBUTION = {"kind": "float64"}
 # Each Float arm reads one carrier predicate. A window distribution result
 # compares (and BETWEENs) but never groups, deduplicates, orders or sets.
 FLOAT_CARRIERS = {
-    "pg": _float_carrier("pg_float8", FINITE),
-    "my": _float_carrier("my_double", FINITE),
+    "pg": _float_carrier("pg_float8", probe.FINITE_FLOAT),
+    "my": _float_carrier("my_double", probe.FINITE_FLOAT),
     "pg_distribution": _float_carrier("pg_float8", DISTRIBUTION),
     "my_distribution": _float_carrier("my_double", DISTRIBUTION),
     "pg_unreviewed": _float_carrier("pg_float8", {"kind": "float32"}),

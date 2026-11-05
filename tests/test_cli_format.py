@@ -322,10 +322,8 @@ def test_fmt_usage_errors(
 
 
 @pytest.mark.parametrize("kind", ["missing", "directory", "invalid_utf8", "-"])
-@pytest.mark.parametrize("mode", [[], ["--check"], ["--write"]])
 def test_fmt_file_errors_are_usage_failures_as_migrate_reports_them(
     kind: str,
-    mode: list[str],
     tmp_path: Path,
     capsys: pytest.CaptureFixture[str],
     monkeypatch: pytest.MonkeyPatch,
@@ -340,11 +338,12 @@ def test_fmt_file_errors_are_usage_failures_as_migrate_reports_them(
     expected = capsys.readouterr()
     assert expected.out == "" and expected.err.startswith(f"{path}: error:")
 
-    assert cli.main(["fmt", *mode, str(path)]) == 2
+    for mode in ([], ["--check"], ["--write"]):
+        assert cli.main(["fmt", *mode, str(path)]) == 2, mode
 
-    assert capsys.readouterr() == expected
-    if kind == "invalid_utf8":
-        assert path.read_bytes() == b"\xff"
+        assert capsys.readouterr() == expected, mode
+        if kind == "invalid_utf8":
+            assert path.read_bytes() == b"\xff"
 
 
 @pytest.mark.parametrize("data", [MESSY, FORMATTED], ids=["messy", "formatted"])

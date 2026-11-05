@@ -3734,28 +3734,9 @@ FLOAT_BODIES = {
 def float_fixture(target, variant):
     """One Lane E Float program over `rows` and the Agg seeds it names."""
     sources, body = FLOAT_BODIES[variant]
-    base = fixture(target)
-    header = base["source"].split("table result:", 1)[0]
-    contract = json.loads(base["contract"])
-    contract["environment"].append(
-        {
-            "key": "identifier_case",
-            "scope": "statement",
-            "value": "quoted_exact"
-            if target == "postgres"
-            else "lower_case_table_names=0",
-        }
-    )
-    if variant.startswith("fp_"):
-        contract["environment"].append(
-            {
-                "key": "parameter_protocol",
-                "scope": "statement",
-                "value": "postgres_extended"
-                if target == "postgres"
-                else "mysql_prepared",
-            }
-        )
+    item = parameterized_fixture(target, body, protocol=variant.startswith("fp_"))
+    header = item["source"].removesuffix(body)
+    contract = json.loads(item["contract"])
     agg = tuple(name for name in sources if name != "rows")
     if agg:
         if "rows" not in sources:
