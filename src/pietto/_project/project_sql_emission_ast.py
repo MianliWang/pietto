@@ -3007,13 +3007,7 @@ def _value_column_image(request, value, position, label, export, terminal, famil
             realization,
             literal=parameters.LiteralOrigin(value, export, terminal),
         )
-    return rows.StageColumn(
-        position,
-        label,
-        terminal.ref,
-        realization,
-        same_value=rows.same_value_span(value),
-    )
+    return rows.StageColumn(position, label, terminal.ref, realization)
 
 
 def node_premises(request, realization, operands, kind):

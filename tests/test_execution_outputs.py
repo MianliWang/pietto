@@ -227,6 +227,43 @@ def test_family_authority_cannot_be_replaced_by_matching_shape(
         verify_output(output, output.artifact, output.contract)
 
 
+@pytest.mark.parametrize(
+    "value", ("nullif(id, 0) == id", "same_value(nullif(id, 0), id)")
+)
+def test_a_mysql_computed_bool_distinct_column_may_arrive_as_long(tmp_path, value):
+    # Real MySQL 8.4.12 sends a computed Bool SELECT DISTINCT column as a
+    # 4-byte INT (LONG, 3), not its declared my_signed_bool (DB campaign 6).
+    import _pietto_sql_emission as emission
+
+    base = emission.fixture("mysql")
+    source = base["source"].split("table result:", 1)[0] + (
+        "table result:\n    from rows\n    select distinct:\n"
+        f"        id\n        e = {value}\n"
+    )
+    contract = json.loads(base["contract"])
+    contract["environment"].append(
+        {
+            "key": "identifier_case",
+            "scope": "statement",
+            "value": "lower_case_table_names=0",
+        }
+    )
+    _, emitted = emission.build_case(tmp_path, source, json.dumps(contract))
+    assert emitted.status == "VERIFIED" and emitted.artifact is not None
+    output = prepare_output(emitted.artifact)
+    column = output.columns[1]
+    assert column.source_field is None
+    assert column.realization.storage == {"kind": "my_signed_bool"}
+    metadata = (
+        ("id", 8, None, None, None, None, 0, 32769, 63),
+        ("e", 3, None, None, None, None, 1, 32768, 63),
+    )
+    _, rows = reader.decode_native_rows(
+        output, "mysql_rows", metadata, ((1, 1), (2, 0))
+    )
+    assert rows == ((1, True), (2, False))
+
+
 # -- S10: the strict pg_column_arrays_v1 decoder (Arrow-free) -----------------
 
 

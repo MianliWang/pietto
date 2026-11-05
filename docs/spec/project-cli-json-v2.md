@@ -416,6 +416,11 @@ NULL as `CAST(NULL AS pg_catalog.int8)` on PostgreSQL and
 carrier (`pg_int8`, `my_signed_int`) with `int_range` 0..0, which holds for
 no row, as every row is NULL.
 
+On MySQL a computed `Bool` GROUP BY key or SELECT DISTINCT column
+(`a == b`, `same_value(a, b)`) arrives as a 4-byte `INT` (protocol LONG)
+although its declared storage is `my_signed_bool`; its values stay 0, 1 or
+NULL, and Pietto's reader accepts it.
+
 `pietto.sql-emission.v1` stays frozen. Only a `VERIFIED` document whose
 selected query declares header parameters is tagged
 `"format": "pietto.sql-emission.v2"` (D70.02, D70.08); every other document,

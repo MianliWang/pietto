@@ -99,12 +99,10 @@ the known limitations.
   comparable operands`; a wrong count is PIE-S2104 `expected 2, got N`. On
   PostgreSQL a single-file `same_value` beside a CASE/`coalesce`/`nullif` of
   only `None` warns PIE-S2385 at check and is refused at emission, as `==`
-  is. Project SQL refuses `Float` or `Bool` operands and `same_value` in a
-  JOIN `on` or in a WHERE after a JOIN with the existing PIE-B1003 details,
-  and, on MySQL, a `same_value` GROUP BY key or SELECT DISTINCT column, also
-  when read through a `let` name, a named relation or another module
-  (PIE-B1003 `scalar_call_signature_not_admitted` at the call; real MySQL
-  8.4.12 returned a 4-byte `INT` there).
+  is. Project SQL admits `Float` operands exactly where `==` admits them
+  (on MySQL only beside an operand that reads no row) and refuses `Bool`
+  operands and `same_value` in a JOIN `on` or in a WHERE or `let` after a
+  JOIN (also as a GROUP BY key there) with the existing PIE-B1003 details.
 
 ### Always-null numbers in projects (D-12)
 
@@ -247,6 +245,9 @@ the known limitations.
   `statistics.pstdev` and `stddev` in a letter case other than lowercase say
   that the population deviation is not available; the aggregate list of the
   other hints now names `stddev`.
+- PIE-S2103 hints: `in_range` hints ``write the half-open range
+  `a <= ts < b` `` and `ranges_overlap` hints ``write `a_start < b_stop and
+  b_start < a_stop` ``.
 - Project JSON v2 gains the additive syntax roles `aggregate_root_open` and
   `aggregate_root_close`, the aggregate spelling `VAR_SAMP` and the evidence
   token `target_checked_binary64_overflow`; a strict reader of those
@@ -264,15 +265,15 @@ the known limitations.
   Single-file MySQL `CONCAT` returns NULL above `max_allowed_packet`.
 - MySQL project SQL of `union distinct`, `intersect distinct` and
   `except distinct` over a `same_value` column is VERIFIED but was not run on a
-  database. `same_value` is not emitted in a project JOIN `on` or a WHERE
-  after a JOIN, `having:` admits no call, a header parameter cannot be its
-  operand (PIE-S2355), and on MySQL a `Text` operand relies on the
-  `utf8mb4_0900_bin` collation premise. Project SQL refuses a `Float`
-  `same_value` on both targets (PIE-B1003 `comparison_type_pair_not_admitted`)
-  although project SQL now admits a `Float` `==` on PostgreSQL and, against a
-  literal, on MySQL (`same_value(ratio, 1.5)` is refused where
-  `ratio == 1.5` is emitted): no database run has checked a NULL-safe `Float`
-  equality yet.
+  database. `same_value` is not emitted in a project JOIN `on` or in a WHERE
+  or `let` after a JOIN (also as a GROUP BY key there), `having:` admits no
+  call, a header parameter cannot be its operand (PIE-S2355), and on MySQL a
+  `Text` operand relies on the `utf8mb4_0900_bin` collation premise. Project
+  SQL admits a `Float` `same_value` exactly where it admits a `Float` `==`:
+  on PostgreSQL, and on MySQL only beside an operand that reads no row
+  (`same_value(ratio, 1.5)` is emitted with `<=>`; a MySQL `same_value` of
+  two row `Float` operands is PIE-B1003 `comparison_type_pair_not_admitted`,
+  as their `==` is).
 - Project typing of untyped NULL values still fails with the bare PIE-S2333
   in a relation with a JOIN input of its own whose output has no type or reads
   one through a `let` name, a `select distinct` relation whose output has no

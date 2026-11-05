@@ -394,6 +394,15 @@ _COLLECT = (
         # Lowercase `concat` is a builtin.
         ('CONCAT(email, "!")', "write `concat(...)` in lowercase"),
         ("Concat(email, email)", "write `concat(...)` in lowercase"),
+        # Phase72: the range spellings are comparison chains.
+        (
+            "in_range(count, count, count)",
+            "write the half-open range `a <= ts < b`",
+        ),
+        (
+            "ranges_overlap(count, count, count, count)",
+            "write `a_start < b_stop and b_start < a_stop`",
+        ),
     ],
 )
 def test_unknown_function_of_a_sql_or_python_habit_names_the_pietto_form(

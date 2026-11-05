@@ -1309,6 +1309,7 @@ def _row_realization(request, expression, operands, operand_values):
             static_values=tuple(
                 rows._static_literal_value(value) for value in operand_values
             ),
+            rows_both_sides=all(_reads_row(value) for value in operand_values),
         )
         if result is None:
             raise ValueError(problem)

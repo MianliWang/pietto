@@ -14861,11 +14861,18 @@ TEMPORAL_FIELDS = (
 
 
 def temporal_case(
-    directory, target, body, policy="preserve_literals", *, representations=None
+    directory,
+    target,
+    body,
+    policy="preserve_literals",
+    *,
+    representations=None,
+    fields=TEMPORAL_FIELDS,
+    entry="table result:",
 ):
-    """Build ``table result:`` (``body`` is its indented block) over
-    ``TEMPORAL_FIELDS`` with the base fixture's premises; ``representations``
-    replaces named fields' contract representations."""
+    """Build ``entry`` (``body`` is its indented block) over ``fields``
+    (default ``TEMPORAL_FIELDS``) with the base fixture's premises;
+    ``representations`` replaces named fields' contract representations."""
     contract = json.loads(fixture(target, "T_row_direct", "table_preserve")["contract"])
     pg = target == "postgres"
     physical = {
@@ -14894,7 +14901,7 @@ def temporal_case(
                 "domain": physical[kind][1],
             },
         }
-        for i, (name, kind, nullable) in enumerate(TEMPORAL_FIELDS)
+        for i, (name, kind, nullable) in enumerate(fields)
     ]
     for field in contract["sources"][0]["fields"]:
         field["representation"] = (representations or {}).get(
@@ -14904,10 +14911,11 @@ def temporal_case(
         "shape Row:\n"
         + "".join(
             f"    {name}: {kind}{' | None' if nullable else ''}\n"
-            for name, kind, nullable in TEMPORAL_FIELDS
+            for name, kind, nullable in fields
         )
         + f'source rows: Row = {target}.table("opaque.locator.not.sql")\n'
-        + "table result:\n"
+        + entry
+        + "\n"
         + body
     )
     return build_case(directory, source, encoded(contract).decode(), policy)

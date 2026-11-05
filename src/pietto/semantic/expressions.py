@@ -6321,6 +6321,8 @@ _UNKNOWN_FUNCTION_HINTS = {
         "MySQL `STD`/`STDDEV` and numpy `std` are the population deviation, "
         "which is not available",
     ),
+    "in_range": "write the half-open range `a <= ts < b`",
+    "ranges_overlap": "write `a_start < b_stop and b_start < a_stop`",
 }
 
 

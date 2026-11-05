@@ -38,8 +38,9 @@ def row_query(artifact):
     return query
 
 
-def emit(tmp_path, target, body, policy="preserve_literals"):
-    """Run one ordinary selected relation through the installed project path."""
+def emit(tmp_path, target, body, policy="preserve_literals", *, imported=None):
+    """Run one ordinary selected relation through the installed project path;
+    ``imported`` moves the source beside it into module `a.pietto`."""
     base = probe.fixture(target)
     header = base["source"].split("table result:", 1)[0]
     contract = json.loads(base["contract"])
@@ -62,9 +63,13 @@ def emit(tmp_path, target, body, policy="preserve_literals"):
                 else "mysql_prepared",
             }
         )
+    source: str | dict[str, str] = header + body
+    if imported is not None:
+        source = {"a.pietto": header + imported, "main.pietto": body}
+        contract["sources"][0]["selector"]["module"] = "a.pietto"
     return probe.build_case(
         tmp_path,
-        header + body,
+        source,
         probe.encoded(contract).decode(),
         policy,
     )
@@ -1312,6 +1317,7 @@ SAME_VALUE_BODY = """table result:
         texts = same_value(text, nullif(text, "x"))
         amounts = same_value(money, money)
         typed = same_value(id + None, id)
+        floats = same_value(ratio, 1.5)
 """
 SAME_VALUE_SQL = {
     "postgres": (
@@ -1327,7 +1333,8 @@ SAME_VALUE_SQL = {
         'CAST(E\'\\170\' AS pg_catalog.text) COLLATE "C")) AS "texts", '
         '("t1"."c3" IS NOT DISTINCT FROM "t1"."c3") AS "amounts", '
         '(("t1"."c0" + CAST(NULL AS pg_catalog.int8)) IS NOT DISTINCT FROM "t1"."c0") '
-        'AS "typed" FROM "p0" AS "t1"'
+        'AS "typed", ("t1"."c4" IS NOT DISTINCT FROM CAST(\'1.5\' AS pg_catalog.float8)) '
+        'AS "floats" FROM "p0" AS "t1"'
     ),
     "mysql": (
         "WITH `p0` (`c0`, `c1`, `c2`, `c3`, `c4`) AS (SELECT `s0`.`order.id` AS `c0`, "
@@ -1340,8 +1347,8 @@ SAME_VALUE_SQL = {
         "(`t1`.`c2` <=> NULLIF(`t1`.`c2`, CAST(X'78' AS CHAR CHARACTER SET utf8mb4) "
         "COLLATE utf8mb4_0900_bin)) AS `texts`, "
         "(`t1`.`c3` <=> `t1`.`c3`) AS `amounts`, "
-        "((`t1`.`c0` + CAST(NULL AS SIGNED)) <=> `t1`.`c0`) AS `typed` "
-        "FROM `p0` AS `t1`"
+        "((`t1`.`c0` + CAST(NULL AS SIGNED)) <=> `t1`.`c0`) AS `typed`, "
+        "(`t1`.`c4` <=> CAST(1.5e0 AS DOUBLE)) AS `floats` FROM `p0` AS `t1`"
     ),
 }
 
@@ -1366,7 +1373,7 @@ def test_same_value_is_a_null_safe_never_null_bool(tmp_path, target, policy):
 
     document = probe.decode_public(serialize_project_sql_emission(outcome))
     columns = {column["label"]: column for column in document["columns"]}
-    for label in ("both_null", "texts", "amounts", "typed"):
+    for label in ("both_null", "texts", "amounts", "typed", "floats"):
         assert columns[label]["logical_type"]["name"] == "Bool"
         assert columns[label]["nullable"] is False
     # Both policies keep these literals, so the SQL is the same.
@@ -1388,9 +1395,16 @@ def test_same_value_is_a_null_safe_never_null_bool(tmp_path, target, policy):
 
 @pytest.mark.parametrize("target", TARGETS)
 @pytest.mark.parametrize(
-    "operands", (("ratio", "ratio"), ("flag", "flag"), ("money", "id"))
+    "operands",
+    (
+        ("ratio", "ratio"),
+        ("ratio", "1.5"),
+        ("1.5", "ratio"),
+        ("flag", "flag"),
+        ("money", "id"),
+    ),
 )
-def test_same_value_emission_refuses_the_operands_equality_refuses(
+def test_same_value_emission_admits_exactly_what_equality_admits(
     tmp_path, target, operands
 ):
     def blockers(name, value):
@@ -1403,13 +1417,13 @@ def test_same_value_emission_refuses_the_operands_equality_refuses(
 
     left, right = operands
     same = blockers("call", f"same_value({left}, {right})")
-    assert same[0] == "BLOCKED"
-    if left == "ratio":
-        # The Float value contract admits PostgreSQL `==`, but no database run
-        # has checked a NULL-safe Float equality, so `same_value` stays refused.
-        assert same == ("BLOCKED", ["comparison_type_pair_not_admitted"])
+    assert same == blockers("equality", f"{left} == {right}")
+    # Float: PostgreSQL everywhere; MySQL only beside a row-free operand, as
+    # its `==` (MySQL semijoin plans duplicated rows for row-row Float keys).
+    if "ratio" in operands and (target == "postgres" or "1.5" in operands):
+        assert same == ("VERIFIED", [])
     else:
-        assert same == blockers("equality", f"{left} == {right}")
+        assert same[0] == "BLOCKED"
 
 
 @pytest.mark.parametrize("target", TARGETS)
@@ -1430,10 +1444,17 @@ def test_same_value_is_not_yet_a_project_join_match_condition(tmp_path, target):
     ]
 
 
+NAMED_T0 = "table t0:\n    from rows\n    select:\n        id\n        e = {value}\n"
+GROUP_T0 = (
+    "table result:\n    from t0\n    group by e\n"
+    "    select:\n        e\n        n = count()\n"
+)
 GROUPED_OR_DISTINCT = {
     "group_key": "table result:\n    from rows\n"
     "    let k = {value}\n    group by k\n"
     "    select:\n        k\n        n = count()\n",
+    "group_named": NAMED_T0 + GROUP_T0,
+    "group_module": 'from "a.pietto" import table t0\n' + GROUP_T0,
     "distinct_column": "table result:\n    from rows\n"
     "    select distinct:\n        id\n        e = {value}\n",
     "distinct_let": "table result:\n    from rows\n    let k = {value}\n"
@@ -1447,37 +1468,39 @@ GROUPED_OR_DISTINCT = {
 
 
 @pytest.mark.parametrize("target", TARGETS)
-@pytest.mark.parametrize(
-    "form,location",
-    (
-        ("group_key", (10, 13)),
-        ("distinct_column", (12, 13)),
-        ("distinct_let", (10, 13)),
-        ("distinct_after_union", (11, 13)),
-    ),
-)
-def test_mysql_project_same_value_refuses_a_group_key_or_distinct_column(
-    tmp_path, target, form, location
+@pytest.mark.parametrize("form", tuple(GROUPED_OR_DISTINCT))
+def test_project_same_value_groups_and_deduplicates_as_equality_does(
+    tmp_path, target, form
 ):
-    # Real MySQL returns `<=>` grouped or deduplicated as a 4-byte INT, not the
-    # declared my_signed_bool; `==` keeps its carrier here.
-    def outcome_of(name, value):
+    # A computed Bool GROUP BY key or DISTINCT column, `==` as well, arrives on
+    # MySQL as a 4-byte INT (LONG) that the reader accepts (DB campaign 6).
+    def document_of(name, value):
         checked, outcome = emit(
-            tmp_path / name, target, GROUPED_OR_DISTINCT[form].format(value=value)
+            tmp_path / name,
+            target,
+            GROUPED_OR_DISTINCT[form].format(value=value),
+            imported=NAMED_T0.format(value=value) + "export table t0\n"
+            if form == "group_module"
+            else None,
         )
-        assert checked.verified
-        return outcome
+        assert checked.verified and outcome.status == "VERIFIED", outcome.blockers
+        data = serialize_project_sql_emission(outcome)
+        # The independent decoder expects nullable true for this `==` union
+        # column, which the document publishes as "unknown"; that predates
+        # `same_value`.
+        if (form, name) == ("distinct_after_union", "equal"):
+            return json.loads(data)
+        return probe.decode_public(data)
 
-    same = outcome_of("same", "same_value(nullif(id, 0), id)")
-    equal = outcome_of("equal", "nullif(id, 0) == id")
-    assert equal.status == "VERIFIED"
-    if target == "postgres":
-        assert same.status == "VERIFIED"
-        return
-    assert same.status == "BLOCKED"
-    assert public_blockers(same) == [
-        ("PIE-B1003", "scalar_call_signature_not_admitted", *location)
-    ]
+    same = document_of("same", "same_value(nullif(id, 0), id)")
+    equal = document_of("equal", "nullif(id, 0) == id")
+    assert " = " in equal["sql"]
+    assert same["sql"] == equal["sql"].replace(
+        " = ", " <=> " if target == "mysql" else " IS NOT DISTINCT FROM "
+    )
+    storage = [c["representation"]["storage"] for c in same["columns"]]
+    assert storage == [c["representation"]["storage"] for c in equal["columns"]]
+    assert {"kind": "my_signed_bool" if target == "mysql" else "pg_bool"} in storage
 
 
 def public_blockers(outcome):

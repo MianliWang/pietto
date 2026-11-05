@@ -225,28 +225,6 @@ class StageColumn:
     """One grouped determinant or aggregate result this value ultimately is."""
     window: Any = None
     """One window occurrence result this value ultimately is."""
-    same_value: Any = None
-    """The span of the `same_value` call this value is, carried through reads:
-    MySQL returns its `<=>` result grouped or deduplicated as a 4-byte INT,
-    not the declared `my_signed_bool` (real-DB campaign 2)."""
-
-
-def mysql_same_value_problem(family: str, read: StageColumn):
-    """A MySQL GROUP BY key or DISTINCT column that is a `same_value` value."""
-    if family == "mysql" and read.same_value is not None:
-        return ("PIE-B1003", "scalar_call_signature_not_admitted"), read.same_value
-    return None
-
-
-def same_value_span(value) -> Any:
-    """The call span when one realized value is a `same_value` call."""
-    if (
-        type(value) is SQLOperation
-        and value.kind == "scalar_call"
-        and value.original.callee_symbol.name == "same_value"
-    ):
-        return value.original.expression.span
-    return None
 
 
 @dataclass(frozen=True, slots=True, eq=False)
@@ -1699,6 +1677,7 @@ def _scalar_call(
         nullable,
         realized,
         static_values=tuple(_static_literal_value(value) for value in values),
+        rows_both_sides=all(_reads_row(value) for value in values),
     )
     if checked is None:
         assert problem is not None
@@ -1911,9 +1890,13 @@ def _static_literal_value(value):
 
 
 def resolved_scalar_call_realization(
-    family, symbol, tag, nullable, values, *, static_values=None
+    family, symbol, tag, nullable, values, *, static_values=None, rows_both_sides=True
 ):
-    """Admit only a canonical builtin identity with its proved physical result."""
+    """Admit only a canonical builtin identity with its proved physical result.
+
+    ``rows_both_sides`` is the comparison law's row-read fact (default: the
+    refusing one); `same_value` is admitted exactly where `==` is.
+    """
     if symbol.namespace is not SymbolNamespace.CALLABLE or not values:
         return None, ("PIE-B1003", "scalar_call_signature_not_admitted")
     name = symbol.name
@@ -2114,12 +2097,8 @@ def resolved_scalar_call_realization(
         if nullable is not False:
             return None, ("PIE-B1003", "scalar_call_signature_not_admitted")
         left, right = values
-        if left.tag == "Float":
-            # The Float value contract admits `==`, but no database run has
-            # checked a NULL-safe Float equality yet.
-            return None, ("PIE-B1003", "comparison_type_pair_not_admitted")
         return resolved_comparison_realization(
-            family, tag, nullable, left, right, "==", rows_both_sides=True
+            family, tag, nullable, left, right, "==", rows_both_sides=rows_both_sides
         )
     if (
         name in {"contains", "starts_with", "ends_with"}

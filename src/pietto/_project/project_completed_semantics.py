@@ -3533,6 +3533,10 @@ def derive_compiled_semantics(root, values, parameters=None):
                                 else None
                                 for fact in input_facts
                             ),
+                            rows_both_sides=all(
+                                _compiled_reads_row(records, child)
+                                for child in operands
+                            ),
                         )
                     elif role == "conditional":
                         realized, problem = physical.resolved_conditional_realization(
@@ -4748,6 +4752,10 @@ def verify_compiled_semantics(value):
                                     and type(item.value) in (int, str)
                                     else None
                                     for item in inputs
+                                ),
+                                rows_both_sides=all(
+                                    _compiled_reads_row(records, child)
+                                    for child in children
                                 ),
                             )
                         )
