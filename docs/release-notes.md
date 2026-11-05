@@ -300,17 +300,16 @@ the known limitations.
   key, with a rewrite where one exists. A project also refuses, with
   PIE-S2336, an asof JOIN in a query with `collect` or `unnest` or whose
   earlier input has a nested-relation field (``Do the asof JOIN in a query
-  with only flat fields first.``) and one whose joined source has a
-  nested-relation field (``The joined source's shape has a nested field;
-  declare a source over the same table whose shape lists only flat fields
-  (with the covering unique(...)), and asof-join that source.``). PIE-P1000
+  with only flat fields first.``). PIE-P1000
   refuses `left asof join`, `asof join`, an `as` alias, `by` keys and an `on` that is
   broken over lines or in parentheses, with the asof form as its hint. MySQL
   refuses every asof JOIN: single file PIE-B1000 (``... MySQL has no ASOF
   JOIN yet; emit with --dialect postgres``), project PIE-B1003
   `asof_join_not_admitted_on_target`.
 - **Compatibility.** `asof` is a new soft keyword of the generated parser; it
-  stays a valid name elsewhere (`select asof = orders.id`). After an
+  stays a valid name elsewhere (`select asof = orders.id`). A relation-body
+  line that starts with `Asof` now ends its PIE-P1000 with ``Keywords are
+  lowercase: write `asof`.``, as for the other keywords. After an
   `asof left join`, PIE-S2383 names the asof remedies (test the chosen row
   in `select`, or write `asof inner join`). When only asof JOINs repeat the
   rows an aggregate reads, PIE-S2381 offers only `any(...)` or a separate

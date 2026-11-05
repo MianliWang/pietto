@@ -470,12 +470,12 @@ first column give every rule.
 | Feature | PostgreSQL single file | MySQL single file | PostgreSQL project | MySQL project |
 | --- | --- | --- | --- | --- |
 | `concat(a, b)` ([Expressions](#expressions)) | `(a \|\| b)` | `CONCAT(a, b)` | emitted; refused for only `None` (PIE-B1003) or a binding-width `Text` (PIE-B1004) | refused (PIE-B1003) |
-| `same_value(a, b)` ([Expressions](#expressions)) | `(a IS NOT DISTINCT FROM b)` | `(a <=> b)` | select items, WHERE and `let`, select items after a JOIN; not `Float` or `Bool`, not in a JOIN `on` or a WHERE after a JOIN | as PostgreSQL, and not a GROUP BY key or DISTINCT column |
+| `same_value(a, b)` ([Expressions](#expressions)) | `(a IS NOT DISTINCT FROM b)` | `(a <=> b)` | select items, WHERE and `let`, select items after a JOIN; `Float` where `==` is, not `Bool`, not in a JOIN `on` or a WHERE after a JOIN | as PostgreSQL, a `Float` only beside an operand that reads no row (two row `Float` operands PIE-B1003), and not a GROUP BY key or DISTINCT column |
 | `stddev(x)` ([Aggregates](#aggregates-and-grouping)) | `Int` and `Float` | `Float` (`STDDEV_SAMP`); `Int` refused (PIE-B1000) | `Int` and `Float` | refused: `Int` PIE-B1003, `Float` PIE-B1004 |
 | Always-null numbers, D-12 ([Expressions](#expressions)) | typed NULL casts | typed NULL casts | `Int` arithmetic with `None`; `Float` and `Decimal` refused | as PostgreSQL |
 | `Float` equality ([Float values](#float-values)) | comparisons and GROUP BY; DISTINCT and set forms are project-only | as PostgreSQL; GROUP BY beside a wide `Text` key may split `-0.0` and `0.0` | comparisons, GROUP BY, DISTINCT, ORDER BY and every set form | comparisons with a literal or header parameter, ordering inequalities, `in`, `nullif` and UNION ALL; the other forms refused (PIE-B1003) |
 | JOIN aggregates without fan-out ([Aggregates](#aggregates-and-grouping)) | accepted | accepted | accepted | accepted; `sum(Int)` stays PIE-B1004 |
-| `asof left join`, `asof inner join` ([Backward asof JOIN](#backward-asof-join)) | emitted | refused (PIE-B1000) | emitted in a table or query without a relation `let NAME:` block whose FROM is not a table function, elsewhere refused (PIE-S2336); a `let NAME:` block as the joined input is PIE-S2386, as in a single file; an aggregate after it only where its `on` keys match a unique key (PIE-S2333) | refused (PIE-B1003 `asof_join_not_admitted_on_target`) |
+| `asof left join`, `asof inner join` ([Backward asof JOIN](#backward-asof-join)) | emitted | refused (PIE-B1000) | emitted in a table or query without a relation `let NAME:` block whose FROM is not a table function, elsewhere refused (PIE-S2336); a `let NAME:` block as the joined input is PIE-S2386, where a single file refuses the block itself (PIE-S2345); an aggregate after it only where its `on` keys match a unique key (PIE-S2333) | refused (PIE-B1003 `asof_join_not_admitted_on_target`) |
 
 ## Types and shapes
 
@@ -1475,7 +1475,7 @@ query order_prices:
 - **Projects.** An explicit-module project checks an asof JOIN with the same
   rules and messages, except that it reports a JOIN without `on` as
   PIE-S2333. It also needs flat fields: no `collect` or `unnest` in that
-  query and no nested-relation field on either side (PIE-S2336). It emits the
+  query and no nested-relation field in an earlier input (PIE-S2336). It emits the
   JOIN in a table or query
   without a relation `let NAME:` block whose FROM is not a table function;
   elsewhere, such as a query whose earlier input is a `let NAME:`
@@ -2646,12 +2646,12 @@ row whose other operand is `None`.
 In an EXPLICIT_MODULES project, `emit-sql --project` admits `same_value`
 wherever it admits a built-in call: a select item, WHERE and `let` of one
 relation, and a select item after a JOIN, over the operand pairs that `==`
-admits there, except `Float`. It refuses `Bool` operands, as it refuses a
-`Bool` `==`, and a `Float` `same_value` on both targets (PIE-B1003
-`comparison_type_pair_not_admitted`), although it emits a `Float` `==` on
-PostgreSQL and, against a literal or a header parameter, on MySQL:
-`same_value(ratio, 1.5)` is refused where `ratio == 1.5` is emitted, as no
-database run has checked a NULL-safe `Float` equality yet. On MySQL, a
+admits there. It refuses `Bool` operands, as it refuses a `Bool` `==`. It
+emits a `Float` `same_value` exactly where it emits a `Float` `==`: on
+PostgreSQL, and on MySQL only beside an operand that reads no row, such as
+`same_value(ratio, 1.5)`, written with `<=>`; a MySQL `same_value` of two
+row `Float` operands is PIE-B1003 `comparison_type_pair_not_admitted`, as
+their `==` is. On MySQL, a
 `same_value` value that is a GROUP BY key (`let k = same_value(a, b)`,
 `group by k`) or a SELECT DISTINCT column, also when that value is read
 through a `let` name, a named relation (`from t0`, also after a JOIN or
@@ -2672,8 +2672,8 @@ PIE-B1003, as `contains` is: in a JOIN `on` with
 `join_shape_not_admitted_in_slice7`. A query
 header parameter is not yet a `same_value` operand: `where same_value(a, k)`
 is PIE-S2355 (`Query parameters are not available in this position`), while
-`where a == k` is admitted. A `having:` condition admits no function call, so
-`having: same_value(c, 3)` is PIE-S2327 (`Unsupported having expression form:
+`where a == k` is admitted. A `having` condition admits no function call, so
+`having same_value(c, 3)` is PIE-S2327 (`Unsupported having expression form:
 function call`) in single files and projects alike, as any call there is.
 Beside an untyped all-`None` value, as in `same_value(coalesce(None, None),
 a)` or `same_value(n, a)` after `let n = coalesce(None, None)`, a project

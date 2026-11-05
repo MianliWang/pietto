@@ -42,7 +42,7 @@ from pietto.ast_nodes import (
     Script,
     UnaryExpr,
 )
-from pietto.errors import Severity
+from pietto.errors import Diagnostic, Severity
 from pietto.parser_api import parse_source
 from pietto.semantic import analyze
 from pietto.semantic.model import CheckMode
@@ -249,6 +249,24 @@ _REFUSED = {
         "For a validity range, use `left join price on` with both tests.",
     ),
     "or": ("asof left join price on {KEY} or {TIME}", "PIE-S2336", _OTHER),
+    # A field compared with a value that reads no field is a filter.
+    "joined_filter": (
+        "asof inner join price on {KEY} and {TIME} and price.amount_cents > 0",
+        "PIE-S2336",
+        _OTHER,
+    ),
+    "earlier_filter": (
+        "asof left join price on {KEY} and orders.amount >= 1 and {TIME}",
+        "PIE-S2336",
+        _OTHER,
+    ),
+    # Only arithmetic is time arithmetic; a call or sign computes a value.
+    "computed_value": (
+        "asof inner join price on {KEY} and {TIME} and "
+        "orders.amount >= abs(price.amount_cents)",
+        "PIE-S2336",
+        _OTHER,
+    ),
     "not_equal": (
         "asof left join price on orders.region != price.region and {TIME}",
         "PIE-S2336",
@@ -399,6 +417,133 @@ def test_one_latest_row_needs_a_source_unique_within_keys_and_time(
     assert _diagnostics(source) == [(JOIN_LINE, "PIE-S2386", message)]
 
 
+@pytest.mark.parametrize(
+    ("on", "let", "shape", "declare"),
+    [
+        (
+            f"{KEY} and {TIME}",
+            "let price = prices_keyed",
+            "PriceKeyed",
+            "price_key_2 = unique(product_id, valid_from)",
+        ),
+        (
+            f"{KEY} and orders.amount == price.product_id and {TIME}",
+            "let price = prices_none",
+            "PriceNone",
+            "price_key = unique(product_id, valid_from)",
+        ),
+    ],
+    ids=["name_taken", "field_twice"],
+)
+def test_the_unique_to_declare_is_one_the_shape_admits(
+    tmp_path: Path, on: str, let: str, shape: str, declare: str
+) -> None:
+    """A name the shape does not declare, each field once: pasted into the
+    shape, the declaration checks clean."""
+
+    source = asof_query(f"asof left join price on {on}", let=let, select=_ONLY_ORDERS)
+    message = (
+        _TIE + "If the data has one row per product_id and valid_from, declare "
+        f"`{declare}` in shape {shape}."
+    )
+    assert _diagnostics(source) == [(JOIN_LINE, "PIE-S2386", message)]
+    assert _project_diagnostics(tmp_path / "p", source) == [("PIE-S2386", message)]
+    pasted = source.replace(f"shape {shape}:\n", f"shape {shape}:\n    {declare}\n")
+    assert _diagnostics(pasted) == []
+
+
+@pytest.mark.parametrize(
+    ("on", "test"),
+    [
+        ("orders.amount == price.score and {TIME}", "orders.amount == price.score"),
+        (
+            "orders.score == price.amount_cents and {TIME}",
+            "orders.score == price.amount_cents",
+        ),
+        (
+            "{KEY} and orders.amount >= price.amount_cents",
+            "orders.amount >= price.amount_cents",
+        ),
+    ],
+    ids=["float_joined_key", "float_earlier_key", "int_time"],
+)
+def test_a_type_refusal_of_an_asof_test_is_at_the_whole_test(
+    tmp_path: Path, on: str, test: str
+) -> None:
+    source = asof_query(
+        "asof left join price on " + on.format(KEY=KEY, TIME=TIME), select=_ONLY_ORDERS
+    )
+    column = source.splitlines()[JOIN_LINE - 1].index(test) + 1
+    expected = [("PIE-S2336", (JOIN_LINE, column, JOIN_LINE, column + len(test)))]
+    parsed = parse_source(source, path="main.pietto")
+    assert parsed.ast is not None
+    for found in (
+        analyze(parsed.ast).diagnostics,
+        _project_found(tmp_path / "p", source),
+    ):
+        assert [
+            (
+                item.code,
+                (
+                    item.location.line,
+                    item.location.column,
+                    item.location.end_line,
+                    item.location.end_column,
+                ),
+            )
+            for item in found
+        ] == expected
+
+
+_DEFS = (
+    "def at_or_before(t: Timestamp, v: Timestamp) -> Bool: return t >= v\n"
+    "def back(v: Timestamp, t: Timestamp) -> Bool: return v <= t\n"
+    "def same_key(a: Int, b: Int) -> Bool: return a == b\n"
+    "def same(a: Int) -> Int: return a\n"
+    "def within(lo: Timestamp, t: Timestamp, hi: Timestamp) -> Bool: "
+    "return lo <= t <= hi\n"
+    "def band(x: Int) -> Bool: return 1 <= x + 0 <= 3\n"
+    "def holds(b: Bool | None) -> Bool | None: return b\n"
+)
+
+
+@pytest.mark.parametrize(
+    "on",
+    [
+        "{KEY} and at_or_before(orders.ordered_at, price.valid_from)",
+        "{KEY} and back(price.valid_from, orders.ordered_at)",
+        "same_key(orders.product_id, price.product_id) and {TIME}",
+        "same(orders.product_id) == price.product_id and {TIME}",
+        "{KEY} and within(orders.ordered_at, price.valid_from, orders.ordered_at)",
+        "{KEY} and {TIME} and band(price.amount_cents)",
+        "holds({KEY}) and {TIME}",
+        "{KEY} and {TIME} and holds(orders.week_start <= price.valid_from "
+        "<= orders.ordered_at)",
+    ],
+    ids=[
+        "time",
+        "reversed_time",
+        "key",
+        "key_operand",
+        "chain",
+        "chain_of_body_values",
+        "argument_key",
+        "argument_chain",
+    ],
+)
+def test_a_def_call_in_an_asof_on_is_no_test_of_its_form(
+    tmp_path: Path, on: str
+) -> None:
+    """The fixed form is written in `on` itself; no rewrite of a def body."""
+
+    source = _DEFS + asof_query(
+        "asof left join price on " + on.format(KEY=KEY, TIME=TIME), select=_BOTH
+    )
+    line = JOIN_LINE + _DEFS.count("\n")
+    assert _diagnostics(source) == [(line, "PIE-S2336", _OTHER)]
+    assert _project_diagnostics(tmp_path / "p", source) == [("PIE-S2336", _OTHER)]
+
+
 def test_one_asof_join_per_query_and_asof_stays_a_name() -> None:
     source = asof_query(
         f"asof left join price on {KEY} and {TIME}",
@@ -430,16 +575,19 @@ def test_every_asof_refusal_is_an_error_in_every_check_mode(mode: CheckMode) -> 
     ]
 
 
-def _project_diagnostics(root: Path, source: str) -> list[tuple[str, str]]:
+def _project_found(root: Path, source: str) -> tuple[Diagnostic, ...]:
     root.mkdir()
     (root / "pietto.toml").write_text(
         'schema_version = 2\n\n[sources]\ninclude = ["*.pietto"]\n', encoding="utf-8"
     )
     (root / "main.pietto").write_text(source, encoding="utf-8")
-    project = build_project_completed_semantic_result(
+    return build_project_completed_semantic_result(
         build_empty_project_semantic_result(check_project_parse_only(root))
-    )
-    return [(item.code, item.message) for item in project.diagnostics]
+    ).diagnostics
+
+
+def _project_diagnostics(root: Path, source: str) -> list[tuple[str, str]]:
+    return [(item.code, item.message) for item in _project_found(root, source)]
 
 
 def test_a_project_admits_the_asof_join_example(tmp_path: Path) -> None:
@@ -448,7 +596,12 @@ def test_a_project_admits_the_asof_join_example(tmp_path: Path) -> None:
 
 @pytest.mark.parametrize(
     "name",
-    [*sorted(_REFUSED), *(f"unique_{item}" for item in _UNIQUE_IDS), "second_asof"],
+    [
+        *sorted(_REFUSED),
+        *(f"unique_{item}" for item in _UNIQUE_IDS),
+        "second_asof",
+        "shadow_after",
+    ],
 )
 def test_a_project_refuses_each_asof_form_as_a_single_file_does(
     tmp_path: Path, name: str
@@ -457,6 +610,13 @@ def test_a_project_refuses_each_asof_form_as_a_single_file_does(
         let = _UNIQUE[_UNIQUE_IDS.index(name[7:])][0]
         source = asof_query(
             f"asof left join price on {KEY} and {TIME}", let=let, select=_ONLY_ORDERS
+        )
+    elif name == "shadow_after":
+        # A later `let` that shadows a relation names no asof target.
+        source = asof_query(
+            f"asof left join price on {KEY} and {TIME}",
+            after="    let c = price.amount_cents\n    let prices = c\n",
+            select="select order_id = orders.id, x = prices",
         )
     elif name == "second_asof":
         source = asof_query(
@@ -579,6 +739,50 @@ def test_a_project_lowers_an_asof_join_only_where_normalization_takes_its_any(
     parsed = parse_source(source, path="main.pietto")
     assert parsed.ast is not None
     assert lower_latest_rows(parsed.ast) is parsed.ast
+
+
+_PARENT = (
+    "\nquery parent:\n    let all_prices:\n        from prices\n        select:\n"
+    "            product_id\n            valid_from\n        order by product_id\n"
+    "    from orders\n    select:\n        id\n        product_id\n"
+    "        ordered_at\n        nested = collect all_prices\n"
+)
+_FLAT_ONLY = ("PIE-S2336", "Do the asof JOIN in a query with only flat fields first.")
+
+
+@pytest.mark.parametrize(
+    ("query", "expected"),
+    [
+        (
+            "    from parent\n    let o = unnest(parent.nested)\n    cross join o\n"
+            "    let price = prices\n    asof left join price on "
+            + _ON.format(e="parent")
+            + "\n    select i = o.product_id\n",
+            _FLAT_ONLY,
+        ),
+        (
+            "    from parent\n    let price = prices\n    asof left join price on "
+            + _ON.format(e="parent")
+            + "\n    select i = parent.id\n",
+            _FLAT_ONLY,
+        ),
+        (
+            "    from orders\n    let price = parent\n    asof left join price on "
+            + _ON.format(e="orders").replace("price.valid_from", "price.ordered_at")
+            + "\n    select i = orders.id\n",
+            _SOURCE_ONLY,
+        ),
+    ],
+    ids=["beside_unnest", "earlier_nested", "nested_query_target"],
+)
+def test_a_project_refuses_an_asof_join_over_nested_fields_before_lowering(
+    tmp_path: Path, query: str, expected: tuple[str, str]
+) -> None:
+    """No latest-row `any(...)` is made beside an unnest, and a query target
+    is no source whatever its fields."""
+
+    source = SHAPES.format(connector="postgres") + _PARENT + "\nquery q:\n" + query
+    assert _project_diagnostics(tmp_path / "p", source) == [expected]
 
 
 @pytest.mark.parametrize("name", ["target_capture_let", "target_let_block"])

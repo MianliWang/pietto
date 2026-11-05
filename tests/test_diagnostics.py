@@ -1485,8 +1485,20 @@ _ASOF_ON = (
         (
             f"asof join price on {_ASOF_ON}",
             (7, 10),
-            "Missing 'inner', 'left', 'cross', 'right', 'full', 'semi' or 'anti' "
-            "before 'join'. Write `asof left join` or `asof inner join`.",
+            "Missing 'inner' or 'left' before 'join'. Write `asof left join` or "
+            "`asof inner join`.",
+        ),
+        (
+            f"asof foo join price on {_ASOF_ON}",
+            (7, 10),
+            "Unexpected 'foo'; expected 'inner' or 'left'. Write `asof left join` "
+            "or `asof inner join`.",
+        ),
+        (
+            f"asof Left join price on {_ASOF_ON}",
+            (7, 10),
+            "Unexpected 'Left'; expected 'inner' or 'left'. Keywords are "
+            "lowercase: write `left`.",
         ),
         (
             f"asof left join prices as p on {_ASOF_ON}",
@@ -1533,6 +1545,8 @@ _ASOF_ON = (
         "left_asof",
         "other_kind_asof",
         "no_kind",
+        "unknown_kind",
+        "capital_kind",
         "as_alias",
         "by_keys",
         "break_after_and",

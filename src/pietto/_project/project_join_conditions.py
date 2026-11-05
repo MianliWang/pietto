@@ -54,7 +54,6 @@ from pietto.ast_nodes import (
     AuthoredJoinKind,
     BinaryExpr,
     CallExpr,
-    CollectRelationExpr,
     ComparisonExpr,
     DottedNameExpr,
     Expression,
@@ -757,7 +756,7 @@ def _asof_diagnostic(
     if isinstance(form, asof.AsofRefusal):
         return _diagnostic(form.span, form.message, code="PIE-S2336")
     owner = target.owner.definition
-    if _collects_or_unnests(owner) or any(
+    if asof.collects_or_unnests(owner) or any(
         item.binding is not target
         and is_nested_relation_field(item.input_field.evidence)
         for item in env.fields
@@ -765,17 +764,6 @@ def _asof_diagnostic(
         return _diagnostic(
             clause.span,
             "Do the asof JOIN in a query with only flat fields first.",
-            code="PIE-S2336",
-        )
-    if any(
-        item.binding is target and is_nested_relation_field(item.input_field.evidence)
-        for item in env.fields
-    ):
-        return _diagnostic(
-            clause.span,
-            "The joined source's shape has a nested field; declare a source over "
-            "the same table whose shape lists only flat fields (with the covering "
-            "unique(...)), and asof-join that source.",
             code="PIE-S2336",
         )
     types = {
@@ -797,10 +785,12 @@ def _asof_diagnostic(
             canonical(right)
         )
         if message is not None:
-            return _diagnostic(left.span, message, code="PIE-S2336")
+            return _diagnostic(
+                asof.conjunct_span((left, right)), message, code="PIE-S2336"
+            )
     message = asof.time_type_message(canonical(form.time[0]), canonical(form.time[1]))
     if message is not None:
-        return _diagnostic(form.time[0].span, message, code="PIE-S2336")
+        return _diagnostic(asof.conjunct_span(form.time), message, code="PIE-S2336")
     relation = None if target.target is None else target.target.target_occurrence
     source = None if relation is None else relation.definition
     if type(source) is not SourceDef or source.shape_name is None:
@@ -825,6 +815,13 @@ def _asof_diagnostic(
             )
             for name in earlier
         ],
+        items=[item.name for item in shape.items]
+        if shape is not None
+        else {
+            item.input_field.evidence.name
+            for item in env.fields
+            if item.binding is target
+        },
     )
     if message is not None:
         return _diagnostic(clause.span, message, code="PIE-S2386")
@@ -851,28 +848,6 @@ def _key_shape(keys: tuple[object, ...]) -> ShapeDef | None:
             return occurrence.definition
         pending.extend(getattr(item, "supports", ()))
     return None
-
-
-def _collects_or_unnests(definition: object) -> bool:
-    """Whether a relation body collects a relation or unnests a field."""
-
-    pending: list[object] = [
-        *(item.expression for item in getattr(definition, "select_items", ())),
-        *(item.expression for item in getattr(definition, "naming_declarations", ())),
-    ]
-    while pending:
-        node = pending.pop()
-        if type(node) is CollectRelationExpr:
-            return True
-        if (
-            type(node) is CallExpr
-            and type(node.callee) is NameExpr
-            and node.callee.name == "unnest"
-        ):
-            return True
-        if isinstance(node, Expression):
-            pending.extend(child_expressions(node))
-    return False
 
 
 def _nested_reference_diagnostic(

@@ -1005,11 +1005,11 @@ def _asof_diagnostic(
             canonical(right)
         )
         if message is not None:
-            return _diagnostic(left.span, "PIE-S2336", message)
+            return _diagnostic(asof.conjunct_span((left, right)), "PIE-S2336", message)
     left, right = form.time
     message = asof.time_type_message(canonical(left), canonical(right))
     if message is not None:
-        return _diagnostic(left.span, "PIE-S2336", message)
+        return _diagnostic(asof.conjunct_span(form.time), "PIE-S2336", message)
     target = inputs.infos[join.ordinal].relation
     shape = (
         type_symbols.get(target.shape_name)
@@ -1028,6 +1028,7 @@ def _asof_diagnostic(
             (inputs.infos[item].binding, inputs.schemas[item].fields)
             for item in earlier
         ],
+        items=[item.name for item in shape.items],
     )
     if message is not None:
         return _diagnostic(clause.span, "PIE-S2386", message)

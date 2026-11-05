@@ -162,6 +162,8 @@ _JOIN_KINDS = frozenset(
     )
 )
 _ASOF_KIND_HINT = "Write `asof left join` or `asof inner join`."
+# The kinds an asof JOIN line admits where a parse error stands in their place.
+_ASOF_KIND_TYPES = frozenset((PiettoParser.INNER, PiettoParser.LEFT))
 _ASOF_LINE_HINT = "Write the asof `on` on one line."
 _RELATION_BODY_CONTEXTS = (
     PiettoParser.TableBodyContext,
@@ -423,12 +425,14 @@ class SyntaxErrorReporter(DefaultErrorStrategy):
             # A missing line or block end is an unexpected token to an author.
             self._record(recognizer, token, expected)
             return
+        if self._asof_kind_slot(token):
+            expected = _ASOF_KIND_TYPES
+        asof = self._asof_hint(token)
         message = (
             f"Missing {_expected_display(expected)} before {token_display(token)}."
         )
         if self._from_parenthesis(recognizer, token):
             message += " " + _FROM_HINT
-        asof = self._asof_hint(token)
         if asof is not None:
             message += " " + asof
         self._append(token, message)
@@ -508,6 +512,22 @@ class SyntaxErrorReporter(DefaultErrorStrategy):
         if token.type == PiettoParser.NEWLINE:
             return _ASOF_LINE_HINT
         return None
+
+    def _asof_kind_slot(self, token: Token) -> bool:
+        """Whether ``token`` stands where a line-initial `asof ... join` has
+        its kind, which only `inner` or `left` fills."""
+
+        index = _index(token)
+        asof, following = self._token(index - 1), self._token(index + 1)
+        return (
+            asof is not None
+            and asof.type == PiettoParser.ASOF
+            and self._line_start(index) == index - 1
+            and (
+                token.type == PiettoParser.JOIN
+                or (following is not None and following.type == PiettoParser.JOIN)
+            )
+        )
 
     def _asof_join_line(self, start: int) -> bool:
         """Whether the logical line at ``start`` begins `asof <kind> join`."""
@@ -675,6 +695,8 @@ class SyntaxErrorReporter(DefaultErrorStrategy):
         }:
             message = "Missing `select:` clause; " + _CLAUSE_ORDER
         else:
+            if self._asof_kind_slot(token):
+                expected_types = _ASOF_KIND_TYPES
             message = f"Unexpected {token_display(token)}"
             if expected_types:
                 message += f"; expected {_expected_display(expected_types)}"
@@ -852,6 +874,8 @@ class SyntaxErrorReporter(DefaultErrorStrategy):
             and isinstance(recognizer._ctx, PiettoParser.SelectLineContext)
         ):
             return "A Collect read is a whole select item: `name = collect relation`."
+        if self._asof_kind_slot(token):
+            return _ASOF_KIND_HINT
         return None
 
     def _append(self, token: Token, message: str) -> None:

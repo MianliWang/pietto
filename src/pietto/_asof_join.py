@@ -14,7 +14,7 @@ from __future__ import annotations
 
 from collections.abc import Collection, Sequence
 from dataclasses import dataclass, replace
-from itertools import count
+from itertools import chain, count
 from typing import Any, cast
 
 from pietto._generated_names import generated_name
@@ -23,6 +23,8 @@ from pietto.ast_nodes import (
     AuthoredJoinKind,
     BetweenExpr,
     BinaryExpr,
+    CallExpr,
+    CollectRelationExpr,
     ComparisonExpr,
     DottedNameExpr,
     Expression,
@@ -32,6 +34,7 @@ from pietto.ast_nodes import (
     Script,
     Span,
     UnaryExpr,
+    inlined_arguments,
 )
 
 __all__ = ()
@@ -194,12 +197,12 @@ def lower_latest_rows(script: Script) -> Script:
 
     `on K and E.t >= T.t` becomes `on K and E.t >= T.t and not any(K' and
     E.t >= L.t and L.t > T.t for L in R)`: R is the joined relation (through
-    its `let` aliases) and K' the keys over L. With the unique that semantics
-    proves, at most one T row is left per earlier row, the latest; a None key
-    or time matches no row. Every new node is a fresh occurrence of the
-    clause's `on` word (``latest_row_ranges``). A JOIN in another form, or
-    where existence normalization takes no `any(...)` in its `on`, stays as
-    written.
+    the `let` aliases before the JOIN) and K' the keys over L. With the unique
+    that semantics proves, at most one T row is left per earlier row, the
+    latest; a None key or time matches no row. Every new node is a fresh
+    occurrence of the clause's `on` word (``latest_row_ranges``). A JOIN in
+    another form, in a relation that collects or unnests, or where existence
+    normalization takes no `any(...)` in its `on`, stays as written.
     """
 
     from pietto.semantic.existence_generators import _any_inventory
@@ -297,16 +300,27 @@ def lower_latest_rows(script: Script) -> Script:
         clauses = getattr(after, "join_clauses", None)
         if not clauses or not any(item.asof for item in clauses):
             return after
+        if collects_or_unnests(after):
+            # Refused for its nested fields before any latest-row test.
+            return after
         declared = (
             *getattr(after, "naming_declarations", ()),
             *getattr(getattr(after, "let_clause", None), "bindings", ()),
         )
-        aliases = {
-            item.name: item.expression.name
-            for item in declared
-            if type(item.expression) is NameExpr
-        }
-        rebuilt = tuple(lower(item, aliases) for item in clauses)
+        # Only a `let NAME = RELATION` before the JOIN names its relation.
+        rebuilt = tuple(
+            lower(
+                item,
+                {
+                    let.name: let.expression.name
+                    for let in declared
+                    if type(let.expression) is NameExpr
+                    and (let.span.line, let.span.column)
+                    < (item.span.line, item.span.column)
+                },
+            )
+            for item in clauses
+        )
         if all(new is old for new, old in zip(rebuilt, clauses, strict=True)):
             return after
         return replace(cast(Any, after), join_clauses=rebuilt)
@@ -352,6 +366,40 @@ def _range(span: Span) -> tuple[object, ...]:
     return (span.path, span.line, span.column, span.end_line, span.end_column)
 
 
+def conjunct_span(test: tuple[DottedNameExpr, DottedNameExpr]) -> Span:
+    """The range of an admitted key or time test: its earlier field, written
+    first, through its joined field."""
+
+    left, right = test
+    return replace(
+        left.span, end_line=right.span.end_line, end_column=right.span.end_column
+    )
+
+
+def collects_or_unnests(definition: object) -> bool:
+    """Whether a relation body collects a relation or unnests a field."""
+
+    from pietto.semantic.aggregates import child_expressions
+
+    pending: list[object] = [
+        *(item.expression for item in getattr(definition, "select_items", ())),
+        *(item.expression for item in getattr(definition, "naming_declarations", ())),
+    ]
+    while pending:
+        node = pending.pop()
+        if type(node) is CollectRelationExpr:
+            return True
+        if (
+            type(node) is CallExpr
+            and type(node.callee) is NameExpr
+            and node.callee.name == "unnest"
+        ):
+            return True
+        if isinstance(node, Expression):
+            pending.extend(child_expressions(node))
+    return False
+
+
 def time_type_message(earlier: str | None, target: str | None) -> str | None:
     """The refusal of a time test whose canonical types are not one of Date or
     Timestamp on both sides; None when they are. Cross-family is PIE-S2105."""
@@ -380,9 +428,11 @@ def unique_message(
     shape: str,
     uniques: Sequence[tuple[str, tuple[str, ...]]],
     earlier_fields: Sequence[tuple[str, Collection[str]]],
+    items: Collection[str],
 ) -> str | None:
     """PIE-S2386 unless a declared unique lies within the keys and the time;
-    ``earlier_fields`` lists each earlier binding with its field names."""
+    ``earlier_fields`` lists each earlier binding with its field names and
+    ``items`` the names the shape declares."""
 
     matched = {right.parts[1] for _, right in form.keys} | {form.time[1].parts[1]}
     if any(set(fields) <= matched for _, fields in uniques):
@@ -395,10 +445,19 @@ def unique_message(
     # as a surrogate `unique(id)` would name an unrelated match.
     near = [item for item in uniques if set(item[1]) & matched]
     if not near:
-        names = [right.parts[1] for _, right in form.keys] + [form.time[1].parts[1]]
+        names = list(
+            dict.fromkeys(
+                [right.parts[1] for _, right in form.keys] + [form.time[1].parts[1]]
+            )
+        )
+        # A name the shape does not declare yet, so the hint can be pasted.
+        key = generated_name(
+            chain((f"{target}_key",), (f"{target}_key_{n}" for n in count(2))),
+            {item.casefold() for item in items},
+        )
         return (
             f"{head} If the data has one row per {_and(names)}, declare "
-            f"`{target}_key = unique({', '.join(names)})` in shape {shape}."
+            f"`{key} = unique({', '.join(names)})` in shape {shape}."
         )
     name, fields = min(
         near, key=lambda item: len([f for f in item[1] if f not in matched])
@@ -429,6 +488,11 @@ def _classify(
     reversed), ("extra",), ("bare",) or ("other",)."""
 
     if type(node) is BetweenExpr:
+        # A `def` argument or a part of a `def` or relationship body is no
+        # test written in `on` itself.
+        parts = (node, node.lower, node.value, node.upper)
+        if any(inlined_arguments(item) or item.span.occurrence for item in parts):
+            return ("other",)
         return ("extra",)
     if type(node) is not ComparisonExpr or node.operator not in {
         "==",
@@ -440,6 +504,9 @@ def _classify(
         return ("other",)
     if node.left.span.occurrence and node.right.span.occurrence:
         # Both operands copied: the body of a relationship call.
+        return ("other",)
+    if any(inlined_arguments(item) for item in (node, node.left, node.right)):
+        # A `def` call: no test written in `on` itself.
         return ("other",)
     if node.left.span.occurrence:
         # The second comparison of a chain such as `a >= b >= c`, by its
@@ -458,7 +525,10 @@ def _operands(
     if (
         node.operator != "=="
         and set(sides) & {"earlier", "target"}
-        and ("value" in sides and _reads_field(node, earlier, target))
+        and any(
+            side == "value" and _reads_field(item, earlier, target)
+            for side, item in zip(sides, (node.left, node.right), strict=True)
+        )
     ):
         # Time arithmetic, such as `orders.t >= price.t + 1`.
         return ("extra",)
@@ -483,9 +553,9 @@ def _side(node: Expression, earlier: Collection[str], target: str) -> str:
 
 
 def _reads_field(node: Expression, earlier: Collection[str], target: str) -> bool:
-    """Whether a computed operand of ``node`` reads an input field."""
+    """Whether ``node``, a computed operand, reads an input field."""
 
-    pending = [node.left, node.right] if type(node) is ComparisonExpr else [node]
+    pending = [node]
     while pending:
         item = pending.pop()
         if type(item) is DottedNameExpr and _side(item, earlier, target) != "value":

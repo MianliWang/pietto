@@ -85,6 +85,12 @@ shape Rate:
     amount_cents: Int
     rate_key = unique(valid_from)
 
+shape PriceKeyed:
+    id: Int
+    product_id: Int
+    valid_from: Timestamp
+    price_key = unique(id)
+
 relationship order_price(o: Order, p: Price):
     o.product_id == p.product_id
 
@@ -96,6 +102,7 @@ source prices_id: PriceId = {connector}.table("shop.prices_id")
 source prices_two: PriceTwo = {connector}.table("shop.prices_two")
 source prices_none: PriceNone = {connector}.table("shop.prices_none")
 source rates: Rate = {connector}.table("shop.rates")
+source prices_keyed: PriceKeyed = {connector}.table("shop.prices_keyed")
 
 table price_table:
     from prices
