@@ -650,3 +650,20 @@ pre-approved the push of batch 2 and the `v0.1.9` tag and GitHub
 pre-release. These answers are no standing authorization. The owner also set
 the release numbering: after `0.1.9` versions stay on `0.1.x` patches,
 `0.1.10` next, until about the end of Phase80, when `0.2.0` is used.
+
+## 0.1.9 release — owner decisions (2026-11-05)
+
+| Item | Chosen rule |
+| --- | --- |
+| Version (J23) | Phase72 releases as `0.1.9`, the next patch after `0.1.8`, keeping the `0.1.x` practice. It contains both Phase72 batches, the formatter step `pietto fmt` and the header-line warning PIE-P1012 (J2). Users who pin `pietto~=0.1` or `pietto<0.2` receive it, so the [0.1.9 release notes](release-notes.md#equality-nullability-and-asof-join-public-alpha-release-notes--019) list every new refusal and changed diagnostic. |
+| Release commit | The last commit of Phase72 batch 2, after the closeout documentation commit; it changes only version owners and documentation, and one Gate 2 covers the whole batch. |
+| README links | As for `0.1.8`: in the release commit every README link to a repository document points at the tag `v0.1.9`, including the five links that point at `blob/main` on `main`; the next ordinary commit after the release restores those five to `blob/main`. |
+
+On 2026-11-05 the owner pre-approved the publication chain: once Gate 2
+passes on the final batch-2 tree and `main` is still `2fc9c427`, the whole
+batch-2 series is pushed by fast-forward; after natural exact-head CI
+succeeds, tag `v0.1.9` and the GitHub pre-release are created. The owner
+uploads to PyPI with the owner's own token. If Gate 2 or CI fails, the lead
+stops and reports; a failed head gets a repair child, not a rerun.
+`0.1.9` is published only when tag `v0.1.9`, the GitHub pre-release and PyPI
+carry the accepted files; this section publishes nothing.

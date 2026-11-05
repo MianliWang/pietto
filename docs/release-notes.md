@@ -1,15 +1,65 @@
 # Pietto release notes
 
-## Unreleased changes following 0.1.8
+## Equality, nullability and asof JOIN public alpha release notes — 0.1.9
 
-These changes are on `main` after `0.1.8` and are in no published release yet.
-They are the first two batches of Phase72 and the formatter step `pietto fmt`.
-They add `pietto fmt`, the builtins `concat`, `same_value` and `stddev`,
-project typing of always-null numbers, fewer false JOIN fan-out refusals, one
-`Float` value contract, the backward asof JOIN and a warning on the retired
-header lines. Each subsection lists the changes against `0.1.8`
-that a program can observe and the new refusals; the last subsection lists
-the known limitations.
+<a id="unreleased-changes-following-018"></a>
+<!-- The id above keeps links written before these notes were released pointing here. -->
+
+**Status:** These notes cover `0.1.9`, the public alpha prepared from its
+release commit, the last commit of Phase72 batch 2. It is published only when
+the tag `v0.1.9`, the versioned GitHub pre-release and PyPI carry its
+accepted wheel and sdist; this document neither creates those channels nor
+substitutes for their byte verification. As for earlier releases, the
+compiler and package are covered on CPython 3.12 and 3.13 for Linux x86-64;
+other platforms and Python versions are not.
+
+`0.1.9` retires no source spelling of `0.1.8`. It is the Phase72 release:
+both Phase72 batches, the formatter step `pietto fmt` and a warning on the
+header lines that Phase75 removes. It adds `pietto fmt`, the builtins
+`concat`, `same_value` and `stddev`, project typing of always-null numbers,
+fewer false JOIN fan-out refusals, one `Float` value contract and the backward
+asof JOIN. Each subsection below lists the changes against `0.1.8` that a
+program can observe and the new refusals; the last one lists the known
+limitations. The Python execution extras keep the pins of `0.1.8`. The
+sections from 0.1.8 down describe published files.
+
+### Highlights
+
+- **`pietto fmt`.** One command lays out a file in the one canonical form:
+  `pietto fmt PATH` prints it, `--check` tells whether a file is formatted,
+  `--write` replaces it. Only whitespace between tokens changes.
+- **New builtins.** `concat(a, b, ...)` joins `Text`; `same_value(a, b)` is
+  equality that treats two `None` as equal and is never `None`; `stddev(x)` is
+  the sample standard deviation, as Python's `statistics.stdev`.
+- **Backward asof JOIN on PostgreSQL.** `asof left join` and
+  `asof inner join` keep, for each row, the latest matching row at or before
+  its time, as pandas `merge_asof` does.
+- **`Float` has one meaning.** A finite binary64 value whose equality is
+  Python's, so `-0.0 == 0.0`; PostgreSQL project SQL now groups, orders and
+  removes duplicates of `Float` values.
+- **Fewer false refusals.** Sound JOIN aggregates, a JOIN on all the GROUP BY
+  keys of a grouped query, and project arithmetic with an always-`None`
+  operand now check, and an always-null project output no longer hides later
+  errors.
+
+### Upgrading from 0.1.8
+
+- `0.1.9` retires no source spelling, so a `0.1.8` file needs no
+  `pietto migrate` step. Each header line now warns with PIE-P1012, and
+  `pietto migrate FILE > FILE.new` deletes the ones without effect; for
+  `mode loose` or `mode strict`, delete the line and pass `--check-mode`.
+- `same_value` and `stddev` are reserved: a `def` with either name is
+  PIE-S2398. A file's own `concat` keeps its meaning.
+- Tools that compare exact diagnostics, SQL text or JSON must expect the
+  changes listed below: the new PIE-P1012 and PIE-S2385 warnings, new and
+  changed hint texts, the typed NULL casts in single-file SQL, and additive
+  JSON vocabulary that strict readers must accept.
+- As with every release, compiled bundles and saved jobs made under `0.1.8`
+  or earlier are refused by code identity.
+- The output of `pietto fmt` may still change before the Phase82 freeze;
+  each change is listed in these release notes.
+- The VS Code extension `0.1.0` accepts only the `0.1.2` wheel and refuses
+  `0.1.9`; the extension is set aside until the work before Phase75 is done.
 
 ### Formatter: `pietto fmt`
 
@@ -333,7 +383,7 @@ the known limitations.
   (``The header line `mode <mode>` needs manual migration, as it sets the
   check mode.``): delete the line and pass `--check-mode` instead.
 
-### Known limitations after 0.1.8
+### Known limitations of 0.1.9
 
 - MySQL project SQL refuses `concat`: real MySQL 8.4.12 types a `CONCAT`
   result from its arguments' storage lengths and counts the literal anchor

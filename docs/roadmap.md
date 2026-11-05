@@ -3113,7 +3113,13 @@ quality interlude, is published, with only version and documentation changes
 and without waiting for Phase72; PMS-2 is `d654738f`, so `0.1.8` is `main` at
 `d654738f`; the owner pre-approved its publication chain the same day, and
 `0.1.8` is published from `61b05586` (tag `v0.1.8`) on the GitHub pre-release
-and PyPI.
+and PyPI. On 2026-11-05 the owner decided (J23) that Phase72 releases as
+`0.1.9`, the next patch after `0.1.8`, with both Phase72 batches, the
+formatter step and the header-line warning, and later that day pre-approved
+its publication chain; `0.1.9` is published only when its tag, GitHub
+pre-release and PyPI channels carry the accepted files. Later releases stay
+on `0.1.x` patches, `0.1.10` next, until about the end of Phase80, when
+`0.2.0` is used.
 
 On 2026-10-28 the owner set the MySQL cadence: MySQL support may trail
 PostgreSQL by about two to three releases. New features reach PostgreSQL first,
