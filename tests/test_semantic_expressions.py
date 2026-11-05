@@ -50,6 +50,8 @@ from pietto.semantic.row_lookup import (
     qualified_field,
 )
 
+from _pietto_semantic_expressions import expression_facts
+
 SOURCE = (
     "shape User:\n"
     "    id: UUID\n"
@@ -360,10 +362,8 @@ def test_a_case_coalesce_or_nullif_of_only_nulls_takes_the_type_beside_it() -> N
             "        a = nullif(count, coalesce(None, None), 1)\n"
         )
     )
-    numeric = (
-        "Invalid operands for operator +: expected numeric operands; "
-        "use `concat(...)` with `Text(n)` to join Text values"
-    )
+    # The operator matrix owns the `+` message: here the one of a Text + Int.
+    ((_, numeric),) = expression_facts("status + amount")[1]
     assert [
         (d.code, d.message, d.location.line, d.location.column)
         for d in result.diagnostics

@@ -13,6 +13,8 @@ from pietto.errors import Severity
 from pietto.parser_api import parse_source
 from pietto.semantic import CheckMode, SemanticResult, ValueTypeKind, analyze
 
+from _pietto_semantic_expressions import expression_facts
+
 SOURCE = (
     "shape Row:\n"
     "    text: Text\n"
@@ -308,10 +310,8 @@ def test_a_built_in_call_over_an_unknown_row_has_its_result_type_everywhere() ->
         "    select:\n        p = j + 1\n"
     )
 
-    plus = (
-        "Invalid operands for operator +: expected numeric operands; "
-        "use `concat(...)` with `Text(n)` to join Text values"
-    )
+    # The operator matrix owns the `+` message: here the one of a Text + Int.
+    ((_, plus),) = expression_facts("status + amount")[1]
     assert _errors(source) == [
         ("PIE-S2303", 1, 1, "Source raw has no bound shape; row schema is unknown"),
         ("PIE-S2202", 4, 11, EXPECTED_BOOL),

@@ -86,6 +86,22 @@ def test_binary_numeric_decimal_modulo_and_division_matrix_preserves_behavior() 
             "+",
             "numeric operands; use `concat(...)` to join Text values",
         ),
+        (
+            "status + amount",
+            "+",
+            "numeric operands; use `concat(...)` with `Text(n)` to join Text values",
+        ),
+        (
+            "amount + status",
+            "+",
+            "numeric operands; use `concat(...)` with `Text(n)` to join Text values",
+        ),
+        # A number of unknown type is no Int, which `Text(n)` alone takes.
+        (
+            "price / 2 + status",
+            "+",
+            "numeric operands; use `concat(...)` to join Text values",
+        ),
         ("active * amount", "*", "numeric operands"),
         ("score % amount", "%", "Int operands"),
         ("amount % score", "%", "Int operands"),

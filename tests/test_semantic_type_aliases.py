@@ -16,6 +16,8 @@ from pietto.semantic import CheckMode, SemanticResult, TypeKind, analyze
 from pietto.sql import SqlResult, emit_postgres_sql
 from pietto.sql.mysql import emit_mysql_sql
 
+from _pietto_semantic_expressions import expression_facts
+
 
 def test_direct_alias_expands_to_builtin_target() -> None:
     result = analyze(
@@ -566,6 +568,8 @@ def test_alias_arguments_and_conditions_are_checked_as_their_base_type() -> None
         '        b = amount like "a%"\n'
         "        c = len(email) + email\n"
     )
+    # The operator matrix owns the `+` message: here the one of an Int + Text.
+    ((_, plus),) = expression_facts("amount + status")[1]
     refused = (
         ("PIE-S2202", "Expected Bool expression in where clause", 17, 11),
         (
@@ -581,13 +585,7 @@ def test_alias_arguments_and_conditions_are_checked_as_their_base_type() -> None
             23,
             13,
         ),
-        (
-            "PIE-S2105",
-            "Invalid operands for operator +: expected numeric operands; "
-            "use `concat(...)` with `Text(n)` to join Text values",
-            24,
-            13,
-        ),
+        ("PIE-S2105", plus, 24, 13),
     )
     assert facts(relations, aliased=True) == refused
     assert facts(relations, aliased=False) == tuple(

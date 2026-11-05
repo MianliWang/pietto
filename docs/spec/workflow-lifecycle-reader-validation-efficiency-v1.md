@@ -9,9 +9,8 @@ route. Phase 58 Slice 5 remains unstarted and unauthorized.
 
 ## Lifecycle Reader Ownership
 
-`tests/test_active_phase_lifecycle.py` is the sole test owner for the mutable
-current state in `docs/status.md` and the current/next owner sentence in the
-`Phase 58 route` section of `docs/roadmap.md`.
+No test reads the mutable current state in `docs/status.md` or
+`docs/roadmap.md`; Git detects their edits.
 
 Git plus successful natural exact-head CI remains completion authority.
 Documentation presents the next authorized working state and may intentionally
@@ -36,7 +35,6 @@ The normal lifecycle presentation edit set for Phase 58 Slice 5 and later is:
 ```text
 docs/roadmap.md
 docs/status.md
-tests/test_active_phase_lifecycle.py
 ```
 
 Only the current task's genuinely affected source, specification, product test,
@@ -98,20 +96,15 @@ installed-package smoke must not be weakened by the layered local policy.
 
 ## Regression Lock
 
-`tests/test_workflow_lifecycle_validation_efficiency.py` structurally enforces:
-
-- exactly one mutable status reader;
-- no mutable lifecycle or roadmap dependency in completed product tests;
-- no historical `LIFECYCLE_READERS` or changing-path inventory;
-- separation between product tests and lifecycle/workflow tests; and
-- the authoritative full local gate plus unchanged natural CI ownership.
+`tests/test_workflow_lifecycle_validation_efficiency.py` structurally enforces
+that no test reads `docs/status.md` or `docs/roadmap.md`.
 
 ## Steady-state Efficiency
 
 At adoption, 18 historical tests read the mutable status/current-owner state;
 15 test paths appeared in all four Phase 58 Slice changed-path sets. The steady
-state has one active mutable lifecycle reader and zero historical tests that
-require per-Slice lifecycle edits.
+state has no mutable lifecycle reader and zero tests that require per-Slice
+lifecycle edits.
 
 ## Compatibility And Non-scope
 

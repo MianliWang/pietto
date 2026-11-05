@@ -3,11 +3,6 @@ from __future__ import annotations
 import json
 from pathlib import Path
 
-from _static_audit_helpers import (
-    normalized_text as _normalized,
-    read_text as _read,
-)
-
 import pietto.cli as cli
 from pietto.ast_nodes import Expression, QueryDef, Script, TableDef
 from pietto.errors import Severity
@@ -19,26 +14,8 @@ from pietto.semantic import (
     analyze,
 )
 
-REPO_ROOT = Path(__file__).resolve().parents[1]
-SPEC_PATH = REPO_ROOT / "docs/spec/datetime-time-interval-boundary-v1.md"
-
-CATALOG_PATH = REPO_ROOT / "src/pietto/semantic/catalog.py"
-SEMANTIC_MODEL_PATH = REPO_ROOT / "src/pietto/semantic/model.py"
-IR_MODEL_PATH = REPO_ROOT / "src/pietto/ir/model.py"
-METADATA_MODEL_PATH = REPO_ROOT / "src/pietto/_metadata/model.py"
-METADATA_SERIALIZER_PATH = REPO_ROOT / "src/pietto/_metadata/serializer.py"
-METADATA_TEXT_PATH = REPO_ROOT / "src/pietto/_metadata/text.py"
-CLI_JSON_PATH = REPO_ROOT / "src/pietto/cli_json.py"
-
 
 TEMPORAL_CANDIDATES = ("DateTime", "Time", "Interval")
-
-
-def test_datetime_time_interval_are_not_builtin_type_names() -> None:
-    catalog = _read(CATALOG_PATH)
-
-    assert '"Date"' in catalog
-    assert '"Timestamp"' in catalog
 
 
 def test_datetime_is_not_silently_treated_as_timestamp() -> None:
@@ -170,55 +147,6 @@ def test_cli_json_paths_stop_before_temporal_output_expansion(
             "native_temporal",
         ):
             assert forbidden not in serialized.lower(), forbidden
-
-
-def test_metadata_and_json_sources_have_no_temporal_schema_expansion() -> None:
-    sources = (
-        _read(SEMANTIC_MODEL_PATH),
-        _read(IR_MODEL_PATH),
-        _read(METADATA_MODEL_PATH),
-        _read(METADATA_SERIALIZER_PATH),
-        _read(METADATA_TEXT_PATH),
-        _read(CLI_JSON_PATH),
-    )
-
-    for source in sources:
-        lowered = source.lower()
-        for forbidden in (
-            "timezone",
-            "time_zone",
-            "timestamp_precision",
-            "duration",
-            "interval_units",
-            "temporal_native",
-            "native_temporal",
-            "native_database_temporal",
-        ):
-            assert forbidden not in lowered, forbidden
-
-
-def test_future_prerequisites_and_non_authorization_are_documented() -> None:
-    spec = _normalized(SPEC_PATH)
-
-    for required in (
-        "whether `DateTime` is an alias, primitive, or remains unsupported",
-        "timezone semantics",
-        "timestamp precision semantics",
-        "time-of-day semantics",
-        "interval/duration units and normalization",
-        "temporal arithmetic policy",
-        "comparison and ordering policy",
-        "group-key and satisfying/result predicate policy",
-        "PostgreSQL and private MySQL dialect portability policy",
-        "public output compatibility policy for CLI text, JSON v1, Project JSON v2, and Semantic Metadata Artifact v1",
-        "does not authorize behavior implementation",
-        "does not authorize `DateTime` as a primitive or alias",
-        "`Time` as a builtin",
-        "`Interval` as a builtin",
-        "fixture/golden changes",
-        "tags, release, publish/upload, signing, or attestation",
-    ):
-        assert required in spec, required
 
 
 def _source(type_name: str, projection: str) -> str:

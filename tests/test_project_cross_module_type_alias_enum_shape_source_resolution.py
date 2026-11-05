@@ -28,6 +28,8 @@ from pietto.errors import Severity
 from pietto.parser_api import parse_source
 from pietto.semantic import analyze
 
+from _pietto_semantic_expressions import expression_facts
+
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
 SOURCE_REL = "src/pietto/_project/module_resolution.py"
@@ -1034,6 +1036,8 @@ def test_a_project_reads_an_imported_text_alias_as_text_in_concat(
             ),
         },
     )
+    # The operator matrix owns the joining `+` message: the one of a Text + Text.
+    ((_, joined),) = expression_facts("status + status")[1]
     assert [
         (item.code, item.message, item.location.line, item.location.column)
         for item in build_project_completed_semantic_result(semantic).diagnostics
@@ -1051,13 +1055,7 @@ def test_a_project_reads_an_imported_text_alias_as_text_in_concat(
             16,
             13,
         ),
-        (
-            "PIE-S2105",
-            "Invalid operands for operator +: expected numeric operands; "
-            "use `concat(...)` to join Text values",
-            17,
-            13,
-        ),
+        ("PIE-S2105", joined, 17, 13),
     ]
 
 
@@ -2901,6 +2899,8 @@ def test_project_concat_keeps_the_name_of_a_module_callable(
         "Invalid operands for operator +: expected numeric operands; "
         "string concatenation is not supported yet"
     )
+    # The operator matrix owns the joining `+` message: the one of a Text + Text.
+    ((_, joined),) = expression_facts("status + status")[1]
     assert [
         (
             Path(str(item.location.path)).name,
@@ -2945,14 +2945,7 @@ def test_project_concat_keeps_the_name_of_a_module_callable(
             19,
             13,
         ),
-        (
-            "main.pietto",
-            "PIE-S2105",
-            "Invalid operands for operator +: expected numeric operands; "
-            "use `concat(...)` to join Text values",
-            6,
-            13,
-        ),
+        ("main.pietto", "PIE-S2105", joined, 6, 13),
         (
             "rel.pietto",
             "PIE-S2103",

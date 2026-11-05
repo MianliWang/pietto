@@ -1,12 +1,9 @@
 from __future__ import annotations
 
-from pathlib import Path
-
-from _static_audit_helpers import (
-    read_text as _read,
-)
+from typing import cast
 
 from pietto._metadata.builder import build_semantic_metadata_artifact
+from pietto._metadata.serializer import semantic_metadata_artifact_to_json_dict
 from pietto.ast_nodes import Expression, QueryDef, Script, TableDef
 from pietto.errors import Severity
 from pietto.ir import AggregateCallIR, EnumIR, RelationIR, ScriptIR, build_ir
@@ -18,23 +15,6 @@ from pietto.semantic import (
     ValueTypeKind,
     analyze,
 )
-
-REPO_ROOT = Path(__file__).resolve().parents[1]
-SPEC_PATH = REPO_ROOT / "docs/spec/enum-support-resolution-v1.md"
-
-CATALOG_PATH = REPO_ROOT / "src/pietto/semantic/catalog.py"
-SEMANTIC_AGGREGATES_PATH = REPO_ROOT / "src/pietto/semantic/aggregates.py"
-SEMANTIC_EXPRESSIONS_PATH = REPO_ROOT / "src/pietto/semantic/expressions.py"
-SEMANTIC_GROUP_BY_PATH = REPO_ROOT / "src/pietto/semantic/group_by.py"
-SEMANTIC_SATISFYING_PATH = REPO_ROOT / "src/pietto/semantic/satisfying.py"
-IR_MODEL_PATH = REPO_ROOT / "src/pietto/ir/model.py"
-METADATA_MODEL_PATH = REPO_ROOT / "src/pietto/_metadata/model.py"
-METADATA_BUILDER_PATH = REPO_ROOT / "src/pietto/_metadata/builder.py"
-METADATA_SERIALIZER_PATH = REPO_ROOT / "src/pietto/_metadata/serializer.py"
-CLI_JSON_PATH = REPO_ROOT / "src/pietto/cli_json.py"
-POSTGRES_EXPRESSIONS_PATH = REPO_ROOT / "src/pietto/sql/expressions.py"
-MYSQL_EXPRESSIONS_PATH = REPO_ROOT / "src/pietto/sql/mysql_expressions.py"
-
 
 ENUM_SOURCE_HEADER = (
     "enum Status:\n"
@@ -127,53 +107,6 @@ def test_enum_metadata_readiness_remains_intact() -> None:
 
 
 def test_enum_literal_cast_native_runtime_surfaces_remain_absent() -> None:
-    catalog = _read(CATALOG_PATH)
-    semantic_aggregates = _read(SEMANTIC_AGGREGATES_PATH)
-    semantic_expressions = _read(SEMANTIC_EXPRESSIONS_PATH)
-    semantic_group_by = _read(SEMANTIC_GROUP_BY_PATH)
-    semantic_satisfying = _read(SEMANTIC_SATISFYING_PATH)
-    ir_model = _read(IR_MODEL_PATH)
-    metadata_model = _read(METADATA_MODEL_PATH)
-    metadata_builder = _read(METADATA_BUILDER_PATH)
-    metadata_serializer = _read(METADATA_SERIALIZER_PATH)
-    cli_json = _read(CLI_JSON_PATH)
-    postgres = _read(POSTGRES_EXPRESSIONS_PATH)
-    mysql = _read(MYSQL_EXPRESSIONS_PATH)
-
-    assert '"Enum"' not in catalog
-    assert "TypeKind.ENUM" in semantic_aggregates
-    assert 'ENUM = "enum"' in ir_model
-    assert "class EnumIR" in ir_model
-    assert "metadata_only" in metadata_builder
-    assert "support_posture: str" in metadata_model
-
-    for source in (
-        catalog,
-        semantic_expressions,
-        semantic_group_by,
-        semantic_satisfying,
-        ir_model,
-        metadata_model,
-        metadata_serializer,
-        cli_json,
-        postgres,
-        mysql,
-    ):
-        lowered = source.lower()
-        for forbidden in (
-            "enum_literal",
-            "enum cast",
-            "enum_cast",
-            "native enum",
-            "native_enum",
-            "enum storage",
-            "enum_storage",
-            "enum ddl",
-            "enum_ddl",
-            "create type",
-        ):
-            assert forbidden not in lowered, forbidden
-
     for projection, expected_code in (
         ("value = active", None),
         ("value = Status.active", "PIE-S2102"),
@@ -192,20 +125,32 @@ def test_enum_literal_cast_native_runtime_surfaces_remain_absent() -> None:
 
 
 def test_json_metadata_schema_expansion_is_not_authorized() -> None:
-    metadata_model = _read(METADATA_MODEL_PATH)
-    metadata_serializer = _read(METADATA_SERIALIZER_PATH)
-    cli_json = _read(CLI_JSON_PATH)
+    script = _parse(_source("postgres.table", "status"))
+    semantic_result = analyze(script)
+    ir_result = build_ir(script, semantic_result.model)
+    assert ir_result.ir is not None
+    document = semantic_metadata_artifact_to_json_dict(
+        build_semantic_metadata_artifact(
+            path="enum.pietto",
+            script=script,
+            semantic_result=semantic_result,
+            ir=ir_result.ir,
+        )
+    )
+    metadata = cast(dict[str, list[dict[str, object]]], document["metadata"])
+    enum_type = next(
+        type_ref for type_ref in metadata["types"] if type_ref["name"] == "Status"
+    )
 
-    for source in (metadata_model, metadata_serializer, cli_json):
-        for forbidden in (
-            "enum_members",
-            "enum_values",
-            "native_enum",
-            "database_enum",
-            "storage_enum",
-            "ddl_enum",
-        ):
-            assert forbidden not in source.lower(), forbidden
+    assert set(enum_type) == {
+        "status",
+        "name",
+        "kind",
+        "canonical_name",
+        "canonical_kind",
+        "nullability",
+        "support_posture",
+    }
 
 
 def _source(connector: str, projections: str) -> str:

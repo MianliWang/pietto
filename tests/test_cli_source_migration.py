@@ -78,6 +78,19 @@ def test_migrate_requires_input_and_has_no_in_place_flag(
     assert "unrecognized arguments: --in-place" in capsys.readouterr().err
 
 
+def test_migrate_has_no_json_mode(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    path = tmp_path / "a.pietto"
+    path.write_bytes(b"shape A:\r\n  id: Int   \r\n")
+
+    assert cli.main(["migrate", str(path), "--format", "json"]) == 2
+
+    assert capsys.readouterr().err.splitlines()[-1] == (
+        "pietto: error: unrecognized arguments: --format json"
+    )
+
+
 def test_migrate_read_is_bounded_before_utf8_decoding(
     tmp_path: Path,
     capsys: pytest.CaptureFixture[str],

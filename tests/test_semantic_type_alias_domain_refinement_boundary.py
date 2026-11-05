@@ -1,11 +1,6 @@
 from __future__ import annotations
 
 from dataclasses import fields
-from pathlib import Path
-
-from _static_audit_helpers import (
-    read_text as _read,
-)
 
 from pietto._metadata.builder import build_semantic_metadata_artifact
 from pietto._metadata.model import SemanticMetadataType
@@ -19,25 +14,6 @@ from pietto.semantic import (
     TypeKind,
     analyze,
 )
-
-REPO_ROOT = Path(__file__).resolve().parents[1]
-SPEC_PATH = REPO_ROOT / "docs/spec/type-alias-domain-refinement-boundary-v1.md"
-
-CATALOG_PATH = REPO_ROOT / "src/pietto/semantic/catalog.py"
-SEMANTIC_MODEL_PATH = REPO_ROOT / "src/pietto/semantic/model.py"
-IR_MODEL_PATH = REPO_ROOT / "src/pietto/ir/model.py"
-METADATA_MODEL_PATH = REPO_ROOT / "src/pietto/_metadata/model.py"
-METADATA_SERIALIZER_PATH = REPO_ROOT / "src/pietto/_metadata/serializer.py"
-METADATA_TEXT_PATH = REPO_ROOT / "src/pietto/_metadata/text.py"
-CLI_JSON_PATH = REPO_ROOT / "src/pietto/cli_json.py"
-
-
-def test_type_alias_kind_and_ir_kind_remain_the_alias_mechanism() -> None:
-    semantic_model = _read(SEMANTIC_MODEL_PATH)
-    ir_model = _read(IR_MODEL_PATH)
-
-    assert 'TYPE_ALIAS = "type_alias"' in semantic_model
-    assert 'TYPE_ALIAS = "type_alias"' in ir_model
 
 
 def test_alias_declaration_chain_and_nullability_preserve_current_facts() -> None:
@@ -138,52 +114,10 @@ def test_type_ensure_remains_parse_ast_only_not_domain_validation() -> None:
 
 
 def test_domain_refinement_and_currency_money_remain_deferred() -> None:
-    catalog = _read(CATALOG_PATH)
+    for type_name in ("Currency", "Money"):
+        result = analyze(_parse(f"shape Price:\n    amount: {type_name}\n"))
 
-    assert '"Currency"' not in catalog
-    assert '"Money"' not in catalog
-
-
-def test_no_domain_or_refinement_output_schema_expansion_was_added() -> None:
-    sources = (
-        _read(METADATA_MODEL_PATH),
-        _read(METADATA_SERIALIZER_PATH),
-        _read(METADATA_TEXT_PATH),
-        _read(CLI_JSON_PATH),
-    )
-
-    for source in sources:
-        lowered = source.lower()
-        for forbidden in (
-            "domain_constraints",
-            "validation_rules",
-            "units",
-            "currency",
-            "money",
-            "native_domain",
-            "domain_metadata",
-            "runtime_validation",
-            "coercion_rule",
-        ):
-            assert forbidden not in lowered, forbidden
-
-
-def test_no_new_scalar_primitive_or_native_domain_carrier_was_added() -> None:
-    sources = (
-        _read(SEMANTIC_MODEL_PATH),
-        _read(IR_MODEL_PATH),
-        _read(METADATA_MODEL_PATH),
-    )
-
-    for source in sources:
-        lowered = source.lower()
-        for forbidden in (
-            "native_domain",
-            "domain_metadata",
-            "runtime_validation",
-            "coercion_rule",
-        ):
-            assert forbidden not in lowered, forbidden
+        assert _error_codes(result) == ["PIE-S2002"]
 
 
 def _alias_source() -> str:

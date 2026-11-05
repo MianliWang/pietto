@@ -1569,3 +1569,49 @@ query q:
         )
     ]
     assert [artifact.name for artifact in result.artifacts] == ["chosen", "CHOSEN"]
+
+
+def test_sql_types_an_always_null_number_as_pietto_types_it() -> None:
+    # An untyped NULL takes its type from the database: PostgreSQL types
+    # `NULL * 2` as integer and `NULL - 3.0` as numeric, MySQL `amount + NULL`
+    # as DOUBLE, so the column type was not the Int or Float Pietto checks.
+    # A NULL operand of arithmetic is now a typed NULL, and an always-null
+    # number beside a Float result is cast to it; an untyped one stays NULL.
+    # Each read of a let-bound `None` is typed as an inline `None` there.
+    script_ir = _compile(
+        "shape Order:\n    id: Int\n    amount: Int\n    price: Decimal(10, 2)\n"
+        '    rate: Float\nsource orders: Order = mysql.table("orders")\n'
+        "table t0:\n    from orders\n    let k = None\n    select:\n        id\n"
+        "        o0 = None - 3.0\n        o1 = amount + None\n"
+        "        o2 = None * 2\n        o3 = amount / None\n"
+        "        o4 = -(amount + None)\n        o6 = (None + price) + 1.5\n"
+        "        o7 = coalesce(None + amount, price)\n        o9 = sign(None + rate)\n"
+        "        o10 = (None + amount) if amount > 1 else 1.5\n"
+        "        o12 = amount + k\n        o13 = k - 3.0\n"
+    )
+    sql = emit_mysql_sql(script_ir).artifacts[0].sql
+    expected = (
+        "`id` AS `id`",
+        "CAST(NULL AS DOUBLE) - 3.0 AS `o0`",
+        "`amount` + CAST(NULL AS SIGNED) AS `o1`",
+        "CAST(NULL AS SIGNED) * 2 AS `o2`",
+        "`amount` DIV CAST(NULL AS SIGNED) AS `o3`",
+        "-(`amount` + CAST(NULL AS SIGNED)) AS `o4`",
+        "CAST((CAST(NULL AS DECIMAL) + `price`) AS DOUBLE) + 1.5 AS `o6`",
+        "COALESCE((CAST(NULL AS SIGNED) + `amount`), `price`) AS `o7`",
+        "SIGN((CAST(NULL AS DOUBLE) + `rate`)) AS `o9`",
+        "CASE WHEN (`amount` > 1) THEN CAST((CAST(NULL AS SIGNED) + `amount`) "
+        "AS DOUBLE) ELSE 1.5 END AS `o10`",
+        "`amount` + CAST(NULL AS SIGNED) AS `o12`",
+        "CAST(NULL AS DOUBLE) - 3.0 AS `o13`",
+    )
+    assert sql == "SELECT\n    " + ",\n    ".join(expected) + "\nFROM `orders`"
+    untyped = _compile(
+        "shape Order:\n    id: Int\n"
+        'source orders: Order = mysql.table("orders")\n'
+        "table t0:\n    from orders\n    select:\n"
+        "        o5 = -None\n        o11 = None + None\n"
+    )
+    assert emit_mysql_sql(untyped).artifacts[0].sql == (
+        "SELECT\n    -NULL AS `o5`,\n    NULL + NULL AS `o11`\nFROM `orders`"
+    )

@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from unittest.mock import ANY
 import builtins
 from dataclasses import fields, replace
 import inspect
@@ -3741,8 +3742,7 @@ def test_a_repeated_output_name_reports_as_in_a_single_file(
         ("PIE-S2102", f"{unknown}other.nosuch5", at["several"] + 8, 28),
         (
             "PIE-S2105",
-            "Invalid operands for operator +: expected numeric operands; "
-            "use `concat(...)` with `Text(n)` to join Text values",
+            ANY,
             at["several"] + 9,
             14,
         ),

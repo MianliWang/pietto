@@ -321,18 +321,6 @@ def test_fmt_usage_errors(
     assert path.read_bytes() == MESSY
 
 
-def test_migrate_has_no_json_mode_either(
-    tmp_path: Path, capsys: pytest.CaptureFixture[str]
-) -> None:
-    path = _source(tmp_path)
-
-    assert cli.main(["migrate", str(path), "--format", "json"]) == 2
-
-    assert capsys.readouterr().err.splitlines()[-1] == (
-        "pietto: error: unrecognized arguments: --format json"
-    )
-
-
 @pytest.mark.parametrize("kind", ["missing", "directory", "invalid_utf8", "-"])
 @pytest.mark.parametrize("mode", [[], ["--check"], ["--write"]])
 def test_fmt_file_errors_are_usage_failures_as_migrate_reports_them(

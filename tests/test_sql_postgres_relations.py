@@ -545,3 +545,46 @@ query result:
     result = emit_postgres_sql(lowered.ir)
     assert not result.diagnostics
     assert " WHERE NULL)" in result.artifacts[0].sql
+
+
+def test_sql_types_an_always_null_number_as_pietto_types_it() -> None:
+    # An untyped NULL takes its type from the database: PostgreSQL types
+    # `NULL * 2` as integer and `NULL - 3.0` as numeric, MySQL `amount + NULL`
+    # as DOUBLE, so the column type was not the Int or Float Pietto checks.
+    # A NULL operand of arithmetic is now a typed NULL, and an always-null
+    # number beside a Float result is cast to it; an untyped one stays NULL.
+    # Each read of a let-bound `None` is typed as an inline `None` there.
+    parsed = parser_api.parse_source(
+        "shape Order:\n    id: Int\n    amount: Int\n    price: Decimal(10, 2)\n"
+        '    rate: Float\nsource orders: Order = postgres.table("orders")\n'
+        "table t0:\n    from orders\n    let k = None\n    select:\n        id\n"
+        "        o0 = None - 3.0\n        o1 = amount + None\n"
+        "        o2 = None * 2\n        o3 = amount / None\n"
+        "        o4 = -(amount + None)\n        o6 = (None + price) + 1.5\n"
+        "        o7 = coalesce(None + amount, price)\n        o9 = sign(None + rate)\n"
+        "        o10 = (None + amount) if amount > 1 else 1.5\n"
+        "        o12 = amount + k\n        o13 = k - 3.0\n"
+    )
+    assert parsed.ast is not None and not parsed.diagnostics
+    semantic = semantic_api.analyze(parsed.ast)
+    assert semantic.script is not None
+    assert all(d.severity is not Severity.ERROR for d in semantic.diagnostics)
+    lowered = build_ir(semantic.script, semantic.model)
+    assert lowered.ir is not None and not lowered.diagnostics
+    sql = emit_postgres_sql(lowered.ir).artifacts[0].sql
+    expected = (
+        '"id" AS "id"',
+        'CAST(NULL AS double precision) - 3.0 AS "o0"',
+        '"amount" + CAST(NULL AS bigint) AS "o1"',
+        'CAST(NULL AS bigint) * 2 AS "o2"',
+        '"amount" / CAST(NULL AS bigint) AS "o3"',
+        '-("amount" + CAST(NULL AS bigint)) AS "o4"',
+        'CAST((CAST(NULL AS numeric) + "price") AS double precision) + 1.5 AS "o6"',
+        'COALESCE((CAST(NULL AS bigint) + "amount"), "price") AS "o7"',
+        'CAST(sign((CAST(NULL AS double precision) + "rate")) AS bigint) AS "o9"',
+        'CASE WHEN ("amount" > 1) THEN CAST((CAST(NULL AS bigint) + "amount") '
+        'AS double precision) ELSE 1.5 END AS "o10"',
+        '"amount" + CAST(NULL AS bigint) AS "o12"',
+        'CAST(NULL AS double precision) - 3.0 AS "o13"',
+    )
+    assert sql == "SELECT\n    " + ",\n    ".join(expected) + '\nFROM "orders"'

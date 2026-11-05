@@ -1,59 +1,12 @@
 from __future__ import annotations
 
 from pathlib import Path
-import re
 
 from _pietto_repository_facts import REPOSITORY_FACTS
 
 
-REPO_ROOT = Path(__file__).resolve().parents[1]
-TESTS_ROOT = REPO_ROOT / "tests"
-ACTIVE_READER = TESTS_ROOT / "test_active_phase_lifecycle.py"
-POLICY = REPO_ROOT / "docs/spec/workflow-lifecycle-reader-validation-efficiency-v1.md"
-DEVELOPMENT = REPO_ROOT / "docs/development.md"
+TESTS_ROOT = Path(__file__).resolve().parent
 POLICY_TEST = Path(__file__).resolve()
-PRODUCT_TEST_PREFIXES = (
-    "test_parser_",
-    "test_semantic_",
-    "test_project_",
-    "test_ir_",
-    "test_plan_",
-    "test_sql_",
-    "test_cli_",
-    "test_results_",
-    "test_execution_",
-    "test_jobs_",
-)
-
-_MUTABLE_LIFECYCLE = re.compile(
-    r"Phase 58 is active,.*(?:current|next / unstarted)"
-    r"|PHASE58_SLICE\d+_END_TO_END"
-    r'|\("Slice \d+", "`(?:CURRENT|NEXT / UNSTARTED)`"\)'
-    r"|\| Slice \d+ \| `(?:CURRENT|NEXT / UNSTARTED)` \|"
-    r"|does not authorize Slice \d+"
-)
-
-
-def _read(path: Path) -> str:
-    return path.read_text(encoding="utf-8")
-
-
-def _section(document: str, heading: str) -> str:
-    marker = f"## {heading}\n"
-    assert document.count(marker) == 1
-    start = document.index(marker) + len(marker)
-    end = document.find("\n## ", start)
-    return document[start:] if end == -1 else document[start:end]
-
-
-def _product_tests() -> tuple[Path, ...]:
-    return tuple(
-        sorted(
-            path
-            for path in TESTS_ROOT.glob("test_*.py")
-            if path.name.startswith(PRODUCT_TEST_PREFIXES)
-        )
-    )
 
 
 def _document_readers(filename: str) -> tuple[Path, ...]:
@@ -67,64 +20,6 @@ def _document_readers(filename: str) -> tuple[Path, ...]:
     return tuple(readers)
 
 
-def test_active_lifecycle_reader_is_the_only_mutable_document_reader() -> None:
-    assert _document_readers("status.md") == (ACTIVE_READER,)
-    assert _document_readers("roadmap.md") == (ACTIVE_READER,)
-
-    imported_modules = REPOSITORY_FACTS.python(ACTIVE_READER).imported_modules
-    assert not any(name.startswith("test_phase") for name in imported_modules)
-
-
-def test_product_tests_have_no_mutable_lifecycle_or_roadmap_dependency() -> None:
-    product_tests = _product_tests()
-    assert product_tests
-    status_readers = set(_document_readers("status.md"))
-    roadmap_readers = set(_document_readers("roadmap.md"))
-    for path in product_tests:
-        facts = REPOSITORY_FACTS.python(path)
-        source = facts.text
-        assert path not in status_readers
-        assert path not in roadmap_readers
-        assert _MUTABLE_LIFECYCLE.search(source) is None, path
-        assert ACTIVE_READER.stem not in facts.imported_modules, path
-
-    product_sources = "\n".join(
-        REPOSITORY_FACTS.python(path).text for path in product_tests
-    )
-    assert "LIFECYCLE_READERS" not in product_sources
-    assert "EXPECTED_CHANGED_PATHS" not in product_sources
-
-
-def test_layered_validation_policy_and_product_separation_are_locked() -> None:
-    policy = _read(POLICY)
-    dirty = " ".join(_section(policy, "Dirty Focused Validation").split())
-    assert "current task tests" in dirty
-    assert "changed historical tests" in dirty
-    assert "changed-file Ruff" in dirty
-    for skipped in (
-        "full pytest",
-        "scripts/validate.py",
-        "full production Pyright",
-        "generated audit",
-        "golden audit",
-        "package smoke",
-    ):
-        assert skipped in dirty
-
-    authoritative = " ".join(_section(policy, "Authoritative Local Validation").split())
-    assert "UV_PYTHON=3.13 uv run python scripts/validate.py --timings" in (
-        authoritative
-    )
-    assert "exactly once" in authoritative
-
-    auxiliary = " ".join(_section(policy, "Risk-gated Auxiliary Audits").split())
-    for risk in ("generated surface", "golden-producing", "packaged module set"):
-        assert risk in auxiliary
-
-    ci = " ".join(_section(policy, "Natural CI").split())
-    assert "Python 3.12 and 3.13" in ci
-    assert "must not be weakened" in ci
-
-    development = _read(DEVELOPMENT)
-    assert "workflow-lifecycle-reader-validation-efficiency-v1.md" in development
-    assert ACTIVE_READER.name not in {path.name for path in _product_tests()}
+def test_no_test_reads_the_mutable_status_or_roadmap() -> None:
+    assert _document_readers("status.md") == ()
+    assert _document_readers("roadmap.md") == ()

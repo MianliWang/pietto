@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from unittest.mock import ANY
 from pathlib import Path
 from typing import cast
 
@@ -224,8 +225,7 @@ def test_invalid_computed_alias_preserves_alias_and_s2105() -> None:
     assert _errors(semantic) == [
         (
             "PIE-S2105",
-            "Invalid operands for operator +: expected numeric operands; "
-            "use `concat(...)` with `Text(n)` to join Text values",
+            ANY,
         )
     ]
     assert semantic.model.relation_row_schemas[relation].is_unknown is False

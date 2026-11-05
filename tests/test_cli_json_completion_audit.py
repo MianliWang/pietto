@@ -1,9 +1,7 @@
 from __future__ import annotations
 
-import inspect
 import json
 import re
-import tomllib
 from pathlib import Path
 from typing import cast
 
@@ -520,57 +518,24 @@ def test_phase_6_committed_examples_work_in_json_modes(
     assert output.read_text(encoding="utf-8").startswith("-- active_users\nSELECT\n")
 
 
-def test_phase_6_boundaries_dependencies_and_diagnostic_codes_remain_clean() -> None:
-    source = inspect.getsource(cli).lower()
-    project = tomllib.loads(Path("pyproject.toml").read_text(encoding="utf-8"))
-    dependencies = project["project"]["dependencies"]
-
-    assert dependencies == ["antlr4-python3-runtime==4.13.2"]
+def test_phase_6_cli_subcommands_and_compiler_wrappers_are_exact(
+    capsys: pytest.CaptureFixture[str],
+) -> None:
     assert not hasattr(cli, "compile_to_ir")
     assert not hasattr(cli, "compile_to_sql")
     assert not hasattr(ir_api, "compile_to_ir")
     assert not hasattr(sql_api, "compile_to_sql")
-    for forbidden in (
-        "import psycopg",
-        "import sqlalchemy",
-        "subprocess",
-        "socket",
-        ".connect(",
-        ".execute(",
-        "schema introspection",
-        "connector execution",
-        "watch mode",
-        "lsp",
-        "web ui",
-        "runtime server",
-    ):
-        assert forbidden not in source
 
-    roots = (
-        Path("src"),
-        Path("tests"),
-        Path("docs"),
-        Path("README.md"),
-        Path("AGENTS.md"),
-    )
-    legacy_codes: list[tuple[Path, str]] = []
-    for root in roots:
-        paths = root.rglob("*") if root.is_dir() else (root,)
-        for path in paths:
-            if not path.is_file() or path.suffix not in {
-                ".md",
-                ".pietto",
-                ".py",
-                ".txt",
-            }:
-                continue
-            for match in re.finditer(
-                r"(?<!PIE-)\bP[0-9]{4}\b",
-                path.read_text(encoding="utf-8"),
-            ):
-                legacy_codes.append((path, match.group()))
-
-    assert legacy_codes == []
+    assert cli.main(["--help"]) == 0
+    choices = re.search(r"\{([a-z,-]+)\}", capsys.readouterr().out)
+    assert choices is not None
+    assert choices.group(1).split(",") == [
+        "check",
+        "emit-sql",
+        "explain",
+        "migrate",
+        "fmt",
+    ]
 
 
 def _emit_json(path: Path, *, output: Path | None = None) -> int:

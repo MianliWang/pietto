@@ -4,7 +4,7 @@ from pathlib import Path
 
 import pytest
 
-from _static_audit_helpers import read_text as _read
+from _pietto_repository_facts import REPOSITORY_FACTS
 from pietto._project.model import (
     ProjectRelationRowSchemaReason,
     ProjectRelationRowSchemaState,
@@ -345,7 +345,7 @@ def test_aggregate_expression_stays_deferred() -> None:
 
 
 def test_slice3_module_does_not_call_forbidden_semantic_shortcuts() -> None:
-    module = _read(MODULE_PATH)
+    module = REPOSITORY_FACTS.text(MODULE_PATH)
 
     assert "semantic_api.analyze" not in module
     assert "infer_row_expression" not in module

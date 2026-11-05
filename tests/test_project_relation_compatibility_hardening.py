@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import ast
 import json
 from pathlib import Path
 from typing import cast
@@ -10,10 +9,6 @@ import pytest
 import pietto.cli as cli
 from pietto._project import model as project_model
 
-REPO_ROOT = Path(__file__).resolve().parents[1]
-PROJECT_JSON_V2_PATH = REPO_ROOT / "src/pietto/_project/json_v2.py"
-PROJECT_CHECK_PATH = REPO_ROOT / "src/pietto/_project/check.py"
-CLI_PATH = REPO_ROOT / "src/pietto/cli.py"
 
 PROJECT_JSON_TOP_LEVEL_KEYS = (
     "schema_version",
@@ -124,7 +119,12 @@ def test_project_emit_sql_remains_rejected_without_cycle_leakage(
     assert "Semantic Metadata Artifact" not in captured.out
     assert "Project check OK" not in captured.out
     assert "PIE-S2302" not in combined_output
-    _assert_private_cycle_facts_absent(combined_output)
+    for internal_name in (
+        "relation_dependency_graph",
+        "ProjectRelationDependencyGraph",
+        "ProjectRelationDependencyCycle",
+    ):
+        assert internal_name not in combined_output
 
 
 def test_project_json_v2_cycle_output_shape_and_private_facts_are_locked(
@@ -169,28 +169,7 @@ def test_project_json_v2_cycle_output_shape_and_private_facts_are_locked(
         "end_column": 15,
     }
     assert str(root) not in serialized
-    _assert_private_cycle_facts_absent(serialized)
-
-
-class _WithoutImports(ast.NodeTransformer):
-    def visit_Import(self, node: ast.Import) -> None:
-        return None
-
-    def visit_ImportFrom(self, node: ast.ImportFrom) -> None:
-        return None
-
-
-def test_public_project_paths_do_not_serialize_private_cycle_internals() -> None:
-    # Comments and imported module paths (such as `pietto.ast_nodes`) serialize
-    # nothing; every other statement of the public paths is checked.
-    public_surface_source = "\n".join(
-        ast.unparse(
-            _WithoutImports().visit(ast.parse(path.read_text(encoding="utf-8")))
-        )
-        for path in (PROJECT_JSON_V2_PATH, PROJECT_CHECK_PATH, CLI_PATH)
-    )
-
-    _assert_private_cycle_facts_absent(public_surface_source)
+    _assert_private_cycle_facts_absent(document)
 
 
 def _forbid_project_output_pipelines(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -271,8 +250,8 @@ def _write(root: Path, relative_path: str, source: str) -> Path:
     return path
 
 
-def _assert_private_cycle_facts_absent(text: str) -> None:
-    for private_fact in (
+_PRIVATE_CYCLE_FACTS = frozenset(
+    {
         "relation_dependency_graph",
         "ProjectRelationDependencyGraph",
         "ProjectRelationDependencyCycle",
@@ -282,5 +261,15 @@ def _assert_private_cycle_facts_absent(text: str) -> None:
         "origin",
         "target",
         "dependency_source",
-    ):
-        assert private_fact not in text
+    }
+)
+
+
+def _assert_private_cycle_facts_absent(value: object) -> None:
+    """No key of the parsed JSON document, at any depth, is a private fact."""
+    if isinstance(value, dict):
+        assert _PRIVATE_CYCLE_FACTS.isdisjoint(value), value
+        value = list(value.values())
+    if isinstance(value, list):
+        for child in value:
+            _assert_private_cycle_facts_absent(child)

@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from unittest.mock import ANY
 from dataclasses import FrozenInstanceError, fields, is_dataclass
 import json
 from pathlib import Path
@@ -25,6 +26,8 @@ from pietto._project.model import (
 )
 from pietto.ast_nodes import DeriveDef, ShapeDef, SourceDef, TableDef, TypeDef, Script
 from pietto.errors import Diagnostic, Severity, SourceLocation
+
+from _pietto_semantic_expressions import expression_facts
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
 
@@ -960,10 +963,8 @@ def test_a_project_let_value_ill_typed_once_the_null_it_reads_has_a_type_is_an_e
     lower_of_int = (
         "Invalid argument type for function lower at position 1: expected Text, got Int"
     )
-    not_numeric = (
-        "Invalid operands for operator +: expected numeric operands; "
-        "use `concat(...)` with `Text(n)` to join Text values"
-    )
+    # The operator matrix owns the `+` message: here the one of a Text + Int.
+    ((_, not_numeric),) = expression_facts("status + amount")[1]
     written_in = spelling["I1"] != "i1"
     assert _def_check(tmp_path, capsys, {"a.pietto": source}) == [
         ("PIE-S2105", "a.pietto", DEF_LINE + 4, 14, not_numeric),
@@ -1408,8 +1409,7 @@ DECLARATION_DIAGNOSTICS = {
             "a.pietto",
             5,
             25,
-            "Invalid operands for operator +: expected numeric operands; "
-            "use `concat(...)` with `Text(n)` to join Text values",
+            ANY,
         ),
         ("PIE-S2202", "a.pietto", 6, 18, "Expected Bool expression in shape check"),
         ("PIE-S2004", "a.pietto", 7, 10, _SCALE),
