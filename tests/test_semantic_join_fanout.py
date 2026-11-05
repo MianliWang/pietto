@@ -221,7 +221,7 @@ query fr5:
     cross join t
     group by orders.customer_id
     select:
-        m = max(orders.amount)
+        m = sum(orders.amount)
 query fr6:
     from orders
     let c = customers
@@ -275,7 +275,7 @@ query fr14:
     let b2 = cust
     right join b2 on referral(b2, cust)
     select:
-        mn = min(b2.id)
+        n = count(b2.id)
 query fr15:
     from customers
     let o = orders_x
@@ -301,7 +301,7 @@ query count_only:
     cross join r
     select:
         n = count()
-query not_exempt:
+query set_insensitive:
     from orders
     let r = regions
     cross join r
@@ -326,7 +326,7 @@ query chain_refused:
     let r = regions
     left join r on customer_region(c, r)
     select:
-        top = max(r.id)
+        top = count(r.id)
 query let_argument:
     from orders
     let r = regions
@@ -466,13 +466,22 @@ def _repeated(joins: str = "", remedy: str = "") -> str:
     return f"An aggregate may read {cause}" + (f"; {remedy}" if remedy else "")
 
 
+_OTHERS = (
+    "use `any(...)` for an input that only filters rows, or aggregate "
+    "in a separate query first"
+)
+
+
 def _match(*bindings: str) -> str:
     noun = "a unique key" if len(bindings) == 1 else "unique keys"
-    return (
-        f"match {noun} of {' and '.join(bindings)} in "
-        "`on`, use `any(...)` for an input that only filters rows, or aggregate "
-        "in a separate query first"
-    )
+    return f"match {noun} of {' and '.join(bindings)} in `on`, {_OTHERS}"
+
+
+def _unmatched(join: str) -> str:
+    """The remedy where an outer JOIN's `on` already matches the key: the
+    aggregate reads the rows that JOIN keeps without a match."""
+
+    return f"read no row that {join} keeps without a match, {_OTHERS}"
 
 
 _REFUSED = (
@@ -483,21 +492,29 @@ _REFUSED = (
     ("fr3", "count(orders.id)", _repeated("JOIN r", _match("r"))),
     # A query carries no declared key in a single file.
     ("fr4", "count(orders.id)", _repeated("JOIN c")),
-    ("fr5", "max(orders.amount)", _repeated("JOIN t")),
-    # RIGHT and FULL calls prove nothing: a NULL-extended row of one side
-    # determines no row of the other.
-    ("fr6", "count(r.id)", _repeated("JOIN c and JOIN r", _match("c"))),
-    ("fr7", "count(r.id)", _repeated("JOIN c", _match("c"))),
-    ("fr8", "count(r.id)", _repeated("JOIN c", _match("c"))),
-    ("fr9", "count(customers.vip or w.rush)", _repeated("JOIN r", _match("r"))),
-    ("fr10", "count(o.id)", _repeated("JOIN r and JOIN o", _match("customers"))),
-    ("fr14", "min(b2.id)", _repeated("JOIN b2", _match("cust"))),
+    ("fr5", "sum(orders.amount)", _repeated("JOIN t")),
+    # A RIGHT call proves its own input only where its earlier side is not
+    # NULL-extended: a NULL-extended row of one side determines no row of the
+    # other, and these aggregates read such rows.
+    ("fr6", "count(r.id)", _repeated("JOIN c and JOIN r", _unmatched("JOIN c"))),
+    ("fr7", "count(r.id)", _repeated("JOIN c", _unmatched("JOIN c"))),
+    # A single file proves nothing from a FULL call, so it names no input.
+    ("fr8", "count(r.id)", _repeated("JOIN c", _OTHERS)),
+    (
+        "fr9",
+        "count(customers.vip or w.rush)",
+        _repeated("JOIN r", _unmatched("JOIN r")),
+    ),
+    # A single file proves nothing from a RIGHT JOIN's match of an earlier
+    # input's key, so that input is not named.
+    ("fr10", "count(o.id)", _repeated("JOIN r and JOIN o", _OTHERS)),
+    ("fr14", "count(b2.id)", _repeated("JOIN b2", _OTHERS)),
     # A nullable key protects no group, and the equality matches no key of o.
     ("fr15", "count(customers.id)", _repeated("JOIN o", _match("o"))),
     # A composite key covered only in part.
     ("fr16", "count(ships.id)", _repeated("JOIN l", _match("l"))),
-    ("fr17", "count(c.id)", _repeated("JOIN c", _match("orders_x"))),
-    ("chain_refused", "max(r.id)", _repeated("JOIN r", _match("orders"))),
+    ("fr17", "count(c.id)", _repeated("JOIN c", _OTHERS)),
+    ("chain_refused", "count(r.id)", _repeated("JOIN r", _match("orders"))),
     # The argument reads r through two `let` names, and the group key is a
     # renamed field that is no key (the equality matches no key of customers).
     ("let_argument", "count(shown)", _repeated("JOIN r", _match("orders"))),
@@ -525,14 +542,14 @@ def test_an_aggregate_that_may_read_repeated_rows_is_refused_at_its_call(
     assert located(diagnostics) == [("PIE-S2381", message, *_at(query, call))]
 
 
-def test_only_count_without_an_argument_is_exempt(fanout: JoinScript) -> None:
-    """`min`, `max`, `count_distinct` and `count` of a field read the rows a
-    JOIN repeats; each is refused once, in select order."""
+def test_count_and_set_insensitive_aggregates_are_exempt(fanout: JoinScript) -> None:
+    """`count()` counts JOIN rows; `min`, `max` and `count_distinct` depend only
+    on the set of values a group holds, which a repeated row cannot change.
+    `count` of a field reads the rows a JOIN repeats and is refused."""
 
     message = _repeated("JOIN r", _match("orders"))
-    assert located(fanout.fanout("not_exempt")) == [
-        ("PIE-S2381", message, *_at("not_exempt", call))
-        for call in ("min(r.id)", "max(r.id)", "count_distinct(r.label)", "count(r.id)")
+    assert located(fanout.fanout("set_insensitive")) == [
+        ("PIE-S2381", message, *_at("set_insensitive", "count(r.id)"))
     ]
 
 
@@ -556,25 +573,28 @@ def test_an_aggregate_that_reads_no_input_names_no_repeated_join() -> None:
 # Where both modes refuse an aggregate for fan-out, the single-file message is
 # the project's cause clause: the JOINs that repeat its rows and the inputs
 # whose keys the remedy matches; the project accepts the refusals in which
-# single files are stricter.
+# single files are stricter. A project proves a FULL JOIN's own input for an
+# aggregate that reads no row it keeps without a match, which a single file
+# does not, so there the single file names only the other remedies.
+_SINGLE_REMEDY = {"fr8": _OTHERS}
 _SAME_REMEDY = (
-    ("fr1", "JOIN o", "o"),
-    ("fr2", "JOIN c", "orders"),
-    ("fr3", "JOIN r", "r"),
-    ("fr6", "JOIN c and JOIN r", "c"),
-    ("fr7", "JOIN c", "c"),
-    ("fr8", "JOIN c", "c"),
-    ("fr9", "JOIN r", "r"),
-    ("fr15", "JOIN o", "o"),
-    ("fr16", "JOIN l", "l"),
-    ("not_exempt", "JOIN r", "orders"),
-    ("chain_refused", "JOIN r", "orders"),
-    ("let_argument", "JOIN r", "orders"),
-    ("renamed_non_key", "JOIN o", "customers"),
-    ("one_key_two_joins", "JOIN c", "orders"),
-    ("composite_key_text", "JOIN s", "s"),
-    ("two_keys", "JOIN r", "orders"),
-    ("unique_keys_of_two", "JOIN r and JOIN k", "r and k"),
+    ("fr1", "JOIN o", _match("o")),
+    ("fr2", "JOIN c", _match("orders")),
+    ("fr3", "JOIN r", _match("r")),
+    ("fr6", "JOIN c and JOIN r", _unmatched("JOIN c")),
+    ("fr7", "JOIN c", _unmatched("JOIN c")),
+    ("fr8", "JOIN c", _unmatched("JOIN c")),
+    ("fr9", "JOIN r", _unmatched("JOIN r")),
+    ("fr15", "JOIN o", _match("o")),
+    ("fr16", "JOIN l", _match("l")),
+    ("set_insensitive", "JOIN r", _match("orders")),
+    ("chain_refused", "JOIN r", _match("orders")),
+    ("let_argument", "JOIN r", _match("orders")),
+    ("renamed_non_key", "JOIN o", _match("customers")),
+    ("one_key_two_joins", "JOIN c", _match("orders")),
+    ("composite_key_text", "JOIN s", _match("s")),
+    ("two_keys", "JOIN r", _match("orders")),
+    ("unique_keys_of_two", "JOIN r and JOIN k", _match("r", "k")),
 )
 # The project proves RIGHT JOINs and JOINs to a query that the bounded
 # single-file rule deliberately leaves unproven; it carries the key of
@@ -607,10 +627,11 @@ def test_fanout_messages_are_the_project_cause_clause(
         clauses[match.group(1)] = match.group(2)
     names = tuple(query for query, _, _ in _SAME_REMEDY)
     assert tuple(clauses) == names
-    for query, joins, bindings in _SAME_REMEDY:
-        message = _repeated(joins, _match(*bindings.split(" and ")))
+    for query, joins, remedy in _SAME_REMEDY:
+        message = _repeated(joins, remedy)
         assert clauses[query] == "a" + message[1:]
-        assert {item.message for item in fanout.fanout(query)} == {message}
+        single = _repeated(joins, _SINGLE_REMEDY.get(query, remedy))
+        assert {item.message for item in fanout.fanout(query)} == {single}
     for query in (*_STRICTER, *_ADMITTED):
         assert query not in clauses
 
@@ -674,7 +695,7 @@ def test_refined_left_subtree_cannot_determine_an_earlier_cross_input(
         else [
             (
                 "PIE-S2381",
-                _repeated("JOIN r and JOIN c", _match("r")),
+                _repeated("JOIN r and JOIN c", _unmatched("JOIN c")),
                 source.splitlines().index("        n = count(orders.id)") + 1,
                 13,
             )

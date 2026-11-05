@@ -259,6 +259,113 @@ def test_a_value_that_excludes_unmatched_rows_emits_the_aggregate(
         assert " RIGHT JOIN " in doc["sql"] and "COUNT(" in doc["sql"]
 
 
+_PROVED_HEADER = """shape Row:
+    id: Int
+    key: Int | None
+    row_key = unique(id)
+source lhs: Row = {target}.table("lhs")
+source rhs: Row = {target}.table("rhs")
+"""
+_PER_KEY = """query per_key:
+    from rhs
+    group by:
+        key{also}
+    select:
+        key{also}
+        n = count()
+"""
+_LEFT_BY_KEY = "    let r = rhs\n    left join r on r.key == lhs.key\n"
+_LEFT_TO_ID = "    let r = rhs\n    left join r on r.key == lhs.id\n"
+_PER_KEY_TO_ID = "    let g = per_key\n    left join g on g.key == lhs.id\n"
+# The JOINs, WHERE and aggregates of `result` grouped by `lhs.key`, and the
+# JOIN kind its SQL then reads, or None where the aggregate may read rows a
+# JOIN repeats and the relation stays BLOCKED.
+_PROVED_AGGREGATES = {
+    "set_insensitive": (
+        _LEFT_BY_KEY + "    let p = rhs\n    left join p on p.key == lhs.key\n",
+        "",
+        "top = max(r.id)\n        low = min(p.id)\n        n = count_distinct(r.key)",
+        " LEFT JOIN ",
+    ),
+    "repeated_count": (_LEFT_BY_KEY, "", "n = count(r.id)", None),
+    "left_many_side": (_LEFT_TO_ID, "", "n = count(r.id)", " LEFT JOIN "),
+    "left_preserved_side": (_LEFT_TO_ID, "", "n = count(lhs.id)", None),
+    "anti_join": (_LEFT_BY_KEY, "r.id is None", "n = count(lhs.id)", " LEFT JOIN "),
+    "anti_join_by_a_nullable_field": (
+        _LEFT_BY_KEY,
+        "r.key is None",
+        "n = count(lhs.id)",
+        None,
+    ),
+    "grouped_key": (
+        _PER_KEY_TO_ID,
+        "",
+        "n = count(lhs.id)\n        m = count(g.n)",
+        " LEFT JOIN ",
+    ),
+}
+
+
+@pytest.mark.parametrize("target", TARGETS)
+@pytest.mark.parametrize("name", _PROVED_AGGREGATES)
+def test_a_joined_aggregate_emits_exactly_where_its_rows_are_proved(
+    tmp_path, target, name
+):
+    """D-11 and B14: MIN, MAX and COUNT DISTINCT over JOINs that repeat rows, a
+    count of a LEFT JOIN's many side whose `on` matches the preserved side's
+    key, an anti-join through a never-None field tested `is None`, and a JOIN
+    on every GROUP BY key of a grouped query emit one grouped JOIN, VERIFIED;
+    a count of a repeated row, of the preserved side, or behind a nullable
+    field's `is None` stays BLOCKED."""
+
+    joins, where, aggregates, kind = _PROVED_AGGREGATES[name]
+    producer = _PER_KEY.format(also="") if "per_key" in joins else ""
+    source = (
+        _PROVED_HEADER.format(target=target)
+        + producer
+        + (
+            "query result:\n    from lhs\n"
+            + joins
+            + (f"    where {where}\n" if where else "")
+            + "    group by lhs.key\n    select:\n        k = lhs.key\n"
+            + f"        {aggregates}\n"
+        )
+    )
+    item = probe.join_witness(target, {"main.pietto": source})
+    _, outcome = probe.build_case(
+        tmp_path, item["source"], item["contract"], item["policy"]
+    )
+    doc = public(outcome)
+    if kind is None:
+        assert doc["status"] == "BLOCKED"
+        assert [item["code"] for item in doc["diagnostics"]] == ["PIE-S2333"]
+    else:
+        assert doc["status"] == "VERIFIED", document(outcome)
+        assert kind in doc["sql"] and " GROUP BY " in doc["sql"]
+
+
+@pytest.mark.parametrize("target", TARGETS)
+def test_a_join_on_part_of_a_grouped_querys_keys_stays_blocked(tmp_path, target):
+    """B14: a grouped query has one row per tuple of all its GROUP BY keys; an
+    `on` that matches only some of them may match several rows."""
+
+    source = (
+        _PROVED_HEADER.format(target=target)
+        + _PER_KEY.format(also="\n        id")
+        + "query result:\n    from lhs\n"
+        + _PER_KEY_TO_ID
+        + "    group by lhs.key\n    select:\n        k = lhs.key\n"
+        "        n = count(lhs.id)\n"
+    )
+    item = probe.join_witness(target, {"main.pietto": source})
+    _, outcome = probe.build_case(
+        tmp_path, item["source"], item["contract"], item["policy"]
+    )
+    doc = public(outcome)
+    assert doc["status"] == "BLOCKED"
+    assert [item["code"] for item in doc["diagnostics"]] == ["PIE-S2333"]
+
+
 @pytest.mark.parametrize("target", TARGETS)
 def test_a_declared_source_field_keeps_its_own_domain(tmp_path, target):
     """An outer JOIN never rewrites a source declaration to accept itself."""

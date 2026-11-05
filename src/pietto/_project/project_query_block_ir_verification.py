@@ -3415,9 +3415,7 @@ def _check_current_protections(result, keys, region) -> None:
 
 def _current_orphan_dependencies(aggregate, keys, region):
     if not aggregate.call.arguments or not any(
-        type(join) is ProjectCurrentBinaryJoin
-        and join.kind in {AuthoredJoinKind.RIGHT, AuthoredJoinKind.FULL}
-        for join in region.region.joins
+        type(join) is ProjectCurrentBinaryJoin for join in region.region.joins
     ):
         return ()
     input_filter = aggregate.input_filter
@@ -3654,6 +3652,7 @@ def _check_current_aggregate_result(result, readiness) -> None:
         aggregate = link.aggregate
         arguments = joined_aggregation.resolved_argument_factors(
             basis,
+            aggregate.function_name,
             bool(aggregate.call.arguments),
             tuple(
                 (

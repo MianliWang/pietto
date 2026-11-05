@@ -786,8 +786,8 @@ def test_joined_extrema_over_a_field_free_let_value_match_the_module_form(
     tmp_path, target, header, value, policy
 ):
     """A12: a LET value that reads no joined field (a constant or a parameter)
-    keeps the module form's MIN/MAX result; it links no JOIN side, so the group
-    keys must fix both sides, exactly as for a direct field argument."""
+    keeps the module form's MIN/MAX result; it links no JOIN side, and MIN and
+    MAX need no fan-out proof, exactly as for a direct field argument."""
     joined = (
         f"query result{header}:\n    from agg\n    let r = agg\n"
         "    inner join r on agg.key == r.key\n"
@@ -819,11 +819,12 @@ def test_joined_extrema_over_a_field_free_let_value_match_the_module_form(
             == column(expected, label)["representation"]
         )
     public(outcome)
-    # With only the left key the right side fans out: the field-free value is
-    # refused exactly like MIN/MAX over the left side's own field.
+    # With only the left key the right side repeats rows, which MIN and MAX,
+    # depending only on the values they read, need no proof against: the
+    # field-free value and the left side's own field both emit.
     left = "        agg.rid\n"
-    refused, direct = (
-        document(
+    for name, arg in (("free", "level"), ("field", "agg.value")):
+        repeated = document(
             emit_source(
                 tmp_path / name,
                 target,
@@ -831,23 +832,7 @@ def test_joined_extrema_over_a_field_free_let_value_match_the_module_form(
                 policy=policy,
             )
         )
-        for name, arg in (("free", "level"), ("field", "agg.value"))
-    )
-    assert refused["status"] == direct["status"] == "BLOCKED"
-    assert (
-        [(d["code"], d["message"]) for d in refused["diagnostics"]]
-        == [(d["code"], d["message"]) for d in direct["diagnostics"]]
-        == [
-            (
-                "PIE-S2333",
-                "Project relation semantic completion is unavailable: result (an "
-                "aggregate may read rows repeated by JOIN r; match a unique key "
-                "of r in `on`, "
-                "use `any(...)` for an input that only filters rows, or aggregate "
-                "in a separate query first)",
-            )
-        ]
-    )
+        assert repeated["status"] == "VERIFIED", repeated
 
 
 @pytest.mark.parametrize("target", TARGETS)

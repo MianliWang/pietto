@@ -99,6 +99,7 @@ from pietto._project.project_phase62_verification import (
     verify_project_phase62,
 )
 from pietto.ast_nodes import (
+    AuthoredJoinKind,
     EnumDef,
     JoinClause,
     NameExpr,
@@ -1439,10 +1440,67 @@ def _fanout_clause(
         "aggregate in a separate query first"
     )
     if picked:
-        # Grouping by such a key would pass too, but would change the result's
-        # grain, so the remedies keep the authored GROUP BY.
-        noun = "a unique key" if len(picked) == 1 else "unique keys"
-        remedies.append(f"match {noun} of {_and_list(picked)} in `on`, {others}")
+        # A picked input whose key an `on` already matches needs no new match.
+        # Where that JOIN NULL-extends the other side of the match (LEFT for
+        # an earlier input, RIGHT or FULL for its own input), the match holds
+        # only on rows the JOIN matched: the aggregate reads the rows it keeps
+        # without a match. Nothing proves a FULL JOIN's match of an earlier
+        # input's key, so an input only such JOINs match is not named. A LEFT
+        # JOIN that keeps every row a refused aggregate reads without a match
+        # (`unmatched_only_joins`) matches nothing there and proves no key.
+        unmatched_only = frozenset().union(
+            *(
+                project_joined_aggregation.unmatched_only_joins(linkage.aggregate)
+                for linkage in risky
+            )
+        )
+        to_match: list[str] = []
+        unmatched: set[int] = set()
+        for name in picked:
+            binding = inputs[name][0]
+            matching = tuple(
+                (position, join)
+                for position, join in enumerate(joins)
+                if position not in unmatched_only
+                and any(
+                    proof.binding is binding for proof in join.condition.key_matches
+                )
+            )
+            outer = tuple(
+                position
+                for position, join in matching
+                if (
+                    join.kind is AuthoredJoinKind.LEFT
+                    and binding is not join.use.target_binding
+                )
+                or (
+                    join.kind in {AuthoredJoinKind.RIGHT, AuthoredJoinKind.FULL}
+                    and binding is join.use.target_binding
+                )
+            )
+            if outer:
+                unmatched.update(outer)
+            elif not matching or not all(
+                join.kind is AuthoredJoinKind.FULL
+                and binding is not join.use.target_binding
+                for _, join in matching
+            ):
+                to_match.append(name)
+        parts = []
+        if to_match:
+            # Grouping by such a key would pass too, but would change the
+            # result's grain, so the remedies keep the authored GROUP BY.
+            noun = "a unique key" if len(to_match) == 1 else "unique keys"
+            parts.append(f"match {noun} of {_and_list(tuple(to_match))} in `on`")
+        if unmatched:
+            names = tuple(
+                f"JOIN {join.use.target_binding.name}"
+                for position, join in enumerate(joins)
+                if position in unmatched
+            )
+            verb = "keeps" if len(names) == 1 else "keep"
+            parts.append(f"read no row that {_and_list(names)} {verb} without a match")
+        remedies.append(", ".join((*parts, others)))
     elif grouped(keyed):
         remedies.append(others)
     cause = (

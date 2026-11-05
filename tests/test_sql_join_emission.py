@@ -2227,6 +2227,140 @@ EMITTED_JOINS = {
             'WHERE EXISTS (SELECT 1 FROM "shop"."regions" AS "_pietto_value_1" WHERE "_pietto_value_1"."id" = "c"."region_id")'
         ),
     ),
+    # A set-insensitive aggregate over a repeating JOIN, an aggregate of the
+    # many side of a LEFT or RIGHT JOIN whose `on` matches the other side's
+    # key, an anti-join through a never-None field and a JOIN on every GROUP
+    # BY key of a grouped query emit one ordinary grouped JOIN.
+    "left-set-insensitive": (
+        "query q:\n"
+        + (
+            "    from customers\n"
+            "    let o = orders\n"
+            "    left join o on order_customer(o, customers)\n"
+            "    group by customers.region_id\n"
+            "    select:\n"
+            "        rid = customers.region_id\n"
+            "        top = max(o.amount)\n"
+            "        n = count_distinct(customers.id)\n"
+        ),
+        (
+            "SELECT\n"
+            "    `customers`.`region_id` AS `rid`,\n"
+            "    MAX(`o`.`amount`) AS `top`,\n"
+            "    COUNT(DISTINCT `customers`.`id`) AS `n`\n"
+            "FROM `shop`.`customers` AS `customers`\n"
+            "LEFT JOIN `shop`.`orders` AS `o` ON `o`.`customer_id` = `customers`.`id`\n"
+            "GROUP BY\n"
+            "    `customers`.`region_id`"
+        ),
+        None,
+    ),
+    "left-many-side": (
+        "query q:\n"
+        + (
+            "    from customers\n"
+            "    let o = orders\n"
+            "    left join o on order_customer(o, customers)\n"
+            "    group by customers.region_id\n"
+            "    select:\n"
+            "        rid = customers.region_id\n"
+            "        n = count(o.id)\n"
+        ),
+        (
+            "SELECT\n"
+            "    `customers`.`region_id` AS `rid`,\n"
+            "    COUNT(`o`.`id`) AS `n`\n"
+            "FROM `shop`.`customers` AS `customers`\n"
+            "LEFT JOIN `shop`.`orders` AS `o` ON `o`.`customer_id` = `customers`.`id`\n"
+            "GROUP BY\n"
+            "    `customers`.`region_id`"
+        ),
+        None,
+    ),
+    "right-many-side": (
+        "query q:\n"
+        + (
+            "    from orders\n"
+            "    let c = customers\n"
+            "    right join c on order_customer(orders, c)\n"
+            "    group by c.region_id\n"
+            "    select:\n"
+            "        rid = c.region_id\n"
+            "        n = count(orders.id)\n"
+        ),
+        (
+            "SELECT\n"
+            "    `c`.`region_id` AS `rid`,\n"
+            "    COUNT(`orders`.`id`) AS `n`\n"
+            "FROM `shop`.`orders` AS `orders`\n"
+            "RIGHT JOIN `shop`.`customers` AS `c` ON `orders`.`customer_id` = `c`.`id`\n"
+            "GROUP BY\n"
+            "    `c`.`region_id`"
+        ),
+        None,
+    ),
+    "left-anti-join": (
+        "query q:\n"
+        + (
+            "    from customers\n"
+            "    let o = orders\n"
+            "    left join o on order_customer(o, customers)\n"
+            "    where o.id is None\n"
+            "    group by customers.region_id\n"
+            "    select:\n"
+            "        rid = customers.region_id\n"
+            "        n = count(customers.id)\n"
+        ),
+        (
+            "SELECT\n"
+            "    `customers`.`region_id` AS `rid`,\n"
+            "    COUNT(`customers`.`id`) AS `n`\n"
+            "FROM `shop`.`customers` AS `customers`\n"
+            "LEFT JOIN `shop`.`orders` AS `o` ON `o`.`customer_id` = `customers`.`id`\n"
+            "WHERE `o`.`id` IS NULL\n"
+            "GROUP BY\n"
+            "    `customers`.`region_id`"
+        ),
+        None,
+    ),
+    "left-grouped-key": (
+        "query per_customer:\n"
+        "    from orders\n"
+        "    group by customer_id\n"
+        "    select:\n"
+        "        customer_id\n"
+        "        n = count()\n"
+        "query q:\n"
+        + (
+            "    from customers\n"
+            "    let p = per_customer\n"
+            "    left join p on p.customer_id == customers.id\n"
+            "    group by customers.region_id\n"
+            "    select:\n"
+            "        rid = customers.region_id\n"
+            "        n = count(customers.id)\n"
+            "        m = count(p.n)\n"
+        ),
+        (
+            "WITH `per_customer` AS (\n"
+            "SELECT\n"
+            "    `customer_id` AS `customer_id`,\n"
+            "    COUNT(*) AS `n`\n"
+            "FROM `shop`.`orders`\n"
+            "GROUP BY\n"
+            "    `customer_id`\n"
+            ")\n"
+            "SELECT\n"
+            "    `customers`.`region_id` AS `rid`,\n"
+            "    COUNT(`customers`.`id`) AS `n`,\n"
+            "    COUNT(`p`.`n`) AS `m`\n"
+            "FROM `shop`.`customers` AS `customers`\n"
+            "LEFT JOIN `per_customer` AS `p` ON `p`.`customer_id` = `customers`.`id`\n"
+            "GROUP BY\n"
+            "    `customers`.`region_id`"
+        ),
+        None,
+    ),
 }
 
 

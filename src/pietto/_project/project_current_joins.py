@@ -26,6 +26,9 @@ from pietto._project.project_ir import (
     ProjectIRUseRef,
 )
 from pietto._project.project_ir_construction import ProjectIRAllocationState
+from pietto._project.project_ir_evaluation_context import (
+    ProjectIRGroupedEvaluationContext,
+)
 from pietto._project.project_ir_joins import (
     ProjectIRJoinUnavailableProperty,
     _all_non_null,
@@ -435,6 +438,38 @@ def current_forward_at_most_one(condition: ProjectJoinCondition) -> bool:
     matched by its `on`."""
     return any(
         proof.binding is condition.use.target_binding for proof in condition.key_matches
+    )
+
+
+def current_grouped_key_match(join: ProjectCurrentBinaryJoin) -> bool:
+    """The `on` equalities match every GROUP BY key of a grouped right input:
+    its rows are one per distinct key tuple (one NULL group per NULL key,
+    which no `==` matches), so each left row matches at most one of them.
+    The condition's own match proofs do not reach such an input, which is
+    materialized after them; only an aggregate's fan-out proof reads this
+    (`project_joined_aggregation.resolved_orphan_free_dependencies`)."""
+
+    right = join.right_input
+    target = join.condition.use.target_binding
+    positions = {
+        own.input_field.field_position
+        for equality in join.condition.mandatory_equalities
+        for own, other in (
+            (equality.left, equality.right),
+            (equality.right, equality.left),
+        )
+        if own.binding is target and other.binding is not target
+    }
+    matched = tuple(
+        group
+        for group in right.value_classes
+        if any(member.field_position in positions for member in group.members)
+    )
+    return any(
+        any(
+            isinstance(item, ProjectIRGroupedEvaluationContext) for item in key.supports
+        )
+        for key in resolved_matching_keys(right.keys, matched)
     )
 
 

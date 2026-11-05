@@ -21,6 +21,7 @@ from pietto._project.project_current_joins import (
     ProjectCurrentJoinRegion,
     compiled_forward_at_most_one,
     current_forward_at_most_one,
+    current_grouped_key_match,
 )
 from pietto._project.project_grain import (
     ProjectGrainBasisState,
@@ -1798,6 +1799,7 @@ def _argument_factors(
     final_grain = aggregate.input_filter.joined_semantics.property_bridge.grain
     return resolved_argument_factors(
         final_grain,
+        aggregate.function_name,
         bool(aggregate.call.arguments),
         tuple(
             (
@@ -2329,13 +2331,17 @@ class _RegionJoin(NamedTuple):
     # Introducing use, exact source domains, complete field pairs, and no extra ON.
     source_match: tuple | None = None
     holds_one: Callable[[frozenset], bool] | None = None
+    # An INNER or LEFT `on` that matches every GROUP BY key of a grouped right
+    # input (`current_grouped_key_match`), which the JOIN's grain leaves out.
+    grouped_one: bool = False
 
 
 def resolved_orphan_free_dependencies(
     final_grain, joins, unread, grouped_holder, held=None
 ):
-    """The left-to-right dependency of each RIGHT or FULL JOIN that holds on
-    the rows one aggregate reads; ``project_ir_joins._grain`` leaves it out.
+    """The dependencies that hold on the rows one aggregate reads and that
+    ``project_ir_joins._grain`` leaves out: first the left-to-right dependency
+    of each RIGHT or FULL JOIN.
 
     Such a JOIN with an at-most-one match keeps each right row that matches no
     left row (an orphan) beside a left side NULL-extended in every input, so
@@ -2359,6 +2365,22 @@ def resolved_orphan_free_dependencies(
     the group; then only the original left-to-right dependency is restored,
     never a generic holder factor. Each dependency keeps the whole left side
     among its determinants.
+
+    A LEFT JOIN is the mirror: its `on` matches a key of each input it pins,
+    so a right row matches at most one row of it, but each left row that
+    matches nothing (an unmatched row) stands beside one NULL-extended right
+    input, which several of them share. An aggregate that reads no unmatched
+    row (the same ``unread`` with its right input NULL-extended, or a later
+    JOIN drops it) gets the dependency of each pinned input on its right
+    input back. One that reads no row in which its right input is not
+    NULL-extended (WHERE is never TRUE where that input's never-None fields
+    are not NULL, as in `where x.id is None`) reads only unmatched rows, one
+    per left row: there its left side determines its right input.
+
+    An INNER or LEFT JOIN whose `on` matches every GROUP BY key of a grouped
+    right input (``grouped_one``) matches at most one of its rows, so its left
+    side determines its right input on every row; the JOIN's own grain proves
+    only the keys its condition matches, so this is added here.
     """
 
     def factors(side):
@@ -2367,18 +2389,11 @@ def resolved_orphan_free_dependencies(
             grain=grain, introduction_use=introduction, final_grain=final_grain
         )
 
-    # The inputs that a JOIN before each JOIN, and then any JOIN, may NULL-extend.
-    extensible, maybe = [], frozenset()
-    for join in joins:
-        extensible.append(maybe)
-        if join.kind in {"left", "full"}:
-            maybe |= {join.target}
-        if join.kind in {"right", "full"}:
-            maybe |= join.left_inputs
-    extensible.append(maybe)
+    extensible = _extensible(joins)
 
-    def unread_orphans(position, nulls, holder=None):
-        # Orphans of JOIN `position`, those with JOIN `holder`'s input NULL.
+    def unread_orphans(position, nulls, holder=None, bounded=True):
+        # Orphans of JOIN `position`, those with JOIN `holder`'s input NULL;
+        # ``bounded`` also accepts orphans of one right row (RIGHT and FULL).
         for index in range(position + 1, len(joins)):
             join = joins[index]
             first_match, later_match = joins[position].source_match, join.source_match
@@ -2409,13 +2424,43 @@ def resolved_orphan_free_dependencies(
         # WHERE holds a key of the right input to one value: one orphan at most.
         holds_one = joins[position].holds_one
         return (
-            held is not None
+            bounded
+            and held is not None
             and holds_one is not None
             and holds_one(held(nulls, extensible[-1]))
         )
 
     dependencies = []
+    # The side of each named input: the FROM input and every JOIN's own input.
+    sides = {join.target: join.right for join in joins}
+    if joins and len(joins[0].left_inputs) == 1:
+        sides[next(iter(joins[0].left_inputs))] = joins[0].left
     for position, join in enumerate(joins):
+        if join.grouped_one:
+            left, right = factors(join.left), factors(join.right)
+            if left and right:
+                dependencies.append(
+                    ProjectGrainDependencyFact(determinants=left, dependents=right)
+                )
+        if join.kind == "left":
+            right = factors(join.right)
+            if right and unread_orphans(
+                position, frozenset((join.target,)), bounded=False
+            ):
+                for pin in join.pins:
+                    pinned = factors(sides[pin]) if pin in sides else ()
+                    if pinned:
+                        dependencies.append(
+                            ProjectGrainDependencyFact(
+                                determinants=right, dependents=pinned
+                            )
+                        )
+            left = factors(join.left)
+            if right and left and unread(frozenset(), extensible[-1] - {join.target}):
+                dependencies.append(
+                    ProjectGrainDependencyFact(determinants=left, dependents=right)
+                )
+            continue
         if join.kind not in {"right", "full"} or not join.forward_one:
             continue
         determinants, dependents = factors(join.left), factors(join.right)
@@ -2451,6 +2496,20 @@ def resolved_orphan_free_dependencies(
                     )
                 )
     return tuple(dependencies)
+
+
+def _extensible(joins) -> list[frozenset]:
+    """The inputs that a JOIN before each JOIN, and then any JOIN, may NULL-extend."""
+
+    extensible, maybe = [], frozenset()
+    for join in joins:
+        extensible.append(maybe)
+        if join.kind in {"left", "full"}:
+            maybe |= {join.target}
+        if join.kind in {"right", "full"}:
+            maybe |= join.left_inputs
+    extensible.append(maybe)
+    return extensible
 
 
 def _holds_key(properties, matched) -> bool:
@@ -2603,6 +2662,8 @@ def _region_join(region: ProjectCurrentJoinRegion, join) -> _RegionJoin:
         frozenset(pins),
         _predicate_source_match(region, condition),
         lambda held: _held_key(target_output, id(target), held),
+        join.kind in {AuthoredJoinKind.INNER, AuthoredJoinKind.LEFT}
+        and current_grouped_key_match(join),
     )
 
 
@@ -2614,10 +2675,6 @@ def orphan_free_dependencies(
     if (
         not aggregate.call.arguments
         or type(region) is not multifact.ProjectCurrentMultiFactRegion
-        or not any(
-            join.kind in {AuthoredJoinKind.RIGHT, AuthoredJoinKind.FULL}
-            for join in region.region.joins
-        )
     ):
         return ()
     groups = None
@@ -2654,6 +2711,30 @@ def orphan_free_dependencies(
     )
 
 
+def unmatched_only_joins(aggregate: ProjectJoinedAggregateOccurrence) -> frozenset:
+    """The positions of the LEFT JOINs that keep every row one aggregate reads
+    without a match: it reads no row in which their own input is not
+    NULL-extended, as under `where x.id is None` (the premise of the
+    left-to-right dependency of `resolved_orphan_free_dependencies`). Their
+    `on` matches nothing in those rows, so it proves no key there."""
+
+    input_filter = aggregate.input_filter
+    region = input_filter.joined_semantics.multifact_region
+    if (
+        not aggregate.call.arguments
+        or type(region) is not multifact.ProjectCurrentMultiFactRegion
+    ):
+        return frozenset()
+    joins = tuple(_region_join(region.region, join) for join in region.region.joins)
+    unread = current_unread(input_filter, aggregate.call.arguments[0])
+    maybe = _extensible(joins)[-1]
+    return frozenset(
+        position
+        for position, join in enumerate(joins)
+        if join.kind == "left" and unread(frozenset(), maybe - {join.target})
+    )
+
+
 def aggregate_grain_index(
     index: ProjectGrainDependencyIndex,
     dependencies: tuple[ProjectGrainDependencyFact, ...],
@@ -2667,8 +2748,14 @@ def aggregate_grain_index(
     )
 
 
-def resolved_argument_factors(final_grain, has_arguments, dependencies):
-    if not has_arguments:
+# The aggregates whose value is a function of the set of non-NULL argument
+# values of a group: a JOIN that repeats a row repeats a value already in that
+# set, so, as `count()` counts every JOIN row, they read the full JOIN grain.
+SET_INSENSITIVE_AGGREGATES = frozenset(("min", "max", "count_distinct"))
+
+
+def resolved_argument_factors(final_grain, function, has_arguments, dependencies):
+    if not has_arguments or function in SET_INSENSITIVE_AGGREGATES:
         return final_grain.active
     factors = tuple(
         factor
@@ -4699,7 +4786,7 @@ def compiled_orphan_free_dependencies(ir, region, stage, arguments):
         return answer(address, nulls, maybe)[0]
 
     if not arguments or not any(
-        join.record.get("kind") in ("right", "full") for join in region.joins
+        join.record.get("kind") in ("left", "right", "full") for join in region.joins
     ):
         return ()
     entries = []
@@ -5021,6 +5108,7 @@ def build_compiled_aggregate_evidence(ir):
             aggregates.append(aggregate)
             argument_factors = resolved_argument_factors(
                 grain,
+                record.get("function"),
                 bool(arguments),
                 tuple(
                     (d.input_properties.grain, d.introduction_use) for d in dependencies
@@ -5241,6 +5329,7 @@ def verify_compiled_aggregate_evidence(
                 )
             argument_factors = resolved_argument_factors(
                 grain,
+                record.get("function"),
                 bool(record.get("arguments")),
                 tuple((part[2].grain, part[3]) for part in parts),
             )

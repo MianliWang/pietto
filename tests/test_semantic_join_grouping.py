@@ -869,28 +869,24 @@ def test_extrema_over_a_joined_let_value_read_its_exact_join_sides(
     assert all(linkage.argument_factors for linkage in result.grain_linkages)
 
 
-def test_extrema_over_a_joined_let_value_keep_the_field_fanout_law(
+def test_extrema_over_a_joined_let_value_need_no_fanout_proof(
     built: _Built,
 ) -> None:
-    """The LET argument links the sides it reads exactly like the field; a
-    field-free value links none, so the fan-out is not absorbed either."""
-    through_let = _result(built, "extremum_fanout_let")
-    direct = _result(built, "extremum_fanout_field")
-    constant = _result(built, "extremum_fanout_constant")
-    for result in (through_let, direct, constant):
-        assert type(result) is aggregation.ProjectNonConcreteJoinedAggregation
-        assert result.reason is (
-            aggregation.ProjectJoinedAggregationNonConcreteReason.AGGREGATE_ALGEBRA_REQUIRED
-        )
-        assert result.diagnostics == ()
-    (let_linkage,), (field_linkage,) = through_let.grain_linkages, direct.grain_linkages
-    assert let_linkage.requirements == field_linkage.requirements != ()
-    assert tuple(f.kind for f in let_linkage.argument_factors) == tuple(
-        f.kind for f in field_linkage.argument_factors
-    )
-    (constant_linkage,) = constant.grain_linkages
-    assert constant_linkage.argument_factors == ()
-    assert constant_linkage.requirements == field_linkage.requirements
+    """MIN and MAX depend only on the set of values a group holds, which rows
+    a JOIN repeats cannot change: over a LET value, a field or a field-free
+    value they read the full JOIN grain, as `count()` does, and need no
+    fan-out proof."""
+    for name in (
+        "extremum_fanout_let",
+        "extremum_fanout_field",
+        "extremum_fanout_constant",
+    ):
+        result = _result(built, name)
+        assert type(result) is aggregation.ProjectConcreteJoinedAggregation, name
+        (linkage,) = result.grain_linkages
+        assert linkage.argument_factors == linkage.final_grain.active != ()
+        assert linkage.multiplicity_exposures == ()
+        assert linkage.requirements == ()
 
 
 def _source_position(text: str) -> tuple[int, int]:
@@ -1240,7 +1236,7 @@ def test_fanout_refusal_names_the_repeating_joins_only_for_its_own_relation(
         + "query qualified_risk:\n    from accounts\n    let event = events\n"
         "    inner join event on account_events(accounts, event)\n"
         "    let weight = accounts.metric\n    group by:\n        accounts.label\n"
-        "    select:\n        label = accounts.label\n        top = max(weight)\n"
+        "    select:\n        label = accounts.label\n        top = sum(weight)\n"
         "        rk = rank() window(order by top desc)\n    qualify:\n        rk <= 3\n"
         + query("fanout_risk")
         .replace("fanout_risk", "on_risk")
@@ -1315,8 +1311,8 @@ _VIA_CUST = "order_customer(orders, cust)\n"
 _REG = "    let reg = regions\n    inner join reg on "
 _VIA_REG = "customer_region(cust, reg)\n"
 _SELF = "    let boss = emps\n    inner join boss on report_manager(emps, boss)\n"
-_FROM_SIDE = (("cust.name",), ("cname = cust.name", "top = max(orders.amount)"))
-_TARGET_SIDE = (("orders.amount",), ("amt = orders.amount", "top = max(cust.id)"))
+_FROM_SIDE = (("cust.name",), ("cname = cust.name", "top = sum(orders.amount)"))
+_TARGET_SIDE = (("orders.amount",), ("amt = orders.amount", "top = sum(cust.id)"))
 _FANOUT_CASES: dict[str, tuple[str, str, tuple[str, ...], tuple[str, ...], str]] = {
     **{
         f"{kind}_{match}_{side}": (
@@ -1348,28 +1344,28 @@ _FANOUT_CASES: dict[str, tuple[str, str, tuple[str, ...], tuple[str, ...], str]]
         "orders",
         _CUST.format("inner") + _VIA_CUST + _REG + _VIA_REG,
         ("orders.amount",),
-        ("amt = orders.amount", "top = max(reg.id)"),
+        ("amt = orders.amount", "top = sum(reg.id)"),
         "",
     ),
     "chain_first": (
         "orders",
         _CUST.format("inner") + _VIA_CUST + _REG + _VIA_REG,
         ("reg.name",),
-        ("rname = reg.name", "top = max(orders.amount)"),
+        ("rname = reg.name", "top = sum(orders.amount)"),
         "",
     ),
     "chain_middle": (
         "orders",
         _CUST.format("inner") + _VIA_CUST + _REG + _VIA_REG,
         ("orders.amount",),
-        ("amt = orders.amount", "top = max(cust.id)"),
+        ("amt = orders.amount", "top = sum(cust.id)"),
         "",
     ),
     "chain_on_last": (
         "orders",
         _CUST.format("inner") + _VIA_CUST + _REG + "cust.region_id == reg.id\n",
         ("orders.amount",),
-        ("amt = orders.amount", "top = max(reg.id)"),
+        ("amt = orders.amount", "top = sum(reg.id)"),
         "",
     ),
     "chain_partly_proven_last": (
@@ -1383,35 +1379,35 @@ _FANOUT_CASES: dict[str, tuple[str, str, tuple[str, ...], tuple[str, ...], str]]
         "orders",
         _CUST.format("inner") + _VIA_CUST + _REG + _VIA_REG,
         ("reg.name",),
-        ("rname = reg.name", "top = max(orders.amount)"),
+        ("rname = reg.name", "top = sum(orders.amount)"),
         "customers:proven = unique(id)",
     ),
     "chain_left_first": (
         "orders",
         _CUST.format("left") + _VIA_CUST + _REG + _VIA_REG,
         ("reg.name",),
-        ("rname = reg.name", "top = max(orders.amount)"),
+        ("rname = reg.name", "top = sum(orders.amount)"),
         "",
     ),
     "self_from": (
         "emps",
         _SELF,
         ("boss.name",),
-        ("bname = boss.name", "top = max(emps.id)"),
+        ("bname = boss.name", "top = sum(emps.id)"),
         "",
     ),
     "self_target": (
         "emps",
         _SELF,
         ("emps.name",),
-        ("ename = emps.name", "top = max(boss.id)"),
+        ("ename = emps.name", "top = sum(boss.id)"),
         "",
     ),
     "two_aggregates": (
         "orders",
         _CUST.format("inner") + _VIA_CUST,
         ("cust.name",),
-        ("cname = cust.name", "top = max(orders.amount)", "most = max(cust.id)"),
+        ("cname = cust.name", "top = sum(orders.amount)", "most = sum(cust.id)"),
         "",
     ),
     # An `any` filter repeats nothing and its binder is never named.
@@ -1422,7 +1418,7 @@ _FANOUT_CASES: dict[str, tuple[str, str, tuple[str, ...], tuple[str, ...], str]]
         + _CUST.format("inner")
         + _VIA_CUST,
         ("cust.name",),
-        ("cname = cust.name", "top = max(orders.amount)"),
+        ("cname = cust.name", "top = sum(orders.amount)"),
         "",
     ),
     **{
@@ -1447,7 +1443,7 @@ _FANOUT_CASES: dict[str, tuple[str, str, tuple[str, ...], tuple[str, ...], str]]
             for name in ("c1", "c2")
         ),
         ("orders.amount",),
-        ("amt = orders.amount", "top = max(orders.amount)"),
+        ("amt = orders.amount", "top = sum(orders.amount)"),
         "",
     ),
 }
@@ -1558,7 +1554,7 @@ def _endpoint(kind: str, groups: str, aggregate: str) -> str:
         f"{kind} bc:\n    from customers\n    select:\n        id = code\n        name\n"
         "query q:\n    from orders\n    let j0 = bc\n"
         "    inner join j0 on orders.customer_id == j0.id\n"
-        f"    group by:\n        {groups}\n    select:\n        g = {groups}\n        top = max({aggregate})\n"
+        f"    group by:\n        {groups}\n    select:\n        g = {groups}\n        top = sum({aggregate})\n"
     )
 
 
@@ -1580,7 +1576,7 @@ def test_fanout_remedies_never_name_an_undeclarable_input(tmp_path: Path) -> Non
         "        s.name\n"
         "    select:\n"
         "        n = s.name\n"
-        "        top = max(orders.amount)\n"
+        "        top = sum(orders.amount)\n"
     )
     bare = f"{_UNAVAILABLE}q (an aggregate may read rows repeated by JOIN "
     for name, body, message in (
@@ -1620,7 +1616,7 @@ def test_fanout_remedies_never_name_an_undeclarable_input(tmp_path: Path) -> Non
         'source orders: Order = postgres.table("orders")\n'
         "query q:\n    from orders\n    let cust = cs\n"
         "    inner join cust on orders.customer_id == cust.id\n"
-        "    group by:\n        cust.name\n{}    select:\n        n = cust.name\n        top = max(orders.amount)\n"
+        "    group by:\n        cust.name\n{}    select:\n        n = cust.name\n        top = sum(orders.amount)\n"
     )
     assert _fanout_check(
         tmp_path,
@@ -1865,6 +1861,8 @@ _NULLING_CASES = {
         "        n = count(r.id)\n",
         ("JOIN c", "c"),
     ),
+    # MAX depends only on the set of values it reads, so reading the rows
+    # that match no order repeats no value: these are admitted.
     "conditional_else_literal": (
         "    from orders\n"
         "    let c = customers\n"
@@ -1873,7 +1871,7 @@ _NULLING_CASES = {
         "    let v = orders.amount if orders.rush else 0\n"
         "    select:\n"
         "        top = max(v)\n",
-        ("JOIN c", "c"),
+        None,
     ),
     "conditional_on_not_in_empty": (
         "    from orders\n"
@@ -1883,7 +1881,7 @@ _NULLING_CASES = {
         "    let v = 0 if orders.id not in () else orders.amount\n"
         "    select:\n"
         "        top = max(v)\n",
-        ("JOIN c", "c"),
+        None,
     ),
     "many_to_one_from_the_right": (
         "    from payments\n"
@@ -2294,9 +2292,11 @@ def test_a_null_extended_join_side_proves_nothing_the_aggregate_may_read(
     a left side NULL-extended in every input, so with NULL as a value its
     at-most-one match proves nothing there: a group key of the NULL-extended
     side or an argument that is not NULL on such a row (`or` over both sides or
-    with a literal, a conditional whose else branch is a literal, WHERE with
-    `or` or `not (not ...)`, `not any`, a later JOIN that may match such a row
-    more than once) no longer hides a repeated row; nor does an empty list, which
+    with a literal, WHERE with `or` or `not (not ...)`, `not any`, a later JOIN
+    that may match such a row more than once) no longer hides a repeated row,
+    and the refusal names the rows the JOIN keeps without a match; MAX over a
+    conditional whose else branch is a literal reads such rows but needs no
+    proof, as it depends only on the values it reads; nor does an empty list, which
     is never NULL: `not in ()` is TRUE there in a WHERE or ON (also through
     `not`, `and`, `== False` or a LET) and as a condition. The match still
     proves an aggregate that never reads such a row: its argument is NULL when
@@ -2327,8 +2327,8 @@ def test_a_null_extended_join_side_proves_nothing_the_aggregate_may_read(
         (
             "PIE-S2333",
             f"{_UNAVAILABLE}{name} (an aggregate may read rows repeated by "
-            f"{refusal[0]}; match a unique key of {refusal[1]} in `on`, use "
-            "`any(...)` for an "
+            f"{refusal[0]}; read no row that JOIN {refusal[1]} keeps without a "
+            "match, use `any(...)` for an "
             "input that only filters rows, or aggregate in a separate query first)",
             lines.index(f"query {name}:") + 1,
             1,
@@ -2489,8 +2489,8 @@ def test_a_value_that_excludes_unmatched_rows_restores_the_match_proof(
             "PIE-S2333",
             f"{_UNAVAILABLE}{name} (an aggregate may read rows repeated by "
             f"{'JOIN c and JOIN r' if 'left join r' in body else 'JOIN c'}; "
-            "match a unique key of c in `on`, use `any(...)` for an input that "
-            "only filters rows, or aggregate in a separate query first)",
+            "read no row that JOIN c keeps without a match, use `any(...)` for an "
+            "input that only filters rows, or aggregate in a separate query first)",
             lines.index(f"query {name}:") + 1,
             1,
         )
@@ -3374,7 +3374,7 @@ def test_inverse_relationship_requires_the_same_unfiltered_source_domain(
         (
             "PIE-S2333",
             _UNAVAILABLE
-            + "result (an aggregate may read rows repeated by JOIN o; match a unique key of o in `on`, use `any(...)` for an input that only filters rows, or aggregate in a separate query first)",
+            + "result (an aggregate may read rows repeated by JOIN o; read no row that JOIN o keeps without a match, use `any(...)` for an input that only filters rows, or aggregate in a separate query first)",
         )
     ]
 
@@ -3398,7 +3398,7 @@ def test_later_outer_join_invalidates_equality_non_null_group_key(
         (
             "PIE-S2333",
             _UNAVAILABLE
-            + "result (an aggregate may read rows repeated by JOIN c; match a unique key of c3 in `on`, use `any(...)` for an input that only filters rows, or aggregate in a separate query first)",
+            + "result (an aggregate may read rows repeated by JOIN c; read no row that JOIN c3 keeps without a match, use `any(...)` for an input that only filters rows, or aggregate in a separate query first)",
         )
     ]
 
@@ -3490,7 +3490,7 @@ def test_inverse_match_compares_complete_paired_equality_multisets(
             (
                 "PIE-S2333",
                 _UNAVAILABLE
-                + "reordered_reverse (an aggregate may read rows repeated by JOIN o; match a unique key of o in `on`, use `any(...)` for an input that only filters rows, or aggregate in a separate query first)",
+                + "reordered_reverse (an aggregate may read rows repeated by JOIN o; read no row that JOIN o keeps without a match, use `any(...)` for an input that only filters rows, or aggregate in a separate query first)",
             )
         ]
     )
@@ -3619,14 +3619,18 @@ def test_disconnected_join_fanout_names_the_factor_introduction(
     if prior_join:
         body += "    group by orders.id\n"
     body += "    select:\n        n = count(r.id)\n"
-    repeated, grouped = ("c", "c") if prior_join else ("r", "orders")
+    repeated, remedy = (
+        ("c", "read no row that JOIN c keeps without a match")
+        if prior_join
+        else ("r", "match a unique key of orders in `on`")
+    )
     assert _fanout_check(
         tmp_path, "disconnected", _NULLING_HEADER + "query result:\n" + body
     ) == [
         (
             "PIE-S2333",
             _UNAVAILABLE
-            + f"result (an aggregate may read rows repeated by JOIN {repeated}; match a unique key of {grouped} in `on`, use `any(...)` for an input that only filters rows, or aggregate in a separate query first)",
+            + f"result (an aggregate may read rows repeated by JOIN {repeated}; {remedy}, use `any(...)` for an input that only filters rows, or aggregate in a separate query first)",
         )
     ]
 
@@ -3646,7 +3650,7 @@ def test_join_fanout_retains_every_prior_predicate_binding(
         (
             "PIE-S2333",
             _UNAVAILABLE
-            + "result (an aggregate may read rows repeated by JOIN c and JOIN r; match a unique key of c in `on`, use `any(...)` for an input that only filters rows, or aggregate in a separate query first)",
+            + "result (an aggregate may read rows repeated by JOIN c and JOIN r; read no row that JOIN c keeps without a match, use `any(...)` for an input that only filters rows, or aggregate in a separate query first)",
         )
     ]
 
@@ -3707,7 +3711,7 @@ def test_join_fanout_reads_exact_any_outer_captures(
         (
             "PIE-S2333",
             _UNAVAILABLE
-            + f"result (an aggregate may read rows repeated by {joins}; match a unique key of c in `on`, use `any(...)` for an input that only filters rows, or aggregate in a separate query first)",
+            + f"result (an aggregate may read rows repeated by {joins}; read no row that JOIN c keeps without a match, use `any(...)` for an input that only filters rows, or aggregate in a separate query first)",
         )
     ]
 
@@ -3886,8 +3890,10 @@ def test_handwritten_on_equalities_prove_exactly_what_relationship_calls_prove(
     """Only required positive equalities count, however their field reads are
     spelled (bare, qualified, or through an inlined scalar def), and a declared
     key must be matched in full: both spellings report the same diagnostics in
-    both modes, and both modes follow one rule. Single files keep refusing
-    RIGHT and FULL."""
+    both modes, and both modes follow one rule. A single file proves a RIGHT
+    JOIN for `sum(orders.amount)`, which is None on the customers it keeps
+    without a match, naming those rows where its `on` matches the key, and
+    keeps refusing FULL, naming only the other remedies there."""
 
     for kind in ("inner", "left", "right", "full"):
         observed = []
@@ -3906,9 +3912,16 @@ def test_handwritten_on_equalities_prove_exactly_what_relationship_calls_prove(
         fanout = (
             "PIE-S2381",
             Severity.ERROR,
-            "An aggregate may read rows repeated by JOIN customers; match a unique "
-            "key of customers in `on`, use `any(...)` for an input that only filters "
-            "rows, or aggregate in a separate query first",
+            "An aggregate may read rows repeated by JOIN customers; "
+            + (
+                "match a unique key of customers in `on`, "
+                if not proved
+                else ""
+                if kind == "full"
+                else "read no row that JOIN customers keeps without a match, "
+            )
+            + "use `any(...)` for an input that only filters rows, or aggregate "
+            "in a separate query first",
             25,
             47,
         )
@@ -3925,7 +3938,7 @@ def test_handwritten_on_equalities_prove_exactly_what_relationship_calls_prove(
                 for diagnostic in diagnostics
             ]
 
-        single_proved = proved and kind in ("inner", "left")
+        single_proved = proved and kind in ("inner", "left", "right")
         # PIE-S2385 names the first `on` conjunct PostgreSQL's FULL JOIN cannot
         # take, a relationship call read as its body.
         tokens, detail = (
@@ -4047,7 +4060,8 @@ def test_handwritten_on_equality_keeps_the_key_conditions_of_the_call(
     """The proof conditions stay those of the call: an equality never matches
     None, so a unique key with a nullable field still bounds the match; no
     declared key proves nothing; a self join on its own key proves its at most
-    one row. Single files keep refusing RIGHT and FULL."""
+    one row. Single files prove RIGHT for `sum(orders.amount)`, which is None on
+    the rows it keeps without a match, and keep refusing FULL."""
 
     for kind in ("inner", "left", "right", "full"):
         observed = []
@@ -4067,7 +4081,7 @@ def test_handwritten_on_equality_keeps_the_key_conditions_of_the_call(
             )
         assert observed[0] == observed[1], kind
         single, project = observed[0]
-        single_proved = proved and kind in ("inner", "left")
+        single_proved = proved and kind in ("inner", "left", "right")
         assert [item[0] for item in single] == (
             [] if single_proved else ["PIE-S2381"]
         ), kind
@@ -4126,12 +4140,12 @@ query m_source:
         (
             "    from orders\n    group by customer_id\n"
             "    select:\n        k = customer_id\n        n = count()\n",
-            False,
+            True,
         ),
         (
             "    from orders\n    group by id\n"
             "    select:\n        k = id\n        n = count()\n",
-            False,
+            True,
         ),
         (
             "    from customers\n"
@@ -4146,8 +4160,9 @@ def test_an_on_equality_proves_only_the_keys_a_project_can_match(
     tmp_path: Path, producer: str, proved: bool
 ) -> None:
     """A key carried through a query without GROUP BY or an any(...) filter
-    proves the ON match; one of a grouped or any(...)-filtered query does not
-    yet, so the refusal does not ask to match it."""
+    proves the ON match, and so do the GROUP BY keys of a grouped query, one
+    row per key; the key of an any(...)-filtered query does not yet, so the
+    refusal does not ask to match it."""
 
     source = _PRODUCED_KEY.format(producer=producer)
     assert _fanout_check(tmp_path, "project", source) == (
@@ -4905,4 +4920,438 @@ def test_a_mixed_aggregate_join_with_a_let_or_where_error_stops_before_its_aggre
     assert [item[0] for item in single] == list(single_codes)
     assert project == [
         item for item in single if item[0] not in {"PIE-S2312", "PIE-S2381"}
+    ]
+
+
+_JOINED_ROWS = """shape Customer:
+    id: Int
+    region: Int | None
+    pk = unique(id)
+shape Order:
+    id: Int
+    customer_id: Int
+    amount: Int | None
+    note: Int | None
+    pk = unique(id)
+shape Item:
+    id: Int
+    order_id: Int
+    qty: Int | None
+    pk = unique(id)
+shape Payment:
+    id: Int
+    order_id: Int
+    channel: Int
+    paid: Int | None
+    pk = unique(id)
+source customers: Customer = postgres.table("customers")
+source orders: Order = postgres.table("orders")
+source items: Item = postgres.table("items")
+source payments: Payment = postgres.table("payments")
+"""
+_ORDER_LINES = (
+    "    from orders\n"
+    "    left join items on orders.id == items.order_id\n"
+    "    left join payments on orders.id == payments.order_id\n"
+)
+_CUSTOMER_ORDERS = (
+    "    from customers\n    left join orders on orders.customer_id == customers.id\n"
+)
+_PAID_PER_ORDER = (
+    "query paid_per_order:\n    from payments\n    group by:\n        order_id\n"
+    "    select:\n        order_id\n        paid_sum = sum(paid)\n"
+)
+_OTHERS_REMEDY = (
+    "use `any(...)` for an input that only filters rows, or aggregate in a "
+    "separate query first"
+)
+
+
+def _keyed(name: str) -> str:
+    return f"match a unique key of {name} in `on`, {_OTHERS_REMEDY}"
+
+
+# Each relation `q` with the aggregate calls a single file refuses (PIE-S2381)
+# and the clause of its project refusal (PIE-S2333), or () and None where
+# both modes admit it.
+_JOINED_PROOFS: dict[str, tuple[str, tuple[str, ...], str | None]] = {
+    # min, max and count_distinct depend only on the set of values a group
+    # holds, which repeated JOIN rows cannot change, at any grouping.
+    "set_insensitive_by_key": (
+        "query q:\n" + _ORDER_LINES + "    group by:\n        orders.id\n"
+        "    select:\n        id = orders.id\n        max_qty = max(items.qty)\n"
+        "        n_items = count_distinct(items.id)\n"
+        "        n_qty = count_distinct(items.qty)\n"
+        "        min_paid = min(payments.paid)\n",
+        (),
+        None,
+    ),
+    "set_insensitive_by_non_key": (
+        "query q:\n" + _ORDER_LINES + "    group by:\n        orders.customer_id\n"
+        "    select:\n        customer_id = orders.customer_id\n"
+        "        max_qty = max(items.qty)\n        n_qty = count_distinct(items.qty)\n"
+        "        min_paid = min(payments.paid)\n",
+        (),
+        None,
+    ),
+    "set_insensitive_over_a_repeating_left": (
+        "query q:\n" + _CUSTOMER_ORDERS + "    group by:\n        customers.region\n"
+        "    select:\n        region = customers.region\n"
+        "        n_customers = count_distinct(customers.id)\n",
+        (),
+        None,
+    ),
+    # sum and count repeat each item once per payment of its order.
+    "sum_and_count_over_two_repeating_joins": (
+        "query q:\n" + _ORDER_LINES + "    group by:\n        orders.id\n"
+        "    select:\n        id = orders.id\n        total_qty = sum(items.qty)\n"
+        "        n_lines = count(items.id)\n",
+        ("sum(items.qty)", "count(items.id)"),
+        "JOIN payments; " + _keyed("payments"),
+    ),
+    # A group key that fixes each row's repeat count is no proof yet.
+    "avg_by_the_repeating_key": (
+        "query q:\n" + _ORDER_LINES + "    group by:\n        orders.id\n"
+        "    select:\n        id = orders.id\n        avg_qty = avg(items.qty)\n",
+        ("avg(items.qty)",),
+        "JOIN payments; " + _keyed("payments"),
+    ),
+    "avg_by_a_non_key": (
+        "query q:\n" + _ORDER_LINES + "    group by:\n        orders.customer_id\n"
+        "    select:\n        customer_id = orders.customer_id\n"
+        "        avg_qty = avg(items.qty)\n",
+        ("avg(items.qty)",),
+        "JOIN payments; " + _keyed("payments"),
+    ),
+    "count_of_the_repeated_side": (
+        "query q:\n" + _CUSTOMER_ORDERS + "    group by:\n        customers.region\n"
+        "    select:\n        region = customers.region\n"
+        "        n_rows = count(customers.id)\n",
+        ("count(customers.id)",),
+        "JOIN orders; " + _keyed("orders"),
+    ),
+    # Each order matches at most one customer by its key; the one row a
+    # customer without orders keeps is NULL in every orders field.
+    "left_many_side_from_its_matched_key": (
+        "query q:\n" + _CUSTOMER_ORDERS + "    group by:\n        customers.region\n"
+        "    select:\n        region = customers.region\n"
+        "        revenue = sum(orders.amount)\n        n_orders = count(orders.id)\n"
+        "        avg_amount = avg(orders.amount)\n",
+        (),
+        None,
+    ),
+    # Where an order is NULL-extended, the `on` of items finds no match, so
+    # each item's quantity is None there too.
+    "left_many_side_of_a_left_chain": (
+        "query q:\n"
+        + _CUSTOMER_ORDERS
+        + "    left join items on items.order_id == orders.id\n"
+        "    group by:\n        customers.region\n"
+        "    select:\n        region = customers.region\n"
+        "        total_qty = sum(items.qty)\n",
+        (),
+        None,
+    ),
+    "right_many_side_from_its_matched_key": (
+        "query q:\n    from orders\n"
+        "    right join customers on orders.customer_id == customers.id\n"
+        "    group by:\n        customers.region\n"
+        "    select:\n        region = customers.region\n"
+        "        revenue = sum(orders.amount)\n",
+        (),
+        None,
+    ),
+    "left_null_group_key": (
+        "query q:\n" + _CUSTOMER_ORDERS + "    group by:\n        orders.customer_id\n"
+        "    select:\n        customer_id = orders.customer_id\n"
+        "        n_customers = count_distinct(customers.id)\n"
+        "        revenue = sum(orders.amount)\n",
+        (),
+        None,
+    ),
+    # The anti-join: a never-None field tested `is None` at the top of WHERE
+    # keeps only the one row each unmatched customer or order keeps.
+    "anti_join_by_a_never_none_field": (
+        "query q:\n" + _CUSTOMER_ORDERS + "    where orders.id is None\n"
+        "    group by:\n        customers.region\n"
+        "    select:\n        region = customers.region\n"
+        "        n_without = count(customers.id)\n",
+        (),
+        None,
+    ),
+    "anti_join_beside_another_conjunct": (
+        "query q:\n"
+        + _CUSTOMER_ORDERS
+        + "    where customers.region is not None and orders.id is None\n"
+        "    group by:\n        customers.region\n"
+        "    select:\n        region = customers.region\n"
+        "        n_without = count(customers.id)\n",
+        (),
+        None,
+    ),
+    "anti_join_of_the_from_side": (
+        "query q:\n    from orders\n"
+        "    left join payments on payments.order_id == orders.id\n"
+        "    where payments.id is None\n"
+        "    group by:\n        orders.customer_id\n"
+        "    select:\n        customer_id = orders.customer_id\n"
+        "        unpaid_total = sum(orders.amount)\n",
+        (),
+        None,
+    ),
+    "anti_join_by_a_nullable_field": (
+        "query q:\n" + _CUSTOMER_ORDERS + "    where orders.note is None\n"
+        "    group by:\n        customers.region\n"
+        "    select:\n        region = customers.region\n"
+        "        n = count(customers.id)\n",
+        ("count(customers.id)",),
+        "JOIN orders; " + _keyed("orders"),
+    ),
+    "anti_join_under_or": (
+        "query q:\n"
+        + _CUSTOMER_ORDERS
+        + "    where orders.id is None or orders.amount > 20\n"
+        "    group by:\n        customers.region\n"
+        "    select:\n        region = customers.region\n"
+        "        n = count(customers.id)\n",
+        ("count(customers.id)",),
+        "JOIN orders; " + _keyed("orders"),
+    ),
+    # The anti-join determines payments, not orders: a customer with two
+    # orders that have no payment is counted twice.
+    "anti_join_beside_a_repeating_join": (
+        "query q:\n"
+        + _CUSTOMER_ORDERS
+        + "    left join payments on payments.order_id == orders.id\n"
+        "    where payments.id is None\n"
+        "    group by:\n        customers.region\n"
+        "    select:\n        region = customers.region\n"
+        "        n = count(customers.id)\n",
+        ("count(customers.id)",),
+        "JOIN orders; " + _keyed("orders"),
+    ),
+    "matched_rows_only": (
+        "query q:\n    from orders\n"
+        "    left join payments on payments.order_id == orders.id\n"
+        "    where payments.id is not None\n"
+        "    group by:\n        orders.customer_id\n"
+        "    select:\n        customer_id = orders.customer_id\n"
+        "        paid_total = sum(orders.amount)\n",
+        ("sum(orders.amount)",),
+        "JOIN payments; " + _keyed("payments"),
+    ),
+    "max_beside_sum": (
+        "query q:\n" + _ORDER_LINES + "    group by:\n        orders.id\n"
+        "    select:\n        id = orders.id\n        max_qty = max(items.qty)\n"
+        "        total_qty = sum(items.qty)\n",
+        ("sum(items.qty)",),
+        "JOIN payments; " + _keyed("payments"),
+    ),
+    # A hand-written WHERE equality still proves nothing.
+    "cross_join_with_a_where_equality": (
+        "query q:\n    from orders\n    cross join customers\n"
+        "    where orders.customer_id == customers.id\n"
+        "    group by:\n        customers.region\n"
+        "    select:\n        region = customers.region\n"
+        "        revenue = sum(orders.amount)\n",
+        ("sum(orders.amount)",),
+        "JOIN customers; " + _keyed("customers"),
+    ),
+    # A grouped query's GROUP BY keys are a unique key of its rows.
+    "grouped_query_matched_on_its_keys_left": (
+        _PAID_PER_ORDER + "query q:\n    from orders\n"
+        "    left join paid_per_order on paid_per_order.order_id == orders.id\n"
+        "    group by:\n        orders.customer_id\n"
+        "    select:\n        customer_id = orders.customer_id\n"
+        "        revenue = sum(orders.amount)\n"
+        "        paid = sum(paid_per_order.paid_sum)\n",
+        (),
+        None,
+    ),
+    "grouped_query_matched_on_its_keys_inner": (
+        _PAID_PER_ORDER + "query q:\n    from orders\n"
+        "    inner join paid_per_order on paid_per_order.order_id == orders.id\n"
+        "    group by:\n        orders.customer_id\n"
+        "    select:\n        customer_id = orders.customer_id\n"
+        "        revenue = sum(orders.amount)\n"
+        "        paid = sum(paid_per_order.paid_sum)\n",
+        (),
+        None,
+    ),
+    "grouped_query_matched_on_part_of_its_keys": (
+        "query per_channel:\n    from payments\n    group by:\n        order_id\n"
+        "        channel\n    select:\n        order_id\n        channel\n"
+        "        paid_sum = sum(paid)\n"
+        "query q:\n    from orders\n"
+        "    left join per_channel on per_channel.order_id == orders.id\n"
+        "    group by:\n        orders.customer_id\n"
+        "    select:\n        customer_id = orders.customer_id\n"
+        "        revenue = sum(orders.amount)\n",
+        ("sum(orders.amount)",),
+        "JOIN per_channel; " + _OTHERS_REMEDY,
+    ),
+    # A GROUP BY key selected under two names is a key with both of them.
+    "grouped_query_key_selected_twice_matched_once": (
+        "query paid_twice:\n    from payments\n    group by:\n        order_id\n"
+        "    select:\n        order_id\n        oid = order_id\n"
+        "        paid_sum = sum(paid)\n"
+        "query q:\n    from orders\n"
+        "    left join paid_twice on paid_twice.oid == orders.id\n"
+        "    group by:\n        orders.customer_id\n"
+        "    select:\n        customer_id = orders.customer_id\n"
+        "        revenue = sum(orders.amount)\n",
+        ("sum(orders.amount)",),
+        "JOIN paid_twice; " + _OTHERS_REMEDY,
+    ),
+    "grouped_query_key_selected_twice_matched_on_both": (
+        "query paid_twice:\n    from payments\n    group by:\n        order_id\n"
+        "    select:\n        order_id\n        oid = order_id\n"
+        "        paid_sum = sum(paid)\n"
+        "query q:\n    from orders\n"
+        "    left join paid_twice on paid_twice.oid == orders.id"
+        " and paid_twice.order_id == orders.id\n"
+        "    group by:\n        orders.customer_id\n"
+        "    select:\n        customer_id = orders.customer_id\n"
+        "        revenue = sum(orders.amount)\n",
+        (),
+        None,
+    ),
+    "grouped_query_in_from": (
+        _PAID_PER_ORDER + "query q:\n    from paid_per_order\n"
+        "    inner join orders on orders.id == paid_per_order.order_id\n"
+        "    group by:\n        orders.customer_id\n"
+        "    select:\n        customer_id = orders.customer_id\n"
+        "        paid = sum(paid_per_order.paid_sum)\n",
+        (),
+        None,
+    ),
+}
+
+
+@pytest.mark.parametrize("name", _JOINED_PROOFS)
+def test_joined_aggregates_admit_exactly_their_proved_rows(
+    tmp_path: Path, name: str
+) -> None:
+    """Both modes admit a set-insensitive aggregate over any JOIN, an
+    aggregate of the many side of a LEFT or RIGHT JOIN whose `on` matches the
+    other side's key (its NULL-extended row is NULL in the argument, also
+    through a later `on` that ties the argument's input to it), an anti-join
+    through a never-None field tested `is None` at the top of WHERE, and a
+    JOIN whose `on` matches every output that selects a GROUP BY key of a
+    grouped query; each real fan-out neighbour stays refused with the same
+    clause."""
+
+    body, calls, clause = _JOINED_PROOFS[name]
+    source = _JOINED_ROWS + body
+    lines = source.splitlines()
+
+    def at(call: str) -> tuple[int, int]:
+        (line,) = (number for number, text in enumerate(lines, 1) if call in text)
+        return line, lines[line - 1].index(call) + 1
+
+    # Where no input's key would close the rule, a single file names no
+    # remedy, while a project names the others.
+    single = (
+        clause.split("; ")[0]
+        if clause is not None and clause.endswith(f"; {_OTHERS_REMEDY}")
+        else clause
+    )
+    assert _single_file_check(source) == [
+        ("PIE-S2381", f"An aggregate may read rows repeated by {single}", *at(call))
+        for call in calls
+    ]
+    assert _fanout_check(tmp_path, name, source) == (
+        []
+        if clause is None
+        else [
+            (
+                "PIE-S2333",
+                f"{_UNAVAILABLE}q (an aggregate may read rows repeated by {clause})",
+            )
+        ]
+    )
+
+
+def test_an_outer_match_already_in_on_is_not_asked_for_again(
+    tmp_path: Path,
+) -> None:
+    """Where a LEFT JOIN's `on` already matches the earlier key but the
+    aggregate also counts the row a customer without orders keeps, the
+    refusal names those rows, not the key; a single file also refuses the
+    expression argument (PIE-S2315), where a project reports that alone."""
+
+    source = (
+        _JOINED_ROWS
+        + "query q:\n"
+        + _CUSTOMER_ORDERS
+        + "    group by:\n        customers.region\n"
+        "    select:\n        region = customers.region\n"
+        "        n_rows = count(coalesce(orders.amount, 0))\n"
+    )
+    line = source.splitlines().index(
+        "        n_rows = count(coalesce(orders.amount, 0))"
+    )
+    unsupported = (
+        "PIE-S2315",
+        "Aggregate function count requires a direct field argument; expression "
+        "arguments are not supported yet",
+        line + 1,
+        18,
+    )
+    assert _single_file_check(source) == [
+        unsupported,
+        (
+            "PIE-S2381",
+            "An aggregate may read rows repeated by JOIN orders; read no row that "
+            f"JOIN orders keeps without a match, {_OTHERS_REMEDY}",
+            line + 1,
+            18,
+        ),
+    ]
+    assert _fanout_check(tmp_path, "outer", source) == [unsupported[:2]]
+
+
+@pytest.mark.parametrize(
+    ("joins", "aggregate", "repeating"),
+    (
+        (
+            "    full join orders on orders.customer_id == customers.id\n",
+            "revenue = sum(orders.amount)",
+            "orders",
+        ),
+        (
+            "    left join orders on orders.customer_id == customers.id\n"
+            "    full join items on items.order_id == orders.id\n",
+            "total_qty = sum(items.qty)",
+            "items",
+        ),
+    ),
+)
+def test_a_full_join_match_already_in_on_names_only_the_other_remedies(
+    tmp_path: Path, joins: str, aggregate: str, repeating: str
+) -> None:
+    """Nothing proves a FULL JOIN's match of an earlier input's key, so where
+    its `on` already matches the key of customers, or of orders after a LEFT
+    JOIN whose match of customers' key holds on every row the aggregate reads
+    (items is None on each row that JOIN keeps without a match), neither mode
+    asks for a key again or names rows to skip: both name only the other
+    remedies."""
+
+    source = (
+        _JOINED_ROWS + "query q:\n    from customers\n" + joins + "    group by:\n"
+        "        customers.region\n"
+        "    select:\n        region = customers.region\n"
+        f"        {aggregate}\n"
+    )
+    clause = f"JOIN {repeating}; {_OTHERS_REMEDY}"
+    line = source.splitlines().index(f"        {aggregate}") + 1
+    column = aggregate.index("sum(") + 9
+    assert _single_file_check(source) == [
+        ("PIE-S2381", f"An aggregate may read rows repeated by {clause}", line, column)
+    ]
+    assert _fanout_check(tmp_path, "full", source) == [
+        (
+            "PIE-S2333",
+            f"{_UNAVAILABLE}q (an aggregate may read rows repeated by {clause})",
+        )
     ]
