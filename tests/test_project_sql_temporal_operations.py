@@ -74,7 +74,6 @@ def test_one_temporal_carrier_orders_and_compares(family, tag):
     assert tag in results.ORDER_TAGS and results.order_admitted(family, carrier)
     assert windows.order_key_admitted(carrier, family)
     assert verification._order_key(carrier, family)
-    assert verification._partition_key(carrier, family)
     # PostgreSQL MIN/MAX keep the exact carrier; MySQL's result metadata is
     # not reviewed yet.
     for function in ("min", "max"):
@@ -89,28 +88,21 @@ def test_one_temporal_carrier_orders_and_compares(family, tag):
 
 
 @pytest.mark.parametrize("family", ("postgres", "mysql"))
-def test_uuid_orders_on_postgresql_and_mixed_temporal_carriers_stay_unordered(
+def test_uuid_orders_by_its_bytes_and_mixed_temporal_carriers_stay_unordered(
     family,
 ):
-    """Q3: a UUID orders by its unsigned big-endian bytes on PostgreSQL; MySQL
-    keeps it equality-only until its BINARY(16) order has a differential."""
+    """Q3: a UUID orders by its unsigned big-endian bytes: PostgreSQL uuid_cmp
+    and MySQL BINARY(16) comparison."""
     uuid = _realization(family, "UUID")
     stamp = _realization(family, "Timestamp")
     date = _realization(family, "Date")
-    ordered = family == "postgres"
 
     for operator in ("<", "<=", ">", ">="):
-        assert _compared(family, uuid, uuid, operator) == (
-            None if ordered else ("PIE-B1003", "comparison_type_pair_not_admitted")
-        )
+        assert _compared(family, uuid, uuid, operator) is None
     realized, problem = rows.resolved_between_realization(
         family, "Bool", False, (uuid, uuid, uuid)
     )
-    assert (realized is not None, problem) == (
-        (True, None)
-        if ordered
-        else (False, ("PIE-B1003", "between_type_pair_not_admitted"))
-    )
+    assert realized is not None and problem is None
     # One UUID carrier compares only with the same carrier.
     other = rows.Realization(
         "UUID", {"kind": "typed_null"}, True, {"kind": "typed_null"}
@@ -127,10 +119,9 @@ def test_uuid_orders_on_postgresql_and_mixed_temporal_carriers_stay_unordered(
         "PIE-B1003",
         "comparison_type_pair_not_admitted",
     )
-    assert results.order_admitted(family, uuid) is ordered
-    assert windows.order_key_admitted(uuid, family) is ordered
-    assert verification._order_key(uuid, family) is ordered
-    assert verification._partition_key(uuid, family)
+    assert results.order_admitted(family, uuid)
+    assert windows.order_key_admitted(uuid, family)
+    assert verification._order_key(uuid, family)
     # The semantic layer refuses min/max of a UUID (PIE-S2314); the emission
     # argument law refuses it too.
     for function in ("min", "max"):
@@ -173,11 +164,11 @@ def test_q3_temporal_carriers_reject_a_non_reviewed_storage_shape():
     assert not verification._order_key(carrier, "postgres")
 
 
-def _emitted(tmp_path, target, body):
+def _emitted(tmp_path, target, body, entry="table result:"):
     import _pietto_sql_emission as probe
     from pietto._project.project_sql_emission import serialize_project_sql_emission
 
-    checked, outcome = probe.temporal_case(tmp_path, target, body)
+    checked, outcome = probe.temporal_case(tmp_path, target, body, entry=entry)
     assert checked.verified
     if outcome.status != "VERIFIED":
         return outcome, None
@@ -205,16 +196,6 @@ def test_temporal_filters_compare_one_carrier_and_refuse_the_rest(tmp_path, targ
     for name, body in (
         ("mixed", "    from rows\n    where ts < d\n    select:\n        t = ts\n"),
         ("mixed_eq", "    from rows\n    where ts == d\n    select:\n        t = ts\n"),
-        *(
-            ()
-            if target == "postgres"
-            else (
-                (
-                    "uuid",
-                    "    from rows\n    where u < u\n    select:\n        t = ts\n",
-                ),
-            )
-        ),
     ):
         outcome, _ = _emitted(tmp_path / name, target, body)
         assert outcome.status == "BLOCKED"
@@ -258,25 +239,21 @@ def test_uuid_order_is_unsigned_big_endian_bytes():
 
 
 @pytest.mark.parametrize("target", ("postgres", "mysql"))
-def test_uuid_filters_compare_by_order_on_postgresql_only(tmp_path, target):
-    """A UUID comparison, inclusive chain and result ORDER key are emitted on
-    PostgreSQL with the target's own uuid operators; MySQL refuses each."""
+def test_uuid_filters_compare_by_order(tmp_path, target):
+    """A UUID comparison, inclusive chain and result ORDER key are emitted with
+    the target's own operators: PostgreSQL uuid, MySQL BINARY(16)."""
     body = (
         "    from rows\n    where u < u or u >= u or u <= u <= u\n"
-        "    select:\n        key = u\n"
+        "    select:\n        key = u\n    order by u desc\n"
     )
-    outcome, public = _emitted(tmp_path, target, body)
-    if target == "mysql":
-        assert public is None
-        assert [(b.code, b.detail) for b in outcome.blockers] == [
-            ("PIE-B1003", "comparison_type_pair_not_admitted")
-        ]
-        return
+    outcome, public = _emitted(tmp_path, target, body, entry="query result:")
     assert public is not None, outcome.blockers
+    q = '"' if target == "postgres" else "`"
+    u = f"{q}s0{q}.{q}u{q}"
     assert (
-        'WHERE ((("s0"."u" < "s0"."u") OR ("s0"."u" >= "s0"."u"))'
-        ' OR ("s0"."u" BETWEEN "s0"."u" AND "s0"."u"))'
+        f"WHERE ((({u} < {u}) OR ({u} >= {u})) OR ({u} BETWEEN {u} AND {u}))"
     ) in public["sql"]
+    assert public["sql"].endswith(f" ORDER BY {q}t0{q}.{q}c1{q} DESC")
     assert [
         r["evidence"]
         for r in public["requirements"]

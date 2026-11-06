@@ -759,8 +759,8 @@ def test_independent_verifiers_reject_coherent_faulty_builder_arguments(
 @pytest.mark.parametrize("target", ("postgres", "mysql"))
 def test_temporal_and_uuid_window_keys(tmp_path, target):
     """Timestamp and Date keys order a window; Timestamp, Date and UUID keys
-    partition it by equality, as GROUP BY compares them. A UUID orders one on
-    PostgreSQL only, and a RANGE offset needs a signed Int key."""
+    partition it by equality, as GROUP BY compares them. A UUID orders one by
+    its unsigned big-endian bytes, and a RANGE offset needs a signed Int key."""
     checked, outcome = probe.temporal_case(
         tmp_path / "keys",
         target,
@@ -784,20 +784,12 @@ def test_temporal_and_uuid_window_keys(tmp_path, target):
         "    from rows\n    select:\n"
         "        r = row_number() window(partition by d order by u desc, id)\n",
     )
-    assert checked.verified
-    if target == "mysql":
-        # Q3 orders a UUID on PostgreSQL only.
-        assert outcome.status == "BLOCKED"
-        assert [(b.code, b.detail) for b in outcome.blockers] == [
-            ("PIE-B1002", "window_order_comparison_domain_unsupported")
-        ]
-    else:
-        assert outcome.status == "VERIFIED", outcome.blockers
-        public = probe.decode_public(serialize_project_sql_emission(outcome))
-        assert (
-            'ROW_NUMBER() OVER (PARTITION BY "s0"."d"'
-            ' ORDER BY "s0"."u" DESC, "s0"."id" ASC) AS "c6"'
-        ) in public["sql"]
+    assert checked.verified and outcome.status == "VERIFIED", outcome.blockers
+    public = probe.decode_public(serialize_project_sql_emission(outcome))
+    assert (
+        f"ROW_NUMBER() OVER (PARTITION BY {col('d')}"
+        f" ORDER BY {col('u')} DESC, {col('id')} ASC) AS {q}c6{q}"
+    ) in public["sql"]
     checked, outcome = probe.temporal_case(
         tmp_path / "uuid_range",
         target,

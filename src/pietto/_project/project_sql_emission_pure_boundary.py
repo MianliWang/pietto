@@ -1059,7 +1059,7 @@ def _is_pg_order_value(realization) -> bool:
     return False
 
 
-def _is_key_value(realization, family: str, *, partition: bool = False) -> bool:
+def _is_key_value(realization, family: str) -> bool:
     if family == "postgres":
         return _is_pg_order_value(realization)
     if realization is None or family != "mysql":
@@ -1122,7 +1122,7 @@ def _is_key_value(realization, family: str, *, partition: bool = False) -> bool:
             {"kind": "my_datetime", "fractional_seconds": 6},
             {"kind": "timestamp"},
         )
-    if tag == "UUID" and partition:
+    if tag == "UUID":
         return _is_realization(
             realization,
             "UUID",
@@ -3832,7 +3832,8 @@ class _ProvenIntRanges:
         if any(value is self._EMPTY for value in values):
             return self._EMPTY
         if any(value in {"Float", "Decimal"} for value in values):
-            return values[0] if len(values) == 1 else self._UNKNOWN
+            # A Float or Decimal operation keeps its operands' one shared tag.
+            return values[0] if len(set(values)) == 1 else self._UNKNOWN
         ranges = cast(tuple[tuple[int, int], ...], values)
         if op["kind"] == "sign" and len(ranges) == 1:
             low, high = ranges[0]
@@ -4339,9 +4340,7 @@ class _Requirements:
                     read = doc[doc[partition]["read"]]
                     _require(
                         _source_field_matches_stage(doc, read)
-                        and _is_key_value(
-                            doc[read["realization"]], self.family, partition=True
-                        ),
+                        and _is_key_value(doc[read["realization"]], self.family),
                         "window comparison carrier",
                     )
                     self.add("window_partition_comparison", read["terminal"], "R14", ())

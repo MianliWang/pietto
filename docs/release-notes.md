@@ -279,10 +279,11 @@ warning; its exit code and SQL are unchanged):
   values are any pair that compares with `<` and has one type: `Int`,
   `Decimal`, `Float`, `Text`, `Date`, `Timestamp`, `UUID` and `Bool` in a
   single file (PostgreSQL; MySQL all but `Bool`); in `emit-sql --project` (with compiled
-  replay and the live template) `Int`, `Decimal`, `Float`, `Text` and
-  `Timestamp` on both targets and `UUID` on PostgreSQL. Project `Date` and
-  `Bool` values, and `UUID` values on MySQL, are refused (PIE-B1003
-  `conditional_realization_not_admitted`, `comparison_type_pair_not_admitted`).
+  replay and the live template) `Int`, `Decimal`, `Float`, `Text`,
+  `Timestamp` and `UUID` on both targets (MySQL `UUID` with the UUID ordering
+  of "MySQL catch-up in projects" below). Project `Date` and `Bool` values are
+  refused (PIE-B1003 `conditional_realization_not_admitted`,
+  `comparison_type_pair_not_admitted`).
   A `def` body may call them, and they work in WHERE and inside larger
   expressions. A two-database differential (PostgreSQL 18.6, MySQL 8.4.12)
   matched the expected rows for each of these types. New refusal: MySQL
@@ -1403,6 +1404,33 @@ changes):
     `Unavailable row argument for relationship R parameter p`, with no
     reason also when a column does not match. A single file takes it, and
     the same test written out (`on q.id == x.id`) compiles in a project too.
+
+### MySQL catch-up in projects
+
+- **UUID ordering on MySQL.** MySQL project SQL now emits UUID `<`, `<=`,
+  `>`, `>=`, inclusive chains (`a <= u <= b`), a result `order by` key and a
+  window `order by` key over the reviewed `BINARY(16)` carrier, ordered by
+  the 16 bytes as unsigned big-endian values, as on PostgreSQL since `0.1.7`
+  (compiled bundle and live template too). A two-database differential
+  (PostgreSQL 18.6, MySQL 8.4.12) of each form, over UUIDs that tell signed
+  and little-endian byte orders apart, matched the expected rows on both
+  databases. **Refusals that become acceptances:** PIE-B1003
+  `comparison_type_pair_not_admitted`, `between_type_pair_not_admitted` and
+  `order_comparison_domain_unsupported`, and PIE-B1002
+  `window_order_comparison_domain_unsupported` for a window key, at the same
+  places as before, for these MySQL UUID forms. Project `max(a, b)` and
+  `min(a, b)` of two UUID values, which are their `<` comparison inside a
+  conditional, are now emitted on MySQL too (before: PIE-B1003
+  `comparison_type_pair_not_admitted`).
+- **Kept refused on MySQL.** `min` and `max` of a Timestamp or Date (PIE-B1003
+  `min_argument_outside_reviewed_int_domain` /
+  `max_argument_outside_reviewed_int_domain`) and Int arithmetic not proved to
+  fit signed 64 bits (PIE-B1002 `arithmetic_outside_physical_range`,
+  `unary_result_outside_physical_range`, `abs_result_outside_physical_range`)
+  stay refused: their two-database differential did not pass.
+- The private emission observation of a Decimal operation over two Decimal
+  fields, or of a Float operation over two Float literals, now passes its
+  independent check on PostgreSQL; emitted SQL is unchanged.
 
 ## Equality, nullability and asof JOIN public alpha release notes — 0.1.9
 

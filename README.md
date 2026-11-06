@@ -225,9 +225,9 @@ On those carriers it admits carrying and projecting the values, `==`/`!=`,
 equality joins and window partition keys. Timestamp and Date values also
 compare with `<`, `<=`, `>`, `>=`, in WHERE and in a JOIN ON condition
 alike, order a result or a window, and are `min`/`max` arguments on
-PostgreSQL, where UUID values also compare and order by their unsigned
+PostgreSQL; UUID values also compare and order by their unsigned
 big-endian bytes; `min`/`max` of a UUID (refused by `check` with
-`PIE-S2314`), MySQL UUID ordering, full joins on these keys, range
+`PIE-S2314`), full joins on these keys, range
 relationships, timezone conversion, parsing and other casts remain
 unavailable; on PostgreSQL, `asof left join` and `asof inner join` pick the
 latest earlier row. See

@@ -1428,7 +1428,7 @@ def resolved_row_realization(
         if (
             tag != "Bool"
             or first.tag not in rows.COMPARABLE
-            and not (first.tag == "UUID" and family == "postgres")
+            and first.tag != "UUID"
             or lower.tag != first.tag
             or upper.tag != first.tag
         ):
@@ -1630,12 +1630,12 @@ def resolved_row_realization(
 
 def _order_key(realization, family):
     """Independent R14/R19 order-key domain: exact Int/Bool/Text/Decimal, one
-    Timestamp/Date carrier of its reviewed representation, or on PostgreSQL a
-    uuid, which orders by its 16 bytes as unsigned big-endian values."""
+    Timestamp/Date carrier of its reviewed representation, or a UUID, which
+    orders by its 16 bytes as unsigned big-endian values (a partition key too)."""
     if realization.tag in {"Int", "Bool", "Text", "Decimal"}:
         return True
     if realization.tag == "UUID":
-        return family == "postgres" and _uuid_carrier(realization, family)
+        return _uuid_carrier(realization, family)
     return realization.tag in {"Timestamp", "Date"} and _temporal_carrier(realization)
 
 
@@ -1677,11 +1677,6 @@ def _reads_row(value):
         parameters.SQLUnary,
         parameters.SQLNull,
     }
-
-
-def _partition_key(realization, family):
-    """A partition key compares by equality: every order key, a UUID."""
-    return _order_key(realization, family) or _uuid_carrier(realization, family)
 
 
 def _temporal_carrier(realization):
@@ -2776,7 +2771,7 @@ def _verify_window_column(request, column, window, export, columns, definitions,
             if (
                 (own and binding is not policy.partitions[use.role_position])
                 or not _same_read(read, columns[use.input])
-                or not _partition_key(read.realization, request.family)
+                or not _order_key(read.realization, request.family)
             ):
                 return False
         for item, use in zip(candidate.orders, orders, strict=True):

@@ -125,8 +125,7 @@ EXCLUSION_SPELLING = {
 MYSQL_WINDOW_LIMIT = 127
 # R14/R15 admit V01 signed Int order keys and arguments; ranking and
 # distribution Float results travel only through the V06 boundary. A UUID
-# partitions a window by equality everywhere and orders one only where its
-# unsigned big-endian byte order is reviewed (`rows.uuid_ordered`).
+# partitions a window by equality and orders one by its unsigned big-endian bytes.
 ORDER_TAGS = frozenset({"Int", "Bool", "Text", "Decimal", "Timestamp", "Date"})
 
 
@@ -134,9 +133,7 @@ def order_key_admitted(realization, family: str) -> bool:
     """One ORDER key of an exactly ordered carrier; a temporal or UUID key
     keeps its reviewed representation."""
     if realization.tag == "UUID":
-        return (
-            rows.uuid_ordered(family) and grouping.grouping_problem(realization) is None
-        )
+        return grouping.grouping_problem(realization) is None
     return realization.tag in ORDER_TAGS and (
         realization.tag not in rows.TEMPORAL
         or grouping.grouping_problem(realization) is None

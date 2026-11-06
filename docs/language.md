@@ -540,7 +540,7 @@ first column give every rule.
 | `stddev(x)` ([Aggregates](#aggregates-and-grouping)) | `Int` and `Float` | `Float` (`STDDEV_SAMP`); `Int` refused (PIE-B1000) | `Int` and `Float` | refused: `Int` PIE-B1003, `Float` PIE-B1004 |
 | `median(x)`, `quantile(x, q)` ([Aggregates](#aggregates-and-grouping)) | `Int` and `Float` (`PERCENTILE_CONT ... WITHIN GROUP`) | refused (PIE-B1000) | `Int`; `Float` refused (PIE-B1004) | refused (PIE-B1003) |
 | `sum(1 for o in group if t)`, `sum(o.f for o in group if t)` ([Aggregates](#aggregates-and-grouping)) | `COUNT(CASE WHEN t THEN 1 END)`; `COALESCE(CAST(SUM(CASE WHEN t THEN CAST(f AS pg_catalog.int8) END) AS pg_catalog.int8), 0)` | count `COUNT(CASE WHEN t THEN 1 END)`; sum refused (PIE-B1000) | as PostgreSQL single file, `schema_version = 2` (PIE-S2334 in a `schema_version = 1` project); no JOIN inputs | refused: count PIE-B1003, sum PIE-B1004 |
-| `max(a, b)`, `min(a, b)` ([Expressions](#expressions)) | `CASE WHEN` of `<`/`>` and `IS NOT NULL`; `Int`, `Decimal`, `Float`, `Text`, `Date`, `Timestamp`, `UUID`, `Bool` | as PostgreSQL, except `Bool`, refused (PIE-B1000) | `Int`, `Decimal`, `Float`, `Text`, `Timestamp`, `UUID` as their comparison and conditional are; `Date` and `Bool` refused (PIE-B1003) | as PostgreSQL project, except `UUID`, refused as UUID ordering is (PIE-B1003) |
+| `max(a, b)`, `min(a, b)` ([Expressions](#expressions)) | `CASE WHEN` of `<`/`>` and `IS NOT NULL`; `Int`, `Decimal`, `Float`, `Text`, `Date`, `Timestamp`, `UUID`, `Bool` | as PostgreSQL, except `Bool`, refused (PIE-B1000) | `Int`, `Decimal`, `Float`, `Text`, `Timestamp`, `UUID` as their comparison and conditional are; `Date` and `Bool` refused (PIE-B1003) | as PostgreSQL project |
 | `lpad(s, width, fill)` ([Expressions](#expressions)) | `CASE WHEN length(s) >= width THEN s ELSE lpad(...) END`; a literal width outside the signed 32-bit range refused (PIE-S2385 at check) | `CASE WHEN CHAR_LENGTH(s) >= width THEN s ELSE LPAD(...) END` | emitted for a width proven in the signed 32-bit range; refused otherwise (PIE-B1002, PIE-B1004) | refused (PIE-B1003) |
 | `add_months(d, n)` ([Expressions](#expressions)) | `CAST((d + make_interval(months => CAST(n AS integer))) AS date)` | `DATE_ADD(d, INTERVAL n MONTH)` | emitted; a `None` argument refused (PIE-B1003) | refused (PIE-B1003) |
 | `now()` ([Expressions](#expressions)) | `(statement_timestamp() AT TIME ZONE 'UTC')`, in SELECT items and WHERE | refused (PIE-B1000) | emitted, compiled and bound as a template | refused (PIE-B1003 `scalar_call_signature_not_admitted`) |
@@ -4877,13 +4877,11 @@ comparison chains, in WHERE and in a JOIN ON condition alike, and order a
 result or a window; on PostgreSQL they are also
 `min`/`max` arguments, whose result keeps the carrier and admits NULL, while
 MySQL reports such a `min`/`max` BLOCKED (PIE-B1003) until its result metadata
-is reviewed. On PostgreSQL UUID values of one carrier also compare with `<`,
-`<=`, `>`, `>=` and inclusive comparison chains and order a result or a
-window, by their 16 bytes compared as unsigned big-endian values: the order
-of PostgreSQL `uuid_cmp`, of MySQL `BINARY(16)` byte comparison and of Python
-`uuid.UUID`. MySQL keeps UUID ordering and inequality comparison BLOCKED
-(PIE-B1003 for a comparison or result ORDER, PIE-B1002 for a window ORDER key)
-until a real-database differential reviews it. `min`/`max` of a UUID, a
+is reviewed. UUID values of one carrier also compare with `<`, `<=`, `>`,
+`>=` and inclusive comparison chains and order a result or a window, by their
+16 bytes compared as unsigned big-endian values: the order of PostgreSQL
+`uuid_cmp`, of MySQL `BINARY(16)` byte comparison and of Python `uuid.UUID`.
+`min`/`max` of a UUID, a
 Timestamp compared with a Date, full joins on these keys, a RANGE frame offset
 over a temporal or UUID order key, range relationships, timezone conversion,
 parsing, and other casts remain unavailable (the latest earlier row is the

@@ -8661,12 +8661,10 @@ def _decode_fixed_public(document, limits):
 
         def comparison_pair(left, right, operator):
             if left["tag"] == "UUID":
-                # Q3: PostgreSQL orders a uuid by its unsigned big-endian
-                # bytes; MySQL compares BINARY(16) values for equality only.
+                # Q3: a UUID orders by its unsigned big-endian bytes: the
+                # PostgreSQL uuid order and the MySQL BINARY(16) order.
                 _need(
-                    operator
-                    in (COMPARISON_TOKENS if family == "postgres" else {" = ", " <> "})
-                    and compatible(left, right),
+                    operator in COMPARISON_TOKENS and compatible(left, right),
                     "uuid comparison pair",
                 )
             elif left["tag"] in {"Timestamp", "Date"}:
@@ -9229,11 +9227,7 @@ def _decode_fixed_public(document, limits):
                     float_chain
                     or all(compatible(operands[0], item) for item in operands[1:])
                 )
-                and (
-                    operands[0]["tag"] in COMPARABLE
-                    or operands[0]["tag"] == "UUID"
-                    and family == "postgres"
-                ),
+                and (operands[0]["tag"] in COMPARABLE or operands[0]["tag"] == "UUID"),
                 "between type pair",
             )
             result = row_bool(nullable)
@@ -11747,9 +11741,13 @@ def _decode_fixed_public(document, limits):
                         read["realization"]["tag"] in ("Int", "Bool", "Text", "Decimal")
                         or _temporal_carrier(read["realization"], family)
                         or _pg_finite_float(read["realization"])
-                        or family == "postgres"
-                        and read["realization"]["tag"] == "UUID"
-                        and read["realization"]["storage"] == {"kind": "pg_uuid"},
+                        or read["realization"]["tag"] == "UUID"
+                        and read["realization"]["storage"]
+                        == {
+                            "kind": "pg_uuid"
+                            if family == "postgres"
+                            else "my_uuid_bytes"
+                        },
                     ),
                     "relation ORDER comparison domain",
                 )

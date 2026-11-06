@@ -34,13 +34,6 @@ COMPARABLE = ("Int", "Text", "Decimal", "Timestamp", "Date", "Float")
 TEMPORAL = ("Timestamp", "Date")
 
 
-def uuid_ordered(family: str) -> bool:
-    """A UUID orders by its 16 bytes as unsigned big-endian values, as
-    PostgreSQL's uuid_cmp compares them; MySQL keeps equality only until its
-    BINARY(16) order has a real-database differential."""
-    return family == "postgres"
-
-
 FINITE_FLOAT = {"kind": "finite_float", "format": "binary64"}
 # percent_rank / cume_dist results (windows.py): finite, in [0, 1].
 DISTRIBUTION_FLOAT = {"kind": "float64"}
@@ -1798,12 +1791,9 @@ def resolved_comparison_realization(
     if left.tag != right.tag:
         return None, ("PIE-B1003", "comparison_type_pair_not_admitted")
     if left.tag == "UUID":
-        if (
-            not uuid_ordered(family)
-            and operator not in {"==", "!="}
-            or left.storage != right.storage
-            or left.domain != right.domain
-        ):
+        # A UUID orders by its 16 bytes as unsigned big-endian values: the
+        # order of PostgreSQL's uuid_cmp and of MySQL's BINARY(16) comparison.
+        if left.storage != right.storage or left.domain != right.domain:
             return None, ("PIE-B1003", "comparison_type_pair_not_admitted")
         return _bool(family, nullable), None
     if left.tag not in COMPARABLE:
@@ -1849,7 +1839,7 @@ def resolved_between_realization(family, tag, nullable, values):
     first, lower, upper = values
     if (
         first.tag not in COMPARABLE
-        and not (first.tag == "UUID" and uuid_ordered(family))
+        and first.tag != "UUID"
         or any(value.tag != first.tag for value in (lower, upper))
     ):
         return None, ("PIE-B1003", "between_type_pair_not_admitted")

@@ -81,19 +81,15 @@ NULL_POSTURE = "target_defined"
 # PostgreSQL, a finite Float by its real value (-0.0 and 0.0 tie); window ORDER
 # and PARTITION keep Float out. MySQL keeps -0.0 and 0.0 apart in a deduplicating
 # hash over a wide key, so its Float DISTINCT, and through order_admitted its
-# Float relation ORDER, stay refused. A UUID is DISTINCT everywhere and orders
-# only where its unsigned big-endian byte order is reviewed (`rows.uuid_ordered`).
+# Float relation ORDER, stay refused. A UUID orders by its unsigned big-endian
+# bytes on both targets.
 ORDER_TAGS = frozenset({"Int", "Bool", "Text", "Decimal", "Timestamp", "Date", "Float"})
 DISTINCT_TAGS = ORDER_TAGS | {"UUID"}
 
 
 def order_admitted(family: str, realization: rows.Realization) -> bool:
     """R19 orders one exactly comparable carrier of its reviewed representation."""
-    return (
-        realization.tag in ORDER_TAGS
-        or realization.tag == "UUID"
-        and rows.uuid_ordered(family)
-    ) and distinct_problem(family, realization) is None
+    return distinct_problem(family, realization) is None
 
 
 # The published rule each retained result-boundary demand belongs to, by

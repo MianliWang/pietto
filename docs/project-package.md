@@ -747,12 +747,11 @@ PostgreSQL are `min` and
 `max` arguments, whose result keeps the carrier and admits NULL (MySQL reports
 `min`/`max` of them BLOCKED with `PIE-B1003` until their result metadata is
 reviewed); Timestamp, Date and UUID values partition a window by equality, as
-GROUP BY compares them. On PostgreSQL UUID values of one carrier also compare
-with `<`, `<=`, `>`, `>=` and an inclusive comparison chain and order a result
-or a window, by their 16 bytes compared as unsigned big-endian values (the
-order of PostgreSQL `uuid_cmp` and of Python `uuid.UUID`); MySQL keeps UUID
-ordering and inequality comparison BLOCKED until a real-database differential
-reviews its `BINARY(16)` order. `min`/`max` of a UUID stay refused
+GROUP BY compares them. UUID values of one carrier also compare with `<`,
+`<=`, `>`, `>=` and an inclusive comparison chain and order a result or a
+window, by their 16 bytes compared as unsigned big-endian values (the order of
+PostgreSQL `uuid_cmp`, of MySQL `BINARY(16)` comparison and of Python
+`uuid.UUID`). `min`/`max` of a UUID stay refused
 (`PIE-S2314`), and a Timestamp never compares with a Date. Q1 conditionals
 retain SQL `CASE` order for parameter occurrences (condition, true branch,
 false branch); a bind-safe artifact therefore requires its exact

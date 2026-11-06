@@ -426,11 +426,11 @@ def test_deleted_meaning_reference_is_a_typed_realization_failure(roots, slot):
 
 
 @pytest.mark.parametrize("target", ("postgres", "mysql"))
-def test_intrinsic_meaning_admits_temporal_equality_grouping_and_order_uuid_on_pg(
+def test_intrinsic_meaning_admits_temporal_equality_grouping_and_uuid_order(
     tmp_path, target
 ):
-    """Q3: a UUID result ORDER key keeps its source meaning on PostgreSQL,
-    which orders it by its unsigned big-endian bytes; MySQL refuses it."""
+    """Q3: a UUID result ORDER key keeps its source meaning; both targets
+    order it by its unsigned big-endian bytes."""
     prefix = f"""shape Row:
     stamp: Timestamp
     identifier: UUID
@@ -467,30 +467,22 @@ query result:
         }
     )
     encoded = json.dumps(document).encode()
-    for name in ("equality", "grouping", "order"):
+    q = '"' if target == "postgres" else "`"
+    for name in source:
         checked = probe.build_neutral(tmp_path / name, {"main.pietto": source[name]})
         result = emit_project_sql(checked, encoded)
         assert result.status == "VERIFIED" and result.artifact is not None
         assert result.artifact.request.scalar_meaning is not None
-    checked = probe.build_neutral(
-        tmp_path / "uuid_order", {"main.pietto": source["uuid_order"]}
-    )
-    result = emit_project_sql(checked, encoded)
-    if target == "postgres":
-        assert result.status == "VERIFIED" and result.artifact is not None
-        assert result.artifact.request.scalar_meaning is not None
-        assert result.artifact.rendered.sql.endswith(b' ORDER BY "t0"."c2" ASC')
-        return
-    assert result.status == "BLOCKED" and [
-        (blocker.code, blocker.detail) for blocker in result.blockers
-    ] == [("PIE-B1003", "order_comparison_domain_unsupported")]
+        if name == "uuid_order":
+            assert result.artifact.rendered.sql.endswith(
+                f" ORDER BY {q}t0{q}.{q}c2{q} ASC".encode()
+            )
 
 
 @pytest.mark.parametrize("target", ("postgres", "mysql"))
 def test_min_of_a_timestamp_keeps_its_source_meaning(tmp_path, target):
-    """A PostgreSQL `min(stamp)` result traces to its Timestamp source through
-    its aggregate edge, so the result contract carries Timestamp meaning;
-    MySQL keeps the aggregate BLOCKED."""
+    """A `min(stamp)` result traces to its Timestamp source through its
+    aggregate edge, so the result contract carries Timestamp meaning."""
     source = f"""shape Row:
     stamp: Timestamp
     identifier: UUID

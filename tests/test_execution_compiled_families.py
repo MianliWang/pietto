@@ -486,17 +486,24 @@ def test_postgresql_quantile_over_join_rows_replays_from_compiled_input(tmp_path
     )
 
 
-def test_a_postgresql_uuid_order_replays_from_compiled_input(tmp_path):
-    """Q3: a UUID comparison and window and result ORDER keys replay."""
+@pytest.mark.parametrize("target", ("postgres", "mysql"))
+def test_a_uuid_order_replays_from_compiled_input(tmp_path, target):
+    """Q3: a UUID comparison and window and result ORDER keys replay from
+    compiled input and prepare as a live template."""
     checked, original = emission.temporal_case(
         tmp_path,
-        "postgres",
+        target,
         "    from rows\n    where u < u or u <= u <= u\n    select:\n"
         "        key = u\n        r = row_number() window(order by u desc)\n"
         "    order by u\n",
     )
     assert checked.verified and original.status == "VERIFIED", original.blockers
+    assert original.artifact is not None
     _compare(original.artifact, refinement=False)
+    assert (
+        prepare_live_template(original.artifact).artifact.rendered.sql
+        == original.artifact.rendered.sql
+    )
     # The R2 refinement page orders Int, Bool, Text and Decimal coordinates
     # only; it refuses a UUID key, as it refuses a Timestamp one.
     with pytest.raises(ValueError, match="^REFINEMENT_COMPARISON_DOMAIN$"):
@@ -3713,15 +3720,14 @@ def test_max_and_min_of_two_values_emit_replay_and_bind_one_statement(tmp_path, 
 
 @pytest.mark.parametrize("target", ("postgres", "mysql"))
 def test_max_and_min_of_two_timestamps_or_uuids_emit_replay_and_bind(tmp_path, target):
-    """Timestamp values, and UUID values on PostgreSQL, order as their
-    project comparison does, so their `max` and `min` are one emitted,
-    compiled-replay and live-template statement. MySQL keeps UUID ordering
-    BLOCKED, and a Date has no project conditional yet."""
+    """Timestamp and UUID values order as their project comparison does, so
+    their `max` and `min` are one emitted, compiled-replay and live-template
+    statement on both targets. A Date has no project conditional yet."""
     pg = target == "postgres"
     body = (
         "    from rows\n    select:\n        id\n"
         "        late = max(ts, ts2)\n        first = min(ts, ts)\n"
-        + ("        key = min(u, u)\n" if pg else "")
+        "        key = min(u, u)\n"
     )
     checked, outcome = emission.temporal_case(tmp_path / "ok", target, body)
     assert checked.verified and outcome.status == "VERIFIED"
@@ -3738,7 +3744,7 @@ def test_max_and_min_of_two_timestamps_or_uuids_emit_replay_and_bind(tmp_path, t
         ("id", False),
         ("late", True),
         ("first", False),
-        *((("key", False),) if pg else ()),
+        ("key", False),
     ]
     built = build_compiled(outcome.artifact)
     loaded = load_compiled(
@@ -3750,19 +3756,15 @@ def test_max_and_min_of_two_timestamps_or_uuids_emit_replay_and_bind(tmp_path, t
     values = tuple(value.value for value in outcome.artifact.fixed_values)
     assert emit_compiled(loaded, values).rendered.sql == sql
     assert prepare_live_template(outcome.artifact).artifact.rendered.sql == sql
-    refused = [("date", "max(d, d2)", "conditional_realization_not_admitted")]
-    if not pg:
-        refused.append(("uuid", "min(u, u)", "comparison_type_pair_not_admitted"))
-    for name, call, detail in refused:
-        _, blocked = emission.temporal_case(
-            tmp_path / name,
-            target,
-            f"    from rows\n    select:\n        id\n        v = {call}\n",
-        )
-        assert blocked.status == "BLOCKED" and blocked.artifact is None
-        assert [(item.code, item.detail) for item in blocked.blockers] == [
-            ("PIE-B1003", detail)
-        ]
+    _, blocked = emission.temporal_case(
+        tmp_path / "date",
+        target,
+        "    from rows\n    select:\n        id\n        v = max(d, d2)\n",
+    )
+    assert blocked.status == "BLOCKED" and blocked.artifact is None
+    assert [(item.code, item.detail) for item in blocked.blockers] == [
+        ("PIE-B1003", "conditional_realization_not_admitted")
+    ]
 
 
 @pytest.mark.parametrize(

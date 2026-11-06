@@ -538,6 +538,47 @@ def test_q1_scalar_surface_is_verified_through_both_project_targets(tmp_path, ta
     assert "CAST(NULL" not in sql
 
 
+DECIMAL_FLOAT_ARITHMETIC_BODY = """table result:
+    from rows
+    where ratio < 1.5 * 2.0
+    select:
+        doubled = money + money
+        nothing = money - money
+        constant = 1.5 + 2.25
+"""
+
+
+@pytest.mark.parametrize("target", TARGETS)
+def test_decimal_and_float_arithmetic_pass_the_private_observation(tmp_path, target):
+    """Only an Int result rests on the target's checked signed 64-bit
+    operation: Decimal and Float literal arithmetic carry no such evidence, and
+    the independent observation rebuilds that on both targets."""
+    checked, outcome = emit(tmp_path, target, DECIMAL_FLOAT_ARITHMETIC_BODY)
+    assert checked.verified and outcome.status == "VERIFIED", outcome.blockers
+    artifact = outcome.artifact
+    assert artifact is not None
+    observed = portable.export_emission_observation(artifact, artifact.request)
+    assert observed.status is portable.ObservationStatus.OK
+    assert observed.canonical_bytes is not None
+    assert (
+        pure.parse_emission_observation(observed.canonical_bytes).status
+        is pure.Status.OK
+    )
+    assert portable.verify_emission_observation(
+        observed.canonical_bytes, artifact, artifact.request
+    ).corresponds
+    document = probe.decode_public(serialize_project_sql_emission(outcome))
+    assert [c["logical_type"]["name"] for c in document["columns"]] == [
+        "Decimal",
+        "Decimal",
+        "Float",
+    ]
+    assert not any(
+        "target_checked_signed64_narrowing" in r["evidence"]
+        for r in document["requirements"]
+    )
+
+
 @pytest.mark.parametrize("target", TARGETS)
 def test_q1_nested_boolean_calls_are_closed_sql_expressions(tmp_path, target):
     checked, outcome = emit(tmp_path, target, NESTED_BOOL_CALL_BODY)
