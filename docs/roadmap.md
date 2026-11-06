@@ -52,6 +52,15 @@ Phase73 start before Phase72 closed. Phase73 started on `main` at `bca733bb`
 with its [17-slice route](phases/phase-73/route.md), published by a
 documentation-only commit; its Gate 1 is D73.01–D73.19 in the
 [decision record](decisions.md#phase73--owner-decisions-2026-11-05).
+Batch 1 (the route publication and S01–S05) is published at `ac4d18ae`
+(tree `0c073795`), natural exact-head CI `42148220359` attempt 1, 19/19
+jobs; batch 2 (S07–S11 and S14–S17) is published at `3caa5e6c` (tree
+`3f6f6d94`), natural exact-head CI `42232536210`, 21/21 jobs. Batch 3 ends with the
+[completion audit](phases/phase-73/completion-audit.md) and the
+[Phase74 handoff](phases/phase-73/phase74-handoff.md); Phase73 closes when
+the batch-3 head passes natural CI. T-K and T-G are delivered, and
+multi-level collections stay unsupported. Phase73 has no release of its
+own: it ships in `0.1.10` with Phase74 and Phase75 (D73.15).
 
 The second project-emission interlude is published at `b56cb62ed3be8ede44561d74a825fde3a53b116b` (tree `22165d89fb383f407967801193f039abcdceea68`); natural exact-head CI `41297066141` attempt 1 accepted all 19 jobs. The single-file checked Int SUM repair is published at `61a4ce4e05c190ea49e2eb93afd31e6fbdee7e29` (tree `da72b5412f4ecb087c508b9bd8204bf811a6e955`); natural exact-head CI `41362408512` attempt 1 accepted all 19 jobs.
 B5 (S14–S16) is published at `305ab2c802258c2b3e932ccf236481dfc0e0034e` (tree `6e335432490b8c7a64501519376c6dbfa59ec3cd`); natural exact-head CI `41390632023` attempt 1 accepted all 19 jobs.
@@ -183,8 +192,8 @@ scheduled home yet.
   that read it; and the `concat` and `stddev` functions, which the owner
   placed after Phase71 on 2026-10-30. For `now()` the Gate 1 fixed only its
   meaning, the UTC statement snapshot (see the
-  [design draft](phases/phase-71/now-function-design-draft.md)); the owner's
-  provisional answer of 2026-11-05 puts its implementation in Phase73.
+  [design draft](phases/phase-71/now-function-design-draft.md)); Phase73
+  implemented it on PostgreSQL, and MySQL still refuses it.
 
 ## Phase67 当前路线
 
@@ -3083,13 +3092,13 @@ route defers these subjects to these owners:
   backlogs held by the NestedRelation semantic owner (multi-level) and ProjectSQLPlan owner (refused combinations); their first dependent design freeze/admission Gate1 is the decision point;
 - a capture let reading another capture let stays with the scope/capture semantic owner, with SQL-plan review before any nested-correlation admission Gate1;
 - nested equality, hash, grouping and DISTINCT went to Phase72, which kept
-  them refused: nested GROUP/DISTINCT keys go to Phase73 (C1), and the
-  Phase73 Gate 1 decides on `==`, `same_value` and ordering of nested values
-  and on set operations over them (J3);
+  them refused; Phase73 admitted nested GROUP BY and DISTINCT keys on
+  PostgreSQL projects (D73.05) and kept `==`, ordering and set operations
+  over nested values refused (D73.06);
 - per-group detail lists and aggregation over lists (`len`,
-  `sum(o.total for o in c.recent_orders)`, `any(...)` over a list) go to
-  Phase73, which replaces automatic safe reaggregation with an explicit
-  two-level route;
+  `sum(o.total for o in c.recent_orders)`, `any(...)` over a list) are
+  delivered by Phase73 on PostgreSQL projects, which replaces automatic safe
+  reaggregation with an explicit two-level route;
 - general functions/plugin SPI and user-written array table functions are
   unscheduled; the Phase76 Gate 1 takes or reroutes them;
 - editor and extension depth goes to the extension owner and Phase75;
@@ -3129,7 +3138,9 @@ formatter step and the header-line warning, and later that day pre-approved
 its publication chain; `0.1.9` is published only when its tag, GitHub
 pre-release and PyPI channels carry the accepted files. Later releases stay
 on `0.1.x` patches, `0.1.10` next, until about the end of Phase80, when
-`0.2.0` is used.
+`0.2.0` is used. On 2026-11-05 the owner made `0.1.10` one release of
+Phase73, Phase74 and Phase75, cut after Phase75 closes, with separate
+approval (D73.15).
 
 On 2026-10-28 the owner set the MySQL cadence: MySQL support may trail
 PostgreSQL by about two to three releases. New features reach PostgreSQL first,
