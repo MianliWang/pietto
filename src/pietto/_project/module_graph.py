@@ -1725,10 +1725,11 @@ def _diagnostic_fact_from_binding_collision(
         )
         + tuple(_import_binding_span(item) for item in requests)
     )
-    # The hint names the first def item of the bindings.
+    # The hint names the first def or relationship item of the bindings.
     for item in requests:
-        if item.source_item.declaration_kind is ModuleDeclarationKind.DEF:
-            message += f"; import def {item.exported_name} as <name>"
+        kind = item.source_item.declaration_kind
+        if kind in (ModuleDeclarationKind.DEF, ModuleDeclarationKind.RELATIONSHIP):
+            message += f"; import {kind.value} {item.exported_name} as <name>"
             break
     return ProjectModuleDiagnosticFact(
         origin=ProjectModuleDiagnosticOrigin.BINDING,
@@ -2142,8 +2143,9 @@ def import_hints(
     exports: Callable[[], ProjectModuleExportSurfaceSet],
 ) -> tuple[Diagnostic, ...]:
     """Say where another selected module exports an unknown type, shape or
-    relation of a module, and how to import it, or that an unknown function
-    is a def of another module, which a module cannot import. Every exporter
+    relation of a module, and how to import it, or how to import an unknown
+    function that another module declares as a relationship or a def
+    (`_callable_import_hint`). Every exporter
     is listed in path order, up to a bound; none is chosen. An exporter is a
     resolved entry of a module's export surface, which ``exports`` builds
     once a diagnostic asks: an export that is refused (PIE-S2704, a
@@ -2182,7 +2184,9 @@ def import_hints(
             if module.path != diagnostic.location.path
         )
         if not kinds:
-            hint = _def_import_hint(name, diagnostic.location.path, modules, others)
+            hint = _callable_import_hint(
+                name, diagnostic.location.path, modules, others
+            )
             if hint is not None:
                 hinted[position] = replace(
                     diagnostic,
@@ -2190,20 +2194,9 @@ def import_hints(
                     suggestion=hint,
                 )
             continue
-        if any(
-            name
-            in {
-                *(getattr(item, "name", None) for item in module.script.definitions),
-                *(
-                    item.local_name or item.exported_name
-                    for statement in module.script.module_statements
-                    if isinstance(statement, ImportStatement)
-                    for item in statement.items
-                ),
-            }
-            for module in modules
-            if module.path == diagnostic.location.path
-        ) or _at_collect_read(diagnostic.location, modules):
+        if _binds(modules, diagnostic.location.path, name) or _at_collect_read(
+            diagnostic.location, modules
+        ):
             continue
         if surfaces is None:
             surfaces = exports()
@@ -2283,22 +2276,10 @@ def import_hints(
     return tuple(hinted)
 
 
-def module_item_refusals(
-    script: Script, *, package: bool = False
-) -> tuple[Diagnostic, ...]:
-    """Refuse each import or export item that the project does not bind (PIE-S2707):
-    a relationship's, until relationships are bound, and in a package module
-    also a def's."""
+def module_item_refusals(script: Script) -> tuple[Diagnostic, ...]:
+    """Refuse each def or relationship import or export item of a package
+    module, which a package does not bind (PIE-S2707)."""
 
-    kinds = {ModuleDeclarationKind.RELATIONSHIP}
-    if package:
-        kinds.add(ModuleDeclarationKind.DEF)
-    hint = (
-        "Package modules do not support def/relationship imports yet."
-        if package
-        else "Relationship imports and exports are not supported yet; declare "
-        "the relationship in this module."
-    )
     return tuple(
         replace(
             _diagnostic(
@@ -2308,65 +2289,108 @@ def module_item_refusals(
                 f"{item.exported_name if type(item) is ImportItem else item.local_name}",
                 location=_location(item.span, fallback_path=""),
             ),
-            suggestion=hint,
+            suggestion="Package modules do not support def/relationship imports yet.",
         )
         for statement in script.module_statements
         for item in statement.items
-        if item.declaration_kind in kinds
+        if item.declaration_kind
+        in (ModuleDeclarationKind.DEF, ModuleDeclarationKind.RELATIONSHIP)
     )
 
 
-def def_import_collision(request: ProjectModuleImportRequest) -> Diagnostic:
-    """A def import bound to the name of a relationship of its module
-    (PIE-S2706), which no catalog lists."""
-
-    return _diagnostic(
-        code="PIE-S2706",
-        message="Import binding collides with a local declaration: "
-        f"{request.identity.local_binding_name}; import def "
-        f"{request.exported_name} as <name>",
-        location=_location(
-            _import_binding_span(request),
-            fallback_path=request.identity.owning_module_path,
-        ),
-    )
-
-
-def _def_import_hint(
+def _callable_import_hint(
     name: str,
     path: str | None,
     modules: tuple[ProjectParsedInput, ...],
     others: tuple[ProjectParsedInput, ...],
 ) -> str | None:
     """How to import an unknown function that other modules declare as a
-    def: from the modules that export it, or else from those that declare
-    it, each with the export to add. As for any import hint, every module is
-    named in path order, none chosen, and a module that imports the module
-    of the call, directly or through others, is none (PIE-S2703)."""
+    relationship or, if none does, as a def: from the modules that export
+    it, or else from those that declare it, each with the export to add. A
+    qualified call such as `a.pos(x)` is told to call the imported name. As
+    for any import hint, every module is named in path order, none chosen,
+    and a module that imports the module of the call, directly or through
+    others, is none (PIE-S2703). With none, or when the module of the call
+    already declares or imports the name (PIE-S2706), the call is told, as
+    in 0.1.9, to declare it in its own module."""
 
-    cyclic = _importers(modules, path)
+    called = name.rpartition(".")[2]
+    kind = "relationship"
     declaring = tuple(
         module
         for module in others
-        if module.path not in cyclic
-        and _spellable(module.path)
-        and any(item.name == name for item in module.scalar_callables)
+        if any(item.name == called for item in module.script.relationship_templates)
     )
-    exporting = tuple(
-        module.path for module in declaring if name in module.exported_defs
+    if not declaring:
+        kind = "def"
+        declaring = tuple(
+            module
+            for module in others
+            if any(item.name == called for item in module.scalar_callables)
+        )
+    if not declaring:
+        return None
+    then = f", then call {called}(...)" if called != name else ""
+    cyclic = _importers(modules, path)
+    candidates = (
+        ()
+        if _binds(modules, path, called)
+        else tuple(
+            module
+            for module in declaring
+            if module.path not in cyclic and _spellable(module.path)
+        )
     )
-    verb, advice, files = "exported by", "", exporting
+    if not candidates:
+        files = tuple(module.path for module in declaring)
+        return (
+            f"{called} is a {kind} of {_listed(files)}, which a module cannot "
+            f"import: declare it in this module{then}"
+        )
+    verb, advice = "exported by", ""
+    files = tuple(
+        module.path
+        for module in candidates
+        if called
+        in (
+            module.exported_relationships
+            if kind == "relationship"
+            else module.exported_defs
+        )
+    )
     if not files:
         verb = "declared but not exported by"
-        advice = f"export it there with export def {name}, then "
-        files = tuple(module.path for module in declaring)
-    if not files:
-        return None
+        advice = f"export it there with export {kind} {called}, then "
+        files = tuple(module.path for module in candidates)
     imports = " or ".join(
-        f"from {_copyable_path(item)} import def {name}"
+        f"from {_copyable_path(item)} import {kind} {called}"
         for item in files[:_IMPORT_HINT_LIMIT]
     )
-    return f"{name} is a def {verb} {_listed(files)}: {advice}import it with {imports}"
+    return (
+        f"{called} is a {kind} {verb} {_listed(files)}: {advice}import it with "
+        f"{imports}{then}"
+    )
+
+
+def _binds(
+    modules: tuple[ProjectParsedInput, ...], path: str | None, name: str
+) -> bool:
+    """Whether a module declares or imports a name, of either namespace."""
+
+    return any(
+        name
+        in {
+            *(getattr(item, "name", None) for item in module.script.definitions),
+            *(
+                item.local_name or item.exported_name
+                for statement in module.script.module_statements
+                if isinstance(statement, ImportStatement)
+                for item in statement.items
+            ),
+        }
+        for module in modules
+        if module.path == path
+    )
 
 
 def _at_collect_read(

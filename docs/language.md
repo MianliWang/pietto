@@ -346,9 +346,9 @@ forms written with `as`) are therefore no longer available. Rewrite each as a
 `let` and a JOIN with `on` (`let customer = customers`, then
 `inner join customer on OrderCustomer(orders, customer)`; `migrate` reports
 each old JOIN with PIE-P1011), then set `schema_version = 2`; in a project of
-several files, add the imports and exports its modules need and declare each
-relationship in the module whose JOINs call it, as a relationship is not
-imported (see [project and package](project-package.md#schema-compatibility)).
+several files, add the imports and exports its modules need, a relationship
+included (`from "models/a.pietto" import relationship OrderCustomer`; see
+[project and package](project-package.md#schema-compatibility)).
 
 | SQL concept | Pietto source |
 | --- | --- |
@@ -913,6 +913,8 @@ rows. Aggregates,
 windows, ANY and other relation reads are not available inside a relationship
 body. A scalar `def` remains the separate mechanism for reusable scalar inputs.
 Callable collisions retain their existing namespaces and report ambiguity.
+In a project, a relationship one module exports is called in another that
+imports it (see [Modules and relationships](#modules-and-relationships)).
 
 There is no public `link` or `relation` binding layer, no inferred FROM, and no
 implicit JOIN merely because a relationship is declared. A relationship is not
@@ -3472,9 +3474,10 @@ WHERE ("ordered_at" BETWEEN '2026-01-01 00:00:00' AND '2026-12-31 23:59:59') AND
   as a call of a local def is, so the SQL is the same as the local def's; a
   `concat` call in its body stays the built-in also in an importer that
   declares a callable `concat`. A def import binding that collides with a
-  local declaration, a relationship of the module or another import binding
-  is PIE-S2706 (`; import def pos as <name>`); a module's own def collides
-  only with a def import. A def import binding named like a built-in
+  local declaration (a def or relationship included) or another import
+  binding is PIE-S2706 (`; import def pos as <name>`); a module's own def
+  collides only with a def or relationship import. A def import binding named
+  like a built-in
   function, `Float`, `Text` or `concat` included, is PIE-S2398. A def import
   item that fails, or a def import along an import cycle (PIE-S2703), stops
   the check before semantic analysis, as a def error does. `def *` and a
@@ -4709,14 +4712,14 @@ meant (relative to the importing file, with another letter case or a
 different separator, or without `.pietto`), the message names it. A source
 that `[sources]` excludes is not selected, so no module can import it.
 
-The admitted kinds are `type`, `enum`, `shape`, `source`, `table`, `query`
-and `def`; a `relationship` item parses and is refused (PIE-S2707) until
-relationships are bound. An import must name the kind that the target exports: `shape customers` for an
+The admitted kinds are `type`, `enum`, `shape`, `source`, `table`, `query`,
+`def` and `relationship`. An import must name the kind that the target exports: `shape customers` for an
 exported `source customers` is PIE-S2705, which names the exported kind.
 Re-exports chain through any number of modules. Module resolution preserves declaring identity, visibility, every collision,
 dependency evidence, provenance and lineage; it never chooses a first or last
 winner. These statements do not add wildcard imports (`def *` is PIE-P1000),
-qualified calls such as `a.pos(x)`, or `constraint` and `derive` items.
+qualified calls such as `a.pos(x)` (PIE-S2103 says which import to write, then
+to call `pos(...)`), or `constraint` and `derive` items (PIE-P1000).
 
 An import cycle is PIE-S2703. While any module cycle exists, project checking
 and emission stop before relation completion in every module; completion-only
@@ -4726,6 +4729,30 @@ project contracts remain in [Projects and packages](project-package.md).
 Shape-typed relationship predicates use the supplied-row form described in
 [Named inputs and reusable relationship predicates](#named-inputs-and-reusable-relationship-predicates).
 They preserve declared shape identity through imported source/shape aliases.
+A module may export a relationship (`export relationship OrderCustomer`) and
+another may import it (`from "models/a.pietto" import relationship
+OrderCustomer`, or `relationship OrderCustomer as oc`), in either list form; a
+re-export chains as any other. The relationship's body and parameter shapes
+are checked once, in its module: a call in the importer, in `on`, WHERE,
+SELECT or `any(...)`, binds its rows as a call of a local relationship does,
+each row by the declaring module's shape identity (a source of a shape that
+the importer declares itself has another shape, PIE-S2604), and the SQL is
+the same as the local relationship's; a `concat` call in its body stays the
+built-in also in an importer that declares a callable `concat`. An importer
+need not import the parameter shapes to call it. A relationship that is not
+exported stays private to its module; calling it, or an exported one that is
+not imported, from another module is PIE-S2103 with the export and import to
+write; when only a module that imports the calling one declares it, or the
+calling module already declares or imports the name, PIE-S2103 says to
+declare it in the calling module, as before. A relationship import binding
+that collides with a local declaration (a def or relationship included) or
+another import binding is PIE-S2706 (`; import relationship OrderCustomer as
+<name>`); a module's own def or relationship collides only with a def or
+relationship import. A binding named like a built-in function, `Float`,
+`Text` or `concat` included, is PIE-S2398. A def or relationship import or
+export item that fails, or one along an import cycle (PIE-S2703), stops the
+check before semantic analysis. A PACKAGE_ROOT package module refuses each
+def or relationship item with PIE-S2707.
 Their validation and callable-resolution errors use PIE-S2604. Old endpoint
 metadata, source-bound one-line relationships and VIA paths are legacy forms:
 the modern public parser refuses them, and `migrate` requests manual identity

@@ -552,8 +552,10 @@ _VOCABULARY_SYMBOL_KIND: tuple[str, ...] = (
     "query",
     "constraint",
     "derive",
-    # Bound only before def calls are inlined, so no pure record holds it.
+    # Bound only before def calls are inlined and relationship calls bound,
+    # so no pure record holds either.
     "def",
+    "relationship",
 )
 
 _VOCABULARY_BINDING_ISSUE_STATUS: tuple[str, ...] = (

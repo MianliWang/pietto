@@ -47,6 +47,7 @@ from pietto.ast_nodes import (
     RelationExistsExpr,
     RelationMembershipExpr,
     RelationScalarExpr,
+    RelationshipTemplate,
     SelectBody,
     SetOperationBody,
     ShapeDef,
@@ -72,6 +73,9 @@ _DEFINITION_TYPES = (
     ConstraintDef,
     DeriveDef,
     FunctionDef,
+    # Only the view in which imports bind defs and relationships lists a
+    # relationship among a module's definitions (`_callable_view`).
+    RelationshipTemplate,
 )
 
 

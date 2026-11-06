@@ -64,6 +64,12 @@ __all__ = ()
 class ProjectRelationshipPredicateCatalog:
     semantic_result: ProjectSemanticResult = field(repr=False)
     templates: Mapping[str, tuple[RelationshipTemplateInfo, ...]] = field(init=False)
+    # Each relationship a module imports, by the name it binds: the
+    # declaring module's checked template, which no call re-checks, or None
+    # when that module reports why it has none.
+    imported: Mapping[str, Mapping[str, RelationshipTemplateInfo | None]] = field(
+        init=False
+    )
     diagnostics: tuple[Diagnostic, ...] = field(init=False)
     # (module path, name) of each relationship that a failed import, a
     # duplicate or an import cycle alone stops: its calls only follow that
@@ -172,7 +178,23 @@ class ProjectRelationshipPredicateCatalog:
                 and any(located(error, template.span) for error in dropped)
                 and not any(located(error, template.span) for error in kept)
             )
+        imported: dict[str, dict[str, RelationshipTemplateInfo | None]] = {}
+        for module in root.modules:
+            if module.parsed_input is None:
+                continue
+            for local, path, name in module.parsed_input.imported_relationships:
+                found = tuple(
+                    item
+                    for item in checked.get(path, ())
+                    if item.declaration.name == name
+                )
+                imported.setdefault(module.path, {})[local] = (
+                    found[0] if len(found) == 1 else None
+                )
+                if (path, name) in followed:
+                    followed.add((module.path, local))
         object.__setattr__(self, "templates", MappingProxyType(checked))
+        object.__setattr__(self, "imported", MappingProxyType(imported))
         object.__setattr__(self, "diagnostics", tuple(diagnostics))
         object.__setattr__(self, "followed", frozenset(followed))
 
@@ -519,11 +541,14 @@ def _bind_project_predicates(
         raise ValueError("Predicate owner requires exact module catalog membership.")
     assert len(modules) == 1 and modules[0].module.parsed_input is not None
     script = modules[0].module.parsed_input.script
-    if not script.relationship_templates:
+    imported = catalog.imported.get(owner.identity.module_path, {})
+    if not script.relationship_templates and not imported:
         return ()
     definition = owner.definition
     assert isinstance(definition, (ast.TableDef, ast.QueryDef))
-    declared_names = frozenset(item.name for item in script.relationship_templates)
+    declared_names = frozenset(
+        (*(item.name for item in script.relationship_templates), *imported)
+    )
     scalar_names = frozenset(
         item.name for item in modules[0].module.parsed_input.scalar_callables
     )
@@ -584,6 +609,11 @@ def _bind_project_predicates(
         expanded, calls, diagnostics, failed_calls = bind_relationship_expression(
             expression,
             templates=catalog.templates.get(owner.identity.module_path, ()),
+            imported={
+                name: template
+                for name, template in imported.items()
+                if template is not None
+            },
             declared_names=declared_names,
             resolve_row=resolve,
             owner=definition,
@@ -1623,7 +1653,8 @@ def project_owner_has_relationship_calls(
     if len(modules) != 1 or modules[0].parsed_input is None:
         return False
     names = {
-        item.name for item in modules[0].parsed_input.script.relationship_templates
+        *(item.name for item in modules[0].parsed_input.script.relationship_templates),
+        *(item[0] for item in modules[0].parsed_input.imported_relationships),
     }
     if not names:
         return False

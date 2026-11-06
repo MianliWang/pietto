@@ -1186,7 +1186,7 @@ def test_an_unknown_call_in_where_let_or_any_reports_the_call_not_its_rows(
     ]
 
 
-def test_a_relationship_of_another_module_says_it_cannot_be_imported(
+def test_a_relationship_of_another_module_says_how_to_import_it(
     tmp_path: Path, capsys
 ) -> None:
     head, query = _UNKNOWN_ON_CALL.split("query q:\n")
@@ -1207,8 +1207,10 @@ def test_a_relationship_of_another_module_says_it_cannot_be_imported(
     ) == [
         (
             "PIE-S2103",
-            "Unknown function: order_customer; order_customer is a relationship of "
-            "models.pietto, which a module cannot import: declare it in this module",
+            "Unknown function: order_customer; order_customer is a relationship "
+            "declared but not exported by models.pietto: export it there with "
+            "export relationship order_customer, then import it with from "
+            '"models.pietto" import relationship order_customer',
             "main.pietto",
             9,
             21,
@@ -1231,8 +1233,10 @@ def test_a_relationship_of_another_module_is_named_in_where_let_and_any(
         "    source orders,\n    source customers)\n" + "query q_where:\n" + queries
     )
     message = (
-        "Unknown function: order_customer; order_customer is a relationship of "
-        "models.pietto, which a module cannot import: declare it in this module"
+        "Unknown function: order_customer; order_customer is a relationship "
+        "declared but not exported by models.pietto: export it there with "
+        "export relationship order_customer, then import it with from "
+        '"models.pietto" import relationship order_customer'
     )
     assert _project_located(
         tmp_path / "p", {"main.pietto": main, "models.pietto": models}, capsys

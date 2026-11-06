@@ -4,9 +4,9 @@
 
 These changes are on `main` after `0.1.9` and are in no published release
 yet. They are Phase73 batches 1, 2 and 3 and Phase74 (from "Importing a
-def from another module" on). Each subsection lists the changes
-against `0.1.9` that a program can observe, its compatibility rows and the
-new refusals.
+def or relationship from another module" on). Each subsection lists the
+changes against `0.1.9` that a program can observe, its compatibility rows
+and the new refusals.
 
 ### JOIN fan-out: the two-level route
 
@@ -1197,24 +1197,33 @@ changes):
   `emit-sql --project --all` with a `contract.json` in the project.
 - No new diagnostic, refusal or compatibility change.
 
-### Importing a def from another module
+### Importing a def or relationship from another module
 
 - In an EXPLICIT_MODULES project, `export def pos` and
-  `from "models/a.pietto" import def pos` (or `def pos as p`), in the bare
-  and the parenthesized list; re-exports chain as for other kinds. The def is
-  checked once, in its module, where an alias in its signature means what it
-  means there (never the importer's alias); a call is inlined and checked at
-  the call, as a call of a local def is, and its SQL is byte-equal to the
-  same def declared locally (PostgreSQL and MySQL emission, compiled bundle
-  and live template). A `concat` call in its body stays the built-in also in
-  an importer that declares a callable `concat` (def, constraint, derive or
+  `from "models/a.pietto" import def pos` (or `def pos as p`), and likewise
+  `export relationship OrderCustomer` and `import relationship OrderCustomer`
+  (or `relationship OrderCustomer as oc`), in the bare and the parenthesized
+  list; re-exports chain as for other kinds.
+- A def is checked once, in its module, where an alias in its signature means
+  what it means there (never the importer's alias); a call is inlined and
+  checked at the call, as a call of a local def is.
+- A relationship is checked once, in its module; a call in the importer, in
+  `on`, WHERE, SELECT and `any(...)`, binds its rows by the declaring
+  module's parameter shapes. The importer need not import those shapes by
+  name.
+- The SQL of both is byte-equal to the same def or relationship declared
+  locally (PostgreSQL and MySQL emission, compiled bundle and live template).
+  A `concat` call in an imported body stays the built-in also in an importer
+  that declares a callable `concat` (def, constraint, derive or
   relationship).
 - **Refusals that become acceptances.** An `export def f` or import item
-  `def f` was PIE-P1000 at the `def`: `Unexpected 'def'.` as the first item
-  of a bare list or a later item of a parenthesized one, `Missing 'type',
-  'enum', 'shape', 'source', 'table' or 'query' before 'def'.` as the first
-  item of a parenthesized list or a later item of a bare one. In an
-  EXPLICIT_MODULES project it is now accepted and gets its binding result.
+  `def f` was PIE-P1000 at the `def`, and an `export relationship R` or
+  import item `relationship R` at the `relationship`: `Unexpected 'def'.`
+  (`Unexpected 'relationship'.`) as the first item of a bare list or a later
+  item of a parenthesized one, `Missing 'type', 'enum', 'shape', 'source',
+  'table' or 'query' before 'def'.` (`... before 'relationship'.`) as the
+  first item of a parenthesized list or a later item of a bare one. In an
+  EXPLICIT_MODULES project each is now accepted and gets its binding result.
 - **Changed messages** (forms already refused; same code and location unless
   stated):
   - PIE-P1000 kind list: `Missing 'type', 'enum', 'shape', 'source', 'table'
@@ -1241,47 +1250,79 @@ changes):
     (1:7), `This spelling is not accepted by the modern syntax. Write 'export
     kind Name' or a parenthesized list with explicit kinds.` (same
     suggestion), as for a block that holds any other kind.
-  - PIE-S2103 def hint: `Unknown function: pos; pos is a def of
-    models/a.pietto, which a module cannot import: declare it in this module`
-    is now `Unknown function: pos; pos is a def exported by models/a.pietto:
-    import it with from "models/a.pietto" import def pos`, or, when no module
-    exports it, `Unknown function: pos; pos is a def declared but not exported
-    by models/a.pietto: export it there with export def pos, then import it
-    with from "models/a.pietto" import def pos`. As for other import hints, a
-    module whose path no Pietto string spells, or that imports the module of
-    the call, is not named; such a call is now `Unknown function: pos` alone.
+  - PIE-S2103 def and relationship hints: `Unknown function: pos; pos is a
+    def of models/a.pietto, which a module cannot import: declare it in this
+    module` is now `Unknown function: pos; pos is a def exported by
+    models/a.pietto: import it with from "models/a.pietto" import def pos`,
+    or, when no module exports it, `Unknown function: pos; pos is a def
+    declared but not exported by models/a.pietto: export it there with export
+    def pos, then import it with from "models/a.pietto" import def pos`; a
+    relationship likewise (`Unknown function: OrderCustomer; OrderCustomer is
+    a relationship exported by models/a.pietto: import it with from
+    "models/a.pietto" import relationship OrderCustomer`, and the
+    `declared but not exported ... export it there with export relationship
+    OrderCustomer, then import it with ...` form). As for other import hints,
+    at most three modules are named in full, and a module whose path no
+    Pietto string spells, or that imports the module of the call, is not
+    named. When no module is left, or when the module of the call already
+    declares or imports the name (an import would be PIE-S2706), the 0.1.9
+    text stays byte-equal, naming the declaring modules (`...; OrderCustomer
+    is a relationship of models/a.pietto, which a module cannot import:
+    declare it in this module`, `...; pos is a def of models/a.pietto, which
+    a module cannot import: declare it in this module`). The JSON
+    `suggestion` of the relationship hint is now the hint text (0.1.9:
+    `null`), as for every hint on this path. A name that other modules
+    declare both as a relationship and as a def gets the relationship hint,
+    as before.
+  - PIE-S2103 for a qualified call (`a.pos(x)`, `a.OrderCustomer(orders,
+    buyer)`): `Unknown function: a.pos` gains, when another module declares
+    `pos`, `; pos is a def exported by a.pietto: import it with from
+    "a.pietto" import def pos, then call pos(...)` (or the relationship or
+    not-exported form with `, then call NAME(...)`).
 - **New refusals and diagnostics:**
-  - PIE-S2706 at a def import binding that collides with a local declaration
-    (a def, constraint, derive or a declaration of any other kind, as for
-    every import), a local relationship, or another import of the name:
-    `Import binding collides with a local declaration: pos; import def pos as
-    <name>` / `Import binding name is ambiguous: pos; import def pos as
-    <name>`. Located as every PIE-S2706 is: at the import binding whatever
-    the declaration order; an ambiguous name at its first binding, the others
-    as related locations. The hint is in the message (module diagnostics carry
-    no suggestion).
-  - PIE-S2398 at a def import item bound to a built-in name, `Float`, `Text`
-    and `concat` included: `Import binding concat has the name of a built-in
-    function; a def cannot shadow one`.
-  - PIE-S2705 and PIE-S2704 for def items as for other kinds, for example
-    `Imported declaration is private or not exported: def helper from
-    "a.pietto"`, `Unknown export binding: def nope`.
-  - PIE-S2707 at a `relationship` import or export item in an
-    EXPLICIT_MODULES project: `Unsupported module item: relationship
-    OrderCustomer`, suggestion `Relationship imports and exports are not
-    supported yet; declare the relationship in this module.`
+  - PIE-S2706 at a def or relationship import binding that collides with a
+    local declaration of any kind (a def or relationship included) or another
+    import of the name: `Import binding collides with a local declaration:
+    pos; import def pos as <name>`, `Import binding collides with a local
+    declaration: OrderCustomer; import relationship OrderCustomer as <name>`,
+    `Import binding name is ambiguous: oc; import relationship OrderCustomer
+    as <name>` (the hint names the first def or relationship item that binds
+    the name, whatever item comes first). Located as every PIE-S2706 is: at
+    the import binding whatever the declaration order; an ambiguous name at
+    its first binding, the others as related locations. The hint is in the
+    message (module diagnostics carry no suggestion).
+  - PIE-S2398 at a def or relationship import item bound to a built-in name,
+    `Float`, `Text` and `concat` included: `Import binding concat has the
+    name of a built-in function; a def cannot shadow one` (`...; a
+    relationship cannot shadow one`).
+  - PIE-S2705 and PIE-S2704 for def and relationship items as for other
+    kinds, for example `Imported declaration is private or not exported: def
+    helper from "a.pietto"`, `Imported declaration has another kind: def
+    OrderCustomer from "a.pietto" is a relationship; write relationship
+    OrderCustomer`, `Unknown export binding: relationship Nope`, `Ambiguous
+    local export declaration: relationship OrderCustomer`.
+  - PIE-S2604 at a row argument whose shape is not the declaring module's
+    parameter shape (unchanged text): `Relationship OrderCustomer parameter
+    order requires declared shape Order; the actual row has a different shape
+    identity`. A body error of an imported relationship is reported once, at
+    its declaration; a call of it is told `Relationship predicate
+    OrderCustomer has no unambiguous checked declaration`, as a call of the
+    same local relationship is.
   - PIE-S2707 at a `def` or `relationship` item of a PACKAGE_ROOT package
     module: `Unsupported module item: def pos`, suggestion `Package modules do
     not support def/relationship imports yet.`
-  - A failed def import or export item, or a def import along an import cycle
-    (PIE-S2703), stops the project check before semantic analysis, as a def
-    error does; calls of a blocked def add no PIE-S2103 or PIE-S2395.
+  - A failed def or relationship import or export item, or such an import
+    along an import cycle (PIE-S2703), stops the project check before
+    semantic analysis, as a def error does; calls of a blocked def or
+    relationship add no PIE-S2103, PIE-S2395 or PIE-S2604.
 - **Compatibility.** No change for a project without a `def` or
   `relationship` import or export item (byte-equal check JSON, emission and
-  compiled bundles). A module's own def still never collides with an import
-  of another kind (`from "a.pietto" import source rows` beside `def rows`),
-  also when another module's error stops the check. No compiled-record
-  change: def items never reach a compiled bundle.
+  compiled bundles). A module's own def or relationship still never collides
+  with an import of another kind (`from "a.pietto" import source rows` beside
+  `def rows` or `relationship rows`), also when another module's error stops
+  the check. No compiled-record change: def and relationship items never
+  reach a compiled bundle; a call's compiled predicate record names the
+  declaring module's template, as a local one does.
 
 ## Equality, nullability and asof JOIN public alpha release notes — 0.1.9
 

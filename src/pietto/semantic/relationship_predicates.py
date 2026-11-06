@@ -220,6 +220,7 @@ def bind_relationship_expression(
     templates: Sequence[RelationshipTemplateInfo],
     declared_names: frozenset[str],
     resolve_row: RowResolver,
+    imported: Mapping[str, RelationshipTemplateInfo] | None = None,
     owner: ast.TableDef | ast.QueryDef,
     context: ast.Node,
     scalar_names: frozenset[str] = frozenset(),
@@ -237,6 +238,8 @@ def bind_relationship_expression(
 
     The caller supplies only inputs readable at this exact use. No relation is
     introduced by a predicate argument and no shape supplies row nullability.
+    ``imported`` holds the checked templates another module declares, by the
+    names this one binds them to; their bodies keep that module's meaning.
     """
 
     from pietto.semantic.inline_functions import _rebuild
@@ -244,6 +247,9 @@ def bind_relationship_expression(
     buckets: dict[str, list[RelationshipTemplateInfo]] = {}
     for template in templates:
         buckets.setdefault(template.declaration.name, []).append(template)
+    for name, template in (imported or {}).items():
+        buckets.setdefault(name, []).append(template)
+    foreign = {id(template) for template in (imported or {}).values()}
     diagnostics: list[Diagnostic] = []
     uses: list[RelationshipCallInfo] = []
     failures: list[RelationshipCallFailure] = []
@@ -366,7 +372,9 @@ def bind_relationship_expression(
                 return after
             # Every copied body node is an explicit located occurrence.
             span = replace(rebuilt.span, occurrence=next(occurrences))
-            copy_imported(cast(ast.Node, before), span)
+            copy_imported(
+                cast(ast.Node, before), span, imported=id(template) in foreign
+            )
             if type(after) is ast.DottedNameExpr and after.parts[0] in aliases:
                 result = replace(
                     after, parts=(aliases[after.parts[0]], *after.parts[1:]), span=span

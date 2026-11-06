@@ -965,8 +965,8 @@ def test_a_diagnostic_naming_a_path_that_is_not_utf8_shows_it_escaped(
         ]
 
     # No Pietto string spells that path, so neither b.pietto's PIE-S2701 nor
-    # an import hint, a def's included, suggests it, and the error located in
-    # b.pietto is kept.
+    # an import hint suggests it. A def hint names it, escaped as
+    # project_path names it, and the error located in b.pietto is kept.
     assert diagnostics('from "a.pietto" import (\n    shape A)\n') == [
         ("PIE-S2701", 'Unresolved module import target: "a.pietto"', "b.pietto")
     ]
@@ -977,7 +977,12 @@ def test_a_diagnostic_naming_a_path_that_is_not_utf8_shows_it_escaped(
         "query p:\n    from bs\n    select:\n        doubled = twice(id)\n"
     ) == [
         ("PIE-S2301", "Unknown relation: items", "b.pietto"),
-        ("PIE-S2103", "Unknown function: twice", "b.pietto"),
+        (
+            "PIE-S2103",
+            "Unknown function: twice; twice is a def of m\\udcff/a.pietto, which"
+            " a module cannot import: declare it in this module",
+            "b.pietto",
+        ),
     ]
     # A source directory that is not valid UTF-8 and cannot be read is named
     # beside its own error, whose path is then null.

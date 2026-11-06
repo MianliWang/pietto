@@ -492,7 +492,7 @@ def _load_package_content(
         diagnostics.extend(nested_relation_syntax_diagnostics(parse_result.ast))
         from pietto._project.module_graph import module_item_refusals
 
-        diagnostics.extend(module_item_refusals(parse_result.ast, package=True))
+        diagnostics.extend(module_item_refusals(parse_result.ast))
         module_content = object.__new__(_PackageModuleContent)
         object.__setattr__(module_content, "asset", asset)
         object.__setattr__(

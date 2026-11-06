@@ -1218,6 +1218,74 @@ def test_an_imported_def_renders_the_sql_of_the_same_local_def(tmp_path, target)
         assert bind_values(template, ()).artifact.rendered.sql == sql
 
 
+@pytest.mark.parametrize("target", ("postgres", "mysql"))
+def test_an_imported_relationship_renders_the_sql_of_the_same_local_one(
+    tmp_path, target
+):
+    """A relationship another module exports, called by the name an
+    `as` import binds in ON, a WHERE `any(...)` and SELECT, emits the bytes
+    of the same relationship declared locally, its parameter shape the
+    declaring module's (which the sources import), and binds through a
+    loaded compiled bundle and a live template to them."""
+    import _pietto_sql_emission as probe
+    from pietto._project.project_compiled_build import build_compiled
+    from pietto._project.project_compiled_loading import load_compiled
+    from pietto._project.project_execution_template import (
+        bind_values,
+        prepare_compiled_template,
+        prepare_live_template,
+    )
+
+    item = probe.join_witness(target, "")
+    shape = "shape Row:\n    id: Int\n    key: Int | None\n"
+    declared = "relationship Same(left: Row, right: Row):\n    left.id == right.id\n"
+    body = (
+        f'source lhs: Row = {target}.table("lhs")\n'
+        f'source rhs: Row = {target}.table("rhs")\n'
+        "query result:\n"
+        "    from lhs\n"
+        "    inner join rhs on {0}(lhs, rhs)\n"
+        "    where any({0}(lhs, other) for other in rhs)\n"
+        "    select:\n"
+        "        id = lhs.id\n"
+        "        flag = {0}(lhs, rhs)\n"
+    )
+    outcomes = []
+    for name, files in (
+        ("local", {"main.pietto": shape + declared + body.format("Same")}),
+        (
+            "imported",
+            {
+                "a.pietto": "export shape Row, relationship Same\n" + shape + declared,
+                "main.pietto": 'from "a.pietto" import shape Row, relationship Same as s\n'
+                + body.format("s"),
+            },
+        ),
+    ):
+        _, outcome = probe.build_case(
+            tmp_path / name, files, item["contract"], item["policy"]
+        )
+        assert outcome.status == "VERIFIED", outcome.blockers
+        assert outcome.artifact is not None
+        outcomes.append(outcome.artifact)
+    local, imported = outcomes
+    sql = imported.rendered.sql
+    assert sql == local.rendered.sql
+    built = build_compiled(imported)
+    for template in (
+        prepare_live_template(imported),
+        prepare_compiled_template(
+            load_compiled(
+                built.payload,
+                expected_pin=built.pin,
+                accepted_producer=built.producer,
+                accepted_compatibility=built.compatibility,
+            )
+        ),
+    ):
+        assert bind_values(template, ()).artifact.rendered.sql == sql
+
+
 # Phase70 S11 x S10/S12/S14: header reads inside lets with capture lines.
 HEADER_IN_CAPTURES = """query result(cut: Int, hi: Int | None):
     let later:

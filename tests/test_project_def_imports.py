@@ -127,6 +127,8 @@ def test_each_failed_def_import_is_reported_at_its_item_and_none_wins(
             'Imported declaration is private or not exported: def helper from "a.pietto"',
         ),
         ("PIE-S2706", "b.pietto", 3, 9, f"{collision}: pos; import def pos as <name>"),
+        # A module's relationship is a local declaration of the binder too.
+        ("PIE-S2706", "b.pietto", 7, 16, f"{collision}: rel; import def pos as <name>"),
         *(
             (
                 "PIE-S2398",
@@ -138,7 +140,6 @@ def test_each_failed_def_import_is_reported_at_its_item_and_none_wins(
             )
             for line, name in ((4, "concat"), (5, "Float"), (6, "round"))
         ),
-        ("PIE-S2706", "b.pietto", 7, 16, f"{collision}: rel; import def pos as <name>"),
     ]
 
 
@@ -235,6 +236,12 @@ def test_an_unknown_export_of_a_def_is_refused_at_the_export(
             "helper is a def declared but not exported by a.pietto: export it "
             'there with export def helper, then import it with from "a.pietto" '
             "import def helper",
+        ),
+        # A qualified call is told to call the imported name.
+        (
+            "a.pos(amount)",
+            'pos is a def exported by a.pietto: import it with from "a.pietto" '
+            "import def pos, then call pos(...)",
         ),
     ),
 )
@@ -396,15 +403,6 @@ def test_a_def_imported_along_an_import_cycle_is_blocked(
             6,
             "Module import cycle detected: a.pietto -> b.pietto -> a.pietto",
         )
-    ]
-
-
-def test_a_relationship_item_is_refused_until_relationships_are_bound(
-    tmp_path: Path, capsys: pytest.CaptureFixture[str]
-) -> None:
-    exporter = DEFS.replace("export def pos,", "export def pos, relationship Same,")
-    assert _check(tmp_path, capsys, {"a.pietto": exporter}) == [
-        ("PIE-S2707", "a.pietto", 1, 17, "Unsupported module item: relationship Same")
     ]
 
 

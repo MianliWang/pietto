@@ -61,6 +61,7 @@ from pietto.ast_nodes import (
     RelationExistsExpr,
     RelationScalarExpr,
     RelationMembershipExpr,
+    RelationshipTemplate,
     Script,
     SelectItem,
     ShapeDef,
@@ -238,6 +239,11 @@ class ProjectParsedInput:
     # The names of the defs the module's export statements name, which later
     # readers no longer see (`_without_callable_items`).
     exported_defs: tuple[str, ...] = ()
+    # Likewise the relationships they name.
+    exported_relationships: tuple[str, ...] = ()
+    # Each relationship the module imports: the name it binds, the declaring
+    # module's path and the relationship's name there (`_def_imports`).
+    imported_relationships: tuple[tuple[str, str, str], ...] = ()
     # The spans of the nodes that inlining an imported def put in ``script``
     # (`imported_node`).
     imported_nodes: frozenset[Span] = frozenset()
@@ -625,6 +631,7 @@ class ProjectSymbolKind(StrEnum):
     CONSTRAINT = "constraint"
     DERIVE = "derive"
     DEF = "def"
+    RELATIONSHIP = "relationship"
 
 
 @dataclass(frozen=True, slots=True)
@@ -3949,7 +3956,8 @@ def _classify_project_definition(
     definition: Definition
     | ValuesRelationDef
     | TableFunctionRelationDef
-    | UnnestRelationDef,
+    | UnnestRelationDef
+    | RelationshipTemplate,
 ) -> tuple[ProjectSymbolNamespace, ProjectSymbolKind]:
     """Classify a top-level definition into the Phase 45 hybrid namespace."""
 
@@ -3981,6 +3989,8 @@ def _classify_project_definition(
         return ProjectSymbolNamespace.CALLABLE, ProjectSymbolKind.DERIVE
     if isinstance(definition, FunctionDef):
         return ProjectSymbolNamespace.CALLABLE, ProjectSymbolKind.DEF
+    if isinstance(definition, RelationshipTemplate):
+        return ProjectSymbolNamespace.CALLABLE, ProjectSymbolKind.RELATIONSHIP
     raise AssertionError(f"Unsupported project definition: {type(definition).__name__}")
 
 

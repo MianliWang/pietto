@@ -32,6 +32,7 @@ from pietto.ast_nodes import (
     ImportItem,
     ImportStatement,
     ModuleDeclarationKind,
+    RelationshipTemplate,
 )
 
 __all__: tuple[str, ...] = ()
@@ -62,11 +63,16 @@ _IMPORT_KIND_MAP = {
         ProjectSymbolNamespace.RELATION,
         ProjectSymbolKind.QUERY,
     ),
-    # A def is bound only where its calls are inlined, before the modules
-    # that later readers see, which no longer hold it (`_def_imports`).
+    # A def or relationship is bound only before its calls are inlined or
+    # bound, in a view of the modules that later readers never see
+    # (`_def_imports`).
     ModuleDeclarationKind.DEF: (
         ProjectSymbolNamespace.CALLABLE,
         ProjectSymbolKind.DEF,
+    ),
+    ModuleDeclarationKind.RELATIONSHIP: (
+        ProjectSymbolNamespace.CALLABLE,
+        ProjectSymbolKind.RELATIONSHIP,
     ),
 }
 _ELIGIBLE_NAMESPACE_KIND_PAIRS = frozenset(_IMPORT_KIND_MAP.values())
@@ -1143,12 +1149,16 @@ def _validate_builder_inputs(
 
 def _collides(request: ProjectModuleImportRequest, definition: object) -> bool:
     """Whether a local ``definition`` named as ``request`` binds collides
-    with it: a module's own def meets only a def import, and every other
-    import ignores it, as it does once inlining took the def out."""
+    with it: a module's own def or relationship meets only a def or
+    relationship import, and every other import ignores it, as it does in
+    the modules that later readers see."""
 
-    return (
-        type(definition) is not FunctionDef
-        or request.identity.declaration_kind is ProjectSymbolKind.DEF
+    return type(definition) not in (
+        FunctionDef,
+        RelationshipTemplate,
+    ) or request.identity.declaration_kind in (
+        ProjectSymbolKind.DEF,
+        ProjectSymbolKind.RELATIONSHIP,
     )
 
 

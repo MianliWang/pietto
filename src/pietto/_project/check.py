@@ -6,11 +6,12 @@ from collections import deque
 from collections.abc import Mapping
 from dataclasses import dataclass, replace
 from pathlib import Path
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, cast
 
 import pietto.parser_api as parser_api
 from pietto._builtin_shadows import imported_nodes
 from pietto.ast_nodes import (
+    Definition,
     ExportStatement,
     FunctionDef,
     ImportStatement,
@@ -196,6 +197,11 @@ def _check_project_parse_only(root: str | Path) -> ProjectParseCheckResult:
                 failed=failed,
                 blocked=blocked,
                 templates_out=own,
+                imported_relationships=(
+                    ()
+                    if def_imports is None
+                    else def_imports.relationships.get(item.entry.identity.path, ())
+                ),
                 capture_diagnostics_out=captured,
                 parameter_positions_out=parameter_positions,
                 unadmitted_paths_out=unadmitted_paths,
@@ -471,8 +477,8 @@ def _module_facts(
     )
 
 
-# The import and export items that only inlining reads: a def's, and a
-# relationship's, which admission refuses until it is bound.
+# The import and export items that only inlining and relationship binding
+# read: a def's and a relationship's.
 _CALLABLE_ITEM_KINDS = frozenset(
     {ModuleDeclarationKind.DEF, ModuleDeclarationKind.RELATIONSHIP}
 )
@@ -481,17 +487,20 @@ _CALLABLE_ITEM_KINDS = frozenset(
 @dataclass(frozen=True, slots=True)
 class _DefImports:
     """How each module of an explicit-module project that imports or exports
-    a def binds the defs it imports, found before any call is inlined.
+    a def or a relationship binds the defs and relationships it imports,
+    found before any call is inlined or bound.
 
     ``bound`` maps a module path to each local name it imports a def under,
-    with the declaring module's path and the def's name there. A module in
+    with the declaring module's path and the def's name there, and
+    ``relationships`` to each relationship it imports likewise. A module in
     ``blocked`` imports a def along an import cycle; its calls
-    are not inlined. A def import that fails, a blocked one, or one bound to
-    a built-in name (PIE-S2398) or to a relationship of the module (a collision)
+    are not inlined. A def or relationship import or export that fails, one
+    along an import cycle, or one bound to a built-in name (PIE-S2398)
     ``stop``s the check before semantic analysis, as a def error does, with
     the module errors in ``facts`` and the others in ``diagnostics``."""
 
     bound: Mapping[str, Mapping[str, tuple[str, str]]]
+    relationships: Mapping[str, tuple[tuple[str, str, str], ...]]
     blocked: frozenset[str]
     facts: ProjectModuleDiagnosticSet
     diagnostics: tuple[Diagnostic, ...]
@@ -502,12 +511,11 @@ def _def_imports(
     selected_input_index: ProjectSelectedInputIndex,
     read: list[_ReadInput | _InputOutcome],
 ) -> _DefImports | None:
-    """Bind the def imports of an explicit-module project whose every module
-    parsed and passed syntax admission, through the same exports and
-    bindings as every other import, each def a declaration of its module.
-    A project without a def import or export item has none."""
-
-    from pietto._project.module_graph import def_import_collision
+    """Bind the def and relationship imports of an explicit-module project
+    whose every module parsed and passed syntax admission, through the same
+    exports and bindings as every other import, each def and relationship a
+    declaration of its module (`_callable_view`). A project without a def or
+    relationship import or export item has none."""
 
     inputs = tuple(item for item in read if type(item) is _ReadInput)
     if (
@@ -519,7 +527,9 @@ def _def_imports(
     ):
         return None
     parsed = tuple(
-        ProjectParsedInput(path=item.entry.identity.path, script=item.script)
+        ProjectParsedInput(
+            path=item.entry.identity.path, script=_callable_view(item.script)
+        )
         for item in inputs
     )
     modules = _build_project_logical_modules(
@@ -535,57 +545,80 @@ def _def_imports(
         for member in component.members
     }
     stop = any(
-        issue.request.source_item.declaration_kind is ModuleDeclarationKind.DEF
+        issue.request.source_item.declaration_kind in _CALLABLE_ITEM_KINDS
         for surface in exports.surfaces
         for issue in surface.issues
     ) or any(
-        issue.request.source_item.declaration_kind is ModuleDeclarationKind.DEF
+        issue.request.source_item.declaration_kind in _CALLABLE_ITEM_KINDS
         for environment in bindings.environments
         for issue in environment.issues
     )
     bound: dict[str, dict[str, tuple[str, str]]] = {}
+    relationships: dict[str, list[tuple[str, str, str]]] = {}
     blocked: set[str] = set()
     found: list[Diagnostic] = []
     for environment in bindings.environments:
         path = environment.module.path
-        relationships = {
-            item.name
-            for item in parsed[
-                environment.module.position
-            ].script.relationship_templates
-        }
         for binding in environment.bindings:
             request = binding.request
-            if request.source_item.declaration_kind is not ModuleDeclarationKind.DEF:
+            kind = request.source_item.declaration_kind
+            if kind not in _CALLABLE_ITEM_KINDS:
                 continue
             local = binding.identity.local_binding_name
+            target = binding.target_identity
             if path in cycle_of and cycle_of[path] == cycle_of.get(
                 request.target_module_path
             ):
-                blocked.add(path)
+                stop = True
+                if kind is ModuleDeclarationKind.DEF:
+                    blocked.add(path)
             elif reserved_import_name(local):
                 found.append(
                     _span_diagnostic(
                         "PIE-S2398",
                         f"Import binding {local} has the name of a built-in "
-                        "function; a def cannot shadow one",
+                        f"function; a {kind.value} cannot shadow one",
                         request.source_item.span,
                         path,
                     )
                 )
-            elif local in relationships:
-                found.append(def_import_collision(request))
-            else:
+            elif kind is ModuleDeclarationKind.DEF:
                 bound.setdefault(path, {})[local] = (
-                    binding.target_identity.module_path,
-                    binding.target_identity.declared_name,
+                    target.module_path,
+                    target.declared_name,
+                )
+            else:
+                relationships.setdefault(path, []).append(
+                    (local, target.module_path, target.declared_name)
                 )
     return _DefImports(
         bound=bound,
+        relationships={path: tuple(items) for path, items in relationships.items()},
         blocked=frozenset(blocked),
         facts=facts,
         diagnostics=tuple(found),
-        stop=stop or bool(blocked) or bool(found),
+        stop=stop or bool(found),
+    )
+
+
+def _callable_view(script: Script) -> Script:
+    """``script`` with its relationships among its definitions, in source
+    order, so that its exports and imports bind a relationship as any other
+    declaration; no later reader sees this view."""
+
+    if not script.relationship_templates:
+        return script
+    return replace(
+        script,
+        definitions=cast(
+            tuple[Definition, ...],
+            tuple(
+                sorted(
+                    (*script.definitions, *script.relationship_templates),
+                    key=lambda item: (item.span.line, item.span.column),
+                )
+            ),
+        ),
     )
 
 
@@ -697,6 +730,18 @@ def _without_callable_items(script: Script) -> Script:
             )
             for statement in script.module_statements
         ),
+    )
+
+
+def _exported(script: Script, kind: ModuleDeclarationKind) -> tuple[str, ...]:
+    """The names of the declarations of ``kind`` that ``script`` exports."""
+
+    return tuple(
+        item.local_name
+        for statement in script.module_statements
+        if type(statement) is ExportStatement
+        for item in statement.items
+        if item.declaration_kind is kind
     )
 
 
@@ -993,12 +1038,6 @@ def _read_selected_input(
                 )
             )
         gate = unadmitted_syntax_diagnostics(script, explicit_modules=explicit_modules)
-        if explicit_modules:
-            from pietto._project.module_graph import module_item_refusals
-
-            refused = module_item_refusals(script)
-            if refused:
-                gate = tuple(sorted((*gate, *refused), key=source_order))
     except RecursionError:
         return replace(read, recursion=True)
     return replace(
@@ -1019,6 +1058,7 @@ def _finish_selected_input(
     failed: Mapping[str, FunctionDef] | None = None,
     blocked: bool = False,
     templates_out: dict[str, DefTemplate] | None = None,
+    imported_relationships: tuple[tuple[str, str, str], ...] = (),
     capture_diagnostics_out: list[Diagnostic] | None = None,
     parameter_positions_out: list[Diagnostic] | None = None,
     unadmitted_paths_out: set[str] | None = None,
@@ -1026,7 +1066,8 @@ def _finish_selected_input(
     """Inline the def calls of a read input, with the defs it imports in
     ``imported``, and run its capture and header checks. A ``blocked`` input
     keeps its def calls, as one that fails admission does; when it imports a
-    def that ``failed`` in its own module, its own defs are still checked."""
+    def that ``failed`` in its own module, its own defs are still checked.
+    The relationships it imports are kept for relationship binding."""
 
     from pietto.semantic.existence_generators import (
         collect_any_values,
@@ -1149,13 +1190,11 @@ def _finish_selected_input(
             scalar_callables=tuple(
                 item for item in read.ast.definitions if type(item) is FunctionDef
             ),
-            exported_defs=tuple(
-                item.local_name
-                for statement in read.ast.module_statements
-                if type(statement) is ExportStatement
-                for item in statement.items
-                if item.declaration_kind is ModuleDeclarationKind.DEF
+            exported_defs=_exported(read.ast, ModuleDeclarationKind.DEF),
+            exported_relationships=_exported(
+                read.ast, ModuleDeclarationKind.RELATIONSHIP
             ),
+            imported_relationships=imported_relationships,
             imported_nodes=imported_spans,
         ),
         read.trusted_source,

@@ -907,12 +907,57 @@ Not this:
   `def pos as p` (PIE-S2706).
 - `import def pos as concat` (also `Float`, `Text`, `round`): a def cannot take
   a built-in name (PIE-S2398).
-- a relationship item: declare the relationship in the module whose JOINs
-  call it (PIE-S2707).
 - a def or relationship item in a package module: package modules do not
   support them yet (PIE-S2707).
 - calling `pos` without importing it: PIE-S2103 names the export and import to
   write.
+- `a.pos(x)`: import `pos` and call `pos(x)` (PIE-S2103 says so).
+
+### A relationship from another module
+
+A relationship is exported and imported the same way; the importer does not
+import its parameter shapes to call it:
+
+```text
+# models/a.pietto
+export shape Order, shape Customer, source orders, source customers, relationship OrderCustomer
+shape Order:
+    id: Int
+    customer_id: Int
+shape Customer:
+    id: Int
+    status: Text | None
+source orders: Order = postgres.table("shop.orders")
+source customers: Customer = postgres.table("shop.customers")
+relationship OrderCustomer(order: Order, customer: Customer):
+    order.customer_id == customer.id
+
+# models/b.pietto
+from "models/a.pietto" import source orders, source customers, relationship OrderCustomer
+query order_customers:
+    from orders
+    let buyer = customers
+    left join buyer on OrderCustomer(orders, buyer)
+    select:
+        order_id = orders.id
+        customer_id = buyer.id
+```
+
+Not this:
+
+- `import relationship OrderCustomer` beside a local declaration of
+  `OrderCustomer` of any kind, or two imports binding one name: import it as
+  another name, `relationship OrderCustomer as oc` (PIE-S2706).
+- `relationship OrderCustomer as concat` (also `Float`, `Text`, `round`): a
+  relationship cannot take a built-in name (PIE-S2398).
+- `import def OrderCustomer` for a relationship: write
+  `relationship OrderCustomer` (PIE-S2705 names the kind).
+- calling a relationship the other module does not export, or that this
+  module does not import: PIE-S2103 names the export and import to write.
+  When only a module that imports this one declares it, or this module
+  already has the name, declare the relationship here.
+- a row of a shape that the importer declares itself: pass a row of the
+  declaring module's shape, for example a source of it (PIE-S2604).
 
 ## Text, None-safe equality, ranges and spread
 

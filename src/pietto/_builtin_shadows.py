@@ -25,10 +25,11 @@ _SHADOWABLE = frozenset({"Float", "Text", "concat", "max", "min"})
 _CONCAT_FILES: contextvars.ContextVar[frozenset[str | None]] = contextvars.ContextVar(
     "_CONCAT_FILES", default=frozenset()
 )
-# The spans of the nodes that the body of a def another module declares
-# brought into the scripts `builtin_shadows` analyzes. That body is bound once,
-# in its module, so a `concat` call in it names the builtin there and is no
-# call of the importer's relationship (an import adds no shadow scope).
+# The spans of the nodes that the body of a def or relationship another module
+# declares brought into the scripts `builtin_shadows` analyzes. That body is
+# bound once, in its module, so a `concat` call in it names the builtin there
+# and is no call of the importer's relationship (an import adds no shadow
+# scope).
 _IMPORTED: contextvars.ContextVar[set[ast.Span] | frozenset[ast.Span]] = (
     contextvars.ContextVar("_IMPORTED", default=frozenset())
 )
@@ -79,14 +80,14 @@ def builtin_shadows(
 
 def in_concat_file(node: ast.Node) -> bool:
     """Whether ``node`` is written, inside `builtin_shadows`, in a file that
-    declares a callable `concat`, and is no node of an imported def body."""
+    declares a callable `concat`, and is no node of an imported body."""
 
     return node.span.path in _CONCAT_FILES.get() and not imported_node(node)
 
 
 def imported_node(node: ast.Node) -> bool:
     """Whether ``node``, inside `builtin_shadows`, is a node of the body of a
-    def that another module declares."""
+    def or relationship that another module declares."""
 
     return node.span in _IMPORTED.get()
 
@@ -95,8 +96,8 @@ def copy_imported(
     original: ast.Node, copy: ast.Span, *, imported: bool = False
 ) -> None:
     """Inside `builtin_shadows`, keep the copy at ``copy`` of ``original`` a
-    node of an imported def body if ``original`` is one or, with
-    ``imported``, it is a node of a body another module declares."""
+    node of an imported body if ``original`` is one or, with ``imported``, it
+    is a node of a relationship body another module declares."""
 
     nodes = _IMPORTED.get()
     if type(nodes) is set and (imported or original.span in nodes):

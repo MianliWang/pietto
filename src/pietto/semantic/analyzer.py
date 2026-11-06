@@ -397,13 +397,11 @@ def name_uncallable_calls(
     and order. With ``shared`` the scripts' files are one callable namespace,
     as a LEGACY_FLAT project's are, so the name may be declared in any of
     them. The first declaration of a name in a file, or in the shared
-    namespace, holds it, as in the callable namespace. Without ``shared``, a
-    call of a relationship that only other files declare says so: a module
-    cannot import a relationship. With no such call the same tuple is
-    returned, since readers may compare diagnostics by identity."""
+    namespace, holds it, as in the callable namespace. With no such call the
+    same tuple is returned, since readers may compare diagnostics by
+    identity."""
 
     kinds: dict[tuple[str | None, str], str] = {}
-    relationships: dict[str, dict[str | None, None]] = {}
     for script in scripts:
         for definition in script.definitions:
             if type(definition) in (ConstraintDef, DeriveDef):
@@ -411,8 +409,6 @@ def name_uncallable_calls(
                     (None if shared else definition.span.path, definition.name),
                     "constraint" if type(definition) is ConstraintDef else "derive",
                 )
-        for template in () if shared else script.relationship_templates:
-            relationships.setdefault(template.name, {})[template.span.path] = None
     named = list(diagnostics)
     for position, diagnostic in enumerate(diagnostics):
         if diagnostic.code != "PIE-S2103" or not diagnostic.message.startswith(
@@ -422,24 +418,11 @@ def name_uncallable_calls(
         # The called name, before any hint for it.
         name = diagnostic.message.removeprefix(_UNKNOWN_FUNCTION).partition(";")[0]
         kind = kinds.get((None if shared else diagnostic.location.path, name))
-        files = tuple(
-            str(path)
-            for path in relationships.get(name, ())
-            if path != diagnostic.location.path
-        )
         if kind is not None:
             named[position] = replace(
                 diagnostic,
                 message=f"{_UNKNOWN_FUNCTION}{name}; {name} is a {kind}, which "
                 "cannot be called; write a `def` instead",
-            )
-        elif files:
-            where = files[0] if len(files) == 1 else ", ".join(files[:-1])
-            where += "" if len(files) == 1 else f" and {files[-1]}"
-            named[position] = replace(
-                diagnostic,
-                message=f"{_UNKNOWN_FUNCTION}{name}; {name} is a relationship of "
-                f"{where}, which a module cannot import: declare it in this module",
             )
     if all(new is old for new, old in zip(named, diagnostics, strict=True)):
         return diagnostics

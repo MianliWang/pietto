@@ -203,7 +203,7 @@ def _one_surface(
     return result.surfaces[0]
 
 
-def test_export_carrier_enums_fields_privacy_and_exact_seven_kind_mapping_are_locked() -> (
+def test_export_carrier_enums_fields_privacy_and_exact_eight_kind_mapping_are_locked() -> (
     None
 ):
     assert module_exports.__all__ == ()
@@ -229,6 +229,7 @@ def test_export_carrier_enums_fields_privacy_and_exact_seven_kind_mapping_are_lo
         "table": ("relation", "table"),
         "query": ("relation", "query"),
         "def": ("callable", "def"),
+        "relationship": ("callable", "relationship"),
     }
     assert tuple(
         field.name for field in fields(module_exports.ProjectModuleExportRequest)

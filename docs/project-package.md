@@ -169,9 +169,8 @@ each old JOIN with PIE-P1011; see
 [Migrating old source](language.md#migrating-old-source)), then set
 `schema_version = 2`. In a project of several files, each module then imports
 what it reads from another module, which exports it (see [Modules](#modules)),
-and declares the relationships its JOINs call, as a relationship is not
-imported. A def it calls may be imported from the module that exports it
-(`from "models/a.pietto" import def pos`).
+including a def or relationship it calls (`from "models/a.pietto" import
+relationship OrderCustomer`).
 
 Schema v4 has no implicit or default target or compiler profile. Package
 manifest v2 capability requirements remain owned by their declaring packages;
@@ -394,10 +393,10 @@ project check refuses each one, and a single-file command warns at each one
 The target module must export the requested declarations, with the kind they
 are exported as; a module may re-export an imported declaration, and such
 re-exports chain through any number of modules. Kinds are `type`, `enum`,
-`shape`, `source`, `table`, `query` and `def` in an EXPLICIT_MODULES project;
-`constraint` and `derive` declarations are not importable or exportable, and a
-`relationship` item is refused (PIE-S2707) until relationships are bound. A
-package module refuses each `def` or `relationship` item (PIE-S2707).
+`shape`, `source`, `table`, `query`, `def` and `relationship` in an
+EXPLICIT_MODULES project; `constraint` and `derive` declarations are not
+importable or exportable. A package module refuses each `def` or
+`relationship` item (PIE-S2707).
 A relationship call uses the exact declared shapes and actual row occurrences,
 including identities reached through imported shape/source aliases. It does not
 create a public link object, infer a FROM input or grant a foreign-key promise.

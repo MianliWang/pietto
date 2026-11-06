@@ -74,11 +74,16 @@ _ELIGIBLE_EXPORT_KIND_MAP = {
         ProjectSymbolNamespace.RELATION,
         ProjectSymbolKind.QUERY,
     ),
-    # A def is bound only where its calls are inlined, before the modules
-    # that later readers see, which no longer hold it (`_def_imports`).
+    # A def or relationship is bound only before its calls are inlined or
+    # bound, in a view of the modules that later readers never see
+    # (`_def_imports`).
     ModuleDeclarationKind.DEF: (
         ProjectSymbolNamespace.CALLABLE,
         ProjectSymbolKind.DEF,
+    ),
+    ModuleDeclarationKind.RELATIONSHIP: (
+        ProjectSymbolNamespace.CALLABLE,
+        ProjectSymbolKind.RELATIONSHIP,
     ),
 }
 _ELIGIBLE_NAMESPACE_KIND_PAIRS = frozenset(_ELIGIBLE_EXPORT_KIND_MAP.values())
