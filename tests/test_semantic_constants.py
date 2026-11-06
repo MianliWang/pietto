@@ -259,3 +259,31 @@ def test_a_constant_is_no_builtin_call_name_and_no_source_connector_argument() -
             "what it reads with a literal written there.",
         ),
     ]
+
+
+def test_a_constant_value_is_never_now_and_never_named_like_a_new_builtin() -> None:
+    """`now()` as a constant's value is the generic `now()` refusal, reported
+    before the constant rules; `median`, `quantile` and `now` are built-in
+    names that no constant takes."""
+
+    assert _errors(
+        "t: Timestamp = now()\n\nquery q:\n    from events\n    select:\n        id\n"
+    ) == [
+        (
+            "PIE-S2387",
+            1,
+            16,
+            "`now()` is available only in a SELECT item or a WHERE comparison",
+        )
+    ]
+    builtin = (
+        "has the name of a built-in function; give the constant a name of its own."
+    )
+    assert _errors(
+        "median: Int = 1\n\nquantile: Int = 2\n\nnow: Int = 3\n\n"
+        "query q:\n    from events\n    select:\n        id\n"
+    ) == [
+        ("PIE-S2391", 1, 1, f"Constant `median` {builtin}"),
+        ("PIE-S2391", 3, 1, f"Constant `quantile` {builtin}"),
+        ("PIE-S2391", 5, 1, f"Constant `now` {builtin}"),
+    ]

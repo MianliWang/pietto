@@ -63,6 +63,65 @@ def test_relay_requires_a_sink_before_opening_the_workspace(query):
     )
 
 
+def test_relay_refuses_a_now_read_before_the_sink_or_workspace(tmp_path):
+    """A relay of a query that reads `now()` is refused before any sink or
+    workspace work; a plain save of it is not (its saved rows keep the
+    value), so it reaches the workspace."""
+    project = api.write_example(tmp_path / "project")
+    main = project / "main.pietto"
+    main.write_text(
+        main.read_text(encoding="utf-8")
+        + "table snap:\n    from items\n    select:\n        id\n        seen = now()\n",
+        encoding="utf-8",
+    )
+    query = execution.compile_query(
+        project,
+        module="main.pietto",
+        kind="table",
+        name="snap",
+        dialect="postgres",
+        emission_contract="contract.json",
+    )
+    workspace = object.__new__(execution.WorkspaceRef)
+    object.__setattr__(workspace, "root", "/not-opened")
+    object.__setattr__(workspace, "identity", "ws-" + "0" * 32)
+    values = tuple(
+        slot.original.site.position.literal.value for slot in query._template.slots
+    )
+
+    with pytest.raises(execution.RequestRejected) as refused:
+        execution.relay_live(
+            workspace,
+            query,
+            operation=execution.new_operation(),
+            route="postgres_rows",
+            access=_access(),
+            premise=_premise(),
+            sink_root=None,
+            expected_sink_identity="snk-" + "0" * 32,
+            sink_namespace="relay",
+            sink_epoch=1,
+            sink_retention="retention",
+            sink_budget_bytes=private_workspace.DEFAULT_BUDGET,
+            values=values,
+        )
+    assert (refused.value.code, refused.value.detail) == (
+        "PIE-R1004",
+        "STATEMENT_SNAPSHOT_ENTRY",
+    )
+    with pytest.raises(execution.RequestRejected) as saved:
+        execution.save(
+            workspace,
+            query,
+            operation=execution.new_operation(),
+            route="postgres_rows",
+            access=_access(),
+            premise=_premise(),
+            values=values,
+        )
+    assert saved.value.code == "PIE-R1009"
+
+
 @pytest.mark.parametrize(
     ("route", "dialect", "access", "premise", "deployment"),
     (

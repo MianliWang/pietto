@@ -568,6 +568,18 @@ class _Writer:
                     "coalesce": "COALESCE",
                 },
             }[self.request.family].get(name)
+            if name == "now":
+                if self.request.family != "postgres" or value.operands:
+                    raise ValueError("unrenderable scalar call")
+                self.emit(
+                    "(statement_timestamp() AT TIME ZONE 'UTC'",
+                    "syntax",
+                    "scalar_call_open",
+                    reference,
+                )
+                self.emit(")", "syntax", "scalar_call_close", reference)
+                self.enclose("scalar_call", reference, start)
+                return
             if name == "round":
                 if self.request.family != "postgres":
                     raise ValueError("unrenderable scalar call")

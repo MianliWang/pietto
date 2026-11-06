@@ -359,6 +359,7 @@ _COLLECT = (
     "a Collect read is the select item `name = collect relation` in an "
     "EXPLICIT_MODULES project"
 )
+_NOW = "write `now()`, the UTC time when the query runs"
 
 
 @pytest.mark.parametrize(
@@ -431,6 +432,17 @@ _COLLECT = (
             "ranges_overlap(count, count, count, count)",
             "write `a_start < b_stop and b_start < a_stop`",
         ),
+        # The UTC time of the running query is `now()`, its date
+        # `date_of(now())`; lowercase `now` is a builtin.
+        ("current_timestamp()", _NOW),
+        ("CURRENT_TIMESTAMP()", _NOW),
+        ("utcnow()", _NOW),
+        ("utc_now()", _NOW),
+        ("datetime.now()", _NOW),
+        ("datetime.utcnow()", _NOW),
+        ("today()", "write `date_of(now())`, the UTC date when the query runs"),
+        ("date.today()", "write `date_of(now())`, the UTC date when the query runs"),
+        ("NOW()", "write `now()` in lowercase"),
     ],
 )
 def test_unknown_function_of_a_sql_or_python_habit_names_the_pietto_form(
@@ -449,6 +461,155 @@ def test_unknown_function_of_a_sql_or_python_habit_names_the_pietto_form(
         (d.code, d.location.line, d.location.column, d.message)
         for d in result.diagnostics
     ] == [("PIE-S2103", 8, 17, f"Unknown function: {call.split('(')[0]}; {hint}")]
+
+
+_EVENTS = (
+    "shape Event:\n"
+    "    id: Int\n"
+    "    k: Int\n"
+    "    start: Timestamp\n"
+    "    stop: Timestamp | None\n"
+    'source events: Event = postgres.table("events")\n'
+)
+
+
+def test_now_is_a_never_none_timestamp_in_select_items_and_where() -> None:
+    """`now()` is the UTC Timestamp of the running query, never None; a
+    WHERE reads it in a comparison chain and `date_of(now())` is its date."""
+    result = analyze(
+        _parse(
+            _EVENTS + "table projected:\n"
+            "    from events\n"
+            "    where start <= now() < stop\n"
+            "    select:\n"
+            "        seen = now()\n"
+            "        day = date_of(now())\n"
+        )
+    )
+
+    assert result.diagnostics == ()
+    seen, day = (item.expression for item in _table(result).select_items)
+    types = result.model.expression_value_types
+    assert (types[seen].resolved_type.name, types[seen].nullability) == (
+        "Timestamp",
+        EffectiveNullability.NON_NULL,
+    )
+    assert (types[day].resolved_type.name, types[day].nullability) == (
+        "Date",
+        EffectiveNullability.NON_NULL,
+    )
+
+
+def test_now_takes_no_argument() -> None:
+    result = analyze(
+        _parse(
+            _EVENTS + "table projected:\n"
+            "    from events\n"
+            "    select:\n"
+            "        seen = now(start)\n"
+        )
+    )
+
+    assert [(d.code, d.message) for d in result.diagnostics] == [
+        ("PIE-S2104", "Invalid arguments for function now: expected 0, got 1")
+    ]
+
+
+_NOW_ONLY = "`now()` is available only in a SELECT item or a WHERE comparison"
+
+
+@pytest.mark.parametrize(
+    ("body", "column", "message"),
+    [
+        (
+            "    let d = date_of(now())\n    group by d\n    select:\n        d = d\n",
+            21,
+            "`now()` cannot be in a GROUP BY key: every row has the same `now()`, "
+            "so it never splits a group",
+        ),
+        (
+            "    select:\n        id = id\n    order by now()\n",
+            14,
+            "`now()` cannot be in an ORDER BY key: every row has the same "
+            "`now()`; order by a field",
+        ),
+        (
+            "    let o = events\n    inner join o on o.start < now()\n"
+            "    select:\n        id = id\n",
+            31,
+            "`now()` cannot be in a JOIN condition; compare it in WHERE",
+        ),
+        (
+            "    select:\n        id = id\n        t = now()\n    order by t\n",
+            13,
+            "`now()` cannot be in an ORDER BY key: every row has the same "
+            "`now()`; order by a field",
+        ),
+        ("    let t = now()\n    select:\n        t = t\n", 13, _NOW_ONLY),
+        (
+            "    group by k\n    select:\n        k = k\n        n = count()\n"
+            "    having max(start) < now()\n",
+            25,
+            _NOW_ONLY,
+        ),
+        (
+            "    select:\n        id = id\n"
+            "        w = row_number() window(order by now())\n",
+            42,
+            _NOW_ONLY,
+        ),
+        (
+            "    select:\n        id = id\n"
+            "        w = row_number() window(order by id)\n    qualify start < now()\n",
+            21,
+            _NOW_ONLY,
+        ),
+    ],
+    ids=[
+        "group_key",
+        "order_key",
+        "join",
+        "order_key_alias",
+        "let",
+        "having",
+        "window",
+        "qualify",
+    ],
+)
+def test_now_outside_select_items_and_where_is_refused_where_it_stands(
+    body: str, column: int, message: str
+) -> None:
+    lines = (_EVENTS + "table projected:\n    from events\n" + body).splitlines()
+    line = next(n for n, text in enumerate(lines, 1) if "now()" in text)
+    result = analyze(_parse("\n".join(lines) + "\n"))
+
+    assert [
+        (d.code, d.location.line, d.location.column, d.message)
+        for d in result.diagnostics
+    ] == [("PIE-S2387", line, column, message)]
+
+
+@pytest.mark.parametrize(
+    ("source", "message"),
+    [
+        (
+            "def stamp() -> Timestamp: return now()\n",
+            _NOW_ONLY,
+        ),
+        (
+            "shape Stamped:\n    stamp: Timestamp derive now()\n",
+            "`now()` cannot be in a field derive, which reads one stored row; "
+            "select `now()` in a query",
+        ),
+    ],
+    ids=["def_body", "field_derive"],
+)
+def test_now_outside_a_relation_is_refused_where_it_stands(
+    source: str, message: str
+) -> None:
+    result = analyze(_parse(source))
+
+    assert [(d.code, d.message) for d in result.diagnostics] == [("PIE-S2387", message)]
 
 
 def test_wrong_argument_count_reports_pie_s2104() -> None:

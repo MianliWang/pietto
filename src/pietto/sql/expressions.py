@@ -1367,6 +1367,12 @@ def _render_call(expression: CallIR) -> str:
             for argument in expression.arguments
         )
         return f"({left} IS NOT DISTINCT FROM {right})"
+    if expression.callee == "now":
+        if expression.arguments:
+            raise ValueError("PostgreSQL function now expects 0 argument(s)")
+        # The statement's start as a UTC civil Timestamp in every session time
+        # zone; PostgreSQL now() is the transaction's start.
+        return "(statement_timestamp() AT TIME ZONE 'UTC')"
     if expression.callee not in _FUNCTION_ARITIES:
         raise ValueError(f"Unsupported PostgreSQL function call: {expression.callee}")
     expected_arity = _FUNCTION_ARITIES[expression.callee]

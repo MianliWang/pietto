@@ -163,6 +163,11 @@ def test_check_and_explain_read_the_set_value(
     [
         ({"= 1.5": "= 1"}, "lo=0.5", "PIE-S2391"),
         ({'"2024-01-31"': 'date("2024-01-31")'}, "cutoff=2024-02-29", "PIE-S2391"),
+        (
+            {'Date = "2024-01-31"': "Timestamp = now()"},
+            "cutoff=2024-02-29 00:00:00",
+            "PIE-S2387",
+        ),
     ],
 )
 def test_set_never_hides_an_invalid_initializer(

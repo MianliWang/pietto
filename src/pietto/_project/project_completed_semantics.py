@@ -3409,7 +3409,14 @@ def derive_compiled_semantics(root, values, parameters=None):
                 elif role == "scalar_call":
                     from pietto.semantic.catalog import builtin_signature
 
-                    if token == "same_value":
+                    if token == "now":
+                        # The UTC statement snapshot, never None.
+                        error = "scalar call signature" if arguments else None
+                        typed = ValueType(
+                            ResolvedType("Timestamp", TypeKind.BUILTIN),
+                            EffectiveNullability.NON_NULL,
+                        )
+                    elif token == "same_value":
                         # NULL-safe equality of `==` operands is never NULL.
                         error = (
                             resolved_comparison_value_type(*arguments)[1]
@@ -4642,7 +4649,13 @@ def verify_compiled_semantics(value):
                     from pietto.semantic.catalog import builtin_signature
 
                     arguments = tuple(item.value_type for item in inputs)
-                    if token == "same_value":
+                    if token == "now":
+                        problem = "scalar call signature" if arguments else None
+                        typed = ValueType(
+                            ResolvedType("Timestamp", TypeKind.BUILTIN),
+                            EffectiveNullability.NON_NULL,
+                        )
+                    elif token == "same_value":
                         problem = (
                             resolved_comparison_value_type(*arguments)[1]
                             if len(arguments) == 2

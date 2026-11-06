@@ -6906,6 +6906,18 @@ def verify_row_bytes(query, rendered):
                         "coalesce": "COALESCE",
                     },
                 }[query.request.family].get(name)
+                if name == "now":
+                    if query.request.family != "postgres" or value.operands:
+                        raise ValueError("scalar call family")
+                    take(
+                        "syntax",
+                        "scalar_call_open",
+                        reference,
+                        "(statement_timestamp() AT TIME ZONE 'UTC'",
+                    )
+                    take("syntax", "scalar_call_close", reference, ")")
+                    spans.append(("scalar_call", reference, start, offset))
+                    return
                 if name == "round":
                     if query.request.family != "postgres":
                         raise ValueError("scalar call family")

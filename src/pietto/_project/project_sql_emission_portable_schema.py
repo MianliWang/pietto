@@ -870,6 +870,7 @@ OPERATORS = {
         "same_value",
         "lpad",
         "add_months",
+        "now",
     ),
 }
 COMPARISON_SPELLING = {

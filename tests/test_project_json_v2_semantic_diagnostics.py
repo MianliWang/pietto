@@ -1200,6 +1200,54 @@ def test_a_legacy_flat_check_refuses_an_any_in_a_repeated_chain_operand_once(
     ]
 
 
+@pytest.mark.parametrize("schema_version", (1, 2))
+def test_a_project_refuses_now_where_a_single_file_does(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str], schema_version: int
+) -> None:
+    """The same position gate runs in every project mode, before the
+    module's defs are inlined, so a def body that reads `now()` is refused at
+    the def and not at its call."""
+    root = _project_root(tmp_path, include=("*.pietto",), schema_version=schema_version)
+    _write(
+        root,
+        "main.pietto",
+        "shape Row:\n    id: Int\n    ts: Timestamp\n"
+        'source rows: Row = postgres.table("rows")\n'
+        "def stamp() -> Timestamp: return now()\n"
+        "query q:\n    from rows\n    where ts < now()\n    select:\n"
+        "        id\n        seen = now()\n        later = stamp()\n"
+        "    order by now()\n",
+    )
+
+    assert cli.main(["check", "--project", str(root), "--format", "json"]) == 1
+    assert _located(_read_json_document(capsys)) == [
+        *(
+            # A LEGACY_FLAT project refuses the def itself too.
+            [
+                (
+                    "PIE-S2379",
+                    ("main.pietto", 5, 1, 5, 39),
+                    "Inline `def` functions are available only in single files "
+                    "and EXPLICIT_MODULES projects (schema version 2).",
+                )
+            ]
+            if schema_version == 1
+            else []
+        ),
+        (
+            "PIE-S2387",
+            ("main.pietto", 5, 34, 5, 39),
+            "`now()` is available only in a SELECT item or a WHERE comparison",
+        ),
+        (
+            "PIE-S2387",
+            ("main.pietto", 13, 14, 13, 19),
+            "`now()` cannot be in an ORDER BY key: every row has the same "
+            "`now()`; order by a field",
+        ),
+    ]
+
+
 def _located(
     document: dict[str, object],
 ) -> list[tuple[object, tuple[object, ...], object]]:

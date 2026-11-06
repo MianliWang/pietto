@@ -6533,6 +6533,17 @@ _UNKNOWN_FUNCTION_HINTS = {
     "percentile_disc": "write `quantile(x, q)`, the interpolated quantile (pandas "
     "`Series.quantile`) with q a Float literal from 0.0 to 1.0; a discrete "
     "percentile that picks one value is not available",
+    # `now()` is the UTC time of the running query; lowercase `now` is a
+    # builtin.
+    **dict.fromkeys(
+        ("current_timestamp", "utcnow", "utc_now", "datetime.now", "datetime.utcnow"),
+        "write `now()`, the UTC time when the query runs",
+    ),
+    "now": "write `now()` in lowercase",
+    **dict.fromkeys(
+        ("today", "date.today"),
+        "write `date_of(now())`, the UTC date when the query runs",
+    ),
     "in_range": "write the half-open range `a <= ts < b`",
     "ranges_overlap": "write `a_start < b_stop and b_start < a_stop`",
     "rjust": "write `lpad(s, width, fill)`, which pads like Python `str.rjust` "

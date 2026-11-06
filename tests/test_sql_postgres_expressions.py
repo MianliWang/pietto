@@ -225,6 +225,17 @@ def test_same_value_is_parenthesised_is_not_distinct_from() -> None:
         render_expression_sql(_call("same_value", _field("code")))
 
 
+def test_now_is_the_statement_start_in_utc_whatever_the_session_time_zone() -> None:
+    # statement_timestamp() is one value per statement; AT TIME ZONE 'UTC'
+    # gives its UTC civil timestamp without a time zone in every session.
+    assert (
+        render_expression_sql(_call("now"))
+        == "(statement_timestamp() AT TIME ZONE 'UTC')"
+    )
+    with pytest.raises(ValueError, match="now expects 0"):
+        render_expression_sql(_call("now", _literal(1)))
+
+
 def test_len_call_uses_postgres_length() -> None:
     assert render_expression_sql(_call("len", _field("email"))) == 'length("email")'
 

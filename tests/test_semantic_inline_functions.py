@@ -417,6 +417,23 @@ def test_only_a_def_named_for_a_new_builtin_is_told_to_rename() -> None:
     ]
 
 
+def test_a_def_now_is_told_to_rename_for_the_new_builtin() -> None:
+    # `now` is a builtin, so a `def now`, which named no builtin before,
+    # is refused with a rename suggestion.
+    parsed = parse_source("def now() -> Int: return 1\n", path="m.pietto")
+    assert parsed.ast is not None
+    assert [
+        (d.code, d.message, d.suggestion) for d in analyze(parsed.ast).diagnostics
+    ] == [
+        (
+            "PIE-S2398",
+            "Def now has the name of a built-in function; a def cannot shadow one",
+            "Rename this def: `now` has become the built-in UTC time of the "
+            "running query, and a call to now always means it.",
+        )
+    ]
+
+
 def test_a_body_comparison_or_arithmetic_of_non_null_operands_is_non_null() -> None:
     """In a body a comparison, `between` or `+`, `-`, `*` of non-null operands
     is non-null, and so is what reads it as it reads any non-null value; `/`,
@@ -3473,9 +3490,16 @@ def test_concurrent_analyses_check_only_their_own_arguments() -> None:
 
 
 @pytest.mark.parametrize(
-    "function", ["now", "random", "current_timestamp", "gen_random_uuid"]
+    ("function", "hint"),
+    [
+        ("random", ""),
+        ("current_timestamp", "; write `now()`, the UTC time when the query runs"),
+        ("gen_random_uuid", ""),
+    ],
 )
-def test_no_volatile_function_reaches_a_repeated_argument(function: str) -> None:
+def test_no_volatile_function_reaches_a_repeated_argument(
+    function: str, hint: str
+) -> None:
     """A parameter used twice writes its argument twice in SQL, which keeps
     its meaning because Pietto has no volatile function to pass."""
     source = SHAPES + (
@@ -3487,8 +3511,22 @@ def test_no_volatile_function_reaches_a_repeated_argument(function: str) -> None
         "        id\n"
     )
     assert _errors(source) == [
-        ("PIE-S2103", BODY_LINE + 1, 17, f"Unknown function: {function}")
+        ("PIE-S2103", BODY_LINE + 1, 17, f"Unknown function: {function}{hint}")
     ]
+
+
+def test_now_is_one_value_per_statement_so_a_repeated_argument_keeps_it() -> None:
+    """`now()` is the statement's snapshot, not a volatile call, so a
+    parameter used twice writes it twice with one value."""
+    source = SHAPES + (
+        "def same(v: Timestamp) -> Bool: return v <= v\n"
+        "table t:\n"
+        "    from rows\n"
+        "    where same(now())\n"
+        "    select:\n"
+        "        id\n"
+    )
+    assert _errors(source) == []
 
 
 def _expression_nodes(expression: Any) -> list[Any]:
@@ -3900,6 +3938,30 @@ def test_a_median_or_quantile_callable_keeps_or_yields_its_meaning(name: str) ->
             )
             == []
         )
+
+
+@pytest.mark.parametrize(
+    "body",
+    [
+        "    let o = rows\n    inner join o on o.id == rows.id and now(o)\n",
+        "    let ok = now(rows)\n    where ok\n",
+    ],
+    ids=["join", "let"],
+)
+def test_now_relationship_template_keeps_its_meaning(body: str) -> None:
+    # The builtin `now()` takes no argument, so `now(o)` stays the call of
+    # the file's own relationship template, also where `now()` is refused.
+    parsed = parse_source(
+        _CONCAT_ROWS
+        + "relationship now(row: Row):\n    row.id > 0\n"
+        + "query q:\n    from rows\n"
+        + body
+        + "    select:\n        v = rows.a\n"
+    )
+    assert parsed.diagnostics == () and parsed.ast is not None
+    checked = analyze(parsed.ast)
+    assert checked.diagnostics == ()
+    assert len(checked.model.relationship_calls) == 1
 
 
 @pytest.mark.parametrize(

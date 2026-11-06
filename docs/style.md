@@ -780,6 +780,33 @@ of a shorter month: one month after 2024-01-31 is 2024-02-29, and one month
 after 2024-02-29 is 2024-03-29, not the end of March. Both are None when any
 argument is None.
 
+```pietto
+shape Offer:
+    id: Int
+    starts_at: Timestamp
+    ends_at: Timestamp | None
+
+source offers: Offer = postgres.table("offers")
+
+query current_offers:
+    from offers
+    where starts_at <= now() < ends_at
+    select:
+        id
+        checked_at = now()
+        checked_on = date_of(now())
+```
+
+`now()` is the time the query runs, in UTC and without a time zone, as Python's
+`datetime.now(timezone.utc).replace(tzinfo=None)`; it is not `datetime.now()`,
+which is local time. Every `now()` of one run is the same value, and a new run
+reads a new one; saved results keep the value of the run that saved them.
+`date_of(now())` is today's UTC date. Write `now()` in a SELECT item or a WHERE
+comparison; elsewhere, such as a GROUP BY or ORDER BY key, a JOIN `on`, a field
+`derive`, another `let`, HAVING, QUALIFY, a window, LIMIT or a `def` body, it
+is refused (PIE-S2387). If a column holds local time, comparing it with
+`now()` is off by the local offset from UTC. MySQL does not emit `now()` yet.
+
 ## Comments
 
 Comments start with `#`, as in Python. `--` does not start a comment:
@@ -808,6 +835,9 @@ Comments start with `#`, as in Python. `--` does not start a comment:
 | `df.x.quantile(0.9)`, `percentile_cont(0.9) within group (order by x)`, `approx_percentile(x, 0.9)` | `quantile(x, 0.9)` | `q` is a Float literal from 0.0 to 1.0 written in the call; `90` or a field is refused (PIE-S2104) |
 | `percentile_disc(0.9) within group (order by x)` | not available | the discrete percentile picks one value; `quantile` interpolates between the two nearest |
 | `median(x) window(...)`, `median(x) over (...)` | not available | a running or partitioned median is not a window aggregate (PIE-S2103) |
+| `datetime.now()`, `datetime.utcnow()`, `current_timestamp`, `utcnow()`, `utc_now()` | `now()` | one name, the UTC time when the query runs, without a time zone (PIE-S2103 hint for the calls `datetime.now`, `datetime.utcnow`, `current_timestamp`, `utcnow`, `utc_now`, any letter case) |
+| `date.today()`, `today()` | `date_of(now())` | the UTC date when the query runs (PIE-S2103 hint for `date.today`, `today`) |
+| `NOW()` | `now()` | functions are lowercase (PIE-S2103 hint) |
 | `sum(1 if paid else 0)`, `count_if(paid)`, `sum(x) filter (where paid)` | `sum(1 for o in group if o.paid)` | one way to count the rows that match; a conditional argument is refused (PIE-S2315, PIE-S2103, PIE-P1000) |
 | `sum(amount if paid else 0)` | `sum(o.amount for o in group if o.paid)` | the test follows the source, as in Python; 0 when no row matches |
 | `count(paid)` to count the True values | `sum(1 for o in group if o.paid)` | `count(paid)` counts every row whose `paid` is not None, False included (warning PIE-S2388) |

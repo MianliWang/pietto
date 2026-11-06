@@ -407,6 +407,79 @@ def test_r2_refuses_a_computed_group_key_before_any_workspace(tmp_path, monkeypa
     }
 
 
+def test_r2_refuses_a_now_read_before_any_workspace(tmp_path, monkeypatch):
+    """A resumed R2 attempt would read another statement's `now()`, so a
+    query that reads it is no R2 shape in the first version."""
+    import _pietto_execution_api as api
+    import pietto.execution as execution
+    from pietto._project import project_job_workspace as private_workspace
+    from pietto._project.project_execution_template import bind_values
+
+    def forbidden(*arguments, **keywords):
+        raise AssertionError("a refused R2 request opened workspace state")
+
+    monkeypatch.setattr(private_workspace, "open_workspace", forbidden)
+    project = api.write_example(Path(tmp_path) / "now")
+    main = project / "main.pietto"
+    main.write_text(
+        main.read_text(encoding="utf-8")
+        + "table snap:\n    from items\n    where id > 0\n    select:\n"
+        "        id\n        seen = now()\n",
+        encoding="utf-8",
+    )
+    query = execution.compile_query(
+        project,
+        module="main.pietto",
+        kind="table",
+        name="snap",
+        dialect="postgres",
+        emission_contract="contract.json",
+    )
+    values = tuple(
+        slot.original.site.position.literal.value for slot in query._template.slots
+    )
+    binding = bind_values(query._template, tuple(zip(query._template.slots, values)))
+    inputs = tuple(
+        execution.R2SourceInput(
+            s.namespace,
+            s.name,
+            "provider",
+            "v1",
+            "r1",
+            s.namespace,
+            "registry",
+            "SELECT 1",
+            ("id",),
+            "pietto_query",
+            "retained",
+        )
+        for s in binding.artifact.request.sources
+    )
+    with pytest.raises(ValueError, match="^PUBLIC_R2_STATEMENT_SNAPSHOT$"):
+        proposal.prepare_live_refinement(query, binding, inputs)
+    workspace = object.__new__(execution.WorkspaceRef)
+    object.__setattr__(workspace, "root", "/not-opened")
+    object.__setattr__(workspace, "identity", "ws-" + "0" * 32)
+    with pytest.raises(execution.RequestRejected) as rejected:
+        execution.save_recoverable(
+            workspace,
+            query,
+            source_requirements=inputs,
+            operation=execution.new_operation(),
+            route="postgres_rows",
+            access=execution.PostgresAccess("127.0.0.1", 9, "db", "pietto_query", "pw"),
+            premise=execution.PostgresDeploymentPremise(
+                schemas=("fixture", "pg_catalog")
+            ),
+            limits=execution.ExecutionLimits(),
+            values=values,
+        )
+    assert (rejected.value.code, rejected.value.detail) == (
+        "PIE-R1004",
+        "PUBLIC_R2_STATEMENT_SNAPSHOT",
+    )
+
+
 def test_a_reused_let_refines_like_its_module_level_equivalent(tmp_path):
     """R2 coordinates of a diamond of lets are those of the module-level diamond."""
     import _pietto_execution_api as api

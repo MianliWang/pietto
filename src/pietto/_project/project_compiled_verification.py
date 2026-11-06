@@ -1919,6 +1919,7 @@ def verify_description(value: Description) -> None:
                         "same_value",
                         "lpad",
                         "add_months",
+                        "now",
                     },
                     None,
                 ),
@@ -1937,7 +1938,7 @@ def verify_description(value: Description) -> None:
                 and (expected_arity is None or len(operands) == expected_arity)
                 and (role != "membership" or len(operands) >= 1)
                 and (role != "exists" or len(operands) <= 1)
-                and (role != "scalar_call" or len(operands) >= 1),
+                and (role != "scalar_call" or (len(operands) == 0) == (token == "now")),
                 "OPERATOR_ARITY",
             )
             # The build writes no site on an operation: a literal, slot or

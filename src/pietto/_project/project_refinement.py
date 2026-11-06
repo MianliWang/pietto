@@ -281,6 +281,9 @@ def _computed_group_key(artifact):
     return False
 
 
+_NOW = ("scalar_call", "now")
+
+
 def _live_shape(artifact, requirements):
     """The R2 checks of the template's own structure, which read no value;
     a policy refinement's complete requirements, or None."""
@@ -292,6 +295,12 @@ def _live_shape(artifact, requirements):
     if collection_operations(records):
         # A collected child row has no recovery coordinate in Phase71.
         raise ValueError("PUBLIC_R2_COLLECTION")
+    if any(
+        address.kind == "operation" and record.get("operator") == _NOW
+        for address, record in records.items()
+    ):
+        # A resumed attempt would read another statement's `now()`.
+        raise ValueError("PUBLIC_R2_STATEMENT_SNAPSHOT")
     if _computed_group_key(artifact):
         raise ValueError("PUBLIC_R2_COMPUTED_GROUP_KEY")
     if any(address.kind == "values" for address in records):

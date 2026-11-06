@@ -1590,6 +1590,18 @@ class _Check:
                     ),
                     "date_of result carrier",
                 )
+            if op["kind"] == "scalar_call" and op["operator"] == "now":
+                _require(
+                    family == "postgres"
+                    and _is_realization(
+                        doc[op["realization"]],
+                        "Timestamp",
+                        {"kind": "pg_timestamp", "fractional_seconds": 6},
+                        {"kind": "timestamp"},
+                    )
+                    and doc[op["realization"]]["nullable"] is False,
+                    "now result carrier",
+                )
             arity = {
                 "sign": 1,
                 "null_test": 1,
@@ -1627,6 +1639,7 @@ class _Check:
                     "same_value": {2},
                     "lpad": {3},
                     "add_months": {2},
+                    "now": {0},
                 }
                 count = len(op["operands"])
                 _require(
@@ -2972,7 +2985,13 @@ class _Tokens:
                 },
             }[self.family]
             if role == "scalar_call_open":
-                if name == "same_value":
+                if name == "now":
+                    expected = (
+                        "(statement_timestamp() AT TIME ZONE 'UTC'"
+                        if self.family == "postgres"
+                        else ""
+                    )
+                elif name == "same_value":
                     expected = "("
                 elif name == "substr":
                     expected = (
@@ -3013,7 +3032,14 @@ class _Tokens:
             elif role == "scalar_call_close":
                 if (
                     name
-                    in {"substr", "starts_with", "ends_with", "concat", "same_value"}
+                    in {
+                        "substr",
+                        "starts_with",
+                        "ends_with",
+                        "concat",
+                        "same_value",
+                        "now",
+                    }
                     or name in simple
                 ):
                     expected = ")"

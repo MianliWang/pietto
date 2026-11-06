@@ -506,7 +506,7 @@ optional `_` and a leading `-` (`Float` needs a decimal point); any UTF-8
 text for `Text` (no quotes); `YYYY-MM-DD` and `YYYY-MM-DD HH:MM:SS[.ffffff]`.
 The SQL is byte-identical to writing the value in the file. `--set` never
 decides whether the file is valid: an initializer that is not one literal of
-its type keeps its own error (PIE-S2391). Usage errors
+its type keeps its own error (PIE-S2391, or PIE-S2387 for `now()`). Usage errors
 (exit 2): a name set twice, a name no constant declares, a value that is not
 a literal of the type, and `--set` with `--project`; `migrate` and `fmt` take
 no `--set`.
@@ -543,6 +543,7 @@ first column give every rule.
 | `max(a, b)`, `min(a, b)` ([Expressions](#expressions)) | `CASE WHEN` of `<`/`>` and `IS NOT NULL`; `Int`, `Decimal`, `Float`, `Text`, `Date`, `Timestamp`, `UUID`, `Bool` | as PostgreSQL, except `Bool`, refused (PIE-B1000) | `Int`, `Decimal`, `Float`, `Text`, `Timestamp`, `UUID` as their comparison and conditional are; `Date` and `Bool` refused (PIE-B1003) | as PostgreSQL project, except `UUID`, refused as UUID ordering is (PIE-B1003) |
 | `lpad(s, width, fill)` ([Expressions](#expressions)) | `CASE WHEN length(s) >= width THEN s ELSE lpad(...) END`; a literal width outside the signed 32-bit range refused (PIE-S2385 at check) | `CASE WHEN CHAR_LENGTH(s) >= width THEN s ELSE LPAD(...) END` | emitted for a width proven in the signed 32-bit range; refused otherwise (PIE-B1002, PIE-B1004) | refused (PIE-B1003) |
 | `add_months(d, n)` ([Expressions](#expressions)) | `CAST((d + make_interval(months => CAST(n AS integer))) AS date)` | `DATE_ADD(d, INTERVAL n MONTH)` | emitted; a `None` argument refused (PIE-B1003) | refused (PIE-B1003) |
+| `now()` ([Expressions](#expressions)) | `(statement_timestamp() AT TIME ZONE 'UTC')`, in SELECT items and WHERE | refused (PIE-B1000) | emitted, compiled and bound as a template | refused (PIE-B1003 `scalar_call_signature_not_admitted`) |
 | Always-null numbers, D-12 ([Expressions](#expressions)) | typed NULL casts | typed NULL casts | `Int` arithmetic with `None`; `Float` and `Decimal` refused | as PostgreSQL |
 | `Float` equality ([Float values](#float-values)) | comparisons and GROUP BY; DISTINCT and set forms are project-only | as PostgreSQL; GROUP BY beside a wide `Text` key may split `-0.0` and `0.0` | comparisons, GROUP BY, DISTINCT, ORDER BY and every set form | comparisons with a literal or header parameter, ordering inequalities, `in`, `nullif` and UNION ALL; the other forms refused (PIE-B1003) |
 | JOIN aggregates without fan-out ([Aggregates](#aggregates-and-grouping)) | accepted | accepted | accepted | accepted; `sum(Int)` stays PIE-B1004 |
@@ -3040,6 +3041,53 @@ project SQL refuses `add_months` (PIE-B1003 `scalar_call_signature_not_admitted`
 A `def lpad` or `def add_months` is PIE-S2398 with a suggestion to rename it
 (see the def section), and a `constraint` or `derive` of either name no longer
 makes a call of that name PIE-S2103: the call means the built-in.
+
+`now()` takes no argument and is a `Timestamp` that is never None: the start
+of the running SQL statement in UTC, without a time zone, with microseconds.
+All `now()` reads of one statement are one value, whichever rows and clauses
+read it; each new execution of the SQL reads a new value. The session time
+zone does not change it: PostgreSQL SQL converts the statement start to UTC
+itself (`statement_timestamp() AT TIME ZONE 'UTC'`, not PostgreSQL `now()`,
+which is the transaction start), so SQL that `emit-sql` prints gives the UTC
+value in any session, and Pietto's own PostgreSQL and MySQL connections run
+in UTC anyway (`timezone=UTC`, `time_zone='+00:00'`). `date_of(now())` is the
+UTC date. A column that stores local time differs from `now()` by the local
+offset. MySQL emission refuses `now()` for now: single-file SQL with PIE-B1000
+(`Unsupported MySQL function call: now`), project SQL with PIE-B1003
+`scalar_call_signature_not_admitted`.
+
+`now()` is evaluated when the SQL runs, never when Pietto checks, emits,
+explains, compiles or loads it: emitted SQL, compiled bundles and golden
+fixtures hold the expression, never a value. A saved result keeps the values
+of the run that saved it, so a replay or a verified export shows those values
+and does not read `now()` again. `relay_live` (PIE-R1004
+`STATEMENT_SNAPSHOT_ENTRY`) and R2 `save_recoverable`/`recover` (PIE-R1004
+`PUBLIC_R2_STATEMENT_SNAPSHOT`) refuse a query that reads `now()`, before
+any workspace or sink work, because a resumed attempt would read another
+statement's value.
+
+`now()` is admitted only in a SELECT item, outside a window, and in a WHERE
+(PIE-S2387 elsewhere, with a specific hint for a GROUP BY key, an ORDER BY
+key, a JOIN `on` and a field `derive`). A `let` or SELECT item that a GROUP BY
+or ORDER BY of its own body names is that key, so `select: t = now()` with
+`order by t` is refused like `order by now()`. The refusal reads where the
+call is written: a `let` that only another `let` reads gets the generic text
+even when that other `let` is a GROUP BY key, and a key that reads a column
+another relation selected from `now()` (`table b: from a` / `group by t`) is
+accepted, as a column whose value is the same in every row. Pietto has no
+column default; a field `derive`, the per-row stored value, refuses `now()`,
+and a window function's default argument (`lag(x, 1, now())`) is a window
+argument, which gets the generic refusal. A `def` body cannot read `now()`,
+but a `def` call can take it as an argument in those positions: the parameter
+written twice is still one value. A call with arguments, `now(x)`, is not the
+builtin: it is a file's own `relationship now(row: Row)` (which keeps its
+meaning in every position) or PIE-S2104. A top-level constant's value cannot
+be `now()` (PIE-S2387, the generic text).
+
+In a single file the existing SELECT limits stand: a grouped query cannot
+select a computed expression, so `t = now()` beside `group by k` is PIE-S2319
+(`Grouped scalar projection expressions are not supported yet`), and an
+aggregate takes a direct field, so `max(now())` is PIE-S2315.
 
 `coalesce` requires at least two same-canonical-type arguments. D-12 permits
 an always-null numeric argument of another numeric type;

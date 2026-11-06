@@ -407,7 +407,6 @@ def test_static_audit_no_temporal_runtime_or_metadata_surface_was_added() -> Non
         )
         assert '"Date", "Timestamp"' in renderer_source
         for forbidden in (
-            "AT TIME ZONE",
             "DATE_TRUNC",
             "DATETIME",
             "timezone",
@@ -415,6 +414,11 @@ def test_static_audit_no_temporal_runtime_or_metadata_surface_was_added() -> Non
             "native_db",
         ):
             assert forbidden not in renderer_source
+    # The one zone conversion is `now()`, which reads the statement start
+    # in UTC whatever the session zone; no value is converted.
+    assert postgres.count("AT TIME ZONE") == 1
+    assert "\"(statement_timestamp() AT TIME ZONE 'UTC')\"" in postgres
+    assert "AT TIME ZONE" not in mysql
     # MySQL's date_trunc builds a civil Timestamp with TIMESTAMP() and steps
     # back to the first of the month with INTERVAL; neither reads a zone.
     for forbidden in ("TIMESTAMP(", "INTERVAL"):

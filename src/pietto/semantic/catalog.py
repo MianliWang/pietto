@@ -55,7 +55,8 @@ BUILTIN_FUNCTIONS: Mapping[str, BuiltinFunction] = MappingProxyType(
 )
 
 # These forms have closed semantic rules but cannot be represented by the
-# fixed-arity, exact-type signature record above.
+# fixed-arity, exact-type signature record above, or, as `now`, read no value
+# whose type could offer them.
 SPECIAL_BUILTIN_FUNCTION_NAMES = frozenset(
     {
         "coalesce",
@@ -68,14 +69,21 @@ SPECIAL_BUILTIN_FUNCTION_NAMES = frozenset(
         "date_trunc",
         "concat",
         "same_value",
+        "now",
     }
 )
 
 
+_NOW = BuiltinFunction("now", (), "Timestamp")
+
+
 def builtin_signature(name: str, arity: int) -> BuiltinFunction | None:
     """The closed signature of a call of ``name`` with ``arity`` arguments:
-    one of ``BUILTIN_FUNCTIONS``, or `concat` of two or more Text values."""
+    one of ``BUILTIN_FUNCTIONS``, `concat` of two or more Text values, or
+    `now`, the UTC Timestamp of the running statement."""
 
+    if name == "now":
+        return _NOW
     if name == "concat":
         return BuiltinFunction(name, ("Text",) * arity, "Text") if arity >= 2 else None
     return BUILTIN_FUNCTIONS.get(name)

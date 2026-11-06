@@ -7766,6 +7766,10 @@ def _decode_fixed_public(document, limits):
                         original,
                     )
                 name, close = "substr", ")"
+            elif opening == "(statement_timestamp() AT TIME ZONE 'UTC'":
+                # `now()`, PostgreSQL only, without operands.
+                _need(family == "postgres", "now family")
+                operands, name, close = [], "now", ")"
             elif opening == "(":
                 # PostgreSQL `concat` and `same_value` both open with `(`; the
                 # separator after the first operand tells them apart.
@@ -8696,6 +8700,15 @@ def _decode_fixed_public(document, limits):
 
         def scalar_result(name):
             nonlocal nullable
+            if name == "now":
+                # The statement's UTC start, never NULL.
+                _need(family == "postgres" and not operands, "now carrier")
+                return {
+                    "tag": "Timestamp",
+                    "storage": {"kind": "pg_timestamp", "fractional_seconds": 6},
+                    "nullable": False,
+                    "domain": {"kind": "timestamp"},
+                }
             if name == "round":
                 _need(family == "postgres", "round family")
                 value = operands[0]

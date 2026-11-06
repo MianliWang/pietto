@@ -902,6 +902,71 @@ Compatibility:
     RelationIR: NAME. MySQL does not support a computed Text window key` at
     the relation (project MySQL emits such a key with the binary collation).
 
+### `now()`: the UTC time of the running query
+
+- `now()` takes no argument and is a `Timestamp` that is never None: the
+  start of the running SQL statement in UTC, without a time zone, with
+  microseconds (Python `datetime.now(timezone.utc).replace(tzinfo=None)`, not
+  the local `datetime.now()`). Every `now()` of one statement is one value;
+  each new execution reads a new one; the session time zone does not change
+  it. `date_of(now())` is the UTC date. It stands in SELECT items and WHERE
+  (also a WHERE between JOINs, an `any(...)` there and a `def` call argument
+  there), in single files and projects.
+- PostgreSQL SQL is `(statement_timestamp() AT TIME ZONE 'UTC')`, single file
+  and project (VERIFIED, compiled bundle and live template). Emitted SQL,
+  compiled bundles and goldens hold the expression, never a value; saved
+  results keep the value of the run that saved them, so replay and verified
+  export show it.
+- **New refusal on MySQL**: MySQL emission refuses `now()`, single file with
+  PIE-B1000 (`MySQL SQL emission is not implemented for RelationIR: NAME.
+  Unsupported MySQL function call: now`), project with PIE-B1003
+  (`scalar_call_signature_not_admitted`).
+- **New refusal PIE-S2387** (ERROR at the call, every mode, before `def`
+  inlining), by position:
+  - a `let` value or SELECT item that GROUP BY of its body names: ``now()`
+    cannot be in a GROUP BY key: every row has the same `now()`, so it never
+    splits a group``;
+  - an ORDER BY key, or a `let` value or SELECT item that ORDER BY of its body
+    names: ``now()` cannot be in an ORDER BY key: every row has the same
+    `now()`; order by a field``;
+  - a JOIN `on`: ``now()` cannot be in a JOIN condition; compare it in WHERE``;
+  - a field `derive`: ``now()` cannot be in a field derive, which reads one
+    stored row; select `now()` in a query``;
+  - every other position (another `let`, HAVING, QUALIFY, a window's
+    arguments or keys, a named window, LIMIT, a `def`, `constraint` or
+    `derive` body, a check, an ensure, a VALUES row, a top-level constant's
+    value): ``now()` is available only in a SELECT item or a WHERE
+    comparison``.
+  - Not refused: a key that reads a column another relation selected from
+    `now()`, and a call with arguments, `now(x)`, which is not the builtin.
+- PIE-S2104: `now(x)` is `Invalid arguments for function now: expected 0,
+  got N`.
+- **New execution refusals (PIE-R1004)**, before any workspace or sink work:
+  `relay_live` of a query that reads `now()` is `STATEMENT_SNAPSHOT_ENTRY`;
+  `save_recoverable` and `recover` (R2) are `PUBLIC_R2_STATEMENT_SNAPSHOT`.
+  `execute()` and `save()` accept it.
+- PIE-S2103 hints (the lookup ignores letter case): `current_timestamp`,
+  `utcnow`, `utc_now`, `datetime.now` and `datetime.utcnow` add ``; write
+  `now()`, the UTC time when the query runs``; `today` and `date.today` add
+  ``; write `date_of(now())`, the UTC date when the query runs``; `now` in a
+  letter case other than lowercase adds ``; write `now()` in lowercase``.
+- **Compatibility.** A call `now()` that was PIE-S2103 `Unknown function: now`
+  now means the builtin. `def now` is now PIE-S2398 (``Def now has the name of
+  a built-in function; a def cannot shadow one``) with the suggestion
+  ``Rename this def: `now` has become the built-in UTC time of the running
+  query, and a call to now always means it.``. A file's own
+  `relationship now(row: Row)` keeps its meaning: `now(o)`, with an argument,
+  is its call in every position, as before.
+- **Formats.** Project JSON v2 and the emission observation: the closed
+  `scalar_call` operator vocabulary gains `now` (no operands), whose `syntax`
+  ranges are `scalar_call_open` (`(statement_timestamp() AT TIME ZONE 'UTC'`)
+  and `scalar_call_close` (`)`); its result realization is `Timestamp`,
+  `pg_timestamp` with 6 fractional digits, not nullable. A strict reader of
+  that vocabulary must accept it. The compiled description's closed operator
+  set gains `("scalar_call", "now")` with zero operands, under the Phase73
+  version marks `(7, 1, 7, 1)` of the aggregate windows subsection; a reader
+  of earlier marks refuses such a bundle.
+
 ## Equality, nullability and asof JOIN public alpha release notes — 0.1.9
 
 <a id="unreleased-changes-following-018"></a>

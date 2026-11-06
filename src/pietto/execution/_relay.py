@@ -189,6 +189,13 @@ def relay_live(
         parameters=parameters,
     )
     _collection_entry(query)
+    records = query._template.artifact.request.verification.completed.root.records
+    if any(
+        address.kind == "operation" and record.get("operator") == ("scalar_call", "now")
+        for address, record in records.items()
+    ):
+        # A sink would hold rows of a `now()` that a resumed relay reads anew.
+        raise RequestRejected(failure("PIE-R1004", "STATEMENT_SNAPSHOT_ENTRY"))
     sink = _sink_target(
         sink_root,
         expected_sink_identity,

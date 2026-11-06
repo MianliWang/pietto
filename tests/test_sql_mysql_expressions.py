@@ -706,6 +706,8 @@ def test_nested_compound_expressions_are_parenthesized() -> None:
     "expression",
     [
         _call("matches", _field("email"), _literal("@")),
+        # MySQL `now()` waits for its two-database differential.
+        _call("now"),
         _call("unknown", _literal(1)),
         _call("lower", _literal("a"), _literal("b")),
         CallIR(

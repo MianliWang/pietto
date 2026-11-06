@@ -629,6 +629,89 @@ def test_q1_timestamp_civil_parts_preserve_the_exact_timestamp6_carrier(
         assert "AS SIGNED)" in sql
 
 
+_NOW_SQL = "(statement_timestamp() AT TIME ZONE 'UTC')"
+
+
+@pytest.mark.parametrize("target", TARGETS)
+def test_now_is_one_utc_statement_snapshot_evaluated_at_execution(tmp_path, target):
+    """Project PostgreSQL emits `now()` as the statement's UTC start, a
+    never-None microsecond Timestamp, in SELECT items and WHERE; the compiled
+    bundle and the live template keep the expression, never a value. MySQL
+    refuses it until its two-database differential passes."""
+    source = (
+        temporal_probe.temporal_source(target).split("table result:", 1)[0]
+        + """table result:
+    from rows
+    where stamp <= now()
+    select:
+        stamp
+        seen = now()
+        day = date_of(now())
+"""
+    )
+    checked = temporal_probe.build_neutral(tmp_path / target, {"main.pietto": source})
+    contract = json.loads(temporal_probe.temporal_input(target))
+    contract["environment"].append(
+        {
+            "key": "identifier_case",
+            "scope": "statement",
+            "value": "quoted_exact"
+            if target == "postgres"
+            else "lower_case_table_names=0",
+        }
+    )
+    outcome = emit_project_sql(checked, json.dumps(contract).encode())
+
+    if target == "mysql":
+        assert outcome.status == "BLOCKED" and outcome.artifact is None
+        assert [
+            (blocker["code"], blocker["subject"]["detail"])
+            for blocker in probe.decode_public(serialize_project_sql_emission(outcome))[
+                "blockers"
+            ]
+        ] == [("PIE-B1003", "scalar_call_signature_not_admitted")]
+        return
+    assert outcome.status == "VERIFIED" and outcome.artifact is not None
+    artifact = outcome.artifact
+    assert verify_project_sql_emission(artifact, artifact.request).verified
+    observed = portable.export_emission_observation(artifact, artifact.request)
+    assert observed.canonical_bytes is not None
+    assert (
+        pure.parse_emission_observation(observed.canonical_bytes).status
+        is pure.Status.OK
+    )
+    assert portable.verify_emission_observation(
+        observed.canonical_bytes, artifact, artifact.request
+    ).corresponds
+    sql = artifact.rendered.sql.decode()
+    assert sql.count(_NOW_SQL) == 3
+    assert f'WHERE ("s0"."stamp" <= {_NOW_SQL})' in sql
+    assert f'{_NOW_SQL} AS "seen", CAST({_NOW_SQL} AS date) AS "day"' in sql
+    document = probe.decode_public(serialize_project_sql_emission(outcome))
+    columns = {column["label"]: column for column in document["columns"]}
+    assert (columns["seen"]["logical_type"]["name"], columns["seen"]["nullable"]) == (
+        "Timestamp",
+        False,
+    )
+
+    from pietto._project.project_compiled_build import build_compiled
+    from pietto._project.project_compiled_loading import load_compiled
+    from pietto._project.project_compiled_lowering import emit_compiled
+    from pietto._project.project_execution_template import prepare_live_template
+
+    built = build_compiled(artifact)
+    loaded = load_compiled(
+        built.payload,
+        expected_pin=built.pin,
+        accepted_producer=built.producer,
+        accepted_compatibility=built.compatibility,
+    )
+    assert emit_compiled(loaded, ()).request.family == "postgres"
+    template = prepare_live_template(artifact)
+    assert template.artifact.rendered.sql.decode() == sql
+    assert template.slots == ()
+
+
 @pytest.mark.parametrize("target", TARGETS)
 def test_date_of_derives_the_date_result_carrier_and_civil_parts(tmp_path, target):
     source = (

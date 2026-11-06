@@ -104,6 +104,8 @@ _NEW_BUILTIN_RENAMES = {
     "median aggregate, and a call to median always means it.",
     "quantile": "Rename this def: `quantile` is now the built-in interpolated "
     "quantile aggregate, and a call to quantile always means it.",
+    "now": "Rename this def: `now` has become the built-in UTC time of the "
+    "running query, and a call to now always means it.",
 }
 # One expansion, with its arguments, has at most this many expression nodes
 # and this nesting depth.

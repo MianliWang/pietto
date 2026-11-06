@@ -1933,6 +1933,20 @@ def resolved_scalar_call_realization(
     ``rows_both_sides`` is the comparison law's row-read fact (default: the
     refusing one); `same_value` is admitted exactly where `==` is.
     """
+    if symbol.namespace is SymbolNamespace.CALLABLE and symbol.name == "now":
+        # The statement's start as a UTC microsecond civil Timestamp, on
+        # PostgreSQL until MySQL passes its two-database differential.
+        if family != "postgres" or values or tag != "Timestamp" or nullable:
+            return None, ("PIE-B1003", "scalar_call_signature_not_admitted")
+        return (
+            Realization(
+                "Timestamp",
+                {"kind": "pg_timestamp", "fractional_seconds": 6},
+                False,
+                {"kind": "timestamp"},
+            ),
+            None,
+        )
     if symbol.namespace is not SymbolNamespace.CALLABLE or not values:
         return None, ("PIE-B1003", "scalar_call_signature_not_admitted")
     name = symbol.name

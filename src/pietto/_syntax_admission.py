@@ -14,9 +14,11 @@ from pietto.ast_nodes import (
     CollectRelationExpr,
     CaptureClause,
     ConstantDef,
+    FieldDef,
     FromClause,
     FunctionDef,
     JoinClause,
+    LetBinding,
     LetRelationDef,
     ModuleDeclarationKind,
     DottedNameExpr,
@@ -31,6 +33,7 @@ from pietto.ast_nodes import (
     RelationshipMetadata,
     Script,
     SelectBody,
+    SelectItem,
     Span,
     TableDef,
     TableFunctionFromClause,
@@ -301,6 +304,89 @@ def nested_relation_syntax_diagnostics(script: Script) -> tuple[Diagnostic, ...]
     return tuple(sorted(found, key=source_order))
 
 
+# A `now()` call stands only in a SELECT item outside a window and in a
+# WHERE, one written between JOINs included. These other positions say what
+# to write instead; every further one is refused with `_NOW_ONLY`.
+_NOW_ALLOWED = frozenset({"select_items", "where_clause", "join_filters"})
+_NOW_ONLY = "`now()` is available only in a SELECT item or a WHERE comparison"
+_NOW_REFUSED = {
+    "group_key": "`now()` cannot be in a GROUP BY key: every row has the same "
+    "`now()`, so it never splits a group",
+    "order_by_clause": "`now()` cannot be in an ORDER BY key: every row has the "
+    "same `now()`; order by a field",
+    "join_clauses": "`now()` cannot be in a JOIN condition; compare it in WHERE",
+    "derive_expression": "`now()` cannot be in a field derive, which reads one "
+    "stored row; select `now()` in a query",
+}
+
+
+def now_position_diagnostics(script: Script) -> tuple[Diagnostic, ...]:
+    """PIE-S2387 at every `now()` call outside a SELECT item or a WHERE. A
+    `let` or SELECT item that a GROUP BY or ORDER BY of its body names is that
+    key. A call with arguments is not the builtin: it is a relationship
+    template's call, or PIE-S2104."""
+
+    found: list[Diagnostic] = []
+    pending: list[tuple[object, str | None, dict[str, str]]] = [(script, None, {})]
+    while pending:
+        value, position, keys = pending.pop()
+        kind = type(value)
+        if kind is tuple:
+            pending.extend(
+                (item, position, keys) for item in cast(tuple[object, ...], value)
+            )
+            continue
+        if (
+            kind is Span
+            or kind.__module__ != "pietto.ast_nodes"
+            or not is_dataclass(value)
+        ):
+            continue
+        if kind is CallExpr:
+            call = cast(CallExpr, value)
+            if (
+                type(call.callee) is NameExpr
+                and call.callee.name == "now"
+                and not call.arguments
+                and position not in _NOW_ALLOWED
+            ):
+                message = _NOW_REFUSED.get(position or "", _NOW_ONLY)
+                found.append(_diagnostic("PIE-S2387", message, call.span))
+        if kind in _BODIES:
+            body = cast(TableDef | QueryDef | SelectBody, value)
+            ordered = body.order_by_clause
+            grouped = body.group_by_clause
+            keys = {
+                item.expression.name: "order_by_clause"
+                for item in (() if ordered is None else ordered.items)
+                if type(item.expression) is NameExpr
+            } | {
+                item.key.name: "group_key"
+                for item in (() if grouped is None else grouped.items)
+                if type(item.key) is NameExpr
+            }
+        elif kind in (LetBinding, QueryLetDeclaration):
+            name = cast(LetBinding | QueryLetDeclaration, value).name
+            position = keys.get(name, "let")
+        elif kind is SelectItem:
+            position = keys.get(cast(SelectItem, value).alias or "", position)
+        elif kind is WindowExpr:
+            position = "window"
+        for item in fields(value):
+            pending.append(
+                (
+                    getattr(value, item.name),
+                    item.name
+                    if kind in _BODIES
+                    or kind is FieldDef
+                    and item.name == "derive_expression"
+                    else position,
+                    keys,
+                )
+            )
+    return tuple(found)
+
+
 def _diagnostic(
     code: str, message: str, span: Span, suggestion: str | None = None
 ) -> Diagnostic:
@@ -371,9 +457,10 @@ def unadmitted_syntax_diagnostics(
     EXISTS, scalar or IN read is admitted only inside a relation body.
     """
 
-    found: list[Diagnostic] = (
-        [] if explicit_modules else list(nested_relation_syntax_diagnostics(script))
-    )
+    found: list[Diagnostic] = [
+        *(() if explicit_modules else nested_relation_syntax_diagnostics(script)),
+        *now_position_diagnostics(script),
+    ]
     pending: list[tuple[object, bool]] = [(script, False)]
     while pending:
         value, body = pending.pop()
