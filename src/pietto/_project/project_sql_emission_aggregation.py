@@ -541,8 +541,8 @@ def float_argument(argument) -> bool:
 
 
 def argument_problem(function: str, argument, family: str):
-    """R13 admits one established V01 field per aggregate argument, or on
-    PostgreSQL one admitted row expression, as a LET would lower it. Any other
+    """R13 admits one established V01 field per aggregate argument, or one
+    admitted row expression, as a LET would lower it. Any other
     argument, such as a bare literal or parameter or an operation that reads no
     field (only a forged compiled input holds one), reads no row and is refused."""
     direct = type(argument) is rows.SQLStageReference
@@ -634,13 +634,11 @@ def resolved_argument_problem(
 
     PostgreSQL MIN/MAX of one Timestamp or Date carrier keep its exact value;
     the MySQL result's fractional seconds and metadata are not yet reviewed.
-    PostgreSQL counts and compares a Text, Bool, Float or Decimal carrier by
-    the group-key law, as COUNT(DISTINCT x), MIN and MAX compare like GROUP BY;
-    MySQL keeps them, and a row expression argument, until a differential.
-    A port that is not a direct reference is a row operation: each caller
-    refuses any other argument first."""
-    if not direct_reference and family != "postgres":
-        return "PIE-B1003", "aggregate_argument_not_a_direct_established_field"
+    Both targets count and compare a Text, Bool, Float or Decimal carrier by
+    the group-key law, as COUNT(DISTINCT x), MIN and MAX compare like GROUP BY,
+    except a MySQL Float (`mysql_float_argument_problem`).
+    A port that is not a direct reference is a row operation, judged by its
+    carrier as a direct one is: each caller refuses any other argument first."""
     if realization is None:
         return "PIE-B1003", function + "_argument_outside_reviewed_int_domain"
     if function == "avg" and realization.tag == "Int":
@@ -694,12 +692,14 @@ def resolved_argument_problem(
         if family == "postgres" and rows.float_carrier(realization, family):
             return None
         return "PIE-B1004", "float_aggregate_finite_result_proof_missing"
-    if family == "postgres" and (
+    if (
         function in COUNTING_FUNCTIONS
         and realization.tag in {"Text", "Bool", "Float", "Decimal"}
         or function in EXTREMA_FUNCTIONS
         and realization.tag in {"Float", "Decimal"}
     ):
+        if family == "mysql" and realization.tag == "Float":
+            return mysql_float_argument_problem(function, realization)
         return group_key_problem(realization)
     if function in COUNTING_FUNCTIONS and realization.tag in {
         "Timestamp",
@@ -716,6 +716,16 @@ def resolved_argument_problem(
     if realization.tag != "Int":
         return "PIE-B1003", function + "_argument_outside_reviewed_int_domain"
     if function in {"count", "count_distinct", "min", "max"}:
+        return None
+    return "PIE-B1003", function + "_argument_outside_reviewed_int_domain"
+
+
+def mysql_float_argument_problem(function: str, realization):
+    """COUNT reads no value, and MIN and MAX compare DOUBLE values by real
+    value, so -0.0 and 0.0 tie and the extreme is some member, as on
+    PostgreSQL. COUNT(DISTINCT) deduplicates, and MySQL kept -0.0 and 0.0
+    apart in deduplication beside a wide key, so it stays refused."""
+    if function != "count_distinct" and rows.float_carrier(realization, "mysql"):
         return None
     return "PIE-B1003", function + "_argument_outside_reviewed_int_domain"
 

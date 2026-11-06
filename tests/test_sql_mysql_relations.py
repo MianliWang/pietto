@@ -1397,42 +1397,33 @@ _BOOL_EXTREMA = (
 )
 
 
-@pytest.mark.parametrize(
-    "value", ["max(flag, other)", "min(flag, True)", "larger(flag, other)"]
+_BOOL_MAX = (
+    "CASE WHEN (`other` IS NOT NULL) THEN (CASE WHEN (`flag` < `other`) "
+    "THEN `other` ELSE `flag` END) ELSE `other` END"
 )
-def test_max_and_min_of_two_bool_values_stay_refused(value: str) -> None:
-    # MySQL types the CASE of two BOOLEAN values as an int, not a Bool.
+
+
+@pytest.mark.parametrize(
+    ("value", "sql"),
+    [
+        ("max(flag, other)", _BOOL_MAX),
+        ("min(flag, True)", "CASE WHEN (`flag` > TRUE) THEN TRUE ELSE `flag` END"),
+        ("larger(flag, other)", _BOOL_MAX),
+    ],
+)
+def test_max_and_min_of_two_bool_values_emit_the_conditional(
+    value: str, sql: str
+) -> None:
+    # MySQL has no boolean type: the CASE arrives as an integer column holding
+    # 0, 1 or NULL, as every computed Bool (such as `flag < other`) does.
     parsed = parser_api.parse_source(_BOOL_EXTREMA.format(value))
     assert parsed.diagnostics == () and parsed.ast is not None
     checked = semantic_api.analyze(parsed.ast)
     assert checked.diagnostics == () and checked.script is not None
     lowered = build_ir(checked.script, checked.model)
     assert lowered.diagnostics == () and lowered.ir is not None
-    result = emit_mysql_sql(lowered.ir)
-    assert result.artifacts == ()
-    assert [(item.code, item.message) for item in result.diagnostics] == [
-        (
-            "PIE-B1000",
-            "MySQL SQL emission is not implemented for RelationIR: q. "
-            "MySQL max and min of two Bool values are not supported; "
-            "emit with --dialect postgres",
-        )
-    ]
-
-
-def test_a_written_bool_conditional_still_emits() -> None:
-    parsed = parser_api.parse_source(
-        _BOOL_EXTREMA.format("other if flag < other else flag")
-    )
-    assert parsed.diagnostics == () and parsed.ast is not None
-    checked = semantic_api.analyze(parsed.ast)
-    assert checked.diagnostics == () and checked.script is not None
-    lowered = build_ir(checked.script, checked.model)
-    assert lowered.diagnostics == () and lowered.ir is not None
     assert emit_mysql_sql(lowered.ir).artifacts[0].sql == (
-        "SELECT\n"
-        "    CASE WHEN (`flag` < `other`) THEN `other` ELSE `flag` END AS `both`\n"
-        "FROM `public`.`items`"
+        f"SELECT\n    {sql} AS `both`\nFROM `public`.`items`"
     )
 
 

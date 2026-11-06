@@ -97,7 +97,7 @@ def test_mysql_counts_with_the_same_case_form() -> None:
 
 
 def test_mysql_refuses_the_conditional_sum() -> None:
-    """MySQL SUM of an Int is DECIMAL, not a checked bigint (Phase74 MySQL catch-up)."""
+    """MySQL SUM of an Int is DECIMAL, not a checked bigint (a later MySQL catch-up)."""
     result = _emit("mysql", SUM)
 
     assert result.artifacts == ()

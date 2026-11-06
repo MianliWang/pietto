@@ -1402,7 +1402,7 @@ def verify_description(value: Description) -> None:
                 "AGGREGATE_SCOPE",
             )
         elif kind == "aggregate_value":
-            # A PostgreSQL argument may be a row expression; the aggregate's
+            # An argument may be a row expression; the aggregate's
             # own pre-aggregate scope check covers each of its reads.
             arguments = refs(
                 get("arguments"), {"read", "literal", "null_literal", "operation"}

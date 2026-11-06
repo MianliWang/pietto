@@ -1047,11 +1047,31 @@ def test_lpad_and_add_months_templates_render_the_emitted_sql(tmp_path):
             assert bound.arguments == values
 
 
-def test_an_aggregate_parity_template_binds_and_renders_the_same_sql(tmp_path):
+@pytest.mark.parametrize(
+    "target,body,calls",
+    (
+        (
+            "postgres",
+            "        hi = max(ratio)\n        s = sum(ratio)\n"
+            "        a = avg(ratio)\n        w = sum(id * 2)\n"
+            "        l = count_distinct(lower(text))\n",
+            (b"COUNT(DISTINCT lower(", b"SUM(CAST((", b"AVG(", b"MIN(", b"MAX("),
+        ),
+        (
+            "mysql",
+            "        hi = max(ratio)\n        r = count(ratio)\n"
+            "        l = count_distinct(lower(text))\n",
+            (b"COUNT(DISTINCT LOWER(", b"COUNT(DISTINCT `", b"MIN(", b"MAX("),
+        ),
+    ),
+)
+def test_an_aggregate_parity_template_binds_and_renders_the_same_sql(
+    tmp_path, target, body, calls
+):
     """S16: Text, Bool, Decimal and Float aggregates and aggregates over row
-    expressions, under a WHERE header parameter, bind through a loaded
-    compiled bundle and a live PostgreSQL template and render byte-equal
-    SQL."""
+    expressions (and on PostgreSQL a Float sum and average and an Int
+    expression sum), under a WHERE header parameter, bind through a loaded
+    compiled bundle and a live template and render byte-equal SQL."""
     from _pietto_sql_query_parameters import parameterized_case
     from pietto._project.project_compiled_build import build_compiled
     from pietto._project.project_compiled_loading import load_compiled
@@ -1064,12 +1084,9 @@ def test_an_aggregate_parity_template_binds_and_renders_the_same_sql(tmp_path):
     body = (
         "query result(low: Int):\n    from rows\n    where id > low\n"
         "    select:\n        n = count(text)\n"
-        "        d = count_distinct(flag)\n        lo = min(money)\n"
-        "        hi = max(ratio)\n        s = sum(ratio)\n"
-        "        a = avg(ratio)\n        w = sum(id * 2)\n"
-        "        l = count_distinct(lower(text))\n"
+        "        d = count_distinct(flag)\n        lo = min(money)\n" + body
     )
-    _, outcome = parameterized_case(tmp_path, "postgres", body)
+    _, outcome = parameterized_case(tmp_path, target, body)
     assert outcome.status == "VERIFIED", outcome.blockers
     built = build_compiled(outcome.artifact)
     compiled = prepare_compiled_template(
@@ -1087,7 +1104,7 @@ def test_an_aggregate_parity_template_binds_and_renders_the_same_sql(tmp_path):
         )
         assert bound.artifact.rendered.sql == sql
         assert bound.arguments == (3,)
-    for call in (b"COUNT(DISTINCT lower(", b"SUM(CAST((", b"AVG(", b"MIN(", b"MAX("):
+    for call in calls:
         assert call in sql
 
 
@@ -1793,8 +1810,9 @@ query result:
         total = count(ARGUMENT)
 """
     outcomes = []
-    # S16: PostgreSQL counts a Bool row expression as a LET would lower it.
-    emitted = concrete and target == "postgres"
+    # Both targets count a Bool row expression as a LET would
+    # lower it.
+    emitted = concrete
     for name, argument in (("call", "Positive(lhs)"), ("expanded", expanded)):
         checked, outcome = probe.build_case(
             tmp_path / name,
@@ -1832,12 +1850,10 @@ query result:
             assert calls == ()
     assert outcomes[0] == outcomes[1]
     if emitted:
-        assert b'COUNT(("s0"."flag value" AND "s0"."flag value"))' in outcomes[0]
-    elif concrete:
+        q = '"' if target == "postgres" else "`"
         assert (
-            "PIE-B1003",
-            "aggregate_argument_not_a_direct_established_field",
-        ) in outcomes[0]
+            f"COUNT(({q}s0{q}.{q}flag value{q} AND {q}s0{q}.{q}flag value{q}))"
+        ).encode() in outcomes[0]
 
 
 @pytest.fixture(scope="module", params=("postgres", "mysql"))

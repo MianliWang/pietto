@@ -203,15 +203,6 @@ def _render_mysql_expression(expression: ExpressionIR, *, nested: bool) -> str:
         sql = _render_call(expression)
         return f"({sql})" if nested and expression.callee in _COMPOUND_CALLS else sql
     if isinstance(expression, ConditionalIR):
-        if expression.value_type.canonical_name == "Bool" and _written_extremum(
-            expression
-        ):
-            # MySQL types this CASE of two BOOLEAN values as an int; the
-            # Phase74 MySQL catch-up decides its wire type.
-            raise MySqlRenderError(
-                "MySQL max and min of two Bool values are not supported; "
-                "emit with --dialect postgres"
-            )
         condition = _render_mysql_expression(expression.condition, nested=True)
         when_true = _render_mysql_expression(expression.when_true, nested=True)
         when_false = _render_mysql_expression(expression.when_false, nested=True)
@@ -582,7 +573,7 @@ def _render_aggregate_call(
     if expression.function == "string_agg":
         raise MySqlRenderError("MySQL aggregate string_agg is not supported")
     if expression.function == "filtered_sum":
-        # MySQL SUM of an integer is DECIMAL, not a checked bigint; the Phase74
+        # MySQL SUM of an integer is DECIMAL, not a checked bigint; a later
         # MySQL catch-up owns it.
         raise MySqlRenderError(
             "MySQL conditional sum of an Int argument is not supported"
@@ -964,36 +955,6 @@ def _render_extrema_aggregate(
             "approved logical shape"
         )
     return f"{function_name}({_render_mysql_expression(argument, nested=True)})"
-
-
-def _written_extremum(expression: ConditionalIR) -> bool:
-    """Whether ``expression`` is the conditional a two-argument `max` or `min`
-    is written as (`semantic.constructor_calls.written_extremum`): only that
-    conditional tests a value at a location outside the value's text."""
-
-    chosen = expression
-    test = expression.condition
-    if type(test) is IsNullIR:
-        if type(expression.when_true) is not ConditionalIR or _within(
-            test.value.span, test.span
-        ):
-            return False
-        chosen = expression.when_true
-    comparison = chosen.condition
-    return (
-        type(comparison) is ComparisonIR
-        and comparison.operator in {"<", ">"}
-        and not _within(comparison.left.span, comparison.span)
-        and _within(comparison.left.span, expression.span)
-    )
-
-
-def _within(inner: SourceSpan, outer: SourceSpan) -> bool:
-    return (
-        inner.path == outer.path
-        and (outer.line, outer.column) <= (inner.line, inner.column)
-        and (inner.end_line, inner.end_column) <= (outer.end_line, outer.end_column)
-    )
 
 
 def _render_stddev_aggregate(expression: AggregateCallIR) -> str:

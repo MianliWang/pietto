@@ -77,18 +77,19 @@ DIRECTIONS = {"asc": "ASC", "desc": "DESC"}
 # posture, so every emitted key keeps the target's own native NULL order. No
 # spelling and no discriminator helper is generated for it.
 NULL_POSTURE = "target_defined"
-# R19 orders the exact comparison domain the window stage admits and, on
-# PostgreSQL, a finite Float by its real value (-0.0 and 0.0 tie); window ORDER
-# and PARTITION keep Float out. MySQL keeps -0.0 and 0.0 apart in a deduplicating
-# hash over a wide key, so its Float DISTINCT, and through order_admitted its
-# Float relation ORDER, stay refused. A UUID orders by its unsigned big-endian
-# bytes on both targets.
+# R19 orders the exact comparison domain the window stage admits and a finite
+# Float by its real value (-0.0 and 0.0 tie: MySQL's sort key writes both zeros
+# alike); window ORDER and PARTITION keep Float out. MySQL keeps -0.0 and 0.0
+# apart in a deduplicating hash over a wide key, so its Float DISTINCT stays
+# refused. A UUID orders by its unsigned big-endian bytes on both targets.
 ORDER_TAGS = frozenset({"Int", "Bool", "Text", "Decimal", "Timestamp", "Date", "Float"})
 DISTINCT_TAGS = ORDER_TAGS | {"UUID"}
 
 
 def order_admitted(family: str, realization: rows.Realization) -> bool:
     """R19 orders one exactly comparable carrier of its reviewed representation."""
+    if realization.tag == "Float":
+        return rows.float_carrier(realization, family)
     return distinct_problem(family, realization) is None
 
 

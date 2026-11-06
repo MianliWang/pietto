@@ -537,32 +537,21 @@ def test_a_computed_order_expression_is_an_exact_typed_blocker(target):
         ("        ratio\n    limit 2\n", " ASC LIMIT 2"),
     ],
 )
-def test_float_order_key_orders_by_value_on_postgres_only(target, clause, suffix):
-    """R19/F3: a PostgreSQL Float key orders by real value (-0.0 and 0.0 tie).
-    MySQL relation ORDER stays coupled to its refused Float DISTINCT."""
+def test_float_order_key_orders_by_value_on_both_targets(target, clause, suffix):
+    """R19/F3: a Float key orders by real value (-0.0 and 0.0 tie) on both
+    targets (MySQL's sort key writes both zeros alike); MySQL still
+    refuses its Float DISTINCT."""
     outcome = emit(
         target,
         "query result:\n    from rows\n    select:\n        ratio\n    order by:\n"
         + clause,
     )
-    if target == "mysql":
-        assert outcome.status == "BLOCKED"
-        (blocker,) = public(outcome)["blockers"]
-        # At the ORDER BY item, line 13.
-        item = clause.splitlines()[0].strip()
-        assert (blocker["code"], blocker["subject"], blocker["location"]) == (
-            "PIE-B1003",
-            {
-                "reference": {"kind": "order_item", "position": 0},
-                "detail": "order_comparison_domain_unsupported",
-            },
-            located(13, 9, 9 + len(item)),
-        )
-        return
     assert outcome.status == "VERIFIED", blockers(outcome)
+    q = Q[target]
     # The key is its own carried column beside the projected one.
     assert final_select(sql_of(outcome)) == (
-        'SELECT "t0"."c0" AS "ratio" FROM "p0" AS "t0" ORDER BY "t0"."c1"' + suffix
+        f"SELECT {q}t0{q}.{q}c0{q} AS {q}ratio{q} FROM {q}p0{q} AS {q}t0{q}"
+        f" ORDER BY {q}t0{q}.{q}c1{q}" + suffix
     )
     artifact = artifact_of(outcome)
     assert verify_project_sql_emission(artifact, artifact.request).verified

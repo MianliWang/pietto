@@ -1063,10 +1063,11 @@ def test_the_comparison_row_read_fact_is_required():
 
 
 @pytest.mark.parametrize("name", tuple(FLOAT_CARRIERS))
-def test_float_equivalence_and_order_arms_admit_postgres_finite_only(name):
-    """Group keys, DISTINCT, relation ORDER and the equivalence set forms admit
-    only the PostgreSQL finite carrier (Branch B); UNION ALL transports any
-    matching Float carrier exactly as before."""
+def test_float_equivalence_admits_postgres_finite_and_order_each_finite(name):
+    """Group keys, DISTINCT and the equivalence set forms admit only the
+    PostgreSQL finite carrier (Branch B); relation ORDER admits each target's
+    own finite carrier (MySQL too); UNION ALL transports any matching
+    Float carrier exactly as before."""
     from pietto._project import project_sql_emission_aggregation as aggregation
     from pietto._project import project_sql_emission_results as results
     from pietto._project import project_sql_emission_sets as setting
@@ -1081,7 +1082,7 @@ def test_float_equivalence_and_order_arms_admit_postgres_finite_only(name):
             admitted and family == "postgres"
         )
         assert results.order_admitted(family, value) is (
-            admitted and family == "postgres"
+            name == {"postgres": "pg", "mysql": "my"}[family]
         )
     assert verification._float_carrier(value, "postgres") is admitted
     reads = (SimpleNamespace(realization=value), SimpleNamespace(realization=value))

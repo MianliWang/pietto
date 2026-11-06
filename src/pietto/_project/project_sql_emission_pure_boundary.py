@@ -892,6 +892,16 @@ def _is_pg_float(realization) -> bool:
     )
 
 
+def _is_float(realization, family: str) -> bool:
+    """The family's finite binary64 carrier."""
+    return _is_realization(
+        realization,
+        "Float",
+        {"kind": "pg_float8" if family == "postgres" else "my_double"},
+        {"kind": "finite_float", "format": "binary64"},
+    )
+
+
 def _is_pg_text(realization, *, nullable=None, maximum=None) -> bool:
     return _is_realization(
         realization,
@@ -2113,14 +2123,13 @@ class _Check:
                 )
                 read = doc[fields["read"]]
                 realization = doc[read["realization"]]
-                # A finite Float orders a PostgreSQL result only; window keys
-                # (_is_key_value) keep Float out on both families.
+                # A finite Float orders a result on both families; window keys
+                # (_is_key_value) keep Float out on both.
                 _require(
                     _source_field_matches_stage(doc, read)
                     and (
                         _is_key_value(realization, self.family)
-                        or self.family == "postgres"
-                        and _is_pg_float(realization)
+                        or _is_float(realization, self.family)
                     ),
                     "result order carrier",
                 )

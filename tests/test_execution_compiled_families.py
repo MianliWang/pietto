@@ -256,21 +256,27 @@ BINARY64 = ("target_checked_binary64_overflow",)
 
 
 @pytest.mark.parametrize(
-    "variant,evidence",
+    "target,variant,evidence",
     (
-        ("sum_float", [BINARY64]),
-        ("avg_float", [BINARY64]),
-        ("postgres_carriers", [()] * 5),
-        ("inline_arguments", [("target_checked_signed64_narrowing",), (), ()]),
+        ("postgres", "sum_float", [BINARY64]),
+        ("postgres", "avg_float", [BINARY64]),
+        ("postgres", "postgres_carriers", [()] * 5),
+        ("mysql", "postgres_carriers", [()] * 5),
+        (
+            "postgres",
+            "inline_arguments",
+            [("target_checked_signed64_narrowing",), (), ()],
+        ),
     ),
 )
-def test_postgresql_aggregate_parity_replays_from_compiled_input(
-    tmp_path, variant, evidence
+def test_aggregate_parity_replays_from_compiled_input(
+    tmp_path, target, variant, evidence
 ):
     """S16: an uncast float8 SUM/AVG, a Text, Bool, Float or Decimal count,
-    distinct count or extreme and an aggregate over a row expression replay
-    from compiled input with their argument-keyed R13 evidence."""
-    original = build(tmp_path, "postgres", "V_aggregate_blocked", variant)
+    distinct count or extreme (on MySQL too) and an aggregate over a row
+    expression replay from compiled input with their argument-keyed R13
+    evidence."""
+    original = build(tmp_path, target, "V_aggregate_blocked", variant)
     assert original.status == "VERIFIED" and original.artifact is not None
     candidate = _compare(original.artifact, refinement=False)
     assert [
@@ -523,12 +529,14 @@ def test_a_uuid_order_replays_from_compiled_input(tmp_path, target):
         ("mysql", "fc_rows"),
         ("mysql", "fc_where"),
         ("mysql", "fw_windows"),
+        ("mysql", "fo_ascending"),
     ),
 )
 def test_float_equality_and_order_replay_from_compiled_input(tmp_path, target, variant):
     """Lane E: Float ORDER, GROUP BY, DISTINCT, INTERSECT, JOIN and correlated
-    equalities and literal comparisons replay; R2 refuses a Float coordinate,
-    as it refuses a UUID one; the live template renders the same SQL."""
+    equalities and literal comparisons replay (MySQL Float ORDER too); R2
+    refuses a Float coordinate, as it refuses a UUID one; the live template
+    renders the same SQL."""
     original = build(tmp_path, target, emission.FLOAT_CASE, variant)
     assert original.status == "VERIFIED" and original.artifact is not None
     _compare(original.artifact, refinement=False)

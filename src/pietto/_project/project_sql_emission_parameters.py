@@ -42,7 +42,7 @@ SQL_TYPES = {
 
 
 # Header-parameter carriers no literal or slot has: PostgreSQL only. MySQL has
-# none until its differential (the Phase74 MySQL catch-up), so a MySQL declaration of one of these
+# none until its differential (a later MySQL catch-up), so a MySQL declaration of one of these
 # types is refused before any placeholder is allocated.
 HEADER_PHYSICAL = {
     "postgres": {

@@ -1655,7 +1655,7 @@ def test_mysql_refuses_each_typed_parameter_at_its_declaration(
     tmp_path: Path, body: str | None, columns: list[int]
 ) -> None:
     """D73.14: MySQL has no Decimal, Date, Timestamp or UUID parameter carrier
-    until the Phase74 MySQL catch-up, so each such declaration, read or not, is PIE-B1003 at its own
+    until a later MySQL catch-up, so each such declaration, read or not, is PIE-B1003 at its own
     span before any placeholder is allocated; the other parameters keep theirs."""
     checked, outcome = typed_case(tmp_path, "mysql", *(() if body is None else (body,)))
     assert checked.verified and outcome.status == "BLOCKED"

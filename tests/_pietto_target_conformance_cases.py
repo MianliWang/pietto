@@ -1553,9 +1553,9 @@ def aggregate_rows(target, case, variant):
     if (case, variant) == ("V_aggregate_blocked", "avg_float"):
         return [[_float(1.5)]]
     if (case, variant) == ("V_aggregate_blocked", "postgres_carriers"):
-        # PostgreSQL only: five labels, four distinct under C/NO PAD ("a",
-        # "A", "a " and the emoji), two distinct flags, the least amount
-        # -0.01 and the greatest ratio 1.5.
+        # Both targets: five labels, four distinct under C or
+        # utf8mb4_0900_bin, NO PAD ("a", "A", "a " and the emoji), two
+        # distinct flags, the least amount -0.01 and the greatest ratio 1.5.
         return [
             [
                 _integer("5"),

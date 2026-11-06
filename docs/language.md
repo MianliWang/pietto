@@ -540,15 +540,15 @@ first column give every rule.
 | `stddev(x)` ([Aggregates](#aggregates-and-grouping)) | `Int` and `Float` | `Float` (`STDDEV_SAMP`); `Int` refused (PIE-B1000) | `Int` and `Float` | refused: `Int` PIE-B1003, `Float` PIE-B1004 |
 | `median(x)`, `quantile(x, q)` ([Aggregates](#aggregates-and-grouping)) | `Int` and `Float` (`PERCENTILE_CONT ... WITHIN GROUP`) | refused (PIE-B1000) | `Int`; `Float` refused (PIE-B1004) | refused (PIE-B1003) |
 | `sum(1 for o in group if t)`, `sum(o.f for o in group if t)` ([Aggregates](#aggregates-and-grouping)) | `COUNT(CASE WHEN t THEN 1 END)`; `COALESCE(CAST(SUM(CASE WHEN t THEN CAST(f AS pg_catalog.int8) END) AS pg_catalog.int8), 0)` | count `COUNT(CASE WHEN t THEN 1 END)`; sum refused (PIE-B1000) | as PostgreSQL single file, `schema_version = 2` (PIE-S2334 in a `schema_version = 1` project); no JOIN inputs | refused: count PIE-B1003, sum PIE-B1004 |
-| `max(a, b)`, `min(a, b)` ([Expressions](#expressions)) | `CASE WHEN` of `<`/`>` and `IS NOT NULL`; `Int`, `Decimal`, `Float`, `Text`, `Date`, `Timestamp`, `UUID`, `Bool` | as PostgreSQL, except `Bool`, refused (PIE-B1000) | `Int`, `Decimal`, `Float`, `Text`, `Timestamp`, `UUID` as their comparison and conditional are; `Date` and `Bool` refused (PIE-B1003) | as PostgreSQL project |
+| `max(a, b)`, `min(a, b)` ([Expressions](#expressions)) | `CASE WHEN` of `<`/`>` and `IS NOT NULL`; `Int`, `Decimal`, `Float`, `Text`, `Date`, `Timestamp`, `UUID`, `Bool` | as PostgreSQL; a `Bool` result arrives as an integer 0, 1 or NULL, as every computed `Bool` does on MySQL | `Int`, `Decimal`, `Float`, `Text`, `Timestamp`, `UUID` as their comparison and conditional are; `Date` and `Bool` refused (PIE-B1003) | as PostgreSQL project |
 | `lpad(s, width, fill)` ([Expressions](#expressions)) | `CASE WHEN length(s) >= width THEN s ELSE lpad(...) END`; a literal width outside the signed 32-bit range refused (PIE-S2385 at check) | `CASE WHEN CHAR_LENGTH(s) >= width THEN s ELSE LPAD(...) END` | emitted for a width proven in the signed 32-bit range; refused otherwise (PIE-B1002, PIE-B1004) | refused (PIE-B1003) |
 | `add_months(d, n)` ([Expressions](#expressions)) | `CAST((d + make_interval(months => CAST(n AS integer))) AS date)` | `DATE_ADD(d, INTERVAL n MONTH)` | emitted; a `None` argument refused (PIE-B1003) | refused (PIE-B1003) |
 | `now()` ([Expressions](#expressions)) | `(statement_timestamp() AT TIME ZONE 'UTC')`, in SELECT items and WHERE | refused (PIE-B1000) | emitted, compiled and bound as a template | refused (PIE-B1003 `scalar_call_signature_not_admitted`) |
 | Always-null numbers, D-12 ([Expressions](#expressions)) | typed NULL casts | typed NULL casts | `Int` arithmetic with `None`; `Float` and `Decimal` refused | as PostgreSQL |
-| `Float` equality ([Float values](#float-values)) | comparisons and GROUP BY; DISTINCT and set forms are project-only | as PostgreSQL; GROUP BY beside a wide `Text` key may split `-0.0` and `0.0` | comparisons, GROUP BY, DISTINCT, ORDER BY and every set form | comparisons with a literal or header parameter, ordering inequalities, `in`, `nullif` and UNION ALL; the other forms refused (PIE-B1003) |
+| `Float` equality ([Float values](#float-values)) | comparisons and GROUP BY; DISTINCT and set forms are project-only | as PostgreSQL; GROUP BY beside a wide `Text` key may split `-0.0` and `0.0` | comparisons, GROUP BY, DISTINCT, ORDER BY and every set form | comparisons with a literal or header parameter, ordering inequalities, `in`, `nullif`, relation ORDER BY and UNION ALL; the other forms refused (PIE-B1003) |
 | JOIN aggregates without fan-out ([Aggregates](#aggregates-and-grouping)) | accepted | accepted | accepted | accepted; `sum(Int)` stays PIE-B1004 |
 | Top-level constants and `--set` ([Top-level constants](#top-level-constants)) | literals; `DATE '...'`, `TIMESTAMP '...'` | each relation that reads one refused (PIE-B1000) | refused (PIE-S2392) | refused (PIE-S2392) |
-| Project aggregate arguments ([Aggregates](#aggregates-and-grouping)): `count`/`count_distinct` of `Text`, `Bool`, `Float`, `Decimal`; `min`/`max` of `Float`, `Decimal`; `sum`/`avg` of `Float`; a row expression argument (`sum(qty * 2)`) | emitted (unchanged) | emitted (unchanged) | emitted; `Decimal` `sum`/`avg` refused (PIE-B1004); over JOIN rows an argument holding a scalar call (`count(lower(r.label))`) refused (PIE-B1003) | refused: PIE-B1003 or PIE-B1004 (an `Int` expression not proved to fit BIGINT PIE-B1002 first) |
+| Project aggregate arguments ([Aggregates](#aggregates-and-grouping)): `count`/`count_distinct` of `Text`, `Bool`, `Float`, `Decimal`; `min`/`max` of `Float`, `Decimal`; `sum`/`avg` of `Float`; a row expression argument (`sum(qty * 2)`) | emitted (unchanged) | emitted (unchanged) | emitted; `Decimal` `sum`/`avg` refused (PIE-B1004); over JOIN rows an argument holding a scalar call (`count(lower(r.label))`) refused (PIE-B1003) | as PostgreSQL, except `count_distinct` of a `Float` (PIE-B1003), `sum`/`avg` of a `Float` and `sum` of an `Int` such as `sum(qty * 2)` (PIE-B1004); an `Int` expression not proved to fit BIGINT is PIE-B1002 first |
 | `len(c.xs)`, `sum(o.f for o in c.xs ...)`, `any(t for o in c.xs)` ([Nested relations](#nested-relations-collect-and-unnest)) | `sum` and `any` refused at check (PIE-S2334; a single file collects no list); `len(c.xs)` has no list to read (PIE-S2102 for an unknown field, or only the Collect's own refusals) | as PostgreSQL | the count column; `sum` and `any` a scalar subquery over `pg_catalog.unnest` of the list's arrays | refused (PIE-B1003 `collect_not_admitted_on_target`) |
 | `asof left join`, `asof inner join` ([Backward asof JOIN](#backward-asof-join)) | emitted | refused (PIE-B1000) | emitted in a table or query without a relation `let NAME:` block whose FROM is not a table function, elsewhere refused (PIE-S2336); a `let NAME:` block as the joined input is PIE-S2386, where a single file refuses the block itself (PIE-S2345); an aggregate after it only where its `on` keys match a unique key (PIE-S2333) | refused (PIE-B1003 `asof_join_not_admitted_on_target`) |
 
@@ -1229,9 +1229,10 @@ class merges `-0.0` with `0.0` and shows one member's value
 ([Float values](#float-values)). Project emission emits Float DISTINCT on
 PostgreSQL. MySQL refuses it at emission (MySQL kept `-0.0` and `0.0` apart
 beside a wide key), and so do both targets for a window
-`percent_rank`/`cume_dist` result. Project emission on PostgreSQL also counts
-distinct Float values and takes Float `min`/`max` by the same law; MySQL
-refuses both (PIE-B1003). Other Float operations retain existing behavior.
+`percent_rank`/`cume_dist` result. Project emission also takes Float
+`min`/`max` by the same law on both targets, and counts distinct Float values
+on PostgreSQL; MySQL refuses a Float `count_distinct` (PIE-B1003). Other Float
+operations retain existing behavior.
 
 DISTINCT preserves canonical output fields and gives non-global results a new
 quotient grain domain, including inputs with UNKNOWN grain. Sound GLOBAL or
@@ -2529,7 +2530,7 @@ when it prepares the result and `save()` when it describes the binding
 (PIE-R1004 `QUERY_NOT_EXECUTABLE`, detail `MEANING_OUTPUT`). MySQL has no
 carrier for these four types yet: emitting a query that declares one, read or
 not, is BLOCKED with PIE-B1003 `query_parameter_type_not_admitted_on_target`
-at each such declaration, until the Phase74 MySQL catch-up.
+at each such declaration, until a later MySQL catch-up.
 
 A read, or a `let` binding or output whose value reads one, is available
 beneath unary, binary, comparison, null-test, BETWEEN, conditional,
@@ -3083,10 +3084,9 @@ are PIE-S2309 with the nesting hint, and `greatest`/`least` are unknown
 functions (PIE-S2103) whose hint names `max` and `min`. A file that declares a
 `constraint`, `derive` or relationship template named `max` or `min` keeps the
 two-argument call's earlier meaning (the aggregate's arity error, PIE-S2309);
-a `def` of either name stays PIE-S2398. MySQL emission refuses two `Bool`
-values (PIE-B1000 `MySQL max and min of two Bool values are not supported;
-emit with --dialect postgres`), because MySQL gives their CASE an integer
-type.
+a `def` of either name stays PIE-S2398. On MySQL, which has no boolean
+type, the larger or smaller of two `Bool` values arrives as an integer column
+holding 0, 1 or NULL, as every computed `Bool` (such as `a < b`) does there.
 
 ```pietto
 shape Reading:
@@ -3849,11 +3849,14 @@ MySQL Float `sum`/`avg` require a finite-result proof. PostgreSQL project SQL
 emits `sum` and `avg` of a finite `Float` as the single-file `SUM(x)` and
 `AVG(x)` with the R13 evidence `target_checked_binary64_overflow`: the target
 raises SQLSTATE 22003 instead of returning an infinite value (`avg` also where
-its running sum of squares overflows, about |x| > 1e154). PostgreSQL project
-SQL also emits `count` and `count_distinct` of a `Text`, `Bool`, `Float` or
-`Decimal` value and `min` and `max` of a `Float` or `Decimal` value, under the
-GROUP BY key law (`-0.0` and `0.0` are one distinct value; an extreme of equal
-values may be either member); MySQL project SQL keeps them BLOCKED. These
+its running sum of squares overflows, about |x| > 1e154). Project SQL on both
+targets also emits `count` and `count_distinct` of a `Text`, `Bool`, `Float`
+or `Decimal` value and `min` and `max` of a `Float` or `Decimal` value, under
+the GROUP BY key law (`-0.0` and `0.0` are one distinct value; an extreme of
+equal values may be either member), except `count_distinct` of a `Float` on
+MySQL, which stays BLOCKED (PIE-B1003
+`count_distinct_argument_outside_reviewed_int_domain`): MySQL kept `-0.0` and
+`0.0` apart in deduplication beside a wide key. These
 wider argument types are for grouped and whole-relation aggregates; an
 aggregate over a window keeps the `Int` domain (PIE-B1003 or PIE-B1004). A
 source range, free JSON declaration, renderer
@@ -3887,7 +3890,7 @@ with PIE-B1000.
 `count_distinct` includes direct fields and the bounded Text lower/trim chain.
 Literal-only and arbitrary expression widening remain fail closed unless a
 current retained contract says otherwise.
-In project SQL on PostgreSQL an admitted expression argument (`sum(qty * 2)`,
+In project SQL an admitted expression argument (`sum(qty * 2)`,
 `count(lower(label))`) is emitted inside the aggregate by the same rules as a
 `let`: it is admitted exactly where `let t = qty * 2` with `sum(t)` is, and
 refused with the same blocker where that `let` is (for example `%` is
@@ -3896,10 +3899,9 @@ refused with the same blocker where that `let` is (for example `%` is
 `arithmetic_requires_signed_int_operands`). Over JOIN rows a scalar call
 such as `lower` is admitted only directly in a SELECT item, so an aggregate
 argument that holds one (`count(lower(r.label))`) stays BLOCKED, as
-`let t = lower(r.label)` with `count(t)` does. MySQL project SQL keeps an
-expression argument BLOCKED (`aggregate_argument_not_a_direct_established_field`,
-or first `arithmetic_outside_physical_range` for `Int` arithmetic not proved
-to fit BIGINT).
+`let t = lower(r.label)` with `count(t)` does. MySQL applies the same rule;
+there an `Int` expression must first be proved to fit BIGINT
+(`arithmetic_outside_physical_range` otherwise).
 
 Single-file `emit-sql` renders `sum` without a cast except for PostgreSQL
 `sum(Int)`, which emits the checked `int8` input and result casts above. Its

@@ -4591,7 +4591,10 @@ def _verify_result_body(
                         _order_key(read.realization, request.family)
                         or _float_carrier(read.realization, request.family)
                     )
-                    or resulting.distinct_problem(request.family, read.realization)
+                    # A Float orders by real value on both targets, where
+                    # MySQL still refuses its DISTINCT.
+                    or read.realization.tag != "Float"
+                    and resulting.distinct_problem(request.family, read.realization)
                     is not None
                     or rows.value_tag(item.source) != read.realization.tag
                 ):

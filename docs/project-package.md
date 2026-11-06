@@ -825,12 +825,16 @@ as a `let` and emitted inside the aggregate, so it is admitted exactly where
 `lower`, `trim` or `len` is admitted only directly in a SELECT item, so an
 aggregate argument that holds one (`count(lower(r.label))`) stays BLOCKED with
 `operator_not_implemented_in_slice6` and `join_shape_not_admitted_in_slice7`,
-as `let t = lower(r.label)` with `count(t)` does. MySQL keeps each of these
-forms BLOCKED (`<function>_argument_outside_reviewed_int_domain`,
-`float_aggregate_finite_result_proof_missing` or
-`aggregate_argument_not_a_direct_established_field`, after `PIE-B1002` for
-`Int` arithmetic not proved to fit signed 64 bits) until a real-database
-differential reviews them.
+as `let t = lower(r.label)` with `count(t)` does. MySQL emits the same
+`count`, `count_distinct`, `min` and `max` forms, with a non-null `my_bigint`
+count and the argument's own nullable carrier for an extreme, and the same row
+expression arguments (`count(lower(label))`), except that it keeps BLOCKED
+`count_distinct` of a `Float`
+(`count_distinct_argument_outside_reviewed_int_domain`: MySQL kept `-0.0` and
+`0.0` apart in deduplication beside a wide key), `sum`, `avg` and `stddev` of a
+`Float` (`float_aggregate_finite_result_proof_missing`), `sum` of an `Int`
+(`sum_int_aggregate_range_proof_missing`, so `sum(qty * 2)` too), and an `Int`
+row expression not proved to fit signed 64 bits (`PIE-B1002`).
 
 PostgreSQL project SQL emits `stddev` of one direct `Int` field, whose carrier
 is `int2`, `int4` or `int8`, as `SQRT(CAST(VAR_SAMP(x) AS
@@ -908,7 +912,7 @@ declares:
   admitted with the checked `bigint` rule above, while `qty + 1` over
   `my_bigint` is BLOCKED with `PIE-B1002`.
 
-On MySQL `emit-sql --project` also reports BLOCKED `group by`, `order by` and
+On MySQL `emit-sql --project` also reports BLOCKED `group by` and
 `select distinct:` over a `Float`, a Float UNION DISTINCT, INTERSECT or
 EXCEPT, and a Float `==` or `!=` whose two operands both read rows (a JOIN
 `on`, a WHERE comparison across inputs, a correlated
@@ -922,7 +926,8 @@ EXCEPT compared them as different values, and a semijoin forced to
 materialize over such a key returned outer rows twice. Narrow keys and every
 JOIN tried matched `-0.0` with `0.0`, but Pietto does not choose MySQL's
 plan, and MySQL's parser turns `NOT (x <> y)` into `x = y`. A relation
-`order by` follows the `select distinct:` rule.
+`order by` over a `Float` is emitted on both dialects: MySQL's sort key writes
+`-0.0` and `0.0` alike, so they tie, as the Float order law says.
 
 Admitting these forms needs reviewed SQL and a real-database differential on
 PostgreSQL and MySQL, which the PostgreSQL/MySQL parity batch plans (see the

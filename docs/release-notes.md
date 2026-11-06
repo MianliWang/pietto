@@ -93,8 +93,8 @@ the end of the message and is also the JSON `suggestion`):
 
 - MySQL single file, conditional sum: PIE-B1000 `MySQL SQL emission is not
   implemented for RelationIR: <name>. MySQL conditional sum of an Int argument
-  is not supported` (MySQL sums integers in DECIMAL; the Phase74 MySQL
-  catch-up takes it up).
+  is not supported` (MySQL sums integers in DECIMAL; a later MySQL catch-up
+  takes it up).
 - A `schema_version = 1` project, every generator: PIE-S2334 at the call,
   before semantic analysis, ``sum(... for ...): a schema_version = 1 project
   has no generator in the current syntax; set schema_version = 2 to check
@@ -278,7 +278,7 @@ warning; its exit code and SQL are unchanged):
   `CASE WHEN`, never PostgreSQL `GREATEST`/`LEAST`, which skip a NULL. The
   values are any pair that compares with `<` and has one type: `Int`,
   `Decimal`, `Float`, `Text`, `Date`, `Timestamp`, `UUID` and `Bool` in a
-  single file (PostgreSQL; MySQL all but `Bool`); in `emit-sql --project` (with compiled
+  single file (both targets); in `emit-sql --project` (with compiled
   replay and the live template) `Int`, `Decimal`, `Float`, `Text`,
   `Timestamp` and `UUID` on both targets (MySQL `UUID` with the UUID ordering
   of "MySQL catch-up in projects" below). Project `Date` and `Bool` values are
@@ -286,11 +286,9 @@ warning; its exit code and SQL are unchanged):
   `comparison_type_pair_not_admitted`).
   A `def` body may call them, and they work in WHERE and inside larger
   expressions. A two-database differential (PostgreSQL 18.6, MySQL 8.4.12)
-  matched the expected rows for each of these types. New refusal: MySQL
-  single-file emission refuses two `Bool` values, PIE-B1000 `MySQL SQL
-  emission is not implemented for RelationIR: <name>. MySQL max and min of
-  two Bool values are not supported; emit with --dialect postgres`, because
-  MySQL types their CASE as an integer; PostgreSQL emits them.
+  matched the expected rows for each of these types. On MySQL, which has no
+  boolean type, two `Bool` values give an integer column holding 0, 1 or NULL,
+  as every computed `Bool` (such as `a < b`) does there.
 
 New or changed diagnostics (exact):
 
@@ -812,8 +810,8 @@ Compatibility:
     for the requested target. Do not relabel the target or source carrier to
     bypass this refusal.`: MySQL project emission (`emit-sql --project`;
     `compile_query` gets the BLOCKED document) of a query that declares a
-    `Decimal(p, s)`, `Date`, `Timestamp` or `UUID` parameter, until the
-    Phase74 MySQL catch-up.
+    `Decimal(p, s)`, `Date`, `Timestamp` or `UUID` parameter, until a later
+    MySQL catch-up.
   - PIE-R1006 `BINDING_PARAMETER:<ordinal>:<Decimal|Date|Timestamp|UUID>`
     (existing detail, new tags; a `Date` before `1000-01-01` included).
   - PIE-R1004 `QUERY_NOT_EXECUTABLE`, detail `MEANING_OUTPUT`, from `execute`
@@ -1422,12 +1420,76 @@ changes):
   `min(a, b)` of two UUID values, which are their `<` comparison inside a
   conditional, are now emitted on MySQL too (before: PIE-B1003
   `comparison_type_pair_not_admitted`).
+- **Aggregates of Text, Bool, Float and Decimal values on MySQL.**
+  `emit-sql --project --dialect mysql` now emits, VERIFIED, the aggregates
+  that "Project aggregates match single files on PostgreSQL" above opened on
+  PostgreSQL, with the same SQL shape and MySQL carriers (compiled bundle and
+  live template too):
+  - `count(x)` and `count_distinct(x)` of a `Text`, `Bool` or `Decimal` value
+    and `count(x)` of a `Float`, as `COUNT(x)` and `COUNT(DISTINCT x)`, a
+    non-null `my_bigint` count (before: PIE-B1003
+    `count_argument_outside_reviewed_int_domain`,
+    `count_distinct_argument_outside_reviewed_int_domain`);
+  - `min(x)` and `max(x)` of a `Float` or `Decimal` value, as `MIN(x)` and
+    `MAX(x)`, keeping the argument's carrier (`my_double`, `my_decimal`) and
+    nullable (before: PIE-B1003 `min_argument_outside_reviewed_int_domain`,
+    `max_argument_outside_reviewed_int_domain`);
+  - an aggregate whose argument is a row expression, such as
+    `count(lower(label))`, `count_distinct(trim(lower(label)))`,
+    `count(len(label))` or `count(flag and flag)`, emitted inside the
+    aggregate as a `let` would lower it (before: PIE-B1003
+    `aggregate_argument_not_a_direct_established_field`).
+  `count_distinct`, `min` and `max` compare by the GROUP BY key law of the
+  argument's carrier, as on PostgreSQL: `utf8mb4_0900_bin` NO PAD keeps
+  `"a"`, `"A"` and `"a "` apart; `-0.00` and `0.00` are one Decimal value; a
+  Float `min` or `max` whose extreme class holds both zeros shows some
+  member's value. Refusal move (MySQL, same select item): a row-expression
+  argument that stays refused now reports the blocker its `let` form reports
+  instead of PIE-B1003 `aggregate_argument_not_a_direct_established_field`,
+  as on PostgreSQL: `sum(amount + amount)` reports PIE-B1004
+  `decimal_aggregate_range_proof_missing`; an `Int` expression not proved to
+  fit BIGINT still reports PIE-B1002 `arithmetic_outside_physical_range`
+  first.
+- **ORDER BY a Float on MySQL.** A relation `order by` over a finite `Float`
+  column is now VERIFIED on MySQL, with or without `limit`, as on PostgreSQL:
+  Floats order by real value, `-0.0` and `0.0` tie and tied rows have no
+  promised relative order (before: PIE-B1003
+  `order_comparison_domain_unsupported` at the ORDER BY item).
+- **Two `Bool` values in single-file `max(a, b)` and `min(a, b)` on MySQL**
+  are emitted (see "`max(a, b)` and `min(a, b)`" above): the result is an
+  integer column holding 0, 1 or NULL, as every computed `Bool` is there.
+- A two-database differential (PostgreSQL 18.6, MySQL 8.4.12) of the
+  aggregate, Float ORDER BY and `Bool` `max`/`min` forms, with MySQL column
+  types judged, matched the expected rows on both databases.
 - **Kept refused on MySQL.** `min` and `max` of a Timestamp or Date (PIE-B1003
   `min_argument_outside_reviewed_int_domain` /
   `max_argument_outside_reviewed_int_domain`) and Int arithmetic not proved to
   fit signed 64 bits (PIE-B1002 `arithmetic_outside_physical_range`,
   `unary_result_outside_physical_range`, `abs_result_outside_physical_range`)
-  stay refused: their two-database differential did not pass.
+  stay refused: their two-database differential did not pass. Also unchanged
+  on MySQL: `count_distinct` of a `Float` (PIE-B1003
+  `count_distinct_argument_outside_reviewed_int_domain`; MySQL kept `-0.0`
+  and `0.0` apart in deduplication beside a wide key); `sum`, `avg` and
+  `stddev` of a `Float` (PIE-B1004
+  `float_aggregate_finite_result_proof_missing`); `sum(Int)` (PIE-B1004
+  `sum_int_aggregate_range_proof_missing`); `stddev` of an `Int` (PIE-B1003
+  `stddev_int_not_admitted_on_target`); `select distinct`, window ORDER BY
+  and PARTITION BY over a `Float`; Float `union distinct`, `intersect` and
+  `except` (PIE-B1003 `set_row_equivalence_domain_unsupported`); `==` and
+  `!=` between two `Float` row reads and `same_value` of two such values
+  (PIE-B1003 `comparison_type_pair_not_admitted`); project `concat(a, b)`
+  (PIE-B1003 `scalar_call_signature_not_admitted`) and `Text(x)` of an `Int`
+  (PIE-B1003 `cast_realization_not_admitted`); `string_agg` (single file
+  PIE-B1000 `MySQL aggregate string_agg is not supported`, project PIE-B1003
+  `aggregate_function_not_promised_in_slice8`), as `GROUP_CONCAT` truncates
+  silently at `group_concat_max_len`; the `Decimal(p, s)`, `Date`,
+  `Timestamp` and `UUID` query parameters (PIE-B1003
+  `query_parameter_type_not_admitted_on_target`, see "Typed project query
+  parameters" above); the single-file conditional sum (PIE-B1000, see
+  "Conditional count and sum" above); the project conditional count and sum
+  (PIE-B1003 `conditional_count_not_admitted_on_target`, PIE-B1004
+  `sum_int_aggregate_range_proof_missing`, see "Conditional count and sum in
+  projects" above).
 - The private emission observation of a Decimal operation over two Decimal
   fields, or of a Float operation over two Float literals, now passes its
   independent check on PostgreSQL; emitted SQL is unchanged.

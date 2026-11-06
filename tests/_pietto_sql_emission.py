@@ -112,7 +112,7 @@ VARIANTS = {
         "let_bind",
         # Decimal, Date and Timestamp, then UUID, header
         # parameters over the Q1 meaning sources (PostgreSQL; MySQL refuses
-        # these types until the Phase74 MySQL catch-up).
+        # these types until a later MySQL catch-up).
         "typed_timestamp",
         "typed_uuid",
     ),
@@ -321,7 +321,17 @@ FLOAT_CASE = "F_float_values"
 # Comparisons with a constant operand, membership, nullif, window ratios and
 # avg(Int): MySQL emits these in Branch B as well.
 FLOAT_ON_BOTH_TARGETS = frozenset(
-    {"fc_where", "fc_rows", "fp_zeros", "fw_windows", "fh_average"}
+    {
+        "fc_where",
+        "fc_rows",
+        "fp_zeros",
+        "fw_windows",
+        "fh_average",
+        # MySQL orders a Float by real value too (-0.0 and 0.0 tie).
+        "fo_ascending",
+        "fo_descending",
+        "fo_limit",
+    }
 )
 SET_CASES = frozenset(
     {
@@ -488,6 +498,7 @@ def _pg_finite_float(realization) -> bool:
 
 
 COUNT_STORAGE = {"postgres": "pg_int8", "mysql": "my_bigint"}
+FLOAT_STORAGE = {"postgres": "pg_float8", "mysql": "my_double"}
 COUNT_MAX = (1 << 63) - 1
 # Q1/Q2 evidence: a bigint result the target's checked operation bounds.
 TARGET_CHECKED = "target_checked_signed64_narrowing"
@@ -4425,7 +4436,7 @@ MIGRATED_TO_SUCCESS = (
 # typed non-support, so these variants are per-target.
 PER_TARGET_STATUS = {
     # D73.14: Decimal, Date, Timestamp and UUID header parameters
-    # are PostgreSQL only; MySQL refuses each declaration until the Phase74 MySQL catch-up.
+    # are PostgreSQL only; MySQL refuses each declaration until a later MySQL catch-up.
     ("Q_query_parameters", "typed_timestamp"): {
         "postgres": "VERIFIED",
         "mysql": "BLOCKED",
@@ -4458,22 +4469,22 @@ PER_TARGET_STATUS = {
         "postgres": "VERIFIED",
         "mysql": "BLOCKED",
     },
-    # S16: PostgreSQL sums and averages a finite float8, counts, deduplicates
-    # and compares Text, Bool, Float and Decimal carriers by the group-key law,
-    # and lowers a row expression argument as a LET would; MySQL keeps each
-    # refused until a real-database differential.
+    # S16: PostgreSQL sums and averages a finite float8 and lowers a row
+    # expression argument as a LET would; MySQL keeps a Float sum or average
+    # unproved and this Int expression outside BIGINT's proven range.
     **dict.fromkeys(
         (
             ("V_aggregate_blocked", variant)
-            for variant in (
-                "sum_float",
-                "avg_float",
-                "postgres_carriers",
-                "inline_arguments",
-            )
+            for variant in ("sum_float", "avg_float", "inline_arguments")
         ),
         {"postgres": "VERIFIED", "mysql": "BLOCKED"},
     ),
+    # Both targets count, deduplicate and compare Text, Bool, Float and
+    # Decimal carriers by the group-key law (MySQL too).
+    ("V_aggregate_blocked", "postgres_carriers"): {
+        "postgres": "VERIFIED",
+        "mysql": "VERIFIED",
+    },
     ("V_aggregate_blocked", "sum_hidden_right"): {
         "postgres": "VERIFIED",
         "mysql": "BLOCKED",
@@ -4499,9 +4510,10 @@ PER_TARGET_STATUS = {
         for variant in COLLECT_VARIANTS
     },
     # Phase72 Lane E (Branch B): MySQL keeps Float GROUP BY, DISTINCT, UNION
-    # DISTINCT, relation ORDER and `==` between two row reads refused (it kept
-    # -0.0 and 0.0 apart beside a wide key), and refuses Float INTERSECT/EXCEPT
-    # and VALUES; PostgreSQL emits each of these programs.
+    # DISTINCT and `==` between two row reads refused (it kept -0.0 and 0.0
+    # apart beside a wide key), and refuses Float INTERSECT/EXCEPT and VALUES;
+    # PostgreSQL emits each of these programs (relation ORDER is open on
+    # both, FLOAT_ON_BOTH_TARGETS).
     **{
         key: {"postgres": "VERIFIED", "mysql": "BLOCKED"}
         for key in (
@@ -11176,9 +11188,11 @@ def _decode_fixed_public(document, limits):
                             "string_agg value carrier",
                         )
                     else:
-                        # PostgreSQL also admits one row expression, as a LET.
+                        # One established field, or one row expression that
+                        # reads a row, lowered as a LET would be.
                         _need(
-                            "read" in argument or family == "postgres",
+                            "read" in argument
+                            or bool(parsed_terminals(node["argument"])),
                             "an aggregate argument is one direct established field",
                         )
                         _need(
@@ -11200,12 +11214,21 @@ def _decode_fixed_public(document, limits):
                             or (
                                 node["function"]
                                 in {"count", "count_distinct", "min", "max"}
-                                and family == "postgres"
-                                and argument["tag"] in {"Float", "Decimal"}
+                                and argument["tag"] == "Decimal"
+                            )
+                            or (
+                                # MySQL deduplicates no Float: -0.0 and 0.0
+                                # stayed apart beside a wide key.
+                                node["function"]
+                                in {"count", "count_distinct", "min", "max"}
+                                and argument["tag"] == "Float"
+                                and (
+                                    family == "postgres"
+                                    or node["function"] != "count_distinct"
+                                )
                             )
                             or (
                                 node["function"] in {"count", "count_distinct"}
-                                and family == "postgres"
                                 and argument["tag"] in {"Text", "Bool"}
                             )
                             or (
@@ -11740,7 +11763,11 @@ def _decode_fixed_public(document, limits):
                     and (
                         read["realization"]["tag"] in ("Int", "Bool", "Text", "Decimal")
                         or _temporal_carrier(read["realization"], family)
-                        or _pg_finite_float(read["realization"])
+                        # A finite Float orders by real value on both targets.
+                        or read["realization"]["tag"] == "Float"
+                        and read["realization"]["storage"]
+                        == {"kind": FLOAT_STORAGE[family]}
+                        and read["realization"]["domain"] == FINITE_FLOAT
                         or read["realization"]["tag"] == "UUID"
                         and read["realization"]["storage"]
                         == {

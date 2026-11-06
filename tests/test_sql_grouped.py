@@ -1524,13 +1524,8 @@ def test_a_float_median_needs_a_finite_result_proof(tmp_path, target):
             ),
             ("count", "count", "count", "decimal", "float"),
             [[]] * 5,
-            [
-                ("PIE-B1003", "count_argument_outside_reviewed_int_domain"),
-                ("PIE-B1003", "count_distinct_argument_outside_reviewed_int_domain"),
-                ("PIE-B1003", "count_distinct_argument_outside_reviewed_int_domain"),
-                ("PIE-B1003", "min_argument_outside_reviewed_int_domain"),
-                ("PIE-B1003", "max_argument_outside_reviewed_int_domain"),
-            ],
+            # MySQL emits these too: test_mysql_counts_and_compares_the_same_carriers.
+            None,
         ),
         (
             "inline_arguments",
@@ -1554,10 +1549,13 @@ def test_postgres_aggregates_reach_single_file_argument_parity(
     average (finite by the target's checked binary64 overflow), of a count,
     distinct count or extreme of a Text, Bool, Float or Decimal carrier (the
     group-key comparison law), and of an aggregate over a row expression,
-    lowered as a LET would be. MySQL keeps every one refused, with a
-    suggestion, until a real-database differential."""
+    lowered as a LET would be. MySQL keeps the Float sum and average and
+    this Int expression refused, with a suggestion."""
     outcome = emit(tmp_path, target, "V_aggregate_blocked", variant)
     data = public(outcome)
+    if target == "mysql" and mysql_blockers is None:
+        assert outcome.status == "VERIFIED", outcome.blockers
+        return
     if target == "mysql":
         assert data["status"] == "BLOCKED"
         assert [
@@ -1603,6 +1601,110 @@ def test_postgres_aggregates_reach_single_file_argument_parity(
     ] == evidence
 
 
+def test_mysql_counts_and_compares_the_same_carriers(tmp_path):
+    """MySQL counts, deduplicates and compares a Text, Bool, Float or
+    Decimal carrier by the group-key law, with the carriers PostgreSQL uses:
+    a non-null BIGINT count and the argument's own nullable carrier for an
+    extreme. utf8mb4_0900_bin NO PAD distinguishes "a", "A" and "a "."""
+    outcome = emit(tmp_path, "mysql", "V_aggregate_blocked", "postgres_carriers")
+    assert outcome.status == "VERIFIED", outcome.blockers
+    data = public(outcome)
+    assert (
+        'SELECT COUNT(`s0`.`text ``"é`) AS `c0`,'
+        ' COUNT(DISTINCT `s0`.`text ``"é`) AS `c1`,'
+        " COUNT(DISTINCT `s0`.`flag value`) AS `c2`,"
+        " MIN(`s0`.`amount value`) AS `c3`, MAX(`s0`.`ratio value`) AS `c4`"
+    ) in data["sql"]
+    count = {
+        "storage": {"kind": "my_bigint"},
+        "nullable": False,
+        "domain": {"kind": "int_range", "min": "0", "max": SIGNED64},
+    }
+    assert [item["representation"] for item in data["columns"]] == [
+        count,
+        count,
+        count,
+        {
+            "storage": {"kind": "my_decimal", "precision": 9, "scale": 2},
+            "nullable": True,
+            "domain": {"kind": "decimal", "precision": 9, "scale": 2},
+        },
+        {
+            "storage": {"kind": "my_double"},
+            "nullable": True,
+            "domain": {"kind": "finite_float", "format": "binary64"},
+        },
+    ]
+    assert [
+        r["evidence"] for r in data["requirements"] if r["kind"] == "aggregate"
+    ] == [[]] * 5
+
+
+@pytest.mark.parametrize("target", TARGETS)
+def test_row_expression_and_float_arguments_count_and_compare_on_both_targets(
+    tmp_path, target
+):
+    """A Text, Bool or Float row expression argument is lowered as a
+    LET would be on both targets, and a Float counts and takes its extreme
+    (-0.0 and 0.0 tie: the extreme is some member). Only MySQL refuses a
+    distinct count of a Float, which it deduplicated apart beside a wide key."""
+    outcome = emit_source(
+        tmp_path / "open",
+        target,
+        """query result:
+    from agg
+    select:
+        n = count(ratio)
+        lo = min(ratio)
+        l = count(lower(label))
+        d = count_distinct(trim(lower(label)))
+        b = count(flag and flag)
+        m = max(amount)
+""",
+    )
+    assert outcome.status == "VERIFIED", outcome.blockers
+    data = public(outcome)
+    if target == "postgres":
+        calls = (
+            'COUNT("s0"."ratio value") AS "c0", MIN("s0"."ratio value") AS "c1",'
+            ' COUNT(lower("s0"."text `""é")) AS "c2",'
+            ' COUNT(DISTINCT trim(lower("s0"."text `""é"))) AS "c3",'
+            ' COUNT(("s0"."flag value" AND "s0"."flag value")) AS "c4",'
+            ' MAX("s0"."amount value") AS "c5"'
+        )
+    else:
+        calls = (
+            "COUNT(`s0`.`ratio value`) AS `c0`, MIN(`s0`.`ratio value`) AS `c1`,"
+            ' COUNT(LOWER(`s0`.`text ``"é`)) AS `c2`,'
+            ' COUNT(DISTINCT TRIM(LOWER(`s0`.`text ``"é`))) AS `c3`,'
+            " COUNT((`s0`.`flag value` AND `s0`.`flag value`)) AS `c4`,"
+            " MAX(`s0`.`amount value`) AS `c5`"
+        )
+    assert calls in data["sql"]
+    assert [item["logical_type"]["name"] for item in data["columns"]] == [
+        "Int",
+        "Float",
+        "Int",
+        "Int",
+        "Int",
+        "Decimal",
+    ]
+    refused = emit_source(
+        tmp_path / "distinct",
+        target,
+        "query result:\n    from agg\n    select:\n        d = count_distinct(ratio)\n",
+    )
+    if target == "postgres":
+        assert refused.status == "VERIFIED", refused.blockers
+        return
+    (blocker,) = public(refused)["blockers"]
+    assert (blocker["code"], blocker["subject"]["detail"]) == (
+        "PIE-B1003",
+        "count_distinct_argument_outside_reviewed_int_domain",
+    )
+    assert blocker["suggestion"]
+
+
 @pytest.mark.parametrize(
     ("target", "expression", "detail"),
     (
@@ -1639,8 +1741,9 @@ def test_numeric_aggregate_domains_require_proofs_beyond_source_declarations(
 def test_joined_grouped_aggregates_keep_the_same_parity(tmp_path, target):
     """S16: over a LEFT JOIN's unique right rows, PostgreSQL counts a Text
     field, deduplicates a Bool, takes Decimal and Float extremes, sums and
-    averages a Float and sums a row expression; MySQL refuses each at its
-    own item."""
+    averages a Float and sums a row expression; MySQL emits the counts and
+    extremes and refuses the Float sum and average and the Int expression at
+    their own items."""
     item = probe.fixture(target, "Z_aggregate_joined", "left_nullable")
     header = item["source"].split("query result:", 1)[0]
     _, outcome = probe.build_case(
@@ -1668,10 +1771,6 @@ def test_joined_grouped_aggregates_keep_the_same_parity(tmp_path, target):
     data = public(outcome)
     if target == "mysql":
         assert [(b["code"], b["subject"]["detail"]) for b in data["blockers"]] == [
-            ("PIE-B1003", "count_argument_outside_reviewed_int_domain"),
-            ("PIE-B1003", "count_distinct_argument_outside_reviewed_int_domain"),
-            ("PIE-B1003", "min_argument_outside_reviewed_int_domain"),
-            ("PIE-B1003", "max_argument_outside_reviewed_int_domain"),
             ("PIE-B1004", "float_aggregate_finite_result_proof_missing"),
             ("PIE-B1004", "float_aggregate_finite_result_proof_missing"),
             ("PIE-B1002", "arithmetic_outside_physical_range"),
@@ -1779,9 +1878,9 @@ def test_the_reviewed_determinant_domains_still_emit(tmp_path, target, variant):
 
 
 @pytest.mark.parametrize("target", TARGETS)
-def test_an_aggregate_argument_must_be_one_direct_established_field(tmp_path, target):
-    """MySQL keeps one direct Int, Timestamp, Date or UUID field per counted
-    argument; PostgreSQL counts a Text field or its lowered value."""
+def test_an_aggregate_argument_is_a_field_or_a_lowered_row_expression(tmp_path, target):
+    """Both targets count a Text field or its lowered value (MySQL
+    too)."""
     outcome = emit_source(
         tmp_path,
         target,
@@ -1792,18 +1891,12 @@ def test_an_aggregate_argument_must_be_one_direct_established_field(tmp_path, ta
         lowered = count(lower(label))
 """,
     )
-    if target == "postgres":
-        assert outcome.status == "VERIFIED", outcome.blockers
-        assert (
-            'COUNT(DISTINCT "s0"."text `""é") AS "c0", COUNT(lower("s0"."text `""é"))'
-            in public(outcome)["sql"]
-        )
-        return
-    assert outcome.status == "BLOCKED"
-    assert [(item.code, item.detail) for item in outcome.blockers] == [
-        ("PIE-B1003", "count_distinct_argument_outside_reviewed_int_domain"),
-        ("PIE-B1003", "aggregate_argument_not_a_direct_established_field"),
-    ]
+    assert outcome.status == "VERIFIED", outcome.blockers
+    assert (
+        'COUNT(DISTINCT "s0"."text `""é") AS "c0", COUNT(lower("s0"."text `""é"))'
+        if target == "postgres"
+        else 'COUNT(DISTINCT `s0`.`text ``"é`) AS `c0`, COUNT(LOWER(`s0`.`text ``"é`))'
+    ) in public(outcome)["sql"]
 
 
 # --------------------------------------------------------------------------
