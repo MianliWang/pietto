@@ -3457,6 +3457,27 @@ def test_each_item_reports_its_argument_errors_without_comparing_earlier_ones(
     assert comparisons(200) <= comparisons(100) * 21 // 10
 
 
+def test_an_analysis_walks_its_script_once(monkeypatch: pytest.MonkeyPatch) -> None:
+    """The any(...) and generator gates, the query names and `Float` read one
+    walk of the parsed script, which no step changes: an operation count that
+    does not depend on the machine."""
+    walk = inline_module._walk
+    walked: list[object] = []
+
+    def counted(root: object) -> list[object]:
+        if type(root) is Script:
+            walked.append(root)
+        return walk(root)
+
+    monkeypatch.setattr(inline_module, "_walk", counted)
+    source = (
+        SHAPES + "table t:\n    from rows\n    where n > 0\n    select:\n        id\n"
+    )
+    parsed = parse_source(source, path="m.pietto")
+    assert parsed.ast is not None and analyze(parsed.ast).diagnostics == ()
+    assert len(walked) == 1 and walked[0] is parsed.ast
+
+
 def test_concurrent_analyses_check_only_their_own_arguments() -> None:
     """Two analyses whose calls share every source position, run at once in
     two threads, each report only the parameters of their own def."""

@@ -677,8 +677,20 @@ def _child_names(value: object) -> tuple[str, ...]:
 
 def _tree_nodes(root: object) -> list[object]:
     """``root`` and every AST node below it that ``_rebuild`` visits, in
-    source order: a cast's type arguments and a window's specification too."""
+    source order: a cast's type arguments and a window's specification too.
+    A script is walked once; each later call reads that walk's nodes, kept
+    with the script but without it, so that they hold no cycle."""
 
+    if type(root) is not Script:
+        return _walk(root)
+    below = getattr(root, "_nodes_below", None)
+    if below is None:
+        below = tuple(_walk(root))[1:]
+        object.__setattr__(root, "_nodes_below", below)
+    return [root, *below]
+
+
+def _walk(root: object) -> list[object]:
     found: list[object] = []
     pending = [root]
     while pending:

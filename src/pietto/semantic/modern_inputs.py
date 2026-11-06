@@ -298,6 +298,11 @@ def normalize_query_names(
         )
         assert isinstance(rebuilt, (ast.TableDef, ast.QueryDef))
         definitions.append(rebuilt)
+    if all(
+        new is old for new, old in zip(definitions, script.definitions, strict=True)
+    ):
+        # Unchanged, the script keeps its identity and the nodes of its walk.
+        return script, tuple(diagnostics)
     return replace(script, definitions=tuple(definitions)), tuple(diagnostics)
 
 

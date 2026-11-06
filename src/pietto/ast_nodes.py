@@ -55,6 +55,18 @@ class _InlinedArgumentSlot(Node):
     __slots__ = ("_inlined_arguments",)
 
 
+class _NodesBelowSlot(Node):
+    """Room for every node below a script, found by its first walk
+    (``inline_functions._tree_nodes``) and read by each later reader of the
+    same script: an AST is never changed in place.
+
+    It is a slot, not a dataclass field: equality, hashing, ``fields()``
+    walkers, serializers, IR and SQL never see it, and ``replace()`` drops it.
+    """
+
+    __slots__ = ("_nodes_below",)
+
+
 @dataclass(frozen=True, slots=True, kw_only=True)
 class Expression(_InlinedArgumentSlot):
     """Base class for parsed expressions without semantic typing."""
@@ -1345,7 +1357,7 @@ class ConstantDef(Node):
 
 
 @dataclass(frozen=True, slots=True, kw_only=True)
-class Script(Node):
+class Script(_NodesBelowSlot):
     """The root node for one parsed Pietto source file."""
 
     header: Header | None

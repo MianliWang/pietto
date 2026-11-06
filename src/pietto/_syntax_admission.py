@@ -324,8 +324,18 @@ def now_position_diagnostics(script: Script) -> tuple[Diagnostic, ...]:
     """PIE-S2387 at every `now()` call outside a SELECT item or a WHERE. A
     `let` or SELECT item that a GROUP BY or ORDER BY of its body names is that
     key. A call with arguments is not the builtin: it is a relationship
-    template's call, or PIE-S2104."""
+    template's call, or PIE-S2104. The shared walk of the script tells first
+    whether it calls `now()` at all: a callee is a name, never a call."""
 
+    from pietto.semantic.inline_functions import _tree_nodes
+
+    if not any(
+        type(node) is CallExpr
+        and type(cast(CallExpr, node).callee) is NameExpr
+        and cast(NameExpr, cast(CallExpr, node).callee).name == "now"
+        for node in _tree_nodes(script)
+    ):
+        return ()
     found: list[Diagnostic] = []
     pending: list[tuple[object, str | None, dict[str, str]]] = [(script, None, {})]
     while pending:

@@ -1,7 +1,8 @@
 from __future__ import annotations
 
-from dataclasses import replace
+from dataclasses import fields, replace
 from pathlib import Path
+from typing import Any
 
 import pytest
 
@@ -9,6 +10,7 @@ import pietto.ir as ir_api
 import pietto.semantic as semantic_api
 import pietto.sql as sql_api
 import pietto.sql.mysql as mysql_backend
+from pietto import _syntax_admission
 from pietto._project.check import (
     check_legacy_flat_semantics,
     check_project_parse_only,
@@ -21,10 +23,11 @@ from pietto._project.model import (
     ProjectRowFieldProvenanceKind,
     build_empty_project_semantic_result,
 )
-from pietto.ast_nodes import CallExpr, ComparisonExpr, QueryDef
+from pietto.ast_nodes import CallExpr, ComparisonExpr, QueryDef, Script
 from pietto.cli import main
 from pietto.errors import Diagnostic, Severity, SourceLocation
 from pietto.parser_api import parse_source
+from pietto.semantic import inline_functions
 
 
 def test_parse_only_project_check_parses_selected_sources_deterministically(
@@ -758,6 +761,69 @@ def test_a_def_body_reports_an_error_in_a_call_once(tmp_path: Path) -> None:
 def test_a_def_cannot_be_an_export_item(tmp_path: Path) -> None:
     located, _ = _def_project(tmp_path, "export:\n    def idi\n")
     assert located == [("PIE-P1000", DEF_LINE + 1, 5)]
+
+
+WALKED = FLAT_HEAD + (
+    "shape Order:\n    id: Int\n    user_id: Int\n    amount: Int\n"
+    'source orders: Order = postgres.table("orders")\n'
+    "table totals:\n    from users\n"
+    "    inner join orders on users.id == orders.user_id\n"
+    "    where orders.amount > 0\n"
+    "    select:\n        uid = users.id\n        amount = orders.amount\n"
+    "query result:\n    values(id: Int, label: Text | None):\n"
+    '        1, "a"\n        2, None\n'
+)
+
+
+def test_a_project_check_walks_each_parsed_script_once(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    """Every reader of a module's nodes, from the asof lowering, the any(...)
+    normalization and the generator and `now()` gates through `Float` and the
+    query names to the latest-row ranges, reads one walk of its script, and
+    the pre-admission gate walks it once on its own: operation counts that do
+    not depend on the machine. Each script that a normalizer rewrites is
+    walked once more, for the readers after it."""
+    walk = inline_functions._walk
+    walked: list[object] = []
+    gated: list[object] = []
+
+    def counted(root: object) -> list[object]:
+        if type(root) is Script:
+            walked.append(root)
+        return walk(root)
+
+    def gate_fields(value: Any) -> Any:
+        if type(value) is Script:
+            gated.append(value)
+        return fields(value)
+
+    monkeypatch.setattr(inline_functions, "_walk", counted)
+    monkeypatch.setattr(_syntax_admission, "fields", gate_fields)
+    root = tmp_path / "project"
+    _write(
+        root, "pietto.toml", 'schema_version = 2\n[sources]\ninclude = ["*.pietto"]\n'
+    )
+    _write(root, "main.pietto", WALKED)
+    assert main(["check", "--project", str(root)]) == 0
+    assert len(walked) == len(gated) == 1
+    walked.clear()
+    gated.clear()
+    _write(
+        root,
+        "main.pietto",
+        WALKED
+        + (
+            "query widened:\n    from users\n    let s = Float(score)\n"
+            "    select:\n        id\n        s\n        m = max(score, 3)\n"
+        ),
+    )
+    assert main(["check", "--project", str(root)]) == 0
+    assert len({id(script) for script in walked}) == len(walked) == 3
+    assert len(gated) == 1
+    assert capsys.readouterr().out == 2 * "Project check OK: .\nFiles checked: 1\n"
 
 
 def _project_root(
