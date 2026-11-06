@@ -18,6 +18,7 @@ from pietto.ir.model import (
 from pietto.sql.expressions import refuse_text_null_condition, render_expression_sql
 from pietto.sql.mysql_expressions import render_mysql_expression
 from pietto.sql.mysql_render import MySqlRenderError
+from pietto.sql.mysql_render import quote_identifier as quote_mysql_identifier
 from pietto.sql.render import quote_identifier
 
 _JOIN_KEYWORDS = {
@@ -39,6 +40,7 @@ class JoinTarget:
     error: type[Exception]
     refuse_condition: Callable[[ExpressionIR], None]
     native_full: bool
+    quote: Callable[[str], str]
 
 
 POSTGRESQL = JoinTarget(
@@ -47,6 +49,7 @@ POSTGRESQL = JoinTarget(
     error=ValueError,
     refuse_condition=refuse_text_null_condition,
     native_full=True,
+    quote=quote_identifier,
 )
 MYSQL = JoinTarget(
     name="MySQL",
@@ -55,6 +58,7 @@ MYSQL = JoinTarget(
     # MySQL takes a NULL of any type where it takes a Boolean.
     refuse_condition=lambda condition: None,
     native_full=False,
+    quote=lambda name: quote_mysql_identifier(name, context="relation identifier"),
 )
 
 
@@ -109,13 +113,18 @@ def render_join_sql(
             conjuncts.append(target.render(join.condition))
         joined = inputs[join.target_input]
         if join.latest is not None:
-            if target is not POSTGRESQL:
+            if not target.native_full and any(
+                JoinKindIR(other.kind) is JoinKindIR.FULL for other in relation.joins
+            ):
+                # No differential has run an asof JOIN beside MySQL's
+                # emulation of a FULL JOIN.
                 raise target.error(
-                    f"{target.name} has no ASOF JOIN yet; emit with --dialect postgres"
+                    f"{target.name} has no ASOF JOIN in a relation with a FULL "
+                    "JOIN yet; emit with --dialect postgres"
                 )
             # The latest matching row: the declared unique of the keys and
             # the time makes it one row, and a NULL time never matches.
-            alias = quote_identifier(relation.inputs[join.target_input].binding)
+            alias = target.quote(relation.inputs[join.target_input].binding)
             lines.append(
                 f"{_JOIN_KEYWORDS[kind]} LATERAL (SELECT * FROM {joined} "
                 f"WHERE {render_conjunction_sql(conjuncts)} "

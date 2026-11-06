@@ -3626,25 +3626,33 @@ def test_a_mysql_description_of_an_ordered_block_read_is_refused(tmp_path, monke
         _load(encode(description), built)
 
 
+@pytest.mark.parametrize("target", ("postgres", "mysql"))
 @pytest.mark.parametrize("kind", ("left", "inner"))
-def test_an_asof_join_emits_its_latest_row_as_an_anti_join_and_replays(tmp_path, kind):
+def test_an_asof_join_emits_its_latest_row_as_an_anti_join_and_replays(
+    tmp_path, kind, target
+):
     """A project asof JOIN is the JOIN plus `not any(...)` of a later row: the
-    emitted, compiled-replay and live-template SQL are one statement; MySQL
-    refuses it at its plan JOIN."""
+    emitted, compiled-replay and live-template SQL are one statement, on MySQL
+    with its own quotes."""
     source = CANONICAL.replace("query order_prices", "query result").replace(
         "asof left join", f"asof {kind} join"
     )
-    checked, outcome = emission.build_case(tmp_path / "pg", source, project_contract())
+    if target == "mysql":
+        source = source.replace("postgres.table", "mysql.table")
+    checked, outcome = emission.build_case(tmp_path, source, project_contract(target))
     assert checked.verified and outcome.status == "VERIFIED"
     assert outcome.artifact is not None
     sql = outcome.artifact.rendered.sql
-    assert (
+    expected = (
         f'{kind.upper()} JOIN "shop"."prices" AS "m1" ON ((("m0"."product_id" = '
         '"m1"."product_id") AND ("m0"."ordered_at" >= "m1"."valid_from")) AND (NOT '
         'EXISTS (SELECT 1 FROM "shop"."prices" AS "e0" WHERE ((("m0"."product_id" = '
         '"e0"."product_id") AND ("m0"."ordered_at" >= "e0"."valid_from")) AND '
         '("e0"."valid_from" > "m1"."valid_from")))))'
-    ).encode() in sql
+    )
+    if target == "mysql":
+        expected = expected.replace('"', "`")
+    assert expected.encode() in sql
     built = build_compiled(outcome.artifact)
     loaded = load_compiled(
         built.payload,
@@ -3655,15 +3663,6 @@ def test_an_asof_join_emits_its_latest_row_as_an_anti_join_and_replays(tmp_path,
     values = tuple(value.value for value in outcome.artifact.fixed_values)
     assert emit_compiled(loaded, values).rendered.sql == sql
     assert prepare_live_template(outcome.artifact).artifact.rendered.sql == sql
-    _, blocked = emission.build_case(
-        tmp_path / "my",
-        source.replace("postgres.table", "mysql.table"),
-        project_contract("mysql"),
-    )
-    assert blocked.status == "BLOCKED" and blocked.artifact is None
-    assert [(item.code, item.detail) for item in blocked.blockers] == [
-        ("PIE-B1003", "asof_join_not_admitted_on_target")
-    ]
 
 
 @pytest.mark.parametrize("target", ("postgres", "mysql"))

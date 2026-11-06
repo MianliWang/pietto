@@ -482,14 +482,6 @@ def field_premise_problems(premises, representation):
     return tuple(result)
 
 
-def asof_join_clause(join):
-    """The authored asof JOIN clause of one plan JOIN, or None."""
-
-    condition = getattr(join.source, "condition", None)
-    clause = None if condition is None else condition.use.clause
-    return clause if clause is not None and clause.asof else None
-
-
 def emission_blockers(request: PreparedEmission, *, _guarded=None):
     if _guarded is not None:
         from pietto._project.project_guard_preparation import verify_scope
@@ -585,18 +577,6 @@ def emission_blockers(request: PreparedEmission, *, _guarded=None):
                 body.ref,
                 definition.span,
             )
-    # Only PostgreSQL has a LATERAL top-1 row; every asof JOIN of the
-    # statement, upstream relations included, is refused elsewhere.
-    if request.family != "postgres":
-        for join in plan.joins:
-            clause = asof_join_clause(join)
-            if clause is not None:
-                add(
-                    "PIE-B1003",
-                    "asof_join_not_admitted_on_target",
-                    join.ref,
-                    clause.span,
-                )
     # The nested refusals follow the table function ones (D-S06-11).
     if nested:
         return (*result, *nested)

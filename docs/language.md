@@ -550,7 +550,7 @@ first column give every rule.
 | Top-level constants and `--set` ([Top-level constants](#top-level-constants)) | literals; `DATE '...'`, `TIMESTAMP '...'` | each relation that reads one refused (PIE-B1000) | refused (PIE-S2392) | refused (PIE-S2392) |
 | Project aggregate arguments ([Aggregates](#aggregates-and-grouping)): `count`/`count_distinct` of `Text`, `Bool`, `Float`, `Decimal`; `min`/`max` of `Float`, `Decimal`; `sum`/`avg` of `Float`; a row expression argument (`sum(qty * 2)`) | emitted (unchanged) | emitted (unchanged) | emitted; `Decimal` `sum`/`avg` refused (PIE-B1004); over JOIN rows an argument holding a scalar call (`count(lower(r.label))`) refused (PIE-B1003) | as PostgreSQL, except `count_distinct` of a `Float` (PIE-B1003), `sum`/`avg` of a `Float` and `sum` of an `Int` such as `sum(qty * 2)` (PIE-B1004); an `Int` expression not proved to fit BIGINT is PIE-B1002 first |
 | `len(c.xs)`, `sum(o.f for o in c.xs ...)`, `any(t for o in c.xs)` ([Nested relations](#nested-relations-collect-and-unnest)) | `sum` and `any` refused at check (PIE-S2334; a single file collects no list); `len(c.xs)` has no list to read (PIE-S2102 for an unknown field, or only the Collect's own refusals) | as PostgreSQL | the count column; `sum` and `any` a scalar subquery over `pg_catalog.unnest` of the list's arrays | refused (PIE-B1003 `collect_not_admitted_on_target`) |
-| `asof left join`, `asof inner join` ([Backward asof JOIN](#backward-asof-join)) | emitted | refused (PIE-B1000) | emitted in a table or query without a relation `let NAME:` block whose FROM is not a table function, elsewhere refused (PIE-S2336); a `let NAME:` block as the joined input is PIE-S2386, where a single file refuses the block itself (PIE-S2345); an aggregate after it only where its `on` keys match a unique key (PIE-S2333) | refused (PIE-B1003 `asof_join_not_admitted_on_target`) |
+| `asof left join`, `asof inner join` ([Backward asof JOIN](#backward-asof-join)) | emitted | emitted, except in a relation with a FULL JOIN (PIE-B1000) | emitted in a table or query without a relation `let NAME:` block whose FROM is not a table function, elsewhere refused (PIE-S2336); a `let NAME:` block as the joined input is PIE-S2386, where a single file refuses the block itself (PIE-S2345); an aggregate after it only where its `on` keys match a unique key (PIE-S2333) | as PostgreSQL |
 
 ## Types and shapes
 
@@ -1616,9 +1616,13 @@ query order_prices:
   a rewrite where one exists. For a validity range, write a plain `left join price`
   whose `on` has the keys and both tests,
   `orders.ordered_at >= price.valid_from and orders.ordered_at < price.valid_to`.
-- **PostgreSQL only.** MySQL refuses an asof JOIN (single file PIE-B1000,
-  project PIE-B1003 `asof_join_not_admitted_on_target`); emit it with
-  `--dialect postgres`. PostgreSQL finds the latest row fastest with an index
+- **MySQL.** MySQL writes the same SQL with its own quotes: the `LATERAL`
+  latest row in a single file, the latest-row test in a project. In a single
+  file a `Text` key compares under the column's collation, as in any MySQL
+  JOIN, so the declared unique must hold under it (a MySQL `UNIQUE` index on
+  those columns ensures that). A single file refuses an asof JOIN in a
+  relation with a FULL JOIN, which MySQL emulates with UNION ALL
+  (PIE-B1000). Each database finds the latest row fastest with an index
   on the joined table's keys and time, such as `(product_id, valid_from)`.
 - **Projects.** An explicit-module project checks an asof JOIN with the same
   rules and messages, except that it reports a JOIN without `on` as
@@ -4887,5 +4891,5 @@ is reviewed. UUID values of one carrier also compare with `<`, `<=`, `>`,
 Timestamp compared with a Date, full joins on these keys, a RANGE frame offset
 over a temporal or UUID order key, range relationships, timezone conversion,
 parsing, and other casts remain unavailable (the latest earlier row is the
-[backward asof JOIN](#backward-asof-join), PostgreSQL only); `min` and `max` refuse a UUID argument with
+[backward asof JOIN](#backward-asof-join)); `min` and `max` refuse a UUID argument with
 PIE-S2314 before emission.

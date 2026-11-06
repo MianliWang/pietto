@@ -229,8 +229,8 @@ PostgreSQL; UUID values also compare and order by their unsigned
 big-endian bytes; `min`/`max` of a UUID (refused by `check` with
 `PIE-S2314`), full joins on these keys, range
 relationships, timezone conversion, parsing and other casts remain
-unavailable; on PostgreSQL, `asof left join` and `asof inner join` pick the
-latest earlier row. See
+unavailable; `asof left join` and `asof inner join` pick the latest
+earlier row. See
 [Timestamp and UUID source meaning](https://github.com/MianliWang/pietto/blob/v0.1.9/docs/language.md#timestamp-and-uuid-source-meaning).
 
 `emit-sql` prints SQL for you to run yourself; to run a query of a project

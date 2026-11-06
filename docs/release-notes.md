@@ -1494,6 +1494,46 @@ changes):
   fields, or of a Float operation over two Float literals, now passes its
   independent check on PostgreSQL; emitted SQL is unchanged.
 
+### Asof JOIN on MySQL
+
+- MySQL now emits the backward asof JOIN (`asof left join`, `asof inner
+  join`), after a two-database differential on MySQL 8.4.12 and PostgreSQL
+  18.6.
+  - Single file (`emit-sql --dialect mysql`): the same latest row as
+    PostgreSQL, with backticks:
+    `LEFT JOIN LATERAL (SELECT * FROM <source> AS <b> WHERE <on> ORDER BY <b>.<time> DESC LIMIT 1) AS <b> ON TRUE`
+    (`INNER JOIN LATERAL` for `asof inner join`). A `Text` key compares
+    under the column's collation, as in any MySQL JOIN, so the declared
+    `unique(...)` must hold under it. An asof JOIN in a relation with a FULL
+    JOIN, which MySQL emulates with UNION ALL, stays refused (below).
+  - Project (`emit-sql --project --dialect mysql`): the same JOIN plus
+    `NOT EXISTS` latest-row test as PostgreSQL; the compiled replay and the
+    live template bind the same statement.
+
+Refusals that become acceptances:
+
+| Mode | Before (exact) | After |
+| --- | --- | --- |
+| single file, `emit-sql --dialect mysql` | `PIE-B1000 error: MySQL SQL emission is not implemented for RelationIR: <name>. MySQL has no ASOF JOIN yet; emit with --dialect postgres` (at the relation) | emitted |
+| project, `emit-sql --project --dialect mysql` | `blocker PIE-B1003 UNSUPPORTED_RULE: asof_join_not_admitted_on_target`, hint `MySQL has no ASOF JOIN yet; emit with --dialect postgres.` (at each plan JOIN with an asof JOIN, upstream relations included) | VERIFIED |
+
+Refusal kept with a narrower text:
+
+| Mode | Before (exact) | After (exact) |
+| --- | --- | --- |
+| single file, `emit-sql --dialect mysql`, an asof JOIN in a relation that also has a FULL JOIN (before or after it) | `PIE-B1000 error: MySQL SQL emission is not implemented for RelationIR: <name>. MySQL has no ASOF JOIN yet; emit with --dialect postgres` | `PIE-B1000 error: MySQL SQL emission is not implemented for RelationIR: <name>. MySQL has no ASOF JOIN in a relation with a FULL JOIN yet; emit with --dialect postgres` |
+
+Same code, same position (the relation span), same order among the JOIN
+refusals (the asof JOIN's place in the JOIN-order walk of the FULL JOIN
+checks). PostgreSQL is unchanged and still emits both compositions natively.
+A query that FULL JOINs another query holding an asof JOIN is emitted: the
+asof JOIN stays in that query's own CTE.
+
+No new diagnostic code, no other refusal or compatibility change, no compiled
+record change (VERSIONS unchanged). The blocker detail
+`asof_join_not_admitted_on_target` and its hint are retired with the project
+family.
+
 ## Equality, nullability and asof JOIN public alpha release notes — 0.1.9
 
 <a id="unreleased-changes-following-018"></a>

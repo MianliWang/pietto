@@ -456,7 +456,6 @@ query order_prices:
 `price_cents` is None for an order without an earlier price; `asof inner join`
 drops those orders. Declare the `unique(...)` that makes the latest row one
 row; without it Pietto refuses the JOIN (PIE-S2386) instead of picking one.
-Only `emit-sql --dialect postgres` writes an asof JOIN; MySQL refuses it.
 
 Not this (each is refused with a hint):
 

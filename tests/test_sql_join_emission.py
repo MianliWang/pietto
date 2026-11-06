@@ -2571,20 +2571,53 @@ def _asof_sql(dialect: str, **query: str) -> tuple[list[str], list[tuple[str, st
     ],
     ids=["left", "inner", "two_keys", "zero_keys", "semi_first"],
 )
-def test_postgresql_renders_an_asof_join_as_the_latest_lateral_row(
-    query: dict[str, str], sql: str
+@pytest.mark.parametrize("dialect", ["postgres", "mysql"])
+def test_an_asof_join_renders_as_the_latest_lateral_row(
+    query: dict[str, str], sql: str, dialect: str
 ) -> None:
-    assert _asof_sql("postgres", **query) == ([sql], [])
+    """MySQL writes the PostgreSQL lateral row with its own quotes."""
+
+    expected = sql if dialect == "postgres" else sql.replace('"', "`")
+    assert _asof_sql(dialect, **query) == ([expected], [])
 
 
-def test_mysql_refuses_an_asof_join_at_its_relation() -> None:
-    assert _asof_sql("mysql", join=f"asof left join price on {KEY} and {TIME}") == (
+_ASOF_FULL = "let p2 = prices_id\n    full join p2 on orders.id == p2.id"
+
+
+@pytest.mark.parametrize(
+    "query",
+    [
+        {
+            "join": f"asof left join price on {KEY} and {TIME}",
+            "let": f"{_ASOF_FULL}\n    let price = prices",
+        },
+        {
+            "join": f"asof inner join price on {KEY} and {TIME}",
+            "let": f"{_ASOF_FULL}\n    let price = prices",
+        },
+        {
+            "join": f"asof left join price on {KEY} and {TIME}",
+            "after": f"    {_ASOF_FULL}\n",
+        },
+    ],
+    ids=["full_before", "full_before_inner", "full_after"],
+)
+def test_mysql_refuses_an_asof_join_in_a_relation_with_a_full_join(
+    query: dict[str, str],
+) -> None:
+    """PostgreSQL writes both JOINs natively; MySQL, which emulates the FULL
+    JOIN with UNION ALL, keeps the asof JOIN refused there."""
+
+    [sql], diagnostics = _asof_sql("postgres", **query)
+    assert "\nFULL JOIN " in sql and " JOIN LATERAL " in sql and diagnostics == []
+    assert _asof_sql("mysql", **query) == (
         [],
         [
             (
                 "PIE-B1000",
-                "MySQL SQL emission is not implemented for RelationIR: q. "
-                "MySQL has no ASOF JOIN yet; emit with --dialect postgres",
+                "MySQL SQL emission is not implemented for RelationIR: q. MySQL "
+                "has no ASOF JOIN in a relation with a FULL JOIN yet; emit with "
+                "--dialect postgres",
             )
         ],
     )
