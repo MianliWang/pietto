@@ -335,6 +335,91 @@ Not this (each is refused with a hint):
 `pietto fmt` keeps the JOIN on its one line and does not rewrite a refused
 form.
 
+### Totals over a JOIN that repeats rows: two levels
+
+A JOIN repeats each order once per matching item, so `sum(orders.amount)`
+over it would count an order's amount once per item. Add the totals in two
+queries: the first groups by the order's key and gives one row per order,
+the second reads `from` the first and adds those rows up:
+
+```pietto
+shape Order:
+    id: Int
+    customer_id: Int
+    amount: Int
+    order_key = unique(id)
+
+shape Item:
+    id: Int
+    order_id: Int
+
+source orders: Order = postgres.table("orders")
+
+source items: Item = postgres.table("items")
+
+query per_order:
+    from orders
+    let item = items
+    left join item on item.order_id == orders.id
+    group by orders.id, orders.customer_id, orders.amount
+    select:
+        id = orders.id
+        customer_id = orders.customer_id
+        amount = orders.amount
+        lines = count(item.id)
+
+query per_customer:
+    from per_order
+    group by customer_id
+    select customer_id, revenue = sum(amount), lines = sum(lines)
+```
+
+Declare the order's key (`order_key = unique(id)`) and group the first query
+by it: then each group is one order, and `count(item.id)` counts that order's
+items. Put every other order field you need in the same `group by`.
+`left join` keeps an order without items, with `lines` 0.
+
+Not this: one query that joins the items and adds up `orders.amount` per
+customer. It is refused (PIE-S2381), and the message names the two-level
+route:
+
+```pietto PIE-S2381
+shape Order:
+    id: Int
+    customer_id: Int
+    amount: Int
+    order_key = unique(id)
+
+shape Item:
+    id: Int
+    order_id: Int
+
+source orders: Order = postgres.table("orders")
+
+source items: Item = postgres.table("items")
+
+query per_customer:
+    from orders
+    let item = items
+    left join item on item.order_id == orders.id
+    group by orders.customer_id
+    select customer_id = orders.customer_id, revenue = sum(orders.amount)
+```
+
+In a project the same query is PIE-S2333, whose message names the remedies
+but not the route; write the same two levels there.
+
+Not these either (each is refused with PIE-S2381 too):
+
+- the first query without `order_key = unique(id)`: nothing then proves that
+  a group is one order, so `count(item.id)` may count an item twice.
+- a second JOIN that also repeats rows, such as each order's payments, in a
+  query that averages the items' `qty`, even when it groups by `orders.id`:
+  group a first query by the item's key instead, then average `qty` in a
+  query `from` it.
+
+There is no DISTINCT repair afterwards: write the two levels.
+
 ## Does a matching row exist?
 
 `any(... for ... in ...)` reads like Python's `any`. It is True when at least

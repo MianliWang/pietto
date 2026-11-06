@@ -123,6 +123,7 @@ from pietto.semantic.analyzer import (
 )
 from pietto.semantic.constructor_calls import builtin_shadows
 from pietto.semantic.expressions import type_source_connector_arguments
+from pietto.semantic.join_fanout import TWO_LEVEL_ROUTE
 from pietto.semantic.source_connectors import check_source_connectors
 from pietto._project.project_relationship_predicates import (
     ProjectRelationshipPredicateCatalog,
@@ -1252,14 +1253,14 @@ def _mixed_aggregate_diagnostics(
     # refusal's root; here PIE-S2312 is.
     for linkage in () if read_fails else _fanout_linkages(aggregation):
         # A cause that names no JOIN and no remedy is the bare one, as a
-        # single file's PIE-S2381 states it.
+        # single file's PIE-S2381 states it, with its two-level route.
         cause = _fanout_clause((linkage,))
         span = linkage.aggregate.call.span
         fanout.append(
             Diagnostic(
                 code="PIE-S2381",
                 severity=Severity.ERROR,
-                message=cause[0].upper() + cause[1:],
+                message=cause[0].upper() + cause[1:] + TWO_LEVEL_ROUTE,
                 location=SourceLocation(
                     path=span.path,
                     line=span.line,

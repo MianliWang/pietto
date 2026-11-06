@@ -1879,7 +1879,15 @@ keeps its one null-extended row. The ORDER BY and LIMIT follow the rules of
 any relation result: the limit is static, an ORDER BY key names a field of the
 let's input (a computed key is refused at emission with PIE-B1003
 `order_expression_requires_established_port`), and the database chooses which
-of several rows that tie on every key fill the last places. An ORDER BY that
+of several rows that tie on every key fill the last places. With `limit 1`,
+when several rows tie on every ORDER BY key, or the let has no ORDER BY, the
+database picks one of them: Pietto neither warns nor refuses, and the pick may
+differ between runs and between PostgreSQL and MySQL. End the ORDER BY with a
+field that is unique among the let's rows, such as a declared key
+(`order by:` `order_day desc`, `id desc`), to fix it. `limit 1` is no proof
+that a JOIN of the let matches at most one row: an aggregate of the left rows
+over that JOIN is refused as a possible fan-out (PIE-S2333), as over any JOIN
+that may repeat rows. An ORDER BY that
 reads a captured field or an aggregate is PIE-S2370 at the let. A key that is
 not a field of the let's input is not available either: an unknown name is
 PIE-S2102 at the key, and for one of the let's own SELECT outputs this alpha
@@ -1893,8 +1901,8 @@ A let read by `scalar`, `in` or `not in` may end in `order by` and `limit` the
 same way, on PostgreSQL only: for each outer row, duplicates included, the read
 sees at most that many of the let's rows for it, the first ones in that order,
 under the ORDER BY, LIMIT and tie rules above. A `scalar` read of such a let
-with `limit 1` is NULL for an outer row without a row and that row's value
-otherwise; a larger limit keeps the runtime error for more than one row
+with `limit 1` is NULL for an outer row without a row and otherwise the value
+of its first row, the one the database picks among rows that tie; a larger limit keeps the runtime error for more than one row
 (PIE-R3003). Project SQL wraps the let's derived tables, ORDER BY and LIMIT
 included, in the read's own derived table, so no subquery that `in` reads
 carries a LIMIT itself: `(SELECT e<n>.c<k> FROM (SELECT ... FROM (SELECT ...
@@ -3457,7 +3465,9 @@ PIE-S2381 names the JOINs that may repeat the aggregate's rows, as a
 project's PIE-S2333 does, and the remedies that can close the rule: matching a
 declared unique key of each named input in `on` with a relationship call or a
 mandatory positive equality written by hand, `any(...)` for an input that only
-filters rows, or aggregating in a separate query first. Where the `on` of a
+filters rows, or aggregating in a separate query first. Every PIE-S2381 message
+then names the two-level route below, whatever its remedies; a project's
+PIE-S2333 cause does not name it, but the same route closes it. Where the `on` of a
 LEFT JOIN already matches the key of an earlier input, or that of a RIGHT
 JOIN the key of its own input, the missing piece is not the key: the
 aggregate reads the rows that JOIN keeps without a match, and the remedy says
@@ -3483,12 +3493,81 @@ key, which would change the result's grain. With
 `customer.name` reports:
 
 ```text
-An aggregate may read rows repeated by JOIN customer; match a unique key of customer in `on`, use `any(...)` for an input that only filters rows, or aggregate in a separate query first
+An aggregate may read rows repeated by JOIN customer; match a unique key of customer in `on`, use `any(...)` for an input that only filters rows, or aggregate in a separate query first; two-level route: group a first query by a unique key of each input the aggregate reads and by every other field that query selects, select an aggregate such as `count()` in it too, then aggregate in a second query that reads `from` it
 ```
 
 Once the shape declares `customer_key = unique(id)`, the same `on` proves that
 each order matches at most one customer, as the relationship call
 `OrderCustomer(orders, customer)` does.
+
+**The two-level route.** To aggregate values that a JOIN repeats, use two
+queries. The first groups by a unique key of each input the aggregate
+reads and by the other fields it selects for the second query (PIE-S2318
+otherwise), so it has one row per row of those inputs (a LEFT JOIN that
+matches none of them adds one row of None per other group key, which an
+aggregate of their fields skips); the second reads `from` the first and
+aggregates its rows, each once. A JOIN of orders to their items and to their payments
+repeats each item once per payment of its order, so `avg(item.qty)` over
+it is refused, also when the query groups by `orders.id`. There each item
+of a group repeats equally often and the average would not change, but the
+rule has no proof that a group key fixes how often each row repeats; the
+same query grouped by `orders.customer_id` weights orders by their payment
+counts. In two levels:
+
+```pietto
+shape Order:
+    id: Int
+    customer_id: Int
+    order_key = unique(id)
+
+shape Item:
+    id: Int
+    order_id: Int
+    qty: Int | None
+    item_key = unique(id)
+
+shape Payment:
+    id: Int
+    order_id: Int
+
+source orders: Order = postgres.table("orders")
+
+source items: Item = postgres.table("items")
+
+source payments: Payment = postgres.table("payments")
+
+query per_item:
+    from orders
+    let item = items
+    left join item on item.order_id == orders.id
+    let payment = payments
+    left join payment on payment.order_id == orders.id
+    group by item.id, item.qty, orders.customer_id
+    select:
+        item_id = item.id
+        qty = item.qty
+        customer_id = orders.customer_id
+        joined_rows = count()
+
+query average_qty:
+    from per_item
+    group by customer_id
+    select customer_id, average_qty = avg(qty)
+```
+
+`per_item` has one row per item (and one per customer for the orders
+without items, whose `qty` is None and is skipped by `avg`). A grouped query
+selects at least one aggregate (PIE-S2320), here `count()`, which needs no
+proof. The usual case counts per order and sums per customer: the first
+query groups by `orders.id` and the order fields it keeps and selects
+`lines = count(item.id)`, and the second selects `sum(amount)` and
+`sum(lines)` (see the [style page](style.md)); without a declared key of
+orders that count is PIE-S2381 itself. The route is two ordinary grouped
+relations: single files emit it on PostgreSQL and MySQL; an
+EXPLICIT_MODULES project emits, compiles and binds it on PostgreSQL, while
+its MySQL emission blocks each Int `sum` (PIE-B1004
+`sum_int_aggregate_range_proof_missing`), as for any project MySQL Int
+`sum`.
 
 GROUP BY accepts fields and `let` names that rename fields. Self-join keys
 such as `customers.id` and `peer.id` remain distinct; a bare and qualified

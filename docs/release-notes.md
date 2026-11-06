@@ -1,5 +1,64 @@
 # Pietto release notes
 
+## Unreleased changes following 0.1.9
+
+These changes are on `main` after `0.1.9` and are in no published release
+yet. They are Phase73 batch 1. Each subsection lists the changes against
+`0.1.9` that a program can observe, its compatibility rows and the new
+refusals.
+
+### JOIN fan-out: the two-level route
+
+- The PIE-S2381 message now ends, after the remedies it already names, with
+  the two-level route, in every check mode, in a single file and in the
+  PIE-S2381 that an EXPLICIT_MODULES project reports beside PIE-S2312 (a
+  JOIN aggregate mixed with another projection without GROUP BY):
+  ``; two-level route: group a first query by a unique key of each input the
+  aggregate reads and by every other field that query selects, select an
+  aggregate such as `count()` in it too, then aggregate in a second query
+  that reads `from` it``.
+  For example:
+  ``An aggregate may read rows repeated by JOIN customer; match a unique key
+  of customer in `on`, use `any(...)` for an input that only filters rows, or
+  aggregate in a separate query first; two-level route: group a first query
+  by a unique key of each input the aggregate reads and by every other field
+  that query selects, select an aggregate such as `count()` in it too, then
+  aggregate in a second query that reads `from` it``.
+  Compatibility: only the message text changes. The code, severity, location,
+  count and order of PIE-S2381 are unchanged, and so are a project's
+  PIE-S2333 cause texts (`... (an aggregate may read rows repeated by JOIN
+  x; ...)`), which do not add the route, although the same route closes
+  them. A tool that matches the whole PIE-S2381 message must accept the new
+  ending.
+- No refusal changes. An average over items grouped by `orders.id` that also
+  LEFT JOINs the order's payments (Phase72 case D11-04) stays PIE-S2381 in a
+  single file, now with the route, and PIE-S2333 in a project, without it;
+  the same query grouped by `orders.customer_id` (D11-05), whose result
+  would be weighted by payment counts, stays refused the same way. Pietto
+  has no rule that a group key fixes how often each row repeats.
+- The two-level route is documented ([language](language.md), [style](style.md)):
+  a first query grouped by the declared key of the repeated input (for
+  example one row per order with `lines = count(item.id)`), and a second
+  query that reads `from` it and sums or averages its rows. It is two
+  ordinary grouped relations: single files emit it for PostgreSQL and MySQL;
+  an EXPLICIT_MODULES project emits it for PostgreSQL VERIFIED and compiles
+  and binds it as a template; project MySQL emission blocks each Int `sum`
+  with PIE-B1004 `sum_int_aggregate_range_proof_missing`, as for any project
+  MySQL Int `sum`. A two-database differential (PostgreSQL 18.6, MySQL
+  8.4.12) of the single-file route, counting per order and summing per
+  customer, and averaging over items in two levels, matched the expected rows
+  on both databases.
+
+### LIMIT 1 in a let with capture lines (documentation only)
+
+- No behaviour changes. The docs now state what `limit 1` does when rows tie:
+  a let with capture lines that ends in `limit 1`, read by a JOIN or by
+  `scalar`, with an ORDER BY whose keys several rows share, or without ORDER
+  BY, gets the row the database picks, with no warning and no refusal, and
+  the pick may differ between runs and databases; end the ORDER BY with a
+  unique field to fix it. `limit 1` is not a proof of at most one row: an
+  aggregate of the left rows over a JOIN of such a let stays PIE-S2333.
+
 ## Equality, nullability and asof JOIN public alpha release notes — 0.1.9
 
 <a id="unreleased-changes-following-018"></a>

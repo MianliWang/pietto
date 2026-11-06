@@ -366,6 +366,72 @@ def test_a_join_on_part_of_a_grouped_querys_keys_stays_blocked(tmp_path, target)
     assert [item["code"] for item in doc["diagnostics"]] == ["PIE-S2333"]
 
 
+# The two-level route: `per_lhs` counts the rhs rows of each lhs row, grouped
+# by the declared key of lhs, and `result` sums its rows, one per lhs row.
+_TWO_LEVEL = """query per_lhs:
+    from lhs
+    let r = rhs
+    left join r on r.key == lhs.id
+    group by:
+        lhs.id
+        lhs.key
+    select:
+        id = lhs.id
+        key = lhs.key
+        n = count(r.id)
+query result:
+    from per_lhs
+    group by key
+    select:
+        key
+        ids = sum(id)
+        n = sum(n)
+"""
+
+
+@pytest.mark.parametrize("target", TARGETS)
+def test_the_two_level_route_counts_per_key_then_sums_on_postgresql_only(
+    tmp_path, target
+):
+    """PostgreSQL emits the count per lhs key and the checked sums over its
+    rows, VERIFIED; MySQL blocks each `sum` of Int (PIE-B1004), as for any
+    project MySQL Int sum."""
+
+    source = _PROVED_HEADER.format(target=target) + _TWO_LEVEL
+    item = probe.join_witness(target, {"main.pietto": source})
+    _, outcome = probe.build_case(
+        tmp_path, item["source"], item["contract"], item["policy"]
+    )
+    doc = public(outcome)
+    if target == "mysql":
+        assert doc["status"] == "BLOCKED" and doc["diagnostics"] == []
+        assert [
+            (item["code"], item["subject"]["detail"], item["location"]["line"])
+            for item in doc["blockers"]
+        ] == [
+            ("PIE-B1004", "sum_int_aggregate_range_proof_missing", line)
+            for line in (23, 24)
+        ]
+        return
+    assert doc["status"] == "VERIFIED", document(outcome)
+    int8 = "pg_catalog.int8"
+    assert doc["sql"] == (
+        'WITH "p0" ("c0", "c1", "c2", "c3") AS (SELECT "m0"."order.id" AS "c0", '
+        '"m0"."key value" AS "c1", "m1"."order.id" AS "c2", "m1"."key value" AS '
+        '"c3" FROM "public"."phase66 lhs é" AS "m0" LEFT JOIN "public"."phase66 '
+        'rhs é" AS "m1" ON ("m1"."key value" = "m0"."order.id")), "p1" ("c0", '
+        '"c1", "c2") AS (SELECT "t0"."c0" AS "c0", "t0"."c1" AS "c1", '
+        'COUNT("t0"."c2") AS "c2" FROM "p0" AS "t0" GROUP BY "t0"."c0", '
+        '"t0"."c1"), "p2" ("c0", "c1", "c2") AS (SELECT "t1"."c0" AS "c0", '
+        '"t1"."c1" AS "c1", "t1"."c2" AS "c2" FROM "p1" AS "t1"), "p3" ("c0", '
+        '"c1", "c2") AS (SELECT "s2"."c1" AS "c0", '
+        f'CAST(SUM(CAST("s2"."c0" AS {int8})) AS {int8}) AS "c1", '
+        f'CAST(SUM(CAST("s2"."c2" AS {int8})) AS {int8}) AS "c2" FROM "p2" AS '
+        '"s2" GROUP BY "s2"."c1") SELECT "t3"."c0" AS "key", "t3"."c1" AS "ids", '
+        '"t3"."c2" AS "n" FROM "p3" AS "t3"'
+    )
+
+
 @pytest.mark.parametrize("target", TARGETS)
 def test_a_declared_source_field_keeps_its_own_domain(tmp_path, target):
     """An outer JOIN never rewrites a source declaration to accept itself."""

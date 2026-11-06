@@ -68,6 +68,21 @@ _NULL_SKIPPING = frozenset(
         STDDEV_AGGREGATE_NAME,
     )
 )
+# The end of every PIE-S2381 message, after the remedies its rule derives
+# (the project's mixed-aggregate PIE-S2381 adds it too): the two-level route.
+# Grouped by a unique key of each input the aggregate reads, a first query
+# has one row per row of those inputs (where a LEFT JOIN matches none of
+# them, one row of None per other group key, which an aggregate of their
+# fields skips), so a second query that reads it aggregates each row once.
+# The route also names what a grouped query needs: each field it selects
+# outside an aggregate in its GROUP BY (PIE-S2318), and an aggregate
+# (PIE-S2320).
+TWO_LEVEL_ROUTE = (
+    "; two-level route: group a first query by a unique key of each input the "
+    "aggregate reads and by every other field that query selects, select an "
+    "aggregate such as `count()` in it too, then aggregate in a second query "
+    "that reads `from` it"
+)
 
 
 @dataclass(frozen=True, slots=True)
@@ -147,7 +162,8 @@ def join_fanout_diagnostics(
                 severity=Severity.ERROR,
                 message=_message(
                     info, factors, seed, usable, keys, on_pairs, read, nulled
-                ),
+                )
+                + TWO_LEVEL_ROUTE,
                 location=SourceLocation(
                     path=span.path,
                     line=span.line,

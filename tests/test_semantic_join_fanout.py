@@ -462,9 +462,22 @@ def test_an_aggregate_whose_inputs_determine_every_input_row_is_admitted(
     assert fanout.fanout(query) == ()
 
 
-def _repeated(joins: str = "", remedy: str = "") -> str:
+def _clause(joins: str = "", remedy: str = "") -> str:
     cause = f"rows repeated by {joins}" if joins else "rows that a JOIN repeats"
     return f"An aggregate may read {cause}" + (f"; {remedy}" if remedy else "")
+
+
+# Every PIE-S2381 message ends in the two-level route, after its remedies.
+_ROUTE = (
+    "; two-level route: group a first query by a unique key of each input the "
+    "aggregate reads and by every other field that query selects, select an "
+    "aggregate such as `count()` in it too, then aggregate in a second query "
+    "that reads `from` it"
+)
+
+
+def _repeated(joins: str = "", remedy: str = "") -> str:
+    return _clause(joins, remedy) + _ROUTE
 
 
 _OTHERS = (
@@ -631,7 +644,7 @@ def test_fanout_messages_are_the_project_cause_clause(
     names = tuple(query for query, _, _ in _SAME_REMEDY)
     assert tuple(clauses) == names
     for query, joins, remedy in _SAME_REMEDY:
-        message = _repeated(joins, remedy)
+        message = _clause(joins, remedy)
         assert clauses[query] == "a" + message[1:]
         single = _repeated(joins, _SINGLE_REMEDY.get(query, remedy))
         assert {item.message for item in fanout.fanout(query)} == {single}
@@ -723,6 +736,6 @@ def test_an_asof_join_repeats_no_earlier_row_but_may_repeat_a_joined_one() -> No
             "PIE-S2381",
             "An aggregate may read rows repeated by JOIN price; use `any(...)` "
             "for an input that only filters rows, or aggregate in a separate "
-            "query first",
+            "query first" + _ROUTE,
         )
     ]

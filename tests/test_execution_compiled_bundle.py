@@ -814,6 +814,83 @@ def test_a_half_open_range_template_renders_the_emitted_sql(tmp_path, target):
             ).encode() in bound.artifact.rendered.sql
 
 
+# The two-level route: `per_lhs` counts the rhs rows of each lhs row, grouped
+# by the declared key of lhs, and `result` sums its rows, one per lhs row.
+TWO_LEVEL_ROUTE = """shape Row:
+    id: Int
+    key: Int | None
+    row_key = unique(id)
+source lhs: Row = postgres.table("lhs")
+source rhs: Row = postgres.table("rhs")
+query per_lhs:
+    from lhs
+    let r = rhs
+    left join r on r.key == lhs.id
+    group by:
+        lhs.id
+        lhs.key
+    select:
+        id = lhs.id
+        key = lhs.key
+        n = count(r.id)
+query result(low: Int):
+    from per_lhs
+    where id > low
+    group by key
+    select:
+        key
+        ids = sum(id)
+        n = sum(n)
+"""
+
+
+@pytest.mark.parametrize("route", ("compiled", "live"))
+def test_the_two_level_route_template_renders_the_emitted_sql(tmp_path, route):
+    """The two-level route on PostgreSQL, under a header parameter of the
+    second query, binds through a loaded compiled bundle and a live template
+    and renders the emitted SQL byte for byte: one COUNT per lhs key, then
+    the two checked SUMs over its rows."""
+    import _pietto_sql_emission as probe
+    from pietto._project.project_compiled_build import build_compiled
+    from pietto._project.project_compiled_loading import load_compiled
+    from pietto._project.project_execution_template import (
+        bind_values,
+        prepare_compiled_template,
+        prepare_live_template,
+    )
+
+    item = probe.join_witness(
+        "postgres", {"main.pietto": TWO_LEVEL_ROUTE}, policy="bind_safe_literals"
+    )
+    _, outcome = probe.build_case(
+        tmp_path, item["source"], item["contract"], item["policy"]
+    )
+    assert outcome.status == "VERIFIED", outcome.blockers
+    assert outcome.artifact is not None
+    if route == "live":
+        template = prepare_live_template(outcome.artifact)
+    else:
+        built = build_compiled(outcome.artifact)
+        assert json.loads(built.payload)["format"] == wire.PARAMETERIZED_FORMAT
+        template = prepare_compiled_template(
+            load_compiled(
+                built.payload,
+                expected_pin=built.pin,
+                accepted_producer=built.producer,
+                accepted_compatibility=built.compatibility,
+            )
+        )
+    assert [(p.name, p.nullable) for p in template.parameters] == [("low", False)]
+    bound = bind_values(
+        template, (), tuple(zip(template.parameters, (7,), strict=True))
+    )
+    sql = outcome.artifact.rendered.sql
+    assert bound.artifact.rendered.sql == sql
+    assert bound.arguments == (7,)
+    assert sql.count(b"COUNT(") == 1 and sql.count(b" LEFT JOIN ") == 1
+    assert sql.count(b"CAST(SUM(CAST(") == 2 and sql.count(b" GROUP BY ") == 2
+
+
 # Phase70 S11 x S10/S12/S14: header reads inside lets with capture lines.
 HEADER_IN_CAPTURES = """query result(cut: Int, hi: Int | None):
     let later:

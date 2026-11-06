@@ -2568,3 +2568,110 @@ def test_mysql_refuses_an_asof_join_at_its_relation() -> None:
             )
         ],
     )
+
+
+# The two-level route: `per_order` counts the items of each order, grouped by
+# the declared key of orders, and `per_customer` sums its rows, one per order.
+_TWO_LEVEL = """shape Order:
+    id: Int
+    customer_id: Int
+    amount: Int
+    pk = unique(id)
+
+shape Item:
+    id: Int
+    order_id: Int
+    qty: Int
+
+source orders: Order = {connector}.table("orders")
+
+source items: Item = {connector}.table("items")
+
+query per_order:
+    from orders
+    let it = items
+    left join it on orders.id == it.order_id
+    group by:
+        orders.id
+        orders.customer_id
+        orders.amount
+    select:
+        id = orders.id
+        customer_id = orders.customer_id
+        amount = orders.amount
+        lines = count(it.id)
+
+query per_customer:
+    from per_order
+    group by customer_id
+    select:
+        customer_id
+        revenue = sum(amount)
+        lines = sum(lines)
+"""
+_PER_ORDER = (
+    "SELECT\n"
+    '    "orders"."id" AS "id",\n'
+    '    "orders"."customer_id" AS "customer_id",\n'
+    '    "orders"."amount" AS "amount",\n'
+    '    COUNT("it"."id") AS "lines"\n'
+    'FROM "orders" AS "orders"\n'
+    'LEFT JOIN "items" AS "it" ON "orders"."id" = "it"."order_id"\n'
+    "GROUP BY\n"
+    '    "orders"."id",\n'
+    '    "orders"."customer_id",\n'
+    '    "orders"."amount"'
+)
+_PER_CUSTOMER = {
+    "postgres": (
+        'SELECT\n    "customer_id" AS "customer_id",\n'
+        '    CAST(SUM(CAST("amount" AS pg_catalog.int8)) AS pg_catalog.int8) '
+        'AS "revenue",\n'
+        '    CAST(SUM(CAST("lines" AS pg_catalog.int8)) AS pg_catalog.int8) '
+        'AS "lines"\n'
+    ),
+    "mysql": (
+        'SELECT\n    "customer_id" AS "customer_id",\n'
+        '    SUM("amount") AS "revenue",\n    SUM("lines") AS "lines"\n'
+    ),
+}
+
+
+@pytest.mark.parametrize("dialect", ("postgres", "mysql"))
+def test_the_two_level_route_counts_per_key_then_sums_per_group(dialect: str) -> None:
+    """The first query reads each order once per item and groups by its key,
+    so its count is admitted; the second reads one row per order and sums
+    them in a CTE over the first. Without the key the count is PIE-S2381."""
+
+    source = _TWO_LEVEL.format(connector=dialect)
+    emit = emit_postgres_sql if dialect == "postgres" else emit_mysql_sql
+
+    def emitted(text: str) -> tuple[dict[str, str], list[str]]:
+        parsed = parse_source(text, path="two_level.pietto")
+        assert parsed.ast is not None
+        semantic = analyze(parsed.ast)
+        if semantic.diagnostics:
+            return {}, [item.code for item in semantic.diagnostics]
+        assert semantic.script is not None
+        lowered = build_ir(semantic.script, semantic.model)
+        assert lowered.ir is not None
+        result = emit(lowered.ir)
+        return (
+            {item.name: item.sql for item in result.artifacts},
+            [item.code for item in result.diagnostics],
+        )
+
+    def quote(text: str) -> str:
+        return text if dialect == "postgres" else text.replace('"', "`")
+
+    per_order = quote(_PER_ORDER)
+    per_customer = quote(
+        f'WITH "per_order" AS (\n{_PER_ORDER}\n)\n'
+        + _PER_CUSTOMER[dialect]
+        + 'FROM "per_order"\nGROUP BY\n    "customer_id"'
+    )
+    assert emitted(source) == (
+        {"per_order": per_order, "per_customer": per_customer},
+        [],
+    )
+    assert emitted(source.replace("    pk = unique(id)\n", "")) == ({}, ["PIE-S2381"])

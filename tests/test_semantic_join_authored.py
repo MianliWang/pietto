@@ -2094,7 +2094,10 @@ def test_join_analyzer_runs_fanout_refusal_after_resolving_reads(
             "An aggregate may read rows repeated by JOIN customer; match a unique "
             "key of customer in `on`, use "
             "`any(...)` for an input that only filters rows, or aggregate in a "
-            "separate query first",
+            "separate query first; two-level route: group a first query by a "
+            "unique key of each input the aggregate reads and by every other "
+            "field that query selects, select an aggregate such as `count()` "
+            "in it too, then aggregate in a second query that reads `from` it",
             23,
             13,
         )

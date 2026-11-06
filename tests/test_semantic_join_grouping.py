@@ -3755,6 +3755,16 @@ def _single_file_check(source: str) -> list[tuple[str, str, int, int]]:
     ]
 
 
+# Every PIE-S2381 message ends in the two-level route, after its remedies; a
+# project's PIE-S2333 cause names the remedies alone.
+_ROUTE = (
+    "; two-level route: group a first query by a unique key of each input the "
+    "aggregate reads and by every other field that query selects, select an "
+    "aggregate such as `count()` in it too, then aggregate in a second query "
+    "that reads `from` it"
+)
+
+
 def test_single_file_fanout_remedy_keeps_the_grouping_the_query_asks_for() -> None:
     """Grouping by a customer key would pass but change the result's grain;
     the remedy matches the key in `on` instead."""
@@ -3763,6 +3773,7 @@ def test_single_file_fanout_remedy_keeps_the_grouping_the_query_asks_for() -> No
         "An aggregate may read rows repeated by JOIN customers; match a unique "
         "key of customers in `on`, use `any(...)` for "
         "an input that only filters rows, or aggregate in a separate query first"
+        + _ROUTE
     )
     unmatched = _REGION_REVENUE.replace(
         "on orders.customer_id == customers.id", "on orders.customer_id >= customers.id"
@@ -3926,7 +3937,7 @@ def test_handwritten_on_equalities_prove_exactly_what_relationship_calls_prove(
                 else "read no row that JOIN customers keeps without a match, "
             )
             + "use `any(...)` for an input that only filters rows, or aggregate "
-            "in a separate query first",
+            "in a separate query first" + _ROUTE,
             25,
             47,
         )
@@ -4278,7 +4289,7 @@ def test_single_file_fanout_message_is_the_project_clause(
     )
     parsed = parse_source(text)
     assert parsed.ast is not None and parsed.diagnostics == ()
-    message = "An aggregate may read " + clause + _MATCH
+    message = "An aggregate may read " + clause + _MATCH + _ROUTE
     line = text.splitlines().index(f"        total = sum({aggregate})") + 1
     assert [
         (d.code, d.message, d.location.line, d.location.column)
@@ -5045,6 +5056,18 @@ _JOINED_PROOFS: dict[str, tuple[str, tuple[str, ...], str | None]] = {
         ("avg(items.qty)",),
         "JOIN payments; " + _keyed("payments"),
     ),
+    # The two-level route of both: one row per item (its key), then the
+    # average per customer reads each item once.
+    "avg_in_two_levels": (
+        "query per_item:\n" + _ORDER_LINES + "    group by:\n        items.id\n"
+        "        items.qty\n        orders.customer_id\n"
+        "    select:\n        item_id = items.id\n        qty = items.qty\n"
+        "        customer_id = orders.customer_id\n        joined_rows = count()\n"
+        "query q:\n    from per_item\n    group by:\n        customer_id\n"
+        "    select:\n        customer_id\n        avg_qty = avg(qty)\n",
+        (),
+        None,
+    ),
     "count_of_the_repeated_side": (
         "query q:\n" + _CUSTOMER_ORDERS + "    group by:\n        customers.region\n"
         "    select:\n        region = customers.region\n"
@@ -5276,8 +5299,8 @@ def test_joined_aggregates_admit_exactly_their_proved_rows(
     through a later `on` that ties the argument's input to it), an anti-join
     through a never-None field tested `is None` at the top of WHERE, and a
     JOIN whose `on` matches every output that selects a GROUP BY key of a
-    grouped query; each real fan-out neighbour stays refused with the same
-    clause."""
+    grouped query, and the two-level route of a refused average; each real
+    fan-out neighbour stays refused with the same clause."""
 
     body, calls, clause = _JOINED_PROOFS[name]
     source = _JOINED_ROWS + body
@@ -5295,7 +5318,11 @@ def test_joined_aggregates_admit_exactly_their_proved_rows(
         else clause
     )
     assert _single_file_check(source) == [
-        ("PIE-S2381", f"An aggregate may read rows repeated by {single}", *at(call))
+        (
+            "PIE-S2381",
+            f"An aggregate may read rows repeated by {single}{_ROUTE}",
+            *at(call),
+        )
         for call in calls
     ]
     assert _fanout_check(tmp_path, name, source) == (
@@ -5341,7 +5368,7 @@ def test_an_outer_match_already_in_on_is_not_asked_for_again(
         (
             "PIE-S2381",
             "An aggregate may read rows repeated by JOIN orders; read no row that "
-            f"JOIN orders keeps without a match, {_OTHERS_REMEDY}",
+            f"JOIN orders keeps without a match, {_OTHERS_REMEDY}{_ROUTE}",
             line + 1,
             18,
         ),
@@ -5385,7 +5412,12 @@ def test_a_full_join_match_already_in_on_names_only_the_other_remedies(
     line = source.splitlines().index(f"        {aggregate}") + 1
     column = aggregate.index("sum(") + 9
     assert _single_file_check(source) == [
-        ("PIE-S2381", f"An aggregate may read rows repeated by {clause}", line, column)
+        (
+            "PIE-S2381",
+            f"An aggregate may read rows repeated by {clause}{_ROUTE}",
+            line,
+            column,
+        )
     ]
     assert _fanout_check(tmp_path, "full", source) == [
         (

@@ -1905,6 +1905,27 @@ LATERAL_DIAGNOSTICS = {
         [("PIE-S2102", "Unknown field: nope", 14, 13), UNAVAILABLE],
     ),
     "top_k_right": (_top_k("right"), [("PIE-S2372", JOIN_KIND, 18, 5)]),
+    # LIMIT 1 over an ORDER BY whose key may tie (`id` is no declared key) is
+    # accepted without a warning; the database picks one of the tied rows. It
+    # is no proof of at most one row either: an aggregate of the left rows
+    # over that JOIN stays the declaration's fan-out PIE-S2333.
+    "top_1_left": (_top_k("left", limit="        limit 1\n"), []),
+    "top_1_aggregate": (
+        _top_k("left", limit="        limit 1\n").replace(
+            "    select:\n        a = lhs.id\n",
+            "    group by lhs.key\n    select:\n        k = lhs.key\n"
+            "        ids = sum(lhs.id)\n",
+        ),
+        [
+            (
+                "PIE-S2333",
+                "Project relation semantic completion is unavailable: q (an "
+                "aggregate may read rows repeated by JOIN x)",
+                6,
+                1,
+            )
+        ],
+    ),
     # Joined twice, the let keeps its LATERAL body rule; the second JOIN is
     # refused like any later read.
     "top_k_joined_twice": (
