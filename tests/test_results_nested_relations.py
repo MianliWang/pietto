@@ -216,7 +216,11 @@ DAMAGE = {
     ),
     "container_declared": ("DOCUMENT", lambda d: d["fields"][1].update(declared=None)),
     "container_meaning": ("DOCUMENT", lambda d: d["fields"][1].update(meaning=0)),
-    "container_role": ("DOCUMENT", lambda d: d["fields"][1].update(role="group_key")),
+    # A collection is an ordinary value or a nested GROUP BY key (D73.05).
+    "container_role": (
+        "DOCUMENT",
+        lambda d: d["fields"][1].update(role="aggregate_result"),
+    ),
     "element_multiplicity": (
         "DOCUMENT",
         lambda d: _element(d).update(multiplicity="set"),

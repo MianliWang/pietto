@@ -803,7 +803,8 @@ def nested_leaf(walk, leaf, position, doc):
         leaf["nullability"] in NULLABILITY
         and leaf["declared_nullability"] in NULLABILITY
     )
-    require(leaf["role"] == "ordinary_row_value")
+    # A nested GROUP BY key (D73.05) keeps its group key role.
+    require(leaf["role"] in {"ordinary_row_value", "group_key"})
     provenance(leaf["provenance"])
     element = leaf["element"]
     record(element, "owner output multiplicity nullability ordering field_count fields")

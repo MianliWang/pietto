@@ -204,6 +204,62 @@ warning; its exit code and SQL are unchanged):
   which takes no generator, nor in a project. No JSON `suggestion`, as for
   the other habit warnings.
 
+### Nested GROUP BY and DISTINCT keys (PostgreSQL projects)
+
+- In a `schema_version = 2` project on PostgreSQL, a table or query without
+  JOIN inputs, a window or QUALIFY may `group by` a nested field read with
+  `from` (`group by xs`, with `xs` and aggregates in its SELECT) and
+  `select distinct` it. Two values
+  are one key when both are None, or have the same length and pairwise
+  `same_value` children in the collected let's order: `[1.0]`/`[1.00]` one
+  key, `[-0.0]`/`[0.0]` one key (the key shows one member's value), `[]`,
+  `[None]` and None three keys, `[1, 2]`/`[2, 1]` two keys. Emission groups by
+  the count and every array column; `emit-sql --project`, compiled bundles
+  and results carry the key as a collection.
+- **New refusal text (code unchanged).** PIE-S2805 at the key or DISTINCT item
+  when the collected let's ORDER BY may tie: ``Nested relation field xs cannot
+  be a GROUP BY key: the ORDER BY of its collected let does not end in a
+  declared unique key, so rows that tie have no promised order.`` and
+  ``Nested relation field xs cannot be part of SELECT DISTINCT: the ORDER BY of
+  its collected let does not end in a declared unique key, so rows that tie
+  have no promised order.``, suggestion ``End the `order by` of the collected
+  let with the fields of a `unique(...)` key of its source, such as `id`.``
+- **Compatibility.** A program that grouped by a nested field with
+  `group by xs` and selected `xs` reported two PIE-S2805 (``cannot be read in
+  GROUP BY`` at the key and ``cannot be selected in a table or query with
+  GROUP BY or an aggregate`` at the item); it now checks, or reports the one
+  tie refusal above at the key. A `select distinct` of a carried nested field
+  reported ``cannot be part of SELECT DISTINCT: a collected relation has no
+  equality.``; it now checks or reports the tie refusal. Beside an admitted
+  key the body's other errors are reported as beside a scalar key (for
+  example PIE-S2308 for `having count() > 1`, where the key reported PIE-S2805
+  before). Bodies with JOIN inputs keep every earlier refusal.
+- **Compatibility, window or QUALIFY.** In a body with a window or QUALIFY,
+  `group by xs` keeps ``Nested relation field xs cannot be read in GROUP BY: a
+  collected relation has no comparison, ordering, grouping or scalar value.``
+  at the key. A SELECT item `xs` that names that key, and a `select distinct`
+  item `xs`, now report ``Nested relation field xs cannot be selected beside a
+  window or QUALIFY yet.`` (suggestion ``Compute the window in another table or
+  query and join it here.``) at the item, where they reported ``Nested
+  relation field xs cannot be selected in a table or query with GROUP BY or an
+  aggregate: it is no group key and has no aggregate.`` and ``Nested relation
+  field xs cannot be part of SELECT DISTINCT: a collected relation has no
+  equality.`` before. Same code, position and count.
+- A nested field selected as it is beside scalars, without JOIN inputs and
+  without DISTINCT, still checks and stays BLOCKED in `emit-sql --project`
+  (PIE-B1003 `expression_evidence_unavailable`), whatever else the project
+  reads. No program that checked before is refused now.
+- **Unchanged refusals.** Nested `==`, ORDER BY and set-operation dedup stay
+  PIE-S2805. MySQL keeps PIE-B1003 `collect_not_admitted_on_target`
+  for every Collect read (Phase77).
+- **Formats.** A result contract document may now carry a collection leaf
+  with role `group_key`; a reader older than this change refuses it as
+  `DOCUMENT`. A compiled bundle may now carry an `aggregate` record whose key
+  reads a collection port and a DISTINCT `result` record that reads one; an
+  older reader refuses such a bundle with `COMPILED_COLLECTION_PORT` or
+  `COMPILED_COLLECTION_READ`. Neither format gains a record kind or field, so
+  both keep their version marks.
+
 ## Equality, nullability and asof JOIN public alpha release notes — 0.1.9
 
 <a id="unreleased-changes-following-018"></a>

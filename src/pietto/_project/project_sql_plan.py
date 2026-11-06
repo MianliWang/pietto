@@ -604,7 +604,7 @@ def _row_blockers(completed, entry, block_reads=frozenset(), captured=frozenset(
     sites: list[
         tuple[
             LetBinding | WhereClause | SelectItem,
-            row.ProjectSQLOrdinaryEvidence | None,
+            row.ProjectSQLOrdinaryEvidence | ProjectModuleNestedCarryFact | None,
             tuple[ProjectModuleExpressionReferenceFact, ...],
         ]
     ] = [(f.binding, f, f.references) for f in authority.lets]
@@ -5184,7 +5184,7 @@ def build_project_sql_plan(
             demand_ref,
             R.DEMAND,
             P.TYPE_PROOF,
-            projection.site.owner,
+            nested.carried_owner(projection),
             projection.semantic.item,
             value,
             (origin_by_subject[projection.export],),

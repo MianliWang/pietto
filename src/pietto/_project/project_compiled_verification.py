@@ -303,7 +303,8 @@ def _verify_collections(records) -> None:
                 records[source.get("port")].get("logical"),
                 record.get("owner").kind,
             )
-            need(unit in ("row", "result"), "COLLECTION_PORT")
+            # A nested GROUP BY key (D73.05) is also an aggregate's output.
+            need(unit in ("row", "result", "aggregate"), "COLLECTION_PORT")
         elif source.address.kind == "join_value" and _collection(source.get("logical")):
             carried, unit = source.get("logical"), "join"
         elif source.address in ports and _hidden_unnest_port(records, record):
@@ -341,12 +342,37 @@ def _verify_collections(records) -> None:
                         "projection" if result.address.kind == "result" else "values"
                     )
                     and (
+                        # A carried nested DISTINCT field (D73.05) on
+                        # PostgreSQL, never a Collect read of the same body.
                         not result.get("distinct")
+                        or records[Address("target", 0)].get("family") == "postgres"
+                        and records[read.get("port")].get("source") not in collects
+                        and records[
+                            records[read.get("port")].get("source")
+                        ].address.kind
+                        == "read"
                         if result.address.kind == "result"
                         else result.get("stage") in ("projection", "where", "let")
                     )
                     and records[read.get("use")].get("consumer") == result.address
                     and records[read.get("port")].get("owner") == result.get("input"),
+                    "COLLECTION_READ",
+                )
+            elif "aggregate" in kinds:
+                # A nested GROUP BY key: one read of the aggregate's own input,
+                # a key and an output of that aggregate on PostgreSQL.
+                (aggregate,) = {
+                    r.address: r for r in referrers if r.address.kind == "aggregate"
+                }.values()
+                need(
+                    set(kinds) == {"aggregate", "port"}
+                    and kinds.count("port") == 1
+                    and read.get("role") == "value"
+                    and records[Address("target", 0)].get("family") == "postgres"
+                    and aggregate.get("mode") == "grouped"
+                    and records[read.get("use")].get("consumer") == aggregate.address
+                    and records[read.get("port")].get("owner")
+                    == aggregate.get("input"),
                     "COLLECTION_READ",
                 )
             else:
@@ -5580,8 +5606,9 @@ def _verify_compiled_emission(artifact, request):
                 )
 
                 read = records[expression]
+                # A nested GROUP BY key (D73.05) is carried by its aggregate.
                 need(
-                    record.address.kind == "row"
+                    record.address.kind in ("row", "aggregate")
                     and producer not in sources
                     and read.address.kind == "read"
                     and read.get("use") == use
@@ -5640,7 +5667,9 @@ def _verify_compiled_emission(artifact, request):
                     and column.expression
                     is (
                         refs[expression]
-                        if record.get("stage") == "projection"
+                        if record.address.kind == "row"
+                        and record.get("stage") == "projection"
+                        and producer.kind != "aggregate"
                         else None
                     )
                     and type(column.symbol) is ast.SQLSymbol

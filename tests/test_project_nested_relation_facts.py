@@ -1870,10 +1870,11 @@ NESTED_READS = {
         "    having count(recent_orders) > 0\n",
         [("PIE-S2805", 28, 18)],
     ),
+    # A nested key is admitted (D73.05) but `recent` may tie on `id`.
     "group-by-select-key": (
         _NO_JOIN + "    group by recent_orders\n    select:\n        recent_orders\n"
         "        n = count()\n",
-        [("PIE-S2805", 24, 14), ("PIE-S2805", 26, 9)],
+        [("PIE-S2805", 24, 14)],
     ),
     "grouped-select-renamed": (
         _NO_JOIN + "    group by region\n    select:\n        region\n"
@@ -2123,6 +2124,120 @@ def test_a_replayed_reader_reports_each_nested_read_once_at_the_field(
     assert _located(diagnostics) == [
         (code, line + 2, column) for code, line, column in expected
     ]
+
+
+# D73.05: a nested GROUP BY key or SELECT DISTINCT field of a reader without
+# JOIN inputs compares its collected let's rows in that let's order, which
+# must end in a declared unique key of its source whose fields are never None.
+_KEYED = "    note: Text | None\n    order_key = unique(id)\n"
+_TIE = (
+    "the ORDER BY of its collected let does not end in a declared unique key, "
+    "so rows that tie have no promised order."
+)
+NESTED_KEYS = {
+    "group": (
+        "    group by recent_orders\n    select:\n        recent_orders\n"
+        "        n = count()\n",
+        (24, 14, "a GROUP BY key"),
+    ),
+    "group-hidden": (
+        "    group by region, recent_orders\n    select:\n        n = count()\n",
+        (24, 22, "a GROUP BY key"),
+    ),
+    "distinct": (
+        "    select distinct:\n        region\n        recent_orders\n",
+        (26, 9, "part of SELECT DISTINCT"),
+    ),
+}
+
+
+@pytest.mark.parametrize("case", sorted(NESTED_KEYS))
+@pytest.mark.parametrize(
+    ("key", "order", "proven"),
+    [
+        (_KEYED, "id", True),
+        # Not unique, a unique key that may be None, or not the ORDER BY's
+        # last key: ties.
+        ("    note: Text | None\n", "id", False),
+        ("    note: Text | None\n    order_key = unique(note)\n", "note", False),
+        ("    note: Text | None\n    order_key = unique(customer_id)\n", "id", False),
+    ],
+    ids=["unique", "none", "nullable", "other"],
+)
+def test_a_nested_key_needs_a_collected_order_without_ties(
+    tmp_path: Path, case: str, key: str, order: str, proven: bool
+) -> None:
+    reader, (line, column, role) = NESTED_KEYS[case]
+    head = MATRIX_HEAD.replace("    note: Text | None\n", key, 1).replace(
+        "        order by id\n", f"        order by {order}\n", 1
+    )
+    if key.count("\n") == 2:
+        line += 1
+    diagnostics = build_project_completed_semantic_result(
+        _semantic(tmp_path, head + _NO_JOIN + reader)
+    ).diagnostics
+    if proven:
+        assert diagnostics == ()
+        return
+    (diagnostic,) = diagnostics
+    assert _located(diagnostics) == [("PIE-S2805", line, column)]
+    assert diagnostic.message == (
+        f"Nested relation field recent_orders cannot be {role}: {_TIE}"
+    )
+    assert diagnostic.suggestion == (
+        "End the `order by` of the collected let with the fields of a "
+        "`unique(...)` key of its source, such as `id`."
+    )
+
+
+def test_a_nested_key_keeps_its_refusal_beside_a_join(tmp_path: Path) -> None:
+    head = MATRIX_HEAD.replace("    note: Text | None\n", _KEYED, 1)
+    reader = _JOIN + "    group by p.recent_orders\n    select:\n        n = count()\n"
+    assert _checked(_semantic(tmp_path, head + reader)) == [("PIE-S2805", 27, 14)]
+    distinct = _JOIN + "    select distinct:\n        p.recent_orders\n"
+    assert _checked(_semantic(tmp_path / "distinct", head + distinct)) == [
+        ("PIE-S2805", 28, 9)
+    ]
+
+
+_WINDOWED = "        r = row_number() window(order by n)\n"
+
+
+@pytest.mark.parametrize(
+    ("clauses", "expected"),
+    [
+        # A window or QUALIFY body keeps its GROUP BY refusal, the key hidden
+        # or selected; a `having` aggregate keeps its own error.
+        ("    select:\n        n = count()\n" + _WINDOWED, [("PIE-S2805", 25, 14)]),
+        (
+            "    select:\n        recent_orders\n        n = count()\n"
+            + _WINDOWED
+            + "    qualify r == 1\n",
+            [("PIE-S2805", 25, 14), ("PIE-S2805", 27, 9)],
+        ),
+        (
+            "    select:\n        recent_orders\n        n = count()\n"
+            "    having count() > 1\n",
+            [("PIE-S2308", 29, 12)],
+        ),
+    ],
+    ids=["window", "qualify", "having"],
+)
+def test_a_nested_key_keeps_the_refusals_of_its_body(
+    tmp_path: Path, clauses: str, expected: list[tuple[str, int, int]]
+) -> None:
+    head = MATRIX_HEAD.replace("    note: Text | None\n", _KEYED, 1)
+    reader = _NO_JOIN + "    group by recent_orders\n" + clauses
+    diagnostics = build_project_completed_semantic_result(
+        _semantic(tmp_path, head + reader)
+    ).diagnostics
+    assert _located(diagnostics) == expected
+    if expected[0][0] == "PIE-S2805":
+        assert diagnostics[0].message == (
+            "Nested relation field recent_orders cannot be read in GROUP BY: a "
+            "collected relation has no comparison, ordering, grouping or scalar "
+            "value."
+        )
 
 
 # A reader collecting its own let, read with `from` (directly, or replayed

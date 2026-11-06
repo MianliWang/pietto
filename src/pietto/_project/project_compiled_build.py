@@ -1607,10 +1607,27 @@ class _Export:
                         if item.block is unit.block.ref
                         and item.export is column.export.ref
                     )
-                    if len(projections) != 1:
+                    keyed = tuple(
+                        item
+                        for item in self.request.plan.aggregate_projections
+                        if item.block is unit.block.ref
+                        and item.export is column.export.ref
+                    )
+                    if len(projections) + len(keyed) != 1:
                         raise CompiledError("COMPILED_REQUIREMENT_PROJECTION")
-                    self.anchor(projections[0].ref, port)
-                    self.anchor(projections[0].expression, value)
+                    if keyed:
+                        # A nested GROUP BY key's visible projection (D73.05).
+                        self.anchor(keyed[0].ref, port)
+                    else:
+                        self.anchor(projections[0].ref, port)
+                        self.anchor(projections[0].expression, value)
+                if (
+                    type(column) is results.ResultGroupColumn
+                    and getattr(unit, "aggregation", None) is not None
+                ):
+                    # A nested GROUP BY key: its plan determinant is the
+                    # source of its own export port.
+                    self.anchor(column.export.source, value)
                 self.anchor(column.projection_port.ref, self.records[value].get("port"))
                 for stage in column.stages:
                     self.anchor(stage.input_port.ref, port)

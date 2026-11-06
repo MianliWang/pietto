@@ -682,7 +682,12 @@ def build_result_body(
                 return problem(
                     "PIE-B1001", "distinct_boundary_evidence_missing", boundary.ref
                 )
-            if groups:
+            # Only a carried group is a DISTINCT field (D73.05): a Collect read
+            # of this body never is (PIE-S2805).
+            if groups and (
+                request.family != "postgres"
+                or any(type(c) is nested.CollectColumn for c in groups.values())
+            ):
                 return problem("PIE-B1001", "distinct_over_nested_group", boundary.ref)
             fields = sorted(
                 quotient_fields.get(value.ref, ()), key=lambda f: f.position
@@ -712,6 +717,11 @@ def build_result_body(
                         location,
                     )
                 read = origin[port.ref][1]
+                if read in groups:
+                    # A nested DISTINCT field (D73.05): PostgreSQL compares
+                    # its count and arrays by their decoded elements.
+                    stage_fields[port.ref] = field
+                    continue
                 detail = distinct_problem(request.family, read.realization)
                 if detail is not None:
                     return problem(
@@ -955,6 +965,18 @@ def build_result_body(
     return body, None
 
 
+def text_compared(column) -> bool:
+    """Whether comparing ``column`` compares Text: its own value, or a child of
+    a nested group (D73.05)."""
+
+    if type(column) is ResultGroupColumn:
+        return any(
+            item.column.realization.tag == "Text"
+            for item in column.group.lateral.target.producer.columns
+        )
+    return column.read.realization.tag == "Text"
+
+
 def requirements(request, body: RowResultBody, naming, requirement):
     """Every requirement this result body's own generated structures introduce."""
 
@@ -974,7 +996,7 @@ def requirements(request, body: RowResultBody, naming, requirement):
                     "quotient_field_comparison",
                     field.ref,
                     "R18",
-                    encoding if column.read.realization.tag == "Text" else (),
+                    encoding if text_compared(column) else (),
                 )
             )
     if body.order is not None:
@@ -1096,7 +1118,14 @@ def build_compiled_result_body(
     distinct = None
     if record.get("distinct"):
         for column in columns:
-            if distinct_problem(request.family, column.column.realization) is not None:
+            if (
+                # A nested group (D73.05) has no scalar realization; the
+                # result unit carries it whole (`nested_result`).
+                request.family != "postgres"
+                if column.column.realization is None
+                else distinct_problem(request.family, column.column.realization)
+                is not None
+            ):
                 raise CompiledError("COMPILED_DISTINCT_DOMAIN")
         selected = boundary("result_distinct")
         boundaries.append(selected)

@@ -920,6 +920,10 @@ class ProjectNestedRelationType:
     element_relation: ProjectDeclarationOccurrenceIdentity
     element_fields: tuple[ProjectNestedRelationElementField, ...]
     collection_depth: int = 1
+    # Whether the let's ORDER BY ends in a declared unique key of its source,
+    # so its rows never tie (D73.05): only then is the value a GROUP BY key or
+    # a SELECT DISTINCT field.
+    unique_order: bool = field(default=False, compare=False)
 
     def __post_init__(self) -> None:
         if type(self.element_relation) is not ProjectDeclarationOccurrenceIdentity:

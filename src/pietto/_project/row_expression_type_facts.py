@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from collections.abc import Callable, Iterable, Mapping, Sequence
 from types import MappingProxyType
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, cast
 
 from pietto._project.model import (
     ProjectResolvedType,
@@ -195,9 +195,35 @@ def is_nested_carry_item(leaf: Expression, definition: TableDef | QueryDef) -> b
     )
 
 
+def is_nested_group_key(leaf: Expression, definition: TableDef | QueryDef) -> bool:
+    """Whether ``leaf`` is a whole GROUP BY key, or names the field of one, of
+    a body without JOIN inputs: the one place a nested field is a key."""
+
+    if type(leaf) not in {NameExpr, DottedNameExpr} or definition.join_clauses:
+        return False
+    if definition.group_by_clause is None:
+        return False
+    name = nested_reference_text(leaf).split(".")[-1]
+    return any(
+        item.key is leaf
+        or (
+            type(item.key) in {NameExpr, DottedNameExpr}
+            and nested_reference_text(item.key).split(".")[-1] == name
+        )
+        for item in definition.group_by_clause.items
+    )
+
+
 def nested_carry_refusal(
-    definition: TableDef | QueryDef, *, relation_let: bool
+    definition: TableDef | QueryDef,
+    *,
+    relation_let: bool,
+    leaf: Expression | None = None,
 ) -> str | None:
+    """Why a SELECT item may not carry a nested field here; a nested GROUP BY
+    key and a SELECT DISTINCT item of a body without JOIN inputs are carried
+    (D73.05), compared by their decoded child values."""
+
     if relation_let:
         return "relation let"
     if any(
@@ -219,11 +245,13 @@ def nested_carry_refusal(
         expressions.append(definition.satisfying_clause.expression)
     if definition.order_by_clause is not None:
         expressions.extend(item.expression for item in definition.order_by_clause.items)
-    if definition.group_by_clause is not None or any(
-        contains_semantic_aggregate(item) for item in expressions
-    ):
+    keyed = leaf is not None and not definition.join_clauses
+    if (
+        definition.group_by_clause is not None
+        or any(contains_semantic_aggregate(item) for item in expressions)
+    ) and not (keyed and is_nested_group_key(cast(Expression, leaf), definition)):
         return "grouped"
-    if definition.distinct_clause is not None:
+    if definition.distinct_clause is not None and not keyed:
         return "distinct"
     if definition.qualify_clause is not None or any(
         _contains_window(item) for item in expressions
@@ -238,7 +266,24 @@ def admits_nested_carry(
     return (
         type(leaf) in {NameExpr, DottedNameExpr}
         and is_nested_carry_item(leaf, definition)
-        and nested_carry_refusal(definition, relation_let=relation_let) is None
+        and nested_carry_refusal(definition, relation_let=relation_let, leaf=leaf)
+        is None
+    )
+
+
+def admits_nested_key(
+    leaf: Expression, definition: TableDef | QueryDef, *, relation_let: bool
+) -> bool:
+    """A GROUP BY key that is a nested input field as written, in a body that
+    may carry it (no JOIN input, relation let, window or QUALIFY)."""
+
+    return (
+        not relation_let
+        and type(leaf) in {NameExpr, DottedNameExpr}
+        and definition.group_by_clause is not None
+        and any(item.key is leaf for item in definition.group_by_clause.items)
+        and is_nested_group_key(leaf, definition)
+        and nested_carry_refusal(definition, relation_let=False, leaf=leaf) is None
     )
 
 
@@ -267,7 +312,7 @@ def nested_reference_diagnostic(
     """
 
     if is_nested_carry_item(leaf, definition):
-        refusal = nested_carry_refusal(definition, relation_let=relation_let)
+        refusal = nested_carry_refusal(definition, relation_let=relation_let, leaf=leaf)
         if refusal is not None:
             message, suggestion = NESTED_CARRY_REFUSALS[refusal]
             return _error(
@@ -308,6 +353,22 @@ def nested_value_diagnostic(
         "grouping or scalar value.",
         leaf,
         "Filter, order or group the collected rows inside the let that is collected.",
+    )
+
+
+def nested_order_diagnostic(leaf: Expression, place: str) -> Diagnostic:
+    """PIE-S2805: a nested GROUP BY key or SELECT DISTINCT field compares the
+    rows of its collected let in order, and that order may tie (D73.05)."""
+
+    role = "a GROUP BY key" if place == "GROUP BY" else "part of SELECT DISTINCT"
+    return _error(
+        "PIE-S2805",
+        f"Nested relation field {nested_reference_text(leaf)} cannot be {role}: "
+        "the ORDER BY of its collected let does not end in a declared unique "
+        "key, so rows that tie have no promised order.",
+        leaf,
+        "End the `order by` of the collected let with the fields of a "
+        "`unique(...)` key of its source, such as `id`.",
     )
 
 

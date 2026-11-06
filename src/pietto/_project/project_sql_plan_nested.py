@@ -26,6 +26,9 @@ if TYPE_CHECKING:
         ProjectSQLPlanRef,
         ProjectSQLProjection,
     )
+    from pietto._project.project_sql_plan_aggregation import (
+        ProjectSQLAggregateProjection,
+    )
     from pietto._project.project_sql_plan_results import (
         ProjectSQLOrder,
         ProjectSQLResultLimit,
@@ -198,6 +201,10 @@ def collect_of(plan: ProjectSQLPlan, port: ProjectSQLPlanRef) -> ProjectSQLColle
     by_ref = _index((value.ref, value) for value in plan.collects)
     projections = _index((value.export, value) for value in plan.projections)
     projected = _index((value.ref, value) for value in plan.projections)
+    # A nested GROUP BY key (D73.05) is carried by its aggregate projection
+    # from its group key's own input port.
+    keyed = _index((value.export, value.input) for value in plan.aggregate_projections)
+    keys = _index((value.ref, value.input) for value in plan.group_keys)
     seen: set[ProjectSQLPlanRef] = set()
     current: ProjectSQLPlanRef | None = port
     while current is not None:
@@ -212,7 +219,13 @@ def collect_of(plan: ProjectSQLPlan, port: ProjectSQLPlanRef) -> ProjectSQLColle
                 if projection is not None:
                     raise ValueError("Port carries no one Collect read.")
                 return collect
-            current = None if projection is None else _carried_source(plan, projection)
+            current = (
+                _one(keyed, current)
+                if projection is None
+                else _carried_source(plan, projection)
+            )
+        elif current.kind is K.GROUP_KEY:
+            current = _one(keys, current)
         elif current.kind is K.PROJECTION:
             projection = _one(projected, current)
             current = None if projection is None else _carried_source(plan, projection)
@@ -247,16 +260,29 @@ def _one[T](
     return values[0] if values else None
 
 
-def carried_projections(plan: ProjectSQLPlan) -> tuple[ProjectSQLProjection, ...]:
-    """Nested projections, in plan order, whose field is a carried container."""
+def carried_projections(
+    plan: ProjectSQLPlan,
+) -> tuple[ProjectSQLProjection | ProjectSQLAggregateProjection, ...]:
+    """Nested projections, in plan order, whose field is a carried container:
+    the plain projections, then the aggregate projections of nested GROUP BY
+    keys (D73.05)."""
 
     exports = {value.ref: value for value in plan.all_exports}
     return tuple(
         value
-        for value in plan.projections
+        for value in (*plan.projections, *plan.aggregate_projections)
         if value.export in exports
         and exports[value.export].field.evidence.resolved_type.nested is not None
     )
+
+
+def carried_owner(
+    projection: ProjectSQLProjection | ProjectSQLAggregateProjection,
+) -> ProjectDeclarationOccurrence:
+    """The declaration whose SELECT item carries one nested projection."""
+
+    site = getattr(projection, "site", None)
+    return projection.semantic.owner if site is None else site.owner
 
 
 def _carried_source(

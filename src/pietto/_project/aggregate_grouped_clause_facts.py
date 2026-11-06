@@ -33,6 +33,8 @@ from pietto._project.model import (
     ProjectSymbol,
 )
 from pietto._project.row_expression_type_facts import (
+    admits_nested_key,
+    is_nested_group_key,
     is_nested_relation_field,
     project_row_schema_to_semantic_row_schema,
 )
@@ -437,6 +439,22 @@ def _single_file_grouping_diagnostics(
     roots: list[Expression] = [item.expression for item in definition.select_items]
     if definition.group_by_clause is not None:
         roots.extend(item.key for item in definition.group_by_clause.items)
+    # An admitted nested GROUP BY key, and a SELECT item naming it, is no
+    # error (D73.05): the relation's other grouping errors are still checked.
+    keyed = definition.group_by_clause is not None and any(
+        admits_nested_key(item.key, definition, relation_let=False)
+        for item in definition.group_by_clause.items
+    )
+    admitted = {
+        id(root)
+        for root in roots
+        if keyed
+        and (
+            (type(root) is NameExpr and root.name in nested)
+            or (type(root) is DottedNameExpr and root.parts[-1] in nested)
+        )
+        and is_nested_group_key(root, definition)
+    }
     if definition.order_by_clause is not None:
         roots.extend(item.expression for item in definition.order_by_clause.items)
     if definition.satisfying_clause is not None:
@@ -452,6 +470,8 @@ def _single_file_grouping_diagnostics(
         ):
             # A `stddev` takes no `let` name in a project either: the single
             # file's PIE-S2315 of that direct argument is its error.
+            continue
+        if id(node) in admitted:
             continue
         if (
             (type(node) is NameExpr and (node.name in lets or node.name in nested))

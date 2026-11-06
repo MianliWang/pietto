@@ -1022,6 +1022,30 @@ def emit_compiled(root, values, named=None):
             arguments = []
             for address in record.get("outputs"):
                 expression = records[records[address].get("source")]
+                if expression.address.kind == "read" and records[address].get(
+                    "logical"
+                )[:1] == ("collection",):
+                    # A nested GROUP BY key (D73.05) reads its whole group.
+                    from pietto._project import (
+                        project_sql_emission_unnest as unnesting,
+                    )
+
+                    source_position = records[expression.get("port")].get("ordinal")
+                    producer_body = (
+                        bodies[producer]
+                        if producer in bodies
+                        else inline_bodies[producer]
+                    )
+                    read, _problem = unnesting.nested_read(
+                        producer_body.columns[source_position],
+                        position=source_position,
+                        port=use_bindings[use].bindings[source_position].input_port,
+                        scope=scan_symbol,
+                    )
+                    if read is None:
+                        raise CompiledError("COMPILED_COLLECT_READ")
+                    arguments.append((read, (), ()))
+                    continue
                 if expression.address.kind == "read":
                     arguments.append(
                         (scalar(expression.address, use, producer, alias), (), ())
@@ -1103,8 +1127,10 @@ def emit_compiled(root, values, named=None):
                         position=position,
                         final=final,
                         terminal=port,
+                        # A carried nested GROUP BY key is no expression.
                         expression=refs[expression]
                         if record.get("stage") == "projection"
+                        and producer.kind != "aggregate"
                         else None,
                     )
                     columns.append(output)

@@ -1,6 +1,7 @@
 """Typed rendering events with ranges captured in the final UTF-8 stream."""
 
 from dataclasses import dataclass
+from typing import cast
 from pietto._project.project_sql_emission_contract import emission_origin_subjects
 
 from pietto._project.project_sql_emission_ast import (
@@ -1190,12 +1191,31 @@ def _row_select(w: _Writer, body) -> None:
         w.emit(" GROUP BY ", "syntax", "group_by", stage.aggregation.ref)
         for position, column in enumerate(stage.keys):
             if position:
-                w.emit(", ", "syntax", "group_separator", column.key.ref)
+                w.emit(
+                    ", ",
+                    "syntax",
+                    "group_separator",
+                    column.export.ref
+                    if type(column) is resulting.ResultGroupColumn
+                    else column.key.ref,
+                )
             start = w.offset
-            w.identifier(alias, "grouping_scope", column.input_port)
-            w.emit(".", "syntax", "grouping_qualifier", column.key.ref)
-            w.identifier(column.read.name, "grouping_column", column.read.terminal)
-            w.enclose("grouping", column.key.ref, start)
+            if type(column) is resulting.ResultGroupColumn:
+                # A nested key groups by each of its carriers, in order.
+                for index, (name, _label, subject) in enumerate(column.carriers):
+                    if index:
+                        w.emit(", ", "syntax", "group_separator", subject)
+                    w.identifier(
+                        alias, "result_carry_scope", column.projection_port.ref
+                    )
+                    w.emit(".", "syntax", "qualifier", subject)
+                    w.identifier(name, "collect_carrier_column", subject)
+                continue
+            key = cast(AggregateKeyColumn, column)
+            w.identifier(alias, "grouping_scope", key.input_port)
+            w.emit(".", "syntax", "grouping_qualifier", key.key.ref)
+            w.identifier(key.read.name, "grouping_column", key.read.terminal)
+            w.enclose("grouping", key.key.ref, start)
     _window_clause(w, body.window, alias)
     if body.predicate is not None:
         satisfying = body.block.kind.value == "satisfying"

@@ -27,6 +27,7 @@ import _pietto_sql_emission as probe
 import _pietto_sql_nested_collect as collecting
 from _pietto_plan_nested import (
     HEAD,
+    keyed_sources,
     SHAPES,
     UNNEST_PARENT,
     UNNEST_SHAPES,
@@ -2578,3 +2579,104 @@ def test_the_strict_decoder_reads_every_collect_variant(tmp_path: Path) -> None:
         assert rules[("original", "collection")] == 3 * reads
         assert rules[("generated", "collect_lateral")] == reads
         assert rules[("generated", "collect_ordinal")] == reads
+
+
+# D73.05: a nested GROUP BY key and a SELECT DISTINCT field of a reader
+# without JOIN inputs, over a let ordered by a declared unique key. PostgreSQL
+# groups and deduplicates by the count and every array carrier, so equal
+# decoded children are one group; MySQL keeps its Collect refusal.
+KEYED_LATERAL = (
+    'WITH "p0" ("c0", "c1", "c1_0") AS (SELECT "s1"."id" AS "c0", '
+    '"g0"."n" AS "c1", "g0"."a0" AS "c1_0" FROM "public"."rows" AS "s1" '
+    'LEFT JOIN LATERAL (SELECT COUNT(*) AS "n", ARRAY_AGG("e0"."c0" '
+    'ORDER BY "e0"."c1") AS "a0" FROM (SELECT "t0"."c0" AS "c0", '
+    'ROW_NUMBER() OVER (ORDER BY "t0"."c1" ASC) AS "c1" FROM (SELECT '
+    '"t1"."c2" AS "c0", "t1"."c0" AS "c1" FROM (SELECT "s0"."id" AS '
+    '"c0", "s0"."customer_id" AS "c1", "s0"."total" AS "c2", '
+    '"s0"."created_at" AS "c3" FROM "public"."orders" AS "s0" WHERE '
+    '("s0"."customer_id" = "s1"."id")) AS "t1") AS "t0" ORDER BY '
+    '"t0"."c1" ASC) AS "e0") AS "g0" ON TRUE), '
+)
+NESTED_KEYS = {
+    "group": KEYED_LATERAL
+    + (
+        '"p1" ("c0", "c0_0", "c1") AS (SELECT "s2"."c1" AS "c0", "s2"."c1_0" '
+        'AS "c0_0", COUNT(*) AS "c1" FROM "p0" AS "s2" GROUP BY "s2"."c1", '
+        '"s2"."c1_0") SELECT "t4"."c0" AS "totals", "t4"."c0_0" AS "total", '
+        '"t4"."c1" AS "n" FROM "p1" AS "t4"'
+    ),
+    "distinct": KEYED_LATERAL
+    + (
+        '"p1" ("c0", "c0_0") AS (SELECT "s2"."c1" AS "c0", "s2"."c1_0" AS '
+        '"c0_0" FROM "p0" AS "s2") SELECT DISTINCT "t1"."c0" AS "totals", '
+        '"t1"."c0_0" AS "total" FROM "p1" AS "t1"'
+    ),
+}
+
+
+@pytest.mark.parametrize("case", sorted(NESTED_KEYS))
+def test_a_nested_key_is_compared_by_each_carrier_on_postgres_only(
+    tmp_path: Path, capsys, case: str
+) -> None:
+    expected = NESTED_KEYS[case]
+    documents = {}
+    for dialect in ("postgres", "mysql"):
+        root = project(tmp_path / dialect, keyed_sources(case, dialect))
+        (root / "contract.json").write_text(
+            collecting.contract(dialect), encoding="utf-8"
+        )
+        code, out, _ = _emit(root, dialect, capsys, "--format", "json")
+        documents[dialect] = json.loads(out)
+        assert code == (0 if dialect == "postgres" else 1), out
+        if dialect == "postgres":
+            query = execution.compile_query(
+                root,
+                module="main.pietto",
+                kind="query",
+                name="result",
+                dialect="postgres",
+                emission_contract="contract.json",
+            )
+            assert query.emission == out.encode()
+    postgres, mysql = documents["postgres"], documents["mysql"]
+    assert postgres["status"] == "VERIFIED"
+    assert postgres["sql"] == expected
+    (key,) = (c for c in postgres["columns"] if c["label"] == "totals")
+    assert key["logical_type"]["kind"] == "collection"
+    assert [c["role"] for c in key["representation"]["columns"]] == ["count", "field"]
+    assert mysql["status"] == "BLOCKED"
+    assert [
+        (b["code"], b["subject"]["detail"], b["location"]["line"])
+        for b in mysql["blockers"]
+    ] == [("PIE-B1003", "collect_not_admitted_on_target", 23)]
+
+
+# A carried nested field beside a scalar after `where`, without JOIN inputs or
+# DISTINCT, stays BLOCKED whatever else the project reads of its parent.
+_CARRY_READER = (
+    "query result:\n    from parent\n    where id > 0\n    select:\n        id\n"
+    "        totals\n"
+)
+_OUTER_CARRY = (
+    "query outer:\n    from rows\n    let p = parent\n"
+    "    left join p on rows.id == p.id\n    select:\n        id = rows.id\n"
+    "        totals = p.totals\n"
+)
+
+
+@pytest.mark.parametrize("beside", ["", _OUTER_CARRY], ids=["alone", "outer"])
+def test_a_carried_nested_field_stays_blocked_beside_any_reader(
+    tmp_path: Path, capsys, beside: str
+) -> None:
+    parent = keyed_sources("group")["main.pietto"].split("query result:")[0]
+    text = parent + beside + _CARRY_READER
+    root = project(tmp_path / "project", {"main.pietto": text})
+    (root / "contract.json").write_text(collecting.contract(), encoding="utf-8")
+    code, out, _ = _emit(root, "postgres", capsys, "--format", "json")
+    document = json.loads(out)
+    assert code == 1 and document["status"] == "BLOCKED", out
+    line = text.splitlines().index("        totals") + 1
+    assert [
+        (b["code"], b["subject"]["detail"], b["location"]["line"])
+        for b in document["blockers"]
+    ] == [("PIE-B1003", "expression_evidence_unavailable", line)]

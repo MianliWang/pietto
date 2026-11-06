@@ -32,6 +32,7 @@ from pietto._project.model import (
     SCALAR_RESOLVED_TYPE_KINDS,
 )
 from pietto._project.row_expression_type_facts import (
+    admits_nested_key,
     build_project_row_expression_value_types,
     project_row_field_to_semantic_value_type,
     project_row_schema_to_semantic_row_schema,
@@ -380,7 +381,12 @@ class ProjectGroupedSelectedResult:
                 self.field.resolved_type.kind,
                 ProjectResolvedTypeKind,
             )
-            or self.field.resolved_type.kind not in SCALAR_RESOLVED_TYPE_KINDS
+            or self.field.resolved_type.kind
+            not in (
+                _GROUP_KEY_TYPE_KINDS
+                if self.field.result_role is ProjectRowResultRole.GROUP_KEY
+                else SCALAR_RESOLVED_TYPE_KINDS
+            )
         ):
             raise ValueError("Grouped selected result requires a concrete type")
         if not isinstance(
@@ -838,6 +844,14 @@ class _ProjectAggregateArgumentTypeAttempt:
             )
 
 
+# A group key may also be a nested relation field that `admits_nested_key`
+# admits: a body without JOIN inputs, window or QUALIFY groups a collected
+# value by its decoded child values (D73.05).
+_GROUP_KEY_TYPE_KINDS = SCALAR_RESOLVED_TYPE_KINDS | {
+    ProjectResolvedTypeKind.NESTED_RELATION
+}
+
+
 def build_project_group_key_schema_facts(
     *,
     definition: TableDef | QueryDef,
@@ -936,9 +950,13 @@ def _build_project_group_key_schema_attempt(
             )
             continue
         field_identity, input_field = resolved
-        if (
-            input_field.name != field_identity
-            or input_field.resolved_type.kind not in SCALAR_RESOLVED_TYPE_KINDS
+        if input_field.name != field_identity or (
+            input_field.resolved_type.kind not in SCALAR_RESOLVED_TYPE_KINDS
+            and not (
+                input_field.resolved_type.kind
+                is ProjectResolvedTypeKind.NESTED_RELATION
+                and admits_nested_key(item.key, definition, relation_let=False)
+            )
         ):
             failure_reasons.append(
                 ProjectRelationRowSchemaReason.UNAVAILABLE_AGGREGATE_OR_GROUPED_FACT
@@ -1029,7 +1047,11 @@ def _build_project_group_key_schema_attempt(
             )
             continue
         field_identity, input_field = resolved
-        if input_field.resolved_type.kind not in SCALAR_RESOLVED_TYPE_KINDS:
+        # A nested field is selected only as an admitted nested key.
+        if (
+            input_field.resolved_type.kind not in SCALAR_RESOLVED_TYPE_KINDS
+            and id(input_field) not in keys_by_input
+        ):
             failure_reasons.append(
                 ProjectRelationRowSchemaReason.UNAVAILABLE_AGGREGATE_OR_GROUPED_FACT
             )
@@ -2163,7 +2185,7 @@ def _group_key_field_is_concrete_ready(field: ProjectRowField) -> bool:
         field.result_role is ProjectRowResultRole.GROUP_KEY
         and isinstance(field.resolved_type, ProjectResolvedType)
         and isinstance(field.resolved_type.kind, ProjectResolvedTypeKind)
-        and field.resolved_type.kind in SCALAR_RESOLVED_TYPE_KINDS
+        and field.resolved_type.kind in _GROUP_KEY_TYPE_KINDS
         and isinstance(field.nullability, ProjectRowFieldNullability)
         and isinstance(provenance, ProjectRowFieldProvenance)
         and provenance.kind is ProjectRowFieldProvenanceKind.DIRECT_PROJECTION

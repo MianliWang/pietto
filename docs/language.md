@@ -2065,18 +2065,35 @@ PIE-S2333; its `where` may still test such a field.
 A Collect value is never None: no rows of `r` is the empty value `[]`, and a
 row of `r` whose field is None keeps it, so `[]`, a value with one row whose
 field is None (`[{v: None}]`) and an outer JOIN's missing row are all
-different things. The value has no comparison, ordering, grouping or scalar
-value: a reader of the relation may read it with `from` or a JOIN, test it
-with `exists` and read its scalar columns, but any read of the nested field
-itself (in WHERE, JOIN ON, a row `let`, GROUP BY, `having`, a window,
-`qualify`, `order by`, a SELECT expression, `any(...)`, `scalar` or `in`),
-`select distinct` with a Collect item, and a set operation over it are
-PIE-S2805. A later table or query may select the nested field as it is
-(`n = parent.nested`) beside a CROSS, INNER or LEFT JOIN or the Unnest of
-another collection; selecting it beside a RIGHT or FULL JOIN, a window or
-QUALIFY, GROUP BY or an aggregate, under `select distinct`, or in a relation
-let is PIE-S2805. Selected without a JOIN, it checks, but `emit-sql --project`
-reports it BLOCKED (PIE-B1003 `expression_evidence_unavailable`).
+different things. The value has no comparison, ordering or scalar value: a
+reader of the relation may read it with `from` or a JOIN, test it with
+`exists` and read its scalar columns, but any other read of the nested field
+(in WHERE, JOIN ON, a row `let`, `having`, a window, `qualify`, `order by`, a
+SELECT expression, `any(...)`, `scalar` or `in`), `select distinct` with a
+Collect item, and a set operation over it are PIE-S2805. A table or query
+without JOIN inputs, a window or QUALIFY may group by it and deduplicate it: a
+GROUP BY key that is the nested field as written (`group by xs`,
+`group by p.xs`), a SELECT item that names that key, and a `select distinct`
+item that is the nested field as it is. Two values are one key when both are
+None (an outer JOIN's missing container), or when they have the same number of
+child rows and their children, in the collected let's order, are pairwise
+`same_value`: so `[1.0]` and `[1.00]` are one key, `[-0.0]` and `[0.0]` are
+one key and the key shows one member's value, `[]`, `[None]` and None are
+three keys, and `[1, 2]` and `[2, 1]` are two. Because the order decides the
+key, the collected let's ORDER BY must end in bare fields of its FROM source
+that cover a declared `unique(...)` key of that source and are never None, in
+a let without JOIN inputs, grouping, aggregates or DISTINCT; otherwise the key
+or DISTINCT item is PIE-S2805 (``Nested relation field xs cannot be a GROUP BY
+key: the ORDER BY of its collected let does not end in a declared unique key,
+so rows that tie have no promised order.``). Beside a JOIN, a window or
+QUALIFY, GROUP BY over a nested field, selecting it with GROUP BY or an
+aggregate otherwise, and `select distinct` over it stay PIE-S2805. A later
+table or query may select the nested field as it is (`n = parent.nested`)
+beside a CROSS, INNER or LEFT JOIN or the Unnest of another collection;
+selecting it beside a RIGHT or FULL JOIN, a window or QUALIFY, or in a
+relation let is PIE-S2805. Selected without a JOIN and without DISTINCT, it
+checks, but `emit-sql --project` reports it BLOCKED (PIE-B1003
+`expression_evidence_unavailable`), whatever else the project reads.
 
 An Unnest expands a nested field into rows: write `from p`, then
 `let o = unnest(p.field)`, then exactly one `cross join o`,
@@ -2139,8 +2156,12 @@ named/imported producers, scalar projections and ordinary JOINs. PostgreSQL
 admits one CROSS, INNER or LEFT Unnest, with Int, Bool, finite Text, finite Float,
 Decimal, Date, Timestamp or UUID children; the final result can retain a sibling
 collection. Grouped child producers, query parameters and scalar filters keep
-that collection intact. A collection remains unavailable as a scalar operand,
-ordering key or grouping key. MySQL still reports PIE-B1003 for every Collect
+that collection intact. A collection remains unavailable as a scalar operand
+or ordering key. A nested GROUP BY key groups by its count column and every
+array column (`GROUP BY "s"."c1", "s"."c1_0", ...`), and a nested DISTINCT
+field is deduplicated the same way; PostgreSQL compares array elements with
+each element type's equality, which is the `same_value` of the decoded
+children. MySQL still reports PIE-B1003 for every Collect
 and Unnest. The bounded execution domain is specified under
 [bounded collections](execution.md#bounded-collect-and-unnest).
 

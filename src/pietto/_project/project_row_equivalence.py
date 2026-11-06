@@ -176,7 +176,11 @@ class ProjectRowEquivalenceField:
             )
             or any(not compatible_row_types(parents[0], parent) for parent in parents)
         )
-        if parent_mismatch:
+        if resolved.kind is ProjectResolvedTypeKind.NESTED_RELATION and not parents:
+            # A carried nested field (D73.05) compares by its decoded child
+            # values; its readers refuse every other nested comparison.
+            pass
+        elif parent_mismatch:
             reason = ProjectRowEquivalenceReason.TYPE_EVIDENCE_MISMATCH
         elif resolved.kind not in SCALAR_RESOLVED_TYPE_KINDS:
             reason = ProjectRowEquivalenceReason.UNKNOWN_TYPE

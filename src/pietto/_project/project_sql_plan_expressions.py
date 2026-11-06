@@ -586,7 +586,11 @@ class ProjectSQLRowAuthority:
     lets: tuple[ProjectModuleLetBindingFact, ...]
     selections: tuple[ProjectModuleSelectFact, ...]
     selected_evidence: tuple[
-        ProjectModuleSelectExpressionFact | ProjectNoJoinScalarExpression | None, ...
+        ProjectModuleSelectExpressionFact
+        | ProjectNoJoinScalarExpression
+        | ProjectModuleNestedCarryFact
+        | None,
+        ...,
     ]
     selected_references: tuple[tuple[ProjectModuleExpressionReferenceFact, ...], ...]
     where: ProjectModuleWhereFact | ProjectNoJoinScalarExpression | None
@@ -708,9 +712,13 @@ def row_authority(
         )
         if len(retained) != 1:
             return None
+        # A carried nested field has evidence only as a SELECT DISTINCT item
+        # (D73.05); selected otherwise without JOIN inputs it stays BLOCKED.
+        distinct = getattr(entry.owner.definition, "distinct_clause", None) is not None
         selected = tuple(
             output.source
             if isinstance(output.source, ProjectNoJoinScalarExpression)
+            or (distinct and isinstance(output.source, ProjectModuleNestedCarryFact))
             else None
             for output in semantic.fields
         )
@@ -720,7 +728,15 @@ def row_authority(
             lets=retained[0].let_bindings,
             selections=tuple(f.select_fact for f in semantic.fields),
             selected_evidence=tuple(selected),
-            selected_references=retained[0].selections,
+            # A carried nested field (D73.05) reads its one carry reference.
+            selected_references=tuple(
+                (cast(ProjectModuleExpressionReferenceFact, value.reference),)
+                if isinstance(value, ProjectModuleNestedCarryFact)
+                else references
+                for value, references in zip(
+                    selected, retained[0].selections, strict=True
+                )
+            ),
             where=root.where.expression_analysis,
             where_references=retained[0].where,
         )

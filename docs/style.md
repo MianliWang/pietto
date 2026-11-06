@@ -511,6 +511,67 @@ Not this (each is refused with a hint):
 `count(paid)` of a `Bool` field still counts every row whose `paid` is not
 None, False included, and warns (PIE-S2388).
 
+## Grouping by a collected list
+
+In a `schema_version = 2` project on PostgreSQL, a collected list may be a
+`group by` key, or a `select distinct` field, in a query that reads it with
+`from` and has no JOIN, window or QUALIFY. Two lists are one key when
+they have the same length and their children are equal in order, compared as
+values (`1.0` and `1.00` are one key, so are `-0.0` and `0.0`); an empty list,
+a list with one None child and a missing list are three different keys. The
+collected let must end its `order by` in the fields of a `unique(...)` key of
+its source, so that its rows never tie. A single file refuses this project form
+(PIE-S2345, PIE-S2351, PIE-S2801):
+
+```pietto PIE-S2345 PIE-S2351 PIE-S2801
+shape Customer:
+    id: Int
+
+shape Order:
+    id: Int
+    customer_id: Int
+    total: Int
+    order_key = unique(id)
+
+source customers: Customer = postgres.table("customers")
+
+source orders: Order = postgres.table("orders")
+
+query customer_baskets:
+    let basket:
+        capture customers
+        from orders
+        where orders.customer_id == customers.id
+        select:
+            total
+        order by id
+    from customers
+    select:
+        id
+        totals = collect basket
+
+query basket_counts:
+    from customer_baskets
+    group by totals
+    select:
+        totals
+        customers = count()
+```
+
+Not this (each is refused with PIE-S2805):
+
+- the same with `order by total`, whose rows may tie, or with a key whose
+  fields may be None: rows that tie have no promised order, so the list
+  would not be one value.
+- `group by totals` or `select distinct` of `totals` beside a JOIN, a window
+  or `qualify`: group in a query of its own that reads the list with `from`.
+- `where totals == other`, `order by totals` or a set operation over
+  `totals`: a list has no comparison or order.
+- `select distinct` in the query that collects `totals = collect basket`:
+  deduplicate in a later query.
+
+MySQL refuses every collected list (PIE-B1003).
+
 ## Reusing an expression: `def`
 
 ```pietto

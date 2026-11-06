@@ -6137,7 +6137,7 @@ def _nested_origins_and_demands(plan, origin_position, demand_position):
                 demand.ref,
                 R.DEMAND,
                 P.TYPE_PROOF,
-                projection.site.owner,
+                nested.carried_owner(projection),
                 projection.semantic.item,
                 value,
                 tuple(

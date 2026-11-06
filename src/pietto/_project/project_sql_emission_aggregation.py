@@ -6,7 +6,9 @@ from dataclasses import dataclass, replace
 from typing import Any
 
 from pietto._project import project_sql_plan_aggregation as aggregation
+from pietto._project import project_sql_emission_nested as collecting
 from pietto._project import project_sql_emission_rows as rows
+from pietto._project import project_sql_emission_unnest as unnesting
 from pietto._project.model import ProjectResolvedTypeKind, ProjectRowFieldNullability
 from pietto._project.aggregate_grouped_schema import (
     ProjectComputedGroupKeyFact,
@@ -243,7 +245,7 @@ class AggregateStage:
     """One realized GROUPED/GLOBAL aggregation over its exact input terminal."""
 
     aggregation: Any
-    keys: tuple[AggregateKeyColumn, ...]
+    keys: tuple[Any, ...]
     values: tuple[AggregateValueColumn, ...]
     mode: str
     empty_input: str
@@ -634,8 +636,9 @@ def demand_rule(entry) -> str | None:
 
 
 def node_count(stage: AggregateStage, value_nodes) -> int:
-    """This stage's own generated nodes: each determinant and each occurrence."""
-    total = len(stage.keys)
+    """This stage's own generated nodes: each determinant and each occurrence;
+    a nested determinant is one per carrier."""
+    total = sum(len(getattr(key, "carriers", (None,))) for key in stage.keys)
     for value in stage.values:
         total += 1
         if value.argument is not None:
@@ -789,7 +792,7 @@ def build_stage(
     """
     family = request.family
     columns: list[Any] = []
-    key_columns: list[AggregateKeyColumn] = []
+    key_columns: list[Any] = []
     value_columns: list[AggregateValueColumn] = []
     for index, key in enumerate(keys):
         read = available.get(key.input)
@@ -813,6 +816,28 @@ def build_stage(
                 None,
                 (("PIE-B1001", "group_key_result_port_drift", key.ref, None),),
             )
+        if type(read) is unnesting.NestedRead:
+            # A nested key (D73.05) groups by its count and every child array:
+            # PostgreSQL compares array elements by their decoded values.
+            if family != "postgres":
+                return (
+                    None,
+                    None,
+                    (
+                        (
+                            "PIE-B1003",
+                            "group_key_type_not_admitted",
+                            key.ref,
+                            getattr(getattr(key.source, "item", None), "span", None),
+                        ),
+                    ),
+                )
+            group = collecting.carry_group(
+                read, export=export, position=index, final=False, terminal=export
+            )
+            columns.append(group)
+            key_columns.append(group)
+            continue
         retained = key_logical(key.source)
         if retained is None:
             return (
@@ -1011,7 +1036,12 @@ def build_stage(
                         for terminal in _input_terminals(order.value)
                     )
                     if argument is not None
-                    else tuple(item.terminal for item in available.values()),
+                    else tuple(
+                        item.group.column.terminal
+                        if type(item) is unnesting.NestedRead
+                        else item.terminal
+                        for item in available.values()
+                    ),
                     aggregate=value,
                     function=function,
                 ),
@@ -1056,7 +1086,7 @@ def build_projections(
     request, stage, block, exports, terminals, available, projections, final, *, symbol
 ):
     """Realize the exact visible projection of one aggregation's result ports."""
-    columns: list[AggregateProjectionColumn] = []
+    columns: list[Any] = []
     if len(projections) != len(exports) or len(terminals) != len(exports):
         return None, ("PIE-B1001", "aggregate_projection_denominator", block.ref, None)
     for position, (projection, export, terminal) in enumerate(
@@ -1081,6 +1111,17 @@ def build_projections(
                 projection.ref,
                 None,
             )
+        if type(read) is unnesting.NestedRead:
+            columns.append(
+                collecting.carry_group(
+                    read,
+                    export=export,
+                    position=position,
+                    final=final,
+                    terminal=terminal,
+                )
+            )
+            continue
         label = export.identity.name if final else f"c{position}"
         columns.append(
             AggregateProjectionColumn(
@@ -1116,7 +1157,9 @@ def build_compiled_stage(plan, record, arguments):
     records = plan.ir.completed.root.records
     facts = {f.address: f for f in plan.ir.completed.facts}
     stage = CompiledAggregateSubject(plan.references[record.address])
-    keys, values, columns = [], [], []
+    keys: list[Any] = []
+    values: list[AggregateValueColumn] = []
+    columns: list[Any] = []
     for index, (address, supplied) in enumerate(
         zip(record.get("outputs"), arguments, strict=True)
     ):
@@ -1125,6 +1168,15 @@ def build_compiled_stage(plan, record, arguments):
         subject = CompiledAggregateSubject(plan.references[expression.address])
         symbol = SQLSymbol(index, port.ref, port.identity.name)
         argument, delimiters, order_by_values = supplied
+        if expression.address.kind == "read" and type(argument) is unnesting.NestedRead:
+            if delimiters or order_by_values:
+                raise CompiledError("COMPILED_GROUP_KEY")
+            column = collecting.carry_group(
+                argument, export=port, position=index, final=False, terminal=port
+            )
+            keys.append(column)
+            columns.append(column)
+            continue
         if expression.address.kind == "read":
             if (
                 type(argument) is not rows.SQLStageReference

@@ -21,7 +21,9 @@ import _pietto_sql_emission as emission
 import _pietto_sql_nested_collect as collecting
 from _pietto_plan_nested import (
     HEAD,
+    NESTED_KEY_READERS,
     SHAPES,
+    keyed_sources,
     project,
     retained_unnest_sources,
     retained_unnest_contract,
@@ -1406,3 +1408,73 @@ def test_grouped_parameter_filter_retains_sibling_after_source_free_unnest(tmp_p
         assert _shape(_contract_of(lowered)) == _shape(_contract_of(artifact))
     assert b"GROUP BY" in artifact.rendered.sql
     assert b"$1" in artifact.rendered.sql
+
+
+# The collected child of a nested key: its type and contract representation.
+_KEY_CHILDREN = {
+    "int": ("Int", None),
+    "decimal": (
+        "Decimal(18, 4) | None",
+        {
+            "storage": {"kind": "pg_numeric", "precision": 18, "scale": 4},
+            "nullable": True,
+            "domain": {"kind": "decimal", "precision": 18, "scale": 4},
+        },
+    ),
+    "float": (
+        "Float | None",
+        {
+            "storage": {"kind": "pg_float8"},
+            "nullable": True,
+            "domain": {"kind": "finite_float", "format": "binary64"},
+        },
+    ),
+}
+
+
+@pytest.mark.parametrize("child", sorted(_KEY_CHILDREN))
+@pytest.mark.parametrize("reader", sorted(NESTED_KEY_READERS))
+def test_a_nested_key_bundle_lowers_to_the_live_statement(tmp_path, reader, child):
+    # D73.05: a nested GROUP BY key is an aggregate's key and output, a
+    # nested DISTINCT field a DISTINCT result's read; both lower source free,
+    # whatever the type of the collected child.
+    written, representation = _KEY_CHILDREN[child]
+    artifact = _emitted(
+        tmp_path / reader,
+        keyed_sources(reader, child=written),
+        _contract(
+            ("rows", "orders"),
+            changes=None if representation is None else {"total": representation},
+        ),
+    )
+    build = build_compiled(artifact)
+    loaded = _loaded(build)
+    lowered = emit_compiled(loaded, ())
+    assert loaded is not build.root
+    assert lowered.rendered.sql == artifact.rendered.sql
+    assert _shape(_contract_of(lowered)) == _shape(_contract_of(artifact))
+    assert contract_digest(_contract_of(lowered)) == contract_digest(
+        _contract_of(emit_compiled(build.root, ()))
+    )
+    records = loaded.records
+    collections = {
+        r.address
+        for r in records.values()
+        if r.address.kind == "port" and r.get("logical")[:1] == ("collection",)
+    }
+    if reader == "group":
+        (aggregate,) = (r for r in records.values() if r.address.kind == "aggregate")
+        assert aggregate.get("mode") == "grouped"
+        (key,) = aggregate.get("keys")
+        assert records[key].get("port") in collections
+    else:
+        (result,) = (
+            r
+            for r in records.values()
+            if r.address.kind == "result" and r.get("distinct")
+        )
+        assert any(
+            records[records[p].get("source")].get("port") in collections
+            for p in result.get("outputs")
+        )
+    verify_description(build.root.description)

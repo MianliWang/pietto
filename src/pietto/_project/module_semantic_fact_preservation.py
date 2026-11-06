@@ -104,6 +104,8 @@ from pietto._project.row_expression_type_facts import (
     build_project_row_expression_value_types,
     is_nested_relation_field,
     admits_nested_carry,
+    admits_nested_key,
+    nested_order_diagnostic,
     nested_distinct_diagnostic,
     nested_reference_diagnostic,
     nested_value_diagnostic,
@@ -158,10 +160,12 @@ from pietto.ast_nodes import (
     RelationMembershipExpr,
     RelationScalarExpr,
     SelectItem,
+    ShapeDef,
     SourceDef,
     Span,
     TableDef,
     UnaryExpr,
+    UniqueDef,
     WhereClause,
     WindowExpr,
     WindowSpec,
@@ -3343,6 +3347,18 @@ def _build_project_module_semantic_fact_set(
         path: (environment, catalog_by_path[path])
         for path, environment in resolution_by_path.items()
     }
+    # The shape of each declared field, by identity: a Collect read's order
+    # proof reads the `unique(...)` keys beside its source fields (D73.05).
+    shapes = MappingProxyType(
+        {
+            id(item): definition
+            for environment in resolution_by_path.values()
+            if environment.module.parsed_input is not None
+            for definition in environment.module.parsed_input.script.definitions
+            if type(definition) is ShapeDef
+            for item in definition.items
+        }
+    )
     completed: list[ProjectModuleRelationSemanticFacts] = []
     environments: list[ProjectModuleSemanticFactEnvironment] = []
     relation_pre_window_projections: list[
@@ -3494,7 +3510,7 @@ def _build_project_module_semantic_fact_set(
                             owner, resolution_environment, completed
                         ),
                         collect_reads=_collect_read_facts(
-                            owner, resolution_environment, completed
+                            owner, resolution_environment, completed, shapes
                         ),
                         captures=cast(_CaptureEnvironment, captures),
                     )
@@ -3563,7 +3579,7 @@ def _build_project_module_semantic_fact_set(
                         base_row_fact.owner, resolution_environment, completed
                     ),
                     collect_reads=_collect_read_facts(
-                        base_row_fact.owner, resolution_environment, completed
+                        base_row_fact.owner, resolution_environment, completed, shapes
                     ),
                     captures=_unknown_captures(base_row_fact.owner)
                     if captures is _CAPTURE_PENDING
@@ -4393,6 +4409,7 @@ def _collect_read_facts(
     owner: ProjectDeclarationOccurrence,
     environment: ProjectModuleRelationResolutionEnvironment,
     completed: list[ProjectModuleRelationSemanticFacts],
+    shapes: Mapping[int, ShapeDef],
 ) -> tuple[ProjectModuleCollectReadFact, ...]:
     """Type each Collect read of one owner by its relation let's own facts.
 
@@ -4456,6 +4473,7 @@ def _collect_read_facts(
             else:
                 relation = _occurrence_identity(target.owner)
                 nested = ProjectNestedRelationType(
+                    unique_order=_unique_collect_order(target, body, shapes),
                     element_relation=relation,
                     element_fields=tuple(
                         ProjectNestedRelationElementField(
@@ -4484,6 +4502,72 @@ def _collect_read_facts(
             )
         )
     return tuple(result)
+
+
+def _unique_collect_order(
+    target: ProjectModuleRelationSemanticFacts,
+    body: _DerivedRelation,
+    shapes: Mapping[int, ShapeDef],
+) -> bool:
+    """D73.05: whether no two rows of collected let ``body`` tie on its ORDER BY.
+
+    The proof is a declared unique key: the ORDER BY ends in bare references
+    to fields of the let's FROM source that are never None and cover every
+    field of one `unique(...)` of that source's shape, in a let without JOIN
+    inputs, grouping, aggregates or DISTINCT. Any other order may tie.
+    """
+
+    state = target.input_state
+    schema = None if state is None else state.schema
+    if (
+        state is None
+        or schema is None
+        or schema.is_unknown
+        or state.reason is not ProjectRelationRowSchemaReason.DIRECT_SOURCE_CONCRETE
+        or body.order_by_clause is None
+        or body.from_clause is None
+        or body.join_clauses
+        or body.group_by_clause is not None
+        or body.distinct_clause is not None
+        or any(
+            contains_semantic_aggregate(item.expression) for item in body.select_items
+        )
+    ):
+        return False
+    qualifier = body.from_clause.binding_name or body.from_clause.source_name
+    shadowed = {item.alias for item in body.select_items if item.alias is not None}
+    if body.let_clause is not None:
+        shadowed.update(binding.name for binding in body.let_clause.bindings)
+    names: set[str] = set()
+    shape = None
+    for item in reversed(body.order_by_clause.items):
+        key = item.expression
+        name = (
+            key.name
+            if type(key) is NameExpr
+            else key.parts[1]
+            if type(key) is DottedNameExpr
+            and len(key.parts) == 2
+            and key.parts[0] == qualifier
+            else None
+        )
+        field = None if name is None or name in shadowed else schema.fields.get(name)
+        owner = None if field is None else shapes.get(id(field.field_def))
+        if (
+            field is None
+            or owner is None
+            or (shape is not None and owner is not shape)
+            or field.nullability is not ProjectRowFieldNullability.NON_NULL
+        ):
+            return False
+        shape = owner
+        names.add(field.name)
+        if any(
+            type(unique) is UniqueDef and set(unique.field_names) <= names
+            for unique in shape.items
+        ):
+            return True
+    return False
 
 
 def _collection_layer_refusal(name: str, field_name: str) -> str:
@@ -5488,7 +5572,29 @@ def nested_reference_facts(
                     and is_nested_relation_field(input_field)
                     and id(leaf) not in seen
                 ):
-                    if admits_nested_carry(leaf, definition, relation_let=relation_let):
+                    keyed = admits_nested_key(
+                        leaf, definition, relation_let=relation_let
+                    )
+                    if keyed or admits_nested_carry(
+                        leaf, definition, relation_let=relation_let
+                    ):
+                        # A nested key or DISTINCT field compares rows in its
+                        # collected let's order, which must never tie (D73.05).
+                        nested = cast(
+                            ProjectNestedRelationType,
+                            cast(ProjectRowField, input_field).resolved_type.nested,
+                        )
+                        place = (
+                            "GROUP BY"
+                            if keyed
+                            else "SELECT DISTINCT"
+                            if definition.distinct_clause is not None
+                            and definition.group_by_clause is None
+                            else None
+                        )
+                        if place is not None and not nested.unique_order:
+                            seen.add(id(leaf))
+                            found.append(nested_order_diagnostic(leaf, place))
                         continue
                     seen.add(id(leaf))
                     found.append(
@@ -6127,9 +6233,16 @@ def _clause_dependency_facts(
             )
             if candidate is None:
                 group_status = ProjectModuleCandidateBucketStatus.ABSENT
-            elif (
-                candidate.name != local_name
-                or candidate.resolved_type.kind not in SCALAR_RESOLVED_TYPE_KINDS
+            elif candidate.name != local_name or (
+                candidate.resolved_type.kind not in SCALAR_RESOLVED_TYPE_KINDS
+                and not (
+                    is_nested_relation_field(candidate)
+                    and admits_nested_key(
+                        item.key,
+                        definition,
+                        relation_let=owner.let_position is not None,
+                    )
+                )
             ):
                 group_status = ProjectModuleCandidateBucketStatus.UNKNOWN
             else:

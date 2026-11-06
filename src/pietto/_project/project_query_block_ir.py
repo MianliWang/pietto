@@ -3681,6 +3681,18 @@ def _origin_for_context(
     return matches[0]
 
 
+def _nested_field_positions(
+    properties: ProjectIROutputRelationalProperties,
+) -> frozenset[int]:
+    from pietto._project.model import ProjectResolvedTypeKind
+
+    return frozenset(
+        item.field_position
+        for item in properties.fields
+        if item.evidence.resolved_type.kind is ProjectResolvedTypeKind.NESTED_RELATION
+    )
+
+
 def _class_for_position(
     properties: ProjectIROutputRelationalProperties,
     position: int,
@@ -3972,7 +3984,14 @@ def resolved_grouped_relational_properties(
                     dependents=incoming.grain.active,
                 )
             )
-        key_classes = tuple(classes[position] for position in key_positions)
+        # A nested GROUP BY key (D73.05) is in no value class (D-S04-3), so no
+        # candidate key names its groups.
+        by_position = {item.members[0].field_position: item for item in classes}
+        key_classes = (
+            tuple(by_position[position] for position in key_positions)
+            if all(position in by_position for position in key_positions)
+            else ()
+        )
         keys = (
             (
                 ProjectIROutputCandidateKey(
@@ -4098,8 +4117,12 @@ def _query_projection_images(
             completed,
             input_fields,
         )
+        # A nested field is in no value class (D-S04-3): a nested GROUP BY
+        # key's visible output images none (D73.05).
         source_classes.append(
-            None if position is None else _class_for_position(incoming, position)
+            None
+            if position is None or position in _nested_field_positions(incoming)
+            else _class_for_position(incoming, position)
         )
     return _projection_classes_from_sources(
         incoming,

@@ -2387,6 +2387,12 @@ def realize_rows(request):
                     add(*problem)
                     return None
                 columns.extend(built)
+                # A carried nested key adds its array carriers (D73.05).
+                nodes += sum(
+                    2 * (len(column.carriers) - 1)
+                    for column in built
+                    if type(column) is resulting.ResultGroupColumn
+                )
                 exports = ()
                 items = ()
             else:

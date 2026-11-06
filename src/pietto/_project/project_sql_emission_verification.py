@@ -2174,6 +2174,22 @@ def _verify_aggregate_body(
     for index, (key, column) in enumerate(zip(keys, realized.keys, strict=True)):
         export = ports.get(block.exports[index])
         read = columns.get(key.input)
+        if type(read) is unnesting.NestedRead:
+            # A nested key (D73.05) carries its whole group, which GROUP BY
+            # compares carrier by carrier, on PostgreSQL only.
+            if (
+                request.family != "postgres"
+                or key.source is not stage.authority.keys[index]
+                or export is None
+                or export.source is not key.ref
+                or not _same_carried_group(
+                    request.plan, column, read, export, export, index, False
+                )
+            ):
+                raise ValueError("nested group determinant")
+            state["nodes"] += len(column.carriers)
+            state["symbols"].append(column.symbol)
+            continue
         retained = grouping.key_logical(key.source)
         label = f"c{index}"
         incoming = ports.get(key.input)
@@ -2373,7 +2389,10 @@ def _verify_aggregate_body(
                         )
                         if argument is not None
                         else tuple(
-                            columns[reference].terminal for reference in block.inputs
+                            columns[reference].group.column.terminal
+                            if type(columns[reference]) is unnesting.NestedRead
+                            else columns[reference].terminal
+                            for reference in block.inputs
                         ),
                         aggregate=value,
                         function=function,
@@ -2749,6 +2768,25 @@ def _verify_aggregate_projection(
         )
     ):
         read = columns.get(projection.input)
+        if type(read) is unnesting.NestedRead:
+            if (
+                projection.block is not block.ref
+                or projection.aggregation is not stage.ref
+                or projection.export is not export.ref
+                or not _same_carried_group(
+                    request.plan,
+                    column,
+                    read,
+                    export,
+                    terminal,
+                    position,
+                    body.final,
+                )
+            ):
+                raise ValueError("nested aggregate result projection")
+            state["nodes"] += 2 * (len(column.carriers) - 1)
+            state["symbols"].append(column.symbol)
+            continue
         label = export.identity.name if body.final else f"c{position}"
         if (
             type(column) is not grouping.AggregateProjectionColumn
@@ -4145,10 +4183,16 @@ def _verify_result_body(
                     or f.output is not outputs[i].ref
                     or f.canonical is not exports[i]
                     or f.equivalence.reason is not None
-                    or resulting.distinct_problem(
-                        family, reads[inputs[i].ref][1].realization
+                    or (
+                        # A nested DISTINCT field (D73.05) on PostgreSQL.
+                        family != "postgres"
+                        if type(previous.columns[i]) is resulting.ResultGroupColumn
+                        else type(previous.columns[i]) is nested.CollectColumn
+                        or resulting.distinct_problem(
+                            family, reads[inputs[i].ref][1].realization
+                        )
+                        is not None
                     )
-                    is not None
                     for i, f in enumerate(fields)
                 )
             ):
@@ -4355,7 +4399,8 @@ def _verify_result_body(
         # Collect column itself, which has no scalar realization.
         group = type(column) is resulting.ResultGroupColumn
         if group and (
-            body.distinct is not None
+            # A DISTINCT body compares a nested group on PostgreSQL (D73.05).
+            (body.distinct is not None and request.family != "postgres")
             or _collect_group_problems(request, body, column)
             or column.read is not read
             or column.column.realization is not None
@@ -7508,6 +7553,36 @@ def verify_row_bytes(query, rendered):
             if stage is not None and stage.keys:
                 take("syntax", "group_by", stage.aggregation.ref, " GROUP BY ")
                 for position, column in enumerate(stage.keys):
+                    if type(column) is resulting.ResultGroupColumn:
+                        # A nested key (D73.05): each carrier, in order.
+                        if len(column.carriers) < 2:
+                            raise ValueError("nested group key without arrays")
+                        for index, (name, _label, subject) in enumerate(
+                            column.carriers
+                        ):
+                            if position or index:
+                                take(
+                                    "syntax",
+                                    "group_separator",
+                                    subject if index else column.export.ref,
+                                    ", ",
+                                )
+                            take(
+                                "identifier",
+                                "result_carry_scope",
+                                column.projection_port.ref,
+                                alias,
+                                identifier=True,
+                            )
+                            take("syntax", "qualifier", subject, ".")
+                            take(
+                                "identifier",
+                                "collect_carrier_column",
+                                subject,
+                                name,
+                                identifier=True,
+                            )
+                        continue
                     if position:
                         take("syntax", "group_separator", column.key.ref, ", ")
                     start = offset
@@ -7768,7 +7843,7 @@ def verify_row_bytes(query, rendered):
                 if position:
                     take("syntax", "separator", column.export.ref, ", ")
                 if type(column) is resulting.ResultGroupColumn:
-                    if body.distinct is not None:
+                    if body.distinct is not None and request.family != "postgres":
                         raise ValueError("DISTINCT over a nested group")
                     carriers(
                         column,
@@ -8924,7 +8999,7 @@ def verify_row_generated_requirements(request, query, generated):
                         "quotient_field_comparison",
                         field.ref,
                         "R18",
-                        encoding if column.read.realization.tag == "Text" else (),
+                        encoding if resulting.text_compared(column) else (),
                     )
                 )
         if unit.order is not None:

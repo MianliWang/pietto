@@ -394,6 +394,44 @@ query result:
 }
 
 
+# D73.05: a parent collecting a let ordered by a declared unique key, so a
+# reader may group by or deduplicate its nested field; its Collect read is at
+# main.pietto line 23, column 18.
+KEYED_PARENT = """query parent:
+    let recent:
+        capture rows
+        from orders
+        where orders.customer_id == rows.id
+        select:
+            total
+        order by id
+    from rows
+    select:
+        id
+        totals = collect recent
+"""
+NESTED_KEY_READERS = {
+    "group": "    group by totals\n    select:\n        totals\n        n = count()\n",
+    "distinct": "    select distinct:\n        totals\n",
+}
+
+
+def keyed_sources(
+    reader: str, target: str = "postgres", child: str = "Int"
+) -> dict[str, str]:
+    """The keyed parent, its collected child `total` typed ``child``, and a
+    reader of it named `result`."""
+    head = HEAD.replace(
+        "    created_at: Int\n", "    created_at: Int\n    order_key = unique(id)\n"
+    ).replace("    total: Int\n", f"    total: {child}\n")
+    return {
+        "main.pietto": head.format(target=target)
+        + KEYED_PARENT
+        + "query result:\n    from parent\n"
+        + NESTED_KEY_READERS[reader]
+    }
+
+
 def sources(shape: str, target: str = "postgres") -> dict[str, str]:
     """One-module project sources of a named shape."""
     return {

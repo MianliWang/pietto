@@ -2101,6 +2101,9 @@ def _query_projection_class_signatures(
             continue
         class_position = _input_class_position(incoming, input_position)
         if class_position is None:
+            # A nested GROUP BY key (D73.05) is in no class (D-S04-3).
+            if input_position in _nested_positions(incoming):
+                continue
             return ()
         members_by_class[class_position].append(output_position)
         assigned.add(output_position)
@@ -2642,6 +2645,10 @@ def _group_properties_valid(
         positions = _group_key_positions(properties, context)
         if positions is None:
             return False
+        if set(positions) & _nested_positions(properties):
+            # A nested GROUP BY key (D73.05) is in no value class, so no
+            # candidate key or FD names the groups.
+            positions = ()
         key = ((positions, ProjectRowUniquenessStrength.STRICT),) if positions else ()
         expected_fds = (
             (
@@ -5508,14 +5515,17 @@ def verify_compiled_property_laws(root):
         elif kind == "aggregate":
             incoming = built[record.get("input")].properties.relational
             count = len(record.get("keys"))
+            nested = _nested_positions(actual)
             need(
                 _class_signatures(actual)
-                == tuple((i,) for i in range(len(actual.fields))),
+                == tuple((i,) for i in range(len(actual.fields)) if i not in nested),
                 "PROPERTY_GROUP_CLASSES",
             )
+            # A nested GROUP BY key (D73.05) is in no value class, so no
+            # candidate key names the groups.
             keys = (
                 ((tuple(range(count)), ProjectRowUniquenessStrength.STRICT),)
-                if count
+                if count and not nested
                 else ()
             )
             fds = key_fds(keys, len(actual.value_classes))

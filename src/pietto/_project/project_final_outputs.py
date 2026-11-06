@@ -5888,11 +5888,17 @@ def _no_join_final_fields(
                 select_fact=select_fact,
                 field=row_field,
             )
-        # Only a Collect read or carried nested field outputs a non-scalar value.
+        # Only a Collect read, a carried nested field or a nested GROUP BY key
+        # (D73.05) outputs a non-scalar value.
         if row_field is None or (
             row_field.resolved_type.kind not in SCALAR_RESOLVED_TYPE_KINDS
             and type(source)
             not in {ProjectModuleCollectReadFact, ProjectModuleNestedCarryFact}
+            and not (
+                type(source) is ProjectNoJoinGroupedOutput
+                and row_field.result_role is ProjectRowResultRole.GROUP_KEY
+                and is_nested_relation_field(row_field)
+            )
         ):
             return None, source, ()
         completed.append(
