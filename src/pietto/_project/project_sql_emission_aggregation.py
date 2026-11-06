@@ -40,11 +40,18 @@ SPELLING = {
     # `delimiter` slot.
     "median": "PERCENTILE_CONT",
     "quantile": "PERCENTILE_CONT",
+    # PostgreSQL only, the conditional count and sum of a group:
+    # COUNT(CASE WHEN test THEN 1 END) and COALESCE(CAST(SUM(CASE WHEN test
+    # THEN CAST(x AS pg_catalog.int8) END) AS pg_catalog.int8), 0), the test
+    # of a sum in the `delimiter` slot.
+    "filtered_count": "COUNT",
+    "filtered_sum": "SUM",
 }
 # The aggregates whose rendering wraps the result (cast) in SQRT( ... ).
 ROOT_FUNCTIONS = frozenset({"stddev"})
 # The interpolated quantiles, an ordered-set PERCENTILE_CONT.
 QUANTILE_FUNCTIONS = frozenset({"median", "quantile"})
+FILTERED_FUNCTIONS = frozenset({"filtered_count", "filtered_sum"})
 # Evidence that a binary64 result is finite because the target refuses an
 # overflowing accumulation (SQLSTATE 22003) instead of returning inf or NULL.
 TARGET_CHECKED_BINARY64 = "target_checked_binary64_overflow"
@@ -305,7 +312,9 @@ def stage_schedule_valid(
 def function_name(source) -> str | None:
     """The retained aggregate function identity; never re-read from source text."""
     if isinstance(source, aggregation.ProjectAggregateExpressionAnalysis):
-        return source.fact.function
+        return aggregation.filtered_function(source.item.expression) or (
+            source.fact.function
+        )
     name = getattr(source, "function_name", None)
     return name if type(name) is str else None
 
@@ -421,6 +430,17 @@ def result_realization(family: str, function: str, argument, retained):
             ),
             None,
         )
+    if function in FILTERED_FUNCTIONS:
+        # A conditional count is the target's own count; a conditional sum
+        # narrows to bigint with its checked CAST and is 0 for no match.
+        if family != "postgres" or tag != "Int" or nullable is not False:
+            return None, ("PIE-B1002", function + "_result_not_non_null_int")
+        if function == "filtered_count":
+            return (
+                rows._checked_int({"kind": "pg_int8"}, 0, COUNT_MAX, False),
+                None,
+            )
+        return rows._checked_int({"kind": "pg_int8"}, *rows.SIGNED64, False), None
     if function in COUNTING_FUNCTIONS:
         if tag != "Int" or nullable is not False:
             return None, ("PIE-B1002", "count_result_not_non_null_int")
@@ -534,6 +554,60 @@ def argument_problem(function: str, argument, family: str):
     ):
         return "PIE-B1003", "aggregate_argument_not_a_direct_established_field"
     return resolved_argument_problem(function, direct, argument.realization, family)
+
+
+def filtered_problem(function: str, argument, test, family: str):
+    """The argument law of a conditional count, ``filtered_count`` over its
+    test alone, and of a conditional sum, ``filtered_sum`` of one Int field
+    over its test: each a row value that reads a field, the test a Bool.
+    A test that reads no field (`if True`) is the same for every row.
+    PostgreSQL only: MySQL has no conditional count yet, and its SUM of an
+    integer is DECIMAL, as for `sum(Int)`."""
+    for value in (argument, test):
+        if type(value) is not rows.SQLStageReference and not (
+            type(value) is rows.SQLOperation
+            and any(
+                type(node) is rows.SQLStageReference for node in rows.value_nodes(value)
+            )
+        ):
+            return "PIE-B1003", (
+                "conditional_test_reads_no_field"
+                if value is test
+                else "aggregate_argument_not_a_direct_established_field"
+            )
+    if function == "filtered_sum":
+        if type(argument) is not rows.SQLStageReference:
+            return "PIE-B1003", "aggregate_argument_not_a_direct_established_field"
+        problem = resolved_argument_problem("sum", True, argument.realization, family)
+        if problem is not None:
+            return problem
+    elif family != "postgres":
+        return "PIE-B1003", "conditional_count_not_admitted_on_target"
+    if family != "postgres" or rows.realization_of(test, family).tag != "Bool":
+        return "PIE-B1003", function + "_argument_outside_reviewed_int_domain"
+    return None
+
+
+def resolved_filtered_problem(function: str, inputs, family: str):
+    """`filtered_problem` over already-resolved inputs, each an (address
+    kind, realization) pair, as a compiled input holds them."""
+    if len(inputs) != (2 if function == "filtered_sum" else 1) or any(
+        kind not in {"read", "operation"} for kind, _ in inputs
+    ):
+        return "PIE-B1003", "aggregate_argument_not_a_direct_established_field"
+    if function == "filtered_sum":
+        kind, realization = inputs[0]
+        if kind != "read":
+            return "PIE-B1003", "aggregate_argument_not_a_direct_established_field"
+        problem = resolved_argument_problem("sum", True, realization, family)
+        if problem is not None:
+            return problem
+    elif family != "postgres":
+        return "PIE-B1003", "conditional_count_not_admitted_on_target"
+    test = inputs[-1][1]
+    if family != "postgres" or test is None or test.tag != "Bool":
+        return "PIE-B1003", function + "_argument_outside_reviewed_int_domain"
+    return None
 
 
 def string_agg_argument_problem(argument):
@@ -657,6 +731,8 @@ def argument_cast(family: str, function: str, argument) -> str | None:
                 "PERCENTILE_CONT input cast requires a PostgreSQL argument"
             )
         return "pg_catalog.float8"
+    if function == "filtered_sum":
+        function = "sum"
     if function not in {"avg", "sum"}:
         return None
     if family == "postgres" and float_argument(argument):
@@ -677,6 +753,8 @@ def result_cast(family: str, function: str, argument) -> str | None:
         if family != "postgres" or argument is None:
             raise ValueError("VAR_SAMP result cast requires a PostgreSQL argument")
         return "pg_catalog.float8"
+    if function == "filtered_sum":
+        function = "sum"
     if function != "sum" or family == "postgres" and float_argument(argument):
         return None
     if family != "postgres" or argument is None or argument.realization.tag != "Int":
@@ -688,7 +766,7 @@ def aggregate_evidence(function: str, argument_tag: str | None) -> tuple[str, ..
     """R13's evidence beyond the rule, from the function and its argument's
     tag: a checked bigint sum, or a binary64 sum, average or deviation the
     target checks."""
-    if function == "sum" and argument_tag == "Int":
+    if function in {"sum", "filtered_sum"} and argument_tag == "Int":
         return (rows.TARGET_CHECKED_SIGNED64,)
     if function in {"sum", "avg", "stddev"} and argument_tag == "Float":
         return (TARGET_CHECKED_BINARY64,)
@@ -990,7 +1068,8 @@ def build_stage(
             len(arguments) != len(value.arguments)
             or len(ordered) != len(value.order_by)
             or (function == "string_agg") is not bool(ordered)
-            or (len(arguments) == 2) is not (function in {"string_agg", "quantile"})
+            or (len(arguments) == 2)
+            is not (function in {"string_agg", "quantile", "filtered_sum"})
             or len(arguments) > 2
         ):
             return (
@@ -1060,7 +1139,23 @@ def build_stage(
             if argument is None:
                 assert problem is not None
                 return None, (*problem, value.ref, location)
-            problem = argument_problem(function, argument, request.family)
+            if function in FILTERED_FUNCTIONS:
+                test = argument
+                if function == "filtered_sum":
+                    test, problem = rows.build_row_value(
+                        request,
+                        available,
+                        value.arguments[1],
+                        uses,
+                        reference_type=reference_type,
+                    )
+                    if test is None:
+                        assert problem is not None
+                        return None, (*problem, value.ref, location)
+                    delimiter = test
+                problem = filtered_problem(function, argument, test, request.family)
+            else:
+                problem = argument_problem(function, argument, request.family)
             if problem is not None:
                 return None, (*problem, value.ref, location)
             if function == "quantile":
@@ -1338,6 +1433,20 @@ def build_compiled_stage(plan, record, arguments):
                         or order.direction not in {"asc", "desc"}
                         for order in order_by
                     )
+                ):
+                    raise CompiledError("COMPILED_AGGREGATE_ARGUMENT")
+            elif function in FILTERED_FUNCTIONS:
+                # A conditional sum's second argument value is its test.
+                if (
+                    argument is None
+                    or len(delimiters) != (function == "filtered_sum")
+                    or filtered_problem(
+                        function,
+                        argument,
+                        delimiters[0] if delimiters else argument,
+                        records[Address("target", 0)].get("family"),
+                    )
+                    is not None
                 ):
                     raise CompiledError("COMPILED_AGGREGATE_ARGUMENT")
             elif len(delimiters) != (function == "quantile") or any(

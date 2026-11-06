@@ -539,7 +539,7 @@ first column give every rule.
 | `same_value(a, b)` ([Expressions](#expressions)) | `(a IS NOT DISTINCT FROM b)` | `(a <=> b)` | select items, WHERE and `let`, select items after a JOIN; `Float` where `==` is, not `Bool`, not in a JOIN `on` or a WHERE after a JOIN | as PostgreSQL, a `Float` only beside an operand that reads no row (two row `Float` operands PIE-B1003), and not a GROUP BY key or DISTINCT column |
 | `stddev(x)` ([Aggregates](#aggregates-and-grouping)) | `Int` and `Float` | `Float` (`STDDEV_SAMP`); `Int` refused (PIE-B1000) | `Int` and `Float` | refused: `Int` PIE-B1003, `Float` PIE-B1004 |
 | `median(x)`, `quantile(x, q)` ([Aggregates](#aggregates-and-grouping)) | `Int` and `Float` (`PERCENTILE_CONT ... WITHIN GROUP`) | refused (PIE-B1000) | `Int`; `Float` refused (PIE-B1004) | refused (PIE-B1003) |
-| `sum(1 for o in group if t)`, `sum(o.f for o in group if t)` ([Aggregates](#aggregates-and-grouping)) | `COUNT(CASE WHEN t THEN 1 END)`; `COALESCE(CAST(SUM(CASE WHEN t THEN CAST(f AS pg_catalog.int8) END) AS pg_catalog.int8), 0)` | count and sum refused (PIE-B1000) | refused at check (PIE-S2334) | refused at check (PIE-S2334) |
+| `sum(1 for o in group if t)`, `sum(o.f for o in group if t)` ([Aggregates](#aggregates-and-grouping)) | `COUNT(CASE WHEN t THEN 1 END)`; `COALESCE(CAST(SUM(CASE WHEN t THEN CAST(f AS pg_catalog.int8) END) AS pg_catalog.int8), 0)` | count and sum refused (PIE-B1000) | as PostgreSQL single file, `schema_version = 2` (PIE-S2334 in a `schema_version = 1` project); no JOIN inputs | refused: count PIE-B1003, sum PIE-B1004 |
 | `max(a, b)`, `min(a, b)` ([Expressions](#expressions)) | `CASE WHEN` of `<`/`>` and `IS NOT NULL`; `Int`, `Decimal`, `Float`, `Text`, `Date`, `Timestamp`, `UUID`, `Bool` | as PostgreSQL, except `Bool`, refused (PIE-B1000) | `Int`, `Decimal`, `Float`, `Text`, `Timestamp`, `UUID` as their comparison and conditional are; `Date` and `Bool` refused (PIE-B1003) | as PostgreSQL project, except `UUID`, refused as UUID ordering is (PIE-B1003) |
 | `lpad(s, width, fill)` ([Expressions](#expressions)) | `CASE WHEN length(s) >= width THEN s ELSE lpad(...) END`; a literal width outside the signed 32-bit range refused (PIE-S2385 at check) | `CASE WHEN CHAR_LENGTH(s) >= width THEN s ELSE LPAD(...) END` | emitted for a width proven in the signed 32-bit range; refused otherwise (PIE-B1002, PIE-B1004) | refused (PIE-B1003) |
 | `add_months(d, n)` ([Expressions](#expressions)) | `CAST((d + make_interval(months => CAST(n AS integer))) AS date)` | `DATE_ADD(d, INTERVAL n MONTH)` | emitted; a `None` argument refused (PIE-B1003) | refused (PIE-B1003) |
@@ -2232,7 +2232,8 @@ name after `in` is a relation or `group` (generators in `any(...)` and
 conditional aggregates), never a list: a `sum` generator over a name that is
 no relation, `let` or `group` is PIE-S2301 ``Unknown or unavailable generator
 source: xs; a row's collected list is read through its row: `for o in c.xs`
-``, and `len(xs)`
+`` (in a grouped body, or one whose SELECT items are all aggregates, its hint
+is ``for this group's rows write `for o in group` ``), and `len(xs)`
 where `len(c.xs)` is admitted is PIE-S2334 at `xs` ``len reads a row's
 collected list through its row; write `len(c.xs)` ``. A row whose list is
 missing (None, after an outer JOIN) gives None for all three; `[]` gives
@@ -3929,7 +3930,7 @@ rows that `from` and `where` keep with this key, each as often as it occurs,
 the rows `count()` counts. A relation or `let` named `group` keeps its meaning
 in `from` and `any(...)`.
 
-A single file admits two generators:
+A single file and a `schema_version = 2` project admit two generators:
 
 - `sum(1 for o in group if TEST)`: the number of rows of the group whose
   TEST is True (a None TEST is no match). An `Int`, never None, 0 for none.
@@ -3947,8 +3948,19 @@ no group generator yet: join in one query and group it in another that reads
 it with `from`. `any(... for o in group)` is not available yet (a test of the
 group: select `n = sum(1 for o in group if ...)` and test `n > 0`), and the
 other refusals are listed in the PIE-S2334 row of
-[diagnostics](spec/diagnostics.md). A project refuses every generator at
-check with PIE-S2334 (``sum(... for ...) is not available in a project yet``).
+[diagnostics](spec/diagnostics.md). A `schema_version = 1` project refuses
+every generator at check with PIE-S2334 (``sum(... for ...): a
+schema_version = 1 project has no generator in the current syntax; set
+schema_version = 2 to check it``). In a project TEST reads no query header
+parameter yet (PIE-S2355 `Query parameters are not available in this
+position.`, as for every aggregate argument, with no suggestion). TEST reads
+no `let` of the query, a computed GROUP BY key included (PIE-S2334
+``Generator reads the let k outside its member; write the let's expression
+over fields of o, such as `o.f` ``): write the let's expression with member
+fields, such as `if o.id + 1 > 2`. A project `any(... for o in group)` that
+names no relation keeps its own PIE-S2301 `Unknown relation: group` at the
+`any(...)` (PIE-S2334 `ANY is not supported in this context` in `having`)
+and suggests the conditional count as a single file does.
 
 PostgreSQL emits the count as `COUNT(CASE WHEN TEST THEN 1 END)` and the sum
 as `COALESCE(CAST(SUM(CASE WHEN TEST THEN CAST(f AS pg_catalog.int8) END) AS
@@ -3957,6 +3969,16 @@ would be. MySQL refuses both with PIE-B1000: the count with `MySQL has no
 conditional count yet; emit with --dialect postgres`, and the sum with
 `MySQL conditional sum of an Int argument is not supported`, as MySQL adds
 integers in DECIMAL.
+
+Project SQL (`emit-sql --project`) writes the same forms on PostgreSQL
+(`COUNT(CASE WHEN TEST THEN 1 END)` and the `COALESCE`d checked `SUM`), each
+result a non-null `pg_int8`, the sum's R13 requirement with the evidence
+`target_checked_signed64_narrowing`; compiled bundles and live templates
+carry them unchanged. A test that reads no field (`if True`) checks, but
+project SQL refuses it (PIE-B1003 `conditional_test_reads_no_field`). MySQL
+project SQL keeps both BLOCKED: the count with PIE-B1003
+`conditional_count_not_admitted_on_target`, the sum with PIE-B1004
+`sum_int_aggregate_range_proof_missing`, as `sum(Int)`.
 
 `count(x)` of a `Bool` field counts every row whose `x` is not None, False
 included; outside a window call a single-file check warns about it

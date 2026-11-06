@@ -979,6 +979,12 @@ SYNTAX = {
     "aggregate_order_separator": ", ",
     "aggregate_fraction": "0.5",
     "aggregate_within": ") WITHIN GROUP (ORDER BY ",
+    "aggregate_filter_open": "CASE WHEN ",
+    "aggregate_filter_then": " THEN ",
+    "aggregate_filter_one": "1",
+    "aggregate_filter_close": " END",
+    "aggregate_zero_open": "COALESCE(",
+    "aggregate_zero_close": ", 0)",
     "aggregate_close": ")",
     "window_partition": "PARTITION BY ",
     "window_partition_separator": ", ",
@@ -1084,8 +1090,18 @@ OVERLAYS = {
     "relation_membership": (("in_open",), ("in_close",)),
     "is_null": (("is_null_open",), ("is_null_close",)),
     "aggregate": (
-        ("aggregate_open", "aggregate_result_cast_open", "aggregate_root_open"),
-        ("aggregate_close", "aggregate_result_cast_close", "aggregate_root_close"),
+        (
+            "aggregate_open",
+            "aggregate_result_cast_open",
+            "aggregate_root_open",
+            "aggregate_zero_open",
+        ),
+        (
+            "aggregate_close",
+            "aggregate_result_cast_close",
+            "aggregate_root_close",
+            "aggregate_zero_close",
+        ),
     ),
     "window": (
         ("window_open", "window_result_cast_open"),

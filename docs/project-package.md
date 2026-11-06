@@ -856,6 +856,27 @@ BLOCKED with `PIE-B1003` (`quantile_not_admitted_on_target`). Compiled bundles
 and live templates carry them unchanged (the compiled description holds a
 `quantile` fraction as its second, literal argument).
 
+PostgreSQL project SQL emits the conditional count of a group,
+`sum(1 for o in group if TEST)`, as `COUNT(CASE WHEN TEST THEN 1 END)` and
+the conditional sum, `sum(o.f for o in group if TEST)` of one direct `Int`
+field, as `COALESCE(CAST(SUM(CASE WHEN TEST THEN CAST(f AS pg_catalog.int8)
+END) AS pg_catalog.int8), 0)`, TEST written as the same row expression in a
+WHERE would be and reading at least one field (a test that reads none,
+such as `if True`, is BLOCKED with `PIE-B1003`
+`conditional_test_reads_no_field`, suggestion ``Test a field of the member,
+such as `if o.paid`: a test that reads no field is the same for every
+row.``). Both results are a non-null `Int` (`pg_int8`): the count's domain
+is the count premise `0` to `9223372036854775807`, the sum's the signed
+64-bit range, bounded by its checked CAST, whose R13 requirement carries the
+evidence `{"overflow": "target_checked_signed64_narrowing"}` (a sum outside
+signed 64 bits fails with SQLSTATE 22003). MySQL project SQL keeps both
+BLOCKED: the count with `PIE-B1003`
+(`conditional_count_not_admitted_on_target`), the sum with `PIE-B1004`
+(`sum_int_aggregate_range_proof_missing`). Compiled bundles and live
+templates carry them unchanged: the compiled `aggregate_value` function is
+`filtered_count` with the test as its one argument, or `filtered_sum` with
+the field read, then the test.
+
 `check --project` also accepts the following forms, which
 `emit-sql --project` reports BLOCKED on both dialects whatever the contract
 declares:

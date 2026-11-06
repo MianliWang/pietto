@@ -22,6 +22,7 @@ from pietto._project.project_sql_emission_ast import (
     resource_limits,
 )
 from pietto._project.project_sql_emission_aggregation import (
+    FILTERED_FUNCTIONS,
     QUANTILE_FUNCTIONS,
     ROOT_FUNCTIONS,
     AggregateKeyColumn,
@@ -1066,10 +1067,37 @@ def _aggregate_value(w: _Writer, column, alias) -> None:
     start = w.offset
     if column.function in ROOT_FUNCTIONS:
         w.emit("SQRT(", "syntax", "aggregate_root_open", reference)
+    if column.function == "filtered_sum":
+        w.emit("COALESCE(", "syntax", "aggregate_zero_open", reference)
     if column.result_cast is not None:
         w.emit("CAST(", "syntax", "aggregate_result_cast_open", reference)
     w.emit(column.spelling + "(", "syntax", "aggregate_open", reference)
-    if column.argument is None:
+    if column.function in FILTERED_FUNCTIONS:
+        # CASE WHEN test THEN 1 END, or THEN the cast value of a sum: a test
+        # that is not True takes no branch and adds nothing.
+        test = (
+            column.argument if column.function == "filtered_count" else column.delimiter
+        )
+        if column.distinct or column.order_by or test is None:
+            raise ValueError("unrenderable conditional aggregate")
+        w.emit("CASE WHEN ", "syntax", "aggregate_filter_open", reference)
+        w.scalar(test, alias)
+        w.emit(" THEN ", "syntax", "aggregate_filter_then", reference)
+        if column.function == "filtered_count":
+            w.emit("1", "syntax", "aggregate_filter_one", reference)
+        else:
+            if column.argument_cast is None:
+                raise ValueError("unrenderable conditional sum")
+            w.emit("CAST(", "syntax", "aggregate_argument_cast_open", reference)
+            w.scalar(column.argument, alias)
+            w.emit(
+                " AS " + column.argument_cast + ")",
+                "syntax",
+                "aggregate_argument_cast_close",
+                reference,
+            )
+        w.emit(" END", "syntax", "aggregate_filter_close", reference)
+    elif column.argument is None:
         # count() consumes the complete input BAG, so COUNT(*) is the whole row
         # count, never SELECT * and never a column count.
         w.emit("*", "syntax", "aggregate_row_count", reference)
@@ -1141,6 +1169,8 @@ def _aggregate_value(w: _Writer, column, alias) -> None:
         )
     if column.function in ROOT_FUNCTIONS:
         w.emit(")", "syntax", "aggregate_root_close", reference)
+    if column.function == "filtered_sum":
+        w.emit(", 0)", "syntax", "aggregate_zero_close", reference)
     w.enclose("aggregate", reference, start)
 
 

@@ -1105,6 +1105,47 @@ def test_an_aggregate_parity_template_binds_and_renders_the_same_sql(tmp_path):
     assert bound.arguments == (3,)
 
 
+def test_a_conditional_count_and_sum_template_binds_its_header_read(tmp_path):
+    """The conditional count and sum of a group under a WHERE header
+    parameter bind through a loaded compiled bundle and a live PostgreSQL
+    template and render byte-equal SQL."""
+    from _pietto_sql_query_parameters import parameterized_case
+    from pietto._project.project_compiled_build import build_compiled
+    from pietto._project.project_compiled_loading import load_compiled
+    from pietto._project.project_execution_template import (
+        bind_values,
+        prepare_compiled_template,
+        prepare_live_template,
+    )
+
+    body = (
+        "query result(low: Int):\n    from rows\n    where id > low\n"
+        "    group by flag\n    select:\n        flag\n"
+        "        n = sum(1 for o in group if o.id > 2)\n"
+        '        s = sum(o.id for o in group if o.text == "a")\n'
+    )
+    _, outcome = parameterized_case(tmp_path, "postgres", body)
+    assert outcome.status == "VERIFIED", outcome.blockers
+    built = build_compiled(outcome.artifact)
+    compiled = prepare_compiled_template(
+        load_compiled(
+            built.payload,
+            expected_pin=built.pin,
+            accepted_producer=built.producer,
+            accepted_compatibility=built.compatibility,
+        )
+    )
+    sql = outcome.artifact.rendered.sql
+    for template in (compiled, prepare_live_template(outcome.artifact)):
+        bound = bind_values(
+            template, (), tuple(zip(template.parameters, (3,), strict=True))
+        )
+        assert bound.artifact.rendered.sql == sql
+        assert bound.arguments == (3,)
+    assert b"COUNT(CASE WHEN (" in sql
+    assert b"COALESCE(CAST(SUM(CASE WHEN (" in sql
+
+
 def test_a_median_and_quantile_template_binds_its_header_read(tmp_path):
     """A live PostgreSQL template of `median` and `quantile` under GROUP BY
     and a WHERE header parameter binds and renders byte-equal SQL."""

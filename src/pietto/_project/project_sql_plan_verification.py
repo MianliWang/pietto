@@ -1272,7 +1272,7 @@ def _row_site(
             ):
                 return False
             authored = (
-                *occurrence.expression.arguments,
+                *aggregation.call_arguments(occurrence.expression),
                 *(item.expression for item in occurrence.expression.aggregate_order_by),
             )
             normalized = tuple(
@@ -1571,7 +1571,7 @@ def _aggregate_structure(plan):
                 or value.aggregation is not stage.ref
                 or type(value.position) is not int
                 or value.position != i
-                or len(value.arguments) != len(call.arguments)
+                or len(value.arguments) != len(aggregation.call_arguments(call))
                 or len(value.order_by) != len(call.aggregate_order_by)
                 or value.value_type is not source.result_value_type
             ):
@@ -3202,7 +3202,7 @@ def _row_expressions(plan, site_specs, root_by_site, symbols) -> bool:
                     if not isinstance(call, CallExpr):
                         return False
                     authored = (
-                        *call.arguments,
+                        *aggregation.call_arguments(call),
                         *(item.expression for item in call.aggregate_order_by),
                     )
                     positions = tuple(

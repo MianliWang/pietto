@@ -95,10 +95,12 @@ the end of the message and is also the JSON `suggestion`):
   implemented for RelationIR: <name>. MySQL conditional sum of an Int argument
   is not supported` (MySQL sums integers in DECIMAL; the Phase74 MySQL
   catch-up takes it up).
-- A project, of any schema version: PIE-S2334 at the call, before semantic
-  analysis, ``sum(... for ...) is not available in a project yet; a single
-  file checks and emits the conditional count and sum of a group`` (the
-  callee's name in place of `sum`).
+- A `schema_version = 1` project, every generator: PIE-S2334 at the call,
+  before semantic analysis, ``sum(... for ...): a schema_version = 1 project
+  has no generator in the current syntax; set schema_version = 2 to check
+  it`` (the callee's name in place of `sum`). A `schema_version = 2` project
+  checks generators as a single file does (see [conditional count and sum in
+  projects](#conditional-count-and-sum-in-projects)).
 - PIE-S2334 at the call: ``count takes no generator; count matching rows with
   `sum(1 for o in group if ...)` `` (`len` likewise: ``len takes no generator;
   ...``); ``max takes no generator; a conditional max is not available; only
@@ -144,7 +146,11 @@ the end of the message and is also the JSON `suggestion`):
   sum of a generator adds an Int field of o; a Float or Decimal sum is not
   available yet`.
 - In the test or body, at the read: ``Generator reads paid outside its
-  member; write `o.paid` `` (PIE-S2334, also for `orders.paid`); ``Generator
+  member; write `o.paid` `` (PIE-S2334, also for `orders.paid`); a `let` of
+  the query, a computed GROUP BY key included (an aggregate argument reads a
+  `let` only as the whole argument): ``Generator reads the let k outside its
+  member; write the let's expression over fields of o, such as `o.f` ``
+  (PIE-S2334); ``Generator
   reads its member o as a value; read a field of it: `o.f` `` (PIE-S2334);
   PIE-S2102 `Unknown or unavailable field in generator: o.a.b` (also `o.f`
   where `f` names a `let`); PIE-S2102 `Unknown field: nosuch` at `o.nosuch`;
@@ -177,8 +183,9 @@ refused; compatibility):
   is ``a group test is not available yet: select `n = sum(1 for o in group if
   ...)` and test `n > 0` in `having` or a later query``. In a `having`, the
   same `any(...)` keeps PIE-S2334 `ANY is not supported in this context`, its
-  span and order, and gains the same suggestion. A single file only: a
-  project's diagnostics are unchanged.
+  span and order, and gains the same suggestion. A `schema_version = 2`
+  project gains the same suggestion and keeps its own text and span
+  (`Unknown relation: group` at the `any(...)`).
 - PIE-S2315 of `sum(amount if paid else 0)` and `count(1 if paid else None)`
   (a conditional argument, outside a window) gains ``; write `sum(o.v for o in
   group if ...)` `` (`sum`) or ``; write `sum(1 for o in group if ...)` ``
@@ -1112,6 +1119,65 @@ Compatibility:
   stays for a non-PostgreSQL target that would reach a list operation (none
   does today: the Collect it reads is refused first); it is in the
   Collect/Unnest suggestion group.
+
+### Conditional count and sum in projects
+
+- A `schema_version = 2` project now checks and emits the conditional count
+  and sum of a group as a single file does: `sum(1 for o in group if o.paid)`
+  and `sum(o.amount for o in group if o.paid)`, a whole aliased SELECT item of
+  a grouped query or of a query with aggregates and no GROUP BY, without JOIN
+  inputs. Both are a non-null `Int`, 0 when no row matches; `having` and
+  `order by` read the output name. The refused generator variants, their
+  codes, texts and hints are the single file's (the gate is shared), except
+  that outside a group (a body with no GROUP BY and a non-aggregate SELECT
+  item) an unknown single-name source suggests the row's list, as in
+  [lists of one row](#lists-of-one-row-len-sum-and-any-postgresql-projects);
+  an `any(... for o in group)` keeps the project's own text and span and
+  gains the single file's suggestion (below).
+- PostgreSQL project SQL writes `COUNT(CASE WHEN <test> THEN 1 END)` and
+  `COALESCE(CAST(SUM(CASE WHEN <test> THEN CAST(<f> AS pg_catalog.int8) END)
+  AS pg_catalog.int8), 0)`; each result is a non-null `pg_int8`, and the sum's
+  R13 requirement carries `target_checked_signed64_narrowing` (a sum outside
+  signed 64 bits fails with SQLSTATE 22003). Compiled bundles and live
+  templates carry both unchanged.
+- **Formats.** Project JSON v2 (`emit-sql --project`) gains the aggregate
+  column `function` values `filtered_count` and `filtered_sum` (`spelling`
+  `COUNT` and `SUM`; a sum's test in `delimiter`) and the additive `ranges`
+  syntax roles `aggregate_filter_open` (`CASE WHEN `), `aggregate_filter_then`
+  (` THEN `), `aggregate_filter_one` (`1`), `aggregate_filter_close` (` END`),
+  `aggregate_zero_open` (`COALESCE(`) and `aggregate_zero_close` (`, 0)`). A
+  consumer that closes these sets refuses such a document. A compiled
+  `aggregate_value` record may name `filtered_count` (one argument, the test)
+  or `filtered_sum` (a direct field read, then the test), under the Phase73
+  version marks `(7, 1, 7, 1)` of the aggregate windows subsection; a reader
+  of earlier marks refuses such a bundle.
+
+New refusals:
+
+- MySQL project, conditional count: PIE-B1003
+  `conditional_count_not_admitted_on_target` at its select item, suggestion
+  `MySQL has no conditional count yet; emit with --dialect postgres.`
+- MySQL project, conditional sum: PIE-B1004
+  `sum_int_aggregate_range_proof_missing` at its select item, as `sum(Int)`.
+- A query header parameter read in a project generator's test or body:
+  PIE-S2355 `Query parameters are not available in this position.` at the
+  read, as in every other aggregate argument (no suggestion).
+- A project conditional count or sum whose test reads no field (`if True`,
+  `if not False`): checked, but emission is BLOCKED on either target with
+  PIE-B1003 `conditional_test_reads_no_field` at its select item, suggestion
+  ``Test a field of the member, such as `if o.paid`: a test that reads no
+  field is the same for every row.`` (a single file emits
+  `COUNT(CASE WHEN TRUE THEN 1 END)`).
+
+Changed diagnostics (programs refused in 0.1.9 too; no accepted program
+changes):
+
+| Program | 0.1.9 | Now |
+| --- | --- | --- |
+| a `schema_version = 2` project with `sum(1 for o in group if TEST)` or `sum(o.f for o in group if TEST)` as a whole aliased SELECT item without JOIN inputs | PIE-P1000 | accepted |
+| a `schema_version = 2` project with any other generator call | PIE-P1000 | the single file's diagnostic for the same call (for example PIE-S2334 ``count takes no generator; ...``, PIE-S2314, PIE-S2202 `Expected Bool expression in generator test`, PIE-S2105 at an operator of the test such as `o.paid == None`) |
+| a `schema_version = 1` project with any generator call | PIE-P1000 | PIE-S2334 ``sum(... for ...): a schema_version = 1 project has no generator in the current syntax; set schema_version = 2 to check it`` (the callee's name in place of `sum`; the hint is the JSON `suggestion`) |
+| a `schema_version = 2` project with `any(... for o in group)` where no relation or `let` is named `group` | PIE-S2301 `Unknown relation: group` at the `any(...)` (a WHERE or SELECT), or PIE-S2334 `ANY is not supported in this context` (a `having`), suggestion null | the same code, text, span and order; JSON `suggestion` ``a group test is not available yet: select `n = sum(1 for o in group if ...)` and test `n > 0` in `having` or a later query`` |
 
 ## Equality, nullability and asof JOIN public alpha release notes — 0.1.9
 

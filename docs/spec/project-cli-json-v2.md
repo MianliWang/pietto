@@ -441,6 +441,23 @@ are the `syntax` roles `aggregate_fraction` (`0.5`, a `median` only) and
 fraction as an ordinary anchored literal value where a `median` writes
 `aggregate_fraction`. Its R13 `aggregate` requirement carries no evidence.
 
+A PostgreSQL conditional count or sum of a group has the aggregate column
+`function` `filtered_count` or `filtered_sum` and the `spelling` `COUNT` or
+`SUM`. A conditional count keeps its Bool test in `argument` and has no
+casts; a conditional sum keeps its `Int` field in `argument`, its Bool test in
+`delimiter`, and the `argument_cast` and `result_cast` `pg_catalog.int8`.
+They are written `COUNT(CASE WHEN <test> THEN 1 END)` and
+`COALESCE(CAST(SUM(CASE WHEN <test> THEN CAST(<f> AS pg_catalog.int8) END)
+AS pg_catalog.int8), 0)`. The additive `ranges` roles for these forms are
+the `syntax` roles `aggregate_filter_open` (`CASE WHEN `),
+`aggregate_filter_then` (` THEN `), `aggregate_filter_one` (`1`, a count
+only) and `aggregate_filter_close` (` END`), inside `aggregate_open` and
+`aggregate_close`, and for a sum `aggregate_zero_open` (`COALESCE(`) and
+`aggregate_zero_close` (`, 0)`), which open and close its `aggregate` range
+around the `aggregate_result_cast_open`/`aggregate_result_cast_close` pair.
+Both results are a non-null `pg_int8`; only the sum's R13 `aggregate`
+requirement carries `target_checked_signed64_narrowing`.
+
 A PostgreSQL project aggregate over a window (`sum`, `count`, `avg`, `min`
 or `max` with `OVER`) has `window_origin.function` `sum`, `count`, `avg`,
 `min` or `max`. Its additive `ranges` roles are the `syntax` roles

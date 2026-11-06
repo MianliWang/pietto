@@ -9569,6 +9569,10 @@ def _decode_fixed_public(document, limits):
         start = lexical[cursor][0]["start"]
         subject = lexical[cursor][0]["subject"]
         _need(subject["kind"] == "aggregate", "aggregate occurrence kind")
+        # A PostgreSQL conditional sum is COALESCE(CAST(SUM(CASE ...)), 0).
+        zero = peek() == "aggregate_zero_open"
+        if zero:
+            take("syntax", "aggregate_zero_open", "COALESCE(", subject)
         root = peek() == "aggregate_root_open"
         if root:
             take("syntax", "aggregate_root_open", "SQRT(", subject)
@@ -9589,7 +9593,37 @@ def _decode_fixed_public(document, limits):
         distinct, argument, delimiter, order_by = False, None, None, []
         argument_cast = None
         function = AGGREGATE_SPELLINGS[spelling]
-        if spelling == "PERCENTILE_CONT(":
+        if peek() == "aggregate_filter_open":
+            # COUNT(CASE WHEN test THEN 1 END), or SUM(CASE WHEN test THEN
+            # CAST(x AS pg_catalog.int8) END) under its checked CAST: the test
+            # of a sum in the delimiter slot.
+            counted = spelling == "COUNT("
+            _need(
+                family == "postgres"
+                and spelling in {"COUNT(", "SUM("}
+                and zero is not counted
+                and (result_cast is None) is counted,
+                "conditional aggregate shape",
+            )
+            take("syntax", "aggregate_filter_open", "CASE WHEN ", subject)
+            test = row_parse(block)
+            take("syntax", "aggregate_filter_then", " THEN ", subject)
+            if counted:
+                take("syntax", "aggregate_filter_one", "1", subject)
+                argument, function = test, "filtered_count"
+            else:
+                take("syntax", "aggregate_argument_cast_open", "CAST(", subject)
+                argument = row_parse(block)
+                take(
+                    "syntax",
+                    "aggregate_argument_cast_close",
+                    " AS pg_catalog.int8)",
+                    subject,
+                )
+                argument_cast, delimiter = "pg_catalog.int8", test
+                function = "filtered_sum"
+            take("syntax", "aggregate_filter_close", " END", subject)
+        elif spelling == "PERCENTILE_CONT(":
             # PERCENTILE_CONT(fraction) WITHIN GROUP (ORDER BY CAST(x AS float8)).
             _need(family == "postgres", "PERCENTILE_CONT family")
             if peek() == "aggregate_fraction":
@@ -9663,6 +9697,9 @@ def _decode_fixed_public(document, limits):
             )
         if root:
             closed, _ = take("syntax", "aggregate_root_close", ")", subject)
+        _need(not zero or function == "filtered_sum", "conditional sum zero")
+        if zero:
+            closed, _ = take("syntax", "aggregate_zero_close", ", 0)", subject)
         expected_ranges.append(("aggregate", subject, start, closed["end"]))
         return {
             "aggregate": subject,
@@ -9683,9 +9720,40 @@ def _decode_fixed_public(document, limits):
         floating = argument is not None and argument["tag"] == "Float"
         _need(
             (result_cast is not None)
-            is (function == "stddev" or function == "sum" and not floating),
+            is (
+                function == "stddev"
+                or function in {"sum", "filtered_sum"}
+                and not floating
+            ),
             "sum result cast",
         )
+        if function in {"filtered_count", "filtered_sum"}:
+            # Never NULL: a count bounded by the count premise, a sum by its
+            # checked bigint CAST, 0 when no row's test is True.
+            counted = function == "filtered_count"
+            test = argument if counted else delimiter
+            _need(
+                family == "postgres"
+                and argument is not None
+                and test is not None
+                and test["tag"] == "Bool"
+                and (counted or argument["tag"] == "Int")
+                and argument_cast == (None if counted else "pg_catalog.int8")
+                and not order_by,
+                "conditional aggregate arguments",
+            )
+            low = 0 if counted else -(1 << 63)
+            return {
+                "tag": "Int",
+                "storage": {"kind": "pg_int8"},
+                "nullable": False,
+                "domain": {
+                    "kind": "int_range",
+                    "min": str(low),
+                    "max": str((1 << 63) - 1),
+                },
+                "proven_int_range": (low, (1 << 63) - 1),
+            }
         if function in {"sum", "avg"} and floating:
             # A PostgreSQL float8 SUM or AVG of a finite binary64 argument,
             # uncast, NULL for an empty input.
@@ -10487,6 +10555,7 @@ def _decode_fixed_public(document, limits):
                 "aggregate_open",
                 "aggregate_result_cast_open",
                 "aggregate_root_open",
+                "aggregate_zero_open",
             ):
                 node = {"kind": "aggregate", **aggregate_parse(block)}
             elif peek() == "window_open":
@@ -11144,6 +11213,11 @@ def _decode_fixed_public(document, limits):
                                 node["function"] in {"count", "count_distinct"}
                                 and family == "postgres"
                                 and argument["tag"] in {"Text", "Bool"}
+                            )
+                            or (
+                                node["function"] == "filtered_count"
+                                and family == "postgres"
+                                and argument["tag"] == "Bool"
                             ),
                             "aggregate argument carrier",
                         )

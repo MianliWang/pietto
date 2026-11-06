@@ -10,12 +10,14 @@ from typing import TYPE_CHECKING
 from pietto.ast_nodes import (
     Expression,
     CallExpr,
+    LiteralExpr,
     SelectItem,
     WindowExpr,
     TableDef,
     QueryDef,
     SatisfyingClause,
 )
+from pietto.semantic.generators import generator_of
 from pietto.semantic.model import ValueType, SatisfyingResultPredicateInfo
 from pietto.ir.model import SymbolId
 from pietto._project.model import ProjectRowResultRole
@@ -524,7 +526,34 @@ def arguments(source: Aggregate) -> tuple[Expression, ...]:
     call = source.item.expression
     if not isinstance(call, CallExpr):
         raise ValueError("Aggregate authority requires an original direct call")
-    return call.arguments
+    return call_arguments(call)
+
+
+FILTERED_COUNT = "filtered_count"
+FILTERED_SUM = "filtered_sum"
+
+
+def call_arguments(call: CallExpr) -> tuple[Expression, ...]:
+    """An aggregate call's argument values: of a conditional count, its test;
+    of a conditional sum, its summed field and its test (`filtered_function`)."""
+
+    generator = generator_of(call)
+    if generator is None:
+        return call.arguments
+    if filtered_function(call) == FILTERED_COUNT:
+        return generator.operands[1:]
+    return generator.operands
+
+
+def filtered_function(call: Expression) -> str | None:
+    """The internal identity of `sum(1 for o in group if TEST)`,
+    ``filtered_count``, and of `sum(o.f for o in group if TEST)`,
+    ``filtered_sum``; None for any other aggregate call."""
+
+    generator = generator_of(call)
+    if generator is None or generator.condition is None:
+        return None
+    return FILTERED_COUNT if type(generator.body) is LiteralExpr else FILTERED_SUM
 
 
 def retained_members_valid(

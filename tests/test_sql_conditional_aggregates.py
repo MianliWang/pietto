@@ -5,6 +5,8 @@ from __future__ import annotations
 
 import pytest
 
+import _pietto_sql_emission as probe
+from pietto._project.project_sql_emission import serialize_project_sql_emission
 from pietto.ir import build_ir
 from pietto.parser_api import parse_source
 from pietto.semantic import analyze
@@ -105,4 +107,185 @@ def test_mysql_refuses_the_conditional_sum() -> None:
             "MySQL conditional sum of an Int argument is not supported",
         )
         for name in ("paid_per_customer", "paid_overall")
+    ]
+
+
+# A schema_version = 2 project over the fixed aggregation source: `key`,
+# `value`, `flag`, `label`, `ratio` and `rid` are its fields.
+PROJECT_GROUPED = """query result:
+    from agg
+    group by key
+    select:
+        key
+        paid = sum(1 for o in group if o.flag)
+        big = sum(o.value for o in group if o.label == "a" or o.ratio > 0.5)
+    having paid > 0
+    order by big desc
+"""
+PROJECT_WHOLE = """query result:
+    from agg
+    select:
+        paid = sum(1 for o in group if o.flag is None)
+        big = sum(o.rid for o in group if not o.flag)
+"""
+_COUNT_SQL = 'COUNT(CASE WHEN "s0"."flag value" THEN 1 END)'
+_SUM_SQL = (
+    'COALESCE(CAST(SUM(CASE WHEN (("s0"."text `""é" = CAST(E\'\\141\' AS '
+    'pg_catalog.text) COLLATE "C") OR ("s0"."ratio value" > CAST(\'0.5\' AS '
+    'pg_catalog.float8))) THEN CAST("s0"."value é" AS pg_catalog.int8) END) AS '
+    "pg_catalog.int8), 0)"
+)
+
+
+def _project(tmp_path, target: str, body: str) -> dict:
+    """The published emission document of ``body``, read by the independent
+    public decoder."""
+    item = probe.aggregate_fixture(target, "X_aggregate_grouped", "hidden")
+    header = probe.AGGREGATE_HEADER.format(target=target)
+    _, outcome = probe.build_case(
+        tmp_path, header + body, item["contract"], item["policy"]
+    )
+    return probe.decode_public(serialize_project_sql_emission(outcome))
+
+
+@pytest.mark.parametrize(
+    ("body", "sql"),
+    (
+        (
+            PROJECT_GROUPED,
+            f'WITH "p0" ("c0", "c1", "c2") AS (SELECT "s0"."group key" AS "c0", '
+            f'{_COUNT_SQL} AS "c1", {_SUM_SQL} AS "c2" FROM "public"."phase66 agg '
+            'é" AS "s0" GROUP BY "s0"."group key"), "p1" ("c0", "c1", "c2") AS '
+            '(SELECT "t1"."c0" AS "c0", "t1"."c1" AS "c1", "t1"."c2" AS "c2" FROM '
+            '"p0" AS "t1" WHERE ("t1"."c1" > CAST(0 AS pg_catalog.int8))), "p2" '
+            '("c0", "c1", "c2", "c3") AS (SELECT "t2"."c0" AS "c0", "t2"."c1" AS '
+            '"c1", "t2"."c2" AS "c2", "t2"."c2" AS "c3" FROM "p1" AS "t2") SELECT '
+            '"t0"."c0" AS "key", "t0"."c1" AS "paid", "t0"."c2" AS "big" FROM '
+            '"p2" AS "t0" ORDER BY "t0"."c3" DESC',
+        ),
+        (
+            PROJECT_WHOLE,
+            'WITH "p0" ("c0", "c1") AS (SELECT COUNT(CASE WHEN ("s0"."flag value" '
+            'IS NULL) THEN 1 END) AS "c0", COALESCE(CAST(SUM(CASE WHEN (NOT '
+            '"s0"."flag value") THEN CAST("s0"."row id" AS pg_catalog.int8) END) '
+            'AS pg_catalog.int8), 0) AS "c1" FROM "public"."phase66 agg é" AS '
+            '"s0") SELECT "t1"."c0" AS "paid", "t1"."c1" AS "big" FROM "p0" AS "t1"',
+        ),
+    ),
+    ids=("grouped", "no_group_by"),
+)
+def test_a_project_emits_the_conditional_count_and_sum_on_postgres(
+    tmp_path, body: str, sql: str
+) -> None:
+    """Project SQL writes the single-file shapes; both results are a non-null
+    bigint, the sum's bounded by its checked CAST (R13 evidence), and HAVING
+    and ORDER BY read the grouped outputs."""
+    data = _project(tmp_path, "postgres", body)
+
+    assert data["status"] == "VERIFIED"
+    assert data["sql"] == sql
+    assert [item["representation"] for item in data["columns"]][-2:] == [
+        {
+            "storage": {"kind": "pg_int8"},
+            "nullable": False,
+            "domain": {"kind": "int_range", "min": str(low), "max": str((1 << 63) - 1)},
+        }
+        for low in (0, -(1 << 63))
+    ]
+    assert [
+        r["evidence"] for r in data["requirements"] if r["kind"] == "aggregate"
+    ] == [
+        [],
+        [{"overflow": "target_checked_signed64_narrowing"}],
+    ]
+
+
+def test_a_project_refuses_the_conditional_count_and_sum_on_mysql(tmp_path) -> None:
+    """MySQL has no conditional count yet, and its SUM of an Int is DECIMAL, as
+    for `sum(Int)`: each is refused at its select item."""
+    data = _project(tmp_path, "mysql", PROJECT_GROUPED)
+
+    assert data["status"] == "BLOCKED"
+    assert [
+        (b["code"], b["subject"]["detail"], b["location"]["line"], b["suggestion"])
+        for b in data["blockers"]
+    ] == [
+        (
+            "PIE-B1003",
+            "conditional_count_not_admitted_on_target",
+            16,
+            "MySQL has no conditional count yet; emit with --dialect postgres.",
+        ),
+        (
+            "PIE-B1004",
+            "sum_int_aggregate_range_proof_missing",
+            17,
+            "Keep this expression in check/plan, or select a direct field with a "
+            "reviewed carrier: the compiler lacks the required proof. Do not invent "
+            "a range, meaning or bound in the contract.",
+        ),
+    ]
+
+
+@pytest.mark.parametrize("target", ("postgres", "mysql"))
+def test_a_project_refuses_a_test_that_reads_no_field(tmp_path, target) -> None:
+    """A test that reads no field is the same for every row: project SQL
+    refuses it at its select item and says to test a member field."""
+    body = (
+        "query result:\n    from agg\n    group by key\n    select:\n        key\n"
+        "        n = sum(1 for o in group if True)\n"
+        "        s = sum(o.rid for o in group if not False)\n"
+    )
+    data = _project(tmp_path, target, body)
+
+    assert data["status"] == "BLOCKED"
+    assert [
+        (b["code"], b["subject"]["detail"], b["location"]["line"], b["suggestion"])
+        for b in data["blockers"]
+    ] == [
+        (
+            "PIE-B1003",
+            "conditional_test_reads_no_field",
+            line,
+            "Test a field of the member, such as `if o.paid`: a test that reads no "
+            "field is the same for every row.",
+        )
+        for line in (16, 17)
+    ]
+
+
+@pytest.mark.parametrize(
+    ("body", "line"),
+    (
+        (
+            "query result:\n    from agg\n    let v2 = value * 2\n    group by key\n"
+            "    select:\n        key\n        m = sum(v2)\n"
+            "        n = sum(1 for o in group if o.label > 1)\n",
+            18,
+        ),
+        (
+            "query result(lim: Int):\n    from agg\n    group by key\n    select:\n"
+            "        key\n        n = sum(1 for o in group if o.label > 1)\n"
+            "    having n > lim\n",
+            16,
+        ),
+    ),
+    ids=("let", "parameter"),
+)
+def test_a_project_blocks_at_a_generator_test_error(tmp_path, body, line) -> None:
+    """A relation that reads a let or a query parameter blocks at its generator
+    test's error, as `check` reports it, not at the whole relation."""
+    data = _project(tmp_path, "postgres", body)
+
+    assert data["status"] == "BLOCKED"
+    assert [
+        (d["code"], d["message"], d["location"]["line"], d["location"]["column"])
+        for d in data["diagnostics"]
+    ] == [
+        (
+            "PIE-S2105",
+            "Invalid operands for operator >: expected comparable operands",
+            line,
+            37,
+        )
     ]

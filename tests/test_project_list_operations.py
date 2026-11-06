@@ -262,13 +262,6 @@ GATED = (
         _OUTSIDE,
     ),
     (
-        "b = sum(1 for o in group if o.paid)",
-        "sum(",
-        "PIE-S2334",
-        "sum(... for ...) is not available in a project yet",
-        "a single file checks and emits the conditional count and sum of a group",
-    ),
-    (
         "b = len(xs)",
         "xs)",
         "PIE-S2334",
@@ -657,7 +650,7 @@ def test_a_schema_version_1_project_refuses_a_list_generator(tmp_path: Path) -> 
         ("PIE-S2334", 8, 13)
     ]
     assert diagnostics[0].message.startswith(
-        "sum(... for ...) is not available in a project yet"
+        "sum(... for ...): a schema_version = 1 project has no generator"
     )
 
 

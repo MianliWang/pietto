@@ -7,10 +7,10 @@ no relation or ``let`` that the body sees is named ``group``, and
 ``binding.field`` is a row's collected list. The pre-admission gate admits
 only ``sum(1 for o in group if TEST)`` and ``sum(o.f for o in group if TEST)``
 as a whole aliased SELECT item of a relation body without JOIN inputs in a
-single file, and the `sum` and `any` of a row's collected list in a
-`schema_version = 2` project, whose project checks type and place them; any
-other use is one diagnostic, the first rule it breaks in a fixed order. After the gate, `normalize_group_generators`
-reads each member field ``o.f`` as the input row's field ``f``: inside an
+single file or a `schema_version = 2` project, and in such a project also the
+`sum` and `any` of a row's collected list, whose project checks type and place
+them; any other use is one diagnostic, the first rule it breaks in a fixed
+order. After the gate, `normalize_group_generators` reads each member field ``o.f`` as the input row's field ``f``: inside an
 aggregate the member row is the input row, so later readers see a plain row
 expression in the generator.
 """
@@ -124,10 +124,11 @@ def generator_diagnostics(
     script: ast.Script, *, single_file: bool, explicit_modules: bool = False
 ) -> list[Diagnostic]:
     """One diagnostic for each generator call that is not admitted: a single
-    file admits the conditional count and sum of a group, a `schema_version =
-    2` project the `sum` and `any` of a row's collected list (whose project
-    checks type it), any other project none yet. A generator inside another
-    generator is reported by the outer one."""
+    file and a `schema_version = 2` project admit the conditional count and
+    sum of a group, a `schema_version = 2` project also the `sum` and `any` of
+    a row's collected list (whose project checks type it), a `schema_version =
+    1` project none. A generator inside another generator is reported by the
+    outer one."""
 
     from pietto.semantic.inline_functions import _tree_nodes
 
@@ -156,7 +157,7 @@ def generator_diagnostics(
             positions.get(id(call)),
             known=known,
             relations=relations,
-            project=not single_file,
+            legacy_flat=not single_file and not explicit_modules,
             lists=explicit_modules,
         )
         if diagnostic is not None:
@@ -165,8 +166,9 @@ def generator_diagnostics(
 
 
 def normalize_group_generators(script: ast.Script) -> ast.Script:
-    """``script`` with each member field read ``o.f`` of an admitted generator
-    read as the input row's field ``f``, at the same span."""
+    """``script`` with each member field read ``o.f`` of an admitted group
+    generator read as the input row's field ``f``, at the same span. A list
+    generator over a row's field ``c.xs`` keeps its element reads ``o.f``."""
 
     from pietto.semantic.inline_functions import _rebuild
 
@@ -184,7 +186,10 @@ def normalize_group_generators(script: ast.Script) -> ast.Script:
         return visit
 
     def visit(_before: object, after: object) -> object:
-        if type(after) is not ast.GeneratorExpr:
+        if (
+            type(after) is not ast.GeneratorExpr
+            or cast(ast.GeneratorExpr, after).source_read is not None
+        ):
             return after
         generator = cast(ast.GeneratorExpr, after)
         reads = member(generator.binding_name)
@@ -302,7 +307,7 @@ def _check(
     *,
     known: set[str],
     relations: set[str],
-    project: bool,
+    legacy_flat: bool,
     lists: bool = False,
 ) -> Diagnostic | None:
     from pietto.semantic.expressions import (
@@ -320,9 +325,11 @@ def _check(
         and only != GROUP_SOURCE
         and only not in relations
         and (position is None or only not in position.inputs | position.lets)
+        and not _grouped(position)
     ):
-        # No relation of that name: most likely a collected field read
-        # without its row, which a single name after `in` never is. The row
+        # No relation of that name outside a group: most likely a collected
+        # field read without its row, which a single name after `in` never
+        # is. In a group it is the single file's group hint below. The row
         # is named only in a body without JOIN inputs, where it is the FROM
         # row; with them the list may be any input's.
         found = (
@@ -342,11 +349,12 @@ def _check(
             f"a row's collected list is read through its row: "
             f"`for {binder} in {row}.{only}`",
         )
-    if project:
+    if legacy_flat:
         return _error(
             call.span,
-            f"{name}(... for ...) is not available in a project yet",
-            "a single file checks and emits the conditional count and sum of a group",
+            f"{name}(... for ...): a schema_version = 1 project has no generator "
+            "in the current syntax",
+            "set schema_version = 2 to check it",
         )
     if name not in {"sum", "any"}:
         if name == "count":
@@ -410,20 +418,12 @@ def _check(
                 f"Unknown or unavailable generator source: {source}",
                 f"for this group's rows write `for {binder} in group`",
             )
-        grouped = (
-            position is None
-            or position.body.group_by_clause is not None
-            or all(
-                semantic_aggregate_call_name(item.expression) is not None
-                for item in position.body.select_items
-            )
-        )
         return _error(
             generator.source_span,
             f"Generator over {source} in sum: {source} is the whole relation, "
             "not this group",
             f"for this group's rows write `for {binder} in group`"
-            if grouped
+            if position is None or _grouped(position)
             else "count per key in a grouped query and join it on the key",
         )
     if position is None or position.context not in {"select", "nested"}:
@@ -451,6 +451,19 @@ def _check(
         )
     return _body_diagnostic(call, generator) or _read_diagnostic(
         generator, _keys(position.body), position.lets
+    )
+
+
+def _grouped(position: _Position | None) -> bool:
+    """Whether the body reads its input as groups: GROUP BY, or every SELECT
+    item an aggregate."""
+
+    return position is not None and (
+        position.body.group_by_clause is not None
+        or all(
+            semantic_aggregate_call_name(item.expression) is not None
+            for item in position.body.select_items
+        )
     )
 
 
@@ -621,7 +634,17 @@ def _read_diagnostic(
                     f"Generator reads its member {binder} as a value",
                     f"read a field of it: `{binder}.f`",
                 )
-            if read not in keys or read in lets:
+            if read in lets:
+                # A computed GROUP BY key too: an aggregate argument reads a
+                # let only as the whole argument, and `o.<let>` is no member
+                # field (PIE-S2102 below).
+                return _error(
+                    node.span,
+                    f"Generator reads the let {read} outside its member",
+                    f"write the let's expression over fields of {binder}, "
+                    f"such as `{binder}.f`",
+                )
+            if read not in keys:
                 return _error(
                     node.span,
                     f"Generator reads {read} outside its member",

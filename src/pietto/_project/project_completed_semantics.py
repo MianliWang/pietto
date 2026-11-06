@@ -2950,6 +2950,7 @@ def derive_compiled_semantics(root, values, parameters=None):
             elif kind == "aggregate_value":
                 origin = "aggregate"
                 from pietto.semantic.aggregates import (
+                    filtered_aggregate_result_value_type,
                     semantic_aggregate_result_value_type,
                 )
                 from pietto._project import project_sql_emission_aggregation as grouping
@@ -2957,7 +2958,9 @@ def derive_compiled_semantics(root, values, parameters=None):
                 function = get("function")
                 if function not in grouping.SPELLING or (
                     len(operands) != 2
-                    if function in {"string_agg", "quantile"}
+                    if function in {"string_agg", "quantile", "filtered_sum"}
+                    else len(operands) != 1
+                    if function == "filtered_count"
                     else len(operands) > 1
                 ):
                     raise CompiledError("COMPILED_AGGREGATE_SIGNATURE")
@@ -2981,25 +2984,43 @@ def derive_compiled_semantics(root, values, parameters=None):
                 ):
                     # Its fraction is a literal, never a read.
                     raise CompiledError("COMPILED_AGGREGATE_ARGUMENT")
-                if (
-                    physical_required
-                    and function != "string_agg"
-                    and argument is not None
-                    and (
-                        argument.address.kind not in {"read", "operation"}
-                        or grouping.resolved_argument_problem(
+                if function in grouping.FILTERED_FUNCTIONS:
+                    inputs = tuple(facts[operand] for operand in operands)
+                    if (
+                        physical_required
+                        and grouping.resolved_filtered_problem(
                             function,
-                            argument.address.kind == "read",
-                            argument.realization,
+                            tuple(
+                                (item.address.kind, item.realization) for item in inputs
+                            ),
                             family,
                         )
                         is not None
+                    ):
+                        raise CompiledError("COMPILED_AGGREGATE_ARGUMENT")
+                    typed = filtered_aggregate_result_value_type(
+                        function, tuple(item.value_type for item in inputs)
                     )
-                ):
-                    raise CompiledError("COMPILED_AGGREGATE_ARGUMENT")
-                typed = semantic_aggregate_result_value_type(
-                    function, None if argument is None else argument.value_type
-                )
+                else:
+                    if (
+                        physical_required
+                        and function != "string_agg"
+                        and argument is not None
+                        and (
+                            argument.address.kind not in {"read", "operation"}
+                            or grouping.resolved_argument_problem(
+                                function,
+                                argument.address.kind == "read",
+                                argument.realization,
+                                family,
+                            )
+                            is not None
+                        )
+                    ):
+                        raise CompiledError("COMPILED_AGGREGATE_ARGUMENT")
+                    typed = semantic_aggregate_result_value_type(
+                        function, None if argument is None else argument.value_type
+                    )
                 if typed is None or typed != declared(get("logical")):
                     raise CompiledError("COMPILED_AGGREGATE_TYPE")
                 if physical_required:
@@ -4256,6 +4277,7 @@ def verify_compiled_semantics(value):
             elif kind == "aggregate_value":
                 origin = "aggregate"
                 from pietto.semantic.aggregates import (
+                    filtered_aggregate_result_value_type,
                     semantic_aggregate_result_value_type,
                 )
                 from pietto._project.project_sql_emission_verification import (
@@ -4268,7 +4290,9 @@ def verify_compiled_semantics(value):
                     function in grouping.SPELLING
                     and (
                         len(inputs) == 2
-                        if function in {"string_agg", "quantile"}
+                        if function in {"string_agg", "quantile", "filtered_sum"}
+                        else len(inputs) == 1
+                        if function == "filtered_count"
                         else len(inputs) <= 1
                     ),
                     "SEMANTIC_AGGREGATE_SIGNATURE",
@@ -4285,6 +4309,18 @@ def verify_compiled_semantics(value):
                         is None,
                         "SEMANTIC_AGGREGATE_ARGUMENT",
                     )
+                elif physical_required and function in grouping.FILTERED_FUNCTIONS:
+                    need(
+                        grouping.resolved_filtered_problem(
+                            function,
+                            tuple(
+                                (item.address.kind, item.realization) for item in inputs
+                            ),
+                            family,
+                        )
+                        is None,
+                        "SEMANTIC_AGGREGATE_ARGUMENT",
+                    )
                 elif physical_required and argument is not None:
                     need(
                         argument.address.kind in {"read", "operation"}
@@ -4297,8 +4333,14 @@ def verify_compiled_semantics(value):
                         is None,
                         "SEMANTIC_AGGREGATE_ARGUMENT",
                     )
-                typed = semantic_aggregate_result_value_type(
-                    function, None if argument is None else argument.value_type
+                typed = (
+                    filtered_aggregate_result_value_type(
+                        function, tuple(item.value_type for item in inputs)
+                    )
+                    if function in grouping.FILTERED_FUNCTIONS
+                    else semantic_aggregate_result_value_type(
+                        function, None if argument is None else argument.value_type
+                    )
                 )
                 if typed is None:
                     raise ValueError("COMPILED_SEMANTIC_AGGREGATE_TYPE")

@@ -1453,6 +1453,15 @@ def verify_description(value: Description) -> None:
                     and len(arguments) == 2
                     and arguments[1].address.kind == "literal"
                     and not order_by
+                    # A conditional count reads its test; a conditional sum
+                    # one direct field, then its test.
+                    or get("function") == "filtered_count"
+                    and len(arguments) == 1
+                    and not order_by
+                    or get("function") == "filtered_sum"
+                    and len(arguments) == 2
+                    and arguments[0].address.kind == "read"
+                    and not order_by
                     or get("function")
                     in (
                         "count",
@@ -4533,7 +4542,7 @@ def verify_export(description, artifact, *, guarded=None, refinement=None):
                         0
                         if actual.argument is None
                         else 2
-                        if actual.function in {"string_agg", "quantile"}
+                        if actual.function in {"string_agg", "quantile", "filtered_sum"}
                         else 1
                     )
                     and len(value.get("order_by")) == len(actual.order_by),
@@ -5983,7 +5992,7 @@ def _verify_compiled_emission(artifact, request):
                         0
                         if column.argument is None
                         else 2
-                        if function in {"string_agg", "quantile"}
+                        if function in {"string_agg", "quantile", "filtered_sum"}
                         else 1
                     )
                     and len(order_by) == len(column.order_by),
@@ -5999,6 +6008,16 @@ def _verify_compiled_emission(artifact, request):
                             and grouping.string_agg_argument_problem(column.delimiter)
                             is None
                             if function == "string_agg"
+                            else grouping.filtered_problem(
+                                function,
+                                column.argument,
+                                column.argument
+                                if column.delimiter is None
+                                else column.delimiter,
+                                request.family,
+                            )
+                            is None
+                            if function in grouping.FILTERED_FUNCTIONS
                             else grouping.argument_problem(
                                 function, column.argument, request.family
                             )

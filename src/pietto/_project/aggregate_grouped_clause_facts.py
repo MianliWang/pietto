@@ -61,7 +61,7 @@ from pietto.ast_nodes import (
     WindowExpr,
 )
 from pietto.errors import Diagnostic, Severity
-from pietto.semantic import relation_schemas
+from pietto.semantic import group_by as semantic_group_by, relation_schemas
 from pietto.semantic.analyzer import _within
 from pietto.semantic import satisfying as semantic_satisfying
 from pietto.semantic.aggregates import (
@@ -423,11 +423,12 @@ def _single_file_grouping_diagnostics(
     checks them: also an unknown field (PIE-S2102) of an aggregate
     projection or a GROUP BY key and an aggregate's argument count
     (PIE-S2309), but no error of a projection without an aggregate, which
-    the project types itself. A relation over a row of unknown type, or that
-    reads a `let` name (but as a `stddev`, `median` or `quantile` argument or
-    in a `quantile` fraction), a nested relation field, a relation, a
-    captured field, a query parameter or `any(...)` in those positions, which
-    a project checks otherwise, gets none."""
+    the project types itself. A relation over a row of unknown type gets
+    none. One that reads a `let` name (but as a `stddev`, `median` or
+    `quantile` argument or in a `quantile` fraction), a nested relation
+    field, a relation, a captured field, a query parameter or `any(...)` in
+    those positions, which a project checks otherwise, gets only its
+    generators' errors (`_generator_errors`)."""
 
     if input_schema.is_unknown:
         return ()
@@ -467,6 +468,7 @@ def _single_file_grouping_diagnostics(
         )
     if definition.satisfying_clause is not None:
         roots.append((definition.satisfying_clause.expression, False))
+    otherwise = False
     while roots:
         node, in_fraction = roots.pop()
         if (
@@ -499,7 +501,8 @@ def _single_file_grouping_diagnostics(
                 ast.ParameterRefExpr,
             }
         ):
-            return ()
+            otherwise = True
+            break
         fraction = (
             node.arguments[1]
             if type(node) is CallExpr
@@ -512,13 +515,22 @@ def _single_file_grouping_diagnostics(
             for child in child_expressions(node)
         )
     schema = project_row_schema_to_semantic_row_schema(input_schema)
+    qualifier = (
+        definition.from_clause.binding_name or definition.from_clause.source_name
+    )
+    if otherwise:
+        return tuple(
+            sorted(
+                _generator_errors(
+                    definition, schema, let_scope_facts, qualifier, refused=set()
+                ),
+                key=_order_key,
+            )
+        )
     types: dict[Expression, ValueType] = (
         {} if let_scope_facts is None else dict(let_scope_facts.expression_value_types)
     )
     typed: list[Diagnostic] = []
-    qualifier = (
-        definition.from_clause.binding_name or definition.from_clause.source_name
-    )
     for item in definition.select_items:
         found: list[Diagnostic] = []
         infer_row_expression(
@@ -616,11 +628,32 @@ def _single_file_grouping_diagnostics(
             )
         )
 
+    first = [item for item in (*typed, *projected) if kept(item)]
+    tested = [
+        item
+        for item in _generator_errors(
+            definition,
+            schema,
+            let_scope_facts,
+            qualifier,
+            refused={
+                (item.location.path, item.location.line, item.location.column)
+                for item in first
+                if item.location is not None
+            },
+        )
+        if item not in first
+    ]
     retained = (
-        *(item for item in (*typed, *projected) if kept(item)),
-        *(item for item in typed if item.code == "PIE-S2102"),
+        *first,
+        *(item for item in typed if item.code == "PIE-S2102" and item not in tested),
+        *tested,
         *(item for item in (*having, *limits) if kept(item)),
     )
+    if tested:
+        # A relation with a generator test's error, which 0.1.9 had no tier
+        # for, reports in the single file's order.
+        retained = tuple(sorted(retained, key=_order_key))
     # A single file names the type an aggregate's field argument is declared
     # with, a type alias included, where the project row holds the type that
     # the alias expands to.
@@ -665,6 +698,92 @@ def _declared_type_name(
 
 def _span_key(node: Expression) -> tuple[str | None, int, int]:
     return (node.span.path, node.span.line, node.span.column)
+
+
+def _generator_errors(
+    definition: _DerivedRelation,
+    schema: RowSchema,
+    let_scope_facts: ProjectRelationLetScopeFacts | None,
+    qualifier: str | None,
+    *,
+    refused: set[tuple[str | None, int, int]],
+) -> list[Diagnostic]:
+    """The errors a single file reports of each generator call in a SELECT
+    item, but a call at a position in ``refused``: a call projected by
+    itself reports its own (PIE-S2314 at the call) if it has one, and
+    otherwise each error in its test, such as an operator's PIE-S2105 or a
+    test that is no Bool (PIE-S2202). Only this check types a generator's
+    test, and a call reads nothing but its members' fields, so it is checked
+    by itself, whatever else the relation reads."""
+
+    lets = {} if let_scope_facts is None else dict(let_scope_facts.binding_expressions)
+    found: list[Diagnostic] = []
+    for item in definition.select_items:
+        pending = [item.expression]
+        while pending:
+            node = pending.pop()
+            pending.extend(child_expressions(node))
+            tests = tuple(
+                argument.condition
+                for argument in (node.arguments if type(node) is CallExpr else ())
+                if type(argument) is ast.GeneratorExpr
+                and argument.condition is not None
+            )
+            if not tests or _span_key(node) in refused:
+                continue
+            types: dict[Expression, ValueType] = (
+                {}
+                if let_scope_facts is None
+                else dict(let_scope_facts.expression_value_types)
+            )
+            typed: list[Diagnostic] = []
+            infer_row_expression(
+                node,
+                schema,
+                types,
+                typed,
+                report_unknown_name=True,
+                field_qualifier=qualifier,
+                bare_value_types=None
+                if let_scope_facts is None
+                else let_scope_facts.value_types,
+                bare_value_expressions=lets,
+            )
+            own = (
+                semantic_group_by._aggregate_output_field(
+                    item,
+                    definition=definition,
+                    input_schema=schema,
+                    output_name=item.alias,
+                    expression_value_types=types,
+                    let_expansions=lets,
+                    type_expansions={},
+                    let_extrema=False,
+                )[1]
+                if node is item.expression
+                else []
+            )
+            found.extend(
+                own
+                or (
+                    diagnostic
+                    for diagnostic in typed
+                    if diagnostic.severity is Severity.ERROR
+                    and diagnostic.code not in _GROUPING_CODES
+                    and diagnostic.location is not None
+                    and any(_within(diagnostic.location, test.span) for test in tests)
+                )
+            )
+    return found
+
+
+def _order_key(diagnostic: Diagnostic) -> tuple[int, int, str]:
+    """A single file's order of one relation's diagnostics."""
+
+    location = diagnostic.location
+    if location is None:
+        return (0, 0, diagnostic.code)
+    return (location.line, location.column, diagnostic.code)
 
 
 # The single-file codes of an aggregate call or projection, a grouping (a

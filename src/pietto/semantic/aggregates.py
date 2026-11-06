@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from collections.abc import Mapping
+from collections.abc import Mapping, Sequence
 
 from pietto import ast_nodes as ast
 from pietto.ast_nodes import (
@@ -994,6 +994,25 @@ def generator_aggregate_result_value_type(
     if function_name == SUM_AGGREGATE_NAME and _is_builtin(argument_type, "Int"):
         return COUNT_VALUE_TYPE
     return None
+
+
+def filtered_aggregate_result_value_type(
+    function_name: str, argument_types: Sequence[ValueType]
+) -> ValueType | None:
+    """The type of the internal identities of the conditional count,
+    ``filtered_count`` over its Bool test, and sum, ``filtered_sum`` of an
+    Int value over its Bool test: an Int, 0 and never None for no match."""
+
+    arity = {"filtered_count": 1, "filtered_sum": 2}.get(function_name)
+    if (
+        arity is None
+        or len(argument_types) != arity
+        or not _is_builtin(argument_types[-1], "Bool")
+    ):
+        return None
+    if arity == 1:
+        return COUNT_VALUE_TYPE
+    return generator_aggregate_result_value_type(SUM_AGGREGATE_NAME, argument_types[0])
 
 
 def semantic_projection_aggregate_result_value_type(

@@ -2052,6 +2052,23 @@ def _aggregate_result_realization(family, function, argument, retained):
                 "padding": "NO PAD",
             },
         )
+    if function in grouping.FILTERED_FUNCTIONS:
+        # A PostgreSQL conditional count, or conditional sum narrowed by its
+        # checked CAST: never NULL, 0 when no row matches.
+        if family != "postgres" or tag != "Int" or nullable is not False:
+            raise ValueError("conditional aggregate result domain")
+        low, high = (
+            (0, grouping.COUNT_MAX)
+            if function == "filtered_count"
+            else (-(1 << 63), (1 << 63) - 1)
+        )
+        return rows.Realization(
+            "Int",
+            {"kind": "pg_int8"},
+            False,
+            {"kind": "int_range", "min": str(low), "max": str(high)},
+            (low, high),
+        )
     if function in grouping.COUNTING_FUNCTIONS:
         if tag != "Int" or nullable is not False:
             raise ValueError("count result domain")
@@ -2294,7 +2311,8 @@ def _verify_aggregate_body(
             len(arguments) != len(value.arguments)
             or len(ordered) != len(value.order_by)
             or (function == "string_agg") is not bool(ordered)
-            or (len(arguments) == 2) is not (function in {"string_agg", "quantile"})
+            or (len(arguments) == 2)
+            is not (function in {"string_agg", "quantile", "filtered_sum"})
             or len(arguments) > 2
         ):
             raise ValueError("aggregate argument signature")
@@ -2360,10 +2378,28 @@ def _verify_aggregate_body(
                 state,
                 reference_type=reference_type,
             )
+            if function == "filtered_sum":
+                if column.delimiter is None:
+                    raise ValueError("conditional sum test missing")
+                _verify_row_value(
+                    request,
+                    column.delimiter,
+                    value.arguments[1],
+                    columns,
+                    children,
+                    state,
+                    reference_type=reference_type,
+                )
             if (
-                grouping.argument_problem(function, argument, request.family)
-                is not None
-            ):
+                grouping.filtered_problem(
+                    function,
+                    argument,
+                    argument if column.delimiter is None else column.delimiter,
+                    request.family,
+                )
+                if function in grouping.FILTERED_FUNCTIONS
+                else grouping.argument_problem(function, argument, request.family)
+            ) is not None:
                 raise ValueError("aggregate argument outside its admitted domain")
             if function == "quantile":
                 if column.delimiter is None:
@@ -2409,7 +2445,8 @@ def _verify_aggregate_body(
             or (
                 function != "string_agg"
                 and (
-                    (column.delimiter is not None) is not (function == "quantile")
+                    (column.delimiter is not None)
+                    is not (function in {"quantile", "filtered_sum"})
                     or column.order_by
                 )
             )
@@ -8008,10 +8045,37 @@ def verify_row_bytes(query, rendered):
             start = offset
             if column.function in grouping.ROOT_FUNCTIONS:
                 take("syntax", "aggregate_root_open", reference, "SQRT(")
+            if column.function == "filtered_sum":
+                take("syntax", "aggregate_zero_open", reference, "COALESCE(")
             if column.result_cast is not None:
                 take("syntax", "aggregate_result_cast_open", reference, "CAST(")
             take("syntax", "aggregate_open", reference, column.spelling + "(")
-            if column.argument is None:
+            if column.function in grouping.FILTERED_FUNCTIONS:
+                counted = column.function == "filtered_count"
+                test = column.argument if counted else column.delimiter
+                if (
+                    column.distinct
+                    or column.order_by
+                    or test is None
+                    or (column.argument_cast is None) is not counted
+                ):
+                    raise ValueError("conditional aggregate rendering")
+                take("syntax", "aggregate_filter_open", reference, "CASE WHEN ")
+                scalar(test, alias)
+                take("syntax", "aggregate_filter_then", reference, " THEN ")
+                if counted:
+                    take("syntax", "aggregate_filter_one", reference, "1")
+                else:
+                    take("syntax", "aggregate_argument_cast_open", reference, "CAST(")
+                    scalar(column.argument, alias)
+                    take(
+                        "syntax",
+                        "aggregate_argument_cast_close",
+                        reference,
+                        " AS " + column.argument_cast + ")",
+                    )
+                take("syntax", "aggregate_filter_close", reference, " END")
+            elif column.argument is None:
                 take("syntax", "aggregate_row_count", reference, "*")
             elif column.function == "string_agg":
                 if (
@@ -8085,6 +8149,8 @@ def verify_row_bytes(query, rendered):
                 )
             if column.function in grouping.ROOT_FUNCTIONS:
                 take("syntax", "aggregate_root_close", reference, ")")
+            if column.function == "filtered_sum":
+                take("syntax", "aggregate_zero_close", reference, ", 0)")
             spans.append(("aggregate", reference, start, offset))
 
         def window_specification(specification, reference, alias):
@@ -9303,7 +9369,7 @@ def verify_row_generated_requirements(request, query, generated):
                         if column.function in {"sum", "avg", "stddev"}
                         and argument_tag == "Float"
                         else (TARGET_CHECKED,)
-                        if column.function == "sum"
+                        if column.function in {"sum", "filtered_sum"}
                         else (),
                     )
                 )

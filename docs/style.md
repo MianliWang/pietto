@@ -536,8 +536,8 @@ matches; a test that is None is no match, and a None value adds nothing. Read
 a field of the row as `o.paid`; besides `o`, the test reads only the
 `group by` keys. A query with aggregates and no `group by` reads its whole
 input as one group. `for o in orders` always means every row of `orders`, as
-in `any(...)`, never the group. MySQL emits neither yet, and a project does
-not take a generator yet.
+in `any(...)`, never the group. A `schema_version = 2` project takes both
+too; MySQL emits neither yet.
 
 Not this (each is refused with a hint):
 
@@ -555,6 +555,13 @@ Not this (each is refused with a hint):
   and test `n > 0` in `having`.
 - a group generator over JOIN rows: join in one query, then group it in
   another that reads it with `from`.
+- a `let` of the query in the test, a computed GROUP BY key included
+  (`let k = id + 1` ... `if k > 2`): write the let's expression with member
+  fields, `if o.id + 1 > 2`.
+
+A test that reads no field, such as `if True`, is the same for every row:
+test a member field. A single file checks and emits it, but project SQL
+refuses it (PIE-B1003 `conditional_test_reads_no_field`).
 
 `count(paid)` of a `Bool` field still counts every row whose `paid` is not
 None, False included, and warns (PIE-S2388).

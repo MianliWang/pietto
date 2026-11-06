@@ -1000,6 +1000,8 @@ def _aggregate_casts(
     AVG of a float8 is already binary64."""
     if function in {"avg", "sum"} and argument_tag == "Float":
         return None, None
+    if function == "filtered_sum":
+        function = "sum"
     if function == "avg":
         return ("pg_catalog.float8" if family == "postgres" else "DOUBLE"), None
     if function == "sum":
@@ -1014,7 +1016,7 @@ def _aggregate_casts(
 
 def _aggregate_evidence(function: str, argument_tag: str | None) -> tuple[str, ...]:
     """R13 evidence from the function and its argument tag, never a cast."""
-    if function == "sum" and argument_tag == "Int":
+    if function in {"sum", "filtered_sum"} and argument_tag == "Int":
         return (_TARGET_CHECKED,)
     if function in {"sum", "avg", "stddev"} and argument_tag == "Float":
         return (_TARGET_CHECKED_BINARY64,)
@@ -1821,6 +1823,8 @@ class _Check:
                 "stddev": "VAR_SAMP",
                 "median": "PERCENTILE_CONT",
                 "quantile": "PERCENTILE_CONT",
+                "filtered_count": "COUNT",
+                "filtered_sum": "SUM",
             }.get(column["function"])
             _require(
                 expected is not None and column["spelling"] == expected,
@@ -1909,6 +1913,41 @@ class _Check:
                         for item in column["order_by"]
                     ),
                     "string_agg typed inputs",
+                )
+            elif column["function"] in {"filtered_count", "filtered_sum"}:
+                # PostgreSQL only: a Bool test, of a sum in the delimiter slot
+                # after its Int argument; a non-null bigint result, a count's
+                # bounded by the count premise, a sum's by its checked CAST.
+                counted = column["function"] == "filtered_count"
+                test = column["argument"] if counted else column["delimiter"]
+                low = 0 if counted else -(1 << 63)
+                result = doc[doc[column["column"]]["realization"]]
+                _require(
+                    family == "postgres"
+                    and test is not None
+                    and (_value_realization(doc, test) or {}).get("tag") == "Bool"
+                    and (counted or column["delimiter"] is not None)
+                    and (
+                        counted
+                        or (_value_realization(doc, column["argument"]) or {}).get(
+                            "tag"
+                        )
+                        == "Int"
+                    )
+                    and not column["distinct"]
+                    and not column["order_by"]
+                    and _is_realization(
+                        result,
+                        "Int",
+                        {"kind": "pg_int8"},
+                        {
+                            "kind": "int_range",
+                            "min": str(low),
+                            "max": str((1 << 63) - 1),
+                        },
+                    )
+                    and result["nullable"] is False,
+                    "conditional aggregate shape",
                 )
             elif column["function"] in {"median", "quantile"}:
                 # PostgreSQL only: one signed PostgreSQL Int argument, a nullable
@@ -2822,6 +2861,42 @@ class _Tokens:
                     ("aggregate_close", ")"),
                 ]
                 _require(aggregate_tokens == expected, "quantile token sequence")
+            elif column["function"] in {"filtered_count", "filtered_sum"}:
+                counted = column["function"] == "filtered_count"
+                expected = [] if counted else [("aggregate_zero_open", "COALESCE(")]
+                if column["result_cast"] is not None:
+                    expected.append(("aggregate_result_cast_open", "CAST("))
+                expected += [
+                    ("aggregate_open", column["spelling"] + "("),
+                    ("aggregate_filter_open", "CASE WHEN "),
+                    ("aggregate_filter_then", " THEN "),
+                ]
+                if counted:
+                    expected.append(("aggregate_filter_one", "1"))
+                else:
+                    expected += [
+                        ("aggregate_argument_cast_open", "CAST("),
+                        (
+                            "aggregate_argument_cast_close",
+                            " AS " + str(column["argument_cast"]) + ")",
+                        ),
+                    ]
+                expected += [
+                    ("aggregate_filter_close", " END"),
+                    ("aggregate_close", ")"),
+                ]
+                if column["result_cast"] is not None:
+                    expected.append(
+                        (
+                            "aggregate_result_cast_close",
+                            " AS " + column["result_cast"] + ")",
+                        )
+                    )
+                if not counted:
+                    expected.append(("aggregate_zero_close", ", 0)"))
+                _require(
+                    aggregate_tokens == expected, "conditional aggregate token sequence"
+                )
             else:
                 root = column["function"] == "stddev"
                 expected = [("aggregate_root_open", "SQRT(")] if root else []
@@ -3677,8 +3752,10 @@ class _ProvenIntRanges:
 
     def aggregate(self, column: Mapping[str, Any]) -> tuple[int, int] | object:
         function = column["function"]
-        if function in {"count", "count_distinct"}:
+        if function in {"count", "count_distinct", "filtered_count"}:
             return 0, _I64_MAX
+        if function == "filtered_sum":
+            return _I64_MIN, _I64_MAX
         if function == "sum" and column["argument"] is not None:
             argument = self.value(column["argument"])
             return "Float" if argument == "Float" else (_I64_MIN, _I64_MAX)

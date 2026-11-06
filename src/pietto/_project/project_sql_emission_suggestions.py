@@ -150,6 +150,8 @@ _GROUPS = (
                 "existence_result_not_non_null_bool",
                 "extrema_result_logical_type_drift",
                 "extrema_result_must_admit_empty_input_null",
+                "filtered_count_result_not_non_null_int",
+                "filtered_sum_result_not_non_null_int",
                 "float_result_not_finite",
                 "group_key_logical_type_or_null_drift",
                 "group_key_outside_bool_domain",
@@ -459,6 +461,8 @@ _ACTIONS = {
     "output_label_unrepresentable": "Choose a projection label within the requested target's identifier limits.",
     "set_row_equivalence_domain_unsupported": "Use Int, Bool, Text, Decimal or Float with exact matching carriers. On MySQL a Float set is limited to UNION ALL, a window distribution result is limited to UNION ALL on both targets, and Timestamp to UNION ALL/DISTINCT; keep other unreviewed set carriers in check --project.",
     "asof_join_not_admitted_on_target": "MySQL has no ASOF JOIN yet; emit with --dialect postgres.",
+    "conditional_count_not_admitted_on_target": "MySQL has no conditional count yet; emit with --dialect postgres.",
+    "conditional_test_reads_no_field": "Test a field of the member, such as `if o.paid`: a test that reads no field is the same for every row.",
     "join_shape_not_admitted_in_slice7": "Use the admitted JOIN shape and scalar SELECT projection, or keep this query in check/plan; complex ON, joined LET and WHERE sites remain separately restricted.",
     "scalar_projection_requires_later_slice": "Use an admitted scalar SELECT projection; keep other unsupported expression sites in check/plan.",
     "offset_range_requires_exactly_one_order_key": "Use exactly one reviewed ORDER key for an offset RANGE frame, or keep this frame in check/plan.",
@@ -501,6 +505,8 @@ def blocker_suggestion(code: str, detail: str, family: str | None) -> str:
             "stddev",
             "median",
             "quantile",
+            "filtered_count",
+            "filtered_sum",
         )
     }:
         return "Use the aggregate's reviewed direct argument carrier, or keep it in check/plan; do not coerce its input to force emission."

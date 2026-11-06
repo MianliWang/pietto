@@ -589,6 +589,7 @@ def _parse_selected_input(
         normalize_existence_generators,
         rebind_existence_generators,
     )
+    from pietto.semantic.generators import normalize_group_generators
 
     script = parse_result.ast
     existence_generators = ()
@@ -602,14 +603,23 @@ def _parse_selected_input(
             # An admitted asof JOIN reads its latest row through `not any(...)`.
             script = lower_latest_rows(script)
             any_trace = AnyValueTrace(script)
+            # A schema_version = 2 project selects the conditional count that
+            # an `any(... for o in group)` hint names.
             script, existence_generators, existence_diagnostics = (
                 normalize_existence_generators(
-                    script, occurrence_observer=any_trace.record
+                    script, occurrence_observer=any_trace.record, group_hint=True
                 )
             )
         gate = unadmitted_syntax_diagnostics(script, explicit_modules=explicit_modules)
         inlined: tuple[Diagnostic, ...] = ()
         if any_trace is not None and not gate and not existence_diagnostics:
+            # An admitted generator's member field `o.f` reads the input row's
+            # field `f`, as in a single file.
+            before_generators = script
+            script = normalize_group_generators(script)
+            existence_generators = rebind_existence_generators(
+                before_generators, script, existence_generators
+            )
             # Every later reader, and the capture and header checks, see each
             # module-local def call inlined.
             before_inlining = script

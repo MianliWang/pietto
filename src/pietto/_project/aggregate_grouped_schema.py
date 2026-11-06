@@ -41,6 +41,7 @@ from pietto.ast_nodes import (
     CallExpr,
     DottedNameExpr,
     Expression,
+    GeneratorExpr,
     GroupByItem,
     LetBinding,
     NameExpr,
@@ -60,6 +61,7 @@ from pietto.semantic.aggregates import (
     aggregate_argument_can_use_let_scope,
     contains_semantic_aggregate,
     effective_semantic_aggregate_argument_expression,
+    generator_aggregate_result_value_type,
     internal_order_diagnostic,
     is_supported_semantic_aggregate_argument,
     is_supported_semantic_aggregate_argument_expression,
@@ -1777,9 +1779,15 @@ def _build_project_aggregate_selected_result_attempt(
             )
         argument_values.update(key_types)
 
-    result_type = semantic_projection_aggregate_result_value_type(
-        function_name,
-        argument_type,
+    # The conditional count and sum of a group are an Int, 0 for no match.
+    result_type = (
+        generator_aggregate_result_value_type(function_name, argument_type)
+        if argument_type is not None
+        and len(arguments) == 1
+        and type(arguments[0]) is GeneratorExpr
+        else semantic_projection_aggregate_result_value_type(
+            function_name, argument_type
+        )
     )
     if (
         result_type is None
@@ -2046,6 +2054,15 @@ def _project_aggregate_argument_type_attempt(
         return _failed_argument_type_attempt(
             ProjectRelationRowSchemaReason.UNAVAILABLE_AGGREGATE_OR_GROUPED_FACT
         )
+    if (
+        type(argument) is GeneratorExpr
+        and argument.condition is not None
+        and not _is_bool_test(effective_value_types.get(argument.condition))
+    ):
+        # A generator's test is a Bool (PIE-S2202 at the test).
+        return _failed_argument_type_attempt(
+            ProjectRelationRowSchemaReason.INVALID_AGGREGATE_OR_GROUPED_OUTPUT
+        )
     if not is_supported_semantic_aggregate_argument(
         function_name,
         argument_type,
@@ -2070,6 +2087,15 @@ def _project_aggregate_argument_type_attempt(
         failure_reason=None,
         effective_expression=effective_argument,
         value_types=effective_value_types,
+    )
+
+
+def _is_bool_test(value_type: ValueType | None) -> bool:
+    return (
+        value_type is not None
+        and value_type.kind is ValueTypeKind.KNOWN
+        and value_type.resolved_type.kind is TypeKind.BUILTIN
+        and value_type.resolved_type.name == "Bool"
     )
 
 

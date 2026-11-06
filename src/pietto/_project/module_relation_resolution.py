@@ -107,6 +107,7 @@ from pietto.ast_nodes import (
 )
 from pietto.errors import Diagnostic, Severity, SourceLocation
 from pietto.semantic.aggregates import contains_semantic_aggregate
+from pietto.semantic.generators import GROUP_SOURCE, group_test_hint
 
 __all__: tuple[str, ...] = ()
 
@@ -632,10 +633,16 @@ class ProjectModuleRelationResolutionIssue:
             if (
                 self.diagnostic.severity is not Severity.ERROR
                 or self.diagnostic.location != self.location
-                # Only a Collect read refusal says how to write it instead.
+                # Only a Collect read refusal and an unknown `group` read by
+                # `any` say how to write it instead.
                 or (
                     self.diagnostic.suggestion is not None
                     and self.diagnostic.code != "PIE-S2803"
+                    and (
+                        self.status
+                        is not ProjectModuleRelationResolutionIssueStatus.UNKNOWN_RELATION_EXPRESSION_READ
+                        or self.local_name != GROUP_SOURCE
+                    )
                 )
                 or self.suppressing_diagnostics
             ):
@@ -2274,6 +2281,12 @@ def _resolve_expression_read(
                 code="PIE-S2301",
                 message=f"Unknown relation: {name}",
                 location=location,
+                # No relation is named `group`: it is the group, as in a file.
+                suggestion=group_test_hint(read.expression.binding_name)
+                if type(read.expression) is AnyExpr
+                and name == GROUP_SOURCE
+                and not shadowed
+                else None,
             ),
             occurrences=(read.owner,),
         )
@@ -3396,12 +3409,19 @@ def _validate_issue_evidence(issue: ProjectModuleRelationResolutionIssue) -> Non
         raise ValueError("Relation issue evidence must prove its exact status.")
 
 
-def _diagnostic(*, code: str, message: str, location: SourceLocation) -> Diagnostic:
+def _diagnostic(
+    *,
+    code: str,
+    message: str,
+    location: SourceLocation,
+    suggestion: str | None = None,
+) -> Diagnostic:
     return Diagnostic(
         code=code,
         severity=Severity.ERROR,
         message=message,
         location=location,
+        suggestion=suggestion,
     )
 
 

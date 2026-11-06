@@ -1550,49 +1550,379 @@ def test_project_check_names_an_aggregate_field_argument_by_its_declared_type(
     )
 
 
-@pytest.mark.parametrize("schema_version", (1, 2))
-def test_a_project_refuses_the_conditional_count_a_file_admits(
-    tmp_path, capsys, schema_version
-):
-    # Project emission has no conditional aggregate yet, so its check refuses
-    # each generator at the call, before semantic analysis.
+def _project_and_file_diagnostics(root, capsys, schema_version, body):
     from pietto import cli
 
-    (tmp_path / "pietto.toml").write_text(
+    (root / "pietto.toml").write_text(
         f'schema_version = {schema_version}\n[sources]\ninclude = ["*.pietto"]\n'
     )
-    (tmp_path / "main.pietto").write_text(
-        _GROUPING_HEAD
-        + "    group by label\n"
-        + "    select label, n = sum(1 for o in group if o.qty > 1)\n"
-    )
+    (root / "main.pietto").write_text(_GROUPING_HEAD + body)
     found = []
     for argv in (
-        ["check", "--project", str(tmp_path), "--format", "json"],
-        ["check", str(tmp_path / "main.pietto"), "--format", "json"],
+        ["check", "--project", str(root), "--format", "json"],
+        ["check", str(root / "main.pietto"), "--format", "json"],
     ):
         code = cli.main(argv)
         found.append(
             (
                 code,
                 [
-                    (d["code"], d["message"], d["location"]["line"], d["suggestion"])
+                    (
+                        d["code"],
+                        d["message"],
+                        d["location"]["line"],
+                        d["location"]["column"],
+                        d["suggestion"],
+                    )
                     for d in json.loads(capsys.readouterr().out)["diagnostics"]
                 ],
             )
         )
-    hint = "a single file checks and emits the conditional count and sum of a group"
-    assert found == [
+    return found
+
+
+_CONDITIONAL = (
+    "    select:\n        label\n"
+    "        n = sum(1 for o in group if o.qty > 1)\n"
+    '        s = sum(o.qty for o in group if o.label == "a" or o.id > 2)\n'
+)
+
+
+@pytest.mark.parametrize(
+    "body",
+    (
+        "    group by label\n" + _CONDITIONAL + "    having n > 0\n    order by s\n",
+        "    select:\n        n = sum(1 for o in group if o.qty > 1)\n"
+        "        s = sum(o.qty for o in group if o.id > 2)\n",
+    ),
+    ids=("grouped", "no_group_by"),
+)
+def test_a_schema_version_2_project_checks_the_conditional_count_and_sum(
+    tmp_path, capsys, body
+):
+    """As in a single file, a project admits the conditional count and sum of
+    a group, grouped or with no GROUP BY."""
+    assert _project_and_file_diagnostics(tmp_path, capsys, 2, body) == [(0, [])] * 2
+
+
+def test_a_schema_version_1_project_has_no_generator(tmp_path, capsys):
+    hint = "set schema_version = 2 to check it"
+    message = (
+        "sum(... for ...): a schema_version = 1 project has no generator in the "
+        f"current syntax; {hint}"
+    )
+    assert _project_and_file_diagnostics(
+        tmp_path, capsys, 1, "    group by label\n" + _CONDITIONAL
+    ) == [
         (
             1,
             [
-                (
-                    "PIE-S2334",
-                    f"sum(... for ...) is not available in a project yet; {hint}",
-                    9,
-                    hint,
-                )
+                ("PIE-S2334", message, 11, 13, hint),
+                ("PIE-S2334", message, 12, 13, hint),
             ],
         ),
         (0, []),
     ]
+
+
+@pytest.mark.parametrize(
+    ("item", "expected"),
+    (
+        (
+            "s = sum(o.label for o in group if o.qty > 1)",
+            (
+                "PIE-S2314",
+                "Aggregate function sum of a generator adds an Int field of o, "
+                "got Text",
+                13,
+                None,
+            ),
+        ),
+        (
+            "s = sum(1 for o in group if o.qty)",
+            ("PIE-S2202", "Expected Bool expression in generator test", 37, None),
+        ),
+        (
+            "s = sum(1 for o in group if o.nope)",
+            ("PIE-S2102", "Unknown field: nope", 37, None),
+        ),
+        (
+            "s = sum(1 for o in group if o.label > 1)",
+            (
+                "PIE-S2105",
+                "Invalid operands for operator >: expected comparable operands",
+                37,
+                None,
+            ),
+        ),
+        (
+            "s = sum(o.qty for o in group if o.label == None)",
+            (
+                "PIE-S2105",
+                "Invalid operands for operator ==: comparison with null is never "
+                "true; write `is None` instead",
+                41,
+                None,
+            ),
+        ),
+        (
+            # The aggregate's own error is the item's only one.
+            "s = sum(o.label for o in group if o.label > 1)",
+            (
+                "PIE-S2314",
+                "Aggregate function sum of a generator adds an Int field of o, "
+                "got Text",
+                13,
+                None,
+            ),
+        ),
+        (
+            "s = sum(1 for o in items if o.qty > 1)",
+            (
+                "PIE-S2334",
+                "Generator over items in sum: items is the whole relation, not "
+                "this group; for this group's rows write `for o in group`",
+                28,
+                "for this group's rows write `for o in group`",
+            ),
+        ),
+        (
+            "s = sum(1 for o in group if qty > 1)",
+            (
+                "PIE-S2334",
+                "Generator reads qty outside its member; write `o.qty`",
+                37,
+                "write `o.qty`",
+            ),
+        ),
+        (
+            # In a group an unknown source is a misspelled `group`, never a
+            # row's collected list.
+            "s = sum(1 for o in grp if o.qty > 1)",
+            (
+                "PIE-S2301",
+                "Unknown or unavailable generator source: grp; for this "
+                "group's rows write `for o in group`",
+                28,
+                "for this group's rows write `for o in group`",
+            ),
+        ),
+    ),
+    ids=(
+        "text_body",
+        "int_test",
+        "unknown_field",
+        "test_operator",
+        "test_none_comparison",
+        "text_body_and_test_operator",
+        "whole_relation",
+        "bare_read",
+        "unknown_source",
+    ),
+)
+def test_a_project_refuses_a_generator_as_a_single_file_does(
+    tmp_path, capsys, item, expected
+):
+    code, message, column, hint = expected
+    body = f"    group by label\n    select:\n        label\n        {item}\n"
+    assert (
+        _project_and_file_diagnostics(tmp_path, capsys, 2, body)
+        == [(1, [(code, message, 11, column, hint)])] * 2
+    )
+
+
+@pytest.mark.parametrize(
+    ("items", "expected"),
+    (
+        (
+            "        s = sum(1 for o in group if o.label > 1)\n        t = sum(label)\n"
+            "        u = sum(o.qty for o in group if not o.label)\n",
+            [("PIE-S2105", 11), ("PIE-S2314", 12), ("PIE-S2105", 13)],
+        ),
+        (
+            # An aggregate's unknown field before the test, an aggregate's
+            # own error after it.
+            "        t = sum(nope)\n        s = sum(1 for o in group if o.label > 1)\n"
+            "        u = sum(label)\n",
+            [("PIE-S2102", 11), ("PIE-S2105", 12), ("PIE-S2314", 13)],
+        ),
+    ),
+    ids=("tests_around_an_aggregate", "unknown_field_before_a_test"),
+)
+def test_a_project_reports_generator_test_errors_in_source_order(
+    tmp_path, capsys, items, expected
+):
+    body = "    group by label\n    select:\n        label\n" + items
+    project, single = _project_and_file_diagnostics(tmp_path, capsys, 2, body)
+    assert project == single
+    assert [(code, line) for code, _, line, _, _ in project[1]] == expected
+
+
+_TEST_OPERATOR = (
+    "PIE-S2105",
+    "Invalid operands for operator >: expected comparable operands",
+)
+
+
+@pytest.mark.parametrize(
+    ("body", "line"),
+    (
+        (
+            "    let q2 = qty * 2\n    group by label\n    select:\n        label\n"
+            "        m = sum(q2)\n        n = sum(1 for o in group if o.label > 1)\n",
+            13,
+        ),
+        (
+            "    let q2 = qty * 2\n    select:\n        m = sum(q2)\n"
+            "        n = sum(1 for o in group if o.label > 1)\n",
+            11,
+        ),
+        (
+            "    let big = qty > 1\n    group by big\n    select:\n        k = count()\n"
+            "        n = sum(1 for o in group if o.label > 1)\n",
+            12,
+        ),
+    ),
+    ids=("let_in_select", "let_without_group_by", "computed_let_key"),
+)
+def test_a_generator_test_error_is_reported_whatever_the_relation_reads(
+    tmp_path, capsys, body, line
+):
+    """A relation that reads a let, which the project checks otherwise, still
+    reports its generator test's error at the test, not PIE-S2333; a single
+    file reports it too (beside its own refusal of a computed let key)."""
+    expected = (*_TEST_OPERATOR, line, 37, None)
+    project, single = _project_and_file_diagnostics(tmp_path, capsys, 2, body)
+    assert project == (1, [expected])
+    assert expected in single[1]
+    valid = body.replace("o.label > 1", "o.qty > 1")
+    assert _project_and_file_diagnostics(tmp_path, capsys, 2, valid)[0] == (0, [])
+
+
+def test_a_generator_test_error_is_reported_beside_a_parameter(tmp_path, capsys):
+    """A query parameter read in HAVING, which a single file has not, leaves the
+    test's own error to the project."""
+    from pietto import cli
+
+    body = (
+        "query q(lim: Int):\n    from items\n    group by label\n    select:\n"
+        "        label\n        n = sum(1 for o in group if o.label > 1)\n"
+        "    having n > lim\n"
+    )
+    (tmp_path / "pietto.toml").write_text(
+        'schema_version = 2\n[sources]\ninclude = ["*.pietto"]\n'
+    )
+    for test, expected in (
+        ("o.label > 1", (1, [(*_TEST_OPERATOR, 11, 37)])),
+        ("o.qty > 1", (0, [])),
+    ):
+        (tmp_path / "main.pietto").write_text(
+            _GROUPING_HEAD.partition("query q:\n")[0]
+            + body.replace("o.label > 1", test)
+        )
+        code = cli.main(["check", "--project", str(tmp_path), "--format", "json"])
+        found = [
+            (d["code"], d["message"], d["location"]["line"], d["location"]["column"])
+            for d in json.loads(capsys.readouterr().out)["diagnostics"]
+        ]
+        assert (code, found) == expected
+
+
+def test_a_project_refuses_a_generator_over_join_rows_with_a_hint(tmp_path, capsys):
+    hint = "join in one query, then group it in another that reads it with `from`"
+    body = (
+        "    let other = items\n    inner join other on other.id == items.id\n"
+        "    group by items.label\n    select:\n        label = items.label\n"
+        "        n = sum(1 for o in group if o.qty > 1)\n"
+    )
+    assert (
+        _project_and_file_diagnostics(tmp_path, capsys, 2, body)
+        == [
+            (
+                1,
+                [
+                    (
+                        "PIE-S2334",
+                        "sum(... for o in group ...) over JOIN rows is not available "
+                        f"yet; {hint}",
+                        13,
+                        13,
+                        hint,
+                    )
+                ],
+            )
+        ]
+        * 2
+    )
+
+
+@pytest.mark.parametrize(
+    ("body", "expected"),
+    (
+        (
+            "    where any(o.qty > 1 for o in group)\n    select id\n",
+            ("PIE-S2301", "Unknown relation: group", 8, 11),
+        ),
+        (
+            "    select id, b = any(o.qty > 1 for o in group)\n",
+            ("PIE-S2301", "Unknown relation: group", 8, 20),
+        ),
+        (
+            "    group by label\n    select label, n = count()\n"
+            "    having any(o.qty > 1 for o in group)\n",
+            ("PIE-S2334", "ANY is not supported in this context", 10, 12),
+        ),
+    ),
+    ids=("where", "select", "having"),
+)
+def test_a_project_any_over_group_suggests_the_conditional_count(
+    tmp_path, capsys, body, expected
+):
+    """A project keeps its own text and span and, as a single file, suggests
+    the conditional count a group test is written with."""
+    hint = (
+        "a group test is not available yet: select "
+        "`n = sum(1 for o in group if ...)` and test `n > 0` in `having` or a "
+        "later query"
+    )
+    project, single_file = _project_and_file_diagnostics(tmp_path, capsys, 2, body)
+    assert project == (1, [(*expected, hint)])
+    assert [item[-1] for item in single_file[1]] == [hint]
+
+
+@pytest.mark.parametrize(
+    "lets",
+    (
+        "    let k = id + 1\n    group by k\n",
+        "    let k = qty * 2\n    group by label\n",
+    ),
+    ids=("computed_key", "row_let"),
+)
+def test_a_generator_test_reads_no_let(tmp_path, capsys, lets):
+    """An aggregate argument reads a let only as the whole argument, a computed
+    GROUP BY key included, and `o.k` is no member field: the hint writes the
+    let's expression over member fields, which is admitted."""
+    hint = "write the let's expression over fields of o, such as `o.f`"
+    body = "    select:\n        n = sum(1 for o in group if k > 2)\n"
+    assert (
+        _project_and_file_diagnostics(tmp_path, capsys, 2, lets + body)
+        == [
+            (
+                1,
+                [
+                    (
+                        "PIE-S2334",
+                        f"Generator reads the let k outside its member; {hint}",
+                        11,
+                        37,
+                        hint,
+                    )
+                ],
+            )
+        ]
+        * 2
+    )
+    written = "    select:\n        n = sum(1 for o in group if o.id + 1 > 2)\n"
+    assert _project_and_file_diagnostics(
+        tmp_path, capsys, 2, "    let k = id + 1\n    group by k\n" + written
+    )[0] == (0, [])

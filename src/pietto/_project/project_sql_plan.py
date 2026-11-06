@@ -73,6 +73,7 @@ from pietto._project.row_expression_type_facts import (
 from pietto.semantic.model import ValueType, ValueTypeKind
 from pietto.semantic.catalog import is_builtin_function_name
 from pietto.semantic.aggregates import semantic_aggregate_call_name
+from pietto.semantic.generators import generator_of
 from pietto.semantic.expressions import query_parameter_value_type
 from pietto._project.query_parameters import declared_decimal, reads_header
 from pietto.ir.model import SymbolId, SymbolNamespace
@@ -1222,6 +1223,12 @@ def _aggregate_blockers(entry, rows, aggregate):
             )
         ):
             return ((K.EXPRESSION_EVIDENCE, source.item),)
+        if generator_of(call) is not None and (
+            aggregation.filtered_function(call) is None
+            or semantic_aggregate_call_name(call) != "sum"
+            or call.aggregate_order_by
+        ):
+            return ((K.EXPRESSION_EVIDENCE, source.item),)
         if isinstance(source, aggregation.ProjectAggregateExpressionAnalysis):
             if isinstance(rows, row.ProjectSQLJoinedRowAuthority) or (
                 source.definition is not definition
@@ -1240,7 +1247,7 @@ def _aggregate_blockers(entry, rows, aggregate):
         if call.arguments:
             evidence = aggregation.argument_evidence(source)
             authored = (
-                *call.arguments,
+                *aggregation.arguments(source),
                 *(item.expression for item in call.aggregate_order_by),
             )
             if evidence is None or any(
@@ -3899,8 +3906,9 @@ def build_project_sql_plan(
                     assert isinstance(call, CallExpr)
                     arguments = []
                     order_by = []
+                    argument_count = len(aggregation.arguments(source))
                     authored_children = (
-                        *(call.arguments),
+                        *aggregation.arguments(source),
                         *(item.expression for item in call.aggregate_order_by),
                     )
                     reference_position = 0
@@ -3942,7 +3950,7 @@ def build_project_sql_plan(
                         child_ref = expression(
                             current_site, local_ports, local_symbols, stage_context
                         )
-                        if child_position < len(call.arguments):
+                        if child_position < argument_count:
                             arguments.append(child_ref)
                         else:
                             order_by.append(child_ref)
