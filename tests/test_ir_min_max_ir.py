@@ -197,7 +197,7 @@ def test_direct_lower_expr_for_valid_min_max_uses_aggregate_call_ir() -> None:
     ("select_body", "expected_code"),
     [
         ("        value = min()\n", "PIE-S2309"),
-        ("        value = max(amount, score)\n", "PIE-S2309"),
+        ("        value = max(amount, score, amount)\n", "PIE-S2309"),
         ("        value = min(amount + amount)\n", "PIE-S2315"),
         (
             "        subtotal = amount + amount\n        value = min(subtotal)\n",

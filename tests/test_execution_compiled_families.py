@@ -1,5 +1,7 @@
 """Complete original named families are the source-side differential reference."""
 
+import json
+
 import pytest
 
 import _pietto_sql_emission as emission
@@ -3350,3 +3352,127 @@ def test_an_asof_join_emits_its_latest_row_as_an_anti_join_and_replays(tmp_path,
     assert [(item.code, item.detail) for item in blocked.blockers] == [
         ("PIE-B1003", "asof_join_not_admitted_on_target")
     ]
+
+
+@pytest.mark.parametrize("target", ("postgres", "mysql"))
+def test_max_and_min_of_two_values_emit_replay_and_bind_one_statement(tmp_path, target):
+    """`max(a, b)` and `min(a, b)` are the conditionals they mean, None when
+    either value is: the emitted, compiled-replay and live-template SQL are one
+    statement, and the result is nullable only where an argument is. A Bool
+    pair, which project SQL does not order, stays refused."""
+    base = emission.fixture(target)
+    header = base["source"].split("table result:", 1)[0]
+    header = header.replace("    text: Text\n", "    text: Text | None\n")
+    contract = json.loads(base["contract"])
+    (text,) = (f for f in contract["sources"][0]["fields"] if f["name"] == "text")
+    text["representation"]["nullable"] = True
+    contract["environment"].append(
+        {
+            "key": "identifier_case",
+            "scope": "statement",
+            "value": "quoted_exact"
+            if target == "postgres"
+            else "lower_case_table_names=0",
+        }
+    )
+    body = (
+        "table result:\n    from rows\n    select:\n        id\n"
+        "        hi = max(id, 3)\n"
+        '        word = min(text, "m")\n'
+        "        top = max(money, money)\n"
+        "        low = min(ratio, ratio)\n"
+        "        late = max(text, text)\n"
+    )
+    encoded = emission.encoded(contract).decode()
+    checked, outcome = emission.build_case(tmp_path / "ok", header + body, encoded)
+    assert checked.verified and outcome.status == "VERIFIED"
+    assert outcome.artifact is not None
+    sql = outcome.artifact.rendered.sql
+    field, late = (
+        ('"s0"."text `""é"', '"late"')
+        if target == "postgres"
+        else ('`s0`.`text ``"é`', "`late`")
+    )
+    assert (
+        f"(CASE WHEN ({field} IS NOT NULL) THEN (CASE WHEN ({field} < {field}) "
+        f"THEN {field} ELSE {field} END) ELSE {field} END) AS {late}"
+    ).encode() in sql
+    document = json.loads(serialize_project_sql_emission(outcome).decode())
+    assert [(item["label"], item["nullable"]) for item in document["columns"]] == [
+        ("id", False),
+        ("hi", False),
+        ("word", True),
+        ("top", False),
+        ("low", False),
+        ("late", True),
+    ]
+    built = build_compiled(outcome.artifact)
+    loaded = load_compiled(
+        built.payload,
+        expected_pin=built.pin,
+        accepted_producer=built.producer,
+        accepted_compatibility=built.compatibility,
+    )
+    values = tuple(value.value for value in outcome.artifact.fixed_values)
+    assert emit_compiled(loaded, values).rendered.sql == sql
+    assert prepare_live_template(outcome.artifact).artifact.rendered.sql == sql
+    flags = "table result:\n    from rows\n    select:\n        id\n        v = min(flag, flag)\n"
+    _, blocked = emission.build_case(tmp_path / "bool", header + flags, encoded)
+    assert blocked.status == "BLOCKED" and blocked.artifact is None
+    assert [(item.code, item.detail) for item in blocked.blockers] == [
+        ("PIE-B1003", "comparison_type_pair_not_admitted")
+    ]
+
+
+@pytest.mark.parametrize("target", ("postgres", "mysql"))
+def test_max_and_min_of_two_timestamps_or_uuids_emit_replay_and_bind(tmp_path, target):
+    """Timestamp values, and UUID values on PostgreSQL, order as their
+    project comparison does, so their `max` and `min` are one emitted,
+    compiled-replay and live-template statement. MySQL keeps UUID ordering
+    BLOCKED, and a Date has no project conditional yet."""
+    pg = target == "postgres"
+    body = (
+        "    from rows\n    select:\n        id\n"
+        "        late = max(ts, ts2)\n        first = min(ts, ts)\n"
+        + ("        key = min(u, u)\n" if pg else "")
+    )
+    checked, outcome = emission.temporal_case(tmp_path / "ok", target, body)
+    assert checked.verified and outcome.status == "VERIFIED"
+    assert outcome.artifact is not None
+    sql = outcome.artifact.rendered.sql
+    q = '"' if pg else "`"
+    ts, ts2 = f"{q}s0{q}.{q}ts{q}", f"{q}s0{q}.{q}ts2{q}"
+    assert (
+        f"(CASE WHEN ({ts2} IS NOT NULL) THEN (CASE WHEN ({ts} < {ts2}) "
+        f"THEN {ts2} ELSE {ts} END) ELSE {ts2} END) AS {q}late{q}"
+    ).encode() in sql
+    document = json.loads(serialize_project_sql_emission(outcome).decode())
+    assert [(item["label"], item["nullable"]) for item in document["columns"]] == [
+        ("id", False),
+        ("late", True),
+        ("first", False),
+        *((("key", False),) if pg else ()),
+    ]
+    built = build_compiled(outcome.artifact)
+    loaded = load_compiled(
+        built.payload,
+        expected_pin=built.pin,
+        accepted_producer=built.producer,
+        accepted_compatibility=built.compatibility,
+    )
+    values = tuple(value.value for value in outcome.artifact.fixed_values)
+    assert emit_compiled(loaded, values).rendered.sql == sql
+    assert prepare_live_template(outcome.artifact).artifact.rendered.sql == sql
+    refused = [("date", "max(d, d2)", "conditional_realization_not_admitted")]
+    if not pg:
+        refused.append(("uuid", "min(u, u)", "comparison_type_pair_not_admitted"))
+    for name, call, detail in refused:
+        _, blocked = emission.temporal_case(
+            tmp_path / name,
+            target,
+            f"    from rows\n    select:\n        id\n        v = {call}\n",
+        )
+        assert blocked.status == "BLOCKED" and blocked.artifact is None
+        assert [(item.code, item.detail) for item in blocked.blockers] == [
+            ("PIE-B1003", detail)
+        ]

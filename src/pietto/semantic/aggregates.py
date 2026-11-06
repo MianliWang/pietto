@@ -970,13 +970,20 @@ def wrong_arity_diagnostic(expression: CallExpr) -> Diagnostic:
 
     name = callee_name(expression)
     expected = _expected_arity_text(name)
+    # Two arguments are the larger or smaller of two values, which nest.
+    hint = (
+        f"; for more values, nest two-argument calls: {name}(a, {name}(b, c))"
+        if name in {MIN_AGGREGATE_NAME, MAX_AGGREGATE_NAME}
+        and len(expression.arguments) > 2
+        else ""
+    )
 
     return _diagnostic(
         expression,
         code="PIE-S2309",
         message=(
             f"Aggregate function {name} expects {expected} arguments, "
-            f"got {len(expression.arguments)}"
+            f"got {len(expression.arguments)}{hint}"
         ),
     )
 

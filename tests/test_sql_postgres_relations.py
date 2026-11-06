@@ -477,6 +477,61 @@ def test_relation_sql_modules_have_no_runtime_or_sqlglot_dependencies() -> None:
     assert not hasattr(ir_api, "compile_to_ir")
 
 
+_EXTREMA = (
+    "shape Item:\n    a: Int\n    b: Int | None\n    t: Text\n"
+    "    ts: Timestamp\n    ts2: Timestamp | None\n    uu: UUID\n    flag: Bool\n"
+    'source items: Item = {}.table("public.items")\n'
+    "query q:\n    from items\n"
+    "    where max(a, b) > 1\n"
+    "    select:\n"
+    "        hi = max(a, b)\n"
+    '        word = min(t, "m")\n'
+    "        nested = min(a, max(b, 3))\n"
+    "        late = max(ts, ts2)\n"
+    "        key = min(uu, uu)\n"
+    "        both = max(flag, flag)\n"
+)
+
+
+def _extremum(q: str, operator: str, first: str, second: str) -> str:
+    a, b = f"{q}{first}{q}", f"{q}{second}{q}"
+    return (
+        f"CASE WHEN ({b} IS NOT NULL) THEN (CASE WHEN ({a} {operator} {b}) "
+        f"THEN {b} ELSE {a} END) ELSE {b} END"
+    )
+
+
+def test_max_and_min_emit_the_conditional_that_is_none_when_either_value_is() -> None:
+    # GREATEST and LEAST skip a NULL argument; a None `b` must give NULL.
+    parsed = parser_api.parse_source(_EXTREMA.format("postgres"))
+    assert parsed.diagnostics == () and parsed.ast is not None
+    checked = semantic_api.analyze(parsed.ast)
+    assert checked.diagnostics == () and checked.script is not None
+    lowered = build_ir(checked.script, checked.model)
+    assert lowered.diagnostics == () and lowered.ir is not None
+    hi = (
+        'CASE WHEN ("b" IS NOT NULL) THEN (CASE WHEN ("a" < "b") '
+        'THEN "b" ELSE "a" END) ELSE "b" END'
+    )
+    inner = '(CASE WHEN ("b" < 3) THEN 3 ELSE "b" END)'
+    # Timestamp, UUID and Bool values compare as for `<` here too.
+    late = _extremum('"', "<", "ts", "ts2")
+    key = _extremum('"', ">", "uu", "uu")
+    both = _extremum('"', "<", "flag", "flag")
+    assert emit_postgres_sql(lowered.ir).artifacts[0].sql == (
+        "SELECT\n"
+        f'    {hi} AS "hi",\n'
+        '    CASE WHEN ("t" > \'m\') THEN \'m\' ELSE "t" END AS "word",\n'
+        f'    CASE WHEN ({inner} IS NOT NULL) THEN (CASE WHEN ("a" > {inner}) '
+        f'THEN {inner} ELSE "a" END) ELSE {inner} END AS "nested",\n'
+        f'    {late} AS "late",\n'
+        f'    {key} AS "key",\n'
+        f'    {both} AS "both"\n'
+        'FROM "public"."items"\n'
+        f"WHERE ({hi}) > 1"
+    )
+
+
 def _compile(source: str) -> ScriptIR:
     parse_result = parser_api.parse_source(source, path="postgres-relations.pietto")
     assert parse_result.diagnostics == ()

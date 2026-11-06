@@ -177,8 +177,12 @@ def test_min_max_reject_unsupported_direct_field_argument_types(
             ("PIE-S2309", "Aggregate function min expects 1 arguments, got 0"),
         ),
         (
-            "value = max(amount, score)",
-            ("PIE-S2309", "Aggregate function max expects 1 arguments, got 2"),
+            "value = max(amount, score, amount)",
+            (
+                "PIE-S2309",
+                "Aggregate function max expects 1 arguments, got 3; for more "
+                "values, nest two-argument calls: max(a, max(b, c))",
+            ),
         ),
         (
             "value = min(amount + amount)",

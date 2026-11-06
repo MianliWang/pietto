@@ -420,8 +420,14 @@ def test_unread_let_keeps_independent_aggregate_type_errors(grouped: bool) -> No
             ),
         ),
         (
-            "    let y = x\n    select:\n        m = min(y, 1)\n",
-            ("PIE-S2309", "Aggregate function min expects 1 arguments, got 2", 6, 13),
+            "    let y = x\n    select:\n        m = min(y, 1, 2)\n",
+            (
+                "PIE-S2309",
+                "Aggregate function min expects 1 arguments, got 3; for more "
+                "values, nest two-argument calls: min(a, min(b, c))",
+                6,
+                13,
+            ),
         ),
         (
             "    group by kind\n    select:\n        kind\n"
@@ -530,8 +536,6 @@ def test_aggregate_over_a_source_without_a_shape_checks_its_argument_form(
     ("body", "expected"),
     [
         ("    select:\n        c = count(amount, None)\n", ("count", "0 or 1", 2, 14)),
-        ("    select:\n        m = max(amount, None)\n", ("max", "1", 2, 14)),
-        ("    select:\n        m = min(amount, None, None)\n", ("min", "1", 3, 14)),
         (
             "    group by status\n    select:\n        status\n"
             "        s = sum(amount, None)\n",

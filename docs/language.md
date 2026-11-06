@@ -473,6 +473,7 @@ first column give every rule.
 | `same_value(a, b)` ([Expressions](#expressions)) | `(a IS NOT DISTINCT FROM b)` | `(a <=> b)` | select items, WHERE and `let`, select items after a JOIN; `Float` where `==` is, not `Bool`, not in a JOIN `on` or a WHERE after a JOIN | as PostgreSQL, a `Float` only beside an operand that reads no row (two row `Float` operands PIE-B1003), and not a GROUP BY key or DISTINCT column |
 | `stddev(x)` ([Aggregates](#aggregates-and-grouping)) | `Int` and `Float` | `Float` (`STDDEV_SAMP`); `Int` refused (PIE-B1000) | `Int` and `Float` | refused: `Int` PIE-B1003, `Float` PIE-B1004 |
 | `sum(1 for o in group if t)`, `sum(o.f for o in group if t)` ([Aggregates](#aggregates-and-grouping)) | `COUNT(CASE WHEN t THEN 1 END)`; `COALESCE(CAST(SUM(CASE WHEN t THEN CAST(f AS pg_catalog.int8) END) AS pg_catalog.int8), 0)` | count and sum refused (PIE-B1000) | refused at check (PIE-S2334) | refused at check (PIE-S2334) |
+| `max(a, b)`, `min(a, b)` ([Expressions](#expressions)) | `CASE WHEN` of `<`/`>` and `IS NOT NULL`; `Int`, `Decimal`, `Float`, `Text`, `Date`, `Timestamp`, `UUID`, `Bool` | as PostgreSQL, except `Bool`, refused (PIE-B1000) | `Int`, `Decimal`, `Float`, `Text`, `Timestamp`, `UUID` as their comparison and conditional are; `Date` and `Bool` refused (PIE-B1003) | as PostgreSQL project, except `UUID`, refused as UUID ordering is (PIE-B1003) |
 | Always-null numbers, D-12 ([Expressions](#expressions)) | typed NULL casts | typed NULL casts | `Int` arithmetic with `None`; `Float` and `Decimal` refused | as PostgreSQL |
 | `Float` equality ([Float values](#float-values)) | comparisons and GROUP BY; DISTINCT and set forms are project-only | as PostgreSQL; GROUP BY beside a wide `Text` key may split `-0.0` and `0.0` | comparisons, GROUP BY, DISTINCT, ORDER BY and every set form | comparisons with a literal or header parameter, ordering inequalities, `in`, `nullif` and UNION ALL; the other forms refused (PIE-B1003) |
 | JOIN aggregates without fan-out ([Aggregates](#aggregates-and-grouping)) | accepted | accepted | accepted | accepted; `sum(Int)` stays PIE-B1004 |
@@ -2719,6 +2720,63 @@ refuses `coalesce(None, None) == a`. With a JOIN input of its own, the direct
 form completes without the warning and is refused the same way, and the
 `let` form still fails with the bare PIE-S2333, where a single file accepts
 it.
+
+`max(a, b)` and `min(a, b)` are the larger and the smaller of two values, as
+Python's two-argument `max` and `min` are: the first value on a tie (as for
+Python, which matters only for `Float` and `Decimal` values that are `==` but
+written differently, such as `-0.0` and `0.0`), and `None` when either value is
+`None`, where Python raises. They are checked and emitted as the conditional
+`(b if a < b else a) if b is not None else b` (`>` for `min`), without the
+`is not None` test when `b` is a literal, so SQL gets `CASE WHEN` and never
+`GREATEST`/`LEAST`, which skip a NULL on PostgreSQL. The two values must
+compare as for `<` and have one canonical type, as `coalesce`'s values and a
+conditional's branches do (PIE-S2104 `Invalid argument types for function
+max: expected same canonical comparable type`): `Int`, `Decimal`, `Float`,
+`Text`, `Date`, `Timestamp`, `UUID` or `Bool` values of one type in a single
+file, so `max(n, 1.5)` with an `Int` field is refused where
+`max(Float(n), 1.5)` is not; a `None` argument, also a `let` name bound to it,
+is refused (PIE-S2104 `Invalid argument type for function max at position 2:
+expected a non-None value, got None`). The result is nullable when either
+value is. They work in WHERE, inside larger expressions and in a `def` body; a
+`None` that a def call passes to such a body is refused at the def call with
+the same message. One argument is the aggregate `max(x)`/`min(x)`, unchanged.
+For more values nest the calls, `max(a, max(b, c))`; each call writes its
+values out again in its conditional, so a nest is bounded as a `def`'s
+expansion is (PIE-S2399, more than 1000 expression nodes): five fields nested
+in the second position, or seven in the first, fit. Three or more arguments
+are PIE-S2309 with the nesting hint, and `greatest`/`least` are unknown
+functions (PIE-S2103) whose hint names `max` and `min`. A file that declares a
+`constraint`, `derive` or relationship template named `max` or `min` keeps the
+two-argument call's earlier meaning (the aggregate's arity error, PIE-S2309);
+a `def` of either name stays PIE-S2398. MySQL emission refuses two `Bool`
+values (PIE-B1000 `MySQL max and min of two Bool values are not supported;
+emit with --dialect postgres`), because MySQL gives their CASE an integer
+type.
+
+```pietto
+shape Reading:
+    id: Int
+    low: Int
+    high: Int | None
+    label: Text
+    taken: Timestamp
+    checked: Timestamp | None
+
+source readings: Reading = postgres.table("readings")
+
+query bounded:
+    from readings
+    where max(low, high) > 10
+    select:
+        id
+        top = max(low, high)
+        floor = max(low, 0)
+        first = min(label, "m")
+        latest = max(taken, checked)
+```
+
+`top` is `Int | None` (None where `high` is); `floor` is an `Int`; `latest` is
+a `Timestamp | None`.
 
 The closed scalar surface has explicit signatures, and no argument is
 converted to fit one, except for the always-null numeric D-12 rule described

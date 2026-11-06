@@ -18,6 +18,7 @@ from pietto._inline_argument import InlinedArgument
 from pietto._syntax_admission import source_order
 from pietto.ast_nodes import (
     CallExpr,
+    ConditionalExpr,
     ConstraintDef,
     Definition,
     DeriveDef,
@@ -57,6 +58,7 @@ from pietto.semantic.aggregates import (
     semantic_aggregate_call_name,
 )
 from pietto.semantic.catalog import BUILTIN_FUNCTIONS, SPECIAL_BUILTIN_FUNCTION_NAMES
+from pietto.semantic.constructor_calls import written_extremum
 from pietto.semantic.expressions import (
     DefBodyTypes,
     always_null,
@@ -198,7 +200,11 @@ def inline_functions(
             continue
         size = _measure(body)
         if size.nodes > _MAX_EXPANSION_NODES or size.depth > _MAX_EXPANSION_DEPTH:
-            found.append(_size_diagnostic(function, size.nodes, size.depth, body.span))
+            found.append(
+                _size_diagnostic(
+                    f"def {function.name}", size.nodes, size.depth, body.span
+                )
+            )
             continue
         before = len(found)
         _check_body(function, body, found)
@@ -246,8 +252,8 @@ def inline_functions(
 def drop_repeated_call_diagnostics(
     script: Script, diagnostics: Sequence[Diagnostic]
 ) -> tuple[Diagnostic, ...]:
-    """Keep only the first of equal diagnostics located in a def call or in
-    a comparison chain's inner operand.
+    """Keep only the first of equal diagnostics located in a def call, a
+    two-argument `max` or `min` call or a comparison chain's inner operand.
 
     ``script`` is the parsed script. Its expansion types the body at the call
     and each use of an argument at the argument's own text, so one written
@@ -257,7 +263,9 @@ def drop_repeated_call_diagnostics(
     copy typed on its own. That text is written once, so each such error is
     reported once. Dropping repeats after typing, not during it, keeps every
     copy's error in view of the rule that does not check an argument with an
-    error of its own against its parameter. A repeat outside that text stays.
+    error of its own against its parameter. A `max(a, b)` or `min(a, b)` call
+    is typed as the conditional it means, which holds each argument more than
+    once (`normalize_float_calls`). A repeat outside that text stays.
     """
 
     return _drop_repeats(script, diagnostics, calls=True)
@@ -298,8 +306,10 @@ def _drop_repeats(
     pending: list[object] = [script]
     while pending:
         value = pending.pop()
-        if _def_call_name(value, defined) is None and (
-            not isinstance(value, Node) or _text(value.span) not in copied
+        if (
+            _def_call_name(value, defined) is None
+            and not _two_value_extremum(value)
+            and (not isinstance(value, Node) or _text(value.span) not in copied)
         ):
             pending.extend(_children(value) or ())
             continue
@@ -487,7 +497,9 @@ class _Expansion:
             depth = max(depth, deepest + argument_size.depth - 1)
         if nodes > _MAX_EXPANSION_NODES or depth > _MAX_EXPANSION_DEPTH:
             self._refuse(call)
-            self.found.append(_size_diagnostic(function, nodes, depth, call.span))
+            self.found.append(
+                _size_diagnostic(f"def {function.name}", nodes, depth, call.span)
+            )
             return call
         return cast(
             Expression,
@@ -497,6 +509,7 @@ class _Expansion:
                     arguments,
                     template,
                     call.span,
+                    call.callee.span,
                     self.occurrences,
                     self.occurrence_observer,
                 ),
@@ -505,12 +518,12 @@ class _Expansion:
         )
 
 
-def _size_diagnostic(
-    function: FunctionDef, nodes: int, depth: int, span: Span
-) -> Diagnostic:
+def _size_diagnostic(subject: str, nodes: int, depth: int, span: Span) -> Diagnostic:
+    """``subject`` is `def NAME`, or `max` or `min` for a two-argument call."""
+
     return _diagnostic(
         "PIE-S2399",
-        f"The expansion of def {function.name} has {nodes} expression nodes "
+        f"The expansion of {subject} has {nodes} expression nodes "
         f"nested {depth} deep; an expansion, with its arguments, has at most "
         f"{_MAX_EXPANSION_NODES} nodes nested at most {_MAX_EXPANSION_DEPTH} deep",
         span,
@@ -521,6 +534,7 @@ def _substitution(
     arguments: dict[str, Expression],
     template: Expression,
     call: Span,
+    called: Span,
     occurrences: Iterator[int],
     occurrence_observer: Callable[[object, object], None] | None = None,
 ) -> Callable[[object, object], object]:
@@ -528,14 +542,23 @@ def _substitution(
 
     Every node keeps a real location: the expansion and every other body node
     are at the call, and an argument, also when the body uses it again, is at
-    its own text. A copy differs from the original only in an internal span
-    ``occurrence``, as the same text written out twice by hand would differ in
-    position. Every use of an argument, and every node inside it, carries the
-    parameters it must fit, so a mismatch leaves each use Unknown and the
-    expansion reports nothing else.
+    its own text. The nodes that a `max(a, b)` or `min(a, b)` call writes no
+    text for stay outside its arguments' text, at ``called``, the def's name
+    (`written_extremum`). A copy differs from the original only in an internal
+    span ``occurrence``, as the same text written out twice by hand would
+    differ in position. Every use of an argument, and every node inside it,
+    carries the parameters it must fit, so a mismatch leaves each use Unknown
+    and the expansion reports nothing else.
     """
 
     used: set[str] = set()
+    unwritten = {
+        id(part)
+        for node in _tree_nodes(template)
+        if type(node) is ConditionalExpr
+        and (written := written_extremum(node)) is not None
+        for part in written[3]
+    }
 
     def occurrence(node: object, span: Span) -> object:
         return replace(
@@ -566,6 +589,8 @@ def _substitution(
                 )
         if original is template and isinstance(rebuilt, Expression):
             return replace(rebuilt, span=call)
+        if id(original) in unwritten:
+            return occurrence(rebuilt, called)
         return occurrence(rebuilt, call) if isinstance(rebuilt, Node) else rebuilt
 
     return substitute
@@ -653,6 +678,15 @@ def _tree_nodes(root: object) -> list[object]:
             found.append(value)
         pending.extend(reversed(children))
     return found
+
+
+def _two_value_extremum(node: object) -> bool:
+    return (
+        type(node) is CallExpr
+        and type(cast(CallExpr, node).callee) is NameExpr
+        and cast(NameExpr, cast(CallExpr, node).callee).name in {"max", "min"}
+        and len(cast(CallExpr, node).arguments) == 2
+    )
 
 
 def _def_call_name(node: object, defined: dict[str, FunctionDef]) -> str | None:

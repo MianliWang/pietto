@@ -394,6 +394,15 @@ _COLLECT = (
         # Lowercase `concat` is a builtin.
         ('CONCAT(email, "!")', "write `concat(...)` in lowercase"),
         ("Concat(email, email)", "write `concat(...)` in lowercase"),
+        # SQL's GREATEST and LEAST skip a NULL; `max(a, b)` and `min(a, b)` do not.
+        (
+            "greatest(count, count)",
+            "write `max(a, b)`, which is None when either value is None",
+        ),
+        (
+            "LEAST(count, count)",
+            "write `min(a, b)`, which is None when either value is None",
+        ),
         # Phase72: the range spellings are comparison chains.
         (
             "in_range(count, count, count)",
@@ -880,6 +889,215 @@ def test_concat_is_text_in_a_condition_over_a_row_of_unknown_type(
     assert [
         (d.code, d.message) for d in result.diagnostics if d.severity is Severity.ERROR
     ] == [expected]
+
+
+_EXTREMA_SOURCE = (
+    "shape Item:\n"
+    "    a: Int\n"
+    "    b: Int | None\n"
+    "    x: Float\n"
+    "    t: Text\n"
+    "    u: Text | None\n"
+    "    d: Date\n"
+    "    ts: Timestamp\n"
+    "    ts2: Timestamp | None\n"
+    "    uu: UUID\n"
+    "    flag: Bool\n"
+    'source items: Item = postgres.table("items")\n'
+    "table projected:\n"
+    "    from items\n"
+)
+
+
+def test_max_and_min_of_two_values_keep_their_type_and_are_none_when_either_is() -> (
+    None
+):
+    result = analyze(
+        _parse(
+            _EXTREMA_SOURCE + "    select:\n"
+            "        hi = max(a, b)\n"
+            "        lo = min(a, 3)\n"
+            "        tie = max(a, a)\n"
+            "        word = min(t, u)\n"
+            "        ratio = max(x, 1.5)\n"
+            "        day = min(d, d)\n"
+            "        nested = max(a, min(b, 3))\n"
+            "        late = max(ts, ts2)\n"
+            "        key = min(uu, uu)\n"
+            "        both = max(flag, flag)\n"
+            # 766 expression nodes, within the bound of 1000.
+            "        five = max(a, max(a, max(a, max(a, a))))\n"
+        )
+    )
+    types = [
+        result.model.expression_value_types[item.expression]
+        for item in _table(result).select_items
+    ]
+
+    assert result.diagnostics == ()
+    assert [(item.resolved_type.name, item.nullability) for item in types] == [
+        ("Int", EffectiveNullability.NULLABLE),
+        ("Int", EffectiveNullability.NON_NULL),
+        ("Int", EffectiveNullability.NON_NULL),
+        ("Text", EffectiveNullability.NULLABLE),
+        ("Float", EffectiveNullability.NON_NULL),
+        ("Date", EffectiveNullability.NON_NULL),
+        ("Int", EffectiveNullability.NULLABLE),
+        ("Timestamp", EffectiveNullability.NULLABLE),
+        ("UUID", EffectiveNullability.NON_NULL),
+        ("Bool", EffectiveNullability.NON_NULL),
+        ("Int", EffectiveNullability.NON_NULL),
+    ]
+
+
+_NONE_AT = (
+    "Invalid argument type for function {} at position {}: expected a non-None "
+    "value, got None"
+)
+_NOT_ONE_TYPE = (
+    "Invalid argument types for function {}: expected same canonical comparable type"
+)
+_NEST = (
+    "Aggregate function {0} expects 1 arguments, got 3; for more values, nest "
+    "two-argument calls: {0}(a, {0}(b, c))"
+)
+
+
+@pytest.mark.parametrize(
+    ("lets", "call", "expected"),
+    [
+        ("", "max(a, None)", ("PIE-S2104", _NONE_AT.format("max", 2), 17)),
+        ("", "min(None, a)", ("PIE-S2104", _NONE_AT.format("min", 1), 17)),
+        (
+            "    let k = None\n",
+            "max(a, k)",
+            ("PIE-S2104", _NONE_AT.format("max", 2), 17),
+        ),
+        ("", "max(t, 1)", ("PIE-S2104", _NOT_ONE_TYPE.format("max"), 17)),
+        ("", "min(a, 1.5)", ("PIE-S2104", _NOT_ONE_TYPE.format("min"), 17)),
+        ("", "max(a, max(t, a))", ("PIE-S2104", _NOT_ONE_TYPE.format("max"), 24)),
+        # An argument's own error is reported once, at the argument.
+        ("", "max(nosuch, 1)", ("PIE-S2102", "Unknown field: nosuch", 21)),
+        ("", "max(a, b, 1)", ("PIE-S2309", _NEST.format("max"), 17)),
+        ("", "min(a, None, None)", ("PIE-S2309", _NEST.format("min"), 17)),
+        # Each call writes its arguments out again, so a nest is bounded as a
+        # def's expansion is.
+        (
+            "",
+            "max(a, max(a, max(a, max(a, max(a, a)))))",
+            (
+                "PIE-S2399",
+                "The expansion of max has 3070 expression nodes nested 16 deep; "
+                "an expansion, with its arguments, has at most 1000 nodes nested "
+                "at most 64 deep",
+                17,
+            ),
+        ),
+    ],
+)
+def test_max_and_min_refuse_none_values_that_do_not_compare_and_more_arguments(
+    lets: str, call: str, expected: tuple[str, str, int]
+) -> None:
+    result = analyze(
+        _parse(_EXTREMA_SOURCE + lets + f"    select:\n        value = {call}\n")
+    )
+    code, message, column = expected
+
+    assert [
+        (d.code, d.message, d.location.line, d.location.column)
+        for d in result.diagnostics
+        if d.severity is Severity.ERROR
+    ] == [(code, message, 16 + bool(lets), column)]
+
+
+@pytest.mark.parametrize(
+    ("body", "call", "expected"),
+    [
+        ("max(x, y)", "bigger(a, None)", ("PIE-S2104", _NONE_AT.format("max", 2), 17)),
+        ("min(y, x)", "bigger(a, None)", ("PIE-S2104", _NONE_AT.format("min", 1), 17)),
+        (
+            "max(x + 1, y)",
+            "bigger(a, None)",
+            ("PIE-S2104", _NONE_AT.format("max", 2), 17),
+        ),
+        (
+            "max(x, y)",
+            "bigger(a, bigger(a, None))",
+            ("PIE-S2104", _NONE_AT.format("max", 2), 27),
+        ),
+        # The def reports an argument that does not fit its parameter.
+        (
+            "max(x, y)",
+            "bigger(a, t)",
+            (
+                "PIE-S2395",
+                "Invalid argument for def bigger at position 2 (y): expected "
+                "Int | None, got Text",
+                17,
+            ),
+        ),
+        # A hand-written conditional reports its own comparison.
+        (
+            "y if x < y else x",
+            "bigger(a, None)",
+            (
+                "PIE-S2105",
+                "Invalid operands for operator <: comparison with null is never true",
+                17,
+            ),
+        ),
+    ],
+)
+def test_a_none_that_reaches_max_or_min_through_a_def_is_reported_at_the_def_call(
+    body: str, call: str, expected: tuple[str, str, int]
+) -> None:
+    result = analyze(
+        _parse(
+            "def bigger(x: Int, y: Int | None) -> Int | None: return "
+            + body
+            + "\n"
+            + _EXTREMA_SOURCE
+            + f"    select:\n        value = {call}\n"
+        )
+    )
+    code, message, column = expected
+
+    assert [
+        (d.code, d.message, d.location.line, d.location.column)
+        for d in result.diagnostics
+        if d.severity is Severity.ERROR
+    ] == [(code, message, 17, column)]
+
+
+def test_a_same_file_callable_named_max_or_min_keeps_the_meaning_it_had() -> None:
+    """A constraint, derive or relationship named `max` leaves a two-argument
+    `max` call to the aggregate's arity check, as before; a `def` of the name
+    is refused as before."""
+
+    shadowed = analyze(
+        _parse(
+            "constraint max(value: Int, other: Int) -> Bool: return value > other\n"
+            + _EXTREMA_SOURCE
+            + "    select:\n        value = max(a, a)\n"
+        )
+    )
+    defined = analyze(
+        _parse(
+            "def min(x: Int, y: Int) -> Int: return x if x < y else y\n"
+            + _EXTREMA_SOURCE
+            + "    select:\n        value = min(a, a)\n"
+        )
+    )
+
+    assert [(d.code, d.message) for d in shadowed.diagnostics] == [
+        ("PIE-S2309", "Aggregate function max expects 1 arguments, got 2")
+    ]
+    assert [(d.code, d.message) for d in defined.diagnostics] == [
+        (
+            "PIE-S2398",
+            "Def min has the name of a built-in function; a def cannot shadow one",
+        )
+    ]
 
 
 def test_abs_keeps_its_argument_type_and_nullability() -> None:

@@ -16,9 +16,10 @@ __all__: tuple[str, ...] = ()
 
 # A callable a source file declares itself, a `def`, `constraint`, `derive` or
 # relationship template, keeps its meaning there over these builtin call
-# names, in any declaration order: the `Float` and `Text` constructors and the
-# `concat` function.
-_SHADOWABLE = frozenset({"Float", "Text", "concat"})
+# names, in any declaration order: the `Float` and `Text` constructors, the
+# `concat` function and the two-argument `max` and `min` (a `def` of these two
+# is refused, PIE-S2398).
+_SHADOWABLE = frozenset({"Float", "Text", "concat", "max", "min"})
 # The files of the scripts `builtin_shadows` analyzes that declare a callable
 # `concat`.
 _CONCAT_FILES: contextvars.ContextVar[frozenset[str | None]] = contextvars.ContextVar(

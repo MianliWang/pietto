@@ -1339,6 +1339,103 @@ def test_mysql_sql_modules_have_no_runtime_or_sqlglot_dependencies() -> None:
         assert dependency not in source
 
 
+_EXTREMA = (
+    "shape Item:\n    a: Int\n    b: Int | None\n    t: Text\n"
+    "    ts: Timestamp\n    ts2: Timestamp | None\n    uu: UUID\n"
+    'source items: Item = {}.table("public.items")\n'
+    "query q:\n    from items\n"
+    "    where max(a, b) > 1\n"
+    "    select:\n"
+    "        hi = max(a, b)\n"
+    '        word = min(t, "m")\n'
+    "        nested = min(a, max(b, 3))\n"
+    "        late = max(ts, ts2)\n"
+    "        key = min(uu, uu)\n"
+)
+
+
+def _extremum(operator: str, first: str, second: str) -> str:
+    a, b = f"`{first}`", f"`{second}`"
+    return (
+        f"CASE WHEN ({b} IS NOT NULL) THEN (CASE WHEN ({a} {operator} {b}) "
+        f"THEN {b} ELSE {a} END) ELSE {b} END"
+    )
+
+
+def test_max_and_min_emit_the_conditional_that_is_none_when_either_value_is() -> None:
+    # GREATEST and LEAST skip a NULL argument; a None `b` must give NULL.
+    parsed = parser_api.parse_source(_EXTREMA.format("mysql"))
+    assert parsed.diagnostics == () and parsed.ast is not None
+    checked = semantic_api.analyze(parsed.ast)
+    assert checked.diagnostics == () and checked.script is not None
+    lowered = build_ir(checked.script, checked.model)
+    assert lowered.diagnostics == () and lowered.ir is not None
+    hi = (
+        "CASE WHEN (`b` IS NOT NULL) THEN (CASE WHEN (`a` < `b`) "
+        "THEN `b` ELSE `a` END) ELSE `b` END"
+    )
+    inner = "(CASE WHEN (`b` < 3) THEN 3 ELSE `b` END)"
+    # Timestamp and UUID values compare as for `<` here too.
+    assert emit_mysql_sql(lowered.ir).artifacts[0].sql == (
+        "SELECT\n"
+        f"    {hi} AS `hi`,\n"
+        "    CASE WHEN (`t` > 'm') THEN 'm' ELSE `t` END AS `word`,\n"
+        f"    CASE WHEN ({inner} IS NOT NULL) THEN (CASE WHEN (`a` > {inner}) "
+        f"THEN {inner} ELSE `a` END) ELSE {inner} END AS `nested`,\n"
+        f"    {_extremum('<', 'ts', 'ts2')} AS `late`,\n"
+        f"    {_extremum('>', 'uu', 'uu')} AS `key`\n"
+        "FROM `public`.`items`\n"
+        f"WHERE ({hi}) > 1"
+    )
+
+
+_BOOL_EXTREMA = (
+    "shape Item:\n    flag: Bool\n    other: Bool | None\n"
+    "def larger(x: Bool, y: Bool | None) -> Bool | None: return max(x, y)\n"
+    'source items: Item = mysql.table("public.items")\n'
+    "query q:\n    from items\n    select:\n        both = {}\n"
+)
+
+
+@pytest.mark.parametrize(
+    "value", ["max(flag, other)", "min(flag, True)", "larger(flag, other)"]
+)
+def test_max_and_min_of_two_bool_values_stay_refused(value: str) -> None:
+    # MySQL types the CASE of two BOOLEAN values as an int, not a Bool.
+    parsed = parser_api.parse_source(_BOOL_EXTREMA.format(value))
+    assert parsed.diagnostics == () and parsed.ast is not None
+    checked = semantic_api.analyze(parsed.ast)
+    assert checked.diagnostics == () and checked.script is not None
+    lowered = build_ir(checked.script, checked.model)
+    assert lowered.diagnostics == () and lowered.ir is not None
+    result = emit_mysql_sql(lowered.ir)
+    assert result.artifacts == ()
+    assert [(item.code, item.message) for item in result.diagnostics] == [
+        (
+            "PIE-B1000",
+            "MySQL SQL emission is not implemented for RelationIR: q. "
+            "MySQL max and min of two Bool values are not supported; "
+            "emit with --dialect postgres",
+        )
+    ]
+
+
+def test_a_written_bool_conditional_still_emits() -> None:
+    parsed = parser_api.parse_source(
+        _BOOL_EXTREMA.format("other if flag < other else flag")
+    )
+    assert parsed.diagnostics == () and parsed.ast is not None
+    checked = semantic_api.analyze(parsed.ast)
+    assert checked.diagnostics == () and checked.script is not None
+    lowered = build_ir(checked.script, checked.model)
+    assert lowered.diagnostics == () and lowered.ir is not None
+    assert emit_mysql_sql(lowered.ir).artifacts[0].sql == (
+        "SELECT\n"
+        "    CASE WHEN (`flag` < `other`) THEN `other` ELSE `flag` END AS `both`\n"
+        "FROM `public`.`items`"
+    )
+
+
 def _compile(source: str) -> ScriptIR:
     parse_result = parser_api.parse_source(source, path="mysql-relations.pietto")
     assert parse_result.diagnostics == ()

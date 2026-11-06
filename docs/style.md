@@ -605,6 +605,7 @@ shape Visit:
     guest_badge: Text | None
     seen_at: Timestamp
     minutes: Float
+    late_minutes: Float | None
 
 source visits: Visit = postgres.table("visits")
 
@@ -615,6 +616,7 @@ query march_visits:
         id
         full_name = concat(first_name, " ", last_name)
         same_badge = same_value(badge, guest_badge)
+        longest = max(minutes, late_minutes)
 
 query visit_spread:
     from visits
@@ -627,6 +629,10 @@ query visit_spread:
 None, False when only one is. Write a half-open range, such as one month, as
 one chain `start <= ts < stop`. `stddev` is the sample standard deviation,
 Python's `statistics.stdev`, and is None for fewer than two values.
+`max(a, b)` and `min(a, b)` are Python's larger and smaller of two values and
+are None when either value is None, where SQL's `GREATEST` and `LEAST` skip a
+None on PostgreSQL. Nest them for more values: `max(a, max(b, c))`; a nest of
+up to five fields this way fits (PIE-S2399 past that).
 
 ## Comments
 
@@ -658,6 +664,11 @@ Comments start with `#`, as in Python. `--` does not start a comment:
 | `sum(paid)` | `sum(1 for o in group if o.paid)` | `sum` adds numbers; a Bool is no number (PIE-S2314) |
 | `sum(1 for o in orders if o.paid)` in a grouped query | `sum(1 for o in group if o.paid)` | `orders` is every row of `orders`, never this group (PIE-S2334) |
 | `any(o.paid for o in group)` | `n = sum(1 for o in group if o.paid)`, then `n > 0` in `having` | a test of the group is not available yet (PIE-S2301) |
+| `max(a, b, c)` | `max(a, max(b, c))` | `max` and `min` take one value (the aggregate) or two; more is an error (PIE-S2309) that says to nest |
+| `greatest(a, b)`, `least(a, b)` | `max(a, b)`, `min(a, b)` | there is no `greatest` or `least` (PIE-S2103); `max` and `min` are None when either value is, where PostgreSQL `GREATEST` skips a NULL |
+| `max(a, None)` | `None`, or drop the call | a `None` argument is an error (PIE-S2104): the result would always be None |
+| `max(n, 1.5)` with an `Int` `n` | `max(Float(n), 1.5)` | both values need one type, as for `coalesce` and a conditional's branches (PIE-S2104) |
+| `b if a < b else a` for the larger value | `max(a, b)` | the conditional gives `a` when only `b` is None; `max(a, b)` gives None there |
 | `true`, `null` | `True`, `None` | |
 | `-- note` | `# note` | `--` is a minus sign followed by another |
 

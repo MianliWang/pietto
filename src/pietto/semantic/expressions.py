@@ -69,7 +69,7 @@ from pietto.semantic.catalog import (
     builtin_signature,
     is_builtin_function_name,
 )
-from pietto.semantic.constructor_calls import in_concat_file
+from pietto.semantic.constructor_calls import in_concat_file, written_extremum
 from pietto.semantic.model import (
     EffectiveNullability,
     ResolvedType,
@@ -2731,6 +2731,17 @@ def _infer(
             type_expansions=type_expansions,
             relation_columns=relation_columns,
         )
+        written = written_extremum(expression)
+        if written is not None and len(diagnostics) > reported:
+            _report_extremum_at_call(
+                expression,
+                written,
+                diagnostics,
+                reported,
+                row_schema,
+                bare_value_types,
+                bare_value_expressions,
+            )
     elif isinstance(expression, MembershipExpr):
         value_type = _membership_value_type(
             expression,
@@ -5130,6 +5141,74 @@ def _coalesce_value_type(
     return ValueType(resolved_type=canonical, nullability=nullability)
 
 
+def _report_extremum_at_call(
+    expression: ConditionalExpr,
+    written: tuple[str, Expression, Expression, tuple[Expression, ...]],
+    diagnostics: list[Diagnostic],
+    reported: int,
+    row_schema: RowSchema,
+    bare_value_types: Mapping[str, ValueType] | None,
+    bare_value_expressions: Mapping[str, Expression] | None,
+) -> None:
+    """Report the errors of the conditional that a `max(a, b)` or `min(a, b)`
+    call is written as (`written_extremum`) as the call's own: each one its
+    comparison, test or branches report, located at those nodes or where no
+    argument is written, becomes the call's PIE-S2104, which
+    `drop_repeated_call_diagnostics` then reports once. An argument's own
+    errors stay, also a def's report that the argument does not fit its
+    parameter. In place, so the diagnostics typing recorded for its parts
+    (`LetValues.typed`) keep their positions. In a def's expansion an argument
+    the body computes is at the whole call (`_substitution`)."""
+
+    name, first, second, parts = written
+    nulls = _null_reads(
+        (first, second),
+        row_schema,
+        bare_value_types,
+        bare_value_expressions,
+        values=True,
+    )
+    message = (
+        f"Invalid argument type for function {name} at position "
+        f"{nulls.index(True) + 1}: expected a non-None value, got None"
+        if any(nulls)
+        else f"Invalid argument types for function {name}: expected same "
+        "canonical comparable type"
+    )
+    reported_at = Diagnostic(
+        code="PIE-S2104",
+        severity=Severity.ERROR,
+        message=message,
+        location=_span_location(expression.span),
+    )
+    from pietto.semantic.inline_functions import _tree_nodes
+
+    unwritten = {_span_location(part.span) for part in parts}
+    # A def reports an argument that does not fit its parameter at the def
+    # call (`_check_inlined_argument`), outside the argument's text.
+    fitted = {
+        _span_location(slot.call)
+        for argument in (first, second)
+        for node in _tree_nodes(argument)
+        if isinstance(node, Expression)
+        for slot in inlined_arguments(node)
+    }
+    arguments = (first.span, second.span)
+    for position in range(reported, len(diagnostics)):
+        location = diagnostics[position].location
+        if location in unwritten or (
+            location not in fitted
+            and not any(
+                argument.path == location.path
+                and (argument.line, argument.column) <= (location.line, location.column)
+                and (location.end_line, location.end_column)
+                <= (argument.end_line, argument.end_column)
+                for argument in arguments
+            )
+        ):
+            diagnostics[position] = reported_at
+
+
 def _same_value_call_type(
     expression: CallExpr,
     argument_types: tuple[ValueType, ...],
@@ -6361,6 +6440,8 @@ _UNKNOWN_FUNCTION_HINTS = {
         _CONDITIONAL_HABITS,
         "write `sum(1 for o in group if ...)` or `sum(o.v for o in group if ...)`",
     ),
+    "greatest": "write `max(a, b)`, which is None when either value is None",
+    "least": "write `min(a, b)`, which is None when either value is None",
     "in_range": "write the half-open range `a <= ts < b`",
     "ranges_overlap": "write `a_start < b_stop and b_start < a_stop`",
 }

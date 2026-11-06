@@ -260,6 +260,75 @@ warning; its exit code and SQL are unchanged):
   `COMPILED_COLLECTION_READ`. Neither format gains a record kind or field, so
   both keep their version marks.
 
+### `max(a, b)` and `min(a, b)`
+
+- `max(a, b)` and `min(a, b)`: Python's larger and smaller of two values (the
+  first on a tie), `None` when either value is `None`; nest for more values,
+  `max(a, max(b, c))`. Checked and emitted as
+  `(b if a < b else a) if b is not None else b` (`>` for `min`), so SQL is a
+  `CASE WHEN`, never PostgreSQL `GREATEST`/`LEAST`, which skip a NULL. The
+  values are any pair that compares with `<` and has one type: `Int`,
+  `Decimal`, `Float`, `Text`, `Date`, `Timestamp`, `UUID` and `Bool` in a
+  single file (PostgreSQL; MySQL all but `Bool`); in `emit-sql --project` (with compiled
+  replay and the live template) `Int`, `Decimal`, `Float`, `Text` and
+  `Timestamp` on both targets and `UUID` on PostgreSQL. Project `Date` and
+  `Bool` values, and `UUID` values on MySQL, are refused (PIE-B1003
+  `conditional_realization_not_admitted`, `comparison_type_pair_not_admitted`).
+  A `def` body may call them, and they work in WHERE and inside larger
+  expressions. A two-database differential (PostgreSQL 18.6, MySQL 8.4.12)
+  matched the expected rows for each of these types. New refusal: MySQL
+  single-file emission refuses two `Bool` values, PIE-B1000 `MySQL SQL
+  emission is not implemented for RelationIR: <name>. MySQL max and min of
+  two Bool values are not supported; emit with --dialect postgres`, because
+  MySQL types their CASE as an integer; PostgreSQL emits them.
+
+New or changed diagnostics (exact):
+
+- PIE-S2104 (new message), at the call:
+  `Invalid argument types for function max: expected same canonical comparable type`
+  (also `min`), for values that do not compare as for `<` or have two
+  canonical types, such as `max(t, 1)` with a `Text` `t` or `max(n, 1.5)` with
+  an `Int` `n`.
+- PIE-S2104 (new message), at the call:
+  `Invalid argument type for function max at position N: expected a non-None value, got None`
+  (also `min`), for a `None` argument or a `let` name bound to `None`; when the
+  `None` reaches a `max`/`min` in a `def` body as a def argument, at the def
+  call (`bigger(a, None)` with `def bigger(x: Int, y: Int | None) -> Int | None: return max(x, y)`).
+- PIE-S2399 (new message, existing code and stage): a `max`/`min` call whose
+  conditional, with each nested call written out, has more than 1000
+  expression nodes or 64 levels:
+  `The expansion of max has 3070 expression nodes nested 16 deep; an expansion, with its arguments, has at most 1000 nodes nested at most 64 deep`
+  (for `max(a, max(a, max(a, max(a, max(a, a)))))`; `min` alike), at the
+  innermost such call. Five fields nested in the second position, or seven in
+  the first, fit.
+- PIE-S2309 (message suffix): a `max`/`min` call with three or more arguments
+  now reads `Aggregate function max expects 1 arguments, got 3; for more values, nest two-argument calls: max(a, max(b, c))`
+  (`min` alike). Code, position and prefix are unchanged.
+- PIE-S2103 (hint): `Unknown function: greatest; write `max(a, b)`, which is None when either value is None`
+  and `Unknown function: least; write `min(a, b)`, which is None when either value is None`,
+  in any letter case (`GREATEST`, `Least`).
+
+Compatibility:
+
+`a`, `c` are `Int` fields and `b` an `Int | None` field.
+
+| Input | Before (0.1.9) | Now |
+| --- | --- | --- |
+| `max(a, b)` / `min(a, b)`, two arguments | PIE-S2309 `Aggregate function max expects 1 arguments, got 2` | accepted (scalar), or PIE-S2104 as above when the values do not fit |
+| `max(x, None)` / `min(x, None)` | PIE-S2309 (an extra `None` argument was a wrong aggregate arity) | PIE-S2104 `... at position 2: expected a non-None value, got None` |
+| `max(a, max(b, c))` (a nested call) | PIE-S2311 `Nested aggregate max() is not supported`, at the inner call | accepted |
+| `max(a, max(nosuch, a))` | PIE-S2311 at the inner call, then PIE-S2102 `Unknown field: nosuch` | PIE-S2102 only |
+| six or more nested values, such as `max(a, max(a, max(a, max(a, max(a, a)))))` | PIE-S2311 at the second call | PIE-S2399 `The expansion of max has 3070 expression nodes ...` at the outer call |
+| `max(a, b) + 1` in a SELECT item | PIE-S2310 `Aggregate projection must be a direct aggregate call; composition around max() is not supported yet` | accepted |
+| `where min(a, c) > 1` | PIE-S2308 `Aggregate min() is not allowed in where clause; use it only as a direct aliased select projection` | accepted |
+| grouped SELECT item `m = max(a, b)` over fields that are not group keys | PIE-S2309 `Aggregate function max expects 1 arguments, got 2` | PIE-S2319 `Grouped scalar projection expressions are not supported yet`, as for the conditional it means |
+| `def bigger(x: Int, y: Int) -> Int: return max(x, y)` | PIE-S2397 `Def bigger body uses the aggregate max; a def body reads only its parameters and calls scalar functions`, at the call in the body | accepted; a call that passes `None` is PIE-S2104 at the def call, a wrong argument type PIE-S2395 as before |
+| `max`/`min` with 3+ arguments | PIE-S2309 | PIE-S2309, same prefix, hint suffix added |
+| `greatest(...)`, `least(...)` | PIE-S2103 `Unknown function: greatest` | PIE-S2103 with the hint suffix |
+| a file declaring a `constraint`, `derive` or relationship template named `max`/`min` | two-argument call PIE-S2309 | unchanged (the file keeps the earlier meaning) |
+| `def max` / `def min` | PIE-S2398 | unchanged (no user `def` newly becomes PIE-S2398: both names were already reserved as aggregates) |
+| one-argument `max(x)`/`min(x)` aggregate, window `max(x) window(...)` | unchanged | unchanged |
+
 ## Equality, nullability and asof JOIN public alpha release notes — 0.1.9
 
 <a id="unreleased-changes-following-018"></a>
