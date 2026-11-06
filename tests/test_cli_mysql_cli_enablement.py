@@ -56,7 +56,9 @@ def test_mysql_json_cli_matches_structural_v1_golden(
     captured = capsys.readouterr()
     assert captured.err == ""
     document = json.loads(captured.out)
-    assert document == json.loads(MYSQL_JSON_GOLDEN.read_text(encoding="utf-8"))
+    golden = json.loads(MYSQL_JSON_GOLDEN.read_text(encoding="utf-8"))
+    # The CLI spells the input path as the platform does.
+    assert document == {**golden, "path": str(Path(golden["path"]))}
     assert document["schema_version"] == 1
     assert document["dialect"] == "mysql"
 

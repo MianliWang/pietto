@@ -801,6 +801,7 @@ def test_backend_error_does_not_truncate_existing_output(
     assert output.read_text(encoding="utf-8") == "original SQL\n"
 
 
+@pytest.mark.skipif(sys.platform == "win32", reason="needs control characters in names")
 def test_newline_in_path_is_escaped_in_diagnostic_record(
     tmp_path: Path,
     capsys: pytest.CaptureFixture[str],
@@ -831,6 +832,7 @@ def test_newline_in_missing_path_is_escaped_in_cli_error(
     assert len(captured.err.splitlines()) == 1
 
 
+@pytest.mark.skipif(sys.platform == "win32", reason="needs control characters in names")
 def test_escape_in_path_is_not_emitted_as_raw_ansi(
     tmp_path: Path,
     capsys: pytest.CaptureFixture[str],
@@ -934,6 +936,7 @@ def test_source_unicode_controls_are_escaped_in_text_and_parser_messages(
     assert capsys.readouterr().out == f"OK: {str(valid).replace(character, escape)}\n"
 
 
+@pytest.mark.skipif(sys.platform == "win32", reason="needs control characters in names")
 def test_success_path_with_newline_is_escaped_on_stdout(
     tmp_path: Path,
     capsys: pytest.CaptureFixture[str],
@@ -948,6 +951,7 @@ def test_success_path_with_newline_is_escaped_on_stdout(
     assert captured.err == ""
 
 
+@pytest.mark.skipif(sys.platform == "win32", reason="needs control characters in names")
 def test_explain_text_path_is_escaped_and_json_path_stays_raw(
     tmp_path: Path,
     capsys: pytest.CaptureFixture[str],

@@ -1081,11 +1081,12 @@ def test_only_private_window_strategy_is_new_compiler_capability_consumer() -> N
 def test_compiler_capability_guard_uses_exact_source_facts(
     tmp_path: Path, source: str, expected: tuple[str, ...]
 ) -> None:
-    with NamedTemporaryFile(dir=tmp_path, suffix=".py") as snippet:
+    # Close the file before reading it again: Windows cannot reopen an open
+    # NamedTemporaryFile.
+    with NamedTemporaryFile(dir=tmp_path, suffix=".py", delete=False) as snippet:
         snippet.write(source.encode("utf-8"))
-        snippet.flush()
-        facts = RepositoryFactIndex.snapshot(tmp_path).python(Path(snippet.name))
-        assert _compiler_capability_references(facts, "pietto._project") == expected
+    facts = RepositoryFactIndex.snapshot(tmp_path).python(Path(snippet.name))
+    assert _compiler_capability_references(facts, "pietto._project") == expected
 
 
 @pytest.mark.parametrize(

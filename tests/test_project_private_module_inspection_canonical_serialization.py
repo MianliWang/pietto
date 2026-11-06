@@ -1522,6 +1522,9 @@ def test_canonical_bytes_escape_surrogate_paths_and_always_encode_as_utf8(
     assert escape("a\udfffb") == "a\\udfffb"
     assert token(inspection_module._text("bad\udcff.pietto")) == "s:bad\\udcff.pietto"
     assert token(inspection_module._text("bad\udcff.pietto")).encode("utf-8")
+    if sys.platform == "win32":
+        # Windows names are UTF-16, so none holds an undecodable byte.
+        pytest.skip("needs undecodable bytes in names")
 
     root = tmp_path / "project"
     root.mkdir(parents=True, exist_ok=True)

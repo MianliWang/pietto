@@ -9,7 +9,10 @@ import stat
 
 import pytest
 
-from _pietto_project_path_trust import report_reparse_point
+from _pietto_project_path_trust import (
+    POSIX_DIRECTORY_RELATIVE_OPEN,
+    report_reparse_point,
+)
 
 import pietto
 import pietto._project as project_package
@@ -173,6 +176,7 @@ def test_project_root_replacement_is_project_root_error(tmp_path: Path) -> None:
     )
 
 
+@POSIX_DIRECTORY_RELATIVE_OPEN
 def test_package_root_replacement_during_location_is_rejected(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,

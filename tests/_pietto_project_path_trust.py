@@ -11,6 +11,7 @@ from __future__ import annotations
 import os
 from pathlib import Path
 import stat
+import sys
 import time
 from types import SimpleNamespace
 from typing import Any
@@ -26,6 +27,13 @@ CLOUD_FILE_TAG = 0x9000_601A
 _os_open = os.open
 _os_lstat = os.lstat
 _os_fstat = os.fstat
+
+# Forcing the directory-relative open needs os.open(dir_fd=...), which Windows
+# CPython lacks; docs/project-package.md: "The Windows trusted-open fallback
+# checks the parent directories before and after opening".
+POSIX_DIRECTORY_RELATIVE_OPEN = pytest.mark.skipif(
+    sys.platform == "win32", reason="Windows trusted reads use the open fallback"
+)
 
 
 def report_reparse_point(

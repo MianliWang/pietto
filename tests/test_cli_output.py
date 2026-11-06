@@ -481,10 +481,19 @@ def test_terminal_encoding_failure_returns_safe_output_error(
         "        id\n",
     )
 
-    normal = _run_cli(["emit-sql", str(path), "--dialect", "postgres"])
+    # A Windows pipe defaults to the ANSI code page, and text streams keep the
+    # platform's newline convention (docs/spec/cli-json-v1.md).
+    normal = _run_cli(
+        ["emit-sql", str(path), "--dialect", "postgres"],
+        encoding="utf-8" if sys.platform == "win32" else None,
+    )
+    newline = os.linesep.encode("ascii")
+    encoding_error = _OUTPUT_ENCODING_ERROR.replace(b"\n", newline)
     assert normal.returncode == 0
     assert normal.stderr == b""
-    assert normal.stdout == _expected_emoji_sql().encode("utf-8")
+    assert normal.stdout == _expected_emoji_sql().encode("utf-8").replace(
+        b"\n", newline
+    )
     for encoding in ("gbk", "cp1252", "ascii"):
         failed = _run_cli(
             ["emit-sql", str(path), "--dialect", "postgres"],
@@ -492,7 +501,7 @@ def test_terminal_encoding_failure_returns_safe_output_error(
         )
         assert failed.returncode == 2
         assert failed.stdout == b""
-        assert failed.stderr == _OUTPUT_ENCODING_ERROR
+        assert failed.stderr == encoding_error
         assert b"secret" not in failed.stderr
         assert b"Traceback" not in failed.stderr
 
@@ -523,7 +532,7 @@ def test_terminal_encoding_failure_returns_safe_output_error(
         )
         assert diagnostic.returncode == 2
         assert diagnostic.stdout == b""
-        assert diagnostic.stderr == _OUTPUT_ENCODING_ERROR
+        assert diagnostic.stderr == encoding_error
         assert b"Traceback" not in diagnostic.stderr
 
 

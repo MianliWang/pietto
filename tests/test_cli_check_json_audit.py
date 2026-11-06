@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 from pathlib import Path
+import sys
 from typing import cast
 
 import pytest
@@ -275,6 +276,7 @@ def test_check_json_audit_semantic_error_never_enters_ir_or_sql(
     assert _read_json_document(capsys)["ok"] is False
 
 
+@pytest.mark.skipif(sys.platform == "win32", reason="needs control characters in names")
 def test_check_json_audit_text_modes_keep_plain_text_escaping(
     tmp_path: Path,
     capsys: pytest.CaptureFixture[str],

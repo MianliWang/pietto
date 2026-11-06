@@ -9,6 +9,7 @@ from __future__ import annotations
 import ast
 from collections import Counter
 import dataclasses
+import os
 from pathlib import Path
 import sys
 import threading
@@ -426,6 +427,13 @@ OWNER_ONLY = {"result_schema", "verify_native"}
 
 
 def _world(request, route):
+    if route == "public_adbc_attempt":
+        # The route refuses ambient libpq variables by name, and a runner may set
+        # some (the Windows image sets PG* variables for its PostgreSQL).
+        monkeypatch = request.getfixturevalue("monkeypatch")
+        for name in list(os.environ):
+            if name.startswith("PG"):
+                monkeypatch.delenv(name)
     if route == "public_mysql_attempt":
         return request.getfixturevalue("mysql_ordinary")
     return request.getfixturevalue("guarded" if route in GUARDED_ROUTES else "ordinary")

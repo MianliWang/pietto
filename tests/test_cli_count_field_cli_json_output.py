@@ -117,7 +117,7 @@ def test_cli_json_count_field_sql_success_preserves_v1_shape(
     assert result["schema_version"] == 1
     assert result["command"] == "emit-sql"
     assert result["ok"] is True
-    assert result["path"] == input_path.as_posix()
+    assert result["path"] == str(input_path)  # the platform's spelling
     assert result["dialect"] == dialect
     assert result["diagnostics"] == []
     assert result["cli_errors"] == []

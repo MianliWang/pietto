@@ -10,6 +10,7 @@ import struct
 import pytest
 
 from _pietto_project_path_trust import (
+    POSIX_DIRECTORY_RELATIVE_OPEN,
     mutate_before_fallback_open,
     report_reparse_point,
 )
@@ -242,7 +243,9 @@ def test_asset_parent_symlink_traversal_is_rejected(tmp_path: Path) -> None:
     assert result.errors[0].path == "models/main.pietto"
 
 
-@pytest.mark.parametrize("fallback", (False, True))
+@pytest.mark.parametrize(
+    "fallback", (pytest.param(False, marks=POSIX_DIRECTORY_RELATIVE_OPEN), True)
+)
 def test_asset_parent_junction_traversal_is_rejected(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
@@ -540,7 +543,9 @@ def test_fallback_open_race_fails_closed_with_precise_message(
     )
 
 
-@pytest.mark.parametrize("fallback", (False, True))
+@pytest.mark.parametrize(
+    "fallback", (pytest.param(False, marks=POSIX_DIRECTORY_RELATIVE_OPEN), True)
+)
 @pytest.mark.parametrize(
     ("target", "failure", "suffix"),
     (

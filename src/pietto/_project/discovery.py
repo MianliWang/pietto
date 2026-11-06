@@ -147,7 +147,7 @@ def _root_error(message: str) -> ProjectDiscoveryResult:
 
 
 def _normalize_project_relative_path(raw_path: str | Path) -> str | None:
-    value = str(raw_path)
+    value = _path_text(raw_path)
     if not value:
         return None
     if "\x00" in value or "\\" in value:
@@ -167,7 +167,7 @@ def _normalize_project_relative_path(raw_path: str | Path) -> str | None:
 
 
 def _safe_error_path(raw_path: str | Path) -> str | None:
-    value = str(raw_path)
+    value = _path_text(raw_path)
     if not value:
         return None
     if "\\" in value or Path(value).is_absolute() or _is_windows_drive_path(value):
@@ -175,6 +175,12 @@ def _safe_error_path(raw_path: str | Path) -> str | None:
     if value.startswith("/") or value.startswith("//"):
         return None
     return value
+
+
+def _path_text(raw_path: str | Path) -> str:
+    """A Path's text with `/`, the project path separator, on every platform."""
+
+    return raw_path.as_posix() if isinstance(raw_path, Path) else str(raw_path)
 
 
 def _is_windows_drive_path(value: str) -> bool:

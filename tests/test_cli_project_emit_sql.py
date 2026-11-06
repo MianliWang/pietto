@@ -1004,6 +1004,7 @@ def test_a_diagnostic_naming_a_path_that_is_not_utf8_shows_it_escaped(
         directory.chmod(0o700)
 
 
+@pytest.mark.skipif(sys.platform == "win32", reason="needs undecodable bytes in names")
 def test_an_unopened_contract_path_that_is_not_utf8_is_named_by_null(
     tmp_path: Path,
 ) -> None:
@@ -2437,7 +2438,10 @@ def test_real_subprocess_streams_and_exit_codes(tmp_path: Path) -> None:
         check=False,
     )
     assert (result.returncode, result.stdout) == (2, b"")
-    assert result.stderr.startswith(b"pietto.sql-emission.v1 INPUT_REJECTED\n")
+    # stderr is a text stream, so it keeps the platform's newline convention.
+    assert result.stderr.startswith(
+        b"pietto.sql-emission.v1 INPUT_REJECTED" + os.linesep.encode("ascii")
+    )
     result = subprocess.run(
         command + argv(root, "postgres", kind="query"),
         cwd=elsewhere,

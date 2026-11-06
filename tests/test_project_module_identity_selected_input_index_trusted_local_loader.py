@@ -14,6 +14,7 @@ import pytest
 
 from _pietto_project_path_trust import (
     LX_SYMLINK_TAG,
+    POSIX_DIRECTORY_RELATIVE_OPEN,
     later_descriptor_ctime,
     mutate_before_fallback_open,
     report_reparse_point,
@@ -413,7 +414,9 @@ def test_fallback_config_open_race_fails_closed_with_precise_message(
         )
 
 
-@pytest.mark.parametrize("fallback", (False, True))
+@pytest.mark.parametrize(
+    "fallback", (pytest.param(False, marks=POSIX_DIRECTORY_RELATIVE_OPEN), True)
+)
 @pytest.mark.parametrize(
     ("failure", "message"),
     (
@@ -533,7 +536,13 @@ def test_fallback_source_open_race_fails_closed_with_precise_message(
 @pytest.mark.parametrize(
     ("mutation", "ctime_is_comparable", "message"),
     (
-        ("parent-link", True, "Project source file is not readable."),
+        pytest.param(
+            "parent-link",
+            True,
+            "Project source file is not readable.",
+            marks=_POSIX_CTIME,
+        ),
+        ("parent-link", False, "Project source file is not readable."),
         (
             "parent-dir",
             False,
@@ -576,7 +585,9 @@ def test_fallback_parent_swap_around_open_fails_closed(
     )
 
 
-@pytest.mark.parametrize("fallback", (False, True))
+@pytest.mark.parametrize(
+    "fallback", (pytest.param(False, marks=POSIX_DIRECTORY_RELATIVE_OPEN), True)
+)
 @pytest.mark.parametrize("ctime_is_comparable", (False, True))
 def test_descriptor_ctime_split_is_tolerated_only_where_ctime_is_not_comparable(
     tmp_path: Path,
@@ -857,6 +868,9 @@ def test_non_regular_selected_source_is_rejected_exactly(
     )
 
     monkeypatch.undo()
+    if sys.platform == "win32":
+        # A Windows name cannot hold a backslash, its path separator.
+        pytest.skip("needs a backslash in a name")
     normalized_root = _configured_project(tmp_path / "normalized", schema_version=2)
     _write(normalized_root, "bad\\name.pietto", "shape Row:\n    id: Int\n")
     invalid_path = select_project_sources(

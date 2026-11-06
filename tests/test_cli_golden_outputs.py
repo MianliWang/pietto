@@ -77,7 +77,7 @@ def test_emit_sql_matches_byte_exact_golden(
     assert captured.err == (
         ""
         if division is None
-        else f"{example}:{division[0]}:{division[1]} PIE-S2106 warning: `/` of two "
+        else f"{Path(example)}:{division[0]}:{division[1]} PIE-S2106 warning: `/` of two "
         "Int values truncates in SQL (`7 / 2` is 3, not 3.5); write "
         "`Float(x) / y` for a fractional result\n"
     )
@@ -115,6 +115,17 @@ _INT_DIVISIONS = {
 
 
 def _load_json(name: str) -> object:
-    """Load one manually reviewed JSON golden fixture."""
+    """Load one manually reviewed JSON golden fixture.
 
-    return json.loads((GOLDEN_ROOT / name).read_text(encoding="utf-8"))
+    Its paths are written with `/`; the CLI spells an input path as the
+    platform does (`str(Path(...))`), so each is read the same way.
+    """
+
+    return json.loads(
+        (GOLDEN_ROOT / name).read_text(encoding="utf-8"),
+        object_hook=lambda item: (
+            {**item, "path": str(Path(item["path"]))}
+            if isinstance(item.get("path"), str)
+            else item
+        ),
+    )
