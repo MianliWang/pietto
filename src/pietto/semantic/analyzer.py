@@ -9,6 +9,7 @@ from pietto.semantic.generators import normalize_group_generators
 
 from collections.abc import Callable, Iterator, Mapping, Sequence, Set as AbstractSet
 from dataclasses import fields, is_dataclass, replace
+from functools import partial
 from heapq import heappop, heappush, merge
 from typing import TYPE_CHECKING, cast
 
@@ -139,7 +140,11 @@ from pietto.semantic.modern_inputs import (
     bind_script_relationship_predicates,
     normalize_query_names,
 )
-from pietto.semantic.relationship_predicates import check_relationship_templates
+from pietto.semantic.relationship_predicates import (
+    check_relationship_templates,
+    parameter_row,
+    row_mismatch,
+)
 from pietto.semantic.shapes import check_field_derives, check_shape_structures
 from pietto.semantic.source_connectors import (
     check_source_connectors,
@@ -495,8 +500,25 @@ def _analyze(
     existence_generators: tuple[AnyUseInfo, ...] = (),
     any_uses: tuple[AnyValueInfo, ...] = (),
     any_trace: AnyValueTrace | None = None,
+    relation_rows: Mapping[int, RowSchema] | None = None,
 ) -> SemanticResult:
-    """Implement semantic analysis inside the public recursion boundary."""
+    """Implement semantic analysis inside the public recursion boundary.
+
+    A table or query row argument binds unchecked first. If a typed output row
+    then misses a parameter field, the analysis runs again from ``script``
+    with those rows (``relation_rows``), and the call fails as it binds.
+    """
+
+    again = partial(
+        _analyze,
+        script,
+        mode=mode,
+        single_file=single_file,
+        scalar_names=scalar_names,
+        existence_generators=existence_generators,
+        any_uses=any_uses,
+        any_trace=any_trace,
+    )
 
     type_symbols: dict[str, Definition] = {}
     callable_symbols: dict[str, Definition] = {}
@@ -583,6 +605,9 @@ def _analyze(
             shape_candidates=shape_candidates,
             scalar_names=scalar_names,
             occurrence_observer=None if any_trace is None else any_trace.record,
+            type_expansions=type_expansions,
+            type_nullability=type_nullability,
+            relation_rows=relation_rows,
         )
     )
     if any_trace is not None:
@@ -682,6 +707,28 @@ def _analyze(
         any_resolutions=any_resolutions,
         failed_relationship_calls=failed_relationship_calls,
     )
+    if relation_rows is None and any(
+        isinstance(argument.relation, (TableDef, QueryDef))
+        and argument.relation in relation_row_schemas
+        and row_mismatch(
+            parameter_row(argument.shape, type_expansions, type_nullability),
+            relation_row_schemas[argument.relation],
+            type_expansions,
+        )
+        is not None
+        for call in relationship_calls
+        for argument in call.arguments
+    ):
+        return again(
+            relation_rows={
+                id(before): relation_row_schemas[after]
+                for before, after in zip(
+                    previous_definitions, script.definitions, strict=True
+                )
+                if isinstance(after, (TableDef, QueryDef))
+                and after in relation_row_schemas
+            }
+        )
     diagnostics.extend(schema_diagnostics)
     expression_value_types, expression_diagnostics = type_shape_predicates(
         script,

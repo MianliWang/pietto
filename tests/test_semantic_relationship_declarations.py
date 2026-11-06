@@ -5,6 +5,7 @@ from pathlib import Path
 
 import pytest
 
+from _pietto_semantic_relationship_rows import CANONICAL, ROWS
 from pietto._project.project_ir_operators import ProjectIRLogicalOperatorKind
 from pietto import ast_nodes as ast
 from pietto.ast_nodes import Script
@@ -13,6 +14,7 @@ from pietto.ir.model import RelationIR, ScriptIR
 from pietto.parser_api import parse_source
 from pietto.semantic import analyze
 from pietto.semantic.model import (
+    EffectiveNullability,
     RelationshipTemplateInfo,
     SemanticModel,
     SemanticResult,
@@ -1610,7 +1612,7 @@ def test_failed_predicate_in_any_keeps_real_errors_without_scalar_cascade(
 _TABLE_ROW_BODY = """table owner_rows:
     from owners
     select:
-        id, status
+        id
         {target}
 query q:
     from items
@@ -1625,10 +1627,12 @@ query ranked:
         {other}
 """
 _TABLE_ROW_UNAVAILABLE = (
-    "Unavailable row argument for relationship ActiveOwner parameter owner"
+    "Unavailable row argument for relationship ActiveOwner parameter owner: "
+    "no column status"
 )
-# Each reader passes the same-file table `owner_rows` as the Owner row on line
-# 20, with what the file reports without a window.
+# Each reader passes the same-file table `owner_rows`, which has no `status`
+# column, as the Owner row on line 20, with what the file reports without a
+# window.
 _TABLE_ROW_READERS = {
     "on": (
         "left join owner_rows on ActiveOwner(items, owner_rows)",
@@ -1689,7 +1693,13 @@ def test_failed_predicate_in_a_window_argument_keeps_both_errors() -> None:
             28,
             13,
         ),
-        ("PIE-S2604", _TABLE_ROW_UNAVAILABLE, 28, 36),
+        # `ranked` reads no `owner_rows` row at all.
+        (
+            "PIE-S2604",
+            "Unavailable row argument for relationship ActiveOwner parameter owner",
+            28,
+            36,
+        ),
     ]
 
 
@@ -1736,3 +1746,30 @@ def test_failed_predicate_beside_a_window_reports_in_a_legacy_flat_project(
         "project has no JOIN in the current syntax; set schema_version = 2 to "
         "check it.\n"
     )
+
+
+@pytest.mark.parametrize("name", tuple(ROWS))
+def test_a_table_or_query_row_binds_a_relationship_by_field_name(name: str) -> None:
+    """Each parameter field needs an output column of its name and type, after
+    alias expansion and with an enum's own declaration, which is never None
+    unless the field may be; extra columns are ignored. A source's row still
+    needs the parameter's shape, and a shape's `unique` is no key of a
+    query's rows: only a grouped query's GROUP BY key is (B14)."""
+    source, expected = ROWS[name]
+    assert _located(_modern_predicate_result(source).diagnostics) == expected
+
+
+def test_a_left_joined_query_row_keeps_its_nullability_and_identity() -> None:
+    result = _modern_predicate_result(CANONICAL)
+    model = result.model
+    query = model.relation_symbols["result"]
+    assert isinstance(query, ast.QueryDef)
+    # A LEFT JOIN's row may be None, whatever the parameter shape says.
+    field = model.relation_row_schemas[query].fields["region_id"]
+    assert field.nullability is EffectiveNullability.NULLABLE
+    (call,) = model.relationship_calls
+    order, customer = call.arguments
+    assert order.relation is model.relation_symbols["orders"]
+    assert customer.relation is model.relation_symbols["active_customers"]
+    assert customer.shape.name == "Customer"
+    assert customer.occurrence is query.join_clauses[0]

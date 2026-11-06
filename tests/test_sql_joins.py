@@ -632,10 +632,9 @@ def test_a_join_over_a_distinct_endpoint_emits_its_on_form(
     tmp_path, target, kind, side, reads
 ):
     """A DISTINCT query on either side of a JOIN emits the SQL of its explicit
-    ON, whether the JOIN names its target with `let` or directly, also when the
-    query reads the relation it is joined with. A shape-typed relationship
-    cannot take the query's row, so a call over that endpoint fails closed
-    with PIE-S2604 instead of guessing the retired source-bound route."""
+    ON, whether the JOIN names its target with `let` or directly or matches it
+    with a relationship call, which takes the query's row by its columns'
+    names, also when the query reads the relation it is joined with."""
     left, right = ("d", "rhs") if side == "source" else ("lhs", "d")
     producer, other = ("lhs", "rhs") if side == "source" else ("rhs", "lhs")
     if reads == "joined":
@@ -672,21 +671,11 @@ def test_a_join_over_a_distinct_endpoint_emits_its_on_form(
     )
     if target == "mysql":
         expected = expected.replace('"public"', '"phase66"').replace('"', "`")
-    call = docs.pop("call")
-    assert [doc["status"] for doc in docs.values()] == ["VERIFIED"] * 2
-    assert [doc["sql"] for doc in docs.values()] == [expected] * 2
+    assert [doc["status"] for doc in docs.values()] == ["VERIFIED"] * 3
+    assert [doc["sql"] for doc in docs.values()] == [expected] * 3
     assert [requirement_kinds(doc)["match_condition"] for doc in docs.values()] == [
-        1,
-        1,
-    ]
-    assert call["status"] == "BLOCKED"
-    parameter = "l" if side == "source" else "r"
-    assert [(d["code"], d["message"]) for d in call["diagnostics"]] == [
-        (
-            "PIE-S2604",
-            f"Unavailable row argument for relationship near parameter {parameter}",
-        )
-    ]
+        1
+    ] * 3
 
 
 @pytest.mark.parametrize("target", TARGETS)

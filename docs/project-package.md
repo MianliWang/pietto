@@ -398,7 +398,12 @@ EXPLICIT_MODULES project; `constraint` and `derive` declarations are not
 importable or exportable. A package module refuses each `def` or
 `relationship` item (PIE-S2707).
 A relationship call uses the exact declared shapes and actual row occurrences,
-including identities reached through imported shape/source aliases. It does not
+including identities reached through imported shape/source aliases. A table or
+query row binds by its output columns, as in a single file, also one imported
+from another module; in a project, a table or query whose output row is known
+only after completion, such as a query with a JOIN read by `any(...)`, is not
+yet taken (`Unavailable row argument for relationship R parameter p`), while
+the same condition written out is. It does not
 create a public link object, infer a FROM input or grant a foreign-key promise.
 
 The module graph preserves complete import evidence separately from canonical

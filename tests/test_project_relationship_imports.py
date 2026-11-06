@@ -139,6 +139,49 @@ def test_an_imported_relationship_is_called_by_the_name_its_import_binds(
     assert _check(tmp_path, capsys, {"a.pietto": MODELS, **files}) == []
 
 
+@pytest.mark.parametrize("imported", (True, False), ids=("imported", "local"))
+@pytest.mark.parametrize("status", ("customers.status", "customers.id"))
+def test_a_query_row_is_checked_by_the_field_types_of_the_declaring_module(
+    tmp_path: Path,
+    capsys: pytest.CaptureFixture[str],
+    imported: bool,
+    status: str,
+) -> None:
+    head = (
+        IMPORT
+        if imported
+        else SOURCES_IMPORT.replace("\n", ", shape Order, shape Customer\n") + DECLARED
+    )
+    text = head + (
+        "query active:\n"
+        "    from customers\n"
+        f"    select id, status = {status}\n"
+        "query q:\n"
+        "    from orders\n"
+        "    let buyer = active\n"
+        "    left join buyer on OrderCustomer(orders, buyer)\n"
+        "    select order_id = orders.id, customer_id = buyer.id\n"
+    )
+    lines = text.splitlines()
+    (line,) = (n for n, item in enumerate(lines, 1) if "left join" in item)
+    expected = (
+        []
+        if status == "customers.status"
+        else [
+            (
+                "PIE-S2604",
+                "b.pietto",
+                line,
+                lines[line - 1].index("buyer)") + 1,
+                "Unavailable row argument for relationship OrderCustomer "
+                "parameter customer: column status is Int, field status is "
+                "Text | None",
+            )
+        ]
+    )
+    assert _check(tmp_path, capsys, {"a.pietto": MODELS, "b.pietto": text}) == expected
+
+
 COLLISION = "Import binding collides with a local declaration: OrderCustomer"
 HINT = "; import relationship OrderCustomer as <name>"
 

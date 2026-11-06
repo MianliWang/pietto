@@ -901,11 +901,39 @@ the order. The later LEFT JOIN likewise retains unmatched accumulated rows.
 Moving the active test to WHERE would change those rows, so predicate extraction
 does not move it there.
 
-Shape parameters resolve by declared shape identity, including their declaring
-module; matching field names do not establish the same shape. Each call binds
-its actual row occurrences independently, even when several rows share a source
-or shape. Current JOIN null-extension remains authoritative over a shape's
-original non-null fields. Calls are available in ON, WHERE and SELECT and may
+A source row binds a parameter by declared shape identity, including the
+shape's declaring module; matching field names do not establish the same
+shape, so a source of another shape with the same fields is PIE-S2604
+(`Relationship R parameter p requires declared shape S; the actual row has
+a different shape identity`). A table or query row, in a project also one
+imported from another module, binds by its output columns: each field of
+the parameter's shape needs a column of the same name and type, compared
+after alias expansion on both sides, an enum by its declaration. A column
+that may be None does not bind a field of type `T`: neither a column of
+type `T | None` nor one of unknown nullability, such as a computed `x + 1`,
+as for a def parameter (write `coalesce(x + 1, 0)`, or declare the field
+`T | None`). A column of unknown type, such as `None` written alone, is
+compared by name only, as a def argument is. Decimal precision and scale are
+not compared; extra columns are ignored. The first field, in the shape's
+order, that does not match is PIE-S2604 at the argument:
+`Unavailable row argument for relationship R parameter p: no column f`,
+`...: column f is Text, field f is Int`,
+`...: column f is Int | None, field f is Int`,
+`...: column f is Int of unknown nullability, field f is Int` or, for enums
+of two modules with one name,
+`...: column f is Tier from "other.pietto", field f is Tier from "types.pietto"`.
+A query that selects a source's columns therefore binds where the source
+itself does not. In a project, the rows of a query that has a JOIN of its
+own bind a parameter only as the FROM row of a query without JOIN: in a
+query with a JOIN, or through `any(...)`, their columns are not known where
+the call is bound, so the call is PIE-S2604 with no reason, also when a
+column does not match; write the test out, as in `on q.id == x.id`. Only a
+grouped query's GROUP BY key proves a key of its rows: the parameter
+shape's `unique` says nothing about a table or query.
+Each call binds its actual row occurrences independently, even when several
+rows share a source, table, query or shape. Current JOIN null-extension
+remains authoritative over a shape's original non-null fields, for source,
+table and query rows alike. Calls are available in ON, WHERE and SELECT and may
 be combined with the admitted Boolean operators. The body is one expression,
 on the header line after ':' or alone in its block, as a `def` body is. It may
 contain literal filters, comparisons and AND/OR/NOT; it reads only its supplied
@@ -1299,9 +1327,42 @@ CROSS takes no `on` (PIE-S2336). An `on` is an ordinary row predicate: field
 comparisons, calls of [relationship predicates](#named-inputs-and-reusable-relationship-predicates)
 such as `on OrderCustomer(orders, customer)`, and their `and`, `or` and `not`
 combinations. A relationship call takes, for each parameter, an input that
-reads a source of that parameter's shape; a table or query input is no such
-row (PIE-S2604 `Unavailable row argument for relationship <name> parameter
-<role>`), so write the condition out in `on` to join one.
+reads a source of that parameter's shape, or a table or query whose columns
+match the shape's fields by name and type (see
+[Named inputs and reusable relationship predicates](#named-inputs-and-reusable-relationship-predicates));
+its SQL is the SQL of its body written in `on`. A name that is no input the
+call can read is PIE-S2604 `Unavailable row argument for relationship
+<name> parameter <role>`.
+
+```pietto
+shape Order:
+    id: Int
+    customer_id: Int
+
+shape Customer:
+    id: Int
+    region_id: Int
+
+source orders: Order = postgres.table("shop.orders")
+
+source customers: Customer = postgres.table("shop.customers")
+
+relationship order_customer(order: Order, customer: Customer): order.customer_id == customer.id
+
+query active_customers:
+    from customers
+    where customers.region_id > 0
+    select id, region_id
+
+query result:
+    from orders
+    let buyer = active_customers
+    left join buyer on order_customer(orders, buyer)
+    select order_id = orders.id, region_id = buyer.region_id
+```
+
+`buyer.region_id` is None for an order without an active customer, although
+`Customer.region_id` is not `Int | None`: the LEFT JOIN decides.
 
 An unshaped source, including one reached through other relations, is refused
 with PIE-S2334 at the JOIN that introduces it (the first JOIN for an unknown

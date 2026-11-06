@@ -22,6 +22,7 @@ from pietto._project.existence_values import (
 from pietto._project.model import (
     ProjectParseCheckResult,
     ProjectRowField,
+    ProjectRowSchema,
     ProjectResolvedTypeKind,
     ProjectSemanticResult,
     ProjectSymbolNamespace,
@@ -32,13 +33,18 @@ from pietto._project.module_relation_resolution import (
     _resolved_row_type,
     _row_field_nullability,
 )
+from pietto._project.project_ir_relational_properties import (
+    ProjectIRRelationalPropertyStage,
+)
 from pietto._project.project_relationship_uses import (
     ProjectRelationBindingOccurrence,
     ProjectRelationJoinUseLedger,
+    _final_output,
     project_join_binding_visible,
 )
 from pietto._project.row_expression_type_facts import (
     project_row_field_to_semantic_value_type,
+    project_row_schema_to_semantic_row_schema,
     scalar_field_reference_leaves,
 )
 from pietto.errors import Diagnostic, Severity, SourceLocation
@@ -48,6 +54,7 @@ from pietto.semantic.model import (
     RelationshipCallInfo,
     RelationshipTemplateInfo,
     ResolvedType,
+    RowSchema,
 )
 from pietto.semantic.relationship_predicates import (
     RelationshipCallFailure,
@@ -75,6 +82,13 @@ class ProjectRelationshipPredicateCatalog:
     # duplicate or an import cycle alone stops: its calls only follow that
     # reported error.
     followed: frozenset[tuple[str, str]] = field(init=False)
+    # Every module's parameter field types, for table and query row
+    # arguments: an imported relationship's fields are typed in the module
+    # that declares it.
+    field_types: tuple[
+        Mapping[ast.TypeExpr, ResolvedType],
+        Mapping[ast.TypeExpr, EffectiveNullability],
+    ] = field(init=False, repr=False)
 
     def __post_init__(self) -> None:
         root = self.semantic_result
@@ -85,6 +99,8 @@ class ProjectRelationshipPredicateCatalog:
         checked: dict[str, tuple[RelationshipTemplateInfo, ...]] = {}
         diagnostics: list[Diagnostic] = []
         followed: set[tuple[str, str]] = set()
+        expansions: dict[ast.TypeExpr, ResolvedType] = {}
+        field_nullability: dict[ast.TypeExpr, EffectiveNullability] = {}
         for module in root.modules:
             if module.parsed_input is None:
                 continue
@@ -152,6 +168,8 @@ class ProjectRelationshipPredicateCatalog:
                 type_nullability=nullability,
             )
             checked[module.path] = templates
+            expansions.update(value_types)
+            field_nullability.update(nullability)
             # A parameter shape name that a failed import, a duplicate or an
             # import cycle leaves unresolved has an error of its own.
             blocked = environment.blocked_type_names
@@ -197,6 +215,11 @@ class ProjectRelationshipPredicateCatalog:
         object.__setattr__(self, "imported", MappingProxyType(imported))
         object.__setattr__(self, "diagnostics", tuple(diagnostics))
         object.__setattr__(self, "followed", frozenset(followed))
+        object.__setattr__(
+            self,
+            "field_types",
+            (MappingProxyType(expansions), MappingProxyType(field_nullability)),
+        )
 
     def follows_failed_import(self, diagnostic: Diagnostic) -> bool:
         """Whether ``diagnostic`` only says that a call cannot use a
@@ -449,6 +472,7 @@ class ProjectRelationshipPredicateExpression:
 def bind_project_relationship_predicates(
     catalog: ProjectRelationshipPredicateCatalog,
     ledger: ProjectRelationJoinUseLedger,
+    relational: ProjectIRRelationalPropertyStage | None = None,
 ) -> tuple[ProjectRelationshipPredicateExpression, ...]:
     """Bind all JOIN-owner clauses before collecting scalar references."""
 
@@ -487,14 +511,17 @@ def bind_project_relationship_predicates(
     contexts.extend(
         (item, item.expression, visible) for item in definition.select_items
     )
-    return _bind_project_predicates(catalog, ledger.owner, contexts)
+    return _bind_project_predicates(catalog, ledger.owner, contexts, relational)
 
 
 def bind_project_no_join_relationship_predicates(
     catalog: ProjectRelationshipPredicateCatalog,
     owner: ProjectDeclarationOccurrence,
+    relational: ProjectIRRelationalPropertyStage | None = None,
+    input_schema: ProjectRowSchema | None = None,
 ) -> tuple[ProjectRelationshipPredicateExpression, ...]:
-    """Bind one real FROM occurrence, including repeated row arguments."""
+    """Bind one real FROM occurrence, including repeated row arguments; a
+    table or query FROM row has the columns of ``input_schema``."""
 
     definition = owner.definition
     assert isinstance(definition, (ast.TableDef, ast.QueryDef))
@@ -523,7 +550,7 @@ def bind_project_no_join_relationship_predicates(
     contexts.extend(
         (item, item.expression, bindings) for item in definition.select_items
     )
-    return _bind_project_predicates(catalog, owner, contexts)
+    return _bind_project_predicates(catalog, owner, contexts, relational, input_schema)
 
 
 def _bind_project_predicates(
@@ -532,7 +559,13 @@ def _bind_project_predicates(
     contexts: list[
         tuple[ast.Node, ast.Expression, tuple[ProjectPredicateArgumentBinding, ...]]
     ],
+    relational: ProjectIRRelationalPropertyStage | None = None,
+    input_schema: ProjectRowSchema | None = None,
 ) -> tuple[ProjectRelationshipPredicateExpression, ...]:
+    """A table or query row binds by the output row of its JOIN binding, of
+    ``input_schema`` for the FROM row or of ``relational`` (the final
+    outputs); one whose output row none of them gives does not bind."""
+
     root = catalog.semantic_result
     catalogs = root.module_catalogs
     assert catalogs is not None
@@ -553,6 +586,7 @@ def _bind_project_predicates(
         item.name for item in modules[0].module.parsed_input.scalar_callables
     )
     contexts.sort(key=lambda item: (item[0].span.line, item[0].span.column))
+    field_types = catalog.field_types
     results: list[ProjectRelationshipPredicateExpression] = []
     ordinal = 0
     for context, expression, visible in contexts:
@@ -581,9 +615,11 @@ def _bind_project_predicates(
                     continue
                 shape = declared_source_shape(root, target)
                 relation = target.definition
-                if shape is not None and isinstance(
-                    relation, (ast.SourceDef, ast.TableDef, ast.QueryDef)
-                ):
+                if isinstance(relation, (ast.TableDef, ast.QueryDef)):
+                    columns = _output_row(binding, relational, input_schema)
+                    if columns is not None:
+                        found.append((site, relation, columns))
+                elif shape is not None and isinstance(relation, ast.SourceDef):
                     found.append((site, relation, shape))
             return tuple(found)
 
@@ -629,6 +665,8 @@ def _bind_project_predicates(
                 )
             ),
             occurrence_observer=observe,
+            type_expansions=field_types[0],
+            type_nullability=field_types[1],
         )
         ordinal += len(calls)
         argument_bindings: list[tuple[ProjectPredicateArgumentBinding, ...]] = []
@@ -661,6 +699,32 @@ def _bind_project_predicates(
             )
         )
     return tuple(results)
+
+
+def _output_row(
+    binding: ProjectPredicateArgumentBinding,
+    relational: ProjectIRRelationalPropertyStage | None,
+    input_schema: ProjectRowSchema | None,
+) -> RowSchema | None:
+    """The output row of a table or query argument's relation, if known."""
+
+    if isinstance(binding, ProjectRelationBindingOccurrence):
+        output, symbol = binding.output, binding.target
+    elif isinstance(binding, ProjectAnyRowBinding):
+        output, symbol = None, binding.resolution.target_symbol
+    elif input_schema is not None:
+        return project_row_schema_to_semantic_row_schema(input_schema)
+    else:
+        output, symbol = None, binding.target_symbol
+    if output is None and symbol is not None and relational is not None:
+        output = _final_output(relational, symbol)
+    if output is None:
+        return None
+    return project_row_schema_to_semantic_row_schema(
+        ProjectRowSchema(
+            fields={item.evidence.name: item.evidence for item in output.fields}
+        )
+    )
 
 
 def select_project_predicate_expression(

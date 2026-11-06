@@ -494,48 +494,33 @@ def test_a_via_route_refined_by_an_authored_predicate_keeps_both(tmp_path, targe
 
 
 @pytest.mark.parametrize("target", TARGETS)
-def test_a_promoted_endpoint_keeps_the_relationship_guarantee_unavailable(
-    tmp_path, target
-):
-    """A precise upstream negative, retained rather than worked around.
-
-    Becoming transportable does not make a value a relationship endpoint. A
-    relationship is shape-typed now, and a row of the promoted producer is not
-    a row of a declared shape, even one with its field names: the call refuses
-    that argument (PIE-S2604), so it is not a successful promoted-endpoint
-    witness and discharges no obligation.
-    """
-    checked, outcome = build(
-        tmp_path,
-        target,
-        """shape Prod:
-    pid: Int
-    marker: Int
-relationship prodlink(l: Row, p: Prod):
-    l.id == p.pid
-"""
+def test_a_promoted_endpoint_is_a_relationship_row_by_its_columns(tmp_path, target):
+    """Becoming transportable does not make a value a relationship endpoint,
+    but a table's row binds a relationship parameter by its columns' names and
+    types: the call over the promoted producer completes and emits the SQL of
+    its body written as the `on`."""
+    head = (
+        "shape Prod:\n    pid: Int\n    marker: Int\n"
+        "relationship prodlink(l: Row, p: Prod):\n    l.id == p.pid\n"
         + PRODUCERS["literal"]
-        + """query result:
-    from lhs
-    let r = prod
-    inner join r on prodlink(lhs, r)
-    select:
-        a = lhs.id
-""",
+        + "query result:\n    from lhs\n    let r = prod\n"
     )
-    # The producer itself IS promoted; only the relationship over it stays
-    # unavailable, and the JOIN that calls it keeps its condition non-concrete.
+    tail = "    select:\n        a = lhs.id\n"
+    checked, outcome = build(
+        tmp_path / "call",
+        target,
+        head + "    inner join r on prodlink(lhs, r)\n" + tail,
+    )
+    _, written = build(
+        tmp_path / "written",
+        target,
+        head + "    inner join r on lhs.id == r.pid\n" + tail,
+    )
     assert type(producer_entry(checked)) is ProjectCompletedEffectiveOutput
-    entry = producer_entry(checked, "result")
-    assert type(entry) is ProjectEffectiveOutputCompletionTerminal
-    assert entry.reason.value == "current_join_condition_non_concrete"
-    assert outcome.status == "BLOCKED"
-    assert [(item.code, item.message) for item in outcome.diagnostics] == [
-        (
-            "PIE-S2604",
-            "Unavailable row argument for relationship prodlink parameter p",
-        )
-    ]
+    assert type(producer_entry(checked, "result")) is ProjectCompletedEffectiveOutput
+    assert outcome.status == written.status == "VERIFIED"
+    assert outcome.artifact is not None and written.artifact is not None
+    assert outcome.artifact.rendered.sql == written.artifact.rendered.sql
 
 
 @pytest.mark.parametrize("target", TARGETS)

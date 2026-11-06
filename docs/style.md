@@ -374,6 +374,55 @@ query orders_with_customer:
     select order_id = orders.id, customer_name = customer.name
 ```
 
+A relationship also takes the rows of a table or query whose columns match
+its shape by name and type; the call is written as for a source:
+
+```pietto
+shape Order:
+    id: Int
+    customer_id: Int
+
+shape Customer:
+    id: Int
+    region_id: Int
+
+source orders: Order = postgres.table("shop.orders")
+
+source customers: Customer = postgres.table("shop.customers")
+
+relationship order_customer(order: Order, customer: Customer): order.customer_id == customer.id
+
+query active_customers:
+    from customers
+    where customers.region_id > 0
+    select id, region_id
+
+query result:
+    from orders
+    let buyer = active_customers
+    left join buyer on order_customer(orders, buyer)
+    select order_id = orders.id, region_id = buyer.region_id
+```
+
+To pass a source of another shape, select its columns in a query and pass
+the query.
+
+Not this (each is PIE-S2604 at the argument):
+
+- a query without a column the shape needs: ``Unavailable row argument for
+  relationship order_customer parameter customer: no column region_id``.
+- a column of another type: ``...: column region_id is Text, field region_id
+  is Int``.
+- a column of type `Int | None` for a field of type `Int`: ``...: column
+  region_id is Int | None, field region_id is Int``.
+- a computed column, such as `region_id = customers.region_id + 1`, for a
+  field of type `Int` (``...: column region_id is Int of unknown nullability,
+  field region_id is Int``): write `coalesce(customers.region_id + 1, 0)`, or
+  declare the field `Int | None`.
+- a source of another shape with the same fields: ``Relationship
+  order_customer parameter customer requires declared shape Customer; the
+  actual row has a different shape identity``.
+
 ### Latest earlier row: `asof`
 
 To take, for each order, the latest price at or before it, as pandas

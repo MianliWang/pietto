@@ -7170,7 +7170,10 @@ def _complete_no_join_output(
         semantic_result=completion.verification.root.join_regions.uses.semantic_result
     )
     predicate_expressions = bind_project_no_join_relationship_predicates(
-        predicate_catalog, owner
+        predicate_catalog,
+        owner,
+        completion.verification.root.join_regions.uses.relational,
+        input_schema,
     )
     let_scope = build_project_relation_let_scope_facts(
         definition=definition,

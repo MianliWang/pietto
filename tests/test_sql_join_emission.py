@@ -14,6 +14,7 @@ import pytest
 
 import pietto.cli as cli
 from _pietto_semantic_join_asof import KEY, TIME, asof_query
+import _pietto_semantic_relationship_rows as rows
 from pietto.errors import Diagnostic, Severity, SourceLocation
 from pietto.ir import (
     AggregateCallIR,
@@ -2363,6 +2364,25 @@ EMITTED_JOINS = {
         None,
     ),
 }
+
+
+@pytest.mark.parametrize("dialect", DIALECTS)
+@pytest.mark.parametrize(
+    "source", (rows.CANONICAL, rows.HEAD + rows.GROUPED), ids=("left", "grouped")
+)
+def test_a_relationship_over_query_rows_emits_its_written_on(
+    source: str, dialect: str
+) -> None:
+    emitter = emit_postgres_sql if dialect == "postgres" else emit_mysql_sql
+
+    def emitted(text: str) -> list[tuple[str, str]]:
+        result = emitter(
+            _compile_source(text.replace("postgres.table", f"{dialect}.table"))
+        )
+        assert result.diagnostics == ()
+        return [(artifact.name, artifact.sql) for artifact in result.artifacts]
+
+    assert emitted(source) == emitted(rows.written_on(source))
 
 
 @pytest.mark.parametrize("dialect", DIALECTS)

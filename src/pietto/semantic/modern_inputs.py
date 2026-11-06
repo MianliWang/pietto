@@ -4,13 +4,17 @@ from __future__ import annotations
 
 from collections.abc import Callable, Container, Mapping, Sequence
 from dataclasses import replace
+from typing import cast
 
 from pietto import ast_nodes as ast
 from pietto.errors import Diagnostic, Severity, SourceLocation
 from pietto.semantic.existence_generators import AnyUseInfo
 from pietto.semantic.model import (
+    EffectiveNullability,
     RelationshipCallInfo,
     RelationshipTemplateInfo,
+    ResolvedType,
+    RowSchema,
 )
 from pietto.semantic.relation_schemas import _projection_output_name
 from pietto.semantic.relationship_predicates import (
@@ -443,13 +447,21 @@ def bind_script_relationship_predicates(
     shape_candidates: Mapping[str, Sequence[ast.Node]],
     scalar_names: frozenset[str] = frozenset(),
     occurrence_observer: Callable[[object, object], None] | None = None,
+    type_expansions: Mapping[ast.TypeExpr, ResolvedType] | None = None,
+    type_nullability: Mapping[ast.TypeExpr, EffectiveNullability] | None = None,
+    relation_rows: Mapping[int, RowSchema] | None = None,
 ) -> tuple[
     ast.Script,
     tuple[RelationshipCallInfo, ...],
     tuple[Diagnostic, ...],
     tuple[RelationshipCallFailure, ...],
 ]:
-    """Single-file adapter; module binding supplies a separate project adapter."""
+    """Single-file adapter; module binding supplies a separate project adapter.
+
+    A table or query row binds unchecked unless ``relation_rows`` gives its
+    output row, by the identity of its declaration in ``script``: the caller
+    checks it after typing and binds again with the rows it typed.
+    """
 
     if not script.relationship_templates:
         return script, (), (), ()
@@ -464,6 +476,10 @@ def bind_script_relationship_predicates(
     failures: list[RelationshipCallFailure] = []
     diagnostics: list[Diagnostic] = []
     definitions: list[ast.Definition] = []
+
+    def output_row(relation: ast.TableDef | ast.QueryDef) -> RowSchema | None:
+        return None if relation_rows is None else relation_rows.get(id(relation))
+
     for definition in script.definitions:
         if not isinstance(definition, (ast.TableDef, ast.QueryDef)):
             definitions.append(definition)
@@ -503,6 +519,8 @@ def bind_script_relationship_predicates(
                     if scope.binding_name != argument.name:
                         continue
                     for source in relations.get(scope.relation_name, ()):
+                        if isinstance(source, (ast.TableDef, ast.QueryDef)):
+                            candidates.append((scope, source, output_row(source)))
                         if not isinstance(source, ast.SourceDef):
                             continue
                         for shape in shape_candidates.get(source.shape_name or "", ()):
@@ -519,6 +537,8 @@ def bind_script_relationship_predicates(
                     if not visible and position != limit:
                         continue
                     for source in relations.get(relation_name, ()):
+                        if isinstance(source, (ast.TableDef, ast.QueryDef)):
+                            candidates.append((occurrence, source, output_row(source)))
                         if not isinstance(source, ast.SourceDef):
                             continue
                         for shape in shape_candidates.get(source.shape_name or "", ()):
@@ -573,6 +593,8 @@ def bind_script_relationship_predicates(
                 scalar_argument_available=available_scalar,
                 occurrence_observer=observed,
                 first_ordinal=len(calls) + len(owner_calls),
+                type_expansions=type_expansions,
+                type_nullability=type_nullability,
             )
             owner_calls.extend(uses)
             failures.extend(failed)
@@ -655,6 +677,27 @@ def bind_script_relationship_predicates(
             )
             for call in owner_calls
         )
+    # A table or query argument is the declaration that this binding rebuilt.
+    rebuilt = {
+        id(before): after
+        for before, after in zip(script.definitions, definitions, strict=True)
+    }
+    calls = [
+        replace(
+            call,
+            arguments=tuple(
+                replace(
+                    argument,
+                    relation=cast(
+                        ast.SourceDef | ast.TableDef | ast.QueryDef,
+                        rebuilt.get(id(argument.relation), argument.relation),
+                    ),
+                )
+                for argument in call.arguments
+            ),
+        )
+        for call in calls
+    ]
     # Clause traversal order is an implementation detail; facts keep source use order.
     calls.sort(
         key=lambda call: (

@@ -1324,6 +1324,86 @@ changes):
   reach a compiled bundle; a call's compiled predicate record names the
   declaring module's template, as a local one does.
 
+### Relationships take table and query rows
+
+- A relationship parameter now takes the rows of a table or a query, in a
+  project also one imported from another module, matched by field name: each
+  field of the parameter's shape needs an output column of its name and type.
+  Types are compared after alias expansion on both sides, an enum by its
+  declaration (enums of two modules with one name are two types). A column
+  that may be None does not bind a field of type `T`: neither a column of type
+  `T | None` nor one of unknown nullability, such as a computed `x + 1`, as a
+  def parameter without `| None` takes neither (PIE-S2395); write
+  `coalesce(x + 1, 0)` or declare the field `T | None`. A column of unknown
+  type, such as `None` written alone, is compared by name only, as a def
+  argument is. Decimal precision and scale are not compared, as a value's
+  type is `Decimal`. Extra columns are ignored. A source's rows still need
+  the parameter's own shape, so a source of another shape with the same
+  fields is still refused, while a query that selects that source's columns
+  is taken.
+- Reading a LEFT-joined table or query row through a relationship keeps it
+  nullable, as for a source row. Only a grouped query's GROUP BY key proves a
+  key: the parameter shape's `unique` says nothing about a query's rows, so an
+  aggregate over a JOIN on a query that is not grouped stays refused
+  (PIE-S2381 in a single file, PIE-S2333 in a project, as for the same `on`
+  written out).
+- The SQL of such a call is the SQL of its body written as the `on` (or
+  WHERE, SELECT or `let` test), byte for byte, in `emit-sql` and
+  `emit-sql --project`, for PostgreSQL and MySQL; project `compile_query` and
+  the live template keep it. A two-database differential (PostgreSQL 18.6,
+  MySQL 8.4.12) of the LEFT, table, grouped, WHERE, SELECT, `let`, `any` and
+  FROM forms, each as a single file and as a project query, matched the
+  expected rows on both databases.
+- **Refusals that become acceptances.** Each form below reported PIE-S2604
+  `Unavailable row argument for relationship R parameter p` in 0.1.9 and is
+  now accepted, in single files and EXPLICIT_MODULES projects:
+  - a query's or a table's rows as a JOIN input in `on`
+    (`let buyer = active_customers`, then
+    `left join buyer on OrderCustomer(orders, buyer)`);
+  - a grouped query's rows, its GROUP BY key proving the key of an aggregate
+    over the JOIN (`left join s on CustomerSpend(customers, s)` with
+    `count(customers.id)` per region);
+  - a table or query JOIN input in WHERE, SELECT or a `let` of a JOIN query
+    (`where OrderCustomer(orders, buyer)`);
+  - a table or query read with `from`, in a query without JOIN
+    (`from active_customers`, `where InRegion(active_customers)`);
+  - the row of `any(... for c in q)` over a table or query
+    (`where any(OrderCustomer(orders, c) for c in active_customers)`);
+  - in a project, any of these forms over a query or table imported from
+    another module, or over a local query that reads an imported source.
+- **New refusal texts** (PIE-S2604, ERROR, at the row argument; the first
+  field in the shape's declaration order that does not match):
+  - `Unavailable row argument for relationship R parameter p: no column f`
+  - `Unavailable row argument for relationship R parameter p: column f is T,
+    field f is U` (for example `column region_id is Text, field region_id is
+    Int`, or `column tier is Level, field tier is Tier` for two enums)
+  - `Unavailable row argument for relationship R parameter p: column f is T |
+    None, field f is T`
+  - `Unavailable row argument for relationship R parameter p: column f is T
+    of unknown nullability, field f is T` (a computed column such as `x + 1`)
+  - `Unavailable row argument for relationship R parameter p: column f is E
+    from "m.pietto", field f is E from "n.pietto"` (enums of two modules with
+    the same name)
+  - An imported relationship checks a table or query row against the field
+    types of the module that declares it, as a local one does.
+- **Compatibility.**
+  - `Unavailable row argument for relationship R parameter p` without a
+    reason still reports an argument that names no row the call can read,
+    and, in a project, a query input whose columns are not known where the
+    call is bound (below); it no longer reports a table or query input whose
+    columns match.
+  - A call whose name is both a `def` and a relationship, with an argument
+    that names a table or query input, is now a relationship call (it was the
+    `def` call), as for a source input; with only scalar arguments it is
+    unchanged.
+  - In a project, a query that itself has a JOIN binds a parameter only as
+    the FROM row of a query without JOIN; read in a query with a JOIN (as
+    its FROM row or a JOIN input) or through `any(...)`, its output row is
+    not known where the call is bound, so the call still reports
+    `Unavailable row argument for relationship R parameter p`, with no
+    reason also when a column does not match. A single file takes it, and
+    the same test written out (`on q.id == x.id`) compiles in a project too.
+
 ## Equality, nullability and asof JOIN public alpha release notes — 0.1.9
 
 <a id="unreleased-changes-following-018"></a>

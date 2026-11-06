@@ -1,12 +1,14 @@
 """Shape-typed row predicates, bound before ordinary scalar typing/lowering.
 
 Inputs are occurrences supplied by the relation owner. Shape names are lookup
-material only: a parameter and an actual row must share the same declaration.
+material only: a source row and its parameter must share the same declaration,
+while a table or query row binds by its output columns' names and types.
 """
 
 from __future__ import annotations
 
 import itertools
+import json
 from collections.abc import Callable, Mapping, Sequence
 from dataclasses import dataclass, replace
 from typing import cast
@@ -31,9 +33,13 @@ from pietto.semantic.model import (
 
 __all__ = ()
 
-# The adapter returns existing occurrence, relation and declared shape identities.
+# The adapter returns existing occurrence and relation identities, with a
+# source's declared shape, a table or query's output columns, or None for a
+# table or query row whose columns are checked after typing (a single file).
 RowCandidate = tuple[
-    ast.Node, ast.SourceDef | ast.TableDef | ast.QueryDef, ast.ShapeDef
+    ast.Node,
+    ast.SourceDef | ast.TableDef | ast.QueryDef,
+    ast.ShapeDef | RowSchema | None,
 ]
 RowResolver = Callable[[ast.NameExpr], Sequence[RowCandidate]]
 
@@ -93,28 +99,12 @@ def check_relationship_templates(
                 continue
             shape = cast(ast.ShapeDef, candidates[0])
             shapes.append(shape)
-            row = RowSchema(
-                fields={
-                    field.name: RowField(
-                        name=field.name,
-                        resolved_type=type_expansions.get(
-                            field.type_expr,
-                            type_resolutions.get(
-                                field.type_expr,
-                                ResolvedType(
-                                    name=field.type_expr.name, kind=TypeKind.UNKNOWN
-                                ),
-                            ),
-                        ),
-                        nullability=type_nullability.get(
-                            field.type_expr, EffectiveNullability.UNKNOWN
-                        ),
-                        definition=field,
-                    )
-                    for field in shape.fields
-                }
+            parameters[parameter.name] = (
+                shape,
+                parameter_row(
+                    shape, type_expansions, type_nullability, type_resolutions
+                ),
             )
-            parameters[parameter.name] = (shape, row)
         if len(diagnostics) != start:
             continue
         value_types: dict[ast.Expression, ValueType] = {}
@@ -195,6 +185,94 @@ def check_relationship_templates(
     return tuple(checked), tuple(diagnostics)
 
 
+def parameter_row(
+    shape: ast.ShapeDef,
+    type_expansions: Mapping[ast.TypeExpr, ResolvedType],
+    type_nullability: Mapping[ast.TypeExpr, EffectiveNullability],
+    type_resolutions: Mapping[ast.TypeExpr, ResolvedType] | None = None,
+) -> RowSchema:
+    """The fields of a parameter shape, each typed after alias expansion."""
+
+    return RowSchema(
+        fields={
+            field.name: RowField(
+                name=field.name,
+                resolved_type=type_expansions.get(
+                    field.type_expr,
+                    (type_resolutions or {}).get(
+                        field.type_expr,
+                        ResolvedType(name=field.type_expr.name, kind=TypeKind.UNKNOWN),
+                    ),
+                ),
+                nullability=type_nullability.get(
+                    field.type_expr, EffectiveNullability.UNKNOWN
+                ),
+                definition=field,
+            )
+            for field in shape.fields
+        }
+    )
+
+
+def row_mismatch(
+    fields: RowSchema,
+    columns: RowSchema,
+    type_expansions: Mapping[ast.TypeExpr, ResolvedType],
+) -> str | None:
+    """Why a table or query row cannot bind a parameter: the first field, in
+    declaration order, with no output column of its name, or whose column has
+    another type after alias expansion (an enum is its declaration, named
+    with its module when two modules' enums share a name) or may be None
+    where the field may not: a column of unknown nullability, such as a
+    computed ``x + 1``, fits as it fits a ``def`` parameter (PIE-S2395).
+    Extra columns are ignored; a column or field of unknown type is compared
+    by name only."""
+
+    def expanded(value: ResolvedType) -> ResolvedType:
+        definition = value.definition
+        if value.kind is TypeKind.TYPE_ALIAS and isinstance(definition, ast.TypeDef):
+            return type_expansions.get(definition.base, value)
+        return value
+
+    def text(
+        value: ResolvedType, nullability: EffectiveNullability, origin: bool
+    ) -> str:
+        suffix = {
+            EffectiveNullability.NULLABLE: " | None",
+            EffectiveNullability.UNKNOWN: " of unknown nullability",
+        }.get(nullability, "")
+        if origin and value.definition is not None:
+            path = json.dumps(value.definition.span.path, ensure_ascii=False)
+            suffix += f" from {path}"
+        return value.name + suffix
+
+    for name, field in fields.fields.items():
+        column = columns.fields.get(name)
+        if column is None:
+            return f"no column {name}"
+        have, want = expanded(column.resolved_type), expanded(field.resolved_type)
+        if TypeKind.UNKNOWN in (have.kind, want.kind):
+            continue
+        other_enum = (
+            have.kind is TypeKind.ENUM and have.definition is not want.definition
+        )
+        if (
+            have.kind is not want.kind
+            or have.name != want.name
+            or other_enum
+            or (
+                field.nullability is EffectiveNullability.NON_NULL
+                and column.nullability is not EffectiveNullability.NON_NULL
+            )
+        ):
+            origin = other_enum and have.name == want.name
+            return (
+                f"column {name} is {text(have, column.nullability, origin)}, "
+                f"field {name} is {text(want, field.nullability, origin)}"
+            )
+    return None
+
+
 @dataclass(frozen=True, slots=True, eq=False)
 class RelationshipCallFailure:
     call: ast.CallExpr
@@ -228,6 +306,8 @@ def bind_relationship_expression(
     scalar_argument_available: Callable[[ast.NameExpr], bool] | None = None,
     occurrence_observer: Callable[[object, object], None] | None = None,
     first_ordinal: int = 0,
+    type_expansions: Mapping[ast.TypeExpr, ResolvedType] | None = None,
+    type_nullability: Mapping[ast.TypeExpr, EffectiveNullability] | None = None,
 ) -> tuple[
     ast.Expression,
     tuple[RelationshipCallInfo, ...],
@@ -240,6 +320,8 @@ def bind_relationship_expression(
     introduced by a predicate argument and no shape supplies row nullability.
     ``imported`` holds the checked templates another module declares, by the
     names this one binds them to; their bodies keep that module's meaning.
+    ``type_expansions`` and ``type_nullability`` type the parameter fields a
+    table or query row's columns must match.
     """
 
     from pietto.semantic.inline_functions import _rebuild
@@ -346,6 +428,23 @@ def bind_relationship_expression(
                 )
                 continue
             occurrence, relation, actual_shape = actuals[0]
+            if isinstance(actual_shape, RowSchema):
+                mismatch = row_mismatch(
+                    parameter_row(shape, type_expansions or {}, type_nullability or {}),
+                    actual_shape,
+                    type_expansions or {},
+                )
+                if mismatch is not None:
+                    diagnostics.append(
+                        _diagnostic(
+                            argument,
+                            f"Unavailable row argument for relationship {name} "
+                            f"parameter {parameter.name}: {mismatch}",
+                        )
+                    )
+                    continue
+            if not isinstance(actual_shape, ast.ShapeDef):
+                actual_shape = shape
             if actual_shape is not shape:
                 diagnostics.append(
                     _diagnostic(

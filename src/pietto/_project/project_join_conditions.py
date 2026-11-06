@@ -1124,7 +1124,9 @@ class ProjectJoinConditionSet:
             tuple(
                 item
                 for ledger in self.uses.ledgers
-                for item in bind_project_relationship_predicates(predicates, ledger)
+                for item in bind_project_relationship_predicates(
+                    predicates, ledger, self.uses.relational
+                )
             ),
         )
         entries = tuple(

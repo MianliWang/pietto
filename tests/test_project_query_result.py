@@ -9,6 +9,7 @@ from typing import cast
 import pytest
 
 from _pietto_project_completion import POSITIVE_SOURCE
+from _pietto_semantic_relationship_rows import MODULES, ROWS
 
 import pietto.cli as cli
 from pietto._project import model as project_model
@@ -3735,3 +3736,51 @@ def test_error_projection_walks_each_shared_carrier_once_in_bounded_time(
     ] == [("PIE-S2102", "Unknown field: missing", 15, 46)]
     assert len(deep.completed.diagnostics) == 1
     assert elapsed < 30
+
+
+@pytest.mark.parametrize("name", tuple(ROWS))
+def test_table_and_query_row_arguments_check_as_in_a_single_file(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str], name: str
+) -> None:
+    source, expected = ROWS[name]
+    (tmp_path / "pietto.toml").write_text(
+        'schema_version = 2\n\n[sources]\ninclude = ["*.pietto"]\n',
+        encoding="utf-8",
+    )
+    (tmp_path / "main.pietto").write_text(source, encoding="utf-8")
+    assert cli.main(["check", "--project", str(tmp_path)]) == (1 if expected else 0)
+    lines = capsys.readouterr().err.splitlines()
+    if name == "shape_unique":
+        # A project refuses the repeated rows at the relation, as it does
+        # for the same `on` written out.
+        assert lines == [
+            "main.pietto:31:1 PIE-S2333 error: Project relation semantic "
+            "completion is unavailable: result (an aggregate may read rows "
+            "repeated by JOIN s)"
+        ]
+    else:
+        assert lines == [
+            f"main.pietto:{line}:{column} {code} error: {message}"
+            for code, message, line, column in expected
+        ]
+
+
+@pytest.mark.parametrize("name", tuple(MODULES))
+def test_table_and_query_rows_bind_across_modules(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str], name: str
+) -> None:
+    """An imported query's row and a local query's row over an imported
+    source bind by their columns; an enum of another module with the same
+    name is another type, named with its module."""
+    files, expected = MODULES[name]
+    (tmp_path / "pietto.toml").write_text(
+        'schema_version = 2\n\n[sources]\ninclude = ["*.pietto"]\n',
+        encoding="utf-8",
+    )
+    for path, source in files.items():
+        (tmp_path / path).write_text(source, encoding="utf-8")
+    assert cli.main(["check", "--project", str(tmp_path)]) == (1 if expected else 0)
+    assert capsys.readouterr().err.splitlines() == [
+        f"main.pietto:{line}:{column} {code} error: {message}"
+        for code, message, line, column in expected
+    ]

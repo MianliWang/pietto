@@ -20,6 +20,7 @@ from _pietto_plan_nested import (
     project,
 )
 from _pietto_semantic_join_asof import CANONICAL, project_contract
+import _pietto_semantic_relationship_rows as rows
 from pietto._project.project_compiled_build import CompiledBuild, build_compiled
 from pietto._project.project_compiled_loading import load_compiled
 from pietto._project.project_compiled_lowering import emit_compiled
@@ -3762,3 +3763,41 @@ def test_max_and_min_of_two_timestamps_or_uuids_emit_replay_and_bind(tmp_path, t
         assert [(item.code, item.detail) for item in blocked.blockers] == [
             ("PIE-B1003", detail)
         ]
+
+
+@pytest.mark.parametrize(
+    "source",
+    (rows.CANONICAL, rows.HEAD + rows.GROUPED, rows.IMPORTED),
+    ids=("left", "grouped", "imported"),
+)
+def test_a_relationship_over_query_rows_replays_as_its_written_on(tmp_path, source):
+    """A query's rows passed to a relationship, on the LEFT side, as a
+    grouped query keyed by its GROUP BY key (B14) or imported from another
+    module, emit the bytes of the same `on` written out; the compiled replay
+    and the live template keep them."""
+    imported = isinstance(source, dict)
+    contract = rows.project_contract(
+        customers="rows.pietto" if imported else "main.pietto"
+    )
+    checked, outcome = emission.build_case(tmp_path / "call", source, contract)
+    assert checked.verified and outcome.status == "VERIFIED"
+    assert outcome.artifact is not None
+    sql = outcome.artifact.rendered.sql
+    _, written = emission.build_case(
+        tmp_path / "written",
+        {path: rows.written_on(text) for path, text in source.items()}
+        if imported
+        else rows.written_on(source),
+        contract,
+    )
+    assert written.artifact is not None and written.artifact.rendered.sql == sql
+    built = build_compiled(outcome.artifact)
+    loaded = load_compiled(
+        built.payload,
+        expected_pin=built.pin,
+        accepted_producer=built.producer,
+        accepted_compatibility=built.compatibility,
+    )
+    values = tuple(value.value for value in outcome.artifact.fixed_values)
+    assert emit_compiled(loaded, values).rendered.sql == sql
+    assert prepare_live_template(outcome.artifact).artifact.rendered.sql == sql
