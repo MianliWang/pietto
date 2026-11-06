@@ -537,7 +537,8 @@ a field of the row as `o.paid`; besides `o`, the test reads only the
 `group by` keys. A query with aggregates and no `group by` reads its whole
 input as one group. `for o in orders` always means every row of `orders`, as
 in `any(...)`, never the group. A `schema_version = 2` project takes both
-too; MySQL emits neither yet.
+too. A MySQL single file emits the count; MySQL emits no conditional sum
+yet, and no project conditional count or sum.
 
 Not this (each is refused with a hint):
 

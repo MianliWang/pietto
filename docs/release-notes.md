@@ -76,7 +76,10 @@ new refusals.
 - PostgreSQL emits `COUNT(CASE WHEN <test> THEN 1 END)` and
   `COALESCE(CAST(SUM(CASE WHEN <test> THEN CAST(<f> AS pg_catalog.int8) END)
   AS pg_catalog.int8), 0)` (a sum outside signed 64 bits fails with SQLSTATE
-  22003, as `sum(Int)` does). MySQL refuses both (below).
+  22003, as `sum(Int)` does). MySQL writes the count the same way,
+  `COUNT(CASE WHEN <test> THEN 1 END)`, a `BIGINT` (its two-database
+  differential passed: the same rows and types as PostgreSQL), and refuses
+  the sum (below).
 - `where any(p for o in orders)` and `not any(...)` are unchanged, with the
   same SQL bytes: `for o in orders` always means every row of `orders`, never
   the current group.
@@ -87,10 +90,6 @@ new refusals.
 New refusals (programs that were PIE-P1000 before; the hint follows `; ` at
 the end of the message and is also the JSON `suggestion`):
 
-- MySQL single file, conditional count: PIE-B1000 `MySQL SQL emission is
-  not implemented for RelationIR: <name>. MySQL has no conditional count
-  yet; emit with --dialect postgres` (no JSON `suggestion`; the Phase74
-  MySQL catch-up takes it up).
 - MySQL single file, conditional sum: PIE-B1000 `MySQL SQL emission is not
   implemented for RelationIR: <name>. MySQL conditional sum of an Int argument
   is not supported` (MySQL sums integers in DECIMAL; the Phase74 MySQL

@@ -588,9 +588,16 @@ def _render_aggregate_call(
             "MySQL conditional sum of an Int argument is not supported"
         )
     if expression.function == "filtered_count":
-        # The Phase74 MySQL catch-up owns the conditional count.
-        raise MySqlRenderError(
-            "MySQL has no conditional count yet; emit with --dialect postgres"
+        # COUNT is a BIGINT on MySQL too; a NULL test takes no branch, so it
+        # matches no row (Phase73 differential on both targets).
+        if not aggregate_call_contract(
+            expression.function, expression.arguments, expression.value_type
+        ):
+            raise MySqlRenderError("MySQL conditional count violates its IR contract")
+        (test,) = expression.arguments
+        return (
+            f"COUNT(CASE WHEN {_render_mysql_expression(test, nested=False)} "
+            "THEN 1 END)"
         )
     if expression.function in {"median", "quantile"}:
         # MySQL 8.4 has no PERCENTILE_CONT or other interpolated percentile.

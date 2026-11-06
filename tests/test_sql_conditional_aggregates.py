@@ -80,18 +80,19 @@ def test_postgres_counts_and_adds_the_rows_whose_test_is_true(
     ]
 
 
-def test_mysql_refuses_the_conditional_count() -> None:
-    """The Phase74 MySQL catch-up owns the conditional count."""
+def test_mysql_counts_with_the_same_case_form() -> None:
+    """COUNT is a BIGINT on MySQL too; its two-database differential is the
+    S02 package's (Phase73 Annex B). HAVING and ORDER BY restate it."""
     result = _emit("mysql", COUNT)
+    value = "COUNT(CASE WHEN `paid` THEN 1 END)"
 
-    assert result.artifacts == ()
-    assert [(item.code, item.message) for item in result.diagnostics] == [
-        (
-            "PIE-B1000",
-            f"MySQL SQL emission is not implemented for RelationIR: {name}. "
-            "MySQL has no conditional count yet; emit with --dialect postgres",
-        )
-        for name in ("paid_per_customer", "paid_overall")
+    assert result.diagnostics == ()
+    assert [artifact.sql for artifact in result.artifacts] == [
+        "SELECT\n    `customer_id` AS `customer_id`,\n"
+        f"    {value} AS `paid_orders`\n"
+        "FROM `shop`.`orders`\nGROUP BY\n    `customer_id`\n"
+        f"HAVING\n    {value} > 1\nORDER BY\n    {value} DESC",
+        f"SELECT\n    {value} AS `paid_orders`\nFROM `shop`.`orders`",
     ]
 
 
