@@ -575,14 +575,27 @@ and fresh trust, source, value and deployment inputs.
   checked before the project is read (where the command prints its usage
   error), and when a verified query cannot become an execution (`PIE-R1004`,
   `PIE-R1005`).
+- `compile_query` checks the whole emission contract as the command does, so
+  a contract the command refuses is refused in the same way, also for a source
+  the query does not read. It then compiles the query with the query's
+  contract: the contract's sources that the query reads, in contract order,
+  and every premise scoped to the statement, to one of those sources or to an
+  expression over one, wherever the contract declares it (one declared in the
+  entry of a source the query does not read moves to `environment`), written
+  as canonical JSON (sorted keys, no whitespace). The query's `emission` and
+  bundle carry that contract, and its bundle records are computed from it, so
+  changing how the contract describes a source the query does not read never
+  changes them. The command keeps echoing the whole contract, with the same
+  SQL.
 - A `CompiledQuery` exposes `origin` (`"live"` from `compile_query`, `"bundle"`
   from `load_bundle`), `module`, `kind`, `name`, `dialect`, `release`,
   `literal_policy`, `slots` (the tag of each value slot, see [Values](#values)),
   `parameters` (each declared query parameter as `(name, tag, nullable)`, see
-  [Parameters](#parameters)) and `emission`, the same `pietto.sql-emission.v1`
-  artifact the command prints, or `pietto.sql-emission.v2` for a query that
-  declares parameters (`None` for a loaded bundle). Only `compile_query` and `load_bundle` create
-  one, and it cannot be pickled or copied. It is a snapshot of what was
+  [Parameters](#parameters)) and `emission`, the `pietto.sql-emission.v1`
+  artifact the command prints for the query's contract, or
+  `pietto.sql-emission.v2` for a query that declares parameters (`None` for a
+  loaded bundle). Only `compile_query` and `load_bundle` create one, and it
+  cannot be pickled or copied. It is a snapshot of what was
   compiled; see [Repeated calls and
   invalidation](#repeated-calls-and-invalidation).
 - `export_bundle(query) -> QueryBundle` returns the query as bundle bytes,
@@ -952,8 +965,9 @@ before the workspace opens.
 and three records of 64 lowercase hexadecimal characters each:
 
 - `pin`, the content identity of exactly these bytes;
-- `producer`, the identity of the project's source files and emission contract
-  and of the code that built the bytes;
+- `producer`, the identity of the project's source files, of the query's
+  emission contract (see `compile_query` in [API](#api)) and of the code that
+  built the bytes;
 - `compatibility`, the identity of the Pietto and ANTLR runtime files that were
   installed when the query was compiled; only installed code with that identity
   loads and runs the bytes.
@@ -1057,12 +1071,13 @@ A bundle never vouches for itself. Each entry has its own trust basis:
   deterministic identities of the content, not secrets: they confirm a guess
   of the query's literals and names, so where the literals matter, keep the
   records as confidential as the bundle.
-- A bundle holds the query's literal values, names and emission contract in
-  clear text, but never an access, a premise, a credential or the state of an
-  attempt: exporting before and after attempts gives the same bytes. Treat a
-  bundle like the query's source. Pietto never shows its content: errors carry
-  category words only, and `repr()` of a `QueryBundle` shows only the length of
-  its payload.
+- A bundle holds the query's literal values, names and the query's emission
+  contract in clear text, nothing of how the contract describes a source the
+  query does not read, and never an access, a premise, a credential or the
+  state of an attempt: exporting before and after attempts gives the same
+  bytes. Treat a bundle like the query's source. Pietto never shows its
+  content: errors carry category words only, and `repr()` of a `QueryBundle`
+  shows only the length of its payload.
 - A loaded query is an ordinary direct query: every `execute()` takes its own
   access and premise, the premise's `schemas` must cover the bundle's own
   sources (`PIE-R1002` otherwise), and the sources are requalified in every
@@ -1113,7 +1128,7 @@ refused by it.
 | Database definitions, privileges or rows | Requalified and authorized in each attempt (`PIE-R2007`, `PIE-R3003`). | Not applicable. |
 | An installed Pietto `.py` file or the ANTLR runtime, including any upgrade | `PIE-R1005` for every query compiled or loaded before; it works again when the code is restored. | The old records: `PIE-R1005`. The old bytes relabeled with the new compatibility: `PIE-R1008`. |
 | The bundle bytes | Nothing for a query already loaded; it keeps what it loaded. | Changed bytes under the old pin: `PIE-R1007` (`PIE-R1008` when the change breaks the bracket nesting that is checked before hashing). |
-| The project's source files or contract | Nothing for a query already compiled: it is a snapshot, and the edits take effect with the next `compile_query`. | A new export has another producer and pin; records of two exports mixed together are refused (`PIE-R1007`, `PIE-R1008`). |
+| The project's source files or contract | Nothing for a query already compiled: it is a snapshot, and the edits take effect with the next `compile_query`. | A new export has another producer and pin; records of two exports mixed together are refused (`PIE-R1007`, `PIE-R1008`). A change only to how the contract describes sources the query does not read, or only to its formatting, keeps the producer and pin, so that query's bundle and saved jobs stay valid. |
 
 ## Bounded Collect and Unnest
 

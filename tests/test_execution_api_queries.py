@@ -52,7 +52,9 @@ from pietto._project.project_execution_template import (
     bind_values,
     compatible_compiled_values,
 )
+from pietto._project.project_sql_emission import serialize_project_sql_emission
 from pietto._project.project_sql_emission_cli import POLICIES, emit_project
+from pietto._project.project_sql_emission_contract import canonical
 from pietto.execution import _errors as errors
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -153,6 +155,151 @@ def test_public_compile_and_bundle_accept_a_joined_computed_key(tmp_path):
     assert query.origin == "live" and loaded.origin == "bundle"
     assert query.slots == ("Int", "Int")
     assert facts(loaded) == facts(query)
+
+
+def test_compile_query_keeps_only_the_contract_sources_the_query_reads(tmp_path):
+    """The whole contract is checked as the command checks it; each query is
+    then compiled and bundled with the canonical contract of only the sources
+    it reads, so an unread source's description is no part of its identity.
+    The command still echoes the whole contract with the same SQL."""
+    project, _ = project_with(
+        tmp_path / "three-sources",
+        'source archived: Item = postgres.table("fixture.archived")\n'
+        'source drafts: Item = postgres.table("fixture.drafts")\n\n'
+        "table active_items:\n    from items\n    where id > 1\n"
+        "    select:\n        id\n        label\n\n"
+        "table matched:\n    from items\n    let old = archived\n"
+        "    inner join old on items.id == old.id\n"
+        "    select:\n        id = items.id\n        old_label = old.label\n",
+    )
+    example = json.loads(api.example_blocks()["json"])
+
+    def contract(*names, environment=()):
+        sources = []
+        for name in names:
+            source = json.loads(json.dumps(example["sources"][0]))
+            source["selector"]["name"] = source["relation"]["name"] = name
+            sources.append(source)
+        return example | {
+            "sources": sources,
+            "environment": [*example["environment"], *environment],
+        }
+
+    def written(document, path="contract.json"):
+        (project / path).write_text(json.dumps(document, indent=2), encoding="utf-8")
+        return path
+
+    def compile_with(path, name="active_items"):
+        return execution.compile_query(
+            project,
+            module="main.pietto",
+            kind="table",
+            name=name,
+            dialect="postgres",
+            emission_contract=path,
+        )
+
+    def command(path, name="active_items"):
+        outcome, _ = emit_project(
+            project,
+            "main.pietto",
+            "table",
+            name,
+            "postgres",
+            path,
+            POLICIES["preserve"],
+        )
+        return serialize_project_sql_emission(outcome)
+
+    def scoped(premise, name):
+        selector = {"module": "main.pietto", "kind": "source", "name": name}
+        return premise | {"scope": {"kind": "source", "selector": selector}}
+
+    def drafts_premise(value):
+        return scoped({"key": "read_only_object", "value": value}, "drafts")
+
+    whole = written(contract("items", "archived", "drafts"))
+    for name, read in (
+        ("active_items", ("items",)),
+        ("matched", ("items", "archived")),
+    ):
+        query = compile_with(whole, name)
+        bundle = execution.export_bundle(query)
+        echoed = json.loads(command(whole, name))
+        assert [
+            s["selector"]["name"] for s in echoed["request"]["contract"]["sources"]
+        ] == [
+            "items",
+            "archived",
+            "drafts",
+        ]
+        assert json.loads(query.emission or b"")["request"]["contract"] == contract(
+            *read
+        )
+        assert json.loads(query.emission or b"")["sql"] == echoed["sql"]
+        for each in (query, load(bundle)):
+            assert each._template.artifact.request.accepted_bytes == canonical(
+                contract(*read)
+            )
+        only = written(contract(*read), "read.json")
+        assert execution.export_bundle(compile_with(only, name)) == bundle
+
+    bundle = execution.export_bundle(compile_with(whole))
+    edited = contract("items", "drafts", environment=[drafts_premise(True)])
+    edited["sources"][1]["relation"]["name"] = "drafts_v2"
+    assert (
+        execution.export_bundle(compile_with(written(edited, "edited.json"))) == bundle
+    )
+    moved = contract("items", "archived", "drafts")
+    moved["sources"][0]["relation"]["name"] = "items_v2"
+    other = execution.export_bundle(compile_with(written(moved, "moved.json")))
+    assert (other.pin, other.producer) != (bundle.pin, bundle.producer)
+
+    # Premises are kept by scope wherever they are declared: one scoped to
+    # the statement or to `items` in the unread `drafts` entry moves to
+    # `environment`, one scoped to `drafts` in the `items` entry is left out.
+    in_drafts = contract("items", "drafts") | {"environment": []}
+    in_drafts["sources"][1]["premises"] += example["environment"]
+    local = contract("items", "drafts")
+    own = local["sources"][0]["premises"]
+    local["sources"][0]["premises"] = []
+    local["sources"][1]["premises"] = [scoped(p, "items") for p in own]
+    expected = contract("items")
+    expected["sources"][0]["premises"] = []
+    expected["environment"] += local["sources"][1]["premises"]
+    leak = contract("items", "drafts")
+    leak["sources"][0]["premises"].append(drafts_premise(False))
+    leak["sources"][1]["premises"] = []
+    for document, query_contract in (
+        (in_drafts, contract("items")),
+        (local, expected),
+        (leak, contract("items")),
+    ):
+        path = written(document, "layout.json")
+        query = compile_with(path)
+        assert query._template.artifact.request.accepted_bytes == canonical(
+            query_contract
+        )
+        assert json.loads(command(path))["status"] == "VERIFIED"
+        # `matched` also reads `archived`, which these contracts leave out.
+        with pytest.raises(execution.CompileRejected) as error:
+            compile_with(path, "matched")
+        assert error.value.emission == command(path, "matched")
+
+    typo = contract("items", "archived", "drafts")
+    typo["sources"][2]["selector"]["name"] = "draft"
+    duplicate = contract("items", "drafts", "drafts")
+    conflict = contract("items", "drafts", environment=[drafts_premise(False)])
+    for document, status in (
+        (typo, "INPUT_REJECTED"),
+        (duplicate, "INPUT_REJECTED"),
+        (conflict, "BLOCKED"),
+    ):
+        path = written(document, "refused.json")
+        with pytest.raises(execution.CompileRejected) as error:
+            compile_with(path)
+        assert error.value.status == status
+        assert error.value.emission == command(path)
 
 
 def literals(query, text):
@@ -312,6 +459,7 @@ def test_export_returns_the_live_query_own_bundle_and_its_records(
         "postgres",
         "contract.json",
         POLICIES["bind-safe"],
+        read_sources_only=True,
     )
     built = build_compiled(outcome.artifact)
     assert (bundle.payload, bundle.pin, bundle.producer) == (
@@ -2543,6 +2691,7 @@ def test_a_compiled_membership_read_carries_its_operand_column_and_inner_source(
         "postgres",
         "contract.json",
         POLICIES["preserve"],
+        read_sources_only=True,
     )
     verify_export(description, outcome.artifact)
     with pytest.raises(CompiledError):

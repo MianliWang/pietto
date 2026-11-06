@@ -19,11 +19,19 @@ __all__: tuple[str, ...] = ()
 
 
 def emit_live(project, module, kind, name, dialect, contract, policy):
-    """The shared emission outcome."""
+    """The shared emission outcome, over the contract's sources the query
+    reads."""
     from pietto._project.project_sql_emission_cli import POLICIES, emit_project
 
     outcome, _protected = emit_project(
-        project, module, kind, name, dialect, contract, POLICIES[policy]
+        project,
+        module,
+        kind,
+        name,
+        dialect,
+        contract,
+        POLICIES[policy],
+        read_sources_only=True,
     )
     return outcome
 

@@ -375,13 +375,17 @@ def emit_project(
     dialect: str,
     contract: str,
     policy: ProjectSQLLiteralPolicy,
+    *,
+    read_sources_only: bool = False,
 ) -> tuple[EmissionOutcome, tuple[tuple[Path, tuple[int, int]], ...]]:
     """Run the verified emission pipeline once for one selected owner.
 
     Returns the outcome and the identities of the configuration, sources and
     contract that an output file must not replace. The CLI and the public
     Python compile entry share it, so the same input reaches the same
-    artifact or the same failure document on both.
+    artifact or the same failure document on both; the compile entry passes
+    `read_sources_only`, so its artifact keeps only the contract's sources
+    that the owner reads.
     """
     context, common = _prepare_emission_context(project, contract)
     if common is not None:
@@ -409,7 +413,7 @@ def emit_project(
             context.diagnostics,
             InputError("emission_selector", "Selected owner is absent or ambiguous."),
         ), ()
-    outcome = _emit_owner(context, owners[0], dialect, policy)
+    outcome = _emit_owner(context, owners[0], dialect, policy, read_sources_only)
     return outcome, context.protected if outcome.status == "VERIFIED" else ()
 
 
@@ -557,7 +561,11 @@ def _prepare_emission_context(
 
 
 def _emit_owner(
-    context: _EmissionContext, owner: Any, dialect: str, policy: ProjectSQLLiteralPolicy
+    context: _EmissionContext,
+    owner: Any,
+    dialect: str,
+    policy: ProjectSQLLiteralPolicy,
+    read_sources_only: bool = False,
 ) -> EmissionOutcome:
     """Run the existing per-owner plan, verification, preparation and realization tail."""
     try:
@@ -579,7 +587,9 @@ def _emit_owner(
                     "emission_selector", "Project planning roots are unavailable."
                 ),
             )
-        prepared = prepare_project_sql_emission(checked, context.contract_bytes)
+        prepared = prepare_project_sql_emission(
+            checked, context.contract_bytes, read_sources_only=read_sources_only
+        )
         if type(prepared) is PreparationFailure:
             return _normalized_failure(
                 "INPUT_REJECTED" if prepared.errors else "BLOCKED",

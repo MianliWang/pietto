@@ -639,6 +639,37 @@ Compatibility:
   bundles carry the Phase73 version marks `(7, 1, 7, 1)` of the aggregate
   windows subsection, and a reader of earlier marks refuses them.
 
+### `compile_query` takes the project's whole emission contract
+
+- `compile_query` now accepts an emission contract that also describes
+  sources the query does not read, as `emit-sql --project` always has. It used
+  to refuse it with `PIE-R1004` (`COMPILED_EXPORT_SOURCE_BINDING`), so a
+  multi-source project needed one contract per query.
+- The whole contract is still checked first, exactly as the command checks
+  it. A misspelled or unknown selector, a repeated source, an invalid field or
+  premise of any source, or premises that disagree (`PIE-B1005`), also for a
+  source the query does not read, raise `CompileRejected` with the command's
+  failure document byte for byte.
+- The query is then compiled with its own contract: the contract's sources
+  that it reads, in contract order, and every premise scoped to the
+  statement, to one of those sources or to an expression over one, wherever
+  the contract declares it (one declared in the entry of a source the query
+  does not read moves to `environment`), written as canonical JSON (sorted
+  keys, no whitespace). A premise scoped to a source the query does not read
+  is left out, wherever it is declared.
+- The query's `emission` is the artifact the command prints for that contract:
+  the same SQL, with `request.contract` and `target.environment` naming only
+  what the query reads. `emit-sql --project` output does not change.
+- Compatibility: a bundle's `producer` and `pin` are computed from the query's
+  canonical contract instead of the contract file's bytes. Changing, adding or
+  removing how the contract describes a source the query does not read, or
+  only reformatting the contract file, no longer changes the query's bundle or
+  its records, so its bundles and saved jobs stay valid. A change to a source
+  the query reads, or to a statement premise, still gives a new producer and
+  pin. A bundle no longer holds anything of how the contract describes a
+  source the query does not read. No diagnostic code, failure document, JSON
+  shape, SQL text or bundle format changes.
+
 ## Equality, nullability and asof JOIN public alpha release notes — 0.1.9
 
 <a id="unreleased-changes-following-018"></a>

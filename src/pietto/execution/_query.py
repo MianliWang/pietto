@@ -47,11 +47,11 @@ class CompiledQuery:
     tag of each value slot, in the order execute(values=...) takes them; slot
     i is ``fixed_values[i]`` of the bind-safe ``emission``, which is the
     ``pietto.sql-emission.v1`` artifact, byte for byte what ``pietto emit-sql
-    --project ... --format json`` prints for the same arguments (the
-    ``pietto.sql-emission.v2`` artifact for a query that declares
-    parameters). ``parameters`` names each declared query parameter as
-    ``(name, tag, nullable)``, in declaration order; execute(parameters=...)
-    takes their values by name. ``emission`` is None for a loaded bundle,
+    --project ... --format json`` prints for the same arguments and the
+    query's contract (the ``pietto.sql-emission.v2`` artifact for a query
+    that declares parameters). ``parameters`` names each declared query
+    parameter as ``(name, tag, nullable)``, in declaration order;
+    execute(parameters=...) takes their values by name. ``emission`` is None for a loaded bundle,
     which keeps the slot order it was exported with.
     """
 
@@ -192,7 +192,11 @@ def compile_query(
     (``postgres`` or ``mysql``), the project-relative emission contract and
     the literal policy (``preserve`` or ``bind-safe``). Compiling reads the
     project files and the installed Pietto and ANTLR runtime code; it never
-    connects to a database or reads a schema.
+    connects to a database or reads a schema. The whole contract is checked
+    as the command checks it; the query is then compiled with its own
+    contract: the canonical JSON of the sources it reads, in contract order,
+    and every premise scoped to the statement, to one of them or to an
+    expression over one, wherever the contract declares it.
 
     Raises CompileRejected with the same failure document as the command,
     or RequestRejected (PIE-R1001/R1002) for an invalid argument and

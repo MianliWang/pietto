@@ -491,8 +491,17 @@ def _structure_limit_blocker(plan, premises):
 
 
 def prepare_project_sql_emission(
-    verification, data, *, target_request=None, scalar_meaning=None
+    verification,
+    data,
+    *,
+    target_request=None,
+    scalar_meaning=None,
+    read_sources_only=False,
 ):
+    """`read_sources_only` (compile_query): once the whole contract is valid
+    and its premises agree, prepare instead its canonical bytes that keep, in
+    contract order, only the sources the plan reads and, wherever declared,
+    the premises scoped to them, their expressions or the statement."""
     errors: list[InputError] = []
     if type(verification) is not ProjectSQLPlanVerification:
         return PreparationFailure(
@@ -899,6 +908,34 @@ def prepare_project_sql_emission(
         )
     assert view is not None
     assert target is not None
+    if read_sources_only and not conflicts:
+        read = {id(binding.source.owner) for binding in view.plan.sources}
+        bound = iter(premises)  # one per raw premise, in input order
+
+        def kept(raws):
+            return [
+                raw
+                for raw in raws
+                if (scope := next(bound).scope) == "statement"
+                or id(scope[0] if type(scope) is tuple else scope) in read
+            ]
+
+        # A kept premise declared in an unread entry is statement or
+        # dict-scoped, so it moves to `environment` unchanged.
+        trimmed = document | {"sources": [], "environment": kept(environment)}
+        for raw, source in zip(raw_sources, sources, strict=True):
+            premises_kept = kept(raw["premises"])
+            if id(source.owner) in read:
+                trimmed["sources"].append(raw | {"premises": premises_kept})
+            else:
+                trimmed["environment"] += premises_kept
+        assert next(bound, None) is None
+        return prepare_project_sql_emission(
+            verification,
+            canonical(trimmed),
+            target_request=target_request,
+            scalar_meaning=scalar_meaning,
+        )
     structure = _structure_limit_blocker(verification.plan, premises)
     if structure is not None:
         return PreparationFailure(
