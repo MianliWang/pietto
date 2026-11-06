@@ -1442,20 +1442,33 @@ def test_fallback_contract_open_race_is_reported_as_changed(
     )
 
 
+@pytest.mark.parametrize(
+    "ctime_is_comparable",
+    (
+        False,
+        pytest.param(
+            True,
+            marks=pytest.mark.skipif(
+                sys.platform == "win32", reason="Windows ctime is not an identity fact"
+            ),
+        ),
+    ),
+)
 def test_descriptor_ctime_split_is_tolerated_only_where_ctime_is_not_comparable(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, ctime_is_comparable: bool
 ) -> None:
     """Simulated Windows CPython: os.fstat reports a later st_ctime than os.lstat."""
     root, _ = project(tmp_path, "postgres")
     contract = os.stat(root / "contract.json")
     monkeypatch.setattr(path_trust, "_supports_directory_relative_open", lambda: False)
-    later_descriptor_ctime(monkeypatch)
-    monkeypatch.setattr(path_trust, "_CTIME_IS_COMPARABLE", False)
-    code, out, err = run(argv(root, "postgres"))
-    assert (code, err) == (0, "")
-    assert probe.decode_public(out)["status"] == "VERIFIED"
+    monkeypatch.setattr(path_trust, "_CTIME_IS_COMPARABLE", ctime_is_comparable)
+    if not ctime_is_comparable:
+        later_descriptor_ctime(monkeypatch)
+        code, out, err = run(argv(root, "postgres"))
+        assert (code, err) == (0, "")
+        assert probe.decode_public(out)["status"] == "VERIFIED"
+        return
 
-    monkeypatch.setattr(path_trust, "_CTIME_IS_COMPARABLE", True)
     later_descriptor_ctime(monkeypatch, only=(contract.st_dev, contract.st_ino))
     code, out, err = run(argv(root, "postgres"))
     assert (code, err) == (2, "") and kinds(out) == [
