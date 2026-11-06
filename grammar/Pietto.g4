@@ -130,6 +130,8 @@ moduleDeclarationKind
     | SOURCE
     | TABLE
     | QUERY
+    | DEF
+    | RELATIONSHIP
     ;
 
 // Pietto blocks use ':' plus NEWLINE/INDENT/DEDENT, never brace delimiters.

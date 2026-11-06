@@ -171,6 +171,14 @@ _RELATION_BODY_CONTEXTS = (
     PiettoParser.QueryDefinitionContext,
     PiettoParser.LetRelationDefinitionContext,
 )
+# The rules of an import or export statement and its items.
+_MODULE_ITEM_CONTEXTS = (
+    PiettoParser.ImportStatementContext,
+    PiettoParser.ImportItemContext,
+    PiettoParser.ExportStatementContext,
+    PiettoParser.ExportItemContext,
+    PiettoParser.ModuleDeclarationKindContext,
+)
 _CLAUSE_ORDER = (
     "a relation body lists from, joins, let, where, group by, select, having, "
     "qualify, order by and limit in that order."
@@ -366,7 +374,12 @@ def _expected_display(expected: Iterable[int]) -> str:
         rest -= _DECLARATION_FIRST | _HEADER_FIRST
     literal_names = PiettoParser.literalNames
     for token_type in sorted(
-        rest, key=lambda item: (item in _LAYOUT_TOKEN_TYPES, item)
+        rest,
+        key=lambda item: (
+            item in _LAYOUT_TOKEN_TYPES,
+            # A module item kind list names `def` before `relationship`.
+            (PiettoParser.DEF, 1) if item == PiettoParser.RELATIONSHIP else (item, 0),
+        ),
     ):
         display = _EXPECTED_DISPLAY.get(token_type)
         if display is None and 0 < token_type < len(literal_names):
@@ -793,6 +806,14 @@ class SyntaxErrorReporter(DefaultErrorStrategy):
             )
         if token.type == PiettoParser.UNKNOWN and not text.isascii():
             return "Names use ASCII letters, digits and `_`."
+        context = recognizer._ctx
+        if isinstance(context, _MODULE_ITEM_CONTEXTS) or isinstance(
+            context.parentCtx, _MODULE_ITEM_CONTEXTS
+        ):
+            if token.type == PiettoParser.STAR:
+                return "Name each item."
+            if token.type in {PiettoParser.CONSTRAINT, PiettoParser.DERIVE}:
+                return "Constraint and derive stay in their module."
         if token.type == PiettoParser.STAR and (
             not expected or _OPERAND_FIRST <= expected
         ):

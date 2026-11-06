@@ -12,6 +12,7 @@ from dataclasses import dataclass, replace
 from typing import cast
 
 from pietto import ast_nodes as ast
+from pietto._builtin_shadows import copy_imported, imported_node
 from pietto.errors import Diagnostic, Severity, SourceLocation
 from pietto.semantic.aggregates import contains_semantic_aggregate
 from pietto.semantic.expressions import infer_row_expression
@@ -275,7 +276,9 @@ def bind_relationship_expression(
             )
             return rebuilt
 
-        if name not in declared_names:
+        # A def body calls no relationship, also when another module
+        # declares it and this one has a relationship of the called name.
+        if name not in declared_names or imported_node(rebuilt):
             return rebuilt
         candidates = buckets.get(name, ())
         rows = [
@@ -363,6 +366,7 @@ def bind_relationship_expression(
                 return after
             # Every copied body node is an explicit located occurrence.
             span = replace(rebuilt.span, occurrence=next(occurrences))
+            copy_imported(cast(ast.Node, before), span)
             if type(after) is ast.DottedNameExpr and after.parts[0] in aliases:
                 result = replace(
                     after, parts=(aliases[after.parts[0]], *after.parts[1:]), span=span

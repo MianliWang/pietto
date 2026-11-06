@@ -534,8 +534,9 @@ def test_a_def_belongs_to_its_module(
             "b.pietto",
             5,
             11,
-            "Unknown function: pos; pos is a def of a.pietto, which a module "
-            "cannot import: declare it in this module",
+            "Unknown function: pos; pos is a def declared but not exported by "
+            "a.pietto: export it there with export def pos, then import it with "
+            'from "a.pietto" import def pos',
         ),
     ]
 

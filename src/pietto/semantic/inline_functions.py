@@ -9,11 +9,12 @@ from __future__ import annotations
 
 import itertools
 from bisect import bisect_right
-from collections.abc import Callable, Iterable, Iterator, Sequence
+from collections.abc import Callable, Iterable, Iterator, Mapping, Sequence
 from dataclasses import fields, is_dataclass, replace
 from types import MappingProxyType
 from typing import NamedTuple, cast
 
+from pietto._builtin_shadows import copy_imported
 from pietto._inline_argument import InlinedArgument
 from pietto._syntax_admission import source_order
 from pietto.ast_nodes import (
@@ -107,6 +108,9 @@ _NEW_BUILTIN_RENAMES = {
     "now": "Rename this def: `now` has become the built-in UTC time of the "
     "running query, and a call to now always means it.",
 }
+# Built-in names a module's own def may keep (`shadowed_builtin_names`), and
+# that no imported def is bound to.
+_SHADOWABLE_NAMES = frozenset({"Float", "Text", "concat"})
 # One expansion, with its arguments, has at most this many expression nodes
 # and this nesting depth.
 _MAX_EXPANSION_NODES = 1000
@@ -134,15 +138,35 @@ _NULLABILITY = MappingProxyType(
 )
 
 
+class DefTemplate(NamedTuple):
+    """A checked ``def`` as another module inlines it: its signature, each
+    alias read as the type it expands to in the declaring module, and its
+    body with the calls in it expanded there."""
+
+    function: FunctionDef
+    body: Expression
+    size: _Size
+
+
 def inline_functions(
     script: Script,
     *,
     occurrence_observer: Callable[[object, object], None] | None = None,
+    imported: Mapping[str, DefTemplate] = MappingProxyType({}),
+    failed: Mapping[str, FunctionDef] = MappingProxyType({}),
+    templates_out: dict[str, DefTemplate] | None = None,
 ) -> tuple[Script, tuple[Diagnostic, ...]]:
     """Check every ``def`` and replace every call to one by its expansion.
 
-    The result normalizes unshadowed ``Float`` calls and drops the ``def``
-    declarations; any error leaves it unusable for later readers.
+    ``imported`` holds the defs another module declares, by the name this
+    module binds them to; their calls expand as a local def's do, and their
+    bodies are not checked again. ``failed`` holds, likewise, those that
+    failed their own module's checks: a call of one, or of a def that calls
+    one, adds no error, and with any of them only the defs of this module
+    are checked and nothing is inlined. Without an error, ``templates_out``
+    receives each def of this module. The result normalizes unshadowed
+    ``Float`` calls and drops the ``def`` declarations; any error leaves it
+    unusable for later readers.
     """
 
     from pietto.semantic.constructor_calls import normalize_float_calls
@@ -154,7 +178,9 @@ def inline_functions(
     if constructor_diagnostics:
         return script, constructor_diagnostics
     deferred = deferred_row_calls(script)
-    if not any(type(item) is FunctionDef for item in script.definitions):
+    if not imported and not any(
+        type(item) is FunctionDef for item in script.definitions
+    ):
         return script, ()
     found: list[Diagnostic] = []
     callable_names: set[str] = set()
@@ -181,11 +207,19 @@ def inline_functions(
         found.extend(_signature_diagnostics(function, shapes, aliases))
         found.extend(_body_form_diagnostics(function))
     found.extend(_recursion_diagnostics(defined))
+    # Each imported def under the name this module calls it by.
+    callable_defs = {
+        **{
+            name: replace(template.function, name=name)
+            for name, template in imported.items()
+        },
+        **defined,
+    }
     # A def body is walked as its expansion is, so a call in a type argument
     # is refused there too.
     found.extend(
         _position_diagnostics(
-            tuple(function.body for function in defined.values()), defined
+            tuple(function.body for function in defined.values()), callable_defs
         )
     )
     if found:
@@ -194,17 +228,25 @@ def inline_functions(
     defined = {
         name: _with_alias_bases(function, aliases) for name, function in defined.items()
     }
+    callable_defs.update(defined)
+    # Without a template, each call of a failed def is refused unreported.
+    callable_defs.update(
+        (name, replace(function, name=name)) for name, function in failed.items()
+    )
 
-    templates: dict[str, tuple[Expression, _Size]] = {}
+    templates: dict[str, tuple[Expression, _Size]] = {
+        name: (template.body, template.size) for name, template in imported.items()
+    }
     # Above every occurrence the script holds already, such as a comparison
     # chain's copy of an inner operand, so each copy made here is a new node.
     occurrences = itertools.count(1 + _last_occurrence(script))
     for function in _callee_order(defined):
         expansion = _Expansion(
-            defined,
+            callable_defs,
             templates,
             found,
             occurrences,
+            imported=frozenset(imported),
             occurrence_observer=occurrence_observer,
         )
         body = expansion.expand(function.body)
@@ -223,25 +265,31 @@ def inline_functions(
         if len(found) == before:
             # Measured once here, not at every call.
             templates[function.name] = (body, size)
-    if found:
+    if found or failed:
         return script, _ordered(found)
-    if len(templates) != len(defined):
+    if len(templates) != len(callable_defs):
         # A def without a template reported why above; none is dropped
         # unchecked.
         raise AssertionError("Every def is checked before it is inlined.")
     others = tuple(item for item in script.definitions if type(item) is not FunctionDef)
     found.extend(
-        _position_diagnostics((*others, *script.relationship_templates), defined)
+        _position_diagnostics((*others, *script.relationship_templates), callable_defs)
     )
     if found:
         return script, _ordered(found)
+    if templates_out is not None:
+        templates_out.update(
+            (name, DefTemplate(function, *templates[name]))
+            for name, function in defined.items()
+        )
 
     expansion = _Expansion(
-        defined,
+        callable_defs,
         templates,
         found,
         occurrences,
         deferred=deferred,
+        imported=frozenset(imported),
         occurrence_observer=occurrence_observer,
     )
     definitions = tuple(
@@ -259,6 +307,13 @@ def inline_functions(
             tuple[RelationshipTemplate, ...], relationship_templates
         ),
     ), ()
+
+
+def reserved_import_name(name: str) -> bool:
+    """Whether a module may not bind an imported def to ``name``: a built-in
+    function's name, also one that only the module's own def may keep."""
+
+    return name in _RESERVED_NAMES or name in _SHADOWABLE_NAMES
 
 
 def drop_repeated_call_diagnostics(
@@ -376,9 +431,12 @@ class _Expansion:
         occurrences: Iterator[int],
         *,
         deferred: frozenset[int] = frozenset(),
+        imported: frozenset[str] = frozenset(),
         occurrence_observer: Callable[[object, object], None] | None = None,
     ) -> None:
         self.deferred = deferred
+        # The names of the defs that another module declares.
+        self.imported = imported
         self.occurrence_observer = occurrence_observer
         self.defined = defined
         self.templates = templates
@@ -524,6 +582,7 @@ class _Expansion:
                     call.callee.span,
                     self.occurrences,
                     self.occurrence_observer,
+                    imported=function.name in self.imported,
                 ),
                 occurrence_observer=self.occurrence_observer,
             ),
@@ -549,6 +608,8 @@ def _substitution(
     called: Span,
     occurrences: Iterator[int],
     occurrence_observer: Callable[[object, object], None] | None = None,
+    *,
+    imported: bool = False,
 ) -> Callable[[object, object], object]:
     """Put each argument in place of its parameter.
 
@@ -560,7 +621,9 @@ def _substitution(
     span ``occurrence``, as the same text written out twice by hand would
     differ in position. Every use of an argument, and every node inside it,
     carries the parameters it must fit, so a mismatch leaves each use Unknown
-    and the expansion reports nothing else.
+    and the expansion reports nothing else. A body node of an ``imported``
+    def, and each copy of one, stays bound in the module that declares it
+    (`copy_imported`).
     """
 
     used: set[str] = set()
@@ -572,7 +635,7 @@ def _substitution(
         for part in written[3]
     }
 
-    def occurrence(node: object, span: Span) -> object:
+    def occurrence(node: object, span: Span) -> Node:
         return replace(
             cast(Node, node), span=replace(span, occurrence=next(occurrences))
         )
@@ -582,6 +645,7 @@ def _substitution(
         if not isinstance(copy, Node):
             return copy
         new = occurrence(copy, copy.span)
+        copy_imported(cast(Node, original), new.span)
         if isinstance(new, Expression):
             # An inner call's argument keeps the parameter it must fit.
             for slot in inlined_arguments(cast(Expression, original)):
@@ -600,10 +664,15 @@ def _substitution(
                     argument, copied, occurrence_observer=occurrence_observer
                 )
         if original is template and isinstance(rebuilt, Expression):
-            return replace(rebuilt, span=call)
-        if id(original) in unwritten:
-            return occurrence(rebuilt, called)
-        return occurrence(rebuilt, call) if isinstance(rebuilt, Node) else rebuilt
+            copy: Node = replace(rebuilt, span=call)
+        elif id(original) in unwritten:
+            copy = occurrence(rebuilt, called)
+        elif isinstance(rebuilt, Node):
+            copy = occurrence(rebuilt, call)
+        else:
+            return rebuilt
+        copy_imported(cast(Node, original), copy.span, imported=imported)
+        return copy
 
     return substitute
 

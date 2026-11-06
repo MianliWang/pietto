@@ -74,6 +74,12 @@ _ELIGIBLE_EXPORT_KIND_MAP = {
         ProjectSymbolNamespace.RELATION,
         ProjectSymbolKind.QUERY,
     ),
+    # A def is bound only where its calls are inlined, before the modules
+    # that later readers see, which no longer hold it (`_def_imports`).
+    ModuleDeclarationKind.DEF: (
+        ProjectSymbolNamespace.CALLABLE,
+        ProjectSymbolKind.DEF,
+    ),
 }
 _ELIGIBLE_NAMESPACE_KIND_PAIRS = frozenset(_ELIGIBLE_EXPORT_KIND_MAP.values())
 
@@ -651,11 +657,18 @@ def _build_project_module_export_surface_set(
                     declared_name=request.local_name,
                 )
                 local_occurrences = catalogs.find_identity(identity)
+                # A module's own def or relationship meets only an import of
+                # that kind, as its import bindings do (`_collides`).
                 same_owner_name_candidates = tuple(
                     candidate
                     for candidate in imported_binding_candidates
                     if candidate.owning_module_path == module.path
                     and candidate.local_binding_name == request.local_name
+                    and not (
+                        local_occurrences
+                        and namespace is ProjectSymbolNamespace.CALLABLE
+                        and candidate.namespace is not ProjectSymbolNamespace.CALLABLE
+                    )
                 )
                 exact_imported_candidates = tuple(
                     candidate

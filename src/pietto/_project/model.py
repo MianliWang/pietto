@@ -65,6 +65,7 @@ from pietto.ast_nodes import (
     SelectItem,
     ShapeDef,
     SourceDef,
+    Span,
     TableDef,
     TypeDef,
     TypeExpr,
@@ -234,6 +235,12 @@ class ProjectParsedInput:
     path: str
     script: Script
     scalar_callables: tuple[FunctionDef, ...] = ()
+    # The names of the defs the module's export statements name, which later
+    # readers no longer see (`_without_callable_items`).
+    exported_defs: tuple[str, ...] = ()
+    # The spans of the nodes that inlining an imported def put in ``script``
+    # (`imported_node`).
+    imported_nodes: frozenset[Span] = frozenset()
     existence_generators: tuple[AnyUseInfo, ...] = ()
     existence_values: tuple[AnyValueInfo, ...] = ()
     # The script as parsed when a project resolved its query names into
@@ -617,6 +624,7 @@ class ProjectSymbolKind(StrEnum):
     QUERY = "query"
     CONSTRAINT = "constraint"
     DERIVE = "derive"
+    DEF = "def"
 
 
 @dataclass(frozen=True, slots=True)
@@ -1745,6 +1753,11 @@ def build_empty_project_semantic_result(
             item
             for parsed in parse_result.parsed_inputs
             for item in parsed.scalar_callables
+        ),
+        imported=(
+            span
+            for parsed in parse_result.parsed_inputs
+            for span in parsed.imported_nodes
         ),
     ):
         return _project_semantic_result(parse_result)
@@ -3966,6 +3979,8 @@ def _classify_project_definition(
         return ProjectSymbolNamespace.CALLABLE, ProjectSymbolKind.CONSTRAINT
     if isinstance(definition, DeriveDef):
         return ProjectSymbolNamespace.CALLABLE, ProjectSymbolKind.DERIVE
+    if isinstance(definition, FunctionDef):
+        return ProjectSymbolNamespace.CALLABLE, ProjectSymbolKind.DEF
     raise AssertionError(f"Unsupported project definition: {type(definition).__name__}")
 
 

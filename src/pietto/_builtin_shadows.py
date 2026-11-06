@@ -25,6 +25,13 @@ _SHADOWABLE = frozenset({"Float", "Text", "concat", "max", "min"})
 _CONCAT_FILES: contextvars.ContextVar[frozenset[str | None]] = contextvars.ContextVar(
     "_CONCAT_FILES", default=frozenset()
 )
+# The spans of the nodes that the body of a def another module declares
+# brought into the scripts `builtin_shadows` analyzes. That body is bound once,
+# in its module, so a `concat` call in it names the builtin there and is no
+# call of the importer's relationship (an import adds no shadow scope).
+_IMPORTED: contextvars.ContextVar[set[ast.Span] | frozenset[ast.Span]] = (
+    contextvars.ContextVar("_IMPORTED", default=frozenset())
+)
 
 
 def shadowed_builtin_names(script: ast.Script) -> frozenset[str]:
@@ -42,14 +49,18 @@ def shadowed_builtin_names(script: ast.Script) -> frozenset[str]:
 
 @contextlib.contextmanager
 def builtin_shadows(
-    *scripts: ast.Script, defs: Iterable[ast.FunctionDef] = ()
+    *scripts: ast.Script,
+    defs: Iterable[ast.FunctionDef] = (),
+    imported: Iterable[ast.Span] = (),
 ) -> Iterator[None]:
     """Analyze ``scripts`` inside the block: a `concat` call written in a file
     of one that declares a callable `concat` names that callable, not the
     builtin (`in_concat_file`), as `Float` does (`normalize_float_calls`).
     ``defs`` are a project module's own `def`s, which inlining took out of its
-    script."""
+    script; ``imported`` are the nodes of imported def bodies inlining put
+    in them (`imported_node`)."""
 
+    imported_token = _IMPORTED.set(set(imported))
     token = _CONCAT_FILES.set(
         frozenset(
             item.span.path
@@ -63,10 +74,36 @@ def builtin_shadows(
         yield
     finally:
         _CONCAT_FILES.reset(token)
+        _IMPORTED.reset(imported_token)
 
 
 def in_concat_file(node: ast.Node) -> bool:
     """Whether ``node`` is written, inside `builtin_shadows`, in a file that
-    declares a callable `concat`."""
+    declares a callable `concat`, and is no node of an imported def body."""
 
-    return node.span.path in _CONCAT_FILES.get()
+    return node.span.path in _CONCAT_FILES.get() and not imported_node(node)
+
+
+def imported_node(node: ast.Node) -> bool:
+    """Whether ``node``, inside `builtin_shadows`, is a node of the body of a
+    def that another module declares."""
+
+    return node.span in _IMPORTED.get()
+
+
+def copy_imported(
+    original: ast.Node, copy: ast.Span, *, imported: bool = False
+) -> None:
+    """Inside `builtin_shadows`, keep the copy at ``copy`` of ``original`` a
+    node of an imported def body if ``original`` is one or, with
+    ``imported``, it is a node of a body another module declares."""
+
+    nodes = _IMPORTED.get()
+    if type(nodes) is set and (imported or original.span in nodes):
+        nodes.add(copy)
+
+
+def imported_nodes() -> frozenset[ast.Span]:
+    """The nodes of imported def bodies, inside `builtin_shadows`."""
+
+    return frozenset(_IMPORTED.get())

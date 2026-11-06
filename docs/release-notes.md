@@ -3,7 +3,8 @@
 ## Unreleased changes following 0.1.9
 
 These changes are on `main` after `0.1.9` and are in no published release
-yet. They are Phase73 batches 1, 2 and 3. Each subsection lists the changes
+yet. They are Phase73 batches 1, 2 and 3 and Phase74 (from "Importing a
+def from another module" on). Each subsection lists the changes
 against `0.1.9` that a program can observe, its compatibility rows and the
 new refusals.
 
@@ -1195,6 +1196,92 @@ changes):
   PostgreSQL `emit-sql` (also with `--set`), `check --project`, and
   `emit-sql --project --all` with a `contract.json` in the project.
 - No new diagnostic, refusal or compatibility change.
+
+### Importing a def from another module
+
+- In an EXPLICIT_MODULES project, `export def pos` and
+  `from "models/a.pietto" import def pos` (or `def pos as p`), in the bare
+  and the parenthesized list; re-exports chain as for other kinds. The def is
+  checked once, in its module, where an alias in its signature means what it
+  means there (never the importer's alias); a call is inlined and checked at
+  the call, as a call of a local def is, and its SQL is byte-equal to the
+  same def declared locally (PostgreSQL and MySQL emission, compiled bundle
+  and live template). A `concat` call in its body stays the built-in also in
+  an importer that declares a callable `concat` (def, constraint, derive or
+  relationship).
+- **Refusals that become acceptances.** An `export def f` or import item
+  `def f` was PIE-P1000 at the `def`: `Unexpected 'def'.` as the first item
+  of a bare list or a later item of a parenthesized one, `Missing 'type',
+  'enum', 'shape', 'source', 'table' or 'query' before 'def'.` as the first
+  item of a parenthesized list or a later item of a bare one. In an
+  EXPLICIT_MODULES project it is now accepted and gets its binding result.
+- **Changed messages** (forms already refused; same code and location unless
+  stated):
+  - PIE-P1000 kind list: `Missing 'type', 'enum', 'shape', 'source', 'table'
+    or 'query' before 'X'.` is now `Missing 'type', 'enum', 'shape',
+    'source', 'table', 'query', 'def' or 'relationship' before 'X'.` (for
+    example `export (pos)`).
+  - PIE-P1000 at a `*` item (`from "a.pietto" import *`, `export *`):
+    ``Unexpected '*'. `*` is not supported; write `count()` or list the
+    fields.`` is now `Unexpected '*'. Name each item.`
+  - PIE-P1000 for a `def *` item: was at the `def`, with the texts of a `def
+    f` item above; now at the `*`: `Unexpected '*'; expected a name. Name
+    each item.`
+  - PIE-P1000 at a `constraint` or `derive` item kind: bare
+    (`export constraint c`) `Unexpected 'constraint'.` is now `Unexpected
+    'constraint'. Constraint and derive stay in their module.`; parenthesized
+    (`export (constraint c)`) `Unexpected 'constraint'; expected 'type',
+    'enum', 'shape', 'source', 'table' or 'query'.` is now `Unexpected
+    'constraint'; expected 'type', 'enum', 'shape', 'source', 'table',
+    'query', 'def' or 'relationship'. Constraint and derive stay in their
+    module.` (`'derive'` likewise).
+  - PIE-P1000 for an `export:` block that holds a `def` item: was at the item
+    (2:5), `Unexpected 'def'; expected 'type', 'enum', 'shape', 'source',
+    'table', 'query' or end of line.`; now the block-form refusal at the `:`
+    (1:7), `This spelling is not accepted by the modern syntax. Write 'export
+    kind Name' or a parenthesized list with explicit kinds.` (same
+    suggestion), as for a block that holds any other kind.
+  - PIE-S2103 def hint: `Unknown function: pos; pos is a def of
+    models/a.pietto, which a module cannot import: declare it in this module`
+    is now `Unknown function: pos; pos is a def exported by models/a.pietto:
+    import it with from "models/a.pietto" import def pos`, or, when no module
+    exports it, `Unknown function: pos; pos is a def declared but not exported
+    by models/a.pietto: export it there with export def pos, then import it
+    with from "models/a.pietto" import def pos`. As for other import hints, a
+    module whose path no Pietto string spells, or that imports the module of
+    the call, is not named; such a call is now `Unknown function: pos` alone.
+- **New refusals and diagnostics:**
+  - PIE-S2706 at a def import binding that collides with a local declaration
+    (a def, constraint, derive or a declaration of any other kind, as for
+    every import), a local relationship, or another import of the name:
+    `Import binding collides with a local declaration: pos; import def pos as
+    <name>` / `Import binding name is ambiguous: pos; import def pos as
+    <name>`. Located as every PIE-S2706 is: at the import binding whatever
+    the declaration order; an ambiguous name at its first binding, the others
+    as related locations. The hint is in the message (module diagnostics carry
+    no suggestion).
+  - PIE-S2398 at a def import item bound to a built-in name, `Float`, `Text`
+    and `concat` included: `Import binding concat has the name of a built-in
+    function; a def cannot shadow one`.
+  - PIE-S2705 and PIE-S2704 for def items as for other kinds, for example
+    `Imported declaration is private or not exported: def helper from
+    "a.pietto"`, `Unknown export binding: def nope`.
+  - PIE-S2707 at a `relationship` import or export item in an
+    EXPLICIT_MODULES project: `Unsupported module item: relationship
+    OrderCustomer`, suggestion `Relationship imports and exports are not
+    supported yet; declare the relationship in this module.`
+  - PIE-S2707 at a `def` or `relationship` item of a PACKAGE_ROOT package
+    module: `Unsupported module item: def pos`, suggestion `Package modules do
+    not support def/relationship imports yet.`
+  - A failed def import or export item, or a def import along an import cycle
+    (PIE-S2703), stops the project check before semantic analysis, as a def
+    error does; calls of a blocked def add no PIE-S2103 or PIE-S2395.
+- **Compatibility.** No change for a project without a `def` or
+  `relationship` import or export item (byte-equal check JSON, emission and
+  compiled bundles). A module's own def still never collides with an import
+  of another kind (`from "a.pietto" import source rows` beside `def rows`),
+  also when another module's error stops the check. No compiled-record
+  change: def items never reach a compiled bundle.
 
 ## Equality, nullability and asof JOIN public alpha release notes — 0.1.9
 

@@ -1114,7 +1114,7 @@ def _header_admission_trace(monkeypatch: pytest.MonkeyPatch):
     normalizations = []
     initial_results = []
     make_result = project_check.ProjectParseCheckResult
-    parse_input = project_check._parse_selected_input
+    finish_input = project_check._finish_selected_input
     normalize = names.normalize_project_query_names
 
     def observe_result(*args, **kwargs):
@@ -1123,7 +1123,7 @@ def _header_admission_trace(monkeypatch: pytest.MonkeyPatch):
         return result
 
     def observe_input(*args, **kwargs):
-        result = parse_input(*args, **kwargs)
+        result = finish_input(*args, **kwargs)
         # These are the returned, project-relative diagnostic objects.
         raw.extend(result[4])
         return result
@@ -1133,7 +1133,7 @@ def _header_admission_trace(monkeypatch: pytest.MonkeyPatch):
         return normalize(parsed)
 
     monkeypatch.setattr(project_check, "ProjectParseCheckResult", observe_result)
-    monkeypatch.setattr(project_check, "_parse_selected_input", observe_input)
+    monkeypatch.setattr(project_check, "_finish_selected_input", observe_input)
     monkeypatch.setattr(names, "normalize_project_query_names", observe_names)
     return raw, normalizations, initial_results
 

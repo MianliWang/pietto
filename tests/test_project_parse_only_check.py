@@ -758,9 +758,12 @@ def test_a_def_body_reports_an_error_in_a_call_once(tmp_path: Path) -> None:
     assert messages == [message]
 
 
-def test_a_def_cannot_be_an_export_item(tmp_path: Path) -> None:
+def test_a_def_export_item_is_refused_only_in_a_retired_export_block(
+    tmp_path: Path,
+) -> None:
+    # A def is an export item; only the block form is refused.
     located, _ = _def_project(tmp_path, "export:\n    def idi\n")
-    assert located == [("PIE-P1000", DEF_LINE + 1, 5)]
+    assert located == [("PIE-P1000", DEF_LINE, 7)]
 
 
 WALKED = FLAT_HEAD + (

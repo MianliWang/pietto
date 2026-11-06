@@ -2330,6 +2330,7 @@ def build_project_completed_semantic_result(
     with builtin_shadows(
         *(item.script for item in parsed),
         defs=(item for module in parsed for item in module.scalar_callables),
+        imported=(span for module in parsed for span in module.imported_nodes),
     ):
         return ProjectConcreteCompletedSemanticResult(
             roots=_ProjectCompletedSemanticRoots(

@@ -490,6 +490,9 @@ def _load_package_content(
         # A package reads no relation body, yet its nested-relation spellings
         # are refused as outside any EXPLICIT_MODULES project (D71.05).
         diagnostics.extend(nested_relation_syntax_diagnostics(parse_result.ast))
+        from pietto._project.module_graph import module_item_refusals
+
+        diagnostics.extend(module_item_refusals(parse_result.ast, package=True))
         module_content = object.__new__(_PackageModuleContent)
         object.__setattr__(module_content, "asset", asset)
         object.__setattr__(

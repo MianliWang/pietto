@@ -552,6 +552,8 @@ _VOCABULARY_SYMBOL_KIND: tuple[str, ...] = (
     "query",
     "constraint",
     "derive",
+    # Bound only before def calls are inlined, so no pure record holds it.
+    "def",
 )
 
 _VOCABULARY_BINDING_ISSUE_STATUS: tuple[str, ...] = (

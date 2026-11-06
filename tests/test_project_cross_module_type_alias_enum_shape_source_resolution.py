@@ -1420,8 +1420,8 @@ def test_unknown_names_say_which_modules_export_them_and_how_to_import_them(
         'from "a.pietto" import (shape Customer) or from "c.pietto" import '
         "(shape Customer)"
     )
-    # Every exporter is named, in path order; none is chosen. A def cannot be
-    # imported, so its call says where it is declared. The source whose shape
+    # Every exporter is named, in path order; none is chosen. A def that is
+    # not exported is named with the export to add. The source whose shape
     # does not resolve gets no completion fallback beside that error.
     assert [
         (item["code"], item["message"], item["location"]["line"])
@@ -1451,8 +1451,9 @@ def test_unknown_names_say_which_modules_export_them_and_how_to_import_them(
         ("PIE-S2604", f"Unknown relationship parameter shape: Customer; {customer}", 5),
         (
             "PIE-S2103",
-            "Unknown function: twice; twice is a def of a.pietto, which a module "
-            "cannot import: declare it in this module",
+            "Unknown function: twice; twice is a def declared but not exported "
+            "by a.pietto: export it there with export def twice, then import it "
+            'with from "a.pietto" import def twice',
             16,
         ),
     ]

@@ -2287,12 +2287,12 @@ def test_modern_capture_admission_keeps_raw_diagnostics_when_naming_is_blocked(
     from pietto._project import project_relationship_predicates as names
 
     captured = []
-    parse = project_check._parse_selected_input
+    finish = project_check._finish_selected_input
     normalize = names.normalize_project_query_names
     normalizations = []
 
     def observe_parse(*args, **kwargs):
-        result = parse(*args, **kwargs)
+        result = finish(*args, **kwargs)
         captured[:] = kwargs["capture_diagnostics_out"]
         return result
 
@@ -2300,7 +2300,7 @@ def test_modern_capture_admission_keeps_raw_diagnostics_when_naming_is_blocked(
         normalizations.append(parsed)
         return normalize(parsed)
 
-    monkeypatch.setattr(project_check, "_parse_selected_input", observe_parse)
+    monkeypatch.setattr(project_check, "_finish_selected_input", observe_parse)
     monkeypatch.setattr(names, "normalize_project_query_names", observe_names)
     source = _MODERN_NAMED_CAPTURE
     if variant == "unknown":

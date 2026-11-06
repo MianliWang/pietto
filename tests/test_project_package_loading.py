@@ -441,6 +441,37 @@ def test_nested_relation_spellings_are_refused_in_a_package(tmp_path: Path) -> N
     ]
 
 
+def test_def_and_relationship_module_items_are_refused_in_a_package(
+    tmp_path: Path,
+) -> None:
+    # Only an EXPLICIT_MODULES project binds a def item; a package
+    # refuses each def or relationship item at the item.
+    source = (
+        b'from "other.pietto" import def pos as p, type T\n'
+        b"export (\n    def pos,\n    relationship R)\n"
+        b"def pos(x: Int) -> Bool:\n    return x > 0\n"
+    )
+    located = _package(
+        tmp_path / "project",
+        package_path="vendor/demo",
+        manifest=_manifest(assets=("items.pietto",)),
+        assets=(("items.pietto", source),),
+    )
+
+    result = _load_root_package(located)
+
+    assert not result.ok and result.loaded_package is None
+    hint = "Package modules do not support def/relationship imports yet."
+    assert [
+        (d.code, d.location.line, d.location.column, d.message, d.suggestion)
+        for d in result.diagnostics
+    ] == [
+        ("PIE-S2707", 1, 28, "Unsupported module item: def pos", hint),
+        ("PIE-S2707", 3, 5, "Unsupported module item: def pos", hint),
+        ("PIE-S2707", 4, 5, "Unsupported module item: relationship R", hint),
+    ]
+
+
 def test_manifest_and_asset_byte_limits_are_enforced_before_digest(
     tmp_path: Path,
 ) -> None:

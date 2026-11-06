@@ -28,6 +28,7 @@ from pietto._project.module_exports import (
 )
 from pietto._project.selected_input_index import ProjectSelectedInputIndex
 from pietto.ast_nodes import (
+    FunctionDef,
     ImportItem,
     ImportStatement,
     ModuleDeclarationKind,
@@ -60,6 +61,12 @@ _IMPORT_KIND_MAP = {
     ModuleDeclarationKind.QUERY: (
         ProjectSymbolNamespace.RELATION,
         ProjectSymbolKind.QUERY,
+    ),
+    # A def is bound only where its calls are inlined, before the modules
+    # that later readers see, which no longer hold it (`_def_imports`).
+    ModuleDeclarationKind.DEF: (
+        ProjectSymbolNamespace.CALLABLE,
+        ProjectSymbolKind.DEF,
     ),
 }
 _ELIGIBLE_NAMESPACE_KIND_PAIRS = frozenset(_IMPORT_KIND_MAP.values())
@@ -583,10 +590,12 @@ class ProjectModuleBindingEnvironment:
         for request in self.requests:
             request_issues = issues_by_request[request]
             local_definitions = tuple(
-                local_definitions_by_name.get(
+                item
+                for item in local_definitions_by_name.get(
                     request.identity.local_binding_name,
                     (),
                 )
+                if _collides(request, item[1])
             )
             local_issues = tuple(
                 issue
@@ -957,6 +966,7 @@ def _resolve_binding_environments(
                 for occurrence in owner_catalog.occurrences
                 if occurrence.identity.declared_name
                 == request.identity.local_binding_name
+                and _collides(request, occurrence.authored)
             )
             if local_occurrences:
                 issues_by_request[request].append(
@@ -1129,6 +1139,17 @@ def _validate_builder_inputs(
             raise ValueError(
                 "Module binding builder inputs must retain selected-input order."
             )
+
+
+def _collides(request: ProjectModuleImportRequest, definition: object) -> bool:
+    """Whether a local ``definition`` named as ``request`` binds collides
+    with it: a module's own def meets only a def import, and every other
+    import ignores it, as it does once inlining took the def out."""
+
+    return (
+        type(definition) is not FunctionDef
+        or request.identity.declaration_kind is ProjectSymbolKind.DEF
+    )
 
 
 def _request_exact_key(

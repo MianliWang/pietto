@@ -15198,11 +15198,13 @@ def temporal_case(
     fields=TEMPORAL_FIELDS,
     entry="table result:",
     environment=(),
+    modules=None,
 ):
     """Build ``entry`` (``body`` is its indented block) over ``fields``
     (default ``TEMPORAL_FIELDS``) with the base fixture's premises and
     ``environment`` after them; ``representations`` replaces named fields'
-    contract representations."""
+    contract representations and ``modules`` adds other modules beside
+    main.pietto."""
     contract = json.loads(fixture(target, "T_row_direct", "table_preserve")["contract"])
     pg = target == "postgres"
     physical = {
@@ -15253,7 +15255,8 @@ def temporal_case(
         + "\n"
         + body
     )
-    return build_case(directory, source, encoded(contract).decode(), policy)
+    files = {"main.pietto": source, **(modules or {})}
+    return build_case(directory, files, encoded(contract).decode(), policy)
 
 
 def build_case(

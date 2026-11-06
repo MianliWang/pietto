@@ -34,8 +34,10 @@ from pietto._project.module_catalog import relation_read_expressions
 from pietto._project.selected_input_index import ProjectSelectedInputIndex
 from pietto.ast_nodes import (
     CollectRelationExpr,
+    ImportItem,
     ImportStatement,
     ModuleDeclarationKind,
+    Script,
     Span,
 )
 from pietto.errors import Diagnostic, Severity, SourceLocation
@@ -1723,6 +1725,11 @@ def _diagnostic_fact_from_binding_collision(
         )
         + tuple(_import_binding_span(item) for item in requests)
     )
+    # The hint names the first def item of the bindings.
+    for item in requests:
+        if item.source_item.declaration_kind is ModuleDeclarationKind.DEF:
+            message += f"; import def {item.exported_name} as <name>"
+            break
     return ProjectModuleDiagnosticFact(
         origin=ProjectModuleDiagnosticOrigin.BINDING,
         diagnostic=_diagnostic(code="PIE-S2706", message=message, location=primary),
@@ -2175,16 +2182,8 @@ def import_hints(
             if module.path != diagnostic.location.path
         )
         if not kinds:
-            files = tuple(
-                module.path
-                for module in others
-                if any(item.name == name for item in module.scalar_callables)
-            )
-            if files:
-                hint = (
-                    f"{name} is a def of {_listed(files)}, which a module "
-                    "cannot import: declare it in this module"
-                )
+            hint = _def_import_hint(name, diagnostic.location.path, modules, others)
+            if hint is not None:
                 hinted[position] = replace(
                     diagnostic,
                     message=f"{diagnostic.message}; {hint}",
@@ -2282,6 +2281,92 @@ def import_hints(
     if all(new is old for new, old in zip(hinted, diagnostics, strict=True)):
         return diagnostics
     return tuple(hinted)
+
+
+def module_item_refusals(
+    script: Script, *, package: bool = False
+) -> tuple[Diagnostic, ...]:
+    """Refuse each import or export item that the project does not bind (PIE-S2707):
+    a relationship's, until relationships are bound, and in a package module
+    also a def's."""
+
+    kinds = {ModuleDeclarationKind.RELATIONSHIP}
+    if package:
+        kinds.add(ModuleDeclarationKind.DEF)
+    hint = (
+        "Package modules do not support def/relationship imports yet."
+        if package
+        else "Relationship imports and exports are not supported yet; declare "
+        "the relationship in this module."
+    )
+    return tuple(
+        replace(
+            _diagnostic(
+                code="PIE-S2707",
+                message="Unsupported module item: "
+                f"{item.declaration_kind.value} "
+                f"{item.exported_name if type(item) is ImportItem else item.local_name}",
+                location=_location(item.span, fallback_path=""),
+            ),
+            suggestion=hint,
+        )
+        for statement in script.module_statements
+        for item in statement.items
+        if item.declaration_kind in kinds
+    )
+
+
+def def_import_collision(request: ProjectModuleImportRequest) -> Diagnostic:
+    """A def import bound to the name of a relationship of its module
+    (PIE-S2706), which no catalog lists."""
+
+    return _diagnostic(
+        code="PIE-S2706",
+        message="Import binding collides with a local declaration: "
+        f"{request.identity.local_binding_name}; import def "
+        f"{request.exported_name} as <name>",
+        location=_location(
+            _import_binding_span(request),
+            fallback_path=request.identity.owning_module_path,
+        ),
+    )
+
+
+def _def_import_hint(
+    name: str,
+    path: str | None,
+    modules: tuple[ProjectParsedInput, ...],
+    others: tuple[ProjectParsedInput, ...],
+) -> str | None:
+    """How to import an unknown function that other modules declare as a
+    def: from the modules that export it, or else from those that declare
+    it, each with the export to add. As for any import hint, every module is
+    named in path order, none chosen, and a module that imports the module
+    of the call, directly or through others, is none (PIE-S2703)."""
+
+    cyclic = _importers(modules, path)
+    declaring = tuple(
+        module
+        for module in others
+        if module.path not in cyclic
+        and _spellable(module.path)
+        and any(item.name == name for item in module.scalar_callables)
+    )
+    exporting = tuple(
+        module.path for module in declaring if name in module.exported_defs
+    )
+    verb, advice, files = "exported by", "", exporting
+    if not files:
+        verb = "declared but not exported by"
+        advice = f"export it there with export def {name}, then "
+        files = tuple(module.path for module in declaring)
+    if not files:
+        return None
+    imports = " or ".join(
+        f"from {_copyable_path(item)} import def {name}"
+        for item in files[:_IMPORT_HINT_LIMIT]
+    )
+    return f"{name} is a def {verb} {_listed(files)}: {advice}import it with {imports}"
 
 
 def _at_collect_read(

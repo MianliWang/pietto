@@ -859,6 +859,61 @@ database function is created. Parameters and the result follow the same None
 rule as fields. Use a `def` when several queries share an expression; inside
 one query, a `let` is enough.
 
+### A def from another module
+
+In a project, export the def where it is declared and import it where it is
+called, with its kind, like a source:
+
+```text
+# models/a.pietto
+export def pos, source rows
+shape Row:
+    id: Int
+    amount: Int
+source rows: Row = postgres.table("rows")
+def pos(x: Int) -> Bool:
+    return x > 0
+
+# models/b.pietto
+from "models/a.pietto" import def pos, source rows
+query q:
+    from rows
+    where pos(amount)
+    select:
+        id
+```
+
+With many items, use the parenthesized list, one item per line with a
+trailing comma:
+
+```text
+from "models/a.pietto" import (
+    def pos as p,
+    source rows,
+)
+```
+
+The SQL is the same as for a def declared in the calling module.
+
+Not this:
+
+- `from "models/a.pietto" import def *`: name each item (PIE-P1000 at the
+  `*`).
+- `export constraint valid`, `import derive d`: a constraint or derive stays in
+  its module (PIE-P1000).
+- `export (pos)`: write the kind, `export (def pos)` (PIE-P1000).
+- `import def pos` beside a local `def`, `constraint`, `derive` or relationship
+  named `pos`, or two imports of `pos`: import it under another name,
+  `def pos as p` (PIE-S2706).
+- `import def pos as concat` (also `Float`, `Text`, `round`): a def cannot take
+  a built-in name (PIE-S2398).
+- a relationship item: declare the relationship in the module whose JOINs
+  call it (PIE-S2707).
+- a def or relationship item in a package module: package modules do not
+  support them yet (PIE-S2707).
+- calling `pos` without importing it: PIE-S2103 names the export and import to
+  write.
+
 ## Text, None-safe equality, ranges and spread
 
 ```pietto

@@ -689,6 +689,8 @@ class ModuleDeclarationKind(StrEnum):
     SOURCE = "source"
     TABLE = "table"
     QUERY = "query"
+    DEF = "def"
+    RELATIONSHIP = "relationship"
 
 
 @dataclass(frozen=True, slots=True, kw_only=True)

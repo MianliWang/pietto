@@ -36,6 +36,7 @@ from pietto.ast_nodes import (
     DeriveDef,
     EnumDef,
     FromClause,
+    FunctionDef,
     JoinClause,
     LetRelationDef,
     ModuleDeclarationKind,
@@ -70,6 +71,7 @@ _DEFINITION_TYPES = (
     QueryDef,
     ConstraintDef,
     DeriveDef,
+    FunctionDef,
 )
 
 

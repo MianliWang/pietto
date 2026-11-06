@@ -3459,11 +3459,28 @@ table reachable_2026:
 WHERE ("ordered_at" BETWEEN '2026-01-01 00:00:00' AND '2026-12-31 23:59:59') AND (("email" LIKE '%@%' ESCAPE '!') AND ("coupon_code" IS NULL))
 ```
 
-- Where: single files and EXPLICIT_MODULES projects (schema version 2). A def
-  belongs to its module: another module cannot call it (PIE-S2103), export it
-  or import it. An `export def f` or an import item `def f` is PIE-P1000;
-  naming the def under another kind, as in `export table f`, is PIE-S2704 (PIE-S2705 for an `import` item). A LEGACY_FLAT
-  project check refuses every def with PIE-S2379. PACKAGE_ROOT
+- Where: single files and EXPLICIT_MODULES projects (schema version 2). In a
+  project, a module may export a def (`export def pos`) and another may import
+  it (`from "models/a.pietto" import def pos`, or `def pos as p`), in either
+  list form; a re-export chains as any other. A def that is not exported stays
+  a private helper of its module; calling it, or an exported def that is not
+  imported, from another module is PIE-S2103 with the export and import to
+  write. Naming the def under another kind, as in `export table f`, is
+  PIE-S2704 (PIE-S2705 for an `import` item). The def's body and signature
+  are checked once, in its module, where an alias in the signature is read as
+  the type it expands to there; a call is inlined, and checked, at the call,
+  as a call of a local def is, so the SQL is the same as the local def's; a
+  `concat` call in its body stays the built-in also in an importer that
+  declares a callable `concat`. A def import binding that collides with a
+  local declaration, a relationship of the module or another import binding
+  is PIE-S2706 (`; import def pos as <name>`); a module's own def collides
+  only with a def import. A def import binding named like a built-in
+  function, `Float`, `Text` or `concat` included, is PIE-S2398. A def import
+  item that fails, or a def import along an import cycle (PIE-S2703), stops
+  the check before semantic analysis, as a def error does. `def *` and a
+  `constraint` or `derive` item are PIE-P1000. A LEGACY_FLAT project check
+  refuses every def with PIE-S2379, and a PACKAGE_ROOT package module refuses
+  each def or relationship item with PIE-S2707. PACKAGE_ROOT
   `explain --project` does not check defs, so a package module with a def can
   be explained; that does not make the def available.
 - Signature: each parameter and the result have exactly one of the types
@@ -4692,13 +4709,14 @@ meant (relative to the importing file, with another letter case or a
 different separator, or without `.pietto`), the message names it. A source
 that `[sources]` excludes is not selected, so no module can import it.
 
-The admitted kinds remain `type`, `enum`, `shape`, `source`, `table` and `query`.
-An import must name the kind that the target exports: `shape customers` for an
+The admitted kinds are `type`, `enum`, `shape`, `source`, `table`, `query`
+and `def`; a `relationship` item parses and is refused (PIE-S2707) until
+relationships are bound. An import must name the kind that the target exports: `shape customers` for an
 exported `source customers` is PIE-S2705, which names the exported kind.
 Re-exports chain through any number of modules. Module resolution preserves declaring identity, visibility, every collision,
 dependency evidence, provenance and lineage; it never chooses a first or last
-winner. These statements do not add wildcard imports or a new relationship
-export kind.
+winner. These statements do not add wildcard imports (`def *` is PIE-P1000),
+qualified calls such as `a.pos(x)`, or `constraint` and `derive` items.
 
 An import cycle is PIE-S2703. While any module cycle exists, project checking
 and emission stop before relation completion in every module; completion-only

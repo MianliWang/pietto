@@ -1172,6 +1172,52 @@ def test_a_median_and_quantile_template_binds_its_header_read(tmp_path):
     assert b"CAST('0.25' AS pg_catalog.float8)" in sql
 
 
+@pytest.mark.parametrize("target", ("postgres", "mysql"))
+def test_an_imported_def_renders_the_sql_of_the_same_local_def(tmp_path, target):
+    """A query that calls a def another module exports emits the bytes
+    of the same def declared locally, and binds through a loaded compiled
+    bundle and a live template to them; the importer's alias of a signature
+    type name does not apply (the declaring module's alias does)."""
+    import _pietto_sql_emission as probe
+    from pietto._project.project_compiled_build import build_compiled
+    from pietto._project.project_compiled_loading import load_compiled
+    from pietto._project.project_execution_template import (
+        bind_values,
+        prepare_compiled_template,
+        prepare_live_template,
+    )
+
+    declared = "type Money = Int\ndef pos(x: Money) -> Bool:\n    return x > 0\n"
+    body = "    from rows\n    where {}(id)\n    select:\n        t = ts\n"
+    _, local = probe.temporal_case(
+        tmp_path / "local", target, body.format("pos"), entry=declared + "query result:"
+    )
+    checked, imported = probe.temporal_case(
+        tmp_path / "imported",
+        target,
+        body.format("p"),
+        entry='from "a.pietto" import def pos as p\ntype Money = Text\nquery result:',
+        modules={"a.pietto": "export def pos\n" + declared},
+    )
+    assert checked.verified and imported.status == local.status == "VERIFIED"
+    assert imported.artifact is not None and local.artifact is not None
+    sql = imported.artifact.rendered.sql
+    assert sql == local.artifact.rendered.sql
+    built = build_compiled(imported.artifact)
+    for template in (
+        prepare_live_template(imported.artifact),
+        prepare_compiled_template(
+            load_compiled(
+                built.payload,
+                expected_pin=built.pin,
+                accepted_producer=built.producer,
+                accepted_compatibility=built.compatibility,
+            )
+        ),
+    ):
+        assert bind_values(template, ()).artifact.rendered.sql == sql
+
+
 # Phase70 S11 x S10/S12/S14: header reads inside lets with capture lines.
 HEADER_IN_CAPTURES = """query result(cut: Int, hi: Int | None):
     let later:

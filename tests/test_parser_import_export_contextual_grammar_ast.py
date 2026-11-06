@@ -37,6 +37,8 @@ KINDS = (
     ModuleDeclarationKind.SOURCE,
     ModuleDeclarationKind.TABLE,
     ModuleDeclarationKind.QUERY,
+    ModuleDeclarationKind.DEF,
+    ModuleDeclarationKind.RELATIONSHIP,
 )
 BASE_PROGRAM = (
     "shape Row:\n"
@@ -86,8 +88,9 @@ NEGATIVE_DIAGNOSTICS = {
         ("PIE-P1005", 1, 24, None, None),
         ("PIE-P1005", 1, 33, None, None),
     ),
-    "invalid-import-8.pietto": (("PIE-P1000", 2, 5, None, None),),
+    "invalid-import-8.pietto": (("PIE-P1000", 2, 9, None, None),),
     "invalid-import-9.pietto": (("PIE-P1000", 1, 6, None, None),),
+    "invalid-import-10.pietto": (("PIE-P1000", 2, 5, None, None),),
     "invalid-export-0.pietto": (("PIE-P1000", 1, 8, None, None),),
     "invalid-export-1.pietto": (("PIE-P1000", 2, 12, None, None),),
     "invalid-export-2.pietto": (("PIE-P1000", 2, 5, None, None),),
@@ -98,7 +101,8 @@ NEGATIVE_DIAGNOSTICS = {
         ("PIE-P1005", 1, 8, None, None),
         ("PIE-P1005", 1, 17, None, None),
     ),
-    "invalid-export-7.pietto": (("PIE-P1000", 2, 5, None, None),),
+    "invalid-export-7.pietto": (("PIE-P1000", 2, 9, None, None),),
+    "invalid-export-8.pietto": (("PIE-P1000", 2, 5, None, None),),
     "empty-module-0.pietto": (("PIE-P1000", 2, 1, None, None),),
     "empty-module-1.pietto": (("PIE-P1000", 3, 1, None, None),),
     "empty-module-2.pietto": (("PIE-P1000", 2, 1, None, None),),
@@ -270,7 +274,7 @@ def test_minimal_import_list_preserves_decoded_target_item_and_exact_spans() -> 
     )
 
 
-def test_import_list_accepts_exact_six_declaration_kinds_in_source_order() -> None:
+def test_import_list_accepts_exact_eight_declaration_kinds_in_source_order() -> None:
     script = _parsed(
         'from "all.pietto" import (\n'
         "    type T,\n"
@@ -278,7 +282,9 @@ def test_import_list_accepts_exact_six_declaration_kinds_in_source_order() -> No
         "    shape S,\n"
         "    source src,\n"
         "    table tbl,\n"
-        "    query qry)\n"
+        "    query qry,\n"
+        "    def fn,\n"
+        "    relationship Rel)\n"
     )
     statement = script.module_statements[0]
     assert isinstance(statement, ImportStatement)
@@ -290,6 +296,8 @@ def test_import_list_accepts_exact_six_declaration_kinds_in_source_order() -> No
         "src",
         "tbl",
         "qry",
+        "fn",
+        "Rel",
     )
 
 
@@ -396,7 +404,7 @@ def test_minimal_export_list_preserves_item_and_exact_spans() -> None:
     )
 
 
-def test_export_list_accepts_exact_six_declaration_kinds_in_source_order() -> None:
+def test_export_list_accepts_exact_eight_declaration_kinds_in_source_order() -> None:
     script = _parsed(
         "export (\n"
         "    type T,\n"
@@ -404,7 +412,9 @@ def test_export_list_accepts_exact_six_declaration_kinds_in_source_order() -> No
         "    shape S,\n"
         "    source src,\n"
         "    table tbl,\n"
-        "    query qry)\n"
+        "    query qry,\n"
+        "    def fn,\n"
+        "    relationship Rel)\n"
     )
     statement = script.module_statements[0]
     assert isinstance(statement, ExportStatement)
@@ -416,6 +426,8 @@ def test_export_list_accepts_exact_six_declaration_kinds_in_source_order() -> No
         "src",
         "tbl",
         "qry",
+        "fn",
+        "Rel",
     )
 
 
@@ -738,8 +750,9 @@ def test_invalid_import_forms_fail_with_existing_parser_diagnostics_and_spans() 
         'from "x.pietto" import (\n    type Value as Local extra)\n',
         'from "x.pietto" import (\n    constraint C)\n',
         'from "x.pietto" import { type T }\n',
-        'from "x.pietto" import (\n    def F)\n',
+        'from "x.pietto" import (\n    def *)\n',
         "from package remote import type T\n",
+        'from "x.pietto" import (\n    derive D)\n',
     )
     for index, source in enumerate(cases):
         _assert_parse_failure(source, path=f"invalid-import-{index}.pietto")
@@ -754,7 +767,8 @@ def test_invalid_export_forms_fail_with_existing_parser_diagnostics_and_spans() 
         "export from type T\n",
         "export (\n    constraint C)\n",
         "export { type T }\n",
-        "export (\n    def F)\n",
+        "export (\n    def *)\n",
+        "export (\n    derive D)\n",
     )
     for index, source in enumerate(cases):
         _assert_parse_failure(source, path=f"invalid-export-{index}.pietto")
@@ -897,3 +911,72 @@ def test_modern_module_lists_keep_kinds_aliases_order_and_occurrences() -> None:
     assert imported.items[0].exported_name_span != imported.items[3].exported_name_span
     assert imported.items[0].declaration_kind_span.line == 2
     assert [item.local_name for item in exported.items] == ["LocalA", "Row", "q"]
+
+
+@pytest.mark.parametrize(
+    "source",
+    (
+        "export def pos, relationship OrderCustomer\n",
+        "export (def pos, relationship OrderCustomer)\n",
+        "export (\n    def pos,\n    relationship OrderCustomer,\n)\n",
+        'from "models/a.pietto" import def pos as p, relationship OrderCustomer\n',
+        'from "models/a.pietto" import (def pos, relationship OrderCustomer)\n',
+        'from "models/a.pietto" import (\n    def pos as p,\n'
+        "    relationship OrderCustomer,\n)\n",
+    ),
+)
+def test_def_and_relationship_items_are_kind_name_items_of_both_list_forms(
+    source: str,
+) -> None:
+    # One more pair of kinds in the existing lists, each canonical form
+    # an F1 fixed point.
+    from pietto.source_format import format_source
+
+    (statement,) = _parsed(source).module_statements
+    assert [item.declaration_kind for item in statement.items] == [
+        ModuleDeclarationKind.DEF,
+        ModuleDeclarationKind.RELATIONSHIP,
+    ]
+    assert format_source(source).source == source
+
+
+@pytest.mark.parametrize(
+    ("source", "column", "message"),
+    (
+        (
+            'from "a.pietto" import def *\n',
+            28,
+            "Unexpected '*'; expected a name. Name each item.",
+        ),
+        (
+            "export (def *)\n",
+            13,
+            "Unexpected '*'; expected a name. Name each item.",
+        ),
+        (
+            "export constraint valid\n",
+            8,
+            "Unexpected 'constraint'. Constraint and derive stay in their module.",
+        ),
+        (
+            'from "a.pietto" import derive normalized\n',
+            24,
+            "Unexpected 'derive'. Constraint and derive stay in their module.",
+        ),
+        (
+            "export (pos)\n",
+            9,
+            "Missing 'type', 'enum', 'shape', 'source', 'table', 'query', 'def' or "
+            "'relationship' before 'pos'.",
+        ),
+    ),
+)
+def test_a_wildcard_or_constraint_or_derive_item_is_refused_with_a_hint(
+    source: str, column: int, message: str
+) -> None:
+    result = parse_source(source, path="m.pietto")
+    assert result.ast is None
+    assert [
+        (item.code, item.location.line, item.location.column, item.message)
+        for item in result.diagnostics
+    ] == [("PIE-P1000", 1, column, message)]
