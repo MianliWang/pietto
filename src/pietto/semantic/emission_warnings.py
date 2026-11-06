@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from collections.abc import Iterator, Mapping, Sequence
+from collections.abc import Callable, Iterator, Mapping, Sequence
 from dataclasses import fields, is_dataclass
 
 from pietto.ast_nodes import (
@@ -237,7 +237,7 @@ def _full_conjunct_detail(
 _TEXT_NULL = "PostgreSQL types a CASE, coalesce or nullif of only None values as text"
 # Functions whose PostgreSQL forms take no text (sql/expressions.py).
 _NON_TEXT_FUNCTIONS = frozenset(
-    {"abs", "sign", "year", "month", "day", "hour", "minute"}
+    {"abs", "sign", "year", "month", "day", "hour", "minute", "add_months"}
 )
 _INT32 = range(-(1 << 31), 1 << 31)
 
@@ -445,6 +445,19 @@ def _expression_warnings(
                     text_null(item) for item in node.arguments
                 ):
                     report(node, f"{_TEXT_NULL}, which function {name} does not take")
+                elif name == "lpad" and any(
+                    text_null(item) for item in node.arguments[1:2]
+                ):
+                    report(node, f"{_TEXT_NULL}, which function lpad does not take")
+                elif name == "lpad" and any(
+                    # A width that is not a literal is left to run time.
+                    (_signed_int_literal(item, value) or 0) not in _INT32
+                    for item in node.arguments[1:2]
+                ):
+                    report(
+                        node,
+                        "this lpad width is outside PostgreSQL's 32-bit integer range",
+                    )
                 elif name == "substr" and any(
                     _int_literal_outside(item, _INT32) for item in node.arguments[1:]
                 ):
@@ -637,6 +650,23 @@ def _int_literal_outside(expression: Expression, allowed: range) -> bool:
         and type(expression.value) is int
         and expression.value not in allowed
     )
+
+
+def _signed_int_literal(
+    expression: Expression, value: Callable[[Expression], Expression]
+) -> int | None:
+    """The value of an Int literal under unary signs, such as `-3000000000`,
+    a `let:` name read as its value (`_signed_int_literal` in
+    sql/expressions.py)."""
+
+    sign = 1
+    expression = value(expression)
+    while type(expression) is UnaryExpr and expression.operator in {"+", "-"}:
+        sign = -sign if expression.operator == "-" else sign
+        expression = value(expression.operand)
+    if type(expression) is LiteralExpr and type(expression.value) is int:
+        return sign * expression.value
+    return None
 
 
 def _rendered_nodes(

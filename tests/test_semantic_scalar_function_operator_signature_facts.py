@@ -171,6 +171,7 @@ def test_scalar_function_facts_cover_the_closed_builtin_catalog() -> None:
         ("Text", "len", ("Int", "unknown")),
         ("Text", "substr", ("Int", "Int", "Text", "unknown")),
         ("Text", "replace", ("Text", "Text", "Text", "unknown")),
+        ("Text", "lpad", ("Int", "Text", "Text", "unknown")),
         ("Text", "concat", ("Text", "Text", "unknown")),
         ("Text", "contains", ("Text", "Bool", "unknown")),
         ("Text", "starts_with", ("Text", "Bool", "unknown")),
@@ -181,6 +182,7 @@ def test_scalar_function_facts_cover_the_closed_builtin_catalog() -> None:
         ("Timestamp", "date_of", ("Date", "unknown")),
         ("Timestamp", "hour", ("Int", "unknown")),
         ("Timestamp", "minute", ("Int", "unknown")),
+        ("Date", "add_months", ("Int", "Date", "unknown")),
         ("Text", "matches", ("Text", "Bool", "unknown")),
         (
             "ValueTypeKind.KNOWN",
@@ -225,6 +227,8 @@ def test_scalar_function_facts_cover_the_closed_builtin_catalog() -> None:
         "hour",
         "minute",
         "matches",
+        "lpad",
+        "add_months",
     }
 
 
@@ -402,12 +406,12 @@ def test_scalar_function_fact_is_found(
 
 
 def test_mysql_gaps_are_provenance_not_generic_fact_support() -> None:
-    # MySQL project SQL refuses `concat` and an Int-to-Text cast; single-file
-    # MySQL renders both.
+    # MySQL project SQL refuses `concat`, `lpad`, `add_months` and an
+    # Int-to-Text cast; single-file MySQL renders them.
     scalar_facts = tuple(
         fact
         for fact in _facts("_SCALAR_FUNCTION_FACTS")
-        if fact.key.operation in {"round", "date_trunc", "concat"}
+        if fact.key.operation in {"round", "date_trunc", "concat", "lpad", "add_months"}
     )
     text_conversion = _facts("_CONVERSION_FACTS")[1]
     for fact in (*scalar_facts, text_conversion):

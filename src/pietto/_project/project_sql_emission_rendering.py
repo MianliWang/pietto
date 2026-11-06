@@ -617,6 +617,52 @@ class _Writer:
                     raise ValueError("unrenderable scalar call")
                 self.enclose("scalar_call", reference, start)
                 return
+            if name in {"lpad", "add_months"}:
+                # The text before each operand, which these positions name,
+                # then the closing text.
+                texts, positions = {
+                    # PostgreSQL lpad() truncates a longer text; lpad never does.
+                    "lpad": (
+                        (
+                            "(CASE WHEN length(",
+                            ") >= ",
+                            " THEN ",
+                            " ELSE lpad(",
+                            ", CAST(",
+                            " AS pg_catalog.int4), ",
+                            ") END)",
+                        ),
+                        (0, 1, 0, 0, 1, 2),
+                    ),
+                    "add_months": (
+                        (
+                            "CAST((",
+                            " + make_interval(months => CAST(",
+                            " AS pg_catalog.int4))) AS date)",
+                        ),
+                        (0, 1),
+                    ),
+                }[name]
+                if (
+                    self.request.family != "postgres"
+                    or len(value.operands) != max(positions) + 1
+                ):
+                    raise ValueError("unrenderable scalar call")
+                for index, text in enumerate(texts):
+                    self.emit(
+                        text,
+                        "syntax",
+                        "scalar_call_open"
+                        if index == 0
+                        else "scalar_call_close"
+                        if index == len(positions)
+                        else "scalar_call_separator",
+                        reference,
+                    )
+                    if index < len(positions):
+                        self.scalar(value.operands[positions[index]], alias)
+                self.enclose("scalar_call", reference, start)
+                return
             if name == "date_trunc":
                 if self.request.family != "postgres" or len(value.operands) != 2:
                     raise ValueError("unrenderable scalar call")

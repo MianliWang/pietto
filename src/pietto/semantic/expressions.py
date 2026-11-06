@@ -4505,6 +4505,8 @@ def _call_value_type(
             and not _valid_static_substr_bounds(expression)
         ):
             diagnostics.append(_invalid_substr_bounds_diagnostic(expression))
+        elif function_name == "lpad" and not cascade and not _lpad_fill(expression):
+            diagnostics.append(_invalid_lpad_fill_diagnostic(expression))
         return _UNKNOWN_VALUE_TYPE
 
     mismatch = _builtin_argument_mismatch(
@@ -4516,6 +4518,9 @@ def _call_value_type(
 
     if function_name == "substr" and not _valid_static_substr_bounds(expression):
         diagnostics.append(_invalid_substr_bounds_diagnostic(expression))
+        return _UNKNOWN_VALUE_TYPE
+    if function_name == "lpad" and not _lpad_fill(expression):
+        diagnostics.append(_invalid_lpad_fill_diagnostic(expression))
         return _UNKNOWN_VALUE_TYPE
 
     if function_name == "matches":
@@ -4550,7 +4555,7 @@ def _builtin_argument_mismatch(
             )
         ):
             continue
-        return position, _wrong_argument_type_diagnostic(
+        diagnostic = _wrong_argument_type_diagnostic(
             expression,
             signature,
             position=position,
@@ -4559,6 +4564,17 @@ def _builtin_argument_mismatch(
             ),
             actual_name=argument_type.resolved_type.name,
         )
+        if (
+            signature.name == "add_months"
+            and position == 1
+            and _is_canonical_builtin(argument_type, "Timestamp", type_expansions)
+        ):
+            diagnostic = dataclasses.replace(
+                diagnostic,
+                message=diagnostic.message
+                + "; add_months takes a Date, such as add_months(date_of(ts), n)",
+            )
+        return position, diagnostic
     return None
 
 
@@ -5721,6 +5737,27 @@ def _invalid_substr_bounds_diagnostic(expression: CallExpr) -> Diagnostic:
     )
 
 
+_LPAD_FILL_HINT = 'fill must be a one-character Text literal, such as "0"'
+
+
+def _invalid_lpad_fill_diagnostic(expression: CallExpr) -> Diagnostic:
+    return _call_diagnostic(
+        expression,
+        code="PIE-S2104",
+        message=f"Invalid arguments for function lpad: {_LPAD_FILL_HINT}",
+    )
+
+
+def _lpad_fill(expression: CallExpr) -> bool:
+    """Whether the `lpad` fill is a one-character Text literal."""
+    fill = expression.arguments[2]
+    return (
+        isinstance(fill, LiteralExpr)
+        and type(fill.value) is str
+        and len(fill.value) == 1
+    )
+
+
 def _valid_static_substr_bounds(expression: CallExpr) -> bool:
     start, count = expression.arguments[1:]
     return (
@@ -6444,6 +6481,8 @@ _UNKNOWN_FUNCTION_HINTS = {
     "least": "write `min(a, b)`, which is None when either value is None",
     "in_range": "write the half-open range `a <= ts < b`",
     "ranges_overlap": "write `a_start < b_stop and b_start < a_stop`",
+    "rjust": "write `lpad(s, width, fill)`, which pads like Python `str.rjust` "
+    "and never truncates",
 }
 
 
@@ -6481,7 +6520,13 @@ def _unknown_function_diagnostic(
         # The 0.1.7 hint, in a file whose own callable `concat` the call names.
         "string concatenation is not supported yet"
         if function_name.lower() == "concat" and in_concat_file(expression)
-        else _UNKNOWN_FUNCTION_HINTS.get(function_name.lower())
+        else _UNKNOWN_FUNCTION_HINTS.get(
+            function_name.lower(),
+            # Python's method form, `code.rjust(5, "0")`.
+            _UNKNOWN_FUNCTION_HINTS["rjust"]
+            if function_name.lower().rpartition(".")[2] == "rjust"
+            else None,
+        )
     )
     diagnostic = _call_diagnostic(
         expression,
@@ -6524,6 +6569,12 @@ def _wrong_arity_diagnostic(
         message=(
             f"Invalid arguments for function {signature.name}: expected "
             f"{len(signature.parameter_types)}, got {len(expression.arguments)}"
+            # A missing `lpad` fill has no default, unlike Python's and SQL's.
+            + (
+                f"; {_LPAD_FILL_HINT}"
+                if signature.name == "lpad" and len(expression.arguments) == 2
+                else ""
+            )
         ),
     )
 

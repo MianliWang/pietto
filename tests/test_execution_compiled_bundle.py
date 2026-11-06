@@ -891,6 +891,60 @@ def test_the_two_level_route_template_renders_the_emitted_sql(tmp_path, route):
     assert sql.count(b"CAST(SUM(CAST(") == 2 and sql.count(b" GROUP BY ") == 2
 
 
+@pytest.mark.parametrize("route", ("compiled", "live"))
+def test_lpad_and_add_months_templates_render_the_emitted_sql(tmp_path, route):
+    """Project PostgreSQL `lpad` under a WHERE header parameter and
+    `add_months` over Date fields bind through a loaded compiled bundle and a
+    live template and render the emitted SQL byte for byte."""
+    import _pietto_sql_emission as probe
+    from _pietto_sql_query_parameters import parameterized_case
+    from pietto._project.project_compiled_build import build_compiled
+    from pietto._project.project_compiled_loading import load_compiled
+    from pietto._project.project_execution_template import (
+        bind_values,
+        prepare_compiled_template,
+        prepare_live_template,
+    )
+
+    _, padded = parameterized_case(
+        tmp_path / "pad",
+        "postgres",
+        "query result(low: Int):\n    from rows\n    where id > low\n"
+        '    select:\n        padded = lpad(text, 5, "0")\n',
+    )
+    _, dated = probe.temporal_case(
+        tmp_path / "date",
+        "postgres",
+        "    from rows\n    select:\n        later = add_months(d, 1)\n"
+        "        moved = add_months(d2, id)\n",
+        entry="query result:",
+    )
+    for outcome, values, form in (
+        (padded, (3,), b"(CASE WHEN length("),
+        (dated, (), b" + make_interval(months => CAST("),
+    ):
+        assert outcome.status == "VERIFIED", outcome.blockers
+        assert outcome.artifact is not None
+        if route == "live":
+            template = prepare_live_template(outcome.artifact)
+        else:
+            built = build_compiled(outcome.artifact)
+            template = prepare_compiled_template(
+                load_compiled(
+                    built.payload,
+                    expected_pin=built.pin,
+                    accepted_producer=built.producer,
+                    accepted_compatibility=built.compatibility,
+                )
+            )
+        bound = bind_values(
+            template, (), tuple(zip(template.parameters, values, strict=True))
+        )
+        assert bound.artifact.rendered.sql == outcome.artifact.rendered.sql
+        assert form in bound.artifact.rendered.sql
+        assert bound.arguments == values
+
+
 # Phase70 S11 x S10/S12/S14: header reads inside lets with capture lines.
 HEADER_IN_CAPTURES = """query result(cut: Int, hi: Int | None):
     let later:

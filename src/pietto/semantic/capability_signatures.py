@@ -186,6 +186,9 @@ def _scalar_function_evidence(
         "len": "test_len_returns_int",
         "matches": "test_matches_returns_bool_and_is_valid_where_predicate",
         "concat": "test_concat_joins_text_and_is_null_when_any_argument_is",
+        **dict.fromkeys(
+            ("lpad", "add_months"), "test_lpad_and_add_months_refuse_their_variants"
+        ),
     }.get(name, "closed scalar function result tests")
     ir_test = (
         "test_matches_call_lowers_as_bool_expression"
@@ -198,29 +201,39 @@ def _scalar_function_evidence(
         "len": "test_len_call_uses_postgres_length",
         "matches": "test_matches_call_uses_postgres_regex_operator",
         "concat": "test_concat_uses_the_null_propagating_postgres_operator",
+        **dict.fromkeys(
+            ("lpad", "add_months"), "test_lpad_never_truncates_and_add_months_clamps"
+        ),
     }.get(name, "closed scalar call rendering tests")
     mysql_path = {
         "matches": "tests/test_sql_mysql_relations.py",
         "concat": "tests/test_sql_project_scalar_expressions.py",
+        "lpad": "tests/test_sql_project_scalar_expressions.py",
+        "add_months": "tests/test_sql_project_scalar_expressions.py",
     }.get(name, "tests/test_sql_mysql_expressions.py")
     mysql_test = {
         "matches": "test_matches_relation_fails_closed_without_approximation",
         "concat": "test_mysql_project_sql_refuses_concat",
+        **dict.fromkeys(
+            ("lpad", "add_months"), "test_mysql_project_sql_refuses_lpad_and_add_months"
+        ),
     }.get(name, "test_approved_function_mappings_are_uppercase_and_recursive")
-    # Single-file MySQL renders CONCAT; MySQL project emission refuses it,
-    # as it refuses an Int-to-Text cast.
+    # Single-file MySQL renders CONCAT, LPAD and DATE_ADD; MySQL project
+    # emission refuses them, as it refuses an Int-to-Text cast.
     mysql_backend = (
         "src/pietto/_project/project_sql_emission_rows.py"
-        if name == "concat"
+        if name in {"concat", "lpad", "add_months"}
         else "src/pietto/sql/mysql_expressions.py"
     )
     mysql_reference = {
         "matches": "_render_call rejects matches",
         "concat": "resolved_scalar_call_realization concat branch",
+        "lpad": "resolved_scalar_call_realization lpad branch",
+        "add_months": "resolved_scalar_call_realization add_months branch",
     }.get(name, "_FUNCTION_NAMES and _render_call")
     mysql_reason = (
         CapabilityReasonCode.DIALECT_LOWERING_GAP
-        if name in {"matches", "concat"}
+        if name in {"matches", "concat", "lpad", "add_months"}
         else None
     )
     postgres_reference = {
@@ -519,6 +532,7 @@ _SCALAR_SIGNATURES = (
     ("Text", "len", ("Int", "unknown")),
     ("Text", "substr", ("Int", "Int", "Text", "unknown")),
     ("Text", "replace", ("Text", "Text", "Text", "unknown")),
+    ("Text", "lpad", ("Int", "Text", "Text", "unknown")),
     ("Text", "concat", ("Text", "Text", "unknown")),
     ("Text", "contains", ("Text", "Bool", "unknown")),
     ("Text", "starts_with", ("Text", "Bool", "unknown")),
@@ -529,6 +543,7 @@ _SCALAR_SIGNATURES = (
     ("Timestamp", "date_of", ("Date", "unknown")),
     ("Timestamp", "hour", ("Int", "unknown")),
     ("Timestamp", "minute", ("Int", "unknown")),
+    ("Date", "add_months", ("Int", "Date", "unknown")),
     ("Text", "matches", ("Text", "Bool", "unknown")),
     (
         "ValueTypeKind.KNOWN",
@@ -1238,6 +1253,8 @@ def _unknown_reason(key: CapabilityKey) -> CapabilityReasonCode | None:
             ("Text", "date_trunc", ("Date", "Date", "unknown")),
             ("Text", "date_trunc", ("Timestamp", "Timestamp", "unknown")),
             ("Text", "concat", ("Text", "Text", "unknown")),
+            ("Text", "lpad", ("Int", "Text", "Text", "unknown")),
+            ("Date", "add_months", ("Int", "Date", "unknown")),
         }:
             return CapabilityReasonCode.DIALECT_LOWERING_GAP
     if key == CapabilityKey(

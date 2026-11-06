@@ -377,6 +377,22 @@ _TEXT_NULL = "PostgreSQL types a CASE, coalesce or nullif of only None values as
         ("x = None and None", None, None),
         ("x = id + None", None, None),
         ("x = substr(text, 2147483647, 2)", None, None),
+        (
+            'x = lpad(text, coalesce(None, None), "0")',
+            13,
+            f"{_TEXT_NULL}, which function lpad does not take",
+        ),
+        (
+            "x = add_months(nullif(None, None), 1)",
+            13,
+            f"{_TEXT_NULL}, which function add_months does not take",
+        ),
+        (
+            'x = lpad(text, -3000000000, "0")',
+            13,
+            "this lpad width is outside PostgreSQL's 32-bit integer range",
+        ),
+        ('x = lpad(coalesce(None, None), -2147483648, "0")', None, None),
     ),
 )
 def test_expressions_postgresql_cannot_type_warn(

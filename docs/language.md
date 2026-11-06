@@ -474,6 +474,8 @@ first column give every rule.
 | `stddev(x)` ([Aggregates](#aggregates-and-grouping)) | `Int` and `Float` | `Float` (`STDDEV_SAMP`); `Int` refused (PIE-B1000) | `Int` and `Float` | refused: `Int` PIE-B1003, `Float` PIE-B1004 |
 | `sum(1 for o in group if t)`, `sum(o.f for o in group if t)` ([Aggregates](#aggregates-and-grouping)) | `COUNT(CASE WHEN t THEN 1 END)`; `COALESCE(CAST(SUM(CASE WHEN t THEN CAST(f AS pg_catalog.int8) END) AS pg_catalog.int8), 0)` | count and sum refused (PIE-B1000) | refused at check (PIE-S2334) | refused at check (PIE-S2334) |
 | `max(a, b)`, `min(a, b)` ([Expressions](#expressions)) | `CASE WHEN` of `<`/`>` and `IS NOT NULL`; `Int`, `Decimal`, `Float`, `Text`, `Date`, `Timestamp`, `UUID`, `Bool` | as PostgreSQL, except `Bool`, refused (PIE-B1000) | `Int`, `Decimal`, `Float`, `Text`, `Timestamp`, `UUID` as their comparison and conditional are; `Date` and `Bool` refused (PIE-B1003) | as PostgreSQL project, except `UUID`, refused as UUID ordering is (PIE-B1003) |
+| `lpad(s, width, fill)` ([Expressions](#expressions)) | `CASE WHEN length(s) >= width THEN s ELSE lpad(...) END`; a literal width outside the signed 32-bit range refused (PIE-S2385 at check) | `CASE WHEN CHAR_LENGTH(s) >= width THEN s ELSE LPAD(...) END` | emitted for a width proven in the signed 32-bit range; refused otherwise (PIE-B1002, PIE-B1004) | refused (PIE-B1003) |
+| `add_months(d, n)` ([Expressions](#expressions)) | `CAST((d + make_interval(months => CAST(n AS integer))) AS date)` | `DATE_ADD(d, INTERVAL n MONTH)` | emitted; a `None` argument refused (PIE-B1003) | refused (PIE-B1003) |
 | Always-null numbers, D-12 ([Expressions](#expressions)) | typed NULL casts | typed NULL casts | `Int` arithmetic with `None`; `Float` and `Decimal` refused | as PostgreSQL |
 | `Float` equality ([Float values](#float-values)) | comparisons and GROUP BY; DISTINCT and set forms are project-only | as PostgreSQL; GROUP BY beside a wide `Text` key may split `-0.0` and `0.0` | comparisons, GROUP BY, DISTINCT, ORDER BY and every set form | comparisons with a literal or header parameter, ordering inequalities, `in`, `nullif` and UNION ALL; the other forms refused (PIE-B1003) |
 | JOIN aggregates without fan-out ([Aggregates](#aggregates-and-grouping)) | accepted | accepted | accepted | accepted; `sum(Int)` stays PIE-B1004 |
@@ -2790,6 +2792,7 @@ len(Text) -> Int
 matches(Text, Text) -> Bool
 substr(Text, Int, Int) -> Text
 replace(Text, Text, Text) -> Text
+lpad(Text, Int, Text) -> Text
 concat(Text, Text, ...) -> Text
 contains(Text, Text) -> Bool
 starts_with(Text, Text) -> Bool
@@ -2807,6 +2810,7 @@ day(Date | Timestamp) -> Int
 hour(Timestamp) -> Int
 minute(Timestamp) -> Int
 date_of(Timestamp) -> Date
+add_months(Date, Int) -> Date
 ```
 
 `sign` returns -1, 0 or 1 as an `Int`. D-12 also admits an always-null Float
@@ -2868,6 +2872,67 @@ header parameter read in a `concat` argument is PIE-S2355, as for `replace`.
 Single-file `explain` types each `concat`; `explain --project` keeps its
 scope (an explicit-module project is `config_schema`, and a package-root
 explain does not type expressions).
+
+`lpad(s, width, fill)` pads `s` on the left with `fill` until it has `width`
+characters, and never shortens it: a `s` of `width` characters or more, and
+any `s` beside a width of 0 or less, is `s` itself, as Python's
+`s.rjust(width, fill)` gives, where SQL `LPAD` cuts a longer value (and MySQL
+`LPAD` gives NULL for a negative width). `fill` is one character written in
+the call as a `Text` literal, such as `"0"` or `" "`; there is no default. It
+is `None` when `s` or `width` is `None`, so it is `Text | None` when either may
+be `None`, and a `None` `s` is read as a `Text`. A call with two arguments is
+PIE-S2104 `Invalid arguments for function lpad: expected 3, got 2; fill must be
+a one-character Text literal, such as "0"`, and a fill that is not a
+one-character `Text` literal written in the call (a field, a `let` name,
+`None`, `""`, `"00"`) is PIE-S2104 `Invalid arguments for function lpad: fill
+must be a one-character Text literal, such as "0"`. An unknown `rjust` call, in
+any letter case, and Python's method form `code.rjust(5, "0")` are PIE-S2103
+with the hint ``write `lpad(s, width, fill)`, which pads like Python
+`str.rjust` and never truncates``.
+
+PostgreSQL SQL is `CASE WHEN length(s) >= width THEN s ELSE lpad(s, CAST(width
+AS integer), 'f') END` (project SQL: `(CASE WHEN length(s) >= width THEN s ELSE
+lpad(s, CAST(width AS pg_catalog.int4), 'f') END)`), and single-file MySQL SQL
+is `CASE WHEN CHAR_LENGTH(s) >= width THEN s ELSE LPAD(s, width, 'f') END`; `s`
+and `width` are written more than once. In a single file, PostgreSQL
+emission refuses a width written as an integer literal outside the signed
+32-bit range, also under unary signs or read through a `let:` name, as it
+refuses such a `substr` index (PostgreSQL folds the cast when it plans the
+statement and fails where Python would give `s` for a negative width), and
+`check` warns PIE-S2385 `this lpad width is outside PostgreSQL's 32-bit
+integer range`; another width outside that range may raise a PostgreSQL
+error, never another value. A CASE, `coalesce` or `nullif` of only `None`
+values as the width, or as an `add_months` argument, is PIE-S2385
+`PostgreSQL types a CASE, coalesce or nullif of only None values as text,
+which function lpad does not take` (`... add_months does not take`), and
+PostgreSQL emission refuses it.
+PostgreSQL project SQL gives the result the text's profile and a width of the
+larger of the text's width and the width's upper bound; it refuses a width
+whose proven range leaves the signed 32-bit range, such as an `Int` field
+stored as `bigint` (PIE-B1002 `lpad_width_outside_physical_range`), a text or
+width with no proven bound, a `None` width included (PIE-B1004 `lpad_result_bound_missing`), and a
+`None` text (PIE-B1003 `scalar_call_signature_not_admitted`). MySQL project
+SQL refuses `lpad` (PIE-B1003 `scalar_call_signature_not_admitted`).
+
+`add_months(d, n)` moves the `Date` `d` by `n` whole months, back for a
+negative `n`. When the day does not exist in the month reached, it is that
+month's last day, and a last day does not stay one: `add_months(d, 1)` is
+2024-02-29 for 2024-01-31 and 2024-03-29 for 2024-02-29. It is `None` when `d`
+or `n` is `None`; a `None` `d` is read as a `Date`. It takes only a `Date`: a
+`Timestamp` is PIE-S2104 `Invalid argument type for function add_months at
+position 1: expected Date, got Timestamp; add_months takes a Date, such as
+add_months(date_of(ts), n)`. PostgreSQL SQL is `CAST((d +
+make_interval(months => CAST(n AS integer))) AS date)` (project SQL: `CAST(n AS
+pg_catalog.int4)`), and single-file MySQL SQL is `DATE_ADD(d, INTERVAL n
+MONTH)`; PostgreSQL raises an error for an `n` outside the signed 32-bit range,
+a number of months far past any date. A result after 9999-12-31 is outside
+Pietto's dates: PostgreSQL gives a later date, MySQL NULL. PostgreSQL project
+SQL keeps the `Date` carrier and refuses a `None` argument (PIE-B1003); MySQL
+project SQL refuses `add_months` (PIE-B1003 `scalar_call_signature_not_admitted`).
+
+A `def lpad` or `def add_months` is PIE-S2398 with a suggestion to rename it
+(see the def section), and a `constraint` or `derive` of either name no longer
+makes a call of that name PIE-S2103: the call means the built-in.
 
 `coalesce` requires at least two same-canonical-type arguments. D-12 permits
 an always-null numeric argument of another numeric type;

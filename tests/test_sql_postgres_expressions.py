@@ -114,6 +114,12 @@ def _typed_field(name: str, value_type: TypeRefIR) -> FieldRefIR:
     )
 
 
+def _unary(operator: str, operand: ExpressionIR) -> UnaryIR:
+    return UnaryIR(
+        span=SPAN, value_type=UNKNOWN_TYPE, operator=operator, operand=operand
+    )
+
+
 def _call(callee: str, *arguments: ExpressionIR) -> CallIR:
     return CallIR(
         span=SPAN,
@@ -180,6 +186,34 @@ def test_concat_uses_the_null_propagating_postgres_operator() -> None:
     ) == ('(CAST("payload" AS text) || CAST(NULL AS text))')
     with pytest.raises(ValueError, match="concat expects at least 2"):
         render_expression_sql(_call("concat", code))
+
+
+def test_lpad_never_truncates_and_add_months_clamps() -> None:
+    # PostgreSQL lpad() truncates a longer text; Pietto's lpad keeps it.
+    code, width = _field("code"), _field("width")
+    assert render_expression_sql(_call("lpad", code, width, _literal("0"))) == (
+        'CASE WHEN length("code") >= "width" THEN "code" '
+        'ELSE lpad("code", CAST("width" AS integer), \'0\') END'
+    )
+    # A date plus months is a timestamp, clamped to the end of a shorter month.
+    assert render_expression_sql(_call("add_months", _field("due"), _literal(1))) == (
+        'CAST(("due" + make_interval(months => CAST(1 AS integer))) AS date)'
+    )
+    assert render_expression_sql(_call("add_months", _literal(None), _literal(1))) == (
+        "CAST((CAST(NULL AS date) + make_interval(months => CAST(1 AS integer))) "
+        "AS date)"
+    )
+    for fill in ("00", "", None):
+        with pytest.raises(ValueError, match="one-character Text literal fill"):
+            render_expression_sql(_call("lpad", code, width, _literal(fill)))
+    # PostgreSQL folds a literal width's cast when it plans the statement, so
+    # one outside int4 fails even where Python keeps the text.
+    for literal in (_literal(1 << 31), _unary("-", _literal((1 << 31) + 1))):
+        with pytest.raises(ValueError, match="lpad width is outside signed int32"):
+            render_expression_sql(_call("lpad", code, literal, _literal("0")))
+    assert "CAST((-2147483648) AS integer)" in render_expression_sql(
+        _call("lpad", code, _unary("-", _literal(1 << 31)), _literal("0"))
+    )
 
 
 def test_same_value_is_parenthesised_is_not_distinct_from() -> None:

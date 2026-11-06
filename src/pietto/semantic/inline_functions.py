@@ -91,10 +91,16 @@ _RESERVED_NAMES = frozenset(
         "generate_series",
     }
 ) - {"concat"}
-_STDDEV_RENAME = (
-    "Rename this def: `stddev` is now the built-in sample standard deviation "
-    "aggregate, and a call to stddev always means it."
-)
+# A built-in name that an existing def may already have, by release: the
+# def is told how to migrate.
+_NEW_BUILTIN_RENAMES = {
+    "stddev": "Rename this def: `stddev` is now the built-in sample standard "
+    "deviation aggregate, and a call to stddev always means it.",
+    "lpad": "Rename this def: `lpad` is now the built-in left pad of Text, "
+    "and a call to lpad always means it.",
+    "add_months": "Rename this def: `add_months` is now the built-in month "
+    "arithmetic on Date, and a call to add_months always means it.",
+}
 # One expansion, with its arguments, has at most this many expression nodes
 # and this nesting depth.
 _MAX_EXPANSION_NODES = 1000
@@ -825,10 +831,8 @@ def _signature_diagnostics(
             "a def cannot shadow one",
             function.span,
         )
-        # Lane F (Q1): `stddev` became a built-in aggregate in this release, so
-        # an existing `def stddev` is told how to migrate.
-        if function.name == "stddev":
-            reserved = replace(reserved, suggestion=_STDDEV_RENAME)
+        if function.name in _NEW_BUILTIN_RENAMES:
+            reserved = replace(reserved, suggestion=_NEW_BUILTIN_RENAMES[function.name])
         found.append(reserved)
     seen: set[str] = set()
     for parameter in function.parameters:

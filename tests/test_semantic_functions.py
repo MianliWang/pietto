@@ -864,6 +864,107 @@ def test_concat_refuses_one_argument_and_a_non_text_argument(
     assert [(d.code, d.message) for d in result.diagnostics] == [("PIE-S2104", message)]
 
 
+_PAD_SOURCE = (
+    "type Label = Text\n"
+    "shape Item:\n"
+    "    code: Text\n"
+    "    note: Text | None\n"
+    "    tag: Label\n"
+    "    qty: Int\n"
+    "    due: Date | None\n"
+    "    at: Timestamp\n"
+    'source items: Item = postgres.table("items")\n'
+    "table projected:\n"
+    "    from items\n"
+    "    select:\n"
+)
+
+
+def test_lpad_and_add_months_keep_their_types_and_none() -> None:
+    result = analyze(
+        _parse(
+            _PAD_SOURCE + '        padded = lpad(code, 5, "0")\n'
+            '        tagged = lpad(tag, qty, " ")\n'
+            '        noted = lpad(note, 3, "雪")\n'
+            '        nulled = lpad(None, 3, "x")\n'
+            "        later = add_months(due, 1)\n"
+            "        stamped = add_months(date_of(at), qty)\n"
+            "        unset = add_months(None, 1)\n"
+        )
+    )
+    types = tuple(
+        result.model.expression_value_types[item.expression]
+        for item in _table(result).select_items
+    )
+
+    assert result.diagnostics == ()
+    assert tuple(
+        (value_type.resolved_type.name, value_type.nullability) for value_type in types
+    ) == (
+        ("Text", EffectiveNullability.NON_NULL),
+        ("Text", EffectiveNullability.NON_NULL),
+        ("Text", EffectiveNullability.NULLABLE),
+        ("Text", EffectiveNullability.NULLABLE),
+        ("Date", EffectiveNullability.NULLABLE),
+        ("Date", EffectiveNullability.NON_NULL),
+        ("Date", EffectiveNullability.NULLABLE),
+    )
+
+
+_FILL = 'fill must be a one-character Text literal, such as "0"'
+_RJUST = (
+    "write `lpad(s, width, fill)`, which pads like Python `str.rjust` and never "
+    "truncates"
+)
+
+
+@pytest.mark.parametrize(
+    ("call", "code", "message"),
+    [
+        (
+            "lpad(code, 5)",
+            "PIE-S2104",
+            f"Invalid arguments for function lpad: expected 3, got 2; {_FILL}",
+        ),
+        *(
+            (
+                f"lpad(code, 5, {fill})",
+                "PIE-S2104",
+                f"Invalid arguments for function lpad: {_FILL}",
+            )
+            for fill in ('"00"', '""', "None", "note", "tag")
+        ),
+        (
+            "lpad(code, 5, 0)",
+            "PIE-S2104",
+            "Invalid argument type for function lpad at position 3: "
+            "expected Text, got Int",
+        ),
+        ('rjust(code, 5, "0")', "PIE-S2103", f"Unknown function: rjust; {_RJUST}"),
+        ('code.rjust(5, "0")', "PIE-S2103", f"Unknown function: code.rjust; {_RJUST}"),
+        (
+            "add_months(at, 1)",
+            "PIE-S2104",
+            "Invalid argument type for function add_months at position 1: "
+            "expected Date, got Timestamp; add_months takes a Date, such as "
+            "add_months(date_of(ts), n)",
+        ),
+        (
+            'add_months(due, "1")',
+            "PIE-S2104",
+            "Invalid argument type for function add_months at position 2: "
+            "expected Int, got Text",
+        ),
+    ],
+)
+def test_lpad_and_add_months_refuse_their_variants(
+    call: str, code: str, message: str
+) -> None:
+    result = analyze(_parse(_PAD_SOURCE + f"        value = {call}\n"))
+
+    assert [(d.code, d.message) for d in result.diagnostics] == [(code, message)]
+
+
 @pytest.mark.parametrize(
     ("body", "expected"),
     [

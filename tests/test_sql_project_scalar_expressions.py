@@ -1260,6 +1260,84 @@ def test_mysql_project_sql_refuses_concat(tmp_path, body, location):
     ] == [("PIE-B1003", "scalar_call_signature_not_admitted", *location)]
 
 
+LPAD_BODY = """table result:
+    from rows
+    select:
+        padded = lpad(text, 5, "0")
+        widened = lpad(text, 100, " ")
+"""
+ADD_MONTHS_BODY = """    from rows
+    select:
+        later = add_months(d, 1)
+        moved = add_months(d2, id)
+        stamped = add_months(date_of(ts), -1)
+"""
+
+
+def test_postgres_lpad_and_add_months_project_forms_are_verified(tmp_path):
+    """`lpad` is as wide as its text or its width, as it never truncates;
+    `add_months` keeps the Date carrier. Both pass the portable boundary."""
+    checked, padded = emit(tmp_path / "pad", "postgres", LPAD_BODY)
+    dated_checked, dated = probe.temporal_case(
+        tmp_path / "date", "postgres", ADD_MONTHS_BODY
+    )
+    for plan, outcome in ((checked, padded), (dated_checked, dated)):
+        assert plan.verified and outcome.status == "VERIFIED", outcome.blockers
+        assert outcome.artifact is not None
+        observed = portable.export_emission_observation(
+            outcome.artifact, outcome.artifact.request
+        )
+        assert observed.canonical_bytes is not None
+        assert (
+            pure.parse_emission_observation(observed.canonical_bytes).status
+            is pure.Status.OK
+        )
+    assert padded.artifact is not None and dated.artifact is not None
+    sql = padded.artifact.rendered.sql.decode()
+    assert sql.count("(CASE WHEN length(") == 2
+    assert sql.count(" AS pg_catalog.int4), CAST(") == 2
+    widths = [
+        column.value.realization.domain["max_characters"]
+        for body in row_query(padded.artifact).bodies
+        for column in body.columns
+        if type(column) is RowValueColumn
+    ]
+    assert widths == [64, 100]
+    sql = dated.artifact.rendered.sql.decode()
+    assert sql.count(" + make_interval(months => CAST(") == 3
+    assert sql.count(" AS pg_catalog.int4))) AS date)") == 3
+
+
+def test_postgres_lpad_refuses_a_width_outside_int4(tmp_path):
+    checked, outcome = emit(
+        tmp_path,
+        "postgres",
+        'table result:\n    from rows\n    select:\n        p = lpad(text, id, "0")\n',
+    )
+    assert checked.verified and outcome.status == "BLOCKED"
+    assert [blocker.detail for blocker in outcome.blockers] == [
+        "lpad_width_outside_physical_range"
+    ]
+
+
+def test_mysql_project_sql_refuses_lpad_and_add_months(tmp_path):
+    """MySQL project SQL refuses both until the two-database differential
+    admits them; single-file MySQL SQL renders LPAD and DATE_ADD."""
+    checked, padded = emit(tmp_path / "pad", "mysql", LPAD_BODY)
+    dated_checked, dated = probe.temporal_case(
+        tmp_path / "date", "mysql", ADD_MONTHS_BODY
+    )
+    for plan, outcome, lines in (
+        (checked, padded, (11, 12)),
+        (dated_checked, dated, (12, 13, 14)),
+    ):
+        assert plan.verified
+        assert public_blockers(outcome) == [
+            ("PIE-B1003", "scalar_call_signature_not_admitted", line, 9)
+            for line in lines
+        ]
+
+
 @pytest.mark.parametrize("target", TARGETS)
 def test_concat_reads_an_imported_text_alias_field_as_text(tmp_path, target):
     item = probe.parameterized_fixture(

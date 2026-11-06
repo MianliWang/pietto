@@ -140,6 +140,20 @@ def test_concat_uses_mysql_concat() -> None:
         render_mysql_expression(_call("concat", _field("code")))
 
 
+def test_lpad_keeps_a_longer_text_and_add_months_is_date_add() -> None:
+    # MySQL LPAD truncates a longer text and is NULL for a negative width.
+    code, width = _field("code"), _field("width")
+    assert render_mysql_expression(_call("lpad", code, width, _literal("0"))) == (
+        "CASE WHEN CHAR_LENGTH(`code`) >= `width` THEN `code` "
+        "ELSE LPAD(`code`, `width`, '0') END"
+    )
+    assert render_mysql_expression(
+        _call("add_months", _field("due"), _literal(-1))
+    ) == ("DATE_ADD(`due`, INTERVAL -1 MONTH)")
+    with pytest.raises(MySqlRenderError, match="one-character Text literal fill"):
+        render_mysql_expression(_call("lpad", code, width, _field("fill")))
+
+
 def test_same_value_is_the_parenthesised_null_safe_operator() -> None:
     assert (
         render_mysql_expression(_call("same_value", _field("code"), _literal("x")))

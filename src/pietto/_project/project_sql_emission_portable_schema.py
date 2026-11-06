@@ -866,6 +866,8 @@ OPERATORS = {
         "date_trunc",
         "concat",
         "same_value",
+        "lpad",
+        "add_months",
     ),
 }
 COMPARISON_SPELLING = {

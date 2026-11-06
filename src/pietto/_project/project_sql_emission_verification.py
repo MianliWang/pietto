@@ -6879,6 +6879,49 @@ def verify_row_bytes(query, rendered):
                         raise ValueError("scalar call arity")
                     spans.append(("scalar_call", reference, start, offset))
                     return
+                if name in {"lpad", "add_months"}:
+                    texts, positions = {
+                        "lpad": (
+                            (
+                                "(CASE WHEN length(",
+                                ") >= ",
+                                " THEN ",
+                                " ELSE lpad(",
+                                ", CAST(",
+                                " AS pg_catalog.int4), ",
+                                ") END)",
+                            ),
+                            (0, 1, 0, 0, 1, 2),
+                        ),
+                        "add_months": (
+                            (
+                                "CAST((",
+                                " + make_interval(months => CAST(",
+                                " AS pg_catalog.int4))) AS date)",
+                            ),
+                            (0, 1),
+                        ),
+                    }[name]
+                    if (
+                        query.request.family != "postgres"
+                        or len(value.operands) != max(positions) + 1
+                    ):
+                        raise ValueError("scalar call family")
+                    for index, text in enumerate(texts):
+                        take(
+                            "syntax",
+                            "scalar_call_open"
+                            if index == 0
+                            else "scalar_call_close"
+                            if index == len(positions)
+                            else "scalar_call_separator",
+                            reference,
+                            text,
+                        )
+                        if index < len(positions):
+                            scalar(value.operands[positions[index]], alias)
+                    spans.append(("scalar_call", reference, start, offset))
+                    return
                 if name == "date_trunc":
                     if query.request.family != "postgres" or len(value.operands) != 2:
                         raise ValueError("scalar call family")

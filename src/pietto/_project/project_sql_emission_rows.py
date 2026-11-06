@@ -2072,6 +2072,45 @@ def resolved_scalar_call_realization(
         )
         if result is not None:
             return result, None
+    if name == "lpad":
+        # Never truncates, so as wide as the text or the width; PostgreSQL
+        # lpad() takes an int4 width. MySQL project SQL refuses it.
+        if family != "postgres" or len(values) != 3 or tag != "Text":
+            return None, ("PIE-B1003", "scalar_call_signature_not_admitted")
+        text, width, fill = values
+        fill_literal = static_values[2]
+        if (
+            width.tag != "Int"
+            or fill.tag != "Text"
+            or _text_domain(fill) != _text_domain(text)
+            or type(fill_literal) is not tuple
+            or fill_literal[0] != "Text"
+            or type(fill_literal[1]) is not str
+            or len(fill_literal[1]) != 1
+        ):
+            return None, ("PIE-B1003", "scalar_call_signature_not_admitted")
+        bounds = proven_int_bounds(width)
+        maximum = text.domain.get("max_characters")
+        if bounds is None or type(maximum) is not int:
+            return None, ("PIE-B1004", "lpad_result_bound_missing")
+        if not all(-(1 << 31) <= bound <= (1 << 31) - 1 for bound in bounds):
+            return None, ("PIE-B1002", "lpad_width_outside_physical_range")
+        result = _text_result(family, text, nullable, max(maximum, bounds[1]))
+        if result is not None:
+            return result, None
+    if (
+        name == "add_months"
+        and family == "postgres"
+        and len(values) == 2
+        and tag == "Date"
+        and value.storage == {"kind": "pg_date"}
+        and value.domain == {"kind": "date"}
+        and values[1].tag == "Int"
+        and not _typed_null(values[1])
+    ):
+        # A date plus months, clamped to the end of a shorter month; MySQL
+        # project SQL refuses it.
+        return Realization("Date", value.storage, nullable, value.domain), None
     if name == "concat":
         # NULL when any argument is; otherwise as wide as all of them. MySQL
         # types a CONCAT from storage lengths and a literal's UTF-8 bytes, not

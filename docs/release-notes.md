@@ -329,6 +329,89 @@ Compatibility:
 | `def max` / `def min` | PIE-S2398 | unchanged (no user `def` newly becomes PIE-S2398: both names were already reserved as aggregates) |
 | one-argument `max(x)`/`min(x)` aggregate, window `max(x) window(...)` | unchanged | unchanged |
 
+### `lpad` and `add_months`
+
+- **`lpad(s, width, fill)` pads Text on the left and never truncates.** It
+  is Python's `s.rjust(width, fill)`: a `s` of `width` characters or more, or
+  a width of 0 or less, is `s` itself (SQL `LPAD` cuts it; MySQL `LPAD` gives
+  NULL for a negative width). `fill` is a one-character `Text` literal written
+  in the call; there is no default. The result is `None` when `s` or `width`
+  is `None`.
+  - PostgreSQL SQL: `CASE WHEN length(s) >= width THEN s ELSE lpad(s,
+    CAST(width AS integer), 'f') END`; project SQL casts to
+    `pg_catalog.int4` and parenthesises the CASE. Single-file MySQL SQL:
+    `CASE WHEN CHAR_LENGTH(s) >= width THEN s ELSE LPAD(s, width, 'f') END`.
+    A two-database differential (PostgreSQL 18.6, MySQL 8.4.12) matched the
+    expected rows.
+  - Project SQL (PostgreSQL) gives the result a width of the larger of the
+    text's width and the width's upper bound.
+- **`add_months(d, n)` moves a Date by months.** The day becomes the last day
+  of a shorter month, and a month end is not sticky: one month after
+  2024-01-31 is 2024-02-29, one month after 2024-02-29 is 2024-03-29. `None`
+  when `d` or `n` is `None`. Date only in this release.
+  - PostgreSQL SQL: `CAST((d + make_interval(months => CAST(n AS integer)))
+    AS date)` (project: `pg_catalog.int4`). Single-file MySQL SQL:
+    `DATE_ADD(d, INTERVAL n MONTH)`. The same differential matched both
+    databases, month ends included.
+- **New diagnostic texts** (codes unchanged; each at the whole call):
+  - PIE-S2104 `Invalid arguments for function lpad: fill must be a
+    one-character Text literal, such as "0"` for a fill that is a field, a
+    `let` name, `None`, `""` or more than one character.
+  - PIE-S2104 `Invalid arguments for function lpad: expected 3, got 2; fill
+    must be a one-character Text literal, such as "0"` for a missing fill.
+  - PIE-S2104 `Invalid argument type for function add_months at position 1:
+    expected Date, got Timestamp; add_months takes a Date, such as
+    add_months(date_of(ts), n)`.
+  - PIE-S2103 hint (the lookup ignores letter case): an unknown `rjust` call,
+    and a call whose dotted name ends in `.rjust` such as `code.rjust(5,
+    "0")`, adds ``; write `lpad(s, width, fill)`, which pads like Python
+    `str.rjust` and never truncates``.
+  - PIE-S2385 (single-file check, PostgreSQL relations), at the call:
+    `this lpad width is outside PostgreSQL's 32-bit integer range` for an
+    integer literal width outside the signed 32-bit range (also under unary
+    signs or through a `let:` name), and `PostgreSQL types a CASE, coalesce
+    or nullif of only None values as text, which function lpad does not
+    take` (`... which function add_months does not take`) for such a width
+    or `add_months` argument.
+- **New refusals.**
+  - Single-file PostgreSQL emission, for the cases the PIE-S2385 warnings
+    above name: PIE-B1000 `PostgreSQL SQL emission is not implemented for
+    RelationIR: <name>. PostgreSQL lpad width is outside signed int32
+    range` and `... PostgreSQL types a CASE, COALESCE or NULLIF of only
+    NULL values as text, which function lpad does not take` (also
+    `add_months`).
+  - PostgreSQL project SQL: `lpad` with a width whose proven range leaves the
+    signed 32-bit range, such as an `Int` field stored as `bigint`, is PIE-B1002
+    with the new detail `lpad_width_outside_physical_range`; with a text or a
+    width that has no proven bound, a `None` width included, PIE-B1004 with
+    the new detail `lpad_result_bound_missing`; with a `None` text, and
+    `add_months` with a `None` argument, PIE-B1003
+    `scalar_call_signature_not_admitted`.
+  - MySQL project SQL refuses `lpad` and `add_months`, as it refuses `concat`,
+    `round` and `date_trunc`: PIE-B1003 `scalar_call_signature_not_admitted`
+    at the statement part that holds the call.
+- **Compatibility.** `lpad` and `add_months` are now reserved built-in names:
+  a `def lpad(...)` or `def add_months(...)` is PIE-S2398 (``Def lpad has the
+  name of a built-in function; a def cannot shadow one``) with the suggestion
+  ``Rename this def: `lpad` is now the built-in left pad of Text, and a call
+  to lpad always means it.`` (for `add_months`: ``Rename this def:
+  `add_months` is now the built-in month arithmetic on Date, and a call to
+  add_months always means it.``), so a project's `emit-sql` documents that
+  hold such a def go from VERIFIED to BLOCKED. A `constraint` or `derive`
+  named `lpad` or `add_months` called by that name, which was PIE-S2103
+  (``Unknown function: lpad; lpad is a derive, which cannot be called; write a
+  `def` instead``), now means the built-in. A call of `lpad` or `add_months`
+  is no longer PIE-S2103.
+- **Known limits.** A result after 9999-12-31 is outside Pietto's dates
+  (PostgreSQL gives a later date, MySQL NULL); MySQL `LPAD` gives NULL when
+  the result would exceed `max_allowed_packet`; single-file PostgreSQL may
+  raise an error for an `add_months` count, or an `lpad` width that is not
+  an integer literal, outside the signed 32-bit range (never another value;
+  project SQL refuses such an `lpad` width with PIE-B1002). Single-file SQL
+  writes an `lpad` text three times, so nested `lpad` calls grow the SQL
+  threefold per level, as nested `round` of a Float grows it fivefold; project
+  SQL stops at PIE-B1007 `public_artifact_byte_limit`.
+
 ## Equality, nullability and asof JOIN public alpha release notes — 0.1.9
 
 <a id="unreleased-changes-following-018"></a>

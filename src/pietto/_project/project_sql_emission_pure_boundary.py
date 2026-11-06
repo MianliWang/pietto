@@ -1617,6 +1617,8 @@ class _Check:
                     "round": {1, 2},
                     "date_trunc": {2},
                     "same_value": {2},
+                    "lpad": {3},
+                    "add_months": {2},
                 }
                 count = len(op["operands"])
                 _require(
@@ -1660,6 +1662,28 @@ class _Check:
                     )
             elif op["kind"] == "scalar_call" and op["operator"] == "concat":
                 _require(family == "postgres", "concat family")
+            elif op["kind"] == "scalar_call" and op["operator"] == "lpad":
+                fill = _literal_text(doc, operands[2])
+                _require(
+                    family == "postgres"
+                    and _is_pg_text_value(doc, operands[0])
+                    and _value_tag(doc, operands[1]) == "Int"
+                    and type(fill) is str
+                    and len(fill) == 1
+                    and _is_pg_text_input(result),
+                    "lpad realization",
+                )
+            elif op["kind"] == "scalar_call" and op["operator"] == "add_months":
+                date = {"kind": "pg_date"}, {"kind": "date"}
+                _require(
+                    family == "postgres"
+                    and _is_realization(
+                        _value_realization(doc, operands[0]), "Date", *date
+                    )
+                    and _value_tag(doc, operands[1]) == "Int"
+                    and _is_realization(result, "Date", *date),
+                    "add_months realization",
+                )
             elif op["kind"] == "scalar_call" and op["operator"] == "round":
                 _require(family == "postgres", "round family")
                 value = _value_realization(doc, operands[0])
@@ -2620,6 +2644,22 @@ class _Tokens:
                             ),
                             ("scalar_call_close", " ) END)"),
                         ]
+                elif name == "lpad":
+                    expected = [
+                        ("scalar_call_open", "(CASE WHEN length("),
+                        ("scalar_call_separator", ") >= "),
+                        ("scalar_call_separator", " THEN "),
+                        ("scalar_call_separator", " ELSE lpad("),
+                        ("scalar_call_separator", ", CAST("),
+                        ("scalar_call_separator", " AS pg_catalog.int4), "),
+                        ("scalar_call_close", ") END)"),
+                    ]
+                elif name == "add_months":
+                    expected = [
+                        ("scalar_call_open", "CAST(("),
+                        ("scalar_call_separator", " + make_interval(months => CAST("),
+                        ("scalar_call_close", " AS pg_catalog.int4))) AS date)"),
+                    ]
                 else:
                     expected = (
                         [
@@ -2816,7 +2856,7 @@ class _Tokens:
             )
             assert node is not None
             name = node["operator"]
-            if name in {"round", "date_trunc"}:
+            if name in {"round", "date_trunc", "lpad", "add_months"}:
                 per_subject.setdefault(("c5_scalar_tokens", subject), []).append(
                     (role, text)
                 )

@@ -40,6 +40,7 @@ BUILTIN_FUNCTIONS: Mapping[str, BuiltinFunction] = MappingProxyType(
             BuiltinFunction("len", ("Text",), "Int"),
             BuiltinFunction("substr", ("Text", "Int", "Int"), "Text"),
             BuiltinFunction("replace", ("Text", "Text", "Text"), "Text"),
+            BuiltinFunction("lpad", ("Text", "Int", "Text"), "Text"),
             BuiltinFunction("contains", ("Text", "Text"), "Bool"),
             BuiltinFunction("starts_with", ("Text", "Text"), "Bool"),
             BuiltinFunction("ends_with", ("Text", "Text"), "Bool"),
@@ -47,6 +48,7 @@ BUILTIN_FUNCTIONS: Mapping[str, BuiltinFunction] = MappingProxyType(
             BuiltinFunction("date_of", ("Timestamp",), "Date"),
             BuiltinFunction("hour", ("Timestamp",), "Int"),
             BuiltinFunction("minute", ("Timestamp",), "Int"),
+            BuiltinFunction("add_months", ("Date", "Int"), "Date"),
             BuiltinFunction("matches", ("Text", "Text"), "Bool"),
         )
     }

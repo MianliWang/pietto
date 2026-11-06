@@ -633,6 +633,13 @@ Python's `statistics.stdev`, and is None for fewer than two values.
 are None when either value is None, where SQL's `GREATEST` and `LEAST` skip a
 None on PostgreSQL. Nest them for more values: `max(a, max(b, c))`; a nest of
 up to five fields this way fits (PIE-S2399 past that).
+`lpad(code, 5, "0")` pads a Text on the left to 5 characters with the one
+character `"0"`, written in the call, and never shortens it: a longer `code` is
+kept, as Python's `code.rjust(5, "0")` keeps it, where SQL `LPAD` cuts it.
+`add_months(due, 1)` moves a Date by whole months and puts the day at the end
+of a shorter month: one month after 2024-01-31 is 2024-02-29, and one month
+after 2024-02-29 is 2024-03-29, not the end of March. Both are None when any
+argument is None.
 
 ## Comments
 
@@ -669,6 +676,11 @@ Comments start with `#`, as in Python. `--` does not start a comment:
 | `max(a, None)` | `None`, or drop the call | a `None` argument is an error (PIE-S2104): the result would always be None |
 | `max(n, 1.5)` with an `Int` `n` | `max(Float(n), 1.5)` | both values need one type, as for `coalesce` and a conditional's branches (PIE-S2104) |
 | `b if a < b else a` for the larger value | `max(a, b)` | the conditional gives `a` when only `b` is None; `max(a, b)` gives None there |
+| `code.rjust(5, "0")`, `rjust(code, 5, "0")` | `lpad(code, 5, "0")` | functions take the value as an argument (PIE-S2103 hints `lpad`); like `rjust`, `lpad` never shortens `code` |
+| `lpad(code, 5)` | `lpad(code, 5, " ")` | there is no default fill; the fill is one character written in the call (PIE-S2104) |
+| `LPAD(code, 5, " ")`, `ADD_MONTHS(d, 1)` | `lpad(code, 5, " ")`, `add_months(d, 1)` | built-in names are lowercase (PIE-S2103 `Unknown function: LPAD`) |
+| `d + relativedelta(months=1)`, `DATE_ADD(d, INTERVAL 1 MONTH)` | `add_months(d, 1)` | the day moves to the end of a shorter month, and a month end does not stay one: `add_months(d, 1)` of 2024-02-29 is 2024-03-29 |
+| `add_months(ts, 1)` for a Timestamp | `add_months(date_of(ts), 1)` | `add_months` takes a Date (PIE-S2104) |
 | `true`, `null` | `True`, `None` | |
 | `-- note` | `# note` | `--` is a minus sign followed by another |
 

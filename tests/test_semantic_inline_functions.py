@@ -377,9 +377,11 @@ def test_each_definition_error_is_reported_at_the_def(
     assert _errors(source) == expected
 
 
-def test_only_a_def_stddev_is_told_to_rename_for_the_new_aggregate() -> None:
+def test_only_a_def_named_for_a_new_builtin_is_told_to_rename() -> None:
     parsed = parse_source(
-        "def stddev(a: Int) -> Int: return a\ndef avg(a: Int) -> Int: return a\n",
+        "def stddev(a: Int) -> Int: return a\ndef avg(a: Int) -> Int: return a\n"
+        "def lpad(a: Text) -> Text: return a\n"
+        "def add_months(a: Int) -> Int: return a\n",
         path="m.pietto",
     )
     assert parsed.ast is not None
@@ -390,6 +392,16 @@ def test_only_a_def_stddev_is_told_to_rename_for_the_new_aggregate() -> None:
             "deviation aggregate, and a call to stddev always means it.",
         ),
         ("PIE-S2398", None),
+        (
+            "PIE-S2398",
+            "Rename this def: `lpad` is now the built-in left pad of Text, and a "
+            "call to lpad always means it.",
+        ),
+        (
+            "PIE-S2398",
+            "Rename this def: `add_months` is now the built-in month arithmetic "
+            "on Date, and a call to add_months always means it.",
+        ),
     ]
 
 

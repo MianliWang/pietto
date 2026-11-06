@@ -43,7 +43,10 @@ from pietto.ir.model import (
     WindowNullTreatmentIR,
     WindowSpecIR,
 )
-from pietto.sql.expressions import null_number_operand_sql
+from pietto.sql.expressions import (
+    null_number_operand_sql,
+    one_character_text_literal,
+)
 from pietto.sql.mysql_render import (
     MySqlRenderError,
     quote_identifier,
@@ -110,6 +113,8 @@ _FUNCTION_ARITIES = {
     "day": 1,
     "hour": 1,
     "minute": 1,
+    "lpad": 3,
+    "add_months": 2,
 }
 _NUMERIC_AGGREGATE_NAMES = {
     "sum": "SUM",
@@ -1065,6 +1070,21 @@ def _render_call(expression: CallIR) -> str:
         return f"RIGHT({arguments[0]}, CHAR_LENGTH({arguments[1]})) = {arguments[1]}"
     if expression.callee == "date_of":
         return f"DATE({arguments[0]})"
+    if expression.callee == "lpad":
+        if not one_character_text_literal(expression.arguments[2]):
+            raise MySqlRenderError(
+                "MySQL function lpad needs a one-character Text literal fill"
+            )
+        # MySQL LPAD truncates a longer text and is NULL for a negative width;
+        # Pietto's lpad keeps the text.
+        text, width, fill = arguments
+        return (
+            f"CASE WHEN CHAR_LENGTH({text}) >= {width} THEN {text} "
+            f"ELSE LPAD({text}, {width}, {fill}) END"
+        )
+    if expression.callee == "add_months":
+        # MySQL clamps the day to the end of a shorter month.
+        return f"DATE_ADD({arguments[0]}, INTERVAL {arguments[1]} MONTH)"
     if expression.callee in _DATE_PARTS:
         return f"{expression.callee.upper()}({arguments[0]})"
     return f"{_FUNCTION_NAMES[expression.callee]}({arguments[0]})"

@@ -1872,6 +1872,8 @@ def verify_description(value: Description) -> None:
                         "date_trunc",
                         "concat",
                         "same_value",
+                        "lpad",
+                        "add_months",
                     },
                     None,
                 ),

@@ -105,10 +105,12 @@ _FUNCTION_ARITIES = {
     "day": 1,
     "hour": 1,
     "minute": 1,
+    "lpad": 3,
+    "add_months": 2,
 }
 # Functions whose PostgreSQL form takes no text argument.
 _NON_TEXT_FUNCTIONS = frozenset(
-    {"abs", "sign", "year", "month", "day", "hour", "minute"}
+    {"abs", "sign", "year", "month", "day", "hour", "minute", "add_months"}
 )
 _NUMERIC_AGGREGATE_NAMES = {
     "sum": "SUM",
@@ -1388,6 +1390,29 @@ def _render_call(expression: CallIR) -> str:
         return f"right({arguments[0]}, length({arguments[1]})) = {arguments[1]}"
     if expression.callee == "date_of":
         return f"CAST({arguments[0]} AS date)"
+    if expression.callee == "lpad":
+        text, width, fill = arguments
+        _refuse_text_null_operand("function lpad", expression.arguments[1])
+        if not one_character_text_literal(expression.arguments[2]):
+            raise ValueError(
+                "PostgreSQL function lpad needs a one-character Text literal fill"
+            )
+        literal = _signed_int_literal(expression.arguments[1])
+        if literal is not None and not -(1 << 31) <= literal <= (1 << 31) - 1:
+            raise ValueError("PostgreSQL lpad width is outside signed int32 range")
+        # PostgreSQL lpad() truncates a longer text; Pietto's never does. Any
+        # other width outside int4 raises an error, never gives another value.
+        return (
+            f"CASE WHEN length({text}) >= {width} THEN {text} "
+            f"ELSE lpad({text}, CAST({width} AS integer), {fill}) END"
+        )
+    if expression.callee == "add_months":
+        # A date plus months is a timestamp that PostgreSQL clamps to the end
+        # of a shorter month.
+        return (
+            f"CAST(({_render_typed_null(expression.arguments[0], 'date')} + "
+            f"make_interval(months => CAST({arguments[1]} AS integer))) AS date)"
+        )
     if expression.callee in _DATE_PARTS:
         argument = expression.arguments[0]
         if type(argument) is LiteralIR and argument.value is None:
@@ -1458,6 +1483,30 @@ def _same_value_type(left: ExpressionIR, right: ExpressionIR) -> bool:
         and right.value_type.canonical_kind is TypeKindIR.BUILTIN
         and left.value_type.canonical_name == right.value_type.canonical_name
         and left.value_type.nullability is right.value_type.nullability
+    )
+
+
+def _signed_int_literal(expression: ExpressionIR) -> int | None:
+    """The value of an Int literal under unary signs, such as `-3000000000`,
+    which PostgreSQL folds when it plans the statement."""
+
+    sign = 1
+    while type(expression) is UnaryIR and expression.operator in {"+", "-"}:
+        sign = -sign if expression.operator == "-" else sign
+        expression = expression.operand
+    if type(expression) is LiteralIR and type(expression.value) is int:
+        return sign * expression.value
+    return None
+
+
+def one_character_text_literal(expression: ExpressionIR) -> bool:
+    """Whether ``expression`` is the one-character Text literal an `lpad` fill
+    must be."""
+
+    return (
+        type(expression) is LiteralIR
+        and type(expression.value) is str
+        and len(expression.value) == 1
     )
 
 
