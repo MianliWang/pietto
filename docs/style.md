@@ -807,6 +807,67 @@ comparison; elsewhere, such as a GROUP BY or ORDER BY key, a JOIN `on`, a field
 is refused (PIE-S2387). If a column holds local time, comparing it with
 `now()` is off by the local offset from UTC. MySQL does not emit `now()` yet.
 
+## The rows of each group: group, then collect
+
+To list each group's rows beside its count, group in one query and collect in
+a second query that reads the first. This is a project form (PostgreSQL, a
+`schema_version = 2` project); a single file refuses it, so the block shows
+its codes:
+
+```pietto PIE-S2345 PIE-S2351 PIE-S2801
+shape Order:
+    id: Int
+    region: Text | None
+    amount: Int
+
+source orders: Order = postgres.table("orders")
+
+query per_region:
+    from orders
+    group by region
+    select region, n = count()
+
+query region_orders:
+    let members:
+        capture per_region
+        from orders
+        where same_value(orders.region, per_region.region)
+        select:
+            id
+            amount
+        order by id
+    from per_region
+    select:
+        region
+        n
+        items = collect members
+```
+
+`per_region` has one row per region, and the orders without a region are a
+group of their own. The let `members` captures that row and keeps the orders
+of its group: `same_value` is also True when both regions are None, so every
+group, the None one included, gets its own `n` orders in `items`. Read the
+same input in the let as in the grouped query. When the groups count only
+some rows, write that filter in a query of its own, such as `paid_orders`
+with `where paid`, and read `paid_orders` in both places. End the let's
+`order by` with a unique field, such as `id`.
+
+Not this:
+
+- `items = collect members` in the query with `group by`: group in one query,
+  collect in another that reads it (PIE-S2803, whose JSON `suggestion` shows
+  this route).
+- `where orders.region == per_region.region`: write
+  `where same_value(orders.region, per_region.region)`; `==` is never True for
+  None, so the None group gets `[]` although its `n` is not 0.
+- a let that reads `orders` beside a grouped query that reads `paid_orders`:
+  read `paid_orders` in both; otherwise `items` lists the unpaid orders too.
+- a let whose `where` matches a group key that is a nested field (the output
+  of a `collect`): not available (PIE-S2805, with `same_value` as with `==`).
+- a let that matches a `Bool` group key: not available yet (`emit-sql
+  --project` refuses a `Bool` `same_value`, PIE-B1003
+  `comparison_type_pair_not_admitted`).
+
 ## Comments
 
 Comments start with `#`, as in Python. `--` does not start a comment:

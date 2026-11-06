@@ -967,6 +967,41 @@ Compatibility:
   version marks `(7, 1, 7, 1)` of the aggregate windows subsection; a reader
   of earlier marks refuses such a bundle.
 
+### The rows of each group
+
+- The language guide and the style page describe the per-group detail route:
+  group in one query, read it with `from` in another, and collect a let that
+  captures the grouped query, reads the same input and matches each key with
+  `same_value`, so a group whose key is None gets its own rows and each
+  group's list has as many rows as its `count()`. The guide also says what
+  the other spellings give: with `==` the None group's list is `[]`; a let
+  that reads the unfiltered input beside a filtered grouped query lists every
+  row whose key matches; a `Float` key keeps each member's own value
+  (`-0.0` and `0.0` group together); a `Bool` key cannot be matched yet, as
+  `emit-sql --project` refuses a `Bool` `same_value` or `==` (PIE-B1003
+  `comparison_type_pair_not_admitted`). The route needs no new syntax: it was
+  already accepted, and PostgreSQL project SQL writes it as one LEFT JOIN
+  LATERAL aggregate correlated with `IS NOT DISTINCT FROM`. MySQL still
+  reports PIE-B1003 for its Collect read.
+- PIE-S2803, for a Collect read in a grouped SELECT (a GROUP BY or an
+  aggregate in that SELECT), now suggests that route. Old suggestion:
+  ``Group the rows in another table or query, read it with `from` here, and
+  collect a let that captures it.`` New suggestion: ``Group the rows in
+  another table or query g, read it here with `from g`, and collect a let
+  that captures g, reads the same input as g and matches each group key, if
+  any, with `where same_value(input.k, g.k)`, so a None key keeps its
+  rows.`` Compatibility: only the suggestion text changes (the JSON
+  `suggestion`; text output prints no suggestion, as before). The code,
+  severity, message, location, count and order of PIE-S2803 are unchanged,
+  and so are its other two suggestions (in a relation let; a read that is no
+  relation let). A tool that matches the whole suggestion must accept the
+  new text.
+- No new diagnostic, refusal or compatibility break. A let that matches a
+  nested field (the output of a `collect`) to a captured group key stays
+  PIE-S2805 at that field, with `same_value` as with `==`
+  (``Nested relation field parent.xs cannot be read in WHERE: a collected
+  relation has no comparison, ordering, grouping or scalar value.``).
+
 ## Equality, nullability and asof JOIN public alpha release notes — 0.1.9
 
 <a id="unreleased-changes-following-018"></a>

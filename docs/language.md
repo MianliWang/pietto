@@ -2117,8 +2117,8 @@ it with a unique field such as a key. A let with `capture` lines that
 once: `collect` counts as its one read beside `exists`, `scalar`, `in` and a
 JOIN (PIE-S2370). A Collect read is a SELECT item of a table or query without
 GROUP BY or aggregates; in a grouped SELECT or in a relation let it is
-PIE-S2803. To collect per group, group in another table or query, read it with
-`from`, and collect a let that captures it. A Collect of a source, table
+PIE-S2803. To collect per group, use the per-group detail route below. A
+Collect of a source, table
 or query, imported or not, instead of a relation let of the same body is
 PIE-S2803 too (a name that is no relation there, such as an alias, value or
 window `let`, is PIE-S2301 `Unknown relation`), as is one of a let whose
@@ -2171,6 +2171,70 @@ selecting it beside a RIGHT or FULL JOIN, a window or QUALIFY, or in a
 relation let is PIE-S2805. Selected without a JOIN and without DISTINCT, it
 checks, but `emit-sql --project` reports it BLOCKED (PIE-B1003
 `expression_evidence_unavailable`), whatever else the project reads.
+
+**The rows of each group.** To collect per group, group in another table
+or query `g`, read it with `from g`, and collect a let that captures `g`,
+reads the input that `g` groups and matches each group key with
+`same_value`. Here `paid_orders` holds the rows that are counted, and both
+`per_region` and the let read it:
+
+```pietto PIE-S2345 PIE-S2351 PIE-S2801
+shape Order:
+    id: Int
+    region: Text | None
+    amount: Int
+    paid: Bool
+
+source orders: Order = postgres.table("orders")
+
+query paid_orders:
+    from orders
+    where paid
+    select id, region, amount
+
+query per_region:
+    from paid_orders
+    group by region
+    select region, n = count()
+
+query region_orders:
+    let members:
+        capture per_region
+        from paid_orders
+        where same_value(paid_orders.region, per_region.region)
+        select:
+            id
+            amount
+        order by id
+    from per_region
+    select:
+        region
+        n
+        items = collect members
+```
+
+The members of a group are the rows that the let's `where` matches.
+`same_value` is True for two None keys, so a group whose key is None gets
+its own rows, and each group's value has as many rows as its `count()`.
+With `==`, which is never True for a None operand, the None group's value
+is `[]` although its count is not 0. When the grouped query filters its
+input before GROUP BY, as here, write the filter in a query of its own and
+read that query in both places: a let that reads the unfiltered `orders`
+lists every row whose key matches, also the rows the filter removed, so its
+value can have more rows than the group's count. A `Float` key groups
+`-0.0` and `0.0` together, as GROUP BY does, and each member keeps its own
+value. A grouped query with an aggregate and no GROUP BY has one group and
+no key: the let captures it and needs no `where`. A `Bool` key cannot be
+matched yet: `check --project` accepts the let, but `emit-sql --project`
+refuses a `Bool` `same_value`, as it refuses a `Bool` `==` (PIE-B1003
+`comparison_type_pair_not_admitted`). A group key that is a nested field,
+the output of a `collect`, cannot be matched in the let: the let's read of
+it is PIE-S2805, as any read of a nested field in WHERE is. A Collect read
+in the grouped query itself is PIE-S2803, and its JSON `suggestion` shows
+this route.
+On PostgreSQL, `emit-sql --project` writes the Collect read as described
+below, with the let's `same_value` as `IS NOT DISTINCT FROM`; MySQL
+reports PIE-B1003 for it, as for every Collect read.
 
 An Unnest expands a nested field into rows: write `from p`, then
 `let o = unnest(p.field)`, then exactly one `cross join o`,

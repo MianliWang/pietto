@@ -2087,8 +2087,10 @@ def _append_collect_issue(
 # Where a Collect read stands outside the SELECT of an ungrouped table or
 # query, and how to write it there.
 _COLLECT_POSITION_SUGGESTIONS: Mapping[str, str] = {
-    "the SELECT of a grouped query": "Group the rows in another table or query, "
-    "read it with `from` here, and collect a let that captures it.",
+    "the SELECT of a grouped query": "Group the rows in another table or query g, "
+    "read it here with `from g`, and collect a let that captures g, reads the "
+    "same input as g and matches each group key, if any, with "
+    "`where same_value(input.k, g.k)`, so a None key keeps its rows.",
     "a relation let": "Collect in the SELECT of the table or query itself.",
 }
 

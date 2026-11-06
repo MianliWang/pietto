@@ -51,6 +51,11 @@ from pietto._project.project_compiled_verification import (
     RELATIONS,
     verify_description,
 )
+from pietto._project.project_execution_binding_verification import native_arguments
+from pietto._project.project_execution_template import (
+    bind_values,
+    prepare_live_template,
+)
 from pietto._project.project_result_contract import (
     NestedShape,
     ResultError,
@@ -959,6 +964,130 @@ def test_each_admitted_collect_shape_lowers_to_the_live_statement(
         if p.field.evidence.resolved_type.kind
         is ProjectResolvedTypeKind.NESTED_RELATION
     ]
+
+
+# The per-group detail route: `by_key` groups a producer, and `result` reads it
+# with `from` and collects a let that captures it and matches the key.
+DETAIL = """shape Row:
+    id: Int
+    k: Int | None
+    fk: Float | None
+    v: Int
+    pk = unique(id)
+source src: Row = postgres.table("src")
+query pos:
+    from src
+    where v > 0
+    select:
+        id
+        k
+        fk
+        v
+query by_key:
+    from {producer}
+    group by:
+        {key}
+    select:
+        {key}
+        n = count()
+query result:
+    let members:
+        capture by_key
+        from {reader}
+        where {test}
+        select:
+            id
+            {key}
+        order by id
+    from by_key
+    select:
+        {key}
+        n
+        items = collect members
+"""
+# Each route's producer, let input, key and correlation, and what PostgreSQL
+# emits for it with literals preserved: `same_value` keeps a None key's rows
+# where `==` matches none; the let reads the producer's own rows, or the raw
+# source beside a filtered producer; each member keeps its own Float value.
+DETAIL_ROUTES = {
+    "same_value": (
+        ("src", "src", "k", "same_value(src.k, by_key.k)"),
+        'FROM "public"."src" AS "s1" WHERE ("s1"."k" IS NOT DISTINCT FROM "s2"."c0")',
+    ),
+    "equality": (
+        ("src", "src", "k", "src.k == by_key.k"),
+        'FROM "public"."src" AS "s1" WHERE ("s1"."k" = "s2"."c0")',
+    ),
+    "shared_filter": (
+        ("pos", "pos", "k", "same_value(pos.k, by_key.k)"),
+        'COUNT(*) AS "c1" FROM "p1" AS "s1" GROUP BY "s1"."c1"',
+        'FROM "p1" AS "s2" WHERE ("s2"."c1" IS NOT DISTINCT FROM "s3"."c0")',
+    ),
+    "raw_source": (
+        ("pos", "src", "k", "same_value(src.k, by_key.k)"),
+        'COUNT(*) AS "c1" FROM "p1" AS "s1" GROUP BY "s1"."c1"',
+        'FROM "public"."src" AS "s2" WHERE ("s2"."k" IS NOT DISTINCT FROM "s3"."c0")',
+    ),
+    "float_key": (
+        ("src", "src", "fk", "same_value(src.fk, by_key.fk)"),
+        '"s2"."c0" AS "fk", "s2"."c1" AS "n", "g0"."n" AS "items", '
+        '"g0"."a0" AS "id", "g0"."a1" AS "fk" FROM "p1" AS "s2"',
+        'FROM "public"."src" AS "s1" WHERE ("s1"."fk" IS NOT DISTINCT FROM "s2"."c0")',
+    ),
+}
+
+
+def _detail_contract():
+    document = _contract(("rows",), parameters=True)
+    (source,) = document["sources"]
+    source["selector"]["name"] = source["relation"]["name"] = "src"
+    integer = source["fields"][0]["representation"]
+    fields = {
+        "id": integer,
+        "k": {**integer, "nullable": True},
+        "fk": {
+            "storage": {"kind": "pg_float8"},
+            "nullable": True,
+            "domain": {"kind": "finite_float", "format": "binary64"},
+        },
+        "v": integer,
+    }
+    source["fields"] = [
+        {"ordinal": i, "name": name, "column": name, "representation": value}
+        for i, (name, value) in enumerate(fields.items())
+    ]
+    return document
+
+
+@pytest.mark.parametrize("route", sorted(DETAIL_ROUTES))
+def test_the_per_group_detail_route_lowers_and_binds_its_live_statement(
+    tmp_path, route
+):
+    """Emission, the compiled bundle and the live template of each detail
+    route render one statement and bind the emission's arguments."""
+    (producer, reader, key, test), *emitted = DETAIL_ROUTES[route]
+    files = {
+        "main.pietto": DETAIL.format(
+            producer=producer, reader=reader, key=key, test=test
+        )
+    }
+    for policy in ("preserve", "bind-safe"):
+        artifact = _emitted(tmp_path / policy, files, _detail_contract(), policy)
+        sql = artifact.rendered.sql
+        assert policy != "preserve" or all(f.encode() in sql for f in emitted)
+        loaded = _loaded(build_compiled(artifact))
+        assert emit_compiled(loaded, _slots(loaded)).rendered.sql == sql
+        operators = {
+            r.get("operator")
+            for r in loaded.records.values()
+            if r.address.kind == "operation"
+        }
+        assert (("scalar_call", "same_value") in operators) is (route != "equality")
+        template = prepare_live_template(artifact)
+        values = tuple(v.value for v in artifact.fixed_values)
+        bound = bind_values(template, tuple(zip(template.slots, values, strict=True)))
+        assert template.artifact.rendered.sql == bound.artifact.rendered.sql == sql
+        assert bound.arguments == native_arguments(artifact, values)
 
 
 @pytest.mark.parametrize(

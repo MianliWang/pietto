@@ -1612,6 +1612,99 @@ def test_collect_admission_refuses_each_read_once_in_check_order(
     assert [d.message for d in refusals] == ([] if message is None else [message])
 
 
+@pytest.mark.parametrize(
+    ("group", "select"),
+    [("    group by region\n", "        region\n"), ("", "")],
+    ids=["grouped", "global-aggregate"],
+)
+def test_a_grouped_collect_names_the_per_group_detail_route(
+    tmp_path: Path, group: str, select: str
+) -> None:
+    source = _collecting(ORDERED_RECENT, select + "        n = count()\n").replace(
+        "    from customers\n", "    from customers\n" + group
+    )
+
+    (refusal,) = build_project_completed_semantic_result(
+        _semantic(tmp_path, source)
+    ).diagnostics
+    assert refusal.code == "PIE-S2803"
+    assert refusal.suggestion == (
+        "Group the rows in another table or query g, read it here with `from g`, "
+        "and collect a let that captures g, reads the same input as g and matches "
+        "each group key, if any, with `where same_value(input.k, g.k)`, so a None "
+        "key keeps its rows."
+    )
+
+
+# The per-group detail route over a key that is a nested field: `by_xs`
+# groups `parent` by its Collect output, and `detail` matches that field.
+NESTED_KEY_DETAIL = """shape Row:
+    id: Int
+    pk = unique(id)
+shape Item:
+    id: Int
+    rid: Int
+    v: Int
+    ik = unique(id)
+source rows: Row = postgres.table("rows")
+source items: Item = postgres.table("items")
+query parent:
+    let kids:
+        capture rows
+        from items
+        where items.rid == rows.id
+        select:
+            v
+        order by id
+    from rows
+    select:
+        id
+        xs = collect kids
+query by_xs:
+    from parent
+    group by:
+        xs
+    select:
+        xs
+        n = count()
+query detail:
+    let members:
+        capture by_xs
+        from parent
+        where {test}
+        select:
+            id
+        order by id
+    from by_xs
+    select:
+        n
+        items = collect members
+"""
+
+
+@pytest.mark.parametrize(
+    ("test", "column"),
+    [("same_value(parent.xs, by_xs.xs)", 26), ("parent.xs == by_xs.xs", 15)],
+)
+def test_a_capture_on_a_nested_group_key_is_refused(
+    tmp_path: Path, test: str, column: int
+) -> None:
+    """A let cannot match a nested field to a captured group key, with
+    `same_value` as with `==`: the field it reads is PIE-S2805, whether or
+    not the grouping on it is admitted."""
+    diagnostics = build_project_completed_semantic_result(
+        _semantic(tmp_path, NESTED_KEY_DETAIL.format(test=test))
+    ).diagnostics
+
+    refusal, *_ = (d for d in diagnostics if d.location.line == 34)
+    assert (refusal.code, refusal.location.column, refusal.message) == (
+        "PIE-S2805",
+        column,
+        "Nested relation field parent.xs cannot be read in WHERE: a collected "
+        "relation has no comparison, ordering, grouping or scalar value.",
+    )
+
+
 @pytest.mark.parametrize("leaf", ["Any", "Bytes"])
 def test_collect_refuses_every_unadmitted_builtin_leaf(
     tmp_path: Path, leaf: str
