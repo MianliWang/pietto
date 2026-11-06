@@ -57,10 +57,19 @@ Batch 1 (the route publication and S01–S05) is published at `ac4d18ae`
 jobs; batch 2 (S07–S11 and S14–S17) is published at `3caa5e6c` (tree
 `3f6f6d94`), natural exact-head CI `42232536210`, 21/21 jobs. Batch 3 ends with the
 [completion audit](phases/phase-73/completion-audit.md) and the
-[Phase74 handoff](phases/phase-73/phase74-handoff.md); Phase73 closes when
-the batch-3 head passes natural CI. T-K and T-G are delivered, and
-multi-level collections stay unsupported. Phase73 has no release of its
-own: it ships in `0.1.10` with Phase74 and Phase75 (D73.15).
+[Phase74 handoff](phases/phase-73/phase74-handoff.md) at `b148fdee`
+(tree `0f12d466`), whose natural CI `42272513354` failed only one Windows
+3.12 test; that head is kept, and its repair child `37143dcb` (tree
+`d93f9393`) passed natural exact-head CI `42277807557` attempt 1 on all 21
+jobs, so Phase73 is `COMPLETED / PUBLISHED`. T-K and T-G are delivered, and
+multi-level collections stay unsupported. Phase73 has no release of its own:
+it ships in `0.1.10` with Phase74 and Phase75 (D73.15).
+Phase74 started on `main` at `37143dcb` with its
+[12-slice route](phases/phase-74/route.md), published by a
+documentation-only commit; its Gate 1 is D74.01–D74.16 in the
+[decision record](decisions.md#phase74--owner-decisions-2026-11-05-and-2026-11-06).
+Its lines had started on 2026-11-05, beside Phase73, and it ships in the
+same `0.1.10`.
 
 The second project-emission interlude is published at `b56cb62ed3be8ede44561d74a825fde3a53b116b` (tree `22165d89fb383f407967801193f039abcdceea68`); natural exact-head CI `41297066141` attempt 1 accepted all 19 jobs. The single-file checked Int SUM repair is published at `61a4ce4e05c190ea49e2eb93afd31e6fbdee7e29` (tree `da72b5412f4ecb087c508b9bd8204bf811a6e955`); natural exact-head CI `41362408512` attempt 1 accepted all 19 jobs.
 B5 (S14–S16) is published at `305ab2c802258c2b3e932ccf236481dfc0e0034e` (tree `6e335432490b8c7a64501519376c6dbfa59ec3cd`); natural exact-head CI `41390632023` attempt 1 accepted all 19 jobs.
@@ -2979,7 +2988,7 @@ Phase-64+ Slice route or implementation.
 | 71 | NestedRelation, Collect, Unnest, flatten, outer/inner grain, nested Arrow |
 | 72 | Advanced equality/types/nullability and temporal/range/ASOF relationships |
 | 73 | Explicit two-level aggregation, conditional and list aggregates, per-group detail lists, nested GROUP/DISTINCT keys, project aggregate windows and parity, `median`/`quantile` and small scalar features |
-| 74 | Cross-module reuse of `def` and relationships, relationship parameters that take table/query rows, MySQL catch-up |
+| 74 | Cross-module reuse of `def` and relationships, relationship parameters that take table/query rows, MySQL catch-up, `variance`/`pvariance`/`pstdev`, group `all`/`any`, `first`/`last` and multi-column `count_distinct` |
 | 75 | Formatter follow-ups, LSP, editor, diagnostics, compile API, column view and migrations |
 | 76 | PostgreSQL deep adaptation |
 | 77 | MySQL deep adaptation |
@@ -3012,7 +3021,10 @@ Phase72–75 plan; the answers for Phase73, Phase74 and Phase75 are provisional
 until the Gate 1 of that phase confirms them, and the rows 73–75 above state
 them. The Phase73 Gate 1 confirmed its answers the same day (D73.17) and
 added the project aggregate windows and parity and `median`/`quantile` to its
-row. Phase73 offers an explicit two-level aggregation route instead of
+row. The Phase74 Gate 1 confirmed J9–J11, J13 and J24 (D74.13); its MySQL
+catch-up also takes the backward asof JOIN, and the owner approved the
+spelling table of its new aggregates (D74.11). Phase73 offers an explicit
+two-level aggregation route instead of
 automatic fan-out repair or reaggregation and adds no aggregate state
 contract; grouping extensions (ROLLUP, CUBE, GROUPING SETS) leave Phase73
 and stay unscheduled until a named use case (J8). Measure/metric definitions
