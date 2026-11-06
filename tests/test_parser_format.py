@@ -546,3 +546,38 @@ def test_an_asof_join_fmt_cannot_admit_stays_refused_or_byte_identical() -> None
     parsed = parse_source(reversed_, path="asof.pietto")
     assert parsed.ast is not None
     assert [item.code for item in analyze(parsed.ast).diagnostics] == ["PIE-S2336"]
+
+
+_CONDITIONAL_AGGREGATES = """shape Order:
+    id: Int
+    customer_id: Int | None
+    amount_cents: Int
+    paid: Bool
+    status: Text | None
+
+source orders: Order = postgres.table("shop.orders")
+
+query customer_order_summary:
+    from orders
+    group by customer_id
+    select:
+        customer_id
+        orders_count = count()
+        paid_orders = sum(1 for o in group if o.paid)
+        paid_cents = sum(o.amount_cents for o in group if o.paid)
+        refunded_orders = sum(1 for o in group if o.status == "refunded")
+"""
+
+
+def test_the_conditional_aggregate_example_is_a_fixed_point_and_only_reindents() -> (
+    None
+):
+    """The canonical generator call sits whole on its item's line; fmt adds,
+    drops and respells no token of it."""
+    assert _formatted(_CONDITIONAL_AGGREGATES) == _CONDITIONAL_AGGREGATES
+    narrow = _CONDITIONAL_AGGREGATES.replace("\n    ", "\n  ")
+    assert narrow != _CONDITIONAL_AGGREGATES
+    assert _formatted(narrow) == _CONDITIONAL_AGGREGATES
+    parsed = parse_source(_CONDITIONAL_AGGREGATES)
+    assert parsed.ast is not None
+    assert analyze(parsed.ast).diagnostics == ()

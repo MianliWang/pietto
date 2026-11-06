@@ -444,6 +444,9 @@ def unadmitted_syntax_diagnostics(
                     for parameter in cast(tuple[QueryParameter, ...], child)
                 )
             pending.append((child, body))
+    from pietto.semantic.generators import generator_diagnostics
+
+    found.extend(generator_diagnostics(script, single_file=single_file))
     return tuple(sorted(found, key=source_order))
 
 

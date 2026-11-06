@@ -12,6 +12,7 @@ from typing import cast
 
 from pietto.ast_nodes import (
     AnyExpr,
+    GeneratorExpr,
     BetweenExpr,
     BinaryExpr,
     CastExpr,
@@ -292,6 +293,8 @@ def _operands(expression: Expression) -> tuple[Expression, ...]:
 
     if isinstance(expression, AnyExpr):
         return ()
+    if isinstance(expression, GeneratorExpr):
+        return expression.operands
     if isinstance(expression, CallExpr):
         return (
             *expression.arguments,
@@ -709,6 +712,8 @@ def _walk_expressions(expression: Expression) -> tuple[Expression, ...]:
         children.extend((expression.value, expression.lower, expression.upper))
     elif isinstance(expression, IsNullExpr):
         children.append(expression.value)
+    elif isinstance(expression, GeneratorExpr):
+        children.extend(expression.operands)
     elif not isinstance(
         expression,
         (

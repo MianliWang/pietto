@@ -1199,7 +1199,30 @@ def aggregate_call_contract(
             and _aggregate_window_builtin_type(arguments[0]) in {"Int", "Float"}
             and _aggregate_window_has_type(value_type, "Float", NullabilityIR.NULLABLE)
         )
+    if function in FILTERED_AGGREGATE_ARITIES:
+        # `sum(1 for o in group if TEST)` (TEST) and `sum(o.f for o in group
+        # if TEST)` (an Int field, TEST): an Int, 0 for no matching row.
+        return (
+            len(arguments) == FILTERED_AGGREGATE_ARITIES[function]
+            and _aggregate_window_builtin_type(arguments[-1]) == "Bool"
+            and all(
+                not _aggregate_call_contains_nested_stage(argument)
+                for argument in arguments
+            )
+            and (
+                len(arguments) == 1
+                or isinstance(arguments[0], FieldRefIR)
+                and arguments[0].field is not None
+                and _aggregate_window_builtin_type(arguments[0]) == "Int"
+            )
+            and _aggregate_window_has_type(value_type, "Int", NullabilityIR.NON_NULL)
+        )
     return False
+
+
+# The conditional count and sum of a group, by their argument counts: internal
+# aggregate identities that no source spelling names.
+FILTERED_AGGREGATE_ARITIES = {"filtered_count": 1, "filtered_sum": 2}
 
 
 def _aggregate_window_contains_window(expression: ExpressionIR) -> bool:

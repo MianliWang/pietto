@@ -560,6 +560,17 @@ def _render_aggregate_call(
 ) -> str:
     if expression.function == "string_agg":
         raise MySqlRenderError("MySQL aggregate string_agg is not supported")
+    if expression.function == "filtered_sum":
+        # MySQL SUM of an integer is DECIMAL, not a checked bigint; the Phase74
+        # MySQL catch-up owns it.
+        raise MySqlRenderError(
+            "MySQL conditional sum of an Int argument is not supported"
+        )
+    if expression.function == "filtered_count":
+        # The Phase74 MySQL catch-up owns the conditional count.
+        raise MySqlRenderError(
+            "MySQL has no conditional count yet; emit with --dialect postgres"
+        )
     if expression.function == "count":
         sql = _render_count_aggregate(
             expression, allow_grouped_aggregate=allow_grouped_aggregate

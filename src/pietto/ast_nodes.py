@@ -174,6 +174,28 @@ class AnyExpr(Expression):
 
 
 @dataclass(frozen=True, slots=True, kw_only=True)
+class GeneratorExpr(Expression):
+    """``body for binding in source [if condition]``, the only argument of a call.
+
+    ``source`` holds the dotted parts as written: a relation name, ``group``
+    or a row's collected field.
+    """
+
+    body: Expression
+    binding_name: str
+    binding_span: Span
+    source: tuple[str, ...]
+    source_span: Span
+    condition: Expression | None
+
+    @property
+    def operands(self) -> tuple[Expression, ...]:
+        """The body, then the test when there is one."""
+
+        return (self.body,) if self.condition is None else (self.body, self.condition)
+
+
+@dataclass(frozen=True, slots=True, kw_only=True)
 class RelationScalarExpr(Expression):
     """A ``scalar`` read of one named column from a named relation."""
 

@@ -536,3 +536,63 @@ def test_no_generated_name_equals_a_user_name_in_any_case(
         _GENERATED.fullmatch(name) and name.casefold() == user.casefold()
         for name in names
     ), sql
+
+
+_RELATION_ANY = """shape Order:
+    id: Int
+    customer_id: Int | None
+    paid: Bool
+shape Customer:
+    id: Int
+source orders: Order = {target}.table("shop.orders")
+source customers: Customer = {target}.table("shop.customers")
+query relation_any_where:
+    from customers
+    where any(o.customer_id == customers.id for o in orders)
+    select id
+query relation_not_any_where:
+    from customers
+    where not any(o.customer_id == customers.id and o.paid for o in orders)
+    select id
+query self_any_ungrouped:
+    from orders
+    where any(o.customer_id == orders.customer_id and o.id != orders.id for o in orders)
+    select id
+"""
+
+
+@pytest.mark.parametrize(
+    ("target", "emit", "quote"),
+    [("postgres", emit_postgres_sql, '"'), ("mysql", emit_mysql_sql, "`")],
+)
+def test_relation_any_sql_is_unchanged_beside_generator_calls(
+    target: str, emit: Callable[..., SqlResult], quote: str
+) -> None:
+    """`for o in orders` in `any(...)` is still the whole relation, with the
+    bytes of the Gate 0 probe that preceded the generator grammar."""
+
+    parsed = parse_source(_RELATION_ANY.format(target=target))
+    assert parsed.ast is not None
+    semantic = analyze(parsed.ast)
+    assert semantic.diagnostics == () and semantic.script is not None
+    lowered = build_ir(semantic.script, semantic.model)
+    assert lowered.ir is not None
+    result = emit(lowered.ir)
+
+    q = quote
+    assert result.diagnostics == ()
+    assert [artifact.sql for artifact in result.artifacts] == [
+        f"SELECT\n    {q}id{q} AS {q}id{q}\nFROM {q}shop{q}.{q}customers{q} AS "
+        f"{q}customers{q}\nWHERE EXISTS (SELECT 1 FROM {q}shop{q}.{q}orders{q} AS "
+        f"{q}_pietto_value_1{q} WHERE {q}_pietto_value_1{q}.{q}customer_id{q} = "
+        f"{q}customers{q}.{q}id{q})",
+        f"SELECT\n    {q}id{q} AS {q}id{q}\nFROM {q}shop{q}.{q}customers{q} AS "
+        f"{q}customers{q}\nWHERE NOT EXISTS (SELECT 1 FROM {q}shop{q}.{q}orders{q} "
+        f"AS {q}_pietto_value_2{q} WHERE ({q}_pietto_value_2{q}.{q}customer_id{q} = "
+        f"{q}customers{q}.{q}id{q}) AND {q}_pietto_value_2{q}.{q}paid{q})",
+        f"SELECT\n    {q}id{q} AS {q}id{q}\nFROM {q}shop{q}.{q}orders{q} AS "
+        f"{q}orders{q}\nWHERE EXISTS (SELECT 1 FROM {q}shop{q}.{q}orders{q} AS "
+        f"{q}_pietto_value_3{q} WHERE ({q}_pietto_value_3{q}.{q}customer_id{q} = "
+        f"{q}orders{q}.{q}customer_id{q}) AND ({q}_pietto_value_3{q}.{q}id{q} <> "
+        f"{q}orders{q}.{q}id{q}))",
+    ]

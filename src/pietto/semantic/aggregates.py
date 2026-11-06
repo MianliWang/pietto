@@ -104,6 +104,7 @@ _KNOWN_EXPRESSIONS = frozenset(
         ast.MembershipExpr,
         ast.RelationExistsExpr,
         ast.AnyExpr,
+        ast.GeneratorExpr,
         ast.RelationScalarExpr,
         ast.RelationMembershipExpr,
         ast.CastExpr,
@@ -285,6 +286,8 @@ def child_expressions(expression: Expression) -> tuple[Expression, ...]:
         return (expression.value, expression.lower, expression.upper)
     if isinstance(expression, IsNullExpr):
         return (expression.value,)
+    if isinstance(expression, ast.GeneratorExpr):
+        return expression.operands
     if isinstance(
         expression,
         (
@@ -380,6 +383,9 @@ def is_supported_semantic_aggregate_argument_expression(
     )
     if is_direct_field_argument(expression):
         return is_supported_semantic_aggregate_argument(function_name, value_type)
+    if type(expression) is ast.GeneratorExpr:
+        # The conditional count and sum of a group add Int values (D73.04).
+        return function_name == SUM_AGGREGATE_NAME and _is_builtin(value_type, "Int")
     if function_name == COUNT_AGGREGATE_NAME:
         return _is_supported_count_expression_shape(
             expression, value_type, null_operands=form_only
@@ -919,6 +925,17 @@ def semantic_aggregate_result_value_type(
     )
 
 
+def generator_aggregate_result_value_type(
+    function_name: str, argument_type: ValueType
+) -> ValueType | None:
+    """The type of ``sum`` of a generator, the conditional count or sum of a
+    group: an Int, 0 and never None for no matching row."""
+
+    if function_name == SUM_AGGREGATE_NAME and _is_builtin(argument_type, "Int"):
+        return COUNT_VALUE_TYPE
+    return None
+
+
 def semantic_projection_aggregate_result_value_type(
     function_name: str,
     argument_type: ValueType | None = None,
@@ -1021,10 +1038,25 @@ def wrong_argument_type_diagnostic(
     expression: CallExpr,
     *,
     actual_name: str,
+    hint: bool = True,
 ) -> Diagnostic:
-    """Report a direct aggregate field argument with an unsupported type."""
+    """Report a direct aggregate field argument with an unsupported type;
+    with ``hint``, a `sum` of a Bool field names the conditional count."""
 
     name = callee_name(expression)
+    generator = _generator_argument(expression)
+    if generator is not None:
+        binder = generator.binding_name
+        return _diagnostic(
+            expression,
+            code="PIE-S2314",
+            message=f"Aggregate function {name} of a generator adds an Int field of "
+            f"{binder}, got {actual_name}",
+            hint=f"count with `sum(1 for {binder} in group if {binder}."
+            f"{generator.body.name})`"
+            if actual_name == "Bool" and type(generator.body) is NameExpr
+            else None,
+        )
     expected = (
         "concrete non-Any"
         if name == COUNT_AGGREGATE_NAME
@@ -1043,6 +1075,7 @@ def wrong_argument_type_diagnostic(
         )
     )
 
+    argument = expression.arguments[0] if expression.arguments else None
     return _diagnostic(
         expression,
         code="PIE-S2314",
@@ -1050,14 +1083,46 @@ def wrong_argument_type_diagnostic(
             f"Aggregate function {name} expects {expected} field argument, "
             f"got {actual_name}"
         ),
+        hint=f"count with `sum(1 for o in group if o.{argument.name})`"
+        if hint
+        and name == SUM_AGGREGATE_NAME
+        and actual_name == "Bool"
+        and type(argument) is NameExpr
+        else None,
     )
 
 
-def deferred_argument_expression_diagnostic(expression: CallExpr) -> Diagnostic:
-    """Report an aggregate argument expression deferred beyond the MVP."""
+def deferred_argument_expression_diagnostic(
+    expression: CallExpr, *, hint: bool = True
+) -> Diagnostic:
+    """Report an aggregate argument expression deferred beyond the MVP; with
+    ``hint``, a conditional `sum` or `count` argument names the generator."""
 
     name = callee_name(expression)
+    generator = _generator_argument(expression)
+    if generator is not None:
+        return _diagnostic(
+            expression,
+            code="PIE-S2314",
+            message=(
+                f"Aggregate function {name} of a generator adds an Int field of "
+                f"{generator.binding_name}; a Float or Decimal sum is not "
+                "available yet"
+            ),
+        )
 
+    suggestion = None
+    if (
+        hint
+        and name in {SUM_AGGREGATE_NAME, COUNT_AGGREGATE_NAME}
+        and len(expression.arguments) == 1
+        and type(expression.arguments[0]) is ConditionalExpr
+    ):
+        suggestion = (
+            "write `sum(1 for o in group if ...)`"
+            if name == COUNT_AGGREGATE_NAME
+            else "write `sum(o.v for o in group if ...)`"
+        )
     return _diagnostic(
         expression,
         code="PIE-S2315",
@@ -1065,7 +1130,33 @@ def deferred_argument_expression_diagnostic(expression: CallExpr) -> Diagnostic:
             f"Aggregate function {name} requires a direct field argument; "
             "expression arguments are not supported yet"
         ),
+        hint=suggestion,
     )
+
+
+def unknown_row_generator_diagnostic(expression: CallExpr) -> Diagnostic | None:
+    """PIE-S2334 for a generator over an input row whose fields are not
+    known, such as a source without a shape: its test and summed field need
+    their types."""
+
+    generator = _generator_argument(expression)
+    if generator is None:
+        return None
+    return _diagnostic(
+        expression,
+        code="PIE-S2334",
+        message=(
+            f"{callee_name(expression)}(... for {generator.binding_name} in group "
+            "...) reads an input whose fields are not known; give its source a shape"
+        ),
+    )
+
+
+def _generator_argument(expression: CallExpr) -> ast.GeneratorExpr | None:
+    arguments = expression.arguments
+    if len(arguments) == 1 and type(arguments[0]) is ast.GeneratorExpr:
+        return arguments[0]
+    return None
 
 
 def _is_builtin(value_type: ValueType, name: str) -> bool:
@@ -1087,12 +1178,15 @@ def _diagnostic(
     *,
     code: str,
     message: str,
+    hint: str | None = None,
 ) -> Diagnostic:
+    """A ``hint`` follows the message after `; ` and is the JSON suggestion."""
+
     span = expression.span
     return Diagnostic(
         code=code,
         severity=Severity.ERROR,
-        message=message,
+        message=message if hint is None else f"{message}; {hint}",
         location=SourceLocation(
             path=span.path,
             line=span.line,
@@ -1100,6 +1194,7 @@ def _diagnostic(
             end_line=span.end_line,
             end_column=span.end_column,
         ),
+        suggestion=hint,
     )
 
 

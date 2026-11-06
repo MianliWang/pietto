@@ -5,6 +5,7 @@ from __future__ import annotations
 from pietto.ast_nodes import SetRelationDef
 from pietto._flat_relational_admission import syntax_diagnostics
 from pietto._syntax_admission import unadmitted_syntax_diagnostics
+from pietto.semantic.generators import normalize_group_generators
 
 from collections.abc import Callable, Iterator, Mapping, Sequence, Set as AbstractSet
 from dataclasses import fields, is_dataclass, replace
@@ -16,6 +17,7 @@ if TYPE_CHECKING:
 
 from pietto.ast_nodes import (
     AnyExpr,
+    GeneratorExpr,
     BetweenExpr,
     BinaryExpr,
     CastExpr,
@@ -264,7 +266,9 @@ def _analyze_script(
         parsed = script
         any_trace = AnyValueTrace(script)
         script, existence_generators, existence_diagnostics = (
-            normalize_existence_generators(script, occurrence_observer=any_trace.record)
+            normalize_existence_generators(
+                script, occurrence_observer=any_trace.record, group_hint=single_file
+            )
         )
         if existence_diagnostics:
             return SemanticResult(
@@ -284,6 +288,11 @@ def _analyze_script(
             )
         scalar_names = frozenset(
             item.name for item in script.definitions if isinstance(item, FunctionDef)
+        )
+        before_generators = script
+        script = normalize_group_generators(script)
+        existence_generators = rebind_existence_generators(
+            before_generators, script, existence_generators
         )
         before_naming = script
         script, naming_diagnostics = normalize_query_names(
@@ -340,7 +349,11 @@ def _analyze_script(
                 shared=not single_file,
             )
             warnings = habit_warnings(
-                parsed, result.script or script, result.model, diagnostics
+                parsed,
+                result.script or script,
+                result.model,
+                diagnostics,
+                single_file=single_file,
             )
             return replace(
                 result,
@@ -1351,6 +1364,8 @@ def _expression_children(expression: Expression) -> tuple[Expression, ...]:
         return (expression.value, expression.lower, expression.upper)
     if isinstance(expression, IsNullExpr):
         return (expression.value,)
+    if isinstance(expression, GeneratorExpr):
+        return expression.operands
     if isinstance(
         expression,
         (

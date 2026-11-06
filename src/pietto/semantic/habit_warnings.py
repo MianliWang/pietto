@@ -1,7 +1,8 @@
 """Warnings for spellings that a Python reader misreads in SQL (owner decision
-S4): `/` of two `Int` values truncates (PIE-S2106) and a `None` option of an
-`in` list never matches (PIE-S2107). Both are accepted and emitted as written,
-in every check mode; `--`, which SQL reads as a comment, is PIE-P1009 of the
+S4): `/` of two `Int` values truncates (PIE-S2106), a `None` option of an
+`in` list never matches (PIE-S2107) and `count` of a `Bool` field counts its
+False values too (PIE-S2388). All are accepted and emitted as written, in
+every check mode; `--`, which SQL reads as a comment, is PIE-P1009 of the
 parser.
 """
 
@@ -13,6 +14,7 @@ from dataclasses import fields, is_dataclass
 from pietto.ast_nodes import (
     BinaryExpr,
     CallExpr,
+    DottedNameExpr,
     Expression,
     FunctionDef,
     LiteralExpr,
@@ -20,6 +22,7 @@ from pietto.ast_nodes import (
     NameExpr,
     Script,
     Span,
+    WindowExpr,
 )
 from pietto.errors import Diagnostic, Severity, SourceLocation
 from pietto.semantic.expressions import (
@@ -51,10 +54,13 @@ def habit_warnings(
     analyzed: Script,
     model: SemanticModel,
     diagnostics: Sequence[Diagnostic],
+    *,
+    single_file: bool = True,
 ) -> tuple[Diagnostic, ...]:
     """The S4 warnings of ``parsed``, in source order of each walk: tables and
     queries as ``analyzed`` types them, then each ``def`` body over its declared
-    parameters. A `def` body is reported where it is written, not at a call."""
+    parameters. A `def` body is reported where it is written, not at a call.
+    PIE-S2388 names the conditional count, which only a single file has."""
 
     defined = {item.name for item in parsed.definitions if type(item) is FunctionDef}
     # Analysis types a def's body at each call, where nothing is written.
@@ -80,6 +86,7 @@ def habit_warnings(
             model.expression_value_types,
             model,
             errors,
+            single_file=single_file,
         )
     )
     for function, schema in def_body_schemas(parsed):
@@ -95,6 +102,7 @@ def habit_warnings(
                 types,
                 model,
                 errors,
+                single_file=single_file,
             )
         )
     # One written expression that analysis reads twice is reported once.
@@ -106,8 +114,14 @@ def _warnings(
     types: Mapping[Expression, ValueType],
     model: SemanticModel,
     errors: set[tuple[object, ...]],
+    *,
+    single_file: bool,
 ) -> Iterator[Diagnostic]:
+    # A window call counts within its frame, where no generator is written.
+    windowed: set[int] = set()
     for node in nodes:
+        if type(node) is WindowExpr:
+            windowed.add(id(node.call))
         if (
             type(node) is BinaryExpr
             and node.operator == "/"
@@ -126,6 +140,36 @@ def _warnings(
         ):
             message = _NULL_NOT_IN_OPTION if node.negated else _NULL_OPTION
             yield _warning("PIE-S2107", message, node.span)
+        elif (
+            single_file
+            and type(node) is CallExpr
+            and type(node.callee) is NameExpr
+            and node.callee.name == "count"
+            and id(node) not in windowed
+            and len(node.arguments) == 1
+            and isinstance(argument := node.arguments[0], (NameExpr, DottedNameExpr))
+            and _is_bool(types.get(argument), model)
+            and _key(node.span) not in errors
+        ):
+            yield _warning("PIE-S2388", _count_bool(argument), node.span)
+
+
+def _count_bool(field: NameExpr | DottedNameExpr) -> str:
+    written = field.name if isinstance(field, NameExpr) else ".".join(field.parts)
+    name = written.rsplit(".", 1)[-1]
+    return (
+        f"`count({written})` counts every row whose {name} is not None, False "
+        f"included; to count the rows where it is True, write "
+        f"`sum(1 for o in group if o.{name})`"
+    )
+
+
+def _is_bool(value_type: ValueType | None, model: SemanticModel) -> bool:
+    return (
+        value_type is not None
+        and value_type.kind is ValueTypeKind.KNOWN
+        and _is_canonical_builtin(value_type, "Bool", model.type_expansions)
+    )
 
 
 def _is_int(value_type: ValueType | None, model: SemanticModel) -> bool:

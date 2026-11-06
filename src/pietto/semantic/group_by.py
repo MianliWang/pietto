@@ -27,6 +27,7 @@ from pietto.ast_nodes import (
 )
 from pietto.errors import Diagnostic, Severity, SourceLocation
 from pietto.semantic.aggregates import (
+    unknown_row_generator_diagnostic,
     accepts_argument_form,
     aggregate_alias_required_diagnostic,
     aggregate_argument_can_use_let_scope,
@@ -455,6 +456,14 @@ def _aggregate_output_field(
     if item.alias is None:
         diagnostics.append(aggregate_alias_required_diagnostic(expression))
         return None, diagnostics, False
+    unknown_row = (
+        unknown_row_generator_diagnostic(expression)
+        if input_schema.is_unknown
+        else None
+    )
+    if unknown_row is not None:
+        diagnostics.append(unknown_row)
+        return _unknown_row_field(item.alias), diagnostics, False
 
     if not is_supported_semantic_aggregate_arity(
         function_name,

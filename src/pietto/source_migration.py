@@ -222,7 +222,12 @@ def _modern_only_context(context: _Context) -> bool:
     rule = PiettoParser.ruleNames[context.getRuleIndex()]
     if (number := _token(context, "NUMBER")) is not None and "_" in (number.text or ""):
         return True
-    if rule in {"relationshipTemplate", "queryLetDeclaration", "anyExpression"}:
+    if rule in {
+        "relationshipTemplate",
+        "queryLetDeclaration",
+        "anyExpression",
+        "generatorTail",
+    }:
         return True
     if rule in {"constraintDefinition", "deriveDefinition"}:
         return _token(context, "RETURN") is not None  # a one-line body
@@ -296,7 +301,8 @@ def _legacy_return_expression(expression: _Context) -> bool:
     while pending:
         context = pending.pop()
         if (
-            PiettoParser.ruleNames[context.getRuleIndex()] == "callSuffix"
+            PiettoParser.ruleNames[context.getRuleIndex()]
+            in {"callSuffix", "callArguments"}
             and context.start.start == opening.start
         ):
             # A legacy membership cannot be the left operand of arithmetic/comparison.
@@ -756,8 +762,21 @@ def _hidden_by_binder(
                 [] if context.fieldName().getText() == name else [context.expression()]
             )
         elif rule == "primaryExpression" and context.dottedName() is not None:
-            callee, call = context.dottedName(), context.callSuffix()
-            if call is None:
+            callee, call = context.dottedName(), context.callArguments()
+            tail = None if call is None else call.generatorTail()
+            if call is not None and tail is not None:
+                # A generator reads its source; its binder hides a name.
+                if tail.dottedName().getText() == name:
+                    return (
+                        f"the relation {name} that its `on` predicate reads in "
+                        "a generator"
+                    )
+                children = (
+                    []
+                    if tail.fieldName().getText() == name
+                    else [*call.expression(), *filter(None, [tail.orExpression()])]
+                )
+            elif call is None:
                 if callee.getText() == name:
                     return f"the bare name {name} that its `on` predicate reads"
                 children = []

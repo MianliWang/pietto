@@ -7,6 +7,7 @@ single-file expression lowering. It reuses the ordinary row typing kernel.
 from __future__ import annotations
 
 from collections.abc import Mapping, Sequence
+from dataclasses import replace
 from typing import TYPE_CHECKING
 
 if TYPE_CHECKING:
@@ -27,6 +28,7 @@ from pietto.semantic.expressions import (
     infer_row_expression,
     is_unknown_function_call,
 )
+from pietto.semantic.generators import GROUP_SOURCE, group_test_hint
 from pietto.semantic.joins import JoinStructure, _field_value_type, join_rows
 from pietto.semantic.let_bindings import (
     _invalid_let_dependency_diagnostic,
@@ -87,13 +89,21 @@ def resolve_any_inputs(
         if isinstance(target, (ast.SourceDef, ast.TableDef, ast.QueryDef)):
             resolutions[expression] = target
         else:
-            diagnostics.append(
-                _diagnostic(
-                    expression.relation_span,
-                    "PIE-S2301",
-                    f"Unknown or unavailable ANY relation: {expression.relation_name}",
-                )
+            diagnostic = _diagnostic(
+                expression.relation_span,
+                "PIE-S2301",
+                f"Unknown or unavailable ANY relation: {expression.relation_name}",
             )
+            if (
+                expression.relation_name == GROUP_SOURCE
+                and GROUP_SOURCE not in relation_symbols
+                and not shadowed
+            ):
+                # No relation is named `group`: it is the group.
+                diagnostic = replace(
+                    diagnostic, suggestion=group_test_hint(expression.binding_name)
+                )
+            diagnostics.append(diagnostic)
     return resolutions, diagnostics
 
 

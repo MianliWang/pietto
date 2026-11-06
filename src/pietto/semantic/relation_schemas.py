@@ -21,6 +21,7 @@ from pietto.ast_nodes import (
 )
 from pietto.errors import Diagnostic, Severity, SourceLocation
 from pietto.semantic.aggregates import (
+    unknown_row_generator_diagnostic,
     aggregate_alias_required_diagnostic,
     contains_semantic_aggregate,
     deferred_composition_diagnostic,
@@ -394,6 +395,15 @@ def _aggregate_projection_diagnostics(
         assert function_name is not None
         if item.alias is None:
             diagnostics.append(aggregate_alias_required_diagnostic(expression))
+            invalid_items.add(item)
+            continue
+        unknown_row = (
+            unknown_row_generator_diagnostic(expression)
+            if input_schema.is_unknown
+            else None
+        )
+        if unknown_row is not None:
+            diagnostics.append(unknown_row)
             invalid_items.add(item)
             continue
 

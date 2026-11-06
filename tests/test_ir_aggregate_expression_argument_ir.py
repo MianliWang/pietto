@@ -370,6 +370,56 @@ def test_stddev_aggregate_call_contract_is_one_int_or_float_field() -> None:
         assert not aggregate_call_contract("stddev", arguments, value_type)
 
 
+def test_group_generators_lower_to_the_filtered_aggregate_identities() -> None:
+    """`sum(1 for o in group if TEST)` lowers to `filtered_count(TEST)` and
+    `sum(o.f for o in group if TEST)` to `filtered_sum(f, TEST)`: the member
+    row is the input row, and both are a non-None Int. The contract admits
+    only a Bool test after at most one Int field."""
+    script = _parse(
+        SOURCE_PREFIX + "table conditional:\n"
+        "    from orders\n"
+        "    group by region\n"
+        "    select:\n"
+        "        region\n"
+        "        active_orders = sum(1 for o in group if o.active)\n"
+        "        active_amount = sum(o.amount for o in group if o.active)\n"
+        "        total = sum(amount)\n"
+    )
+    # Analysis reads each member field `o.f` as the input row's field `f`.
+    semantic = analyze(script)
+    assert semantic.script is not None
+    ir_result = build_ir(semantic.script, semantic.model)
+    assert ir_result.diagnostics == ()
+    assert ir_result.ir is not None
+    projections = _projections(_relation_ir(ir_result.ir))
+    counted = cast(AggregateCallIR, projections["active_orders"].expression)
+    summed = cast(AggregateCallIR, projections["active_amount"].expression)
+    total = cast(AggregateCallIR, projections["total"].expression)
+
+    assert (counted.function, summed.function) == ("filtered_count", "filtered_sum")
+    test = counted.arguments[0]
+    assert type(test) is FieldRefIR and test.name == "active"
+    assert type(summed.arguments[1]) is FieldRefIR
+    assert summed.arguments[1].name == "active"
+    amount = summed.arguments[0]
+    assert type(amount) is FieldRefIR and amount.name == "amount"
+    for call in (counted, summed):
+        assert call.value_type.canonical_name == "Int"
+        assert call.value_type.nullability is NullabilityIR.NON_NULL
+        assert aggregate_call_contract(call.function, call.arguments, call.value_type)
+    result = counted.value_type
+    for function, arguments, value_type in (
+        ("filtered_count", (), result),
+        ("filtered_count", (amount,), result),
+        ("filtered_count", (test, test), result),
+        ("filtered_sum", (test,), result),
+        ("filtered_sum", (test, test), result),
+        ("filtered_sum", (total, test), result),
+        ("filtered_sum", (amount, test), total.value_type),
+    ):
+        assert not aggregate_call_contract(function, arguments, value_type)
+
+
 @pytest.mark.parametrize(
     ("projection", "expected_code"),
     [

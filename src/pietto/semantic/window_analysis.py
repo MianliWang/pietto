@@ -831,7 +831,9 @@ def _analyze_aggregate_window_expression(
                 diagnostics=diagnostics,
             )
         else:
-            diagnostics.append(deferred_argument_expression_diagnostic(expression.call))
+            diagnostics.append(
+                deferred_argument_expression_diagnostic(expression.call, hint=False)
+            )
             return WindowComputationUnsupported(
                 expression=expression,
                 identity=expression.identity,

@@ -1510,3 +1510,51 @@ def test_project_check_names_an_aggregate_field_argument_by_its_declared_type(
         == [[("PIE-S2314", "Whatever"), ("PIE-S2314", "Blob"), ("PIE-S2314", "Json")]]
         * 2
     )
+
+
+@pytest.mark.parametrize("schema_version", (1, 2))
+def test_a_project_refuses_the_conditional_count_a_file_admits(
+    tmp_path, capsys, schema_version
+):
+    # Project emission has no conditional aggregate yet, so its check refuses
+    # each generator at the call, before semantic analysis.
+    from pietto import cli
+
+    (tmp_path / "pietto.toml").write_text(
+        f'schema_version = {schema_version}\n[sources]\ninclude = ["*.pietto"]\n'
+    )
+    (tmp_path / "main.pietto").write_text(
+        _GROUPING_HEAD
+        + "    group by label\n"
+        + "    select label, n = sum(1 for o in group if o.qty > 1)\n"
+    )
+    found = []
+    for argv in (
+        ["check", "--project", str(tmp_path), "--format", "json"],
+        ["check", str(tmp_path / "main.pietto"), "--format", "json"],
+    ):
+        code = cli.main(argv)
+        found.append(
+            (
+                code,
+                [
+                    (d["code"], d["message"], d["location"]["line"], d["suggestion"])
+                    for d in json.loads(capsys.readouterr().out)["diagnostics"]
+                ],
+            )
+        )
+    hint = "a single file checks and emits the conditional count and sum of a group"
+    assert found == [
+        (
+            1,
+            [
+                (
+                    "PIE-S2334",
+                    f"sum(... for ...) is not available in a project yet; {hint}",
+                    9,
+                    hint,
+                )
+            ],
+        ),
+        (0, []),
+    ]

@@ -453,6 +453,64 @@ query customers_without_orders:
 appears once. It takes the place of SQL's `EXISTS` and of the older
 `semi join` and `anti join`, which `pietto migrate` rewrites.
 
+## Counting the rows that match
+
+To count, per customer, the orders that are paid, and to add up their
+amounts, use a generator over `group`:
+
+```pietto
+shape Order:
+    id: Int
+    customer_id: Int | None
+    amount_cents: Int
+    paid: Bool
+    status: Text | None
+
+source orders: Order = postgres.table("shop.orders")
+
+query customer_order_summary:
+    from orders
+    group by customer_id
+    select:
+        customer_id
+        orders_count = count()
+        paid_orders = sum(1 for o in group if o.paid)
+        paid_cents = sum(o.amount_cents for o in group if o.paid)
+        refunded_orders = sum(1 for o in group if o.status == "refunded")
+```
+
+In a grouped query, `group` is the rows of the current group: the rows that
+`from` and `where` keep and that have this key, each as often as it occurs,
+the rows `count()` counts. `sum(1 for o in group if test)` counts the rows
+whose test is True, and `sum(o.amount_cents for o in group if test)` adds
+their `amount_cents`, an `Int` field. Both are 0, never None, when no row
+matches; a test that is None is no match, and a None value adds nothing. Read
+a field of the row as `o.paid`; besides `o`, the test reads only the
+`group by` keys. A query with aggregates and no `group by` reads its whole
+input as one group. `for o in orders` always means every row of `orders`, as
+in `any(...)`, never the group. MySQL emits neither yet, and a project does
+not take a generator yet.
+
+Not this (each is refused with a hint):
+
+- `sum(1 if paid else 0)`, `count_if(paid)`: write
+  `sum(1 for o in group if o.paid)`.
+- `sum(1 for o in orders if o.paid)` in a grouped query: `orders` is every
+  row of `orders`; write `for o in group`.
+- `count(1 for o in group if o.paid)`, `len(...)` or `max(...)` with a
+  generator: only `sum` takes one.
+- `sum(1 for o in group)` without `if`: write `count()`; and
+  `sum(o.amount_cents for o in group)`: write `sum(amount_cents)`.
+- `sum(amount_cents for o in group if paid)`: read the row's fields as
+  `o.amount_cents` and `o.paid`.
+- `any(o.paid for o in group)`: select `n = sum(1 for o in group if o.paid)`
+  and test `n > 0` in `having`.
+- a group generator over JOIN rows: join in one query, then group it in
+  another that reads it with `from`.
+
+`count(paid)` of a `Bool` field still counts every row whose `paid` is not
+None, False included, and warns (PIE-S2388).
+
 ## Reusing an expression: `def`
 
 ```pietto
@@ -533,6 +591,12 @@ Comments start with `#`, as in Python. `--` does not start a comment:
 | `start <= ts and ts < stop` | `start <= ts < stop` | one chain for a half-open range: `start` is in it, `stop` is not |
 | `statistics.stdev(xs)`, `stddev_samp(x)` | `stddev(x)` | one name, the sample deviation; None below two values, where Python raises |
 | `statistics.pstdev(xs)`, `stddev_pop(x)`, `std(x)` | not available | the population deviation; MySQL `STD`/`STDDEV` and numpy `std` mean population; Pietto never emits them |
+| `sum(1 if paid else 0)`, `count_if(paid)`, `sum(x) filter (where paid)` | `sum(1 for o in group if o.paid)` | one way to count the rows that match; a conditional argument is refused (PIE-S2315, PIE-S2103, PIE-P1000) |
+| `sum(amount if paid else 0)` | `sum(o.amount for o in group if o.paid)` | the test follows the source, as in Python; 0 when no row matches |
+| `count(paid)` to count the True values | `sum(1 for o in group if o.paid)` | `count(paid)` counts every row whose `paid` is not None, False included (warning PIE-S2388) |
+| `sum(paid)` | `sum(1 for o in group if o.paid)` | `sum` adds numbers; a Bool is no number (PIE-S2314) |
+| `sum(1 for o in orders if o.paid)` in a grouped query | `sum(1 for o in group if o.paid)` | `orders` is every row of `orders`, never this group (PIE-S2334) |
+| `any(o.paid for o in group)` | `n = sum(1 for o in group if o.paid)`, then `n > 0` in `having` | a test of the group is not available yet (PIE-S2301) |
 | `true`, `null` | `True`, `None` | |
 | `-- note` | `# note` | `--` is a minus sign followed by another |
 

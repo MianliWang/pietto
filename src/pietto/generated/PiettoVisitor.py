@@ -714,6 +714,16 @@ class PiettoVisitor(ParseTreeVisitor):
         return self.visitChildren(ctx)
 
 
+    # Visit a parse tree produced by PiettoParser#callArguments.
+    def visitCallArguments(self, ctx:PiettoParser.CallArgumentsContext):
+        return self.visitChildren(ctx)
+
+
+    # Visit a parse tree produced by PiettoParser#generatorTail.
+    def visitGeneratorTail(self, ctx:PiettoParser.GeneratorTailContext):
+        return self.visitChildren(ctx)
+
+
     # Visit a parse tree produced by PiettoParser#dottedName.
     def visitDottedName(self, ctx:PiettoParser.DottedNameContext):
         return self.visitChildren(ctx)

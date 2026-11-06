@@ -227,11 +227,17 @@ def test_decimal_aggregate_slice_preserves_unsupported_direct_field_types(
         )
     )
 
+    # A sum of a Bool field names the conditional count.
+    hint = (
+        "; count with `sum(1 for o in group if o.active)`"
+        if (function_name, actual_type) == ("sum", "Bool")
+        else ""
+    )
     assert _errors(result) == [
         (
             "PIE-S2314",
             f"Aggregate function {function_name} expects {expected} field "
-            f"argument, got {actual_type}",
+            f"argument, got {actual_type}{hint}",
         )
     ]
 

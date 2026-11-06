@@ -59,6 +59,151 @@ refusals.
   unique field to fix it. `limit 1` is not a proof of at most one row: an
   aggregate of the left rows over a JOIN of such a let stays PIE-S2333.
 
+### Conditional count and sum: `sum(1 for o in group if ...)`
+
+- A single file now counts and adds the rows of a group that pass a test,
+  written as Python's generator: `sum(1 for o in group if o.paid)` is the
+  number of rows of this group whose test is True, and
+  `sum(o.amount for o in group if o.paid)` adds their non-None `amount`, an
+  `Int` field (an alias of `Int` included). Both are an `Int` that is never
+  None: 0 when no row matches. A None test is no match. `group` is the rows of
+  the current group after `from` and `where`, with their multiplicity (the
+  rows `count()` counts); a query with aggregates and no GROUP BY reads its
+  whole input as one group. The test reads the member's fields as `o.f` and,
+  besides them, only the GROUP BY key fields. A generator is a whole aliased
+  SELECT item, as every other non-window aggregate; `having` and `order by`
+  read its output name.
+- PostgreSQL emits `COUNT(CASE WHEN <test> THEN 1 END)` and
+  `COALESCE(CAST(SUM(CASE WHEN <test> THEN CAST(<f> AS pg_catalog.int8) END)
+  AS pg_catalog.int8), 0)` (a sum outside signed 64 bits fails with SQLSTATE
+  22003, as `sum(Int)` does). MySQL refuses both (below).
+- `where any(p for o in orders)` and `not any(...)` are unchanged, with the
+  same SQL bytes: `for o in orders` always means every row of `orders`, never
+  the current group.
+- `pietto fmt` needs no new rule: a generator is tokens inside a call's
+  parentheses. Its canonical layout is the whole call on its item's line,
+  one space around `for`, `in` and `if`.
+
+New refusals (programs that were PIE-P1000 before; the hint follows `; ` at
+the end of the message and is also the JSON `suggestion`):
+
+- MySQL single file, conditional count: PIE-B1000 `MySQL SQL emission is
+  not implemented for RelationIR: <name>. MySQL has no conditional count
+  yet; emit with --dialect postgres` (no JSON `suggestion`; the Phase74
+  MySQL catch-up takes it up).
+- MySQL single file, conditional sum: PIE-B1000 `MySQL SQL emission is not
+  implemented for RelationIR: <name>. MySQL conditional sum of an Int argument
+  is not supported` (MySQL sums integers in DECIMAL; the Phase74 MySQL
+  catch-up takes it up).
+- A project, of any schema version: PIE-S2334 at the call, before semantic
+  analysis, ``sum(... for ...) is not available in a project yet; a single
+  file checks and emits the conditional count and sum of a group`` (the
+  callee's name in place of `sum`).
+- PIE-S2334 at the call: ``count takes no generator; count matching rows with
+  `sum(1 for o in group if ...)` `` (`len` likewise: ``len takes no generator;
+  ...``); ``max takes no generator; a conditional max is not available; only
+  `sum(... for o in group if ...)` takes a generator`` (also `min`, `avg`,
+  `stddev`, `count_distinct`, `string_agg`); `A generator is only the argument
+  of sum or any` for another known callee, such as a builtin or a `def`;
+  ``any takes its test in the body; write `any(p and q for o in r)` `` for an
+  `any(...)` with an `if` (``write `any(q for o in r)` `` when its body is
+  `True`).
+- At the source: PIE-S2301 ``Unknown or unavailable generator source: grp;
+  for this group's rows write `for o in group` ``; PIE-S2334 ``Generator over
+  orders in sum: orders is the whole relation, not this group; for this
+  group's rows write `for o in group` `` (in a relation with a non-aggregate
+  SELECT item and no GROUP BY: ``...; count per key in a grouped query and
+  join it on the key``); a relation named `group`: ``Generator over group in
+  sum: group is the relation group, not this group; rename the relation group
+  to read this group's rows`` (a `let group`: `the let group`, `rename the let
+  group`); a dotted source: ``A generator over c.items is not available yet;
+  `len`, `sum` and `any` over a row's collected list are a coming feature``.
+- PIE-S2308 at the call for a group generator in a `where`, `let`, JOIN
+  `on`, `having`, `order by` or `def` body: ``Aggregate sum() is not allowed
+  in where clause; use it only as a direct aliased select projection; a
+  group's rows exist only after `group by`; test a row's own fields
+  directly`` (`let binding`, `JOIN ON`, `this position`; in `having clause`
+  and `order by` without the part after the second `; `); PIE-S2313 without
+  an alias; PIE-S2310 inside an expression.
+- PIE-S2334 at the call for JOIN inputs: ``sum(... for o in group ...) over
+  JOIN rows is not available yet; join in one query, then group it in another
+  that reads it with `from` ``.
+- PIE-S2334 at the call for a body without `if`: ``sum(1 for o in group)
+  counts every row of the group; write `count()` ``; ``sum(o.amount for o in
+  group) adds every row of the group; write `sum(amount)` ``.
+- PIE-S2315 at the call for another body: `Aggregate function sum of a
+  generator adds 1 or one field of o; expression bodies are not supported
+  yet`, with ``; filter with `if` after the source: `sum(o.f for o in group
+  if ...)` `` for a conditional body and ``; read the member as `o.amount` ``
+  for a bare field.
+- PIE-S2314 at the call for the summed field's type: ``Aggregate function sum
+  of a generator adds an Int field of o, got Bool; count with `sum(1 for o in
+  group if o.paid)` `` (`..., got Text` for another type); `Aggregate function
+  sum of a generator adds an Int field of o; a Float or Decimal sum is not
+  available yet`.
+- In the test or body, at the read: ``Generator reads paid outside its
+  member; write `o.paid` `` (PIE-S2334, also for `orders.paid`); ``Generator
+  reads its member o as a value; read a field of it: `o.f` `` (PIE-S2334);
+  PIE-S2102 `Unknown or unavailable field in generator: o.a.b` (also `o.f`
+  where `f` names a `let`); PIE-S2102 `Unknown field: nosuch` at `o.nosuch`;
+  PIE-S2311 for a nested aggregate; PIE-S2334 `A generator test reads one
+  member row: no window, any(...), generator, relation read or captured field`;
+  PIE-S2202 `Expected Bool expression in generator test` at a non-Bool test.
+- PIE-S2334 at the call over an input without known fields (a source without
+  a shape): `sum(... for o in group ...) reads an input whose fields are not
+  known; give its source a shape`.
+- PIE-P1000 stays for a second `for`, a second `if` (`Missing ')' before
+  'if'.`), a second argument (`Missing ')' before ','.`), `[o for o in ...]`
+  and SQL `FILTER (WHERE ...)`, and for a generator in a table-function
+  `from` argument or a QUALIFY call (texts unchanged, `Unexpected 'for'; expected
+  ')' or ','.` / `Unexpected 'for'.`).
+
+Changed diagnostics of programs refused before (no accepted program is
+refused; compatibility):
+
+- Every generator call other than the exact `any(p for o in r)` was PIE-P1000
+  (`Unexpected 'for'; expected ')' or ','.`, `Unexpected 'for'.` or, with an
+  `if` in `any`, `Missing ')' before 'if'.`); it is now admitted or one of the
+  refusals above.
+- A generator in a SELECT window call, `r = sum(1 for o in group)
+  window(order by id)`, was `Unexpected 'for'.` at the `for`; it is now
+  ``Unexpected 'window'; expected ',' or end of line. A window call is a whole
+  `select:` item on a line of its own.`` at the `window`.
+- `any(p for o in group)` where no relation or `let` is named `group` keeps
+  PIE-S2301 `Unknown or unavailable ANY relation: group`, its span and order
+  (after PIE-S2319 in a grouped SELECT); its JSON `suggestion`, null before,
+  is ``a group test is not available yet: select `n = sum(1 for o in group if
+  ...)` and test `n > 0` in `having` or a later query``. In a `having`, the
+  same `any(...)` keeps PIE-S2334 `ANY is not supported in this context`, its
+  span and order, and gains the same suggestion. A single file only: a
+  project's diagnostics are unchanged.
+- PIE-S2315 of `sum(amount if paid else 0)` and `count(1 if paid else None)`
+  (a conditional argument, outside a window) gains ``; write `sum(o.v for o in
+  group if ...)` `` (`sum`) or ``; write `sum(1 for o in group if ...)` ``
+  (`count`) at the end of its message; its JSON `suggestion`, null before, is
+  the text after that `; `.
+- PIE-S2314 of `sum(paid)` over a Bool field gains ``; count with `sum(1 for o
+  in group if o.paid)` `` (the field's name in place of `paid`); its JSON
+  `suggestion`, null before, is the text after that `; `.
+- PIE-S2103 of `count_if`, `countif`, `sum_if` and `sumif`, in any letter
+  case, gains ``; write `sum(1 for o in group if ...)` or `sum(o.v for o in
+  group if ...)` ``, also its JSON `suggestion` (null before); the PIE-S2319
+  that a grouped SELECT reports after it at the same span is unchanged.
+- The parser's nesting limits are unchanged: an expression nested inside a
+  call or window-call argument parses to the same depth as before.
+
+New warning (compatibility: a program that checked clean now reports a
+warning; its exit code and SQL are unchanged):
+
+- PIE-S2388 (WARNING, single-file check, every check mode, at the call):
+  ``count(paid)` counts every row whose paid is not None, False included; to
+  count the rows where it is True, write `sum(1 for o in group if o.paid)` ``
+  for `count` of one field, bare or qualified (`count(orders.paid)` names it
+  as written), of `Bool` type or an alias of `Bool`. Not reported at a call
+  with an error of its own, at a window call (`count(paid) window(...)`),
+  which takes no generator, nor in a project. No JSON `suggestion`, as for
+  the other habit warnings.
+
 ## Equality, nullability and asof JOIN public alpha release notes — 0.1.9
 
 <a id="unreleased-changes-following-018"></a>

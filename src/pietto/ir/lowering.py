@@ -10,6 +10,7 @@ from pietto._generated_names import generated_name
 from pietto._window_identity import WindowFunctionRole
 from pietto.ast_nodes import (
     AnyExpr,
+    GeneratorExpr,
     SourceDef,
     AuthoredWindowFrameExclusion,
     AuthoredWindowFrame,
@@ -88,9 +89,11 @@ from pietto.ir.model import (
     WindowUseOccurrenceIR,
 )
 from pietto.semantic.catalog import is_builtin_function_name
+from pietto.semantic.generators import generator_of
 from pietto.semantic.aggregates import (
     aggregate_argument_can_use_let_scope,
     semantic_aggregate_call_name,
+    generator_aggregate_result_value_type,
     semantic_aggregate_result_value_type,
 )
 from pietto.semantic.expressions import _canonical_value_type
@@ -1091,6 +1094,31 @@ def _lower_expr_node(
         )
     if isinstance(expression, CallExpr):
         callee = _callee_name(expression)
+        generator = generator_of(expression)
+        if generator is not None and _is_valid_aggregate_projection(
+            expression, semantic_model, value_type
+        ):
+            # The member row is the input row: its test, after the summed
+            # field of a conditional sum, reads the row (`semantic.generators`).
+            counted = type(generator.body) is LiteralExpr
+            return AggregateCallIR(
+                function="filtered_count" if counted else "filtered_sum",
+                arguments=tuple(
+                    _lower_expr_node(
+                        part,
+                        semantic_model,
+                        fields=fields,
+                        field_owner=field_owner,
+                        field_qualifier=field_qualifier,
+                        let_expansions=let_expansions,
+                        let_stack=frozenset(),
+                        join_reads=join_reads,
+                        window_input_expressions=window_inputs,
+                    )
+                    for part in generator.operands[1 if counted else 0 :]
+                ),
+                **common,
+            )
         if _is_valid_aggregate_projection(expression, semantic_model, value_type):
             return AggregateCallIR(
                 function=callee,
@@ -1468,10 +1496,15 @@ def _aggregate_type_matches_ir(
         argument_type = semantic_model.expression_value_types.get(
             expression.arguments[0]
         )
+        result_type = (
+            generator_aggregate_result_value_type
+            if type(expression.arguments[0]) is GeneratorExpr
+            else semantic_aggregate_result_value_type
+        )
         expected = (
             None
             if argument_type is None
-            else semantic_aggregate_result_value_type(
+            else result_type(
                 function_name,
                 _canonical_value_type(argument_type, semantic_model.type_expansions),
             )

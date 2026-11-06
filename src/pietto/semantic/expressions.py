@@ -56,6 +56,7 @@ from pietto.semantic.aggregates import (
     aggregate_argument_can_use_let_scope,
     contains_semantic_aggregate,
     extremum_reads_let,
+    generator_aggregate_result_value_type,
     has_unknown_field_reference,
     invalid_context_diagnostic,
     is_semantic_aggregate_call,
@@ -114,6 +115,7 @@ _KNOWN_EXPRESSIONS = frozenset(
         ast.MembershipExpr,
         ast.RelationExistsExpr,
         ast.AnyExpr,
+        ast.GeneratorExpr,
         ast.RelationScalarExpr,
         ast.RelationMembershipExpr,
         ast.CastExpr,
@@ -2331,6 +2333,8 @@ def _captured_field_children(expression: Expression) -> tuple[Expression, ...]:
         return (expression.value, expression.lower, expression.upper)
     if isinstance(expression, IsNullExpr):
         return (expression.value,)
+    if isinstance(expression, ast.GeneratorExpr):
+        return expression.operands
     if type(expression) in _KNOWN_EXPRESSIONS:
         return ()
     raise AssertionError(f"Unsupported expression: {type(expression).__name__}")
@@ -2582,6 +2586,33 @@ def _infer(
     elif isinstance(expression, ast.CapturedFieldExpr):
         # A captured field is typed only by its let's capture environment.
         raise AssertionError("Captured field read lacks its capture environment.")
+    elif isinstance(expression, ast.GeneratorExpr):
+        # An admitted generator (`semantic.generators`) reads input row
+        # values in its body and test, and has the type of its body.
+        for operand in expression.operands:
+            _infer(
+                operand,
+                row_schema,
+                value_types,
+                diagnostics,
+                report_unknown_name=report_unknown_name,
+                field_qualifier=field_qualifier,
+                bare_value_types=bare_value_types,
+                bare_value_expressions=bare_value_expressions,
+                suppressed_unknown_names=suppressed_unknown_names,
+                type_expansions=type_expansions,
+                relation_columns=relation_columns,
+            )
+        if expression.condition is not None:
+            _append_condition_diagnostic(
+                expression.condition,
+                "generator test",
+                value_types,
+                diagnostics,
+                type_expansions,
+                explained=len(diagnostics) > reported,
+            )
+        value_type = value_types[expression.body]
     elif isinstance(expression, (ast.RelationExistsExpr, ast.AnyExpr)):
         # An existence test is never NULL; its relation is resolved, scheduled
         # and checked by the owner of the relation name, not by this kernel.
@@ -5803,6 +5834,10 @@ def _aggregate_value_type(
     if len(expression.arguments) != 1:
         return None
     argument = expression.arguments[0]
+    if type(argument) is ast.GeneratorExpr:
+        return generator_aggregate_result_value_type(
+            function_name, _canonical_value_type(argument_types[0], type_expansions)
+        )
     if extremum_reads_let(
         function_name, argument, let_expansions, row_schema
     ) or not is_supported_semantic_aggregate_argument_expression(
@@ -6277,6 +6312,7 @@ def order_output_ambiguity_diagnostic(
 
 # The aggregate names in one fixed order, as a message lists them.
 _AGGREGATE_NAMES = sorted(SEMANTIC_AGGREGATE_NAMES)
+_CONDITIONAL_HABITS = ("count_if", "countif", "sum_if", "sumif")
 # What to write instead of a function that a SQL or Python habit calls, by its
 # lowercase name.
 _UNKNOWN_FUNCTION_HINTS = {
@@ -6321,6 +6357,10 @@ _UNKNOWN_FUNCTION_HINTS = {
         "MySQL `STD`/`STDDEV` and numpy `std` are the population deviation, "
         "which is not available",
     ),
+    **dict.fromkeys(
+        _CONDITIONAL_HABITS,
+        "write `sum(1 for o in group if ...)` or `sum(o.v for o in group if ...)`",
+    ),
     "in_range": "write the half-open range `a <= ts < b`",
     "ranges_overlap": "write `a_start < b_stop and b_start < a_stop`",
 }
@@ -6362,12 +6402,16 @@ def _unknown_function_diagnostic(
         if function_name.lower() == "concat" and in_concat_file(expression)
         else _UNKNOWN_FUNCTION_HINTS.get(function_name.lower())
     )
-    return _call_diagnostic(
+    diagnostic = _call_diagnostic(
         expression,
         code="PIE-S2103",
         message=f"Unknown function: {function_name}"
         + ("" if hint is None else f"; {hint}"),
     )
+    if function_name.lower() in _CONDITIONAL_HABITS:
+        # A conditional-count habit's hint is also the JSON suggestion.
+        return dataclasses.replace(diagnostic, suggestion=hint)
+    return diagnostic
 
 
 def _window_without_spec_diagnostic(

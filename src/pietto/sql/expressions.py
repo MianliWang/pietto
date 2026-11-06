@@ -5,6 +5,7 @@ from __future__ import annotations
 from pietto.ir.model import (
     AggregateCallIR,
     AggregateWindowCallIR,
+    FILTERED_AGGREGATE_ARITIES,
     aggregate_call_contract,
     AnyFieldIR,
     ExistsIR,
@@ -836,6 +837,8 @@ def _render_aggregate_call(
         sql = _render_count_distinct_aggregate(expression)
     elif expression.function == "stddev":
         sql = _render_stddev_aggregate(expression)
+    elif expression.function in FILTERED_AGGREGATE_ARITIES:
+        sql = _render_filtered_aggregate(expression)
     elif (
         function_name := _EXTREMA_AGGREGATE_NAMES.get(expression.function)
     ) is not None:
@@ -1250,6 +1253,28 @@ def _render_stddev_aggregate(expression: AggregateCallIR) -> str:
         raise ValueError("PostgreSQL aggregate stddev violates its IR contract")
     argument_sql = _render_expression_sql(expression.arguments[0], nested=True)
     return f"SQRT(CAST(VAR_SAMP({argument_sql}) AS double precision))"
+
+
+def _render_filtered_aggregate(expression: AggregateCallIR) -> str:
+    # The conditional count counts the rows whose test is True; the
+    # conditional sum adds their non-None values exactly and narrows the sum
+    # to bigint with the checked CAST (SQLSTATE 22003), 0 for no such row. A
+    # None test takes no branch, so it matches no row.
+    if not aggregate_call_contract(
+        expression.function, expression.arguments, expression.value_type
+    ):
+        raise ValueError(
+            f"PostgreSQL aggregate {expression.function} violates its IR contract"
+        )
+    *value, test = expression.arguments
+    test_sql = _render_expression_sql(test, nested=False)
+    if not value:
+        return f"COUNT(CASE WHEN {test_sql} THEN 1 END)"
+    value_sql = _render_expression_sql(value[0], nested=False)
+    return (
+        f"COALESCE(CAST(SUM(CASE WHEN {test_sql} THEN CAST({value_sql} AS "
+        "pg_catalog.int8) END) AS pg_catalog.int8), 0)"
+    )
 
 
 def _has_builtin_type(

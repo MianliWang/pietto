@@ -662,6 +662,10 @@ class SyntaxErrorReporter(DefaultErrorStrategy):
         previous = self._token(_index(token) - 1)
         line_start = previous is None or previous.type in _LAYOUT_TOKEN_TYPES
         expected_types = frozenset(expected) if expected is not None else frozenset()
+        if {PiettoParser.RPAREN, PiettoParser.COMMA} <= expected_types:
+            # A generator's `for` may follow the first argument of a call; the
+            # message names a call's ordinary continuations only.
+            expected_types -= {PiettoParser.FOR}
         clause = _CLAUSE_WORDS.get(token.type)
         if token.type == PiettoParser.ASOF and not self._asof_join_line(_index(token)):
             # `asof` stays a name: only `asof <kind> join` is a JOIN line.

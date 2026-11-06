@@ -1083,12 +1083,13 @@ def test_modern_inter_join_where_refuses_nonconjunctive_generator_filters(
     "expression",
     [
         "any(True for x in rows for y in rows)",
-        "any(True for x in rows if x.id > 0)",
+        "any(True for x in rows if x.id > 0 if x.id < 9)",
         "any(True for x in rows, False)",
-        "other(True for x in rows)",
+        "other(True for x in rows, False)",
     ],
 )
 def test_modern_any_generator_refuses_extra_generator_forms(expression: str) -> None:
+    # One `if` and another callee parse; semantic analysis refuses them.
     parsed = parse_source(
         f"query q:\n    from orders\n    where {expression}\n    select orders.id\n"
     )

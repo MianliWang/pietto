@@ -18,6 +18,7 @@ from pietto.ast_nodes import (
     DistinctClause,
     Annotation,
     AnyExpr,
+    GeneratorExpr,
     AuthoredJoinKind,
     AuthoredWindowFrame,
     AuthoredWindowFrameExclusion,
@@ -1926,9 +1927,42 @@ class AstBuilder(PiettoVisitor):
             return relation_read
 
         callee = self._dotted_name_expr(ctx.dottedName())
-        if ctx.callSuffix() is None:
+        arguments = ctx.callArguments()
+        if arguments is None:
             return self._value_name(callee)
-        return self._call_expr(ctx.dottedName(), ctx.callSuffix())
+        if arguments.generatorTail() is not None:
+            return CallExpr(
+                span=self._span_between(ctx.dottedName(), arguments),
+                callee=callee,
+                arguments=(self._generator(arguments),),
+            )
+        return self._call_expr(ctx.dottedName(), arguments)
+
+    def _generator(self, ctx: _AntlrContext) -> GeneratorExpr:
+        """The only argument of a call: ``body for name in source [if test]``,
+        whose name hides a header parameter or capture of the same name."""
+
+        tail = ctx.generatorTail()
+        (body,) = ctx.expression()
+        binding, source, test = tail.fieldName(), tail.dottedName(), tail.orExpression()
+        name = binding.getText()
+        header, captures = self._header, self._captures
+        self._header = {key: value for key, value in header.items() if key != name}
+        self._captures = {key: value for key, value in captures.items() if key != name}
+        try:
+            built = self.visit(body)
+            condition = None if test is None else self.visit(test)
+        finally:
+            self._header, self._captures = header, captures
+        return GeneratorExpr(
+            span=self._span_between(body, tail),
+            body=built,
+            binding_name=name,
+            binding_span=self._span(binding),
+            source=tuple(part.getText() for part in source.namePart()),
+            source_span=self._span(source),
+            condition=condition,
+        )
 
     def visitQualifyPrimaryExpression(self, ctx: _AntlrContext) -> Expression:
         if ctx.anyExpression() is not None:

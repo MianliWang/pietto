@@ -736,7 +736,7 @@ primaryExpression
     : anyExpression
     | literal
     | CAST LPAREN expression AS typeExpression RPAREN
-    | dottedName callSuffix?
+    | dottedName callArguments?
     | LPAREN expression RPAREN
     | EXISTS identifier
     | SCALAR identifier DOT fieldName
@@ -745,6 +745,22 @@ primaryExpression
 // ANY/FOR remain contextual identifiers outside this exact bounded form.
 anyExpression
     : ANY LPAREN expression FOR fieldName IN identifier RPAREN
+    ;
+
+// The arguments of a call that a primary expression reads, as callSuffix
+// writes them, or a generator as its only argument: one `for` and at most one
+// `if`, whose test is an or-level expression, as in Python. A window call and
+// a table function keep callSuffix, which takes no generator. ANTLR predicts
+// a select line by reading a call's arguments to their end, one recursion per
+// state it passes there, so what follows the first argument is one choice,
+// not a choice that holds a loop: an argument nested in a call is as deep as
+// callSuffix lets it be.
+callArguments
+    : LPAREN (expression ((COMMA (ORDER BY orderItem (COMMA orderItem)* | expression))+ COMMA? | COMMA | generatorTail)?)? RPAREN
+    ;
+
+generatorTail
+    : FOR fieldName IN dottedName (IF orExpression)?
     ;
 
 dottedName

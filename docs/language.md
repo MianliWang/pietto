@@ -472,6 +472,7 @@ first column give every rule.
 | `concat(a, b)` ([Expressions](#expressions)) | `(a \|\| b)` | `CONCAT(a, b)` | emitted; refused for only `None` (PIE-B1003) or a binding-width `Text` (PIE-B1004) | refused (PIE-B1003) |
 | `same_value(a, b)` ([Expressions](#expressions)) | `(a IS NOT DISTINCT FROM b)` | `(a <=> b)` | select items, WHERE and `let`, select items after a JOIN; `Float` where `==` is, not `Bool`, not in a JOIN `on` or a WHERE after a JOIN | as PostgreSQL, a `Float` only beside an operand that reads no row (two row `Float` operands PIE-B1003), and not a GROUP BY key or DISTINCT column |
 | `stddev(x)` ([Aggregates](#aggregates-and-grouping)) | `Int` and `Float` | `Float` (`STDDEV_SAMP`); `Int` refused (PIE-B1000) | `Int` and `Float` | refused: `Int` PIE-B1003, `Float` PIE-B1004 |
+| `sum(1 for o in group if t)`, `sum(o.f for o in group if t)` ([Aggregates](#aggregates-and-grouping)) | `COUNT(CASE WHEN t THEN 1 END)`; `COALESCE(CAST(SUM(CASE WHEN t THEN CAST(f AS pg_catalog.int8) END) AS pg_catalog.int8), 0)` | count and sum refused (PIE-B1000) | refused at check (PIE-S2334) | refused at check (PIE-S2334) |
 | Always-null numbers, D-12 ([Expressions](#expressions)) | typed NULL casts | typed NULL casts | `Int` arithmetic with `None`; `Float` and `Decimal` refused | as PostgreSQL |
 | `Float` equality ([Float values](#float-values)) | comparisons and GROUP BY; DISTINCT and set forms are project-only | as PostgreSQL; GROUP BY beside a wide `Text` key may split `-0.0` and `0.0` | comparisons, GROUP BY, DISTINCT, ORDER BY and every set form | comparisons with a literal or header parameter, ordering inequalities, `in`, `nullif` and UNION ALL; the other forms refused (PIE-B1003) |
 | JOIN aggregates without fan-out ([Aggregates](#aggregates-and-grouping)) | accepted | accepted | accepted | accepted; `sum(Int)` stays PIE-B1004 |
@@ -870,6 +871,11 @@ are non-matches. It is False over an empty input. `not any(...)` negates that
 result and differs from `any(not predicate for ...)` when no row qualifies or
 predicate values are NULL. Literal `None` in a predicate is contextual Bool NULL
 and never a match; a known non-Bool body is refused.
+
+`any(...)` takes no `if`: write the test in its body, `any(p and q for o in
+r)` (PIE-S2334 ``any takes its test in the body``). `for o in orders` is
+every row of `orders` here and in every other generator; in a grouped `sum`
+it is refused, never read as the group.
 
 The binder is local to its parentheses. It neither joins an output row nor
 reserves that name in the rest of the query. Repeated and nested generators keep
@@ -3255,7 +3261,8 @@ without GROUP BY it is PIE-S2312, as `max` is, and `emit-sql` refuses it with
 PIE-B1000 there, as it refuses every aggregate over such a source (see below).
 
 `count()` lowers to `COUNT(*)`; supported `count(field)` forms count non-null
-field values. The selected project numeric boundary admits Int unary `+`/`-`,
+field values. `count` of a `Bool` field counts its False values too; to count
+the True ones write `sum(1 for o in group if o.paid)` (PIE-S2388 warns). The selected project numeric boundary admits Int unary `+`/`-`,
 `abs` and binary `+`, `-`, `*` only when the compiler can propagate a signed
 range that fits a signed 64-bit integer, or, on PostgreSQL, a `bigint` range
 that leaves signed 64 bits but meets them. The result keeps its operands' own
@@ -3376,6 +3383,50 @@ deviation (`statistics.pstdev`, numpy `std`) is not available. A `def stddev`
 is PIE-S2398, as a `def` named after any other aggregate is; its suggestion
 says to rename the def. Semantic Metadata Artifact v1 lists no `stddev`
 aggregate, as it lists no `string_agg`.
+
+**Conditional count and sum.** A generator `BODY for o in SOURCE if TEST` is
+written only as the only argument of a call, with one `for` and at most one
+`if`; a conditional in TEST takes parentheses, as in Python. Its meaning is
+fixed by SOURCE alone: a relation name (a source, table, query, import or
+`let` of the query) is every row of that relation, as in `any(...)`; `group`,
+when no such relation is named `group`, is the rows of the current group: the
+rows that `from` and `where` keep with this key, each as often as it occurs,
+the rows `count()` counts. A relation or `let` named `group` keeps its meaning
+in `from` and `any(...)`.
+
+A single file admits two generators:
+
+- `sum(1 for o in group if TEST)`: the number of rows of the group whose
+  TEST is True (a None TEST is no match). An `Int`, never None, 0 for none.
+- `sum(o.f for o in group if TEST)`, `f` an `Int` field or an alias of `Int`:
+  the sum of the non-None `o.f` of the rows whose TEST is True. An `Int`, never
+  None, 0 when no row matches; a sum outside signed 64 bits is an error.
+
+Each is a whole aliased SELECT item of a grouped query, or of a query with
+aggregates and no GROUP BY (whose whole input is one group), as every other
+non-window aggregate; `having` and `order by` read its output name. TEST is a
+Bool row expression that reads the member's fields as `o.f` and, besides
+them, only GROUP BY key fields; it holds no aggregate, window, `any(...)`,
+generator, relation read or captured field. A relation with JOIN inputs takes
+no group generator yet: join in one query and group it in another that reads
+it with `from`. `any(... for o in group)` is not available yet (a test of the
+group: select `n = sum(1 for o in group if ...)` and test `n > 0`), and the
+other refusals are listed in the PIE-S2334 row of
+[diagnostics](spec/diagnostics.md). A project refuses every generator at
+check with PIE-S2334 (``sum(... for ...) is not available in a project yet``).
+
+PostgreSQL emits the count as `COUNT(CASE WHEN TEST THEN 1 END)` and the sum
+as `COALESCE(CAST(SUM(CASE WHEN TEST THEN CAST(f AS pg_catalog.int8) END) AS
+pg_catalog.int8), 0)`; TEST is written as the same expression in a WHERE
+would be. MySQL refuses both with PIE-B1000: the count with `MySQL has no
+conditional count yet; emit with --dialect postgres`, and the sum with
+`MySQL conditional sum of an Int argument is not supported`, as MySQL adds
+integers in DECIMAL.
+
+`count(x)` of a `Bool` field counts every row whose `x` is not None, False
+included; outside a window call a single-file check warns about it
+(PIE-S2388) and names `sum(1 for o in group if o.x)`, which counts the rows
+where it is True.
 
 Over a source without a shape, whose fields have no type, GROUP BY keys and
 aggregate arguments read its fields by name, and an aggregate is checked as
