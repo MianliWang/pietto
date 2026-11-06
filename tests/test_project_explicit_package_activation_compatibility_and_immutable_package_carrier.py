@@ -991,7 +991,9 @@ def _sources_document(version: int) -> str:
 
 def _project_with_source(path: Path, schema_version: int) -> Path:
     root = _root(path, _sources_document(schema_version))
-    (root / "row.pietto").write_text("shape Row:\n    id: Int\n", encoding="utf-8")
+    (root / "row.pietto").write_text(
+        "shape Row:\n    id: Int\n", encoding="utf-8", newline="\n"
+    )
     return root
 
 

@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import os
 import stat
+import sys
 from pathlib import Path
 from typing import Any
 
@@ -77,7 +78,10 @@ def test_fmt_write_replaces_only_an_unformatted_file(
     assert capsys.readouterr() == ("", "")
     assert path.read_bytes() == FORMATTED
     written = os.stat(path)
-    assert stat.S_IMODE(written.st_mode) == 0o640
+    # Windows shows only the read-only attribute, which the replacement lacks.
+    assert stat.S_IMODE(written.st_mode) == (
+        0o666 if sys.platform == "win32" else 0o640
+    )
     assert written.st_ino != read.st_ino  # replaced, not written in place
 
     assert cli.main(["fmt", "--write", str(path)]) == 0

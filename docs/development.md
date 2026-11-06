@@ -561,6 +561,8 @@ CI 的 setup-python 对每个逻辑 family 使用确切 patch（3.12.14 / 3.13.1
 的聚合消费者被浮动 `"3.12"` 解析为 3.12.15，因此被拒绝。升级 patch 时同一 family 的全部
 producer/consumer/target 站点一起改（`tests/test_ci_workflow.py` 守护）；不放宽相等性，
 不回到 minor 浮动选择；`--python` 逻辑标签与 artifact 名称不变。
+Windows job 不产生 report，不属于这些 family；3.12 安全补丁没有 Windows 构建，Windows 3.12
+固定为最后一个有 Windows 构建的 3.12.10，Windows 3.13 与 Linux 同为 3.13.15。
 
 CI runtime 使用 `--durations=30 --durations-min=1`，另从实际 pytest reports 输出有界的慢节点、
 文件累计耗时和 worker 摘要；setup/call/teardown 与 child start/finish 分开，时序不取自 parent

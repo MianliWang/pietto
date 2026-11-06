@@ -14927,7 +14927,7 @@ def build_case(
     for name, content in sorted(source_files(source).items()):
         if Path(name).name != name or not name.endswith(".pietto"):
             raise ValueError("closed fixture module path required")
-        (directory / name).write_text(content, encoding="utf-8")
+        (directory / name).write_text(content, encoding="utf-8", newline="\n")
     parsed = check_project_parse_only(directory)
     if not parsed.ok:
         raise ValueError("probe source failed parsing")

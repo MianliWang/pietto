@@ -754,6 +754,75 @@ jobs:
             --report "$RUNNER_TEMP/completion/ci-health-$GITHUB_RUN_ID-$GITHUB_RUN_ATTEMPT-3.13-summary.json" \
             --artifact-id "$ARTIFACT_ID" --artifact-digest "$ARTIFACT_DIGEST"
 
+  windows_twelve:
+    name: Windows 3.12
+    runs-on: windows-latest
+    timeout-minutes: 60
+    defaults:
+      run:
+        shell: bash
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - name: Set up Python
+        uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0 # v7.1.0
+        with:
+          # 3.12 security releases ship no Windows build; 3.12.10 is the last one.
+          python-version: "3.12.10"
+      - name: Set up uv
+        uses: astral-sh/setup-uv@68559e99cc807c1eb7e9238fd43a15bba460eec2 # v10.3.3
+        with:
+          version: "0.11.19"
+          enable-cache: false
+          prune-cache: true
+      - name: Configure isolated interpreter environment
+        run: |
+          echo "UV_PROJECT_ENVIRONMENT=$RUNNER_TEMP/pietto-venv" >> "$GITHUB_ENV"
+          echo "UV_CACHE_DIR=$RUNNER_TEMP/uv-cache" >> "$GITHUB_ENV"
+          echo "UV_PYTHON=$pythonLocation/python.exe" >> "$GITHUB_ENV"
+      - name: Install locked environment
+        run: uv sync --locked
+      - name: Run platform-neutral test areas
+        run: |
+          uv run pytest -n 4 --dist=loadfile -rfEs --durations=20 --basetemp "$RUNNER_TEMP/pytest" \
+            tests/test_{parser,semantic,ir,plan,sql,project,cli,results}_*.py
+
+  windows_thirteen:
+    name: Windows 3.13
+    runs-on: windows-latest
+    timeout-minutes: 60
+    defaults:
+      run:
+        shell: bash
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - name: Set up Python
+        uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0 # v7.1.0
+        with:
+          python-version: "3.13.15"
+      - name: Set up uv
+        uses: astral-sh/setup-uv@68559e99cc807c1eb7e9238fd43a15bba460eec2 # v10.3.3
+        with:
+          version: "0.11.19"
+          enable-cache: false
+          prune-cache: true
+      - name: Configure isolated interpreter environment
+        run: |
+          echo "UV_PROJECT_ENVIRONMENT=$RUNNER_TEMP/pietto-venv" >> "$GITHUB_ENV"
+          echo "UV_CACHE_DIR=$RUNNER_TEMP/uv-cache" >> "$GITHUB_ENV"
+          echo "UV_PYTHON=$pythonLocation/python.exe" >> "$GITHUB_ENV"
+      - name: Install locked environment
+        run: uv sync --locked
+      - name: Run platform-neutral test areas
+        run: |
+          uv run pytest -n 4 --dist=loadfile -rfEs --durations=20 --basetemp "$RUNNER_TEMP/pytest" \
+            tests/test_{parser,semantic,ir,plan,sql,project,cli,results}_*.py
+
   target_conformance:
     name: Target ${{ matrix.target }}
     runs-on: ubuntu-latest

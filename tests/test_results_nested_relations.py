@@ -15,6 +15,8 @@ from types import SimpleNamespace
 
 import pytest
 
+pytest.importorskip("fcntl", reason="job delivery needs POSIX fcntl")
+
 from _pietto_execution_jobs_probe import compiled_template
 import _pietto_results_nested as nested_helper
 import _pietto_results_product as probe

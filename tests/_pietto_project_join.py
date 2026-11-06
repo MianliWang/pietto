@@ -61,7 +61,7 @@ def _parsed(root: Path, source: str) -> ProjectParseCheckResult:
     (root / "pietto.toml").write_text(
         'schema_version = 2\n[sources]\ninclude = ["*.pietto"]\n'
     )
-    (root / "main.pietto").write_text(source)
+    (root / "main.pietto").write_text(source, encoding="utf-8")
     return check_project_parse_only(root)
 
 

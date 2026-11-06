@@ -2993,6 +2993,10 @@ schedule: `schema --json` and a public Python compile API in Phase75;
 measure/metric definitions in Phase74; Cube/dbt export in Phase74 or Phase84;
 and Windows CI in Phase81. Each remains a candidate for that phase's own
 scope decision. The current batch-emission work only designs the Python API.
+On 2026-11-05 the owner moved Windows CI forward as CI maintenance: natural CI
+runs the platform-neutral test areas on Windows with Python 3.12 and 3.13. A
+weaker safe batch-directory output for Windows comes after it; Phase81 keeps
+any wider Windows scope.
 
 On 2026-11-05 the owner accepted the recommendations of the joint
 Phase72–75 plan; the answers for Phase73, Phase74 and Phase75 are provisional

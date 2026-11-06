@@ -37,10 +37,19 @@ v1只作历史，不允许宽松fallback。coverage仍≤8MiB，所有旧semanti
 placement以`shards`列出目标；列出多个shard时，该需求的节点按排序后的序号轮流分配（第i个到`shards[i % n]`），
 同一文件可分在两个job，每个job内仍按loadfile；有acquisition group的需求只能有一个shard，旧单值`shard`字段拒绝。
 
-托管CI每job资源选择≤4workers，无嵌套池。checks/runtime/targets独立启动；共19realized jobs（每个Python六个runtime分片）；保留两个Python
+托管CI每job资源选择≤4workers，无嵌套池。checks/runtime/targets/windows独立启动；共21realized jobs（每个Python六个runtime分片与一个Windows job）；保留两个Python
 completion contexts与strict target aggregate。共享lock/Ruff、双Pyright/generated/golden/installed和pins不变；
 两个Pyright gate各以`--threads 4`运行，仍是两个独立权威。
 小Arrow实验是两compiler/package jobs中的required隔离step，core全量测试不靠缺依赖skip。
+
+| job | runner | 范围 | coverage/health |
+| --- | --- | --- | --- |
+| Windows 3.12 / 3.13 | windows-latest；确切setup-python补丁pin：3.13与Linux同为3.13.15，3.12安全补丁无Windows构建，固定为最后一个有Windows构建的3.12.10 | parser、semantic、ir、plan、sql、project、cli、results八个area的`tests/test_<area>_*.py`，`-n 4 --dist=loadfile` | 不进exact v2 coverage与partition health；health成本把它们记为必需job与各自独立的路径 |
+
+Windows job不needs其他job，也不被needs；失败即整个run失败。POSIX专属测试以自身的skipif/importorskip跳过，
+不另设选择清单；job、execution、harness、ci、release、repo与其余文件只在Linux运行。`.gitattributes`
+的`* text=auto eol=lf`让Windows checkout保持与Linux相同的LF字节。此前的run没有这两个job，成本不完整，
+history在有三次含Windows job的run之前保持INSUFFICIENT_EVIDENCE。
 集成主机的权威validator至多8workers（`PYTEST_MAX_RESOURCE_WORKERS`；显式worker数绕过该上限与内存估算，须经批准，
 现行常设批准为显式8，见[开发文档](../development.md#validation-tiers)）。改动上述任一上限都需单独授权。
 

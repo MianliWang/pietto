@@ -1427,6 +1427,8 @@ def run_cost(run: dict[str, Any], jobs: list[dict[str, Any]], policy):
         ),
         "Python 3.12",
         "Python 3.13",
+        "Windows 3.12",
+        "Windows 3.13",
         "Target postgres",
         "Target mysql",
         "Target conformance aggregate",
@@ -1446,9 +1448,12 @@ def run_cost(run: dict[str, Any], jobs: list[dict[str, Any]], policy):
             + durations["Python " + p]
             for p in ("3.12", "3.13")
         ]
-        critical = (
+        # The Windows jobs need nothing and nothing needs them: paths of their own.
+        critical = max(
             max(*branches, durations["Target postgres"], durations["Target mysql"])
-            + durations["Target conformance aggregate"]
+            + durations["Target conformance aggregate"],
+            durations["Windows 3.12"],
+            durations["Windows 3.13"],
         )
     return {
         "complete": complete,

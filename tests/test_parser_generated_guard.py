@@ -263,6 +263,10 @@ def test_guard_compares_bytes_without_downloads_or_repository_writes() -> None:
         assert forbidden not in source
 
 
+@pytest.mark.skipif(
+    sys.platform == "win32",
+    reason="ANTLR writes CRLF on Windows; the Linux checks job owns generation",
+)
 def test_real_guard_runs_from_outside_the_repository(tmp_path: Path) -> None:
     result = subprocess.run(
         (sys.executable, str(GUARD_PATH)),

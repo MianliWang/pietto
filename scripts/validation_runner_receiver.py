@@ -1045,6 +1045,8 @@ def observe_bootstrap(repo: Path, run_id: int, token: str) -> dict[str, Any]:
         "Compiler / Package 3.13",
         "Python 3.12",
         "Python 3.13",
+        "Windows 3.12",
+        "Windows 3.13",
         "Target postgres",
         "Target mysql",
         "Target conformance aggregate",

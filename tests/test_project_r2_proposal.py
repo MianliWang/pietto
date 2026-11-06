@@ -9,6 +9,8 @@ from typing import Any
 
 import pytest
 
+pytest.importorskip("fcntl", reason="the live witness needs the POSIX job runtime")
+
 import _pietto_execution_jobs_probe as workspace_probe
 from pietto._project import project_public_r2_proposal as proposal
 

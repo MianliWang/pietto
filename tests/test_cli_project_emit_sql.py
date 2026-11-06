@@ -84,7 +84,7 @@ def project(
     root.mkdir()
     (root / "pietto.toml").write_text(probe.CONFIG)
     for file, content in probe.source_files(item["source"]).items():
-        (root / file).write_text(content, encoding="utf-8")
+        (root / file).write_text(content, encoding="utf-8", newline="\n")
     (root / "contract.json").write_text(item["contract"], encoding="utf-8")
     return root, item
 
@@ -234,6 +234,9 @@ def test_project_batch_emission_reuses_each_single_document_once(
         assert single[1] == probe.encoded(item["document"])
 
 
+@pytest.mark.skipif(
+    not batch_output.supported(), reason="Linux descriptor publication required"
+)
 @pytest.mark.parametrize("target", TARGETS)
 def test_project_batch_output_directory_has_artifacts_before_its_manifest(
     tmp_path: Path, target: str
@@ -351,6 +354,9 @@ def test_project_batch_keeps_each_owner_outcome_when_one_is_blocked(
     ]
 
 
+@pytest.mark.skipif(
+    not batch_output.supported(), reason="Linux descriptor publication required"
+)
 def test_project_batch_output_input_drift_removes_its_manifest(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
@@ -365,6 +371,9 @@ def test_project_batch_output_input_drift_removes_its_manifest(
     assert not output.exists()
 
 
+@pytest.mark.skipif(
+    not batch_output.supported(), reason="Linux descriptor publication required"
+)
 @pytest.mark.parametrize("presentation", ("json", "text"))
 def test_batch_limit_is_exact_and_refuses_before_directory_creation(
     tmp_path, monkeypatch, presentation
@@ -1118,7 +1127,7 @@ def test_a_correlated_existence_read_emits_through_the_project_command(
     root.mkdir()
     (root / "pietto.toml").write_text(probe.CONFIG)
     for file, content in probe.source_files(item["source"]).items():
-        (root / file).write_text(content, encoding="utf-8")
+        (root / file).write_text(content, encoding="utf-8", newline="\n")
     (root / "contract.json").write_text(item["contract"], encoding="utf-8")
     expected = api_bytes(tmp_path, item)
     arguments = argv(root, target, kind="query", literal_policy="bind-safe")
@@ -1149,7 +1158,7 @@ def test_a_lateral_join_emits_through_the_project_command(
     root.mkdir()
     (root / "pietto.toml").write_text(probe.CONFIG)
     for file, content in probe.source_files(item["source"]).items():
-        (root / file).write_text(content, encoding="utf-8")
+        (root / file).write_text(content, encoding="utf-8", newline="\n")
     (root / "contract.json").write_text(item["contract"], encoding="utf-8")
     expected = api_bytes(tmp_path, item)
     arguments = argv(root, target, kind="query", literal_policy="bind-safe")
@@ -1182,7 +1191,7 @@ def test_correlated_scalar_and_in_reads_emit_through_the_project_command(
     root.mkdir()
     (root / "pietto.toml").write_text(probe.CONFIG)
     for file, content in probe.source_files(item["source"]).items():
-        (root / file).write_text(content, encoding="utf-8")
+        (root / file).write_text(content, encoding="utf-8", newline="\n")
     (root / "contract.json").write_text(item["contract"], encoding="utf-8")
     expected = api_bytes(tmp_path, item)
     arguments = argv(root, target, kind="query", literal_policy="bind-safe")
@@ -1219,7 +1228,7 @@ def test_a_correlated_order_and_limit_read_emits_only_for_postgres(
     root.mkdir()
     (root / "pietto.toml").write_text(probe.CONFIG)
     for file, content in probe.source_files(item["source"]).items():
-        (root / file).write_text(content, encoding="utf-8")
+        (root / file).write_text(content, encoding="utf-8", newline="\n")
     (root / "contract.json").write_text(item["contract"], encoding="utf-8")
     expected = api_bytes(tmp_path, item)
     code, out, err = run(argv(root, target, kind="query", literal_policy="bind-safe"))
@@ -1255,6 +1264,7 @@ def test_a_correlated_order_and_limit_read_emits_only_for_postgres(
 # --- contract read boundary ------------------------------------------------------
 
 
+@pytest.mark.skipif(not hasattr(os, "mkfifo"), reason="needs os.mkfifo")
 @pytest.mark.parametrize("fallback", (False, True))
 @pytest.mark.parametrize("target", TARGETS)
 def test_contract_read_is_contained_bounded_and_closes_descriptors(
@@ -1335,7 +1345,7 @@ def test_contract_parent_name_surrogate_is_not_traversed(
     """Simulated Windows: a junction parent is refused; other reparse tags are not links."""
     root, item = project(tmp_path, "postgres")
     (root / "sub").mkdir()
-    (root / "sub" / "contract.json").write_text(item["contract"])
+    (root / "sub" / "contract.json").write_text(item["contract"], encoding="utf-8")
     monkeypatch.setattr(path_trust, "_supports_directory_relative_open", lambda: False)
     report_reparse_point(monkeypatch, (root / "sub").resolve(), reparse_tag)
 
@@ -1824,16 +1834,19 @@ def test_failure_messages_never_echo_roots_or_raw_input(
     code, out, err = run(argv(tmp_path / ("nope-" + SENTINEL), target))
     assert code == 2 and SENTINEL not in out.decode()
     # Control characters in a source diagnostic are escaped in text presentation.
-    (root / "contract.json").write_text(item["contract"])
+    (root / "contract.json").write_text(item["contract"], encoding="utf-8")
     (root / "main.pietto").write_text(
-        (root / "main.pietto").read_text() + "table \x1b[31mbad:\n"
+        (root / "main.pietto").read_text(encoding="utf-8") + "table \x1b[31mbad:\n",
+        encoding="utf-8",
     )
     code, out, err = run(argv(root, target, format="text"))
     assert code == 1 and "\x1b" not in err and "\\x1b" in err
     # So are C1 controls (CSI here) and bidi controls (RIGHT-TO-LEFT OVERRIDE).
-    source = (root / "main.pietto").read_text()
+    source = (root / "main.pietto").read_text(encoding="utf-8")
     for control in ("\u009b", "\u202e"):
-        (root / "main.pietto").write_text(source.replace("\x1b[31m", control))
+        (root / "main.pietto").write_text(
+            source.replace("\x1b[31m", control), encoding="utf-8"
+        )
         code, out, err = run(argv(root, target, format="text"))
         assert code == 1 and control not in err
         assert f"Unexpected '\\u{ord(control):04x}'" in err

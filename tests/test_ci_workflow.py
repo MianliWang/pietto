@@ -25,13 +25,17 @@ EXPECTED_JOBS = (
     "checks_thirteen",
     "runtime_thirteen",
     "python_thirteen",
+    "windows_twelve",
+    "windows_thirteen",
     "target_conformance",
     "target_conformance_aggregate",
 )
+# 3.12 security releases ship no Windows build (actions/python-versions stops
+# at 3.12.10); the Windows jobs produce no reports, so no family mixes patches.
 EXPECTED_PINS = {
     job: [SETUP_PATCH["3.12" if job.endswith("_twelve") else "3.13"]]
     for job in EXPECTED_JOBS
-}
+} | {"windows_twelve": ["3.12.10"]}
 ACTIONS = {
     "actions/checkout": ("3d3c42e5aac5ba805825da76410c181273ba90b1", "v7.0.1"),
     "actions/setup-python": ("6d4fd22b20465ccc0f7354476588e8df7c9ca0e0", "v7.1.0"),
@@ -68,7 +72,10 @@ def test_ci_triggers_permissions_runner_and_matrix_are_exact() -> None:
         tuple(re.findall(r"(?m)^  ([a-z_]+):$", workflow.split("jobs:\n", 1)[1]))
         == EXPECTED_JOBS
     )
-    assert workflow.count("runs-on: ubuntu-latest") == len(EXPECTED_JOBS)
+    for job in EXPECTED_JOBS:
+        runner = "windows" if job.startswith("windows_") else "ubuntu"
+        assert _job(workflow, job).count(f"runs-on: {runner}-latest") == 1
+    assert workflow.count("runs-on:") == len(EXPECTED_JOBS)
     assert PYTHON_VERSION_PATH.read_text(encoding="utf-8") == "3.12\n"
     assert _setup_pins(workflow) == EXPECTED_PINS
     for _python, word in PRIMARY:
@@ -87,20 +94,24 @@ def test_ci_triggers_permissions_runner_and_matrix_are_exact() -> None:
         )
         assert "include:" not in runtime and "exclude:" not in runtime
     # Two six-way runtime matrices and the two-target matrix add eleven jobs.
-    assert len(EXPECTED_JOBS) + 11 == 19
+    assert len(EXPECTED_JOBS) + 11 == 21
 
 
 @pytest.mark.parametrize(
-    "split,old,new",
+    "target,old,new",
     (
-        (str.split, '"3.13.15"', '"3.13"'),  # checks_thirteen floats
-        (str.rsplit, '"3.12.14"', '"3.12.15"'),  # python_twelve drifts (PR #81)
+        ("checks_thirteen", '"3.13.15"', '"3.13"'),  # floats
+        ("python_twelve", '"3.12.14"', '"3.12.15"'),  # drifts (PR #81)
+        ("windows_twelve", '"3.12.10"', '"3.12.14"'),  # has no Windows build
     ),
 )
-def test_one_floating_or_differently_patched_setup_site_is_rejected(split, old, new):
+def test_one_floating_or_differently_patched_setup_site_is_rejected(target, old, new):
     workflow = WORKFLOW_PATH.read_text(encoding="utf-8")
-    damaged = _setup_pins(new.join(split(workflow, old, 1)))
-    assert sum(damaged[job] != EXPECTED_PINS[job] for job in EXPECTED_JOBS) == 1
+    block = _job(workflow, target)
+    damaged = _setup_pins(workflow.replace(block, block.replace(old, new, 1), 1))
+    assert [job for job in EXPECTED_JOBS if damaged[job] != EXPECTED_PINS[job]] == [
+        target
+    ]
 
 
 def test_ci_sets_java_21_and_pins_the_local_uv_version() -> None:
@@ -132,6 +143,33 @@ def test_ci_sets_java_21_and_pins_the_local_uv_version() -> None:
             )
     for forbidden in ("uv sync --python", "--upgrade", "--refresh"):
         assert forbidden not in workflow
+
+
+def test_windows_jobs_run_the_platform_neutral_areas_outside_coverage() -> None:
+    workflow = WORKFLOW_PATH.read_text(encoding="utf-8")
+    for python, word in PRIMARY:
+        job = _job(workflow, f"windows_{word}")
+        assert f"name: Windows {python}" in job
+        assert "    defaults:\n      run:\n        shell: bash\n" in job
+        for fragment in (
+            'version: "0.11.19"',
+            "enable-cache: false",
+            'echo "UV_PROJECT_ENVIRONMENT=$RUNNER_TEMP/pietto-venv" >> "$GITHUB_ENV"',
+            'echo "UV_CACHE_DIR=$RUNNER_TEMP/uv-cache" >> "$GITHUB_ENV"',
+            'echo "UV_PYTHON=$pythonLocation/python.exe" >> "$GITHUB_ENV"',
+            "uv sync --locked",
+            "uv run pytest -n 4 --dist=loadfile ",
+            " tests/test_{parser,semantic,ir,plan,sql,project,cli,results}_*.py\n",
+        ):
+            assert job.count(fragment) == 1
+        assert job.index("uv sync --locked") < job.index("uv run pytest")
+        # POSIX-only tests skip themselves; the job joins no coverage reconcile.
+        for absent in ("needs:", "scripts/ci_validation.py", "-artifact@"):
+            assert absent not in job
+    assert "windows_" not in "".join(re.findall(r"(?m)^    needs: .*$", workflow))
+    # Goldens and fixtures are compared as bytes, so a Windows checkout keeps LF.
+    attributes = (REPO_ROOT / ".gitattributes").read_text(encoding="utf-8")
+    assert attributes.startswith("* text=auto eol=lf\n")
 
 
 def test_ci_invokes_only_the_accepted_release_readiness_commands() -> None:

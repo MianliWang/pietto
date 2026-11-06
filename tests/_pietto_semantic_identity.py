@@ -41,7 +41,7 @@ def _configured_project(
     for relative, source in sources.items():
         path = root / relative
         path.parent.mkdir(parents=True, exist_ok=True)
-        path.write_text(source, encoding="utf-8")
+        path.write_text(source, encoding="utf-8", newline="\n")
     return root
 
 

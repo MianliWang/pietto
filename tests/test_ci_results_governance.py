@@ -863,6 +863,8 @@ def test_history_adapter_checks_raw_provenance_and_is_bounded(monkeypatch):
                 ),
                 "Python 3.12",
                 "Python 3.13",
+                "Windows 3.12",
+                "Windows 3.13",
                 "Target postgres",
                 "Target mysql",
                 "Target conformance aggregate",

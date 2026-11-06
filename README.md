@@ -49,6 +49,11 @@ active virtual environment, and `uv tool install --python 3.13 pietto` installs
 the `pietto` command in an environment of its own.
 
 The compiler and CLI are verified with CPython 3.12 and 3.13 on Linux x86-64.
+CI also runs the parser, semantic, IR, plan, SQL, project, CLI and result
+tests with CPython 3.12 and 3.13 on Windows x86-64, where tests that need POSIX
+behavior skip. Batch `emit-sql --project ROOT --all --output DIR` stays
+Linux-only: on Windows the batch goes to stdout, and a single artifact still
+writes to `--output FILE`.
 This version's [GitHub release](https://github.com/MianliWang/pietto/releases)
 also attaches the same wheel and sdist with `SHA256SUMS`; see
 [installing a release](https://github.com/MianliWang/pietto/blob/main/docs/project-package.md#installing-a-release)
