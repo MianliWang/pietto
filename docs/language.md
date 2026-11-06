@@ -3501,10 +3501,10 @@ does not). In a project a query header parameter argument is refused earlier,
 with PIE-S2355, as for every aggregate outside `count`, `avg`, `min` and
 `max`.
 `stddev` takes the positions of the other non-window aggregates; in a window
-it is PIE-S2103, in a single file with the suffix `window aggregates are sum,
-count, avg, min and max`, in a project (which admits no aggregate window)
-without one, as in a single file where the relation admits no such window (a
-hidden QUALIFY window in a query with aggregates and no GROUP BY).
+it is PIE-S2103 with the suffix `window aggregates are sum, count, avg, min
+and max`, in a single file and in a project, and without the suffix where the
+relation admits no such window (a hidden QUALIFY window in a query with
+aggregates and no GROUP BY).
 
 PostgreSQL emits `stddev` of an `Int` or a `Float` as
 `SQRT(CAST(VAR_SAMP(x) AS double precision))` in a single file and
@@ -3961,9 +3961,24 @@ outside GROUP BY, while `count() window()` reads none and is accepted;
 under GROUP BY over such a source `check`
 accepts a window, selected or in QUALIFY, as 0.1.4 did, and `emit-sql`
 refuses the relation (PIE-I1000), since its groups type no field the window
-reads. This is a single-file surface:
-EXPLICIT_MODULES project checks retain their existing unsupported-window
-boundary. Aggregate windows do not accept `ignore nulls`, `respect nulls`,
+reads. EXPLICIT_MODULES projects admit the same aggregate windows, selected,
+over grouped rows, in a hidden QUALIFY window and over JOIN rows, with one
+more rule: each argument is a direct field (an input field, under GROUP BY a
+key or an aggregate output, or a `let` name bound to one). Another argument,
+such as `sum(amount * 2)` or a `let` name whose value is computed, is
+PIE-S2103 (`Unsupported window computation for function sum: argument must be
+a direct field in a project`), once the ordinary aggregate argument rules
+admit it (`count(1)` stays PIE-S2104). Project PostgreSQL SQL keeps the
+project aggregate laws over the window: `sum` of an Int is
+`CAST(SUM(CAST(x AS pg_catalog.int8)) OVER (...) AS pg_catalog.int8)`, which
+fails with SQLSTATE 22003 rather than returning a wrong total, `avg` of an Int
+is `AVG(CAST(x AS pg_catalog.float8)) OVER (...)`, `count()` is
+`COUNT(*) OVER (...)`, and `min`, `max` and `count(x)` are the plain aggregate
+with `OVER`; a `Decimal` or `Float` `sum` or `avg` is PIE-B1004 and another
+argument outside the reviewed domain PIE-B1003, as for the grouped aggregate.
+Project MySQL SQL refuses each aggregate window with PIE-B1003
+(`window_aggregate_approved_non_support_on_mysql`) until its real-database
+differential. Aggregate windows do not accept `ignore nulls`, `respect nulls`,
 `from first`, or `from last`; each reports PIE-S2104 rather than being omitted
 from emitted SQL. PostgreSQL and MySQL
 preserve an omitted frame: with `ORDER BY` its default is peer-inclusive `RANGE
@@ -4179,7 +4194,10 @@ result: under GROUP BY, the selected keys and aggregates by their output
 names. A name that such an output shares with an input field whose value it
 is not, such as `cat` for `cat = max(price)` grouped by `cat`, is ambiguous
 there too (PIE-S2102), in a hidden or a selected window. In an EXPLICIT_MODULES project, the existing query-block rule remains:
-only selected window results form QUALIFY's selected namespace. A project
+only selected window results form QUALIFY's selected namespace. A hidden
+window in a project query with aggregates and no GROUP BY, also over JOIN
+rows, is the same PIE-S2103 as in a single file (`a query with aggregates and
+no GROUP BY admits no hidden QUALIFY window`), at the call. A project
 relation with JOIN inputs that mixes an aggregate with another projection
 without GROUP BY (PIE-S2312) checks its QUALIFY by the single-file rules
 above beside that error, unless its `let:` clause or WHERE is refused, when

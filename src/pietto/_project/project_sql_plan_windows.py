@@ -18,6 +18,8 @@ from pietto.ast_nodes import (
 from pietto._window_identity import WindowFunctionIdentity
 from pietto.semantic.model import ValueType, ValueTypeKind
 from pietto.semantic.window_semantics import (
+    AggregateWindowAnalysis,
+    AggregateWindowComputation,
     WindowExpressionAnalysis,
     WindowPartitionFieldBinding,
     WindowOrderFieldBinding,
@@ -101,7 +103,14 @@ type Source = (
     | ProjectNoJoinHiddenWindowComputation
 )
 type Selected = ProjectModuleWindowOutputFact | ProjectSelectedWindowResultBinding
-type Analysis = WindowExpressionAnalysis | WindowComputationAnalysis
+type Analysis = (
+    WindowExpressionAnalysis
+    | AggregateWindowAnalysis
+    | WindowComputationAnalysis
+    | AggregateWindowComputation
+)
+# The occurrence-neutral results of hidden and joined window sites.
+COMPUTATIONS = (WindowComputationAnalysis, AggregateWindowComputation)
 type InputContext = (
     WindowComputationInput
     | ProjectNoJoinWindowInput
@@ -192,7 +201,9 @@ def sources(value: ProjectSQLWindowAuthority) -> tuple[Source, ...]:
 
 def analysis(source: Source) -> Analysis:
     result = source.analysis
-    if not isinstance(result, (WindowExpressionAnalysis, WindowComputationAnalysis)):
+    if not isinstance(
+        result, (WindowExpressionAnalysis, AggregateWindowAnalysis, *COMPUTATIONS)
+    ):
         raise ValueError("Window computation requires its retained successful analysis")
     return result
 
@@ -200,9 +211,9 @@ def analysis(source: Source) -> Analysis:
 def effective(source: Source) -> WindowExpr:
     result = analysis(source)
     return (
-        result.semantic_fact.expression
-        if isinstance(result, WindowExpressionAnalysis)
-        else result.expression
+        result.expression
+        if isinstance(result, COMPUTATIONS)
+        else result.semantic_fact.expression
     )
 
 
@@ -394,9 +405,7 @@ def input_target(source: Source, use: InputUse, aggregate):
 def result_type(source: Source) -> ValueType:
     value = analysis(source)
     result = (
-        value.semantic_fact.result
-        if isinstance(value, WindowExpressionAnalysis)
-        else value.result
+        value.result if isinstance(value, COMPUTATIONS) else value.semantic_fact.result
     )
     if result.value_type is None or result.value_type.kind is not ValueTypeKind.KNOWN:
         raise ValueError("Window result requires its original concrete type")
@@ -405,6 +414,23 @@ def result_type(source: Source) -> ValueType:
 
 def components(source: Source):
     value = analysis(source)
+    if isinstance(value, (AggregateWindowAnalysis, AggregateWindowComputation)):
+        if isinstance(value, AggregateWindowComputation):
+            partitions, orders = value.partition_bindings, value.order_bindings
+        else:
+            fact = value.order_binding_fact
+            partitions = value.partition_binding_fact.bindings
+            orders = () if fact is None else fact.bindings
+        return (
+            partitions,
+            orders,
+            None,
+            None,
+            None,
+            None,
+            None,
+            None,
+        )
     if isinstance(value, WindowExpressionAnalysis):
         navigation, frame_value = value.navigation_fact, value.frame_value_fact
         return (
@@ -452,8 +478,17 @@ def use_type(source: Source, use: InputUse) -> ValueType | None:
         return navigation.default_fact.value_type
     value = navigation if navigation is not None else frame_value
     if value is None:
-        raise ValueError("Window argument lost its specialized type")
+        return aggregate_argument_type(source, use.role_ordinal)
     return value.value_type
+
+
+def aggregate_argument_type(source: Source, position: int) -> ValueType:
+    """An aggregate over a window reads its argument with the type its
+    signature read."""
+    value = analysis(source)
+    if not isinstance(value, (AggregateWindowAnalysis, AggregateWindowComputation)):
+        raise ValueError("Window argument lost its specialized type")
+    return value.argument_types[position]
 
 
 def ready(source: Source, entry, aggregate) -> bool:
@@ -777,6 +812,10 @@ def argument_type(source: Source, position: int):
         and (value := navigation if navigation is not None else frame_value) is not None
     ):
         return value.value_type
+    if isinstance(
+        analysis(source), (AggregateWindowAnalysis, AggregateWindowComputation)
+    ):
+        return aggregate_argument_type(source, position)
     return (
         navigation.default_fact.value_type
         if position == 2 and navigation is not None
@@ -901,6 +940,14 @@ def resolved_result_type(function, value_type, arguments):
     from pietto._project.project_compiled_schema import CompiledError
 
     non_null = EffectiveNullability.NON_NULL
+    if function in ("sum", "count", "avg", "min", "max"):
+        from pietto.semantic.aggregates import semantic_aggregate_result_value_type
+
+        # An aggregate over a window types as the same aggregate does.
+        typed = semantic_aggregate_result_value_type(function, value_type)
+        if typed is None or arguments:
+            raise CompiledError("COMPILED_WINDOW_SIGNATURE")
+        return typed
     logical: tuple[LogicalTypeIdentity, ...] = (
         ()
         if value_type is None

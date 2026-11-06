@@ -3500,7 +3500,11 @@ def _row_body_requirements(request, body, naming):
             # components. Each generated structure keeps its own cause.
             result.append(
                 GeneratedRequirement(
-                    "window_computation", column.window.ref, "R14", operators
+                    "window_computation",
+                    column.window.ref,
+                    "R14",
+                    operators,
+                    windowing.aggregate_evidence(column.function, column.arguments),
                 )
             )
             result.append(

@@ -83,6 +83,8 @@ from pietto.semantic.window_semantics import (
     ValidatedWindowSpecification,
     ValidatedFrame,
     WindowComputationAnalysis,
+    AggregateWindowComputation,
+    WindowOrderFieldBinding,
     WindowComputationUnsupported,
     WindowExpressionAnalysis,
     AggregateWindowAnalysis,
@@ -350,6 +352,7 @@ def analyze_window_expression(
     let_extrema: bool = True,
     allow_hidden: bool = False,
     allow_aggregate_windows: bool = False,
+    direct_aggregate_arguments: bool = False,
 ) -> (
     WindowExpressionAnalysis | AggregateWindowAnalysis | WindowExpressionUnsupported
 ): ...
@@ -372,11 +375,14 @@ def analyze_window_expression(
     let_extrema: bool = True,
     allow_hidden: bool = False,
     allow_aggregate_windows: bool = False,
+    direct_aggregate_arguments: bool = False,
 ) -> WindowExpressionAnalysis | AggregateWindowAnalysis | WindowExpressionUnsupported:
     """Analyze one direct selected recognized window expression transiently.
 
     Without ``let_extrema``, as in a single file, a grouped input's `min` and
-    `max` read no `let:` name, as in its output schema.
+    `max` read no `let:` name, as in its output schema. With
+    ``direct_aggregate_arguments``, as in a project, an aggregate window reads
+    only direct fields.
     """
 
     return _analyze_recognized_window_expression(
@@ -395,6 +401,7 @@ def analyze_window_expression(
         let_extrema=let_extrema,
         allow_hidden=allow_hidden,
         allow_aggregate_windows=allow_aggregate_windows,
+        direct_aggregate_arguments=direct_aggregate_arguments,
     )
 
 
@@ -433,6 +440,13 @@ class _WindowComputationAdmissionFailure:
     message: str | None = None
 
 
+# A QUALIFY window of a query with aggregates and no GROUP BY, in a single
+# file or a project.
+_NO_GROUP_HIDDEN_WINDOW = _WindowComputationAdmissionFailure(
+    reason="a query with aggregates and no GROUP BY admits no hidden QUALIFY window"
+)
+
+
 def _analyze_recognized_window_expression(
     *,
     definition: TableDef | QueryDef,
@@ -450,6 +464,7 @@ def _analyze_recognized_window_expression(
     let_extrema: bool = True,
     allow_hidden: bool = False,
     allow_aggregate_windows: bool = False,
+    direct_aggregate_arguments: bool = False,
 ) -> WindowExpressionAnalysis | AggregateWindowAnalysis | WindowExpressionUnsupported:
     """Keep the selected-output API as a compatibility wrapper."""
 
@@ -560,12 +575,7 @@ def _analyze_recognized_window_expression(
     ):
         # A selected window here is the mixed projection PIE-S2312 reports.
         admission = (
-            _WindowComputationAdmissionFailure(
-                reason=(
-                    "a query with aggregates and no GROUP BY admits no hidden "
-                    "QUALIFY window"
-                ),
-            )
+            _NO_GROUP_HIDDEN_WINDOW
             if item.alias is None and allow_hidden
             else _WindowComputationAdmissionFailure(
                 reason=(
@@ -620,9 +630,8 @@ def _analyze_recognized_window_expression(
         semantic_aggregate_call_name(source_expression.call) in _WINDOW_AGGREGATE_NAMES
         and allow_aggregate_windows
     ):
-        aggregate_analysis = _analyze_aggregate_window_expression(
+        aggregate_analysis = _analyze_aggregate_window_computation(
             expression=source_expression,
-            occurrence=occurrence,
             input_schema=input_schema
             if input_scope is None
             else input_scope.row_schema,
@@ -648,6 +657,7 @@ def _analyze_recognized_window_expression(
             named_composition=named_composition,
             type_expansions=type_expansions,
             admission_failure=admission,
+            direct_arguments=direct_aggregate_arguments,
         )
         if isinstance(aggregate_analysis, WindowComputationUnsupported):
             return WindowExpressionUnsupported(
@@ -656,10 +666,7 @@ def _analyze_recognized_window_expression(
                 identity=aggregate_analysis.identity,
                 reason=aggregate_analysis.reason,
             )
-        assert isinstance(
-            aggregate_analysis, (AggregateWindowAnalysis, WindowExpressionUnsupported)
-        )
-        return aggregate_analysis
+        return _aggregate_window_analysis(occurrence, aggregate_analysis)
 
     computation = analyze_window_computation(
         expression=source_expression,
@@ -690,10 +697,38 @@ def _analyze_recognized_window_expression(
     return _window_expression_analysis_from_computation(occurrence, computation)
 
 
-def _analyze_aggregate_window_expression(
+def _aggregate_window_analysis(
+    occurrence: WindowOccurrenceIdentity, computation: AggregateWindowComputation
+) -> AggregateWindowAnalysis:
+    """One selected occurrence of an occurrence-neutral aggregate window."""
+
+    fact = WindowExpressionSemanticFact(
+        occurrence=occurrence,
+        expression=computation.expression,
+        identity=computation.expression.identity,
+        result=computation.result,
+    )
+    return AggregateWindowAnalysis(
+        semantic_fact=fact,
+        partition_binding_fact=WindowPartitionBindingFact(
+            semantic_fact=fact, bindings=computation.partition_bindings
+        ),
+        order_binding_fact=(
+            WindowOrderBindingFact(
+                semantic_fact=fact, bindings=computation.order_bindings
+            )
+            if computation.order_bindings
+            else None
+        ),
+        validated_specification=computation.validated_specification,
+        argument_types=computation.argument_types,
+        resolved_named_use=computation.resolved_named_use,
+    )
+
+
+def _analyze_aggregate_window_computation(
     *,
     expression: WindowExpr,
-    occurrence: WindowOccurrenceIdentity,
     input_schema: RowSchema,
     field_qualifier: str,
     value_types: dict[Expression, ValueType],
@@ -705,10 +740,16 @@ def _analyze_aggregate_window_expression(
     named_composition: ComposedNamedWindowUse | None,
     type_expansions: Mapping[TypeExpr, ResolvedType] | None,
     admission_failure: _WindowComputationAdmissionFailure | None,
-) -> (
-    AggregateWindowAnalysis | WindowExpressionUnsupported | WindowComputationUnsupported
-):
-    """Admit one aggregate using the ordinary aggregate signature contract."""
+    direct_arguments: bool = False,
+    computed: frozenset[str] | None = None,
+    prepare_inputs: Callable[[WindowExpr], None] | None = None,
+) -> AggregateWindowComputation | WindowComputationUnsupported:
+    """Admit one aggregate using the ordinary aggregate signature contract.
+
+    ``computed`` names the `let:` bindings whose value is no field, when no
+    ``let_expressions`` give them; ``prepare_inputs`` sees the effective
+    expression of an admitted shape, as `analyze_window_computation` does.
+    """
 
     name = semantic_aggregate_call_name(expression.call)
     if expression.call.aggregate_order_by:
@@ -738,8 +779,7 @@ def _analyze_aggregate_window_expression(
                 message=admission_failure.message,
             )
             if admission_failure.code is not None
-            else WindowExpressionUnsupported(
-                occurrence=occurrence,
+            else WindowComputationUnsupported(
                 expression=expression,
                 identity=expression.identity,
                 reason=admission_failure.reason,
@@ -772,6 +812,11 @@ def _analyze_aggregate_window_expression(
             code="PIE-S2104",
             message=f"Invalid modifiers for function {name}: {modifier_error}",
         )
+    # A `let:` name whose value is no field is no direct field either.
+    if computed is None:
+        computed = computed_let_names(let_expressions or {})
+    if prepare_inputs is not None:
+        prepare_inputs(expression)
     # The ordinary aggregate argument rules hold in a window too.
     nested = nested_semantic_aggregate(expression.call)
     if nested is not None:
@@ -811,8 +856,7 @@ def _analyze_aggregate_window_expression(
             ),
         )
         if explained:
-            return WindowExpressionUnsupported(
-                occurrence=occurrence,
+            return WindowComputationUnsupported(
                 expression=expression,
                 identity=expression.identity,
                 reason=f"{name} argument type is unavailable",
@@ -862,9 +906,17 @@ def _analyze_aggregate_window_expression(
             code="PIE-S2104",
             message=f"Invalid arguments for function {name}",
         )
+    # A project's window reads each argument as one input column, once the
+    # ordinary aggregate argument rules admit it.
+    if direct_arguments and not all(
+        _direct_field(argument, computed) for argument in expression.call.arguments
+    ):
+        return _unsupported_computation(
+            expression=expression,
+            reason=f"{name} argument must be a direct field in a project",
+            diagnostics=diagnostics,
+        )
     partition_expressions = expression.spec.partition_by
-    # A `let:` name whose value is no field is no direct field either.
-    computed = computed_let_names(let_expressions or {})
     if any(not _direct_field(item, computed) for item in partition_expressions):
         return _unsupported_computation(
             expression=expression,
@@ -886,13 +938,12 @@ def _analyze_aggregate_window_expression(
     if partition_bindings is None:
         return _unbound_window_field(
             expression,
-            occurrence,
             "window partition field type must be concrete",
             input_schema,
             diagnostics,
             binding_diagnostic_count,
         )
-    order_bindings = None
+    order_bindings: tuple[WindowOrderFieldBinding, ...] = ()
     if expression.spec.order_by:
         if any(
             type(item) is not OrderItem or not _direct_field(item.expression, computed)
@@ -916,7 +967,6 @@ def _analyze_aggregate_window_expression(
         if bindings is None:
             return _unbound_window_field(
                 expression,
-                occurrence,
                 "window order field type must be concrete",
                 input_schema,
                 diagnostics,
@@ -936,26 +986,15 @@ def _analyze_aggregate_window_expression(
         )
     assert type(validation) is ValidatedWindowSpecification
     assert type(validation.frame) is ValidatedFrame
-    result = WindowResultAvailability(
-        kind=WindowResultAvailabilityKind.CONCRETE, value_type=result_type
-    )
-    fact = WindowExpressionSemanticFact(
-        occurrence=occurrence,
+    return AggregateWindowComputation(
         expression=expression,
-        identity=expression.identity,
-        result=result,
-    )
-    return AggregateWindowAnalysis(
-        semantic_fact=fact,
-        partition_binding_fact=WindowPartitionBindingFact(
-            semantic_fact=fact, bindings=partition_bindings
+        result=WindowResultAvailability(
+            kind=WindowResultAvailabilityKind.CONCRETE, value_type=result_type
         ),
-        order_binding_fact=(
-            None
-            if order_bindings is None
-            else WindowOrderBindingFact(semantic_fact=fact, bindings=order_bindings)
-        ),
+        partition_bindings=partition_bindings,
+        order_bindings=order_bindings,
         validated_specification=validation,
+        argument_types=tuple(argument_types),
         resolved_named_use=resolved_named_use,
     )
 
@@ -975,15 +1014,23 @@ def analyze_window_computation(
     type_expansions: Mapping[TypeExpr, ResolvedType] | None = None,
     computed_let_names: frozenset[str] = frozenset(),
     aggregate_windows_admitted: bool = False,
-) -> WindowComputationAnalysis | WindowComputationUnsupported:
+    let_value_types: Mapping[str, ValueType] | None = None,
+    let_expressions: Mapping[str, Expression] | None = None,
+) -> (
+    WindowComputationAnalysis
+    | AggregateWindowComputation
+    | WindowComputationUnsupported
+):
     """Analyze one window computation without selected-output identity.
 
     A PARTITION BY or ORDER BY name in ``computed_let_names`` (the `let:`
     names whose value is not a field reference) is no direct field, as its
     value written in its place is not. Only where aggregate windows are
-    admitted (``aggregate_windows_admitted``, a single file) and this
-    relation context admits windows (no ``admission_failure``) does a refused
-    aggregate window name the admitted ones.
+    admitted (``aggregate_windows_admitted``) is an aggregate window
+    analyzed, as a project's hidden or joined window, reading direct fields
+    only; and only where this relation context admits windows (no
+    ``admission_failure``) does a refused aggregate window name the admitted
+    ones.
     """
 
     if type(expression) is not WindowExpr:
@@ -1013,6 +1060,30 @@ def analyze_window_computation(
         raise TypeError("window computation computed let names must be a frozenset")
     if type(aggregate_windows_admitted) is not bool:
         raise TypeError("window computation aggregate-window admission must be exact")
+    if (
+        aggregate_windows_admitted
+        and semantic_aggregate_call_name(expression.call) in _WINDOW_AGGREGATE_NAMES
+    ):
+        return _analyze_aggregate_window_computation(
+            expression=expression,
+            input_schema=RowSchema() if input_schema is None else input_schema,
+            field_qualifier=field_qualifier,
+            value_types=value_types,
+            diagnostics=diagnostics,
+            # A ROW scope's `let:` types and values, as for a selected window.
+            aggregate_bare_value_types=(
+                bare_value_types if let_value_types is None else let_value_types
+            ),
+            let_expressions=let_expressions,
+            allow_qualified_fields=allow_qualified_fields,
+            window_bare_value_types=bare_value_types,
+            named_composition=named_composition,
+            type_expansions=type_expansions,
+            admission_failure=admission_failure,
+            direct_arguments=True,
+            computed=computed_let_names,
+            prepare_inputs=prepare_inputs,
+        )
 
     advance_policy = _ranking_policy(expression)
     distribution_definition = _distribution_definition(expression)
@@ -1533,18 +1604,16 @@ def _direct_field(
 
 def _unbound_window_field(
     expression: WindowExpr,
-    occurrence: WindowOccurrenceIdentity,
     reason: str,
     input_schema: RowSchema,
     diagnostics: list[Diagnostic],
     diagnostic_count: int,
-) -> WindowExpressionUnsupported | WindowComputationUnsupported:
+) -> WindowComputationUnsupported:
     """An aggregate window whose partition or order field has no binding;
     one that no diagnostic explains is refused as every other window is."""
 
     if len(diagnostics) > diagnostic_count:
-        return WindowExpressionUnsupported(
-            occurrence=occurrence,
+        return WindowComputationUnsupported(
             expression=expression,
             identity=expression.identity,
             reason=reason,

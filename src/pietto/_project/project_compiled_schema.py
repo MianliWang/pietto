@@ -19,8 +19,10 @@ PARAMETERIZED_FORMAT = "pietto.compiled-execution.v2"
 # schema, semantic, occurrence, profile; 2/2: declaration records carry ``let``;
 # 3/3: typed ``values`` relation records (Phase70 S06; one bump per batch);
 # 4/4: expression_block_use records (Phase70 S08); 5/5: capture and
-# table_function records (Phase70 batch 4).
-VERSIONS = (6, 1, 6, 1)  # 6/6: Collect reads, collection logicals, unnest (S09)
+# table_function records (Phase70 batch 4); 6/6: Collect reads, collection
+# logicals, unnest (Phase71 S09); 7/7: the one Phase73 bump, for aggregate
+# window values.
+VERSIONS = (7, 1, 7, 1)
 MEMBERS = ("structure", "parameters", "targets", "obligations", "outputs")
 MAX_BYTES = 32 * 1024 * 1024
 MAX_VALUES = 1 << 20

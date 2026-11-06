@@ -2094,6 +2094,21 @@ class _Check:
         for ref in doc.all("window_column"):
             column = doc[ref]
             arguments = [doc[item] for item in column["arguments"]]
+            function = column["function"]
+            # An aggregate over a window: PostgreSQL, one column argument or a
+            # row count, and R13's casts; every other window has no cast.
+            casts = (column["argument_cast"], column["result_cast"])
+            if function in schema.WINDOW_AGGREGATES:
+                _require(
+                    self.family == "postgres"
+                    and tuple(argument["role"] for argument in arguments)
+                    in ((("value",), ()) if function == "count" else (("value",),))
+                    and all(argument["read"] is not None for argument in arguments)
+                    and casts == _aggregate_casts(self.family, function),
+                    "window aggregate",
+                )
+            else:
+                _require(casts == (None, None), "window cast")
             if self.family == "postgres":
                 function = column["function"]
                 roles = tuple(argument["role"] for argument in arguments)
@@ -2994,6 +3009,14 @@ class _Tokens:
                 "aggregate cast",
             )
             return
+        if role in ("window_argument_cast_open", "window_result_cast_open"):
+            column = self.one(windows, subject, "window subject")
+            _require(
+                column[role[len("window_") : -len("_open")]] is not None
+                and text == "CAST(",
+                "window cast",
+            )
+            return
         elif role in schema.SYNTAX:
             _require(text == schema.SYNTAX[role], "syntax spelling")
             return
@@ -3039,6 +3062,10 @@ class _Tokens:
                 column["function"] == "string_agg" and text in {" ASC", " DESC"},
                 "aggregate order direction",
             )
+        elif role in ("window_argument_cast_close", "window_result_cast_close"):
+            column = self.one(windows, subject, "window subject")
+            cast = column[role[len("window_") : -len("_close")]]
+            _require(cast is not None and text == " AS " + cast + ")", "window cast")
         elif role == "window_open":
             column = self.one(windows, subject, "window subject")
             _require(
@@ -4103,7 +4130,21 @@ class _Requirements:
             elif kind == "window_column":
                 origin = doc[doc[item["column"]]["window"]]
                 spec = doc[item["specification"]]
-                self.add("window_computation", item["window"], "R14", operators)
+                reads = [
+                    doc[doc[argument]["read"]]
+                    for argument in item["arguments"]
+                    if doc[argument]["read"] is not None
+                ]
+                self.add(
+                    "window_computation",
+                    item["window"],
+                    "R14",
+                    operators,
+                    _aggregate_evidence(
+                        item["function"],
+                        doc[reads[0]["realization"]]["tag"] if reads else None,
+                    ),
+                )
                 self.add("window_specification", origin["policy"], "R15", ())
                 frame = None if spec["frame"] is None else doc[spec["frame"]]
                 if frame is not None and _frame_offsets(frame):

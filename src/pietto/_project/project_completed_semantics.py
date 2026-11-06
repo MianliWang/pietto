@@ -3175,9 +3175,22 @@ def derive_compiled_semantics(root, values, parameters=None):
                     physical.NULLABILITY[typed.nullability],
                 )
                 if physical_required:
-                    if argument is None:
-                        realized, problem = windowing.result_realization(
-                            family, function, (), retained
+                    if argument is None or function in windowing.AGGREGATE:
+                        # An aggregate over a window keeps R13's argument law.
+                        realized_arguments = (
+                            ()
+                            if argument is None
+                            else (windowing.WindowArgument(0, "value", argument),)
+                        )
+                        problem = windowing.aggregate_argument_problem(
+                            family, function, realized_arguments
+                        )
+                        realized, problem = (
+                            (None, problem)
+                            if problem is not None
+                            else windowing.result_realization(
+                                family, function, realized_arguments, retained
+                            )
                         )
                     else:
                         defaults = tuple(v for role, v in static if role == "default")
@@ -4406,9 +4419,21 @@ def verify_compiled_semantics(value):
                 type_parameters = None if argument is None else argument.parameters
                 retained = (typed.resolved_type.name, NULLABILITY[typed.nullability])
                 if physical_required:
-                    if argument is None:
+                    if argument is None or function in windowing.AGGREGATE:
+                        realized_arguments = (
+                            ()
+                            if argument is None
+                            else (windowing.WindowArgument(0, "value", argument),)
+                        )
+                        need(
+                            windowing.aggregate_argument_problem(
+                                family, function, realized_arguments
+                            )
+                            is None,
+                            "SEMANTIC_WINDOW_ARGUMENT",
+                        )
                         realization = _window_result_realization(
-                            family, function, (), retained
+                            family, function, realized_arguments, retained
                         )
                     else:
                         defaults = tuple(v for role, v in static if role == "default")

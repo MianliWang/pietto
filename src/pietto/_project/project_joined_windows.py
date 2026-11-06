@@ -46,6 +46,7 @@ from pietto.semantic import joins as semantic_joins
 from pietto.semantic.expressions import _window_literal_range_diagnostics
 from pietto.semantic.model import ValueType
 from pietto.semantic.window_analysis import (
+    _NO_GROUP_HIDDEN_WINDOW,
     _WindowComputationAdmissionFailure,
     _relation_has_forbidden_window_placement,
     analyze_window_computation,
@@ -60,6 +61,7 @@ from pietto.semantic.window_semantics import (
     QueryBlockOccurrence,
     ResolvedNamedWindowNamespace,
     WindowComponentOrigin,
+    AggregateWindowComputation,
     WindowComputationAnalysis,
     WindowComputationUnsupported,
     WindowFrameApplicability,
@@ -584,11 +586,31 @@ class ProjectWindowDependencyOccurrence:
             )
 
 
+# A joined window's successful computation: a window function's, or an
+# aggregate's over a window, which has no function modifiers.
+type _Computation = WindowComputationAnalysis | AggregateWindowComputation
+_COMPUTATIONS = frozenset({WindowComputationAnalysis, AggregateWindowComputation})
+
+
+def _modifiers(
+    analysis: _Computation,
+) -> tuple[WindowNullTreatment | None, bool, WindowNthDirection | None, bool]:
+    if isinstance(analysis, AggregateWindowComputation):
+        return None, False, None, False
+    modifiers = analysis.modifiers
+    return (
+        modifiers.null_treatment,
+        modifiers.null_treatment_is_explicit,
+        modifiers.nth_direction,
+        modifiers.nth_direction_is_explicit,
+    )
+
+
 @dataclass(frozen=True, slots=True, kw_only=True)
 class ProjectWindowSemanticProvenance:
     """Target-neutral projection of the shared computation semantics."""
 
-    analysis: WindowComputationAnalysis
+    analysis: _Computation
     function_identity: WindowFunctionIdentity
     use_kind: WindowUseKind
     named_target: NamedWindowOccurrence | None
@@ -607,7 +629,7 @@ class ProjectWindowSemanticProvenance:
 
     def __post_init__(self) -> None:
         if (
-            type(self.analysis) is not WindowComputationAnalysis
+            type(self.analysis) not in _COMPUTATIONS
             or type(self.function_identity) is not WindowFunctionIdentity
             or (
                 self.function_identity != self.analysis.expression.identity
@@ -621,7 +643,9 @@ class ProjectWindowSemanticProvenance:
         )
         resolved = self.analysis.validated_specification.resolved
         frame = resolved.frame
-        modifiers = self.analysis.modifiers
+        null_treatment, null_explicit, nth_direction, nth_explicit = _modifiers(
+            self.analysis
+        )
         if (
             self.named_target != expected_target
             or self.partition_origin is not resolved.partition_origin
@@ -632,21 +656,20 @@ class ProjectWindowSemanticProvenance:
             or self.frame_start is not frame.start
             or self.frame_end is not frame.end
             or self.frame_exclusion is not frame.exclusion
-            or self.null_treatment is not modifiers.null_treatment
-            or self.null_treatment_is_explicit
-            is not modifiers.null_treatment_is_explicit
-            or self.nth_direction is not modifiers.nth_direction
-            or self.nth_direction_is_explicit is not modifiers.nth_direction_is_explicit
+            or self.null_treatment is not null_treatment
+            or self.null_treatment_is_explicit is not null_explicit
+            or self.nth_direction is not nth_direction
+            or self.nth_direction_is_explicit is not nth_explicit
         ):
             raise ValueError("Window provenance must be an exact semantic projection.")
 
 
 def _semantic_provenance(
-    analysis: WindowComputationAnalysis,
+    analysis: _Computation,
 ) -> ProjectWindowSemanticProvenance:
     resolved = analysis.validated_specification.resolved
     frame = resolved.frame
-    modifiers = analysis.modifiers
+    null_treatment, null_explicit, nth_direction, nth_explicit = _modifiers(analysis)
     named = analysis.resolved_named_use
     return ProjectWindowSemanticProvenance(
         analysis=analysis,
@@ -663,10 +686,10 @@ def _semantic_provenance(
         frame_start=frame.start,
         frame_end=frame.end,
         frame_exclusion=frame.exclusion,
-        null_treatment=modifiers.null_treatment,
-        null_treatment_is_explicit=modifiers.null_treatment_is_explicit,
-        nth_direction=modifiers.nth_direction,
-        nth_direction_is_explicit=modifiers.nth_direction_is_explicit,
+        null_treatment=null_treatment,
+        null_treatment_is_explicit=null_explicit,
+        nth_direction=nth_direction,
+        nth_direction_is_explicit=nth_explicit,
     )
 
 
@@ -692,7 +715,7 @@ class ProjectConcreteWindowComputation:
         hash=False,
     )
     resolutions: tuple[ProjectJoinedWindowInputResolution, ...]
-    analysis: WindowComputationAnalysis
+    analysis: _Computation
     dependencies: tuple[ProjectWindowDependencyOccurrence, ...]
     semantic_provenance: ProjectWindowSemanticProvenance
     diagnostics: tuple[Diagnostic, ...] = ()
@@ -702,7 +725,7 @@ class ProjectConcreteWindowComputation:
             type(self.site) is not ProjectWindowComputationSite
             or type(self.input_namespace) is not ProjectJoinedWindowInputNamespace
             or self.input_namespace.aggregation is not self.site.input_aggregation
-            or type(self.analysis) is not WindowComputationAnalysis
+            or type(self.analysis) not in _COMPUTATIONS
             or self.analysis.authored_expression is not self.site.expression
             or type(self.semantic_provenance) is not ProjectWindowSemanticProvenance
             or self.semantic_provenance.analysis is not self.analysis
@@ -857,7 +880,7 @@ def _dependency_inputs(
     *,
     namespace: ProjectJoinedWindowInputNamespace,
     resolutions: tuple[ProjectJoinedWindowInputResolution, ...],
-    analysis: WindowComputationAnalysis,
+    analysis: _Computation,
 ) -> tuple[
     tuple[
         WindowDependencyRole,
@@ -873,7 +896,14 @@ def _dependency_inputs(
 ]:
     argument_expressions: tuple[NameExpr | DottedNameExpr, ...] = ()
     default_expressions: tuple[NameExpr | DottedNameExpr, ...] = ()
-    if analysis.navigation is not None:
+    if isinstance(analysis, AggregateWindowComputation):
+        # An aggregate reads its one argument, a direct field, as a value.
+        argument_expressions = tuple(
+            cast(NameExpr | DottedNameExpr, value)
+            for value in analysis.expression.call.arguments[:1]
+            if type(value) in {NameExpr, DottedNameExpr}
+        )
+    elif analysis.navigation is not None:
         value = analysis.navigation.value_expression
         if type(value) in {NameExpr, DottedNameExpr}:
             argument_expressions = (cast(NameExpr | DottedNameExpr, value),)
@@ -934,7 +964,7 @@ def _dependencies(
     site: ProjectWindowComputationSite,
     namespace: ProjectJoinedWindowInputNamespace,
     resolutions: tuple[ProjectJoinedWindowInputResolution, ...],
-    analysis: WindowComputationAnalysis,
+    analysis: _Computation,
 ) -> tuple[ProjectWindowDependencyOccurrence, ...]:
     inputs = _dependency_inputs(
         namespace=namespace,
@@ -1043,12 +1073,8 @@ def _analyze_site(
         admission is None
         and site.input_aggregation.mode is ProjectJoinedAggregationMode.GLOBAL
     ):
-        admission = _WindowComputationAdmissionFailure(
-            reason=(
-                f"no-group aggregate context does not admit {expression.identity.name}"
-            ),
-            code=None,
-        )
+        # Only a hidden window reaches this, as in a single file (PIE-S2103).
+        admission = _NO_GROUP_HIDDEN_WINDOW
 
     value_types: dict[Expression, ValueType] = {}
     resolutions: tuple[ProjectJoinedWindowInputResolution, ...] = ()
@@ -1091,6 +1117,7 @@ def _analyze_site(
         named_composition=named_composition,
         admission_failure=admission,
         prepare_inputs=prepare_inputs,
+        aggregate_windows_admitted=True,
         computed_let_names=computed_let_names(
             {
                 value.occurrence.binding.name: value.occurrence.expression
@@ -1134,7 +1161,7 @@ def _analyze_site(
             semantic_failure=semantic,
             diagnostics=tuple(diagnostics),
         )
-    assert type(semantic) is WindowComputationAnalysis
+    assert isinstance(semantic, (WindowComputationAnalysis, AggregateWindowComputation))
     # A RANGE offset is checked as in a single file (PIE-S2104).
     refused = _window_literal_range_diagnostics(
         expression,

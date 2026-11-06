@@ -393,7 +393,10 @@ A generated requirement's `evidence` may end with
 `{"overflow": "target_checked_signed64_narrowing"}`. It marks a PostgreSQL
 `Int` result whose `int_range` the compiler did not prove statically: a
 `sum(Int)` (kind `aggregate`, rule R13), written
-`CAST(SUM(CAST(x AS pg_catalog.int8)) AS pg_catalog.int8)`, or a sign, `+`,
+`CAST(SUM(CAST(x AS pg_catalog.int8)) AS pg_catalog.int8)`, the same `sum`
+over a window (kind `window_computation`, rule R14), written
+`CAST(SUM(CAST(x AS pg_catalog.int8)) OVER (...) AS pg_catalog.int8)`, or a
+sign, `+`,
 `-`, `*` or `abs` over `bigint` operands (kind `arithmetic` or `scalar_call`,
 rule R05) whose exact range leaves signed 64 bits. The column's `int_range`
 is then the part of that range inside signed 64 bits, and PostgreSQL's checked
@@ -421,6 +424,16 @@ evidence. The additive `ranges` roles for this form are the `syntax` roles
 `aggregate_root_open` (`SQRT(`) and `aggregate_root_close` (`)`), around the
 `aggregate_result_cast_open`/`aggregate_result_cast_close` pair; the
 aggregate `spelling` is `VAR_SAMP`.
+
+A PostgreSQL project aggregate over a window (`sum`, `count`, `avg`, `min`
+or `max` with `OVER`) has `window_origin.function` `sum`, `count`, `avg`,
+`min` or `max`. Its additive `ranges` roles are the `syntax` roles
+`window_argument_cast_open` and `window_argument_cast_close` (the `int8`
+argument cast of `sum`, the `float8` one of `avg`), `window_result_cast_open`
+and `window_result_cast_close` (the `int8` result cast of `sum`) and
+`window_row_count` (the `*` of `count()`, written `COUNT(*)`). Documents
+without an aggregate window are unchanged; MySQL refuses every aggregate
+window (PIE-B1003 `window_aggregate_approved_non_support_on_mysql`).
 
 `Int` arithmetic with a `None` operand (D-12, kind `arithmetic`) writes that
 NULL as `CAST(NULL AS pg_catalog.int8)` on PostgreSQL and

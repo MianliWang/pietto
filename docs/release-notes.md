@@ -3,9 +3,9 @@
 ## Unreleased changes following 0.1.9
 
 These changes are on `main` after `0.1.9` and are in no published release
-yet. They are Phase73 batch 1. Each subsection lists the changes against
-`0.1.9` that a program can observe, its compatibility rows and the new
-refusals.
+yet. They are Phase73 batches 1 and 2. Each subsection lists the changes
+against `0.1.9` that a program can observe, its compatibility rows and the
+new refusals.
 
 ### JOIN fan-out: the two-level route
 
@@ -411,6 +411,79 @@ Compatibility:
   writes an `lpad` text three times, so nested `lpad` calls grow the SQL
   threefold per level, as nested `round` of a Float grows it fivefold; project
   SQL stops at PIE-B1007 `public_artifact_byte_limit`.
+
+### Aggregate windows in projects
+
+- An EXPLICIT_MODULES project now admits `sum`, `count`, `avg`, `min` and
+  `max` over a window, as a single file does: as a selected output of a table
+  or query, over grouped rows (`running = sum(total) window(order by k)`), in a
+  hidden QUALIFY window (`qualify: count(x) window(partition by k) > 1`), and
+  over JOIN rows, with partition and order keys, an omitted or explicit
+  ROWS/RANGE/GROUPS frame (GROUPS and EXCLUDE on PostgreSQL only, as for every
+  window) and named windows. `check --project` accepted none of them before
+  (PIE-S2103 `Aggregate window functions are not implemented: NAME`).
+- A project's aggregate window reads each argument as one input column: each
+  argument is a direct field (an input field, under GROUP BY a key or an
+  aggregate output, or a `let` name bound to one). Another argument, such as
+  `sum(amount * 2)` or a `let` name whose value is computed, is the new
+  PIE-S2103 `Unsupported window computation for function NAME: argument must
+  be a direct field in a project`, at the call, selected, in QUALIFY or over
+  JOIN rows. A single file keeps admitting it. An argument the ordinary
+  aggregate rules refuse keeps their diagnostic first, as in a single file
+  (`count(1) window(order by id)` is PIE-S2104 `Invalid arguments for
+  function count`).
+- Changed diagnostic (compatibility, project): a hidden QUALIFY window in a
+  query with aggregates and no GROUP BY, also over JOIN rows, is now
+  PIE-S2103 `Unsupported window computation for function NAME: a query with
+  aggregates and no GROUP BY admits no hidden QUALIFY window` at the call, as
+  in a single file. It was the relation's bare PIE-S2333 `Project relation
+  semantic completion is unavailable: NAME` for a window function such as
+  `row_number`, and PIE-S2103 `Aggregate window functions are not
+  implemented: NAME` for `sum`, `count`, `avg`, `min` and `max`.
+- Changed text (compatibility): in a project, another aggregate called with a
+  `window` specification (`stddev`, `count_distinct`) is now
+  `Aggregate window functions are not implemented: NAME; window aggregates are
+  sum, count, avg, min and max`, as in a single file (it had no suffix).
+- `emit-sql --project` on PostgreSQL emits the project aggregate with `OVER`:
+  `sum` of an Int is `CAST(SUM(CAST(x AS pg_catalog.int8)) OVER (...) AS
+  pg_catalog.int8)` (SQLSTATE 22003 instead of a wrong total), `avg` of an Int
+  `AVG(CAST(x AS pg_catalog.float8)) OVER (...)`, `count()` `COUNT(*) OVER
+  (...)`, `count(x)`, `min` and `max` the plain aggregate; an omitted frame is
+  written out (`RANGE BETWEEN UNBOUNDED PRECEDING AND CURRENT ROW`). The
+  argument domain is the project aggregate's: a `Decimal` or `Float` `sum` or
+  `avg` is PIE-B1004 (`decimal_aggregate_range_proof_missing`,
+  `float_aggregate_finite_result_proof_missing`), and an argument outside the
+  reviewed domain PIE-B1003 (`<function>_argument_outside_reviewed_int_domain`).
+  Compiled bundles and live templates of these statements bind and render the
+  same SQL. In `emit-sql --project --format json`, the R14
+  `window_computation` requirement of a window `sum` of an Int carries
+  `{"overflow": "target_checked_signed64_narrowing"}`, as the R13 `aggregate`
+  requirement of a grouped one does; `window_origin.function` may be `sum`,
+  `count`, `avg`, `min` or `max`, and `ranges` add the `syntax` roles
+  `window_argument_cast_open`, `window_argument_cast_close`,
+  `window_result_cast_open`, `window_result_cast_close` and
+  `window_row_count`.
+- New refusal: `emit-sql --project --dialect mysql` refuses every aggregate
+  window with PIE-B1003 `window_aggregate_approved_non_support_on_mysql`, at
+  the window, until its real-database differential, with the suggestion
+  `Emit this aggregate window for PostgreSQL, or keep it in check/plan: a
+  project's MySQL aggregate window awaits its real-database differential.`
+  (single-file MySQL is unchanged).
+- **Formats.** The compiled format's version marks become schema 7 and
+  occurrence 7 (`(7, 1, 7, 1)`), Phase73's one change of them: a
+  `window_value` record may name `sum`, `count`, `avg`, `min` or `max`
+  (PostgreSQL), and only such a value may reference a `window_spec` with an
+  empty `ordering`. A bundle labelled with earlier marks is refused with
+  `COMPILED_COMPATIBILITY` (PIE-R1008 from `load_bundle`), with no migration;
+  rebuild it with this version.
+- **Known limits.** A project `count() window()` (no argument, partition or
+  order key) passes `check --project`, but `emit-sql --project` refuses it
+  with PIE-B1004 `window_result_anchor_missing`. The opt-in tie refinement
+  (`TieRefinement`) does not lower aggregate windows; a refined execution of
+  one is refused. A project aggregate window with a RANGE offset frame
+  (`range between 1 preceding and current row`) passes `check --project`, but
+  `emit-sql --project` keeps the existing RANGE offset refusal PIE-B1002
+  `window_range_boundary_out_of_signed64_range`, as for `first_value`.
 
 ## Equality, nullability and asof JOIN public alpha release notes — 0.1.9
 

@@ -462,6 +462,7 @@ _ACTIONS = {
     "offset_range_requires_a_non_null_order_key": "Use a non-null signed-Int ORDER key for an offset RANGE frame; do not declare a nullable source non-null in the contract.",
     "offset_range_requires_a_signed_int_order_key": "Use a signed-Int ORDER key for an offset RANGE frame, or keep the frame in check/plan.",
     "stddev_int_not_admitted_on_target": "Emit this Int stddev for PostgreSQL, or keep it in check/plan: MySQL computes an integer deviation in DOUBLE, which loses Int accuracy; casting the input does not restore it.",
+    "window_aggregate_approved_non_support_on_mysql": "Emit this aggregate window for PostgreSQL, or keep it in check/plan: a project's MySQL aggregate window awaits its real-database differential.",
 }
 for _details, _action in _GROUPS:
     for _detail in _details:

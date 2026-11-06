@@ -4945,6 +4945,69 @@ class WindowExpressionAnalysis:
 
 
 @dataclass(frozen=True, slots=True, kw_only=True)
+class AggregateWindowComputation:
+    """Occurrence-neutral semantic result of one admitted aggregate window,
+    shared by selected, hidden and joined project sites."""
+
+    expression: WindowExpr
+    result: WindowResultAvailability
+    partition_bindings: tuple[WindowPartitionFieldBinding, ...]
+    order_bindings: tuple[WindowOrderFieldBinding, ...]
+    validated_specification: ValidatedWindowSpecification
+    # Each argument's type, as the aggregate signature read it.
+    argument_types: tuple[ValueType, ...]
+    resolved_named_use: ResolvedNamedWindowUse | None = None
+
+    def __post_init__(self) -> None:
+        if type(self.expression) is not WindowExpr:
+            raise TypeError("aggregate window computation expression must be exact")
+        if (
+            type(self.result) is not WindowResultAvailability
+            or self.result.kind is not WindowResultAvailabilityKind.CONCRETE
+            or type(self.result.value_type) is not ValueType
+        ):
+            raise ValueError("aggregate window computation result must be concrete")
+        if tuple(item.expression for item in self.partition_bindings) != (
+            self.expression.spec.partition_by
+        ) or tuple(item.order_item for item in self.order_bindings) != (
+            self.expression.spec.order_by
+        ):
+            raise ValueError("aggregate window bindings must retain the specification")
+        if (
+            type(self.argument_types) is not tuple
+            or len(self.argument_types) != len(self.expression.call.arguments)
+            or any(type(item) is not ValueType for item in self.argument_types)
+        ):
+            raise ValueError("aggregate window argument types must be complete")
+        if type(self.validated_specification) is not ValidatedWindowSpecification or (
+            self.validated_specification.function_identity != self.expression.identity
+            or self.validated_specification.argument_expressions
+            is not self.expression.call.arguments
+            or type(self.validated_specification.frame) is not ValidatedFrame
+        ):
+            raise ValueError("aggregate window validation must retain its call")
+        if self.resolved_named_use is None:
+            if self.expression.use_kind is not WindowUseKind.INLINE:
+                raise ValueError("standalone computation requires inline authorship")
+        elif (
+            type(self.resolved_named_use) is not ResolvedNamedWindowUse
+            or self.resolved_named_use.resolved
+            is not self.validated_specification.resolved
+            or self.expression.call
+            is not self.resolved_named_use.composed.expression.call
+        ):
+            raise ValueError("aggregate named computation must retain authorship")
+
+    @property
+    def authored_expression(self) -> WindowExpr:
+        """Return the exact authored expression for this computation."""
+
+        if self.resolved_named_use is None:
+            return self.expression
+        return self.resolved_named_use.composed.expression
+
+
+@dataclass(frozen=True, slots=True, kw_only=True)
 class AggregateWindowAnalysis:
     """Semantic evidence for one admitted aggregate window call."""
 
@@ -4952,11 +5015,20 @@ class AggregateWindowAnalysis:
     partition_binding_fact: WindowPartitionBindingFact
     order_binding_fact: WindowOrderBindingFact | None
     validated_specification: ValidatedWindowSpecification
+    # Each argument's type, as the aggregate signature read it.
+    argument_types: tuple[ValueType, ...]
     resolved_named_use: ResolvedNamedWindowUse | None = None
 
     def __post_init__(self) -> None:
         if type(self.semantic_fact) is not WindowExpressionSemanticFact:
             raise TypeError("aggregate window semantic fact must be exact")
+        if (
+            type(self.argument_types) is not tuple
+            or len(self.argument_types)
+            != len(self.semantic_fact.expression.call.arguments)
+            or any(type(item) is not ValueType for item in self.argument_types)
+        ):
+            raise ValueError("aggregate window argument types must be complete")
         expression = self.semantic_fact.expression
         if (
             self.semantic_fact.result.kind is not WindowResultAvailabilityKind.CONCRETE

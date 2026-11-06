@@ -569,6 +569,8 @@ RECORDS: dict[str, tuple[tuple[str, str], ...]] = {
         ("label", "text"),
         ("column", "@stage_column"),
         ("selected", "bool"),
+        ("argument_cast", "?text"),
+        ("result_cast", "?text"),
     ),
     "window_projection_column": (
         ("ordinal", "nat"),
@@ -905,7 +907,14 @@ WINDOW_SPELLING = {
     "first_value": "FIRST_VALUE",
     "last_value": "LAST_VALUE",
     "nth_value": "NTH_VALUE",
+    "sum": "SUM",
+    "count": "COUNT",
+    "avg": "AVG",
+    "min": "MIN",
+    "max": "MAX",
 }
+# The aggregates a window computes (R13's laws over R15's frame).
+WINDOW_AGGREGATES = frozenset({"sum", "count", "avg", "min", "max"})
 FRAME_UNITS = {"rows": "ROWS", "range": "RANGE", "groups": "GROUPS"}
 FRAME_BOUNDS = {
     "unbounded_preceding": "UNBOUNDED PRECEDING",
@@ -977,6 +986,7 @@ SYNTAX = {
     "window_argument_qualifier": ".",
     "window_close": ")",
     "window_over": " OVER ",
+    "window_row_count": "*",
     "carry_qualifier": ".",
     "group_key_qualifier": ".",
     "result_qualifier": ".",
@@ -1065,7 +1075,10 @@ OVERLAYS = {
         ("aggregate_open", "aggregate_result_cast_open", "aggregate_root_open"),
         ("aggregate_close", "aggregate_result_cast_close", "aggregate_root_close"),
     ),
-    "window": (("window_open",), ("window_spec_close", "window_reference")),
+    "window": (
+        ("window_open", "window_result_cast_open"),
+        ("window_spec_close", "window_reference", "window_result_cast_close"),
+    ),
     "window_specification": (("window_spec_open",), ("window_spec_close",)),
     "grouping": (("grouping_scope",), ("grouping_column",)),
     "order_item": (("order_scope",), ("order_direction",)),

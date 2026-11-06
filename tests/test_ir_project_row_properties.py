@@ -576,7 +576,8 @@ def test_relation_ordering_and_local_grain_reuse_only_exact_current_evidence(
     window = ranked.window_outputs[0]
     window_project_fact = window.project_fact
     assert window_project_fact is not None
-    assert window_project_fact.analysis.order_binding_fact.bindings
+    order_fact = window_project_fact.analysis.order_binding_fact
+    assert order_fact is not None and order_fact.bindings
     with pytest.raises(TypeError, match="relation semantic evidence"):
         properties.ProjectIRProvidedRelationOrdering(
             output=case.relation_output,

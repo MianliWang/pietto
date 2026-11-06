@@ -43,6 +43,11 @@ SPELLING = {
     "first_value": "FIRST_VALUE",
     "last_value": "LAST_VALUE",
     "nth_value": "NTH_VALUE",
+    "sum": "SUM",
+    "count": "COUNT",
+    "avg": "AVG",
+    "min": "MIN",
+    "max": "MAX",
 }
 RANKING = frozenset({"row_number", "rank", "dense_rank"})
 DISTRIBUTION = frozenset({"percent_rank", "cume_dist", "ntile"})
@@ -51,6 +56,9 @@ NAVIGATION = frozenset({"lag", "lead"})
 # by ORDER BY alone.
 FRAME_VALUE = frozenset({"first_value", "last_value", "nth_value"})
 FRAME_INSENSITIVE = RANKING | DISTRIBUTION | NAVIGATION
+# An aggregate over a window: its argument, casts and result follow R13's
+# aggregate laws (`grouping`), and its frame R15's. PostgreSQL only for now.
+AGGREGATE = frozenset({"sum", "count", "avg", "min", "max"})
 # The admitted argument arity of every promised identity. A ranking function
 # with no scalar argument still depends on the whole input BAG, which the plan
 # records as its own relation_input use rather than as an argument.
@@ -66,6 +74,11 @@ ARITY = {
     "first_value": (1, 1),
     "last_value": (1, 1),
     "nth_value": (2, 2),
+    "sum": (1, 1),
+    "count": (0, 1),
+    "avg": (1, 1),
+    "min": (1, 1),
+    "max": (1, 1),
 }
 
 # One rule per retained window demand subject. R14 owns the computation and its
@@ -385,6 +398,9 @@ class WindowColumn:
     label: str
     column: Any
     selected: bool
+    # An aggregate's own argument and result casts (`grouping`).
+    argument_cast: str | None = None
+    result_cast: str | None = None
 
     def __repr__(self) -> str:
         return (
@@ -845,6 +861,8 @@ def build_stage(
         location = getattr(getattr(window.source, "item", None), "span", None)
         if function is None or function not in SPELLING:
             return None, None, (*unsupported_function(function), window.ref, location)
+        if function in AGGREGATE and target != "postgres":
+            return None, None, (*aggregate_target_problem(target), window.ref, location)
         policy = policies.get(window.ref)
         if policy is None:
             return (
@@ -960,7 +978,7 @@ def build_stage(
                 )
         position = position_base + offset
         label = f"c{position}"
-        anchor = specification.orders[0].read if specification.orders else None
+        anchor = result_anchor(specification, realized)
         if anchor is None:
             return (
                 None,
@@ -979,10 +997,15 @@ def build_stage(
                     location,
                 ),
             )
+        if function in AGGREGATE:
+            problem = aggregate_argument_problem(target, function, realized)
+            if problem is not None:
+                return None, None, (*problem, window.ref, location)
         realization, problem = result_realization(target, function, realized, retained)
         if realization is None:
             assert problem is not None
             return None, None, (*problem, window.ref, location)
+        argument_cast, result_cast = aggregate_casts(target, function, realized)
         origin = WindowOrigin(
             "window_result",
             window,
@@ -1004,9 +1027,64 @@ def build_stage(
             label,
             stage_column(anchor, position, label, export, origin, realization),
             window.selected is not None,
+            argument_cast,
+            result_cast,
         )
         columns.append(column)
     return columns, WindowStage(block.ref, tuple(definitions), tuple(columns)), None
+
+
+def aggregate_target_problem(target: str) -> tuple[str, str]:
+    """An aggregate over a window awaits its MySQL real-database evidence."""
+
+    return "PIE-B1003", f"window_aggregate_approved_non_support_on_{target}"
+
+
+def result_anchor(specification, arguments):
+    """The read a result column is built from: the first ORDER key, else the
+    first PARTITION key or column argument of an aggregate over a window."""
+
+    if specification.orders:
+        return specification.orders[0].read
+    if specification.partitions:
+        return specification.partitions[0][1]
+    return next((item.read for item in arguments if item.read is not None), None)
+
+
+def aggregate_argument_problem(family: str, function: str, arguments):
+    """R13's argument law over the window's one column argument (ARITY
+    admits none only for count(), which reads the whole input BAG)."""
+
+    if not arguments:
+        return None
+    read = arguments[0].read
+    if read is None:
+        return "PIE-B1003", "aggregate_argument_not_a_direct_established_field"
+    return grouping.resolved_argument_problem(function, True, read.realization, family)
+
+
+def aggregate_casts(family: str, function: str, arguments):
+    """An aggregate's argument and result casts: AVG reads binary64 and a
+    PostgreSQL SUM(Int) accumulates exactly and narrows to a checked bigint."""
+
+    if function not in AGGREGATE or not arguments:
+        return None, None
+    read = arguments[0].read
+    return (
+        grouping.argument_cast(family, function, read)
+        if function in {"sum", "avg"}
+        else None,
+        grouping.result_cast(family, function, read),
+    )
+
+
+def aggregate_evidence(function: str, arguments) -> tuple[str, ...]:
+    """R13's evidence of an aggregate over a window, as of a grouped one: a
+    PostgreSQL SUM(Int) rests on its checked bigint narrowing."""
+
+    if function not in AGGREGATE or not arguments:
+        return ()
+    return grouping.aggregate_evidence(function, arguments[0].read.realization.tag)
 
 
 def blocks_admitted(plan, *, single_input_use: bool = False) -> bool:
@@ -1067,6 +1145,13 @@ def result_realization(family: str, function: str, arguments, retained):
     """
 
     tag, nullable = retained
+    if function in AGGREGATE:
+        reads = [item.read for item in arguments if item.read is not None]
+        if len(reads) != len(arguments) or len(reads) > 1:
+            return None, ("PIE-B1004", "window_value_argument_evidence_missing")
+        return grouping.result_realization(
+            family, function, reads[0] if reads else None, retained
+        )
     if function in RANKING or function == "ntile":
         if tag != "Int" or nullable is not False:
             return None, ("PIE-B1002", "window_rank_result_not_non_null_int")
@@ -1345,14 +1430,21 @@ def resolved_arguments(function, arguments, records, family):
             if function in RANKING | DISTRIBUTION
             else ("value", "offset", "default")[: len(arguments)]
             if function in NAVIGATION
+            else ("value",)[: len(arguments)]
+            if function in AGGREGATE
             else ("value", "position")[: len(arguments)]
         )
     )
     if tuple(role for role, _ in arguments) != expected:
         raise CompiledError("COMPILED_WINDOW_ROLES")
+    if function in AGGREGATE and family != "postgres":
+        raise CompiledError("COMPILED_WINDOW_FUNCTION")
     result = []
     for role, address in arguments:
         record = records[address]
+        if address.kind == "parameter_read" and function in AGGREGATE:
+            # An aggregate over a window reads only a direct field.
+            raise CompiledError("COMPILED_WINDOW_PARAMETER")
         if address.kind == "parameter_read":
             # The same roles and tags emission admits for a header parameter.
             declared = records[record.get("parameter")]
@@ -1413,15 +1505,14 @@ def compiled_specification(plan, address, reads, definitions):
         )
         for i, (a, direction, nulls) in enumerate(record.get("ordering"))
     )
-    if (
-        not orders
-        or any(not partition_key_admitted(read.realization) for _, read in partitions)
-        or any(
-            i.direction not in {"asc", "desc"}
-            or i.nulls is not None
-            or not order_key_admitted(i.read.realization, target)
-            for i in orders
-        )
+    # Only an aggregate over a window may have no ORDER BY (compiled schema).
+    if any(
+        not partition_key_admitted(read.realization) for _, read in partitions
+    ) or any(
+        i.direction not in {"asc", "desc"}
+        or i.nulls is not None
+        or not order_key_admitted(i.read.realization, target)
+        for i in orders
     ):
         raise CompiledError("COMPILED_WINDOW_COMPARISON")
     frame, offsets = None, []
@@ -1528,6 +1619,10 @@ def build_compiled_stage(plan, record, reads, leaves):
             and specification.frame is None
         ):
             raise CompiledError("COMPILED_WINDOW_FRAME_POLICY")
+        if function in AGGREGATE and aggregate_argument_problem(
+            family, function, arguments
+        ):
+            raise CompiledError("COMPILED_WINDOW_ARGUMENT")
         fact = facts[address]
         expected, problem = result_realization(
             family,
@@ -1565,7 +1660,9 @@ def build_compiled_stage(plan, record, reads, leaves):
             selected=value.get("selected"),
             policy=policy,
         )
-        anchor = specification.orders[0].read
+        anchor = result_anchor(specification, arguments)
+        if anchor is None:
+            raise CompiledError("COMPILED_WINDOW_ANCHOR")
         terminal = stage_column(
             anchor, position, port.identity.name, port, origin, fact.realization
         )
@@ -1581,6 +1678,7 @@ def build_compiled_stage(plan, record, reads, leaves):
             port.identity.name,
             terminal,
             value.get("selected"),
+            *aggregate_casts(family, function, arguments),
         )
     if resource_problem(family, len(columns)):
         raise CompiledError("COMPILED_WINDOW_RESOURCE")

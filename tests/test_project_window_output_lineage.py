@@ -896,3 +896,48 @@ def test_blocked_window_result_state_mapping_is_atomic(case: int) -> None:
         reason=reason,
     )
     assert state.schema is None
+
+
+def test_aggregate_window_results_depend_on_their_argument_partition_and_order(
+    tmp_path,
+) -> None:
+    """A project aggregate window depends on its one direct field argument
+    (`WINDOW_ARGUMENT`), then its partition and order keys, in source order;
+    `count()` reads no field and depends on the whole relation input."""
+
+    (tmp_path / "pietto.toml").write_text(
+        'schema_version = 1\n\n[sources]\ninclude = ["models.pietto"]\n',
+        encoding="utf-8",
+    )
+    (tmp_path / "models.pietto").write_text(
+        SOURCE_PREFIX + "query totals:\n    from rows\n    select:\n        id\n"
+        "        total = sum(amount) window(partition by category order by id)\n"
+        "        rows_so_far = count() window(order by id)\n"
+        "        mean = avg(id) window(partition by category)\n",
+        encoding="utf-8",
+    )
+    parsed = check_project_parse_only(tmp_path)
+    assert parsed.ok
+    semantic = build_empty_project_semantic_result(parsed)
+    assert semantic.model is not None and semantic.diagnostics == ()
+    (definition,) = (
+        item
+        for parsed_input in parsed.parsed_inputs
+        for item in parsed_input.script.definitions
+        if isinstance(item, QueryDef)
+    )
+    facts = semantic.model.relation_window_result_facts[definition]
+    assert {
+        name: tuple(
+            (item.role.value, item.target.name) for item in fact.dependency_occurrences
+        )
+        for name, fact in facts.items()
+    } == {
+        "total": (
+            ("window_argument", "rows.amount"),
+            ("window_partition", "rows.category"),
+            ("window_order", "rows.id"),
+        ),
+        "rows_so_far": (("relation_input", "rows"), ("window_order", "rows.id")),
+        "mean": (("window_argument", "rows.id"), ("window_partition", "rows.category")),
+    }

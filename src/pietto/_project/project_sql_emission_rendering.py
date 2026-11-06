@@ -1110,18 +1110,32 @@ def _window_value(w: _Writer, column, alias) -> None:
 
     reference = column.window.ref
     start = w.offset
+    if column.result_cast is not None:
+        w.emit("CAST(", "syntax", "window_result_cast_open", reference)
     w.emit(
         windowing.SPELLING[column.function] + "(", "syntax", "window_open", reference
     )
+    if column.function == "count" and not column.arguments:
+        # count() counts every row of the frame, as COUNT(*) does.
+        w.emit("*", "syntax", "window_row_count", reference)
     for argument in column.arguments:
         if argument.position:
             w.emit(", ", "syntax", "window_argument_separator", reference)
         if argument.read is not None:
+            if column.argument_cast is not None:
+                w.emit("CAST(", "syntax", "window_argument_cast_open", reference)
             w.identifier(alias, "window_argument_scope", argument.read.terminal)
             w.emit(".", "syntax", "window_argument_qualifier", reference)
             w.identifier(
                 argument.read.name, "window_argument_column", argument.read.terminal
             )
+            if column.argument_cast is not None:
+                w.emit(
+                    " AS " + column.argument_cast + ")",
+                    "syntax",
+                    "window_argument_cast_close",
+                    reference,
+                )
         elif argument.parameter is None:
             assert argument.literal is not None
             w.emit(argument.literal, "literal", "window_argument_literal", reference)
@@ -1141,13 +1155,19 @@ def _window_value(w: _Writer, column, alias) -> None:
     specification = column.specification
     if specification.symbol is not None:
         w.identifier(specification.symbol.name, "window_reference", reference)
-        w.enclose("window", reference, start)
-        return
-    inner = w.offset
-    w.emit("(", "syntax", "window_spec_open", reference)
-    _window_specification(w, specification, reference, alias)
-    w.emit(")", "syntax", "window_spec_close", reference)
-    w.enclose("window_specification", reference, inner)
+    else:
+        inner = w.offset
+        w.emit("(", "syntax", "window_spec_open", reference)
+        _window_specification(w, specification, reference, alias)
+        w.emit(")", "syntax", "window_spec_close", reference)
+        w.enclose("window_specification", reference, inner)
+    if column.result_cast is not None:
+        w.emit(
+            " AS " + column.result_cast + ")",
+            "syntax",
+            "window_result_cast_close",
+            reference,
+        )
     w.enclose("window", reference, start)
 
 

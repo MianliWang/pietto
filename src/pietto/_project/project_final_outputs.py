@@ -329,7 +329,7 @@ from pietto.semantic.relation_schemas import (
 from pietto.semantic.relation_limits import MAX_RELATION_LIMIT, check_relation_limits
 from pietto.semantic.satisfying import no_group_satisfying_diagnostic
 from pietto.semantic.window_analysis import (
-    _WindowComputationAdmissionFailure,
+    _NO_GROUP_HIDDEN_WINDOW,
     analyze_window_computation,
     analyze_window_expression,
 )
@@ -344,6 +344,7 @@ from pietto.semantic.window_input_analysis import (
 from pietto.semantic.window_semantics import (
     NamedWindowResolutionFailure,
     ResolvedNamedWindowNamespace,
+    AggregateWindowComputation,
     WindowComputationAnalysis,
     WindowComputationUnsupported,
 )
@@ -355,6 +356,12 @@ from pietto._project.window_semantics import (
 from pietto.ast_nodes import LetBinding
 
 __all__: tuple[str, ...] = ()
+
+# A hidden window's concrete kernel result: a window function's, or an
+# aggregate's over a window.
+_CONCRETE_COMPUTATIONS = frozenset(
+    {WindowComputationAnalysis, AggregateWindowComputation}
+)
 
 _DerivedRelation = TableDef | QueryDef
 
@@ -891,7 +898,12 @@ class ProjectNoJoinHiddenWindowComputation:
 
     scope: WindowInputScope = field(repr=False, compare=False, hash=False)
     expression: WindowExpr = field(repr=False, compare=False, hash=False)
-    analysis: WindowComputationAnalysis | WindowComputationUnsupported | None
+    analysis: (
+        WindowComputationAnalysis
+        | AggregateWindowComputation
+        | WindowComputationUnsupported
+        | None
+    )
     value_types: Mapping[Expression, ValueType] = field(
         default_factory=dict,
         repr=False,
@@ -921,6 +933,7 @@ class ProjectNoJoinHiddenWindowComputation:
             raise TypeError("Hidden replay window requires exact scope and AST.")
         if type(self.analysis) not in {
             WindowComputationAnalysis,
+            AggregateWindowComputation,
             WindowComputationUnsupported,
             type(None),
         }:
@@ -939,7 +952,9 @@ class ProjectNoJoinHiddenWindowComputation:
                 raise ValueError("Hidden named window rejection cannot invent a site.")
         elif self.analysis is None:
             raise ValueError("Hidden inline window requires a kernel result.")
-        elif type(self.analysis) is WindowComputationAnalysis and (
+        elif isinstance(
+            self.analysis, (WindowComputationAnalysis, AggregateWindowComputation)
+        ) and (
             self.analysis.expression is not self.expression
             or self.analysis.result.value_type is None
         ):
@@ -968,7 +983,9 @@ class ProjectNoJoinHiddenWindowComputation:
 
     @property
     def value_type(self) -> ValueType | None:
-        if type(self.analysis) is not WindowComputationAnalysis:
+        if not isinstance(
+            self.analysis, (WindowComputationAnalysis, AggregateWindowComputation)
+        ):
             return None
         return self.analysis.result.value_type
 
@@ -5479,7 +5496,7 @@ def _validate_no_join_qualify_predicate(result: ProjectNoJoinQualify) -> None:
     if predicate is None or type(clause) is not QualifyClause:
         raise ValueError("Authored no-JOIN QUALIFY requires a predicate result.")
     hidden_blocked = any(
-        type(attempt.analysis) is not WindowComputationAnalysis
+        type(attempt.analysis) not in _CONCRETE_COMPUTATIONS
         for attempt in result.hidden_attempts
     )
     reference_blocked = any(
@@ -5630,14 +5647,21 @@ def _hidden_no_join_window(
         computed_let_names=computed_let_names(
             input_context.let_scope.binding_expressions
         ),
+        # Its arguments read a ROW scope's `let:` names, as a selected one's do.
+        let_value_types=(
+            input_context.let_scope.binding_value_types
+            if scope.kind is WindowInputScopeKind.ROW
+            else None
+        ),
+        let_expressions=(
+            input_context.let_scope.binding_expressions
+            if scope.kind is WindowInputScopeKind.ROW
+            else None
+        ),
+        aggregate_windows_admitted=True,
+        # As in a single file (PIE-S2103 at the call).
         admission_failure=(
-            _WindowComputationAdmissionFailure(
-                reason=(
-                    "no-group aggregate context does not admit "
-                    f"{expression.identity.name}"
-                ),
-                code=None,
-            )
+            _NO_GROUP_HIDDEN_WINDOW
             if mode is ProjectJoinedAggregationMode.GLOBAL
             else None
         ),
@@ -5664,7 +5688,7 @@ def _hidden_no_join_window(
                 identity=expression.identity,
                 reason="window input reads a nested relation field",
             )
-    elif type(analysis) is WindowComputationAnalysis:
+    elif isinstance(analysis, (WindowComputationAnalysis, AggregateWindowComputation)):
         # A RANGE offset is checked as in a single file (PIE-S2104).
         refused = _window_literal_range_diagnostics(
             expression,
@@ -5753,7 +5777,7 @@ def _no_join_qualify(
     hidden_failures = tuple(
         attempt
         for attempt in hidden
-        if type(attempt.analysis) is not WindowComputationAnalysis
+        if type(attempt.analysis) not in _CONCRETE_COMPUTATIONS
     )
     reference_failures = tuple(
         resolution for resolution in references if resolution.target is None
@@ -7754,7 +7778,7 @@ def _promoted_scalar_producer(
             or replay.limit is not None
             or not qualify.concrete
             or any(
-                type(attempt.analysis) is not WindowComputationAnalysis
+                type(attempt.analysis) not in _CONCRETE_COMPUTATIONS
                 for attempt in qualify.hidden_attempts
             )
             or not _joined_consumer(completion, base_entry.owner)

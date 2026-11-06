@@ -558,6 +558,7 @@ ANCHOR = Shape(
         "project_join_null_rejection",
         "project_joined_aggregate_field_dependency",
         "window_computation_analysis",
+        "aggregate_window_computation",
         "window_use_occurrence",
         "window_occurrence_identity",
         "window_result_availability",
@@ -7624,7 +7625,14 @@ RECORD_RULES: Mapping[str, RecordRule] = MappingProxyType(
                 FieldRule("expression", ref("window_expr")),
                 FieldRule(
                     "analysis",
-                    union(ref("window_computation_analysis"), ANCHOR, optional),
+                    union(
+                        ref(
+                            "window_computation_analysis",
+                            "aggregate_window_computation",
+                        ),
+                        ANCHOR,
+                        optional,
+                    ),
                 ),
                 FieldRule(
                     "input_context",
@@ -8040,6 +8048,25 @@ RECORD_RULES: Mapping[str, RecordRule] = MappingProxyType(
                     "frame_value",
                     union(ref("frame_value_window_computation"), optional),
                 ),
+                FieldRule(
+                    "resolved_named_use",
+                    union(ref("resolved_named_window_use"), optional),
+                ),
+            ),
+        ),
+        "aggregate_window_computation": RecordRule(
+            "aggregate_window_computation",
+            (
+                FieldRule("expression", ref("window_expr")),
+                FieldRule("result", ref("window_result_availability")),
+                FieldRule(
+                    "partition_bindings", seq(ref("window_partition_field_binding"))
+                ),
+                FieldRule("order_bindings", seq(ref("window_order_field_binding"))),
+                FieldRule(
+                    "validated_specification", ref("validated_window_specification")
+                ),
+                FieldRule("argument_types", seq(ref("value_type"))),
                 FieldRule(
                     "resolved_named_use",
                     union(ref("resolved_named_window_use"), optional),
@@ -9297,7 +9324,10 @@ RECORD_RULES: Mapping[str, RecordRule] = MappingProxyType(
                 FieldRule(
                     "resolutions", seq(ref("project_joined_window_input_resolution"))
                 ),
-                FieldRule("analysis", ref("window_computation_analysis")),
+                FieldRule(
+                    "analysis",
+                    ref("window_computation_analysis", "aggregate_window_computation"),
+                ),
                 FieldRule(
                     "dependencies", seq(ref("project_window_dependency_occurrence"))
                 ),

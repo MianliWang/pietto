@@ -553,18 +553,14 @@ def test_hidden_inline_reuses_kernel_but_never_becomes_nameable(built: _Built) -
         and result.site.selected_output_ordinal is None
         for result in (hidden_ranking, hidden_navigation, hidden_frame)
     )
-    assert (
-        cast(
-            windows.ProjectConcreteWindowComputation, hidden_navigation
-        ).analysis.navigation
-        is not None
-    )
-    assert (
-        cast(
-            windows.ProjectConcreteWindowComputation, hidden_frame
-        ).analysis.frame_value
-        is not None
-    )
+    navigation = cast(
+        windows.ProjectConcreteWindowComputation, hidden_navigation
+    ).analysis
+    frame = cast(windows.ProjectConcreteWindowComputation, hidden_frame).analysis
+    assert type(navigation) is WindowComputationAnalysis
+    assert navigation.navigation is not None
+    assert type(frame) is WindowComputationAnalysis
+    assert frame.frame_value is not None
     assert stage.post_window.selected_results == stage.selected_results
     rejected = windows.analyze_hidden_project_window_computation(
         stage,
@@ -582,8 +578,8 @@ def test_hidden_inline_reuses_kernel_but_never_becomes_nameable(built: _Built) -
     # The GLOBAL admission refusal of `_analyze_site`, which only a hidden
     # window reaches (see test_global_and_upstream_terminals_remain_fail_closed).
     assert hidden_global.semantic_failure is not None
-    assert hidden_global.semantic_failure.reason.startswith(
-        "no-group aggregate context does not admit "
+    assert hidden_global.semantic_failure.reason == (
+        "a query with aggregates and no GROUP BY admits no hidden QUALIFY window"
     )
     assert hidden_global.site.occurrence is None
     assert hidden_global.result_binding is None
@@ -831,11 +827,11 @@ def test_refused_window_computations_name_their_reason(
 
 
 @pytest.mark.parametrize("project", (False, True), ids=("single_file", "project"))
-def test_only_a_single_file_names_the_window_aggregates_it_admits(
+def test_a_refused_aggregate_window_names_the_window_aggregates(
     tmp_path: Path, project: bool
 ) -> None:
-    """A single file, which admits aggregate windows, names them when it
-    refuses another aggregate window; a project, which admits none, does not."""
+    """A single file and a project, which both admit aggregate windows, name
+    them when they refuse another aggregate window."""
     source = tmp_path / "main.pietto"
     source.write_text(
         "shape Row:\n"
@@ -858,7 +854,7 @@ def test_only_a_single_file_names_the_window_aggregates_it_admits(
     out = io.StringIO()
     with redirect_stdout(out):
         exit_code = cli.main(["check", *target, "--format", "json"])
-    suffix = "" if project else _WINDOW_AGGREGATES
+    suffix = _WINDOW_AGGREGATES
     assert exit_code == 1
     assert [
         (item["code"], item["location"]["line"], item["message"])

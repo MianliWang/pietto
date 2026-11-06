@@ -85,6 +85,7 @@ if TYPE_CHECKING:
     from pietto._inline_argument import InlinedArgument
     from pietto.semantic.window_semantics import (
         AggregateWindowAnalysis,
+        AggregateWindowComputation,
         ResolvedNamedWindowNamespace,
         WindowComputationAnalysis,
         WindowExpressionAnalysis,
@@ -1413,7 +1414,8 @@ def type_relation_expressions(
                     named_window_namespace=named_window_namespace,
                     type_expansions=type_expansions,
                     let_extrema=False,
-                    allow_aggregate_windows=single_file,
+                    allow_aggregate_windows=True,
+                    direct_aggregate_arguments=not single_file,
                 )
                 # A window read of a let name PIE-S2329 refused reports nothing
                 # more. Dropping its unknown-field report afterwards keeps the
@@ -1519,7 +1521,8 @@ def type_relation_expressions(
                     type_expansions=type_expansions,
                     let_extrema=False,
                     allow_hidden=True,
-                    allow_aggregate_windows=single_file,
+                    allow_aggregate_windows=True,
+                    direct_aggregate_arguments=not single_file,
                 )
                 if isinstance(
                     analysis, (WindowExpressionAnalysis, AggregateWindowAnalysis)
@@ -1872,7 +1875,10 @@ _WINDOW_COUNT_POSITIONS = {"ntile": 0, "lag": 1, "lead": 1, "nth_value": 1}
 def _window_literal_range_diagnostics(
     expression: WindowExpr,
     analysis: (
-        WindowExpressionAnalysis | AggregateWindowAnalysis | WindowComputationAnalysis
+        WindowExpressionAnalysis
+        | AggregateWindowAnalysis
+        | WindowComputationAnalysis
+        | AggregateWindowComputation
     ),
     input_schema: RowSchema | None,
     let_expressions: Mapping[str, Expression],

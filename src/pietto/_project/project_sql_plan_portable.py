@@ -1002,6 +1002,7 @@ _ADAPTERS: Mapping[type, str] = {
     project_join_conditions.ProjectJoinNullRejection: "project_join_null_rejection",
     project_joined_aggregation.ProjectJoinedAggregateFieldDependency: "project_joined_aggregate_field_dependency",
     semantic_window_semantics.WindowComputationAnalysis: "window_computation_analysis",
+    semantic_window_semantics.AggregateWindowComputation: "aggregate_window_computation",
     semantic_window_semantics.WindowUseOccurrence: "window_use_occurrence",
     semantic_window_semantics.WindowOccurrenceIdentity: "window_occurrence_identity",
     semantic_window_semantics.WindowResultAvailability: "window_result_availability",

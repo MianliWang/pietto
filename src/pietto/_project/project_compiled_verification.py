@@ -1634,7 +1634,10 @@ def verify_description(value: Description) -> None:
                         "WINDOW_SCOPE",
                     )
         elif kind == "window_value":
-            from pietto._project.project_sql_emission_windows import resolved_arguments
+            from pietto._project.project_sql_emission_windows import (
+                AGGREGATE,
+                resolved_arguments,
+            )
 
             refs(get("inputs"), {"port"})
             ref(get("specification"), {"window_spec"})
@@ -1646,11 +1649,15 @@ def verify_description(value: Description) -> None:
                 need(type(argument) is tuple and len(argument) == 2, "WINDOW_ARGUMENT")
                 ref(argument[1], {"read", "literal", "null_literal", "parameter_read"})
             resolved_arguments(get("function"), get("arguments"), records, family)
+            # Only an aggregate over a window may have no ORDER BY.
+            need(
+                get("function") in AGGREGATE
+                or bool(records[get("specification")].get("ordering")),
+                "WINDOW_ORDER",
+            )
         elif kind == "window_spec":
             refs(get("partition"), {"read"})
-            need(
-                type(get("ordering")) is tuple and bool(get("ordering")), "WINDOW_ORDER"
-            )
+            need(type(get("ordering")) is tuple, "WINDOW_ORDER")
             for item in get("ordering"):
                 need(
                     type(item) is tuple
@@ -6332,6 +6339,25 @@ def verify_compiled_window_stage(body, record, request, produced, sources):
             (actual.tag, actual.storage, actual.nullable, actual.domain)
             == (expected.tag, expected.storage, expected.nullable, expected.domain),
             "WINDOW_REALIZATION",
+        )
+        # An aggregate over a window: PostgreSQL, R13's argument law and Q1's
+        # casts over its one Int argument; every other window has no cast.
+        need(
+            (
+                function not in windowing.AGGREGATE
+                or request.family == "postgres"
+                and all(
+                    windowing.grouping.resolved_argument_problem(
+                        function, True, argument.read.realization, request.family
+                    )
+                    is None
+                    for argument in column.arguments
+                )
+            )
+            and column.argument_cast
+            == {"sum": "pg_catalog.int8", "avg": "pg_catalog.float8"}.get(function)
+            and column.result_cast == {"sum": "pg_catalog.int8"}.get(function),
+            "WINDOW_AGGREGATE_CASTS",
         )
         origin = column.column.window
         need(

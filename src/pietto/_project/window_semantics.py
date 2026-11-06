@@ -35,6 +35,7 @@ from pietto.ast_nodes import (
 )
 from pietto.errors import Diagnostic, SourceLocation
 from pietto.semantic.window_semantics import (
+    AggregateWindowAnalysis,
     NamedWindowOccurrence,
     ResolvedWindowFunctionModifiers,
     WindowComponentOrigin,
@@ -56,6 +57,16 @@ from pietto.semantic.window_input_analysis import (
 )
 
 __all__: tuple[str, ...] = ()
+
+# A selected window's analysis: a window function's, or an aggregate's over a
+# window, which reads its one argument as a navigation value is read.
+type WindowAnalysis = WindowExpressionAnalysis | AggregateWindowAnalysis
+WINDOW_ANALYSIS_TYPES = frozenset({WindowExpressionAnalysis, AggregateWindowAnalysis})
+# The functions whose first argument, when a direct field, is a window input.
+VALUE_ARGUMENT_FUNCTIONS = frozenset(
+    {"lag", "lead", "first_value", "last_value", "nth_value"}
+    | {"sum", "count", "avg", "min", "max"}
+)
 
 
 @dataclass(frozen=True, slots=True, kw_only=True)
@@ -100,7 +111,7 @@ class WindowComputationInput:
 
     definition: TableDef | QueryDef
     item: SelectItem
-    analysis: WindowExpressionAnalysis
+    analysis: WindowAnalysis
     scope: WindowInputScope
     upstream_symbol: ProjectSymbol
     project_schema: ProjectRowSchema | None = None
@@ -110,7 +121,7 @@ class WindowComputationInput:
         if (
             type(self.definition) not in {TableDef, QueryDef}
             or type(self.item) is not SelectItem
-            or type(self.analysis) is not WindowExpressionAnalysis
+            or type(self.analysis) not in WINDOW_ANALYSIS_TYPES
             or type(self.scope) is not WindowInputScope
             or type(self.upstream_symbol) is not ProjectSymbol
         ):
@@ -337,7 +348,7 @@ def _validate_target_result_role(
 class WindowSemanticProvenance:
     """Target-independent window semantics, separate from row dependencies."""
 
-    analysis: WindowExpressionAnalysis
+    analysis: WindowAnalysis
     function_identity: WindowFunctionIdentity
     use_kind: WindowUseKind
     named_target: NamedWindowOccurrence | None
@@ -355,7 +366,7 @@ class WindowSemanticProvenance:
     nth_direction_is_explicit: bool
 
     def __post_init__(self) -> None:
-        if type(self.analysis) is not WindowExpressionAnalysis:
+        if type(self.analysis) not in WINDOW_ANALYSIS_TYPES:
             raise TypeError("window semantic provenance requires exact analysis")
         if self.function_identity != self.analysis.semantic_fact.identity:
             raise ValueError("window provenance function identity must be exact")
@@ -401,8 +412,10 @@ class WindowSemanticProvenance:
 
 
 def _analysis_modifiers(
-    analysis: WindowExpressionAnalysis,
+    analysis: WindowAnalysis,
 ) -> ResolvedWindowFunctionModifiers | None:
+    if isinstance(analysis, AggregateWindowAnalysis):
+        return None
     if analysis.navigation_fact is not None:
         return analysis.navigation_fact.modifiers
     if analysis.frame_value_fact is not None:
@@ -411,7 +424,7 @@ def _analysis_modifiers(
 
 
 def _window_semantic_provenance(
-    analysis: WindowExpressionAnalysis,
+    analysis: WindowAnalysis,
 ) -> WindowSemanticProvenance:
     resolved = analysis.validated_specification.resolved
     frame = resolved.frame
@@ -448,7 +461,7 @@ class WindowResultProjectFact:
     """Atomic private result, dependency, and immediate-provenance evidence."""
 
     semantic_fact: WindowExpressionSemanticFact
-    analysis: WindowExpressionAnalysis
+    analysis: WindowAnalysis
     semantic_provenance: WindowSemanticProvenance
     result_identity: WindowResultIdentity
     dependency_occurrences: tuple[WindowDependencyOccurrence, ...]
@@ -458,8 +471,8 @@ class WindowResultProjectFact:
     def __post_init__(self) -> None:
         if type(self.semantic_fact) is not WindowExpressionSemanticFact:
             raise TypeError("semantic_fact must be exact WindowExpressionSemanticFact")
-        if type(self.analysis) is not WindowExpressionAnalysis:
-            raise TypeError("analysis must be an exact WindowExpressionAnalysis")
+        if type(self.analysis) not in WINDOW_ANALYSIS_TYPES:
+            raise TypeError("analysis must be an exact window analysis")
         if self.analysis.semantic_fact is not self.semantic_fact:
             raise ValueError("project window analysis must retain its semantic core")
         if type(self.semantic_provenance) is not WindowSemanticProvenance:
@@ -632,11 +645,13 @@ def build_window_result_project_fact(
         diagnostics=diagnostics,
         let_value_types=let_value_types,
         let_expressions=let_expressions,
+        allow_aggregate_windows=True,
+        direct_aggregate_arguments=True,
     )
     semantic_result = _project_window_analysis_boundary(item, semantic_result)
     if isinstance(semantic_result, WindowExpressionUnsupported):
         return semantic_result
-    if type(semantic_result) is not WindowExpressionAnalysis:
+    if type(semantic_result) not in WINDOW_ANALYSIS_TYPES:
         raise AssertionError("recognized window analyzer returned an unknown fact")
     input_scope = build_window_input_scope(
         definition=definition,
@@ -660,13 +675,9 @@ def window_dependency_sources(
     expression: WindowExpr,
 ) -> tuple[tuple[WindowDependencyRole, Expression], ...]:
     arguments = expression.call.arguments
-    value_dependent = expression.identity.name in {
-        "lag",
-        "lead",
-        "first_value",
-        "last_value",
-        "nth_value",
-    }
+    value_dependent = expression.identity.name in VALUE_ARGUMENT_FUNCTIONS and bool(
+        arguments
+    )
     offset_navigation = expression.identity.name in {"lag", "lead"}
     argument_sources = (
         (arguments[0],)
@@ -701,7 +712,7 @@ def window_dependency_sources(
 
 def _build_window_result_project_fact(
     *,
-    analysis: WindowExpressionAnalysis,
+    analysis: WindowAnalysis,
     definition: TableDef | QueryDef,
     item: SelectItem,
     upstream_symbol: ProjectSymbol,
@@ -711,7 +722,7 @@ def _build_window_result_project_fact(
 ) -> WindowResultProjectFact:
     """Convert one exact validated window analysis into Project evidence."""
 
-    if type(analysis) is not WindowExpressionAnalysis:
+    if type(analysis) not in WINDOW_ANALYSIS_TYPES:
         raise TypeError("project window fact requires an exact analysis")
     semantic_fact = analysis.semantic_fact
 
@@ -725,13 +736,9 @@ def _build_window_result_project_fact(
     )
     navigation_arguments: tuple[Expression, ...] = ()
     navigation_defaults: tuple[Expression, ...] = ()
-    if semantic_fact.identity.name in {
-        "lag",
-        "lead",
-        "first_value",
-        "last_value",
-        "nth_value",
-    }:
+    if semantic_fact.identity.name in VALUE_ARGUMENT_FUNCTIONS and (
+        expression.call.arguments
+    ):
         value_expression = expression.call.arguments[0]
         if type(value_expression) in {NameExpr, DottedNameExpr}:
             navigation_arguments = (value_expression,)
@@ -843,8 +850,8 @@ def _build_window_result_project_fact(
 
 def _project_window_analysis_boundary(
     item: SelectItem,
-    analysis: WindowExpressionAnalysis | WindowExpressionUnsupported,
-) -> WindowExpressionAnalysis | WindowExpressionUnsupported:
+    analysis: WindowAnalysis | WindowExpressionUnsupported,
+) -> WindowAnalysis | WindowExpressionUnsupported:
     if isinstance(analysis, WindowExpressionUnsupported):
         return _retain_project_window_unsupported_authorship(item, analysis)
     return analysis

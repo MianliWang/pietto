@@ -765,6 +765,69 @@ def test_a_stddev_template_binds_its_header_read_and_renders_the_same_sql(tmp_pa
         assert bound.arguments == (3,)
 
 
+@pytest.mark.parametrize("route", ("compiled", "live"))
+@pytest.mark.parametrize(
+    "body",
+    (
+        "    from rows\n    where id > low\n    select:\n        id\n"
+        "        total = sum(id) window(partition by flag order by id)\n"
+        "        n = count() window(partition by flag)\n"
+        "        mean = avg(id) window(order by id rows between 1 preceding"
+        " and current row)\n"
+        "        low_id = min(id) window(order by id)\n"
+        "        high_id = max(id) window(order by id)\n",
+        "    from rows\n    where id > low\n    group by:\n        flag\n"
+        "    select:\n        flag\n        total = sum(id)\n"
+        "        running = sum(total) window(order by flag)\n",
+        "    from rows\n    where id > low\n    select:\n        id\n"
+        "    qualify:\n        count(id) window(partition by flag) > 1\n",
+        "    from rows\n    let other = rows\n"
+        "    inner join other on rows.id == other.id\n    where rows.id > low\n"
+        "    select:\n        id = rows.id\n"
+        "        total = sum(other.id) window(partition by rows.flag order by rows.id)\n",
+    ),
+    ids=("selected", "grouped", "qualify", "joined"),
+)
+def test_an_aggregate_window_template_binds_and_renders_the_emitted_sql(
+    tmp_path, body, route
+):
+    """A PostgreSQL project's aggregate windows, selected, over grouped rows,
+    in a hidden QUALIFY window and over JOIN rows, under a WHERE header
+    parameter, bind through a loaded compiled bundle and a live template and
+    render the emitted SQL byte for byte."""
+    from _pietto_sql_query_parameters import parameterized_case
+    from pietto._project.project_compiled_build import build_compiled
+    from pietto._project.project_compiled_loading import load_compiled
+    from pietto._project.project_execution_template import (
+        bind_values,
+        prepare_compiled_template,
+        prepare_live_template,
+    )
+
+    _, outcome = parameterized_case(
+        tmp_path, "postgres", "query result(low: Int):\n" + body
+    )
+    assert outcome.status == "VERIFIED", outcome.blockers
+    if route == "live":
+        template = prepare_live_template(outcome.artifact)
+    else:
+        built = build_compiled(outcome.artifact)
+        template = prepare_compiled_template(
+            load_compiled(
+                built.payload,
+                expected_pin=built.pin,
+                accepted_producer=built.producer,
+                accepted_compatibility=built.compatibility,
+            )
+        )
+    bound = bind_values(
+        template, (), tuple(zip(template.parameters, (3,), strict=True))
+    )
+    assert bound.artifact.rendered.sql == outcome.artifact.rendered.sql
+    assert b") OVER (" in bound.artifact.rendered.sql
+    assert bound.arguments == (3,)
+
+
 @pytest.mark.parametrize("target", ("postgres", "mysql"))
 def test_a_half_open_range_template_renders_the_emitted_sql(tmp_path, target):
     """The recommended half-open range `start <= ts < stop` in a query, over

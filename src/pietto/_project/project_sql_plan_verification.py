@@ -1765,9 +1765,7 @@ def _window_structure(plan):
                 if (
                     not isinstance(view.root, windows.ProjectConcreteNoJoinReplay)
                     or not isinstance(context, windows.ProjectNoJoinWindowInput)
-                    or not isinstance(
-                        source.analysis, windows.WindowComputationAnalysis
-                    )
+                    or not isinstance(source.analysis, windows.COMPUTATIONS)
                     or context.owner is not definition.entry.owner
                     or context.scope is not view.root.window_scope
                     or context.input_schema is not view.root.input_schema
@@ -1805,16 +1803,23 @@ def _window_structure(plan):
                 )
             ):
                 return False
+            # An aggregate over a window reads its argument as a value too.
             value_dependent = effective.identity.name in {
                 "lag",
                 "lead",
                 "first_value",
                 "last_value",
                 "nth_value",
+                "sum",
+                "count",
+                "avg",
+                "min",
+                "max",
             }
             arguments = (
                 (call.arguments[0],)
                 if value_dependent
+                and call.arguments
                 and isinstance(call.arguments[0], (NameExpr, DottedNameExpr))
                 else ()
             )

@@ -593,3 +593,166 @@ query result:
             assert isinstance(binding.expression, NameExpr)
             names.append(binding.expression.name)
         assert tuple(names) == ("key",)
+
+
+_PROJECT_HEADER = """shape Row:
+    id: Int
+    amount: Int
+    category: Text | None
+    k = unique(id)
+source rows: Row = postgres.table("rows")
+"""
+_PROJECT_WINDOWS = """query selected:
+    from rows
+    select:
+        id
+        total = sum(amount) window(partition by category order by id)
+        n = count() window(partition by category)
+        mean = avg(amount) window(order by id rows between 1 preceding and current row)
+        low = min(amount) window(order by id)
+        high = max(amount) window(order by id)
+query grouped:
+    from rows
+    group by:
+        category
+    select:
+        category
+        total = sum(amount)
+        running = sum(total) window(order by category)
+query hidden:
+    from rows
+    select:
+        id
+    qualify:
+        count(amount) window(partition by category) > 1
+query joined:
+    from rows
+    let other = rows
+    inner join other on rows.id == other.id
+    select:
+        id = rows.id
+        total = sum(other.amount) window(partition by rows.category order by rows.id)
+query hidden_let:
+    from rows
+    let value = amount
+    select:
+        id
+    qualify:
+        sum(value) window(order by id) > 1
+"""
+
+
+def _project_and_single_file_check(tmp_path, capsys, source):
+    """`check --project` and `check` of the same one-module source, as
+    (exit code, [(code, message, line, column)]) each."""
+    (tmp_path / "pietto.toml").write_text(
+        'schema_version = 2\n[sources]\ninclude = ["*.pietto"]\n', encoding="utf-8"
+    )
+    path = tmp_path / "main.pietto"
+    path.write_text(source, encoding="utf-8")
+    results = []
+    for target in (["--project", str(tmp_path)], [str(path)]):
+        code = cli.main(["check", *target, "--format", "json"])
+        results.append(
+            (
+                code,
+                [
+                    (
+                        item["code"],
+                        item["message"],
+                        item["location"]["line"],
+                        item["location"]["column"],
+                    )
+                    for item in json.loads(capsys.readouterr().out)["diagnostics"]
+                ],
+            )
+        )
+    return results
+
+
+def test_a_project_admits_the_aggregate_windows_a_single_file_admits(tmp_path, capsys):
+    """An explicit-module project admits sum, count, avg, min and max over a
+    window as a single file does: selected, over grouped rows, in a hidden
+    QUALIFY window, also of a `let:` name bound to a field, and over JOIN
+    rows."""
+
+    project, single_file = _project_and_single_file_check(
+        tmp_path, capsys, _PROJECT_HEADER + _PROJECT_WINDOWS
+    )
+    assert project == single_file == (0, [])
+
+
+def test_a_project_aggregate_window_reads_only_direct_fields(tmp_path, capsys):
+    """A project's aggregate window reads each argument as one input column,
+    so a computed argument, also through a computed `let:` name, is PIE-S2103
+    at the call in a selected, hidden or joined window; a single file admits
+    each."""
+
+    source = _PROJECT_HEADER + (
+        "query selected:\n    from rows\n    let doubled = amount * 2\n"
+        "    select:\n        id\n"
+        "        a = sum(amount * 2) window(order by id)\n"
+        "        b = sum(doubled) window(order by id)\n"
+        "query hidden:\n    from rows\n    select:\n        id\n"
+        "    qualify:\n        count(amount + 1) window(order by id) > 1\n"
+        "query joined:\n    from rows\n    let other = rows\n"
+        "    inner join other on rows.id == other.id\n"
+        "    select:\n        id = rows.id\n"
+        "        c = avg(other.amount - 1) window(order by rows.id)\n"
+        "query hidden_let:\n    from rows\n    let bumped = amount + 1\n"
+        "    select:\n        id\n"
+        "    qualify:\n        sum(bumped) window(order by id) > 1\n"
+    )
+    message = (
+        "Unsupported window computation for function {}: argument must be a "
+        "direct field in a project"
+    )
+    project, single_file = _project_and_single_file_check(tmp_path, capsys, source)
+    assert single_file == (0, [])
+    assert project == (
+        1,
+        [
+            ("PIE-S2103", message.format("sum"), 12, 13),
+            ("PIE-S2103", message.format("sum"), 13, 13),
+            ("PIE-S2103", message.format("count"), 19, 9),
+            ("PIE-S2103", message.format("avg"), 26, 13),
+            ("PIE-S2103", message.format("sum"), 33, 9),
+        ],
+    )
+
+
+def test_a_project_refuses_what_a_single_file_refuses_at_the_call(tmp_path, capsys):
+    """A QUALIFY window of a query with aggregates and no GROUP BY, also over
+    JOIN rows, is PIE-S2103 at the call in a project as in a single file, and
+    an argument the ordinary aggregate rules refuse keeps their PIE-S2104."""
+
+    source = _PROJECT_HEADER + (
+        "query hidden:\n    from rows\n    select:\n        total = sum(amount)\n"
+        "    qualify:\n        count(amount) window(order by id) > 1\n"
+        "query ranked:\n    from rows\n    select:\n        total = sum(amount)\n"
+        "    qualify:\n        row_number() window(order by id) <= 1\n"
+        "query joined:\n    from rows\n    let other = rows\n"
+        "    inner join other on rows.id == other.id\n"
+        "    select:\n        total = sum(rows.amount)\n"
+        "    qualify:\n        sum(other.amount) window(order by rows.id) > 1\n"
+        "query literal:\n    from rows\n    select:\n        id\n"
+        "        n = count(1) window(order by id)\n"
+    )
+    hidden = (
+        "Unsupported window computation for function {}: a query with "
+        "aggregates and no GROUP BY admits no hidden QUALIFY window"
+    )
+    project, single_file = _project_and_single_file_check(tmp_path, capsys, source)
+    assert (
+        project
+        == single_file
+        == (
+            1,
+            [
+                ("PIE-S2103", hidden.format("count"), 12, 9),
+                ("PIE-S2103", hidden.format("row_number"), 18, 9),
+                ("PIE-S2103", hidden.format("sum"), 26, 9),
+                ("PIE-S2104", "Invalid arguments for function count", 31, 13),
+            ],
+        )
+    )

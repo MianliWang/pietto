@@ -777,3 +777,170 @@ def test_window_distribution_results_compare_but_never_key(target):
         )
         assert outcome.status == "BLOCKED"
         assert [(b.code, b.detail) for b in outcome.blockers] == [("PIE-B1002", detail)]
+
+
+# An aggregate over a window keeps R13's argument law and casts over R15's
+# frame: PostgreSQL SUM(Int) accumulates int8 and narrows by a checked CAST,
+# AVG(Int) reads binary64, and count() is COUNT(*). MySQL keeps them refused
+# until its real-database differential.
+_COLUMN = r'"[^"]+"\."[^"]+"'
+AGGREGATE_WINDOWS = {
+    "sum": ("sum(id)", rf"CAST\(SUM\(CAST\({_COLUMN} AS pg_catalog\.int8\)\) OVER \("),
+    "count": ("count(id)", rf"[ (]COUNT\({_COLUMN}\) OVER \("),
+    "count_rows": ("count()", r"COUNT\(\*\) OVER \("),
+    "avg": ("avg(id)", rf"AVG\(CAST\({_COLUMN} AS pg_catalog\.float8\)\) OVER \("),
+    "min": ("min(id)", rf"MIN\({_COLUMN}\) OVER \("),
+    "max": ("max(id)", rf"MAX\({_COLUMN}\) OVER \("),
+}
+AGGREGATE_WINDOW_FORMS = {
+    "partition_only": (
+        "table result:\n    from rows\n    select:\n        id\n"
+        "        t = sum(id) window(partition by flag)\n",
+        rf"SUM\(CAST\({_COLUMN} AS pg_catalog\.int8\)\) OVER \(PARTITION BY {_COLUMN} RANGE ",
+    ),
+    "rows_frame": (
+        select_body("sum(id)", frame="rows between 1 preceding and current row"),
+        r"ROWS BETWEEN 1 PRECEDING AND CURRENT ROW\) AS pg_catalog\.int8\)",
+    ),
+    "grouped": (
+        "table result:\n    from rows\n    group by:\n        flag\n    select:\n"
+        "        flag\n        total = sum(id)\n"
+        "        running = sum(total) window(order by flag)\n",
+        rf" GROUP BY .*CAST\(SUM\(CAST\({_COLUMN} AS pg_catalog\.int8\)\) OVER \(ORDER BY ",
+    ),
+    "qualify_hidden": (
+        "table result:\n    from rows\n    select:\n        id\n"
+        "    qualify:\n        count(id) window(order by id) > 1\n",
+        rf"COUNT\({_COLUMN}\) OVER .* WHERE \({_COLUMN} > CAST\(1 AS pg_catalog\.int8\)\)",
+    ),
+    "qualify_selected": (
+        "table result:\n    from rows\n    select:\n        id\n"
+        "        n = count() window(partition by flag)\n    qualify:\n        n > 1\n",
+        rf"COUNT\(\*\) OVER .* WHERE \({_COLUMN} > CAST\(1 AS pg_catalog\.int8\)\)",
+    ),
+    # A hidden window reads a `let` name bound to a field, as a selected one.
+    "qualify_hidden_let": (
+        "query result:\n    from rows\n    let v = id\n    select:\n"
+        "        record_id = id\n"
+        "    qualify:\n        sum(v) window(order by id) > 1\n",
+        rf"SUM\(CAST\({_COLUMN} AS pg_catalog\.int8\)\) OVER \(ORDER BY {_COLUMN} ASC",
+    ),
+    "joined": (
+        "query result:\n    from rows\n    let other = rows\n"
+        "    inner join other on rows.id == other.id\n"
+        "    select:\n        id = rows.id\n"
+        "        total = sum(other.id) window(partition by rows.flag order by rows.id)\n",
+        rf" INNER JOIN .*CAST\(SUM\(CAST\({_COLUMN} AS pg_catalog\.int8\)\) OVER \(PARTITION ",
+    ),
+}
+
+
+def _observed(outcome, edit=None) -> str:
+    """The private emission observation of a VERIFIED artifact, after an
+    optional edit of its decoded document, as the independent pure consumer
+    decodes it."""
+    from pietto._project import project_sql_emission_portable as portable
+    from pietto._project import project_sql_emission_pure_boundary as pure
+
+    observed = portable.export_emission_observation(
+        outcome.artifact, outcome.artifact.request
+    )
+    assert observed.status is portable.ObservationStatus.OK
+    assert observed.canonical_bytes is not None
+    data = observed.canonical_bytes
+    if edit is not None:
+        document = json.loads(data)
+        edit(document)
+        data = (
+            json.dumps(document, ensure_ascii=False, separators=(",", ":")) + "\n"
+        ).encode()
+    return pure.parse_emission_observation(data).status.value
+
+
+CHECKED = "target_checked_signed64_narrowing"
+
+
+def _flip_window_evidence(document) -> None:
+    (requirement,) = (
+        row["fields"]
+        for row in document["records"]
+        if row["ref"][0] == "generated_requirement"
+        and row["fields"]["kind"] == "window_computation"
+    )
+    requirement["evidence"] = [] if requirement["evidence"] else [CHECKED]
+
+
+@pytest.mark.parametrize("aggregate", sorted(AGGREGATE_WINDOWS))
+def test_postgres_emits_each_aggregate_window_with_its_aggregate_casts(aggregate):
+    call, pattern = AGGREGATE_WINDOWS[aggregate]
+    outcome = emit("postgres", select_body(call))
+    assert outcome.status == "VERIFIED", blockers(outcome)
+    sql = sql_of(outcome)
+    assert re.search(pattern, sql)
+    assert (
+        sql.count(" AS pg_catalog.int8)") == (2 if aggregate == "sum" else 0)
+        and "OVER (ORDER BY " in sql
+    )
+    origins = [
+        column["correspondence"]["window_origin"]["function"]
+        for column in public(outcome)["columns"]
+        if "window_origin" in column["correspondence"]
+    ]
+    assert origins == [call.partition("(")[0]]
+    # Only SUM(Int) rests on the checked bigint narrowing, as a grouped one.
+    assert [
+        item["evidence"]
+        for item in public(outcome)["requirements"]
+        if item["kind"] == "window_computation"
+    ] == [[{"overflow": CHECKED}] if aggregate == "sum" else []]
+    assert _observed(outcome) == "ok"
+    assert _observed(outcome, _flip_window_evidence) != "ok"
+
+
+@pytest.mark.parametrize("form", sorted(AGGREGATE_WINDOW_FORMS))
+def test_postgres_aggregate_windows_over_frames_groups_qualify_and_joins(form):
+    body, pattern = AGGREGATE_WINDOW_FORMS[form]
+    outcome = emit("postgres", body)
+    assert outcome.status == "VERIFIED", blockers(outcome)
+    assert re.search(pattern, sql_of(outcome))
+    assert _observed(outcome) == "ok"
+
+
+@pytest.mark.parametrize(
+    ("call", "code", "detail"),
+    (
+        ("sum(money)", "PIE-B1004", "decimal_aggregate_range_proof_missing"),
+        ("avg(ratio)", "PIE-B1004", "float_aggregate_finite_result_proof_missing"),
+        ("min(money)", "PIE-B1003", "min_argument_outside_reviewed_int_domain"),
+    ),
+)
+def test_postgres_aggregate_window_arguments_keep_the_aggregate_domain(
+    call, code, detail
+):
+    outcome = emit("postgres", select_body(call))
+    assert outcome.status == "BLOCKED"
+    assert [(b.code, b.detail) for b in outcome.blockers] == [(code, detail)]
+
+
+@pytest.mark.parametrize("aggregate", sorted(AGGREGATE_WINDOWS))
+def test_mysql_keeps_aggregate_windows_refused_before_its_database_evidence(
+    aggregate,
+):
+    outcome = emit("mysql", select_body(AGGREGATE_WINDOWS[aggregate][0]))
+    assert outcome.status == "BLOCKED"
+    assert [(b.code, b.detail) for b in outcome.blockers] == [
+        ("PIE-B1003", "window_aggregate_approved_non_support_on_mysql")
+    ]
+    # The public document carries the refusal with its suggestion.
+    assert [
+        (b["code"], b["subject"]["detail"], b["suggestion"])
+        for b in public(outcome)["blockers"]
+    ] == [
+        (
+            "PIE-B1003",
+            "window_aggregate_approved_non_support_on_mysql",
+            "Emit this aggregate window for PostgreSQL, or keep it in check/plan: "
+            "a project's MySQL aggregate window awaits its real-database "
+            "differential.",
+        )
+    ]

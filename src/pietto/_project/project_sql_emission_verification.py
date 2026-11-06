@@ -1832,6 +1832,13 @@ def _same_origin(actual, expected):
 def _window_result_realization(family, function, arguments, retained):
     """Independently re-derive one window result's own physical realization."""
     tag, nullable = retained
+    if function in windowing.AGGREGATE:
+        reads = [item.read for item in arguments]
+        if len(reads) > 1 or None in reads:
+            raise ValueError("aggregate window argument")
+        return _aggregate_result_realization(
+            family, function, reads[0] if reads else None, retained
+        )
     if function in windowing.RANKING or function == "ntile":
         if tag != "Int" or nullable is not False:
             raise ValueError("window rank result domain")
@@ -2551,6 +2558,9 @@ def _verify_window_column(request, column, window, export, columns, definitions,
         window.selected is not None
     ):
         return False
+    aggregate = function in windowing.AGGREGATE
+    if aggregate and request.family != "postgres":
+        return False
     policy = policies.get(window.ref)
     if policy is None:
         return False
@@ -2598,6 +2608,26 @@ def _verify_window_column(request, column, window, export, columns, definitions,
         native=native,
     )
     if expected is None or problem is not None:
+        return False
+    # An aggregate over a window keeps R13's argument law and casts (Q1).
+    control_read = expected[0].read if aggregate and expected else None
+    if aggregate and (
+        (control_read is None) is bool(expected)
+        or (control_read is None and function != "count")
+        or (
+            control_read is not None
+            and grouping.resolved_argument_problem(
+                function, True, control_read.realization, request.family
+            )
+            is not None
+        )
+    ):
+        return False
+    if column.argument_cast != (
+        grouping.argument_cast(request.family, function, control_read)
+        if function in {"sum", "avg"}
+        else None
+    ) or column.result_cast != ({"sum": "pg_catalog.int8"}.get(function)):
         return False
     for item, realized, control in zip(items, column.arguments, expected, strict=True):
         if (
@@ -7810,16 +7840,22 @@ def verify_row_bytes(query, rendered):
             """Re-derive one window occurrence's exact bytes from its own plan."""
             reference = column.window.ref
             start = offset
+            if column.result_cast is not None:
+                take("syntax", "window_result_cast_open", reference, "CAST(")
             take(
                 "syntax",
                 "window_open",
                 reference,
                 windowing.SPELLING[column.function] + "(",
             )
+            if column.function == "count" and not column.arguments:
+                take("syntax", "window_row_count", reference, "*")
             for argument in column.arguments:
                 if argument.position:
                     take("syntax", "window_argument_separator", reference, ", ")
                 if argument.read is not None:
+                    if column.argument_cast is not None:
+                        take("syntax", "window_argument_cast_open", reference, "CAST(")
                     take(
                         "identifier",
                         "window_argument_scope",
@@ -7835,6 +7871,13 @@ def verify_row_bytes(query, rendered):
                         argument.read.name,
                         identifier=True,
                     )
+                    if column.argument_cast is not None:
+                        take(
+                            "syntax",
+                            "window_argument_cast_close",
+                            reference,
+                            " AS " + column.argument_cast + ")",
+                        )
                 elif argument.parameter is None:
                     take(
                         "literal",
@@ -7866,13 +7909,19 @@ def verify_row_bytes(query, rendered):
                     specification.symbol.name,
                     identifier=True,
                 )
-                spans.append(("window", reference, start, offset))
-                return
-            inner = offset
-            take("syntax", "window_spec_open", reference, "(")
-            window_specification(specification, reference, alias)
-            take("syntax", "window_spec_close", reference, ")")
-            spans.append(("window_specification", reference, inner, offset))
+            else:
+                inner = offset
+                take("syntax", "window_spec_open", reference, "(")
+                window_specification(specification, reference, alias)
+                take("syntax", "window_spec_close", reference, ")")
+                spans.append(("window_specification", reference, inner, offset))
+            if column.result_cast is not None:
+                take(
+                    "syntax",
+                    "window_result_cast_close",
+                    reference,
+                    " AS " + column.result_cast + ")",
+                )
             spans.append(("window", reference, start, offset))
 
         def result_select(body):
@@ -8906,8 +8955,17 @@ def verify_row_generated_requirements(request, query, generated):
                 expected.append(("result_projection", column.projection.ref, "R12", ()))
                 continue
             if type(column) is windowing.WindowColumn:
+                # Q1 over a window: a PostgreSQL SUM(Int), as a grouped one.
                 expected.append(
-                    ("window_computation", column.window.ref, "R14", operators)
+                    (
+                        "window_computation",
+                        column.window.ref,
+                        "R14",
+                        operators,
+                        (TARGET_CHECKED,)
+                        if column.function == "sum" and request.family == "postgres"
+                        else (),
+                    )
                 )
                 expected.append(
                     ("window_specification", column.window.policy, "R15", ())

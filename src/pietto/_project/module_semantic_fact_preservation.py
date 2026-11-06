@@ -127,6 +127,7 @@ from pietto._project.window_persistence import (
     _window_fact_matches_source,
 )
 from pietto._project.window_semantics import (
+    WINDOW_ANALYSIS_TYPES,
     WindowDependencyRole,
     WindowResultProjectFact,
     _build_window_result_project_fact,
@@ -251,6 +252,7 @@ from pietto.semantic.window_navigation_analysis import (
     _ZERO_RESULT_FORMULA,
 )
 from pietto.semantic.window_semantics import (
+    AggregateWindowAnalysis,
     NamedWindowResolutionFailure,
     ResolvedNamedWindowNamespace,
     WindowExpressionAnalysis,
@@ -302,7 +304,9 @@ _RelationDefinition = (
 )
 # An owner is also an Unnest occurrence, which no FROM or name reads.
 _OwnerDefinition = _RelationDefinition | UnnestRelationDef
-_WindowAnalysis = WindowExpressionAnalysis | WindowExpressionUnsupported
+_WindowAnalysis = (
+    WindowExpressionAnalysis | AggregateWindowAnalysis | WindowExpressionUnsupported
+)
 _NAMED_WINDOW_DIAGNOSTIC_CODES = frozenset(
     {"PIE-S2110", "PIE-S2111", "PIE-S2112", "PIE-S2113"}
 )
@@ -1012,9 +1016,9 @@ def _unsupported_window_has_external_diagnostic_owner(reason: str) -> bool:
 
 
 def _quiet_let_reading_window(
-    analysis: WindowExpressionAnalysis | WindowExpressionUnsupported,
+    analysis: _WindowAnalysis,
     diagnostics: list[Diagnostic],
-) -> WindowExpressionAnalysis | WindowExpressionUnsupported:
+) -> _WindowAnalysis:
     """A window computation analyzed without `let:` facts because it reads a
     binding of a non-concrete scope: its refusal for the missing facts is no
     diagnostic of its own (`_window_let_facts`)."""
@@ -1177,6 +1181,7 @@ class ProjectModuleWindowOutputFact:
             raise TypeError("Window output signature fact must be exact.")
         if type(self.analysis) not in {
             WindowExpressionAnalysis,
+            AggregateWindowAnalysis,
             WindowExpressionUnsupported,
         }:
             raise TypeError("Window output requires an exact analysis carrier.")
@@ -1211,7 +1216,7 @@ class ProjectModuleWindowOutputFact:
             raise ValueError("Window output reason must be non-empty.")
 
         analysis = self.analysis
-        if type(analysis) is WindowExpressionAnalysis:
+        if isinstance(analysis, (WindowExpressionAnalysis, AggregateWindowAnalysis)):
             semantic_fact = analysis.semantic_fact
             occurrence = semantic_fact.occurrence
             analysis_expression = analysis.authored_expression
@@ -1240,9 +1245,11 @@ class ProjectModuleWindowOutputFact:
         ):
             raise ValueError("Window signature must match the exact window identity.")
         if expected_signature is None:
-            if self.signature_fact is not None or type(analysis) is not (
-                WindowExpressionUnsupported
-            ):
+            # An aggregate over a window has no window-function signature.
+            if self.signature_fact is not None or type(analysis) not in {
+                WindowExpressionUnsupported,
+                AggregateWindowAnalysis,
+            }:
                 raise ValueError(
                     "Unknown window identity requires exact unsupported evidence."
                 )
@@ -1251,13 +1258,18 @@ class ProjectModuleWindowOutputFact:
                 "Window output must retain its exact static signature from the "
                 "canonical inventory."
             )
-        if type(analysis) is WindowExpressionAnalysis:
-            _validate_supported_window_analysis_family(
-                self.item.expression,
-                analysis,
-            )
+        if isinstance(analysis, (WindowExpressionAnalysis, AggregateWindowAnalysis)):
+            if type(analysis) is WindowExpressionAnalysis:
+                _validate_supported_window_analysis_family(
+                    self.item.expression,
+                    analysis,
+                )
             partition_bindings = analysis.partition_binding_fact.bindings
-            order_bindings = analysis.order_binding_fact.bindings
+            order_bindings = (
+                ()
+                if analysis.order_binding_fact is None
+                else analysis.order_binding_fact.bindings
+            )
             effective_expression = analysis.semantic_fact.expression
             if len(partition_bindings) != len(
                 effective_expression.spec.partition_by
@@ -1283,7 +1295,11 @@ class ProjectModuleWindowOutputFact:
                 raise ValueError(
                     "Window order analysis must retain exact source children."
                 )
-            navigation = analysis.navigation_fact
+            navigation = (
+                analysis.navigation_fact
+                if isinstance(analysis, WindowExpressionAnalysis)
+                else None
+            )
             if navigation is not None:
                 arguments = self.item.expression.call.arguments
                 if navigation.value_expression is not arguments[0]:
@@ -3073,7 +3089,7 @@ def _validate_relation_window_fact_set_closure(
             continue
         if clause_ambiguous:
             if (
-                type(output.analysis) is WindowExpressionAnalysis
+                type(output.analysis) in WINDOW_ANALYSIS_TYPES
                 and pre_window_state.status is ProjectRelationRowSchemaStatus.CONCRETE
                 and output.retained_project_fact is None
             ):
@@ -6559,10 +6575,8 @@ def _analyze_window_reading_shapes(
     input_schema: ProjectRowSchema | None,
     value_types: dict[Expression, ValueType],
     diagnostics: list[Diagnostic],
-    analyze: Callable[
-        [SemanticRowSchema], WindowExpressionAnalysis | WindowExpressionUnsupported
-    ],
-) -> tuple[SemanticRowSchema, WindowExpressionAnalysis | WindowExpressionUnsupported]:
+    analyze: Callable[[SemanticRowSchema], _WindowAnalysis],
+) -> tuple[SemanticRowSchema, _WindowAnalysis]:
     """Analyze one selected window over its input, which types a field of a
     shape as unknown, as other project reads do. Where then only the window's
     value or default lacks a concrete type, analyze it again with each shape
@@ -6660,6 +6674,8 @@ def _window_output_facts(
                 let_value_types=let_values,
                 let_expressions=let_expressions,
                 named_window_namespace=named_window_namespace,
+                allow_aggregate_windows=True,
+                direct_aggregate_arguments=True,
             ),
         )
         nested = _nested_field_reads(
@@ -6681,9 +6697,9 @@ def _window_output_facts(
             if not diagnostics:
                 analysis = WindowExpressionUnsupported(
                     occurrence=(
-                        analysis.semantic_fact.occurrence
-                        if isinstance(analysis, WindowExpressionAnalysis)
-                        else analysis.occurrence
+                        analysis.occurrence
+                        if isinstance(analysis, WindowExpressionUnsupported)
+                        else analysis.semantic_fact.occurrence
                     ),
                     expression=expression,
                     identity=expression.identity,
@@ -6691,7 +6707,7 @@ def _window_output_facts(
                 )
         elif quiet:
             analysis = _quiet_let_reading_window(analysis, diagnostics)
-        elif type(analysis) is WindowExpressionAnalysis:
+        elif isinstance(analysis, (WindowExpressionAnalysis, AggregateWindowAnalysis)):
             # A RANGE offset is checked as in a single file (PIE-S2104).
             refused = _window_literal_range_diagnostics(
                 expression,
@@ -6947,6 +6963,8 @@ def _unavailable_window_outputs(
                 let_value_types=let_values,
                 let_expressions=let_expressions,
                 named_window_namespace=named_window_namespace,
+                allow_aggregate_windows=True,
+                direct_aggregate_arguments=True,
             ),
         )
         if quiet:
