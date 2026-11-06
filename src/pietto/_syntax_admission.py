@@ -13,6 +13,7 @@ from pietto.ast_nodes import (
     CallExpr,
     CollectRelationExpr,
     CaptureClause,
+    ConstantDef,
     FromClause,
     FunctionDef,
     JoinClause,
@@ -160,6 +161,26 @@ _UNNEST_UNADMITTED = (
     _UNNEST_SUGGESTION,
 )
 _EXISTENCE_JOIN_KINDS = frozenset({AuthoredJoinKind.SEMI, AuthoredJoinKind.ANTI})
+# Phase73 C8: a single file reads a value as a top-level constant, which a
+# project never does: its query takes the value as a header parameter.
+_CONSTANT_PARAMETER_HINT = (
+    "In a single file, write the value as a top-level constant, such as "
+    '`cutoff: Date = "2024-01-31"`, and change it with `--set cutoff=2024-02-29`.'
+)
+_SINGLE_FILE_PARAMETER = (
+    "PIE-S2346",
+    f"{_UNADMITTED[QueryParameter][1]} {_CONSTANT_PARAMETER_HINT}",
+    _CONSTANT_PARAMETER_HINT,
+)
+_MODULES_CONSTANT_HINT = (
+    "In a project, give the query a header parameter instead, such as "
+    "`query q(cutoff: Int):`."
+)
+_PROJECT_CONSTANT_HINT = (
+    "A project takes such a value as a query header parameter, which needs "
+    "`schema_version = 2` in pietto.toml."
+)
+_CONSTANT_ONLY_IN_FILES = "Top-level constants are available only in single files."
 
 
 def unnest_lets(
@@ -374,7 +395,23 @@ def unadmitted_syntax_diagnostics(
             or single_file
             and kind is FunctionDef
         ):
-            found.append(_diagnostic(*family, cast(Node, value).span))
+            if single_file and kind is QueryParameter:
+                code, message, hint = _SINGLE_FILE_PARAMETER
+                found.append(_diagnostic(code, message, cast(Node, value).span, hint))
+            else:
+                found.append(_diagnostic(*family, cast(Node, value).span))
+        if kind is ConstantDef and not single_file:
+            hint = (
+                _MODULES_CONSTANT_HINT if explicit_modules else _PROJECT_CONSTANT_HINT
+            )
+            found.append(
+                _diagnostic(
+                    "PIE-S2392",
+                    f"{_CONSTANT_ONLY_IN_FILES} {hint}",
+                    cast(Node, value).span,
+                    hint,
+                )
+            )
         if kind is JoinClause:
             join = cast(JoinClause, value)
             if (

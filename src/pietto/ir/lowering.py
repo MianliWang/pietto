@@ -38,6 +38,7 @@ from pietto.ast_nodes import (
 )
 from pietto.ir.diagnostics import missing_semantic_fact_diagnostic
 from pietto.ir.model import (
+    StaticValue,
     AggregateWindowCallIR,
     AggregateCallIR,
     AnyFieldIR,
@@ -906,7 +907,7 @@ def _any_connector(iterator: SourceDef) -> ConnectorIR:
         raise _LetExpansionLoweringError(
             iterator.connector, "static ANY source connector"
         )
-    arguments: list[str | int | float | bool | None] = []
+    arguments: list[StaticValue] = []
     for item in connector.arguments:
         if not isinstance(item, LiteralExpr):
             raise _LetExpansionLoweringError(

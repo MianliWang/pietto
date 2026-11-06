@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass, field
+from datetime import date
 import math
 
 from pietto._project.model import (
@@ -139,7 +140,8 @@ def _diagnostic(span: Span, code: str, message: str) -> Diagnostic:
 def fixed_literal(expression: Expression) -> tuple[bool, ProjectValuesLiteral]:
     """Fold one authored cell: a literal, or a sign directly on a number literal."""
 
-    if type(expression) is LiteralExpr:
+    # A date value is only a single-file constant read, never a project cell.
+    if type(expression) is LiteralExpr and not isinstance(expression.value, date):
         return True, expression.value
     if (
         type(expression) is UnaryExpr

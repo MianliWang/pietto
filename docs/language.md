@@ -461,6 +461,72 @@ warns at such an output that nothing reads, since project SQL refuses every
 one. A typed output that completes in a relation with a JOIN input of its own
 gets no warning; project SQL refuses it the same way.
 
+### Top-level constants
+
+A single file may declare a constant at the top level:
+
+```pietto
+cutoff: Date = "2024-01-31"
+```
+
+The name is a plain name (not a keyword or soft keyword), the type is exactly
+`Bool`, `Int`, `Float`, `Text`, `Date` or `Timestamp` (never `| None`, no
+`Decimal` yet), and the value is one literal of that type: `True` or `False`;
+an integer, or a number with a decimal point for `Float`, optionally after a
+minus sign; a Text literal; for `Date` the Text literal `"YYYY-MM-DD"` from
+1000-01-01 to 9999-12-31 and for `Timestamp` `"YYYY-MM-DD HH:MM:SS"` with up
+to six fractional digits from 1000-01-01 00:00:00 to 9999-12-31
+23:59:59.499999 (the civil Timestamp interval). Anything else, `date(...)`,
+`Float(...)`, `None` or arithmetic included, is PIE-S2391; a repeated
+constant name is PIE-S2001.
+
+A bare name equal to a constant reads it anywhere a value is read: WHERE,
+lets, SELECT items, `def` bodies, `any(...)` predicates, JOIN conditions,
+`limit`, function arguments. A source's connector is not such a place: what
+a source reads is part of its identity, so `postgres.table(name)` with a
+constant `name` is PIE-S2391. Each read is the constant's literal at the
+read, typed as declared: a `Date` constant is a `Date` (so `year(cutoff)` and
+`date_of(at) == cutoff` work, and comparing it with a Text field is a type
+error), and PostgreSQL SQL writes it as `DATE '2024-01-31'` /
+`TIMESTAMP '2024-01-31 08:30:00.250000'`; `Bool`, `Int`, `Float` and `Text`
+reads emit exactly the literal written. A constant changes only SQL bytes,
+never a semantic fact. `explain` shows each read after substitution: a
+projection that only reads a constant is a `literal` of the declared type. So
+that a name has one meaning, a constant named like any other name declared in
+the file (definition, field, parameter, let, output, window, binding, import)
+or like a built-in function (`lower`, `count`, `Float`, ...) is PIE-S2391; a
+constant alone is never a GROUP BY or ORDER BY key (a key computed from one is
+checked as the same key written with the literal), and a SELECT item that
+only reads a constant names its output (`as_of = cutoff`).
+
+`--set NAME=VALUE` on `check`, `emit-sql` and `explain` (repeatable) changes
+one constant for that run. The VALUE is read as a literal of the declared
+type, never as source text: `True`/`true`/`False`/`false`; digits with
+optional `_` and a leading `-` (`Float` needs a decimal point); any UTF-8
+text for `Text` (no quotes); `YYYY-MM-DD` and `YYYY-MM-DD HH:MM:SS[.ffffff]`.
+The SQL is byte-identical to writing the value in the file. `--set` never
+decides whether the file is valid: an initializer that is not one literal of
+its type keeps its own error (PIE-S2391). Usage errors
+(exit 2): a name set twice, a name no constant declares, a value that is not
+a literal of the type, and `--set` with `--project`; `migrate` and `fmt` take
+no `--set`.
+
+A top-level line is a constant when it starts with `name:` and holds an `=`
+outside parentheses; any other top-level line parses as it did before
+constants existed.
+
+MySQL single-file emission does not emit constants yet: each table or query
+that reads one, directly, through a `def` or a relationship or by reading
+such a table or query, is PIE-B1000 (`MySQL SQL emission
+is not implemented for RelationIR: NAME. MySQL has no top-level constants yet;
+emit with --dialect postgres`), until a two-database differential reviews
+them; the other relations of the file still emit.
+
+Constants exist only in single files. In an EXPLICIT_MODULES project a
+constant is PIE-S2392 pointing to a query header parameter; in a LEGACY_FLAT
+project PIE-S2392 points to `schema_version = 2`. A single-file query header
+parameter stays PIE-S2346, whose message now points to constants.
+
 ### Feature support by target
 
 The features added after 0.1.8 emit as follows. "Project" is
@@ -480,6 +546,7 @@ first column give every rule.
 | Always-null numbers, D-12 ([Expressions](#expressions)) | typed NULL casts | typed NULL casts | `Int` arithmetic with `None`; `Float` and `Decimal` refused | as PostgreSQL |
 | `Float` equality ([Float values](#float-values)) | comparisons and GROUP BY; DISTINCT and set forms are project-only | as PostgreSQL; GROUP BY beside a wide `Text` key may split `-0.0` and `0.0` | comparisons, GROUP BY, DISTINCT, ORDER BY and every set form | comparisons with a literal or header parameter, ordering inequalities, `in`, `nullif` and UNION ALL; the other forms refused (PIE-B1003) |
 | JOIN aggregates without fan-out ([Aggregates](#aggregates-and-grouping)) | accepted | accepted | accepted | accepted; `sum(Int)` stays PIE-B1004 |
+| Top-level constants and `--set` ([Top-level constants](#top-level-constants)) | literals; `DATE '...'`, `TIMESTAMP '...'` | each relation that reads one refused (PIE-B1000) | refused (PIE-S2392) | refused (PIE-S2392) |
 | Project aggregate arguments ([Aggregates](#aggregates-and-grouping)): `count`/`count_distinct` of `Text`, `Bool`, `Float`, `Decimal`; `min`/`max` of `Float`, `Decimal`; `sum`/`avg` of `Float`; a row expression argument (`sum(qty * 2)`) | emitted (unchanged) | emitted (unchanged) | emitted; `Decimal` `sum`/`avg` refused (PIE-B1004); over JOIN rows an argument holding a scalar call (`count(lower(r.label))`) refused (PIE-B1003) | refused: PIE-B1003 or PIE-B1004 (an `Int` expression not proved to fit BIGINT PIE-B1002 first) |
 | `asof left join`, `asof inner join` ([Backward asof JOIN](#backward-asof-join)) | emitted | refused (PIE-B1000) | emitted in a table or query without a relation `let NAME:` block whose FROM is not a table function, elsewhere refused (PIE-S2336); a `let NAME:` block as the joined input is PIE-S2386, where a single file refuses the block itself (PIE-S2345); an aggregate after it only where its `on` keys match a unique key (PIE-S2333) | refused (PIE-B1003 `asof_join_not_admitted_on_target`) |
 

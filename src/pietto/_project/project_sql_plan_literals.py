@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+from datetime import date
 from enum import StrEnum
 from math import isfinite
 from typing import TYPE_CHECKING
@@ -575,7 +576,8 @@ def build(plan: ProjectSQLPlan, policy: ProjectSQLLiteralPolicy, ref):
             ref=ref(K.LITERAL_SLOT), site=site, value_type=position.value_type, tag=tag
         )
         literal_value = position.literal.value
-        assert literal_value is not None
+        # A date value is only a single-file constant read.
+        assert literal_value is not None and not isinstance(literal_value, date)
         value = ProjectSQLFixedLiteralValue(
             ref=ref(K.FIXED_LITERAL_VALUE), slot=slot, tag=tag, value=literal_value
         )

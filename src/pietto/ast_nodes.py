@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass, field, replace
+from datetime import date
 from enum import StrEnum
 
 from pietto import _inline_argument, _window_identity
@@ -85,9 +86,13 @@ def with_inlined_argument[E: Expression](
 
 @dataclass(frozen=True, slots=True, kw_only=True)
 class LiteralExpr(Expression):
-    """A scalar literal expression."""
+    """A scalar literal expression.
 
-    value: str | int | float | bool | None
+    Only a read of a `Date` or `Timestamp` constant holds a ``date`` or a
+    ``datetime``; parsed source writes those values as Text literals.
+    """
+
+    value: str | int | float | bool | date | None
 
 
 @dataclass(frozen=True, slots=True, kw_only=True)
@@ -1329,6 +1334,15 @@ Definition = (
 
 
 @dataclass(frozen=True, slots=True, kw_only=True)
+class ConstantDef(Node):
+    """A single-file top-level constant ``name: Type = literal``."""
+
+    name: str
+    type: TypeExpr
+    value: Expression
+
+
+@dataclass(frozen=True, slots=True, kw_only=True)
 class Script(Node):
     """The root node for one parsed Pietto source file."""
 
@@ -1337,3 +1351,4 @@ class Script(Node):
     relationships: tuple[RelationshipMetadata, ...] = ()
     module_statements: tuple[ModuleStatement, ...] = ()
     relationship_templates: tuple[RelationshipTemplate, ...] = ()
+    constants: tuple[ConstantDef, ...] = ()

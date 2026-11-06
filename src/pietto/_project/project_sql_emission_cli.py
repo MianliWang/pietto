@@ -201,6 +201,11 @@ def run_project_emit_sql(arguments: Sequence[str]) -> ProjectEmitResult:
     batch_requested = any(
         value == "--all" or value.startswith("--all=") for value in options
     )
+    if any(value == "--set" or value.startswith("--set=") for value in options):
+        # Phase73 C8: constants are single-file only.
+        return _usage(
+            "--set and --project are mutually exclusive", text, batch=batch_requested
+        )
     try:
         namespace = _build_parser(batch=batch_requested).parse_args(tokens)
     except _UsageError as error:

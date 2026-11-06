@@ -360,6 +360,56 @@ PRESENTATION_CASES = {
         'type T = Text(max = "\\q")\nenum A: a, b,\nenum B: c, d,\n',
         [(1, 22, 'Unsupported string escape "\\q".')],
     ),
+    # An unexpected top-level line still ends the parse: the later lines,
+    # a broken one and a constant, report nothing.
+    "top_level_let_constant": (
+        "d: Int = 4\nlet a = 1\nquery q\nfoo bar\n",
+        [
+            (
+                2,
+                1,
+                "Unexpected 'let'; expected a declaration, end of file or end of "
+                "line. Write a top-level constant as `name: Type = literal`, "
+                "without `let`.",
+            ),
+        ],
+    ),
+    "top_level_const_constant": (
+        "const b: Int = 2\nd: Int = 4\n",
+        [
+            (
+                1,
+                1,
+                "Unexpected 'const'; expected a declaration, end of file or end of "
+                "line. Write a top-level constant as `name: Type = literal`, "
+                "without `const`.",
+            ),
+        ],
+    ),
+    "top_level_untyped_constant": (
+        "c = 3\nd: Int = 4\n",
+        [
+            (
+                1,
+                1,
+                "Unexpected 'c'; expected a declaration, end of file or end of "
+                "line. A top-level constant names its type: `name: Type = literal`.",
+            ),
+        ],
+    ),
+    # Only a line `name: ... = ...` is a constant; a name line without `=`
+    # stays an unexpected name, which ends the parse as before.
+    "top_level_name_line_without_value": (
+        "cutoff: Date\nfoo bar\nquery q:\n",
+        [
+            (
+                1,
+                1,
+                "Unexpected 'cutoff'; expected a declaration, end of file or end "
+                "of line.",
+            ),
+        ],
+    ),
     "build_messages_wait_for_parser_errors": (
         "enum A a, b,\ntype T = = Int\n",
         [(2, 10, "Unexpected '='.")],

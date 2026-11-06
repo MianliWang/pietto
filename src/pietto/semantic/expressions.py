@@ -7,6 +7,7 @@ import dataclasses
 import functools
 import itertools
 from collections import ChainMap, Counter
+from datetime import date, datetime
 from collections.abc import Callable, Iterator, Mapping, Sequence
 from types import MappingProxyType
 from typing import TYPE_CHECKING, ParamSpec, cast
@@ -6027,6 +6028,10 @@ def resolved_literal_value_type(value: object) -> ValueType:
         name = "Int"
     elif isinstance(value, float):
         name = "Float"
+    elif isinstance(value, datetime):
+        name = "Timestamp"  # a read of a Timestamp constant
+    elif isinstance(value, date):
+        name = "Date"  # a read of a Date constant
     else:
         return _UNKNOWN_VALUE_TYPE
     return _builtin_value_type(name, EffectiveNullability.NON_NULL)

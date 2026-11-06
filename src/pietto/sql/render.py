@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import math
+from datetime import date, datetime
 
 
 class IdentifierTooLongError(ValueError):
@@ -50,6 +51,10 @@ def render_literal(value: object) -> str:
         if not math.isfinite(value):
             raise ValueError("PostgreSQL float literals must be finite")
         return repr(value)
+    if isinstance(value, datetime):
+        return f"TIMESTAMP '{value.isoformat(sep=' ')}'"
+    if isinstance(value, date):
+        return f"DATE '{value.isoformat()}'"
     if isinstance(value, str):
         if "\x00" in value:
             raise ValueError("PostgreSQL string literals must not contain NUL")

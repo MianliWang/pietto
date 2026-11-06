@@ -670,6 +670,100 @@ Compatibility:
   source the query does not read. No diagnostic code, failure document, JSON
   shape, SQL text or bundle format changes.
 
+### Top-level constants and `--set` (single files)
+
+- A single file may declare top-level constants `name: Type = literal` for
+  `Bool`, `Int`, `Float`, `Text`, `Date` and `Timestamp` (a `Date` or
+  `Timestamp` is written as a Text literal and read as a value of its type;
+  PostgreSQL SQL `DATE '...'` / `TIMESTAMP '...'`). Each read emits the
+  literal; constants never change semantic facts.
+- `--set NAME=VALUE` (repeatable) on single-file `check`, `emit-sql` and
+  `explain` changes one constant for that run, read as a literal of the
+  declared type; the SQL is byte-identical to the value written in the
+  source. An initializer that is not one literal of its type keeps its own
+  error under `--set`.
+- **New refusal.** MySQL single-file emission refuses each table or query
+  that reads a constant, directly, through a `def` or a relationship or by
+  reading such a table or query, with PIE-B1000 `MySQL
+  SQL emission is not implemented for RelationIR: <name>. MySQL has no
+  top-level constants yet; emit with --dialect postgres`, until a
+  two-database differential reviews them; the file's other relations still
+  emit (no JSON `suggestion`, as for every single-file PIE-B1000).
+- **New diagnostics.** `PIE-S2391` (ERROR, every check mode, single file,
+  reported before other semantic analysis), exact messages:
+  - at the type: ``A constant is `Bool`, `Int`, `Float`, `Text`, `Date` or
+    `Timestamp`, without `| None`.``
+  - at the value: ``Constant `NAME` takes one `TYPE` literal: FORM.`` with
+    FORM ``` `True` or `False` ``` / ``an integer such as `10` or `-10` `` /
+    ``a number with a decimal point such as `1.5` or `-1.5` `` /
+    ``a Text literal such as `"EU"` `` /
+    ``a Text literal `"YYYY-MM-DD"` from 1000-01-01 to 9999-12-31`` /
+    ``a Text literal `"YYYY-MM-DD HH:MM:SS"`, with up to six fractional
+    digits, from 1000-01-01 00:00:00 to 9999-12-31 23:59:59.499999``
+  - at the constant: ``Constant `NAME` is also declared as another name in
+    this file; give the constant a name of its own.``
+  - at the constant, for the name of a built-in scalar, aggregate or window
+    function, `generate_series`, `concat`, `Float` or `Text`: ``Constant
+    `NAME` has the name of a built-in function; give the constant a name of
+    its own.``
+  - at a read in a source's connector (what a source reads is part of its
+    identity, which a `--set` value never changes): ``Constant `NAME` is no
+    source connector argument; a source names what it reads with a literal
+    written there.``
+  - at a read that is a whole GROUP BY or ORDER BY key (relation, window or
+    aggregate): ``Constant `NAME` is no GROUP BY or ORDER BY key; a key reads
+    a field or an output.`` A key computed from a constant (`-n`, a `let`
+    name bound to it) is checked as that key written with the literal:
+    PIE-S2380 in a relation's ORDER BY, PIE-S2321 under GROUP BY.
+  - at an unnamed SELECT item: ``A SELECT item that reads only constant
+    `NAME` needs its own name, such as `value = NAME`.``
+- `PIE-S2001` also reports a repeated constant name at the later constant:
+  `Duplicate symbol name in constant namespace: NAME`.
+- `PIE-S2392` (ERROR, pre-admission, at the constant) in a project:
+  EXPLICIT_MODULES ``Top-level constants are available only in single files.
+  In a project, give the query a header parameter instead, such as `query
+  q(cutoff: Int):`.``; LEGACY_FLAT ``Top-level constants are available only
+  in single files. A project takes such a value as a query header parameter,
+  which needs `schema_version = 2` in pietto.toml.`` (`suggestion` = the
+  second sentence). `explain --project` on a PACKAGE_ROOT project runs no
+  semantic admission, for constants as for everything else, and `check
+  --project` refuses such a project before parsing, so no PACKAGE_ROOT
+  command reports PIE-S2392.
+- **Changed diagnostics (compatibility).**
+  - `PIE-S2346` in single-file analysis only: the message gains, and
+    `suggestion` carries, ``In a single file, write the value as a top-level
+    constant, such as `cutoff: Date = "2024-01-31"`, and change it with
+    `--set cutoff=2024-02-29`.`` Project messages are unchanged.
+  - `PIE-P1000` at a top-level line: `let ...` gains ``Write a top-level
+    constant as `name: Type = literal`, without `let`.``; `const NAME ...`
+    gains the same with `` `const` ``; `NAME = ...` gains ``A top-level
+    constant names its type: `name: Type = literal`.`` (position and the
+    leading `Unexpected ...; expected a declaration, end of file or end of
+    line.` unchanged). Parsing and error recovery are otherwise unchanged:
+    only a top-level line that starts with `name:` and holds an `=` outside
+    parentheses is read as a constant, so every other line, `name:` and
+    `name: Type` included, reports what it reported before, and an
+    unexpected top-level line still ends the parse.
+  - The CLI usage lines of `check`, `explain` and `emit-sql` list
+    `[--set NAME=VALUE]`.
+- **CLI usage errors** (exit 2):
+  - `--set NAME is given more than once` (check, emit-sql, explain; text and
+    JSON; reported before the file is read, and its JSON result names the
+    input `path`);
+  - `--set NAME: no top-level constant NAME is declared` (after the file
+    parses);
+  - `--set NAME: constant NAME has type TYPE; write VALUE-FORM` with
+    VALUE-FORM `True or False` / `an integer such as 10 or -10` / `a number
+    with a decimal point such as 1.5 or -1.5` / `UTF-8 text` / `YYYY-MM-DD
+    from 1000-01-01 to 9999-12-31` / `YYYY-MM-DD HH:MM:SS, with up to six
+    fractional digits, from 1000-01-01 00:00:00 to 9999-12-31
+    23:59:59.499999`;
+  - `--set and --project are mutually exclusive` (check, explain, and
+    `emit-sql --project`, in its text or JSON contract);
+  - `argument --set: expected NAME=VALUE` (argparse).
+  - `migrate` and `fmt` do not take `--set` (argparse `unrecognized
+    arguments`, as for any option a command lacks, such as `fmt --dialect`).
+
 ## Equality, nullability and asof JOIN public alpha release notes — 0.1.9
 
 <a id="unreleased-changes-following-018"></a>

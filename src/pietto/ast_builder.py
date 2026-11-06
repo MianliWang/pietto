@@ -36,6 +36,7 @@ from pietto.ast_nodes import (
     CheckDef,
     ComparisonExpr,
     ConditionalExpr,
+    ConstantDef,
     ConstraintDef,
     DeriveDef,
     DottedNameExpr,
@@ -258,6 +259,7 @@ class AstBuilder(PiettoVisitor):
             PiettoParser.RelationshipDefinitionContext: [],
             PiettoParser.RelationshipTemplateContext: [],
             PiettoParser.ModuleStatementContext: [],
+            PiettoParser.ConstantDefinitionContext: [],
         }
         for child in ctx.children or ():
             kind = type(child)
@@ -272,6 +274,17 @@ class AstBuilder(PiettoVisitor):
                 built[PiettoParser.RelationshipTemplateContext]
             ),
             module_statements=tuple(built[PiettoParser.ModuleStatementContext]),
+            constants=tuple(built[PiettoParser.ConstantDefinitionContext]),
+        )
+
+    def visitConstantDefinition(self, ctx: _AntlrContext) -> ConstantDef:
+        """Build one top-level constant; semantic analysis checks it."""
+
+        return ConstantDef(
+            span=self._span(ctx),
+            name=ctx.CONSTANT_NAME().getText(),
+            type=self.visit(ctx.typeExpression()),
+            value=self.visit(ctx.expression()),
         )
 
     def visitModuleStatement(

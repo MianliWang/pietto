@@ -106,6 +106,10 @@ The argument rules are:
 - `--project ROOT` and the positional single-file `path` are mutually
   exclusive;
 - omitting both is a usage error for `check` and `emit-sql`;
+- `--set NAME=VALUE` is single-file only. Together with `--project ROOT` it is
+  the usage error `--set and --project are mutually exclusive` with exit `2`:
+  argparse-style text on stderr for `check` and `explain`, and a `usage` CLI
+  error in the selected format for project `emit-sql`;
 - `--check-mode` is single-file only. Together with `--project ROOT` it is a
   usage error with exit `2`, reported the same way as a positional `path`
   together with `--project ROOT`: `check` and `explain` write argparse-style

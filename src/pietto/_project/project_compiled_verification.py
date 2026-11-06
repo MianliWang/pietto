@@ -1,6 +1,7 @@
 """Independent closed-graph checks before compiled authority construction."""
 
 from collections import Counter
+from datetime import date
 from typing import Any, cast
 
 from pietto.ast_nodes import CallExpr
@@ -7708,6 +7709,7 @@ def verify_logical_export(description, checked, references):
         if raw is None:
             need(literal.address.kind == "null_literal", "RETAINED_LITERAL_VALUE")
         else:
+            assert not isinstance(raw, date)  # only a single-file constant read
             expected = Scalar(
                 {bool: "Bool", int: "Int", float: "Float", str: "Text"}[type(raw)], raw
             )
@@ -7859,18 +7861,20 @@ def verify_logical_export(description, checked, references):
         if isinstance(
             original, (scalar.ProjectSQLLiteral, scalar.ProjectSQLBoundLiteral)
         ):
-            if original.expression.value is None:
+            value = original.expression.value
+            if value is None:
                 need(record.address.kind == "null_literal", "RETAINED_LITERAL")
             else:
+                assert not isinstance(value, date)  # only a single-file constant read
                 need(
                     record.address.kind == "literal"
                     and scalar_wire(record.get("value"))
                     == scalar_wire(
                         Scalar(
                             {bool: "Bool", int: "Int", float: "Float", str: "Text"}[
-                                type(original.expression.value)
+                                type(value)
                             ],
-                            original.expression.value,
+                            value,
                         )
                     ),
                     "RETAINED_LITERAL",

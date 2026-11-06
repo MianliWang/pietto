@@ -127,6 +127,7 @@ WS=126
 UNKNOWN=127
 INDENT=128
 DEDENT=129
+CONSTANT_NAME=130
 'pietto'=1
 'mode'=2
 'dialect'=3

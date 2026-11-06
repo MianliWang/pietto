@@ -3,7 +3,7 @@
 ## 1. Status
 
 This document is the normative contract for Semantic Metadata Artifact v1.
-`pietto explain <file> [--format text|json] [--check-mode loose|checked|strict]`
+`pietto explain <file> [--format text|json] [--check-mode loose|checked|strict] [--set NAME=VALUE]`
 implements the artifact without changing parser, semantic, IR, SQL, CLI JSON v1,
 package, runtime, or database behavior. Text and JSON are derived from the same
 normalized metadata fact boundary. The check mode adds no field; under `strict`
@@ -34,7 +34,7 @@ a mutation of CLI JSON v1 and is not the future project JSON v2 contract.
 The approved CLI direction is implemented as §1 describes:
 
 ```text
-pietto explain <file> [--format text|json] [--check-mode loose|checked|strict]
+pietto explain <file> [--format text|json] [--check-mode loose|checked|strict] [--set NAME=VALUE]
 ```
 
 Text is the default format. JSON is the normative machine-readable

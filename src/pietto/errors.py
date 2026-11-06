@@ -352,7 +352,8 @@ def _out_of_order(clause: str) -> str:
 def _expected_display(expected: Iterable[int]) -> str:
     """Name an expected-token set briefly: categories first, then tokens."""
 
-    rest = set(expected)
+    # A constant's name is expected only where a declaration may start.
+    rest = set(expected) - {PiettoParser.CONSTANT_NAME}
     parts: list[str] = []
     if _OPERAND_FIRST <= rest:
         parts.append("an expression")
@@ -722,6 +723,18 @@ class SyntaxErrorReporter(DefaultErrorStrategy):
 
         text = token.text or ""
         following = self._token(_index(token) + 1)
+        if isinstance(recognizer._ctx, PiettoParser.ScriptContext):
+            if token.type == PiettoParser.LET or text == "const":
+                return (
+                    "Write a top-level constant as `name: Type = literal`, "
+                    f"without `{text}`."
+                )
+            if (
+                token.type == PiettoParser.IDENTIFIER
+                and following is not None
+                and following.type == PiettoParser.ASSIGN
+            ):
+                return "A top-level constant names its type: `name: Type = literal`."
         asof = self._asof_hint(token)
         if asof is not None:
             return asof

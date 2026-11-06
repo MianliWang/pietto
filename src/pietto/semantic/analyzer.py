@@ -78,6 +78,7 @@ from pietto.semantic.expressions import (
     type_shape_predicates,
     type_source_connector_arguments,
 )
+from pietto.semantic.constants import constant_diagnostics, substitute_constants
 from pietto.semantic.existence_generators import (
     AnyUseInfo,
     AnyValueInfo,
@@ -286,6 +287,20 @@ def _analyze_script(
                 diagnostics=drop_repeated_operand_diagnostics(parsed, unadmitted),
                 script=script,
             )
+        constant_errors = constant_diagnostics(script)
+        if constant_errors:
+            return SemanticResult(
+                model=SemanticModel(mode=mode),
+                diagnostics=drop_repeated_operand_diagnostics(parsed, constant_errors),
+                script=script,
+            )
+        # Each constant read is its literal from here on, as if written there.
+        before_constants = script
+        script = substitute_constants(script, occurrence_observer=any_trace.record)
+        existence_generators = rebind_existence_generators(
+            before_constants, script, existence_generators
+        )
+        any_uses = collect_any_values(script, trace=any_trace)
         scalar_names = frozenset(
             item.name for item in script.definitions if isinstance(item, FunctionDef)
         )

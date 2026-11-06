@@ -22,7 +22,7 @@ MESSAGE = "Source raw has no bound shape; row schema is unknown"
 SQL = 'SELECT\n    "id" AS "id"\nFROM "users"'
 USAGE = (
     "usage: pietto {command} [-h] [--project PROJECT] [--format {{text,json}}]"
-    " [--check-mode {{loose,checked,strict}}] [path]\n"
+    " [--check-mode {{loose,checked,strict}}] [--set NAME=VALUE] [path]\n"
     "pietto {command}: error: --check-mode and --project are mutually exclusive\n"
 )
 

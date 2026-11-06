@@ -36,7 +36,9 @@ FAMILIES = {
         "PIE-S2346",
         "Query header parameters are available only in EXPLICIT_MODULES "
         "projects (schema version 2), on a query that reads a relation "
-        "with FROM and has no relation let reading a table function.",
+        "with FROM and has no relation let reading a table function. In a single "
+        "file, write the value as a top-level constant, such as "
+        '`cutoff: Date = "2024-01-31"`, and change it with `--set cutoff=2024-02-29`.',
         "query q(a: Int):\n    from rows\n    select:\n        id\n",
         (1, 9, 1, 15),
     ),
@@ -405,7 +407,8 @@ def test_an_admitted_query_header_still_gates_a_read_in_a_parameter_type() -> No
     )
     assert parsed.diagnostics == () and parsed.ast is not None
     exists = FAMILIES["exists_reference"][1]
-    header = FAMILIES["query_parameter"][1]
+    # Outside a single file the header message has no constant hint.
+    header = FAMILIES["query_parameter"][1].partition(" In a single file")[0]
 
     def described(diagnostics):
         return [

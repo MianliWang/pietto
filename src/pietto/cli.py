@@ -38,6 +38,7 @@ from pietto._terminal_text import escape_unicode_controls
 from pietto.errors import Diagnostic, Severity
 
 if TYPE_CHECKING:
+    from pietto.ast_nodes import Script
     from pietto._project.json_v2 import RelatedLocations
     from pietto._project.model import (
         ProjectDiscoveryError,
@@ -183,10 +184,18 @@ def _main(argv: Sequence[str] | None = None) -> int:
             return _EXIT_USAGE_ERROR
         except SystemExit as error:
             return _system_exit_code(error)
+        repeated = _settings_error(namespace.set)
+        if repeated is not None:
+            _print_check_json(
+                path=namespace.path,
+                cli_errors=(cli_json.CliError(kind="usage", message=repeated),),
+            )
+            return _EXIT_USAGE_ERROR
         return _run_check(
             namespace.path,
             output_format=_FORMAT_JSON,
             check_mode=_check_mode(namespace.check_mode),
+            settings=namespace.set,
         )
 
     if arguments[0] == "emit-sql" and _project_emit_mode_requested(arguments[1:]):
@@ -206,11 +215,16 @@ def _main(argv: Sequence[str] | None = None) -> int:
             # Reached when "--" precedes the subcommand, so the pre-scan saw none.
             command_end = arguments.index(namespace.command) + 1
             return _run_emit_sql_json_command(arguments[command_end:])
+        repeated = _settings_error(namespace.set)
+        if repeated is not None:
+            _print_emit_sql_usage_error(repeated)
+            return _EXIT_USAGE_ERROR
         return _run_emit_sql(
             namespace.path,
             dialect=namespace.dialect,
             output_path=namespace.output,
             check_mode=_check_mode(namespace.check_mode),
+            settings=namespace.set,
         )
     if namespace.command == "explain":
         return _run_explain_command(namespace)
@@ -219,6 +233,46 @@ def _main(argv: Sequence[str] | None = None) -> int:
     if namespace.command == "fmt":
         return _run_fmt(namespace.path, check=namespace.check, write=namespace.write)
     return 0
+
+
+def _set_argument(value: str) -> tuple[str, str]:
+    """One `--set NAME=VALUE`; the value is read later as a literal of the
+    constant's declared type, never as source text."""
+
+    name, separator, text = value.partition("=")
+    if not separator or not name:
+        raise argparse.ArgumentTypeError("expected NAME=VALUE")
+    return name, text
+
+
+def _add_set_argument(parser: argparse.ArgumentParser) -> None:
+    parser.add_argument(
+        "--set",
+        type=_set_argument,
+        action="append",
+        default=[],
+        metavar="NAME=VALUE",
+        help="change one top-level constant of the file (repeatable)",
+    )
+
+
+def _settings_error(settings: Sequence[tuple[str, str]]) -> str | None:
+    """The usage error of a constant set more than once, if any."""
+
+    seen: set[str] = set()
+    for name, _ in settings:
+        if name in seen:
+            return f"--set {name} is given more than once"
+        seen.add(name)
+    return None
+
+
+def _with_settings(script: Script, settings: Sequence[tuple[str, str]]) -> Script:
+    """``script`` with each `--set` value; ValueError carries a usage error."""
+
+    from pietto.semantic.constants import override_constants
+
+    return override_constants(script, settings) if settings else script
 
 
 def _build_parser() -> argparse.ArgumentParser:
@@ -288,6 +342,7 @@ def _configure_check_parser(parser: argparse.ArgumentParser) -> None:
         help="output format",
     )
     parser.add_argument("--check-mode", choices=_CHECK_MODES, help=_CHECK_MODE_HELP)
+    _add_set_argument(parser)
 
 
 def _configure_emit_sql_parser(parser: argparse.ArgumentParser) -> None:
@@ -312,6 +367,7 @@ def _configure_emit_sql_parser(parser: argparse.ArgumentParser) -> None:
         help="output format",
     )
     parser.add_argument("--check-mode", choices=_CHECK_MODES, help=_CHECK_MODE_HELP)
+    _add_set_argument(parser)
 
 
 def _configure_explain_parser(parser: argparse.ArgumentParser) -> None:
@@ -330,6 +386,7 @@ def _configure_explain_parser(parser: argparse.ArgumentParser) -> None:
         help="output format",
     )
     parser.add_argument("--check-mode", choices=_CHECK_MODES, help=_CHECK_MODE_HELP)
+    _add_set_argument(parser)
 
 
 def _build_check_json_parser() -> argparse.ArgumentParser:
@@ -347,6 +404,7 @@ def _build_check_json_parser() -> argparse.ArgumentParser:
         help="output format",
     )
     parser.add_argument("--check-mode", choices=_CHECK_MODES, help=_CHECK_MODE_HELP)
+    _add_set_argument(parser)
     return parser
 
 
@@ -371,6 +429,7 @@ def _build_emit_sql_json_parser() -> argparse.ArgumentParser:
         help="output format",
     )
     parser.add_argument("--check-mode", choices=_CHECK_MODES, help=_CHECK_MODE_HELP)
+    _add_set_argument(parser)
     return parser
 
 
@@ -540,6 +599,15 @@ def _run_emit_sql_json_command(arguments: Sequence[str]) -> int:
     dialect: str | None = namespace.dialect
     output_path: Path | None = namespace.output
     output = _unwritten_output(output_path)
+    repeated = _settings_error(namespace.set)
+    if repeated is not None:
+        _print_emit_sql_json(
+            path=path,
+            dialect=dialect,
+            cli_errors=(cli_json.CliError(kind="usage", message=repeated),),
+            output=output,
+        )
+        return _EXIT_USAGE_ERROR
     if path is None:
         _print_emit_sql_json(
             path=None,
@@ -586,6 +654,7 @@ def _run_emit_sql_json_command(arguments: Sequence[str]) -> int:
         emitter=selected_emitter,
         output_path=output_path,
         check_mode=_check_mode(namespace.check_mode),
+        settings=namespace.set,
     )
 
 
@@ -607,6 +676,21 @@ def _select_sql_emitter(dialect: str) -> _SqlEmitter | None:
     raise AssertionError(f"enabled SQL dialect has no emitter: {dialect}")
 
 
+def _emit_with(
+    emitter: _SqlEmitter, script_ir: ir_api.ScriptIR, script: Script
+) -> sql_api.SqlResult:
+    """Run one backend; MySQL also refuses each relation that reads a
+    top-level constant, which it does not emit yet."""
+
+    if emitter is mysql_backend.emit_mysql_sql:
+        from pietto.semantic.constants import constant_read_spans
+
+        return mysql_backend.emit_mysql_sql_refusing_constants(
+            script_ir, constant_read_spans(script)
+        )
+    return emitter(script_ir)
+
+
 def _run_check_command(namespace: argparse.Namespace) -> int:
     """Dispatch check between single-file and project-root modes."""
 
@@ -624,11 +708,20 @@ def _run_check_command(namespace: argparse.Namespace) -> int:
     if project_root is not None and check_mode is not None:
         _print_check_usage_error("--check-mode and --project are mutually exclusive")
         return _EXIT_USAGE_ERROR
+    if project_root is not None and namespace.set:
+        _print_check_usage_error("--set and --project are mutually exclusive")
+        return _EXIT_USAGE_ERROR
+    repeated = _settings_error(namespace.set)
+    if repeated is not None:
+        _print_check_usage_error(repeated)
+        return _EXIT_USAGE_ERROR
     if project_root is not None:
         return _run_project_check(project_root, output_format=output_format)
     if path is None:
         raise AssertionError("check path was required before single-file mode")
-    return _run_check(path, output_format=output_format, check_mode=check_mode)
+    return _run_check(
+        path, output_format=output_format, check_mode=check_mode, settings=namespace.set
+    )
 
 
 def _run_project_check(root: Path, *, output_format: str) -> int:
@@ -757,7 +850,7 @@ def _print_check_usage_error(message: str) -> None:
 
     _write_stderr(
         "usage: pietto check [-h] [--project PROJECT] [--format {text,json}]"
-        " [--check-mode {loose,checked,strict}] [path]\n"
+        " [--check-mode {loose,checked,strict}] [--set NAME=VALUE] [path]\n"
         f"pietto check: error: {_escape_cli_text(message)}\n"
     )
 
@@ -845,6 +938,7 @@ def _run_check(
     *,
     output_format: str = _FORMAT_TEXT,
     check_mode: semantic_api.CheckMode | None = None,
+    settings: Sequence[tuple[str, str]] = (),
 ) -> int:
     """Parse and semantically analyze one Pietto source file."""
 
@@ -869,7 +963,7 @@ def _run_check(
         return _EXIT_USAGE_ERROR
 
     if output_format == _FORMAT_JSON:
-        return _run_check_json(path, parse_result, check_mode)
+        return _run_check_json(path, parse_result, check_mode, settings)
 
     _render_diagnostics(parse_result.diagnostics, fallback_path=path)
     if _has_errors(parse_result.diagnostics):
@@ -879,7 +973,12 @@ def _run_check(
         _print_cli_error(path, "parser produced no AST")
         return _EXIT_DIAGNOSTIC_ERROR
 
-    semantic_result = semantic_api.analyze(parse_result.ast, mode_override=check_mode)
+    try:
+        script = _with_settings(parse_result.ast, settings)
+    except ValueError as error:
+        _print_check_usage_error(str(error))
+        return _EXIT_USAGE_ERROR
+    semantic_result = semantic_api.analyze(script, mode_override=check_mode)
     _render_diagnostics(semantic_result.diagnostics, fallback_path=path)
     if _has_errors(semantic_result.diagnostics):
         return _EXIT_DIAGNOSTIC_ERROR
@@ -892,6 +991,7 @@ def _run_check_json(
     path: Path,
     parse_result: parser_api.ParseResult,
     check_mode: semantic_api.CheckMode | None,
+    settings: Sequence[tuple[str, str]] = (),
 ) -> int:
     """Complete check and render one JSON result without human output."""
 
@@ -913,7 +1013,15 @@ def _run_check_json(
         )
         return _EXIT_DIAGNOSTIC_ERROR
 
-    semantic_result = semantic_api.analyze(parse_result.ast, mode_override=check_mode)
+    try:
+        script = _with_settings(parse_result.ast, settings)
+    except ValueError as error:
+        _print_check_json(
+            path=path,
+            cli_errors=(cli_json.CliError(kind="usage", message=str(error)),),
+        )
+        return _EXIT_USAGE_ERROR
+    semantic_result = semantic_api.analyze(script, mode_override=check_mode)
     diagnostics = (*diagnostics, *semantic_result.diagnostics)
     _print_check_json(path=path, diagnostics=diagnostics)
     if _has_errors(semantic_result.diagnostics):
@@ -942,6 +1050,7 @@ def _run_explain(
     *,
     output_format: str = _FORMAT_TEXT,
     check_mode: semantic_api.CheckMode | None = None,
+    settings: Sequence[tuple[str, str]] = (),
 ) -> int:
     """Build and render Semantic Metadata Artifact v1 for one Pietto file."""
 
@@ -981,7 +1090,12 @@ def _run_explain(
             fallback_message="parser produced no AST",
         )
 
-    semantic_result = semantic_api.analyze(parse_result.ast, mode_override=check_mode)
+    try:
+        script = _with_settings(parse_result.ast, settings)
+    except ValueError as error:
+        _print_explain_usage_error(str(error))
+        return _EXIT_USAGE_ERROR
+    semantic_result = semantic_api.analyze(script, mode_override=check_mode)
     diagnostics = (*diagnostics, *semantic_result.diagnostics)
     if _has_errors(semantic_result.diagnostics):
         return _render_explain_failure(
@@ -991,9 +1105,7 @@ def _run_explain(
             diagnostics=diagnostics,
         )
 
-    ir_result = ir_api.build_ir(
-        semantic_result.script or parse_result.ast, semantic_result.model
-    )
+    ir_result = ir_api.build_ir(semantic_result.script or script, semantic_result.model)
     diagnostics = (*diagnostics, *ir_result.diagnostics)
     if _has_errors(ir_result.diagnostics):
         return _render_explain_failure(
@@ -1023,7 +1135,7 @@ def _run_explain(
 
     artifact = build_semantic_metadata_artifact(
         path=path,
-        script=semantic_result.script or parse_result.ast,
+        script=semantic_result.script or script,
         semantic_result=semantic_result,
         ir=ir_result.ir,
         diagnostics=diagnostics,
@@ -1055,17 +1167,26 @@ def _run_explain_command(namespace: argparse.Namespace) -> int:
     if project_root is not None and check_mode is not None:
         _print_explain_usage_error("--check-mode and --project are mutually exclusive")
         return _EXIT_USAGE_ERROR
+    if project_root is not None and namespace.set:
+        _print_explain_usage_error("--set and --project are mutually exclusive")
+        return _EXIT_USAGE_ERROR
+    repeated = _settings_error(namespace.set)
+    if repeated is not None:
+        _print_explain_usage_error(repeated)
+        return _EXIT_USAGE_ERROR
     if project_root is not None:
         return _run_project_explain(project_root, output_format=output_format)
     if path is None:
         raise AssertionError("explain path was required before file mode")
-    return _run_explain(path, output_format=output_format, check_mode=check_mode)
+    return _run_explain(
+        path, output_format=output_format, check_mode=check_mode, settings=namespace.set
+    )
 
 
 def _print_explain_usage_error(message: str) -> None:
     _write_stderr(
         "usage: pietto explain [-h] [--project PROJECT] [--format {text,json}]"
-        " [--check-mode {loose,checked,strict}] [path]\n"
+        " [--check-mode {loose,checked,strict}] [--set NAME=VALUE] [path]\n"
         f"pietto explain: error: {_escape_cli_text(message)}\n"
     )
 
@@ -1146,6 +1267,7 @@ def _run_emit_sql_json(
     emitter: _SqlEmitter,
     output_path: Path | None,
     check_mode: semantic_api.CheckMode | None,
+    settings: Sequence[tuple[str, str]] = (),
 ) -> int:
     """Compile one file and render the ordered emit-sql JSON result."""
 
@@ -1210,7 +1332,17 @@ def _run_emit_sql_json(
         )
         return _EXIT_USAGE_ERROR
 
-    semantic_result = semantic_api.analyze(parse_result.ast, mode_override=check_mode)
+    try:
+        script = _with_settings(parse_result.ast, settings)
+    except ValueError as error:
+        _print_emit_sql_json(
+            path=path,
+            dialect=dialect,
+            cli_errors=(cli_json.CliError(kind="usage", message=str(error)),),
+            output=output,
+        )
+        return _EXIT_USAGE_ERROR
+    semantic_result = semantic_api.analyze(script, mode_override=check_mode)
     diagnostics = (*diagnostics, *semantic_result.diagnostics)
     if _has_errors(semantic_result.diagnostics):
         _print_emit_sql_json(
@@ -1221,9 +1353,7 @@ def _run_emit_sql_json(
         )
         return _EXIT_DIAGNOSTIC_ERROR
 
-    ir_result = ir_api.build_ir(
-        semantic_result.script or parse_result.ast, semantic_result.model
-    )
+    ir_result = ir_api.build_ir(semantic_result.script or script, semantic_result.model)
     diagnostics = (*diagnostics, *ir_result.diagnostics)
     if _has_errors(ir_result.diagnostics):
         _print_emit_sql_json(
@@ -1250,7 +1380,7 @@ def _run_emit_sql_json(
         )
         return _EXIT_USAGE_ERROR
 
-    sql_result = emitter(ir_result.ir)
+    sql_result = _emit_with(emitter, ir_result.ir, script)
     diagnostics = (*diagnostics, *sql_result.diagnostics)
     if _has_errors(sql_result.diagnostics):
         _print_emit_sql_json(
@@ -1349,6 +1479,7 @@ def _run_emit_sql(
     dialect: str,
     output_path: Path | None,
     check_mode: semantic_api.CheckMode | None,
+    settings: Sequence[tuple[str, str]] = (),
 ) -> int:
     """Compile one Pietto file with the explicitly selected SQL backend."""
 
@@ -1379,14 +1510,17 @@ def _run_emit_sql(
         _print_cli_error(path, "parser produced no AST")
         return _EXIT_DIAGNOSTIC_ERROR
 
-    semantic_result = semantic_api.analyze(parse_result.ast, mode_override=check_mode)
+    try:
+        script = _with_settings(parse_result.ast, settings)
+    except ValueError as error:
+        _print_emit_sql_usage_error(str(error))
+        return _EXIT_USAGE_ERROR
+    semantic_result = semantic_api.analyze(script, mode_override=check_mode)
     _render_diagnostics(semantic_result.diagnostics, fallback_path=path)
     if _has_errors(semantic_result.diagnostics):
         return _EXIT_DIAGNOSTIC_ERROR
 
-    ir_result = ir_api.build_ir(
-        semantic_result.script or parse_result.ast, semantic_result.model
-    )
+    ir_result = ir_api.build_ir(semantic_result.script or script, semantic_result.model)
     _render_diagnostics(ir_result.diagnostics, fallback_path=path)
     if _has_errors(ir_result.diagnostics):
         return _EXIT_DIAGNOSTIC_ERROR
@@ -1395,7 +1529,7 @@ def _run_emit_sql(
         _print_cli_error(path, "IR builder produced no IR")
         return _EXIT_DIAGNOSTIC_ERROR
 
-    sql_result = emitter(ir_result.ir)
+    sql_result = _emit_with(emitter, ir_result.ir, script)
     _render_diagnostics(sql_result.diagnostics, fallback_path=path)
     has_backend_errors = _has_errors(sql_result.diagnostics)
     if output_path is None:
@@ -1409,6 +1543,15 @@ def _run_emit_sql(
     if has_backend_errors:
         return _EXIT_DIAGNOSTIC_ERROR
     return 0
+
+
+def _print_emit_sql_usage_error(message: str) -> None:
+    _write_stderr(
+        "usage: pietto emit-sql [-h] --dialect {postgres,mysql} [--output OUTPUT]"
+        " [--format {text,json}] [--check-mode {loose,checked,strict}]"
+        " [--set NAME=VALUE] path\n"
+        f"pietto emit-sql: error: {_escape_cli_text(message)}\n"
+    )
 
 
 def _print_sql_artifacts(artifacts: tuple[sql_api.SqlArtifact, ...]) -> None:

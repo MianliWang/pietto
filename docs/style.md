@@ -572,6 +572,49 @@ Not this (each is refused with PIE-S2805):
 
 MySQL refuses every collected list (PIE-B1003).
 
+## Naming a fixed value: top-level constants
+
+A single file names a fixed value once, at the top level, with its type:
+
+```pietto
+cutoff: Date = "2024-01-31"
+
+min_amount: Float = 10.0
+
+region: Text = "EU"
+```
+
+- One literal of the declared type: `True`/`False`, `10`/`-10`, `1.5`/`-1.5`,
+  `"text"`; a `Date` is the Text literal `"YYYY-MM-DD"`, a `Timestamp` the Text
+  literal `"YYYY-MM-DD HH:MM:SS"` (up to six fractional digits).
+- Read it by its bare name like any value: `where created >= cutoff`,
+  `as_of = cutoff`, `limit max_rows`.
+- Change it without editing the file: `pietto emit-sql --dialect postgres
+  --set cutoff=2024-02-29 orders.pietto` (also `check` and `explain`). The value
+  is read as a literal of the declared type and emits the same SQL as writing
+  it in the file. MySQL does not emit constants yet.
+- `pietto fmt` keeps one blank line between top-level declarations, constants
+  included.
+
+Not this (each is refused with a hint or a diagnostic):
+
+- `let cutoff = "2024-01-31"`, `const cutoff: Date = ...`, `cutoff = "..."`:
+  write `cutoff: Date = "2024-01-31"` (PIE-P1000).
+- `cutoff: Date = date("2024-01-31")`, `x: Float = Float(1)`, `x: Int = 1 + 2`,
+  `x: Bool = None`: one literal of the type (PIE-S2391).
+- `x: Decimal = 1`, `x: Int | None = 1`: a constant is `Bool`, `Int`, `Float`,
+  `Text`, `Date` or `Timestamp`, without `| None` (PIE-S2391).
+- a constant named like a field, let, output, def, parameter, relation or
+  built-in function (`lower: Text = "x"`): give it a name of its own
+  (PIE-S2391).
+- `postgres.table(table_name)` with a constant `table_name`: a source names
+  what it reads with a literal written there (PIE-S2391).
+- `group by cutoff`, `order by cutoff`, an unnamed `select: cutoff`: a key reads
+  a field or an output, and a SELECT item that only reads a constant names its
+  output, `as_of = cutoff` (PIE-S2391).
+- a constant in a project: give the query a header parameter (PIE-S2392); and
+  `query q(cutoff: Date):` in a single file: write a constant (PIE-S2346).
+
 ## Reusing an expression: `def`
 
 ```pietto

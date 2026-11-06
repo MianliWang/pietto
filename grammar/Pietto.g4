@@ -2,13 +2,14 @@ grammar Pietto;
 
 tokens {
     INDENT,
-    DEDENT
+    DEDENT,
+    CONSTANT_NAME
 }
 
 // A run of blank lines belongs to exactly one NEWLINE loop, so no decision
 // reads ahead over the whole run again for each of its lines.
 script
-    : (NEWLINE* header)? NEWLINE* ((definition | relationshipDefinition | relationshipTemplate | moduleStatement) NEWLINE*)* EOF
+    : (NEWLINE* header)? NEWLINE* ((definition | relationshipDefinition | relationshipTemplate | moduleStatement | constantDefinition) NEWLINE*)* EOF
     ;
 
 header
@@ -44,6 +45,14 @@ definition
     | tableDefinition
     | queryDefinition
     | functionDefinition
+    ;
+
+// A single-file top-level constant, `cutoff: Date = "2024-01-31"`; semantic
+// analysis checks that the value is one literal of the declared type.  The
+// parser API gives its name the type CONSTANT_NAME only on a line that starts
+// with `name:` and holds an `=`, so no other line's parse or recovery sees it.
+constantDefinition
+    : CONSTANT_NAME COLON typeExpression ASSIGN expression NEWLINE
     ;
 
 // Relationship declarations remain metadata outside semantic definitions.  The

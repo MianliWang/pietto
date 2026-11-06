@@ -1257,3 +1257,33 @@ def test_naming_refusal_restores_raw_parameter_errors_without_inventing_indirect
         (POSITION, POSITION_MESSAGE, read_line, 21),
     ]
     assert parsed.diagnostics[1] is raw[0]
+
+
+@pytest.mark.parametrize(
+    ("schema", "hint"),
+    [
+        (
+            2,
+            "In a project, give the query a header parameter instead, such as "
+            "`query q(cutoff: Int):`.",
+        ),
+        (
+            1,
+            "A project takes such a value as a query header parameter, which needs "
+            "`schema_version = 2` in pietto.toml.",
+        ),
+    ],
+    ids=["explicit_modules", "legacy_flat"],
+)
+def test_a_top_level_constant_is_refused_in_a_project(
+    tmp_path: Path, schema: int, hint: str
+) -> None:
+    body = (
+        "cutoff: Int = 3\n"
+        "query q:\n    from rows\n    where id > cutoff\n    select:\n        id\n"
+    )
+    message = f"Top-level constants are available only in single files. {hint}"
+    assert _check(_project(tmp_path, body, schema=schema), messages=True) == (
+        1,
+        [("PIE-S2392", message, 1, 1)],
+    )

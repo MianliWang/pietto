@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import math
+from datetime import date, datetime
 
 MYSQL_IDENTIFIER_MAX_CHARACTERS = 64
 MYSQL_ALIAS_MAX_CHARACTERS = 256
@@ -53,6 +54,10 @@ def render_literal(value: object) -> str:
         if not math.isfinite(value):
             raise MySqlRenderError("MySQL float literals must be finite")
         return repr(value)
+    if isinstance(value, datetime):
+        return f"TIMESTAMP '{value.isoformat(sep=' ')}'"
+    if isinstance(value, date):
+        return f"DATE '{value.isoformat()}'"
     if isinstance(value, str):
         return _render_text_literal(value)
     raise MySqlRenderError(f"Unsupported MySQL literal type: {type(value).__name__}")

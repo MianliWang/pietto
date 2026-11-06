@@ -3,11 +3,12 @@
 from __future__ import annotations
 
 from dataclasses import dataclass, fields, is_dataclass, replace
+from datetime import date
 from enum import StrEnum
 
 from pietto.errors import Diagnostic
 
-StaticValue = str | int | float | bool | None
+StaticValue = str | int | float | bool | date | None
 
 
 class SymbolNamespace(StrEnum):

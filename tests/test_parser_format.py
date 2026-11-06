@@ -328,6 +328,11 @@ def test_corpus_formatting_is_idempotent_and_keeps_comments_ast_and_output(
         ),
         pytest.param("", "", id="empty"),
         pytest.param("  # only\n\n", "# only\n", id="comment_only"),
+        pytest.param(
+            'a: Int = 1\nb: Date = "2024-01-31"\n# c\nc: Text = "x"\n',
+            'a: Int = 1\n\nb: Date = "2024-01-31"\n\n# c\nc: Text = "x"\n',
+            id="top_level_constants_are_declarations",
+        ),
     ],
 )
 def test_formatting_changes_only_the_whitespace_between_tokens(

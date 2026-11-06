@@ -310,6 +310,7 @@ def _parse_source(
 
     tokens = list(indentation.tokens)
     starts = _declaration_starts(tokens)
+    _mark_constant_names(tokens, starts)
     # Parsed inline rather than in a helper: every frame here is one less for
     # the nesting the parser accepts.  A parse that guessed a decision (see
     # _PiettoSimulator) and is not clean is parsed again with ANTLR deciding.
@@ -762,6 +763,32 @@ def _declaration_starts(tokens: list[Token]) -> list[int]:
         and not _is_indentation_character(token)
         and (index == 0 or tokens[index - 1].type in layout)
     ]
+
+
+def _mark_constant_names(tokens: list[Token], starts: list[int]) -> None:
+    """Give the name of each top-level constant its own token type.
+
+    A top-level line that starts with `name:` and holds an `=` outside
+    parentheses declares a constant. Every other name stays an IDENTIFIER, so
+    a file without such a line parses, and recovers from its errors, as if
+    constants did not exist.
+    """
+
+    layout = {Token.EOF, PiettoLexer.NEWLINE, PiettoParser.INDENT, PiettoParser.DEDENT}
+    for start in starts:
+        if (
+            tokens[start].type != PiettoLexer.IDENTIFIER
+            or tokens[start + 1].type != PiettoLexer.COLON
+        ):
+            continue
+        index, depth = start + 2, 0
+        while tokens[index].type not in layout:
+            kind = tokens[index].type
+            depth += (kind == PiettoLexer.LPAREN) - (kind == PiettoLexer.RPAREN)
+            if kind == PiettoLexer.ASSIGN and depth == 0:
+                tokens[start].type = PiettoParser.CONSTANT_NAME
+                break
+            index += 1
 
 
 def _is_indentation_character(token: Token) -> bool:

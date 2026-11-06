@@ -91,6 +91,20 @@ mode can omit (`loose`) or change the severity of (`checked` warning, `strict`
 error) the three mode-dependent diagnostics, and thereby `ok`, `artifacts`,
 and the exit code. An invalid value is a `usage` error.
 
+`--set NAME=VALUE`, repeatable, is also command-local on single-file `check`,
+`emit-sql` and `explain` and available in both formats. It changes one
+top-level constant of the file for that run (see the
+[language guide](../language.md)): the value is read as a literal of the
+constant's declared type, never as source text, and the result is the same as
+writing that value in the file; a file whose own initializer is invalid keeps
+that error. It adds no JSON field. Each of these is a
+`usage` error with exit `2`: a value without `=` (`argument --set: expected
+NAME=VALUE`); a name given twice (`--set NAME is given more than once`),
+reported before the file is read; and, once the file parses, a name that no
+top-level constant declares (`--set NAME: no top-level constant NAME is
+declared`) or a value that is not a literal of its type (`--set NAME: constant
+NAME has type TYPE; write FORM`). `migrate` and `fmt` take no `--set`.
+
 ## Stream And Encoding Contract
 
 After a recognized command and JSON format have been identified, handled
