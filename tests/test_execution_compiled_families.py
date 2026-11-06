@@ -277,6 +277,49 @@ def test_a_compiled_aggregate_that_reads_no_row_stays_refused(
         emit_compiled(root, ())
 
 
+def test_postgresql_median_and_quantile_replay_from_compiled_input(tmp_path):
+    """PERCENTILE_CONT, its float8 order cast, the fixed median fraction and
+    the quantile's literal fraction replay from compiled input."""
+    item = emission.fixture("postgres", "T_row_direct", "table_preserve")
+    source = item["source"].split("table result:", 1)[0] + (
+        "table result:\n    from rows\n    group by flag\n    select:\n"
+        "        flag\n        middle = median(id)\n"
+        "        high = quantile(id, 0.9)\n"
+    )
+    checked, original = emission.build_case(
+        tmp_path, source, item["contract"], item["policy"]
+    )
+    assert checked.verified and original.status == "VERIFIED", original.blockers
+    candidate = _compare(original.artifact, refinement=False)
+    assert candidate.rendered.sql.count(b"PERCENTILE_CONT(") == 2
+    assert b"PERCENTILE_CONT(0.5) WITHIN GROUP (ORDER BY CAST(" in (
+        candidate.rendered.sql
+    )
+    assert b"PERCENTILE_CONT(CAST('0.9' AS pg_catalog.float8))" in (
+        candidate.rendered.sql
+    )
+
+
+def test_postgresql_quantile_over_join_rows_replays_from_compiled_input(tmp_path):
+    """A quantile over LEFT JOIN rows keeps its literal fraction beside the
+    joined argument in compiled input."""
+    item = emission.fixture("postgres", "Z_aggregate_joined", "left_nullable")
+    source = item["source"].split("query result:", 1)[0] + (
+        "query result:\n    from keys\n    let r = agg\n"
+        "    left join r on keys.rid == r.rid\n"
+        "    group by:\n        keys.rid\n    select:\n        k = keys.rid\n"
+        "        q = quantile(r.rid, 0.75)\n"
+    )
+    checked, original = emission.build_case(
+        tmp_path, source, item["contract"], item["policy"]
+    )
+    assert checked.verified and original.status == "VERIFIED", original.blockers
+    candidate = _compare(original.artifact, refinement=False)
+    assert b"PERCENTILE_CONT(CAST('0.75' AS pg_catalog.float8))" in (
+        candidate.rendered.sql
+    )
+
+
 def test_a_postgresql_uuid_order_replays_from_compiled_input(tmp_path):
     """Q3: a UUID comparison and window and result ORDER keys replay."""
     checked, original = emission.temporal_case(

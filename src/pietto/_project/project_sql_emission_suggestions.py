@@ -165,6 +165,7 @@ _GROUPS = (
                 "physical_storage_or_domain_mismatch",
                 "pre_match_port_nullability_drift",
                 "predicate_root_not_bool",
+                "quantile_result_logical_type_or_argument_drift",
                 "reference_logical_type_or_null_drift",
                 "relation_membership_result_not_nullable_bool",
                 "round_result_outside_physical_range",
@@ -461,6 +462,7 @@ _ACTIONS = {
     "offset_range_requires_exactly_one_order_key": "Use exactly one reviewed ORDER key for an offset RANGE frame, or keep this frame in check/plan.",
     "offset_range_requires_a_non_null_order_key": "Use a non-null signed-Int ORDER key for an offset RANGE frame; do not declare a nullable source non-null in the contract.",
     "offset_range_requires_a_signed_int_order_key": "Use a signed-Int ORDER key for an offset RANGE frame, or keep the frame in check/plan.",
+    "quantile_not_admitted_on_target": "Emit this median or quantile for PostgreSQL, or keep it in check/plan: MySQL has no interpolated percentile.",
     "stddev_int_not_admitted_on_target": "Emit this Int stddev for PostgreSQL, or keep it in check/plan: MySQL computes an integer deviation in DOUBLE, which loses Int accuracy; casting the input does not restore it.",
     "window_aggregate_approved_non_support_on_mysql": "Emit this aggregate window for PostgreSQL, or keep it in check/plan: a project's MySQL aggregate window awaits its real-database differential.",
 }
@@ -487,7 +489,17 @@ def blocker_suggestion(code: str, detail: str, family: str | None) -> str:
         return _ACTIONS[detail]
     if detail in {
         f"{name}_argument_outside_reviewed_int_domain"
-        for name in ("sum", "avg", "count", "count_distinct", "min", "max", "stddev")
+        for name in (
+            "sum",
+            "avg",
+            "count",
+            "count_distinct",
+            "min",
+            "max",
+            "stddev",
+            "median",
+            "quantile",
+        )
     }:
         return "Use the aggregate's reviewed direct argument carrier, or keep it in check/plan; do not coerce its input to force emission."
     if detail in {

@@ -1369,8 +1369,22 @@ def verify_description(value: Description) -> None:
                     get("function") == "string_agg"
                     and len(arguments) == 2
                     and bool(order_by)
+                    # A `quantile` reads one value at its literal fraction.
+                    or get("function") == "quantile"
+                    and len(arguments) == 2
+                    and arguments[1].address.kind == "literal"
+                    and not order_by
                     or get("function")
-                    in ("count", "count_distinct", "sum", "avg", "min", "max", "stddev")
+                    in (
+                        "count",
+                        "count_distinct",
+                        "sum",
+                        "avg",
+                        "min",
+                        "max",
+                        "stddev",
+                        "median",
+                    )
                     and len(arguments) <= 1
                     and not order_by
                     and (bool(arguments) or get("function") == "count")
@@ -4369,7 +4383,7 @@ def verify_export(description, artifact, *, guarded=None, refinement=None):
                         0
                         if actual.argument is None
                         else 2
-                        if actual.function == "string_agg"
+                        if actual.function in {"string_agg", "quantile"}
                         else 1
                     )
                     and len(value.get("order_by")) == len(actual.order_by),
@@ -5743,7 +5757,7 @@ def _verify_compiled_emission(artifact, request):
                         0
                         if column.argument is None
                         else 2
-                        if function == "string_agg"
+                        if function in {"string_agg", "quantile"}
                         else 1
                     )
                     and len(order_by) == len(column.order_by),

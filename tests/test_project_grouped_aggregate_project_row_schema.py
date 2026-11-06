@@ -698,7 +698,7 @@ def test_repeated_occurrences_and_all_duplicate_alias_families_are_preserved(
         "        status\n"
         "    select:\n"
         "        status\n"
-        "        invalid = median(amount)\n",
+        "        invalid = variance(amount)\n",
         "query grouped:\n"
         "    from users\n"
         "    group by:\n"
@@ -1123,8 +1123,30 @@ _UNORDERED = "Invalid arguments for aggregate string_agg: expected ORDER BY key"
             '    select customer_id, notes = string_agg(status, ", ", order by id)\n',
             [],
         ),
+        (
+            "query q:\n    from orders\n    let c = customers\n"
+            "    inner join c on c.id == orders.customer_id\n    group by c.name\n"
+            "    select name = c.name, q = quantile(orders.id, 1.5)\n",
+            [
+                (
+                    "PIE-S2104",
+                    "Invalid arguments for aggregate quantile: q 1.5 is outside "
+                    "0.0 to 1.0; write a fraction such as 0.9 for the 90th "
+                    "percentile",
+                    16,
+                    51,
+                )
+            ],
+        ),
     ],
-    ids=["grouped", "ungrouped", "joined", "other_aggregate", "ordered"],
+    ids=[
+        "grouped",
+        "ungrouped",
+        "joined",
+        "other_aggregate",
+        "ordered",
+        "joined_quantile_fraction",
+    ],
 )
 def test_project_check_requires_the_string_agg_internal_order_as_a_file_does(
     tmp_path, capsys, body, expected
@@ -1167,6 +1189,10 @@ source items: Item = postgres.table("items")
 query q:
     from items
 """
+_QUANTILE_FRACTION = (
+    "Invalid arguments for aggregate quantile: q must be a Float literal from "
+    "0.0 to 1.0, written in the call, such as quantile(x, 0.9)"
+)
 
 
 @pytest.mark.parametrize(
@@ -1249,6 +1275,16 @@ query q:
                     16,
                 )
             ],
+        ),
+        # A `quantile` fraction that reads a `let` name is reported at it.
+        (
+            "    let f = 0.9\n    select m = quantile(qty, f)\n",
+            [("PIE-S2104", _QUANTILE_FRACTION, 9, 30)],
+        ),
+        (
+            "    let f = 0.9\n    group by label\n    select:\n        label\n"
+            "        m = quantile(qty, f + 0.0)\n",
+            [("PIE-S2104", _QUANTILE_FRACTION, 12, 27)],
         ),
         (
             "    select m = max(count())\n",
@@ -1418,6 +1454,8 @@ query q:
         "argument_expression",
         "stddev_argument_type",
         "stddev_let_argument",
+        "quantile_let_fraction",
+        "quantile_grouped_let_fraction_expression",
         "nested",
         "grouped_expression",
         "having_input_field",

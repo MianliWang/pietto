@@ -2106,6 +2106,22 @@ def _aggregate_result_realization(family, function, argument, retained):
             True,
             {"kind": "finite_float", "format": "binary64"},
         )
+    if function in grouping.QUANTILE_FUNCTIONS:
+        # PERCENTILE_CONT between float8 images of signed 64-bit values.
+        if (
+            family != "postgres"
+            or argument is None
+            or argument.realization.tag != "Int"
+            or tag != "Float"
+            or nullable is not True
+        ):
+            raise ValueError("quantile result domain")
+        return rows.Realization(
+            "Float",
+            {"kind": "pg_float8"},
+            True,
+            {"kind": "finite_float", "format": "binary64"},
+        )
     if function == "avg":
         if (
             argument is None
@@ -2277,8 +2293,9 @@ def _verify_aggregate_body(
         if (
             len(arguments) != len(value.arguments)
             or len(ordered) != len(value.order_by)
-            or (function == "string_agg") is not (len(arguments) == 2 and bool(ordered))
-            or (function != "string_agg" and (len(arguments) > 1 or ordered))
+            or (function == "string_agg") is not bool(ordered)
+            or (len(arguments) == 2) is not (function in {"string_agg", "quantile"})
+            or len(arguments) > 2
         ):
             raise ValueError("aggregate argument signature")
         argument = column.argument
@@ -2348,6 +2365,24 @@ def _verify_aggregate_body(
                 is not None
             ):
                 raise ValueError("aggregate argument outside its admitted domain")
+            if function == "quantile":
+                if column.delimiter is None:
+                    raise ValueError("quantile fraction missing")
+                _verify_row_value(
+                    request,
+                    column.delimiter,
+                    value.arguments[1],
+                    columns,
+                    children,
+                    state,
+                    reference_type=reference_type,
+                )
+                if (
+                    grouping._input_terminals(column.delimiter)
+                    or rows.realization_of(column.delimiter, request.family).tag
+                    != "Float"
+                ):
+                    raise ValueError("quantile fraction domain")
         elif argument is not None or function != "count":
             raise ValueError("row count keeps no scalar argument")
         retained = grouping.result_value(value.source)
@@ -2373,7 +2408,10 @@ def _verify_aggregate_body(
             != grouping.result_cast(request.family, function, argument)
             or (
                 function != "string_agg"
-                and (column.delimiter is not None or column.order_by)
+                and (
+                    (column.delimiter is not None) is not (function == "quantile")
+                    or column.order_by
+                )
             )
             or export is None
             or export.source is not value.ref
@@ -7732,6 +7770,32 @@ def verify_row_bytes(query, rendered):
                         reference,
                         " ASC" if item.direction == "asc" else " DESC",
                     )
+            elif column.function in grouping.QUANTILE_FUNCTIONS:
+                if (
+                    column.distinct
+                    or column.order_by
+                    or column.argument_cast is None
+                    or (column.delimiter is None) is not (column.function == "median")
+                ):
+                    raise ValueError("quantile rendering")
+                if column.delimiter is None:
+                    take("syntax", "aggregate_fraction", reference, "0.5")
+                else:
+                    scalar(column.delimiter, alias)
+                take(
+                    "syntax",
+                    "aggregate_within",
+                    reference,
+                    ") WITHIN GROUP (ORDER BY ",
+                )
+                take("syntax", "aggregate_argument_cast_open", reference, "CAST(")
+                scalar(column.argument, alias)
+                take(
+                    "syntax",
+                    "aggregate_argument_cast_close",
+                    reference,
+                    " AS " + column.argument_cast + ")",
+                )
             else:
                 if column.distinct:
                     take("syntax", "aggregate_distinct", reference, "DISTINCT ")

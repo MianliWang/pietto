@@ -423,9 +423,10 @@ def _single_file_grouping_diagnostics(
     projection or a GROUP BY key and an aggregate's argument count
     (PIE-S2309), but no error of a projection without an aggregate, which
     the project types itself. A relation over a row of unknown type, or that
-    reads a `let` name, a nested relation field, a relation, a captured
-    field, a query parameter or `any(...)` in those positions, which a
-    project checks otherwise, gets none."""
+    reads a `let` name (but as a `stddev`, `median` or `quantile` argument or
+    in a `quantile` fraction), a nested relation field, a relation, a
+    captured field, a query parameter or `any(...)` in those positions, which
+    a project checks otherwise, gets none."""
 
     if input_schema.is_unknown:
         return ()
@@ -436,9 +437,13 @@ def _single_file_grouping_diagnostics(
         for name, row_field in input_schema.fields.items()
         if is_nested_relation_field(row_field)
     }
-    roots: list[Expression] = [item.expression for item in definition.select_items]
+    # Each expression with whether it is in a `quantile` fraction, which is
+    # never read: a `let` name there is the single file's PIE-S2104 at it.
+    roots: list[tuple[Expression, bool]] = [
+        (item.expression, False) for item in definition.select_items
+    ]
     if definition.group_by_clause is not None:
-        roots.extend(item.key for item in definition.group_by_clause.items)
+        roots.extend((item.key, False) for item in definition.group_by_clause.items)
     # An admitted nested GROUP BY key, and a SELECT item naming it, is no
     # error (D73.05): the relation's other grouping errors are still checked.
     keyed = definition.group_by_clause is not None and any(
@@ -447,7 +452,7 @@ def _single_file_grouping_diagnostics(
     )
     admitted = {
         id(root)
-        for root in roots
+        for root, _ in roots
         if keyed
         and (
             (type(root) is NameExpr and root.name in nested)
@@ -456,25 +461,31 @@ def _single_file_grouping_diagnostics(
         and is_nested_group_key(root, definition)
     }
     if definition.order_by_clause is not None:
-        roots.extend(item.expression for item in definition.order_by_clause.items)
+        roots.extend(
+            (item.expression, False) for item in definition.order_by_clause.items
+        )
     if definition.satisfying_clause is not None:
-        roots.append(definition.satisfying_clause.expression)
+        roots.append((definition.satisfying_clause.expression, False))
     while roots:
-        node = roots.pop()
+        node, in_fraction = roots.pop()
         if (
             type(node) is CallExpr
-            and semantic_aggregate_call_name(node) == "stddev"
-            and len(node.arguments) == 1
+            and semantic_aggregate_call_name(node) in {"stddev", "median", "quantile"}
+            and node.arguments
             and type(node.arguments[0]) is NameExpr
             and node.arguments[0].name in lets
         ):
-            # A `stddev` takes no `let` name in a project either: the single
-            # file's PIE-S2315 of that direct argument is its error.
+            # A `stddev`, `median` or `quantile` takes no `let` name in a
+            # project either: the single file's PIE-S2315 of that direct
+            # argument is its error.
             continue
         if id(node) in admitted:
             continue
         if (
-            (type(node) is NameExpr and (node.name in lets or node.name in nested))
+            (
+                type(node) is NameExpr
+                and ((node.name in lets and not in_fraction) or node.name in nested)
+            )
             or (type(node) is DottedNameExpr and node.parts[-1] in nested)
             or type(node)
             in {
@@ -488,7 +499,17 @@ def _single_file_grouping_diagnostics(
             }
         ):
             return ()
-        roots.extend(child_expressions(node))
+        fraction = (
+            node.arguments[1]
+            if type(node) is CallExpr
+            and semantic_aggregate_call_name(node) == "quantile"
+            and len(node.arguments) == 2
+            else None
+        )
+        roots.extend(
+            (child, in_fraction or child is fraction)
+            for child in child_expressions(node)
+        )
     schema = project_row_schema_to_semantic_row_schema(input_schema)
     types: dict[Expression, ValueType] = (
         {} if let_scope_facts is None else dict(let_scope_facts.expression_value_types)

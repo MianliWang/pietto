@@ -34,6 +34,7 @@ from pietto.semantic.aggregates import (
     mixed_projection_diagnostic,
     nested_aggregate_diagnostic,
     nested_semantic_aggregate,
+    quantile_fraction_diagnostic,
     semantic_aggregate_call_name,
     wrong_arity_diagnostic,
     wrong_argument_type_diagnostic,
@@ -428,6 +429,11 @@ def _aggregate_projection_diagnostics(
                 )
             ):
                 diagnostics.append(wrong_arity_diagnostic(expression))
+            invalid_items.add(item)
+            continue
+
+        if quantile_fraction_diagnostic(expression) is not None:
+            # Its typing reports the fraction (PIE-S2104).
             invalid_items.add(item)
             continue
 

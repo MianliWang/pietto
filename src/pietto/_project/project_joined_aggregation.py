@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from collections import Counter
 from collections.abc import Callable, Mapping
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from enum import StrEnum
 from types import MappingProxyType
 from typing import Any, NamedTuple, cast
@@ -968,7 +968,9 @@ def _aggregate_attempt(
             kind=ProjectJoinedAggregateIssueKind.WRONG_ARITY,
             diagnostics=(semantic_aggregates.wrong_arity_diagnostic(expression),),
         )
-    order_diagnostic = semantic_aggregates.internal_order_diagnostic(expression)
+    order_diagnostic = semantic_aggregates.internal_order_diagnostic(
+        expression
+    ) or semantic_aggregates.quantile_fraction_diagnostic(expression)
     if order_diagnostic is not None:
         return ProjectJoinedAggregateIssue(
             input_filter=input_filter,
@@ -1011,6 +1013,20 @@ def _aggregate_attempt(
             )
         if type(analysis) is not ProjectConcreteJoinedNamespaceExpression:
             raise AssertionError("aggregate argument analysis lost its exact variant")
+        if (
+            function_name == "quantile"
+            and type(
+                fraction := analyze_project_joined_namespace_expression(
+                    input_filter.namespace, expression.arguments[1]
+                )
+            )
+            is ProjectConcreteJoinedNamespaceExpression
+        ):
+            # Its fraction, a Float literal that reads no row, is typed beside
+            # the argument, as a single-input aggregate types every argument.
+            analysis = replace(
+                analysis, value_types={**analysis.value_types, **fraction.value_types}
+            )
         argument_analysis = analysis
         argument_type = analysis.value_type
         let_resolutions = tuple(

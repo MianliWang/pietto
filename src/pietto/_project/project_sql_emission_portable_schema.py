@@ -894,7 +894,16 @@ JOIN_SPELLING = {
 MEMBERSHIP_SPELLING = {"exists": " WHERE EXISTS (", "not_exists": " WHERE NOT EXISTS ("}
 DIRECTIONS = {"asc": " ASC", "desc": " DESC"}
 CARRIERS = frozenset({"ordinary", "rebound", "completed"})
-AGGREGATE_SPELLING = {"COUNT", "SUM", "MIN", "MAX", "AVG", "string_agg", "VAR_SAMP"}
+AGGREGATE_SPELLING = {
+    "COUNT",
+    "SUM",
+    "MIN",
+    "MAX",
+    "AVG",
+    "string_agg",
+    "VAR_SAMP",
+    "PERCENTILE_CONT",
+}
 WINDOW_SPELLING = {
     "row_number": "ROW_NUMBER",
     "rank": "RANK",
@@ -967,6 +976,8 @@ SYNTAX = {
     "aggregate_separator": ", ",
     "aggregate_order": " ORDER BY ",
     "aggregate_order_separator": ", ",
+    "aggregate_fraction": "0.5",
+    "aggregate_within": ") WITHIN GROUP (ORDER BY ",
     "aggregate_close": ")",
     "window_partition": "PARTITION BY ",
     "window_partition_separator": ", ",

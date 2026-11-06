@@ -841,6 +841,8 @@ def _render_aggregate_call(
         sql = _render_stddev_aggregate(expression)
     elif expression.function in FILTERED_AGGREGATE_ARITIES:
         sql = _render_filtered_aggregate(expression)
+    elif expression.function in {"median", "quantile"}:
+        sql = _render_quantile_aggregate(expression)
     elif (
         function_name := _EXTREMA_AGGREGATE_NAMES.get(expression.function)
     ) is not None:
@@ -1277,6 +1279,26 @@ def _render_filtered_aggregate(expression: AggregateCallIR) -> str:
         f"COALESCE(CAST(SUM(CASE WHEN {test_sql} THEN CAST({value_sql} AS "
         "pg_catalog.int8) END) AS pg_catalog.int8), 0)"
     )
+
+
+def _render_quantile_aggregate(expression: AggregateCallIR) -> str:
+    # PERCENTILE_CONT interpolates linearly between the two nearest non-NULL
+    # values in double precision, as pandas does; an Int value is converted
+    # to double precision first, which the cast states.
+    if not aggregate_call_contract(
+        expression.function, expression.arguments, expression.value_type
+    ):
+        raise ValueError(
+            f"PostgreSQL aggregate {expression.function} violates its IR contract"
+        )
+    argument, *fraction = expression.arguments
+    argument_sql = _render_expression_sql(argument, nested=True)
+    if argument.value_type.canonical_name == "Int":
+        argument_sql = f"CAST({argument_sql} AS double precision)"
+    fraction_sql = (
+        _render_expression_sql(fraction[0], nested=True) if fraction else "0.5"
+    )
+    return f"PERCENTILE_CONT({fraction_sql}) WITHIN GROUP (ORDER BY {argument_sql})"
 
 
 def _has_builtin_type(

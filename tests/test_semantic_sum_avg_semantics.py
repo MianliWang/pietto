@@ -247,11 +247,12 @@ def test_count_sum_and_avg_are_not_scalar_builtin_functions() -> None:
             SOURCE_PREFIX + "table paid_order_stats:\n"
             "    from orders\n"
             "    select:\n"
-            "        median_amount = median(amount)\n",
+            "        mean_amount = mean(amount)\n",
             (
                 "PIE-S2103",
-                "Unknown function: median; the available aggregates are avg, "
-                "count, count_distinct, max, min, stddev, string_agg and sum",
+                "Unknown function: mean; the available aggregates are avg, "
+                "count, count_distinct, max, median, min, quantile, stddev, "
+                "string_agg and sum",
             ),
         ),
     ],
@@ -451,6 +452,140 @@ def test_stddev_misuse_keeps_the_aggregate_diagnostics(
     result = analyze(_parse(SOURCE_PREFIX + "table t:\n    from orders\n" + body))
 
     assert _errors(result) == [expected]
+
+
+def test_median_and_quantile_of_an_int_or_float_field_are_a_nullable_float() -> None:
+    """`median(x)` and `quantile(x, q)` interpolate the non-None Int or Float
+    values (pandas `Series.median` and `Series.quantile`), None for no value."""
+    script = _parse(
+        SOURCE_PREFIX + "type Ratio = Float\n"
+        "shape Reading:\n"
+        "    ratio: Ratio\n"
+        'source readings: Reading = postgres.table("readings")\n'
+        "table by_status:\n"
+        "    from orders\n"
+        "    group by status\n"
+        "    select:\n"
+        "        status\n"
+        "        middle = median(amount)\n"
+        "        high = quantile(orders.score, 0.9)\n"
+        "    having:\n"
+        "        middle > 1.0\n"
+        "table ratio_spread:\n"
+        "    from readings\n"
+        "    select:\n"
+        "        low = quantile(ratio, 0.0)\n"
+        "        top = quantile(ratio, 1.0)\n"
+        "        middle = median(ratio)\n"
+    )
+    result = analyze(script)
+
+    assert _errors(result) == []
+    grouped, plain = script.definitions[-2], script.definitions[-1]
+    assert isinstance(grouped, (QueryDef, TableDef))
+    assert isinstance(plain, (QueryDef, TableDef))
+    for relation, names in (
+        (grouped, ("middle", "high")),
+        (plain, ("low", "top", "middle")),
+    ):
+        fields = result.model.relation_row_schemas[relation].fields
+        for name in names:
+            _assert_field(fields[name], "Float", EffectiveNullability.NULLABLE)
+
+
+_LITERAL_Q = (
+    "PIE-S2104",
+    "Invalid arguments for aggregate quantile: q must be a Float literal from "
+    "0.0 to 1.0, written in the call, such as quantile(x, 0.9)",
+)
+
+
+@pytest.mark.parametrize(
+    ("body", "expected"),
+    [
+        *(
+            (
+                f"    select:\n        x = {call}\n",
+                (
+                    "PIE-S2314",
+                    f"Aggregate function {call.split('(')[0]} expects Int or Float "
+                    f"field argument, got {got}",
+                ),
+            )
+            for call, got in (
+                ("median(price)", "Decimal"),
+                ("quantile(price, 0.5)", "Decimal"),
+                ("median(status)", "Text"),
+            )
+        ),
+        (
+            "    select:\n        x = quantile(amount, 1.5)\n",
+            (
+                "PIE-S2104",
+                "Invalid arguments for aggregate quantile: q 1.5 is outside 0.0 to "
+                "1.0; write a fraction such as 0.9 for the 90th percentile",
+            ),
+        ),
+        ("    select:\n        x = quantile(amount, 1)\n", _LITERAL_Q),
+        ("    select:\n        x = quantile(amount, -0.5)\n", _LITERAL_Q),
+        ("    select:\n        x = quantile(amount, score)\n", _LITERAL_Q),
+        (
+            "    let q = 0.5\n    group by status\n    select:\n        status\n"
+            "        x = quantile(amount, q)\n",
+            _LITERAL_Q,
+        ),
+        (
+            "    select:\n        x = quantile(amount)\n",
+            ("PIE-S2309", "Aggregate function quantile expects 2 arguments, got 1"),
+        ),
+        (
+            "    select:\n        x = median(amount, 0.5)\n",
+            ("PIE-S2309", "Aggregate function median expects 1 arguments, got 2"),
+        ),
+        *(
+            (
+                body,
+                (
+                    "PIE-S2315",
+                    "Aggregate function median requires a direct field argument; "
+                    "expression arguments are not supported yet",
+                ),
+            )
+            for body in (
+                "    select:\n        x = median(amount + 1)\n",
+                "    let w = amount\n    select:\n        x = median(w)\n",
+            )
+        ),
+        (
+            "    select:\n        status\n        x = median(amount) "
+            "window(partition by status)\n",
+            (
+                "PIE-S2103",
+                "Aggregate window functions are not implemented: median; window "
+                "aggregates are sum, count, avg, min and max",
+            ),
+        ),
+    ],
+)
+def test_median_and_quantile_misuse_is_refused_with_a_hint(
+    body: str, expected: tuple[str, str]
+) -> None:
+    result = analyze(_parse(SOURCE_PREFIX + "table t:\n    from orders\n" + body))
+
+    assert _errors(result) == [expected]
+
+
+def test_a_quantile_fraction_error_is_located_at_the_fraction() -> None:
+    result = analyze(
+        _parse(
+            SOURCE_PREFIX + "table t:\n    from orders\n    select:\n"
+            "        x = quantile(amount, 2.0)\n"
+        )
+    )
+
+    [error] = result.diagnostics
+    assert (error.location.line, error.location.column) == (10, 30)
+    assert (error.location.end_line, error.location.end_column) == (10, 33)
 
 
 def _parse(source: str) -> Script:

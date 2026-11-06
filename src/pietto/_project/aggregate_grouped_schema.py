@@ -55,6 +55,7 @@ from pietto.errors import SourceLocation
 from pietto.semantic.aggregates import (
     MAX_AGGREGATE_NAME,
     MIN_AGGREGATE_NAME,
+    QUANTILE_AGGREGATE_NAME,
     aggregate_order_expressions,
     aggregate_argument_can_use_let_scope,
     contains_semantic_aggregate,
@@ -64,6 +65,7 @@ from pietto.semantic.aggregates import (
     is_supported_semantic_aggregate_argument_expression,
     is_supported_semantic_aggregate_arity,
     nested_semantic_aggregate,
+    quantile_fraction_diagnostic,
     semantic_aggregate_call_name,
     semantic_projection_aggregate_result_value_type,
 )
@@ -1673,6 +1675,8 @@ def _aggregate_selected_structure_failure_reason(
         return ProjectRelationRowSchemaReason.INVALID_AGGREGATE_OR_GROUPED_OUTPUT
     if internal_order_diagnostic(call) is not None:
         return ProjectRelationRowSchemaReason.INVALID_AGGREGATE_OR_GROUPED_OUTPUT
+    if quantile_fraction_diagnostic(call) is not None:
+        return ProjectRelationRowSchemaReason.INVALID_AGGREGATE_OR_GROUPED_OUTPUT
     return None
 
 
@@ -1729,6 +1733,17 @@ def _build_project_aggregate_selected_result_attempt(
     argument_attempt: _ProjectAggregateArgumentTypeAttempt | None = None
     argument_values: dict[Expression, ValueType] = {}
     for position, argument in enumerate(arguments):
+        if position == 1 and function_name == QUANTILE_AGGREGATE_NAME:
+            # Its fraction is a Float literal (`quantile_fraction_diagnostic`).
+            argument_values.update(
+                build_project_row_expression_value_types(
+                    expressions=(argument,),
+                    input_schema=input_schema,
+                    relation_qualifier=definition.from_clause.binding_name
+                    or definition.from_clause.source_name,
+                )
+            )
+            continue
         argument_attempt = _project_aggregate_argument_type_attempt(
             pretyped_arguments=pretyped_arguments if position == 0 else None,
             definition=definition,

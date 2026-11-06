@@ -1006,6 +1006,9 @@ def _aggregate_casts(
         return "pg_catalog.int8", "pg_catalog.int8"
     if function == "stddev":
         return None, "pg_catalog.float8"
+    if function in {"median", "quantile"}:
+        # PERCENTILE_CONT orders by the float8 image of each Int value.
+        return "pg_catalog.float8", None
     return None, None
 
 
@@ -1803,6 +1806,8 @@ class _Check:
                 "avg": "AVG",
                 "string_agg": "string_agg",
                 "stddev": "VAR_SAMP",
+                "median": "PERCENTILE_CONT",
+                "quantile": "PERCENTILE_CONT",
             }.get(column["function"])
             _require(
                 expected is not None and column["spelling"] == expected,
@@ -1891,6 +1896,29 @@ class _Check:
                         for item in column["order_by"]
                     ),
                     "string_agg typed inputs",
+                )
+            elif column["function"] in {"median", "quantile"}:
+                # PostgreSQL only: one signed PostgreSQL Int argument, a nullable
+                # finite binary64 result, and for `quantile` a Float constant
+                # fraction in the delimiter slot.
+                argument = _value_realization(doc, column["argument"])
+                result = doc[doc[column["column"]]["realization"]]
+                fraction = column["delimiter"]
+                _require(
+                    family == "postgres"
+                    and _is_pg_int(argument)
+                    and argument["storage"]["kind"].startswith("pg_")
+                    and _is_pg_float(result)
+                    and result["nullable"] is True
+                    and not column["order_by"]
+                    and (fraction is None) is (column["function"] == "median")
+                    and (
+                        fraction is None
+                        or fraction.kind == "sql_anchor"
+                        and (_value_realization(doc, fraction) or {}).get("tag")
+                        == "Float"
+                    ),
+                    "quantile shape",
                 )
             else:
                 _require(
@@ -2767,6 +2795,20 @@ class _Tokens:
                     aggregate_tokens == expected,
                     "string_agg token sequence",
                 )
+            elif column["function"] in {"median", "quantile"}:
+                expected = [("aggregate_open", "PERCENTILE_CONT(")]
+                if column["function"] == "median":
+                    expected.append(("aggregate_fraction", "0.5"))
+                expected += [
+                    ("aggregate_within", ") WITHIN GROUP (ORDER BY "),
+                    ("aggregate_argument_cast_open", "CAST("),
+                    (
+                        "aggregate_argument_cast_close",
+                        " AS " + str(column["argument_cast"]) + ")",
+                    ),
+                    ("aggregate_close", ")"),
+                ]
+                _require(aggregate_tokens == expected, "quantile token sequence")
             else:
                 root = column["function"] == "stddev"
                 expected = [("aggregate_root_open", "SQRT(")] if root else []

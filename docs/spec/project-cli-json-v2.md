@@ -425,6 +425,16 @@ evidence. The additive `ranges` roles for this form are the `syntax` roles
 `aggregate_result_cast_open`/`aggregate_result_cast_close` pair; the
 aggregate `spelling` is `VAR_SAMP`.
 
+A PostgreSQL `median` or `quantile` aggregate column has the `spelling`
+`PERCENTILE_CONT`, the `argument_cast` `pg_catalog.float8` and no
+`result_cast`; it is written `PERCENTILE_CONT(<fraction>) WITHIN GROUP (ORDER
+BY CAST(x AS pg_catalog.float8))`. The additive `ranges` roles for this form
+are the `syntax` roles `aggregate_fraction` (`0.5`, a `median` only) and
+`aggregate_within` (`) WITHIN GROUP (ORDER BY `), between `aggregate_open`
+(`PERCENTILE_CONT(`) and `aggregate_argument_cast_open`; a `quantile` writes its
+fraction as an ordinary anchored literal value where a `median` writes
+`aggregate_fraction`. Its R13 `aggregate` requirement carries no evidence.
+
 A PostgreSQL project aggregate over a window (`sum`, `count`, `avg`, `min`
 or `max` with `OVER`) has `window_origin.function` `sum`, `count`, `avg`,
 `min` or `max`. Its additive `ranges` roles are the `syntax` roles

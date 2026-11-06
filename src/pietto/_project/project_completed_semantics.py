@@ -2954,7 +2954,7 @@ def derive_compiled_semantics(root, values, parameters=None):
                 function = get("function")
                 if function not in grouping.SPELLING or (
                     len(operands) != 2
-                    if function == "string_agg"
+                    if function in {"string_agg", "quantile"}
                     else len(operands) > 1
                 ):
                     raise CompiledError("COMPILED_AGGREGATE_SIGNATURE")
@@ -2972,6 +2972,11 @@ def derive_compiled_semantics(root, values, parameters=None):
                         is not None
                     )
                 ):
+                    raise CompiledError("COMPILED_AGGREGATE_ARGUMENT")
+                if function == "quantile" and (
+                    delimiter is None or delimiter.address.kind != "literal"
+                ):
+                    # Its fraction is a literal, never a read.
                     raise CompiledError("COMPILED_AGGREGATE_ARGUMENT")
                 if (
                     physical_required
@@ -4216,7 +4221,7 @@ def verify_compiled_semantics(value):
                     function in grouping.SPELLING
                     and (
                         len(inputs) == 2
-                        if function == "string_agg"
+                        if function in {"string_agg", "quantile"}
                         else len(inputs) <= 1
                     ),
                     "SEMANTIC_AGGREGATE_SIGNATURE",

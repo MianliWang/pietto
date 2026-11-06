@@ -53,12 +53,22 @@ MAX_AGGREGATE_NAME = "max"
 # The sample standard deviation (Python `statistics.stdev`) of an Int or Float
 # direct field; its result is a nullable Float.
 STDDEV_AGGREGATE_NAME = "stddev"
+# The interpolated median and quantile (pandas `Series.median` and
+# `Series.quantile`) of an Int or Float direct field, whose values are taken as
+# Float; `quantile` also takes a Float literal fraction from 0.0 to 1.0. Their
+# result is a nullable Float.
+MEDIAN_AGGREGATE_NAME = "median"
+QUANTILE_AGGREGATE_NAME = "quantile"
+# The aggregates of an Int or Float direct field with a nullable Float result.
+FLOAT_STATISTIC_AGGREGATE_NAMES = frozenset(
+    {STDDEV_AGGREGATE_NAME, MEDIAN_AGGREGATE_NAME, QUANTILE_AGGREGATE_NAME}
+)
 SEMANTIC_AGGREGATE_NAMES = AGGREGATE_NAMES | frozenset(
     {
         COUNT_DISTINCT_AGGREGATE_NAME,
         MIN_AGGREGATE_NAME,
         MAX_AGGREGATE_NAME,
-        STDDEV_AGGREGATE_NAME,
+        *FLOAT_STATISTIC_AGGREGATE_NAMES,
     }
 )
 LET_EXPANDABLE_AGGREGATE_ARGUMENT_NAMES = frozenset(
@@ -320,7 +330,7 @@ def expected_aggregate_arity(function_name: str) -> int:
 def expected_semantic_aggregate_arity(function_name: str) -> int:
     """Return the semantic argument count for one aggregate function."""
 
-    if function_name == STRING_AGGREGATE_NAME:
+    if function_name in {STRING_AGGREGATE_NAME, QUANTILE_AGGREGATE_NAME}:
         return 2
     if function_name in AGGREGATE_NAMES:
         return expected_aggregate_arity(function_name)
@@ -329,6 +339,7 @@ def expected_semantic_aggregate_arity(function_name: str) -> int:
         MIN_AGGREGATE_NAME,
         MAX_AGGREGATE_NAME,
         STDDEV_AGGREGATE_NAME,
+        MEDIAN_AGGREGATE_NAME,
     }:
         return 1
     raise AssertionError(f"Unsupported aggregate function: {function_name}")
@@ -476,7 +487,7 @@ def extremum_reads_let(
     if function_name not in {
         MIN_AGGREGATE_NAME,
         MAX_AGGREGATE_NAME,
-        STDDEV_AGGREGATE_NAME,
+        *FLOAT_STATISTIC_AGGREGATE_NAMES,
     }:
         return False
     if not let_expansions or input_schema.is_unknown:
@@ -851,15 +862,42 @@ def is_supported_semantic_aggregate_argument(
         return is_supported_extrema_argument(value_type)
     if function_name == STRING_AGGREGATE_NAME:
         return _is_builtin(value_type, "Text")
-    if function_name == STDDEV_AGGREGATE_NAME:
+    if function_name in FLOAT_STATISTIC_AGGREGATE_NAMES:
         return is_supported_stddev_argument(value_type)
     return False
 
 
 def is_supported_stddev_argument(value_type: ValueType) -> bool:
-    """Return whether `stddev` accepts this direct field argument type."""
+    """Return whether `stddev`, `median` and `quantile` accept this direct
+    field argument type."""
 
     return _is_builtin(value_type, "Int") or _is_builtin(value_type, "Float")
+
+
+def quantile_fraction_diagnostic(expression: CallExpr) -> Diagnostic | None:
+    """PIE-S2104 at the fraction of a two-argument `quantile` that is not a
+    Float literal from 0.0 to 1.0."""
+
+    if (
+        semantic_aggregate_call_name(expression) != QUANTILE_AGGREGATE_NAME
+        or len(expression.arguments) != 2
+    ):
+        return None
+    fraction = expression.arguments[1]
+    if type(fraction) is LiteralExpr and type(fraction.value) is float:
+        if 0.0 <= fraction.value <= 1.0:
+            return None
+        message = (
+            f"Invalid arguments for aggregate quantile: q {fraction.value!r} is "
+            "outside 0.0 to 1.0; write a fraction such as 0.9 for the 90th "
+            "percentile"
+        )
+    else:
+        message = (
+            "Invalid arguments for aggregate quantile: q must be a Float literal "
+            "from 0.0 to 1.0, written in the call, such as quantile(x, 0.9)"
+        )
+    return _diagnostic(fraction, code="PIE-S2104", message=message)
 
 
 def aggregate_result_value_type(
@@ -909,7 +947,7 @@ def semantic_aggregate_result_value_type(
             if is_supported_count_distinct_argument(argument_type)
             else None
         )
-    if function_name == STDDEV_AGGREGATE_NAME:
+    if function_name in FLOAT_STATISTIC_AGGREGATE_NAMES:
         return (
             FLOAT_NULLABLE_VALUE_TYPE
             if argument_type is not None and is_supported_stddev_argument(argument_type)
@@ -1075,7 +1113,7 @@ def wrong_argument_type_diagnostic(
                 if name in {MIN_AGGREGATE_NAME, MAX_AGGREGATE_NAME}
                 else (
                     "Int or Float"
-                    if name == STDDEV_AGGREGATE_NAME
+                    if name in FLOAT_STATISTIC_AGGREGATE_NAMES
                     else "Int, Float, or Decimal"
                 )
             )

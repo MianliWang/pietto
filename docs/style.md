@@ -622,6 +622,11 @@ query visit_spread:
     from visits
     group by first_name
     select first_name, minutes_spread = stddev(minutes)
+
+query visit_minutes:
+    from visits
+    group by first_name
+    select first_name, typical = median(minutes), slow = quantile(minutes, 0.9)
 ```
 
 `concat` joins Text values and is None when any of them is None, as SQL's
@@ -629,6 +634,12 @@ query visit_spread:
 None, False when only one is. Write a half-open range, such as one month, as
 one chain `start <= ts < stop`. `stddev` is the sample standard deviation,
 Python's `statistics.stdev`, and is None for fewer than two values.
+`median(x)` and `quantile(x, q)` are the interpolated median and quantile, as
+pandas' `Series.median()` and `Series.quantile(q)`: the values are taken as
+Float, None values are skipped, and the result is a Float, None when no value
+is left. `q` is a Float literal from 0.0 to 1.0 written in the call, such as
+`0.9` for the 90th percentile. They take an `Int` or `Float` field and emit on
+PostgreSQL only; MySQL has no interpolated percentile.
 `max(a, b)` and `min(a, b)` are Python's larger and smaller of two values and
 are None when either value is None, where SQL's `GREATEST` and `LEAST` skip a
 None on PostgreSQL. Nest them for more values: `max(a, max(b, c))`; a nest of
@@ -665,6 +676,10 @@ Comments start with `#`, as in Python. `--` does not start a comment:
 | `start <= ts and ts < stop` | `start <= ts < stop` | one chain for a half-open range: `start` is in it, `stop` is not |
 | `statistics.stdev(xs)`, `stddev_samp(x)` | `stddev(x)` | one name, the sample deviation; None below two values, where Python raises |
 | `statistics.pstdev(xs)`, `stddev_pop(x)`, `std(x)` | not available | the population deviation; MySQL `STD`/`STDDEV` and numpy `std` mean population; Pietto never emits them |
+| `statistics.median(xs)`, `percentile_cont(0.5) within group (order by x)` | `median(x)` | one name; values are taken as Float, None values are skipped, and an empty group is None, where Python raises |
+| `df.x.quantile(0.9)`, `percentile_cont(0.9) within group (order by x)`, `approx_percentile(x, 0.9)` | `quantile(x, 0.9)` | `q` is a Float literal from 0.0 to 1.0 written in the call; `90` or a field is refused (PIE-S2104) |
+| `percentile_disc(0.9) within group (order by x)` | not available | the discrete percentile picks one value; `quantile` interpolates between the two nearest |
+| `median(x) window(...)`, `median(x) over (...)` | not available | a running or partitioned median is not a window aggregate (PIE-S2103) |
 | `sum(1 if paid else 0)`, `count_if(paid)`, `sum(x) filter (where paid)` | `sum(1 for o in group if o.paid)` | one way to count the rows that match; a conditional argument is refused (PIE-S2315, PIE-S2103, PIE-P1000) |
 | `sum(amount if paid else 0)` | `sum(o.amount for o in group if o.paid)` | the test follows the source, as in Python; 0 when no row matches |
 | `count(paid)` to count the True values | `sum(1 for o in group if o.paid)` | `count(paid)` counts every row whose `paid` is not None, False included (warning PIE-S2388) |

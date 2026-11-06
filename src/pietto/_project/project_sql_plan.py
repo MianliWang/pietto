@@ -1114,6 +1114,19 @@ def _normalized_scalar_expression(
     return expression
 
 
+def _aggregate_child(call: CallExpr, child: Expression, evidence: object) -> Expression:
+    """One authored child of an aggregate, as its evidence reads it: a
+    `quantile` fraction is a Float literal that reads no row and stays as
+    written, as the evidence of its argument describes that argument only."""
+    if (
+        semantic_aggregate_call_name(call) == "quantile"
+        and len(call.arguments) == 2
+        and child is call.arguments[1]
+    ):
+        return child
+    return _normalized_scalar_expression(child, evidence)
+
+
 def _collect_reads(selections) -> frozenset[int]:
     """Identities of the Collect reads that are whole ungrouped SELECT items:
     each is the projection of its own export, never a row value site."""
@@ -1170,9 +1183,10 @@ def _aggregate_blockers(entry, rows, aggregate):
         if not isinstance(call, CallExpr) or (
             len(call.arguments) > 1
             and (
-                semantic_aggregate_call_name(call) != "string_agg"
+                semantic_aggregate_call_name(call) not in {"string_agg", "quantile"}
                 or len(call.arguments) != 2
-                or not call.aggregate_order_by
+                or bool(call.aggregate_order_by)
+                is not (semantic_aggregate_call_name(call) == "string_agg")
             )
         ):
             return ((K.EXPRESSION_EVIDENCE, source.item),)
@@ -1199,7 +1213,7 @@ def _aggregate_blockers(entry, rows, aggregate):
             )
             if evidence is None or any(
                 _scalar_blocker(
-                    _normalized_scalar_expression(argument, evidence), evidence, source
+                    _aggregate_child(call, argument, evidence), evidence, source
                 )
                 is not None
                 for argument in authored
@@ -1208,9 +1222,7 @@ def _aggregate_blockers(entry, rows, aggregate):
             leaves = tuple(
                 n
                 for argument in authored
-                for n in row.scalar_nodes(
-                    _normalized_scalar_expression(argument, evidence)
-                )
+                for n in row.scalar_nodes(_aggregate_child(call, argument, evidence))
                 if isinstance(n, (NameExpr, DottedNameExpr))
             )
             if len(leaves) != len(references) or any(
@@ -1304,7 +1316,8 @@ def _scalar_blocker(expression, evidence, aggregate=None, block_reads=frozenset(
         aggregation.argument_evidence(aggregate) is not evidence
         or not aggregation.arguments(aggregate)
         or not any(
-            _normalized_scalar_expression(argument, evidence) is expression
+            _aggregate_child(aggregate.item.expression, argument, evidence)
+            is expression
             for argument in (
                 *aggregation.arguments(aggregate),
                 *(
@@ -3806,9 +3819,7 @@ def build_project_sql_plan(
                     for child_position, child in enumerate(authored_children):
                         evidence = aggregation.argument_evidence(source)
                         assert evidence is not None
-                        normalized_child = _normalized_scalar_expression(
-                            child, evidence
-                        )
+                        normalized_child = _aggregate_child(call, child, evidence)
                         leaves = tuple(
                             node
                             for node in row.scalar_nodes(normalized_child)

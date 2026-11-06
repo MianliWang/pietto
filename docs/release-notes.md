@@ -559,6 +559,86 @@ Compatibility:
   PIE-B1003 `binary_operator_not_admitted`; `sum(amount + amount)`: PIE-B1004
   `decimal_aggregate_range_proof_missing`).
 
+### `median` and `quantile` aggregates
+
+- `median(x)` and `quantile(x, q)` are the interpolated median and quantile
+  (pandas `Series.median()` / `Series.quantile(q)`, default `linear`) of the
+  non-None values of a direct `Int` or `Float` field, each taken as its Float
+  image: a nullable `Float`, `None` for an empty or all-None input. `q` is a
+  Float literal from 0.0 to 1.0 written in the call. Grouped and no-GROUP-BY
+  queries; HAVING reads one through its select-item alias (`having m > 1.0`),
+  and a direct call in HAVING is PIE-S2308, as for the other aggregates.
+  PostgreSQL SQL is
+  `PERCENTILE_CONT(0.5) WITHIN GROUP (ORDER BY x)` (an `Int` argument cast to
+  `double precision`; project: `CAST(x AS pg_catalog.float8)`, the `quantile`
+  fraction `CAST('0.9' AS pg_catalog.float8)`), VERIFIED in projects for `Int`
+  and carried through compiled bundles and live templates. New public JSON v2
+  `ranges` syntax roles `aggregate_fraction` and `aggregate_within`; aggregate
+  `spelling` `PERCENTILE_CONT`.
+- **New refusals.**
+  - MySQL single file: PIE-B1000 `MySQL SQL emission is not implemented for
+    RelationIR: <name>. MySQL aggregate median is not supported: MySQL has no
+    interpolated percentile; emit this relation for PostgreSQL` (`quantile` for
+    a `quantile`). MySQL project: PIE-B1003 `quantile_not_admitted_on_target`,
+    suggestion `Emit this median or quantile for PostgreSQL, or keep it in
+    check/plan: MySQL has no interpolated percentile.` MySQL 8.4 has no
+    `PERCENTILE_CONT`; both stay refused until a MySQL formulation is
+    reviewed.
+  - PostgreSQL project `Float` argument: PIE-B1004
+    `float_aggregate_finite_result_proof_missing` (as `sum`/`avg` of a Float
+    before). Other PostgreSQL project argument types: PIE-B1003
+    `median_argument_outside_reviewed_int_domain` /
+    `quantile_argument_outside_reviewed_int_domain` (unreachable after check,
+    which refuses them with PIE-S2314).
+  - PIE-S2104 at the fraction: `Invalid arguments for aggregate quantile: q 1.5
+    is outside 0.0 to 1.0; write a fraction such as 0.9 for the 90th
+    percentile` (the value as Python writes it); `Invalid arguments for
+    aggregate quantile: q must be a Float literal from 0.0 to 1.0, written in
+    the call, such as quantile(x, 0.9)` for an Int literal, a signed literal,
+    a field, a `let` name or an expression, in single files and in projects
+    (a LEGACY_FLAT project's GROUP BY relation reports no error of any
+    aggregate call that reads a `let` name).
+  - PIE-S2314 `Aggregate function median expects Int or Float field argument,
+    got Decimal` (also `quantile`; also `Date`, `Timestamp`, `Text`, ...).
+    A `Decimal` median is not available: PostgreSQL `percentile_cont` has no
+    `numeric` form.
+  - PIE-S2315 for an expression or `let` name argument, PIE-S2309 for a wrong
+    argument count (`expects 2 arguments` for `quantile`, `1` for `median`),
+    PIE-S2103 `Aggregate window functions are not implemented: median; window
+    aggregates are sum, count, avg, min and max` with a `window`.
+  - PIE-P1000 at `within`: `Unexpected 'within'. Pietto has no ordered-set
+    `WITHIN GROUP`; write `quantile(x, q)` with q a Float literal from 0.0 to
+    1.0, or `median(x)`.` (only after a `)`).
+  - Over a JOIN that repeats rows both are PIE-S2381, as `sum` is.
+- **Compatibility.** `def median` and `def quantile` are now PIE-S2398
+  (``Def median has the name of a built-in function; a def cannot shadow
+  one``) with the suggestion ``Rename this def: `median` is now the built-in
+  interpolated median aggregate, and a call to median always means it.``
+  (`interpolated quantile` and `quantile` for `def quantile`). A `constraint`
+  or `derive` named `median` or `quantile` still checks; a call of that name,
+  which was PIE-S2103 (``Unknown function: median; median is a constraint,
+  which cannot be called; write a `def` instead``, `a derive` for a derive),
+  now means the aggregate, as for `stddev`. A `relationship median(...)` or
+  `relationship quantile(...)` template keeps its meaning: a WHERE, `let` or
+  select-item call of it binds the relationship, and its PostgreSQL SQL is
+  unchanged. A lowercase `median(...)` call (PIE-S2103 with the
+  available-aggregates hint) and a `quantile(...)` call (PIE-S2103 `Unknown
+  function: quantile`) are now the aggregates.
+- PIE-S2103 hints (the lookup ignores letter case): the available-aggregates
+  list is now ``the available aggregates are avg, count, count_distinct, max,
+  median, min, quantile, stddev, string_agg and sum`` (also for `MEDIAN` and
+  `QUANTILE` in another case); `percentile`, `percentile_approx`,
+  `percentile_cont` and `approx_percentile` hint ``write `quantile(x, q)`, the
+  interpolated quantile (pandas `Series.quantile`) with q a Float literal from
+  0.0 to 1.0; `median(x)` is `quantile(x, 0.5)` ``; `percentile_disc` hints
+  ``write `quantile(x, q)`, the interpolated quantile (pandas
+  `Series.quantile`) with q a Float literal from 0.0 to 1.0; a discrete
+  percentile that picks one value is not available``.
+- **Formats.** A compiled `aggregate_value` record may name `median` (one
+  input) or `quantile` (two inputs, the second its literal fraction); such
+  bundles carry the Phase73 version marks `(7, 1, 7, 1)` of the aggregate
+  windows subsection, and a reader of earlier marks refuses them.
+
 ## Equality, nullability and asof JOIN public alpha release notes — 0.1.9
 
 <a id="unreleased-changes-following-018"></a>

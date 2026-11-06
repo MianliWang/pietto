@@ -319,6 +319,139 @@ def test_malformed_hand_built_stddev_ir_fails_closed_with_pie_b1000(
     assert [d.code for d in result.diagnostics] == ["PIE-B1000"]
 
 
+QUANTILE_SOURCE = STDDEV_SOURCE.replace("spread = {call}", "middle = {call}").replace(
+    "spread > 1.0", "middle > 1.0"
+)
+
+
+def _quantile_result(target: str, call: str) -> SqlResult:
+    parsed = parse_source(QUANTILE_SOURCE.format(target=target, call=call))
+    assert parsed.ast is not None
+    lowered = build_ir(parsed.ast, analyze(parsed.ast).model)
+    assert lowered.ir is not None, lowered.diagnostics
+    emit = emit_postgres_sql if target == "postgres" else emit_mysql_sql
+    return emit(lowered.ir)
+
+
+@pytest.mark.parametrize(
+    ("call", "expected"),
+    (
+        (
+            "median(value)",
+            'PERCENTILE_CONT(0.5) WITHIN GROUP (ORDER BY CAST("value" AS double '
+            "precision))",
+        ),
+        ("median(ratio)", 'PERCENTILE_CONT(0.5) WITHIN GROUP (ORDER BY "ratio")'),
+        (
+            "quantile(value, 0.9)",
+            'PERCENTILE_CONT(0.9) WITHIN GROUP (ORDER BY CAST("value" AS double '
+            "precision))",
+        ),
+        (
+            "quantile(ratio, 0.0)",
+            'PERCENTILE_CONT(0.0) WITHIN GROUP (ORDER BY "ratio")',
+        ),
+        (
+            "quantile(ratio, 1.0)",
+            'PERCENTILE_CONT(1.0) WITHIN GROUP (ORDER BY "ratio")',
+        ),
+    ),
+)
+def test_postgres_median_and_quantile_are_the_interpolated_percentile(
+    call: str, expected: str
+) -> None:
+    """PERCENTILE_CONT interpolates between the two nearest non-NULL values in
+    double precision; an Int value is cast to double precision first."""
+    result = _quantile_result("postgres", call)
+
+    assert result.diagnostics == ()
+    global_sql, grouped_sql = (artifact.sql for artifact in result.artifacts)
+    assert f'{expected} AS "middle"' in global_sql
+    assert f'{expected} AS "middle"' in grouped_sql
+    assert f"HAVING\n    {expected} > 1.0" in grouped_sql
+    assert "PERCENTILE_DISC" not in global_sql + grouped_sql
+
+
+@pytest.mark.parametrize("call", ("median(value)", "quantile(ratio, 0.5)"))
+def test_mysql_refuses_median_and_quantile(call: str) -> None:
+    refused = _quantile_result("mysql", call)
+    name = call.split("(")[0]
+
+    assert refused.artifacts == ()
+    assert [(d.code, d.message) for d in refused.diagnostics] == [
+        (
+            "PIE-B1000",
+            f"MySQL SQL emission is not implemented for RelationIR: {relation}. "
+            f"MySQL aggregate {name} is not supported: MySQL has no interpolated "
+            "percentile; emit this relation for PostgreSQL",
+        )
+        for relation in ("global_spread", "grouped_spread")
+    ]
+
+
+@pytest.mark.parametrize(
+    "case",
+    (
+        "decimal_argument",
+        "expression_argument",
+        "non_null_result",
+        "fraction_above_one",
+        "int_fraction",
+        "field_fraction",
+        "median_fraction",
+    ),
+)
+def test_malformed_hand_built_quantile_ir_fails_closed_with_pie_b1000(
+    case: str,
+) -> None:
+    script_ir = _compile(POSTGRES_INPUT)
+    relation = _relation_ir(script_ir)
+    non_null = replace(FLOAT_NULLABLE, nullability=NullabilityIR.NON_NULL)
+    score = _field("score", non_null)
+    half = _literal(0.5, non_null)
+    bad = {
+        "decimal_argument": _aggregate(
+            "quantile", FLOAT_NULLABLE, _field("price", DECIMAL_NON_NULL), half
+        ),
+        "expression_argument": _aggregate(
+            "median",
+            FLOAT_NULLABLE,
+            BinaryIR(
+                span=SPAN,
+                value_type=score.value_type,
+                left=score,
+                operator="+",
+                right=score,
+            ),
+        ),
+        "non_null_result": _aggregate("median", non_null, score),
+        "fraction_above_one": _aggregate(
+            "quantile", FLOAT_NULLABLE, score, _literal(1.5, non_null)
+        ),
+        "int_fraction": _aggregate(
+            "quantile", FLOAT_NULLABLE, score, _literal(1, INT_NON_NULL)
+        ),
+        "field_fraction": _aggregate("quantile", FLOAT_NULLABLE, score, score),
+        "median_fraction": _aggregate("median", FLOAT_NULLABLE, score, half),
+    }[case]
+    bad_relation = replace(
+        relation,
+        projections=(replace(relation.projections[1], expression=bad),),
+    )
+
+    result = emit_postgres_sql(
+        ScriptIR(
+            definitions=tuple(
+                bad_relation if definition is relation else definition
+                for definition in script_ir.definitions
+            )
+        )
+    )
+
+    assert result.artifacts == ()
+    assert [d.code for d in result.diagnostics] == ["PIE-B1000"]
+
+
 @pytest.mark.parametrize(
     ("input_path", "dialect", "golden_name"),
     [
@@ -572,7 +705,7 @@ def _relation_ir(script_ir: ScriptIR) -> RelationIR:
 
 def _malformed_aggregate(case: str) -> AggregateCallIR:
     if case == "unsupported_function":
-        return _aggregate("median", FLOAT_NULLABLE, _field("amount", INT_NON_NULL))
+        return _aggregate("variance", FLOAT_NULLABLE, _field("amount", INT_NON_NULL))
     if case == "wrong_arity":
         return _aggregate("sum", INT_NULLABLE)
     if case == "non_field_argument":

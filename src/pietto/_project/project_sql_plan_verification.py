@@ -151,6 +151,7 @@ from pietto._project.module_semantic_fact_preservation import (
 )
 from pietto._project.project_row_equivalence import ProjectRowEquivalenceInput
 from pietto._project.project_sql_plan import (
+    _aggregate_child,
     _callable_symbol,
     _normalized_scalar_expression,
     _operators,
@@ -1278,7 +1279,7 @@ def _row_site(
                 if index == 0
                 and isinstance(evidence, aggregation.ProjectAggregateExpressionAnalysis)
                 and evidence.predicate_expression is not None
-                else evidence.normalized_expression
+                else _aggregate_child(occurrence.expression, expression, evidence)
                 if isinstance(evidence, row.ProjectConcreteJoinedNamespaceExpression)
                 else expression
                 for index, expression in enumerate(authored)
@@ -1297,7 +1298,6 @@ def _row_site(
                 isinstance(authority, row.ProjectSQLJoinedRowAuthority)
                 and isinstance(evidence, row.ProjectConcreteJoinedNamespaceExpression)
                 and evidence.namespace is authority.namespaces.post_let
-                and evidence.normalized_expression is site.expression
             )
         return (
             role is row.ProjectSQLExpressionRole.SATISFYING
@@ -2492,7 +2492,7 @@ def _whole_plan(plan: ProjectSQLPlan) -> tuple[ProjectSQLPlanVerificationIssue, 
                         continue
                     reference_position = 0
                     for position, child in enumerate(children):
-                        expression = _normalized_scalar_expression(child, evidence)
+                        expression = _aggregate_child(call, child, evidence)
                         leaves = tuple(
                             node
                             for node in row.scalar_nodes(expression)
@@ -2667,10 +2667,7 @@ def _whole_plan(plan: ProjectSQLPlan) -> tuple[ProjectSQLPlanVerificationIssue, 
                         for position, expression in enumerate(
                             aggregate_authored_children
                         )
-                        if _normalized_scalar_expression(
-                            expression,
-                            evidence,
-                        )
+                        if _aggregate_child(call, expression, evidence)
                         is site.expression
                     )
                     if (

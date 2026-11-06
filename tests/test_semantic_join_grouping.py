@@ -5085,20 +5085,24 @@ _JOINED_PROOFS: dict[str, tuple[str, tuple[str, ...], str | None]] = {
         (),
         None,
     ),
-    # `stddev` skips the NULL-extended row as `sum` does, and reads
-    # the repeated rows as `sum` does.
+    # `stddev`, `median` and `quantile` skip the NULL-extended row as `sum`
+    # does, and read the repeated rows as `sum` does.
     "stddev_of_the_left_many_side_from_its_matched_key": (
         "query q:\n" + _CUSTOMER_ORDERS + "    group by:\n        customers.region\n"
         "    select:\n        region = customers.region\n"
-        "        spread = stddev(orders.amount)\n",
+        "        spread = stddev(orders.amount)\n"
+        "        middle = median(orders.amount)\n"
+        "        high = quantile(orders.amount, 0.9)\n",
         (),
         None,
     ),
     "stddev_of_the_repeated_side": (
         "query q:\n" + _CUSTOMER_ORDERS + "    group by:\n        customers.region\n"
         "    select:\n        region = customers.region\n"
-        "        spread = stddev(customers.id)\n",
-        ("stddev(customers.id)",),
+        "        spread = stddev(customers.id)\n"
+        "        middle = median(customers.id)\n"
+        "        high = quantile(customers.id, 0.9)\n",
+        ("stddev(customers.id)", "median(customers.id)", "quantile(customers.id, 0.9)"),
         "JOIN orders; " + _keyed("orders"),
     ),
     # Where an order is NULL-extended, the `on` of items finds no match, so

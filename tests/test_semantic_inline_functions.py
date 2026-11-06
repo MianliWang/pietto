@@ -381,7 +381,9 @@ def test_only_a_def_named_for_a_new_builtin_is_told_to_rename() -> None:
     parsed = parse_source(
         "def stddev(a: Int) -> Int: return a\ndef avg(a: Int) -> Int: return a\n"
         "def lpad(a: Text) -> Text: return a\n"
-        "def add_months(a: Int) -> Int: return a\n",
+        "def add_months(a: Int) -> Int: return a\n"
+        "def median(a: Int) -> Int: return a\n"
+        "def quantile(a: Float, q: Float) -> Float: return a * q\n",
         path="m.pietto",
     )
     assert parsed.ast is not None
@@ -401,6 +403,16 @@ def test_only_a_def_named_for_a_new_builtin_is_told_to_rename() -> None:
             "PIE-S2398",
             "Rename this def: `add_months` is now the built-in month arithmetic "
             "on Date, and a call to add_months always means it.",
+        ),
+        (
+            "PIE-S2398",
+            "Rename this def: `median` is now the built-in interpolated median "
+            "aggregate, and a call to median always means it.",
+        ),
+        (
+            "PIE-S2398",
+            "Rename this def: `quantile` is now the built-in interpolated quantile "
+            "aggregate, and a call to quantile always means it.",
         ),
     ]
 
@@ -3857,6 +3869,37 @@ def test_concat_relationship_template_keeps_its_meaning() -> None:
         + query
         + "        w = wrap(a)\n"
     ) == [("PIE-S2103", 8, 35, unknown)]
+
+
+@pytest.mark.parametrize("name", ["median", "quantile"])
+def test_a_median_or_quantile_callable_keeps_or_yields_its_meaning(name: str) -> None:
+    rows = 'shape Row:\n    id: Int\n    a: Int\nsource rows: Row = postgres.table("rows")\n'
+    # A relationship template of the name keeps its meaning where it binds.
+    parsed = parse_source(
+        rows
+        + f"relationship {name}(row: Row):\n    row.id > 0\n"
+        + f"query q:\n    from rows\n    where {name}(rows)\n    select:\n"
+        + f"        v = a\n        b = {name}(rows)\n"
+    )
+    assert parsed.diagnostics == () and parsed.ast is not None
+    checked = analyze(parsed.ast)
+    assert checked.diagnostics == ()
+    assert len(checked.model.relationship_calls) == 2
+    # A constraint or derive of the name cannot be called, so a call of the
+    # name, PIE-S2103 before, is now the aggregate.
+    call = f"{name}(a)" if name == "median" else f"{name}(a, 0.5)"
+    for declaration in (
+        f"constraint {name}(x: Int) -> Bool:\n    return x > 0\n",
+        f"derive {name}(x: Int) -> Int:\n    return x\n",
+    ):
+        assert (
+            _errors(
+                rows
+                + declaration
+                + f"query q:\n    from rows\n    select:\n        m = {call}\n"
+            )
+            == []
+        )
 
 
 @pytest.mark.parametrize(

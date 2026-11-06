@@ -957,6 +957,62 @@ def test_float_sum_and_avg_are_uncast_closed_data_relations(tmp_path_factory, va
         assert _status(_mutated(data, edit))[0] is pure.Status.INVALID_RELATION
 
 
+def test_quantile_order_cast_and_fraction_are_closed_data_relations(tmp_path):
+    """A public consumer admits a PostgreSQL median or quantile only as
+    PERCENTILE_CONT of a float8-cast Int with no result cast, a median
+    without and a quantile with its Float fraction."""
+    item = emission.fixture("postgres", "T_row_direct", "table_preserve")
+    source = item["source"].split("table result:", 1)[0] + (
+        "table result:\n    from rows\n    select:\n"
+        "        middle = median(id)\n        high = quantile(id, 0.9)\n"
+    )
+    _, outcome = emission.build_case(tmp_path, source, item["contract"], item["policy"])
+    artifact = outcome.artifact
+    assert artifact is not None
+    observed = portable.export_emission_observation(artifact, artifact.request)
+    data = observed.canonical_bytes
+    assert data is not None
+    document = json.loads(data)
+    assert [
+        (
+            column["function"],
+            column["spelling"],
+            column["argument_cast"],
+            column["result_cast"],
+            column["delimiter"] is None,
+        )
+        for column in _records(document, "aggregate_value_column")
+    ] == [
+        ("median", "PERCENTILE_CONT", "pg_catalog.float8", None, True),
+        ("quantile", "PERCENTILE_CONT", "pg_catalog.float8", None, False),
+    ]
+    assert portable.verify_emission_observation(
+        data, artifact, artifact.request
+    ).corresponds
+
+    def field(position, name, value):
+        def edit(candidate):
+            _records(candidate, "aggregate_value_column")[position][name] = value
+
+        return edit
+
+    for edit in (
+        field(0, "argument_cast", None),
+        field(0, "result_cast", "pg_catalog.float8"),
+        field(0, "spelling", "PERCENTILE_DISC"),
+        field(0, "function", "quantile"),
+        field(1, "function", "median"),
+        field(1, "spelling", "AVG"),
+        field(1, "argument_cast", None),
+    ):
+        assert _status(_mutated(data, edit))[0] is pure.Status.INVALID_RELATION
+    # A median that claims the quantile's fraction shares its record.
+    fraction = _records(document, "aggregate_value_column")[1]["delimiter"]
+    assert _status(_mutated(data, field(0, "delimiter", fraction)))[0] is (
+        pure.Status.INVALID_REF
+    )
+
+
 @pytest.mark.parametrize(
     ("expression", "static_expression", "kind"),
     (

@@ -409,6 +409,8 @@ AGGREGATE_SPELLINGS = {
     "MAX(": "max",
     "string_agg(": "string_agg",
     "VAR_SAMP(": "stddev",
+    # `median` writes the fraction 0.5; a `quantile` its literal fraction.
+    "PERCENTILE_CONT(": "quantile",
 }
 # The eleven admitted Slice9 identities, keyed by the exact emitted call token.
 WINDOW_SPELLINGS = {
@@ -9480,7 +9482,27 @@ def _decode_fixed_public(document, limits):
             result_cast = "pg_catalog.float8"
         distinct, argument, delimiter, order_by = False, None, None, []
         argument_cast = None
-        if peek() == "aggregate_row_count":
+        function = AGGREGATE_SPELLINGS[spelling]
+        if spelling == "PERCENTILE_CONT(":
+            # PERCENTILE_CONT(fraction) WITHIN GROUP (ORDER BY CAST(x AS float8)).
+            _need(family == "postgres", "PERCENTILE_CONT family")
+            if peek() == "aggregate_fraction":
+                take("syntax", "aggregate_fraction", "0.5", subject)
+                function = "median"
+            else:
+                # An aggregate argument literal stays a literal under
+                # BIND_SAFE, a specialized position as in the product.
+                held = specialized[0]
+                specialized[0] = True
+                delimiter = row_parse(block)
+                specialized[0] = held
+            take("syntax", "aggregate_within", ") WITHIN GROUP (ORDER BY ", subject)
+            take("syntax", "aggregate_argument_cast_open", "CAST(", subject)
+            argument = row_parse(block)
+            _, token = take("syntax", "aggregate_argument_cast_close", subject=subject)
+            _need(token == " AS pg_catalog.float8)", "PERCENTILE_CONT order cast")
+            argument_cast = "pg_catalog.float8"
+        elif peek() == "aggregate_row_count":
             take("syntax", "aggregate_row_count", "*", subject)
             _need(spelling == "COUNT(", "only a row count has no argument")
         else:
@@ -9545,7 +9567,7 @@ def _decode_fixed_public(document, limits):
             "order_by": order_by,
             "result_cast": result_cast,
             "argument_cast": argument_cast if argument is not None else None,
-            "function": "count_distinct" if distinct else AGGREGATE_SPELLINGS[spelling],
+            "function": "count_distinct" if distinct else function,
         }
 
     def aggregate_realization(
@@ -9625,6 +9647,24 @@ def _decode_fixed_public(document, limits):
             }
         _need(argument is not None, "an aggregate value needs its own argument")
         assert argument is not None
+        if function in {"median", "quantile"}:
+            # The interpolated percentile of float8 images of an Int, NULL for
+            # no value; a `quantile` fraction is a Float constant.
+            _need(
+                family == "postgres"
+                and argument["tag"] == "Int"
+                and argument_cast == "pg_catalog.float8"
+                and (delimiter is None) is (function == "median")
+                and (delimiter is None or delimiter["tag"] == "Float")
+                and not order_by,
+                "PERCENTILE_CONT arguments",
+            )
+            return {
+                "tag": "Float",
+                "storage": {"kind": "pg_float8"},
+                "nullable": True,
+                "domain": {"kind": "finite_float", "format": "binary64"},
+            }
         if function == "string_agg":
             _need(
                 family == "postgres"

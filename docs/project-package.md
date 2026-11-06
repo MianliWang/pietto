@@ -840,6 +840,22 @@ finite, and the statement may fail where the sum of squares overflows (about
 (`stddev_int_not_admitted_on_target`), a `Float` argument with `PIE-B1004`
 (`float_aggregate_finite_result_proof_missing`).
 
+PostgreSQL project SQL emits `median` and `quantile` of one direct `Int` field,
+whose carrier is `int2`, `int4` or `int8`, as
+`PERCENTILE_CONT(0.5) WITHIN GROUP (ORDER BY CAST(x AS pg_catalog.float8))`,
+the fraction of a `quantile` an anchored Float literal such as
+`CAST('0.9' AS pg_catalog.float8)` in place of `0.5` (a literal under either
+literal policy, as an aggregate argument is). It is VERIFIED with no
+`int_range` requirement and no R13 evidence: the float8 image of any signed
+64-bit value is finite, and so is an interpolation between two of them. Its
+result is a nullable `Float` (`pg_float8`, `finite_float`). A `Float` argument
+is BLOCKED with `PIE-B1004` (`float_aggregate_finite_result_proof_missing`):
+PostgreSQL interpolates between two finite values more than the largest
+float8 apart to an infinity without an error. MySQL project SQL keeps both
+BLOCKED with `PIE-B1003` (`quantile_not_admitted_on_target`). Compiled bundles
+and live templates carry them unchanged (the compiled description holds a
+`quantile` fraction as its second, literal argument).
+
 `check --project` also accepts the following forms, which
 `emit-sql --project` reports BLOCKED on both dialects whatever the contract
 declares:

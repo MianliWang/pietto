@@ -56,7 +56,17 @@ _PROJECT_BUILTIN_TYPE_NAMES = frozenset(
     }
 )
 _SEMANTIC_AGGREGATE_NAMES = frozenset(
-    {"count", "count_distinct", "sum", "avg", "min", "max", "stddev"}
+    {
+        "count",
+        "count_distinct",
+        "sum",
+        "avg",
+        "min",
+        "max",
+        "stddev",
+        "median",
+        "quantile",
+    }
 )
 
 

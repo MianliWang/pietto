@@ -43,6 +43,7 @@ from pietto.semantic.aggregates import (
     is_supported_semantic_aggregate_argument_expression,
     nested_semantic_aggregate,
     nested_aggregate_diagnostic,
+    quantile_fraction_diagnostic,
     semantic_aggregate_call_name,
     semantic_projection_aggregate_result_value_type,
     wrong_arity_diagnostic,
@@ -486,6 +487,10 @@ def _aggregate_output_field(
             )
         ):
             diagnostics.append(wrong_arity_diagnostic(expression))
+        return _unknown_row_field(item.alias), diagnostics, False
+
+    if quantile_fraction_diagnostic(expression) is not None:
+        # Its typing reports the fraction (PIE-S2104).
         return _unknown_row_field(item.alias), diagnostics, False
 
     if function_name == "string_agg" and expression_value_types is not None:

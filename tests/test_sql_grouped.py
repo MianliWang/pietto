@@ -1380,6 +1380,122 @@ def test_stddev_is_the_postgres_root_of_the_float8_sample_variance(
 
 
 @pytest.mark.parametrize("target", TARGETS)
+@pytest.mark.parametrize("policy", ("preserve_literals", "bind_safe_literals"))
+@pytest.mark.parametrize("grouped", (True, False))
+def test_median_and_quantile_are_the_postgres_percentile_of_an_int(
+    tmp_path, target, policy, grouped
+):
+    """PostgreSQL emits PERCENTILE_CONT over the float8 image of an Int, the
+    `quantile` fraction an anchored literal under either policy; MySQL, which
+    has no interpolated percentile, refuses each with a suggestion."""
+    keys = (
+        "    group by key\n    select:\n        key\n" if grouped else "    select:\n"
+    )
+    outcome = emit_source(
+        tmp_path,
+        target,
+        "query result:\n    from agg\n" + keys + "        m = median(value)\n"
+        "        q = quantile(rid, 0.9)\n",
+        policy=policy,
+    )
+    data = public(outcome)
+    if target == "mysql":
+        assert data["status"] == "BLOCKED"
+        assert [
+            (b["code"], b["subject"]["detail"], b["location"]["line"], b["suggestion"])
+            for b in data["blockers"]
+        ] == [
+            (
+                "PIE-B1003",
+                "quantile_not_admitted_on_target",
+                line,
+                "Emit this median or quantile for PostgreSQL, or keep it in "
+                "check/plan: MySQL has no interpolated percentile.",
+            )
+            for line in ((16, 17) if grouped else (14, 15))
+        ]
+        return
+    assert outcome.status == "VERIFIED", outcome.blockers
+    for label in ("m", "q"):
+        assert column(data, label)["logical_type"] == {
+            "kind": "builtin",
+            "name": "Float",
+            "parameters": None,
+        }
+        assert column(data, label)["representation"] == {
+            "storage": {"kind": "pg_float8"},
+            "nullable": True,
+            "domain": {"kind": "finite_float", "format": "binary64"},
+        }
+    assert (
+        'PERCENTILE_CONT(0.5) WITHIN GROUP (ORDER BY CAST("s0"."value é" AS '
+        'pg_catalog.float8)) AS "c'
+    ) in data["sql"]
+    assert (
+        "PERCENTILE_CONT(CAST('0.9' AS pg_catalog.float8)) WITHIN GROUP (ORDER BY "
+        'CAST("s0"."row id" AS pg_catalog.float8)) AS "c'
+    ) in data["sql"]
+    assert [
+        r["evidence"] for r in data["requirements"] if r["kind"] == "aggregate"
+    ] == [[], []]
+
+
+@pytest.mark.parametrize("grouped", [False, True])
+def test_postgres_median_and_quantile_read_left_join_rows(tmp_path, grouped):
+    """Over a LEFT JOIN's rows, as `sum` reads them: the quantile fraction is
+    a literal beside the joined argument, not another read of it."""
+    item = probe.fixture("postgres", "Z_aggregate_joined", "left_nullable")
+    header = item["source"].split("query result:", 1)[0]
+    keys = (
+        "    group by:\n        keys.rid\n    select:\n        k = keys.rid\n"
+        if grouped
+        else "    select:\n"
+    )
+    _, outcome = probe.build_case(
+        tmp_path,
+        header
+        + "query result:\n    from keys\n    let r = agg\n"
+        + "    left join r on keys.rid == r.rid\n"
+        + keys
+        + "        m = median(r.rid)\n        q = quantile(r.rid, 0.75)\n",
+        item["contract"],
+        item["policy"],
+    )
+    assert outcome.status == "VERIFIED", outcome.blockers
+    order = 'WITHIN GROUP (ORDER BY CAST("t0"."c13" AS pg_catalog.float8))'
+    sql = public(outcome)["sql"]
+    assert f"PERCENTILE_CONT(0.5) {order}" in sql
+    assert f"PERCENTILE_CONT(CAST('0.75' AS pg_catalog.float8)) {order}" in sql
+    from pietto._project import project_sql_emission_portable as portable
+
+    artifact = outcome.artifact
+    assert artifact is not None
+    observed = portable.export_emission_observation(artifact, artifact.request)
+    assert observed.canonical_bytes is not None
+    assert portable.verify_emission_observation(
+        observed.canonical_bytes, artifact, artifact.request
+    ).corresponds
+
+
+@pytest.mark.parametrize("target", TARGETS)
+def test_a_float_median_needs_a_finite_result_proof(tmp_path, target):
+    """PERCENTILE_CONT between two finite Floats more than the largest float8
+    apart returns an infinity unchecked, so a project keeps a Float median or
+    quantile refused, as a Float `sum` or `avg`."""
+    outcome = emit_source(
+        tmp_path,
+        target,
+        "query result:\n    from agg\n    select:\n        m = median(ratio)\n",
+    )
+    assert outcome.status == "BLOCKED"
+    assert [(item.code, item.detail) for item in outcome.blockers] == [
+        ("PIE-B1004", "float_aggregate_finite_result_proof_missing")
+        if target == "postgres"
+        else ("PIE-B1003", "quantile_not_admitted_on_target")
+    ]
+
+
+@pytest.mark.parametrize("target", TARGETS)
 @pytest.mark.parametrize(
     ("variant", "calls", "representations", "evidence", "mysql_blockers"),
     (

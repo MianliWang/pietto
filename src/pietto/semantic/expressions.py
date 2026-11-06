@@ -61,6 +61,7 @@ from pietto.semantic.aggregates import (
     invalid_context_diagnostic,
     is_semantic_aggregate_call,
     is_supported_semantic_aggregate_argument_expression,
+    quantile_fraction_diagnostic,
     semantic_aggregate_call_name,
     semantic_projection_aggregate_result_value_type,
 )
@@ -4324,6 +4325,10 @@ def _call_value_type(
                 )
             )
             return _UNKNOWN_VALUE_TYPE
+        fraction = quantile_fraction_diagnostic(expression)
+        if fraction is not None:
+            diagnostics.append(fraction)
+            return _UNKNOWN_VALUE_TYPE
         if function_name == "string_agg":
             # A null literal, also through a `let:` name or composed of null
             # literals only, is no Text value.
@@ -5794,7 +5799,9 @@ def _call_argument_types(
     if (
         allow_aggregate_projection
         and is_semantic_aggregate_call(expression)
-        and len(expression.arguments) == 1
+        # A `quantile` fraction, its second argument, is a literal.
+        and len(expression.arguments)
+        == (2 if _callee_name(expression) == "quantile" else 1)
         and not contains_semantic_aggregate(expression.arguments[0])
     ):
         argument = expression.arguments[0]
@@ -5890,7 +5897,23 @@ def _call_argument_types(
                 for diagnostic in temporary_diagnostics
                 if diagnostic in null_errors
             )
-        return (argument_type,), set()
+        fractions = tuple(
+            _infer(
+                fraction,
+                row_schema,
+                value_types,
+                diagnostics,
+                report_unknown_name=report_unknown_name,
+                field_qualifier=field_qualifier,
+                bare_value_types=bare_value_types,
+                bare_value_expressions=bare_value_expressions,
+                suppressed_unknown_names=suppressed_unknown_names,
+                type_expansions=type_expansions,
+                relation_columns=relation_columns,
+            )
+            for fraction in expression.arguments[1:]
+        )
+        return (argument_type, *fractions), set()
 
     inferred: list[ValueType] = []
     erroneous: set[int] = set()
@@ -5953,7 +5976,8 @@ def _aggregate_value_type(
         return _builtin_value_type("Text", EffectiveNullability.NULLABLE)
     if not expression.arguments:
         return semantic_projection_aggregate_result_value_type(function_name)
-    if len(expression.arguments) != 1:
+    # A `quantile` fraction is a literal that its typing checks.
+    if len(expression.arguments) != (2 if function_name == "quantile" else 1):
         return None
     argument = expression.arguments[0]
     if type(argument) is ast.GeneratorExpr:
@@ -6459,6 +6483,7 @@ _UNKNOWN_FUNCTION_HINTS = {
             "group_concat",
             "mean",
             "median",
+            "quantile",
             "string_agg",
             "var",
             "var_pop",
@@ -6485,6 +6510,15 @@ _UNKNOWN_FUNCTION_HINTS = {
     ),
     "greatest": "write `max(a, b)`, which is None when either value is None",
     "least": "write `min(a, b)`, which is None when either value is None",
+    **dict.fromkeys(
+        ("percentile", "percentile_approx", "percentile_cont", "approx_percentile"),
+        "write `quantile(x, q)`, the interpolated quantile (pandas "
+        "`Series.quantile`) with q a Float literal from 0.0 to 1.0; `median(x)` "
+        "is `quantile(x, 0.5)`",
+    ),
+    "percentile_disc": "write `quantile(x, q)`, the interpolated quantile (pandas "
+    "`Series.quantile`) with q a Float literal from 0.0 to 1.0; a discrete "
+    "percentile that picks one value is not available",
     "in_range": "write the half-open range `a <= ts < b`",
     "ranges_overlap": "write `a_start < b_stop and b_start < a_stop`",
     "rjust": "write `lpad(s, width, fill)`, which pads like Python `str.rjust` "

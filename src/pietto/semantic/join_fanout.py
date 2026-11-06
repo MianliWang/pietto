@@ -30,9 +30,9 @@ from pietto.semantic.aggregates import (
     AVG_AGGREGATE_NAME,
     COUNT_AGGREGATE_NAME,
     COUNT_DISTINCT_AGGREGATE_NAME,
+    FLOAT_STATISTIC_AGGREGATE_NAMES,
     MAX_AGGREGATE_NAME,
     MIN_AGGREGATE_NAME,
-    STDDEV_AGGREGATE_NAME,
     SUM_AGGREGATE_NAME,
     child_expressions,
     semantic_aggregate_call_name,
@@ -58,14 +58,14 @@ _SET_INSENSITIVE = frozenset(
     (MIN_AGGREGATE_NAME, MAX_AGGREGATE_NAME, COUNT_DISTINCT_AGGREGATE_NAME)
 )
 # The aggregates that skip every row whose argument is NULL (`count` with an
-# argument, `sum`, `avg`, `stddev`): they read no row in which their direct
-# field argument's input is NULL-extended.
+# argument, `sum`, `avg`, `stddev`, `median`, `quantile`): they read no row
+# in which their direct field argument's input is NULL-extended.
 _NULL_SKIPPING = frozenset(
     (
         COUNT_AGGREGATE_NAME,
         SUM_AGGREGATE_NAME,
         AVG_AGGREGATE_NAME,
-        STDDEV_AGGREGATE_NAME,
+        *FLOAT_STATISTIC_AGGREGATE_NAMES,
     )
 )
 # The end of every PIE-S2381 message, after the remedies its rule derives

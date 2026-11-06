@@ -1478,7 +1478,7 @@ def _aggregate_type_matches_ir(
     semantic_value_type: ValueType,
     value_type: TypeRefIR,
 ) -> bool:
-    if function_name == "string_agg" and len(expression.arguments) == 2:
+    if function_name in {"string_agg", "quantile"} and len(expression.arguments) == 2:
         argument_type = semantic_model.expression_value_types.get(
             expression.arguments[0]
         )

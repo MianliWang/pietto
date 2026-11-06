@@ -554,6 +554,18 @@ PRESENTATION_CASES = {
             ),
         ],
     ),
+    "within_group": (
+        _query("    select n = percentile_cont(0.5) within group (order by a)\n"),
+        [
+            (
+                6,
+                37,
+                "Unexpected 'within'. Pietto has no ordered-set `WITHIN GROUP`; "
+                "write `quantile(x, q)` with q a Float literal from 0.0 to 1.0, or "
+                "`median(x)`.",
+            ),
+        ],
+    ),
     "not_equal_semicolon_and_join_kind": (
         _query(
             "    where a <> 1\n    select a\n"

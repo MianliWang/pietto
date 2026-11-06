@@ -1217,6 +1217,21 @@ def aggregate_call_contract(
             )
             and _aggregate_window_has_type(value_type, "Int", NullabilityIR.NON_NULL)
         )
+    if (function, len(arguments)) in {("median", 1), ("quantile", 2)}:
+        # The interpolated quantile of an Int or Float field at a Float literal
+        # fraction from 0.0 to 1.0 (`median` is the fraction 0.5).
+        return (
+            isinstance(arguments[0], FieldRefIR)
+            and arguments[0].field is not None
+            and _aggregate_window_builtin_type(arguments[0]) in {"Int", "Float"}
+            and all(
+                type(fraction) is LiteralIR
+                and type(fraction.value) is float
+                and 0.0 <= fraction.value <= 1.0
+                for fraction in arguments[1:]
+            )
+            and _aggregate_window_has_type(value_type, "Float", NullabilityIR.NULLABLE)
+        )
     return False
 
 

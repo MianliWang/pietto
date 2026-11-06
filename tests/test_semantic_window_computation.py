@@ -749,7 +749,8 @@ _WINDOW_AGGREGATES = "; window aggregates are sum, count, avg, min and max"
         ("result = max(value)", _ORDER, f"{_AGGREGATE} max"),
         ("result = count_distinct(value)", _ORDER, f"{_AGGREGATE} count_distinct"),
         ("result = stddev(value)", _ORDER, f"{_AGGREGATE} stddev"),
-        ("result = median(value)", _ORDER, "Unknown function: median"),
+        ("result = median(value)", _ORDER, f"{_AGGREGATE} median"),
+        ("result = variance(value)", _ORDER, "Unknown function: variance"),
         ("result = row_numbr()", _ORDER, "Unknown function: row_numbr"),
         ("result = SUM(value)", _ORDER, "Unknown function: SUM"),
         (

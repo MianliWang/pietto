@@ -585,6 +585,12 @@ def _render_aggregate_call(
         raise MySqlRenderError(
             "MySQL has no conditional count yet; emit with --dialect postgres"
         )
+    if expression.function in {"median", "quantile"}:
+        # MySQL 8.4 has no PERCENTILE_CONT or other interpolated percentile.
+        raise MySqlRenderError(
+            f"MySQL aggregate {expression.function} is not supported: MySQL has "
+            "no interpolated percentile; emit this relation for PostgreSQL"
+        )
     if expression.function == "count":
         sql = _render_count_aggregate(
             expression, allow_grouped_aggregate=allow_grouped_aggregate

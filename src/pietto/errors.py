@@ -769,6 +769,15 @@ class SyntaxErrorReporter(DefaultErrorStrategy):
             return (
                 "Write `let o = unnest(binding.field)` before the JOIN, then join `o`."
             )
+        if (
+            text.lower() == "within"
+            and previous is not None
+            and previous.type == PiettoParser.RPAREN
+        ):
+            return (
+                "Pietto has no ordered-set `WITHIN GROUP`; write `quantile(x, q)` "
+                "with q a Float literal from 0.0 to 1.0, or `median(x)`."
+            )
         if token.type == PiettoParser.UNKNOWN and not text.isascii():
             return "Names use ASCII letters, digits and `_`."
         if token.type == PiettoParser.STAR and (

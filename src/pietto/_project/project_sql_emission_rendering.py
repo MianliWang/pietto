@@ -22,6 +22,7 @@ from pietto._project.project_sql_emission_ast import (
     resource_limits,
 )
 from pietto._project.project_sql_emission_aggregation import (
+    QUANTILE_FUNCTIONS,
     ROOT_FUNCTIONS,
     AggregateKeyColumn,
     AggregateProjectionColumn,
@@ -1015,6 +1016,28 @@ def _aggregate_value(w: _Writer, column, alias) -> None:
                 "aggregate_order_direction",
                 reference,
             )
+    elif column.function in QUANTILE_FUNCTIONS:
+        # PERCENTILE_CONT(fraction) WITHIN GROUP (ORDER BY CAST(x AS float8)).
+        if (
+            column.distinct
+            or column.order_by
+            or column.argument_cast is None
+            or (column.delimiter is None) is not (column.function == "median")
+        ):
+            raise ValueError("unrenderable quantile")
+        if column.delimiter is None:
+            w.emit("0.5", "syntax", "aggregate_fraction", reference)
+        else:
+            w.scalar(column.delimiter, alias)
+        w.emit(") WITHIN GROUP (ORDER BY ", "syntax", "aggregate_within", reference)
+        w.emit("CAST(", "syntax", "aggregate_argument_cast_open", reference)
+        w.scalar(column.argument, alias)
+        w.emit(
+            " AS " + column.argument_cast + ")",
+            "syntax",
+            "aggregate_argument_cast_close",
+            reference,
+        )
     else:
         if column.distinct:
             w.emit("DISTINCT ", "syntax", "aggregate_distinct", reference)

@@ -472,6 +472,7 @@ first column give every rule.
 | `concat(a, b)` ([Expressions](#expressions)) | `(a \|\| b)` | `CONCAT(a, b)` | emitted; refused for only `None` (PIE-B1003) or a binding-width `Text` (PIE-B1004) | refused (PIE-B1003) |
 | `same_value(a, b)` ([Expressions](#expressions)) | `(a IS NOT DISTINCT FROM b)` | `(a <=> b)` | select items, WHERE and `let`, select items after a JOIN; `Float` where `==` is, not `Bool`, not in a JOIN `on` or a WHERE after a JOIN | as PostgreSQL, a `Float` only beside an operand that reads no row (two row `Float` operands PIE-B1003), and not a GROUP BY key or DISTINCT column |
 | `stddev(x)` ([Aggregates](#aggregates-and-grouping)) | `Int` and `Float` | `Float` (`STDDEV_SAMP`); `Int` refused (PIE-B1000) | `Int` and `Float` | refused: `Int` PIE-B1003, `Float` PIE-B1004 |
+| `median(x)`, `quantile(x, q)` ([Aggregates](#aggregates-and-grouping)) | `Int` and `Float` (`PERCENTILE_CONT ... WITHIN GROUP`) | refused (PIE-B1000) | `Int`; `Float` refused (PIE-B1004) | refused (PIE-B1003) |
 | `sum(1 for o in group if t)`, `sum(o.f for o in group if t)` ([Aggregates](#aggregates-and-grouping)) | `COUNT(CASE WHEN t THEN 1 END)`; `COALESCE(CAST(SUM(CASE WHEN t THEN CAST(f AS pg_catalog.int8) END) AS pg_catalog.int8), 0)` | count and sum refused (PIE-B1000) | refused at check (PIE-S2334) | refused at check (PIE-S2334) |
 | `max(a, b)`, `min(a, b)` ([Expressions](#expressions)) | `CASE WHEN` of `<`/`>` and `IS NOT NULL`; `Int`, `Decimal`, `Float`, `Text`, `Date`, `Timestamp`, `UUID`, `Bool` | as PostgreSQL, except `Bool`, refused (PIE-B1000) | `Int`, `Decimal`, `Float`, `Text`, `Timestamp`, `UUID` as their comparison and conditional are; `Date` and `Bool` refused (PIE-B1003) | as PostgreSQL project, except `UUID`, refused as UUID ordering is (PIE-B1003) |
 | `lpad(s, width, fill)` ([Expressions](#expressions)) | `CASE WHEN length(s) >= width THEN s ELSE lpad(...) END`; a literal width outside the signed 32-bit range refused (PIE-S2385 at check) | `CASE WHEN CHAR_LENGTH(s) >= width THEN s ELSE LPAD(...) END` | emitted for a width proven in the signed 32-bit range; refused otherwise (PIE-B1002, PIE-B1004) | refused (PIE-B1003) |
@@ -3397,7 +3398,7 @@ WHERE ("ordered_at" BETWEEN '2026-01-01 00:00:00' AND '2026-12-31 23:59:59') AND
 The current aggregate family is:
 
 ```text
-count count_distinct sum avg min max stddev string_agg
+count count_distinct sum avg min max stddev median quantile string_agg
 ```
 
 `string_agg(value, delimiter, order by key[, key ...])` accepts two Text row
@@ -3558,6 +3559,55 @@ deviation (`statistics.pstdev`, numpy `std`) is not available. A `def stddev`
 is PIE-S2398, as a `def` named after any other aggregate is; its suggestion
 says to rename the def. Semantic Metadata Artifact v1 lists no `stddev`
 aggregate, as it lists no `string_agg`.
+
+`median(x)` and `quantile(x, q)` are the interpolated median and quantile of
+the non-None values of one direct `Int` or `Float` field (or an alias of
+either), as pandas' `Series.median()` and `Series.quantile(q)` with its default
+`linear` method. `median(x)` is `quantile(x, 0.5)`. Each value is taken as its
+Float (binary64) image; with `v` the sorted images, `n` their count and
+`p = q * (n - 1)`, the result is `v[p]` when `p` is whole and otherwise
+`lo + (p - floor(p)) * (hi - lo)` in binary64, with `lo` and `hi` the values
+at `floor(p)` and `ceil(p)`. The result is a nullable `Float`: an empty or
+all-None input gives None, where Python raises. Because an `Int` is taken as
+its Float image, values beyond 2^53 may round first: the median of the signed
+64-bit extremes `-9223372036854775808` and `9223372036854775807` is `0.0`, as
+pandas gives, where `statistics.median` of the exact integers gives `-0.5`; the
+interpolation may differ from pandas in the last binary64 digit for `q` at or
+above 0.5, where numpy writes `hi - (hi - lo) * (1 - f)`. Between two Floats
+more than the largest Float apart (about 1.8e308) the interpolation is an
+infinity, without an error.
+
+`q` is a Float literal from 0.0 to 1.0 written in the call, such as `0.9` for
+the 90th percentile; any other second argument is PIE-S2104, at that argument
+(`q 1.5 is outside 0.0 to 1.0` for a Float literal out of range, `q must be a
+Float literal from 0.0 to 1.0, written in the call` for an Int literal, a
+signed literal, a field, a `let` name or an expression). Any other argument
+type, `Decimal`, `Date` and `Timestamp` included, is PIE-S2314 (`expects Int or
+Float field argument`); an expression or a `let` name is PIE-S2315 in a single
+file and in a project, as for `stddev`. `median` and `quantile` take the
+positions of the other non-window aggregates: an aliased select item, which
+HAVING reads by its alias (a direct call in HAVING is PIE-S2308); in a
+window they are PIE-S2103, as `stddev` is. Over JOIN rows they read the rows a
+JOIN repeats, as `sum` does (PIE-S2381), and skip the rows a LEFT JOIN keeps
+without a match.
+
+PostgreSQL emits `median(x)` as
+`PERCENTILE_CONT(0.5) WITHIN GROUP (ORDER BY x)` and `quantile(x, q)` with `q`
+in place of `0.5`; an `Int` argument is cast first, `CAST(x AS double
+precision)` in a single file and `CAST(x AS pg_catalog.float8)` in a project,
+where the fraction of a `quantile` is the anchored literal
+`CAST('0.9' AS pg_catalog.float8)` under either literal policy. Pietto never
+emits `PERCENTILE_DISC`. MySQL has no interpolated percentile: a single file is
+refused with PIE-B1000 (`MySQL aggregate median is not supported: MySQL has no
+interpolated percentile; emit this relation for PostgreSQL`), a project with
+PIE-B1003 `quantile_not_admitted_on_target`. A `Decimal` median is not
+available: PostgreSQL's `percentile_cont` has no `numeric` form and would take
+a `Decimal` as a Float. The ordered-set spelling `percentile_cont(0.5) within
+group (order by x)` is PIE-P1000 at `within`, with a hint naming `quantile`
+and `median`; `percentile_cont`, `percentile`, `percentile_approx`,
+`approx_percentile` and `percentile_disc` calls are PIE-S2103 with a hint. A
+`def median` or `def quantile` is PIE-S2398 with a rename suggestion. Semantic
+Metadata Artifact v1 lists neither aggregate, as it lists no `stddev`.
 
 **Conditional count and sum.** A generator `BODY for o in SOURCE if TEST` is
 written only as the only argument of a call, with one `for` and at most one

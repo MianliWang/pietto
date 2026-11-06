@@ -34,9 +34,17 @@ SPELLING = {
     # PostgreSQL only: SQRT(CAST(VAR_SAMP(x) AS pg_catalog.float8)), the
     # outer SQRT fixed by the function (ROOT_FUNCTIONS).
     "stddev": "VAR_SAMP",
+    # PostgreSQL only: PERCENTILE_CONT(fraction) WITHIN GROUP (ORDER BY
+    # CAST(x AS pg_catalog.float8)), the fraction 0.5 for `median` and the
+    # Float literal of `quantile`, its second argument value, in the
+    # `delimiter` slot.
+    "median": "PERCENTILE_CONT",
+    "quantile": "PERCENTILE_CONT",
 }
 # The aggregates whose rendering wraps the result (cast) in SQRT( ... ).
 ROOT_FUNCTIONS = frozenset({"stddev"})
+# The interpolated quantiles, an ordered-set PERCENTILE_CONT.
+QUANTILE_FUNCTIONS = frozenset({"median", "quantile"})
 # Evidence that a binary64 result is finite because the target refuses an
 # overflowing accumulation (SQLSTATE 22003) instead of returning inf or NULL.
 TARGET_CHECKED_BINARY64 = "target_checked_binary64_overflow"
@@ -456,6 +464,20 @@ def result_realization(family: str, function: str, argument, retained):
             rows.Realization("Float", {"kind": "pg_float8"}, True, rows.FINITE_FLOAT),
             None,
         )
+    if function in QUANTILE_FUNCTIONS:
+        # Between two float8 images of signed 64-bit values, NULL for no value.
+        if (
+            family != "postgres"
+            or argument is None
+            or argument.realization.tag != "Int"
+            or tag != "Float"
+            or nullable is not True
+        ):
+            return None, ("PIE-B1002", "quantile_result_logical_type_or_argument_drift")
+        return (
+            rows.Realization("Float", {"kind": "pg_float8"}, True, rows.FINITE_FLOAT),
+            None,
+        )
     if function == "avg":
         if (
             argument is None
@@ -568,6 +590,22 @@ def resolved_argument_problem(
                 return None
             return "PIE-B1004", "float_aggregate_finite_result_proof_missing"
         return "PIE-B1003", "stddev_argument_outside_reviewed_int_domain"
+    if function in QUANTILE_FUNCTIONS:
+        # PostgreSQL PERCENTILE_CONT interpolates float8 images: of signed
+        # 64-bit values it stays finite, but between two finite Floats more
+        # than the largest float8 apart it returns an infinity unchecked.
+        # MySQL has no interpolated percentile.
+        if family != "postgres":
+            return "PIE-B1003", "quantile_not_admitted_on_target"
+        if realization.tag == "Int" and realization.storage.get("kind") in {
+            "pg_int2",
+            "pg_int4",
+            "pg_int8",
+        }:
+            return None
+        if realization.tag == "Float":
+            return "PIE-B1004", "float_aggregate_finite_result_proof_missing"
+        return "PIE-B1003", function + "_argument_outside_reviewed_int_domain"
     if function == "sum" and realization.tag == "Int":
         # PostgreSQL sums exactly and narrows to bigint with its checked CAST;
         # MySQL's CAST(DECIMAL AS SIGNED) would clamp an out-of-range sum.
@@ -610,8 +648,15 @@ def resolved_argument_problem(
 
 def argument_cast(family: str, function: str, argument) -> str | None:
     """One target-native binary64 input for the reviewed AVG(Int) operation,
-    or the bigint input of a PostgreSQL SUM(Int); a PostgreSQL float8 input
-    is already binary64."""
+    or the bigint input of a PostgreSQL SUM(Int) or the float8 order of a
+    PostgreSQL PERCENTILE_CONT; a PostgreSQL float8 SUM or AVG input is
+    already binary64."""
+    if function in QUANTILE_FUNCTIONS:
+        if family != "postgres" or argument is None:
+            raise ValueError(
+                "PERCENTILE_CONT input cast requires a PostgreSQL argument"
+            )
+        return "pg_catalog.float8"
     if function not in {"avg", "sum"}:
         return None
     if family == "postgres" and float_argument(argument):
@@ -944,8 +989,9 @@ def build_stage(
         if (
             len(arguments) != len(value.arguments)
             or len(ordered) != len(value.order_by)
-            or (function == "string_agg") is not (len(arguments) == 2 and bool(ordered))
-            or (function != "string_agg" and (len(arguments) > 1 or ordered))
+            or (function == "string_agg") is not bool(ordered)
+            or (len(arguments) == 2) is not (function in {"string_agg", "quantile"})
+            or len(arguments) > 2
         ):
             return (
                 None,
@@ -1017,6 +1063,31 @@ def build_stage(
             problem = argument_problem(function, argument, request.family)
             if problem is not None:
                 return None, (*problem, value.ref, location)
+            if function == "quantile":
+                # Its fraction, a Float literal from 0.0 to 1.0, reads no row.
+                delimiter, problem = rows.build_row_value(
+                    request,
+                    available,
+                    value.arguments[1],
+                    uses,
+                    reference_type=reference_type,
+                )
+                if delimiter is None:
+                    assert problem is not None
+                    return None, (*problem, value.ref, location)
+                if (
+                    _input_terminals(delimiter)
+                    or rows.realization_of(delimiter, family).tag != "Float"
+                ):
+                    return (
+                        None,
+                        (
+                            "PIE-B1003",
+                            "aggregate_argument_signature_not_admitted",
+                            value.ref,
+                            location,
+                        ),
+                    )
         elif function != "count":
             return (
                 None,
@@ -1269,6 +1340,16 @@ def build_compiled_stage(plan, record, arguments):
                     )
                 ):
                     raise CompiledError("COMPILED_AGGREGATE_ARGUMENT")
+            elif len(delimiters) != (function == "quantile") or any(
+                _input_terminals(fraction)
+                or rows.realization_of(
+                    fraction, records[Address("target", 0)].get("family")
+                ).tag
+                != "Float"
+                for fraction in delimiters
+            ):
+                # Only a `quantile` has a second argument value: its fraction.
+                raise CompiledError("COMPILED_AGGREGATE_ARGUMENT")
             elif (
                 argument is not None
                 and argument_problem(

@@ -100,6 +100,10 @@ _NEW_BUILTIN_RENAMES = {
     "and a call to lpad always means it.",
     "add_months": "Rename this def: `add_months` is now the built-in month "
     "arithmetic on Date, and a call to add_months always means it.",
+    "median": "Rename this def: `median` is now the built-in interpolated "
+    "median aggregate, and a call to median always means it.",
+    "quantile": "Rename this def: `quantile` is now the built-in interpolated "
+    "quantile aggregate, and a call to quantile always means it.",
 }
 # One expansion, with its arguments, has at most this many expression nodes
 # and this nesting depth.

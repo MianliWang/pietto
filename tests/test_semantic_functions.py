@@ -342,8 +342,12 @@ def test_unknown_function_reports_pie_s2103() -> None:
 
 
 _AGGREGATES = (
-    "the available aggregates are avg, count, count_distinct, max, min, stddev, "
-    "string_agg and sum"
+    "the available aggregates are avg, count, count_distinct, max, median, min, "
+    "quantile, stddev, string_agg and sum"
+)
+_QUANTILE = (
+    "write `quantile(x, q)`, the interpolated quantile (pandas `Series.quantile`) "
+    "with q a Float literal from 0.0 to 1.0; "
 )
 _SAMPLE = "write `stddev`, the sample standard deviation (Python `statistics.stdev`)"
 _POPULATION = (
@@ -391,6 +395,21 @@ _COLLECT = (
         # A name written with capitals gets the hint of its lowercase spelling.
         ("LENGTH(email)", "use `len(Text)` instead"),
         ("Median(count)", _AGGREGATES),
+        ("QUANTILE(count, 0.5)", _AGGREGATES),
+        # The SQL and numpy percentile spellings name `quantile`.
+        *(
+            (f"{name}(count)", _QUANTILE + "`median(x)` is `quantile(x, 0.5)`")
+            for name in (
+                "percentile",
+                "percentile_approx",
+                "PERCENTILE_CONT",
+                "approx_percentile",
+            )
+        ),
+        (
+            "percentile_disc(count)",
+            _QUANTILE + "a discrete percentile that picks one value is not available",
+        ),
         # Lowercase `concat` is a builtin.
         ('CONCAT(email, "!")', "write `concat(...)` in lowercase"),
         ("Concat(email, email)", "write `concat(...)` in lowercase"),
