@@ -620,6 +620,95 @@ Not this (each is refused with PIE-S2805):
 
 MySQL refuses every collected list (PIE-B1003).
 
+## Reading a row's collected list: `len`, `sum`, `any`
+
+In a `schema_version = 2` project, a table or query that reads a relation
+with a collected field (`name = collect r`) computes one value per row from
+that row's own list. A single file refuses this project form, so the block
+shows its codes:
+
+```pietto PIE-S2345 PIE-S2351 PIE-S2801 PIE-S2334 PIE-S2334 PIE-S2334 PIE-S2334
+shape Order:
+    id: Int
+    customer_id: Int | None
+    amount_cents: Int
+    paid: Bool
+
+shape Customer:
+    id: Int
+    name: Text
+
+source orders: Order = postgres.table("shop.orders")
+
+source customers: Customer = postgres.table("shop.customers")
+
+query customer_orders:
+    let customer_order_rows:
+        capture customers
+        from orders
+        where orders.customer_id == customers.id
+        select id, amount_cents, paid
+        order by id
+    from customers
+    select id, name, order_list = collect customer_order_rows
+
+query customer_order_stats:
+    from customer_orders
+    select:
+        id
+        order_count = len(customer_orders.order_list)
+        paid_count = sum(1 for o in customer_orders.order_list if o.paid)
+        total_cents = sum(o.amount_cents for o in customer_orders.order_list)
+        paid_cents = sum(o.amount_cents for o in customer_orders.order_list if o.paid)
+        has_paid = any(o.paid for o in customer_orders.order_list)
+```
+
+- `len(c.xs)` is the number of elements. `sum(o.f for o in c.xs)` adds the
+  `Int` field `f` of each element, and with `if TEST` only of the elements
+  whose test is True; `sum(1 for o in c.xs if TEST)` counts those elements;
+  `any(TEST for o in c.xs)` is whether some element's test is True.
+- `for o in c.xs` always means the elements of this row's list `c.xs`; the
+  body and the `if` test read only `o.field` and literals (a query parameter
+  there is PIE-S2355). A single name after `in` is a relation or `group`,
+  never a list, and `len` reads the list through its row too: write
+  `len(c.xs)`, never `len(xs)`.
+- A row with no list (after an outer JOIN) gives None for all of them; `[]`
+  gives `0`, `0`, `False`; an element whose value or test is None adds
+  nothing and matches nothing; a sum past 64 bits is an error.
+- Write them in a SELECT item, a row `let` or the WHERE of a table or query
+  without JOIN, GROUP BY, an aggregate, DISTINCT, a window or QUALIFY, and
+  order or group by the output in a later table or query that reads it with
+  `from`. A JOIN query selects the list as it is (`xs = p.xs`) for a later
+  query to read; after a LEFT JOIN a row without a match has no list (None).
+
+PostgreSQL emits them; MySQL refuses the `collect` they read (PIE-B1003).
+
+Not this (each is refused with a hint):
+
+- `count(c.xs)`, `len(o for o in c.xs)` or `sum(1 for o in c.xs)`: write
+  `len(c.xs)`.
+- `count(1 for o in c.xs if o.paid)`: write `sum(1 for o in c.xs if o.paid)`.
+- `max(o.f for o in c.xs)` (also `min`, `avg`, `stddev`, `count_distinct`
+  and `string_agg`) or another call with a list generator: only `sum` and
+  `any` take one.
+- `any(p for o in c.xs if q)`: write `any(p and q for o in c.xs)`.
+- `sum(o.a + 1 for o in c.xs)` or `sum(o.a if o.p else 0 for o in c.xs)`:
+  a list `sum` adds `1` or one field `o.f`; filter with `if` after the
+  source.
+- `sum(amount for o in c.xs)`, or a test such as `if id > 1` or
+  `if c.id > 1`: the body and test read the element's fields as `o.amount`;
+  test the row's own values outside the generator.
+- `sum(o.paid for o in c.xs)` of a `Bool` field: count with
+  `sum(1 for o in c.xs if o.paid)`; a list `sum` adds `Int` fields only.
+- `len(xs)` or `for o in xs`: read the list through its row, `c.xs`.
+- `len(c.xs)` in a JOIN query, a grouped or DISTINCT query, beside a window
+  or QUALIFY, or in `order by` (PIE-S2805, whose suggestion names the route
+  above).
+- `len([o for o in c.xs])`: write the generator without brackets.
+
+The exact texts are in the PIE-S2334, PIE-S2315, PIE-S2314, PIE-S2202,
+PIE-S2301 and PIE-S2805 rows of [diagnostics](spec/diagnostics.md).
+
 ## Naming a fixed value: top-level constants
 
 A single file names a fixed value once, at the top level, with its type:

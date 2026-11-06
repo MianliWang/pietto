@@ -59,6 +59,7 @@ _KNOWN_EXPRESSIONS = frozenset(
         ast.IsNullExpr,
         ast.WindowExpr,
         ast.ParameterRefExpr,
+        ast.GeneratorExpr,
     }
 )
 
@@ -230,6 +231,10 @@ def literal_nodes(expression: Expression):
             children = (node.value,)
         elif isinstance(node, CallExpr):
             children = node.arguments
+        elif isinstance(node, ast.GeneratorExpr) and node.source_read is not None:
+            # A list operation's body and test (S06); its collected field is
+            # no literal.
+            children = tuple(c for c in (node.body, node.condition) if c is not None)
         else:
             children = ()
         for i, child in reversed(tuple(enumerate(children))):

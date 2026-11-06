@@ -117,12 +117,17 @@ def _readonly_mapping(
 
 @dataclass(frozen=True, slots=True)
 class RowField:
-    """A row field carrying resolved type and nullability information."""
+    """A row field carrying resolved type and nullability information.
+
+    ``elements`` holds the child fields of a project's collected relation
+    field, which has no scalar type: only `len`, `sum` and `any` read it.
+    """
 
     name: str
     resolved_type: ResolvedType
     nullability: EffectiveNullability
     definition: FieldDef | None = None
+    elements: RowSchema | None = None
 
 
 @dataclass(frozen=True, slots=True)

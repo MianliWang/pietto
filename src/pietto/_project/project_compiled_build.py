@@ -87,6 +87,7 @@ class _Export:
         self.block_uses = None
         self.any_inputs = {}
         self.any_uses = {}
+        self.list_scopes = {}
         # The body whose values are being exported, and for an inline let's
         # bodies the reading body's (producer, use) its captured reads name.
         self.current_unit = None
@@ -264,6 +265,7 @@ class _Export:
             CallExpr,
             RelationMembershipExpr,
             AnyExpr,
+            GeneratorExpr,
         )
 
         parents = {
@@ -278,6 +280,8 @@ class _Export:
             RelationMembershipExpr: "relation_membership",
             CastExpr: "cast",
             AnyExpr: "exists",
+            # A list operation's body and test (S06) lie under its generator.
+            GeneratorExpr: "generator",
         }
         for index, site in enumerate(plan.literal_sites):
             p = site.position
@@ -576,6 +580,33 @@ class _Export:
         )
         return operation
 
+    def list_operation(self, value, producer, use, join_inputs=None):
+        """A list operation (S06): the operation ``("list", <len|sum|any>)``
+        over the read of its row's collected field, then its body and test.
+        Each element read inside is a ``read`` (role ``element``) of the
+        collected let's port, through the Collect's expression block use."""
+        group = collecting.original_group(value.read.group)
+        if use is None or join_inputs or group is None:
+            raise CompiledError("COMPILED_EXPORT_LIST")
+        target = group.lateral.target
+        read = self.add("read", self.port_of(value.read, producer), use, "value")
+        self.list_scopes[value.original.ref] = (
+            value.symbol,
+            self.block_use(target),
+            self.producer_ports(target.producer),
+        )
+        try:
+            operands = tuple(self.scalar(v, producer, use) for v in value.operands)
+        finally:
+            del self.list_scopes[value.original.ref]
+        return self.add(
+            "operation",
+            ("list", value.operation),
+            (read, *operands),
+            _logical(value.original.value_type),
+            None,
+        )
+
     def block_use(self, target):
         """The reserved expression block use record of one realized read."""
         if self.block_uses is None:
@@ -738,10 +769,23 @@ class _Export:
             )
         if type(value) is rows.SQLBlockRead:
             return self.block_read(value, producer, use, join_inputs)
+        if type(value) is rows.SQLListOperation:
+            return self.list_operation(value, producer, use, join_inputs)
         if type(value) is rows.SQLStageReference:
             from pietto._project.project_sql_plan_expressions import (
                 ProjectSQLAnyReference,
+                ProjectSQLElementReference,
             )
+
+            if type(value.original) is ProjectSQLElementReference:
+                local = self.list_scopes.get(value.original.operation)
+                if local is None or value.scope is not local[0]:
+                    raise CompiledError("COMPILED_EXPORT_LIST_SCOPE")
+                _, block, ports = local
+                position = value.original.position
+                if not 0 <= position < len(ports):
+                    raise CompiledError("COMPILED_EXPORT_LIST_ELEMENT")
+                return self.add("read", ports[position], block, "element")
 
             if (
                 type(value.original) is ProjectSQLAnyReference

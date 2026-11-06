@@ -62,6 +62,7 @@ from pietto.semantic.aggregates import (
     invalid_context_diagnostic,
     is_semantic_aggregate_call,
     is_supported_semantic_aggregate_argument_expression,
+    list_generator_of,
     quantile_fraction_diagnostic,
     semantic_aggregate_call_name,
     semantic_projection_aggregate_result_value_type,
@@ -4150,6 +4151,16 @@ def _call_value_type(
     """
 
     function_name = _callee_name(expression)
+    listed = _list_operation_value_type(
+        expression,
+        row_schema,
+        value_types,
+        diagnostics,
+        field_qualifier=field_qualifier,
+        type_expansions=type_expansions,
+    )
+    if listed is not None:
+        return listed
     if expression.aggregate_order_by and function_name != "string_agg":
         diagnostics.append(
             _call_diagnostic(
@@ -6082,6 +6093,122 @@ def _name_value_type(
     if report_unknown and expression.name not in (suppressed_unknown_names or set()):
         diagnostics.append(_unknown_field_diagnostic(expression))
     return _UNKNOWN_VALUE_TYPE
+
+
+def _list_operation_value_type(
+    expression: CallExpr,
+    row_schema: RowSchema,
+    value_types: dict[Expression, ValueType],
+    diagnostics: list[Diagnostic],
+    *,
+    field_qualifier: str | None,
+    type_expansions: Mapping[TypeExpr, ResolvedType] | None,
+) -> ValueType | None:
+    """The type of a list operation of one row over its collected field
+    ``c.xs``: `len(c.xs)` and `sum(... for o in c.xs ...)` are an Int and
+    `any(TEST for o in c.xs)` a Bool, each None exactly when the row may
+    have no container. The body and test read the element ``o``, typed by
+    the collected let's fields; a summed field is an Int. Any other call is
+    None, so `len` of a Text keeps its meaning."""
+
+    generator = list_generator_of(expression)
+    if generator is not None:
+        read: Expression = cast(DottedNameExpr, generator.source_read)
+    elif (
+        _callee_name(expression) == "len"
+        and len(expression.arguments) == 1
+        and not expression.aggregate_order_by
+    ):
+        read = expression.arguments[0]
+    else:
+        return None
+    field = None
+    if not row_schema.is_unknown:
+        if type(read) is NameExpr:
+            field = row_schema.fields.get(read.name)
+        elif type(read) is DottedNameExpr and field_qualifier is not None:
+            field = qualified_field(row_schema, read.parts, field_qualifier)
+    if field is None or field.elements is None:
+        if generator is None:
+            return None
+        reported = len(diagnostics)
+        read_type = _infer(
+            read,
+            row_schema,
+            value_types,
+            diagnostics,
+            report_unknown_name=True,
+            field_qualifier=field_qualifier,
+        )
+        # A field of unknown type, a nested one read where its child fields
+        # are not known included, is the reference checks' to report.
+        if len(diagnostics) == reported and read_type.kind is ValueTypeKind.KNOWN:
+            source = ".".join(generator.source)
+            diagnostics.append(
+                _call_diagnostic(
+                    expression,
+                    code="PIE-S2334",
+                    message=f"Generator source {source} is not a collected list; "
+                    "a generator over a row's field reads a field that a "
+                    "`collect` SELECT item outputs",
+                )
+            )
+        return _UNKNOWN_VALUE_TYPE
+    if generator is None:
+        return _builtin_value_type("Int", field.nullability)
+    reported = len(diagnostics)
+    for operand in generator.operands:
+        _infer(
+            operand,
+            field.elements,
+            value_types,
+            diagnostics,
+            report_unknown_name=True,
+            field_qualifier=generator.binding_name,
+            type_expansions=type_expansions,
+        )
+    is_any = _callee_name(expression) == "any"
+    test = generator.body if is_any else generator.condition
+    if test is not None:
+        _append_condition_diagnostic(
+            test,
+            "any test" if is_any else "generator test",
+            value_types,
+            diagnostics,
+            type_expansions,
+            explained=len(diagnostics) > reported,
+        )
+    body = value_types.get(generator.body)
+    if (
+        not is_any
+        and type(generator.body) is DottedNameExpr
+        and body is not None
+        and body.kind is ValueTypeKind.KNOWN
+        and not _is_canonical_builtin(body, "Int", type_expansions)
+        and len(diagnostics) == reported
+    ):
+        binder, name = generator.binding_name, generator.body.parts[-1]
+        source = ".".join(generator.source)
+        actual = body.resolved_type.name
+        hint = (
+            f"count with `sum(1 for {binder} in {source} if {binder}.{name})`"
+            if _is_canonical_builtin(body, "Bool", type_expansions)
+            else "a list sum adds Int values"
+        )
+        diagnostics.append(
+            dataclasses.replace(
+                _call_diagnostic(
+                    expression,
+                    code="PIE-S2314",
+                    message=f"sum of a list adds an Int field of {binder}, "
+                    f"got {actual}; {hint}",
+                ),
+                suggestion=hint,
+            )
+        )
+    if len(diagnostics) > reported:
+        return _UNKNOWN_VALUE_TYPE
+    return _builtin_value_type("Bool" if is_any else "Int", field.nullability)
 
 
 def _qualified_name_value_type(

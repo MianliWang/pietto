@@ -21,8 +21,12 @@ import _pietto_sql_emission as emission
 import _pietto_sql_nested_collect as collecting
 from _pietto_plan_nested import (
     HEAD,
+    LISTED,
+    LISTED_KEPT,
+    LISTED_PLACES,
     NESTED_KEY_READERS,
     SHAPES,
+    emission_contract,
     keyed_sources,
     project,
     retained_unnest_sources,
@@ -1607,3 +1611,108 @@ def test_a_nested_key_bundle_lowers_to_the_live_statement(tmp_path, reader, chil
             for p in result.get("outputs")
         )
     verify_description(build.root.description)
+
+
+@pytest.mark.parametrize(
+    ("body", "operations"),
+    (
+        (LISTED, ["any", "len", "sum", "sum", "sum"]),
+        (LISTED_KEPT, ["any", "len", "sum"]),
+        (LISTED_PLACES, ["any", "len", "sum"]),
+    ),
+    ids=("select", "left-join-carrier", "let-where"),
+)
+def test_a_list_operation_bundle_lowers_to_the_live_statement(
+    tmp_path, body, operations
+):
+    """S06: one ``("list", <len|sum|any>)`` operation per list operation, over
+    a ``value`` read of its row's collection port; each element read is an
+    ``element`` read of the Collect's let port through the Collect's block
+    use. The bundle alone lowers to the live bytes under either policy, the
+    live template binds them, and a list operation of another arity is no
+    record."""
+    document = json.loads(emission_contract("postgres"))
+    document["environment"] += [
+        {"key": "identifier_case", "scope": "statement", "value": "quoted_exact"},
+        {
+            "key": "parameter_protocol",
+            "scope": "statement",
+            "value": "postgres_extended",
+        },
+    ]
+    for policy in ("preserve", "bind-safe"):
+        artifact = _emitted(
+            tmp_path / policy,
+            {"main.pietto": HEAD.format(target="postgres") + body},
+            document,
+            policy,
+        )
+        build = build_compiled(artifact)
+        loaded = _loaded(build)
+        lowered = emit_compiled(loaded, _slots(loaded))
+        assert loaded is not build.root
+        assert lowered.rendered.sql == artifact.rendered.sql
+        template = prepare_live_template(artifact)
+        values = tuple(v.value for v in artifact.fixed_values)
+        bound = bind_values(template, tuple(zip(template.slots, values, strict=True)))
+        assert bound.artifact.rendered.sql == artifact.rendered.sql
+        records = loaded.records
+        lists = [
+            r
+            for r in records.values()
+            if r.address.kind == "operation" and r.get("operator")[0] == "list"
+        ]
+        assert sorted(r.get("operator")[1] for r in lists) == operations
+        for record in lists:
+            read = records[record.get("operands")[0]]
+            assert read.get("role") == "value"
+            assert records[read.get("port")].get("logical")[0] == "collection"
+        for record in records.values():
+            if record.address.kind == "read" and record.get("role") == "element":
+                use = records[record.get("use")]
+                assert records[use.get("operation")].get("operator") == (
+                    COLLECT_OPERATOR
+                )
+                assert records[record.get("port")].get("owner") == use.get("producer")
+    summed = next(r for r in lists if len(r.get("operands")) == 3)
+    with pytest.raises(CompiledError, match="OPERATOR_ARITY"):
+        verify_description(
+            _changed(build.root.description, _set(summed, operator=("list", "len")))
+        )
+
+
+def test_a_list_operation_compiles_and_its_bundle_loads(tmp_path):
+    """The public route: compile_query under each policy, then the exported
+    bundle loads with the same slots."""
+    root = project(
+        tmp_path / "public", {"main.pietto": HEAD.format(target="postgres") + LISTED}
+    )
+    document = json.loads(emission_contract("postgres"))
+    document["environment"] += [
+        {"key": "identifier_case", "scope": "statement", "value": "quoted_exact"},
+        {
+            "key": "parameter_protocol",
+            "scope": "statement",
+            "value": "postgres_extended",
+        },
+    ]
+    (root / "contract.json").write_text(json.dumps(document), encoding="utf-8")
+    for policy in ("preserve", "bind-safe"):
+        compiled = execution.compile_query(
+            root,
+            module="main.pietto",
+            kind="query",
+            name="result",
+            dialect="postgres",
+            emission_contract="contract.json",
+            literal_policy=policy,
+        )
+        bundle = execution.export_bundle(compiled)
+        loaded = execution.load_bundle(
+            bundle.payload,
+            expected_pin=bundle.pin,
+            accepted_producer=bundle.producer,
+            accepted_compatibility=bundle.compatibility,
+        )
+        assert (compiled.origin, loaded.origin) == ("live", "bundle")
+        assert loaded.slots == compiled.slots

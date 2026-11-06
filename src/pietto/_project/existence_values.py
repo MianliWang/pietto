@@ -23,6 +23,7 @@ from pietto._project.module_relation_resolution import (
 
 from pietto._project.row_expression_type_facts import (
     is_nested_relation_field,
+    list_suggestion,
     merge_shape_typed_diagnostics,
     nested_value_diagnostic,
     project_row_field_to_semantic_value_type,
@@ -746,7 +747,18 @@ def analyze_any_values(
                     and is_nested_relation_field(candidates[0].evidence)
                 ):
                     # A collected relation has no value to test (PIE-S2805).
-                    diagnostics.append(nested_value_diagnostic(leaf, "an ANY test"))
+                    diagnostics.append(
+                        nested_value_diagnostic(
+                            leaf,
+                            "an ANY test",
+                            suggestion=list_suggestion(
+                                leaf,
+                                definition,
+                                root=node.predicate,
+                                relation_let=owner.let_position is not None,
+                            ),
+                        )
+                    )
                 elif reference.target is None:
                     if (
                         type(leaf) is ast.NameExpr

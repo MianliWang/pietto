@@ -3181,6 +3181,64 @@ def _verify_row_value(
             if predicate.tag != "Bool":
                 raise ValueError("ANY predicate type")
         return value.realization
+    if type(value) is rows.SQLListOperation:
+        return _verify_list_operation(
+            request,
+            value,
+            expression,
+            columns,
+            children,
+            state,
+            reference_type=reference_type,
+        )
+    if type(value) is rows.SQLStageReference and (
+        type(expression) is row.ProjectSQLElementReference
+    ):
+        # `o.f`: one element column of the list operation that reads it.
+        operation = columns.get((expression.operation, "list"))
+        group = (
+            _original_collect(operation.read.group)
+            if type(operation) is rows.SQLListOperation
+            else None
+        )
+        position = expression.position
+        if (
+            value.original is not expression
+            or reference in children
+            or group is None
+            or operation.original.ref is not expression.operation
+            or operation.symbol is None
+            or value.port is not expression.operation
+            or value.scope is not operation.symbol
+            or type(position) is not int
+            or not 0 <= position < len(group.collect.children)
+        ):
+            raise ValueError("element reference")
+        child = group.lateral.target.producer.columns[position].column
+        expected = replace(
+            child,
+            position=position,
+            name=f"c{position}",
+            terminal=group.collect.children[position],
+            scope=operation.symbol,
+        )
+        tag, nullable = rows.value_tag(expression), rows.value_nullable(expression)
+        if expected.realization.nullable != nullable and nullable is True:
+            expected = replace(
+                expected, realization=replace(expected.realization, nullable=True)
+            )
+        if (
+            not _same_read(
+                value.column, replace(expected, realization=child.realization)
+            )
+            or (expected.realization.tag, expected.realization.nullable)
+            != (tag, nullable)
+            or not _same_realization(value.realization, expected.realization)
+        ):
+            raise ValueError("element reference realization")
+        state["expressions"].append(expression)
+        state["nodes"] += 1
+        return value.realization
     if type(value) is rows.SQLStageReference:
         if type(expression) is row.ProjectSQLAnyReference:
             if value.original is not expression or reference in children:
@@ -3361,6 +3419,104 @@ def _verify_row_value(
     expected = _row_realization(request, expression, tuple(operands), value.operands)
     if not _same_realization(value.realization, expected):
         raise ValueError("operator realization")
+    return value.realization
+
+
+def _verify_list_operation(
+    request, value, expression, columns, children, state, *, reference_type
+):
+    """A list operation (S06) reads the independent image of its port's
+    whole group and realizes its result from its operation alone."""
+    reference = expression.ref
+    expected_read = columns.get(getattr(expression, "port", None))
+    operands = tuple(
+        child
+        for child in (
+            getattr(expression, "body", None),
+            getattr(expression, "condition", None),
+        )
+        if child is not None
+    )
+    if (
+        type(expression) is not row.ProjectSQLListOperation
+        or value.original is not expression
+        or value.operation != expression.operation
+        or value.port is not expression.port
+        or request.family != "postgres"
+        or not _same_nested_read(value.read, expected_read)
+        or not value.read.arrays
+        or children.get(reference, ()) != operands
+        or len(value.operands) != len(operands)
+    ):
+        raise ValueError("list operation")
+    tag, nullable = rows.value_tag(expression), rows.value_nullable(expression)
+    if nullable is None:
+        raise ValueError("list operation nullability")
+    operation = expression.operation
+    if operation == "len":
+        if value.symbol is not None or operands or tag != "Int":
+            raise ValueError("list length")
+        maximum = (1 << 63) - 1
+        expected = rows.Realization(
+            "Int",
+            {"kind": "pg_int8"},
+            nullable,
+            {"kind": "int_range", "min": "0", "max": str(maximum)},
+            (0, maximum),
+        )
+    elif operation in ("sum", "any"):
+        symbol = value.symbol
+        if (
+            type(symbol) is not SQLSymbol
+            or symbol.position != 0
+            or symbol.binding is not reference
+            or symbol.name != rows.LIST_ALIAS
+            or tag != ("Int" if operation == "sum" else "Bool")
+            or expression.body is None
+            or (operation == "any" and expression.condition is not None)
+        ):
+            raise ValueError("list reduction")
+        low, high = -(1 << 63), (1 << 63) - 1
+        expected = (
+            rows.Realization(
+                "Bool",
+                {"kind": rows.BOOL_RESULT[request.family]},
+                nullable,
+                {"kind": "bool01"},
+            )
+            if operation == "any"
+            else rows.Realization(
+                "Int",
+                {"kind": "pg_int8"},
+                nullable,
+                {"kind": "int_range", "min": str(low), "max": str(high)},
+                (low, high),
+            )
+        )
+    else:
+        raise ValueError("list operation kind")
+    if not _same_realization(value.realization, expected):
+        raise ValueError("list operation realization")
+    state["expressions"].append(expression)
+    state["nodes"] += rows.list_node_count(value)
+    scoped = {**columns, (reference, "list"): value}
+    for position, (operand, child) in enumerate(
+        zip(value.operands, operands, strict=True)
+    ):
+        realized = _verify_row_value(
+            request,
+            operand,
+            child,
+            scoped,
+            children,
+            state,
+            reference_type=reference_type,
+        )
+        wanted = "Int" if operation == "sum" and position == 0 else "Bool"
+        if realized.tag != wanted or (
+            wanted == "Bool" and realized.domain.get("kind") != "bool01"
+        ):
+            raise ValueError("list operation operand")
     return value.realization
 
 
@@ -3836,6 +3992,12 @@ def _verify_join_unit(request, unit, join, index, context, state):
                         value.field.evidence.resolved_type.nested is not None
                         and collect_of(plan, value.ref).ref is group.collect.ref
                         for value in plan.exports
+                    )
+                    or any(
+                        value.owner is join.definition
+                        and value.field.evidence.resolved_type.nested is not None
+                        and collect_of(plan, value.ref).ref is group.collect.ref
+                        for value in plan.all_exports
                     )
                     or any(
                         value.collect is group.collect.ref
@@ -5496,7 +5658,8 @@ def _unnest_problems(request, unit, unnest) -> tuple[str, ...]:
             ) or any(
                 value.field.evidence.resolved_type.nested is not None
                 and collect_of(request.plan, value.ref).ref is group.collect.ref
-                for value in request.plan.exports
+                and (value in request.plan.exports or value.owner is join.definition)
+                for value in request.plan.all_exports
             ):
                 carried.add(i)
         withheld = nested_positions - carried
@@ -6243,6 +6406,7 @@ def verify_row_query(request, query, *, _guarded=None):
                         rows.SQLParameterRead,
                         rows.SQLBlockRead,
                         rows.SQLCapturedReference,
+                        rows.SQLListOperation,
                     }:
                         if image.literal is not None:
                             return False
@@ -6607,6 +6771,90 @@ def verify_row_bytes(query, rendered):
 
         def scalar(value, alias):
             start = offset
+            if type(value) is rows.SQLListOperation:
+                reference = value.original.ref
+                read, port = value.read, value.port
+                scope = alias if read.scope is None else read.scope.name
+
+                def count():
+                    take("identifier", "list_scope", port, scope, identifier=True)
+                    take("syntax", "qualifier", reference, ".")
+                    take("identifier", "list_count", port, read.count, identifier=True)
+
+                operation = value.operation
+                if operation == "len":
+                    count()
+                    spans.append(("list_operation", reference, start, offset))
+                    return
+                take("syntax", "list_open", reference, "CASE WHEN ")
+                count()
+                take("syntax", "list_present", reference, " IS NULL THEN NULL ELSE ")
+                if operation == "sum":
+                    take(
+                        "syntax",
+                        "list_sum_open",
+                        reference,
+                        "COALESCE((SELECT CAST(SUM(CAST(",
+                    )
+                    scalar(value.operands[0], alias)
+                    take(
+                        "syntax",
+                        "list_sum_cast",
+                        reference,
+                        " AS pg_catalog.int8)) AS pg_catalog.int8)",
+                    )
+                else:
+                    take("syntax", "list_any_open", reference, "EXISTS (SELECT 1")
+                take("syntax", "list_rows_open", reference, " FROM ROWS FROM (")
+                for index, array in enumerate(read.arrays):
+                    if index:
+                        take("syntax", "separator", reference, ", ")
+                    take("syntax", "list_function", reference, "pg_catalog.unnest(")
+                    take("identifier", "list_scope", port, scope, identifier=True)
+                    take("syntax", "qualifier", reference, ".")
+                    take("identifier", "list_array", port, array, identifier=True)
+                    take("syntax", "list_function_close", reference, ")")
+                take("syntax", "list_alias", reference, ") AS ")
+                take(
+                    "identifier",
+                    "list_rows_scope",
+                    reference,
+                    value.symbol.name,
+                    identifier=True,
+                )
+                take("syntax", "list_columns_open", reference, " (")
+                group = _original_collect(read.group)
+                if group is None:
+                    raise ValueError("list operation group")
+                for index in range(len(read.arrays)):
+                    if index:
+                        take("syntax", "separator", reference, ", ")
+                    take(
+                        "identifier",
+                        "list_column",
+                        group.collect.children[index],
+                        f"c{index}",
+                        identifier=True,
+                    )
+                take("syntax", "list_columns_close", reference, ")")
+                test = (
+                    value.operands[0]
+                    if operation == "any"
+                    else value.operands[1]
+                    if len(value.operands) == 2
+                    else None
+                )
+                if test is not None:
+                    take("syntax", "list_where", reference, " WHERE ")
+                    scalar(test, alias)
+                take(
+                    "syntax",
+                    "list_close",
+                    reference,
+                    "), 0) END" if operation == "sum" else ") END",
+                )
+                spans.append(("list_operation", reference, start, offset))
+                return
             if type(value) is rows.SQLBlockRead and value.kind in ("in", "not_in"):
                 reference = value.original.ref
                 target = value.target
@@ -8735,6 +8983,7 @@ def verify_row_requirements(request, query, original, generated):
                         row.ProjectSQLMatchReference,
                         row.ProjectSQLAnyReference,
                         row.ProjectSQLCapturedField,
+                        row.ProjectSQLElementReference,
                         grouping.ProjectSQLResultReference,
                         plan_windows.ProjectSQLWindowReference,
                     }
@@ -8826,6 +9075,25 @@ def verify_row_generated_requirements(request, query, generated):
                         node.original.ref,
                         "R11",
                         node_premises(request, node.realization, (), "capture"),
+                    )
+                )
+                continue
+            if type(node) is rows.SQLListOperation:
+                expected.append(
+                    (
+                        "list_operation",
+                        node.original.ref,
+                        "R05",
+                        node_premises(
+                            request,
+                            node.realization,
+                            tuple(
+                                rows.realization_of(o, request.family)
+                                for o in node.operands
+                            ),
+                            "list_operation",
+                        ),
+                        (TARGET_CHECKED,) if node.operation == "sum" else (),
                     )
                 )
                 continue

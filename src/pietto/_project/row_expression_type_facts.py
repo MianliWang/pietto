@@ -16,6 +16,7 @@ from pietto._project.model import (
 from pietto.ast_nodes import (
     AnyExpr,
     AuthoredJoinKind,
+    CallExpr,
     CapturedFieldExpr,
     CollectRelationExpr,
     DottedNameExpr,
@@ -33,7 +34,11 @@ from pietto.errors import (
     Severity,
     SourceLocation,
 )
-from pietto.semantic.aggregates import child_expressions, contains_semantic_aggregate
+from pietto.semantic.aggregates import (
+    child_expressions,
+    contains_semantic_aggregate,
+    list_generator_of,
+)
 from pietto.semantic.expressions import (
     _reads_only_null,
     always_null,
@@ -98,8 +103,7 @@ def nested_reference_positions(
     """
 
     positions: dict[int, str] = {}
-
-    def mark(expression: Expression, label: str) -> None:
+    for expression, label in _body_places(definition):
         pending = [(expression, label)]
         while pending:
             node, place = pending.pop()
@@ -108,45 +112,57 @@ def nested_reference_positions(
             elif type(node) is AnyExpr:
                 place = "an ANY test"
             positions.setdefault(id(node), place)
-            if type(node) is WindowExpr:
-                children: tuple[Expression, ...] = (
-                    *node.call.arguments,
-                    *node.spec.partition_by,
-                    *(item.expression for item in node.spec.order_by),
-                )
-            elif type(node) is AnyExpr:
-                children = (node.predicate,)
-            else:
-                children = child_expressions(node)
-            pending.extend((child, place) for child in children)
+            pending.extend((child, place) for child in _place_children(node))
+    return positions
 
+
+def _body_places(
+    definition: TableDef | QueryDef,
+) -> list[tuple[Expression, str]]:
+    """Each expression written in one body, with its PIE-S2805 place."""
+
+    places: list[tuple[Expression, str]] = []
     if definition.let_clause is not None:
         for binding in definition.let_clause.bindings:
-            mark(binding.expression, "a row let")
+            places.append((binding.expression, "a row let"))
     for join in definition.join_clauses:
         if join.on_clause is not None:
-            mark(join.on_clause.expression, "JOIN ON")
+            places.append((join.on_clause.expression, "JOIN ON"))
     if definition.where_clause is not None:
-        mark(definition.where_clause.expression, "WHERE")
+        places.append((definition.where_clause.expression, "WHERE"))
     for item in definition.select_items:
-        mark(item.expression, "a SELECT expression")
+        places.append((item.expression, "a SELECT expression"))
     if definition.group_by_clause is not None:
         for key in definition.group_by_clause.items:
-            mark(key.key, "GROUP BY")
+            places.append((key.key, "GROUP BY"))
     if definition.satisfying_clause is not None:
-        mark(definition.satisfying_clause.expression, "HAVING")
+        places.append((definition.satisfying_clause.expression, "HAVING"))
     for window in definition.named_windows:
         if window.spec is not None:
             for value in window.spec.partition_by:
-                mark(value, "a window")
+                places.append((value, "a window"))
             for order in window.spec.order_by:
-                mark(order.expression, "a window")
+                places.append((order.expression, "a window"))
     if definition.qualify_clause is not None:
-        mark(definition.qualify_clause.expression, "QUALIFY")
+        places.append((definition.qualify_clause.expression, "QUALIFY"))
     if definition.order_by_clause is not None:
         for order in definition.order_by_clause.items:
-            mark(order.expression, "ORDER BY")
-    return positions
+            places.append((order.expression, "ORDER BY"))
+    return places
+
+
+def _place_children(node: Expression) -> tuple[Expression, ...]:
+    """The expressions below ``node``, a window's call and an ANY test's too."""
+
+    if type(node) is WindowExpr:
+        return (
+            node.call,
+            *node.spec.partition_by,
+            *(item.expression for item in node.spec.order_by),
+        )
+    if type(node) is AnyExpr:
+        return (node.predicate,)
+    return child_expressions(node)
 
 
 def nested_reference_text(leaf: Expression) -> str:
@@ -287,6 +303,80 @@ def admits_nested_key(
     )
 
 
+def list_operands(expression: Expression) -> tuple[Expression, ...]:
+    """The collected-field reads of the list operations written in
+    ``expression``: the argument of `len(...)` and the source of a `sum` or
+    `any` generator over a row's field (``c.xs``)."""
+
+    found: list[Expression] = []
+    pending = [expression]
+    while pending:
+        node = pending.pop()
+        if type(node) is CallExpr:
+            generator = list_generator_of(node)
+            if generator is not None and generator.source_read is not None:
+                found.append(generator.source_read)
+            elif (
+                type(node.callee) is NameExpr
+                and node.callee.name == "len"
+                and len(node.arguments) == 1
+                and type(node.arguments[0]) in {NameExpr, DottedNameExpr}
+            ):
+                found.append(node.arguments[0])
+        pending.extend(child_expressions(node))
+    return tuple(found)
+
+
+def reads_collected_list(
+    expression: Expression, input_schema: ProjectRowSchema
+) -> bool:
+    """Whether a list operation in ``expression`` reads a nested field of
+    ``input_schema``."""
+
+    for operand in list_operands(expression):
+        if type(operand) is DottedNameExpr and len(operand.parts) == 2:
+            name = operand.parts[1]
+        elif type(operand) is NameExpr:
+            name = operand.name
+        else:
+            continue
+        if is_nested_relation_field(input_schema.fields.get(name)):
+            return True
+    return False
+
+
+def admits_list_operand(
+    leaf: Expression, definition: TableDef | QueryDef, *, relation_let: bool
+) -> bool:
+    """Whether ``leaf``, a read of a nested field, is what a list operation
+    (`len`, `sum`, `any`) in a SELECT item, a row `let` or the WHERE reads, in
+    a table or query that could select the field itself without a JOIN: no
+    relation let, GROUP BY, aggregate, DISTINCT, window or QUALIFY. A list
+    operation anywhere else reads the field as any other expression does
+    (PIE-S2805), and a bare `len(xs)` is PIE-S2334: a row's list is read
+    through its row."""
+
+    return type(leaf) is not NameExpr and _in_list_place(
+        leaf, definition, relation_let=relation_let
+    )
+
+
+def _in_list_place(
+    leaf: Expression, definition: TableDef | QueryDef, *, relation_let: bool
+) -> bool:
+    places = [item.expression for item in definition.select_items]
+    if definition.let_clause is not None:
+        places.extend(item.expression for item in definition.let_clause.bindings)
+    if definition.where_clause is not None:
+        places.append(definition.where_clause.expression)
+    return (
+        not relation_let
+        and not definition.join_clauses
+        and nested_carry_refusal(definition, relation_let=False) is None
+        and any(leaf is operand for place in places for operand in list_operands(place))
+    )
+
+
 def _contains_window(expression: Expression) -> bool:
     pending = [expression]
     while pending:
@@ -308,9 +398,23 @@ def nested_reference_diagnostic(
 
     A SELECT item that is the field itself would pass it through, which only
     the relation collecting it does yet; any other read, such as the argument
-    a `def` call inlines as the item, has no value to read.
+    a `def` call inlines as the item, has no value to read. A bare `len(xs)`
+    where `len(c.xs)` is admitted is PIE-S2334 at the field.
     """
 
+    if type(leaf) is NameExpr and _in_list_place(
+        leaf, definition, relation_let=relation_let
+    ):
+        source = definition.from_clause.binding_name or (
+            definition.from_clause.source_name
+        )
+        hint = f"write `len({source}.{leaf.name})`"
+        return _error(
+            "PIE-S2334",
+            f"len reads a row's collected list through its row; {hint}",
+            leaf,
+            hint,
+        )
     if is_nested_carry_item(leaf, definition):
         refusal = nested_carry_refusal(definition, relation_let=relation_let, leaf=leaf)
         if refusal is not None:
@@ -338,11 +442,88 @@ def nested_reference_diagnostic(
     position = positions.get(id(leaf)) or (
         None if root is None else positions.get(id(root))
     )
-    return nested_value_diagnostic(leaf, position or "a SELECT expression")
+    return nested_value_diagnostic(
+        leaf,
+        position or "a SELECT expression",
+        suggestion=list_suggestion(
+            leaf, definition, root=root, relation_let=relation_let
+        ),
+    )
+
+
+def list_suggestion(
+    leaf: Expression,
+    definition: TableDef | QueryDef,
+    *,
+    root: Expression | None = None,
+    relation_let: bool,
+) -> str | None:
+    """Where ``leaf`` is the list of `count(...)`, `len(...)` or a list
+    generator that cannot read it here, what to write instead: in a table or
+    query with a JOIN that can select the list as it is, carry it to a later
+    one. The call is in ``root``, the checked expression that reads ``leaf``,
+    or anywhere in ``definition`` as written. A bare list name is counted
+    through its row, the FROM row of a body without JOIN inputs; with JOIN
+    inputs its row is not known here, and it gets the list route."""
+
+    text = nested_reference_text(leaf)
+    source = definition.from_clause.binding_name or definition.from_clause.source_name
+    counted = (
+        text
+        if type(leaf) is not NameExpr
+        else None
+        if definition.join_clauses
+        else f"{source}.{text}"
+    )
+    pending = [
+        *(() if root is None else (root,)),
+        *(expression for expression, _ in _body_places(definition)),
+    ]
+    listed = False
+    while pending:
+        node = pending.pop()
+        if (
+            type(node) is CallExpr
+            and type(node.callee) is NameExpr
+            and node.callee.name in {"count", "len"}
+            and node.arguments == (leaf,)
+        ):
+            if node.callee.name == "count" and counted is not None:
+                return f"Count the list with `len({counted})`."
+            listed = True
+        generator = list_generator_of(node)
+        listed = listed or (generator is not None and generator.source_read is leaf)
+        pending.extend(_place_children(node))
+    if listed:
+        if (
+            definition.join_clauses
+            and not relation_let
+            and type(leaf) in {NameExpr, DottedNameExpr}
+            and nested_carry_refusal(definition, relation_let=False) is None
+        ):
+            example = (
+                f", as in `{text.rsplit('.', 1)[-1]} = {text}`," if "." in text else ""
+            )
+            return (
+                "A table or query with a JOIN reads no list yet: select the list "
+                f"as it is here{example} and read it with `len`, `sum` or `any` "
+                "in a later table or query that reads it with `from`."
+            )
+        return (
+            "Read the list with `len`, `sum` or `any` in a SELECT item, a row "
+            "`let` or the WHERE of a table or query without JOIN, GROUP BY, an "
+            "aggregate, DISTINCT, a window or QUALIFY, and order or group by "
+            "that output in a later table or query that reads it with `from`."
+        )
+    return None
 
 
 def nested_value_diagnostic(
-    leaf: Expression, position: str, *, ref: str | None = None
+    leaf: Expression,
+    position: str,
+    *,
+    ref: str | None = None,
+    suggestion: str | None = None,
 ) -> Diagnostic:
     """PIE-S2805: a collected relation has no scalar value at ``position``."""
 
@@ -352,7 +533,9 @@ def nested_value_diagnostic(
         f"read in {position}: a collected relation has no comparison, ordering, "
         "grouping or scalar value.",
         leaf,
-        "Filter, order or group the collected rows inside the let that is collected.",
+        suggestion
+        or "Filter, order or group the collected rows inside the let that is "
+        "collected.",
     )
 
 
@@ -721,11 +904,29 @@ def project_row_schema_to_semantic_row_schema(
 
     fields: dict[str, RowField] = {}
     for name, field in input_schema.fields.items():
+        nested = field.resolved_type.nested
         fields[name] = RowField(
             name=name,
             resolved_type=_semantic_resolved_type(field.resolved_type, shapes=shapes),
             nullability=_semantic_nullability(field.nullability),
             definition=field.field_def,
+            # A collected relation's child fields, which `len`, `sum` and
+            # `any` read; the field itself keeps no scalar type.
+            elements=None
+            if nested is None
+            else RowSchema(
+                fields={
+                    child.field.name: RowField(
+                        name=child.field.name,
+                        resolved_type=_semantic_resolved_type(
+                            child.field.resolved_type, shapes=shapes
+                        ),
+                        nullability=_semantic_nullability(child.effective_nullability),
+                        definition=child.field.field_def,
+                    )
+                    for child in nested.element_fields
+                }
+            ),
         )
     return RowSchema(fields=fields)
 

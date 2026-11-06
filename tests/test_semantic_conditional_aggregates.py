@@ -123,8 +123,10 @@ _COUNT = "count matching rows with `sum(1 for o in group if ...)`"
             "sum(o.amount for o in orders.items if o.paid)",
             "orders.items",
             "PIE-S2334",
-            "A generator over orders.items is not available yet",
-            "`len`, `sum` and `any` over a row's collected list are a coming feature",
+            "A generator over orders.items reads a row's collected list, which "
+            "only a project collects",
+            "`sum` and `any` read a collected list in a project whose "
+            "pietto.toml sets `schema_version = 2`",
         ),
         (
             "count(1 for o in group if o.paid)",

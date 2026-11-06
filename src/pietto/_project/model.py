@@ -49,6 +49,7 @@ from pietto.ast_nodes import (
     FieldDef,
     FromClause,
     FunctionDef,
+    GeneratorExpr,
     IndexDef,
     IsNullExpr,
     LiteralExpr,
@@ -153,6 +154,7 @@ _KNOWN_EXPRESSIONS = frozenset(
         RelationExistsExpr,
         RelationScalarExpr,
         RelationMembershipExpr,
+        GeneratorExpr,
     }
 )
 _KNOWN_DEFINITIONS = frozenset(
@@ -3764,6 +3766,9 @@ def _iter_project_type_expressions(definition: Definition) -> tuple[TypeExpr, ..
         elif isinstance(expression, CallExpr):
             for argument in expression.arguments:
                 add_expression(argument)
+        elif isinstance(expression, GeneratorExpr):
+            for operand in expression.operands:
+                add_expression(operand)
         elif isinstance(expression, WindowExpr):
             add_expression(expression.call)
             for item in expression.spec.partition_by:

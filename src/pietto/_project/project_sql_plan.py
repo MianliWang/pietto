@@ -66,7 +66,10 @@ from pietto._project.module_semantic_fact_preservation import (
 from pietto._project.project_final_outputs import ProjectNoJoinScalarExpression
 from pietto._project.project_joined_row_filter import _SQL_ROW_RETENTION_EFFECTS
 from pietto._project.model import ProjectRowField
-from pietto._project.row_expression_type_facts import admits_nested_carry
+from pietto._project.row_expression_type_facts import (
+    admits_nested_carry,
+    is_nested_relation_field,
+)
 from pietto.semantic.model import ValueType, ValueTypeKind
 from pietto.semantic.catalog import is_builtin_function_name
 from pietto.semantic.aggregates import semantic_aggregate_call_name
@@ -622,7 +625,7 @@ def _row_blockers(completed, entry, block_reads=frozenset(), captured=frozenset(
         )
         if not isinstance(f.item.expression, (WindowExpr, CollectRelationExpr))
     )
-    blockers = []
+    blockers: list = []
     if (
         block_reads
         - frozenset(
@@ -659,15 +662,21 @@ def _row_blockers(completed, entry, block_reads=frozenset(), captured=frozenset(
         CallExpr,
     }
     for site, evidence, references in sites:
+        nested = listed_reads(references)
         nodes = row.scalar_nodes(
-            _normalized_scalar_expression(site.expression, evidence)
+            _normalized_scalar_expression(site.expression, evidence), (), nested
         )
         admitted_reads = block_reads | frozenset(
             id(value.expression)
             for value in existence_values(evidence)
             if id(value.input.binding.expression) in block_reads
         )
-        if any(isinstance(n, CallExpr) and _callable_symbol(n) is None for n in nodes):
+        if any(
+            isinstance(n, CallExpr)
+            and _callable_symbol(n) is None
+            and row.list_parts(n, nested) is None
+            for n in nodes
+        ):
             blockers.append((K.CALL_AUTHORITY, site))
         elif any(
             type(n) in _BLOCK_READS
@@ -709,7 +718,7 @@ def _row_blockers(completed, entry, block_reads=frozenset(), captured=frozenset(
             leaves = tuple(
                 n
                 for n in outer_scalar_nodes(
-                    _normalized_scalar_expression(site.expression, evidence)
+                    _normalized_scalar_expression(site.expression, evidence), nested
                 )
                 if isinstance(n, (NameExpr, DottedNameExpr))
             )
@@ -985,12 +994,35 @@ def existence_values(evidence) -> tuple[ProjectAnyValue, ...]:
     return tuple(values)
 
 
-def outer_scalar_nodes(expression):
-    """The outer row's scalar occurrences, keeping each local ANY scope atomic."""
-    values = row.scalar_nodes(expression)
-    return row.scalar_nodes(
-        expression, tuple(n for n in values if isinstance(n, AnyExpr))
+def outer_scalar_nodes(expression, nested=lambda _: False):
+    """The outer row's scalar occurrences, keeping each local ANY scope atomic;
+    a list operation reads the row only through its collected field, which
+    follows it in place of its body and test."""
+    values = row.scalar_nodes(expression, (), nested)
+    lists = {
+        id(n): parts[1]
+        for n in values
+        if (parts := row.list_parts(n, nested)) is not None
+    }
+    found = row.scalar_nodes(
+        expression,
+        tuple(n for n in values if isinstance(n, AnyExpr) or id(n) in lists),
+        nested,
     )
+    return tuple(
+        item for n in found for item in ((n, lists[id(n)]) if id(n) in lists else (n,))
+    )
+
+
+def listed_reads(references):
+    """Whether a read is one of ``references`` to a collected field, which
+    only a list operation reads (S06)."""
+    nested = {
+        id(r.expression)
+        for r in references
+        if is_nested_relation_field(getattr(r, "input_field", None))
+    }
+    return lambda node: id(node) in nested
 
 
 def _any_null_predicate(node, evidence):
@@ -2960,7 +2992,9 @@ def build_project_sql_plan(
             else ()
         )
         terminal_ids = {id(n) for n in terminals}
-        nodes = row.scalar_nodes(source_expression, terminals)
+        nested = listed_reads(site.references)
+        nodes = row.scalar_nodes(source_expression, terminals, nested)
+        elements = row.element_reads(source_expression, nested)
         node_refs = {id(n): ref(K.EXPRESSION) for n in nodes}
         if len(node_refs) != len(nodes):
             raise ValueError(
@@ -2982,11 +3016,64 @@ def build_project_sql_plan(
             children = tuple(
                 node_refs[id(child)]
                 for child in (
-                    () if id(node) in terminal_ids else row.scalar_children(node)
+                    ()
+                    if id(node) in terminal_ids
+                    else row.scalar_children(node, nested)
                 )
             )
             node_ref, value_type = node_refs[id(node)], types[id(node)][1]
-            if isinstance(node, LiteralExpr):
+            parts = row.list_parts(node, nested)
+            if parts is not None:
+                operation, read, body, condition = parts
+                reference = references.get(id(read))
+                if (
+                    not isinstance(reference, ProjectModuleExpressionReferenceFact)
+                    or reference.expression is not read
+                ):
+                    raise ValueError("A list operation requires its one list read.")
+                key = row.reference_key(reference)
+                port = local_ports.get(id(key))
+                if port is None or port.key is not key:
+                    raise ValueError("A list read is outside its exact stage context.")
+                symbol = local_symbols[port.ref]
+                if stage_context.lookup(symbol.ref) is not port:
+                    raise ValueError("A list read is outside its exact SELECT scope.")
+                value = row.ProjectSQLListOperation(
+                    ref=node_ref,
+                    site=site,
+                    expression=cast(CallExpr, node),
+                    value_type=value_type,
+                    reference=reference,
+                    port=port.ref,
+                    symbol=symbol,
+                    operation=operation,
+                    body=None if body is None else node_refs[id(body)],
+                    condition=None if condition is None else node_refs[id(condition)],
+                )
+            elif id(node) in elements:
+                owner, name = elements[id(node)]
+                listed = row.list_parts(owner, nested)
+                reference = None if listed is None else references.get(id(listed[1]))
+                nested_type = getattr(
+                    getattr(reference, "input_field", None), "resolved_type", None
+                )
+                names = tuple(
+                    child.field.name
+                    for child in getattr(
+                        getattr(nested_type, "nested", None), "element_fields", ()
+                    )
+                )
+                if names.count(name) != 1:
+                    raise ValueError("An element read requires its one child field.")
+                value = row.ProjectSQLElementReference(
+                    ref=node_ref,
+                    site=site,
+                    expression=cast(DottedNameExpr, node),
+                    value_type=value_type,
+                    operation=node_refs[id(owner)],
+                    position=names.index(name),
+                )
+            elif isinstance(node, LiteralExpr):
                 value = row.ProjectSQLLiteral(
                     ref=node_ref, site=site, expression=node, value_type=value_type
                 )

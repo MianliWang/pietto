@@ -103,6 +103,7 @@ from pietto._project.row_expression_type_facts import (
     NESTED_IN_SCALAR_READ,
     build_project_row_expression_value_types,
     is_nested_relation_field,
+    admits_list_operand,
     admits_nested_carry,
     admits_nested_key,
     nested_order_diagnostic,
@@ -285,6 +286,7 @@ _KNOWN_EXPRESSIONS = frozenset(
         ast.WindowExpr,
         ast.ParameterRefExpr,
         ast.CapturedFieldExpr,
+        ast.GeneratorExpr,
     }
 )
 
@@ -1889,8 +1891,11 @@ class ProjectNestedReferenceFacts:
         for item in dataclass_fields(self):
             values = getattr(self, item.name)
             _require_tuple(values, Diagnostic, "Nested references")
-            if any(value.code != "PIE-S2805" for value in values):
-                raise ValueError("Nested reference facts report only PIE-S2805.")
+            # A bare `len(xs)` where `len(c.xs)` is admitted is PIE-S2334.
+            if any(value.code not in {"PIE-S2805", "PIE-S2334"} for value in values):
+                raise ValueError(
+                    "Nested reference facts report only PIE-S2805 or PIE-S2334."
+                )
 
 
 def with_nested_references(
@@ -5513,6 +5518,9 @@ def _select_facts(
             node = pending.pop()
             selected_nodes.add(id(node))
             pending.extend(reversed(child_expressions(node)))
+            if isinstance(node, ast.GeneratorExpr) and node.source_read is not None:
+                # A list operation's body and test are typed over its element.
+                pending.extend(node.operands)
         contexts.append(
             ProjectModuleSelectExpressionFact(
                 selection=facts[-1],
@@ -5591,11 +5599,18 @@ def nested_reference_facts(
                     keyed = admits_nested_key(
                         leaf, definition, relation_let=relation_let
                     )
-                    if keyed or admits_nested_carry(
-                        leaf, definition, relation_let=relation_let
+                    if (
+                        keyed
+                        or admits_nested_carry(
+                            leaf, definition, relation_let=relation_let
+                        )
+                        or admits_list_operand(
+                            leaf, definition, relation_let=relation_let
+                        )
                     ):
                         # A nested key or DISTINCT field compares rows in its
-                        # collected let's order, which must never tie (D73.05).
+                        # collected let's order, which must never tie (D73.05);
+                        # a list operand is neither.
                         nested = cast(
                             ProjectNestedRelationType,
                             cast(ProjectRowField, input_field).resolved_type.nested,
@@ -6066,6 +6081,9 @@ def _direct_name_leaves(
             *expression.spec.partition_by,
             *(item.expression for item in expression.spec.order_by),
         )
+    elif isinstance(expression, ast.GeneratorExpr):
+        # A list generator's one row read is its collected field.
+        children = child_expressions(expression)
     else:
         children = ()
     return tuple(leaf for child in children for leaf in _direct_name_leaves(child))

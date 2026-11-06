@@ -27,11 +27,14 @@ import _pietto_sql_emission as probe
 import _pietto_sql_nested_collect as collecting
 from _pietto_plan_nested import (
     HEAD,
-    keyed_sources,
+    LISTED,
+    LISTED_KEPT,
+    LISTED_PLACES,
     SHAPES,
     UNNEST_PARENT,
     UNNEST_SHAPES,
     emission_contract,
+    keyed_sources,
     imported_sources,
     imported_unnest_sources,
     retained_unnest_sources,
@@ -341,6 +344,161 @@ def test_carried_group_cannot_drop_its_authored_reference(tmp_path):
         "plan_ast_correspondence"
         in verify_project_sql_emission(forged, forged.request).issues
     )
+
+
+# `len`, `sum` and `any` of a row's collected list (S06): PostgreSQL reads the
+# Collect carrier of the input row (its count column, then one array per child
+# field). A NULL count is a missing container; `sum` and `any` read the arrays'
+# element rows in one scalar subquery each.
+LISTED_SQL_SELECT = (
+    'WITH "p0" ("c0", "c1", "c2") AS (SELECT "s0"."id" AS "c0", "s0"."total" AS '
+    '"c1", "s0"."id" AS "c2" FROM "public"."orders" AS "s0"), "p1" ("c0", "c1", '
+    '"c2") AS (SELECT "t0"."c0" AS "c0", "t0"."c1" AS "c1", ROW_NUMBER() OVER '
+    '(ORDER BY "t0"."c2" ASC) AS "c2" FROM "p0" AS "t0" ORDER BY "t0"."c2" ASC), '
+    '"p2" ("c0", "c1", "c1_0", "c1_1") AS (SELECT "s1"."id" AS "c0", "g0"."n" AS '
+    '"c1", "g0"."a0" AS "c1_0", "g0"."a1" AS "c1_1" FROM "public"."rows" AS "s1" '
+    'LEFT JOIN LATERAL (SELECT COUNT(*) AS "n", ARRAY_AGG("e0"."c0" ORDER BY '
+    '"e0"."c2") AS "a0", ARRAY_AGG("e0"."c1" ORDER BY "e0"."c2") AS "a1" FROM "p1" '
+    'AS "e0") AS "g0" ON TRUE) SELECT "s2"."c0" AS "id", "s2"."c1" AS "n", CASE '
+    'WHEN "s2"."c1" IS NULL THEN NULL ELSE COALESCE((SELECT CAST(SUM(CAST("l"."c1" '
+    "AS pg_catalog.int8)) AS pg_catalog.int8) FROM ROWS FROM "
+    '(pg_catalog.unnest("s2"."c1_0"), pg_catalog.unnest("s2"."c1_1")) AS "l" '
+    '("c0", "c1") WHERE ("l"."c1" > CAST(1 AS pg_catalog.int8))), 0) END AS '
+    '"total", CASE WHEN "s2"."c1" IS NULL THEN NULL ELSE EXISTS (SELECT 1 FROM '
+    'ROWS FROM (pg_catalog.unnest("s2"."c1_0"), pg_catalog.unnest("s2"."c1_1")) AS '
+    '"l" ("c0", "c1") WHERE ("l"."c1" > CAST(10 AS pg_catalog.int8))) END AS '
+    '"big", CASE WHEN "s2"."c1" IS NULL THEN NULL ELSE COALESCE((SELECT '
+    "CAST(SUM(CAST(CAST(1 AS pg_catalog.int8) AS pg_catalog.int8)) AS "
+    'pg_catalog.int8) FROM ROWS FROM (pg_catalog.unnest("s2"."c1_0"), '
+    'pg_catalog.unnest("s2"."c1_1")) AS "l" ("c0", "c1") WHERE ("l"."c0" > CAST(2 '
+    'AS pg_catalog.int8))), 0) END AS "c", CASE WHEN "s2"."c1" IS NULL THEN NULL '
+    'ELSE COALESCE((SELECT CAST(SUM(CAST("l"."c1" AS pg_catalog.int8)) AS '
+    'pg_catalog.int8) FROM ROWS FROM (pg_catalog.unnest("s2"."c1_0"), '
+    'pg_catalog.unnest("s2"."c1_1")) AS "l" ("c0", "c1")), 0) END AS "plain" FROM '
+    '"p2" AS "s2"'
+)
+LISTED_SQL_KEPT = (
+    'WITH "p0" ("c0", "c1", "c2") AS (SELECT "s0"."id" AS "c0", "s0"."total" AS '
+    '"c1", "s0"."id" AS "c2" FROM "public"."orders" AS "s0"), "p1" ("c0", "c1", '
+    '"c2") AS (SELECT "t0"."c0" AS "c0", "t0"."c1" AS "c1", ROW_NUMBER() OVER '
+    '(ORDER BY "t0"."c2" ASC) AS "c2" FROM "p0" AS "t0" ORDER BY "t0"."c2" ASC), '
+    '"p2" ("c0", "c1", "c1_0", "c1_1") AS (SELECT "s1"."id" AS "c0", "g0"."n" AS '
+    '"c1", "g0"."a0" AS "c1_0", "g0"."a1" AS "c1_1" FROM "public"."rows" AS "s1" '
+    'LEFT JOIN LATERAL (SELECT COUNT(*) AS "n", ARRAY_AGG("e0"."c0" ORDER BY '
+    '"e0"."c2") AS "a0", ARRAY_AGG("e0"."c1" ORDER BY "e0"."c2") AS "a1" FROM "p1" '
+    'AS "e0") AS "g0" ON TRUE), "p3" ("c0", "c1", "c2", "c3", "c3_0", "c3_1") AS '
+    '(SELECT "m0"."id" AS "c0", "m0"."other" AS "c1", "m1"."c0" AS "c2", "m1"."c1" '
+    'AS "c3", "m1"."c1_0" AS "c3_0", "m1"."c1_1" AS "c3_1" FROM "public"."rows" AS '
+    '"m0" LEFT JOIN "p2" AS "m1" ON ("m0"."id" = "m1"."c0")), "p4" ("c0", "c1", '
+    '"c1_0", "c1_1") AS (SELECT "t0"."c0" AS "c0", "t0"."c3" AS "c1", "t0"."c3_0" '
+    'AS "c1_0", "t0"."c3_1" AS "c1_1" FROM "p3" AS "t0") SELECT "s4"."c0" AS "id", '
+    '"s4"."c1" AS "n", CASE WHEN "s4"."c1" IS NULL THEN NULL ELSE COALESCE((SELECT '
+    'CAST(SUM(CAST("l"."c1" AS pg_catalog.int8)) AS pg_catalog.int8) FROM ROWS '
+    'FROM (pg_catalog.unnest("s4"."c1_0"), pg_catalog.unnest("s4"."c1_1")) AS "l" '
+    '("c0", "c1") WHERE ("l"."c0" > CAST(1 AS pg_catalog.int8))), 0) END AS '
+    '"total", CASE WHEN "s4"."c1" IS NULL THEN NULL ELSE EXISTS (SELECT 1 FROM '
+    'ROWS FROM (pg_catalog.unnest("s4"."c1_0"), pg_catalog.unnest("s4"."c1_1")) AS '
+    '"l" ("c0", "c1") WHERE ("l"."c1" > CAST(10 AS pg_catalog.int8))) END AS "big" '
+    'FROM "p4" AS "s4"'
+)
+LISTED_SQL_WHERE = (
+    'WITH "p0" ("c0", "c1", "c2") AS (SELECT "s0"."id" AS "c0", "s0"."total" AS '
+    '"c1", "s0"."id" AS "c2" FROM "public"."orders" AS "s0"), "p1" ("c0", "c1", '
+    '"c2") AS (SELECT "t0"."c0" AS "c0", "t0"."c1" AS "c1", ROW_NUMBER() OVER '
+    '(ORDER BY "t0"."c2" ASC) AS "c2" FROM "p0" AS "t0" ORDER BY "t0"."c2" ASC), '
+    '"p2" ("c0", "c1", "c1_0", "c1_1") AS (SELECT "s1"."id" AS "c0", "g0"."n" AS '
+    '"c1", "g0"."a0" AS "c1_0", "g0"."a1" AS "c1_1" FROM "public"."rows" AS "s1" '
+    'LEFT JOIN LATERAL (SELECT COUNT(*) AS "n", ARRAY_AGG("e0"."c0" ORDER BY '
+    '"e0"."c2") AS "a0", ARRAY_AGG("e0"."c1" ORDER BY "e0"."c2") AS "a1" FROM "p1" '
+    'AS "e0") AS "g0" ON TRUE), "p3" ("c0", "c1", "c1_0", "c1_1", "c2") AS (SELECT '
+    '"s2"."c0" AS "c0", "s2"."c1" AS "c1", "s2"."c1_0" AS "c1_0", "s2"."c1_1" AS '
+    '"c1_1", CASE WHEN "s2"."c1" IS NULL THEN NULL ELSE COALESCE((SELECT '
+    "CAST(SUM(CAST(CAST(1 AS pg_catalog.int8) AS pg_catalog.int8)) AS "
+    'pg_catalog.int8) FROM ROWS FROM (pg_catalog.unnest("s2"."c1_0"), '
+    'pg_catalog.unnest("s2"."c1_1")) AS "l" ("c0", "c1") WHERE ("l"."c1" > CAST(3 '
+    'AS pg_catalog.int8))), 0) END AS "c2" FROM "p2" AS "s2"), "p4" ("c0", "c1", '
+    '"c1_0", "c1_1", "c2") AS (SELECT "t3"."c0" AS "c0", "t3"."c1" AS "c1", '
+    '"t3"."c1_0" AS "c1_0", "t3"."c1_1" AS "c1_1", "t3"."c2" AS "c2" FROM "p3" AS '
+    '"t3" WHERE (CASE WHEN "t3"."c1" IS NULL THEN NULL ELSE EXISTS (SELECT 1 FROM '
+    'ROWS FROM (pg_catalog.unnest("t3"."c1_0"), pg_catalog.unnest("t3"."c1_1")) AS '
+    '"l" ("c0", "c1") WHERE ("l"."c1" > CAST(10 AS pg_catalog.int8))) END AND '
+    '("t3"."c1" > CAST(1 AS pg_catalog.int8)))) SELECT "t4"."c0" AS "id", '
+    '"t4"."c2" AS "k" FROM "p4" AS "t4"'
+)
+
+
+def _listed_root(directory, body, target):
+    root = project(directory, {"main.pietto": HEAD.format(target=target) + body})
+    contract = json.loads(emission_contract(target))
+    contract["environment"].append(
+        {
+            "key": "identifier_case",
+            "scope": "statement",
+            "value": "quoted_exact"
+            if target == "postgres"
+            else "lower_case_table_names=0",
+        }
+    )
+    (root / "contract.json").write_text(json.dumps(contract), encoding="utf-8")
+    return root
+
+
+@pytest.mark.parametrize(
+    ("body", "expected"),
+    (
+        (LISTED, LISTED_SQL_SELECT),
+        (LISTED_KEPT, LISTED_SQL_KEPT),
+        (LISTED_PLACES, LISTED_SQL_WHERE),
+    ),
+    ids=("select", "left-join-carrier", "let-where"),
+)
+def test_a_list_operation_reads_its_rows_collect_carrier(
+    tmp_path, capsys, body, expected
+):
+    root = _listed_root(tmp_path / "pg", body, "postgres")
+    assert cli_main(["check", "--project", str(root)]) == 0
+    capsys.readouterr()
+
+    code, out, _ = _emit(root, "postgres", capsys, "--format", "json")
+    document = json.loads(out)
+
+    assert (code, document["status"], document["sql"]) == (0, "VERIFIED", expected)
+    compiled = execution.compile_query(
+        root,
+        module="main.pietto",
+        kind="query",
+        name="result",
+        dialect="postgres",
+        emission_contract="contract.json",
+    )
+    assert compiled.emission == out.encode()
+
+
+def test_mysql_refuses_the_collect_that_a_list_operation_reads(tmp_path, capsys):
+    root = _listed_root(tmp_path / "my", LISTED, "mysql")
+
+    code, out, _ = _emit(root, "mysql", capsys, "--format", "json")
+    document = json.loads(out)
+
+    assert (code, document["status"], document["artifact"]) == (1, "BLOCKED", None)
+    assert [
+        (
+            item["code"],
+            item["subject"]["detail"],
+            (item["location"]["line"], item["location"]["column"]),
+        )
+        for item in document["blockers"]
+    ] == [("PIE-B1003", "collect_not_admitted_on_target", (21, 18))]
+    with pytest.raises(execution.CompileRejected) as error:
+        execution.compile_query(
+            root,
+            module="main.pietto",
+            kind="query",
+            name="result",
+            dialect="mysql",
+            emission_contract="contract.json",
+        )
+    assert json.loads(error.value.emission) == document
 
 
 def test_compile_query_refuses_a_collect_program_with_the_command_document(

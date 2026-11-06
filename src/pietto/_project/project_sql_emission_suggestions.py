@@ -354,6 +354,7 @@ _GROUPS = (
         frozenset(
             {
                 "collect_not_admitted_on_target",
+                "list_operation_not_admitted_on_target",
                 "mysql_correlated_order_or_limit_read_not_admitted",
                 "query_parameter_type_not_admitted_on_target",
                 "table_function_not_admitted_on_target",

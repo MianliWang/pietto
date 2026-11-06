@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from collections.abc import Mapping
+from collections.abc import Callable, Mapping
 from dataclasses import dataclass, field
 from types import MappingProxyType
 from enum import StrEnum
@@ -76,6 +76,7 @@ from pietto._project.project_query_block_ir import (
     ProjectIRCompletedQueryBlockOutput,
 )
 from pietto._project.project_joined_row_filter import ProjectJoinedRowRetentionEffect
+from pietto.semantic.aggregates import list_generator_of
 from pietto.semantic.model import ValueType
 from pietto.ir.model import SymbolId
 
@@ -413,6 +414,35 @@ class ProjectSQLScalarCall(ProjectSQLExpressionBase):
     arguments: tuple[ProjectSQLPlanRef, ...]
 
 
+@dataclass(frozen=True, slots=True, kw_only=True, eq=False)
+class ProjectSQLListOperation(ProjectSQLExpressionBase):
+    """A list operation of one row (S06): `len(c.xs)`, `sum(BODY for o in
+    c.xs [if TEST])` or `any(TEST for o in c.xs)` over the collected list
+    that ``reference`` reads at the input port ``port``. ``operation`` is
+    `len`, `sum` or `any`; ``body`` is the summed `1` or element field, or
+    the `any` test, and ``condition`` the sum's `if` test. It reads the
+    list's carrier, never a scalar value of it, and is no aggregate."""
+
+    expression: CallExpr
+    reference: ProjectModuleExpressionReferenceFact
+    port: ProjectSQLPlanRef
+    symbol: ProjectSQLSymbol
+    operation: str
+    body: ProjectSQLPlanRef | None
+    condition: ProjectSQLPlanRef | None
+
+
+@dataclass(frozen=True, slots=True, kw_only=True, eq=False)
+class ProjectSQLElementReference(ProjectSQLExpressionBase):
+    """`o.f` in a list operation's body or test: the child field at
+    ``position`` of the element that the list operation ``operation``
+    reads."""
+
+    expression: DottedNameExpr
+    operation: ProjectSQLPlanRef
+    position: int
+
+
 type ProjectSQLExpression = (
     ProjectSQLLiteral
     | ProjectSQLBoundLiteral
@@ -435,6 +465,8 @@ type ProjectSQLExpression = (
     | ProjectSQLCapturedField
     | ProjectSQLCast
     | ProjectSQLScalarCall
+    | ProjectSQLListOperation
+    | ProjectSQLElementReference
     | aggregation.ProjectSQLResultReference
     | windows.ProjectSQLWindowReference
     | aggregation.ProjectSQLAggregateArgumentCall
@@ -871,9 +903,43 @@ def stage_key_label(key):
     return key.name
 
 
-def scalar_children(expression: Expression) -> tuple[Expression, ...]:
+def list_parts(
+    expression: Expression, nested: Callable[[Expression], bool] = lambda _: False
+) -> tuple[str, Expression, Expression | None, Expression | None] | None:
+    """``(operation, read, body, condition)`` of a list operation (S06):
+    `len(c.xs)` where ``nested`` holds for the read ``c.xs``, or a `sum` or
+    `any` generator over a row's field; None for any other expression. The
+    generator itself is no plan node: its body and test are the operation's
+    children, and the read is the operation's own port."""
+
+    if type(expression) is not CallExpr:
+        return None
+    generator = list_generator_of(expression)
+    if generator is not None:
+        read = cast(Expression, generator.source_read)
+        if cast(NameExpr, expression.callee).name == "any":
+            return "any", read, generator.body, None
+        return "sum", read, generator.body, generator.condition
+    if (
+        type(expression.callee) is NameExpr
+        and expression.callee.name == "len"
+        and len(expression.arguments) == 1
+        and type(expression.arguments[0]) is DottedNameExpr
+        and not expression.aggregate_order_by
+        and nested(expression.arguments[0])
+    ):
+        return "len", expression.arguments[0], None, None
+    return None
+
+
+def scalar_children(
+    expression: Expression, nested: Callable[[Expression], bool] = lambda _: False
+) -> tuple[Expression, ...]:
     if type(expression) not in _KNOWN_EXPRESSIONS:
         raise ValueError(f"Unsupported scalar expression: {type(expression).__name__}")
+    parts = list_parts(expression, nested)
+    if parts is not None:
+        return tuple(child for child in parts[2:] if child is not None)
     if isinstance(expression, ast.AnyExpr):
         return (expression.predicate,)
     if isinstance(expression, (BinaryExpr, ComparisonExpr)):
@@ -896,7 +962,9 @@ def scalar_children(expression: Expression) -> tuple[Expression, ...]:
 
 
 def scalar_nodes(
-    expression: Expression, leaves: tuple[Expression, ...] = ()
+    expression: Expression,
+    leaves: tuple[Expression, ...] = (),
+    nested: Callable[[Expression], bool] = lambda _: False,
 ) -> tuple[Expression, ...]:
     terminal = {id(leaf) for leaf in leaves}
     pending = [expression]
@@ -907,8 +975,31 @@ def scalar_nodes(
             raise ValueError(f"Unsupported scalar expression: {type(node).__name__}")
         result.append(node)
         if id(node) not in terminal:
-            pending.extend(reversed(scalar_children(node)))
+            pending.extend(reversed(scalar_children(node, nested)))
     return tuple(result)
+
+
+def element_reads(
+    expression: Expression, nested: Callable[[Expression], bool] = lambda _: False
+) -> dict[int, tuple[Expression, str]]:
+    """Each `o.f` read of a list operation's body or test in ``expression``,
+    by identity, with its list operation and child field name."""
+
+    found: dict[int, tuple[Expression, str]] = {}
+    for node in scalar_nodes(expression, (), nested):
+        parts = list_parts(node, nested)
+        generator = list_generator_of(node)
+        if parts is None or generator is None:
+            continue
+        for child in parts[2:]:
+            for leaf in () if child is None else scalar_nodes(child):
+                if (
+                    type(leaf) is DottedNameExpr
+                    and len(leaf.parts) == 2
+                    and leaf.parts[0] == generator.binding_name
+                ):
+                    found[id(leaf)] = (node, leaf.parts[1])
+    return found
 
 
 @dataclass(frozen=True, slots=True, eq=False)

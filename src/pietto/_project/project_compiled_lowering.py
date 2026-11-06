@@ -8,6 +8,7 @@ from pietto._project.project_compiled_schema import (
     Address,
     BLOCK_READ_OPERATORS,
     COLLECT_OPERATOR,
+    collection_source,
     CompiledError,
     MAX_RECORDS,
 )
@@ -245,6 +246,28 @@ def emit_compiled(root, values, named=None):
             return rows.SQLStageReference(
                 original, refs[port.address], column, fact.realization, scope=local[1]
             )
+        if address.kind == "read" and record.get("role") == "element":
+            # One child field of the one list operation being built (S06).
+            if len(list_inputs) != 1:
+                raise CompiledError("COMPILED_LIST_ELEMENT")
+            ((read_address, operation),) = list_inputs.items()
+            collect = collection_source(records, records[read_address].get("port"))
+            port = records[record.get("port")]
+            if (
+                collect is None
+                or records[record.get("use")].get("operation") != collect.address
+            ):
+                raise CompiledError("COMPILED_LIST_ELEMENT")
+            value, problem = rows.element_reference(
+                original,
+                operation,
+                port.get("ordinal"),
+                fact.value_type.resolved_type.name,
+                rows.NULLABILITY[fact.value_type.nullability],
+            )
+            if value is None:
+                raise CompiledError("COMPILED_LIST_ELEMENT")
+            return value
         if address.kind == "read" and record.get("role") == "capture":
             # A captured field reads the input row of the body that reads the
             # inline let, through that body's own use.
@@ -334,6 +357,8 @@ def emit_compiled(root, values, named=None):
         if (role, token) == COLLECT_OPERATOR:
             # A Collect is only a projection row's own column (S09).
             raise CompiledError("COMPILED_COLLECT_PLACEMENT")
+        if role == "list":
+            return list_operation(address, record, fact, use, producer, join_contexts)
         if (role, token) in BLOCK_READ_OPERATORS:
             return block_read(address, fact, token, use, producer, alias, join_contexts)
         operands = tuple(
@@ -366,6 +391,56 @@ def emit_compiled(root, values, named=None):
         for r in records.values()
         if r.address.kind == "expression_block_use"
     }
+    list_inputs = {}
+
+    def list_operation(address, record, fact, use, producer, join_contexts):
+        """A list operation (S06) over its row's collected field, read as the
+        whole group of the reading body's input; its body and test read the
+        group's element rows."""
+        from pietto._project import project_sql_emission_unnest as unnesting
+
+        read_record = records[record.get("operands")[0]]
+        port = records[read_record.get("port")]
+        identity = plan.expression_identities.get(address)
+        if (
+            join_contexts is not None
+            or identity is None
+            or read_record.get("use") != use
+            or port.get("owner") != producer
+            or not scopes
+            or scopes[-1][0] != use
+        ):
+            raise CompiledError("COMPILED_LIST_SCOPE")
+        position = port.get("ordinal")
+        body = bodies[producer] if producer in bodies else inline_bodies[producer]
+        binding = use_bindings[use].bindings[position]
+        read, _problem = unnesting.nested_read(
+            body.columns[position],
+            position=position,
+            port=binding.input_port,
+            scope=scopes[-1][2],
+        )
+        if read is None:
+            raise CompiledError("COMPILED_LIST_READ")
+        token = record.get("operator")[1]
+        operation = rows.SQLListOperation(
+            identity,
+            token,
+            binding.input_port.ref,
+            read,
+            None if token == "len" else ast.SQLSymbol(0, identity.ref, rows.LIST_ALIAS),
+            (),
+            fact.realization,
+        )
+        list_inputs[read_record.address] = operation
+        try:
+            operands = tuple(
+                scalar(child, use, producer, None)
+                for child in record.get("operands")[1:]
+            )
+        finally:
+            del list_inputs[read_record.address]
+        return replace(operation, operands=operands)
 
     def block_read(address, fact, kind, use, producer, alias, join_contexts):
         """The executed block read of one already realized producer; a

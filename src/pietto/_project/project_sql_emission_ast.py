@@ -1005,6 +1005,7 @@ def original_rule(plan, entry, *, generated_scopes):
             row.ProjectSQLMatchReference,
             row.ProjectSQLAnyReference,
             row.ProjectSQLCapturedField,
+            row.ProjectSQLElementReference,
             grouping.ProjectSQLResultReference,
             plan_windows.ProjectSQLWindowReference,
         }
@@ -1139,6 +1140,8 @@ ADMITTED_EXPRESSIONS = (
     row.ProjectSQLRelationScalar,
     row.ProjectSQLRelationMembership,
     row.ProjectSQLCapturedField,
+    row.ProjectSQLListOperation,
+    row.ProjectSQLElementReference,
 )
 # Expression reads that may render a capturing let inline at their own site.
 INLINE_READS = (
@@ -1931,6 +1934,14 @@ def _join_body(
                         value.field.evidence.resolved_type.nested is not None
                         and collect_of(request.plan, value.ref).ref is group.collect.ref
                         for value in request.plan.exports
+                    )
+                    # An earlier JOIN query that selects the list, for a later
+                    # reader's list operation (S06).
+                    or any(
+                        value.owner is join.definition
+                        and value.field.evidence.resolved_type.nested is not None
+                        and collect_of(request.plan, value.ref).ref is group.collect.ref
+                        for value in request.plan.all_exports
                     )
                     or any(
                         value.collect is group.collect.ref
@@ -2997,6 +3008,10 @@ def _value_node_count(value):
                 rows.SQLBlockRead,
                 rows.SQLCapturedReference,
             }
+            # A list operation renders its count read, each element array
+            # and each element column.
+            else rows.list_node_count(node)
+            if type(node) is rows.SQLListOperation
             # A read renders one anchor around one native placeholder.
             else 2
             if type(node) is rows.SQLParameterRead
@@ -3018,6 +3033,7 @@ def _value_column_image(request, value, position, label, export, terminal, famil
         rows.SQLParameterRead,
         rows.SQLBlockRead,
         rows.SQLCapturedReference,
+        rows.SQLListOperation,
     }:
         return rows.StageColumn(
             position,
@@ -3057,6 +3073,9 @@ def value_requirements(request, value):
             continue
         if type(node) is rows.SQLBlockRead:
             result.extend(block_read_requirements(request, node))
+            continue
+        if type(node) is rows.SQLListOperation:
+            result.append(list_requirement(request, node))
             continue
         if type(node) in {
             rows.SQLStageReference,
@@ -3103,6 +3122,23 @@ def value_requirements(request, value):
                 )
             )
     return tuple(result)
+
+
+def list_requirement(request, node):
+    """A list operation (S06): R05 over its operands; a list sum is the
+    target's checked bigint SUM, as a grouped one is."""
+    return GeneratedRequirement(
+        "list_operation",
+        node.original.ref,
+        rows.REQUIREMENT_RULES["list_operation"],
+        node_premises(
+            request,
+            node.realization,
+            tuple(rows.realization_of(o, request.family) for o in node.operands),
+            "list_operation",
+        ),
+        (rows.TARGET_CHECKED_SIGNED64,) if node.operation == "sum" else (),
+    )
 
 
 def block_read_requirements(request, node):
@@ -3681,6 +3717,7 @@ def row_parameter_leaves(query):
                     rows.SQLOperation,
                     rows.SQLBlockRead,
                     rows.SQLCapturedReference,
+                    rows.SQLListOperation,
                 }:
                     continue
                 result.extend(

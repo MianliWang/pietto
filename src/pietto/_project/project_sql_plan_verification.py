@@ -169,10 +169,11 @@ from pietto.ast_nodes import (
     CastExpr,
     IsNullExpr,
     BetweenExpr,
+    Expression,
     LetBinding,
 )
 from pietto.semantic.model import EffectiveNullability, ValueTypeKind
-from pietto._project.model import ProjectRowFieldNullability
+from pietto._project.model import ProjectResolvedTypeKind, ProjectRowFieldNullability
 from pietto._project.row_expression_type_facts import (
     project_row_field_to_semantic_value_type,
 )
@@ -2943,7 +2944,20 @@ def _row_expressions(plan, site_specs, root_by_site, symbols) -> bool:
             if isinstance(site.evidence, ProjectModuleLetBindingFact)
             else site.occurrence.expression
         )
+        # A list operation (S06) reads a collected field of its own row; its
+        # body and test are its children, over its element.
+        listed = {
+            id(r.expression)
+            for r in site.references
+            if isinstance(r, ProjectModuleExpressionReferenceFact)
+            and r.input_field is not None
+            and r.input_field.resolved_type.kind
+            is ProjectResolvedTypeKind.NESTED_RELATION
+        }
         pending, nodes = [source_expression], []
+        lists: dict[
+            int, tuple[str, Expression, Expression | None, Expression | None]
+        ] = {}
         while pending:
             node = pending.pop()
             if type(node) not in _KNOWN_EXPRESSIONS | {
@@ -2952,7 +2966,17 @@ def _row_expressions(plan, site_specs, root_by_site, symbols) -> bool:
             }:
                 return False
             nodes.append(node)
-            if id(node) in atomic:
+            parts = (
+                None
+                if id(node) in atomic
+                else row.list_parts(
+                    cast(Expression, node), lambda read: id(read) in listed
+                )
+            )
+            if parts is not None:
+                lists[id(node)] = parts
+                children = tuple(child for child in parts[2:] if child is not None)
+            elif id(node) in atomic:
                 children = ()
             elif isinstance(node, ast_nodes.AnyExpr):
                 children = (node.predicate,)
@@ -3021,6 +3045,18 @@ def _row_expressions(plan, site_specs, root_by_site, symbols) -> bool:
         references = iter(site.references)
         environment = {id(port.key): port for port in incoming}
         reference_position = 0
+        elements = {
+            id(leaf): (owner, leaf)
+            for owner, parts in ((n, lists[id(n)]) for n in nodes if id(n) in lists)
+            if parts[0] != "len"
+            for child in parts[2:]
+            if child is not None
+            for leaf in row.scalar_nodes(child)
+            if type(leaf) is DottedNameExpr
+            and len(leaf.parts) == 2
+            and leaf.parts[0]
+            == cast(ast_nodes.GeneratorExpr, owner.arguments[0]).binding_name
+        }
         for node, value in zip(nodes, values, strict=True):
             null_predicate = any(
                 isinstance(checked.predicate, LiteralExpr)
@@ -3036,7 +3072,11 @@ def _row_expressions(plan, site_specs, root_by_site, symbols) -> bool:
             if (
                 type(value)
                 is not (
-                    row.ProjectSQLAnyReference
+                    row.ProjectSQLListOperation
+                    if id(node) in lists
+                    else row.ProjectSQLElementReference
+                    if id(node) in elements
+                    else row.ProjectSQLAnyReference
                     if id(node) in checked_references
                     else reference_type
                     if id(node) in atomic
@@ -3321,6 +3361,69 @@ def _row_expressions(plan, site_specs, root_by_site, symbols) -> bool:
                 ):
                     return False
                 reference_position += 1
+                children = ()
+            elif isinstance(value, row.ProjectSQLListOperation):
+                # Its one row read is the collected field at its own input port.
+                operation, read, body, condition = lists[id(node)]
+                reference = next(references, None)
+                key = None if reference is None else row.reference_key(reference)
+                port = environment.get(id(key))
+                if (
+                    not isinstance(site, row.ProjectSQLExpressionSite)
+                    or not isinstance(reference, ProjectModuleExpressionReferenceFact)
+                    or reference.expression is not read
+                    or value.reference is not reference
+                    or reference.owner is not site.owner
+                    or reference.role is not roles[site.role]
+                    or reference.container_ordinal != site.ordinal
+                    or reference.dependency_ordinal != reference_position
+                    or reference.status
+                    is not ProjectModuleCandidateBucketStatus.CONCRETE
+                    or port is None
+                    or port.key is not key
+                    or value.port is not port.ref
+                    or value.symbol is not symbols.get(port.ref)
+                    or value.symbol.scope is not site.block
+                    or value.operation != operation
+                    or value.body is not (None if body is None else local[id(body)].ref)
+                    or value.condition
+                    is not (None if condition is None else local[id(condition)].ref)
+                ):
+                    return False
+                reference_position += 1
+                children = tuple(
+                    local[id(child)].ref
+                    for child in (body, condition)
+                    if child is not None
+                )
+            elif isinstance(value, row.ProjectSQLElementReference):
+                owner, leaf = elements[id(node)]
+                parts = lists[id(owner)]
+                fields = getattr(
+                    getattr(
+                        next(
+                            (
+                                r.input_field.resolved_type
+                                for r in site.references
+                                if isinstance(r, ProjectModuleExpressionReferenceFact)
+                                and r.expression is parts[1]
+                                and r.input_field is not None
+                            ),
+                            None,
+                        ),
+                        "nested",
+                        None,
+                    ),
+                    "element_fields",
+                    (),
+                )
+                names = tuple(item.field.name for item in fields)
+                if (
+                    value.operation is not local[id(owner)].ref
+                    or names.count(leaf.parts[1]) != 1
+                    or value.position != names.index(leaf.parts[1])
+                ):
+                    return False
                 children = ()
             elif isinstance(value, row.ProjectSQLAny):
                 checked = checked_values.get(id(node))
@@ -6600,7 +6703,11 @@ def _literal_schema(plan, policy):
     ):
         return False
     if any(
-        any(type(parent) not in _KNOWN_EXPRESSIONS for parent, _ in position.ancestry)
+        any(
+            # A list operation's body and test (S06) lie under its generator.
+            type(parent) not in _KNOWN_EXPRESSIONS | {ast_nodes.GeneratorExpr}
+            for parent, _ in position.ancestry
+        )
         for site in plan.literal_sites
         for position in (site.position,)
     ):

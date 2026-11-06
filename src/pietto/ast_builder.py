@@ -1975,6 +1975,9 @@ class AstBuilder(PiettoVisitor):
             source=tuple(part.getText() for part in source.namePart()),
             source_span=self._span(source),
             condition=condition,
+            source_read=read
+            if type(read := self._dotted_name_expr(source)) is DottedNameExpr
+            else None,
         )
 
     def visitQualifyPrimaryExpression(self, ctx: _AntlrContext) -> Expression:

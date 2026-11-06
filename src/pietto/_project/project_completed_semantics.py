@@ -3246,6 +3246,42 @@ def derive_compiled_semantics(root, values, parameters=None):
                     records, ref, tuple(facts[child] for child in operands)
                 )
                 typed, realized = compiled_nested_value(), None
+            elif kind == "operation" and get("operator")[0] == "list":
+                # A list operation (S06) over its row's collected field: `len`
+                # and `sum` an Int, `any` a Bool, NULL exactly when the
+                # container may be missing; a sum adds Int elements and the
+                # tests are Bool.
+                token = get("operator")[1]
+                read = facts[operands[0]]
+                if read.nested is None or token not in ("len", "sum", "any"):
+                    raise CompiledError("COMPILED_LIST_READ")
+                parts = tuple(facts[child].value_type for child in operands[1:])
+                wanted = {"len": (), "any": ("Bool",)}.get(
+                    token, ("Int",) if len(parts) == 1 else ("Int", "Bool")
+                )
+                if tuple(item.resolved_type.name for item in parts) != wanted:
+                    raise CompiledError("COMPILED_OPERATOR_TYPE")
+                origin, operator = "list", get("operator")
+                container = read.value_type.nullability
+                typed = ValueType(
+                    ResolvedType("Bool" if token == "any" else "Int", TypeKind.BUILTIN),
+                    container,
+                )
+                if typed != declared(get("logical")):
+                    raise CompiledError("COMPILED_OPERATOR_TYPE")
+                nullable = physical.NULLABILITY[container]
+                realized = (
+                    physical._bool(family, nullable)
+                    if token == "any"
+                    else physical._checked_int(
+                        {"kind": "pg_int8"},
+                        0 if token == "len" else physical.SIGNED64[0],
+                        physical.SIGNED64[1],
+                        nullable,
+                    )
+                )
+                if family != "postgres" or realized is None:
+                    raise CompiledError("COMPILED_LIST_DOMAIN")
             elif kind in ("port", "read"):
                 origin = facts[operands[0]].origin
                 value = facts[operands[0]].value
@@ -4490,6 +4526,47 @@ def verify_compiled_semantics(value):
                 origin, operator = "collect", COLLECT_OPERATOR
                 nested = _compiled_nested_type(records, current, inputs)
                 typed, realization = compiled_nested_value(), None
+            elif kind == "operation" and get("operator")[0] == "list":
+                # A list operation (S06): its type from its token and its
+                # container's nullability; its operands' types are fixed.
+                operator = get("operator")
+                token = operator[1]
+                parts = tuple(item.value_type.resolved_type.name for item in inputs[1:])
+                need(
+                    family == "postgres"
+                    and inputs[0].nested is not None
+                    and parts
+                    == {"len": (), "any": ("Bool",)}.get(
+                        token, ("Int",) if len(parts) == 1 else ("Int", "Bool")
+                    ),
+                    "SEMANTIC_TYPE",
+                )
+                origin = "list"
+                container = inputs[0].value_type.nullability
+                typed = ValueType(
+                    ResolvedType("Bool" if token == "any" else "Int", TypeKind.BUILTIN),
+                    container,
+                )
+                maximum = (1 << 63) - 1
+                low = 0 if token == "len" else -(1 << 63)
+                realization = (
+                    Realization(
+                        "Bool",
+                        {"kind": "pg_bool"},
+                        NULLABILITY[container],
+                        {"kind": "bool01"},
+                    )
+                    if token == "any"
+                    else Realization(
+                        "Int",
+                        {"kind": "pg_int8"},
+                        NULLABILITY[container],
+                        {"kind": "int_range", "min": str(low), "max": str(maximum)},
+                        (low, maximum),
+                    )
+                )
+                if not physical_required:
+                    realization = None
             elif kind in ("read", "port"):
                 origin = (
                     "aggregate"

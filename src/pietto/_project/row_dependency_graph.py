@@ -42,6 +42,8 @@ from pietto.ast_nodes import (
     UnaryExpr,
 )
 from pietto.errors import SourceLocation
+from pietto.semantic.aggregates import child_expressions as aggregate_children
+from pietto.semantic.aggregates import list_generator_of
 
 _DerivedRelation = TableDef | QueryDef
 
@@ -79,6 +81,7 @@ _KNOWN_EXPRESSIONS = frozenset(
         ast.BetweenExpr,
         ast.IsNullExpr,
         ast.WindowExpr,
+        ast.GeneratorExpr,
     }
 )
 
@@ -616,6 +619,7 @@ def _contains_semantic_aggregate(expression: Expression) -> bool:
         isinstance(expression, CallExpr)
         and isinstance(expression.callee, NameExpr)
         and expression.callee.name in _SEMANTIC_AGGREGATE_NAMES
+        and list_generator_of(expression) is None
     ):
         return True
     return any(
@@ -646,6 +650,10 @@ def _child_expressions(expression: Expression) -> tuple[Expression, ...]:
         return (expression.value, expression.lower, expression.upper)
     if isinstance(expression, IsNullExpr):
         return (expression.value,)
+    if isinstance(expression, ast.GeneratorExpr):
+        # A list generator reads the row's collected field, never the row in
+        # its body and test.
+        return aggregate_children(expression)
     return ()
 
 

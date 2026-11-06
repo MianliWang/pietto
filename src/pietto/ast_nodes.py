@@ -183,7 +183,8 @@ class GeneratorExpr(Expression):
     """``body for binding in source [if condition]``, the only argument of a call.
 
     ``source`` holds the dotted parts as written: a relation name, ``group``
-    or a row's collected field.
+    or a row's collected field. A dotted source is also ``source_read``, the
+    read of that field, which is the generator's one row read.
     """
 
     body: Expression
@@ -192,6 +193,7 @@ class GeneratorExpr(Expression):
     source: tuple[str, ...]
     source_span: Span
     condition: Expression | None
+    source_read: DottedNameExpr | None = None
 
     @property
     def operands(self) -> tuple[Expression, ...]:

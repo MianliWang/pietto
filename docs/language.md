@@ -549,6 +549,7 @@ first column give every rule.
 | JOIN aggregates without fan-out ([Aggregates](#aggregates-and-grouping)) | accepted | accepted | accepted | accepted; `sum(Int)` stays PIE-B1004 |
 | Top-level constants and `--set` ([Top-level constants](#top-level-constants)) | literals; `DATE '...'`, `TIMESTAMP '...'` | each relation that reads one refused (PIE-B1000) | refused (PIE-S2392) | refused (PIE-S2392) |
 | Project aggregate arguments ([Aggregates](#aggregates-and-grouping)): `count`/`count_distinct` of `Text`, `Bool`, `Float`, `Decimal`; `min`/`max` of `Float`, `Decimal`; `sum`/`avg` of `Float`; a row expression argument (`sum(qty * 2)`) | emitted (unchanged) | emitted (unchanged) | emitted; `Decimal` `sum`/`avg` refused (PIE-B1004); over JOIN rows an argument holding a scalar call (`count(lower(r.label))`) refused (PIE-B1003) | refused: PIE-B1003 or PIE-B1004 (an `Int` expression not proved to fit BIGINT PIE-B1002 first) |
+| `len(c.xs)`, `sum(o.f for o in c.xs ...)`, `any(t for o in c.xs)` ([Nested relations](#nested-relations-collect-and-unnest)) | `sum` and `any` refused at check (PIE-S2334; a single file collects no list); `len(c.xs)` has no list to read (PIE-S2102 for an unknown field, or only the Collect's own refusals) | as PostgreSQL | the count column; `sum` and `any` a scalar subquery over `pg_catalog.unnest` of the list's arrays | refused (PIE-B1003 `collect_not_admitted_on_target`) |
 | `asof left join`, `asof inner join` ([Backward asof JOIN](#backward-asof-join)) | emitted | refused (PIE-B1000) | emitted in a table or query without a relation `let NAME:` block whose FROM is not a table function, elsewhere refused (PIE-S2336); a `let NAME:` block as the joined input is PIE-S2386, where a single file refuses the block itself (PIE-S2345); an aggregate after it only where its `on` keys match a unique key (PIE-S2333) | refused (PIE-B1003 `asof_join_not_admitted_on_target`) |
 
 ## Types and shapes
@@ -2146,7 +2147,8 @@ different things. The value has no comparison, ordering or scalar value: a
 reader of the relation may read it with `from` or a JOIN, test it with
 `exists` and read its scalar columns, but any other read of the nested field
 (in WHERE, JOIN ON, a row `let`, `having`, a window, `qualify`, `order by`, a
-SELECT expression, `any(...)`, `scalar` or `in`), `select distinct` with a
+SELECT expression, `any(...)`, `scalar` or `in`) other than as the list of
+`len`, `sum` or `any` (below), `select distinct` with a
 Collect item, and a set operation over it are PIE-S2805. A table or query
 without JOIN inputs, a window or QUALIFY may group by it and deduplicate it: a
 GROUP BY key that is the nested field as written (`group by xs`,
@@ -2171,6 +2173,101 @@ selecting it beside a RIGHT or FULL JOIN, a window or QUALIFY, or in a
 relation let is PIE-S2805. Selected without a JOIN and without DISTINCT, it
 checks, but `emit-sql --project` reports it BLOCKED (PIE-B1003
 `expression_evidence_unavailable`), whatever else the project reads.
+
+**List operations of one row: `len`, `sum` and `any`.** An EXPLICIT_MODULES
+project reads a row's collected field `c.xs` (a field that a `collect` SELECT
+item outputs, read through the binding `c` of the FROM input) with three list
+operations, each one value per row:
+
+```pietto PIE-S2345 PIE-S2351 PIE-S2801 PIE-S2334 PIE-S2334 PIE-S2334 PIE-S2334
+shape Order:
+    id: Int
+    customer_id: Int | None
+    amount_cents: Int
+    paid: Bool
+
+shape Customer:
+    id: Int
+    name: Text
+
+source orders: Order = postgres.table("shop.orders")
+
+source customers: Customer = postgres.table("shop.customers")
+
+query customer_orders:
+    let customer_order_rows:
+        capture customers
+        from orders
+        where orders.customer_id == customers.id
+        select id, amount_cents, paid
+        order by id
+    from customers
+    select id, name, order_list = collect customer_order_rows
+
+query customer_order_stats:
+    from customer_orders
+    select:
+        id
+        order_count = len(customer_orders.order_list)
+        paid_count = sum(1 for o in customer_orders.order_list if o.paid)
+        total_cents = sum(o.amount_cents for o in customer_orders.order_list)
+        paid_cents = sum(o.amount_cents for o in customer_orders.order_list if o.paid)
+        has_paid = any(o.paid for o in customer_orders.order_list)
+```
+
+- `len(c.xs)` is the number of elements, an `Int`.
+- `sum(o.f for o in c.xs)` adds the `Int` field `f` of each element, and
+  `sum(o.f for o in c.xs if TEST)` of each element whose `TEST` is True;
+  `sum(1 for o in c.xs if TEST)` counts the elements whose `TEST` is True.
+  Each is an `Int`; a sum past 64 bits is an error, never a wrap.
+- `any(TEST for o in c.xs)` is whether some element's `TEST` is True, a `Bool`.
+
+`for o in c.xs` reads the elements of this row's own list: the body and the
+`if` test read only fields of `o` (`o.paid`), each with the type and
+nullability of the collected let's field, and literals. Any other name in
+them, a field of the row itself included, is PIE-S2334 suggesting to read the
+row's values outside the generator, and a query header parameter is
+PIE-S2355 `Query parameters are not available in this position.` A single
+name after `in` is a relation or `group` (generators in `any(...)` and
+conditional aggregates), never a list: a `sum` generator over a name that is
+no relation, `let` or `group` is PIE-S2301 ``Unknown or unavailable generator
+source: xs; a row's collected list is read through its row: `for o in c.xs`
+``, and `len(xs)`
+where `len(c.xs)` is admitted is PIE-S2334 at `xs` ``len reads a row's
+collected list through its row; write `len(c.xs)` ``. A row whose list is
+missing (None, after an outer JOIN) gives None for all three; `[]` gives
+`0`, `0` and `False`; an element whose value or test is None adds no value
+and no match, so a list of only None values sums to `0`. The results are
+None exactly when the list may be missing. `len` of a `Text` keeps its
+meaning.
+
+The operations are written in a SELECT item, a row `let` or the WHERE of a
+table or query without JOIN, GROUP BY, an aggregate, DISTINCT, a window or
+QUALIFY, alone or inside a larger expression (`len(c.xs) + 1`). Anywhere
+else (a JOIN query, a relation let, such a table or query, ORDER BY) the read
+of `c.xs` is PIE-S2805 as before, now suggesting to read it in those places
+and order or group by the output in a later table or query that reads it with
+`from`. A JOIN query may select the list itself (`xs = p.xs`) for a later
+query to read, and in an INNER, LEFT or CROSS JOIN query that could select it
+the suggestion says so (``A table or query with a JOIN reads no list yet:
+select the list as it is here, as in `xs = p.xs`, and read it with `len`,
+`sum` or `any` in a later table or query that reads it with `from`.``); after
+a LEFT JOIN a row without a match has no list. In the WHERE before a later
+JOIN a list generator is the parser's PIE-P1000 (``A WHERE before a later JOIN
+accepts only conjunctions of any(...) or not any(...); put ordinary row
+filters after the JOINs.``). A list `any` reads only its own row's list and is
+never a semi-join. `count(c.xs)` is PIE-S2805 suggesting `len(c.xs)`, and so
+is `count(xs)` outside a JOIN query; the refused spellings are listed in
+[the style page](style.md).
+
+PostgreSQL emits list operations (`emit-sql --project`, `compile_query`,
+bundles): `len` reads the list's count column, `sum` and `any` one scalar
+subquery each over the element rows of the list's arrays (`ROWS FROM` of one
+`pg_catalog.unnest` per child field); a list sum is cast to a checked
+`bigint`. MySQL refuses the Collect read a list operation reads until Phase77
+(PIE-B1003 `collect_not_admitted_on_target`). Single files, which have no
+collected field, refuse a generator over `c.xs` with PIE-S2334 naming
+`schema_version = 2`; a `schema_version = 1` project refuses every generator.
 
 **The rows of each group.** To collect per group, group in another table
 or query `g`, read it with `from g`, and collect a let that captures `g`,

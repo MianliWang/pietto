@@ -247,6 +247,7 @@ from pietto._project.row_expression_type_facts import (
     scalar_field_reference_leaves,
     project_row_field_to_semantic_value_type,
     project_row_schema_to_semantic_row_schema,
+    reads_collected_list,
     without_nested_window_refusal,
 )
 from pietto.ast_nodes import (
@@ -6163,6 +6164,18 @@ def _no_join_relation_ordering(
                     ),
                     blocker=item,
                     diagnostics=(diagnostic,),
+                )
+            if reads_collected_list(expression, input_schema):
+                # A list operation is typed on its own, but reads its row's
+                # list only in a SELECT item: here that read is its PIE-S2805.
+                return ProjectNonConcreteRelationOrdering(
+                    owner=owner,
+                    clause=clause,
+                    reason=(
+                        ProjectRelationOrderingNonConcreteReason.EXPRESSION_NON_CONCRETE
+                    ),
+                    blocker=item,
+                    diagnostics=nested,
                 )
             analysis = _analyze_no_join_scalar(
                 owner=owner,

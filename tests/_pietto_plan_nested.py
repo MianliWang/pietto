@@ -259,6 +259,52 @@ def _expanded(*lines: str) -> str:
 
 _STD = ("from parent", "let o = unnest(parent.nested)")
 _OUT = ("select:", "    id = parent.id", "    total = o.total")
+# List operations of a row's collected list (S06) read by `result`: in its
+# SELECT items over the parent itself; through an earlier LEFT JOIN query,
+# whose missing parent is a missing container; and in a row let and the WHERE.
+LISTED = (
+    UNNEST_PARENT
+    + """query result:
+    from parent
+    select:
+        id
+        n = len(parent.nested)
+        total = sum(o.total for o in parent.nested if o.total > 1)
+        big = any(o.total > 10 for o in parent.nested)
+        c = sum(1 for o in parent.nested if o.id > 2)
+        plain = sum(o.total for o in parent.nested)
+"""
+)
+LISTED_KEPT = (
+    UNNEST_PARENT
+    + """query kept:
+    let p = parent
+    from rows
+    left join p on rows.id == p.id
+    select:
+        id = rows.id
+        xs = p.nested
+query result:
+    from kept
+    select:
+        id
+        n = len(kept.xs)
+        total = sum(o.total for o in kept.xs if o.id > 1)
+        big = any(o.total > 10 for o in kept.xs)
+"""
+)
+LISTED_PLACES = (
+    UNNEST_PARENT
+    + """query result:
+    from parent
+    let k = sum(1 for o in parent.nested if o.total > 3)
+    where any(o.total > 10 for o in parent.nested) and len(parent.nested) > 1
+    select:
+        id
+        k
+"""
+)
+
 UNNEST_SHAPES = {
     "unnest_cross": _expanded(*_STD, "cross join o", *_OUT),
     "unnest_inner": _expanded(*_STD, "inner join o on o.total > 10", *_OUT),

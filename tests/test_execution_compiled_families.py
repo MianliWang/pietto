@@ -10,6 +10,15 @@ from _pietto_execution_compiled import retained_unmapped_source
 from _pietto_execution_refinement import capabilities
 from _pietto_execution_rows_cases import CASES, build
 from _pietto_execution_guard_cases import manifest, case_preparation
+from _pietto_plan_nested import (
+    HEAD,
+    LISTED,
+    LISTED_KEPT,
+    LISTED_PLACES,
+    UNNEST_PARENT,
+    emission_contract,
+    project,
+)
 from _pietto_semantic_join_asof import CANONICAL, project_contract
 from pietto._project.project_compiled_build import CompiledBuild, build_compiled
 from pietto._project.project_compiled_loading import load_compiled
@@ -21,6 +30,7 @@ from pietto._project.project_execution_template import (
 )
 from pietto._project.project_result_output import prepare_output
 from pietto._project.project_sql_emission import serialize_project_sql_emission
+from pietto._project.project_sql_emission_cli import POLICIES, emit_project
 
 
 @pytest.mark.parametrize("target", ("postgres", "mysql"))
@@ -134,6 +144,58 @@ def test_scalar_families_replay_and_bind_their_live_template(tmp_path, target, f
     # and no typed NULL (REFINEMENT_SCALAR) yet; both fail closed.
     _compare(original.artifact, refinement=False)
     assert _live(original.artifact).values[0] == 0
+
+
+# The list operations of a row's collected list (S06): in SELECT items, over
+# a list carried through a LEFT JOIN, in a row let and the WHERE, and over a
+# parent imported from another module.
+LIST_OPERATIONS = {
+    "select": {"main.pietto": HEAD.format(target="postgres") + LISTED},
+    "left_join_carrier": {"main.pietto": HEAD.format(target="postgres") + LISTED_KEPT},
+    "let_where": {"main.pietto": HEAD.format(target="postgres") + LISTED_PLACES},
+    "imported_parent": {
+        "parent.pietto": HEAD.format(target="postgres")
+        + UNNEST_PARENT
+        + "export (\n    query parent,\n)\n",
+        "main.pietto": 'from "parent.pietto" import (\n    query parent,\n)\n'
+        + LISTED.removeprefix(UNNEST_PARENT),
+    },
+}
+
+
+@pytest.mark.parametrize("policy", ("preserve", "bind-safe"))
+@pytest.mark.parametrize("case", sorted(LIST_OPERATIONS))
+def test_list_operations_replay_with_their_requirements(tmp_path, case, policy):
+    """`len`, `sum` (the count included) and `any` over a collected list
+    replay from compiled input with the live requirements: an element read
+    `o.f` is a column read (R01) in both."""
+    files = LIST_OPERATIONS[case]
+    root = project(tmp_path / "project", files)
+    document = json.loads(
+        emission_contract(
+            "postgres", "parent.pietto" if len(files) > 1 else "main.pietto"
+        )
+    )
+    document["environment"] += [
+        {"key": "identifier_case", "scope": "statement", "value": "quoted_exact"},
+        {
+            "key": "parameter_protocol",
+            "scope": "statement",
+            "value": "postgres_extended",
+        },
+    ]
+    (root / "contract.json").write_text(json.dumps(document), encoding="utf-8")
+    outcome, _ = emit_project(
+        root,
+        "main.pietto",
+        "query",
+        "result",
+        "postgres",
+        "contract.json",
+        POLICIES[policy],
+    )
+    assert outcome.status == "VERIFIED" and outcome.artifact is not None
+    _compare(outcome.artifact, refinement=False)
 
 
 @pytest.mark.parametrize(

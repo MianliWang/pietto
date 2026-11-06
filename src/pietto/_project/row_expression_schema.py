@@ -33,6 +33,7 @@ from pietto.ast_nodes import (
     UnaryExpr,
 )
 from pietto.errors import SourceLocation
+from pietto.semantic.aggregates import child_expressions, list_generator_of
 from pietto.semantic.model import (
     EffectiveNullability,
     TypeKind,
@@ -91,6 +92,7 @@ _KNOWN_EXPRESSIONS = frozenset(
         ast.WindowExpr,
         ast.ParameterRefExpr,
         ast.CapturedFieldExpr,
+        ast.GeneratorExpr,
     }
 )
 
@@ -517,6 +519,7 @@ def _contains_semantic_aggregate(expression: Expression) -> bool:
         isinstance(expression, CallExpr)
         and isinstance(expression.callee, NameExpr)
         and expression.callee.name in _SEMANTIC_AGGREGATE_NAMES
+        and list_generator_of(expression) is None
     ):
         return True
     return any(
@@ -547,6 +550,8 @@ def _child_expressions(expression: Expression) -> tuple[Expression, ...]:
         return (expression.value, expression.lower, expression.upper)
     if isinstance(expression, IsNullExpr):
         return (expression.value,)
+    if isinstance(expression, ast.GeneratorExpr):
+        return child_expressions(expression)
     return ()
 
 

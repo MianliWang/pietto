@@ -3,7 +3,7 @@
 ## Unreleased changes following 0.1.9
 
 These changes are on `main` after `0.1.9` and are in no published release
-yet. They are Phase73 batches 1 and 2. Each subsection lists the changes
+yet. They are Phase73 batches 1, 2 and 3. Each subsection lists the changes
 against `0.1.9` that a program can observe, its compatibility rows and the
 new refusals.
 
@@ -116,8 +116,10 @@ the end of the message and is also the JSON `suggestion`):
   join it on the key``); a relation named `group`: ``Generator over group in
   sum: group is the relation group, not this group; rename the relation group
   to read this group's rows`` (a `let group`: `the let group`, `rename the let
-  group`); a dotted source: ``A generator over c.items is not available yet;
-  `len`, `sum` and `any` over a row's collected list are a coming feature``.
+  group`); a dotted source: ``A generator over c.items reads a row's
+  collected list, which only a project collects; `sum` and `any` read a
+  collected list in a project whose pietto.toml sets `schema_version = 2` ``
+  (see [lists of one row](#lists-of-one-row-len-sum-and-any-postgresql-projects)).
 - PIE-S2308 at the call for a group generator in a `where`, `let`, JOIN
   `on`, `having`, `order by` or `def` body: ``Aggregate sum() is not allowed
   in where clause; use it only as a direct aliased select projection; a
@@ -1001,6 +1003,115 @@ Compatibility:
   PIE-S2805 at that field, with `same_value` as with `==`
   (``Nested relation field parent.xs cannot be read in WHERE: a collected
   relation has no comparison, ordering, grouping or scalar value.``).
+
+### Lists of one row: `len`, `sum` and `any` (PostgreSQL projects)
+
+- In a `schema_version = 2` project, list operations of one row over its
+  collected field `c.xs`: `len(c.xs)`, `sum(o.f for o in c.xs)`,
+  `sum(o.f for o in c.xs if TEST)`, `sum(1 for o in c.xs if TEST)` and
+  `any(TEST for o in c.xs)`, in a SELECT item, a row `let` or the WHERE of a
+  table or query without JOIN, GROUP BY, an aggregate, DISTINCT, a window or
+  QUALIFY. Types `Int`, `Int`, `Int`, `Int`, `Bool`; None exactly when the
+  row's list may be missing (after an outer JOIN); `[]` gives 0 / 0 / False;
+  a None element value or test adds no value and no match; a list sum past
+  64 bits is an error (SQLSTATE 22003), never a wrap. The summed field is an
+  `Int`.
+- PostgreSQL emits, compiles and bundles them (`emit-sql --project`,
+  `compile_query`, `export_bundle`/`load_bundle`, both literal policies):
+  `len` is the list's count column; `sum` is `CASE WHEN <count> IS NULL THEN
+  NULL ELSE COALESCE((SELECT CAST(SUM(CAST(<body> AS pg_catalog.int8)) AS
+  pg_catalog.int8) FROM ROWS FROM (pg_catalog.unnest(<array>), ...) AS "l"
+  ("c0", ...) [WHERE <test>]), 0) END`; `any` is `CASE WHEN <count> IS NULL
+  THEN NULL ELSE EXISTS (SELECT 1 FROM ROWS FROM (...) AS "l" (...) WHERE
+  <test>) END`. Literals inside a list operation are never bound.
+- A JOIN query that selects a collected field (`xs = p.xs`) now emits as an
+  earlier relation of another query (it emitted only as the selected query;
+  as an earlier relation it was PIE-B1004 `expression_logical_type_evidence_missing`
+  at that item), so a later query reads the list, with a missing list for a
+  LEFT JOIN row without a match.
+- MySQL: unchanged; the Collect a list operation reads stays PIE-B1003
+  `collect_not_admitted_on_target` (Phase77).
+
+New refusals (programs that were PIE-P1000 in 0.1.9). All are PIE-S2334 at
+the call unless noted, before semantic analysis, the hint after `; ` also the
+JSON `suggestion` (an EXPLICIT_MODULES project, a generator over `c.xs`):
+
+| Written | Diagnostic |
+|---|---|
+| `len(o for o in c.xs)` | ``len takes no generator; count the list with `len(c.xs)` `` |
+| `count(... for o in c.xs)` | ``count takes no generator; count the list with `len(c.xs)` ``; with `if`: ``count takes no generator; count the matching elements with `sum(1 for o in c.xs if ...)` `` |
+| `max`, `min`, `avg`, `stddev`, `count_distinct`, `string_agg` | ``max takes no generator; a list max is not available; `sum` and `any` take a list generator`` |
+| another known callee | ``A generator is only the argument of sum or any; `sum` and `any` take a list generator`` |
+| an unknown callee | PIE-S2103 as for any unknown function |
+| `any(p for o in c.xs if q)` | ``any takes its test in the body; write `any(p and q for o in c.xs)` `` (`True` body: ``write `any(q for o in c.xs)` ``) |
+| `sum(1 for o in c.xs)` | ``sum(1 for o in c.xs) counts every element; write `len(c.xs)` `` |
+| `sum(BODY for o in c.xs ...)`, BODY neither `1` nor `o.f` | PIE-S2315 `sum of a list adds 1 or one field of o; expression bodies are not supported yet` (conditional body: ``; filter with `if` after the source: `sum(o.f for o in c.xs if ...)` ``; bare field: ``; read the element as `o.amount` ``) |
+| `sum(... for o in xs ...)`, `xs` a name of no relation, `let` or `group` | PIE-S2301 at the source: ``Unknown or unavailable generator source: xs; a row's collected list is read through its row: `for o in c.xs` `` (`c` = the FROM name; in a body with JOIN inputs `c` as written) |
+| a read in the body or test other than `o.f` | at the read: ``Generator reads id outside its member; read the element's fields as `o.f` and the row's values outside the generator`` (qualified: ``Generator reads parent.id outside its member; ...`` with the same hint), the member-read texts of the conditional count otherwise |
+
+During the project checks (at the call unless noted, no suggestion unless shown):
+
+| Written | Diagnostic |
+|---|---|
+| `sum(o.paid for o in c.xs)` | PIE-S2314 ``sum of a list adds an Int field of o, got Bool; count with `sum(1 for o in c.xs if o.paid)` `` (suggestion = the hint) |
+| `sum(o.price for o in c.xs)` (not Int, not Bool) | PIE-S2314 `sum of a list adds an Int field of o, got Decimal; a list sum adds Int values` (suggestion `a list sum adds Int values`) |
+| `any(o.amount for o in c.xs)` | PIE-S2202 `Expected Bool expression in any test` (at the body) |
+| `sum(1 for o in c.xs if o.amount)` | PIE-S2202 `Expected Bool expression in generator test` (at the test) |
+| `sum(o.nosuch for o in c.xs)` | PIE-S2102 `Unknown field: o.nosuch` (at the read) |
+| `sum(o.f for o in c.nosuch)` | PIE-S2102 `Unknown field: c.nosuch` (at the source) |
+| `sum(o.f for o in c.id)`, `id` a scalar field | PIE-S2334 ``Generator source c.id is not a collected list; a generator over a row's field reads a field that a `collect` SELECT item outputs`` |
+| `len(xs)`, `xs` a collected field read bare, where `len(c.xs)` is admitted | PIE-S2334 at `xs` ``len reads a row's collected list through its row; write `len(c.xs)` `` (suggestion = the hint; `c` = the FROM binding) |
+| a list operation in ORDER BY, a relation let, or a table or query with JOIN, GROUP BY, an aggregate, DISTINCT, a window or QUALIFY | PIE-S2805 at the field, today's message (ORDER BY: `... cannot be read in ORDER BY: ...`), suggestion below |
+
+A single file refuses a generator over `c.xs` at the source with PIE-S2334
+``A generator over c.xs reads a row's collected list, which only a project
+collects; `sum` and `any` read a collected list in a project whose
+pietto.toml sets `schema_version = 2` ``; a `schema_version = 1` project
+refuses it as every generator (see the conditional count and sum above).
+
+Changed diagnostics (programs refused in 0.1.9 too):
+
+| Program | 0.1.9 | Now |
+|---|---|---|
+| `n = len(c.xs)` in a SELECT item, a row `let` or the WHERE of a table or query without JOIN, GROUP BY, aggregate, DISTINCT, window or QUALIFY | PIE-S2805 `Nested relation field c.xs cannot be read in ...: ...` | accepted (`Int`); PostgreSQL emits |
+| `len(xs)` (bare collected field) there | PIE-S2805 | PIE-S2334 ``len reads a row's collected list through its row; write `len(c.xs)` `` |
+| `len(c.xs)` in a table or query with an INNER, LEFT or CROSS JOIN and no GROUP BY, aggregate, DISTINCT, window or QUALIFY | PIE-S2805, suggestion `Filter, order or group the collected rows inside the let that is collected.` | same code, message, span and order; suggestion ``A table or query with a JOIN reads no list yet: select the list as it is here, as in `xs = c.xs`, and read it with `len`, `sum` or `any` in a later table or query that reads it with `from`.`` (a bare `xs`: without `, as in ...,`) |
+| `len(c.xs)` anywhere else (RIGHT/FULL JOIN query, grouped or aggregate body, relation let, ORDER BY, ...) | PIE-S2805, suggestion `Filter, order or group the collected rows inside the let that is collected.` | same code, message, span and order; suggestion ``Read the list with `len`, `sum` or `any` in a SELECT item, a row `let` or the WHERE of a table or query without JOIN, GROUP BY, an aggregate, DISTINCT, a window or QUALIFY, and order or group by that output in a later table or query that reads it with `from`.`` |
+| `count(c.xs)` | PIE-S2805, the same old suggestion | same code, message, span and order; suggestion ``Count the list with `len(c.xs)`.`` |
+| `count(xs)` (bare collected field) | PIE-S2805, the same old suggestion | same code, message, span and order; suggestion ``Count the list with `len(c.xs)`.``, `c` the FROM row; in a table or query with JOIN inputs, whose row the suggestion cannot name, the `Read the list ...` suggestion above |
+| `len([o for o in c.xs])`, and a `[` right after `sum(`, `any(` or `count(` | PIE-P1000 `Unexpected '['; expected an expression or ')'.` (or the parser's text there) | same code, position and text, followed by `` Write the generator without brackets, as in `sum(1 for o in c.xs if ...)`; count a row's list with `len(c.xs)`.`` (message only; PIE-P1000 has no JSON `suggestion`) |
+| a JOIN query selecting a collected field, emitted as an earlier relation of the selected query | PIE-B1004 `expression_logical_type_evidence_missing` at that item | VERIFIED (the list's count and arrays carried, as when it is the selected query) |
+
+Compatibility:
+
+- No program accepted by 0.1.9 changes meaning, diagnostics or SQL bytes
+  (the JOIN carry above only adds statements that were BLOCKED).
+- No new builtin name (`len`, `sum` and `any` exist), so no user `def`
+  becomes PIE-S2398.
+- **Formats.** The compiled description gains the operation operator
+  `("list", "len" | "sum" | "any")` (operands: a `value` read of a collection
+  port, then the body and the test; arity 1, 2 or 3, and 2), the `read` role
+  `element` (a port of a Collect's let, through that Collect's
+  `expression_block_use`, only inside a list operation over that Collect) and
+  the literal-site ancestry kind `generator`, under the Phase73 version marks
+  `(7, 1, 7, 1)` of the aggregate windows subsection; a reader of earlier
+  marks refuses such a bundle. Project JSON v2 (`emit-sql --project`) gains
+  the `computed_origin` kind `list_operation`, the generated requirement and
+  subject kind `list_operation` (rule R05; a list `sum`, the count
+  `sum(1 for o in c.xs if TEST)` included, carries
+  `target_checked_signed64_narrowing`: a total past signed 64 bits fails with
+  SQLSTATE 22003), the `expression_range` role `list_operation`, the
+  `identifier` roles `list_scope`, `list_count`, `list_array`,
+  `list_rows_scope` and `list_column`, and the `syntax` roles `list_open`,
+  `list_present`, `list_sum_open`, `list_sum_cast`, `list_any_open`,
+  `list_rows_open`, `list_function`, `list_function_close`, `list_alias`,
+  `list_columns_open`, `list_columns_close`, `list_where` and `list_close`
+  ([project JSON v2](spec/project-cli-json-v2.md)). A consumer that closes
+  these sets refuses such a document.
+- A fail-closed emission detail PIE-B1003 `list_operation_not_admitted_on_target`
+  stays for a non-PostgreSQL target that would reach a list operation (none
+  does today: the Collect it reads is refused first); it is in the
+  Collect/Unnest suggestion group.
 
 ## Equality, nullability and asof JOIN public alpha release notes — 0.1.9
 

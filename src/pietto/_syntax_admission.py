@@ -570,7 +570,11 @@ def unadmitted_syntax_diagnostics(
             pending.append((child, body))
     from pietto.semantic.generators import generator_diagnostics
 
-    found.extend(generator_diagnostics(script, single_file=single_file))
+    found.extend(
+        generator_diagnostics(
+            script, single_file=single_file, explicit_modules=explicit_modules
+        )
+    )
     return tuple(sorted(found, key=source_order))
 
 

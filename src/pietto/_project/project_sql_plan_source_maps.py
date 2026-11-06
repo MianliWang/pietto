@@ -89,6 +89,7 @@ _KNOWN_NODES = frozenset(
         ast.QueryLetDeclaration,
         ast.FunctionDef,
         ast.AnyExpr,
+        ast.GeneratorExpr,
         ast.JoinFilterClause,
         ast.ImportItem,
         ast.ImportStatement,

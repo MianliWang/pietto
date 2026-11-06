@@ -53,7 +53,7 @@ from pietto.ast_nodes import (
 )
 from pietto._syntax_admission import admitted_header
 from pietto.errors import Diagnostic, Severity, SourceLocation
-from pietto.semantic.aggregates import SEMANTIC_AGGREGATE_NAMES
+from pietto.semantic.aggregates import SEMANTIC_AGGREGATE_NAMES, list_generator_of
 from pietto.semantic.expressions import QUERY_PARAMETER_TYPES
 
 if TYPE_CHECKING:
@@ -435,6 +435,7 @@ def _position_diagnostics(
                 and type(cast(CallExpr, node).callee) is NameExpr
                 and cast(NameExpr, cast(CallExpr, node).callee).name
                 in SEMANTIC_AGGREGATE_NAMES
+                and list_generator_of(node) is None
                 for node in _value_nodes(item.expression)
             )
             for item in definition.select_items

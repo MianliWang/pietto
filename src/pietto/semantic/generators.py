@@ -4,11 +4,12 @@ A generator ``BODY for o in SOURCE [if TEST]`` is the only argument of a call.
 Its meaning is fixed by SOURCE alone: a relation name is the whole relation
 (today's ``any(...)``), ``group`` is the member rows of the current group when
 no relation or ``let`` that the body sees is named ``group``, and
-``binding.field`` is a row's collected list (not available yet). The
-pre-admission gate admits only ``sum(1 for o in group if TEST)`` and
-``sum(o.f for o in group if TEST)`` as a whole aliased SELECT item of a
-relation body without JOIN inputs; any other use is one diagnostic, the first
-rule it breaks in a fixed order. After the gate, `normalize_group_generators`
+``binding.field`` is a row's collected list. The pre-admission gate admits
+only ``sum(1 for o in group if TEST)`` and ``sum(o.f for o in group if TEST)``
+as a whole aliased SELECT item of a relation body without JOIN inputs in a
+single file, and the `sum` and `any` of a row's collected list in a
+`schema_version = 2` project, whose project checks type and place them; any
+other use is one diagnostic, the first rule it breaks in a fixed order. After the gate, `normalize_group_generators`
 reads each member field ``o.f`` as the input row's field ``f``: inside an
 aggregate the member row is the input row, so later readers see a plain row
 expression in the generator.
@@ -119,10 +120,14 @@ def _relations(script: ast.Script) -> set[str]:
     }
 
 
-def generator_diagnostics(script: ast.Script, *, single_file: bool) -> list[Diagnostic]:
+def generator_diagnostics(
+    script: ast.Script, *, single_file: bool, explicit_modules: bool = False
+) -> list[Diagnostic]:
     """One diagnostic for each generator call that is not admitted: a single
-    file admits the conditional count and sum of a group, a project none yet.
-    A generator inside another generator is reported by the outer one."""
+    file admits the conditional count and sum of a group, a `schema_version =
+    2` project the `sum` and `any` of a row's collected list (whose project
+    checks type it), any other project none yet. A generator inside another
+    generator is reported by the outer one."""
 
     from pietto.semantic.inline_functions import _tree_nodes
 
@@ -152,6 +157,7 @@ def generator_diagnostics(script: ast.Script, *, single_file: bool) -> list[Diag
             known=known,
             relations=relations,
             project=not single_file,
+            lists=explicit_modules,
         )
         if diagnostic is not None:
             found.append(diagnostic)
@@ -192,6 +198,7 @@ def normalize_group_generators(script: ast.Script) -> ast.Script:
             condition=None
             if generator.condition is None
             else cast(ast.Expression, _rebuild(generator.condition, reads)),
+            source_read=generator.source_read,
         )
 
     return cast(ast.Script, _rebuild(script, visit))
@@ -296,6 +303,7 @@ def _check(
     known: set[str],
     relations: set[str],
     project: bool,
+    lists: bool = False,
 ) -> Diagnostic | None:
     from pietto.semantic.expressions import (
         _unknown_function_diagnostic,
@@ -304,6 +312,36 @@ def _check(
 
     name = callee_name(call)
     binder = generator.binding_name
+    if lists and generator.source_read is not None:
+        return _list_diagnostic(call, generator, known)
+    only = generator.source[0]
+    if (
+        lists
+        and only != GROUP_SOURCE
+        and only not in relations
+        and (position is None or only not in position.inputs | position.lets)
+    ):
+        # No relation of that name: most likely a collected field read
+        # without its row, which a single name after `in` never is. The row
+        # is named only in a body without JOIN inputs, where it is the FROM
+        # row; with them the list may be any input's.
+        found = (
+            None
+            if position is None or position.body.join_clauses
+            else position.body.from_clause
+        )
+        row = (
+            found.binding_name or found.source_name
+            if type(found) is ast.FromClause
+            else "c"
+        )
+        return _diagnostic(
+            "PIE-S2301",
+            generator.source_span,
+            f"Unknown or unavailable generator source: {only}",
+            f"a row's collected list is read through its row: "
+            f"`for {binder} in {row}.{only}`",
+        )
     if project:
         return _error(
             call.span,
@@ -344,8 +382,10 @@ def _check(
     if len(generator.source) > 1:
         return _error(
             generator.source_span,
-            f"A generator over {source} is not available yet",
-            "`len`, `sum` and `any` over a row's collected list are a coming feature",
+            f"A generator over {source} reads a row's collected list, which "
+            "only a project collects",
+            "`sum` and `any` read a collected list in a project whose "
+            "pietto.toml sets `schema_version = 2`",
         )
     lets = frozenset() if position is None else position.lets
     if position is not None:
@@ -414,6 +454,83 @@ def _check(
     )
 
 
+def _list_diagnostic(
+    call: ast.CallExpr, generator: ast.GeneratorExpr, known: set[str]
+) -> Diagnostic | None:
+    """The first rule a generator over a row's collected list ``c.xs``
+    breaks: only `sum` and `any` take one, `any` takes its test in the body,
+    a `sum` adds 1 under an `if` or one field ``o.f``, and the body and test
+    read only the element ``o``. Where it is written, its types and the
+    source field are the project checks' (a read of the field outside a
+    SELECT item stays PIE-S2805)."""
+
+    from pietto.semantic.expressions import (
+        _unknown_function_diagnostic,
+        is_unknown_function_call,
+    )
+
+    name = callee_name(call)
+    binder = generator.binding_name
+    source = ".".join(generator.source)
+    if name not in {"sum", "any"}:
+        if is_unknown_function_call(call) and name not in known:
+            return _unknown_function_diagnostic(call, name)
+        hint = (
+            f"count the matching elements with `sum(1 for {binder} in {source} if ...)`"
+            if name == "count" and generator.condition is not None
+            else f"count the list with `len({source})`"
+            if name in {"count", "len"}
+            else "`sum` and `any` take a list generator"
+        )
+        if name in {"count", "len"}:
+            return _error(call.span, f"{name} takes no generator", hint)
+        if name in SEMANTIC_AGGREGATE_NAMES:
+            return _error(
+                call.span,
+                f"{name} takes no generator; a list {name} is not available",
+                hint,
+            )
+        return _error(call.span, "A generator is only the argument of sum or any", hint)
+    if name == "any" and generator.condition is not None:
+        return _error(
+            call.span,
+            "any takes its test in the body",
+            f"write `any(q for {binder} in {source})`"
+            if type(generator.body) is ast.LiteralExpr and generator.body.value is True
+            else f"write `any(p and q for {binder} in {source})`",
+        )
+    body = generator.body
+    if name == "sum":
+        if (
+            type(body) is ast.LiteralExpr
+            and type(body.value) is int
+            and body.value == 1
+        ):
+            if generator.condition is None:
+                return _error(
+                    call.span,
+                    f"sum(1 for {binder} in {source}) counts every element",
+                    f"write `len({source})`",
+                )
+        elif not (type(body) is ast.DottedNameExpr and body.parts[0] == binder):
+            hint = None
+            if type(body) is ast.ConditionalExpr:
+                hint = (
+                    f"filter with `if` after the source: "
+                    f"`sum({binder}.f for {binder} in {source} if ...)`"
+                )
+            elif type(body) is ast.NameExpr:
+                hint = f"read the element as `{binder}.{body.name}`"
+            return _diagnostic(
+                "PIE-S2315",
+                call.span,
+                f"sum of a list adds 1 or one field of {binder}; expression "
+                "bodies are not supported yet",
+                hint,
+            )
+    return _read_diagnostic(generator, frozenset(), frozenset())
+
+
 def _body_diagnostic(
     call: ast.CallExpr, generator: ast.GeneratorExpr
 ) -> Diagnostic | None:
@@ -472,11 +589,19 @@ def _read_diagnostic(
     generator: ast.GeneratorExpr, keys: frozenset[str], lets: frozenset[str]
 ) -> Diagnostic | None:
     """The first read of the test that is not a member field, a GROUP BY
-    key field or a parameter."""
+    key field or a parameter. A group's member is the input row, so such a
+    read names its member field; a list's element is another row, whose
+    fields are not known here."""
 
     from pietto.semantic.inline_functions import _tree_nodes
 
     binder = generator.binding_name
+    outside = (
+        None
+        if generator.source_read is None
+        else f"read the element's fields as `{binder}.f` and the row's values "
+        "outside the generator"
+    )
     for node in _tree_nodes((generator.body, generator.condition)):
         if isinstance(node, _NOT_ROW_VALUES):
             return _error(
@@ -500,7 +625,7 @@ def _read_diagnostic(
                 return _error(
                     node.span,
                     f"Generator reads {read} outside its member",
-                    f"write `{binder}.{read}`",
+                    outside or f"write `{binder}.{read}`",
                 )
         if type(node) is ast.DottedNameExpr:
             parts = cast(ast.DottedNameExpr, node).parts
@@ -508,7 +633,7 @@ def _read_diagnostic(
                 return _error(
                     node.span,
                     f"Generator reads {'.'.join(parts)} outside its member",
-                    f"write `{binder}.{parts[-1]}`",
+                    outside or f"write `{binder}.{parts[-1]}`",
                 )
             if len(parts) != 2 or parts[1] in lets:
                 return _diagnostic(

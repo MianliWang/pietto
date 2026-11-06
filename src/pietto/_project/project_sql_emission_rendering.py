@@ -474,11 +474,79 @@ class _Writer:
         self.emit(closing, "syntax", "int8_widen_close", reference)
         self.enclose("int8_widen", reference, start)
 
+    def list_operation(self, value, alias):
+        """One list operation of its row (S06; ``rows.SQLListOperation``)."""
+        start = self.offset
+        reference = value.original.ref
+        read, port = value.read, value.port
+        scope = alias if read.scope is None else read.scope.name
+
+        def count():
+            self.identifier(scope, "list_scope", port)
+            self.emit(".", "syntax", "qualifier", reference)
+            self.identifier(read.count, "list_count", port)
+
+        if value.operation == "len":
+            count()
+            self.enclose("list_operation", reference, start)
+            return
+        self.emit("CASE WHEN ", "syntax", "list_open", reference)
+        count()
+        self.emit(" IS NULL THEN NULL ELSE ", "syntax", "list_present", reference)
+        operands = iter(value.operands)
+        if value.operation == "sum":
+            self.emit(
+                "COALESCE((SELECT CAST(SUM(CAST(", "syntax", "list_sum_open", reference
+            )
+            self.scalar(next(operands), alias)
+            self.emit(
+                " AS pg_catalog.int8)) AS pg_catalog.int8)",
+                "syntax",
+                "list_sum_cast",
+                reference,
+            )
+        else:
+            self.emit("EXISTS (SELECT 1", "syntax", "list_any_open", reference)
+        self.emit(" FROM ROWS FROM (", "syntax", "list_rows_open", reference)
+        for index, array in enumerate(read.arrays):
+            if index:
+                self.emit(", ", "syntax", "separator", reference)
+            self.emit(rows.LIST_FUNCTION + "(", "syntax", "list_function", reference)
+            self.identifier(scope, "list_scope", port)
+            self.emit(".", "syntax", "qualifier", reference)
+            self.identifier(array, "list_array", port)
+            self.emit(")", "syntax", "list_function_close", reference)
+        self.emit(") AS ", "syntax", "list_alias", reference)
+        self.identifier(value.symbol.name, "list_rows_scope", reference)
+        self.emit(" (", "syntax", "list_columns_open", reference)
+        for index in range(len(read.arrays)):
+            if index:
+                self.emit(", ", "syntax", "separator", reference)
+            column = rows.list_element_column(value, index)
+            self.identifier(column.name, "list_column", column.terminal)
+        self.emit(")", "syntax", "list_columns_close", reference)
+        test = next(operands, None)
+        if value.operation == "any":
+            test = next(iter(value.operands))
+        if test is not None:
+            self.emit(" WHERE ", "syntax", "list_where", reference)
+            self.scalar(test, alias)
+        self.emit(
+            "), 0) END" if value.operation == "sum" else ") END",
+            "syntax",
+            "list_close",
+            reference,
+        )
+        self.enclose("list_operation", reference, start)
+
     def scalar(self, value, alias):
         """One admitted tree; a reference with its own scope reads that relation."""
         start = self.offset
         if type(value) is rows.SQLBlockRead:
             self.block_read(value, alias)
+            return
+        if type(value) is rows.SQLListOperation:
+            self.list_operation(value, alias)
             return
         if type(value) is rows.SQLCapturedReference:
             reference = value.original.ref

@@ -152,6 +152,8 @@ def admitted_join_shape(plan) -> bool:
             row.ProjectSQLRelationScalar,
             row.ProjectSQLRelationMembership,
             row.ProjectSQLCapturedField,
+            row.ProjectSQLListOperation,
+            row.ProjectSQLElementReference,
             grouping.ProjectSQLResultReference,
             plan_windows.ProjectSQLWindowReference,
         }

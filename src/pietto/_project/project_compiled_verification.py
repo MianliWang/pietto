@@ -12,6 +12,7 @@ from pietto._project.project_compiled_schema import (
     COLLECT_OPERATOR,
     captured_logical,
     captured_reads,
+    collection_source,
     executed_operations,
     scalar_read_port,
     Address,
@@ -332,7 +333,16 @@ def _verify_collections(records) -> None:
             need(kinds == ["expression_block_use", "port", "row"], "COLLECT_PLACEMENT")
         elif address in reads:
             read = records[address]
-            if kinds in (["port", "result"], ["port", "row"]):
+            if kinds == ["operation"]:
+                # A list operation's own read of its row's collected field (S06).
+                (operation,) = referrers
+                need(
+                    operation.get("operator")[0] == "list"
+                    and operation.get("operands")[0] == address
+                    and read.get("role") == "value",
+                    "COLLECTION_READ",
+                )
+            elif kinds in (["port", "result"], ["port", "row"]):
                 (result,) = (
                     r for r in referrers if r.address.kind in ("result", "row")
                 )
@@ -410,6 +420,46 @@ def _verify_collections(records) -> None:
                 ),
                 "COLLECTION_READ",
             )
+
+
+def _verify_lists(records, family) -> None:
+    """A list operation (S06) first reads one collected field of its row
+    (a ``value`` read of a collection port); each ``element`` read lies in
+    exactly one list operation's body or test, over that operation's Collect."""
+    reached: dict[Address, int] = {}
+    for record in records.values():
+        if record.address.kind != "operation" or record.get("operator")[0] != "list":
+            continue
+        need(family == "postgres", "LIST_TARGET")
+        read, *operands = record.get("operands")
+        need(
+            read.kind == "read"
+            and records[read].get("role") == "value"
+            and _collection(records[records[read].get("port")].get("logical")),
+            "LIST_READ",
+        )
+        collect = collection_source(records, records[read].get("port"))
+        if collect is None:
+            raise CompiledError("COMPILED_LIST_COLLECT")
+        pending = list(operands)
+        while pending:
+            address = pending.pop()
+            current = records[address]
+            if address.kind == "operation":
+                need(current.get("operator")[0] != "list", "LIST_NESTED")
+                pending.extend(current.get("operands"))
+            elif address.kind == "read" and current.get("role") == "element":
+                use = records[current.get("use")]
+                need(use.get("operation") == collect.address, "ELEMENT_READ_SCOPE")
+                reached[address] = reached.get(address, 0) + 1
+    need(
+        all(
+            reached.get(address) == 1
+            for address, r in records.items()
+            if address.kind == "read" and r.get("role") == "element"
+        ),
+        "ELEMENT_READ_SCOPE",
+    )
 
 
 def _verify_unnests(records, entry, family) -> None:
@@ -1135,19 +1185,28 @@ def verify_description(value: Description) -> None:
         elif kind == "parameter_read":
             ref(get("parameter"), {"parameter"})
         elif kind == "read":
+            # An `element` read (S06) is one child of a list operation's
+            # collected list: a port of the Collect's let, read through the
+            # Collect's expression block use, as an `any` read is.
+            local = get("role") in ("any", "element")
             port = ref(get("port"), {"port"})
             use = ref(
                 get("use"),
-                {"expression_block_use"} if get("role") == "any" else {"use"},
+                {"expression_block_use"} if local else {"use"},
             )
             need(
                 port is not None
                 and use is not None
-                and (get("role") == "any" or port.address in use.get("ports")),
+                and (local or port.address in use.get("ports")),
                 "READ_USE",
             )
             need(port.get("owner") == use.get("producer"), "READ_PRODUCER")
-            need(get("role") in ("value", "capture", "any"), "READ_ROLE")
+            need(get("role") in ("value", "capture", "any", "element"), "READ_ROLE")
+            if get("role") == "element":
+                need(
+                    records[use.get("operation")].get("operator") == COLLECT_OPERATOR,
+                    "ELEMENT_READ_COLLECT",
+                )
         elif kind == "site":
             ref(get("owner"), {"declaration"})
             need(
@@ -1892,6 +1951,7 @@ def verify_description(value: Description) -> None:
                 "scalar": ({"scalar"}, 0),
                 "relation_membership": ({"in", "not_in"}, 1),
                 "collect": ({"collect"}, 0),
+                "list": ({"len", "sum", "any"}, None),
                 "scalar_call": (
                     {
                         "lower",
@@ -1938,7 +1998,12 @@ def verify_description(value: Description) -> None:
                 and (expected_arity is None or len(operands) == expected_arity)
                 and (role != "membership" or len(operands) >= 1)
                 and (role != "exists" or len(operands) <= 1)
-                and (role != "scalar_call" or (len(operands) == 0) == (token == "now")),
+                and (role != "scalar_call" or (len(operands) == 0) == (token == "now"))
+                and (
+                    role != "list"
+                    or len(operands) == {"len": 1, "any": 2}.get(token, 0)
+                    or (token == "sum" and len(operands) in (2, 3))
+                ),
                 "OPERATOR_ARITY",
             )
             # The build writes no site on an operation: a literal, slot or
@@ -1970,6 +2035,7 @@ def verify_description(value: Description) -> None:
             )
     _verify_collections(records)
     _verify_unnests(records, entry, family)
+    _verify_lists(records, family)
     bound_literals = {
         r.get("literal"): records[r.get("site")]
         for r in records.values()
@@ -3280,6 +3346,7 @@ def verify_export(description, artifact, *, guarded=None, refinement=None):
         CallExpr,
         RelationMembershipExpr,
         AnyExpr,
+        GeneratorExpr,
     )
 
     parent_kinds = {
@@ -3294,6 +3361,7 @@ def verify_export(description, artifact, *, guarded=None, refinement=None):
         RelationMembershipExpr: "relation_membership",
         AnyExpr: "exists",
         CastExpr: "cast",
+        GeneratorExpr: "generator",
     }
     expected_declarations = {}
 
@@ -3675,6 +3743,7 @@ def verify_export(description, artifact, *, guarded=None, refinement=None):
 
     predicate_values = {}
     any_inputs = {}
+    list_inputs = {}
 
     def check_scalar(address, actual, producer, use, join_contexts=None):
         predicate_values[actual.original.ref] = (
@@ -3687,11 +3756,68 @@ def verify_export(description, artifact, *, guarded=None, refinement=None):
             need(join_contexts is None and bool(capture_context), "EXPORT_CAPTURE")
             outer_producer, outer_use = capture_context[-1]
             check_read(address, actual.column, outer_producer, outer_use, "capture")
+        elif type(actual) is rows.SQLListOperation:
+            # A list operation (S06): its read of the row's collected field,
+            # then its body and test over the Collect's let ports.
+            group = collecting.original_group(actual.read.group)
+            if group is None:
+                raise CompiledError("COMPILED_EXPORT_LIST")
+            need(
+                join_contexts is None
+                and record.address.kind == "operation"
+                and record.get("operator") == ("list", actual.operation)
+                and len(record.get("operands")) == 1 + len(actual.operands),
+                "EXPORT_LIST",
+            )
+            read = records[record.get("operands")[0]]
+            need(
+                read.address.kind == "read"
+                and read.get("use") == use
+                and read.get("role") == "value"
+                and records[read.get("port")].get("owner") == unit_map.get(id(producer))
+                and records[read.get("port")].get("ordinal") == actual.read.position,
+                "EXPORT_LIST_READ",
+            )
+            target = group.lateral.target
+            blocks = tuple(
+                r.address
+                for r in records.values()
+                if r.address.kind == "expression_block_use"
+                and r.address.position == target.use.ref.position
+            )
+            need(len(blocks) == 1, "EXPORT_LIST_COLLECT")
+            list_inputs[actual.original.ref] = (
+                actual.symbol,
+                blocks[0],
+                target.producer,
+            )
+            try:
+                for child, expected in zip(
+                    record.get("operands")[1:], actual.operands, strict=True
+                ):
+                    check_scalar(child, expected, producer, use)
+            finally:
+                del list_inputs[actual.original.ref]
         elif type(actual) is rows.SQLStageReference:
             from pietto._project.project_sql_plan_expressions import (
                 ProjectSQLAnyReference,
+                ProjectSQLElementReference,
             )
 
+            if type(actual.original) is ProjectSQLElementReference:
+                local = list_inputs.get(actual.original.operation)
+                if local is None or address.kind != "read":
+                    raise CompiledError("COMPILED_EXPORT_LIST_SCOPE")
+                port = records[record.get("port")]
+                need(
+                    actual.scope is local[0]
+                    and record.get("use") == local[1]
+                    and record.get("role") == "element"
+                    and port.get("owner") == unit_map.get(id(local[2]))
+                    and port.get("ordinal") == actual.original.position,
+                    "EXPORT_ELEMENT_READ",
+                )
+                return
             if (
                 type(actual.original) is ProjectSQLAnyReference
                 and actual.original.use is not None
@@ -4949,6 +5075,7 @@ def _verify_compiled_emission(artifact, request):
     capture_scopes: list[tuple[Any, Any, Any, Any]] = []
     captured = captured_reads(records)
     lexical_any = {}
+    lexical_lists = {}
 
     def column_name(body, index):
         from pietto._project.project_sql_emission_joins import JoinBody
@@ -5069,6 +5196,28 @@ def _verify_compiled_emission(artifact, request):
                     == column_name(observed_bodies[local[0]], port.get("ordinal")),
                     "EMISSION_ANY_OUTPUT",
                 )
+        elif address.kind == "read" and record.get("role") == "element":
+            # One child of the one list operation being checked (S06).
+            need(len(lexical_lists) == 1 and join_contexts is None, "EMISSION_ELEMENT")
+            ((read_address, operation),) = lexical_lists.items()
+            collect = collection_source(records, records[read_address].get("port"))
+            port = records[record.get("port")]
+            position = port.get("ordinal")
+            expected = rows.list_element_column(operation, position)
+            need(
+                collect is not None
+                and records[record.get("use")].get("operation") == collect.address
+                and type(actual) is rows.SQLStageReference
+                and actual.original is expected_original
+                and actual.port is operation.original.ref
+                and actual.scope is operation.symbol
+                and actual.column.scope is operation.symbol
+                and actual.column.terminal is expected.terminal
+                and actual.column.name == expected.name == f"c{position}"
+                and actual.realization.tag
+                == facts[address].value_type.resolved_type.name,
+                "EMISSION_ELEMENT",
+            )
         elif address.kind == "read" and record.get("role") == "capture":
             need(join_contexts is None, "EMISSION_CAPTURE_SCOPE")
             check_capture_read(actual, address)
@@ -5199,6 +5348,59 @@ def _verify_compiled_emission(artifact, request):
         else:
             role, token = record.get("operator")
             children = record.get("operands")
+            if role == "list":
+                # A list operation (S06): the whole group of its read port in
+                # the reading body's input, then its body and test.
+                from pietto._project.project_sql_emission_verification import (
+                    _nested_group_read,
+                    _same_nested_read,
+                )
+
+                read_record = records[children[0]]
+                port = records[read_record.get("port")]
+                body = observed_bodies.get(producer)
+                ordinal = port.get("ordinal")
+                need(
+                    join_contexts is None
+                    and body is not None
+                    and type(actual) is rows.SQLListOperation
+                    and actual.original is plan.expression_identities[address]
+                    and actual.operation == token
+                    and actual.realization is facts[address].realization
+                    and len(actual.operands) == len(children) - 1
+                    and read_record.get("role") == "value"
+                    and read_record.get("use") == use
+                    and port.get("owner") == producer
+                    and actual.port is local_port(use, read_record.get("port"))
+                    and _same_nested_read(
+                        actual.read,
+                        _nested_group_read(
+                            body.columns[ordinal],
+                            position=ordinal,
+                            port=actual.read.port,
+                            scope=current_bodies[-1].scan.symbol,
+                        ),
+                    )
+                    and actual.read.port.ref is actual.port
+                    and (
+                        actual.symbol is None
+                        if token == "len"
+                        else type(actual.symbol) is ast.SQLSymbol
+                        and actual.symbol.position == 0
+                        and actual.symbol.binding is actual.original.ref
+                        and actual.symbol.name == rows.LIST_ALIAS
+                    ),
+                    "EMISSION_LIST",
+                )
+                lexical_lists[children[0]] = actual
+                try:
+                    for operand, child in zip(
+                        actual.operands, children[1:], strict=True
+                    ):
+                        scalar(operand, child, producer, use)
+                finally:
+                    del lexical_lists[children[0]]
+                return
             if (role, token) in BLOCK_READ_OPERATORS:
                 operand_free = role != "relation_membership"
                 predicate_read = role == "exists" and bool(children)
@@ -7704,6 +7906,7 @@ def verify_logical_export(description, checked, references):
         syntax.RelationMembershipExpr: "relation_membership",
         syntax.AnyExpr: "exists",
         syntax.CastExpr: "cast",
+        syntax.GeneratorExpr: "generator",
     }
     literal_addresses = {}
     for ordinal, (site, literal, original) in enumerate(

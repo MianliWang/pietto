@@ -402,7 +402,9 @@ over a window (kind `window_computation`, rule R14), written
 `CAST(SUM(CAST(x AS pg_catalog.int8)) OVER (...) AS pg_catalog.int8)`, or a
 sign, `+`,
 `-`, `*` or `abs` over `bigint` operands (kind `arithmetic` or `scalar_call`,
-rule R05) whose exact range leaves signed 64 bits. The column's `int_range`
+rule R05) whose exact range leaves signed 64 bits, or a list `sum` over a
+row's collected field (kind `list_operation`, rule R05, below). The column's
+`int_range`
 is then the part of that range inside signed 64 bits, and PostgreSQL's checked
 `bigint` narrowing or operator refuses any other value with SQLSTATE 22003, so
 the statement may fail while PostgreSQL plans or executes it and never returns
@@ -578,6 +580,38 @@ existing rules. The corresponding range roles are `unnest_rows_open`,
 `unnest_function`, `unnest_scope`, `unnest_array`, `unnest_function_close`,
 `unnest_rows_close`, `unnest_columns_open`, `unnest_column`, and
 `unnest_columns_close`. They add no document field or format version.
+
+A PostgreSQL list operation of one row over a field `c.xs` that a Collect
+read outputs (`len(c.xs)`, `sum(o.f for o in c.xs)`, with or without
+`if TEST`, `sum(1 for o in c.xs if TEST)` and `any(TEST for o in c.xs)`) is
+a scalar column. `len` reads the list's count column; `sum` is written
+`CASE WHEN <count> IS NULL THEN NULL ELSE COALESCE((SELECT
+CAST(SUM(CAST(<value> AS pg_catalog.int8)) AS pg_catalog.int8) FROM ROWS FROM
+(pg_catalog.unnest(<array>), ...) AS "l" (<columns>) [WHERE <test>]), 0) END`
+and `any` `CASE WHEN <count> IS NULL THEN NULL ELSE EXISTS (SELECT 1 FROM ROWS
+FROM (...) AS "l" (...) WHERE <test>) END`. Its column's
+`correspondence.computed_origin.kind` is `list_operation`, whose `operands`
+are the generator's body and test (none for `len`). Its generated requirement
+has the kind and subject kind `list_operation` and rule `R05`; a list `sum`,
+the count `sum(1 for o in c.xs if TEST)` included, carries
+`[{"overflow": "target_checked_signed64_narrowing"}]`, since PostgreSQL's
+checked `bigint` SUM refuses a total past signed 64 bits with SQLSTATE 22003,
+and `len` and `any` carry none. An element read `o.f` in the body or test is
+an `expression` requirement with rule `R01`, as any other column read. The
+additive `ranges` roles are the
+`expression_range` role `list_operation`, the `identifier` roles
+`list_scope`, `list_count`, `list_array`, `list_rows_scope` and
+`list_column`, and the `syntax` roles `list_open` (`CASE WHEN `),
+`list_present` (` IS NULL THEN NULL ELSE `), `list_sum_open`
+(`COALESCE((SELECT CAST(SUM(CAST(`), `list_sum_cast`
+(` AS pg_catalog.int8)) AS pg_catalog.int8)`), `list_any_open`
+(`EXISTS (SELECT 1`), `list_rows_open` (` FROM ROWS FROM (`),
+`list_function` (`pg_catalog.unnest(`), `list_function_close` (`)`),
+`list_alias` (`) AS `), `list_columns_open` (` (`), `list_columns_close`
+(`)`), `list_where` (` WHERE `) and `list_close` (`), 0) END` after a `sum`,
+`) END` after an `any`). A consumer that closes these sets refuses such a
+document. No MySQL document has one: the Collect read is refused first
+(PIE-B1003 `collect_not_admitted_on_target`).
 
 In `--format text` the nested field is one record line of the `columns`
 block, like any other column.

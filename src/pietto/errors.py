@@ -826,6 +826,17 @@ class SyntaxErrorReporter(DefaultErrorStrategy):
             and before.type == PiettoParser.LPAREN
         ):
             return "Write `count_distinct(x)` for COUNT(DISTINCT x)."
+        if (
+            text == "["
+            and previous is not None
+            and previous.type == PiettoParser.LPAREN
+            and before is not None
+            and before.text in {"len", "sum", "any", "count"}
+        ):
+            return (
+                "Write the generator without brackets, as in "
+                "`sum(1 for o in c.xs if ...)`; count a row's list with `len(c.xs)`."
+            )
         if self._from_parenthesis(recognizer, token):
             return _FROM_HINT
         if self._subquery(token):

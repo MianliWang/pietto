@@ -150,6 +150,7 @@ def aggregate_call_name(expression: Expression) -> str | None:
         isinstance(expression, CallExpr)
         and isinstance(expression.callee, NameExpr)
         and expression.callee.name in AGGREGATE_NAMES
+        and list_generator_of(expression) is None
     ):
         return expression.callee.name
     return None
@@ -162,9 +163,26 @@ def semantic_aggregate_call_name(expression: Expression) -> str | None:
         isinstance(expression, CallExpr)
         and isinstance(expression.callee, NameExpr)
         and expression.callee.name in SEMANTIC_AGGREGATE_NAMES
+        and list_generator_of(expression) is None
     ):
         return expression.callee.name
     return None
+
+
+def list_generator_of(expression: Expression) -> ast.GeneratorExpr | None:
+    """The generator of a `sum` or `any` call over a row's collected field
+    (``c.xs``), a list operation of one row and no aggregate; else None."""
+
+    if not (
+        isinstance(expression, CallExpr)
+        and isinstance(expression.callee, NameExpr)
+        and expression.callee.name in {SUM_AGGREGATE_NAME, "any"}
+    ):
+        return None
+    generator = _generator_argument(expression)
+    if generator is None or generator.source_read is None:
+        return None
+    return generator
 
 
 def is_aggregate_call(expression: Expression) -> bool:
@@ -297,6 +315,10 @@ def child_expressions(expression: Expression) -> tuple[Expression, ...]:
     if isinstance(expression, IsNullExpr):
         return (expression.value,)
     if isinstance(expression, ast.GeneratorExpr):
+        # A list generator's body and test read its element, not the row:
+        # its one row read is the collected field.
+        if expression.source_read is not None:
+            return (expression.source_read,)
         return expression.operands
     if isinstance(
         expression,

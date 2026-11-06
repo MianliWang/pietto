@@ -64,6 +64,18 @@ def test_a_generator_without_if_and_over_a_dotted_source_parses() -> None:
     assert generator.source == ("c", "items")
     assert type(generator.body) is LiteralExpr and generator.condition is None
     assert generator.operands == (generator.body,)
+    # A dotted source is also the read of its field, at the source's span.
+    read = generator.source_read
+    assert type(read) is DottedNameExpr and read.parts == ("c", "items")
+    assert _where(read.span) == _where(generator.source_span) == _at(34, 41)
+
+
+def test_a_relation_or_group_source_has_no_field_read() -> None:
+    for item in ("sum(1 for o in group if o.paid)", "sum(1 for o in orders if o.paid)"):
+        call = _select(item)
+        assert type(call) is CallExpr
+        (generator,) = call.arguments
+        assert type(generator) is GeneratorExpr and generator.source_read is None
 
 
 def test_relation_any_keeps_its_own_node_and_a_test_makes_it_a_generator() -> None:
@@ -92,6 +104,12 @@ def test_a_generator_binder_hides_a_header_parameter_of_its_name() -> None:
     assert type(right) is ParameterRefExpr and right.name == "p"
 
 
+_BRACKETS = (
+    "Write the generator without brackets, as in "
+    "`sum(1 for o in c.xs if ...)`; count a row's list with `len(c.xs)`."
+)
+
+
 @pytest.mark.parametrize(
     ("item", "message"),
     [
@@ -106,6 +124,14 @@ def test_a_generator_binder_hides_a_header_parameter_of_its_name() -> None:
         ("sum(x for o in group, 0)", (4, 39, "Missing ')' before ','.")),
         (
             "len([o for o in group])",
+            (4, 23, f"Unexpected '['; expected an expression or ')'. {_BRACKETS}"),
+        ),
+        (
+            "sum([o.v for o in c.xs])",
+            (4, 23, f"Unexpected '['; expected an expression or ')'. {_BRACKETS}"),
+        ),
+        (
+            "max([1, 2])",
             (4, 23, "Unexpected '['; expected an expression or ')'."),
         ),
     ],

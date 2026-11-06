@@ -107,6 +107,7 @@ _KNOWN_EXPRESSIONS = frozenset(
         ast.BetweenExpr,
         ast.IsNullExpr,
         ast.WindowExpr,
+        ast.GeneratorExpr,
     }
 )
 
@@ -1776,6 +1777,8 @@ def _walk_expression(expression: Expression) -> tuple[Expression, ...]:
         children = (expression.value, expression.lower, expression.upper)
     elif isinstance(expression, IsNullExpr):
         children = (expression.value,)
+    elif isinstance(expression, ast.GeneratorExpr):
+        children = child_expressions(expression)
     else:
         children = ()
     return (

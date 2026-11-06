@@ -333,6 +333,157 @@ class SQLBlockRead:
     predicate: Any = None
 
 
+@dataclass(frozen=True, slots=True, eq=False)
+class SQLListOperation:
+    """A list operation of one row (S06) over the carrier of its collected
+    list (``pg_column_arrays_v1``: the count column, then one array per child
+    field). `len` reads the count; `sum` and `any` read the element rows of
+    the arrays, zipped by position, as an Unnest does::
+
+        CASE WHEN m."xs" IS NULL THEN NULL ELSE COALESCE((SELECT
+            CAST(SUM(CAST(<body> AS pg_catalog.int8)) AS pg_catalog.int8)
+            FROM ROWS FROM (pg_catalog.unnest(m."a"), ...) AS "l" ("c0", ...)
+            [WHERE <test>]), 0) END
+        CASE WHEN m."xs" IS NULL THEN NULL ELSE EXISTS (SELECT 1 FROM ROWS
+            FROM (...) AS "l<k>" (...) WHERE <test>) END
+
+    A NULL count is a missing container (G1-03); `[]` counts 0 with NULL
+    arrays, which unnest to no row; a NULL body or test adds no sample and no
+    match (C2). ``operation`` is `len`, `sum` or `any`; ``port`` the read
+    input port; ``read`` the input's NestedRead there, ``symbol`` the element
+    rows' alias (None for `len`), ``operands`` the realized body and test.
+    """
+
+    original: Any
+    operation: str
+    port: Any
+    read: Any
+    symbol: Any
+    operands: tuple[Any, ...]
+    realization: Realization
+
+
+LIST_FUNCTION = "pg_catalog.unnest"
+LIST_ALIAS = "l"
+
+
+def list_node_count(node: SQLListOperation) -> int:
+    """The count read of a `len`; for `sum` and `any` also each array call
+    and each element column alias."""
+    return 1 if node.symbol is None else 1 + 2 * len(node.read.arrays)
+
+
+def list_element_column(operation: SQLListOperation, position: int) -> StageColumn:
+    """The element column ``c<position>`` of one list operation's rows."""
+    from pietto._project import project_sql_emission_nested as collecting
+
+    group = collecting.original_group(operation.read.group)
+    if group is None or not 0 <= position < len(group.collect.children):
+        raise ValueError("list element outside its collected children")
+    child = group.lateral.target.producer.columns[position].column
+    return replace(
+        child,
+        position=position,
+        name=f"c{position}",
+        terminal=group.collect.children[position],
+        scope=operation.symbol,
+    )
+
+
+def _list_operation(request, columns, expression, tag, nullable, uses, reference_type):
+    """Realize one list operation over the NestedRead at its port."""
+    from pietto._project import project_sql_emission_unnest as unnesting
+    from pietto._project.project_sql_emission_ast import SQLSymbol
+
+    family = request.family
+    if family != "postgres":
+        return None, ("PIE-B1003", "list_operation_not_admitted_on_target")
+    read = columns.get(expression.port)
+    if type(read) is not unnesting.NestedRead or not read.arrays:
+        return None, ("PIE-B1001", "list_read_outside_stage_scope")
+    if expression.operation == "len":
+        if tag != "Int" or expression.body is not None or expression.condition:
+            return None, ("PIE-B1002", "list_operation_type_drift")
+        realization = _checked_int({"kind": "pg_int8"}, 0, SIGNED64[1], nullable)
+        if realization is None:
+            return None, ("PIE-B1002", "list_operation_type_drift")
+        return (
+            SQLListOperation(
+                expression, "len", expression.port, read, None, (), realization
+            ),
+            None,
+        )
+    realization = (
+        _bool(family, nullable)
+        if expression.operation == "any"
+        else _checked_int({"kind": "pg_int8"}, *SIGNED64, nullable)
+    )
+    if realization is None:
+        return None, ("PIE-B1002", "list_operation_type_drift")
+    operation = SQLListOperation(
+        expression,
+        expression.operation,
+        expression.port,
+        read,
+        # One name serves every list operation: each is its own scalar
+        # subquery and none holds another, so the innermost `l` is its own.
+        SQLSymbol(0, expression.ref, LIST_ALIAS),
+        (),
+        realization,
+    )
+    scoped = {**columns, (expression.ref, "list"): operation}
+    operands = []
+    for position, child in enumerate((expression.body, expression.condition)):
+        if child is None:
+            continue
+        value, problem = build_row_value(
+            request, scoped, child, uses, reference_type=reference_type
+        )
+        if problem is not None:
+            return None, problem
+        realized = realization_of(value, family)
+        expected = "Int" if expression.operation == "sum" and position == 0 else "Bool"
+        if realized.tag != expected or (
+            expected == "Bool" and realized.domain.get("kind") != "bool01"
+        ):
+            return None, ("PIE-B1003", "list_operation_operand_not_admitted")
+        operands.append(value)
+    if (
+        expression.operation not in {"sum", "any"}
+        or tag != ("Bool" if expression.operation == "any" else "Int")
+        or expression.body is None
+        or (expression.operation == "any" and expression.condition is not None)
+    ):
+        return None, ("PIE-B1002", "list_operation_type_drift")
+    return replace(operation, operands=tuple(operands)), None
+
+
+def _element_reference(columns, expression, tag, nullable):
+    operation = columns.get((expression.operation, "list"))
+    return element_reference(expression, operation, expression.position, tag, nullable)
+
+
+def element_reference(original, operation, position, tag, nullable):
+    """``"l"."c<j>"``: one child field of its list operation's element, typed
+    as the collected let's field (a nullable read may widen a column)."""
+    if type(operation) is not SQLListOperation or operation.symbol is None:
+        return None, ("PIE-B1001", "element_read_outside_list_scope")
+    column = list_element_column(operation, position)
+    realization = column.realization
+    if realization.tag != tag:
+        return None, ("PIE-B1002", "element_read_logical_type_drift")
+    if realization.nullable != nullable:
+        if nullable is not True:
+            return None, ("PIE-B1002", "element_read_null_drift")
+        realization = replace(realization, nullable=True)
+    return (
+        SQLStageReference(
+            original, operation.original.ref, column, realization, operation.symbol
+        ),
+        None,
+    )
+
+
 def any_column(request, target: SQLBlockTarget, position: int) -> StageColumn | None:
     """Read one actual producer field under this lexical ANY input alias."""
     if type(position) is not int or position < 0:
@@ -881,6 +1032,16 @@ def _tree_nodes(plan, reference, *, render_order):
         result.append(expression)
         if type(expression) is row.ProjectSQLScalarCall:
             pending.extend(reversed(expression.arguments))
+        elif type(expression) is row.ProjectSQLListOperation:
+            pending.extend(
+                reversed(
+                    tuple(
+                        child
+                        for child in (expression.body, expression.condition)
+                        if child is not None
+                    )
+                )
+            )
         elif type(expression) is row.ProjectSQLMembership:
             pending.extend(reversed(expression.options))
             pending.append(expression.value)
@@ -1181,6 +1342,12 @@ def build_row_value(
         return _relation_membership(
             request, columns, expression, tag, nullable, uses, reference_type
         )
+    if type(expression) is row.ProjectSQLListOperation:
+        return _list_operation(
+            request, columns, expression, tag, nullable, uses, reference_type
+        )
+    if type(expression) is row.ProjectSQLElementReference:
+        return _element_reference(columns, expression, tag, nullable)
     return None, ("PIE-B1003", "row_expression_not_admitted_in_slice6")
 
 
@@ -2355,6 +2522,7 @@ def realization_of(value, family: str) -> Realization:
         SQLParameterRead,
         SQLBlockRead,
         SQLCapturedReference,
+        SQLListOperation,
     }:
         return value.realization
     return constant_realization(value, family)
@@ -2386,6 +2554,15 @@ def _value_nodes(value, *, render_order) -> tuple[Any, ...]:
                 for node in _value_nodes(operand, render_order=render_order)
             ),
         )
+    if type(value) is SQLListOperation:
+        return (
+            value,
+            *(
+                node
+                for operand in value.operands
+                for node in _value_nodes(operand, render_order=render_order)
+            ),
+        )
     if type(value) is SQLOperation:
         result: list[Any] = [value]
         operands = (
@@ -2411,7 +2588,7 @@ def operand_refs(value) -> tuple[Any, ...]:
                 *((value.predicate,) if value.predicate is not None else ()),
             )
         )
-    if type(value) is SQLOperation:
+    if type(value) in (SQLOperation, SQLListOperation):
         return tuple(root_expression(operand).ref for operand in value.operands)
     return ()
 
@@ -2423,6 +2600,7 @@ def root_expression(value):
         SQLParameterRead,
         SQLBlockRead,
         SQLCapturedReference,
+        SQLListOperation,
     }:
         return value.original
     return parameters.value_nodes(value)[0].original
@@ -2437,6 +2615,8 @@ def requirement_kind(node) -> str:
         return "relation_membership" if node.kind in ("in", "not_in") else node.kind
     if type(node) is SQLCapturedReference:
         return "capture"
+    if type(node) is SQLListOperation:
+        return "list_operation"
     assert type(node) is SQLOperation
     return {
         "sign": "arithmetic",
@@ -2472,6 +2652,9 @@ REQUIREMENT_RULES = {
     "relation_membership": "R11",
     # A captured field is the outer correlation of an inline read.
     "capture": "R11",
+    # A list operation reads its own row's collected list (S06): a scalar of
+    # the row, never a semi-join (G1-02).
+    "list_operation": "R05",
 }
 
 

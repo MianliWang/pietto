@@ -5,6 +5,7 @@ from __future__ import annotations
 from dataclasses import dataclass, field, replace
 from enum import StrEnum
 from types import MappingProxyType
+from typing import cast
 from collections.abc import Mapping
 
 from pietto import _asof_join as asof
@@ -46,6 +47,7 @@ from pietto._project.project_relationship_predicates import (
 )
 from pietto._project.row_expression_type_facts import (
     is_nested_relation_field,
+    list_suggestion,
     nested_value_diagnostic,
     project_row_field_to_semantic_value_type,
     scalar_field_reference_leaves,
@@ -59,9 +61,11 @@ from pietto.ast_nodes import (
     Expression,
     IsNullExpr,
     NameExpr,
+    QueryDef,
     ShapeDef,
     SourceDef,
     Span,
+    TableDef,
 )
 from pietto.errors import Diagnostic, Severity
 from pietto.semantic import joins as semantic_joins
@@ -857,9 +861,15 @@ def _nested_reference_diagnostic(
     or ANTI JOIN that an ANY before a later JOIN becomes is an ANY test, and
     its row is named as written."""
 
-    for use in existence_uses_for_owner(
-        condition.root.uses.semantic_result, condition.ledger.owner
-    ):
+    owner = condition.ledger.owner
+    on_clause = condition.use.clause.on_clause
+    suggestion = list_suggestion(
+        leaf,
+        cast(TableDef | QueryDef, owner.definition),
+        root=None if on_clause is None else on_clause.expression,
+        relation_let=owner.let_position is not None,
+    )
+    for use in existence_uses_for_owner(condition.root.uses.semantic_result, owner):
         if use.clause is condition.use.clause:
             ref = None
             if (
@@ -867,8 +877,10 @@ def _nested_reference_diagnostic(
                 and leaf.parts[0] == use.clause.target_binding_name
             ):
                 ref = ".".join((use.expression.binding_name, *leaf.parts[1:]))
-            return nested_value_diagnostic(leaf, "an ANY test", ref=ref)
-    return nested_value_diagnostic(leaf, "JOIN ON")
+            return nested_value_diagnostic(
+                leaf, "an ANY test", ref=ref, suggestion=suggestion
+            )
+    return nested_value_diagnostic(leaf, "JOIN ON", suggestion=suggestion)
 
 
 def _equality_fields(
