@@ -420,6 +420,18 @@ def result_realization(family: str, function: str, argument, retained):
             rows._checked_int({"kind": COUNT_STORAGE[family]}, 0, COUNT_MAX, False),
             None,
         )
+    if function in {"sum", "avg"} and float_argument(argument):
+        # PostgreSQL's float8 SUM and AVG accumulate in binary64 and raise
+        # SQLSTATE 22003 on overflow; an empty or all-null input is NULL.
+        if family != "postgres" or tag != "Float" or nullable is not True:
+            return None, (
+                "PIE-B1002",
+                function + "_result_logical_type_or_argument_drift",
+            )
+        return (
+            rows.Realization("Float", {"kind": "pg_float8"}, True, rows.FINITE_FLOAT),
+            None,
+        )
     if function == "sum":
         # An empty or all-null input sums to NULL; the CAST bounds the rest.
         if (
@@ -481,14 +493,25 @@ def result_realization(family: str, function: str, argument, retained):
     )
 
 
+def float_argument(argument) -> bool:
+    """Whether one realized aggregate argument is a Float carrier."""
+    return argument is not None and argument.realization.tag == "Float"
+
+
 def argument_problem(function: str, argument, family: str):
-    """R13 admits exactly one direct established V01 field per aggregate argument."""
-    return resolved_argument_problem(
-        function,
-        type(argument) is rows.SQLStageReference,
-        argument.realization if type(argument) is rows.SQLStageReference else None,
-        family,
-    )
+    """R13 admits one established V01 field per aggregate argument, or on
+    PostgreSQL one admitted row expression, as a LET would lower it. Any other
+    argument, such as a bare literal or parameter or an operation that reads no
+    field (only a forged compiled input holds one), reads no row and is refused."""
+    direct = type(argument) is rows.SQLStageReference
+    if not direct and not (
+        type(argument) is rows.SQLOperation
+        and any(
+            type(node) is rows.SQLStageReference for node in rows.value_nodes(argument)
+        )
+    ):
+        return "PIE-B1003", "aggregate_argument_not_a_direct_established_field"
+    return resolved_argument_problem(function, direct, argument.realization, family)
 
 
 def string_agg_argument_problem(argument):
@@ -514,8 +537,13 @@ def resolved_argument_problem(
     """The same R13 argument law for an already-resolved input port.
 
     PostgreSQL MIN/MAX of one Timestamp or Date carrier keep its exact value;
-    the MySQL result's fractional seconds and metadata are not yet reviewed."""
-    if not direct_reference:
+    the MySQL result's fractional seconds and metadata are not yet reviewed.
+    PostgreSQL counts and compares a Text, Bool, Float or Decimal carrier by
+    the group-key law, as COUNT(DISTINCT x), MIN and MAX compare like GROUP BY;
+    MySQL keeps them, and a row expression argument, until a differential.
+    A port that is not a direct reference is a row operation: each caller
+    refuses any other argument first."""
+    if not direct_reference and family != "postgres":
         return "PIE-B1003", "aggregate_argument_not_a_direct_established_field"
     if realization is None:
         return "PIE-B1003", function + "_argument_outside_reviewed_int_domain"
@@ -551,7 +579,16 @@ def resolved_argument_problem(
     if function in {"sum", "avg"} and realization.tag == "Decimal":
         return "PIE-B1004", "decimal_aggregate_range_proof_missing"
     if function in {"sum", "avg"} and realization.tag == "Float":
+        if family == "postgres" and rows.float_carrier(realization, family):
+            return None
         return "PIE-B1004", "float_aggregate_finite_result_proof_missing"
+    if family == "postgres" and (
+        function in COUNTING_FUNCTIONS
+        and realization.tag in {"Text", "Bool", "Float", "Decimal"}
+        or function in EXTREMA_FUNCTIONS
+        and realization.tag in {"Float", "Decimal"}
+    ):
+        return group_key_problem(realization)
     if function in COUNTING_FUNCTIONS and realization.tag in {
         "Timestamp",
         "Date",
@@ -573,8 +610,11 @@ def resolved_argument_problem(
 
 def argument_cast(family: str, function: str, argument) -> str | None:
     """One target-native binary64 input for the reviewed AVG(Int) operation,
-    or the bigint input of a PostgreSQL SUM(Int)."""
+    or the bigint input of a PostgreSQL SUM(Int); a PostgreSQL float8 input
+    is already binary64."""
     if function not in {"avg", "sum"}:
+        return None
+    if family == "postgres" and float_argument(argument):
         return None
     if argument is None or argument.realization.tag != "Int":
         raise ValueError("AVG or SUM input cast requires its proven Int argument")
@@ -592,7 +632,7 @@ def result_cast(family: str, function: str, argument) -> str | None:
         if family != "postgres" or argument is None:
             raise ValueError("VAR_SAMP result cast requires a PostgreSQL argument")
         return "pg_catalog.float8"
-    if function != "sum":
+    if function != "sum" or family == "postgres" and float_argument(argument):
         return None
     if family != "postgres" or argument is None or argument.realization.tag != "Int":
         raise ValueError("SUM result cast requires a PostgreSQL Int argument")
@@ -601,10 +641,11 @@ def result_cast(family: str, function: str, argument) -> str | None:
 
 def aggregate_evidence(function: str, argument_tag: str | None) -> tuple[str, ...]:
     """R13's evidence beyond the rule, from the function and its argument's
-    tag: a checked bigint sum, or a binary64 deviation the target checks."""
+    tag: a checked bigint sum, or a binary64 sum, average or deviation the
+    target checks."""
     if function == "sum" and argument_tag == "Int":
         return (rows.TARGET_CHECKED_SIGNED64,)
-    if function == "stddev" and argument_tag == "Float":
+    if function in {"sum", "avg", "stddev"} and argument_tag == "Float":
         return (TARGET_CHECKED_BINARY64,)
     return ()
 

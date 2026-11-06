@@ -908,6 +908,55 @@ def test_stddev_root_cast_and_evidence_are_closed_data_relations(
         assert _status(_mutated(data, edit))[0] is pure.Status.INVALID_RELATION
 
 
+@pytest.mark.parametrize("variant", ("sum_float", "avg_float"))
+def test_float_sum_and_avg_are_uncast_closed_data_relations(tmp_path_factory, variant):
+    """S16: a public consumer admits a PostgreSQL SUM or AVG of a float8 only
+    uncast, with exactly the binary64 overflow evidence."""
+    artifact, data = _observed(
+        tmp_path_factory, "postgres", "V_aggregate_blocked", variant
+    )
+    document = json.loads(data)
+    (column,) = _records(document, "aggregate_value_column")
+    function = variant.split("_")[0]
+    assert (
+        column["function"],
+        column["argument_cast"],
+        column["result_cast"],
+    ) == (function, None, None)
+    assert [
+        r["evidence"]
+        for r in _records(document, "generated_requirement")
+        if r["kind"] == "aggregate"
+    ] == [[BINARY64_CHECKED]]
+    assert portable.verify_emission_observation(
+        data, artifact, artifact.request
+    ).corresponds
+
+    def field(name, value):
+        def edit(candidate):
+            _records(candidate, "aggregate_value_column")[0][name] = value
+
+        return edit
+
+    def claimed(value):
+        def edit(candidate):
+            for requirement in _records(candidate, "generated_requirement"):
+                if requirement["kind"] == "aggregate":
+                    requirement["evidence"] = value
+
+        return edit
+
+    for edit in (
+        field("result_cast", "pg_catalog.int8"),
+        field("argument_cast", "pg_catalog.float8"),
+        field("argument_cast", "pg_catalog.int8"),
+        claimed([]),
+        claimed([TARGET_CHECKED]),
+        claimed([BINARY64_CHECKED, TARGET_CHECKED]),
+    ):
+        assert _status(_mutated(data, edit))[0] is pure.Status.INVALID_RELATION
+
+
 @pytest.mark.parametrize(
     ("expression", "static_expression", "kind"),
     (

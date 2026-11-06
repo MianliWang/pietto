@@ -366,7 +366,7 @@ def test_a_collect_reads_one_ordered_let_result_into_the_entry_projection(built)
         _refused(_changed(joined, _set(join, predicate=block.get("operation"))))
         == "COMPILED_COLLECT_PLACEMENT"
     )
-    # A JOIN, aggregate or window value admits no operation at all.
+    # A JOIN value admits no operation at all.
     assert (
         _refused(_changed(joined, _set(value, input=block.get("operation"))))
         == "COMPILED_REFERENCE"

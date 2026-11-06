@@ -1547,6 +1547,28 @@ def aggregate_rows(target, case, variant):
     if (case, variant) == ("V_aggregate_blocked", "stddev_float"):
         # PostgreSQL only: five equal 1.5 values deviate by exactly 0.0.
         return [[_float(0.0)]]
+    if (case, variant) == ("V_aggregate_blocked", "sum_float"):
+        # PostgreSQL only: five 1.5 values sum exactly to 7.5 in binary64.
+        return [[_float(7.5)]]
+    if (case, variant) == ("V_aggregate_blocked", "avg_float"):
+        return [[_float(1.5)]]
+    if (case, variant) == ("V_aggregate_blocked", "postgres_carriers"):
+        # PostgreSQL only: five labels, four distinct under C/NO PAD ("a",
+        # "A", "a " and the emoji), two distinct flags, the least amount
+        # -0.01 and the greatest ratio 1.5.
+        return [
+            [
+                _integer("5"),
+                _integer("4"),
+                _integer("2"),
+                _decimal("-0.01"),
+                _float(1.5),
+            ]
+        ]
+    if (case, variant) == ("V_aggregate_blocked", "inline_arguments"):
+        # PostgreSQL only: (10 + 20 + 30) * 2, three non-NULL value + 1 and
+        # their mean (11 + 21 + 31) / 3.
+        return [[_integer("120"), _integer("3"), _float(21.0)]]
     if (case, variant) == ("X_aggregate_grouped", "visible"):
         return [
             [_bool(target, flag), _maybe(key), _maybe(key), _integer(str(total))]

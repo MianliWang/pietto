@@ -2062,6 +2062,16 @@ def _aggregate_result_realization(family, function, argument, retained):
             {"kind": "int_range", "min": "0", "max": str(grouping.COUNT_MAX)},
             (0, grouping.COUNT_MAX),
         )
+    if function in {"sum", "avg"} and grouping.float_argument(argument):
+        # A PostgreSQL float8 SUM or AVG, checked for overflow by the target.
+        if family != "postgres" or tag != "Float" or nullable is not True:
+            raise ValueError("float sum or avg result domain")
+        return rows.Realization(
+            "Float",
+            {"kind": "pg_float8"},
+            True,
+            {"kind": "finite_float", "format": "binary64"},
+        )
     if function == "sum":
         # Q1: a PostgreSQL bigint narrowed by its checked CAST, NULL when empty.
         if (
@@ -2357,9 +2367,10 @@ def _verify_aggregate_body(
             or column.argument_cast
             != grouping.argument_cast(request.family, function, argument)
             # Q1: SUM(Int) is cast to bigint before and after it accumulates;
-            # a VAR_SAMP is cast to float8 once, under its SQRT.
+            # a VAR_SAMP is cast to float8 once, under its SQRT; a float8 SUM
+            # is not cast.
             or column.result_cast
-            != {"sum": "pg_catalog.int8", "stddev": "pg_catalog.float8"}.get(function)
+            != grouping.result_cast(request.family, function, argument)
             or (
                 function != "string_agg"
                 and (column.delimiter is not None or column.order_by)
@@ -8923,7 +8934,8 @@ def verify_row_generated_requirements(request, query, generated):
             if type(column) is grouping.AggregateValueColumn:
                 # Q1: only a PostgreSQL SUM(Int) rests on the target's checked
                 # bigint narrowing rather than a static range, and only a
-                # PostgreSQL stddev(Float) on its checked binary64 overflow.
+                # PostgreSQL sum, avg or stddev of a Float on its checked
+                # binary64 overflow.
                 argument_tag = (
                     None
                     if column.argument is None
@@ -8935,12 +8947,13 @@ def verify_row_generated_requirements(request, query, generated):
                         column.aggregate.ref,
                         "R13",
                         operators,
-                        (TARGET_CHECKED,)
-                        if column.function == "sum" and request.family == "postgres"
+                        ()
+                        if request.family != "postgres"
                         else (grouping.TARGET_CHECKED_BINARY64,)
-                        if column.function == "stddev"
-                        and request.family == "postgres"
+                        if column.function in {"sum", "avg", "stddev"}
                         and argument_tag == "Float"
+                        else (TARGET_CHECKED,)
+                        if column.function == "sum"
                         else (),
                     )
                 )

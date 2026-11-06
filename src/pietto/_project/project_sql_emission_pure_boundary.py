@@ -986,15 +986,20 @@ def _is_pg_int(realization) -> bool:
 # Q1/Q2 evidence: a bigint result bounded by the target's checked signed
 # 64-bit operation or narrowing (SQLSTATE 22003), not by a static range.
 _TARGET_CHECKED = "target_checked_signed64_narrowing"
-# A PostgreSQL stddev(Float): the target refuses an overflowing VAR_SAMP
-# accumulation with SQLSTATE 22003, so a returned deviation is finite.
+# A PostgreSQL sum, avg or stddev of a Float: the target refuses an
+# overflowing binary64 accumulation with SQLSTATE 22003, so a result is finite.
 _TARGET_CHECKED_BINARY64 = "target_checked_binary64_overflow"
 
 
-def _aggregate_casts(family: str, function: str) -> tuple[str | None, str | None]:
+def _aggregate_casts(
+    family: str, function: str, argument_tag: str | None
+) -> tuple[str | None, str | None]:
     """The reviewed argument and result casts of one aggregate: AVG(Int)
     averages binary64, PostgreSQL SUM(Int) is bigint before and after, and a
-    PostgreSQL VAR_SAMP is cast to float8 under its SQRT."""
+    PostgreSQL VAR_SAMP is cast to float8 under its SQRT. A PostgreSQL SUM or
+    AVG of a float8 is already binary64."""
+    if function in {"avg", "sum"} and argument_tag == "Float":
+        return None, None
     if function == "avg":
         return ("pg_catalog.float8" if family == "postgres" else "DOUBLE"), None
     if function == "sum":
@@ -1008,7 +1013,7 @@ def _aggregate_evidence(function: str, argument_tag: str | None) -> tuple[str, .
     """R13 evidence from the function and its argument tag, never a cast."""
     if function == "sum" and argument_tag == "Int":
         return (_TARGET_CHECKED,)
-    if function == "stddev" and argument_tag == "Float":
+    if function in {"sum", "avg", "stddev"} and argument_tag == "Float":
         return (_TARGET_CHECKED_BINARY64,)
     return ()
 
@@ -1803,7 +1808,14 @@ class _Check:
                 expected is not None and column["spelling"] == expected,
                 "aggregate spelling",
             )
-            argument_cast, result_cast = _aggregate_casts(family, column["function"])
+            argument_tag = (
+                None
+                if column["argument"] is None
+                else (_value_realization(doc, column["argument"]) or {}).get("tag")
+            )
+            argument_cast, result_cast = _aggregate_casts(
+                family, column["function"], argument_tag
+            )
             _require(
                 column["argument_cast"] == argument_cast
                 and column["result_cast"] == result_cast
@@ -1814,7 +1826,18 @@ class _Check:
                 ),
                 "aggregate argument cast",
             )
-            if column["function"] == "sum":
+            if column["function"] in {"sum", "avg"} and argument_tag == "Float":
+                # PostgreSQL only: one finite binary64 argument, a nullable
+                # finite binary64 result the target's overflow check bounds.
+                result = doc[doc[column["column"]]["realization"]]
+                _require(
+                    family == "postgres"
+                    and _is_pg_float(_value_realization(doc, column["argument"]))
+                    and _is_pg_float(result)
+                    and result["nullable"] is True,
+                    "float sum or avg result",
+                )
+            elif column["function"] == "sum":
                 # Q1: PostgreSQL only; the checked bigint narrowing bounds an
                 # Int argument's exact sum, NULL for an empty input.
                 _require(
@@ -2099,12 +2122,22 @@ class _Check:
             # row count, and R13's casts; every other window has no cast.
             casts = (column["argument_cast"], column["result_cast"])
             if function in schema.WINDOW_AGGREGATES:
+                reads = [
+                    doc[argument["read"]]
+                    for argument in arguments
+                    if argument["read"] is not None
+                ]
                 _require(
                     self.family == "postgres"
                     and tuple(argument["role"] for argument in arguments)
                     in ((("value",), ()) if function == "count" else (("value",),))
-                    and all(argument["read"] is not None for argument in arguments)
-                    and casts == _aggregate_casts(self.family, function),
+                    and len(reads) == len(arguments)
+                    and casts
+                    == _aggregate_casts(
+                        self.family,
+                        function,
+                        doc[reads[0]["realization"]]["tag"] if reads else None,
+                    ),
                     "window aggregate",
                 )
             else:
@@ -3578,8 +3611,9 @@ class _ProvenIntRanges:
         function = column["function"]
         if function in {"count", "count_distinct"}:
             return 0, _I64_MAX
-        if function == "sum":
-            return _I64_MIN, _I64_MAX
+        if function == "sum" and column["argument"] is not None:
+            argument = self.value(column["argument"])
+            return "Float" if argument == "Float" else (_I64_MIN, _I64_MAX)
         if function == "avg":
             return "Float"
         if function in {"min", "max"} and column["argument"] is not None:

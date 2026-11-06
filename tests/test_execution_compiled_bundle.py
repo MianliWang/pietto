@@ -1008,6 +1008,48 @@ def test_lpad_and_add_months_templates_render_the_emitted_sql(tmp_path, route):
         assert bound.arguments == values
 
 
+def test_an_aggregate_parity_template_binds_and_renders_the_same_sql(tmp_path):
+    """S16: a live PostgreSQL template of Text, Bool, Decimal and Float
+    aggregates and of aggregates over row expressions, under a WHERE header
+    parameter, binds and renders byte-equal SQL."""
+    from _pietto_sql_query_parameters import parameterized_case
+    from pietto._project.project_compiled_build import build_compiled
+    from pietto._project.project_compiled_loading import load_compiled
+    from pietto._project.project_execution_template import (
+        bind_values,
+        prepare_compiled_template,
+    )
+
+    body = (
+        "query result(low: Int):\n    from rows\n    where id > low\n"
+        "    select:\n        n = count(text)\n"
+        "        d = count_distinct(flag)\n        lo = min(money)\n"
+        "        hi = max(ratio)\n        s = sum(ratio)\n"
+        "        a = avg(ratio)\n        w = sum(id * 2)\n"
+        "        l = count_distinct(lower(text))\n"
+    )
+    _, outcome = parameterized_case(tmp_path, "postgres", body)
+    assert outcome.status == "VERIFIED", outcome.blockers
+    built = build_compiled(outcome.artifact)
+    template = prepare_compiled_template(
+        load_compiled(
+            built.payload,
+            expected_pin=built.pin,
+            accepted_producer=built.producer,
+            accepted_compatibility=built.compatibility,
+        )
+    )
+    bound = bind_values(
+        template, (), tuple(zip(template.parameters, (3,), strict=True))
+    )
+    assert bound.artifact.rendered.sql == template.artifact.rendered.sql
+    assert bound.artifact.rendered.sql == outcome.artifact.rendered.sql
+    sql = bound.artifact.rendered.sql
+    for call in (b"COUNT(DISTINCT lower(", b"SUM(CAST((", b"AVG(", b"MIN(", b"MAX("):
+        assert call in sql
+    assert bound.arguments == (3,)
+
+
 # Phase70 S11 x S10/S12/S14: header reads inside lets with capture lines.
 HEADER_IN_CAPTURES = """query result(cut: Int, hi: Int | None):
     let later:
@@ -1515,6 +1557,8 @@ query result:
         total = count(ARGUMENT)
 """
     outcomes = []
+    # S16: PostgreSQL counts a Bool row expression as a LET would lower it.
+    emitted = concrete and target == "postgres"
     for name, argument in (("call", "Positive(lhs)"), ("expanded", expanded)):
         checked, outcome = probe.build_case(
             tmp_path / name,
@@ -1523,9 +1567,13 @@ query result:
             item["policy"],
         )
         assert checked.verified is concrete
-        assert outcome.artifact is None
-        assert outcome.status == "BLOCKED"
-        outcomes.append(tuple((b.code, b.detail) for b in outcome.blockers))
+        if emitted:
+            assert outcome.status == "VERIFIED" and outcome.artifact is not None
+            outcomes.append(outcome.artifact.rendered.sql)
+        else:
+            assert outcome.artifact is None
+            assert outcome.status == "BLOCKED"
+            outcomes.append(tuple((b.code, b.detail) for b in outcome.blockers))
         if not concrete:
             continue
         assert isinstance(checked.plan, ProjectSQLPlan)
@@ -1547,7 +1595,9 @@ query result:
         else:
             assert calls == ()
     assert outcomes[0] == outcomes[1]
-    if concrete:
+    if emitted:
+        assert b'COUNT(("s0"."flag value" AND "s0"."flag value"))' in outcomes[0]
+    elif concrete:
         assert (
             "PIE-B1003",
             "aggregate_argument_not_a_direct_established_field",

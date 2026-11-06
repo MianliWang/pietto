@@ -479,6 +479,7 @@ first column give every rule.
 | Always-null numbers, D-12 ([Expressions](#expressions)) | typed NULL casts | typed NULL casts | `Int` arithmetic with `None`; `Float` and `Decimal` refused | as PostgreSQL |
 | `Float` equality ([Float values](#float-values)) | comparisons and GROUP BY; DISTINCT and set forms are project-only | as PostgreSQL; GROUP BY beside a wide `Text` key may split `-0.0` and `0.0` | comparisons, GROUP BY, DISTINCT, ORDER BY and every set form | comparisons with a literal or header parameter, ordering inequalities, `in`, `nullif` and UNION ALL; the other forms refused (PIE-B1003) |
 | JOIN aggregates without fan-out ([Aggregates](#aggregates-and-grouping)) | accepted | accepted | accepted | accepted; `sum(Int)` stays PIE-B1004 |
+| Project aggregate arguments ([Aggregates](#aggregates-and-grouping)): `count`/`count_distinct` of `Text`, `Bool`, `Float`, `Decimal`; `min`/`max` of `Float`, `Decimal`; `sum`/`avg` of `Float`; a row expression argument (`sum(qty * 2)`) | emitted (unchanged) | emitted (unchanged) | emitted; `Decimal` `sum`/`avg` refused (PIE-B1004); over JOIN rows an argument holding a scalar call (`count(lower(r.label))`) refused (PIE-B1003) | refused: PIE-B1003 or PIE-B1004 (an `Int` expression not proved to fit BIGINT PIE-B1002 first) |
 | `asof left join`, `asof inner join` ([Backward asof JOIN](#backward-asof-join)) | emitted | refused (PIE-B1000) | emitted in a table or query without a relation `let NAME:` block whose FROM is not a table function, elsewhere refused (PIE-S2336); a `let NAME:` block as the joined input is PIE-S2386, where a single file refuses the block itself (PIE-S2345); an aggregate after it only where its `on` keys match a unique key (PIE-S2333) | refused (PIE-B1003 `asof_join_not_admitted_on_target`) |
 
 ## Types and shapes
@@ -563,6 +564,9 @@ value.
   unspecified. A group key, DISTINCT row or set row whose class holds both
   `-0.0` and `0.0` may therefore show a zero sign that some of its members do
   not have. A class whose members share one sign shows that sign.
+- **Aggregates.** `count_distinct` counts `==`-classes, so `-0.0` and `0.0`
+  count once; a `min` or `max` whose extreme class holds both zeros shows the
+  value of some member, as a merged row does.
 - **No later step can tell.** Every Float operation Pietto admits gives
   `==`-equal results for `==`-equal inputs. So no later filter, comparison,
   group key or set operation can tell which zero a merge kept; only the
@@ -1125,8 +1129,9 @@ class merges `-0.0` with `0.0` and shows one member's value
 ([Float values](#float-values)). Project emission emits Float DISTINCT on
 PostgreSQL. MySQL refuses it at emission (MySQL kept `-0.0` and `0.0` apart
 beside a wide key), and so do both targets for a window
-`percent_rank`/`cume_dist` result. Other Float operations, including
-`count_distinct`, retain existing behavior.
+`percent_rank`/`cume_dist` result. Project emission on PostgreSQL also counts
+distinct Float values and takes Float `min`/`max` by the same law; MySQL
+refuses both (PIE-B1003). Other Float operations retain existing behavior.
 
 DISTINCT preserves canonical output fields and gives non-global results a new
 quotient grain domain, including inputs with UNKNOWN grain. Sound GLOBAL or
@@ -3444,8 +3449,21 @@ SQLSTATE 22003, never a wrong value, by the same rule. Project SQL on MySQL repo
 as `CAST(DECIMAL AS SIGNED)` would clamp an out-of-range sum, although
 `check --project` accepts it and single-file MySQL `emit-sql` emits `SUM`; Decimal
 `sum`/`avg` require
-an exact aggregate range/scale and division proof, and Float `sum`/`avg`
-require a finite-result proof. A source range, free JSON declaration, renderer
+an exact aggregate range/scale and division proof (a Decimal sum has no
+bounded precision and a Decimal average no fixed scale, so no `Decimal(p, s)`
+carrier holds the result: `decimal_aggregate_range_proof_missing`), and on
+MySQL Float `sum`/`avg` require a finite-result proof. PostgreSQL project SQL
+emits `sum` and `avg` of a finite `Float` as the single-file `SUM(x)` and
+`AVG(x)` with the R13 evidence `target_checked_binary64_overflow`: the target
+raises SQLSTATE 22003 instead of returning an infinite value (`avg` also where
+its running sum of squares overflows, about |x| > 1e154). PostgreSQL project
+SQL also emits `count` and `count_distinct` of a `Text`, `Bool`, `Float` or
+`Decimal` value and `min` and `max` of a `Float` or `Decimal` value, under the
+GROUP BY key law (`-0.0` and `0.0` are one distinct value; an extreme of equal
+values may be either member); MySQL project SQL keeps them BLOCKED. These
+wider argument types are for grouped and whole-relation aggregates; an
+aggregate over a window keeps the `Int` domain (PIE-B1003 or PIE-B1004). A
+source range, free JSON declaration, renderer
 spelling, or database default rounding rule is not such proof. `min` and `max`
 retain their bounded direct-field surface; in EXPLICIT_MODULES projects they
 also accept one row `let` name, and the result keeps that value's proven range
@@ -3476,6 +3494,19 @@ with PIE-B1000.
 `count_distinct` includes direct fields and the bounded Text lower/trim chain.
 Literal-only and arbitrary expression widening remain fail closed unless a
 current retained contract says otherwise.
+In project SQL on PostgreSQL an admitted expression argument (`sum(qty * 2)`,
+`count(lower(label))`) is emitted inside the aggregate by the same rules as a
+`let`: it is admitted exactly where `let t = qty * 2` with `sum(t)` is, and
+refused with the same blocker where that `let` is (for example `%` is
+`binary_operator_not_admitted`, Float arithmetic over a field
+`float_literal_operands_required`, an `Int` times a `Decimal` literal
+`arithmetic_requires_signed_int_operands`). Over JOIN rows a scalar call
+such as `lower` is admitted only directly in a SELECT item, so an aggregate
+argument that holds one (`count(lower(r.label))`) stays BLOCKED, as
+`let t = lower(r.label)` with `count(t)` does. MySQL project SQL keeps an
+expression argument BLOCKED (`aggregate_argument_not_a_direct_established_field`,
+or first `arithmetic_outside_physical_range` for `Int` arithmetic not proved
+to fit BIGINT).
 
 Single-file `emit-sql` renders `sum` without a cast except for PostgreSQL
 `sum(Int)`, which emits the checked `int8` input and result casts above. Its

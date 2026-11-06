@@ -189,6 +189,94 @@ def test_postgresql_stddev_replays_from_compiled_input(tmp_path, variant, eviden
     ]
 
 
+BINARY64 = ("target_checked_binary64_overflow",)
+
+
+@pytest.mark.parametrize(
+    "variant,evidence",
+    (
+        ("sum_float", [BINARY64]),
+        ("avg_float", [BINARY64]),
+        ("postgres_carriers", [()] * 5),
+        ("inline_arguments", [("target_checked_signed64_narrowing",), (), ()]),
+    ),
+)
+def test_postgresql_aggregate_parity_replays_from_compiled_input(
+    tmp_path, variant, evidence
+):
+    """S16: an uncast float8 SUM/AVG, a Text, Bool, Float or Decimal count,
+    distinct count or extreme and an aggregate over a row expression replay
+    from compiled input with their argument-keyed R13 evidence."""
+    original = build(tmp_path, "postgres", "V_aggregate_blocked", variant)
+    assert original.status == "VERIFIED" and original.artifact is not None
+    candidate = _compare(original.artifact, refinement=False)
+    assert [
+        r.evidence
+        for r in original.artifact.generated_requirements
+        if r.kind == "aggregate"
+    ] == evidence
+    assert [r.evidence for r in candidate.generated_requirements] == [
+        r.evidence for r in original.artifact.generated_requirements
+    ]
+
+
+@pytest.mark.parametrize("function", ("sum", "avg", "count"))
+@pytest.mark.parametrize("forgery", ("literal", "constant_operation"))
+def test_a_compiled_aggregate_that_reads_no_row_stays_refused(
+    tmp_path, function, forgery
+):
+    """A row expression argument opens on PostgreSQL; a forged argument that
+    reads no row, the expression's own literal or that expression over its
+    literal alone, stays refused."""
+    from dataclasses import replace
+    from pietto._project.project_compiled_schema import (
+        FIELDS,
+        CompiledError,
+        Record,
+        content_pin,
+        encode,
+    )
+
+    original = build(tmp_path, "postgres", "V_aggregate_blocked", "inline_arguments")
+    assert original.status == "VERIFIED" and original.artifact is not None
+    built = build_compiled(original.artifact)
+    (aggregate,) = (
+        r
+        for r in built.root.description.records
+        if r.address.kind == "aggregate_value" and r.get("function") == function
+    )
+    (operation,) = aggregate.get("arguments")
+    (literal,) = (
+        operand
+        for operand in built.root.records[operation].get("operands")
+        if operand.kind == "literal"
+    )
+    record, field, value = (
+        (aggregate, "arguments", (literal,))
+        if forgery == "literal"
+        else (built.root.records[operation], "operands", (literal, literal))
+    )
+    values = list(record.values)
+    values[FIELDS[record.address.kind].index(field)] = value
+    forged = Record(record.address, tuple(values))
+    description = replace(
+        built.root.description,
+        members=tuple(
+            (name, tuple(forged if r.address == forged.address else r for r in members))
+            for name, members in built.root.description.members
+        ),
+    )
+    raw = encode(description)
+    root = load_compiled(
+        raw,
+        expected_pin=content_pin(raw),
+        accepted_producer=built.producer,
+        accepted_compatibility=built.compatibility,
+    )
+    with pytest.raises(CompiledError, match="^COMPILED_AGGREGATE_ARGUMENT$"):
+        emit_compiled(root, ())
+
+
 def test_a_postgresql_uuid_order_replays_from_compiled_input(tmp_path):
     """Q3: a UUID comparison and window and result ORDER keys replay."""
     checked, original = emission.temporal_case(

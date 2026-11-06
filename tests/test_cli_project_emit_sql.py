@@ -890,13 +890,13 @@ def test_a_selected_file_name_that_is_not_utf8_rejects_emission(
 
     main.write_text(
         main.read_text() + "\nquery counted:\n    from rows\n    select:\n"
-        "        n = count(ratio)\n"
+        "        n = sum(money)\n"
     )
     code, out, err = run(changed(8, "counted", "query"))
     document = failure(out)
     assert (code, document["status"], document["cli_errors"]) == (1, "BLOCKED", [])
     assert [item["subject"]["detail"] for item in document["blockers"]] == [
-        "count_argument_outside_reviewed_int_domain"
+        "decimal_aggregate_range_proof_missing"
     ]
     assert kinds(run(changed(8, "nosuch"))[1]) == [("emission_selector", None)]
     (root / "empty.json").write_text("{}")
@@ -2511,10 +2511,10 @@ query aggregates:
     group by qty
     select:
         qty
-        a = count(label)
+        a = sum(amount)
         b = count_distinct(price)
         c = max(amount)
-        d = min(price)
+        d = avg(amount)
 
 query ratio_group:
     from ranked
@@ -2631,21 +2631,21 @@ def _reasons(tmp_path: Path, name: str, contract: dict[str, Any]) -> tuple[int, 
 def test_blockers_name_their_own_reason_place_and_remedy(tmp_path: Path) -> None:
     from pietto._project.project_sql_emission_suggestions import blocker_suggestion
 
-    aggregate_hint = "  hint: Use the aggregate's reviewed direct argument carrier, or keep it in check/plan; do not coerce its input to force emission.\n"
+    decimal_hint = (
+        "  hint: Keep this expression in check/plan, or select a direct field"
+        " with a reviewed carrier: the compiler lacks the required proof. Do not"
+        " invent a range, meaning or bound in the contract.\n"
+    )
     contract = _reasons_contract()
-    # Every refused aggregate at its own item, in select order, with the
-    # reviewed-domain reason; only sum and avg have a proof to supply.
+    # Every refused aggregate at its own item, in select order, with its
+    # reason; a PostgreSQL Float or Decimal extreme or distinct count emits.
     assert _reasons(tmp_path, "aggregates", contract) == (
         1,
         "pietto.sql-emission.v1 BLOCKED\n"
-        "blocker PIE-B1003 UNSUPPORTED_RULE:"
-        f" count_argument_outside_reviewed_int_domain (main.pietto:16:9)\n{aggregate_hint}"
-        "blocker PIE-B1003 UNSUPPORTED_RULE:"
-        f" count_distinct_argument_outside_reviewed_int_domain (main.pietto:17:9)\n{aggregate_hint}"
-        "blocker PIE-B1003 UNSUPPORTED_RULE:"
-        f" max_argument_outside_reviewed_int_domain (main.pietto:18:9)\n{aggregate_hint}"
-        "blocker PIE-B1003 UNSUPPORTED_RULE:"
-        f" min_argument_outside_reviewed_int_domain (main.pietto:19:9)\n{aggregate_hint}",
+        "blocker PIE-B1004 MISSING_EVIDENCE:"
+        f" decimal_aggregate_range_proof_missing (main.pietto:16:9)\n{decimal_hint}"
+        "blocker PIE-B1004 MISSING_EVIDENCE:"
+        f" decimal_aggregate_range_proof_missing (main.pietto:19:9)\n{decimal_hint}",
     )
     # A refused group key is at its GROUP BY item: a window distribution
     # result compares but never groups (a plain Float field now groups).

@@ -1323,7 +1323,11 @@ def verify_description(value: Description) -> None:
                 "AGGREGATE_SCOPE",
             )
         elif kind == "aggregate_value":
-            arguments = refs(get("arguments"), {"read", "literal", "null_literal"})
+            # A PostgreSQL argument may be a row expression; the aggregate's
+            # own pre-aggregate scope check covers each of its reads.
+            arguments = refs(
+                get("arguments"), {"read", "literal", "null_literal", "operation"}
+            )
             order_by = refs(get("order_by"), {"aggregate_order"})
 
             def aggregate_row_value(value):
@@ -5776,9 +5780,7 @@ def _verify_compiled_emission(artifact, request):
                     column.argument_cast
                     == grouping.argument_cast(request.family, function, column.argument)
                     and column.result_cast
-                    == {"sum": "pg_catalog.int8", "stddev": "pg_catalog.float8"}.get(
-                        function
-                    ),
+                    == grouping.result_cast(request.family, function, column.argument),
                     "EMISSION_AGGREGATE_CAST",
                 )
                 origin = column.column.aggregate

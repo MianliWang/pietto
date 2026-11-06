@@ -780,9 +780,11 @@ same checked `sum(Int)` spelling, so a sum of a `bigint` column outside signed
 MySQL keeps project `sum(Int)` BLOCKED with `PIE-B1004`,
 as its `CAST(DECIMAL AS SIGNED)` would clamp an out-of-range sum, and Int
 arithmetic not proved to fit signed 64 bits BLOCKED with `PIE-B1002`.
-Decimal `sum`/`avg` and Float `sum`/`avg` remain fail-closed without their
-aggregate-range, exact-division, or finite result proof; caller JSON cannot
-supply that proof.
+Decimal `sum`/`avg` remain fail-closed with `PIE-B1004`
+(`decimal_aggregate_range_proof_missing`): a Decimal sum has no bounded
+precision and a Decimal average no fixed scale, so no `Decimal(p, s)` carrier
+holds the result, and caller JSON cannot supply that proof. MySQL keeps Float
+`sum`/`avg` fail-closed without a finite result proof.
 
 The rules in the previous paragraph postdate the published `0.1.2` (GitHub
 pre-release `v0.1.2` and PyPI `0.1.2`) and are not part of those
@@ -795,9 +797,34 @@ files appear on its versioned release channels. Git publication and natural
 exact-head CI remain the lifecycle authority.
 
 These proofs belong to project SQL emission, not to `check --project`: the
-check accepts, for example, `sum` over a `Decimal` or `Float` field, or over
-an `Int` field on MySQL, and `emit-sql --project` then reports the table or
+check accepts, for example, `sum` over a `Decimal` field, or over an `Int` or
+`Float` field on MySQL, and `emit-sql --project` then reports the table or
 query BLOCKED with `PIE-B1004`. Single-file `emit-sql` emits such a `SUM`.
+
+PostgreSQL project SQL emits `sum` and `avg` of a finite `Float` (`pg_float8`)
+as the single-file `SUM(x)` and `AVG(x)`, uncast, with a nullable `Float`
+(`pg_float8`, `finite_float`) result and the R13 evidence
+`{"overflow": "target_checked_binary64_overflow"}`: PostgreSQL raises SQLSTATE
+22003 instead of returning an infinite sum, and `avg` may also fail where its
+running sum of squares overflows (about |x| > 1e154). It emits `count` and
+`count_distinct` of a `Text`, `Bool`, `Float` or `Decimal` argument and `min`
+and `max` of a `Float` or `Decimal` argument as `COUNT(x)`,
+`COUNT(DISTINCT x)`, `MIN(x)` and `MAX(x)`, when the argument's carrier
+satisfies the GROUP BY key law (so `-0.0` and `0.0` are one distinct value,
+and an extreme of equal values may be either member); `min` and `max` keep the
+argument's carrier and become nullable. An aggregate whose argument is a row
+expression (`sum(qty * 2)`, `count(lower(label))`) is lowered by the same rules
+as a `let` and emitted inside the aggregate, so it is admitted exactly where
+`let t = qty * 2` with `sum(t)` is. Over JOIN rows a scalar call such as
+`lower`, `trim` or `len` is admitted only directly in a SELECT item, so an
+aggregate argument that holds one (`count(lower(r.label))`) stays BLOCKED with
+`operator_not_implemented_in_slice6` and `join_shape_not_admitted_in_slice7`,
+as `let t = lower(r.label)` with `count(t)` does. MySQL keeps each of these
+forms BLOCKED (`<function>_argument_outside_reviewed_int_domain`,
+`float_aggregate_finite_result_proof_missing` or
+`aggregate_argument_not_a_direct_established_field`, after `PIE-B1002` for
+`Int` arithmetic not proved to fit signed 64 bits) until a real-database
+differential reviews them.
 
 PostgreSQL project SQL emits `stddev` of one direct `Int` field, whose carrier
 is `int2`, `int4` or `int8`, as `SQRT(CAST(VAR_SAMP(x) AS
@@ -817,8 +844,6 @@ finite, and the statement may fail where the sum of squares overflows (about
 `emit-sql --project` reports BLOCKED on both dialects whatever the contract
 declares:
 
-- `count`, `count_distinct`, `min` and `max` of a `Text`, `Float` or `Decimal`
-  argument; of an `Int` argument they are admitted, and so is `count()`;
 - a comparison of a `Float` with an `Int` (`price > 1`; write `price > 1.0`)
   or of a `Decimal` value with a literal (`amount > 1.5`);
 - `group by`, `order by`, `select distinct:` and the set forms other than

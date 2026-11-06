@@ -485,6 +485,80 @@ Compatibility:
   `emit-sql --project` keeps the existing RANGE offset refusal PIE-B1002
   `window_range_boundary_out_of_signed64_range`, as for `first_value`.
 
+### Project aggregates match single files on PostgreSQL
+
+- `emit-sql --project` on PostgreSQL now emits, VERIFIED, the aggregate forms
+  a single file emits and a project refused before:
+  - `count(x)` and `count_distinct(x)` of a `Text`, `Bool`, `Float` or
+    `Decimal` value, as `COUNT(x)` and `COUNT(DISTINCT x)` (before: PIE-B1003
+    `count_argument_outside_reviewed_int_domain`,
+    `count_distinct_argument_outside_reviewed_int_domain`);
+  - `min(x)` and `max(x)` of a `Float` or `Decimal` value, as `MIN(x)` and
+    `MAX(x)`, keeping the argument's carrier and nullable (before: PIE-B1003
+    `min_argument_outside_reviewed_int_domain`,
+    `max_argument_outside_reviewed_int_domain`);
+  - `sum(x)` and `avg(x)` of a `Float`, as the uncast `SUM(x)` and `AVG(x)`,
+    a nullable `Float` (`pg_float8`, `finite_float`) with the R13 evidence
+    `target_checked_binary64_overflow`: PostgreSQL raises SQLSTATE 22003
+    instead of returning an infinite value, `avg` also where its running sum
+    of squares overflows (about |x| > 1e154) (before: PIE-B1004
+    `float_aggregate_finite_result_proof_missing`);
+  - an aggregate whose argument is a row expression, such as `sum(qty * 2)`,
+    `avg(qty + 1)`, `count(lower(label))`, `count_distinct(trim(lower(label)))`
+    or `count(flag and flag)`, emitted inside the aggregate as a `let` would
+    lower it (before: PIE-B1003
+    `aggregate_argument_not_a_direct_established_field`). It is admitted
+    exactly where `let t = <expression>` with `sum(t)` is, and otherwise
+    reports that `let`'s blocker: `%` is PIE-B1003
+    `binary_operator_not_admitted`, Float arithmetic over a field PIE-B1003
+    `float_literal_operands_required`, an `Int` times a `Decimal` literal
+    PIE-B1003 `arithmetic_requires_signed_int_operands`.
+- `count_distinct`, `min` and `max` compare by the GROUP BY key law of the
+  argument's carrier: `-0.0` and `0.0` are one distinct value, and a `min` or
+  `max` whose extreme class holds both zeros shows some member's value (the
+  `Float` value contract). These forms also emit over JOIN rows (`sum(r.ratio)`,
+  `count_distinct(r.label)`, `min(r.ratio)`, `count(r.flag and r.flag)`,
+  `sum(-r.value)`), except an argument that holds a scalar call, and compiled
+  bundles and live templates of these statements bind and render the same
+  SQL.
+- Kept refused:
+  - `sum` and `avg` of a `Decimal` stay PIE-B1004
+    `decimal_aggregate_range_proof_missing` on both targets (a Decimal sum has
+    no bounded precision and a Decimal average no fixed scale, so no
+    `Decimal(p, s)` carrier holds the result). On PostgreSQL this now includes
+    a `Decimal` row expression such as `sum(amount + amount)`, which reported
+    PIE-B1003 `aggregate_argument_not_a_direct_established_field` before, at
+    the same select item.
+  - Over JOIN rows an aggregate argument that holds a scalar call such as
+    `lower`, `trim` or `len` (`count(lower(r.label))`,
+    `count_distinct(trim(r.label))`, `count(len(r.label))`) stays BLOCKED on
+    PostgreSQL, unchanged, with PIE-B1003 `operator_not_implemented_in_slice6`
+    and `join_shape_not_admitted_in_slice7`, as `let t = lower(r.label)` with
+    `count(t)` is: over JOIN rows such a call is admitted only directly in a
+    SELECT item. A single file emits these forms.
+  - An aggregate over a window keeps the `Int` domain of the previous
+    subsection: a window `sum` or `avg` of a `Float` stays PIE-B1004
+    `float_aggregate_finite_result_proof_missing`, and a window `count` of a
+    `Text`, `Bool`, `Float` or `Decimal` value or a window `min` or `max` of a
+    `Float` or `Decimal` value stays PIE-B1003
+    `<function>_argument_outside_reviewed_int_domain`.
+- MySQL is unchanged: `emit-sql --project --dialect mysql` keeps each of these
+  forms BLOCKED with its existing detail
+  (`<function>_argument_outside_reviewed_int_domain`,
+  `float_aggregate_finite_result_proof_missing`,
+  `aggregate_argument_not_a_direct_established_field`, or first PIE-B1002
+  `arithmetic_outside_physical_range` / `unary_result_outside_physical_range`
+  for `Int` arithmetic not proved to fit BIGINT) until a real-database
+  differential reviews them.
+- No diagnostic code, detail, hint text, JSON shape or single-file SQL changes.
+  A project statement that was BLOCKED only by these forms is now VERIFIED on
+  PostgreSQL; one that also had another blocker now reports fewer blockers. A
+  PostgreSQL row expression argument that stays refused now reports, at the
+  same select item, the blocker its `let` form reports instead of PIE-B1003
+  `aggregate_argument_not_a_direct_established_field` (`count(value % 2)`:
+  PIE-B1003 `binary_operator_not_admitted`; `sum(amount + amount)`: PIE-B1004
+  `decimal_aggregate_range_proof_missing`).
+
 ## Equality, nullability and asof JOIN public alpha release notes — 0.1.9
 
 <a id="unreleased-changes-following-018"></a>

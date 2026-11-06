@@ -2977,13 +2977,16 @@ def derive_compiled_semantics(root, values, parameters=None):
                     physical_required
                     and function != "string_agg"
                     and argument is not None
-                    and grouping.resolved_argument_problem(
-                        function,
-                        argument.address.kind == "read",
-                        argument.realization,
-                        family,
+                    and (
+                        argument.address.kind not in {"read", "operation"}
+                        or grouping.resolved_argument_problem(
+                            function,
+                            argument.address.kind == "read",
+                            argument.realization,
+                            family,
+                        )
+                        is not None
                     )
-                    is not None
                 ):
                     raise CompiledError("COMPILED_AGGREGATE_ARGUMENT")
                 typed = semantic_aggregate_result_value_type(
@@ -4232,7 +4235,8 @@ def verify_compiled_semantics(value):
                     )
                 elif physical_required and argument is not None:
                     need(
-                        grouping.resolved_argument_problem(
+                        argument.address.kind in {"read", "operation"}
+                        and grouping.resolved_argument_problem(
                             function,
                             argument.address.kind == "read",
                             argument.realization,

@@ -1060,6 +1060,16 @@ def aggregate_argument_problem(family: str, function: str, arguments):
     read = arguments[0].read
     if read is None:
         return "PIE-B1003", "aggregate_argument_not_a_direct_established_field"
+    # The grouped PostgreSQL parity (Float SUM and AVG, counts of Text, Bool,
+    # Float and Decimal, extrema of Float and Decimal) has no window witness;
+    # an aggregate over a window keeps the Int domain it was reviewed with.
+    tag = getattr(read.realization, "tag", None)
+    if function in {"sum", "avg"} and tag == "Float":
+        return "PIE-B1004", "float_aggregate_finite_result_proof_missing"
+    if (function == "count" and tag in {"Text", "Bool", "Float", "Decimal"}) or (
+        function in {"min", "max"} and tag in {"Float", "Decimal"}
+    ):
+        return "PIE-B1003", function + "_argument_outside_reviewed_int_domain"
     return grouping.resolved_argument_problem(function, True, read.realization, family)
 
 

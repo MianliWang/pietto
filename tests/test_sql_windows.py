@@ -911,7 +911,11 @@ def test_postgres_aggregate_windows_over_frames_groups_qualify_and_joins(form):
     (
         ("sum(money)", "PIE-B1004", "decimal_aggregate_range_proof_missing"),
         ("avg(ratio)", "PIE-B1004", "float_aggregate_finite_result_proof_missing"),
+        ("sum(ratio)", "PIE-B1004", "float_aggregate_finite_result_proof_missing"),
         ("min(money)", "PIE-B1003", "min_argument_outside_reviewed_int_domain"),
+        ("max(ratio)", "PIE-B1003", "max_argument_outside_reviewed_int_domain"),
+        ("count(text)", "PIE-B1003", "count_argument_outside_reviewed_int_domain"),
+        ("count(flag)", "PIE-B1003", "count_argument_outside_reviewed_int_domain"),
     ),
 )
 def test_postgres_aggregate_window_arguments_keep_the_aggregate_domain(

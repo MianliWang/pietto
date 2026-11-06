@@ -193,6 +193,10 @@ VARIANTS = {
         "avg_direct",
         "stddev_direct",
         "stddev_float",
+        "sum_float",
+        "avg_float",
+        "postgres_carriers",
+        "inline_arguments",
         "sum_hidden_right",
         "float_key",
         "bool_domain_key",
@@ -1494,6 +1498,32 @@ query result:
     select:
         d = stddev(ratio)
 """,
+    ("V_aggregate_blocked", "sum_float"): """query result:
+    from agg
+    select:
+        s = sum(ratio)
+""",
+    ("V_aggregate_blocked", "avg_float"): """query result:
+    from agg
+    select:
+        a = avg(ratio)
+""",
+    ("V_aggregate_blocked", "postgres_carriers"): """query result:
+    from agg
+    select:
+        n = count(label)
+        d = count_distinct(label)
+        f = count_distinct(flag)
+        lo = min(amount)
+        hi = max(ratio)
+""",
+    ("V_aggregate_blocked", "inline_arguments"): """query result:
+    from agg
+    select:
+        s = sum(value * 2)
+        c = count(value + 1)
+        a = avg(value + 1)
+""",
     ("V_aggregate_blocked", "sum_hidden_right"): """table g:
     from agg
     select:
@@ -1580,6 +1610,10 @@ AGGREGATE_LABELS = {
     ("V_aggregate_blocked", "avg_direct"): ("a",),
     ("V_aggregate_blocked", "stddev_direct"): ("d",),
     ("V_aggregate_blocked", "stddev_float"): ("d",),
+    ("V_aggregate_blocked", "sum_float"): ("s",),
+    ("V_aggregate_blocked", "avg_float"): ("a",),
+    ("V_aggregate_blocked", "postgres_carriers"): ("n", "d", "f", "lo", "hi"),
+    ("V_aggregate_blocked", "inline_arguments"): ("s", "c", "a"),
     ("V_aggregate_blocked", "sum_direct"): ("s",),
     ("V_aggregate_blocked", "sum_hidden_right"): ("a",),
 }
@@ -1612,6 +1646,16 @@ AGGREGATE_LOGICAL = {
     ("V_aggregate_blocked", "avg_direct"): ("Float",),
     ("V_aggregate_blocked", "stddev_direct"): ("Float",),
     ("V_aggregate_blocked", "stddev_float"): ("Float",),
+    ("V_aggregate_blocked", "sum_float"): ("Float",),
+    ("V_aggregate_blocked", "avg_float"): ("Float",),
+    ("V_aggregate_blocked", "postgres_carriers"): (
+        "Int",
+        "Int",
+        "Int",
+        "Decimal",
+        "Float",
+    ),
+    ("V_aggregate_blocked", "inline_arguments"): ("Int", "Int", "Float"),
     ("V_aggregate_blocked", "sum_direct"): ("Int",),
     ("V_aggregate_blocked", "sum_hidden_right"): ("Int",),
 }
@@ -4348,6 +4392,22 @@ PER_TARGET_STATUS = {
         "postgres": "VERIFIED",
         "mysql": "BLOCKED",
     },
+    # S16: PostgreSQL sums and averages a finite float8, counts, deduplicates
+    # and compares Text, Bool, Float and Decimal carriers by the group-key law,
+    # and lowers a row expression argument as a LET would; MySQL keeps each
+    # refused until a real-database differential.
+    **dict.fromkeys(
+        (
+            ("V_aggregate_blocked", variant)
+            for variant in (
+                "sum_float",
+                "avg_float",
+                "postgres_carriers",
+                "inline_arguments",
+            )
+        ),
+        {"postgres": "VERIFIED", "mysql": "BLOCKED"},
+    ),
     ("V_aggregate_blocked", "sum_hidden_right"): {
         "postgres": "VERIFIED",
         "mysql": "BLOCKED",
@@ -7974,6 +8034,16 @@ def _decode_fixed_public(document, limits):
             "null_casts": [left_cast, right_cast],
         }
 
+    def parsed_terminals(node):
+        """The terminal of every stage read in one parsed value, in preorder."""
+        if node["kind"] == "reference":
+            return [node["terminal"]]
+        return [
+            terminal
+            for operand in node.get("operands", ())
+            for terminal in parsed_terminals(operand)
+        ]
+
     def row_resolve(node, incoming, alias, owner, scopes=None, context=None):
         """Realize one parsed value against its own immediate columns.
 
@@ -9482,10 +9552,30 @@ def _decode_fixed_public(document, limits):
         function, argument, argument_cast, delimiter=None, order_by=(), result_cast=None
     ):
         """This result's own domain: a count is not its argument's value range."""
+        floating = argument is not None and argument["tag"] == "Float"
         _need(
-            (result_cast is not None) is (function in {"sum", "stddev"}),
+            (result_cast is not None)
+            is (function == "stddev" or function == "sum" and not floating),
             "sum result cast",
         )
+        if function in {"sum", "avg"} and floating:
+            # A PostgreSQL float8 SUM or AVG of a finite binary64 argument,
+            # uncast, NULL for an empty input.
+            assert argument is not None
+            _need(
+                family == "postgres"
+                and argument_cast is None
+                and argument["storage"] == {"kind": "pg_float8"}
+                and argument["domain"]
+                == {"kind": "finite_float", "format": "binary64"},
+                "float sum or avg casts",
+            )
+            return {
+                "tag": "Float",
+                "storage": {"kind": "pg_float8"},
+                "nullable": True,
+                "domain": {"kind": "finite_float", "format": "binary64"},
+            }
         if function == "stddev":
             # The sample deviation of an Int or a finite binary64 Float,
             # NULL below two values.
@@ -10877,14 +10967,16 @@ def _decode_fixed_public(document, limits):
                             "string_agg value carrier",
                         )
                     else:
+                        # PostgreSQL also admits one row expression, as a LET.
                         _need(
-                            "read" in argument,
+                            "read" in argument or family == "postgres",
                             "an aggregate argument is one direct established field",
                         )
                         _need(
                             argument["tag"] == "Int"
                             or (
-                                node["function"] == "stddev"
+                                node["function"] in {"stddev", "sum", "avg"}
+                                and family == "postgres"
                                 and argument["tag"] == "Float"
                             )
                             or (
@@ -10895,6 +10987,17 @@ def _decode_fixed_public(document, limits):
                                 node["function"] in {"min", "max"}
                                 and family == "postgres"
                                 and argument["tag"] in {"Timestamp", "Date"}
+                            )
+                            or (
+                                node["function"]
+                                in {"count", "count_distinct", "min", "max"}
+                                and family == "postgres"
+                                and argument["tag"] in {"Float", "Decimal"}
+                            )
+                            or (
+                                node["function"] in {"count", "count_distinct"}
+                                and family == "postgres"
+                                and argument["tag"] in {"Text", "Bool"}
                             ),
                             "aggregate argument carrier",
                         )
@@ -10920,16 +11023,21 @@ def _decode_fixed_public(document, limits):
                     order_by,
                     node["result_cast"],
                 )
-                if node["function"] == "stddev":
+                if node["function"] in {"stddev", "sum", "avg"}:
                     # Evidence follows the function and argument tag: only a
-                    # Float deviation rests on the target's overflow check.
+                    # Float sum, average or deviation rests on the target's
+                    # overflow check.
                     assert argument is not None
-                    row_generated[requirement] = (
-                        *row_generated[requirement][:4],
-                        [{"overflow": TARGET_CHECKED_BINARY64}]
-                        if argument["tag"] == "Float"
-                        else None,
-                    )
+                    if argument["tag"] == "Float":
+                        row_generated[requirement] = (
+                            *row_generated[requirement][:4],
+                            [{"overflow": TARGET_CHECKED_BINARY64}],
+                        )
+                    elif node["function"] == "stddev":
+                        row_generated[requirement] = (
+                            *row_generated[requirement][:4],
+                            None,
+                        )
                 read, field, literal, root = None, None, None, None
                 origin = {
                     "role": "aggregate_result",
@@ -10944,14 +11052,16 @@ def _decode_fixed_public(document, limits):
                         for value in (argument, delimiter)
                         if value is not None
                     ],
+                    # Every read of each input value tree, in source order.
                     "inputs": [
-                        value["read"]["terminal"]
+                        terminal
                         for value in (
-                            argument,
-                            delimiter,
-                            *(item for item, _ in order_by),
+                            node["argument"],
+                            node["delimiter"],
+                            *(item for item, _ in node["order_by"]),
                         )
-                        if value is not None and "read" in value
+                        if value is not None
+                        for terminal in parsed_terminals(value)
                     ]
                     or [column["terminal"] for column in incoming],
                     "result": export,

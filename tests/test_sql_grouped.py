@@ -1381,17 +1381,129 @@ def test_stddev_is_the_postgres_root_of_the_float8_sample_variance(
 
 @pytest.mark.parametrize("target", TARGETS)
 @pytest.mark.parametrize(
-    ("expression", "detail"),
+    ("variant", "calls", "representations", "evidence", "mysql_blockers"),
     (
-        ("sum(amount)", "decimal_aggregate_range_proof_missing"),
-        ("avg(amount)", "decimal_aggregate_range_proof_missing"),
-        ("sum(ratio)", "float_aggregate_finite_result_proof_missing"),
-        ("avg(ratio)", "float_aggregate_finite_result_proof_missing"),
+        (
+            "sum_float",
+            ('SUM("s0"."ratio value") AS "c0"',),
+            ("float",),
+            [[{"overflow": "target_checked_binary64_overflow"}]],
+            [("PIE-B1004", "float_aggregate_finite_result_proof_missing")],
+        ),
+        (
+            "avg_float",
+            ('AVG("s0"."ratio value") AS "c0"',),
+            ("float",),
+            [[{"overflow": "target_checked_binary64_overflow"}]],
+            [("PIE-B1004", "float_aggregate_finite_result_proof_missing")],
+        ),
+        (
+            "postgres_carriers",
+            (
+                'COUNT("s0"."text `""é") AS "c0"',
+                'COUNT(DISTINCT "s0"."text `""é") AS "c1"',
+                'COUNT(DISTINCT "s0"."flag value") AS "c2"',
+                'MIN("s0"."amount value") AS "c3"',
+                'MAX("s0"."ratio value") AS "c4"',
+            ),
+            ("count", "count", "count", "decimal", "float"),
+            [[]] * 5,
+            [
+                ("PIE-B1003", "count_argument_outside_reviewed_int_domain"),
+                ("PIE-B1003", "count_distinct_argument_outside_reviewed_int_domain"),
+                ("PIE-B1003", "count_distinct_argument_outside_reviewed_int_domain"),
+                ("PIE-B1003", "min_argument_outside_reviewed_int_domain"),
+                ("PIE-B1003", "max_argument_outside_reviewed_int_domain"),
+            ],
+        ),
+        (
+            "inline_arguments",
+            (
+                'CAST(SUM(CAST(("s0"."value é" * CAST(2 AS pg_catalog.int8))'
+                ' AS pg_catalog.int8)) AS pg_catalog.int8) AS "c0"',
+                'COUNT(("s0"."value é" + CAST(1 AS pg_catalog.int8))) AS "c1"',
+                'AVG(CAST(("s0"."value é" + CAST(1 AS pg_catalog.int8))'
+                ' AS pg_catalog.float8)) AS "c2"',
+            ),
+            ("sum", "count", "float"),
+            [CHECKED, [], []],
+            [("PIE-B1002", "arithmetic_outside_physical_range")] * 3,
+        ),
+    ),
+)
+def test_postgres_aggregates_reach_single_file_argument_parity(
+    tmp_path, target, variant, calls, representations, evidence, mysql_blockers
+):
+    """S16: PostgreSQL emits the single-file SQL shape of a Float sum or
+    average (finite by the target's checked binary64 overflow), of a count,
+    distinct count or extreme of a Text, Bool, Float or Decimal carrier (the
+    group-key comparison law), and of an aggregate over a row expression,
+    lowered as a LET would be. MySQL keeps every one refused, with a
+    suggestion, until a real-database differential."""
+    outcome = emit(tmp_path, target, "V_aggregate_blocked", variant)
+    data = public(outcome)
+    if target == "mysql":
+        assert data["status"] == "BLOCKED"
+        assert [
+            (blocker["code"], blocker["subject"]["detail"])
+            for blocker in data["blockers"]
+        ] == mysql_blockers
+        assert all(blocker["suggestion"] for blocker in data["blockers"])
+        return
+    assert outcome.status == "VERIFIED", outcome.blockers
+    for call in calls:
+        assert call in data["sql"]
+    shapes = {
+        "float": {
+            "storage": {"kind": "pg_float8"},
+            "nullable": True,
+            "domain": {"kind": "finite_float", "format": "binary64"},
+        },
+        "count": {
+            "storage": {"kind": "pg_int8"},
+            "nullable": False,
+            "domain": {"kind": "int_range", "min": "0", "max": SIGNED64},
+        },
+        "sum": {
+            "storage": {"kind": "pg_int8"},
+            "nullable": True,
+            "domain": {
+                "kind": "int_range",
+                "min": str(-(1 << 63)),
+                "max": SIGNED64,
+            },
+        },
+        "decimal": {
+            "storage": {"kind": "pg_numeric", "precision": 9, "scale": 2},
+            "nullable": True,
+            "domain": {"kind": "decimal", "precision": 9, "scale": 2},
+        },
+    }
+    assert [item["representation"] for item in data["columns"]] == [
+        shapes[name] for name in representations
+    ]
+    assert [
+        r["evidence"] for r in data["requirements"] if r["kind"] == "aggregate"
+    ] == evidence
+
+
+@pytest.mark.parametrize(
+    ("target", "expression", "detail"),
+    (
+        ("postgres", "sum(amount)", "decimal_aggregate_range_proof_missing"),
+        ("postgres", "avg(amount)", "decimal_aggregate_range_proof_missing"),
+        ("mysql", "sum(amount)", "decimal_aggregate_range_proof_missing"),
+        ("mysql", "avg(amount)", "decimal_aggregate_range_proof_missing"),
+        ("mysql", "sum(ratio)", "float_aggregate_finite_result_proof_missing"),
+        ("mysql", "avg(ratio)", "float_aggregate_finite_result_proof_missing"),
     ),
 )
 def test_numeric_aggregate_domains_require_proofs_beyond_source_declarations(
     tmp_path, target, expression, detail
 ):
+    """A Decimal SUM has no bounded precision and its AVG no fixed scale, so
+    no Decimal(p, s) carrier holds either result; MySQL also keeps a Float
+    sum or average without its finite-result proof."""
     outcome = emit_source(
         tmp_path,
         target,
@@ -1405,6 +1517,62 @@ def test_numeric_aggregate_domains_require_proofs_beyond_source_declarations(
     assert [(item.code, item.detail) for item in outcome.blockers] == [
         ("PIE-B1004", detail)
     ]
+
+
+@pytest.mark.parametrize("target", TARGETS)
+def test_joined_grouped_aggregates_keep_the_same_parity(tmp_path, target):
+    """S16: over a LEFT JOIN's unique right rows, PostgreSQL counts a Text
+    field, deduplicates a Bool, takes Decimal and Float extremes, sums and
+    averages a Float and sums a row expression; MySQL refuses each at its
+    own item."""
+    item = probe.fixture(target, "Z_aggregate_joined", "left_nullable")
+    header = item["source"].split("query result:", 1)[0]
+    _, outcome = probe.build_case(
+        tmp_path,
+        header
+        + """query result:
+    from keys
+    let r = agg
+    left join r on keys.rid == r.rid
+    group by:
+        keys.rid
+    select:
+        k = keys.rid
+        n = count(r.label)
+        d = count_distinct(r.flag)
+        lo = min(r.amount)
+        hi = max(r.ratio)
+        s = sum(r.ratio)
+        a = avg(r.ratio)
+        w = sum(r.value * 2)
+""",
+        item["contract"],
+        item["policy"],
+    )
+    data = public(outcome)
+    if target == "mysql":
+        assert [(b["code"], b["subject"]["detail"]) for b in data["blockers"]] == [
+            ("PIE-B1003", "count_argument_outside_reviewed_int_domain"),
+            ("PIE-B1003", "count_distinct_argument_outside_reviewed_int_domain"),
+            ("PIE-B1003", "min_argument_outside_reviewed_int_domain"),
+            ("PIE-B1003", "max_argument_outside_reviewed_int_domain"),
+            ("PIE-B1004", "float_aggregate_finite_result_proof_missing"),
+            ("PIE-B1004", "float_aggregate_finite_result_proof_missing"),
+            ("PIE-B1002", "arithmetic_outside_physical_range"),
+        ]
+        return
+    assert outcome.status == "VERIFIED", outcome.blockers
+    assert (
+        'COUNT("t0"."c10") AS "c1", COUNT(DISTINCT "t0"."c9") AS "c2",'
+        ' MIN("t0"."c11") AS "c3", MAX("t0"."c12") AS "c4",'
+        ' SUM("t0"."c12") AS "c5", AVG("t0"."c12") AS "c6",'
+        ' CAST(SUM(CAST(("t0"."c8" * CAST(2 AS pg_catalog.int8))'
+        ' AS pg_catalog.int8)) AS pg_catalog.int8) AS "c7"'
+    ) in data["sql"]
+    assert [
+        column(data, label)["logical_type"]["name"]
+        for label in ("lo", "hi", "s", "a", "w")
+    ] == ["Decimal", "Float", "Float", "Float", "Int"]
 
 
 @pytest.mark.parametrize("target", TARGETS)
@@ -1496,6 +1664,8 @@ def test_the_reviewed_determinant_domains_still_emit(tmp_path, target, variant):
 
 @pytest.mark.parametrize("target", TARGETS)
 def test_an_aggregate_argument_must_be_one_direct_established_field(tmp_path, target):
+    """MySQL keeps one direct Int, Timestamp, Date or UUID field per counted
+    argument; PostgreSQL counts a Text field or its lowered value."""
     outcome = emit_source(
         tmp_path,
         target,
@@ -1503,13 +1673,21 @@ def test_an_aggregate_argument_must_be_one_direct_established_field(tmp_path, ta
     from agg
     select:
         total = count_distinct(label)
+        lowered = count(lower(label))
 """,
     )
+    if target == "postgres":
+        assert outcome.status == "VERIFIED", outcome.blockers
+        assert (
+            'COUNT(DISTINCT "s0"."text `""é") AS "c0", COUNT(lower("s0"."text `""é"))'
+            in public(outcome)["sql"]
+        )
+        return
     assert outcome.status == "BLOCKED"
-    assert any(
-        item.detail == "count_distinct_argument_outside_reviewed_int_domain"
-        for item in outcome.blockers
-    )
+    assert [(item.code, item.detail) for item in outcome.blockers] == [
+        ("PIE-B1003", "count_distinct_argument_outside_reviewed_int_domain"),
+        ("PIE-B1003", "aggregate_argument_not_a_direct_established_field"),
+    ]
 
 
 # --------------------------------------------------------------------------
