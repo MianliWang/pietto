@@ -13,6 +13,9 @@ import json
 import os
 import pickle
 import sqlite3
+from datetime import date, datetime
+from decimal import Decimal
+from uuid import UUID
 from types import SimpleNamespace
 
 import pytest
@@ -23,6 +26,7 @@ from _pietto_execution_jobs_probe import (
     compiled_template,
     parameter_source,
     qualified,
+    typed_parameter_source,
 )
 from pietto._project import project_job_capture as c
 from pietto._project import project_job_replay as r
@@ -564,6 +568,86 @@ def test_r1_restates_saved_parameters_one_by_one_with_the_same_type(
                     values=(),
                     parameters=parameters,
                 )
+        verify_store(workspace)
+    finally:
+        publisher.close()
+        workspace.close()
+
+
+TYPED_SAVED = {
+    "day": date(2024, 2, 29),
+    "at": datetime(2024, 1, 2, 3, 4, 5, 600),
+    "key": UUID("12345678-1234-5678-1234-567812345678"),
+    "amount": Decimal("-12.50"),
+}
+
+
+def test_r1_and_verified_export_restate_typed_parameters_by_value(
+    tmp_path, monkeypatch
+):
+    """D70.02: a saved Decimal, Date, Timestamp or UUID
+    binding is read back, and exported, only when each value is restated
+    with an equal value of the same Python type: Decimal 12.5 is Decimal
+    12.50, a datetime is no Date, a UUID's text is no UUID."""
+    if not qualified(tmp_path):
+        return
+    probe.arrow_free(monkeypatch)
+    template, compiled = compiled_template(
+        tmp_path / "compiled", source=typed_parameter_source(), entry="bundle"
+    )
+    workspace, job, publisher, binding, _record, generation = probe.store(
+        tmp_path / "workspace", template, (), parameters=TYPED_SAVED
+    )
+    try:
+        probe.capture(workspace, publisher, generation, binding, (2,))
+        for stated in (dict(TYPED_SAVED), {**TYPED_SAVED, "amount": Decimal("-12.5")}):
+            acceptance = probe.accept(
+                workspace, job, generation, compiled, values=(), parameters=stated
+            )
+            assert acceptance.job == job
+        refused = (
+            {**TYPED_SAVED, "amount": Decimal("-12.51")},
+            {**TYPED_SAVED, "day": datetime(2024, 2, 29)},
+            {**TYPED_SAVED, "at": datetime(2024, 1, 2, 3, 4, 5, 601)},
+            {**TYPED_SAVED, "key": str(TYPED_SAVED["key"])},
+            {**TYPED_SAVED, "key": None},
+        )
+        for parameters in refused:
+            with pytest.raises(JobStoreError, match="^BINDING_VECTOR$"):
+                probe.accept(
+                    workspace,
+                    job,
+                    generation,
+                    compiled,
+                    values=(),
+                    parameters=parameters,
+                )
+        from pietto._project.project_public_verified_export import (
+            open_verified_export,
+        )
+
+        snapshot = c.checkpoint_snapshot(workspace, job, generation)
+        common = dict(
+            job=job,
+            generation=generation,
+            checkpoint=snapshot.checkpoint,
+            scope="complete_capture",
+            extent=snapshot.frontier,
+            purpose="s09-export",
+            route="postgres_rows",
+            values=(),
+            seconds=600,
+            batch_rows=4096,
+            **probe.trust(compiled),
+        )
+        for parameters in refused:
+            with pytest.raises(JobStoreError, match="^BINDING_VECTOR$"):
+                open_verified_export(workspace, **common, parameters=parameters)
+        acceptance, reader = open_verified_export(
+            workspace, **common, parameters={**TYPED_SAVED, "amount": Decimal("-12.5")}
+        )
+        with reader:
+            assert acceptance.job == job and reader.snapshot.generation == generation
         verify_store(workspace)
     finally:
         publisher.close()

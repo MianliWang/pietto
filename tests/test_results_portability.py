@@ -502,7 +502,17 @@ def test_every_written_expression_tag_is_a_closed_wire_tag(
     with pytest.raises(pure.ContractDocumentError, match="DOCUMENT"):
         pure.encode_document(bad)
     if tag == "parameter":
-        for key, value in (("type_name", "Date"), ("nullability", "implicit")):
+        # The eight parameter types are read; each must still
+        # be the one the read declares.
+        for kind in ("Decimal", "Date", "Timestamp", "UUID"):
+            typed = json.loads(json.dumps(doc))
+            written(typed)["type_name"] = kind
+            changed = pure.decode_contract(pure.encode_document(typed))
+            with pytest.raises(c.ResultError, match="CORRESPONDENCE"):
+                runtime.verify_contract_correspondence(
+                    changed, exported.contract, checked
+                )
+        for key, value in (("type_name", "Json"), ("nullability", "implicit")):
             bad = json.loads(json.dumps(doc))
             written(bad)[key] = value
             with pytest.raises(pure.ContractDocumentError, match="DOCUMENT"):

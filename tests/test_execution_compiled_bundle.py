@@ -2162,3 +2162,68 @@ def test_float_set_export_keeps_kind_quantifier_and_operand_order(
                     ),
                     (),
                 )
+
+
+def test_a_typed_root_records_each_parameter_kind_and_its_decimal_carrier(tmp_path):
+    """A header record names its tag and, for a Decimal
+    only, the declared (precision, scale); the loaded template reads both. A
+    record of the earlier five-field shape (a bundle of an earlier release)
+    never decodes, and no record is migrated."""
+    from pietto._project.project_compiled_loading import load_compiled
+    from pietto._project.project_execution_template import prepare_compiled_template
+
+    built = _parameterized(tmp_path, "postgres", "typed_timestamp")
+    description = built.root.description
+    header = [r for r in description.records if r.address.kind == "parameter"]
+    assert wire.FIELDS["parameter"][-1] == "decimal"
+    assert [r.values[2:] for r in header] == [
+        ("since", "Timestamp", False, None),
+        ("day", "Date", False, None),
+        ("floor", "Decimal", False, (9, 2)),
+    ]
+    loaded = prepare_compiled_template(
+        load_compiled(
+            built.payload,
+            expected_pin=built.pin,
+            accepted_producer=built.producer,
+            accepted_compatibility=built.compatibility,
+        )
+    )
+    assert [(p.name, p.tag, p.nullable, p.decimal) for p in loaded.parameters] == [
+        ("since", "Timestamp", False, None),
+        ("day", "Date", False, None),
+        ("floor", "Decimal", False, (9, 2)),
+    ]
+    _since, day, floor = header
+    for change in (
+        lambda r: _set(r, "decimal", None) if r is floor else r,
+        lambda r: _set(r, "decimal", (2, 3)) if r is floor else r,
+        lambda r: _set(r, "decimal", (66, 2)) if r is floor else r,
+        lambda r: _set(r, "decimal", (9, 2)) if r is day else r,
+        lambda r: _set(r, "tag", "Json") if r is day else r,
+    ):
+        with pytest.raises(wire.CompiledError, match="^COMPILED_PARAMETER$"):
+            verify_description(_forged(description, change))
+    document = json.loads(built.payload)
+    for _, records in document["members"]:
+        for record in records:
+            if record[0] == "parameter":
+                record[2] = record[2][:-1]
+    old = json.dumps(document, ensure_ascii=False, separators=(",", ":")).encode()
+    with pytest.raises(wire.CompiledError, match="^COMPILED_FIELDS$"):
+        wire.decode(old)
+
+
+def test_a_mysql_root_never_declares_a_typed_parameter(tmp_path):
+    """The family's own carriers bound the header tags a bundle may name:
+    MySQL has no Decimal, Date, Timestamp or UUID parameter (D73.14)."""
+    built = _parameterized(tmp_path, "mysql", "bind")
+    description = built.root.description
+    low = next(r for r in description.records if r.address.kind == "parameter")
+    for tag, decimal in (("Date", None), ("Decimal", (9, 2)), ("UUID", None)):
+        changed = _forged(
+            description,
+            lambda r: _set(_set(r, "tag", tag), "decimal", decimal) if r is low else r,
+        )
+        with pytest.raises(wire.CompiledError, match="^COMPILED_PARAMETER$"):
+            verify_description(changed)

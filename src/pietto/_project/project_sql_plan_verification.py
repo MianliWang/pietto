@@ -7052,7 +7052,7 @@ def _verify_compiled_sql_plan(plan):
     from pietto._project.project_compiled_verification import need
     from pietto._project.project_sql_emission_parameters import (
         NativeUse,
-        PHYSICAL,
+        parameter_physical,
         same_value,
     )
     from pietto.ir.model import SymbolId, SymbolNamespace
@@ -7139,7 +7139,13 @@ def _verify_compiled_sql_plan(plan):
         and len(plan.parameters) == len(declared)
         and all(
             type(parameter) is CompiledQueryParameter
-            and (parameter.ordinal, parameter.label, parameter.tag, parameter.nullable)
+            and (
+                parameter.ordinal,
+                parameter.label,
+                parameter.tag,
+                parameter.nullable,
+                parameter.decimal,
+            )
             == tuple(record.values[1:])
             for parameter, record in zip(plan.parameters, declared, strict=True)
         ),
@@ -7330,7 +7336,7 @@ def _verify_compiled_sql_plan(plan):
             and use.parameter is parameter
             and use.ordinal == record.address.position
             and use.server_index == expected_index == record.get("index")
-            and use.physical_type == PHYSICAL[family][tag],
+            and use.physical_type == parameter_physical(family, tag),
             "PLAN_PARAMETER_USE",
         )
     need(

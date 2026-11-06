@@ -23,6 +23,14 @@ POSITION = "PIE-S2355"
 POSITION_MESSAGE = "Query parameters are not available in this position."
 COLLISION = "PIE-S2354"
 DECLARATION = "PIE-S2353"
+KIND_MESSAGE = (
+    "Query parameter type must be Bool, Int, Float, Text, Decimal(p, s), Date, "
+    "Timestamp or UUID."
+)
+DECIMAL_MESSAGE = (
+    "A Decimal query parameter is declared Decimal(p, s) with integer literals "
+    "1 <= p <= 65 and 0 <= s <= min(p, 30)."
+)
 INPUT = "PIE-S2356"
 INPUT_MESSAGE = "A query with parameters cannot be the input of another relation."
 COUNT = "PIE-S2358"
@@ -146,17 +154,55 @@ def test_a_let_reading_a_table_function_keeps_the_header_unadmitted(
     ("declaration", "expected"),
     (
         ("a: Int", []),
-        ("a: Decimal(3, 1)", [(DECLARATION, 1, 9)]),
-        ("a: UUID | None", [(DECLARATION, 1, 9)]),
-        ("a: Int, a: Bool | None", [("PIE-S2001", 1, 17)]),
+        ("a: Text(3)", [(DECLARATION, KIND_MESSAGE, 1, 9)]),
+        ("a: Json | None", [(DECLARATION, KIND_MESSAGE, 1, 9)]),
+        (
+            "a: Int, a: Bool | None",
+            [("PIE-S2001", "Duplicate parameter name in query q: a", 1, 17)],
+        ),
+        (
+            "a: Decimal(3, 1), b: Date, c: Timestamp | None, d: UUID | None",
+            [],
+        ),
+        ("a: Decimal(65, 30) | None, b: Decimal(1, 0), c: Decimal(30, 30)", []),
+        ("a: Decimal", [(DECLARATION, DECIMAL_MESSAGE, 1, 9)]),
+        ("a: Decimal(3) | None", [(DECLARATION, DECIMAL_MESSAGE, 1, 9)]),
+        ("a: Decimal(2, 3)", [(DECLARATION, DECIMAL_MESSAGE, 1, 9)]),
+        ("a: Decimal(40, 35)", [(DECLARATION, DECIMAL_MESSAGE, 1, 9)]),
+        ("a: Decimal(66, 0)", [(DECLARATION, DECIMAL_MESSAGE, 1, 9)]),
+        ("a: Decimal(0, 0)", [(DECLARATION, DECIMAL_MESSAGE, 1, 9)]),
+        ("a: Decimal(p=3, s=1)", [(DECLARATION, DECIMAL_MESSAGE, 1, 9)]),
+        ("a: Date(1)", [(DECLARATION, KIND_MESSAGE, 1, 9)]),
     ),
-    ids=("bare_type_is_not_null", "type_arguments", "other_builtin", "duplicate"),
+    ids=(
+        "bare_type_is_not_null",
+        "type_arguments",
+        "other_builtin",
+        "duplicate",
+        "decimal_date_timestamp_uuid",
+        "decimal_bounds",
+        "decimal_without_arguments",
+        "decimal_one_argument",
+        "decimal_scale_above_precision",
+        "decimal_scale_above_30",
+        "decimal_precision_above_65",
+        "decimal_zero_precision",
+        "decimal_named_arguments",
+        "date_arguments",
+    ),
 )
 def test_header_declarations_are_checked_before_semantics(
-    tmp_path: Path, declaration: str, expected: list[tuple[str, int, int]]
+    tmp_path: Path, declaration: str, expected: list[tuple]
 ) -> None:
+    """Bool, Int, Float, Text, Date, Timestamp and UUID are bare types and a
+    Decimal is Decimal(p, s) under the shared type-argument rule with the
+    producer scale bound s <= min(p, 30) (D70.01); every other
+    declaration is PIE-S2353 at its parameter."""
     body = f"query q({declaration}):\n    from rows\n    select:\n        id\n"
-    assert _check(_project(tmp_path, body)) == (int(bool(expected)), expected)
+    assert _check(_project(tmp_path, body), messages=True) == (
+        int(bool(expected)),
+        expected,
+    )
 
 
 def test_at_most_sixty_four_parameters(tmp_path: Path) -> None:
@@ -169,11 +215,11 @@ def test_at_most_sixty_four_parameters(tmp_path: Path) -> None:
     assert _check(_project(tmp_path / "exact", exact)) == (0, [])
     # Each fault of one parameter is its own diagnostic at that parameter,
     # sorted by code: a repeated name, the limit and the type.
-    extra = "p0: UUID, t: Decimal(3, 1) | None"
+    extra = "p0: Json, t: Text(3) | None"
     stacked = f"query q({allowed}, {extra}):\n    from rows\n    select:\n        id\n"
-    second = column + len("p0: UUID, ")
+    second = column + len("p0: Json, ")
     limit = "A query declares at most 64 parameters."
-    kind = "Query parameter type must be Bool, Int, Float or Text."
+    kind = KIND_MESSAGE
     assert _check(_project(tmp_path / "stacked", stacked), messages=True) == (
         1,
         [
@@ -1132,13 +1178,13 @@ def test_mixed_parameter_refusals_retain_rebased_direct_diagnostic_identity(
     ("header", "binding", "projection", "expected"),
     (
         (
-            "p: UUID",
+            "p: Json",
             "held = p + 1",
             "n = lag(id, p + 1) window(order by held)",
             [
                 (
                     DECLARATION,
-                    "Query parameter type must be Bool, Int, Float or Text.",
+                    KIND_MESSAGE,
                     1,
                     9,
                 ),

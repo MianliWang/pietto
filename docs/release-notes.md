@@ -764,6 +764,76 @@ Compatibility:
   - `migrate` and `fmt` do not take `--set` (argparse `unrecognized
     arguments`, as for any option a command lacks, such as `fmt --dialect`).
 
+### Typed project query parameters
+
+- In an EXPLICIT_MODULES project an entry query may declare `Decimal(p, s)`
+  (two integer literals, `1 <= p <= 65`, `0 <= s <= min(p, 30)`), `Date`,
+  `Timestamp` and `UUID` parameters, with `| None` as before. PostgreSQL
+  project SQL reads one as `CAST($n AS pg_catalog.numeric(p,s))`,
+  `CAST($n AS pg_catalog.date)`, `CAST($n AS pg_catalog.timestamp)` or
+  `CAST($n AS pg_catalog.uuid)`; these reads add no binding obligation.
+  `execute`, `save`, `save_recoverable` and `relay_live` take
+  `decimal.Decimal` (finite, exactly within `numeric(p, s)`, never rounded),
+  `datetime.date` (not a `datetime`) from `1000-01-01`, a naive
+  `datetime.datetime` from `1000-01-01 00:00:00` to `9999-12-31
+  23:59:59.499999`, and `uuid.UUID`; `None` only for a nullable parameter,
+  sent as a typed NULL. The value travels as its canonical text (Decimal
+  without exponent or trailing zero, `-0` as `0`; ISO date; ISO timestamp
+  with a space and six fractional digits; lower-case UUID) on `postgres_rows`
+  and `postgres_adbc`. `open_saved_read`, `release_saved_read`,
+  `publish_saved_generation`, `verified_export` and `recover` restate such a
+  value by equal value and the same Python type (`Decimal("12.5")` restates
+  `Decimal("12.50")`).
+- **Diagnostics and refusals** (exact):
+  - PIE-S2353, at the parameter, text changed: `Query parameter type must be
+    Bool, Int, Float, Text, Decimal(p, s), Date, Timestamp or UUID.` (was
+    `Query parameter type must be Bool, Int, Float or Text.`), for any other
+    type or a type argument on a type other than `Decimal`.
+  - PIE-S2353, at the parameter, new message: `A Decimal query parameter is
+    declared Decimal(p, s) with integer literals 1 <= p <= 65 and 0 <= s <=
+    min(p, 30).`, for a `Decimal` without arguments, with one, named or
+    non-literal arguments, or outside the bounds (a scale above 30, such as
+    `Decimal(40, 35)`, included).
+  - New refusal: PIE-B1003 with the new detail
+    `query_parameter_type_not_admitted_on_target`, reason `UNSUPPORTED_RULE`,
+    subject `{"kind": "selected_plan", "position": 0}`, at each such
+    declaration in header order, read or not, and the suggestion `Keep this
+    declaration in check/plan or select an artifact using the forms reviewed
+    for the requested target. Do not relabel the target or source carrier to
+    bypass this refusal.`: MySQL project emission (`emit-sql --project`;
+    `compile_query` gets the BLOCKED document) of a query that declares a
+    `Decimal(p, s)`, `Date`, `Timestamp` or `UUID` parameter, until the
+    Phase74 MySQL catch-up.
+  - PIE-R1006 `BINDING_PARAMETER:<ordinal>:<Decimal|Date|Timestamp|UUID>`
+    (existing detail, new tags; a `Date` before `1000-01-01` included).
+  - PIE-R1004 `QUERY_NOT_EXECUTABLE`, detail `MEANING_OUTPUT`, from `execute`
+    (result preparation) and `save` (binding description), for a `Timestamp`
+    or `UUID` parameter selected as an output, which has no source meaning;
+    `emit-sql` still reports VERIFIED, and `compile_query`, `export_bundle`,
+    `load_bundle` and binding succeed.
+- **Compatibility.**
+  - Programs that were PIE-S2353 because a parameter was `Decimal(p, s)`,
+    `Date`, `Timestamp` or `UUID` now check. A plain `Decimal`, `Decimal(p)`
+    and every other type stay PIE-S2353 with the new text.
+  - Compiled bundles: the `parameter` record gains a sixth field `decimal`
+    (null, or `[precision, scale]`), under the Phase73 version marks
+    `(7, 1, 7, 1)` of the aggregate windows subsection; a bundle of an earlier
+    release is refused (`COMPILED_COMPATIBILITY`, and `COMPILED_FIELDS` on its
+    parameter records) and never migrated; export it again from the project.
+  - Saved jobs keep their formats. The binding vector stays
+    `pietto.binding-vector.v2` (new values `[tag, canonical text]` only); the
+    generation description keeps interface `parameter` 1 and its entry shape
+    (address, label, tag, nullable, reads). A job whose bundle predates the
+    version marks is refused through its bundle (`JOB_BUNDLE`), not migrated.
+  - `pietto.sql-emission.v2` gains no key: `parameters[j].tag` and
+    `parameter_uses[i].physical_type` take new values on PostgreSQL only
+    (`pg_numeric`, `pg_date`, `pg_timestamp`, `pg_uuid`).
+  - A result contract document's parameter expression `type_name` may now be
+    `Decimal`, `Date`, `Timestamp` or `UUID`.
+  - `CompiledQuery.parameters` stays `(name, tag, nullable)`; a Decimal one
+    reads `('floor', 'Decimal', False)` (precision and scale are in the
+    source and the anchor cast).
+
 ## Equality, nullability and asof JOIN public alpha release notes — 0.1.9
 
 <a id="unreleased-changes-following-018"></a>

@@ -471,7 +471,12 @@ v1 reader rejects v2 by its tag. v2 is v1 with these differences:
 - `parameters`: one object per header parameter in header order,
   `{"parameter": j, "name", "tag", "nullable", "reads": [refs]}`; `reads`
   lists every rendered read in plan order: expression reads, then window
-  argument reads (`{"kind": "window_argument", "position": i}`).
+  argument reads (`{"kind": "window_argument", "position": i}`). `tag` is
+  `Bool`, `Int`, `Float` or `Text`, and on PostgreSQL also `Decimal`, `Date`,
+  `Timestamp` or `UUID`, whose `parameter_uses[i].physical_type` is
+  `pg_numeric`, `pg_date`, `pg_timestamp` or `pg_uuid`; a Decimal's precision
+  and scale are those of its declaration and of its anchor cast
+  `pg_catalog.numeric(p,s)`; these reads have no binding obligation.
 - `parameter_uses[i]` names its owner instead of a slot:
   `{"use", "owner": {"kind": "slot", "slot": i} | {"kind": "parameter",
   "parameter": j}, "server_index", "physical_type", "range"}`. Reads and

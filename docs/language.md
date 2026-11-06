@@ -2257,19 +2257,53 @@ query orders_since(cutoff: Int, label: Text | None):
         first_day = cutoff
 ```
 
-Each parameter names exactly `Bool`, `Int`, `Float` or `Text`, with `| None` when its value may be None; a query declares at most 64 (PIE-S2353), and a repeated
-name is PIE-S2001. These declaration checks, the position checks below and the
-alias check of an unaliased read run before semantic analysis: each file
-reports them after its temporary diagnostics, and semantic analysis then does
-not run. In that query's body a bare name equal to a parameter reads
-the parameter. A parameter name that is also an input field (a typed VALUES
+Each parameter names exactly `Bool`, `Int`, `Float`, `Text`, `Date`,
+`Timestamp` or `UUID`, or `Decimal(p, s)` with two integer literals
+`1 <= p <= 65` and `0 <= s <= min(p, 30)` (the shared type-argument rule
+within the Decimal scale PostgreSQL and MySQL producers admit), with `| None`
+when its value may be None:
+
+```pietto PIE-S2346 PIE-S2346 PIE-S2346 PIE-S2346
+query recent(start: Timestamp, day: Date, floor: Decimal(9, 2), key: UUID | None):
+    from orders
+    where start <= placed_at and order_day == day and amount >= floor
+    select:
+        id
+```
+
+A query declares at most 64 (PIE-S2353): any other type, a type argument on
+any type but `Decimal`, and a `Decimal` without its precision and scale or
+outside those bounds are PIE-S2353 at the parameter, and a repeated name is
+PIE-S2001. These declaration checks, the position checks below and the alias
+check of an unaliased read run before semantic analysis: each file reports
+them after its temporary diagnostics, and semantic analysis then does not
+run. In that query's body a bare name equal to a parameter reads the
+parameter. A parameter name that is also an input field (a typed VALUES
 column of a FROM or JOIN input included), a `let` name, a relation name of the
 module, a JOIN binding, a SELECT output or a named window is an error
 (PIE-S2354), so a read never changes meaning; a SELECT item that only reads a
-parameter needs its own alias. A read is typed as its declaration: a `Text`
-parameter is a `Text` operand that is not a literal, so comparing it with a
-`Date`, `Timestamp`, `UUID`, `Bytes`, `Json` or enum field is PIE-S2105 (see
-Comparisons), and no parameter can stand for a value of those types.
+parameter needs its own alias. A read is typed as its declaration: a `Date`,
+`Timestamp`, `UUID` or `Decimal(p, s)` parameter compares with a field of that
+type, and a `Text` parameter is a `Text` operand that is not a literal, so
+comparing it with a `Date`, `Timestamp`, `UUID`, `Bytes`, `Json` or enum field
+is still PIE-S2105 (see Comparisons; declare the parameter with the field's
+type instead).
+
+Project SQL writes a `Decimal(p, s)`, `Date`, `Timestamp` or `UUID` read as a
+placeholder in that carrier, `CAST($n AS pg_catalog.numeric(p,s))`,
+`pg_catalog.date`, `pg_catalog.timestamp` or `pg_catalog.uuid`, with no binding
+check of its own. The existing laws of each type apply unchanged: a `Decimal`
+parameter compares only with a `Decimal` of the same precision and scale
+(PIE-B1005 `decimal_comparison_parameter_conflict`) and, like any Decimal
+that is not a source field, is no arithmetic operand (PIE-B1003
+`decimal_direct_source_operands_required`); a `Timestamp` or `UUID` value
+carries its meaning only from a source field, so selecting such a parameter
+as an output emits, compiles, exports and binds, but `execute()` refuses it
+when it prepares the result and `save()` when it describes the binding
+(PIE-R1004 `QUERY_NOT_EXECUTABLE`, detail `MEANING_OUTPUT`). MySQL has no
+carrier for these four types yet: emitting a query that declares one, read or
+not, is BLOCKED with PIE-B1003 `query_parameter_type_not_admitted_on_target`
+at each such declaration, until the Phase74 MySQL catch-up.
 
 A read, or a `let` binding or output whose value reads one, is available
 beneath unary, binary, comparison, null-test, BETWEEN, conditional,

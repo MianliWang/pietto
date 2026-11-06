@@ -822,7 +822,8 @@ CAPTURE_DIAGNOSTICS = {
             ("PIE-S2370", READ_ONLY_BY_EXISTS.replace("of q.", "of r."), 31, 5),
             (
                 "PIE-S2353",
-                "Query parameter type must be Bool, Int, Float or Text.",
+                "Query parameter type must be Bool, Int, Float, Text, "
+                "Decimal(p, s), Date, Timestamp or UUID.",
                 6,
                 9,
             ),

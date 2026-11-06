@@ -209,6 +209,26 @@ def _header(description) -> list:
     ]
 
 
+def _header_value(item):
+    """One stored non-NULL header value: the S10 scalar wire, or the canonical
+    ``[tag, text]`` of a Decimal, Date, Timestamp or UUID parameter (a
+    non-canonical text raises ValueError)."""
+    from pietto._project.project_compiled_schema import Scalar, scalar_read
+    from pietto._project.project_sql_emission_parameters import (
+        PARAMETER_VALUE_TYPES,
+        parameter_value,
+    )
+
+    if (
+        type(item) is list
+        and len(item) == 2
+        and type(item[0]) is str
+        and item[0] in PARAMETER_VALUE_TYPES
+    ):
+        return Scalar(item[0], parameter_value(*item))
+    return scalar_read(item)
+
+
 def _family(description) -> str:
     """The bundle's own target family: every stored value must bind there."""
     from pietto._project.project_compiled_schema import Address
@@ -228,7 +248,10 @@ def verify_store(workspace: Workspace) -> dict:
         decode,
         scalar_read,
     )
-    from pietto._project.project_sql_emission_parameters import value_valid
+    from pietto._project.project_sql_emission_parameters import (
+        parameter_valid,
+        value_valid,
+    )
 
     capture = supports(workspace, "result-chunks")
     replay = supports(workspace, "saved-replay")
@@ -478,6 +501,7 @@ def verify_store(workspace: Workspace) -> dict:
             if current["open"] == attempt:
                 current["open"] = None
     headers: dict[str, tuple[list, str]] = {}
+    decimals: dict[str, list] = {}
     for job, row in jobs.items():
         current = state.get(job)
         if current is None or (row[5], row[6], row[7], row[8]) != (
@@ -500,6 +524,12 @@ def verify_store(workspace: Workspace) -> dict:
         ):
             _fail("JOB_BUNDLE")
         headers[job] = _header(description), _family(description)
+        # A Decimal parameter's own (precision, scale), in header order.
+        decimals[job] = [
+            r.get("decimal")
+            for r in description.records
+            if r.address.kind == "parameter"
+        ]
     for identity, row in bindings.items():
         slots = _canonical(row[2])
         stored = _canonical(row[3])
@@ -518,25 +548,31 @@ def verify_store(workspace: Workspace) -> dict:
                 ):
                     _fail("BINDING_VECTOR")
                 named = [
-                    (scalar_read(item), entry[2])
-                    for item, entry in zip(stored["parameters"], header)
+                    (_header_value(item), entry[2], decimal)
+                    for item, entry, decimal in zip(
+                        stored["parameters"], header, decimals[row[1]]
+                    )
                     if not (item == [entry[2], None] and entry[3])
                 ]
                 stored = stored["slots"]
             if type(stored) is not list:
                 _fail("BINDING_VECTOR")
             values = [(scalar_read(item), slot[1]) for item, slot in zip(stored, slots)]
-        except CompiledError:
+        except (CompiledError, ValueError):
             _fail("BINDING_VECTOR")
             raise
         # Every value has its declared tag and binds on the bundle's own
-        # family (no NUL in a PostgreSQL Text), as the binder checks it.
+        # family (no NUL in a PostgreSQL Text; a Decimal within its declared
+        # precision and scale), as the binder checks it.
         if (
             identity not in created
             or len(stored) != len(slots)
             or not all(
-                v.tag == tag and value_valid(tag, v.value, family)
-                for v, tag in (*named, *values)
+                v.tag == tag and parameter_valid(tag, v.value, family, decimal)
+                for v, tag, decimal in named
+            )
+            or not all(
+                v.tag == tag and value_valid(tag, v.value, family) for v, tag in values
             )
         ):
             _fail("BINDING_VECTOR")

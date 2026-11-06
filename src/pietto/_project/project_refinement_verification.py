@@ -1243,16 +1243,15 @@ class _Bytes:
             self.take(p.anchor_suffix(value.physical_type))
         elif type(value) is SQLParameterRead:
             from pietto._project.project_execution_binding_verification import (
+                native_value as native,
                 occurrence_value,
             )
 
-            native_value = occurrence_value(self.artifact, value.use)
-            if (
-                self.family == "mysql"
-                and value.use.parameter.tag == "Bool"
-                and native_value is not None
-            ):
-                native_value = int(native_value)
+            native_value = native(
+                value.use.parameter.tag,
+                occurrence_value(self.artifact, value.use),
+                self.family,
+            )
             self.take("CAST(")
             self.parameter(
                 "original",
@@ -1261,7 +1260,7 @@ class _Bytes:
                 native_value,
                 value.use,
             )
-            self.take(p.anchor_suffix(value.physical_type))
+            self.take(p.anchor_suffix(value.physical_type, value.realization.storage))
         elif type(value) is p.SQLParameter:
             slot = value.use.slot
             native_value = slot.site.position.literal.value

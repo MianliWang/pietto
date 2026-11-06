@@ -782,3 +782,23 @@ def parameter_source(target="postgres"):
             "    select:",
         )
     )
+
+
+def typed_parameter_source(target="postgres"):
+    """The product fixture as an entry query that declares one nullable Date,
+    Timestamp, UUID and Decimal(9, 2) parameter, each read by a null test."""
+    import _pietto_results_product as original
+
+    return (
+        original.source(target)
+        .replace(
+            "table result:",
+            "query result(day: Date | None, at: Timestamp | None,"
+            " key: UUID | None, amount: Decimal(9, 2) | None):",
+        )
+        .replace(
+            "    select:",
+            "    where day is None or at is None or key is None or amount is None\n"
+            "    select:",
+        )
+    )

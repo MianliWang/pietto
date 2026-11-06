@@ -2552,7 +2552,7 @@ def _window_parameter_argument(request, item, leaf, control) -> bool:
         or leaf.use.original is not item
         or leaf.use.slot is not None
         or leaf.use.parameter is not parameter
-        or leaf.physical_type != parameters.PHYSICAL[family].get(parameter.tag)
+        or leaf.physical_type != parameters.parameter_physical(family, parameter.tag)
         or leaf.use.physical_type != leaf.physical_type
     ):
         return False
@@ -3287,7 +3287,7 @@ def _verify_row_value(
             or not any(parameter is item for item in plan.parameters)
             or rows.value_tag(expression) != tag
             or type(nullable) is not bool
-            or value.physical_type != parameters.PHYSICAL[request.family].get(tag)
+            or value.physical_type != parameters.parameter_physical(request.family, tag)
             or type(use) is not parameters.NativeUse
             or use.original is not expression
             or use.slot is not None
@@ -3295,9 +3295,13 @@ def _verify_row_value(
             or use.physical_type != value.physical_type
         ):
             raise ValueError("parameter read correspondence")
-        if not _same_realization(
+        from pietto._project.query_parameters import declared_decimal
+
+        # A Decimal carrier is re-read from the authored declaration.
+        decimal = declared_decimal(parameter.declaration.type)
+        if parameter.decimal != decimal or not _same_realization(
             value.realization,
-            rows.parameter_realization(request.family, tag, nullable),
+            rows.parameter_realization(request.family, tag, nullable, decimal=decimal),
         ):
             raise ValueError("parameter read realization")
         state["expressions"].append(expression)
@@ -6830,7 +6834,9 @@ def verify_row_bytes(query, rendered):
                     "syntax",
                     "anchor_close",
                     reference,
-                    parameters.anchor_suffix(value.physical_type),
+                    parameters.anchor_suffix(
+                        value.physical_type, value.realization.storage
+                    ),
                 )
                 spans.append(("anchor", reference, start, offset))
                 return

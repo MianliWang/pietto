@@ -34,6 +34,7 @@ from pietto.ast_nodes import (
     DottedNameExpr,
     FromClause,
     IsNullExpr,
+    LiteralExpr,
     MembershipExpr,
     NameExpr,
     Node,
@@ -45,6 +46,7 @@ from pietto.ast_nodes import (
     SetRelationDef,
     Span,
     TableDef,
+    TypeExpr,
     UnaryExpr,
     WindowExpr,
     WindowFrameBound,
@@ -301,6 +303,28 @@ def query_parameter_unbound_naming_diagnostics(
     )
 
 
+def declared_decimal(declared: TypeExpr) -> tuple[int, int] | None:
+    """The (precision, scale) of a ``Decimal(p, s)`` parameter type: two
+    positional integer literals, ``1 <= p <= 65`` and ``0 <= s <= min(p, 30)``
+    (the shared type-argument rule within producer admission)."""
+
+    if declared.name != "Decimal" or len(declared.arguments) != 2:
+        return None
+    values = tuple(
+        argument.value.value
+        for argument in declared.arguments
+        if argument.name is None
+        and type(argument.value) is LiteralExpr
+        and type(argument.value.value) is int
+    )
+    if len(values) != 2:
+        return None
+    precision, scale = cast(tuple[int, int], values)
+    if not (1 <= precision <= 65 and 0 <= scale <= min(precision, 30)):
+        return None
+    return precision, scale
+
+
 def _declaration_diagnostics(definition: QueryDef) -> list[Diagnostic]:
     found: list[Diagnostic] = []
     seen: set[str] = set()
@@ -314,11 +338,23 @@ def _declaration_diagnostics(definition: QueryDef) -> list[Diagnostic]:
                     parameter.span,
                 )
             )
-        if declared.name not in QUERY_PARAMETER_TYPES or declared.arguments:
+        if declared.name not in QUERY_PARAMETER_TYPES or (
+            declared.arguments and declared.name != "Decimal"
+        ):
             found.append(
                 _diagnostic(
                     DECLARATION_CODE,
-                    "Query parameter type must be Bool, Int, Float or Text.",
+                    "Query parameter type must be Bool, Int, Float, Text, "
+                    "Decimal(p, s), Date, Timestamp or UUID.",
+                    parameter.span,
+                )
+            )
+        elif declared.name == "Decimal" and declared_decimal(declared) is None:
+            found.append(
+                _diagnostic(
+                    DECLARATION_CODE,
+                    "A Decimal query parameter is declared Decimal(p, s) with "
+                    "integer literals 1 <= p <= 65 and 0 <= s <= min(p, 30).",
                     parameter.span,
                 )
             )

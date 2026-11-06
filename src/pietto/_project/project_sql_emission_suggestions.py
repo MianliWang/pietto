@@ -355,6 +355,7 @@ _GROUPS = (
             {
                 "collect_not_admitted_on_target",
                 "mysql_correlated_order_or_limit_read_not_admitted",
+                "query_parameter_type_not_admitted_on_target",
                 "table_function_not_admitted_on_target",
                 "unnest_not_admitted_on_target",
                 "zero_physical_source_not_admitted_on_target",

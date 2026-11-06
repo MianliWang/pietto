@@ -238,10 +238,13 @@ def expression(value):
     elif tag == "name":
         text(value["name"])
     elif tag == "parameter":
-        # A header parameter read: the four parameter types, never implicit.
+        # A header parameter read: the eight parameter types, never implicit.
         text(value["name"])
         index(value["ordinal"])
-        require(value["type_name"] in ("Bool", "Int", "Float", "Text"))
+        require(
+            value["type_name"]
+            in ("Bool", "Int", "Float", "Text", "Decimal", "Date", "Timestamp", "UUID")
+        )
         require(value["nullability"] in ("nullable", "not_null"))
     elif tag == "dotted":
         require(type(value["parts"]) is list and len(value["parts"]) >= 2)

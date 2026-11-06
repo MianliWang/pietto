@@ -131,7 +131,16 @@ _KNOWN_EXPRESSIONS = frozenset(
         ast.CapturedFieldExpr,
     }
 )
-QUERY_PARAMETER_TYPES = ("Bool", "Int", "Float", "Text")
+QUERY_PARAMETER_TYPES = (
+    "Bool",
+    "Int",
+    "Float",
+    "Text",
+    "Decimal",
+    "Date",
+    "Timestamp",
+    "UUID",
+)
 _QUERY_PARAMETER_NULLABILITY = {
     Nullability.NOT_NULL: EffectiveNullability.NON_NULL,
     Nullability.NULLABLE: EffectiveNullability.NULLABLE,

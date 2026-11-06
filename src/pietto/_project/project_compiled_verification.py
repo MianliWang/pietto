@@ -1095,6 +1095,9 @@ def verify_description(value: Description) -> None:
             site = ref(get("site"), {"site"})
             need(site.get("disposition") == "preserved_with_reason", "STATIC_NULL")
         elif kind == "parameter":
+            from pietto._project.project_sql_emission_parameters import (
+                parameter_physical,
+            )
             from pietto._project.query_parameters import MAX_QUERY_PARAMETERS
 
             # Only the entry query declares parameters, in header order, each
@@ -1108,8 +1111,24 @@ def verify_description(value: Description) -> None:
                 and label.isascii()
                 and label.isidentifier()
                 and label not in parameter_labels
-                and get("tag") in ("Bool", "Int", "Float", "Text")
+                and parameter_physical(family, get("tag")) is not None
                 and type(get("nullable")) is bool,
+                "PARAMETER",
+            )
+            # Only a Decimal parameter has a (precision, scale): the
+            # Decimal(p, s) rule of its declaration.
+            decimal = get("decimal")
+            precision, scale = (
+                cast(tuple[int, int], decimal)
+                if type(decimal) is tuple
+                and len(decimal) == 2
+                and all(type(item) is int for item in decimal)
+                else (0, -1)
+            )
+            need(
+                decimal is None
+                if get("tag") != "Decimal"
+                else 1 <= precision <= 65 and 0 <= scale <= min(precision, 30),
                 "PARAMETER",
             )
             parameter_labels.add(label)
@@ -3388,6 +3407,8 @@ def verify_export(description, artifact, *, guarded=None, refinement=None):
         )
     declared = original.plan.parameters
     need(len(grouped["parameter"]) == len(declared), "EXPORT_PARAMETERS")
+    from pietto._project.query_parameters import declared_decimal
+
     for record, parameter in zip(grouped["parameter"], declared, strict=True):
         check_declaration(record.get("declaration"), parameter.owner)
         need(
@@ -3397,6 +3418,7 @@ def verify_export(description, artifact, *, guarded=None, refinement=None):
                 parameter.declaration.name,
                 parameter.tag,
                 parameter.value_type.nullability.value == "nullable",
+                declared_decimal(parameter.declaration.type),
             ),
             "EXPORT_PARAMETER",
         )
@@ -5142,7 +5164,7 @@ def _verify_compiled_emission(artifact, request):
                 and any(parameter is p for p in plan.parameters)
                 and actual.physical_type
                 == actual.use.physical_type
-                == parameters.PHYSICAL[request.family][parameter.tag]
+                == parameters.parameter_physical(request.family, parameter.tag)
                 and actual.realization is facts[address].realization,
                 "EMISSION_PARAMETER_READ",
             )

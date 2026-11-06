@@ -177,7 +177,11 @@ class NativeStatement:
                 "Bool": pa.bool_(),
                 "Float": pa.float64(),
                 "Text": pa.string(),
+                # Canonical text, cast by the statement's own anchor.
                 "Decimal": pa.string(),
+                "Date": pa.string(),
+                "Timestamp": pa.string(),
+                "UUID": pa.string(),
             }
             if any(t not in types for t in self.tags):
                 raise ExecutionError("POSTGRES_ADBC_PARAMETER_TYPES")

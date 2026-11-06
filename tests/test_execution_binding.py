@@ -1,6 +1,9 @@
 """Full eligible literal domains and independent binding correspondence."""
 
 from dataclasses import replace
+from datetime import date, datetime, timezone
+from decimal import Decimal
+from uuid import UUID
 import json
 
 import pytest
@@ -916,3 +919,108 @@ def test_a_bigint_binding_follows_the_checked_rule(tmp_path, target):
         assert bound(low) == [("target_checked_signed64_narrowing",)]
     with pytest.raises(binding.BindingError, match="^BINDING_INVALID$"):
         binding.bind_values(t, _literals(t), _named(t, 2**63 - 1))
+
+
+TYPED_WIRE = {
+    "typed_timestamp": (
+        [
+            ("since", "Timestamp", False, None),
+            ("day", "Date", False, None),
+            ("floor", "Decimal", False, (9, 2)),
+        ],
+        ("1970-01-01 00:00:00.000000", "1970-01-01", "0"),
+    ),
+    "typed_uuid": (
+        [("key", "UUID", False, None), ("unset", "UUID", True, None)],
+        ("00112233-4455-6677-8899-aabbccddeeff", None),
+    ),
+}
+
+
+@pytest.mark.parametrize("variant", sorted(TYPED_WIRE))
+def test_a_typed_witness_binds_to_its_canonical_text_arguments(tmp_path, variant):
+    """A Decimal, Date, Timestamp or UUID value travels as
+    its canonical text, which its anchor casts, and a NULL as a typed NULL;
+    the product binder and the conformance runner's own decoder agree."""
+    t, document = _witness(tmp_path, "postgres", variant)
+    header, wire = TYPED_WIRE[variant]
+    assert [(p.name, p.tag, p.nullable, p.decimal) for p in t.parameters] == header
+    values = probe.bindings("Q_query_parameters", variant)
+    assert values is not None
+    accepted = binding.bind_values(
+        t, _literals(t), _named(t, *(values[p.name] for p in t.parameters))
+    )
+    checking.verify_binding(accepted)
+    assert accepted.artifact.rendered.sql == t.artifact.rendered.sql
+    assert accepted.parameters == tuple(values.values())
+    assert accepted.arguments == wire == probe.decoded_arguments(document, values)
+
+
+@pytest.mark.parametrize(
+    ("value", "text"),
+    [
+        (Decimal("9999999.99"), "9999999.99"),
+        (Decimal("-9999999.99"), "-9999999.99"),
+        (Decimal("12.50"), "12.5"),
+        (Decimal("1E+2"), "100"),
+        (Decimal("-0.00"), "0"),
+        (Decimal("0.010"), "0.01"),
+    ],
+)
+def test_a_decimal_value_binds_by_value_within_its_declared_carrier(
+    tmp_path, value, text
+):
+    """A Decimal(9, 2) value binds when it is exactly a numeric(9, 2): its text
+    has no exponent, trailing zero or negative zero, so equal values send one
+    text whatever their scale."""
+    t, _ = _witness(tmp_path, "postgres", "typed_timestamp")
+    values = {**_typed_values("typed_timestamp"), "floor": value}
+    accepted = binding.bind_values(
+        t, (), _named(t, *(values[p.name] for p in t.parameters))
+    )
+    assert accepted.arguments[-1] == text
+
+
+def _typed_values(variant):
+    values = probe.bindings("Q_query_parameters", variant)
+    assert values is not None
+    return dict(values)
+
+
+@pytest.mark.parametrize(
+    ("variant", "name", "value"),
+    [
+        ("typed_timestamp", "since", datetime(1970, 1, 1, tzinfo=timezone.utc)),
+        ("typed_timestamp", "since", date(1970, 1, 1)),
+        ("typed_timestamp", "since", datetime(999, 12, 31)),
+        ("typed_timestamp", "since", datetime(9999, 12, 31, 23, 59, 59, 499_999 + 1)),
+        ("typed_timestamp", "since", "1970-01-01 00:00:00"),
+        ("typed_timestamp", "since", None),
+        ("typed_timestamp", "day", datetime(1970, 1, 1)),
+        ("typed_timestamp", "day", "1970-01-01"),
+        ("typed_timestamp", "day", date(999, 12, 31)),
+        ("typed_timestamp", "floor", Decimal("0.001")),
+        ("typed_timestamp", "floor", Decimal("10000000")),
+        ("typed_timestamp", "floor", Decimal("NaN")),
+        ("typed_timestamp", "floor", Decimal("-Infinity")),
+        ("typed_timestamp", "floor", 0),
+        ("typed_timestamp", "floor", 0.5),
+        ("typed_timestamp", "floor", "0"),
+        ("typed_uuid", "key", "00112233-4455-6677-8899-aabbccddeeff"),
+        ("typed_uuid", "key", UUID(int=1).bytes),
+        ("typed_uuid", "key", None),
+    ],
+)
+def test_a_typed_value_is_checked_by_its_binding(tmp_path, variant, name, value):
+    """Exact Python types: decimal.Decimal (finite, exactly within the declared
+    precision and scale), datetime.date (not a datetime) and a naive
+    datetime.datetime in the civil interval from 1000-01-01, uuid.UUID; NULL
+    only when declared nullable. Nothing is coerced or rounded."""
+    t, _ = _witness(tmp_path, "postgres", variant)
+    values = {**_typed_values(variant), name: value}
+    ordinal = [p.name for p in t.parameters].index(name)
+    with pytest.raises(
+        binding.BindingError,
+        match=f"^BINDING_PARAMETER:{ordinal}:{t.parameters[ordinal].tag}$",
+    ):
+        binding.bind_values(t, (), _named(t, *(values[p.name] for p in t.parameters)))

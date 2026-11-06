@@ -125,12 +125,43 @@ class SQLParameterRead:
 
 
 def parameter_realization(
-    family: str, tag: str, nullable: bool, *, bound: bool = False, value=None
+    family: str,
+    tag: str,
+    nullable: bool,
+    *,
+    bound: bool = False,
+    value=None,
+    decimal: tuple[int, int] | None = None,
 ) -> Realization:
     """One read's image: the declared carrier for the unbound template, or the
     exact domain of a bound value. NULL has no value, so any domain holds; the
-    narrowest one (Int 0..0, Text width 0) keeps every downstream law exact."""
-    storage = {"kind": parameters.PHYSICAL[family][tag]}
+    narrowest one (Int 0..0, Text width 0) keeps every downstream law exact.
+
+    A Decimal, Date, Timestamp or UUID read has its source carrier, bound or
+    not: a Decimal the declared (precision, scale) as ``decimal``, which a
+    bound value fits exactly; it has no binding obligation."""
+    storage = {"kind": parameters.parameter_physical(family, tag)}
+    if storage["kind"] is None:
+        raise ValueError("query parameter type")
+    if tag in parameters.PARAMETER_VALUE_TYPES:
+        if bound and not (
+            value is None or parameters.parameter_valid(tag, value, family, decimal)
+        ):
+            raise ValueError("query parameter value")
+        if tag == "Decimal":
+            if decimal is None:
+                raise ValueError("query parameter type")
+            precision, scale = decimal
+            domain = {"kind": "decimal", "precision": precision, "scale": scale}
+            storage = {**storage, "precision": precision, "scale": scale}
+        elif tag == "Timestamp":
+            domain = {"kind": "timestamp"}
+            storage = {**storage, "fractional_seconds": 6}
+        elif tag == "Date":
+            domain = {"kind": "date"}
+        else:
+            domain = {"kind": "uuid", "encoding": "standard_bytes"}
+        return Realization(tag, storage, nullable, domain)
     if bound and tag in ("Int", "Text"):
         if value is not None and not parameters.value_valid(tag, value, family):
             raise ValueError("query parameter value")
@@ -935,7 +966,12 @@ def build_row_value(
                 expression,
                 use,
                 use.physical_type,
-                parameter_realization(family, expression.parameter.tag, nullable),
+                parameter_realization(
+                    family,
+                    expression.parameter.tag,
+                    nullable,
+                    decimal=expression.parameter.decimal,
+                ),
             ),
             None,
         )

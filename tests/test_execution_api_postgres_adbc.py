@@ -189,6 +189,101 @@ def test_adbc_submits_each_parameter_with_its_type_at_the_driver(since, monkeypa
 
 
 @pytest.mark.parametrize(
+    ("variant", "columns"),
+    (
+        (
+            "typed_timestamp",
+            (
+                ("1970-01-01 00:00:00.000000", "string"),
+                ("1970-01-01", "string"),
+                ("0", "string"),
+            ),
+        ),
+        (
+            "typed_uuid",
+            (("00112233-4455-6677-8899-aabbccddeeff", "string"), (None, "string")),
+        ),
+    ),
+)
+def test_adbc_submits_a_typed_parameter_as_its_canonical_text(
+    tmp_path, monkeypatch, variant, columns
+):
+    """A Decimal, Date, Timestamp or UUID value is bound
+    as one text column holding its canonical text, which the statement's own
+    anchor casts; a NULL is a NULL of that column. compile_query() reports
+    each parameter as (name, tag, nullable)."""
+    import _pietto_sql_emission as probe
+    from pietto._project import project_execution_postgres_adbc as adbc
+
+    item = probe.fixture("postgres", "Q_query_parameters", variant)
+    project = tmp_path / "typed"
+    project.mkdir()
+    (project / "pietto.toml").write_text(probe.CONFIG, encoding="utf-8")
+    (project / "main.pietto").write_text(item["source"], encoding="utf-8")
+    (project / "contract.json").write_text(item["contract"], encoding="utf-8")
+    query = execution.compile_query(
+        project,
+        module="main.pietto",
+        kind="query",
+        name="result",
+        dialect="postgres",
+        emission_contract="contract.json",
+    )
+    values = probe.bindings("Q_query_parameters", variant)
+    assert values is not None
+    assert [name for name, _tag, _nullable in query.parameters] == list(values)
+    monkeypatch.setattr(adbc, "read_control", lambda *args, **kwargs: None)
+    submitted = []
+
+    class Statement:
+        def __init__(self, connection):
+            self.sql = self.bound = None
+
+        def set_options(self, **options):
+            pass
+
+        def set_sql_query(self, sql):
+            self.sql = sql
+
+        def prepare(self):
+            pass
+
+        def bind(self, batch):
+            self.bound = batch
+
+        def execute_query(self):
+            submitted.append(self.bound)
+            raise Submitted
+
+        def close(self):
+            pass
+
+    handle = execution.execute(
+        query,
+        route="postgres_adbc",
+        access=ACCESS,
+        premise=execution.PostgresDeploymentPremise(schemas=("public", "pg_catalog")),
+        parameters=dict(values),
+    )
+    owner = handle._owner
+    owner._manager = SimpleNamespace(AdbcStatement=Statement)
+    owner._arrow = SimpleNamespace(
+        int64=lambda: "int64",
+        bool_=lambda: "bool",
+        float64=lambda: "double",
+        string=lambda: "string",
+        array=lambda values, type: (*values, type),
+        record_batch=lambda columns, names: SimpleNamespace(
+            num_rows=1, columns=tuple(columns), names=tuple(names)
+        ),
+    )
+    with pytest.raises(Submitted):
+        owner._submit("query", 1)
+    assert submitted.pop().columns == columns
+    handle.close()
+
+
+@pytest.mark.parametrize(
     "parameters,code,detail",
     (
         (None, "PIE-R1006", "BINDING_PARAMETERS"),

@@ -8,7 +8,13 @@ from pietto._project.project_sql_emission import (
     CompiledEmissionArtifact,
 )
 from pietto._project.project_sql_emission_inspection import inspect_project_sql_emission
-from pietto._project.project_sql_emission_parameters import PHYSICAL, value_valid
+from pietto._project.project_sql_emission_parameters import (
+    PARAMETER_VALUE_TYPES,
+    parameter_physical,
+    parameter_text,
+    parameter_valid,
+    value_valid,
+)
 from pietto._project import project_sql_emission_rows as rows
 from pietto._project.project_execution_template import (
     BindingError,
@@ -61,7 +67,8 @@ def syntax_state(node):
 def template_state(artifact, slots, guarded=None, *, parameters=()):
     request = artifact.request
     header = tuple(
-        (p, p.ordinal, p.name, p.tag, p.nullable, p.original) for p in parameters
+        (p, p.ordinal, p.name, p.tag, p.nullable, p.decimal, p.original)
+        for p in parameters
     )
     from pietto._project.project_sql_emission_contract import CompiledPreparedEmission
 
@@ -135,8 +142,20 @@ def verify_template(template):
         if (
             type(actual) is not ExecutionParameter
             or actual.original is not expected.original
-            or (actual.ordinal, actual.name, actual.tag, actual.nullable)
-            != (expected.ordinal, expected.name, expected.tag, expected.nullable)
+            or (
+                actual.ordinal,
+                actual.name,
+                actual.tag,
+                actual.nullable,
+                actual.decimal,
+            )
+            != (
+                expected.ordinal,
+                expected.name,
+                expected.tag,
+                expected.nullable,
+                expected.decimal,
+            )
         ):
             raise BindingError("BINDING_INVENTORY")
     if (
@@ -159,6 +178,19 @@ def use_owner(use):
 def use_tag(use):
     """The Pietto tag of a native occurrence's owner."""
     return use.slot.tag.value if use.parameter is None else use.parameter.tag
+
+
+def native_value(tag, value, family):
+    """The value one native occurrence sends: MySQL widens a Bool to 0/1; a
+    Decimal, Date, Timestamp or UUID travels as its canonical text, which its
+    anchor casts; NULL stays NULL."""
+    if value is None:
+        return None
+    if family == "mysql" and tag == "Bool":
+        return int(value)
+    if tag in PARAMETER_VALUE_TYPES:
+        return parameter_text(tag, value)
+    return value
 
 
 def native_arguments(artifact, values, parameters=()):
@@ -189,15 +221,11 @@ def native_arguments(artifact, values, parameters=()):
                 raise BindingError("BINDING_USES")
             owner, value = slots[matches[0]], values[matches[0]]
             tag = owner.tag.value
-        if use.physical_type != PHYSICAL[family][tag]:
+        if use.physical_type != parameter_physical(family, tag):
             raise BindingError("BINDING_ANCHOR")
         if family == "mysql" or not any(s is owner for s in seen):
             seen.append(owner)
-            arguments.append(
-                int(value)
-                if family == "mysql" and tag == "Bool" and value is not None
-                else value
-            )
+            arguments.append(native_value(tag, value, family))
             server_index = len(arguments)
         else:
             server_index = next(i + 1 for i, s in enumerate(seen) if s is owner)
@@ -391,7 +419,7 @@ def verify_binding(binding):
         if not (
             p.nullable
             if v is None
-            else value_valid(p.tag, v, template.artifact.request.family)
+            else parameter_valid(p.tag, v, template.artifact.request.family, p.decimal)
         ):
             raise BindingError("BINDING_PARAMETERS")
     if template.parameters and artifact.rendered.sql != template.artifact.rendered.sql:

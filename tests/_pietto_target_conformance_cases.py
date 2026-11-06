@@ -1647,6 +1647,8 @@ def parameter_records(document, bindings=None):
                 continue
             if tag in {"Int", "Float"}:
                 payload = str(payload) if tag == "Int" else payload.hex()
+            elif tag in emission.PARAMETER_PHYSICAL:
+                tag, payload = "Text", emission.parameter_text(tag, payload)
         else:
             value = document["fixed_values"][owner["slot"]]
             tag, payload = value["tag"], value["value"]
@@ -1684,6 +1686,13 @@ def parameter_expectation(target, variant):
             tuple(label for label, _ in columns),
             [codes[tag] for _, tag in columns],
         )
+    if variant in emission.TYPED_PARAMETER_BODIES:
+        # typed_timestamp keeps the one 1970-01-01 row at 0.00 (id 0): the
+        # 1969 rows are before `since`, the -0.01 row is below `floor`;
+        # typed_uuid keeps both rows of the bound UUID (id BIG).
+        bigint = 20 if target == "postgres" else 8
+        ids = ("0",) if variant == "typed_timestamp" else (str(BIG), str(BIG))
+        return [[_integer(i)] for i in ids], ("id",), [bigint]
     values = emission.bindings("Q_query_parameters", variant)
     assert values is not None
     label = values["label"]

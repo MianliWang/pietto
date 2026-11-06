@@ -615,6 +615,43 @@ Not this (each is refused with a hint or a diagnostic):
 - a constant in a project: give the query a header parameter (PIE-S2392); and
   `query q(cutoff: Date):` in a single file: write a constant (PIE-S2346).
 
+## A project query's parameters
+
+A project query parameter is declared with the type of the field it is
+compared with; a Decimal one with that field's precision and scale (this
+example is a project form, so a single file reports PIE-S2346 for each
+parameter):
+
+```pietto PIE-S2346 PIE-S2346 PIE-S2346
+query recent(since: Timestamp, day: Date | None, floor: Decimal(9, 2)):
+    from orders
+    where since <= placed_at and order_day == day and amount >= floor
+    select:
+        id
+```
+
+The caller passes `datetime.datetime` (naive), `datetime.date`, `uuid.UUID`
+and `decimal.Decimal` values: `parameters={"since": datetime(2024, 1, 1),
+"day": date(2024, 1, 31), "floor": Decimal("10.00")}`.
+
+Not this:
+
+- `floor: Decimal`, `Decimal(9)`, `Decimal(2, 3)`, `Decimal(40, 35)`,
+  `Decimal(p=9, s=2)`: write `Decimal(9, 2)`, the compared field's precision
+  and scale (PIE-S2353).
+- `day: Date(1)`, `name: Text(20)`, `doc: Json`: a bare `Date` or `Text`; Json
+  has no parameter (PIE-S2353).
+- `day: Text` compared with a `Date` field: declare `day: Date` (PIE-S2105).
+- `floor: Decimal(10, 2)` compared with a `Decimal(9, 2)` field: the same
+  precision and scale (PIE-B1005 at `emit-sql`); and `amount + floor`: compare,
+  do not compute (PIE-B1003).
+- a Decimal, Date, Timestamp or UUID parameter on MySQL: emit with
+  `--dialect postgres` (PIE-B1003 at each declaration).
+- `parameters={"day": "2024-01-31"}`, `date(999, 12, 31)`, a `date` for a
+  `Timestamp`, an aware `datetime`, `Decimal("10.001")` for `Decimal(9, 2)`,
+  `Decimal("NaN")`, `10`, a UUID's text: pass the exact Python type within
+  its range, never rounded (PIE-R1006).
+
 ## Reusing an expression: `def`
 
 ```pietto

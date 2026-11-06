@@ -21,7 +21,7 @@ PARAMETERIZED_FORMAT = "pietto.compiled-execution.v2"
 # 4/4: expression_block_use records (Phase70 S08); 5/5: capture and
 # table_function records (Phase70 batch 4); 6/6: Collect reads, collection
 # logicals, unnest (Phase71 S09); 7/7: the one Phase73 bump, for aggregate
-# window values and median/quantile aggregate values.
+# window values, median/quantile aggregate values and typed parameter records.
 VERSIONS = (7, 1, 7, 1)
 MEMBERS = ("structure", "parameters", "targets", "obligations", "outputs")
 MAX_BYTES = 32 * 1024 * 1024
@@ -103,7 +103,8 @@ FIELDS = {
     "slot": ("site", "literal", "tag"),
     # `slot` names the occurrence owner: a bind-safe slot or a parameter read.
     "native_use": ("slot", "ordinal", "index", "physical"),
-    "parameter": ("declaration", "ordinal", "label", "tag", "nullable"),
+    # ``decimal`` is null, or (precision, scale) of a Decimal(p, s) parameter.
+    "parameter": ("declaration", "ordinal", "label", "tag", "nullable", "decimal"),
     "parameter_read": ("parameter",),
     "scan": ("owner", "use", "source", "outputs"),
     "row": (

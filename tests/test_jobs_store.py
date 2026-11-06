@@ -1,9 +1,12 @@
 """S11 job store: specification, identities, publisher fence, history, damage."""
 
 from dataclasses import asdict
+from datetime import date, datetime
+from decimal import Decimal
 import json
 import os
 import sqlite3
+from uuid import UUID
 
 import pytest
 
@@ -15,6 +18,7 @@ from _pietto_execution_jobs_probe import (
     qualified,
     root_of,
     trust,
+    typed_parameter_source,
 )
 from pietto._project import project_job_store as s
 from pietto._project import project_job_workspace as w
@@ -1127,5 +1131,136 @@ def test_a_consistent_rewrite_of_a_parameterized_binding_is_refused(
         if table == "binding":
             with pytest.raises(JobStoreError, match="^BINDING_VECTOR$"):
                 s.bind_record(reopened, job, template, record)
+    finally:
+        reopened.close()
+
+
+TYPED = {
+    "day": date(2024, 2, 29),
+    "at": datetime(2024, 1, 2, 3, 4, 5, 600),
+    "key": UUID("12345678-1234-5678-1234-567812345678"),
+    "amount": Decimal("-12.50"),
+}
+TYPED_VECTOR = (
+    '{"format":"pietto.binding-vector.v2","parameters":[["Date","2024-02-29"],'
+    '["Timestamp","2024-01-02 03:04:05.000600"],'
+    '["UUID","12345678-1234-5678-1234-567812345678"],["Decimal","-12.5"]],'
+    '"slots":[]}'
+)
+
+
+@pytest.fixture(scope="module")
+def typed_header(tmp_path_factory):
+    """A loaded template whose entry query declares Date, Timestamp, UUID and
+    Decimal(9, 2), all nullable."""
+    root = tmp_path_factory.mktemp("s09-typed-parameters") / "header"
+    return compiled_template(root, source=typed_parameter_source(), entry="bundle")
+
+
+def test_typed_parameters_store_their_canonical_text_and_rebind_by_value(
+    typed_header, workspace
+):
+    """Each Decimal, Date, Timestamp or UUID value is
+    stored as ``[tag, canonical text]`` in the v2 vector (no new format: only
+    new values), a NULL keeps its tag, and a stored binding rebinds to values
+    of the same Python types and equal values; the description interface is
+    unchanged."""
+    if workspace is None:
+        return
+    template, _ = typed_header
+    job, binding, record, _generation = parameterized_generation(
+        workspace, template, TYPED
+    )
+
+    def vector(identity):
+        return (
+            workspace.use()
+            .execute("SELECT vector FROM binding WHERE identity = ?", (identity,))
+            .fetchone()[0]
+        )
+
+    assert vector(record) == TYPED_VECTOR
+    description = describe_compiled_binding(binding, route="postgres_rows")
+    assert description.interfaces[-1] == ("parameter", 1)
+    assert [p[1:4] for p in description.parameters] == [
+        ("day", "Date", True),
+        ("at", "Timestamp", True),
+        ("key", "UUID", True),
+        ("amount", "Decimal", True),
+    ]
+    rebound = s.bind_record(workspace, job, template, record)
+    assert [(type(v), v) for v in rebound.parameters] == [
+        (type(v), v) for v in TYPED.values()
+    ]
+    _job, _binding, nulls, _generation = parameterized_generation(
+        workspace, template, dict.fromkeys(TYPED), job
+    )
+    assert vector(nulls) == (
+        '{"format":"pietto.binding-vector.v2","parameters":[["Date",null],'
+        '["Timestamp",null],["UUID",null],["Decimal",null]],"slots":[]}'
+    )
+    assert verify_store(workspace)["bindings"] == 2
+
+
+@pytest.mark.parametrize(
+    ("old", "new"),
+    (
+        ('["Decimal","-12.5"]', '["Decimal","-12.50"]'),
+        ('["Decimal","-12.5"]', '["Decimal","-12.555"]'),
+        ('["Decimal","-12.5"]', '["Decimal","-1.25E+1"]'),
+        ('["Decimal","-12.5"]', '[["Decimal"],"-12.5"]'),
+        ('["Date","2024-02-29"]', '["Date","2023-02-29"]'),
+        ('["Date","2024-02-29"]', '["Date","0999-02-28"]'),
+        ('["Date","2024-02-29"]', '["Timestamp","2024-02-29 00:00:00.000000"]'),
+        (
+            '["Timestamp","2024-01-02 03:04:05.000600"]',
+            '["Timestamp","2024-01-02T03:04:05.000600"]',
+        ),
+        (
+            '["UUID","12345678-1234-5678-1234-567812345678"]',
+            '["UUID","12345678123456781234567812345678"]',
+        ),
+    ),
+    ids=(
+        "decimal_trailing_zero",
+        "decimal_beyond_scale",
+        "decimal_exponent",
+        "unhashable_tag",
+        "date_not_a_day",
+        "date_before_the_civil_interval",
+        "date_as_timestamp",
+        "timestamp_t_separator",
+        "uuid_without_hyphens",
+    ),
+)
+def test_a_damaged_typed_parameter_vector_is_a_typed_refusal(
+    tmp_path, typed_header, old, new
+):
+    """Only the canonical text of a valid value of the declared tag (and, for
+    a Decimal, within its declared precision and scale) is a stored value:
+    the rebinding and the independent checker both refuse anything else."""
+    if not qualified(tmp_path):
+        return
+    template, _ = typed_header
+    root = str(tmp_path / "workspace")
+    workspace = w.create_workspace(root)
+    identity = workspace.identity
+    job, _binding, record, _generation = parameterized_generation(
+        workspace, template, TYPED
+    )
+    workspace.close()
+    damaged = TYPED_VECTOR.replace(old, new)
+    assert damaged != TYPED_VECTOR
+    tamper(
+        root, ("UPDATE binding SET vector = ? WHERE identity = ?", (damaged, record))
+    )
+    reopened = w.open_workspace(root, expected_identity=identity)
+    try:
+        with pytest.raises(JobStoreError, match="^BINDING_VECTOR$"):
+            s.bind_record(reopened, job, template, record)
+        with pytest.raises(
+            JobStoreError, match="STORE_INVARIANT_(BINDING_VECTOR|BINDING_HISTORY)"
+        ):
+            verify_store(reopened)
     finally:
         reopened.close()

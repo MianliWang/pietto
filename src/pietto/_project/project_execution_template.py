@@ -25,7 +25,7 @@ from pietto._project.project_query_block_ir_verification import (
 from pietto._project.project_sql_plan import build_project_sql_plan
 from pietto._project.project_sql_plan_verification import verify_project_sql_plan
 from pietto._project.project_sql_emission import EmissionArtifact, emit_project_sql
-from pietto._project.project_sql_emission_parameters import value_valid
+from pietto._project.project_sql_emission_parameters import parameter_valid, value_valid
 from pietto._project.project_single_match import ProjectSingleMatchAssessment
 from pietto._project.project_verification_scope import entry
 
@@ -52,6 +52,8 @@ class ExecutionParameter:
     tag: str
     nullable: bool
     original: Any = field(repr=False)
+    # The declared (precision, scale) of a Decimal(p, s) parameter.
+    decimal: tuple[int, int] | None = None
 
 
 @dataclass(frozen=True, slots=True, eq=False)
@@ -87,7 +89,11 @@ def template_parameters(artifact) -> tuple[ExecutionParameter, ...]:
             nullable = parameter.value_type.nullability.value == "nullable"
         else:
             name, nullable = parameter.label, parameter.nullable
-        result.append(ExecutionParameter(i, name, parameter.tag, nullable, parameter))
+        result.append(
+            ExecutionParameter(
+                i, name, parameter.tag, nullable, parameter, parameter.decimal
+            )
+        )
     return tuple(result)
 
 
@@ -279,7 +285,7 @@ def parameter_values(template, named):
         if not (
             parameter.nullable
             if value is None
-            else value_valid(parameter.tag, value, family)
+            else parameter_valid(parameter.tag, value, family, parameter.decimal)
         ):
             raise BindingError(f"BINDING_PARAMETER:{parameter.ordinal}:{parameter.tag}")
         values.append(value)

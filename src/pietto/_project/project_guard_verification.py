@@ -20,6 +20,7 @@ from pietto._project.project_sql_emission_results import RowResultBody
 from pietto._project.project_sql_emission_parameters import same_value
 from pietto._project.project_execution_binding_verification import (
     artifact_arguments,
+    native_value,
     occurrence_value,
     use_owner,
     use_tag,
@@ -461,13 +462,9 @@ class _Read(_Bytes):
                     added = True
                 if event.kind == "parameter":
                     use = by_event[event]
-                    value = occurrence_value(self.artifact, use)
-                    if (
-                        self.family == "mysql"
-                        and use_tag(use) == "Bool"
-                        and value is not None
-                    ):
-                        value = int(value)
+                    value = native_value(
+                        use_tag(use), occurrence_value(self.artifact, use), self.family
+                    )
                     self.parameter("original", use_owner(use), 0, value, use)
                 elif event.subject in source_names and event.role in (
                     "namespace",

@@ -71,7 +71,7 @@ from pietto.semantic.model import ValueType, ValueTypeKind
 from pietto.semantic.catalog import is_builtin_function_name
 from pietto.semantic.aggregates import semantic_aggregate_call_name
 from pietto.semantic.expressions import query_parameter_value_type
-from pietto._project.query_parameters import reads_header
+from pietto._project.query_parameters import declared_decimal, reads_header
 from pietto.ir.model import SymbolId, SymbolNamespace
 
 from pietto._project.model import (
@@ -2771,6 +2771,7 @@ def _query_parameters(
             value_type=query_parameter_value_type(
                 parameter.type.name, parameter.type.nullability
             ),
+            decimal=declared_decimal(parameter.type),
         )
         for ordinal, parameter in enumerate(declaration.parameters)
     )
@@ -5570,7 +5571,11 @@ def build_compiled_sql_plan(ir):
     from pietto._project.project_query_block_ir_verification import (
         verify_compiled_query_block_ir,
     )
-    from pietto._project.project_sql_emission_parameters import allocate_uses, PHYSICAL
+    from pietto._project.project_sql_emission_parameters import (
+        allocate_uses,
+        parameter_physical,
+        PHYSICAL,
+    )
 
     verify_compiled_query_block_ir(ir)
     completed, refs = ir.completed, ir.references
@@ -5613,7 +5618,11 @@ def build_compiled_sql_plan(ir):
             primitives[address] = row.CompiledExpressionPrimitive(None, None, False)
     query_parameters = {
         r.address: row.CompiledQueryParameter(
-            r.get("ordinal"), r.get("label"), r.get("tag"), r.get("nullable")
+            r.get("ordinal"),
+            r.get("label"),
+            r.get("tag"),
+            r.get("nullable"),
+            r.get("decimal"),
         )
         for r in records.values()
         if r.address.kind == "parameter"
@@ -5706,7 +5715,7 @@ def build_compiled_sql_plan(ir):
         owner = records[record.get("slot")]
         if owner.address.kind == "parameter_read":
             read = expressions[owner.address]
-            occurrences.append((read, PHYSICAL[family][read.parameter.tag]))
+            occurrences.append((read, parameter_physical(family, read.parameter.tag)))
             continue
         expression = expressions[owner.get("literal")]
         occurrences.append((expression, PHYSICAL[family][owner.get("tag")]))

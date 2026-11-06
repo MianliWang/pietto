@@ -348,7 +348,7 @@ class _Writer:
             reference,
         )
         self.emit(
-            parameters.anchor_suffix(value.physical_type),
+            parameters.anchor_suffix(value.physical_type, value.realization.storage),
             "syntax",
             "anchor_close",
             reference,

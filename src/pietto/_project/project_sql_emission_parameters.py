@@ -3,8 +3,11 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+from datetime import date, datetime
+from decimal import Decimal, localcontext
 import math
 from typing import Any
+from uuid import UUID
 
 from pietto._project import project_sql_plan_expressions as row
 from pietto._project.project_sql_plan_windows import ProjectSQLWindowArgument
@@ -36,6 +39,31 @@ SQL_TYPES = {
     "my_double": "DOUBLE",
     "my_utf8mb4_text": "CHAR CHARACTER SET utf8mb4",
 }
+
+
+# Header-parameter carriers no literal or slot has: PostgreSQL only. MySQL has
+# none until its differential (the Phase74 MySQL catch-up), so a MySQL declaration of one of these
+# types is refused before any placeholder is allocated.
+HEADER_PHYSICAL = {
+    "postgres": {
+        "Decimal": "pg_numeric",
+        "Date": "pg_date",
+        "Timestamp": "pg_timestamp",
+        "UUID": "pg_uuid",
+    },
+    "mysql": {},
+}
+HEADER_SQL_TYPES = {
+    "pg_numeric": "pg_catalog.numeric",
+    "pg_date": "pg_catalog.date",
+    "pg_timestamp": "pg_catalog.timestamp",
+    "pg_uuid": "pg_catalog.uuid",
+}
+
+
+def parameter_physical(family, tag):
+    """The native carrier of a header parameter of ``tag`` (None: none)."""
+    return PHYSICAL[family].get(tag) or HEADER_PHYSICAL[family].get(tag)
 
 
 @dataclass(frozen=True, slots=True, eq=False)
@@ -144,7 +172,33 @@ def same_value(left, right):
     )
 
 
+# Civil Timestamp bounds (language.md, Timestamp and UUID source meaning); a
+# Date has the same civil interval from 1000-01-01 (Python ends at 9999-12-31).
+TIMESTAMP_RANGE = (datetime(1000, 1, 1), datetime(9999, 12, 31, 23, 59, 59, 499999))
+# Header parameter tags beyond the literal ones: their Python value types.
+PARAMETER_VALUE_TYPES = {
+    "Decimal": Decimal,
+    "Date": date,
+    "Timestamp": datetime,
+    "UUID": UUID,
+}
+
+
 def value_valid(tag, value, family):
+    """A value of ``tag``'s exact Python type in its domain; a Decimal is any
+    finite one here, its declared precision and scale are checked by
+    ``decimal_fits``."""
+    if tag in PARAMETER_VALUE_TYPES:
+        if type(value) is not PARAMETER_VALUE_TYPES[tag]:
+            return False
+        if tag == "Decimal":
+            return value.is_finite()
+        if tag == "Timestamp":
+            low, high = TIMESTAMP_RANGE
+            return value.tzinfo is None and low <= value <= high
+        if tag == "Date":
+            return value.year >= 1000
+        return True
     if tag == "Bool":
         return type(value) is bool
     if tag == "Int":
@@ -220,7 +274,7 @@ def allocate_uses(family, occurrences, limit):
         if owner in seen and seen[owner][0] != physical:
             raise ValueError("incompatible_slot_context")
         if named:
-            if physical != PHYSICAL[family].get(owner.tag):
+            if physical != parameter_physical(family, owner.tag):
                 raise ValueError("original parameter/context correspondence")
         elif (
             (tag := tag_of(original)) is None
@@ -331,8 +385,17 @@ def scalar_token(tag, value, family):
     return "X'" + value.encode().hex() + "'"
 
 
-def anchor_suffix(physical):
-    suffix = " AS " + SQL_TYPES[physical] + ")"
+def anchor_suffix(physical, storage=None):
+    """The closing text of a CAST anchor; a Decimal header-parameter read
+    passes its storage, whose precision and scale the cast names."""
+    sql_type = (
+        SQL_TYPES[physical] if physical in SQL_TYPES else HEADER_SQL_TYPES[physical]
+    )
+    if physical == "pg_numeric":
+        if storage is None:
+            raise ValueError("Decimal anchor carrier")
+        sql_type += f"({storage['precision']},{storage['scale']})"
+    suffix = " AS " + sql_type + ")"
     if physical == "pg_text":
         suffix += ' COLLATE "C"'
     elif physical == "my_utf8mb4_text":
@@ -382,6 +445,68 @@ def wire_value(tag, value):
         return str(value)
     if tag == "Float":
         return value.hex()
+    return value
+
+
+def decimal_fits(value, precision, scale):
+    """A finite Decimal exactly representable as ``numeric(precision, scale)``:
+    never rounded, never widened."""
+    if type(value) is not Decimal or not value.is_finite():
+        return False
+    with localcontext() as context:
+        context.prec = 66
+        try:
+            exact = value.quantize(Decimal(1).scaleb(-scale))
+        except ArithmeticError:
+            return False
+    return exact == value and len(exact.as_tuple().digits) <= precision
+
+
+def parameter_valid(tag, value, family, decimal=None):
+    """A header value of ``tag`` on ``family``; ``decimal`` is the declared
+    (precision, scale) of a Decimal parameter."""
+    if not value_valid(tag, value, family):
+        return False
+    return tag != "Decimal" or (
+        type(decimal) is tuple and decimal_fits(value, *decimal)
+    )
+
+
+def parameter_text(tag, value):
+    """The one canonical text of a valid Decimal, Date, Timestamp or UUID
+    value: the native argument the anchor casts and its typed wire payload.
+    A Decimal is written without exponent or trailing zeros (``-0`` is
+    ``0``), so equal values have one text."""
+    if tag == "Decimal":
+        with localcontext() as context:
+            context.prec = 66
+            normalized = value.normalize()
+        return "0" if normalized == 0 else format(normalized, "f")
+    if tag == "Date":
+        return value.isoformat()
+    if tag == "Timestamp":
+        return value.isoformat(sep=" ", timespec="microseconds")
+    if tag == "UUID":
+        return str(value)
+    raise ValueError("parameter text tag")
+
+
+def parameter_value(tag, text):
+    """The value of one canonical ``parameter_text``; anything else raises."""
+    if type(text) is not str or len(text) > 80:
+        raise ValueError("parameter text")
+    if tag == "Decimal":
+        value: Any = Decimal(text)
+    elif tag == "Date":
+        value = date.fromisoformat(text)
+    elif tag == "Timestamp":
+        value = datetime.fromisoformat(text)
+    elif tag == "UUID":
+        value = UUID(text)
+    else:
+        raise ValueError("parameter text tag")
+    if not value_valid(tag, value, "postgres") or parameter_text(tag, value) != text:
+        raise ValueError("parameter text")
     return value
 
 

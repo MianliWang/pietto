@@ -20,6 +20,7 @@ import pytest
 import _pietto_sql_emission as probe
 from _pietto_sql_query_parameters import PROTOCOL
 from _pietto_sql_query_parameters import parameterized_case as _case
+from _pietto_sql_query_parameters import typed_case
 import _pietto_target_conformance_cases as conformance
 from pietto._project import project_sql_emission_parameters as parameters
 from pietto._project.project_sql_emission import serialize_project_sql_emission
@@ -1554,4 +1555,132 @@ def test_concat_of_a_binding_width_text_has_no_result_bound(tmp_path: Path) -> N
     assert outcome.status == "BLOCKED" and outcome.artifact is None
     assert [(b.code, b.detail) for b in outcome.blockers] == [
         ("PIE-B1004", "text_concat_result_bound_missing")
+    ]
+
+
+TYPED_WHERE = (
+    ' WHERE (((("s0"."ts" >= CAST($1 AS pg_catalog.timestamp))'
+    ' AND ("s0"."d2" = CAST($2 AS pg_catalog.date)))'
+    ' AND ("s0"."u" = CAST($3 AS pg_catalog.uuid)))'
+    ' AND ("s0"."money" >= CAST($4 AS pg_catalog.numeric(9,2))))'
+)
+TYPED_REFUSAL = (
+    "Keep this declaration in check/plan or select an artifact using the forms "
+    "reviewed for the requested target. Do not relabel the target or source "
+    "carrier to bypass this refusal."
+)
+
+
+def test_typed_parameters_cast_to_their_source_carrier_on_postgresql(
+    tmp_path: Path,
+) -> None:
+    """A Decimal(p, s), Date, Timestamp or UUID read is a
+    placeholder in the compared column's own carrier, a Decimal one with its
+    declared precision and scale; it has no binding obligation."""
+    checked, outcome = typed_case(tmp_path, "postgres")
+    assert checked.verified and outcome.status == "VERIFIED"
+    document = probe.decode_public(serialize_project_sql_emission(outcome))
+    assert document["format"] == "pietto.sql-emission.v2"
+    assert TYPED_WHERE in document["sql"]
+    assert [
+        (p["name"], p["tag"], p["nullable"], len(p["reads"]))
+        for p in document["parameters"]
+    ] == [
+        ("since", "Timestamp", False, 1),
+        ("day", "Date", True, 1),
+        ("key", "UUID", False, 1),
+        ("floor", "Decimal", False, 1),
+    ]
+    assert [u["physical_type"] for u in document["parameter_uses"]] == [
+        "pg_timestamp",
+        "pg_date",
+        "pg_uuid",
+        "pg_numeric",
+    ]
+    assert document["binding_obligations"] == []
+    artifact = outcome.artifact
+    assert artifact is not None
+    reads = [
+        e
+        for e in artifact.request.plan.expressions
+        if type(e) is ProjectSQLParameterRead
+    ]
+    assert [(r.parameter.tag, r.parameter.decimal) for r in reads] == [
+        ("Timestamp", None),
+        ("Date", None),
+        ("UUID", None),
+        ("Decimal", (9, 2)),
+    ]
+
+
+@pytest.mark.parametrize(
+    ("body", "expected"),
+    (
+        (
+            "query result(floor: Decimal(10, 2)):\n    from rows\n"
+            "    where money >= floor\n    select:\n        id\n",
+            [("PIE-B1005", "decimal_comparison_parameter_conflict")],
+        ),
+        (
+            "query result(floor: Decimal(9, 2)):\n    from rows\n"
+            "    select:\n        id\n        total = money + floor\n",
+            [("PIE-B1003", "decimal_direct_source_operands_required")],
+        ),
+    ),
+    ids=("other_precision", "arithmetic"),
+)
+def test_a_decimal_parameter_keeps_the_existing_decimal_laws(
+    tmp_path: Path, body: str, expected: list[tuple[str, str]]
+) -> None:
+    """A Decimal(p, s) parameter compares only with a Decimal of the same
+    (p, s) and, like any non-source Decimal, is no arithmetic operand."""
+    _, outcome = typed_case(tmp_path, "postgres", body)
+    assert outcome.status == "BLOCKED"
+    assert [(b.code, b.detail) for b in outcome.blockers] == expected
+
+
+@pytest.mark.parametrize(
+    ("body", "columns"),
+    (
+        (None, [14, 32, 50, 61]),
+        (
+            "query result(low: Int, day: Date | None):\n    from rows\n"
+            "    where id > low\n    select:\n        id\n",
+            [24],
+        ),
+    ),
+    ids=("read", "unread"),
+)
+def test_mysql_refuses_each_typed_parameter_at_its_declaration(
+    tmp_path: Path, body: str | None, columns: list[int]
+) -> None:
+    """D73.14: MySQL has no Decimal, Date, Timestamp or UUID parameter carrier
+    until the Phase74 MySQL catch-up, so each such declaration, read or not, is PIE-B1003 at its own
+    span before any placeholder is allocated; the other parameters keep theirs."""
+    checked, outcome = typed_case(tmp_path, "mysql", *(() if body is None else (body,)))
+    assert checked.verified and outcome.status == "BLOCKED"
+    document = _document(outcome)
+    assert [
+        (
+            b["code"],
+            b["reason"],
+            b["subject"],
+            b["suggestion"],
+            b["location"]["line"],
+            b["location"]["column"],
+        )
+        for b in document["blockers"]
+    ] == [
+        (
+            "PIE-B1003",
+            "UNSUPPORTED_RULE",
+            {
+                "reference": {"kind": "selected_plan", "position": 0},
+                "detail": "query_parameter_type_not_admitted_on_target",
+            },
+            TYPED_REFUSAL,
+            9,
+            column,
+        )
+        for column in columns
     ]

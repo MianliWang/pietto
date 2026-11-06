@@ -4,6 +4,8 @@ from __future__ import annotations
 
 from collections import Counter
 from copy import deepcopy
+from datetime import date, datetime
+from decimal import Decimal
 import hashlib
 import json
 import math
@@ -12,6 +14,7 @@ import re
 import sys
 from tempfile import TemporaryDirectory
 from typing import Any, cast
+from uuid import UUID
 
 CONFIG = 'schema_version = 2\n[sources]\ninclude = ["*.pietto"]\n'
 COLLECT_VARIANTS = (
@@ -107,6 +110,11 @@ VARIANTS = {
         "result_contains_a",
         "result_null_label",
         "let_bind",
+        # Decimal, Date and Timestamp, then UUID, header
+        # parameters over the Q1 meaning sources (PostgreSQL; MySQL refuses
+        # these types until the Phase74 MySQL catch-up).
+        "typed_timestamp",
+        "typed_uuid",
     ),
     "R_fixed_direct": (
         "table_preserve",
@@ -920,6 +928,15 @@ PARAMETER_BINDINGS = {
     ("Q_query_parameters", "result_contains_a"): {"low": 1, "label": "a"},
     ("Q_query_parameters", "result_null_label"): {"low": 1, "label": None},
     ("Q_query_parameters", "let_bind"): {"low": 4, "label": "x"},
+    ("Q_query_parameters", "typed_timestamp"): {
+        "since": datetime(1970, 1, 1),
+        "day": date(1970, 1, 1),
+        "floor": Decimal("0"),
+    },
+    ("Q_query_parameters", "typed_uuid"): {
+        "key": UUID("00112233-4455-6677-8899-aabbccddeeff"),
+        "unset": None,
+    },
     (FLOAT_CASE, "fp_zeros"): {"p": -0.0, "q": 0.0},
 }
 
@@ -970,11 +987,51 @@ def parameterized_fixture(
     }
 
 
+# Each typed variant reads its header over one Q1 meaning source
+# (`ratio` is that source's Timestamp or UUID column).
+TYPED_PARAMETER_BODIES = {
+    "typed_timestamp": (
+        "timestamp_meaning",
+        """query result(since: Timestamp, day: Date, floor: Decimal(9, 2)):
+    from rows
+    where ratio >= since and date_of(ratio) == day and money >= floor
+    select:
+        id
+""",
+    ),
+    "typed_uuid": (
+        "uuid_meaning",
+        """query result(key: UUID, unset: UUID | None):
+    from rows
+    where ratio == key and unset is None
+    select:
+        id
+""",
+    ),
+}
+
+
+def typed_parameter_fixture(target, variant):
+    """A typed v2 template over the Q1 meaning source of ``variant``."""
+    meaning, body = TYPED_PARAMETER_BODIES[variant]
+    base = fixture(target, "L_emission_blocked", meaning)
+    item = parameterized_fixture(target, body)
+    contract = json.loads(item["contract"])
+    contract["sources"] = json.loads(base["contract"])["sources"]
+    return {
+        "source": base["source"].split("query result:", 1)[0] + body,
+        "contract": encoded(contract).decode(),
+        "policy": item["policy"],
+    }
+
+
 def parameter_fixture(target, variant):
     """A v2 template over the native rows: two header parameters, read in WHERE
     and SELECT, and a deferred Int range check (`low + 1`); an S04r variant
     binds one position body over the published emission rows instead, and the
     `let_bind` variant reads them in a relation let and in the entry body."""
+    if variant in TYPED_PARAMETER_BODIES:
+        return typed_parameter_fixture(target, variant)
     if variant in PARAMETER_POSITION_VARIANTS:
         return parameterized_fixture(
             target, PARAMETER_POSITION_BODIES[PARAMETER_POSITION_VARIANTS[variant]]
@@ -4367,6 +4424,13 @@ MIGRATED_TO_SUCCESS = (
 # PostgreSQL alone admits the published restricted FULL domain; MySQL keeps its
 # typed non-support, so these variants are per-target.
 PER_TARGET_STATUS = {
+    # D73.14: Decimal, Date, Timestamp and UUID header parameters
+    # are PostgreSQL only; MySQL refuses each declaration until the Phase74 MySQL catch-up.
+    ("Q_query_parameters", "typed_timestamp"): {
+        "postgres": "VERIFIED",
+        "mysql": "BLOCKED",
+    },
+    ("Q_query_parameters", "typed_uuid"): {"postgres": "VERIFIED", "mysql": "BLOCKED"},
     ("V_join_full", "restricted"): {"postgres": "VERIFIED", "mysql": "BLOCKED"},
     ("Z_aggregate_joined", "full_restricted"): {
         "postgres": "VERIFIED",
@@ -5680,8 +5744,34 @@ def _fixed_physical(family, tag):
     }[family][tag]
 
 
+def parameter_text(tag, value):
+    """The wire text of one Decimal, Date, Timestamp or UUID header value
+    (None: not a value of ``tag``): plain decimal digits without trailing
+    zeros (``0`` for any zero), ISO date and timestamp (space, six fractional
+    digits) in the civil interval from 1000-01-01, canonical lower-case UUID."""
+    if tag == "Decimal" and type(value) is Decimal and value.is_finite():
+        text = format(value, "f")
+        if "." in text:
+            text = text.rstrip("0").rstrip(".")
+        return "0" if text in ("0", "-0") else text
+    if tag == "Date" and type(value) is date and value >= date(1000, 1, 1):
+        return value.isoformat()
+    if (
+        tag == "Timestamp"
+        and type(value) is datetime
+        and value.tzinfo is None
+        and datetime(1000, 1, 1) <= value <= datetime(9999, 12, 31, 23, 59, 59, 499999)
+    ):
+        return value.isoformat(" ", "microseconds")
+    if tag == "UUID" and type(value) is UUID:
+        return str(value)
+    return None
+
+
 def _binding_value(family, tag, value):
     """One caller binding of a v2 header parameter, exactly as the driver sends it."""
+    if tag in PARAMETER_PHYSICAL:
+        return family == "postgres" and parameter_text(tag, value) is not None
     if tag == "Bool":
         return type(value) is bool
     if tag == "Int":
@@ -5733,6 +5823,9 @@ def decoded_arguments(document, bindings=None):
             key = ("parameter", owner["parameter"])
             parameter = header[owner["parameter"]]
             tag, decoded = parameter["tag"], bindings[parameter["name"]]
+            if tag in PARAMETER_PHYSICAL and decoded is not None:
+                # The anchor casts the value's canonical text.
+                decoded = parameter_text(tag, decoded)
         if family == "mysql" and tag == "Bool" and decoded is not None:
             _need(type(decoded) is bool, "MySQL Bool fixed payload")
             assert type(decoded) is bool
@@ -14112,6 +14205,14 @@ def _decode_fixed_public(document, limits):
 
 
 PARAMETERIZED_FORMAT = "pietto.sql-emission.v2"
+# Header parameter carriers beyond the fixed-value tags: PostgreSQL only
+# (MySQL refuses these types until its differential).
+PARAMETER_PHYSICAL = {
+    "Decimal": "pg_numeric",
+    "Date": "pg_date",
+    "Timestamp": "pg_timestamp",
+    "UUID": "pg_uuid",
+}
 BINDING_OBLIGATION_KINDS = frozenset({"int_range_representable", "text_result_width"})
 # A window offset, bucket count or position (S04w): its subject is the window
 # argument the parameter fills, and MySQL renders it as a bare placeholder.
@@ -14179,7 +14280,11 @@ def _decode_parameterized_public(document, limits):
             and type(parameter["name"]) is str
             and bool(parameter["name"])
             and parameter["name"] not in names
-            and parameter["tag"] in {"Bool", "Int", "Float", "Text"}
+            and (
+                parameter["tag"] in {"Bool", "Int", "Float", "Text"}
+                or family == "postgres"
+                and parameter["tag"] in PARAMETER_PHYSICAL
+            )
             and type(parameter["nullable"]) is bool
         )
         names.add(parameter["name"])
@@ -14234,7 +14339,12 @@ def _decode_parameterized_public(document, limits):
                 _need(start < interval["start"] and interval["end"] < end)
         _need(
             interval["role"] == tag
-            and use["physical_type"] == _fixed_physical(family, tag)
+            and use["physical_type"]
+            == (
+                PARAMETER_PHYSICAL[tag]
+                if tag in PARAMETER_PHYSICAL
+                else _fixed_physical(family, tag)
+            )
         )
         index = first.setdefault(key, len(first) + 1) if family == "postgres" else i + 1
         _need(use["server_index"] == index)

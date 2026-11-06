@@ -2070,6 +2070,19 @@ def realize_rows(request):
     for value in sorted(plan.collects, key=lambda c: c.export.position):
         collect_reads.setdefault(value.block, []).append(value)
     collected = {value.producer for value in plan.collects}
+    # A header parameter type without a carrier on this target (MySQL Decimal,
+    # Date, Timestamp, UUID until its differential) is refused at its
+    # declaration, read or not, before any placeholder is allocated.
+    problems.extend(
+        Blocker(
+            "PIE-B1003",
+            "query_parameter_type_not_admitted_on_target",
+            None,
+            parameter.declaration.span,
+        )
+        for parameter in plan.parameters
+        if parameters.parameter_physical(family, parameter.tag) is None
+    )
     problems.extend(ordered_inline_read_blockers(plan, family))
     if problems:
         return RowRealization(tuple(problems), None)
@@ -2150,7 +2163,7 @@ def realize_rows(request):
 
     def collect(reference):
         if type(reference) is windowing.plan_argument_type():
-            physical = parameters.PHYSICAL[family][reference.parameter.tag]
+            physical = parameters.parameter_physical(family, reference.parameter.tag)
             occurrences.append((reference, physical))
             return
         try:
@@ -2198,7 +2211,7 @@ def realize_rows(request):
                 continue
             if type(leaf) is row.ProjectSQLParameterRead:
                 occurrences.append(
-                    (leaf, parameters.PHYSICAL[family][leaf.parameter.tag])
+                    (leaf, parameters.parameter_physical(family, leaf.parameter.tag))
                 )
                 continue
             problem = parameters.chain_problem(plan, chain, family)

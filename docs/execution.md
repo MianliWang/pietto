@@ -901,6 +901,21 @@ each parameter as `(name, tag, nullable)` in declaration order, for example
   parameter declared with `| None` and sends a typed NULL. Any other value is
   refused with `PIE-R1006` and `detail` `BINDING_PARAMETER:<ordinal>:<tag>`, where
   `<ordinal>` is the 0-based declaration position; neither shows the value.
+- A `Decimal(p, s)` parameter takes a finite `decimal.Decimal` that is exactly
+  a `numeric(p, s)`: at most `s` fraction digits and `p - s` integer digits;
+  nothing is rounded, so `Decimal("0.001")` for `Decimal(9, 2)` is refused.
+  A `Date` parameter takes a `datetime.date` (not a `datetime.datetime`) from
+  `1000-01-01`, a `Timestamp` parameter a naive `datetime.datetime` from
+  `1000-01-01 00:00:00` to `9999-12-31 23:59:59.499999` (the civil interval
+  of a Date or Timestamp source), and a `UUID` parameter a `uuid.UUID`. Any
+  other value, a string included, is `PIE-R1006`
+  `BINDING_PARAMETER:<ordinal>:<tag>`. Each such value is sent as its
+  canonical text, which the statement's own anchor casts (`postgres_rows` and
+  `postgres_adbc` alike): a Decimal without exponent or trailing zero
+  (`Decimal("12.50")` is sent as `12.5`, `-0.00` as `0`), an ISO date, an ISO
+  timestamp with a space and six fractional digits, and the lower-case UUID.
+- `query.parameters` names such a parameter by its type name alone, for
+  example `('floor', 'Decimal', False)`.
 - A value-dependent check that the template could not decide, listed as the
   artifact's `binding_obligations` (an `Int` result range, a `Text` result
   width or a window count interval), is checked for each binding. A value it
@@ -938,7 +953,10 @@ before the workspace opens.
   `verified_export` and `recover` restate the saved generation's binding:
   `parameters` must name every parameter of a saved binding that has them,
   each with a value equal to the saved one and of the same type (`True` is not
-  `1`, `-0.0` is not `0.0`, and `None` is a NULL of the declared type). Any
+  `1`, `-0.0` is not `0.0`, and `None` is a NULL of the declared type; a
+  Decimal is equal by value whatever its scale, so `Decimal("12.5")` restates
+  `Decimal("12.50")`; a `datetime.datetime` is not a `date`, and a UUID's text
+  is not a `uuid.UUID`). Any
   difference, a missing or extra name included, is `PIE-R1009` with `detail`
   `BINDING_VECTOR`, exactly as for `values`. This holds in `recover` also for
   a value that cannot bind at all (mistyped, illegal NULL, out of range) once
@@ -956,7 +974,10 @@ before the workspace opens.
 - The workspace records the parameter values with the slot values in the
   binding's typed vector (`pietto.binding-vector.v2`, NULL with its tag), and
   the generation description names each parameter, its type and its
-  placeholder positions. A binding without parameters is recorded exactly as
+  placeholder positions. A Decimal, Date, Timestamp or UUID value is stored as
+  `[tag, text]` with the canonical text above; the vector format stays
+  `pietto.binding-vector.v2` and the generation description keeps interface
+  `parameter` 1. A binding without parameters is recorded exactly as
   before. A workspace or job from an earlier release is not migrated.
 
 ## Query bundles

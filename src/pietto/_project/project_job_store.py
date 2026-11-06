@@ -16,7 +16,7 @@ import json
 import os
 import sqlite3
 import stat
-from typing import Any
+from typing import Any, cast
 
 from pietto._project.project_job_workspace import (
     CONTROL_RESERVE,
@@ -418,14 +418,50 @@ def _vector(binding) -> str:
 
 
 def _parameter_wire(parameter, value) -> list:
-    """One header value on the typed scalar wire; NULL keeps its tag."""
+    """One header value on the typed scalar wire; NULL keeps its tag. A
+    Decimal, Date, Timestamp or UUID value is ``[tag, canonical text]``."""
     from pietto._project.project_compiled_schema import Scalar, scalar_wire
+    from pietto._project.project_sql_emission_parameters import (
+        PARAMETER_VALUE_TYPES,
+        parameter_text,
+        value_valid,
+    )
 
+    if value is not None and parameter.tag in PARAMETER_VALUE_TYPES:
+        if not value_valid(parameter.tag, value, "postgres"):
+            raise JobStoreError("BINDING_VECTOR")
+        return [parameter.tag, parameter_text(parameter.tag, value)]
     if value is not None:
         return scalar_wire(Scalar(parameter.tag, value))
     if not parameter.nullable:
         raise JobStoreError("BINDING_VECTOR")
     return [parameter.tag, None]
+
+
+def parameter_read(item):
+    """One non-NULL header value of a stored vector, as a typed scalar: the
+    inverse of ``_parameter_wire`` (anything else is COMPILED_SCALAR)."""
+    from pietto._project.project_compiled_schema import (
+        CompiledError,
+        Scalar,
+        scalar_read,
+    )
+    from pietto._project.project_sql_emission_parameters import (
+        PARAMETER_VALUE_TYPES,
+        parameter_value,
+    )
+
+    if (
+        type(item) is list
+        and len(item) == 2
+        and type(item[0]) is str
+        and item[0] in PARAMETER_VALUE_TYPES
+    ):
+        try:
+            return Scalar(item[0], cast(Any, parameter_value(*item)))
+        except (ValueError, TypeError):
+            raise CompiledError("COMPILED_SCALAR") from None
+    return scalar_read(item)
 
 
 def restated(template, binding, values, parameters) -> None:
@@ -1178,11 +1214,11 @@ def bind_record(workspace: Workspace, job: str, template, record: str):
             named = tuple(
                 (p, None)
                 if item == [p.tag, None] and p.nullable
-                else (p, scalar_read(item).value)
+                else (p, parameter_read(item).value)
                 for p, item in zip(header, stored["parameters"], strict=True)
             )
             if any(
-                value is not None and scalar_read(item).tag != p.tag
+                value is not None and parameter_read(item).tag != p.tag
                 for (p, value), item in zip(named, stored["parameters"], strict=True)
             ):
                 raise JobStoreError("BINDING_VECTOR")

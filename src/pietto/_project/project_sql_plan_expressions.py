@@ -238,6 +238,8 @@ class ProjectSQLQueryParameter:
     declaration: QueryParameter
     tag: str
     value_type: ValueType
+    # The declared (precision, scale) of a ``Decimal(p, s)`` parameter.
+    decimal: tuple[int, int] | None = None
 
 
 @dataclass(frozen=True, slots=True, kw_only=True, eq=False)
@@ -944,6 +946,7 @@ class CompiledQueryParameter:
     label: str
     tag: str
     nullable: bool
+    decimal: tuple[int, int] | None = None
 
 
 @dataclass(frozen=True, slots=True, eq=False)

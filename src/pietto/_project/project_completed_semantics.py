@@ -2522,7 +2522,7 @@ def _compiled_nested_type(records, operation, children):
 def _compiled_parameter_values(records, parameters, family):
     """Header records in order; a binding gives every one a valid value."""
     from pietto._project.project_compiled_schema import CompiledError
-    from pietto._project.project_sql_emission_parameters import value_valid
+    from pietto._project.project_sql_emission_parameters import parameter_valid
 
     declared = tuple(r for r in records.values() if r.address.kind == "parameter")
     if parameters is None:
@@ -2533,7 +2533,9 @@ def _compiled_parameter_values(records, parameters, family):
         if not (
             record.get("nullable")
             if value is None
-            else value_valid(record.get("tag"), value, family)
+            else parameter_valid(
+                record.get("tag"), value, family, record.get("decimal")
+            )
         ):
             raise CompiledError("COMPILED_BINDING_PARAMETERS")
     return declared, {r.address: v for r, v in zip(declared, parameters, strict=True)}
@@ -2861,6 +2863,7 @@ def derive_compiled_semantics(root, values, parameters=None):
                         nullable,
                         bound=bound is not None,
                         value=None if bound is None else bound[declaration.address],
+                        decimal=declaration.get("decimal"),
                     )
             elif kind == "null_literal":
                 site = records[get("site")]
@@ -4122,6 +4125,7 @@ def verify_compiled_semantics(value):
                         value=None
                         if bound_parameters is None
                         else bound_parameters[declaration.address],
+                        decimal=declaration.get("decimal"),
                     )
             elif kind == "null_literal":
                 site = records[get("site")]

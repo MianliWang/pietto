@@ -324,6 +324,7 @@ class _Export:
                 parameter.declaration.name,
                 parameter.tag,
                 parameter.value_type.nullability.value == "nullable",
+                parameter.decimal,
             )
         for use in self.artifact.parameter_uses if plan is self.request.plan else ():
             if use.parameter is not None:
