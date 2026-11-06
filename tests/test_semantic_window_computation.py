@@ -737,6 +737,7 @@ _COMPUTED_ORDER = "order by id + 1"
 _UNSUPPORTED = "Unsupported window computation for function"
 _AGGREGATE = "Aggregate window functions are not implemented:"
 _WINDOW_AGGREGATES = "; window aggregates are sum, count, avg, min and max"
+_LET_HINT = "; compute it in a `let` and name that `let` in the window"
 
 
 @pytest.mark.parametrize(
@@ -761,18 +762,20 @@ _WINDOW_AGGREGATES = "; window aggregates are sum, count, avg, min and max"
         (
             "result = rank()",
             _COMPUTED_ORDER,
-            f"{_UNSUPPORTED} rank: window order expression must be a direct field",
+            f"{_UNSUPPORTED} rank: window order expression must be a direct field"
+            + _LET_HINT,
         ),
         (
             "result = lag(value)",
             _COMPUTED_ORDER,
-            f"{_UNSUPPORTED} lag: window order expression must be a direct field",
+            f"{_UNSUPPORTED} lag: window order expression must be a direct field"
+            + _LET_HINT,
         ),
         (
             "result = first_value(value)",
             "partition by value + 1 " + _ORDER,
             f"{_UNSUPPORTED} first_value: window partition expression must be a "
-            "direct field",
+            "direct field" + _LET_HINT,
         ),
     ),
 )

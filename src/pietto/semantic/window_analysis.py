@@ -123,7 +123,9 @@ from pietto.semantic.window_partition_analysis import bind_window_partition_fiel
 from pietto.semantic.window_input_analysis import (
     WindowInputScopeKind,
     build_window_input_scope,
+    computed_key_let_names,
     computed_let_names,
+    is_key_value,
 )
 
 __all__: tuple[str, ...] = ()
@@ -626,6 +628,14 @@ def _analyze_recognized_window_expression(
                     code=None,
                 )
 
+    # A key may name a computed `let` only over a row that is no JOIN row.
+    key_lets = (
+        let_expressions or {}
+        if input_scope is not None
+        and input_scope.kind is WindowInputScopeKind.ROW
+        and not input_scope.row_schema.joined
+        else None
+    )
     if (
         semantic_aggregate_call_name(source_expression.call) in _WINDOW_AGGREGATE_NAMES
         and allow_aggregate_windows
@@ -658,6 +668,7 @@ def _analyze_recognized_window_expression(
             type_expansions=type_expansions,
             admission_failure=admission,
             direct_arguments=direct_aggregate_arguments,
+            key_lets=key_lets,
         )
         if isinstance(aggregate_analysis, WindowComputationUnsupported):
             return WindowExpressionUnsupported(
@@ -684,6 +695,7 @@ def _analyze_recognized_window_expression(
         admission_failure=admission,
         type_expansions=type_expansions,
         computed_let_names=computed_let_names(let_expressions or {}),
+        key_lets=key_lets,
         aggregate_windows_admitted=allow_aggregate_windows,
     )
     if type(computation) is WindowComputationUnsupported:
@@ -743,12 +755,14 @@ def _analyze_aggregate_window_computation(
     direct_arguments: bool = False,
     computed: frozenset[str] | None = None,
     prepare_inputs: Callable[[WindowExpr], None] | None = None,
+    key_lets: Mapping[str, Expression] | None = None,
 ) -> AggregateWindowComputation | WindowComputationUnsupported:
     """Admit one aggregate using the ordinary aggregate signature contract.
 
     ``computed`` names the `let:` bindings whose value is no field, when no
     ``let_expressions`` give them; ``prepare_inputs`` sees the effective
-    expression of an admitted shape, as `analyze_window_computation` does.
+    expression of an admitted shape, as `analyze_window_computation` does;
+    ``key_lets`` as for ``analyze_window_computation``.
     """
 
     name = semantic_aggregate_call_name(expression.call)
@@ -917,12 +931,14 @@ def _analyze_aggregate_window_computation(
             diagnostics=diagnostics,
         )
     partition_expressions = expression.spec.partition_by
-    if any(not _direct_field(item, computed) for item in partition_expressions):
-        return _unsupported_computation(
-            expression=expression,
-            reason="window partition expression must be a direct field",
-            diagnostics=diagnostics,
-        )
+    # A key may name a computed `let` value where ``key_lets`` admit it; an
+    # argument may not.
+    computed_keys = computed - (
+        frozenset() if key_lets is None else computed_key_let_names(key_lets)
+    )
+    for item in partition_expressions:
+        if not _direct_field(item, computed_keys):
+            return _refused_key(expression, "partition", item, key_lets, diagnostics)
     binding_diagnostic_count = len(diagnostics)
     partition_bindings = bind_window_partition_fields(
         partition_expressions=cast(
@@ -945,15 +961,17 @@ def _analyze_aggregate_window_computation(
         )
     order_bindings: tuple[WindowOrderFieldBinding, ...] = ()
     if expression.spec.order_by:
-        if any(
-            type(item) is not OrderItem or not _direct_field(item.expression, computed)
-            for item in expression.spec.order_by
-        ):
-            return _unsupported_computation(
-                expression=expression,
-                reason="window order expression must be a direct field",
-                diagnostics=diagnostics,
-            )
+        for item in expression.spec.order_by:
+            if type(item) is not OrderItem or not _direct_field(
+                item.expression, computed_keys
+            ):
+                return _refused_key(
+                    expression,
+                    "order",
+                    getattr(item, "expression", None),
+                    key_lets,
+                    diagnostics,
+                )
         binding_diagnostic_count = len(diagnostics)
         bindings = bind_window_order_fields(
             order_items=expression.spec.order_by,
@@ -1013,6 +1031,7 @@ def analyze_window_computation(
     prepare_inputs: Callable[[WindowExpr], None] | None = None,
     type_expansions: Mapping[TypeExpr, ResolvedType] | None = None,
     computed_let_names: frozenset[str] = frozenset(),
+    key_lets: Mapping[str, Expression] | None = None,
     aggregate_windows_admitted: bool = False,
     let_value_types: Mapping[str, ValueType] | None = None,
     let_expressions: Mapping[str, Expression] | None = None,
@@ -1025,12 +1044,14 @@ def analyze_window_computation(
 
     A PARTITION BY or ORDER BY name in ``computed_let_names`` (the `let:`
     names whose value is not a field reference) is no direct field, as its
-    value written in its place is not. Only where aggregate windows are
-    admitted (``aggregate_windows_admitted``) is an aggregate window
-    analyzed, as a project's hidden or joined window, reading direct fields
-    only; and only where this relation context admits windows (no
-    ``admission_failure``) does a refused aggregate window name the admitted
-    ones.
+    value written in its place is not, unless ``key_lets`` (the `let:`
+    values of a scope whose keys may name a computed `let`, a ROW scope that
+    binds them and is no JOIN row) admit it (``computed_key_let_names``). Only
+    where aggregate windows are admitted (``aggregate_windows_admitted``) is
+    an aggregate window analyzed, as a project's hidden or joined window,
+    reading direct fields only; and only where this relation context admits
+    windows (no ``admission_failure``) does a refused aggregate window name
+    the admitted ones.
     """
 
     if type(expression) is not WindowExpr:
@@ -1083,6 +1104,7 @@ def analyze_window_computation(
             direct_arguments=True,
             computed=computed_let_names,
             prepare_inputs=prepare_inputs,
+            key_lets=key_lets,
         )
 
     advance_policy = _ranking_policy(expression)
@@ -1207,15 +1229,16 @@ def analyze_window_computation(
     if prepare_inputs is not None:
         prepare_inputs(expression)
     semantic_input = RowSchema() if input_schema is None else input_schema
+    no_key_names = computed_let_names - (
+        frozenset() if key_lets is None else computed_key_let_names(key_lets)
+    )
     direct_partition_expressions: list[NameExpr | DottedNameExpr] = []
     for partition_expression in expression.spec.partition_by:
-        if _direct_field(partition_expression, computed_let_names):
+        if _direct_field(partition_expression, no_key_names):
             direct_partition_expressions.append(partition_expression)
         else:
-            return _unsupported_computation(
-                expression=expression,
-                reason="window partition expression must be a direct field",
-                diagnostics=diagnostics,
+            return _refused_key(
+                expression, "partition", partition_expression, key_lets, diagnostics
             )
     if direct_partition_expressions and semantic_input.is_unknown:
         return _unsupported_computation(
@@ -1255,12 +1278,14 @@ def analyze_window_computation(
     direct_order_items: list[OrderItem] = []
     for order_item in expression.spec.order_by:
         if type(order_item) is not OrderItem or not _direct_field(
-            order_item.expression, computed_let_names
+            order_item.expression, no_key_names
         ):
-            return _unsupported_computation(
-                expression=expression,
-                reason="window order expression must be a direct field",
-                diagnostics=diagnostics,
+            return _refused_key(
+                expression,
+                "order",
+                getattr(order_item, "expression", None),
+                key_lets,
+                diagnostics,
             )
         direct_order_items.append(order_item)
     if semantic_input.is_unknown:
@@ -1647,6 +1672,35 @@ def _unsupported_computation(
         expression=expression,
         identity=expression.identity,
         reason=reason,
+    )
+
+
+def _refused_key(
+    expression: WindowExpr,
+    axis: str,
+    key: object,
+    key_lets: Mapping[str, Expression] | None,
+    diagnostics: list[Diagnostic],
+) -> WindowComputationUnsupported:
+    """Refuse a PARTITION BY or ORDER BY key that is no direct field. Where a
+    key may name a computed `let` (``key_lets``), a value written in its place
+    that such a `let` could compute points to that `let`."""
+
+    reason = f"window {axis} expression must be a direct field"
+    message = None
+    if (
+        key_lets is not None
+        and isinstance(key, Expression)
+        and type(key) not in {NameExpr, DottedNameExpr}
+        and is_key_value(key, key_lets)
+    ):
+        message = (
+            "Unsupported window computation for function "
+            f"{_source_function_name(expression.call)}: {reason}; compute it "
+            "in a `let` and name that `let` in the window"
+        )
+    return _unsupported_computation(
+        expression=expression, reason=reason, diagnostics=diagnostics, message=message
     )
 
 

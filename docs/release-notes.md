@@ -834,6 +834,74 @@ Compatibility:
     reads `('floor', 'Decimal', False)` (precision and scale are in the
     source and the anchor cast).
 
+### Window keys that name a computed `let`
+
+- A window PARTITION BY or ORDER BY key may name a `let` computed from input
+  fields: operators, comparisons, conditional expressions, casts and scalar or
+  `def` calls (`let off_year = review_year != 2024`, `let band =
+  size_band(level)`, then `window(partition by group_id order by off_year,
+  band, id)`), in a selected, a named and a QUALIFY window of a relation
+  without GROUP BY whose input is no JOIN row, an aggregate window included,
+  in single files and EXPLICIT_MODULES projects alike. Single files write the
+  value in the window specification; projects compute it in the stage before
+  the window (emission on both targets; PostgreSQL compiled bundles and live
+  templates). A two-database differential (PostgreSQL 18.6, MySQL 8.4.12) of
+  single-file and project keys matched the expected rows on both databases.
+  A single-file MySQL key that names a computed Text `let` is refused
+  (below).
+- **Changed (compatibility).**
+  - Programs that `check` refused with `PIE-S2103` (`window partition
+    expression must be a direct field` / `window order expression must be a
+    direct field`) because a key named such a computed `let`, such as
+    `let k = lower(t)` then `window(order by k)`, are now accepted.
+  - A still-refused window whose first refusal was such a key now reports its
+    next refusal, at the same window call, instead of that PIE-S2103. With
+    `let k = amount + 1`: `rank() window(order by k rows between 1 preceding
+    and current row)` reports `PIE-S2104 error: Invalid window frame for
+    function rank: explicit ROWS frame is not allowed`; with also
+    `let v = amount * 2`, `lag(v) window(order by k)` reports `PIE-S2104
+    error: Invalid arguments for function lag: value must be a direct field or
+    Bool, Text, Int, Float, or NULL literal, not the `let` name v`.
+  - A key that names a computed `let` whose value has an error of its own,
+    such as `let k = lower(missing)` then `window(order by k)`, reports
+    `PIE-S2102 error: Unknown field: k` at the key beside the binding's own
+    error (as a `let` bound to an erroneous name already did), instead of
+    `PIE-S2103 ... window order expression must be a direct field` at the
+    window call.
+  - The `PIE-S2103` message for a computed expression written as a PARTITION
+    BY or ORDER BY key in the window specification itself, where a `let` key
+    is admitted (no GROUP BY, input no JOIN row) and a `let` could compute it
+    (it reads an input field), now ends with ``; compute it in a `let` and
+    name that `let` in the window``, for example `PIE-S2103 error: Unsupported
+    window computation for function row_number: window order expression must
+    be a direct field; compute it in a `let` and name that `let` in the
+    window`. Code, position and order are unchanged; the message is unchanged
+    where the hint does not apply (a grouped window, a JOIN row, a value that
+    reads no field such as `order by 1 + 2`).
+- **Still refused** (unchanged unless noted):
+  - a `def` call written in a key, `window(order by shifted(score))`:
+    `PIE-S2397` `A def call is not available in a window computation:
+    shifted`;
+  - a `let` key whose value reads no input field, `let k = 3`, `let k = -3`,
+    `let k = 1 + 2`, `let k = Text(3)`: `PIE-S2103` `... window order
+    expression must be a direct field`;
+  - a computed `let` key of a grouped window, or of a window over JOIN inputs
+    (single file and project): `PIE-S2103`;
+  - a computed `let` key that reads a query parameter: `PIE-S2355` `Query
+    parameters are not available in this position.`;
+  - a computed `let` as a `lag`/`lead`/`first_value`/`last_value`/`nth_value`
+    value or default: `PIE-S2104`;
+  - a window value as an operand of an expression, `row_number()
+    window(order by id) + 1`, `1 if c else dense_rank() window(...)`:
+    `PIE-P1000` (`Unexpected '+'; expected end of line.` / `Unexpected
+    'window'; expected ',' or end of line. A window call is a whole `select:`
+    item on a line of its own.`);
+  - new refusal of a newly admitted form: single-file MySQL, a key that names
+    a computed Text `let`, `let s = lower(category)`, `let s = "A" if id > 2
+    else "a"`: `PIE-B1000 error: MySQL SQL emission is not implemented for
+    RelationIR: NAME. MySQL does not support a computed Text window key` at
+    the relation (project MySQL emits such a key with the binary collation).
+
 ## Equality, nullability and asof JOIN public alpha release notes — 0.1.9
 
 <a id="unreleased-changes-following-018"></a>

@@ -1703,10 +1703,11 @@ def test_explicit_project_window_specification_read_of_a_computed_let(
     tmp_path: Path,
     capsys: pytest.CaptureFixture[str],
 ) -> None:
-    """A PARTITION BY or ORDER BY name of a scalar `let` binding whose value is not
-    a field is refused as that value written in its place is, at the window
-    call, with or without JOIN inputs, grouped and in QUALIFY; a binding that
-    names a field stays a field (`alias`)."""
+    """A PARTITION BY or ORDER BY name of a scalar `let` binding whose value is
+    computed from input fields reads that value without JOIN inputs, selected
+    (`plain`) and in QUALIFY (`hidden`); with JOIN inputs and grouped it is
+    refused as that value written in its place is, at the window call; a
+    binding that names a field stays a field (`alias`)."""
 
     root = _project(
         tmp_path / "windows",
@@ -1791,21 +1792,34 @@ query hidden_joined:
             order by
                 k
         ) <= 3
+query inline:
+    from src
+    select:
+        id
+        r = row_number() window(order by lower(t))
+query inline_hidden:
+    from src
+    select:
+        id
+    qualify row_number() window(order by lower(t)) <= 3
 """,
     )
 
-    # Before: PIE-S2102 "Unknown field: k" at each read of `k`.
+    # Before: PIE-S2102 "Unknown field: k" at each read of `k`; then
+    # PIE-S2103 also at 19:13 (`plain`) and 67:9 (`hidden`), and without the
+    # `let` hint at 89:13 and 94:13 (`inline`, `inline_hidden`).
     assert cli.main(["check", "--project", str(root)]) == 1
     text = capsys.readouterr()
     assert text.out == ""
     order = "window order expression must be a direct field"
+    hint = "; compute it in a `let` and name that `let` in the window"
     assert text.err == (
-        f"main.pietto:19:13 {_UNSUPPORTED_WINDOW} first_value: {order}\n"
         f"main.pietto:31:13 {_UNSUPPORTED_WINDOW} first_value: window partition "
         "expression must be a direct field\n"
         f"main.pietto:57:13 {_UNSUPPORTED_WINDOW} rank: {order}\n"
-        f"main.pietto:67:9 {_UNSUPPORTED_WINDOW} row_number: {order}\n"
         f"main.pietto:81:9 {_UNSUPPORTED_WINDOW} row_number: {order}\n"
+        f"main.pietto:89:13 {_UNSUPPORTED_WINDOW} row_number: {order}{hint}\n"
+        f"main.pietto:94:13 {_UNSUPPORTED_WINDOW} row_number: {order}{hint}\n"
     )
 
 

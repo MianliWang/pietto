@@ -4,19 +4,28 @@ from __future__ import annotations
 
 from collections import Counter
 from collections.abc import Mapping
-from dataclasses import dataclass
+from dataclasses import dataclass, fields
 from enum import StrEnum
 from types import MappingProxyType
 
 from pietto.ast_nodes import (
+    BetweenExpr,
+    BinaryExpr,
     CallExpr,
+    CastExpr,
+    ComparisonExpr,
+    ConditionalExpr,
     DottedNameExpr,
     Expression,
+    IsNullExpr,
+    LiteralExpr,
+    MembershipExpr,
     NameExpr,
     QueryDef,
     SelectItem,
     TableDef,
     TypeExpr,
+    UnaryExpr,
     WindowExpr,
 )
 from pietto.semantic.aggregates import (
@@ -206,6 +215,12 @@ def _build_row_scope(
         for field in input_schema.fields.values()
         if _is_concrete_field(field)
     ]
+    # Over a single-file JOIN input row a window key stays a field.
+    keys = (
+        frozenset()
+        if input_schema.joined
+        else computed_key_let_names(let_expressions or {})
+    )
     for name, value_type in (let_value_types or {}).items():
         source_field_name = _resolve_field_backed_let(
             name,
@@ -214,7 +229,9 @@ def _build_row_scope(
             let_expressions=let_expressions or {},
             stack=frozenset(),
         )
-        if source_field_name is None or not _is_concrete_value_type(value_type):
+        if (
+            source_field_name is None and name not in keys
+        ) or not _is_concrete_value_type(value_type):
             continue
         bindings.append(
             WindowInputBinding(
@@ -597,3 +614,71 @@ def _field_value_type(field: RowField) -> ValueType:
         ),
         nullability=field.nullability,
     )
+
+
+# The value forms a window key may compute from: input fields, literals,
+# operators, conditional expressions, casts and scalar (built-in or `def`) calls.
+_KEY_VALUE_FORMS = frozenset(
+    {
+        LiteralExpr,
+        NameExpr,
+        DottedNameExpr,
+        CallExpr,
+        UnaryExpr,
+        ConditionalExpr,
+        BinaryExpr,
+        ComparisonExpr,
+        BetweenExpr,
+        IsNullExpr,
+        MembershipExpr,
+        CastExpr,
+    }
+)
+
+
+def computed_key_let_names(let_expressions: Mapping[str, Expression]) -> frozenset[str]:
+    """The computed `let:` names a window PARTITION BY or ORDER BY key may
+    name: each value ``is_key_value``. Any other computed `let` stays no key."""
+
+    return frozenset(
+        name
+        for name in computed_let_names(let_expressions)
+        if is_key_value(let_expressions[name], let_expressions, frozenset({name}))
+    )
+
+
+def is_key_value(
+    value: Expression,
+    let_expressions: Mapping[str, Expression],
+    expanded: frozenset[str] = frozenset(),
+) -> bool:
+    """Whether a window key may compute ``value``: built only of the forms
+    above, with no aggregate, and reading an input field directly or through
+    the bindings it names (a value that reads none orders nothing)."""
+
+    pending, seen, reads_field = [value], set(expanded), False
+    while pending:
+        node = pending.pop()
+        if type(node) not in _KEY_VALUE_FORMS or (
+            type(node) is CallExpr
+            and (is_semantic_aggregate_call(node) or node.aggregate_order_by)
+        ):
+            return False
+        if type(node) is DottedNameExpr:
+            reads_field = True
+        elif type(node) is NameExpr:
+            if node.name not in let_expressions:
+                reads_field = True
+            elif node.name not in seen:
+                seen.add(node.name)
+                pending.append(let_expressions[node.name])
+        elif type(node) is CallExpr:
+            pending.extend(node.arguments)
+        else:
+            pending.extend(
+                child
+                for item in (getattr(node, entry.name) for entry in fields(node))
+                for child in (item if type(item) is tuple else (item,))
+                if isinstance(child, Expression)
+            )
+    return reads_field

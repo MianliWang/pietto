@@ -201,6 +201,54 @@ query doubled:
     order by quantity desc
 ```
 
+### Ranking by a computed key
+
+A window key is a name: an input field or a `let`. To order or partition by a
+computed value, give it a name with `let` first; the `let` may call a `def`:
+
+```pietto
+shape Member:
+    id: Int
+    group_id: Int
+    kind: Text
+    review_year: Int
+    level: Int
+
+source members: Member = postgres.table("members")
+
+def size_band(level: Int) -> Int: return 1 if level <= 2 else 2
+
+query review_order:
+    from members
+    let off_year = review_year != 2024
+    let band = size_band(level)
+    let by_review = window(partition by group_id order by off_year, band, id)
+    select:
+        id, group_id, kind
+        sheet_no = row_number() window by_review
+        band_rank = dense_rank() window(partition by band order by level)
+```
+
+The same `let` key works in `qualify`. A window value is a whole `select:`
+item: select it as its own column and compute from it in a later table or
+query.
+
+Not this:
+
+- `window(order by review_year != 2024, id)`, `window(partition by lower(t))`:
+  bind the key with `let` and name it (PIE-S2103, whose message ends
+  ``; compute it in a `let` and name that `let` in the window``).
+- `window(order by size_band(level), id)`: a `def` call inside `window(...)`
+  (PIE-S2397); bind it with `let` too.
+- `let k = 3`, `let k = 1 + 2` as a key: it orders nothing (PIE-S2103).
+- `row_number() window(order by id) + 1`, `1 if c else dense_rank() window w`:
+  a window inside a larger expression (PIE-P1000).
+- a computed `let` key in a grouped window or a window over JOIN rows: key by
+  fields there (PIE-S2103); and one that reads a project query parameter
+  (PIE-S2355).
+- single-file MySQL, a key `let` of computed Text (`let s = lower(t)`): emit
+  with `--dialect postgres` (PIE-B1000).
+
 ## One line or a block
 
 Write a clause on one line when it fits. Otherwise end it with `:` and put one

@@ -4173,17 +4173,39 @@ round differently; it does not under its default session setting
 `windowing_use_high_precision = ON`, which single-file MySQL SQL assumes as it
 assumes the other default session settings.
 Partition and resolved order items preserve source order, duplicates,
-qualification, and direction. Each item names a field: an expression reports
-PIE-S2103 (`window partition expression must be a direct field` or `window
-order expression must be a direct field`) at the window call. A `let` name
-there stands for its value once its `let` names and `def` calls are
-expanded: a field, such as with `k = t`, is read as that field, and a value
-that is no name, such as with `k = lower(t)` or `k = 3`, is PIE-S2103 at the
-window call, as that value written there is (a `def` call written there is
-PIE-S2397 instead). In a single file over a known input row a binding's own
+qualification, and direction. Each item names an input field or a `let`: an
+expression written there reports PIE-S2103 (`window partition expression must
+be a direct field` or `window order expression must be a direct field`) at the
+window call, and a `def` call written there PIE-S2397. To order or partition
+by a computed value, bind it with `let` and name the binding; where that works
+and the expression reads an input field, the PIE-S2103 message ends with
+``; compute it in a `let` and name that `let` in the window``. A `let` name
+there stands for its value once its `let` names and `def` calls are expanded:
+a field, such as with `k = t`, is read as that field; a value computed from
+input fields with literals, operators, conditional expressions, casts and
+scalar or `def` calls, such as with `k = lower(t)`, `k = score != 3` or
+`k = shifted(score)`, is a key of that value, in a selected window, a named
+window and a QUALIFY window, an aggregate window included; and a value that
+reads no input field, such as with `k = 3`, `k = -3` or `k = 1 + 2`, which
+orders nothing, or that reads anything else, such as an `any(...)` or an
+aggregate, is PIE-S2103 at the window call. A single file writes a computed
+key's value in the window specification (`PARTITION BY ("category" <> 'x')`);
+an EXPLICIT_MODULES project computes it in the stage before the window and
+orders or partitions by that column. A computed key that may be None is
+ordered as a nullable field key is. A grouped window, whose keys are GROUP BY
+keys and aggregates, and a window over JOIN inputs, in single files and
+projects, keep the field-only rule: a computed `let` key there is PIE-S2103,
+and an expression written there gets no hint. A computed key that reads a
+query parameter stays PIE-S2355. Single-file MySQL refuses a key that names a
+computed Text `let` (PIE-B1000, `MySQL does not support a computed Text window
+key`): MySQL could compare such a value under the connection collation rather
+than a column's. A two-database differential (PostgreSQL 18.6, MySQL 8.4.12)
+of the other computed keys, single file and project, matched the expected
+rows on both databases. In a single file over a known input row a binding's own
 errors do not change this, except that a read of a name that PIE-S2329
 refused reports nothing more and, otherwise, a binding with an error of its
-own whose value is a name, such as `k = nosuch` or `k = j` with `j = k`, makes
+own whose value is a name or a computed key value, such as `k = nosuch`,
+`k = j` with `j = k` or `k = lower(nosuch)`, makes
 the item an unknown field (PIE-S2102 `Unknown field: k`) beside that error. An
 EXPLICIT_MODULES relation over a known input row checks no window that reads
 a `let` binding of unknown type, such as `k = None` or
@@ -4195,6 +4217,27 @@ the row of a source without a shape, read with `from` directly or through a
 chain of `from` inputs, and in an EXPLICIT_MODULES relation without JOIN
 inputs also over the row of a table or query one of whose SELECT outputs has
 an unknown type or an error.
+
+```pietto
+shape Member:
+    id: Int
+    group_id: Int
+    review_year: Int
+    level: Int
+
+source members: Member = postgres.table("members")
+
+def size_band(level: Int) -> Int: return 1 if level <= 2 else 2
+
+query review_order:
+    from members
+    let off_year = review_year != 2024
+    let band = size_band(level)
+    select:
+        id
+        sheet_no = row_number() window(partition by group_id order by off_year, band, id)
+```
+
 The value of `lag`, `lead`, `first_value`, `last_value` or `nth_value` and a
 `lag`/`lead` default is a direct field or a literal: a `let` name there whose
 value is a field, such as with `k = amount`, is that field, and one whose value

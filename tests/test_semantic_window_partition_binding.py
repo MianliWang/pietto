@@ -955,9 +955,15 @@ def test_computed_literal_call_and_nested_partition_shapes_use_pie_s2103(
     )
     assert isinstance(result, WindowExpressionUnsupported)
     assert [item.code for item in diagnostics] == ["PIE-S2103"]
+    # A value that reads a field, as a `let` key could compute it, points there.
+    hint = (
+        "; compute it in a `let` and name that `let` in the window"
+        if case // 6 in {1, 2, 3, 6}
+        else ""
+    )
     assert diagnostics[0].message == (
         f"Unsupported window computation for function {function_name}: "
-        "window partition expression must be a direct field"
+        "window partition expression must be a direct field" + hint
     )
 
 

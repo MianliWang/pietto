@@ -419,35 +419,20 @@ _COMPUTED_ORDER = "window order expression must be a direct field"
 
 
 @pytest.mark.parametrize(
-    ("source", "expected"),
+    "source",
     (
         pytest.param(
-            _computed_let_window(("key = lower(category)",), _KEY_ORDER),
-            ("PIE-S2103", 14, 24, f"row_number: {_COMPUTED_ORDER}"),
-            id="order",
+            _computed_let_window(("key = lower(category)",), _KEY_ORDER), id="order"
         ),
         pytest.param(
             _computed_let_window(
-                ("key = lower(category)",),
-                "(partition by key order by id)\n",
-            ),
-            (
-                "PIE-S2103",
-                14,
-                24,
-                "row_number: window partition expression must be a direct field",
+                ("key = lower(category)",), "(partition by key order by id)\n"
             ),
             id="partition",
         ),
         pytest.param(
             _computed_let_window(("base = amount + 1", "key = base"), _KEY_ORDER),
-            ("PIE-S2103", 15, 24, f"row_number: {_COMPUTED_ORDER}"),
             id="through_another_binding",
-        ),
-        pytest.param(
-            _computed_let_window(("key = 3",), _KEY_ORDER, call="rank()"),
-            ("PIE-S2103", 14, 24, f"rank: {_COMPUTED_ORDER}"),
-            id="literal",
         ),
         pytest.param(
             _computed_let_window(
@@ -455,8 +440,44 @@ _COMPUTED_ORDER = "window order expression must be a direct field"
                 " ordered\n",
                 call="rank()",
             ),
-            ("PIE-S2103", 15, 24, f"rank: {_COMPUTED_ORDER}"),
             id="named_window",
+        ),
+    ),
+)
+def test_a_window_key_may_name_a_computed_let(source: str) -> None:
+    """A PARTITION BY or ORDER BY name of a `let` binding whose value is
+    computed from input fields reads that value (before: PIE-S2103 at the
+    window call, as that value written in its place still is)."""
+
+    parsed = parse_source(source, path="slice13.pietto")
+    assert parsed.diagnostics == () and parsed.ast is not None
+    assert analyze(parsed.ast).diagnostics == ()
+
+
+@pytest.mark.parametrize(
+    ("source", "expected"),
+    (
+        pytest.param(
+            _computed_let_window(("key = 3",), _KEY_ORDER, call="rank()"),
+            ("PIE-S2103", 14, 24, f"rank: {_COMPUTED_ORDER}"),
+            id="literal",
+        ),
+        pytest.param(
+            _computed_let_window(("key = -3",), _KEY_ORDER, call="rank()"),
+            ("PIE-S2103", 14, 24, f"rank: {_COMPUTED_ORDER}"),
+            id="signed_literal",
+        ),
+        *(
+            pytest.param(
+                _computed_let_window((f"key = {value}",), _KEY_ORDER, call="rank()"),
+                ("PIE-S2103", 14, 24, f"rank: {_COMPUTED_ORDER}"),
+                id=name,
+            )
+            for name, value in (
+                ("constant_operation", "1 + 2"),
+                ("constant_conditional", "1 if True else 2"),
+                ("constant_cast", "Text(3)"),
+            )
         ),
         pytest.param(
             SOURCE_PREFIX + "query grouped_let:\n    from rows\n"
@@ -466,15 +487,41 @@ _COMPUTED_ORDER = "window order expression must be a direct field"
             ("PIE-S2103", 17, 24, f"rank: {_COMPUTED_ORDER}"),
             id="grouped",
         ),
+        pytest.param(
+            SOURCE_PREFIX + "query joined:\n    from rows\n    let other = rows\n"
+            "    inner join other on rows.id == other.id\n"
+            "    let key = rows.amount + other.id\n    select:\n"
+            "        id = rows.id\n        window_value = rank() window(order by key)\n",
+            ("PIE-S2103", 16, 24, f"rank: {_COMPUTED_ORDER}"),
+            id="joined",
+        ),
+        pytest.param(
+            _computed_let_window((), "(order by lower(category))\n"),
+            (
+                "PIE-S2103",
+                13,
+                24,
+                f"row_number: {_COMPUTED_ORDER}; compute it in a `let` and name "
+                "that `let` in the window",
+            ),
+            id="inline",
+        ),
+        pytest.param(
+            _computed_let_window((), "(order by 1 + 2)\n"),
+            ("PIE-S2103", 13, 24, f"row_number: {_COMPUTED_ORDER}"),
+            id="inline_constant",
+        ),
     ),
 )
-def test_a_computed_let_in_a_window_specification_is_no_direct_field(
+def test_a_window_key_naming_no_computed_value_stays_refused(
     source: str,
     expected: tuple[str, int, int, str],
 ) -> None:
-    """A PARTITION BY or ORDER BY name of a `let` binding whose value is not
-    a field is refused as that value written in its place is, at the window
-    call (before: PIE-S2102 `Unknown field: key` at the name)."""
+    """A `let` key whose value reads no input field orders nothing, a grouped
+    window reads only group keys and aggregates, a window over a JOIN row
+    keys by fields, and a key written in the window specification itself is
+    no name: each stays PIE-S2103. Only that last one, where a `let` could
+    compute it, points to the `let`."""
 
     parsed = parse_source(source, path="slice13.pietto")
     assert parsed.diagnostics == () and parsed.ast is not None
@@ -489,6 +536,21 @@ def test_a_computed_let_in_a_window_specification_is_no_direct_field(
             column,
             f"Unsupported window computation for function {message}",
         )
+    ]
+
+
+def test_a_window_key_naming_a_computed_let_with_its_own_error_is_unknown() -> None:
+    """A computed `let` key whose value has an error of its own reads as an
+    unknown field beside that error, as a binding that names a field does."""
+
+    source = _computed_let_window(("key = lower(missing)",), _KEY_ORDER)
+    parsed = parse_source(source, path="slice13.pietto")
+    assert parsed.diagnostics == () and parsed.ast is not None
+    assert [
+        (d.code, d.location.line, d.message) for d in analyze(parsed.ast).diagnostics
+    ] == [
+        ("PIE-S2102", 11, "Unknown field: missing"),
+        ("PIE-S2102", 14, "Unknown field: key"),
     ]
 
 

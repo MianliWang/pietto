@@ -1055,6 +1055,130 @@ def test_mysql_renders_offset_free_groups_as_range_and_leaves_out_no_others(
     )
 
 
+# A window key may name a `let` computed from input fields, also through a
+# `def` call; the inline expression stays refused (PIE-S2103).
+COMPUTED_KEY_SOURCE = (
+    "def shifted(v: Int) -> Int: return v + 1\n"
+    "query windows:\n    from rows\n"
+    '    let off = category != "x"\n'
+    "    let k = shifted(id)\n"
+    "    let ordered = window(partition by off order by k desc)\n"
+    "    select:\n        id\n"
+    "        first = row_number() window(partition by off order by k desc, id)\n"
+    "        named = rank() window ordered\n"
+    "    qualify sum(amount) window(partition by off order by id) > 0\n"
+)
+COMPUTED_KEY_SQL = {
+    "postgresql": (
+        "SELECT\n"
+        '    "id",\n'
+        '    "first",\n'
+        '    "named"\n'
+        "FROM (\n"
+        "SELECT\n"
+        '    "id" AS "id",\n'
+        '    ROW_NUMBER() OVER (PARTITION BY ("category" <> \'x\') ORDER BY ("id" + 1) DESC, "id" ASC) AS "first",\n'
+        '    RANK() OVER "ordered" AS "named",\n'
+        '    CAST(SUM(CAST("amount" AS pg_catalog.int8)) OVER (PARTITION BY ("category" <> \'x\') ORDER BY "id" ASC) AS pg_catalog.int8) AS "__pietto_qualify_0"\n'
+        'FROM "rows"\n'
+        "WINDOW\n"
+        '    "ordered" AS (PARTITION BY ("category" <> \'x\') ORDER BY ("id" + 1) DESC)\n'
+        ') AS "__pietto_qualify"\n'
+        "WHERE\n"
+        '    "__pietto_qualify_0" > 0'
+    ),
+    "mysql": (
+        "SELECT\n"
+        "    `id`,\n"
+        "    `first`,\n"
+        "    `named`\n"
+        "FROM (\n"
+        "SELECT\n"
+        "    `id` AS `id`,\n"
+        "    ROW_NUMBER() OVER (PARTITION BY (`category` <> 'x') ORDER BY (`id` + 1) DESC, `id` ASC) AS `first`,\n"
+        "    RANK() OVER `ordered` AS `named`,\n"
+        "    SUM(`amount`) OVER (PARTITION BY (`category` <> 'x') ORDER BY `id` ASC) AS `__pietto_qualify_0`\n"
+        "FROM `rows`\n"
+        "WINDOW\n"
+        "    `ordered` AS (PARTITION BY (`category` <> 'x') ORDER BY (`id` + 1) DESC)\n"
+        ") AS `__pietto_qualify`\n"
+        "WHERE\n"
+        "    `__pietto_qualify_0` > 0"
+    ),
+}
+
+
+@pytest.mark.parametrize("dialect", ("postgresql", "mysql"))
+def test_window_keys_naming_computed_lets_lower_to_their_values(dialect: str) -> None:
+    """A PARTITION BY or ORDER BY key that names a `let` computed from input
+    fields (a comparison, a `def` call) lowers to that value in a selected, a
+    named, an aggregate and a QUALIFY window of a single file."""
+
+    from pietto.ir.model import ComparisonIR
+
+    parsed = parse_source(
+        _source_connector(dialect) + COMPUTED_KEY_SOURCE, path="slice15.pietto"
+    )
+    assert parsed.diagnostics == () and parsed.ast is not None
+    semantic = analyze(parsed.ast)
+    assert semantic.diagnostics == () and semantic.script is not None
+    built = build_ir(semantic.script, semantic.model)
+    assert built.diagnostics == () and built.ir is not None
+    first = _window(_relation(built.ir, "windows").projections[1].expression)
+    assert type(first.spec.partition_by[0]) is ComparisonIR
+    assert type(first.spec.order_by[0].expression) is BinaryIR
+    result = (
+        emit_postgres_sql(built.ir)
+        if dialect == "postgresql"
+        else emit_mysql_sql(built.ir)
+    )
+    assert result.diagnostics == ()
+    assert [item.sql for item in result.artifacts] == [COMPUTED_KEY_SQL[dialect]]
+
+
+@pytest.mark.parametrize(
+    ("value", "spec"),
+    (
+        ('"A" if id > 2 else "a"', "partition by s order by id"),
+        ("lower(category)", "order by s, id"),
+    ),
+)
+def test_mysql_refuses_a_computed_text_window_key(value: str, spec: str) -> None:
+    """A Text key that names a computed `let` emits on PostgreSQL; on MySQL,
+    where it may take the connection collation, it is PIE-B1000."""
+
+    body = (
+        f"query keyed:\n    from rows\n    let s = {value}\n"
+        f"    select:\n        id\n        n = row_number() window({spec})\n"
+    )
+    results = {}
+    for dialect, emit in (
+        ("postgresql", emit_postgres_sql),
+        ("mysql", emit_mysql_sql),
+    ):
+        parsed = parse_source(_source_connector(dialect) + body, path="text.pietto")
+        assert parsed.diagnostics == () and parsed.ast is not None
+        semantic = analyze(parsed.ast)
+        assert semantic.diagnostics == () and semantic.script is not None
+        built = build_ir(semantic.script, semantic.model)
+        assert built.diagnostics == () and built.ir is not None
+        results[dialect] = emit(built.ir)
+    assert results["postgresql"].diagnostics == ()
+    assert "ROW_NUMBER() OVER (" in results["postgresql"].artifacts[0].sql
+    assert results["mysql"].artifacts == ()
+    assert [
+        (item.code, item.location.line, item.message)
+        for item in results["mysql"].diagnostics
+    ] == [
+        (
+            "PIE-B1000",
+            7,
+            "MySQL SQL emission is not implemented for RelationIR: keyed. MySQL does "
+            "not support a computed Text window key",
+        )
+    ]
+
+
 @pytest.mark.parametrize("_case", range(8))
 def test_mysql_exact_sql_bytes_for_all_identities(_case: int) -> None:
     identity = IDENTITIES[_case]

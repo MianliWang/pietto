@@ -212,6 +212,112 @@ def test_grouped_windows_selected_before_aggregates_keep_their_stage_columns(tar
     assert sql_of(last).rsplit(") SELECT ", 1)[0] == stages
 
 
+# A window key may name a `let` computed from input fields, also through a
+# `def` call and in QUALIFY: each key reads that let's own pre-window column.
+COMPUTED_KEYS = """def far(v: Int) -> Bool:
+    return v > 1
+
+query result:
+    from rows
+    let off = id != 1
+    let f = far(id)
+    let ordered = window(partition by off order by f desc)
+    select:
+        record_id = id
+        n = row_number() window(partition by off order by f desc, id)
+        r = rank() window ordered
+    qualify row_number() window(partition by off order by id) <= 2
+"""
+COMPUTED_KEYS_SQL = {
+    "postgres": (
+        'WITH "p0" ("c0", "c1", "c2", "c3", "c4", "c5") AS (SELECT "s0"."order.id" '
+        'AS "c0", "s0"."flag value" AS "c1", "s0"."text `""é" AS "c2", "s0"."amount '
+        'value" AS "c3", "s0"."ratio value" AS "c4", ("s0"."order.id" <> CAST(1 AS '
+        'pg_catalog.int8)) AS "c5" FROM "public"."phase66 source é" AS "s0"), "p1" '
+        '("c0", "c1", "c2", "c3", "c4", "c5", "c6") AS (SELECT "t1"."c0" AS "c0", '
+        '"t1"."c1" AS "c1", "t1"."c2" AS "c2", "t1"."c3" AS "c3", "t1"."c4" AS "c4", '
+        '"t1"."c5" AS "c5", ("t1"."c0" > CAST(1 AS pg_catalog.int8)) AS "c6" FROM '
+        '"p0" AS "t1"), "p2" ("c0", "c1", "c2", "c3", "c4", "c5", "c6", "c7", "c8", '
+        '"c9") AS (SELECT "t2"."c0" AS "c0", "t2"."c1" AS "c1", "t2"."c2" AS "c2", '
+        '"t2"."c3" AS "c3", "t2"."c4" AS "c4", "t2"."c5" AS "c5", "t2"."c6" AS "c6", '
+        'ROW_NUMBER() OVER (PARTITION BY "t2"."c5" ORDER BY "t2"."c6" DESC, '
+        '"t2"."c0" ASC) AS "c7", RANK() OVER "w0" AS "c8", ROW_NUMBER() OVER '
+        '(PARTITION BY "t2"."c5" ORDER BY "t2"."c0" ASC) AS "c9" FROM "p1" AS "t2" '
+        'WINDOW "w0" AS (PARTITION BY "t2"."c5" ORDER BY "t2"."c6" DESC)), "p3" '
+        '("c0", "c1", "c2", "c3", "c4", "c5", "c6", "c7", "c8", "c9") AS (SELECT '
+        '"t3"."c0" AS "c0", "t3"."c1" AS "c1", "t3"."c2" AS "c2", "t3"."c3" AS "c3", '
+        '"t3"."c4" AS "c4", "t3"."c5" AS "c5", "t3"."c6" AS "c6", "t3"."c7" AS "c7", '
+        '"t3"."c8" AS "c8", "t3"."c9" AS "c9" FROM "p2" AS "t3" WHERE ("t3"."c9" <= '
+        'CAST(2 AS pg_catalog.int8))) SELECT "t4"."c0" AS "record_id", "t4"."c7" AS '
+        '"n", "t4"."c8" AS "r" FROM "p3" AS "t4"'
+    ),
+    "mysql": (
+        "WITH `p0` (`c0`, `c1`, `c2`, `c3`, `c4`, `c5`) AS (SELECT `s0`.`order.id` "
+        'AS `c0`, `s0`.`flag value` AS `c1`, `s0`.`text ``"é` AS `c2`, `s0`.`amount '
+        "value` AS `c3`, `s0`.`ratio value` AS `c4`, (`s0`.`order.id` <> CAST(1 AS "
+        "SIGNED)) AS `c5` FROM `phase66`.`phase66 source é` AS `s0`), `p1` (`c0`, "
+        "`c1`, `c2`, `c3`, `c4`, `c5`, `c6`) AS (SELECT `t1`.`c0` AS `c0`, `t1`.`c1` "
+        "AS `c1`, `t1`.`c2` AS `c2`, `t1`.`c3` AS `c3`, `t1`.`c4` AS `c4`, `t1`.`c5` "
+        "AS `c5`, (`t1`.`c0` > CAST(1 AS SIGNED)) AS `c6` FROM `p0` AS `t1`), `p2` "
+        "(`c0`, `c1`, `c2`, `c3`, `c4`, `c5`, `c6`, `c7`, `c8`, `c9`) AS (SELECT "
+        "`t2`.`c0` AS `c0`, `t2`.`c1` AS `c1`, `t2`.`c2` AS `c2`, `t2`.`c3` AS `c3`, "
+        "`t2`.`c4` AS `c4`, `t2`.`c5` AS `c5`, `t2`.`c6` AS `c6`, ROW_NUMBER() OVER "
+        "(PARTITION BY `t2`.`c5` ORDER BY `t2`.`c6` DESC, `t2`.`c0` ASC) AS `c7`, "
+        "RANK() OVER `w0` AS `c8`, ROW_NUMBER() OVER (PARTITION BY `t2`.`c5` ORDER "
+        "BY `t2`.`c0` ASC) AS `c9` FROM `p1` AS `t2` WINDOW `w0` AS (PARTITION BY "
+        "`t2`.`c5` ORDER BY `t2`.`c6` DESC)), `p3` (`c0`, `c1`, `c2`, `c3`, `c4`, "
+        "`c5`, `c6`, `c7`, `c8`, `c9`) AS (SELECT `t3`.`c0` AS `c0`, `t3`.`c1` AS "
+        "`c1`, `t3`.`c2` AS `c2`, `t3`.`c3` AS `c3`, `t3`.`c4` AS `c4`, `t3`.`c5` AS "
+        "`c5`, `t3`.`c6` AS `c6`, `t3`.`c7` AS `c7`, `t3`.`c8` AS `c8`, `t3`.`c9` AS "
+        "`c9` FROM `p2` AS `t3` WHERE (`t3`.`c9` <= CAST(2 AS SIGNED))) SELECT "
+        "`t4`.`c0` AS `record_id`, `t4`.`c7` AS `n`, `t4`.`c8` AS `r` FROM `p3` AS "
+        "`t4`"
+    ),
+}
+
+
+@pytest.mark.parametrize("target", TARGETS)
+def test_window_keys_read_the_columns_of_computed_lets(target):
+    """A PARTITION BY or ORDER BY key that names a computed `let` (a comparison,
+    a `def` call) reads that let's stage column in a selected, a named and a
+    QUALIFY window; the inline expression stays refused (PIE-S2103)."""
+    outcome = emit(target, COMPUTED_KEYS)
+    assert outcome.status == "VERIFIED", blockers(outcome)
+    assert sql_of(outcome) == COMPUTED_KEYS_SQL[target]
+
+
+@pytest.mark.parametrize(
+    ("target", "collated"),
+    (
+        ("postgres", 'COLLATE "C" END) AS "c5"'),
+        ("mysql", "COLLATE utf8mb4_0900_bin END) AS `c5`"),
+    ),
+)
+def test_a_computed_text_window_key_reads_a_binary_collated_stage_column(
+    target, collated
+):
+    """A Text `let` key computed from literals is a stage column whose
+    literals carry the binary collation, so 'A' and 'a' stay two keys on both
+    targets (single-file MySQL refuses such a key, PIE-B1000)."""
+    outcome = emit(
+        target,
+        "query result:\n    from rows\n"
+        '    let s = "A" if id > 2 else "a"\n    select:\n        record_id = id\n'
+        "        t = row_number() window(partition by s order by id desc)\n"
+        "        d = dense_rank() window(order by s)\n",
+    )
+    assert outcome.status == "VERIFIED", blockers(outcome)
+    sql = sql_of(outcome)
+    quote = '"' if target == "postgres" else "`"
+    assert collated in sql
+    assert (
+        "ROW_NUMBER() OVER (PARTITION BY {q}t1{q}.{q}c5{q} ORDER BY {q}t1{q}.{q}c0{q} "
+        "DESC)".format(q=quote)
+        in sql
+    )
+    assert "DENSE_RANK() OVER (ORDER BY {q}t1{q}.{q}c5{q} ASC)".format(q=quote) in sql
+
+
 @pytest.mark.parametrize("target", TARGETS)
 @pytest.mark.parametrize("frame", sorted(FRAMES))
 def test_admitted_frames_emit_their_exact_unit_and_bounds(target, frame):
@@ -831,6 +937,20 @@ AGGREGATE_WINDOW_FORMS = {
         "    select:\n        id = rows.id\n"
         "        total = sum(other.id) window(partition by rows.flag order by rows.id)\n",
         rf" INNER JOIN .*CAST\(SUM\(CAST\({_COLUMN} AS pg_catalog\.int8\)\) OVER \(PARTITION ",
+    ),
+    # A key may name a computed `let`, selected and hidden, as for any window.
+    "computed_let_key": (
+        "query result:\n    from rows\n    let off = id > 2\n    select:\n"
+        "        record_id = id\n"
+        "        t = sum(id) window(partition by off order by id)\n",
+        rf"SUM\(CAST\({_COLUMN} AS pg_catalog\.int8\)\) OVER \(PARTITION BY "
+        rf"{_COLUMN} ORDER BY {_COLUMN} ASC RANGE ",
+    ),
+    "computed_let_key_hidden": (
+        "query result:\n    from rows\n    let off = id > 2\n    select:\n"
+        "        record_id = id\n"
+        "    qualify:\n        count(id) window(partition by off) > 1\n",
+        rf"COUNT\({_COLUMN}\) OVER \(PARTITION BY {_COLUMN} RANGE ",
     ),
 }
 

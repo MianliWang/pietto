@@ -463,6 +463,13 @@ def render_mysql_window_components(
     if type(order_by) is not tuple:
         raise MySqlRenderError("MySQL window order requires an exact tuple")
     _validate_mysql_window_order_items(order_by)
+    # A computed Text key (a `let` key) may take the connection collation,
+    # not a column's; no differential has witnessed one yet.
+    if any(
+        type(key) is not FieldRefIR and _builtin_type_name(key) == "Text"
+        for key in (*partition_by, *(item.expression for item in order_by))
+    ):
+        raise MySqlRenderError("MySQL does not support a computed Text window key")
     clauses: list[str] = []
     if partition_by:
         clauses.append(

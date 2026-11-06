@@ -255,7 +255,7 @@ table totals:
     assert not checked.model.aggregate_window_analyses
 
 
-def test_aggregate_window_does_not_expand_a_computed_let_in_its_specification():
+def test_aggregate_window_orders_by_a_computed_let():
     parsed = parse_source(
         """shape Row:
     id: Int
@@ -269,20 +269,9 @@ table totals:
     )
     assert parsed.ast is not None
     checked = analyze(parsed.ast)
-    # As in every window: the name stands for a value that is no field.
-    assert [
-        (item.code, item.message, item.location.line, item.location.column)
-        for item in checked.diagnostics
-    ] == [
-        (
-            "PIE-S2103",
-            "Unsupported window computation for function sum: window order "
-            "expression must be a direct field",
-            8,
-            17,
-        )
-    ]
-    assert not checked.model.aggregate_window_analyses
+    # As in every window: a key may name a `let` computed from input fields.
+    assert checked.diagnostics == ()
+    assert len(checked.model.aggregate_window_analyses) == 1
 
 
 def test_aggregate_window_does_not_add_an_argument_error_to_a_failed_let_read():
@@ -372,9 +361,9 @@ _UNADMITTED = (
         ("avg(None) window()", 0, "PIE-S2315", _UNADMITTED.format("avg")),
         ("sum(nz) window(order by id)", 0, "PIE-S2315", _UNADMITTED.format("sum")),
         ("count(nz) window()", 0, "PIE-S2315", _UNADMITTED.format("count")),
-        # A `let:` name whose value is no field is no window key either.
+        # A `let:` name whose value is a bare literal is no window key.
         (
-            "sum(n) window(partition by kl)",
+            "sum(n) window(partition by kc)",
             0,
             "PIE-S2103",
             _NOT_DIRECT.format("partition"),

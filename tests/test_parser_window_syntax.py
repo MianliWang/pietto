@@ -579,6 +579,48 @@ def test_historical_unsupported_window_samples_remain_negative(
     assert any(diagnostic.code == "PIE-P1000" for diagnostic in result.diagnostics)
 
 
+# A window value is a whole `select:` item: as an operand of an expression it
+# stays a syntax error (PIE-P1000), whatever operator or form surrounds it.
+WINDOW_OPERAND_CASES = (
+    (
+        "arithmetic",
+        "        bumped = row_number() window(order by id) + 1\n",
+        51,
+        "Unexpected '+'; expected end of line.",
+    ),
+    (
+        "comparison",
+        "        first = row_number() window(order by id) == 1\n",
+        50,
+        "Unexpected '=='; expected end of line.",
+    ),
+    (
+        "conditional",
+        "        slot = 1 if id <= 2 else dense_rank() window(order by id)\n",
+        47,
+        "Unexpected 'window'; expected ',' or end of line. A window call is a "
+        "whole `select:` item on a line of its own.",
+    ),
+)
+
+
+@pytest.mark.parametrize(
+    ("name", "item", "column", "message"),
+    WINDOW_OPERAND_CASES,
+    ids=[case[0] for case in WINDOW_OPERAND_CASES],
+)
+def test_a_window_value_as_an_expression_operand_stays_a_syntax_error(
+    name: str, item: str, column: int, message: str
+) -> None:
+    source = "query q:\n    from rows\n    select:\n        id\n" + item
+    result = parse_source(source, path="operand.pietto")
+    assert result.ast is None, name
+    assert [
+        (d.code, d.location.line, d.location.column, d.message)
+        for d in result.diagnostics
+    ] == [("PIE-P1000", 5, column, message)]
+
+
 # Phase 53 Slice 13 reader migration.
 
 

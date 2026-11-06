@@ -5659,6 +5659,11 @@ def _hidden_no_join_window(
             else None
         ),
         aggregate_windows_admitted=True,
+        key_lets=(
+            input_context.let_scope.binding_expressions
+            if scope.kind is WindowInputScopeKind.ROW
+            else None
+        ),
         # As in a single file (PIE-S2103 at the call).
         admission_failure=(
             _NO_GROUP_HIDDEN_WINDOW

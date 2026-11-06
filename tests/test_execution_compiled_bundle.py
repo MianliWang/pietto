@@ -828,6 +828,61 @@ def test_an_aggregate_window_template_binds_and_renders_the_emitted_sql(
     assert bound.arguments == (3,)
 
 
+@pytest.mark.parametrize("route", ("compiled", "live"))
+def test_windows_over_computed_let_keys_bind_and_render_the_emitted_sql(
+    tmp_path, route
+):
+    """Windows whose PARTITION BY and ORDER BY keys name computed `let`s (a
+    comparison, a `def` call), selected, named and in QUALIFY, under a WHERE
+    header read, bind through a live template and a loaded compiled bundle and
+    render the emitted PostgreSQL byte for byte."""
+    from _pietto_sql_query_parameters import parameterized_case
+    from pietto._project.project_compiled_build import build_compiled
+    from pietto._project.project_compiled_loading import load_compiled
+    from pietto._project.project_execution_template import (
+        bind_values,
+        prepare_compiled_template,
+        prepare_live_template,
+    )
+
+    body = (
+        "def far(v: Int) -> Bool:\n    return v > 1\n\n"
+        "query result(low: Int):\n    from rows\n    let off = id != 1\n"
+        "    let f = far(id)\n"
+        "    let ordered = window(partition by off order by f desc)\n"
+        "    where id >= low\n    select:\n        record_id = id\n"
+        "        n = row_number() window(partition by off order by f desc, id)\n"
+        "        r = rank() window ordered\n"
+        "    qualify row_number() window(partition by off order by id) <= 2\n"
+    )
+    _, outcome = parameterized_case(tmp_path, "postgres", body)
+    assert outcome.status == "VERIFIED", outcome.blockers
+    assert outcome.artifact is not None
+    if route == "live":
+        template = prepare_live_template(outcome.artifact)
+    else:
+        built = build_compiled(outcome.artifact)
+        template = prepare_compiled_template(
+            load_compiled(
+                built.payload,
+                expected_pin=built.pin,
+                accepted_producer=built.producer,
+                accepted_compatibility=built.compatibility,
+            )
+        )
+    bound = bind_values(
+        template, (), tuple(zip(template.parameters, (0,), strict=True))
+    )
+    assert bound.artifact.rendered.sql == outcome.artifact.rendered.sql
+    assert bound.arguments == (0,)
+    sql = bound.artifact.rendered.sql
+    # Each computed key is a stage column the windows read by name.
+    assert b'"order.id" <> CAST(1 AS pg_catalog.int8))' in sql
+    assert b' > CAST(1 AS pg_catalog.int8)) AS "c' in sql
+    assert sql.count(b"ROW_NUMBER() OVER (PARTITION BY ") == 2
+    assert b'RANK() OVER "w0"' in sql
+
+
 @pytest.mark.parametrize("target", ("postgres", "mysql"))
 def test_a_half_open_range_template_renders_the_emitted_sql(tmp_path, target):
     """The recommended half-open range `start <= ts < stop` in a query, over
