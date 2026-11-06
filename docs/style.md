@@ -3,6 +3,8 @@
 This page shows one way to write each thing. It is written for people who know
 Python and only a little SQL. The [language reference](language.md) lists the
 other accepted forms and every rule; you do not need them to start.
+[A worked example](worked-example.md) puts these forms together in one
+report.
 
 Check a file in strict mode, which also refuses a source without a shape and
 a computed output without a name:
@@ -17,9 +19,10 @@ that check with no diagnostic, unless the text says that it shows one.
 ## Documentation examples
 
 `tests/test_repo_docs_examples.py` checks every fenced `pietto` block of
-`README.md`, `docs/language.md` and `docs/style.md` as one complete file, as
-`pietto check --check-mode strict` checks it. A block whose opening fence line
-is only the language word must report no diagnostic. When an example shows
+`README.md`, `docs/language.md`, `docs/style.md` and `docs/worked-example.md`
+as one complete file, as `pietto check --check-mode strict` checks it. A
+block whose opening fence line is only the language word must report no
+diagnostic. When an example shows
 diagnostics, or uses a form that a single file refuses, such as a project-only
 form, write the codes it reports after the language word, in report order:
 `pietto PIE-S2105` on the fence line. A clause or grammar fragment that is not
@@ -248,6 +251,43 @@ Not this:
   (PIE-S2355).
 - single-file MySQL, a key `let` of computed Text (`let s = lower(t)`): emit
   with `--dialect postgres` (PIE-B1000).
+
+### Totals beside each row: aggregate windows
+
+`sum`, `count`, `avg`, `min` or `max` followed by `window(...)` puts the value
+of a partition beside each of its rows and keeps every row. With `order by` in
+the window the value is a running one, up to the current row:
+
+```pietto
+shape Ride:
+    id: Int
+    member_id: Int
+    fee_cents: Int
+
+source rides: Ride = postgres.table("rides")
+
+query member_fees:
+    from rides
+    select:
+        id, member_id, fee_cents
+        member_cents = sum(fee_cents) window(partition by member_id)
+        running_cents = sum(fee_cents) window(partition by member_id order by id)
+```
+
+In a project the argument is a field of the input. To total a computed value,
+select it in an earlier query and read that query.
+
+Not this:
+
+- `sum(fee_cents * 2) window(...)`, or `sum(doubled) window(...)` over
+  `let doubled = fee_cents * 2`, in a project (PIE-S2103, `Unsupported window
+  computation for function sum: argument must be a direct field in a project`).
+- `sum(fee_cents) over (partition by member_id)` (PIE-P1000, ``Unexpected
+  'over'. Write a window function as `rank() window(order by ...)` or `rank()
+  window name`, not OVER (...).``).
+- `sum(fee_cents) window(partition by member_id) + 1`: a window inside a larger
+  expression (PIE-P1000).
+- project MySQL: emit with `--dialect postgres` (PIE-B1003).
 
 ## One line or a block
 

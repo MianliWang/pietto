@@ -765,7 +765,6 @@ def test_a_stddev_template_binds_its_header_read_and_renders_the_same_sql(tmp_pa
         assert bound.arguments == (3,)
 
 
-@pytest.mark.parametrize("route", ("compiled", "live"))
 @pytest.mark.parametrize(
     "body",
     (
@@ -788,9 +787,7 @@ def test_a_stddev_template_binds_its_header_read_and_renders_the_same_sql(tmp_pa
     ),
     ids=("selected", "grouped", "qualify", "joined"),
 )
-def test_an_aggregate_window_template_binds_and_renders_the_emitted_sql(
-    tmp_path, body, route
-):
+def test_an_aggregate_window_template_binds_and_renders_the_emitted_sql(tmp_path, body):
     """A PostgreSQL project's aggregate windows, selected, over grouped rows,
     in a hidden QUALIFY window and over JOIN rows, under a WHERE header
     parameter, bind through a loaded compiled bundle and a live template and
@@ -808,30 +805,25 @@ def test_an_aggregate_window_template_binds_and_renders_the_emitted_sql(
         tmp_path, "postgres", "query result(low: Int):\n" + body
     )
     assert outcome.status == "VERIFIED", outcome.blockers
-    if route == "live":
-        template = prepare_live_template(outcome.artifact)
-    else:
-        built = build_compiled(outcome.artifact)
-        template = prepare_compiled_template(
-            load_compiled(
-                built.payload,
-                expected_pin=built.pin,
-                accepted_producer=built.producer,
-                accepted_compatibility=built.compatibility,
-            )
+    built = build_compiled(outcome.artifact)
+    compiled = prepare_compiled_template(
+        load_compiled(
+            built.payload,
+            expected_pin=built.pin,
+            accepted_producer=built.producer,
+            accepted_compatibility=built.compatibility,
         )
-    bound = bind_values(
-        template, (), tuple(zip(template.parameters, (3,), strict=True))
     )
-    assert bound.artifact.rendered.sql == outcome.artifact.rendered.sql
-    assert b") OVER (" in bound.artifact.rendered.sql
-    assert bound.arguments == (3,)
+    for template in (compiled, prepare_live_template(outcome.artifact)):
+        bound = bind_values(
+            template, (), tuple(zip(template.parameters, (3,), strict=True))
+        )
+        assert bound.artifact.rendered.sql == outcome.artifact.rendered.sql
+        assert b") OVER (" in bound.artifact.rendered.sql
+        assert bound.arguments == (3,)
 
 
-@pytest.mark.parametrize("route", ("compiled", "live"))
-def test_windows_over_computed_let_keys_bind_and_render_the_emitted_sql(
-    tmp_path, route
-):
+def test_windows_over_computed_let_keys_bind_and_render_the_emitted_sql(tmp_path):
     """Windows whose PARTITION BY and ORDER BY keys name computed `let`s (a
     comparison, a `def` call), selected, named and in QUALIFY, under a WHERE
     header read, bind through a live template and a loaded compiled bundle and
@@ -858,29 +850,27 @@ def test_windows_over_computed_let_keys_bind_and_render_the_emitted_sql(
     _, outcome = parameterized_case(tmp_path, "postgres", body)
     assert outcome.status == "VERIFIED", outcome.blockers
     assert outcome.artifact is not None
-    if route == "live":
-        template = prepare_live_template(outcome.artifact)
-    else:
-        built = build_compiled(outcome.artifact)
-        template = prepare_compiled_template(
-            load_compiled(
-                built.payload,
-                expected_pin=built.pin,
-                accepted_producer=built.producer,
-                accepted_compatibility=built.compatibility,
-            )
+    built = build_compiled(outcome.artifact)
+    compiled = prepare_compiled_template(
+        load_compiled(
+            built.payload,
+            expected_pin=built.pin,
+            accepted_producer=built.producer,
+            accepted_compatibility=built.compatibility,
         )
-    bound = bind_values(
-        template, (), tuple(zip(template.parameters, (0,), strict=True))
     )
-    assert bound.artifact.rendered.sql == outcome.artifact.rendered.sql
-    assert bound.arguments == (0,)
-    sql = bound.artifact.rendered.sql
-    # Each computed key is a stage column the windows read by name.
-    assert b'"order.id" <> CAST(1 AS pg_catalog.int8))' in sql
-    assert b' > CAST(1 AS pg_catalog.int8)) AS "c' in sql
-    assert sql.count(b"ROW_NUMBER() OVER (PARTITION BY ") == 2
-    assert b'RANK() OVER "w0"' in sql
+    for template in (compiled, prepare_live_template(outcome.artifact)):
+        bound = bind_values(
+            template, (), tuple(zip(template.parameters, (0,), strict=True))
+        )
+        assert bound.artifact.rendered.sql == outcome.artifact.rendered.sql
+        assert bound.arguments == (0,)
+        sql = bound.artifact.rendered.sql
+        # Each computed key is a stage column the windows read by name.
+        assert b'"order.id" <> CAST(1 AS pg_catalog.int8))' in sql
+        assert b' > CAST(1 AS pg_catalog.int8)) AS "c' in sql
+        assert sql.count(b"ROW_NUMBER() OVER (PARTITION BY ") == 2
+        assert b'RANK() OVER "w0"' in sql
 
 
 @pytest.mark.parametrize("target", ("postgres", "mysql"))
@@ -962,8 +952,7 @@ query result(low: Int):
 """
 
 
-@pytest.mark.parametrize("route", ("compiled", "live"))
-def test_the_two_level_route_template_renders_the_emitted_sql(tmp_path, route):
+def test_the_two_level_route_template_renders_the_emitted_sql(tmp_path):
     """The two-level route on PostgreSQL, under a header parameter of the
     second query, binds through a loaded compiled bundle and a live template
     and renders the emitted SQL byte for byte: one COUNT per lhs key, then
@@ -985,32 +974,29 @@ def test_the_two_level_route_template_renders_the_emitted_sql(tmp_path, route):
     )
     assert outcome.status == "VERIFIED", outcome.blockers
     assert outcome.artifact is not None
-    if route == "live":
-        template = prepare_live_template(outcome.artifact)
-    else:
-        built = build_compiled(outcome.artifact)
-        assert json.loads(built.payload)["format"] == wire.PARAMETERIZED_FORMAT
-        template = prepare_compiled_template(
-            load_compiled(
-                built.payload,
-                expected_pin=built.pin,
-                accepted_producer=built.producer,
-                accepted_compatibility=built.compatibility,
-            )
+    built = build_compiled(outcome.artifact)
+    assert json.loads(built.payload)["format"] == wire.PARAMETERIZED_FORMAT
+    compiled = prepare_compiled_template(
+        load_compiled(
+            built.payload,
+            expected_pin=built.pin,
+            accepted_producer=built.producer,
+            accepted_compatibility=built.compatibility,
         )
-    assert [(p.name, p.nullable) for p in template.parameters] == [("low", False)]
-    bound = bind_values(
-        template, (), tuple(zip(template.parameters, (7,), strict=True))
     )
     sql = outcome.artifact.rendered.sql
-    assert bound.artifact.rendered.sql == sql
-    assert bound.arguments == (7,)
+    for template in (compiled, prepare_live_template(outcome.artifact)):
+        assert [(p.name, p.nullable) for p in template.parameters] == [("low", False)]
+        bound = bind_values(
+            template, (), tuple(zip(template.parameters, (7,), strict=True))
+        )
+        assert bound.artifact.rendered.sql == sql
+        assert bound.arguments == (7,)
     assert sql.count(b"COUNT(") == 1 and sql.count(b" LEFT JOIN ") == 1
     assert sql.count(b"CAST(SUM(CAST(") == 2 and sql.count(b" GROUP BY ") == 2
 
 
-@pytest.mark.parametrize("route", ("compiled", "live"))
-def test_lpad_and_add_months_templates_render_the_emitted_sql(tmp_path, route):
+def test_lpad_and_add_months_templates_render_the_emitted_sql(tmp_path):
     """Project PostgreSQL `lpad` under a WHERE header parameter and
     `add_months` over Date fields bind through a loaded compiled bundle and a
     live template and render the emitted SQL byte for byte."""
@@ -1043,36 +1029,36 @@ def test_lpad_and_add_months_templates_render_the_emitted_sql(tmp_path, route):
     ):
         assert outcome.status == "VERIFIED", outcome.blockers
         assert outcome.artifact is not None
-        if route == "live":
-            template = prepare_live_template(outcome.artifact)
-        else:
-            built = build_compiled(outcome.artifact)
-            template = prepare_compiled_template(
-                load_compiled(
-                    built.payload,
-                    expected_pin=built.pin,
-                    accepted_producer=built.producer,
-                    accepted_compatibility=built.compatibility,
-                )
+        built = build_compiled(outcome.artifact)
+        compiled = prepare_compiled_template(
+            load_compiled(
+                built.payload,
+                expected_pin=built.pin,
+                accepted_producer=built.producer,
+                accepted_compatibility=built.compatibility,
             )
-        bound = bind_values(
-            template, (), tuple(zip(template.parameters, values, strict=True))
         )
-        assert bound.artifact.rendered.sql == outcome.artifact.rendered.sql
-        assert form in bound.artifact.rendered.sql
-        assert bound.arguments == values
+        for template in (compiled, prepare_live_template(outcome.artifact)):
+            bound = bind_values(
+                template, (), tuple(zip(template.parameters, values, strict=True))
+            )
+            assert bound.artifact.rendered.sql == outcome.artifact.rendered.sql
+            assert form in bound.artifact.rendered.sql
+            assert bound.arguments == values
 
 
 def test_an_aggregate_parity_template_binds_and_renders_the_same_sql(tmp_path):
-    """S16: a live PostgreSQL template of Text, Bool, Decimal and Float
-    aggregates and of aggregates over row expressions, under a WHERE header
-    parameter, binds and renders byte-equal SQL."""
+    """S16: Text, Bool, Decimal and Float aggregates and aggregates over row
+    expressions, under a WHERE header parameter, bind through a loaded
+    compiled bundle and a live PostgreSQL template and render byte-equal
+    SQL."""
     from _pietto_sql_query_parameters import parameterized_case
     from pietto._project.project_compiled_build import build_compiled
     from pietto._project.project_compiled_loading import load_compiled
     from pietto._project.project_execution_template import (
         bind_values,
         prepare_compiled_template,
+        prepare_live_template,
     )
 
     body = (
@@ -1086,7 +1072,7 @@ def test_an_aggregate_parity_template_binds_and_renders_the_same_sql(tmp_path):
     _, outcome = parameterized_case(tmp_path, "postgres", body)
     assert outcome.status == "VERIFIED", outcome.blockers
     built = build_compiled(outcome.artifact)
-    template = prepare_compiled_template(
+    compiled = prepare_compiled_template(
         load_compiled(
             built.payload,
             expected_pin=built.pin,
@@ -1094,15 +1080,15 @@ def test_an_aggregate_parity_template_binds_and_renders_the_same_sql(tmp_path):
             accepted_compatibility=built.compatibility,
         )
     )
-    bound = bind_values(
-        template, (), tuple(zip(template.parameters, (3,), strict=True))
-    )
-    assert bound.artifact.rendered.sql == template.artifact.rendered.sql
-    assert bound.artifact.rendered.sql == outcome.artifact.rendered.sql
-    sql = bound.artifact.rendered.sql
+    sql = outcome.artifact.rendered.sql
+    for template in (compiled, prepare_live_template(outcome.artifact)):
+        bound = bind_values(
+            template, (), tuple(zip(template.parameters, (3,), strict=True))
+        )
+        assert bound.artifact.rendered.sql == sql
+        assert bound.arguments == (3,)
     for call in (b"COUNT(DISTINCT lower(", b"SUM(CAST((", b"AVG(", b"MIN(", b"MAX("):
         assert call in sql
-    assert bound.arguments == (3,)
 
 
 def test_a_conditional_count_and_sum_template_binds_its_header_read(tmp_path):
@@ -1147,14 +1133,16 @@ def test_a_conditional_count_and_sum_template_binds_its_header_read(tmp_path):
 
 
 def test_a_median_and_quantile_template_binds_its_header_read(tmp_path):
-    """A live PostgreSQL template of `median` and `quantile` under GROUP BY
-    and a WHERE header parameter binds and renders byte-equal SQL."""
+    """`median` and `quantile` under GROUP BY and a WHERE header parameter
+    bind through a loaded compiled bundle and a live PostgreSQL template and
+    render byte-equal SQL."""
     from _pietto_sql_query_parameters import parameterized_case
     from pietto._project.project_compiled_build import build_compiled
     from pietto._project.project_compiled_loading import load_compiled
     from pietto._project.project_execution_template import (
         bind_values,
         prepare_compiled_template,
+        prepare_live_template,
     )
 
     body = (
@@ -1165,7 +1153,7 @@ def test_a_median_and_quantile_template_binds_its_header_read(tmp_path):
     _, outcome = parameterized_case(tmp_path, "postgres", body)
     assert outcome.status == "VERIFIED", outcome.blockers
     built = build_compiled(outcome.artifact)
-    template = prepare_compiled_template(
+    compiled = prepare_compiled_template(
         load_compiled(
             built.payload,
             expected_pin=built.pin,
@@ -1173,14 +1161,15 @@ def test_a_median_and_quantile_template_binds_its_header_read(tmp_path):
             accepted_compatibility=built.compatibility,
         )
     )
-    bound = bind_values(
-        template, (), tuple(zip(template.parameters, (3,), strict=True))
-    )
-    assert bound.artifact.rendered.sql == template.artifact.rendered.sql
-    assert bound.artifact.rendered.sql == outcome.artifact.rendered.sql
-    assert bound.artifact.rendered.sql.count(b"PERCENTILE_CONT(") == 2
-    assert b"CAST('0.25' AS pg_catalog.float8)" in bound.artifact.rendered.sql
-    assert bound.arguments == (3,)
+    sql = outcome.artifact.rendered.sql
+    for template in (compiled, prepare_live_template(outcome.artifact)):
+        bound = bind_values(
+            template, (), tuple(zip(template.parameters, (3,), strict=True))
+        )
+        assert bound.artifact.rendered.sql == sql
+        assert bound.arguments == (3,)
+    assert sql.count(b"PERCENTILE_CONT(") == 2
+    assert b"CAST('0.25' AS pg_catalog.float8)" in sql
 
 
 # Phase70 S11 x S10/S12/S14: header reads inside lets with capture lines.

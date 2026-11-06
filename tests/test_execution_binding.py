@@ -937,12 +937,24 @@ TYPED_WIRE = {
 }
 
 
+@pytest.fixture(scope="module")
+def typed_witnesses(tmp_path_factory):
+    """Each typed PostgreSQL witness, built once: a binding never changes the
+    template it binds."""
+    return {
+        variant: _witness(tmp_path_factory.mktemp(variant), "postgres", variant)
+        for variant in TYPED_WIRE
+    }
+
+
 @pytest.mark.parametrize("variant", sorted(TYPED_WIRE))
-def test_a_typed_witness_binds_to_its_canonical_text_arguments(tmp_path, variant):
+def test_a_typed_witness_binds_to_its_canonical_text_arguments(
+    typed_witnesses, variant
+):
     """A Decimal, Date, Timestamp or UUID value travels as
     its canonical text, which its anchor casts, and a NULL as a typed NULL;
     the product binder and the conformance runner's own decoder agree."""
-    t, document = _witness(tmp_path, "postgres", variant)
+    t, document = typed_witnesses[variant]
     header, wire = TYPED_WIRE[variant]
     assert [(p.name, p.tag, p.nullable, p.decimal) for p in t.parameters] == header
     values = probe.bindings("Q_query_parameters", variant)
@@ -968,12 +980,12 @@ def test_a_typed_witness_binds_to_its_canonical_text_arguments(tmp_path, variant
     ],
 )
 def test_a_decimal_value_binds_by_value_within_its_declared_carrier(
-    tmp_path, value, text
+    typed_witnesses, value, text
 ):
     """A Decimal(9, 2) value binds when it is exactly a numeric(9, 2): its text
     has no exponent, trailing zero or negative zero, so equal values send one
     text whatever their scale."""
-    t, _ = _witness(tmp_path, "postgres", "typed_timestamp")
+    t, _ = typed_witnesses["typed_timestamp"]
     values = {**_typed_values("typed_timestamp"), "floor": value}
     accepted = binding.bind_values(
         t, (), _named(t, *(values[p.name] for p in t.parameters))
@@ -1011,12 +1023,12 @@ def _typed_values(variant):
         ("typed_uuid", "key", None),
     ],
 )
-def test_a_typed_value_is_checked_by_its_binding(tmp_path, variant, name, value):
+def test_a_typed_value_is_checked_by_its_binding(typed_witnesses, variant, name, value):
     """Exact Python types: decimal.Decimal (finite, exactly within the declared
     precision and scale), datetime.date (not a datetime) and a naive
     datetime.datetime in the civil interval from 1000-01-01, uuid.UUID; NULL
     only when declared nullable. Nothing is coerced or rounded."""
-    t, _ = _witness(tmp_path, "postgres", variant)
+    t, _ = typed_witnesses[variant]
     values = {**_typed_values(variant), name: value}
     ordinal = [p.name for p in t.parameters].index(name)
     with pytest.raises(

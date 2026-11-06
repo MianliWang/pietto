@@ -1178,6 +1178,24 @@ changes):
 | a `schema_version = 1` project with any generator call | PIE-P1000 | PIE-S2334 ``sum(... for ...): a schema_version = 1 project has no generator in the current syntax; set schema_version = 2 to check it`` (the callee's name in place of `sum`; the hint is the JSON `suggestion`) |
 | a `schema_version = 2` project with `any(... for o in group)` where no relation or `let` is named `group` | PIE-S2301 `Unknown relation: group` at the `any(...)` (a WHERE or SELECT), or PIE-S2334 `ANY is not supported in this context` (a `having`), suggestion null | the same code, text, span and order; JSON `suggestion` ``a group test is not available yet: select `n = sum(1 for o in group if ...)` and test `n > 0` in `having` or a later query`` |
 
+### A worked example
+
+- A new page, [a worked example](worked-example.md), builds a monthly report
+  for an invented bike-share with the forms of the style page: one single file
+  (top-level constants and `--set`, `now()`, `lpad`, `add_months`,
+  `max(a, b)`, conditional `sum(1 for r in group if ...)`, `median`,
+  `quantile`, a window keyed by a computed `let`, and the two-level route over
+  a JOIN that repeats rows) and one `schema_version = 2` project module (`Date`
+  query parameters, aggregate windows, the rows of each group with
+  `same_value`, and grouping by a collected list). The style page links to it
+  and gains a section on aggregate windows.
+- `tests/test_repo_docs_examples.py` checks the page's `pietto` blocks as it
+  checks those of `README.md`, `docs/language.md` and `docs/style.md`, and
+  runs the page's commands as it shows them: the single-file `check` and
+  PostgreSQL `emit-sql` (also with `--set`), `check --project`, and
+  `emit-sql --project --all` with a `contract.json` in the project.
+- No new diagnostic, refusal or compatibility change.
+
 ## Equality, nullability and asof JOIN public alpha release notes — 0.1.9
 
 <a id="unreleased-changes-following-018"></a>

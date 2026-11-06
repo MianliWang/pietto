@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import json
 from pathlib import Path
 from typing import Any
 
@@ -56,59 +55,25 @@ TYPED_BODY = """query result(since: Timestamp, day: Date | None, key: UUID, floo
 def typed_case(root: Path, target: str, body: str = TYPED_BODY) -> Any:
     """Build ``body`` over ``TYPED_FIELDS`` with the exact source carriers, the
     identifier-case premise and the native parameter protocol."""
-    contract = json.loads(
-        probe.fixture(target, "T_row_direct", "table_preserve")["contract"]
-    )
-    pg = target == "postgres"
-    physical = {
-        "Int": (
-            {"kind": "pg_int4" if pg else "my_int"},
-            {"kind": "int_range", "min": "-2147483648", "max": "2147483647"},
-        ),
-        "Timestamp": (
-            {"kind": "pg_timestamp" if pg else "my_datetime", "fractional_seconds": 6},
-            {"kind": "timestamp"},
-        ),
-        "Date": ({"kind": "pg_date" if pg else "my_date"}, {"kind": "date"}),
-        "UUID": (
-            {"kind": "pg_uuid" if pg else "my_uuid_bytes"},
-            {"kind": "uuid", "encoding": "standard_bytes"},
-        ),
-        "Decimal(9, 2)": (
-            {"kind": "pg_numeric" if pg else "my_decimal", "precision": 9, "scale": 2},
-            {"kind": "decimal", "precision": 9, "scale": 2},
-        ),
-    }
-    contract["sources"][0]["fields"] = [
-        {
-            "ordinal": i,
-            "name": name,
-            "column": name,
-            "representation": {
-                "storage": physical[kind][0],
-                "nullable": nullable,
-                "domain": physical[kind][1],
+    entry, _, block = body.partition("\n")
+    return probe.temporal_case(
+        root / target,
+        target,
+        block,
+        fields=TYPED_FIELDS,
+        entry=entry,
+        environment=(
+            {
+                "key": "identifier_case",
+                "scope": "statement",
+                "value": "quoted_exact"
+                if target == "postgres"
+                else "lower_case_table_names=0",
             },
-        }
-        for i, (name, kind, nullable) in enumerate(TYPED_FIELDS)
-    ]
-    contract["environment"] += [
-        {
-            "key": "identifier_case",
-            "scope": "statement",
-            "value": "quoted_exact" if pg else "lower_case_table_names=0",
-        },
-        {"key": "parameter_protocol", "scope": "statement", "value": PROTOCOL[target]},
-    ]
-    source = (
-        "shape Row:\n"
-        + "".join(
-            f"    {name}: {kind}{' | None' if nullable else ''}\n"
-            for name, kind, nullable in TYPED_FIELDS
-        )
-        + f'source rows: Row = {target}.table("opaque.locator.not.sql")\n'
-        + body
-    )
-    return probe.build_case(
-        root / target, source, probe.encoded(contract).decode(), "preserve_literals"
+            {
+                "key": "parameter_protocol",
+                "scope": "statement",
+                "value": PROTOCOL[target],
+            },
+        ),
     )

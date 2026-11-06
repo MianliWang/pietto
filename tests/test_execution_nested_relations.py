@@ -1570,7 +1570,8 @@ _KEY_CHILDREN = {
 def test_a_nested_key_bundle_lowers_to_the_live_statement(tmp_path, reader, child):
     # D73.05: a nested GROUP BY key is an aggregate's key and output, a
     # nested DISTINCT field a DISTINCT result's read; both lower source free,
-    # whatever the type of the collected child.
+    # and the live template binds them, whatever the type of the collected
+    # child.
     written, representation = _KEY_CHILDREN[child]
     artifact = _emitted(
         tmp_path / reader,
@@ -1585,6 +1586,8 @@ def test_a_nested_key_bundle_lowers_to_the_live_statement(tmp_path, reader, chil
     lowered = emit_compiled(loaded, ())
     assert loaded is not build.root
     assert lowered.rendered.sql == artifact.rendered.sql
+    template = prepare_live_template(artifact)
+    assert bind_values(template, ()).artifact.rendered.sql == artifact.rendered.sql
     assert _shape(_contract_of(lowered)) == _shape(_contract_of(artifact))
     assert contract_digest(_contract_of(lowered)) == contract_digest(
         _contract_of(emit_compiled(build.root, ()))

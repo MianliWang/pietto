@@ -15197,10 +15197,12 @@ def temporal_case(
     representations=None,
     fields=TEMPORAL_FIELDS,
     entry="table result:",
+    environment=(),
 ):
     """Build ``entry`` (``body`` is its indented block) over ``fields``
-    (default ``TEMPORAL_FIELDS``) with the base fixture's premises;
-    ``representations`` replaces named fields' contract representations."""
+    (default ``TEMPORAL_FIELDS``) with the base fixture's premises and
+    ``environment`` after them; ``representations`` replaces named fields'
+    contract representations."""
     contract = json.loads(fixture(target, "T_row_direct", "table_preserve")["contract"])
     pg = target == "postgres"
     physical = {
@@ -15216,6 +15218,10 @@ def temporal_case(
         "UUID": (
             {"kind": "pg_uuid" if pg else "my_uuid_bytes"},
             {"kind": "uuid", "encoding": "standard_bytes"},
+        ),
+        "Decimal(9, 2)": (
+            {"kind": "pg_numeric" if pg else "my_decimal", "precision": 9, "scale": 2},
+            {"kind": "decimal", "precision": 9, "scale": 2},
         ),
     }
     contract["sources"][0]["fields"] = [
@@ -15235,6 +15241,7 @@ def temporal_case(
         field["representation"] = (representations or {}).get(
             field["name"], field["representation"]
         )
+    contract["environment"].extend(environment)
     source = (
         "shape Row:\n"
         + "".join(

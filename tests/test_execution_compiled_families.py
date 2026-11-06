@@ -282,10 +282,24 @@ def test_postgresql_aggregate_parity_replays_from_compiled_input(
     ]
 
 
+@pytest.fixture(scope="module")
+def inline_arguments_bundle(tmp_path_factory):
+    """The PostgreSQL `inline_arguments` bundle, built once: each forgery
+    below copies the records it changes and leaves the bundle as it is."""
+    original = build(
+        tmp_path_factory.mktemp("inline-arguments"),
+        "postgres",
+        "V_aggregate_blocked",
+        "inline_arguments",
+    )
+    assert original.status == "VERIFIED" and original.artifact is not None
+    return build_compiled(original.artifact)
+
+
 @pytest.mark.parametrize("function", ("sum", "avg", "count"))
 @pytest.mark.parametrize("forgery", ("literal", "constant_operation"))
 def test_a_compiled_aggregate_that_reads_no_row_stays_refused(
-    tmp_path, function, forgery
+    inline_arguments_bundle, function, forgery
 ):
     """A row expression argument opens on PostgreSQL; a forged argument that
     reads no row, the expression's own literal or that expression over its
@@ -299,9 +313,7 @@ def test_a_compiled_aggregate_that_reads_no_row_stays_refused(
         encode,
     )
 
-    original = build(tmp_path, "postgres", "V_aggregate_blocked", "inline_arguments")
-    assert original.status == "VERIFIED" and original.artifact is not None
-    built = build_compiled(original.artifact)
+    built = inline_arguments_bundle
     (aggregate,) = (
         r
         for r in built.root.description.records
@@ -346,21 +358,28 @@ _CONDITIONAL_BODY = (
 )
 
 
-def _conditional_original(tmp_path):
+@pytest.fixture(scope="module")
+def conditional_original(tmp_path_factory):
+    """The PostgreSQL conditional count and sum, built once: the replay and
+    each forgery below read the artifact and leave it as it is."""
     item = emission.fixture("postgres", "T_row_direct", "table_preserve")
     source = item["source"].split("table result:", 1)[0] + _CONDITIONAL_BODY
     checked, original = emission.build_case(
-        tmp_path, source, item["contract"], item["policy"]
+        tmp_path_factory.mktemp("conditional"),
+        source,
+        item["contract"],
+        item["policy"],
     )
     assert checked.verified and original.status == "VERIFIED", original.blockers
     return original
 
 
-def test_postgresql_conditional_count_and_sum_replay_from_compiled_input(tmp_path):
+def test_postgresql_conditional_count_and_sum_replay_from_compiled_input(
+    conditional_original,
+):
     """COUNT(CASE WHEN test THEN 1 END) and the COALESCE'd checked SUM of a
     conditional sum replay from compiled input with the sum's R13 evidence."""
-    original = _conditional_original(tmp_path)
-    candidate = _compare(original.artifact, refinement=False)
+    candidate = _compare(conditional_original.artifact, refinement=False)
     assert b"COUNT(CASE WHEN (" in candidate.rendered.sql
     assert b"COALESCE(CAST(SUM(CASE WHEN (" in candidate.rendered.sql
     assert [
@@ -376,7 +395,7 @@ def test_postgresql_conditional_count_and_sum_replay_from_compiled_input(tmp_pat
     ),
 )
 def test_a_compiled_conditional_aggregate_keeps_its_signature(
-    tmp_path, function, forgery, error
+    conditional_original, function, forgery, error
 ):
     """A conditional sum reads one direct field, then its test; a conditional
     count's one argument is a Bool test: a forged bundle that breaks either is
@@ -390,7 +409,7 @@ def test_a_compiled_conditional_aggregate_keeps_its_signature(
         encode,
     )
 
-    built = build_compiled(_conditional_original(tmp_path).artifact)
+    built = build_compiled(conditional_original.artifact)
     records = {
         r.get("function"): r
         for r in built.root.description.records
@@ -3637,21 +3656,11 @@ def test_max_and_min_of_two_values_emit_replay_and_bind_one_statement(tmp_path, 
     either value is: the emitted, compiled-replay and live-template SQL are one
     statement, and the result is nullable only where an argument is. A Bool
     pair, which project SQL does not order, stays refused."""
-    base = emission.fixture(target)
-    header = base["source"].split("table result:", 1)[0]
-    header = header.replace("    text: Text\n", "    text: Text | None\n")
+    base = emission.parameterized_fixture(target, "", protocol=False)
+    header = base["source"].replace("    text: Text\n", "    text: Text | None\n")
     contract = json.loads(base["contract"])
     (text,) = (f for f in contract["sources"][0]["fields"] if f["name"] == "text")
     text["representation"]["nullable"] = True
-    contract["environment"].append(
-        {
-            "key": "identifier_case",
-            "scope": "statement",
-            "value": "quoted_exact"
-            if target == "postgres"
-            else "lower_case_table_names=0",
-        }
-    )
     body = (
         "table result:\n    from rows\n    select:\n        id\n"
         "        hi = max(id, 3)\n"
