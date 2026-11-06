@@ -588,7 +588,9 @@ def test_fallback_parent_swap_around_open_fails_closed(
 @pytest.mark.parametrize(
     "fallback", (pytest.param(False, marks=POSIX_DIRECTORY_RELATIVE_OPEN), True)
 )
-@pytest.mark.parametrize("ctime_is_comparable", (False, True))
+@pytest.mark.parametrize(
+    "ctime_is_comparable", (False, pytest.param(True, marks=_POSIX_CTIME))
+)
 def test_descriptor_ctime_split_is_tolerated_only_where_ctime_is_not_comparable(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
