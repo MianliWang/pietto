@@ -667,3 +667,45 @@ uploads to PyPI with the owner's own token. If Gate 2 or CI fails, the lead
 stops and reports; a failed head gets a repair child, not a rerun.
 `0.1.9` is published only when tag `v0.1.9`, the GitHub pre-release and PyPI
 carry the accepted files; this section publishes nothing.
+
+## Phase73 — owner decisions (2026-11-05)
+
+Gate 0 binds `main` at the `0.1.9` release commit `bca733bb` (tag `v0.1.9`),
+whose natural exact-head CI `42090026718` attempt 1 accepted all 19 jobs; a
+provisional Gate 0 on the Phase72 batch-2 integration tree came first, under
+the owner's answer that let Phase73 start before Phase72 closed. On
+2026-11-05 the owner accepted every Gate 1 recommendation; an item that would
+add a new refusal needing its own approval is still asked separately. The
+[Phase73 route](phases/phase-73/route.md) lists the slices.
+
+| Item | Rule |
+| --- | --- |
+| D73.01 Conditional aggregates | `sum(1 for o in group if c)` counts and `sum(o.f for o in group if c)` sums the rows of this group that pass `c`; `group` names the group's rows. One generator has one meaning: `for o in <relation>` always reads the whole relation and stays only in `where any(...)`. The owner approved the spelling table separately the same day with its defaults: an empty conditional sum is `0`; aggregate queries without GROUP BY are accepted; grouped queries with a JOIN are refused in the first version with a hint; `any(...)` over a group is refused with a hint to the conditional count; MySQL refuses the conditional sum in Phase73. |
+| D73.02 List `any` | `any(...)` over a list never becomes a second semi-join. |
+| D73.03 Missing list | `len` and `any` of a missing list give `None`. |
+| D73.04 Sum domain | List `sum` and the conditional sum take `Int` first; `Decimal` can follow compatibly. |
+| D73.05 Nested-key equality | Ordered comparison: a nested GROUP BY or DISTINCT key is admitted only when the ORDER BY of the collected `let` ends in a key with a uniqueness proof (ties are refused), and elements are compared after decoding with `same_value`. |
+| D73.06 Nested equality | Nested `==`, ORDER BY and set-operation dedup stay refused. |
+| D73.07 Constants | `cutoff: Date = "2024-01-31"`: a Text literal is checked against the declared type; `Date` is admitted, `Decimal` not in the first version. |
+| D73.08 Text and temporal comparisons | Phase73 starts no new check of Text compared with `Date`, `Timestamp` or `UUID`. |
+| D73.09 `--set` | `--set NAME=VALUE` on `check`, `emit-sql` and `explain`; `migrate` refuses it; an undeclared name, a value of the wrong type, a repeated name or a combination with `--project` is a deterministic usage error. |
+| D73.10 Window expressions | The slice lists its sub-forms for the lead's review; every other form stays refused. |
+| D73.11 PIE-S2381 | Keeps its code and gains a hint that names the two-level route; no "group key fixes the multiplicity" rule is added. |
+| D73.12 LIMIT 1 capture tie | Kept and documented, with no new code and no new refusal; an at-most-one grain fact waits for a consumer. |
+| D73.13 Nullability v2 | Decided after the lead's read-only review. |
+| D73.14 Parameter types on MySQL | All four new project parameter types go to the Phase74 MySQL catch-up. |
+| D73.15 Release | Phase73, Phase74 and Phase75 ship together as one release, `0.1.10`, after Phase75 closes, with separate approval; there is no Phase73 or Phase74 release of its own. Each batch still publishes to `main` with natural exact-head CI, with no tag, GitHub pre-release or PyPI upload in between. Versions stay on `0.1.x` patches until about the end of Phase80, then `0.2.0`. |
+| D73.16 Compiled `VERSIONS` | One change per phase, made by the root in the first slice, in commit order, that changes a compiled record; old bundles and saved jobs are refused with a typed failure, without migration. |
+| D73.17 Joint-plan answers | The provisional answers J5–J8, J12 and J28 are confirmed. |
+| D73.18 Budget | C180/F600/D2400/S11; at any cap the lead stops and asks. |
+| D73.19 Phase71 deferrals | Multi-level collections, capture of a capture, nested carry or window values, and child recovery, R2 and sinks stay refused, each with a negative test. |
+
+The same day the owner added four slices: S14, project aggregate windows,
+with C15/F40/D260 more budget; S15, in which `compile_query` validates the
+whole contract and then keeps only the sources the query reads; S16, project
+aggregate type and expression-argument parity with single files; and S17,
+`median(x)` and `quantile(x, q)` on PostgreSQL, refused on MySQL with a hint.
+Single-file `count(<Bool>)` keeps its result and gains a warning that points
+to the conditional count. Variance, `bool_and`/`bool_or`, first/last and
+similar aggregates are Phase74 Gate 1 candidates. Windows CI is a separate
+maintenance step, and `compile_queries(...)` goes to Phase75 with J18.

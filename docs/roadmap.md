@@ -44,10 +44,14 @@ Phase72 work, and batch 1 was built on it. Batch 1 is
 published at `2fc9c427` (tree `6ce654b6`), natural exact-head CI `42000149840`
 attempt 1, 19/19 jobs. Batch 2 ends with the [completion audit](phases/phase-72/completion-audit.md),
 the [Phase73 handoff](phases/phase-72/phase73-handoff.md) and the `0.1.9`
-release commit; Phase72 closes when the batch-2 head passes natural CI. Its
-eight must-do items are admitted, and multi-level collections stay
-unsupported. On 2026-11-05 the owner let Phase73 start before Phase72
-closes; Phase73 publishes nothing before `0.1.9`.
+release commit `bca733bb` (tag `v0.1.9`), whose natural exact-head CI
+`42090026718` attempt 1 accepted all 19 jobs, so Phase72 is
+`COMPLETED / PUBLISHED`. Its eight must-do items are admitted, and
+multi-level collections stay unsupported. On 2026-11-05 the owner let
+Phase73 start before Phase72 closed. Phase73 started on `main` at `bca733bb`
+with its [17-slice route](phases/phase-73/route.md), published by a
+documentation-only commit; its Gate 1 is D73.01–D73.19 in the
+[decision record](decisions.md#phase73--owner-decisions-2026-11-05).
 
 The second project-emission interlude is published at `b56cb62ed3be8ede44561d74a825fde3a53b116b` (tree `22165d89fb383f407967801193f039abcdceea68`); natural exact-head CI `41297066141` attempt 1 accepted all 19 jobs. The single-file checked Int SUM repair is published at `61a4ce4e05c190ea49e2eb93afd31e6fbdee7e29` (tree `da72b5412f4ecb087c508b9bd8204bf811a6e955`); natural exact-head CI `41362408512` attempt 1 accepted all 19 jobs.
 B5 (S14–S16) is published at `305ab2c802258c2b3e932ccf236481dfc0e0034e` (tree `6e335432490b8c7a64501519376c6dbfa59ec3cd`); natural exact-head CI `41390632023` attempt 1 accepted all 19 jobs.
@@ -2965,7 +2969,7 @@ Phase-64+ Slice route or implementation.
 | 70 | Open/composite plans, nonrecursive CTE/subqueries, VALUES/table functions, outer captures, EXISTS/IN, LATERAL, bounded decorrelation, effect authority |
 | 71 | NestedRelation, Collect, Unnest, flatten, outer/inner grain, nested Arrow |
 | 72 | Advanced equality/types/nullability and temporal/range/ASOF relationships |
-| 73 | Explicit two-level aggregation, list aggregates, per-group detail lists, nested GROUP/DISTINCT keys and small scalar features |
+| 73 | Explicit two-level aggregation, conditional and list aggregates, per-group detail lists, nested GROUP/DISTINCT keys, project aggregate windows and parity, `median`/`quantile` and small scalar features |
 | 74 | Cross-module reuse of `def` and relationships, relationship parameters that take table/query rows, MySQL catch-up |
 | 75 | Formatter follow-ups, LSP, editor, diagnostics, compile API, column view and migrations |
 | 76 | PostgreSQL deep adaptation |
@@ -2993,7 +2997,9 @@ scope decision. The current batch-emission work only designs the Python API.
 On 2026-11-05 the owner accepted the recommendations of the joint
 Phase72–75 plan; the answers for Phase73, Phase74 and Phase75 are provisional
 until the Gate 1 of that phase confirms them, and the rows 73–75 above state
-them. Phase73 offers an explicit two-level aggregation route instead of
+them. The Phase73 Gate 1 confirmed its answers the same day (D73.17) and
+added the project aggregate windows and parity and `median`/`quantile` to its
+row. Phase73 offers an explicit two-level aggregation route instead of
 automatic fan-out repair or reaggregation and adds no aggregate state
 contract; grouping extensions (ROLLUP, CUBE, GROUPING SETS) leave Phase73
 and stay unscheduled until a named use case (J8). Measure/metric definitions
