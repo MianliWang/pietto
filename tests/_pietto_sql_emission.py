@@ -514,6 +514,16 @@ def _pg_finite_float(realization) -> bool:
     )
 
 
+def _pg_float_key(realization) -> bool:
+    """E6: a PostgreSQL key also takes a window percent_rank/cume_dist
+    result, a finite float8 in [0, 1] (domain float64)."""
+    return _pg_finite_float(realization) or (
+        realization["tag"] == "Float"
+        and realization["storage"] == {"kind": "pg_float8"}
+        and realization["domain"] == {"kind": "float64"}
+    )
+
+
 COUNT_STORAGE = {"postgres": "pg_int8", "mysql": "my_bigint"}
 FLOAT_STORAGE = {"postgres": "pg_float8", "mysql": "my_double"}
 COUNT_MAX = (1 << 63) - 1
@@ -4616,6 +4626,8 @@ PER_TARGET_STATUS = {
         key: {"postgres": "VERIFIED", "mysql": "BLOCKED"}
         for key in (
             ("V_row_blocked", "float_comparison"),
+            # E4: PostgreSQL emits Float field arithmetic (MySQL Phase77).
+            ("V_row_blocked", "float_arithmetic"),
             ("V_aggregate_blocked", "float_key"),
             ("V_result_blocked", "float_distinct"),
             ("V_set_blocked", "float_intersect_all"),
@@ -9182,11 +9194,6 @@ def _decode_fixed_public(document, limits):
                 source = operands[0].get("float_value")
                 if source is None and "value" in operands[0]:
                     source = operands[0]["value"]["value"]
-                _need(
-                    type(source) is float and math.isfinite(source),
-                    "finite Float literal/sign",
-                )
-                assert type(source) is float
                 result = {
                     "tag": "Float",
                     "storage": {
@@ -9195,7 +9202,24 @@ def _decode_fixed_public(document, limits):
                     "nullable": nullable,
                     "domain": {"kind": "finite_float", "format": "binary64"},
                 }
-                result["float_value"] = -source if node["operator"] == "-" else source
+                if source is None:
+                    # E4: a PostgreSQL float8 sign over a finite field value
+                    # flips or keeps its sign bit exactly.
+                    _need(
+                        family == "postgres"
+                        and operands[0]["storage"] == {"kind": "pg_float8"}
+                        and operands[0]["domain"] == FINITE_FLOAT,
+                        "finite Float literal/sign",
+                    )
+                else:
+                    _need(
+                        type(source) is float and math.isfinite(source),
+                        "finite Float literal/sign",
+                    )
+                    assert type(source) is float
+                    result["float_value"] = (
+                        -source if node["operator"] == "-" else source
+                    )
             else:
                 low, high = row_interval(operands[0])
                 if node["operator"] == "-":
@@ -9257,17 +9281,7 @@ def _decode_fixed_public(document, limits):
                     value = item.get("float_value")
                     if value is None and "value" in item:
                         value = item["value"]["value"]
-                    _need(
-                        type(value) is float and math.isfinite(value),
-                        "finite Float literal operands",
-                    )
                     values.append(value)
-                value = {
-                    " + ": values[0] + values[1],
-                    " - ": values[0] - values[1],
-                    " * ": values[0] * values[1],
-                }[node["operator"]]
-                _need(math.isfinite(value), "finite Float result")
                 result = {
                     "tag": "Float",
                     "storage": {
@@ -9275,8 +9289,32 @@ def _decode_fixed_public(document, limits):
                     },
                     "nullable": nullable,
                     "domain": {"kind": "finite_float", "format": "binary64"},
-                    "float_value": value,
                 }
+                if None in values:
+                    # E4: no literal fold proves the result finite; PostgreSQL's
+                    # checked float8 operator refuses an infinity (22003).
+                    _need(
+                        family == "postgres"
+                        and all(
+                            item["storage"] == {"kind": "pg_float8"}
+                            and item["domain"] == FINITE_FLOAT
+                            for item in operands
+                        ),
+                        "finite Float literal operands",
+                    )
+                    result["checked_binary64"] = True
+                else:
+                    _need(
+                        all(type(v) is float and math.isfinite(v) for v in values),
+                        "finite Float literal operands",
+                    )
+                    value = {
+                        " + ": values[0] + values[1],
+                        " - ": values[0] - values[1],
+                        " * ": values[0] * values[1],
+                    }[node["operator"]]
+                    _need(math.isfinite(value), "finite Float result")
+                    result["float_value"] = value
             elif [bool(item.get("null")) for item in operands].count(True) == 1:
                 # D-12: a typed NULL operand nulls every row; it is CAST to the
                 # target's Int carrier, which types the result, which claims
@@ -9457,6 +9495,8 @@ def _decode_fixed_public(document, limits):
         )
         if result.get("checked"):
             evidence = [evidence, {"overflow": TARGET_CHECKED}]
+        elif result.get("checked_binary64"):
+            evidence = [evidence, {"overflow": TARGET_CHECKED_BINARY64}]
         row_generated[slot] = (
             kind,
             generated_subject,
@@ -11337,8 +11377,7 @@ def _decode_fixed_public(document, limits):
                             )
                         )
                         and (
-                            realization["tag"] != "Float"
-                            or _pg_finite_float(realization)
+                            realization["tag"] != "Float" or _pg_float_key(realization)
                         ),
                         "group determinant comparison domain",
                     )
@@ -12028,11 +12067,14 @@ def _decode_fixed_public(document, limits):
                     and (
                         read["realization"]["tag"] in ("Int", "Bool", "Text", "Decimal")
                         or _temporal_carrier(read["realization"], family)
-                        # A finite Float orders by real value on both targets.
+                        # A finite Float orders by real value on both targets,
+                        # a PostgreSQL distribution result too (E6).
                         or read["realization"]["tag"] == "Float"
                         and read["realization"]["storage"]
                         == {"kind": FLOAT_STORAGE[family]}
                         and read["realization"]["domain"] == FINITE_FLOAT
+                        or family == "postgres"
+                        and _pg_float_key(read["realization"])
                         or read["realization"]["tag"] == "UUID"
                         and read["realization"]["storage"]
                         == {
@@ -12176,7 +12218,7 @@ def _decode_fixed_public(document, limits):
                     column["realization"]["tag"] in GROUPING_TAGS
                     and (
                         column["realization"]["tag"] != "Float"
-                        or _pg_finite_float(column["realization"])
+                        or _pg_float_key(column["realization"])
                     )
                     for column in visible
                 ),
@@ -12446,10 +12488,7 @@ def _decode_fixed_public(document, limits):
         _need(
             tag in {"Int", "Bool", "Text", "Decimal"}
             or (union_all and tag == "Float")
-            or (
-                tag == "Float"
-                and all(_pg_finite_float(r["realization"]) for r in reads)
-            )
+            or (tag == "Float" and all(_pg_float_key(r["realization"]) for r in reads))
             or (kind == "union" and tag == "Timestamp"),
             "SET comparison domain",
         )

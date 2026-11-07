@@ -2764,6 +2764,7 @@ def test_every_postgres_float_cell_has_one_merged_class_oracle():
     }
     migrated = {
         ("V_row_blocked", "float_comparison"),
+        ("V_row_blocked", "float_arithmetic"),
         ("V_aggregate_blocked", "float_key"),
         ("V_result_blocked", "float_distinct"),
         ("V_set_blocked", "float_intersect_all"),

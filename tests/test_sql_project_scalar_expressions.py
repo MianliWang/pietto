@@ -546,6 +546,108 @@ def test_decimal_and_float_arithmetic_pass_the_private_observation(tmp_path, tar
     )
 
 
+FLOAT_FIELD_ARITHMETIC_BODY = """query result:
+    from rows
+    where ratio * 2.0 > 1.0
+    select:
+        id
+        doubled = ratio * 2.0
+        summed = ratio + ratio
+        negated = -ratio
+        nested = ratio - ratio * ratio
+        folded = 1.5 + 2.25
+"""
+
+
+@pytest.mark.parametrize("target", TARGETS)
+def test_postgres_float_field_arithmetic_rests_on_the_checked_float8_operator(
+    tmp_path, target
+):
+    """E4: PostgreSQL emits Float `+`, `-`, `*` over a field uncast, each with
+    the R05 evidence that its checked float8 operator refuses a non-finite
+    result (SQLSTATE 22003), and a sign, which never fails, without it; a
+    literal fold stays statically checked. The observation, the independent
+    public consumer and the compiled template agree. MySQL keeps it refused."""
+    checked, outcome = emit(tmp_path, target, FLOAT_FIELD_ARITHMETIC_BODY)
+    assert checked.verified
+    if target == "mysql":
+        assert outcome.status == "BLOCKED" and outcome.artifact is None
+        assert [(b.code, b.detail) for b in outcome.blockers] == [
+            ("PIE-B1003", "float_literal_operands_required")
+        ]
+        return
+    assert outcome.status == "VERIFIED", outcome.blockers
+    document = probe.decode_public(serialize_project_sql_emission(outcome))
+    sql = document["sql"]
+    ratio = '"t1"."c4"'
+    for spelling in (
+        f"({ratio} * CAST('2.0' AS pg_catalog.float8)) AS \"doubled\"",
+        f'({ratio} + {ratio}) AS "summed"',
+        f'(-{ratio}) AS "negated"',
+        f'({ratio} - ({ratio} * {ratio})) AS "nested"',
+        "(CAST('1.5' AS pg_catalog.float8) + CAST('2.25' AS pg_catalog.float8))",
+    ):
+        assert spelling in sql
+    checked_token = {"overflow": "target_checked_binary64_overflow"}
+    assert [
+        r["evidence"] for r in document["requirements"] if r["kind"] == "arithmetic"
+    ] == [
+        [{"operator": "*"}, checked_token],
+        [{"operator": "*"}, checked_token],
+        [{"operator": "+"}, checked_token],
+        [{"operator": "-"}],
+        [{"operator": "-"}, checked_token],
+        [{"operator": "*"}, checked_token],
+        [{"operator": "+"}],
+    ]
+    assert all(
+        c["representation"]["storage"] == {"kind": "pg_float8"}
+        and c["representation"]["domain"]
+        == {"kind": "finite_float", "format": "binary64"}
+        for c in document["columns"][1:]
+    )
+    artifact = outcome.artifact
+    assert artifact is not None
+    observed = portable.export_emission_observation(artifact, artifact.request)
+    assert observed.status is portable.ObservationStatus.OK
+    assert observed.canonical_bytes is not None
+    assert (
+        pure.parse_emission_observation(observed.canonical_bytes).status
+        is pure.Status.OK
+    )
+    assert portable.verify_emission_observation(
+        observed.canonical_bytes, artifact, artifact.request
+    ).corresponds
+    from pietto._project.project_compiled_build import build_compiled
+    from pietto._project.project_compiled_loading import load_compiled
+    from pietto._project.project_execution_template import (
+        prepare_compiled_template,
+    )
+
+    built = build_compiled(artifact)
+    template = prepare_compiled_template(
+        load_compiled(
+            built.payload,
+            expected_pin=built.pin,
+            accepted_producer=built.producer,
+            accepted_compatibility=built.compatibility,
+        )
+    )
+    assert template.artifact.rendered.sql == artifact.rendered.sql
+
+
+@pytest.mark.parametrize("value", ("None - 2.5", "ratio * None", "-(None + ratio)"))
+def test_postgres_float_arithmetic_keeps_typed_none_refused(tmp_path, value):
+    """D-12: a Float with an always-null operand stays refused on PostgreSQL;
+    E4 opens only finite Float carriers."""
+    checked, outcome = emit(
+        tmp_path,
+        "postgres",
+        f"query result:\n    from rows\n    select:\n        id\n        v = {value}\n",
+    )
+    assert outcome.status == "BLOCKED" and outcome.artifact is None
+
+
 @pytest.mark.parametrize("target", TARGETS)
 def test_q1_nested_boolean_calls_are_closed_sql_expressions(tmp_path, target):
     checked, outcome = emit(tmp_path, target, NESTED_BOOL_CALL_BODY)

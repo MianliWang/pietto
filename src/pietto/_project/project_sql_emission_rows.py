@@ -1190,6 +1190,11 @@ def build_row_value(
         if problem is not None:
             return None, problem
         inner = realization_of(operand, family)
+        if tag == "Float":
+            checked = float_sign(family, inner, nullable)
+            if checked is None:
+                return None, ("PIE-B1003", "unary_sign_requires_int_operand")
+            return SQLOperation(expression, "sign", (operand,), checked), None
         if tag != "Int" or inner.tag != "Int":
             return None, ("PIE-B1003", "unary_sign_requires_int_operand")
         bounds = proven_int_bounds(inner)
@@ -1372,6 +1377,10 @@ SIGNED64 = (-(1 << 63), (1 << 63) - 1)
 # checked signed 64-bit operation or narrowing refuses an out-of-range value
 # with SQLSTATE 22003 and never returns a wrapped one.
 TARGET_CHECKED_SIGNED64 = "target_checked_signed64_narrowing"
+# Evidence that a binary64 result is finite because the target refuses an
+# overflowing operation or accumulation (SQLSTATE 22003) instead of returning
+# an infinity or a wrong value.
+TARGET_CHECKED_BINARY64 = "target_checked_binary64_overflow"
 
 
 def _target_checked_int(family, storage, low, high, nullable) -> Realization | None:
@@ -1431,6 +1440,22 @@ def target_checked(family: str, operation) -> bool:
     return low < SIGNED64[0] or high > SIGNED64[1]
 
 
+def checked_evidence(family: str, operation) -> tuple[str, ...]:
+    """The overflow evidence of one realized operation: a checked bigint
+    range, or a PostgreSQL Float `+`, `-` or `*` that no literal fold proves
+    finite, bounded by the target's checked float8 operator (E4)."""
+    if target_checked(family, operation):
+        return (TARGET_CHECKED_SIGNED64,)
+    if (
+        family == "postgres"
+        and operation.kind == "arithmetic"
+        and operation.realization.tag == "Float"
+        and any(_float_literal_value(o) is None for o in operation.operands)
+    ):
+        return (TARGET_CHECKED_BINARY64,)
+    return ()
+
+
 def _widened_int(family, storage, low, high, nullable) -> Realization | None:
     """PostgreSQL computes an int2/int4 operation whose exact range leaves that
     type in bigint (its first operand CAST to pg_catalog.int8). A narrow
@@ -1461,6 +1486,14 @@ def int8_widened(family: str, operation) -> bool:
             for operand in operation.operands
         )
     )
+
+
+def float_sign(family, inner, nullable) -> Realization | None:
+    """E4: a PostgreSQL unary `-` or `+` of a finite float8 value flips or
+    keeps its sign bit exactly (float8um/float8up), so it never fails."""
+    if family != "postgres" or not float_carrier(inner, family):
+        return None
+    return Realization("Float", {"kind": "pg_float8"}, nullable, FINITE_FLOAT)
 
 
 def _unary_int(family, inner, low, high, nullable) -> Realization | None:
@@ -1628,16 +1661,23 @@ def resolved_binary_realization(
             None,
         )
     if tag == left.tag == right.tag == "Float":
-        if float_values is None:
+        if float_values is not None:
+            left_value, right_value = float_values
+            result = {
+                "+": left_value + right_value,
+                "-": left_value - right_value,
+                "*": left_value * right_value,
+            }[operator]
+            if not math.isfinite(result):
+                return None, ("PIE-B1002", "float_result_not_finite")
+        elif not (
+            family == "postgres"
+            and float_carrier(left, family)
+            and float_carrier(right, family)
+        ):
             return None, ("PIE-B1003", "float_literal_operands_required")
-        left_value, right_value = float_values
-        result = {
-            "+": left_value + right_value,
-            "-": left_value - right_value,
-            "*": left_value * right_value,
-        }[operator]
-        if not math.isfinite(result):
-            return None, ("PIE-B1002", "float_result_not_finite")
+        # Without a literal fold PostgreSQL's checked float8 operator bounds
+        # the result (SQLSTATE 22003, TARGET_CHECKED_BINARY64).
         return (
             Realization(
                 "Float",

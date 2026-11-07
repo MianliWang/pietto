@@ -83,9 +83,7 @@ GROUP_TEST_FUNCTIONS = frozenset({"group_any", "group_all"})
 FILTERED_FUNCTIONS = frozenset(
     {"filtered_count", "filtered_sum", *GROUP_TEST_FUNCTIONS}
 )
-# Evidence that a binary64 result is finite because the target refuses an
-# overflowing accumulation (SQLSTATE 22003) instead of returning inf or NULL.
-TARGET_CHECKED_BINARY64 = "target_checked_binary64_overflow"
+TARGET_CHECKED_BINARY64 = rows.TARGET_CHECKED_BINARY64
 DISTINCT_FUNCTIONS = frozenset({"count_distinct", "count_distinct_tuple"})
 COUNTING_FUNCTIONS = frozenset({"count", "count_distinct", "count_distinct_tuple"})
 EXTREMA_FUNCTIONS = frozenset({"min", "max"})
@@ -94,8 +92,8 @@ EXTREMA_FUNCTIONS = frozenset({"min", "max"})
 COUNT_STORAGE = {"postgres": "pg_int8", "mysql": "my_bigint"}
 COUNT_MAX = (1 << 63) - 1
 # R12 group comparison stays inside the reviewed V01-V04 domains. V05 keeps its
-# meaning limits. A Float group key is admitted only by group_key_problem, so
-# window partitions and string_agg order, which read this table, exclude Float.
+# meaning limits. A Float group key is admitted only by group_key_problem, which
+# PostgreSQL window partitions and string_agg order keys also read (E6).
 GROUPING_TAGS = frozenset(
     {"Int", "Bool", "Text", "Decimal", "Timestamp", "Date", "UUID"}
 )
@@ -407,13 +405,14 @@ def grouping_problem(realization: rows.Realization):
     return None
 
 
-def group_key_problem(realization: rows.Realization):
-    """A GROUP BY key: the grouping law, or a PostgreSQL finite Float. Floats group
+def group_key_problem(realization: rows.Realization, *, distribution: bool = True):
+    """A GROUP BY key: the grouping law, or a PostgreSQL Float, a window
+    distribution result too (E6) unless ``distribution`` is false. Floats group
     by float equality (-0.0 == 0.0); MySQL kept -0.0 and 0.0 in two groups over
     a wide key in the real-database campaign, so its Float keys stay refused."""
     if realization.tag != "Float":
         return grouping_problem(realization)
-    if rows.float_carrier(realization, "postgres"):
+    if rows.float_carrier(realization, "postgres", distribution=distribution):
         return None
     return "PIE-B1003", "group_key_type_outside_reviewed_comparison_domain"
 
@@ -613,10 +612,11 @@ def rendered_direction(function: str, direction: str) -> tuple[str, str]:
 
 
 def order_key_problem(function: str, family: str, realization):
-    """A string_agg order key compares like a group key; a `first` or `last`
-    key orders like a relation ORDER BY key (R19)."""
+    """A string_agg order key compares like a group key, a PostgreSQL Float
+    included (E6); a `first` or `last` key orders like a relation ORDER BY key
+    (R19)."""
     if function == "string_agg":
-        return grouping_problem(realization)
+        return group_key_problem(realization)
     from pietto._project.project_sql_emission_results import order_admitted
 
     if order_admitted(family, realization):
@@ -838,7 +838,7 @@ def resolved_argument_problem(
     ):
         if family == "mysql" and realization.tag == "Float":
             return mysql_float_argument_problem(function, realization)
-        return group_key_problem(realization)
+        return group_key_problem(realization, distribution=False)
     if function in COUNTING_FUNCTIONS and realization.tag in {
         "Timestamp",
         "Date",
@@ -1605,7 +1605,7 @@ def build_compiled_stage(plan, record, arguments):
                     or string_agg_argument_problem(argument) is not None
                     or string_agg_argument_problem(delimiters[0]) is not None
                     or any(
-                        grouping_problem(rows.realization_of(order.value, "postgres"))
+                        group_key_problem(rows.realization_of(order.value, "postgres"))
                         is not None
                         or order.direction not in {"asc", "desc"}
                         for order in order_by

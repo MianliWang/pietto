@@ -131,7 +131,12 @@ ORDER_TAGS = frozenset({"Int", "Bool", "Text", "Decimal", "Timestamp", "Date"})
 
 def order_key_admitted(realization, family: str) -> bool:
     """One ORDER key of an exactly ordered carrier; a temporal or UUID key
-    keeps its reviewed representation."""
+    keeps its reviewed representation. A PostgreSQL Float, a distribution
+    result too, orders by real value, -0.0 and 0.0 as peers (E6)."""
+    if realization.tag == "Float":
+        return family == "postgres" and rows.float_carrier(
+            realization, family, distribution=True
+        )
     if realization.tag == "UUID":
         return grouping.grouping_problem(realization) is None
     return realization.tag in ORDER_TAGS and (
@@ -140,8 +145,13 @@ def order_key_admitted(realization, family: str) -> bool:
     )
 
 
-def partition_key_admitted(realization) -> bool:
-    """A PARTITION BY key compares by equality, as a GROUP BY key does."""
+def partition_key_admitted(realization, family: str) -> bool:
+    """A PARTITION BY key compares by equality, as a GROUP BY key does; a
+    PostgreSQL Float by Float equality, -0.0 == 0.0 (E6)."""
+    if realization.tag == "Float":
+        return family == "postgres" and rows.float_carrier(
+            realization, family, distribution=True
+        )
     return (
         realization.tag in ORDER_TAGS
         and realization.tag not in rows.TEMPORAL
@@ -748,7 +758,7 @@ def _specification(policy, reads, target: str):
     for binding, read in reads["partition"]:
         if read is None:
             return None, ("PIE-B1001", "window_partition_outside_pre_window_input")
-        if not partition_key_admitted(read.realization):
+        if not partition_key_admitted(read.realization, target):
             return None, ("PIE-B1002", "window_partition_comparison_domain_unsupported")
         partitions.append((binding, read))
     orders: list[WindowOrderItem] = []
@@ -1514,7 +1524,7 @@ def compiled_specification(plan, address, reads, definitions):
     )
     # Only an aggregate over a window may have no ORDER BY (compiled schema).
     if any(
-        not partition_key_admitted(read.realization) for _, read in partitions
+        not partition_key_admitted(read.realization, target) for _, read in partitions
     ) or any(
         i.direction not in {"asc", "desc"}
         or i.nulls is not None

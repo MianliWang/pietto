@@ -855,6 +855,25 @@ def _literal_int(doc, value):
     return None
 
 
+def _float_literal(doc, value) -> bool:
+    """One direct, possibly signed, Float literal or bound literal value: the
+    operand a static Float fold reads (never a let, field or parameter read)."""
+
+    while value.kind == "sql_unary":
+        value = doc[value]["operand"]
+    if value.kind != "sql_anchor":
+        return False
+    leaf = doc[value]["operand"]
+    fixed = (
+        doc[leaf]["value"]
+        if leaf.kind == "sql_literal"
+        else doc[doc[leaf]["fixed"]]["value"]
+        if leaf.kind == "sql_parameter"
+        else None
+    )
+    return fixed is not None and fixed.tag == "Float"
+
+
 def _literal_text(doc, value):
     """One authored Text literal; units do not admit parameters or fields."""
 
@@ -1037,10 +1056,15 @@ def _aggregate_evidence(function: str, argument_tag: str | None) -> tuple[str, .
 
 
 def _is_pg_order_value(realization) -> bool:
-    """The closed PostgreSQL aggregate-order carrier domain."""
+    """The closed PostgreSQL aggregate-order carrier domain; a Float, finite
+    or a window distribution result, orders by real value (E6)."""
 
     if realization is None:
         return False
+    if realization["tag"] == "Float":
+        return _is_pg_float(realization) or _is_realization(
+            realization, "Float", {"kind": "pg_float8"}, {"kind": "float64"}
+        )
     if realization["tag"] == "Int":
         return _is_pg_int(realization)
     if realization["tag"] == "Bool":
@@ -2196,8 +2220,8 @@ class _Check:
                 )
                 read = doc[fields["read"]]
                 realization = doc[read["realization"]]
-                # A finite Float orders a result on both families; window keys
-                # (_is_key_value) keep Float out on both.
+                # A finite Float orders a result on both families; PostgreSQL
+                # keys (_is_key_value) also take a distribution result (E6).
                 _require(
                     _source_field_matches_stage(doc, read)
                     and (
@@ -4060,11 +4084,23 @@ class _Requirements:
         self.expected.append((kind, subject, rule, premises, evidence))
 
     def checked_evidence(self, evidence: Any, value: Ref) -> None:
-        """Q2 evidence follows the independently rebuilt operand proof."""
+        """Q2 evidence follows the independently rebuilt operand proof; E4
+        evidence marks a PostgreSQL Float `+`, `-` or `*` no fold proves."""
         interval = self.ranges.target_checked(value)
         _require(interval is not self.ranges._UNKNOWN, "target checked proof")
         if interval is None:
-            _require(evidence == (), "target checked evidence")
+            op = self.doc[value] if value.kind == "sql_operation" else None
+            unfolded = (
+                op is not None
+                and self.family == "postgres"
+                and op["kind"] == "arithmetic"
+                and self.doc[op["realization"]]["tag"] == "Float"
+                and not all(_float_literal(self.doc, item) for item in op["operands"])
+            )
+            _require(
+                evidence == ((_TARGET_CHECKED_BINARY64,) if unfolded else ()),
+                "target checked evidence",
+            )
             return
         proven = self.ranges.as_range(interval)
         _require(proven is not None, "target checked proof")

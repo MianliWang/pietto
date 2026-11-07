@@ -57,7 +57,7 @@ def test_exact_q3_carriers_support_equality_grouping_counts_and_distinct(family,
     assert results.distinct_problem(family, carrier) is None
     assert _compared(family, carrier, carrier, "==") is None
     assert _compared(family, carrier, carrier, "!=") is None
-    assert windows.partition_key_admitted(carrier)
+    assert windows.partition_key_admitted(carrier, family)
 
 
 @pytest.mark.parametrize("family", ("postgres", "mysql"))

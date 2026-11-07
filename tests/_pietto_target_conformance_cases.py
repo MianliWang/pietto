@@ -2350,11 +2350,17 @@ def _float_expected() -> dict[tuple[str, str], tuple[Any, ...]]:
             ("Float", "Int"),
             _merged(counted(float(i) for i in ids), tuple(float(i) for i in ids)),
         ),
-        # The four Float witnesses that now emit on PostgreSQL.
+        # The Float witnesses that now emit on PostgreSQL.
         ("V_row_blocked", "float_comparison"): (
             ("same",),
             ("Bool",),
             bag(*((r == r,) for r in ratios)),
+        ),
+        # E4: binary64 doubling keeps each zero's sign (-0.0 + -0.0 is -0.0).
+        ("V_row_blocked", "float_arithmetic"): (
+            ("total",),
+            ("Float",),
+            bag(*((r + r,) for r in ratios)),
         ),
         ("V_aggregate_blocked", "float_key"): (
             ("r", "total"),

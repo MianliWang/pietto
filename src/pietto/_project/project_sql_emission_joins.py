@@ -372,6 +372,13 @@ def full_admissible(join, equalities, predicate, family: str):
     if not leaves:
         return ("PIE-B1003", "full_join_requires_cross_input_equality")
     for left, right in leaves:
+        # E6: PostgreSQL's float8 `=` is merge- and hash-joinable and matches
+        # -0.0 with 0.0, the Float equality law.
+        if all(
+            rows.float_carrier(side, family, distribution=True)
+            for side in (left, right)
+        ):
+            continue
         if (
             left.tag != "Int"
             or right.tag != "Int"

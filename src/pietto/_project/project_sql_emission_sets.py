@@ -227,7 +227,7 @@ def resolved_column_realization(
     if (
         tag == "Float"
         and (kind, quantifier) != (SetOperationKind.UNION, SetOperationQuantifier.ALL)
-        and not rows.float_carrier(first, "postgres")
+        and not rows.float_carrier(first, "postgres", distribution=True)
     ):
         return None, ("PIE-B1003", "set_row_equivalence_domain_unsupported")
     storage = first.storage

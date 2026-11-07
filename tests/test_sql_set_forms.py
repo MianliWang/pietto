@@ -278,9 +278,10 @@ def test_the_verifier_refuses_a_mysql_float_intersect_on_its_own(monkeypatch):
 
 
 @pytest.mark.parametrize("target", TARGETS)
-def test_window_distribution_results_keep_union_all_only(target):
-    """L13: a percent_rank result (domain float64) keeps today's UNION ALL rule;
-    every equivalence form over it stays refused on both targets."""
+def test_window_distribution_results_keep_union_all_only_on_mysql(target):
+    """L13: a percent_rank result (domain float64) keeps UNION ALL; E6: on
+    PostgreSQL every equivalence form over it compares by Float equality, and
+    MySQL keeps them refused."""
     tables = (
         "table a:\n    from rows\n    select:\n        id\n"
         "        pr = percent_rank() window(order by id)\n"
@@ -308,6 +309,12 @@ def test_window_distribution_results_keep_union_all_only(target):
             target,
             tables + f"query result:\n    {form}:\n        from a\n        from b\n",
         )
+        if target == "postgres":
+            assert refused.status == "VERIFIED", blockers(refused)
+            spelling = f") {form.upper()} ("
+            assert spelling in final_statement(sql_of(refused))
+            probe.decode_public(serialize_project_sql_emission(refused))
+            continue
         assert refused.status == "BLOCKED" and refused.diagnostics == ()
         assert [(b.code, b.detail) for b in refused.blockers] == [
             ("PIE-B1003", "set_row_equivalence_domain_unsupported")

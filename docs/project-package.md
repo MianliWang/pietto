@@ -662,8 +662,8 @@ only: INTERSECT and EXCEPT, either quantifier, are BLOCKED with `PIE-B1003`
 `set_row_equivalence_domain_unsupported` once at the set body, because MySQL
 compares `-0.0` and `0.0` as different values there, and UNION DISTINCT is
 BLOCKED with the same detail because MySQL's deduplicating hash kept them
-apart beside a wide key. A window `percent_rank`/`cume_dist` result keeps
-UNION ALL only on both targets.
+apart beside a wide key. A window `percent_rank`/`cume_dist` result takes
+part in every set form on PostgreSQL and keeps UNION ALL only on MySQL.
 
 ### Getting project SQL from Python
 
@@ -876,6 +876,44 @@ check accepts, for example, `sum` over a `Decimal` field, or over an `Int` or
 `Float` field on MySQL, and `emit-sql --project` then reports the table or
 query BLOCKED with `PIE-B1004`. Single-file `emit-sql` emits such a `SUM`.
 
+PostgreSQL project SQL emits a `Float` `+`, `-` or `*` whose operands are not
+both `Float` literals, such as `price * 2.0`, `price + cost` or
+`cost - price * price`, and a sign on a `Float` value, such as `-price`, as
+`(a * CAST('2.0' AS pg_catalog.float8))`, `(a + b)` and `(-a)`, uncast. The
+result is a `Float` (`pg_float8`, `finite_float`) whose value is Python's
+binary64 result, the sign of a zero included: `-price` of `0.0` is `-0.0`
+and `0.0 * -2.0` is `-0.0`, and projection keeps those bits. PostgreSQL's
+float8 operators refuse a result outside binary64 with SQLSTATE 22003
+(`value out of range: overflow`), and a product of two non-zero values that
+rounds to zero with SQLSTATE 22003 (`value out of range: underflow`), where
+Python would give `0.0`: the statement fails and never returns an infinity
+or a wrong value, and, as for checked `bigint`, it may fail while
+PostgreSQL plans it where it reduces the operands to constants. The R05
+requirement of each such `+`, `-` or `*` carries the evidence
+`{"overflow": "target_checked_binary64_overflow"}`, and the emission
+observation lists it; a sign carries none, as it never fails. Arithmetic of
+two `Float` literals is still folded and checked when the SQL is emitted
+(`PIE-B1002` `float_result_not_finite`), and a typed `None` operand keeps
+`PIE-B1003` `float_literal_operands_required`. The same arithmetic is
+admitted inside an aggregate argument (`sum(price * 2.0)`) and a `let`, so a
+computed `Float` `let` may be a GROUP BY key.
+
+PostgreSQL project SQL also takes a `Float` as a window `partition by` or
+`order by` key, as a `string_agg` order key and in a FULL JOIN equality
+(alone or in its AND tree beside `Int` equalities), and takes a window
+`percent_rank` or `cume_dist` result read from another relation as a
+`group by` key, a `select distinct:` column, a relation `order by` key, a
+window key and a column of every set form. Each compares by Float equality
+(`-0.0 == 0.0`) and orders by real value, as the
+[Float values](language.md#float-values) contract states: `-0.0` and `0.0`
+are one partition and peers of a window order, a FULL JOIN matches them, and
+a merged row shows some member's value. PostgreSQL's float8 `=` and btree
+order compare them equal and its float8 hash hashes both as one value, so
+this holds whatever plan PostgreSQL picks. A `percent_rank` or `cume_dist`
+result is a finite value in [0, 1] and never `-0.0`. An offset `RANGE` frame
+still needs a non-null `Int` order key, and `count_distinct`, `min` and `max`
+of a distribution result stay BLOCKED.
+
 PostgreSQL project SQL emits `sum` and `avg` of a finite `Float` (`pg_float8`)
 as the single-file `SUM(x)` and `AVG(x)`, uncast, with a nullable `Float`
 (`pg_float8`, `finite_float`) result and the R13 evidence
@@ -983,12 +1021,6 @@ declares:
 
 - a comparison of a `Float` with an `Int` (`price > 1`; write `price > 1.0`)
   or of a `Decimal` value with a literal (`amount > 1.5`);
-- `group by`, `order by`, `select distinct:` and the set forms other than
-  UNION ALL over a window `percent_rank` or `cume_dist` result (its
-  comparisons, such as `qualify percent_rank() ... > 0.5`, emit);
-- window `partition by` or `order by` a `Float`, `string_agg(..., order by`
-  a Float `)`, and a FULL JOIN on a Float equality;
-- arithmetic on a `Float` field (`price * 2.0`, `price + price`);
 - `/` and `%`, whatever their operand types, `Float(x) / y` included;
 - `matches(...)`;
 - a `Text` default of `lag` or `lead` (`lead(label, 1, "none")`);
@@ -1002,7 +1034,13 @@ declares:
   admitted with the checked `bigint` rule above, while `qty + 1` over
   `my_bigint` is BLOCKED with `PIE-B1002`.
 
-On MySQL `emit-sql --project` also reports BLOCKED `group by` and
+On MySQL `emit-sql --project` also reports BLOCKED the `Float` forms that
+PostgreSQL emits (above): arithmetic and a sign on a `Float`
+field (`price * 2.0`, `-price`), a `Float` window `partition by` or
+`order by` key, and `group by`, `order by`, `select distinct:` and the set
+forms other than UNION ALL over a window `percent_rank` or `cume_dist`
+result (MySQL has no project `string_agg` or FULL JOIN). It also reports
+BLOCKED `group by` and
 `select distinct:` over a `Float`, a Float UNION DISTINCT, INTERSECT or
 EXCEPT, and a Float `==` or `!=` whose two operands both read rows (a JOIN
 `on`, a WHERE comparison across inputs, a correlated

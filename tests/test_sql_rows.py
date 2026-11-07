@@ -319,11 +319,13 @@ def test_filter_preserves_bag_multiplicity_of_surviving_rows(built, target):
         ),
         # Branch B: a MySQL Float `==` whose operands both read rows.
         ("mysql", "float_comparison", "PIE-B1003", "comparison_type_pair_not_admitted"),
+        # E4: PostgreSQL emits Float field arithmetic (test_sql_project_scalar_
+        # expressions); MySQL keeps it refused.
+        ("mysql", "float_arithmetic", "PIE-B1003", "float_literal_operands_required"),
         *(
             (target, variant, code, detail)
             for target in ("postgres", "mysql")
             for variant, code, detail in (
-                ("float_arithmetic", "PIE-B1003", "float_literal_operands_required"),
                 ("bool_comparison", "PIE-B1003", "comparison_type_pair_not_admitted"),
                 ("modulo", "PIE-B1003", "binary_operator_not_admitted"),
             )

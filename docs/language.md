@@ -585,7 +585,7 @@ first column give every rule.
 | `add_months(d, n)` ([Expressions](#expressions)) | `CAST((d + make_interval(months => CAST(n AS integer))) AS date)` | `DATE_ADD(d, INTERVAL n MONTH)` | emitted; a `None` argument refused (PIE-B1003) | refused (PIE-B1003) |
 | `now()` ([Expressions](#expressions)) | `(statement_timestamp() AT TIME ZONE 'UTC')`, in SELECT items and WHERE | refused (PIE-B1000) | emitted, compiled and bound as a template | refused (PIE-B1003 `scalar_call_signature_not_admitted`) |
 | Always-null numbers, D-12 ([Expressions](#expressions)) | typed NULL casts | typed NULL casts | `Int` arithmetic with `None`; `Float` and `Decimal` refused | as PostgreSQL |
-| `Float` equality ([Float values](#float-values)) | comparisons and GROUP BY; DISTINCT and set forms are project-only | as PostgreSQL; GROUP BY beside a wide `Text` key may split `-0.0` and `0.0` | comparisons, GROUP BY, DISTINCT, ORDER BY and every set form | comparisons with a literal or header parameter, ordering inequalities, `in`, `nullif`, relation ORDER BY and UNION ALL; the other forms refused (PIE-B1003) |
+| `Float` equality ([Float values](#float-values)) | comparisons and GROUP BY; DISTINCT and set forms are project-only | as PostgreSQL; GROUP BY beside a wide `Text` key may split `-0.0` and `0.0` | comparisons, GROUP BY, DISTINCT, ORDER BY, every set form, window `partition by` and `order by`, `string_agg` order keys and FULL JOIN equalities, also over a window `percent_rank` or `cume_dist` result | comparisons with a literal or header parameter, ordering inequalities, `in`, `nullif`, relation ORDER BY and UNION ALL; the other forms refused (PIE-B1003) |
 | JOIN aggregates without fan-out ([Aggregates](#aggregates-and-grouping)) | accepted | accepted | accepted | accepted; `sum(Int)` stays PIE-B1004 |
 | Top-level constants and `--set` ([Top-level constants](#top-level-constants)) | literals; `DATE '...'`, `TIMESTAMP '...'` | each relation that reads one refused (PIE-B1000) | refused (PIE-S2392) | refused (PIE-S2392) |
 | Project aggregate arguments ([Aggregates](#aggregates-and-grouping)): `count`/`count_distinct` of `Text`, `Bool`, `Float`, `Decimal`; `min`/`max` of `Float`, `Decimal`; `sum`/`avg` of `Float`; a row expression argument (`sum(qty * 2)`) | emitted (unchanged) | emitted (unchanged) | emitted, also an argument holding a scalar call over JOIN rows (`count(lower(r.label))`); `Decimal` `sum`/`avg` refused (PIE-B1004) | as PostgreSQL, except `count_distinct` of a `Float` (PIE-B1003), `sum`/`avg` of a `Float` and `sum` of an `Int` such as `sum(qty * 2)` (PIE-B1004), and over JOIN rows an argument holding a scalar call (PIE-B1003); an `Int` expression not proved to fit BIGINT is PIE-B1002 first |
@@ -679,6 +679,12 @@ value.
 - **Aggregates.** `count_distinct` counts `==`-classes, so `-0.0` and `0.0`
   count once; a `min` or `max` whose extreme class holds both zeros shows the
   value of some member, as a merged row does.
+- **Arithmetic.** `+`, `-` and `*` give Python's binary64 result, the sign of
+  a zero included (`0.0 * -2.0` and `-(0.0)` are `-0.0`, `x - x` is `0.0`). A
+  result outside binary64 is not a value: project SQL on PostgreSQL fails the
+  statement with SQLSTATE 22003 instead, and also fails it where a product of
+  two non-zero values rounds to zero, which Python gives as `0.0`. It never
+  returns an infinity or a wrong value.
 - **No later step can tell.** Every Float operation Pietto admits gives
   `==`-equal results for `==`-equal inputs. So no later filter, comparison,
   group key or set operation can tell which zero a merge kept; only the
@@ -1234,8 +1240,8 @@ NULL is equivalent to NULL, and Float rows compare by Float equality
 (`-0.0 == 0.0`; see [Float values](#float-values)). Only UNION ALL needs no
 row equivalence, allowing matching concrete Any/Bytes/Json types. The other
 five forms reject these types. On PostgreSQL project emission admits every
-Float set form, except that a window `percent_rank` or `cume_dist` result
-keeps UNION ALL only, on both targets. On MySQL it refuses Float INTERSECT
+Float set form, a window `percent_rank` or `cume_dist` result included. On
+MySQL it keeps UNION ALL only for such a result, and it refuses Float INTERSECT
 and EXCEPT (MySQL compares `-0.0` and `0.0` as different values there) and
 UNION DISTINCT (MySQL kept them apart beside a wide key), and keeps UNION
 ALL.
@@ -1270,8 +1276,8 @@ aggregate and window Float results compare by Float equality: each DISTINCT
 class merges `-0.0` with `0.0` and shows one member's value
 ([Float values](#float-values)). Project emission emits Float DISTINCT on
 PostgreSQL. MySQL refuses it at emission (MySQL kept `-0.0` and `0.0` apart
-beside a wide key), and so do both targets for a window
-`percent_rank`/`cume_dist` result. Project emission also takes Float
+beside a wide key), and a window `percent_rank`/`cume_dist` result too.
+Project emission also takes Float
 `min`/`max` by the same law on both targets, and counts distinct Float values
 on PostgreSQL; MySQL refuses a Float `count_distinct` (PIE-B1003). Other Float
 operations retain existing behavior.
@@ -4003,7 +4009,7 @@ In project SQL an admitted expression argument (`sum(qty * 2)`,
 `count(lower(label))`) is emitted inside the aggregate by the same rules as a
 `let`: it is admitted exactly where `let t = qty * 2` with `sum(t)` is, and
 refused with the same blocker where that `let` is (for example `%` is
-`binary_operator_not_admitted`, Float arithmetic over a field
+`binary_operator_not_admitted`, Float arithmetic over a field on MySQL
 `float_literal_operands_required`, an `Int` times a `Decimal` literal
 `arithmetic_requires_signed_int_operands`). Over JOIN rows PostgreSQL also
 emits an aggregate argument that holds a scalar call such as `lower`

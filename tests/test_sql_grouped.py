@@ -129,6 +129,56 @@ def test_postgres_string_agg_compiled_order_keys_keep_scalar_operations(tmp_path
     assert emit_compiled(loaded, ()).request.family == "postgres"
 
 
+def test_postgres_string_agg_orders_by_a_float_key(tmp_path):
+    """E6: a Float string_agg order key compares as a PostgreSQL Float group
+    key does, by real value with -0.0 and 0.0 tied; the compiled template keeps
+    it. (MySQL has no project string_agg.)"""
+    outcome = emit_source(
+        tmp_path,
+        "postgres",
+        "table result:\n    from agg\n    select:\n"
+        '        summary = string_agg(label, "//", order by ratio desc, rid)\n',
+    )
+    assert outcome.status == "VERIFIED", outcome.blockers
+    assert outcome.artifact is not None
+    sql = public(outcome)["sql"]
+    assert ' ORDER BY "s0"."ratio value" DESC, "s0"."row id" ASC)' in sql
+
+    from pietto._project.project_compiled_build import build_compiled
+    from pietto._project.project_compiled_loading import load_compiled
+    from pietto._project.project_compiled_lowering import emit_compiled
+
+    built = build_compiled(outcome.artifact)
+    loaded = load_compiled(
+        built.payload,
+        expected_pin=built.pin,
+        accepted_producer=built.producer,
+        accepted_compatibility=built.compatibility,
+    )
+    assert emit_compiled(loaded, ()).rendered.sql == outcome.artifact.rendered.sql
+
+
+@pytest.mark.parametrize("target", TARGETS)
+def test_a_group_key_over_another_relations_window_result_emits(tmp_path, target):
+    """A GROUP BY key over another table's `rank()` column is that window
+    result: the emitted key and its projected column keep the read's window
+    origin, and the independent verifier rebuilds them with it (it once
+    rebuilt them without, and the query was BLOCKED PIE-B1008)."""
+    outcome = emit_source(
+        tmp_path,
+        target,
+        "table ranked:\n    from agg\n    select:\n"
+        "        rk = rank() window(order by rid)\n"
+        "query result:\n    from ranked\n    group by ranked.rk\n    select:\n"
+        "        rk = ranked.rk\n        n = count()\n",
+    )
+    assert outcome.status == "VERIFIED", outcome.blockers
+    data = public(outcome)
+    assert column(data, "rk")["logical_type"]["name"] == "Int"
+    quote = '"' if target == "postgres" else "`"
+    assert f" GROUP BY {quote}s1{quote}.{quote}c0{quote}" in data["sql"]
+
+
 # --------------------------------------------------------------------------
 # Native grouping structure
 # --------------------------------------------------------------------------
@@ -319,7 +369,7 @@ def test_a_computed_let_determinant_groups_by_its_let_stage_column(
         ("grp = Float(key)", ("Float", None), True),
         ("grp = abs(ratio)", ("Float", None), False),
         ("grp = -0.0 if key > 0 else 0.0", ("Float", None), False),
-        ("grp = ratio * 2.0", None, None),
+        ("grp = ratio * 2.0", ("Float", None), "unknown"),
     ),
 )
 def test_computed_determinants_keep_the_reviewed_comparison_domains(
@@ -327,7 +377,8 @@ def test_computed_determinants_keep_the_reviewed_comparison_domains(
 ):
     """Bool, Text, Decimal, Int and (on PostgreSQL) Float keep their domains.
     MySQL kept -0.0 and 0.0 in two groups beside a wide key, so its Float key
-    stays refused; Float field arithmetic stays refused on both targets."""
+    stays refused; its Float field arithmetic is refused first (E4 opens it on
+    PostgreSQL only)."""
     if logical is not None and logical[0] == "Float" and target == "mysql":
         logical = None
     # A refused key is not selected, so its one blocker is the key's own.

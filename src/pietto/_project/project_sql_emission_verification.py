@@ -1513,20 +1513,28 @@ def resolved_row_realization(
             {"kind": "decimal", "precision": precision, "scale": scale},
         )
     if (
-        kind == "binary"
+        kind in {"binary", "unary"}
         and tag == "Float"
         and all(item.tag == "Float" for item in operands)
     ):
-        if float_values is None:
-            raise ValueError("float literal operands")
-        left_value, right_value = float_values
-        result = {
-            "+": left_value + right_value,
-            "-": left_value - right_value,
-            "*": left_value * right_value,
-        }.get(operator)
-        if result is None or not math.isfinite(result):
-            raise ValueError("float result outside finite range")
+        if kind == "unary" or float_values is None:
+            # E4: PostgreSQL's float8 sign is exact and its checked +, - and *
+            # refuse a non-finite result (SQLSTATE 22003).
+            if (
+                family != "postgres"
+                or operator not in ({"+", "-"} if kind == "unary" else {"+", "-", "*"})
+                or not all(_float_carrier(item, "postgres") for item in operands)
+            ):
+                raise ValueError("float literal operands")
+        else:
+            left_value, right_value = float_values
+            result = {
+                "+": left_value + right_value,
+                "-": left_value - right_value,
+                "*": left_value * right_value,
+            }.get(operator)
+            if result is None or not math.isfinite(result):
+                raise ValueError("float result outside finite range")
         return rows.Realization(
             "Float",
             {"kind": "pg_float8" if family == "postgres" else "my_double"},
@@ -1631,9 +1639,15 @@ def resolved_row_realization(
 def _order_key(realization, family):
     """Independent R14/R19 order-key domain: exact Int/Bool/Text/Decimal, one
     Timestamp/Date carrier of its reviewed representation, or a UUID, which
-    orders by its 16 bytes as unsigned big-endian values (a partition key too)."""
+    orders by its 16 bytes as unsigned big-endian values (a partition key too).
+    A PostgreSQL Float, a window distribution result too, compares by Float
+    equality and orders by real value (E6)."""
     if realization.tag in {"Int", "Bool", "Text", "Decimal"}:
         return True
+    if realization.tag == "Float":
+        return family == "postgres" and _float_carrier(
+            realization, family, distribution=True
+        )
     if realization.tag == "UUID":
         return _uuid_carrier(realization, family)
     return realization.tag in {"Timestamp", "Date"} and _temporal_carrier(realization)
@@ -1693,6 +1707,19 @@ def _temporal_carrier(realization):
 
 
 TARGET_CHECKED = "target_checked_signed64_narrowing"
+
+
+def _float_checked(family, value):
+    """Independent E4 image: a PostgreSQL Float `+`, `-` or `*` with an
+    operand no literal fold reads, whose finite result the target's checked
+    float8 operator bounds (SQLSTATE 22003)."""
+    return (
+        family == "postgres"
+        and type(value) is rows.SQLOperation
+        and value.kind == "arithmetic"
+        and value.realization.tag == "Float"
+        and any(_float_literal_value(operand) is None for operand in value.operands)
+    )
 
 
 def _target_checked(family, value):
@@ -2312,6 +2339,8 @@ def _verify_aggregate_body(
                     aggregate=grouping.AggregateOrigin(
                         "group_key", stage, export.ref, (read.terminal,), key=key
                     ),
+                    # A key over another relation's window result is still it.
+                    window=read.window,
                 ),
             )
             or column.column.scope is not None
@@ -2975,6 +3004,7 @@ def _verify_aggregate_projection(
                     literal=read.literal,
                     scope=read.scope,
                     aggregate=read.aggregate,
+                    window=read.window,
                 ),
             )
         ):
@@ -4807,7 +4837,10 @@ def resolved_set_column_realization(
     if (
         tag == "Float"
         and not union_all
-        and not all(_float_carrier(read.realization, "postgres") for read in reads)
+        and not all(
+            _float_carrier(read.realization, "postgres", distribution=True)
+            for read in reads
+        )
     ):
         raise ValueError("set comparison domain")
     if not union_all and any(reason is not None for reason in equivalence_reasons):
@@ -9271,6 +9304,8 @@ def verify_row_generated_requirements(request, query, generated):
                         node_premises(request, node.realization, operands, kind),
                         (TARGET_CHECKED,)
                         if _target_checked(request.family, node)
+                        else (grouping.TARGET_CHECKED_BINARY64,)
+                        if _float_checked(request.family, node)
                         else (),
                     )
                 )

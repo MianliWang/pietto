@@ -127,7 +127,8 @@ class GeneratedRequirement:
     rule: str
     premises: tuple[Any, ...]
     # Evidence tokens beyond the rule itself: TARGET_CHECKED_SIGNED64 marks a
-    # bigint result whose range the target checks instead of a static proof.
+    # bigint result whose range the target checks instead of a static proof,
+    # TARGET_CHECKED_BINARY64 a binary64 result the target checks is finite.
     evidence: tuple[str, ...] = ()
 
 
@@ -3077,9 +3078,8 @@ def value_requirements(request, value):
                     node.original.ref,
                     rows.REQUIREMENT_RULES[kind],
                     node_premises(request, node.realization, operands, kind),
-                    (rows.TARGET_CHECKED_SIGNED64,)
+                    rows.checked_evidence(family, node)
                     if type(node) is rows.SQLOperation
-                    and rows.target_checked(family, node)
                     else (),
                 )
             )

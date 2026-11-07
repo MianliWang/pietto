@@ -465,7 +465,7 @@ _ACTIONS = {
     "column_identifier_unrepresentable_or_colliding": "Map each source field to its actual physical column, using distinct target-representable identifiers; do not invent columns or aliases in the contract.",
     "output_label_unrepresentable": "Choose a projection label within the requested target's identifier limits.",
     "validated_decimal_parameters_missing": "Declare this field, or the type alias it uses, as Decimal(p, s) with the precision and scale of its column, such as Decimal(12, 2); a plain Decimal has none to match the contract.",
-    "set_row_equivalence_domain_unsupported": "Use Int, Bool, Text, Decimal or Float with exact matching carriers. On MySQL a Float set is limited to UNION ALL, a window distribution result is limited to UNION ALL on both targets, and Timestamp to UNION ALL/DISTINCT; keep other unreviewed set carriers in check --project.",
+    "set_row_equivalence_domain_unsupported": "Use Int, Bool, Text, Decimal or Float with exact matching carriers. On MySQL a Float set, a window distribution result included, is limited to UNION ALL, and Timestamp to UNION ALL/DISTINCT; keep other unreviewed set carriers in check --project.",
     "conditional_count_not_admitted_on_target": "MySQL has no conditional count yet; emit with --dialect postgres.",
     "conditional_test_reads_no_field": "Test a field of the member, such as `if o.paid`: a test that reads no field is the same for every row.",
     "group_test_not_admitted_on_target": "MySQL has no group any or all yet; emit with --dialect postgres.",

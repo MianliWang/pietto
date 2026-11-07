@@ -1349,6 +1349,59 @@ def test_checked_bigint_evidence_is_claimed_only_where_it_can_hold(
     )
 
 
+BINARY64 = "target_checked_binary64_overflow"
+
+
+@pytest.mark.parametrize(
+    ("expression", "evidence"),
+    (
+        ("ratio * 2.0", [BINARY64]),
+        ("ratio + ratio", [BINARY64]),
+        ("ratio - 0.5", [BINARY64]),
+        ("-ratio", []),
+        ("1.5 * 2.0", []),
+    ),
+)
+def test_checked_binary64_evidence_follows_the_unfolded_float_operation(
+    tmp_path_factory, expression, evidence
+):
+    """E4: a PostgreSQL Float `+`, `-` or `*` that no literal fold proves
+    finite carries the binary64 evidence, and only it: a consumer refuses the
+    token dropped from it, or claimed by a sign or a fold."""
+    item = emission.fixture("postgres", "V_row_blocked", "float_arithmetic")
+    source = item["source"].replace("total = ratio + ratio", "total = " + expression)
+    _, outcome = emission.build_case(
+        tmp_path_factory.mktemp("checked-binary64"),
+        source,
+        item["contract"],
+        item["policy"],
+    )
+    assert outcome.status == "VERIFIED" and outcome.artifact is not None
+    artifact = outcome.artifact
+    observed = portable.export_emission_observation(artifact, artifact.request)
+    assert observed.status is portable.ObservationStatus.OK
+    assert observed.canonical_bytes is not None
+    data = observed.canonical_bytes
+    assert [
+        r["evidence"]
+        for r in _records(json.loads(data), "generated_requirement")
+        if r["kind"] == "arithmetic"
+    ] == [evidence]
+    assert portable.verify_emission_observation(
+        data, artifact, artifact.request
+    ).corresponds
+
+    def flipped(candidate):
+        for requirement in _records(candidate, "generated_requirement"):
+            if requirement["kind"] == "arithmetic":
+                requirement["evidence"] = [] if evidence else [BINARY64]
+
+    assert _status(_mutated(data, flipped)) == (
+        pure.Status.INVALID_RELATION,
+        "target checked evidence",
+    )
+
+
 def test_checked_bigint_evidence_rebuilds_public_provenance(tmp_path_factory):
     """Q2 proof follows actual producers, rather than a declared source range."""
     item = emission.fixture("postgres", "V_row_blocked", "int_overflow")
@@ -1559,8 +1612,8 @@ def test_mysql_derived_date_order_keeps_its_closed_carrier(tmp_path):
 
 
 def test_a_finite_float_orders_a_result_of_its_own_target(tmp_path_factory):
-    """A Float relation ORDER decodes on both targets (MySQL too); a
-    Float window key and a foreign Float carrier stay refused."""
+    """A Float relation ORDER decodes on both targets; E6 also admits the
+    PostgreSQL float8 window key, while a foreign target carrier stays refused."""
     _, ordered = _observed(
         tmp_path_factory, "postgres", emission.FLOAT_CASE, "fo_ascending"
     )
@@ -1594,9 +1647,14 @@ def test_a_finite_float_orders_a_result_of_its_own_target(tmp_path_factory):
 
         return edit
 
+    assert _status(_mutated(windows, carrier("window_order_item", "pg_float8"))) == (
+        OK,
+        None,
+    )
+
     for data, kind, storage, reason in (
         (ordered, "result_order_item", "my_double", "result order carrier"),
-        (windows, "window_order_item", "pg_float8", "window comparison carrier"),
+        (windows, "window_order_item", "my_double", "window comparison carrier"),
         (mysql, "result_order_item", "pg_float8", "result order carrier"),
     ):
         assert _status(_mutated(data, carrier(kind, storage))) == (

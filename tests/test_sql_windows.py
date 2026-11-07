@@ -790,10 +790,12 @@ def test_temporal_and_uuid_window_keys(tmp_path, target):
 
 
 @pytest.mark.parametrize("target", TARGETS)
-def test_window_distribution_results_compare_but_never_key(target):
+def test_window_distribution_results_and_floats_key_on_postgres_only(target):
     """L13: percent_rank and cume_dist results are finite Floats in [0, 1]; they
-    compare with a literal (and in a chain), but stay outside DISTINCT, GROUP BY
-    and relation ORDER, and Float stays outside window PARTITION and ORDER."""
+    compare with a literal (and in a chain). E6: on PostgreSQL they are also
+    DISTINCT, GROUP BY and relation ORDER keys, and a Float is a window
+    PARTITION and ORDER key, by Float equality and real-value order; MySQL
+    keeps each refused."""
     q = '"' if target == "postgres" else "`"
     half, quarter = (
         ("CAST('0.5' AS pg_catalog.float8)", "CAST('0.25' AS pg_catalog.float8)")
@@ -836,24 +838,40 @@ def test_window_distribution_results_compare_but_never_key(target):
         ),
     ):
         outcome = emit(target, table + "query result:\n    from w\n" + body)
+        if target == "postgres":
+            assert outcome.status == "VERIFIED", outcome.blockers
+            probe.decode_public(serialize_project_sql_emission(outcome))
+            continue
         assert outcome.status == "BLOCKED" and outcome.diagnostics == ()
         public = probe.decode_public(serialize_project_sql_emission(outcome))
         assert [
             (b["code"], b["subject"]["detail"], b["location"]["line"])
             for b in public["blockers"]
         ] == [("PIE-B1003", detail, line)]
-    for spec, detail in (
+    for spec, detail, over in (
         (
             "partition by ratio order by id",
             "window_partition_comparison_domain_unsupported",
+            'OVER (PARTITION BY "s0"."ratio value" ORDER BY "s0"."order.id" ASC)',
         ),
-        ("order by ratio", "window_order_comparison_domain_unsupported"),
+        (
+            "order by ratio",
+            "window_order_comparison_domain_unsupported",
+            'OVER (ORDER BY "s0"."ratio value" ASC)',
+        ),
     ):
         outcome = emit(
             target,
             "query result:\n    from rows\n    select:\n"
             f"        n = row_number() window({spec})\n",
         )
+        if target == "postgres":
+            assert outcome.status == "VERIFIED", outcome.blockers
+            assert (
+                over
+                in probe.decode_public(serialize_project_sql_emission(outcome))["sql"]
+            )
+            continue
         assert outcome.status == "BLOCKED"
         assert [(b.code, b.detail) for b in outcome.blockers] == [("PIE-B1002", detail)]
 

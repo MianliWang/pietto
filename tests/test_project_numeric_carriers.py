@@ -697,15 +697,28 @@ def test_finite_float_literal_carriers_are_reconstructed_and_overflow_refused(
     assert realized is None
     assert problem == ("PIE-B1002", "float_result_not_finite")
 
-    with pytest.raises(ValueError, match="float literal operands"):
-        verification.resolved_row_realization(
-            family,
-            "binary",
-            "+",
-            "Float",
-            False,
-            operands,
+    if family == "postgres":
+        assert (
+            verification.resolved_row_realization(
+                family,
+                "binary",
+                "+",
+                "Float",
+                False,
+                operands,
+            ).domain
+            == operands[0].domain
         )
+    else:
+        with pytest.raises(ValueError, match="float literal operands"):
+            verification.resolved_row_realization(
+                family,
+                "binary",
+                "+",
+                "Float",
+                False,
+                operands,
+            )
 
 
 def test_decimal_multiplication_has_the_closed_semantic_signature() -> None:
@@ -971,7 +984,8 @@ def _float_carrier(storage: str, domain: dict) -> rows.Realization:
 
 DISTRIBUTION = {"kind": "float64"}
 # Each Float arm reads one carrier predicate. A window distribution result
-# compares (and BETWEENs) but never groups, deduplicates, orders or sets.
+# compares (and BETWEENs) on both targets and, on PostgreSQL only, also
+# groups, deduplicates, orders, sets and keys a window (E6).
 FLOAT_CARRIERS = {
     "pg": _float_carrier("pg_float8", probe.FINITE_FLOAT),
     "my": _float_carrier("my_double", probe.FINITE_FLOAT),
@@ -1063,28 +1077,58 @@ def test_the_comparison_row_read_fact_is_required():
 
 
 @pytest.mark.parametrize("name", tuple(FLOAT_CARRIERS))
-def test_float_equivalence_admits_postgres_finite_and_order_each_finite(name):
-    """Group keys, DISTINCT and the equivalence set forms admit only the
-    PostgreSQL finite carrier (Branch B); relation ORDER admits each target's
-    own finite carrier (MySQL too); UNION ALL transports any matching
-    Float carrier exactly as before."""
+def test_float_equivalence_admits_postgres_keys_and_order_each_finite(name):
+    """Group keys, DISTINCT, the equivalence set forms, window partition and
+    order keys, string_agg order keys and FULL JOIN equalities admit only the
+    PostgreSQL finite and distribution carriers (Branch B, E6); relation ORDER
+    admits each target's own finite carrier (MySQL too); UNION ALL transports
+    any matching Float carrier exactly as before. A counted or extreme
+    aggregate argument stays finite only."""
     from pietto._project import project_sql_emission_aggregation as aggregation
+    from pietto._project import project_sql_emission_joins as joins
     from pietto._project import project_sql_emission_results as results
     from pietto._project import project_sql_emission_sets as setting
+    from pietto._project import project_sql_emission_windows as windows
     from pietto.ast_nodes import SetOperationKind as Kind
     from pietto.ast_nodes import SetOperationQuantifier as Quantifier
 
     value = FLOAT_CARRIERS[name]
-    admitted = name == "pg"
+    admitted = name in {"pg", "pg_distribution"}
     assert (aggregation.group_key_problem(value) is None) is admitted
+    assert (aggregation.group_key_problem(value, distribution=False) is None) is (
+        name == "pg"
+    )
     for family in ("postgres", "mysql"):
-        assert (results.distinct_problem(family, value) is None) is (
-            admitted and family == "postgres"
-        )
+        keyed = admitted and family == "postgres"
+        assert (results.distinct_problem(family, value) is None) is keyed
         assert results.order_admitted(family, value) is (
-            name == {"postgres": "pg", "mysql": "my"}[family]
+            name == {"postgres": "pg", "mysql": "my"}[family] or keyed
         )
-    assert verification._float_carrier(value, "postgres") is admitted
+        assert windows.partition_key_admitted(value, family) is keyed
+        assert windows.order_key_admitted(value, family) is keyed
+        assert verification._order_key(value, family) is keyed
+        assert (
+            aggregation.order_key_problem("string_agg", family, value) is None
+        ) is admitted
+    full = rows.SQLOperation(
+        SimpleNamespace(expression=SimpleNamespace(operator="==")),
+        "comparison",
+        (
+            rows.SQLStageReference(
+                None, None, rows.StageColumn(0, "left", None, value), value, "left"
+            ),
+            rows.SQLStageReference(
+                None, None, rows.StageColumn(1, "right", None, value), value, "right"
+            ),
+        ),
+        rows._bool("postgres", False),
+    )
+    assert (joins.full_admissible(None, (), full, "postgres") is None) is admitted
+    assert joins.full_admissible(None, (), full, "mysql") == (
+        "PIE-B1003",
+        "mysql_full_join_approved_non_support",
+    )
+    assert verification._float_carrier(value, "postgres") is (name == "pg")
     reads = (SimpleNamespace(realization=value), SimpleNamespace(realization=value))
     for kind, quantifier in (
         (Kind.UNION, Quantifier.ALL),

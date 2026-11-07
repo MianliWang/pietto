@@ -451,6 +451,20 @@ check), and `variance_result_logical_type_or_argument_drift`,
 `pvariance_result_logical_type_or_argument_drift` and
 `pstdev_result_logical_type_or_argument_drift` (PIE-B1002, internal).
 
+After `0.1.10`, a generated R05 `arithmetic` requirement's `evidence` may also
+end with `{"overflow": "target_checked_binary64_overflow"}`. It marks a
+PostgreSQL `Float` `+`, `-` or `*` whose operands are not both `Float`
+literals, such as `price * 2.0` or `price + cost`, whose `finite_float` result
+is finite because PostgreSQL's float8 operator refuses a result outside binary64
+with SQLSTATE 22003, and also a non-zero product that rounds to zero; the
+statement may fail while PostgreSQL plans or executes it and never returns an
+infinity or a wrong value. A sign on a `Float` (`-price`, requirement kind
+`arithmetic` with the operator `-`) and arithmetic of two `Float` literals,
+which the compiler folds, carry none, and no MySQL document carries it. A
+consumer that requires a statically proved finite result refuses a document
+with this evidence. The emission observation lists the token in that
+requirement's `evidence`.
+
 A PostgreSQL `median` or `quantile` aggregate column has the `spelling`
 `PERCENTILE_CONT`, the `argument_cast` `pg_catalog.float8` and no
 `result_cast`; it is written `PERCENTILE_CONT(<fraction>) WITHIN GROUP (ORDER
@@ -1039,11 +1053,13 @@ NULL row-equivalence rules. Timestamp INTERSECT/EXCEPT, Date/UUID set carriers,
 and unreviewed coercions remain refused.
 
 A finite Float compares, groups, deduplicates, orders and joins by Float
-equality (`-0.0 == 0.0`) on PostgreSQL, in every set form included; a FULL
-JOIN keeps its Int-only `on`. On MySQL, comparisons with a literal or a
+equality (`-0.0 == 0.0`) on PostgreSQL, in every set form included; after
+`0.1.10` it is also a window partition and order key, a `string_agg` order
+key and a FULL JOIN equality there. On MySQL, comparisons with a literal or a
 header parameter, ordering inequalities, `in`, `nullif` and UNION ALL emit;
 Float GROUP BY, DISTINCT, relation ORDER, UNION DISTINCT, INTERSECT, EXCEPT
 and an `==` or `!=` between two row reads are BLOCKED with `PIE-B1003`. A
-window `percent_rank`/`cume_dist` result compares on both targets but stays
-outside DISTINCT, GROUP BY, ORDER and the equivalence set forms. A merged row
+window `percent_rank`/`cume_dist` result compares on both targets; after
+`0.1.10` PostgreSQL also takes it as a DISTINCT, GROUP BY, ORDER and window
+key and in the equivalence set forms, which MySQL keeps BLOCKED. A merged row
 shows the value of some member of its class.

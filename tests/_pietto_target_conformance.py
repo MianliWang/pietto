@@ -656,7 +656,13 @@ def verify_emission_generation(value, target, expected):
                 or (
                     record["id"] == "V_row_blocked"
                     and record["variant"]
-                    in {"between", "int_overflow", "unary_overflow", "float_comparison"}
+                    in {
+                        "between",
+                        "int_overflow",
+                        "unary_overflow",
+                        "float_comparison",
+                        "float_arithmetic",
+                    }
                 )
                 else "query"
             )

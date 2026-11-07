@@ -3778,6 +3778,8 @@ def derive_compiled_semantics(root, values, parameters=None):
                             if tag == "Int" and type(value) is int
                             else None,
                         )
+                    elif tag == "Float":
+                        realized = physical.float_sign(family, inputs[0], nullable)
                     else:
                         inner = inputs[0]
                         interval = physical.proven_int_bounds(inner)

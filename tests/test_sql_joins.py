@@ -2223,15 +2223,27 @@ def test_float_inequalities_and_constant_equalities_emit_on_both_targets(
     public(outcome)
 
 
+def test_a_postgres_full_join_matches_float_equality_beside_int_keys(tmp_path):
+    """E6: a Float equality joins the reviewed FULL JOIN AND tree; float8 `=`
+    is merge- and hash-joinable and matches -0.0 with 0.0 (Float equality)."""
+    outcome = _float_rows(
+        tmp_path,
+        "postgres",
+        "query result:\n    from rows\n    let o = rows\n"
+        "    full join o on rows.id == o.id and rows.ratio == o.ratio\n"
+        "    select:\n        a = rows.ratio\n        b = o.ratio\n",
+    )
+    assert outcome.status == "VERIFIED", outcome.blockers
+    sql = public(outcome)["sql"]
+    assert ' AND ("m0"."ratio value" = "m1"."ratio value")))' in sql
+
+
 @pytest.mark.parametrize("target", TARGETS)
 @pytest.mark.parametrize(
     ("condition", "postgres_detail", "mysql_detail"),
     (
-        (
-            "rows.ratio == o.ratio",
-            "full_join_equality_outside_reviewed_int_domain",
-            "comparison_type_pair_not_admitted",
-        ),
+        # E6: a PostgreSQL FULL JOIN takes a Float equality (VERIFIED below).
+        ("rows.ratio == o.ratio", None, "comparison_type_pair_not_admitted"),
         (
             "rows.text == o.text",
             "full_join_equality_outside_reviewed_int_domain",
@@ -2252,8 +2264,8 @@ def test_float_inequalities_and_constant_equalities_emit_on_both_targets(
 def test_a_full_join_outside_its_reviewed_rule_is_refused_at_its_on_clause(
     tmp_path, target, condition, postgres_detail, mysql_detail
 ):
-    """PostgreSQL FULL JOIN admits only its reviewed Int equality tree and
-    MySQL none; every refusal, a Float or Text equality, another shape, or
+    """PostgreSQL FULL JOIN admits only its reviewed Int and Float equality
+    tree and MySQL none; every refusal, a Text equality, another shape, or
     MySQL non-support, is located at the ON clause (line 11, from `on`). MySQL
     refuses a Float equality of two row reads first, at the same clause."""
     outcome = _float_rows(
@@ -2263,7 +2275,11 @@ def test_a_full_join_outside_its_reviewed_rule_is_refused_at_its_on_clause(
         f"    full join o on {condition}\n"
         "    select:\n        a = rows.ratio\n",
     )
-    assert outcome.status == "BLOCKED" and outcome.artifact is None
     detail = postgres_detail if target == "postgres" else mysql_detail
+    if detail is None:
+        assert outcome.status == "VERIFIED", outcome.blockers
+        public(outcome)
+        return
+    assert outcome.status == "BLOCKED" and outcome.artifact is None
     on_clause = (11, 17, 11, 17 + len(f"on {condition}"))
     assert located(outcome) == [("PIE-B1003", detail, on_clause)]

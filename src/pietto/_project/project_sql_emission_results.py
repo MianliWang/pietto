@@ -87,9 +87,12 @@ DISTINCT_TAGS = ORDER_TAGS | {"UUID"}
 
 
 def order_admitted(family: str, realization: rows.Realization) -> bool:
-    """R19 orders one exactly comparable carrier of its reviewed representation."""
+    """R19 orders one exactly comparable carrier of its reviewed representation;
+    on PostgreSQL a window distribution result too (E6)."""
     if realization.tag == "Float":
-        return rows.float_carrier(realization, family)
+        return rows.float_carrier(
+            realization, family, distribution=family == "postgres"
+        )
     return distinct_problem(family, realization) is None
 
 
@@ -124,7 +127,10 @@ def distinct_problem(family: str, realization: rows.Realization) -> str | None:
     temporal carriers it checks are also the ones ORDER compares."""
     if realization.tag not in DISTINCT_TAGS or (
         realization.tag == "Float"
-        and not (family == "postgres" and rows.float_carrier(realization, family))
+        and not (
+            family == "postgres"
+            and rows.float_carrier(realization, family, distribution=True)
+        )
     ):
         return "distinct_field_comparison_domain_unsupported"
     if realization.tag == "Timestamp" and (

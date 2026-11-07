@@ -2667,24 +2667,22 @@ def test_blockers_name_their_own_reason_place_and_remedy(tmp_path: Path) -> None
         "blocker PIE-B1004 MISSING_EVIDENCE:"
         f" decimal_aggregate_range_proof_missing (main.pietto:19:9)\n{decimal_hint}",
     )
-    # A refused group key is at its GROUP BY item: a window distribution
-    # result compares but never groups (a plain Float field now groups).
-    assert _reasons(tmp_path, "ratio_group", contract) == (
-        1,
-        "pietto.sql-emission.v1 BLOCKED\n"
-        "blocker PIE-B1003 UNSUPPORTED_RULE:"
-        " group_key_type_outside_reviewed_comparison_domain (main.pietto:23:14)\n"
-        "  hint: Use a reviewed direct projection or grouping/order/set form with matching carriers, or keep this declaration in check/plan; do not widen equality or coerce operands to force emission.\n",
-    )
+    # A window distribution result groups on PostgreSQL (E6), as a plain
+    # Float field does.
+    arguments = argv(_reasons_project(tmp_path, contract), "postgres", kind="query")
+    arguments[8] = "ratio_group"
+    code, text, err = run([*arguments, "--format", "text"])
+    assert (code, err) == (0, "")
+    assert text.startswith(b"pietto.sql-emission.v1 VERIFIED\n")
     # A MySQL Float INTERSECT/EXCEPT is refused at its set body; the remedy
     # names the set forms each target reviews.
     assert blocker_suggestion(
         "PIE-B1003", "set_row_equivalence_domain_unsupported", "mysql"
     ) == (
         "Use Int, Bool, Text, Decimal or Float with exact matching carriers. On"
-        " MySQL a Float set is limited to UNION ALL, a window distribution result"
-        " is limited to UNION ALL on both targets, and Timestamp to"
-        " UNION ALL/DISTINCT; keep other unreviewed set carriers in check --project."
+        " MySQL a Float set, a window distribution result included, is limited"
+        " to UNION ALL, and Timestamp to UNION ALL/DISTINCT; keep other"
+        " unreviewed set carriers in check --project."
     )
     # A plan-stage refusal is at its clause, not the whole declaration.
     assert _reasons(tmp_path, "renamed", contract) == (

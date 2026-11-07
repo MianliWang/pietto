@@ -6482,7 +6482,7 @@ def verify_compiled_window_stage(body, record, request, produced, sources):
             need(binding.ref is refs[a], "WINDOW_PARTITION_BINDING")
             check_read(read, a)
             need(
-                windowing.partition_key_admitted(read.realization),
+                windowing.partition_key_admitted(read.realization, request.family),
                 "WINDOW_PARTITION_DOMAIN",
             )
         for i, (item, (a, direction, nulls)) in enumerate(
