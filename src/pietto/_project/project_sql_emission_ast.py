@@ -595,7 +595,10 @@ def emission_blockers(request: PreparedEmission, *, _guarded=None):
     if (
         not admitted
         and not refused
-        and (admitted_row_shape(plan) or joining.admitted_join_shape(plan))
+        and (
+            admitted_row_shape(plan)
+            or joining.admitted_join_shape(plan, request.family)
+        )
     ):
         realization = realize_rows(request)
         result.extend(realization.problems)

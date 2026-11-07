@@ -461,7 +461,7 @@ def validate_resolved_premise(key, scope_kind, value, path, errors):
         _error(errors, path + "/value")
 
 
-def _structure_limit_blocker(plan, premises):
+def _structure_limit_blocker(plan, premises, family):
     """PIE-B1007 for a plan whose stages carry more columns than realizing it
     may generate: each stage column is at least two generated nodes, so
     realization would refuse it (`emission_blockers`). The plan is refused
@@ -485,7 +485,7 @@ def _structure_limit_blocker(plan, premises):
     if (
         2 * columns <= limit
         or projection_chain_shape(plan)
-        or not (admitted_row_shape(plan) or admitted_join_shape(plan))
+        or not (admitted_row_shape(plan) or admitted_join_shape(plan, family))
     ):
         return None
     return Blocker("PIE-B1007", "generated_structure_limit", plan.scope)
@@ -940,7 +940,7 @@ def prepare_project_sql_emission(
             target_request=target_request,
             scalar_meaning=scalar_meaning,
         )
-    structure = _structure_limit_blocker(verification.plan, premises)
+    structure = _structure_limit_blocker(verification.plan, premises, family)
     if structure is not None:
         return PreparationFailure(
             blockers=(*conflicts, structure), diagnostics=diagnostics, family=family

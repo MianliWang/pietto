@@ -645,8 +645,15 @@ text hint. This is an additive change to failure documents after 0.1.6; older
 strict JSON readers must upgrade. VERIFIED documents gain no suggestion field.
 
 JOIN SELECT supports the already reviewed scalar calls, casts, conditional and
-membership expressions, and comparison chains. Other JOIN expression sites and
-JOIN kinds retain their existing limits. Timestamp UNION ALL/DISTINCT uses the
+membership expressions, and comparison chains. On PostgreSQL a statement with
+a JOIN also renders these forms, by the rules of a statement without one, in
+every table, query or `let` that has no JOIN of its own: one the JOIN reads
+(a query whose WHERE calls a def that inlines to a conditional, a capturing
+`let` read LATERAL) and one that reads the JOIN's rows. MySQL keeps such a
+statement BLOCKED (`scalar_projection_requires_later_slice`,
+`operator_not_implemented_in_slice6`, `join_shape_not_admitted_in_slice7`).
+Other JOIN expression sites (a joined `let`, WHERE or ON) and JOIN kinds
+retain their existing limits. Timestamp UNION ALL/DISTINCT uses the
 existing exact civil-microsecond carrier; Timestamp INTERSECT/EXCEPT and other
 unreviewed set carriers remain refused. A finite `Float` column takes part in
 every set form on PostgreSQL, comparing by Float equality (`-0.0 == 0.0`; see
@@ -793,9 +800,12 @@ Timestamp carrier and emits a derived Date with PostgreSQL `DATE` or MySQL
 MySQL `DATE` and the civil range 1000-01-01 to 9999-12-31 without a time zone,
 which `row_domain_matches` declares. A source or derived Date supports
 carrying, `==` and `!=`, `count`, `count_distinct`, DISTINCT, GROUP BY and
-`year`/`month`/`day`, and a source Date field, not a derived one, is an
-equality JOIN key (INNER, LEFT, RIGHT); a Date has no literal, parsing,
-arithmetic or time-zone admission. Timestamp and Date values of one carrier
+`year`/`month`/`day`, and a source Date field is an equality JOIN key
+(INNER, LEFT, RIGHT), as on PostgreSQL is a derived Date column of a table or
+query the JOIN reads; a Date has no literal, parsing, arithmetic or time-zone
+admission. On PostgreSQL two Date values of one carrier also make a
+conditional (`a if c else b`), so `max(a, b)` and `min(a, b)` of two Date
+values; MySQL refuses it (`conditional_realization_not_admitted`). Timestamp and Date values of one carrier
 also compare with `<`, `<=`, `>`, `>=` and an inclusive comparison chain, in
 WHERE and in a JOIN ON condition alike, order a result or a window, and are
 `min` and `max` arguments, whose result keeps the carrier and admits NULL
@@ -880,11 +890,13 @@ and an extreme of equal values may be either member); `min` and `max` keep the
 argument's carrier and become nullable. An aggregate whose argument is a row
 expression (`sum(qty * 2)`, `count(lower(label))`) is lowered by the same rules
 as a `let` and emitted inside the aggregate, so it is admitted exactly where
-`let t = qty * 2` with `sum(t)` is. Over JOIN rows a scalar call such as
-`lower`, `trim` or `len` is admitted only directly in a SELECT item, so an
-aggregate argument that holds one (`count(lower(r.label))`) stays BLOCKED with
-`operator_not_implemented_in_slice6` and `join_shape_not_admitted_in_slice7`,
-as `let t = lower(r.label)` with `count(t)` does. MySQL emits the same
+`let t = qty * 2` with `sum(t)` is. Over JOIN rows PostgreSQL also emits an
+aggregate argument that holds a scalar call such as `lower`, `trim` or `len`
+(`count(lower(r.label))`), while a joined `let t = lower(r.label)` with
+`count(t)` stays BLOCKED with `operator_not_implemented_in_slice6` and
+`join_shape_not_admitted_in_slice7`: a joined `let` admits such a call only
+directly in a SELECT item. MySQL keeps the aggregate argument BLOCKED too,
+with the same two details. MySQL emits the same
 `count`, `count_distinct`, `min` and `max` forms, with a non-null `my_bigint`
 count and the argument's own nullable carrier for an extreme, and the same row
 expression arguments (`count(lower(label))`), except that it keeps BLOCKED

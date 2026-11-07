@@ -5795,7 +5795,7 @@ def verify_row_query(request, query, *, _guarded=None):
             or (type(query) is SQLJoinQuery)
             != bool(plan.joins or plan.set_bodies or plan.values_bodies)
             or (
-                joining.admitted_join_shape(plan)
+                joining.admitted_join_shape(plan, request.family)
                 if joined
                 else admitted_row_shape(plan)
             )

@@ -43,6 +43,9 @@ SQL of each function added after 0.1.8.
 | FULL JOIN on `Int` keys | yes | yes, as a derived table | yes | BLOCKED PIE-B1003 `mysql_full_join_approved_non_support` | [0.1.6](release-notes.md#corrections-and-mysql-parity-public-alpha-release-notes--016) |
 | `where any(...)`, `where not any(...)` | yes | yes | yes | yes | [0.1.5](release-notes.md#modern-syntax-public-alpha-release-notes--015) |
 | Aggregates over JOIN rows without fan-out | yes | yes | yes | yes (`sum` of an `Int` as above) | [0.1.9](release-notes.md#equality-nullability-and-asof-join-public-alpha-release-notes--019) |
+| A conditional (also a `def` that inlines to one), `in`, cast or scalar call in a query a JOIN reads, or in a query that reads JOIN rows | yes | yes | yes | BLOCKED PIE-B1003 `join_shape_not_admitted_in_slice7` | [Unreleased](release-notes.d/76-s02-joined-expressions.md#scalar-forms-beside-a-join-in-postgresql-projects) |
+| A scalar call in an aggregate argument over JOIN rows (`count(lower(r.label))`) | yes | yes | yes | BLOCKED PIE-B1003 `join_shape_not_admitted_in_slice7` | [Unreleased](release-notes.d/76-s02-joined-expressions.md#scalar-forms-beside-a-join-in-postgresql-projects) |
+| `max(a, b)`, `min(a, b)` of two `Date` values | yes | yes | yes | BLOCKED PIE-B1003 `conditional_realization_not_admitted` | [Unreleased](release-notes.d/76-s02-joined-expressions.md#maxa-b-and-mina-b-of-two-date-values-in-postgresql-projects) |
 | `asof left join`, `asof inner join` | yes | yes | yes | yes | [0.1.9](release-notes.md#equality-nullability-and-asof-join-public-alpha-release-notes--019), [0.1.10](release-notes.md#asof-join-on-mysql) |
 | `def` functions | yes | yes | yes | yes | [Inline functions](language.md#inline-functions-def) |
 | A relationship parameter that takes the rows of a table or query | yes | yes | yes | yes | [0.1.10](release-notes.md#relationships-take-table-and-query-rows) |

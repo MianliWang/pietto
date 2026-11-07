@@ -1806,6 +1806,249 @@ def test_join_scalar_projection_does_not_open_other_sites(tmp_path, target, site
     ]
 
 
+# --------------------------------------------------------------------------
+# Scalar forms beside a JOIN: definitions without a JOIN of their own, and a
+# scalar call inside an aggregate argument over JOIN rows
+# --------------------------------------------------------------------------
+
+BANDED = (
+    "(CASE WHEN ({id} <= CAST(3 AS pg_catalog.int8)) THEN CAST(1 AS "
+    "pg_catalog.int8) ELSE CAST(2 AS pg_catalog.int8) END)"
+)
+SOURCE_ID = '"s0"."order.id"'
+SCALAR = "scalar_projection_requires_later_slice"
+SHAPE = "join_shape_not_admitted_in_slice7"
+PREDECESSOR = """query pred:
+    from rhs
+    where band(id) == 2
+    select:
+        id
+        label
+"""
+# Each case: its body, PostgreSQL SQL fragments, and the MySQL blocker details
+# (None where MySQL emits it too).
+BESIDE_JOIN = {
+    "where_of_the_joined_query": (
+        PREDECESSOR
+        + "query result:\n    from lhs\n    let r = pred\n"
+        + "    left join r on lhs.id == r.id\n"
+        + "    select:\n        a = lhs.id\n        b = r.label\n",
+        (
+            f"WHERE ({BANDED.format(id=SOURCE_ID)} = CAST(2 AS pg_catalog.int8))",
+            " LEFT JOIN ",
+        ),
+        [SCALAR, SCALAR, SHAPE],
+    ),
+    "where_of_the_from_query": (
+        PREDECESSOR
+        + "query result:\n    from pred\n    let l = lhs\n"
+        + "    inner join l on l.id == pred.id\n"
+        + "    select:\n        a = pred.id\n        b = l.label\n",
+        (" INNER JOIN ",),
+        [SCALAR, SCALAR, SHAPE],
+    ),
+    "select_forms": (
+        "query pred:\n    from rhs\n    select:\n        id\n        b = band(id)\n"
+        + "        c = 2 <= id <= 3\n        m = id in (1, 4)\n"
+        + "        t = Text(id)\n        low = lower(label)\n"
+        + "query result:\n    from lhs\n    let r = pred\n"
+        + "    right join r on lhs.id == r.id\n    select:\n        a = lhs.id\n"
+        + "        b = r.b\n        c = r.c\n        m = r.m\n        t = r.t\n"
+        + "        low = r.low\n",
+        (
+            '("s0"."order.id" BETWEEN CAST(2 AS pg_catalog.int8) AND CAST(3 AS pg_catalog.int8))',
+            '("s0"."order.id" IN (CAST(1 AS pg_catalog.int8), CAST(4 AS pg_catalog.int8)))',
+            '(CAST("s0"."order.id" AS pg_catalog.text) COLLATE "C")',
+            'lower("s0"."label")',
+            " RIGHT JOIN ",
+        ),
+        [SCALAR] * 6 + [SHAPE],
+    ),
+    "a_query_reading_joined_rows": (
+        "query joined:\n    from lhs\n    let r = rhs\n"
+        + "    inner join r on lhs.id == r.id\n"
+        + "    select:\n        a = lhs.id\n        label = r.label\n"
+        + "query result:\n    from joined\n"
+        + '    where band(a) == 2 and lower(label) != "x"\n'
+        + "    select:\n        a\n        b = band(a)\n",
+        ('lower("s2"."c1") <> ', BANDED.format(id='"t2"."c0"') + ' AS "b"'),
+        [SCALAR, SCALAR, SHAPE],
+    ),
+    "a_capturing_let_read_lateral": (
+        "query result:\n    let m:\n        capture lhs\n        from rhs\n"
+        + "        where rhs.key == lhs.key and band(rhs.id) == 2\n"
+        + "        select:\n            id\n            low = lower(rhs.label)\n"
+        + "    from lhs\n    let m1 = m\n    left join m1 on True\n"
+        + "    select:\n        a = lhs.id\n        b = m1.id\n        c = m1.low\n",
+        (" LEFT JOIN LATERAL (", 'lower("t1"."c2") AS "c1"'),
+        [SCALAR, SCALAR, SCALAR, SHAPE],
+    ),
+    # A comparison was already admitted beside a JOIN on both targets; its
+    # computed column keeps its published nullability through the JOIN.
+    "a_comparison": (
+        "query pred:\n    from rhs\n    select:\n        id\n        c = id >= 2\n"
+        + "query result:\n    from lhs\n    let r = pred\n"
+        + "    inner join r on lhs.id == r.id\n"
+        + "    select:\n        a = lhs.id\n        c = r.c\n",
+        ('("s0"."order.id" >= CAST(2 AS pg_catalog.int8)) AS "c1"',),
+        None,
+    ),
+}
+
+
+def labelled(tmp_path, target, body, policy="preserve_literals"):
+    item = probe.labelled_join_witness(target, body, policy=policy)
+    _, outcome = probe.build_case(
+        tmp_path, item["source"], item["contract"], item["policy"]
+    )
+    return outcome
+
+
+@pytest.mark.parametrize("target", TARGETS)
+@pytest.mark.parametrize("case", BESIDE_JOIN)
+def test_a_definition_beside_a_join_renders_its_scalar_forms_on_postgresql(
+    tmp_path, target, case
+):
+    """A conditional (a def call), comparison chain, IN list, cast or scalar
+    call in a definition with no JOIN of its own (a query the JOIN reads, a
+    query that reads its rows, a capturing let read LATERAL) renders by the
+    single-input rules on PostgreSQL; MySQL keeps its earlier blockers."""
+    body, fragments, mysql = BESIDE_JOIN[case]
+    outcome = labelled(tmp_path, target, body)
+    doc = public(outcome)
+    if target == "mysql" and mysql is not None:
+        assert doc["status"] == "BLOCKED" and not outcome.diagnostics
+        assert [blocker.detail for blocker in outcome.blockers] == mysql
+        return
+    assert doc["status"] == "VERIFIED"
+    if target == "postgres":
+        for fragment in fragments:
+            assert fragment in doc["sql"]
+
+
+def test_a_query_a_join_reads_keeps_the_sql_it_has_alone(tmp_path):
+    """The WHERE of `pred` calls a def that inlines to a conditional; read by a
+    LEFT JOIN, its CTE is byte for byte the one `pred` emits alone."""
+    body = BESIDE_JOIN["where_of_the_joined_query"][0]
+    alone = public(
+        labelled(
+            tmp_path / "alone",
+            "postgres",
+            PREDECESSOR.replace("query pred:", "query result:"),
+        )
+    )["sql"]
+    joined = public(labelled(tmp_path / "joined", "postgres", body))["sql"]
+    prefix = alone[: alone.index(' SELECT "t1"')]
+    assert joined.startswith(prefix + ', "p1" ')
+    assert joined == (
+        'WITH "p0" ("c0", "c1", "c2") AS (SELECT "s0"."order.id" AS "c0", '
+        '"s0"."key value" AS "c1", "s0"."label" AS "c2" FROM "public"."phase66 '
+        'rhs é" AS "s0" WHERE ((CASE WHEN ("s0"."order.id" <= CAST(3 AS '
+        "pg_catalog.int8)) THEN CAST(1 AS pg_catalog.int8) ELSE CAST(2 AS "
+        'pg_catalog.int8) END) = CAST(2 AS pg_catalog.int8))), "p1" ("c0", '
+        '"c1") AS (SELECT "t1"."c0" AS "c0", "t1"."c2" AS "c1" FROM "p0" AS '
+        '"t1"), "p2" ("c0", "c1", "c2", "c3", "c4") AS (SELECT "m0"."order.id" '
+        'AS "c0", "m0"."key value" AS "c1", "m0"."label" AS "c2", "m1"."c0" AS '
+        '"c3", "m1"."c1" AS "c4" FROM "public"."phase66 lhs é" AS "m0" LEFT '
+        'JOIN "p1" AS "m1" ON ("m0"."order.id" = "m1"."c0")) SELECT "t0"."c0" '
+        'AS "a", "t0"."c4" AS "b" FROM "p2" AS "t0"'
+    )
+
+
+@pytest.mark.parametrize("target", TARGETS)
+def test_a_scalar_call_in_an_aggregate_argument_over_join_rows(tmp_path, target):
+    """`count(lower(r.label))` and its kin over the rows of a LEFT JOIN emit
+    on PostgreSQL inside the aggregate, as over one input; MySQL keeps its
+    earlier blockers."""
+    body = (
+        "query result:\n    from lhs\n    let r = rhs\n"
+        "    left join r on lhs.id == r.id\n    group by lhs.id\n"
+        "    select:\n        a = lhs.id\n        n = count(lower(r.label))\n"
+        "        d = count_distinct(trim(r.label))\n"
+        "        l = count(len(r.label))\n        c = count(lower(trim(r.label)))\n"
+    )
+    outcome = labelled(tmp_path, target, body)
+    doc = public(outcome)
+    if target == "mysql":
+        assert doc["status"] == "BLOCKED" and not outcome.diagnostics
+        assert [blocker.detail for blocker in outcome.blockers] == [
+            "operator_not_implemented_in_slice6",
+            SHAPE,
+        ]
+        return
+    assert doc["status"] == "VERIFIED"
+    assert doc["sql"] == (
+        'WITH "p0" ("c0", "c1", "c2", "c3", "c4", "c5") AS (SELECT "m0"."order.id" '
+        'AS "c0", "m0"."key value" AS "c1", "m0"."label" AS "c2", "m1"."order.id" '
+        'AS "c3", "m1"."key value" AS "c4", "m1"."label" AS "c5" FROM '
+        '"public"."phase66 lhs é" AS "m0" LEFT JOIN "public"."phase66 rhs é" AS '
+        '"m1" ON ("m0"."order.id" = "m1"."order.id")), "p1" ("c0", "c1", "c2", '
+        '"c3", "c4") AS (SELECT "t0"."c0" AS "c0", COUNT(lower("t0"."c5")) AS '
+        '"c1", COUNT(DISTINCT trim("t0"."c5")) AS "c2", COUNT(CAST(length('
+        '"t0"."c5") AS pg_catalog.int8)) AS "c3", COUNT(lower(trim("t0"."c5"))) '
+        'AS "c4" FROM "p0" AS "t0" GROUP BY "t0"."c0") SELECT "t1"."c0" AS "a", '
+        '"t1"."c1" AS "n", "t1"."c2" AS "d", "t1"."c3" AS "l", "t1"."c4" AS "c" '
+        'FROM "p1" AS "t1"'
+    )
+    assert [(c["label"], c["nullable"]) for c in doc["columns"]] == [
+        ("a", False),
+        ("n", False),
+        ("d", False),
+        ("l", False),
+        ("c", False),
+    ]
+
+
+@pytest.mark.parametrize("target", TARGETS)
+@pytest.mark.parametrize("site", ("where", "let"))
+def test_joined_sites_keep_their_scalar_limits(tmp_path, target, site):
+    """A def conditional in the joined query's own WHERE, and a joined `let` of
+    a scalar call that an aggregate then reads, stay BLOCKED on both targets."""
+    if site == "where":
+        body = (
+            "query result:\n    from lhs\n    let r = rhs\n"
+            "    inner join r on lhs.id == r.id\n    where band(r.id) == 2\n"
+            "    select:\n        a = lhs.id\n"
+        )
+        details = [SCALAR, SHAPE]
+    else:
+        body = (
+            "query result:\n    from lhs\n    let r = rhs\n"
+            "    left join r on lhs.id == r.id\n    let t = lower(r.label)\n"
+            "    group by lhs.id\n    select:\n        a = lhs.id\n"
+            "        n = count(t)\n"
+        )
+        details = ["operator_not_implemented_in_slice6", SHAPE]
+    outcome = labelled(tmp_path, target, body)
+    assert public(outcome)["status"] == "BLOCKED" and not outcome.diagnostics
+    assert [blocker.detail for blocker in outcome.blockers] == details
+
+
+@pytest.mark.parametrize("target", TARGETS)
+def test_a_refused_call_in_a_query_a_join_reads_names_itself_on_postgresql(
+    tmp_path, target
+):
+    """`matches` has no project emission; read through a JOIN, PostgreSQL now
+    refuses it at its own call, where MySQL keeps the earlier blockers."""
+    body = (
+        "query pred:\n    from rhs\n    select:\n        id\n"
+        '        m = matches(label, "a.*")\n'
+        "query result:\n    from lhs\n    let r = pred\n"
+        "    inner join r on lhs.id == r.id\n"
+        "    select:\n        a = lhs.id\n        m = r.m\n"
+    )
+    outcome = labelled(tmp_path, target, body)
+    assert public(outcome)["status"] == "BLOCKED" and not outcome.diagnostics
+    found = located(outcome)
+    if target == "postgres":
+        # Line 13 of main.pietto: `m = matches(label, "a.*")`.
+        assert [(code, detail, where[0]) for code, detail, where in found] == [
+            ("PIE-B1003", "scalar_call_signature_not_admitted", 13)
+        ]
+    else:
+        assert [detail for _, detail, _ in found] == [SCALAR, SCALAR, SHAPE]
+
+
 def _float_rows(tmp_path, target, body):
     """A self JOIN or correlated read of the published source's Float field."""
     item = probe.parameterized_fixture(target, body, protocol=False)

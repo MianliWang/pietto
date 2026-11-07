@@ -1926,7 +1926,11 @@ def resolved_conditional_realization(family, tag, nullable, values):
         if result is not None:
             return result, None
         return None, ("PIE-B1003", "conditional_realization_not_admitted")
-    if tag not in {"Decimal", "Float", "Timestamp", "UUID"}:
+    # A Date one (so `max(a, b)` of two Date values) is PostgreSQL only until
+    # MySQL has its own differential.
+    if tag not in {"Decimal", "Float", "Timestamp", "UUID"} and (
+        tag != "Date" or family != "postgres"
+    ):
         return None, ("PIE-B1003", "conditional_realization_not_admitted")
     if any(
         branch.tag != carrier.tag

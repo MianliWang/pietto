@@ -15,6 +15,7 @@ from pietto._project import project_sql_emission_windows as windowing
 from pietto._project import project_sql_emission_results as resulting
 from pietto._project import project_sql_emission_sets as setting
 from pietto._project import project_sql_plan_windows as plan_windows
+from pietto._project import project_sql_plan_aggregation as plan_aggregation
 from pietto._project.model import ProjectResolvedTypeKind, ProjectRowFieldNullability
 from pietto._project.project_sql_plan_joins import (
     ProjectSQLJoinPortKind,
@@ -127,7 +128,35 @@ def joined_definitions(plan) -> dict[Any, tuple[Any, ...]]:
     return result
 
 
-def admitted_join_shape(plan) -> bool:
+SITED = {
+    row.ProjectSQLBetween,
+    row.ProjectSQLConditional,
+    row.ProjectSQLMembership,
+    row.ProjectSQLCast,
+    row.ProjectSQLScalarCall,
+}
+
+
+def sited_admitted(expression, family) -> bool:
+    """A JOIN plan renders these forms at a joined SELECT item. PostgreSQL also
+    renders them, by the single-input rules, in a definition with no JOIN of
+    its own (one the JOIN reads, or one that reads its rows), and a call inside
+    an aggregate argument; joined LET, WHERE and ON sites keep their limits,
+    and MySQL keeps all of them until its own differential."""
+    site = expression.site
+    if type(site) is row.ProjectSQLJoinedSite:
+        return (
+            type(expression) in SITED
+            and site.role is row.ProjectSQLExpressionRole.SELECT
+        )
+    if family != "postgres":
+        return False
+    return type(expression) is plan_aggregation.ProjectSQLAggregateArgumentCall or (
+        type(expression) in SITED and type(site) is row.ProjectSQLExpressionSite
+    )
+
+
+def admitted_join_shape(plan, family) -> bool:
     """Ordered JOIN chains over admitted inputs with the existing row tail."""
     if not plan.joins or not resulting.boundaries_admitted(plan):
         return False
@@ -157,18 +186,7 @@ def admitted_join_shape(plan) -> bool:
             grouping.ProjectSQLResultReference,
             plan_windows.ProjectSQLWindowReference,
         }
-        and not (
-            type(expression)
-            in {
-                row.ProjectSQLBetween,
-                row.ProjectSQLConditional,
-                row.ProjectSQLMembership,
-                row.ProjectSQLCast,
-                row.ProjectSQLScalarCall,
-            }
-            and type(expression.site) is row.ProjectSQLJoinedSite
-            and expression.site.role is row.ProjectSQLExpressionRole.SELECT
-        )
+        and not sited_admitted(expression, family)
         for expression in plan.expressions
     ):
         return False

@@ -4449,6 +4449,34 @@ def join_witness(target, body, *, link=False, policy="preserve_literals", module
     }
 
 
+LABELLED_HEADER = """shape Row:
+    id: Int
+    key: Int | None
+    label: Text | None
+    row_key = unique(id)
+source lhs: Row = {target}.table("lhs")
+source rhs: Row = {target}.table("rhs")
+def band(x: Int) -> Int: return 1 if x <= 3 else 2
+"""
+
+
+def labelled_join_witness(target, body, *, policy="preserve_literals"):
+    """`join_witness` whose sources also carry a nullable Text `label`, keyed
+    by a unique `id`, with a def `band` that inlines to a conditional."""
+    item = join_witness(
+        target,
+        {"main.pietto": LABELLED_HEADER.format(target=target) + body},
+        policy=policy,
+    )
+    contract = json.loads(item["contract"])
+    text = json.loads(fixture(target)["contract"])["sources"][0]["fields"][2]
+    for source in contract["sources"]:
+        label = deepcopy(text) | {"ordinal": 2, "name": "label", "column": "label"}
+        label["representation"]["nullable"] = True
+        source["fields"].append(label)
+    return item | {"contract": encoded(contract).decode()}
+
+
 def source_bytes(source):
     return source.encode("utf-8") if type(source) is str else encoded(source)
 
@@ -13980,6 +14008,9 @@ def _decode_fixed_public(document, limits):
                 "a published JOIN port must carry its own pre-match column",
             )
             nulled = bool(carrier["nulled"]) or side in nulls
+            # A computed carrier (nullable None) keeps its publication and its
+            # own NON NULL proof unless this JOIN null-extends it.
+            computed = carrier["realization"]["nullable"] is None and not nulled
             narrowed = (
                 bool(carrier["realization"]["nullable"])
                 and not nulled
@@ -13987,7 +14018,9 @@ def _decode_fixed_public(document, limits):
             )
             realization = {
                 **carrier["realization"],
-                "nullable": (
+                "nullable": None
+                if computed
+                else (
                     nulled
                     or (bool(carrier["realization"]["nullable"]) and not narrowed)
                 ),
@@ -14004,6 +14037,7 @@ def _decode_fixed_public(document, limits):
                     # value; it never recomputes it, so the origin rides along.
                     "origin": carrier.get("origin"),
                     "nulled": nulled,
+                    "proof": computed and bool(carrier.get("proof", False)),
                 }
             )
             columns.append({"port": item["port"], "nulled": nulled})

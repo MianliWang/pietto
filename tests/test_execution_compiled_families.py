@@ -3924,7 +3924,7 @@ def test_max_and_min_of_two_values_emit_replay_and_bind_one_statement(tmp_path, 
 def test_max_and_min_of_two_timestamps_or_uuids_emit_replay_and_bind(tmp_path, target):
     """Timestamp and UUID values order as their project comparison does, so
     their `max` and `min` are one emitted, compiled-replay and live-template
-    statement on both targets. A Date has no project conditional yet."""
+    statement on both targets."""
     pg = target == "postgres"
     body = (
         "    from rows\n    select:\n        id\n"
@@ -3958,15 +3958,91 @@ def test_max_and_min_of_two_timestamps_or_uuids_emit_replay_and_bind(tmp_path, t
     values = tuple(value.value for value in outcome.artifact.fixed_values)
     assert emit_compiled(loaded, values).rendered.sql == sql
     assert prepare_live_template(outcome.artifact).artifact.rendered.sql == sql
-    _, blocked = emission.temporal_case(
-        tmp_path / "date",
-        target,
-        "    from rows\n    select:\n        id\n        v = max(d, d2)\n",
+
+
+@pytest.mark.parametrize("target", ("postgres", "mysql"))
+def test_max_and_min_of_two_dates_emit_replay_and_bind_on_postgresql(tmp_path, target):
+    """On PostgreSQL two Date values of one carrier order as their project
+    comparison does, so their `max` and `min` are the conditional of the other
+    types, emitted, replayed from compiled input and bound by a live template.
+    MySQL keeps the conditional refused until its own differential."""
+    body = "    from rows\n    select:\n        id\n        v = max(d, d2)\n"
+    if target == "mysql":
+        _, blocked = emission.temporal_case(tmp_path, target, body)
+        assert blocked.status == "BLOCKED" and blocked.artifact is None
+        assert [(item.code, item.detail) for item in blocked.blockers] == [
+            ("PIE-B1003", "conditional_realization_not_admitted")
+        ]
+        return
+    checked, outcome = emission.temporal_case(
+        tmp_path, target, body + "        w = min(d2, d)\n"
     )
-    assert blocked.status == "BLOCKED" and blocked.artifact is None
-    assert [(item.code, item.detail) for item in blocked.blockers] == [
-        ("PIE-B1003", "conditional_realization_not_admitted")
-    ]
+    assert checked.verified and outcome.status == "VERIFIED"
+    assert outcome.artifact is not None
+    sql = outcome.artifact.rendered.sql
+    d, d2 = '"s0"."d"', '"s0"."d2"'
+    assert (
+        f"(CASE WHEN ({d2} IS NOT NULL) THEN (CASE WHEN ({d} < {d2}) "
+        f'THEN {d2} ELSE {d} END) ELSE {d2} END) AS "v", '
+        f"(CASE WHEN ({d} IS NOT NULL) THEN (CASE WHEN ({d2} > {d}) "
+        f'THEN {d} ELSE {d2} END) ELSE {d} END) AS "w"'
+    ).encode() in sql
+    document = json.loads(serialize_project_sql_emission(outcome).decode())
+    assert [
+        (item["label"], item["logical_type"]["name"], item["nullable"])
+        for item in document["columns"]
+    ] == [("id", "Int", False), ("v", "Date", True), ("w", "Date", True)]
+    built = build_compiled(outcome.artifact)
+    loaded = load_compiled(
+        built.payload,
+        expected_pin=built.pin,
+        accepted_producer=built.producer,
+        accepted_compatibility=built.compatibility,
+    )
+    values = tuple(value.value for value in outcome.artifact.fixed_values)
+    assert emit_compiled(loaded, values).rendered.sql == sql
+    assert prepare_live_template(outcome.artifact).artifact.rendered.sql == sql
+
+
+def test_a_join_of_a_conditional_query_with_a_call_in_its_aggregate_replays(
+    tmp_path,
+):
+    """On PostgreSQL a LEFT JOIN reads a query whose WHERE calls a def that
+    inlines to a conditional and counts `lower` of the joined label; under
+    bind-safe literals the compiled replay and the live template render the
+    emitted SQL, its four slots in rendered order."""
+    body = (
+        "query pred:\n    from rhs\n    where band(id) == 2\n"
+        "    select:\n        id\n        label\n"
+        "query result:\n    from lhs\n    let r = pred\n"
+        "    left join r on lhs.id == r.id\n    group by lhs.id\n"
+        "    select:\n        a = lhs.id\n        n = count(lower(r.label))\n"
+    )
+    item = emission.labelled_join_witness("postgres", body, policy="bind_safe_literals")
+    checked, outcome = emission.build_case(
+        tmp_path, item["source"], item["contract"], item["policy"]
+    )
+    assert checked.verified and outcome.status == "VERIFIED"
+    assert outcome.artifact is not None
+    sql = outcome.artifact.rendered.sql
+    assert (
+        b'WHERE ((CASE WHEN ("s0"."order.id" <= CAST($1 AS pg_catalog.int8)) '
+        b"THEN CAST($2 AS pg_catalog.int8) ELSE CAST($3 AS pg_catalog.int8) END) "
+        b"= CAST($4 AS pg_catalog.int8))"
+    ) in sql
+    assert b' LEFT JOIN "p1" AS "m1" ' in sql
+    assert b'COUNT(lower("t0"."c4")) AS "c1"' in sql
+    built = build_compiled(outcome.artifact)
+    loaded = load_compiled(
+        built.payload,
+        expected_pin=built.pin,
+        accepted_producer=built.producer,
+        accepted_compatibility=built.compatibility,
+    )
+    values = tuple(value.value for value in outcome.artifact.fixed_values)
+    assert values == (1, 3, 2, 2)
+    assert emit_compiled(loaded, values).rendered.sql == sql
+    assert prepare_live_template(outcome.artifact).artifact.rendered.sql == sql
 
 
 @pytest.mark.parametrize(
