@@ -245,7 +245,9 @@ def test_count_missing_field_uses_existing_unresolved_field_diagnostic_only() ->
             (
                 "PIE-S2310",
                 "Aggregate projection must be a direct aggregate call; "
-                "composition around count() is not supported yet",
+                "composition around count() is not supported yet; select the count() "
+                "under a name in one query, then compute with that name in "
+                "another that reads it with `from`",
             ),
         ),
         (

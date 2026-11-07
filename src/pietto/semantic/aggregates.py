@@ -1268,6 +1268,10 @@ def deferred_composition_diagnostic(expression: Expression) -> Diagnostic:
             "Aggregate projection must be a direct aggregate call; "
             f"composition around {name}() is not supported yet"
         ),
+        hint=(
+            f"select the {name}() under a name in one query, then compute with "
+            "that name in another that reads it with `from`"
+        ),
     )
 
 

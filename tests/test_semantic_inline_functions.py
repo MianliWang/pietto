@@ -2635,7 +2635,9 @@ ONCE = {
                 5,
                 13,
                 "Aggregate projection must be a direct aggregate call; composition "
-                "around sum() is not supported yet",
+                "around sum() is not supported yet; select the sum() "
+                "under a name in one query, then compute with that name in "
+                "another that reads it with `from`",
             ),
             ("PIE-S2102", 5, 21, "Unknown field: nope"),
         ],

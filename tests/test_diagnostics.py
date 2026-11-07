@@ -244,6 +244,10 @@ _SUBQUERY = (
     "`scalar x.c` (EXPLICIT_MODULES projects)."
 )
 _QUALIFY_BLOCK = "Write the `qualify:` condition in an indented block on the next line."
+_GROUP_BY = (
+    "`group by` lists names: select the value under a name in one query, then "
+    "group by that name in another that reads it with `from`."
+)
 _FROM = (
     "A FROM reads a named relation: declare a subquery as a relation let `let x:` "
     "at the start of the body and write `from x` (EXPLICIT_MODULES projects)."
@@ -505,6 +509,23 @@ PRESENTATION_CASES = {
                 "Unexpected end of line. A clause lists its items on its header "
                 "line, or in an indented block after ':'.",
             )
+        ],
+    ),
+    # A computed GROUP BY key names the two-query route, wherever it breaks.
+    "group_by_computed_key": (
+        _query(
+            '    group by date_trunc("month", a)\n    select a\n'
+            "query q2:\n    from r\n    group by m = a\n    select a\n"
+            "query q3:\n    from r\n    group by a * 2\n    select a\n"
+            "query q4:\n    from r\n    group by:\n        lower(a)\n    select a\n"
+            "query q5:\n    from r\n    group by -a\n    select a\n"
+        ),
+        [
+            (6, 24, "Unexpected '('; expected ',' or end of line. " + _GROUP_BY),
+            (10, 16, "Unexpected '='; expected ',' or end of line. " + _GROUP_BY),
+            (14, 16, "Unexpected '*'; expected ',' or end of line. " + _GROUP_BY),
+            (19, 14, "Unexpected '('; expected ',' or end of line. " + _GROUP_BY),
+            (23, 14, "Unexpected '-'. " + _GROUP_BY),
         ],
     ),
     "qualify_header_without_colon": (

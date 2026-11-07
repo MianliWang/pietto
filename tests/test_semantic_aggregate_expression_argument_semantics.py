@@ -666,7 +666,9 @@ def test_projection_alias_is_not_an_aggregate_argument_leaf() -> None:
             (
                 "PIE-S2310",
                 "Aggregate projection must be a direct aggregate call; "
-                "composition around sum() is not supported yet",
+                "composition around sum() is not supported yet; select the sum() "
+                "under a name in one query, then compute with that name in "
+                "another that reads it with `from`",
             ),
         ),
     ],

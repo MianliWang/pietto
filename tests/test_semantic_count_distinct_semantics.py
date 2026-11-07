@@ -248,7 +248,9 @@ def test_projection_alias_is_not_a_count_distinct_argument() -> None:
             (
                 "PIE-S2310",
                 "Aggregate projection must be a direct aggregate call; "
-                "composition around count_distinct() is not supported yet",
+                "composition around count_distinct() is not supported yet; select the count_distinct() "
+                "under a name in one query, then compute with that name in "
+                "another that reads it with `from`",
             ),
         ),
         (

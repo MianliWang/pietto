@@ -388,7 +388,9 @@ def test_duplicate_group_key_over_a_source_without_a_shape_is_refused() -> None:
             (
                 "PIE-S2310",
                 "Aggregate projection must be a direct aggregate call; "
-                "composition around sum() is not supported yet",
+                "composition around sum() is not supported yet; select the sum() "
+                "under a name in one query, then compute with that name in "
+                "another that reads it with `from`",
             ),
         ),
     ],

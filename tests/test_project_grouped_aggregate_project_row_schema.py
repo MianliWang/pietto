@@ -1565,7 +1565,9 @@ _QUANTILE_FRACTION = (
                 (
                     "PIE-S2310",
                     "Aggregate projection must be a direct aggregate call; "
-                    "composition around sum() is not supported yet",
+                    "composition around sum() is not supported yet; select the sum() "
+                    "under a name in one query, then compute with that name in "
+                    "another that reads it with `from`",
                     8,
                     16,
                 ),

@@ -213,6 +213,23 @@ _FROM_HINT = (
     "`let x:` at the start of the body and write `from x` (EXPLICIT_MODULES "
     "projects)."
 )
+# A computed GROUP BY key, such as `group by date_trunc("month", d)`; a single
+# file has only the two-query route, which projects accept too.
+_GROUP_BY_HINT = (
+    "`group by` lists names: select the value under a name in one query, then "
+    "group by that name in another that reads it with `from`."
+)
+_COMPUTED_KEY_TOKENS = frozenset(
+    {
+        PiettoParser.LPAREN,
+        PiettoParser.ASSIGN,
+        PiettoParser.PLUS,
+        PiettoParser.MINUS,
+        PiettoParser.STAR,
+        PiettoParser.SLASH,
+        PiettoParser.PERCENT,
+    }
+)
 # The `||` hint, and the 0.1.7 one where `concat` names a callable of the
 # program's own (`declares_concat`), not the builtin.
 PIPE_HINT = "Write `concat(a, b)` to join Text, or `or` for a condition."
@@ -767,6 +784,15 @@ class SyntaxErrorReporter(DefaultErrorStrategy):
                 "A named window is a `let` among the lets after FROM and every "
                 "JOIN, before `where`, `group by` and `select`."
             )
+        if token.type in _COMPUTED_KEY_TOKENS and isinstance(
+            recognizer._ctx,
+            (
+                PiettoParser.GroupByClauseContext,
+                PiettoParser.GroupByLineContext,
+                PiettoParser.GroupByItemContext,
+            ),
+        ):
+            return _GROUP_BY_HINT
         if token.type == PiettoParser.ASSIGN and (
             PiettoParser.NEWLINE in expected or PiettoParser.EQ in expected
         ):

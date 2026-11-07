@@ -1,9 +1,11 @@
 from __future__ import annotations
 
+import json
 from pathlib import Path
 
 import pytest
 
+from pietto import cli
 from pietto.ast_nodes import (
     BinaryExpr,
     ComparisonExpr,
@@ -112,30 +114,35 @@ def test_decimal_arithmetic_inside_decimal_comparison_shape_is_locked() -> None:
     assert where_type.nullability is EffectiveNullability.UNKNOWN
 
 
+_DECIMAL_TIMES_INT = (
+    "a Decimal multiplies only by a Decimal; Decimal times Int is not supported yet"
+)
+_DECIMAL_FLOAT = "a Decimal does not mix with a Float in `+`, `-` or `*`"
+
+
 @pytest.mark.parametrize(
-    ("expression_source", "message"),
+    ("expression_source", "operator", "rule"),
     [
+        ("price * amount", "*", _DECIMAL_TIMES_INT),
+        ("amount * price", "*", _DECIMAL_TIMES_INT),
+        ("price * 2", "*", _DECIMAL_TIMES_INT),
+        ("2 * price", "*", _DECIMAL_TIMES_INT),
+        ("score + price", "+", _DECIMAL_FLOAT),
+        ("price + score", "+", _DECIMAL_FLOAT),
+        ("price - 1.5", "-", _DECIMAL_FLOAT),
+        ("price * 2.00", "*", _DECIMAL_FLOAT),
         (
-            "price * amount",
-            "Invalid operands for operator *: expected numeric operands",
+            "-price",
+            "-",
+            "a Decimal has no sign operator yet; write `0 - x` for `-x`",
         ),
-        (
-            "amount * price",
-            "Invalid operands for operator *: expected numeric operands",
-        ),
-        (
-            "score + price",
-            "Invalid operands for operator +: expected numeric operands",
-        ),
-        (
-            "price + score",
-            "Invalid operands for operator +: expected numeric operands",
-        ),
+        ("+price", "+", "a Decimal has no sign operator yet; write `x` for `+x`"),
     ],
 )
 def test_invalid_decimal_arithmetic_forms_reuse_s2105(
     expression_source: str,
-    message: str,
+    operator: str,
+    rule: str,
 ) -> None:
     result = analyze(
         _parse(
@@ -148,9 +155,68 @@ def test_invalid_decimal_arithmetic_forms_reuse_s2105(
     relation = _relation(result)
     field = result.model.relation_row_schemas[relation].fields["value"]
 
-    assert _errors(result) == [("PIE-S2105", message)]
+    # A Decimal is a number: the message names its rule, which is the suggestion.
+    assert [(d.code, d.message, d.suggestion) for d in result.diagnostics] == [
+        ("PIE-S2105", f"Invalid operands for operator {operator}: {rule}", rule)
+    ]
     assert field.resolved_type.kind is TypeKind.UNKNOWN
     assert field.nullability is EffectiveNullability.UNKNOWN
+
+
+def test_decimal_sign_rewrite_named_by_s2105_is_accepted() -> None:
+    result = analyze(
+        _parse(
+            SOURCE_PREFIX + "table projected:\n"
+            "    from orders\n"
+            "    select:\n"
+            "        negated = 0 - price\n"
+            "        plain = price\n"
+        )
+    )
+    fields = result.model.relation_row_schemas[_relation(result)].fields
+
+    assert result.diagnostics == ()
+    assert fields["negated"].resolved_type.name == "Decimal"
+    assert fields["plain"].resolved_type.name == "Decimal"
+
+
+def test_decimal_rule_reaches_json_suggestion_in_file_and_project(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    (tmp_path / "pietto.toml").write_text(
+        'schema_version = 2\n[sources]\ninclude = ["*.pietto"]\n', encoding="utf-8"
+    )
+    (tmp_path / "main.pietto").write_text(
+        "type Money = Decimal(12, 2)\n"
+        "shape Order:\n    money: Money\n    score: Float\n"
+        'source orders: Order = postgres.table("orders")\n'
+        "table projected:\n    from orders\n    select:\n"
+        "        doubled = money * 2\n        mixed = score - money\n"
+        "        negated = -money\n        kept = +money\n",
+        encoding="utf-8",
+    )
+    sign = "a Decimal has no sign operator yet; write"
+    rules = [
+        ("*", 9, _DECIMAL_TIMES_INT),
+        ("-", 10, _DECIMAL_FLOAT),
+        ("-", 11, f"{sign} `0 - x` for `-x`"),
+        ("+", 12, f"{sign} `x` for `+x`"),
+    ]
+
+    for argv in (
+        ["check", str(tmp_path / "main.pietto")],
+        ["check", "--project", str(tmp_path)],
+    ):
+        assert cli.main([*argv, "--format", "json"]) == 1
+        diagnostics = json.loads(capsys.readouterr().out)["diagnostics"]
+        # The alias expands to Decimal, and the JSON suggestion carries the rule.
+        assert [
+            (d["code"], d["location"]["line"], d["message"], d["suggestion"])
+            for d in diagnostics
+        ] == [
+            ("PIE-S2105", line, f"Invalid operands for operator {op}: {rule}", rule)
+            for op, line, rule in rules
+        ]
 
 
 def test_unknown_decimal_operand_suppresses_s2105_cascade() -> None:
@@ -214,7 +280,9 @@ def test_decimal_division_remains_deferred_without_diagnostic() -> None:
             (
                 "PIE-S2310",
                 "Aggregate projection must be a direct aggregate call; "
-                "composition around sum() is not supported yet",
+                "composition around sum() is not supported yet; select the sum() "
+                "under a name in one query, then compute with that name in "
+                "another that reads it with `from`",
             ),
         ),
     ],

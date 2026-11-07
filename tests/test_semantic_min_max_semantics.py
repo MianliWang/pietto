@@ -210,7 +210,9 @@ def test_min_max_reject_unsupported_direct_field_argument_types(
             (
                 "PIE-S2310",
                 "Aggregate projection must be a direct aggregate call; "
-                "composition around min() is not supported yet",
+                "composition around min() is not supported yet; select the min() "
+                "under a name in one query, then compute with that name in "
+                "another that reads it with `from`",
             ),
         ),
         (
@@ -218,7 +220,9 @@ def test_min_max_reject_unsupported_direct_field_argument_types(
             (
                 "PIE-S2310",
                 "Aggregate projection must be a direct aggregate call; "
-                "composition around min() is not supported yet",
+                "composition around min() is not supported yet; select the min() "
+                "under a name in one query, then compute with that name in "
+                "another that reads it with `from`",
             ),
         ),
     ],

@@ -245,7 +245,9 @@ def test_unsupported_count_distinct_transform_shapes_use_s2315(
             (
                 "PIE-S2310",
                 "Aggregate projection must be a direct aggregate call; "
-                "composition around count_distinct() is not supported yet",
+                "composition around count_distinct() is not supported yet; select the count_distinct() "
+                "under a name in one query, then compute with that name in "
+                "another that reads it with `from`",
             ),
         ),
     ],

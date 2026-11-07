@@ -3121,6 +3121,8 @@ def resolved_unary_value_type(
                 nullability=operand_type.nullability,
             ), None
         return _UNKNOWN_VALUE_TYPE, "Bool operand"
+    if operator in _DECIMAL_SIGN and _is_builtin(operand_type, "Decimal"):
+        return _UNKNOWN_VALUE_TYPE, _DECIMAL_SIGN[operator]
     if not _is_numeric(operand_type):
         return _UNKNOWN_VALUE_TYPE, "numeric operand"
     return ValueType(
@@ -3741,8 +3743,28 @@ def resolved_binary_value_type(
             return _UNKNOWN_VALUE_TYPE, _text_plus_expected(right_type, joins)
         if operator == "+" and _is_builtin(right_type, "Text"):
             return _UNKNOWN_VALUE_TYPE, _text_plus_expected(left_type, joins)
+        if _is_decimal_float_pair(left_type, right_type):
+            return _UNKNOWN_VALUE_TYPE, _DECIMAL_FLOAT
+        if _is_decimal_int_pair(left_type, right_type):
+            return _UNKNOWN_VALUE_TYPE, _DECIMAL_TIMES_INT
         return _UNKNOWN_VALUE_TYPE, "numeric operands"
     return _UNKNOWN_VALUE_TYPE, None
+
+
+# A Decimal is a number, so where its rule refuses a pair or a sign the
+# message names that rule, also as the JSON suggestion, and does not expect
+# numeric operands.
+_DECIMAL_FLOAT = "a Decimal does not mix with a Float in `+`, `-` or `*`"
+_DECIMAL_TIMES_INT = (
+    "a Decimal multiplies only by a Decimal; Decimal times Int is not supported yet"
+)
+_DECIMAL_SIGN = {
+    "-": "a Decimal has no sign operator yet; write `0 - x` for `-x`",
+    "+": "a Decimal has no sign operator yet; write `x` for `+x`",
+}
+_DECIMAL_RULES = frozenset(
+    {_DECIMAL_FLOAT, _DECIMAL_TIMES_INT, *_DECIMAL_SIGN.values()}
+)
 
 
 _TEXT_JOIN = "numeric operands; use `concat(...)` to join Text values"
@@ -5747,11 +5769,20 @@ def _round_value_type(
         scale = _static_literal(expression.arguments[1], lets)
         if type(scale) is int and -30 <= scale <= 30:
             return _builtin_value_type("Decimal", value.nullability)
+    # A value of unknown type, such as a refused aggregate, has nothing to
+    # rewrite in this call.
+    hint = (
+        ""
+        if value.kind is ValueTypeKind.UNKNOWN
+        else ": write round(value) with a Decimal or Float value, or "
+        "round(value, digits) with a Decimal value and digits an Int literal "
+        "from -30 to 30"
+    )
     diagnostics.append(
         _call_diagnostic(
             expression,
             code="PIE-S2104",
-            message="Invalid arguments for function round",
+            message="Invalid arguments for function round" + hint,
         )
     )
     return _UNKNOWN_VALUE_TYPE
@@ -5791,11 +5822,21 @@ def _date_trunc_value_type(
             "minute",
         }:
             return _builtin_value_type("Timestamp", value.nullability)
+    # A known unit beside a value of unknown type, such as a refused aggregate,
+    # has nothing to rewrite in this call.
+    hint = (
+        ""
+        if unit in {"year", "month", "day", "hour", "minute"}
+        and value.kind is ValueTypeKind.UNKNOWN
+        else ': write date_trunc("month", value) with a Date or Timestamp value; '
+        'the unit is a quoted "year", "month" or "day", or for a Timestamp also '
+        '"hour" or "minute"'
+    )
     diagnostics.append(
         _call_diagnostic(
             expression,
             code="PIE-S2104",
-            message="Invalid arguments for function date_trunc",
+            message="Invalid arguments for function date_trunc" + hint,
         )
     )
     return _UNKNOWN_VALUE_TYPE
@@ -6328,6 +6369,12 @@ def _is_decimal_int_pair(left_type: ValueType, right_type: ValueType) -> bool:
     )
 
 
+def _is_decimal_float_pair(left_type: ValueType, right_type: ValueType) -> bool:
+    return (_is_builtin(left_type, "Decimal") and _is_builtin(right_type, "Float")) or (
+        _is_builtin(left_type, "Float") and _is_builtin(right_type, "Decimal")
+    )
+
+
 def _is_builtin(value_type: ValueType, name: str) -> bool:
     """Return whether a known value type names one exact built-in type."""
 
@@ -6377,6 +6424,8 @@ def _invalid_operator_operands_diagnostic(
 ) -> Diagnostic:
     """Report incompatible known operands at the full operator expression span."""
 
+    if expected in _DECIMAL_RULES:
+        return _operator_operands_diagnostic(expression, expected, suggestion=expected)
     return _operator_operands_diagnostic(expression, f"expected {expected}")
 
 
@@ -6404,6 +6453,8 @@ def _operator_operands_diagnostic(
         | ast.RelationMembershipExpr
     ),
     detail: str,
+    *,
+    suggestion: str | None = None,
 ) -> Diagnostic:
     span = expression.span
     if isinstance(expression, BetweenExpr):
@@ -6425,6 +6476,7 @@ def _operator_operands_diagnostic(
             end_line=span.end_line,
             end_column=span.end_column,
         ),
+        suggestion=suggestion,
     )
 
 

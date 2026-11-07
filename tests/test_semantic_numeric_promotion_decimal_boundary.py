@@ -447,7 +447,11 @@ def test_decimal_value_facts_keep_logical_types_and_deferred_operators() -> None
     unary, unary_diagnostics = expression_facts("+price")
     assert unary.kind is ValueTypeKind.UNKNOWN
     assert unary_diagnostics == (
-        ("PIE-S2105", "Invalid operands for operator +: expected numeric operand"),
+        (
+            "PIE-S2105",
+            "Invalid operands for operator +: a Decimal has no sign operator yet; "
+            "write `x` for `+x`",
+        ),
     )
 
 

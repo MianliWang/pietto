@@ -2780,6 +2780,32 @@ def test_blockers_name_their_own_reason_place_and_remedy(tmp_path: Path) -> None
     ]
 
 
+def test_a_plain_decimal_field_names_the_decimal_type_to_declare(
+    tmp_path: Path,
+) -> None:
+    """The contract's numeric column is matched against the field's own
+    precision and scale, which a plain `Decimal` lacks."""
+
+    root = _reasons_project(tmp_path, _reasons_contract())
+    plain = REASONS_SOURCE.replace("amount: Decimal(10, 2)", "amount: Decimal")
+    (root / "main.pietto").write_text(plain, encoding="utf-8")
+    arguments = argv(root, "postgres", kind="query")
+    arguments[8] = "plain"
+    code, out, err = run([*arguments, "--format", "text"])
+    assert (code, out) == (1, b"")
+    assert err == (
+        "pietto.sql-emission.v1 BLOCKED\n"
+        "blocker PIE-B1004 MISSING_EVIDENCE: validated_decimal_parameters_missing"
+        " (main.pietto:6:5)\n"
+        "  hint: Declare this field, or the type alias it uses, as Decimal(p, s)"
+        " with the precision and scale of its column, such as Decimal(12, 2); a"
+        " plain Decimal has none to match the contract.\n"
+    )
+    # What the hint says to write emits.
+    (root / "main.pietto").write_text(REASONS_SOURCE, encoding="utf-8")
+    assert run(arguments)[0] == 0
+
+
 def test_selection_and_contract_errors_name_their_fault(tmp_path: Path) -> None:
     root = _reasons_project(tmp_path, _reasons_contract())
 

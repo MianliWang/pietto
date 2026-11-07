@@ -353,13 +353,13 @@ def test_computed_let_keys_and_let_extrema_follow_their_mode_law(
     """EXPLICIT_MODULES completes the relation; the other laws keep refusing it."""
 
     # Reads of the refused binding name add no Unknown field diagnostics; the
-    # refusal says where the relation is accepted.
+    # refusal names the two-query route a single file has.
     assert _errors(_semantic_for(COMPUTED_KEY_RELATION)) == [
         (
             "PIE-S2329",
             "Let binding conflicts with projection output name: gross; a query with "
-            "GROUP BY cannot select a computed `let` value here yet: group by it and "
-            "select it in an EXPLICIT_MODULES project (schema version 2)",
+            "GROUP BY cannot select a computed `let` value here yet: select gross in "
+            "one query, then group by gross in another that reads it with `from`",
         ),
     ]
 
@@ -593,13 +593,15 @@ query q:
 {items}        n = count()
 """
 _LET_FIELD = "a query with GROUP BY cannot select a `let` name here yet: write {} in place of key"
+_TWO_QUERIES = (
+    "select key in one query, then group by key in another that reads it with `from`"
+)
 _COMPUTED_SELECT = (
-    "a query with GROUP BY cannot select a computed `let` value here yet: group by "
-    "it and select it in an EXPLICIT_MODULES project (schema version 2)"
+    "a query with GROUP BY cannot select a computed `let` value here yet: "
+    + _TWO_QUERIES
 )
 _COMPUTED_KEY = (
-    "a query cannot group by a computed `let` value here yet: group by it in an "
-    "EXPLICIT_MODULES project (schema version 2)"
+    "a query cannot group by a computed `let` value here yet: " + _TWO_QUERIES
 )
 _CONFLICT = "Let binding conflicts with projection output name: key; "
 
@@ -695,6 +697,18 @@ def test_single_file_grouped_let_reads_say_what_to_write(
         (d.code, d.message, d.location.line, d.location.column)
         for d in analyze(parsed.ast).diagnostics
     ] == expected
+
+
+def test_the_two_query_route_the_computed_key_hint_names_is_accepted() -> None:
+    parsed = parse_source(
+        "shape Order:\n    id: Int\n    status: Text\n"
+        'source orders: Order = postgres.table("orders")\n'
+        "query keyed:\n    from orders\n    let key = lower(status)\n"
+        "    select id, key\n"
+        "query q:\n    from keyed\n    group by key\n    select key, n = count()\n"
+    )
+    assert parsed.ast is not None and parsed.diagnostics == ()
+    assert analyze(parsed.ast).diagnostics == ()
 
 
 def test_an_explicit_module_project_groups_by_and_selects_a_computed_let(

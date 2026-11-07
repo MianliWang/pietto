@@ -124,6 +124,115 @@ def test_scalar_functions_keep_their_approved_types() -> None:
     )
 
 
+_DATE_TRUNC = (
+    "Invalid arguments for function date_trunc: write "
+    'date_trunc("month", value) with a Date or Timestamp value; the unit is a '
+    'quoted "year", "month" or "day", or for a Timestamp also "hour" or "minute"'
+)
+
+
+# Every refused unit and value names the one form to write.
+@pytest.mark.parametrize(
+    ("call", "expected"),
+    [
+        (
+            "date_trunc(month, opened_at)",
+            [("PIE-S2104", _DATE_TRUNC), ("PIE-S2102", "Unknown field: month")],
+        ),
+        ('date_trunc("MONTH", opened_at)', [("PIE-S2104", _DATE_TRUNC)]),
+        ('date_trunc("week", opened_at)', [("PIE-S2104", _DATE_TRUNC)]),
+        ('date_trunc("hour", opened_on)', [("PIE-S2104", _DATE_TRUNC)]),
+        ('date_trunc("month", id)', [("PIE-S2104", _DATE_TRUNC)]),
+        ('date_trunc("month", opened_on)', []),
+        # A refused aggregate leaves the value unknown; only its own error
+        # says what to write.
+        (
+            'date_trunc("month", min(opened_on))',
+            [
+                ("PIE-S2104", "Invalid arguments for function date_trunc"),
+                (
+                    "PIE-S2310",
+                    "Aggregate projection must be a direct aggregate call; "
+                    "composition around min() is not supported yet; select the "
+                    "min() under a name in one query, then compute with that name "
+                    "in another that reads it with `from`",
+                ),
+            ],
+        ),
+    ],
+)
+def test_date_trunc_refusals_name_the_quoted_unit(
+    call: str, expected: list[tuple[str, str]]
+) -> None:
+    result = analyze(
+        _parse(
+            "shape Values:\n"
+            "    id: Int\n"
+            "    opened_on: Date\n"
+            "    opened_at: Timestamp\n"
+            'source values: Values = postgres.table("values")\n'
+            "query q:\n"
+            "    from values\n"
+            f"    select cut = {call}\n"
+        )
+    )
+
+    assert [(d.code, d.message) for d in result.diagnostics] == expected
+
+
+_ROUND = (
+    "Invalid arguments for function round: write round(value) with a Decimal or "
+    "Float value, or round(value, digits) with a Decimal value and digits an Int "
+    "literal from -30 to 30"
+)
+
+
+# Every refused value or digits names the forms to write; a Float takes none.
+@pytest.mark.parametrize(
+    ("call", "expected"),
+    [
+        ("round(ratio, 2)", [("PIE-S2104", _ROUND)]),
+        ("round(id)", [("PIE-S2104", _ROUND)]),
+        ("round(amount, 31)", [("PIE-S2104", _ROUND)]),
+        ("round(amount, id)", [("PIE-S2104", _ROUND)]),
+        ("round(ratio)", []),
+        ("round(amount, 2)", []),
+        # A refused aggregate leaves the value unknown; only its own error
+        # says what to write.
+        (
+            "round(avg(ratio), 2)",
+            [
+                ("PIE-S2104", "Invalid arguments for function round"),
+                (
+                    "PIE-S2310",
+                    "Aggregate projection must be a direct aggregate call; "
+                    "composition around avg() is not supported yet; select the "
+                    "avg() under a name in one query, then compute with that name "
+                    "in another that reads it with `from`",
+                ),
+            ],
+        ),
+    ],
+)
+def test_round_refusals_name_the_decimal_digits(
+    call: str, expected: list[tuple[str, str]]
+) -> None:
+    result = analyze(
+        _parse(
+            "shape Values:\n"
+            "    id: Int\n"
+            "    ratio: Float\n"
+            "    amount: Decimal(12, 4)\n"
+            'source values: Values = postgres.table("values")\n'
+            "query q:\n"
+            "    from values\n"
+            f"    select cut = {call}\n"
+        )
+    )
+
+    assert [(d.code, d.message) for d in result.diagnostics] == expected
+
+
 def test_string_agg_checks_a_known_bad_delimiter_beside_an_unknown_value() -> None:
     result = analyze(
         _parse(

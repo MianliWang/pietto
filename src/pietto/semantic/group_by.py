@@ -364,7 +364,11 @@ def _resolve_group_keys(
                 )
                 diagnostics.append(
                     _unknown_field_diagnostic(
-                        item.key, _COMPUTED_GROUP_KEY if computed else ""
+                        item.key,
+                        "a query cannot group by a computed `let` value here "
+                        f"yet: {_two_query_route(_field_text(item.key))}"
+                        if computed
+                        else "",
                     )
                 )
             continue
@@ -1530,11 +1534,13 @@ def _unknown_field_diagnostic(
     )
 
 
-_EXPLICIT_MODULES_PROJECT = "an EXPLICIT_MODULES project (schema version 2)"
-_COMPUTED_GROUP_KEY = (
-    "a query cannot group by a computed `let` value here yet: group by it in "
-    f"{_EXPLICIT_MODULES_PROJECT}"
-)
+def _two_query_route(name: str) -> str:
+    """The route a single file has for the computed `let` ``name`` as a key."""
+
+    return (
+        f"select {name} in one query, then group by {name} in another that "
+        "reads it with `from`"
+    )
 
 
 def _let_value(name: str, lets: Mapping[str, Expression]) -> Expression | None:
@@ -1625,7 +1631,7 @@ def grouped_let_select_hint(
         )
     return (
         "a query with GROUP BY cannot select a computed `let` value here yet: "
-        f"group by it and select it in {_EXPLICIT_MODULES_PROJECT}"
+        + _two_query_route(name)
     )
 
 

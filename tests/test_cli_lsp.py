@@ -449,6 +449,53 @@ def test_a_suggestion_the_message_already_carries_is_shown_once(
     assert published["diagnostics"] == expected(HINTS, items, open_buffer=True)
 
 
+_SALES = """shape Sale:
+    id: Int
+    region: Text
+    amount: Decimal(10, 2)
+    paid: Bool
+
+source sales: Sale = postgres.table("public.sales")
+"""
+
+
+@pytest.mark.parametrize(
+    ("body", "codes"),
+    [
+        pytest.param(
+            "\ntable doubled:\n    from sales\n    select id, d = amount * 2, n = -amount\n",
+            ["PIE-S2105", "PIE-S2105"],
+            id="decimal_operands",
+        ),
+        pytest.param(
+            "\ntable flags:\n    from sales\n    group by region\n"
+            "    select region, f = not all(o.paid for o in group)\n",
+            ["PIE-S2310"],
+            id="around_an_aggregate",
+        ),
+    ],
+)
+def test_a_hint_that_ends_the_message_is_shown_once(
+    tmp_path: Path, body: str, codes: list[str]
+) -> None:
+    """The Decimal PIE-S2105 texts and the PIE-S2310 route end their message
+    and are its JSON suggestion too; the editor shows the message alone."""
+
+    text = _SALES + body
+    path = tmp_path / "hints.pietto"
+    path.write_bytes(text.encode("utf-8"))
+    items = cli_json("check", str(path))["diagnostics"]
+    assert [i["code"] for i in items] == codes
+    for item in items:
+        assert item["suggestion"] and item["message"] != item["suggestion"]
+        assert item["message"].endswith(item["suggestion"])
+    (published,) = publishes(session(init(), [opened(path.as_uri(), text)]))
+    assert [d["message"] for d in published["diagnostics"]] == [
+        i["message"] for i in items
+    ]
+    assert published["diagnostics"] == expected(text, items, open_buffer=True)
+
+
 def test_positions_count_utf16_units_against_the_shown_text() -> None:
     def at(text: str, line: int, column: int, *, open_buffer: bool = True) -> object:
         location = SourceLocation(None, line, column)

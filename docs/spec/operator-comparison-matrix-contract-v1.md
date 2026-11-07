@@ -88,14 +88,14 @@ arguments included, records the results below and in the comparison matrix.
 |---|---|---|
 | Unary `+` / `-` | `Int` | currently accepted; preserves `Int` and operand nullability |
 | Unary `+` / `-` | `Float` | currently accepted; preserves `Float` and operand nullability |
-| Unary `+` / `-` | `Decimal` | currently rejected with existing `PIE-S2105`; Decimal unary is not accepted |
+| Unary `+` / `-` | `Decimal` | currently rejected with existing `PIE-S2105`; Decimal unary is not accepted (`-` names the rule as `` a Decimal has no sign operator yet; write `0 - x` for `-x` `` and `+` as `` a Decimal has no sign operator yet; write `x` for `+x` ``, also as the JSON `suggestion`) |
 | Unary `+` / `-` | `Text`, `Bool`, `Date`, `Timestamp`, `UUID`, `Bytes`, `Json`, `Any`, `Enum` | currently rejected with existing invalid numeric-operand behavior where the operand type is known; unknown or unsupported operands remain unknown |
 | Binary `+` / `-` / `*` | `Int` / `Int` | currently accepted as `Int UNKNOWN` |
 | Binary `+` / `-` / `*` | `Int` / `Float`, `Float` / `Int`, `Float` / `Float` | currently accepted as `Float UNKNOWN` |
 | Binary `+` / `-` / `*` | `Decimal` / `Decimal` | currently accepted as `Decimal UNKNOWN` |
 | Binary `+` / `-` | `Decimal` / `Int`, `Int` / `Decimal` | currently accepted as `Decimal UNKNOWN`; an integer literal such as `2` is an `Int` operand |
-| Binary `*` | `Decimal` / `Int`, `Int` / `Decimal` | currently rejected with existing `PIE-S2105` (`expected numeric operands`) |
-| Binary `+` / `-` / `*` | `Decimal` / `Float`, `Float` / `Decimal` | currently rejected with existing `PIE-S2105` (`expected numeric operands`); a dotted literal such as `1.5` is a `Float` operand |
+| Binary `*` | `Decimal` / `Int`, `Int` / `Decimal` | currently rejected with existing `PIE-S2105` (`a Decimal multiplies only by a Decimal; Decimal times Int is not supported yet`, also as the JSON `suggestion`) |
+| Binary `+` / `-` / `*` | `Decimal` / `Float`, `Float` / `Decimal` | currently rejected with existing `PIE-S2105` (`` a Decimal does not mix with a Float in `+`, `-` or `*` ``, also as the JSON `suggestion`); a dotted literal such as `1.5` is a `Float` operand |
 | Modulo `%` | `Int` / `Int` | currently accepted as `Int UNKNOWN` |
 | Modulo `%` | all other known operand pairs | currently rejected with existing `PIE-S2105`; `%` requires Int operands |
 | Division `/` | `Int` / `Int` | currently accepted as `Int UNKNOWN`: SQL division truncating toward zero; PostgreSQL emits `a / b` and MySQL emits `a DIV b` |

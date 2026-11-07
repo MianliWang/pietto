@@ -210,6 +210,35 @@ query doubled:
     order by quantity desc
 ```
 
+### Grouping by a computed value
+
+A `group by` key is a name. To group by a computed value, such as the month of
+a date, select it under a name in one query, then group by that name in a query
+that reads the first with `from`. Round an aggregate the same way, in a third
+query:
+
+```pietto
+shape Order:
+    id: Int
+    amount: Decimal(12, 2)
+    ordered_on: Date
+
+source orders: Order = postgres.table("orders")
+
+query order_months:
+    from orders
+    select id, amount, month = date_trunc("month", ordered_on)
+
+query monthly_revenue:
+    from order_months
+    group by month
+    select month, orders_count = count(), revenue = sum(amount), mean = avg(amount)
+
+query monthly_mean:
+    from monthly_revenue
+    select month, mean = round(mean, 2)
+```
+
 ### Ranking by a computed key
 
 A window key is a name: an input field or a `let`. To order or partition by a
@@ -1319,6 +1348,10 @@ Comments start with `#`, as in Python. `--` does not start a comment:
 | `first + " " + last` | `concat(first, " ", last)` | `+` does not join text (PIE-S2105); `concat` is None when any argument is None |
 | `email.lower()` | `lower(email)` | functions take the value as an argument; there are no methods |
 | `round(x)` expecting Python's tie rule | `round(x)`, with `round(2.5)` being `3` | a tie rounds away from zero for Float and Decimal, as PostgreSQL rounds a `numeric` (`round(-2.5)` is `-3`); Python rounds a tie to even, so its `round(2.5)` is `2` |
+| `group by date_trunc("month", d)`, `group by month = date_trunc(...)` | `month = date_trunc("month", d)` in the `select` of one query, then `group by month` in a query that reads it with `from` | `group by` lists names (PIE-P1000 names this route); a single file cannot group by a computed `let` yet (PIE-S2102, PIE-S2329) |
+| `round(avg(x), 2)`, `sum(x) / count()` | `mean = avg(x)` in one query, then `round(mean, 2)` in a query that reads it with `from` | an aggregate is a whole `select` item (PIE-S2310, whose hint names this route); digits need a Decimal `x`, since the `avg` of an Int or Float is a Float |
+| `round(ratio, 2)` with `ratio: Float` | declare the field `Decimal(p, s)`, such as `Decimal(12, 4)`, to round to digits; `round(ratio)` rounds a Float to a whole number | `round` takes digits only for a Decimal (PIE-S2104 names both forms) |
+| `date_trunc(month, d)`, `date_trunc("MONTH", d)` | `date_trunc("month", d)` | the unit is quoted lowercase Text: `"year"`, `"month"`, `"day"`, and for a Timestamp `"hour"`, `"minute"` (PIE-S2104) |
 | `case when ... end` | `a if condition else b` | the conditional is Python's |
 | `&&`, `\|\|`, `!` | `and`, `or`, `not` | `\|\|` does not join text either: write `concat(a, b)` |
 | `a == b` where both may be None | `same_value(a, b)` | `==` is never true when an operand is None; `same_value` is True when both are None |

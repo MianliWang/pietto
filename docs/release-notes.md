@@ -1899,7 +1899,8 @@ them.
 These are the Phase75 items: relation columns from
 `explain --project`, the Python compile API, `fmt --project`, the
 refusal of header lines, the batch form in `emit-sql --help`, a
-capabilities page and editor diagnostics with `pietto lsp`.
+capabilities page, editor diagnostics with `pietto lsp` and hints that
+name the rewrite.
 
 #### `explain --project` lists relation columns (alpha)
 
@@ -2140,6 +2141,46 @@ capabilities page and editor diagnostics with `pietto lsp`.
   builds and packages refuse buffer text by type.
 - Compatibility: `pietto --help` lists `lsp` after `fmt`. No other command,
   CLI JSON document or compiled record changes.
+
+#### Hints that name the rewrite
+
+- Hints for the rules met while writing a demo now name the one rewrite: a
+  computed `group by` key (PIE-P1000, and PIE-S2102/PIE-S2329 for a computed
+  `let` key in a single file) and an expression around an aggregate
+  (PIE-S2310, also as the JSON `suggestion`) name the two-query route,
+  `select` the value under a name in one query and group by or compute with
+  it in a query that reads it with `from`; an invalid `date_trunc`
+  (PIE-S2104) names the quoted units, and an invalid `round` (PIE-S2104)
+  names its Decimal digits; a plain `Decimal` source field in project
+  emission (PIE-B1004 `validated_decimal_parameters_missing`) says to
+  declare `Decimal(p, s)` on the field or its type alias. The single-file
+  `let` hints no longer point to an EXPLICIT_MODULES project. Where the
+  `Decimal` rule refuses a pair or a sign, PIE-S2105 names that rule, also
+  as the JSON `suggestion`, instead of `expected numeric operand(s)`:
+  `Decimal` times `Int`, `Decimal` with `Float` under `+`, `-` or `*`, and
+  a sign on a `Decimal`, whose text names the rewrite `0 - x` for `-x`. A
+  `Decimal` beside a `Text`, `Bool` or `Date` operand, and `%`, keep their
+  text. Codes, locations and accepted programs are unchanged.
+- Compatibility: only diagnostic text changes. No code, location, ordering
+  or accepted program changes. The PIE-S2310 and those PIE-S2105 JSON
+  `suggestion`s change from `null` to the new hint; the PIE-B1004
+  `suggestion` (text `hint:` line and JSON) changes for one detail.
+
+| Where | Before | After |
+|---|---|---|
+| PIE-P1000, a `(`, `=`, `+`, `-`, `*`, `/` or `%` that breaks a `group by` clause, e.g. `group by date_trunc("month", d)` (at the `(`) | `Unexpected '('; expected ',' or end of line.` | `Unexpected '('; expected ',' or end of line. ` followed by the hint: `` `group by` lists names: select the value under a name in one query, then group by that name in another that reads it with `from`. `` |
+| PIE-P1000, `group by m = x` (at `=`) | ``Unexpected '='; expected ',' or end of line. Compare with `==`; `=` only names a select output, a let binding or a type argument.`` | `Unexpected '='; expected ',' or end of line. ` + the `group by` hint above (replaces the `==` hint there) |
+| PIE-P1000, `group by -x` (at `-`) | `Unexpected '-'. A clause lists its items on its header line, or in an indented block after ':'.` | `Unexpected '-'. ` + the `group by` hint above |
+| PIE-S2102, single file, a GROUP BY key that names a computed `let` NAME | ``Unknown field: NAME; a query cannot group by a computed `let` value here yet: group by it in an EXPLICIT_MODULES project (schema version 2)`` | `` Unknown field: NAME; a query cannot group by a computed `let` value here yet: select NAME in one query, then group by NAME in another that reads it with `from` `` |
+| PIE-S2329, single file, a computed `let` NAME that is a GROUP BY key selected by its own name | ``Let binding conflicts with projection output name: NAME; a query with GROUP BY cannot select a computed `let` value here yet: group by it and select it in an EXPLICIT_MODULES project (schema version 2)`` | `` Let binding conflicts with projection output name: NAME; a query with GROUP BY cannot select a computed `let` value here yet: select NAME in one query, then group by NAME in another that reads it with `from` `` |
+| PIE-S2104 `date_trunc` (two arguments; unit not a static `"year"`/`"month"`/`"day"`, or `"hour"`/`"minute"` for a Timestamp; or value not Date/Timestamp) | `Invalid arguments for function date_trunc` | `Invalid arguments for function date_trunc: write date_trunc("month", value) with a Date or Timestamp value; the unit is a quoted "year", "month" or "day", or for a Timestamp also "hour" or "minute"` (a valid unit beside a value of unknown type, such as a refused aggregate, keeps the old text) |
+| PIE-S2104 `round` (one or two arguments; value no Decimal or Float, a Float value with digits, or Decimal digits no Int literal from -30 to 30 after `let` expansion) | `Invalid arguments for function round` | `Invalid arguments for function round: write round(value) with a Decimal or Float value, or round(value, digits) with a Decimal value and digits an Int literal from -30 to 30` (a value of unknown type, such as a refused aggregate in `round(avg(x), 2)`, keeps the old text) |
+| PIE-S2310 (single file and project) | `Aggregate projection must be a direct aggregate call; composition around NAME() is not supported yet`, `suggestion: null` | same + `` ; select the NAME() under a name in one query, then compute with that name in another that reads it with `from` ``, and that hint as `suggestion` |
+| PIE-S2105, `*` of a `Decimal` and an `Int`, either side, also through a type alias (`amount * 2`, `n * amount`; single file and project) | `Invalid operands for operator *: expected numeric operands`, `suggestion: null` | `Invalid operands for operator *: a Decimal multiplies only by a Decimal; Decimal times Int is not supported yet`, and the text after `*: ` as `suggestion` |
+| PIE-S2105, `+`, `-` or `*` of a `Decimal` and a `Float`, either side, also through a type alias (`amount + 1.5`, `fl * amount`; single file and project) | `Invalid operands for operator OP: expected numeric operands`, `suggestion: null` | `` Invalid operands for operator OP: a Decimal does not mix with a Float in `+`, `-` or `*` ``, and the text after `OP: ` as `suggestion` |
+| PIE-S2105, unary `-` of a `Decimal`, also through a type alias (`-amount`; single file and project) | `Invalid operands for operator -: expected numeric operand`, `suggestion: null` | `` Invalid operands for operator -: a Decimal has no sign operator yet; write `0 - x` for `-x` ``, and the text after `-: ` as `suggestion` |
+| PIE-S2105, unary `+` of a `Decimal`, also through a type alias (`+amount`; single file and project) | `Invalid operands for operator +: expected numeric operand`, `suggestion: null` | `` Invalid operands for operator +: a Decimal has no sign operator yet; write `x` for `+x` ``, and the text after `+: ` as `suggestion` |
+| PIE-B1004 `validated_decimal_parameters_missing` (project emission, a source field declared plain `Decimal`, also through a type alias) | hint `Keep this expression in check/plan, or select a direct field with a reviewed carrier: the compiler lacks the required proof. Do not invent a range, meaning or bound in the contract.` | hint `Declare this field, or the type alias it uses, as Decimal(p, s) with the precision and scale of its column, such as Decimal(12, 2); a plain Decimal has none to match the contract.` |
 
 ## Equality, nullability and asof JOIN public alpha release notes — 0.1.9
 

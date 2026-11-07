@@ -229,7 +229,9 @@ def test_direct_any_and_enum_count_field_rejections_remain_unchanged() -> None:
             (
                 "PIE-S2310",
                 "Aggregate projection must be a direct aggregate call; "
-                "composition around count() is not supported yet",
+                "composition around count() is not supported yet; select the count() "
+                "under a name in one query, then compute with that name in "
+                "another that reads it with `from`",
             ),
         ),
     ],

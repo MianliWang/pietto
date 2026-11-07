@@ -28,11 +28,13 @@ def test_unary_numeric_matrix_preserves_current_behavior() -> None:
             value, diagnostics = expression_facts(operator + field)
             assert value.kind is ValueTypeKind.UNKNOWN
             assert value.nullability is EffectiveNullability.UNKNOWN
+            detail = (
+                _DECIMAL_SIGN[operator]
+                if field in {"price", "discount"}
+                else "expected numeric operand"
+            )
             assert diagnostics == (
-                (
-                    "PIE-S2105",
-                    f"Invalid operands for operator {operator}: expected numeric operand",
-                ),
+                ("PIE-S2105", f"Invalid operands for operator {operator}: {detail}"),
             )
         value, diagnostics = expression_facts(operator + "None")
         assert value.kind is ValueTypeKind.UNKNOWN
@@ -76,44 +78,46 @@ def test_binary_numeric_decimal_modulo_and_division_matrix_preserves_behavior() 
     assert value.nullability is EffectiveNullability.UNKNOWN
     assert diagnostics == ()
 
-    for expression, operator, expected in (
-        ("price * amount", "*", "numeric operands"),
-        ("amount * price", "*", "numeric operands"),
-        ("score + price", "+", "numeric operands"),
-        ("price - score", "-", "numeric operands"),
+    for expression, operator, detail in (
+        ("price * amount", "*", _DECIMAL_TIMES_INT),
+        ("amount * price", "*", _DECIMAL_TIMES_INT),
+        ("score + price", "+", _DECIMAL_FLOAT),
+        ("price - score", "-", _DECIMAL_FLOAT),
+        ("price * score", "*", _DECIMAL_FLOAT),
         (
             "status + status",
             "+",
-            "numeric operands; use `concat(...)` to join Text values",
+            "expected numeric operands; use `concat(...)` to join Text values",
         ),
         (
             "status + amount",
             "+",
-            "numeric operands; use `concat(...)` with `Text(n)` to join Text values",
+            "expected numeric operands; use `concat(...)` with `Text(n)` to join "
+            "Text values",
         ),
         (
             "amount + status",
             "+",
-            "numeric operands; use `concat(...)` with `Text(n)` to join Text values",
+            "expected numeric operands; use `concat(...)` with `Text(n)` to join "
+            "Text values",
         ),
         # A number of unknown type is no Int, which `Text(n)` alone takes.
         (
             "price / 2 + status",
             "+",
-            "numeric operands; use `concat(...)` to join Text values",
+            "expected numeric operands; use `concat(...)` to join Text values",
         ),
-        ("active * amount", "*", "numeric operands"),
-        ("score % amount", "%", "Int operands"),
-        ("amount % score", "%", "Int operands"),
-        ("price % price", "%", "Int operands"),
+        # A Decimal beside a Text is not a numeric pair.
+        ("status + price", "+", "expected numeric operands"),
+        ("active * amount", "*", "expected numeric operands"),
+        ("score % amount", "%", "expected Int operands"),
+        ("amount % score", "%", "expected Int operands"),
+        ("price % price", "%", "expected Int operands"),
     ):
         value, diagnostics = expression_facts(expression)
         assert value.kind is ValueTypeKind.UNKNOWN
         assert diagnostics == (
-            (
-                "PIE-S2105",
-                f"Invalid operands for operator {operator}: expected {expected}",
-            ),
+            ("PIE-S2105", f"Invalid operands for operator {operator}: {detail}"),
         )
 
     for left in ("amount", "score", "price", "status", "active"):
@@ -143,6 +147,14 @@ def test_binary_numeric_decimal_modulo_and_division_matrix_preserves_behavior() 
                 )
 
 
+_DECIMAL_TIMES_INT = (
+    "a Decimal multiplies only by a Decimal; Decimal times Int is not supported yet"
+)
+_DECIMAL_FLOAT = "a Decimal does not mix with a Float in `+`, `-` or `*`"
+_DECIMAL_SIGN = {
+    "-": "a Decimal has no sign operator yet; write `0 - x` for `-x`",
+    "+": "a Decimal has no sign operator yet; write `x` for `+x`",
+}
 _INT_DIVISION = (
     "PIE-S2106",
     "`/` of two Int values truncates in SQL (`7 / 2` is 3, not 3.5); "
@@ -647,17 +659,21 @@ def test_type_alias_operands_read_as_their_base_type() -> None:
         assert facts == _alias_operand_facts(expression, aliased=False), expression
 
     refused = ("UNKNOWN", "<unknown>", unknown)
-    for expression, operator, operands in (
-        ("amount * 2", "*", "numeric operands"),
-        ("amount % 2", "%", "Int operands"),
-        ("1.0 + amount", "+", "numeric operands"),
-        ("-amount", "-", "numeric operand"),
-        ("doc + 1", "+", "numeric operands"),
-        ("flag + 1", "+", "numeric operands"),
-        ("age and flag", "and", "Bool operands"),
-        ("age % ratio", "%", "Int operands"),
-        ("ratio in (age)", "in", "same canonical membership operands"),
-        ("amount not in (ratio)", "not in", "same canonical membership operands"),
+    for expression, operator, detail in (
+        ("amount * 2", "*", _DECIMAL_TIMES_INT),
+        ("amount % 2", "%", "expected Int operands"),
+        ("1.0 + amount", "+", _DECIMAL_FLOAT),
+        ("-amount", "-", _DECIMAL_SIGN["-"]),
+        ("doc + 1", "+", "expected numeric operands"),
+        ("flag + 1", "+", "expected numeric operands"),
+        ("age and flag", "and", "expected Bool operands"),
+        ("age % ratio", "%", "expected Int operands"),
+        ("ratio in (age)", "in", "expected same canonical membership operands"),
+        (
+            "amount not in (ratio)",
+            "not in",
+            "expected same canonical membership operands",
+        ),
     ):
         facts = _alias_operand_facts(expression, aliased=True)
         assert facts == (
@@ -665,7 +681,7 @@ def test_type_alias_operands_read_as_their_base_type() -> None:
             (
                 (
                     "PIE-S2105",
-                    f"Invalid operands for operator {operator}: expected {operands}",
+                    f"Invalid operands for operator {operator}: {detail}",
                     20,
                     17,
                 ),

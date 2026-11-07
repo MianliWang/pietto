@@ -148,7 +148,9 @@ def test_sum_and_avg_are_no_group_aggregates_not_scalar_functions() -> None:
             (
                 "PIE-S2310",
                 "Aggregate projection must be a direct aggregate call; "
-                "composition around count() is not supported yet",
+                "composition around count() is not supported yet; select the count() "
+                "under a name in one query, then compute with that name in "
+                "another that reads it with `from`",
             ),
         ),
         (
@@ -173,7 +175,9 @@ def test_sum_and_avg_are_no_group_aggregates_not_scalar_functions() -> None:
             (
                 "PIE-S2310",
                 "Aggregate projection must be a direct aggregate call; "
-                "composition around count() is not supported yet",
+                "composition around count() is not supported yet; select the count() "
+                "under a name in one query, then compute with that name in "
+                "another that reads it with `from`",
             ),
         ),
         (
