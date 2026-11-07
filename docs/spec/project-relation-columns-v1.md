@@ -95,8 +95,8 @@ not compute, such as `total + 1`, says `unknown`, not `nullable`.
 |---|---|---|
 | `builtin` | builtin name, such as `"Int"`, `"Text"`, `"Decimal"` | none |
 | `type_alias` | alias name | none |
-| `enum` | enum name | none |
-| `shape` | shape name | none |
+| `enum` | enum name | `module`: the module that declares the enum |
+| `shape` | shape name | `module`: the module that declares the shape |
 | `unknown` | the authored type name | none |
 | `collection` | `null` | `element`: column objects of the collected `let`, in its output order |
 
@@ -106,11 +106,19 @@ scale, canonical names and support posture are not part of v1. The internal
 names that the check uses for a collected relation and for a value of no type
 never appear.
 
-An `enum` or `shape` type object names its declaration, not the module that
-declares it. Two modules may each declare an enum or a shape of one name:
-they are two types to the check (a set operation over two such enum columns
-is refused with PIE-S2343), yet their type objects are equal. Equal type
-objects therefore do not mean one type.
+An `enum` or `shape` type object names the declaration the check resolves
+the column's type to: `name` is its declared name and `module` the
+project-relative path of the module that declares it, spelled as a
+relation's `module`. An import, an import alias, a re-export and a chain of
+type aliases all lead to that declaration: with `enum Tier` declared in
+`models/types.pietto`, a column `level: Level` in a module that imports
+`enum Tier as Level` is `{"kind": "enum", "module": "models/types.pietto",
+"name": "Tier"}`. Two modules may each declare an enum or a shape of one
+name; they are two types to the check (a set operation over two such enum
+columns is refused with PIE-S2343), and their type objects differ in
+`module`. No other kind has a `module` field. When the check holds no
+declaring module for an `enum` or `shape` column, the column fact is
+unavailable (see [States](#states)).
 
 No project produces `type_alias` or `unknown` today. The check resolves a column
 whose declared type is an alias to the type the alias names: with
@@ -138,7 +146,9 @@ relation columns: "<path>"; rename it.` with the path escaped (`\udcff`), as
 `emit-sql --project` does.
 
 A column fact is unavailable when a completed check still has no column facts
-for a table or query, or a column's type is one no v1 type object describes.
+for a table or query, a column's type is one no v1 type object describes, or
+an `enum` or `shape` column has no declaring module among the project's
+modules.
 The CLI error is `{"kind": "project_resource", "message": "Project relation
 columns are unavailable.", "path": null}`. One such case is reachable today: an
 output whose value is an untyped `None` (`x = None`), which the check reports
@@ -158,10 +168,12 @@ models/queries.pietto query customers_with_orders
 ```
 
 A relation line is `MODULE KIND NAME`; a column line is `NAME: TYPE
-kind=KIND nullability=NULLABILITY`, or `NAME: collection
-nullability=NULLABILITY` followed by its element columns, indented two more
-spaces. Each CLI error goes to stderr as `project error: KIND: MESSAGE`, with
-` (path: PATH)` when it has a path, then each diagnostic as
+kind=KIND nullability=NULLABILITY`, with ` module=MODULE` after `kind=KIND`
+for an `enum` or a `shape` (`level: Tier kind=enum module=models/types.pietto
+nullability=non_null`), or `NAME: collection nullability=NULLABILITY`
+followed by its element columns, indented two more spaces. Each CLI error
+goes to stderr as `project error: KIND: MESSAGE`, with ` (path: PATH)` when
+it has a path, then each diagnostic as
 `PATH:LINE:COLUMN CODE SEVERITY: MESSAGE`, warnings on success included, as
 `check --project` writes them. On failure stdout is empty. Control characters
 in names and paths are escaped as in every CLI text output. The exit code

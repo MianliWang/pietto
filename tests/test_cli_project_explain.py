@@ -362,10 +362,14 @@ def test_spec_and_installed_cli_smoke_own_the_exact_slice14_surface() -> None:
 
 _SCHEMA2_CONFIG = 'schema_version = 2\n[sources]\ninclude = ["*.pietto"]\n'
 _SCHEMA2_SOURCE = """\
+enum Status:
+    open
+    closed
 shape Order:
     id: Int
     customer_id: Int
     note: Text | None
+    status: Status
 source orders: Order = postgres.table("orders")
 
 query flat:
@@ -374,6 +378,7 @@ query flat:
     select:
         id
         note
+        status
 
 query grouped:
     let recent:
@@ -432,6 +437,7 @@ def test_schema2_project_writes_relation_columns_in_json_and_text(
         b"main.pietto query flat\n"
         b"  id: Int kind=builtin nullability=non_null\n"
         b"  note: Text kind=builtin nullability=nullable\n"
+        b"  status: Status kind=enum module=main.pietto nullability=non_null\n"
         b"main.pietto query grouped\n"
         b"  customer_id: Int kind=builtin nullability=non_null\n"
         b"  recent_orders: collection nullability=non_null\n"

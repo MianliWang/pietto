@@ -1295,6 +1295,8 @@ def _run_project_relation_columns(root: Path, *, output_format: str) -> int:
             if column.type_name is None
             else f"{_escape_cli_text(column.type_name)} kind={column.kind}"
         )
+        if column.type_module is not None:
+            kind += f" module={_escape_cli_text(column.type_module)}"
         return (
             f"{indent}{_escape_cli_text(column.name)}: {kind}"
             f" nullability={column.nullability}"

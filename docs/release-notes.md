@@ -1909,13 +1909,17 @@ and hints that name the rewrite.
   the `emit-sql --project --all` batch items: name, type `{kind, name}`
   (`builtin`, `type_alias`, `enum`, `shape`, `unknown`, or `collection` with
   `name: null` and `element` columns for a `collect` column) and nullability
-  (`non_null`, `nullable`, `unknown`, kept as computed). JSON format
+  (`non_null`, `nullable`, `unknown`, kept as computed). An `enum` or `shape`
+  type also has `module`, the module that declares it (past imports, import
+  aliases, re-exports and alias chains), so two modules' enums of one name
+  differ, as they do to the check. JSON format
   `pietto.project-relation-columns.v1` (`cli_errors`, `diagnostics`, `format`,
   `ok`, `relations`); `ok: false`, `relations: null` on failure; exit 1 for
   source errors, 2 for root/configuration/file problems and for an unavailable
   column fact. Text form: `MODULE KIND NAME`, then `  NAME: TYPE kind=KIND
-  nullability=N` per column (`NAME: collection nullability=N`, element columns
-  indented two more spaces); errors and diagnostics on stderr in the
+  nullability=N` per column (` module=MODULE` after the kind of an `enum` or
+  `shape`; `NAME: collection nullability=N`, element columns indented two more
+  spaces); errors and diagnostics on stderr in the
   `check --project` style; stdout empty on failure. Contract:
   [project relation columns v1](spec/project-relation-columns-v1.md).
 - No project produces the type kinds `type_alias` or `unknown` today: a

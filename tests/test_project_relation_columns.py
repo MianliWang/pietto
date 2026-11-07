@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import json
 import os
+from dataclasses import replace
 from pathlib import Path
 from typing import Any
 
@@ -17,7 +18,10 @@ import pytest
 import pietto.cli as cli
 import pietto._project_explain.relation_columns as relation_columns
 from pietto._project.check import check_project_parse_only
-from pietto._project.model import build_empty_project_semantic_result
+from pietto._project.model import (
+    ProjectSymbolKind,
+    build_empty_project_semantic_result,
+)
 from pietto._project.project_completed_semantics import (
     build_project_completed_semantic_result,
 )
@@ -187,6 +191,16 @@ def _column(column: dict[str, Any]) -> tuple[Any, ...]:
             column["nullability"],
             tuple(_column(item) for item in column["type"]["element"]),
         )
+    if kind in {"enum", "shape"}:
+        # The module that declares the type, past imports and alias chains.
+        assert set(column["type"]) == {"kind", "module", "name"}
+        return (
+            column["name"],
+            name,
+            kind,
+            column["nullability"],
+            column["type"]["module"],
+        )
     assert set(column["type"]) == {"kind", "name"}
     return (column["name"], name, kind, column["nullability"])
 
@@ -257,7 +271,7 @@ def test_every_table_and_query_lists_its_columns_as_computed(tmp_path: Path) -> 
                 ("oid", "Int", "builtin", "nullable"),
                 ("note", "Text", "builtin", "nullable"),
                 ("total", "Int", "builtin", "unknown"),
-                ("st", "Status", "enum", "nullable"),
+                ("st", "Status", "enum", "nullable", "models/base.pietto"),
                 ("money", "Int", "builtin", "nullable"),
             ),
         ),
@@ -270,7 +284,7 @@ def test_every_table_and_query_lists_its_columns_as_computed(tmp_path: Path) -> 
                 ("customer_id", "Int", "builtin", "non_null"),
                 ("total", "Int", "builtin", "non_null"),
                 ("note", "Text", "builtin", "nullable"),
-                ("status", "Status", "enum", "non_null"),
+                ("status", "Status", "enum", "non_null", "models/base.pietto"),
             ),
         ),
         (
@@ -330,6 +344,188 @@ def test_relations_follow_the_emit_sql_batch_item_sequence(tmp_path: Path) -> No
         {key: relation[key] for key in ("module", "kind", "name")}
         for relation in document["relations"]
     ] == owners
+
+
+TYPES = """\
+enum Tier:
+    gold
+    silver
+shape Addr:
+    city: Text
+type Phase = Tier
+export (
+    enum Tier,
+    shape Addr,
+    type Phase,
+)
+"""
+# Re-exports what it imports and extends the alias chain.
+MID = """\
+from "models/types.pietto" import (
+    enum Tier,
+    shape Addr,
+    type Phase,
+)
+type Stage = Phase
+export (
+    enum Tier,
+    shape Addr,
+    type Stage,
+)
+"""
+ACCOUNTS = """\
+from "models/mid.pietto" import (
+    enum Tier as Level,
+    shape Addr,
+    type Stage,
+)
+
+enum Tier:
+    x
+    y
+type StageN = Stage
+shape Acct:
+    id: Int
+    level: Level
+    stage: StageN
+    own: Tier
+    addr: Addr
+source accts: Acct = postgres.table("accts")
+
+query imported:
+    from accts
+    select:
+        level
+        stage
+        addr
+
+query local:
+    from accts
+    select:
+        own
+"""
+
+
+def test_an_enum_or_shape_type_names_the_module_that_declares_it(
+    tmp_path: Path,
+) -> None:
+    root = _project(
+        tmp_path,
+        {
+            "models/types.pietto": TYPES,
+            "models/mid.pietto": MID,
+            "models/accounts.pietto": ACCOUNTS,
+        },
+    )
+
+    exit_code, document = _document(root)
+
+    types, accounts = "models/types.pietto", "models/accounts.pietto"
+    assert exit_code == 0 and document["diagnostics"] == []
+    # An import alias, a re-export and an alias chain all lead to the
+    # declaration; the local Tier is another type of the same name.
+    assert _relations(document) == [
+        (
+            accounts,
+            "query",
+            "imported",
+            (
+                ("level", "Tier", "enum", "non_null", types),
+                ("stage", "Tier", "enum", "non_null", types),
+                ("addr", "Addr", "shape", "non_null", types),
+            ),
+        ),
+        (accounts, "query", "local", (("own", "Tier", "enum", "non_null", accounts),)),
+    ]
+
+
+def test_two_enums_of_one_name_differ_by_their_modules(tmp_path: Path) -> None:
+    base = FLAT.replace("query flat:", "export (\n    source orders,\n)\n\nquery flat:")
+    other = """\
+from "main.pietto" import (
+    source orders,
+)
+
+enum Status:
+    open
+    closed
+shape Item:
+    id: Int
+    status: Status
+source items: Item = postgres.table("items")
+
+query mine:
+    from orders
+    select:
+        id
+        status
+
+query theirs:
+    from items
+    select:
+        id
+        status
+"""
+    root = _project(tmp_path, {"main.pietto": base, "other.pietto": other})
+
+    exit_code, document = _document(root)
+
+    assert exit_code == 0
+    assert [
+        (relation["name"], relation["columns"][1]["type"])
+        for relation in document["relations"]
+        if relation["module"] == "other.pietto"
+    ] == [
+        ("mine", {"kind": "enum", "module": "main.pietto", "name": "Status"}),
+        ("theirs", {"kind": "enum", "module": "other.pietto", "name": "Status"}),
+    ]
+    # The check, too, holds them as two types.
+    (root / "other.pietto").write_text(
+        other + "\nquery both:\n    union all mine, theirs\n", encoding="utf-8"
+    )
+    exit_code, document = _document(root)
+    assert exit_code == 1
+    assert [item["code"] for item in document["diagnostics"]] == ["PIE-S2343"]
+
+
+@pytest.mark.parametrize(
+    "case", ("no_symbol", "other_module", "other_kind", "other_name")
+)
+def test_an_enum_whose_declaring_module_is_not_proven_is_unavailable(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, case: str
+) -> None:
+    root = _project(tmp_path, {"main.pietto": FLAT})
+    column = relation_columns._column
+    refused: list[str] = []
+
+    def unproven(field: Any, *args: Any, **kwargs: Any) -> Any:
+        resolved = field.resolved_type
+        if resolved.symbol is not None:
+            symbol = {
+                "no_symbol": None,
+                "other_module": replace(resolved.symbol, path="other.pietto"),
+                "other_kind": replace(resolved.symbol, kind=ProjectSymbolKind.SHAPE),
+                "other_name": replace(resolved.symbol, name="Other"),
+            }[case]
+            field = replace(field, resolved_type=replace(resolved, symbol=symbol))
+            with pytest.raises(relation_columns._Unavailable):
+                column(field, *args, **kwargs)
+            refused.append(field.name)
+        return column(field, *args, **kwargs)
+
+    monkeypatch.setattr(relation_columns, "_column", unproven)
+    exit_code, document = _document(root)
+
+    # The first enum column refuses the document; it names no other column.
+    assert refused == ["status"]
+    assert exit_code == 2 and document["diagnostics"] == []
+    assert document["cli_errors"] == [
+        {
+            "kind": "project_resource",
+            "message": "Project relation columns are unavailable.",
+            "path": None,
+        }
+    ]
 
 
 def _write_bytes(path: Path, data: bytes) -> None:

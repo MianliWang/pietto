@@ -29,6 +29,7 @@ from pietto._project.model import (
     ProjectDiscoveryErrorKind,
     ProjectResolvedTypeKind,
     ProjectRowField,
+    ProjectSymbolKind,
     build_empty_project_semantic_result,
 )
 from pietto._project.module_carrier import ProjectCompilationMode
@@ -56,6 +57,11 @@ _TYPE_KINDS = {
     ProjectResolvedTypeKind.SHAPE: "shape",
     ProjectResolvedTypeKind.UNKNOWN: "unknown",
 }
+# The kinds whose type object names the module that declares the type.
+_DECLARED = {
+    ProjectResolvedTypeKind.ENUM: ProjectSymbolKind.ENUM,
+    ProjectResolvedTypeKind.SHAPE: ProjectSymbolKind.SHAPE,
+}
 # Internal type names that no public output shows.
 _SENTINELS = frozenset({NESTED_RELATION_TYPE_NAME, "<unknown>"})
 _UNAVAILABLE = ProjectDiscoveryError(
@@ -70,13 +76,15 @@ class _Unavailable(Exception):
 
 @dataclass(frozen=True, slots=True)
 class RelationColumn:
-    """One output column; ``element`` holds a collection's columns."""
+    """One output column; ``element`` holds a collection's columns and
+    ``type_module`` the module that declares an enum or shape type."""
 
     name: str
     kind: str
     type_name: str | None
     nullability: str
     element: tuple[RelationColumn, ...] | None = None
+    type_module: str | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -176,6 +184,7 @@ def _relations(
 
     overlay = completed.effective_outputs
     modules = completed.semantic_result.modules
+    paths = frozenset(module.path for module in modules)
     relations: list[RelationColumns] = []
     for owner, entry in zip(overlay.owners, overlay.entries, strict=True):
         kind = owner.identity.declaration_kind.value
@@ -202,13 +211,15 @@ def _relations(
                 module=modules[owner.module_position].path,
                 kind=kind,
                 name=owner.definition.name,
-                columns=tuple(_column(item, nested=True) for item in fields),
+                columns=tuple(_column(item, paths, nested=True) for item in fields),
             )
         )
     return tuple(relations)
 
 
-def _column(field: ProjectRowField, *, nested: bool) -> RelationColumn:
+def _column(
+    field: ProjectRowField, paths: frozenset[str], *, nested: bool
+) -> RelationColumn:
     resolved = field.resolved_type
     if resolved.kind is ProjectResolvedTypeKind.NESTED_RELATION:
         descriptor = resolved.nested
@@ -220,16 +231,31 @@ def _column(field: ProjectRowField, *, nested: bool) -> RelationColumn:
             type_name=None,
             nullability=field.nullability.value,
             element=tuple(
-                _column(item.field, nested=False) for item in descriptor.element_fields
+                _column(item.field, paths, nested=False)
+                for item in descriptor.element_fields
             ),
         )
     if resolved.kind not in _TYPE_KINDS or resolved.name in _SENTINELS:
         raise _Unavailable
+    module = None
+    if resolved.kind in _DECLARED:
+        # The declaration the check resolved the type to, past imports and
+        # alias chains, which is also its identity in a set operation.
+        symbol = resolved.symbol
+        if (
+            symbol is None
+            or symbol.kind is not _DECLARED[resolved.kind]
+            or symbol.name != resolved.name
+            or symbol.path not in paths
+        ):
+            raise _Unavailable
+        module = symbol.path
     return RelationColumn(
         name=field.name,
         kind=_TYPE_KINDS[resolved.kind],
         type_name=resolved.name,
         nullability=field.nullability.value,
+        type_module=module,
     )
 
 
@@ -340,6 +366,8 @@ def serialize_project_relation_columns(result: ProjectRelationColumnsResult) -> 
 
 def _column_json(column: RelationColumn) -> dict[str, object]:
     column_type: dict[str, object] = {"kind": column.kind, "name": column.type_name}
+    if column.type_module is not None:
+        column_type["module"] = column.type_module
     if column.element is not None:
         column_type["element"] = [_column_json(item) for item in column.element]
     return {"name": column.name, "nullability": column.nullability, "type": column_type}

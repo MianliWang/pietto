@@ -191,8 +191,9 @@ digest. Schema-v2 extension requirements remain valid legacy unbound data.
 project lists the output columns of every table and query, in the order
 `emit-sql --project --all` emits them: each column's name, its type and
 whether it may be None (`non_null`, `nullable`, or `unknown` where the check
-does not compute it). A `collect` column is a `collection` of the collected
-`let`'s columns:
+does not compute it). An enum or shape type also names the module that
+declares it, so two modules' enums of one name stay apart. A `collect` column
+is a `collection` of the collected `let`'s columns:
 
 ```text
 $ pietto explain --project shop
