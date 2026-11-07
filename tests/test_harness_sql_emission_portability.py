@@ -908,6 +908,63 @@ def test_stddev_root_cast_and_evidence_are_closed_data_relations(
         assert _status(_mutated(data, edit))[0] is pure.Status.INVALID_RELATION
 
 
+@pytest.mark.parametrize(
+    ("variant", "evidence"),
+    (("spread_direct", []), ("spread_float", [BINARY64_CHECKED])),
+)
+def test_variance_casts_spellings_and_evidence_are_closed_data_relations(
+    tmp_path_factory, variant, evidence
+):
+    """A public consumer admits PostgreSQL `variance`, `pvariance` and
+    `pstdev` only as VAR_SAMP, VAR_POP and VAR_POP under its float8 result
+    cast, the last under SQRT, with evidence keyed on the argument."""
+    artifact, data = _observed(
+        tmp_path_factory, "postgres", "V_aggregate_blocked", variant
+    )
+    document = json.loads(data)
+    assert [
+        (
+            column["function"],
+            column["spelling"],
+            column["argument_cast"],
+            column["result_cast"],
+        )
+        for column in _records(document, "aggregate_value_column")
+    ] == [
+        ("variance", "VAR_SAMP", None, "pg_catalog.float8"),
+        ("pvariance", "VAR_POP", None, "pg_catalog.float8"),
+        ("pstdev", "VAR_POP", None, "pg_catalog.float8"),
+    ]
+    assert [
+        r["evidence"]
+        for r in _records(document, "generated_requirement")
+        if r["kind"] == "aggregate"
+    ] == [evidence] * 3
+    assert portable.verify_emission_observation(
+        data, artifact, artifact.request
+    ).corresponds
+
+    def field(position, name, value):
+        def edit(candidate):
+            _records(candidate, "aggregate_value_column")[position][name] = value
+
+        return edit
+
+    for edit in (
+        # A sample and a population variance never trade spellings, and a
+        # variance is never its deviation.
+        field(0, "spelling", "VAR_POP"),
+        field(1, "spelling", "VAR_SAMP"),
+        field(1, "function", "pstdev"),
+        field(2, "function", "pvariance"),
+        field(0, "function", "stddev"),
+        field(0, "result_cast", None),
+        field(2, "argument_cast", "pg_catalog.float8"),
+        field(1, "spelling", "VARIANCE"),
+    ):
+        assert _status(_mutated(data, edit))[0] is pure.Status.INVALID_RELATION
+
+
 @pytest.mark.parametrize("variant", ("sum_float", "avg_float"))
 def test_float_sum_and_avg_are_uncast_closed_data_relations(tmp_path_factory, variant):
     """S16: a public consumer admits a PostgreSQL SUM or AVG of a float8 only

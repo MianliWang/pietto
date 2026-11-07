@@ -535,7 +535,7 @@ def _relation_ir(script_ir: ScriptIR) -> RelationIR:
 
 def _malformed_aggregate(case: str) -> AggregateCallIR:
     if case == "unsupported_function":
-        return _aggregate("variance", INT_NULLABLE, _field("amount", INT_NON_NULL))
+        return _aggregate("kurtosis", INT_NULLABLE, _field("amount", INT_NON_NULL))
     if case == "wrong_arity":
         return _aggregate("min", INT_NULLABLE)
     if case == "non_field_argument":

@@ -443,7 +443,7 @@ def test_qualified_multiple_repeated_and_duplicate_aliases_preserve_select_order
         "query aggregate:\n"
         "    from users\n"
         "    select:\n"
-        "        result = variance(amount)\n",
+        "        result = kurtosis(amount)\n",
         "query aggregate:\n"
         "    from users\n"
         "    select:\n"

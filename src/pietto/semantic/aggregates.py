@@ -53,6 +53,12 @@ MAX_AGGREGATE_NAME = "max"
 # The sample standard deviation (Python `statistics.stdev`) of an Int or Float
 # direct field; its result is a nullable Float.
 STDDEV_AGGREGATE_NAME = "stddev"
+# The sample variance, the population variance and the population standard
+# deviation (Python `statistics.variance`, `pvariance` and `pstdev`), typed as
+# `stddev`.
+VARIANCE_AGGREGATE_NAME = "variance"
+PVARIANCE_AGGREGATE_NAME = "pvariance"
+PSTDEV_AGGREGATE_NAME = "pstdev"
 # The interpolated median and quantile (pandas `Series.median` and
 # `Series.quantile`) of an Int or Float direct field, whose values are taken as
 # Float; `quantile` also takes a Float literal fraction from 0.0 to 1.0. Their
@@ -61,7 +67,14 @@ MEDIAN_AGGREGATE_NAME = "median"
 QUANTILE_AGGREGATE_NAME = "quantile"
 # The aggregates of an Int or Float direct field with a nullable Float result.
 FLOAT_STATISTIC_AGGREGATE_NAMES = frozenset(
-    {STDDEV_AGGREGATE_NAME, MEDIAN_AGGREGATE_NAME, QUANTILE_AGGREGATE_NAME}
+    {
+        STDDEV_AGGREGATE_NAME,
+        VARIANCE_AGGREGATE_NAME,
+        PVARIANCE_AGGREGATE_NAME,
+        PSTDEV_AGGREGATE_NAME,
+        MEDIAN_AGGREGATE_NAME,
+        QUANTILE_AGGREGATE_NAME,
+    }
 )
 SEMANTIC_AGGREGATE_NAMES = AGGREGATE_NAMES | frozenset(
     {
@@ -361,6 +374,9 @@ def expected_semantic_aggregate_arity(function_name: str) -> int:
         MIN_AGGREGATE_NAME,
         MAX_AGGREGATE_NAME,
         STDDEV_AGGREGATE_NAME,
+        VARIANCE_AGGREGATE_NAME,
+        PVARIANCE_AGGREGATE_NAME,
+        PSTDEV_AGGREGATE_NAME,
         MEDIAN_AGGREGATE_NAME,
     }:
         return 1
@@ -890,8 +906,8 @@ def is_supported_semantic_aggregate_argument(
 
 
 def is_supported_stddev_argument(value_type: ValueType) -> bool:
-    """Return whether `stddev`, `median` and `quantile` accept this direct
-    field argument type."""
+    """Return whether `stddev`, `variance`, `pvariance`, `pstdev`, `median`
+    and `quantile` accept this direct field argument type."""
 
     return _is_builtin(value_type, "Int") or _is_builtin(value_type, "Float")
 

@@ -1534,6 +1534,89 @@ record change (VERSIONS unchanged). The blocker detail
 `asof_join_not_admitted_on_target` and its hint are retired with the project
 family.
 
+### `variance`, `pvariance` and `pstdev` aggregates
+
+- `variance(x)`, `pvariance(x)` and `pstdev(x)` are the sample variance, the
+  population variance and the population standard deviation of the non-None
+  values of one direct `Int` or `Float` field, as Python's
+  `statistics.variance`, `statistics.pvariance` and `statistics.pstdev`: a
+  nullable `Float`. `variance` is None for fewer than two values; `pvariance`
+  and `pstdev` are None for none and 0.0 for one. `stddev(x)` is unchanged.
+- PostgreSQL, single file and project: `CAST(VAR_SAMP(x) AS double
+  precision)`, `CAST(VAR_POP(x) AS double precision)` and
+  `SQRT(CAST(VAR_POP(x) AS double precision))` (`pg_catalog.float8` in a
+  project, where a `Float` argument carries the
+  `target_checked_binary64_overflow` evidence, as `stddev`), VERIFIED in
+  projects and carried through compiled bundles and live templates.
+- MySQL: single-file `Float` as `VAR_SAMP(x)`, `VAR_POP(x)` and
+  `STDDEV_POP(x)`, after a two-database differential (PostgreSQL 18.6, MySQL
+  8.4.12) of the three functions over `Int` and `Float` groups matched
+  Python's `statistics` within the stated bounds; `Int` refused (PIE-B1000);
+  every project form refused (PIE-B1003 `Int`, PIE-B1004 `Float`), as
+  `stddev`.
+- Accuracy: `variance` and `pvariance` of an `Int` within ε·v and `stddev` and
+  `pstdev` within 2·ε·s of Python's (ε = 2^-52); a `Float` result within the
+  bounds stated in [Aggregates and grouping](language.md#aggregates-and-grouping).
+- **New or changed diagnostics** (exact texts; "before" is `main` before this
+  change):
+
+| Code | Position | Program | Before | After |
+|---|---|---|---|---|
+| PIE-S2103 | the call | `var(x)` | `Unknown function: var; the available aggregates are avg, count, count_distinct, max, median, min, quantile, stddev, string_agg and sum` (no suggestion) | ``Unknown function: var; pandas `var()` is the sample variance: write `variance(x)`; numpy `var` is the population variance: write `pvariance(x)` ``; suggestion = the hint |
+| PIE-S2103 | the call | `VARIANCE(x)`, `Variance(x)` (any non-lowercase spelling) | `Unknown function: VARIANCE; the available aggregates are ...` (the list above) | ``Unknown function: VARIANCE; write lowercase `variance(x)` for the sample variance (PostgreSQL `VARIANCE`, pandas `var()`); MySQL `VARIANCE` and numpy `var` are the population variance: write `pvariance(x)` ``; suggestion = the hint |
+| PIE-S2103 | the call | `std(x)` | ``Unknown function: std; `stddev` is the sample standard deviation (Python `statistics.stdev`); MySQL `STD`/`STDDEV` and numpy `std` are the population deviation, which is not available`` | ``Unknown function: std; pandas `std()` is the sample deviation: write `stddev(x)`; numpy `std` and MySQL `STD` are the population deviation: write `pstdev(x)` ``; suggestion = the hint |
+| PIE-S2103 | the call | `STDDEV(x)`, `Stddev(x)` | the `std` text before | ``Unknown function: STDDEV; write lowercase `stddev(x)` for the sample deviation (PostgreSQL `STDDEV`, pandas `std()`); MySQL `STDDEV` and numpy `std` are the population deviation: write `pstdev(x)` ``; suggestion = the hint |
+| PIE-S2103 | the call | `var_samp(x)` | the available-aggregates list | ``Unknown function: var_samp; write `variance(x)`, the sample variance (Python `statistics.variance`)``; suggestion = the hint |
+| PIE-S2103 | the call | `statistics.variance(x)` | `Unknown function: statistics.variance` (no hint) | as `var_samp` |
+| PIE-S2103 | the call | `var_pop(x)` | the available-aggregates list | ``Unknown function: var_pop; write `pvariance(x)`, the population variance (Python `statistics.pvariance`)``; suggestion = the hint |
+| PIE-S2103 | the call | `statistics.pvariance(x)` | `Unknown function: statistics.pvariance` (no hint) | as `var_pop` |
+| PIE-S2103 | the call | `stddev_pop(x)`, `statistics.pstdev(x)` | the `std` text before | ``Unknown function: stddev_pop; write `pstdev(x)`, the population standard deviation (Python `statistics.pstdev`)``; suggestion = the hint |
+| PIE-S2103 | the call | `pstddev(x)` | `Unknown function: pstddev` (no hint) | as `stddev_pop` |
+| PIE-S2103 | the call | `PVARIANCE(x)` (any non-lowercase spelling) | `Unknown function: PVARIANCE` (no hint) | ``Unknown function: PVARIANCE; write lowercase `pvariance(x)` ``; suggestion = the hint |
+| PIE-S2103 | the call | `PSTDEV(x)`, `Pstdev(x)` | the `std` text before | ``Unknown function: PSTDEV; write lowercase `pstdev(x)` ``; suggestion = the hint |
+| PIE-S2103 | the call | `variance(x) window(...)` (also `pvariance`, `pstdev`) | `Unknown function: variance; the available aggregates are ...` (`pstdev`: `Unknown function: pstdev`, no hint) | `Aggregate window functions are not implemented: variance; window aggregates are sum, count, avg, min and max` (the `stddev` text; without the suffix where the relation admits no such window) |
+| PIE-S2103 → PIE-S2314 | the call | `variance(d)` of a `Decimal` (also `Text`, `Date`, ...) | `Unknown function: variance; ...` + PIE-S2319 in a grouped query | `Aggregate function variance expects Int or Float field argument, got Decimal` alone |
+| PIE-S2103 → PIE-S2309 | the call | `variance()`, `variance(a, b)` | `Unknown function: variance; ...` | `Aggregate function variance expects 1 arguments, got 0` / `got 2` |
+| PIE-S2103 → PIE-S2315 | the call | `variance(a + 1)`, `variance(1)`, `variance(w)` with `let w = a` (file and project) | `Unknown function: variance; ...` | `Aggregate function variance requires a direct field argument; expression arguments are not supported yet` |
+| PIE-S2103 → PIE-S2308/PIE-S2310/PIE-S2311/PIE-S2313/PIE-S2381 | as for `stddev` | `variance` in HAVING/QUALIFY, composed, nested, unaliased, over a repeating JOIN | `Unknown function: ...` | the `stddev` diagnostics with the function's name |
+| PIE-S2103 → PIE-S2334 | the call | `variance(o.x for o in group)` (also `pvariance`, `pstdev`); in a `schema_version = 2` project also `variance(o.x for o in c.xs)` over a row's collected list | `Unknown function: variance; ...` (`pstdev`: the `std` text) | ``variance takes no generator; a conditional variance is not available; only `sum(... for o in group if ...)` takes a generator``; over a list ``variance takes no generator; a list variance is not available; `sum` and `any` take a list generator``; the hint the JSON `suggestion` |
+| PIE-B1000 (new text) | the relation | single-file MySQL `variance`/`pvariance`/`pstdev` of an `Int` | PIE-S2103 at check | `MySQL SQL emission is not implemented for RelationIR: <name>. MySQL aggregate variance of an Int argument is not supported; emit with --dialect postgres` (each name) |
+| PIE-B1003 (new details) | the aggregate | project MySQL `Int` | PIE-S2103 at check | `variance_int_not_admitted_on_target`, `pvariance_int_not_admitted_on_target`, `pstdev_int_not_admitted_on_target`; suggestion ``Emit this Int variance for PostgreSQL, or keep it in check/plan: MySQL computes an integer variance in DOUBLE, which loses Int accuracy; casting the input does not restore it.`` (`pvariance`: `Int pvariance` / `integer variance`; `pstdev`: `Int pstdev` / `integer deviation`) |
+| PIE-B1004 | the aggregate | project MySQL `Float` | PIE-S2103 at check | `float_aggregate_finite_result_proof_missing` (existing detail and suggestion) |
+| PIE-B1003 / PIE-B1002 (unreachable after check) | | | | `variance_argument_outside_reviewed_int_domain` (and `pvariance_`, `pstdev_`) with the existing reviewed-carrier suggestion; `variance_result_logical_type_or_argument_drift` (and `pvariance_`, `pstdev_`) |
+
+The other names of the available-aggregates hint (`mean(x)`, `array_agg(x)`,
+`group_concat(x)`, a non-lowercase `median`, `quantile` or `string_agg`) now
+list ``avg, count, count_distinct, max, median, min, pstdev, pvariance,
+quantile, stddev, string_agg, sum and variance`` (no suggestion, as before).
+`stdev`, `stddev_samp` and `statistics.stdev` are unchanged (``write
+`stddev`, the sample standard deviation (Python `statistics.stdev`)``, no
+suggestion).
+
+Compatibility (accepted programs that change; owner decision 7a,
+2026-11-06):
+
+| Program | Before | After |
+|---|---|---|
+| `def variance(x: Int) -> Int: ...` (called or not) | accepted; `variance(a)` calls the def | PIE-S2398 at the def, `Def variance has the name of a built-in function; a def cannot shadow one`, suggestion ``Rename this def: `variance` is now the built-in sample variance aggregate, and a call to variance always means it.`` |
+| `def pvariance(...)` | accepted | PIE-S2398, same message with `pvariance`; suggestion ``Rename this def: `pvariance` is now the built-in population variance aggregate, and a call to pvariance always means it.`` |
+| `def pstdev(...)` | accepted | PIE-S2398, same message with `pstdev`; suggestion ``Rename this def: `pstdev` is now the built-in population standard deviation aggregate, and a call to pstdev always means it.`` |
+
+A `constraint` or `derive` named `variance`, `pvariance` or `pstdev` still
+checks; a call of that name, which was PIE-S2103 ``Unknown function:
+variance; variance is a constraint, which cannot be called; write a `def`
+instead`` (`derive` alike), is now the aggregate. A `relationship
+variance(...)` (or `pvariance`, `pstdev`) template keeps its meaning in WHERE
+and in a select item, with byte-identical PostgreSQL SQL. A `schema_version =
+1` project checks `variance`, `pvariance` and `pstdev` as `stddev` (before:
+PIE-S2103 + PIE-S2319).
+
+Formats: a compiled `aggregate_value` record may name `variance`, `pvariance`
+or `pstdev` (one input); such bundles carry the Phase73 version marks `(7, 1,
+7, 1)`, and a reader of earlier marks refuses them. Project JSON v2 gains the
+aggregate `spelling` `VAR_POP` and the blocker details listed above; no new
+`ranges` role.
+
 ## Equality, nullability and asof JOIN public alpha release notes — 0.1.9
 
 <a id="unreleased-changes-following-018"></a>

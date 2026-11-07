@@ -903,6 +903,7 @@ AGGREGATE_SPELLING = {
     "AVG",
     "string_agg",
     "VAR_SAMP",
+    "VAR_POP",
     "PERCENTILE_CONT",
 }
 WINDOW_SPELLING = {

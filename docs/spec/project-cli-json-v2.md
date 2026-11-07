@@ -419,17 +419,30 @@ The additive `ranges` roles for these PostgreSQL forms are
 
 A generated R13 `aggregate` requirement's `evidence` may also be
 `[{"overflow": "target_checked_binary64_overflow"}]`. It marks a PostgreSQL
-`stddev(Float)`, written `SQRT(CAST(VAR_SAMP(x) AS pg_catalog.float8))`, whose
+`stddev(Float)`, `variance(Float)`, `pvariance(Float)` or `pstdev(Float)`,
+written `SQRT(CAST(VAR_SAMP(x) AS pg_catalog.float8))`,
+`CAST(VAR_SAMP(x) AS pg_catalog.float8)`, `CAST(VAR_POP(x) AS
+pg_catalog.float8)` or `SQRT(CAST(VAR_POP(x) AS pg_catalog.float8))`, whose
 `finite_float` result is finite because PostgreSQL refuses an overflowing
 accumulation with SQLSTATE 22003; the statement may fail while it executes and
 never returns infinity or a wrong value. Evidence follows the function and its
-argument's type, never a cast: `stddev(Int)` carries none, and only
-`sum(Int)` carries `target_checked_signed64_narrowing`. A consumer that
-requires a statically proved finite result refuses a document with this
-evidence. The additive `ranges` roles for this form are the `syntax` roles
-`aggregate_root_open` (`SQRT(`) and `aggregate_root_close` (`)`), around the
+argument's type, never a cast: `stddev(Int)`, `variance(Int)`,
+`pvariance(Int)` and `pstdev(Int)` carry none, and only `sum(Int)` carries
+`target_checked_signed64_narrowing`. A consumer that requires a statically
+proved finite result refuses a document with this evidence. The additive
+`ranges` roles for these forms are the `syntax` roles `aggregate_root_open`
+(`SQRT(`) and `aggregate_root_close` (`)`) of a deviation, around the
 `aggregate_result_cast_open`/`aggregate_result_cast_close` pair; the
-aggregate `spelling` is `VAR_SAMP`.
+aggregate `spelling` is `VAR_SAMP` for `stddev` and `variance` and `VAR_POP`
+(additive) for `pvariance` and `pstdev`. The additive blocker details are
+`variance_int_not_admitted_on_target`, `pvariance_int_not_admitted_on_target`
+and `pstdev_int_not_admitted_on_target` (PIE-B1003),
+`variance_argument_outside_reviewed_int_domain`,
+`pvariance_argument_outside_reviewed_int_domain` and
+`pstdev_argument_outside_reviewed_int_domain` (PIE-B1003, unreachable after
+check), and `variance_result_logical_type_or_argument_drift`,
+`pvariance_result_logical_type_or_argument_drift` and
+`pstdev_result_logical_type_or_argument_drift` (PIE-B1002, internal).
 
 A PostgreSQL `median` or `quantile` aggregate column has the `spelling`
 `PERCENTILE_CONT`, the `argument_cast` `pg_catalog.float8` and no

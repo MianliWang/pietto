@@ -1380,6 +1380,84 @@ def test_stddev_is_the_postgres_root_of_the_float8_sample_variance(
 
 
 @pytest.mark.parametrize("target", TARGETS)
+@pytest.mark.parametrize("grouped", (True, False))
+@pytest.mark.parametrize(
+    ("field", "column_name", "evidence", "mysql_blocker"),
+    (
+        (
+            "value",
+            "value é",
+            [],
+            ("PIE-B1003", "{function}_int_not_admitted_on_target"),
+        ),
+        (
+            "ratio",
+            "ratio value",
+            [{"overflow": "target_checked_binary64_overflow"}],
+            ("PIE-B1004", "float_aggregate_finite_result_proof_missing"),
+        ),
+    ),
+)
+def test_variance_and_population_deviation_are_the_postgres_float8_variance(
+    tmp_path, target, grouped, field, column_name, evidence, mysql_blocker
+):
+    """PostgreSQL emits `variance` and `pvariance` as VAR_SAMP and VAR_POP
+    cast once to float8 and `pstdev` as the SQRT of the cast VAR_POP, for an
+    Int with no range evidence and for a Float with the binary64 overflow
+    token, as `stddev`; MySQL keeps each refused, with a suggestion."""
+    keys = (
+        "    group by key\n    select:\n        key\n" if grouped else "    select:\n"
+    )
+    outcome = emit_source(
+        tmp_path,
+        target,
+        "query result:\n    from agg\n"
+        + keys
+        + f"        v = variance({field})\n        pv = pvariance({field})\n"
+        + f"        ps = pstdev({field})\n",
+    )
+    data = public(outcome)
+    functions = ("variance", "pvariance", "pstdev")
+    if target == "mysql":
+        assert data["status"] == "BLOCKED"
+        code, detail = mysql_blocker
+        assert [(b["code"], b["subject"]["detail"]) for b in data["blockers"]] == [
+            (code, detail.format(function=function)) for function in functions
+        ]
+        assert all(b["suggestion"] for b in data["blockers"])
+        return
+    assert outcome.status == "VERIFIED", outcome.blockers
+    for label in ("v", "pv", "ps"):
+        assert column(data, label)["logical_type"] == {
+            "kind": "builtin",
+            "name": "Float",
+            "parameters": None,
+        }
+        assert column(data, label)["representation"] == {
+            "storage": {"kind": "pg_float8"},
+            "nullable": True,
+            "domain": {"kind": "finite_float", "format": "binary64"},
+        }
+    read = f'"s0"."{column_name}"'
+    first = 1 if grouped else 0
+    for offset, sql in enumerate(
+        (
+            f"CAST(VAR_SAMP({read}) AS pg_catalog.float8)",
+            f"CAST(VAR_POP({read}) AS pg_catalog.float8)",
+            f"SQRT(CAST(VAR_POP({read}) AS pg_catalog.float8))",
+        )
+    ):
+        assert f'{sql} AS "c{first + offset}"' in data["sql"]
+    assert not any(
+        token in data["sql"]
+        for token in ("VARIANCE(", "STDDEV", "VAR_SAMP(CAST(", "VAR_POP(CAST(")
+    )
+    assert [
+        r["evidence"] for r in data["requirements"] if r["kind"] == "aggregate"
+    ] == [evidence] * 3
+
+
+@pytest.mark.parametrize("target", TARGETS)
 @pytest.mark.parametrize("policy", ("preserve_literals", "bind_safe_literals"))
 @pytest.mark.parametrize("grouped", (True, False))
 def test_median_and_quantile_are_the_postgres_percentile_of_an_int(

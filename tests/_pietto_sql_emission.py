@@ -201,6 +201,8 @@ VARIANTS = {
         "avg_direct",
         "stddev_direct",
         "stddev_float",
+        "spread_direct",
+        "spread_float",
         "sum_float",
         "avg_float",
         "postgres_carriers",
@@ -427,8 +429,17 @@ AGGREGATE_SPELLINGS = {
     "MAX(": "max",
     "string_agg(": "string_agg",
     "VAR_SAMP(": "stddev",
+    "VAR_POP(": "pstdev",
     # `median` writes the fraction 0.5; a `quantile` its literal fraction.
     "PERCENTILE_CONT(": "quantile",
+}
+# The variance aggregates by spelling and square root: a deviation is the
+# SQRT of the float8 variance.
+SPREAD_FUNCTIONS = {
+    ("VAR_SAMP(", True): "stddev",
+    ("VAR_SAMP(", False): "variance",
+    ("VAR_POP(", True): "pstdev",
+    ("VAR_POP(", False): "pvariance",
 }
 # The eleven admitted Slice9 identities, keyed by the exact emitted call token.
 WINDOW_SPELLINGS = {
@@ -1568,6 +1579,20 @@ query result:
     select:
         d = stddev(ratio)
 """,
+    ("V_aggregate_blocked", "spread_direct"): """query result:
+    from agg
+    select:
+        v = variance(rid)
+        pv = pvariance(rid)
+        ps = pstdev(rid)
+""",
+    ("V_aggregate_blocked", "spread_float"): """query result:
+    from agg
+    select:
+        v = variance(ratio)
+        pv = pvariance(ratio)
+        ps = pstdev(ratio)
+""",
     ("V_aggregate_blocked", "sum_float"): """query result:
     from agg
     select:
@@ -1680,6 +1705,8 @@ AGGREGATE_LABELS = {
     ("V_aggregate_blocked", "avg_direct"): ("a",),
     ("V_aggregate_blocked", "stddev_direct"): ("d",),
     ("V_aggregate_blocked", "stddev_float"): ("d",),
+    ("V_aggregate_blocked", "spread_direct"): ("v", "pv", "ps"),
+    ("V_aggregate_blocked", "spread_float"): ("v", "pv", "ps"),
     ("V_aggregate_blocked", "sum_float"): ("s",),
     ("V_aggregate_blocked", "avg_float"): ("a",),
     ("V_aggregate_blocked", "postgres_carriers"): ("n", "d", "f", "lo", "hi"),
@@ -1716,6 +1743,8 @@ AGGREGATE_LOGICAL = {
     ("V_aggregate_blocked", "avg_direct"): ("Float",),
     ("V_aggregate_blocked", "stddev_direct"): ("Float",),
     ("V_aggregate_blocked", "stddev_float"): ("Float",),
+    ("V_aggregate_blocked", "spread_direct"): ("Float",) * 3,
+    ("V_aggregate_blocked", "spread_float"): ("Float",) * 3,
     ("V_aggregate_blocked", "sum_float"): ("Float",),
     ("V_aggregate_blocked", "avg_float"): ("Float",),
     ("V_aggregate_blocked", "postgres_carriers"): (
@@ -4466,6 +4495,17 @@ PER_TARGET_STATUS = {
         "mysql": "BLOCKED",
     },
     ("V_aggregate_blocked", "stddev_float"): {
+        "postgres": "VERIFIED",
+        "mysql": "BLOCKED",
+    },
+    # The sample and population variances and the population deviation are
+    # CAST(VAR_SAMP(x) ...), CAST(VAR_POP(x) ...) and SQRT(CAST(VAR_POP(x)
+    # ...)) on PostgreSQL; MySQL keeps them refused as stddev.
+    ("V_aggregate_blocked", "spread_direct"): {
+        "postgres": "VERIFIED",
+        "mysql": "BLOCKED",
+    },
+    ("V_aggregate_blocked", "spread_float"): {
         "postgres": "VERIFIED",
         "mysql": "BLOCKED",
     },
@@ -9588,17 +9628,19 @@ def _decode_fixed_public(document, limits):
             result_cast = "pg_catalog.int8"
         _, spelling = take("syntax", "aggregate_open", subject=subject)
         _need(spelling in AGGREGATE_SPELLINGS, "aggregate spelling")
-        # Only a PostgreSQL stddev is SQRT(CAST(VAR_SAMP(x) AS float8)).
+        # Only a PostgreSQL variance is CAST(VAR_SAMP(x) AS float8) or
+        # VAR_POP, and only a deviation is under SQRT.
+        spread = (spelling, root) in SPREAD_FUNCTIONS
         _need(
-            root is (spelling == "VAR_SAMP(")
-            and (not root or family == "postgres" and result_cast is not None),
-            "stddev square root",
+            (not root or spread)
+            and (not spread or family == "postgres" and result_cast is not None),
+            "variance square root",
         )
-        if root:
+        if spread:
             result_cast = "pg_catalog.float8"
         distinct, argument, delimiter, order_by = False, None, None, []
         argument_cast = None
-        function = AGGREGATE_SPELLINGS[spelling]
+        function = SPREAD_FUNCTIONS.get((spelling, root), AGGREGATE_SPELLINGS[spelling])
         if peek() == "aggregate_filter_open":
             # COUNT(CASE WHEN test THEN 1 END), or SUM(CASE WHEN test THEN
             # CAST(x AS pg_catalog.int8) END) under its checked CAST: the test
@@ -9692,7 +9734,7 @@ def _decode_fixed_public(document, limits):
         if result_cast is not None:
             # Q1: only a PostgreSQL SUM is narrowed by a checked bigint CAST.
             _need(
-                family == "postgres" and spelling in {"SUM(", "VAR_SAMP("},
+                family == "postgres" and spelling in {"SUM(", "VAR_SAMP(", "VAR_POP("},
                 "sum result cast",
             )
             closed, _ = take(
@@ -9727,7 +9769,7 @@ def _decode_fixed_public(document, limits):
         _need(
             (result_cast is not None)
             is (
-                function == "stddev"
+                function in set(SPREAD_FUNCTIONS.values())
                 or function in {"sum", "filtered_sum"}
                 and not floating
             ),
@@ -9778,9 +9820,9 @@ def _decode_fixed_public(document, limits):
                 "nullable": True,
                 "domain": {"kind": "finite_float", "format": "binary64"},
             }
-        if function == "stddev":
-            # The sample deviation of an Int or a finite binary64 Float,
-            # NULL below two values.
+        if function in set(SPREAD_FUNCTIONS.values()):
+            # The variance or deviation of an Int or a finite binary64 Float,
+            # NULL below two values (sample) or for none (population).
             _need(
                 family == "postgres"
                 and argument is not None
@@ -11198,7 +11240,8 @@ def _decode_fixed_public(document, limits):
                         _need(
                             argument["tag"] == "Int"
                             or (
-                                node["function"] in {"stddev", "sum", "avg"}
+                                node["function"]
+                                in {"sum", "avg", *SPREAD_FUNCTIONS.values()}
                                 and family == "postgres"
                                 and argument["tag"] == "Float"
                             )
@@ -11260,17 +11303,17 @@ def _decode_fixed_public(document, limits):
                     order_by,
                     node["result_cast"],
                 )
-                if node["function"] in {"stddev", "sum", "avg"}:
+                if node["function"] in {"sum", "avg", *SPREAD_FUNCTIONS.values()}:
                     # Evidence follows the function and argument tag: only a
-                    # Float sum, average or deviation rests on the target's
-                    # overflow check.
+                    # Float sum, average, variance or deviation rests on the
+                    # target's overflow check.
                     assert argument is not None
                     if argument["tag"] == "Float":
                         row_generated[requirement] = (
                             *row_generated[requirement][:4],
                             [{"overflow": TARGET_CHECKED_BINARY64}],
                         )
-                    elif node["function"] == "stddev":
+                    elif node["function"] in SPREAD_FUNCTIONS.values():
                         row_generated[requirement] = (
                             *row_generated[requirement][:4],
                             None,

@@ -751,7 +751,8 @@ _LET_HINT = "; compute it in a `let` and name that `let` in the window"
         ("result = count_distinct(value)", _ORDER, f"{_AGGREGATE} count_distinct"),
         ("result = stddev(value)", _ORDER, f"{_AGGREGATE} stddev"),
         ("result = median(value)", _ORDER, f"{_AGGREGATE} median"),
-        ("result = variance(value)", _ORDER, "Unknown function: variance"),
+        ("result = variance(value)", _ORDER, f"{_AGGREGATE} variance"),
+        ("result = kurtosis(value)", _ORDER, "Unknown function: kurtosis"),
         ("result = row_numbr()", _ORDER, "Unknown function: row_numbr"),
         ("result = SUM(value)", _ORDER, "Unknown function: SUM"),
         (

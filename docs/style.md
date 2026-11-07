@@ -1034,7 +1034,11 @@ query march_visits:
 query visit_spread:
     from visits
     group by first_name
-    select first_name, minutes_spread = stddev(minutes)
+    select:
+        first_name
+        minutes_spread = stddev(minutes)
+        minutes_variance = variance(minutes)
+        everyone_spread = pstdev(minutes)
 
 query visit_minutes:
     from visits
@@ -1045,8 +1049,12 @@ query visit_minutes:
 `concat` joins Text values and is None when any of them is None, as SQL's
 `||` is. `same_value(a, b)` is the `==` of Python for None: True when both are
 None, False when only one is. Write a half-open range, such as one month, as
-one chain `start <= ts < stop`. `stddev` is the sample standard deviation,
-Python's `statistics.stdev`, and is None for fewer than two values.
+one chain `start <= ts < stop`. `stddev` and `variance` are the sample
+standard deviation and variance, Python's `statistics.stdev` and
+`statistics.variance`, and are None for fewer than two values; `pstdev` and
+`pvariance` are the population ones, `statistics.pstdev` and
+`statistics.pvariance`, 0.0 for one value. They take an `Int` or `Float`
+field.
 `median(x)` and `quantile(x, q)` are the interpolated median and quantile, as
 pandas' `Series.median()` and `Series.quantile(q)`: the values are taken as
 Float, None values are skipped, and the result is a Float, None when no value
@@ -1176,11 +1184,18 @@ Comments start with `#`, as in Python. `--` does not start a comment:
 | `same_value(x, None)` | `x is None` | a `None` operand of `same_value` is an error (PIE-S2104) |
 | `start <= ts and ts < stop` | `start <= ts < stop` | one chain for a half-open range: `start` is in it, `stop` is not |
 | `statistics.stdev(xs)`, `stddev_samp(x)` | `stddev(x)` | one name, the sample deviation; None below two values, where Python raises |
-| `statistics.pstdev(xs)`, `stddev_pop(x)`, `std(x)` | not available | the population deviation; MySQL `STD`/`STDDEV` and numpy `std` mean population; Pietto never emits them |
+| `statistics.variance(xs)`, `df.x.var()`, `var_samp(x)` | `variance(x)` | the sample variance; None below two values, where Python raises |
+| `statistics.pvariance(xs)`, `np.var(xs)`, `var_pop(x)` | `pvariance(x)` | the population variance; 0.0 for one value, None for none |
+| `statistics.pstdev(xs)`, `np.std(xs)`, `stddev_pop(x)`, `pstddev(x)` | `pstdev(x)` | the population deviation; 0.0 for one value, None for none |
+| `var(x)`, `std(x)` | `variance(x)` or `pvariance(x)`; `stddev(x)` or `pstdev(x)` | pandas means the sample, numpy the population: the hint names both and picks neither (PIE-S2103) |
+| `VARIANCE(x)`, `STDDEV(x)`, `STD(x)` | `variance(x)`, `stddev(x)` for the sample; `pvariance(x)`, `pstdev(x)` for the population | PostgreSQL's `VARIANCE`/`STDDEV` are the sample, MySQL's `VARIANCE`/`STDDEV`/`STD` the population; Pietto never emits them |
+| `stddev(x, ddof=0)`, `variance(x, ddof=1)` | `pstdev(x)`, `variance(x)` | there are no keyword arguments (PIE-P1000) |
+| `variance(price)` of a `Decimal` | not available | the variance family takes an `Int` or `Float` field (PIE-S2314), as `stddev`; a `Decimal` is not cast to `Float` (PIE-S2105) |
+| `variance(x) window(...)`, `pstdev(x) over (...)` | not available | not a window aggregate (PIE-S2103; the `over (...)` spelling is PIE-P1000) |
 | `statistics.median(xs)`, `percentile_cont(0.5) within group (order by x)` | `median(x)` | one name; values are taken as Float, None values are skipped, and an empty group is None, where Python raises |
 | `df.x.quantile(0.9)`, `percentile_cont(0.9) within group (order by x)`, `approx_percentile(x, 0.9)` | `quantile(x, 0.9)` | `q` is a Float literal from 0.0 to 1.0 written in the call; `90` or a field is refused (PIE-S2104) |
 | `percentile_disc(0.9) within group (order by x)` | not available | the discrete percentile picks one value; `quantile` interpolates between the two nearest |
-| `median(x) window(...)`, `median(x) over (...)` | not available | a running or partitioned median is not a window aggregate (PIE-S2103) |
+| `median(x) window(...)`, `median(x) over (...)` | not available | a running or partitioned median is not a window aggregate (PIE-S2103; the `over (...)` spelling is PIE-P1000) |
 | `datetime.now()`, `datetime.utcnow()`, `current_timestamp`, `utcnow()`, `utc_now()` | `now()` | one name, the UTC time when the query runs, without a time zone (PIE-S2103 hint for the calls `datetime.now`, `datetime.utcnow`, `current_timestamp`, `utcnow`, `utc_now`, any letter case) |
 | `date.today()`, `today()` | `date_of(now())` | the UTC date when the query runs (PIE-S2103 hint for `date.today`, `today`) |
 | `NOW()` | `now()` | functions are lowercase (PIE-S2103 hint) |

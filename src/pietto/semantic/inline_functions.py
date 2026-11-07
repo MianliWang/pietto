@@ -107,6 +107,12 @@ _NEW_BUILTIN_RENAMES = {
     "quantile aggregate, and a call to quantile always means it.",
     "now": "Rename this def: `now` has become the built-in UTC time of the "
     "running query, and a call to now always means it.",
+    "variance": "Rename this def: `variance` is now the built-in sample "
+    "variance aggregate, and a call to variance always means it.",
+    "pvariance": "Rename this def: `pvariance` is now the built-in population "
+    "variance aggregate, and a call to pvariance always means it.",
+    "pstdev": "Rename this def: `pstdev` is now the built-in population "
+    "standard deviation aggregate, and a call to pstdev always means it.",
 }
 # Built-in names a module's own def may keep (`shadowed_builtin_names`), and
 # that no imported def is bound to.

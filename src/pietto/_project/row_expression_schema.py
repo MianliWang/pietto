@@ -65,6 +65,9 @@ _SEMANTIC_AGGREGATE_NAMES = frozenset(
         "min",
         "max",
         "stddev",
+        "variance",
+        "pvariance",
+        "pstdev",
         "median",
         "quantile",
     }

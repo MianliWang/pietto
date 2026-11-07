@@ -538,6 +538,7 @@ first column give every rule.
 | `concat(a, b)` ([Expressions](#expressions)) | `(a \|\| b)` | `CONCAT(a, b)` | emitted; refused for only `None` (PIE-B1003) or a binding-width `Text` (PIE-B1004) | refused (PIE-B1003) |
 | `same_value(a, b)` ([Expressions](#expressions)) | `(a IS NOT DISTINCT FROM b)` | `(a <=> b)` | select items, WHERE and `let`, select items after a JOIN; `Float` where `==` is, not `Bool`, not in a JOIN `on` or a WHERE after a JOIN | as PostgreSQL, a `Float` only beside an operand that reads no row (two row `Float` operands PIE-B1003), and not a GROUP BY key or DISTINCT column |
 | `stddev(x)` ([Aggregates](#aggregates-and-grouping)) | `Int` and `Float` | `Float` (`STDDEV_SAMP`); `Int` refused (PIE-B1000) | `Int` and `Float` | refused: `Int` PIE-B1003, `Float` PIE-B1004 |
+| `variance(x)`, `pvariance(x)`, `pstdev(x)` ([Aggregates](#aggregates-and-grouping)) | `Int` and `Float` (`VAR_SAMP`, `VAR_POP`, `SQRT` of `VAR_POP`) | `Float` (`VAR_SAMP`, `VAR_POP`, `STDDEV_POP`); `Int` refused (PIE-B1000) | `Int` and `Float` | refused: `Int` PIE-B1003, `Float` PIE-B1004 |
 | `median(x)`, `quantile(x, q)` ([Aggregates](#aggregates-and-grouping)) | `Int` and `Float` (`PERCENTILE_CONT ... WITHIN GROUP`) | refused (PIE-B1000) | `Int`; `Float` refused (PIE-B1004) | refused (PIE-B1003) |
 | `sum(1 for o in group if t)`, `sum(o.f for o in group if t)` ([Aggregates](#aggregates-and-grouping)) | `COUNT(CASE WHEN t THEN 1 END)`; `COALESCE(CAST(SUM(CASE WHEN t THEN CAST(f AS pg_catalog.int8) END) AS pg_catalog.int8), 0)` | count `COUNT(CASE WHEN t THEN 1 END)`; sum refused (PIE-B1000) | as PostgreSQL single file, `schema_version = 2` (PIE-S2334 in a `schema_version = 1` project); no JOIN inputs | refused: count PIE-B1003, sum PIE-B1004 |
 | `max(a, b)`, `min(a, b)` ([Expressions](#expressions)) | `CASE WHEN` of `<`/`>` and `IS NOT NULL`; `Int`, `Decimal`, `Float`, `Text`, `Date`, `Timestamp`, `UUID`, `Bool` | as PostgreSQL; a `Bool` result arrives as an integer 0, 1 or NULL, as every computed `Bool` does on MySQL | `Int`, `Decimal`, `Float`, `Text`, `Timestamp`, `UUID` as their comparison and conditional are; `Date` and `Bool` refused (PIE-B1003) | as PostgreSQL project |
@@ -3794,7 +3795,7 @@ WHERE ("ordered_at" BETWEEN '2026-01-01 00:00:00' AND '2026-12-31 23:59:59') AND
 The current aggregate family is:
 
 ```text
-count count_distinct sum avg min max stddev median quantile string_agg
+count count_distinct sum avg min max stddev variance pvariance pstdev median quantile string_agg
 ```
 
 `string_agg(value, delimiter, order by key[, key ...])` accepts two Text row
@@ -3920,43 +3921,70 @@ targets: as in project SQL, its argument is cast before averaging (PostgreSQL
 `AVG(CAST(x AS double precision))`, MySQL `AVG(CAST(x AS DOUBLE))`), so the
 target returns a binary64 average instead of its own decimal one.
 
-`stddev(x)` is the sample standard deviation, as Python's `statistics.stdev`,
-of the non-None values of one direct `Int` or `Float` field (or an alias of
-either). Its result is a nullable `Float`: fewer than two values, an empty
-input or an all-None input give None, where Python raises. Any other argument
-type, `Decimal` included, is PIE-S2314 (`expects Int or Float field
-argument`); an expression, a literal or a `let` name is PIE-S2315 in a single
-file and in a project (where `min` and `max` take a `let` name and `stddev`
-does not). In a project a query header parameter argument is refused earlier,
-with PIE-S2355, as for every aggregate outside `count`, `avg`, `min` and
-`max`.
-`stddev` takes the positions of the other non-window aggregates; in a window
-it is PIE-S2103 with the suffix `window aggregates are sum, count, avg, min
-and max`, in a single file and in a project, and without the suffix where the
-relation admits no such window (a hidden QUALIFY window in a query with
-aggregates and no GROUP BY).
+`stddev(x)` and `variance(x)` are the sample standard deviation and variance,
+as Python's `statistics.stdev` and `statistics.variance` (pandas `std()` and
+`var()`); `pstdev(x)` and `pvariance(x)` are the population standard deviation
+and variance, as `statistics.pstdev` and `statistics.pvariance` (numpy `std`
+and `var`). Each reads the non-None values of one direct `Int` or `Float` field
+(or an alias of either). Its result is a nullable `Float`: `stddev` and
+`variance` are None for fewer than two values, `pstdev` and `pvariance` are
+None for no value and 0.0 for one, where Python raises; an empty or all-None
+input gives None. Any other argument type, `Decimal` included, is PIE-S2314
+(`expects Int or Float field argument`); an expression, a literal or a `let`
+name is PIE-S2315 in a single file and in a project (where `min` and `max` take
+a `let` name and these four do not). In a project a query header parameter
+argument is refused earlier, with PIE-S2355, as for every aggregate outside
+`count`, `avg`, `min` and `max`. The four take the positions of the other
+non-window aggregates; in a window each is PIE-S2103 with the suffix `window
+aggregates are sum, count, avg, min and max`, in a single file and in a
+project, and without the suffix where the relation admits no such window (a
+hidden QUALIFY window in a query with aggregates and no GROUP BY). Over JOIN
+rows they read the rows a JOIN repeats, as `sum` does (PIE-S2381), and skip
+the rows a LEFT JOIN keeps without a match. A `schema_version = 1` project
+checks them as it checks `stddev`.
 
-PostgreSQL emits `stddev` of an `Int` or a `Float` as
-`SQRT(CAST(VAR_SAMP(x) AS double precision))` in a single file and
-`SQRT(CAST(VAR_SAMP(x) AS pg_catalog.float8))` in a project. The variance of
-an integer is exact `numeric`, so it is rounded once by the cast and the
-square root rounds correctly: the result is within 2·ε·s of
-`statistics.stdev` (ε = 2^-52). PostgreSQL never casts the argument, and
-`STDDEV_SAMP(int8)` is never emitted, as it rounds the `numeric` square root
-before the cast. A `Float` deviation is computed in binary64; its error grows
-with the number of values and with their magnitude over their spread, a
-deviation below about 1e-161 may be 0, and the sign of a zero is unspecified.
-When the accumulated sum of squares overflows (about |x| > 1e154),
-PostgreSQL fails the statement with SQLSTATE 22003 instead of returning a
-value, also where the true deviation is finite. Single-file MySQL emits
-`STDDEV_SAMP(x)` for a `Float` and refuses an `Int` with PIE-B1000 (`MySQL
-aggregate stddev of an Int argument is not supported`): MySQL computes an
-integer deviation in DOUBLE. Pietto never emits `STD`, `STDDEV` or
-`STDDEV_POP`, which are the population deviation on MySQL; the population
-deviation (`statistics.pstdev`, numpy `std`) is not available. A `def stddev`
-is PIE-S2398, as a `def` named after any other aggregate is; its suggestion
-says to rename the def. Semantic Metadata Artifact v1 lists no `stddev`
-aggregate, as it lists no `string_agg`.
+PostgreSQL emits `variance` as `CAST(VAR_SAMP(x) AS double precision)`,
+`pvariance` as `CAST(VAR_POP(x) AS double precision)`, `stddev` as
+`SQRT(CAST(VAR_SAMP(x) AS double precision))` and `pstdev` as
+`SQRT(CAST(VAR_POP(x) AS double precision))` in a single file, with
+`pg_catalog.float8` in place of `double precision` in a project; the argument
+is never cast. The variance of an integer is computed in `numeric` from exact
+sums, divided once at a result scale of at least 17 significant digits, and
+rounded once to binary64 by the cast, and the square root rounds correctly:
+`variance` and `pvariance` of an `Int` are within ε·v of Python's
+`statistics.variance` and `statistics.pvariance` (ε = 2^-52), and `stddev`
+and `pstdev` within 2·ε·s of `statistics.stdev` and `statistics.pstdev`.
+`STDDEV_SAMP(int8)` and `STDDEV_POP(int8)` are never emitted, as they round
+the `numeric` square root before the cast. A `Float` variance is accumulated
+in binary64, and its error grows with the number of values n and with their
+magnitude over their spread: with s the true deviation and r the root mean
+square of the values, a deviation is within 4·ε·s + 8·n·ε·r of the true one
+and a variance within about 2·s times that, a relative error of about
+16·n·ε·r/s (bounds measured on PostgreSQL 18.6 and MySQL 8.4 by a
+two-database differential); a variance below about 1e-322 or a deviation
+below about 1e-161 may be 0, and the sign of a zero is unspecified. When the
+accumulated sum of squares overflows (about |x| > 1e154), PostgreSQL fails
+the statement with SQLSTATE 22003 instead of returning a value, also where
+the true result is finite.
+
+Single-file MySQL emits `STDDEV_SAMP(x)`, `VAR_SAMP(x)`, `VAR_POP(x)` and
+`STDDEV_POP(x)` for a `Float`. An `Int` argument is refused with PIE-B1000
+(`MySQL aggregate stddev of an Int argument is not supported`; `variance`,
+`pvariance` and `pstdev` name themselves and add `; emit with --dialect
+postgres`): MySQL computes an integer variance in DOUBLE. Pietto never emits
+`STD`, `STDDEV` or `VARIANCE`, which are the population forms on MySQL and the
+sample forms on PostgreSQL. `var`, `std`, `VARIANCE` and `STDDEV` are
+PIE-S2103 with a hint that names both the sample and the population form, as
+pandas and numpy, and PostgreSQL and MySQL, disagree on them; `var_samp`,
+`var_pop`, `stddev_pop`, `pstddev` and `statistics.variance`,
+`statistics.pvariance` and `statistics.pstdev` are PIE-S2103 with a hint that
+names the one Pietto form, and `PVARIANCE` or `PSTDEV` one that says to write
+it in lowercase; each of these hints is also the JSON `suggestion`.
+`stddev(x, ddof=0)` is PIE-P1000: there are no keyword arguments. A `def
+stddev`, `def variance`, `def pvariance` or `def pstdev` is PIE-S2398, as a
+`def` named after any other aggregate is; its suggestion says to rename the
+def. Semantic Metadata Artifact v1 lists none of the four, as it lists no
+`string_agg`.
 
 `median(x)` and `quantile(x, q)` are the interpolated median and quantile of
 the non-None values of one direct `Int` or `Float` field (or an alias of

@@ -58,7 +58,8 @@ _SET_INSENSITIVE = frozenset(
     (MIN_AGGREGATE_NAME, MAX_AGGREGATE_NAME, COUNT_DISTINCT_AGGREGATE_NAME)
 )
 # The aggregates that skip every row whose argument is NULL (`count` with an
-# argument, `sum`, `avg`, `stddev`, `median`, `quantile`): they read no row
+# argument, `sum`, `avg` and the Float statistics `stddev`, `variance`,
+# `pvariance`, `pstdev`, `median`, `quantile`): they read no row
 # in which their direct field argument's input is NULL-extended.
 _NULL_SKIPPING = frozenset(
     (

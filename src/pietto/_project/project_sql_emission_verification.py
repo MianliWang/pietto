@@ -2102,8 +2102,9 @@ def _aggregate_result_realization(family, function, argument, retained):
             {"kind": "int_range", "min": str(low), "max": str(high)},
             (low, high),
         )
-    if function == "stddev":
-        # SQRT(CAST(VAR_SAMP(x) AS pg_catalog.float8)), NULL below two values.
+    if function in grouping.SPREAD_FUNCTIONS:
+        # CAST(VAR_SAMP(x) AS pg_catalog.float8) (or VAR_POP), under SQRT for a
+        # deviation; NULL below two values (sample) or for none (population).
         if (
             family != "postgres"
             or argument is None
@@ -9348,8 +9349,8 @@ def verify_row_generated_requirements(request, query, generated):
             if type(column) is grouping.AggregateValueColumn:
                 # Q1: only a PostgreSQL SUM(Int) rests on the target's checked
                 # bigint narrowing rather than a static range, and only a
-                # PostgreSQL sum, avg or stddev of a Float on its checked
-                # binary64 overflow.
+                # PostgreSQL sum, avg, variance or deviation of a Float on its
+                # checked binary64 overflow.
                 argument_tag = (
                     None
                     if column.argument is None
@@ -9364,7 +9365,7 @@ def verify_row_generated_requirements(request, query, generated):
                         ()
                         if request.family != "postgres"
                         else (grouping.TARGET_CHECKED_BINARY64,)
-                        if column.function in {"sum", "avg", "stddev"}
+                        if column.function in {"sum", "avg", *grouping.SPREAD_FUNCTIONS}
                         and argument_tag == "Float"
                         else (TARGET_CHECKED,)
                         if column.function in {"sum", "filtered_sum"}

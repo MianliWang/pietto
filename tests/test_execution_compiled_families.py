@@ -256,6 +256,33 @@ BINARY64 = ("target_checked_binary64_overflow",)
 
 
 @pytest.mark.parametrize(
+    "variant,evidence", (("spread_direct", ()), ("spread_float", BINARY64))
+)
+def test_postgresql_variance_and_population_deviation_replay_from_compiled_input(
+    tmp_path, variant, evidence
+):
+    """CAST(VAR_SAMP(x) AS float8), CAST(VAR_POP(x) AS float8) and the SQRT
+    of the latter, their Float results and the argument-keyed R13 evidence
+    replay from compiled input."""
+    original = build(tmp_path, "postgres", "V_aggregate_blocked", variant)
+    assert original.status == "VERIFIED" and original.artifact is not None
+    candidate = _compare(original.artifact, refinement=False)
+    sql = candidate.rendered.sql
+    assert b"CAST(VAR_SAMP(" in sql and b"SQRT(CAST(VAR_SAMP(" not in sql
+    assert sql.count(b"CAST(VAR_POP(") == 2 and sql.count(b"SQRT(CAST(VAR_POP(") == 1
+    with pytest.raises(ValueError, match="^REFINEMENT_NATIVE_SQL$"):
+        _compare_refinement(original.artifact)
+    assert [
+        r.evidence
+        for r in original.artifact.generated_requirements
+        if r.kind == "aggregate"
+    ] == [evidence] * 3
+    assert [r.evidence for r in candidate.generated_requirements] == [
+        r.evidence for r in original.artifact.generated_requirements
+    ]
+
+
+@pytest.mark.parametrize(
     "target,variant,evidence",
     (
         ("postgres", "sum_float", [BINARY64]),

@@ -717,7 +717,7 @@ def _malformed_grouped_relation(relation: RelationIR, case: str) -> RelationIR:
                 *relation.projections[:2],
                 replace(
                     projection,
-                    expression=replace(projection.expression, function="variance"),
+                    expression=replace(projection.expression, function="kurtosis"),
                 ),
             ),
         )

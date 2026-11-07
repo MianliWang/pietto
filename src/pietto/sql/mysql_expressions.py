@@ -602,8 +602,8 @@ def _render_aggregate_call(
         )
     elif expression.function == "count_distinct":
         sql = _render_count_distinct_aggregate(expression)
-    elif expression.function == "stddev":
-        sql = _render_stddev_aggregate(expression)
+    elif expression.function in _SPREAD_AGGREGATES:
+        sql = _render_spread_aggregate(expression)
     elif (
         function_name := _EXTREMA_AGGREGATE_NAMES.get(expression.function)
     ) is not None:
@@ -957,19 +957,35 @@ def _render_extrema_aggregate(
     return f"{function_name}({_render_mysql_expression(argument, nested=True)})"
 
 
-def _render_stddev_aggregate(expression: AggregateCallIR) -> str:
+# The sample (SAMP) and population (POP) forms of the variance aggregates.
+# MySQL's STD, STDDEV and VARIANCE are population forms whose names mean the
+# sample on PostgreSQL, so they are never emitted.
+_SPREAD_AGGREGATES = {
+    "stddev": "STDDEV_SAMP",
+    "variance": "VAR_SAMP",
+    "pvariance": "VAR_POP",
+    "pstdev": "STDDEV_POP",
+}
+
+
+def _render_spread_aggregate(expression: AggregateCallIR) -> str:
+    function = expression.function
     if not aggregate_call_contract(
-        "stddev", expression.arguments, expression.value_type
+        function, expression.arguments, expression.value_type
     ):
-        raise MySqlRenderError("MySQL aggregate stddev violates its IR contract")
+        raise MySqlRenderError(f"MySQL aggregate {function} violates its IR contract")
     argument = expression.arguments[0]
     if argument.value_type.canonical_name != "Float":
         # MySQL computes BIGINT input in DOUBLE, which loses Int accuracy.
+        # `stddev` keeps its earlier text.
         raise MySqlRenderError(
-            "MySQL aggregate stddev of an Int argument is not supported"
+            f"MySQL aggregate {function} of an Int argument is not supported"
+            + ("" if function == "stddev" else "; emit with --dialect postgres")
         )
-    # STDDEV_SAMP is the sample deviation; STD and STDDEV are the population one.
-    return f"STDDEV_SAMP({_render_mysql_expression(argument, nested=True)})"
+    return (
+        f"{_SPREAD_AGGREGATES[function]}"
+        f"({_render_mysql_expression(argument, nested=True)})"
+    )
 
 
 def _has_builtin_type(

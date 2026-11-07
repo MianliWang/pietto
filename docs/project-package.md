@@ -836,18 +836,23 @@ expression arguments (`count(lower(label))`), except that it keeps BLOCKED
 (`sum_int_aggregate_range_proof_missing`, so `sum(qty * 2)` too), and an `Int`
 row expression not proved to fit signed 64 bits (`PIE-B1002`).
 
-PostgreSQL project SQL emits `stddev` of one direct `Int` field, whose carrier
-is `int2`, `int4` or `int8`, as `SQRT(CAST(VAR_SAMP(x) AS
-pg_catalog.float8))`, VERIFIED with no `int_range` requirement: the variance
-of any signed 64-bit input is below 2^128, so the cast is finite. Its result is
-a nullable `Float` (`pg_float8`, `finite_float`). `stddev` of a direct `Float`
-field uses the same form; its R13 requirement carries the evidence
+PostgreSQL project SQL emits `stddev`, `variance`, `pvariance` and `pstdev` of
+one direct `Int` field, whose carrier is `int2`, `int4` or `int8`, as
+`SQRT(CAST(VAR_SAMP(x) AS pg_catalog.float8))`,
+`CAST(VAR_SAMP(x) AS pg_catalog.float8)`, `CAST(VAR_POP(x) AS
+pg_catalog.float8)` and `SQRT(CAST(VAR_POP(x) AS pg_catalog.float8))`,
+VERIFIED with no `int_range` requirement: the variance of any signed 64-bit
+input is below 2^128, so the cast is finite. The result is a nullable `Float`
+(`pg_float8`, `finite_float`). Of a direct `Float` field they use the same
+forms; their R13 requirement carries the evidence
 `{"overflow": "target_checked_binary64_overflow"}`: PostgreSQL refuses an
-overflowing accumulation with SQLSTATE 22003, so a returned deviation is
-finite, and the statement may fail where the sum of squares overflows (about
-|x| > 1e154) even when the deviation itself is finite. MySQL project SQL keeps
-`stddev` BLOCKED: an `Int` argument with `PIE-B1003`
-(`stddev_int_not_admitted_on_target`), a `Float` argument with `PIE-B1004`
+overflowing accumulation with SQLSTATE 22003, so a returned variance or
+deviation is finite, and the statement may fail where the sum of squares
+overflows (about |x| > 1e154) even when the result itself is finite. MySQL
+project SQL keeps all four BLOCKED: an `Int` argument with `PIE-B1003`
+(`stddev_int_not_admitted_on_target`, `variance_int_not_admitted_on_target`,
+`pvariance_int_not_admitted_on_target`, `pstdev_int_not_admitted_on_target`),
+a `Float` argument with `PIE-B1004`
 (`float_aggregate_finite_result_proof_missing`).
 
 PostgreSQL project SQL emits `median` and `quantile` of one direct `Int` field,

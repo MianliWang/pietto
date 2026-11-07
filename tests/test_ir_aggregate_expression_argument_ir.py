@@ -339,14 +339,18 @@ def test_direct_field_aggregate_lowering_remains_unchanged() -> None:
         )
 
 
-def test_stddev_aggregate_call_contract_is_one_int_or_float_field() -> None:
-    """The IR contract admits `stddev` of one Int or Float field with a
-    nullable Float result, and nothing a renderer could be handed besides."""
+@pytest.mark.parametrize("function", ("stddev", "variance", "pvariance", "pstdev"))
+def test_stddev_aggregate_call_contract_is_one_int_or_float_field(
+    function: str,
+) -> None:
+    """The IR contract admits `stddev`, `variance`, `pvariance` and `pstdev`
+    of one Int or Float field with a nullable Float result, and nothing a
+    renderer could be handed besides."""
     script = _parse(
         SOURCE_PREFIX + "table spreads:\n"
         "    from orders\n"
         "    select:\n"
-        "        amount_spread = stddev(amount)\n"
+        f"        amount_spread = {function}(amount)\n"
         "        price_low = min(price)\n"
         "        total = sum(amount)\n"
     )
@@ -358,7 +362,8 @@ def test_stddev_aggregate_call_contract_is_one_int_or_float_field() -> None:
     total = cast(AggregateCallIR, projections["total"].expression)
     float_result = call.value_type
 
-    assert aggregate_call_contract("stddev", call.arguments, float_result)
+    assert call.function == function
+    assert aggregate_call_contract(function, call.arguments, float_result)
     for arguments, value_type in (
         ((), float_result),
         ((*call.arguments, *call.arguments), float_result),
@@ -367,7 +372,7 @@ def test_stddev_aggregate_call_contract_is_one_int_or_float_field() -> None:
         (call.arguments, replace(float_result, nullability=NullabilityIR.NON_NULL)),
         (call.arguments, total.value_type),
     ):
-        assert not aggregate_call_contract("stddev", arguments, value_type)
+        assert not aggregate_call_contract(function, arguments, value_type)
 
 
 def test_group_generators_lower_to_the_filtered_aggregate_identities() -> None:

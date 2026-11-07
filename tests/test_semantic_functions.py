@@ -343,17 +343,59 @@ def test_unknown_function_reports_pie_s2103() -> None:
 
 _AGGREGATES = (
     "the available aggregates are avg, count, count_distinct, max, median, min, "
-    "quantile, stddev, string_agg and sum"
+    "pstdev, pvariance, quantile, stddev, string_agg, sum and variance"
 )
 _QUANTILE = (
     "write `quantile(x, q)`, the interpolated quantile (pandas `Series.quantile`) "
     "with q a Float literal from 0.0 to 1.0; "
 )
 _SAMPLE = "write `stddev`, the sample standard deviation (Python `statistics.stdev`)"
-_POPULATION = (
-    "`stddev` is the sample standard deviation (Python `statistics.stdev`); "
-    "MySQL `STD`/`STDDEV` and numpy `std` are the population deviation, which "
-    "is not available"
+# A name with a sample and a population meaning names both and picks neither.
+_VAR = (
+    "pandas `var()` is the sample variance: write `variance(x)`; numpy `var` is "
+    "the population variance: write `pvariance(x)`"
+)
+_VARIANCE = (
+    "write lowercase `variance(x)` for the sample variance (PostgreSQL "
+    "`VARIANCE`, pandas `var()`); MySQL `VARIANCE` and numpy `var` are the "
+    "population variance: write `pvariance(x)`"
+)
+_STD = (
+    "pandas `std()` is the sample deviation: write `stddev(x)`; numpy `std` and "
+    "MySQL `STD` are the population deviation: write `pstdev(x)`"
+)
+_STDDEV = (
+    "write lowercase `stddev(x)` for the sample deviation (PostgreSQL `STDDEV`, "
+    "pandas `std()`); MySQL `STDDEV` and numpy `std` are the population "
+    "deviation: write `pstdev(x)`"
+)
+_SAMPLE_VARIANCE = (
+    "write `variance(x)`, the sample variance (Python `statistics.variance`)"
+)
+_POPULATION_VARIANCE = (
+    "write `pvariance(x)`, the population variance (Python `statistics.pvariance`)"
+)
+_POPULATION_DEVIATION = (
+    "write `pstdev(x)`, the population standard deviation (Python `statistics.pstdev`)"
+)
+_SPREAD_HABITS = (
+    ("var(count)", _VAR),
+    ("VAR(count)", _VAR),
+    ("VARIANCE(count)", _VARIANCE),
+    ("Variance(count)", _VARIANCE),
+    ("std(count)", _STD),
+    ("STDDEV(count)", _STDDEV),
+    ("Stddev(count)", _STDDEV),
+    ("var_samp(count)", _SAMPLE_VARIANCE),
+    ("statistics.variance(count)", _SAMPLE_VARIANCE),
+    ("var_pop(count)", _POPULATION_VARIANCE),
+    ("VAR_POP(count)", _POPULATION_VARIANCE),
+    ("statistics.pvariance(count)", _POPULATION_VARIANCE),
+    ("stddev_pop(count)", _POPULATION_DEVIATION),
+    ("pstddev(count)", _POPULATION_DEVIATION),
+    ("statistics.pstdev(count)", _POPULATION_DEVIATION),
+    ("PVARIANCE(count)", "write lowercase `pvariance(x)`"),
+    ("PStdev(count)", "write lowercase `pstdev(x)`"),
 )
 _COLLECT = (
     "a Collect read is the select item `name = collect relation` in an "
@@ -372,19 +414,14 @@ _NOW = "write `now()`, the UTC time when the query runs"
             "it is a table function, read with `from generate_series(start, stop, "
             "step) as n` in an EXPLICIT_MODULES project",
         ),
-        ("variance(count)", _AGGREGATES),
         ("mean(count)", _AGGREGATES),
-        # Lane F: the sample spellings name `stddev`; the population ones say
-        # why they are not available, also where a capital makes `STDDEV`.
+        # Lane F: the sample spellings name `stddev`.
         ("stdev(count)", _SAMPLE),
         ("stddev_samp(count)", _SAMPLE),
         ("statistics.stdev(count)", _SAMPLE),
-        ("std(count)", _POPULATION),
-        ("pstdev(count)", _POPULATION),
-        ("stddev_pop(count)", _POPULATION),
-        ("statistics.pstdev(count)", _POPULATION),
-        ("STDDEV(count)", _POPULATION),
-        ("Stddev(count)", _POPULATION),
+        # The variance and deviation habits name `variance`, `pvariance`,
+        # `stddev` or `pstdev`, both where the name has both meanings.
+        *_SPREAD_HABITS,
         # D71.01/D71.02: the nested-relation spellings are no calls.
         ("collect(email)", _COLLECT),
         ("list(email)", _COLLECT),
@@ -461,6 +498,22 @@ def test_unknown_function_of_a_sql_or_python_habit_names_the_pietto_form(
         (d.code, d.location.line, d.location.column, d.message)
         for d in result.diagnostics
     ] == [("PIE-S2103", 8, 17, f"Unknown function: {call.split('(')[0]}; {hint}")]
+
+
+@pytest.mark.parametrize(("call", "hint"), _SPREAD_HABITS)
+def test_a_variance_habit_hint_is_also_the_json_suggestion(
+    call: str, hint: str
+) -> None:
+    result = analyze(
+        _parse(
+            SOURCE + "table projected:\n"
+            "    from users\n"
+            "    select:\n"
+            f"        value = {call}\n"
+        )
+    )
+
+    assert [(d.code, d.suggestion) for d in result.diagnostics] == [("PIE-S2103", hint)]
 
 
 _EVENTS = (

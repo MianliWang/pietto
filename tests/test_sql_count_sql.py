@@ -319,7 +319,7 @@ def test_malformed_aggregate_ir_shapes_still_fail_closed() -> None:
     count_with_non_field_argument = _aggregate("count", INT_NON_NULL, _literal(1))
     count_with_unknown_type = _aggregate("count", UNKNOWN_TYPE)
     unsupported_name = _aggregate(
-        "variance",
+        "kurtosis",
         FLOAT_NULLABLE,
         _field("amount", INT_NON_NULL),
     )
@@ -344,7 +344,7 @@ def test_malformed_aggregate_ir_shapes_still_fail_closed() -> None:
         render_expression_sql(count_with_unknown_type)
     with pytest.raises(
         ValueError,
-        match="Unsupported PostgreSQL aggregate call: variance",
+        match="Unsupported PostgreSQL aggregate call: kurtosis",
     ):
         render_expression_sql(unsupported_name)
     with pytest.raises(ValueError, match="PostgreSQL aggregate sum expects 1"):

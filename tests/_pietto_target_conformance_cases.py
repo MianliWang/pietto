@@ -1547,6 +1547,14 @@ def aggregate_rows(target, case, variant):
     if (case, variant) == ("V_aggregate_blocked", "stddev_float"):
         # PostgreSQL only: five equal 1.5 values deviate by exactly 0.0.
         return [[_float(0.0)]]
+    if (case, variant) == ("V_aggregate_blocked", "spread_direct"):
+        # PostgreSQL only: rid 10 to 14 have the sample variance 2.5 and the
+        # population variance 2.0 exactly, and the population deviation is the
+        # binary64 square root of 2.0.
+        return [[_float(2.5), _float(2.0), _float(1.4142135623730951)]]
+    if (case, variant) == ("V_aggregate_blocked", "spread_float"):
+        # PostgreSQL only: five equal 1.5 values vary by exactly 0.0.
+        return [[_float(0.0), _float(0.0), _float(0.0)]]
     if (case, variant) == ("V_aggregate_blocked", "sum_float"):
         # PostgreSQL only: five 1.5 values sum exactly to 7.5 in binary64.
         return [[_float(7.5)]]

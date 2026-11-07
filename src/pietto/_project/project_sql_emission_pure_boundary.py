@@ -996,9 +996,12 @@ def _is_pg_int(realization) -> bool:
 # Q1/Q2 evidence: a bigint result bounded by the target's checked signed
 # 64-bit operation or narrowing (SQLSTATE 22003), not by a static range.
 _TARGET_CHECKED = "target_checked_signed64_narrowing"
-# A PostgreSQL sum, avg or stddev of a Float: the target refuses an
-# overflowing binary64 accumulation with SQLSTATE 22003, so a result is finite.
+# A PostgreSQL sum, avg, variance or deviation of a Float: the target refuses
+# an overflowing binary64 accumulation with SQLSTATE 22003, so a result is
+# finite.
 _TARGET_CHECKED_BINARY64 = "target_checked_binary64_overflow"
+# The sample and population variances and deviations.
+_SPREAD_FUNCTIONS = frozenset({"stddev", "variance", "pvariance", "pstdev"})
 
 
 def _aggregate_casts(
@@ -1006,7 +1009,7 @@ def _aggregate_casts(
 ) -> tuple[str | None, str | None]:
     """The reviewed argument and result casts of one aggregate: AVG(Int)
     averages binary64, PostgreSQL SUM(Int) is bigint before and after, and a
-    PostgreSQL VAR_SAMP is cast to float8 under its SQRT. A PostgreSQL SUM or
+    PostgreSQL VAR_SAMP or VAR_POP is cast to float8 once. A PostgreSQL SUM or
     AVG of a float8 is already binary64."""
     if function in {"avg", "sum"} and argument_tag == "Float":
         return None, None
@@ -1016,7 +1019,7 @@ def _aggregate_casts(
         return ("pg_catalog.float8" if family == "postgres" else "DOUBLE"), None
     if function == "sum":
         return "pg_catalog.int8", "pg_catalog.int8"
-    if function == "stddev":
+    if function in _SPREAD_FUNCTIONS:
         return None, "pg_catalog.float8"
     if function in {"median", "quantile"}:
         # PERCENTILE_CONT orders by the float8 image of each Int value.
@@ -1028,7 +1031,7 @@ def _aggregate_evidence(function: str, argument_tag: str | None) -> tuple[str, .
     """R13 evidence from the function and its argument tag, never a cast."""
     if function in {"sum", "filtered_sum"} and argument_tag == "Int":
         return (_TARGET_CHECKED,)
-    if function in {"sum", "avg", "stddev"} and argument_tag == "Float":
+    if function in {"sum", "avg", *_SPREAD_FUNCTIONS} and argument_tag == "Float":
         return (_TARGET_CHECKED_BINARY64,)
     return ()
 
@@ -1831,6 +1834,9 @@ class _Check:
                 "avg": "AVG",
                 "string_agg": "string_agg",
                 "stddev": "VAR_SAMP",
+                "variance": "VAR_SAMP",
+                "pvariance": "VAR_POP",
+                "pstdev": "VAR_POP",
                 "median": "PERCENTILE_CONT",
                 "quantile": "PERCENTILE_CONT",
                 "filtered_count": "COUNT",
@@ -1889,7 +1895,7 @@ class _Check:
                     and doc[doc[column["column"]]["realization"]]["nullable"] is True,
                     "sum result",
                 )
-            if column["function"] == "stddev":
+            if column["function"] in _SPREAD_FUNCTIONS:
                 # PostgreSQL only: one signed PostgreSQL Int or finite binary64
                 # Float argument, a nullable finite binary64 result.
                 argument = _value_realization(doc, column["argument"])
@@ -1903,7 +1909,7 @@ class _Check:
                     )
                     and _is_pg_float(result)
                     and result["nullable"] is True,
-                    "stddev result",
+                    "variance or deviation result",
                 )
             if column["function"] == "string_agg":
                 result = doc[doc[column["column"]]["realization"]]
@@ -2907,7 +2913,7 @@ class _Tokens:
                     aggregate_tokens == expected, "conditional aggregate token sequence"
                 )
             else:
-                root = column["function"] == "stddev"
+                root = column["function"] in {"stddev", "pstdev"}
                 expected = [("aggregate_root_open", "SQRT(")] if root else []
                 if column["result_cast"] is not None:
                     expected.append(("aggregate_result_cast_open", "CAST("))

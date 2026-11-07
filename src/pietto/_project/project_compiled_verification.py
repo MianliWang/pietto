@@ -1471,6 +1471,9 @@ def verify_description(value: Description) -> None:
                         "min",
                         "max",
                         "stddev",
+                        "variance",
+                        "pvariance",
+                        "pstdev",
                         "median",
                     )
                     and len(arguments) <= 1

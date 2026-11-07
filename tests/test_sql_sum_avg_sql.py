@@ -267,6 +267,81 @@ def test_mysql_stddev_is_the_sample_deviation_of_a_float_only() -> None:
     ]
 
 
+@pytest.mark.parametrize("field", ("value", "ratio"))
+@pytest.mark.parametrize(
+    ("function", "spread"),
+    (
+        ("variance", 'CAST(VAR_SAMP("{field}") AS double precision)'),
+        ("pvariance", 'CAST(VAR_POP("{field}") AS double precision)'),
+        ("pstdev", 'SQRT(CAST(VAR_POP("{field}") AS double precision))'),
+    ),
+)
+def test_postgres_variance_and_population_deviation_cast_the_variance_once(
+    field: str, function: str, spread: str
+) -> None:
+    """`variance` and `pvariance` are VAR_SAMP and VAR_POP cast once to double
+    precision and `pstdev` the square root of the cast VAR_POP, as `stddev`:
+    never an argument cast, the MySQL population VARIANCE, or STDDEV_POP of an
+    integer, which would round the numeric square root first."""
+    result = _stddev_result("postgres", f"{function}({field})")
+    spread = spread.format(field=field)
+
+    assert result.diagnostics == ()
+    global_sql, grouped_sql = (artifact.sql for artifact in result.artifacts)
+    assert f'{spread} AS "spread"' in global_sql
+    assert f"HAVING\n    {spread} > 1.0" in grouped_sql
+    for sql in (global_sql, grouped_sql):
+        assert not any(
+            token in sql
+            for token in (
+                "VARIANCE(",
+                "STD(",
+                "STDDEV(",
+                "STDDEV_POP(",
+                "VAR_SAMP(CAST(",
+                "VAR_POP(CAST(",
+            )
+        )
+
+
+@pytest.mark.parametrize(
+    ("function", "spread"),
+    (
+        ("variance", "VAR_SAMP(`ratio`)"),
+        ("pvariance", "VAR_POP(`ratio`)"),
+        ("pstdev", "STDDEV_POP(`ratio`)"),
+    ),
+)
+def test_mysql_variance_and_population_deviation_are_of_a_float_only(
+    function: str, spread: str
+) -> None:
+    """MySQL emits the sample and population variances and the population
+    deviation of a Float as VAR_SAMP, VAR_POP and STDDEV_POP, never its
+    population VARIANCE, STD or STDDEV; an Int is refused as for `stddev`, as
+    MySQL computes an integer variance in DOUBLE."""
+    result = _stddev_result("mysql", f"{function}(ratio)")
+
+    assert result.diagnostics == ()
+    global_sql, grouped_sql = (artifact.sql for artifact in result.artifacts)
+    assert f"{spread} AS `spread`" in global_sql
+    assert f"HAVING\n    {spread} > 1.0" in grouped_sql
+    for sql in (global_sql, grouped_sql):
+        assert not any(token in sql for token in ("VARIANCE(", "STD(", "STDDEV("))
+
+    refused = _stddev_result("mysql", f"{function}(value)")
+    assert refused.artifacts == ()
+    assert [(d.code, d.message) for d in refused.diagnostics] == [
+        (
+            "PIE-B1000",
+            f"MySQL SQL emission is not implemented for RelationIR: {name}. "
+            f"MySQL aggregate {function} of an Int argument is not supported; "
+            "emit with --dialect postgres",
+        )
+        for name in ("global_spread", "grouped_spread")
+    ]
+
+
+@pytest.mark.parametrize("function", ("stddev", "variance", "pvariance", "pstdev"))
 @pytest.mark.parametrize(
     "emitter",
     (emit_postgres_sql, emit_mysql_sql),
@@ -275,7 +350,7 @@ def test_mysql_stddev_is_the_sample_deviation_of_a_float_only() -> None:
     "case", ("decimal_argument", "expression_argument", "non_null_result")
 )
 def test_malformed_hand_built_stddev_ir_fails_closed_with_pie_b1000(
-    emitter: Callable[[ScriptIR], SqlResult], case: str
+    emitter: Callable[[ScriptIR], SqlResult], case: str, function: str
 ) -> None:
     script_ir = _compile(
         POSTGRES_INPUT if emitter is emit_postgres_sql else MYSQL_INPUT
@@ -284,10 +359,10 @@ def test_malformed_hand_built_stddev_ir_fails_closed_with_pie_b1000(
     score = _field("score", replace(FLOAT_NULLABLE, nullability=NullabilityIR.NON_NULL))
     bad = {
         "decimal_argument": _aggregate(
-            "stddev", FLOAT_NULLABLE, _field("price", DECIMAL_NON_NULL)
+            function, FLOAT_NULLABLE, _field("price", DECIMAL_NON_NULL)
         ),
         "expression_argument": _aggregate(
-            "stddev",
+            function,
             FLOAT_NULLABLE,
             BinaryIR(
                 span=SPAN,
@@ -298,7 +373,7 @@ def test_malformed_hand_built_stddev_ir_fails_closed_with_pie_b1000(
             ),
         ),
         "non_null_result": _aggregate(
-            "stddev", replace(FLOAT_NULLABLE, nullability=NullabilityIR.NON_NULL), score
+            function, replace(FLOAT_NULLABLE, nullability=NullabilityIR.NON_NULL), score
         ),
     }[case]
     bad_relation = replace(
@@ -705,7 +780,7 @@ def _relation_ir(script_ir: ScriptIR) -> RelationIR:
 
 def _malformed_aggregate(case: str) -> AggregateCallIR:
     if case == "unsupported_function":
-        return _aggregate("variance", FLOAT_NULLABLE, _field("amount", INT_NON_NULL))
+        return _aggregate("kurtosis", FLOAT_NULLABLE, _field("amount", INT_NON_NULL))
     if case == "wrong_arity":
         return _aggregate("sum", INT_NULLABLE)
     if case == "non_field_argument":

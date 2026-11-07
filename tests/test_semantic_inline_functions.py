@@ -383,7 +383,10 @@ def test_only_a_def_named_for_a_new_builtin_is_told_to_rename() -> None:
         "def lpad(a: Text) -> Text: return a\n"
         "def add_months(a: Int) -> Int: return a\n"
         "def median(a: Int) -> Int: return a\n"
-        "def quantile(a: Float, q: Float) -> Float: return a * q\n",
+        "def quantile(a: Float, q: Float) -> Float: return a * q\n"
+        "def variance(a: Int) -> Int: return a\n"
+        "def pvariance(a: Int) -> Int: return a\n"
+        "def pstdev(a: Int) -> Int: return a\n",
         path="m.pietto",
     )
     assert parsed.ast is not None
@@ -413,6 +416,21 @@ def test_only_a_def_named_for_a_new_builtin_is_told_to_rename() -> None:
             "PIE-S2398",
             "Rename this def: `quantile` is now the built-in interpolated quantile "
             "aggregate, and a call to quantile always means it.",
+        ),
+        (
+            "PIE-S2398",
+            "Rename this def: `variance` is now the built-in sample variance "
+            "aggregate, and a call to variance always means it.",
+        ),
+        (
+            "PIE-S2398",
+            "Rename this def: `pvariance` is now the built-in population variance "
+            "aggregate, and a call to pvariance always means it.",
+        ),
+        (
+            "PIE-S2398",
+            "Rename this def: `pstdev` is now the built-in population standard "
+            "deviation aggregate, and a call to pstdev always means it.",
         ),
     ]
 
@@ -3930,7 +3948,9 @@ def test_concat_relationship_template_keeps_its_meaning() -> None:
     ) == [("PIE-S2103", 8, 35, unknown)]
 
 
-@pytest.mark.parametrize("name", ["median", "quantile"])
+@pytest.mark.parametrize(
+    "name", ["median", "quantile", "variance", "pvariance", "pstdev"]
+)
 def test_a_median_or_quantile_callable_keeps_or_yields_its_meaning(name: str) -> None:
     rows = 'shape Row:\n    id: Int\n    a: Int\nsource rows: Row = postgres.table("rows")\n'
     # A relationship template of the name keeps its meaning where it binds.
@@ -3946,7 +3966,7 @@ def test_a_median_or_quantile_callable_keeps_or_yields_its_meaning(name: str) ->
     assert len(checked.model.relationship_calls) == 2
     # A constraint or derive of the name cannot be called, so a call of the
     # name, PIE-S2103 before, is now the aggregate.
-    call = f"{name}(a)" if name == "median" else f"{name}(a, 0.5)"
+    call = f"{name}(a, 0.5)" if name == "quantile" else f"{name}(a)"
     for declaration in (
         f"constraint {name}(x: Int) -> Bool:\n    return x > 0\n",
         f"derive {name}(x: Int) -> Int:\n    return x\n",

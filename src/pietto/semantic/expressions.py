@@ -6600,6 +6600,37 @@ def order_output_ambiguity_diagnostic(
 # The aggregate names in one fixed order, as a message lists them.
 _AGGREGATE_NAMES = sorted(SEMANTIC_AGGREGATE_NAMES)
 _CONDITIONAL_HABITS = ("count_if", "countif", "sum_if", "sumif")
+# The variance and deviation habits, by lowercase name: a name with a sample
+# and a population meaning names both and picks neither. Only a spelling
+# other than lowercase reaches here for `variance`, `pvariance`, `pstdev` and
+# `stddev`, which are aggregates.
+_SPREAD_HINTS = {
+    "var": "pandas `var()` is the sample variance: write `variance(x)`; numpy "
+    "`var` is the population variance: write `pvariance(x)`",
+    "variance": "write lowercase `variance(x)` for the sample variance "
+    "(PostgreSQL `VARIANCE`, pandas `var()`); MySQL `VARIANCE` and numpy `var` "
+    "are the population variance: write `pvariance(x)`",
+    "std": "pandas `std()` is the sample deviation: write `stddev(x)`; numpy "
+    "`std` and MySQL `STD` are the population deviation: write `pstdev(x)`",
+    "stddev": "write lowercase `stddev(x)` for the sample deviation (PostgreSQL "
+    "`STDDEV`, pandas `std()`); MySQL `STDDEV` and numpy `std` are the "
+    "population deviation: write `pstdev(x)`",
+    **dict.fromkeys(
+        ("var_samp", "statistics.variance"),
+        "write `variance(x)`, the sample variance (Python `statistics.variance`)",
+    ),
+    **dict.fromkeys(
+        ("var_pop", "statistics.pvariance"),
+        "write `pvariance(x)`, the population variance (Python `statistics.pvariance`)",
+    ),
+    **dict.fromkeys(
+        ("stddev_pop", "pstddev", "statistics.pstdev"),
+        "write `pstdev(x)`, the population standard deviation (Python "
+        "`statistics.pstdev`)",
+    ),
+    "pvariance": "write lowercase `pvariance(x)`",
+    "pstdev": "write lowercase `pstdev(x)`",
+}
 # What to write instead of a function that a SQL or Python habit calls, by its
 # lowercase name.
 _UNKNOWN_FUNCTION_HINTS = {
@@ -6626,10 +6657,6 @@ _UNKNOWN_FUNCTION_HINTS = {
             "median",
             "quantile",
             "string_agg",
-            "var",
-            "var_pop",
-            "var_samp",
-            "variance",
         ),
         f"the available aggregates are {', '.join(_AGGREGATE_NAMES[:-1])} and "
         f"{_AGGREGATE_NAMES[-1]}",
@@ -6638,13 +6665,7 @@ _UNKNOWN_FUNCTION_HINTS = {
         ("stdev", "stddev_samp", "statistics.stdev"),
         "write `stddev`, the sample standard deviation (Python `statistics.stdev`)",
     ),
-    # Only a spelling other than lowercase `stddev` (an aggregate) reaches here.
-    **dict.fromkeys(
-        ("std", "pstdev", "stddev", "stddev_pop", "statistics.pstdev"),
-        "`stddev` is the sample standard deviation (Python `statistics.stdev`); "
-        "MySQL `STD`/`STDDEV` and numpy `std` are the population deviation, "
-        "which is not available",
-    ),
+    **_SPREAD_HINTS,
     **dict.fromkeys(
         _CONDITIONAL_HABITS,
         "write `sum(1 for o in group if ...)` or `sum(o.v for o in group if ...)`",
@@ -6726,8 +6747,12 @@ def _unknown_function_diagnostic(
         message=f"Unknown function: {function_name}"
         + ("" if hint is None else f"; {hint}"),
     )
-    if function_name.lower() in _CONDITIONAL_HABITS:
-        # A conditional-count habit's hint is also the JSON suggestion.
+    if (
+        function_name.lower() in _CONDITIONAL_HABITS
+        or function_name.lower() in _SPREAD_HINTS
+    ):
+        # A conditional-count or a variance habit's hint is also the JSON
+        # suggestion.
         return dataclasses.replace(diagnostic, suggestion=hint)
     return diagnostic
 

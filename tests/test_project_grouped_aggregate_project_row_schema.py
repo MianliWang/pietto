@@ -698,7 +698,7 @@ def test_repeated_occurrences_and_all_duplicate_alias_families_are_preserved(
         "        status\n"
         "    select:\n"
         "        status\n"
-        "        invalid = variance(amount)\n",
+        "        invalid = kurtosis(amount)\n",
         "query grouped:\n"
         "    from users\n"
         "    group by:\n"
@@ -1276,6 +1276,19 @@ _QUANTILE_FRACTION = (
                 )
             ],
         ),
+        # Nor do `variance`, `pvariance` and `pstdev`.
+        (
+            "    let w = qty\n    select m = pvariance(w)\n",
+            [
+                (
+                    "PIE-S2315",
+                    "Aggregate function pvariance requires a direct field argument; "
+                    "expression arguments are not supported yet",
+                    9,
+                    16,
+                )
+            ],
+        ),
         # A `quantile` fraction that reads a `let` name is reported at it.
         (
             "    let f = 0.9\n    select m = quantile(qty, f)\n",
@@ -1454,6 +1467,7 @@ _QUANTILE_FRACTION = (
         "argument_expression",
         "stddev_argument_type",
         "stddev_let_argument",
+        "pvariance_let_argument",
         "quantile_let_fraction",
         "quantile_grouped_let_fraction_expression",
         "nested",

@@ -251,8 +251,8 @@ def test_count_sum_and_avg_are_not_scalar_builtin_functions() -> None:
             (
                 "PIE-S2103",
                 "Unknown function: mean; the available aggregates are avg, "
-                "count, count_distinct, max, median, min, quantile, stddev, "
-                "string_agg and sum",
+                "count, count_distinct, max, median, min, pstdev, pvariance, "
+                "quantile, stddev, string_agg, sum and variance",
             ),
         ),
     ],
@@ -336,27 +336,36 @@ def test_sum_avg_unknown_field_suppresses_aggregate_cascade(
     assert _errors(result) == [expected]
 
 
-def test_stddev_of_an_int_or_float_field_is_a_nullable_float() -> None:
+# The sample deviation and the sample and population variances and deviation
+# share one argument and result rule.
+SPREADS = ("stddev", "variance", "pvariance", "pstdev")
+
+
+@pytest.mark.parametrize("function", SPREADS)
+def test_stddev_of_an_int_or_float_field_is_a_nullable_float(function: str) -> None:
     """`stddev` is the sample deviation of an Int or Float direct field, an
-    alias of either or a qualified field; below two values it is None."""
+    alias of either or a qualified field; below two values it is None.
+    `variance`, `pvariance` and `pstdev` take the same arguments."""
     script = _parse(
-        SOURCE_PREFIX + "type Ratio = Float\n"
-        "shape Reading:\n"
-        "    ratio: Ratio\n"
-        'source readings: Reading = postgres.table("readings")\n'
-        "table by_status:\n"
-        "    from orders\n"
-        "    group by status\n"
-        "    select:\n"
-        "        status\n"
-        "        spread = stddev(amount)\n"
-        "        score_spread = stddev(orders.score)\n"
-        "    qualify:\n"
-        "        spread > 1.0\n"
-        "table ratio_spread:\n"
-        "    from readings\n"
-        "    select:\n"
-        "        spread = stddev(ratio)\n"
+        (
+            SOURCE_PREFIX + "type Ratio = Float\n"
+            "shape Reading:\n"
+            "    ratio: Ratio\n"
+            'source readings: Reading = postgres.table("readings")\n'
+            "table by_status:\n"
+            "    from orders\n"
+            "    group by status\n"
+            "    select:\n"
+            "        status\n"
+            "        spread = stddev(amount)\n"
+            "        score_spread = stddev(orders.score)\n"
+            "    qualify:\n"
+            "        spread > 1.0\n"
+            "table ratio_spread:\n"
+            "    from readings\n"
+            "    select:\n"
+            "        spread = stddev(ratio)\n"
+        ).replace("stddev(", f"{function}(")
     )
     result = analyze(script)
 
@@ -446,12 +455,18 @@ def test_stddev_of_an_int_or_float_field_is_a_nullable_float() -> None:
         ),
     ],
 )
+@pytest.mark.parametrize("function", SPREADS)
 def test_stddev_misuse_keeps_the_aggregate_diagnostics(
-    body: str, expected: tuple[str, str]
+    body: str, expected: tuple[str, str], function: str
 ) -> None:
+    """Each of `stddev`, `variance`, `pvariance` and `pstdev` refuses a
+    Decimal, a misplaced or composed call, an expression and a `let` name with
+    the diagnostics of every aggregate, under its own name."""
+    body = body.replace("stddev(", f"{function}(")
+    code, message = expected
     result = analyze(_parse(SOURCE_PREFIX + "table t:\n    from orders\n" + body))
 
-    assert _errors(result) == [expected]
+    assert _errors(result) == [(code, message.replace("stddev", function))]
 
 
 def test_median_and_quantile_of_an_int_or_float_field_are_a_nullable_float() -> None:

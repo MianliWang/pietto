@@ -250,7 +250,7 @@ def test_semantic_aggregate_result_typeclass_adjacent_matrix_is_locked() -> None
         ("max", _unknown()),
         ("median", _builtin("Decimal")),
         ("quantile", _builtin("Date")),
-        ("variance", _builtin("Int")),
+        ("variance", _builtin("Decimal")),
     ):
         assert semantic_aggregate_result_value_type(function, argument) is None
 

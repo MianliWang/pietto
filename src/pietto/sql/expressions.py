@@ -837,8 +837,8 @@ def _render_aggregate_call(
         )
     elif expression.function == "count_distinct":
         sql = _render_count_distinct_aggregate(expression)
-    elif expression.function == "stddev":
-        sql = _render_stddev_aggregate(expression)
+    elif expression.function in _SPREAD_AGGREGATES:
+        sql = _render_spread_aggregate(expression)
     elif expression.function in FILTERED_AGGREGATE_ARITIES:
         sql = _render_filtered_aggregate(expression)
     elif expression.function in {"median", "quantile"}:
@@ -1247,16 +1247,30 @@ def _render_extrema_aggregate(
     return f"{function_name}({_render_expression_sql(argument, nested=True)})"
 
 
-def _render_stddev_aggregate(expression: AggregateCallIR) -> str:
-    # The sample deviation: VAR_SAMP of an integer is exact numeric and of a
-    # double is double, so one cast rounds once and SQRT rounds correctly.
-    # STDDEV_SAMP of an integer would round the numeric square root first.
+# The variance aggregates and whether each takes the square root: VAR_SAMP and
+# VAR_POP of an integer are numeric (exact sums, one division kept to at least
+# 17 significant digits) and of a double are double, so the cast rounds to
+# binary64 once and SQRT rounds correctly. STDDEV_SAMP and STDDEV_POP of an
+# integer would round the numeric square root first.
+_SPREAD_AGGREGATES = {
+    "stddev": ("VAR_SAMP", True),
+    "variance": ("VAR_SAMP", False),
+    "pvariance": ("VAR_POP", False),
+    "pstdev": ("VAR_POP", True),
+}
+
+
+def _render_spread_aggregate(expression: AggregateCallIR) -> str:
     if not aggregate_call_contract(
-        "stddev", expression.arguments, expression.value_type
+        expression.function, expression.arguments, expression.value_type
     ):
-        raise ValueError("PostgreSQL aggregate stddev violates its IR contract")
+        raise ValueError(
+            f"PostgreSQL aggregate {expression.function} violates its IR contract"
+        )
+    function_name, root = _SPREAD_AGGREGATES[expression.function]
     argument_sql = _render_expression_sql(expression.arguments[0], nested=True)
-    return f"SQRT(CAST(VAR_SAMP({argument_sql}) AS double precision))"
+    sql = f"CAST({function_name}({argument_sql}) AS double precision)"
+    return f"SQRT({sql})" if root else sql
 
 
 def _render_filtered_aggregate(expression: AggregateCallIR) -> str:

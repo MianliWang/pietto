@@ -721,6 +721,8 @@ def verify_emission_generation(value, target, expected):
                     # DOUBLE) and keeps a Float one without its finite proof.
                     "stddev_direct": "PIE-B1003",
                     "stddev_float": "PIE-B1004",
+                    "spread_direct": "PIE-B1003",
+                    "spread_float": "PIE-B1004",
                     # S16: MySQL keeps a Float sum/avg unproved and an Int
                     # expression outside BIGINT's range (its catch-up opened
                     # the Text, Bool, Float and Decimal carriers).

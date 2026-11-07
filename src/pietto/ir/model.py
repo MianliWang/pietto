@@ -1193,7 +1193,12 @@ def aggregate_call_contract(
                 value_type, argument_type, NullabilityIR.NULLABLE
             )
         )
-    if function == "stddev" and len(arguments) == 1:
+    if (
+        function in {"stddev", "variance", "pvariance", "pstdev"}
+        and len(arguments) == 1
+    ):
+        # The sample deviation, the sample and population variances and the
+        # population deviation of an Int or Float field.
         return (
             isinstance(arguments[0], FieldRefIR)
             and arguments[0].field is not None

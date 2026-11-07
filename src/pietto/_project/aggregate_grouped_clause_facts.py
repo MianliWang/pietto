@@ -65,6 +65,7 @@ from pietto.semantic import group_by as semantic_group_by, relation_schemas
 from pietto.semantic.analyzer import _within
 from pietto.semantic import satisfying as semantic_satisfying
 from pietto.semantic.aggregates import (
+    FLOAT_STATISTIC_AGGREGATE_NAMES,
     aggregate_argument_can_use_let_scope,
     child_expressions,
     contains_semantic_aggregate,
@@ -424,11 +425,11 @@ def _single_file_grouping_diagnostics(
     projection or a GROUP BY key and an aggregate's argument count
     (PIE-S2309), but no error of a projection without an aggregate, which
     the project types itself. A relation over a row of unknown type gets
-    none. One that reads a `let` name (but as a `stddev`, `median` or
-    `quantile` argument or in a `quantile` fraction), a nested relation
-    field, a relation, a captured field, a query parameter or `any(...)` in
-    those positions, which a project checks otherwise, gets only its
-    generators' errors (`_generator_errors`)."""
+    none. One that reads a `let` name (but as a Float statistic's argument,
+    such as a `stddev` or `median` one, or in a `quantile` fraction), a
+    nested relation field, a relation, a captured field, a query parameter
+    or `any(...)` in those positions, which a project checks otherwise, gets
+    only its generators' errors (`_generator_errors`)."""
 
     if input_schema.is_unknown:
         return ()
@@ -473,14 +474,14 @@ def _single_file_grouping_diagnostics(
         node, in_fraction = roots.pop()
         if (
             type(node) is CallExpr
-            and semantic_aggregate_call_name(node) in {"stddev", "median", "quantile"}
+            and semantic_aggregate_call_name(node) in FLOAT_STATISTIC_AGGREGATE_NAMES
             and node.arguments
             and type(node.arguments[0]) is NameExpr
             and node.arguments[0].name in lets
         ):
-            # A `stddev`, `median` or `quantile` takes no `let` name in a
-            # project either: the single file's PIE-S2315 of that direct
-            # argument is its error.
+            # A Float statistic (`stddev`, `variance`, `pvariance`, `pstdev`,
+            # `median`, `quantile`) takes no `let` name in a project either:
+            # the single file's PIE-S2315 of that direct argument is its error.
             continue
         if id(node) in admitted:
             continue
