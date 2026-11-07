@@ -7,7 +7,7 @@ from typing import Any, cast
 
 import pytest
 
-import _pietto_capability_differential_vectors as vectors
+import _pietto_harness_capability_vectors as vectors
 import pietto
 import pietto._project as project_package
 import pietto._project.capability_inspection as capability_inspection

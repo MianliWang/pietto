@@ -3,6 +3,8 @@
 from __future__ import annotations
 
 from collections import Counter
+from collections.abc import Iterator
+from contextlib import contextmanager
 from copy import deepcopy
 from datetime import date, datetime
 from decimal import Decimal
@@ -973,15 +975,23 @@ def bindings(case, variant):
 
 
 def parameterized_fixture(
-    target, body, policy="preserve_literals", *, protocol=True, limits=None
+    target,
+    body,
+    policy="preserve_literals",
+    *,
+    protocol=True,
+    limits=None,
+    case="G_emission_table_bag",
+    variant="bag",
 ):
     """The published one-source fixture with ``body`` as its query ``result``.
 
     The contract adds exact identifier case, ``limits`` as its resource limits
     and, unless ``protocol`` is false, the native parameter protocol every
-    parameter read requires.
+    parameter read requires. ``case`` and ``variant`` pick the published
+    fixture whose header and contract the body reuses.
     """
-    base = fixture(target)
+    base = fixture(target, case, variant)
     contract = json.loads(base["contract"])
     if limits is not None:
         contract["environment"].append(
@@ -14828,8 +14838,38 @@ def decode_batch_public(data: bytes) -> dict[str, Any]:
         raise ValueError("invalid batch public emission document") from None
 
 
+_VALIDATED_PUBLIC: set[bytes] | None = None
+
+
+@contextmanager
+def public_validation_memo() -> Iterator[None]:
+    """Validate each distinct public artifact once inside the block.
+
+    Validation is a pure function of the bytes, so a repeated artifact is
+    decoded afresh without validating it again; no two callers share a
+    document."""
+    global _VALIDATED_PUBLIC
+    outer = _VALIDATED_PUBLIC
+    if outer is None:
+        _VALIDATED_PUBLIC = set()
+    try:
+        yield
+    finally:
+        _VALIDATED_PUBLIC = outer
+
+
 def decode_public(data: bytes) -> dict[str, Any]:
     """Validate data only. A decoded document grants no compiler authority."""
+    validated = _VALIDATED_PUBLIC
+    if validated is not None and type(data) is bytes and data in validated:
+        return json.loads(data.decode("utf-8"))
+    document = _validated_public(data)
+    if validated is not None:
+        validated.add(data)
+    return document
+
+
+def _validated_public(data: bytes) -> dict[str, Any]:
     _need(type(data) is bytes and len(data) <= 16 * 1024 * 1024)
     try:
         document: dict[str, Any] = json.loads(

@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-from pathlib import Path
 
 import pytest
 
@@ -14,17 +13,6 @@ from pietto._project import project_joined_windows as windows
 from pietto.errors import Severity
 from pietto.parser_api import parse_source
 
-
-REPO_ROOT = Path(__file__).resolve().parents[1]
-GRAMMAR = REPO_ROOT / "grammar/Pietto.g4"
-AST_NODES = REPO_ROOT / "src/pietto/ast_nodes.py"
-AST_BUILDER = REPO_ROOT / "src/pietto/ast_builder.py"
-PRODUCTION = REPO_ROOT / "src/pietto/_project/project_joined_qualify.py"
-HISTORICAL_BOUNDARY = REPO_ROOT / "tests/test_ir_window_dual_backend_lowering.py"
-SPEC = (
-    REPO_ROOT
-    / "docs/spec/phase63-slice11-qualify-grammar-ast-semantics-property-transfer-v1.md"
-)
 
 QUALIFY_SOURCE = (
     slice10.WINDOW_SOURCE

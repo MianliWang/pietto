@@ -17,6 +17,12 @@ SOURCE = (
     'source users: User = postgres.table("users")\n'
 )
 
+SQL_EXAMPLES = (
+    (Path("examples/tables/active_users.pietto"), 1),
+    # The query defines the table of its own file that it reads as a CTE.
+    (Path("examples/queries/active_user_emails.pietto"), 3),
+)
+
 
 def test_emit_sql_valid_file_prints_postgres_sql(
     tmp_path: Path,
@@ -365,10 +371,75 @@ def test_check_still_does_not_build_ir_or_emit_sql(
     assert captured.err == ""
 
 
-def test_emit_sql_adds_no_convenience_compiler_wrapper() -> None:
-    assert not hasattr(cli, "compile_to_ir")
-    assert not hasattr(cli, "compile_to_sql")
-    assert not hasattr(cli.ir_api, "compile_to_ir")
+@pytest.mark.parametrize("dialect", ("postgres", "mysql"))
+def test_cli_rejects_malformed_dotted_table_name_before_sql(
+    dialect: str,
+    tmp_path: Path,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    source = _write(
+        tmp_path,
+        "dotted.pietto",
+        "shape Doc:\n    id: Int\n"
+        f'source docs: Doc = {dialect}.table("a.b.c")\n'
+        "table recent:\n    from docs\n    select:\n        id\n",
+    )
+    column = len(f"source docs: Doc = {dialect}.table(") + 1
+    for argv in (
+        ["check", str(source)],
+        ["emit-sql", str(source), "--dialect", dialect],
+        ["explain", str(source)],
+    ):
+        assert cli.main(argv) == 1
+        captured = capsys.readouterr()
+        assert captured.out == ""
+        assert captured.err.startswith(f"{source}:3:{column} PIE-S2306 error: ")
+
+
+@pytest.mark.parametrize(("path", "select_count"), SQL_EXAMPLES, ids=str)
+def test_supported_committed_examples_emit_sql_to_stdout(
+    path: Path,
+    select_count: int,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    assert cli.main(["emit-sql", str(path), "--dialect", "postgres"]) == 0
+
+    captured = capsys.readouterr()
+    assert captured.out.count("SELECT\n") == select_count
+    assert captured.out.endswith("\n")
+    assert captured.err == ""
+
+
+def test_committed_query_example_emits_ordered_sql_to_file(
+    tmp_path: Path,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    source = Path("examples/queries/active_user_emails.pietto")
+    output = tmp_path / "active_user_emails.sql"
+
+    assert (
+        cli.main(
+            [
+                "emit-sql",
+                str(source),
+                "--dialect",
+                "postgres",
+                "--output",
+                str(output),
+            ]
+        )
+        == 0
+    )
+
+    captured = capsys.readouterr()
+    sql = output.read_text(encoding="utf-8")
+    assert captured.out == ""
+    assert captured.err == ""
+    assert sql.count("SELECT\n") == 3
+    assert sql.index('FROM "public"."users"') < sql.index('FROM "active_users"')
+    assert sql.startswith("-- active_users\nSELECT\n")
+    assert ';\n\n-- active_user_emails\nWITH "active_users" AS (\nSELECT\n' in sql
+    assert sql.endswith('FROM "active_users";\n')
 
 
 def _forbid_later_stages(monkeypatch: pytest.MonkeyPatch) -> None:

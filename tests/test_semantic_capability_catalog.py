@@ -7,7 +7,7 @@ import inspect
 from pathlib import Path
 import unicodedata
 
-from _pietto_repository_facts import REPOSITORY_FACTS
+from _pietto_repo_facts import REPOSITORY_FACTS
 import pietto._project.capability_availability as availability
 import pietto._project.package_manifest as package_manifest
 import pietto.semantic.capability_aggregates as aggregates

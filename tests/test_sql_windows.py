@@ -17,10 +17,6 @@ from _pietto_sql_window import select_body
 from pietto._project.project_sql_emission import serialize_project_sql_emission
 
 TARGETS = ("postgres", "mysql")
-IDENTIFIER_CASE = {
-    "postgres": "quoted_exact",
-    "mysql": "lower_case_table_names=0",
-}
 # R14 admits exactly these identities; R15 owns the three frame-sensitive ones.
 FAMILIES = {
     "row_number": ("row_number()", "ROW_NUMBER()"),
@@ -71,29 +67,19 @@ POSTGRES_ONLY_FRAMES = {
 
 def emit(target, body, *, range_safe=False):
     """One published window fixture through the installed pipeline."""
-    base = probe.fixture(target)
-    header = base["source"].split("table result:", 1)[0]
-    contract = json.loads(base["contract"])
-    contract["environment"].append(
-        {
-            "key": "identifier_case",
-            "scope": "statement",
-            "value": IDENTIFIER_CASE[target],
-        }
-    )
+    item = probe.parameterized_fixture(target, body, protocol=False)
     if range_safe:
         # RANGE offsets need physical headroom, not merely a narrow declared domain.
+        contract = json.loads(item["contract"])
         contract["sources"][0]["fields"][0]["representation"] = {
             "storage": {"kind": "pg_int4" if target == "postgres" else "my_int"},
             "domain": {"kind": "int_range", "min": "0", "max": "1"},
             "nullable": False,
         }
+        item["contract"] = probe.encoded(contract).decode()
     with tempfile.TemporaryDirectory() as directory:
         _, outcome = probe.build_case(
-            Path(directory) / "case",
-            header + body,
-            probe.encoded(contract).decode(),
-            "preserve_literals",
+            Path(directory) / "case", item["source"], item["contract"], item["policy"]
         )
     return outcome
 
@@ -695,16 +681,11 @@ def test_independent_verifiers_reject_coherent_faulty_builder_arguments(
     )
     from pietto._project.project_result_output import prepare_output
 
-    base = probe.fixture("postgres")
-    header = base["source"].split("table result:", 1)[0]
-    contract = json.loads(base["contract"])
-    contract["environment"].append(
-        {"key": "identifier_case", "scope": "statement", "value": "quoted_exact"}
+    item = probe.parameterized_fixture(
+        "postgres", select_body(structural_call(function, value)), protocol=False
     )
-    encoded = probe.encoded(contract)
-    checked, refused = probe.build_case(
-        tmp_path, header + select_body(structural_call(function, value)), encoded
-    )
+    encoded = item["contract"].encode()
+    checked, refused = probe.build_case(tmp_path, item["source"], encoded)
     assert checked.verified and refused.artifact is None
     request = prepare_project_sql_emission(checked, encoded)
     assert verification.prepared_current(request)

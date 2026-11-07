@@ -10,7 +10,7 @@ import sys
 
 import pytest
 
-import _pietto_extension_catalog_differential_vectors as vectors
+import _pietto_harness_extension_catalog_vectors as vectors
 from pietto._project.extension_catalog_inspection_pure_boundary import (
     ExtensionCatalogInspectionPureDocument,
     evaluate_extension_catalog_inspection_document,
@@ -88,7 +88,7 @@ def _corpus_digest() -> str:
 
 _SUBPROCESS_WITNESS = r"""
 import hashlib
-import _pietto_extension_catalog_differential_vectors as vectors
+import _pietto_harness_extension_catalog_vectors as vectors
 from pietto.semantic.extension_catalog_pure_boundary import evaluate_extension_catalog_document
 from pietto._project.extension_catalog_inspection_pure_boundary import evaluate_extension_catalog_inspection_document
 from pietto.semantic.extension_catalog_pgvector import PGVECTOR_V086_POSTGRESQL18_CATALOG

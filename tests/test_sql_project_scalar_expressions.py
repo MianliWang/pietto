@@ -41,9 +41,26 @@ def row_query(artifact):
 def emit(tmp_path, target, body, policy="preserve_literals", *, imported=None):
     """Run one ordinary selected relation through the installed project path;
     ``imported`` moves the source beside it into module `a.pietto`."""
-    base = probe.fixture(target)
-    header = base["source"].split("table result:", 1)[0]
-    contract = json.loads(base["contract"])
+    item = probe.parameterized_fixture(
+        target, body, policy, protocol=policy == "bind_safe_literals"
+    )
+    source: str | dict[str, str] = item["source"]
+    if imported is not None:
+        source = {
+            "a.pietto": item["source"].removesuffix(body) + imported,
+            "main.pietto": body,
+        }
+        contract = json.loads(item["contract"])
+        contract["sources"][0]["selector"]["module"] = "a.pietto"
+        item["contract"] = probe.encoded(contract).decode()
+    return probe.build_case(tmp_path, source, item["contract"], policy)
+
+
+def emit_temporal(directory, target, body):
+    """One body over the published temporal source, with exact identifier case."""
+    source = temporal_probe.temporal_source(target).split("table result:", 1)[0]
+    checked = temporal_probe.build_neutral(directory, {"main.pietto": source + body})
+    contract = json.loads(temporal_probe.temporal_input(target))
     contract["environment"].append(
         {
             "key": "identifier_case",
@@ -53,26 +70,7 @@ def emit(tmp_path, target, body, policy="preserve_literals", *, imported=None):
             else "lower_case_table_names=0",
         }
     )
-    if policy == "bind_safe_literals":
-        contract["environment"].append(
-            {
-                "key": "parameter_protocol",
-                "scope": "statement",
-                "value": "postgres_extended"
-                if target == "postgres"
-                else "mysql_prepared",
-            }
-        )
-    source: str | dict[str, str] = header + body
-    if imported is not None:
-        source = {"a.pietto": header + imported, "main.pietto": body}
-        contract["sources"][0]["selector"]["module"] = "a.pietto"
-    return probe.build_case(
-        tmp_path,
-        source,
-        probe.encoded(contract).decode(),
-        policy,
-    )
+    return emit_project_sql(checked, json.dumps(contract).encode())
 
 
 Q1_BODY = """table result:
@@ -196,36 +194,27 @@ def test_postgres_scalar_project_forms_are_verified(tmp_path):
 
 
 def test_postgres_high_precision_decimal_rounds_emit(tmp_path):
-    base = probe.fixture("postgres")
-    source = base["source"].replace("money: Decimal(9, 2)", "money: Decimal(65, 30)")
-    header = source.split("table result:", 1)[0]
-    contract = json.loads(base["contract"])
-    representation = contract["sources"][0]["fields"][3]["representation"]
-    representation["storage"].update(precision=65, scale=30)
-    representation["domain"].update(precision=65, scale=30)
-    contract["environment"].append(
-        {
-            "key": "identifier_case",
-            "scope": "statement",
-            "value": "quoted_exact",
-        }
-    )
-    source = (
-        header
-        + """table result:
+    item = probe.parameterized_fixture(
+        "postgres",
+        """table result:
     from rows
     select:
         default = round(money)
         explicit_zero = round(money, 0)
         retained_scale = round(money, 30)
-"""
+""",
+        protocol=False,
     )
+    contract = json.loads(item["contract"])
+    representation = contract["sources"][0]["fields"][3]["representation"]
+    representation["storage"].update(precision=65, scale=30)
+    representation["domain"].update(precision=65, scale=30)
 
     _, outcome = probe.build_case(
         tmp_path,
-        source,
+        item["source"].replace("money: Decimal(9, 2)", "money: Decimal(65, 30)"),
         probe.encoded(contract).decode(),
-        "preserve_literals",
+        item["policy"],
     )
     assert outcome.status == "VERIFIED" and outcome.artifact is not None
 
@@ -250,28 +239,17 @@ def test_postgres_literal_let_scale_survives_compiled_replay(tmp_path):
 
 
 def test_postgres_literal_let_date_unit_survives_compiled_replay(tmp_path):
-    source = (
-        temporal_probe.temporal_source("postgres").split("table result:", 1)[0]
-        + """table result:
+    outcome = emit_temporal(
+        tmp_path / "project",
+        "postgres",
+        """table result:
     from rows
     let unit = "month"
     let month_stamp = date_trunc(unit, stamp)
     select:
         month_stamp
-"""
+""",
     )
-    checked = temporal_probe.build_neutral(
-        tmp_path / "project", {"main.pietto": source}
-    )
-    contract = json.loads(temporal_probe.temporal_input("postgres"))
-    contract["environment"].append(
-        {
-            "key": "identifier_case",
-            "scope": "statement",
-            "value": "quoted_exact",
-        }
-    )
-    outcome = emit_project_sql(checked, json.dumps(contract).encode())
     assert outcome.status == "VERIFIED" and outcome.artifact is not None
     assert (
         probe.decode_public(serialize_project_sql_emission(outcome))["status"]
@@ -293,29 +271,18 @@ def test_postgres_literal_let_date_unit_survives_compiled_replay(tmp_path):
 
 
 def test_postgres_date_trunc_date_units_preserve_date_carrier(tmp_path):
-    source = (
-        temporal_probe.temporal_source("postgres").split("table result:", 1)[0]
-        + """table result:
+    outcome = emit_temporal(
+        tmp_path / "project",
+        "postgres",
+        """table result:
     from rows
     let day = date_of(stamp)
     select:
         date_year = date_trunc("year", day)
         date_month = date_trunc("month", day)
         date_day = date_trunc("day", day)
-"""
+""",
     )
-    checked = temporal_probe.build_neutral(
-        tmp_path / "project", {"main.pietto": source}
-    )
-    contract = json.loads(temporal_probe.temporal_input("postgres"))
-    contract["environment"].append(
-        {
-            "key": "identifier_case",
-            "scope": "statement",
-            "value": "quoted_exact",
-        }
-    )
-    outcome = emit_project_sql(checked, json.dumps(contract).encode())
     assert outcome.status == "VERIFIED" and outcome.artifact is not None
     sql = json.loads(serialize_project_sql_emission(outcome))["sql"]
     assert sql.count(" AS timestamp)) AS date)") == 3
@@ -679,29 +646,18 @@ def test_now_is_one_utc_statement_snapshot_evaluated_at_execution(tmp_path, targ
     never-None microsecond Timestamp, in SELECT items and WHERE; the compiled
     bundle and the live template keep the expression, never a value. MySQL
     refuses it until its two-database differential passes."""
-    source = (
-        temporal_probe.temporal_source(target).split("table result:", 1)[0]
-        + """table result:
+    outcome = emit_temporal(
+        tmp_path / target,
+        target,
+        """table result:
     from rows
     where stamp <= now()
     select:
         stamp
         seen = now()
         day = date_of(now())
-"""
+""",
     )
-    checked = temporal_probe.build_neutral(tmp_path / target, {"main.pietto": source})
-    contract = json.loads(temporal_probe.temporal_input(target))
-    contract["environment"].append(
-        {
-            "key": "identifier_case",
-            "scope": "statement",
-            "value": "quoted_exact"
-            if target == "postgres"
-            else "lower_case_table_names=0",
-        }
-    )
-    outcome = emit_project_sql(checked, json.dumps(contract).encode())
 
     if target == "mysql":
         assert outcome.status == "BLOCKED" and outcome.artifact is None
@@ -755,9 +711,10 @@ def test_now_is_one_utc_statement_snapshot_evaluated_at_execution(tmp_path, targ
 
 @pytest.mark.parametrize("target", TARGETS)
 def test_date_of_derives_the_date_result_carrier_and_civil_parts(tmp_path, target):
-    source = (
-        temporal_probe.temporal_source(target).split("table result:", 1)[0]
-        + """table result:
+    outcome = emit_temporal(
+        tmp_path / target,
+        target,
+        """table result:
     from rows
     let civil_date = date_of(stamp)
     let nullable_date = date_of(optional_stamp)
@@ -769,20 +726,8 @@ def test_date_of_derives_the_date_result_carrier_and_civil_parts(tmp_path, targe
         year_part = year(civil_date)
         month_part = month(civil_date)
         day_part = day(civil_date)
-"""
+""",
     )
-    checked = temporal_probe.build_neutral(tmp_path / target, {"main.pietto": source})
-    contract = json.loads(temporal_probe.temporal_input(target))
-    contract["environment"].append(
-        {
-            "key": "identifier_case",
-            "scope": "statement",
-            "value": "quoted_exact"
-            if target == "postgres"
-            else "lower_case_table_names=0",
-        }
-    )
-    outcome = emit_project_sql(checked, json.dumps(contract).encode())
 
     assert outcome.status == "VERIFIED" and outcome.artifact is not None
     assert verify_project_sql_emission(
@@ -2392,23 +2337,16 @@ def test_postgres_select_item_round_reads_a_let_scale(tmp_path):
 
 
 def test_postgres_select_item_date_trunc_reads_a_let_unit(tmp_path):
-    source = (
-        temporal_probe.temporal_source("postgres").split("table result:", 1)[0]
-        + """table result:
+    outcome = emit_temporal(
+        tmp_path / "project",
+        "postgres",
+        """table result:
     from rows
     let unit = "month"
     select:
         month_stamp = date_trunc(unit, stamp)
-"""
+""",
     )
-    checked = temporal_probe.build_neutral(
-        tmp_path / "project", {"main.pietto": source}
-    )
-    contract = json.loads(temporal_probe.temporal_input("postgres"))
-    contract["environment"].append(
-        {"key": "identifier_case", "scope": "statement", "value": "quoted_exact"}
-    )
-    outcome = emit_project_sql(checked, json.dumps(contract).encode())
     assert outcome.status == "VERIFIED"
     assert json.loads(serialize_project_sql_emission(outcome))["sql"] == (
         'WITH "p0" ("c0", "c1", "c2", "c3", "c4") AS (SELECT '

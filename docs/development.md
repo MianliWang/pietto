@@ -181,7 +181,7 @@ final Python 3.12 and 3.13 coverage.
 
 Reuse observations and compatible preparation under explicit input/lifetime
 boundaries; rerun independent assertions. Existing owners come first:
-`tests/_pietto_repository_facts.py` for process-local immutable source observations,
+`tests/_pietto_repo_facts.py` for process-local immutable source observations,
 and the existing differential acquisition owner for compatible run-owned process
 cells. Session scope is per worker; it does not establish cross-worker sharing.
 

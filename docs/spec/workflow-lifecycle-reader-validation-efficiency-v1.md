@@ -96,7 +96,7 @@ installed-package smoke must not be weakened by the layered local policy.
 
 ## Regression Lock
 
-`tests/test_workflow_lifecycle_validation_efficiency.py` structurally enforces
+`tests/test_repo_test_layout.py` structurally enforces
 that no test reads `docs/status.md` or `docs/roadmap.md`.
 
 ## Steady-state Efficiency

@@ -126,7 +126,7 @@ def _signature_test_and_spec_evidence(
             boundary = (
                 _evidence(
                     CapabilityEvidenceSource.TEST,
-                    "tests/test_semantic_uuid_enum_readiness_decision.py",
+                    "tests/test_semantic_uuid_enum.py",
                     "UUID direct-field aggregate readiness",
                 ),
             )
@@ -138,7 +138,7 @@ def _signature_test_and_spec_evidence(
             ),
             _evidence(
                 CapabilityEvidenceSource.TEST,
-                "tests/test_semantic_aggregate_result_matrix_hardening.py",
+                "tests/test_semantic_aggregate_results.py",
                 "count direct-field result matrix",
             ),
             *boundary,
@@ -175,7 +175,7 @@ def _signature_test_and_spec_evidence(
             ),
             _evidence(
                 CapabilityEvidenceSource.TEST,
-                "tests/test_semantic_aggregate_result_matrix_hardening.py",
+                "tests/test_semantic_aggregate_results.py",
                 "count_distinct direct-field result matrix",
             ),
             _evidence(
@@ -206,7 +206,7 @@ def _signature_test_and_spec_evidence(
             ),
             _evidence(
                 CapabilityEvidenceSource.TEST,
-                "tests/test_semantic_aggregate_result_matrix_hardening.py",
+                "tests/test_semantic_aggregate_results.py",
                 "sum and avg direct-field result matrix",
             ),
             _evidence(
@@ -253,7 +253,7 @@ def _signature_test_and_spec_evidence(
             ),
             _evidence(
                 CapabilityEvidenceSource.TEST,
-                "tests/test_semantic_aggregate_result_matrix_hardening.py",
+                "tests/test_semantic_aggregate_results.py",
                 "min and max direct-field result matrix",
             ),
             _evidence(
@@ -561,7 +561,7 @@ def _shape_backend_gap_evidence() -> tuple[CapabilityEvidence, ...]:
         ),
         _evidence(
             CapabilityEvidenceSource.TEST,
-            "tests/test_semantic_aggregate_result_matrix_hardening.py",
+            "tests/test_semantic_aggregate_results.py",
             "non-builtin count backend fail-closed boundary",
         ),
         _evidence(
@@ -852,7 +852,7 @@ def _modifier_evidence(
         ),
         _evidence(
             CapabilityEvidenceSource.TEST,
-            "tests/test_semantic_aggregate_filter_distinct_modifier_deferral.py",
+            "tests/test_semantic_aggregate_modifiers.py",
             "test_sql_like_aggregate_modifier_syntax_remains_parser_rejected",
         ),
         _evidence(
@@ -928,8 +928,8 @@ _AGGREGATE_ALGEBRA_FACTS: tuple[CapabilityFact, ...] = _freeze_aggregates(
                 ),
                 _evidence(
                     CapabilityEvidenceSource.TEST,
-                    "tests/test_semantic_aggregate_function_expansion_candidate_decision.py",
-                    "test_count_distinct_result_and_type_allowlist_are_locked",
+                    "tests/test_ir_count_distinct_ir.py",
+                    "test_no_group_count_distinct_lowers_to_one_arg_aggregate_ir",
                 ),
                 _evidence(
                     CapabilityEvidenceSource.SPEC,
@@ -953,7 +953,7 @@ _AGGREGATE_ALGEBRA_FACTS: tuple[CapabilityFact, ...] = _freeze_aggregates(
                 _mysql_evidence("_render_numeric_aggregate SUM"),
                 _evidence(
                     CapabilityEvidenceSource.TEST,
-                    "tests/test_semantic_literal_only_aggregate_candidate_readiness.py",
+                    "tests/test_semantic_numeric_literal_aggregate_semantics.py",
                     "test_literal_only_aggregate_arguments_currently_fail_closed",
                 ),
                 _evidence(
@@ -977,7 +977,7 @@ _AGGREGATE_ALGEBRA_FACTS: tuple[CapabilityFact, ...] = _freeze_aggregates(
                 ),
                 _evidence(
                     CapabilityEvidenceSource.TEST,
-                    "tests/test_semantic_min_max_candidate_decision.py",
+                    "tests/test_semantic_min_max_semantics.py",
                     "min result is nullable same logical type",
                 ),
                 _evidence(
@@ -1000,7 +1000,7 @@ _AGGREGATE_ALGEBRA_FACTS: tuple[CapabilityFact, ...] = _freeze_aggregates(
                 ),
                 _evidence(
                     CapabilityEvidenceSource.TEST,
-                    "tests/test_semantic_min_max_candidate_decision.py",
+                    "tests/test_semantic_min_max_semantics.py",
                     "max result is nullable same logical type",
                 ),
                 _evidence(
@@ -1068,8 +1068,8 @@ _AGGREGATE_ALGEBRA_FACTS: tuple[CapabilityFact, ...] = _freeze_aggregates(
                 ),
                 _evidence(
                     CapabilityEvidenceSource.TEST,
-                    "tests/test_semantic_aggregate_function_expansion_candidate_decision.py",
-                    "test_count_distinct_accepted_shapes_contexts_and_sql_are_locked",
+                    "tests/test_sql_count_distinct_sql.py",
+                    "test_direct_renderers_support_count_distinct_field_types",
                 ),
                 _evidence(
                     CapabilityEvidenceSource.SPEC,
@@ -1094,8 +1094,8 @@ _AGGREGATE_ALGEBRA_FACTS: tuple[CapabilityFact, ...] = _freeze_aggregates(
                 ),
                 _evidence(
                     CapabilityEvidenceSource.TEST,
-                    "tests/test_semantic_aggregate_function_expansion_candidate_decision.py",
-                    "test_count_distinct_accepted_shapes_contexts_and_sql_are_locked",
+                    "tests/test_sql_count_distinct_sql.py",
+                    "test_direct_renderers_support_count_distinct_field_types",
                 ),
                 _evidence(
                     CapabilityEvidenceSource.SPEC,
@@ -1152,7 +1152,7 @@ _AGGREGATE_ALGEBRA_FACTS: tuple[CapabilityFact, ...] = _freeze_aggregates(
                 ),
                 _evidence(
                     CapabilityEvidenceSource.TEST,
-                    "tests/test_semantic_nested_aggregate_composition_hardening.py",
+                    "tests/test_semantic_nested_aggregates.py",
                     "nested aggregate rejection matrix",
                 ),
                 _evidence(
@@ -1180,7 +1180,7 @@ _AGGREGATE_ALGEBRA_FACTS: tuple[CapabilityFact, ...] = _freeze_aggregates(
                 ),
                 _evidence(
                     CapabilityEvidenceSource.TEST,
-                    "tests/test_semantic_nested_aggregate_composition_hardening.py",
+                    "tests/test_semantic_nested_aggregates.py",
                     "direct aggregate projection composition rejection matrix",
                 ),
                 _evidence(

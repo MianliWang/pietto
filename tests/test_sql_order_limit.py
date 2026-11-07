@@ -20,10 +20,6 @@ from pietto._project import project_sql_emission_results as resulting
 from pietto._project.project_sql_emission import serialize_project_sql_emission
 
 TARGETS = ("postgres", "mysql")
-IDENTIFIER_CASE = {
-    "postgres": "quoted_exact",
-    "mysql": "lower_case_table_names=0",
-}
 Q = {"postgres": '"', "mysql": "`"}
 
 LIMIT1_RIGHT = """table ranked:
@@ -72,22 +68,10 @@ def emit_join(target, source):
 
 
 def emit(target, body):
-    base = probe.fixture(target)
-    header = base["source"].split("table result:", 1)[0]
-    contract = json.loads(base["contract"])
-    contract["environment"].append(
-        {
-            "key": "identifier_case",
-            "scope": "statement",
-            "value": IDENTIFIER_CASE[target],
-        }
-    )
+    item = probe.parameterized_fixture(target, body, protocol=False)
     with tempfile.TemporaryDirectory() as directory:
         _, outcome = probe.build_case(
-            Path(directory) / "case",
-            header + body,
-            probe.encoded(contract).decode(),
-            "preserve_literals",
+            Path(directory) / "case", item["source"], item["contract"], item["policy"]
         )
     return outcome
 

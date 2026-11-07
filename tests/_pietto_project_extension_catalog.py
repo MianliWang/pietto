@@ -5,7 +5,7 @@ from pathlib import Path
 from typing import Any, cast
 
 
-import _pietto_capability_differential_vectors as vectors
+import _pietto_harness_capability_vectors as vectors
 import pietto._project.capability_pure_boundary as pure_boundary
 import pietto.semantic.capability_aggregates as aggregates
 import pietto.semantic.capability_contexts as contexts

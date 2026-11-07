@@ -13,7 +13,7 @@ from typing import Any, cast
 
 import pytest
 
-import _pietto_capability_differential_vectors as vectors
+import _pietto_harness_capability_vectors as vectors
 import pietto
 import pietto._project as project_package
 import pietto._project.capability_inspection as capability_inspection
@@ -62,7 +62,7 @@ from pietto.semantic.capability_facts import (
 
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
-VECTOR_REL = "tests/_pietto_capability_differential_vectors.py"
+VECTOR_REL = "tests/_pietto_harness_capability_vectors.py"
 SOURCE_REL = "src/pietto/_project/capability_pure_boundary.py"
 EXPECTED_CORPUS_DIGEST = (
     "8453c3babda888b105f37f667f5fadf3a12aa68ca9a561bda98e5f6b6604a69e"
@@ -139,7 +139,7 @@ def _corpus_digest() -> str:
 
 _SUBPROCESS_DIGEST = (
     "import hashlib\n"
-    "import _pietto_capability_differential_vectors as vectors\n"
+    "import _pietto_harness_capability_vectors as vectors\n"
     "from pietto._project.capability_pure_boundary import CapabilityPureStatus, evaluate_capability_document\n"
     "rows = []\n"
     "for vector in vectors.differential_vectors():\n"
@@ -855,7 +855,7 @@ def test_existing_pure_boundaries_remain_isolated(
         assert "CapabilityPure" not in source
     for relative in (
         "tests/_pietto_differential_vectors.py",
-        "tests/_pietto_package_differential_vectors.py",
+        "tests/_pietto_harness_package_vectors.py",
     ):
         source = (REPO_ROOT / relative).read_text(encoding="utf-8")
         assert "capability_pure_boundary" not in source

@@ -12,7 +12,7 @@ import sys
 
 import pytest
 
-import _pietto_extension_catalog_differential_vectors as vectors
+import _pietto_harness_extension_catalog_vectors as vectors
 import _pietto_project_extension_differential as differential
 import pietto
 import pietto._project as project_package
@@ -51,7 +51,7 @@ from pietto.semantic.extension_catalog_pure_boundary import (
 
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
-VECTOR_REL = "tests/_pietto_extension_catalog_differential_vectors.py"
+VECTOR_REL = "tests/_pietto_harness_extension_catalog_vectors.py"
 CATALOG_SOURCE_REL = "src/pietto/semantic/extension_catalog_pure_boundary.py"
 INSPECTION_SOURCE_REL = (
     "src/pietto/_project/extension_catalog_inspection_pure_boundary.py"

@@ -6,7 +6,7 @@ from pathlib import Path
 import struct
 from typing import Any, cast
 
-import _pietto_capability_differential_vectors as vectors
+import _pietto_harness_capability_vectors as vectors
 from pietto._project.capability_availability import (
     CapabilityProfileAvailabilityOccurrence,
     CompilerCapabilityProfileAvailabilityAuthority,

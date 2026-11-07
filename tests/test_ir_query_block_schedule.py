@@ -7,7 +7,7 @@ from typing import Any, cast
 import pytest
 
 
-from _pietto_repository_facts import REPOSITORY_FACTS
+from _pietto_repo_facts import REPOSITORY_FACTS
 from pietto._project import project_completion as completion
 from pietto._project.model import (
     ProjectRelationRowSchemaReason,

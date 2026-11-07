@@ -1695,7 +1695,7 @@ class LoggingCursor:
 
 def _reduced_owner(remaining, log, *, refined):
     """A PostgreSQL rows owner reduced to the state its first statement reads,
-    as in tests/test_postgres_refinement_jit.py."""
+    as in tests/test_execution_refinement_jit.py."""
     owner = object.__new__(pg.PostgresExecution)
     page = SimpleNamespace(
         native=SimpleNamespace(sql=PAGE_SQL.encode(), arguments=(1,))

@@ -12,7 +12,7 @@ import sys
 
 import pytest
 
-import _pietto_package_differential_vectors as vectors
+import _pietto_harness_package_vectors as vectors
 import pietto
 import pietto._project as project_package
 import pietto._project.package_inspection as package_inspection
@@ -32,7 +32,7 @@ from pietto.errors import Diagnostic, Severity, SourceLocation
 
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
-VECTOR_REL = "tests/_pietto_package_differential_vectors.py"
+VECTOR_REL = "tests/_pietto_harness_package_vectors.py"
 SOURCE_REL = "src/pietto/_project/package_pure_boundary.py"
 
 _SUPPORTED_INTERPRETERS = ((3, 12), (3, 13))
@@ -88,7 +88,7 @@ def _corpus_digest() -> str:
 
 _SUBPROCESS_DIGEST = (
     "import hashlib\n"
-    "import _pietto_package_differential_vectors as vectors\n"
+    "import _pietto_harness_package_vectors as vectors\n"
     "from pietto._project.package_pure_boundary import evaluate_package_document\n"
     "rows = []\n"
     "for vector in vectors.differential_vectors():\n"

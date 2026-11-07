@@ -3,7 +3,7 @@ from __future__ import annotations
 from dataclasses import fields
 import hashlib
 
-import _pietto_capability_differential_vectors as vectors
+import _pietto_harness_capability_vectors as vectors
 import pietto._project.capability_pure_boundary as pure_boundary
 import pietto.semantic.capability_aggregates as aggregates
 import pietto.semantic.capability_contexts as contexts

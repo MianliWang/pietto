@@ -30,6 +30,11 @@ SOURCE_PREFIX = (
 )
 
 
+INT_AMOUNT_PREFIX = (
+    'shape Order:\n    amount: Int\nsource orders: Order = postgres.table("orders")\n'
+)
+
+
 @pytest.mark.parametrize(
     (
         "projection",
@@ -280,6 +285,36 @@ def test_existing_primary_aggregate_diagnostics_remain_primary(
     )
 
     assert _errors(result) == [expected]
+
+
+@pytest.mark.parametrize(
+    "projection",
+    (
+        "value = sum(1)",
+        "value = sum(1 + 2)",
+        "value = avg(1)",
+        "value = count(1)",
+        "value = count_distinct(1)",
+        "value = min(1)",
+        "value = max(1)",
+    ),
+)
+def test_literal_only_aggregate_arguments_currently_fail_closed(
+    projection: str,
+) -> None:
+    result = analyze(
+        _parse(
+            INT_AMOUNT_PREFIX + "table aggregate_stats:\n"
+            "    from orders\n"
+            "    select:\n"
+            f"        {projection}\n"
+        )
+    )
+    assert [
+        diagnostic.code
+        for diagnostic in result.diagnostics
+        if diagnostic.severity is Severity.ERROR
+    ] == ["PIE-S2315"]
 
 
 def _parse(source: str) -> Script:

@@ -5,7 +5,14 @@ import pytest
 from pietto.ast_nodes import QueryDef, Script, TableDef
 from pietto.errors import Severity
 from pietto.parser_api import parse_source
-from pietto.semantic import EffectiveNullability, SemanticResult, TypeKind, analyze
+from pietto.semantic import (
+    EffectiveNullability,
+    ResolvedType,
+    SemanticResult,
+    TypeKind,
+    ValueType,
+    analyze,
+)
 from pietto.semantic.aggregates import semantic_aggregate_result_value_type
 
 SOURCE_PREFIX = (
@@ -22,6 +29,12 @@ SOURCE_PREFIX = (
     "    id: UUID\n"
     "    anything: Any | None\n"
     'source orders: Order = postgres.table("orders")\n'
+)
+
+
+DECIMAL_VALUE_TYPE = ValueType(
+    resolved_type=ResolvedType(name="Decimal", kind=TypeKind.BUILTIN),
+    nullability=EffectiveNullability.NON_NULL,
 )
 
 
@@ -361,6 +374,31 @@ def test_decimal_aggregate_result_helper_returns_decimal_nullable() -> None:
         value_type = semantic_aggregate_result_value_type(function_name, argument_type)
         assert value_type is not None
         _assert_field(value_type, "Decimal", EffectiveNullability.NULLABLE)
+
+
+def test_decimal_sum_avg_min_max_results_are_nullable_decimal() -> None:
+    for function_name in ("sum", "avg", "min", "max"):
+        value_type = semantic_aggregate_result_value_type(
+            function_name,
+            DECIMAL_VALUE_TYPE,
+        )
+
+        assert value_type is not None
+        assert value_type.resolved_type.name == "Decimal"
+        assert value_type.resolved_type.kind is TypeKind.BUILTIN
+        assert value_type.nullability is EffectiveNullability.NULLABLE
+
+
+def test_count_distinct_decimal_argument_remains_authorized() -> None:
+    value_type = semantic_aggregate_result_value_type(
+        "count_distinct",
+        DECIMAL_VALUE_TYPE,
+    )
+
+    assert value_type is not None
+    assert value_type.resolved_type.name == "Int"
+    assert value_type.resolved_type.kind is TypeKind.BUILTIN
+    assert value_type.nullability is EffectiveNullability.NON_NULL
 
 
 def _parse(source: str) -> Script:

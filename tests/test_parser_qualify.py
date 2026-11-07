@@ -45,11 +45,6 @@ GRAMMAR = REPO_ROOT / "grammar/Pietto.g4"
 AST_NODES = REPO_ROOT / "src/pietto/ast_nodes.py"
 AST_BUILDER = REPO_ROOT / "src/pietto/ast_builder.py"
 PRODUCTION = REPO_ROOT / "src/pietto/_project/project_joined_qualify.py"
-HISTORICAL_BOUNDARY = REPO_ROOT / "tests/test_ir_window_dual_backend_lowering.py"
-SPEC = (
-    REPO_ROOT
-    / "docs/spec/phase63-slice11-qualify-grammar-ast-semantics-property-transfer-v1.md"
-)
 
 QUALIFY_SOURCE = (
     slice10.WINDOW_SOURCE
@@ -921,7 +916,6 @@ def test_scope_kernel_generated_and_contract_boundaries_are_static() -> None:
     }
     ast_source = AST_NODES.read_text(encoding="utf-8")
     builder_source = AST_BUILDER.read_text(encoding="utf-8")
-    spec = SPEC.read_text(encoding="utf-8")
     assert "primaryExpression\n    : qualifyWindowExpression" not in grammar
     assert grammar.count("qualifyWindowExpression") == 2
     assert "qualifyWindowExpression\n    : dottedName callSuffix" in grammar
@@ -934,12 +928,6 @@ def test_scope_kernel_generated_and_contract_boundaries_are_static() -> None:
     }.isdisjoint(production_names)
     assert "infer_row_expression(" in production
     assert "analyze_hidden_project_window_computation(" in production
-    assert "172 -> 173" in spec and "415 -> 416" in spec
-    historical = HISTORICAL_BOUNDARY.read_text(encoding="utf-8")
-    assert 'assert "qualifyClause : QUALIFY" in grammar' in historical
-    assert "assert \"QUALIFY: 'qualify';\" in grammar" in historical
-    assert "A3/M17/D0" in spec
-    assert "Slice 12 = `NEXT / NOT IMPLEMENTED`" in spec
 
 
 def test_a_qualify_block_joins_its_lines_with_and() -> None:

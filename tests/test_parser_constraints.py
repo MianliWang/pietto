@@ -196,7 +196,7 @@ def test_constraint_rejects_multiple_body_expressions() -> None:
 
 def test_a_constraint_block_body_nests_as_deep_as_the_other_expressions() -> None:
     # Its `return` is taken by its own token, so the depth that every position
-    # accepts (tests/test_diagnostics.py) is left to the expression.
+    # accepts (tests/test_parser_diagnostics.py) is left to the expression.
     result = parse_source(
         "constraint c(a: Int) -> Bool:\n    return " + "-" * 314 + "a\n"
     )

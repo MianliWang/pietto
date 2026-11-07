@@ -235,20 +235,15 @@ def test_a_mysql_computed_bool_distinct_column_may_arrive_as_long(tmp_path, valu
     # 4-byte INT (LONG, 3), not its declared my_signed_bool (DB campaign 6).
     import _pietto_sql_emission as emission
 
-    base = emission.fixture("mysql")
-    source = base["source"].split("table result:", 1)[0] + (
+    item = emission.parameterized_fixture(
+        "mysql",
         "table result:\n    from rows\n    select distinct:\n"
-        f"        id\n        e = {value}\n"
+        f"        id\n        e = {value}\n",
+        protocol=False,
     )
-    contract = json.loads(base["contract"])
-    contract["environment"].append(
-        {
-            "key": "identifier_case",
-            "scope": "statement",
-            "value": "lower_case_table_names=0",
-        }
+    _, emitted = emission.build_case(
+        tmp_path, item["source"], item["contract"], item["policy"]
     )
-    _, emitted = emission.build_case(tmp_path, source, json.dumps(contract))
     assert emitted.status == "VERIFIED" and emitted.artifact is not None
     output = prepare_output(emitted.artifact)
     column = output.columns[1]

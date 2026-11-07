@@ -336,7 +336,7 @@ def _decimal_precision_scale_evidence() -> tuple[CapabilityEvidence, ...]:
         ),
         _evidence(
             CapabilityEvidenceSource.TEST,
-            "tests/test_semantic_decimal_precision_scale_type_carrier.py",
+            "tests/test_semantic_decimal_precision_facts.py",
             "Decimal precision-scale carrier",
         ),
         _evidence(

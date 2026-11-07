@@ -7,7 +7,7 @@ from typing import Any, cast
 import pytest
 
 from _pietto_ir_join_differential import PRIMARY_MAIN_SOURCE, _build
-from _pietto_repository_facts import REPOSITORY_FACTS
+from _pietto_repo_facts import REPOSITORY_FACTS
 from pietto._project import project_query_block as query_blocks
 from pietto._project.model import (
     ProjectRelationRowSchemaReason,

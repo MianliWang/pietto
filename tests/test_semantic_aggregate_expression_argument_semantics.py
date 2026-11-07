@@ -38,6 +38,14 @@ SOURCE_PREFIX = (
     'source orders: Order = postgres.table("orders")\n'
 )
 
+DECIMAL_AMOUNT_PREFIX = (
+    "shape Order:\n"
+    "    amount: Decimal\n"
+    "    score: Float\n"
+    "    customer_id: UUID\n"
+    'source orders: Order = postgres.table("orders")\n'
+)
+
 
 def test_slice4_status_is_semantic_only_with_fail_closed_guard() -> None:
     plan = _normalized_plan()
@@ -899,3 +907,27 @@ def test_aggregate_let_argument_expands_each_shared_let_value_once(
         (item.code, item.location.line, item.location.column, item.message)
         for item in result.diagnostics
     ] == [(code, 52, 13, messages[code]) for code in codes]
+
+
+def test_aggregate_expression_arguments_remain_accepted() -> None:
+    result = _analyze("total = sum(amount + amount)")
+
+    assert [diagnostic.code for diagnostic in result.diagnostics] == []
+
+
+def test_direct_field_aggregate_vocabulary_remains_accepted() -> None:
+    result = _analyze("total = sum(amount)")
+
+    assert [diagnostic.code for diagnostic in result.diagnostics] == []
+
+
+def _analyze(projections: str):
+    parsed = parse_source(
+        DECIMAL_AMOUNT_PREFIX
+        + "table totals:\n    from orders\n    select:\n        "
+        + projections.replace("\n", "\n        ")
+        + "\n"
+    )
+    assert parsed.diagnostics == ()
+    assert parsed.ast is not None
+    return analyze(parsed.ast)

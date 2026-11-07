@@ -18,6 +18,7 @@ SOURCE_PREFIX = (
     'source orders: Order = postgres.table("orders")\n'
 )
 MYSQL_SOURCE_PREFIX = SOURCE_PREFIX.replace("postgres.table", "mysql.table")
+NULLABLE_TAX_PREFIX = SOURCE_PREFIX.replace("tax: Int\n", "tax: Int | None\n")
 
 SUPPORTED_RELATION = (
     "query enriched_orders:\n"
@@ -426,6 +427,89 @@ def test_non_let_cli_json_metadata_shape_remains_stable(
     )
 
 
+def test_emit_sql_succeeds_for_supported_let_with_sql_artifact(
+    tmp_path: Path,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    source_path = _write_let_source(tmp_path)
+
+    exit_code = cli.main(
+        [
+            "emit-sql",
+            str(source_path),
+            "--dialect",
+            "postgres",
+            "--format",
+            "json",
+        ]
+    )
+    captured = capsys.readouterr()
+    document = json.loads(captured.out)
+
+    assert exit_code == 0
+    assert captured.err == ""
+    assert document["ok"] is True
+    assert len(document["artifacts"]) == 1
+    assert document["diagnostics"] == []
+    diagnostics = cast(list[dict[str, object]], document["diagnostics"])
+    assert diagnostics == []
+
+
+def test_explain_succeeds_for_supported_let_without_schema_churn(
+    tmp_path: Path,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    source_path = _write_let_source(tmp_path)
+
+    exit_code = cli.main(["explain", str(source_path), "--format", "json"])
+    captured = capsys.readouterr()
+    document = json.loads(captured.out)
+
+    assert exit_code == 0
+    assert captured.err == ""
+    assert document["ok"] is True
+    assert "metadata" in document
+    assert "let_scopes" not in json.dumps(document)
+    diagnostics = cast(list[dict[str, object]], document["diagnostics"])
+    assert diagnostics == []
+
+
+def test_non_let_explain_json_schema_remains_unchanged(
+    tmp_path: Path,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    source_path = tmp_path / "plain_orders.pietto"
+    source_path.write_text(
+        NULLABLE_TAX_PREFIX
+        + "query plain_orders:\n"
+        + "    from orders\n"
+        + "    select:\n"
+        + "        amount\n",
+        encoding="utf-8",
+    )
+
+    exit_code = cli.main(["explain", str(source_path), "--format", "json"])
+    captured = capsys.readouterr()
+    document = json.loads(captured.out)
+
+    assert exit_code == 0
+    assert captured.err == ""
+    assert set(document) == {
+        "artifact",
+        "schema_version",
+        "command",
+        "ok",
+        "path",
+        "diagnostics",
+        "metadata",
+    }
+    assert document["artifact"] == "Semantic Metadata Artifact v1"
+    assert document["schema_version"] == 1
+    assert document["command"] == "explain"
+    assert document["ok"] is True
+    assert "let_scopes" not in json.dumps(document)
+
+
 def _write_source(
     tmp_path: Path,
     filename: str,
@@ -447,3 +531,17 @@ def _read_json(capsys: pytest.CaptureFixture[str]) -> dict[str, object]:
     assert captured.out.endswith("\n")
     assert not captured.out.endswith("\n\n")
     return cast(dict[str, object], json.loads(captured.out))
+
+
+def _write_let_source(tmp_path: Path) -> Path:
+    source_path = tmp_path / "with_let.pietto"
+    source_path.write_text(
+        NULLABLE_TAX_PREFIX
+        + "query enriched_orders:\n"
+        + "    from orders\n"
+        + "    let gross = amount + tax\n"
+        + "    select:\n"
+        + "        gross_value = gross\n",
+        encoding="utf-8",
+    )
+    return source_path

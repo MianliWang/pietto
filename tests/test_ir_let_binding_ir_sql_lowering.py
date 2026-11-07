@@ -31,6 +31,12 @@ SOURCE_PREFIX = (
     'source orders: Order = postgres.table("orders")\n'
 )
 MYSQL_SOURCE_PREFIX = SOURCE_PREFIX.replace("postgres.table", "mysql.table")
+REPO_ROOT = Path(__file__).resolve().parents[1]
+IR_SURFACE_PATHS = (
+    REPO_ROOT / "src/pietto/ir/model.py",
+    REPO_ROOT / "src/pietto/ir/builder.py",
+    REPO_ROOT / "src/pietto/ir/lowering.py",
+)
 
 
 def test_ir_inline_expands_let_in_where_select_and_order_by() -> None:
@@ -120,6 +126,15 @@ def test_no_let_or_layer_ir_surface_is_introduced() -> None:
 
     assert "LetBindingIR" not in type_names
     assert "RelationLayerIR" not in type_names
+
+
+def test_no_let_ir_or_relation_layer_ir_surface_is_introduced() -> None:
+    combined_ir = "\n".join(
+        path.read_text(encoding="utf-8") for path in IR_SURFACE_PATHS
+    )
+
+    assert "LetBindingIR" not in combined_ir
+    assert "RelationLayerIR" not in combined_ir
 
 
 def test_postgres_emit_sql_inlines_supported_let_expressions() -> None:

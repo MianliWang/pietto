@@ -14,6 +14,7 @@ import zipfile
 import pytest
 
 import _pietto_execution_nested_oracle as nested
+import _pietto_sql_emission as emission
 import _pietto_target_conformance as facility
 import _pietto_target_conformance_cases as cases
 import _pietto_target_conformance_observation as observation
@@ -23,7 +24,7 @@ from _pietto_target_conformance_facility import (
     FakeResources,
     _injected_run,
 )
-from _pietto_repository_facts import REPOSITORY_FACTS
+from _pietto_repo_facts import REPOSITORY_FACTS
 from _pietto_mysql_native_prepared import native_data
 
 
@@ -2175,6 +2176,42 @@ def test_empty_text_anchor_requires_the_observed_var_string_type(
                     [OBSERVED_EMPTY_TEXT[0], code, *OBSERVED_EMPTY_TEXT[2:]],
                 )
             reject_receipt(receipt, valid_receipts)
+
+
+def test_receipt_verification_validates_each_distinct_public_artifact_once(
+    valid_receipts: Any, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    validated: list[bytes] = []
+    validate = emission._validated_public
+
+    def counted(data: bytes) -> dict[str, Any]:
+        validated.append(data)
+        return validate(data)
+
+    monkeypatch.setattr(emission, "_validated_public", counted)
+    pins, pins_digest, expected, receipts = valid_receipts
+    receipt = deepcopy(receipts["mysql"])
+    facility._verify_receipt(
+        receipt, "mysql", pins, pins_digest, expected, "1" * 40, "synthetic", 1
+    )
+    unmemoized = set(validated)
+    validated.clear()
+    accept_receipt(receipt, valid_receipts)
+    # Each distinct artifact is validated exactly once, and the memo skips none.
+    assert len(validated) == len(set(validated))
+    assert (
+        set(validated)
+        == unmemoized
+        >= {
+            record["public"].encode("utf-8")
+            for record in receipt["generation"]["emission"]["records"]
+        }
+    )
+    with emission.public_validation_memo():
+        first = emission.decode_public(validated[0])
+        second = emission.decode_public(validated[0])
+    assert first == second and first is not second
+    assert emission._VALIDATED_PUBLIC is None
 
 
 @pytest.mark.parametrize(

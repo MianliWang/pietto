@@ -1054,7 +1054,7 @@ def test_wrong_release_retains_raw_conflict_separate_from_applicability(corpus):
 
 
 def test_new_consumers_remain_private_without_dynamic_or_renderer_access():
-    from _pietto_repository_facts import REPOSITORY_FACTS
+    from _pietto_repo_facts import REPOSITORY_FACTS
 
     for module in (target, mapping):
         assert module.__all__ == ()

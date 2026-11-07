@@ -48,24 +48,10 @@ def emit(target, case, variant):
 
 
 def emit_source(target, body, *, policy="preserve_literals"):
-    base = probe.fixture(target)
-    header = base["source"].split("table result:", 1)[0]
-    contract = json.loads(base["contract"])
-    contract["environment"].append(
-        {
-            "key": "identifier_case",
-            "scope": "statement",
-            "value": "quoted_exact"
-            if target == "postgres"
-            else "lower_case_table_names=0",
-        }
-    )
+    item = probe.parameterized_fixture(target, body, policy, protocol=False)
     with tempfile.TemporaryDirectory() as directory:
         _, outcome = probe.build_case(
-            Path(directory) / "case",
-            header + body,
-            probe.encoded(contract).decode(),
-            policy,
+            Path(directory) / "case", item["source"], item["contract"], item["policy"]
         )
     return outcome
 

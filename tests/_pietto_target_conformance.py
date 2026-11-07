@@ -1504,9 +1504,10 @@ def verify_receipt(
     attempt: int,
 ) -> None:
     try:
-        _verify_receipt(
-            receipt, target, pins, pins_digest, expected, commit, run_id, attempt
-        )
+        with emission.public_validation_memo():
+            _verify_receipt(
+                receipt, target, pins, pins_digest, expected, commit, run_id, attempt
+            )
     except (AttributeError, IndexError, KeyError, TypeError, ValueError) as error:
         raise ValueError("invalid target receipt: " + type(error).__name__) from error
 
@@ -1515,17 +1516,18 @@ def verify_native_prerequisite(
     receipt, pins, pins_digest, expected, commit, run_id, attempt
 ):
     try:
-        _verify_receipt(
-            receipt,
-            "mysql",
-            pins,
-            pins_digest,
-            expected,
-            commit,
-            run_id,
-            attempt,
-            native_prerequisite=True,
-        )
+        with emission.public_validation_memo():
+            _verify_receipt(
+                receipt,
+                "mysql",
+                pins,
+                pins_digest,
+                expected,
+                commit,
+                run_id,
+                attempt,
+                native_prerequisite=True,
+            )
     except (AttributeError, IndexError, KeyError, TypeError, ValueError) as error:
         raise ValueError(
             "invalid native prerequisite: " + type(error).__name__

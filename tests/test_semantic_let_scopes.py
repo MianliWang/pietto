@@ -1,14 +1,16 @@
 from __future__ import annotations
 
+from collections.abc import MutableMapping
 from dataclasses import FrozenInstanceError, replace
 from pathlib import Path
 import re
+from types import MappingProxyType
 from typing import cast
 
 import pytest
 
 from _pietto_ir_join_differential import PRIMARY_MAIN_SOURCE, _build
-from _pietto_repository_facts import REPOSITORY_FACTS
+from _pietto_repo_facts import REPOSITORY_FACTS
 from _pietto_project_join import _parsed
 from pietto._project import project_scalar_namespaces as scalar_namespaces
 from pietto._project import project_scalar_references as scalar_references
@@ -29,9 +31,11 @@ from pietto.ast_nodes import (
     Script,
     SourceDef,
     Span,
+    TableDef,
 )
 from pietto.errors import Diagnostic, Severity
 from pietto.parser_api import parse_source
+from pietto.semantic import SemanticResult, ValueType, ValueTypeKind, analyze
 from pietto.semantic.let_bindings import (
     admitted_relation_let_expressions,
     analyze_relation_let_bindings,
@@ -1074,7 +1078,7 @@ def test_single_input_let_decisions_match_existing_semantics(
     assert joined_codes == existing_codes
 
 
-def test_slice5_scope_dependency_and_contract_are_exact() -> None:
+def test_scope_dependency_and_contract_are_exact() -> None:
     facts = REPOSITORY_FACTS.python(PRODUCTION)
     assert scalar_namespaces.__all__ == ()
     assert not re.search(r"^class .*Identity", facts.text, re.MULTILINE)
@@ -1320,3 +1324,204 @@ def test_a_let_that_a_join_reads_names_a_relation(
         (d.code, d.message, d.location.line, d.location.column)
         for d in analyze(parsed.ast).diagnostics
     ] == expected
+
+
+SOURCE_PREFIX = (
+    "shape Order:\n"
+    "    id: Int\n"
+    "    amount: Int\n"
+    "    tax: Int | None\n"
+    "    status: Text\n"
+    'source orders: Order = postgres.table("orders")\n'
+)
+
+
+def test_semantic_model_let_scopes_is_empty_for_relations_without_let() -> None:
+    relation, semantic = _analyze_relation(
+        "query plain_orders:\n    from orders\n    select:\n        amount\n"
+    )
+
+    assert isinstance(relation, QueryDef)
+    assert semantic.diagnostics == ()
+    assert len(semantic.model.let_scopes) == 0
+    assert relation not in semantic.model.let_scopes
+
+
+@pytest.mark.parametrize("keyword", ["table", "query"])
+def test_table_and_query_let_scopes_store_clause_and_bindings(
+    keyword: str,
+) -> None:
+    relation, semantic = _analyze_relation(
+        f"{keyword} enriched_orders:\n"
+        "    from orders\n"
+        "    let gross = amount + tax\n"
+        "    select:\n"
+        "        gross_value = gross\n"
+    )
+
+    assert isinstance(relation, (TableDef, QueryDef))
+    assert relation.let_clause is not None
+    assert _semantic_error_codes(semantic) == []
+
+    scope = semantic.model.let_scopes[relation]
+    assert scope.clause is relation.let_clause
+    assert scope.bindings == tuple(relation.let_clause.bindings)
+    assert scope.bindings[0] is relation.let_clause.bindings[0]
+
+
+def test_source_ordered_bindings_and_value_types_are_preserved() -> None:
+    relation, semantic = _analyze_relation(
+        "query enriched_orders:\n"
+        "    from orders\n"
+        "    let normalized = lower(trim(status))\n"
+        "    let status_len = len(normalized)\n"
+        "    let gross = amount + tax\n"
+        "    select:\n"
+        "        normalized_value = normalized\n"
+        "        status_length = status_len\n"
+        "        gross_value = gross\n"
+    )
+
+    assert relation.let_clause is not None
+    scope = semantic.model.let_scopes[relation]
+
+    assert [binding.name for binding in scope.bindings] == [
+        "normalized",
+        "status_len",
+        "gross",
+    ]
+    assert tuple(scope.value_types) == ("normalized", "status_len", "gross")
+    assert _scope_value_type_name(scope.value_types["normalized"]) == "Text"
+    assert _scope_value_type_name(scope.value_types["status_len"]) == "Int"
+    assert _scope_value_type_name(scope.value_types["gross"]) == "Int"
+
+
+def test_binding_expression_value_types_remain_in_semantic_model() -> None:
+    relation, semantic = _analyze_relation(
+        "query enriched_orders:\n"
+        "    from orders\n"
+        "    let gross = amount + tax\n"
+        "    select:\n"
+        "        gross_value = gross\n"
+    )
+
+    assert relation.let_clause is not None
+    binding_expr = relation.let_clause.bindings[0].expression
+    assert _model_value_type_name(semantic, binding_expr) == "Int"
+
+    select_expr = relation.select_items[0].expression
+    assert isinstance(select_expr, NameExpr)
+    assert _model_value_type_name(semantic, select_expr) == "Int"
+
+
+def test_invalid_binding_names_are_excluded_from_admitted_value_types() -> None:
+    relation, semantic = _analyze_relation(
+        "query enriched_orders:\n"
+        "    from orders\n"
+        "    let amount = tax\n"
+        "    let orders = tax\n"
+        "    select:\n"
+        "        amount\n"
+    )
+
+    assert relation.let_clause is not None
+    codes = _semantic_error_codes(semantic)
+    assert codes.count("PIE-S2329") == 2
+
+    scope = semantic.model.let_scopes[relation]
+    assert [binding.name for binding in scope.bindings] == [
+        "amount",
+        "orders",
+    ]
+    assert tuple(scope.value_types) == ()
+
+
+def test_dependency_order_storage_is_deterministic() -> None:
+    relation, semantic = _analyze_relation(
+        "query enriched_orders:\n"
+        "    from orders\n"
+        "    let normalized = lower(trim(status))\n"
+        "    let status_len = len(normalized)\n"
+        "    select:\n"
+        "        status_length = status_len\n"
+    )
+
+    assert _semantic_error_codes(semantic) == []
+    scope = semantic.model.let_scopes[relation]
+    assert tuple(scope.value_types) == ("normalized", "status_len")
+    assert _scope_value_type_name(scope.value_types["normalized"]) == "Text"
+    assert _scope_value_type_name(scope.value_types["status_len"]) == "Int"
+
+
+def test_semantic_model_let_scope_mappings_are_read_only() -> None:
+    relation, semantic = _analyze_relation(
+        "query enriched_orders:\n"
+        "    from orders\n"
+        "    let gross = amount + tax\n"
+        "    select:\n"
+        "        gross_value = gross\n"
+    )
+
+    scope = semantic.model.let_scopes[relation]
+    assert isinstance(semantic.model.let_scopes, MappingProxyType)
+    assert isinstance(scope.value_types, MappingProxyType)
+
+    with pytest.raises(TypeError):
+        cast(MutableMapping[object, object], semantic.model.let_scopes)[object()] = (
+            object()
+        )
+    with pytest.raises(TypeError):
+        cast(MutableMapping[str, object], scope.value_types)["other"] = object()
+
+
+def test_pie_s2328_is_not_emitted_for_supported_row_level_let_relations() -> None:
+    result = parse_source(
+        SOURCE_PREFIX
+        + "table enriched_orders:\n"
+        + "    from orders\n"
+        + "    let gross = amount + tax\n"
+        + "    select:\n"
+        + "        gross_value = gross\n"
+        + "query filtered_orders:\n"
+        + "    from orders\n"
+        + "    let net = amount - tax\n"
+        + "    select:\n"
+        + "        net_value = net\n"
+    )
+    assert result.diagnostics == ()
+    assert result.ast is not None
+
+    semantic = analyze(result.ast)
+
+    assert _semantic_error_codes(semantic).count("PIE-S2328") == 0
+
+
+def _analyze_relation(source: str) -> tuple[TableDef | QueryDef, SemanticResult]:
+    result = parse_source(SOURCE_PREFIX + source, path="let_model.pietto")
+    assert result.diagnostics == ()
+    assert result.ast is not None
+    semantic = analyze(result.ast)
+    # Semantic facts describe the analyzed script, where each modern
+    # `let name = expression` declaration is normalized into the let clause.
+    assert semantic.script is not None
+    relation = cast(TableDef | QueryDef, semantic.script.definitions[-1])
+    return relation, semantic
+
+
+def _semantic_error_codes(semantic: SemanticResult) -> list[str]:
+    return [
+        diagnostic.code
+        for diagnostic in semantic.diagnostics
+        if diagnostic.severity is Severity.ERROR
+    ]
+
+
+def _scope_value_type_name(value_type: ValueType) -> str:
+    assert value_type.kind is ValueTypeKind.KNOWN
+    return value_type.resolved_type.name
+
+
+def _model_value_type_name(semantic: SemanticResult, expression: object) -> str:
+    value_type = semantic.model.expression_value_types[cast(NameExpr, expression)]
+    assert value_type.kind is ValueTypeKind.KNOWN
+    return value_type.resolved_type.name

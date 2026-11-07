@@ -60,25 +60,12 @@ def _build(item: dict[str, Any]) -> Any:
 
 def _item(target: str, body: str, *, key=None, policy="preserve_literals") -> dict:
     """The published rows source, optionally with its `id` representation replaced."""
-    base = probe.fixture(target)
-    header = base["source"].split("table result:", 1)[0]
-    contract = json.loads(base["contract"])
-    contract["environment"].append(
-        {
-            "key": "identifier_case",
-            "scope": "statement",
-            "value": "quoted_exact"
-            if target == "postgres"
-            else "lower_case_table_names=0",
-        }
-    )
+    item = probe.parameterized_fixture(target, body, policy, protocol=False)
     if key is not None:
+        contract = json.loads(item["contract"])
         contract["sources"][0]["fields"][0]["representation"] = key
-    return {
-        "source": header + body,
-        "contract": probe.encoded(contract).decode(),
-        "policy": policy,
-    }
+        item["contract"] = probe.encoded(contract).decode()
+    return item
 
 
 def _int_key(target: str, low: int, high: int, *, width: int = 64) -> dict:
@@ -2203,15 +2190,7 @@ def test_ordered_string_agg_pure_boundary_rechecks_every_key_direction(tmp_path)
 
 
 def test_scalar_and_date_carrier_mutations_fail_the_pure_reader(tmp_path):
-    scalar = probe.fixture("postgres", "T_row_direct", "table_preserve")
-    header = scalar["source"].split("table result:", 1)[0]
-    contract = json.loads(scalar["contract"])
-    contract["environment"].append(
-        {"key": "identifier_case", "scope": "statement", "value": "quoted_exact"}
-    )
-    source = (
-        header
-        + """table result:
+    body = """table result:
     from rows
     let rounded_decimal = round(money, 0)
     let text_id = Text(id)
@@ -2219,9 +2198,12 @@ def test_scalar_and_date_carrier_mutations_fail_the_pure_reader(tmp_path):
         rounded_decimal
         text_id
 """
+    item = probe.parameterized_fixture(
+        "postgres", body, protocol=False, case="T_row_direct", variant="table_preserve"
     )
+    header = item["source"].removesuffix(body)
     _, outcome = probe.build_case(
-        tmp_path / "scalar", source, probe.encoded(contract).decode(), scalar["policy"]
+        tmp_path / "scalar", item["source"], item["contract"], item["policy"]
     )
     assert outcome.status == "VERIFIED" and outcome.artifact is not None
     assert "round(" in outcome.artifact.rendered.sql.decode()
@@ -2260,8 +2242,8 @@ def test_scalar_and_date_carrier_mutations_fail_the_pure_reader(tmp_path):
     select:
         rounded_float = round(ratio)
 """,
-        probe.encoded(contract).decode(),
-        scalar["policy"],
+        item["contract"],
+        item["policy"],
     )
     assert float_outcome.status == "VERIFIED" and float_outcome.artifact is not None
     float_observation = _observation(float_outcome.artifact)
@@ -2298,22 +2280,17 @@ def test_scalar_and_date_carrier_mutations_fail_the_pure_reader(tmp_path):
 
 
 def test_direct_fixed_scalar_carriers_reach_and_constrain_the_pure_reader(tmp_path):
-    scalar = probe.fixture("postgres", "T_row_direct", "table_preserve")
-    contract = json.loads(scalar["contract"])
-    contract["environment"].append(
-        {"key": "identifier_case", "scope": "statement", "value": "quoted_exact"}
-    )
-    source = (
-        scalar["source"].split("table result:", 1)[0]
-        + """table result:
+    body = """table result:
     from rows
     select:
         text_one = Text(1)
         rounded = round(1.5)
 """
+    item = probe.parameterized_fixture(
+        "postgres", body, protocol=False, case="T_row_direct", variant="table_preserve"
     )
     _, outcome = probe.build_case(
-        tmp_path, source, probe.encoded(contract).decode(), scalar["policy"]
+        tmp_path, item["source"], item["contract"], item["policy"]
     )
     assert outcome.status == "VERIFIED" and outcome.artifact is not None
     observation = _observation(outcome.artifact)
@@ -2345,33 +2322,29 @@ def test_direct_fixed_scalar_carriers_reach_and_constrain_the_pure_reader(tmp_pa
 def test_decimal_round_uses_the_same_default_and_explicit_zero_carrier_law(
     tmp_path,
 ):
-    scalar = probe.fixture("postgres", "T_row_direct", "table_preserve")
-    header = scalar["source"].split("table result:", 1)[0]
-    assert "money: Decimal(9, 2)" in header
-    header = header.replace("money: Decimal(9, 2)", "money: Decimal(65, 30)")
-    contract = json.loads(scalar["contract"])
-    contract["environment"].append(
-        {"key": "identifier_case", "scope": "statement", "value": "quoted_exact"}
-    )
-    contract["sources"][0]["fields"][3]["representation"] = {
-        "storage": {"kind": "pg_numeric", "precision": 65, "scale": 30},
-        "nullable": False,
-        "domain": {"kind": "decimal", "precision": 65, "scale": 30},
-    }
-    source = (
-        header
-        + """table result:
+    body = """table result:
     from rows
     select:
         defaulted = round(money)
         explicit_zero = round(money, 0)
 """
+    item = probe.parameterized_fixture(
+        "postgres", body, protocol=False, case="T_row_direct", variant="table_preserve"
     )
+    header = item["source"].removesuffix(body)
+    assert "money: Decimal(9, 2)" in header
+    header = header.replace("money: Decimal(9, 2)", "money: Decimal(65, 30)")
+    contract = json.loads(item["contract"])
+    contract["sources"][0]["fields"][3]["representation"] = {
+        "storage": {"kind": "pg_numeric", "precision": 65, "scale": 30},
+        "nullable": False,
+        "domain": {"kind": "decimal", "precision": 65, "scale": 30},
+    }
     _, outcome = probe.build_case(
         tmp_path / "wide",
-        source,
+        header + body,
         probe.encoded(contract).decode(),
-        scalar["policy"],
+        item["policy"],
     )
     assert outcome.status == "VERIFIED" and outcome.artifact is not None
     observation = _observation(outcome.artifact)
@@ -2411,7 +2384,7 @@ def test_decimal_round_uses_the_same_default_and_explicit_zero_carrier_law(
         explicit_zero = round(money, 0)
 """,
         probe.encoded(refused_contract).decode(),
-        scalar["policy"],
+        item["policy"],
     )
     assert edge.status == "VERIFIED" and edge.artifact is not None
     edge_observation = _observation(edge.artifact)
@@ -2431,6 +2404,6 @@ def test_decimal_round_uses_the_same_default_and_explicit_zero_carrier_law(
         rounded = round(money, -1)
 """,
         probe.encoded(refused_contract).decode(),
-        scalar["policy"],
+        item["policy"],
     )
     assert refused.status == "BLOCKED" and refused.artifact is None

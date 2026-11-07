@@ -7,7 +7,7 @@ from typing import Any, cast
 
 import pytest
 
-from _pietto_repository_facts import REPOSITORY_FACTS
+from _pietto_repo_facts import REPOSITORY_FACTS
 import pietto.semantic.capability_lookup as capability_lookup
 from pietto.semantic.capability_facts import (
     CapabilityDisposition,

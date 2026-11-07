@@ -17,6 +17,12 @@ from pietto._project.model import (
     ProjectSemanticResult,
     ProjectSymbolKind,
     build_empty_project_semantic_result,
+    ProjectConfigPath,
+    ProjectRelationDependencyNode,
+    ProjectRelationDependencySource,
+    ProjectRoot,
+    ProjectSemanticCatalog,
+    ProjectSemanticModel,
 )
 from pietto.ast_nodes import QueryDef, TableDef
 from pietto.errors import Severity
@@ -379,3 +385,162 @@ def _write(root: Path, relative_path: str, source: str) -> Path:
     path.parent.mkdir(parents=True, exist_ok=True)
     path.write_text(source, encoding="utf-8")
     return path
+
+
+def test_project_relation_dependency_carriers_are_frozen_slots_dataclasses() -> None:
+    for model_type in (
+        ProjectRelationDependencyNode,
+        ProjectRelationDependencySource,
+        ProjectRelationDependencyEdge,
+        ProjectRelationDependencyGraph,
+    ):
+        assert is_dataclass(model_type)
+        assert hasattr(model_type, "__slots__")
+
+    graph = ProjectRelationDependencyGraph()
+    assert not hasattr(graph, "__dict__")
+    with pytest.raises(FrozenInstanceError):
+        setattr(graph, "edges", ())
+
+
+def test_project_semantic_model_defaults_to_empty_dependency_graph() -> None:
+    model = ProjectSemanticModel(
+        root=ProjectRoot(path="."),
+        config_path=ProjectConfigPath(path="pietto.toml"),
+        inputs=(),
+        catalog=ProjectSemanticCatalog(),
+    )
+
+    assert model.relation_dependency_graph == ProjectRelationDependencyGraph()
+    assert model.relation_dependency_graph.nodes == ()
+    assert model.relation_dependency_graph.edges == ()
+    assert model.relation_dependency_graph.cycles == ()
+
+
+def test_relation_dependency_graph_nodes_are_table_query_only_and_ordered(
+    tmp_path: Path,
+) -> None:
+    root = _project_root(tmp_path, include=("models/*.pietto",))
+    _write(root, "models/a_shape.pietto", "shape Row:\n    id: Int\n")
+    _write(
+        root,
+        "models/b_source.pietto",
+        'source rows: Row = postgres.table("rows")\n',
+    )
+    _write(
+        root,
+        "models/c_table.pietto",
+        "table projected:\n    from rows\n    select:\n        id\n",
+    )
+    _write(
+        root,
+        "models/d_query.pietto",
+        "query exported:\n    from projected\n    select:\n        id\n",
+    )
+
+    parse_result, semantic_result = _project_semantic_result(root)
+
+    assert semantic_result.ok
+    assert semantic_result.diagnostics == ()
+    assert semantic_result.model is not None
+    graph = semantic_result.model.relation_dependency_graph
+    assert tuple(node.symbol.name for node in graph.nodes) == ("projected", "exported")
+    assert tuple(node.symbol.kind for node in graph.nodes) == (
+        ProjectSymbolKind.TABLE,
+        ProjectSymbolKind.QUERY,
+    )
+    assert "rows" not in {node.symbol.name for node in graph.nodes}
+    assert "rows" not in {edge.target.symbol.name for edge in graph.edges}
+
+    projected = _derived_definition(parse_result, "projected")
+    exported = _derived_definition(parse_result, "exported")
+    assert semantic_result.model.relation_resolutions[projected.from_clause].name == (
+        "rows"
+    )
+    assert semantic_result.model.relation_resolutions[exported.from_clause].name == (
+        "projected"
+    )
+
+
+def test_cycle_project_emits_relation_cycle_diagnostic(
+    tmp_path: Path,
+) -> None:
+    root = _project_root(tmp_path, include=("*.pietto",))
+    _write(
+        root,
+        "cycle_deferred.pietto",
+        "table first:\n"
+        "    from second\n"
+        "    select:\n"
+        "        id\n"
+        "table second:\n"
+        "    from first\n"
+        "    select:\n"
+        "        id\n",
+    )
+
+    _, semantic_result = _project_semantic_result(root)
+
+    assert not semantic_result.ok
+    assert semantic_result.model is not None
+    node_names = tuple(
+        node.symbol.name
+        for node in semantic_result.model.relation_dependency_graph.nodes
+    )
+    assert node_names == ("first", "second")
+    assert [
+        (diagnostic.code, diagnostic.severity, diagnostic.message)
+        for diagnostic in semantic_result.diagnostics
+    ] == [
+        (
+            "PIE-S2302",
+            Severity.ERROR,
+            "Relation cycle detected: first -> second -> first",
+        ),
+    ]
+
+
+def test_project_json_v2_does_not_expose_relation_dependency_graph(
+    tmp_path: Path,
+) -> None:
+    root = _project_root(tmp_path, include=("*.pietto",))
+    _write(
+        root,
+        "good.pietto",
+        "shape Row:\n"
+        "    id: Int\n"
+        'source rows: Row = postgres.table("rows")\n'
+        "table projected:\n"
+        "    from rows\n"
+        "    select:\n"
+        "        id\n",
+    )
+
+    parse_result, semantic_result = _project_semantic_result(root)
+    document = project_check_result_to_json_dict(parse_result)
+    serialized = json.dumps(document)
+
+    assert semantic_result.model is not None
+    assert semantic_result.model.relation_dependency_graph.nodes
+    assert tuple(document) == (
+        "schema_version",
+        "command",
+        "mode",
+        "ok",
+        "project",
+        "inputs",
+        "diagnostics",
+        "cli_errors",
+        "result",
+    )
+    assert document["ok"] is True
+    for private_fact in (
+        "ProjectRelationDependencyGraph",
+        "ProjectRelationDependencyNode",
+        "relation_dependency_graph",
+        "nodes",
+        "edges",
+        "ProjectSymbol",
+        "catalog",
+    ):
+        assert private_fact not in serialized

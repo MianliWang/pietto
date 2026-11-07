@@ -10,6 +10,9 @@ import pietto.cli as cli
 import pietto.ir as ir_api
 import pietto.sql as sql_api
 
+EXAMPLE_PATHS = tuple(sorted(Path("examples").rglob("*.pietto")))
+assert len(EXAMPLE_PATHS) == 10
+
 
 def test_check_valid_file_returns_success(
     tmp_path: Path,
@@ -390,6 +393,58 @@ def test_check_requires_exactly_one_file(
 def test_no_compile_to_ir_wrapper_was_added() -> None:
     assert not hasattr(cli, "compile_to_ir")
     assert not hasattr(ir_api, "compile_to_ir")
+
+
+@pytest.mark.parametrize("path", EXAMPLE_PATHS, ids=str)
+def test_all_committed_examples_pass_cli_check(
+    path: Path,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    assert cli.main(["check", str(path)]) == 0
+
+    captured = capsys.readouterr()
+    assert captured.out == f"OK: {path}\n"
+    assert " error:" not in captured.err
+
+
+def test_cli_check_reports_parser_and_semantic_errors(
+    tmp_path: Path,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    parser_error = _write(tmp_path, "parser-error.pietto", "shape User {\n")
+    assert cli.main(["check", str(parser_error)]) == 1
+    parser_output = capsys.readouterr()
+    assert parser_output.out == ""
+    assert "PIE-P1005 error:" in parser_output.err
+
+    semantic_error = _write(
+        tmp_path,
+        "semantic-error.pietto",
+        "shape User:\n    email: MissingType\n",
+    )
+    assert cli.main(["check", str(semantic_error)]) == 1
+    semantic_output = capsys.readouterr()
+    assert semantic_output.out == ""
+    assert "PIE-S2002 error:" in semantic_output.err
+
+
+def test_check_remains_isolated_from_ir_and_sql(
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    def unexpected_call(*args: object, **kwargs: object) -> object:
+        del args, kwargs
+        raise AssertionError("check must stop after semantic analysis")
+
+    monkeypatch.setattr(cli.ir_api, "build_ir", unexpected_call)
+    monkeypatch.setattr(cli.sql_api, "emit_postgres_sql", unexpected_call)
+
+    path = Path("examples/sources/users.pietto")
+    assert cli.main(["check", str(path)]) == 0
+    captured = capsys.readouterr()
+    assert captured.out == f"OK: {path}\n"
+    assert "PIE-S2303 warning:" in captured.err
+    assert " error:" not in captured.err
 
 
 def _write(tmp_path: Path, name: str, source: str) -> Path:

@@ -31,10 +31,6 @@ from pietto._project.project_sql_emission_verification import (
 )
 
 TARGETS = ("postgres", "mysql")
-IDENTIFIER_CASE = {
-    "postgres": "quoted_exact",
-    "mysql": "lower_case_table_names=0",
-}
 Q = {"postgres": '"', "mysql": "`"}
 UNIQUE_ID = "shape Row:\n    id: Int\n    by_id = unique(id)\n"
 RESULT_KINDS = {
@@ -58,24 +54,14 @@ def graft(node, **changes):
 
 def emit(target, body, *, unique=False):
     """One authored result-boundary body through the installed pipeline."""
-    base = probe.fixture(target)
-    header = base["source"].split("table result:", 1)[0]
+    item = probe.parameterized_fixture(target, body, protocol=False)
+    source = item["source"]
     if unique:
-        header = header.replace("shape Row:\n    id: Int\n", UNIQUE_ID)
-    contract = json.loads(base["contract"])
-    contract["environment"].append(
-        {
-            "key": "identifier_case",
-            "scope": "statement",
-            "value": IDENTIFIER_CASE[target],
-        }
-    )
+        header = source.removesuffix(body)
+        source = header.replace("shape Row:\n    id: Int\n", UNIQUE_ID) + body
     with tempfile.TemporaryDirectory() as directory:
         _, outcome = probe.build_case(
-            Path(directory) / "case",
-            header + body,
-            probe.encoded(contract).decode(),
-            "preserve_literals",
+            Path(directory) / "case", source, item["contract"], item["policy"]
         )
     return outcome
 

@@ -528,6 +528,34 @@ def test_min_and_max_are_not_scalar_builtin_functions() -> None:
     assert "max" not in BUILTIN_FUNCTIONS
 
 
+def test_min_max_results_are_nullable_same_logical_type() -> None:
+    parsed = parse_source(
+        "shape Row:\n"
+        "    amount: Int\n"
+        'source rows: Row = postgres.table("rows")\n'
+        "table extrema:\n"
+        "    from rows\n"
+        "    select:\n"
+        "        smallest = min(amount)\n"
+        "        largest = max(amount)\n"
+    )
+    assert parsed.ast is not None
+    assert parsed.diagnostics == ()
+
+    relation = next(
+        definition
+        for definition in parsed.ast.definitions
+        if isinstance(definition, TableDef)
+    )
+    result = analyze(parsed.ast)
+    schema = result.model.relation_row_schemas[relation]
+
+    assert result.diagnostics == ()
+    for name in ("smallest", "largest"):
+        assert schema.fields[name].resolved_type.name == "Int"
+        assert schema.fields[name].nullability is EffectiveNullability.NULLABLE
+
+
 def _parse(source: str) -> Script:
     result = parse_source(source)
     assert result.diagnostics == ()

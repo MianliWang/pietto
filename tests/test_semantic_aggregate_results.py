@@ -1,0 +1,1339 @@
+from __future__ import annotations
+
+from collections.abc import Callable, Iterable
+from dataclasses import fields
+
+import pytest
+
+from pietto.ast_nodes import QueryDef, Script, ShapeDef, TableDef, TypeExpr
+from pietto.errors import Severity
+from pietto.ir import (
+    AggregateCallIR,
+    BinaryIR,
+    CallIR,
+    ExpressionIR,
+    FieldRefIR,
+    NullabilityIR,
+    RelationIR,
+    ScriptIR,
+    TypeRefIR,
+    build_ir,
+)
+from pietto.parser_api import parse_source
+from pietto.semantic import (
+    EffectiveNullability,
+    ResolvedType,
+    SemanticResult,
+    TypeKind,
+    ValueType,
+    ValueTypeKind,
+    analyze,
+)
+from pietto.semantic.aggregates import semantic_aggregate_result_value_type
+from pietto.semantic.model import DecimalPrecisionScale
+from pietto.sql import SqlResult, emit_postgres_sql
+from pietto.sql.mysql import emit_mysql_sql
+
+MATRIX_SHAPE = (
+    "enum Status:\n"
+    "    active\n"
+    "    paused\n"
+    "shape Order:\n"
+    "    status: Text\n"
+    "    region: Text\n"
+    "    active: Bool\n"
+    "    amount: Int\n"
+    "    tax: Int\n"
+    "    score: Float\n"
+    "    weight: Float\n"
+    "    price: Decimal\n"
+    "    discount: Decimal\n"
+    "    order_date: Date | None\n"
+    "    created_at: Timestamp\n"
+    "    raw: Bytes\n"
+    "    payload: Json\n"
+    "    customer_id: UUID\n"
+    "    anything: Any | None\n"
+    "    enum_status: Status\n"
+)
+
+NO_GROUP_PROJECTIONS = (
+    "        total = count()\n"
+    "        count_status = count(status)\n"
+    "        count_raw = count(raw)\n"
+    "        count_payload = count(payload)\n"
+    "        count_customer = count(customer_id)\n"
+    "        known_amount_expr = count(amount + tax)\n"
+    "        known_amount_literal_expr = count(amount + 1)\n"
+    "        known_decimal_int_expr = count(price + amount)\n"
+    "        known_status_expr = count(lower(trim(status)))\n"
+    "        unique_status = count_distinct(status)\n"
+    "        unique_customer = count_distinct(customer_id)\n"
+    "        unique_normalized = count_distinct(lower(trim(status)))\n"
+    "        total_amount = sum(amount)\n"
+    "        total_score = sum(score)\n"
+    "        total_price = sum(price)\n"
+    "        average_amount = avg(amount)\n"
+    "        average_score = avg(score)\n"
+    "        average_price = avg(price)\n"
+    "        total_expr = sum(amount + tax)\n"
+    "        total_literal_expr = sum(amount + 1)\n"
+    "        average_expr = avg(score * weight)\n"
+    "        average_literal_expr = avg(score + 1.5)\n"
+    "        decimal_total_expr = sum(price + discount)\n"
+    "        decimal_average_expr = avg(price - discount)\n"
+    "        decimal_int_total_expr = sum(price + amount)\n"
+    "        decimal_int_average_expr = avg(price - amount)\n"
+    "        smallest_amount = min(amount)\n"
+    "        smallest_score = min(score)\n"
+    "        smallest_price = min(price)\n"
+    "        first_order_date = min(order_date)\n"
+    "        first_created_at = min(created_at)\n"
+    "        largest_amount = max(amount)\n"
+    "        largest_score = max(score)\n"
+    "        largest_price = max(price)\n"
+    "        latest_order_date = max(order_date)\n"
+    "        latest_created_at = max(created_at)\n"
+)
+
+NO_GROUP_ROW_SCHEMA = (
+    ("total", "Int", EffectiveNullability.NON_NULL),
+    ("count_status", "Int", EffectiveNullability.NON_NULL),
+    ("count_raw", "Int", EffectiveNullability.NON_NULL),
+    ("count_payload", "Int", EffectiveNullability.NON_NULL),
+    ("count_customer", "Int", EffectiveNullability.NON_NULL),
+    ("known_amount_expr", "Int", EffectiveNullability.NON_NULL),
+    ("known_amount_literal_expr", "Int", EffectiveNullability.NON_NULL),
+    ("known_decimal_int_expr", "Int", EffectiveNullability.NON_NULL),
+    ("known_status_expr", "Int", EffectiveNullability.NON_NULL),
+    ("unique_status", "Int", EffectiveNullability.NON_NULL),
+    ("unique_customer", "Int", EffectiveNullability.NON_NULL),
+    ("unique_normalized", "Int", EffectiveNullability.NON_NULL),
+    ("total_amount", "Int", EffectiveNullability.NULLABLE),
+    ("total_score", "Float", EffectiveNullability.NULLABLE),
+    ("total_price", "Decimal", EffectiveNullability.NULLABLE),
+    ("average_amount", "Float", EffectiveNullability.NULLABLE),
+    ("average_score", "Float", EffectiveNullability.NULLABLE),
+    ("average_price", "Decimal", EffectiveNullability.NULLABLE),
+    ("total_expr", "Int", EffectiveNullability.NULLABLE),
+    ("total_literal_expr", "Int", EffectiveNullability.NULLABLE),
+    ("average_expr", "Float", EffectiveNullability.NULLABLE),
+    ("average_literal_expr", "Float", EffectiveNullability.NULLABLE),
+    ("decimal_total_expr", "Decimal", EffectiveNullability.NULLABLE),
+    ("decimal_average_expr", "Decimal", EffectiveNullability.NULLABLE),
+    ("decimal_int_total_expr", "Decimal", EffectiveNullability.NULLABLE),
+    ("decimal_int_average_expr", "Decimal", EffectiveNullability.NULLABLE),
+    ("smallest_amount", "Int", EffectiveNullability.NULLABLE),
+    ("smallest_score", "Float", EffectiveNullability.NULLABLE),
+    ("smallest_price", "Decimal", EffectiveNullability.NULLABLE),
+    ("first_order_date", "Date", EffectiveNullability.NULLABLE),
+    ("first_created_at", "Timestamp", EffectiveNullability.NULLABLE),
+    ("largest_amount", "Int", EffectiveNullability.NULLABLE),
+    ("largest_score", "Float", EffectiveNullability.NULLABLE),
+    ("largest_price", "Decimal", EffectiveNullability.NULLABLE),
+    ("latest_order_date", "Date", EffectiveNullability.NULLABLE),
+    ("latest_created_at", "Timestamp", EffectiveNullability.NULLABLE),
+)
+
+GROUPED_PROJECTIONS = (
+    "        status\n"
+    "        total = count()\n"
+    "        count_customer = count(customer_id)\n"
+    "        known_amount_expr = count(amount + tax)\n"
+    "        known_decimal_int_expr = count(price + amount)\n"
+    "        unique_normalized = count_distinct(lower(trim(status)))\n"
+    "        total_amount = sum(amount)\n"
+    "        total_literal_expr = sum(amount + 1)\n"
+    "        average_expr = avg(score * weight)\n"
+    "        decimal_average_expr = avg(price - discount)\n"
+    "        decimal_int_total_expr = sum(price + amount)\n"
+    "        smallest_price = min(price)\n"
+    "        latest_created_at = max(created_at)\n"
+)
+
+GROUPED_ROW_SCHEMA = (
+    ("status", "Text", EffectiveNullability.NON_NULL),
+    ("total", "Int", EffectiveNullability.NON_NULL),
+    ("count_customer", "Int", EffectiveNullability.NON_NULL),
+    ("known_amount_expr", "Int", EffectiveNullability.NON_NULL),
+    ("known_decimal_int_expr", "Int", EffectiveNullability.NON_NULL),
+    ("unique_normalized", "Int", EffectiveNullability.NON_NULL),
+    ("total_amount", "Int", EffectiveNullability.NULLABLE),
+    ("total_literal_expr", "Int", EffectiveNullability.NULLABLE),
+    ("average_expr", "Float", EffectiveNullability.NULLABLE),
+    ("decimal_average_expr", "Decimal", EffectiveNullability.NULLABLE),
+    ("decimal_int_total_expr", "Decimal", EffectiveNullability.NULLABLE),
+    ("smallest_price", "Decimal", EffectiveNullability.NULLABLE),
+    ("latest_created_at", "Timestamp", EffectiveNullability.NULLABLE),
+)
+
+
+def test_semantic_aggregate_result_typeclass_adjacent_matrix_is_locked() -> None:
+    accepted = (
+        ("count", None, "Int", EffectiveNullability.NON_NULL),
+        ("count", _builtin("Bool"), "Int", EffectiveNullability.NON_NULL),
+        ("count", _builtin("Int"), "Int", EffectiveNullability.NON_NULL),
+        ("count", _builtin("Float"), "Int", EffectiveNullability.NON_NULL),
+        ("count", _builtin("Decimal"), "Int", EffectiveNullability.NON_NULL),
+        ("count", _builtin("Text"), "Int", EffectiveNullability.NON_NULL),
+        ("count", _builtin("Date"), "Int", EffectiveNullability.NON_NULL),
+        ("count", _builtin("Timestamp"), "Int", EffectiveNullability.NON_NULL),
+        ("count", _builtin("Bytes"), "Int", EffectiveNullability.NON_NULL),
+        ("count", _builtin("Json"), "Int", EffectiveNullability.NON_NULL),
+        ("count", _builtin("UUID"), "Int", EffectiveNullability.NON_NULL),
+        ("count_distinct", _builtin("Bool"), "Int", EffectiveNullability.NON_NULL),
+        ("count_distinct", _builtin("Int"), "Int", EffectiveNullability.NON_NULL),
+        ("count_distinct", _builtin("Float"), "Int", EffectiveNullability.NON_NULL),
+        (
+            "count_distinct",
+            _builtin("Decimal"),
+            "Int",
+            EffectiveNullability.NON_NULL,
+        ),
+        ("count_distinct", _builtin("Text"), "Int", EffectiveNullability.NON_NULL),
+        ("count_distinct", _builtin("Date"), "Int", EffectiveNullability.NON_NULL),
+        (
+            "count_distinct",
+            _builtin("Timestamp"),
+            "Int",
+            EffectiveNullability.NON_NULL,
+        ),
+        ("count_distinct", _builtin("UUID"), "Int", EffectiveNullability.NON_NULL),
+        ("sum", _builtin("Int"), "Int", EffectiveNullability.NULLABLE),
+        ("sum", _builtin("Float"), "Float", EffectiveNullability.NULLABLE),
+        ("sum", _builtin("Decimal"), "Decimal", EffectiveNullability.NULLABLE),
+        ("avg", _builtin("Int"), "Float", EffectiveNullability.NULLABLE),
+        ("avg", _builtin("Float"), "Float", EffectiveNullability.NULLABLE),
+        ("avg", _builtin("Decimal"), "Decimal", EffectiveNullability.NULLABLE),
+        ("min", _builtin("Int"), "Int", EffectiveNullability.NULLABLE),
+        ("min", _builtin("Float"), "Float", EffectiveNullability.NULLABLE),
+        ("min", _builtin("Decimal"), "Decimal", EffectiveNullability.NULLABLE),
+        ("min", _builtin("Date"), "Date", EffectiveNullability.NULLABLE),
+        ("min", _builtin("Timestamp"), "Timestamp", EffectiveNullability.NULLABLE),
+        ("max", _builtin("Int"), "Int", EffectiveNullability.NULLABLE),
+        ("max", _builtin("Float"), "Float", EffectiveNullability.NULLABLE),
+        ("max", _builtin("Decimal"), "Decimal", EffectiveNullability.NULLABLE),
+        ("max", _builtin("Date"), "Date", EffectiveNullability.NULLABLE),
+        ("max", _builtin("Timestamp"), "Timestamp", EffectiveNullability.NULLABLE),
+    )
+
+    for function, argument, expected_name, expected_nullability in accepted:
+        result = semantic_aggregate_result_value_type(function, argument)
+        assert result is not None, function
+        _assert_value_type(result, expected_name, expected_nullability)
+
+    for function, argument in (
+        ("count", _builtin("Any")),
+        ("count", _enum("Status")),
+        ("count", _unknown()),
+        ("count_distinct", None),
+        ("count_distinct", _builtin("Bytes")),
+        ("count_distinct", _builtin("Json")),
+        ("count_distinct", _builtin("Any")),
+        ("count_distinct", _enum("Status")),
+        ("count_distinct", _unknown()),
+        ("sum", None),
+        ("sum", _builtin("Text")),
+        ("sum", _builtin("Date")),
+        ("sum", _builtin("UUID")),
+        ("sum", _unknown()),
+        ("avg", None),
+        ("avg", _builtin("Bool")),
+        ("avg", _builtin("Timestamp")),
+        ("avg", _unknown()),
+        ("min", None),
+        ("min", _builtin("Text")),
+        ("min", _builtin("Bool")),
+        ("min", _builtin("UUID")),
+        ("min", _unknown()),
+        ("max", None),
+        ("max", _builtin("Json")),
+        ("max", _builtin("Any")),
+        ("max", _unknown()),
+        ("median", _builtin("Decimal")),
+        ("quantile", _builtin("Date")),
+        ("variance", _builtin("Decimal")),
+    ):
+        assert semantic_aggregate_result_value_type(function, argument) is None
+
+
+def test_no_group_aggregate_typeclass_matrix_semantic_ir_and_sql_are_locked() -> None:
+    script, semantic, script_ir = _compile(
+        _matrix_source("postgres.table", grouped=False)
+    )
+    relation = _relation_ast(script)
+    schema = semantic.model.relation_row_schemas[relation]
+
+    assert tuple(schema.fields) == tuple(name for name, _, _ in NO_GROUP_ROW_SCHEMA)
+    for name, expected_type, expected_nullability in NO_GROUP_ROW_SCHEMA:
+        field = schema.fields[name]
+        _assert_value_type(field, expected_type, expected_nullability)
+        select_item = next(item for item in relation.select_items if item.alias == name)
+        _assert_value_type(
+            semantic.model.expression_value_types[select_item.expression],
+            expected_type,
+            expected_nullability,
+        )
+
+    _assert_aggregate_ir_matrix(script_ir, NO_GROUP_ROW_SCHEMA)
+
+    for connector, emitter, expected_fragments in (
+        (
+            "postgres.table",
+            emit_postgres_sql,
+            (
+                'COUNT(*) AS "total"',
+                'COUNT("raw") AS "count_raw"',
+                'COUNT("payload") AS "count_payload"',
+                'COUNT(("amount" + "tax")) AS "known_amount_expr"',
+                'COUNT(("price" + "amount")) AS "known_decimal_int_expr"',
+                'COUNT(DISTINCT lower(trim("status"))) AS "unique_normalized"',
+                'SUM("price") AS "total_price"',
+                'AVG("price") AS "average_price"',
+                'CAST(SUM(CAST(("amount" + 1) AS pg_catalog.int8)) AS pg_catalog.int8) AS "total_literal_expr"',
+                'AVG(("price" - "discount")) AS "decimal_average_expr"',
+                'SUM(("price" + "amount")) AS "decimal_int_total_expr"',
+                'MIN("created_at") AS "first_created_at"',
+                'MAX("order_date") AS "latest_order_date"',
+            ),
+        ),
+        (
+            "mysql.table",
+            emit_mysql_sql,
+            (
+                "COUNT(*) AS `total`",
+                "COUNT(`raw`) AS `count_raw`",
+                "COUNT(`payload`) AS `count_payload`",
+                "COUNT((`amount` + `tax`)) AS `known_amount_expr`",
+                "COUNT((`price` + `amount`)) AS `known_decimal_int_expr`",
+                "COUNT(DISTINCT LOWER(TRIM(`status`))) AS `unique_normalized`",
+                "SUM(`price`) AS `total_price`",
+                "AVG(`price`) AS `average_price`",
+                "SUM((`amount` + 1)) AS `total_literal_expr`",
+                "AVG((`price` - `discount`)) AS `decimal_average_expr`",
+                "SUM((`price` + `amount`)) AS `decimal_int_total_expr`",
+                "MIN(`created_at`) AS `first_created_at`",
+                "MAX(`order_date`) AS `latest_order_date`",
+            ),
+        ),
+    ):
+        sql_result = emitter(_compile(_matrix_source(connector, grouped=False))[2])
+        assert sql_result.diagnostics == ()
+        assert len(sql_result.artifacts) == 1
+        sql = sql_result.artifacts[0].sql
+        for fragment in expected_fragments:
+            assert fragment in sql
+
+
+def test_grouped_aggregate_typeclass_matrix_semantic_and_ir_are_locked() -> None:
+    script, semantic, script_ir = _compile(
+        _matrix_source("postgres.table", grouped=True)
+    )
+    relation = _relation_ast(script)
+    schema = semantic.model.relation_row_schemas[relation]
+
+    assert tuple(schema.fields) == tuple(name for name, _, _ in GROUPED_ROW_SCHEMA)
+    for name, expected_type, expected_nullability in GROUPED_ROW_SCHEMA:
+        _assert_value_type(schema.fields[name], expected_type, expected_nullability)
+
+    relation_ir = _relation_ir(script_ir)
+    assert [key.name for key in relation_ir.group_keys] == ["status"]
+    _assert_aggregate_ir_matrix(script_ir, GROUPED_ROW_SCHEMA)
+
+
+@pytest.mark.parametrize(
+    ("projection", "expected_code"),
+    [
+        ("value = count(1)", "PIE-S2315"),
+        ("value = sum(1)", "PIE-S2315"),
+        ("value = avg(1)", "PIE-S2315"),
+        ("value = count_distinct(1)", "PIE-S2315"),
+        ("value = count_distinct(raw)", "PIE-S2314"),
+        ("value = count_distinct(payload)", "PIE-S2314"),
+        ("value = count_distinct(anything)", "PIE-S2314"),
+        ("value = count_distinct(enum_status)", "PIE-S2314"),
+        ("value = min(status)", "PIE-S2314"),
+        ("value = max(active)", "PIE-S2314"),
+        ("value = min(customer_id)", "PIE-S2314"),
+        ("value = max(raw)", "PIE-S2314"),
+        ("value = min(payload)", "PIE-S2314"),
+        ("value = max(anything)", "PIE-S2314"),
+        ("value = min(enum_status)", "PIE-S2314"),
+        ("value = sum(price + score)", "PIE-S2315"),
+    ],
+)
+def test_fail_closed_aggregate_typeclass_boundaries_are_locked(
+    projection: str,
+    expected_code: str,
+) -> None:
+    semantic = analyze(
+        _parse(
+            MATRIX_SHAPE
+            + 'source orders: Order = postgres.table("orders")\n'
+            + "table aggregate_stats:\n"
+            + "    from orders\n"
+            + "    select:\n"
+            + f"        {projection}\n"
+        )
+    )
+
+    assert expected_code in _error_codes(semantic)
+
+
+@pytest.mark.parametrize("function", ("sum", "avg"))
+def test_decimal_product_aggregate_arguments_are_semantically_admitted(
+    function: str,
+) -> None:
+    script = _parse(
+        MATRIX_SHAPE
+        + 'source orders: Order = postgres.table("orders")\n'
+        + "table aggregate_stats:\n"
+        + "    from orders\n"
+        + "    select:\n"
+        + f"        value = {function}(price * discount)\n"
+    )
+    semantic = analyze(script)
+    relation = _relation_ast(script)
+    expression = relation.select_items[0].expression
+
+    assert _error_codes(semantic) == []
+    _assert_value_type(
+        semantic.model.expression_value_types[expression],
+        "Decimal",
+        EffectiveNullability.NULLABLE,
+    )
+
+
+def test_projection_alias_type_alias_and_row_let_boundaries() -> None:
+    projection_alias = analyze(
+        _parse(
+            MATRIX_SHAPE
+            + 'source orders: Order = postgres.table("orders")\n'
+            + "table aggregate_stats:\n"
+            + "    from orders\n"
+            + "    select:\n"
+            + "        subtotal = amount + tax\n"
+            + "        value = sum(subtotal)\n"
+        )
+    )
+    assert "PIE-S2102" in _error_codes(projection_alias)
+
+    let_script = _parse(
+        MATRIX_SHAPE
+        + 'source orders: Order = postgres.table("orders")\n'
+        + "query aggregate_stats:\n"
+        + "    from orders\n"
+        + "    let gross = amount + tax\n"
+        + "    select:\n"
+        + "        value = sum(gross)\n"
+    )
+    let_name = analyze(let_script)
+    assert let_name.script is not None
+    relation = _relation_ast(let_name.script)
+
+    assert _error_codes(let_name) == []
+    _assert_value_type(
+        let_name.model.relation_row_schemas[relation].fields["value"],
+        "Int",
+        EffectiveNullability.NULLABLE,
+    )
+
+    type_alias_script = _parse(
+        "type Money = Decimal(12, 2)\n"
+        "shape Order:\n"
+        "    money: Money\n"
+        'source orders: Order = postgres.table("orders")\n'
+        "table aggregate_stats:\n"
+        "    from orders\n"
+        "    select:\n"
+        "        value = sum(money)\n"
+    )
+    type_alias = analyze(type_alias_script)
+
+    # A type alias argument aggregates as the type it expands to.
+    assert type_alias.diagnostics == ()
+    _assert_value_type(
+        type_alias.model.relation_row_schemas[_relation_ast(type_alias_script)].fields[
+            "value"
+        ],
+        "Decimal",
+        EffectiveNullability.NULLABLE,
+    )
+
+
+# Every aliased field below, alias chain included, aggregates exactly as its base
+# type does; `status` stays Text for the lower/trim chain.
+ALIAS_TYPES = (
+    "type Flag = Bool\n"
+    "type Count = Int\n"
+    "type Ratio = Float\n"
+    "type Money = Decimal\n"
+    "type Cash = Money\n"
+    "type Day = Date\n"
+    "type Moment = Timestamp\n"
+    "type Ident = UUID\n"
+)
+ALIAS_FIELDS = (
+    ("    active: Bool\n", "    active: Flag\n"),
+    ("    amount: Int\n", "    amount: Count\n"),
+    ("    tax: Int\n", "    tax: Count\n"),
+    ("    score: Float\n", "    score: Ratio\n"),
+    ("    weight: Float\n", "    weight: Ratio\n"),
+    ("    price: Decimal\n", "    price: Money\n"),
+    ("    discount: Decimal\n", "    discount: Cash\n"),
+    ("    order_date: Date | None\n", "    order_date: Day | None\n"),
+    ("    created_at: Timestamp\n", "    created_at: Moment\n"),
+    ("    customer_id: UUID\n", "    customer_id: Ident\n"),
+)
+
+
+def _aliased(source: str) -> str:
+    for base, alias in ALIAS_FIELDS:
+        assert source.count(base) == 1
+        source = source.replace(base, alias)
+    return ALIAS_TYPES + source
+
+
+@pytest.mark.parametrize(
+    ("grouped", "expected_schema"),
+    [(False, NO_GROUP_ROW_SCHEMA), (True, GROUPED_ROW_SCHEMA)],
+    ids=("no-group", "grouped"),
+)
+def test_type_alias_aggregate_arguments_read_as_their_base_type(
+    grouped: bool,
+    expected_schema: tuple[tuple[str, str, EffectiveNullability], ...],
+) -> None:
+    script, semantic, script_ir = _compile(
+        _aliased(_matrix_source("postgres.table", grouped=grouped))
+    )
+    schema = semantic.model.relation_row_schemas[_relation_ast(script)]
+
+    assert tuple(schema.fields) == tuple(name for name, _, _ in expected_schema)
+    for name, expected_type, expected_nullability in expected_schema:
+        # min/max of an alias give the base type, not the alias.
+        _assert_value_type(schema.fields[name], expected_type, expected_nullability)
+    _assert_aggregate_ir_matrix(script_ir, expected_schema)
+
+    for connector, emitter in (
+        ("postgres.table", emit_postgres_sql),
+        ("mysql.table", emit_mysql_sql),
+    ):
+        base = emitter(_compile(_matrix_source(connector, grouped=grouped))[2])
+        aliased = emitter(
+            _compile(_aliased(_matrix_source(connector, grouped=grouped)))[2]
+        )
+        assert base.diagnostics == aliased.diagnostics == ()
+        assert [artifact.sql for artifact in aliased.artifacts] == [
+            artifact.sql for artifact in base.artifacts
+        ]
+
+
+def test_aggregate_alias_arguments_keep_their_base_type_boundaries() -> None:
+    # An alias of Any counts as Any, which count refuses; an alias of Json or
+    # Bytes counts as before, and refusals name the alias as written.
+    script = _parse(
+        "type Whatever = Any\n"
+        "type Doc = Json\n"
+        "type Blob = Bytes\n"
+        "shape Order:\n"
+        "    anything: Whatever\n"
+        "    payload: Doc\n"
+        "    raw: Blob\n"
+        'source orders: Order = postgres.table("orders")\n'
+        "table counted:\n"
+        "    from orders\n"
+        "    select:\n"
+        "        any_count = count(anything)\n"
+        "        payload_count = count(payload)\n"
+        "        raw_count = count(raw)\n"
+        "        unique_raw = count_distinct(raw)\n"
+        "        top_payload = max(payload)\n"
+    )
+    semantic = analyze(script)
+    schema = semantic.model.relation_row_schemas[_relation_ast(script)]
+
+    assert [
+        (
+            diagnostic.code,
+            diagnostic.message,
+            diagnostic.location.line,
+            diagnostic.location.column,
+        )
+        for diagnostic in semantic.diagnostics
+    ] == [
+        (
+            "PIE-S2314",
+            "Aggregate function count expects concrete non-Any field argument, "
+            "got Whatever",
+            12,
+            21,
+        ),
+        (
+            "PIE-S2314",
+            "Aggregate function count_distinct expects Bool, Int, Float, Decimal, "
+            "Text, Date, Timestamp, or UUID field argument, got Blob",
+            15,
+            22,
+        ),
+        (
+            "PIE-S2314",
+            "Aggregate function max expects Int, Float, Decimal, Date, or "
+            "Timestamp field argument, got Doc",
+            16,
+            23,
+        ),
+    ]
+    for name in ("payload_count", "raw_count"):
+        _assert_value_type(schema.fields[name], "Int", EffectiveNullability.NON_NULL)
+
+
+def test_decimal_precision_scale_aggregates_remain_logical_non_public_decimal() -> None:
+    script, semantic, script_ir = _compile(
+        "shape Order:\n"
+        "    amount: Decimal(12, 2)\n"
+        "    tax: Decimal(12, 2)\n"
+        'source orders: Order = postgres.table("orders")\n'
+        "table decimal_stats:\n"
+        "    from orders\n"
+        "    select:\n"
+        "        total = sum(amount)\n"
+        "        average = avg(amount - tax)\n"
+        "        smallest = min(amount)\n"
+        "        largest = max(amount)\n"
+        "        known_values = count(amount + tax)\n"
+        "        unique_values = count_distinct(amount)\n"
+    )
+    amount_type_expr = _shape_field_type_expr(script, "amount")
+    assert semantic.model.decimal_precision_scale_for(
+        amount_type_expr
+    ) == DecimalPrecisionScale(12, 2)
+
+    semantic_fields = semantic.model.relation_row_schemas[_relation_ast(script)].fields
+    for field_name in ("total", "average", "smallest", "largest"):
+        _assert_value_type(
+            semantic_fields[field_name],
+            "Decimal",
+            EffectiveNullability.NULLABLE,
+        )
+    for field_name in ("known_values", "unique_values"):
+        _assert_value_type(
+            semantic_fields[field_name], "Int", EffectiveNullability.NON_NULL
+        )
+
+    for type_surface in (ResolvedType, ValueType, TypeRefIR):
+        assert {"precision", "scale"}.isdisjoint(
+            {field.name for field in fields(type_surface)}
+        )
+
+    sql_result = emit_postgres_sql(script_ir)
+    assert sql_result.diagnostics == ()
+    assert sql_result.artifacts
+    lowered_sql = "\n".join(artifact.sql for artifact in sql_result.artifacts)
+    for forbidden in ("DECIMAL(", "NUMERIC(", "precision", "scale"):
+        assert forbidden not in lowered_sql
+
+
+RESULT_MATRIX_SHAPE = (
+    "shape Order:\n"
+    "    status: Text\n"
+    "    region: Text\n"
+    "    active: Bool\n"
+    "    amount: Int\n"
+    "    tax: Int\n"
+    "    score: Float\n"
+    "    weight: Float\n"
+    "    price: Decimal\n"
+    "    discount: Decimal\n"
+    "    order_date: Date | None\n"
+    "    created_at: Timestamp\n"
+    "    raw: Bytes\n"
+    "    payload: Json\n"
+    "    customer_id: UUID\n"
+    "    anything: Any | None\n"
+)
+
+
+RESULT_NO_GROUP_PROJECTIONS = (
+    "        total = count()\n"
+    "        count_status = count(status)\n"
+    "        count_raw = count(raw)\n"
+    "        count_payload = count(payload)\n"
+    "        count_customer = count(customer_id)\n"
+    "        unique_status = count_distinct(status)\n"
+    "        unique_customer = count_distinct(customer_id)\n"
+    "        unique_normalized = count_distinct(lower(trim(status)))\n"
+    "        total_amount = sum(amount)\n"
+    "        total_score = sum(score)\n"
+    "        total_price = sum(price)\n"
+    "        average_amount = avg(amount)\n"
+    "        average_score = avg(score)\n"
+    "        average_price = avg(price)\n"
+    "        smallest_amount = min(amount)\n"
+    "        smallest_score = min(score)\n"
+    "        smallest_price = min(price)\n"
+    "        first_order_date = min(order_date)\n"
+    "        first_created_at = min(created_at)\n"
+    "        largest_amount = max(amount)\n"
+    "        largest_score = max(score)\n"
+    "        largest_price = max(price)\n"
+    "        latest_order_date = max(order_date)\n"
+    "        latest_created_at = max(created_at)\n"
+    "        total_expr = sum(amount + tax)\n"
+    "        average_expr = avg(score * weight)\n"
+    "        decimal_total_expr = sum(price + discount)\n"
+    "        decimal_average_expr = avg(price - discount)\n"
+)
+
+
+RESULT_NO_GROUP_ROW_SCHEMA = (
+    ("total", "Int", EffectiveNullability.NON_NULL),
+    ("count_status", "Int", EffectiveNullability.NON_NULL),
+    ("count_raw", "Int", EffectiveNullability.NON_NULL),
+    ("count_payload", "Int", EffectiveNullability.NON_NULL),
+    ("count_customer", "Int", EffectiveNullability.NON_NULL),
+    ("unique_status", "Int", EffectiveNullability.NON_NULL),
+    ("unique_customer", "Int", EffectiveNullability.NON_NULL),
+    ("unique_normalized", "Int", EffectiveNullability.NON_NULL),
+    ("total_amount", "Int", EffectiveNullability.NULLABLE),
+    ("total_score", "Float", EffectiveNullability.NULLABLE),
+    ("total_price", "Decimal", EffectiveNullability.NULLABLE),
+    ("average_amount", "Float", EffectiveNullability.NULLABLE),
+    ("average_score", "Float", EffectiveNullability.NULLABLE),
+    ("average_price", "Decimal", EffectiveNullability.NULLABLE),
+    ("smallest_amount", "Int", EffectiveNullability.NULLABLE),
+    ("smallest_score", "Float", EffectiveNullability.NULLABLE),
+    ("smallest_price", "Decimal", EffectiveNullability.NULLABLE),
+    ("first_order_date", "Date", EffectiveNullability.NULLABLE),
+    ("first_created_at", "Timestamp", EffectiveNullability.NULLABLE),
+    ("largest_amount", "Int", EffectiveNullability.NULLABLE),
+    ("largest_score", "Float", EffectiveNullability.NULLABLE),
+    ("largest_price", "Decimal", EffectiveNullability.NULLABLE),
+    ("latest_order_date", "Date", EffectiveNullability.NULLABLE),
+    ("latest_created_at", "Timestamp", EffectiveNullability.NULLABLE),
+    ("total_expr", "Int", EffectiveNullability.NULLABLE),
+    ("average_expr", "Float", EffectiveNullability.NULLABLE),
+    ("decimal_total_expr", "Decimal", EffectiveNullability.NULLABLE),
+    ("decimal_average_expr", "Decimal", EffectiveNullability.NULLABLE),
+)
+
+
+RESULT_GROUPED_PROJECTIONS = (
+    "        status\n"
+    "        total = count()\n"
+    "        count_customer = count(customer_id)\n"
+    "        unique_customer = count_distinct(customer_id)\n"
+    "        total_amount = sum(amount)\n"
+    "        average_score = avg(score)\n"
+    "        smallest_price = min(price)\n"
+    "        latest_created_at = max(created_at)\n"
+    "        total_expr = sum(amount + tax)\n"
+    "        decimal_average_expr = avg(price - discount)\n"
+)
+
+
+RESULT_GROUPED_ROW_SCHEMA = (
+    ("status", "Text", EffectiveNullability.NON_NULL),
+    ("total", "Int", EffectiveNullability.NON_NULL),
+    ("count_customer", "Int", EffectiveNullability.NON_NULL),
+    ("unique_customer", "Int", EffectiveNullability.NON_NULL),
+    ("total_amount", "Int", EffectiveNullability.NULLABLE),
+    ("average_score", "Float", EffectiveNullability.NULLABLE),
+    ("smallest_price", "Decimal", EffectiveNullability.NULLABLE),
+    ("latest_created_at", "Timestamp", EffectiveNullability.NULLABLE),
+    ("total_expr", "Int", EffectiveNullability.NULLABLE),
+    ("decimal_average_expr", "Decimal", EffectiveNullability.NULLABLE),
+)
+
+
+def test_semantic_aggregate_result_helper_matrix_is_locked() -> None:
+    accepted = (
+        ("count", None, "Int", EffectiveNullability.NON_NULL),
+        ("count", _builtin("Bool"), "Int", EffectiveNullability.NON_NULL),
+        ("count", _builtin("Int"), "Int", EffectiveNullability.NON_NULL),
+        ("count", _builtin("Float"), "Int", EffectiveNullability.NON_NULL),
+        ("count", _builtin("Decimal"), "Int", EffectiveNullability.NON_NULL),
+        ("count", _builtin("Text"), "Int", EffectiveNullability.NON_NULL),
+        ("count", _builtin("Date"), "Int", EffectiveNullability.NON_NULL),
+        ("count", _builtin("Timestamp"), "Int", EffectiveNullability.NON_NULL),
+        ("count", _builtin("Bytes"), "Int", EffectiveNullability.NON_NULL),
+        ("count", _builtin("Json"), "Int", EffectiveNullability.NON_NULL),
+        ("count", _builtin("UUID"), "Int", EffectiveNullability.NON_NULL),
+        ("count_distinct", _builtin("Bool"), "Int", EffectiveNullability.NON_NULL),
+        ("count_distinct", _builtin("Int"), "Int", EffectiveNullability.NON_NULL),
+        ("count_distinct", _builtin("Float"), "Int", EffectiveNullability.NON_NULL),
+        (
+            "count_distinct",
+            _builtin("Decimal"),
+            "Int",
+            EffectiveNullability.NON_NULL,
+        ),
+        ("count_distinct", _builtin("Text"), "Int", EffectiveNullability.NON_NULL),
+        ("count_distinct", _builtin("Date"), "Int", EffectiveNullability.NON_NULL),
+        (
+            "count_distinct",
+            _builtin("Timestamp"),
+            "Int",
+            EffectiveNullability.NON_NULL,
+        ),
+        ("count_distinct", _builtin("UUID"), "Int", EffectiveNullability.NON_NULL),
+        ("sum", _builtin("Int"), "Int", EffectiveNullability.NULLABLE),
+        ("sum", _builtin("Float"), "Float", EffectiveNullability.NULLABLE),
+        ("sum", _builtin("Decimal"), "Decimal", EffectiveNullability.NULLABLE),
+        ("avg", _builtin("Int"), "Float", EffectiveNullability.NULLABLE),
+        ("avg", _builtin("Float"), "Float", EffectiveNullability.NULLABLE),
+        ("avg", _builtin("Decimal"), "Decimal", EffectiveNullability.NULLABLE),
+    )
+    extrema = (
+        ("min", _builtin("Int"), "Int", EffectiveNullability.NULLABLE),
+        ("min", _builtin("Float"), "Float", EffectiveNullability.NULLABLE),
+        ("min", _builtin("Decimal"), "Decimal", EffectiveNullability.NULLABLE),
+        ("min", _builtin("Date"), "Date", EffectiveNullability.NULLABLE),
+        ("min", _builtin("Timestamp"), "Timestamp", EffectiveNullability.NULLABLE),
+        ("max", _builtin("Int"), "Int", EffectiveNullability.NULLABLE),
+        ("max", _builtin("Float"), "Float", EffectiveNullability.NULLABLE),
+        ("max", _builtin("Decimal"), "Decimal", EffectiveNullability.NULLABLE),
+        ("max", _builtin("Date"), "Date", EffectiveNullability.NULLABLE),
+        ("max", _builtin("Timestamp"), "Timestamp", EffectiveNullability.NULLABLE),
+    )
+
+    for function, argument, expected_name, expected_nullability in (
+        *accepted,
+        *extrema,
+    ):
+        result = semantic_aggregate_result_value_type(function, argument)
+        assert result is not None, function
+        _assert_value_type(result, expected_name, expected_nullability)
+
+    for function, argument in (
+        ("count", _builtin("Any")),
+        ("count", _enum("Status")),
+        ("count", _unknown()),
+        ("count_distinct", None),
+        ("count_distinct", _builtin("Bytes")),
+        ("count_distinct", _builtin("Json")),
+        ("count_distinct", _enum("Status")),
+        ("count_distinct", _builtin("Any")),
+        ("count_distinct", _unknown()),
+        ("sum", None),
+        ("sum", _builtin("Text")),
+        ("sum", _builtin("Date")),
+        ("sum", _builtin("UUID")),
+        ("sum", _unknown()),
+        ("avg", None),
+        ("avg", _builtin("Bool")),
+        ("avg", _builtin("Timestamp")),
+        ("avg", _unknown()),
+        ("min", None),
+        ("min", _builtin("Text")),
+        ("min", _builtin("Bool")),
+        ("min", _builtin("UUID")),
+        ("min", _unknown()),
+        ("max", None),
+        ("max", _builtin("Json")),
+        ("max", _builtin("Any")),
+        ("max", _unknown()),
+        ("median", _builtin("Decimal")),
+        ("quantile", _builtin("Date")),
+        ("variance", _builtin("Decimal")),
+    ):
+        assert semantic_aggregate_result_value_type(function, argument) is None
+
+
+def test_no_group_semantic_row_schema_matrix_is_locked() -> None:
+    script = _parse(_result_matrix_source("postgres.table", grouped=False))
+    relation = _relation_ast(script)
+
+    result = analyze(script)
+    schema = result.model.relation_row_schemas[relation]
+
+    assert _error_codes(result) == []
+    assert tuple(schema.fields) == tuple(
+        name for name, _, _ in RESULT_NO_GROUP_ROW_SCHEMA
+    )
+    for name, expected_type, expected_nullability in RESULT_NO_GROUP_ROW_SCHEMA:
+        field = schema.fields[name]
+        _assert_value_type(field, expected_type, expected_nullability)
+        select_item = next(item for item in relation.select_items if item.alias == name)
+        _assert_value_type(
+            result.model.expression_value_types[select_item.expression],
+            expected_type,
+            expected_nullability,
+        )
+
+
+def test_grouped_semantic_row_schema_matrix_is_locked() -> None:
+    script = _parse(_result_matrix_source("postgres.table", grouped=True))
+    relation = _relation_ast(script)
+
+    result = analyze(script)
+    schema = result.model.relation_row_schemas[relation]
+
+    assert _error_codes(result) == []
+    assert tuple(schema.fields) == tuple(
+        name for name, _, _ in RESULT_GROUPED_ROW_SCHEMA
+    )
+    for name, expected_type, expected_nullability in RESULT_GROUPED_ROW_SCHEMA:
+        _assert_value_type(schema.fields[name], expected_type, expected_nullability)
+
+
+def test_ir_aggregate_call_matrix_matches_semantic_results() -> None:
+    for grouped, expected_schema in (
+        (False, RESULT_NO_GROUP_ROW_SCHEMA),
+        (True, RESULT_GROUPED_ROW_SCHEMA),
+    ):
+        script_ir = _compile(_result_matrix_source("postgres.table", grouped=grouped))[
+            2
+        ]
+        relation = _relation_ir(script_ir)
+        projections = {
+            projection.name: projection for projection in relation.projections
+        }
+
+        if grouped:
+            assert [key.name for key in relation.group_keys] == ["status"]
+
+        for name, expected_type, expected_nullability in expected_schema:
+            projection = projections[name]
+            row_field = next(
+                field for field in relation.row_schema.fields if field.name == name
+            )
+            assert row_field.type_ref.canonical_name == expected_type
+            assert row_field.nullability is _ir_nullability(expected_nullability)
+            if name == "status":
+                assert isinstance(projection.expression, FieldRefIR)
+                continue
+            assert isinstance(projection.expression, AggregateCallIR), name
+            assert projection.expression.value_type.canonical_name == expected_type
+            assert projection.expression.value_type.nullability is _ir_nullability(
+                expected_nullability
+            )
+
+        aggregate_expectations = {
+            "total": ("count", 0, ()),
+            "count_status": ("count", 1, ("status",)),
+            "count_raw": ("count", 1, ("raw",)),
+            "count_payload": ("count", 1, ("payload",)),
+            "count_customer": ("count", 1, ("customer_id",)),
+            "unique_status": ("count_distinct", 1, ("status",)),
+            "unique_customer": ("count_distinct", 1, ("customer_id",)),
+            "unique_normalized": ("count_distinct", 1, ("status",)),
+            "total_amount": ("sum", 1, ("amount",)),
+            "total_score": ("sum", 1, ("score",)),
+            "total_price": ("sum", 1, ("price",)),
+            "average_amount": ("avg", 1, ("amount",)),
+            "average_score": ("avg", 1, ("score",)),
+            "average_price": ("avg", 1, ("price",)),
+            "smallest_amount": ("min", 1, ("amount",)),
+            "smallest_score": ("min", 1, ("score",)),
+            "smallest_price": ("min", 1, ("price",)),
+            "first_order_date": ("min", 1, ("order_date",)),
+            "first_created_at": ("min", 1, ("created_at",)),
+            "largest_amount": ("max", 1, ("amount",)),
+            "largest_score": ("max", 1, ("score",)),
+            "largest_price": ("max", 1, ("price",)),
+            "latest_order_date": ("max", 1, ("order_date",)),
+            "latest_created_at": ("max", 1, ("created_at",)),
+            "total_expr": ("sum", 1, ("amount", "tax")),
+            "average_expr": ("avg", 1, ("score", "weight")),
+            "decimal_total_expr": ("sum", 1, ("price", "discount")),
+            "decimal_average_expr": ("avg", 1, ("price", "discount")),
+        }
+        for name, (
+            function,
+            argument_count,
+            field_names,
+        ) in aggregate_expectations.items():
+            if name not in projections:
+                continue
+            aggregate = projections[name].expression
+            assert isinstance(aggregate, AggregateCallIR), name
+            assert aggregate.function == function
+            assert len(aggregate.arguments) == argument_count
+            assert _qualified_field_names(aggregate) == field_names
+
+
+def test_postgres_and_private_mysql_sql_matrix_is_stable() -> None:
+    cases: tuple[tuple[str, Callable[[ScriptIR], SqlResult], tuple[str, ...]], ...] = (
+        (
+            "postgres.table",
+            emit_postgres_sql,
+            (
+                'COUNT(*) AS "total"',
+                'COUNT("raw") AS "count_raw"',
+                'COUNT("payload") AS "count_payload"',
+                'COUNT("customer_id") AS "count_customer"',
+                'COUNT(DISTINCT "customer_id") AS "unique_customer"',
+                'COUNT(DISTINCT lower(trim("status"))) AS "unique_normalized"',
+                'SUM("price") AS "total_price"',
+                'AVG("price") AS "average_price"',
+                'MIN("price") AS "smallest_price"',
+                'MAX("price") AS "largest_price"',
+                'CAST(SUM(CAST(("amount" + "tax") AS pg_catalog.int8)) AS pg_catalog.int8) AS "total_expr"',
+                'AVG(("price" - "discount")) AS "decimal_average_expr"',
+            ),
+        ),
+        (
+            "mysql.table",
+            emit_mysql_sql,
+            (
+                "COUNT(*) AS `total`",
+                "COUNT(`raw`) AS `count_raw`",
+                "COUNT(`payload`) AS `count_payload`",
+                "COUNT(`customer_id`) AS `count_customer`",
+                "COUNT(DISTINCT `customer_id`) AS `unique_customer`",
+                "COUNT(DISTINCT LOWER(TRIM(`status`))) AS `unique_normalized`",
+                "SUM(`price`) AS `total_price`",
+                "AVG(`price`) AS `average_price`",
+                "MIN(`price`) AS `smallest_price`",
+                "MAX(`price`) AS `largest_price`",
+                "SUM((`amount` + `tax`)) AS `total_expr`",
+                "AVG((`price` - `discount`)) AS `decimal_average_expr`",
+            ),
+        ),
+    )
+
+    for connector, emitter, expected_fragments in cases:
+        result = emitter(_compile(_result_matrix_source(connector, grouped=False))[2])
+
+        assert result.diagnostics == ()
+        assert len(result.artifacts) == 1
+        sql = result.artifacts[0].sql
+        for fragment in expected_fragments:
+            assert fragment in sql
+
+
+def test_count_field_boundary_types_are_locked_with_enum_fail_closed() -> None:
+    accepted_cases = (
+        ("Bytes", "raw", 'COUNT("raw")', "COUNT(`raw`)"),
+        ("Json", "payload", 'COUNT("payload")', "COUNT(`payload`)"),
+        ("UUID", "id", 'COUNT("id")', "COUNT(`id`)"),
+    )
+    for field_type, field_name, postgres_fragment, mysql_fragment in accepted_cases:
+        source = _count_field_source(field_type, field_name, "postgres.table")
+        mysql_source = _count_field_source(field_type, field_name, "mysql.table")
+
+        postgres_result = emit_postgres_sql(_compile(source)[2])
+        mysql_result = emit_mysql_sql(_compile(mysql_source)[2])
+
+        assert postgres_result.diagnostics == ()
+        assert mysql_result.diagnostics == ()
+        assert postgres_fragment in postgres_result.artifacts[0].sql
+        assert mysql_fragment in mysql_result.artifacts[0].sql
+
+    any_result = analyze(
+        _parse(_count_field_source("Any", "anything", "postgres.table"))
+    )
+    assert _error_codes(any_result) == ["PIE-S2314"]
+
+    for connector in ("postgres.table", "mysql.table"):
+        script = _parse(_enum_count_source(connector))
+        semantic_result = analyze(script)
+        ir_result = build_ir(script, semantic_result.model)
+
+        assert _error_codes(semantic_result) == ["PIE-S2314"]
+        assert ir_result.ir is not None
+        projection = _relation_ir(ir_result.ir).projections[0]
+        assert not isinstance(projection.expression, AggregateCallIR)
+
+
+@pytest.mark.parametrize(
+    "projection",
+    [
+        "value = count(1)",
+        "value = count_distinct(len(status))",
+        "value = count_distinct(amount + tax)",
+        "value = min(amount + tax)",
+        "value = max(score * weight)",
+        "value = sum(1)",
+        "value = avg(1)",
+        "value = sum(avg(amount))",
+        "value = sum(amount) + 1",
+        "value = sum(amount / tax)",
+    ],
+)
+def test_unsupported_aggregate_expansion_boundaries_fail_closed(
+    projection: str,
+) -> None:
+    script = _parse(
+        RESULT_MATRIX_SHAPE
+        + 'source orders: Order = postgres.table("orders")\n'
+        + "table aggregate_stats:\n"
+        + "    from orders\n"
+        + "    select:\n"
+        + f"        {projection}\n"
+    )
+
+    semantic_result = analyze(script)
+
+    assert _error_codes(semantic_result) != []
+    ir_result = build_ir(script, semantic_result.model)
+    if ir_result.ir is not None:
+        sql_result = emit_postgres_sql(ir_result.ir)
+        assert sql_result.artifacts == ()
+
+
+def _result_matrix_source(connector: str, *, grouped: bool) -> str:
+    relation = (
+        "table aggregate_stats_by_status:\n"
+        "    from orders\n"
+        "    group by:\n"
+        "        status\n"
+        "    select:\n"
+        f"{RESULT_GROUPED_PROJECTIONS}"
+        if grouped
+        else "table aggregate_stats:\n"
+        "    from orders\n"
+        "    select:\n"
+        f"{RESULT_NO_GROUP_PROJECTIONS}"
+    )
+    return (
+        RESULT_MATRIX_SHAPE
+        + f'source orders: Order = {connector}("orders")\n'
+        + relation
+    )
+
+
+def _count_field_source(field_type: str, field_name: str, connector: str) -> str:
+    return (
+        "shape BoundaryOrder:\n"
+        f"    {field_name}: {field_type}\n"
+        f'source orders: BoundaryOrder = {connector}("orders")\n'
+        "table counts:\n"
+        "    from orders\n"
+        "    select:\n"
+        f"        value = count({field_name})\n"
+    )
+
+
+def _enum_count_source(connector: str) -> str:
+    return (
+        "enum Status:\n"
+        "    active\n"
+        "    paused\n"
+        "shape EnumOrder:\n"
+        "    status: Status\n"
+        f'source orders: EnumOrder = {connector}("orders")\n'
+        "table status_counts:\n"
+        "    from orders\n"
+        "    select:\n"
+        "        value = count(status)\n"
+    )
+
+
+def _qualified_field_names(expression: AggregateCallIR) -> tuple[str, ...]:
+    names: list[str] = []
+    for argument in expression.arguments:
+        names.extend(_walk_field_names(argument))
+    return tuple(names)
+
+
+def _walk_field_names(expression: ExpressionIR) -> Iterable[str]:
+    if isinstance(expression, FieldRefIR):
+        yield ".".join((*expression.qualifier, expression.name))
+        return
+    if isinstance(expression, BinaryIR):
+        yield from _walk_field_names(expression.left)
+        yield from _walk_field_names(expression.right)
+        return
+    if isinstance(expression, CallIR):
+        for argument in expression.arguments:
+            yield from _walk_field_names(argument)
+        return
+
+
+def _matrix_source(connector: str, *, grouped: bool) -> str:
+    relation = (
+        "table aggregate_stats_by_status:\n"
+        "    from orders\n"
+        "    group by:\n"
+        "        status\n"
+        "    select:\n"
+        f"{GROUPED_PROJECTIONS}"
+        if grouped
+        else "table aggregate_stats:\n"
+        "    from orders\n"
+        "    select:\n"
+        f"{NO_GROUP_PROJECTIONS}"
+    )
+    return MATRIX_SHAPE + f'source orders: Order = {connector}("orders")\n' + relation
+
+
+def _parse(source: str) -> Script:
+    result = parse_source(source, path="aggregate-results.pietto")
+    assert result.diagnostics == ()
+    assert result.ast is not None
+    return result.ast
+
+
+def _compile(source: str) -> tuple[Script, SemanticResult, ScriptIR]:
+    script = _parse(source)
+    semantic = analyze(script)
+    assert _error_codes(semantic) == []
+    ir_result = build_ir(script, semantic.model)
+    assert ir_result.diagnostics == ()
+    assert ir_result.ir is not None
+    return script, semantic, ir_result.ir
+
+
+def _relation_ast(script: Script) -> TableDef | QueryDef:
+    relation = script.definitions[-1]
+    assert isinstance(relation, (TableDef, QueryDef))
+    return relation
+
+
+def _relation_ir(script_ir: ScriptIR) -> RelationIR:
+    relations = [
+        definition
+        for definition in script_ir.definitions
+        if isinstance(definition, RelationIR)
+    ]
+    assert len(relations) == 1
+    return relations[0]
+
+
+def _assert_aggregate_ir_matrix(
+    script_ir: ScriptIR,
+    expected_schema: tuple[tuple[str, str, EffectiveNullability], ...],
+) -> None:
+    relation = _relation_ir(script_ir)
+    projections = {projection.name: projection for projection in relation.projections}
+    fields_by_name = {field.name: field for field in relation.row_schema.fields}
+
+    for name, expected_type, expected_nullability in expected_schema:
+        projection = projections[name]
+        row_field = fields_by_name[name]
+        assert row_field.type_ref.canonical_name == expected_type
+        assert row_field.nullability is _ir_nullability(expected_nullability)
+        if name == "status":
+            assert isinstance(projection.expression, FieldRefIR)
+            continue
+        assert isinstance(projection.expression, AggregateCallIR), name
+        assert projection.expression.value_type.canonical_name == expected_type
+        assert projection.expression.value_type.nullability is _ir_nullability(
+            expected_nullability
+        )
+
+    aggregate_expectations = {
+        "total": ("count", 0, ()),
+        "count_status": ("count", 1, ("status",)),
+        "count_raw": ("count", 1, ("raw",)),
+        "count_payload": ("count", 1, ("payload",)),
+        "count_customer": ("count", 1, ("customer_id",)),
+        "known_amount_expr": ("count", 1, ("amount", "tax")),
+        "known_amount_literal_expr": ("count", 1, ("amount",)),
+        "known_decimal_int_expr": ("count", 1, ("price", "amount")),
+        "known_status_expr": ("count", 1, ("status",)),
+        "unique_status": ("count_distinct", 1, ("status",)),
+        "unique_customer": ("count_distinct", 1, ("customer_id",)),
+        "unique_normalized": ("count_distinct", 1, ("status",)),
+        "total_amount": ("sum", 1, ("amount",)),
+        "total_score": ("sum", 1, ("score",)),
+        "total_price": ("sum", 1, ("price",)),
+        "average_amount": ("avg", 1, ("amount",)),
+        "average_score": ("avg", 1, ("score",)),
+        "average_price": ("avg", 1, ("price",)),
+        "total_expr": ("sum", 1, ("amount", "tax")),
+        "total_literal_expr": ("sum", 1, ("amount",)),
+        "average_expr": ("avg", 1, ("score", "weight")),
+        "average_literal_expr": ("avg", 1, ("score",)),
+        "decimal_total_expr": ("sum", 1, ("price", "discount")),
+        "decimal_average_expr": ("avg", 1, ("price", "discount")),
+        "decimal_int_total_expr": ("sum", 1, ("price", "amount")),
+        "decimal_int_average_expr": ("avg", 1, ("price", "amount")),
+        "smallest_amount": ("min", 1, ("amount",)),
+        "smallest_score": ("min", 1, ("score",)),
+        "smallest_price": ("min", 1, ("price",)),
+        "first_order_date": ("min", 1, ("order_date",)),
+        "first_created_at": ("min", 1, ("created_at",)),
+        "largest_amount": ("max", 1, ("amount",)),
+        "largest_score": ("max", 1, ("score",)),
+        "largest_price": ("max", 1, ("price",)),
+        "latest_order_date": ("max", 1, ("order_date",)),
+        "latest_created_at": ("max", 1, ("created_at",)),
+    }
+    for name, (function, argument_count, field_names) in aggregate_expectations.items():
+        if name not in projections:
+            continue
+        aggregate = projections[name].expression
+        assert isinstance(aggregate, AggregateCallIR), name
+        assert aggregate.function == function
+        assert len(aggregate.arguments) == argument_count
+        assert _field_names(aggregate) == field_names
+
+
+def _field_names(expression: ExpressionIR) -> tuple[str, ...]:
+    if isinstance(expression, FieldRefIR):
+        return (expression.name,) if expression.field is not None else ()
+    if isinstance(expression, AggregateCallIR):
+        return tuple(
+            name for argument in expression.arguments for name in _field_names(argument)
+        )
+    if isinstance(expression, BinaryIR):
+        return (*_field_names(expression.left), *_field_names(expression.right))
+    arguments = getattr(expression, "arguments", ())
+    operand = getattr(expression, "operand", None)
+    return (
+        tuple(name for argument in arguments for name in _field_names(argument))
+        if arguments
+        else (() if operand is None else _field_names(operand))
+    )
+
+
+def _error_codes(result: SemanticResult) -> list[str]:
+    return [
+        diagnostic.code
+        for diagnostic in result.diagnostics
+        if diagnostic.severity is Severity.ERROR
+    ]
+
+
+def _assert_value_type(
+    value_type: object,
+    expected_name: str,
+    expected_nullability: EffectiveNullability,
+) -> None:
+    assert getattr(value_type, "resolved_type").name == expected_name
+    assert getattr(value_type, "nullability") is expected_nullability
+
+
+def _shape_field_type_expr(script: Script, field_name: str) -> TypeExpr:
+    shape = next(
+        definition
+        for definition in script.definitions
+        if isinstance(definition, ShapeDef)
+    )
+    field = next(field for field in shape.fields if field.name == field_name)
+    return field.type_expr
+
+
+def _builtin(
+    name: str,
+    nullability: EffectiveNullability = EffectiveNullability.NON_NULL,
+) -> ValueType:
+    return ValueType(
+        resolved_type=ResolvedType(name=name, kind=TypeKind.BUILTIN),
+        nullability=nullability,
+    )
+
+
+def _enum(name: str) -> ValueType:
+    return ValueType(
+        resolved_type=ResolvedType(name=name, kind=TypeKind.ENUM),
+        nullability=EffectiveNullability.NON_NULL,
+    )
+
+
+def _unknown() -> ValueType:
+    return ValueType(
+        resolved_type=ResolvedType(name="<unknown>", kind=TypeKind.UNKNOWN),
+        nullability=EffectiveNullability.UNKNOWN,
+        kind=ValueTypeKind.UNKNOWN,
+    )
+
+
+def _ir_nullability(nullability: EffectiveNullability) -> NullabilityIR:
+    if nullability is EffectiveNullability.NON_NULL:
+        return NullabilityIR.NON_NULL
+    if nullability is EffectiveNullability.NULLABLE:
+        return NullabilityIR.NULLABLE
+    return NullabilityIR.UNKNOWN

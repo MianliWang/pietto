@@ -5,7 +5,7 @@ from pathlib import Path
 
 import pytest
 
-from _pietto_repository_facts import REPOSITORY_FACTS
+from _pietto_repo_facts import REPOSITORY_FACTS
 from pietto._project import check as project_check
 from pietto._project import project_row_keys as row_keys
 from pietto._project import project_value_fds as value_fds

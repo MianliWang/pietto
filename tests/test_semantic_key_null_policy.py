@@ -5,7 +5,7 @@ from pathlib import Path
 
 import pytest
 
-from _pietto_repository_facts import REPOSITORY_FACTS
+from _pietto_repo_facts import REPOSITORY_FACTS
 from pietto._project import check as project_check
 from pietto._project.model import (
     ProjectRowFieldNullability,

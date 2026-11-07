@@ -9,7 +9,7 @@ from typing import Any, cast
 
 import pytest
 
-import _pietto_capability_differential_vectors as vectors
+import _pietto_harness_capability_vectors as vectors
 from _pietto_project_extension_catalog import (
     _aggregate_entry,
     _artifact,

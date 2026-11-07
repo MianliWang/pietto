@@ -8,7 +8,7 @@ import subprocess
 
 import pytest
 
-from _pietto_repository_facts import (
+from _pietto_repo_facts import (
     PythonSourceFacts,
     REPOSITORY_FACTS,
     RepositoryFactIndex,
@@ -17,18 +17,17 @@ import _pietto_project_extension_scope as scanner
 
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
-HELPER = REPO_ROOT / "tests/_pietto_repository_facts.py"
-WORKFLOW_OWNER = REPO_ROOT / "tests/test_workflow_lifecycle_validation_efficiency.py"
+HELPER = REPO_ROOT / "tests/_pietto_repo_facts.py"
 MIGRATED_OWNER_PATHS = tuple(
     REPO_ROOT / path
     for path in (
-        "tests/test_workflow_lifecycle_validation_efficiency.py",
+        "tests/test_repo_test_layout.py",
         "tests/test_semantic_aggregate_signature_algebra_facts.py",
         "tests/test_semantic_expression_stage_clause_capability_facts.py",
         "tests/test_semantic_fail_closed_capability_lookup.py",
         "tests/test_semantic_logical_type_literal_parameter_nullability_inventory.py",
-        "tests/test_semantic_parity_privacy_cross_phase_readiness_drift_closure.py",
-        "tests/test_semantic_private_capability_fact_foundation.py",
+        "tests/test_semantic_capability_fact_parity.py",
+        "tests/test_semantic_capability_facts.py",
         "tests/test_semantic_scalar_function_operator_signature_facts.py",
     )
 )
@@ -96,9 +95,9 @@ def test_shared_facts_match_legacy_text_ast_import_and_identifier_acquisition() 
         *(
             REPO_ROOT / path
             for path in (
-                "tests/test_workflow_lifecycle_validation_efficiency.py",
+                "tests/test_repo_test_layout.py",
                 "tests/test_semantic_fail_closed_capability_lookup.py",
-                "tests/test_semantic_private_capability_fact_foundation.py",
+                "tests/test_semantic_capability_facts.py",
             )
         ),
     )
@@ -480,7 +479,7 @@ def test_independent_reference_detects_corrupt_or_omitted_facts(tmp_path):
 
 
 def test_actual_scanner_overlay_is_visible_after_warming_without_leakage(monkeypatch):
-    scanner.test_private_catalog_foundation_has_no_concrete_runtime_or_public_behavior()
+    scanner.check_private_catalog_foundation()
     path = REPO_ROOT / "src/pietto/_project/project_execution.py"
     original = scanner._read
     for token in ("psycopg", "server_version"):
@@ -492,9 +491,9 @@ def test_actual_scanner_overlay_is_visible_after_warming_without_leakage(monkeyp
 
             patch.setattr(scanner, "_read", injected)
             with pytest.raises(AssertionError) as exc:
-                scanner.test_private_catalog_foundation_has_no_concrete_runtime_or_public_behavior()
+                scanner.check_private_catalog_foundation()
             assert token in str(exc.value) and path.name in str(exc.value)
-        scanner.test_private_catalog_foundation_has_no_concrete_runtime_or_public_behavior()
+        scanner.check_private_catalog_foundation()
     with monkeypatch.context() as patch:
         # Conflicting overlays compose at the actual read seam; none can reuse
         # an earlier policy success or contaminate the base's captured bytes.
@@ -506,12 +505,12 @@ def test_actual_scanner_overlay_is_visible_after_warming_without_leakage(monkeyp
             ),
         )
         with pytest.raises(AssertionError, match="psycopg"):
-            scanner.test_private_catalog_foundation_has_no_concrete_runtime_or_public_behavior()
-    scanner.test_private_catalog_foundation_has_no_concrete_runtime_or_public_behavior()
+            scanner.check_private_catalog_foundation()
+    scanner.check_private_catalog_foundation()
 
 
 def test_actual_scanner_detects_removed_namespace_member_after_warming(monkeypatch):
-    scanner.test_private_catalog_foundation_has_no_concrete_runtime_or_public_behavior()
+    scanner.check_private_catalog_foundation()
     removed = REPO_ROOT / "src/pietto/semantic/extension_catalog.py"
     original = Path.rglob
 
@@ -523,12 +522,12 @@ def test_actual_scanner_detects_removed_namespace_member_after_warming(monkeypat
     with monkeypatch.context() as patch:
         patch.setattr(Path, "rglob", paths)
         with pytest.raises(AssertionError):
-            scanner.test_private_catalog_foundation_has_no_concrete_runtime_or_public_behavior()
-    scanner.test_private_catalog_foundation_has_no_concrete_runtime_or_public_behavior()
+            scanner.check_private_catalog_foundation()
+    scanner.check_private_catalog_foundation()
 
 
 def test_old_negative_control_exposes_corrupted_shared_lowercase(monkeypatch):
-    scanner.test_private_catalog_foundation_has_no_concrete_runtime_or_public_behavior()
+    scanner.check_private_catalog_foundation()
     with monkeypatch.context() as patch:
         patch.setattr(
             RepositoryFactIndex,
@@ -538,10 +537,8 @@ def test_old_negative_control_exposes_corrupted_shared_lowercase(monkeypatch):
         # The original injected-negative assertion must itself fail when its
         # observation is corrupted; this is not another shared PASS oracle.
         with pytest.raises(pytest.fail.Exception, match="DID NOT RAISE"):
-            scanner.test_execution_permission_is_path_and_purpose_limited(
-                patch, "project_execution.py", "psycopg"
-            )
-    scanner.test_private_catalog_foundation_has_no_concrete_runtime_or_public_behavior()
+            scanner.check_execution_permission(patch, "project_execution.py", "psycopg")
+    scanner.check_private_catalog_foundation()
 
 
 def test_original_positional_index_constructor_contract(tmp_path):
@@ -554,7 +551,7 @@ def test_original_positional_index_constructor_contract(tmp_path):
 
 
 def test_actual_scanner_does_not_choose_last_duplicate_path_overlay(monkeypatch):
-    scanner.test_private_catalog_foundation_has_no_concrete_runtime_or_public_behavior()
+    scanner.check_private_catalog_foundation()
     path = REPO_ROOT / "src/pietto/_project/project_execution.py"
     original_paths, original_read = Path.rglob, scanner._read
     seen = []
@@ -576,6 +573,106 @@ def test_actual_scanner_does_not_choose_last_duplicate_path_overlay(monkeypatch)
         patch.setattr(Path, "rglob", duplicated)
         patch.setattr(scanner, "_read", conflicting)
         with pytest.raises(AssertionError, match="asyncpg"):
-            scanner.test_private_catalog_foundation_has_no_concrete_runtime_or_public_behavior()
+            scanner.check_private_catalog_foundation()
         assert seen == [path, path]
-    scanner.test_private_catalog_foundation_has_no_concrete_runtime_or_public_behavior()
+    scanner.check_private_catalog_foundation()
+
+
+@pytest.mark.parametrize(
+    "owner",
+    ("project_sql_plan_portable.py", "project_sql_plan_portable_schema.py"),
+)
+@pytest.mark.parametrize(
+    "forbidden",
+    ("create extension", "pg_extension", "server_version", "psycopg", "asyncpg"),
+)
+def test_portable_metadata_permission_preserves_behavior_bans(
+    monkeypatch, owner: str, forbidden: str
+) -> None:
+    scanner.check_execution_permission(monkeypatch, owner, forbidden)
+
+
+def test_catalog_metadata_permission_does_not_cover_other_observation_owners(
+    monkeypatch,
+) -> None:
+    scanner.check_execution_permission(
+        monkeypatch, "project_sql_plan_pure_boundary.py", "extension_catalog"
+    )
+
+
+@pytest.mark.parametrize(
+    "source",
+    (
+        "construct_extension_catalog (None)",
+        "catalogs.select_extension_catalog(None)",
+        "extension_signature_provider_authority(None)",
+        "from pietto.semantic.capability_providers import canonical_capability_provider_inputs as acquire",
+    ),
+)
+def test_catalog_metadata_permission_rejects_operational_references(
+    monkeypatch, source: str
+) -> None:
+    scanner.check_execution_permission(
+        monkeypatch, "project_sql_plan_portable.py", source
+    )
+
+
+@pytest.mark.parametrize(
+    "owner,forbidden",
+    (
+        ("project_execution_postgres.py", "create extension"),
+        ("project_execution_postgres.py", "pg_extension"),
+        ("project_execution_postgres.py", "asyncpg"),
+        ("project_execution_postgres.py", "extension_catalog"),
+        ("project_execution_postgres.py", "pgvector"),
+        ("project_execution_postgres.py", "pg_trgm"),
+        ("project_execution_postgres.py", "postgis"),
+        ("project_execution_postgres.py", "timescaledb"),
+        ("project_execution.py", "psycopg"),
+        ("project_execution.py", "server_version"),
+        ("project_execution_source.py", "psycopg"),
+        ("project_execution_source.py", "server_version"),
+    ),
+)
+def test_execution_permission_is_path_and_purpose_limited(
+    monkeypatch, owner: str, forbidden: str
+) -> None:
+    scanner.check_execution_permission(monkeypatch, owner, forbidden)
+
+
+@pytest.mark.parametrize("forbidden", ("psycopg", "server_version"))
+@pytest.mark.parametrize(
+    "relative_path",
+    (
+        "src/pietto/semantic/project_execution_postgres.py",
+        "src/pietto/_project/project_execution_postgres_shadow.py",
+    ),
+)
+def test_execution_permission_does_not_follow_similar_paths(
+    monkeypatch, relative_path: str, forbidden: str
+) -> None:
+    scanner.check_private_catalog_foundation()
+    source_root = REPO_ROOT / "src/pietto"
+    shadow = REPO_ROOT / relative_path
+    assert not shadow.exists()
+    original_rglob = Path.rglob
+    original_read = scanner._read
+    observed = []
+
+    def injected_paths(directory: Path, pattern: str):
+        yield from original_rglob(directory, pattern)
+        if directory == source_root and pattern == "*.py":
+            yield shadow
+
+    def injected_read(candidate: Path) -> str:
+        if candidate == shadow:
+            observed.append(candidate)
+            return forbidden
+        return original_read(candidate)
+
+    monkeypatch.setattr(Path, "rglob", injected_paths)
+    monkeypatch.setattr(scanner, "_read", injected_read)
+    with pytest.raises(AssertionError):
+        scanner.check_private_catalog_foundation()
+    assert observed
+    assert not shadow.exists()

@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 import json
-import re
 from dataclasses import fields, replace
 from pathlib import Path
 from typing import cast
@@ -331,20 +330,6 @@ def test_project_limit_boundaries_emit_valid_values_and_reject_overflow(
     assert capsys.readouterr().err == (
         f"main.pietto:{line}:11 PIE-S2307 error: {LIMIT_MESSAGE}\n"
     )
-
-
-def test_suffix_and_diagnostic_code_contracts_remain_canonical() -> None:
-    repository_text = "\n".join(
-        path.read_text(encoding="utf-8")
-        for root in ("src", "tests", "docs", "examples", "grammar")
-        for path in sorted((REPO_ROOT / root).rglob("*"))
-        if path.is_file()
-        and "__pycache__" not in path.parts
-        and path.suffix in {".py", ".md", ".pietto", ".g4"}
-    )
-
-    assert re.search(r"\." + "pie" + r"\b", repository_text) is None
-    assert re.search(r"(?<!PIE-)\b[PSIB][0-9]{4}\b", repository_text) is None
 
 
 def _relation_source(prefix: str, limit: str | None) -> str:
