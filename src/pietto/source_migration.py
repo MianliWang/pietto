@@ -200,9 +200,10 @@ def _without_header(
 
 def _modern_parse(source: str, path: str | Path | None) -> parser_api.ParseResult:
     """The modern parse without its warnings, such as PIE-P1009, which
-    `check` reports: `migrate` reports only what stops it."""
+    `check` reports: `migrate` reports only what stops it. It admits the
+    header lines, which `migrate` deletes."""
 
-    result = parser_api.parse_source(source, path=path)
+    result = parser_api._parse_contained(source, path=path, modern=True, header=True)
     return replace(
         result,
         diagnostics=tuple(

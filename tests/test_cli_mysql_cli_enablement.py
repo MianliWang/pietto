@@ -235,13 +235,12 @@ def test_unknown_text_and_json_dialects_still_exit_two_before_parsing(
     assert error["kind"] == "unsupported_dialect"
 
 
-def test_explicit_dialect_does_not_infer_from_header_connector_or_suffix(
+def test_explicit_dialect_does_not_infer_from_connector_or_suffix(
     tmp_path: Path,
     capsys: pytest.CaptureFixture[str],
 ) -> None:
     mysql_path = tmp_path / "input.sql"
     mysql_path.write_text(
-        "dialect postgres\n"
         "shape User:\n"
         "    email: Text\n"
         'source users: User = mysql.table("users")\n'
@@ -255,11 +254,7 @@ def test_explicit_dialect_does_not_infer_from_header_connector_or_suffix(
     assert cli.main(["emit-sql", str(mysql_path), "--dialect", "mysql"]) == 0
     selected = capsys.readouterr()
     assert selected.out.endswith("FROM `users`;\n")
-    assert selected.err == (
-        f"{mysql_path}:1:1 PIE-P1012 warning: The header line `dialect postgres` is "
-        "deprecated and will be removed. Delete it; it has no effect; `emit-sql` "
-        "takes `--dialect postgres`.\n"
-    )
+    assert selected.err == ""
 
     assert cli.main(["emit-sql", str(mysql_path), "--dialect", "postgres"]) == 1
     mismatched = capsys.readouterr()

@@ -83,8 +83,8 @@ _BLANK_LINES = 1_000
 _ROWS = 'shape R:\n    a: Int\nsource r: R = postgres.table("r")\n'
 _QUERY = _ROWS + "query q:\n    from r\n"
 _HEADER = (
-    "The header line `pietto 1` is deprecated and will be removed. "
-    "Delete it; it has no effect."
+    "This spelling is not accepted by the modern syntax. "
+    "Delete the header line `pietto 1`; it has no effect."
 )
 _UNKNOWN_FOO = "Unexpected 'foo'; expected a declaration, end of file or end of line."
 
@@ -93,7 +93,7 @@ _UNKNOWN_FOO = "Unexpected 'foo'; expected a declaration, end of file or end of 
     ("before", "after", "expected"),
     [
         ("", "type A = Int\n", []),
-        ("", "pietto 1\ntype A = Int\n", [("PIE-P1012", _BLANK_LINES + 1, 1, _HEADER)]),
+        ("", "pietto 1\ntype A = Int\n", [("PIE-P1000", _BLANK_LINES + 1, 1, _HEADER)]),
         ("", "foo\n", [("PIE-P1000", _BLANK_LINES + 1, 1, _UNKNOWN_FOO)]),
         (
             _ROWS + "relationship rel(a: R, b: R):\n",

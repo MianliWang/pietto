@@ -114,6 +114,7 @@ def _parse_contained(
     modern: bool,
     trees: list[ParserRuleContext] | None = None,
     admit: bool = True,
+    header: bool = False,
 ) -> ParseResult:
     if _source_exceeds_utf8_budget(source):
         return _budget_failure(
@@ -154,6 +155,7 @@ def _parse_contained(
                     modern=modern,
                     trees=trees,
                     admit=admit,
+                    header=header,
                 )
             except RecursionError:
                 result = ParseResult(
@@ -184,6 +186,7 @@ def _parse_contained(
                     modern=modern,
                     trees=trees,
                     admit=admit,
+                    header=header,
                 )
             raise
         cancel.set()
@@ -208,12 +211,19 @@ def _contained_parse(
     modern: bool = True,
     trees: list[ParserRuleContext] | None = None,
     admit: bool = True,
+    header: bool = False,
 ) -> ParseResult:
     """Parse inside the recursion containment boundary."""
 
     try:
         return _parse_source(
-            source, path=path, cancel=cancel, modern=modern, trees=trees, admit=admit
+            source,
+            path=path,
+            cancel=cancel,
+            modern=modern,
+            trees=trees,
+            admit=admit,
+            header=header,
         )
     except RecursionError:
         return ParseResult(
@@ -229,8 +239,10 @@ def _parse_source(
     modern: bool = True,
     trees: list[ParserRuleContext] | None = None,
     admit: bool = True,
+    header: bool = False,
 ) -> ParseResult:
-    """Implement parsing inside the public recursion containment boundary."""
+    """Implement parsing inside the public recursion containment boundary;
+    ``header`` admits the retired header lines, which only ``migrate`` reads."""
 
     lexer_listener = DiagnosticErrorListener(path)
     lexer = _PiettoLexer(_CancellableInputStream(source, cancel))
@@ -354,8 +366,10 @@ def _parse_source(
         return ParseResult(ast=None, diagnostics=ordered_diagnostics)
 
     if modern and admit:
-        spelling_diagnostics = modern_spelling_diagnostics(
-            tree, path=path, cancel=cancel
+        # The header lines come first in a file, so these stay in source order.
+        spelling_diagnostics = (
+            *(() if header else _header_refusals(tree, path)),
+            *modern_spelling_diagnostics(tree, path=path, cancel=cancel),
         )
         if spelling_diagnostics:
             return ParseResult(ast=None, diagnostics=spelling_diagnostics)
@@ -395,7 +409,6 @@ def _parse_source(
             (
                 *ordered_diagnostics,
                 *_double_minus_warnings(raw_tokens, path),
-                *_header_warnings(tree, path),
             )
         )
     return ParseResult(ast=ast, diagnostics=ordered_diagnostics)
@@ -441,46 +454,41 @@ def _double_minus_warnings(
         previous = token
 
 
-def _header_warnings(
+def _header_refusals(
     tree: ParserRuleContext, path: str | Path | None
 ) -> Iterator[Diagnostic]:
-    """PIE-P1012 at each header line: the header is retired (owner decision
-    2026-10-11), first with this warning, then removed."""
+    """PIE-P1000 at each header line, retired as source `is` was (owner
+    decision 2026-10-11) after the PIE-P1012 warning of 0.1.9."""
 
     header = cast(Any, tree).header()
     for line in () if header is None else header.getChildren():
-        keyword, value = line.start.text, line.getChild(1)
-        last = cast(
-            Token, value.stop if isinstance(value, ParserRuleContext) else value.symbol
-        )
-        hint = _header_hint(keyword, value.getText())
+        keyword, value = line.start.text, line.getChild(1).getText()
+        hint = _header_hint(keyword, value, f"the header line `{keyword} {value}`")
         yield Diagnostic(
-            code="PIE-P1012",
-            severity=Severity.WARNING,
-            message=f"The header line `{keyword} {value.getText()}` is deprecated "
-            f"and will be removed. {hint}",
+            code="PIE-P1000",
+            severity=Severity.ERROR,
+            message=f"This spelling is not accepted by the modern syntax. {hint}",
             location=SourceLocation(
                 path=source_path(path),
                 line=line.start.line,
                 column=line.start.column + 1,
-                end_line=last.line,
-                end_column=last.column + len(last.text) + 1,
             ),
             suggestion=hint,
         )
 
 
-def _header_hint(keyword: str, value: str) -> str:
-    """How to migrate one header line, which ``migrate`` also states."""
+def _header_hint(keyword: str, value: str, line: str = "it") -> str:
+    """How to migrate one header line, which ``migrate`` also states;
+    ``line`` names it."""
 
     if keyword == "mode" and value != "checked":
         return (
-            f"Delete it; in a single file pass `--check-mode {value}` instead; "
-            "a project ignores it."
+            f"Delete {line}; in a single file pass `--check-mode {value}` instead; "
+            "a project never applied it."
         )
     if keyword == "dialect" and value in ("postgres", "mysql"):  # the CLI's set
-        return f"Delete it; it has no effect; `emit-sql` takes `--dialect {value}`."
-    return "Delete it; it has no effect."
+        return f"Delete {line}; it has no effect; `emit-sql` takes `--dialect {value}`."
+    return f"Delete {line}; it has no effect."
 
 
 class _PiettoParser(PiettoParser):

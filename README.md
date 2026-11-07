@@ -59,10 +59,15 @@ also attaches the same wheel and sdist with `SHA256SUMS`; see
 [installing a release](https://github.com/MianliWang/pietto/blob/main/docs/project-package.md#installing-a-release)
 to check them.
 
-Coming from 0.1.8? A 0.1.8 source file needs no `pietto migrate` step. Each
-header line (`pietto 0.9`, `mode ...`, `dialect ...`, `encoding ...`) now
-warns with PIE-P1012, and `pietto migrate` deletes the ones without effect;
-`concat`, `same_value` and `stddev` are new builtins, so a `def` with the name
+Coming from 0.1.8? A 0.1.8 source file needs no `pietto migrate` step unless
+it has a header line (`pietto 0.9`, `mode ...`, `dialect ...`,
+`encoding ...`): 0.1.9 warns about each one with PIE-P1012, and `main` after
+0.1.9 refuses it with PIE-P1000 (see
+[header lines are refused](https://github.com/MianliWang/pietto/blob/main/docs/release-notes.md#header-lines-are-refused-pie-p1000)).
+`pietto migrate` deletes the header lines without effect; it refuses a file with
+a `mode loose` or `mode strict` line (PIE-P1011), so delete that line by hand
+first and pass `--check-mode` instead. `concat`, `same_value` and
+`stddev` are new builtins, so a `def` with the name
 `same_value` or `stddev` is refused; some project programs that failed now
 check, some refusals and diagnostic texts change, and single-file SQL types an
 always-None number; see the

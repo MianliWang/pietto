@@ -815,9 +815,6 @@ def modern_spelling_diagnostics(
             ):
                 token = colon
                 suggestion = "Omit ':' for a single-line clause; keep ':' before an indented block."
-        elif kind == "VersionDeclContext" and any("_" in (item or "") for item in text):
-            token = next(item for item in terminals if "_" in (item.text or ""))
-            suggestion = "Keep the existing numeric version metadata spelling without digit separators."
         if token is not None:
             # Text output prints only the message, so it states the fix too.
             diagnostics.append(

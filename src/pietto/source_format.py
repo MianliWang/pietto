@@ -22,9 +22,6 @@ from pietto.indentation import (
 from pietto.source_migration import _line_ending
 
 _LAYOUT = frozenset({PiettoLexer.NEWLINE, PiettoParser.INDENT, PiettoParser.DEDENT})
-_HEADER = frozenset(
-    {PiettoLexer.PIETTO, PiettoLexer.MODE, PiettoLexer.DIALECT, PiettoLexer.ENCODING}
-)
 _MODULE = frozenset({PiettoLexer.IMPORT, PiettoLexer.FROM, PiettoLexer.EXPORT})
 _BLANKS = str.maketrans("", "", " \t\r\n")
 
@@ -53,7 +50,6 @@ class _Line:
     code: str  # the tokens and the gaps between them, as written
     comment: str
     block: bool  # starts a logical line, unlike a line inside parentheses
-    header: str | None  # a header line as written, without its line ending
     module: bool  # starts an import or export statement
 
 
@@ -183,12 +179,11 @@ def _effective_tokens(
 
 def _lines(body: str, raw: list[Token], kept: set[int]) -> list[_Line]:
     """Split the source at its NEWLINE tokens, which ``kept`` names by start
-    when they survive joining; comments are in the gaps. The header lines
-    are the leading code lines that start with a header keyword."""
+    when they survive joining; comments are in the gaps."""
 
     lines: list[_Line] = []
     code: list[str] = []
-    width, block, cursor, header, module = 0, True, 0, True, False
+    width, block, cursor, module = 0, True, 0, False
     for token in raw:
         gap = body[cursor : token.start]
         cursor = token.stop + 1
@@ -199,13 +194,11 @@ def _lines(body: str, raw: list[Token], kept: set[int]) -> list[_Line]:
         if token.type in {PiettoLexer.NEWLINE, Token.EOF}:
             text = "".join(code)
             # A comment runs to the line end, so only this gap can hold one.
-            written = text + gap if header and text else None
-            lines.append(_Line(width, text, gap.strip(" \t"), block, written, module))
+            lines.append(_Line(width, text, gap.strip(" \t"), block, module))
             width = len(_trailing_indentation(token.text or ""))
             block, code, module = token.start in kept, [], False
         else:
             if not code:
-                header = header and token.type in _HEADER
                 module = token.type in _MODULE
             code.append(gap + body[token.start : token.stop + 1])
     return lines
@@ -233,21 +226,14 @@ def _render(lines: list[_Line], newline: str) -> str:
         0 < position and index - entries[position - 1][0] > 1
         for position, (index, _, _) in enumerate(entries)
     ]
-    # The header lines and the comment lines over them stay together (the
-    # parser already refuses a blank line between two header lines).
-    last_header = max(
-        (p for p, (_, line, _) in enumerate(entries) if line.header is not None),
-        default=0,
-    )
-    blank[1 : last_header + 1] = [False] * last_header
     # Exactly one blank line between top-level declarations, and none
     # between two consecutive imports or exports; the comment lines at
     # column 0 over a declaration belong to it, so the blank line goes above
-    # them and none stays among them. Header lines are not declarations, and
-    # the comment lines that no declaration follows keep their blank lines.
+    # them and none stays among them. The comment lines that no declaration
+    # follows keep their blank lines.
     module = False
     for start, (_, line, _) in enumerate(entries):
-        if not top[start] or not line.code or line.header is not None:
+        if not top[start] or not line.code:
             continue
         first = start
         while first > 0 and top[first - 1] and not entries[first - 1][1].code:
@@ -257,14 +243,10 @@ def _render(lines: list[_Line], newline: str) -> str:
         module = line.module
     text = [
         (newline if blank[position] else "")
-        + (
-            line.header
-            if line.header is not None
-            else " " * indent
-            + line.code
-            + ("  " if line.code and line.comment else "")
-            + line.comment
-        )
+        + " " * indent
+        + line.code
+        + ("  " if line.code and line.comment else "")
+        + line.comment
         for position, (_, line, indent) in enumerate(entries)
     ]
     return "".join(item + newline for item in text)

@@ -3085,8 +3085,10 @@ syntax after at least one release has carried that warning. The early step,
 `--check-mode` and removing the headers from README, the examples and the
 language reference, precedes Phase69's alpha documentation. On 2026-11-05 the
 owner moved the warning earlier (J2): PIE-P1012 and the `migrate` rule that
-deletes header lines without effect ship with the Phase72 release `0.1.9`,
-and Phase75 still removes the header syntax.
+deletes header lines without effect ship with the Phase72 release `0.1.9`.
+Phase75 removes the header syntax: every header line is refused with
+PIE-P1000, PIE-P1012 is retired, and `migrate` still deletes the lines
+without effect.
 
 The Phase 70 row above is unchanged. At the Phase70 phase start the owner
 moved its bounded decorrelation out of Phase70: decorrelation and every other

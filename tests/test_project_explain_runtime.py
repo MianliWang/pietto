@@ -1059,9 +1059,11 @@ def test_a_loaded_root_renders_what_its_package_inspection_exposes(
     )
 
 
-def test_header_lines_warn_in_the_package_root_and_its_dependencies(
+def test_header_lines_are_refused_in_the_package_root_and_its_dependencies(
     tmp_path: Path,
 ) -> None:
+    # A published package with a header line no longer loads: it needs
+    # `pietto migrate` first.
     project = _write_layout(
         tmp_path,
         (
@@ -1072,21 +1074,20 @@ def test_header_lines_warn_in_the_package_root_and_its_dependencies(
 
     result = _build_project_explain_runtime(project)
 
-    assert result.outcome is ProjectExplainRuntimeOutcome.SUCCESS
+    retired = "This spelling is not accepted by the modern syntax. Delete the header"
+    assert result.outcome is ProjectExplainRuntimeOutcome.DIAGNOSTIC_ERROR
     assert _facts(result.envelope.diagnostics) == [
         (
-            "PIE-P1012",
-            "The header line `mode loose` is deprecated and will be removed. Delete "
-            "it; in a single file pass `--check-mode loose` instead; a project "
-            "ignores it.",
-            _at(line=1, column=1, end_line=1, end_column=11),
+            "PIE-P1000",
+            f"{retired} line `mode loose`; in a single file pass `--check-mode "
+            "loose` instead; a project never applied it.",
+            _at(line=1, column=1),
         ),
         (
-            "PIE-P1012",
-            "In dependency package example/dependency@1.0.0: The header line "
-            "`dialect mysql` is deprecated and will be removed. Delete it; it has "
-            "no effect; `emit-sql` takes `--dialect mysql`.",
-            _at(line=1, column=1, end_line=1, end_column=14),
+            "PIE-P1000",
+            f"In dependency package example/dependency@1.0.0: {retired} line "
+            "`dialect mysql`; it has no effect; `emit-sql` takes `--dialect mysql`.",
+            _at(line=1, column=1),
         ),
     ]
 

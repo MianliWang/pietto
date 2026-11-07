@@ -2,13 +2,13 @@ from __future__ import annotations
 
 from collections.abc import Mapping
 from copy import deepcopy
-from dataclasses import FrozenInstanceError, fields, is_dataclass
+from dataclasses import FrozenInstanceError, fields, is_dataclass, replace
 
 import pytest
 from antlr4 import ParserRuleContext
 from antlr4.Token import Token
 
-from pietto.ast_nodes import Script
+from pietto.ast_nodes import Header, Script
 from pietto.parser_api import parse_source
 from pietto.semantic import CheckMode, SemanticModel, SemanticResult, analyze
 
@@ -29,10 +29,10 @@ def test_analyze_accepts_mode_overrides(mode: CheckMode) -> None:
 
 
 def test_analyze_uses_header_mode_and_override_takes_precedence() -> None:
-    parsed = parse_source("mode loose\n")
-    assert [item.code for item in parsed.diagnostics] == ["PIE-P1012"]
-    assert parsed.ast is not None
-    script = parsed.ast
+    # The parser refuses a header line (PIE-P1000); an AST built by hand may
+    # still carry one.
+    empty = _parse("")
+    script = replace(empty, header=Header(span=empty.span, mode="loose"))
 
     assert analyze(script).model.mode is CheckMode.LOOSE
     assert (

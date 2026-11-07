@@ -53,7 +53,7 @@ _FORMAT_TEXT = "text"
 _FORMAT_JSON = "json"
 _ENABLED_SQL_DIALECTS = ("postgres", "mysql")
 _CHECK_MODES = tuple(mode.value for mode in semantic_api.CheckMode)
-_CHECK_MODE_HELP = "check mode; overrides a source header mode (default: checked)"
+_CHECK_MODE_HELP = "check mode (default: checked)"
 _PROJECT_EMIT_SQL_USAGE = (
     "project mode: pietto emit-sql --project PATH --module LOGICAL_MODULE"
     " --kind {table,query} --name NAME --dialect {postgres,mysql}"
@@ -676,7 +676,7 @@ def _run_emit_sql_json_command(arguments: Sequence[str]) -> int:
 
 
 def _check_mode(value: str | None) -> semantic_api.CheckMode | None:
-    """Return the explicit --check-mode; None keeps the header or the default."""
+    """Return the explicit --check-mode; None keeps the default."""
 
     return None if value is None else semantic_api.CheckMode(value)
 

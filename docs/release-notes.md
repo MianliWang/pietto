@@ -1890,7 +1890,8 @@ them.
 ### Phase75
 
 These are the Phase75 items: relation columns from
-`explain --project`, the Python compile API and `fmt --project`.
+`explain --project`, the Python compile API, `fmt --project` and the
+refusal of header lines.
 
 #### `explain --project` lists relation columns (alpha)
 
@@ -2022,6 +2023,53 @@ These are the Phase75 items: relation columns from
 - Text only: `fmt --project` has no `--format json` and is outside CLI JSON v1
   and project CLI JSON v2.
 - No diagnostic code, grammar, SQL, JSON document or compiled record changes.
+
+#### Header lines are refused (PIE-P1000)
+
+- **Compatibility.** A leading `pietto <number>`, `mode ...`, `dialect ...` or
+  `encoding ...` line, which warned with PIE-P1012 since `0.1.9`, is now
+  retired spelling, as source `is` was: every command and project that parses
+  source, dependency packages included, refuses each one with PIE-P1000 in
+  every check mode, at the line's keyword, and exits 1. The message is
+  ``This spelling is not accepted by the modern syntax.`` followed by the
+  suggestion, which the JSON `suggestion` field also carries:
+  ``Delete the header line `mode <mode>`; in a single file pass `--check-mode <mode>` instead; a project never applied it.``
+  for `mode loose` or `mode strict`,
+  ``Delete the header line `dialect <name>`; it has no effect; `emit-sql` takes `--dialect <name>`.``
+  for `dialect postgres` or `dialect mysql`, and
+  ``Delete the header line `<line>`; it has no effect.`` for any other line
+  (`pietto <number>`, `mode checked`, `encoding <name>`, another `dialect`).
+  A header line is reported together with the file's other retired spellings,
+  in source order.
+- **A published dependency package with a header line fails to load.** Its
+  modules are refused with the same PIE-P1000, prefixed
+  `In dependency package <namespace>/<name>@<version>: `, so the project that
+  depends on it is refused. The package must be migrated first
+  (`pietto migrate FILE > FILE.new` for each module, then delete any
+  `mode loose`/`mode strict` line by hand) and published again.
+- `pietto fmt` refuses a file with a header line with the same diagnostics and
+  exit 1; its rules for keeping header lines as written are gone.
+- `pietto migrate FILE > FILE.new` is otherwise unchanged: it still deletes
+  each header line without effect (`pietto <number>`, `mode checked`,
+  `dialect`, `encoding`; a comment on the line stays) and refuses
+  `mode loose` and `mode strict` with PIE-P1011. The hint in that PIE-P1011
+  changes from ``... a project ignores it.`` to
+  ``Delete it; in a single file pass `--check-mode <mode>` instead; a project never applied it.``
+  (full message: ``The header line `mode <mode>` needs manual migration, as it sets the check mode. Delete it; in a single file pass `--check-mode <mode>` instead; a project never applied it. No migrated source was emitted.``).
+  A `pietto 1_0` line, formerly refused by the modern syntax for its digit
+  separator, is now one more header line that `migrate` deletes, and, as a
+  digit separator anywhere does, it proves the file modern, since 0.1.4 never
+  read one: a file whose other lines both syntaxes read keeps its bare types
+  (`pietto 1_0` then `id: Int` migrates to `id: Int`; it used to be read as
+  0.1.4 source and became `id: Int | None`).
+- PIE-P1012 is retired: no source reports it, and the code is not reused.
+- `pietto check|explain|emit-sql --help` describes `--check-mode` as
+  `check mode (default: checked)` (it no longer mentions a source header).
+- **Upgrading.** A source file with a header line no longer checks: run
+  `pietto migrate FILE > FILE.new` (or delete the lines); for `mode loose` or
+  `mode strict`, delete the line and pass `--check-mode`. A dependency package
+  with a header line must be migrated and published again before a project
+  that depends on it loads.
 
 ## Equality, nullability and asof JOIN public alpha release notes — 0.1.9
 

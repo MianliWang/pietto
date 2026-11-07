@@ -45,30 +45,27 @@ them as errors. Project commands reject `--check-mode`. SQL emission always
 takes its dialect from `--dialect`; PostgreSQL and MySQL are the current
 backends.
 
-A file may still begin with the older header lines `pietto <number>`,
-`mode <mode>`, `dialect <name>`, and `encoding <name>`, each optional but in
-that order, for example `pietto 0.9` followed by `mode checked`. They are
-deprecated, and a later release removes them: once the source parses, every
-command and project that parses source, dependency packages included, except
-`migrate`, reports the warning PIE-P1012 at each header line, in every check
-mode (`emit-sql --project` keeps it only in a document refused before
-semantic analysis, as it keeps PIE-P1009). The number is
-digits with at most one `.` between them, such as `1` or `0.9`: a bare `pietto`
-line or a three-part version such as `pietto 0.1.3` is a syntax error
-(PIE-P1000), and the number is not compared with the Pietto version. These
-lines do not select a language version: the compiler defaults to the modern
-syntax below, and the header never enables legacy spelling. Only `mode` has an
-effect, and only in single-file commands, where `--check-mode` overrides it;
-`dialect` never selects the SQL backend.
+A file has no header. The older header lines `pietto <number>`,
+`mode <mode>`, `dialect <name>` and `encoding <name>`, which warned with
+PIE-P1012 from `0.1.9`, are retired as source `is` was: every command and
+project that parses source, dependency packages included, except `migrate`,
+refuses each one with PIE-P1000 in every check mode. Its suggestion names the
+line, as in ``Delete the header line `pietto 0.9`; it has no effect.``; a
+`mode loose` or `mode strict` line gets ``Delete the header line
+`mode strict`; in a single file pass `--check-mode strict` instead; a project
+never applied it.``, and `dialect postgres` or `dialect mysql` gets ``Delete
+the header line `dialect mysql`; it has no effect; `emit-sql` takes
+`--dialect mysql`.`` A header line never selected a language version, legacy
+spelling or the SQL backend.
 
 To migrate, delete the header lines. `pietto migrate FILE > FILE.new` deletes
 each one that has no effect (`pietto <number>`, `mode checked`, `dialect`,
 `encoding`; a comment on the line stays) and writes the result to standard
-output only. A `mode loose` or `mode strict` line sets the check mode, so
-`migrate` refuses it with PIE-P1011 (manual migration): delete it and pass
-`--check-mode loose` or `--check-mode strict` to the single-file `check`,
-`explain` or `emit-sql` instead; a project ignores the line. `emit-sql` takes
-its dialect (`postgres` or `mysql`) from `--dialect`.
+output only. A `mode loose` or `mode strict` line set the check mode of a
+single file, so `migrate` refuses it with PIE-P1011 (manual migration): delete
+it and pass `--check-mode loose` or `--check-mode strict` to the single-file
+`check`, `explain` or `emit-sql` instead. A dependency package with a header
+line fails to load until it is migrated and published again.
 
 Top-level declarations are `type`, `enum`, `constraint`, `derive`, `def`,
 `shape`, `source`, `table`, and `query`. Shape-typed `relationship` predicates
@@ -144,9 +141,7 @@ pietto fmt --write --project shop # replace each module that is not formatted
 
 `fmt` changes only whitespace outside tokens. It never adds, removes, reorders
 or respells a token, and keeps the spaces between two tokens of a line and the
-text of every comment except its trailing spaces and tabs. The header lines at
-the start of a file (`pietto`, `mode`, `dialect`, `encoding`) are kept as
-written apart from their line ending.
+text of every comment except its trailing spaces and tabs.
 
 - Blocks are indented by four spaces; a line inside parentheses moves with the
   line it continues.
@@ -156,13 +151,11 @@ written apart from their line ending.
   not, except that consecutive imports and exports have none between them, as
   in Python. The comment lines at the left margin over a declaration belong to
   it: the blank line goes above them, and no blank line stays among them or
-  under them. The header lines and the comment lines over them stay together,
-  and one blank line separates them from the first declaration and the comment
-  lines over it. Comment lines at the left margin that no declaration follows
-  (after the last declaration, in a file of comments, or under a header with
-  nothing below) keep the blank lines written among and above them, one at
-  most in a row. Other runs of blank lines become one, and blank lines at the
-  start and end of the file are removed.
+  under them. Comment lines at the left margin that no declaration follows
+  (after the last declaration or in a file of comments) keep the blank lines
+  written among and above them, one at most in a row. Other runs of blank
+  lines become one, and blank lines at the start and end of the file are
+  removed.
 - Trailing spaces and tabs are removed, also at the end of a comment.
 - Every line ends with the file's first line ending, a non-empty file ends
   with one line ending, and a leading BOM is kept.
@@ -202,8 +195,8 @@ The public parser uses modern spelling by default. Retired spellings receive
 PIE-P1000 before AST normalization; its message states the located rewrite,
 which JSON output also carries as the diagnostic's suggestion. The
 private legacy reader exists for diagnostics and migration, not as another
-public compiler mode. The `pietto NUMBER` header selects nothing and is
-deprecated (see [Source structure](#source-structure)); there is no
+public compiler mode. The retired `pietto NUMBER` header line selected nothing
+(see [Source structure](#source-structure)); there is no
 syntax-selector flag or required new header number.
 
 ```bash

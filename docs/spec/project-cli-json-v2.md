@@ -9,9 +9,10 @@ Single-file CLI JSON version 1 remains a separate compatibility contract.
 
 The current source language is documented in [Language](../language.md).
 Modern source spelling does not alter JSON v2 keys, field meanings or schema
-selection: JSON keeps its own `null`, `true` and `false`, and the optional
-`pietto NUMBER` source header is metadata only. Schema version 2 here names the
-project result contract, not a language-version switch. The phase-labelled
+selection: JSON keeps its own `null`, `true` and `false`, and the retired
+`pietto NUMBER` source header line (PIE-P1000) never selected one. Schema
+version 2 here names the project result contract, not a language-version
+switch. The phase-labelled
 compatibility baseline below remains a historical record of that contract.
 
 ## Goals

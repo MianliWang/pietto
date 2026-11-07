@@ -90,7 +90,8 @@ Use `query` for every result. `table` is an older declaration with the same
 clauses; it remains for existing files.
 
 Do not start a file with the older header lines such as `pietto 1` or
-`mode checked`; choose the check mode on the command line.
+`mode checked`; they are refused with PIE-P1000. Choose the check mode on the
+command line.
 
 ## None and nullable fields
 

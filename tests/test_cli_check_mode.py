@@ -34,43 +34,29 @@ def _write(tmp_path: Path, header: str = "") -> Path:
 
 
 @pytest.mark.parametrize(
-    ("header", "options", "severity"),
+    ("options", "severity"),
     [
-        ("", (), "warning"),
-        ("", ("--check-mode", "loose"), None),
-        ("", ("--check-mode", "checked"), "warning"),
-        ("", ("--check-mode=strict",), "error"),
-        ("mode strict\n", (), "error"),
-        ("mode strict\n", ("--check-mode", "loose"), None),
-        ("mode strict\n", ("--check-mode", "checked"), "warning"),
-        ("mode loose\n", ("--check-mode", "strict"), "error"),
+        ((), "warning"),
+        (("--check-mode", "loose"), None),
+        (("--check-mode", "checked"), "warning"),
+        (("--check-mode=strict",), "error"),
     ],
 )
-def test_check_mode_overrides_the_header_and_defaults_to_checked(
+def test_check_mode_defaults_to_checked(
     tmp_path: Path,
     capsys: pytest.CaptureFixture[str],
-    header: str,
     options: tuple[str, ...],
     severity: str | None,
 ) -> None:
-    path = _write(tmp_path, header)
-    line = 5 if header else 4
-    mode = header.removeprefix("mode ").strip()
-    warning = (
-        f"{path}:1:1 PIE-P1012 warning: The header line `mode {mode}` is deprecated "
-        f"and will be removed. Delete it; in a single file pass `--check-mode {mode}` "
-        "instead; a project ignores it.\n"
-        if header
-        else ""
-    )
+    path = _write(tmp_path)
 
     code = cli.main(["check", str(path), *options])
 
     captured = capsys.readouterr()
     assert code == (1 if severity == "error" else 0)
     assert captured.out == ("" if severity == "error" else f"OK: {path}\n")
-    assert captured.err == warning + (
-        "" if severity is None else f"{path}:{line}:1 PIE-S2303 {severity}: {MESSAGE}\n"
+    assert captured.err == (
+        "" if severity is None else f"{path}:4:1 PIE-S2303 {severity}: {MESSAGE}\n"
     )
 
 
@@ -85,7 +71,7 @@ def test_check_and_emit_json_keep_their_shapes_in_every_mode(
     severities: list[str],
     code: int,
 ) -> None:
-    path = _write(tmp_path, "mode strict\n")
+    path = _write(tmp_path)
 
     assert (
         cli.main(["check", str(path), "--format", "json", "--check-mode", mode]) == code
@@ -101,11 +87,7 @@ def test_check_and_emit_json_keep_their_shapes_in_every_mode(
         "diagnostics",
         "cli_errors",
     ]
-    assert [item["severity"] for item in checked["diagnostics"]] == [
-        "warning",
-        *severities,
-    ]
-    assert checked["diagnostics"][0]["code"] == "PIE-P1012"
+    assert [item["severity"] for item in checked["diagnostics"]] == severities
     assert checked["ok"] is (code == 0)
 
     emit = ["emit-sql", str(path), "--dialect", "postgres", "--format", "json"]
@@ -124,10 +106,7 @@ def test_check_and_emit_json_keep_their_shapes_in_every_mode(
         "artifacts",
         "output",
     ]
-    assert [item["severity"] for item in emitted["diagnostics"]] == [
-        "warning",
-        *severities,
-    ]
+    assert [item["severity"] for item in emitted["diagnostics"]] == severities
     assert [item["sql"] for item in emitted["artifacts"]] == ([] if code else [SQL])
 
 
@@ -173,23 +152,24 @@ HEADER = "pietto 0.9\nmode strict\ndialect mysql\nencoding utf8\n"
 
 
 @pytest.mark.parametrize("command", ["check", "explain"])
-def test_each_header_line_warns_in_a_single_file_and_a_project(
-    tmp_path: Path, capsys: pytest.CaptureFixture[str], command: str
+@pytest.mark.parametrize("mode", ["loose", "strict"])
+def test_each_header_line_is_refused_in_a_single_file_and_a_project(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str], command: str, mode: str
 ) -> None:
     path = _write(tmp_path, HEADER)
+    refused = [("PIE-P1000", "error", line) for line in (1, 2, 3, 4)]
 
-    assert cli.main([command, str(path), "--format", "json"]) == 1
+    argv = [command, str(path), "--format", "json", "--check-mode", mode]
+    assert cli.main(argv) == 1
     document = json.loads(capsys.readouterr().out)
+    assert document["ok"] is False
     assert [
         (item["code"], item["severity"], item["location"]["line"])
         for item in document["diagnostics"]
-    ] == [
-        *(("PIE-P1012", "warning", line) for line in (1, 2, 3, 4)),
-        ("PIE-S2303", "error", 8),
-    ]
+    ] == refused
     if command == "explain":
         return
-    # A project reports the same warnings; it refuses the source without a shape.
+    # A project refuses the same lines, before any semantic rule.
     (tmp_path / "pietto.toml").write_text(
         'schema_version = 2\n[sources]\ninclude = ["*.pietto"]\n'
     )
@@ -198,31 +178,51 @@ def test_each_header_line_warns_in_a_single_file_and_a_project(
     assert [
         (item["code"], item["severity"], item["location"]["line"])
         for item in project["diagnostics"]
-        if item["code"] == "PIE-P1012"
-    ] == [("PIE-P1012", "warning", line) for line in (1, 2, 3, 4)]
+    ] == refused
+    (tmp_path / "contract.json").write_text("{}")
+    emit = ["emit-sql", "--project", str(tmp_path), "--module", "users.pietto"]
+    emit += ["--kind", "table", "--name", "all_users", "--dialect", "postgres"]
+    emit += ["--emission-contract", "contract.json", "--format", "json"]
+    assert cli.main(emit) == 1
+    emitted = json.loads(capsys.readouterr().out)
+    assert (emitted["status"], emitted["artifact"]) == ("BLOCKED", None)
+    assert [
+        (item["code"], item["severity"], item["location"]["line"])
+        for item in emitted["diagnostics"]
+    ] == refused
 
 
 @pytest.mark.parametrize(
-    ("command", "out"),
+    "command",
+    [["check"], ["emit-sql", "--dialect", "postgres"], ["explain"]],
+)
+@pytest.mark.parametrize(
+    ("header", "hint"),
     [
-        (["check"], "OK: {path}\n"),
-        (["emit-sql", "--dialect", "postgres"], f"-- all_users\n{SQL};\n"),
-        (["explain"], "Semantic Metadata Artifact v1\n"),
+        (
+            "mode strict",
+            "in a single file pass `--check-mode strict` instead; "
+            "a project never applied it.",
+        ),
+        ("dialect mysql", "it has no effect; `emit-sql` takes `--dialect mysql`."),
     ],
 )
-def test_a_header_line_warns_in_text_output(
-    tmp_path: Path, capsys: pytest.CaptureFixture[str], command: list[str], out: str
+def test_a_header_line_is_refused_in_text_output_whatever_the_check_mode(
+    tmp_path: Path,
+    capsys: pytest.CaptureFixture[str],
+    command: list[str],
+    header: str,
+    hint: str,
 ) -> None:
-    path = _write(tmp_path, "dialect mysql\n")
-
-    assert cli.main([*command, str(path), "--check-mode", "loose"]) == 0
-    captured = capsys.readouterr()
-    assert captured.out.startswith(out.format(path=path))
-    assert captured.err == (
-        f"{path}:1:1 PIE-P1012 warning: The header line `dialect mysql` is "
-        "deprecated and will be removed. Delete it; it has no effect; `emit-sql` "
-        "takes `--dialect mysql`.\n"
+    path = _write(tmp_path, header + "\n")
+    error = (
+        f"{path}:1:1 PIE-P1000 error: This spelling is not accepted by the modern "
+        f"syntax. Delete the header line `{header}`; {hint}\n"
     )
+
+    for options in ((), ("--check-mode", "loose")):
+        assert cli.main([*command, str(path), *options]) == 1
+        assert capsys.readouterr() == ("", error)
 
 
 @pytest.mark.parametrize(

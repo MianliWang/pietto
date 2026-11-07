@@ -234,38 +234,6 @@ def test_corpus_formatting_is_idempotent_and_keeps_comments_ast_and_output(
             id="continuation_lines_move_with_their_line",
         ),
         pytest.param(
-            "pietto 1\nmode loose\nquery q:\n  from a\n  where x -- 1 > 0\n"
-            "  select x\n",
-            "pietto 1\nmode loose\n\nquery q:\n    from a\n    where x -- 1 > 0\n"
-            "    select x\n",
-            id="header_and_minus_signs",
-        ),
-        pytest.param(
-            "\n\npietto 1\t\nmode   loose   # m \r\nquery q:\n  from a\n  select x\n",
-            "pietto 1\t\nmode   loose   # m \n\nquery q:\n    from a\n    select x\n",
-            id="header_lines_are_kept_as_written",
-        ),
-        pytest.param(
-            'pietto 1\nmode loose\nsource a = postgres.table("a")\n',
-            'pietto 1\nmode loose\n\nsource a = postgres.table("a")\n',
-            id="one_line_declaration_after_the_header",
-        ),
-        pytest.param(
-            'pietto 1\n# c\nsource a = postgres.table("a")\n',
-            'pietto 1\n\n# c\nsource a = postgres.table("a")\n',
-            id="blank_line_after_the_header_goes_above_the_comment",
-        ),
-        pytest.param(
-            "pietto 1\n# c\n\nquery q:\n  from a\n  select x\n",
-            "pietto 1\n\n# c\nquery q:\n    from a\n    select x\n",
-            id="comment_after_the_header_joins_the_declaration",
-        ),
-        pytest.param(
-            '# c\n\npietto 1\nmode loose\nsource a = postgres.table("a")\n',
-            '# c\npietto 1\nmode loose\n\nsource a = postgres.table("a")\n',
-            id="comment_over_the_header_joins_it",
-        ),
-        pytest.param(
             'from "m.pietto" import (\n  shape A,  # a\n  # b\n  source s,\n)\n'
             "export (\n    shape A,# c\n  # d\n    source s)\n",
             'from "m.pietto" import (\n  shape A,  # a\n  # b\n  source s,\n)\n'
@@ -344,11 +312,6 @@ def test_corpus_formatting_is_idempotent_and_keeps_comments_ast_and_output(
             id="a_declaration_between_two_import_groups",
         ),
         pytest.param(
-            'pietto 1\nfrom "m.pietto" import shape A\n',
-            'pietto 1\n\nfrom "m.pietto" import shape A\n',
-            id="the_header_is_not_an_import",
-        ),
-        pytest.param(
             "shape A:\n  id: Int\n# tail\n\n\n\n# more\n",
             "shape A:\n    id: Int\n# tail\n\n# more\n",
             id="comment_lines_after_the_last_declaration_keep_their_blank_lines",
@@ -362,16 +325,6 @@ def test_corpus_formatting_is_idempotent_and_keeps_comments_ast_and_output(
             "# a\n\n\n# b\n# c\n",
             "# a\n\n# b\n# c\n",
             id="comment_only_file_keeps_its_blank_lines",
-        ),
-        pytest.param(
-            "pietto 1\n\n\n# a\n\n# b\n",
-            "pietto 1\n\n# a\n\n# b\n",
-            id="comment_lines_under_a_header_with_nothing_below",
-        ),
-        pytest.param(
-            "pietto 1\n# a\n",
-            "pietto 1\n# a\n",
-            id="comment_line_directly_under_a_header_with_nothing_below",
         ),
         pytest.param("", "", id="empty"),
         pytest.param("  # only\n\n", "# only\n", id="comment_only"),
@@ -413,6 +366,7 @@ def test_minus_signs_written_together_still_warn_after_formatting() -> None:
         ("shape A:\n\tid: Int\n", "PIE-P1004"),
         ("shape A:\n  id: Int\x0c\n", "PIE-P1000"),
         ('source a = postgres.table("a"\n', "PIE-P1008"),
+        ("pietto 1\nshape A:\n  id: Int\n", "PIE-P1000"),  # a retired header line
     ],
 )
 def test_a_source_with_parser_errors_is_refused_with_its_diagnostics(

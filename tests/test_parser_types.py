@@ -353,10 +353,3 @@ def test_modern_inclusive_chain_preserves_nullable_between_node() -> None:
     expression = definition.ensures[0].expression
     assert isinstance(expression, BetweenExpr)
     assert isinstance(expression.lower, LiteralExpr) and expression.lower.value is None
-
-
-def test_modern_version_metadata_does_not_gain_digit_separators() -> None:
-    result = parse_source("pietto 1_0\ntype A = Int\n")
-    assert result.ast is None
-    assert len(result.diagnostics) == 1
-    assert "version metadata" in (result.diagnostics[0].suggestion or "")

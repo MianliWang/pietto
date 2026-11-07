@@ -315,14 +315,23 @@ def test_modern_input_is_byte_identical_without_its_header_lines(
     header: str, kept: str
 ) -> None:
     # Each header line without effect is deleted, a comment on it kept;
-    # `check` warns at it (PIE-P1012), and `migrate` reports nothing.
+    # `check` refuses it (PIE-P1000), and `migrate` reports nothing.
     source = "\ufeff" + header + MODERN
-    assert all(item.code == "PIE-P1012" for item in parse_source(source).diagnostics)
+    assert all(item.code == "PIE-P1000" for item in parse_source(source).diagnostics)
 
     result = migrate_source(source)
 
     assert result.diagnostics == ()
     assert result.source == "\ufeff" + kept + MODERN
+
+
+def test_a_digit_separator_in_the_header_number_proves_modern_source() -> None:
+    # 0.1.4 never read `1_0`, so the line proves the source modern, as `1_000`
+    # anywhere does, and the bare type keeps its modern meaning.
+    result = migrate_source("pietto 1_0\nshape User:\n    id: Int\n")
+
+    assert result.diagnostics == ()
+    assert result.source == "shape User:\n    id: Int\n"
 
 
 @pytest.mark.parametrize("mode", ["loose", "strict"])
@@ -331,7 +340,7 @@ def test_mode_header_that_sets_the_check_mode_needs_manual_migration(
 ) -> None:
     hint = (
         f"Delete it; in a single file pass `--check-mode {mode}` instead; "
-        "a project ignores it."
+        "a project never applied it."
     )
 
     modern = migrate_source(f"pietto 1\nmode {mode}\n" + MODERN)

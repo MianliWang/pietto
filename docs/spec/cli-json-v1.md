@@ -15,8 +15,9 @@ use the separate JSON schema version 2 contract in
 
 Source syntax and JSON schema version are independent. Commands parse the
 modern language described in [Language](../language.md); its `None`, `True` and
-`False` tokens do not change JSON's `null`, `true` and `false` values. Source
-`pietto NUMBER` metadata does not select a syntax or this envelope version.
+`False` tokens do not change JSON's `null`, `true` and `false` values. The
+retired `pietto NUMBER` header line (PIE-P1000) never selected a syntax or
+this envelope version.
 Modern JOIN, relationship and ANY facts use the existing diagnostic, artifact
 and location fields; this change adds no public JSON key or diagnostic shape.
 

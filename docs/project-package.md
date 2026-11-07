@@ -72,9 +72,10 @@ diagnostics rather than partial success.
 
 The selected source files use the current [Pietto language](language.md):
 source binding with `=`, explicit `from`, query names introduced by `let`, and
-shape-typed relationship predicates. The optional `pietto NUMBER` header is
-metadata, not a syntax selector. Project schema versions below select project
-and package behavior; they do not restore retired source spelling.
+shape-typed relationship predicates. The retired `pietto NUMBER` header line is
+refused (PIE-P1000); it never selected a syntax. Project schema versions below
+select project and package behavior; they do not restore retired source
+spelling.
 
 ## Schema compatibility
 

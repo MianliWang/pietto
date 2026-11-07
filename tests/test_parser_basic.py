@@ -8,11 +8,12 @@ from antlr4 import ParserRuleContext
 from antlr4.Token import Token
 
 import pietto.parser_api as parser_api
-from pietto.ast_nodes import EnumDef, Header, Script, ShapeDef, Span, TypeDef
+from pietto.ast_nodes import EnumDef, Script, ShapeDef, Span, TypeDef
 from pietto.errors import Severity
 from pietto.parser_api import parse_file, parse_source
 
-_NO_EFFECT = "Delete it; it has no effect."
+_RETIRED = "This spelling is not accepted by the modern syntax. "
+_NO_EFFECT = "; it has no effect."
 
 
 # Parser-only owner: no storage, native, generated, golden or package premise.
@@ -77,64 +78,70 @@ def test_leading_bom_does_not_shift_tab_diagnostic_location() -> None:
     assert (tab_diagnostic.location.line, tab_diagnostic.location.column) == (1, 1)
 
 
-def test_complete_header_parses() -> None:
+def test_each_header_line_is_refused_with_its_hint() -> None:
     result = parse_source("pietto 0.9\nmode checked\ndialect postgres\nencoding utf8\n")
 
-    # Each header line is retired: one warning at each, with its own hint.
+    # The header lines are retired as source `is` was: PIE-P1000 at each one.
+    assert result.ast is None
     assert [
-        (
-            item.code,
-            item.severity,
-            item.location.line,
-            item.location.column,
-            item.location.end_line,
-            item.location.end_column,
-            item.suggestion,
-        )
+        (item.code, item.severity, item.location.line, item.location.column)
         for item in result.diagnostics
-    ] == [
-        ("PIE-P1012", Severity.WARNING, 1, 1, 1, 11, _NO_EFFECT),
-        ("PIE-P1012", Severity.WARNING, 2, 1, 2, 13, _NO_EFFECT),
-        (
-            "PIE-P1012",
-            Severity.WARNING,
-            3,
-            1,
-            3,
-            17,
-            f"{_NO_EFFECT[:-1]}; `emit-sql` takes `--dialect postgres`.",
-        ),
-        ("PIE-P1012", Severity.WARNING, 4, 1, 4, 14, _NO_EFFECT),
+    ] == [("PIE-P1000", Severity.ERROR, line, 1) for line in (1, 2, 3, 4)]
+    assert [item.suggestion for item in result.diagnostics] == [
+        f"Delete the header line `pietto 0.9`{_NO_EFFECT}",
+        f"Delete the header line `mode checked`{_NO_EFFECT}",
+        f"Delete the header line `dialect postgres`{_NO_EFFECT[:-1]}; "
+        "`emit-sql` takes `--dialect postgres`.",
+        f"Delete the header line `encoding utf8`{_NO_EFFECT}",
     ]
-    assert result.diagnostics[0].message == (
-        f"The header line `pietto 0.9` is deprecated and will be removed. {_NO_EFFECT}"
-    )
-    assert parse_source("dialect mysql\n").diagnostics[0].suggestion == (
-        f"{_NO_EFFECT[:-1]}; `emit-sql` takes `--dialect mysql`."
+    assert all(
+        item.message == f"{_RETIRED}{item.suggestion}" for item in result.diagnostics
     )
     # A dialect the CLI does not accept gets no `--dialect` advice.
-    assert parse_source("dialect sqlite\n").diagnostics[0].suggestion == _NO_EFFECT
-    assert isinstance(result.ast, Script)
-    assert result.ast.header is not None
-    assert result.ast.header == Header(
-        span=result.ast.header.span,
-        version="0.9",
-        mode="checked",
-        dialect="postgres",
-        encoding="utf8",
-    )
+    assert [
+        item.suggestion for item in parse_source("dialect sqlite\n").diagnostics
+    ] == [f"Delete the header line `dialect sqlite`{_NO_EFFECT}"]
 
 
-def test_partial_header_without_final_newline_parses() -> None:
-    result = parse_source("mode strict")
+@pytest.mark.parametrize(
+    ("source", "expected"),
+    [
+        (
+            "mode strict",
+            [
+                (
+                    1,
+                    1,
+                    "Delete the header line `mode strict`; in a single file pass "
+                    "`--check-mode strict` instead; a project never applied it.",
+                )
+            ],
+        ),
+        (
+            "pietto 1_0\ntype A = Int\n",
+            [(1, 1, f"Delete the header line `pietto 1_0`{_NO_EFFECT}")],
+        ),
+        (
+            '\n# m\npietto 1\nsource a is postgres.table("a")\n',
+            [
+                (3, 1, f"Delete the header line `pietto 1`{_NO_EFFECT}"),
+                (4, 10, "Bind the source with '=' instead of 'is'."),
+            ],
+        ),
+    ],
+    ids=["no_final_newline", "digit_separators", "with_other_retired_spelling"],
+)
+def test_a_header_line_is_refused_with_every_other_retired_spelling(
+    source: str, expected: list[tuple[int, int, str]]
+) -> None:
+    result = parse_source(source)
 
-    assert [item.suggestion for item in result.diagnostics] == [
-        "Delete it; in a single file pass `--check-mode strict` instead; "
-        "a project ignores it."
-    ]
-    assert result.ast is not None
-    assert result.ast.header is not None
-    assert result.ast.header.mode == "strict"
+    assert result.ast is None
+    assert {item.code for item in result.diagnostics} == {"PIE-P1000"}
+    assert [
+        (item.location.line, item.location.column, item.suggestion)
+        for item in result.diagnostics
+    ] == expected
 
 
 def test_example_fixture_parses() -> None:
