@@ -129,8 +129,8 @@ pietto emit-sql --dialect postgres --set month_start=2024-04-01 rides.pietto
 
 `emit-sql` prints one statement per query; a query that reads another query
 carries it in a `WITH` clause. Emit this file with `--dialect postgres`: its
-sources are `postgres.table(...)`, and MySQL does not emit constants, `now()`
-or a conditional sum yet and has no `median` or `quantile`.
+sources are `postgres.table(...)`, and MySQL does not emit a conditional sum
+yet and has no `median` or `quantile`.
 
 ## The layers, top to bottom
 

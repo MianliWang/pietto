@@ -955,7 +955,7 @@ region: Text = "EU"
 - Change it without editing the file: `pietto emit-sql --dialect postgres
   --set cutoff=2024-02-29 orders.pietto` (also `check` and `explain`). The value
   is read as a literal of the declared type and emits the same SQL as writing
-  it in the file. MySQL does not emit constants yet.
+  it in the file.
 - `pietto fmt` keeps one blank line between top-level declarations, constants
   included.
 
@@ -1228,7 +1228,8 @@ reads a new one; saved results keep the value of the run that saved them.
 comparison; elsewhere, such as a GROUP BY or ORDER BY key, a JOIN `on`, a field
 `derive`, another `let`, HAVING, QUALIFY, a window, LIMIT or a `def` body, it
 is refused (PIE-S2387). If a column holds local time, comparing it with
-`now()` is off by the local offset from UTC. MySQL does not emit `now()` yet.
+`now()` is off by the local offset from UTC. A MySQL project does not emit
+`now()` yet.
 
 ## The first or last value of a group: `first` and `last`
 

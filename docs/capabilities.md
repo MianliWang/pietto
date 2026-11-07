@@ -36,6 +36,7 @@ SQL of each function added after 0.1.8.
 | `count_distinct(a, b, ...)` | yes | yes | yes | BLOCKED PIE-B1003 `count_distinct_tuple_not_admitted_on_target` | [0.1.10](release-notes.md#distinct-count-of-several-columns-count_distincta-b-) |
 | `any(t for o in group)`, `all(t for o in group)` | yes | yes | yes | BLOCKED PIE-B1003 `group_test_not_admitted_on_target` | [0.1.10](release-notes.md#the-test-of-a-group-any-and-all-over-group) |
 | `first(x, order by k, id)`, `last(...)` | yes | refused PIE-B1000 | yes | BLOCKED PIE-B1003 `first_last_not_admitted_on_target` | [0.1.10](release-notes.md#first-and-last-aggregates-arg_max-and-arg_min) |
+| `string_agg(name, ",", order by name)` | yes | refused PIE-B1000 | yes | BLOCKED PIE-B1003 `aggregate_function_not_promised_in_slice8` | [Aggregates](language.md#aggregates-and-grouping), [0.1.10](release-notes.md#mysql-catch-up-in-projects) |
 | `min`, `max` of a `Timestamp` or `Date` | yes | yes | yes | yes | [0.1.10](release-notes.md#mysql-catch-up-in-projects) |
 | Ranking and navigation windows (`row_number`, `lag`) | yes | yes | yes | yes | [Windows](language.md#windows) |
 | A `Float` window key (`partition by price`, `order by price`) | yes | yes | yes | BLOCKED PIE-B1002 `window_partition_comparison_domain_unsupported` (`window_order_comparison_domain_unsupported` for `order by`) | [Unreleased](release-notes.d/76-s03-float-arithmetic-and-keys.md#float-arithmetic-and-float-keys-in-postgresql-projects) |
@@ -58,7 +59,8 @@ SQL of each function added after 0.1.8.
 | `select distinct` | check PIE-S2334 | check PIE-S2334 | yes | yes | [Single files and projects](language.md#single-files-and-projects) |
 | `union all` and the other set operations | check PIE-S2334 | check PIE-S2334 | yes | yes | [Single files and projects](language.md#single-files-and-projects) |
 | Relation blocks (`let name:`) | check PIE-S2345 | check PIE-S2345 | yes | yes | [0.1.3](release-notes.md#phase70-public-alpha-release-notes--013) |
-| Query header parameters (`query q(cutoff: Int):`) | check PIE-S2346 | check PIE-S2346 | yes | yes | [0.1.3](release-notes.md#phase70-public-alpha-release-notes--013) |
+| Query header parameters of type `Bool`, `Int`, `Float` or `Text` (`query q(cutoff: Int):`) | check PIE-S2346 | check PIE-S2346 | yes | yes | [0.1.3](release-notes.md#phase70-public-alpha-release-notes--013) |
+| Query header parameters of type `Decimal(p, s)`, `Date`, `Timestamp` or `UUID` (`query q(start: Timestamp):`) | check PIE-S2346 | check PIE-S2346 | yes | BLOCKED PIE-B1003 `query_parameter_type_not_admitted_on_target` | [0.1.10](release-notes.md#typed-project-query-parameters) |
 | Typed `values(...)` | check PIE-S2347 | check PIE-S2347 | yes | BLOCKED PIE-B1003 `zero_physical_source_not_admitted_on_target` | [0.1.3](release-notes.md#phase70-public-alpha-release-notes--013) |
 | `generate_series` | check PIE-S2352 | check PIE-S2352 | yes | BLOCKED PIE-B1003 `table_function_not_admitted_on_target` | [0.1.3](release-notes.md#phase70-public-alpha-release-notes--013) |
 | Relation reads `x in name`, `exists name`, `scalar name.f` | check PIE-S2350, PIE-S2349, PIE-S2348 | as PostgreSQL | yes | yes | [0.1.3](release-notes.md#phase70-public-alpha-release-notes--013) |

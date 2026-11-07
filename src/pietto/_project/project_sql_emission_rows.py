@@ -2136,7 +2136,7 @@ def resolved_scalar_call_realization(
     """
     if symbol.namespace is SymbolNamespace.CALLABLE and symbol.name == "now":
         # The statement's start as a UTC microsecond civil Timestamp, on
-        # PostgreSQL until MySQL passes its two-database differential.
+        # PostgreSQL; a MySQL project waits for a run of its own SQL.
         if family != "postgres" or values or tag != "Timestamp" or nullable:
             return None, ("PIE-B1003", "scalar_call_signature_not_admitted")
         return (

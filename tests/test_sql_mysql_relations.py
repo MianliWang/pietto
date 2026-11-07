@@ -795,6 +795,35 @@ def test_same_value_is_the_null_safe_operator_in_select_where_and_join_on() -> N
     )
 
 
+def test_now_is_one_utc_statement_start_in_select_and_where() -> None:
+    result = emit_mysql_sql(
+        _compile(
+            "shape Event:\n"
+            "    id: Int\n"
+            "    start: Timestamp\n"
+            "    stop: Timestamp | None\n"
+            'source events: Event = mysql.table("events")\n'
+            "query current:\n"
+            "    from events\n"
+            "    where start <= now() < stop\n"
+            "    select:\n"
+            "        id = id\n"
+            "        seen = now()\n"
+            "        day = date_of(now())\n"
+        )
+    )
+
+    assert result.diagnostics == ()
+    assert result.artifacts[0].sql == (
+        "SELECT\n"
+        "    `id` AS `id`,\n"
+        "    UTC_TIMESTAMP(6) AS `seen`,\n"
+        "    DATE(UTC_TIMESTAMP(6)) AS `day`\n"
+        "FROM `events`\n"
+        "WHERE (`start` <= UTC_TIMESTAMP(6)) AND (UTC_TIMESTAMP(6) < `stop`)"
+    )
+
+
 def test_a_join_reads_a_relation_of_the_file_as_a_cte() -> None:
     result = emit_mysql_sql(
         _compile(

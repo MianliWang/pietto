@@ -19,9 +19,7 @@ from datetime import date, datetime
 from typing import cast
 
 from pietto.ast_nodes import (
-    CallExpr,
     Expression,
-    FunctionDef,
     GroupByItem,
     LiteralExpr,
     NameExpr,
@@ -368,59 +366,6 @@ def substitute_constants(
         _without_constants(script), visit, occurrence_observer=occurrence_observer
     )
     return cast(Script, rebuilt)
-
-
-def constant_read_spans(
-    script: Script,
-) -> frozenset[tuple[str | None, int, int, int, int]]:
-    """The source range of each read of a top-level constant, and of each call
-    of a `def` or relationship that reads one (an inlined body takes its
-    call's range), so a target that does not emit constants yet can tell them
-    from written literals."""
-
-    names = frozenset(constant.name for constant in script.constants)
-    if not names:
-        return frozenset()
-    script = _without_constants(script)
-    bodies = {
-        definition.name: tuple(_tree_nodes(definition.body))
-        for definition in (
-            *(item for item in script.definitions if type(item) is FunctionDef),
-            *script.relationship_templates,
-        )
-    }
-    reading: set[str] = set()
-    grown = True
-    while grown:
-        grown = False
-        for name, nodes in bodies.items():
-            if name not in reading and any(
-                (type(node) is NameExpr and node.name in names)
-                or (
-                    type(node) is CallExpr
-                    and type(node.callee) is NameExpr
-                    and node.callee.name in reading
-                )
-                for node in nodes
-            ):
-                reading.add(name)
-                grown = True
-    return frozenset(
-        (
-            node.span.path,
-            node.span.line,
-            node.span.column,
-            node.span.end_line,
-            node.span.end_column,
-        )
-        for node in _tree_nodes(script)
-        if (type(node) is NameExpr and node.name in names)
-        or (
-            type(node) is CallExpr
-            and type(node.callee) is NameExpr
-            and node.callee.name in reading
-        )
-    )
 
 
 def _without_constants(script: Script) -> Script:

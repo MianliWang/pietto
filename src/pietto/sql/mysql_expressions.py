@@ -592,8 +592,9 @@ def _render_aggregate_call(
             "THEN 1 END)"
         )
     if expression.function in {"group_any", "group_all"}:
-        # The PostgreSQL form (`ba` differential): an integer 0/1, the
-        # computed-Bool wire type; a NULL test takes no `WHEN` branch.
+        # The PostgreSQL form, which a two-engine differential matched: an
+        # integer 0/1, the computed-Bool wire type; a NULL test takes no
+        # `WHEN` branch.
         if not aggregate_call_contract(
             expression.function, expression.arguments, expression.value_type
         ):
@@ -719,15 +720,15 @@ def _render_count_distinct_aggregate(expression: AggregateCallIR) -> str:
 
 
 def _render_count_distinct_tuple_aggregate(expression: AggregateCallIR) -> str:
-    # Native COUNT(DISTINCT a, b) skips a row in which any field is NULL; the
-    # Phase74 `cd` differential matched it to PostgreSQL's record count.
+    # Native COUNT(DISTINCT a, b) skips a row in which any field is NULL; a
+    # two-engine differential matched it to PostgreSQL's record count and
+    # counted -0.0 and 0.0 once in a Float field of the tuple.
     if not aggregate_call_contract(
         expression.function, expression.arguments, expression.value_type
     ):
         raise MySqlRenderError(
             "MySQL aggregate count_distinct_tuple violates its IR contract"
         )
-    # The `cd` witness counted -0.0 and 0.0 once in a Float field of the tuple.
     return (
         "COUNT(DISTINCT "
         + ", ".join(
@@ -1077,6 +1078,12 @@ def _render_call(expression: CallIR) -> str:
             for argument in expression.arguments
         )
         return f"({left} <=> {right})"
+    if expression.callee == "now":
+        if expression.arguments:
+            raise MySqlRenderError("MySQL function now expects 0 argument(s)")
+        # The statement's start as a UTC civil Timestamp with microseconds in
+        # every session time zone, as PostgreSQL's form is.
+        return "UTC_TIMESTAMP(6)"
     if expression.callee not in _FUNCTION_ARITIES:
         raise MySqlRenderError(f"Unsupported MySQL function call: {expression.callee}")
     expected_arity = _FUNCTION_ARITIES[expression.callee]

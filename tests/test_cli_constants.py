@@ -54,15 +54,14 @@ def _run(capsys: pytest.CaptureFixture[str], *argv: str) -> tuple[int, str, str]
     return code, out, err
 
 
-def test_mysql_refuses_each_relation_that_reads_a_constant(
+def test_mysql_emits_each_relation_that_reads_a_constant(
     tmp_path: Path, capsys: pytest.CaptureFixture[str]
 ) -> None:
     """A relation that reads a constant, through a `def` or a relationship or
-    by reading such a relation is refused; the others still emit."""
+    by reading such a relation emits the constant's literal on MySQL too."""
     path = _file(tmp_path, "mysql")
     path.write_text(
         path.read_text(encoding="utf-8")
-        + "\nquery everything:\n    from orders\n    select:\n        id\n"
         + "\nquery later:\n    from recent\n    select:\n        id\n"
         + "\ndef above(x: Float) -> Bool: return x > lo\n"
         + "\nquery by_def:\n    from orders\n    where above(amount)\n"
@@ -75,38 +74,46 @@ def test_mysql_refuses_each_relation_that_reads_a_constant(
         + "    select:\n        oid = orders.id\n",
         encoding="utf-8",
     )
-    reason = "MySQL has no top-level constants yet; emit with --dialect postgres"
-    refused = [("recent", 12), ("later", 23), ("by_def", 30), ("by_relationship", 44)]
+    recent = (
+        "SELECT\n    `id` AS `id`\nFROM `orders`\n"
+        "WHERE (`created` >= DATE '2024-01-31') AND (`amount` > {lo})"
+    )
+    expected = {
+        "recent": recent,
+        "later": f"WITH `recent` AS (\n{recent}\n)\n"
+        "SELECT\n    `id` AS `id`\nFROM `recent`",
+        "by_def": "SELECT\n    `id` AS `id`\nFROM `orders`\nWHERE `amount` > {lo}",
+        "by_relationship": "SELECT\n    `orders`.`id` AS `oid`\n"
+        "FROM `orders` AS `orders`\nINNER JOIN `tags` AS `tags` ON "
+        "(`orders`.`id` = `tags`.`id`) AND (`tags`.`weight` > {lo})",
+    }
 
-    for settings in ((), ("--set", "lo=0.5")):
+    for settings, lo in (((), "1.5"), (("--set", "lo=0.5"), "0.5")):
         code, out, err = _run(
             capsys, "emit-sql", "--dialect", "mysql", *settings, str(path)
         )
-        assert (code, err) == (
-            1,
-            "".join(
-                f"{path}:{line}:1 PIE-B1000 error: MySQL SQL emission is not "
-                f"implemented for RelationIR: {name}. {reason}\n"
-                for name, line in refused
-            ),
+        assert (code, err) == (0, "")
+        assert out == "".join(
+            f"-- {name}\n{sql.format(lo=lo)};\n\n" for name, sql in expected.items()
+        ).removesuffix("\n")
+        code, document, err = _run(
+            capsys,
+            "emit-sql",
+            "--dialect",
+            "mysql",
+            "--format",
+            "json",
+            *settings,
+            str(path),
         )
-        assert "everything" in out and "recent" not in out
-    code, document, err = _run(
-        capsys, "emit-sql", "--dialect", "mysql", "--format", "json", str(path)
-    )
-    result = json.loads(document)
-    assert (code, err) == (1, "")
-    assert [item["name"] for item in result["artifacts"]] == ["everything"]
-    assert [(item["code"], item["message"]) for item in result["diagnostics"]] == [
-        (
-            "PIE-B1000",
-            f"MySQL SQL emission is not implemented for RelationIR: {name}. {reason}",
-        )
-        for name, _ in refused
-    ]
+        result = json.loads(document)
+        assert (code, err, result["diagnostics"]) == (0, "", [])
+        assert [(item["name"], item["sql"]) for item in result["artifacts"]] == [
+            (name, sql.format(lo=lo)) for name, sql in expected.items()
+        ]
 
 
-@pytest.mark.parametrize("dialect", ["postgres"])
+@pytest.mark.parametrize("dialect", ["postgres", "mysql"])
 def test_set_emits_the_bytes_of_the_value_written_in_the_source(
     tmp_path: Path, capsys: pytest.CaptureFixture[str], dialect: str
 ) -> None:

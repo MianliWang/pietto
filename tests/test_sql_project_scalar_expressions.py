@@ -746,8 +746,8 @@ _NOW_SQL = "(statement_timestamp() AT TIME ZONE 'UTC')"
 def test_now_is_one_utc_statement_snapshot_evaluated_at_execution(tmp_path, target):
     """Project PostgreSQL emits `now()` as the statement's UTC start, a
     never-None microsecond Timestamp, in SELECT items and WHERE; the compiled
-    bundle and the live template keep the expression, never a value. MySQL
-    refuses it until its two-database differential passes."""
+    bundle and the live template keep the expression, never a value. A MySQL
+    project refuses it until a run of the project's own SQL."""
     outcome = emit_temporal(
         tmp_path / target,
         target,

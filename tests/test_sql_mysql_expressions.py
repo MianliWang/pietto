@@ -163,6 +163,17 @@ def test_same_value_is_the_parenthesised_null_safe_operator() -> None:
         render_mysql_expression(_call("same_value", _field("code")))
 
 
+def test_now_is_the_utc_statement_start_with_microseconds() -> None:
+    # MySQL fixes UTC_TIMESTAMP(6) once per statement, whatever the session
+    # time zone, as PostgreSQL's `statement_timestamp() AT TIME ZONE 'UTC'`.
+    assert render_mysql_expression(_call("now")) == "UTC_TIMESTAMP(6)"
+    assert render_mysql_expression(_call("date_of", _call("now"))) == (
+        "DATE(UTC_TIMESTAMP(6))"
+    )
+    with pytest.raises(MySqlRenderError, match="now expects 0 argument"):
+        render_mysql_expression(_call("now", _literal(1)))
+
+
 def test_mysql_only_emits_proven_decimal_round_and_int_text_cast() -> None:
     decimal = _builtin_type("Decimal", NullabilityIR.NULLABLE)
     int_type = _builtin_type("Int", NullabilityIR.NON_NULL)
@@ -706,8 +717,6 @@ def test_nested_compound_expressions_are_parenthesized() -> None:
     "expression",
     [
         _call("matches", _field("email"), _literal("@")),
-        # MySQL `now()` waits for its two-database differential.
-        _call("now"),
         _call("unknown", _literal(1)),
         _call("lower", _literal("a"), _literal("b")),
         CallIR(

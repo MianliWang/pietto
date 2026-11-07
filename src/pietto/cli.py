@@ -708,21 +708,6 @@ def _select_sql_emitter(dialect: str) -> _SqlEmitter | None:
     raise AssertionError(f"enabled SQL dialect has no emitter: {dialect}")
 
 
-def _emit_with(
-    emitter: _SqlEmitter, script_ir: ir_api.ScriptIR, script: Script
-) -> sql_api.SqlResult:
-    """Run one backend; MySQL also refuses each relation that reads a
-    top-level constant, which it does not emit yet."""
-
-    if emitter is mysql_backend.emit_mysql_sql:
-        from pietto.semantic.constants import constant_read_spans
-
-        return mysql_backend.emit_mysql_sql_refusing_constants(
-            script_ir, constant_read_spans(script)
-        )
-    return emitter(script_ir)
-
-
 def _run_check_command(namespace: argparse.Namespace) -> int:
     """Dispatch check between single-file and project-root modes."""
 
@@ -1488,7 +1473,7 @@ def _run_emit_sql_json(
         )
         return _EXIT_USAGE_ERROR
 
-    sql_result = _emit_with(emitter, ir_result.ir, script)
+    sql_result = emitter(ir_result.ir)
     diagnostics = (*diagnostics, *sql_result.diagnostics)
     if _has_errors(sql_result.diagnostics):
         _print_emit_sql_json(
@@ -1637,7 +1622,7 @@ def _run_emit_sql(
         _print_cli_error(path, "IR builder produced no IR")
         return _EXIT_DIAGNOSTIC_ERROR
 
-    sql_result = _emit_with(emitter, ir_result.ir, script)
+    sql_result = emitter(ir_result.ir)
     _render_diagnostics(sql_result.diagnostics, fallback_path=path)
     has_backend_errors = _has_errors(sql_result.diagnostics)
     if output_path is None:

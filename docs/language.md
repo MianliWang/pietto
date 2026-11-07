@@ -522,7 +522,7 @@ a source reads is part of its identity, so `postgres.table(name)` with a
 constant `name` is PIE-S2391. Each read is the constant's literal at the
 read, typed as declared: a `Date` constant is a `Date` (so `year(cutoff)` and
 `date_of(at) == cutoff` work, and comparing it with a Text field is a type
-error), and PostgreSQL SQL writes it as `DATE '2024-01-31'` /
+error), and PostgreSQL and MySQL SQL write it as `DATE '2024-01-31'` /
 `TIMESTAMP '2024-01-31 08:30:00.250000'`; `Bool`, `Int`, `Float` and `Text`
 reads emit exactly the literal written. A constant changes only SQL bytes,
 never a semantic fact. `explain` shows each read after substitution: a
@@ -550,13 +550,6 @@ A top-level line is a constant when it starts with `name:` and holds an `=`
 outside parentheses; any other top-level line parses as it did before
 constants existed.
 
-MySQL single-file emission does not emit constants yet: each table or query
-that reads one, directly, through a `def` or a relationship or by reading
-such a table or query, is PIE-B1000 (`MySQL SQL emission
-is not implemented for RelationIR: NAME. MySQL has no top-level constants yet;
-emit with --dialect postgres`), until a two-database differential reviews
-them; the other relations of the file still emit.
-
 Constants exist only in single files. In an EXPLICIT_MODULES project a
 constant is PIE-S2392 pointing to a query header parameter; in a LEGACY_FLAT
 project PIE-S2392 points to `schema_version = 2`. A single-file query header
@@ -583,11 +576,11 @@ first column give every rule.
 | `max(a, b)`, `min(a, b)` ([Expressions](#expressions)) | `CASE WHEN` of `<`/`>` and `IS NOT NULL`; `Int`, `Decimal`, `Float`, `Text`, `Date`, `Timestamp`, `UUID`, `Bool` | as PostgreSQL; a `Bool` result arrives as an integer 0, 1 or NULL, as every computed `Bool` does on MySQL | `Int`, `Decimal`, `Float`, `Text`, `Date`, `Timestamp`, `UUID` as their comparison and conditional are; `Bool` refused (PIE-B1003) | as PostgreSQL project, except `Date`, refused (PIE-B1003) |
 | `lpad(s, width, fill)` ([Expressions](#expressions)) | `CASE WHEN length(s) >= width THEN s ELSE lpad(...) END`; a literal width outside the signed 32-bit range refused (PIE-S2385 at check) | `CASE WHEN CHAR_LENGTH(s) >= width THEN s ELSE LPAD(...) END` | emitted for a width proven in the signed 32-bit range; refused otherwise (PIE-B1002, PIE-B1004) | refused (PIE-B1003) |
 | `add_months(d, n)` ([Expressions](#expressions)) | `CAST((d + make_interval(months => CAST(n AS integer))) AS date)` | `DATE_ADD(d, INTERVAL n MONTH)` | emitted; a `None` argument refused (PIE-B1003) | refused (PIE-B1003) |
-| `now()` ([Expressions](#expressions)) | `(statement_timestamp() AT TIME ZONE 'UTC')`, in SELECT items and WHERE | refused (PIE-B1000) | emitted, compiled and bound as a template | refused (PIE-B1003 `scalar_call_signature_not_admitted`) |
+| `now()` ([Expressions](#expressions)) | `(statement_timestamp() AT TIME ZONE 'UTC')`, in SELECT items and WHERE | `UTC_TIMESTAMP(6)`, in SELECT items and WHERE | emitted, compiled and bound as a template | refused (PIE-B1003 `scalar_call_signature_not_admitted`) |
 | Always-null numbers, D-12 ([Expressions](#expressions)) | typed NULL casts | typed NULL casts | `Int` arithmetic with `None`; `Float` and `Decimal` refused | as PostgreSQL |
 | `Float` equality ([Float values](#float-values)) | comparisons and GROUP BY; DISTINCT and set forms are project-only | as PostgreSQL; GROUP BY beside a wide `Text` key may split `-0.0` and `0.0` | comparisons, GROUP BY, DISTINCT, ORDER BY, every set form, window `partition by` and `order by`, `string_agg` order keys and FULL JOIN equalities, also over a window `percent_rank` or `cume_dist` result | comparisons with a literal or header parameter, ordering inequalities, `in`, `nullif`, relation ORDER BY and UNION ALL; the other forms refused (PIE-B1003) |
 | JOIN aggregates without fan-out ([Aggregates](#aggregates-and-grouping)) | accepted | accepted | accepted | accepted; `sum(Int)` stays PIE-B1004 |
-| Top-level constants and `--set` ([Top-level constants](#top-level-constants)) | literals; `DATE '...'`, `TIMESTAMP '...'` | each relation that reads one refused (PIE-B1000) | refused (PIE-S2392) | refused (PIE-S2392) |
+| Top-level constants and `--set` ([Top-level constants](#top-level-constants)) | literals; `DATE '...'`, `TIMESTAMP '...'` | as PostgreSQL | refused (PIE-S2392) | refused (PIE-S2392) |
 | Project aggregate arguments ([Aggregates](#aggregates-and-grouping)): `count`/`count_distinct` of `Text`, `Bool`, `Float`, `Decimal`; `min`/`max` of `Float`, `Decimal`; `sum`/`avg` of `Float`; a row expression argument (`sum(qty * 2)`) | emitted (unchanged) | emitted (unchanged) | emitted, also an argument holding a scalar call over JOIN rows (`count(lower(r.label))`); `Decimal` `sum`/`avg` refused (PIE-B1004) | as PostgreSQL, except `count_distinct` of a `Float` (PIE-B1003), `sum`/`avg` of a `Float` and `sum` of an `Int` such as `sum(qty * 2)` (PIE-B1004), and over JOIN rows an argument holding a scalar call (PIE-B1003); an `Int` expression not proved to fit BIGINT is PIE-B1002 first |
 | `count_distinct(a, b, ...)` ([Aggregates](#aggregates-and-grouping)) | `COUNT(DISTINCT CASE WHEN a IS NOT NULL AND b IS NOT NULL THEN ROW(a, b) END)` | `COUNT(DISTINCT a, b)` | as PostgreSQL single file, `schema_version = 2` (PIE-S2334 in a `schema_version = 1` project), also over JOIN rows | refused (PIE-B1003 `count_distinct_tuple_not_admitted_on_target`) |
 | `len(c.xs)`, `sum(o.f for o in c.xs ...)`, `any(t for o in c.xs)` ([Nested relations](#nested-relations-collect-and-unnest)) | `sum` and `any` refused at check (PIE-S2334; a single file collects no list); `len(c.xs)` has no list to read (PIE-S2102 for an unknown field, or only the Collect's own refusals) | as PostgreSQL | the count column; `sum` and `any` a scalar subquery over `pg_catalog.unnest` of the list's arrays | refused (PIE-B1003 `collect_not_admitted_on_target`) |
@@ -3333,12 +3326,12 @@ All `now()` reads of one statement are one value, whichever rows and clauses
 read it; each new execution of the SQL reads a new value. The session time
 zone does not change it: PostgreSQL SQL converts the statement start to UTC
 itself (`statement_timestamp() AT TIME ZONE 'UTC'`, not PostgreSQL `now()`,
-which is the transaction start), so SQL that `emit-sql` prints gives the UTC
-value in any session, and Pietto's own PostgreSQL and MySQL connections run
-in UTC anyway (`timezone=UTC`, `time_zone='+00:00'`). `date_of(now())` is the
-UTC date. A column that stores local time differs from `now()` by the local
-offset. MySQL emission refuses `now()` for now: single-file SQL with PIE-B1000
-(`Unsupported MySQL function call: now`), project SQL with PIE-B1003
+which is the transaction start), and single-file MySQL SQL is
+`UTC_TIMESTAMP(6)`, so SQL that `emit-sql` prints gives the UTC value in any
+session, and Pietto's own PostgreSQL and MySQL connections run in UTC anyway
+(`timezone=UTC`, `time_zone='+00:00'`). `date_of(now())` is the UTC date. A
+column that stores local time differs from `now()` by the local offset. MySQL
+project SQL refuses `now()` with PIE-B1003
 `scalar_call_signature_not_admitted`.
 
 `now()` is evaluated when the SQL runs, never when Pietto checks, emits,
