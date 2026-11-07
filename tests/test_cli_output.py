@@ -650,7 +650,7 @@ def test_einval_is_a_closed_pipe_reader_only_on_windows(
         (["check", "{missing}"], 2),  # CLI error
         (["check", "{bad}", "--project", "{project}"], 2),  # usage error
         (["check", "--project", "{missing}"], 2),  # project discovery error
-        (["explain", "--project", "{project}"], 2),  # project explain failure text
+        (["explain", "--project", "{missing}"], 2),  # project explain failure text
         (["check", "--bogus"], 2),  # argparse usage errors
         (["emit-sql", "{bad}"], 2),
         (["check", "{bad}", "--format", "yaml"], 2),

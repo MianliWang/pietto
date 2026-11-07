@@ -2,14 +2,19 @@ from __future__ import annotations
 
 import json
 from pathlib import Path
-from typing import cast
+from typing import Any, cast
 
 import pytest
 
 import pietto.cli as cli
+import pietto._project_explain.runtime_builder as runtime_builder
 import pietto._project_explain.text as project_text
 import _pietto_project_explain_runtime as slice13
 from pietto._project_explain.json_v1 import serialize_project_explain_json_document
+from pietto._project_explain.relation_columns import (
+    build_project_relation_columns,
+    serialize_project_relation_columns,
+)
 from pietto._project_explain.runtime_builder import (
     ProjectExplainRuntimeBuildResult,
     ProjectExplainRuntimeOutcome,
@@ -353,3 +358,210 @@ def test_spec_and_installed_cli_smoke_own_the_exact_slice14_surface() -> None:
         "no-evaluated-targets",
     ):
         assert required in smoke
+
+
+_SCHEMA2_CONFIG = 'schema_version = 2\n[sources]\ninclude = ["*.pietto"]\n'
+_SCHEMA2_SOURCE = """\
+shape Order:
+    id: Int
+    customer_id: Int
+    note: Text | None
+source orders: Order = postgres.table("orders")
+
+query flat:
+    from orders
+    where id > 100 -- 50
+    select:
+        id
+        note
+
+query grouped:
+    let recent:
+        from orders
+        select:
+            id
+            note
+        order by id
+    from orders
+    select:
+        customer_id
+        recent_orders = collect recent
+"""
+
+
+def _schema2_project(tmp_path: Path, source: str = _SCHEMA2_SOURCE) -> Path:
+    root = tmp_path / "schema2"
+    root.mkdir()
+    (root / "pietto.toml").write_text(_SCHEMA2_CONFIG, encoding="utf-8")
+    (root / "main.pietto").write_text(source, encoding="utf-8")
+    return root
+
+
+def _diagnostic_lines(document: dict[str, Any]) -> str:
+    return "".join(
+        f"{item['location']['path']}:{item['location']['line']}:"
+        f"{item['location']['column']} {item['code']} {item['severity']}:"
+        f" {item['message']}\n"
+        for item in document["diagnostics"]
+    )
+
+
+def test_schema2_project_writes_relation_columns_in_json_and_text(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    capsysbinary: pytest.CaptureFixture[bytes],
+) -> None:
+    root = _schema2_project(tmp_path)
+    expected = serialize_project_relation_columns(build_project_relation_columns(root))
+    calls = _counted_builder(monkeypatch)
+
+    assert cli.main(["explain", "--project", str(root), "--format", "json"]) == 0
+    json_output = capsysbinary.readouterr()
+    assert json_output.out == expected and json_output.err == b""
+    document = json.loads(json_output.out)
+    assert (document["format"], document["ok"]) == (
+        "pietto.project-relation-columns.v1",
+        True,
+    )
+    # Warnings are kept: `--` is two minus signs (PIE-P1009).
+    assert [item["code"] for item in document["diagnostics"]] == ["PIE-P1009"]
+
+    assert cli.main(["explain", "--project", str(root)]) == 0
+    text_output = capsysbinary.readouterr()
+    assert text_output.out == (
+        b"main.pietto query flat\n"
+        b"  id: Int kind=builtin nullability=non_null\n"
+        b"  note: Text kind=builtin nullability=nullable\n"
+        b"main.pietto query grouped\n"
+        b"  customer_id: Int kind=builtin nullability=non_null\n"
+        b"  recent_orders: collection nullability=non_null\n"
+        b"    id: Int kind=builtin nullability=non_null\n"
+        b"    note: Text kind=builtin nullability=nullable\n"
+    )
+    assert text_output.err.decode() == _diagnostic_lines(document)
+    # A schema version 2 project never enters the package-root runtime.
+    assert calls == []
+
+
+@pytest.mark.parametrize(
+    ("case", "expected_exit"),
+    (("parse", 1), ("source_read", 2)),
+)
+def test_schema2_failures_keep_stdout_empty_in_text_and_null_relations_in_json(
+    tmp_path: Path,
+    capsys: pytest.CaptureFixture[str],
+    case: str,
+    expected_exit: int,
+) -> None:
+    root = _schema2_project(tmp_path)
+    if case == "parse":
+        (root / "main.pietto").write_text(_SCHEMA2_SOURCE + "query broken:\n    from\n")
+    else:
+        (root / "bad.pietto").write_bytes(b"shape Bad:\n    id: Int\n\xff\n")
+
+    assert (
+        cli.main(["explain", "--project", str(root), "--format", "json"])
+        == expected_exit
+    )
+    document = json.loads(capsys.readouterr().out)
+    assert (document["ok"], document["relations"]) == (False, None)
+
+    assert cli.main(["explain", "--project", str(root)]) == expected_exit
+    text = capsys.readouterr()
+    assert text.out == ""
+    assert text.err == "".join(
+        f"project error: {error['kind']}: {error['message']}"
+        + ("" if error["path"] is None else f" (path: {error['path']})")
+        + "\n"
+        for error in document["cli_errors"]
+    ) + _diagnostic_lines(document)
+    assert text.err
+
+
+def test_a_configuration_that_fails_before_dispatch_keeps_the_v1_document(
+    tmp_path: Path,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    root = _schema2_project(tmp_path)
+    (root / "pietto.toml").write_text(_SCHEMA2_CONFIG + "unknown = 1\n")
+
+    assert cli.main(["explain", "--project", str(root), "--format", "json"]) == 2
+
+    document = json.loads(capsys.readouterr().out)
+    assert document["format"] == "pietto.project-explain.v1"
+    assert document["payload"] is None
+    assert [item["code"] for item in document["diagnostics"]] == ["config_schema"]
+
+
+@pytest.mark.parametrize(
+    ("rewritten", "message"),
+    (
+        (
+            'schema_version = 1\n[sources]\ninclude = ["*.pietto"]\n',
+            "Project configuration changed while explain --project read it.",
+        ),
+        (
+            "schema_version = 4\n",
+            "Project configuration schema-v4 package activation requires an exact"
+            " [package] root table.",
+        ),
+    ),
+    ids=("schema1", "schema4"),
+)
+def test_the_schema_2_decision_and_the_parsed_project_come_from_one_read(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+    rewritten: str,
+    message: str,
+) -> None:
+    root = _schema2_project(tmp_path, _SCHEMA2_SOURCE.split("\nquery")[0])
+    load = runtime_builder.load_project_config
+
+    def load_then_rewrite(project_root: Path) -> Any:
+        result = load(project_root)
+        (root / "pietto.toml").write_text(rewritten, encoding="utf-8")
+        return result
+
+    monkeypatch.setattr(runtime_builder, "load_project_config", load_then_rewrite)
+    assert cli.main(["explain", "--project", str(root), "--format", "json"]) == 2
+
+    # The pinned parse reads the configuration again and refuses what it finds.
+    assert json.loads(capsys.readouterr().out) == {
+        "cli_errors": [
+            {"kind": "config_schema", "message": message, "path": "pietto.toml"}
+        ],
+        "diagnostics": [],
+        "format": "pietto.project-relation-columns.v1",
+        "ok": False,
+        "relations": None,
+    }
+
+
+def test_a_configuration_rewritten_to_schema_2_after_routing_is_refused(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    root = _schema2_project(tmp_path)
+    (root / "pietto.toml").write_text(
+        _SCHEMA2_CONFIG.replace("schema_version = 2", "schema_version = 1")
+    )
+    load = runtime_builder.load_project_config
+
+    def load_then_rewrite(project_root: Path) -> Any:
+        result = load(project_root)
+        (root / "pietto.toml").write_text(_SCHEMA2_CONFIG, encoding="utf-8")
+        return result
+
+    monkeypatch.setattr(runtime_builder, "load_project_config", load_then_rewrite)
+    assert cli.main(["explain", "--project", str(root), "--format", "json"]) == 2
+
+    document = json.loads(capsys.readouterr().out)
+    assert document["format"] == "pietto.project-explain.v1"
+    assert [(item["code"], item["message"]) for item in document["diagnostics"]] == [
+        (
+            "config_schema",
+            "Project configuration changed while explain --project read it.",
+        )
+    ]

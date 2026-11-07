@@ -400,6 +400,18 @@ def _extension_catalog_fact_slots(
     )
 
 
+def _lists_relation_columns(project_root: str | Path) -> bool:
+    """Whether explain --project lists the relation columns of this root, a
+    schema version 2 project, instead of building the runtime below.
+
+    A configuration that does not load stays here, which reports it.
+    """
+
+    config_result = load_project_config(project_root)
+    config = config_result.config
+    return config_result.ok and config is not None and config.schema_version == 2
+
+
 def _build_project_explain_runtime(
     project_root: str | Path,
 ) -> ProjectExplainRuntimeBuildResult:
@@ -424,21 +436,24 @@ def _build_project_explain_runtime(
     assert type(config) is ProjectConfig
     assert pinned_root is not None
     if config.schema_version != 4:
-        message = "Project Explain runtime requires project schema version 4."
-        if config.schema_version < 3:
-            commands = (
-                "check --project"
-                if config.schema_version == 1
-                else "check --project and emit-sql --project"
-            )
+        # explain --project lists the relation columns of a schema version 2
+        # project before this builder runs, so a schema version 2
+        # configuration here was rewritten between the two reads.
+        message = (
+            "Project configuration changed while explain --project read it."
+            if config.schema_version == 2
+            else "Project Explain runtime requires project schema version 2 or 4."
+        )
+        if config.schema_version == 1:
             message += (
-                f" Use {commands} for this schema version "
-                f"{config.schema_version} project."
+                " Use check --project for this schema version 1 project, or set"
+                " schema_version = 2 and declare the names a file uses from"
+                " another file with import and export."
             )
         suggestion = (
-            "explain --project reads only a schema version 4 package-root "
-            "project, and changing schema_version alone does not convert a "
-            "project."
+            "explain --project reads a schema version 2 explicit-module project"
+            " or a schema version 4 package-root project, and changing"
+            " schema_version alone does not convert a project."
         )
         if config.schema_version == 3:
             # Schema 4 is schema 3 with a required environment table, which

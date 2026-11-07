@@ -389,8 +389,6 @@ def test_legacy_and_combined_ir_do_not_drop_set_or_replay(
             op.use.output is op.producer.active_output.occurrence
             for op in entry.operands
         )
-    assert cli.main(["explain", "--project", str(tmp_path), "--format", "json"]) == 2
-    capsys.readouterr()
     assert (
         cli.main(["emit-sql", str(tmp_path / "main.pietto"), "--dialect", "postgres"])
         == 1

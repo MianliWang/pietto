@@ -167,13 +167,18 @@ consumers must treat as incomplete. Existing output paths are never replaced.
 The command does not promise whole-directory atomic visibility or power-loss
 durability; a subsequent stdout failure does not roll back a completed directory.
 
-Project `explain` is not a JSON v2 command either. It reads only a
-`schema_version = 4` package-root project and writes the Project Explain
+Project `explain` is not a JSON v2 command either. For a
+`schema_version = 4` package-root project it writes the Project Explain
 Artifact v1 (`pietto.project-explain.v1`) defined by the
 [Phase 58 Slice 8 JSON contract](phase58-slice8-project-explain-json-v1.md)
 and the [Phase 58 Slice 14 CLI contract](phase58-slice14-project-explain-cli-text-json-v1.md).
-For another schema version, that artifact reports `config_schema` at
-`pietto.toml`. `check --project` reads schema versions 1 and 2, and
+For a `schema_version = 2` explicit-module project it writes the
+[relation columns document](project-relation-columns-v1.md)
+(`pietto.project-relation-columns.v1`), whose diagnostic and CLI error
+objects are the ones below. A configuration that does not load, and schema
+versions 1 and 3, get the Project Explain Artifact v1 failure, which reports
+`config_schema` at `pietto.toml` for schema versions 1 and 3. Readers branch
+on `format` first. `check --project` reads schema versions 1 and 2, and
 `emit-sql --project` reads schema version 2; see
 [Schema compatibility](../project-package.md#schema-compatibility) and
 [Explaining a package-root project](../project-package.md#explaining-a-package-root-project).
@@ -811,9 +816,9 @@ The planned v2 project kinds are:
 | `config_read` | `pietto.toml` cannot be read |
 | `config_parse` | TOML syntax is invalid, the bytes of `pietto.toml` are not UTF-8, or it starts with a UTF-8 byte-order mark |
 | `config_schema` | Parsed configuration violates the strict schema |
-| `project_path` | A configured or selected path violates project path policy; in project `emit-sql`, also a selected source or source directory whose name is not valid UTF-8 where a path in the document would name it (its SQL request, a diagnostic or blocker located in that file, which the document then leaves out, or another input error about it, whose `path` is then null); a message that names it shows it escaped (`\udcff`) and is kept |
+| `project_path` | A configured or selected path violates project path policy; in project `emit-sql` and project `explain` relation columns, also a selected source or source directory whose name is not valid UTF-8 where a path in the document would name it (its SQL request or a relation's `module`, a diagnostic or blocker located in that file, which the document then leaves out, or another input error about it, whose `path` is then null); a message that names it shows it escaped (`\udcff`) and is kept |
 | `project_glob` | A pattern is invalid or source selection fails |
-| `project_resource` | A project discovery, loading, or presentation budget is exceeded, including TOML in `pietto.toml` or a package manifest nested too deeply to load |
+| `project_resource` | A project discovery, loading, or presentation budget is exceeded, including TOML in `pietto.toml` or a package manifest nested too deeply to load; in project `explain` relation columns, also a column fact that is unavailable (`Project relation columns are unavailable.`) |
 | `source_read` | A selected source cannot be read or decoded |
 | `output_path` | Project output path fails safety validation |
 | `output_write` | Atomic project output write or replacement fails, or the output file is read-only or belongs to another user |

@@ -476,7 +476,7 @@ def _selects_json_format(arguments: Sequence[str]) -> bool:
 _PROJECT_HINT_SCHEMAS = {
     "check": frozenset({1, 2}),
     "emit-sql": frozenset({2}),
-    "explain": frozenset({4}),
+    "explain": frozenset({2, 4}),
 }
 _PROJECT_HINT_ARGUMENTS = {
     "emit-sql": " --module FILE --kind KIND --name NAME --dialect DIALECT"
@@ -1192,15 +1192,19 @@ def _print_explain_usage_error(message: str) -> None:
 
 
 def _run_project_explain(root: Path, *, output_format: str) -> int:
-    """Render one Slice 13 runtime result through the selected public surface."""
+    """Render one Slice 13 runtime result through the selected public surface,
+    or the relation columns of a schema version 2 project."""
 
     from pietto._project_explain.json_v1 import serialize_project_explain_json_document
     from pietto._project_explain.runtime_builder import (
         ProjectExplainRuntimeOutcome,
         _build_project_explain_runtime,
+        _lists_relation_columns,
     )
     from pietto._project_explain.text import render_project_explain_text
 
+    if _lists_relation_columns(root):
+        return _run_project_relation_columns(root, output_format=output_format)
     result = _build_project_explain_runtime(root)
     if output_format == _FORMAT_JSON:
         _write_stdout(serialize_project_explain_json_document(result.envelope))
@@ -1213,6 +1217,48 @@ def _run_project_explain(root: Path, *, output_format: str) -> int:
     if result.outcome is ProjectExplainRuntimeOutcome.DIAGNOSTIC_ERROR:
         return _EXIT_DIAGNOSTIC_ERROR
     return _EXIT_USAGE_ERROR
+
+
+def _run_project_relation_columns(root: Path, *, output_format: str) -> int:
+    """Write pietto.project-relation-columns.v1 as JSON, or as text with the
+    errors and diagnostics on stderr as check --project writes them."""
+
+    from pietto._project_explain.relation_columns import (
+        RelationColumn,
+        build_project_relation_columns,
+        serialize_project_relation_columns,
+    )
+
+    def line(column: RelationColumn, indent: str) -> str:
+        kind = (
+            "collection"
+            if column.type_name is None
+            else f"{_escape_cli_text(column.type_name)} kind={column.kind}"
+        )
+        return (
+            f"{indent}{_escape_cli_text(column.name)}: {kind}"
+            f" nullability={column.nullability}"
+        )
+
+    result = build_project_relation_columns(root)
+    if output_format == _FORMAT_JSON:
+        _write_stdout(serialize_project_relation_columns(result))
+        return result.exit_code
+    for error in result.cli_errors:
+        _print_project_error(error)
+    _render_diagnostics(result.diagnostics, fallback_path=Path("."))
+    lines: list[str] = []
+    for relation in result.relations or ():
+        lines.append(
+            f"{_escape_cli_text(relation.module)} {relation.kind}"
+            f" {_escape_cli_text(relation.name)}"
+        )
+        for column in relation.columns:
+            lines.append(line(column, "  "))
+            lines.extend(line(item, "    ") for item in column.element or ())
+    if lines:
+        _write_stdout("\n".join(lines) + "\n")
+    return result.exit_code
 
 
 def _render_explain_failure(

@@ -314,9 +314,11 @@ not SQL generation; project SQL emission is a separate explicit command. The
 older legacy-flat mode (`schema_version = 1`) checks no JOIN and no `any(...)`
 (`PIE-S2334`); see
 [project and package](https://github.com/MianliWang/pietto/blob/v0.1.9/docs/project-package.md#schema-compatibility).
-`pietto explain --project` reads only a `schema_version = 4` package-root
-project, which has no `[sources]`; for a schema 2 project use `check --project`
-and `emit-sql --project`.
+`pietto explain --project` lists the output columns of every table and query
+of a `schema_version = 2` project (alpha; see
+[Listing relation columns](https://github.com/MianliWang/pietto/blob/main/docs/project-package.md#listing-relation-columns)),
+and reads a `schema_version = 4` package-root project, which has no
+`[sources]`.
 [Explaining a package-root project](https://github.com/MianliWang/pietto/blob/main/docs/project-package.md#explaining-a-package-root-project)
 shows a layout in which `check --project` and `explain --project` read the
 same files.

@@ -90,7 +90,7 @@ Each project command reads only some schema versions:
 | `schema_version` | Top-level tables | `check --project` | `emit-sql --project` | `explain --project` |
 |---|---|---|---|---|
 | `1` legacy-flat | `[sources]` | yes | no | no |
-| `2` explicit modules | `[sources]` | yes | yes | no |
+| `2` explicit modules | `[sources]` | yes | yes | yes: [relation columns](#listing-relation-columns) |
 | `3` package root | `[package]` | no | no | no; convert it to `4` |
 | `4` package root | `[package]`, `[capability_environment]` | no | no | yes |
 
@@ -184,20 +184,43 @@ a separate package-owned typed physical selector sidecar for
 does not select a catalog, and is covered by the existing whole-package content
 digest. Schema-v2 extension requirements remain valid legacy unbound data.
 
+## Listing relation columns
+
+`pietto explain --project ROOT [--format json]` on a `schema_version = 2`
+project lists the output columns of every table and query, in the order
+`emit-sql --project --all` emits them: each column's name, its type and
+whether it may be None (`non_null`, `nullable`, or `unknown` where the check
+does not compute it). A `collect` column is a `collection` of the collected
+`let`'s columns:
+
+```text
+$ pietto explain --project shop
+models/queries.pietto query customers_with_orders
+  customer_id: Int kind=builtin nullability=non_null
+  recent_orders: collection nullability=non_null
+    id: Int kind=builtin nullability=non_null
+```
+
+The JSON form is `pietto.project-relation-columns.v1`, defined with its
+failure states by the [relation columns contract](spec/project-relation-columns-v1.md).
+It reads the facts `check --project` computes and lists no columns while the
+project has an error: diagnostics and errors then go to stderr in the
+`check --project` style, with exit 1 for a source error and exit 2 for a
+root, configuration or file problem. Other explain for explicit-module
+projects remains a [roadmap](roadmap.md#project-mode-follow-up) item.
+
 ## Explaining a package-root project
 
-`pietto explain --project ROOT [--format json]` reads only a
-`schema_version = 4` project. It writes the Project Explain Artifact v1
+`pietto explain --project ROOT [--format json]` on a `schema_version = 4`
+project writes the Project Explain Artifact v1
 (`pietto.project-explain.v1`), not a project JSON v2 envelope; see the
 [JSON contract](spec/phase58-slice8-project-explain-json-v1.md) and the
 [CLI contract](spec/phase58-slice14-project-explain-cli-text-json-v1.md).
-For a schema 1 or 2 project it fails with `config_schema` at `pietto.toml`,
-whose message names the commands that read that project (`check --project`,
-and for schema 2 also `emit-sql --project`); explain for explicit-module
-projects is a
-[roadmap](roadmap.md#project-mode-follow-up) item. A schema 3 project converts
-in one step: set `schema_version = 4` and add an empty
-`[capability_environment]` table.
+A configuration that does not load also gets that artifact's failure. For a
+schema 1 or 3 project it fails with `config_schema` at `pietto.toml`; the
+schema 1 message names `check --project` and the conversion to schema 2. A
+schema 3 project converts in one step: set `schema_version = 4` and add an
+empty `[capability_environment]` table.
 
 Explain reports the package graph, each package's content digest, the declared
 capability requirements, and their portability across the targets of

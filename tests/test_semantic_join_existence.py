@@ -786,15 +786,10 @@ def test_duplicate_binding_name_is_not_reusable_after_existence(
 
 
 @pytest.mark.parametrize("kind", ("semi", "anti"))
-def test_legacy_flat_and_explain_remain_at_existing_public_boundaries(
+def test_legacy_flat_remains_at_its_existing_public_boundary(
     tmp_path: Path, capsys: pytest.CaptureFixture[str], kind: str
 ) -> None:
     _completed(tmp_path, _existence_source("True", kind))
-    assert cli.main(["explain", "--project", str(tmp_path), "--format", "json"]) == 2
-    explanation = json.loads(capsys.readouterr().out)
-    assert explanation["format"] == "pietto.project-explain.v1"
-    assert explanation["payload"] is None
-    assert explanation["diagnostics"][0]["code"] == "config_schema"
     (tmp_path / "pietto.toml").write_text(
         'schema_version = 1\n[sources]\ninclude = ["*.pietto"]\n'
     )

@@ -78,7 +78,8 @@ def test_directory_input_reported_as_permission_error_is_a_directory(
             " --module FILE --kind KIND --name NAME --dialect DIALECT"
             " --emission-contract FILE",
         ),
-        (["explain"], 4, 2, ""),
+        (["explain"], 2, 1, ""),
+        (["explain"], 4, 3, ""),
     ],
 )
 def test_a_project_directory_given_as_the_file_hints_at_project_mode(

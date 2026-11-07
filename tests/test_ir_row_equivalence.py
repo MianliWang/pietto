@@ -884,12 +884,10 @@ def test_public_explicit_check_keeps_json_shape(
         ]
 
 
-def test_legacy_flat_and_explain_keep_existing_boundaries(
+def test_legacy_flat_keeps_its_existing_boundary(
     tmp_path: Path, capsys: pytest.CaptureFixture[str]
 ) -> None:
     _completed(tmp_path, _source())
-    assert cli.main(["explain", "--project", str(tmp_path), "--format", "json"]) == 2
-    capsys.readouterr()
     (tmp_path / "pietto.toml").write_text(
         'schema_version = 1\n[sources]\ninclude = ["*.pietto"]\n'
     )

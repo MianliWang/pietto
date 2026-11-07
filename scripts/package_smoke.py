@@ -235,6 +235,7 @@ def _required_runtime_files(prefix: str) -> frozenset[str]:
         f"{prefix}/_project_explain/model.py",
         f"{prefix}/_project_explain/package_requirement_projection.py",
         f"{prefix}/_project_explain/portability_projection.py",
+        f"{prefix}/_project_explain/relation_columns.py",
         f"{prefix}/_project_explain/runtime_builder.py",
         f"{prefix}/_project_explain/text.py",
         f"{prefix}/_project/package_capability_requirements.py",
@@ -1292,6 +1293,22 @@ def _smoke_project_emit_sql(
         != ["emission_selector"]
     ):
         raise SmokeFailure("installed project emit-sql rejection is unexpected")
+    columns = _run_installed_cli(
+        cli_path,
+        ("explain", "--project", "demo-emit", "--format", "json"),
+        scratch_dir=scratch_dir,
+        stage="installed project relation columns JSON",
+        environment=environment,
+    )
+    if columns.stderr or columns.stdout != (
+        b'{"cli_errors":[],"diagnostics":[],'
+        b'"format":"pietto.project-relation-columns.v1","ok":true,"relations":'
+        b'[{"columns":[{"name":"id","nullability":"non_null",'
+        b'"type":{"kind":"builtin","name":"Int"}},{"name":"label",'
+        b'"nullability":"non_null","type":{"kind":"builtin","name":"Text"}}],'
+        b'"kind":"table","module":"main.pietto","name":"active_items"}]}\n'
+    ):
+        raise SmokeFailure("installed project relation columns document is unexpected")
 
 
 def _installed_path(path: Path) -> Path:

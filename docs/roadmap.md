@@ -134,9 +134,12 @@ is historical planning evidence rather than current authority.
 The owner decided in October 2026 to document these project-mode limits first
 and implement them later:
 
-- Explain for explicit-module (`schema_version = 2`) projects.
-  `explain --project` reads only `schema_version = 4` package-root projects and
-  only parses their modules; see
+- Explain for explicit-module (`schema_version = 2`) projects. Phase75 adds
+  their relation columns: `explain --project` on a `schema_version = 2`
+  project lists the output columns of every table and query (alpha; see
+  [Listing relation columns](project-package.md#listing-relation-columns)).
+  The Project Explain artifact still reads only `schema_version = 4`
+  package-root projects and only parses their modules; see
   [Explaining a package-root project](project-package.md#explaining-a-package-root-project).
 - Wider project SQL emission. The forms that `check --project` accepts but
   `emit-sql --project` refuses, listed in

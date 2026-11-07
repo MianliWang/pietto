@@ -1102,13 +1102,9 @@ _SCHEMA3_CONVERSION = (
     (
         (
             'schema_version = 1\n[sources]\ninclude = ["*.pietto"]\n',
-            " Use check --project for this schema version 1 project.",
-            "",
-        ),
-        (
-            'schema_version = 2\n[sources]\ninclude = ["*.pietto"]\n',
-            " Use check --project and emit-sql --project for this schema version 2"
-            " project.",
+            " Use check --project for this schema version 1 project, or set"
+            " schema_version = 2 and declare the names a file uses from another"
+            " file with import and export.",
             "",
         ),
         (
@@ -1118,7 +1114,7 @@ _SCHEMA3_CONVERSION = (
             _SCHEMA3_CONVERSION,
         ),
     ),
-    ids=("schema1", "schema2", "schema3"),
+    ids=("schema1", "schema3"),
 )
 def test_a_root_below_schema4_is_refused_with_the_commands_that_read_it(
     tmp_path: Path, config: str, commands: str, conversion: str
@@ -1146,10 +1142,11 @@ def test_a_root_below_schema4_is_refused_with_the_commands_that_read_it(
                 end_line=None,
                 end_column=None,
             ),
-            "Project Explain runtime requires project schema version 4." + commands,
-            "explain --project reads only a schema version 4 package-root project, "
-            "and changing schema_version alone does not convert a project."
-            + conversion,
+            "Project Explain runtime requires project schema version 2 or 4."
+            + commands,
+            "explain --project reads a schema version 2 explicit-module project"
+            " or a schema version 4 package-root project, and changing"
+            " schema_version alone does not convert a project." + conversion,
         )
     ]
     if conversion:

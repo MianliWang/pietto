@@ -3,10 +3,10 @@
 ## Unreleased changes following 0.1.9
 
 These changes are on `main` after `0.1.9` and are in no published release
-yet. They are Phase73 batches 1, 2 and 3 and Phase74 (from "Importing a
-def or relationship from another module" on). Each subsection lists the
-changes against `0.1.9` that a program can observe, its compatibility rows
-and the new refusals.
+yet. They are Phase73 batches 1, 2 and 3, Phase74 (from "Importing a def
+or relationship from another module" on) and Phase75 (under
+[Phase75](#phase75)). Each subsection lists the changes against `0.1.9` that
+a program can observe, its compatibility rows and the new refusals.
 
 ### JOIN fan-out: the two-level route
 
@@ -1886,6 +1886,66 @@ aggregate `spelling` `ARRAY_AGG`. A compiled `aggregate_value` record may name
 `first` or `last` (one input and a non-empty `order_by`); such bundles carry the
 Phase73 version marks `(7, 1, 7, 1)`, and a reader of earlier marks refuses
 them.
+
+### Phase75
+
+These are the Phase75 items: relation columns from
+`explain --project`.
+
+#### `explain --project` lists relation columns (alpha)
+
+- `pietto explain --project ROOT [--format json]` on a `schema_version = 2`
+  project lists the output columns of every table and query, in the order of
+  the `emit-sql --project --all` batch items: name, type `{kind, name}`
+  (`builtin`, `type_alias`, `enum`, `shape`, `unknown`, or `collection` with
+  `name: null` and `element` columns for a `collect` column) and nullability
+  (`non_null`, `nullable`, `unknown`, kept as computed). JSON format
+  `pietto.project-relation-columns.v1` (`cli_errors`, `diagnostics`, `format`,
+  `ok`, `relations`); `ok: false`, `relations: null` on failure; exit 1 for
+  source errors, 2 for root/configuration/file problems and for an unavailable
+  column fact. Text form: `MODULE KIND NAME`, then `  NAME: TYPE kind=KIND
+  nullability=N` per column (`NAME: collection nullability=N`, element columns
+  indented two more spaces); errors and diagnostics on stderr in the
+  `check --project` style; stdout empty on failure. Contract:
+  [project relation columns v1](spec/project-relation-columns-v1.md).
+- No project produces the type kinds `type_alias` or `unknown` today: a
+  column whose declared type is an alias reports the type the alias names
+  (`total: Money` with `type Money = Int` is `{"kind": "builtin", "name":
+  "Int"}`), while single-file `explain` reports `type_alias` for it, and an
+  undeclared type name is the error PIE-S2002.
+- A relation with an untyped `None` output (`x = None`, check warning
+  PIE-S2385) makes the whole document fail closed with the `project_resource`
+  error below.
+- Alpha: until the Phase82 public format freeze the document may change in
+  any release, with a release-note line and no deprecation period.
+- Changed public messages of `explain --project` (`pietto.project-explain.v1`,
+  `config_schema` at `pietto.toml`):
+  - Schema 2 is no longer refused. Removed message:
+    `Project Explain runtime requires project schema version 4. Use check --project and emit-sql --project for this schema version 2 project.`
+  - Schema 1, old:
+    `Project Explain runtime requires project schema version 4. Use check --project for this schema version 1 project.`
+    new:
+    `Project Explain runtime requires project schema version 2 or 4. Use check --project for this schema version 1 project, or set schema_version = 2 and declare the names a file uses from another file with import and export.`
+  - Schema 3, old: `Project Explain runtime requires project schema version 4.`
+    new: `Project Explain runtime requires project schema version 2 or 4.`
+  - Suggestion (schemas 1 and 3), old:
+    `explain --project reads only a schema version 4 package-root project, and changing schema_version alone does not convert a project.`
+    new:
+    `explain --project reads a schema version 2 explicit-module project or a schema version 4 package-root project, and changing schema_version alone does not convert a project.`
+    (schema 3 keeps its appended one-step conversion sentence unchanged).
+  - New, only when `pietto.toml` is rewritten between the routing read and a
+    later read: `Project configuration changed while explain --project read it.`
+    (`config_schema` at `pietto.toml`; in `pietto.project-explain.v1` when the
+    later read finds schema 2, in the new document when the pinned parse finds
+    schema 1).
+- `explain DIR` (text) on a directory whose `pietto.toml` says
+  `schema_version = 2` now prints `hint: for a project use pietto explain
+  --project DIR` (schema 4 as before).
+- CLI error kinds gain uses in the new document: `project_resource` with
+  `Project relation columns are unavailable.` (`path: null`), and
+  `project_path` with `Project source path must be valid UTF-8 to list
+  relation columns: "<escaped path>"; rename it.` (`path: null`).
+- No diagnostic code or compiled record changes.
 
 ## Equality, nullability and asof JOIN public alpha release notes — 0.1.9
 

@@ -596,15 +596,6 @@ query dependent:
             )
 
 
-def test_project_explain_keeps_its_original_schema_boundary(
-    tmp_path: Path, capsys
-) -> None:
-    assert _completed(tmp_path, _source("lhs.id == r.id")).ok
-    assert cli.main(["explain", "--project", str(tmp_path)]) == 2
-    captured = capsys.readouterr()
-    assert "schema version 4" in captured.err
-
-
 def test_failed_input_cannot_borrow_another_dependency_blocker(tmp_path: Path) -> None:
     source = (
         _source("True")

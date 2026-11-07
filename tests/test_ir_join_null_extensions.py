@@ -1176,15 +1176,6 @@ def test_changed_completed_input_type_rebuilds_right_condition(
         )
 
 
-def test_project_explain_keeps_schema4_and_does_not_observe_new_current_ir(
-    tmp_path: Path, capsys
-) -> None:
-    assert _completed(tmp_path, _source("False", kind="full")).ok
-    assert cli.main(["explain", "--project", str(tmp_path)]) == 2
-    captured = capsys.readouterr()
-    assert "schema version 4" in captured.err
-
-
 @pytest.mark.parametrize("outer_after", (False, True))
 def test_inner_relationship_with_extra_on_retains_complete_non_null_facts(
     tmp_path: Path, outer_after: bool
