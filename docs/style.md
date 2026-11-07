@@ -32,8 +32,8 @@ diagnostics, or uses a form that a single file refuses, such as a project-only
 form, write the codes it reports after the language word, in report order:
 `pietto PIE-S2105` on the fence line. A clause or grammar fragment that is not
 a complete file uses a `text` fence. Renderers show only the language word, so
-readers do not see the codes. Each example is also already formatted: `pietto
-fmt` leaves it unchanged.
+readers do not see the codes. Every `pietto` block of `README.md` and
+`docs/*.md` is also already formatted: `pietto fmt --check` accepts it.
 
 ## A complete file
 

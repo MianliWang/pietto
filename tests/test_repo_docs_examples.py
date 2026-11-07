@@ -5,10 +5,11 @@ strict` checks it. With nothing after `pietto` on its opening fence line it
 reports no diagnostic; otherwise the words after `pietto` are the codes it
 reports, in report order (an example that shows a diagnostic, or a form that a
 single file refuses, such as a project-only one). See docs/style.md,
-Documentation examples. Every block is also already formatted: `pietto fmt`
-leaves it unchanged. The commands of docs/worked-example.md also run as the
-page shows them, over the files it names, and its two modules compile to the
-SQL of the same declarations in one module.
+Documentation examples. Every block of README.md and docs/*.md is also already
+formatted: `pietto fmt --check` accepts it. The commands of
+docs/worked-example.md also run as the page shows them, over the files it
+names, and its two modules compile to the SQL of the same declarations in one
+module.
 """
 
 from __future__ import annotations
@@ -28,12 +29,16 @@ from pietto.source_format import format_source
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
 DOCUMENTS = ("README.md", "docs/language.md", "docs/style.md", "docs/worked-example.md")
+FORMATTED = (
+    "README.md",
+    *sorted(f"docs/{path.name}" for path in REPO_ROOT.glob("docs/*.md")),
+)
 BLOCK = re.compile(r"^```pietto([^\n]*)\n(.*?)^```$", re.MULTILINE | re.DOTALL)
 
 
-def _examples() -> list[object]:
+def _examples(names: tuple[str, ...]) -> list[object]:
     examples: list[object] = []
-    for name in DOCUMENTS:
+    for name in names:
         text = (REPO_ROOT / name).read_text(encoding="utf-8")
         blocks = list(BLOCK.finditer(text))
         assert len(blocks) == text.count("```pietto"), f"{name}: unchecked fence"
@@ -44,10 +49,7 @@ def _examples() -> list[object]:
     return examples
 
 
-EXAMPLES = _examples()
-
-
-@pytest.mark.parametrize(("source", "codes"), EXAMPLES)
+@pytest.mark.parametrize(("source", "codes"), _examples(DOCUMENTS))
 def test_documented_example_reports_exactly_its_marked_codes(
     source: str, codes: list[str]
 ) -> None:
@@ -60,7 +62,7 @@ def test_documented_example_reports_exactly_its_marked_codes(
     assert [d.code for d in diagnostics] == codes, [d.message for d in diagnostics]
 
 
-@pytest.mark.parametrize(("source", "codes"), EXAMPLES)
+@pytest.mark.parametrize(("source", "codes"), _examples(FORMATTED))
 def test_documented_example_is_already_formatted(source: str, codes: list[str]) -> None:
     del codes  # the shared parametrization; the codes are checked above
     result = format_source(source)

@@ -634,7 +634,9 @@ def test_strict_batch_reader_rejects_a_duplicate_owner(tmp_path: Path) -> None:
         )
 
 
-def test_legacy_single_file_forms_are_unchanged(tmp_path: Path) -> None:
+def test_legacy_single_file_forms_are_unchanged(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
     code, out, err = run(["emit-sql", str(LEGACY_INPUT), "--dialect", "postgres"])
     assert (code, err) == (0, "") and out == LEGACY_GOLDEN.read_bytes()
     code, out, err = run(
@@ -676,6 +678,8 @@ def test_legacy_single_file_forms_are_unchanged(tmp_path: Path) -> None:
     assert code == 2 and out == b"" and "unrecognized arguments" in err
     code, out, err = run(["emit-sql", "missing.pietto", "--dialect", "sqlite"])
     assert code == 2 and out == b""
+    # argparse wraps help to COLUMNS and may break inside a hyphenated option.
+    monkeypatch.setenv("COLUMNS", "80")
     assert run(["emit-sql", "--help"])[0] == 0
     help_text = b" ".join(run(["emit-sql", "--help"])[1].split())
     assert b"project mode: pietto emit-sql --project" in help_text
@@ -683,6 +687,9 @@ def test_legacy_single_file_forms_are_unchanged(tmp_path: Path) -> None:
     assert b"In project mode --output writes the JSON artifact in either --format." in (
         help_text
     )
+    # It lists the batch form too, as `--project PATH --all --help` prints it.
+    batch = " ".join(emission_cli.BATCH_USAGE.removeprefix("usage: ").split())
+    assert f"Project batch mode: {batch} emits every".encode() in help_text
     assert run([])[0] == 0 and run(["--version"])[0] == 0
     assert run(["check", str(LEGACY_INPUT)])[0] == 0
     assert run(["explain", str(LEGACY_INPUT), "--format", "json"])[0] == 0

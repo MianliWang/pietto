@@ -520,6 +520,7 @@ For a core-only wheel install, omit `[arrow]` and use a fresh environment.
 ## Documentation
 
 - [Language](https://github.com/MianliWang/pietto/blob/v0.1.9/docs/language.md)
+- [Capabilities by mode and target](https://github.com/MianliWang/pietto/blob/main/docs/capabilities.md)
 - [Project and package](https://github.com/MianliWang/pietto/blob/v0.1.9/docs/project-package.md)
 - [Execution](https://github.com/MianliWang/pietto/blob/v0.1.9/docs/execution.md)
 - [Release notes](https://github.com/MianliWang/pietto/blob/v0.1.9/docs/release-notes.md)

@@ -541,7 +541,9 @@ parameter stays PIE-S2346, whose message now points to constants.
 
 ### Feature support by target
 
-The features added after 0.1.8 emit as follows. "Project" is
+[Capabilities by mode and target](capabilities.md) shows, for each feature
+family, what single files and projects accept and emit on each target. The
+features added after 0.1.8 emit as follows. "Project" is
 `emit-sql --project` of an explicit-module project; the sections named in the
 first column give every rule.
 

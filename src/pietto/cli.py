@@ -59,7 +59,12 @@ _PROJECT_EMIT_SQL_USAGE = (
     " --kind {table,query} --name NAME --dialect {postgres,mysql}"
     " --emission-contract FILE [--literal-policy {preserve,bind-safe}]"
     " [--format {text,json}] [--output FILE]. In project mode --output writes"
-    " the JSON artifact in either --format."
+    " the JSON artifact in either --format. Project batch mode: pietto"
+    " emit-sql --project PATH --all --dialect {postgres,mysql}"
+    " --emission-contract FILE [--module LOGICAL_MODULE] [--kind {table,query}]"
+    " [--name NAME] [--literal-policy {preserve,bind-safe}]"
+    " [--format {text,json}] [--output DIR] emits every matching table and"
+    " query; --output writes a new directory."
 )
 _METADATA_FAILURE_MESSAGES = {
     "parse": "Semantic Metadata Artifact v1 metadata is unavailable because parsing failed.",

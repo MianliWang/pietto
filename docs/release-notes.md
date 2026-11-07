@@ -1485,35 +1485,42 @@ changes):
 - A two-database differential (PostgreSQL 18.6, MySQL 8.4.12) of the
   aggregate, Float ORDER BY and `Bool` `max`/`min` forms, with MySQL column
   types judged, matched the expected rows on both databases.
-- **Kept refused on MySQL.** Int arithmetic not proved to fit signed 64 bits
-  (PIE-B1002 `arithmetic_outside_physical_range`,
+- **Kept refused on MySQL.** In projects, Int arithmetic not proved to fit
+  signed 64 bits (PIE-B1002 `arithmetic_outside_physical_range`,
   `unary_result_outside_physical_range`, `abs_result_outside_physical_range`)
   stays refused: its two-database differential did not pass, as MySQL raised
-  error 1690 (SQLSTATE 22003) on a product whose value, `-2^63`, fits signed
-  64 bits. Also unchanged
-  on MySQL: `count_distinct` of a `Float` (PIE-B1003
-  `count_distinct_argument_outside_reviewed_int_domain`; MySQL kept `-0.0`
-  and `0.0` apart in deduplication beside a wide key); `sum`, `avg` and
+  error 1690 (SQLSTATE 22003) on a product whose value, `-2^63`, fits signed 64
+  bits. Also unchanged in MySQL projects: `count_distinct` of a `Float`
+  (PIE-B1003 `count_distinct_argument_outside_reviewed_int_domain`; MySQL kept
+  `-0.0` and `0.0` apart in deduplication beside a wide key); `sum`, `avg` and
   `stddev` of a `Float` (PIE-B1004
   `float_aggregate_finite_result_proof_missing`); `sum(Int)` (PIE-B1004
   `sum_int_aggregate_range_proof_missing`); `stddev` of an `Int` (PIE-B1003
-  `stddev_int_not_admitted_on_target`); `select distinct`, window ORDER BY
-  and PARTITION BY over a `Float`; Float `union distinct`, `intersect` and
-  `except` (PIE-B1003 `set_row_equivalence_domain_unsupported`); `==` and
-  `!=` between two `Float` row reads and `same_value` of two such values
-  (PIE-B1003 `comparison_type_pair_not_admitted`); project `concat(a, b)`
-  (PIE-B1003 `scalar_call_signature_not_admitted`) and `Text(x)` of an `Int`
-  (PIE-B1003 `cast_realization_not_admitted`); `string_agg` (single file
-  PIE-B1000 `MySQL aggregate string_agg is not supported`, project PIE-B1003
-  `aggregate_function_not_promised_in_slice8`), as `GROUP_CONCAT` truncates
-  silently at `group_concat_max_len`; the `Decimal(p, s)`, `Date`,
-  `Timestamp` and `UUID` query parameters (PIE-B1003
-  `query_parameter_type_not_admitted_on_target`, see "Typed project query
-  parameters" above); the single-file conditional sum (PIE-B1000, see
-  "Conditional count and sum" above); the project conditional count and sum
+  `stddev_int_not_admitted_on_target`); `select distinct` over a `Float`
+  (PIE-B1003 `distinct_field_comparison_domain_unsupported`); Float
+  `union distinct`, `intersect` and `except` (PIE-B1003
+  `set_row_equivalence_domain_unsupported`); `==` and `!=` between two `Float`
+  row reads and `same_value` of two such values (PIE-B1003
+  `comparison_type_pair_not_admitted`); `concat(a, b)` (PIE-B1003
+  `scalar_call_signature_not_admitted`) and `Text(x)` of an `Int` (PIE-B1003
+  `cast_realization_not_admitted`); the `Decimal(p, s)`, `Date`, `Timestamp`
+  and `UUID` query parameters (PIE-B1003
+  `query_parameter_type_not_admitted_on_target`, see
+  "Typed project query parameters" above); the conditional count and sum
   (PIE-B1003 `conditional_count_not_admitted_on_target`, PIE-B1004
-  `sum_int_aggregate_range_proof_missing`, see "Conditional count and sum in
-  projects" above).
+  `sum_int_aggregate_range_proof_missing`, see
+  "Conditional count and sum in projects" above). A MySQL single file emits
+  each of these forms except `stddev` of an `Int` and the conditional sum
+  (PIE-B1000, see "Conditional count and sum" above) and `select distinct`, the
+  set operations and query parameters, which a single file does not check
+  (PIE-S2334, PIE-S2346). Window ORDER BY and PARTITION BY over a `Float` stay
+  refused in projects on both targets (PIE-B1002
+  `window_order_comparison_domain_unsupported`,
+  `window_partition_comparison_domain_unsupported`); single files emit them.
+  `string_agg` stays refused on MySQL in both (single file PIE-B1000
+  `MySQL aggregate string_agg is not supported`, project PIE-B1003
+  `aggregate_function_not_promised_in_slice8`), as `GROUP_CONCAT` truncates
+  silently at `group_concat_max_len`.
 - The private emission observation of a Decimal operation over two Decimal
   fields, or of a Float operation over two Float literals, now passes its
   independent check on PostgreSQL; emitted SQL is unchanged.
@@ -1890,8 +1897,9 @@ them.
 ### Phase75
 
 These are the Phase75 items: relation columns from
-`explain --project`, the Python compile API, `fmt --project` and the
-refusal of header lines.
+`explain --project`, the Python compile API, `fmt --project`, the
+refusal of header lines, the batch form in `emit-sql --help` and a
+capabilities page.
 
 #### `explain --project` lists relation columns (alpha)
 
@@ -2070,6 +2078,37 @@ refusal of header lines.
   `mode strict`, delete the line and pass `--check-mode`. A dependency package
   with a header line must be migrated and published again before a project
   that depends on it loads.
+
+#### `emit-sql --help` lists the project batch form
+
+- `pietto emit-sql --help` now ends, after the project single-owner form it
+  already showed, with the batch form:
+  ``Project batch mode: pietto emit-sql --project PATH --all --dialect
+  {postgres,mysql} --emission-contract FILE [--module LOGICAL_MODULE] [--kind
+  {table,query}] [--name NAME] [--literal-policy {preserve,bind-safe}]
+  [--format {text,json}] [--output DIR] emits every matching table and query;
+  --output writes a new directory.`` (argparse wraps it to the terminal
+  width). Its usage is the one `pietto emit-sql --project ROOT --all --help`
+  prints. This closes the 0.1.7 known limitation "`--all` is missing from
+  `pietto emit-sql --help`".
+- Compatibility: only the text of `pietto emit-sql --help` (stdout, exit 0)
+  changes. Argument parsing, the routes `--project` and `--all` select, exit
+  codes, usage errors and the project `--help` texts are unchanged.
+
+#### Documentation
+
+- Every `pietto` block of `README.md` and `docs/*.md` is now formatted as
+  `pietto fmt --check` requires, and `tests/test_repo_docs_examples.py` keeps
+  it so. Four blocks changed by blank lines only: no blank line between an
+  `import (...)` and an `export (...)` in [project and package](project-package.md),
+  and one blank line between two `source` lines in three 0.1.5 examples of the
+  release notes. No example's meaning changed.
+- New page [Capabilities by mode and target](capabilities.md): for each
+  feature family, whether `check` accepts it and `emit-sql` emits it in a
+  single file and in an explicit-module project, on PostgreSQL and MySQL,
+  with the release note or reference section that states it. README and the language reference
+  link it.
+- No refusal, diagnostic or SQL changes.
 
 ## Equality, nullability and asof JOIN public alpha release notes — 0.1.9
 
@@ -4806,6 +4845,7 @@ shape Order:
     customer_id: Int
 
 source customers: Customer = postgres.table("customers")
+
 source orders: Order = postgres.table("orders")
 
 query customers_without_orders:
@@ -4993,6 +5033,7 @@ shape Order:
     amount: Int
 
 source customers: Customer = postgres.table("customers")
+
 source orders: Order = postgres.table("orders")
 
 relationship OrderCustomer(order: Order, customer: Customer): order.customer_id == customer.id
@@ -5093,6 +5134,7 @@ shape Customer:
     name: Text
 
 source orders: Order = postgres.table("orders")
+
 source customers: Customer = postgres.table("customers")
 
 relationship OrderCustomer(order: Order, customer: Customer): order.customer_id == customer.id

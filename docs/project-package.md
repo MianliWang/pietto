@@ -392,7 +392,6 @@ from "models.pietto" import (
     table active_users,
     query report as ImportedReport,
 )
-
 export (
     type UserId,
     enum Status,
