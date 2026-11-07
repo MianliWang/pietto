@@ -40,8 +40,7 @@ commands, diagnostics, and commit messages in English.
   before the final audit-only boundary; retain justified fresh witnesses.
 - Place each test by product function in the owner of the deepest product
   layer it observes; a test that drives the CLI belongs to that layer's owner
-  unless it asserts the CLI contract itself. Extend the existing owner, which
-  may still have a history-named file until the second whole-tree pass;
+  unless it asserts the CLI contract itself. Extend the existing owner;
   add an owner only for a new feature or a measured aspect split, named
   `tests/test_<area>_<feature>[_<aspect>].py` (areas: parser, semantic,
   project, ir, plan, sql, cli, results, execution, jobs, release, ci, repo,
@@ -131,6 +130,8 @@ paths, formatting, and ordinary hashes do not require new authority.
 - [Language](docs/language.md): source surface and semantic boundaries.
 - [Project and package](docs/project-package.md): projects, modules, packaging,
   trusted loading, and identity.
+- [Capabilities](docs/capabilities.md): a hand-kept snapshot of what `check`
+  and `emit-sql` do for each feature family by mode and target; not authority.
 - [Development](docs/development.md): validation, generated artifacts, and
   Lean Gate v2.
 - [Roadmap](docs/roadmap.md): authorized future work.
@@ -142,7 +143,10 @@ paths, formatting, and ordinary hashes do not require new authority.
   [diagnostics](docs/spec/diagnostics.md), [project JSON v2](docs/spec/project-cli-json-v2.md),
   [semantic metadata artifact v1](docs/spec/semantic-metadata-artifact-v1.md),
   [configuration](docs/spec/pietto-config-v1.md), and
-  [golden fixtures](docs/spec/golden-fixture-policy-v1.md).
+  [golden fixtures](docs/spec/golden-fixture-policy-v1.md). Alpha until the
+  Phase82 freeze: the [relation column view](docs/spec/project-relation-columns-v1.md),
+  the [Python compile API](docs/spec/python-compile-api-v1.md) and
+  [`pietto lsp`](docs/editor-lsp.md).
 
 ## CI workloads and phase planning
 

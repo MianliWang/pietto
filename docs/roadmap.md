@@ -91,11 +91,16 @@ commits, and the Phase74 follow-up for a false PIE-S2315) is published at
 `ff1aa71389cacf6eb43ed5c94df53246f7f84eae` (tree
 `db2fbbaadd2a6c8365c6ee40ecd6466a2a0613d6`), natural exact-head CI
 `42333099891` attempt 1 accepted all 21 jobs.
-Batch 2 (S08, S09, S10 and, as its last commit, the `0.1.10` release commit)
-carries the [completion audit](phases/phase-75/completion-audit.md) and the
-[Phase76 handoff](phases/phase-75/phase76-handoff.md); Phase75 is
-`COMPLETED / PUBLISHED` once the batch-2 head passes natural exact-head CI.
-Phase75 changes no SQL output, grammar, IR or compiled record.
+Batch 2 (S08, S09, the column-view `module` field, S10 and, as its last
+commit, the `0.1.10` release commit `8e7c43f1` (tag `v0.1.10`)) carries the
+[completion audit](phases/phase-75/completion-audit.md) and the
+[Phase76 handoff](phases/phase-75/phase76-handoff.md); its natural
+exact-head CI `42343772631` attempt 1 accepted all 21 jobs, so Phase75 is
+`COMPLETED / PUBLISHED`. Phase75 changes no SQL output, grammar, IR or
+compiled record. Phase76 started on `main` at `8e7c43f1` with its
+[12-slice route](phases/phase-76/route.md), published by a
+documentation-only commit; its Gate 1 is D76.01–D76.18 in the
+[decision record](decisions.md#phase76--owner-decisions-2026-11-07).
 
 The second project-emission interlude is published at `b56cb62ed3be8ede44561d74a825fde3a53b116b` (tree `22165d89fb383f407967801193f039abcdceea68`); natural exact-head CI `41297066141` attempt 1 accepted all 19 jobs. The single-file checked Int SUM repair is published at `61a4ce4e05c190ea49e2eb93afd31e6fbdee7e29` (tree `da72b5412f4ecb087c508b9bd8204bf811a6e955`); natural exact-head CI `41362408512` attempt 1 accepted all 19 jobs.
 B5 (S14–S16) is published at `305ab2c802258c2b3e932ccf236481dfc0e0034e` (tree `6e335432490b8c7a64501519376c6dbfa59ec3cd`); natural exact-head CI `41390632023` attempt 1 accepted all 19 jobs.
@@ -3019,7 +3024,7 @@ Phase-64+ Slice route or implementation.
 | 73 | Explicit two-level aggregation, conditional and list aggregates, per-group detail lists, nested GROUP/DISTINCT keys, project aggregate windows and parity, `median`/`quantile` and small scalar features |
 | 74 | Cross-module reuse of `def` and relationships, relationship parameters that take table/query rows, MySQL catch-up, `variance`/`pvariance`/`pstdev`, group `all`/`any`, `first`/`last` and multi-column `count_distinct` |
 | 75 | Formatter follow-ups, `pietto lsp` editor diagnostics with partial analysis, diagnostic hints, compile API, relation column view and header-line retirement |
-| 76 | PostgreSQL deep adaptation |
+| 76 | PostgreSQL deep adaptation: project SQL for more forms that `check --project` accepts, `%` of `Float` operands, `Decimal` times `Int`, computed `let` keys in single files, scalars over aggregates, and a caller CA for PostgreSQL connections |
 | 77 | MySQL deep adaptation |
 | 78 | SQLite deep adaptation |
 | 79 | DuckDB deep adaptation |
@@ -3056,7 +3061,10 @@ spelling table of its new aggregates (D74.11). The Phase75 Gate 1 confirmed
 J14, J16–J20 and J22 and replaced J21 (D75.15): the owner's VS Code extension
 takes its diagnostics from `pietto lsp`, and the Phase75 VS Code acceptance
 runs with it; `pietto lsp` and editor partial analysis are protected Phase75
-scope (D75.13). Phase73 offers an explicit
+scope (D75.13). The Phase76 Gate 1 narrows its row to the PostgreSQL gaps
+users meet today (D76.01) and reroutes the PostgreSQL extension functions,
+the function/plugin SPI, database-native array and JSON columns and the
+`postgres_adbc` nested route (D76.11). Phase73 offers an explicit
 two-level aggregation route instead of
 automatic fan-out repair or reaggregation and adds no aggregate state
 contract; grouping extensions (ROLLUP, CUBE, GROUPING SETS) leave Phase73
@@ -3189,8 +3197,9 @@ on `0.1.x` patches, `0.1.10` next, until about the end of Phase80, when
 Phase73, Phase74 and Phase75, cut after Phase75 closes, with separate
 approval (D73.15). On 2026-11-07 the owner approved its publication chain,
 with the release commit as the last commit of Phase75 batch 2; `0.1.10` is
-published only when its tag, GitHub pre-release and PyPI channels carry the
-accepted files.
+published from the release commit `8e7c43f1` (tag `v0.1.10`) on the GitHub
+pre-release and PyPI. The release that carries Phase76 is asked separately;
+its version is OWNER_OPEN (D76.14).
 
 On 2026-10-28 the owner set the MySQL cadence: MySQL support may trail
 PostgreSQL by about two to three releases. New features reach PostgreSQL first,

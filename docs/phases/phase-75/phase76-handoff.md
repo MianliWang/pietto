@@ -86,7 +86,7 @@ stay open except where this table says otherwise.
 | `fmt --project --write` replaces each module atomically; a failure its pre-pass cannot predict (no space, an access rule that `os.access` does not show) surfaces in the write pass after the earlier modules are replaced. Whole-project atomicity would need a two-phase design (D75.04) | formatter owner |
 | The VS Code acceptance did not run on native Windows Python, the Windows desktop `wsl.exe` launcher, Remote WSL, macOS or the oldest admitted VS Code, and showed only the two-roots message in the editor | extension owner, in the extension repository; a CI there and an extension version policy are owner items |
 | The naming-law exceptions: `test_sql_emission_closure.py` (named by a `ci/workloads.toml` cost entry, so its rename is a placement change), and `_pietto_mysql_native_prepared.py` (its rename touches twelve files, `scripts/phase68_executor_premise.py` among them) | the lead; the next whole-tree pass |
-| `AGENTS.md` still says an owner "may still have a history-named file until the second whole-tree pass", and its list of current documentation does not name the Phase75 contracts | owner (project configuration) |
+| `AGENTS.md` said an owner "may still have a history-named file until the second whole-tree pass", and its list of current documentation did not name the Phase75 contracts | done: the Phase76 route publication commit drops the clause and names the contracts (owner answer of 2026-11-07, D76.18) |
 
 ## Acquisition debt
 

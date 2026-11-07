@@ -56,7 +56,7 @@ Linux-only: on Windows the batch goes to stdout, and a single artifact still
 writes to `--output FILE`.
 This version's [GitHub release](https://github.com/MianliWang/pietto/releases)
 also attaches the same wheel and sdist with `SHA256SUMS`; see
-[installing a release](https://github.com/MianliWang/pietto/blob/v0.1.10/docs/project-package.md#installing-a-release)
+[installing a release](https://github.com/MianliWang/pietto/blob/main/docs/project-package.md#installing-a-release)
 to check them.
 
 Coming from 0.1.9? A header line at the top of a file (`pietto 0.9`,
@@ -77,7 +77,7 @@ Coming from 0.1.8? A 0.1.8 source file needs no `pietto migrate` step unless
 it has a header line (`pietto 0.9`, `mode ...`, `dialect ...`,
 `encoding ...`): 0.1.9 warns about each one with PIE-P1012, and 0.1.10
 refuses it with PIE-P1000 (see
-[header lines are refused](https://github.com/MianliWang/pietto/blob/v0.1.10/docs/release-notes.md#header-lines-are-refused-pie-p1000)).
+[header lines are refused](https://github.com/MianliWang/pietto/blob/main/docs/release-notes.md#header-lines-are-refused-pie-p1000)).
 `pietto migrate` deletes the header lines without effect; it refuses a file with
 a `mode loose` or `mode strict` line (PIE-P1011), so delete that line by hand
 first and pass `--check-mode` instead. `concat`, `same_value` and
@@ -258,7 +258,7 @@ from Python and get its rows, see the
 From Python, `pietto.compiler.compile_sql(...)` and `compile_all_sql(...)`
 return the same `emit-sql --project ... --format json` document as bytes,
 without a subprocess (alpha; see
-[Getting project SQL from Python](https://github.com/MianliWang/pietto/blob/v0.1.10/docs/project-package.md#getting-project-sql-from-python)).
+[Getting project SQL from Python](https://github.com/MianliWang/pietto/blob/main/docs/project-package.md#getting-project-sql-from-python)).
 
 ## Reusable row predicates and migration
 
@@ -344,10 +344,10 @@ older legacy-flat mode (`schema_version = 1`) checks no JOIN and no `any(...)`
 [project and package](https://github.com/MianliWang/pietto/blob/v0.1.10/docs/project-package.md#schema-compatibility).
 `pietto explain --project` lists the output columns of every table and query
 of a `schema_version = 2` project (alpha; see
-[Listing relation columns](https://github.com/MianliWang/pietto/blob/v0.1.10/docs/project-package.md#listing-relation-columns)),
+[Listing relation columns](https://github.com/MianliWang/pietto/blob/main/docs/project-package.md#listing-relation-columns)),
 and reads a `schema_version = 4` package-root project, which has no
 `[sources]`.
-[Explaining a package-root project](https://github.com/MianliWang/pietto/blob/v0.1.10/docs/project-package.md#explaining-a-package-root-project)
+[Explaining a package-root project](https://github.com/MianliWang/pietto/blob/main/docs/project-package.md#explaining-a-package-root-project)
 shows a layout in which `check --project` and `explain --project` read the
 same files.
 
@@ -435,7 +435,7 @@ also needs the statement premise
 (`identifier_case_declaration_missing`). `Timestamp` and `UUID` fields need
 the contract-qualified carriers described in
 [Timestamp and UUID source meaning](https://github.com/MianliWang/pietto/blob/v0.1.10/docs/language.md#timestamp-and-uuid-source-meaning).
-[Project SQL emission](https://github.com/MianliWang/pietto/blob/v0.1.10/docs/project-package.md#project-sql-emission)
+[Project SQL emission](https://github.com/MianliWang/pietto/blob/main/docs/project-package.md#project-sql-emission)
 lists the premises with their PostgreSQL and MySQL values and when each is needed,
 gives a MySQL contract, and lists the forms that `check --project` accepts but
 project emission refuses, such as `count` of a `Text` field, arithmetic on a
@@ -472,7 +472,7 @@ see
 A `--literal-policy bind-safe` artifact must be consumed together with its
 `fixed_values` and `parameter_uses`; its SQL alone is not a complete
 statement. The complete contract is the
-[Slice13 specification](https://github.com/MianliWang/pietto/blob/v0.1.10/docs/spec/phase66-slice13-project-emit-sql-cli-explicit-contract-atomic-output-v1.md).
+[Slice13 specification](https://github.com/MianliWang/pietto/blob/main/docs/spec/phase66-slice13-project-emit-sql-cli-explicit-contract-atomic-output-v1.md).
 
 ## Optional extras and Python execution
 
@@ -534,7 +534,7 @@ For a core-only wheel install, omit `[arrow]` and use a fresh environment.
 ## Documentation
 
 - [Language](https://github.com/MianliWang/pietto/blob/v0.1.10/docs/language.md)
-- [Capabilities by mode and target](https://github.com/MianliWang/pietto/blob/v0.1.10/docs/capabilities.md)
+- [Capabilities by mode and target](https://github.com/MianliWang/pietto/blob/main/docs/capabilities.md)
 - [Project and package](https://github.com/MianliWang/pietto/blob/v0.1.10/docs/project-package.md)
 - [Execution](https://github.com/MianliWang/pietto/blob/v0.1.10/docs/execution.md)
 - [Release notes](https://github.com/MianliWang/pietto/blob/v0.1.10/docs/release-notes.md)
@@ -566,7 +566,7 @@ checking. Natural CI runs the final Python 3.12 and 3.13 validation coverage.
 
 Pietto is an early preview. These are the goals it is working toward; they are
 not promises or dates, and the detailed plan lives in the
-[roadmap](https://github.com/MianliWang/pietto/blob/v0.1.10/docs/roadmap.md).
+[roadmap](https://github.com/MianliWang/pietto/blob/main/docs/roadmap.md).
 
 - **Everyday SQL**: CASE, CAST, COALESCE/NULLIF, IN lists, NOT, LIKE, and common
   string, number and date functions.

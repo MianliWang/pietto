@@ -2356,7 +2356,8 @@ them.
   `scalar_meaning_requires_field_projection`) on both targets when an input
   of the relation has a `Timestamp` or `UUID` field, even one it does not
   read. INNER, LEFT and RIGHT JOINs are not affected.
-- A project `count() window()` passes `check --project`, but
+- A project `count() window()` with an empty `window()` (no argument,
+  partition or order key) passes `check --project`, but
   `emit-sql --project` refuses it (PIE-B1004 `window_result_anchor_missing`),
   and likewise a project aggregate window with a RANGE offset frame
   (PIE-B1002).
