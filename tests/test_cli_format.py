@@ -301,7 +301,11 @@ def test_fmt_fails_closed_when_the_result_would_exceed_the_size_limit(
             ["--check", "--write"],
             "pietto fmt: error: argument --write: not allowed with argument --check",
         ),
-        (["--project"], "pietto: error: unrecognized arguments: --project"),
+        (["--project"], "pietto fmt: error: argument --project: expected one argument"),
+        (
+            ["--project", "."],
+            "pietto fmt: error: argument --project: not allowed with argument path",
+        ),
         (
             ["--format", "json"],
             "pietto: error: unrecognized arguments: --format json",
@@ -399,4 +403,340 @@ def test_fmt_write_leaves_a_formatted_read_only_file_alone(
     assert (os.stat(path).st_ino, os.stat(path).st_mtime_ns) == (
         read.st_ino,
         read.st_mtime_ns,
+    )
+
+
+CONFIG = 'schema_version = 2\n[sources]\ninclude = ["*.pietto", "sub/*.pietto"]\n'
+
+
+def _project(tmp_path: Path, modules: dict[str, bytes]) -> Path:
+    root = tmp_path / "project"
+    (root / "sub").mkdir(parents=True)
+    (root / "pietto.toml").write_text(CONFIG + 'exclude = ["skip.pietto"]\n')
+    for name, data in modules.items():
+        (root / name).write_bytes(data)
+    return root
+
+
+def _contents(root: Path) -> dict[str, bytes]:
+    return {
+        path.relative_to(root).as_posix(): path.read_bytes()
+        for path in sorted(root.rglob("*"))
+        if path.is_file()
+    }
+
+
+def test_fmt_project_checks_and_rewrites_every_module_in_module_order(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    root = _project(
+        tmp_path,
+        {
+            "sub/c.pietto": MESSY,
+            "b.pietto": MESSY,
+            "a.pietto": FORMATTED,
+            "skip.pietto": MESSY,
+            "notes.txt": MESSY,
+        },
+    )
+    before = _contents(root)
+    untouched = os.stat(root / "a.pietto")
+
+    assert cli.main(["fmt", "--project", str(root), "--check"]) == 1
+    assert capsys.readouterr() == (
+        "",
+        "would reformat: b.pietto\nwould reformat: sub/c.pietto\n",
+    )
+    assert _contents(root) == before
+
+    assert cli.main(["fmt", "--write", "--project", str(root)]) == 0
+    assert capsys.readouterr() == ("", "")
+    assert _contents(root) == {
+        **before,
+        "b.pietto": FORMATTED,
+        "sub/c.pietto": FORMATTED,
+    }
+    assert (
+        os.stat(root / "a.pietto").st_ino,
+        os.stat(root / "a.pietto").st_mtime_ns,
+    ) == (
+        untouched.st_ino,
+        untouched.st_mtime_ns,
+    )
+
+    assert cli.main(["fmt", "--check", "--project", str(root)]) == 0
+    assert capsys.readouterr() == ("", "")
+
+
+@pytest.mark.parametrize("mode", ["--check", "--write"])
+def test_fmt_project_refuses_the_whole_project_as_check_reports_its_parser_errors(
+    mode: str, tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    root = _project(
+        tmp_path,
+        {
+            "a.pietto": MESSY,
+            "b.pietto": b"shape A:\n    id: Int\n  name: Text\n",
+            "sub/c.pietto": WARNED,
+            "sub/d.pietto": b"shape A:\n\tid: Int\n",
+        },
+    )
+    before = _contents(root)
+    assert cli.main(["check", "--project", str(root)]) == 1
+    expected = capsys.readouterr().err
+
+    assert cli.main(["fmt", mode, "--project", str(root)]) == 1
+
+    assert capsys.readouterr() == ("", expected)
+    assert "PIE-P1009" in expected and _contents(root) == before
+
+
+@pytest.mark.parametrize("mode", ["--check", "--write"])
+def test_fmt_project_refuses_the_whole_project_when_one_module_cannot_be_formatted(
+    mode: str,
+    tmp_path: Path,
+    capsys: pytest.CaptureFixture[str],
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    root = _project(
+        tmp_path,
+        {"a.pietto": MESSY, "b.pietto": b"#" * (1024 * 1024 + 1), "c.pietto": MESSY},
+    )
+    before = _contents(root)
+    monkeypatch.setattr(source_format, "_render", lambda lines, newline: "")
+
+    assert cli.main(["fmt", mode, "--project", str(root)]) == 1
+
+    refused = (
+        ": error: formatting would not keep the source's tokens, comments and "
+        "blocks; nothing was printed or written\n"
+    )
+    assert capsys.readouterr() == (
+        "",
+        f"a.pietto{refused}"
+        "b.pietto:1:1 PIE-P1006 error: Source exceeds the maximum supported size "
+        "of 1048576 UTF-8 bytes.\n"
+        f"c.pietto{refused}",
+    )
+    assert _contents(root) == before
+
+
+@pytest.mark.parametrize(
+    ("data", "check_err"),
+    [
+        (MESSY, "would reformat: a.pietto\nwould reformat: link.pietto\n"),
+        (FORMATTED, "would reformat: a.pietto\n"),
+        (
+            b"#" * 1_048_577,
+            "link.pietto:1:1 PIE-P1006 error: Source exceeds the maximum supported "
+            "size of 1048576 UTF-8 bytes.\n",
+        ),
+    ],
+    ids=["messy", "formatted", "oversize"],
+)
+def test_fmt_project_write_refuses_a_symbolic_link_module(
+    data: bytes, check_err: str, tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    root = _project(tmp_path, {"a.pietto": MESSY, "sub/target.txt": data})
+    (root / "link.pietto").symlink_to(root / "sub" / "target.txt")
+    before = _contents(root)
+
+    assert cli.main(["fmt", "--write", "--project", str(root)]) == 2
+
+    assert capsys.readouterr() == (
+        "",
+        "link.pietto: error: source file must not be a symbolic link\n",
+    )
+    assert _contents(root) == before and (root / "link.pietto").is_symlink()
+
+    assert cli.main(["fmt", "--check", "--project", str(root)]) == 1
+    assert capsys.readouterr().err == check_err
+
+
+@pytest.mark.skipif(
+    not hasattr(os, "geteuid") or os.geteuid() == 0, reason="root writes any file"
+)
+@pytest.mark.parametrize(
+    ("read_only", "refusal"),
+    [
+        ("b.pietto", "b.pietto: error: source file is read-only"),
+        ("sub", "sub/c.pietto: error: source file directory is not writable"),
+    ],
+    ids=["file", "directory"],
+)
+def test_fmt_project_write_writes_no_module_when_one_cannot_be_replaced(
+    read_only: str, refusal: str, tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    root = _project(
+        tmp_path,
+        {
+            "a.pietto": MESSY,
+            "b.pietto": MESSY,
+            "c.pietto": FORMATTED,
+            "sub/c.pietto": MESSY,
+        },
+    )
+    (root / "c.pietto").chmod(0o444)
+    (root / read_only).chmod(0o555)
+    before = _contents(root)
+    try:
+        assert cli.main(["fmt", "--write", "--project", str(root)]) == 2
+    finally:
+        (root / "sub").chmod(0o755)
+
+    assert capsys.readouterr() == (
+        "",
+        f"{refusal}; the source file was not changed\n",
+    )
+    assert _contents(root) == before
+
+
+def test_fmt_project_write_refuses_a_module_changed_after_it_was_read(
+    tmp_path: Path,
+    capsys: pytest.CaptureFixture[str],
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    root = _project(tmp_path, {"a.pietto": MESSY, "b.pietto": MESSY})
+    original = cli.format_source
+
+    def format_then_change(source: str, *, path: str) -> Any:
+        result = original(source, path=path)
+        if path == "b.pietto":
+            (root / path).write_bytes(MESSY + b"# new\n")
+        return result
+
+    monkeypatch.setattr(cli, "format_source", format_then_change)
+
+    assert cli.main(["fmt", "--write", "--project", str(root)]) == 2
+
+    # Each module is replaced whole, in module order, up to the first refusal.
+    assert capsys.readouterr() == (
+        "",
+        "b.pietto: error: source file changed while it was formatted; "
+        "the source file was not changed\n",
+    )
+    assert _contents(root)["a.pietto"] == FORMATTED
+    assert _contents(root)["b.pietto"] == MESSY + b"# new\n"
+
+
+@pytest.mark.parametrize(
+    ("config", "modules"),
+    [
+        (None, {}),
+        ('schema_version = 2\n[sources]\ninclude = ["none/*.pietto"]\n', {}),
+        ("x", {}),
+        (CONFIG, {"b.pietto": b"\xff\n", "c.pietto": b"#" * (1024 * 1024 + 1)}),
+    ],
+    ids=["no_config", "no_match", "invalid", "unreadable_and_oversize"],
+)
+@pytest.mark.parametrize("mode", ["--check", "--write"])
+def test_fmt_project_reports_project_errors_as_check_does(
+    config: str | None,
+    modules: dict[str, bytes],
+    mode: str,
+    tmp_path: Path,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    root = _project(tmp_path, {"a.pietto": MESSY, **modules})
+    if config is None:
+        (root / "pietto.toml").unlink()
+    else:
+        (root / "pietto.toml").write_text(config)
+    before = _contents(root)
+    assert cli.main(["check", "--project", str(root)]) == 2
+    expected = capsys.readouterr()
+
+    assert cli.main(["fmt", mode, "--project", str(root)]) == 2
+
+    assert capsys.readouterr() == expected
+    assert expected.err.startswith("project error: ")
+    assert ("PIE-P1006" in expected.err) == bool(modules)
+    assert _contents(root) == before
+
+
+PACKAGE_ROOT = (
+    '[package]\npath = "pkg"\nnamespace = "example"\nname = "shop"\n'
+    f'version = "1.0.0"\nsha256 = "{"0" * 64}"\n'
+)
+
+
+@pytest.mark.parametrize(
+    ("config", "version", "hint"),
+    [
+        (
+            CONFIG.replace("2", "1"),
+            1,
+            "Set schema_version = 2 and declare the names a file uses from "
+            "another file with import and export.",
+        ),
+        *(
+            (
+                f"schema_version = {version}\n{PACKAGE_ROOT}{tables}",
+                version,
+                "Select the package's modules with a schema_version = 2 "
+                "pietto.toml in the package directory.",
+            )
+            for version, tables in ((3, ""), (4, "[capability_environment]\n"))
+        ),
+    ],
+    ids=["v1", "v3", "v4"],
+)
+@pytest.mark.parametrize("mode", ["--check", "--write"])
+def test_fmt_project_refuses_another_schema_version_with_a_hint(
+    config: str,
+    version: int,
+    hint: str,
+    mode: str,
+    tmp_path: Path,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    root = _project(tmp_path, {"a.pietto": MESSY})
+    (root / "pietto.toml").write_text(config)
+
+    assert cli.main(["fmt", mode, "--project", str(root)]) == 2
+
+    assert capsys.readouterr() == (
+        "",
+        "project error: config_schema: fmt --project needs schema_version = 2 "
+        f"(explicit modules); this project uses schema_version {version}. {hint} "
+        "(path: pietto.toml)\n",
+    )
+    assert (root / "a.pietto").read_bytes() == MESSY
+
+
+@pytest.mark.parametrize(
+    ("arguments", "message"),
+    [
+        ([], "--project needs --check or --write"),
+        (["--format=json", "--check"], "unrecognized arguments: --format=json"),
+        (
+            ["a.pietto", "--check"],
+            "argument path: not allowed with argument --project",
+        ),
+    ],
+)
+def test_fmt_project_usage_errors(
+    arguments: list[str],
+    message: str,
+    tmp_path: Path,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    root = _project(tmp_path, {"a.pietto": MESSY})
+
+    assert cli.main(["fmt", "--project", str(root), *arguments]) == 2
+
+    captured = capsys.readouterr()
+    assert captured.out == ""
+    assert captured.err.splitlines()[-1].endswith(f" error: {message}")
+    assert (root / "a.pietto").read_bytes() == MESSY
+
+
+def test_fmt_needs_a_path_or_a_project(capsys: pytest.CaptureFixture[str]) -> None:
+    assert cli.main(["fmt"]) == 2
+    assert capsys.readouterr().err.splitlines()[-1] == (
+        "pietto fmt: error: one of the arguments path --project is required"
+    )
+    assert cli.main(["fmt", "--project", ""]) == 2
+    assert capsys.readouterr().err.splitlines()[-1] == (
+        "pietto fmt: error: argument --project: Project root must be a non-empty path."
     )

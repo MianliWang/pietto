@@ -138,6 +138,8 @@ expression roles. String contents and comments are never rewritten as keywords.
 pietto fmt shop.pietto            # print the formatted source
 pietto fmt --check shop.pietto    # exit 1 if the file is not formatted
 pietto fmt --write shop.pietto    # replace the file if it is not formatted
+pietto fmt --check --project shop # exit 1 if a module is not formatted
+pietto fmt --write --project shop # replace each module that is not formatted
 ```
 
 `fmt` changes only whitespace outside tokens. It never adds, removes, reorders
@@ -174,8 +176,25 @@ refuses with exit 2, before reading it, a symbolic link or a file that is not
 regular. It replaces
 the file atomically only when it changes, and then also refuses with exit 2 a
 read-only file, a file that belongs to another user, a file that changed after
-it was read, or a file it cannot replace. `fmt` takes one file and has no style
-options.
+it was read, or a file it cannot replace. `fmt` has no style options.
+
+`--project ROOT` formats the modules of an explicit-module project
+(`schema_version = 2`), the files `check --project` reads, in module order,
+each exactly as `fmt` formats one file; it needs `--check` or `--write`.
+`--check` reports `would reformat: PATH`, with the module's project-relative
+path, for each module that would change, and then exits 1. When the project
+cannot be read, `fmt` reports its project errors and each source over the size
+limit (PIE-P1006) as `check --project` reports them, formats no module and
+exits 2; a project of another schema version is refused as `config_schema`.
+When a module has parser errors or cannot be formatted, the diagnostics and
+errors of every module are reported, no file is written and `fmt` exits 1.
+`--write` refuses with exit 2, before writing any file, a module that is a
+symbolic link, and a module to replace that is read-only, belongs to another
+user, is not a regular file or is in a directory it cannot write.
+It then replaces each module that changes, atomically and in module order, and
+stops with exit 2 at the first one that changed after it was read or that it
+cannot replace; the modules already replaced stay replaced. It writes no file
+that the project does not select.
 
 ### Migrating old source
 

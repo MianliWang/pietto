@@ -268,13 +268,13 @@ lists every command.
   filters, input-qualified field reads and aggregates guarded against JOIN
   fan-out, for `check` and PostgreSQL and MySQL `emit-sql`, within the
   [single-file JOIN limits](https://github.com/MianliWang/pietto/blob/v0.1.9/docs/language.md#single-file-joins).
-- Projects with an explicit `pietto.toml` root: deterministic checking, and
-  SQL emission of one selected table or query, or of all of them at once with
-  `--all`, for one dialect against an emission contract. Set operations,
-  DISTINCT, relation blocks, whole-relation reads, query header parameters,
-  typed VALUES and `generate_series` are available in explicit-module
-  projects, and on PostgreSQL so is one level of nested results with
-  `collect` and `unnest`.
+- Projects with an explicit `pietto.toml` root: deterministic checking and
+  formatting, and SQL emission of one selected table or query, or of all of
+  them at once with `--all`, for one dialect against an emission contract. Set
+  operations, DISTINCT, relation blocks, whole-relation reads, query header
+  parameters, typed VALUES and `generate_series` are available in
+  explicit-module projects, and on PostgreSQL so is one level of nested
+  results with `collect` and `unnest`.
 - Fail-closed compilation: unsupported syntax, meaning or backend capability is
   a diagnostic, never guessed SQL. This is a guardrail when writing Pietto by
   hand or from AI-generated code; it does not prove business logic or database
@@ -311,7 +311,12 @@ Then run:
 
 ```bash
 pietto check --project demo-project
+pietto fmt --write --project demo-project
 ```
+
+`fmt --write --project` lays out every module as `pietto fmt` lays out one
+file, and `fmt --check --project` only lists the modules it would change. A
+module with parser errors refuses the whole project, and no file is written.
 
 Project input selection and diagnostics are deterministic. Project checking is
 not SQL generation; project SQL emission is a separate explicit command. The

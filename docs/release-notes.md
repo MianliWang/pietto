@@ -1890,7 +1890,7 @@ them.
 ### Phase75
 
 These are the Phase75 items: relation columns from
-`explain --project` and the Python compile API.
+`explain --project`, the Python compile API and `fmt --project`.
 
 #### `explain --project` lists relation columns (alpha)
 
@@ -1972,6 +1972,56 @@ These are the Phase75 items: relation columns from
   raises `RequestRejected`/`CompileRejected` where `compile_sql` returns a
   document. Spec: [Python compile API v1](spec/python-compile-api-v1.md).
 - No diagnostic code, CLI output, JSON document or compiled record changes.
+
+#### Formatter: every module of a project
+
+- `pietto fmt --check --project ROOT` and `pietto fmt --write --project ROOT`
+  format the modules of an explicit-module project (`schema_version = 2`),
+  the files `check --project` reads, in module order (code-point order of the
+  project-relative paths), each exactly as `pietto fmt PATH` formats one file.
+  `--project` is the same flag as in `check --project`; it takes no path and
+  needs `--check` or `--write`.
+- `--check` never writes. It prints `would reformat: PATH` on stderr, with the
+  module's project-relative path, for each module that would change, and exits
+  1 when there is one, 0 otherwise.
+- A module with parser errors, or one that `fmt` cannot format (the result
+  would not keep its tokens, comments and blocks, or would exceed the source
+  size limit), refuses the whole project: the diagnostics and errors of every
+  module are printed, no file is written, and `fmt` exits 1.
+- `--write` refuses with exit 2, before writing any file, a module that is a
+  symbolic link (formatted or not), and a module to replace that is
+  read-only, belongs to another user, is not a regular file or is in a
+  directory it cannot write. It then replaces each module that changes
+  atomically, only while it still holds the bytes that were read, in module
+  order; at the first module that changed after it was read or cannot be
+  replaced it stops with exit 2, and the modules already replaced stay
+  replaced. A formatted module is never rewritten. Only selected modules are
+  written: never `pietto.toml`, an excluded or unselected file, or a file
+  outside the root.
+- Project errors (no `pietto.toml`, an invalid configuration, a selection that
+  matches nothing, a source that cannot be read), and with them each source
+  over the size limit (PIE-P1006), are printed as `check --project` prints
+  them, with exit 2; no module is formatted.
+- New refusals (exit 2):
+  - schema_version 1:
+    `project error: config_schema: fmt --project needs schema_version = 2 (explicit modules); this project uses schema_version 1. Set schema_version = 2 and declare the names a file uses from another file with import and export. (path: pietto.toml)`
+  - schema_version 3 or 4 (N):
+    `project error: config_schema: fmt --project needs schema_version = 2 (explicit modules); this project uses schema_version N. Select the package's modules with a schema_version = 2 pietto.toml in the package directory. (path: pietto.toml)`
+  - `--write`, a module to replace in a directory it cannot write:
+    `PATH: error: source file directory is not writable; the source file was not changed`
+- New usage errors (exit 2), each after the line
+  `usage: pietto fmt [-h] [--project PROJECT] [--check | --write] [path]`:
+  - `pietto fmt: error: --project needs --check or --write`
+  - `pietto fmt: error: one of the arguments path --project is required`
+    (before: `pietto fmt: error: the following arguments are required: path`)
+  - `pietto fmt: error: argument --project: not allowed with argument path`
+    and `pietto fmt: error: argument path: not allowed with argument --project`
+  - `pietto fmt: error: argument --project: expected one argument`
+    (before: `pietto: error: unrecognized arguments: --project`)
+  - `pietto fmt: error: argument --project: Project root must be a non-empty path.`
+- Text only: `fmt --project` has no `--format json` and is outside CLI JSON v1
+  and project CLI JSON v2.
+- No diagnostic code, grammar, SQL, JSON document or compiled record changes.
 
 ## Equality, nullability and asof JOIN public alpha release notes — 0.1.9
 

@@ -950,33 +950,12 @@ def _read_selected_input(
     *,
     explicit_modules: bool = False,
 ) -> _ReadInput | _InputOutcome:
-    try:
-        trusted_source = _load_trusted_source(
-            pinned_root,
-            selected_input,
-            byte_limit=_PROJECT_SOURCE_UTF8_BYTES,
-        )
-    except UnicodeDecodeError:
-        return _source_read_failure(
-            selected_input.project_input,
-            "Project source file must be valid UTF-8.",
-        )
-    except ProjectTrustedSourceError as error:
-        return _trusted_source_failure(selected_input.project_input, error.reason)
-    except OSError:
-        return _source_read_failure(
-            selected_input.project_input,
-            "Project source file is not readable.",
-        )
-
+    trusted_source = _read_selected_source(pinned_root, selected_input)
+    failed = ProjectInput(path=selected_input.identity.path, status=_ERROR_STATUS)
+    if isinstance(trusted_source, ProjectDiscoveryError):
+        return failed, None, None, (trusted_source,), ()
     if isinstance(trusted_source, Diagnostic):
-        return (
-            ProjectInput(path=selected_input.identity.path, status=_ERROR_STATUS),
-            None,
-            None,
-            (),
-            (trusted_source,),
-        )
+        return failed, None, None, (), (trusted_source,)
 
     parse_result = parser_api.parse_source(
         trusted_source.source_text,
@@ -1205,41 +1184,87 @@ def _finish_selected_input(
     )
 
 
-def _source_read_failure(
-    selected_input: ProjectInput,
-    message: str,
+def read_explicit_module_sources(
+    root: str | Path, command: str
 ) -> tuple[
-    ProjectInput,
-    ProjectParsedInput | None,
-    ProjectTrustedSourceSnapshot | None,
     tuple[ProjectDiscoveryError, ...],
-    tuple[Diagnostic, ...],
+    tuple[
+        tuple[ProjectSelectedInputEntry, ProjectTrustedSourceSnapshot | Diagnostic],
+        ...,
+    ],
 ]:
-    return (
-        ProjectInput(path=selected_input.path, status=_ERROR_STATUS),
-        None,
-        None,
-        (
+    """Read, without parsing, every selected source of a schema_version 2
+    project in module order: its selected entry with the trusted text, or
+    with the PIE-P1006 diagnostic of a source over the size limit, and the
+    project errors; one without a path stops the reading. `command` names
+    the caller in the refusal of any other schema version."""
+
+    config_result = load_project_config(root)
+    config = config_result.config
+    if config is not None and (
+        config.compilation_mode is not ProjectCompilationMode.EXPLICIT_MODULES
+    ):
+        hint = (
+            "Set schema_version = 2 and declare the names a file uses from"
+            " another file with import and export."
+            if config.compilation_mode is ProjectCompilationMode.LEGACY_FLAT
+            else "Select the package's modules with a schema_version = 2"
+            " pietto.toml in the package directory."
+        )
+        return (
             ProjectDiscoveryError(
-                ProjectDiscoveryErrorKind.SOURCE_READ,
-                message,
-                selected_input.path,
+                ProjectDiscoveryErrorKind.CONFIG_SCHEMA,
+                f"{command} needs schema_version = 2 (explicit modules); this"
+                f" project uses schema_version {config.schema_version}. {hint}",
+                _PROJECT_CONFIG_PATH,
             ),
-        ),
-        (),
+        ), ()
+    selection = select_project_sources(root, config_result)
+    if selection.pinned_root is None or selection.selected_input_index is None:
+        return selection.errors or _selection_resource_error(selection).errors, ()
+    errors: list[ProjectDiscoveryError] = []
+    sources: list[
+        tuple[ProjectSelectedInputEntry, ProjectTrustedSourceSnapshot | Diagnostic]
+    ] = []
+    for entry in selection.selected_input_index.entries:
+        source = _read_selected_source(selection.pinned_root, entry)
+        if not isinstance(source, ProjectDiscoveryError):
+            sources.append((entry, source))
+            continue
+        errors.append(source)
+        if source.path is None:
+            break
+    return tuple(errors), tuple(sources)
+
+
+def _read_selected_source(
+    pinned_root: ProjectPinnedRoot,
+    selected_input: ProjectSelectedInputEntry,
+) -> ProjectTrustedSourceSnapshot | Diagnostic | ProjectDiscoveryError:
+    """The trusted text of one selected source, the PIE-P1006 diagnostic of a
+    source over the size limit, or the project error that refuses it."""
+
+    try:
+        return _load_trusted_source(
+            pinned_root,
+            selected_input,
+            byte_limit=_PROJECT_SOURCE_UTF8_BYTES,
+        )
+    except UnicodeDecodeError:
+        message = "Project source file must be valid UTF-8."
+    except ProjectTrustedSourceError as error:
+        return _trusted_source_failure(selected_input.project_input, error.reason)
+    except OSError:
+        message = "Project source file is not readable."
+    return ProjectDiscoveryError(
+        ProjectDiscoveryErrorKind.SOURCE_READ, message, selected_input.identity.path
     )
 
 
 def _trusted_source_failure(
     selected_input: ProjectInput,
     reason: ProjectTrustedSourceFailure,
-) -> tuple[
-    ProjectInput,
-    ProjectParsedInput | None,
-    ProjectTrustedSourceSnapshot | None,
-    tuple[ProjectDiscoveryError, ...],
-    tuple[Diagnostic, ...],
-]:
+) -> ProjectDiscoveryError:
     kind, message, path = {
         ProjectTrustedSourceFailure.ROOT_CHANGED: (
             ProjectDiscoveryErrorKind.PROJECT_ROOT,
@@ -1277,13 +1302,7 @@ def _trusted_source_failure(
             selected_input.path,
         ),
     }[reason]
-    return (
-        ProjectInput(path=selected_input.path, status=_ERROR_STATUS),
-        None,
-        None,
-        (ProjectDiscoveryError(kind, message, path),),
-        (),
-    )
+    return ProjectDiscoveryError(kind, message, path)
 
 
 def _with_project_relative_path(

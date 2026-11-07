@@ -87,12 +87,12 @@ and package behavior; they do not restore retired source spelling.
 
 Each project command reads only some schema versions:
 
-| `schema_version` | Top-level tables | `check --project` | `emit-sql --project` | `explain --project` |
-|---|---|---|---|---|
-| `1` legacy-flat | `[sources]` | yes | no | no |
-| `2` explicit modules | `[sources]` | yes | yes | yes: [relation columns](#listing-relation-columns) |
-| `3` package root | `[package]` | no | no | no; convert it to `4` |
-| `4` package root | `[package]`, `[capability_environment]` | no | no | yes |
+| `schema_version` | Top-level tables | `check --project` | `emit-sql --project` | `explain --project` | `fmt --project` |
+|---|---|---|---|---|---|
+| `1` legacy-flat | `[sources]` | yes | no | no | no |
+| `2` explicit modules | `[sources]` | yes | yes | yes: [relation columns](#listing-relation-columns) | yes |
+| `3` package root | `[package]` | no | no | no; convert it to `4` | no |
+| `4` package root | `[package]`, `[capability_environment]` | no | no | yes | no |
 
 A command given another version fails with `config_schema`.
 Schema 3 and 4 select no source files, so `[sources]` is rejected there; they

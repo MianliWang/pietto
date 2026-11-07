@@ -9,6 +9,7 @@ from typing import Any
 import pytest
 
 from _pietto_parser_layout import layout_free
+from _pietto_sql_emission import CONFIG, fixture as emission_fixture
 from pietto import cli, source_format
 from pietto.indentation import IndentationResult, find_leading_tab_diagnostics
 from pietto.parser_api import parse_source
@@ -85,6 +86,52 @@ def _observed(
         for dialect in ("postgres", "mysql")
     ]
     return checked, [item["code"] for item in document["diagnostics"]], emitted
+
+
+def _without_source_positions(output: str) -> list[Any]:
+    """A project emission batch without what follows the source text: each
+    module's size and digest, and the source ranges of the SQL."""
+
+    items = json.loads(output)["items"]
+    for item in items:
+        del item["document"]["ranges"]
+        for source in item["document"]["request"]["sources"]:
+            del source["byte_count"], source["sha256"]
+    return items
+
+
+def test_project_fmt_lays_out_each_module_as_fmt_lays_out_one_file(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    item = emission_fixture("postgres", "N_imported_chain", "bag")
+    (tmp_path / "pietto.toml").write_text(CONFIG, encoding="utf-8")
+    (tmp_path / "contract.json").write_text(item["contract"], encoding="utf-8")
+    modules = {name: _messy(text) for name, text in item["source"].items()}
+    for name, text in modules.items():
+        (tmp_path / name).write_bytes(text.encode("utf-8"))
+    emit = ["emit-sql", "--project", str(tmp_path), "--all", "--dialect", "postgres"]
+    emit += ["--emission-contract", "contract.json"]
+
+    def observed() -> tuple[int, str, int, list[Any]]:
+        checked = cli.main(["check", "--project", str(tmp_path)])
+        check_output = capsys.readouterr().out
+        emitted = cli.main(emit)
+        return (
+            checked,
+            check_output,
+            emitted,
+            _without_source_positions(capsys.readouterr().out),
+        )
+
+    expected = observed()
+    assert expected[0] == expected[2] == 0 and len(expected[3]) == 3
+
+    assert cli.main(["fmt", "--write", "--project", str(tmp_path)]) == 0
+
+    assert sorted(modules) == ["a.pietto", "b.pietto", "main.pietto"]
+    for name, text in modules.items():
+        assert (tmp_path / name).read_bytes().decode("utf-8") == _formatted(text)
+    assert observed() == expected
 
 
 @pytest.mark.parametrize("name", CORPUS)

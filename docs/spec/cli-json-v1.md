@@ -57,7 +57,9 @@ specified in [Diagnostics](diagnostics.md) and
 `pietto fmt [--check | --write] PATH` is outside this JSON contract too and
 has no `--format json` mode. It writes the complete formatted source to stdout,
 or with `--write` to the file, never JSON; `--check` writes nothing and reports
-`would reformat: PATH` on stderr. Diagnostics and errors go to stderr as text,
+`would reformat: PATH` on stderr. The same holds for
+`pietto fmt (--check | --write) --project ROOT`, which reports each module's
+project-relative path. Diagnostics and errors go to stderr as text,
 and the exit code is `0`, `1` or `2`; see
 [Formatting source](../language.md#formatting-source).
 

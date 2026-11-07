@@ -20,7 +20,7 @@ from pietto.ir.diagnostics import join_explain_diagnostics
 import pietto.sql as sql_api
 import pietto.sql.mysql as mysql_backend
 from pietto import cli_json
-from pietto.source_format import FormatRefusedError, format_file
+from pietto.source_format import FormatRefusedError, format_file, format_source
 from pietto.source_migration import migrate_file
 from pietto._metadata.builder import build_semantic_metadata_artifact
 from pietto._metadata.serializer import (
@@ -231,7 +231,17 @@ def _main(argv: Sequence[str] | None = None) -> int:
     if namespace.command == "migrate":
         return _run_migrate(namespace.path)
     if namespace.command == "fmt":
-        return _run_fmt(namespace.path, check=namespace.check, write=namespace.write)
+        if namespace.project is None:
+            return _run_fmt(
+                namespace.path, check=namespace.check, write=namespace.write
+            )
+        if namespace.check or namespace.write:
+            return _run_project_fmt(namespace.project, write=namespace.write)
+        _write_stderr(
+            "usage: pietto fmt [-h] [--project PROJECT] [--check | --write] [path]\n"
+            "pietto fmt: error: --project needs --check or --write\n"
+        )
+        return _EXIT_USAGE_ERROR
     return 0
 
 
@@ -311,17 +321,24 @@ def _build_parser() -> argparse.ArgumentParser:
     migrate_parser.add_argument("path", type=Path, help="Pietto source file")
     fmt_parser = subparsers.add_parser(
         "fmt",
-        help="write formatted Pietto source to stdout, or check or rewrite the file",
+        help="write formatted Pietto source to stdout, or check or rewrite the file "
+        "or every project module",
     )
-    fmt_parser.add_argument("path", type=Path, help="Pietto source file")
+    fmt_input = fmt_parser.add_mutually_exclusive_group(required=True)
+    fmt_input.add_argument("path", type=Path, nargs="?", help="Pietto source file")
+    fmt_input.add_argument(
+        "--project",
+        type=_project_root_argument,
+        help="explicit Pietto project root; needs --check or --write",
+    )
     fmt_mode = fmt_parser.add_mutually_exclusive_group()
     fmt_mode.add_argument(
         "--check",
         action="store_true",
-        help="exit 1 if the file is not formatted; never write",
+        help="exit 1 if a file is not formatted; never write",
     )
     fmt_mode.add_argument(
-        "--write", action="store_true", help="replace the file if it is not formatted"
+        "--write", action="store_true", help="replace each file that is not formatted"
     )
     return parser
 
@@ -919,6 +936,85 @@ def _run_fmt(path: Path, *, check: bool, write: bool) -> int:
     except (OSError, ValueError) as error:
         _print_cli_error(path, _cli_error_message(error, path))
         return _EXIT_USAGE_ERROR
+    return 0
+
+
+def _run_project_fmt(root: Path, *, write: bool) -> int:
+    """Check or rewrite every module of a schema_version 2 project in module
+    order, as fmt formats one file; write no file unless every module reads,
+    parses and formats, and, with ``write``, none is a symbolic link and each
+    one to replace, and its directory, can be written."""
+
+    from pietto._project.check import read_explicit_module_sources
+
+    errors, sources = read_explicit_module_sources(root, "fmt --project")
+    if errors:
+        for error in errors:
+            _print_project_error(error)
+        oversize = tuple(item for _, item in sources if isinstance(item, Diagnostic))
+        _render_diagnostics(oversize, fallback_path=Path("."))
+        return _EXIT_USAGE_ERROR
+    if write:
+        # Every link is refused, an oversize one included.
+        links = [
+            entry.identity.path for entry, _ in sources if entry.final_leaf_is_symlink
+        ]
+        for name in links:
+            _print_cli_error(name, "source file must not be a symbolic link")
+        if links:
+            return _EXIT_USAGE_ERROR
+    changed: list[tuple[str, Path, str, str]] = []
+    refused = False
+    for _, source in sources:
+        if isinstance(source, Diagnostic):
+            _render_diagnostics((source,), fallback_path=Path("."))
+            refused = True
+            continue
+        try:
+            result = format_source(source.source_text, path=source.path)
+        except FormatRefusedError as error:
+            _print_cli_error(source.path, str(error))
+            refused = True
+            continue
+        _render_diagnostics(result.diagnostics, fallback_path=Path(source.path))
+        if result.source is None:
+            refused = True
+        elif result.changed:
+            path = source.selected_input.canonical_path
+            changed.append((source.path, path, source.source_text, result.source))
+    if refused:
+        return _EXIT_DIAGNOSTIC_ERROR
+    if not write:
+        for name, *_ in changed:
+            _write_stderr(f"would reformat: {_escape_cli_text(name)}\n")
+        return _EXIT_DIAGNOSTIC_ERROR if changed else 0
+    unwritable = False
+    for name, path, _, _ in changed:
+        try:
+            _refuse_unsafe_source(path)
+            _refuse_unwritable(path, "source file")
+            if not os.access(path.parent, os.W_OK | os.X_OK):
+                raise ValueError(
+                    "source file directory is not writable; "
+                    "the source file was not changed"
+                )
+        except (OSError, ValueError) as error:
+            _print_cli_error(name, _cli_error_message(error, path))
+            unwritable = True
+    if unwritable:
+        return _EXIT_USAGE_ERROR
+    for name, path, text, formatted in changed:
+        try:
+            _refuse_unsafe_source(path)  # again, as it may have changed since
+            _replace_file(
+                path,
+                formatted.encode("utf-8"),
+                "source file",
+                expected=text.encode("utf-8"),
+            )
+        except (OSError, ValueError) as error:
+            _print_cli_error(name, _cli_error_message(error, path))
+            return _EXIT_USAGE_ERROR
     return 0
 
 
@@ -1625,10 +1721,7 @@ def _replace_file(
     """Atomically replace one regular file, which is never left half written,
     and, given ``expected``, only while it still holds those bytes."""
 
-    if is_read_only(path):
-        raise ValueError(f"{noun} is read-only; the {noun} was not changed")
-    if is_owned_by_another_user(path):
-        raise ValueError(f"{noun} belongs to another user; the {noun} was not changed")
+    _refuse_unwritable(path, noun)
     temporary_path: Path | None = None
     try:
         temporary, temporary_path = open_replacement(path)
@@ -1649,6 +1742,15 @@ def _replace_file(
                 temporary_path.unlink(missing_ok=True)
             except OSError:
                 pass
+
+
+def _refuse_unwritable(path: Path, noun: str) -> None:
+    """Refuse a read-only file or one that belongs to another user."""
+
+    if is_read_only(path):
+        raise ValueError(f"{noun} is read-only; the {noun} was not changed")
+    if is_owned_by_another_user(path):
+        raise ValueError(f"{noun} belongs to another user; the {noun} was not changed")
 
 
 def _validate_output_path(input_path: Path, output_path: Path) -> None:
@@ -1723,7 +1825,7 @@ def _format_diagnostic(diagnostic: Diagnostic, *, fallback_path: Path) -> str:
     )
 
 
-def _print_cli_error(path: Path, message: str) -> None:
+def _print_cli_error(path: Path | str, message: str) -> None:
     """Render one escaped path-prefixed CLI error."""
 
     _write_stderr(

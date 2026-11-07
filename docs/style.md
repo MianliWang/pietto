@@ -16,6 +16,11 @@ pietto check --check-mode strict shop.pietto
 Each example below is a complete file that you can copy and check. It passes
 that check with no diagnostic, unless the text says that it shows one.
 
+Let `pietto fmt` lay out your files rather than indenting them by hand.
+`pietto fmt --write shop.pietto` replaces the file when its layout changes, and
+`pietto fmt --write --project ROOT` does so for each module of a project. With
+`--check` in place of `--write`, it only reports the files it would change.
+
 ## Documentation examples
 
 `tests/test_repo_docs_examples.py` checks every fenced `pietto` block of
