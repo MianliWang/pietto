@@ -20,7 +20,9 @@ import os
 from pathlib import Path
 import re
 import socket
+import ssl
 import struct
+import subprocess
 import threading
 from uuid import UUID
 
@@ -424,11 +426,66 @@ def write_psycopg_c(directory):
     return package
 
 
-class PostgresStub:
-    """One loopback connection of a PostgreSQL server that never authenticates."""
+def tls_material(directory):
+    """Two test CAs and four server certificates made by the host `openssl`,
+    all signed by `ca` (`other_ca` signed none): `server` has the SAN
+    127.0.0.1, `elsewhere` only the SAN elsewhere.invalid, and the common name
+    127.0.0.1 is in `common` beside only that DNS SAN and in `other_ip` beside
+    only the SAN 127.0.0.2. Returns the PEM paths."""
+    directory = Path(directory)
 
-    def __init__(self, *, ssl=b"N", auth="password"):
-        self.ssl, self.auth = ssl, AUTH[auth]
+    def openssl(*arguments):
+        subprocess.run(
+            ("openssl", *arguments),
+            cwd=directory,
+            check=True,
+            capture_output=True,
+            timeout=30,
+        )
+
+    key = ("-newkey", "ec", "-pkeyopt", "ec_paramgen_curve:prime256v1", "-nodes")
+    for ca in ("ca", "other_ca"):
+        openssl(
+            *("req", "-x509", *key, "-sha256", "-days", "2"),
+            *("-subj", "/CN=pietto-test-" + ca),
+            *("-addext", "basicConstraints=critical,CA:true"),
+            *("-keyout", ca + "-key.pem", "-out", ca + ".pem"),
+        )
+    for name, common, san in (
+        ("server", "server", "IP:127.0.0.1"),
+        ("elsewhere", "elsewhere", "DNS:elsewhere.invalid"),
+        ("common", "127.0.0.1", "DNS:elsewhere.invalid"),
+        ("other_ip", "127.0.0.1", "IP:127.0.0.2"),
+    ):
+        openssl(
+            *("req", "-new", *key, "-sha256", "-subj", "/CN=" + common),
+            *("-addext", "subjectAltName=" + san),
+            *("-keyout", name + "-key.pem", "-out", name + ".csr"),
+        )
+        openssl(
+            *("x509", "-req", "-in", name + ".csr", "-CA", "ca.pem"),
+            *("-CAkey", "ca-key.pem", "-CAcreateserial", "-days", "2"),
+            *("-sha256", "-copy_extensions", "copy", "-out", name + ".pem"),
+        )
+    return {
+        name: directory / (name + ".pem")
+        for name in ("ca", "other_ca", "server", "elsewhere", "common", "other_ip")
+    }
+
+
+def server_tls(material, name):
+    """A TLS server context that presents the certificate `name`."""
+    context = ssl.SSLContext(ssl.PROTOCOL_TLS_SERVER)
+    context.load_cert_chain(material[name], material[name].with_name(name + "-key.pem"))
+    return context
+
+
+class PostgresStub:
+    """One loopback connection of a PostgreSQL server that never authenticates;
+    with a `tls` server context it accepts TLS and reads the startup through it."""
+
+    def __init__(self, *, ssl=b"N", auth="password", tls=None):
+        self.ssl, self.auth, self.tls = ssl, AUTH[auth], tls
         self.events = []
         self.startup = {}
         self.listener = socket.create_server(("127.0.0.1", 0))
@@ -473,7 +530,16 @@ class PostgresStub:
                 if code == SSL_REQUEST:
                     self.events.append(("ssl_request",))
                     connection.sendall(self.ssl)
-                    if self.ssl == b"S":
+                    if self.ssl == b"S" and self.tls is not None:
+                        try:
+                            connection = self.tls.wrap_socket(
+                                connection, server_side=True
+                            )
+                        except OSError as error:
+                            self.events.append(("tls_failed", type(error).__name__))
+                            return
+                        self.events.append(("tls", connection.version()))
+                    elif self.ssl == b"S":
                         # A TLS ClientHello follows; this stub speaks no TLS.
                         self.events.append(("tls_hello", bool(connection.recv(4096))))
                         return

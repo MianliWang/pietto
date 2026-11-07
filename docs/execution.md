@@ -61,9 +61,9 @@ Linux-only (see [Known limitations](#known-limitations)).
 
 | Route | Selected target and dependencies | Explicit prerequisites | Qualified native evidence | Not claimed |
 | --- | --- | --- | --- | --- |
-| `postgres_rows` | PostgreSQL 18.6; `psycopg[binary]==3.3.5`; `pyarrow==26.0.0` | One TCP host, `PostgresAccess`, `PostgresDeploymentPremise`, and SCRAM-SHA-256. | Linux x86-64, CPython 3.13.13. | Windows native execution; another PostgreSQL release, libpq closure or TLS profile. |
+| `postgres_rows` | PostgreSQL 18.6; `psycopg[binary]==3.3.5`; `pyarrow==26.0.0` | One TCP host, `PostgresAccess`, `PostgresDeploymentPremise`, and SCRAM-SHA-256; TLS `require`, or `verify-full` against a caller-supplied `ca_file`. | Linux x86-64, CPython 3.13.13. | Windows native execution; another PostgreSQL release, libpq closure or TLS profile (client certificates, revocation lists, `verify-ca`, a system CA store). |
 | `mysql_rows` | MySQL 8.4.12; `mysql-connector-python==26.10.0`; `pyarrow==26.0.0` | One TCP host, `MySQLAccess`, `MySQLDeploymentPremise`, and caller-supplied CA with certificate and server-identity verification. | Linux x86-64, CPython 3.13.13. | Windows native execution; another MySQL release, connector version or provider profile. |
-| `postgres_adbc` | PostgreSQL 18.6; `adbc-driver-postgresql==1.13.0`; `adbc-driver-manager==1.13.0`; `pyarrow==26.0.0` | PostgreSQL TCP access, deployment premise, SCRAM profile, and the selected driver closure. | Linux x86-64, CPython 3.13.13. | Windows native execution; another ADBC/libpq closure, PostgreSQL release or platform. |
+| `postgres_adbc` | PostgreSQL 18.6; `adbc-driver-postgresql==1.13.0`; `adbc-driver-manager==1.13.0`; `pyarrow==26.0.0` | PostgreSQL TCP access, deployment premise, SCRAM profile with the same two TLS profiles as `postgres_rows`, and the selected driver closure. | Linux x86-64, CPython 3.13.13. | Windows native execution; another ADBC/libpq closure, PostgreSQL release, TLS profile or platform. |
 
 The qualified profile is the integration host with the lock's exact artifacts.
 Installing an extra selects no route, grants no execution, opens no source and
@@ -608,9 +608,12 @@ and fresh trust, source, value and deployment inputs.
   accepted_compatibility) -> CompiledQuery` loads exactly the bytes your
   records name. See [Query bundles](#query-bundles). A query that declares
   parameters has no bundle yet.
-- `PostgresAccess(host, port, database, user, password, sslmode="require")` is
-  the explicit connection input; `repr()` and `str()` show `password=<redacted>`,
-  and it cannot be pickled or copied.
+- `PostgresAccess(host, port, database, user, password, sslmode="require",
+  ca_file=None)` is the explicit connection input; `repr()` and `str()` show
+  `password=<redacted>`, and it cannot be pickled or copied. `ca_file` is the
+  path of a PEM file of the CAs you trust: with it, both PostgreSQL routes
+  also verify the server's certificate chain and its name (see [PostgreSQL
+  rows](#postgresql-rows)).
 - `PostgresDeploymentPremise(schemas)` is your operator's commitment: from before
   source discovery until the last possible remote use, administrative paths keep
   the definitions and security of the relations in these schemas stable (row
@@ -647,7 +650,9 @@ and fresh trust, source, value and deployment inputs.
   max_bytes=64 MiB, seconds=20.0)` bounds one attempt; `seconds` is its
   deadline, `max_bytes` also counts the route's qualifying profile and catalog
   reads, and each statement runs with a server-side timeout of at most 10
-  seconds that Pietto sets itself.
+  seconds that Pietto sets itself. It is the read-limit contract: Pietto has no
+  other read limit that you set, and [Results](#results) states what each
+  limit bounds and what it does not.
 - `execute(query, *, route, access, premise, limits=ExecutionLimits(),
   isolation="stable", values=None, parameters=None) -> ResultHandle` checks the
   request before
@@ -1218,13 +1223,15 @@ empty result, without opening the handle. Pass batches rather than a handle to
 libraries: a library that accepts an iterable can iterate a handle and thereby
 open and consume its attempt.
 
-`batch_rows` and `batch_bytes` bound one batch; `max_rows` and `max_bytes`
-bound the whole attempt. All are finite positive integers; their defaults are
-256 rows, 1 MiB, 1,048,576 rows and 64 MiB. `max_bytes` includes the route's
-qualifying profile and catalog reads plus every delivered batch, including one
-you have closed. A batch that would cross a bound is refused whole
-(`PIE-R3004`); it is never truncated, and batches already delivered remain
-valid. Only `outcome.end == "COMPLETE"` means every row was delivered.
+`batch_rows` and `batch_bytes` bound one batch; `max_rows` and `max_bytes` bound
+the whole attempt. All are finite positive integers; their defaults are 256
+rows, 1 MiB, 1,048,576 rows and 64 MiB. `batch_rows` is at most 4096 and
+`batch_bytes` at most 8 MiB; `max_rows` and `max_bytes` have no upper cap.
+`max_bytes` includes the route's qualifying profile and catalog reads plus every
+delivered batch, including one you have closed. A batch that would cross a bound
+is refused whole (`PIE-R3004`); it is never truncated, and batches already
+delivered remain valid. Only `outcome.end == "COMPLETE"` means every row was
+delivered.
 
 The caller owns a returned batch independently of its handle and attempt. It
 may import the batch through PyArrow without a copy; that imported data remains
@@ -1348,7 +1355,8 @@ premise from the binding's exact ordered sources on every call.
 
 The route refuses `PG*`, `SSLKEYLOGFILE`, `OPENSSL_CONF` and `OPENSSL_MODULES`
 before importing its native owner. It uses the documented PostgreSQL TCP SCRAM
-profile, including `require_auth=scram-sha-256`; an ADBC service witness is the
+profile, including `require_auth=scram-sha-256`, and the same TLS profiles,
+`require` and `verify-full` against `ca_file`; an ADBC service witness is the
 acceptance evidence for a successful SCRAM exchange and pre-response rejection
 of non-SCRAM methods. The selected Linux driver library is checked as adjacent
 to the pinned driver module; Pietto makes no broader transitive-libpq or
@@ -1367,15 +1375,31 @@ file or certificate supplies a connection setting.
   GSSAPI or SSPI authentication is refused before the password is sent
   (`PIE-R2004`). With TLS, Pietto requires channel binding
   (SCRAM-SHA-256-PLUS), which ties the login to the TLS connection.
-- **TLS encrypts but does not verify the server.** `sslmode="require"`, the
-  default and the only mode for other hosts, encrypts the connection without
-  checking the server's certificate; Pietto never reads a CA, revocation list,
-  client certificate or key, including those in `~/.postgresql`. Channel binding
-  means that an attacker who terminates this unverified TLS cannot relay your
-  login to the real server, and SCRAM fails if the other side does not know the
-  role's password verifier. Such an attacker still sees one SCRAM exchange and
-  can try to guess a weak password offline, so give the role a long random
-  password. `sslmode="disable"` is accepted only for `127.0.0.1` and `::1`.
+- **TLS encrypts; `ca_file` also verifies the server.** `sslmode="require"`,
+  the default and the only mode for other hosts, encrypts the connection.
+  Without `ca_file` it does not check the server's certificate: Pietto names no
+  CA, revocation list, client certificate or key, so libpq reads none of them,
+  including those in `~/.postgresql`. Channel binding means that an attacker
+  who terminates this unverified TLS cannot relay your login to the real
+  server, and SCRAM fails if the other side does not know the role's password
+  verifier. Such an attacker still sees one SCRAM exchange and can try to guess
+  a weak password offline, so give the role a long random password, or pass
+  `ca_file`. `sslmode="disable"` is accepted only for `127.0.0.1` and `::1`.
+- **Verifying the server with `ca_file`.** With `ca_file`, libpq connects with
+  `sslmode=verify-full` and that file as its only root: the server's
+  certificate must chain to a CA in the file and name `host`. libpq matches
+  `host` against the certificate's subject alternative names of its kind, IP
+  addresses when `host` is an address and DNS names otherwise, and against the
+  common name only when the certificate has no subject alternative name of
+  that kind. If either check fails, the attempt fails with `PIE-R2004` during
+  or right after the TLS handshake, before the startup message, so neither the
+  user name nor the password leaves the client; a missing or unreadable file
+  fails the same way. libpq reads the file each time it opens a connection, and a
+  relative path is relative to the working directory. Pietto reads no default
+  or system CA: `ca_file="system"` (libpq's name for the system's trusted
+  roots), an empty `ca_file` and a `ca_file` with `sslmode="disable"` are
+  refused with `PIE-R1002` before any connection. Channel binding stays on,
+  and Pietto still names no revocation list, client certificate or key.
 - **Refused environment.** With any `PG*` variable, `SSLKEYLOGFILE`,
   `OPENSSL_CONF` or `OPENSSL_MODULES` set, opening an attempt is refused with
   `PIE-R2003` before the driver is loaded. Pietto checks the names in
@@ -1423,13 +1447,15 @@ file or certificate supplies a connection setting.
 ### Setting up the server
 
 For `sslmode="require"` the server needs TLS: `ssl = on` and a certificate and
-key in `postgresql.conf` (`ssl_cert_file`, `ssl_key_file`). Channel binding needs
-a certificate signed with a digest-based algorithm such as RSA or ECDSA and a
-direct connection to PostgreSQL: with an Ed25519 or Ed448 certificate, or
-through a TLS-terminating proxy or pooler that does not offer
-SCRAM-SHA-256-PLUS, every connection fails with `PIE-R2004`. Then, connected as
-a superuser with `psql`, create a login role without a password and let it read
-the source relations:
+key in `postgresql.conf` (`ssl_cert_file`, `ssl_key_file`). For clients that
+pass `ca_file`, issue the certificate from a CA in that file and list the
+`host` they use in its subject alternative name: `DNS:db.example.com`, or
+`IP:192.0.2.10` for an address. Channel binding needs a certificate signed with
+a digest-based algorithm such as RSA or ECDSA and a direct connection to
+PostgreSQL: with an Ed25519 or Ed448 certificate, or through a TLS-terminating
+proxy or pooler that does not offer SCRAM-SHA-256-PLUS, every connection fails
+with `PIE-R2004`. Then, connected as a superuser with `psql`, create a login
+role without a password and let it read the source relations:
 
 ```sql
 CREATE ROLE pietto_reader LOGIN;
@@ -1492,7 +1518,7 @@ the no-state statement below.
 | `load_bundle(...)` | none | the installed Pietto and ANTLR runtime `.py` files and the `METADATA` and `RECORD` of each ANTLR runtime distribution on `sys.path`, for the code identity; no project file, nothing looked up next to the bytes and no environment variable | none | none |
 | `execute(...)`, with or without `values` | none | the installed code and ANTLR metadata again, to bind afresh | none | none |
 | `pa.schema(result)` | none | the `METADATA` and `RECORD` of pyarrow | none | PyArrow 26.0.0 if it was not already imported |
-| entering, or the first `next()` | one TCP connection: TLS with channel binding unless `disable`, SCRAM-SHA-256; `BEGIN ... READ ONLY`; a settings read; catalog reads that qualify the sources, between two reads of the session context | environment variable names and the value of `PSYCOPG_IMPL`; with it unset, whether a `psycopg_c` module is loaded or can be found on the import path (it is not imported); the `METADATA` and `RECORD` of psycopg, psycopg-binary and pyarrow; the type of `/dev/null` | one non-daemon `pietto-deadline-<attempt>` timer | psycopg 3.3.5 and PyArrow 26.0.0 |
+| entering, or the first `next()` | one TCP connection: TLS with channel binding unless `disable`, verified against `ca_file` when you give one, SCRAM-SHA-256; `BEGIN ... READ ONLY`; a settings read; catalog reads that qualify the sources, between two reads of the session context | environment variable names and the value of `PSYCOPG_IMPL`; with it unset, whether a `psycopg_c` module is loaded or can be found on the import path (it is not imported); the `METADATA` and `RECORD` of psycopg, psycopg-binary and pyarrow; the type of `/dev/null`; with `ca_file`, that file (libpq reads it) | one non-daemon `pietto-deadline-<attempt>` timer | psycopg 3.3.5 and PyArrow 26.0.0 |
 | the first `next()` | a read of the session context, the statement timeout (`set_config`), then one prepared statement of at most 10 s; the whole result is read into client memory | none | as above | none |
 | each later `next()` | a read of the session context before the batch is returned | none | as above | none |
 | the end of the result, or `close()` | a read of the session context, then `COMMIT` at the end, `ROLLBACK` before it; the connection closes | none | the timer is joined (at most 3 s) | none |
@@ -1587,8 +1613,9 @@ or a successful semantic check alone establishes none of those premises.
   cleanup facts. A deadline and server-side statement limit remain separate, and
   neither bounds a server or network that stops responding.
 - The real-database witness of this alpha uses CPython 3.13.13 on Linux x86-64
-  and PostgreSQL 18.6 with TLS, channel binding and SCRAM-SHA-256, and the
-  loopback `sslmode="disable"` case; other interpreters, platforms, server
+  and PostgreSQL 18.6 with TLS, channel binding and SCRAM-SHA-256, with and
+  without `ca_file` on both PostgreSQL routes, and the loopback
+  `sslmode="disable"` case; other interpreters, platforms, server
   versions and setups are not covered by it.
 - The workspace and saved-result names of `pietto.execution` are Linux-only:
   their modules import the POSIX `fcntl` module, which Windows CPython does not

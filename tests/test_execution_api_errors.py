@@ -257,7 +257,15 @@ def test_access_never_shows_or_duplicates_the_password():
     access = execution.PostgresAccess(HOST, 5432, "app", "reader", PASSWORD)
     for text in (repr(access), str(access), format(access)):
         assert PASSWORD not in text and "password=<redacted>" in text
-    assert access.sslmode == "require"
+    assert access.sslmode == "require" and access.ca_file is None
+    assert repr(access).endswith("password=<redacted>, sslmode='require')")
+    verified = execution.PostgresAccess(
+        HOST, 5432, "app", "reader", PASSWORD, ca_file="/srv/ca.pem"
+    )
+    assert repr(verified).endswith(
+        "password=<redacted>, sslmode='require', ca_file='/srv/ca.pem')"
+    )
+    assert PASSWORD not in repr(verified)
     premise = execution.PostgresDeploymentPremise(schemas=("fixture", "pg_catalog"))
     for value in (access, premise):
         for duplicate in (pickle.dumps, copy.copy, copy.deepcopy):

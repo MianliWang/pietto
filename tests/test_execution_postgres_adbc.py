@@ -242,6 +242,25 @@ def test_premise_mutation_after_acceptance(artifact):
 
 
 @pytest.mark.parametrize(
+    "name", ("host", "port", "database", "user", "password", "sslmode", "ca_file")
+)
+def test_access_mutation_after_acceptance(artifact, name):
+    a = access()
+    p = PostgresADBCDeploymentPremise(
+        a, artifact.request.sources, ("public", "pg_catalog")
+    )
+    r = prepare_execution(
+        artifact, a, route="postgres_adbc", postgres_adbc_deployment=p
+    )
+    owner = PostgresADBCExecution(r)
+    before = request_state(r)
+    object.__setattr__(a, name, "/elsewhere.pem")
+    assert request_state(r) != before
+    with pytest.raises(ExecutionError, match="REQUEST_CHANGED"):
+        owner._verify()
+
+
+@pytest.mark.parametrize(
     "name",
     (
         "no_request",
@@ -575,9 +594,12 @@ def test_raw_retention_accounts_for_delivery_guards_and_other_statement(artifact
         owner._check_total(21, object())
 
 
-@pytest.mark.parametrize("sslmode", ("require", "disable"))
+@pytest.mark.parametrize(
+    "sslmode, ca_file",
+    (("require", None), ("disable", None), ("require", "/srv/ca.pem")),
+)
 def test_explicit_tls_files_cannot_fall_back_to_user_home(
-    tmp_path, monkeypatch, sslmode
+    tmp_path, monkeypatch, sslmode, ca_file
 ):
     from types import SimpleNamespace
     from urllib.parse import urlparse, parse_qs
@@ -628,7 +650,9 @@ def test_explicit_tls_files_cannot_fall_back_to_user_home(
             monkeypatch.delenv(key)
     before = dict(os.environ)
     owner = SimpleNamespace(
-        request=SimpleNamespace(access=replace(access(), sslmode=sslmode)),
+        request=SimpleNamespace(
+            access=replace(access(), sslmode=sslmode, ca_file=ca_file)
+        ),
         _remaining=lambda: 10,
         _checkpoint=lambda: None,
         control_events=[],
@@ -641,12 +665,18 @@ def test_explicit_tls_files_cannot_fall_back_to_user_home(
         is modules["adbc_driver_manager._reader"].AdbcRecordBatchReader
     )
     options = parse_qs(urlparse(captured[0]["uri"]).query)
-    assert options["sslmode"] == [sslmode] and options["sslcertmode"] == ["disable"]
+    # A caller CA replaces only the CA file and turns on verify-full.
+    assert options["sslmode"] == [sslmode if ca_file is None else "verify-full"]
+    assert options["sslcertmode"] == ["disable"]
     assert options["require_auth"] == ["scram-sha-256"]
     assert options["channel_binding"] == [
         "require" if sslmode == "require" else "disable"
     ]
-    for key in ("sslrootcert", "sslcrl", "sslcert", "sslkey"):
+    files = ["sslrootcert", "sslcrl", "sslcert", "sslkey"]
+    if ca_file is not None:
+        assert options["sslrootcert"] == [ca_file]
+        files.remove("sslrootcert")
+    for key in files:
         path = options[key][0]
         assert path.startswith("/dev/null/")
         with pytest.raises(NotADirectoryError):

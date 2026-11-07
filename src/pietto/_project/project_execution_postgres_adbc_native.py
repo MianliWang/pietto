@@ -57,9 +57,10 @@ def connect(owner):
     refuse_ambient(("PG",))
     manager, pa, reader, library = drivers()
     a = owner.request.access
-    # The pinned Linux driver supports require (encryption) or explicit loopback
-    # disable. A child of the null character device cannot name a CA/CRL/key,
-    # unlike an empty option, which re-enables libpq's home-directory defaults.
+    # The pinned Linux driver supports require (encryption), verify-full
+    # against a caller CA file, or explicit loopback disable. A child of the
+    # null character device cannot name a CA/CRL/key, unlike an empty option,
+    # which re-enables libpq's home-directory defaults.
     if not stat.S_ISCHR(Path("/dev/null").stat().st_mode):
         raise ExecutionError("EXECUTION_AMBIENT_CONNECTION_PROFILE")
     settings = dict(
@@ -68,12 +69,12 @@ def connect(owner):
         dbname=a.database,
         user=a.user,
         password=a.password,
-        sslmode=a.sslmode,
+        sslmode=a.sslmode if a.ca_file is None else "verify-full",
         channel_binding="require" if a.sslmode == "require" else "disable",
         require_auth="scram-sha-256",
         gssencmode="disable",
         sslcertmode="disable",
-        sslrootcert="/dev/null/pietto-ca",
+        sslrootcert="/dev/null/pietto-ca" if a.ca_file is None else a.ca_file,
         sslcrl="/dev/null/pietto-crl",
         sslcert="/dev/null/pietto-cert",
         sslkey="/dev/null/pietto-key",

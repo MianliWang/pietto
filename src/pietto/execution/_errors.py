@@ -102,9 +102,10 @@ CODES = {
         "CONNECTION_FAILED",
         "the selected route's connection, TLS profile or authentication failed;"
         " PostgreSQL requires TCP SCRAM-SHA-256, a password encrypted with"
-        " password_encryption='scram-sha-256', and a first matching pg_hba.conf"
-        " scram-sha-256 line; MySQL requires caching_sha2_password, TLS and a"
-        " caller CA that verifies server identity",
+        " password_encryption='scram-sha-256', a first matching pg_hba.conf"
+        " scram-sha-256 line and, with a ca_file, a server certificate that this"
+        " CA verifies for the host; MySQL requires caching_sha2_password, TLS"
+        " and a caller CA that verifies server identity",
     ),
     "PIE-R2005": (
         "TARGET_VERSION",

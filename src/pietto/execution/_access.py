@@ -23,10 +23,14 @@ class PostgresAccess:
     comma) is refused. ``sslmode`` is ``require`` (TLS that encrypts but does
     not verify the server's certificate; SCRAM is bound to the TLS channel)
     or ``disable`` (only for the loopback addresses ``127.0.0.1`` and
-    ``::1``). The role must authenticate with SCRAM-SHA-256. Pietto reads no
-    environment variable, service file, password file or certificate in
-    place of these fields. The password is never shown by repr() or str(),
-    and the object refuses pickle and copy.
+    ``::1``). ``ca_file`` is None or the path of a PEM file of the CAs you
+    trust; with it, ``sslmode`` must be ``require`` and the connection also
+    verifies the server's certificate chain against that file and the
+    certificate's name against ``host`` (libpq ``verify-full``). The role
+    must authenticate with SCRAM-SHA-256. Pietto reads no environment
+    variable, service file, password file or certificate in place of these
+    fields, and no default or system CA. The password is never shown by
+    repr() or str(), and the object refuses pickle and copy.
     """
 
     host: str
@@ -35,12 +39,15 @@ class PostgresAccess:
     user: str
     password: str
     sslmode: str = "require"
+    ca_file: str | None = None
 
     def __repr__(self) -> str:
+        # Without a CA the text stays what it was before ca_file existed.
+        ca = "" if self.ca_file is None else f", ca_file={self.ca_file!r}"
         return (
             f"PostgresAccess(host={self.host!r}, port={self.port!r},"
             f" database={self.database!r}, user={self.user!r},"
-            f" password=<redacted>, sslmode={self.sslmode!r})"
+            f" password=<redacted>, sslmode={self.sslmode!r}{ca})"
         )
 
     def __reduce_ex__(self, protocol):
@@ -133,11 +140,14 @@ class MySQLDeploymentPremise:
 
 @dataclass(frozen=True, slots=True)
 class ExecutionLimits:
-    """Bounds of one attempt. ``batch_rows`` (at most 4096) and ``batch_bytes``
-    (at most 8 MiB) bound each batch; ``max_rows`` and ``max_bytes`` bound what
-    is delivered; ``max_bytes`` also counts the route's qualifying profile and
-    catalog reads. ``seconds`` is the attempt's deadline. Each PostgreSQL
-    statement is also limited to 10 seconds by the server."""
+    """Bounds of one attempt, and the only read limits a caller sets.
+    ``batch_rows`` (at most 4096) and ``batch_bytes`` (at most 8 MiB) bound
+    each batch; ``max_rows`` and ``max_bytes`` bound what is delivered;
+    ``max_bytes`` also counts the route's qualifying profile and catalog
+    reads. ``seconds`` is the attempt's deadline. Each PostgreSQL statement is
+    also limited to 10 seconds by the server. They bound delivery, not what a
+    driver receives: the PostgreSQL rows route receives the whole native
+    result at the first batch, so bound the query itself with ``limit``."""
 
     batch_rows: int = 256
     batch_bytes: int = 1024 * 1024

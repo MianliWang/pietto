@@ -92,8 +92,9 @@ def access(
     sslmode: str = "disable",
     user: str = "reader",
     password: str = PASSWORD,
+    ca_file: Any = None,
 ) -> execution.PostgresAccess:
-    return execution.PostgresAccess(host, port, "app", user, password, sslmode)
+    return execution.PostgresAccess(host, port, "app", user, password, sslmode, ca_file)
 
 
 def child_environment(**extra: str) -> dict[str, str]:
@@ -805,6 +806,32 @@ REQUEST_CASES: dict[str, tuple[dict[str, Any], str, str]] = {
     ),
     "verify_full": (
         dict(access=access(sslmode="verify-full")),
+        "PIE-R1002",
+        "EXECUTION_ACCESS_PROFILE",
+    ),
+    # A CA needs TLS, names one file and is never libpq's "system" store.
+    "ca_file_disable": (
+        dict(access=access(ca_file="ca.pem")),
+        "PIE-R1002",
+        "EXECUTION_ACCESS_PROFILE",
+    ),
+    "ca_file_system": (
+        dict(access=access(sslmode="require", ca_file="system")),
+        "PIE-R1002",
+        "EXECUTION_ACCESS_PROFILE",
+    ),
+    "ca_file_empty": (
+        dict(access=access(sslmode="require", ca_file="")),
+        "PIE-R1002",
+        "EXECUTION_ACCESS_PROFILE",
+    ),
+    "ca_file_nul": (
+        dict(access=access(sslmode="require", ca_file="ca\0.pem")),
+        "PIE-R1002",
+        "EXECUTION_ACCESS_PROFILE",
+    ),
+    "ca_file_bytes": (
+        dict(access=access(sslmode="require", ca_file=b"ca.pem")),
         "PIE-R1002",
         "EXECUTION_ACCESS_PROFILE",
     ),
@@ -1606,6 +1633,50 @@ def test_the_connection_carries_the_explicit_profile_only(query, clean):
         "sslmode": "disable",
         "channel_binding": "disable",
     }
+    # A caller CA replaces only the CA file and makes libpq verify the
+    # certificate chain and the host name.
+    _error, verified = _profile(
+        query,
+        clean,
+        access(6543, host=HOST_MARKER, sslmode="require", ca_file="/srv/ca.pem"),
+    )
+    assert verified == seen | {"sslmode": "verify-full", "sslrootcert": "/srv/ca.pem"}
+
+
+@pytest.fixture(scope="module")
+def tls(tmp_path_factory):
+    return api.tls_material(tmp_path_factory.mktemp("tls"))
+
+
+@pytest.mark.parametrize(
+    "certificate, ca, reached",
+    (
+        ("server", "ca", True),
+        ("server", "other_ca", False),
+        ("elsewhere", "ca", False),
+        ("common", "ca", True),
+        ("other_ip", "ca", False),
+        ("server", "absent", False),
+        ("elsewhere", None, True),
+    ),
+)
+def test_a_caller_ca_verifies_the_chain_and_the_host_name(
+    query, clean, tls, certificate, ca, reached
+):
+    """With `ca_file` the pinned libpq sends the startup message, and so
+    anything after it, only to a server whose certificate chains to that CA
+    and names the host: in a SAN of the host's kind, or in the common name
+    when it has no SAN of that kind (an IP SAN for 127.0.0.1 hides the common
+    name; a DNS SAN does not). A wrong CA, another name or a missing file stop
+    it after the TLS handshake. Without `ca_file`, `require` still accepts any
+    certificate."""
+    _connecting(clean)
+    ca_file = None if ca is None else str(tls.get(ca, tls["ca"].with_name(ca)))
+    with api.PostgresStub(ssl=b"S", tls=api.server_tls(tls, certificate)) as stub:
+        error = _attempt(query, access(stub.port, sslmode="require", ca_file=ca_file))
+    assert error.code == "PIE-R2004" and not stub.replied
+    assert stub.events[0] == ("ssl_request",)
+    assert any(e[0] == "startup" for e in stub.events) is reached, stub.events
 
 
 def test_a_driver_error_alone_is_a_connection_failure(query, clean):

@@ -235,6 +235,7 @@ def _checked_request(
                 access.user,
                 access.password,
                 access.sslmode,
+                access.ca_file,
             )
             deployment = (
                 {

@@ -101,6 +101,8 @@ class PostgresAccess:
     user: str
     password: str = field(repr=False)
     sslmode: str = "require"
+    # A caller CA file makes libpq verify the chain and host name.
+    ca_file: str | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -494,6 +496,17 @@ def _verify_caller_inputs(request):
     if type(a) is PostgresAccess:
         if (
             a.sslmode not in ("require", "disable")
+            # libpq reads sslrootcert "system" as the system's default CAs,
+            # and a CA verifies nothing without TLS.
+            or (
+                a.ca_file is not None
+                and (
+                    type(a.ca_file) is not str
+                    or a.ca_file in ("", "system")
+                    or "\0" in a.ca_file
+                    or a.sslmode != "require"
+                )
+            )
             or (a.sslmode == "disable" and a.host not in ("127.0.0.1", "::1"))
             # libpq reads a leading "/" (a socket directory) or "@" (an
             # abstract socket) as a Unix-domain socket, which bypasses TLS and
@@ -636,7 +649,7 @@ def request_state(request):
         a,
         (a.host, a.port, a.database, a.user, a.password)
         + (
-            (a.sslmode,)
+            (a.sslmode, a.ca_file)
             if type(a) is PostgresAccess
             else (
                 a.ca_file,

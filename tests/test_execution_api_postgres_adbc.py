@@ -317,6 +317,39 @@ def test_adbc_refuses_each_parameter_input_before_the_bridge_opens(
     assert refused.value.__cause__ is None and refused.value.__context__ is None
 
 
+@pytest.mark.parametrize(
+    "sslmode, ca_file", (("require", "system"), ("disable", "ca.pem"))
+)
+def test_adbc_refuses_a_ca_file_profile_before_the_bridge_opens(
+    query, monkeypatch, sslmode, ca_file
+):
+    """The ADBC route passes `ca_file` to the request check: libpq's "system"
+    store and a CA without TLS are refused before the owner or a driver
+    loads."""
+    from pietto._project import project_execution_postgres_adbc as adbc
+
+    def forbidden(*arguments, **keywords):
+        raise AssertionError("a refused request reached the ADBC owner")
+
+    monkeypatch.setattr(adbc.PostgresADBCExecution, "__init__", forbidden)
+    before = {module.partition(".")[0] for module in sys.modules}
+    with pytest.raises(execution.RequestRejected) as refused:
+        execution.execute(
+            query,
+            route="postgres_adbc",
+            access=execution.PostgresAccess(
+                "127.0.0.1", 5432, "app", "reader", PASSWORD, sslmode, ca_file
+            ),
+            premise=PREMISE,
+        )
+    assert (refused.value.code, refused.value.detail) == (
+        "PIE-R1002",
+        "EXECUTION_ACCESS_PROFILE",
+    )
+    after = {module.partition(".")[0] for module in sys.modules}
+    assert not (after - before) & {"adbc_driver_manager", "adbc_driver_postgresql"}
+
+
 def test_adbc_requires_the_existing_postgres_public_access_and_premise(query):
     with pytest.raises(execution.RequestRejected) as access:
         execution.execute(

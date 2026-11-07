@@ -109,6 +109,7 @@ def _connect(request):
     # As on the ADBC route, a child of the null character device names no CA,
     # CRL, client certificate or key, so libpq never falls back to the
     # ~/.postgresql defaults: `require` encrypts without verifying the server.
+    # A caller CA file replaces only the CA and turns on `verify-full`.
     try:
         device = Path("/dev/null").stat().st_mode
     except OSError:
@@ -122,12 +123,12 @@ def _connect(request):
         dbname=a.database,
         user=a.user,
         password=a.password,
-        sslmode=a.sslmode,
+        sslmode=a.sslmode if a.ca_file is None else "verify-full",
         # Over TLS, SCRAM binds the login to the TLS channel
         # (SCRAM-SHA-256-PLUS), so an active attacker who terminates the
         # unverified TLS cannot relay it to the server.
         channel_binding="require" if a.sslmode == "require" else "disable",
-        sslrootcert="/dev/null/pietto-ca",
+        sslrootcert="/dev/null/pietto-ca" if a.ca_file is None else a.ca_file,
         sslcrl="/dev/null/pietto-crl",
         sslcrldir="/dev/null/pietto-crl-directory",
         sslcert="/dev/null/pietto-cert",

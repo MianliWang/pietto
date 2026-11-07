@@ -136,6 +136,37 @@ def _generation_arguments(operation, parameters):
     return arguments
 
 
+@pytest.mark.parametrize("operation", ("save", "save_recoverable", "relay_live"))
+@pytest.mark.parametrize("route", ("postgres_rows", "postgres_adbc"))
+def test_saved_operations_check_the_ca_file_before_the_workspace(
+    since, monkeypatch, operation, route
+):
+    """Every entry that starts a generation passes `ca_file` to the request
+    check, which refuses libpq's "system" store before it opens the workspace
+    or connects."""
+    workspace = object.__new__(execution.WorkspaceRef)
+    object.__setattr__(workspace, "root", "/not-opened")
+    object.__setattr__(workspace, "identity", "ws-" + "4" * 32)
+
+    def forbidden(*arguments, **keywords):
+        raise AssertionError("a refused request opened the workspace")
+
+    monkeypatch.setattr(private_workspace, "open_workspace", forbidden)
+    arguments = _generation_arguments(operation, {"low": 5, "note": None})
+    arguments.update(
+        route=route,
+        access=execution.PostgresAccess(
+            "127.0.0.1", 5432, "db", "u", "pw", ca_file="system"
+        ),
+    )
+    with pytest.raises(execution.RequestRejected) as refused:
+        getattr(execution, operation)(workspace, since, **arguments)
+    assert (refused.value.code, refused.value.detail) == (
+        "PIE-R1002",
+        "EXECUTION_ACCESS_PROFILE",
+    )
+
+
 @pytest.mark.parametrize(
     "operation,owner,step",
     (
