@@ -37,7 +37,7 @@ Slice10：先测真实capsule/close/owner保活；C handle release不代表独�
 
 ### Phase67 Slice11：入口组合的验收责任
 
-显式入口可直接别名已有owned builder/managed batch；raw reader应直接组合接受与delivery，不用C导出再导入绕行。source-specific lease在接受前capture，接受后claim失败由原session一次cleanup。logical Arrow与producer carriers分别建fixture；layout成本不强求相等，原值oracle与domain checker各司其职。细节与限制见[唯一S11合同](../phases/phase-67/slice-11.md)。
+显式入口可直接别名已有owned builder/managed batch；raw reader应直接组合接受与delivery，不用C导出再导入绕行。source-specific lease在接受前capture，接受后claim失败由原session一次cleanup。logical Arrow与producer carriers分别建fixture；layout成本不强求相等，原值oracle与domain checker各司其职。细节与限制见[唯一S11合同](https://github.com/MianliWang/pietto/blob/8e7c43f1852b2c26318b3217268a1f7416f44965/docs/phases/phase-67/slice-11.md)。
 
 ### Phase67 Slice12：transport与完成的责任
 
@@ -64,17 +64,17 @@ consumer证明分开；frame/extent通过仍不能认证原值、重复行或DB�
 ## Phase67 完成审计的六条耐久教训
 
 以下为Phase级行动入口；上方逐Slice记录保留其历史状态，不重写原授权或失败。S03 settled closure、
-S06旧38合同与明确扩展、S12旧/当前格式、S14 timing addendum按[完成审计](../phases/phase-67/completion-audit.md)
+S06旧38合同与明确扩展、S12旧/当前格式、S14 timing addendum按[完成审计](https://github.com/MianliWang/pietto/blob/8e7c43f1852b2c26318b3217268a1f7416f44965/docs/phases/phase-67/completion-audit.md)
 的准确supersession理解。条目有效；Phase67完成状态仍由S16唯一闭环规则决定。
 
 | ID / origin-root cause | applicability trigger | required future action | witness / regression | limitation | evidence / next consumer | status |
 | --- | --- | --- | --- | --- | --- | --- |
-| P67-L01 / S06外层65不代表shared fact可达；S07必须先取得meaning | 新类型、driver事实、能力或representation桥接 | 从实际fact生产owner追到consumer，先证边界正/负；missing前提明确HOLD，仅经授权改上游；完整type/field/CUTOFF读者同时闭合 | S06真实38/39拒绝后批准1..65；S07meaning_premise/default missing及optional-slot删除 | 不以schema或SDK roundtrip赋予语义，不追认旧38规则为bug | [S06](../phases/phase-67/slice-06.md)、[S07](../phases/phase-67/slice-07.md)、`pietto-phase67-slice06-approval-refreeze.json`；Phase68 adapters/authority规划 | 有效；Phase68 FULL gate必需筛选 |
-| P67-L02 / S14输入decoder若兼作expected会共同解释错误；S08/S15同type同名换值可过schema | 输入adapter、codec或多route差分 | 分开输入解码、实际观察与独立literal/original oracle；保ordinal、NULL、bits、coefficients及typed BAG重数；注入真实builder/bridge缺陷 | S14 test_original_value_oracle_does_not_reuse_the_input_decoder；S15 W10 copy注入、±0/换列/丢重反例 | data correspondence不等于来源认证或新的Pietto equality/collation | [S14](../phases/phase-67/slice-14.md)、[W10 helper](../../tests/_pietto_phase67_whole_result_probe.py)；Phase68 driver result integration | 有效 |
-| P67-L03 / S01/S12完整message prefix可被SDK接受；S09 count相等不等于EOF | 有限结果、cursor终结、IPC或取消/cleanup设计 | 固定原extent/session，分别记录source、delivery、IPC、executor结论；每层有自己的normal/failed terminal；未知基数另行设计 | reader_terminal/identity、ipc_completion、integration_terminal_failures、W05/W07 | expected_rows不授权COUNT或可靠cursorrowcount假设；hash/EOF不认证DB完整性 | [D67.24–26](../decisions.md)、[S09](../phases/phase-67/slice-09.md)、[S12](../phases/phase-67/slice-12.md)；Phase68 extent/finalization与runtime errors | 有效 |
-| P67-L04 / S08合法empty absent buffers、S10 foreign close不传播generator finally、S15 C-import empty offset损坏IPC | SDK/pin、ownership/protocol交界或异常路径变化 | 以小真实消费者验证零行/offset、copy/borrow/alias、close/控制异常；原carrier先validation/admission，再作必要已批准delivery处理 | SDK9、ownership_*、S15 W01实际失败及修复；W08 retained-before-copy | PyArrow-backed不等于独立C认证；owner retention不是nonmutation；wrapper close次数不是native callback计数 | [S08](../phases/phase-67/slice-08.md)、[S10](../phases/phase-67/slice-10.md)、[S15](../phases/phase-67/slice-15.md)及原失败；Phase68 lifecycle，Phase86/90后续桥接 | 有效 |
-| P67-L05 / S03 receipt文件准备与S12 materially changed contract需要精确证据身份 | scope/format修订、HOLD/resume、CI/raw闭环 | 保留旧candidate/失败/累计计数，区分实际Git commit与计算tree；新合同重验受影响链，current receipts先普通独立副本/完整digest/argv预检再strict | S03明确7/7与4native终态；S12旧1066.976s/current1250.209s各归原合同；当前28raw规则 | 旧PASS不迁移；纯orchestration/docs续行仅在完整input footprint未变时复用；不把观察丢失改成PASS/FAIL | [历史对账](../phases/phase-67/completion-audit.md)、`pietto-phase67-slice03-native-continuation-authority-v1.txt`、`pietto-phase67-slice12-continuation-authority.txt`；Phase68及后续publication | 有效；保留旧记录 |
-| P67-L06 / S13外层解释器缺pytest；S14时间汇总需恢复；CI可比样本不足 | 长验证、installed/acquisition、成本或健康判断 | 同时固定outer/child解释器与安装来源；先小focused/reader检查，保留一次完整finding集；从结构记录生成费用并区分parent/stages、CIwall/runner sum/transfer overlap | S13仅补缺项恢复；S14 timing-recovery；S15 full1392.291s与CI699s分列 | 不把UNKNOWN填0，不将test-count增长当生产率，不由WATCH/INSUFFICIENT_EVIDENCE启动性能interlude | [package_smoke](../../scripts/package_smoke.py)、[S13](../phases/phase-67/slice-13.md)、`pietto-phase67-slice14-timing-recovery.json`；Phase68 FULL gate消费真实health与预算 | 有效 |
+| P67-L01 / S06外层65不代表shared fact可达；S07必须先取得meaning | 新类型、driver事实、能力或representation桥接 | 从实际fact生产owner追到consumer，先证边界正/负；missing前提明确HOLD，仅经授权改上游；完整type/field/CUTOFF读者同时闭合 | S06真实38/39拒绝后批准1..65；S07meaning_premise/default missing及optional-slot删除 | 不以schema或SDK roundtrip赋予语义，不追认旧38规则为bug | [S06](https://github.com/MianliWang/pietto/blob/8e7c43f1852b2c26318b3217268a1f7416f44965/docs/phases/phase-67/slice-06.md)、[S07](https://github.com/MianliWang/pietto/blob/8e7c43f1852b2c26318b3217268a1f7416f44965/docs/phases/phase-67/slice-07.md)、`pietto-phase67-slice06-approval-refreeze.json`；Phase68 adapters/authority规划 | 有效；Phase68 FULL gate必需筛选 |
+| P67-L02 / S14输入decoder若兼作expected会共同解释错误；S08/S15同type同名换值可过schema | 输入adapter、codec或多route差分 | 分开输入解码、实际观察与独立literal/original oracle；保ordinal、NULL、bits、coefficients及typed BAG重数；注入真实builder/bridge缺陷 | S14 test_original_value_oracle_does_not_reuse_the_input_decoder；S15 W10 copy注入、±0/换列/丢重反例 | data correspondence不等于来源认证或新的Pietto equality/collation | [S14](https://github.com/MianliWang/pietto/blob/8e7c43f1852b2c26318b3217268a1f7416f44965/docs/phases/phase-67/slice-14.md)、[W10 helper](../../tests/_pietto_phase67_whole_result_probe.py)；Phase68 driver result integration | 有效 |
+| P67-L03 / S01/S12完整message prefix可被SDK接受；S09 count相等不等于EOF | 有限结果、cursor终结、IPC或取消/cleanup设计 | 固定原extent/session，分别记录source、delivery、IPC、executor结论；每层有自己的normal/failed terminal；未知基数另行设计 | reader_terminal/identity、ipc_completion、integration_terminal_failures、W05/W07 | expected_rows不授权COUNT或可靠cursorrowcount假设；hash/EOF不认证DB完整性 | [D67.24–26](../decisions.md)、[S09](https://github.com/MianliWang/pietto/blob/8e7c43f1852b2c26318b3217268a1f7416f44965/docs/phases/phase-67/slice-09.md)、[S12](https://github.com/MianliWang/pietto/blob/8e7c43f1852b2c26318b3217268a1f7416f44965/docs/phases/phase-67/slice-12.md)；Phase68 extent/finalization与runtime errors | 有效 |
+| P67-L04 / S08合法empty absent buffers、S10 foreign close不传播generator finally、S15 C-import empty offset损坏IPC | SDK/pin、ownership/protocol交界或异常路径变化 | 以小真实消费者验证零行/offset、copy/borrow/alias、close/控制异常；原carrier先validation/admission，再作必要已批准delivery处理 | SDK9、ownership_*、S15 W01实际失败及修复；W08 retained-before-copy | PyArrow-backed不等于独立C认证；owner retention不是nonmutation；wrapper close次数不是native callback计数 | [S08](https://github.com/MianliWang/pietto/blob/8e7c43f1852b2c26318b3217268a1f7416f44965/docs/phases/phase-67/slice-08.md)、[S10](https://github.com/MianliWang/pietto/blob/8e7c43f1852b2c26318b3217268a1f7416f44965/docs/phases/phase-67/slice-10.md)、[S15](https://github.com/MianliWang/pietto/blob/8e7c43f1852b2c26318b3217268a1f7416f44965/docs/phases/phase-67/slice-15.md)及原失败；Phase68 lifecycle，Phase86/90后续桥接 | 有效 |
+| P67-L05 / S03 receipt文件准备与S12 materially changed contract需要精确证据身份 | scope/format修订、HOLD/resume、CI/raw闭环 | 保留旧candidate/失败/累计计数，区分实际Git commit与计算tree；新合同重验受影响链，current receipts先普通独立副本/完整digest/argv预检再strict | S03明确7/7与4native终态；S12旧1066.976s/current1250.209s各归原合同；当前28raw规则 | 旧PASS不迁移；纯orchestration/docs续行仅在完整input footprint未变时复用；不把观察丢失改成PASS/FAIL | [历史对账](https://github.com/MianliWang/pietto/blob/8e7c43f1852b2c26318b3217268a1f7416f44965/docs/phases/phase-67/completion-audit.md)、`pietto-phase67-slice03-native-continuation-authority-v1.txt`、`pietto-phase67-slice12-continuation-authority.txt`；Phase68及后续publication | 有效；保留旧记录 |
+| P67-L06 / S13外层解释器缺pytest；S14时间汇总需恢复；CI可比样本不足 | 长验证、installed/acquisition、成本或健康判断 | 同时固定outer/child解释器与安装来源；先小focused/reader检查，保留一次完整finding集；从结构记录生成费用并区分parent/stages、CIwall/runner sum/transfer overlap | S13仅补缺项恢复；S14 timing-recovery；S15 full1392.291s与CI699s分列 | 不把UNKNOWN填0，不将test-count增长当生产率，不由WATCH/INSUFFICIENT_EVIDENCE启动性能interlude | [package_smoke](../../scripts/package_smoke.py)、[S13](https://github.com/MianliWang/pietto/blob/8e7c43f1852b2c26318b3217268a1f7416f44965/docs/phases/phase-67/slice-13.md)、`pietto-phase67-slice14-timing-recovery.json`；Phase68 FULL gate消费真实health与预算 | 有效 |
 
 ## Phase68 Slice01 consumption of P67 lessons
 
@@ -95,13 +95,13 @@ MySQL helper调用不等于第二次native提交；prepared Execute、实际sign
 ## Phase68 S03
 
 - Provider definition evidence 必须与执行端使用同一 role/schema/deparse context；`pg_get_viewdef` 在不同 search_path 下文本不同。S03 在明确 pg_catalog context 捕获并验收，避免把表示差别误判成 domain 改变。
-- 持锁事务观察 blocked query 时显式清除自己的统计 snapshot，再检查实际 session、SQL、active/Lock；缓存 activity 不能当成新控制观察。参见 [S03 合同](../phases/phase-68/slice-03.md)。
+- 持锁事务观察 blocked query 时显式清除自己的统计 snapshot，再检查实际 session、SQL、active/Lock；缓存 activity 不能当成新控制观察。参见 [S03 合同](https://github.com/MianliWang/pietto/blob/8e7c43f1852b2c26318b3217268a1f7416f44965/docs/phases/phase-68/slice-03.md)。
 - Oracle 的物理宽度须从既有表示规则独立推导：MySQL UNION 常量 part 是 BIGINT，Arrow 有界 SMALLINT 是 int16。保留失败 raw，修正 checker 后只重读语义未变的记录。
 
 
 ## Phase68 S07
 
-- 多跳准入修正限定在获准的 private route；同时保留 no-request 旧入口的精确拒绝控制，避免把新 consumer 权限扩散到原 emitter。见 [S07](../phases/phase-68/slice-07.md)。
+- 多跳准入修正限定在获准的 private route；同时保留 no-request 旧入口的精确拒绝控制，避免把新 consumer 权限扩散到原 emitter。见 [S07](https://github.com/MianliWang/pietto/blob/8e7c43f1852b2c26318b3217268a1f7416f44965/docs/phases/phase-68/slice-07.md)。
 - shared snapshot 不保证 tied intermediate choice 相同；guard/data 必须共享实际 producer evaluation，或使用明确且已验证的 refinement。runtime receipt 只属于原 live attempt。
 - 预检覆盖所有新增协议和辅助 session；requested profile 与 native observed 字符串分开，真实 native fault 不伪装成注入，close 返回后核实实际 session 消失。完整 campaign 不承担这些诊断。
 
@@ -109,11 +109,11 @@ MySQL helper调用不等于第二次native提交；prepared Execute、实际sign
 ## Phase68 S08 source assurance boundary
 
 - 完整 definition/dependency closure、definition lifetime 和 data snapshot 是三项独立责任。
-  [S08 失败与 disposition](../phases/phase-68/slice-08.md#保留的失败及当前-disposition)
+  [S08 失败与 disposition](https://github.com/MianliWang/pietto/blob/8e7c43f1852b2c26318b3217268a1f7416f44965/docs/phases/phase-68/slice-08.md#保留的失败及当前-disposition)
   保留两次 hidden-routine/MyISAM 1→2 反例与10-case metadata-lock失败；catalog可见性、
   transaction标签和声明不能互相替代。MySQL managed mode 的 lifetime 来自显式外部前提，
   compliance 未独立验证，native exclusion 未证明。
-- [保留的独立审查反例](../phases/phase-68/slice-08.md#已保留的证据预算-hold-与续行)
+- [保留的独立审查反例](https://github.com/MianliWang/pietto/blob/8e7c43f1852b2c26318b3217268a1f7416f44965/docs/phases/phase-68/slice-08.md#已保留的证据预算-hold-与续行)
   表明协调修改 context 副本仍可自洽；读者须核对实际 native 回复，不能只比对副本。
 - PG/ADBC 的类似 source 风险仍未评估，当前 fixtures 未出现反例不证明一般安全。
   S09/S10 及后续 owners 应另行评估；本 Slice 不执行跨 dialect 审计。
@@ -124,7 +124,7 @@ MySQL helper调用不等于第二次native提交；prepared Execute、实际sign
   definition/security lifetime、snapshot 和 provider retention。S09 的 PG18.6 原始 catalog 见证
   （外部 `phase68-slice09-20261001T220643Z`）只证明 hidden string-body dependency 与根 view
   definition 的盲区；没有执行可疑函数，没有 PG 1→2/MVCC 反例。回归 owner 是
-  `tests/test_phase68_slice9_postgres_source_assurance.py`；新 disposition 见 [S09](../phases/phase-68/slice-09.md)。
+  `tests/test_phase68_slice9_postgres_source_assurance.py`；新 disposition 见 [S09](https://github.com/MianliWang/pietto/blob/8e7c43f1852b2c26318b3217268a1f7416f44965/docs/phases/phase-68/slice-09.md)。
 - 实际 native reply 是 context/closure 检查的基准；修改所有派生副本仍不能改变实际 SQL 回复。
   raw Arrow carrier 与逻辑 scalar 分开，EOF/transaction/delivery/cleanup/cancel 分开。
   COPY 的 Arrow terminal 与 libpq ReadyForQuery 状态须按固定 driver 的实际协议核对，不能为
@@ -146,7 +146,7 @@ MySQL helper调用不等于第二次native提交；prepared Execute、实际sign
 - Measure the highest-cost composite under intended instrumentation. Restrict
   passive tracing to native boundaries, retain actual short-deadline/cancel
   controls, and separate a measured test deadline from product defaults and
-  performance claims. See [S10](../phases/phase-68/slice-10.md).
+  performance claims. See [S10](https://github.com/MianliWang/pietto/blob/8e7c43f1852b2c26318b3217268a1f7416f44965/docs/phases/phase-68/slice-10.md).
 
 
 ## Phase68 S11
@@ -157,7 +157,7 @@ MySQL helper调用不等于第二次native提交；prepared Execute、实际sign
 - Derive lifecycle predicates from the actual owner state, not one route's
   vocabulary: PG rows close as `CLOSED`, ADBC/MySQL as
   `LOCAL_CLOSED_REMOTE_UNOBSERVED`. A three-route DB-less regression now precedes
-  native pilots. See [S11](../phases/phase-68/slice-11.md).
+  native pilots. See [S11](https://github.com/MianliWang/pietto/blob/8e7c43f1852b2c26318b3217268a1f7416f44965/docs/phases/phase-68/slice-11.md).
 - Process-history helpers must bound every pipe read; an orphaned forked
   descendant can hold inherited stdio and hang an unbounded reader.
 
@@ -171,7 +171,7 @@ MySQL helper调用不等于第二次native提交；prepared Execute、实际sign
   roots needed a narrow identity in the original IPC owner.
 - When a core environment deliberately lacks an extra, split storage mechanics
   from the extra-dependent encoding instead of skipping; real extra-backed
-  evidence then runs in the execution profile. See [S12](../phases/phase-68/slice-12.md).
+  evidence then runs in the execution profile. See [S12](https://github.com/MianliWang/pietto/blob/8e7c43f1852b2c26318b3217268a1f7416f44965/docs/phases/phase-68/slice-12.md).
 
 
 ## Phase68 S13
@@ -183,7 +183,7 @@ MySQL helper调用不等于第二次native提交；prepared Execute、实际sign
   only when data is read; core tests then exercise the whole protocol for real.
 - A child that prints a payload line right before its barrier can strand the
   barrier in the parent's buffered reader; print the barrier alone. See
-  [S13](../phases/phase-68/slice-13.md).
+  [S13](https://github.com/MianliWang/pietto/blob/8e7c43f1852b2c26318b3217268a1f7416f44965/docs/phases/phase-68/slice-13.md).
 
 
 ## Phase68 S14
@@ -194,7 +194,7 @@ MySQL helper调用不等于第二次native提交；prepared Execute、实际sign
 - Make a predecessor relation checkable in the write transaction (old members kept,
   new members produced by this attempt) instead of trusting a process flag.
 - Never key test-side synthetic state by `id()` across tests; ids are reused. See
-  [S14](../phases/phase-68/slice-14.md).
+  [S14](https://github.com/MianliWang/pietto/blob/8e7c43f1852b2c26318b3217268a1f7416f44965/docs/phases/phase-68/slice-14.md).
 
 
 ## Phase68 S15
@@ -206,7 +206,7 @@ MySQL helper调用不等于第二次native提交；prepared Execute、实际sign
   issued stop: a lost reply leaves a hole that only a later observation fills.
 - A literal oracle may be a bag; judge position order against independently
   decoded saved bytes instead of assuming the oracle list order. See
-  [S15](../phases/phase-68/slice-15.md).
+  [S15](https://github.com/MianliWang/pietto/blob/8e7c43f1852b2c26318b3217268a1f7416f44965/docs/phases/phase-68/slice-15.md).
 
 
 ## Phase68 S16
@@ -219,7 +219,7 @@ MySQL helper调用不等于第二次native提交；prepared Execute、实际sign
 - Compose two earlier probes' setups in one database by suppressing the shared
   statements, not by rerunning either whole: a rerun changes session state such
   as `search_path` for the next statement. See
-  [S16](../phases/phase-68/slice-16.md).
+  [S16](https://github.com/MianliWang/pietto/blob/8e7c43f1852b2c26318b3217268a1f7416f44965/docs/phases/phase-68/slice-16.md).
 
 
 ## Phase68 S17
@@ -232,7 +232,7 @@ MySQL helper调用不等于第二次native提交；prepared Execute、实际sign
   already gone records `ABSENT`, never an unlink it did not perform.
 - In process tests, read barrier lines before any buffered data line from the
   same pipe, and open a fresh workspace handle in every thread: SQLite
-  connections are thread-bound. See [S17](../phases/phase-68/slice-17.md).
+  connections are thread-bound. See [S17](https://github.com/MianliWang/pietto/blob/8e7c43f1852b2c26318b3217268a1f7416f44965/docs/phases/phase-68/slice-17.md).
 
 
 ## Phase68 S18
@@ -245,7 +245,7 @@ MySQL helper调用不等于第二次native提交；prepared Execute、实际sign
 - A driver can silently swap its native implementation (psycopg falls back to a
   system libpq on `PSYCOPG_IMPL` or a broken extension): check the selected
   implementation, and observe damaged installs with and without harness
-  overrides. See [S18](../phases/phase-68/slice-18.md).
+  overrides. See [S18](https://github.com/MianliWang/pietto/blob/8e7c43f1852b2c26318b3217268a1f7416f44965/docs/phases/phase-68/slice-18.md).
 
 
 ## Phase68 S19
@@ -264,7 +264,7 @@ MySQL helper调用不等于第二次native提交；prepared Execute、实际sign
   fields (exclusion owners, killed-step facts, sink payload coordinates), and an
   independent verdict must re-run the original layer checkers over the raw
   rather than read the producer's own `checked` flag. See
-  [S19](../phases/phase-68/slice-19.md).
+  [S19](https://github.com/MianliWang/pietto/blob/8e7c43f1852b2c26318b3217268a1f7416f44965/docs/phases/phase-68/slice-19.md).
 - Run a reused control family inside its own original premise environment,
   workers included: moving only the family's parent process into the premise
   fixed a symptom, and the next campaign failed again at the worker.
@@ -281,17 +281,17 @@ MySQL helper调用不等于第二次native提交；prepared Execute、实际sign
 下一个阶段或插段的 initiation 先筛选适用项，再说明消费方式与仍然存在的限制；不要求每个后续切片重跑全部消费者。
 
 1. 包元数据与 extras 有只在 CI 运行的已安装读者（S18 C10）：发布前运行与 CI 同形的本地消费者入口，并把这些读者列为直接读者；
-   输入不变的切片不必重跑。见 [S18](../phases/phase-68/slice-18.md) 与 [S19](../phases/phase-68/slice-19.md)。
+   输入不变的切片不必重跑。见 [S18](https://github.com/MianliWang/pietto/blob/8e7c43f1852b2c26318b3217268a1f7416f44965/docs/phases/phase-68/slice-18.md) 与 [S19](https://github.com/MianliWang/pietto/blob/8e7c43f1852b2c26318b3217268a1f7416f44965/docs/phases/phase-68/slice-19.md)。
 2. 复用的控制族必须在它原本的前提环境中运行，连同 worker 子进程（S19 C24）：只移动父进程是治标，下一次 campaign 在 worker 处再次失败。
 3. 损坏只有被它指定的定律拒绝时才证明该定律（S19 C25）：损坏须与原检查器重新解码的每个副本一致并留在声明域内；拒绝分支本身也应绑定
    指定的拒绝类别——S14 的无 basis 分支只要求失败非 abandon，S20 才用原始数据确认其为 `SINGLE_MATCH_VIOLATED`。
-   见[全矩阵对账](../phases/phase-68/completion-audit.md#全矩阵对账)。
+   见[全矩阵对账](https://github.com/MianliWang/pietto/blob/8e7c43f1852b2c26318b3217268a1f7416f44965/docs/phases/phase-68/completion-audit.md#全矩阵对账)。
 4. 采纳依赖更新前查找每个字面 pin 读者：PR 自身的 CI 可以是绿的，而本地前提与配方消费者会拒绝运行（#82/#83）；更新后把原生合格
    profile 与当前锁定 profile 分开记录，未重跑的原生观察标为 NOT_OBSERVED，不因 wheel 相同而改称 REUSED_UNCHANGED。
-   见[产品与依赖两个证据域](../phases/phase-68/completion-audit.md#产品与依赖两个证据域)。
+   见[产品与依赖两个证据域](https://github.com/MianliWang/pietto/blob/8e7c43f1852b2c26318b3217268a1f7416f44965/docs/phases/phase-68/completion-audit.md#产品与依赖两个证据域)。
 5. 单调时长、UTC 跨度、预留槽位与实测 CPU 是不同的量：S19 长命令的 UTC 跨度一致比单调时长多约 2.2–2.5%，wrapper 的
    `RUSAGE_CHILDREN` 不含容器内数据库，8 个预留槽下各组件实测约 1 核；新的并发上限须以实测内存与数据库容量为依据。
-   见[成本复盘](../phases/phase-68/completion-audit.md#成本复盘)。
+   见[成本复盘](https://github.com/MianliWang/pietto/blob/8e7c43f1852b2c26318b3217268a1f7416f44965/docs/phases/phase-68/completion-audit.md#成本复盘)。
 
 
 ## Post-Phase68 performance interlude
@@ -322,7 +322,7 @@ MySQL helper调用不等于第二次native提交；prepared Execute、实际sign
 
 ## Phase69 与 Post-Phase69 插入期的耐久教训
 
-Phase70 开局按下列条目调整（见 [Phase70 brief](../phases/phase-70/brief.md)）；Phase69 [完成审计](../phases/phase-69/completion-audit.md)与 Post-Phase69 插入期（下称插入期）保留的失败头不重写。
+Phase70 开局按下列条目调整（见 [Phase70 brief](https://github.com/MianliWang/pietto/blob/8e7c43f1852b2c26318b3217268a1f7416f44965/docs/phases/phase-70/brief.md)）；Phase69 [完成审计](https://github.com/MianliWang/pietto/blob/8e7c43f1852b2c26318b3217268a1f7416f44965/docs/phases/phase-69/completion-audit.md)与 Post-Phase69 插入期（下称插入期）保留的失败头不重写。
 
 1. 只在 CI、hosted runner 或目标数据库上运行的消费者仍是失败头的主要来源：Phase69 的失败已发布头 `bf252faf` 与 `8d7877d8` 都只在 hosted 消费者上失败，由 `bf8c1344` 修复；
    插入期首个发布头 `8dcc610c` 一是 `.github/workflows/ci.yml` 中改名 helper 的字面入口未更新（重组的读者清单漏掉了 `.github/**`），二是目标 oracle 未随已批准的 INT fixture 更新，由子提交 `de887b62` 修复。
@@ -333,14 +333,14 @@ Phase70 开局按下列条目调整（见 [Phase70 brief](../phases/phase-70/bri
 3. 全部通过不等于全部收集：插入期的一次权威验证中，`tests/test_ci_results_governance.py` 导入 `scripts` 时依赖当前工作目录，46 个节点因此静默缺席，由独立收集计数发现；
    `pytest.ini` 随后设置 `pythonpath = .`，并经所有者批准重跑。每个 Gate 2 记录带独立收集计数与预期节点增量，二者不符即停。
 4. 聚焦集合必须包含被改共享 owner 的直接消费者：Phase69 S02 候选的聚焦检查漏掉了既有执行 owner，非权威全量预检发现 9 个回归；插入期用了 5 次非权威全量预检才收敛。
-   多 worker 合入的批次在权威运行前先做一次非权威全量预检；新增节点种类时，先让按类分派的遍历器对未知节点失败关闭，再让新节点越过准入，见 [Phase70 路线](../phases/phase-70/slices.md)的 S01 与 S02。
+   多 worker 合入的批次在权威运行前先做一次非权威全量预检；新增节点种类时，先让按类分派的遍历器对未知节点失败关闭，再让新节点越过准入，见 [Phase70 路线](https://github.com/MianliWang/pietto/blob/8e7c43f1852b2c26318b3217268a1f7416f44965/docs/phases/phase-70/slices.md)的 S01 与 S02。
 5. 版本字样不是构建身份，文档也会滞后：`8cc6d5cb` 的包版本仍是 `0.1.2`，但 extras 已选 `pyarrow==26.0.0`，与已发行 `0.1.2` 的依赖闭包不同；原生或安装证据绑定实际构建输入，
    不因版本字样相同而混用发行字节或旧驱动证据。提交时写下的 pending 或 candidate 措辞在 CI 之后没有专门提交更新，由下一个生命周期提交同步；删除或改名测试、升级 pin 时，
    同时搜索文档中的旧路径与旧版本（Phase70 路线发布更正了 `docs/execution.md`、`docs/project-package.md` 与 `docs/development.md` 中这样的滞后文字）。
 
 ## Phase72
 
-These apply from the Phase73 lanes on; the [Phase72 completion audit](../phases/phase-72/completion-audit.md) keeps the failed histories.
+These apply from the Phase73 lanes on; the [Phase72 completion audit](https://github.com/MianliWang/pietto/blob/8e7c43f1852b2c26318b3217268a1f7416f44965/docs/phases/phase-72/completion-audit.md) keeps the failed histories.
 
 1. Lanes must type-check the tests they touch. The first batch-1 Gate 2 failed on 14 errors in four lane tests: the lanes had run `pyright` on `src/` only. Every lane brief requires `pyright --project pyrightconfig.tests.json` on the changed tests before the diff is handed over.
 2. Repository-wide locks fail only on the integrated tree: the layering policy of the project model, a source-substring guard and the canonical `PIE-` code form each failed after lanes that passed alone were merged. Before Gate 2 the integration runs the repository-wide owners (the `test_repo_*` files, the layering and code-form tests) on the merged tree, and a lane runs them on its own tree.

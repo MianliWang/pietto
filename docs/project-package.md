@@ -1066,8 +1066,8 @@ Phase68 S18 adds three route selectors, each Arrow plus one route's exact pins:
 [execution install](execution.md#install). Installation never chooses
 a route, grants execution or qualifies storage; all three routes are
 [public alpha interfaces](execution.md). The
-[S18 contract](phases/phase-68/slice-18.md) records the verified domain.
+[S18 contract](https://github.com/MianliWang/pietto/blob/8e7c43f1852b2c26318b3217268a1f7416f44965/docs/phases/phase-68/slice-18.md) records the verified domain.
 
-The [Phase67 audit and handoff](phases/phase-67/completion-audit.md) identifies
+The [Phase67 audit and handoff](https://github.com/MianliWang/pietto/blob/8e7c43f1852b2c26318b3217268a1f7416f44965/docs/phases/phase-67/completion-audit.md) identifies
 the existing private bindings, ownership and finite-completion prerequisites.
 Phase68 execution authority and higher-level adapters remain separately owned.

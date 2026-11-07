@@ -19,11 +19,6 @@ from pietto.semantic import (
     analyze,
 )
 
-REPO_ROOT = Path(__file__).resolve().parents[1]
-PLAN_PATH = (
-    REPO_ROOT
-    / "docs/plan/phase-26-aggregate-expression-arguments-numeric-foundation.md"
-)
 
 SOURCE_PREFIX = (
     "shape Order:\n"
@@ -45,25 +40,6 @@ DECIMAL_AMOUNT_PREFIX = (
     "    customer_id: UUID\n"
     'source orders: Order = postgres.table("orders")\n'
 )
-
-
-def test_slice4_status_is_semantic_only_with_fail_closed_guard() -> None:
-    plan = _normalized_plan()
-
-    for required in (
-        "Phase 26 Slice 4 is complete as a semantic-only aggregate "
-        "expression argument slice",
-        "It admits only field-only numeric scalar expression arguments for "
-        "direct aliased `sum` and `avg` projections",
-        "Literal-containing aggregate arguments such as `sum(amount + 1)` "
-        "and `avg(score * 2)` remain deferred through `PIE-S2315`",
-        "Slice 4 intentionally adds no IR, SQL backend, CLI, JSON, fixture, "
-        "or golden behavior",
-        "The focused fail-closed guard proves that semantically accepted "
-        "`sum(amount + tax)` does not emit SQL artifacts before the later "
-        "IR/SQL slices",
-    ):
-        assert required in plan
 
 
 @pytest.mark.parametrize(
@@ -838,10 +814,6 @@ def _write(tmp_path: Path, name: str, source: str) -> Path:
     path = tmp_path / name
     path.write_text(source, encoding="utf-8")
     return path
-
-
-def _normalized_plan() -> str:
-    return " ".join(PLAN_PATH.read_text(encoding="utf-8").split())
 
 
 def test_unknown_aggregate_let_expression_fails_closed() -> None:

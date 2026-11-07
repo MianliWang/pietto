@@ -24,11 +24,6 @@ from pietto.semantic import (
     analyze,
 )
 
-REPO_ROOT = Path(__file__).resolve().parents[1]
-PLAN_PATH = (
-    REPO_ROOT
-    / "docs/plan/phase-26-aggregate-expression-arguments-numeric-foundation.md"
-)
 SOURCE_PREFIX = (
     "shape Order:\n"
     "    price: Decimal\n"
@@ -37,20 +32,6 @@ SOURCE_PREFIX = (
     "    status: Text\n"
     'source orders: Order = postgres.table("orders")\n'
 )
-
-
-def test_slice3_status_is_decimal_scalar_semantics_only() -> None:
-    plan = _normalized_plan()
-
-    for required in (
-        "Phase 26 Slice 3 is complete as a narrow Decimal scalar arithmetic "
-        "semantics slice",
-        "It implements only `Decimal + Decimal -> Decimal` and "
-        "`Decimal - Decimal -> Decimal`",
-        "Slice 3 changes no IR, SQL backend, CLI, JSON, fixture, or golden behavior",
-        "Aggregate expression argument acceptance remains deferred",
-    ):
-        assert required in plan
 
 
 @pytest.mark.parametrize(
@@ -325,10 +306,6 @@ def test_direct_aggregate_inside_satisfying_still_uses_s2308() -> None:
             "use it only as a direct aliased select projection",
         )
     ]
-
-
-def _normalized_plan() -> str:
-    return " ".join(PLAN_PATH.read_text(encoding="utf-8").split())
 
 
 def _parse(source: str) -> Script:

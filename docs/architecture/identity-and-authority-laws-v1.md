@@ -86,7 +86,7 @@ v1](product-architecture-v1.md) and apply through the dependency direction in
 
 ## Explicit compiled input identity
 
-Phase68 [S10](../phases/phase-68/slice-10.md) separates canonical bundle content,
+Phase68 [S10](https://github.com/MianliWang/pietto/blob/8e7c43f1852b2c26318b3217268a1f7416f44965/docs/phases/phase-68/slice-10.md) separates canonical bundle content,
 trusted producer, supported code/semantic/occurrence/profile compatibility, fresh
 compiled-root identity, exact typed binding values, binding instance and native
 attempt authority. Equality at one layer does not mint another layer's identity.
@@ -99,7 +99,7 @@ Later job/generation/publisher/checkpoint/sink identities remain separately owne
 
 ## Durable job identity
 
-Phase68 [S11](../phases/phase-68/slice-11.md) adds separately owned workspace, job,
+Phase68 [S11](https://github.com/MianliWang/pietto/blob/8e7c43f1852b2c26318b3217268a1f7416f44965/docs/phases/phase-68/slice-11.md) adds separately owned workspace, job,
 binding-record, generation, attempt, publisher-instance/epoch and operation
 identities. None is derived from content pins, equal parameters, process or
 session identifiers, rowids or file names. A stored bundle pin, outcome or
@@ -111,7 +111,7 @@ transaction. Generation registration is not result completion.
 
 ## Captured result identity
 
-Phase68 [S12](../phases/phase-68/slice-12.md) adds separately owned chunk `chk-`,
+Phase68 [S12](https://github.com/MianliWang/pietto/blob/8e7c43f1852b2c26318b3217268a1f7416f44965/docs/phases/phase-68/slice-12.md) adds separately owned chunk `chk-`,
 checkpoint `ckp-` and retention `ret-` identities. A chunk file digest protects
 only a file boundary and stays private; equal payload bytes can belong to two
 legitimate chunks, and file names never encode an occurrence. A checkpoint is an
@@ -122,7 +122,7 @@ Every chunk publication and retention change is fenced by the current publisher.
 
 ## Saved-result consumer identity
 
-Phase68 [S13](../phases/phase-68/slice-13.md) adds consumer `csm-`, replay session
+Phase68 [S13](https://github.com/MianliWang/pietto/blob/8e7c43f1852b2c26318b3217268a1f7416f44965/docs/phases/phase-68/slice-13.md) adds consumer `csm-`, replay session
 `rps-` and delivery `dlv-` identities. A consumer is bound to one exact immutable
 checkpoint and fixed extent; its progress is derived from acknowledgements, never
 supplied. A saved-result read needs a fresh process-local caller acceptance whose
@@ -134,7 +134,7 @@ identities may change on redelivery. A local acknowledgement is not a sink ACK.
 
 ## Extraction-recovery identity
 
-Phase68 [S14](../phases/phase-68/slice-14.md) keeps `(generation, logical output
+Phase68 [S14](https://github.com/MianliWang/pietto/blob/8e7c43f1852b2c26318b3217268a1f7416f44965/docs/phases/phase-68/slice-14.md) keeps `(generation, logical output
 position)` as the occurrence identity across every extraction attempt and R1
 rebatching; attempt, session, epoch, page and chunk identities never rename an
 occurrence. Each chunk keeps its real producing attempt. Only a generation whose
@@ -148,7 +148,7 @@ not a transaction ACK, delivery, sink effect or generation publication.
 
 ## Cooperative-delivery identity
 
-Phase68 [S15](../phases/phase-68/slice-15.md) names one effect by the destination
+Phase68 [S15](https://github.com/MianliWang/pietto/blob/8e7c43f1852b2c26318b3217268a1f7416f44965/docs/phases/phase-68/slice-15.md) names one effect by the destination
 incarnation plus the occurrence: `(sink instance, namespace, namespace epoch,
 source workspace, generation, position)`. Attempt, checkpoint, chunk, batch,
 session, consumer, operation, size, path and payload hash never name an effect;
@@ -164,7 +164,7 @@ epoch or retention contract is a different destination, never recovery.
 
 ## Complete-publication identity
 
-Phase68 [S16](../phases/phase-68/slice-16.md) publishes at most one immutable
+Phase68 [S16](https://github.com/MianliWang/pietto/blob/8e7c43f1852b2c26318b3217268a1f7416f44965/docs/phases/phase-68/slice-16.md) publishes at most one immutable
 reference per generation, keyed by the generation; it adds no new identity
 class. The reference names one exact checkpoint, extent `[0, N)`, output
 contract, coordinate scheme, closing attempt, closing observation and
@@ -180,7 +180,7 @@ and a later cancellation or publisher change never withdraws a publication.
 
 ## Bounded-runtime and collection identity
 
-Phase68 [S17](../phases/phase-68/slice-17.md) adds three identity classes to the
+Phase68 [S17](https://github.com/MianliWang/pietto/blob/8e7c43f1852b2c26318b3217268a1f7416f44965/docs/phases/phase-68/slice-17.md) adds three identity classes to the
 explicit v7 workspace only: a runtime incarnation (`run`, with a monotone epoch),
 an admission (`adm`) and a collection decision (`gcd`). None is authority by
 itself: a runtime incarnation proves only that its process held the workspace's
@@ -197,7 +197,7 @@ identities after collection; a tombstoned subject is refused, never resurrected.
 
 ## Installed origin and selected-dependency identity
 
-Phase68 [S18](../phases/phase-68/slice-18.md) adds no identity class. A package
+Phase68 [S18](https://github.com/MianliWang/pietto/blob/8e7c43f1852b2c26318b3217268a1f7416f44965/docs/phases/phase-68/slice-18.md) adds no identity class. A package
 version is not an origin: an installation is identified by the exact wheel bytes
 it was resolved from and the bytes of the modules it actually loaded, and an
 archived runtime by its archived wheel's bytes. The compiled-code compatibility

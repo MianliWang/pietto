@@ -12,8 +12,6 @@ PHASE_INITIATION_GATE = ARCHITECTURE_ROOT / "phase-initiation-gate-v1.md"
 IDENTITY_LAWS = ARCHITECTURE_ROOT / "identity-and-authority-laws-v1.md"
 LAYERING_LAWS = ARCHITECTURE_ROOT / "layering-and-coupling-laws-v1.md"
 PRODUCT_LESSONS = REPO_ROOT / "docs/references/product-design-lessons-v1.md"
-PLAN_README = REPO_ROOT / "docs/plan/README.md"
-PRODUCT_PLAN_SNAPSHOT = REPO_ROOT / "docs/plan/pietto_product_plan_2026-09-02.md"
 PREREQUISITE_SPEC = (
     REPO_ROOT
     / "docs/spec/phase63-repository-architecture-authority-extraction-prerequisite-v1.md"
@@ -27,8 +25,6 @@ ARCHITECTURE_DOCUMENTS = (
 NEW_AUTHORITY_DOCUMENTS = (
     *ARCHITECTURE_DOCUMENTS,
     PRODUCT_LESSONS,
-    PLAN_README,
-    PRODUCT_PLAN_SNAPSHOT,
     PREREQUISITE_SPEC,
 )
 EXPECTED_TITLES = (
@@ -37,8 +33,6 @@ EXPECTED_TITLES = (
     "Pietto Identity And Authority Laws v1",
     "Pietto Layering And Coupling Laws v1",
     "Pietto Product Design Lessons v1",
-    "Historical Planning Material",
-    "Pietto 产品规划历史快照",
     "Phase 63 Repository Architecture Authority Extraction Prerequisite v1",
 )
 

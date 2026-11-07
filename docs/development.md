@@ -90,7 +90,10 @@ The completion audit ends with the next-phase handoff; there is no separate
 handoff file. The [roadmap](roadmap.md) lists only future work: a delivered
 item leaves it, and the completion audit records it. Records of completed
 phases that no current work reads leave the tree; Git history keeps them, and
-a link to one is a GitHub URL pinned to a commit that holds it.
+a link to one is a GitHub URL pinned to a commit that holds it. The records of
+Phase67 to Phase72 and the plans of `docs/plan/` left the tree in Phase76;
+their links are pinned to `8e7c43f1852b2c26318b3217268a1f7416f44965`, the
+`v0.1.10` release commit.
 
 Git is the publication mechanism. The conceptual states are
 `DIRTY_LOCAL_CANDIDATE`, `CLEAN_PRE_PUSH`, and `SHALLOW_PUSHED_HEAD`; no
@@ -632,12 +635,12 @@ health不足历史可为INSUFFICIENT_EVIDENCE；slow正确结果不失败，不�
 两compiler/package jobs各在独立环境跑真实PyArrow26.0.0 probe，completion要求完整readiness；core安装与CLI
 仍无Arrow。开发机统一外部launcher固定既有project解释器，隔离实验明确指定现有解释器，禁止环境重建。
 本次Gate2仅一次3.13完整equivalent：static、独立U、四分区串行、全部对账/health、auxiliary和精确输入匹配的
-两解释器小probe；不能另加monolithic/full3.12/cold-matrix。本期 [brief](phases/phase-67/brief.md)、
-[Slice01](phases/phase-67/slice-01.md) 与 [lessons](references/engineering-lessons.md) 供后续phase消费。
+两解释器小probe；不能另加monolithic/full3.12/cold-matrix。本期 [brief](https://github.com/MianliWang/pietto/blob/8e7c43f1852b2c26318b3217268a1f7416f44965/docs/phases/phase-67/brief.md)、
+[Slice01](https://github.com/MianliWang/pietto/blob/8e7c43f1852b2c26318b3217268a1f7416f44965/docs/phases/phase-67/slice-01.md) 与 [lessons](references/engineering-lessons.md) 供后续phase消费。
 
 ## Phase67 private result product checks
 
-[Slice02](phases/phase-67/slice-02.md) 在普通 Arrow-free tests 中检查 retained contract/producer identity；
+[Slice02](https://github.com/MianliWang/pietto/blob/8e7c43f1852b2c26318b3217268a1f7416f44965/docs/phases/phase-67/slice-02.md) 在普通 Arrow-free tests 中检查 retained contract/producer identity；
 两 compiler/package jobs 另在 fresh isolated3.12/3.13 环境安装 locked core dependencies、candidate wheel，
 然后按原 hash lock 安装 PyArrow25.0.1（Slice02历史路径；当前S13见下）。原九组 SDK probe 保持；新增 installed product consumer 使用 `-I`，
 核验全部实际 Pietto import origins、当前 source input closure、14组测值/负例及 run context。
@@ -651,49 +654,49 @@ HOLD 则给出 focused continuation 或 consolidated decision sheet。执行代�
 
 ## Slice03 private result contract 与轻量过程记录
 
-[Slice03](phases/phase-67/slice-03.md) 增加三private owners：stdlib-only pure boundary、checked exporter、独立runtime correspondence。原两compiler/package jobs及completion沿用现有required product report；不得把pure PASS、metadata或canonical bytes当作producer binding authority。比较两runtime的完整documents，排除外部evidence envelope；native inputs随新模块改变，必须消费fresh自然CI receipts。
+[Slice03](https://github.com/MianliWang/pietto/blob/8e7c43f1852b2c26318b3217268a1f7416f44965/docs/phases/phase-67/slice-03.md) 增加三private owners：stdlib-only pure boundary、checked exporter、独立runtime correspondence。原两compiler/package jobs及completion沿用现有required product report；不得把pure PASS、metadata或canonical bytes当作producer binding authority。比较两runtime的完整documents，排除外部evidence envelope；native inputs随新模块改变，必须消费fresh自然CI receipts。
 
 每个后续Slice在原外部ledger旁记录轻量JSONL步骤及中文成本摘要：meaningful step的start/end/recovered/note，workflow/step/parent、起止/monotonic elapsed、timing basis、purpose、sanitized action、outcome/reason/retry、evidence refs、budget categories。长命令启动前写start，结束后写同step end；ledger仍唯一计数权威，raw logs留外部。报告区分Slice观察窗口、命令时间、HOLD/user wait、CI wall与runner sum，parent/child不重复相加；缺失时间明确unknown。终态附evidence-linked步骤/成本摘要和下一Slice至多三条改进建议，历史缺口不否定正确执行的product gates，不自动增加benchmark、豁免或scope。
 
 ## Slice04 scalar result检查
 
-[Slice04](phases/phase-67/slice-04.md) 沿用同一private consumer，默认Arrow保留signed producer width，显式request按完整int_range判断无损；Bool行carrier与logical batch不同，finite Float64按IEEE bits验证signed zero。原23product与9SDK案例独立保留，新案例通过同一report/damage/input-origin链；core仍Arrow-free，codec格式及batch limits保持。native普通文件准备统一预检，不重跑已绿gates改善计时。
+[Slice04](https://github.com/MianliWang/pietto/blob/8e7c43f1852b2c26318b3217268a1f7416f44965/docs/phases/phase-67/slice-04.md) 沿用同一private consumer，默认Arrow保留signed producer width，显式request按完整int_range判断无损；Bool行carrier与logical batch不同，finite Float64按IEEE bits验证signed zero。原23product与9SDK案例独立保留，新案例通过同一report/damage/input-origin链；core仍Arrow-free，codec格式及batch limits保持。native普通文件准备统一预检，不重跑已绿gates改善计时。
 
 ## Slice05 Text result检查
 
-[Slice05](phases/phase-67/slice-05.md) 沿用required product consumer：38个命名案例与36个report-damage controls，同步末端exact assertions；原9 SDK组、30product cases和6份canonical文档保留。新增4份Text/mixed文档完整bytes在local及downloaded CI报告跨runtime比较。UTF-8/offset资源和NULL槽由真实PyArrow25.0.1验证（已封存的Slice05测量）；普通pytest保持Arrow-free，fresh native receipts仍绑定当前input closure。
+[Slice05](https://github.com/MianliWang/pietto/blob/8e7c43f1852b2c26318b3217268a1f7416f44965/docs/phases/phase-67/slice-05.md) 沿用required product consumer：38个命名案例与36个report-damage controls，同步末端exact assertions；原9 SDK组、30product cases和6份canonical文档保留。新增4份Text/mixed文档完整bytes在local及downloaded CI报告跨runtime比较。UTF-8/offset资源和NULL槽由真实PyArrow25.0.1验证（已封存的Slice05测量）；普通pytest保持Arrow-free，fresh native receipts仍绑定当前input closure。
 
 ## Slice06 Decimal result checks
 
-[Slice06](phases/phase-67/slice-06.md) 的shared参数域扩展与private结果层属于一个候选、一次author/Ponytail review和一次完整3.13 equivalent。required product报告扩展至47个命名案例/45个damage controls，两个local与natural-CI运行时比较原10份及新增4份canonical完整bytes。context/traps/flags、实际scaled coefficients、retained-buffer先检查与constructor/checker拒绝层均有独立见证；core保持Arrow-free。
+[Slice06](https://github.com/MianliWang/pietto/blob/8e7c43f1852b2c26318b3217268a1f7416f44965/docs/phases/phase-67/slice-06.md) 的shared参数域扩展与private结果层属于一个候选、一次author/Ponytail review和一次完整3.13 equivalent。required product报告扩展至47个命名案例/45个damage controls，两个local与natural-CI运行时比较原10份及新增4份canonical完整bytes。context/traps/flags、实际scaled coefficients、retained-buffer先检查与constructor/checker拒绝层均有独立见证；core保持Arrow-free。
 
 ## Slice07 private meaning与结果验证
 
-[Slice07](phases/phase-67/slice-07.md) 先以Arrow-free acquisition/preparation/result vertical关闭Q2，再跑Timestamp/UUID矩阵；public/default缺meaning仍拒绝。new scalar owner改变package input closure，因此仍需fresh native CI，旧native manifest未扩为新高precision/temporal查询。required product消费者验证56cases/54damage controls，原14份与新增4份canonical完整bytes跨local/CI双runtime比较；默认UUID与显式binary16具有同一neutral contract。
+[Slice07](https://github.com/MianliWang/pietto/blob/8e7c43f1852b2c26318b3217268a1f7416f44965/docs/phases/phase-67/slice-07.md) 先以Arrow-free acquisition/preparation/result vertical关闭Q2，再跑Timestamp/UUID矩阵；public/default缺meaning仍拒绝。new scalar owner改变package input closure，因此仍需fresh native CI，旧native manifest未扩为新高precision/temporal查询。required product消费者验证56cases/54damage controls，原14份与新增4份canonical完整bytes跨local/CI双runtime比较；默认UUID与显式binary16具有同一neutral contract。
 
 ## Slice08 finite scalar与midpoint验证
 
-[Slice08](phases/phase-67/slice-08.md) 在原required consumer新增8组，精确64product/62damage controls，保留9SDK和原18份完整canonical documents，新增4份mixed/nullable文档。positional snapshots同时记录ordinal、label、type、values与validity；重复label不用dict列oracle。合法empty absent buffer先经full structural validation再跳过零长度值扫描，非空检查不减。actual文档scanner与current lifecycle读者在full前执行；midpoint文档进入final tested tree，费用/raw/native终态保留外部ledger。
+[Slice08](https://github.com/MianliWang/pietto/blob/8e7c43f1852b2c26318b3217268a1f7416f44965/docs/phases/phase-67/slice-08.md) 在原required consumer新增8组，精确64product/62damage controls，保留9SDK和原18份完整canonical documents，新增4份mixed/nullable文档。positional snapshots同时记录ordinal、label、type、values与validity；重复label不用dict列oracle。合法empty absent buffer先经full structural validation再跳过零长度值扫描，非空检查不减。actual文档scanner与current lifecycle读者在full前执行；midpoint文档进入final tested tree，费用/raw/native终态保留外部ledger。
 
 ## Slice09 bounded finite reader验证
 
-[Slice09](phases/phase-67/slice-09.md) 复用S08 fixtures和单一scalar checker，usage由同一次validated traversal返回；verify_batch原返回None行为保持。required product精确74groups/72damage controls，9SDK组及22份neutral完整documents不变，新增reader模块由实际installed origins/input closure消费。source失败使用真实from_batches iterable；稀有close/StopIteration/控制流异常明确标为test injection。初组就覆盖unknown/short/extra、empty≠EOF、late error及cleanup；actual doc scanners/current reader/typing inventory在full前执行。四分区、自然15jobs及fresh native receipts仍必需，native package-members新增reader路径不豁免33MiB限制。
+[Slice09](https://github.com/MianliWang/pietto/blob/8e7c43f1852b2c26318b3217268a1f7416f44965/docs/phases/phase-67/slice-09.md) 复用S08 fixtures和单一scalar checker，usage由同一次validated traversal返回；verify_batch原返回None行为保持。required product精确74groups/72damage controls，9SDK组及22份neutral完整documents不变，新增reader模块由实际installed origins/input closure消费。source失败使用真实from_batches iterable；稀有close/StopIteration/控制流异常明确标为test injection。初组就覆盖unknown/short/extra、empty≠EOF、late error及cleanup；actual doc scanners/current reader/typing inventory在full前执行。四分区、自然15jobs及fresh native receipts仍必需，native package-members新增reader路径不豁免33MiB限制。
 
 ## Slice10 CPU协议验证
 
-[S10](phases/phase-67/slice-10.md) 将required product扩为84groups/82实质damage controls，保留9SDK和22全文。真实consumer与wrapper计数/注入控制分别标明；native输入closure随interop模块刷新。自然CI观察允许foreground串行预取已上传raw，最终required inventory/context/bytes与三个data-only native strict仍完整执行，提前下载不证明成功。
+[S10](https://github.com/MianliWang/pietto/blob/8e7c43f1852b2c26318b3217268a1f7416f44965/docs/phases/phase-67/slice-10.md) 将required product扩为84groups/82实质damage controls，保留9SDK和22全文。真实consumer与wrapper计数/注入控制分别标明；native输入closure随interop模块刷新。自然CI观察允许foreground串行预取已上传raw，最终required inventory/context/bytes与三个data-only native strict仍完整执行，提前下载不证明成功。
 
 ## Slice11 ingress验证
 
-[S11](phases/phase-67/slice-11.md) 沿用required consumer，严格92product/90damage及9SDK，原22documents四runtime全文一致。独立SDK native fixture与producer rows配对，不经producer mapper重建Arrow输入；接受点、原raw-reader lease、source/delivery终态与layout-specific cost分别观测。S09/S10直接manifest readers、typing/lifecycle及实际doc scanner在full前检查。
+[S11](https://github.com/MianliWang/pietto/blob/8e7c43f1852b2c26318b3217268a1f7416f44965/docs/phases/phase-67/slice-11.md) 沿用required consumer，严格92product/90damage及9SDK，原22documents四runtime全文一致。独立SDK native fixture与producer rows配对，不经producer mapper重建Arrow输入；接受点、原raw-reader lease、source/delivery终态与layout-specific cost分别观测。S09/S10直接manifest readers、typing/lifecycle及实际doc scanner在full前检查。
 
 ## Slice12 private IPC验证
 
-[Slice12](phases/phase-67/slice-12.md) required product为102groups/100实质damage controls，九SDK和22份完整neutral文档保持。S01 boundary-prefix见证仅说明Arrow短流可读；产品framing与caller extent各自拒绝对应损坏。原S11 launcher/guard验证双runtime实际wheel/origins，Git/network由supervisor闭合；local candidate不宣称发布或native执行。
+[Slice12](https://github.com/MianliWang/pietto/blob/8e7c43f1852b2c26318b3217268a1f7416f44965/docs/phases/phase-67/slice-12.md) required product为102groups/100实质damage controls，九SDK和22份完整neutral文档保持。S01 boundary-prefix见证仅说明Arrow短流可读；产品framing与caller extent各自拒绝对应损坏。原S11 launcher/guard验证双runtime实际wheel/origins，Git/network由supervisor闭合；local candidate不宣称发布或native执行。
 
 ## Slice13 optional Arrow extra 与安装隔离
 
-[Slice13](phases/phase-67/slice-13.md) 通过唯一 `pietto[arrow]` 选择精确
+[Slice13](https://github.com/MianliWang/pietto/blob/8e7c43f1852b2c26318b3217268a1f7416f44965/docs/phases/phase-67/slice-13.md) 通过唯一 `pietto[arrow]` 选择精确
 `pyarrow==26.0.0`，默认 locked setup 与既有core `.venv` 保持Arrow-free。
 两compiler/package jobs由 `scripts/package_smoke.py --dist-dir ... --extra-env ...`
 各构建或消费同一个wheel/sdist，先在全新core环境验证无PyArrow、lazy imports、真实缺依赖
@@ -707,7 +710,7 @@ origins；raw/native闭合分别证明CI产物与既有native设施，不宣称�
 
 ## Slice14 fixture与captured-native replay
 
-[S14](phases/phase-67/slice-14.md) 在原installed product consumer加入八组，固定110/108，
+[S14](https://github.com/MianliWang/pietto/blob/8e7c43f1852b2c26318b3217268a1f7416f44965/docs/phases/phase-67/slice-14.md) 在原installed product consumer加入八组，固定110/108，
 保留九SDK及22份neutral全文；普通pytest仍offline。新helper仅显式加载闭合test-helper集合，
 小child复制该集合并移动TABLE projects，production origins必须来自同一installed wheel。
 
@@ -720,7 +723,7 @@ extra环境重放当前receipt，比较semantic observations及typed BAG，不�
 
 ## Slice15 whole-result laws
 
-[S15](phases/phase-67/slice-15.md) 将当前required product扩至120groups/118damage；
+[S15](https://github.com/MianliWang/pietto/blob/8e7c43f1852b2c26318b3217268a1f7416f44965/docs/phases/phase-67/slice-15.md) 将当前required product扩至120groups/118damage；
 core-only checker保持Arrow-free，两个installedruntime运行真实七类whole-result routes和独立值oracle。
 S14 helper加载/复制/input closure同步闭合新helper；原八native-replay cells、sidecar和28raw总数保持。
 22neutral全文须比较当前双runtime与verified S14 expected bytes；IPC bytes不作canonical承诺。
@@ -729,21 +732,21 @@ S14 helper加载/复制/input closure同步闭合新helper；原八native-replay
 
 ## Slice16 audit与最终回归
 
-[完成审计](phases/phase-67/completion-audit.md)使用原owner/probes，普通新principal仅offline检查
+[完成审计](https://github.com/MianliWang/pietto/blob/8e7c43f1852b2c26318b3217268a1f7416f44965/docs/phases/phase-67/completion-audit.md)使用原owner/probes，普通新principal仅offline检查
 引用、支持和边界，不以18行/PASS文字证明完成。原120/118、SDK9、22neutral全文、八replay cells、
 15jobs/28raw保持；新的pytest数只取真实collection。四个clean core/extra cells消费同candidate wheel，
 完整全文同时比较当前双runtime及verified S15 expected；历史结果不代替新执行。
-最终closure与cleanup顺序见[唯一规则](phases/phase-67/slice-16.md#唯一闭环规则)，S16外部ledger累计所有失败。
+最终closure与cleanup顺序见[唯一规则](https://github.com/MianliWang/pietto/blob/8e7c43f1852b2c26318b3217268a1f7416f44965/docs/phases/phase-67/slice-16.md#唯一闭环规则)，S16外部ledger累计所有失败。
 Phase68需独立FULL gate，本次不执行该gate；不得新增skip、benchmark或性能interlude。
 
 ## Phase68 explicit local premise experiments
 
-[S01](phases/phase-68/slice-01.md) adds an intentionally invoked test-only `scripts/phase68_executor_premise.py` and an offline data-only checker. Experimental dependencies are isolated by `ci/phase68-executor-premise-requirements.txt`; they never enter core or the four clean Phase67 regression cells. Local observed facts are not newly exercised hosted-CI driver support.
+[S01](https://github.com/MianliWang/pietto/blob/8e7c43f1852b2c26318b3217268a1f7416f44965/docs/phases/phase-68/slice-01.md) adds an intentionally invoked test-only `scripts/phase68_executor_premise.py` and an offline data-only checker. Experimental dependencies are isolated by `ci/phase68-executor-premise-requirements.txt`; they never enter core or the four clean Phase67 regression cells. Local observed facts are not newly exercised hosted-CI driver support.
 Ordinary new tests remain in independent full collection with no workload placement change. The S01 contract retains guarded3.13 final equivalence, two-runtime SDK9/120118/22documents, exact natural CI28raw/native/current replay. The one external ledger counts all failures and starts; complete unsupported and inconclusive environment have different terminals.
 
 ## Phase68 S02 historical validation and repair policy
 
-[S02](phases/phase-68/slice-02.md) used its closed dispatch Section 8 as its sole
+[S02](https://github.com/MianliWang/pietto/blob/8e7c43f1852b2c26318b3217268a1f7416f44965/docs/phases/phase-68/slice-02.md) used its closed dispatch Section 8 as its sole
 execution-budget authority: causal corrections/focused starts have approved
 24/24 headroom. Historical S01 counts and unconditional local install matrix
 remain historical. A consolidated review finding set permits later diagnosed
@@ -767,7 +770,7 @@ optional-driver discovery. Source/store/sink results remain local evidence.
 
 ## Phase68 S03 execution and validation record
 
-[S03](phases/phase-68/slice-03.md) uses its single dispatch Section 9 and external
+[S03](https://github.com/MianliWang/pietto/blob/8e7c43f1852b2c26318b3217268a1f7416f44965/docs/phases/phase-68/slice-03.md) uses its single dispatch Section 9 and external
 cumulative ledger. P1/P2 qualification and the route predicate enabled its private
 PostgreSQL implementation in the same dispatch. Diagnosed in-envelope corrections,
 delta checks and the authorized ordinary publication proceed under that authority;
@@ -800,7 +803,7 @@ S01–S03 campaigns and production inputs are not changed or rerun here.
 
 ## Phase68 S05 output bridge validation
 
-[S05](phases/phase-68/slice-05.md) uses its one external ledger and dispatch Section9.
+[S05](https://github.com/MianliWang/pietto/blob/8e7c43f1852b2c26318b3217268a1f7416f44965/docs/phases/phase-68/slice-05.md) uses its one external ledger and dispatch Section9.
 Its explicit `scripts/phase68_slice5_probe.py campaign` consumes the selected pinned
 isolated Python, current ordinary wheel and registered disposable fixtures. General
 output correspondence, metadata and lossless carrier checks feed the existing scalar,
@@ -819,7 +822,7 @@ S20 audit-only; this adds no scheduler or performance-maintenance authority.
 
 ## Phase68 S06 refinement validation
 
-[S06](phases/phase-68/slice-06.md) keeps the original dispatch Section10 ledger and its
+[S06](https://github.com/MianliWang/pietto/blob/8e7c43f1852b2c26318b3217268a1f7416f44965/docs/phases/phase-68/slice-06.md) keeps the original dispatch Section10 ledger and its
 explicit four-path PostgreSQL structural-argument amendment. The original HOLD and
 native 42883 observations remain immutable. Complete source/installed, three-route,
 fresh-process and independent-checker evidence precedes publication; a range fix or
@@ -837,7 +840,7 @@ mutation and fresh-process identities are not merged or replaced by a PASS cache
 
 ## Phase68 S07 guarded execution validation
 
-[S07](phases/phase-68/slice-07.md) uses one cumulative ledger across its original dispatch,
+[S07](https://github.com/MianliWang/pietto/blob/8e7c43f1852b2c26318b3217268a1f7416f44965/docs/phases/phase-68/slice-07.md) uses one cumulative ledger across its original dispatch,
 multi-hop amendment and explicit budget corrections. Preserve earlier HOLDs and failed raw.
 Before the complete three-route/source-installed campaign, freeze current producing inputs
 and obtain `GREEN_FOR_CURRENT_INPUTS` from bounded fixture/native/control/reader preflight.
@@ -855,7 +858,7 @@ consumers. Core no-sync protection and the S19/S20 acquisition boundary remain u
 
 ## Phase68 S08 private MySQL acquisition
 
-[S08](phases/phase-68/slice-08.md) requires an explicit scoped
+[S08](https://github.com/MianliWang/pietto/blob/8e7c43f1852b2c26318b3217268a1f7416f44965/docs/phases/phase-68/slice-08.md) requires an explicit scoped
 `MySQLDeploymentPremise` before source discovery. Every owned attempt requalifies
 actual definitions, complete supported dependencies and the current native context.
 The premise supplies definition/security stability only; native lifetime exclusion
@@ -873,7 +876,7 @@ continue across resumptions; no new execution profile is implied.
 
 ## Phase68 S09 private PostgreSQL ADBC acquisition
 
-[S09](phases/phase-68/slice-09.md) adds a separate explicit PG deployment premise
+[S09](https://github.com/MianliWang/pietto/blob/8e7c43f1852b2c26318b3217268a1f7416f44965/docs/phases/phase-68/slice-09.md) adds a separate explicit PG deployment premise
 and bounded source/registry qualification before evaluating reads. The retained
 raw catalog replies and actual data-session context are checked independently;
 operator compliance and native definition lifetime exclusion remain unproved.
@@ -892,7 +895,7 @@ qualify native sources; S19 consolidation and S20 audit-only remain unchanged.
 
 ## Phase68 S10 compiled inputs and acquisition review
 
-[S10](phases/phase-68/slice-10.md) keeps one cumulative dispatch/amendment ledger.
+[S10](https://github.com/MianliWang/pietto/blob/8e7c43f1852b2c26318b3217268a1f7416f44965/docs/phases/phase-68/slice-10.md) keeps one cumulative dispatch/amendment ledger.
 The complete original pure corpus and no-source corruption checks precede native
 expansion. Small actual three-route representatives precede one integrated review
 and exact-input readiness; the complete named live/bundle/source/installed matrix
@@ -917,7 +920,7 @@ retain their declared independent CI responsibility.
 
 ## Phase68 S11 job store validation
 
-[S11](phases/phase-68/slice-11.md) keeps one cumulative dispatch ledger. Ordinary
+[S11](https://github.com/MianliWang/pietto/blob/8e7c43f1852b2c26318b3217268a1f7416f44965/docs/phases/phase-68/slice-11.md) keeps one cumulative dispatch ledger. Ordinary
 tests cover the qualified-profile positive branch on the measured local build and
 the explicit refusal on any other runtime (CI's system SQLite included). An
 explicit storage environment class decides what an observed refusal does; it
@@ -943,7 +946,7 @@ witnesses are rebuilt on the final code closure; docs-only changes rerun nothing
 
 ## Phase68 S12 capture validation
 
-[S12](phases/phase-68/slice-12.md) keeps one cumulative dispatch ledger. The core
+[S12](https://github.com/MianliWang/pietto/blob/8e7c43f1852b2c26318b3217268a1f7416f44965/docs/phases/phase-68/slice-12.md) keeps one cumulative dispatch ledger. The core
 environment has no Arrow, so ordinary tests cover the pure chunk-frame, coordinate
 and coverage laws on every host, plus v1/v2, file protocol, fence, hole, replay,
 retention and real SIGKILL histories on the qualified local profile (explicit
@@ -957,7 +960,7 @@ witnesses are rebuilt on the final code closure.
 
 ## Phase68 S13 replay validation
 
-[S13](phases/phase-68/slice-13.md) keeps one cumulative dispatch ledger. Ordinary
+[S13](https://github.com/MianliWang/pietto/blob/8e7c43f1852b2c26318b3217268a1f7416f44965/docs/phases/phase-68/slice-13.md) keeps one cumulative dispatch ledger. Ordinary
 tests stay Arrow-free: pure interval laws run on every host, and v1/v2/v3,
 acceptance, registration, session supersession, issuance, acknowledgement,
 expiry clocks, late authority changes, fences, faults and real SIGKILL cursor
@@ -974,7 +977,7 @@ bundles and installed witnesses are rebuilt on the final code closure.
 
 ## Phase68 S14 extraction-recovery validation
 
-[S14](phases/phase-68/slice-14.md) keeps one cumulative dispatch ledger. Ordinary
+[S14](https://github.com/MianliWang/pietto/blob/8e7c43f1852b2c26318b3217268a1f7416f44965/docs/phases/phase-68/slice-14.md) keeps one cumulative dispatch ledger. Ordinary
 tests have no Arrow or database: the segment law is exhaustive over small layouts,
 every admitted R2 family rebuilds one exact specification from live and loaded
 roots, and v4 boundaries, initial basis, barrier/predecessor/extent rules, fresh
@@ -995,7 +998,7 @@ rebuilt on the final code closure.
 
 ## Phase68 S15 cooperative-delivery validation
 
-[S15](phases/phase-68/slice-15.md) keeps one cumulative dispatch ledger. Ordinary
+[S15](https://github.com/MianliWang/pietto/blob/8e7c43f1852b2c26318b3217268a1f7416f44965/docs/phases/phase-68/slice-15.md) keeps one cumulative dispatch ledger. Ordinary
 tests have no Arrow or database: pure key, interval and frontier laws run on every
 host, and v5 and sink boundaries, typed sink effects, window chains, issuance,
 frontier holes, changed batch sizes, lost replies and bounded reconciliation,
@@ -1019,7 +1022,7 @@ final code closure.
 
 ## Phase68 S16 complete-publication validation
 
-[S16](phases/phase-68/slice-16.md) keeps one cumulative dispatch ledger. Ordinary
+[S16](https://github.com/MianliWang/pietto/blob/8e7c43f1852b2c26318b3217268a1f7416f44965/docs/phases/phase-68/slice-16.md) keeps one cumulative dispatch ledger. Ordinary
 tests have no Arrow or database: the pure completion truth table, the three route
 cleanup vocabularies and the coverage model run on every host, and v6
 boundaries, closing observations, ordinary, empty and R2 publication, the refusal
@@ -1046,7 +1049,7 @@ rebuilt on the final code closure.
 
 ## Phase68 S17 bounded-runtime and collection validation
 
-[S17](phases/phase-68/slice-17.md) keeps one cumulative dispatch ledger. Ordinary
+[S17](https://github.com/MianliWang/pietto/blob/8e7c43f1852b2c26318b3217268a1f7416f44965/docs/phases/phase-68/slice-17.md) keeps one cumulative dispatch ledger. Ordinary
 tests have no Arrow or database: the exhaustive admission/settlement and
 reader/collector lifetime models run on every host; the v7 boundary, claims,
 leases, admissions and settlements, retirement, every protection root alone and
@@ -1080,7 +1083,7 @@ rebuilt on the final code closure.
 
 ## Phase68 S18 installation and compatibility validation
 
-[S18](phases/phase-68/slice-18.md) keeps one cumulative dispatch ledger. Ordinary
+[S18](https://github.com/MianliWang/pietto/blob/8e7c43f1852b2c26318b3217268a1f7416f44965/docs/phases/phase-68/slice-18.md) keeps one cumulative dispatch ledger. Ordinary
 tests have no Arrow, database or network: exact extras, lock entries and the
 locked closure of each selection, artifact METADATA with requirement extras and
 its coordinated damages, the controlled pinned-driver decision table (absent,
@@ -1113,7 +1116,7 @@ semantic build identity, so bundles and installed witnesses use the final code.
 
 ## Phase68 S19 joint-assurance validation
 
-[S19](phases/phase-68/slice-19.md) keeps one cumulative dispatch ledger. Ordinary
+[S19](https://github.com/MianliWang/pietto/blob/8e7c43f1852b2c26318b3217268a1f7416f44965/docs/phases/phase-68/slice-19.md) keeps one cumulative dispatch ledger. Ordinary
 tests have no Arrow, database or network: the independently derived required
 matrix equals the producer owners' `native_manifest`/`r2_families`, the five
 inventory damages, evidence classes, the bounded joint model and the J01/J02,
@@ -1169,9 +1172,9 @@ witnesses would use the final code.
 
 ## Phase68 S20 completion-audit validation
 
-[S20](phases/phase-68/slice-20.md) is audit-only and keeps one cumulative dispatch ledger; it adds no product,
+[S20](https://github.com/MianliWang/pietto/blob/8e7c43f1852b2c26318b3217268a1f7416f44965/docs/phases/phase-68/slice-20.md) is audit-only and keeps one cumulative dispatch ledger; it adds no product,
 dependency, native-campaign, database-lifecycle or performance work. The
-[completion audit](phases/phase-68/completion-audit.md) consumes S19 campaign04 and check02 under their original
+[completion audit](https://github.com/MianliWang/pietto/blob/8e7c43f1852b2c26318b3217268a1f7416f44965/docs/phases/phase-68/completion-audit.md) consumes S19 campaign04 and check02 under their original
 producing and checking identities. Its data-only recounts read JSON reports and raw files only (never a SQLite store,
 WAL or backup) and re-verify the digests those reports already recorded. Its offline drift principal,
 `tests/test_phase68_slice20_completion_audit.py`, was removed by the post-Phase69 functional test reorganization

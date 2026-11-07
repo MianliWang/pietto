@@ -24,7 +24,7 @@ gate](architecture/phase-initiation-gate-v1.md), [identity and authority
 laws](architecture/identity-and-authority-laws-v1.md), and [layering and
 coupling laws](architecture/layering-and-coupling-laws-v1.md). This roadmap
 owns phase-level future ownership and release milestones. Published phase
-specs own exact phase and slice contracts, while [`docs/plan/`](plan/README.md)
+specs own exact phase and slice contracts, while [`docs/plan/`](https://github.com/MianliWang/pietto/blob/8e7c43f1852b2c26318b3217268a1f7416f44965/docs/plan/README.md)
 is historical planning evidence rather than current authority.
 
 The compiler core has no ambient database execution, credentials, remote

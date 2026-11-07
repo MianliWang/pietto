@@ -150,8 +150,6 @@ paths, formatting, and ordinary hashes do not require new authority.
 - [Roadmap](docs/roadmap.md): authorized future work.
 - [Status](docs/status.md): current lifecycle state; live Git and CI are the
   publication authority.
-- [Plans](docs/plan/README.md): historical planning material, not current
-  architecture, roadmap, lifecycle, or implementation authority.
 - Current public contracts: [CLI JSON v1](docs/spec/cli-json-v1.md),
   [diagnostics](docs/spec/diagnostics.md), [project JSON v2](docs/spec/project-cli-json-v2.md),
   [semantic metadata artifact v1](docs/spec/semantic-metadata-artifact-v1.md),

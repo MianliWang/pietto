@@ -109,7 +109,7 @@ Authority Laws v1](identity-and-authority-laws-v1.md).
 | [Roadmap](../roadmap.md) | phase-level future ownership and release milestones |
 | [Published phase/slice contracts](../spec/) | exact phase-specific routes, decisions, and publication evidence |
 | [Status](../status.md) | lifecycle summary subordinate to live Git and natural exact-head CI |
-| [Historical plans](../plan/README.md) | historical planning evidence only |
+| [Historical plans](https://github.com/MianliWang/pietto/blob/8e7c43f1852b2c26318b3217268a1f7416f44965/docs/plan/README.md) | historical planning evidence only |
 | Source and tests | implemented behavior and executable contracts |
 | Live Git and natural exact-head CI | publication and lifecycle authority |
 

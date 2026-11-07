@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 from unittest.mock import ANY
-from pathlib import Path
 
 import pytest
 
@@ -23,11 +22,6 @@ from pietto.semantic import (
     analyze,
 )
 
-REPO_ROOT = Path(__file__).resolve().parents[1]
-PLAN_PATH = (
-    REPO_ROOT
-    / "docs/plan/phase-26-aggregate-expression-arguments-numeric-foundation.md"
-)
 SOURCE_PREFIX = (
     "shape Order:\n"
     "    amount: Int\n"
@@ -40,21 +34,6 @@ SOURCE_PREFIX = (
     "    price: Decimal\n"
     'source orders: Order = postgres.table("orders")\n'
 )
-
-
-def test_slice2_status_is_numeric_scalar_audit_only() -> None:
-    plan = _normalized_plan()
-
-    for required in (
-        "Phase 26 Slice 2 is complete as numeric scalar expression semantics "
-        "audit and status work only",
-        "It locks the already-implemented Int/Float `+`, `-`, and `*` "
-        "ordinary scalar expression semantics",
-        "Slice 2 adds no production behavior",
-        "Decimal arithmetic",
-        "aggregate expression argument acceptance",
-    ):
-        assert required in plan
 
 
 @pytest.mark.parametrize(
@@ -328,10 +307,6 @@ def test_direct_aggregate_inside_satisfying_still_uses_s2308() -> None:
             "use it only as a direct aliased select projection",
         )
     ]
-
-
-def _normalized_plan() -> str:
-    return " ".join(PLAN_PATH.read_text(encoding="utf-8").split())
 
 
 def _parse(source: str) -> Script:

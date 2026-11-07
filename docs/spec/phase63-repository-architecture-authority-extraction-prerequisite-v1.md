@@ -20,7 +20,7 @@ Phase 63 Slice 2 remains NEXT / NOT IMPLEMENTED.
 - published [Phase 63 Slice 1 route lock](phase63-joined-query-block-product-architecture-source-audit-future-roadmap-route-lock-v1.md).
 
 The pre-existing
-[`2026-09-02` product-plan snapshot](../plan/pietto_product_plan_2026-09-02.md)
+[`2026-09-02` product-plan snapshot](https://github.com/MianliWang/pietto/blob/8e7c43f1852b2c26318b3217268a1f7416f44965/docs/plan/pietto_product_plan_2026-09-02.md)
 is incorporated as historical evidence under the continuation authorization.
 
 ## Authority Ownership After Extraction
@@ -33,7 +33,7 @@ is incorporated as historical evidence under the continuation authorization.
 | [Roadmap](../roadmap.md) | phase-level future ownership and release milestones |
 | Published phase/slice specs | exact phase-specific contracts, routes, and immutable publication evidence |
 | [Status](../status.md) | lifecycle summary subordinate to live Git and natural exact-head CI |
-| [Historical plans](../plan/README.md) | historical planning evidence, not current authorization |
+| [Historical plans](https://github.com/MianliWang/pietto/blob/8e7c43f1852b2c26318b3217268a1f7416f44965/docs/plan/README.md) | historical planning evidence, not current authorization |
 | Source and tests | implemented behavior and executable contracts |
 | Live Git and natural exact-head CI | publication and lifecycle authority |
 

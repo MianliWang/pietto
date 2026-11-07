@@ -48,12 +48,12 @@ Not catch-up items: `median` and `quantile` stay refused on MySQL, which has
 no interpolated percentile; nested keys, list operations and the detail
 route wait for Phase77 (D71.05), and so does the project two-level route
 behind project `sum(Int)`. The MySQL rows of the
-[Phase72 completion audit](../phase-72/completion-audit.md#3-mysql) still
+[Phase72 completion audit](https://github.com/MianliWang/pietto/blob/8e7c43f1852b2c26318b3217268a1f7416f44965/docs/phases/phase-72/completion-audit.md#3-mysql) still
 apply where Phase74 has not taken them.
 
 ## Deferred decision points
 
-The table of the [Phase73 handoff](../phase-72/phase73-handoff.md#deferred-decision-points-carried-from-the-phase72-handoff)
+The table of the [Phase73 handoff](https://github.com/MianliWang/pietto/blob/8e7c43f1852b2c26318b3217268a1f7416f44965/docs/phases/phase-72/phase73-handoff.md#deferred-decision-points-carried-from-the-phase72-handoff)
 stays as written; Phase73 changed none of its rows. Phase73 adds these:
 
 | Item | Owner | Latest point |

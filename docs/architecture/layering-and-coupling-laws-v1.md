@@ -98,7 +98,7 @@ Laws v1](identity-and-authority-laws-v1.md); the complete layer map is in
 
 ## Source and compiled preparation
 
-Phase68 [S10](../phases/phase-68/slice-10.md) permits closed resolved compiled
+Phase68 [S10](https://github.com/MianliWang/pietto/blob/8e7c43f1852b2c26318b3217268a1f7416f44965/docs/phases/phase-68/slice-10.md) permits closed resolved compiled
 inputs at the original semantic/IR/plan owners. Source and compiled adapters
 share original derivation laws; source parsing/name/type/connector elaboration
 stays in the source branch. The compiled graph is not a serialized AST, SQL
@@ -112,7 +112,7 @@ transaction checks cannot be cached as immutable compiled structure.
 
 ## Durable metadata store
 
-Phase68 [S11](../phases/phase-68/slice-11.md) keeps the private SQLite store beside,
+Phase68 [S11](https://github.com/MianliWang/pietto/blob/8e7c43f1852b2c26318b3217268a1f7416f44965/docs/phases/phase-68/slice-11.md) keeps the private SQLite store beside,
 not inside, the S10 compiled/execution owners: it persists their exact bytes and
 portable descriptions and calls their loader, binder, describer and owner outcome
 projection. It exposes closed domain operations only, never a raw database
@@ -123,7 +123,7 @@ transaction pattern rather than adding a competing registry.
 
 ## Captured result plane
 
-Phase68 [S12](../phases/phase-68/slice-12.md) extends the S11 store with chunk files
+Phase68 [S12](https://github.com/MianliWang/pietto/blob/8e7c43f1852b2c26318b3217268a1f7416f44965/docs/phases/phase-68/slice-12.md) extends the S11 store with chunk files
 and checkpoints: a capture session consumes checked batches from a real S10 owner,
 reuses the original IPC writer/reader, and reads back through a stored-chunk
 producer purpose in the original result owner. Metadata-only operations stay
@@ -133,7 +133,7 @@ exposed; future readers, sinks and GC extend the same fenced operations.
 
 ## Saved-result replay plane
 
-Phase68 [S13](../phases/phase-68/slice-13.md) reads committed S12 chunks through the
+Phase68 [S13](https://github.com/MianliWang/pietto/blob/8e7c43f1852b2c26318b3217268a1f7416f44965/docs/phases/phase-68/slice-13.md) reads committed S12 chunks through the
 original stored-output producer, `SnapshotReader` and S10 batch checks; it adds no
 second encoder, store, clock or authorization service. Consumer, session,
 issuance and acknowledgement rows extend the S11 fenced operation pattern in the
@@ -144,7 +144,7 @@ extend these operations rather than bypassing them.
 
 ## Extraction-recovery plane
 
-Phase68 [S14](../phases/phase-68/slice-14.md) recovers extraction through the S10
+Phase68 [S14](https://github.com/MianliWang/pietto/blob/8e7c43f1852b2c26318b3217268a1f7416f44965/docs/phases/phase-68/slice-14.md) recovers extraction through the S10
 common entry, the real route owners and S06 `Enumeration` from position 0; it
 adds no seek, frontier import, source table, scheduler or second encoder. The
 read-only S10 bridge `compiled_source_description` projects an open owner's own
@@ -156,7 +156,7 @@ through those rows. Sinks, publication and GC extend these operations.
 
 ## Cooperative-delivery plane
 
-Phase68 [S15](../phases/phase-68/slice-15.md) delivers committed S12/S14 chunks
+Phase68 [S15](https://github.com/MianliWang/pietto/blob/8e7c43f1852b2c26318b3217268a1f7416f44965/docs/phases/phase-68/slice-15.md) delivers committed S12/S14 chunks
 through the S13 checked rebatch and the original atom/coordinate codec into a
 separate reference sink owner; it adds no second result store, query engine,
 scalar interpreter, process adapter, scheduler or callback inside a transaction.
@@ -169,7 +169,7 @@ and GC extend these operations.
 
 ## Complete-publication plane
 
-Phase68 [S16](../phases/phase-68/slice-16.md) publishes committed S12/S14
+Phase68 [S16](https://github.com/MianliWang/pietto/blob/8e7c43f1852b2c26318b3217268a1f7416f44965/docs/phases/phase-68/slice-16.md) publishes committed S12/S14
 checkpoints by reference in one short S11 fenced operation of the explicit v6
 workspace; it rewrites no data file and adds no second store, latest register,
 notification service, sink policy or cross-database transaction. The read-only
@@ -182,7 +182,7 @@ scheduling and GC extend these operations.
 
 ## Bounded-runtime and collection plane
 
-Phase68 [S17](../phases/phase-68/slice-17.md) drives the original S11–S16
+Phase68 [S17](https://github.com/MianliWang/pietto/blob/8e7c43f1852b2c26318b3217268a1f7416f44965/docs/phases/phase-68/slice-17.md) drives the original S11–S16
 operations from bounded worker threads of one caller-created runtime per
 workspace; it adds no daemon, scheduler service, second store or cross-database
 transaction. Each worker owns its workspace handle, publisher and native owner;
@@ -196,7 +196,7 @@ store and retention and are never collected by the workspace.
 
 ## Optional dependency plane
 
-Phase68 [S18](../phases/phase-68/slice-18.md) keeps optional imports lazy: the
+Phase68 [S18](https://github.com/MianliWang/pietto/blob/8e7c43f1852b2c26318b3217268a1f7416f44965/docs/phases/phase-68/slice-18.md) keeps optional imports lazy: the
 compiler, CLI, workspace metadata and saved replay, publication and collection
 never import a source driver, and only the Arrow owner imports PyArrow. A public
 Arrow use goes through that owner's pinned loader (`pyarrow` 26.0.0 by version
