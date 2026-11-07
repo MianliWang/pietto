@@ -86,7 +86,16 @@ are listed in the release notes and the handoff. Phase75 started on `main` at
 documentation-only commit; its Gate 1 is D75.01–D75.18 in the
 [decision record](decisions.md#phase75--owner-decisions-2026-11-05-to-2026-11-07).
 Its first lines had started on 2026-11-05, beside Phase74, and it ships in the
-same `0.1.10`.
+same `0.1.10`. Batch 1 (the route publication, S01–S07 with S05 in two
+commits, and the Phase74 follow-up for a false PIE-S2315) is published at
+`ff1aa71389cacf6eb43ed5c94df53246f7f84eae` (tree
+`db2fbbaadd2a6c8365c6ee40ecd6466a2a0613d6`), natural exact-head CI
+`42333099891` attempt 1 accepted all 21 jobs.
+Batch 2 (S08, S09, S10 and, as its last commit, the `0.1.10` release commit)
+carries the [completion audit](phases/phase-75/completion-audit.md) and the
+[Phase76 handoff](phases/phase-75/phase76-handoff.md); Phase75 is
+`COMPLETED / PUBLISHED` once the batch-2 head passes natural exact-head CI.
+Phase75 changes no SQL output, grammar, IR or compiled record.
 
 The second project-emission interlude is published at `b56cb62ed3be8ede44561d74a825fde3a53b116b` (tree `22165d89fb383f407967801193f039abcdceea68`); natural exact-head CI `41297066141` attempt 1 accepted all 19 jobs. The single-file checked Int SUM repair is published at `61a4ce4e05c190ea49e2eb93afd31e6fbdee7e29` (tree `da72b5412f4ecb087c508b9bd8204bf811a6e955`); natural exact-head CI `41362408512` attempt 1 accepted all 19 jobs.
 B5 (S14–S16) is published at `305ab2c802258c2b3e932ccf236481dfc0e0034e` (tree `6e335432490b8c7a64501519376c6dbfa59ec3cd`); natural exact-head CI `41390632023` attempt 1 accepted all 19 jobs.
