@@ -342,8 +342,9 @@ def test_unknown_function_reports_pie_s2103() -> None:
 
 
 _AGGREGATES = (
-    "the available aggregates are avg, count, count_distinct, max, median, min, "
-    "pstdev, pvariance, quantile, stddev, string_agg, sum and variance"
+    "the available aggregates are avg, count, count_distinct, first, last, max, "
+    "median, min, pstdev, pvariance, quantile, stddev, string_agg, sum and "
+    "variance"
 )
 _QUANTILE = (
     "write `quantile(x, q)`, the interpolated quantile (pandas `Series.quantile`) "

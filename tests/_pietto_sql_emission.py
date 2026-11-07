@@ -433,6 +433,9 @@ AGGREGATE_SPELLINGS = {
     "VAR_POP(": "pstdev",
     # `median` writes the fraction 0.5; a `quantile` its literal fraction.
     "PERCENTILE_CONT(": "quantile",
+    # `(ARRAY_AGG(x ORDER BY ...))[1]`: `first`, or `last` when its directions
+    # are reversed (`aggregate_order_reversed_direction`).
+    "ARRAY_AGG(": "first",
 }
 # The variance aggregates by spelling and square root: a deviation is the
 # SQRT of the float8 variance.
@@ -9643,6 +9646,9 @@ def _decode_fixed_public(document, limits):
         root = peek() == "aggregate_root_open"
         if root:
             take("syntax", "aggregate_root_open", "SQRT(", subject)
+        element = peek() == "aggregate_element_open"
+        if element:
+            take("syntax", "aggregate_element_open", "(", subject)
         result_cast = None
         if peek() == "aggregate_result_cast_open":
             take("syntax", "aggregate_result_cast_open", "CAST(", subject)
@@ -9662,7 +9668,39 @@ def _decode_fixed_public(document, limits):
         distinct, argument, delimiter, order_by = False, None, None, []
         argument_cast, extra_arguments = None, []
         function = SPREAD_FUNCTIONS.get((spelling, root), AGGREGATE_SPELLINGS[spelling])
-        if peek() == "aggregate_filter_open":
+        _need(element is (spelling == "ARRAY_AGG("), "ARRAY_AGG element")
+        if element:
+            # (ARRAY_AGG(x ORDER BY k ...))[1]; `last` writes each authored
+            # direction reversed, under its own role.
+            _need(family == "postgres", "ARRAY_AGG family")
+            argument = row_parse(block)
+            take("syntax", "aggregate_order", " ORDER BY ", subject)
+            roles = set()
+            while True:
+                value = row_parse(block)
+                role, direction = (
+                    peek(),
+                    take("syntax", peek(), subject=subject)[1],
+                )
+                _need(
+                    role
+                    in {
+                        "aggregate_order_direction",
+                        "aggregate_order_reversed_direction",
+                    }
+                    and direction in {" ASC", " DESC"},
+                    "ARRAY_AGG direction",
+                )
+                roles.add(role)
+                reversed_ = role == "aggregate_order_reversed_direction"
+                order_by.append((value, (direction == " DESC") is not reversed_))
+                if peek() != "aggregate_order_separator":
+                    break
+                take("syntax", "aggregate_order_separator", ", ", subject)
+            _need(len(roles) == 1, "one direction role per ARRAY_AGG")
+            if roles == {"aggregate_order_reversed_direction"}:
+                function = "last"
+        elif peek() == "aggregate_filter_open":
             # COUNT(CASE WHEN test THEN 1 END), or SUM(CASE WHEN test THEN
             # CAST(x AS pg_catalog.int8) END) under its checked CAST: the test
             # of a sum in the delimiter slot.
@@ -9807,6 +9845,8 @@ def _decode_fixed_public(document, limits):
                 " > 0)" if function == "group_any" else " = 0)",
                 subject,
             )
+        if element:
+            closed, _ = take("syntax", "aggregate_element_close", ")[1]", subject)
         expected_ranges.append(("aggregate", subject, start, closed["end"]))
         return {
             "aggregate": subject,
@@ -9826,7 +9866,13 @@ def _decode_fixed_public(document, limits):
         }
 
     def aggregate_realization(
-        function, argument, argument_cast, delimiter=None, order_by=(), result_cast=None
+        function,
+        argument,
+        argument_cast,
+        delimiter=None,
+        order_by=(),
+        result_cast=None,
+        grouped=True,
     ):
         """This result's own domain: a count is not its argument's value range."""
         floating = argument is not None and argument["tag"] == "Float"
@@ -9950,6 +9996,27 @@ def _decode_fixed_public(document, limits):
             }
         _need(argument is not None, "an aggregate value needs its own argument")
         assert argument is not None
+        if function in {"first", "last"}:
+            # One row's value as it is, NULL where it is or for an empty input;
+            # each key orders like a relation ORDER BY key.
+            _need(
+                family == "postgres"
+                and argument_cast is None
+                and delimiter is None
+                and bool(order_by)
+                and all(
+                    value["tag"]
+                    in {"Int", "Bool", "Text", "Decimal", "Timestamp"}
+                    | {"Date", "Float", "UUID"}
+                    for value, _ in order_by
+                ),
+                "ARRAY_AGG arguments",
+            )
+            return {
+                key: value
+                for key, value in argument.items()
+                if key in {"tag", "storage", "domain", "proven_int_range"}
+            } | {"nullable": argument["nullable"] is not False or not grouped}
         if function in {"median", "quantile"}:
             # The interpolated percentile of float8 images of an Int, NULL for
             # no value; a `quantile` fraction is a Float constant.
@@ -10686,6 +10753,7 @@ def _decode_fixed_public(document, limits):
                 "aggregate_root_open",
                 "aggregate_zero_open",
                 "aggregate_test_open",
+                "aggregate_element_open",
             ):
                 node = {"kind": "aggregate", **aggregate_parse(block)}
             elif peek() == "window_open":
@@ -11311,6 +11379,8 @@ def _decode_fixed_public(document, limits):
                             "read" in argument and argument["tag"] == "Text",
                             "string_agg value carrier",
                         )
+                    elif node["function"] in {"first", "last"}:
+                        _need("read" in argument, "first or last value carrier")
                     else:
                         # One established field, or one row expression that
                         # reads a row, lowered as a LET would be.
@@ -11415,6 +11485,7 @@ def _decode_fixed_public(document, limits):
                     delimiter,
                     order_by,
                     node["result_cast"],
+                    grouped=mode == "grouped",
                 )
                 if node["function"] in {"sum", "avg", *SPREAD_FUNCTIONS.values()}:
                     # Evidence follows the function and argument tag: only a

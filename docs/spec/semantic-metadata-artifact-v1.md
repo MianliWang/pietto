@@ -282,8 +282,9 @@ Artifact v1 covers current aggregate facts only: `count()`, `count(field)`,
 `count_distinct(field)`, `sum`, `avg`, `min`, `max`, bounded numeric aggregate
 expressions, group keys, satisfying result predicates, and grouped result
 ordering. It records no `stddev`, `variance`, `pvariance` or `pstdev` call,
-as it records no `string_agg` call, no `count_distinct(a, b, ...)` of several
-columns, no conditional count or sum of a group,
+as it records no `string_agg` call, no `first` or `last` call, no
+`count_distinct(a, b, ...)` of several columns, no conditional count or sum
+of a group,
 `sum(1 for o in group if ...)` or `sum(o.f for o in group if ...)`, and no
 test of a group, `any(... for o in group)` or `all(... for o in group)`:
 `aggregates` lists none of them.

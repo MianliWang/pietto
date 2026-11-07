@@ -1143,6 +1143,32 @@ def aggregate_call_contract(
             )
             and _aggregate_window_has_type(value_type, "Text", NullabilityIR.NULLABLE)
         )
+    if function in ORDERED_VALUE_FUNCTIONS:
+        # The value of a direct field at the first or last member row of the
+        # total order of its keys, direct fields too (`semantic.ordered_values`)
+        # of any type a relation ORDER BY takes, an enum included: of the
+        # value field's type, None where that value is None or, without GROUP
+        # BY, for no row.
+        name = (
+            _aggregate_window_builtin_type(arguments[0])
+            if len(arguments) == 1
+            else None
+        )
+        return (
+            name in ORDERED_VALUE_TYPES
+            and bool(order_by)
+            and all(
+                isinstance(value, FieldRefIR) and value.field is not None
+                for value in (*arguments, *(item.expression for item in order_by))
+            )
+            and value_type.canonical_kind is TypeKindIR.BUILTIN
+            and value_type.canonical_name == name
+            and (
+                value_type.nullability is NullabilityIR.NULLABLE
+                or arguments[0].value_type.nullability is NullabilityIR.NON_NULL
+                and value_type.nullability is NullabilityIR.NON_NULL
+            )
+        )
     if order_by:
         return False
     if function == "count":
@@ -1259,6 +1285,13 @@ def aggregate_call_contract(
             and _aggregate_window_has_type(value_type, "Float", NullabilityIR.NULLABLE)
         )
     return False
+
+
+# `first` and `last`, and the value types they take.
+ORDERED_VALUE_FUNCTIONS = frozenset({"first", "last"})
+ORDERED_VALUE_TYPES = frozenset(
+    {"Bool", "Int", "Float", "Decimal", "Text", "Date", "Timestamp", "UUID"}
+)
 
 
 # The conditional count and sum of a group, by their argument counts: internal

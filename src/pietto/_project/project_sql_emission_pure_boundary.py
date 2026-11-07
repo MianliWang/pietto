@@ -1844,6 +1844,8 @@ class _Check:
                 "count_distinct_tuple": "COUNT",
                 "group_any": "COUNT",
                 "group_all": "COUNT",
+                "first": "ARRAY_AGG",
+                "last": "ARRAY_AGG",
             }.get(column["function"])
             _require(
                 expected is not None and column["spelling"] == expected,
@@ -1985,6 +1987,31 @@ class _Check:
                     )
                     and result["nullable"] is False,
                     "group test shape",
+                )
+            elif column["function"] in {"first", "last"}:
+                # PostgreSQL only: one argument's value at one row, of its own
+                # carrier, NULL where it is or for an empty input; R19 keys.
+                argument = _value_realization(doc, column["argument"])
+                result = doc[doc[column["column"]]["realization"]]
+                _require(
+                    family == "postgres"
+                    and argument is not None
+                    and column["delimiter"] is None
+                    and bool(column["order_by"])
+                    and all(
+                        result[key] == argument[key]
+                        for key in ("tag", "storage", "domain")
+                    )
+                    and (result["nullable"] is True or argument["nullable"] is False)
+                    and all(
+                        _is_pg_order_value(
+                            order := _value_realization(doc, doc[item]["value"])
+                        )
+                        or order is not None
+                        and _is_pg_float(order)
+                        for item in column["order_by"]
+                    ),
+                    "first or last shape",
                 )
             elif column["function"] in {"median", "quantile"}:
                 # PostgreSQL only: one signed PostgreSQL Int argument, a nullable
@@ -2917,6 +2944,28 @@ class _Tokens:
                 _require(
                     aggregate_tokens == expected, "count_distinct_tuple token sequence"
                 )
+            elif column["function"] in {"first", "last"}:
+                # `last` is the first element of the reversed order.
+                flip = {"asc": " DESC", "desc": " ASC"}
+                expected = [
+                    ("aggregate_element_open", "("),
+                    ("aggregate_open", "ARRAY_AGG("),
+                    ("aggregate_order", " ORDER BY "),
+                ]
+                for position, item in enumerate(column["order_by"]):
+                    if position:
+                        expected.append(("aggregate_order_separator", ", "))
+                    direction = doc[item]["direction"]
+                    expected.append(
+                        ("aggregate_order_reversed_direction", flip[direction])
+                        if column["function"] == "last"
+                        else ("aggregate_order_direction", schema.DIRECTIONS[direction])
+                    )
+                expected += [
+                    ("aggregate_close", ")"),
+                    ("aggregate_element_close", ")[1]"),
+                ]
+                _require(aggregate_tokens == expected, "first or last token sequence")
             elif column["function"] in {"median", "quantile"}:
                 expected = [("aggregate_open", "PERCENTILE_CONT(")]
                 if column["function"] == "median":
@@ -3327,7 +3376,14 @@ class _Tokens:
         elif role == "aggregate_order_direction":
             column = self.one(aggregates, subject, "aggregate subject")
             _require(
-                column["function"] == "string_agg" and text in {" ASC", " DESC"},
+                column["function"] in {"string_agg", "first"}
+                and text in {" ASC", " DESC"},
+                "aggregate order direction",
+            )
+        elif role == "aggregate_order_reversed_direction":
+            column = self.one(aggregates, subject, "aggregate subject")
+            _require(
+                column["function"] == "last" and text in {" ASC", " DESC"},
                 "aggregate order direction",
             )
         elif role in ("window_argument_cast_close", "window_result_cast_close"):

@@ -586,3 +586,41 @@ def test_the_conditional_aggregate_example_is_a_fixed_point_and_only_reindents()
     parsed = parse_source(_CONDITIONAL_AGGREGATES)
     assert parsed.ast is not None
     assert analyze(parsed.ast).diagnostics == ()
+
+
+_ORDERED_VALUES = """shape Sale:
+    id: Int
+    shop_id: Int
+    plant: Text
+    pot_size: Text | None
+    price_cents: Int
+    weight_kg: Float | None
+    sold_at: Timestamp
+    sale_key = unique(id)
+
+source sales: Sale = postgres.table("nursery.sales")
+
+query shop_plants:
+    from sales
+    where weight_kg is not None
+    group by shop_id
+    select:
+        shop_id
+        first_plant = first(plant, order by sold_at, id)
+        latest_plant = last(plant, order by sold_at, id)
+        priciest_plant = first(plant, order by price_cents desc, id)
+        cheapest_plant = first(plant, order by price_cents, id)
+        lightest_pot = first(pot_size, order by weight_kg, id)
+"""
+
+
+def test_the_first_and_last_example_is_a_fixed_point_and_only_reindents() -> None:
+    """A `first` or `last` call with its internal `order by` sits whole on its
+    item's line; fmt adds, drops and respells no token of it."""
+    assert _formatted(_ORDERED_VALUES) == _ORDERED_VALUES
+    narrow = _ORDERED_VALUES.replace("\n    ", "\n  ")
+    assert narrow != _ORDERED_VALUES
+    assert _formatted(narrow) == _ORDERED_VALUES
+    parsed = parse_source(_ORDERED_VALUES)
+    assert parsed.ast is not None
+    assert analyze(parsed.ast).diagnostics == ()

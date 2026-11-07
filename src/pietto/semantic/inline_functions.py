@@ -56,6 +56,7 @@ from pietto.ast_nodes import (
 from pietto.errors import Diagnostic, Severity, SourceLocation
 from pietto.semantic.aggregates import (
     GROUP_TEST_AGGREGATE_NAMES,
+    INTERNAL_ORDER_ONLY,
     SEMANTIC_AGGREGATE_NAMES,
     semantic_aggregate_call_name,
 )
@@ -107,6 +108,10 @@ _NEW_BUILTIN_RENAMES = {
     "median aggregate, and a call to median always means it.",
     "quantile": "Rename this def: `quantile` is now the built-in interpolated "
     "quantile aggregate, and a call to quantile always means it.",
+    "first": "Rename this def: `first` is now the built-in ordered first-value "
+    "aggregate, and a call to first always means it.",
+    "last": "Rename this def: `last` is now the built-in ordered last-value "
+    "aggregate, and a call to last always means it.",
     "now": "Rename this def: `now` has become the built-in UTC time of the "
     "running query, and a call to now always means it.",
     "variance": "Rename this def: `variance` is now the built-in sample "
@@ -505,7 +510,7 @@ class _Expansion:
             self.found.append(
                 _diagnostic(
                     "PIE-S2104",
-                    "Internal ORDER BY is only supported by string_agg",
+                    INTERNAL_ORDER_ONLY,
                     call.span,
                 )
             )

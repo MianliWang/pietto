@@ -1131,6 +1131,23 @@ def _aggregate_attempt(
             expression=analysis.normalized_expression,
             existence_values=analysis.existence_values,
         )
+    for key in semantic_aggregates.aggregate_order_expressions(expression):
+        # An internal order key reads the joined row as the argument does, and
+        # a key that names no field reports it, as in a single file.
+        key_analysis = analyze_project_joined_namespace_expression(
+            input_filter.namespace, key
+        )
+        if type(key_analysis) is ProjectNonConcreteJoinedNamespaceExpression and (
+            key_diagnostics := _reference_blocker_diagnostics(key_analysis)
+        ):
+            return ProjectJoinedAggregateIssue(
+                input_filter=input_filter,
+                selected_output_ordinal=selected_output_ordinal,
+                item=item,
+                kind=ProjectJoinedAggregateIssueKind.ARGUMENT_NON_CONCRETE,
+                argument_analysis=key_analysis,
+                diagnostics=key_diagnostics,
+            )
 
     result_type = semantic_aggregates.semantic_projection_aggregate_result_value_type(
         function_name,

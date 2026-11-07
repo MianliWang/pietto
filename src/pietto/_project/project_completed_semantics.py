@@ -20,6 +20,7 @@ if TYPE_CHECKING:
     from pietto.semantic.model import ValueType
 
 
+from pietto._project.ordered_value_facts import ordered_value_project_diagnostics
 from pietto._project.query_parameters import query_parameter_semantic_diagnostics
 from pietto._project.project_set_operations import ProjectSetFailure
 from pietto._project.module_relation_resolution import (
@@ -121,6 +122,7 @@ from pietto.semantic.analyzer import (
     check_module_declarations,
     name_uncallable_calls,
 )
+from pietto.semantic.aggregates import ordered_value_result
 from pietto.semantic.constructor_calls import builtin_shadows
 from pietto.semantic.expressions import type_source_connector_arguments
 from pietto.semantic.join_fanout import TWO_LEVEL_ROUTE
@@ -524,27 +526,39 @@ class _ProjectCompletedSemanticRoots:
                 "Completed roots lost their operative condition authority."
             )
         object.__setattr__(self, "join_conditions", operative)
+        reported = (
+            *_final_diagnostics(
+                self.semantic_result,
+                effective_outputs,
+                retired=(
+                    *(
+                        diagnostic
+                        for admission in effective_outputs.join_admissions
+                        for diagnostic in admission.diagnostics
+                    ),
+                    *completed_set_admission_diagnostics(effective_outputs),
+                ),
+                shapes=(
+                    verification.root.base_relational.origins.value_fds.row_keys.shape_diagnostics
+                ),
+                orders=self.order_facts,
+            ),
+            *source_diagnostics,
+        )
+        ordered = ordered_value_project_diagnostics(self.semantic_result, reported)
         object.__setattr__(
             self,
             "diagnostics",
             (
-                *_final_diagnostics(
-                    self.semantic_result,
-                    effective_outputs,
-                    retired=(
-                        *(
-                            diagnostic
-                            for admission in effective_outputs.join_admissions
-                            for diagnostic in admission.diagnostics
-                        ),
-                        *completed_set_admission_diagnostics(effective_outputs),
-                    ),
-                    shapes=(
-                        verification.root.base_relational.origins.value_fds.row_keys.shape_diagnostics
-                    ),
-                    orders=self.order_facts,
+                # A fallback without a cause adds nothing beside an order
+                # proof's error inside its relation (a `let:` order key), as
+                # beside an earlier stage's (`_final_diagnostics`).
+                *(
+                    diagnostic
+                    for diagnostic in reported
+                    if not _bare_fallback_beside(diagnostic, ordered)
                 ),
-                *source_diagnostics,
+                *ordered,
                 *query_parameter_semantic_diagnostics(
                     self.semantic_result.module_relation_resolutions,
                     self.semantic_result.module_catalogs,
@@ -984,6 +998,27 @@ def _diagnostics_from_carrier(carrier: object | None) -> tuple[Diagnostic, ...]:
 
 
 _BARE_FALLBACK = "Project relation semantic completion is unavailable: "
+
+
+def _bare_fallback_beside(diagnostic: Diagnostic, errors: Iterable[Diagnostic]) -> bool:
+    """Whether ``diagnostic`` is a relation's fallback without a cause and
+    one of ``errors`` lies inside that relation."""
+
+    location = diagnostic.location
+    return (
+        location is not None
+        and diagnostic.code == "PIE-S2333"
+        and diagnostic.message.startswith(_BARE_FALLBACK)
+        and "(" not in diagnostic.message
+        and any(
+            error.location is not None
+            and error.location.path == location.path
+            and (location.line, location.column)
+            <= (error.location.line, error.location.column)
+            < (location.end_line, location.end_column)
+            for error in errors
+        )
+    )
 
 
 def _fallback_diagnostic(entry: ProjectEffectiveOutputCompletionEntry) -> Diagnostic:
@@ -2568,6 +2603,22 @@ def _compiled_reads_row(records, address) -> bool:
     return any(_compiled_reads_row(records, child) for child in record.get("operands"))
 
 
+def _ordered_value_type(records, record, typed):
+    """The result type of one compiled aggregate value: a `first` or `last` of
+    an aggregation without GROUP BY may read an empty input, which gives None;
+    None when its aggregation's mode is not one of the two."""
+    if typed is None or record.get("function") not in ("first", "last"):
+        return typed
+    modes = {
+        parent.get("mode")
+        for parent in records.values()
+        if parent.address.kind == "aggregate" and record.address in parent.get("values")
+    }
+    if modes not in ({"grouped"}, {"global"}):
+        return None
+    return ordered_value_result(typed, grouped=modes == {"grouped"})
+
+
 def derive_compiled_semantics(root, values, parameters=None):
     """Derive resolved scalar inputs without calling any source elaborator.
 
@@ -3032,11 +3083,15 @@ def derive_compiled_semantics(root, values, parameters=None):
                         )
                     ):
                         raise CompiledError("COMPILED_AGGREGATE_ARGUMENT")
-                    typed = semantic_aggregate_result_value_type(
-                        "count_distinct"
-                        if function == "count_distinct_tuple"
-                        else function,
-                        None if argument is None else argument.value_type,
+                    typed = _ordered_value_type(
+                        records,
+                        record,
+                        semantic_aggregate_result_value_type(
+                            "count_distinct"
+                            if function == "count_distinct_tuple"
+                            else function,
+                            None if argument is None else argument.value_type,
+                        ),
                     )
                 if typed is None or typed != declared(get("logical")):
                     raise CompiledError("COMPILED_AGGREGATE_TYPE")
@@ -4364,11 +4419,15 @@ def verify_compiled_semantics(value):
                         function, tuple(item.value_type for item in inputs)
                     )
                     if function in grouping.FILTERED_FUNCTIONS
-                    else semantic_aggregate_result_value_type(
-                        "count_distinct"
-                        if function == "count_distinct_tuple"
-                        else function,
-                        None if argument is None else argument.value_type,
+                    else _ordered_value_type(
+                        records,
+                        record,
+                        semantic_aggregate_result_value_type(
+                            "count_distinct"
+                            if function == "count_distinct_tuple"
+                            else function,
+                            None if argument is None else argument.value_type,
+                        ),
                     )
                 )
                 if typed is None:

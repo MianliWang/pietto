@@ -248,6 +248,13 @@ GATED = (
         "`sum` and `any` take a list generator",
     ),
     (
+        "b = first(o.amount for o in parent.xs)",
+        "first(",
+        "PIE-S2334",
+        "first takes no generator; a list first is not available",
+        "`sum` and `any` take a list generator",
+    ),
+    (
         "b = sum(o.amount for o in parent.xs if id > 1)",
         "id > 1",
         "PIE-S2334",

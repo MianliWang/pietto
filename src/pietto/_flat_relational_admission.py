@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from typing import cast
+
 from pietto import ast_nodes as ast
 from pietto._syntax_admission import source_order
 from pietto.ast_nodes import (
@@ -64,9 +66,10 @@ def availability_diagnostic(span: Span, message: str) -> Diagnostic:
 def legacy_flat_refused(
     script: ast.Script,
 ) -> tuple[JoinClause | AnyExpr | CallExpr, ...]:
-    """Each JOIN, each any(...) and each `count_distinct` of several columns
-    of a LEGACY_FLAT project's script, which has none of them in the current
-    syntax: in any definition or relationship predicate, nested or not."""
+    """Each JOIN, each any(...), each `count_distinct` of several columns and
+    each first(...) or last(...) of a LEGACY_FLAT project's script, which has
+    none of them in the current syntax: in any definition or relationship
+    predicate, nested or not."""
 
     from pietto.semantic.inline_functions import _tree_nodes
 
@@ -80,13 +83,17 @@ def legacy_flat_refused(
             and node.callee.name == "count_distinct"
             and len(node.arguments) > 1
         )
+        or type(node) is CallExpr
+        and type(node.callee) is NameExpr
+        and node.callee.name in {"first", "last"}
     )
 
 
 def legacy_flat_refusals(script: ast.Script) -> tuple[Diagnostic, ...]:
-    """PIE-S2334 of each JOIN and each any(...) of a LEGACY_FLAT project's
+    """PIE-S2334 of each JOIN, each any(...), each `count_distinct` of several
+    columns and each first(...) or last(...) of a LEGACY_FLAT project's
     script, once each in source order: a JOIN of any kind and target at its
-    `on`, or at the JOIN without one, and an any(...) at the any(...). The
+    `on`, or at the JOIN without one, and a call at the call. The
     tree holds a repeated comparison-chain operand once per comparison, so
     exact duplicates are dropped."""
 
@@ -101,7 +108,10 @@ def legacy_flat_refusals(script: ast.Script) -> tuple[Diagnostic, ...]:
                     "schema_version = 2 to check it.",
                 )
             )
-        elif type(node) is CallExpr:
+        elif (
+            type(node) is CallExpr
+            and cast(NameExpr, node.callee).name == "count_distinct"
+        ):
             found.append(
                 availability_diagnostic(
                     node.span,
@@ -111,11 +121,12 @@ def legacy_flat_refusals(script: ast.Script) -> tuple[Diagnostic, ...]:
                 )
             )
         else:
+            name = cast(NameExpr, node.callee).name if type(node) is CallExpr else "any"
             found.append(
                 availability_diagnostic(
                     node.span,
-                    "any(...): a schema_version = 1 project has no any(...) in "
-                    "the current syntax; set schema_version = 2 to check it.",
+                    f"{name}(...): a schema_version = 1 project has no {name}(...) "
+                    "in the current syntax; set schema_version = 2 to check it.",
                 )
             )
     return tuple(sorted(dict.fromkeys(found), key=source_order))

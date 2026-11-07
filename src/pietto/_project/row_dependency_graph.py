@@ -61,6 +61,8 @@ _SEMANTIC_AGGREGATE_NAMES = frozenset(
         "pstdev",
         "median",
         "quantile",
+        "first",
+        "last",
     }
 )
 

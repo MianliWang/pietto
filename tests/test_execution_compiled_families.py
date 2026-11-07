@@ -584,6 +584,33 @@ def test_postgresql_median_and_quantile_replay_from_compiled_input(tmp_path):
     )
 
 
+@pytest.mark.parametrize("grouped", [True, False])
+def test_postgresql_first_and_last_replay_from_compiled_input(tmp_path, grouped):
+    """The ordered ARRAY_AGG element, `last`'s flipped directions and a result
+    that may be None only without GROUP BY replay from compiled input."""
+    item = emission.fixture("postgres", "T_row_direct", "table_preserve")
+    keys = (
+        "    group by flag\n    select:\n        flag\n"
+        if grouped
+        else ("    select:\n")
+    )
+    source = item["source"].split("table result:", 1)[0].replace(
+        "    ratio: Float\n", "    ratio: Float\n    row_key = unique(id)\n", 1
+    ) + (
+        "table result:\n    from rows\n"
+        + keys
+        + "        f = first(text, order by ratio desc, id)\n"
+        "        l = last(money, order by id)\n"
+    )
+    checked, original = emission.build_case(
+        tmp_path, source, item["contract"], item["policy"]
+    )
+    assert checked.verified and original.status == "VERIFIED", original.blockers
+    candidate = _compare(original.artifact, refinement=False)
+    assert candidate.rendered.sql.count(b"(ARRAY_AGG(") == 2
+    assert b'"s0"."order.id" DESC))[1]' in candidate.rendered.sql
+
+
 def test_postgresql_quantile_over_join_rows_replays_from_compiled_input(tmp_path):
     """A quantile over LEFT JOIN rows keeps its literal fraction beside the
     joined argument in compiled input."""

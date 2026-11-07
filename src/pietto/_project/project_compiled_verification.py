@@ -1448,6 +1448,10 @@ def verify_description(value: Description) -> None:
                     get("function") == "string_agg"
                     and len(arguments) == 2
                     and bool(order_by)
+                    # A `first` or `last` reads one value at one row of its order.
+                    or get("function") in ("first", "last")
+                    and len(arguments) == 1
+                    and bool(order_by)
                     # A `quantile` reads one value at its literal fraction.
                     or get("function") == "quantile"
                     and len(arguments) == 2

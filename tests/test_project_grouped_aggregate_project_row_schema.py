@@ -1112,7 +1112,7 @@ _UNORDERED = "Invalid arguments for aggregate string_agg: expected ORDER BY key"
             [
                 (
                     "PIE-S2104",
-                    "Internal ORDER BY is only supported by string_agg",
+                    "Internal ORDER BY is only supported by string_agg, first and last",
                     14,
                     29,
                 )

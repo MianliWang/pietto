@@ -1,7 +1,7 @@
 """Single-file warnings at tests whose SQL None handling a Python reader
 does not expect.
 
-Private: nothing here is exported. PIE-S2383 is a WHERE test after a LEFT
+Private but `where_not_none_reads`, which `first`/`last` also read. PIE-S2383 is a WHERE test after a LEFT
 JOIN that is never True where the JOIN found no match; PIE-S2384 is a
 `not in` whose left value may be None. Both are WARNINGs in every check mode
 and change no SQL. They are kept precise: a test rejects None only through
@@ -15,7 +15,7 @@ rows. A warning whose test holds an ERROR is not reported.
 
 from __future__ import annotations
 
-from collections.abc import Mapping, Sequence
+from collections.abc import Callable, Mapping, Sequence
 
 from pietto.ast_nodes import (
     AuthoredJoinKind,
@@ -46,7 +46,7 @@ from pietto.semantic.model import (
     ValueTypeKind,
 )
 
-__all__ = ()
+__all__ = ("where_not_none_reads",)
 
 _ARITHMETIC = frozenset({"+", "-", "*", "/", "%"})
 # A later JOIN of these kinds whose match reads an input already drops that
@@ -277,22 +277,7 @@ def _nullable_not_in(
             seen.add(value)
             leaf = value
 
-    guarded: set[JoinFieldRef | str] = set()
-    pending = (
-        [] if definition.where_clause is None else [definition.where_clause.expression]
-    )
-    named: set[str] = set()
-    while pending:
-        for test in _conjuncts(pending.pop()):
-            if type(test) is IsNullExpr and test.negated:
-                if isinstance(test.value, (NameExpr, DottedNameExpr)):
-                    guarded.add(identity(test.value))
-            elif (
-                type(test) is NameExpr and test.name in lets and test.name not in named
-            ):
-                named.add(test.name)
-                pending.append(lets[test.name])
-
+    guarded = where_not_none_reads(definition, lets, identity)
     found: list[Diagnostic] = []
     for root in _clause_roots(definition):
         nodes = tuple(_expression_nodes(root))
@@ -330,6 +315,33 @@ def _nullable_not_in(
                 continue
             found.append(_not_in_warning(node, leaves))
     return found
+
+
+def where_not_none_reads[T](
+    definition: TableDef | QueryDef,
+    lets: Mapping[str, Expression],
+    identity: Callable[[NameExpr | DottedNameExpr], T],
+) -> set[T]:
+    """The ``identity`` of each read that a top-level `and` conjunct of the
+    WHERE, also through a `let` name, tests with `is not None`: no row of the
+    relation's input that WHERE keeps has None there."""
+
+    guarded: set[T] = set()
+    pending = (
+        [] if definition.where_clause is None else [definition.where_clause.expression]
+    )
+    named: set[str] = set()
+    while pending:
+        for test in _conjuncts(pending.pop()):
+            if type(test) is IsNullExpr and test.negated:
+                if isinstance(test.value, (NameExpr, DottedNameExpr)):
+                    guarded.add(identity(test.value))
+            elif (
+                type(test) is NameExpr and test.name in lets and test.name not in named
+            ):
+                named.add(test.name)
+                pending.append(lets[test.name])
+    return guarded
 
 
 def _not_in_warning(

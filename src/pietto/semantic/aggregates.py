@@ -81,12 +81,26 @@ FLOAT_STATISTIC_AGGREGATE_NAMES = frozenset(
 # The test of a group, `any(TEST for o in group)` and `all(TEST for o in
 # group)`: an aggregate only as a call with a generator, a Bool never None.
 GROUP_TEST_AGGREGATE_NAMES = frozenset({"any", "all"})
+# The value of a direct field at the first or last member row of a group in
+# the total order of the call's internal ORDER BY, which ends in a unique key
+# (`ordered_value_order_diagnostic`); `last` reverses every key.
+FIRST_AGGREGATE_NAME = "first"
+LAST_AGGREGATE_NAME = "last"
+ORDERED_VALUE_AGGREGATE_NAMES = frozenset({FIRST_AGGREGATE_NAME, LAST_AGGREGATE_NAME})
+# The aggregates that take an internal ORDER BY.
+ORDERED_AGGREGATE_NAMES = frozenset(
+    {STRING_AGGREGATE_NAME, *ORDERED_VALUE_AGGREGATE_NAMES}
+)
+INTERNAL_ORDER_ONLY = (
+    "Internal ORDER BY is only supported by string_agg, first and last"
+)
 SEMANTIC_AGGREGATE_NAMES = AGGREGATE_NAMES | frozenset(
     {
         COUNT_DISTINCT_AGGREGATE_NAME,
         MIN_AGGREGATE_NAME,
         MAX_AGGREGATE_NAME,
         *FLOAT_STATISTIC_AGGREGATE_NAMES,
+        *ORDERED_VALUE_AGGREGATE_NAMES,
     }
 )
 LET_EXPANDABLE_AGGREGATE_ARGUMENT_NAMES = frozenset(
@@ -96,6 +110,7 @@ LET_EXPANDABLE_AGGREGATE_ARGUMENT_NAMES = frozenset(
         SUM_AGGREGATE_NAME,
         AVG_AGGREGATE_NAME,
         STRING_AGGREGATE_NAME,
+        *ORDERED_VALUE_AGGREGATE_NAMES,
     }
 )
 
@@ -392,6 +407,7 @@ def expected_semantic_aggregate_arity(function_name: str) -> int:
         PSTDEV_AGGREGATE_NAME,
         MEDIAN_AGGREGATE_NAME,
         *GROUP_TEST_AGGREGATE_NAMES,
+        *ORDERED_VALUE_AGGREGATE_NAMES,
     }:
         return 1
     raise AssertionError(f"Unsupported aggregate function: {function_name}")
@@ -408,7 +424,7 @@ def expected_semantic_aggregate_arities(function_name: str) -> tuple[int, ...]:
 def aggregate_order_expressions(expression: CallExpr) -> tuple[Expression, ...]:
     """Return ordered keys only for the aggregate that owns that syntax."""
 
-    if semantic_aggregate_call_name(expression) != STRING_AGGREGATE_NAME:
+    if semantic_aggregate_call_name(expression) not in ORDERED_AGGREGATE_NAMES:
         return ()
     return tuple(item.expression for item in expression.aggregate_order_by)
 
@@ -1012,6 +1028,8 @@ def is_supported_semantic_aggregate_argument(
         return is_supported_stddev_argument(value_type)
     if function_name in GROUP_TEST_AGGREGATE_NAMES:
         return _is_builtin(value_type, "Bool")
+    if function_name in ORDERED_VALUE_AGGREGATE_NAMES:
+        return is_supported_count_distinct_argument(value_type)
     return False
 
 
@@ -1101,12 +1119,37 @@ def semantic_aggregate_result_value_type(
             if argument_type is not None and is_supported_stddev_argument(argument_type)
             else None
         )
+    if function_name in ORDERED_VALUE_AGGREGATE_NAMES:
+        # The value at one member row: of a grouped query, whose groups each
+        # have a row, None only where that value is; `ordered_value_result`
+        # widens it for a query without GROUP BY, whose input may be empty.
+        if argument_type is None or not is_supported_count_distinct_argument(
+            argument_type
+        ):
+            return None
+        return ValueType(
+            resolved_type=argument_type.resolved_type,
+            nullability=argument_type.nullability,
+        )
     if function_name not in {MIN_AGGREGATE_NAME, MAX_AGGREGATE_NAME}:
         return None
     if argument_type is None or not is_supported_extrema_argument(argument_type):
         return None
     return ValueType(
         resolved_type=argument_type.resolved_type,
+        nullability=EffectiveNullability.NULLABLE,
+    )
+
+
+def ordered_value_result(value_type: ValueType, *, grouped: bool) -> ValueType:
+    """The type of a `first` or `last` of ``value_type`` (its argument's
+    result, `semantic_aggregate_result_value_type`) in a query with or without
+    GROUP BY: without, the input may be empty, which gives None."""
+
+    if grouped:
+        return value_type
+    return ValueType(
+        resolved_type=value_type.resolved_type,
         nullability=EffectiveNullability.NULLABLE,
     )
 
@@ -1303,6 +1346,7 @@ def wrong_argument_type_diagnostic(
         else (
             "Bool, Int, Float, Decimal, Text, Date, Timestamp, or UUID"
             if name == COUNT_DISTINCT_AGGREGATE_NAME
+            or name in ORDERED_VALUE_AGGREGATE_NAMES
             else (
                 "Int, Float, Decimal, Date, or Timestamp"
                 if name in {MIN_AGGREGATE_NAME, MAX_AGGREGATE_NAME}
@@ -1473,15 +1517,20 @@ def _diagnostic(
 
 
 def internal_order_diagnostic(expression: CallExpr) -> Diagnostic | None:
-    """PIE-S2104 for a string_agg without its internal ORDER BY.
+    """PIE-S2104 for a string_agg, first or last without its internal ORDER
+    BY.
 
     Syntax admission already refuses an internal ORDER BY on any other call.
     """
 
-    if callee_name(expression) != "string_agg" or expression.aggregate_order_by:
+    name = callee_name(expression)
+    if name not in ORDERED_AGGREGATE_NAMES or expression.aggregate_order_by:
         return None
     return _diagnostic(
         expression,
         code="PIE-S2104",
-        message="Invalid arguments for aggregate string_agg: expected ORDER BY key",
+        message=f"Invalid arguments for aggregate {name}: expected ORDER BY key",
+        hint=f"a group's rows have no order: write `{name}(x, order by k, id)`"
+        if name in ORDERED_VALUE_AGGREGATE_NAMES
+        else None,
     )

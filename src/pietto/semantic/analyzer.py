@@ -97,6 +97,7 @@ from pietto.semantic.inline_functions import (
     inline_functions,
 )
 from pietto.semantic.join_fanout import join_fanout_diagnostics
+from pietto.semantic.ordered_values import ordered_value_diagnostics
 from pietto.semantic.joins import (
     JoinStructure,
     build_join_structures,
@@ -883,6 +884,18 @@ def _analyze(
                     relationship_calls=relationship_calls,
                 )
             )
+        diagnostics.extend(
+            ordered_value_diagnostics(
+                script,
+                from_resolutions=from_resolutions,
+                type_symbols=type_symbols,
+                source_row_schemas=source_row_schemas,
+                relation_row_schemas=relation_row_schemas,
+                expression_value_types=expression_value_types,
+                let_expressions=relation_let_expressions,
+                reported=diagnostics,
+            )
+        )
         diagnostics.extend(
             null_warnings(
                 script,

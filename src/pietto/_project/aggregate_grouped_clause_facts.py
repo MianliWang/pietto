@@ -66,6 +66,7 @@ from pietto.semantic.analyzer import _within
 from pietto.semantic import satisfying as semantic_satisfying
 from pietto.semantic.aggregates import (
     FLOAT_STATISTIC_AGGREGATE_NAMES,
+    ORDERED_VALUE_AGGREGATE_NAMES,
     aggregate_argument_can_use_let_scope,
     child_expressions,
     contains_semantic_aggregate,
@@ -430,8 +431,9 @@ def _single_file_grouping_diagnostics(
     such as a `stddev` or `median` one, or in a `quantile` fraction), a
     nested relation field, a relation, a captured field, a query parameter
     or `any(...)` in those positions, which a project checks otherwise, gets
-    only its generators' errors (`_generator_errors`) and its
-    `count_distinct(a, b, ...)` refusals (`_count_distinct_tuple_errors`)."""
+    only its generators' errors (`_generator_errors`) and the refusals of its
+    `count_distinct(a, b, ...)`, `first` and `last` calls
+    (`_call_argument_errors`)."""
 
     if input_schema.is_unknown:
         return ()
@@ -528,7 +530,7 @@ def _single_file_grouping_diagnostics(
                     *_generator_errors(
                         definition, schema, let_scope_facts, qualifier, refused=set()
                     ),
-                    *_count_distinct_tuple_errors(
+                    *_call_argument_errors(
                         definition, schema, let_scope_facts, qualifier
                     ),
                 ),
@@ -785,17 +787,20 @@ def _generator_errors(
     return found
 
 
-def _count_distinct_tuple_errors(
+def _call_argument_errors(
     definition: _DerivedRelation,
     schema: RowSchema,
     let_scope_facts: ProjectRelationLetScopeFacts | None,
     qualifier: str | None,
 ) -> list[Diagnostic]:
-    """The refusal a single file reports of each `count_distinct(a, b, ...)`
-    in a SELECT item (`count_distinct_tuple_checked`), each `let:` name in
-    it read as its value (PIE-S2315, PIE-S2104, PIE-S2314 at the argument).
-    Such a call reads nothing but its arguments, so it is checked by itself,
-    whatever else the relation reads."""
+    """The refusal a single file reports of each call in a SELECT item that
+    reads nothing but its arguments, each `let:` name in it read as its
+    value: a `count_distinct(a, b, ...)` (`count_distinct_tuple_checked`:
+    PIE-S2315, PIE-S2104, PIE-S2314 at the argument) and a `first` or `last`
+    item (its own typing: PIE-S2315 or PIE-S2314 of its value, PIE-S2104
+    without an `order by`; its order proof runs later, in
+    `ordered_value_facts`). Such a call is checked by itself, whatever else
+    the relation reads."""
 
     lets = {} if let_scope_facts is None else dict(let_scope_facts.binding_expressions)
     found: list[Diagnostic] = []
@@ -804,7 +809,11 @@ def _count_distinct_tuple_errors(
         while pending:
             node = pending.pop()
             pending.extend(child_expressions(node))
-            if not is_count_distinct_tuple(node):
+            ordered = (
+                node is item.expression
+                and semantic_aggregate_call_name(node) in ORDERED_VALUE_AGGREGATE_NAMES
+            )
+            if not ordered and not is_count_distinct_tuple(node):
                 continue
             assert type(node) is CallExpr
             types: dict[Expression, ValueType] = (
@@ -825,7 +834,18 @@ def _count_distinct_tuple_errors(
                 bare_value_expressions=lets,
             )
             found.extend(
-                semantic_group_by.count_distinct_tuple_checked(
+                semantic_group_by._aggregate_output_field(
+                    item,
+                    definition=definition,
+                    input_schema=schema,
+                    output_name=item.alias,
+                    expression_value_types=types,
+                    let_expansions=lets,
+                    type_expansions={},
+                    let_extrema=False,
+                )[1]
+                if ordered
+                else semantic_group_by.count_distinct_tuple_checked(
                     node,
                     value_types=types,
                     type_expansions={},

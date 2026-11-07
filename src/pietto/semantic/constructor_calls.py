@@ -15,6 +15,7 @@ from pietto._builtin_shadows import (
     shadowed_builtin_names as shadowed_builtin_names,
 )
 from pietto.errors import Diagnostic
+from pietto.semantic.aggregates import INTERNAL_ORDER_ONLY
 
 __all__: tuple[str, ...] = ()
 
@@ -129,7 +130,7 @@ def normalize_float_calls(
                 diagnostics.append(
                     _diagnostic(
                         "PIE-S2104",
-                        "Internal ORDER BY is only supported by string_agg",
+                        INTERNAL_ORDER_ONLY,
                         rebuilt.span,
                     )
                 )

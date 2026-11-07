@@ -399,6 +399,12 @@ def _check(
     binder = generator.binding_name
     if lists and generator.source_read is not None:
         return _list_diagnostic(call, generator, known)
+    if name in {"first", "last"}:
+        return _error(
+            call.span,
+            f"{name} takes no generator",
+            f"write `{name}(x, order by k, id)`",
+        )
     only = generator.source[0]
     if (
         lists

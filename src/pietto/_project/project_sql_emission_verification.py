@@ -2027,6 +2027,26 @@ def resolved_window_integer_result(family, realization, origin, default):
 def _aggregate_result_realization(family, function, argument, retained):
     """Independently re-derive one aggregate result's own physical realization."""
     tag, nullable = retained
+    if function in grouping.ORDERED_VALUE_FUNCTIONS:
+        # One row's value as it is: the argument's carrier, NULL where that
+        # value is or, without GROUP BY, for an empty input.
+        carrier = None if argument is None else argument.realization
+        if (
+            family != "postgres"
+            or carrier is None
+            or tag != carrier.tag
+            or nullable not in {True, False}
+            or (carrier.nullable is not False and nullable is not True)
+        ):
+            raise ValueError("first or last result domain")
+        return rows.Realization(
+            carrier.tag,
+            carrier.storage,
+            nullable,
+            carrier.domain,
+            carrier.proven_int_range,
+            binding=carrier.binding,
+        )
     if function == "string_agg":
         if (
             family != "postgres"
@@ -2313,7 +2333,7 @@ def _verify_aggregate_body(
         if (
             len(arguments) != len(value.arguments)
             or len(ordered) != len(value.order_by)
-            or (function == "string_agg") is not bool(ordered)
+            or (function in grouping.ORDERED_FUNCTIONS) is not bool(ordered)
             or not grouping.signature_arity(function, len(arguments))
         ):
             raise ValueError("aggregate argument signature")
@@ -2363,29 +2383,6 @@ def _verify_aggregate_body(
                 or grouping.string_agg_argument_problem(column.delimiter) is not None
             ):
                 raise ValueError("string_agg argument domain")
-            if len(column.order_by) != len(value.order_by):
-                raise ValueError("string_agg order denominator")
-            for actual, expected, authored in zip(
-                column.order_by, value.order_by, ordered, strict=True
-            ):
-                _verify_row_value(
-                    request,
-                    actual.value,
-                    expected,
-                    columns,
-                    children,
-                    state,
-                    reference_type=reference_type,
-                )
-                if (
-                    actual.direction
-                    != ("asc" if authored.direction is None else authored.direction)
-                    or grouping.grouping_problem(
-                        rows.realization_of(actual.value, request.family)
-                    )
-                    is not None
-                ):
-                    raise ValueError("string_agg order domain")
         elif value.arguments:
             if argument is None:
                 raise ValueError("aggregate argument missing")
@@ -2441,6 +2438,31 @@ def _verify_aggregate_body(
                     raise ValueError("quantile fraction domain")
         elif argument is not None or function != "count":
             raise ValueError("row count keeps no scalar argument")
+        if len(column.order_by) != len(value.order_by):
+            raise ValueError("internal order denominator")
+        for actual, expected_order, authored in zip(
+            column.order_by, value.order_by, ordered, strict=True
+        ):
+            _verify_row_value(
+                request,
+                actual.value,
+                expected_order,
+                columns,
+                children,
+                state,
+                reference_type=reference_type,
+            )
+            if (
+                actual.direction
+                != ("asc" if authored.direction is None else authored.direction)
+                or grouping.order_key_problem(
+                    function,
+                    request.family,
+                    rows.realization_of(actual.value, request.family),
+                )
+                is not None
+            ):
+                raise ValueError("internal order domain")
         retained = grouping.result_value(value.source)
         if retained is None:
             raise ValueError("aggregate result logical type evidence")
@@ -2462,14 +2484,9 @@ def _verify_aggregate_body(
             # is not cast.
             or column.result_cast
             != grouping.result_cast(request.family, function, argument)
-            or (
-                function != "string_agg"
-                and (
-                    (column.delimiter is not None)
-                    is not (function in {"quantile", "filtered_sum"})
-                    or column.order_by
-                )
-            )
+            or (column.delimiter is not None)
+            is not (function in {"string_agg", "quantile", "filtered_sum"})
+            or bool(column.order_by) is not (function in grouping.ORDERED_FUNCTIONS)
             or (function != "count_distinct_tuple" and bool(column.extra_arguments))
             or export is None
             or export.source is not value.ref
@@ -8077,6 +8094,8 @@ def verify_row_bytes(query, rendered):
                 take("syntax", "aggregate_root_open", reference, "SQRT(")
             if column.function == "filtered_sum":
                 take("syntax", "aggregate_zero_open", reference, "COALESCE(")
+            if column.function in grouping.ORDERED_VALUE_FUNCTIONS:
+                take("syntax", "aggregate_element_open", reference, "(")
             if column.result_cast is not None:
                 take("syntax", "aggregate_result_cast_open", reference, "CAST(")
             take("syntax", "aggregate_open", reference, column.spelling + "(")
@@ -8109,29 +8128,27 @@ def verify_row_bytes(query, rendered):
                 take("syntax", "aggregate_filter_close", reference, " END")
             elif column.argument is None:
                 take("syntax", "aggregate_row_count", reference, "*")
-            elif column.function == "string_agg":
+            elif column.function in grouping.ORDERED_FUNCTIONS:
                 if (
                     column.distinct
                     or column.argument_cast is not None
-                    or column.delimiter is None
+                    or (column.delimiter is None) is (column.function == "string_agg")
+                    or not column.order_by
                 ):
-                    raise ValueError("string_agg rendering")
+                    raise ValueError("ordered aggregate rendering")
                 scalar(column.argument, alias)
-                take("syntax", "aggregate_separator", reference, ", ")
-                scalar(column.delimiter, alias)
+                if column.delimiter is not None:
+                    take("syntax", "aggregate_separator", reference, ", ")
+                    scalar(column.delimiter, alias)
                 take("syntax", "aggregate_order", reference, " ORDER BY ")
                 for position, item in enumerate(column.order_by):
-                    if item.direction not in {"asc", "desc"}:
-                        raise ValueError("string_agg order")
                     if position:
                         take("syntax", "aggregate_order_separator", reference, ", ")
                     scalar(item.value, alias)
-                    take(
-                        "syntax",
-                        "aggregate_order_direction",
-                        reference,
-                        " ASC" if item.direction == "asc" else " DESC",
+                    text, role = grouping.rendered_direction(
+                        column.function, item.direction
                     )
+                    take("syntax", role, reference, text)
             elif column.function == "count_distinct_tuple":
                 members = (column.argument, *column.extra_arguments)
                 if (
@@ -8223,6 +8240,8 @@ def verify_row_bytes(query, rendered):
                     reference,
                     " > 0)" if column.function == "group_any" else " = 0)",
                 )
+            if column.function in grouping.ORDERED_VALUE_FUNCTIONS:
+                take("syntax", "aggregate_element_close", reference, ")[1]")
             spans.append(("aggregate", reference, start, offset))
 
         def window_specification(specification, reference, alias):

@@ -93,7 +93,9 @@ from pietto.semantic.catalog import is_builtin_function_name
 from pietto.semantic.generators import generator_of
 from pietto.semantic.aggregates import (
     GROUP_TEST_AGGREGATE_NAMES,
+    ORDERED_VALUE_AGGREGATE_NAMES,
     aggregate_argument_can_use_let_scope,
+    ordered_value_result,
     semantic_aggregate_call_name,
     generator_aggregate_result_value_type,
     semantic_aggregate_result_value_type,
@@ -1462,19 +1464,20 @@ def _is_valid_aggregate_projection(
     semantic_value_type = semantic_model.expression_value_types.get(expression)
     if semantic_value_type is None:
         return False
-    if not _aggregate_type_matches_ir(
-        function_name,
-        expression,
-        semantic_model,
-        semantic_value_type,
-        value_type,
-    ):
-        return False
 
     for relation, schema in semantic_model.relation_row_schemas.items():
         for item in relation.select_items:
             if item.expression is not expression or item.alias is None:
                 continue
+            if not _aggregate_type_matches_ir(
+                function_name,
+                expression,
+                semantic_model,
+                semantic_value_type,
+                value_type,
+                grouped=relation.group_by_clause is not None,
+            ):
+                return False
             field = schema.fields.get(item.alias)
             return (
                 field is not None
@@ -1491,6 +1494,8 @@ def _aggregate_type_matches_ir(
     semantic_model: SemanticModel,
     semantic_value_type: ValueType,
     value_type: TypeRefIR,
+    *,
+    grouped: bool,
 ) -> bool:
     if function_name in {"string_agg", "quantile"} and len(expression.arguments) == 2:
         argument_type = semantic_model.expression_value_types.get(
@@ -1526,6 +1531,8 @@ def _aggregate_type_matches_ir(
         )
     else:
         expected = None
+    if expected is not None and function_name in ORDERED_VALUE_AGGREGATE_NAMES:
+        expected = ordered_value_result(expected, grouped=grouped)
     return (
         expected is not None
         and semantic_value_type == expected

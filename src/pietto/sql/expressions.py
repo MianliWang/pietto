@@ -7,6 +7,7 @@ from pietto.ir.model import (
     AggregateWindowCallIR,
     FILTERED_AGGREGATE_ARITIES,
     GROUP_TEST_AGGREGATE_FUNCTIONS,
+    ORDERED_VALUE_FUNCTIONS,
     aggregate_call_contract,
     AnyFieldIR,
     ExistsIR,
@@ -851,6 +852,8 @@ def _render_aggregate_call(
         )
     elif expression.function in {"median", "quantile"}:
         sql = _render_quantile_aggregate(expression)
+    elif expression.function in ORDERED_VALUE_FUNCTIONS:
+        sql = _render_ordered_value_aggregate(expression)
     elif (
         function_name := _EXTREMA_AGGREGATE_NAMES.get(expression.function)
     ) is not None:
@@ -908,6 +911,24 @@ def _render_string_agg(expression: AggregateCallIR) -> str:
         f"{_render_string_agg_text_argument(value)}, "
         f"{_render_string_agg_text_argument(delimiter)} ORDER BY {order_sql})"
     )
+
+
+def _render_ordered_value_aggregate(expression: AggregateCallIR) -> str:
+    # ARRAY_AGG keeps a NULL value and is NULL for no row; its first element
+    # is the value at the first row of the total order, which `last` reverses
+    # by flipping every key (no key is NULL).
+    flip = expression.function == "last"
+    order_sql = ", ".join(
+        f"{_render_expression_sql(item.expression, nested=True)} "
+        + (
+            ("DESC" if item.direction is OrderDirectionIR.ASC else "ASC")
+            if flip
+            else item.direction.value
+        )
+        for item in expression.order_by
+    )
+    value = _render_expression_sql(expression.arguments[0], nested=True)
+    return f"(ARRAY_AGG({value} ORDER BY {order_sql}))[1]"
 
 
 def _render_string_agg_text_argument(expression: ExpressionIR) -> str:

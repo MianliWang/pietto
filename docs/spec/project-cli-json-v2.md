@@ -454,6 +454,18 @@ are the `syntax` roles `aggregate_fraction` (`0.5`, a `median` only) and
 fraction as an ordinary anchored literal value where a `median` writes
 `aggregate_fraction`. Its R13 `aggregate` requirement carries no evidence.
 
+A PostgreSQL `first` or `last` aggregate column has the `spelling` `ARRAY_AGG`,
+no `argument_cast` or `result_cast`, no `delimiter` and its internal order in
+`order_by` with each authored direction; it is written
+`(ARRAY_AGG(x ORDER BY k ASC, ...))[1]`, and a `last` writes every direction
+flipped. Its logical type and representation are the argument's, `nullable` true
+where the argument may be None or the aggregation has no GROUP BY. The additive
+`ranges` roles for this form are the `syntax` roles `aggregate_element_open` (`(`)
+before `aggregate_open` (`ARRAY_AGG(`) and `aggregate_element_close` (`)[1]`) after
+`aggregate_close`; each key direction of a `first` is `aggregate_order_direction`
+and of a `last` `aggregate_order_reversed_direction`, whose text is the reverse of
+the authored direction. Its R13 `aggregate` requirement carries no evidence.
+
 A PostgreSQL conditional count or sum of a group has the aggregate column
 `function` `filtered_count` or `filtered_sum` and the `spelling` `COUNT` or
 `SUM`. A conditional count keeps its Bool test in `argument` and has no

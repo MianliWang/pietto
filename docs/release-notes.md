@@ -1750,6 +1750,114 @@ refuses such a document. A compiled `aggregate_value` record may name
 the Phase73 version marks `(7, 1, 7, 1)`, and a reader of earlier marks
 refuses them.
 
+### `first` and `last` aggregates (arg_max and arg_min)
+
+- `first(x, order by k [desc], ..., id)` is the value of the direct field `x` at
+  the first member row of the group in that order and `last(...)` at the last row
+  (Python's `sorted(...)[0].x` / `[-1].x`). arg_max is
+  `first(x, order by v desc, id)`, arg_min `first(x, order by v, id)`; there is no
+  separate `arg_max`/`max_by` name. The order must be total, proven statically:
+  each key is a direct field of the input (a `let` name of one reads as it), never
+  None (by its type, or a top-level `where` conjunct `k is not None`), and the keys
+  with the never-None field GROUP BY keys cover a `unique(...)` of the FROM source.
+  A None value at the chosen row is the result (never skipped). Value types `Int`,
+  `Decimal`, `Float`, `Text`, `Bool`, `Date`, `Timestamp`, `UUID`; the result has
+  the field's type, None where the field may be None or the query has no GROUP BY.
+  Grouped and no-GROUP-BY queries; HAVING reads one through its select-item alias.
+  PostgreSQL SQL is `(ARRAY_AGG(x ORDER BY k ASC, id ASC))[1]`, `last` with every
+  direction flipped, in single files and schema_version = 2 projects (VERIFIED,
+  carried through compiled bundles and live templates).
+- **New refusals.**
+  - PIE-S2104 at the first failing key, once per call (single file and
+    schema_version = 2 project alike; hint also the JSON `suggestion`):
+    - `Order key of first must be a direct field` (at the key, no hint);
+    - ``Order key weight of first may be None, and None has no promised place in
+      the order; add `weight is not None` to the query's `where` as a top-level
+      `and` test, or order by a key that is never None`` (at the key);
+    - ``The order of first does not end in a unique key, so rows that tie have no
+      promised order; end the `order by` with the fields of a `unique(...)` key of
+      its source, such as `id` `` (at the call; the hint names the source's first
+      declared key's fields; for a source without one ``declare a `unique(...)`
+      key in the shape of its source and end the `order by` with its fields``; over
+      a table or query input ``first reads the `unique(...)` keys of a source: read
+      the source with `from`, not a table or query``);
+    - ``The order of first reads an input whose fields are not known, so rows
+      that tie have no promised order; give its source a shape with a
+      `unique(...)` key and end the `order by` with its fields`` (at the call,
+      over a source without a shape; over a query that reads one, the table or
+      query hint above).
+
+    `last` alike, with its name.
+  - PIE-S2334 ``first over JOIN rows is not available yet; join in one query, then
+    group it in another that reads it with `from` `` at the call (single file and
+    project).
+  - A call with an error inside it (an unknown field in its value or a key, a
+    value of the wrong type or form, a missing `order by`) reports that error
+    alone: no PIE-S2104 order refusal or PIE-S2334 JOIN refusal follows it, in
+    single files and schema_version = 2 projects alike; the next call of the
+    relation is still checked.
+  - MySQL single file: PIE-B1000 `MySQL SQL emission is not implemented for
+    RelationIR: <name>. MySQL has no ordered first or last yet; emit with
+    --dialect postgres`. MySQL project: PIE-B1003
+    `first_last_not_admitted_on_target`, suggestion `Emit this first or last for
+    PostgreSQL, or keep it in check/plan: MySQL has no ordered first or last
+    yet.` PostgreSQL project: PIE-B1003
+    `first_last_order_key_outside_reviewed_order_domain` for a key outside the
+    relation ORDER BY domain (R19), PIE-B1002 `first_last_result_logical_type_drift`
+    (internal consistency; unreachable after check).
+  - PIE-S2314 `Aggregate function first expects Bool, Int, Float, Decimal, Text,
+    Date, Timestamp, or UUID field argument, got Size` for an enum or other type;
+    PIE-S2315 for an expression value.
+  - schema_version = 1 project: PIE-S2334 `first(...): a schema_version = 1
+    project has no first(...) in the current syntax; set schema_version = 2 to
+    check it.` (`last` alike) at each call; no other diagnostic inside it is kept.
+    A project with a generator call reports only its generator refusals, which
+    come before semantic analysis, and none of these (nor its JOIN, `any(...)`
+    and `count_distinct(a, b, ...)` refusals).
+
+Changed diagnostics (programs refused before):
+
+| Program | Before | After |
+| --- | --- | --- |
+| `first`/`last(x, order by ...)` in a SELECT item | PIE-S2104 `Internal ORDER BY is only supported by string_agg` | admitted, or one refusal above |
+| `first(x)` / `last(x)` without `order by` (grouped) | PIE-S2103 `Unknown function: first` + PIE-S2319 `Grouped scalar projection expressions are not supported yet` | PIE-S2104 ``Invalid arguments for aggregate first: expected ORDER BY key; a group's rows have no order: write `first(x, order by k, id)` `` alone (hint also `suggestion`) |
+| `first(x)` / `last(x)` without `order by` elsewhere: in a WHERE (`where first(price_cents)`), or beside a field in a SELECT item without GROUP BY | PIE-S2103 `Unknown function: first` | the PIE-S2104 above, then at the same span PIE-S2308 `Aggregate first() is not allowed in where clause; use it only as a direct aliased select projection` or PIE-S2312 `Aggregate projections cannot be mixed with non-aggregate projections without GROUP BY` (a `schema_version = 2` project lists the WHERE pair PIE-S2308 first, as it does for a `string_agg` without `order by` there) |
+| such a call beside a same-named `constraint first` or `derive last` | PIE-S2103 ``Unknown function: first; first is a constraint, which cannot be called; write a `def` instead`` (``...; last is a derive, ...`` for a derive) | the aggregate's diagnostics, as in the row above (PIE-S2104 with PIE-S2308 or PIE-S2312, in that row's order) |
+| `first(o.x for o in group)` | PIE-S2103 `Unknown function: first` | PIE-S2334 ``first takes no generator; write `first(x, order by k, id)` `` (hint also `suggestion`; same text in a project, where before it was the project generator refusal) |
+| `first(o.x for o in c.xs)` over a row's collected list (`schema_version = 2` project; `last` alike) | PIE-S2103 `Unknown function: first` | PIE-S2334 ``first takes no generator; a list first is not available; `sum` and `any` take a list generator`` at the call, the hint the JSON `suggestion` |
+| `where first(x, order by id) == "a"`, `let f = first(...)`, `having first(...) == "a"` | PIE-S2104 `Internal ORDER BY is only supported by string_agg` | PIE-S2308 `Aggregate first() is not allowed in where clause; use it only as a direct aliased select projection` (`let binding`, `having clause`; a grouped query that selects no aggregate also keeps its PIE-S2320, as with `having sum(...)`) |
+| `first`/`last(x, order by ...) window(...)` | two PIE-S2104 at one span: `Internal ORDER BY is not supported in a window`, `Internal ORDER BY is only supported by string_agg` | one PIE-S2104 ``Internal ORDER BY is not supported in a window; for one value per group, drop the `window(...)` `` (hint also `suggestion`; `string_agg(...) window(...)` keeps the text without the hint) |
+| `first(x) window(...)` | PIE-S2103 `Unknown function: first` | PIE-S2103 `Aggregate window functions are not implemented: first; window aggregates are sum, count, avg, min and max` |
+| `max(x, order by v)` and any other internal ORDER BY outside `string_agg`/`first`/`last` (also with a window, second diagnostic; a `def` or constructor call) | PIE-S2104 `Internal ORDER BY is only supported by string_agg` | same code and span; `Internal ORDER BY is only supported by string_agg, first and last` |
+| `any_value(x)`, `nth(x, 0)`, `head(x)` | PIE-S2103 `Unknown function: NAME` (+ PIE-S2319 where grouped) | same code, span and order; message gains ``; Pietto never picks an arbitrary row; write `first(x, order by k, id)` ``, also the JSON `suggestion` |
+| `arg_max`, `argmax`, `max_by`, `idxmax` | as above | gains ``; write `first(x, order by v desc, id)`; numpy and polars `argmax` return a position, not a value`` (also `suggestion`) |
+| `arg_min`, `argmin`, `min_by`, `idxmin` | as above | gains ``; write `first(x, order by v, id)` `` (also `suggestion`) |
+| `mean`, `array_agg`, `group_concat` and non-lowercase `median`/`quantile`/`string_agg` | PIE-S2103 `...; the available aggregates are avg, count, count_distinct, max, median, min, pstdev, pvariance, quantile, stddev, string_agg, sum and variance` | the list gains `first, last`: `avg, count, count_distinct, first, last, max, median, min, pstdev, pvariance, quantile, stddev, string_agg, sum and variance` |
+| schema_version = 1 or 2 project: `first`/`last(x, order by ...)` | PIE-S2104 `Internal ORDER BY is only supported by string_agg` | v2: admitted or the refusals above; v1: PIE-S2334 `first(...): a schema_version = 1 project has no first(...) ...` |
+
+Compatibility (accepted programs that change; owner decision 7a, 2026-11-06):
+
+- A `def first` or `def last` is now PIE-S2398 `Def first has the name of a
+  built-in function; a def cannot shadow one` with the suggestion ``Rename this
+  def: `first` is now the built-in ordered first-value aggregate, and a call to
+  first always means it.`` (`ordered last-value` for `last`), as `median` and
+  `quantile` above; before, both were accepted. A `constraint first` still
+  checks, and a call `first(x, order by id)` beside it is the aggregate.
+- A schema_version = 2 project's `string_agg(x, ",", order by k)` after a JOIN
+  whose order key names no field (`order by sales.sold_att`) passed `check`
+  (exit 0, no diagnostic), while a single file reports PIE-S2102. The project now
+  reads an internal `order by` key after a JOIN as it reads the aggregate's
+  argument and reports PIE-S2102 `Unknown field: sales.sold_att` at the key, as
+  a single file does.
+
+Formats: Project JSON v2 gains the `ranges` syntax roles
+`aggregate_element_open` (`(`), `aggregate_element_close` (`)[1]`) and
+`aggregate_order_reversed_direction` (each key direction of a `last`), and the
+aggregate `spelling` `ARRAY_AGG`. A compiled `aggregate_value` record may name
+`first` or `last` (one input and a non-empty `order_by`); such bundles carry the
+Phase73 version marks `(7, 1, 7, 1)`, and a reader of earlier marks refuses
+them.
+
 ## Equality, nullability and asof JOIN public alpha release notes — 0.1.9
 
 <a id="unreleased-changes-following-018"></a>

@@ -906,6 +906,7 @@ AGGREGATE_SPELLING = {
     "VAR_SAMP",
     "VAR_POP",
     "PERCENTILE_CONT",
+    "ARRAY_AGG",
 }
 WINDOW_SPELLING = {
     "row_number": "ROW_NUMBER",
@@ -994,6 +995,8 @@ SYNTAX = {
     "aggregate_tuple_then": " IS NOT NULL THEN ROW(",
     "aggregate_tuple_close": ") END",
     "aggregate_close": ")",
+    "aggregate_element_open": "(",
+    "aggregate_element_close": ")[1]",
     "window_partition": "PARTITION BY ",
     "window_partition_separator": ", ",
     "window_partition_qualifier": ".",
@@ -1104,6 +1107,7 @@ OVERLAYS = {
             "aggregate_root_open",
             "aggregate_zero_open",
             "aggregate_test_open",
+            "aggregate_element_open",
         ),
         (
             "aggregate_close",
@@ -1111,6 +1115,7 @@ OVERLAYS = {
             "aggregate_root_close",
             "aggregate_zero_close",
             "aggregate_test_close",
+            "aggregate_element_close",
         ),
     ),
     "window": (

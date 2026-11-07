@@ -24,11 +24,14 @@ from pietto._project.project_sql_emission_ast import (
 from pietto._project.project_sql_emission_aggregation import (
     FILTERED_FUNCTIONS,
     GROUP_TEST_FUNCTIONS,
+    ORDERED_FUNCTIONS,
+    ORDERED_VALUE_FUNCTIONS,
     QUANTILE_FUNCTIONS,
     ROOT_FUNCTIONS,
     AggregateKeyColumn,
     AggregateProjectionColumn,
     AggregateValueColumn,
+    rendered_direction,
 )
 from pietto._project import project_sql_emission_windows as windowing
 from pietto._project import project_sql_emission_results as resulting
@@ -1072,6 +1075,8 @@ def _aggregate_value(w: _Writer, column, alias) -> None:
         w.emit("SQRT(", "syntax", "aggregate_root_open", reference)
     if column.function == "filtered_sum":
         w.emit("COALESCE(", "syntax", "aggregate_zero_open", reference)
+    if column.function in ORDERED_VALUE_FUNCTIONS:
+        w.emit("(", "syntax", "aggregate_element_open", reference)
     if column.result_cast is not None:
         w.emit("CAST(", "syntax", "aggregate_result_cast_open", reference)
     w.emit(column.spelling + "(", "syntax", "aggregate_open", reference)
@@ -1107,29 +1112,25 @@ def _aggregate_value(w: _Writer, column, alias) -> None:
         # count() consumes the complete input BAG, so COUNT(*) is the whole row
         # count, never SELECT * and never a column count.
         w.emit("*", "syntax", "aggregate_row_count", reference)
-    elif column.function == "string_agg":
+    elif column.function in ORDERED_FUNCTIONS:
         if (
             column.distinct
             or column.argument_cast is not None
-            or column.delimiter is None
+            or (column.delimiter is None) is (column.function == "string_agg")
+            or not column.order_by
         ):
-            raise ValueError("unrenderable string_agg")
+            raise ValueError("unrenderable ordered aggregate")
         w.scalar(column.argument, alias)
-        w.emit(", ", "syntax", "aggregate_separator", reference)
-        w.scalar(column.delimiter, alias)
+        if column.delimiter is not None:
+            w.emit(", ", "syntax", "aggregate_separator", reference)
+            w.scalar(column.delimiter, alias)
         w.emit(" ORDER BY ", "syntax", "aggregate_order", reference)
         for position, item in enumerate(column.order_by):
-            if item.direction not in {"asc", "desc"}:
-                raise ValueError("unrenderable string_agg order")
             if position:
                 w.emit(", ", "syntax", "aggregate_order_separator", reference)
             w.scalar(item.value, alias)
-            w.emit(
-                " ASC" if item.direction == "asc" else " DESC",
-                "syntax",
-                "aggregate_order_direction",
-                reference,
-            )
+            text, role = rendered_direction(column.function, item.direction)
+            w.emit(text, "syntax", role, reference)
     elif column.function == "count_distinct_tuple":
         # COUNT(DISTINCT CASE WHEN a IS NOT NULL AND b IS NOT NULL THEN ROW(a, b)
         # END): a row with any NULL field counts nothing.
@@ -1212,6 +1213,8 @@ def _aggregate_value(w: _Writer, column, alias) -> None:
             "aggregate_test_close",
             reference,
         )
+    if column.function in ORDERED_VALUE_FUNCTIONS:
+        w.emit(")[1]", "syntax", "aggregate_element_close", reference)
     w.enclose("aggregate", reference, start)
 
 

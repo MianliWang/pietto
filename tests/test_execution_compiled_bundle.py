@@ -1431,6 +1431,54 @@ def test_a_count_distinct_tuple_template_binds_its_header_read(tmp_path):
         assert bound.arguments == (3,)
 
 
+def test_a_first_and_last_template_binds_its_header_read(tmp_path):
+    """A loaded compiled and a live PostgreSQL template of `first` and `last`
+    under GROUP BY and a WHERE header parameter bind it and render the emitted
+    SQL byte for byte; `last` keeps its flipped key directions."""
+    import _pietto_sql_emission as emission
+    from pietto._project.project_compiled_build import build_compiled
+    from pietto._project.project_compiled_loading import load_compiled
+    from pietto._project.project_execution_template import (
+        bind_values,
+        prepare_compiled_template,
+        prepare_live_template,
+    )
+
+    item = emission.parameterized_fixture(
+        "postgres",
+        "query result(low: Int):\n    from rows\n    where id > low\n"
+        "    group by flag\n    select:\n        flag\n"
+        "        f = first(text, order by ratio desc, id)\n"
+        "        l = last(money, order by id)\n",
+    )
+    source = item["source"].replace(
+        "    ratio: Float\n", "    ratio: Float\n    row_key = unique(id)\n", 1
+    )
+    _, outcome = emission.build_case(tmp_path, source, item["contract"], item["policy"])
+    assert outcome.status == "VERIFIED", outcome.blockers
+    assert outcome.artifact is not None
+    built = build_compiled(outcome.artifact)
+    compiled = prepare_compiled_template(
+        load_compiled(
+            built.payload,
+            expected_pin=built.pin,
+            accepted_producer=built.producer,
+            accepted_compatibility=built.compatibility,
+        )
+    )
+    for template in (compiled, prepare_live_template(outcome.artifact)):
+        bound = bind_values(
+            template, (), tuple(zip(template.parameters, (3,), strict=True))
+        )
+        assert bound.artifact.rendered.sql == template.artifact.rendered.sql
+        assert bound.artifact.rendered.sql == outcome.artifact.rendered.sql
+        assert (
+            b'(ARRAY_AGG("t1"."c2" ORDER BY "t1"."c4" DESC, "t1"."c0" ASC))[1] '
+            b'AS "c1", (ARRAY_AGG("t1"."c3" ORDER BY "t1"."c0" DESC))[1] AS "c2"'
+        ) in bound.artifact.rendered.sql
+        assert bound.arguments == (3,)
+
+
 # Phase70 S11 x S10/S12/S14: header reads inside lets with capture lines.
 HEADER_IN_CAPTURES = """query result(cut: Int, hi: Int | None):
     let later:

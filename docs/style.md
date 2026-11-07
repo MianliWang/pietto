@@ -1192,6 +1192,49 @@ comparison; elsewhere, such as a GROUP BY or ORDER BY key, a JOIN `on`, a field
 is refused (PIE-S2387). If a column holds local time, comparing it with
 `now()` is off by the local offset from UTC. MySQL does not emit `now()` yet.
 
+## The first or last value of a group: `first` and `last`
+
+```pietto
+shape Sale:
+    id: Int
+    shop_id: Int
+    plant: Text
+    pot_size: Text | None
+    price_cents: Int
+    weight_kg: Float | None
+    sold_at: Timestamp
+    sale_key = unique(id)
+
+source sales: Sale = postgres.table("nursery.sales")
+
+query shop_plants:
+    from sales
+    where weight_kg is not None
+    group by shop_id
+    select:
+        shop_id
+        first_plant = first(plant, order by sold_at, id)
+        latest_plant = last(plant, order by sold_at, id)
+        priciest_plant = first(plant, order by price_cents desc, id)
+        cheapest_plant = first(plant, order by price_cents, id)
+        lightest_pot = first(pot_size, order by weight_kg, id)
+```
+
+`first(x, order by k, id)` is the value of `x` at the first row of the group in
+that order, Python's `sorted(group, key=lambda s: (s.k, s.id))[0].x`, and
+`last(x, order by k, id)` is the value at the last row, `[-1]`. One form for each
+need: the earliest value is `first(x, order by t, id)`, the latest is
+`last(x, order by t, id)` (never `first` with every key written `desc`), the value
+at the largest `v` (arg_max) is `first(x, order by v desc, id)` and at the smallest
+(arg_min) `first(x, order by v, id)`. Keys are ascending unless the meaning needs
+`desc`, and the `unique(...)` key of the source goes last: Pietto never picks one
+of several tied rows, so the order must end in a unique key (the GROUP BY key
+fields count toward it). A key that may be None needs a top-level
+`where k is not None`. A None value at the chosen row is the result; it is not
+skipped, as pandas' `groupby().first()` skips it. To keep the whole latest row,
+not one value, write `qualify row_number() window(partition by k order by t desc,
+id desc) == 1`. MySQL does not emit `first` or `last` yet.
+
 ## The rows of each group: group, then collect
 
 To list each group's rows beside its count, group in one query and collect in
@@ -1300,6 +1343,14 @@ Comments start with `#`, as in Python. `--` does not start a comment:
 | `bool_or(paid)`, `max(paid)` | `any(o.paid for o in group)` | one way to test some row of the group (PIE-S2103, PIE-S2314) |
 | `all(o.paid for o in group if o.shipped)` | `n = sum(1 for o in group if o.shipped and not o.paid)`, then `n == 0` in `having` | a test takes no `if` (PIE-S2334) |
 | `having all(o.paid for o in group)` | `all_paid = all(o.paid for o in group)` in `select:`, then `having all_paid` | a group test is a SELECT item (PIE-S2308; `any`: PIE-S2334) |
+| `df.x.nunique()`, `n_unique(x)` | `count_distinct(x)`; `count_distinct(a, b)` for several columns | None is not counted, where polars `n_unique` counts it (PIE-S2103 hint) |
+| `df.groupby(k).first()`, `any_value(x)`, `nth(x, 0)`, `head(x)` | `first(x, order by t, id)` | a group's rows have no order, and Pietto never picks an arbitrary row (PIE-S2103 hint for `any_value`, `nth`, `head`); pandas' `first()` also skips None, `first` does not |
+| `df.groupby(k).last()`, `first(x, order by t desc, id desc)` | `last(x, order by t, id)` | the same order and tie rule as `first`, read from the other end |
+| `max_by(x, v)`, `arg_max(x, v)`, `df.loc[df.v.idxmax(), "x"]` | `first(x, order by v desc, id)` | one name for the value at the largest `v`; the unique key last decides ties (PIE-S2103 hint for `arg_max`, `argmax`, `max_by`, `idxmax`); numpy and polars `argmax` return a position, not a value |
+| `min_by(x, v)`, `arg_min(x, v)`, `idxmin` | `first(x, order by v, id)` | as arg_max, ascending (PIE-S2103 hint for `arg_min`, `argmin`, `min_by`, `idxmin`) |
+| `first(x)`, `first(x, order by t)` | `first(x, order by t, id)` | without an order, or with one that may tie, no row is first (PIE-S2104) |
+| `first(x, order by t, id)` with `t: Timestamp \| None` | add `where t is not None` | None has no promised place in an order (PIE-S2104); the top-level `where` conjunct proves the key is never None |
+| `first(o.x for o in group)`, `first(x) window(...)` | `first(x, order by t, id)`; `first_value(x) window(...)` for a per-row window | `first` takes no generator (PIE-S2334) and is no window aggregate (PIE-S2103/PIE-S2104) |
 | `max(a, b, c)` | `max(a, max(b, c))` | `max` and `min` take one value (the aggregate) or two; more is an error (PIE-S2309) that says to nest |
 | `greatest(a, b)`, `least(a, b)` | `max(a, b)`, `min(a, b)` | there is no `greatest` or `least` (PIE-S2103); `max` and `min` are None when either value is, where PostgreSQL `GREATEST` skips a NULL |
 | `max(a, None)` | `None`, or drop the call | a `None` argument is an error (PIE-S2104): the result would always be None |

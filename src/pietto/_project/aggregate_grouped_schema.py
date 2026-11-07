@@ -56,6 +56,7 @@ from pietto.errors import SourceLocation
 from pietto.semantic.aggregates import (
     MAX_AGGREGATE_NAME,
     MIN_AGGREGATE_NAME,
+    ORDERED_VALUE_AGGREGATE_NAMES,
     QUANTILE_AGGREGATE_NAME,
     aggregate_order_expressions,
     aggregate_argument_can_use_let_scope,
@@ -69,6 +70,7 @@ from pietto.semantic.aggregates import (
     is_count_distinct_tuple,
     is_supported_semantic_aggregate_arity,
     nested_semantic_aggregate,
+    ordered_value_result,
     quantile_fraction_diagnostic,
     semantic_aggregate_call_name,
     semantic_projection_aggregate_result_value_type,
@@ -1734,7 +1736,7 @@ def _build_project_aggregate_selected_result_attempt(
     ):
         # Two or more different direct fields, as in a single file, whose
         # check reports the refusal (with a `let:` name read,
-        # `_count_distinct_tuple_errors`).
+        # `_call_argument_errors`).
         return _failed_selected_result_attempt(
             ProjectRelationRowSchemaReason.INVALID_AGGREGATE_OR_GROUPED_OUTPUT
         )
@@ -1806,6 +1808,10 @@ def _build_project_aggregate_selected_result_attempt(
             function_name, argument_type
         )
     )
+    if result_type is not None and function_name in ORDERED_VALUE_AGGREGATE_NAMES:
+        result_type = ordered_value_result(
+            result_type, grouped=definition.group_by_clause is not None
+        )
     if (
         result_type is None
         or result_type.kind is not ValueTypeKind.KNOWN

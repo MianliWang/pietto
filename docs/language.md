@@ -540,6 +540,7 @@ first column give every rule.
 | `stddev(x)` ([Aggregates](#aggregates-and-grouping)) | `Int` and `Float` | `Float` (`STDDEV_SAMP`); `Int` refused (PIE-B1000) | `Int` and `Float` | refused: `Int` PIE-B1003, `Float` PIE-B1004 |
 | `variance(x)`, `pvariance(x)`, `pstdev(x)` ([Aggregates](#aggregates-and-grouping)) | `Int` and `Float` (`VAR_SAMP`, `VAR_POP`, `SQRT` of `VAR_POP`) | `Float` (`VAR_SAMP`, `VAR_POP`, `STDDEV_POP`); `Int` refused (PIE-B1000) | `Int` and `Float` | refused: `Int` PIE-B1003, `Float` PIE-B1004 |
 | `median(x)`, `quantile(x, q)` ([Aggregates](#aggregates-and-grouping)) | `Int` and `Float` (`PERCENTILE_CONT ... WITHIN GROUP`) | refused (PIE-B1000) | `Int`; `Float` refused (PIE-B1004) | refused (PIE-B1003) |
+| `first(x, order by k, id)`, `last(...)` ([Aggregates](#aggregates-and-grouping)) | `(ARRAY_AGG(x ORDER BY k ASC, id ASC))[1]`; `last` flips every direction | refused (PIE-B1000) | as a file; the value keeps its carrier; a key orders as a relation ORDER BY key (R19), else PIE-B1003 `first_last_order_key_outside_reviewed_order_domain` | refused (PIE-B1003 `first_last_not_admitted_on_target`) |
 | `sum(1 for o in group if t)`, `sum(o.f for o in group if t)` ([Aggregates](#aggregates-and-grouping)) | `COUNT(CASE WHEN t THEN 1 END)`; `COALESCE(CAST(SUM(CASE WHEN t THEN CAST(f AS pg_catalog.int8) END) AS pg_catalog.int8), 0)` | count `COUNT(CASE WHEN t THEN 1 END)`; sum refused (PIE-B1000) | as PostgreSQL single file, `schema_version = 2` (PIE-S2334 in a `schema_version = 1` project); no JOIN inputs | refused: count PIE-B1003, sum PIE-B1004 |
 | `any(t for o in group)`, `all(t for o in group)` ([Aggregates](#aggregates-and-grouping)) | `(COUNT(CASE WHEN t THEN 1 END) > 0)`; `(COUNT(CASE WHEN t THEN NULL ELSE 1 END) = 0)` | as PostgreSQL, an integer 0/1 | as PostgreSQL single file, `schema_version = 2` (PIE-S2334 in a `schema_version = 1` project); no JOIN inputs | refused (PIE-B1003 `group_test_not_admitted_on_target`) |
 | `max(a, b)`, `min(a, b)` ([Expressions](#expressions)) | `CASE WHEN` of `<`/`>` and `IS NOT NULL`; `Int`, `Decimal`, `Float`, `Text`, `Date`, `Timestamp`, `UUID`, `Bool` | as PostgreSQL; a `Bool` result arrives as an integer 0, 1 or NULL, as every computed `Bool` does on MySQL | `Int`, `Decimal`, `Float`, `Text`, `Timestamp`, `UUID` as their comparison and conditional are; `Date` and `Bool` refused (PIE-B1003) | as PostgreSQL project |
@@ -3797,7 +3798,7 @@ WHERE ("ordered_at" BETWEEN '2026-01-01 00:00:00' AND '2026-12-31 23:59:59') AND
 The current aggregate family is:
 
 ```text
-count count_distinct sum avg min max stddev variance pvariance pstdev median quantile string_agg
+count count_distinct sum avg min max stddev variance pvariance pstdev median quantile string_agg first last
 ```
 
 `string_agg(value, delimiter, order by key[, key ...])` accepts two Text row
@@ -4095,6 +4096,101 @@ Metadata Artifact v1 lists neither aggregate, as it lists no `stddev`.
 PIE-S2398 with a rename suggestion, so `any(x)` and `all(x)` never call a
 `def` and their PIE-S2103 hints (``write `any(o.x for o in group)` ``) are
 never wrong.
+
+`first(x, order by k1 [desc], k2 [desc], ...)` is the value of one direct field
+`x` at the first member row of the group in that order, and `last(...)` the value
+at the last row: Python's `sorted(group, key=lambda r: (r.k1, r.k2))[0].x` and
+`[-1]`, for keys that are not `Text` (a `Text` key orders by the target collation,
+as a relation ORDER BY does, which may change which row is first but never whether
+one is). The internal `order by` is required, written as `string_agg` writes it.
+Pietto never picks one of several tied rows, so the order must be total, and is
+proven so statically:
+
+1. every key is a direct field of the FROM input, bare or qualified (a `let` name
+   whose value is a field reads as that field);
+2. no key is None on a member row: its type has no `| None`, or a top-level `and`
+   conjunct of the query's `where` tests it with `is not None` (bare, qualified or
+   through a `let` name), which drops every row whose key is None before any group
+   forms. The type of the key does not change; only this rule reads the conjunct,
+   as PIE-S2384 does. An `or`, a test under `not`, a `having` or another query's
+   `where` is no proof;
+3. the order ends in a unique key: the keys, together with the GROUP BY keys that
+   are direct fields of the input and never None by rule 2, cover every field of
+   one `unique(...)` of the FROM source's shape. Since every key is a direct field
+   that is never None, a key written after a complete unique key is admitted and
+   never changes the order (`order by id, sold_at`). A computed GROUP BY key never
+   counts, nor does a key that may be None (SQL unique keys admit repeated NULLs).
+   Only the FROM source's declared keys are read: over a table or query input the
+   order is refused with a hint to read the source, and over a source without a
+   shape, whose fields are not known, with a hint to give it a shape with a
+   `unique(...)` key.
+
+A None `x` at the chosen row is the result: the value is never skipped (SQL
+`FIRST_VALUE`, pandas `nth(0)`; pandas `GroupBy.first()` skips None and is not this
+one). `x` is one direct field (or a `let` name of one) of type `Int`, `Decimal`,
+`Float`, `Text`, `Bool`, `Date`, `Timestamp` or `UUID`; an enum or any other type
+is PIE-S2314 and an expression PIE-S2315. The result has the field's type and may
+be None when the field may be, or when the query has no GROUP BY (an empty input
+gives None); under GROUP BY each group has a row, so the result of a non-None field
+is never None. `first` and `last` take the positions of the other non-window
+aggregates (an aliased select item; elsewhere PIE-S2308). A key that is not a
+direct field, may be None, or leaves the order without a unique key is PIE-S2104
+at the first key that fails (the last rule at the call), each with a hint that is
+also the JSON `suggestion`; a call without `order by` is PIE-S2104 ``expected ORDER
+BY key; a group's rows have no order: write `first(x, order by k, id)` ``. A
+generator argument (`first(o.x for o in group)`) is PIE-S2334 ``first takes no
+generator; write `first(x, order by k, id)` ``, and over JOIN rows the call is
+PIE-S2334 ``first over JOIN rows is not available yet; join in one query, then group
+it in another that reads it with `from` ``. A call with an error inside it, such as
+an unknown field of a key, reports that error alone, in a single file and a project
+alike. With a `window`, an internal `order by` is the one PIE-S2104 ``Internal ORDER
+BY is not supported in a window; for one value per group, drop the `window(...)` ``,
+and `first(x) window(...)` without one is PIE-S2103 `Aggregate window functions are
+not implemented: first; ...`; for one value of a row's window, `first_value(x)
+window(...)` is the window function. An internal `order by` on any other call is
+PIE-S2104 `Internal ORDER BY is only supported by string_agg, first and last`.
+
+`unique(...)` is a trusted declaration that Pietto never checks against the data:
+over rows that break it, PostgreSQL returns the value of one of the tied rows,
+silently, as for an asof JOIN. `ARRAY_AGG` collects the group's values per item,
+so the memory of a `first` or `last` is linear in the group.
+
+PostgreSQL emits `first(x, order by k, id)` as
+`(ARRAY_AGG(x ORDER BY k ASC, id ASC))[1]` and `last` with every key direction
+flipped, `(ARRAY_AGG(x ORDER BY k DESC, id DESC))[1]`; since no key is None, NULL
+placement never enters, and `ARRAY_AGG` keeps a None value and is NULL over no row.
+A schema_version = 2 project checks the same rules and emits the same shape
+(`spelling` `ARRAY_AGG`). MySQL has no ordered first or last yet: a single file is
+refused with PIE-B1000 (`MySQL has no ordered first or last yet; emit with
+--dialect postgres`), a project with PIE-B1003
+`first_last_not_admitted_on_target`; a window in a derived table is the planned
+MySQL route. A schema_version = 1 project has no `first(...)` or `last(...)`
+(PIE-S2334, `set schema_version = 2 to check it`). `any_value`, `nth`, `head`,
+`arg_max`, `argmax`, `max_by`, `idxmax`, `arg_min`, `argmin`, `min_by` and
+`idxmin` calls are PIE-S2103 with a hint to the `first` form, and a `def first` or
+`def last` is PIE-S2398 with a rename suggestion. Semantic Metadata Artifact v1
+lists neither aggregate, as it lists no `string_agg`. In a project an internal
+order key written as a `let` name is PIE-S2333 `Project relation semantic
+completion is unavailable`, as for `string_agg`, where a single file accepts it,
+and one that fails the order proof (a computed `let` key included) is that
+PIE-S2104 alone, as in a single file; a `let` name as the value is accepted in
+both, and a computed `let` value is the PIE-S2315 alone in both.
+
+The PostgreSQL SQL of the `shop_plants` query of the [style guide](style.md):
+
+```sql
+SELECT
+    "shop_id" AS "shop_id",
+    (ARRAY_AGG("plant" ORDER BY "sold_at" ASC, "id" ASC))[1] AS "first_plant",
+    (ARRAY_AGG("plant" ORDER BY "sold_at" DESC, "id" DESC))[1] AS "latest_plant",
+    (ARRAY_AGG("plant" ORDER BY "price_cents" DESC, "id" ASC))[1] AS "priciest_plant",
+    (ARRAY_AGG("plant" ORDER BY "price_cents" ASC, "id" ASC))[1] AS "cheapest_plant",
+    (ARRAY_AGG("pot_size" ORDER BY "weight_kg" ASC, "id" ASC))[1] AS "lightest_pot"
+FROM "nursery"."sales"
+WHERE "weight_kg" IS NOT NULL
+GROUP BY
+    "shop_id";
+```
 
 **Conditional count and sum, and the test of a group.** A generator `BODY for o in SOURCE if TEST` is
 written only as the only argument of a call, with one `for` and at most one

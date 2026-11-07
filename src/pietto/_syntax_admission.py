@@ -523,23 +523,32 @@ def unadmitted_syntax_diagnostics(
             call = cast(CallExpr, value)
             if call.aggregate_order_by and (
                 not isinstance(call.callee, NameExpr)
-                or call.callee.name != "string_agg"
+                or call.callee.name not in {"string_agg", "first", "last"}
             ):
                 found.append(
                     _diagnostic(
                         "PIE-S2104",
-                        "Internal ORDER BY is only supported by string_agg",
+                        "Internal ORDER BY is only supported by string_agg, first "
+                        "and last",
                         call.span,
                     )
                 )
         elif kind is WindowExpr:
             window = cast(WindowExpr, value)
             if window.call.aggregate_order_by:
+                hint = (
+                    "for one value per group, drop the `window(...)`"
+                    if isinstance(window.call.callee, NameExpr)
+                    and window.call.callee.name in {"first", "last"}
+                    else None
+                )
                 found.append(
                     _diagnostic(
                         "PIE-S2104",
-                        "Internal ORDER BY is not supported in a window",
+                        "Internal ORDER BY is not supported in a window"
+                        + ("" if hint is None else f"; {hint}"),
                         window.call.span,
+                        hint,
                     )
                 )
         elif kind is TableFunctionFromClause:

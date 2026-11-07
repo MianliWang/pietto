@@ -59,12 +59,22 @@ SPELLING = {
     # > 0) and (COUNT(CASE WHEN test THEN NULL ELSE 1 END) = 0).
     "group_any": "COUNT",
     "group_all": "COUNT",
+    # PostgreSQL only: (ARRAY_AGG(x ORDER BY k ASC, ...))[1], the element
+    # wrapping fixed by the function (ORDERED_VALUE_FUNCTIONS); `last` flips
+    # every authored direction (`rendered_direction`).
+    "first": "ARRAY_AGG",
+    "last": "ARRAY_AGG",
 }
 # The sample and population variances and deviations: one Int or Float
 # argument, a PostgreSQL VAR_SAMP or VAR_POP cast to float8 once.
 SPREAD_FUNCTIONS = frozenset({"stddev", "variance", "pvariance", "pstdev"})
 # The aggregates whose rendering wraps the result (cast) in SQRT( ... ).
 ROOT_FUNCTIONS = frozenset({"stddev", "pstdev"})
+# The value at the first or last row of a group's total order: the first
+# element of an ordered ARRAY_AGG, which keeps a NULL value.
+ORDERED_VALUE_FUNCTIONS = frozenset({"first", "last"})
+# The aggregates with an internal ORDER BY.
+ORDERED_FUNCTIONS = frozenset({"string_agg", *ORDERED_VALUE_FUNCTIONS})
 # The interpolated quantiles, an ordered-set PERCENTILE_CONT.
 QUANTILE_FUNCTIONS = frozenset({"median", "quantile"})
 # The aggregates of a test of each row, which is their only argument but for a
@@ -429,6 +439,29 @@ def result_realization(family: str, function: str, argument, retained):
     because an empty or all-null input has no extreme value.
     """
     tag, nullable = retained
+    if function in ORDERED_VALUE_FUNCTIONS:
+        # The value at one row kept as it is: the argument's own carrier, NULL
+        # where that value is or, without GROUP BY, for an empty input.
+        carrier = None if argument is None else argument.realization
+        if (
+            family != "postgres"
+            or carrier is None
+            or tag != carrier.tag
+            or nullable not in {True, False}
+            or (carrier.nullable is not False and nullable is not True)
+        ):
+            return None, ("PIE-B1002", "first_last_result_logical_type_drift")
+        return (
+            rows.Realization(
+                carrier.tag,
+                carrier.storage,
+                nullable,
+                carrier.domain,
+                carrier.proven_int_range,
+                binding=carrier.binding,
+            ),
+            None,
+        )
     if function == "string_agg":
         if (
             family != "postgres"
@@ -563,6 +596,32 @@ def result_realization(family: str, function: str, argument, retained):
         ),
         None,
     )
+
+
+def rendered_direction(function: str, direction: str) -> tuple[str, str]:
+    """The emitted spelling and syntax role of one authored internal order
+    direction: `last` is the first element of the reversed order, so each of
+    its directions is written flipped, under its own role."""
+    if direction not in {"asc", "desc"}:
+        raise ValueError("internal order direction")
+    if function == "last":
+        return (
+            " DESC" if direction == "asc" else " ASC",
+            "aggregate_order_reversed_direction",
+        )
+    return " ASC" if direction == "asc" else " DESC", "aggregate_order_direction"
+
+
+def order_key_problem(function: str, family: str, realization):
+    """A string_agg order key compares like a group key; a `first` or `last`
+    key orders like a relation ORDER BY key (R19)."""
+    if function == "string_agg":
+        return grouping_problem(realization)
+    from pietto._project.project_sql_emission_results import order_admitted
+
+    if order_admitted(family, realization):
+        return None
+    return "PIE-B1003", "first_last_order_key_outside_reviewed_order_domain"
 
 
 def float_argument(argument) -> bool:
@@ -710,6 +769,13 @@ def resolved_argument_problem(
         if not direct_reference:
             return "PIE-B1003", "aggregate_argument_not_a_direct_established_field"
         function = "count_distinct"
+    if function in ORDERED_VALUE_FUNCTIONS:
+        # ARRAY_AGG keeps one row's value of any admitted carrier exactly.
+        if family != "postgres":
+            return "PIE-B1003", "first_last_not_admitted_on_target"
+        if not direct_reference or realization is None:
+            return "PIE-B1003", "aggregate_argument_not_a_direct_established_field"
+        return None
     if realization is None:
         return "PIE-B1003", function + "_argument_outside_reviewed_int_domain"
     if function == "avg" and realization.tag == "Int":
@@ -1152,7 +1218,7 @@ def build_stage(
         if (
             len(arguments) != len(value.arguments)
             or len(ordered) != len(value.order_by)
-            or (function == "string_agg") is not bool(ordered)
+            or (function in ORDERED_FUNCTIONS) is not bool(ordered)
             or not signature_arity(function, len(arguments))
         ):
             return (
@@ -1166,7 +1232,6 @@ def build_stage(
             )
         argument = None
         delimiter = None
-        order_by = ()
         extra_arguments = ()
         if function == "count_distinct_tuple":
             if family != "postgres":
@@ -1220,27 +1285,6 @@ def build_stage(
                     return None, (*problem, value.ref, location)
                 realized.append(current)
             argument, delimiter = realized
-            orders = []
-            for item, order_ref in zip(ordered, value.order_by, strict=True):
-                current, problem = rows.build_row_value(
-                    request,
-                    available,
-                    order_ref,
-                    uses,
-                    reference_type=reference_type,
-                )
-                if current is None:
-                    assert problem is not None
-                    return None, (*problem, value.ref, location)
-                problem = grouping_problem(rows.realization_of(current, family))
-                if problem is not None:
-                    return None, (*problem, value.ref, location)
-                orders.append(
-                    AggregateOrderItem(
-                        current, "asc" if item.direction is None else item.direction
-                    )
-                )
-            order_by = tuple(orders)
         elif value.arguments:
             argument, problem = rows.build_row_value(
                 request,
@@ -1306,6 +1350,29 @@ def build_stage(
                     location,
                 ),
             )
+        orders = []
+        for item, order_ref in zip(ordered, value.order_by, strict=True):
+            current, problem = rows.build_row_value(
+                request,
+                available,
+                order_ref,
+                uses,
+                reference_type=reference_type,
+            )
+            if current is None:
+                assert problem is not None
+                return None, (*problem, value.ref, location)
+            problem = order_key_problem(
+                function, family, rows.realization_of(current, family)
+            )
+            if problem is not None:
+                return None, (*problem, value.ref, location)
+            orders.append(
+                AggregateOrderItem(
+                    current, "asc" if item.direction is None else item.direction
+                )
+            )
+        order_by = tuple(orders)
         retained = result_value(value.source)
         if retained is None:
             return (
@@ -1576,6 +1643,22 @@ def build_compiled_stage(plan, record, arguments):
                         )
                         is not None
                         for member in (argument, *delimiters)
+                    )
+                ):
+                    raise CompiledError("COMPILED_AGGREGATE_ARGUMENT")
+            elif function in ORDERED_VALUE_FUNCTIONS:
+                family = records[Address("target", 0)].get("family")
+                if (
+                    delimiters
+                    or not order_by
+                    or argument_problem(function, argument, family) is not None
+                    or any(
+                        order_key_problem(
+                            function, family, rows.realization_of(order.value, family)
+                        )
+                        is not None
+                        or order.direction not in {"asc", "desc"}
+                        for order in order_by
                     )
                 ):
                     raise CompiledError("COMPILED_AGGREGATE_ARGUMENT")

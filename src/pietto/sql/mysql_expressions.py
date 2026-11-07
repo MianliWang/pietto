@@ -602,6 +602,11 @@ def _render_aggregate_call(
             expression.function,
             _render_mysql_expression(expression.arguments[0], nested=False),
         )
+    if expression.function in {"first", "last"}:
+        # A window in a derived table is the planned MySQL route.
+        raise MySqlRenderError(
+            "MySQL has no ordered first or last yet; emit with --dialect postgres"
+        )
     if expression.function in {"median", "quantile"}:
         # MySQL 8.4 has no PERCENTILE_CONT or other interpolated percentile.
         raise MySqlRenderError(

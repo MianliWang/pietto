@@ -52,6 +52,9 @@ from pietto.ast_nodes import (
 )
 from pietto.errors import Diagnostic, Severity, SourceLocation
 from pietto.semantic.aggregates import (
+    INTERNAL_ORDER_ONLY,
+    ORDERED_AGGREGATE_NAMES,
+    ORDERED_VALUE_AGGREGATE_NAMES,
     SEMANTIC_AGGREGATE_NAMES,
     accepts_argument_form,
     aggregate_argument_can_use_let_scope,
@@ -60,11 +63,13 @@ from pietto.semantic.aggregates import (
     extremum_reads_let,
     generator_aggregate_result_value_type,
     has_unknown_field_reference,
+    internal_order_diagnostic,
     invalid_context_diagnostic,
     is_count_distinct_tuple,
     is_semantic_aggregate_call,
     is_supported_semantic_aggregate_argument_expression,
     list_generator_of,
+    ordered_value_result,
     quantile_fraction_diagnostic,
     semantic_aggregate_call_name,
     semantic_projection_aggregate_result_value_type,
@@ -1503,6 +1508,15 @@ def type_relation_expressions(
                 suppressed_unknown_names=rejected_lets,
                 type_expansions=type_expansions,
             )
+            if (
+                semantic_aggregate_call_name(item.expression)
+                in ORDERED_VALUE_AGGREGATE_NAMES
+                and (typed := value_types.get(item.expression)) is not None
+                and typed.kind is ValueTypeKind.KNOWN
+            ):
+                value_types[item.expression] = ordered_value_result(
+                    typed, grouped=definition.group_by_clause is not None
+                )
         if definition.qualify_clause is not None:
             qualify = definition.qualify_clause.expression
             for hidden_ordinal, window in enumerate(
@@ -4163,12 +4177,12 @@ def _call_value_type(
     )
     if listed is not None:
         return listed
-    if expression.aggregate_order_by and function_name != "string_agg":
+    if expression.aggregate_order_by and function_name not in ORDERED_AGGREGATE_NAMES:
         diagnostics.append(
             _call_diagnostic(
                 expression,
                 code="PIE-S2104",
-                message="Internal ORDER BY is only supported by string_agg",
+                message=INTERNAL_ORDER_ONLY,
             )
         )
         return _UNKNOWN_VALUE_TYPE
@@ -4334,21 +4348,19 @@ def _call_value_type(
             type_expansions=type_expansions,
         )
     if is_semantic_aggregate_call(expression):
-        if function_name == "string_agg" and not expression.aggregate_order_by:
-            diagnostics.append(
-                _call_diagnostic(
-                    expression,
-                    code="PIE-S2104",
-                    message="Invalid arguments for aggregate string_agg: expected ORDER BY key",
-                )
-            )
+        unordered = internal_order_diagnostic(expression)
+        if unordered is not None:
+            diagnostics.append(unordered)
             return _UNKNOWN_VALUE_TYPE
-        if function_name != "string_agg" and expression.aggregate_order_by:
+        if (
+            function_name not in ORDERED_AGGREGATE_NAMES
+            and expression.aggregate_order_by
+        ):
             diagnostics.append(
                 _call_diagnostic(
                     expression,
                     code="PIE-S2104",
-                    message=f"Invalid arguments for aggregate {function_name}: ORDER BY is only supported by string_agg",
+                    message=f"Invalid arguments for aggregate {function_name}: ORDER BY is only supported by string_agg, first and last",
                 )
             )
             return _UNKNOWN_VALUE_TYPE
@@ -6673,6 +6685,12 @@ _GROUP_TEST_HABITS = {
     "any": "any",
     "bool_or": "any",
 }
+# Arbitrary-row, arg_max and arg_min habits, which `first` writes.
+_ORDERED_VALUE_HABITS = (
+    *("any_value", "nth", "head"),
+    *("arg_max", "argmax", "max_by", "idxmax"),
+    *("arg_min", "argmin", "min_by", "idxmin"),
+)
 # What to write instead of a function that a SQL or Python habit calls, by its
 # lowercase name.
 _UNKNOWN_FUNCTION_HINTS = {
@@ -6721,6 +6739,20 @@ _UNKNOWN_FUNCTION_HINTS = {
     # Python `len(set(...))`.
     "set": "write `count_distinct(a, b)` for the number of distinct "
     "combinations of several columns, `count_distinct(x)` for one",
+    # Pietto never picks an arbitrary row of a group (`first`/`last`).
+    **dict.fromkeys(
+        _ORDERED_VALUE_HABITS[:3],
+        "Pietto never picks an arbitrary row; write `first(x, order by k, id)`",
+    ),
+    **dict.fromkeys(
+        _ORDERED_VALUE_HABITS[3:7],
+        "write `first(x, order by v desc, id)`; numpy and polars `argmax` return "
+        "a position, not a value",
+    ),
+    **dict.fromkeys(
+        _ORDERED_VALUE_HABITS[7:],
+        "write `first(x, order by v, id)`",
+    ),
     "greatest": "write `max(a, b)`, which is None when either value is None",
     "least": "write `min(a, b)`, which is None when either value is None",
     **dict.fromkeys(
@@ -6830,12 +6862,18 @@ def _unknown_function_diagnostic(
         + ("" if hint is None else f"; {hint}"),
     )
     if (
-        function_name.lower() in (*_CONDITIONAL_HABITS, *_DISTINCT_COUNT_HABITS, "set")
+        function_name.lower()
+        in (
+            *_CONDITIONAL_HABITS,
+            *_DISTINCT_COUNT_HABITS,
+            "set",
+            *_ORDERED_VALUE_HABITS,
+        )
         or function_name.lower() in _SPREAD_HINTS
         or test is not None
     ):
-        # A conditional-count, a variance, a distinct-count or a group-test
-        # habit's hint is also the JSON suggestion.
+        # A conditional-count, a variance, a distinct-count, a group-test or a
+        # `first` habit's hint is also the JSON suggestion.
         return dataclasses.replace(diagnostic, suggestion=hint)
     return diagnostic
 
