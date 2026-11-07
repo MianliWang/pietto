@@ -511,11 +511,6 @@ query result:
     )
     checked = probe.build_neutral(tmp_path / "min", {"main.pietto": source})
     result = emit_project_sql(checked, json.dumps(document).encode())
-    if target == "mysql":
-        assert result.status == "BLOCKED" and [
-            (blocker.code, blocker.detail) for blocker in result.blockers
-        ] == [("PIE-B1003", "min_argument_outside_reviewed_int_domain")]
-        return
     assert result.status == "VERIFIED" and result.artifact is not None
     scalar = result.artifact.request.scalar_meaning
     assert scalar is not None

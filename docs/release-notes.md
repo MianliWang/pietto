@@ -1450,18 +1450,41 @@ changes):
   Floats order by real value, `-0.0` and `0.0` tie and tied rows have no
   promised relative order (before: PIE-B1003
   `order_comparison_domain_unsupported` at the ORDER BY item).
+- **`min` and `max` of a Timestamp or Date on MySQL.**
+  `emit-sql --project --dialect mysql` now emits, VERIFIED, `min(x)` and
+  `max(x)` of a `Timestamp` (`DATETIME(6)`) or `Date` (`DATE`) value, grouped
+  or over the whole input, as `MIN(x)` and `MAX(x)`, as on PostgreSQL
+  (compiled bundle and live template too). The result keeps the argument's
+  carrier (`my_datetime` with 6 fractional digits, so microseconds are kept;
+  `my_date`) and admits NULL, which an empty input or a group of NULL values
+  gives. A two-database differential (PostgreSQL 18.6, MySQL 8.4.12) of a
+  grouped, a whole-input and an empty-input form, over values one microsecond
+  apart, a leap day and NULLs, matched the expected rows on both databases,
+  and MySQL reported each result column as `DATETIME` with 6 decimals or as
+  `DATE`. **Refusals that become acceptances:** PIE-B1003
+  `min_argument_outside_reviewed_int_domain` and
+  `max_argument_outside_reviewed_int_domain`, at the same select items, for
+  these MySQL arguments. **Refusal move** (MySQL): a statement that was
+  refused only at such a `min` or `max` and has another blocker in a later
+  stage now reports that blocker, for example an aggregate window in the same
+  select (PIE-B1003 `window_aggregate_approved_non_support_on_mysql`, at the
+  window); a blocker in the same select list, such as `sum` of an `Int`
+  (PIE-B1004 `sum_int_aggregate_range_proof_missing`), was already reported
+  beside it. An aggregate window over a Timestamp or Date stays refused on
+  MySQL, as every MySQL aggregate window. Single-file MySQL `MIN` and `MAX`
+  of these values are unchanged.
 - **Two `Bool` values in single-file `max(a, b)` and `min(a, b)` on MySQL**
   are emitted (see "`max(a, b)` and `min(a, b)`" above): the result is an
   integer column holding 0, 1 or NULL, as every computed `Bool` is there.
 - A two-database differential (PostgreSQL 18.6, MySQL 8.4.12) of the
   aggregate, Float ORDER BY and `Bool` `max`/`min` forms, with MySQL column
   types judged, matched the expected rows on both databases.
-- **Kept refused on MySQL.** `min` and `max` of a Timestamp or Date (PIE-B1003
-  `min_argument_outside_reviewed_int_domain` /
-  `max_argument_outside_reviewed_int_domain`) and Int arithmetic not proved to
-  fit signed 64 bits (PIE-B1002 `arithmetic_outside_physical_range`,
+- **Kept refused on MySQL.** Int arithmetic not proved to fit signed 64 bits
+  (PIE-B1002 `arithmetic_outside_physical_range`,
   `unary_result_outside_physical_range`, `abs_result_outside_physical_range`)
-  stay refused: their two-database differential did not pass. Also unchanged
+  stays refused: its two-database differential did not pass, as MySQL raised
+  error 1690 (SQLSTATE 22003) on a product whose value, `-2^63`, fits signed
+  64 bits. Also unchanged
   on MySQL: `count_distinct` of a `Float` (PIE-B1003
   `count_distinct_argument_outside_reviewed_int_domain`; MySQL kept `-0.0`
   and `0.0` apart in deduplication beside a wide key); `sum`, `avg` and

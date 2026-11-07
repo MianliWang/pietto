@@ -742,11 +742,10 @@ carrying, `==` and `!=`, `count`, `count_distinct`, DISTINCT, GROUP BY and
 equality JOIN key (INNER, LEFT, RIGHT); a Date has no literal, parsing,
 arithmetic or time-zone admission. Timestamp and Date values of one carrier
 also compare with `<`, `<=`, `>`, `>=` and an inclusive comparison chain, in
-WHERE and in a JOIN ON condition alike, order a result or a window, and on
-PostgreSQL are `min` and
-`max` arguments, whose result keeps the carrier and admits NULL (MySQL reports
-`min`/`max` of them BLOCKED with `PIE-B1003` until their result metadata is
-reviewed); Timestamp, Date and UUID values partition a window by equality, as
+WHERE and in a JOIN ON condition alike, order a result or a window, and are
+`min` and `max` arguments, whose result keeps the carrier and admits NULL
+(MySQL `MIN` and `MAX` return `DATETIME(6)`, microseconds kept, and `DATE`);
+Timestamp, Date and UUID values partition a window by equality, as
 GROUP BY compares them. UUID values of one carrier also compare with `<`,
 `<=`, `>`, `>=` and an inclusive comparison chain and order a result or a
 window, by their 16 bytes compared as unsigned big-endian values (the order of

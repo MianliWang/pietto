@@ -2232,9 +2232,9 @@ def test_an_aggregate_outcome_repr_stays_bounded(tmp_path):
 
 
 @pytest.mark.parametrize("target", ("postgres", "mysql"))
-def test_min_and_max_of_a_temporal_carrier_are_postgresql_only(tmp_path, target):
-    """PostgreSQL MIN/MAX keep one exact Timestamp or Date carrier, NULL for
-    an empty group; MySQL's result metadata is not reviewed yet."""
+def test_min_and_max_of_a_temporal_carrier_keep_it(tmp_path, target):
+    """MIN/MAX keep one exact Timestamp or Date carrier, NULL for an empty
+    group: PostgreSQL timestamp(6) and date, MySQL DATETIME(6) and DATE."""
     checked, outcome = probe.temporal_case(
         tmp_path,
         target,
@@ -2242,21 +2242,26 @@ def test_min_and_max_of_a_temporal_carrier_are_postgresql_only(tmp_path, target)
         "        first = min(ts)\n        last = max(d2)\n",
     )
     assert checked.verified
-    if target == "mysql":
-        assert outcome.status == "BLOCKED" and outcome.artifact is None
-        assert [(b.code, b.detail) for b in outcome.blockers] == [
-            ("PIE-B1003", "min_argument_outside_reviewed_int_domain"),
-            ("PIE-B1003", "max_argument_outside_reviewed_int_domain"),
-        ]
-        return
     assert outcome.status == "VERIFIED", outcome.blockers
     public = probe.decode_public(serialize_project_sql_emission(outcome))
-    assert 'MIN("s0"."ts") AS "c1", MAX("s0"."d2") AS "c2"' in public["sql"]
+    q = '"' if target == "postgres" else "`"
+    assert (
+        f"MIN({q}s0{q}.{q}ts{q}) AS {q}c1{q}, MAX({q}s0{q}.{q}d2{q}) AS {q}c2{q}"
+        in public["sql"]
+    )
+    pg = target == "postgres"
     assert [c["representation"] for c in public["columns"][1:]] == [
         {
-            "storage": {"kind": "pg_timestamp", "fractional_seconds": 6},
+            "storage": {
+                "kind": "pg_timestamp" if pg else "my_datetime",
+                "fractional_seconds": 6,
+            },
             "nullable": True,
             "domain": {"kind": "timestamp"},
         },
-        {"storage": {"kind": "pg_date"}, "nullable": True, "domain": {"kind": "date"}},
+        {
+            "storage": {"kind": "pg_date" if pg else "my_date"},
+            "nullable": True,
+            "domain": {"kind": "date"},
+        },
     ]

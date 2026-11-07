@@ -677,6 +677,30 @@ def test_a_uuid_order_replays_from_compiled_input(tmp_path, target):
         _compare_refinement(original.artifact)
 
 
+@pytest.mark.parametrize("target", ("postgres", "mysql"))
+@pytest.mark.parametrize(
+    "body",
+    (
+        "    from rows\n    group by id\n    select:\n        key = id\n"
+        "        first = min(ts)\n        last = max(d2)\n",
+        "    from rows\n    where id < 0\n    select:\n"
+        "        first = min(ts2)\n        last = max(d)\n",
+    ),
+    ids=("grouped", "filtered_global"),
+)
+def test_temporal_extrema_replay_from_compiled_input(tmp_path, target, body):
+    """MIN/MAX of a Timestamp and a Date replay from compiled input and
+    prepare as a live template on both targets."""
+    checked, original = emission.temporal_case(tmp_path, target, body)
+    assert checked.verified and original.status == "VERIFIED", original.blockers
+    assert original.artifact is not None
+    _compare(original.artifact, refinement=False)
+    assert (
+        prepare_live_template(original.artifact).artifact.rendered.sql
+        == original.artifact.rendered.sql
+    )
+
+
 @pytest.mark.parametrize(
     "target,variant",
     (

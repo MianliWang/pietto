@@ -753,8 +753,8 @@ def resolved_argument_problem(
 ):
     """The same R13 argument law for an already-resolved input port.
 
-    PostgreSQL MIN/MAX of one Timestamp or Date carrier keep its exact value;
-    the MySQL result's fractional seconds and metadata are not yet reviewed.
+    MIN/MAX of one Timestamp or Date carrier keep its exact value and type on
+    both targets (MySQL: DATETIME(6) or DATE, microseconds kept).
     Both targets count and compare a Text, Bool, Float or Decimal carrier by
     the group-key law, as COUNT(DISTINCT x), MIN and MAX compare like GROUP BY,
     except a MySQL Float (`mysql_float_argument_problem`).
@@ -845,11 +845,7 @@ def resolved_argument_problem(
         "UUID",
     }:
         return grouping_problem(realization)
-    if (
-        function in EXTREMA_FUNCTIONS
-        and family == "postgres"
-        and realization.tag in {"Timestamp", "Date"}
-    ):
+    if function in EXTREMA_FUNCTIONS and realization.tag in {"Timestamp", "Date"}:
         return grouping_problem(realization)
     if realization.tag != "Int":
         return "PIE-B1003", function + "_argument_outside_reviewed_int_domain"

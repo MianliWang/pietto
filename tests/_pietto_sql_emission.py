@@ -11404,7 +11404,6 @@ def _decode_fixed_public(document, limits):
                             )
                             or (
                                 node["function"] in {"min", "max"}
-                                and family == "postgres"
                                 and argument["tag"] in {"Timestamp", "Date"}
                             )
                             or (

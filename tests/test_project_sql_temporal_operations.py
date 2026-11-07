@@ -74,17 +74,12 @@ def test_one_temporal_carrier_orders_and_compares(family, tag):
     assert tag in results.ORDER_TAGS and results.order_admitted(family, carrier)
     assert windows.order_key_admitted(carrier, family)
     assert verification._order_key(carrier, family)
-    # PostgreSQL MIN/MAX keep the exact carrier; MySQL's result metadata is
-    # not reviewed yet.
+    # MIN/MAX keep the exact carrier on both targets (MySQL DATETIME(6), DATE).
     for function in ("min", "max"):
-        problem = aggregation.resolved_argument_problem(function, True, carrier, family)
-        if family == "postgres":
-            assert problem is None
-        else:
-            assert problem == (
-                "PIE-B1003",
-                function + "_argument_outside_reviewed_int_domain",
-            )
+        assert (
+            aggregation.resolved_argument_problem(function, True, carrier, family)
+            is None
+        )
 
 
 @pytest.mark.parametrize("family", ("postgres", "mysql"))

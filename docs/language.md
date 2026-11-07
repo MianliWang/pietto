@@ -554,6 +554,7 @@ first column give every rule.
 | Project aggregate arguments ([Aggregates](#aggregates-and-grouping)): `count`/`count_distinct` of `Text`, `Bool`, `Float`, `Decimal`; `min`/`max` of `Float`, `Decimal`; `sum`/`avg` of `Float`; a row expression argument (`sum(qty * 2)`) | emitted (unchanged) | emitted (unchanged) | emitted; `Decimal` `sum`/`avg` refused (PIE-B1004); over JOIN rows an argument holding a scalar call (`count(lower(r.label))`) refused (PIE-B1003) | as PostgreSQL, except `count_distinct` of a `Float` (PIE-B1003), `sum`/`avg` of a `Float` and `sum` of an `Int` such as `sum(qty * 2)` (PIE-B1004); an `Int` expression not proved to fit BIGINT is PIE-B1002 first |
 | `count_distinct(a, b, ...)` ([Aggregates](#aggregates-and-grouping)) | `COUNT(DISTINCT CASE WHEN a IS NOT NULL AND b IS NOT NULL THEN ROW(a, b) END)` | `COUNT(DISTINCT a, b)` | as PostgreSQL single file, `schema_version = 2` (PIE-S2334 in a `schema_version = 1` project), also over JOIN rows | refused (PIE-B1003 `count_distinct_tuple_not_admitted_on_target`) |
 | `len(c.xs)`, `sum(o.f for o in c.xs ...)`, `any(t for o in c.xs)` ([Nested relations](#nested-relations-collect-and-unnest)) | `sum` and `any` refused at check (PIE-S2334; a single file collects no list); `len(c.xs)` has no list to read (PIE-S2102 for an unknown field, or only the Collect's own refusals) | as PostgreSQL | the count column; `sum` and `any` a scalar subquery over `pg_catalog.unnest` of the list's arrays | refused (PIE-B1003 `collect_not_admitted_on_target`) |
+| `min(x)`, `max(x)` of a `Timestamp` or `Date` ([Aggregates](#aggregates-and-grouping)) | emitted (unchanged) | emitted (unchanged) | emitted (unchanged) | emitted as on PostgreSQL: `MIN(x)` and `MAX(x)` keep `DATETIME(6)`, microseconds kept, and `DATE`, NULL for an empty input; over a window refused (PIE-B1003), as every MySQL aggregate window |
 | `asof left join`, `asof inner join` ([Backward asof JOIN](#backward-asof-join)) | emitted | emitted, except in a relation with a FULL JOIN (PIE-B1000) | emitted in a table or query without a relation `let NAME:` block whose FROM is not a table function, elsewhere refused (PIE-S2336); a `let NAME:` block as the joined input is PIE-S2386, where a single file refuses the block itself (PIE-S2345); an aggregate after it only where its `on` keys match a unique key (PIE-S2333) | as PostgreSQL |
 
 ## Types and shapes
@@ -5109,14 +5110,13 @@ as `GROUP BY` does; a source field of these types, but not a derived `Date`,
 is also a key of a direct inner/left/right equality join. Timestamp and Date
 values of one carrier also compare with `<`, `<=`, `>`, `>=` and inclusive
 comparison chains, in WHERE and in a JOIN ON condition alike, and order a
-result or a window; on PostgreSQL they are also
-`min`/`max` arguments, whose result keeps the carrier and admits NULL, while
-MySQL reports such a `min`/`max` BLOCKED (PIE-B1003) until its result metadata
-is reviewed. UUID values of one carrier also compare with `<`, `<=`, `>`,
-`>=` and inclusive comparison chains and order a result or a window, by their
-16 bytes compared as unsigned big-endian values: the order of PostgreSQL
-`uuid_cmp`, of MySQL `BINARY(16)` byte comparison and of Python `uuid.UUID`.
-`min`/`max` of a UUID, a
+result or a window; they are also `min`/`max` arguments, whose result keeps
+the carrier and admits NULL (MySQL `MIN` and `MAX` return `DATETIME(6)`,
+microseconds kept, and `DATE`). UUID values of one carrier also compare
+with `<`, `<=`, `>`, `>=` and inclusive comparison chains and order a result
+or a window, by their 16 bytes compared as unsigned big-endian values: the
+order of PostgreSQL `uuid_cmp`, of MySQL `BINARY(16)` byte comparison and of
+Python `uuid.UUID`. `min`/`max` of a UUID, a
 Timestamp compared with a Date, full joins on these keys, a RANGE frame offset
 over a temporal or UUID order key, range relationships, timezone conversion,
 parsing, and other casts remain unavailable (the latest earlier row is the

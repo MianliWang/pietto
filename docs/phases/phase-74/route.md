@@ -39,10 +39,11 @@ without def or relationship items keeps byte-equal check output.
 
 A MySQL form opens only after a passing two-database differential
 (PostgreSQL 18.6, MySQL 8.4.12). A form whose differential did not pass keeps
-its refusal and is listed in the release notes. `Timestamp` and `Date` `min`
-and `max`, and checked signed 64-bit `Int` arithmetic, stay refused on MySQL
-for this reason. A passing rerun may reopen one of them in batch 2 as a
-follow-up of S04.
+its refusal and is listed in the release notes. Checked signed 64-bit `Int`
+arithmetic stays refused on MySQL for this reason: MySQL raised error 1690 on
+a product whose value, `-2^63`, fits signed 64 bits. `Timestamp` and `Date`
+`min` and `max` reopened in batch 2 as a follow-up of S04, after the rerun of
+their differential passed.
 
 ## Slices
 
