@@ -63,7 +63,7 @@ from pietto.ast_nodes import (
 from pietto.errors import Diagnostic, Severity
 from pietto.semantic import group_by as semantic_group_by, relation_schemas
 from pietto.semantic.analyzer import _within
-from pietto.semantic import satisfying as semantic_satisfying
+from pietto.semantic import let_bindings, satisfying as semantic_satisfying
 from pietto.semantic.aggregates import (
     FLOAT_STATISTIC_AGGREGATE_NAMES,
     ORDERED_VALUE_AGGREGATE_NAMES,
@@ -803,6 +803,16 @@ def _call_argument_errors(
     the relation reads."""
 
     lets = {} if let_scope_facts is None else dict(let_scope_facts.binding_expressions)
+    # As in a single file, a binding PIE-S2329 refused is no `let:` name of a
+    # `first` or `last`, so that its refusal stands alone.
+    refused = (
+        let_bindings._invalid_binding_names(
+            definition, schema, [], allow_unaliased_selected_let_outputs=True
+        )
+        if let_scope_facts is not None and let_scope_facts.diagnostics
+        else set()
+    )
+    ordered_lets = {name: lets[name] for name in lets if name not in refused}
     found: list[Diagnostic] = []
     for item in definition.select_items:
         pending = [item.expression]
@@ -816,6 +826,8 @@ def _call_argument_errors(
             if not ordered and not is_count_distinct_tuple(node):
                 continue
             assert type(node) is CallExpr
+            call_lets = ordered_lets if ordered else lets
+            value = node.arguments[0] if ordered and node.arguments else None
             types: dict[Expression, ValueType] = (
                 {}
                 if let_scope_facts is None
@@ -830,8 +842,11 @@ def _call_argument_errors(
                 field_qualifier=qualifier,
                 bare_value_types=None
                 if let_scope_facts is None
+                # A `let:` name as the value is typed as a single file types it.
+                else let_scope_facts.binding_value_types
+                if type(value) is NameExpr and value.name in call_lets
                 else let_scope_facts.value_types,
-                bare_value_expressions=lets,
+                bare_value_expressions=call_lets,
             )
             found.extend(
                 semantic_group_by._aggregate_output_field(
@@ -840,7 +855,7 @@ def _call_argument_errors(
                     input_schema=schema,
                     output_name=item.alias,
                     expression_value_types=types,
-                    let_expansions=lets,
+                    let_expansions=call_lets,
                     type_expansions={},
                     let_extrema=False,
                 )[1]

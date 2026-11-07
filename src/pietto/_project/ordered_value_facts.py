@@ -19,6 +19,7 @@ from pietto._project.model import (
 )
 from pietto.ast_nodes import (
     CallExpr,
+    NameExpr,
     QueryDef,
     ShapeDef,
     SourceDef,
@@ -30,6 +31,7 @@ from pietto.semantic.aggregates import (
     ORDERED_VALUE_AGGREGATE_NAMES,
     semantic_aggregate_call_name,
 )
+from pietto.semantic.model import ValueTypeKind
 from pietto.semantic.ordered_values import (
     ordered_value_join_diagnostic,
     ordered_value_order_diagnostic,
@@ -105,8 +107,27 @@ def ordered_value_project_diagnostics(
                 if relation.let_scope_facts is None
                 else dict(relation.let_scope_facts.binding_expressions)
             )
+            known = {
+                name
+                for name, value_type in (
+                    {}
+                    if relation.let_scope_facts is None
+                    else relation.let_scope_facts.binding_value_types
+                ).items()
+                if value_type.kind is ValueTypeKind.KNOWN
+            }
             for call in calls:
                 assert type(call) is CallExpr
+                value = call.arguments[0] if call.arguments else None
+                if (
+                    type(value) is NameExpr
+                    and value.name in lets
+                    and value.name not in known
+                ):
+                    # A single file proves a call only once its type is known:
+                    # a `let:` name that is refused, has an error of its own or
+                    # reads one has none, and that error stands alone.
+                    continue
                 problem = ordered_value_order_diagnostic(
                     call,
                     fields={

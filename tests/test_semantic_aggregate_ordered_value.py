@@ -590,6 +590,22 @@ PROJECT_BODIES = (
     _grouped("first(plant, order by k, id)", where="    let k = lower(plant)\n"),
     _grouped("last(plant, order by t)", where="    let t = sold_at\n"),
     _grouped("last(plant, order by w, id)", where="    let w = weight\n"),
+    # Beside a let/projection name conflict (PIE-S2329): a value that reads a
+    # refused binding is that refusal alone; another is typed and proven.
+    _grouped("first(k, order by id)", where="    let k = plant\n")
+    + "        k = count()\n",
+    _grouped("last(k, order by id)", where="    let k = pot\n").replace("v = ", "k = "),
+    _grouped("first(k, order by sold_at)", where="    let k = plant\n")
+    + "        k = count()\n",
+    _grouped("first(k, order by id)", where="    let k2 = plant\n    let k = k2\n")
+    + "        k2 = count()\n",
+    _grouped("last(k, order by sold_at)", where="    let k = plant\n    let v = pot\n"),
+    # A value that reads a binding with an error of its own, or one that reads
+    # such a binding, has no known type: no proof runs, as in a file.
+    _grouped("first(k, order by sold_at)", where="    let k = plantt\n"),
+    _grouped(
+        "first(k, order by sold_at)", where="    let k2 = plantt\n    let k = k2\n"
+    ),
 )
 
 
