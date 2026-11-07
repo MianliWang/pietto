@@ -655,6 +655,43 @@ refuses it (PIE-B1003 `conditional_test_reads_no_field`).
 `count(paid)` of a `Bool` field still counts every row whose `paid` is not
 None, False included, and warns (PIE-S2388).
 
+### Counting distinct combinations
+
+```pietto
+shape Sale:
+    id: Int
+    shop_id: Int
+    plant: Text
+    pot_size: Text | None
+
+source sales: Sale = postgres.table("nursery.sales")
+
+query shop_summary:
+    from sales
+    group by shop_id
+    select:
+        shop_id
+        plant_pots = count_distinct(plant, pot_size)
+```
+
+`count_distinct(plant, pot_size)` is the number of different
+`(plant, pot_size)` pairs in the group, counting no row in which either field
+is None, as `count_distinct(plant)` counts no None. `count_distinct(x)` of one
+argument is unchanged. To count distinct computed tuples, compute them in one
+query and count them in a query that reads it with `from`, or group by them
+there and count its rows.
+
+Not this (each is refused with a hint):
+
+- `nunique(x)`, `n_unique(x)`: write `count_distinct(x)`, or
+  `count_distinct(a, b)` for several columns; polars `n_unique` counts null
+  as a value, Pietto does not.
+- `count(distinct a, b)`, `count_distinct((a, b))`,
+  `len(set((o.a, o.b) for o in group))`: write `count_distinct(a, b)`.
+- `count_distinct(a, a)`: write `count_distinct(a)`.
+- `count_distinct(lower(a), b)`: compute `k = lower(a)` in one query, then
+  `count_distinct(k, b)` in a query that reads it with `from`.
+
 ## Grouping by a collected list
 
 In a `schema_version = 2` project on PostgreSQL, a collected list may be a

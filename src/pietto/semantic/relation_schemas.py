@@ -27,6 +27,7 @@ from pietto.semantic.aggregates import (
     deferred_composition_diagnostic,
     deferred_argument_expression_diagnostic,
     extremum_reads_let,
+    is_count_distinct_tuple,
     is_semantic_aggregate_call,
     is_supported_semantic_aggregate_arity,
     is_supported_semantic_aggregate_argument,
@@ -45,6 +46,7 @@ from pietto.semantic.expressions import (
     rejected_let_names,
 )
 from pietto.semantic.group_by import (
+    count_distinct_tuple_checked,
     open_input_schema,
     passes_unfit_field,
     project_grouped_schema,
@@ -435,6 +437,21 @@ def _aggregate_projection_diagnostics(
         if quantile_fraction_diagnostic(expression) is not None:
             # Its typing reports the fraction (PIE-S2104).
             invalid_items.add(item)
+            continue
+
+        if is_count_distinct_tuple(expression):
+            valid, tuple_errors = count_distinct_tuple_checked(
+                expression,
+                value_types=expression_value_types,
+                type_expansions=type_expansions,
+                let_expansions=let_expansions,
+                unknown_row=open_schema is not None,
+            )
+            diagnostics.extend(tuple_errors)
+            if valid:
+                valid_aggregate_items.append(item)
+            else:
+                invalid_items.add(item)
             continue
 
         if function_name == "string_agg" and expression_value_types is not None:

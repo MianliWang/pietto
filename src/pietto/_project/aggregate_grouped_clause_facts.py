@@ -70,6 +70,7 @@ from pietto.semantic.aggregates import (
     child_expressions,
     contains_semantic_aggregate,
     effective_semantic_aggregate_argument_expression,
+    is_count_distinct_tuple,
     semantic_aggregate_call_name,
 )
 from pietto.semantic.expressions import infer_row_expression
@@ -429,7 +430,8 @@ def _single_file_grouping_diagnostics(
     such as a `stddev` or `median` one, or in a `quantile` fraction), a
     nested relation field, a relation, a captured field, a query parameter
     or `any(...)` in those positions, which a project checks otherwise, gets
-    only its generators' errors (`_generator_errors`)."""
+    only its generators' errors (`_generator_errors`) and its
+    `count_distinct(a, b, ...)` refusals (`_count_distinct_tuple_errors`)."""
 
     if input_schema.is_unknown:
         return ()
@@ -522,8 +524,13 @@ def _single_file_grouping_diagnostics(
     if otherwise:
         return tuple(
             sorted(
-                _generator_errors(
-                    definition, schema, let_scope_facts, qualifier, refused=set()
+                (
+                    *_generator_errors(
+                        definition, schema, let_scope_facts, qualifier, refused=set()
+                    ),
+                    *_count_distinct_tuple_errors(
+                        definition, schema, let_scope_facts, qualifier
+                    ),
                 ),
                 key=_order_key,
             )
@@ -774,6 +781,57 @@ def _generator_errors(
                     and diagnostic.location is not None
                     and any(_within(diagnostic.location, test.span) for test in tests)
                 )
+            )
+    return found
+
+
+def _count_distinct_tuple_errors(
+    definition: _DerivedRelation,
+    schema: RowSchema,
+    let_scope_facts: ProjectRelationLetScopeFacts | None,
+    qualifier: str | None,
+) -> list[Diagnostic]:
+    """The refusal a single file reports of each `count_distinct(a, b, ...)`
+    in a SELECT item (`count_distinct_tuple_checked`), each `let:` name in
+    it read as its value (PIE-S2315, PIE-S2104, PIE-S2314 at the argument).
+    Such a call reads nothing but its arguments, so it is checked by itself,
+    whatever else the relation reads."""
+
+    lets = {} if let_scope_facts is None else dict(let_scope_facts.binding_expressions)
+    found: list[Diagnostic] = []
+    for item in definition.select_items:
+        pending = [item.expression]
+        while pending:
+            node = pending.pop()
+            pending.extend(child_expressions(node))
+            if not is_count_distinct_tuple(node):
+                continue
+            assert type(node) is CallExpr
+            types: dict[Expression, ValueType] = (
+                {}
+                if let_scope_facts is None
+                else dict(let_scope_facts.expression_value_types)
+            )
+            infer_row_expression(
+                node,
+                schema,
+                types,
+                [],
+                report_unknown_name=True,
+                field_qualifier=qualifier,
+                bare_value_types=None
+                if let_scope_facts is None
+                else let_scope_facts.value_types,
+                bare_value_expressions=lets,
+            )
+            found.extend(
+                semantic_group_by.count_distinct_tuple_checked(
+                    node,
+                    value_types=types,
+                    type_expansions={},
+                    let_expansions=lets,
+                    unknown_row=False,
+                )[1]
             )
     return found
 

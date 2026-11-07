@@ -7,8 +7,10 @@ from pietto._syntax_admission import source_order
 from pietto.ast_nodes import (
     AnyExpr,
     AuthoredJoinKind,
+    CallExpr,
     Definition,
     JoinClause,
+    NameExpr,
     QueryDef,
     SetRelationDef,
     Span,
@@ -59,15 +61,25 @@ def availability_diagnostic(span: Span, message: str) -> Diagnostic:
     )
 
 
-def legacy_flat_refused(script: ast.Script) -> tuple[JoinClause | AnyExpr, ...]:
-    """Each JOIN and each any(...) of a LEGACY_FLAT project's script, which
-    has neither in the current syntax: in any definition or relationship
-    predicate, nested or not."""
+def legacy_flat_refused(
+    script: ast.Script,
+) -> tuple[JoinClause | AnyExpr | CallExpr, ...]:
+    """Each JOIN, each any(...) and each `count_distinct` of several columns
+    of a LEGACY_FLAT project's script, which has none of them in the current
+    syntax: in any definition or relationship predicate, nested or not."""
 
     from pietto.semantic.inline_functions import _tree_nodes
 
     return tuple(
-        node for node in _tree_nodes(script) if isinstance(node, (JoinClause, AnyExpr))
+        node
+        for node in _tree_nodes(script)
+        if isinstance(node, (JoinClause, AnyExpr))
+        or (
+            isinstance(node, CallExpr)
+            and type(node.callee) is NameExpr
+            and node.callee.name == "count_distinct"
+            and len(node.arguments) > 1
+        )
     )
 
 
@@ -87,6 +99,15 @@ def legacy_flat_refusals(script: ast.Script) -> tuple[Diagnostic, ...]:
                     f"JOIN {node.target_binding_name}: a schema_version = 1 "
                     "project has no JOIN in the current syntax; set "
                     "schema_version = 2 to check it.",
+                )
+            )
+        elif type(node) is CallExpr:
+            found.append(
+                availability_diagnostic(
+                    node.span,
+                    "count_distinct(a, b, ...): a schema_version = 1 project has "
+                    "no count_distinct of several columns in the current syntax; "
+                    "set schema_version = 2 to check it.",
                 )
             )
         else:

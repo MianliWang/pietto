@@ -837,6 +837,8 @@ def _render_aggregate_call(
         )
     elif expression.function == "count_distinct":
         sql = _render_count_distinct_aggregate(expression)
+    elif expression.function == "count_distinct_tuple":
+        sql = _render_count_distinct_tuple_aggregate(expression)
     elif expression.function in _SPREAD_AGGREGATES:
         sql = _render_spread_aggregate(expression)
     elif expression.function in FILTERED_AGGREGATE_ARITIES:
@@ -971,6 +973,24 @@ def _render_count_distinct_aggregate(expression: AggregateCallIR) -> str:
         )
 
     return f"COUNT(DISTINCT {_render_expression_sql(argument, nested=True)})"
+
+
+def _render_count_distinct_tuple_aggregate(expression: AggregateCallIR) -> str:
+    # A row with any NULL field counts nothing, as in MySQL COUNT(DISTINCT a,
+    # b); PostgreSQL compares the anonymous records field by field with each
+    # type's equality, the one COUNT(DISTINCT a) uses (-0.0 = 0.0, 1.0 = 1.00).
+    if not aggregate_call_contract(
+        expression.function, expression.arguments, expression.value_type
+    ):
+        raise ValueError(
+            "PostgreSQL aggregate count_distinct_tuple violates its IR contract"
+        )
+    fields = [
+        _render_expression_sql(argument, nested=True)
+        for argument in expression.arguments
+    ]
+    tests = " AND ".join(f"{field} IS NOT NULL" for field in fields)
+    return f"COUNT(DISTINCT CASE WHEN {tests} THEN ROW({', '.join(fields)}) END)"
 
 
 def _render_numeric_aggregate(

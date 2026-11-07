@@ -294,6 +294,7 @@ def test_postgresql_variance_and_population_deviation_replay_from_compiled_input
             "inline_arguments",
             [("target_checked_signed64_narrowing",), (), ()],
         ),
+        ("postgres", "count_distinct_tuple", [()] * 4),
     ),
 )
 def test_aggregate_parity_replays_from_compiled_input(
@@ -517,6 +518,28 @@ def test_postgresql_quantile_over_join_rows_replays_from_compiled_input(tmp_path
     assert b"PERCENTILE_CONT(CAST('0.75' AS pg_catalog.float8))" in (
         candidate.rendered.sql
     )
+
+
+@pytest.mark.parametrize(
+    "arguments", ["keys.label, r.rid, r.label", "keys.label, lb, r.rid"]
+)
+def test_postgresql_count_distinct_tuple_over_join_rows_replays(tmp_path, arguments):
+    """A distinct-tuple count over LEFT JOIN rows keeps each field's read, one
+    from each input, a `let:` name of a field in any position included, in
+    compiled input."""
+    item = emission.fixture("postgres", "Z_aggregate_joined", "left_nullable")
+    source = item["source"].split("query result:", 1)[0] + (
+        "query result:\n    from keys\n    let r = agg\n"
+        "    left join r on keys.rid == r.rid\n    let lb = r.label\n"
+        "    group by:\n        keys.rid\n    select:\n        k = keys.rid\n"
+        f"        d = count_distinct({arguments})\n"
+    )
+    checked, original = emission.build_case(
+        tmp_path, source, item["contract"], item["policy"]
+    )
+    assert checked.verified and original.status == "VERIFIED", original.blockers
+    candidate = _compare(original.artifact, refinement=False)
+    assert candidate.rendered.sql.count(b" IS NOT NULL THEN ROW(") == 1
 
 
 @pytest.mark.parametrize("target", ("postgres", "mysql"))
@@ -2103,7 +2126,10 @@ def _compare_aggregate_evidence(source, candidate):
             for v in observed.aggregates
         ) == tuple(
             (
-                v.function_name,
+                # Compiled input names a distinct-tuple count by its identity.
+                "count_distinct_tuple"
+                if v.function_name == "count_distinct" and len(v.call.arguments) > 1
+                else v.function_name,
                 len(v.call.arguments),
                 tuple(
                     (

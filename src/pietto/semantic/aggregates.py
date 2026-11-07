@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from collections.abc import Mapping, Sequence
+from typing import cast
 
 from pietto import ast_nodes as ast
 from pietto.ast_nodes import (
@@ -403,9 +404,100 @@ def is_supported_semantic_aggregate_arity(
     function_name: str,
     arity: int,
 ) -> bool:
-    """Return whether one aggregate arity is accepted semantically."""
+    """Return whether one aggregate arity is accepted semantically; a
+    `count_distinct` of several arguments counts their distinct tuples."""
 
+    if function_name == COUNT_DISTINCT_AGGREGATE_NAME:
+        return arity >= 1
     return arity in expected_semantic_aggregate_arities(function_name)
+
+
+def is_count_distinct_tuple(expression: Expression) -> bool:
+    """Whether a call is `count_distinct(a, b, ...)`: the number of distinct
+    tuples of its arguments over the rows in which none of them is None."""
+
+    return (
+        semantic_aggregate_call_name(expression) == COUNT_DISTINCT_AGGREGATE_NAME
+        and len(cast(CallExpr, expression).arguments) > 1
+    )
+
+
+def count_distinct_tuple_diagnostic(
+    expression: CallExpr,
+    argument_types: tuple[ValueType | None, ...],
+    *,
+    let_expansions: Mapping[str, Expression] | None,
+) -> Diagnostic | None:
+    """The first refused argument of `count_distinct(a, b, ...)`, at that
+    argument: PIE-S2315 for one that is not a direct field (or a `let:` name
+    of one), PIE-S2104 for a field written again and PIE-S2314 for a known
+    type that `count_distinct(x)` refuses. ``argument_types`` are the
+    arguments' canonical types, None where not typed; an unknown one is its
+    own error's."""
+
+    written: list[tuple[tuple[str, ...], bool]] = []
+    for argument, argument_type in zip(
+        expression.arguments, argument_types, strict=True
+    ):
+        field = effective_semantic_aggregate_argument_expression(
+            COUNT_DISTINCT_AGGREGATE_NAME, argument, let_expansions=let_expansions
+        )
+        if not is_direct_field_argument(field):
+            return _diagnostic(
+                argument,
+                code="PIE-S2315",
+                message="Aggregate function count_distinct of several columns "
+                "requires a direct field for each argument; expression arguments "
+                "are not supported",
+            )
+        parts = (
+            (field.name,)
+            if type(field) is NameExpr
+            else cast(DottedNameExpr, field).parts
+        )
+        # A bare name that reads a field reads the one input field so named,
+        # which a read qualified by its binding (`sales.pot` beside `pot`)
+        # names too; an unknown or ambiguous read is its own error alone.
+        read = argument_type is None or argument_type.kind is ValueTypeKind.KNOWN
+        first = next(
+            (
+                key
+                for key, key_read in written
+                if key == parts
+                or read
+                and key_read
+                and {len(key), len(parts)} == {1, 2}
+                and key[-1] == parts[-1]
+            ),
+            None,
+        )
+        if first is not None:
+            return _diagnostic(
+                argument,
+                code="PIE-S2104",
+                message="Invalid arguments for aggregate count_distinct: "
+                f"{'.'.join(first)} is written twice",
+                hint=f"write `count_distinct({'.'.join(first)})`"
+                if len(expression.arguments) == 2
+                else "write each column once",
+            )
+        written.append((parts, read))
+    for argument, argument_type in zip(
+        expression.arguments, argument_types, strict=True
+    ):
+        if (
+            argument_type is not None
+            and argument_type.kind is ValueTypeKind.KNOWN
+            and not is_supported_count_distinct_argument(argument_type)
+        ):
+            return _diagnostic(
+                argument,
+                code="PIE-S2314",
+                message="Aggregate function count_distinct expects Bool, Int, "
+                "Float, Decimal, Text, Date, Timestamp, or UUID field argument, "
+                f"got {argument_type.resolved_type.name}",
+            )
+    return None
 
 
 def is_direct_field_argument(expression: Expression) -> bool:
@@ -1064,6 +1156,13 @@ def wrong_arity_diagnostic(expression: CallExpr) -> Diagnostic:
     """Report aggregate arity outside the approved no-GROUP shape."""
 
     name = callee_name(expression)
+    if name == COUNT_DISTINCT_AGGREGATE_NAME:
+        return _diagnostic(
+            expression,
+            code="PIE-S2309",
+            message="Aggregate function count_distinct expects at least 1 "
+            f"argument, got {len(expression.arguments)}",
+        )
     expected = _expected_arity_text(name)
     # Two arguments are the larger or smaller of two values, which nest.
     hint = (

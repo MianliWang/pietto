@@ -3513,6 +3513,8 @@ def _row_body_requirements(request, body, naming):
                 result.extend(value_requirements(request, column.argument))
             if column.delimiter is not None:
                 result.extend(value_requirements(request, column.delimiter))
+            for extra in column.extra_arguments:
+                result.extend(value_requirements(request, extra))
             for order in column.order_by:
                 result.extend(value_requirements(request, order.value))
             continue
@@ -3677,6 +3679,7 @@ def row_parameter_leaves(query):
                     values.append(column.argument)
                     if column.delimiter is not None:
                         values.append(column.delimiter)
+                    values.extend(column.extra_arguments)
                     values.extend(order.value for order in column.order_by)
                 elif type(column) is windowing.WindowColumn:
                     values.extend(column.arguments)
@@ -3749,6 +3752,7 @@ def row_value_roots(query):
                 result.append(column.argument)
                 if column.delimiter is not None:
                     result.append(column.delimiter)
+                result.extend(column.extra_arguments)
                 result.extend(order.value for order in column.order_by)
             elif type(column) is windowing.WindowColumn:
                 result.extend(column.arguments)

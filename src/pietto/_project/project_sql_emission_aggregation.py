@@ -51,6 +51,10 @@ SPELLING = {
     # of a sum in the `delimiter` slot.
     "filtered_count": "COUNT",
     "filtered_sum": "SUM",
+    # PostgreSQL only: COUNT(DISTINCT CASE WHEN a IS NOT NULL AND b IS NOT NULL
+    # THEN ROW(a, b) END), `count_distinct(a, b, ...)`: its first field is the
+    # `argument`, the others are `extra_arguments`.
+    "count_distinct_tuple": "COUNT",
 }
 # The sample and population variances and deviations: one Int or Float
 # argument, a PostgreSQL VAR_SAMP or VAR_POP cast to float8 once.
@@ -63,8 +67,8 @@ FILTERED_FUNCTIONS = frozenset({"filtered_count", "filtered_sum"})
 # Evidence that a binary64 result is finite because the target refuses an
 # overflowing accumulation (SQLSTATE 22003) instead of returning inf or NULL.
 TARGET_CHECKED_BINARY64 = "target_checked_binary64_overflow"
-DISTINCT_FUNCTIONS = frozenset({"count_distinct"})
-COUNTING_FUNCTIONS = frozenset({"count", "count_distinct"})
+DISTINCT_FUNCTIONS = frozenset({"count_distinct", "count_distinct_tuple"})
+COUNTING_FUNCTIONS = frozenset({"count", "count_distinct", "count_distinct_tuple"})
 EXTREMA_FUNCTIONS = frozenset({"min", "max"})
 # COUNT publishes its own non-null result; R13 declares the signed64 premise, so
 # the domain is that premise's bound, never a guess about this input's row count.
@@ -217,6 +221,7 @@ class AggregateValueColumn:
     delimiter: Any = None
     order_by: tuple[Any, ...] = ()
     result_cast: str | None = None
+    extra_arguments: tuple[Any, ...] = ()
 
     def __repr__(self) -> str:
         """Summarize this occurrence; no retained product is formatted."""
@@ -621,6 +626,19 @@ def resolved_filtered_problem(function: str, inputs, family: str):
     return None
 
 
+def signature_arity(function: str, count: int) -> bool:
+    """Whether an aggregate takes this many argument values: a `string_agg`,
+    a `quantile` or a conditional sum two, a conditional count one, a
+    distinct-tuple count two or more, any other at most one."""
+    if function == "count_distinct_tuple":
+        return count > 1
+    if function in {"string_agg", "quantile", "filtered_sum"}:
+        return count == 2
+    if function == "filtered_count":
+        return count == 1
+    return count <= 1
+
+
 def string_agg_argument_problem(argument):
     """Require the reviewed PostgreSQL Text profile without a width fiction."""
     realization = (
@@ -650,6 +668,15 @@ def resolved_argument_problem(
     except a MySQL Float (`mysql_float_argument_problem`).
     A port that is not a direct reference is a row operation, judged by its
     carrier as a direct one is: each caller refuses any other argument first."""
+    if function == "count_distinct_tuple":
+        # Each field of a PostgreSQL distinct-tuple count is an established
+        # direct field that `count_distinct(x)` counts, compared field by field
+        # in an anonymous record with that type's equality.
+        if family != "postgres":
+            return "PIE-B1003", "count_distinct_tuple_not_admitted_on_target"
+        if not direct_reference:
+            return "PIE-B1003", "aggregate_argument_not_a_direct_established_field"
+        function = "count_distinct"
     if realization is None:
         return "PIE-B1003", function + "_argument_outside_reviewed_int_domain"
     if function == "avg" and realization.tag == "Int":
@@ -831,6 +858,7 @@ def node_count(stage: AggregateStage, value_nodes) -> int:
             total += value_nodes(value.argument)
         if value.delimiter is not None:
             total += value_nodes(value.delimiter)
+        total += sum(value_nodes(extra) for extra in value.extra_arguments)
         total += sum(value_nodes(order.value) for order in value.order_by)
     return total
 
@@ -1082,17 +1110,17 @@ def build_stage(
             )
         function = function_name(value.source)
         location = value.source.item.span
+        arguments = aggregation.arguments(value.source)
+        if function == "count_distinct" and len(arguments) > 1:
+            function = "count_distinct_tuple"
         if function is None or function not in SPELLING:
             return None, (*unsupported_function(function), value.ref, location)
-        arguments = aggregation.arguments(value.source)
         ordered = value.source.item.expression.aggregate_order_by
         if (
             len(arguments) != len(value.arguments)
             or len(ordered) != len(value.order_by)
             or (function == "string_agg") is not bool(ordered)
-            or (len(arguments) == 2)
-            is not (function in {"string_agg", "quantile", "filtered_sum"})
-            or len(arguments) > 2
+            or not signature_arity(function, len(arguments))
         ):
             return (
                 None,
@@ -1106,7 +1134,37 @@ def build_stage(
         argument = None
         delimiter = None
         order_by = ()
-        if function == "string_agg":
+        extra_arguments = ()
+        if function == "count_distinct_tuple":
+            if family != "postgres":
+                return (
+                    None,
+                    (
+                        "PIE-B1003",
+                        "count_distinct_tuple_not_admitted_on_target",
+                        value.ref,
+                        location,
+                    ),
+                )
+            realized = []
+            for argument_ref in value.arguments:
+                current, problem = rows.build_row_value(
+                    request,
+                    available,
+                    argument_ref,
+                    uses,
+                    reference_type=reference_type,
+                )
+                if current is None:
+                    assert problem is not None
+                    return None, (*problem, value.ref, location)
+                problem = argument_problem(function, current, family)
+                if problem is not None:
+                    return None, (*problem, value.ref, location)
+                realized.append(current)
+            argument, *rest = realized
+            extra_arguments = tuple(rest)
+        elif function == "string_agg":
             if family != "postgres":
                 return (
                     None,
@@ -1255,7 +1313,7 @@ def build_stage(
                     # complete input BAG, so its dependency is that whole input.
                     tuple(
                         terminal
-                        for current in (argument, delimiter)
+                        for current in (argument, delimiter, *extra_arguments)
                         if current is not None
                         for terminal in _input_terminals(current)
                     )
@@ -1278,6 +1336,7 @@ def build_stage(
             delimiter,
             order_by,
             result_cast(family, function, argument),
+            extra_arguments,
         )
         return column, None
 
@@ -1471,6 +1530,22 @@ def build_compiled_stage(plan, record, arguments):
                     is not None
                 ):
                     raise CompiledError("COMPILED_AGGREGATE_ARGUMENT")
+            elif function == "count_distinct_tuple":
+                # Every field of a distinct-tuple count, the first included.
+                if (
+                    not delimiters
+                    or order_by
+                    or any(
+                        argument_problem(
+                            function,
+                            member,
+                            records[Address("target", 0)].get("family"),
+                        )
+                        is not None
+                        for member in (argument, *delimiters)
+                    )
+                ):
+                    raise CompiledError("COMPILED_AGGREGATE_ARGUMENT")
             elif len(delimiters) != (function == "quantile") or any(
                 _input_terminals(fraction)
                 or rows.realization_of(
@@ -1556,11 +1631,14 @@ def build_compiled_stage(plan, record, arguments):
                 symbol,
                 port.identity.name,
                 terminal,
-                None if not delimiters else delimiters[0],
+                None
+                if not delimiters or function == "count_distinct_tuple"
+                else delimiters[0],
                 order_by,
                 result_cast(
                     records[Address("target", 0)].get("family"), function, argument
                 ),
+                tuple(delimiters) if function == "count_distinct_tuple" else (),
             )
             values.append(column)
         columns.append(column)

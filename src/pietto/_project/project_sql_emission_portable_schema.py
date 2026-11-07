@@ -494,6 +494,7 @@ RECORDS: dict[str, tuple[tuple[str, str], ...]] = {
         ("label", "text"),
         ("column", "@stage_column"),
         ("result_cast", "?text"),
+        ("extra_arguments", "*" + _VALUE),
     ),
     "aggregate_order_item": (
         ("value", _VALUE),
@@ -986,6 +987,10 @@ SYNTAX = {
     "aggregate_filter_close": " END",
     "aggregate_zero_open": "COALESCE(",
     "aggregate_zero_close": ", 0)",
+    "aggregate_tuple_open": "CASE WHEN ",
+    "aggregate_tuple_and": " IS NOT NULL AND ",
+    "aggregate_tuple_then": " IS NOT NULL THEN ROW(",
+    "aggregate_tuple_close": ") END",
     "aggregate_close": ")",
     "window_partition": "PARTITION BY ",
     "window_partition_separator": ", ",

@@ -1396,6 +1396,10 @@ class _Export:
                             if column.delimiter is None
                             else (self.scalar(column.delimiter, producer, use),)
                         ),
+                        *(
+                            self.scalar(extra, producer, use)
+                            for extra in column.extra_arguments
+                        ),
                     )
                 )
                 order_by = tuple(

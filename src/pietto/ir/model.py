@@ -1161,6 +1161,17 @@ def aggregate_call_contract(
             and _aggregate_window_has_type(value_type, "Int", NullabilityIR.NON_NULL)
             and _aggregate_window_is_count_distinct_argument(arguments[0])
         )
+    if function == "count_distinct_tuple":
+        # The distinct tuples of two or more direct fields, none of them None.
+        return (
+            len(arguments) > 1
+            and _aggregate_window_has_type(value_type, "Int", NullabilityIR.NON_NULL)
+            and all(
+                isinstance(argument, FieldRefIR)
+                and _aggregate_window_is_count_distinct_argument(argument)
+                for argument in arguments
+            )
+        )
     if function in {"sum", "avg"} and len(arguments) == 1:
         argument = arguments[0]
         argument_type = _aggregate_window_builtin_type(argument)

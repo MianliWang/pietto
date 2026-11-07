@@ -846,7 +846,10 @@ class SyntaxErrorReporter(DefaultErrorStrategy):
             and before is not None
             and before.type == PiettoParser.LPAREN
         ):
-            return "Write `count_distinct(x)` for COUNT(DISTINCT x)."
+            return (
+                "Write `count_distinct(x)` for COUNT(DISTINCT x), or "
+                "`count_distinct(x, y)` for several columns."
+            )
         if (
             text == "["
             and previous is not None
@@ -857,6 +860,20 @@ class SyntaxErrorReporter(DefaultErrorStrategy):
             return (
                 "Write the generator without brackets, as in "
                 "`sum(1 for o in c.xs if ...)`; count a row's list with `len(c.xs)`."
+            )
+        if token.type == PiettoParser.COMMA and any(
+            # `count_distinct((a, b))`, `len(set((o.a, o.b) for o in group))`:
+            # a tuple of `a` or `o.a` and more in a call's parentheses.
+            tuple(
+                (item.text or "").lower()
+                for item in self.tokens[max(index, 0) : max(index + 3, 0)]
+            )
+            in {("count_distinct", "(", "("), ("set", "(", "(")}
+            for index in (_index(token) - 4, _index(token) - 6)
+        ):
+            return (
+                "Write `count_distinct(a, b)` for the distinct combinations of "
+                "several columns."
             )
         if self._from_parenthesis(recognizer, token):
             return _FROM_HINT

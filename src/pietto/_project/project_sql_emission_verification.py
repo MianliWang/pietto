@@ -2299,21 +2299,40 @@ def _verify_aggregate_body(
         export = ports.get(block.exports[index])
         function = grouping.function_name(value.source)
         label = f"c{index}"
+        arguments = plan_aggregation.arguments(value.source)
+        if function == "count_distinct" and len(arguments) > 1:
+            function = "count_distinct_tuple"
         if function is None or function not in grouping.SPELLING:
             raise ValueError("aggregate function outside the promised domain")
-        arguments = plan_aggregation.arguments(value.source)
         ordered = value.source.item.expression.aggregate_order_by
         if (
             len(arguments) != len(value.arguments)
             or len(ordered) != len(value.order_by)
             or (function == "string_agg") is not bool(ordered)
-            or (len(arguments) == 2)
-            is not (function in {"string_agg", "quantile", "filtered_sum"})
-            or len(arguments) > 2
+            or not grouping.signature_arity(function, len(arguments))
         ):
             raise ValueError("aggregate argument signature")
         argument = column.argument
-        if function == "string_agg":
+        if function == "count_distinct_tuple":
+            members = (argument, *column.extra_arguments)
+            if request.family != "postgres" or len(members) != len(value.arguments):
+                raise ValueError("count_distinct_tuple arguments")
+            for member, expected_ref in zip(members, value.arguments, strict=True):
+                _verify_row_value(
+                    request,
+                    member,
+                    expected_ref,
+                    columns,
+                    children,
+                    state,
+                    reference_type=reference_type,
+                )
+                if (
+                    grouping.argument_problem(function, member, request.family)
+                    is not None
+                ):
+                    raise ValueError("count_distinct_tuple argument domain")
+        elif function == "string_agg":
             if argument is None or column.delimiter is None:
                 raise ValueError("string_agg arguments missing")
             _verify_row_value(
@@ -2446,6 +2465,7 @@ def _verify_aggregate_body(
                     or column.order_by
                 )
             )
+            or (function != "count_distinct_tuple" and bool(column.extra_arguments))
             or export is None
             or export.source is not value.ref
             or column.export is not export
@@ -2467,7 +2487,11 @@ def _verify_aggregate_body(
                         export.ref,
                         tuple(
                             terminal
-                            for current in (argument, column.delimiter)
+                            for current in (
+                                argument,
+                                column.delimiter,
+                                *column.extra_arguments,
+                            )
                             if current is not None
                             for terminal in grouping._input_terminals(current)
                         )
@@ -8099,6 +8123,39 @@ def verify_row_bytes(query, rendered):
                         reference,
                         " ASC" if item.direction == "asc" else " DESC",
                     )
+            elif column.function == "count_distinct_tuple":
+                members = (column.argument, *column.extra_arguments)
+                if (
+                    not column.distinct
+                    or column.argument_cast is not None
+                    or column.delimiter is not None
+                    or column.order_by
+                    or len(members) < 2
+                ):
+                    raise ValueError("count_distinct_tuple rendering")
+                take("syntax", "aggregate_distinct", reference, "DISTINCT ")
+                take("syntax", "aggregate_tuple_open", reference, "CASE WHEN ")
+                for position, member in enumerate(members):
+                    scalar(member, alias)
+                    if position == len(members) - 1:
+                        take(
+                            "syntax",
+                            "aggregate_tuple_then",
+                            reference,
+                            " IS NOT NULL THEN ROW(",
+                        )
+                    else:
+                        take(
+                            "syntax",
+                            "aggregate_tuple_and",
+                            reference,
+                            " IS NOT NULL AND ",
+                        )
+                for position, member in enumerate(members):
+                    if position:
+                        take("syntax", "aggregate_separator", reference, ", ")
+                    scalar(member, alias)
+                take("syntax", "aggregate_tuple_close", reference, ") END")
             elif column.function in grouping.QUANTILE_FUNCTIONS:
                 if (
                     column.distinct
@@ -9376,6 +9433,8 @@ def verify_row_generated_requirements(request, query, generated):
                     node_expectations(column.argument)
                 if column.delimiter is not None:
                     node_expectations(column.delimiter)
+                for extra in column.extra_arguments:
+                    node_expectations(extra)
                 for order in column.order_by:
                     node_expectations(order.value)
                 continue

@@ -5,7 +5,7 @@ from __future__ import annotations
 from collections.abc import Mapping
 from dataclasses import InitVar, dataclass, field as dataclass_field
 from types import MappingProxyType
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, cast
 
 from pietto._project.let_scope_facts import (
     ProjectLetScopeFactsReason,
@@ -60,11 +60,13 @@ from pietto.semantic.aggregates import (
     aggregate_order_expressions,
     aggregate_argument_can_use_let_scope,
     contains_semantic_aggregate,
+    count_distinct_tuple_diagnostic,
     effective_semantic_aggregate_argument_expression,
     generator_aggregate_result_value_type,
     internal_order_diagnostic,
     is_supported_semantic_aggregate_argument,
     is_supported_semantic_aggregate_argument_expression,
+    is_count_distinct_tuple,
     is_supported_semantic_aggregate_arity,
     nested_semantic_aggregate,
     quantile_fraction_diagnostic,
@@ -1721,6 +1723,21 @@ def _build_project_aggregate_selected_result_attempt(
     structural_reason = _aggregate_selected_structure_failure_reason(item)
     if structural_reason is not None:
         return _failed_selected_result_attempt(structural_reason)
+    if (
+        is_count_distinct_tuple(item.expression)
+        and count_distinct_tuple_diagnostic(
+            cast(CallExpr, item.expression),
+            (None,) * len(cast(CallExpr, item.expression).arguments),
+            let_expansions=let_scope_facts.binding_expressions,
+        )
+        is not None
+    ):
+        # Two or more different direct fields, as in a single file, whose
+        # check reports the refusal (with a `let:` name read,
+        # `_count_distinct_tuple_errors`).
+        return _failed_selected_result_attempt(
+            ProjectRelationRowSchemaReason.INVALID_AGGREGATE_OR_GROUPED_OUTPUT
+        )
 
     call = item.expression
     assert isinstance(call, CallExpr)

@@ -461,6 +461,8 @@ def source_read_columns(output):
                     expression(column.argument, alias)
                 if column.delimiter is not None:
                     expression(column.delimiter, alias)
+                for extra in column.extra_arguments:
+                    expression(extra, alias)
                 for order in column.order_by:
                     expression(order.value, alias)
             elif type(column) is WindowColumn:

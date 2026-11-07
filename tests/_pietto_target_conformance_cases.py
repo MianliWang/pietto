@@ -1573,6 +1573,12 @@ def aggregate_rows(target, case, variant):
                 _float(1.5),
             ]
         ]
+    if (case, variant) == ("V_aggregate_blocked", "count_distinct_tuple"):
+        # PostgreSQL only: (label, flag) skips the two None flags, leaving
+        # ("a", true) twice and ("A", false); (amount, ratio) holds 1.00, 2.00
+        # and -0.01 beside 1.5; (key, value) skips the rows with a None, leaving
+        # (1, 10), (2, 20) and (3, 30); (label, amount, rid) has five rows.
+        return [[_integer("2"), _integer("3"), _integer("3"), _integer("5")]]
     if (case, variant) == ("V_aggregate_blocked", "inline_arguments"):
         # PostgreSQL only: (10 + 20 + 30) * 2, three non-NULL value + 1 and
         # their mean (11 + 21 + 31) / 3.

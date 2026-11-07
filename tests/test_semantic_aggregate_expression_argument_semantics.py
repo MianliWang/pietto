@@ -431,10 +431,10 @@ def test_unread_let_keeps_independent_aggregate_type_errors(grouped: bool) -> No
         ),
         (
             "    group by kind\n    select:\n        kind\n"
-            "        d = count_distinct(x, t)\n",
+            "        d = count_distinct()\n",
             (
                 "PIE-S2309",
-                "Aggregate function count_distinct expects 1 arguments, got 2",
+                "Aggregate function count_distinct expects at least 1 argument, got 0",
                 7,
                 13,
             ),
@@ -544,10 +544,6 @@ def test_aggregate_over_a_source_without_a_shape_checks_its_argument_form(
         (
             "    let nothing = None\n    select:\n        a = avg(amount, nothing)\n",
             ("avg", "1", 2, 15),
-        ),
-        (
-            "    select:\n        d = count_distinct(status, coalesce(None, None))\n",
-            ("count_distinct", "1", 2, 14),
         ),
     ],
 )

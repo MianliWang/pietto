@@ -207,6 +207,7 @@ VARIANTS = {
         "avg_float",
         "postgres_carriers",
         "inline_arguments",
+        "count_distinct_tuple",
         "sum_hidden_right",
         "float_key",
         "bool_domain_key",
@@ -1619,6 +1620,14 @@ query result:
         c = count(value + 1)
         a = avg(value + 1)
 """,
+    ("V_aggregate_blocked", "count_distinct_tuple"): """query result:
+    from agg
+    select:
+        lf = count_distinct(label, flag)
+        ar = count_distinct(amount, ratio)
+        kv = count_distinct(key, value)
+        lr = count_distinct(label, amount, rid)
+""",
     ("V_aggregate_blocked", "sum_hidden_right"): """table g:
     from agg
     select:
@@ -1711,6 +1720,7 @@ AGGREGATE_LABELS = {
     ("V_aggregate_blocked", "avg_float"): ("a",),
     ("V_aggregate_blocked", "postgres_carriers"): ("n", "d", "f", "lo", "hi"),
     ("V_aggregate_blocked", "inline_arguments"): ("s", "c", "a"),
+    ("V_aggregate_blocked", "count_distinct_tuple"): ("lf", "ar", "kv", "lr"),
     ("V_aggregate_blocked", "sum_direct"): ("s",),
     ("V_aggregate_blocked", "sum_hidden_right"): ("a",),
 }
@@ -1755,6 +1765,7 @@ AGGREGATE_LOGICAL = {
         "Float",
     ),
     ("V_aggregate_blocked", "inline_arguments"): ("Int", "Int", "Float"),
+    ("V_aggregate_blocked", "count_distinct_tuple"): ("Int",) * 4,
     ("V_aggregate_blocked", "sum_direct"): ("Int",),
     ("V_aggregate_blocked", "sum_hidden_right"): ("Int",),
 }
@@ -4515,7 +4526,13 @@ PER_TARGET_STATUS = {
     **dict.fromkeys(
         (
             ("V_aggregate_blocked", variant)
-            for variant in ("sum_float", "avg_float", "inline_arguments")
+            for variant in (
+                "sum_float",
+                "avg_float",
+                "inline_arguments",
+                # MySQL keeps a project COUNT(DISTINCT a, b) refused.
+                "count_distinct_tuple",
+            )
         ),
         {"postgres": "VERIFIED", "mysql": "BLOCKED"},
     ),
@@ -9639,7 +9656,7 @@ def _decode_fixed_public(document, limits):
         if spread:
             result_cast = "pg_catalog.float8"
         distinct, argument, delimiter, order_by = False, None, None, []
-        argument_cast = None
+        argument_cast, extra_arguments = None, []
         function = SPREAD_FUNCTIONS.get((spelling, root), AGGREGATE_SPELLINGS[spelling])
         if peek() == "aggregate_filter_open":
             # COUNT(CASE WHEN test THEN 1 END), or SUM(CASE WHEN test THEN
@@ -9698,7 +9715,32 @@ def _decode_fixed_public(document, limits):
                 take("syntax", "aggregate_distinct", "DISTINCT ", subject)
                 distinct = True
                 _need(spelling == "COUNT(", "only count_distinct spells DISTINCT")
-            if spelling == "string_agg(":
+            if peek() == "aggregate_tuple_open":
+                # PostgreSQL COUNT(DISTINCT CASE WHEN a IS NOT NULL AND b IS NOT
+                # NULL THEN ROW(a, b) END): each field read twice, in order.
+                _need(family == "postgres" and distinct, "count_distinct_tuple form")
+                take("syntax", "aggregate_tuple_open", "CASE WHEN ", subject)
+                members = [row_parse(block)]
+                while peek() == "aggregate_tuple_and":
+                    take("syntax", "aggregate_tuple_and", " IS NOT NULL AND ", subject)
+                    members.append(row_parse(block))
+                take(
+                    "syntax", "aggregate_tuple_then", " IS NOT NULL THEN ROW(", subject
+                )
+                for position, member in enumerate(members):
+                    if position:
+                        take("syntax", "aggregate_separator", ", ", subject)
+                    again = row_parse(block, repeated=True)
+                    _need(
+                        member["kind"] == again["kind"] == "reference"
+                        and member["expression"] == again["expression"],
+                        "count_distinct_tuple field read again",
+                    )
+                take("syntax", "aggregate_tuple_close", ") END", subject)
+                _need(len(members) > 1, "count_distinct_tuple fields")
+                function = "count_distinct_tuple"
+                argument, *extra_arguments = members
+            elif spelling == "string_agg(":
                 _need(family == "postgres", "string_agg family")
                 argument = row_parse(block)
                 take("syntax", "aggregate_separator", ", ", subject)
@@ -9758,7 +9800,12 @@ def _decode_fixed_public(document, limits):
             "order_by": order_by,
             "result_cast": result_cast,
             "argument_cast": argument_cast if argument is not None else None,
-            "function": "count_distinct" if distinct else function,
+            "function": function
+            if function == "count_distinct_tuple"
+            else "count_distinct"
+            if distinct
+            else function,
+            "extra_arguments": extra_arguments,
         }
 
     def aggregate_realization(
@@ -9858,7 +9905,7 @@ def _decode_fixed_public(document, limits):
                 },
                 "proven_int_range": (-(1 << 63), (1 << 63) - 1),
             }
-        if function in {"count", "count_distinct"}:
+        if function in {"count", "count_distinct", "count_distinct_tuple"}:
             _need(argument_cast is None, "count has no aggregate argument cast")
             return {
                 "tag": "Int",
@@ -11246,7 +11293,8 @@ def _decode_fixed_public(document, limits):
                                 and argument["tag"] == "Float"
                             )
                             or (
-                                node["function"] in {"count", "count_distinct"}
+                                node["function"]
+                                in {"count", "count_distinct", "count_distinct_tuple"}
                                 and argument["tag"] in {"Timestamp", "Date", "UUID"}
                             )
                             or (
@@ -11256,22 +11304,36 @@ def _decode_fixed_public(document, limits):
                             )
                             or (
                                 node["function"]
-                                in {"count", "count_distinct", "min", "max"}
+                                in {
+                                    "count",
+                                    "count_distinct",
+                                    "count_distinct_tuple",
+                                    "min",
+                                    "max",
+                                }
                                 and argument["tag"] == "Decimal"
                             )
                             or (
                                 # MySQL deduplicates no Float: -0.0 and 0.0
                                 # stayed apart beside a wide key.
                                 node["function"]
-                                in {"count", "count_distinct", "min", "max"}
+                                in {
+                                    "count",
+                                    "count_distinct",
+                                    "count_distinct_tuple",
+                                    "min",
+                                    "max",
+                                }
                                 and argument["tag"] == "Float"
                                 and (
                                     family == "postgres"
-                                    or node["function"] != "count_distinct"
+                                    or node["function"]
+                                    not in {"count_distinct", "count_distinct_tuple"}
                                 )
                             )
                             or (
-                                node["function"] in {"count", "count_distinct"}
+                                node["function"]
+                                in {"count", "count_distinct", "count_distinct_tuple"}
                                 and argument["tag"] in {"Text", "Bool"}
                             )
                             or (
@@ -11288,6 +11350,21 @@ def _decode_fixed_public(document, limits):
                         node["delimiter"], incoming, alias, node["aggregate"]
                     )
                 )
+                extras = [
+                    row_resolve(value, incoming, alias, node["aggregate"])
+                    for value in node["extra_arguments"]
+                ]
+                for member in extras:
+                    # A field of a distinct-tuple count, as count_distinct(x).
+                    _need(
+                        "read" in member
+                        and (
+                            member["tag"] in {"Int", "Timestamp", "Date", "UUID"}
+                            or family == "postgres"
+                            and member["tag"] in {"Float", "Decimal", "Text", "Bool"}
+                        ),
+                        "count_distinct_tuple field carrier",
+                    )
                 order_by = [
                     (
                         row_resolve(value, incoming, alias, node["aggregate"]),
@@ -11329,7 +11406,7 @@ def _decode_fixed_public(document, limits):
                     "aggregate": node["aggregate"],
                     "arguments": [
                         value["root"]
-                        for value in (argument, delimiter)
+                        for value in (argument, delimiter, *extras)
                         if value is not None
                     ],
                     # Every read of each input value tree, in source order.
@@ -11338,6 +11415,7 @@ def _decode_fixed_public(document, limits):
                         for value in (
                             node["argument"],
                             node["delimiter"],
+                            *node["extra_arguments"],
                             *(item for item, _ in node["order_by"]),
                         )
                         if value is not None

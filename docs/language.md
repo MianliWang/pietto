@@ -550,6 +550,7 @@ first column give every rule.
 | JOIN aggregates without fan-out ([Aggregates](#aggregates-and-grouping)) | accepted | accepted | accepted | accepted; `sum(Int)` stays PIE-B1004 |
 | Top-level constants and `--set` ([Top-level constants](#top-level-constants)) | literals; `DATE '...'`, `TIMESTAMP '...'` | each relation that reads one refused (PIE-B1000) | refused (PIE-S2392) | refused (PIE-S2392) |
 | Project aggregate arguments ([Aggregates](#aggregates-and-grouping)): `count`/`count_distinct` of `Text`, `Bool`, `Float`, `Decimal`; `min`/`max` of `Float`, `Decimal`; `sum`/`avg` of `Float`; a row expression argument (`sum(qty * 2)`) | emitted (unchanged) | emitted (unchanged) | emitted; `Decimal` `sum`/`avg` refused (PIE-B1004); over JOIN rows an argument holding a scalar call (`count(lower(r.label))`) refused (PIE-B1003) | as PostgreSQL, except `count_distinct` of a `Float` (PIE-B1003), `sum`/`avg` of a `Float` and `sum` of an `Int` such as `sum(qty * 2)` (PIE-B1004); an `Int` expression not proved to fit BIGINT is PIE-B1002 first |
+| `count_distinct(a, b, ...)` ([Aggregates](#aggregates-and-grouping)) | `COUNT(DISTINCT CASE WHEN a IS NOT NULL AND b IS NOT NULL THEN ROW(a, b) END)` | `COUNT(DISTINCT a, b)` | as PostgreSQL single file, `schema_version = 2` (PIE-S2334 in a `schema_version = 1` project), also over JOIN rows | refused (PIE-B1003 `count_distinct_tuple_not_admitted_on_target`) |
 | `len(c.xs)`, `sum(o.f for o in c.xs ...)`, `any(t for o in c.xs)` ([Nested relations](#nested-relations-collect-and-unnest)) | `sum` and `any` refused at check (PIE-S2334; a single file collects no list); `len(c.xs)` has no list to read (PIE-S2102 for an unknown field, or only the Collect's own refusals) | as PostgreSQL | the count column; `sum` and `any` a scalar subquery over `pg_catalog.unnest` of the list's arrays | refused (PIE-B1003 `collect_not_admitted_on_target`) |
 | `asof left join`, `asof inner join` ([Backward asof JOIN](#backward-asof-join)) | emitted | emitted, except in a relation with a FULL JOIN (PIE-B1000) | emitted in a table or query without a relation `let NAME:` block whose FROM is not a table function, elsewhere refused (PIE-S2336); a `let NAME:` block as the joined input is PIE-S2386, where a single file refuses the block itself (PIE-S2345); an aggregate after it only where its `on` keys match a unique key (PIE-S2333) | as PostgreSQL |
 
@@ -3895,6 +3896,61 @@ with PIE-B1000.
 `count_distinct` includes direct fields and the bounded Text lower/trim chain.
 Literal-only and arbitrary expression widening remain fail closed unless a
 current retained contract says otherwise.
+
+`count_distinct(a, b, ...)` with two or more arguments counts the distinct
+tuples of its arguments among the rows in which none of them is None, as
+`count_distinct(x)` does not count None (pandas
+`DataFrame.value_counts(dropna=True)`, MySQL `COUNT(DISTINCT a, b)`; polars
+`n_unique` would count null as a value). It is an `Int`, never None, and 0
+when no row has every field. Each argument is a different direct field, or a
+`let:` name of one, of a type that `count_distinct(x)` takes (`Bool`, `Int`,
+`Float`, `Decimal`, `Text`, `Date`, `Timestamp`, `UUID`); fields may come from
+different JOIN inputs, and no fan-out proof is needed, as a repeated row only
+repeats a tuple already counted. Two tuples are the same when each field is
+`count_distinct(x)`'s same value: `-0.0` and `0.0` are one value, `Decimal`
+`1.0` and `1.00` one value, and Text compares under the target's equality
+(PostgreSQL `COLLATE "C"`, MySQL `utf8mb4_0900_bin`, both NO PAD). The
+refusals are reported at the argument: a field written twice (also through a
+`let:` name of it, or once bare and once qualified by its binding,
+`count_distinct(pot, sales.pot)`) is PIE-S2104 ``Invalid arguments for
+aggregate count_distinct: a is written twice; write `count_distinct(a)` ``,
+an argument that is not a direct field (`count_distinct(lower(a), b)`, a
+computed `let:`, `None`) is PIE-S2315, and a type `count_distinct(x)` refuses
+(an enum) is PIE-S2314. `count_distinct()` is PIE-S2309 `... expects at least
+1 argument, got 0`. To count distinct computed values, compute them in one
+query and count them in a query that reads it (`let` is not enough: a
+computed `let:` is an expression argument).
+
+PostgreSQL emits it as one anonymous record:
+`COUNT(DISTINCT CASE WHEN "a" IS NOT NULL AND "b" IS NOT NULL THEN ROW("a", "b") END)`,
+in a single file and in a `schema_version = 2` project (each field under the
+R13 law of `count_distinct(x)`: on PostgreSQL also `Text`, `Bool`, `Float`
+and `Decimal` fields under the GROUP BY key law), also over JOIN rows.
+Without the `CASE`, `COUNT(DISTINCT (a, b))` would count a row such as
+`(NULL, 'x')`, which MySQL skips. Single-file MySQL emits MySQL's own
+`COUNT(DISTINCT a, b)`, which skips a row in which any field is NULL and
+counts `-0.0` and `0.0` as one value, as a two-database differential
+measured; a MySQL project refuses it with PIE-B1003
+`count_distinct_tuple_not_admitted_on_target`. A `schema_version = 1` project
+refuses it with PIE-S2334 (``count_distinct(a, b, ...): a schema_version = 1
+project has no count_distinct of several columns in the current syntax; set
+schema_version = 2 to check it.``). It is no window aggregate (PIE-S2103
+``Aggregate window functions are not implemented: count_distinct; ...``,
+unchanged).
+
+`nunique(x)` and `n_unique(x)`, in any letter case, are PIE-S2103 with the
+hint ``write `count_distinct(x)`, which does not count None (polars
+`n_unique` counts null as a value; pandas `nunique()` skips it by default);
+for several columns `count_distinct(a, b)` ``, also as the JSON
+`suggestion`. `count(distinct a, b)` keeps PIE-P1000; its hint reads ``Write
+`count_distinct(x)` for COUNT(DISTINCT x), or `count_distinct(x, y)` for
+several columns.`` `count_distinct((a, b))` and `len(set((o.a, o.b) for o in
+group))` keep PIE-P1000 at the comma, with the hint ``Write
+`count_distinct(a, b)` for the distinct combinations of several columns.``;
+an unknown `set` call (any case) keeps PIE-S2103 and adds ``; write
+`count_distinct(a, b)` for the number of distinct combinations of several
+columns, `count_distinct(x)` for one``, also as the JSON `suggestion`.
+
 In project SQL an admitted expression argument (`sum(qty * 2)`,
 `count(lower(label))`) is emitted inside the aggregate by the same rules as a
 `let`: it is admitted exactly where `let t = qty * 2` with `sum(t)` is, and

@@ -749,6 +749,11 @@ _LET_HINT = "; compute it in a `let` and name that `let` in the window"
         ("result = min(value)", _ORDER, f"{_AGGREGATE} min"),
         ("result = max(value)", _ORDER, f"{_AGGREGATE} max"),
         ("result = count_distinct(value)", _ORDER, f"{_AGGREGATE} count_distinct"),
+        (
+            "result = count_distinct(value, id)",
+            _ORDER,
+            f"{_AGGREGATE} count_distinct",
+        ),
         ("result = stddev(value)", _ORDER, f"{_AGGREGATE} stddev"),
         ("result = median(value)", _ORDER, f"{_AGGREGATE} median"),
         ("result = variance(value)", _ORDER, f"{_AGGREGATE} variance"),

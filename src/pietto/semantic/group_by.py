@@ -27,16 +27,19 @@ from pietto.ast_nodes import (
 )
 from pietto.errors import Diagnostic, Severity, SourceLocation
 from pietto.semantic.aggregates import (
+    COUNT_VALUE_TYPE,
     unknown_row_generator_diagnostic,
     accepts_argument_form,
     aggregate_alias_required_diagnostic,
     aggregate_argument_can_use_let_scope,
     child_expressions,
     contains_semantic_aggregate,
+    count_distinct_tuple_diagnostic,
     deferred_argument_expression_diagnostic,
     deferred_composition_diagnostic,
     effective_semantic_aggregate_argument_expression,
     extremum_reads_let,
+    is_count_distinct_tuple,
     is_semantic_aggregate_call,
     is_supported_semantic_aggregate_arity,
     is_supported_semantic_aggregate_argument,
@@ -493,6 +496,27 @@ def _aggregate_output_field(
         # Its typing reports the fraction (PIE-S2104).
         return _unknown_row_field(item.alias), diagnostics, False
 
+    if is_count_distinct_tuple(expression):
+        valid, tuple_errors = count_distinct_tuple_checked(
+            expression,
+            value_types=expression_value_types,
+            type_expansions=type_expansions,
+            let_expansions=let_expansions,
+            unknown_row=input_schema.is_unknown,
+        )
+        diagnostics.extend(tuple_errors)
+        if not valid:
+            return _unknown_row_field(item.alias), diagnostics, False
+        return (
+            RowField(
+                name=item.alias,
+                resolved_type=COUNT_VALUE_TYPE.resolved_type,
+                nullability=COUNT_VALUE_TYPE.nullability,
+            ),
+            diagnostics,
+            True,
+        )
+
     if function_name == "string_agg" and expression_value_types is not None:
         argument_types = tuple(
             expression_value_types.get(argument) for argument in expression.arguments
@@ -623,6 +647,40 @@ def _aggregate_output_field(
         diagnostics,
         True,
     )
+
+
+def count_distinct_tuple_checked(
+    expression: CallExpr,
+    *,
+    value_types: Mapping[Expression, ValueType] | None,
+    type_expansions: Mapping[TypeExpr, ResolvedType] | None,
+    let_expansions: Mapping[str, Expression] | None,
+    unknown_row: bool,
+) -> tuple[bool, tuple[Diagnostic, ...]]:
+    """Whether `count_distinct(a, b, ...)` is a valid projection, and its
+    refusal (`count_distinct_tuple_diagnostic`). An argument of unknown type
+    is valid only over an input row of unknown type, such as a source without
+    a shape; elsewhere it is its own error's."""
+
+    argument_types = tuple(
+        None
+        if value_types is None
+        or (authored := value_types.get(argument)) is None
+        # A read of a row whose fields are unknown is not typed here.
+        or unknown_row
+        and authored.kind is not ValueTypeKind.KNOWN
+        else _canonical_value_type(authored, type_expansions, enum=True)
+        for argument in expression.arguments
+    )
+    diagnostic = count_distinct_tuple_diagnostic(
+        expression, argument_types, let_expansions=let_expansions
+    )
+    if diagnostic is not None:
+        return False, (diagnostic,)
+    return unknown_row or all(
+        argument_type is not None and argument_type.kind is ValueTypeKind.KNOWN
+        for argument_type in argument_types
+    ), ()
 
 
 def _has_unknown_argument(

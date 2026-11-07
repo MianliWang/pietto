@@ -2957,14 +2957,27 @@ def derive_compiled_semantics(root, values, parameters=None):
                 from pietto._project import project_sql_emission_aggregation as grouping
 
                 function = get("function")
-                if function not in grouping.SPELLING or (
-                    len(operands) != 2
-                    if function in {"string_agg", "quantile", "filtered_sum"}
-                    else len(operands) != 1
-                    if function == "filtered_count"
-                    else len(operands) > 1
+                if function not in grouping.SPELLING or not grouping.signature_arity(
+                    function, len(operands)
                 ):
                     raise CompiledError("COMPILED_AGGREGATE_SIGNATURE")
+                if function == "count_distinct_tuple" and any(
+                    physical_required
+                    and grouping.resolved_argument_problem(
+                        function,
+                        facts[operand].address.kind == "read",
+                        facts[operand].realization,
+                        family,
+                    )
+                    is not None
+                    or semantic_aggregate_result_value_type(
+                        "count_distinct", facts[operand].value_type
+                    )
+                    is None
+                    for operand in operands[1:]
+                ):
+                    # Each field of a distinct-tuple count is one direct read.
+                    raise CompiledError("COMPILED_AGGREGATE_ARGUMENT")
                 argument = None if not operands else facts[operands[0]]
                 delimiter = None if len(operands) < 2 else facts[operands[1]]
                 if (
@@ -3020,7 +3033,10 @@ def derive_compiled_semantics(root, values, parameters=None):
                     ):
                         raise CompiledError("COMPILED_AGGREGATE_ARGUMENT")
                     typed = semantic_aggregate_result_value_type(
-                        function, None if argument is None else argument.value_type
+                        "count_distinct"
+                        if function == "count_distinct_tuple"
+                        else function,
+                        None if argument is None else argument.value_type,
                     )
                 if typed is None or typed != declared(get("logical")):
                     raise CompiledError("COMPILED_AGGREGATE_TYPE")
@@ -4289,15 +4305,24 @@ def verify_compiled_semantics(value):
                 function = get("function")
                 need(
                     function in grouping.SPELLING
-                    and (
-                        len(inputs) == 2
-                        if function in {"string_agg", "quantile", "filtered_sum"}
-                        else len(inputs) == 1
-                        if function == "filtered_count"
-                        else len(inputs) <= 1
-                    ),
+                    and grouping.signature_arity(function, len(inputs)),
                     "SEMANTIC_AGGREGATE_SIGNATURE",
                 )
+                if function == "count_distinct_tuple" and physical_required:
+                    # Each field of a distinct-tuple count is one direct read.
+                    need(
+                        all(
+                            grouping.resolved_argument_problem(
+                                function,
+                                member.address.kind == "read",
+                                member.realization,
+                                family,
+                            )
+                            is None
+                            for member in inputs[1:]
+                        ),
+                        "SEMANTIC_AGGREGATE_ARGUMENT",
+                    )
                 argument = inputs[0] if inputs else None
                 delimiter = inputs[1] if len(inputs) > 1 else None
                 if physical_required and function == "string_agg":
@@ -4340,7 +4365,10 @@ def verify_compiled_semantics(value):
                     )
                     if function in grouping.FILTERED_FUNCTIONS
                     else semantic_aggregate_result_value_type(
-                        function, None if argument is None else argument.value_type
+                        "count_distinct"
+                        if function == "count_distinct_tuple"
+                        else function,
+                        None if argument is None else argument.value_type,
                     )
                 )
                 if typed is None:

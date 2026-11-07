@@ -471,6 +471,17 @@ around the `aggregate_result_cast_open`/`aggregate_result_cast_close` pair.
 Both results are a non-null `pg_int8`; only the sum's R13 `aggregate`
 requirement carries `target_checked_signed64_narrowing`.
 
+A PostgreSQL `count_distinct(a, b, ...)` column, whose provenance `function`
+is `count_distinct_tuple` (one argument stays `count_distinct`), is written
+`COUNT(DISTINCT CASE WHEN a IS NOT NULL AND b IS NOT NULL THEN ROW(a, b) END)`,
+each field read twice. The additive `ranges` roles for this form are the
+`syntax` roles `aggregate_tuple_open` (`CASE WHEN `), `aggregate_tuple_and`
+(` IS NOT NULL AND `, after each field but the last), `aggregate_tuple_then`
+(` IS NOT NULL THEN ROW(`, after the last) and `aggregate_tuple_close`
+(`) END`), between `aggregate_distinct` and `aggregate_close`, with the
+existing `aggregate_separator` (`, `) between the fields inside `ROW(`. Its R13
+`aggregate` requirement carries no evidence.
+
 A PostgreSQL project aggregate over a window (`sum`, `count`, `avg`, `min`
 or `max` with `OVER`) has `window_origin.function` `sum`, `count`, `avg`,
 `min` or `max`. Its additive `ranges` roles are the `syntax` roles

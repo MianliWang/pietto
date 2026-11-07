@@ -212,14 +212,15 @@ def test_projection_alias_is_not_a_count_distinct_argument() -> None:
             "unique_values = count_distinct()",
             (
                 "PIE-S2309",
-                "Aggregate function count_distinct expects 1 arguments, got 0",
+                "Aggregate function count_distinct expects at least 1 argument, got 0",
             ),
         ),
         (
-            "unique_values = count_distinct(customer_id, status)",
+            "unique_values = count_distinct(customer_id, customer_id)",
             (
-                "PIE-S2309",
-                "Aggregate function count_distinct expects 1 arguments, got 2",
+                "PIE-S2104",
+                "Invalid arguments for aggregate count_distinct: customer_id is "
+                "written twice; write `count_distinct(customer_id)`",
             ),
         ),
         (
@@ -352,6 +353,182 @@ def test_count_distinct_is_aggregate_only_and_ir_authorized() -> None:
     assert projection_type is not None
     assert projection_type.resolved_type.name == "Int"
     assert projection_type.nullability is EffectiveNullability.NON_NULL
+
+
+@pytest.mark.parametrize(
+    "body",
+    [
+        "    select:\n        pairs = count_distinct(status, order_date, created_at)\n",
+        "    group by status\n"
+        "    select:\n"
+        "        status\n"
+        "        pairs = count_distinct(active, amount, score, price, customer_id)\n",
+        "    let day = order_date\n"
+        "    group by status\n"
+        "    select:\n"
+        "        status\n"
+        "        pairs = count_distinct(orders.amount, day)\n",
+    ],
+    ids=["ungrouped", "grouped", "qualified_and_let"],
+)
+def test_count_distinct_of_several_fields_is_a_non_null_int(body: str) -> None:
+    """The distinct tuples of two or more different direct fields (or `let:`
+    names of fields) of any `count_distinct` type: an Int, never None."""
+    script = _parse(SOURCE_PREFIX + "query pairs_by_status:\n    from orders\n" + body)
+    relation = _relation(script)
+
+    result = analyze(script)
+
+    assert _errors(result) == []
+    # A relation with `let:` is checked as its normalized definition.
+    (schema,) = (
+        schema
+        for checked, schema in result.model.relation_row_schemas.items()
+        if checked.name == relation.name
+    )
+    _assert_field(schema.fields["pairs"], "Int", EffectiveNullability.NON_NULL)
+
+
+@pytest.mark.parametrize(
+    ("projection", "expected"),
+    [
+        (
+            "pairs = count_distinct(status, amount, status)",
+            (
+                "PIE-S2104",
+                "Invalid arguments for aggregate count_distinct: status is "
+                "written twice; write each column once",
+                "write each column once",
+                48,
+            ),
+        ),
+        (
+            # A bare name and its binding-qualified read are one field.
+            "pairs = count_distinct(status, orders.status)",
+            (
+                "PIE-S2104",
+                "Invalid arguments for aggregate count_distinct: status is "
+                "written twice; write `count_distinct(status)`",
+                "write `count_distinct(status)`",
+                40,
+            ),
+        ),
+        (
+            # A read that names no field is its own error alone.
+            "pairs = count_distinct(status, other.status)",
+            ("PIE-S2102", "Unknown field: other.status", None, 40),
+        ),
+        (
+            "pairs = count_distinct(lower(status), amount)",
+            (
+                "PIE-S2315",
+                "Aggregate function count_distinct of several columns requires a "
+                "direct field for each argument; expression arguments are not "
+                "supported",
+                None,
+                32,
+            ),
+        ),
+        (
+            "pairs = count_distinct(status, None)",
+            (
+                "PIE-S2315",
+                "Aggregate function count_distinct of several columns requires a "
+                "direct field for each argument; expression arguments are not "
+                "supported",
+                None,
+                40,
+            ),
+        ),
+        (
+            "pairs = count_distinct(status, wide)",
+            (
+                "PIE-S2315",
+                "Aggregate function count_distinct of several columns requires a "
+                "direct field for each argument; expression arguments are not "
+                "supported",
+                None,
+                40,
+            ),
+        ),
+        (
+            "pairs = count_distinct(status, payload)",
+            (
+                "PIE-S2314",
+                "Aggregate function count_distinct expects Bool, Int, Float, "
+                "Decimal, Text, Date, Timestamp, or UUID field argument, got Json",
+                None,
+                40,
+            ),
+        ),
+    ],
+    ids=[
+        "repeated",
+        "qualified_repeated",
+        "wrong_qualifier",
+        "expression",
+        "none",
+        "computed_let",
+        "type",
+    ],
+)
+def test_count_distinct_of_several_fields_refuses_at_the_argument(
+    projection: str, expected: tuple[str, str, str | None, int]
+) -> None:
+    result = analyze(
+        _parse(
+            SOURCE_PREFIX + "query pairs:\n    from orders\n"
+            "    let wide = amount * 2\n    select:\n"
+            f"        {projection}\n"
+        )
+    )
+
+    assert [
+        (d.code, d.message, d.suggestion, d.location.column)
+        for d in result.diagnostics
+        if d.severity is Severity.ERROR and d.location is not None
+    ] == [expected]
+
+
+_DISTINCT_HABIT = (
+    "write `count_distinct(x)`, which does not count None (polars `n_unique` "
+    "counts null as a value; pandas `nunique()` skips it by default); for several "
+    "columns `count_distinct(a, b)`"
+)
+
+
+@pytest.mark.parametrize("name", ["nunique", "n_unique", "NUnique"])
+def test_a_pandas_or_polars_distinct_count_names_count_distinct(name: str) -> None:
+    """The hint is also the JSON suggestion; the call keeps its PIE-S2103."""
+    result = analyze(
+        _parse(
+            SOURCE_PREFIX + "query q:\n    from orders\n    select:\n"
+            f"        n = {name}(status)\n"
+        )
+    )
+
+    assert [(d.code, d.message, d.suggestion) for d in result.diagnostics] == [
+        ("PIE-S2103", f"Unknown function: {name}; {_DISTINCT_HABIT}", _DISTINCT_HABIT)
+    ]
+
+
+def test_a_python_set_count_names_count_distinct() -> None:
+    """`len(set(...))` keeps its PIE-S2103 at `set`, its hint also the JSON
+    suggestion."""
+    hint = (
+        "write `count_distinct(a, b)` for the number of distinct combinations "
+        "of several columns, `count_distinct(x)` for one"
+    )
+    result = analyze(
+        _parse(
+            SOURCE_PREFIX + "query q:\n    from orders\n    select:\n"
+            "        n = len(set(status))\n"
+        )
+    )
+
+    assert [(d.code, d.message, d.suggestion) for d in result.diagnostics] == [
+        ("PIE-S2103", f"Unknown function: set; {hint}", hint)
+    ]
 
 
 def _parse(source: str) -> Script:

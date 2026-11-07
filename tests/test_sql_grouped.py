@@ -1555,6 +1555,56 @@ def test_postgres_median_and_quantile_read_left_join_rows(tmp_path, grouped):
     ).corresponds
 
 
+@pytest.mark.parametrize(
+    ("arguments", "row"),
+    [
+        ("keys.label, r.rid", '"t0"."c3", "t0"."c13"'),
+        # A `let:` name of a field in any position reads that field.
+        ("keys.value, lb", '"t1"."c1", "t1"."c14"'),
+        ("lb, keys.value", '"t1"."c14", "t1"."c1"'),
+    ],
+)
+@pytest.mark.parametrize("grouped", [False, True])
+def test_postgres_count_distinct_tuple_reads_left_join_rows(
+    tmp_path, grouped, arguments, row
+):
+    """`count_distinct(a, b)` over a LEFT JOIN's rows reads one field of each
+    input, a NULL-extended field included, which the CASE skips."""
+    item = probe.fixture("postgres", "Z_aggregate_joined", "left_nullable")
+    header = item["source"].split("query result:", 1)[0]
+    keys = (
+        "    group by:\n        keys.rid\n    select:\n        k = keys.rid\n"
+        if grouped
+        else "    select:\n"
+    )
+    _, outcome = probe.build_case(
+        tmp_path,
+        header
+        + "query result:\n    from keys\n    let r = agg\n"
+        + "    left join r on keys.rid == r.rid\n"
+        + ("    let lb = r.label\n" if "lb" in arguments else "")
+        + keys
+        + f"        d = count_distinct({arguments})\n",
+        item["contract"],
+        item["policy"],
+    )
+    assert outcome.status == "VERIFIED", outcome.blockers
+    first, second = row.split(", ")
+    assert (
+        f"COUNT(DISTINCT CASE WHEN {first} IS NOT NULL AND {second} IS NOT NULL "
+        f"THEN ROW({row}) END)"
+    ) in public(outcome)["sql"]
+    from pietto._project import project_sql_emission_portable as portable
+
+    artifact = outcome.artifact
+    assert artifact is not None
+    observed = portable.export_emission_observation(artifact, artifact.request)
+    assert observed.canonical_bytes is not None
+    assert portable.verify_emission_observation(
+        observed.canonical_bytes, artifact, artifact.request
+    ).corresponds
+
+
 @pytest.mark.parametrize("target", TARGETS)
 def test_a_float_median_needs_a_finite_result_proof(tmp_path, target):
     """PERCENTILE_CONT between two finite Floats more than the largest float8
@@ -1618,6 +1668,27 @@ def test_a_float_median_needs_a_finite_result_proof(tmp_path, target):
             [CHECKED, [], []],
             [("PIE-B1002", "arithmetic_outside_physical_range")] * 3,
         ),
+        (
+            "count_distinct_tuple",
+            (
+                'COUNT(DISTINCT CASE WHEN "s0"."text `""é" IS NOT NULL AND '
+                '"s0"."flag value" IS NOT NULL THEN ROW("s0"."text `""é", '
+                '"s0"."flag value") END) AS "c0"',
+                'COUNT(DISTINCT CASE WHEN "s0"."amount value" IS NOT NULL AND '
+                '"s0"."ratio value" IS NOT NULL THEN ROW("s0"."amount value", '
+                '"s0"."ratio value") END) AS "c1"',
+                'COUNT(DISTINCT CASE WHEN "s0"."group key" IS NOT NULL AND '
+                '"s0"."value é" IS NOT NULL THEN ROW("s0"."group key", '
+                '"s0"."value é") END) AS "c2"',
+                'COUNT(DISTINCT CASE WHEN "s0"."text `""é" IS NOT NULL AND '
+                '"s0"."amount value" IS NOT NULL AND "s0"."row id" IS NOT NULL '
+                'THEN ROW("s0"."text `""é", "s0"."amount value", "s0"."row id") '
+                'END) AS "c3"',
+            ),
+            ("count",) * 4,
+            [[]] * 4,
+            [("PIE-B1003", "count_distinct_tuple_not_admitted_on_target")] * 4,
+        ),
     ),
 )
 def test_postgres_aggregates_reach_single_file_argument_parity(
@@ -1641,6 +1712,14 @@ def test_postgres_aggregates_reach_single_file_argument_parity(
             for blocker in data["blockers"]
         ] == mysql_blockers
         assert all(blocker["suggestion"] for blocker in data["blockers"])
+        if variant == "count_distinct_tuple":
+            # Only the project emitter lacks the spelling (a two-database
+            # differential passed for the single file's).
+            assert {blocker["suggestion"] for blocker in data["blockers"]} == {
+                "Emit this count_distinct of several columns for PostgreSQL, or "
+                "keep it in check/plan: a project's MySQL emission has no "
+                "COUNT(DISTINCT a, b) yet (a single file emits it)."
+            }
         return
     assert outcome.status == "VERIFIED", outcome.blockers
     for call in calls:

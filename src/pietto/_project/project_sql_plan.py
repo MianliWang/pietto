@@ -1150,11 +1150,16 @@ def _normalized_scalar_expression(
 def _aggregate_child(call: CallExpr, child: Expression, evidence: object) -> Expression:
     """One authored child of an aggregate, as its evidence reads it: a
     `quantile` fraction is a Float literal that reads no row and stays as
-    written, as the evidence of its argument describes that argument only."""
+    written, as the evidence of its argument describes that argument only;
+    so is each field of a distinct-tuple count, which its evidence types."""
     if (
         semantic_aggregate_call_name(call) == "quantile"
         and len(call.arguments) == 2
         and child is call.arguments[1]
+    ) or (
+        semantic_aggregate_call_name(call) == "count_distinct"
+        and len(call.arguments) > 1
+        and isinstance(child, (NameExpr, DottedNameExpr))
     ):
         return child
     return _normalized_scalar_expression(child, evidence)
@@ -1215,6 +1220,11 @@ def _aggregate_blockers(entry, rows, aggregate):
         call = source.item.expression
         if not isinstance(call, CallExpr) or (
             len(call.arguments) > 1
+            and not (
+                # The distinct tuples of several fields (`count_distinct_tuple`).
+                semantic_aggregate_call_name(call) == "count_distinct"
+                and not call.aggregate_order_by
+            )
             and (
                 semantic_aggregate_call_name(call) not in {"string_agg", "quantile"}
                 or len(call.arguments) != 2

@@ -965,6 +965,48 @@ def test_variance_casts_spellings_and_evidence_are_closed_data_relations(
         assert _status(_mutated(data, edit))[0] is pure.Status.INVALID_RELATION
 
 
+def test_count_distinct_tuple_is_a_closed_data_relation(tmp_path_factory):
+    """A public consumer admits a PostgreSQL `count_distinct(a, b, ...)` only
+    as a DISTINCT COUNT of its first field and one or more further fields,
+    each an established stage read, with its exact tuple token sequence."""
+    artifact, data = _observed(
+        tmp_path_factory, "postgres", "V_aggregate_blocked", "count_distinct_tuple"
+    )
+    document = json.loads(data)
+    columns = _records(document, "aggregate_value_column")
+    assert [
+        (
+            column["function"],
+            column["spelling"],
+            column["distinct"],
+            len(column["extra_arguments"]),
+        )
+        for column in columns
+    ] == [("count_distinct_tuple", "COUNT", True, n) for n in (1, 1, 1, 2)]
+    assert portable.verify_emission_observation(
+        data, artifact, artifact.request
+    ).corresponds
+
+    def field(name, value):
+        def edit(candidate):
+            _records(candidate, "aggregate_value_column")[3][name] = value
+
+        return edit
+
+    def dropped(candidate):
+        _records(candidate, "aggregate_value_column")[3]["extra_arguments"].pop()
+
+    for edit in (
+        field("function", "count_distinct"),
+        field("spelling", "SUM"),
+        field("distinct", False),
+    ):
+        assert _status(_mutated(data, edit))[0] is pure.Status.INVALID_RELATION
+    # A field the column no longer names is a value record nothing owns.
+    for edit in (field("extra_arguments", []), dropped):
+        assert _status(_mutated(data, edit))[0] is pure.Status.INVALID_REF
+
+
 @pytest.mark.parametrize("variant", ("sum_float", "avg_float"))
 def test_float_sum_and_avg_are_uncast_closed_data_relations(tmp_path_factory, variant):
     """S16: a public consumer admits a PostgreSQL SUM or AVG of a float8 only

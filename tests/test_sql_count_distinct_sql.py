@@ -27,7 +27,7 @@ from pietto.ir import (
     build_ir,
 )
 from pietto.ir.model import StaticValue
-from pietto.parser_api import parse_file
+from pietto.parser_api import parse_file, parse_source
 from pietto.semantic import analyze
 from pietto.sql import SqlResult, emit_postgres_sql
 from pietto.sql.expressions import render_expression_sql
@@ -491,6 +491,140 @@ def test_direct_malformed_count_distinct_renderer_errors_stay_dialect_specific()
         match="direct field or lower/trim Text transform",
     ):
         render_mysql_expression(count_literal)
+
+
+TUPLE_SOURCE = (
+    "shape Order:\n    id: Int\n    customer_id: Int\n    status: Text | None\n"
+    "    price: Float\n    created_at: Timestamp\n    order_key = unique(id)\n"
+    "shape Customer:\n    id: Int\n    name: Text | None\n"
+    "    customer_key = unique(id)\n"
+    'source orders: Order = {target}.table("shop.orders")\n'
+    'source customers: Customer = {target}.table("shop.customers")\n'
+    "query q:\n    from orders\n"
+)
+_TUPLE = (
+    'COUNT(DISTINCT CASE WHEN "status" IS NOT NULL AND "price" IS NOT NULL '
+    'AND "created_at" IS NOT NULL THEN ROW("status", "price", "created_at") END)'
+)
+
+
+@pytest.mark.parametrize(
+    ("body", "expected"),
+    [
+        (
+            "    group by customer_id\n    select:\n        customer_id\n"
+            "        n = count_distinct(status, price, created_at)\n"
+            "    having n > 1\n",
+            f'SELECT "customer_id" AS "customer_id", {_TUPLE} AS "n" '
+            'FROM "shop"."orders" GROUP BY "customer_id" '
+            f"HAVING {_TUPLE} > 1",
+        ),
+        (
+            "    select:\n        n = count_distinct(status, price, created_at)\n",
+            f'SELECT {_TUPLE} AS "n" FROM "shop"."orders"',
+        ),
+        (
+            "    inner join customers on orders.customer_id == customers.id\n"
+            "    group by orders.customer_id\n"
+            "    select:\n        k = orders.customer_id\n"
+            "        n = count_distinct(orders.status, customers.name)\n",
+            'SELECT "orders"."customer_id" AS "k", COUNT(DISTINCT CASE WHEN '
+            '"orders"."status" IS NOT NULL AND "customers"."name" IS NOT NULL '
+            'THEN ROW("orders"."status", "customers"."name") END) AS "n" '
+            'FROM "shop"."orders" AS "orders" INNER JOIN "shop"."customers" AS '
+            '"customers" ON "orders"."customer_id" = "customers"."id" '
+            'GROUP BY "orders"."customer_id"',
+        ),
+    ],
+    ids=["grouped_having", "ungrouped", "joined"],
+)
+def test_count_distinct_of_several_fields_is_one_postgresql_record(
+    body: str, expected: str
+) -> None:
+    """A row with any NULL field counts nothing, as MySQL COUNT(DISTINCT a, b)
+    skips it; PostgreSQL compares the records field by field."""
+    result = emit_postgres_sql(_tuple_ir(TUPLE_SOURCE.format(target="postgres") + body))
+
+    assert result.diagnostics == ()
+    assert [" ".join(item.sql.split()) for item in result.artifacts] == [expected]
+
+
+def test_count_distinct_of_several_fields_is_native_on_mysql() -> None:
+    """MySQL COUNT(DISTINCT a, b) skips a row with any NULL field and counts
+    -0.0 and 0.0 once, as the `cd` differential measured."""
+    result = emit_mysql_sql(
+        _tuple_ir(
+            TUPLE_SOURCE.format(target="mysql")
+            + "    select:\n        n = count_distinct(status, customer_id)\n"
+        )
+    )
+
+    assert result.diagnostics == ()
+    assert [" ".join(item.sql.split()) for item in result.artifacts] == [
+        "SELECT COUNT(DISTINCT `status`, `customer_id`) AS `n` FROM `shop`.`orders`"
+    ]
+    floats = emit_mysql_sql(
+        _tuple_ir(
+            TUPLE_SOURCE.format(target="mysql")
+            + "    select:\n        n = count_distinct(status, price)\n"
+        )
+    )
+    assert floats.diagnostics == ()
+
+
+def test_count_distinct_tuple_ir_renders_only_its_contract() -> None:
+    members = (
+        _field("status", TEXT_NON_NULL, qualifier=("orders",)),
+        _field("score", FLOAT_NULLABLE),
+        _field("customer_id", UUID_NON_NULL),
+    )
+    aggregate = _aggregate("count_distinct_tuple", INT_NON_NULL, *members)
+
+    assert render_expression_sql(aggregate) == (
+        'COUNT(DISTINCT CASE WHEN "orders"."status" IS NOT NULL AND "score" IS NOT '
+        'NULL AND "customer_id" IS NOT NULL THEN ROW("orders"."status", "score", '
+        '"customer_id") END)'
+    )
+    assert render_mysql_expression(aggregate) == (
+        "COUNT(DISTINCT `orders`.`status`, `score`, `customer_id`)"
+    )
+    assert (
+        render_mysql_expression(
+            _aggregate("count_distinct_tuple", INT_NON_NULL, members[0], members[2])
+        )
+        == "COUNT(DISTINCT `orders`.`status`, `customer_id`)"
+    )
+    for malformed in (
+        _aggregate("count_distinct_tuple", INT_NON_NULL, members[0]),
+        _aggregate("count_distinct_tuple", INT_NULLABLE, *members),
+        _aggregate(
+            "count_distinct_tuple", INT_NON_NULL, members[0], _literal(1, INT_NON_NULL)
+        ),
+        _aggregate(
+            "count_distinct_tuple",
+            INT_NON_NULL,
+            members[0],
+            _field("amount", INT_NON_NULL, resolved=False),
+        ),
+        _aggregate(
+            "count_distinct_tuple",
+            INT_NON_NULL,
+            members[0],
+            _field("raw", BYTES_NON_NULL),
+        ),
+    ):
+        with pytest.raises(ValueError, match="count_distinct_tuple violates"):
+            render_expression_sql(malformed)
+
+
+def _tuple_ir(source: str) -> ScriptIR:
+    parsed = parse_source(source)
+    assert parsed.diagnostics == () and parsed.ast is not None
+    checked = analyze(parsed.ast)
+    assert [d for d in checked.diagnostics if d.severity is Severity.ERROR] == []
+    lowered = build_ir(parsed.ast, checked.model)
+    assert lowered.ir is not None
+    return lowered.ir
 
 
 def test_phase24_count_distinct_goldens_are_registered_and_audited() -> None:

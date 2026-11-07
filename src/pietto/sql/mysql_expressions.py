@@ -596,7 +596,9 @@ def _render_aggregate_call(
             f"MySQL aggregate {expression.function} is not supported: MySQL has "
             "no interpolated percentile; emit this relation for PostgreSQL"
         )
-    if expression.function == "count":
+    if expression.function == "count_distinct_tuple":
+        sql = _render_count_distinct_tuple_aggregate(expression)
+    elif expression.function == "count":
         sql = _render_count_aggregate(
             expression, allow_grouped_aggregate=allow_grouped_aggregate
         )
@@ -697,6 +699,26 @@ def _render_count_distinct_aggregate(expression: AggregateCallIR) -> str:
         )
 
     return f"COUNT(DISTINCT {_render_mysql_expression(argument, nested=True)})"
+
+
+def _render_count_distinct_tuple_aggregate(expression: AggregateCallIR) -> str:
+    # Native COUNT(DISTINCT a, b) skips a row in which any field is NULL; the
+    # Phase74 `cd` differential matched it to PostgreSQL's record count.
+    if not aggregate_call_contract(
+        expression.function, expression.arguments, expression.value_type
+    ):
+        raise MySqlRenderError(
+            "MySQL aggregate count_distinct_tuple violates its IR contract"
+        )
+    # The `cd` witness counted -0.0 and 0.0 once in a Float field of the tuple.
+    return (
+        "COUNT(DISTINCT "
+        + ", ".join(
+            _render_mysql_expression(argument, nested=True)
+            for argument in expression.arguments
+        )
+        + ")"
+    )
 
 
 def _render_numeric_aggregate(

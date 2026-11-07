@@ -56,10 +56,12 @@ from pietto.semantic.aggregates import (
     accepts_argument_form,
     aggregate_argument_can_use_let_scope,
     contains_semantic_aggregate,
+    count_distinct_tuple_diagnostic,
     extremum_reads_let,
     generator_aggregate_result_value_type,
     has_unknown_field_reference,
     invalid_context_diagnostic,
+    is_count_distinct_tuple,
     is_semantic_aggregate_call,
     is_supported_semantic_aggregate_argument_expression,
     list_generator_of,
@@ -4386,6 +4388,31 @@ def _call_value_type(
                         )
                     )
                     return _UNKNOWN_VALUE_TYPE
+        if is_count_distinct_tuple(expression):
+            # The distinct tuples of two or more direct fields, also of a
+            # source without a shape (`count_distinct_tuple_checked`).
+            return (
+                _builtin_value_type("Int", EffectiveNullability.NON_NULL)
+                if allow_aggregate_projection
+                and not explained
+                and count_distinct_tuple_diagnostic(
+                    expression,
+                    tuple(
+                        _canonical_value_type(argument_type, type_expansions, enum=True)
+                        for argument_type in argument_types
+                    ),
+                    let_expansions=bare_value_expressions,
+                )
+                is None
+                and all(
+                    argument_type.kind is ValueTypeKind.KNOWN
+                    or has_unknown_field_reference(argument, value_types)
+                    for argument, argument_type in zip(
+                        expression.arguments, argument_types, strict=True
+                    )
+                )
+                else _UNKNOWN_VALUE_TYPE
+            )
         if any(
             argument_type.kind is ValueTypeKind.UNKNOWN
             for argument_type in argument_types
@@ -6631,6 +6658,8 @@ _SPREAD_HINTS = {
     "pvariance": "write lowercase `pvariance(x)`",
     "pstdev": "write lowercase `pstdev(x)`",
 }
+# The pandas and polars distinct-count names.
+_DISTINCT_COUNT_HABITS = ("nunique", "n_unique")
 # What to write instead of a function that a SQL or Python habit calls, by its
 # lowercase name.
 _UNKNOWN_FUNCTION_HINTS = {
@@ -6670,6 +6699,15 @@ _UNKNOWN_FUNCTION_HINTS = {
         _CONDITIONAL_HABITS,
         "write `sum(1 for o in group if ...)` or `sum(o.v for o in group if ...)`",
     ),
+    **dict.fromkeys(
+        _DISTINCT_COUNT_HABITS,
+        "write `count_distinct(x)`, which does not count None (polars `n_unique` "
+        "counts null as a value; pandas `nunique()` skips it by default); for "
+        "several columns `count_distinct(a, b)`",
+    ),
+    # Python `len(set(...))`.
+    "set": "write `count_distinct(a, b)` for the number of distinct "
+    "combinations of several columns, `count_distinct(x)` for one",
     "greatest": "write `max(a, b)`, which is None when either value is None",
     "least": "write `min(a, b)`, which is None when either value is None",
     **dict.fromkeys(
@@ -6748,11 +6786,11 @@ def _unknown_function_diagnostic(
         + ("" if hint is None else f"; {hint}"),
     )
     if (
-        function_name.lower() in _CONDITIONAL_HABITS
+        function_name.lower() in (*_CONDITIONAL_HABITS, *_DISTINCT_COUNT_HABITS, "set")
         or function_name.lower() in _SPREAD_HINTS
     ):
-        # A conditional-count or a variance habit's hint is also the JSON
-        # suggestion.
+        # A conditional-count, a variance or a distinct-count habit's hint is
+        # also the JSON suggestion.
         return dataclasses.replace(diagnostic, suggestion=hint)
     return diagnostic
 

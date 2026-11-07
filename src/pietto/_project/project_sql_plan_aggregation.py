@@ -195,7 +195,15 @@ def authority(
                 argument_references=tuple(
                     ()
                     if a.argument_analysis is None
-                    else a.argument_analysis.resolutions
+                    else (
+                        *a.argument_analysis.resolutions,
+                        # A distinct-tuple count's other fields, in order.
+                        *(
+                            resolution
+                            for extra in a.extra_argument_analyses
+                            for resolution in extra.resolutions
+                        ),
+                    )
                     for a in joined.aggregates
                 ),
                 output_keys=tuple(output_keys),

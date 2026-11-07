@@ -212,6 +212,7 @@ from pietto.ast_nodes import (
     UnnestRelationDef,
     UnaryExpr,
 )
+from pietto.semantic.aggregates import is_count_distinct_tuple
 from dataclasses import fields as _dataclass_fields, is_dataclass
 
 __all__: tuple[str, ...] = ()
@@ -3597,11 +3598,25 @@ def _check_current_aggregate_result(result, readiness) -> None:
                 or analysis.namespace is not input_filter.namespace
             ):
                 raise ValueError("Current aggregate lost its exact argument analysis.")
-            dependencies = joined_aggregation._resolved_field_dependencies(
-                input_filter=input_filter,
-                namespace=input_filter.namespace,
-                expression=analysis.normalized_expression,
-                existence_values=analysis.existence_values,
+            # A distinct-tuple count reads its other fields as written.
+            dependencies = tuple(
+                dependency
+                for position, member in enumerate(
+                    (
+                        analysis.normalized_expression,
+                        *(
+                            aggregate.call.arguments[1:]
+                            if is_count_distinct_tuple(aggregate.call)
+                            else ()
+                        ),
+                    )
+                )
+                for dependency in joined_aggregation._resolved_field_dependencies(
+                    input_filter=input_filter,
+                    namespace=input_filter.namespace,
+                    expression=member,
+                    existence_values=analysis.existence_values if position == 0 else (),
+                )
             )
         else:
             if analysis is not None:

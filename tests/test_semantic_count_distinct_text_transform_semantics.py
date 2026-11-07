@@ -224,14 +224,16 @@ def test_unsupported_count_distinct_transform_shapes_use_s2315(
             "value = count_distinct()",
             (
                 "PIE-S2309",
-                "Aggregate function count_distinct expects 1 arguments, got 0",
+                "Aggregate function count_distinct expects at least 1 argument, got 0",
             ),
         ),
         (
             "value = count_distinct(lower(status), trim(status))",
             (
-                "PIE-S2309",
-                "Aggregate function count_distinct expects 1 arguments, got 2",
+                "PIE-S2315",
+                "Aggregate function count_distinct of several columns requires a "
+                "direct field for each argument; expression arguments are not "
+                "supported",
             ),
         ),
         (

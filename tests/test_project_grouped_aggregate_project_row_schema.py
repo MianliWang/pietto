@@ -1180,6 +1180,149 @@ def test_project_check_requires_the_string_agg_internal_order_as_a_file_does(
     assert found == [(1 if expected else 0, expected)] * 2
 
 
+_TWICE = (
+    "Invalid arguments for aggregate count_distinct: {name} is written twice; "
+    "write `count_distinct({name})`"
+)
+_TUPLE_FIELDS = (
+    "Aggregate function count_distinct of several columns requires a direct "
+    "field for each argument; expression arguments are not supported"
+)
+
+
+@pytest.mark.parametrize(
+    ("body", "expected"),
+    [
+        (
+            "query q:\n    from orders\n    let s = status\n    group by customer_id\n"
+            "    select customer_id, n = count_distinct(s, id)\n",
+            [],
+        ),
+        (
+            "query q:\n    from orders\n    select n = count_distinct(status, id)\n",
+            [],
+        ),
+        (
+            "query q:\n    from orders\n    let c = customers\n"
+            "    inner join c on c.id == orders.customer_id\n    group by c.name\n"
+            "    select name = c.name, n = count_distinct(orders.status, c.id)\n",
+            [],
+        ),
+        (
+            "query q:\n    from orders\n    group by customer_id\n"
+            "    select customer_id, n = count_distinct(status, status)\n",
+            [("PIE-S2104", _TWICE.format(name="status"), 14, 52)],
+        ),
+        (
+            "query q:\n    from orders\n    select n = count_distinct(status, "
+            "orders.status)\n",
+            [("PIE-S2104", _TWICE.format(name="status"), 13, 39)],
+        ),
+        (
+            "query q:\n    from orders\n    group by customer_id\n"
+            "    select customer_id, n = count_distinct(lower(status), id)\n",
+            [("PIE-S2315", _TUPLE_FIELDS, 14, 44)],
+        ),
+        (
+            "query q:\n    from orders\n    let c = customers\n"
+            "    inner join c on c.id == orders.customer_id\n    group by c.name\n"
+            "    select name = c.name, n = count_distinct(orders.id, orders.id)\n",
+            [("PIE-S2104", _TWICE.format(name="orders.id"), 16, 57)],
+        ),
+        (
+            "query q:\n    from orders\n    let c = customers\n"
+            "    inner join c on c.id == orders.customer_id\n    group by c.name\n"
+            "    select name = c.name, n = count_distinct(lower(c.name), c.id)\n",
+            [("PIE-S2315", _TUPLE_FIELDS, 16, 46)],
+        ),
+        (
+            "query q:\n    from orders\n    let s = status\n"
+            "    select n = count_distinct(s, status)\n",
+            [("PIE-S2104", _TWICE.format(name="status"), 14, 34)],
+        ),
+        (
+            "query q:\n    from orders\n    let s = lower(status)\n"
+            "    group by customer_id\n"
+            "    select customer_id, n = count_distinct(id, s)\n",
+            [("PIE-S2315", _TUPLE_FIELDS, 15, 48)],
+        ),
+    ],
+    ids=[
+        "grouped_let",
+        "ungrouped",
+        "joined",
+        "repeated",
+        "qualified_repeated",
+        "expression",
+        "joined_repeated",
+        "joined_expression",
+        "let_repeated",
+        "computed_let",
+    ],
+)
+def test_project_check_refuses_a_count_distinct_tuple_as_a_file_does(
+    tmp_path, capsys, body, expected
+):
+    """`count_distinct(a, b, ...)` of two or more different direct fields
+    checks alike in a project and a single file, also over JOIN rows and
+    through a `let:` name, which reads its value."""
+    from pietto import cli
+
+    (tmp_path / "pietto.toml").write_text(
+        'schema_version = 2\n[sources]\ninclude = ["*.pietto"]\n'
+    )
+    (tmp_path / "main.pietto").write_text(_STRING_AGG_HEAD + body)
+    found = []
+    for argv in (
+        ["check", "--project", str(tmp_path), "--format", "json"],
+        ["check", str(tmp_path / "main.pietto"), "--format", "json"],
+    ):
+        code = cli.main(argv)
+        found.append(
+            (
+                code,
+                [
+                    (
+                        d["code"],
+                        d["message"],
+                        d["location"]["line"],
+                        d["location"]["column"],
+                    )
+                    for d in json.loads(capsys.readouterr().out)["diagnostics"]
+                ],
+            )
+        )
+    assert found == [(1 if expected else 0, expected)] * 2
+
+
+def test_a_legacy_flat_project_refuses_a_count_distinct_tuple(tmp_path, capsys):
+    """A schema_version = 1 project has no `count_distinct` of several
+    columns: PIE-S2334 at the call, with the schema_version = 2 remedy."""
+    from pietto import cli
+
+    (tmp_path / "pietto.toml").write_text(
+        'schema_version = 1\n[sources]\ninclude = ["*.pietto"]\n'
+    )
+    (tmp_path / "main.pietto").write_text(
+        _STRING_AGG_HEAD + "query q:\n    from orders\n    group by customer_id\n"
+        "    select customer_id, n = count_distinct(status, status)\n"
+    )
+    assert cli.main(["check", "--project", str(tmp_path), "--format", "json"]) == 1
+    assert [
+        (d["code"], d["message"], d["location"]["line"], d["location"]["column"])
+        for d in json.loads(capsys.readouterr().out)["diagnostics"]
+    ] == [
+        (
+            "PIE-S2334",
+            "count_distinct(a, b, ...): a schema_version = 1 project has no "
+            "count_distinct of several columns in the current syntax; set "
+            "schema_version = 2 to check it.",
+            14,
+            29,
+        )
+    ]
+
+
 _BAD_LIMIT = "Limit must be a static integer from 0 to 9223372036854775807"
 _GROUPING_HEAD = """shape Item:
     id: Int

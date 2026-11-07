@@ -88,6 +88,10 @@ def test_semantic_context_and_modifier_like_argument_boundaries_are_locked() -> 
     assert _semantic_error_codes(_aggregate_projection("value = sum(amount, tax)")) == [
         "PIE-S2309"
     ]
-    assert _semantic_error_codes(
-        _aggregate_projection("value = count_distinct(customer_id, status)")
-    ) == ["PIE-S2309"]
+    # The distinct count of several columns is `count_distinct(a, b)` itself.
+    assert (
+        _semantic_error_codes(
+            _aggregate_projection("value = count_distinct(customer_id, status)")
+        )
+        == []
+    )

@@ -1617,6 +1617,57 @@ or `pstdev` (one input); such bundles carry the Phase73 version marks `(7, 1,
 aggregate `spelling` `VAR_POP` and the blocker details listed above; no new
 `ranges` role.
 
+### Distinct count of several columns: `count_distinct(a, b, ...)`
+
+- `count_distinct(a, b, ...)` is the number of distinct tuples of two or more
+  different direct fields (or `let:` names of fields) among the rows in which
+  none of them is None: an `Int`, never None, 0 for no such row, with each
+  field compared as `count_distinct(x)` compares it (`-0.0` = `0.0`, `Decimal`
+  `1.0` = `1.00`). Single file and `schema_version = 2` project on PostgreSQL
+  (`COUNT(DISTINCT CASE WHEN a IS NOT NULL AND b IS NOT NULL THEN ROW(a, b)
+  END)`), also over JOIN rows, carried through compiled bundles and live
+  templates. Single-file MySQL emits `COUNT(DISTINCT a, b)`, `Float` fields
+  included, after a two-database differential (PostgreSQL 18.6, MySQL 8.4.12)
+  of tuples with None members, `Decimal` scales, signed zeros and NO PAD Text
+  matched the expected counts on both databases.
+- **New diagnostics** (codes unchanged; new texts; hint = JSON `suggestion`
+  where marked):
+
+| Program | Code, position | Exact text |
+| --- | --- | --- |
+| `count_distinct(a, a)` (also `count_distinct(a, b, a)`, a `let:` name of `a`, or `a` beside `t.a` with `t` its binding: `count_distinct(pot, sales.pot)`) | PIE-S2104 at the repeated argument (the field named as first written; an unknown or ambiguous read is its own error alone) | ``Invalid arguments for aggregate count_distinct: a is written twice; write `count_distinct(a)` `` (two arguments) or `...; write each column once` (three or more); hint = suggestion |
+| `count_distinct(lower(a), b)`, `count_distinct(a, None)`, a computed `let:` argument | PIE-S2315 at that argument | `Aggregate function count_distinct of several columns requires a direct field for each argument; expression arguments are not supported` |
+| a field of a type `count_distinct(x)` refuses (enum, Json, Bytes, Any) | PIE-S2314 at that argument | `Aggregate function count_distinct expects Bool, Int, Float, Decimal, Text, Date, Timestamp, or UUID field argument, got NAME` (NAME: the type an alias expands to) |
+| MySQL project | PIE-B1003 at the select item, detail `count_distinct_tuple_not_admitted_on_target` | suggestion `Emit this count_distinct of several columns for PostgreSQL, or keep it in check/plan: a project's MySQL emission has no COUNT(DISTINCT a, b) yet (a single file emits it).` |
+| `schema_version = 1` project | PIE-S2334 at the call | `count_distinct(a, b, ...): a schema_version = 1 project has no count_distinct of several columns in the current syntax; set schema_version = 2 to check it.` |
+
+Changed diagnostics of programs refused before:
+
+| Program | Before | After |
+| --- | --- | --- |
+| `count_distinct(a, b)` | PIE-S2309 `Aggregate function count_distinct expects 1 arguments, got 2` (single file, project, `schema_version = 1`) | admitted, or one refusal above (in `schema_version = 1`: PIE-S2334) |
+| `count_distinct()` | PIE-S2309 `Aggregate function count_distinct expects 1 arguments, got 0` | PIE-S2309 `Aggregate function count_distinct expects at least 1 argument, got 0` (same code and span) |
+| `count_distinct(lower(a), trim(a))` | PIE-S2309 | PIE-S2315 at `lower(a)` |
+| `nunique(x)`, `n_unique(x)` (any case) | PIE-S2103 `Unknown function: nunique` (+ PIE-S2319 where grouped) | same code, span and order; message gains ``; write `count_distinct(x)`, which does not count None (polars `n_unique` counts null as a value; pandas `nunique()` skips it by default); for several columns `count_distinct(a, b)` ``, also the JSON `suggestion` |
+| `count(distinct a, b)` | PIE-P1000 ``Unexpected 'a'. Write `count_distinct(x)` for COUNT(DISTINCT x).`` | same code and position: ``Unexpected 'a'. Write `count_distinct(x)` for COUNT(DISTINCT x), or `count_distinct(x, y)` for several columns.`` (also `count(distinct a)`) |
+| `count_distinct((a, b))`, `len(set((o.a, o.b) for o in group))` (a parenthesized `a`/`o.a` and more as the argument of `count_distinct` or `set`) | PIE-P1000 ``Unexpected ','.`` | same code and position: ``Unexpected ','. Write `count_distinct(a, b)` for the distinct combinations of several columns.`` (message only, as every PIE-P1000 hint) |
+| `set(x)` (any case; `len(set(x))`) | PIE-S2103 `Unknown function: set` | same code and span: ``Unknown function: set; write `count_distinct(a, b)` for the number of distinct combinations of several columns, `count_distinct(x)` for one``, the hint also the JSON `suggestion` |
+
+No accepted program changes: every program accepted before keeps its result
+and bytes; `count_distinct` was already a reserved built-in name, and
+`nunique` and `n_unique` stay ordinary names (a `def nunique` keeps working).
+`count_distinct(x)` is unchanged (bytes, types, the `lower`/`trim` chain), and
+so is `count_distinct(a, b) window(...)` (PIE-S2103 `Aggregate window
+functions are not implemented: count_distinct`). Semantic Metadata Artifact v1
+does not list the tuple count, as it lists no `stddev`.
+
+Formats: a compiled `aggregate_value` record may name `count_distinct_tuple`
+(every field an input; no record shape change); such bundles carry the Phase73
+version marks `(7, 1, 7, 1)`, and a reader of earlier marks refuses them.
+Project JSON v2 gains the provenance `function` `count_distinct_tuple` and the
+`ranges` syntax roles `aggregate_tuple_open`, `aggregate_tuple_and`,
+`aggregate_tuple_then` and `aggregate_tuple_close`.
+
 ## Equality, nullability and asof JOIN public alpha release notes — 0.1.9
 
 <a id="unreleased-changes-following-018"></a>

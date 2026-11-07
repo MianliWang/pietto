@@ -583,7 +583,8 @@ PRESENTATION_CASES = {
             (
                 9,
                 31,
-                "Unexpected 'a'. Write `count_distinct(x)` for COUNT(DISTINCT x).",
+                "Unexpected 'a'. Write `count_distinct(x)` for COUNT(DISTINCT x), "
+                "or `count_distinct(x, y)` for several columns.",
             ),
             (
                 12,
@@ -601,6 +602,26 @@ PRESENTATION_CASES = {
                 18,
                 "Unexpected 'as'; expected ',' or end of line. Name a select output with "
                 "`name = expression`.",
+            ),
+        ],
+    ),
+    "count_distinct_of_a_tuple": (
+        _query(
+            "    select n = count_distinct((a, b))\n"
+            "query q2:\n    from r\n    select n = len(set((o.a, o.b) for o in group))\n"
+        ),
+        [
+            (
+                6,
+                33,
+                "Unexpected ','. Write `count_distinct(a, b)` for the distinct "
+                "combinations of several columns.",
+            ),
+            (
+                9,
+                28,
+                "Unexpected ','. Write `count_distinct(a, b)` for the distinct "
+                "combinations of several columns.",
             ),
         ],
     ),

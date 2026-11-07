@@ -1462,6 +1462,10 @@ def verify_description(value: Description) -> None:
                     and len(arguments) == 2
                     and arguments[0].address.kind == "read"
                     and not order_by
+                    # The distinct tuples of two or more fields.
+                    or get("function") == "count_distinct_tuple"
+                    and len(arguments) > 1
+                    and not order_by
                     or get("function")
                     in (
                         "count",
@@ -4546,7 +4550,7 @@ def verify_export(description, artifact, *, guarded=None, refinement=None):
                         if actual.argument is None
                         else 2
                         if actual.function in {"string_agg", "quantile", "filtered_sum"}
-                        else 1
+                        else 1 + len(actual.extra_arguments)
                     )
                     and len(value.get("order_by")) == len(actual.order_by),
                     "EXPORT_AGGREGATE",
@@ -4559,6 +4563,10 @@ def verify_export(description, artifact, *, guarded=None, refinement=None):
                     check_scalar(
                         value.get("arguments")[1], actual.delimiter, producer, use
                     )
+                for address, extra in zip(
+                    value.get("arguments")[1:], actual.extra_arguments
+                ):
+                    check_scalar(address, extra, producer, use)
                 for order, address in zip(
                     actual.order_by, value.get("order_by"), strict=True
                 ):
@@ -5996,11 +6004,18 @@ def _verify_compiled_emission(artifact, request):
                         if column.argument is None
                         else 2
                         if function in {"string_agg", "quantile", "filtered_sum"}
-                        else 1
+                        else 1 + len(column.extra_arguments)
                     )
                     and len(order_by) == len(column.order_by),
                     "EMISSION_AGGREGATE_ARGUMENT",
                 )
+                for address, extra in zip(arguments[1:], column.extra_arguments):
+                    scalar(extra, address, producer, use)
+                    need(
+                        grouping.argument_problem(function, extra, request.family)
+                        is None,
+                        "EMISSION_AGGREGATE_ARGUMENT",
+                    )
                 if arguments:
                     scalar(column.argument, arguments[0], producer, use)
                     need(
@@ -6049,7 +6064,11 @@ def _verify_compiled_emission(artifact, request):
                 expected_inputs = (
                     tuple(
                         terminal
-                        for current in (column.argument, column.delimiter)
+                        for current in (
+                            column.argument,
+                            column.delimiter,
+                            *column.extra_arguments,
+                        )
                         if current is not None
                         for terminal in grouping._input_terminals(current)
                     )

@@ -1841,6 +1841,7 @@ class _Check:
                 "quantile": "PERCENTILE_CONT",
                 "filtered_count": "COUNT",
                 "filtered_sum": "SUM",
+                "count_distinct_tuple": "COUNT",
             }.get(column["function"])
             _require(
                 expected is not None and column["spelling"] == expected,
@@ -1988,11 +1989,30 @@ class _Check:
                     ),
                     "quantile shape",
                 )
+            elif column["function"] == "count_distinct_tuple":
+                # PostgreSQL only: two or more established direct fields,
+                # counted DISTINCT as one anonymous record.
+                _require(
+                    family == "postgres"
+                    and column["distinct"] is True
+                    and column["argument"] is not None
+                    and column["argument"].kind == "sql_stage_reference"
+                    and bool(column["extra_arguments"])
+                    and all(
+                        member.kind == "sql_stage_reference"
+                        for member in column["extra_arguments"]
+                    )
+                    and column["delimiter"] is None
+                    and not column["order_by"],
+                    "count_distinct_tuple shape",
+                )
             else:
                 _require(
                     column["delimiter"] is None and not column["order_by"],
                     "aggregate extra inputs",
                 )
+            if column["function"] != "count_distinct_tuple":
+                _require(not column["extra_arguments"], "aggregate extra arguments")
         for ref in doc.all("sql_unary"):
             _require(doc[ref]["operator"] in ("+", "-"), "unary operator")
         for ref in doc.all("sql_anchor"):
@@ -2861,6 +2881,21 @@ class _Tokens:
                 _require(
                     aggregate_tokens == expected,
                     "string_agg token sequence",
+                )
+            elif column["function"] == "count_distinct_tuple":
+                count = 1 + len(column["extra_arguments"])
+                expected = [
+                    ("aggregate_open", "COUNT("),
+                    ("aggregate_distinct", "DISTINCT "),
+                    ("aggregate_tuple_open", "CASE WHEN "),
+                    *[("aggregate_tuple_and", " IS NOT NULL AND ")] * (count - 1),
+                    ("aggregate_tuple_then", " IS NOT NULL THEN ROW("),
+                    *[("aggregate_separator", ", ")] * (count - 1),
+                    ("aggregate_tuple_close", ") END"),
+                    ("aggregate_close", ")"),
+                ]
+                _require(
+                    aggregate_tokens == expected, "count_distinct_tuple token sequence"
                 )
             elif column["function"] in {"median", "quantile"}:
                 expected = [("aggregate_open", "PERCENTILE_CONT(")]
@@ -3767,7 +3802,12 @@ class _ProvenIntRanges:
 
     def aggregate(self, column: Mapping[str, Any]) -> tuple[int, int] | object:
         function = column["function"]
-        if function in {"count", "count_distinct", "filtered_count"}:
+        if function in {
+            "count",
+            "count_distinct",
+            "count_distinct_tuple",
+            "filtered_count",
+        }:
             return 0, _I64_MAX
         if function == "filtered_sum":
             return _I64_MIN, _I64_MAX
@@ -4318,6 +4358,8 @@ class _Requirements:
                     self.value(item["argument"])
                 if item["delimiter"] is not None:
                     self.value(item["delimiter"])
+                for extra in item["extra_arguments"]:
+                    self.value(extra)
                 for order in item["order_by"]:
                     self.value(doc[order]["value"])
             elif kind == "aggregate_projection_column":

@@ -512,6 +512,10 @@ class ProjectJoinedAggregateOccurrence:
         hash=False,
     )
     field_dependencies: tuple[ProjectJoinedAggregateFieldDependency, ...] = ()
+    # The analyses of a distinct-tuple count's second and later fields.
+    extra_argument_analyses: tuple[ProjectConcreteJoinedNamespaceExpression, ...] = (
+        field(default=(), repr=False, compare=False, hash=False)
+    )
     result_value_type: ValueType
 
     def __post_init__(self) -> None:
@@ -545,6 +549,18 @@ class ProjectJoinedAggregateOccurrence:
                 raise ValueError("Aggregate argument requires exact namespace typing.")
         elif self.argument_analysis is not None or self.field_dependencies:
             raise ValueError("Zero-argument aggregate has no argument dependency.")
+        extra_arguments = (
+            self.call.arguments[1:]
+            if semantic_aggregates.is_count_distinct_tuple(self.call)
+            else ()
+        )
+        if len(self.extra_argument_analyses) != len(extra_arguments) or any(
+            type(analysis) is not ProjectConcreteJoinedNamespaceExpression
+            or analysis.expression is not argument
+            or analysis.namespace is not self.input_filter.namespace
+            for analysis, argument in zip(self.extra_argument_analyses, extra_arguments)
+        ):
+            raise ValueError("Distinct-tuple fields require exact namespace typing.")
         if any(
             type(dependency) is not ProjectJoinedAggregateFieldDependency
             or dependency.input_filter is not self.input_filter
@@ -980,6 +996,14 @@ def _aggregate_attempt(
             diagnostics=(order_diagnostic,),
         )
 
+    if semantic_aggregates.is_count_distinct_tuple(expression):
+        return _tuple_aggregate_attempt(
+            input_filter=input_filter,
+            selected_output_ordinal=selected_output_ordinal,
+            item=item,
+            expression=expression,
+        )
+
     argument_analysis: ProjectConcreteJoinedNamespaceExpression | None = None
     dependencies: tuple[ProjectJoinedAggregateFieldDependency, ...] = ()
     argument_type: ValueType | None = None
@@ -1136,6 +1160,82 @@ def _aggregate_attempt(
         argument_analysis=argument_analysis,
         field_dependencies=dependencies,
         result_value_type=result_type,
+    )
+
+
+def _tuple_aggregate_attempt(
+    *,
+    input_filter: ProjectConcreteJoinedRowFilter,
+    selected_output_ordinal: int,
+    item: SelectItem,
+    expression: CallExpr,
+) -> ProjectJoinedAggregateOccurrence | ProjectJoinedAggregateIssue:
+    """`count_distinct(a, b, ...)` over JOIN rows: each argument is a direct
+    field of one input, typed in the joined namespace; its evidence is the
+    first field's, typing every field, and the other fields keep their own
+    analyses."""
+
+    analyses = tuple(
+        analyze_project_joined_namespace_expression(input_filter.namespace, argument)
+        for argument in expression.arguments
+    )
+    for analysis in analyses:
+        if type(analysis) is ProjectNonConcreteJoinedNamespaceExpression:
+            return ProjectJoinedAggregateIssue(
+                input_filter=input_filter,
+                selected_output_ordinal=selected_output_ordinal,
+                item=item,
+                kind=ProjectJoinedAggregateIssueKind.ARGUMENT_NON_CONCRETE,
+                argument_analysis=analysis,
+                diagnostics=_reference_blocker_diagnostics(analysis),
+            )
+    concrete = tuple(
+        cast(ProjectConcreteJoinedNamespaceExpression, analysis)
+        for analysis in analyses
+    )
+    refusal = semantic_aggregates.count_distinct_tuple_diagnostic(
+        expression,
+        tuple(analysis.value_type for analysis in concrete),
+        let_expansions=_let_expansions(input_filter),
+    )
+    if refusal is not None:
+        return ProjectJoinedAggregateIssue(
+            input_filter=input_filter,
+            selected_output_ordinal=selected_output_ordinal,
+            item=item,
+            kind=ProjectJoinedAggregateIssueKind.WRONG_ARGUMENT_TYPE
+            if refusal.code == "PIE-S2314"
+            else ProjectJoinedAggregateIssueKind.ARGUMENT_EXPRESSION_UNSUPPORTED,
+            argument_analysis=concrete[0],
+            diagnostics=(refusal,),
+        )
+    return ProjectJoinedAggregateOccurrence(
+        input_filter=input_filter,
+        selected_output_ordinal=selected_output_ordinal,
+        item=item,
+        call=expression,
+        function_name=semantic_aggregates.COUNT_DISTINCT_AGGREGATE_NAME,
+        argument_analysis=replace(
+            concrete[0],
+            value_types={
+                node: value_type
+                for analysis in concrete
+                for node, value_type in analysis.value_types.items()
+            },
+        ),
+        field_dependencies=tuple(
+            dependency
+            for analysis in concrete
+            for dependency in _aggregate_dependencies(
+                input_filter=input_filter,
+                selected_output_ordinal=selected_output_ordinal,
+                item=item,
+                expression=analysis.normalized_expression,
+                existence_values=analysis.existence_values,
+            )
+        ),
+        extra_argument_analyses=concrete[1:],
+        result_value_type=semantic_aggregates.COUNT_VALUE_TYPE,
     )
 
 

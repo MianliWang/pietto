@@ -1122,7 +1122,10 @@ def _lower_expr_node(
             )
         if _is_valid_aggregate_projection(expression, semantic_model, value_type):
             return AggregateCallIR(
-                function=callee,
+                # The distinct tuples of several fields have their own identity.
+                function="count_distinct_tuple"
+                if callee == "count_distinct" and len(expression.arguments) > 1
+                else callee,
                 arguments=tuple(
                     _lower_expr_node(
                         argument,
@@ -1493,7 +1496,8 @@ def _aggregate_type_matches_ir(
         )
     elif not expression.arguments:
         expected = semantic_aggregate_result_value_type(function_name)
-    elif len(expression.arguments) == 1:
+    elif len(expression.arguments) == 1 or function_name == "count_distinct":
+        # A `count_distinct` of several fields has the type of one of them.
         argument_type = semantic_model.expression_value_types.get(
             expression.arguments[0]
         )
