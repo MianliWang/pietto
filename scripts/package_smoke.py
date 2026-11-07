@@ -511,6 +511,56 @@ def _run_installed_cli(
     )
 
 
+def _smoke_installed_lsp(
+    command: tuple[str, ...],
+    *,
+    scratch_dir: Path,
+    environment: dict[str, str],
+    version: str,
+) -> None:
+    """One `initialize`, `shutdown`, `exit` round trip of `pietto lsp`."""
+
+    def framed(*messages: dict[str, object]) -> bytes:
+        bodies = [json.dumps(m, separators=(",", ":")).encode() for m in messages]
+        return b"".join(b"Content-Length: %d\r\n\r\n%b" % (len(b), b) for b in bodies)
+
+    arguments = (*command, "lsp", "--stdio")
+    print(f"[package-smoke] installed CLI lsp: {shlex.join(arguments)}", flush=True)
+    try:
+        result = subprocess.run(
+            arguments,
+            input=framed(
+                {"jsonrpc": "2.0", "id": 1, "method": "initialize", "params": {}},
+                {"jsonrpc": "2.0", "id": 2, "method": "shutdown"},
+                {"jsonrpc": "2.0", "method": "exit"},
+            ),
+            cwd=scratch_dir,
+            check=False,
+            capture_output=True,
+            env=environment,
+            timeout=120,
+        )
+    except (OSError, subprocess.TimeoutExpired) as error:
+        raise SmokeFailure(f"installed CLI lsp did not finish: {error}") from error
+    capabilities = {
+        "positionEncoding": "utf-16",
+        "textDocumentSync": {"openClose": True, "change": 1},
+    }
+    expected = framed(
+        {
+            "jsonrpc": "2.0",
+            "id": 1,
+            "result": {
+                "capabilities": capabilities,
+                "serverInfo": {"name": "pietto", "version": version},
+            },
+        },
+        {"jsonrpc": "2.0", "id": 2, "result": None},
+    )
+    if (result.returncode, result.stdout, result.stderr) != (0, expected, b""):
+        raise SmokeFailure("installed CLI lsp round trip is unexpected")
+
+
 def _smoke_installed_cli(
     venv_dir: Path,
     scratch_dir: Path,
@@ -858,6 +908,13 @@ def _smoke_installed_cli(
             raise SmokeFailure(f"installed CLI --help is missing {marker!r}")
     if help_result.stderr:
         raise SmokeFailure("installed CLI --help wrote unexpected stderr")
+
+    _smoke_installed_lsp(
+        (str(cli_path),),
+        scratch_dir=scratch_dir,
+        environment=environment,
+        version=contract.version,
+    )
 
     _run_installed_cli(
         cli_path,

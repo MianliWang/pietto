@@ -1,4 +1,5 @@
-"""Private trusted project-source loading and snapshot facts."""
+"""Private trusted project-source loading and snapshot facts, and the
+editor-buffer sources a project check may read in their place."""
 
 from __future__ import annotations
 
@@ -99,6 +100,60 @@ class ProjectTrustedSourceSnapshot:
         """Return the stable selected-input position."""
 
         return self.selected_input.position
+
+
+@dataclass(frozen=True, slots=True, kw_only=True)
+class ProjectOverlaySource:
+    """Editor-buffer text that a project check reads in place of one selected
+    file. Nothing opened these bytes, so this is never a trusted read:
+    emission, compiled builds and package code refuse it by type."""
+
+    selected_input: ProjectSelectedInputEntry = field(repr=False)
+    source_text: str = field(repr=False)
+
+    def __post_init__(self) -> None:
+        if type(self.selected_input) is not ProjectSelectedInputEntry:
+            raise TypeError("Overlay source requires a selected input.")
+        if type(self.source_text) is not str:
+            raise TypeError("Overlay source text must be a string.")
+
+    @property
+    def byte_count(self) -> int:
+        return len(self.source_text.encode("utf-8"))
+
+    @property
+    def sha256(self) -> str:
+        return hashlib.sha256(self.source_text.encode("utf-8")).hexdigest()
+
+    @property
+    def identity(self) -> ProjectModuleIdentity:
+        return self.selected_input.identity
+
+    @property
+    def path(self) -> str:
+        return self.identity.path
+
+    @property
+    def position(self) -> int:
+        return self.selected_input.position
+
+
+type ProjectSource = ProjectTrustedSourceSnapshot | ProjectOverlaySource
+PROJECT_SOURCE_TYPES = (ProjectTrustedSourceSnapshot, ProjectOverlaySource)
+
+
+def require_trusted_sources(
+    sources: tuple[ProjectSource, ...],
+) -> tuple[ProjectTrustedSourceSnapshot, ...]:
+    """Return `sources` when every one is a trusted read; refuse an editor
+    overlay by type."""
+
+    trusted = tuple(
+        source for source in sources if type(source) is ProjectTrustedSourceSnapshot
+    )
+    if len(trusted) != len(sources):
+        raise TypeError("Project sources must be trusted reads, not editor buffers.")
+    return trusted
 
 
 def _load_trusted_source(

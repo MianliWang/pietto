@@ -38,7 +38,7 @@ from pietto._project.selected_input_index import (
     ProjectSelectedInputEntry,
     ProjectSelectedInputIndex,
 )
-from pietto._project.trusted_source import ProjectTrustedSourceSnapshot
+from pietto._project.trusted_source import PROJECT_SOURCE_TYPES, ProjectSource
 
 __all__: tuple[str, ...] = ()
 
@@ -223,7 +223,7 @@ class ProjectLayeredModuleAsset:
         compare=False,
         hash=False,
     )
-    snapshot: ProjectTrustedSourceSnapshot = field(
+    snapshot: ProjectSource = field(
         repr=False,
         compare=False,
         hash=False,
@@ -252,7 +252,7 @@ class ProjectLayeredModuleAsset:
             raise TypeError("Layered module asset requires a loader-readiness fact.")
         if type(self.selected_input) is not ProjectSelectedInputEntry:
             raise TypeError("Layered module asset requires a selected input entry.")
-        if type(self.snapshot) is not ProjectTrustedSourceSnapshot:
+        if type(self.snapshot) not in PROJECT_SOURCE_TYPES:
             raise TypeError("Layered module asset requires a trusted source snapshot.")
         if self.snapshot.selected_input is not self.selected_input:
             raise ValueError("Layered module asset requires exact selection evidence.")
@@ -463,7 +463,7 @@ class _ProjectLayeredIdentityAuthority:
         compare=False,
         hash=False,
     )
-    trusted_source_snapshots: tuple[ProjectTrustedSourceSnapshot, ...] = field(
+    trusted_source_snapshots: tuple[ProjectSource, ...] = field(
         repr=False,
         compare=False,
         hash=False,
@@ -672,7 +672,7 @@ class ProjectModulePackageNeutralIdentityFactSet:
 
 def _build_project_module_package_neutral_identity_fact_set(
     selected_input_index: ProjectSelectedInputIndex,
-    trusted_source_snapshots: tuple[ProjectTrustedSourceSnapshot, ...],
+    trusted_source_snapshots: tuple[ProjectSource, ...],
     modules: tuple[ProjectLogicalModule, ...],
     catalogs: ProjectModuleCatalogSet,
     attribution: ProjectModuleAttributionFactSet,
@@ -698,7 +698,7 @@ def _build_project_module_package_neutral_identity_fact_set(
 
 def _validate_layered_authority_roots(
     selected_input_index: ProjectSelectedInputIndex,
-    trusted_source_snapshots: tuple[ProjectTrustedSourceSnapshot, ...],
+    trusted_source_snapshots: tuple[ProjectSource, ...],
     modules: tuple[ProjectLogicalModule, ...],
     catalogs: ProjectModuleCatalogSet,
     attribution: ProjectModuleAttributionFactSet,
@@ -710,7 +710,7 @@ def _validate_layered_authority_roots(
         raise TypeError("Layered authority requires an exact selected-input index.")
     _require_tuple(
         trusted_source_snapshots,
-        ProjectTrustedSourceSnapshot,
+        PROJECT_SOURCE_TYPES,
         "Layered authority trusted source snapshots",
     )
     _require_tuple(modules, ProjectLogicalModule, "Layered authority modules")
@@ -810,7 +810,7 @@ def _validate_layered_authority_roots(
 
 def _derive_layered_collections(
     selected_input_index: ProjectSelectedInputIndex,
-    trusted_source_snapshots: tuple[ProjectTrustedSourceSnapshot, ...],
+    trusted_source_snapshots: tuple[ProjectSource, ...],
     modules: tuple[ProjectLogicalModule, ...],
     catalogs: ProjectModuleCatalogSet,
     attribution: ProjectModuleAttributionFactSet,
@@ -856,7 +856,7 @@ def _derive_layered_collections(
             ProjectLogicalModule,
             int,
             ProjectSelectedInputEntry,
-            ProjectTrustedSourceSnapshot,
+            ProjectSource,
             ProjectLayeredLoaderReadinessFact,
         ]
     ] = []
@@ -1048,12 +1048,15 @@ def _is_exact_member(value: object, values: tuple[object, ...]) -> bool:
     return any(value is candidate for candidate in values)
 
 
-def _require_tuple(values: object, item_type: type, label: str) -> None:
-    """Require an exact tuple of one exact item type."""
+def _require_tuple(
+    values: object, item_type: type | tuple[type, ...], label: str
+) -> None:
+    """Require an exact tuple of one exact item type, or of the exact types."""
 
     if type(values) is not tuple:
         raise TypeError(f"{label} must be a tuple.")
-    if any(type(value) is not item_type for value in values):
+    item_types = item_type if type(item_type) is tuple else (item_type,)
+    if any(type(value) not in item_types for value in values):
         raise TypeError(f"{label} must retain exact items.")
 
 

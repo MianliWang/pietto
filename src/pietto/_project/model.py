@@ -29,7 +29,7 @@ from pietto._project.module_carrier import (
 )
 from pietto._project.path_trust import ProjectPinnedRoot
 from pietto._project.selected_input_index import ProjectSelectedInputIndex
-from pietto._project.trusted_source import ProjectTrustedSourceSnapshot
+from pietto._project.trusted_source import ProjectSource
 from pietto.ast_nodes import (
     BetweenExpr,
     BinaryExpr,
@@ -597,7 +597,7 @@ class ProjectParseCheckResult:
     modules: tuple[ProjectLogicalModule, ...] = ()
     pinned_root: ProjectPinnedRoot | None = None
     selected_input_index: ProjectSelectedInputIndex | None = None
-    trusted_source_snapshots: tuple[ProjectTrustedSourceSnapshot, ...] = ()
+    trusted_source_snapshots: tuple[ProjectSource, ...] = ()
     # The facts, with their related locations, of the module diagnostics a
     # check that stops at a query-local naming error reports.
     module_diagnostic_facts: ProjectModuleDiagnosticSet | None = None
@@ -1453,7 +1453,7 @@ class ProjectSemanticResult:
     modules: tuple[ProjectLogicalModule, ...] = ()
     pinned_root: ProjectPinnedRoot | None = None
     selected_input_index: ProjectSelectedInputIndex | None = None
-    trusted_source_snapshots: tuple[ProjectTrustedSourceSnapshot, ...] = ()
+    trusted_source_snapshots: tuple[ProjectSource, ...] = ()
     module_catalogs: ProjectModuleCatalogSet | None = None
     module_exports: ProjectModuleExportSurfaceSet | None = None
     module_bindings: ProjectModuleBindingEnvironmentSet | None = None

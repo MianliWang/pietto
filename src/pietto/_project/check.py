@@ -49,6 +49,8 @@ from pietto._project.path_trust import ProjectPinnedRoot
 from pietto._project.selected_input_index import ProjectSelectedInputEntry
 from pietto._project.source_selection import select_project_sources
 from pietto._project.trusted_source import (
+    ProjectOverlaySource,
+    ProjectSource,
     ProjectTrustedSourceError,
     ProjectTrustedSourceFailure,
     ProjectTrustedSourceSnapshot,
@@ -119,9 +121,13 @@ class ProjectDiagnosticsReport:
     not_checked: tuple[tuple[SourceLocation, str], ...]
 
 
-def check_project_diagnostics(root: str | Path) -> ProjectDiagnosticsReport:
+def check_project_diagnostics(
+    root: str | Path, *, overlays: Mapping[str, str]
+) -> ProjectDiagnosticsReport:
     """Check a project for an editor, past the modules that stop the check.
 
+    Each selected path in `overlays` (project-relative path to editor text)
+    is read from the overlay instead of the disk.
     A pass is the check that `check --project --format json` reports. When an
     explicit-module pass stops, the modules it fails (`_failed_modules`) and
     every module that imports one of them, directly or through other modules,
@@ -135,7 +141,7 @@ def check_project_diagnostics(root: str | Path) -> ProjectDiagnosticsReport:
     error of its own that it imports, directly or through other modules. The
     CLI never calls this."""
 
-    passes = [_check_pass(root, frozenset())]
+    passes = [_check_pass(root, frozenset(), overlays)]
     paths = tuple(item.path for item in passes[0][0].inputs)
     imports: dict[str, tuple[ImportStatement, ...]] = {}
     failed: set[str] = set()
@@ -163,7 +169,7 @@ def check_project_diagnostics(root: str | Path) -> ProjectDiagnosticsReport:
         }
         if failed | blocked >= set(paths):
             break
-        passes.append(_check_pass(root, frozenset(failed | blocked)))
+        passes.append(_check_pass(root, frozenset(failed | blocked), overlays))
     checked = {
         item.path: position
         for position, (parse, _, _, _) in enumerate(passes)
@@ -229,7 +235,7 @@ def check_project_diagnostics(root: str | Path) -> ProjectDiagnosticsReport:
 
 
 def _check_pass(
-    root: str | Path, excluded: frozenset[str]
+    root: str | Path, excluded: frozenset[str], overlays: Mapping[str, str]
 ) -> tuple[
     ProjectParseCheckResult, tuple[Diagnostic, ...], RelatedLocations, frozenset[str]
 ]:
@@ -239,7 +245,7 @@ def _check_pass(
 
     from pietto._project.json_v2 import module_related_locations
 
-    parse = check_project_parse_only(root, exclude=excluded)
+    parse = check_project_parse_only(root, overlays=overlays, exclude=excluded)
     related = module_related_locations(parse)
     explicit = parse.compilation_mode is ProjectCompilationMode.EXPLICIT_MODULES
     if parse.ok:
@@ -356,6 +362,14 @@ def _not_checked(
     )
 
 
+def selected_project_paths(root: str | Path) -> tuple[str, ...]:
+    """The project-relative paths that `check --project` selects at `root`, in
+    input order, without reading them."""
+
+    selection = select_project_sources(root, load_project_config(root))
+    return tuple(item.path for item in selection.inputs)
+
+
 def check_project_semantics(
     parse_result: ProjectParseCheckResult,
 ) -> tuple[tuple[Diagnostic, ...], bool, RelatedLocations]:
@@ -407,12 +421,17 @@ def project_semantic_boundary(
 
 
 def check_project_parse_only(
-    root: str | Path, *, exclude: frozenset[str] = frozenset()
+    root: str | Path,
+    *,
+    overlays: Mapping[str, str] | None = None,
+    exclude: frozenset[str] = frozenset(),
 ) -> ProjectParseCheckResult:
     """Load, select, read, and parse project sources without semantic
-    analysis, leaving out each project-relative path in ``exclude``."""
+    analysis, leaving out each project-relative path in ``exclude``. A
+    selected path in `overlays` is read from that editor text, an untrusted
+    overlay source, instead of the disk."""
 
-    result = _check_project_parse_only(root, exclude)
+    result = _check_project_parse_only(root, overlays or {}, exclude)
     if result.compilation_mode is not ProjectCompilationMode.EXPLICIT_MODULES:
         return result
     from pietto._project.module_bindings import (
@@ -449,7 +468,7 @@ def check_project_parse_only(
 
 
 def _check_project_parse_only(
-    root: str | Path, exclude: frozenset[str]
+    root: str | Path, overlays: Mapping[str, str], exclude: frozenset[str]
 ) -> ProjectParseCheckResult:
     config_result = load_project_config(root)
     selection_result = select_project_sources(root, config_result, exclude=exclude)
@@ -478,7 +497,7 @@ def _check_project_parse_only(
     raw_capture_diagnostics: list[Diagnostic] = []
     raw_parameter_positions: list[Diagnostic] = []
     unadmitted_paths: set[str] = set()
-    trusted_source_snapshots: list[ProjectTrustedSourceSnapshot] = []
+    trusted_source_snapshots: list[ProjectSource] = []
     explicit_modules = (
         selection_result.compilation_mode is ProjectCompilationMode.EXPLICIT_MODULES
     )
@@ -488,7 +507,10 @@ def _check_project_parse_only(
     read: list[_ReadInput | _InputOutcome] = []
     for entry in selected_input_index.entries:
         outcome = _read_selected_input(
-            pinned_root, entry, explicit_modules=explicit_modules
+            pinned_root,
+            entry,
+            overlay=overlays.get(entry.identity.path),
+            explicit_modules=explicit_modules,
         )
         read.append(outcome)
         if type(outcome) is tuple and outcome[3] and outcome[3][0].path is None:
@@ -1212,7 +1234,7 @@ def _inside(location: SourceLocation, span: Span) -> bool:
 _InputOutcome = tuple[
     ProjectInput,
     ProjectParsedInput | None,
-    ProjectTrustedSourceSnapshot | None,
+    ProjectSource | None,
     tuple[ProjectDiscoveryError, ...],
     tuple[Diagnostic, ...],
 ]
@@ -1224,7 +1246,7 @@ class _ReadInput:
     its def calls are inlined."""
 
     entry: ProjectSelectedInputEntry
-    trusted_source: ProjectTrustedSourceSnapshot
+    trusted_source: ProjectSource
     ast: Script
     diagnostics: tuple[Diagnostic, ...]
     script: Script
@@ -1264,9 +1286,14 @@ def _read_selected_input(
     pinned_root: ProjectPinnedRoot,
     selected_input: ProjectSelectedInputEntry,
     *,
+    overlay: str | None = None,
     explicit_modules: bool = False,
 ) -> _ReadInput | _InputOutcome:
-    trusted_source = _read_selected_source(pinned_root, selected_input)
+    trusted_source = (
+        _read_selected_source(pinned_root, selected_input)
+        if overlay is None
+        else _overlay_source(selected_input, overlay)
+    )
     failed = ProjectInput(path=selected_input.identity.path, status=_ERROR_STATUS)
     if isinstance(trusted_source, ProjectDiscoveryError):
         return failed, None, None, (trusted_source,), ()
@@ -1498,6 +1525,26 @@ def _finish_selected_input(
         (),
         diagnostics,
     )
+
+
+def _overlay_source(
+    selected_input: ProjectSelectedInputEntry, text: str
+) -> ProjectOverlaySource | Diagnostic:
+    """Editor text read in place of a selected file, under the file's limit."""
+
+    if len(text.encode("utf-8")) > _PROJECT_SOURCE_UTF8_BYTES:
+        return Diagnostic(
+            code="PIE-P1006",
+            severity=Severity.ERROR,
+            message=(
+                "Source exceeds the maximum supported size of "
+                f"{_PROJECT_SOURCE_UTF8_BYTES} UTF-8 bytes."
+            ),
+            location=SourceLocation(
+                path=selected_input.identity.path, line=1, column=1
+            ),
+        )
+    return ProjectOverlaySource(selected_input=selected_input, source_text=text)
 
 
 def read_explicit_module_sources(

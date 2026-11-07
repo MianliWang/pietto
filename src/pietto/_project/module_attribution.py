@@ -81,7 +81,7 @@ from pietto._project.module_semantic_fact_preservation import (
     ProjectModuleSemanticFactSet,
 )
 from pietto._project.selected_input_index import ProjectSelectedInputIndex
-from pietto._project.trusted_source import ProjectTrustedSourceSnapshot
+from pietto._project.trusted_source import PROJECT_SOURCE_TYPES, ProjectSource
 from pietto.ast_nodes import (
     DottedNameExpr,
     FromClause,
@@ -811,7 +811,7 @@ class _ProjectModuleAttributionAuthority:
         compare=False,
         hash=False,
     )
-    trusted_source_snapshots: tuple[ProjectTrustedSourceSnapshot, ...] = field(
+    trusted_source_snapshots: tuple[ProjectSource, ...] = field(
         repr=False,
         compare=False,
         hash=False,
@@ -1404,7 +1404,7 @@ def _derive_project_module_attribution_fact_collections(
     parse_result: ProjectParseCheckResult,
     modules: tuple[ProjectLogicalModule, ...],
     selected_input_index: ProjectSelectedInputIndex,
-    trusted_source_snapshots: tuple[ProjectTrustedSourceSnapshot, ...],
+    trusted_source_snapshots: tuple[ProjectSource, ...],
     catalogs: ProjectModuleCatalogSet,
     exports: ProjectModuleExportSurfaceSet,
     bindings: ProjectModuleBindingEnvironmentSet,
@@ -1718,7 +1718,7 @@ def _build_project_module_attribution_fact_set(
     parse_result: ProjectParseCheckResult,
     modules: tuple[ProjectLogicalModule, ...],
     selected_input_index: ProjectSelectedInputIndex,
-    trusted_source_snapshots: tuple[ProjectTrustedSourceSnapshot, ...],
+    trusted_source_snapshots: tuple[ProjectSource, ...],
     catalogs: ProjectModuleCatalogSet,
     exports: ProjectModuleExportSurfaceSet,
     bindings: ProjectModuleBindingEnvironmentSet,
@@ -2425,7 +2425,7 @@ def _validate_builder_inputs(
     parse_result: ProjectParseCheckResult,
     modules: tuple[ProjectLogicalModule, ...],
     selected_input_index: ProjectSelectedInputIndex,
-    trusted_source_snapshots: tuple[ProjectTrustedSourceSnapshot, ...],
+    trusted_source_snapshots: tuple[ProjectSource, ...],
     catalogs: ProjectModuleCatalogSet,
     exports: ProjectModuleExportSurfaceSet,
     bindings: ProjectModuleBindingEnvironmentSet,
@@ -2444,7 +2444,7 @@ def _validate_builder_inputs(
     if type(selected_input_index) is not ProjectSelectedInputIndex:
         raise TypeError("Attribution builder requires an exact selected-input index.")
     if type(trusted_source_snapshots) is not tuple or any(
-        type(snapshot) is not ProjectTrustedSourceSnapshot
+        type(snapshot) not in PROJECT_SOURCE_TYPES
         for snapshot in trusted_source_snapshots
     ):
         raise TypeError("Attribution builder requires a trusted-source tuple.")

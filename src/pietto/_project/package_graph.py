@@ -95,6 +95,7 @@ from pietto._project.package_manifest import (
     _is_valid_content_digest_pin,
 )
 from pietto._project.row_dependency_graph import ProjectRowDependencyNodeKind
+from pietto._project.trusted_source import require_trusted_sources
 from pietto._project.window_semantics import (
     WindowDependencyOccurrence,
     WindowDependencyRole,
@@ -2444,6 +2445,7 @@ def _build_semantic_lineage_projection(
             raise ValueError(
                 "Semantic authority must cover every package module occurrence."
             )
+        require_trusted_sources(tuple(a.snapshot for a in authority.module_assets))
         for module, asset in zip(package_modules, authority.module_assets, strict=True):
             source_bytes = asset.snapshot.source_text.encode("utf-8")
             if (

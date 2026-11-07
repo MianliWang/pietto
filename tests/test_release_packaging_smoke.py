@@ -173,6 +173,20 @@ def test_installed_cli_uses_console_executable_and_reviewed_comparisons() -> Non
     assert "actual_mysql != expected_mysql" in source
 
 
+def test_installed_lsp_smoke_requires_the_exact_round_trip(tmp_path: Path) -> None:
+    def round_trip(program: str) -> None:
+        smoke._smoke_installed_lsp(
+            (sys.executable, "-c", program),
+            scratch_dir=tmp_path,
+            environment=smoke._clean_environment(),
+            version=cli._package_version(),
+        )
+
+    round_trip("import sys; from pietto.cli import main; sys.exit(main(sys.argv[1:]))")
+    with pytest.raises(smoke.SmokeFailure, match="lsp round trip is unexpected"):
+        round_trip("pass")
+
+
 def test_smoke_pietto_sources_check_cleanly_in_the_modern_syntax(
     tmp_path: Path,
     capsys: pytest.CaptureFixture[str],

@@ -19,6 +19,7 @@ from pietto._project.project_sql_emission_scopes import (
     reference_source_ports,
 )
 from pietto._project.model import ProjectResolvedTypeKind
+from pietto._project.trusted_source import require_trusted_sources
 from pietto._project.project_query_block_ir import ProjectIRReusedEffectiveOutput
 from pietto.semantic.analyzer import _decimal_precision_scale_fact
 from pietto.semantic.capability_profiles import (
@@ -511,6 +512,9 @@ def prepare_project_sql_emission(
     unavailable = None
     view = None
     try:
+        require_trusted_sources(
+            verification.completed.semantic_result.trusted_source_snapshots
+        )
         plans._require_roots(
             verification.completed,
             verification.analysis_bundle,

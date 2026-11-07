@@ -374,6 +374,11 @@ It is product content identity, not governance hashing. Module/package layers
 may derive private identity and lookup facts from it without reopening the
 source or treating equal rendered text as equal authority.
 
+An editor's unsaved buffer is not a trusted read. [`pietto lsp`](editor-lsp.md)
+checks the buffer of a selected file in place of the file, only to report
+diagnostics; emission, compiled builds and package code refuse buffer text by
+type.
+
 ## Modules
 
 Each selected explicit-module input has a stable logical module identity and a

@@ -429,7 +429,8 @@ def _project(tmp_path: Path, files: Mapping[str, str | bytes]) -> Path:
         if isinstance(text, bytes):
             (root / path).write_bytes(text)
         else:
-            (root / path).write_text(text, encoding="utf-8")
+            # Byte-exact on every platform, as the tests compare the texts read.
+            (root / path).write_text(text, encoding="utf-8", newline="\n")
     return root
 
 
@@ -449,12 +450,17 @@ def _partial(
     excluded: list[set[str]] = []
     parse_only = project_check.check_project_parse_only
 
-    def recorded(root: Path, *, exclude: frozenset[str] = frozenset()) -> object:
+    def recorded(
+        root: Path,
+        *,
+        overlays: Mapping[str, str] | None = None,
+        exclude: frozenset[str] = frozenset(),
+    ) -> object:
         excluded.append(set(exclude))
-        return parse_only(root, exclude=exclude)
+        return parse_only(root, overlays=overlays, exclude=exclude)
 
     monkeypatch.setattr(project_check, "check_project_parse_only", recorded)
-    report = check_project_diagnostics(root)
+    report = check_project_diagnostics(root, overlays={})
     monkeypatch.undo()
     return report, excluded
 

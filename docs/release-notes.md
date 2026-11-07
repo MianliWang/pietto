@@ -1898,8 +1898,8 @@ them.
 
 These are the Phase75 items: relation columns from
 `explain --project`, the Python compile API, `fmt --project`, the
-refusal of header lines, the batch form in `emit-sql --help` and a
-capabilities page.
+refusal of header lines, the batch form in `emit-sql --help`, a
+capabilities page and editor diagnostics with `pietto lsp`.
 
 #### `explain --project` lists relation columns (alpha)
 
@@ -2109,6 +2109,37 @@ capabilities page.
   with the release note or reference section that states it. README and the language reference
   link it.
 - No refusal, diagnostic or SQL changes.
+
+#### Editor diagnostics: `pietto lsp` (alpha)
+
+- New command `pietto lsp` (`pietto lsp --stdio` is the same): a language
+  server on standard input and output that pushes the diagnostics of the
+  `check` stage to an editor, and does nothing else. It uses full document
+  sync, UTF-16 positions and document versions, and drops a result that a
+  newer edit made stale. Contract and VS Code steps:
+  [editor diagnostics](editor-lsp.md).
+- Project roots come only from the `projectRoots` initialization option, a
+  list of absolute paths of distinct directories; without the option there
+  are none, and any other value, two spellings of one directory included, is
+  refused with the JSON-RPC error `-32602`. Every module that a root selects
+  is published, open or not, and an open file is checked from its unsaved
+  buffer. Any other open file is checked like `pietto check FILE`.
+- In a `schema_version = 2` project, a module that stops the project check,
+  and every module that imports it, is left out and the other modules are
+  checked again, in at most five passes. The module that stopped the check
+  shows its own errors. A module left out because of what it imports, or an
+  import-cycle member without an error of its own, gets one Information
+  diagnostic at its import instead: `Not checked: this module imports
+  <file>, which has errors.` A root of another schema version, and
+  `pietto check --project`, stay all or nothing.
+- The server's own messages have no `PIE-` code: two roots select one file,
+  one file is open under two URIs, two selected names differ only in letter
+  case, a module was not checked, and a partial change. No diagnostic code
+  changes, and backend refusals (`PIE-B...`) stay in `pietto emit-sql`.
+- An editor buffer is not a trusted read: `emit-sql --project`, compiled
+  builds and packages refuse buffer text by type.
+- Compatibility: `pietto --help` lists `lsp` after `fmt`. No other command,
+  CLI JSON document or compiled record changes.
 
 ## Equality, nullability and asof JOIN public alpha release notes — 0.1.9
 

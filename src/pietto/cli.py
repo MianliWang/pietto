@@ -246,6 +246,10 @@ def _main(argv: Sequence[str] | None = None) -> int:
             "pietto fmt: error: --project needs --check or --write\n"
         )
         return _EXIT_USAGE_ERROR
+    if namespace.command == "lsp":
+        from pietto._lsp import serve
+
+        return serve(sys.stdin.buffer, sys.stdout.buffer, version=_package_version())
     return 0
 
 
@@ -343,6 +347,13 @@ def _build_parser() -> argparse.ArgumentParser:
     )
     fmt_mode.add_argument(
         "--write", action="store_true", help="replace each file that is not formatted"
+    )
+    lsp_parser = subparsers.add_parser(
+        "lsp",
+        help="serve editor diagnostics over the Language Server Protocol (alpha)",
+    )
+    lsp_parser.add_argument(
+        "--stdio", action="store_true", help="accepted; stdio is the only transport"
     )
     return parser
 

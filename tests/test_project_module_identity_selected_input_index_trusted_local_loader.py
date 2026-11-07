@@ -637,6 +637,7 @@ def test_regular_selected_source_builds_trusted_snapshot_and_exact_digest(
     assert result.ok
     assert len(result.trusted_source_snapshots) == 1
     snapshot = result.trusted_source_snapshots[0]
+    assert type(snapshot) is ProjectTrustedSourceSnapshot
     entry = _required_index(result).entries[0]
     assert snapshot.selected_input is entry
     assert snapshot.identity == ProjectModuleIdentity(path="row.pietto")

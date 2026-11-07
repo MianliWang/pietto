@@ -917,8 +917,9 @@ fails, the JSON result may retain the complete ordered artifacts while
 reporting `ok: false`, the relevant CLI error, and `"written": false`. Those
 artifacts are complete compiler output, not a partial project compile.
 
-Best-effort partial semantic analysis for editor/LSP use is a separate future
-contract and does not weaken CLI project behavior.
+Best-effort partial semantic analysis for editor use is part of the alpha
+[`pietto lsp`](../editor-lsp.md) contract and does not weaken CLI project
+behavior.
 
 ## `ok` Semantics
 

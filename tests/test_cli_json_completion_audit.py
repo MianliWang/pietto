@@ -535,6 +535,7 @@ def test_phase_6_cli_subcommands_and_compiler_wrappers_are_exact(
         "explain",
         "migrate",
         "fmt",
+        "lsp",
     ]
 
 

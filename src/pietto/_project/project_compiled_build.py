@@ -28,6 +28,7 @@ from pietto._project.project_compiled_verification import (
     verify_description,
 )
 from pietto._project.model import CompiledProjectInput
+from pietto._project.trusted_source import require_trusted_sources
 from pietto._project.project_sql_emission_contract import BoundSource
 from pietto._project import project_sql_emission_ast as sql
 from pietto._project import project_sql_emission_parameters as parameters
@@ -98,7 +99,8 @@ class _Export:
         self.compatibility = supported_compatibility()
         parsed = self.request.verification.completed.semantic_result.module_attribution_facts._authority.parse_result
         origins = tuple(
-            (s.position, s.path, s.sha256) for s in parsed.trusted_source_snapshots
+            (s.position, s.path, s.sha256)
+            for s in require_trusted_sources(parsed.trusted_source_snapshots)
         )
         identity = json.dumps(
             (self.compatibility, origins), separators=(",", ":")
