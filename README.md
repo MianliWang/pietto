@@ -236,6 +236,10 @@ earlier row. See
 `emit-sql` prints SQL for you to run yourself; to run a query of a project
 from Python and get its rows, see the
 [execution documentation](https://github.com/MianliWang/pietto/blob/v0.1.9/docs/execution.md).
+From Python, `pietto.compiler.compile_sql(...)` and `compile_all_sql(...)`
+return the same `emit-sql --project ... --format json` document as bytes,
+without a subprocess (alpha; see
+[Getting project SQL from Python](https://github.com/MianliWang/pietto/blob/main/docs/project-package.md#getting-project-sql-from-python)).
 
 ## Reusable row predicates and migration
 

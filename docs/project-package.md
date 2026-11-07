@@ -648,6 +648,28 @@ BLOCKED with the same detail because MySQL's deduplicating hash kept them
 apart beside a wide key. A window `percent_rank`/`cume_dist` result keeps
 UNION ALL only on both targets.
 
+### Getting project SQL from Python
+
+`pietto.compiler` returns the same JSON document without a subprocess
+(alpha, see the [Python compile API](spec/python-compile-api-v1.md)):
+
+```python
+import json
+from pietto.compiler import compile_sql
+
+emission = compile_sql("shop", module="models/queries.pietto", kind="query",
+                       name="orders", dialect="postgres",
+                       emission_contract="contract.json")
+if emission.status == "VERIFIED":
+    sql = json.loads(emission.document)["sql"]
+```
+
+`emission.document` is byte for byte what `emit-sql --project ... --format json`
+prints for the same arguments, and `emission.status` is its `status`.
+`compile_all_sql(...)` is `--all`, with optional `module`, `kind` and `name`
+selectors. Only a wrong Python argument type raises `TypeError`; rejected
+values, absent selectors, BLOCKED and the batch limit are returned documents.
+
 ### Emission contract values
 
 The contract `target` is `{"family": "postgres", "release": "18.6"}` or

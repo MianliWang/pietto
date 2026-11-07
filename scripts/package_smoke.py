@@ -220,6 +220,7 @@ def _required_runtime_files(prefix: str) -> frozenset[str]:
     required = {
         f"{prefix}/__init__.py",
         f"{prefix}/cli.py",
+        f"{prefix}/compiler.py",
         f"{prefix}/_batch_output.py",
         f"{prefix}/parser_api.py",
         f"{prefix}/execution/__init__.py",

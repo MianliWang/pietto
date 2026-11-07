@@ -1890,7 +1890,7 @@ them.
 ### Phase75
 
 These are the Phase75 items: relation columns from
-`explain --project`.
+`explain --project` and the Python compile API.
 
 #### `explain --project` lists relation columns (alpha)
 
@@ -1946,6 +1946,32 @@ These are the Phase75 items: relation columns from
   `project_path` with `Project source path must be valid UTF-8 to list
   relation columns: "<escaped path>"; rename it.` (`path: null`).
 - No diagnostic code or compiled record changes.
+
+#### Python: project SQL without a subprocess (alpha)
+
+- New module `pietto.compiler` with `compile_sql(project, *, module, kind,
+  name, dialect, emission_contract, literal_policy="preserve")`,
+  `compile_all_sql(project, *, dialect, emission_contract, module=None,
+  kind=None, name=None, literal_policy="preserve")` and the frozen result
+  `SqlEmission(status, document)`. `document` is byte for byte the stdout of
+  `pietto emit-sql --project ... --format json` with the same arguments
+  (`--all` for `compile_all_sql`, with only the selectors that are not
+  `None`), and `status` is its top-level `status` (`VERIFIED`, `BLOCKED` or
+  `INPUT_REJECTED`; the command exits 0, 1 or 2).
+- Only a wrong Python argument type raises `TypeError` (a `project` that is
+  not `str`/`os.PathLike[str]`, `bytes` paths included, or another argument
+  that is not `str`; the batch selectors may be `None`). An out-of-domain
+  dialect, kind or literal policy, an empty root, project, configuration and
+  contract rejections, absent or ambiguous selectors, BLOCKED and the 64 MiB
+  batch limit are returned documents. `UnicodeEncodeError` is raised when the
+  command could not encode its document (it then prints
+  `pietto: error: terminal output could not be encoded`, exit 2); every other
+  exception is internal and propagates unchanged.
+- Each call reads the project afresh, writes no file, has no text format and
+  opens no database. `pietto.execution.compile_query` is unchanged; it still
+  raises `RequestRejected`/`CompileRejected` where `compile_sql` returns a
+  document. Spec: [Python compile API v1](spec/python-compile-api-v1.md).
+- No diagnostic code, CLI output, JSON document or compiled record changes.
 
 ## Equality, nullability and asof JOIN public alpha release notes — 0.1.9
 

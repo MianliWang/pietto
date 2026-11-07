@@ -23,6 +23,10 @@ R2 is a separate live-only workflow that starts from such a query and takes
 its own complete ordered source declarations and, for recovery, fresh
 caller-held trust records.
 
+To get only the SQL emission document of a project's tables and queries,
+without preparing an execution, use `pietto.compiler.compile_sql()` or
+`compile_all_sql()` ([Python compile API](spec/python-compile-api-v1.md)).
+
 This is an **alpha interface**. It is separate from the public contracts listed
 in the README: its names, fields, error codes and behavior may change in later
 alpha releases, and each change is noted in the release notes. The compiler, the

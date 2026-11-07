@@ -90,6 +90,7 @@ interchange mechanism. In particular:
 | Selected backend SQL representation | dialect SQL AST |
 | Connections, statements, streaming, and cancellation | optional execution plane |
 | Public Python execution entry points (alpha): request checks, explicit route selection, attempt handles, result batches, terminal outcomes and error projection | public entry layer (`pietto.execution`); composes the compiler, compiled-bundle, compiled-template, execution and result owners, keeps trust, access and premise inputs caller-supplied, and never re-interprets syntax, schemas, identity, guards, source qualification or results |
+| Public Python project SQL compile entry (alpha): `compile_sql`, `compile_all_sql` and `SqlEmission` | public entry layer (`pietto.compiler`); a thin adapter over the project emission command owner that returns its document bytes and status, never re-interprets arguments, documents or statuses, and opens no execution route |
 | Completed-result shape and transport | PiettoResultContract / Arrow |
 | pandas, Polars, NumPy, SciPy, plotting, domain, and device integration | explicit adapter planes |
 
