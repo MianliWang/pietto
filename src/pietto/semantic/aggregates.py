@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from collections.abc import Mapping, Sequence
+from dataclasses import replace
 from typing import cast
 
 from pietto import ast_nodes as ast
@@ -77,6 +78,9 @@ FLOAT_STATISTIC_AGGREGATE_NAMES = frozenset(
         QUANTILE_AGGREGATE_NAME,
     }
 )
+# The test of a group, `any(TEST for o in group)` and `all(TEST for o in
+# group)`: an aggregate only as a call with a generator, a Bool never None.
+GROUP_TEST_AGGREGATE_NAMES = frozenset({"any", "all"})
 SEMANTIC_AGGREGATE_NAMES = AGGREGATE_NAMES | frozenset(
     {
         COUNT_DISTINCT_AGGREGATE_NAME,
@@ -102,6 +106,10 @@ COUNT_VALUE_TYPE = ValueType(
 INT_NULLABLE_VALUE_TYPE = ValueType(
     resolved_type=ResolvedType(name="Int", kind=TypeKind.BUILTIN),
     nullability=EffectiveNullability.NULLABLE,
+)
+BOOL_VALUE_TYPE = ValueType(
+    resolved_type=ResolvedType(name="Bool", kind=TypeKind.BUILTIN),
+    nullability=EffectiveNullability.NON_NULL,
 )
 FLOAT_NULLABLE_VALUE_TYPE = ValueType(
     resolved_type=ResolvedType(name="Float", kind=TypeKind.BUILTIN),
@@ -176,10 +184,14 @@ def semantic_aggregate_call_name(expression: Expression) -> str | None:
     if (
         isinstance(expression, CallExpr)
         and isinstance(expression.callee, NameExpr)
-        and expression.callee.name in SEMANTIC_AGGREGATE_NAMES
         and list_generator_of(expression) is None
     ):
-        return expression.callee.name
+        name = expression.callee.name
+        if name in SEMANTIC_AGGREGATE_NAMES or (
+            name in GROUP_TEST_AGGREGATE_NAMES
+            and _generator_argument(expression) is not None
+        ):
+            return name
     return None
 
 
@@ -379,6 +391,7 @@ def expected_semantic_aggregate_arity(function_name: str) -> int:
         PVARIANCE_AGGREGATE_NAME,
         PSTDEV_AGGREGATE_NAME,
         MEDIAN_AGGREGATE_NAME,
+        *GROUP_TEST_AGGREGATE_NAMES,
     }:
         return 1
     raise AssertionError(f"Unsupported aggregate function: {function_name}")
@@ -525,8 +538,11 @@ def is_supported_semantic_aggregate_argument_expression(
     if is_direct_field_argument(expression):
         return is_supported_semantic_aggregate_argument(function_name, value_type)
     if type(expression) is ast.GeneratorExpr:
-        # The conditional count and sum of a group add Int values (D73.04).
-        return function_name == SUM_AGGREGATE_NAME and _is_builtin(value_type, "Int")
+        # The conditional count and sum of a group add Int values (D73.04);
+        # the test of a group reads a Bool.
+        return (
+            generator_aggregate_result_value_type(function_name, value_type) is not None
+        )
     if function_name == COUNT_AGGREGATE_NAME:
         return _is_supported_count_expression_shape(
             expression, value_type, null_operands=form_only
@@ -994,6 +1010,8 @@ def is_supported_semantic_aggregate_argument(
         return _is_builtin(value_type, "Text")
     if function_name in FLOAT_STATISTIC_AGGREGATE_NAMES:
         return is_supported_stddev_argument(value_type)
+    if function_name in GROUP_TEST_AGGREGATE_NAMES:
+        return _is_builtin(value_type, "Bool")
     return False
 
 
@@ -1097,10 +1115,15 @@ def generator_aggregate_result_value_type(
     function_name: str, argument_type: ValueType
 ) -> ValueType | None:
     """The type of ``sum`` of a generator, the conditional count or sum of a
-    group: an Int, 0 and never None for no matching row."""
+    group: an Int, 0 and never None for no matching row; of ``any`` and
+    ``all`` of a Bool test, the test of a group: a Bool, never None."""
 
     if function_name == SUM_AGGREGATE_NAME and _is_builtin(argument_type, "Int"):
         return COUNT_VALUE_TYPE
+    if function_name in GROUP_TEST_AGGREGATE_NAMES and _is_builtin(
+        argument_type, "Bool"
+    ):
+        return BOOL_VALUE_TYPE
     return None
 
 
@@ -1111,6 +1134,13 @@ def filtered_aggregate_result_value_type(
     ``filtered_count`` over its Bool test, and sum, ``filtered_sum`` of an
     Int value over its Bool test: an Int, 0 and never None for no match."""
 
+    if function_name in {"group_any", "group_all"}:
+        # The test of a group over its Bool test: a Bool, never None.
+        return (
+            BOOL_VALUE_TYPE
+            if len(argument_types) == 1 and _is_builtin(argument_types[0], "Bool")
+            else None
+        )
     arity = {"filtered_count": 1, "filtered_sum": 2}.get(function_name)
     if (
         arity is None
@@ -1246,6 +1276,15 @@ def wrong_argument_type_diagnostic(
 
     name = callee_name(expression)
     generator = _generator_argument(expression)
+    if generator is not None and name in GROUP_TEST_AGGREGATE_NAMES:
+        return replace(
+            _diagnostic(
+                generator.body,
+                code="PIE-S2202",
+                message=f"Expected Bool expression in {name.upper()} predicate",
+            ),
+            suggestion=_group_test_body_hint(generator, actual_name),
+        )
     if generator is not None:
         binder = generator.binding_name
         return _diagnostic(
@@ -1277,6 +1316,23 @@ def wrong_argument_type_diagnostic(
     )
 
     argument = expression.arguments[0] if expression.arguments else None
+    # The field a direct argument reads, bare or qualified (`sales.paid`).
+    field = (
+        argument.name
+        if type(argument) is NameExpr
+        else argument.parts[-1]
+        if type(argument) is DottedNameExpr
+        else None
+    )
+    suggestion = None
+    if hint and actual_name == "Bool" and field is not None:
+        if name == SUM_AGGREGATE_NAME:
+            suggestion = f"count with `sum(1 for o in group if o.{field})`"
+        elif name in {MAX_AGGREGATE_NAME, MIN_AGGREGATE_NAME}:
+            test = "any" if name == MAX_AGGREGATE_NAME else "all"
+            suggestion = (
+                f"for a test of the group write `{test}(o.{field} for o in group)`"
+            )
     return _diagnostic(
         expression,
         code="PIE-S2314",
@@ -1284,12 +1340,7 @@ def wrong_argument_type_diagnostic(
             f"Aggregate function {name} expects {expected} field argument, "
             f"got {actual_name}"
         ),
-        hint=f"count with `sum(1 for o in group if o.{argument.name})`"
-        if hint
-        and name == SUM_AGGREGATE_NAME
-        and actual_name == "Bool"
-        and type(argument) is NameExpr
-        else None,
+        hint=suggestion,
     )
 
 
@@ -1301,6 +1352,15 @@ def deferred_argument_expression_diagnostic(
 
     name = callee_name(expression)
     generator = _generator_argument(expression)
+    if generator is not None and name in GROUP_TEST_AGGREGATE_NAMES:
+        return replace(
+            _diagnostic(
+                generator.body,
+                code="PIE-S2202",
+                message=f"{name.upper()} predicate requires a known Bool expression.",
+            ),
+            suggestion=_group_test_body_hint(generator, None),
+        )
     if generator is not None:
         return _diagnostic(
             expression,
@@ -1358,6 +1418,19 @@ def _generator_argument(expression: CallExpr) -> ast.GeneratorExpr | None:
     if len(arguments) == 1 and type(arguments[0]) is ast.GeneratorExpr:
         return arguments[0]
     return None
+
+
+def _group_test_body_hint(generator: ast.GeneratorExpr, actual_name: str | None) -> str:
+    """The suggestion of a group test whose body is no Bool (its message keeps
+    the relation `any` text): a number field's test, else a comparison."""
+
+    body = generator.body
+    if type(body) is NameExpr and actual_name in {"Int", "Float", "Decimal"}:
+        return (
+            f"write the body as a test, such as `{generator.binding_name}."
+            f"{body.name} > 0`"
+        )
+    return "write the body as a test, such as a comparison"
 
 
 def _is_builtin(value_type: ValueType, name: str) -> bool:

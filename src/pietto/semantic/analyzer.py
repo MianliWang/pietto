@@ -5,7 +5,7 @@ from __future__ import annotations
 from pietto.ast_nodes import SetRelationDef
 from pietto._flat_relational_admission import syntax_diagnostics
 from pietto._syntax_admission import unadmitted_syntax_diagnostics
-from pietto.semantic.generators import normalize_group_generators
+from pietto.semantic.generators import group_any_calls, normalize_group_generators
 
 from collections.abc import Callable, Iterator, Mapping, Sequence, Set as AbstractSet
 from dataclasses import fields, is_dataclass, replace
@@ -269,6 +269,8 @@ def _analyze_script(
     mode = mode_override or CheckMode.CHECKED
     try:
         mode = mode_override or _mode_from_script(script)
+        # A SELECT item's `any(... for o in group)` is the test of a group.
+        script = group_any_calls(script)
         parsed = script
         any_trace = AnyValueTrace(script)
         script, existence_generators, existence_diagnostics = (

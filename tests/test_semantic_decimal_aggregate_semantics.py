@@ -227,12 +227,13 @@ def test_decimal_aggregate_slice_preserves_unsupported_direct_field_types(
         )
     )
 
-    # A sum of a Bool field names the conditional count.
-    hint = (
-        "; count with `sum(1 for o in group if o.active)`"
-        if (function_name, actual_type) == ("sum", "Bool")
-        else ""
-    )
+    # A sum of a Bool field names the conditional count, a min of one the
+    # test of every row of the group.
+    hint = {
+        ("sum", "Bool"): "; count with `sum(1 for o in group if o.active)`",
+        ("min", "Bool"): "; for a test of the group write "
+        "`all(o.active for o in group)`",
+    }.get((function_name, actual_type), "")
     assert _errors(result) == [
         (
             "PIE-S2314",

@@ -985,6 +985,8 @@ SYNTAX = {
     "aggregate_filter_then": " THEN ",
     "aggregate_filter_one": "1",
     "aggregate_filter_close": " END",
+    "aggregate_filter_else": "NULL ELSE 1",
+    "aggregate_test_open": "(",
     "aggregate_zero_open": "COALESCE(",
     "aggregate_zero_close": ", 0)",
     "aggregate_tuple_open": "CASE WHEN ",
@@ -1101,12 +1103,14 @@ OVERLAYS = {
             "aggregate_result_cast_open",
             "aggregate_root_open",
             "aggregate_zero_open",
+            "aggregate_test_open",
         ),
         (
             "aggregate_close",
             "aggregate_result_cast_close",
             "aggregate_root_close",
             "aggregate_zero_close",
+            "aggregate_test_close",
         ),
     ),
     "window": (

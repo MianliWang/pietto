@@ -1,18 +1,21 @@
-"""Generators: the conditional count and sum of a group.
+"""Generators: the conditional count and sum of a group, and its test.
 
 A generator ``BODY for o in SOURCE [if TEST]`` is the only argument of a call.
 Its meaning is fixed by SOURCE alone: a relation name is the whole relation
 (today's ``any(...)``), ``group`` is the member rows of the current group when
 no relation or ``let`` that the body sees is named ``group``, and
 ``binding.field`` is a row's collected list. The pre-admission gate admits
-only ``sum(1 for o in group if TEST)`` and ``sum(o.f for o in group if TEST)``
-as a whole aliased SELECT item of a relation body without JOIN inputs in a
-single file or a `schema_version = 2` project, and in such a project also the
-`sum` and `any` of a row's collected list, whose project checks type and place
-them; any other use is one diagnostic, the first rule it breaks in a fixed
-order. After the gate, `normalize_group_generators` reads each member field ``o.f`` as the input row's field ``f``: inside an
-aggregate the member row is the input row, so later readers see a plain row
-expression in the generator.
+only ``sum(1 for o in group if TEST)``, ``sum(o.f for o in group if TEST)``,
+``any(TEST for o in group)`` and ``all(TEST for o in group)`` as a whole
+aliased SELECT item of a relation body without JOIN inputs in a single file or
+a `schema_version = 2` project, and in such a project also the `sum` and
+`any` of a row's collected list, whose project checks type and place them; any
+other use is one diagnostic, the first rule it breaks in a fixed order. An
+``any(... for o in group)`` in a SELECT item is read as a generator call
+(`group_any_calls`) before the gate, as only there can it be the test of a
+group. After the gate, `normalize_group_generators` reads each member field
+``o.f`` as the input row's field ``f``: inside an aggregate the member row is
+the input row, so later readers see a plain row expression in the generator.
 """
 
 from __future__ import annotations
@@ -24,6 +27,7 @@ from typing import cast
 from pietto import ast_nodes as ast
 from pietto.errors import Diagnostic, Severity, SourceLocation
 from pietto.semantic.aggregates import (
+    GROUP_TEST_AGGREGATE_NAMES,
     SEMANTIC_AGGREGATE_NAMES,
     aggregate_alias_required_diagnostic,
     callee_name,
@@ -34,8 +38,10 @@ from pietto.semantic.aggregates import (
 )
 
 __all__ = (
+    "BEFORE_GROUPS_HINT",
     "GROUP_SOURCE",
     "generator_of",
+    "group_any_calls",
     "group_test_hint",
     "names_group",
     "normalize_group_generators",
@@ -85,15 +91,89 @@ def generator_of(expression: object) -> ast.GeneratorExpr | None:
     return None
 
 
-def group_test_hint(binder: str) -> str:
-    """The suggestion of an `any(... for o in group)` that names no relation:
-    a test of the group is a conditional count compared later."""
+# Before GROUP BY there is one row, not a group.
+BEFORE_GROUPS_HINT = (
+    "a group's rows exist only after `group by`; test a row's own fields directly"
+)
 
+
+def group_test_hint(binder: str, name: str = "any") -> str:
+    """The suggestion of a test of the group, `any` or `all` over `group`,
+    outside a SELECT item where a later clause would read it."""
+
+    output = "has_paid" if name == "any" else "all_paid"
     return (
-        "a group test is not available yet: select "
-        f"`n = sum(1 for {binder} in group if ...)` and test `n > 0` "
-        "in `having` or a later query"
+        f"select `{output} = {name}({binder}.paid for {binder} in group)` and read "
+        f"`{output}` in `having` or `order by`"
     )
+
+
+def group_any_calls(script: ast.Script) -> ast.Script:
+    """``script`` with each ``any(TEST for o in group)`` written in a SELECT
+    item read as the generator call ``any`` of ``TEST for o in group``, at the
+    same spans: there it is the test of a group, which the gate admits or
+    refuses as any other generator call (a relation or ``let`` named `group`
+    included). Elsewhere it keeps its relation meaning."""
+
+    from pietto.semantic.inline_functions import _rebuild, _tree_nodes
+
+    selected: set[int] = set()
+    pending: list[object] = [
+        item
+        for body in _tree_nodes(script)
+        if isinstance(body, _BODIES)
+        for item in cast(
+            ast.TableDef | ast.QueryDef | ast.SelectBody, body
+        ).select_items
+    ]
+    while pending:
+        node = pending.pop()
+        if type(node) is ast.AnyExpr:
+            # Inside another `any(...)` a row is tested, never a group.
+            if cast(ast.AnyExpr, node).relation_name == GROUP_SOURCE:
+                selected.add(id(node))
+            continue
+        pending.extend(_children(node))
+    if not selected:
+        return script
+
+    def visit(before: object, after: object) -> object:
+        if id(before) not in selected:
+            return after
+        test = cast(ast.AnyExpr, after)
+        span, body = test.span, test.predicate
+        return ast.CallExpr(
+            span=span,
+            callee=ast.NameExpr(
+                span=ast.Span(
+                    path=span.path,
+                    line=span.line,
+                    column=span.column,
+                    end_line=span.line,
+                    end_column=span.column + 3,
+                ),
+                name="any",
+            ),
+            arguments=(
+                ast.GeneratorExpr(
+                    span=ast.Span(
+                        path=span.path,
+                        line=body.span.line,
+                        column=body.span.column,
+                        end_line=test.relation_span.end_line,
+                        end_column=test.relation_span.end_column,
+                    ),
+                    body=body,
+                    binding_name=test.binding_name,
+                    binding_span=test.binding_span,
+                    source=(GROUP_SOURCE,),
+                    source_span=test.relation_span,
+                    condition=None,
+                ),
+            ),
+        )
+
+    return cast(ast.Script, _rebuild(script, visit))
 
 
 def names_group(script: ast.Script) -> bool:
@@ -356,7 +436,7 @@ def _check(
             "in the current syntax",
             "set schema_version = 2 to check it",
         )
-    if name not in {"sum", "any"}:
+    if name not in {"sum", *GROUP_TEST_AGGREGATE_NAMES}:
         if name == "count":
             return _error(
                 call.span,
@@ -373,19 +453,27 @@ def _check(
             return _error(
                 call.span,
                 f"{name} takes no generator; a conditional {name} is not available",
-                f"only `sum(... for {binder} in group if ...)` takes a generator",
+                f"only `sum(... for {binder} in group if ...)`, `any(...)` and "
+                "`all(...)` take a generator",
             )
         if is_unknown_function_call(call) and name not in known:
             return _unknown_function_diagnostic(call, name)
-        return _error(call.span, "A generator is only the argument of sum or any")
+        return _error(call.span, "A generator is only the argument of sum, any or all")
     source = ".".join(generator.source)
     if name == "any" and generator.condition is not None:
         return _error(
             call.span,
             "any takes its test in the body",
-            "write `any(q for o in r)`"
+            f"write `any(q for o in {source})`"
             if type(generator.body) is ast.LiteralExpr and generator.body.value is True
-            else "write `any(p and q for o in r)`",
+            else f"write `any(p and q for o in {source})`",
+        )
+    if name == "all" and generator.condition is not None:
+        return _error(
+            call.span,
+            "all takes its test in the body",
+            f"count the exceptions: `n = sum(1 for {binder} in group if q and not "
+            "p)`, then `having n == 0`",
         )
     if len(generator.source) > 1:
         return _error(
@@ -401,13 +489,14 @@ def _check(
     if source == GROUP_SOURCE and source in lets:
         return _error(
             generator.source_span,
-            "Generator over group in sum: group is the let group, not this group",
+            f"Generator over group in {name}: group is the let group, not this group",
             "rename the let group to read this group's rows",
         )
     if source == GROUP_SOURCE and source in relations:
         return _error(
             generator.source_span,
-            "Generator over group in sum: group is the relation group, not this group",
+            f"Generator over group in {name}: group is the relation group, not this "
+            "group",
             "rename the relation group to read this group's rows",
         )
     if source != GROUP_SOURCE:
@@ -420,22 +509,27 @@ def _check(
             )
         return _error(
             generator.source_span,
-            f"Generator over {source} in sum: {source} is the whole relation, "
+            f"Generator over {source} in {name}: {source} is the whole relation, "
             "not this group",
-            f"for this group's rows write `for {binder} in group`"
+            f"for this group's rows write `for {binder} in group`; all over a whole "
+            "relation is not available"
+            if name == "all"
+            else f"for this group's rows write `for {binder} in group`"
             if position is None or _grouped(position)
             else "count per key in a grouped query and join it on the key",
         )
     if position is None or position.context not in {"select", "nested"}:
         context = "this position" if position is None else position.context
         refused = invalid_context_diagnostic(call, context=context)
-        if context in {"having clause", "order by"}:
+        if (
+            context in {"having clause", "order by"}
+            and name in GROUP_TEST_AGGREGATE_NAMES
+        ):
+            hint = group_test_hint(binder, name)
+        elif context in {"having clause", "order by"}:
             return refused
-        # Before GROUP BY there is one row, not a group.
-        hint = (
-            "a group's rows exist only after `group by`; "
-            "test a row's own fields directly"
-        )
+        else:
+            hint = BEFORE_GROUPS_HINT
         return replace(refused, message=f"{refused.message}; {hint}", suggestion=hint)
     if position.context == "nested":
         assert position.item is not None
@@ -446,12 +540,16 @@ def _check(
     if position.body.join_clauses or position.body.join_filters:
         return _error(
             call.span,
-            f"sum(... for {binder} in group ...) over JOIN rows is not available yet",
+            f"{name}(... for {binder} in group ...) over JOIN rows is not available "
+            "yet",
             "join in one query, then group it in another that reads it with `from`",
         )
-    return _body_diagnostic(call, generator) or _read_diagnostic(
-        generator, _keys(position.body), position.lets
-    )
+    # The body of a test of the group is its test.
+    return (
+        None
+        if name in GROUP_TEST_AGGREGATE_NAMES
+        else _body_diagnostic(call, generator)
+    ) or _read_diagnostic(generator, _keys(position.body), position.lets)
 
 
 def _grouped(position: _Position | None) -> bool:
@@ -497,6 +595,9 @@ def _list_diagnostic(
         )
         if name in {"count", "len"}:
             return _error(call.span, f"{name} takes no generator", hint)
+        if name in GROUP_TEST_AGGREGATE_NAMES:
+            # `all` tests the rows of a group, never a list.
+            return _error(call.span, f"{name} takes no list generator", hint)
         if name in SEMANTIC_AGGREGATE_NAMES:
             return _error(
                 call.span,

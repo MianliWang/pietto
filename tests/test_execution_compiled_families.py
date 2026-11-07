@@ -477,6 +477,90 @@ def test_a_compiled_conditional_aggregate_keeps_its_signature(
         )
 
 
+_GROUP_TEST_BODY = (
+    "table result:\n    from rows\n    group by flag\n    select:\n"
+    "        flag\n        a = all(o.id > 2 for o in group)\n"
+    '        b = any(o.text == "a" for o in group)\n'
+    "        s = sum(o.id for o in group if o.id > 2)\n"
+)
+
+
+def _group_test_original(tmp_path):
+    item = emission.fixture("postgres", "T_row_direct", "table_preserve")
+    source = item["source"].split("table result:", 1)[0] + _GROUP_TEST_BODY
+    checked, original = emission.build_case(
+        tmp_path, source, item["contract"], item["policy"]
+    )
+    assert checked.verified and original.status == "VERIFIED", original.blockers
+    return original
+
+
+def test_postgresql_group_tests_replay_from_compiled_input(tmp_path):
+    """`all` and `any` of a group, a count of the test compared with 0,
+    replay from compiled input with no R13 evidence."""
+    original = _group_test_original(tmp_path)
+    candidate = _compare(original.artifact, refinement=False)
+    sql = candidate.rendered.sql
+    assert b"(COUNT(CASE WHEN (" in sql
+    assert b" THEN NULL ELSE 1 END) = 0)" in sql
+    assert b" THEN 1 END) > 0)" in sql
+    assert [
+        r.evidence for r in candidate.generated_requirements if r.kind == "aggregate"
+    ] == [(), (), ("target_checked_signed64_narrowing",)]
+
+
+@pytest.mark.parametrize(
+    ("function", "forgery", "error"),
+    (
+        ("group_any", "two", "COMPILED_AGGREGATE_SIGNATURE"),
+        ("group_all", "int_test", "COMPILED_AGGREGATE_ARGUMENT"),
+    ),
+)
+def test_a_compiled_group_test_keeps_its_signature(tmp_path, function, forgery, error):
+    """A test of the group reads one Bool test: a forged bundle with two
+    arguments or an Int one is refused."""
+    from dataclasses import replace
+    from pietto._project.project_compiled_schema import (
+        FIELDS,
+        CompiledError,
+        Record,
+        content_pin,
+        encode,
+    )
+
+    built = build_compiled(_group_test_original(tmp_path).artifact)
+    records = {
+        r.get("function"): r
+        for r in built.root.description.records
+        if r.address.kind == "aggregate_value"
+    }
+    field, test = records["filtered_sum"].get("arguments")
+    record = records[function]
+    values = list(record.values)
+    values[FIELDS[record.address.kind].index("arguments")] = (
+        (field, test) if forgery == "two" else (field,)
+    )
+    forged = Record(record.address, tuple(values))
+    description = replace(
+        built.root.description,
+        members=tuple(
+            (name, tuple(forged if r.address == forged.address else r for r in members))
+            for name, members in built.root.description.members
+        ),
+    )
+    raw = encode(description)
+    with pytest.raises(CompiledError, match=f"^{error}$"):
+        emit_compiled(
+            load_compiled(
+                raw,
+                expected_pin=content_pin(raw),
+                accepted_producer=built.producer,
+                accepted_compatibility=built.compatibility,
+            ),
+            (),
+        )
+
+
 def test_postgresql_median_and_quantile_replay_from_compiled_input(tmp_path):
     """PERCENTILE_CONT, its float8 order cast, the fixed median fraction and
     the quantile's literal fraction replay from compiled input."""

@@ -92,6 +92,7 @@ from pietto.ir.model import (
 from pietto.semantic.catalog import is_builtin_function_name
 from pietto.semantic.generators import generator_of
 from pietto.semantic.aggregates import (
+    GROUP_TEST_AGGREGATE_NAMES,
     aggregate_argument_can_use_let_scope,
     semantic_aggregate_call_name,
     generator_aggregate_result_value_type,
@@ -1100,10 +1101,19 @@ def _lower_expr_node(
             expression, semantic_model, value_type
         ):
             # The member row is the input row: its test, after the summed
-            # field of a conditional sum, reads the row (`semantic.generators`).
-            counted = type(generator.body) is LiteralExpr
+            # field of a conditional sum, reads the row (`semantic.generators`);
+            # the body of a test of the group is its test.
+            tested = callee in GROUP_TEST_AGGREGATE_NAMES
+            counted = not tested and type(generator.body) is LiteralExpr
+            function = (
+                f"group_{callee}"
+                if tested
+                else "filtered_count"
+                if counted
+                else "filtered_sum"
+            )
             return AggregateCallIR(
-                function="filtered_count" if counted else "filtered_sum",
+                function=function,
                 arguments=tuple(
                     _lower_expr_node(
                         part,

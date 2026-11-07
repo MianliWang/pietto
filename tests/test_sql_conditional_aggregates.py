@@ -111,6 +111,77 @@ def test_mysql_refuses_the_conditional_sum() -> None:
     ]
 
 
+GROUP_TEST = """shape Order:
+    id: Int
+    customer_id: Int | None
+    paid: Bool | None
+    status: Text | None
+source orders: Order = {target}.table("shop.orders")
+query tested:
+    from orders
+    group by customer_id
+    select:
+        customer_id
+        all_paid = all(o.paid for o in group)
+        any_open = any(not o.paid or o.status == "open" for o in group)
+    having all_paid or any_open
+    order by any_open desc
+query tested_overall:
+    from orders
+    select:
+        all_paid = all(o.paid for o in group)
+        any_open = any(o.status is None for o in group)
+"""
+
+
+def _emit_group_test(target: str) -> SqlResult:
+    parsed = parse_source(GROUP_TEST.format(target=target))
+    assert parsed.ast is not None and parsed.diagnostics == ()
+    semantic = analyze(parsed.ast)
+    assert semantic.diagnostics == () and semantic.script is not None
+    lowered = build_ir(semantic.script, semantic.model)
+    assert lowered.ir is not None, lowered.diagnostics
+    emit = emit_postgres_sql if target == "postgres" else emit_mysql_sql
+    return emit(lowered.ir)
+
+
+def test_postgres_tests_a_group_with_one_count() -> None:
+    """`any` counts the rows whose test is True; `all` counts the rows whose
+    test is not True, a None test included, which takes no `WHEN` branch.
+    COUNT is never NULL, so no row gives False and True, as in Python."""
+    result = _emit_group_test("postgres")
+
+    every = '(COUNT(CASE WHEN "paid" THEN NULL ELSE 1 END) = 0)'
+    some = '(COUNT(CASE WHEN (NOT "paid") OR ("status" = \'open\') THEN 1 END) > 0)'
+    assert result.diagnostics == ()
+    assert [artifact.sql for artifact in result.artifacts] == [
+        f'SELECT\n    "customer_id" AS "customer_id",\n    {every} AS "all_paid",\n'
+        f'    {some} AS "any_open"\nFROM "shop"."orders"\nGROUP BY\n    '
+        f'"customer_id"\nHAVING\n    {every} OR {some}\nORDER BY\n    {some} DESC',
+        f'SELECT\n    {every} AS "all_paid",\n'
+        '    (COUNT(CASE WHEN "status" IS NULL THEN 1 END) > 0) AS "any_open"\n'
+        'FROM "shop"."orders"',
+    ]
+
+
+def test_mysql_tests_a_group_with_the_postgres_form() -> None:
+    """MySQL writes the PostgreSQL form (`ba` differential): `COUNT(...) > 0`
+    is an integer 0/1 there, the computed-Bool wire type."""
+    result = _emit_group_test("mysql")
+
+    every = "(COUNT(CASE WHEN `paid` THEN NULL ELSE 1 END) = 0)"
+    some = "(COUNT(CASE WHEN (NOT `paid`) OR (`status` = 'open') THEN 1 END) > 0)"
+    assert result.diagnostics == ()
+    assert [artifact.sql for artifact in result.artifacts] == [
+        f"SELECT\n    `customer_id` AS `customer_id`,\n    {every} AS `all_paid`,\n"
+        f"    {some} AS `any_open`\nFROM `shop`.`orders`\nGROUP BY\n    "
+        f"`customer_id`\nHAVING\n    {every} OR {some}\nORDER BY\n    {some} DESC",
+        f"SELECT\n    {every} AS `all_paid`,\n"
+        "    (COUNT(CASE WHEN `status` IS NULL THEN 1 END) > 0) AS `any_open`\n"
+        "FROM `shop`.`orders`",
+    ]
+
+
 # A schema_version = 2 project over the fixed aggregation source: `key`,
 # `value`, `flag`, `label`, `ratio` and `rid` are its fields.
 PROJECT_GROUPED = """query result:
@@ -289,4 +360,89 @@ def test_a_project_blocks_at_a_generator_test_error(tmp_path, body, line) -> Non
             line,
             37,
         )
+    ]
+
+
+PROJECT_GROUP_TEST = """query result:
+    from agg
+    group by key
+    select:
+        key
+        every_flag = all(o.flag for o in group)
+        some_a = any(o.label == "a" or o.flag is None for o in group)
+    having every_flag or some_a
+"""
+
+
+def test_a_project_emits_the_test_of_a_group_on_postgres(tmp_path) -> None:
+    """Project SQL writes the single-file shape: a count of the test compared
+    with 0, a non-null Bool with no R13 evidence."""
+    data = _project(tmp_path, "postgres", PROJECT_GROUP_TEST)
+
+    every = '(COUNT(CASE WHEN "s0"."flag value" THEN NULL ELSE 1 END) = 0)'
+    some = (
+        '(COUNT(CASE WHEN (("s0"."text `""é" = CAST(E\'\\141\' AS pg_catalog.text) '
+        'COLLATE "C") OR ("s0"."flag value" IS NULL)) THEN 1 END) > 0)'
+    )
+    assert data["status"] == "VERIFIED"
+    assert data["sql"] == (
+        f'WITH "p0" ("c0", "c1", "c2") AS (SELECT "s0"."group key" AS "c0", {every} '
+        f'AS "c1", {some} AS "c2" FROM "public"."phase66 agg é" AS "s0" GROUP BY '
+        '"s0"."group key"), "p1" ("c0", "c1", "c2") AS (SELECT "t1"."c0" AS "c0", '
+        '"t1"."c1" AS "c1", "t1"."c2" AS "c2" FROM "p0" AS "t1" WHERE ("t1"."c1" OR '
+        '"t1"."c2")) SELECT "t2"."c0" AS "key", "t2"."c1" AS "every_flag", '
+        '"t2"."c2" AS "some_a" FROM "p1" AS "t2"'
+    )
+    assert [item["representation"] for item in data["columns"]][-2:] == [
+        {
+            "storage": {"kind": "pg_bool"},
+            "nullable": False,
+            "domain": {"kind": "bool01"},
+        }
+    ] * 2
+    assert [
+        r["evidence"] for r in data["requirements"] if r["kind"] == "aggregate"
+    ] == [[], []]
+
+
+def test_a_project_refuses_the_test_of_a_group_on_mysql(tmp_path) -> None:
+    data = _project(tmp_path, "mysql", PROJECT_GROUP_TEST)
+
+    assert data["status"] == "BLOCKED"
+    assert [
+        (b["code"], b["subject"]["detail"], b["location"]["line"], b["suggestion"])
+        for b in data["blockers"]
+    ] == [
+        (
+            "PIE-B1003",
+            "group_test_not_admitted_on_target",
+            line,
+            "MySQL has no group any or all yet; emit with --dialect postgres.",
+        )
+        for line in (16, 17)
+    ]
+
+
+@pytest.mark.parametrize("target", ("postgres", "mysql"))
+def test_a_project_refuses_a_group_test_that_reads_no_field(tmp_path, target) -> None:
+    body = (
+        "query result:\n    from agg\n    group by key\n    select:\n        key\n"
+        "        a = any(True for o in group)\n"
+        "        b = all(not False for o in group)\n"
+    )
+    data = _project(tmp_path, target, body)
+
+    assert data["status"] == "BLOCKED"
+    assert [
+        (b["code"], b["subject"]["detail"], b["location"]["line"], b["suggestion"])
+        for b in data["blockers"]
+    ] == [
+        (
+            "PIE-B1003",
+            "group_test_reads_no_field",
+            line,
+            "Test a field of the member, such as `any(o.paid for o in group)`: a "
+            "test that reads no field is the same for every row.",
+        )
+        for line in (16, 17)
     ]

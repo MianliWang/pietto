@@ -1196,6 +1196,48 @@ def test_a_conditional_count_and_sum_template_binds_its_header_read(tmp_path):
     assert b"COALESCE(CAST(SUM(CASE WHEN (" in sql
 
 
+def test_a_group_test_template_binds_its_header_read(tmp_path):
+    """A loaded compiled and a live PostgreSQL template of `all` and `any` of a
+    group under a WHERE header parameter bind it and render the emitted SQL
+    byte for byte."""
+    from _pietto_sql_query_parameters import parameterized_case
+    from pietto._project.project_compiled_build import build_compiled
+    from pietto._project.project_compiled_loading import load_compiled
+    from pietto._project.project_execution_template import (
+        bind_values,
+        prepare_compiled_template,
+        prepare_live_template,
+    )
+
+    body = (
+        "query result(low: Int):\n    from rows\n    where id > low\n"
+        "    group by flag\n    select:\n        flag\n"
+        "        a = all(o.id > 2 for o in group)\n"
+        '        b = any(o.text == "a" for o in group)\n'
+    )
+    _, outcome = parameterized_case(tmp_path, "postgres", body)
+    assert outcome.status == "VERIFIED", outcome.blockers
+    built = build_compiled(outcome.artifact)
+    compiled = prepare_compiled_template(
+        load_compiled(
+            built.payload,
+            expected_pin=built.pin,
+            accepted_producer=built.producer,
+            accepted_compatibility=built.compatibility,
+        )
+    )
+    for template in (compiled, prepare_live_template(outcome.artifact)):
+        bound = bind_values(
+            template, (), tuple(zip(template.parameters, (3,), strict=True))
+        )
+        assert bound.artifact.rendered.sql == template.artifact.rendered.sql
+        assert bound.artifact.rendered.sql == outcome.artifact.rendered.sql
+        sql = bound.artifact.rendered.sql
+        assert b" THEN NULL ELSE 1 END) = 0)" in sql
+        assert b" THEN 1 END) > 0)" in sql
+        assert bound.arguments == (3,)
+
+
 def test_a_median_and_quantile_template_binds_its_header_read(tmp_path):
     """`median` and `quantile` under GROUP BY and a WHERE header parameter
     bind through a loaded compiled bundle and a live PostgreSQL template and

@@ -541,6 +541,7 @@ first column give every rule.
 | `variance(x)`, `pvariance(x)`, `pstdev(x)` ([Aggregates](#aggregates-and-grouping)) | `Int` and `Float` (`VAR_SAMP`, `VAR_POP`, `SQRT` of `VAR_POP`) | `Float` (`VAR_SAMP`, `VAR_POP`, `STDDEV_POP`); `Int` refused (PIE-B1000) | `Int` and `Float` | refused: `Int` PIE-B1003, `Float` PIE-B1004 |
 | `median(x)`, `quantile(x, q)` ([Aggregates](#aggregates-and-grouping)) | `Int` and `Float` (`PERCENTILE_CONT ... WITHIN GROUP`) | refused (PIE-B1000) | `Int`; `Float` refused (PIE-B1004) | refused (PIE-B1003) |
 | `sum(1 for o in group if t)`, `sum(o.f for o in group if t)` ([Aggregates](#aggregates-and-grouping)) | `COUNT(CASE WHEN t THEN 1 END)`; `COALESCE(CAST(SUM(CASE WHEN t THEN CAST(f AS pg_catalog.int8) END) AS pg_catalog.int8), 0)` | count `COUNT(CASE WHEN t THEN 1 END)`; sum refused (PIE-B1000) | as PostgreSQL single file, `schema_version = 2` (PIE-S2334 in a `schema_version = 1` project); no JOIN inputs | refused: count PIE-B1003, sum PIE-B1004 |
+| `any(t for o in group)`, `all(t for o in group)` ([Aggregates](#aggregates-and-grouping)) | `(COUNT(CASE WHEN t THEN 1 END) > 0)`; `(COUNT(CASE WHEN t THEN NULL ELSE 1 END) = 0)` | as PostgreSQL, an integer 0/1 | as PostgreSQL single file, `schema_version = 2` (PIE-S2334 in a `schema_version = 1` project); no JOIN inputs | refused (PIE-B1003 `group_test_not_admitted_on_target`) |
 | `max(a, b)`, `min(a, b)` ([Expressions](#expressions)) | `CASE WHEN` of `<`/`>` and `IS NOT NULL`; `Int`, `Decimal`, `Float`, `Text`, `Date`, `Timestamp`, `UUID`, `Bool` | as PostgreSQL; a `Bool` result arrives as an integer 0, 1 or NULL, as every computed `Bool` does on MySQL | `Int`, `Decimal`, `Float`, `Text`, `Timestamp`, `UUID` as their comparison and conditional are; `Date` and `Bool` refused (PIE-B1003) | as PostgreSQL project |
 | `lpad(s, width, fill)` ([Expressions](#expressions)) | `CASE WHEN length(s) >= width THEN s ELSE lpad(...) END`; a literal width outside the signed 32-bit range refused (PIE-S2385 at check) | `CASE WHEN CHAR_LENGTH(s) >= width THEN s ELSE LPAD(...) END` | emitted for a width proven in the signed 32-bit range; refused otherwise (PIE-B1002, PIE-B1004) | refused (PIE-B1003) |
 | `add_months(d, n)` ([Expressions](#expressions)) | `CAST((d + make_interval(months => CAST(n AS integer))) AS date)` | `DATE_ADD(d, INTERVAL n MONTH)` | emitted; a `None` argument refused (PIE-B1003) | refused (PIE-B1003) |
@@ -4090,8 +4091,12 @@ and `median`; `percentile_cont`, `percentile`, `percentile_approx`,
 `approx_percentile` and `percentile_disc` calls are PIE-S2103 with a hint. A
 `def median` or `def quantile` is PIE-S2398 with a rename suggestion. Semantic
 Metadata Artifact v1 lists neither aggregate, as it lists no `stddev`.
+`any` and `all` are built-in names too: a `def any` or `def all` is
+PIE-S2398 with a rename suggestion, so `any(x)` and `all(x)` never call a
+`def` and their PIE-S2103 hints (``write `any(o.x for o in group)` ``) are
+never wrong.
 
-**Conditional count and sum.** A generator `BODY for o in SOURCE if TEST` is
+**Conditional count and sum, and the test of a group.** A generator `BODY for o in SOURCE if TEST` is
 written only as the only argument of a call, with one `for` and at most one
 `if`; a conditional in TEST takes parentheses, as in Python. Its meaning is
 fixed by SOURCE alone: a relation name (a source, table, query, import or
@@ -4101,13 +4106,20 @@ rows that `from` and `where` keep with this key, each as often as it occurs,
 the rows `count()` counts. A relation or `let` named `group` keeps its meaning
 in `from` and `any(...)`.
 
-A single file and a `schema_version = 2` project admit two generators:
+A single file and a `schema_version = 2` project admit four generators:
 
 - `sum(1 for o in group if TEST)`: the number of rows of the group whose
   TEST is True (a None TEST is no match). An `Int`, never None, 0 for none.
 - `sum(o.f for o in group if TEST)`, `f` an `Int` field or an alias of `Int`:
   the sum of the non-None `o.f` of the rows whose TEST is True. An `Int`, never
   None, 0 when no row matches; a sum outside signed 64 bits is an error.
+- `any(TEST for o in group)`: True when TEST is True for at least one row of
+  the group. `all(TEST for o in group)`: True when TEST is True for every row
+  of the group. Each is a `Bool`, never None; with no row (a query with
+  aggregates and no GROUP BY over an empty input) `any` is False and `all` is
+  True, as in Python. The body is the test: neither takes `if` (count the
+  exceptions instead, `n = sum(1 for o in group if q and not p)`, then
+  `having n == 0`).
 
 Each is a whole aliased SELECT item of a grouped query, or of a query with
 aggregates and no GROUP BY (whose whole input is one group), as every other
@@ -4116,9 +4128,36 @@ Bool row expression that reads the member's fields as `o.f` and, besides
 them, only GROUP BY key fields; it holds no aggregate, window, `any(...)`,
 generator, relation read or captured field. A relation with JOIN inputs takes
 no group generator yet: join in one query and group it in another that reads
-it with `from`. `any(... for o in group)` is not available yet (a test of the
-group: select `n = sum(1 for o in group if ...)` and test `n > 0`), and the
-other refusals are listed in the PIE-S2334 row of
+it with `from`.
+
+The test of a group reads TEST in two steps. Each row's TEST is evaluated as
+WHERE evaluates the same expression, so it is True, False or None; then
+`any` is True when some row's TEST is True and `all` when every row's TEST
+is True, a None TEST being "not True" (Python's `any([None])` and
+`all([None])` are False too). The fold agrees with Python always; a row's
+TEST agrees with Python's truthiness of the same expression except where a
+None reaches `not`, `!=` or `not in`, or `==` compares two Nones: Python
+makes those True (`not None`, `None != "x"`), SQL keeps None. So over
+`flagged = [None]`, `all(not o.flagged for o in group)` is False in Pietto
+and True in Python, and over `status = [None]`, `any(o.status != "x" for o
+in group)` is False in Pietto and True in Python. Write Python's meaning
+where you want it: `all(not coalesce(o.flagged, False) for o in group)`,
+`any(o.status != "x" or o.status is None for o in group)`. A `not in` over a
+nullable field warns (PIE-S2384) in TEST as in WHERE. pandas
+`GroupBy.all()`/`any()` skip None (`skipna=True`), so pandas `all` of
+`[True, None]` and of `[None]` is True where Python and Pietto give False.
+
+In a SELECT item `any(... for o in group)` is always the test of a group:
+while a relation or `let` named `group` is visible there it is refused
+(PIE-S2334 ``Generator over group in any: group is the relation group, not
+this group; rename the relation group to read this group's rows``), as
+`sum` and `all` are; in a WHERE, a row `let` and a JOIN `on` it keeps its
+relation meaning (with no relation named `group` there it is PIE-S2301,
+``a group's rows exist only after `group by`; test a row's own fields
+directly``). `any(...)` and `all(...)` of a group in `having` are refused
+(PIE-S2334 and PIE-S2308): select the test and read its output name there.
+A `def any` or `def all` is PIE-S2398. The other refusals are listed in the
+PIE-S2334 row of
 [diagnostics](spec/diagnostics.md). A `schema_version = 1` project refuses
 every generator at check with PIE-S2334 (``sum(... for ...): a
 schema_version = 1 project has no generator in the current syntax; set
@@ -4128,10 +4167,10 @@ position.`, as for every aggregate argument, with no suggestion). TEST reads
 no `let` of the query, a computed GROUP BY key included (PIE-S2334
 ``Generator reads the let k outside its member; write the let's expression
 over fields of o, such as `o.f` ``): write the let's expression with member
-fields, such as `if o.id + 1 > 2`. A project `any(... for o in group)` that
-names no relation keeps its own PIE-S2301 `Unknown relation: group` at the
-`any(...)` (PIE-S2334 `ANY is not supported in this context` in `having`)
-and suggests the conditional count as a single file does.
+fields, such as `if o.id + 1 > 2`. A project `any(... for o in group)` outside
+a SELECT item that names no relation keeps its own PIE-S2301 `Unknown
+relation: group` at the `any(...)` (PIE-S2334 `ANY is not supported in this
+context` in `having`) and suggests what a single file suggests.
 
 PostgreSQL emits the count as `COUNT(CASE WHEN TEST THEN 1 END)` and the sum
 as `COALESCE(CAST(SUM(CASE WHEN TEST THEN CAST(f AS pg_catalog.int8) END) AS
@@ -4139,6 +4178,12 @@ pg_catalog.int8), 0)`; TEST is written as the same expression in a WHERE
 would be. MySQL writes the count the same way, `COUNT(CASE WHEN TEST THEN 1
 END)`, a `BIGINT`, and refuses the sum with PIE-B1000 `MySQL conditional sum
 of an Int argument is not supported`, as MySQL adds integers in DECIMAL.
+The test of a group is `(COUNT(CASE WHEN TEST THEN 1 END) > 0)` for `any`
+and `(COUNT(CASE WHEN TEST THEN NULL ELSE 1 END) = 0)` for `all`: COUNT is
+never NULL, so no row gives False and True, and a None TEST takes no `WHEN`
+branch, so it counts for `all` as a failure. Single-file MySQL writes the
+same form, an integer 0/1 (the computed-Bool wire type), as a two-database
+differential checked.
 
 Project SQL (`emit-sql --project`) writes the same forms on PostgreSQL
 (`COUNT(CASE WHEN TEST THEN 1 END)` and the `COALESCE`d checked `SUM`), each
@@ -4148,7 +4193,11 @@ carry them unchanged. A test that reads no field (`if True`) checks, but
 project SQL refuses it (PIE-B1003 `conditional_test_reads_no_field`). MySQL
 project SQL keeps both BLOCKED: the count with PIE-B1003
 `conditional_count_not_admitted_on_target`, the sum with PIE-B1004
-`sum_int_aggregate_range_proof_missing`, as `sum(Int)`.
+`sum_int_aggregate_range_proof_missing`, as `sum(Int)`. The test of a group
+is written in project SQL as in a single file, a non-null `pg_bool` with no
+R13 evidence; a test that reads no field (`any(True for o in group)`) is
+PIE-B1003 `group_test_reads_no_field` on both targets, and MySQL project SQL
+keeps it BLOCKED with PIE-B1003 `group_test_not_admitted_on_target`.
 
 `count(x)` of a `Bool` field counts every row whose `x` is not None, False
 included; outside a window call a single-file check warns about it

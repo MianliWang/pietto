@@ -1013,12 +1013,14 @@ def _read_selected_input(
         AnyValueTrace,
         normalize_existence_generators,
     )
+    from pietto.semantic.generators import group_any_calls
 
-    script = parse_result.ast
+    # A SELECT item's `any(... for o in group)` is the test of a group.
+    script = group_any_calls(parse_result.ast)
     read = _ReadInput(
         entry=selected_input,
         trusted_source=trusted_source,
-        ast=script,
+        ast=parse_result.ast,
         diagnostics=diagnostics,
         script=script,
     )

@@ -1234,6 +1234,15 @@ def aggregate_call_contract(
             )
             and _aggregate_window_has_type(value_type, "Int", NullabilityIR.NON_NULL)
         )
+    if function in GROUP_TEST_AGGREGATE_FUNCTIONS:
+        # `any(TEST for o in group)` and `all(TEST for o in group)`: a Bool,
+        # never None.
+        return (
+            len(arguments) == 1
+            and _aggregate_window_builtin_type(arguments[0]) == "Bool"
+            and not _aggregate_call_contains_nested_stage(arguments[0])
+            and _aggregate_window_has_type(value_type, "Bool", NullabilityIR.NON_NULL)
+        )
     if (function, len(arguments)) in {("median", 1), ("quantile", 2)}:
         # The interpolated quantile of an Int or Float field at a Float literal
         # fraction from 0.0 to 1.0 (`median` is the fraction 0.5).
@@ -1255,6 +1264,8 @@ def aggregate_call_contract(
 # The conditional count and sum of a group, by their argument counts: internal
 # aggregate identities that no source spelling names.
 FILTERED_AGGREGATE_ARITIES = {"filtered_count": 1, "filtered_sum": 2}
+# The test of a group over its Bool test, internal identities as above.
+GROUP_TEST_AGGREGATE_FUNCTIONS = frozenset({"group_any", "group_all"})
 
 
 def _aggregate_window_contains_window(expression: ExpressionIR) -> bool:

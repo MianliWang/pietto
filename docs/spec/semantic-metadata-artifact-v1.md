@@ -283,8 +283,9 @@ Artifact v1 covers current aggregate facts only: `count()`, `count(field)`,
 expressions, group keys, satisfying result predicates, and grouped result
 ordering. It records no `stddev`, `variance`, `pvariance` or `pstdev` call,
 as it records no `string_agg` call, no `count_distinct(a, b, ...)` of several
-columns, and no conditional count or sum of a group,
-`sum(1 for o in group if ...)` or `sum(o.f for o in group if ...)`:
+columns, no conditional count or sum of a group,
+`sum(1 for o in group if ...)` or `sum(o.f for o in group if ...)`, and no
+test of a group, `any(... for o in group)` or `all(... for o in group)`:
 `aggregates` lists none of them.
 Artifact v1 adds no aggregate functions and makes no SQL backend
 acceptance claim for documented fail-closed risks such as Enum aggregate SQL

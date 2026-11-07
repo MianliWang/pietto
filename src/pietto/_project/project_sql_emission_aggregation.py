@@ -55,6 +55,10 @@ SPELLING = {
     # THEN ROW(a, b) END), `count_distinct(a, b, ...)`: its first field is the
     # `argument`, the others are `extra_arguments`.
     "count_distinct_tuple": "COUNT",
+    # PostgreSQL only, the test of a group: (COUNT(CASE WHEN test THEN 1 END)
+    # > 0) and (COUNT(CASE WHEN test THEN NULL ELSE 1 END) = 0).
+    "group_any": "COUNT",
+    "group_all": "COUNT",
 }
 # The sample and population variances and deviations: one Int or Float
 # argument, a PostgreSQL VAR_SAMP or VAR_POP cast to float8 once.
@@ -63,7 +67,12 @@ SPREAD_FUNCTIONS = frozenset({"stddev", "variance", "pvariance", "pstdev"})
 ROOT_FUNCTIONS = frozenset({"stddev", "pstdev"})
 # The interpolated quantiles, an ordered-set PERCENTILE_CONT.
 QUANTILE_FUNCTIONS = frozenset({"median", "quantile"})
-FILTERED_FUNCTIONS = frozenset({"filtered_count", "filtered_sum"})
+# The aggregates of a test of each row, which is their only argument but for a
+# conditional sum's (its `delimiter`).
+GROUP_TEST_FUNCTIONS = frozenset({"group_any", "group_all"})
+FILTERED_FUNCTIONS = frozenset(
+    {"filtered_count", "filtered_sum", *GROUP_TEST_FUNCTIONS}
+)
 # Evidence that a binary64 result is finite because the target refuses an
 # overflowing accumulation (SQLSTATE 22003) instead of returning inf or NULL.
 TARGET_CHECKED_BINARY64 = "target_checked_binary64_overflow"
@@ -443,6 +452,11 @@ def result_realization(family: str, function: str, argument, retained):
             ),
             None,
         )
+    if function in GROUP_TEST_FUNCTIONS:
+        # A count compared with 0: a computed Bool, never NULL.
+        if family != "postgres" or tag != "Bool" or nullable is not False:
+            return None, ("PIE-B1002", "group_test_result_not_non_null_bool")
+        return rows._bool(family, False), None
     if function in FILTERED_FUNCTIONS:
         # A conditional count is the target's own count; a conditional sum
         # narrows to bigint with its checked CAST and is 0 for no match.
@@ -574,11 +588,12 @@ def argument_problem(function: str, argument, family: str):
 
 def filtered_problem(function: str, argument, test, family: str):
     """The argument law of a conditional count, ``filtered_count`` over its
-    test alone, and of a conditional sum, ``filtered_sum`` of one Int field
+    test alone, of a test of the group, ``group_any`` or ``group_all`` over
+    its test alone, and of a conditional sum, ``filtered_sum`` of one Int field
     over its test: each a row value that reads a field, the test a Bool.
     A test that reads no field (`if True`) is the same for every row.
-    PostgreSQL only: MySQL has no conditional count yet, and its SUM of an
-    integer is DECIMAL, as for `sum(Int)`."""
+    PostgreSQL only: MySQL has no conditional count or test of a group yet,
+    and its SUM of an integer is DECIMAL, as for `sum(Int)`."""
     for value in (argument, test):
         if type(value) is not rows.SQLStageReference and not (
             type(value) is rows.SQLOperation
@@ -587,9 +602,11 @@ def filtered_problem(function: str, argument, test, family: str):
             )
         ):
             return "PIE-B1003", (
-                "conditional_test_reads_no_field"
-                if value is test
-                else "aggregate_argument_not_a_direct_established_field"
+                "aggregate_argument_not_a_direct_established_field"
+                if value is not test
+                else "group_test_reads_no_field"
+                if function in GROUP_TEST_FUNCTIONS
+                else "conditional_test_reads_no_field"
             )
     if function == "filtered_sum":
         if type(argument) is not rows.SQLStageReference:
@@ -598,10 +615,26 @@ def filtered_problem(function: str, argument, test, family: str):
         if problem is not None:
             return problem
     elif family != "postgres":
-        return "PIE-B1003", "conditional_count_not_admitted_on_target"
+        return "PIE-B1003", _target_detail(function)
     if family != "postgres" or rows.realization_of(test, family).tag != "Bool":
-        return "PIE-B1003", function + "_argument_outside_reviewed_int_domain"
+        return "PIE-B1003", _domain_detail(function)
     return None
+
+
+def _target_detail(function: str) -> str:
+    return (
+        "group_test_not_admitted_on_target"
+        if function in GROUP_TEST_FUNCTIONS
+        else "conditional_count_not_admitted_on_target"
+    )
+
+
+def _domain_detail(function: str) -> str:
+    return (
+        "group_test_argument_outside_reviewed_bool_domain"
+        if function in GROUP_TEST_FUNCTIONS
+        else function + "_argument_outside_reviewed_int_domain"
+    )
 
 
 def resolved_filtered_problem(function: str, inputs, family: str):
@@ -619,22 +652,22 @@ def resolved_filtered_problem(function: str, inputs, family: str):
         if problem is not None:
             return problem
     elif family != "postgres":
-        return "PIE-B1003", "conditional_count_not_admitted_on_target"
+        return "PIE-B1003", _target_detail(function)
     test = inputs[-1][1]
     if family != "postgres" or test is None or test.tag != "Bool":
-        return "PIE-B1003", function + "_argument_outside_reviewed_int_domain"
+        return "PIE-B1003", _domain_detail(function)
     return None
 
 
 def signature_arity(function: str, count: int) -> bool:
     """Whether an aggregate takes this many argument values: a `string_agg`,
-    a `quantile` or a conditional sum two, a conditional count one, a
-    distinct-tuple count two or more, any other at most one."""
+    a `quantile` or a conditional sum two, a conditional count or a test of
+    the group one, a distinct-tuple count two or more, any other at most one."""
     if function == "count_distinct_tuple":
         return count > 1
     if function in {"string_agg", "quantile", "filtered_sum"}:
         return count == 2
-    if function == "filtered_count":
+    if function in {"filtered_count", "group_any", "group_all"}:
         return count == 1
     return count <= 1
 

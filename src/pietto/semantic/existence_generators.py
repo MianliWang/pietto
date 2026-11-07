@@ -235,8 +235,8 @@ def normalize_existence_generators(
     group_hint: bool = False,
 ) -> tuple[ast.Script, tuple[AnyUseInfo, ...], tuple[Diagnostic, ...]]:
     """Lower inter-JOIN existential filters while preserving scalar values.
-    With ``group_hint`` (a single file), an unsupported `any(... for o in
-    group)` that names no relation suggests the conditional count."""
+    With ``group_hint``, an unsupported `any(... for o in group)` that names
+    no relation suggests selecting the test of the group."""
 
     from pietto.semantic.inline_functions import _tree_nodes
 
@@ -365,12 +365,21 @@ def normalize_existence_generators(
         )
 
         group = group_hint and not names_group(script)
+        # QUALIFY reads no selected test of the group.
+        qualified = {
+            id(node)
+            for clause in nodes
+            if type(clause) is ast.QualifyClause
+            for node in _tree_nodes(clause)
+        }
         diagnostics.extend(
             replace(
                 _unsupported(expression),
                 suggestion=group_test_hint(expression.binding_name),
             )
-            if group and expression.relation_name == GROUP_SOURCE
+            if group
+            and expression.relation_name == GROUP_SOURCE
+            and id(expression) not in qualified
             else _unsupported(expression)
             for expression in unsupported
         )

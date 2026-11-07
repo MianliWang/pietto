@@ -1842,6 +1842,8 @@ class _Check:
                 "filtered_count": "COUNT",
                 "filtered_sum": "SUM",
                 "count_distinct_tuple": "COUNT",
+                "group_any": "COUNT",
+                "group_all": "COUNT",
             }.get(column["function"])
             _require(
                 expected is not None and column["spelling"] == expected,
@@ -1965,6 +1967,24 @@ class _Check:
                     )
                     and result["nullable"] is False,
                     "conditional aggregate shape",
+                )
+            elif column["function"] in {"group_any", "group_all"}:
+                # PostgreSQL only: a Bool test, a count of it compared with 0,
+                # a non-null computed Bool.
+                result = doc[doc[column["column"]]["realization"]]
+                _require(
+                    family == "postgres"
+                    and column["argument"] is not None
+                    and (_value_realization(doc, column["argument"]) or {}).get("tag")
+                    == "Bool"
+                    and column["delimiter"] is None
+                    and not column["distinct"]
+                    and not column["order_by"]
+                    and _is_realization(
+                        result, "Bool", {"kind": "pg_bool"}, {"kind": "bool01"}
+                    )
+                    and result["nullable"] is False,
+                    "group test shape",
                 )
             elif column["function"] in {"median", "quantile"}:
                 # PostgreSQL only: one signed PostgreSQL Int argument, a nullable
@@ -2911,6 +2931,21 @@ class _Tokens:
                     ("aggregate_close", ")"),
                 ]
                 _require(aggregate_tokens == expected, "quantile token sequence")
+            elif column["function"] in {"group_any", "group_all"}:
+                tested = column["function"] == "group_any"
+                expected = [
+                    ("aggregate_test_open", "("),
+                    ("aggregate_open", column["spelling"] + "("),
+                    ("aggregate_filter_open", "CASE WHEN "),
+                    ("aggregate_filter_then", " THEN "),
+                    ("aggregate_filter_one", "1")
+                    if tested
+                    else ("aggregate_filter_else", "NULL ELSE 1"),
+                    ("aggregate_filter_close", " END"),
+                    ("aggregate_close", ")"),
+                    ("aggregate_test_close", " > 0)" if tested else " = 0)"),
+                ]
+                _require(aggregate_tokens == expected, "group test token sequence")
             elif column["function"] in {"filtered_count", "filtered_sum"}:
                 counted = column["function"] == "filtered_count"
                 expected = [] if counted else [("aggregate_zero_open", "COALESCE(")]
@@ -3278,6 +3313,13 @@ class _Tokens:
         elif role == "aggregate_open":
             column = self.one(aggregates, subject, "aggregate subject")
             _require(text == column["spelling"] + "(", "aggregate spelling")
+        elif role == "aggregate_test_close":
+            column = self.one(aggregates, subject, "aggregate subject")
+            _require(
+                text
+                == {"group_any": " > 0)", "group_all": " = 0)"}.get(column["function"]),
+                "group test comparison",
+            )
         elif role in ("aggregate_argument_cast_close", "aggregate_result_cast_close"):
             column = self.one(aggregates, subject, "aggregate subject")
             cast = column[role[len("aggregate_") : -len("_close")]]

@@ -892,6 +892,20 @@ templates carry them unchanged: the compiled `aggregate_value` function is
 `filtered_count` with the test as its one argument, or `filtered_sum` with
 the field read, then the test.
 
+PostgreSQL project SQL emits the test of a group, `any(TEST for o in group)`
+and `all(TEST for o in group)`, as `(COUNT(CASE WHEN TEST THEN 1 END) > 0)`
+and `(COUNT(CASE WHEN TEST THEN NULL ELSE 1 END) = 0)`, TEST as the
+conditional count's (a test that reads no field, such as `any(True for o in
+group)`, is BLOCKED on both targets with `PIE-B1003`
+`group_test_reads_no_field`, suggestion ``Test a field of the member, such
+as `any(o.paid for o in group)`: a test that reads no field is the same for
+every row.``). The result is a non-null `Bool` (`pg_bool`, domain `bool01`)
+with no R13 evidence. MySQL project SQL keeps it BLOCKED with `PIE-B1003`
+`group_test_not_admitted_on_target` (suggestion `MySQL has no group any or
+all yet; emit with --dialect postgres.`). Compiled bundles and live templates
+carry it unchanged: the compiled `aggregate_value` function is `group_any` or
+`group_all` with the test as its one argument.
+
 `check --project` also accepts the following forms, which
 `emit-sql --project` reports BLOCKED on both dialects whatever the contract
 declares:

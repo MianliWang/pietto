@@ -107,7 +107,7 @@ from pietto.ast_nodes import (
 )
 from pietto.errors import Diagnostic, Severity, SourceLocation
 from pietto.semantic.aggregates import contains_semantic_aggregate
-from pietto.semantic.generators import GROUP_SOURCE, group_test_hint
+from pietto.semantic.generators import BEFORE_GROUPS_HINT, GROUP_SOURCE
 
 __all__: tuple[str, ...] = ()
 
@@ -2282,7 +2282,7 @@ def _resolve_expression_read(
                 message=f"Unknown relation: {name}",
                 location=location,
                 # No relation is named `group`: it is the group, as in a file.
-                suggestion=group_test_hint(read.expression.binding_name)
+                suggestion=BEFORE_GROUPS_HINT
                 if type(read.expression) is AnyExpr
                 and name == GROUP_SOURCE
                 and not shadowed

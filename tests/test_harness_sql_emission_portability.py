@@ -1113,6 +1113,58 @@ def test_conditional_count_and_sum_are_closed_data_relations(tmp_path):
         assert _status(_mutated(data, edit))[0] is pure.Status.INVALID_RELATION
 
 
+def test_the_test_of_a_group_is_a_closed_data_relation(tmp_path):
+    """A public consumer admits a PostgreSQL test of a group only as a count of
+    its Bool test compared with 0, uncast, a non-null Bool with no evidence."""
+    item = emission.aggregate_fixture("postgres", "X_aggregate_grouped", "hidden")
+    header = emission.AGGREGATE_HEADER.format(target="postgres")
+    body = (
+        "query result:\n    from agg\n    group by key\n    select:\n"
+        "        key\n        a = all(o.flag for o in group)\n"
+        '        b = any(o.label == "a" for o in group)\n'
+    )
+    _, outcome = emission.build_case(
+        tmp_path, header + body, item["contract"], item["policy"]
+    )
+    artifact = outcome.artifact
+    assert artifact is not None
+    observed = portable.export_emission_observation(artifact, artifact.request)
+    assert observed.status is portable.ObservationStatus.OK
+    data = observed.canonical_bytes
+    assert data is not None
+    document = json.loads(data)
+    assert [
+        (c["function"], c["spelling"], c["argument_cast"], c["result_cast"])
+        for c in _records(document, "aggregate_value_column")
+    ] == [("group_all", "COUNT", None, None), ("group_any", "COUNT", None, None)]
+    assert portable.verify_emission_observation(
+        data, artifact, artifact.request
+    ).corresponds
+
+    def field(position, name, value):
+        def edit(candidate):
+            _records(candidate, "aggregate_value_column")[position][name] = value
+
+        return edit
+
+    def claimed(value):
+        def edit(candidate):
+            for requirement in _records(candidate, "generated_requirement"):
+                if requirement["kind"] == "aggregate":
+                    requirement["evidence"] = value
+
+        return edit
+
+    for edit in (
+        field(0, "function", "group_any"),
+        field(1, "function", "filtered_count"),
+        field(0, "argument_cast", "pg_catalog.int8"),
+        field(1, "spelling", "SUM"),
+        claimed(["target_checked_signed64_narrowing"]),
+    ):
+        assert _status(_mutated(data, edit))[0] is pure.Status.INVALID_RELATION
+
+
 def test_quantile_order_cast_and_fraction_are_closed_data_relations(tmp_path):
     """A public consumer admits a PostgreSQL median or quantile only as
     PERCENTILE_CONT of a float8-cast Int with no result cast, a median

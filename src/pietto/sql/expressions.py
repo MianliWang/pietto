@@ -6,6 +6,7 @@ from pietto.ir.model import (
     AggregateCallIR,
     AggregateWindowCallIR,
     FILTERED_AGGREGATE_ARITIES,
+    GROUP_TEST_AGGREGATE_FUNCTIONS,
     aggregate_call_contract,
     AnyFieldIR,
     ExistsIR,
@@ -843,6 +844,11 @@ def _render_aggregate_call(
         sql = _render_spread_aggregate(expression)
     elif expression.function in FILTERED_AGGREGATE_ARITIES:
         sql = _render_filtered_aggregate(expression)
+    elif expression.function in GROUP_TEST_AGGREGATE_FUNCTIONS:
+        sql = render_group_test(
+            expression.function,
+            _render_expression_sql(expression.arguments[0], nested=False),
+        )
     elif expression.function in {"median", "quantile"}:
         sql = _render_quantile_aggregate(expression)
     elif (
@@ -1313,6 +1319,16 @@ def _render_filtered_aggregate(expression: AggregateCallIR) -> str:
         f"COALESCE(CAST(SUM(CASE WHEN {test_sql} THEN CAST({value_sql} AS "
         "pg_catalog.int8) END) AS pg_catalog.int8), 0)"
     )
+
+
+def render_group_test(function: str, test_sql: str) -> str:
+    """`any` counts the rows whose test is True; `all` counts those whose test
+    is not True, a None test included, as it takes no `WHEN` branch. COUNT is
+    never NULL, so no row gives False and True. One form on both targets."""
+
+    if function == "group_any":
+        return f"(COUNT(CASE WHEN {test_sql} THEN 1 END) > 0)"
+    return f"(COUNT(CASE WHEN {test_sql} THEN NULL ELSE 1 END) = 0)"
 
 
 def _render_quantile_aggregate(expression: AggregateCallIR) -> str:

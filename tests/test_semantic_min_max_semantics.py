@@ -160,11 +160,16 @@ def test_min_max_reject_unsupported_direct_field_argument_types(
         )
     )
 
+    hint = (
+        f"; for a test of the group write `any(o.{field_name} for o in group)`"
+        if actual_type == "Bool"
+        else ""
+    )
     assert _errors(result) == [
         (
             "PIE-S2314",
             f"Aggregate function {function_name} expects Int, Float, Decimal, "
-            f"Date, or Timestamp field argument, got {actual_type}",
+            f"Date, or Timestamp field argument, got {actual_type}{hint}",
         )
     ]
 

@@ -23,6 +23,7 @@ from pietto._project.project_sql_emission_ast import (
 )
 from pietto._project.project_sql_emission_aggregation import (
     FILTERED_FUNCTIONS,
+    GROUP_TEST_FUNCTIONS,
     QUANTILE_FUNCTIONS,
     ROOT_FUNCTIONS,
     AggregateKeyColumn,
@@ -1065,6 +1066,8 @@ def _aggregate_value(w: _Writer, column, alias) -> None:
     """One aggregate occurrence: its own spelling over its own exact argument."""
     reference = column.aggregate.ref
     start = w.offset
+    if column.function in GROUP_TEST_FUNCTIONS:
+        w.emit("(", "syntax", "aggregate_test_open", reference)
     if column.function in ROOT_FUNCTIONS:
         w.emit("SQRT(", "syntax", "aggregate_root_open", reference)
     if column.function == "filtered_sum":
@@ -1074,16 +1077,19 @@ def _aggregate_value(w: _Writer, column, alias) -> None:
     w.emit(column.spelling + "(", "syntax", "aggregate_open", reference)
     if column.function in FILTERED_FUNCTIONS:
         # CASE WHEN test THEN 1 END, or THEN the cast value of a sum: a test
-        # that is not True takes no branch and adds nothing.
+        # that is not True takes no branch and adds nothing. `all` counts the
+        # rows whose test is not True: THEN NULL ELSE 1.
         test = (
-            column.argument if column.function == "filtered_count" else column.delimiter
+            column.delimiter if column.function == "filtered_sum" else column.argument
         )
         if column.distinct or column.order_by or test is None:
             raise ValueError("unrenderable conditional aggregate")
         w.emit("CASE WHEN ", "syntax", "aggregate_filter_open", reference)
         w.scalar(test, alias)
         w.emit(" THEN ", "syntax", "aggregate_filter_then", reference)
-        if column.function == "filtered_count":
+        if column.function == "group_all":
+            w.emit("NULL ELSE 1", "syntax", "aggregate_filter_else", reference)
+        elif column.function != "filtered_sum":
             w.emit("1", "syntax", "aggregate_filter_one", reference)
         else:
             if column.argument_cast is None:
@@ -1199,6 +1205,13 @@ def _aggregate_value(w: _Writer, column, alias) -> None:
         w.emit(")", "syntax", "aggregate_root_close", reference)
     if column.function == "filtered_sum":
         w.emit(", 0)", "syntax", "aggregate_zero_close", reference)
+    if column.function in GROUP_TEST_FUNCTIONS:
+        w.emit(
+            " > 0)" if column.function == "group_any" else " = 0)",
+            "syntax",
+            "aggregate_test_close",
+            reference,
+        )
     w.enclose("aggregate", reference, start)
 
 

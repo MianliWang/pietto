@@ -1,6 +1,7 @@
-"""The conditional count and sum of a group (Phase73 S02): a generator's
-meaning is fixed by its source alone, only `sum` over `group` is admitted, and
-every other generator use is one diagnostic with its hint."""
+"""The conditional count and sum of a group (Phase73 S02) and the test of a
+group: a generator's meaning is fixed by its source alone, only `sum`, `any`
+and `all` over `group` are admitted, and every other generator use is one
+diagnostic with its hint."""
 
 from __future__ import annotations
 
@@ -94,7 +95,9 @@ def test_an_aggregate_query_without_group_by_reads_its_whole_input_as_a_group() 
     assert result.diagnostics == ()
 
 
-_ALL = "only `sum(... for o in group if ...)` takes a generator"
+_ALL = (
+    "only `sum(... for o in group if ...)`, `any(...)` and `all(...)` take a generator"
+)
 _BEFORE_GROUPS = (
     "a group's rows exist only after `group by`; test a row's own fields directly"
 )
@@ -153,7 +156,7 @@ _COUNT = "count matching rows with `sum(1 for o in group if ...)`"
             "lower(o.status for o in group if o.paid)",
             "lower",
             "PIE-S2334",
-            "A generator is only the argument of sum or any",
+            "A generator is only the argument of sum, any or all",
             None,
         ),
         (
@@ -274,7 +277,7 @@ def test_each_refused_generator_reports_its_first_broken_rule(
             11,
             "PIE-S2334",
             "any takes its test in the body",
-            "write `any(p and q for o in r)`",
+            "write `any(p and q for o in orders)`",
         ),
         (
             "query q:\n    from customers\n"
@@ -284,7 +287,7 @@ def test_each_refused_generator_reports_its_first_broken_rule(
             11,
             "PIE-S2334",
             "any takes its test in the body",
-            "write `any(q for o in r)`",
+            "write `any(q for o in orders)`",
         ),
         (
             "query q:\n    from customers\n"
@@ -499,28 +502,193 @@ def test_a_let_named_group_keeps_its_meaning_and_is_refused_in_sum() -> None:
     ]
 
 
-_GROUP_TEST = (
-    "a group test is not available yet: select "
-    "`n = sum(1 for o in group if ...)` and test `n > 0` in `having` or a later query"
-)
-
-
-def test_any_over_group_keeps_its_error_and_names_the_conditional_count() -> None:
-    result = _analyze(_grouped("any(o.paid for o in group)"))
-    having = (
-        "query q:\n    from orders\n    group by customer_id\n"
-        "    select customer_id, c = count()\n    having any(o.paid for o in {})\n"
+def _schema_field(result: SemanticResult, relation: str, name: str) -> tuple[str, str]:
+    (schema,) = (
+        schema
+        for definition, schema in result.model.relation_row_schemas.items()
+        if getattr(definition, "name", None) == relation
     )
+    field = schema.fields[name]
+    return field.resolved_type.name, field.nullability.value
 
-    assert [
-        (item.code, item.message, item.suggestion)
-        for name in ("group", "orders")
-        for item in _analyze(having.format(name)).diagnostics
-    ] == [
-        ("PIE-S2334", "ANY is not supported in this context", _GROUP_TEST),
-        ("PIE-S2334", "ANY is not supported in this context", None),
+
+@pytest.mark.parametrize(
+    "body",
+    [
+        _grouped("any(o.paid for o in group)"),
+        _grouped("all(o.paid and o.status == 'x' for o in group)".replace("'", '"')),
+        _grouped("all(not o.paid or customer_id > 3 for o in group)"),
+        "query q:\n    from orders\n    select:\n"
+        "        n = all(big(o.amount) for o in group)\n"
+        "        s = sum(1 for o in group if o.paid)\n",
+        "query q:\n    from orders\n    group by customer_id\n    select:\n"
+        "        customer_id\n        n = any(o.status is None for o in group)\n"
+        "    having n\n    order by n desc\n",
+    ],
+    ids=("any", "all", "key", "no_group_by", "having"),
+)
+def test_a_group_test_is_a_bool_that_is_never_none(body: str) -> None:
+    """`any(TEST for o in group)` and `all(TEST for o in group)` are a whole
+    aliased SELECT item; `having` and `order by` read the output."""
+    result = _analyze(body)
+
+    assert result.diagnostics == ()
+    assert _schema_field(result, "q", "n") == ("Bool", "non_null")
+
+
+_BEFORE = "a group's rows exist only after `group by`; test a row's own fields directly"
+_RENAME = "rename the relation group to read this group's rows"
+
+
+@pytest.mark.parametrize(
+    ("call", "at", "code", "message", "hint"),
+    [
+        (
+            "all(o.paid for o in group if o.amount > 1)",
+            "all",
+            "PIE-S2334",
+            "all takes its test in the body",
+            "count the exceptions: `n = sum(1 for o in group if q and not p)`, "
+            "then `having n == 0`",
+        ),
+        (
+            "all(o.paid for o in orders)",
+            "orders",
+            "PIE-S2334",
+            "Generator over orders in all: orders is the whole relation, not this "
+            "group",
+            "for this group's rows write `for o in group`; all over a whole "
+            "relation is not available",
+        ),
+        (
+            "any(o.paid for o in group if o.amount > 1)",
+            "any",
+            "PIE-S2334",
+            "any takes its test in the body",
+            "write `any(p and q for o in group)`",
+        ),
+        (
+            "all(paid for o in group)",
+            "paid for",
+            "PIE-S2334",
+            "Generator reads paid outside its member",
+            "write `o.paid`",
+        ),
+        (
+            "any(o.paid and any(c.id == o.id for c in customers) for o in group)",
+            "any(c",
+            "PIE-S2334",
+            "A generator test reads one member row: no window, any(...), "
+            "generator, relation read or captured field",
+            None,
+        ),
+        (
+            "all(count() > 1 for o in group)",
+            "count()",
+            "PIE-S2311",
+            "Nested aggregate count() is not supported",
+            None,
+        ),
+        (
+            "not all(o.paid for o in group)",
+            "not",
+            "PIE-S2310",
+            "Aggregate projection must be a direct aggregate call; composition "
+            "around all() is not supported yet",
+            None,
+        ),
+        (
+            "any(o.paid for o in group) and True",
+            "any",
+            "PIE-S2310",
+            "Aggregate projection must be a direct aggregate call; composition "
+            "around any() is not supported yet",
+            None,
+        ),
+        (
+            "max(paid)",
+            "max",
+            "PIE-S2314",
+            "Aggregate function max expects Int, Float, Decimal, Date, or "
+            "Timestamp field argument, got Bool",
+            "for a test of the group write `any(o.paid for o in group)`",
+        ),
+        (
+            "min(paid)",
+            "min",
+            "PIE-S2314",
+            "Aggregate function min expects Int, Float, Decimal, Date, or "
+            "Timestamp field argument, got Bool",
+            "for a test of the group write `all(o.paid for o in group)`",
+        ),
+        (
+            "min(orders.paid)",
+            "min",
+            "PIE-S2314",
+            "Aggregate function min expects Int, Float, Decimal, Date, or "
+            "Timestamp field argument, got Bool",
+            "for a test of the group write `all(o.paid for o in group)`",
+        ),
+    ],
+)
+def test_each_refused_group_test_reports_its_first_broken_rule(
+    call: str, at: str, code: str, message: str, hint: str | None
+) -> None:
+    result = _analyze(_grouped(call))
+
+    text = message if hint is None else f"{message}; {hint}"
+    assert _rows(result) == [(code, "error", LINE, _at(at, call), text, hint)]
+
+
+@pytest.mark.parametrize(
+    ("call", "hint"),
+    [
+        ("any(r.price for r in group)", "such as `r.price > 0`"),
+        ("all(o.price for o in group)", "such as `o.price > 0`"),
+        ("any(o.status for o in group)", "such as a comparison"),
+        ("all(o.amount for o in group)", "such as a comparison"),
+        ("all(o.price + 1 for o in group)", "such as a comparison"),
+    ],
+)
+def test_a_group_test_body_that_is_no_bool_suggests_a_test(
+    call: str, hint: str
+) -> None:
+    """The message keeps the relation `any` text; only the suggestion asks for
+    a test, naming a number field (`amount` is a `Cents` alias)."""
+    name, _, rest = call.partition("(")
+    body = rest.partition(" for ")[0]
+
+    assert _rows(_analyze(_grouped(call))) == [
+        (
+            "PIE-S2202",
+            "error",
+            LINE,
+            _at(body, call),
+            f"Expected Bool expression in {name.upper()} predicate",
+            f"write the body as a test, {hint}",
+        )
     ]
-    assert _rows(result) == [
+
+
+@pytest.mark.parametrize(
+    ("call", "hint"),
+    [
+        ("all(paid)", "write `all(o.paid for o in group)`"),
+        ("ALL(paid)", "write `all(o.paid for o in group)`"),
+        ("every(paid)", "write `all(o.paid for o in group)`"),
+        ("bool_and(orders.paid)", "write `all(o.paid for o in group)`"),
+        ("any(paid)", "write `any(o.paid for o in group)`"),
+        ("bool_or(paid)", "write `any(o.paid for o in group)`"),
+        ("any(paid, amount)", "write `any(o.x for o in group)`"),
+        # A relation is no member field.
+        ("all(orders)", "write `all(o.x for o in group)`"),
+    ],
+)
+def test_a_group_test_habit_names_the_generator(call: str, hint: str) -> None:
+    name = call.partition("(")[0]
+
+    assert _rows(_analyze(_grouped(call))) == [
+        ("PIE-S2103", "error", LINE, 29, f"Unknown function: {name}; {hint}", hint),
         (
             "PIE-S2319",
             "error",
@@ -529,15 +697,293 @@ def test_any_over_group_keeps_its_error_and_names_the_conditional_count() -> Non
             "Grouped scalar projection expressions are not supported yet",
             None,
         ),
+    ]
+
+
+@pytest.mark.parametrize(
+    ("clause", "hint"),
+    [
+        ("    select a = all(c.id)\n", "write `all(o.id for o in group)`"),
         (
+            "    where all(c.id)\n    select x = c.id\n",
+            "write `all(o.id for o in group)`",
+        ),
+        ("    select a = any(paid)\n", "write `any(o.paid for o in group)`"),
+        ("    select a = all(orders)\n", "write `all(o.x for o in group)`"),
+    ],
+)
+def test_a_project_group_test_habit_over_join_rows_names_its_field(
+    tmp_path, capsys, clause: str, hint: str
+) -> None:
+    """A project types each field read of a JOIN's row before the call, so its
+    hint names the field as a file's does; a relation is still `o.x`."""
+    import json
+
+    from pietto import cli
+
+    (tmp_path / "pietto.toml").write_text(
+        'schema_version = 2\n[sources]\ninclude = ["*.pietto"]\n'
+    )
+    (tmp_path / "main.pietto").write_text(
+        PREFIX + "query q:\n    from orders\n    let c = customers\n"
+        "    inner join c on c.id == orders.customer_id\n" + clause
+    )
+    found = []
+    for argv in (
+        ["check", "--project", str(tmp_path), "--format", "json"],
+        ["check", str(tmp_path / "main.pietto"), "--format", "json"],
+    ):
+        assert cli.main(argv) == 1
+        found.append(
+            [
+                (
+                    row["code"],
+                    row["location"]["line"],
+                    row["message"],
+                    row["suggestion"],
+                )
+                for row in json.loads(capsys.readouterr().out)["diagnostics"]
+            ]
+        )
+    assert found[0] == found[1]
+    assert [(row[0], row[3]) for row in found[0]] == [("PIE-S2103", hint)]
+
+
+@pytest.mark.parametrize(
+    ("clause", "column", "code", "message", "hint"),
+    [
+        (
+            "    where any(o.paid for o in group)\n",
+            31,
             "PIE-S2301",
-            "error",
-            LINE,
-            49,
             "Unknown or unavailable ANY relation: group",
-            _GROUP_TEST,
+            _BEFORE,
+        ),
+        (
+            "    where all(o.paid for o in group)\n",
+            11,
+            "PIE-S2308",
+            "Aggregate all() is not allowed in where clause; use it only as a "
+            f"direct aliased select projection; {_BEFORE}",
+            _BEFORE,
+        ),
+        (
+            "    let z = any(o.paid for o in group)\n",
+            33,
+            "PIE-S2301",
+            "Unknown or unavailable ANY relation: group",
+            _BEFORE,
+        ),
+        (
+            "    let z = all(o.paid for o in group)\n",
+            13,
+            "PIE-S2308",
+            "Aggregate all() is not allowed in let binding; use it only as a "
+            f"direct aliased select projection; {_BEFORE}",
+            _BEFORE,
+        ),
+    ],
+)
+def test_a_group_test_before_group_by_says_there_is_no_group(
+    clause: str, column: int, code: str, message: str, hint: str
+) -> None:
+    result = _analyze(
+        f"query q:\n    from orders\n{clause}    group by customer_id\n"
+        "    select customer_id, n = count()\n"
+    )
+
+    assert _rows(result) == [
+        (code, "error", PREFIX.count("\n") + 3, column, message, hint)
+    ]
+
+
+@pytest.mark.parametrize(
+    ("clause", "context"), [("having", "having clause"), ("order by", "order by")]
+)
+def test_a_group_test_in_having_or_order_by_says_to_select_it(
+    clause: str, context: str
+) -> None:
+    query = (
+        "query q:\n    from orders\n    group by customer_id\n"
+        "    select customer_id, c = count()\n    {} {}(o.paid for o in {})\n"
+    )
+    selected = {
+        name: f"select `{output} = {name}(o.paid for o in group)` and read "
+        f"`{output}` in `having` or `order by`"
+        for name, output in (("any", "has_paid"), ("all", "all_paid"))
+    }
+
+    assert [
+        (item.code, item.message, item.suggestion)
+        for name, source in (("any", "group"), ("any", "orders"), ("all", "group"))
+        for item in _analyze(query.format(clause, name, source)).diagnostics
+    ] == [
+        ("PIE-S2334", "ANY is not supported in this context", selected["any"]),
+        ("PIE-S2334", "ANY is not supported in this context", None),
+        (
+            "PIE-S2308",
+            f"Aggregate all() is not allowed in {context}; use it only as a "
+            f"direct aliased select projection; {selected['all']}",
+            selected["all"],
         ),
     ]
+
+
+@pytest.mark.parametrize(
+    "select",
+    [
+        "    group by customer_id\n    select customer_id, c = count()\n",
+        "    select id\n",
+    ],
+    ids=("grouped", "no_group_by"),
+)
+def test_a_group_test_in_qualify_has_no_having_hint(select: str) -> None:
+    """QUALIFY reads no selected test of the group."""
+    result = _analyze(
+        f"query q:\n    from orders\n{select}    qualify any(o.paid for o in group)\n"
+    )
+
+    assert [
+        (item.code, item.message, item.suggestion) for item in result.diagnostics
+    ] == [("PIE-S2334", "ANY is not supported in this context", None)]
+
+
+@pytest.mark.parametrize(
+    ("select", "column"),
+    [
+        ("    group by customer_id\n    select customer_id, n = {}\n", 29),
+        ("    select n = {}\n", 16),
+        ("    select id, n = {}\n", 20),
+        ("    select c = count(), n = {}\n", 29),
+    ],
+    ids=("grouped", "alone", "beside_a_field", "beside_an_aggregate"),
+)
+@pytest.mark.parametrize("name", ["any", "all"])
+def test_a_select_item_refuses_a_group_test_over_a_relation_named_group(
+    select: str, column: int, name: str
+) -> None:
+    """In a SELECT item `for o in group` could mean the group or the relation,
+    so a relation named `group` there is refused with a rename hint; WHERE
+    keeps its relation meaning."""
+    source = (
+        PREFIX.replace(
+            "source customers:",
+            'source group: Order = postgres.table("shop.g")\nsource customers:',
+        )
+        + "query tests:\n    from customers\n"
+        "    where any(o.customer_id == customers.id for o in group)\n"
+        "    select id\n"
+        + "query q:\n    from orders\n"
+        + select.format(f"{name}(o.paid for o in group)")
+    )
+    parsed = parse_source(source)
+    assert parsed.ast is not None
+
+    assert _rows(analyze(parsed.ast)) == [
+        (
+            "PIE-S2334",
+            "error",
+            source.count("\n"),
+            column + len(name) + 17,
+            f"Generator over group in {name}: group is the relation group, not "
+            f"this group; {_RENAME}",
+            _RENAME,
+        )
+    ]
+
+
+def test_a_let_named_group_is_refused_in_a_group_test() -> None:
+    result = _analyze(
+        "query q:\n    let group = customers\n    from orders\n"
+        "    group by customer_id\n"
+        "    select customer_id, n = any(o.paid for o in group)\n"
+    )
+
+    hint = "rename the let group to read this group's rows"
+    assert _rows(result) == [
+        (
+            "PIE-S2334",
+            "error",
+            PREFIX.count("\n") + 5,
+            49,
+            f"Generator over group in any: group is the let group, not this group; "
+            f"{hint}",
+            hint,
+        )
+    ]
+
+
+def test_a_group_test_over_join_rows_is_refused_with_a_hint() -> None:
+    result = _analyze(
+        "query q:\n    from orders\n"
+        "    inner join customers on orders.customer_id == customers.id\n"
+        "    group by orders.customer_id\n"
+        "    select customer_id, n = all(o.paid for o in group)\n"
+    )
+
+    hint = "join in one query, then group it in another that reads it with `from`"
+    assert [
+        (item.code, item.message, item.suggestion) for item in result.diagnostics
+    ] == [
+        (
+            "PIE-S2334",
+            "all(... for o in group ...) over JOIN rows is not available yet; " + hint,
+            hint,
+        )
+    ]
+
+
+@pytest.mark.parametrize(
+    ("name", "suggestion"),
+    [
+        (
+            "any",
+            "Rename this def: `any` is the built-in test of a relation or of a "
+            "group, and a call to any always means it.",
+        ),
+        (
+            "all",
+            "Rename this def: `all` is now the built-in test of a group, and a "
+            "call to all always means it.",
+        ),
+    ],
+)
+def test_a_def_named_any_or_all_is_refused_with_a_rename(
+    name: str, suggestion: str
+) -> None:
+    result = _analyze(
+        f"def {name}(x: Int) -> Int:\n    return x + 1\n"
+        f"query q:\n    from orders\n    select id, y = {name}(amount)\n"
+    )
+
+    assert [
+        (item.code, item.location.line, item.message, item.suggestion)
+        for item in result.diagnostics
+    ] == [
+        (
+            "PIE-S2398",
+            PREFIX.count("\n") + 1,
+            f"Def {name} has the name of a built-in function; a def cannot shadow one",
+            suggestion,
+        )
+    ]
+
+
+def test_a_group_test_inherits_the_not_in_warning_of_where() -> None:
+    """TEST is read as WHERE reads it: a `not in` over a nullable field is
+    never True for None, as the WHERE conjunct `status is not None` says."""
+    call = 'any(o.status not in ("a", "b") for o in group)'
+    warned = _analyze(_grouped(call))
+    silenced = _analyze(
+        _grouped(call).replace(
+            "    group by", "    where status is not None\n    group by"
+        )
+    )
+
+    assert [(item.code, item.severity) for item in warned.diagnostics] == [
+        ("PIE-S2384", Severity.WARNING)
+    ]
+    assert silenced.diagnostics == ()
 
 
 def test_conditional_habits_without_a_generator_name_it() -> None:

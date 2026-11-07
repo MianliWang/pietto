@@ -46,6 +46,7 @@ from pietto.ir.model import (
 from pietto.sql.expressions import (
     null_number_operand_sql,
     one_character_text_literal,
+    render_group_test,
 )
 from pietto.sql.mysql_render import (
     MySqlRenderError,
@@ -589,6 +590,17 @@ def _render_aggregate_call(
         return (
             f"COUNT(CASE WHEN {_render_mysql_expression(test, nested=False)} "
             "THEN 1 END)"
+        )
+    if expression.function in {"group_any", "group_all"}:
+        # The PostgreSQL form (`ba` differential): an integer 0/1, the
+        # computed-Bool wire type; a NULL test takes no `WHEN` branch.
+        if not aggregate_call_contract(
+            expression.function, expression.arguments, expression.value_type
+        ):
+            raise MySqlRenderError("MySQL test of a group violates its IR contract")
+        return render_group_test(
+            expression.function,
+            _render_mysql_expression(expression.arguments[0], nested=False),
         )
     if expression.function in {"median", "quantile"}:
         # MySQL 8.4 has no PERCENTILE_CONT or other interpolated percentile.

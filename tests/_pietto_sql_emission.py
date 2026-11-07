@@ -9632,6 +9632,10 @@ def _decode_fixed_public(document, limits):
         start = lexical[cursor][0]["start"]
         subject = lexical[cursor][0]["subject"]
         _need(subject["kind"] == "aggregate", "aggregate occurrence kind")
+        # A PostgreSQL test of a group is (COUNT(CASE ...) > 0) or = 0.
+        tested = peek() == "aggregate_test_open"
+        if tested:
+            take("syntax", "aggregate_test_open", "(", subject)
         # A PostgreSQL conditional sum is COALESCE(CAST(SUM(CASE ...)), 0).
         zero = peek() == "aggregate_zero_open"
         if zero:
@@ -9670,12 +9674,17 @@ def _decode_fixed_public(document, limits):
                 and (result_cast is None) is counted,
                 "conditional aggregate shape",
             )
+            _need(not tested or counted and not zero, "group test shape")
             take("syntax", "aggregate_filter_open", "CASE WHEN ", subject)
             test = row_parse(block)
             take("syntax", "aggregate_filter_then", " THEN ", subject)
-            if counted:
+            if tested and peek() == "aggregate_filter_else":
+                take("syntax", "aggregate_filter_else", "NULL ELSE 1", subject)
+                argument, function = test, "group_all"
+            elif counted:
                 take("syntax", "aggregate_filter_one", "1", subject)
-                argument, function = test, "filtered_count"
+                argument = test
+                function = "group_any" if tested else "filtered_count"
             else:
                 take("syntax", "aggregate_argument_cast_open", "CAST(", subject)
                 argument = row_parse(block)
@@ -9790,6 +9799,14 @@ def _decode_fixed_public(document, limits):
         _need(not zero or function == "filtered_sum", "conditional sum zero")
         if zero:
             closed, _ = take("syntax", "aggregate_zero_close", ", 0)", subject)
+        _need(tested is (function in {"group_any", "group_all"}), "group test")
+        if tested:
+            closed, _ = take(
+                "syntax",
+                "aggregate_test_close",
+                " > 0)" if function == "group_any" else " = 0)",
+                subject,
+            )
         expected_ranges.append(("aggregate", subject, start, closed["end"]))
         return {
             "aggregate": subject,
@@ -9822,6 +9839,23 @@ def _decode_fixed_public(document, limits):
             ),
             "sum result cast",
         )
+        if function in {"group_any", "group_all"}:
+            # A count of a Bool test compared with 0: a computed Bool, never NULL.
+            _need(
+                family == "postgres"
+                and argument is not None
+                and argument["tag"] == "Bool"
+                and argument_cast is None
+                and delimiter is None
+                and not order_by,
+                "group test arguments",
+            )
+            return {
+                "tag": "Bool",
+                "storage": {"kind": "pg_bool"},
+                "nullable": False,
+                "domain": {"kind": "bool01"},
+            }
         if function in {"filtered_count", "filtered_sum"}:
             # Never NULL: a count bounded by the count premise, a sum by its
             # checked bigint CAST, 0 when no row's test is True.
@@ -10651,6 +10685,7 @@ def _decode_fixed_public(document, limits):
                 "aggregate_result_cast_open",
                 "aggregate_root_open",
                 "aggregate_zero_open",
+                "aggregate_test_open",
             ):
                 node = {"kind": "aggregate", **aggregate_parse(block)}
             elif peek() == "window_open":
@@ -11337,7 +11372,8 @@ def _decode_fixed_public(document, limits):
                                 and argument["tag"] in {"Text", "Bool"}
                             )
                             or (
-                                node["function"] == "filtered_count"
+                                node["function"]
+                                in {"filtered_count", "group_any", "group_all"}
                                 and family == "postgres"
                                 and argument["tag"] == "Bool"
                             ),

@@ -177,15 +177,10 @@ refused; compatibility):
   window(order by id)`, was `Unexpected 'for'.` at the `for`; it is now
   ``Unexpected 'window'; expected ',' or end of line. A window call is a whole
   `select:` item on a line of its own.`` at the `window`.
-- `any(p for o in group)` where no relation or `let` is named `group` keeps
-  PIE-S2301 `Unknown or unavailable ANY relation: group`, its span and order
-  (after PIE-S2319 in a grouped SELECT); its JSON `suggestion`, null before,
-  is ``a group test is not available yet: select `n = sum(1 for o in group if
-  ...)` and test `n > 0` in `having` or a later query``. In a `having`, the
-  same `any(...)` keeps PIE-S2334 `ANY is not supported in this context`, its
-  span and order, and gains the same suggestion. A `schema_version = 2`
-  project gains the same suggestion and keeps its own text and span
-  (`Unknown relation: group` at the `any(...)`).
+- `any(p for o in group)` where no relation or `let` is named `group` is now
+  the test of a group in a SELECT item; elsewhere it keeps PIE-S2301 (in a
+  `having`, PIE-S2334) with the suggestions of "The test of a group: `any`
+  and `all` over `group`" below.
 - PIE-S2315 of `sum(amount if paid else 0)` and `count(1 if paid else None)`
   (a conditional argument, outside a window) gains ``; write `sum(o.v for o in
   group if ...)` `` (`sum`) or ``; write `sum(1 for o in group if ...)` ``
@@ -1176,7 +1171,7 @@ changes):
 | a `schema_version = 2` project with `sum(1 for o in group if TEST)` or `sum(o.f for o in group if TEST)` as a whole aliased SELECT item without JOIN inputs | PIE-P1000 | accepted |
 | a `schema_version = 2` project with any other generator call | PIE-P1000 | the single file's diagnostic for the same call (for example PIE-S2334 ``count takes no generator; ...``, PIE-S2314, PIE-S2202 `Expected Bool expression in generator test`, PIE-S2105 at an operator of the test such as `o.paid == None`) |
 | a `schema_version = 1` project with any generator call | PIE-P1000 | PIE-S2334 ``sum(... for ...): a schema_version = 1 project has no generator in the current syntax; set schema_version = 2 to check it`` (the callee's name in place of `sum`; the hint is the JSON `suggestion`) |
-| a `schema_version = 2` project with `any(... for o in group)` where no relation or `let` is named `group` | PIE-S2301 `Unknown relation: group` at the `any(...)` (a WHERE or SELECT), or PIE-S2334 `ANY is not supported in this context` (a `having`), suggestion null | the same code, text, span and order; JSON `suggestion` ``a group test is not available yet: select `n = sum(1 for o in group if ...)` and test `n > 0` in `having` or a later query`` |
+| a `schema_version = 2` project with `any(... for o in group)` where no relation or `let` is named `group` | PIE-S2301 `Unknown relation: group` at the `any(...)` (a WHERE or SELECT), or PIE-S2334 `ANY is not supported in this context` (a `having`), suggestion null | in a SELECT item the test of a group; elsewhere the same code, text, span and order with the JSON `suggestion` of "The test of a group: `any` and `all` over `group`" below |
 
 ### A worked example
 
@@ -1667,6 +1662,93 @@ version marks `(7, 1, 7, 1)`, and a reader of earlier marks refuses them.
 Project JSON v2 gains the provenance `function` `count_distinct_tuple` and the
 `ranges` syntax roles `aggregate_tuple_open`, `aggregate_tuple_and`,
 `aggregate_tuple_then` and `aggregate_tuple_close`.
+
+### The test of a group: `any` and `all` over `group`
+
+- `any(TEST for o in group)` is True when TEST is True for at least one row of
+  the group, `all(TEST for o in group)` when it is True for every row; each is
+  a `Bool`, never None, and with no row `any` is False and `all` is True, as in
+  Python. They are a whole aliased SELECT item of a grouped query or of a query
+  with aggregates and no GROUP BY, without JOIN inputs, in a single file and a
+  `schema_version = 2` project; `having` and `order by` read the output name.
+  Each row's TEST is read as WHERE reads it (three-valued), then folded as
+  Python folds: a None TEST is not True, so it is no match for `any` and a
+  failure for `all`. Python differs only where None meets `not`, `!=` or
+  `not in`, or `==` compares two Nones (Python makes those True); write
+  `coalesce(...)` or `... or x is None` for Python's meaning. pandas skips None
+  (`skipna=True`), so pandas `all` of `[True, None]` is True; Pietto says False.
+- PostgreSQL SQL, single file and project: `(COUNT(CASE WHEN TEST THEN 1 END) > 0)`
+  and `(COUNT(CASE WHEN TEST THEN NULL ELSE 1 END) = 0)`; the project result is
+  a non-null `pg_bool` (`bool01`) with no R13 evidence. Compiled bundles and
+  live templates carry both unchanged.
+- Single-file MySQL writes the same form, an integer 0/1 (the computed-Bool
+  wire type), after a two-database differential (PostgreSQL 18.6, MySQL
+  8.4.12) of None tests, all-True, all-False, mixed, all-None and empty groups
+  matched the expected rows on both databases. A MySQL project refuses it with
+  PIE-B1003 `group_test_not_admitted_on_target` at its select item,
+  suggestion `MySQL has no group any or all yet; emit with --dialect
+  postgres.`
+- **New refusals.**
+  - A project test of a group whose TEST reads no field (`any(True for o in
+    group)`): checked, but emission is BLOCKED on either target with PIE-B1003
+    `group_test_reads_no_field` at its select item, suggestion ``Test a field
+    of the member, such as `any(o.paid for o in group)`: a test that reads no
+    field is the same for every row.`` (a single file emits
+    `(COUNT(CASE WHEN TRUE THEN 1 END) > 0)`).
+  - A query header parameter read in a project test of a group: PIE-S2355
+    `Query parameters are not available in this position.` at the read (no
+    suggestion), as in every aggregate argument.
+  - Internal-only details (forged inputs): PIE-B1002
+    `group_test_result_not_non_null_bool`, PIE-B1003
+    `group_test_argument_outside_reviewed_bool_domain`.
+
+Compatibility (accepted programs that change; owner decisions 7a and 7b,
+2026-11-06):
+
+| Program (accepted in 0.1.9) | After |
+| --- | --- |
+| a `def any(...)` or `def all(...)` (a call `any(x)`/`all(x)` named the def) | PIE-S2398 `Def any has the name of a built-in function; a def cannot shadow one` at the def, suggestion ``Rename this def: `any` is the built-in test of a relation or of a group, and a call to any always means it.``; `def all`: `Def all has the name of a built-in function; a def cannot shadow one`, suggestion ``Rename this def: `all` is now the built-in test of a group, and a call to all always means it.`` |
+| a SELECT item `x = any(... for o in group)` in a query without GROUP BY while a source, table, query, import or `let` named `group` is visible (before, a per-row `EXISTS` over that relation) | PIE-S2334 ``Generator over group in any: group is the relation group, not this group; rename the relation group to read this group's rows`` at `group` (`the let group`, `rename the let group` for a `let`), the hint the JSON `suggestion`. The same `any` in a WHERE, a row `let` or a JOIN `on` keeps its relation meaning and bytes. |
+| such an `any(... for o in group)` inside a SELECT item rather than the whole item, as in `x = not any(...)`, `x = 1 if any(...) else 0` or another call's argument, in the same query (before, `NOT EXISTS (...)`, `CASE WHEN EXISTS (...) ...` over that relation) | the same PIE-S2334 at `group`: in a SELECT item, `any(... for o in group)` is always the test of a group |
+
+Changed diagnostics (programs refused before):
+
+| Program | Before | After |
+| --- | --- | --- |
+| `x = all(TEST for o in group)` (whole aliased SELECT item, no JOIN inputs) | PIE-S2103 `Unknown function: all` | accepted |
+| `x = any(TEST for o in group)` in a grouped query; alone in a query without GROUP BY; in a `schema_version = 2` project | PIE-S2319 `Grouped scalar projection expressions are not supported yet` then PIE-S2301 `Unknown or unavailable ANY relation: group`; PIE-S2301 alone; project PIE-S2301 `Unknown relation: group` | accepted |
+| `any(... for o in group)` in a WHERE, a row `let` or a JOIN `on`, no relation named `group` (file and `schema_version = 2` project) | PIE-S2301, suggestion ``a group test is not available yet: select `n = sum(1 for o in group if ...)` and test `n > 0` in `having` or a later query`` | same code, message, span and order; suggestion ``a group's rows exist only after `group by`; test a row's own fields directly`` |
+| `any(... for o in group)` in `having` or ORDER BY (file and project) | PIE-S2334 `ANY is not supported in this context`, the suggestion above | same; suggestion ``select `has_paid = any(o.paid for o in group)` and read `has_paid` in `having` or `order by` `` (the call's binder in place of `o`) |
+| `qualify any(... for o in group)`, grouped or not (file and project) | PIE-S2334 `ANY is not supported in this context`, the suggestion above | same code, message and span; no suggestion |
+| `x = any(... for o in group)` beside a non-aggregate SELECT item (a field, a window) in a query without GROUP BY, no relation named `group` | PIE-S2301 `Unknown or unavailable ANY relation: group` at `group` (project: `Unknown relation: group` at the `any(...)`), the suggestion above | PIE-S2312 `Aggregate projections cannot be mixed with non-aggregate projections without GROUP BY` at the `any(...)`, no suggestion (as `sum(...)` there), file and project alike |
+| `any(p for o in SOURCE if q)`, any source (`group` or a relation) | PIE-S2334 ``any takes its test in the body; write `any(p and q for o in r)` `` (``write `any(q for o in r)` `` for a `True` body) | same code and span; the generator's source in place of `r`: ``...; write `any(p and q for o in group)` `` |
+| `all(... for o in group)` in a WHERE, a row `let`, a JOIN `on` or a `def` body | PIE-S2103 `Unknown function: all` | PIE-S2308 ``Aggregate all() is not allowed in where clause; use it only as a direct aliased select projection; a group's rows exist only after `group by`; test a row's own fields directly`` (`let binding`, `JOIN ON`, `this position`), the hint the JSON `suggestion` |
+| `having all(... for o in group)` | PIE-S2103 `Unknown function: all` | PIE-S2308 ``Aggregate all() is not allowed in having clause; use it only as a direct aliased select projection; select `all_paid = all(o.paid for o in group)` and read `all_paid` in `having` or `order by` ``, the hint the JSON `suggestion` (the `any` form keeps PIE-S2334: a compatibility leftover) |
+| `order by all(... for o in group)` | PIE-S2103 `Unknown function: all` | PIE-S2308 ``Aggregate all() is not allowed in order by; use it only as a direct aliased select projection; select `all_paid = all(o.paid for o in group)` and read `all_paid` in `having` or `order by` ``, the hint the JSON `suggestion` |
+| a SELECT item `any(... for o in group)` grouped, or beside another aggregate, while a relation or `let` named `group` is visible; `all(... for o in group)` anywhere then | PIE-S2319; PIE-S2312 `Aggregate projections cannot be mixed with non-aggregate projections without GROUP BY`; PIE-S2103 `Unknown function: all` | PIE-S2334 ``Generator over group in any: group is the relation group, not this group; rename the relation group to read this group's rows`` (`in all`), alone |
+| `all(p for o in group if q)` | PIE-S2103 `Unknown function: all` | PIE-S2334 ``all takes its test in the body; count the exceptions: `n = sum(1 for o in group if q and not p)`, then `having n == 0` `` |
+| `all(... for o in orders)` (a relation) | PIE-S2103 `Unknown function: all` | PIE-S2334 ``Generator over orders in all: orders is the whole relation, not this group; for this group's rows write `for o in group`; all over a whole relation is not available`` at `orders` |
+| a known non-Bool body: `all(o.amount for o in group)`; `any(o.status for o in group)` in a SELECT item | PIE-S2103 `Unknown function: all`; PIE-S2319 + PIE-S2301 | PIE-S2202 `Expected Bool expression in ALL predicate`; `Expected Bool expression in ANY predicate`, at the body; JSON `suggestion` only (the message keeps the relation `any` text) ``write the body as a test, such as `o.amount > 0` `` for a body that is one Int, Float or Decimal field (binder and field substituted), else `write the body as a test, such as a comparison` |
+| `all`/`any(... for o in group)` over JOIN rows | PIE-S2103; PIE-S2301 (+ PIE-S2319) | PIE-S2334 ``all(... for o in group ...) over JOIN rows is not available yet; join in one query, then group it in another that reads it with `from` `` (`any` alike) |
+| `all`/`any(... for o in group)` without an alias, or composed (`not all(...)`, `any(...) and True`) | PIE-S2103; PIE-S2301 | PIE-S2313 `Aggregate all() projection requires an explicit alias`; PIE-S2310 `Aggregate projection must be a direct aggregate call; composition around all() is not supported yet` |
+| a test that reads a non-member name, a `let`, the binder, a nested aggregate, `any(...)` or a window (`all(paid for o in group)`, ...) | PIE-S2103 for `all`; PIE-S2301 for `any` | the generator rule's PIE-S2334 / PIE-S2311 / PIE-S2102 text, as for `sum(... if TEST)` (``Generator reads paid outside its member; write `o.paid` ``, ...) |
+| `bool_and(x)`, `every(x)`, `all(x)` (any letter case) | PIE-S2103 `Unknown function: NAME` + PIE-S2319 | same codes, span and order; message gains ``; write `all(o.x for o in group)` `` (the field's name for `x`), also the JSON `suggestion` |
+| `bool_or(x)`, `any(x)` | PIE-S2103 `Unknown function: NAME` + PIE-S2319 | same; ``; write `any(o.x for o in group)` `` |
+| `max(b)`, `min(b)` of a `Bool` field | PIE-S2314 ``Aggregate function max expects Int, Float, Decimal, Date, or Timestamp field argument, got Bool`` | same code; message gains ``; for a test of the group write `any(o.b for o in group)` `` (`all` for `min`), also the JSON `suggestion` |
+| another aggregate with a generator, `max(o.x for o in group)`, ... | PIE-S2334 ``max takes no generator; a conditional max is not available; only `sum(... for o in group if ...)` takes a generator`` | same code and span; hint ``only `sum(... for o in group if ...)`, `any(...)` and `all(...)` take a generator`` |
+| another known callee with a generator, `lower(o.x for o in group)` | PIE-S2334 `A generator is only the argument of sum or any` | PIE-S2334 `A generator is only the argument of sum, any or all` |
+| `all(... for o in c.xs)` over a row's collected list (`schema_version = 2` project) | PIE-S2103 `Unknown function: all` | PIE-S2334 ``all takes no list generator; `sum` and `any` take a list generator`` at the call, the hint the JSON `suggestion` |
+| a `schema_version = 1` project with `x = any(... for o in group)` in a SELECT item | PIE-S2334 `any(...): a schema_version = 1 project has no any(...) in the current syntax; set schema_version = 2 to check it.` | PIE-S2334 ``any(... for ...): a schema_version = 1 project has no generator in the current syntax; set schema_version = 2 to check it``, the hint the JSON `suggestion`, same span (an `any(...)` elsewhere keeps its text) |
+
+Formats: Project JSON v2 (`emit-sql --project`) gains the aggregate column
+`function` values `group_any` and `group_all` (`spelling` `COUNT`, the test in
+`argument`, no casts) and the additive `ranges` syntax roles
+`aggregate_test_open` (`(`), `aggregate_filter_else` (`NULL ELSE 1`) and
+`aggregate_test_close` (` > 0)` or ` = 0)`); a consumer that closes these sets
+refuses such a document. A compiled `aggregate_value` record may name
+`group_any` or `group_all` (one argument, the Bool test); such bundles carry
+the Phase73 version marks `(7, 1, 7, 1)`, and a reader of earlier marks
+refuses them.
 
 ## Equality, nullability and asof JOIN public alpha release notes — 0.1.9
 

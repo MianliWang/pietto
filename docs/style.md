@@ -635,13 +635,11 @@ Not this (each is refused with a hint):
 - `sum(1 for o in orders if o.paid)` in a grouped query: `orders` is every
   row of `orders`; write `for o in group`.
 - `count(1 for o in group if o.paid)`, `len(...)` or `max(...)` with a
-  generator: only `sum` takes one.
+  generator: only `sum`, `any` and `all` take one.
 - `sum(1 for o in group)` without `if`: write `count()`; and
   `sum(o.amount_cents for o in group)`: write `sum(amount_cents)`.
 - `sum(amount_cents for o in group if paid)`: read the row's fields as
   `o.amount_cents` and `o.paid`.
-- `any(o.paid for o in group)`: select `n = sum(1 for o in group if o.paid)`
-  and test `n > 0` in `having`.
 - a group generator over JOIN rows: join in one query, then group it in
   another that reads it with `from`.
 - a `let` of the query in the test, a computed GROUP BY key included
@@ -654,6 +652,63 @@ refuses it (PIE-B1003 `conditional_test_reads_no_field`).
 
 `count(paid)` of a `Bool` field still counts every row whose `paid` is not
 None, False included, and warns (PIE-S2388).
+
+### Testing the rows of a group: `all` and `any`
+
+```pietto
+shape Order:
+    id: Int
+    customer_id: Int | None
+    paid: Bool
+    flagged: Bool | None
+    status: Text | None
+
+source orders: Order = postgres.table("shop.orders")
+
+query customer_checks:
+    from orders
+    group by customer_id
+    select:
+        customer_id
+        all_paid = all(o.paid for o in group)
+        any_refunded = any(o.status == "refunded" for o in group)
+    having any_refunded
+```
+
+`all(test for o in group)` is True when the test is True for every row of the
+group, `any(test for o in group)` when it is True for at least one. Both are a
+`Bool`, never None: no row gives `any` False and `all` True, as in Python. The
+test is read as `where` reads it, one row at a time, so a test that is None is
+not True: it is no match for `any` and a failure for `all`. Python agrees on
+that fold; it differs only where None meets `not`, `!=` or `not in`, or `==`
+compares two Nones, which Python makes True and SQL keeps None. To get
+Python's meaning there, say it: `all(not coalesce(o.flagged, False) for o in
+group)`, `any(o.status != "x" or o.status is None for o in group)`. pandas
+`GroupBy.all()` skips None, so pandas `all` of `[True, None]` is True; Pietto
+and Python say False.
+
+Write the test in the body; there is no `if`. To test only some rows of the
+group, count the exceptions: `n = sum(1 for o in group if o.shipped and not
+o.paid)`, then `having n == 0`. A test is a whole `select:` item; `having` and
+`order by` read its output name. A MySQL single file emits both; MySQL emits
+no project test of a group yet.
+
+Not this (each is refused with a hint):
+
+- `bool_and(paid)`, `every(paid)`, `all(paid)`: write
+  `all(o.paid for o in group)`; `bool_or(paid)`, `any(paid)`: write
+  `any(o.paid for o in group)`.
+- `max(paid)`, `min(paid)` of a `Bool`: write `any(o.paid for o in group)`
+  (`max`) or `all(o.paid for o in group)` (`min`).
+- `all(o.paid for o in group if o.shipped)`: count the exceptions,
+  `n = sum(1 for o in group if o.shipped and not o.paid)`, then
+  `having n == 0`.
+- `all(o.paid for o in orders)`: `orders` is every row of `orders`; write
+  `for o in group`.
+- `having all(o.paid for o in group)`: select
+  `all_paid = all(o.paid for o in group)` and test `all_paid` in `having`.
+- a relation or `let` named `group` read as `any(... for o in group)` in a
+  `select:` item: rename it; there `group` means this group.
 
 ### Counting distinct combinations
 
@@ -1241,7 +1296,10 @@ Comments start with `#`, as in Python. `--` does not start a comment:
 | `count(paid)` to count the True values | `sum(1 for o in group if o.paid)` | `count(paid)` counts every row whose `paid` is not None, False included (warning PIE-S2388) |
 | `sum(paid)` | `sum(1 for o in group if o.paid)` | `sum` adds numbers; a Bool is no number (PIE-S2314) |
 | `sum(1 for o in orders if o.paid)` in a grouped query | `sum(1 for o in group if o.paid)` | `orders` is every row of `orders`, never this group (PIE-S2334) |
-| `any(o.paid for o in group)` | `n = sum(1 for o in group if o.paid)`, then `n > 0` in `having` | a test of the group is not available yet (PIE-S2301) |
+| `bool_and(paid)`, `every(paid)`, `min(paid)` | `all(o.paid for o in group)` | one way to test every row of the group (PIE-S2103, PIE-S2314) |
+| `bool_or(paid)`, `max(paid)` | `any(o.paid for o in group)` | one way to test some row of the group (PIE-S2103, PIE-S2314) |
+| `all(o.paid for o in group if o.shipped)` | `n = sum(1 for o in group if o.shipped and not o.paid)`, then `n == 0` in `having` | a test takes no `if` (PIE-S2334) |
+| `having all(o.paid for o in group)` | `all_paid = all(o.paid for o in group)` in `select:`, then `having all_paid` | a group test is a SELECT item (PIE-S2308; `any`: PIE-S2334) |
 | `max(a, b, c)` | `max(a, max(b, c))` | `max` and `min` take one value (the aggregate) or two; more is an error (PIE-S2309) that says to nest |
 | `greatest(a, b)`, `least(a, b)` | `max(a, b)`, `min(a, b)` | there is no `greatest` or `least` (PIE-S2103); `max` and `min` are None when either value is, where PostgreSQL `GREATEST` skips a NULL |
 | `max(a, None)` | `None`, or drop the call | a `None` argument is an error (PIE-S2104): the result would always be None |

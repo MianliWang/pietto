@@ -4177,7 +4177,11 @@ def _call_value_type(
         # (PIE-S2103). A bare name it is given is typed but reports nothing:
         # it may name a row, as for a relationship the module does not
         # declare. Each other argument keeps its own errors.
-        diagnostics.append(_unknown_function_diagnostic(expression, function_name))
+        diagnostics.append(
+            _unknown_function_diagnostic(
+                expression, function_name, row_schema, value_types
+            )
+        )
         for argument in expression.arguments:
             _infer(
                 argument,
@@ -6660,6 +6664,15 @@ _SPREAD_HINTS = {
 }
 # The pandas and polars distinct-count names.
 _DISTINCT_COUNT_HABITS = ("nunique", "n_unique")
+# The test of a group as SQL writes it, or as a call without a generator: the
+# test it is, `all` or `any`, by the lowercase name.
+_GROUP_TEST_HABITS = {
+    "all": "all",
+    "every": "all",
+    "bool_and": "all",
+    "any": "any",
+    "bool_or": "any",
+}
 # What to write instead of a function that a SQL or Python habit calls, by its
 # lowercase name.
 _UNKNOWN_FUNCTION_HINTS = {
@@ -6764,8 +6777,14 @@ def builtin_call_signature(call: CallExpr) -> BuiltinFunction | None:
 def _unknown_function_diagnostic(
     expression: CallExpr,
     function_name: str,
+    row_schema: RowSchema | None = None,
+    value_types: Mapping[Expression, ValueType] | None = None,
 ) -> Diagnostic:
-    """Report a call target absent from the explicit built-in catalog."""
+    """Report a call target absent from the explicit built-in catalog. A
+    group-test habit's hint names its one argument when that reads a field
+    of ``row_schema`` or one that ``value_types`` already types (a project
+    types each field read of a JOIN's row before the call; any name where
+    neither is known), else `o.x`."""
 
     hint = (
         # The 0.1.7 hint, in a file whose own callable `concat` the call names.
@@ -6779,6 +6798,31 @@ def _unknown_function_diagnostic(
             else None,
         )
     )
+    test = _GROUP_TEST_HABITS.get(function_name.lower())
+    if test is not None:
+        argument = expression.arguments[0] if len(expression.arguments) == 1 else None
+        field = (
+            argument.name
+            if type(argument) is ast.NameExpr
+            else argument.parts[-1]
+            if type(argument) is ast.DottedNameExpr
+            else "x"
+        )
+        known = (
+            None
+            if value_types is None or argument is None
+            else value_types.get(argument)
+        )
+        if not (
+            row_schema is None
+            or row_schema.is_unknown
+            # A joined row's keys are `binding.field`.
+            or field in {key.rpartition(".")[2] for key in row_schema.fields}
+            or (known is not None and known.kind is ValueTypeKind.KNOWN)
+        ):
+            # Such as a relation's name: not a member's field.
+            field = "x"
+        hint = f"write `{test}(o.{field} for o in group)`"
     diagnostic = _call_diagnostic(
         expression,
         code="PIE-S2103",
@@ -6788,9 +6832,10 @@ def _unknown_function_diagnostic(
     if (
         function_name.lower() in (*_CONDITIONAL_HABITS, *_DISTINCT_COUNT_HABITS, "set")
         or function_name.lower() in _SPREAD_HINTS
+        or test is not None
     ):
-        # A conditional-count, a variance or a distinct-count habit's hint is
-        # also the JSON suggestion.
+        # A conditional-count, a variance, a distinct-count or a group-test
+        # habit's hint is also the JSON suggestion.
         return dataclasses.replace(diagnostic, suggestion=hint)
     return diagnostic
 

@@ -2047,6 +2047,11 @@ def _aggregate_result_realization(family, function, argument, retained):
                 "padding": "NO PAD",
             },
         )
+    if function in grouping.GROUP_TEST_FUNCTIONS:
+        # A PostgreSQL count compared with 0: a computed Bool, never NULL.
+        if family != "postgres" or tag != "Bool" or nullable is not False:
+            raise ValueError("group test result domain")
+        return rows.Realization("Bool", {"kind": "pg_bool"}, False, {"kind": "bool01"})
     if function in grouping.FILTERED_FUNCTIONS:
         # A PostgreSQL conditional count, or conditional sum narrowed by its
         # checked CAST: never NULL, 0 when no row matches.
@@ -8066,6 +8071,8 @@ def verify_row_bytes(query, rendered):
         def aggregate_value(column, alias):
             reference = column.aggregate.ref
             start = offset
+            if column.function in grouping.GROUP_TEST_FUNCTIONS:
+                take("syntax", "aggregate_test_open", reference, "(")
             if column.function in grouping.ROOT_FUNCTIONS:
                 take("syntax", "aggregate_root_open", reference, "SQRT(")
             if column.function == "filtered_sum":
@@ -8074,7 +8081,7 @@ def verify_row_bytes(query, rendered):
                 take("syntax", "aggregate_result_cast_open", reference, "CAST(")
             take("syntax", "aggregate_open", reference, column.spelling + "(")
             if column.function in grouping.FILTERED_FUNCTIONS:
-                counted = column.function == "filtered_count"
+                counted = column.function != "filtered_sum"
                 test = column.argument if counted else column.delimiter
                 if (
                     column.distinct
@@ -8086,7 +8093,9 @@ def verify_row_bytes(query, rendered):
                 take("syntax", "aggregate_filter_open", reference, "CASE WHEN ")
                 scalar(test, alias)
                 take("syntax", "aggregate_filter_then", reference, " THEN ")
-                if counted:
+                if column.function == "group_all":
+                    take("syntax", "aggregate_filter_else", reference, "NULL ELSE 1")
+                elif counted:
                     take("syntax", "aggregate_filter_one", reference, "1")
                 else:
                     take("syntax", "aggregate_argument_cast_open", reference, "CAST(")
@@ -8207,6 +8216,13 @@ def verify_row_bytes(query, rendered):
                 take("syntax", "aggregate_root_close", reference, ")")
             if column.function == "filtered_sum":
                 take("syntax", "aggregate_zero_close", reference, ", 0)")
+            if column.function in grouping.GROUP_TEST_FUNCTIONS:
+                take(
+                    "syntax",
+                    "aggregate_test_close",
+                    reference,
+                    " > 0)" if column.function == "group_any" else " = 0)",
+                )
             spans.append(("aggregate", reference, start, offset))
 
         def window_specification(specification, reference, alias):

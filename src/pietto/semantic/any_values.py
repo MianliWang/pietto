@@ -28,7 +28,7 @@ from pietto.semantic.expressions import (
     infer_row_expression,
     is_unknown_function_call,
 )
-from pietto.semantic.generators import GROUP_SOURCE, group_test_hint
+from pietto.semantic.generators import BEFORE_GROUPS_HINT, GROUP_SOURCE
 from pietto.semantic.joins import JoinStructure, _field_value_type, join_rows
 from pietto.semantic.let_bindings import (
     _invalid_let_dependency_diagnostic,
@@ -99,10 +99,9 @@ def resolve_any_inputs(
                 and GROUP_SOURCE not in relation_symbols
                 and not shadowed
             ):
-                # No relation is named `group`: it is the group.
-                diagnostic = replace(
-                    diagnostic, suggestion=group_test_hint(expression.binding_name)
-                )
+                # No relation is named `group`: it is the group, which a
+                # SELECT item tests (`group_any_calls`).
+                diagnostic = replace(diagnostic, suggestion=BEFORE_GROUPS_HINT)
             diagnostics.append(diagnostic)
     return resolutions, diagnostics
 

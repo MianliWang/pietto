@@ -5,7 +5,7 @@ from __future__ import annotations
 from collections.abc import Mapping
 from dataclasses import dataclass
 from enum import StrEnum
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, cast
 
 from pietto.ast_nodes import (
     Expression,
@@ -17,6 +17,7 @@ from pietto.ast_nodes import (
     QueryDef,
     SatisfyingClause,
 )
+from pietto.semantic.aggregates import GROUP_TEST_AGGREGATE_NAMES, callee_name
 from pietto.semantic.generators import generator_of
 from pietto.semantic.model import ValueType, SatisfyingResultPredicateInfo
 from pietto.ir.model import SymbolId
@@ -543,7 +544,8 @@ FILTERED_SUM = "filtered_sum"
 
 def call_arguments(call: CallExpr) -> tuple[Expression, ...]:
     """An aggregate call's argument values: of a conditional count, its test;
-    of a conditional sum, its summed field and its test (`filtered_function`)."""
+    of a conditional sum, its summed field and its test; of a test of the
+    group, its test, the body (`filtered_function`)."""
 
     generator = generator_of(call)
     if generator is None:
@@ -555,11 +557,18 @@ def call_arguments(call: CallExpr) -> tuple[Expression, ...]:
 
 def filtered_function(call: Expression) -> str | None:
     """The internal identity of `sum(1 for o in group if TEST)`,
-    ``filtered_count``, and of `sum(o.f for o in group if TEST)`,
-    ``filtered_sum``; None for any other aggregate call."""
+    ``filtered_count``, of `sum(o.f for o in group if TEST)`,
+    ``filtered_sum``, and of `any(TEST for o in group)` and
+    `all(TEST for o in group)`, ``group_any`` and ``group_all``; None for any
+    other aggregate call."""
 
     generator = generator_of(call)
-    if generator is None or generator.condition is None:
+    if generator is None:
+        return None
+    name = callee_name(cast(CallExpr, call))
+    if name in GROUP_TEST_AGGREGATE_NAMES:
+        return None if generator.condition is not None else f"group_{name}"
+    if generator.condition is None:
         return None
     return FILTERED_COUNT if type(generator.body) is LiteralExpr else FILTERED_SUM
 

@@ -381,7 +381,8 @@ def test_existing_sum_avg_min_max_semantics_remain_unchanged() -> None:
             (
                 "PIE-S2314",
                 "Aggregate function max expects Int, Float, Decimal, Date, or "
-                "Timestamp field argument, got Bool",
+                "Timestamp field argument, got Bool; for a test of the group write "
+                "`any(o.active for o in group)`",
             ),
         ),
     ],

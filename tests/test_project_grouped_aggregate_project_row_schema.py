@@ -2013,38 +2013,194 @@ def test_a_project_refuses_a_generator_over_join_rows_with_a_hint(tmp_path, caps
     )
 
 
+_BEFORE_GROUPS = (
+    "a group's rows exist only after `group by`; test a row's own fields directly"
+)
+
+
 @pytest.mark.parametrize(
-    ("body", "expected"),
+    ("body", "expected", "hint"),
     (
         (
             "    where any(o.qty > 1 for o in group)\n    select id\n",
             ("PIE-S2301", "Unknown relation: group", 8, 11),
-        ),
-        (
-            "    select id, b = any(o.qty > 1 for o in group)\n",
-            ("PIE-S2301", "Unknown relation: group", 8, 20),
+            _BEFORE_GROUPS,
         ),
         (
             "    group by label\n    select label, n = count()\n"
             "    having any(o.qty > 1 for o in group)\n",
             ("PIE-S2334", "ANY is not supported in this context", 10, 12),
+            "select `has_paid = any(o.paid for o in group)` and read `has_paid` in "
+            "`having` or `order by`",
+        ),
+        (
+            "    group by label\n    select label, n = count()\n"
+            "    order by all(o.qty > 1 for o in group)\n",
+            (
+                "PIE-S2308",
+                "Aggregate all() is not allowed in order by; use it only as a direct "
+                "aliased select projection; select `all_paid = all(o.paid for o in "
+                "group)` and read `all_paid` in `having` or `order by`",
+                10,
+                14,
+            ),
+            "select `all_paid = all(o.paid for o in group)` and read `all_paid` in "
+            "`having` or `order by`",
+        ),
+        (
+            "    select id\n    qualify any(o.qty > 1 for o in group)\n",
+            ("PIE-S2334", "ANY is not supported in this context", 9, 13),
+            None,
         ),
     ),
-    ids=("where", "select", "having"),
+    ids=("where", "having", "order_by_all", "qualify"),
 )
-def test_a_project_any_over_group_suggests_the_conditional_count(
-    tmp_path, capsys, body, expected
+def test_a_project_any_over_group_outside_a_select_item_says_where_it_goes(
+    tmp_path, capsys, body, expected, hint
 ):
-    """A project keeps its own text and span and, as a single file, suggests
-    the conditional count a group test is written with."""
-    hint = (
-        "a group test is not available yet: select "
-        "`n = sum(1 for o in group if ...)` and test `n > 0` in `having` or a "
-        "later query"
-    )
+    """A project keeps its own text and span and, as a single file, says that
+    a group exists only after GROUP BY, or that a later clause reads the
+    selected test."""
     project, single_file = _project_and_file_diagnostics(tmp_path, capsys, 2, body)
     assert project == (1, [(*expected, hint)])
     assert [item[-1] for item in single_file[1]] == [hint]
+
+
+_GROUP_TESTS = (
+    "    select:\n        label\n"
+    "        a = all(o.qty > 1 for o in group)\n"
+    '        b = any(o.label == "a" or o.id > 2 for o in group)\n'
+)
+
+
+@pytest.mark.parametrize(
+    "body",
+    (
+        "    group by label\n" + _GROUP_TESTS + "    having a or b\n    order by b\n",
+        "    select:\n        a = all(o.qty > 1 for o in group)\n"
+        "        b = any(o.id > 2 for o in group)\n",
+    ),
+    ids=("grouped", "no_group_by"),
+)
+def test_a_schema_version_2_project_checks_the_test_of_a_group(tmp_path, capsys, body):
+    assert _project_and_file_diagnostics(tmp_path, capsys, 2, body) == [(0, [])] * 2
+
+
+def test_a_schema_version_1_project_has_no_test_of_a_group(tmp_path, capsys):
+    hint = "set schema_version = 2 to check it"
+    assert _project_and_file_diagnostics(
+        tmp_path, capsys, 1, "    group by label\n" + _GROUP_TESTS
+    ) == [
+        (
+            1,
+            [
+                (
+                    "PIE-S2334",
+                    f"{name}(... for ...): a schema_version = 1 project has no "
+                    f"generator in the current syntax; {hint}",
+                    line,
+                    13,
+                    hint,
+                )
+                for name, line in (("all", 11), ("any", 12))
+            ],
+        ),
+        (0, []),
+    ]
+
+
+@pytest.mark.parametrize(
+    ("item", "expected"),
+    (
+        (
+            "a = all(o.qty for o in group)",
+            (
+                "PIE-S2202",
+                "Expected Bool expression in ALL predicate",
+                17,
+                "write the body as a test, such as `o.qty > 0`",
+            ),
+        ),
+        (
+            "a = any(o.label for o in group)",
+            (
+                "PIE-S2202",
+                "Expected Bool expression in ANY predicate",
+                17,
+                "write the body as a test, such as a comparison",
+            ),
+        ),
+        (
+            "a = all(o.qty > 1 for o in group if o.id > 2)",
+            (
+                "PIE-S2334",
+                "all takes its test in the body; count the exceptions: `n = sum(1 "
+                "for o in group if q and not p)`, then `having n == 0`",
+                13,
+                "count the exceptions: `n = sum(1 for o in group if q and not p)`, "
+                "then `having n == 0`",
+            ),
+        ),
+        (
+            "a = all(o.qty > 1 for o in items)",
+            (
+                "PIE-S2334",
+                "Generator over items in all: items is the whole relation, not this "
+                "group; for this group's rows write `for o in group`; all over a "
+                "whole relation is not available",
+                36,
+                "for this group's rows write `for o in group`; all over a whole "
+                "relation is not available",
+            ),
+        ),
+        (
+            "a = any(qty > 1 for o in group)",
+            (
+                "PIE-S2334",
+                "Generator reads qty outside its member; write `o.qty`",
+                17,
+                "write `o.qty`",
+            ),
+        ),
+    ),
+    ids=("all_int", "any_text", "all_if", "whole_relation", "bare_read"),
+)
+def test_a_project_refuses_a_test_of_a_group_as_a_single_file_does(
+    tmp_path, capsys, item, expected
+):
+    code, message, column, hint = expected
+    body = f"    group by label\n    select:\n        label\n        {item}\n"
+    assert (
+        _project_and_file_diagnostics(tmp_path, capsys, 2, body)
+        == [(1, [(code, message, 11, column, hint)])] * 2
+    )
+
+
+def test_a_project_refuses_a_test_of_a_group_over_a_let_named_group(tmp_path, capsys):
+    hint = "rename the let group to read this group's rows"
+    body = (
+        "    let group = items\n    group by label\n    select:\n        label\n"
+        "        b = any(o.qty > 1 for o in group)\n"
+    )
+    assert (
+        _project_and_file_diagnostics(tmp_path, capsys, 2, body)
+        == [
+            (
+                1,
+                [
+                    (
+                        "PIE-S2334",
+                        "Generator over group in any: group is the let group, not "
+                        f"this group; {hint}",
+                        12,
+                        36,
+                        hint,
+                    )
+                ],
+            )
+        ]
+        * 2
+    )
 
 
 @pytest.mark.parametrize(

@@ -1235,7 +1235,7 @@ def _aggregate_blockers(entry, rows, aggregate):
             return ((K.EXPRESSION_EVIDENCE, source.item),)
         if generator_of(call) is not None and (
             aggregation.filtered_function(call) is None
-            or semantic_aggregate_call_name(call) != "sum"
+            or semantic_aggregate_call_name(call) not in {"sum", "any", "all"}
             or call.aggregate_order_by
         ):
             return ((K.EXPRESSION_EVIDENCE, source.item),)

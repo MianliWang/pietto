@@ -55,6 +55,7 @@ from pietto.ast_nodes import (
 )
 from pietto.errors import Diagnostic, Severity, SourceLocation
 from pietto.semantic.aggregates import (
+    GROUP_TEST_AGGREGATE_NAMES,
     SEMANTIC_AGGREGATE_NAMES,
     semantic_aggregate_call_name,
 )
@@ -88,6 +89,7 @@ _RESERVED_NAMES = frozenset(
         *BUILTIN_FUNCTIONS,
         *SPECIAL_BUILTIN_FUNCTION_NAMES,
         *SEMANTIC_AGGREGATE_NAMES,
+        *GROUP_TEST_AGGREGATE_NAMES,
         *WINDOW_FUNCTION_NAMES,
         "generate_series",
     }
@@ -113,6 +115,10 @@ _NEW_BUILTIN_RENAMES = {
     "variance aggregate, and a call to pvariance always means it.",
     "pstdev": "Rename this def: `pstdev` is now the built-in population "
     "standard deviation aggregate, and a call to pstdev always means it.",
+    "any": "Rename this def: `any` is the built-in test of a relation or of a "
+    "group, and a call to any always means it.",
+    "all": "Rename this def: `all` is now the built-in test of a group, and a "
+    "call to all always means it.",
 }
 # Built-in names a module's own def may keep (`shadowed_builtin_names`), and
 # that no imported def is bound to.

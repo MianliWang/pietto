@@ -1455,7 +1455,7 @@ def verify_description(value: Description) -> None:
                     and not order_by
                     # A conditional count reads its test; a conditional sum
                     # one direct field, then its test.
-                    or get("function") == "filtered_count"
+                    or get("function") in {"filtered_count", "group_any", "group_all"}
                     and len(arguments) == 1
                     and not order_by
                     or get("function") == "filtered_sum"

@@ -471,6 +471,20 @@ around the `aggregate_result_cast_open`/`aggregate_result_cast_close` pair.
 Both results are a non-null `pg_int8`; only the sum's R13 `aggregate`
 requirement carries `target_checked_signed64_narrowing`.
 
+A PostgreSQL test of a group has the aggregate column `function`
+`group_any` or `group_all` and the `spelling` `COUNT`, its Bool test in
+`argument`, no casts and no `delimiter`. It is written `(COUNT(CASE WHEN
+<test> THEN 1 END) > 0)` or `(COUNT(CASE WHEN <test> THEN NULL ELSE 1 END)
+= 0)`. Its additive `ranges` roles are the `syntax` roles
+`aggregate_test_open` (`(`), which opens its `aggregate` range,
+`aggregate_filter_else` (`NULL ELSE 1`, `all` only, after
+`aggregate_filter_then`), and `aggregate_test_close` (` > 0)` for `any`,
+` = 0)` for `all`), which closes it; inside them the conditional count's
+roles `aggregate_open`, `aggregate_filter_open`, `aggregate_filter_then`,
+`aggregate_filter_one` (`any` only), `aggregate_filter_close` and
+`aggregate_close`. The result is a non-null `pg_bool` (`bool01`); its R13
+`aggregate` requirement carries no evidence.
+
 A PostgreSQL `count_distinct(a, b, ...)` column, whose provenance `function`
 is `count_distinct_tuple` (one argument stays `count_distinct`), is written
 `COUNT(DISTINCT CASE WHEN a IS NOT NULL AND b IS NOT NULL THEN ROW(a, b) END)`,

@@ -153,6 +153,7 @@ _GROUPS = (
                 "filtered_count_result_not_non_null_int",
                 "filtered_sum_result_not_non_null_int",
                 "float_result_not_finite",
+                "group_test_result_not_non_null_bool",
                 "group_key_logical_type_or_null_drift",
                 "group_key_outside_bool_domain",
                 "group_key_temporal_physical_representation_mismatch",
@@ -465,6 +466,8 @@ _ACTIONS = {
     "set_row_equivalence_domain_unsupported": "Use Int, Bool, Text, Decimal or Float with exact matching carriers. On MySQL a Float set is limited to UNION ALL, a window distribution result is limited to UNION ALL on both targets, and Timestamp to UNION ALL/DISTINCT; keep other unreviewed set carriers in check --project.",
     "conditional_count_not_admitted_on_target": "MySQL has no conditional count yet; emit with --dialect postgres.",
     "conditional_test_reads_no_field": "Test a field of the member, such as `if o.paid`: a test that reads no field is the same for every row.",
+    "group_test_not_admitted_on_target": "MySQL has no group any or all yet; emit with --dialect postgres.",
+    "group_test_reads_no_field": "Test a field of the member, such as `any(o.paid for o in group)`: a test that reads no field is the same for every row.",
     "join_shape_not_admitted_in_slice7": "Use the admitted JOIN shape and scalar SELECT projection, or keep this query in check/plan; complex ON, joined LET and WHERE sites remain separately restricted.",
     "scalar_projection_requires_later_slice": "Use an admitted scalar SELECT projection; keep other unsupported expression sites in check/plan.",
     "offset_range_requires_exactly_one_order_key": "Use exactly one reviewed ORDER key for an offset RANGE frame, or keep this frame in check/plan.",
@@ -517,7 +520,7 @@ def blocker_suggestion(code: str, detail: str, family: str | None) -> str:
             "filtered_count",
             "filtered_sum",
         )
-    }:
+    } | {"group_test_argument_outside_reviewed_bool_domain"}:
         return "Use the aggregate's reviewed direct argument carrier, or keep it in check/plan; do not coerce its input to force emission."
     if detail in {
         f"window_frame_{unit}_approved_non_support_on_{target}"
