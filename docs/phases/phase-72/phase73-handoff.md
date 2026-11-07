@@ -17,7 +17,8 @@ and its CI before acting on any hash here.
   [release notes](../../release-notes.md) list every change, refusal and
   known limitation.
 - Phase73 releases as `0.1.10`: versions stay on `0.1.x` patches until about
-  the end of Phase80 (owner, 2026-11-05).
+  the end of Phase80 (owner, 2026-11-05). Later that day D73.15 made `0.1.10`
+  one release of Phase73, Phase74 and Phase75.
 - The test tree had its first whole-tree reorganization: no phase-named
   helper and no test-to-test import is left. Its leftover list is below; the
   next pass is due by the Phase75 close.

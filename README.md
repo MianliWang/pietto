@@ -51,9 +51,11 @@ the `pietto` command in an environment of its own.
 The compiler and CLI are verified with CPython 3.12 and 3.13 on Linux x86-64.
 CI also runs the parser, semantic, IR, plan, SQL, project, CLI and result
 tests with CPython 3.12 and 3.13 on Windows x86-64, where tests that need POSIX
-behavior skip. Batch `emit-sql --project ROOT --all --output DIR` stays
-Linux-only: on Windows the batch goes to stdout, and a single artifact still
-writes to `--output FILE`.
+behavior skip. Batch `emit-sql --project ROOT --all --output DIR` is
+Linux-only and is not supported on Windows: there the batch goes to stdout, a
+single artifact still writes to `--output FILE`, and
+`pietto.compiler.compile_all_sql(...)` returns the batch document that
+`--all --format json` prints, for your own code to write.
 This version's [GitHub release](https://github.com/MianliWang/pietto/releases)
 also attaches the same wheel and sdist with `SHA256SUMS`; see
 [installing a release](https://github.com/MianliWang/pietto/blob/main/docs/project-package.md#installing-a-release)
@@ -568,20 +570,20 @@ Pietto is an early preview. These are the goals it is working toward; they are
 not promises or dates, and the detailed plan lives in the
 [roadmap](https://github.com/MianliWang/pietto/blob/main/docs/roadmap.md).
 
-- **Everyday SQL**: CASE, CAST, COALESCE/NULLIF, IN lists, NOT, LIKE, and common
-  string, number and date functions.
-- **Real-world column types end to end**: timestamps, UUIDs, decimals, dates and
-  times, then arrays and nested records.
-- **Richer queries**: subqueries and `WITH`, EXISTS/IN, VALUES and table functions.
-- **Richer aggregation**: SUM and AVG in project SQL emission, FILTER,
-  statistical aggregates, grouping extensions and aggregates as window
-  functions.
-- **Run queries safely from Python**: compile, execute through an explicit
-  database driver, and get typed Arrow results.
-- **Data tools**: pandas, Polars and NumPy interoperability.
-- **More databases**: deeper PostgreSQL and MySQL support, then SQLite and DuckDB.
-- **Tooling**: a formatter, language-server and editor support, clearer diagnostics.
-- **Stability**: a 1.0 release with frozen syntax, CLI and APIs.
+- **PostgreSQL first, MySQL close behind**: SQL for more of the project forms
+  that `check --project` accepts, on PostgreSQL first; MySQL follows later and
+  refuses a form with a clear diagnostic until a real MySQL server has checked
+  it.
+- **More databases**: SQLite and DuckDB, with a local DuckDB analysis path
+  first.
+- **Data tools**: pandas, Polars, NumPy, SciPy and Matplotlib interoperability.
+- **Column types**: database-native arrays and JSON columns.
+- **Editors**: hover, go-to-definition and symbols beside the diagnostics of
+  `pietto lsp`.
+- **Assurance**: more real-database, differential and fuzz testing, clearer
+  diagnostics and faster compiles.
+- **Stability**: a 1.0 release with frozen syntax, CLI, APIs and support
+  matrix, and compatibility rules that later `1.x` releases keep.
 
 ## License
 

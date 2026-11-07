@@ -61,7 +61,7 @@ an exact reason and an exact current or later owner.
 | 19 | Concurrency | State ordering, isolation, determinism, ownership, and race boundaries or explain non-applicability. |
 | 20 | Diagnostics | Freeze fail-closed cases, codes, messages, ordering, locations, and evidence completeness. |
 | 21 | Inspection | Define read-only inspection separately from resolution, mutation, or semantic construction. |
-| 22 | UX | Define authored syntax, error experience, discoverability, and unsupported behavior. |
+| 22 | UX | Define authored syntax, error experience, discoverability, and unsupported behavior. A new spelling has one canonical form that `pietto fmt` keeps, and a usability row ([Phase72 Gate 1](../decisions.md#phase72--owner-decisions-2026-11-04-and-2026-11-05)). |
 | 23 | Conformance | Identify normative contracts, target matrices, and independently checked compatibility. |
 | 24 | Differential and fuzz assurance | Define valid corpora, oracles, metamorphics, determinism, reduction, and applicability. |
 | 25 | Packaging | State module, artifact, generated-file, dependency, and distribution boundaries. |

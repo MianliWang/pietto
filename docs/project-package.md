@@ -629,7 +629,11 @@ Every JSON item embeds
 the byte-identical single-owner v1/v2 document. Its `--output DIR` creates a
 new directory only on supported Linux filesystems, writes numbered JSON
 artifacts atomically without replacing existing names, and writes the batch
-`manifest.json` last. Unsupported platforms can still use batch stdout. An
+`manifest.json` last. Other platforms, Windows and macOS among them, do not
+support `--output DIR`: they use batch stdout, or call `compile_all_sql(...)`
+of the [Python compile API](#getting-project-sql-from-python), which returns
+the batch document that `--all --format json` prints, and write the files
+themselves. An
 existing path is refused and a directory without its manifest is incomplete.
 The complete batch JSON is limited to 64 MiB, including its envelope and final
 newline, for text, JSON and directory output alike. Exceeding the limit returns
