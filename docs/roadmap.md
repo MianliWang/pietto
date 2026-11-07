@@ -75,10 +75,18 @@ same `0.1.10`. Batch 1 (the route publication and S01–S06) is published at
 `42298363606` attempt 1 on all 21 jobs.
 Batch 2 (S09–S12, the S04 follow-up, S07 and S08) ends with the
 [completion audit](phases/phase-74/completion-audit.md) and the
-[Phase75 handoff](phases/phase-74/phase75-handoff.md); Phase74 closes when
-the batch-2 head passes natural CI. 74-A and 74-B are delivered; the MySQL
-forms whose two-database run did not pass, or that no Phase74 slice took,
-stay refused and are listed in the release notes and the handoff.
+[Phase75 handoff](phases/phase-74/phase75-handoff.md) at
+`24645b36afa0dce61c1ceaae2be496bdd9366d3d` (tree
+`22b2b05a04158a7a17b79479c73a05ee41fda8a6`), whose natural exact-head CI
+`42316298753` attempt 1 accepted all 21 jobs, so Phase74 is
+`COMPLETED / PUBLISHED`. 74-A and 74-B are delivered; the MySQL forms whose
+two-database run did not pass, or that no Phase74 slice took, stay refused and
+are listed in the release notes and the handoff. Phase75 started on `main` at
+`24645b36` with its [10-slice route](phases/phase-75/route.md), published by a
+documentation-only commit; its Gate 1 is D75.01–D75.18 in the
+[decision record](decisions.md#phase75--owner-decisions-2026-11-05-to-2026-11-07).
+Its first lines had started on 2026-11-05, beside Phase74, and it ships in the
+same `0.1.10`.
 
 The second project-emission interlude is published at `b56cb62ed3be8ede44561d74a825fde3a53b116b` (tree `22165d89fb383f407967801193f039abcdceea68`); natural exact-head CI `41297066141` attempt 1 accepted all 19 jobs. The single-file checked Int SUM repair is published at `61a4ce4e05c190ea49e2eb93afd31e6fbdee7e29` (tree `da72b5412f4ecb087c508b9bd8204bf811a6e955`); natural exact-head CI `41362408512` attempt 1 accepted all 19 jobs.
 B5 (S14–S16) is published at `305ab2c802258c2b3e932ccf236481dfc0e0034e` (tree `6e335432490b8c7a64501519376c6dbfa59ec3cd`); natural exact-head CI `41390632023` attempt 1 accepted all 19 jobs.
@@ -2998,7 +3006,7 @@ Phase-64+ Slice route or implementation.
 | 72 | Advanced equality/types/nullability and temporal/range/ASOF relationships |
 | 73 | Explicit two-level aggregation, conditional and list aggregates, per-group detail lists, nested GROUP/DISTINCT keys, project aggregate windows and parity, `median`/`quantile` and small scalar features |
 | 74 | Cross-module reuse of `def` and relationships, relationship parameters that take table/query rows, MySQL catch-up, `variance`/`pvariance`/`pstdev`, group `all`/`any`, `first`/`last` and multi-column `count_distinct` |
-| 75 | Formatter follow-ups, LSP, editor, diagnostics, compile API, column view and migrations |
+| 75 | Formatter follow-ups, `pietto lsp` editor diagnostics with partial analysis, diagnostic hints, compile API, relation column view and header-line retirement |
 | 76 | PostgreSQL deep adaptation |
 | 77 | MySQL deep adaptation |
 | 78 | SQLite deep adaptation |
@@ -3032,7 +3040,11 @@ them. The Phase73 Gate 1 confirmed its answers the same day (D73.17) and
 added the project aggregate windows and parity and `median`/`quantile` to its
 row. The Phase74 Gate 1 confirmed J9–J11, J13 and J24 (D74.13); its MySQL
 catch-up also takes the backward asof JOIN, and the owner approved the
-spelling table of its new aggregates (D74.11). Phase73 offers an explicit
+spelling table of its new aggregates (D74.11). The Phase75 Gate 1 confirmed
+J14, J16–J20 and J22 and replaced J21 (D75.15): the owner's VS Code extension
+takes its diagnostics from `pietto lsp`, and the Phase75 VS Code acceptance
+runs with it; `pietto lsp` and editor partial analysis are protected Phase75
+scope (D75.13). Phase73 offers an explicit
 two-level aggregation route instead of
 automatic fan-out repair or reaggregation and adds no aggregate state
 contract; grouping extensions (ROLLUP, CUBE, GROUPING SETS) leave Phase73
