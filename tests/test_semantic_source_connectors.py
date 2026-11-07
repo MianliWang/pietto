@@ -137,10 +137,10 @@ def test_completed_checks_defining_modules_once_and_reuses_diagnostics(
             assert wrapped.diagnostics[-1].code == "PIE-S2337"
 
 
-def test_completed_preserves_prior_diagnostics_and_cli_semantic_caller(
+def test_completed_preserves_prior_diagnostics_and_project_semantic_boundary(
     tmp_path: Path,
 ) -> None:
-    from pietto import cli
+    from pietto._project.check import project_semantic_boundary
     from _pietto_project_join import (
         _completed,
     )
@@ -158,7 +158,7 @@ def test_completed_preserves_prior_diagnostics_and_cli_semantic_caller(
         a is b for a, b in zip(completed.diagnostics[: len(prior)], prior, strict=True)
     )
     assert completed.diagnostics[-1].code == "PIE-S2306"
-    diagnostics, ok = cli._project_semantic_boundary(semantic)
+    diagnostics, ok = project_semantic_boundary(semantic)
     assert not ok
     assert all(a is b for a, b in zip(diagnostics[: len(prior)], prior, strict=True))
     assert diagnostics == completed.diagnostics

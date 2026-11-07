@@ -43,7 +43,6 @@ if TYPE_CHECKING:
     from pietto._project.model import (
         ProjectDiscoveryError,
         ProjectParseCheckResult,
-        ProjectSemanticResult,
     )
 
 _FALLBACK_VERSION = "0.1.9"
@@ -749,12 +748,15 @@ def _run_check_command(namespace: argparse.Namespace) -> int:
 def _run_project_check(root: Path, *, output_format: str) -> int:
     """Run project check in text or project JSON v2 mode."""
 
-    from pietto._project.check import check_project_parse_only
+    from pietto._project.check import (
+        check_project_parse_only,
+        check_project_semantics,
+    )
 
     parse_result = check_project_parse_only(root)
     if output_format == _FORMAT_JSON:
         if parse_result.ok:
-            semantic_diagnostics, semantic_ok, related = _project_check_semantics(
+            semantic_diagnostics, semantic_ok, related = check_project_semantics(
                 parse_result
             )
             _print_project_check_json(
@@ -783,67 +785,13 @@ def _run_project_check(root: Path, *, output_format: str) -> int:
     if _has_errors(parse_result.diagnostics):
         return _EXIT_DIAGNOSTIC_ERROR
 
-    semantic_diagnostics, semantic_ok, _related = _project_check_semantics(parse_result)
+    semantic_diagnostics, semantic_ok, _related = check_project_semantics(parse_result)
     _render_diagnostics(semantic_diagnostics, fallback_path=Path("."))
     if not semantic_ok:
         return _EXIT_DIAGNOSTIC_ERROR
 
     _write_stdout(f"Project check OK: .\nFiles checked: {len(parse_result.inputs)}\n")
     return 0
-
-
-def _project_check_semantics(
-    parse_result: ProjectParseCheckResult,
-) -> tuple[tuple[Diagnostic, ...], bool, RelatedLocations]:
-    """Check project semantics; as in a single file, exhausting the recursion
-    limit is PIE-S2006.
-
-    Every diagnostic that a project check reports after the parse check's own
-    comes from here, with the related locations its module owner computed. As
-    the project JSON v2 contract states, an explicit-module check reports a
-    diagnostic equal to an earlier one once, at its first position; the parse
-    check applies that rule to its own diagnostics."""
-
-    from pietto._project.check import project_recursion_limit_diagnostic
-    from pietto._project.json_v2 import module_related_locations
-    from pietto._project.model import build_empty_project_semantic_result
-    from pietto._project.module_carrier import ProjectCompilationMode
-
-    related: RelatedLocations = {}
-    try:
-        semantic_result = build_empty_project_semantic_result(parse_result)
-        related = module_related_locations(semantic_result)
-        diagnostics, ok = _project_semantic_boundary(semantic_result)
-    except RecursionError:
-        diagnostics, ok = (project_recursion_limit_diagnostic(parse_result),), False
-    if parse_result.compilation_mode is ProjectCompilationMode.EXPLICIT_MODULES:
-        earlier = set(parse_result.diagnostics)
-        diagnostics = tuple(
-            diagnostic
-            for diagnostic in dict.fromkeys(diagnostics)
-            if diagnostic not in earlier
-        )
-    return diagnostics, ok, related
-
-
-def _project_semantic_boundary(
-    semantic_result: ProjectSemanticResult,
-) -> tuple[tuple[Diagnostic, ...], bool]:
-    """Select the completed boundary for explicit-module Project checks and the
-    legacy-flat semantic checks for legacy-flat ones."""
-
-    from pietto._project.check import check_legacy_flat_semantics
-    from pietto._project.module_carrier import ProjectCompilationMode
-    from pietto._project.project_completed_semantics import (
-        build_project_completed_semantic_result,
-    )
-
-    if semantic_result.compilation_mode is ProjectCompilationMode.EXPLICIT_MODULES:
-        completed = build_project_completed_semantic_result(semantic_result)
-        return completed.diagnostics, completed.ok
-    if semantic_result.compilation_mode is ProjectCompilationMode.LEGACY_FLAT:
-        return check_legacy_flat_semantics(semantic_result)
-    return semantic_result.diagnostics, semantic_result.ok
 
 
 def _print_project_check_json(

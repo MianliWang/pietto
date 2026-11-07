@@ -1020,7 +1020,7 @@ def test_parser_consumes_snapshot_text_without_second_path_open(
     monkeypatch.setattr(
         project_check,
         "select_project_sources",
-        lambda root, config: selection,
+        lambda root, config, *, exclude=frozenset(): selection,
     )
     monkeypatch.setattr(
         project_check,
@@ -1169,7 +1169,9 @@ def test_schema_v1_and_schema_v2_retain_trust_facts_and_existing_semantics(
         monkeypatch.setattr(
             project_check,
             "select_project_sources",
-            lambda checked_root, config, result=selection: result,
+            lambda checked_root, config, result=selection, *, exclude=frozenset(): (
+                result
+            ),
         )
         parse_result = project_check.check_project_parse_only(root)
         semantic_result = build_empty_project_semantic_result(parse_result)

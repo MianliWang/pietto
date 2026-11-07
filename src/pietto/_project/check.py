@@ -78,6 +78,7 @@ from pietto.semantic.inline_functions import (
 from pietto.semantic.modern_inputs import normalize_query_names
 
 if TYPE_CHECKING:
+    from pietto._project.json_v2 import RelatedLocations
     from pietto._project.module_bindings import ProjectModuleBindingEnvironmentSet
     from pietto._project.module_carrier import ProjectLogicalModule
     from pietto._project.module_exports import ProjectModuleExportSurfaceSet
@@ -95,10 +96,323 @@ _PARSED_STATUS = "parsed"
 _ERROR_STATUS = "error"
 
 
-def check_project_parse_only(root: str | Path) -> ProjectParseCheckResult:
-    """Load, select, read, and parse project sources without semantic analysis."""
+# The most passes partial analysis runs: one for each stop that can hide a
+# later one (a read, parse or admission error; a header or def import error;
+# a naming error; an error of the checks after naming) and one that completes.
+_PARTIAL_PASSES = 5
 
-    result = _check_project_parse_only(root)
+
+@dataclass(frozen=True, slots=True)
+class ProjectDiagnosticsReport:
+    """The diagnostics of one project check, for an editor: the discovery
+    errors, the selected paths in input order, the diagnostics grouped by
+    path in that order (in CLI order within a path, pathless ones last) with
+    their related locations, the text each path was
+    checked from, and the location and message of each module that was not
+    checked. It holds no semantic result and no source carrier."""
+
+    errors: tuple[ProjectDiscoveryError, ...]
+    paths: tuple[str, ...]
+    diagnostics: tuple[Diagnostic, ...]
+    related_locations: RelatedLocations
+    texts: Mapping[str, str]
+    not_checked: tuple[tuple[SourceLocation, str], ...]
+
+
+def check_project_diagnostics(root: str | Path) -> ProjectDiagnosticsReport:
+    """Check a project for an editor, past the modules that stop the check.
+
+    A pass is the check that `check --project --format json` reports. When an
+    explicit-module pass stops, the modules it fails (`_failed_modules`) and
+    every module that imports one of them, directly or through other modules,
+    are left out, and the other modules are checked again, in at most
+    `_PARTIAL_PASSES` passes. Each module reports the diagnostics of the last
+    pass that checked it, so one that no pass failed or left out reports
+    what the CLI reports with the left-out modules in `[sources].exclude`.
+    A left-out module that no pass failed, and a failed one without an error
+    of its own (a member of an import cycle), reports one message instead, at
+    its first import of a left-out module, naming each failed module with an
+    error of its own that it imports, directly or through other modules. The
+    CLI never calls this."""
+
+    passes = [_check_pass(root, frozenset())]
+    paths = tuple(item.path for item in passes[0][0].inputs)
+    imports: dict[str, tuple[ImportStatement, ...]] = {}
+    failed: set[str] = set()
+    blocked: set[str] = set()
+    while True:
+        parse, _, _, stopped = passes[-1]
+        imports.update(
+            (
+                parsed.path,
+                tuple(
+                    statement
+                    for statement in parsed.script.module_statements
+                    if type(statement) is ImportStatement
+                ),
+            )
+            for parsed in parse.parsed_inputs
+        )
+        if not stopped or len(passes) == _PARTIAL_PASSES:
+            break
+        failed |= stopped
+        blocked = {
+            path
+            for path in paths
+            if path not in failed and _imported(imports, path) & failed
+        }
+        if failed | blocked >= set(paths):
+            break
+        passes.append(_check_pass(root, frozenset(failed | blocked)))
+    checked = {
+        item.path: position
+        for position, (parse, _, _, _) in enumerate(passes)
+        for item in parse.inputs
+    }
+    errors: list[ProjectDiscoveryError] = []
+    diagnostics: list[Diagnostic] = []
+    related: dict[Diagnostic, tuple[SourceLocation, ...]] = {}
+    texts: dict[str, str] = {}
+    not_checked: list[tuple[SourceLocation, str]] = []
+    own_errors = {
+        path: [error for error in passes[checked[path]][0].errors if error.path == path]
+        for path in paths
+    }
+    own = {
+        path: tuple(
+            item for item in passes[checked[path]][1] if item.location.path == path
+        )
+        for path in paths
+    }
+    # Every import cycle has a member with the cycle error, so each module
+    # not checked reaches at least one failed module with an error.
+    erring = {path for path in failed if own_errors[path] or _has_errors(own[path])}
+    for path in paths:
+        parse, _, found_related, _ = passes[checked[path]]
+        texts.update(
+            (source.path, source.source_text)
+            for source in parse.trusted_source_snapshots
+            if source.path == path
+        )
+        if path in blocked or path in failed - erring:
+            not_checked.append(
+                _not_checked(
+                    path,
+                    imports[path],
+                    failed | blocked,
+                    sorted(_imported(imports, path) & erring),
+                )
+            )
+        if path not in blocked:
+            errors.extend(own_errors[path])
+            diagnostics.extend(own[path])
+            related.update(
+                (item, found_related[item])
+                for item in own[path]
+                if item in found_related
+            )
+    parse, found, found_related, _ = passes[-1]
+    errors.extend(error for error in parse.errors if error.path not in paths)
+    rest = tuple(item for item in found if item.location.path not in paths)
+    diagnostics.extend(rest)
+    related.update(
+        (item, found_related[item]) for item in rest if item in found_related
+    )
+    return ProjectDiagnosticsReport(
+        errors=tuple(errors),
+        paths=paths,
+        diagnostics=tuple(diagnostics),
+        related_locations=related,
+        texts=texts,
+        not_checked=tuple(not_checked),
+    )
+
+
+def _check_pass(
+    root: str | Path, excluded: frozenset[str]
+) -> tuple[
+    ProjectParseCheckResult, tuple[Diagnostic, ...], RelatedLocations, frozenset[str]
+]:
+    """One project check without the modules in ``excluded``: its parse
+    check, the diagnostics and related locations the CLI reports for it, and
+    the modules it fails when it stops, none when it completes."""
+
+    from pietto._project.json_v2 import module_related_locations
+
+    parse = check_project_parse_only(root, exclude=excluded)
+    related = module_related_locations(parse)
+    explicit = parse.compilation_mode is ProjectCompilationMode.EXPLICIT_MODULES
+    if parse.ok:
+        diagnostics, ok, semantic_related = check_project_semantics(parse)
+        # Semantic analysis stops only at an import cycle.
+        return (
+            parse,
+            (*parse.diagnostics, *diagnostics),
+            {**related, **semantic_related},
+            _failed_modules(_module_diagnostics(parse), (), ())
+            if explicit and not ok
+            else frozenset(),
+        )
+    paths = {item.path for item in parse.inputs}
+    if not explicit or any(error.path not in paths for error in parse.errors):
+        return parse, parse.diagnostics, related, frozenset()
+    return (
+        parse,
+        parse.diagnostics,
+        related,
+        _failed_modules(parse.module_diagnostic_facts, parse.errors, parse.diagnostics)
+        & paths,
+    )
+
+
+def _failed_modules(
+    facts: ProjectModuleDiagnosticSet | None,
+    errors: tuple[ProjectDiscoveryError, ...],
+    diagnostics: tuple[Diagnostic, ...],
+) -> frozenset[str]:
+    """The modules a stopped explicit-module check fails: each member of an
+    import cycle, and each module with a discovery error or an error
+    diagnostic other than a module import or export error. Such an error
+    stops no check, unless it is one of a def or relationship item, which
+    stops the check before semantic analysis (`_def_imports`)."""
+
+    members: set[str] = set()
+    kept: set[Diagnostic] = set()
+    for fact in facts.facts if facts is not None else ():
+        cycles = [issue.cycle for issue in fact.graph_issues if issue.cycle is not None]
+        members.update(
+            member.identity.path
+            for cycle in cycles
+            for member in cycle.component.members
+        )
+        requests = (
+            *(issue.request for issue in (*fact.export_issues, *fact.binding_issues)),
+            *(request for issue in fact.graph_issues for request in issue.requests),
+        )
+        if not cycles and all(
+            request.source_item.declaration_kind not in _CALLABLE_ITEM_KINDS
+            for request in requests
+        ):
+            kept.add(fact.diagnostic)
+    return frozenset(
+        {
+            *members,
+            *(error.path for error in errors if error.path is not None),
+            *(
+                item.location.path
+                for item in diagnostics
+                if item.severity is Severity.ERROR
+                and item not in kept
+                and item.location.path is not None
+            ),
+        }
+    )
+
+
+def _imported(
+    imports: Mapping[str, tuple[ImportStatement, ...]], path: str
+) -> set[str]:
+    """The modules ``path`` imports, directly or through other modules."""
+
+    found: set[str] = set()
+    pending = [path]
+    while pending:
+        for statement in imports.get(pending.pop(), ()):
+            if statement.target not in found:
+                found.add(statement.target)
+                pending.append(statement.target)
+    return found
+
+
+def _not_checked(
+    path: str,
+    statements: tuple[ImportStatement, ...],
+    left_out: set[str],
+    reached: list[str],
+) -> tuple[SourceLocation, str]:
+    """Why a module was not checked: the failed modules with errors that it
+    imports, at the target of its first import of a module that was left
+    out."""
+
+    span = min(
+        (statement for statement in statements if statement.target in left_out),
+        key=lambda statement: (statement.span.line, statement.span.column),
+    ).target_span
+    listed = (
+        reached[0]
+        if len(reached) == 1
+        else f"{', '.join(reached[:-1])} and {reached[-1]}"
+    )
+    return (
+        SourceLocation(
+            path=path,
+            line=span.line,
+            column=span.column,
+            end_line=span.end_line,
+            end_column=span.end_column,
+        ),
+        f"Not checked: this module imports {listed}, which "
+        f"{'has' if len(reached) == 1 else 'have'} errors.",
+    )
+
+
+def check_project_semantics(
+    parse_result: ProjectParseCheckResult,
+) -> tuple[tuple[Diagnostic, ...], bool, RelatedLocations]:
+    """Check project semantics; as in a single file, exhausting the recursion
+    limit is PIE-S2006.
+
+    Every diagnostic that a project check reports after the parse check's own
+    comes from here, with the related locations its module owner computed. As
+    the project JSON v2 contract states, an explicit-module check reports a
+    diagnostic equal to an earlier one once, at its first position; the parse
+    check applies that rule to its own diagnostics."""
+
+    from pietto._project.json_v2 import module_related_locations
+    from pietto._project.model import build_empty_project_semantic_result
+
+    related: RelatedLocations = {}
+    try:
+        semantic_result = build_empty_project_semantic_result(parse_result)
+        related = module_related_locations(semantic_result)
+        diagnostics, ok = project_semantic_boundary(semantic_result)
+    except RecursionError:
+        diagnostics, ok = (project_recursion_limit_diagnostic(parse_result),), False
+    if parse_result.compilation_mode is ProjectCompilationMode.EXPLICIT_MODULES:
+        earlier = set(parse_result.diagnostics)
+        diagnostics = tuple(
+            diagnostic
+            for diagnostic in dict.fromkeys(diagnostics)
+            if diagnostic not in earlier
+        )
+    return diagnostics, ok, related
+
+
+def project_semantic_boundary(
+    semantic_result: ProjectSemanticResult,
+) -> tuple[tuple[Diagnostic, ...], bool]:
+    """Select the completed boundary for explicit-module Project checks and the
+    legacy-flat semantic checks for legacy-flat ones."""
+
+    from pietto._project.project_completed_semantics import (
+        build_project_completed_semantic_result,
+    )
+
+    if semantic_result.compilation_mode is ProjectCompilationMode.EXPLICIT_MODULES:
+        completed = build_project_completed_semantic_result(semantic_result)
+        return completed.diagnostics, completed.ok
+    if semantic_result.compilation_mode is ProjectCompilationMode.LEGACY_FLAT:
+        return check_legacy_flat_semantics(semantic_result)
+    return semantic_result.diagnostics, semantic_result.ok
+
+
+def check_project_parse_only(
+    root: str | Path, *, exclude: frozenset[str] = frozenset()
+) -> ProjectParseCheckResult:
+    """Load, select, read, and parse project sources without semantic
+    analysis, leaving out each project-relative path in ``exclude``."""
+
+    result = _check_project_parse_only(root, exclude)
     if result.compilation_mode is not ProjectCompilationMode.EXPLICIT_MODULES:
         return result
     from pietto._project.module_bindings import (
@@ -134,9 +448,11 @@ def check_project_parse_only(root: str | Path) -> ProjectParseCheckResult:
     return replace(result, diagnostics=unique)
 
 
-def _check_project_parse_only(root: str | Path) -> ProjectParseCheckResult:
+def _check_project_parse_only(
+    root: str | Path, exclude: frozenset[str]
+) -> ProjectParseCheckResult:
     config_result = load_project_config(root)
-    selection_result = select_project_sources(root, config_result)
+    selection_result = select_project_sources(root, config_result, exclude=exclude)
     if selection_result.errors:
         return ProjectParseCheckResult(
             root=selection_result.root,

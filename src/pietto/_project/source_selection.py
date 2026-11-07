@@ -47,8 +47,12 @@ _PIETTO_SUFFIX = ".pietto"
 def select_project_sources(
     root: str | Path,
     config_result: ProjectConfigLoadResult,
+    *,
+    exclude: frozenset[str] = frozenset(),
 ) -> ProjectDiscoveryResult:
-    """Select configured project sources without reading source text."""
+    """Select configured project sources without reading source text; a
+    project-relative path in ``exclude`` is left out as one the configured
+    exclude patterns name."""
 
     del root
     if not config_result.ok or config_result.config is None:
@@ -88,6 +92,7 @@ def select_project_sources(
         inputs, entries, errors = _select_from_config(
             pinned_root,
             config_result.config,
+            exclude,
         )
         _verify_pinned_root(pinned_root)
     except ProjectRootChangedError:
@@ -131,6 +136,7 @@ def select_project_sources(
 def _select_from_config(
     pinned_root: ProjectPinnedRoot,
     config: ProjectConfig,
+    exclude: frozenset[str],
 ) -> tuple[
     tuple[ProjectInput, ...],
     tuple[ProjectSelectedInputEntry, ...],
@@ -152,6 +158,7 @@ def _select_from_config(
         if relative_path.endswith(_PIETTO_SUFFIX)
         and _matches_any(config.sources.include_patterns, relative_path)
         and not _matches_any(config.sources.exclude_patterns, relative_path)
+        and relative_path not in exclude
     }
 
     errors = list(traversal_errors)
