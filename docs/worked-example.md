@@ -4,8 +4,9 @@ This page builds a monthly report for an invented bike-share, layer by layer,
 with the forms of [Pietto style](style.md). The first part is one file that
 `pietto check --check-mode strict` passes and `pietto emit-sql --dialect
 postgres` turns into SQL. The second part is a project module, for the forms
-that only a `schema_version = 2` project has. Every name and value here is
-made up.
+that only a `schema_version = 2` project has. The third part shares a `def`
+and a relationship between two modules of a project. Every name and value
+here is made up.
 
 ## The file
 
@@ -299,3 +300,100 @@ members who rode from the same stations in the same order. See
 MySQL refuses the parameter types `Date`, `Decimal`, `Timestamp` and `UUID`,
 project aggregate windows and collected lists (PIE-B1003); emit this project
 with `--dialect postgres`.
+
+## Two modules
+
+A project can declare a `def` and a relationship once, in one module, and use
+them in another. Put the same `pietto.toml` and two modules in a directory,
+`bikes-modules`. `models.pietto` declares the members, the rides, the
+`length_band` def and the `member_rides` relationship, and exports what
+another module may use; a single file only warns at its `export`:
+
+```pietto PIE-S2708
+export (
+    source members,
+    source rides,
+    def length_band,
+    relationship member_rides,
+)
+
+shape Member:
+    id: Int
+    name: Text
+
+shape Ride:
+    id: Int
+    member_id: Int
+    minutes: Int
+
+shape MemberRides:
+    member_id: Int
+    rides_count: Int
+
+source members: Member = postgres.table("bikes.members")
+
+source rides: Ride = postgres.table("bikes.rides")
+
+def length_band(minutes: Int) -> Int: return 1 if minutes <= 30 else 2
+
+relationship member_rides(member: Member, counted: MemberRides): member.id == counted.member_id
+```
+
+`report.pietto` imports them; as a single file it knows none of the imported
+names, so the block shows the codes a single-file check reports:
+
+```pietto PIE-S2708 PIE-S2301 PIE-S2103 PIE-S2301 PIE-S2301
+from "models.pietto" import (
+    source members,
+    source rides,
+    def length_band,
+    relationship member_rides,
+)
+
+query ride_bands:
+    from rides
+    select id, member_id, band = length_band(minutes)
+
+query rides_per_member:
+    from rides
+    group by member_id
+    select member_id, rides_count = count()
+
+query member_ride_counts:
+    from members
+    let counted = rides_per_member
+    left join counted on member_rides(members, counted)
+    select name = members.name, rides_count = counted.rides_count
+```
+
+```bash
+pietto check --project bikes-modules
+pietto emit-sql --project bikes-modules --all --dialect postgres \
+    --emission-contract contract.json
+```
+
+The `contract.json` of `bikes-modules` maps the `members` and `rides` of
+`models.pietto` to their tables, as for the project part above.
+
+**`models.pietto`: what other modules may use.** `export (...)` names each
+declaration with its kind, one per line. The shapes are not exported: a
+module that reads `rides` or calls `member_rides` does not name them. See
+[a def from another module](style.md#a-def-from-another-module) and
+[a relationship from another module](style.md#a-relationship-from-another-module).
+
+**`report.pietto`: the imports.** `from "models.pietto" import (...)` binds
+each item by its own name and kind. `ride_bands` calls `length_band` as if it
+were declared in `report.pietto`; the SQL is the same as for a local def, a
+`CASE` over `minutes`.
+
+**`rides_per_member` and `member_ride_counts`: a query's rows in a
+relationship.** `member_rides` takes a `MemberRides` row; the rows of
+`rides_per_member` bind it, because its columns `member_id` and
+`rides_count` have the names and types of the shape's fields. A member
+without rides is kept, with a `rides_count` of None. See
+[joining another input](style.md#joining-another-input).
+
+Moving the def and the relationship into `report.pietto` changes no byte of
+the SQL; `compile_query` and a bundle that `export_bundle` wrote and
+`load_bundle` read carry that SQL too. With `mysql.table(...)` sources the same
+modules emit with `--dialect mysql`.

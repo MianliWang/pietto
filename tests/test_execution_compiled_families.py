@@ -485,21 +485,26 @@ _GROUP_TEST_BODY = (
 )
 
 
-def _group_test_original(tmp_path):
+@pytest.fixture(scope="module")
+def group_test_original(tmp_path_factory):
+    """The PostgreSQL `all` and `any` of a group, built once: the replay and
+    each forgery below read the artifact and leave it as it is."""
     item = emission.fixture("postgres", "T_row_direct", "table_preserve")
     source = item["source"].split("table result:", 1)[0] + _GROUP_TEST_BODY
     checked, original = emission.build_case(
-        tmp_path, source, item["contract"], item["policy"]
+        tmp_path_factory.mktemp("group-test"),
+        source,
+        item["contract"],
+        item["policy"],
     )
     assert checked.verified and original.status == "VERIFIED", original.blockers
     return original
 
 
-def test_postgresql_group_tests_replay_from_compiled_input(tmp_path):
+def test_postgresql_group_tests_replay_from_compiled_input(group_test_original):
     """`all` and `any` of a group, a count of the test compared with 0,
     replay from compiled input with no R13 evidence."""
-    original = _group_test_original(tmp_path)
-    candidate = _compare(original.artifact, refinement=False)
+    candidate = _compare(group_test_original.artifact, refinement=False)
     sql = candidate.rendered.sql
     assert b"(COUNT(CASE WHEN (" in sql
     assert b" THEN NULL ELSE 1 END) = 0)" in sql
@@ -516,7 +521,9 @@ def test_postgresql_group_tests_replay_from_compiled_input(tmp_path):
         ("group_all", "int_test", "COMPILED_AGGREGATE_ARGUMENT"),
     ),
 )
-def test_a_compiled_group_test_keeps_its_signature(tmp_path, function, forgery, error):
+def test_a_compiled_group_test_keeps_its_signature(
+    group_test_original, function, forgery, error
+):
     """A test of the group reads one Bool test: a forged bundle with two
     arguments or an Int one is refused."""
     from dataclasses import replace
@@ -528,7 +535,7 @@ def test_a_compiled_group_test_keeps_its_signature(tmp_path, function, forgery, 
         encode,
     )
 
-    built = build_compiled(_group_test_original(tmp_path).artifact)
+    built = build_compiled(group_test_original.artifact)
     records = {
         r.get("function"): r
         for r in built.root.description.records

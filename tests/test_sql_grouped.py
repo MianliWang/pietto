@@ -1652,7 +1652,7 @@ def test_a_float_median_needs_a_finite_result_proof(tmp_path, target):
             ),
             ("count", "count", "count", "decimal", "float"),
             [[]] * 5,
-            # MySQL emits these too: test_mysql_counts_and_compares_the_same_carriers.
+            # MySQL emits these too, with its own carriers (below).
             None,
         ),
         (
@@ -1698,12 +1698,45 @@ def test_postgres_aggregates_reach_single_file_argument_parity(
     average (finite by the target's checked binary64 overflow), of a count,
     distinct count or extreme of a Text, Bool, Float or Decimal carrier (the
     group-key comparison law), and of an aggregate over a row expression,
-    lowered as a LET would be. MySQL keeps the Float sum and average and
-    this Int expression refused, with a suggestion."""
+    lowered as a LET would be. MySQL counts, deduplicates and compares the
+    same carriers by the group-key law, with the carriers PostgreSQL uses (a
+    non-null BIGINT count and the argument's own nullable carrier for an
+    extreme; utf8mb4_0900_bin NO PAD distinguishes "a", "A" and "a "), and
+    keeps the Float sum and average and this Int expression refused, with a
+    suggestion."""
     outcome = emit(tmp_path, target, "V_aggregate_blocked", variant)
     data = public(outcome)
     if target == "mysql" and mysql_blockers is None:
         assert outcome.status == "VERIFIED", outcome.blockers
+        assert (
+            'SELECT COUNT(`s0`.`text ``"é`) AS `c0`,'
+            ' COUNT(DISTINCT `s0`.`text ``"é`) AS `c1`,'
+            " COUNT(DISTINCT `s0`.`flag value`) AS `c2`,"
+            " MIN(`s0`.`amount value`) AS `c3`, MAX(`s0`.`ratio value`) AS `c4`"
+        ) in data["sql"]
+        count = {
+            "storage": {"kind": "my_bigint"},
+            "nullable": False,
+            "domain": {"kind": "int_range", "min": "0", "max": SIGNED64},
+        }
+        assert [item["representation"] for item in data["columns"]] == [
+            count,
+            count,
+            count,
+            {
+                "storage": {"kind": "my_decimal", "precision": 9, "scale": 2},
+                "nullable": True,
+                "domain": {"kind": "decimal", "precision": 9, "scale": 2},
+            },
+            {
+                "storage": {"kind": "my_double"},
+                "nullable": True,
+                "domain": {"kind": "finite_float", "format": "binary64"},
+            },
+        ]
+        assert [
+            r["evidence"] for r in data["requirements"] if r["kind"] == "aggregate"
+        ] == evidence
         return
     if target == "mysql":
         assert data["status"] == "BLOCKED"
@@ -1756,45 +1789,6 @@ def test_postgres_aggregates_reach_single_file_argument_parity(
     assert [
         r["evidence"] for r in data["requirements"] if r["kind"] == "aggregate"
     ] == evidence
-
-
-def test_mysql_counts_and_compares_the_same_carriers(tmp_path):
-    """MySQL counts, deduplicates and compares a Text, Bool, Float or
-    Decimal carrier by the group-key law, with the carriers PostgreSQL uses:
-    a non-null BIGINT count and the argument's own nullable carrier for an
-    extreme. utf8mb4_0900_bin NO PAD distinguishes "a", "A" and "a "."""
-    outcome = emit(tmp_path, "mysql", "V_aggregate_blocked", "postgres_carriers")
-    assert outcome.status == "VERIFIED", outcome.blockers
-    data = public(outcome)
-    assert (
-        'SELECT COUNT(`s0`.`text ``"é`) AS `c0`,'
-        ' COUNT(DISTINCT `s0`.`text ``"é`) AS `c1`,'
-        " COUNT(DISTINCT `s0`.`flag value`) AS `c2`,"
-        " MIN(`s0`.`amount value`) AS `c3`, MAX(`s0`.`ratio value`) AS `c4`"
-    ) in data["sql"]
-    count = {
-        "storage": {"kind": "my_bigint"},
-        "nullable": False,
-        "domain": {"kind": "int_range", "min": "0", "max": SIGNED64},
-    }
-    assert [item["representation"] for item in data["columns"]] == [
-        count,
-        count,
-        count,
-        {
-            "storage": {"kind": "my_decimal", "precision": 9, "scale": 2},
-            "nullable": True,
-            "domain": {"kind": "decimal", "precision": 9, "scale": 2},
-        },
-        {
-            "storage": {"kind": "my_double"},
-            "nullable": True,
-            "domain": {"kind": "finite_float", "format": "binary64"},
-        },
-    ]
-    assert [
-        r["evidence"] for r in data["requirements"] if r["kind"] == "aggregate"
-    ] == [[]] * 5
 
 
 @pytest.mark.parametrize("target", TARGETS)

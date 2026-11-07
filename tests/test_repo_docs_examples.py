@@ -7,7 +7,8 @@ reports, in report order (an example that shows a diagnostic, or a form that a
 single file refuses, such as a project-only one). See docs/style.md,
 Documentation examples. Every block is also already formatted: `pietto fmt`
 leaves it unchanged. The commands of docs/worked-example.md also run as the
-page shows them, over the files it names.
+page shows them, over the files it names, and its two modules compile to the
+SQL of the same declarations in one module.
 """
 
 from __future__ import annotations
@@ -66,38 +67,57 @@ def test_documented_example_is_already_formatted(source: str, codes: list[str]) 
     assert result.source == source, [d.message for d in result.diagnostics]
 
 
-def _bikes_contract() -> str:
-    """The `contract.json` the page puts in `bikes-project` (it links its values)."""
+BIKES_TABLES = {
+    "members": {"id": "Int", "plan": "Text | None"},
+    "rides": {
+        "id": "Int",
+        "member_id": "Int",
+        "station_id": "Int",
+        "started_on": "Date",
+        "fee_cents": "Int",
+    },
+}
+# The two-module part's tables, in `models.pietto`.
+MODULE_TABLES = {
+    "members": {"id": "Int", "name": "Text"},
+    "rides": {"id": "Int", "member_id": "Int", "minutes": "Int"},
+}
+
+
+def _bikes_contract(
+    module: str = "bikes.pietto",
+    tables: dict[str, dict[str, str]] = BIKES_TABLES,
+    family: str = "postgres",
+) -> str:
+    """A `contract.json` the page puts beside a project's `pietto.toml` (it
+    links its values): ``tables`` of ``module``, by declared field type."""
+    pg = family == "postgres"
     whole = {"kind": "int_range", "min": "0", "max": "1000000"}
     text = {
         "kind": "text",
         "max_characters": 32,
-        "encoding": "UTF8",
-        "collation": "C",
+        "encoding": "UTF8" if pg else "utf8mb4",
+        "collation": "C" if pg else "utf8mb4_0900_bin",
         "padding": "NO PAD",
     }
+    texts = {"kind": "pg_text"} if pg else {"kind": "my_varchar", "length": 32}
     kinds = {
-        "Int": {"storage": {"kind": "pg_int8"}, "nullable": False, "domain": whole},
-        "Text": {"storage": {"kind": "pg_text"}, "nullable": True, "domain": text},
+        "Int": {
+            "storage": {"kind": "pg_int8" if pg else "my_bigint"},
+            "nullable": False,
+            "domain": whole,
+        },
+        "Text": {"storage": texts, "nullable": False, "domain": text},
+        "Text | None": {"storage": texts, "nullable": True, "domain": text},
         "Date": {
             "storage": {"kind": "pg_date"},
             "nullable": False,
             "domain": {"kind": "date"},
         },
     }
-    tables = {
-        "members": {"id": "Int", "plan": "Text"},
-        "rides": {
-            "id": "Int",
-            "member_id": "Int",
-            "station_id": "Int",
-            "started_on": "Date",
-            "fee_cents": "Int",
-        },
-    }
     sources = [
         {
-            "selector": {"module": "bikes.pietto", "kind": "source", "name": name},
+            "selector": {"module": module, "kind": "source", "name": name},
             "relation": {"namespace": "bikes", "name": name},
             "scan": "relation_rows",
             "fields": [
@@ -116,16 +136,25 @@ def _bikes_contract() -> str:
         }
         for name, fields in tables.items()
     ]
-    statement = {
-        "client_encoding": "UTF8",
-        "operator_environment": "builtin_only",
-        "identifier_case": "quoted_exact",
-        "parameter_protocol": "postgres_extended",
-    }
+    statement = (
+        {
+            "client_encoding": "UTF8",
+            "operator_environment": "builtin_only",
+            "identifier_case": "quoted_exact",
+            "parameter_protocol": "postgres_extended",
+        }
+        if pg
+        else {
+            "client_encoding": "utf8mb4",
+            "operator_environment": "builtin_only",
+            "identifier_case": "lower_case_table_names=0",
+            "parameter_protocol": "mysql_prepared",
+        }
+    )
     return json.dumps(
         {
             "format": "pietto.emission-contract.v1",
-            "target": {"family": "postgres", "release": "18.6"},
+            "target": {"family": family, "release": "18.6" if pg else "8.4.12"},
             "sources": sources,
             "environment": [
                 {"key": key, "scope": "statement", "value": value}
@@ -136,19 +165,32 @@ def _bikes_contract() -> str:
     )
 
 
+def _project(root: Path, toml: str, modules: dict[str, str], contract: str) -> Path:
+    root.mkdir()
+    (root / "pietto.toml").write_text(toml, encoding="utf-8")
+    for name, source in modules.items():
+        (root / name).write_text(source, encoding="utf-8")
+    (root / "contract.json").write_text(contract, encoding="utf-8")
+    return root
+
+
 def test_worked_example_commands_run_as_the_page_shows(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
 ) -> None:
     text = (REPO_ROOT / "docs/worked-example.md").read_text(encoding="utf-8")
-    rides, bikes = (block.group(2) for block in BLOCK.finditer(text))
+    rides, bikes, models, report = (block.group(2) for block in BLOCK.finditer(text))
     (toml,) = re.findall(r"^```toml\n(.*?)^```$", text, re.MULTILINE | re.DOTALL)
     commands = re.findall(r"^```bash\n(.*?)^```$", text, re.MULTILINE | re.DOTALL)
-    project = tmp_path / "bikes-project"
-    project.mkdir()
     (tmp_path / "rides.pietto").write_text(rides, encoding="utf-8")
-    (project / "pietto.toml").write_text(toml, encoding="utf-8")
-    (project / "bikes.pietto").write_text(bikes, encoding="utf-8")
-    (project / "contract.json").write_text(_bikes_contract(), encoding="utf-8")
+    _project(
+        tmp_path / "bikes-project", toml, {"bikes.pietto": bikes}, _bikes_contract()
+    )
+    _project(
+        tmp_path / "bikes-modules",
+        toml,
+        {"models.pietto": models, "report.pietto": report},
+        _bikes_contract("models.pietto", MODULE_TABLES),
+    )
     monkeypatch.chdir(tmp_path)
     lines = "".join(commands).replace("\\\n", "").splitlines()
     assert lines
@@ -156,3 +198,63 @@ def test_worked_example_commands_run_as_the_page_shows(
         program, *argv = shlex.split(line)
         assert program == "pietto"
         assert main(argv) == 0, (line, capsys.readouterr())
+
+
+@pytest.mark.parametrize("family", ("postgres", "mysql"))
+def test_the_two_module_example_has_the_sql_of_one_module(
+    tmp_path: Path, family: str
+) -> None:
+    """Each query of the page's two modules compiles to the SQL of the same
+    declarations in one module (the def and the relationship moved, the
+    imports and exports dropped), on PostgreSQL and, with `mysql.table`
+    sources, on MySQL; the live template and a bundle that export_bundle wrote
+    and load_bundle read bind to that SQL."""
+    from pietto import execution
+    from pietto._project.project_execution_template import bind_values
+
+    text = (REPO_ROOT / "docs/worked-example.md").read_text(encoding="utf-8")
+    *_, models, report = (block.group(2) for block in BLOCK.finditer(text))
+    (toml,) = re.findall(r"^```toml\n(.*?)^```$", text, re.MULTILINE | re.DOTALL)
+    models = models.replace("postgres.table", f"{family}.table")
+    one = models.partition(")\n\n")[2] + "\n" + report.partition(")\n\n")[2]
+    projects = {
+        "report.pietto": _project(
+            tmp_path / "two",
+            toml,
+            {"models.pietto": models, "report.pietto": report},
+            _bikes_contract("models.pietto", MODULE_TABLES, family),
+        ),
+        "one.pietto": _project(
+            tmp_path / "one",
+            toml,
+            {"one.pietto": one},
+            _bikes_contract("one.pietto", MODULE_TABLES, family),
+        ),
+    }
+    names = re.findall(r"^query (\w+):", report, re.MULTILINE)
+    assert names == ["ride_bands", "rides_per_member", "member_ride_counts"]
+    for name in names:
+        two, local = (
+            execution.compile_query(
+                root,
+                module=module,
+                kind="query",
+                name=name,
+                dialect=family,
+                emission_contract="contract.json",
+            )
+            for module, root in projects.items()
+        )
+        assert two.emission is not None and local.emission is not None
+        sql = json.loads(two.emission)["sql"]
+        assert json.loads(local.emission)["sql"] == sql
+        bundle = execution.export_bundle(two)
+        loaded = execution.load_bundle(
+            bundle.payload,
+            expected_pin=bundle.pin,
+            accepted_producer=bundle.producer,
+            accepted_compatibility=bundle.compatibility,
+        )
+        for query in (two, loaded):
+            bound = bind_values(query._template, ())
+            assert bound.artifact.rendered.sql == sql.encode()

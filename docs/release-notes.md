@@ -1189,6 +1189,12 @@ changes):
   runs the page's commands as it shows them: the single-file `check` and
   PostgreSQL `emit-sql` (also with `--set`), `check --project`, and
   `emit-sql --project --all` with a `contract.json` in the project.
+- A third part, "Two modules", declares a `def` and a relationship in one
+  module of a project, uses them in another and passes a grouped query's
+  rows to the relationship. The test also compiles each of its queries with
+  `compile_query` on PostgreSQL and, over `mysql.table` sources, on MySQL,
+  and checks that the SQL is that of the same declarations in one module and
+  that the live template and a loaded bundle bind to it.
 - No new diagnostic, refusal or compatibility change.
 
 ### Importing a def or relationship from another module
