@@ -45,7 +45,7 @@ if TYPE_CHECKING:
         ProjectParseCheckResult,
     )
 
-_FALLBACK_VERSION = "0.1.9"
+_FALLBACK_VERSION = "0.1.10"
 _EXIT_DIAGNOSTIC_ERROR = 1
 _EXIT_USAGE_ERROR = 2
 _FORMAT_TEXT = "text"

@@ -57,6 +57,18 @@ disk until one of them is closed.
 | A module was not checked because a module it imports has errors | `Not checked: this module imports <file>, which has errors.` (two or more files: `<file 1>, <file 2> and <file 3>, which have errors.`, in code-point order; Information, at its import) |
 | The editor sent a partial change | `Pietto needs whole-document changes; reopen this file.` |
 
+## The Pietto extension for VS Code
+
+The tested client is the Pietto extension for VS Code `0.2.0`, commit
+`5484ebdb` of the repository `MianliWang/pietto-vscode-extension`. It starts
+`pietto lsp` through `vscode-languageclient` 9.0.1 and sends its setting
+`pietto.projectRoots` as the `projectRoots` initialization option. Its
+acceptance, which the [Phase75 route](phases/phase-75/route.md) requires, ran
+in VS Code 1.145.2 on the batch-1 head `ff1aa713`. The extension is not yet
+on the Visual Studio Marketplace: until it is, install it from its repository
+or use a generic LSP client as the next section shows. The extension `0.1.0`
+accepted only Pietto `0.1.2`.
+
 ## VS Code with a generic LSP client
 
 These steps use a fictional project at `/home/ada/work/harbor-sales` (on

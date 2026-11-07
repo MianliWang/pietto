@@ -23,7 +23,7 @@ SUPPORTED_INTERPRETERS = ((3, 12), (3, 13))
 
 # Reviewed common manifest; full observation bytes remain the comparison authority.
 EXPECTED_COMMON_MANIFEST_SHA256: str | None = (
-    "6e93356ea4b905552043ce085afe490edfef0d2f44db57c88e8c980bc4c9ad18"
+    "9423208df6cdecdf88f7bbe7534f4da4e8f8f34232537914cf6238d1562f849e"
 )
 
 

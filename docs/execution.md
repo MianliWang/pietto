@@ -1,14 +1,14 @@
 # Execution (public alpha)
 
-**Version:** This document describes the public alpha API of the `0.1.9`
+**Version:** This document describes the public alpha API of the `0.1.10`
 candidate. Release availability is established only when the exact accepted
-files appear on the versioned GitHub pre-release and PyPI `0.1.9` channels.
+files appear on the versioned GitHub pre-release and PyPI `0.1.10` channels.
 The published `0.1.2` distributions select `pyarrow==25.0.1`; the published
-`0.1.3`, `0.1.4`, `0.1.5`, `0.1.6`, `0.1.7` and `0.1.8` distributions and
-this candidate select `pyarrow==26.0.0`. The published `0.1.5` distributions select
+`0.1.3`, `0.1.4`, `0.1.5`, `0.1.6`, `0.1.7`, `0.1.8` and `0.1.9`
+distributions and this candidate select `pyarrow==26.0.0`. The published `0.1.5` distributions select
 `mysql-connector-python==26.7.0`, `adbc-driver-postgresql==1.12.0` and
-`adbc-driver-manager==1.12.0`; the published `0.1.6`, `0.1.7` and
-`0.1.8` distributions and this candidate select `mysql-connector-python==26.10.0` and
+`adbc-driver-manager==1.12.0`; the published `0.1.6`, `0.1.7`, `0.1.8` and
+`0.1.9` distributions and this candidate select `mysql-connector-python==26.10.0` and
 `1.13.0` of both ADBC packages. The historical `0.1.1` wheel does not provide this alpha surface.
 
 `pietto.execution` compiles one query of your project, runs it explicitly on
@@ -75,7 +75,7 @@ execution or a supported Windows profile.
 
 ## Install
 
-The `0.1.9` distribution exposes `pietto.execution`. Install the extra of the
+The `0.1.10` distribution exposes `pietto.execution`. Install the extra of the
 route you use from PyPI into a fresh virtual environment:
 
 ```bash
@@ -245,7 +245,7 @@ except RequestRejected as error:
 
 ### Saved-result API
 
-These APIs are public alpha in `0.1.9`. They do not add a CLI database
+These APIs are public alpha in `0.1.10`. They do not add a CLI database
 command. Existing `check`, `emit-sql`, text output and JSON output keep their
 contracts: JSON uses `ensure_ascii=True` and one trailing newline, while
 `--output` reports its clear output error through the established CLI result
@@ -1560,8 +1560,8 @@ or a successful semantic check alone establishes none of those premises.
   environment that built it); there is no migration between versions. The
   identity is read from the installed files at each call, so restart running
   processes after the installed code changes.
-  A bundle or saved-job record made under `0.1.8` or earlier is refused under
-  `0.1.9` by the changed code identity. The old bytes are preserved; use their
+  A bundle or saved-job record made under `0.1.9` or earlier is refused under
+  `0.1.10` by the changed code identity. The old bytes are preserved; use their
   matching old environment. Pietto supplies no migration or rewrite.
 - The pin of a bundle is a content identity, not a signature, and protects the
   bytes only when it comes from your own records. There is no signing,

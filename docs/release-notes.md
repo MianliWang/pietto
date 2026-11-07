@@ -1,12 +1,113 @@
 # Pietto release notes
 
-## Unreleased changes following 0.1.9
+## Aggregates, cross-module reuse and editor tools public alpha release notes — 0.1.10
 
-These changes are on `main` after `0.1.9` and are in no published release
-yet. They are Phase73 batches 1, 2 and 3, Phase74 (from "Importing a def
-or relationship from another module" on) and Phase75 (under
-[Phase75](#phase75)). Each subsection lists the changes against `0.1.9` that
-a program can observe, its compatibility rows and the new refusals.
+<a id="unreleased-changes-following-019"></a>
+<!-- The id above keeps links written before these notes were released pointing here. -->
+
+**Status:** These notes cover `0.1.10`, the public alpha prepared from its
+release commit, the last commit of Phase75 batch 2. It is published only when
+the tag `v0.1.10`, the versioned GitHub pre-release and PyPI carry its
+accepted wheel and sdist; this document neither creates those channels nor
+substitutes for their byte verification. As for earlier releases, the
+compiler and package are covered on CPython 3.12 and 3.13 for Linux x86-64.
+CI also runs the platform-neutral tests with CPython 3.12 and 3.13 on Windows
+x86-64, and batch `emit-sql --project ROOT --all --output DIR` stays
+Linux-only; other platforms and Python versions are not covered.
+
+`0.1.10` is the release of Phase73, Phase74 and Phase75. It retires one
+source spelling of `0.1.9`: the header lines, which `0.1.9` warned about, are
+now refused. It adds conditional, ordered and statistical aggregates, small
+scalar builtins and single-file constants; def and relationship imports
+across modules, and table and query rows as relationship arguments; more
+PostgreSQL forms on MySQL; and editor diagnostics, a Python compile API,
+relation columns and project formatting. Each subsection below lists the
+changes against `0.1.9` that a program can observe, its compatibility rows
+and the new refusals: Phase73 first, Phase74 from "Importing a def or
+relationship from another module" on, and Phase75 from "`explain --project`
+lists relation columns" on; the last one lists the known limitations. The
+Python execution extras keep the pins of `0.1.9`. The sections from 0.1.9
+down describe published files.
+
+### Highlights
+
+- **New aggregates.** Count or add the rows of a group that pass a test,
+  written as Python's generator: `sum(1 for o in group if o.paid)` and
+  `sum(o.amount for o in group if o.paid)`; `median(x)` and
+  `quantile(x, q)`; `variance`, `pvariance` and `pstdev`, as Python's
+  `statistics`; `count_distinct(a, b, ...)`; the test of a group,
+  `any(... for o in group)` and `all(... for o in group)`; and
+  `first(x, order by k, id)` and `last(...)`, the value at the first or last
+  row of a group in a total order.
+- **Scalar builtins and constants.** `max(a, b)` and `min(a, b)`,
+  `lpad(s, width, fill)`, `add_months(d, n)` and `now()`; top-level
+  constants in a single file, which `--set` changes for one run.
+- **Reuse across modules.** In an explicit-module project a module imports a
+  `def` or relationship that another module exports (`export def` and
+  `import def`, `export relationship` and `import relationship`), and a
+  relationship parameter takes the rows of a table or query.
+- **PostgreSQL projects closer to single files.** Project aggregate
+  windows; typed `Decimal(p, s)`, `Date`, `Timestamp` and `UUID` query
+  parameters; project aggregates of `Text`, `Bool`, `Float` and `Decimal`
+  values; nested GROUP BY and DISTINCT keys; and `len`, `sum` and `any` over
+  a row's collected list.
+- **More forms on MySQL**, each after a two-database differential: project
+  UUID ordering, project aggregates of `Text`, `Bool`, `Float` and `Decimal`
+  values, `order by` a `Float`, project `min` and `max` of a `Timestamp` or
+  `Date`, the backward asof JOIN, and single-file `variance`, `pvariance` and
+  `pstdev` of a `Float`, `count_distinct(a, b, ...)` and the test of a group.
+- **Editor and Python tools (alpha).** `pietto lsp` pushes the diagnostics
+  of `check` to an editor; `pietto.compiler` returns the
+  `emit-sql --project --format json` document without a subprocess;
+  `explain --project` lists the columns of every table and query of an
+  explicit-module project; `pietto fmt --project` formats every module, and
+  `fmt` writes one spelling. Hints name the rewrite for the rules met most
+  often.
+
+### Upgrading from 0.1.9
+
+- **Header lines are refused.** A `pietto 0.9`, `mode ...`, `dialect ...` or
+  `encoding ...` line at the top of a file, which warned with PIE-P1012 in
+  `0.1.9`, is now PIE-P1000 in every command and check mode. Run
+  `pietto migrate FILE > FILE.new`, which deletes the header lines without
+  effect; for `mode loose` or `mode strict`, delete the line and pass
+  `--check-mode` instead. A dependency package with a header line no longer
+  loads until it is migrated and published again, and `pietto fmt` refuses
+  such a file. See
+  [Header lines are refused](#header-lines-are-refused-pie-p1000).
+- **Newly reserved names.** A `def` named `lpad`, `add_months`, `median`,
+  `quantile`, `now`, `variance`, `pvariance`, `pstdev`, `any`, `all`, `first`
+  or `last` is now PIE-S2398, so a project `emit-sql` document that holds one
+  goes from VERIFIED to BLOCKED. A `constraint` or `derive` of such a name,
+  called by that name, now means the builtin. In a query without GROUP BY
+  where a relation or `let` named `group` is visible, a SELECT item
+  `any(... for o in group)` is now PIE-S2334; it was a per-row `EXISTS` over
+  that relation.
+- **Other accepted programs that change.** A call whose name is both a `def`
+  and a relationship, with an argument that names a table or query input, is
+  now the relationship call. In a `schema_version = 2` project,
+  `string_agg(x, ",", order by k)` after a JOIN whose order key names no
+  field now reports PIE-S2102, as a single file does.
+- Tools that compare exact diagnostics, SQL text or JSON must expect the
+  changes listed below: the new PIE-S2388 warning, new refusals of forms
+  that were parse errors, new and changed hint texts and JSON `suggestion`s,
+  and additive JSON vocabulary that strict readers must accept, such as the
+  project JSON v2 aggregate `function` values `filtered_count`,
+  `filtered_sum`, `count_distinct_tuple`, `group_any` and `group_all`.
+- As with every release, compiled bundles and saved jobs made under `0.1.9`
+  or earlier are refused by code identity; new bundles carry the version
+  marks `(7, 1, 7, 1)`.
+- `pietto fmt` now writes one spelling, so a file that `fmt --check`
+  accepted under `0.1.9` may be reported as `would reformat: PATH`. The
+  output of `fmt` and the alpha surfaces `pietto lsp`, `pietto.compiler` and
+  the relation-column document may still change before the Phase82 freeze;
+  each change is listed in these release notes.
+- The Pietto extension for VS Code `0.2.0` (repository
+  `MianliWang/pietto-vscode-extension`, commit `5484ebdb`) shows diagnostics
+  through `pietto lsp`. It is not yet on the Visual Studio Marketplace: until
+  it is, use a generic LSP client as [editor diagnostics](editor-lsp.md)
+  describes, or install the extension from its repository. The extension
+  `0.1.0` accepted only the `0.1.2` wheel and refuses `0.1.10`.
 
 ### JOIN fan-out: the two-level route
 
@@ -1894,15 +1995,7 @@ aggregate `spelling` `ARRAY_AGG`. A compiled `aggregate_value` record may name
 Phase73 version marks `(7, 1, 7, 1)`, and a reader of earlier marks refuses
 them.
 
-### Phase75
-
-These are the Phase75 items: relation columns from
-`explain --project`, the Python compile API, `fmt --project`, one
-spelling in `fmt`, the refusal of header lines, the batch form in
-`emit-sql --help`, a capabilities page, editor diagnostics with `pietto lsp`
-and hints that name the rewrite.
-
-#### `explain --project` lists relation columns (alpha)
+### `explain --project` lists relation columns (alpha)
 
 - `pietto explain --project ROOT [--format json]` on a `schema_version = 2`
   project lists the output columns of every table and query, in the order of
@@ -1961,7 +2054,7 @@ and hints that name the rewrite.
   relation columns: "<escaped path>"; rename it.` (`path: null`).
 - No diagnostic code or compiled record changes.
 
-#### Python: project SQL without a subprocess (alpha)
+### Python: project SQL without a subprocess (alpha)
 
 - New module `pietto.compiler` with `compile_sql(project, *, module, kind,
   name, dialect, emission_contract, literal_policy="preserve")`,
@@ -1987,7 +2080,7 @@ and hints that name the rewrite.
   document. Spec: [Python compile API v1](spec/python-compile-api-v1.md).
 - No diagnostic code, CLI output, JSON document or compiled record changes.
 
-#### Formatter: every module of a project
+### Formatter: every module of a project
 
 - `pietto fmt --check --project ROOT` and `pietto fmt --write --project ROOT`
   format the modules of an explicit-module project (`schema_version = 2`),
@@ -2037,7 +2130,7 @@ and hints that name the rewrite.
   and project CLI JSON v2.
 - No diagnostic code, grammar, SQL, JSON document or compiled record changes.
 
-#### `fmt` writes one spelling
+### `fmt` writes one spelling
 
 - `pietto fmt`, with or without `--project`, now writes three spellings one
   way. The program stays the same: `check` reports the same diagnostics
@@ -2071,7 +2164,7 @@ and hints that name the rewrite.
   release notes.
 - No diagnostic code, grammar, SQL, JSON document or compiled record changes.
 
-#### Header lines are refused (PIE-P1000)
+### Header lines are refused (PIE-P1000)
 
 - **Compatibility.** A leading `pietto <number>`, `mode ...`, `dialect ...` or
   `encoding ...` line, which warned with PIE-P1012 since `0.1.9`, is now
@@ -2118,7 +2211,7 @@ and hints that name the rewrite.
   with a header line must be migrated and published again before a project
   that depends on it loads.
 
-#### `emit-sql --help` lists the project batch form
+### `emit-sql --help` lists the project batch form
 
 - `pietto emit-sql --help` now ends, after the project single-owner form it
   already showed, with the batch form:
@@ -2134,7 +2227,7 @@ and hints that name the rewrite.
   changes. Argument parsing, the routes `--project` and `--all` select, exit
   codes, usage errors and the project `--help` texts are unchanged.
 
-#### Documentation
+### Documentation
 
 - Every `pietto` block of `README.md` and `docs/*.md` is now formatted as
   `pietto fmt --check` requires, and `tests/test_repo_docs_examples.py` keeps
@@ -2149,7 +2242,7 @@ and hints that name the rewrite.
   link it.
 - No refusal, diagnostic or SQL changes.
 
-#### Editor diagnostics: `pietto lsp` (alpha)
+### Editor diagnostics: `pietto lsp` (alpha)
 
 - New command `pietto lsp` (`pietto lsp --stdio` is the same): a language
   server on standard input and output that pushes the diagnostics of the
@@ -2180,7 +2273,7 @@ and hints that name the rewrite.
 - Compatibility: `pietto --help` lists `lsp` after `fmt`. No other command,
   CLI JSON document or compiled record changes.
 
-#### Hints that name the rewrite
+### Hints that name the rewrite
 
 - Hints for the rules met while writing a demo now name the one rewrite: a
   computed `group by` key (PIE-P1000, and PIE-S2102/PIE-S2329 for a computed
@@ -2219,6 +2312,89 @@ and hints that name the rewrite.
 | PIE-S2105, unary `-` of a `Decimal`, also through a type alias (`-amount`; single file and project) | `Invalid operands for operator -: expected numeric operand`, `suggestion: null` | `` Invalid operands for operator -: a Decimal has no sign operator yet; write `0 - x` for `-x` ``, and the text after `-: ` as `suggestion` |
 | PIE-S2105, unary `+` of a `Decimal`, also through a type alias (`+amount`; single file and project) | `Invalid operands for operator +: expected numeric operand`, `suggestion: null` | `` Invalid operands for operator +: a Decimal has no sign operator yet; write `x` for `+x` ``, and the text after `+: ` as `suggestion` |
 | PIE-B1004 `validated_decimal_parameters_missing` (project emission, a source field declared plain `Decimal`, also through a type alias) | hint `Keep this expression in check/plan, or select a direct field with a reviewed carrier: the compiler lacks the required proof. Do not invent a range, meaning or bound in the contract.` | hint `Declare this field, or the type alias it uses, as Decimal(p, s) with the precision and scale of its column, such as Decimal(12, 2); a plain Decimal has none to match the contract.` |
+
+### Known limitations of 0.1.10
+
+- **MySQL refusals.** MySQL support trails PostgreSQL: a form opens on MySQL
+  only after a two-database differential passes, and until then MySQL
+  emission refuses it with a PIE-B code and writes no SQL. These forms of
+  this release are refused on MySQL:
+  - in single files and projects: `median` and `quantile` (MySQL has no
+    interpolated percentile), `now()`, the conditional sum
+    `sum(o.f for o in group if ...)`, `string_agg` (`GROUP_CONCAT` truncates
+    silently), and `first` and `last`;
+  - in single files: top-level constants; `stddev`, `variance`, `pvariance`
+    and `pstdev` of an `Int`; a window key that names a computed `Text`
+    `let`; and an asof JOIN in a relation with a FULL JOIN;
+  - in projects: the conditional count; `Decimal(p, s)`, `Date`,
+    `Timestamp` and `UUID` query parameters; aggregate windows; `lpad`,
+    `add_months` and `concat`; `Int` arithmetic not proved to fit signed 64
+    bits; `sum` and `stddev` of an `Int`; `count_distinct`, `sum`, `avg` and
+    `stddev` of a `Float`; `variance`, `pvariance` and `pstdev`;
+    `count_distinct(a, b, ...)`; `any` and `all` over a group; and collected
+    lists and nested keys (Phase77).
+
+  The other MySQL project refusals stay; "Kept refused on MySQL" under
+  [MySQL catch-up in projects](#mysql-catch-up-in-projects) lists them.
+- Window forms of `variance`, `pvariance`, `pstdev`,
+  `count_distinct(a, b, ...)`, `first` and `last` are refused, and
+  `any(... for o in group)` and `all(... for o in group)` take no window.
+  The conditional count and sum, `any`, `all`, `first` and `last` over JOIN
+  rows are refused (PIE-S2334): join in one query, then group it in another
+  that reads it with `from`.
+- `def` and `relationship` items in a package module (PIE-S2707), wildcard
+  imports, `constraint` and `derive` import and export items, and qualified
+  calls such as `a.pos(x)` are refused. In a project,
+  `any(R(x, c) for c in q)` over a query `q` that has a JOIN keeps
+  PIE-S2604 (write the `on` out); a table with a set-operation or VALUES
+  body is not a row for a relationship parameter; and `Decimal` precision
+  and scale are not compared when a column binds a relationship field.
+- A project query whose WHERE calls a def that inlines to a conditional
+  cannot be read through a JOIN by another project query: that JOIN query is
+  BLOCKED (PIE-B1003) on PostgreSQL. Read it with `from` alone.
+- A project FULL or CROSS JOIN is BLOCKED (PIE-B1003
+  `scalar_meaning_requires_field_projection`) on both targets when an input
+  of the relation has a `Timestamp` or `UUID` field, even one it does not
+  read. INNER, LEFT and RIGHT JOINs are not affected.
+- A project `count() window()` passes `check --project`, but
+  `emit-sql --project` refuses it (PIE-B1004 `window_result_anchor_missing`),
+  and likewise a project aggregate window with a RANGE offset frame
+  (PIE-B1002).
+- `max(a, b)` and `min(a, b)` of two numeric types, such as an `Int` and a
+  `Float`, are refused (PIE-S2104), and six or more nested values stop at
+  PIE-S2399; a project `max(a, b)` of two `Date` or two `Bool` values is
+  refused (PIE-B1003). `add_months` takes a `Date` only.
+- In a project, `len`, `sum` and `any` over a row's collected list are
+  available only in a table or query without JOIN, GROUP BY, an aggregate,
+  DISTINCT, a window or QUALIFY: select the list in one query and read it in
+  a later one.
+- A project relation with aggregates and no JOIN input that reads a `let`
+  name or a query parameter still reports some aggregate, grouping and ORDER
+  BY errors as the bare PIE-S2333, as in `0.1.9`. Beside a `let` and
+  projection name conflict (PIE-S2329), a `schema_version = 2` project can
+  report other diagnostics than a single file where an `order by` key of
+  `first` or `last`, a `count_distinct` or a `stddev` reads the refused
+  `let`.
+- `0 - x` of a `Decimal`, the rewrite that PIE-S2105 names for `-x`, passes
+  `check`, but project `emit-sql` refuses it, as it refuses every `Decimal`
+  and `Int` pair (PIE-B1003 `arithmetic_requires_signed_int_operands`).
+- `pietto lsp` publishes only the diagnostics of `check`: no backend
+  refusal (`PIE-B...`), hover or completion, and no root discovery (roots
+  come only from `projectRoots`). A root nested inside another root through
+  a symbolic link publishes its modules under both spellings without the
+  overlap message. The VS Code acceptance did not run on native Windows
+  Python, a Remote WSL session or macOS.
+- `explain --project` lists no source columns and no schema-4 columns, and a
+  relation with an untyped `None` output fails the whole document.
+  `pietto.compiler` has no executable batch `compile_queries(...)` and no
+  single-file entry.
+- `fmt --project --write` replaces the modules one at a time: a write
+  failure that its checks before writing cannot predict leaves the earlier
+  modules replaced. `fmt` has no partial formatting, line width or style
+  option.
+- The known limitations of 0.1.9 that the subsections above do not change
+  still hold; the asof JOIN is no longer PostgreSQL only (see
+  [Asof JOIN on MySQL](#asof-join-on-mysql)).
 
 ## Equality, nullability and asof JOIN public alpha release notes — 0.1.9
 

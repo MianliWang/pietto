@@ -815,3 +815,25 @@ pre-approved once Gate 2 passes on its exact tree and `main` has not moved
 since the rebind, fast-forward only, with no tag, release or PyPI upload. A CI
 failure stops the lead, and a repair child follows without a rerun. These
 answers are no standing authorization beyond Phase73–75.
+
+## 0.1.10 release — owner decisions (2026-11-07)
+
+| Item | Chosen rule |
+| --- | --- |
+| Version (D73.15) | `0.1.10`, the next patch after `0.1.9`, is one release of Phase73, Phase74 and Phase75. It refuses the header lines that `0.1.9` warned about (PIE-P1000). Users who pin `pietto~=0.1` or `pietto<0.2` receive it, so the [0.1.10 release notes](release-notes.md#aggregates-cross-module-reuse-and-editor-tools-public-alpha-release-notes--0110) list every new refusal and changed diagnostic. |
+| Release commit | The last commit of Phase75 batch 2, after the S10 audit commit; it changes only version owners and documentation, and one Gate 2 covers the whole batch. |
+| Title | The release notes are titled `Aggregates, cross-module reuse and editor tools public alpha release notes — 0.1.10`; the GitHub pre-release is "Pietto 0.1.10 public alpha". |
+| Aggregate `function` names | The project JSON v2 aggregate `function` values `filtered_count`, `filtered_sum`, `count_distinct_tuple`, `group_any` and `group_all` keep their names. A later rename is a public format change that the release notes list. |
+| VS Code | The documentation names the Pietto extension for VS Code `0.2.0` (repository `MianliWang/pietto-vscode-extension`), which shows diagnostics through `pietto lsp` and is not yet on the Visual Studio Marketplace; until it is, a generic LSP client or an install from the repository. The release does not wait for the Marketplace, which the owner publishes separately. |
+| Windows | No claim that Pietto supports Windows: the compiler and CLI are verified on Linux x86-64, CI also runs the platform-neutral tests on Windows x86-64, and batch `emit-sql --project ROOT --all --output DIR` stays Linux-only. The package classifiers stay unchanged until Phase81. |
+| README links | As for `0.1.9`: in the release commit every README link to a repository document points at the tag `v0.1.10`, including the nine links that point at `blob/main` on `main`; the next ordinary commit after the release restores those nine to `blob/main`. |
+
+On 2026-11-07 the owner approved the publication chain: once Phase75
+closes and Gate 2 passes on the final batch-2 tree with `main` unchanged
+since the rebind, the batch-2 series, release commit included, is pushed by
+fast-forward; after natural exact-head CI succeeds, tag `v0.1.10` and the
+GitHub pre-release are created. The owner uploads to PyPI with the owner's
+own token. If Gate 2 or CI fails, the lead stops and reports; a failed head
+gets a repair child, not a rerun. `0.1.10` is published only when tag
+`v0.1.10`, the GitHub pre-release and PyPI carry the accepted files; this
+section publishes nothing.

@@ -3187,7 +3187,10 @@ pre-release and PyPI channels carry the accepted files. Later releases stay
 on `0.1.x` patches, `0.1.10` next, until about the end of Phase80, when
 `0.2.0` is used. On 2026-11-05 the owner made `0.1.10` one release of
 Phase73, Phase74 and Phase75, cut after Phase75 closes, with separate
-approval (D73.15).
+approval (D73.15). On 2026-11-07 the owner approved its publication chain,
+with the release commit as the last commit of Phase75 batch 2; `0.1.10` is
+published only when its tag, GitHub pre-release and PyPI channels carry the
+accepted files.
 
 On 2026-10-28 the owner set the MySQL cadence: MySQL support may trail
 PostgreSQL by about two to three releases. New features reach PostgreSQL first,
