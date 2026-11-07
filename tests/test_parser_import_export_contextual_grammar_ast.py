@@ -928,8 +928,8 @@ def test_modern_module_lists_keep_kinds_aliases_order_and_occurrences() -> None:
 def test_def_and_relationship_items_are_kind_name_items_of_both_list_forms(
     source: str,
 ) -> None:
-    # One more pair of kinds in the existing lists, each canonical form
-    # an F1 fixed point.
+    # One more pair of kinds in the existing lists; fmt keeps each list as
+    # written, except that a one-line list loses its parentheses.
     from pietto.source_format import format_source
 
     (statement,) = _parsed(source).module_statements
@@ -937,7 +937,10 @@ def test_def_and_relationship_items_are_kind_name_items_of_both_list_forms(
         ModuleDeclarationKind.DEF,
         ModuleDeclarationKind.RELATIONSHIP,
     ]
-    assert format_source(source).source == source
+    one_line = source.count("\n") == 1
+    formatted = source.replace("(", "").replace(")", "") if one_line else source
+    assert format_source(formatted).source == formatted
+    assert format_source(source).source == formatted
 
 
 @pytest.mark.parametrize(

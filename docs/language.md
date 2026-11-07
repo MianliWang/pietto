@@ -139,9 +139,32 @@ pietto fmt --check --project shop # exit 1 if a module is not formatted
 pietto fmt --write --project shop # replace each module that is not formatted
 ```
 
-`fmt` changes only whitespace outside tokens. It never adds, removes, reorders
-or respells a token, and keeps the spaces between two tokens of a line and the
-text of every comment except its trailing spaces and tabs.
+`fmt` changes whitespace outside tokens and writes three spellings one way.
+It never adds or reorders a token, and keeps the spaces between two tokens of
+a line, except around a token it removes, and the text of every comment except
+its trailing spaces and tabs. The program stays the same: `check` reports the
+same diagnostics apart from their positions, and `emit-sql` writes the same
+SQL.
+
+- A string takes double quotes: `'paid'` becomes `"paid"`; a `"` inside it
+  becomes `\"` and a `\'` becomes `'`, so the value is the same (see
+  [Expressions](#expressions)).
+- An `import` or `export` list on one line loses its parentheses and trailing
+  comma: `from "m.pietto" import (def pos, source rows,)` becomes
+  `from "m.pietto" import def pos, source rows`. A list over several lines
+  keeps them.
+- An order item loses its `asc`, which is the default: `order by id asc,
+  name desc` becomes `order by id, name desc`, in a relation, a window and an
+  aggregate call such as `string_agg(name, ",", order by name asc)` or
+  `first(x, order by k asc, id)`. When that `asc` began a line inside
+  parentheses, the line goes if nothing else was on it, and a comma right
+  after the `asc` moves to the end of the last line before it that is not
+  blank, unless that line ends with a comment.
+
+The other spelling of each stays accepted with no warning. `fmt` keeps
+`table` and `query`, `1_000`, a one-line clause and its block, comparison
+chains and every other trailing comma as written. Until the Phase82 freeze,
+`fmt` may write more spellings one way; the release notes list each change.
 
 - Blocks are indented by four spaces; a line inside parentheses moves with the
   line it continues.
@@ -161,15 +184,15 @@ text of every comment except its trailing spaces and tabs.
   with one line ending, and a leading BOM is kept.
 
 The result is lexed again and must give the same tokens, blocks, code lines,
-comments and text apart from blanks; when it does not, or when it would exceed
-the source size limit, nothing is printed or written and `fmt` exits 1. A file
-with parser errors is refused with the diagnostics `check` reports and exit 1;
-diagnostics refer to the file as read. `--check` never writes. `--write`
-refuses with exit 2, before reading it, a symbolic link or a file that is not
-regular. It replaces
-the file atomically only when it changes, and then also refuses with exit 2 a
-read-only file, a file that belongs to another user, a file that changed after
-it was read, or a file it cannot replace. `fmt` has no style options.
+comments and text apart from blanks and those spellings; when it does not, or
+when it would exceed the source size limit, nothing is printed or written and
+`fmt` exits 1. A file with parser errors is refused with the diagnostics
+`check` reports and exit 1; diagnostics refer to the file as read. `--check`
+never writes. `--write` refuses with exit 2, before reading it, a symbolic
+link or a file that is not regular. It replaces the file atomically only when
+it changes, and then also refuses with exit 2 a read-only file, a file that
+belongs to another user, a file that changed after it was read, or a file it
+cannot replace. `fmt` has no style options.
 
 `--project ROOT` formats the modules of an explicit-module project
 (`schema_version = 2`), the files `check --project` reads, in module order,
@@ -745,7 +768,7 @@ table active_users:
         id
         normalized_email = normalized
     order by:
-        id asc
+        id
     limit 100
 ```
 
@@ -2740,6 +2763,14 @@ type `ensure` condition and a window frame offset included, fails `check`,
 `emit-sql` and `explain` alike with PIE-S2006. A project is not held to that
 bound (see Diagnostics, IR, SQL, and output).
 
+A Text literal is written in double quotes, `"paid"`; single quotes, `'paid'`,
+give the same value, and `pietto fmt` writes double quotes. In either form
+`\"` is a double quote and `\'` a single quote, so `'it\'s'`, `"it\'s"` and
+`"it's"` are one value, as are `'say "hi"'` and `"say \"hi\""`. `\\` is a
+backslash and `\n`, `\r`, `\t`, `\b` and `\f` are a line feed, carriage
+return, tab, backspace and form feed; any other escape is PIE-P1000, and a
+string ends on its line.
+
 Arithmetic (`+ - * / %` and unary `+`/`-`), `not`, `and`, `or`, comparisons,
 `like`/`not like`, inclusive comparison chains, `in`, the arguments of the scalar functions
 listed below, of the aggregates and of `lag`, `lead`, `first_value`,
@@ -4689,7 +4720,7 @@ source users: User = postgres.table("users")
 query ranked:
     from users
     select:
-        position = row_number() window(order by id asc)
+        position = row_number() window(order by id)
 ```
 
 The bounded window identities are `row_number`, `rank`, `dense_rank`,

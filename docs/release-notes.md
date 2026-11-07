@@ -1897,10 +1897,10 @@ them.
 ### Phase75
 
 These are the Phase75 items: relation columns from
-`explain --project`, the Python compile API, `fmt --project`, the
-refusal of header lines, the batch form in `emit-sql --help`, a
-capabilities page, editor diagnostics with `pietto lsp` and hints that
-name the rewrite.
+`explain --project`, the Python compile API, `fmt --project`, one
+spelling in `fmt`, the refusal of header lines, the batch form in
+`emit-sql --help`, a capabilities page, editor diagnostics with `pietto lsp`
+and hints that name the rewrite.
 
 #### `explain --project` lists relation columns (alpha)
 
@@ -2031,6 +2031,40 @@ name the rewrite.
   - `pietto fmt: error: argument --project: Project root must be a non-empty path.`
 - Text only: `fmt --project` has no `--format json` and is outside CLI JSON v1
   and project CLI JSON v2.
+- No diagnostic code, grammar, SQL, JSON document or compiled record changes.
+
+#### `fmt` writes one spelling
+
+- `pietto fmt`, with or without `--project`, now writes three spellings one
+  way. The program stays the same: `check` reports the same diagnostics
+  apart from their positions, and `emit-sql` writes the same SQL on
+  PostgreSQL and MySQL. The other spelling stays accepted with no warning;
+  only `fmt` rewrites it.
+
+| Rule | Before `fmt` | After `fmt` |
+|---|---|---|
+| A string takes double quotes | `where status == 'paid'` | `where status == "paid"` |
+| A `"` inside it gains a backslash | `'say "hi"'` | `"say \"hi\""` |
+| A `\'` loses its backslash, in either quote | `'it\'s'`, `"it\'s"` | `"it's"` |
+| A one-line import list loses its parentheses and trailing comma | `from "m.pietto" import (def pos, source rows,)` | `from "m.pietto" import def pos, source rows` |
+| A one-line export list, likewise | `export (query q, relationship oc)` | `export query q, relationship oc` |
+| An order item loses its `asc` | `order by id asc, name desc` | `order by id, name desc` |
+| In a window or an aggregate call too | `window(order by id asc)`, `string_agg(name, ",", order by name asc)`, `last(x, order by k asc, id)` | `window(order by id)`, `string_agg(name, ",", order by name)`, `last(x, order by k, id)` |
+
+- When the `asc` that goes began a line inside parentheses, the line goes if
+  nothing else was on it, and a comma right after the `asc` moves to the end
+  of the last line before it that is not blank, unless that line ends with a
+  comment.
+- A list over several lines keeps its parentheses and trailing comma, and
+  `desc` stays. `fmt` keeps `table` and `query`, `1_000`, a one-line clause
+  and its block, comparison chains and every other trailing comma as written.
+- In either quote, `\"` and `\'` stand for the quote itself, so the value of
+  a string does not change; [Expressions](language.md#expressions) now says so.
+- Compatibility: a file that `fmt --check` accepted under `0.1.9` may now be
+  reported as `would reformat: PATH`, and `fmt --write` rewrites it once. Two
+  examples of the language reference lose an `asc`. The output of `fmt` may
+  still change before the Phase82 freeze; each change is listed in these
+  release notes.
 - No diagnostic code, grammar, SQL, JSON document or compiled record changes.
 
 #### Header lines are refused (PIE-P1000)

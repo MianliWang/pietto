@@ -20,6 +20,9 @@ Let `pietto fmt` lay out your files rather than indenting them by hand.
 `pietto fmt --write shop.pietto` replaces the file when its layout changes, and
 `pietto fmt --write --project ROOT` does so for each module of a project. With
 `--check` in place of `--write`, it only reports the files it would change.
+It also writes the one spelling this page shows: strings in double quotes, no
+`asc` in an `order by`, and no parentheses around a one-line import or export
+list.
 
 ## Documentation examples
 
@@ -1076,7 +1079,7 @@ Not this:
   `*`).
 - `export constraint valid`, `import derive d`: a constraint or derive stays in
   its module (PIE-P1000).
-- `export (pos)`: write the kind, `export (def pos)` (PIE-P1000).
+- `export (pos)`: write the kind, `export def pos` (PIE-P1000).
 - `import def pos` beside a local `def`, `constraint`, `derive` or relationship
   named `pos`, or two imports of `pos`: import it under another name,
   `def pos as p` (PIE-S2706).

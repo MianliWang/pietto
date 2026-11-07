@@ -1,12 +1,16 @@
-"""Lossless source formatting: only the whitespace between tokens changes."""
+"""Source formatting: the whitespace between tokens changes, and a few tokens
+take their one spelling; the program stays the same."""
 
 from __future__ import annotations
 
-from dataclasses import dataclass
+from collections.abc import Mapping
+from dataclasses import dataclass, replace
 from pathlib import Path
+from typing import Any
 
-from antlr4 import InputStream
+from antlr4 import InputStream, ParserRuleContext
 from antlr4.Token import Token
+from antlr4.tree.Tree import TerminalNodeImpl
 
 from pietto import parser_api
 from pietto.errors import Diagnostic, DiagnosticErrorListener, Severity
@@ -24,6 +28,11 @@ from pietto.source_migration import _line_ending
 _LAYOUT = frozenset({PiettoLexer.NEWLINE, PiettoParser.INDENT, PiettoParser.DEDENT})
 _MODULE = frozenset({PiettoLexer.IMPORT, PiettoLexer.FROM, PiettoLexer.EXPORT})
 _BLANKS = str.maketrans("", "", " \t\r\n")
+_MODULE_LISTS = (
+    PiettoParser.ImportStatementContext,
+    PiettoParser.ExportStatementContext,
+)
+_REQUOTED = {"\\'": "'", '"': '\\"'}  # in a string between double quotes
 
 
 @dataclass(frozen=True, slots=True)
@@ -79,18 +88,22 @@ def format_source(source: str, *, path: str | Path | None = None) -> FormatResul
     and comment exactly as written, and the same text apart from spaces,
     tabs and line endings, so only indentation, blank lines, the spaces
     before a comment, trailing whitespace and line endings may differ, or
-    FormatRefusedError is raised.
+    FormatRefusedError is raised. The input compared is the one
+    ``_respellings`` respells.
     """
 
-    parsed = parser_api.parse_source(source, path=path)
+    trees: list[ParserRuleContext] = []
+    parsed = parser_api._parse_contained(source, path=path, modern=True, trees=trees)
     if _has_errors(parsed.diagnostics):
         return FormatResult(None, parsed.diagnostics, source)
     prefix = "\ufeff" if source.startswith("\ufeff") else ""
     body = source[len(prefix) :]
     raw, joined, errors = _tokens(body)
-    expected = _effective_tokens(joined, errors)
+    (tree,) = trees
+    edits = _respellings(raw, tree)
+    expected = _effective_tokens(joined, errors, edits)
     kept = {item.start for item in joined.tokens if item.type == PiettoLexer.NEWLINE}
-    lines = _lines(body, raw, kept)
+    lines = _lines(body, raw, kept, edits)
     formatted = prefix + _render(lines, _line_ending(body))
     if parser_api._source_exceeds_utf8_budget(formatted):
         raise FormatRefusedError(
@@ -105,7 +118,7 @@ def format_source(source: str, *, path: str | Path | None = None) -> FormatResul
         or find_leading_tab_diagnostics(output, path=None)
         or _effective_tokens(output_joined, output_errors) != expected
         or _written(_lines(output, output_raw, set())) != _written(lines)
-        or output.translate(_BLANKS) != body.translate(_BLANKS)
+        or output.translate(_BLANKS) != _respelled(body, raw, edits).translate(_BLANKS)
     ):
         raise FormatRefusedError(
             "formatting would not keep the source's tokens, comments and blocks; "
@@ -116,6 +129,63 @@ def format_source(source: str, *, path: str | Path | None = None) -> FormatResul
 
 def _has_errors(diagnostics: tuple[Diagnostic, ...]) -> bool:
     return any(item.severity is Severity.ERROR for item in diagnostics)
+
+
+def _respellings(raw: list[Token], tree: ParserRuleContext) -> dict[int, str]:
+    """The tokens written in another spelling, by start, each with the text
+    it takes, or "" when it goes. A string takes double quotes; an order
+    item, the one node of every `order by`, loses its `asc`; an import or
+    export list on one line loses its parentheses and trailing comma."""
+
+    edits: dict[int, str] = {}
+    for token in raw:
+        text = _double_quoted(token.text) if token.type == PiettoLexer.STRING else None
+        if text is not None and text != token.text:
+            edits[token.start] = text
+    pending = [tree]
+    while pending:
+        node = pending.pop()
+        rule: Any = node  # its generated rule accessors
+        if isinstance(node, PiettoParser.OrderItemContext) and rule.ASC():
+            edits[rule.ASC().symbol.start] = ""
+        elif isinstance(node, _MODULE_LISTS) and rule.LPAREN():
+            opening, closing = rule.LPAREN().symbol, rule.RPAREN().symbol
+            last = rule.children[-3]  # a trailing comma or the last item
+            if opening.line == closing.line:
+                edits[opening.start] = edits[closing.start] = ""
+                if isinstance(last, TerminalNodeImpl):
+                    edits[last.symbol.start] = ""
+        pending.extend(
+            child
+            for child in node.getChildren()
+            if isinstance(child, ParserRuleContext)
+        )
+    return edits
+
+
+def _double_quoted(text: str) -> str:
+    """A string literal with double quotes and the same value: an escaped
+    single quote loses its backslash, a double quote gains one."""
+
+    body, index = text[1:-1], 0
+    written: list[str] = []
+    while index < len(body):
+        item = body[index : index + 2] if body[index] == "\\" else body[index]
+        written.append(_REQUOTED.get(item, item))
+        index += len(item)
+    return '"' + "".join(written) + '"'
+
+
+def _respelled(body: str, raw: list[Token], edits: Mapping[int, str]) -> str:
+    """The text with each token of ``edits`` written as it says."""
+
+    parts: list[str] = []
+    cursor = 0
+    for token in raw:
+        if token.start in edits:
+            parts += [body[cursor : token.start], edits[token.start]]
+            cursor = token.stop + 1
+    return "".join(parts) + body[cursor:]
 
 
 def _tokens(
@@ -143,11 +213,14 @@ def _tokens(
 
 
 def _effective_tokens(
-    joined: IndentationResult, errors: tuple[Diagnostic, ...]
+    joined: IndentationResult,
+    errors: tuple[Diagnostic, ...],
+    edits: Mapping[int, str] = {},
 ) -> list[tuple[int, str | None]] | None:
-    """What the parser reads, where blank and comment lines add no NEWLINE;
-    None when the source does not lex, join or indent cleanly. The lexer
-    turns a character it does not know into an UNKNOWN token."""
+    """What the parser reads, where blank and comment lines add no NEWLINE,
+    with each token of ``edits`` written as it says; None when the source
+    does not lex, join or indent cleanly. The lexer turns a character it does
+    not know into an UNKNOWN token."""
 
     if (
         errors
@@ -168,7 +241,9 @@ def _effective_tokens(
     previous: Token | None = None
     for token in indented.tokens:
         if token.type not in _LAYOUT:
-            effective.append((token.type, token.text))
+            text = edits.get(token.start, token.text)
+            if text:
+                effective.append((token.type, text))
         elif token.type != PiettoLexer.NEWLINE or (
             previous is not None and previous.type != PiettoLexer.NEWLINE
         ):
@@ -177,30 +252,60 @@ def _effective_tokens(
     return effective
 
 
-def _lines(body: str, raw: list[Token], kept: set[int]) -> list[_Line]:
+def _lines(
+    body: str, raw: list[Token], kept: set[int], edits: Mapping[int, str] = {}
+) -> list[_Line]:
     """Split the source at its NEWLINE tokens, which ``kept`` names by start
-    when they survive joining; comments are in the gaps."""
+    when they survive joining; comments are in the gaps. A token of
+    ``edits`` is written as it says; one that goes takes the blanks before it
+    along, or leaves them to the next token when it is a `(`, and a line that
+    only held such tokens goes too. When the line began with one that goes,
+    the rest of the line keeps that token's column, and a comma right after it
+    moves to the end of the last line before that is not blank, unless that
+    line has a comment."""
 
     lines: list[_Line] = []
     code: list[str] = []
-    width, block, cursor, module = 0, True, 0, False
+    width, block, cursor, module, gone, led = 0, True, 0, False, False, False
+    carried: str | None = None
     for token in raw:
         gap = body[cursor : token.start]
         cursor = token.stop + 1
         if not code:
             stripped = gap.lstrip(" \t")
-            width += len(gap) - len(stripped)
+            if not led:
+                width += len(gap) - len(stripped)
             gap = stripped
+        if carried is not None:
+            gap, carried = carried, None
         if token.type in {PiettoLexer.NEWLINE, Token.EOF}:
             text = "".join(code)
             # A comment runs to the line end, so only this gap can hold one.
-            lines.append(_Line(width, text, gap.strip(" \t"), block, module))
+            comment = gap.strip(" \t")
+            if led and text.startswith(","):
+                before = len(lines) - 1
+                while before >= 0 and not (lines[before].code or lines[before].comment):
+                    before -= 1
+                if before >= 0 and not lines[before].comment:
+                    lines[before] = replace(
+                        lines[before], code=lines[before].code + ","
+                    )
+                    text = text[1:].lstrip(" \t")
+            if text or comment or not gone:
+                lines.append(_Line(width, text, comment, block, module))
             width = len(_trailing_indentation(token.text or ""))
-            block, code, module = token.start in kept, [], False
+            block, code, module, gone = token.start in kept, [], False, False
+            led = False
         else:
             if not code:
                 module = token.type in _MODULE
-            code.append(gap + body[token.start : token.stop + 1])
+            text = edits.get(token.start, body[token.start : token.stop + 1])
+            if text:
+                code.append(gap + text)
+            elif token.type == PiettoLexer.LPAREN:
+                carried = gap or " "
+            led = led or (not text and not code)
+            gone = gone or not text
     return lines
 
 

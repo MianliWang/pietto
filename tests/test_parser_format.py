@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import json
 import re
-from dataclasses import replace
+from dataclasses import fields, is_dataclass, replace
 from pathlib import Path
 from typing import Any
 
@@ -11,6 +11,7 @@ import pytest
 from _pietto_parser_layout import layout_free
 from _pietto_sql_emission import CONFIG, fixture as emission_fixture
 from pietto import cli, source_format
+from pietto.ast_nodes import OrderItem
 from pietto.indentation import IndentationResult, find_leading_tab_diagnostics
 from pietto.parser_api import parse_source
 from pietto.semantic import analyze
@@ -71,6 +72,43 @@ def _messy(source: str) -> str:
     )
 
 
+def _single_quoted(text: str) -> str:
+    """A string literal with single quotes and the same value."""
+
+    body, index = text[1:-1], 0
+    written: list[str] = []
+    while index < len(body):
+        item = body[index : index + 2] if body[index] == "\\" else body[index]
+        written.append({'\\"': '"', "'": "\\'"}.get(item, item))
+        index += len(item)
+    return "'" + "".join(written) + "'"
+
+
+def _other_spellings(source: str) -> str:
+    """The same program with each string in single quotes and `asc` after
+    each order item that has no direction: the spellings fmt rewrites."""
+
+    edits: dict[int, tuple[int, str]] = {}
+    for token in source_format._tokens(source)[0]:
+        if token.text.startswith('"'):
+            edits[token.start] = (token.stop + 1, _single_quoted(token.text))
+    starts = [0, *(item.end() for item in re.finditer(r"\r\n|\r|\n", source))]
+    pending: list[object] = [parse_source(source).ast]
+    while pending:
+        value = pending.pop()
+        if type(value) is OrderItem and value.direction is None:
+            end = starts[value.span.end_line - 1] + value.span.end_column - 1
+            edits[end] = (end, " asc")
+        if type(value) is tuple:
+            pending.extend(value)
+        elif is_dataclass(value) and not isinstance(value, type):
+            pending.extend(getattr(value, item.name) for item in fields(value))
+    for start in sorted(edits, reverse=True):
+        stop, text = edits[start]
+        source = source[:start] + text + source[stop:]
+    return source
+
+
 def _observed(
     path: Path, capsys: pytest.CaptureFixture[str]
 ) -> tuple[int, list[str], list[tuple[int, str]]]:
@@ -106,7 +144,17 @@ def test_project_fmt_lays_out_each_module_as_fmt_lays_out_one_file(
     item = emission_fixture("postgres", "N_imported_chain", "bag")
     (tmp_path / "pietto.toml").write_text(CONFIG, encoding="utf-8")
     (tmp_path / "contract.json").write_text(item["contract"], encoding="utf-8")
-    modules = {name: _messy(text) for name, text in item["source"].items()}
+    sources = {**item["source"]}
+    sources["main.pietto"] += "    order by id2\n"
+    # Each import and export list in parentheses with a trailing comma, each
+    # string in single quotes and the order item with `asc`: fmt writes them
+    # back.
+    lists = r"^(export|from \S+ import) (.*)$"
+    modules = {
+        name: _messy(_other_spellings(re.sub(lists, r"\1 (\2,)", text, flags=re.M)))
+        for name, text in sources.items()
+    }
+    assert "id2 asc" in modules["main.pietto"]
     for name, text in modules.items():
         (tmp_path / name).write_bytes(text.encode("utf-8"))
     emit = ["emit-sql", "--project", str(tmp_path), "--all", "--dialect", "postgres"]
@@ -130,7 +178,9 @@ def test_project_fmt_lays_out_each_module_as_fmt_lays_out_one_file(
 
     assert sorted(modules) == ["a.pietto", "b.pietto", "main.pietto"]
     for name, text in modules.items():
-        assert (tmp_path / name).read_bytes().decode("utf-8") == _formatted(text)
+        written = (tmp_path / name).read_bytes().decode("utf-8")
+        assert written == _formatted(text) == _formatted(sources[name])
+        assert "'" in text and ",)" in text
     assert observed() == expected
 
 
@@ -140,13 +190,19 @@ def test_corpus_formatting_is_idempotent_and_keeps_comments_ast_and_output(
 ) -> None:
     source, formatted = _parseable(name)
     assert _formatted(formatted) == formatted
-    # Indentation, trailing blanks and blank runs added to either give one result.
+    # Indentation, trailing blanks and blank runs added to either give one
+    # result, and so do the other spellings of strings and order directions.
     messy = _formatted(_messy(source))
     assert messy == _formatted(_messy(formatted))
+    other = _other_spellings(source)
+    assert _formatted(other) == formatted
     assert _comments(formatted) == _comments(source)
     assert _non_blank(formatted) == _non_blank(source)
     before, after = parse_source(source), parse_source(formatted)
     assert layout_free(after.ast) == layout_free(before.ast)
+    assert layout_free(parse_source(other).ast, ascending=True) == layout_free(
+        before.ast
+    )
     assert [item.code for item in after.diagnostics] == [
         item.code for item in before.diagnostics
     ]
@@ -154,6 +210,8 @@ def test_corpus_formatting_is_idempotent_and_keeps_comments_ast_and_output(
     copy = tmp_path / Path(name).name
     copy.write_bytes(source.encode("utf-8"))
     expected = _observed(copy, capsys)
+    copy.write_bytes(other.encode("utf-8"))
+    assert _observed(copy, capsys) == expected
     for candidate in (formatted, messy):
         copy.write_bytes(candidate.encode("utf-8"))
         assert _observed(copy, capsys) == expected
@@ -349,6 +407,193 @@ def test_formatting_changes_only_the_whitespace_between_tokens(
     ]
 
 
+_ROWS = (
+    "shape R:\n    id: Int\n    name: Text\n    asc: Int\n\n"
+    'source r: R = postgres.table("r")\n\nquery q:\n    from r\n'
+)
+
+
+@pytest.mark.parametrize(
+    ("before", "after"),
+    [
+        pytest.param("a: Text = 'paid'\n", 'a: Text = "paid"\n', id="single_quotes"),
+        pytest.param(
+            "a: Text = 'say \"hi\"'\n", 'a: Text = "say \\"hi\\""\n', id="double_quote"
+        ),
+        pytest.param("a: Text = 'it\\'s'\n", 'a: Text = "it\'s"\n', id="escaped_quote"),
+        pytest.param(
+            'a: Text = "it\\\'s"\n', 'a: Text = "it\'s"\n', id="escaped_quote_in_double"
+        ),
+        pytest.param(
+            "a: Text = 'a\\\\ \\t \\\"'\n",
+            'a: Text = "a\\\\ \\t \\""\n',
+            id="other_escapes_kept",
+        ),
+        pytest.param(
+            "from 'm.pietto' import (def pos as p, relationship oc,)\n"
+            "export (query q, relationship oc)\nexport(def pos)\n",
+            'from "m.pietto" import def pos as p, relationship oc\n'
+            "export query q, relationship oc\nexport def pos\n",
+            id="one_line_lists",
+        ),
+        pytest.param(
+            'from "m.pietto" import (def pos,\n    relationship oc,\n)\n'
+            "export (\n    def pos,\n)\n",
+            'from "m.pietto" import (def pos,\n    relationship oc,\n)\n'
+            "export (\n    def pos,\n)\n",
+            id="lists_over_lines_keep_their_parentheses",
+        ),
+        pytest.param(
+            _ROWS + "    select id\n    order by id asc, name desc, asc asc\n",
+            _ROWS + "    select id\n    order by id, name desc, asc\n",
+            id="order_by_line",
+        ),
+        pytest.param(
+            _ROWS + "    select id\n    order by:\n        asc asc  # a\n        id\n",
+            _ROWS + "    select id\n    order by:\n        asc  # a\n        id\n",
+            id="order_by_block",
+        ),
+        pytest.param(
+            _ROWS
+            + "    select n = row_number() window(order by id asc rows 1 preceding)\n",
+            _ROWS
+            + "    select n = row_number() window(order by id rows 1 preceding)\n",
+            id="window",
+        ),
+        pytest.param(
+            _ROWS + "    group by id\n"
+            '    select id, s = string_agg(name, ",", order by name asc)\n',
+            _ROWS + "    group by id\n"
+            '    select id, s = string_agg(name, ",", order by name)\n',
+            id="aggregate_call",
+        ),
+        pytest.param(
+            _ROWS + "    group by id\n"
+            '    select id, s = string_agg(name, ",", order by name\n'
+            "        asc\n    )\n",
+            _ROWS + "    group by id\n"
+            '    select id, s = string_agg(name, ",", order by name\n    )\n',
+            id="asc_alone_on_its_line",
+        ),
+        pytest.param(
+            _ROWS + "    group by id\n"
+            '    select id, s = string_agg(name, ",", order by name\n'
+            "        asc, id\n    )\n",
+            _ROWS + "    group by id\n"
+            '    select id, s = string_agg(name, ",", order by name,\n'
+            "        id\n    )\n",
+            id="asc_and_its_comma_began_a_line",
+        ),
+        pytest.param(
+            _ROWS + "    group by id\n"
+            '    select id, s = string_agg(name, ",", order by name\n'
+            "        asc,  # last key\n    )\n",
+            _ROWS + "    group by id\n"
+            '    select id, s = string_agg(name, ",", order by name,\n'
+            "        # last key\n    )\n",
+            id="asc_and_a_trailing_comma_began_a_line",
+        ),
+        pytest.param(
+            _ROWS + "    group by id\n"
+            '    select id, s = string_agg(name, ",", order by name  # key\n'
+            "        asc, id\n    )\n",
+            _ROWS + "    group by id\n"
+            '    select id, s = string_agg(name, ",", order by name  # key\n'
+            "        , id\n    )\n",
+            id="a_comment_keeps_the_comma_on_its_line",
+        ),
+        pytest.param(
+            _ROWS + "    group by id\n"
+            '    select id, s = string_agg(name, ",", order by name\n\n'
+            "        asc, id\n    )\n",
+            _ROWS + "    group by id\n"
+            '    select id, s = string_agg(name, ",", order by name,\n\n'
+            "        id\n    )\n",
+            id="the_comma_moves_past_a_blank_line",
+        ),
+        pytest.param(
+            _ROWS + "    group by id\n"
+            '    select id, s = string_agg(name, ",", order by name\n'
+            "        # key\n        asc, id\n    )\n",
+            _ROWS + "    group by id\n"
+            '    select id, s = string_agg(name, ",", order by name\n'
+            "        # key\n        , id\n    )\n",
+            id="a_comment_line_keeps_the_comma_on_its_line",
+        ),
+        pytest.param(
+            _ROWS + "    group by id\n"
+            '    select id, s = string_agg(name, ",", order by name\n'
+            "        asc , id\n    )\n",
+            _ROWS + "    group by id\n"
+            '    select id, s = string_agg(name, ",", order by name,\n'
+            "        id\n    )\n",
+            id="blanks_after_the_asc_keep_its_column",
+        ),
+        pytest.param(
+            _ROWS + "    select n = row_number() window(order by id\n"
+            "        asc  rows 1 preceding)\n",
+            _ROWS + "    select n = row_number() window(order by id\n"
+            "        rows 1 preceding)\n",
+            id="a_window_frame_keeps_the_column_of_the_asc",
+        ),
+    ],
+)
+def test_formatting_writes_one_spelling_of_strings_lists_and_order(
+    before: str, after: str
+) -> None:
+    """Strings take double quotes, a one-line import or export list loses its
+    parentheses and trailing comma, and every order item, the one grammar
+    node of all `order by` forms, loses its `asc`; the program is the same."""
+
+    result = format_source(before)
+    assert result.source == after
+    assert result.changed is (after != before)
+    assert format_source(after).source == after
+    parsed, reparsed = parse_source(before), parse_source(after)
+    assert layout_free(reparsed.ast) == layout_free(parsed.ast, ascending=True)
+    assert [item.code for item in reparsed.diagnostics] == [
+        item.code for item in parsed.diagnostics
+    ]
+
+
+def test_formatting_keeps_the_spellings_it_does_not_choose() -> None:
+    """`table` and `query`, `1_000`, one-line clauses and blocks, comparison
+    chains and other trailing commas stay as written."""
+
+    source = (
+        "shape R:\n    id: Int\n    name: Text\n\n"
+        'source r: R = postgres.table("r")\n\n'
+        "table t:\n    from r\n    where 1 <= id < 1_000\n    select id, name\n"
+        "    order by id desc, name\n\n"
+        "query q:\n    from t\n    where:\n        id > 1\n    select:\n"
+        '        id\n        n = concat(name, "x",)\n'
+    )
+    assert format_source(source).source == source
+
+
+@pytest.mark.parametrize(
+    ("literal", "value"),
+    [
+        ("'it\\'s'", "it's"),
+        ('"it\\\'s"', "it's"),
+        ('"it\'s"', "it's"),
+        ("'say \"hi\"'", 'say "hi"'),
+        ("'say \\\"hi\\\"'", 'say "hi"'),
+        ('"say \\"hi\\""', 'say "hi"'),
+        ("'a\\\\'", "a\\"),
+    ],
+)
+def test_both_quotes_read_each_escaped_quote_as_the_quote(
+    literal: str, value: str
+) -> None:
+    for source in (f"a: Text = {literal}\n", _formatted(f"a: Text = {literal}\n")):
+        parsed = parse_source(source)
+        assert parsed.ast is not None and parsed.diagnostics == ()
+        (constant,) = parsed.ast.constants
+        assert getattr(constant.value, "value") == value
+    assert _formatted(f"a: Text = {literal}\n").startswith('a: Text = "')
+
+
 def test_minus_signs_written_together_still_warn_after_formatting() -> None:
     source = "query q:\n  from a\n  where 1 -- 2 > 0\n  select x = 1\n"
     result = format_source(source)
@@ -504,7 +749,7 @@ def test_the_check_compares_the_text_apart_from_blanks(
 def test_the_check_refuses_when_neither_side_can_be_compared(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    monkeypatch.setattr(source_format, "_effective_tokens", lambda joined, errors: None)
+    monkeypatch.setattr(source_format, "_effective_tokens", lambda *args: None)
     with pytest.raises(FormatRefusedError, match="would not keep the source's"):
         format_source("shape A:\n  id: Int\n")
 
@@ -625,3 +870,28 @@ def test_the_first_and_last_example_is_a_fixed_point_and_only_reindents() -> Non
     parsed = parse_source(_ORDERED_VALUES)
     assert parsed.ast is not None
     assert analyze(parsed.ast).diagnostics == ()
+
+
+def test_first_and_last_lose_their_asc_and_keep_check_and_sql(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """The `asc` rule reads the shared order item, so the internal `order by`
+    of `first` and `last` (D74.11) loses its `asc` too; `last` reverses an
+    omitted direction as it reverses a written `asc`, so check and both
+    dialects see one program."""
+
+    explicit = (
+        _ORDERED_VALUES.replace("order by sold_at, id)", "order by sold_at asc, id)")
+        .replace("order by price_cents, id)", "order by price_cents asc, id asc)")
+        .replace("order by weight_kg, id)", "order by weight_kg, id asc)")
+    )
+    assert explicit.count(" asc") == 5
+    assert _formatted(explicit) == _ORDERED_VALUES
+    path = tmp_path / "sales.pietto"
+    path.write_text(explicit, encoding="utf-8")
+    observed = _observed(path, capsys)
+    path.write_text(_ORDERED_VALUES, encoding="utf-8")
+    assert _observed(path, capsys) == observed
+    checked, codes, ((postgres, sql), (mysql, _)) = observed
+    assert (checked, codes, postgres, mysql) == (0, [], 0, 1)
+    assert "ORDER BY" in sql and " DESC" in sql
