@@ -69,7 +69,16 @@ Phase74 started on `main` at `37143dcb` with its
 documentation-only commit; its Gate 1 is D74.01–D74.16 in the
 [decision record](decisions.md#phase74--owner-decisions-2026-11-05-and-2026-11-06).
 Its lines had started on 2026-11-05, beside Phase73, and it ships in the
-same `0.1.10`.
+same `0.1.10`. Batch 1 (the route publication and S01–S06) is published at
+`ef29b423bf20cedee984d42eaed455968ae63b9f` (tree
+`8b801001cb9ebc7a39d7be6ef62fe2bd0252a035`), natural exact-head CI
+`42298363606` attempt 1 on all 21 jobs.
+Batch 2 (S09–S12, the S04 follow-up, S07 and S08) ends with the
+[completion audit](phases/phase-74/completion-audit.md) and the
+[Phase75 handoff](phases/phase-74/phase75-handoff.md); Phase74 closes when
+the batch-2 head passes natural CI. 74-A and 74-B are delivered; the MySQL
+forms whose two-database run did not pass, or that no Phase74 slice took,
+stay refused and are listed in the release notes and the handoff.
 
 The second project-emission interlude is published at `b56cb62ed3be8ede44561d74a825fde3a53b116b` (tree `22165d89fb383f407967801193f039abcdceea68`); natural exact-head CI `41297066141` attempt 1 accepted all 19 jobs. The single-file checked Int SUM repair is published at `61a4ce4e05c190ea49e2eb93afd31e6fbdee7e29` (tree `da72b5412f4ecb087c508b9bd8204bf811a6e955`); natural exact-head CI `41362408512` attempt 1 accepted all 19 jobs.
 B5 (S14–S16) is published at `305ab2c802258c2b3e932ccf236481dfc0e0034e` (tree `6e335432490b8c7a64501519376c6dbfa59ec3cd`); natural exact-head CI `41390632023` attempt 1 accepted all 19 jobs.
