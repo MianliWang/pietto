@@ -5,8 +5,9 @@ strict` checks it. With nothing after `pietto` on its opening fence line it
 reports no diagnostic; otherwise the words after `pietto` are the codes it
 reports, in report order (an example that shows a diagnostic, or a form that a
 single file refuses, such as a project-only one). See docs/style.md,
-Documentation examples. Every block of README.md and docs/*.md is also already
-formatted: `pietto fmt --check` accepts it. The commands of
+Documentation examples. Every block of README.md, docs/*.md and the
+release-note fragments docs/release-notes.d/*.md is also already formatted:
+`pietto fmt --check` accepts it. The commands of
 docs/worked-example.md also run as the page shows them, over the files it
 names, and its two modules compile to the SQL of the same declarations in one
 module.
@@ -32,6 +33,10 @@ DOCUMENTS = ("README.md", "docs/language.md", "docs/style.md", "docs/worked-exam
 FORMATTED = (
     "README.md",
     *sorted(f"docs/{path.name}" for path in REPO_ROOT.glob("docs/*.md")),
+    *sorted(
+        f"docs/release-notes.d/{path.name}"
+        for path in REPO_ROOT.glob("docs/release-notes.d/*.md")
+    ),
 )
 BLOCK = re.compile(r"^```pietto([^\n]*)\n(.*?)^```$", re.MULTILINE | re.DOTALL)
 

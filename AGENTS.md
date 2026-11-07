@@ -76,7 +76,7 @@ Classify work as follows:
 Do not promote implementation details into user decisions. Every retained
 abstraction needs a current caller or invariant.
 
-## Lean Gate v2
+## Lean Gate v3
 
 - Gate 0: synchronize `main`, verify a clean repository and no active Git
   operation, then freeze the baseline.
@@ -95,6 +95,19 @@ abstraction needs a current caller or invariant.
   push publishes the commits together, and natural CI runs only on the batch
   head; commits inside the batch have no CI result of their own and take its
   result.
+- Continuous integration: every lane starts from the latest integration head
+  and is rebased onto it again before delivery; a batch gets one Gate 2 and
+  one natural CI.
+- Each slice writes its release notes as a fragment in `docs/release-notes.d/`;
+  the release commit assembles the fragments and deletes them.
+- A batch audit is one round focused on cross-slice issues; a second round
+  runs only after a medium or worse finding. Each slice keeps its independent
+  verification.
+- Database campaigns may run one PostgreSQL and one MySQL container at the
+  same time, each under its engine's lock.
+- A phase keeps only its route, its decisions and its completion audit, which
+  ends with the next-phase handoff. The roadmap lists only future work;
+  historical phase plans live in Git history.
 
 Default records are a concise decision note when needed, Gate 2 baseline/tree/
 validation facts, and Git plus natural CI for Gate 3. Mechanical counts,
@@ -133,7 +146,7 @@ paths, formatting, and ordinary hashes do not require new authority.
 - [Capabilities](docs/capabilities.md): a hand-kept snapshot of what `check`
   and `emit-sql` do for each feature family by mode and target; not authority.
 - [Development](docs/development.md): validation, generated artifacts, and
-  Lean Gate v2.
+  Lean Gate v3.
 - [Roadmap](docs/roadmap.md): authorized future work.
 - [Status](docs/status.md): current lifecycle state; live Git and CI are the
   publication authority.

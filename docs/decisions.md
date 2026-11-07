@@ -155,7 +155,7 @@ Compiler/Package 拆分、按成本发牌或第四个 general-runtime 分片都�
 `[[file_costs]]` 的完整四 worker 测量转入按功能重组。
 
 关闭记录：规则已发布，目前只有集成主机满足其前提。按只发布规则核心的选择，多 runner 组合验证暂缓，留给以后提供接收工具的派发决定。所有者批准的批量合入写入
-`AGENTS.md` 与[开发文档](development.md#lean-gate-v2)：每片一个提交，批次最终树一次权威验证，一次快进推送，自然 CI 只跑批次头，
+`AGENTS.md` 与[开发文档](development.md#lean-gate-v3)：每片一个提交，批次最终树一次权威验证，一次快进推送，自然 CI 只跑批次头，
 批内提交没有自己的 CI 结果，以其结果为准。本插段的 `COMPLETED` 与规则的生效都以发布关闭条文的已推送 head（关闭提交本身，或在批次中推送时的批次头）
 的自然 exact-head CI 为准：普通提交、FF push 与全部 job 成功后成立，此前是 candidate。下一步是另行派发的 Phase69
 重新绑定。

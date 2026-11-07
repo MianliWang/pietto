@@ -20,7 +20,7 @@ public compatibility, or high-risk trust/algorithm assumptions. Exact file
 layout, straightforward behavior-equivalent implementation, formatting, and
 derived cleanup are implementation freedom.
 
-## Lean Gate v2
+## Lean Gate v3
 
 **Gate 0 — sync.** Fetch, require clean worktree/index, no active Git
 operation, and a synchronized fast-forward `main`; freeze the baseline.
@@ -47,6 +47,50 @@ slice stays its own commit; the batch's final tree gets one authoritative
 validation; one fast-forward push publishes the commits together; and natural
 exact-head CI runs on the batch head only. Commits inside the batch have no CI
 result of their own and take the batch head's result.
+
+**Continuous integration.** A lane starts from the latest integration head
+and is rebased onto the head again before it is delivered, so the batch
+takes each delivered lane as a fast-forward. The batch is sealed by one Gate 2
+on its final tree and published with one natural CI run.
+
+**Release-note fragments.** A slice that changes what a program can observe
+writes its notes as one fragment,
+`docs/release-notes.d/<phase>-<slice>-<topic>.md`, for example
+`76-s03-window-keys.md`: the phase number, the slice id (one lowercase letter
+and two digits) and a lowercase hyphenated topic. A fragment holds that
+slice's subsections of the next release: each starts with a `###` heading and
+says what a program can now observe, its compatibility rows and its new
+refusals. It has no `#` or `##` heading, every diagnostic code keeps its
+`PIE-` prefix, and every `pietto` block is written as `pietto fmt` writes it;
+`UV_PYTHON=3.13.13 uv run python scripts/release_notes.py check` checks this, and the docs gates
+read the fragments as they read `docs/release-notes.md`. A later slice that
+changes the same notes edits the fragment. The release commit runs
+`UV_PYTHON=3.13.13 uv run python scripts/release_notes.py assemble --version X --title T`, which
+puts `## T — X` above the previous release in `docs/release-notes.md`, follows
+it with the fragments ordered by phase, slice and topic, and deletes them; it
+then writes the section's status, highlights, upgrading and known limitations.
+
+**Batch audit.** The audit of a batch is one round over the whole batch,
+aimed at issues between slices: shared owners, edits that conflict or depend
+on their order, and documents or fragments that disagree. Only a finding of
+medium or worse severity opens a second round. Each slice is still checked by
+its own independent verifier before it is delivered.
+
+**Database campaigns.** A real-database campaign holds its engine's lock for
+the whole run, with `flock` on `/tmp/claude-1000/pietto-docker-campaign-postgres.lock`
+for PostgreSQL or `/tmp/claude-1000/pietto-docker-campaign-mysql.lock` for
+MySQL, so one PostgreSQL and one MySQL container may run at the same time but
+never two of one engine. A campaign that needs both engines takes the
+PostgreSQL lock first. These two locks replace the single
+`pietto-docker-campaign.lock`.
+
+**Phase records.** A phase keeps its route and completion audit in
+`docs/phases/phase-NN/` and its owner decisions in [decisions](decisions.md).
+The completion audit ends with the next-phase handoff; there is no separate
+handoff file. The [roadmap](roadmap.md) lists only future work: a delivered
+item leaves it, and the completion audit records it. Records of completed
+phases that no current work reads leave the tree; Git history keeps them, and
+a link to one is a GitHub URL pinned to a commit that holds it.
 
 Git is the publication mechanism. The conceptual states are
 `DIRTY_LOCAL_CANDIDATE`, `CLEAN_PRE_PUSH`, and `SHALLOW_PUSHED_HEAD`; no
@@ -231,8 +275,8 @@ Default pytest remains offline; it runs the fixture/observer/config/receipt unit
 checks without Docker or database discovery. Real execution is explicit:
 
 ```text
-UV_PYTHON=3.13 uv run python tests/_pietto_target_conformance.py run --target postgres --pins tests/phase66_target_pins.json --evidence-dir /tmp/pietto-target-postgres-new --run-id local-check --run-attempt 1
-UV_PYTHON=3.13 uv run python tests/_pietto_target_conformance.py run --target mysql --pins tests/phase66_target_pins.json --evidence-dir /tmp/pietto-target-mysql-new --run-id local-check --run-attempt 1
+UV_PYTHON=3.13.13 uv run python tests/_pietto_target_conformance.py run --target postgres --pins tests/phase66_target_pins.json --evidence-dir /tmp/pietto-target-postgres-new --run-id local-check --run-attempt 1
+UV_PYTHON=3.13.13 uv run python tests/_pietto_target_conformance.py run --target mysql --pins tests/phase66_target_pins.json --evidence-dir /tmp/pietto-target-mysql-new --run-id local-check --run-attempt 1
 ```
 
 Use new owned evidence directories outside the repository. The fixed pins,
