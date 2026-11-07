@@ -7,12 +7,12 @@ or producer/Arrow description can supply an absent meaning.
 
 from __future__ import annotations
 
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, fields
 from datetime import datetime
 from typing import Any
 
 from pietto._project.model import ProjectResolvedTypeKind
-from pietto._project.project_sql_plan import ProjectSQLPlan
+from pietto._project.project_sql_plan import ProjectSQLPlan, ProjectSQLPlanRef
 from pietto._project.project_sql_plan_inspection import inspect_project_sql_plan
 from pietto._project.project_sql_plan_verification import (
     ProjectSQLPlanVerification,
@@ -232,6 +232,48 @@ def _source_entry(bundle, field):
     return matches[0] if matches else None
 
 
+# Plan records that only carry a port's value to a later port, list a row's
+# ports or name them. Every other record reads each port it references.
+_CARRIERS = frozenset(
+    {
+        "aggregations",
+        "blocks",
+        "demands",
+        "join_inputs",
+        "join_ports",
+        "join_tails",
+        "joins",
+        "origins",
+        "stage_ports",
+        "symbols",
+        "windows",
+    }
+)
+
+
+def _read_refs(plan) -> set:
+    """The ports some plan record reads, with every port that carries them."""
+    carried = {port.ref: port.source for port in (*plan.stage_ports, *plan.join_ports)}
+    pending = []
+    for item in fields(plan):
+        records = getattr(plan, item.name)
+        if item.name in _CARRIERS or type(records) is not tuple:
+            continue
+        for record in records:
+            for slot in fields(record):
+                value = getattr(record, slot.name)
+                values = value if type(value) is tuple else (value,)
+                pending.extend(v for v in values if type(v) is ProjectSQLPlanRef)
+    read = set()
+    while pending:
+        ref = pending.pop()
+        if ref not in read:
+            read.add(ref)
+            if ref in carried:
+                pending.append(carried[ref])
+    return read
+
+
 def operations_admitted(bundle) -> bool:
     """Accept only source-identified Q3 carriers through existing row operations."""
     if type(bundle) is not ScalarMeaningBundle:
@@ -248,8 +290,12 @@ def operations_admitted(bundle) -> bool:
         from pietto.ast_nodes import AuthoredJoinKind
 
         plan = verification.plan
+        # D76.02 E1: a port the relation never reads does not close a FULL or
+        # CROSS JOIN.
+        read = _read_refs(plan)
         temporal_join_ports = any(
-            port.field.evidence.resolved_type.name in {"Timestamp", "Date", "UUID"}
+            port.ref in read
+            and port.field.evidence.resolved_type.name in {"Timestamp", "Date", "UUID"}
             for port in plan.join_ports
         )
         if temporal_join_ports and any(

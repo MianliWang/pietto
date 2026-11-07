@@ -806,7 +806,12 @@ GROUP BY compares them. UUID values of one carrier also compare with `<`,
 window, by their 16 bytes compared as unsigned big-endian values (the order of
 PostgreSQL `uuid_cmp`, of MySQL `BINARY(16)` comparison and of Python
 `uuid.UUID`). `min`/`max` of a UUID stay refused
-(`PIE-S2314`), and a Timestamp never compares with a Date. Q1 conditionals
+(`PIE-S2314`), and a Timestamp never compares with a Date. A FULL or CROSS
+JOIN (on MySQL a CROSS JOIN) carries a Timestamp or UUID field that the
+relation never reads through it, unchanged and never output. A relation that
+reads a Timestamp, Date or UUID field through such a JOIN while an input has
+a Timestamp or UUID field is BLOCKED (`PIE-B1003`
+`scalar_meaning_requires_field_projection`). Q1 conditionals
 retain SQL `CASE` order for parameter occurrences (condition, true branch,
 false branch); a bind-safe artifact therefore requires its exact
 `fixed_values` and `parameter_uses`, rather than SQL text alone. A computed

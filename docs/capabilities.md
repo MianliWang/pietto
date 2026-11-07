@@ -64,7 +64,9 @@ Also observed:
 - A project FULL or CROSS JOIN is BLOCKED with PIE-B1003
   `scalar_meaning_requires_field_projection` on both targets when an input of
   the relation has a `Timestamp` or `UUID` field, even one it does not
-  read. INNER, LEFT and RIGHT JOINs are not affected.
+  read. INNER, LEFT and RIGHT JOINs are not affected. After `0.1.10`, an
+  unread field no longer blocks it on PostgreSQL, or a CROSS JOIN on MySQL
+  ([unreleased changes](release-notes.d/76-s01-join-port-admission.md)).
 - Single-file `explain` refuses each JOIN relation with PIE-I1000
   ([Single files and projects](language.md#single-files-and-projects)).
 - A LEGACY_FLAT project (`schema_version = 1`) checks no JOIN and no

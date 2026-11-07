@@ -332,3 +332,66 @@ def test_date_join_keys_admit_inner_left_right_and_refuse_full(tmp_path, target)
                 else "mysql_full_join_approved_non_support",
             )
         ]
+
+
+# D76.02 E1: only the JOIN ports a relation reads keep FULL and CROSS JOINs
+# beside a Timestamp or UUID field closed (PIE-B1003); MySQL has no FULL JOIN.
+JOIN_READS = {
+    "select_timestamp": (
+        "full join r on rows.id == r.id",
+        "    select:\n        b = r.ts\n",
+    ),
+    "where_uuid": (
+        "cross join r",
+        "    where r.u == rows.u\n    select:\n        a = rows.id\n",
+    ),
+    "group_date": (
+        "full join r on rows.id == r.id",
+        "    group by r.d\n    select:\n        k = r.d\n        n = count()\n",
+    ),
+    "window_timestamp": (
+        "cross join r",
+        "    select:\n        a = rows.id\n"
+        "        n = row_number() window(partition by r.ts order by rows.id)\n",
+    ),
+}
+
+
+@pytest.mark.parametrize("target", ("postgres", "mysql"))
+def test_full_and_cross_joins_admit_unread_temporal_and_uuid_fields(tmp_path, target):
+    refused = [("PIE-B1003", "scalar_meaning_requires_field_projection")]
+    for kind, join, spelled in (
+        ("full", "full join r on rows.id == r.id", "FULL JOIN"),
+        ("cross", "cross join r", "CROSS JOIN"),
+    ):
+        outcome, public = _emitted(
+            tmp_path / kind,
+            target,
+            f"    from rows\n    let r = rows\n    {join}\n"
+            "    select:\n        a = rows.id\n        b = r.id\n",
+            entry="query result:",
+        )
+        if (target, kind) == ("mysql", "full"):
+            assert [(b.code, b.detail) for b in outcome.blockers] == [
+                ("PIE-B1003", "mysql_full_join_approved_non_support")
+            ]
+            continue
+        assert public is not None, outcome.blockers
+        relation = (
+            '"public"."phase66 safe int source" AS "m1"'
+            if target == "postgres"
+            else "`phase66`.`phase66 safe int source` AS `m1`"
+        )
+        assert f" {spelled} {relation}" in public["sql"]
+        if kind == "full":
+            assert public["sql"].count(' ON ("m0"."id" = "m1"."id")') == 1
+        assert [column["label"] for column in public["columns"]] == ["a", "b"]
+    for name, (join, tail) in JOIN_READS.items():
+        outcome, _ = _emitted(
+            tmp_path / name,
+            target,
+            f"    from rows\n    let r = rows\n    {join}\n" + tail,
+            entry="query result:",
+        )
+        assert outcome.status == "BLOCKED", name
+        assert [(b.code, b.detail) for b in outcome.blockers] == refused, name
