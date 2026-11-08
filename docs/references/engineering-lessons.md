@@ -379,3 +379,38 @@ These apply from the Phase76 lanes on; the [Phase75 completion audit](../phases/
 2. One file has more than one URI. VS Code sends a Windows file as `file:///C:/...` and as `file:///c%3A/...`, and a WSL file under the percent-encoded host `wsl%24`; `pietto lsp` published a module under one spelling and then cleared the other, which VS Code takes as the same resource, so the diagnostics vanished (the high finding of the batch-1 audit). An editor surface keys files by their resolved path, clears every other spelling of a path before it publishes that path, and tests each spelling a client sends, with a case-folding path type too.
 3. A test that can skip can pass without running. The extension's snippet check passed by skipping when its interpreter was not set, its process checks did nothing off Linux, and Pietto's test of two names that differ only in letter case skips on the Windows jobs. A test that needs an environment fails in the run that is meant to provide it and prints a skip line anywhere else, and an acceptance record counts skips beside passes.
 4. A lane writes only under its own name. A Phase75 lane wrote a source export, a temporary index and a diff in the shared scratch root, inside a folder another lane had made; the extension lane and the batch-2 assembly lane each ran `git write-tree` in a checkout that was not theirs, the second through a `cd` lost to a background job. A lane keeps its scratch, temporary indexes (`GIT_INDEX_FILE`) and logs in its own folder and gives every repository command an absolute path.
+
+## Phase76
+
+The [completion audit](../phases/phase-76/completion-audit.md) preserves the
+source, runtime and publication boundaries behind these lessons.
+
+- **76-1 — Bind the executed input, not a nearby inventory.** A copied DB
+  package must rebuild and verify the actual project/file argv against its
+  registered bytes. Retain the execution root when later validating the
+  immutable snapshot; SQL equality does not prove a different input was read.
+- **76-2 — Preserve occurrences across every reader.** A real aggregate leaf,
+  outer result, alias use and native parameter occurrence are different
+  identities. A single-value dictionary cannot represent repeated reads.
+  Change all callers when an occurrence protocol changes, including the
+  independent window verifier, and retain its forgery checks.
+- **76-3 — Carry authored literal identity through active uses.** A specialized
+  use can require preservation of all active reads of the same authored
+  literal. Equal values, unrelated literals and retained inactive contexts do
+  not share that authority. SQL lowering may repeat a child expression, so
+  source-alias correspondence follows the actual parent operand rather than
+  an assumed one-to-one count of every child range.
+- **76-4 — Keep numeric and evidence claims bounded.** SUM's checked cast is
+  not a cardinality or multiplication proof. Primitive probes, emitted SQL,
+  actual DB rows, source-free readers and package/release acceptance each need
+  their own evidence. Correct a judge with an erratum and a new run; preserve
+  its old failure.
+- **76-5 — Move complete behavior checks to their product owner.** Shared
+  acquisition must keep strict parse/semantic checks and all fresh witnesses.
+  Verify actual global bindings when transplanting tests; identical names can
+  refer to different helpers. Preserve whole assertions and parameter cases.
+- **76-6 — Reuse by input closure and report unknowns.** Source equality can
+  preserve a corpus result through audit-only changes; a matching wheel name
+  cannot establish matching package bytes. A collector that saves only at the
+  end has no adoptable partial result after timeout. Final CI health selects
+  the required quiet-host profile; earlier timing preparation is not a result.

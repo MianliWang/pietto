@@ -11,12 +11,12 @@ shape later phases, the open follow-ups and the inputs of the Phase82 freeze.
 What is published, at which commit and with which natural CI, is in
 [status](status.md). Each phase's route, completion audit and handoff are
 under `docs/phases/`, the [release notes](release-notes.md) describe every
-release, and Git history keeps the earlier text of this roadmap. Phase76 is
-open under its [12-slice route](phases/phase-76/route.md) and its Gate 1
-D76.01–D76.18 in the
-[decision record](decisions.md#phase76--owner-decisions-2026-11-07); the ten
-technical reminders recorded there that reach beyond Phase76 are written
-into the sections below.
+release, and Git history keeps the earlier text of this roadmap. The
+[Phase76 completion audit](phases/phase-76/completion-audit.md) records its
+delivered scope and Phase77 handoff; Git and natural CI own its publication.
+D76.01–D76.18 and the technical reminders that reach beyond Phase76 remain in
+the [decision record](decisions.md#phase76--owner-decisions-2026-11-07) and the
+sections below.
 
 Durable cross-phase product and architecture laws enter through [product
 architecture](architecture/product-architecture-v1.md), the [phase initiation
@@ -221,7 +221,7 @@ before its owner's Gate 1 takes it.
 | Cube and dbt export | Phase84 |
 | Wildcard imports, `constraint` and `derive` exports, qualified calls | the module owner, until a Gate 1 admits one (D74.12) |
 | Conversions other than `Float(value)` and `Text(value)` of an `Int` | their later owner; unscheduled |
-| The header rule and its tokens in the grammar | Phase76 removes them only if `migrate` and the per-line PIE-P1000 hints stay byte-identical; otherwise the Phase82 freeze (D76.12) |
+| The header rule and its tokens in the grammar | Phase76 retained them under the `migrate` and per-line PIE-P1000 byte-compatibility fallback; removal belongs to the Phase82 freeze (D76.12) |
 | SQL-to-Pietto conversion | the tentative candidate 105 below |
 
 ## Phase82 freeze ledger
@@ -236,7 +236,7 @@ each completion audit adds the freeze inputs of its phase here.
 | The `fmt` output, its layout items (the gaps between the tokens of a line, a head comment paragraph attached to the first declaration), a line width, options and a JSON output | the output freezes after its layout items | D75.05, D75.14 |
 | `pietto lsp`, editor partial analysis and the five editor-only messages; whether `pietto.cli.main(argv)` is a documented entry point | only the diagnostic protocol freezes; the messages get a catalog without PIE codes; the entry point is decided | D75.09–D75.12, Phase76 handoff |
 | `pietto.sql.emit_postgres_sql` | stays public and enters the API inventory | owner, 2026-11-07 |
-| The header rule and its tokens, if Phase76 keeps them | removed | D75.06, D76.12 |
+| The header rule and its tokens retained by Phase76 | removed under the migration/hint compatibility contract | D75.06, D76.12; [Phase76 audit](phases/phase-76/completion-audit.md) |
 | The nested public format; grouping extensions, automatic fan-out repair and a public aggregate state | frozen, or kept unsupported | Phase71 route, Phase74 handoff |
 | `def` and `relationship` items in PACKAGE_ROOT modules; a built-in table function | admitted, or kept refused | D74.07, D74.12 |
 | PostgreSQL extension functions, the function/plugin SPI, user-written table functions, database-native array and JSON columns, the `postgres_adbc` nested route | the 1.0 support matrix lists each one no Gate 1 took as not supported | D76.11 |
