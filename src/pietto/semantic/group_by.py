@@ -143,6 +143,7 @@ def project_grouped_schema(
         input_schema,
         let_expansions=let_expansions,
         rejected_lets=rejected_lets,
+        expression_value_types=expression_value_types,
     )
     diagnostics.extend(key_diagnostics)
 
@@ -223,11 +224,14 @@ def project_grouped_schema(
                 saw_invalid_projection = True
             continue
 
-        key_identity = _field_identity(
-            definition,
-            item.expression,
-            input_schema,
-        )
+        key_identity = _field_identity(definition, item.expression, input_schema)
+        if (
+            type(item.expression) is NameExpr
+            and item.expression.name in key_fields
+            and type((let_expansions or {}).get(item.expression.name))
+            not in {NameExpr, DottedNameExpr, type(None)}
+        ):
+            key_identity = item.expression.name
         if key_identity is not None and key_identity in key_fields:
             if output_name is not None:
                 key_field = key_fields[key_identity]
@@ -318,13 +322,16 @@ def group_key_fields(
     definition: DerivedRelation,
     input_schema: RowSchema,
     let_expansions: Mapping[str, Expression] | None,
+    expression_value_types: Mapping[Expression, ValueType] | None = None,
 ) -> frozenset[str] | None:
-    """The input fields that the GROUP BY keys name, directly or through a
-    `let` name; None when a key names none or repeats one, which is reported
-    where it is written."""
+    """The input-field and concrete computed-binding identities of GROUP BY;
+    None when a key is unresolved or repeated, as reported where written."""
 
     keys, _, _ = _resolve_group_keys(
-        definition, input_schema, let_expansions=let_expansions
+        definition,
+        input_schema,
+        let_expansions=let_expansions,
+        expression_value_types=expression_value_types,
     )
     assert definition.group_by_clause is not None
     if len(keys) != len(definition.group_by_clause.items):
@@ -338,6 +345,7 @@ def _resolve_group_keys(
     *,
     let_expansions: Mapping[str, Expression] | None,
     rejected_lets: frozenset[str] = frozenset(),
+    expression_value_types: Mapping[Expression, ValueType] | None = None,
 ) -> tuple[list[_GroupKey], set[str], list[Diagnostic]]:
     keys: list[_GroupKey] = []
     unknown_key_texts: set[str] = set()
@@ -352,6 +360,29 @@ def _resolve_group_keys(
             let_stack=frozenset(),
         )
         identity = _field_identity(definition, effective_key, input_schema)
+        field = input_schema.fields.get(identity) if identity is not None else None
+        value = (
+            (let_expansions or {}).get(item.key.name)
+            if type(item.key) is NameExpr
+            else None
+        )
+        typed = (expression_value_types or {}).get(value) if value is not None else None
+        if (
+            identity is None
+            and isinstance(item.key, NameExpr)
+            and not input_schema.is_unknown
+            and value is not None
+            and type(value) not in {NameExpr, DottedNameExpr}
+            and typed is not None
+            and typed.kind is ValueTypeKind.KNOWN
+            and typed.resolved_type.kind is TypeKind.BUILTIN
+        ):
+            identity = item.key.name
+            field = RowField(
+                name=identity,
+                resolved_type=typed.resolved_type,
+                nullability=typed.nullability,
+            )
         if identity is None:
             unknown_key_texts.add(_field_text(item.key))
             if not (isinstance(item.key, NameExpr) and item.key.name in rejected_lets):
@@ -372,7 +403,7 @@ def _resolve_group_keys(
                     )
                 )
             continue
-        field = input_schema.fields[identity]
+        assert field is not None
         if identity in seen_identities:
             diagnostics.append(_duplicate_group_key_diagnostic(item.key))
             continue

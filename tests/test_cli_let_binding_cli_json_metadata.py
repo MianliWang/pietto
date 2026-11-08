@@ -226,7 +226,7 @@ def test_supported_let_emit_sql_output_writes_only_inline_sql(
             "    select:\n"
             "        status\n"
             "        total = sum(amount)\n",
-            "PIE-S2102",
+            "PIE-S2318",
         ),
         (
             "    from orders\n"

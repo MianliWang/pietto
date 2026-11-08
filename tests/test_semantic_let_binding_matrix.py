@@ -255,7 +255,7 @@ def test_cli_json_output_and_explain_supported_matrix_is_schema_stable(
             "    select:\n"
             "        status\n"
             "        total = sum(amount)\n",
-            "PIE-S2102",
+            "PIE-S2318",
             id="group-by-let-name",
         ),
         pytest.param(

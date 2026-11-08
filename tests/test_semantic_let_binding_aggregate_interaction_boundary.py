@@ -71,7 +71,7 @@ SOURCE_PREFIX = (
             "    select:\n"
             "        status\n"
             "        total = sum(amount)\n",
-            "PIE-S2102",
+            "PIE-S2318",
         ),
         (
             "    from orders\n"

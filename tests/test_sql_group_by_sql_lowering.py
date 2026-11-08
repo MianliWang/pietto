@@ -12,6 +12,7 @@ import pietto.cli as cli
 from pietto.errors import Severity
 from pietto.ir import (
     AggregateCallIR,
+    BinaryIR,
     FieldId,
     FieldRefIR,
     LiteralIR,
@@ -811,3 +812,48 @@ def _read_json(capsys: pytest.CaptureFixture[str]) -> dict[str, object]:
     captured = capsys.readouterr()
     assert captured.err == ""
     return cast(dict[str, object], json.loads(captured.out))
+
+
+@pytest.mark.parametrize("emitter", [emit_postgres_sql, emit_mysql_sql])
+@pytest.mark.parametrize("nested", [False, True])
+@pytest.mark.parametrize("window", [False, True])
+def test_group_key_ir_refuses_aggregates_even_inside_scalar_expressions(
+    emitter, nested, window
+):
+    script = _compile_source(
+        'shape R:\n    id: Int\nsource rows: R = postgres.table("rows")\n'
+        "query q:\n    from rows\n    group by id\n    select id, n = count()\n"
+    )
+    relation = _relation_ir(script, "q")
+    aggregate = relation.projections[1].expression
+    if window:
+        ranked = _compile_source(
+            'shape R:\n    id: Int\nsource rows: R = postgres.table("rows")\n'
+            "query ranked:\n    from rows\n    select:\n"
+            "        n = row_number() window(order by id)\n"
+        )
+        aggregate = _relation_ir(ranked, "ranked").projections[0].expression
+    key = (
+        BinaryIR(
+            span=SPAN,
+            value_type=INT_NON_NULL,
+            left=aggregate,
+            operator="+",
+            right=_literal(1),
+        )
+        if nested
+        else aggregate
+    )
+    malformed = replace(
+        relation, group_keys=(key,), projections=(relation.projections[1],)
+    )
+    emitted = emitter(
+        replace(
+            script,
+            definitions=tuple(
+                malformed if item is relation else item for item in script.definitions
+            ),
+        )
+    )
+    assert emitted.artifacts == ()
+    assert emitted.diagnostics

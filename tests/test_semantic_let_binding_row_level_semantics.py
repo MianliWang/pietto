@@ -457,7 +457,7 @@ def test_let_inline_expansion_names_a_binding_past_the_limit_by_itself(
             "    select:\n"
             "        status\n"
             "        total_amount = sum(amount)\n",
-            "PIE-S2102",
+            "PIE-S2318",
         ),
         (
             "    from orders\n"

@@ -244,7 +244,7 @@ def test_cli_check_emit_sql_and_explain_succeed_for_supported_let(
             "    select:\n"
             "        status\n"
             "        total = sum(amount)\n",
-            "PIE-S2102",
+            "PIE-S2318",
         ),
         (
             "    from orders\n"

@@ -15,6 +15,8 @@ from pietto.ir.model import (
     ExpressionIR,
     ExistsIR,
     FieldId,
+    LiteralIR,
+    UnaryIR,
     FieldRefIR,
     OrderDirectionIR,
     OrderItemIR,
@@ -983,7 +985,9 @@ def _validate_grouped_relation(relation: RelationIR) -> None:
             saw_aggregate = True
             orderable_expressions.append(expression)
             continue
-        if isinstance(expression, FieldRefIR) and expression.field in group_fields:
+        if (
+            isinstance(expression, FieldRefIR) and expression.field in group_fields
+        ) or expression in relation.group_keys:
             orderable_expressions.append(expression)
             continue
         if isinstance(expression, (WindowCallIR, AggregateWindowCallIR)):
@@ -1075,21 +1079,43 @@ def _validate_window_clause_boundaries(relation: RelationIR) -> None:
         )
 
 
-def _group_key_fields(group_keys: tuple[FieldRefIR, ...]) -> set[FieldId]:
-    fields: set[FieldId] = set()
+def _group_key_fields(group_keys: tuple[ExpressionIR, ...]) -> set[FieldId]:
+    identities: set[FieldId] = set()
+    seen: list[ExpressionIR] = []
     for key in group_keys:
-        if not isinstance(key, FieldRefIR) or key.field is None:
-            raise ValueError("PostgreSQL GROUP BY keys must be resolved fields")
-        if key.field in fields:
+        if key in seen:
             raise ValueError("PostgreSQL GROUP BY keys must be unique")
-        fields.add(key.field)
-    return fields
+        seen.append(key)
+        pending: list[object] = [key]
+        while pending:
+            value = pending.pop()
+            if isinstance(
+                value, (AggregateCallIR, WindowCallIR, AggregateWindowCallIR)
+            ):
+                raise ValueError("PostgreSQL GROUP BY keys must be row expressions")
+            if isinstance(value, FieldRefIR) and value.field is None:
+                raise ValueError("PostgreSQL GROUP BY keys must be resolved fields")
+            if isinstance(value, ExpressionIR):
+                pending.extend(getattr(value, item.name) for item in fields(value))
+            elif isinstance(value, tuple):
+                pending.extend(value)
+        if isinstance(key, FieldRefIR):
+            if key.field in identities:
+                raise ValueError("PostgreSQL GROUP BY keys must be unique")
+            assert key.field is not None
+            identities.add(key.field)
+    return identities
 
 
-def _render_group_key(key: FieldRefIR) -> str:
-    if not isinstance(key, FieldRefIR) or key.field is None:
+def _render_group_key(key: ExpressionIR) -> str:
+    if isinstance(key, FieldRefIR) and key.field is None:
         raise ValueError("PostgreSQL GROUP BY keys must be resolved fields")
-    return render_expression_sql(key)
+    sql = render_expression_sql(key)
+    # Signed literals must also be values, never SELECT-position ordinals.
+    value = key
+    while isinstance(value, UnaryIR):
+        value = value.operand
+    return f"COALESCE({sql}, {sql})" if isinstance(value, LiteralIR) else sql
 
 
 def _render_limit(value: int) -> str:

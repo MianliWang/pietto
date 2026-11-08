@@ -1489,6 +1489,15 @@ def type_relation_expressions(
                     and not contains_semantic_aggregate(item.expression)
                 )
                 or _is_direct_aggregate_projection(item)
+                or (
+                    isinstance(item.expression, NameExpr)
+                    and definition.group_by_clause is not None
+                    and any(
+                        isinstance(key.key, NameExpr)
+                        and key.key.name == item.expression.name
+                        for key in definition.group_by_clause.items
+                    )
+                )
                 else None
             )
             _infer(
@@ -1822,7 +1831,16 @@ def _grouped_qualify_input(
         keys: frozenset[str] | None = frozenset()
         key_names: set[str] = set()
     else:
-        keys = group_key_fields(definition, row, let_expressions)
+        keys = group_key_fields(
+            definition,
+            row,
+            let_expressions,
+            {
+                value: let_value_types[name]
+                for name, value in let_expressions.items()
+                if name in let_value_types
+            },
+        )
         key_names = {
             item.key.name
             for item in definition.group_by_clause.items

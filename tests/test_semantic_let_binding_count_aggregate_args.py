@@ -289,7 +289,7 @@ def test_unsupported_count_family_let_expansion_shapes_keep_existing_diagnostics
             "    select:\n"
             "        status\n"
             "        known = count(amount)\n",
-            "PIE-S2102",
+            "PIE-S2318",
         ),
         (
             "    from orders\n"

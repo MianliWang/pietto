@@ -674,16 +674,32 @@ def _lower_group_keys(
     field_qualifier: str,
     let_expansions: Mapping[str, Expression],
     join_reads: JoinReads | None = None,
-) -> tuple[FieldRefIR, ...]:
+) -> tuple[ExpressionIR, ...]:
     """Lower accepted unique GROUP BY keys from semantic row facts."""
 
     clause = definition.group_by_clause
     if clause is None or (join_reads is None and input_schema.is_unknown):
         return ()
 
-    group_keys: list[FieldRefIR] = []
+    group_keys: list[ExpressionIR] = []
     seen_identities: set[FieldId | None] = set()
     for item in clause.items:
+        value = (
+            let_expansions.get(item.key.name) if type(item.key) is NameExpr else None
+        )
+        if value is not None and type(value) not in {NameExpr, DottedNameExpr}:
+            group_keys.append(
+                _require_lowered_expression(
+                    value,
+                    semantic_model,
+                    fields=input_schema.fields,
+                    field_owner=target_symbol,
+                    field_qualifier=field_qualifier,
+                    let_expansions=let_expansions,
+                    join_reads=join_reads,
+                )
+            )
+            continue
         effective_key = _effective_group_key_expression(
             item.key,
             let_expansions=let_expansions,
@@ -760,7 +776,7 @@ def _lower_order_by(
     input_schema: RowSchema,
     target_symbol: SymbolId,
     projections: tuple[ProjectionIR, ...],
-    group_keys: tuple[FieldRefIR, ...],
+    group_keys: tuple[ExpressionIR, ...],
     let_expansions: Mapping[str, Expression],
     join_reads: JoinReads | None = None,
 ) -> tuple[OrderItemIR, ...]:
@@ -870,7 +886,7 @@ def _lower_grouped_order_by(
     field_owner: SymbolId,
     field_qualifier: str,
     projections: tuple[ProjectionIR, ...],
-    group_keys: tuple[FieldRefIR, ...],
+    group_keys: tuple[ExpressionIR, ...],
     let_expansions: Mapping[str, Expression],
     join_reads: JoinReads | None = None,
 ) -> tuple[OrderItemIR, ...]:
@@ -914,15 +930,19 @@ def _lower_grouped_order_by(
 def _grouped_order_output_expressions(
     projections: tuple[ProjectionIR, ...],
     *,
-    group_keys: tuple[FieldRefIR, ...],
+    group_keys: tuple[ExpressionIR, ...],
 ) -> dict[str, _GroupedOrderExpression]:
-    group_key_fields = {key.field for key in group_keys if key.field is not None}
+    group_key_fields = {
+        key.field
+        for key in group_keys
+        if isinstance(key, FieldRefIR) and key.field is not None
+    }
     output_expressions: dict[str, _GroupedOrderExpression] = {}
     for projection in projections:
         if projection.name is None or projection.name in output_expressions:
             continue
         expression = projection.expression
-        if isinstance(expression, AggregateCallIR):
+        if isinstance(expression, AggregateCallIR) or expression in group_keys:
             output_expressions[projection.name] = _GroupedOrderExpression(expression)
             continue
         if (
@@ -951,7 +971,7 @@ def _grouped_order_output_expressions(
 def _grouped_window_input_expressions(
     projections: tuple[ProjectionIR, ...],
     *,
-    group_keys: tuple[FieldRefIR, ...],
+    group_keys: tuple[ExpressionIR, ...],
     input_schema: RowSchema,
     field_owner: SymbolId,
     field_qualifier: str,
@@ -1332,7 +1352,7 @@ def _lower_projections(
     input_schema: RowSchema,
     target_symbol: SymbolId,
     output_fields: Mapping[str, RowFieldIR],
-    group_keys: tuple[FieldRefIR, ...],
+    group_keys: tuple[ExpressionIR, ...],
     let_expansions: Mapping[str, Expression],
     join_reads: JoinReads | None = None,
 ) -> tuple[ProjectionIR, ...]:

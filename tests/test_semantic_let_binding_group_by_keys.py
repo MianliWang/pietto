@@ -215,7 +215,7 @@ def test_cli_json_and_explain_shapes_remain_compatible(
             "    select:\n"
             "        amount\n"
             "        total = count()\n",
-            "PIE-S2102",
+            "PIE-S2318",
         ),
         (
             "    from orders\n"
@@ -225,7 +225,7 @@ def test_cli_json_and_explain_shapes_remain_compatible(
             "    select:\n"
             "        status\n"
             "        total = count()\n",
-            "PIE-S2102",
+            "PIE-S2318",
         ),
         (
             "    from orders\n"
@@ -235,7 +235,7 @@ def test_cli_json_and_explain_shapes_remain_compatible(
             "    select:\n"
             "        status\n"
             "        total = count()\n",
-            "PIE-S2102",
+            "PIE-S2318",
         ),
         (
             "    from orders\n"
@@ -352,14 +352,12 @@ def test_computed_let_keys_and_let_extrema_follow_their_mode_law(
 ) -> None:
     """EXPLICIT_MODULES completes the relation; the other laws keep refusing it."""
 
-    # Reads of the refused binding name add no Unknown field diagnostics; the
-    # refusal names the two-query route a single file has.
+    # Grouping opens; the independent single-file extrema boundary stays.
     assert _errors(_semantic_for(COMPUTED_KEY_RELATION)) == [
         (
-            "PIE-S2329",
-            "Let binding conflicts with projection output name: gross; a query with "
-            "GROUP BY cannot select a computed `let` value here yet: select gross in "
-            "one query, then group by gross in another that reads it with `from`",
+            "PIE-S2315",
+            "Aggregate function max requires a direct field argument; "
+            "expression arguments are not supported yet",
         ),
     ]
 
@@ -632,13 +630,13 @@ _CONFLICT = "Let binding conflicts with projection output name: key; "
             "lower(status)",
             "key",
             "        key\n",
-            [("PIE-S2329", _CONFLICT + _COMPUTED_SELECT, 7, 5)],
+            [],
         ),
         (
             "lower(status)",
             "key",
             "",
-            [("PIE-S2102", "Unknown field: key; " + _COMPUTED_KEY, 9, 9)],
+            [],
         ),
         # A `let` that is no GROUP BY key is named so, computed or not.
         (
@@ -725,3 +723,101 @@ def test_an_explicit_module_project_groups_by_and_selects_a_computed_let(
     )
     code = cli.main(["check", "--project", str(tmp_path), "--format", "json"])
     assert (code, _read_json(capsys)["diagnostics"]) == (0, [])
+
+
+@pytest.mark.parametrize(
+    "value, expected_type, nullable",
+    [
+        ("amount + tax", "Int", EffectiveNullability.UNKNOWN),
+        ("lower(region)", "Text", EffectiveNullability.NULLABLE),
+        ("lower(trim(status))", "Text", EffectiveNullability.NON_NULL),
+        ("1", "Int", EffectiveNullability.NON_NULL),
+    ],
+)
+def test_computed_group_key_preserves_its_type_and_nullable_row(
+    value: str,
+    expected_type: str,
+    nullable: EffectiveNullability,
+) -> None:
+    semantic = _semantic_for(
+        f"query grouped_orders:\n    from orders\n    let bucket = {value}\n"
+        "    group by bucket\n    select bucket, n = count()\n"
+    )
+    assert _errors(semantic) == []
+    schema = semantic.model.relation_row_schemas[_relation_ast(semantic)]
+    assert tuple(schema.fields) == ("bucket", "n")
+    _assert_field(schema.fields["bucket"], expected_type, nullable)
+
+
+@pytest.mark.parametrize(
+    "tail, code",
+    [
+        ("    group by bucket, bucket\n    select n = count()\n", "PIE-S2317"),
+        (
+            "    let alias = bucket\n    group by alias\n    select n = count()\n",
+            "PIE-S2102",
+        ),
+        ("    group by orders.bucket\n    select n = count()\n", "PIE-S2102"),
+        ("    group by bucket\n    select n = coalesce(sum(amount), 0)\n", "PIE-S2310"),
+    ],
+)
+def test_computed_group_key_keeps_identity_and_composition_boundaries(
+    tail: str, code: str
+) -> None:
+    semantic = _semantic_for(
+        "query grouped_orders:\n    from orders\n    let bucket = amount + tax\n" + tail
+    )
+    assert code in _error_codes(semantic)
+
+
+@pytest.mark.parametrize("dialect", ["postgres", "mysql"])
+@pytest.mark.parametrize("value", ["amount + tax", "lower(region)", "1", "-1", '"all"'])
+def test_computed_group_key_emits_with_dependencies_and_distinct_binding_identity(
+    dialect: str, value: str
+) -> None:
+    prefix = SOURCE_PREFIX if dialect == "postgres" else MYSQL_SOURCE_PREFIX
+    source = (
+        "query grouped_orders:\n    from orders\n"
+        f"    let first = {value}\n    let second = {value}\n"
+        "    group by first, second\n    select a = first, b = second, n = count()\n"
+        "    order by a\n"
+    )
+    sql = _sql_for(source, prefix=prefix, dialect=dialect)
+    relation = _relation_ir(source, prefix=prefix)
+    assert len(relation.group_keys) == 2
+    assert len(relation.projections) == 3
+    assert "GROUP BY" in sql
+    assert "ORDER BY" in sql
+    if value in {"1", '"all"'}:
+        assert "COALESCE(" in sql
+
+
+def test_computed_key_can_depend_on_multiple_earlier_lets() -> None:
+    sql = _sql_for(
+        "query grouped_orders:\n    from orders\n"
+        "    let base = orders.amount + orders.tax\n"
+        "    let factor = 2\n    let bucket = base * factor\n"
+        "    group by bucket\n    select bucket, n = count()\n",
+        prefix=SOURCE_PREFIX,
+        dialect="postgres",
+    )
+    assert "GROUP BY" in sql and "COUNT(*)" in sql
+
+
+def test_computed_group_key_does_not_expose_other_inputs_to_qualify() -> None:
+    semantic = _semantic_for(
+        "query grouped_orders:\n    from orders\n    let bucket = amount + tax\n"
+        "    group by bucket\n    select bucket, n = count()\n"
+        "    qualify id > 0\n"
+    )
+    assert ("PIE-S2102", "Unknown field: id") in _errors(semantic)
+
+
+def test_computed_grouping_requires_a_known_input_row() -> None:
+    parsed = parse_source(
+        'source rows = postgres.table("rows")\n'
+        "query q:\n    from rows\n    let k = 1\n"
+        "    group by k\n    select k, n = count()\n"
+    )
+    assert parsed.ast is not None
+    assert "PIE-S2102" in _error_codes(analyze(parsed.ast))

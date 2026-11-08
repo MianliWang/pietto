@@ -223,7 +223,7 @@ def test_cli_json_and_explain_shapes_remain_compatible(
             "    select:\n"
             "        status\n"
             "        total = sum(amount)\n",
-            "PIE-S2102",
+            "PIE-S2318",
         ),
         (
             "    from orders\n"

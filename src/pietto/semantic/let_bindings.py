@@ -530,8 +530,7 @@ def _invalid_binding_names(
             binding.name,
             allow_unaliased_selected_let_outputs=allow_unaliased_selected_let_outputs,
         ):
-            # A single file cannot select a binding by its own name in a
-            # relation with GROUP BY yet; the message says what to write.
+            # Refused grouped binding reads retain their actionable hint.
             from pietto.semantic.group_by import grouped_let_select_hint
 
             hint = (
@@ -583,17 +582,30 @@ def _binding_conflicts_with_projection_output(
 ) -> bool:
     """Whether an output of another value takes the binding's name.
 
-    Selecting the binding by its own name outputs its value; a single file
-    selects a binding so only in a relation without GROUP BY.
+    A single file can select a binding by its own name in an ungrouped
+    relation or when it directly names a computed GROUP BY key.
     """
 
     for item in definition.select_items:
         output_name = _projection_output_name(item)
         if output_name != binding_name:
             continue
-        if (
-            allow_unaliased_selected_let_outputs or definition.group_by_clause is None
-        ) and _selects_binding(item, binding_name):
+        if _selects_binding(item, binding_name) and (
+            allow_unaliased_selected_let_outputs
+            or definition.group_by_clause is None
+            or (
+                definition.let_clause is not None
+                and any(
+                    binding.name == binding_name
+                    and type(binding.expression) not in {NameExpr, DottedNameExpr}
+                    for binding in definition.let_clause.bindings
+                )
+                and any(
+                    isinstance(key.key, NameExpr) and key.key.name == binding_name
+                    for key in definition.group_by_clause.items
+                )
+            )
+        ):
             continue
         return True
     return False
