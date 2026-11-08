@@ -360,6 +360,7 @@ _GROUPS = (
     (
         frozenset(
             {
+                "aggregate_composition_not_admitted_on_target",
                 "collect_not_admitted_on_target",
                 "list_operation_not_admitted_on_target",
                 "mysql_correlated_order_or_limit_read_not_admitted",

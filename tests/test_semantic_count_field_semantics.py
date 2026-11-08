@@ -241,13 +241,10 @@ def test_count_missing_field_uses_existing_unresolved_field_diagnostic_only() ->
             ("PIE-S2311", "Nested aggregate count() is not supported"),
         ),
         (
-            "known_values = count(amount) + 1",
+            "known_values = count(amount) if True else 1",
             (
                 "PIE-S2310",
-                "Aggregate projection must be a direct aggregate call; "
-                "composition around count() is not supported yet; select the count() "
-                "under a name in one query, then compute with that name in "
-                "another that reads it with `from`",
+                "Aggregate composition requires scalar calls or arithmetic over direct aggregates, group keys and literals; invalid composition around count(); select the count() under a name in one query, then compute with that name in another that reads it with `from`",
             ),
         ),
         (

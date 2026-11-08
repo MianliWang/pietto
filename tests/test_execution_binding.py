@@ -92,7 +92,7 @@ def test_complete_eligible_domains(tmp_path, target, seed, values, bad):
                     b.artifact.request.plan,
                     original.ref,
                     target,
-                    {u.original.ref: u for u in b.artifact.parameter_uses},
+                    parameters.occurrence_uses(b.artifact.parameter_uses),
                 ),
                 target,
             )

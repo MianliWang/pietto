@@ -195,11 +195,11 @@ def test_grouped_expression_argument_aggregates_preserve_group_keys() -> None:
     relation = _relation_ir(ir_result.ir)
     projections = _projections(relation)
 
-    assert [key.name for key in relation.group_keys] == ["region"]
-    assert [key.qualifier for key in relation.group_keys] == [()]
-    assert [key.field for key in relation.group_keys] == [
-        FieldId(owner=_orders_symbol(), name="region")
-    ]
+    (key,) = relation.group_keys
+    assert isinstance(key, FieldRefIR)
+    assert key.name == "region"
+    assert key.qualifier == ()
+    assert key.field == FieldId(owner=_orders_symbol(), name="region")
     _assert_binary_aggregate(
         projections["total"].expression,
         function="sum",
@@ -437,7 +437,7 @@ def test_group_generators_lower_to_the_filtered_aggregate_identities() -> None:
         ("value = min(amount + tax)", "PIE-S2315"),
         ("value = max(score * weight)", "PIE-S2315"),
         ("value = sum(avg(amount))", "PIE-S2311"),
-        ("value = sum(amount) + 1", "PIE-S2310"),
+        ("value = sum(amount) if True else 1", "PIE-S2310"),
     ],
 )
 def test_unsupported_aggregate_expression_shapes_remain_before_ir(

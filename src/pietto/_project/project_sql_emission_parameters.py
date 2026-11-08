@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from collections import deque
 from dataclasses import dataclass
 from datetime import date, datetime
 from decimal import Decimal, localcontext
@@ -300,6 +301,19 @@ def allocate_uses(family, occurrences, limit):
     return tuple(result)
 
 
+def occurrence_uses(allocated):
+    """Keep the ordered allocation stream for every retained expression."""
+    result: dict[Any, deque[NativeUse]] = {}
+    for use in allocated:
+        result.setdefault(use.original.ref, deque()).append(use)
+    return result
+
+
+def take_use(uses, reference):
+    pending = uses.get(reference)
+    return pending.popleft() if pending else None
+
+
 def build_value(plan, reference, family, uses):
     chain = original_chain(plan, reference)
     assert chain is not None
@@ -316,7 +330,10 @@ def build_value(plan, reference, family, uses):
             for value in plan.fixed_envelope.values
             if value.slot is original.use.slot
         )
-        leaf = SQLParameter(original, site, fixed, uses[original.ref])
+        native = take_use(uses, original.ref)
+        if native is None:
+            raise ValueError("native occurrence allocation")
+        leaf = SQLParameter(original, site, fixed, native)
     else:
         leaf = SQLLiteral(original, site, original.expression.value)
     tag = tag_of(original)

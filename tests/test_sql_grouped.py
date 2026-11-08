@@ -1910,7 +1910,6 @@ def test_row_expression_and_float_arguments_count_and_compare_on_both_targets(
 @pytest.mark.parametrize(
     ("target", "expression", "detail"),
     (
-        ("postgres", "sum(amount)", "decimal_aggregate_range_proof_missing"),
         ("postgres", "avg(amount)", "decimal_aggregate_range_proof_missing"),
         ("mysql", "sum(amount)", "decimal_aggregate_range_proof_missing"),
         ("mysql", "avg(amount)", "decimal_aggregate_range_proof_missing"),
@@ -1921,9 +1920,8 @@ def test_row_expression_and_float_arguments_count_and_compare_on_both_targets(
 def test_numeric_aggregate_domains_require_proofs_beyond_source_declarations(
     tmp_path, target, expression, detail
 ):
-    """A Decimal SUM has no bounded precision and its AVG no fixed scale, so
-    no Decimal(p, s) carrier holds either result; MySQL also keeps a Float
-    sum or average without its finite-result proof."""
+    """A Decimal AVG has no fixed scale; MySQL also keeps Decimal SUM and
+    Float SUM/AVG refused without their result proofs."""
     outcome = emit_source(
         tmp_path,
         target,

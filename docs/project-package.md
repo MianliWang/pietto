@@ -855,6 +855,27 @@ same checked `sum(Int)` spelling, so a sum of a `bigint` column outside signed
 MySQL keeps project `sum(Int)` BLOCKED with `PIE-B1004`,
 as its `CAST(DECIMAL AS SIGNED)` would clamp an out-of-range sum, and Int
 arithmetic not proved to fit signed 64 bits BLOCKED with `PIE-B1002`.
+PostgreSQL admits exact Decimal/Int addition and subtraction and addition
+or subtraction of Decimals with different scales. Let `s = max(s1, s2)`;
+the result has precision `max(p1 - s1, p2 - s2) + 1 + s`. A physical Int
+read contributes 5, 10 or 19 integer digits for `pg_int2`, `pg_int4` or
+`pg_int8`; a retained exact Int literal may use its existing narrower proof.
+Every retained Int range must fit its signed physical storage. These
+results stay within precision 65 and scale 30. Qualified typed parameters
+participate in the newly admitted mixed Decimal/Int or different-scale
+Decimal pairs; same-scale Decimal parameter pairs remain refused.
+
+For multiplication of `Decimal(p, s)` by `Int` in either order, the result
+carrier is `Decimal(p + 19, s)`, admitted only while `p + 19 <= 65`.
+The product proof is `|d| < 10^(p-s)` and `|int64| < 10^19`; it does not
+borrow a row-count premise from SUM. Unary `+` and `-` keep `(p, s)` and
+operand nullability. Qualified Decimal/Int parameters use the same rule;
+Decimal parameter multiplication by another Decimal remains refused.
+Arithmetic uses its static digit proof, not SUM's overflow evidence.
+Existing Decimal/Decimal multiplication retains its SQL. MySQL project
+forms added by these rules, project Decimal division and project Decimal
+average remain refused.
+
 PostgreSQL project `sum(Decimal(p, s))` emits only for a direct qualified
 Decimal field with `p + 19 <= 65` and `s <= 30`. It is
 `CAST(SUM(x) AS pg_catalog.numeric(p + 19, s))`: PostgreSQL returns the exact
@@ -865,20 +886,21 @@ Decimal sums remain fail-closed with `PIE-B1004`
 (`decimal_aggregate_range_proof_missing`). MySQL keeps Float `sum`/`avg`
 fail-closed without a finite result proof.
 
-The rules in the previous paragraph postdate the published `0.1.2` (GitHub
+The earlier qualified scalar-expression rules postdate the published `0.1.2` (GitHub
 pre-release `v0.1.2` and PyPI `0.1.2`) and are not part of those
 distributions; the published `0.1.3`, `0.1.4`, `0.1.5`, `0.1.6`, `0.1.7`,
 `0.1.8` and `0.1.9` include them. The Date source, temporal and UUID ordering, checked `bigint`
 and PostgreSQL `sum(Int)` rules are new in `0.1.7`, are listed in its
 [release notes](release-notes.md#nested-results-and-project-emission-public-alpha-release-notes--017) and are included in the published `0.1.7`,
-`0.1.8` and `0.1.9` and in `0.1.10`; this `0.1.10` candidate is available only when its accepted
-files appear on its versioned release channels. Git publication and natural
-exact-head CI remain the lifecycle authority.
+`0.1.8`, `0.1.9` and `0.1.10`. The Phase76 openings are source changes for
+the planned `0.1.11` release, not additions to the `0.1.10` distribution.
+Git publication and natural exact-head CI remain the lifecycle authority.
 
 These proofs belong to project SQL emission, not to `check --project`: the
-check accepts, for example, `sum` over a `Decimal` field, or over an `Int` or
-`Float` field on MySQL, and `emit-sql --project` then reports the table or
-query BLOCKED with `PIE-B1004`. Single-file `emit-sql` emits such a `SUM`.
+check accepts, for example, `avg` over a `Decimal` field, or `sum` over an
+`Int`, `Float` or `Decimal` field on MySQL, and `emit-sql --project` then
+reports the table or query BLOCKED with `PIE-B1004`. Single-file
+`emit-sql` keeps its own target-native aggregate rules.
 
 PostgreSQL project SQL emits a `Float` `+`, `-` or `*` whose operands are not
 both `Float` literals, such as `price * 2.0`, `price + cost` or

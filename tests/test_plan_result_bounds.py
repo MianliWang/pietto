@@ -1049,3 +1049,66 @@ def test_bool_never_replaces_an_original_result_coordinate(
             altered = False
         patch.setattr(target, attribute, altered)
         assert not verify_project_sql_plan(plan, *roots).verified
+
+
+@pytest.mark.parametrize("order", ("total", "total desc"))
+@pytest.mark.parametrize("policy", ("preserve_literals", "bind_safe_literals"))
+def test_reused_composition_order_binds_its_exact_visible_result_port(
+    tmp_path, order, policy
+):
+    from pietto._project import project_sql_plan_literals as literals
+    from _pietto_sql_emission import aggregate_fixture
+
+    fixture_source = aggregate_fixture("postgres", "X_aggregate_global", "bag")[
+        "source"
+    ]
+    assert isinstance(fixture_source, str)
+    header = fixture_source.split("query result:", 1)[0]
+    source = (
+        header
+        + """query result:
+    from agg
+    where rid > 0
+    group by key
+    select:
+        total = coalesce(sum(value), 0)
+        raw = sum(value)
+    having total > 0 and total < 10
+"""
+        + f"    order by {order}\n"
+    )
+    roots = _roots(tmp_path, source)
+    selected_policy = literals.ProjectSQLLiteralPolicy(policy)
+    plan = build_project_sql_plan(*roots, literal_policy=selected_policy)
+    assert isinstance(plan, ProjectSQLPlan)
+    assert verify_project_sql_plan(
+        plan, *roots, literal_policy=selected_policy
+    ).verified
+    (use,) = plan.order_uses
+    assert use.requirement is None and len(use.ports) == 1
+    ports = {port.ref: port for port in plan.result_ports}
+    incoming = ports[use.ports[0]]
+    canonical = next(port for port in plan.exports if port.identity.name == "total")
+    assert incoming.role is result.ProjectSQLResultPortRole.INPUT
+    assert incoming.boundary is use.scope
+    assert incoming.canonical is canonical
+    projected = ports[incoming.source]
+    assert projected.role is result.ProjectSQLResultPortRole.PROJECTION
+    assert projected.canonical is canonical
+    assert projected.source is next(
+        projection.ref
+        for projection in plan.projections
+        if projection.export is canonical.ref
+    )
+    wrong_target = next(
+        port.ref
+        for port in plan.result_ports
+        if port.boundary is use.scope
+        and port.role is result.ProjectSQLResultPortRole.INPUT
+        and port.canonical is not canonical
+    )
+    for bad_ports in ((), (projected.ref,), (wrong_target,)):
+        forged = _graft(plan, order_uses=(_graft(use, ports=bad_ports),))
+        assert not verify_project_sql_plan(
+            forged, *roots, literal_policy=selected_policy
+        ).verified

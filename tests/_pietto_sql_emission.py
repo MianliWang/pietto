@@ -4549,6 +4549,7 @@ PER_TARGET_STATUS = {
     # value); MySQL keeps PIE-B1002 and PIE-B1004 for the same programs.
     ("V_row_blocked", "int_overflow"): {"postgres": "VERIFIED", "mysql": "BLOCKED"},
     ("V_row_blocked", "unary_overflow"): {"postgres": "VERIFIED", "mysql": "BLOCKED"},
+    ("V_row_blocked", "modulo"): {"postgres": "VERIFIED", "mysql": "BLOCKED"},
     ("V_aggregate_blocked", "sum_direct"): {"postgres": "VERIFIED", "mysql": "BLOCKED"},
     # Lane F: stddev is SQRT(CAST(VAR_SAMP(x) AS float8)) on PostgreSQL; MySQL
     # keeps Int refused (it computes BIGINT in DOUBLE) and Float unproved.
@@ -5488,8 +5489,16 @@ def _named_range_provenance(document, descriptors):
                 kinds.append(source["kind"])
             # Exactly one authored cause, or else a copy's leading expansion.
             expanded = [kind for kind in kinds if kind in EXPANSIONS]
+            having_bridge = (
+                kinds.count("authored_cause") == 1
+                and bool(expanded)
+                and all(kind == "normalized_expression" for kind in expanded)
+                and document["target"]["family"] == "postgres"
+                and any(item["role"] == "satisfying" for item in document["ranges"])
+            )
             _need(
-                kinds.count("authored_cause") + bool(expanded) == 1
+                having_bridge
+                or kinds.count("authored_cause") + bool(expanded) == 1
                 and kinds[: len(expanded)] == expanded
                 and (not expanded or expanded[0] in EXPANSION_SITES),
                 "missing authored range cause",
@@ -6410,13 +6419,18 @@ def _decode_fixed_public(document, limits):
         _need(type(evidence) is list and len(evidence) == 1)
         evidence_item = cast(dict[str, Any], evidence[0])
         mapping = literal_evidence if kind == "literal" else unary_evidence
-        _need(subject["position"] not in mapping)
         if kind == "literal":
             _keys(evidence_item, ("tag", "value"))
             _fixed_payload(evidence_item["tag"], evidence_item["value"])
         else:
             _keys(evidence_item, ("operator",))
             _need(evidence_item["operator"] in {"+", "-"})
+        # Shared expression nodes retain one equal proof at every rendered use.
+        _need(
+            subject["position"] not in mapping
+            or encoded(mapping[subject["position"]]) == encoded(evidence_item),
+            "repeated literal evidence",
+        )
         mapping[subject["position"]] = evidence_item
 
     null_expression_positions = iter(
@@ -6459,6 +6473,210 @@ def _decode_fixed_public(document, limits):
             child["end_line"],
             child["end_column"],
         ) <= (parent["end_line"], parent["end_column"])
+
+    bridge_sources = {
+        key: tuple(
+            source["location"]
+            for origin in origins
+            for source in origin["sources"]
+            if source["kind"] == "normalized_expression"
+        )
+        for key, origins in provenance.items()
+        if any(
+            source["kind"] == "authored_cause"
+            for origin in origins
+            for source in origin["sources"]
+        )
+        and any(
+            source["kind"] == "normalized_expression"
+            for origin in origins
+            for source in origin["sources"]
+        )
+    }
+    having_context: list[Any] = [None]
+    having_ranges = []
+    having_uses = []
+    canonical_preservations = []
+
+    def shared_having_literal(site, block):
+        matches = [
+            key
+            for key in bridge_sources
+            if key[0] == "literal_site"
+            and cause({"kind": key[0], "position": key[1]}) == cause(site)
+        ]
+        if not matches:
+            return False
+        canonical_preservations.append((site, block, matches))
+        return True
+
+    def source_within(reference, owner):
+        if within(cause(reference), cause(owner)):
+            return True
+        context = having_context[0]
+        locations = bridge_sources.get((reference["kind"], reference["position"]), ())
+        return bool(
+            context is not None
+            and owner == context[0]
+            and locations
+            and all(within(location, cause(owner)) for location in locations)
+        )
+
+    def verify_having_bridges():
+        ranges_by_subject = {}
+        for item in document["ranges"]:
+            subject = item["subject"]
+            key = subject["kind"], subject["position"]
+            ranges_by_subject.setdefault(key, []).append((item["start"], item["end"]))
+            if subject["kind"] in {
+                "expression",
+                "literal_site",
+                "literal_slot",
+                "bind_use",
+                "fixed_value",
+            }:
+                for low, high, predicate, _ in having_ranges:
+                    if (
+                        low <= item["start"]
+                        and item["end"] <= high
+                        and not within(cause(subject), cause(predicate))
+                    ):
+                        _need(key in bridge_sources, "missing HAVING source bridge")
+        groups = {}
+        bridge_owners = {}
+        for (kind, position), locations in bridge_sources.items():
+            subject = {"kind": kind, "position": position}
+            spans = sorted(
+                set(ranges_by_subject.get((kind, position), ())),
+                key=lambda value: (value[0], -value[1]),
+            )
+            outer = []
+            for start, end in spans:
+                if not outer or not (outer[-1][0] <= start and end <= outer[-1][1]):
+                    outer.append((start, end))
+            scopes = []
+            for start, end in outer:
+                matches = [
+                    (predicate, owner)
+                    for low, high, predicate, owner in having_ranges
+                    if low <= start and end <= high
+                ]
+                _need(len(matches) == 1, "HAVING expansion scope")
+                scopes.append(matches[0])
+            _need(
+                bool(scopes) and all(scope == scopes[0] for scope in scopes),
+                "HAVING expansion owner",
+            )
+            predicate, owner = scopes[0]
+            bridge_owners[kind, position] = owner
+            _need(
+                all(within(location, cause(predicate)) for location in locations),
+                "HAVING alias use source",
+            )
+            selected = {
+                (column["export"]["kind"], column["export"]["position"])
+                for body in row_bodies
+                if body["projection"] and body["definition"] == owner
+                for column in body["columns"]
+                if column["export"]["kind"] == "export"
+                and within(cause(subject), cause(column["export"]))
+            }
+            _need(len(selected) == 1, "HAVING expanded selected source")
+            # ORDER/DISTINCT stages carry the same canonical export again.
+            (selected_export,) = selected
+            key = encoded((predicate, owner, selected_export, locations))
+            groups.setdefault(key, []).append((subject, outer, locations))
+        for entries in groups.values():
+            expressions = [
+                entry for entry in entries if entry[0]["kind"] == "expression"
+            ]
+            roots = [
+                entry
+                for entry in expressions
+                if not any(
+                    cause(entry[0]) != cause(other[0])
+                    and within(cause(entry[0]), cause(other[0]))
+                    for other in expressions
+                )
+            ]
+            _need(len(roots) == 1, "HAVING composition source root")
+            root_subject, root_ranges, locations = roots[0]
+            coordinates = [
+                (
+                    location["path"],
+                    location["line"],
+                    location["column"],
+                    location["end_line"],
+                    location["end_column"],
+                )
+                for location in locations
+            ]
+            _need(
+                coordinates == sorted(coordinates)
+                and len(set(coordinates)) == len(coordinates),
+                "HAVING alias source order",
+            )
+            _need(
+                len(root_ranges) == len(locations), "HAVING alias occurrence inventory"
+            )
+            uses = [use for use in having_uses if use[0] == root_subject]
+            _need(len(uses) == len(locations), "HAVING parent operand inventory")
+            parents = {}
+            for _, context, parent, position, siblings in uses:
+                key = encoded((context, parent, siblings))
+                parents.setdefault(key, (parent, siblings, []))[2].append(position)
+            for parent, siblings, positions in parents.values():
+                _need(
+                    len(set(positions)) == len(positions),
+                    "HAVING parent operand identity",
+                )
+                eligible = [
+                    location
+                    for location in locations
+                    if within(location, cause(parent))
+                    and all(
+                        (location["end_line"], location["end_column"])
+                        <= (sibling["line"], sibling["column"])
+                        or (sibling["end_line"], sibling["end_column"])
+                        <= (location["line"], location["column"])
+                        for sibling in siblings
+                    )
+                ]
+                _need(len(eligible) == len(positions), "HAVING alias parent operand")
+            # Native round/lpad may render an operand several times inside one
+            # already-proved composition occurrence.
+            for _, ranges, _ in entries:
+                _need(
+                    all(
+                        sum(low <= start and end <= high for low, high in root_ranges)
+                        == 1
+                        for start, end in ranges
+                    ),
+                    "HAVING expansion root containment",
+                )
+
+        for site, block, matches in canonical_preservations:
+            bodies = [
+                body
+                for body in row_bodies
+                if body["block"] == block and body["projection"]
+            ]
+            _need(
+                len(bodies) == 1
+                and all(
+                    bridge_owners.get(key) == bodies[0]["definition"] for key in matches
+                ),
+                "shared literal owner",
+            )
+            original = seen_sites[site["position"]]
+            _need(
+                all(
+                    encoded(literal_evidence[seen_sites[key[1]]["position"]])
+                    == encoded(literal_evidence[original["position"]])
+                    for key in matches
+                ),
+                "shared literal value",
+            )
 
     sql = document["sql"].encode()
     lexical, enclosures = [], []
@@ -6552,7 +6770,11 @@ def _decode_fixed_public(document, limits):
             _need(subject == ref("expression", expression_count))
             return subject
         _need(subject["kind"] == "expression" and _ordinal(subject["position"]))
-        _need(allow_seen or subject["position"] not in seen_expressions)
+        _need(
+            allow_seen
+            or having_context[0] is not None
+            or subject["position"] not in seen_expressions
+        )
         return subject
 
     def scalar(projection, positional=True, repeated=False):
@@ -6586,7 +6808,10 @@ def _decode_fixed_public(document, limits):
             and cause(site) == cause(original)
         )
         if site["position"] in seen_sites:
-            _need(repeated and seen_sites[site["position"]] == original)
+            _need(
+                (repeated or having_context[0] is not None)
+                and seen_sites[site["position"]] == original
+            )
         else:
             seen_sites[site["position"]] = original
         take(cursor_kind, tag, token, site)
@@ -6618,7 +6843,12 @@ def _decode_fixed_public(document, limits):
             # position here, and every ordinary one still has to be bound.
             _need(
                 cursor_kind == "literal"
-                and (not bound or specialized[0] or call_argument_depth[0]),
+                and (
+                    not bound
+                    or specialized[0]
+                    or call_argument_depth[0]
+                    or shared_having_literal(site, projection)
+                ),
             )
             slot = None
             evidence = literal_evidence[original["position"]]
@@ -6945,7 +7175,7 @@ def _decode_fixed_public(document, limits):
         "my_bigint": 64,
         "my_signed_int": 64,
     }
-    ARITHMETIC_TOKENS = {" + ", " - ", " * "}
+    ARITHMETIC_TOKENS = {" + ", " - ", " * ", " / ", " % "}
     LOGICAL_TOKENS = {" AND ", " OR "}
     COMPARISON_TOKENS = {" = ", " <> ", " < ", " <= ", " > ", " >= "}
     COMPARABLE = ("Bool", "Int", "Text", "Decimal", "Float", "Timestamp", "Date")
@@ -6973,6 +7203,8 @@ def _decode_fixed_public(document, limits):
         " + ": "+",
         " - ": "-",
         " * ": "*",
+        " / ": "/",
+        " % ": "%",
         " AND ": "and",
         " OR ": "or",
         " = ": "==",
@@ -7564,7 +7796,46 @@ def _decode_fixed_public(document, limits):
         }
         _need(encoded(published) == encoded(expected), "nested output published")
 
+    parsed_occurrences = {}
+
+    def node_expression(node):
+        return (
+            node.get("expression")
+            if node["kind"] != "constant"
+            else node["value"]["expression"]
+        )
+
     def row_parse(block, port_kind="stage_port", repeated=False):
+        start = cursor
+        node = _row_parse(block, port_kind, repeated=repeated)
+        expression = node.get("expression")
+        if expression is None and node["kind"] == "constant":
+            expression = node["value"]["expression"]
+        if expression is not None:
+            key = encoded(expression)
+            current = (encoded(block), start, cursor)
+            previous = parsed_occurrences.setdefault(key, current)
+            if previous != current:
+                _need(
+                    previous[0] == current[0]
+                    and previous[2] - previous[1] == cursor - start,
+                    "shared expression scope",
+                )
+                _need(
+                    all(
+                        (left["kind"], left["role"], left["subject"], left_text)
+                        == (right["kind"], right["role"], right["subject"], right_text)
+                        for (left, left_text), (right, right_text) in zip(
+                            lexical[previous[1] : previous[2]],
+                            lexical[start:cursor],
+                            strict=True,
+                        )
+                    ),
+                    "shared expression structure",
+                )
+        return node
+
+    def _row_parse(block, port_kind="stage_port", repeated=False):
         """Parse one admitted value; a matching scope reads pre-match JOIN ports."""
         nonlocal scalar_nodes
         role, start = peek(), lexical[cursor][0]["start"]
@@ -8350,7 +8621,7 @@ def _decode_fixed_public(document, limits):
                 "an existence predicate reads one column of its own row",
             )
             read = matches[0]
-            _need(within(cause(node["expression"]), cause(owner)))
+            _need(source_within(node["expression"], owner))
             if not node.get("duplicate"):
                 row_generated.append(
                     (
@@ -8396,7 +8667,7 @@ def _decode_fixed_public(document, limits):
             _need(
                 row_port_reads.setdefault(key, read) is read, "stage port binding drift"
             )
-            _need(within(cause(node["expression"]), cause(owner)))
+            _need(source_within(node["expression"], owner))
             if not node.get("duplicate"):
                 row_generated.append(
                     (
@@ -8433,7 +8704,7 @@ def _decode_fixed_public(document, limits):
             ]
             _need(len(matches) == 1, "captured reference outside its reading row")
             read = matches[0]
-            _need(within(cause(node["expression"]), cause(owner)))
+            _need(source_within(node["expression"], owner))
             if not node.get("duplicate"):
                 # Like an existence read, the public subject is its own record.
                 row_generated.append(
@@ -8454,7 +8725,7 @@ def _decode_fixed_public(document, limits):
         original = node["expression"]
         if node["kind"] == "exists":
             # Existence is never NULL; the read keeps its own block use.
-            _need(within(cause(original), cause(owner)))
+            _need(source_within(original, owner))
             row_generated.append(
                 (
                     "exists",
@@ -8501,7 +8772,7 @@ def _decode_fixed_public(document, limits):
             }
         if node["kind"] == "scalar":
             # The read column's own carrier, NULL when its producer has no row.
-            _need(within(cause(original), cause(owner)))
+            _need(source_within(original, owner))
             realization = {**node["read"]["realization"], "nullable": True}
             row_generated.append(
                 (
@@ -8523,7 +8794,7 @@ def _decode_fixed_public(document, limits):
             }
         if node["kind"] == "relation_membership":
             # Three-valued membership is nullable; the read precedes its operand.
-            _need(within(cause(original), cause(owner)))
+            _need(source_within(original, owner))
             slot = len(row_generated)
             row_generated.append(None)
             # An inline let's obligations follow the read's, before its value's.
@@ -8612,6 +8883,23 @@ def _decode_fixed_public(document, limits):
             (1, 0, 2) if node["kind"] == "conditional" else range(len(node["operands"]))
         )
         resolved_operands = {}
+        if having_context[0] is not None and within(
+            cause(original), cause(having_context[0][0])
+        ):
+            authored = [node_expression(child) for child in node["operands"]]
+            siblings = tuple(
+                cause(reference)
+                for reference in authored
+                if reference is not None
+                and within(cause(reference), cause(having_context[0][0]))
+            )
+            for position, reference in enumerate(authored):
+                if reference is not None and not within(
+                    cause(reference), cause(having_context[0][0])
+                ):
+                    having_uses.append(
+                        (reference, having_context[0], original, position, siblings)
+                    )
         for position in order:
             resolved_operands[position] = row_resolve(
                 node["operands"][position], incoming, alias, owner, scopes, context
@@ -9273,9 +9561,11 @@ def _decode_fixed_public(document, limits):
                 _need(
                     all(
                         "read" in item
-                        and item["read"]["field"] is not None
+                        and (item["read"]["field"] is not None or family == "postgres")
                         or item["tag"] == "Int"
                         and "value" in item
+                        or family == "postgres"
+                        and item.get("kind") in {"arithmetic", "sign", "scalar_call"}
                         for item in operands
                     ),
                     "Decimal direct source operands",
@@ -9311,13 +9601,16 @@ def _decode_fixed_public(document, limits):
                     _need(family == "postgres" or ls == rs, "Decimal scale")
                     scale = max(ls, rs)
                     precision = max(lp - ls, rp - rs) + 1 + scale
-                elif {item["tag"] for item in operands} == {"Decimal", "Int"}:
+                elif node["operator"] == " * " and {
+                    item["tag"] for item in operands
+                } == {"Decimal", "Int"}:
                     _need(family == "postgres", "Decimal product target")
                     precision, scale = (
                         (lp, ls) if left["tag"] == "Decimal" else (rp, rs)
                     )
                     precision += 19
                 else:
+                    _need(node["operator"] == " * ", "Decimal operator")
                     precision, scale = lp + rp, ls + rs
                 _need(precision <= 65 and scale <= 30, "Decimal result carrier")
                 result = {
@@ -9349,7 +9642,7 @@ def _decode_fixed_public(document, limits):
                     "nullable": nullable,
                     "domain": {"kind": "finite_float", "format": "binary64"},
                 }
-                if None in values:
+                if None in values or node["operator"] == " / ":
                     # E4: no literal fold proves the result finite; PostgreSQL's
                     # checked float8 operator refuses an infinity (22003).
                     _need(
@@ -9374,6 +9667,21 @@ def _decode_fixed_public(document, limits):
                     }[node["operator"]]
                     _need(math.isfinite(value), "finite Float result")
                     result["float_value"] = value
+            elif node["operator"] in {" / ", " % "}:
+                _need(
+                    family == "postgres"
+                    and all(
+                        item["tag"] == "Int" and item["storage"]["kind"] in INT_BITS
+                        for item in operands
+                    ),
+                    "PostgreSQL integer division operands",
+                )
+                result = row_int(
+                    ({"storage": {"kind": "pg_int8"}},),
+                    I64_MIN,
+                    I64_MAX,
+                    nullable,
+                )
             elif [bool(item.get("null")) for item in operands].count(True) == 1:
                 # D-12: a typed NULL operand nulls every row; it is CAST to the
                 # target's Int carrier, which types the result, which claims
@@ -9530,7 +9838,7 @@ def _decode_fixed_public(document, limits):
         else:
             comparison_pair(operands[0], operands[1], node["operator"])
             result = row_bool(nullable)
-        _need(within(cause(original), cause(owner)))
+        _need(source_within(original, owner))
         spelling = (
             {"callable": node["name"], "namespace": "callable"}
             if node["kind"] == "scalar_call"
@@ -11235,7 +11543,11 @@ def _decode_fixed_public(document, limits):
             not (aggregate_body and result_body)
             and not (aggregate_body and carries)
             and not (result_body and carries)
-            and (not result_body or set(kinds) == {"result"})
+            and (
+                not result_body
+                or set(kinds)
+                <= ({"result", "value"} if family == "postgres" else {"result"})
+            )
             and (not aggregate_body or set(kinds) <= {"group_key", "aggregate"})
             and kinds.count("group_key") == len(determinants)
             and (aggregate_body or not determinants),
@@ -11563,6 +11875,11 @@ def _decode_fixed_public(document, limits):
                         _need(
                             argument["tag"] == "Int"
                             or (
+                                family == "postgres"
+                                and node["function"] == "sum"
+                                and argument["tag"] == "Decimal"
+                            )
+                            or (
                                 node["function"]
                                 in {"sum", "avg", *SPREAD_FUNCTIONS.values()}
                                 and family == "postgres"
@@ -11666,6 +11983,11 @@ def _decode_fixed_public(document, limits):
                         row_generated[requirement] = (
                             *row_generated[requirement][:4],
                             [{"overflow": TARGET_CHECKED_BINARY64}],
+                        )
+                    elif node["function"] == "sum" and argument["tag"] == "Decimal":
+                        row_generated[requirement] = (
+                            *row_generated[requirement][:4],
+                            [{"overflow": "target_checked_decimal_overflow"}],
                         )
                     elif node["function"] in SPREAD_FUNCTIONS.values():
                         row_generated[requirement] = (
@@ -11965,10 +12287,25 @@ def _decode_fixed_public(document, limits):
             specialized[0] = satisfying
             if not inline:
                 capture_frames.append({"alias": alias, "incoming": incoming})
+            outer_having = having_context[0]
+            having_context[0] = (predicate, owner) if satisfying else None
+            predicate_start = lexical[cursor][0]["start"]
             parsed_predicate = row_parse(block)
+            if satisfying:
+                root_reference = node_expression(parsed_predicate)
+                if root_reference is not None and not within(
+                    cause(root_reference), cause(predicate)
+                ):
+                    having_uses.append(
+                        (root_reference, (predicate, owner), predicate, 0, ())
+                    )
+                having_ranges.append(
+                    (predicate_start, lexical[cursor - 1][0]["end"], predicate, owner)
+                )
             # An inline let's own filters are planned before its reader's.
             row_filters.append(predicate)
             root = row_resolve(parsed_predicate, incoming, alias, predicate)
+            having_context[0] = outer_having
             if not inline:
                 capture_frames.pop()
             specialized[0] = False
@@ -12371,11 +12708,7 @@ def _decode_fixed_public(document, limits):
                 claimed = value["realization"]["nullable"] is None and value.get(
                     "proof", False
                 )
-                if (
-                    value["realization"]["nullable"] is not False
-                    and not value.get("strict", False)
-                    and not claimed
-                ):
+                if value["realization"]["nullable"] is not False and not claimed:
                     row_generated.append(
                         ("order_null_posture", entry["item"], "R19", [], evidence)
                     )
@@ -14469,6 +14802,7 @@ def _decode_fixed_public(document, limits):
     )
     if row_grammar:
         row_driver()
+        verify_having_bridges()
     elif peek() == "with":
         expected_case = (
             "quoted_exact" if family == "postgres" else "lower_case_table_names=0"

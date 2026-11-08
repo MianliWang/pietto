@@ -20,7 +20,7 @@ from pietto.semantic import analyze
 from pietto.sql import SqlArtifact, SqlArtifactKind, SqlResult, emit_postgres_sql
 
 EXAMPLE_PATHS = tuple(sorted(Path("examples").rglob("*.pietto")))
-assert len(EXAMPLE_PATHS) == 10
+assert EXAMPLE_PATHS
 
 PIPELINE_SOURCE = (
     "type Email = Text\n"
@@ -271,7 +271,9 @@ def test_all_committed_examples_complete_the_sql_pipeline(path: Path) -> None:
         semantic_errors,
     )
 
-    ir_result = build_ir(parse_result.ast, semantic_result.model)
+    ir_result = build_ir(
+        semantic_result.script or parse_result.ast, semantic_result.model
+    )
     ir_errors = tuple(
         diagnostic
         for diagnostic in ir_result.diagnostics

@@ -61,14 +61,13 @@ def test_nested_aggregates_remain_rejected_with_existing_diagnostic(
 @pytest.mark.parametrize(
     "projection",
     [
-        "value = sum(amount) + 1",
-        "value = count(amount) + 1",
-        "value = count_distinct(customer_id) + 1",
-        "value = min(amount) + 1",
-        "value = lower(min(amount))",
+        "value = sum(amount) if True else 1",
+        "value = count(amount) if True else 1",
+        "value = count_distinct(customer_id) if True else 1",
+        "value = min(amount) if True else 1",
     ],
 )
-def test_aggregate_projection_composition_remains_rejected(
+def test_non_scalar_aggregate_projection_composition_remains_rejected(
     projection: str,
 ) -> None:
     assert _errors(_aggregate_projection(projection)) == ["PIE-S2310"]

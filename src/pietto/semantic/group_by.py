@@ -13,6 +13,7 @@ from pietto.ast_nodes import (
     Expression,
     GroupByItem,
     LiteralExpr,
+    ParameterRefExpr,
     NameExpr,
     Node,
     QueryDef,
@@ -31,6 +32,7 @@ from pietto.semantic.aggregates import (
     unknown_row_generator_diagnostic,
     accepts_argument_form,
     aggregate_alias_required_diagnostic,
+    aggregate_composition_leaves,
     aggregate_argument_can_use_let_scope,
     child_expressions,
     contains_semantic_aggregate,
@@ -55,6 +57,8 @@ from pietto.semantic.aggregates import (
 from pietto.semantic.catalog import BUILTIN_FUNCTIONS, BUILTIN_TYPE_NAMES
 from pietto.semantic.expressions import (
     _canonical_value_type,
+    _order_key_diagnostic,
+    _order_key_problem,
     _reads_only_null,
     condition_value_type,
     let_value,
@@ -97,6 +101,7 @@ class _GroupKey:
 class _GroupedOrderOutput:
     supported: bool
     field_identity: str | None = None
+    expression: Expression | None = None
 
 
 def check_group_by_deferred(script: Script) -> list[Diagnostic]:
@@ -116,6 +121,7 @@ def project_grouped_schema(
     type_expansions: Mapping[TypeExpr, ResolvedType] | None = None,
     let_extrema: bool = True,
     reported_errors: frozenset[Diagnostic] | None = None,
+    order_output_ports: bool = False,
 ) -> tuple[RowSchema, list[Diagnostic]]:
     """Build grouped row schema facts while keeping lowering fail-closed.
 
@@ -154,6 +160,9 @@ def project_grouped_schema(
     duplicate_output_names: set[str] = set()
     saw_valid_aggregate = False
     saw_invalid_projection = False
+    has_aggregate = any(
+        contains_semantic_aggregate(item.expression) for item in definition.select_items
+    )
 
     for item in definition.select_items:
         output_name = _projection_output_name(item)
@@ -294,6 +303,24 @@ def project_grouped_schema(
             saw_invalid_projection = True
             continue
 
+        if has_aggregate:
+            field, _, valid = composed_aggregate_output_field(
+                item,
+                definition=definition,
+                input_schema=input_schema,
+                expression_value_types=expression_value_types,
+                let_expansions=let_expansions,
+                type_expansions=type_expansions,
+                let_extrema=let_extrema,
+                reported_errors=reported_errors,
+            )
+            if valid and field is not None:
+                fields[field.name] = field
+                grouped_order_outputs[field.name] = _GroupedOrderOutput(
+                    supported=True, expression=item.expression
+                )
+                continue
+
         diagnostics.append(_scalar_grouped_projection_diagnostic(item.expression))
         if output_name is not None:
             fields[output_name] = _unknown_row_field(output_name)
@@ -307,6 +334,7 @@ def project_grouped_schema(
             input_schema=input_schema,
             let_expansions=let_expansions,
             suppressed_output_names=duplicate_output_names,
+            order_output_ports=order_output_ports,
         )
     )
 
@@ -476,8 +504,11 @@ def _aggregate_output_field(
     type_expansions: Mapping[TypeExpr, ResolvedType] | None,
     let_extrema: bool,
     reported_errors: frozenset[Diagnostic] | None = None,
+    aggregate_expression: CallExpr | None = None,
 ) -> tuple[RowField | None, list[Diagnostic], bool]:
-    expression = item.expression
+    expression = (
+        item.expression if aggregate_expression is None else aggregate_expression
+    )
     diagnostics: list[Diagnostic] = []
 
     nested = nested_semantic_aggregate(expression)
@@ -486,8 +517,16 @@ def _aggregate_output_field(
         return _unknown_named_field(output_name), diagnostics, False
 
     if not is_semantic_aggregate_call(expression):
-        diagnostics.append(deferred_composition_diagnostic(expression))
-        return _unknown_named_field(output_name), diagnostics, False
+        return composed_aggregate_output_field(
+            item,
+            definition=definition,
+            input_schema=input_schema,
+            expression_value_types=expression_value_types,
+            let_expansions=let_expansions,
+            type_expansions=type_expansions,
+            reported_errors=reported_errors,
+            let_extrema=let_extrema,
+        )
 
     assert isinstance(expression, CallExpr)
     function_name = semantic_aggregate_call_name(expression)
@@ -684,6 +723,82 @@ def _aggregate_output_field(
     )
 
 
+def composed_aggregate_output_field(
+    item: SelectItem,
+    *,
+    definition: DerivedRelation,
+    input_schema: RowSchema,
+    expression_value_types: Mapping[Expression, ValueType] | None,
+    let_expansions: Mapping[str, Expression] | None,
+    type_expansions: Mapping[TypeExpr, ResolvedType] | None,
+    let_extrema: bool = False,
+    reported_errors: frozenset[Diagnostic] | None = None,
+) -> tuple[RowField | None, list[Diagnostic], bool]:
+    """Check every aggregate in row scope and every other leaf in group scope."""
+    leaves = aggregate_composition_leaves(item.expression)
+    keys = (
+        group_key_fields(
+            definition, input_schema, let_expansions, expression_value_types
+        )
+        if definition.group_by_clause is not None
+        else frozenset()
+    )
+    if leaves is None or any(
+        not is_semantic_aggregate_call(leaf)
+        and not isinstance(leaf, (LiteralExpr, ParameterRefExpr))
+        and not (
+            keys is not None
+            and (
+                _field_identity(definition, leaf, input_schema) in keys
+                or isinstance(leaf, NameExpr)
+                and definition.group_by_clause is not None
+                and _is_group_key(
+                    definition, leaf.name, input_schema, let_expansions or {}
+                )
+            )
+        )
+        for leaf in leaves
+    ):
+        return (
+            _unknown_named_field(item.alias),
+            [deferred_composition_diagnostic(item.expression)],
+            False,
+        )
+    diagnostics: list[Diagnostic] = []
+    valid = item.alias is not None
+    for leaf in leaves:
+        if not is_semantic_aggregate_call(leaf):
+            continue
+        assert isinstance(leaf, CallExpr)
+        _, found, accepted = _aggregate_output_field(
+            item,
+            aggregate_expression=leaf,
+            definition=definition,
+            input_schema=input_schema,
+            output_name=item.alias,
+            expression_value_types=expression_value_types,
+            let_expansions=let_expansions,
+            type_expansions=type_expansions,
+            let_extrema=let_extrema,
+            reported_errors=reported_errors,
+        )
+        diagnostics.extend(found)
+        valid = valid and accepted
+    value_type = (expression_value_types or {}).get(item.expression)
+    if not valid or value_type is None or value_type.kind is not ValueTypeKind.KNOWN:
+        return _unknown_named_field(item.alias), diagnostics, False
+    assert item.alias is not None
+    return (
+        RowField(
+            name=item.alias,
+            resolved_type=value_type.resolved_type,
+            nullability=value_type.nullability,
+        ),
+        diagnostics,
+        True,
+    )
+
+
 def count_distinct_tuple_checked(
     expression: CallExpr,
     *,
@@ -746,6 +861,7 @@ def _grouped_order_by_diagnostics(
     input_schema: RowSchema | None = None,
     let_expansions: Mapping[str, Expression] | None = None,
     suppressed_output_names: set[str] | None = None,
+    order_output_ports: bool = False,
 ) -> list[Diagnostic]:
     if definition.order_by_clause is None:
         return []
@@ -771,6 +887,21 @@ def _grouped_order_by_diagnostics(
                 diagnostics.append(
                     _grouped_order_by_unsupported_diagnostic(item.expression)
                 )
+            elif (
+                not order_output_ports
+                and scoped.expression is not None
+                and input_schema is not None
+            ):
+                problem = _order_key_problem(
+                    scoped.expression,
+                    input_schema,
+                    let_expansions or {},
+                    aggregated=False,
+                    bare_constants=True,
+                    rejected_lets=set(),
+                )
+                if problem is not None:
+                    diagnostics.append(_order_key_diagnostic(item.expression, problem))
             continue
         field_identity = _grouped_order_let_field_identity(
             definition,

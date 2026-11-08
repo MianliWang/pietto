@@ -144,11 +144,11 @@ def test_grouped_count_expression_ir_preserves_group_keys_and_projection_shape()
     )
     projections = _projections(relation)
 
-    assert [key.name for key in relation.group_keys] == ["region"]
-    assert [key.qualifier for key in relation.group_keys] == [()]
-    assert [key.field for key in relation.group_keys] == [
-        FieldId(owner=_orders_symbol(), name="region")
-    ]
+    (key,) = relation.group_keys
+    assert isinstance(key, FieldRefIR)
+    assert key.name == "region"
+    assert key.qualifier == ()
+    assert key.field == FieldId(owner=_orders_symbol(), name="region")
     _assert_field(projections["region"].expression, "region")
     _assert_binary_count(
         projections["amount_tax"].expression,
@@ -234,7 +234,7 @@ def test_direct_lower_expr_for_count_expression_uses_aggregate_call_ir() -> None
         ("value = min(amount + tax)", "PIE-S2315"),
         ("value = max(amount + tax)", "PIE-S2315"),
         ("value = count(count())", "PIE-S2311"),
-        ("value = count(amount) + 1", "PIE-S2310"),
+        ("value = count(amount) if True else 1", "PIE-S2310"),
         ("value = count_if(active)", "PIE-S2103"),
     ],
 )

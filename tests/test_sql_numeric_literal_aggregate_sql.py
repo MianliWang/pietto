@@ -378,7 +378,7 @@ def test_phase26_field_only_expression_aggregate_sql_remains_supported(
         ("value = sum(price + 1)", "PIE-S2315"),
         ("value = sum(price + 1.5)", "PIE-S2315"),
         ("value = sum(avg(amount))", "PIE-S2311"),
-        ("value = sum(amount) + 1", "PIE-S2310"),
+        ("value = sum(amount) if True else 1", "PIE-S2310"),
     ],
 )
 def test_unsupported_source_shapes_stop_before_sql_with_semantic_diagnostics(
@@ -419,7 +419,7 @@ def test_unsupported_source_shapes_stop_before_sql_with_semantic_diagnostics(
         "max_expression_argument",
         "count_distinct_binary_argument",
         "decimal_literal_argument",
-        "decimal_int_multiplication_argument",
+        "decimal_float_multiplication_argument",
         "mixed_decimal_float_argument",
     ],
 )
@@ -599,11 +599,11 @@ def _malformed_aggregate(case: str) -> AggregateCallIR:
             DECIMAL_NULLABLE,
             _binary(price, "+", _literal(1, INT_NON_NULL), DECIMAL_NON_NULL),
         )
-    if case == "decimal_int_multiplication_argument":
+    if case == "decimal_float_multiplication_argument":
         return _aggregate(
             "sum",
             DECIMAL_NULLABLE,
-            _binary(price, "*", amount, DECIMAL_NON_NULL),
+            _binary(price, "*", _literal(1.5, FLOAT_NON_NULL), DECIMAL_NON_NULL),
         )
     if case == "mixed_decimal_float_argument":
         return _aggregate(

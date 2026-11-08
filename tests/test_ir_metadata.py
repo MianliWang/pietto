@@ -2,16 +2,18 @@ from __future__ import annotations
 
 from collections.abc import Mapping
 from copy import deepcopy
-from dataclasses import FrozenInstanceError, fields, is_dataclass
+from dataclasses import FrozenInstanceError, fields, is_dataclass, replace
 from typing import Callable
 
 import pytest
 from antlr4 import ParserRuleContext
 from antlr4.Token import Token
 
-from pietto._metadata.builder import _field_leaves
+from pietto._metadata.builder import _field_leaves, build_semantic_metadata_artifact
+from pietto._metadata.serializer import semantic_metadata_artifact_to_json_dict
 from pietto.ast_nodes import Script, ShapeDef, SourceDef, TableDef
 from pietto.ir import (
+    build_ir,
     AnyFieldIR,
     BinaryIR,
     CastIR,
@@ -433,3 +435,82 @@ def test_metadata_reader_keeps_aggregate_order_keys_after_value_arguments() -> N
     )
 
     assert _leaf_names(aggregate) == ["value", "delimiter", "first", "second"]
+
+
+@pytest.mark.parametrize(
+    "keys,expected",
+    [
+        ("rows.qty", (("qty", ("rows",), 11, 14),)),
+        (
+            "rows.qty, bucket, clean, fixed",
+            (
+                ("qty", ("rows",), 11, 14),
+                ("qty", (), 8, 18),
+                ("qty", (), 8, 24),
+                ("tax", (), 8, 30),
+                ("label", (), 9, 23),
+            ),
+        ),
+        (
+            "clean, bucket, rows.qty, fixed",
+            (
+                ("label", (), 9, 23),
+                ("qty", (), 8, 18),
+                ("qty", (), 8, 24),
+                ("tax", (), 8, 30),
+                ("qty", ("rows",), 11, 29),
+            ),
+        ),
+        ("fixed", ()),
+    ],
+)
+def test_metadata_group_key_field_leaves_keep_order_repetition_and_origins(
+    keys, expected
+):
+    source = (
+        "shape Row:\n    qty: Int\n    tax: Int\n    label: Text\n"
+        'source rows: Row = postgres.table("rows")\n'
+        "query q:\n    from rows\n    let bucket = qty + qty + tax\n"
+        "    let clean = lower(label)\n    let fixed = 7\n"
+        f"    group by {keys}\n    select n = count()\n"
+    )
+    parsed = parse_source(source, path="metadata-group-keys.pietto")
+    assert parsed.ast is not None and parsed.diagnostics == ()
+    semantic = analyze(parsed.ast)
+    assert semantic.diagnostics == ()
+    script = semantic.script or parsed.ast
+    lowered = build_ir(script, semantic.model)
+    assert lowered.ir is not None and lowered.diagnostics == ()
+    artifact = build_semantic_metadata_artifact(
+        path="metadata-group-keys.pietto",
+        script=script,
+        semantic_result=semantic,
+        ir=lowered.ir,
+    )
+    assert artifact.metadata is not None
+    leaves = artifact.metadata.relations[-1].query.group_keys
+    observed = []
+    for leaf in leaves:
+        assert leaf.relation == "rows"
+        assert leaf.location is not None
+        assert leaf.location.path == "metadata-group-keys.pietto"
+        observed.append(
+            (leaf.field, leaf.qualifier, leaf.location.line, leaf.location.column)
+        )
+    assert tuple(observed) == expected
+    document = semantic_metadata_artifact_to_json_dict(artifact)
+    metadata = document["metadata"]
+    assert isinstance(metadata, dict)
+    for leaf in metadata["relations"][-1]["query"]["group_keys"]:
+        assert set(leaf) == {"relation", "field", "qualifier", "location"}
+
+
+def test_metadata_group_key_fallback_keeps_unresolved_field_identity():
+    unresolved = replace(_field("qty", _type("Int")), field=None, qualifier=("rows",))
+    assert _field_leaves(unresolved) == ()
+    leaves = _field_leaves(unresolved, fallback_relation="rows")
+    assert [(leaf.relation, leaf.field, leaf.qualifier) for leaf in leaves] == [
+        ("rows", "qty", ("rows",))
+    ]
+    assert leaves[0].location is not None
+    assert leaves[0].location.path == _SPAN.path

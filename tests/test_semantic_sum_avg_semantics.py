@@ -211,16 +211,11 @@ def test_count_sum_and_avg_are_not_scalar_builtin_functions() -> None:
             ("PIE-S2311", "Nested aggregate avg() is not supported"),
         ),
         (
-            SOURCE_PREFIX + "table paid_order_stats:\n"
-            "    from orders\n"
-            "    select:\n"
-            "        revenue = sum(amount) + 1\n",
+            SOURCE_PREFIX
+            + "table paid_order_stats:\n    from orders\n    select:\n        revenue = sum(amount) if True else 1\n",
             (
                 "PIE-S2310",
-                "Aggregate projection must be a direct aggregate call; "
-                "composition around sum() is not supported yet; select the sum() "
-                "under a name in one query, then compute with that name in "
-                "another that reads it with `from`",
+                "Aggregate composition requires scalar calls or arithmetic over direct aggregates, group keys and literals; invalid composition around sum(); select the sum() under a name in one query, then compute with that name in another that reads it with `from`",
             ),
         ),
         (
@@ -316,23 +311,10 @@ def test_round_of_an_avg_names_the_two_query_route_that_is_accepted() -> None:
     grouped = (
         SOURCE_PREFIX + "query per_status:\n    from orders\n    group by status\n"
     )
-    refused = analyze(
+    composed = analyze(
         _parse(grouped + "    select status, mean = round(avg(price), 2)\n")
     )
-    hint = (
-        "select the avg() under a name in one query, then compute with that name "
-        "in another that reads it with `from`"
-    )
-    # The round beside it reads a value the refused aggregate leaves unknown.
-    assert [(d.code, d.message, d.suggestion) for d in refused.diagnostics] == [
-        ("PIE-S2104", "Invalid arguments for function round", None),
-        (
-            "PIE-S2310",
-            "Aggregate projection must be a direct aggregate call; composition "
-            f"around avg() is not supported yet; {hint}",
-            hint,
-        ),
-    ]
+    assert composed.diagnostics == ()
     accepted = analyze(
         _parse(
             grouped + "    select status, mean = avg(price)\n"
@@ -452,13 +434,10 @@ def test_stddev_of_an_int_or_float_field_is_a_nullable_float(function: str) -> N
             ("PIE-S2311", "Nested aggregate sum() is not supported"),
         ),
         (
-            "    select:\n        x = stddev(amount) + 1.0\n",
+            "    select:\n        x = stddev(amount) if True else 1.0\n",
             (
                 "PIE-S2310",
-                "Aggregate projection must be a direct aggregate call; "
-                "composition around stddev() is not supported yet; select the stddev() "
-                "under a name in one query, then compute with that name in "
-                "another that reads it with `from`",
+                "Aggregate composition requires scalar calls or arithmetic over direct aggregates, group keys and literals; invalid composition around stddev(); select the stddev() under a name in one query, then compute with that name in another that reads it with `from`",
             ),
         ),
         *(

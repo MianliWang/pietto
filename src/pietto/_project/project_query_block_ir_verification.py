@@ -3504,14 +3504,30 @@ def _check_current_aggregate_result(result, readiness) -> None:
     expected_keys = (
         () if definition.group_by_clause is None else definition.group_by_clause.items
     )
-    expected_aggregates = tuple(
-        (position, item)
-        for position, item in enumerate(definition.select_items)
-        if type(item.expression) is not WindowExpr
-        and joined_aggregation.semantic_aggregates.contains_semantic_aggregate(
+    expected_aggregates = []
+    for position, item in enumerate(definition.select_items):
+        if (
+            type(item.expression) is WindowExpr
+            or not joined_aggregation.semantic_aggregates.contains_semantic_aggregate(
+                item.expression
+            )
+        ):
+            continue
+        parts = joined_aggregation.semantic_aggregates.aggregate_composition_leaves(
             item.expression
         )
-    )
+        calls = (
+            tuple(
+                part
+                for part in parts
+                if joined_aggregation.semantic_aggregates.is_semantic_aggregate_call(
+                    part
+                )
+            )
+            if parts is not None
+            else (item.expression,)
+        )
+        expected_aggregates.extend((position, item, call) for call in calls)
     if (
         result.mode is not joined_aggregation._mode(definition)
         or len(key_results) != len(expected_keys)
@@ -3528,7 +3544,11 @@ def _check_current_aggregate_result(result, readiness) -> None:
             item.input_filter is not input_filter
             or item.item is not source
             or item.selected_output_ordinal != position
-            for item, (position, source) in zip(
+            or (
+                type(item) is joined_aggregation.ProjectJoinedAggregateOccurrence
+                and item.call is not call
+            )
+            for item, (position, source, call) in zip(
                 aggregate_results, expected_aggregates, strict=True
             )
         )
@@ -3588,8 +3608,13 @@ def _check_current_aggregate_result(result, readiness) -> None:
         if not valid_key:
             raise ValueError("Current group key borrowed field semantics.")
     for aggregate in aggregates:
-        if aggregate.call is not aggregate.item.expression:
-            raise ValueError("Current aggregate lost its exact selected call.")
+        if (
+            joined_aggregation.semantic_aggregates.semantic_aggregate_call_name(
+                aggregate.call
+            )
+            != aggregate.function_name
+        ):
+            raise ValueError("Current aggregate lost its exact canonical function.")
         analysis = aggregate.argument_analysis
         if aggregate.call.arguments:
             if (

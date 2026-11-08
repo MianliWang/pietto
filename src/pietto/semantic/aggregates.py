@@ -332,6 +332,32 @@ def _nested_semantic_aggregate(
     return None
 
 
+def aggregate_composition_leaves(
+    expression: Expression,
+) -> tuple[Expression, ...] | None:
+    """The direct aggregate, key and literal leaves of a scalar composition."""
+    if is_semantic_aggregate_call(expression) or isinstance(
+        expression, (NameExpr, DottedNameExpr, LiteralExpr, ParameterRefExpr)
+    ):
+        return (expression,)
+    if not (
+        isinstance(expression, CallExpr)
+        and not expression.aggregate_order_by
+        or isinstance(expression, BinaryExpr)
+        and expression.operator in {"+", "-", "*", "/", "%"}
+        or isinstance(expression, UnaryExpr)
+        and expression.operator in {"+", "-"}
+    ):
+        return None
+    leaves: list[Expression] = []
+    for child in child_expressions(expression):
+        parts = aggregate_composition_leaves(child)
+        if parts is None:
+            return None
+        leaves.extend(parts)
+    return tuple(leaves)
+
+
 def child_expressions(expression: Expression) -> tuple[Expression, ...]:
     """Return immediate expression children for supported AST nodes."""
 
@@ -1265,8 +1291,8 @@ def deferred_composition_diagnostic(expression: Expression) -> Diagnostic:
         expression,
         code="PIE-S2310",
         message=(
-            "Aggregate projection must be a direct aggregate call; "
-            f"composition around {name}() is not supported yet"
+            "Aggregate composition requires scalar calls or arithmetic over "
+            f"direct aggregates, group keys and literals; invalid composition around {name}()"
         ),
         hint=(
             f"select the {name}() under a name in one query, then compute with "

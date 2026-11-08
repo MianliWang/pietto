@@ -5,6 +5,7 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from typing import cast
 
+from pietto.semantic.aggregates import semantic_aggregate_call_name
 from pietto._project.module_attribution import ProjectDeclarationOccurrenceIdentity
 from pietto._project.project_grain import (
     ProjectBaseGrainFactorIdentity,
@@ -1309,11 +1310,12 @@ def _candidate_ref(
         ...,
     ],
     candidate: ProjectActualGrainCandidate,
+    alignment: ProjectMultiFactAlignment,
 ) -> ProjectPhase62PortableRef:
     matches = tuple(
         position
-        for position, (item, _alignment, _grain) in enumerate(entries)
-        if item is candidate
+        for position, (item, owner, _grain) in enumerate(entries)
+        if item is candidate and owner is alignment
     )
     if len(matches) != 1:
         raise ValueError("Common-grain candidate requires one exact owner.")
@@ -1329,6 +1331,9 @@ def _multifact_records(
     alignments = cast(tuple[object, ...], inspection.alignments)
     common_results = cast(tuple[object, ...], inspection.common_grain_results)
     for fact in inspection.aggregate_facts:
+        function = semantic_aggregate_call_name(fact.aggregate.call)
+        if function is None:
+            raise ValueError("Aggregate fact requires its actual canonical call.")
         _record(
             records,
             ProjectPhase62RecordKind.AGGREGATE_FACT,
@@ -1355,7 +1360,7 @@ def _multifact_records(
                 "selected_ordinal",
                 project_phase62_pure_integer(fact.selected_output_ordinal),
             ),
-            ("function", project_phase62_pure_text(fact.aggregate_result.function)),
+            ("function", project_phase62_pure_text(function)),
             (
                 "output_name",
                 project_phase62_pure_text(fact.aggregate_result.output_name),
@@ -1468,7 +1473,7 @@ def _multifact_records(
                 "actual",
                 project_phase62_pure_refs(
                     tuple(
-                        _candidate_ref(entries, item)
+                        _candidate_ref(entries, item, alignment)
                         for item in result.actual_candidates
                     )
                 ),
@@ -1477,7 +1482,7 @@ def _multifact_records(
                 "common",
                 project_phase62_pure_refs(
                     tuple(
-                        _candidate_ref(entries, item.candidate)
+                        _candidate_ref(entries, item.candidate, alignment)
                         for item in result.common_candidates
                     )
                 ),
@@ -1486,7 +1491,7 @@ def _multifact_records(
                 "retained",
                 project_phase62_pure_refs(
                     tuple(
-                        _candidate_ref(entries, item.candidate)
+                        _candidate_ref(entries, item.candidate, alignment)
                         for item in result.candidates
                     )
                 ),

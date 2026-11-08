@@ -463,9 +463,9 @@ source sales: Sale = postgres.table("public.sales")
     ("body", "codes"),
     [
         pytest.param(
-            "\ntable doubled:\n    from sales\n    select id, d = amount * 2, n = -amount\n",
+            "\ntable mixed:\n    from sales\n    select id, d = amount * 2.0, n = amount + 2.0\n",
             ["PIE-S2105", "PIE-S2105"],
-            id="decimal_operands",
+            id="decimal_float_operands",
         ),
         pytest.param(
             "\ntable flags:\n    from sales\n    group by region\n"

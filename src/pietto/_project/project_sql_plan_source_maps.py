@@ -14,6 +14,8 @@ from pietto._project import project_sql_plan as sql
 from pietto._project.module_catalog import table_function_input
 from pietto._project import project_sql_plan_windows as windows
 from pietto._project import project_sql_plan_literals as literals
+from pietto._project import project_sql_plan_aggregation as aggregation
+from pietto._project import project_sql_plan_expressions as row
 from pietto._project.model import ProjectParsedInput, ProjectRowField
 from pietto._project.module_catalog import ProjectDeclarationOccurrence
 from pietto._project.module_carrier import ProjectLogicalModule
@@ -336,6 +338,15 @@ class _Member:
 
 
 class _SourceTables(TypedDict):
+    composition_routes: dict[
+        sql.ProjectSQLPlanRef,
+        tuple[
+            tuple[
+                ProjectSQLSourceAssociationKind, ast.Node, ast.Node, object, None, None
+            ],
+            ...,
+        ],
+    ]
     predicate_routes: dict[
         int,
         tuple[
@@ -835,9 +846,65 @@ def _normalization_source_routes(plan, members):
     return {identity: tuple(values) for identity, values in routes.items()}
 
 
+def _composition_source_routes(plan):
+    """Keep each real HAVING alias use on its actual expanded expression context."""
+    expressions = {}
+    for value in plan.expressions:
+        expressions.setdefault(id(value.site), {})[id(value.expression)] = value
+    routes = {}
+    for site in plan.expression_sites:
+        if (
+            not isinstance(site, aggregation.ProjectSQLAggregateSite)
+            or site.role is not row.ProjectSQLExpressionRole.SATISFYING
+        ):
+            continue
+        current = expressions.get(id(site), {})
+        for reference in site.references:
+            fact = aggregation.reference_composition(reference)
+            if fact is None:
+                continue
+            authored = row.reference_expression(reference)
+            for node in row.scalar_nodes(
+                fact.expression, aggregation.composition_references(fact)
+            ):
+                value = current.get(id(node))
+                if value is None or value.expression is not node:
+                    raise ValueError(
+                        "HAVING expansion lost its exact expression consumer"
+                    )
+                routes.setdefault(value.ref, []).append(
+                    (
+                        ProjectSQLSourceAssociationKind.NORMALIZED_EXPRESSION,
+                        authored,
+                        node,
+                        reference,
+                        None,
+                        None,
+                    )
+                )
+    for literal_site in plan.literal_sites:
+        inherited = routes.get(literal_site.position.expression)
+        if inherited:
+            routes[literal_site.ref] = inherited
+    for slot in plan.literal_slots:
+        inherited = routes.get(slot.site.ref)
+        if inherited:
+            routes[slot.ref] = inherited
+    for value in plan.fixed_envelope.values:
+        inherited = routes.get(value.slot.ref)
+        if inherited:
+            routes[value.ref] = inherited
+    for use in plan.bind_uses:
+        inherited = routes.get(use.expression)
+        if inherited:
+            routes[use.ref] = inherited
+    return {subject: tuple(values) for subject, values in routes.items()}
+
+
 def source_tables(plan, members) -> _SourceTables:
     attribution = plan.scope.analysis_bundle.root.base_plan.attribution
     return _SourceTables(
+        composition_routes=_composition_source_routes(plan),
         predicate_routes=_normalization_source_routes(plan, members),
         members_by_node=_buckets(
             (m for values in members.values() for m in values), lambda m: id(m.node)
@@ -949,6 +1016,7 @@ def association_routes(origin, tables):
         yield from expanded
     else:
         yield K.CAUSE, origin.cause, origin.cause, origin.evidence, None, None
+    yield from tables["composition_routes"].get(origin.subject, ())
     yield from reference_sites(origin.cause, tables)
     if isinstance(
         origin.cause,

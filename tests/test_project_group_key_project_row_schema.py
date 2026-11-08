@@ -18,6 +18,7 @@ from pietto._project.aggregate_grouped_schema import (
     ProjectGroupKeySchemaFacts,
     _build_project_group_key_schema_attempt,
     build_project_group_key_schema_facts,
+    build_project_grouped_schema_facts,
 )
 from pietto._project.let_scope_facts import build_project_relation_let_scope_facts
 from pietto._project.check import check_project_parse_only
@@ -361,11 +362,11 @@ def test_selecting_let_name_is_not_selected_underlying_group_key(
         "    group by:\n"
         "        status\n"
         "    select:\n"
-        "        label = lower(status)\n"
+        "        label = status if True else status\n"
         "        total = count()\n",
     ),
 )
-def test_invalid_qualifier_let_key_unknown_and_scalar_select_return_no_candidate(
+def test_invalid_qualifier_let_key_unknown_and_unapproved_select_return_no_candidate(
     tmp_path: Path,
     relation_body: str,
 ) -> None:
@@ -911,4 +912,38 @@ def _location(item: SelectItem, *, fallback_path: str) -> SourceLocation:
         column=span.column,
         end_line=span.end_line,
         end_column=span.end_column,
+    )
+
+
+@pytest.mark.parametrize("field_name,accepted", [("status", True), ("region", False)])
+def test_group_key_facts_leave_scalar_outputs_to_grouped_validation(
+    tmp_path: Path, field_name: str, accepted: bool
+) -> None:
+    _, _, definition, input_schema, upstream_symbol = _group_key_inputs(
+        tmp_path,
+        f"query grouped:\n    from users\n    group by status\n    select label = lower({field_name}), total = count()\n",
+    )
+    keys = _build_facts(definition, input_schema, upstream_symbol)
+    (key,) = keys.group_keys
+    assert isinstance(key, ProjectGroupKeyFact)
+    assert definition.group_by_clause is not None
+    assert key.item is definition.group_by_clause.items[0]
+    assert key.input_field is input_schema.fields["status"]
+    assert key.field_identity == "status"
+    assert keys.selected_fields == {}
+    grouped = build_project_grouped_schema_facts(
+        definition=definition,
+        input_schema=input_schema,
+        upstream_symbol=upstream_symbol,
+        fallback_path="models.pietto",
+    )
+    if not accepted:
+        assert grouped is None
+        return
+    assert grouped is not None
+    field = grouped.selected_results[definition.select_items[0]].field
+    assert (field.name, field.resolved_type.name, field.nullability) == (
+        "label",
+        "Text",
+        ProjectRowFieldNullability.NON_NULL,
     )

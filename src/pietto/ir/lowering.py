@@ -95,6 +95,7 @@ from pietto.semantic.aggregates import (
     GROUP_TEST_AGGREGATE_NAMES,
     ORDERED_VALUE_AGGREGATE_NAMES,
     aggregate_argument_can_use_let_scope,
+    aggregate_composition_leaves,
     ordered_value_result,
     semantic_aggregate_call_name,
     generator_aggregate_result_value_type,
@@ -1467,7 +1468,10 @@ def _is_valid_aggregate_projection(
 
     for relation, schema in semantic_model.relation_row_schemas.items():
         for item in relation.select_items:
-            if item.expression is not expression or item.alias is None:
+            if item.alias is None or not any(
+                leaf is expression
+                for leaf in aggregate_composition_leaves(item.expression) or ()
+            ):
                 continue
             if not _aggregate_type_matches_ir(
                 function_name,
@@ -1479,6 +1483,11 @@ def _is_valid_aggregate_projection(
             ):
                 return False
             field = schema.fields.get(item.alias)
+            if item.expression is not expression:
+                return (
+                    field is not None
+                    and field.resolved_type.kind is not TypeKind.UNKNOWN
+                )
             return (
                 field is not None
                 and field.resolved_type.kind is semantic_value_type.resolved_type.kind

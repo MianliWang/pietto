@@ -1021,6 +1021,7 @@ def test_postgres_aggregate_windows_over_frames_groups_qualify_and_joins(form):
     ("call", "code", "detail"),
     (
         ("sum(money)", "PIE-B1004", "decimal_aggregate_range_proof_missing"),
+        ("avg(money)", "PIE-B1004", "decimal_aggregate_range_proof_missing"),
         ("avg(ratio)", "PIE-B1004", "float_aggregate_finite_result_proof_missing"),
         ("sum(ratio)", "PIE-B1004", "float_aggregate_finite_result_proof_missing"),
         ("min(money)", "PIE-B1003", "min_argument_outside_reviewed_int_domain"),
@@ -1059,3 +1060,61 @@ def test_mysql_keeps_aggregate_windows_refused_before_its_database_evidence(
             "differential.",
         )
     ]
+
+
+@pytest.mark.parametrize("legacy_cast", (False, True))
+def test_independent_readers_reject_decimal_sum_window_artifacts(
+    tmp_path, monkeypatch, legacy_cast
+):
+    from pietto._project import project_sql_emission as emission
+    from pietto._project import project_sql_emission_windows as windowing
+    from pietto._project import project_sql_emission_verification as verification
+    from pietto._project import project_sql_emission_portable as portable
+    from pietto._project import project_sql_emission_pure_boundary as pure
+    from pietto._project.project_sql_emission_contract import (
+        prepare_project_sql_emission,
+    )
+
+    item = probe.parameterized_fixture(
+        "postgres", select_body("sum(money)"), protocol=False
+    )
+    encoded = item["contract"].encode()
+    checked, refused = probe.build_case(tmp_path, item["source"], encoded)
+    assert checked.verified and refused.artifact is None
+    assert [(b.code, b.detail) for b in refused.blockers] == [
+        ("PIE-B1004", "decimal_aggregate_range_proof_missing")
+    ]
+    request = prepare_project_sql_emission(checked, encoded)
+    # Bypass only construction admission, rebuilding SQL and all occurrence
+    # evidence together. Also exercise the old Int result-cast spelling.
+    with monkeypatch.context() as patch:
+        patch.setattr(windowing, "aggregate_argument_problem", lambda *args: None)
+        if legacy_cast:
+            patch.setattr(
+                windowing, "aggregate_casts", lambda *args: (None, "pg_catalog.int8")
+            )
+        realization = emission.realize_rows(request)
+        query = realization.query
+        assert type(query) is emission.SQLRowQuery
+        rendered = emission.render_row_sql(query)
+        original, generated = emission.build_row_requirements(request, query)
+        artifact = emission.EmissionArtifact(
+            request,
+            query,
+            rendered,
+            original,
+            generated,
+            request.plan.fixed_envelope.values,
+            tuple(p.use for p in emission.row_parameter_leaves(query)),
+        )
+    verdict = verification.verify_project_sql_emission(artifact, request)
+    assert not verdict.verified
+    assert "plan_ast_correspondence" in verdict.issues
+    assert (
+        portable.export_emission_observation(artifact, request).status
+        is portable.ObservationStatus.UNVERIFIED
+    )
+    data = portable._Export(artifact, request).run()
+    result = pure.parse_emission_observation(data)
+    assert result.status is pure.Status.INVALID_RELATION
+    assert result.detail == "window aggregate"

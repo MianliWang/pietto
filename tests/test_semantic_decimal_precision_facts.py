@@ -483,7 +483,7 @@ def test_aggregate_outputs_and_public_surfaces_remain_precision_scale_free() -> 
 
 def test_operator_boundaries_remain_deferred_without_expression_fusion() -> None:
     for projection, expected_codes in (
-        ("value = price * amount", ["PIE-S2105"]),
+        ("value = price * score", ["PIE-S2105"]),
         ("value = price % amount", ["PIE-S2105"]),
         ("value = price + score", ["PIE-S2105"]),
         ("value = score + price", ["PIE-S2105"]),
@@ -721,7 +721,7 @@ def test_decimal_int_and_decimal_decimal_expressions_stay_logical_without_precis
 @pytest.mark.parametrize(
     ("projection", "expected_codes"),
     [
-        ("value = price * amount", ["PIE-S2105"]),
+        ("value = price * score", ["PIE-S2105"]),
         ("value = price % amount", ["PIE-S2105"]),
         ("value = price + score", ["PIE-S2105"]),
         ("value = score + price", ["PIE-S2105"]),
@@ -907,3 +907,48 @@ def _binary_select_expression(relation: TableDef, alias: str) -> BinaryExpr:
             assert isinstance(expression, BinaryExpr)
             return expression
     raise AssertionError(f"Missing select alias: {alias}")
+
+
+@pytest.mark.parametrize(
+    "connector,emitter,quote",
+    [("postgres.table", emit_postgres_sql, '"'), ("mysql.table", emit_mysql_sql, "`")],
+)
+def test_decimal_int_products_and_signs_keep_logical_types_and_sql(
+    connector, emitter, quote
+) -> None:
+    source = BASE_SOURCE.replace("postgres.table", connector) + (
+        "query projected:\n    from orders\n    select:\n"
+        "        product = price * amount\n"
+        "        reverse = amount * price\n"
+        "        positive = +price\n"
+        "        negative = -price\n"
+    )
+    parsed, semantic, ir = _compile(source)
+    script = semantic.script or parsed
+    relation = _relation_ast(script, "projected")
+    fields = semantic.model.relation_row_schemas[relation].fields
+    assert semantic.model.decimal_precision_scale_for(
+        _shape_fields(script, "Order")["price"].type_expr
+    ) == DecimalPrecisionScale(12, 2)
+    for name in ("product", "reverse", "positive", "negative"):
+        expected_nullability = (
+            EffectiveNullability.UNKNOWN
+            if name in {"product", "reverse"}
+            else EffectiveNullability.NON_NULL
+        )
+        _assert_value_type(fields[name], "Decimal", expected_nullability)
+        _assert_value_type(
+            semantic.model.expression_value_types[_select_expression(relation, name)],
+            "Decimal",
+            expected_nullability,
+        )
+    emitted = emitter(ir)
+    assert emitted.diagnostics == ()
+    qprice, qamount = f"{quote}price{quote}", f"{quote}amount{quote}"
+    for value, name in [
+        (f"{qprice} * {qamount}", "product"),
+        (f"{qamount} * {qprice}", "reverse"),
+        (f"+{qprice}", "positive"),
+        (f"-{qprice}", "negative"),
+    ]:
+        assert f"{value} AS {quote}{name}{quote}" in emitted.artifacts[0].sql

@@ -435,10 +435,6 @@ def test_unread_let_keeps_independent_aggregate_type_errors(grouped: bool) -> No
             _COUNT_ARGUMENT_ERROR + (5, 13),
         ),
         (
-            "    select:\n        c = count(x % 2.5)\n",
-            _COUNT_ARGUMENT_ERROR + (5, 13),
-        ),
-        (
             "    group by kind\n    select:\n        kind\n"
             "        c = count(t + True)\n",
             _COUNT_ARGUMENT_ERROR + (7, 13),
@@ -646,13 +642,10 @@ def test_projection_alias_is_not_an_aggregate_argument_leaf() -> None:
             ("PIE-S2311", "Nested aggregate avg() is not supported"),
         ),
         (
-            "value = sum(amount) + 1",
+            "value = sum(amount) if True else 1",
             (
                 "PIE-S2310",
-                "Aggregate projection must be a direct aggregate call; "
-                "composition around sum() is not supported yet; select the sum() "
-                "under a name in one query, then compute with that name in "
-                "another that reads it with `from`",
+                "Aggregate composition requires scalar calls or arithmetic over direct aggregates, group keys and literals; invalid composition around sum(); select the sum() under a name in one query, then compute with that name in another that reads it with `from`",
             ),
         ),
     ],
@@ -903,3 +896,12 @@ def _analyze(projections: str):
     assert parsed.diagnostics == ()
     assert parsed.ast is not None
     return analyze(parsed.ast)
+
+
+def test_unknown_row_float_remainder_leaves_a_possible_count_argument_type():
+    result = analyze(
+        _parse(
+            'source items = postgres.table("items")\nquery q:\n    from items\n    select c = count(x % 2.5)\n'
+        )
+    )
+    assert not [item for item in result.diagnostics if item.severity is Severity.ERROR]

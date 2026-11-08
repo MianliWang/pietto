@@ -47,7 +47,9 @@ from pietto._project.let_scope_facts import (
 )
 from pietto._project.model import (
     project_declaration_occurrence_identity,
+    ProjectAnyAggregateResultFact,
     ProjectAggregateResultFact,
+    ProjectAggregateCompositionResultFact,
     ProjectDeclarationOccurrenceIdentity,
     ProjectModuleRowFieldIdentity,
     ProjectModuleRowFieldKind,
@@ -769,7 +771,7 @@ class ProjectModuleSelectFact:
     output_name: str | None
     expression_schema: ProjectExpressionSchemaResult | None
     field: ProjectRowField | None
-    aggregate_result_fact: ProjectAggregateResultFact | None
+    aggregate_result_fact: ProjectAnyAggregateResultFact | None
     references: tuple[
         ProjectModuleExpressionReferenceFact[ProjectModuleFactOccurrenceRole], ...
     ] = ()
@@ -795,10 +797,9 @@ class ProjectModuleSelectFact:
             raise TypeError("Select expression schema must be exact.")
         if self.field is not None and type(self.field) is not ProjectRowField:
             raise TypeError("Select field must be exact.")
-        if (
-            self.aggregate_result_fact is not None
-            and type(self.aggregate_result_fact) is not ProjectAggregateResultFact
-        ):
+        if self.aggregate_result_fact is not None and type(
+            self.aggregate_result_fact
+        ) not in {ProjectAggregateResultFact, ProjectAggregateCompositionResultFact}:
             raise TypeError("Select aggregate result fact must be exact.")
         _require_tuple(
             self.references,
@@ -895,7 +896,7 @@ class ProjectModuleClauseDependencyFact:
     source_occurrence: GroupByItem | OrderItem | NameExpr | CallExpr
     target_occurrences: tuple[SelectItem | GroupByItem, ...] = ()
     target_fields: tuple[ProjectRowField, ...] = ()
-    aggregate_result_facts: tuple[ProjectAggregateResultFact, ...] = ()
+    aggregate_result_facts: tuple[ProjectAnyAggregateResultFact, ...] = ()
     status: ProjectModuleCandidateBucketStatus = (
         ProjectModuleCandidateBucketStatus.ABSENT
     )
@@ -926,7 +927,7 @@ class ProjectModuleClauseDependencyFact:
         _require_tuple(self.target_fields, ProjectRowField, "Clause target fields")
         _require_tuple(
             self.aggregate_result_facts,
-            ProjectAggregateResultFact,
+            (ProjectAggregateResultFact, ProjectAggregateCompositionResultFact),
             "Clause aggregate result facts",
         )
         if type(self.status) is not ProjectModuleCandidateBucketStatus:
@@ -1953,7 +1954,7 @@ class ProjectModuleRelationSemanticFacts:
         ProjectAggregateGroupedClauseReadiness | None
     ) = None
     clause_dependencies: tuple[ProjectModuleClauseDependencyFact, ...] = ()
-    aggregate_result_facts: tuple[ProjectAggregateResultFact, ...] = ()
+    aggregate_result_facts: tuple[ProjectAnyAggregateResultFact, ...] = ()
     window_outputs: tuple[ProjectModuleWindowOutputFact, ...] = ()
     named_window_namespace: (
         ResolvedNamedWindowNamespace | NamedWindowResolutionFailure | None
@@ -2098,7 +2099,7 @@ class ProjectModuleRelationSemanticFacts:
         )
         _require_tuple(
             self.aggregate_result_facts,
-            ProjectAggregateResultFact,
+            (ProjectAggregateResultFact, ProjectAggregateCompositionResultFact),
             "Aggregate result facts",
         )
         _require_tuple(
@@ -4895,7 +4896,7 @@ def _build_derived_relation_facts(
         upstream_state=upstream.state,
     )
     readiness: ProjectAggregateGroupedClauseReadiness | None = None
-    aggregate_result_facts: tuple[ProjectAggregateResultFact, ...] = ()
+    aggregate_result_facts: tuple[ProjectAnyAggregateResultFact, ...] = ()
     helper_diagnostics: tuple[Diagnostic, ...] = ()
     if _is_project_aggregate_grouped_definition(definition):
         readiness = with_single_file_grouping_diagnostics(
@@ -5282,7 +5283,7 @@ def _select_facts(
     input_status: ProjectModuleCandidateBucketStatus,
     state: ProjectRelationRowSchemaState,
     let_scope: ProjectRelationLetScopeFacts,
-    aggregate_result_facts: tuple[ProjectAggregateResultFact, ...],
+    aggregate_result_facts: tuple[ProjectAnyAggregateResultFact, ...],
     read_types: Mapping[Expression, ValueType] | None = None,
     captures: _CaptureEnvironment = _NO_CAPTURES,
 ) -> tuple[
@@ -6106,11 +6107,11 @@ def _candidate_target_facts(
     candidates: tuple[SelectItem, ...],
     *,
     schema: ProjectRowSchema | None,
-    aggregate_by_name: Mapping[str, ProjectAggregateResultFact],
+    aggregate_by_name: Mapping[str, ProjectAnyAggregateResultFact],
     include_window_candidates: bool,
-) -> tuple[tuple[ProjectRowField, ...], tuple[ProjectAggregateResultFact, ...]]:
+) -> tuple[tuple[ProjectRowField, ...], tuple[ProjectAnyAggregateResultFact, ...]]:
     target_fields: list[ProjectRowField] = []
-    aggregate_facts: list[ProjectAggregateResultFact] = []
+    aggregate_facts: list[ProjectAnyAggregateResultFact] = []
     for candidate in candidates:
         is_window = type(candidate.expression) is WindowExpr
         if is_window and not include_window_candidates:
@@ -6188,7 +6189,7 @@ def _clause_dependency_facts(
     state: ProjectRelationRowSchemaState,
     grouped_order_state: ProjectRelationRowSchemaState | None = None,
     let_scope: ProjectRelationLetScopeFacts,
-    aggregate_result_facts: tuple[ProjectAggregateResultFact, ...],
+    aggregate_result_facts: tuple[ProjectAnyAggregateResultFact, ...],
     computed_group_keys: tuple[ProjectComputedGroupKeyFact, ...] = (),
 ) -> tuple[ProjectModuleClauseDependencyFact, ...]:
     facts: list[ProjectModuleClauseDependencyFact] = []

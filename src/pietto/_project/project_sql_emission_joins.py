@@ -152,7 +152,16 @@ def sited_admitted(expression, family) -> bool:
     if family != "postgres":
         return False
     return type(expression) is plan_aggregation.ProjectSQLAggregateArgumentCall or (
-        type(expression) in SITED and type(site) is row.ProjectSQLExpressionSite
+        type(expression) in SITED
+        and (
+            type(site) is row.ProjectSQLExpressionSite
+            or type(site) is plan_aggregation.ProjectSQLAggregateSite
+            and site.role
+            in {
+                row.ProjectSQLExpressionRole.SELECT,
+                row.ProjectSQLExpressionRole.SATISFYING,
+            }
+        )
     )
 
 

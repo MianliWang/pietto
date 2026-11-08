@@ -58,6 +58,7 @@ from pietto.semantic.aggregates import (
     SEMANTIC_AGGREGATE_NAMES,
     accepts_argument_form,
     aggregate_argument_can_use_let_scope,
+    aggregate_composition_leaves,
     contains_semantic_aggregate,
     count_distinct_tuple_diagnostic,
     extremum_reads_let,
@@ -1482,13 +1483,45 @@ def type_relation_expressions(
                         ):
                             window_alias_value_types[item.alias] = result.value_type
                 continue
+            # Type aggregate leaves in their row scope before the scalar result.
+            if item.alias is not None and not is_semantic_aggregate_call(
+                item.expression
+            ):
+                for leaf in aggregate_composition_leaves(item.expression) or ():
+                    if not is_semantic_aggregate_call(leaf):
+                        continue
+                    typed = _infer(
+                        leaf,
+                        input_schema,
+                        value_types,
+                        diagnostics,
+                        report_unknown_name=True,
+                        field_qualifier=definition.from_clause.binding_name
+                        or definition.from_clause.source_name,
+                        allow_aggregate_projection=True,
+                        bare_value_types=let_value_types,
+                        bare_value_expressions=let_expressions,
+                        suppressed_unknown_names=rejected_lets,
+                        type_expansions=type_expansions,
+                    )
+                    if (
+                        semantic_aggregate_call_name(leaf)
+                        in ORDERED_VALUE_AGGREGATE_NAMES
+                    ):
+                        value_types[leaf] = ordered_value_result(
+                            typed, grouped=definition.group_by_clause is not None
+                        )
             select_let_value_types = (
                 let_value_types
                 if (
                     definition.group_by_clause is None
                     and not contains_semantic_aggregate(item.expression)
                 )
-                or _is_direct_aggregate_projection(item)
+                or item.alias is not None
+                and any(
+                    contains_semantic_aggregate(selected.expression)
+                    for selected in definition.select_items
+                )
                 or (
                     isinstance(item.expression, NameExpr)
                     and definition.group_by_clause is not None

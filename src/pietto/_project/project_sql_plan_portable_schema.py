@@ -108,6 +108,7 @@ PREDICATE_VARIANT_BASES = MappingProxyType(
         "authored_any_table": "table_def",
         "named_join_clause": "join_clause",
         "project_predicate_aggregate_expression_analysis": "project_aggregate_expression_analysis",
+        "project_joined_composition_output_occurrence": "project_joined_stage_output_occurrence",
     }
 )
 
@@ -372,6 +373,7 @@ ANCHOR = Shape(
         "project_ir_output_value_fd",
         "project_ir_output_candidate_key",
         "project_ir_provided_intrinsic_grain",
+        "project_ir_provided_local_grain_evidence",
         "set_operand",
         "distinct_clause",
         "order_by_clause",
@@ -430,6 +432,9 @@ ANCHOR = Shape(
         "project_grouped_grain_factor_identity",
         "project_grain_dependency_fact",
         "project_aggregate_result_fact",
+        "project_aggregate_leaf_fact",
+        "project_aggregate_composition_result_fact",
+        "project_joined_composition_output_occurrence",
         "satisfying_clause",
         "qualify_clause",
         "group_by_item",
@@ -938,6 +943,7 @@ RECORD_RULES: Mapping[str, RecordRule] = MappingProxyType(
                     union(
                         ref("project_sql_expression_site"),
                         ref("project_sql_joined_site"),
+                        ref("project_sql_aggregate_site"),
                     ),
                 ),
             ),
@@ -1964,6 +1970,7 @@ RECORD_RULES: Mapping[str, RecordRule] = MappingProxyType(
                     "key",
                     union(
                         ref("project_row_field"),
+                        ref("call_expr"),
                         ref("let_binding"),
                         ref("project_scalar_environment_field"),
                         ref("project_joined_let_occurrence"),
@@ -2944,6 +2951,7 @@ RECORD_RULES: Mapping[str, RecordRule] = MappingProxyType(
                     "evidence",
                     union(
                         ref("project_aggregate_expression_analysis"),
+                        ref("project_aggregate_composition_result_fact"),
                         ref("project_concrete_joined_namespace_expression"),
                         ref("project_joined_satisfying_analysis"),
                         ref("satisfying_result_predicate_info"),
@@ -4042,7 +4050,13 @@ RECORD_RULES: Mapping[str, RecordRule] = MappingProxyType(
                 FieldRule("field", union(ref("project_row_field"), optional)),
                 FieldRule(
                     "aggregate_result_fact",
-                    union(ref("project_aggregate_result_fact"), optional),
+                    union(
+                        union(
+                            ref("project_aggregate_result_fact"),
+                            ref("project_aggregate_composition_result_fact"),
+                        ),
+                        optional,
+                    ),
                 ),
                 FieldRule("references", seq(ANCHOR)),
             ),
@@ -5007,6 +5021,14 @@ RECORD_RULES: Mapping[str, RecordRule] = MappingProxyType(
                 FieldRule("supports", seq(ANCHOR)),
             ),
         ),
+        "project_ir_provided_local_grain_evidence": RecordRule(
+            "project_ir_provided_local_grain_evidence",
+            (
+                FieldRule("output", ref("project_ir_relation_row_output")),
+                FieldRule("evidence", ref("project_module_relation_semantic_facts")),
+                FieldRule("occurrences", seq(ref("group_by_item"))),
+            ),
+        ),
         "project_ir_provided_intrinsic_grain": RecordRule(
             "project_ir_provided_intrinsic_grain",
             (
@@ -5547,7 +5569,13 @@ RECORD_RULES: Mapping[str, RecordRule] = MappingProxyType(
                 FieldRule("target_field", ref("project_row_field")),
                 FieldRule(
                     "aggregate_result_fact",
-                    union(ref("project_aggregate_result_fact"), optional),
+                    union(
+                        union(
+                            ref("project_aggregate_result_fact"),
+                            ref("project_aggregate_composition_result_fact"),
+                        ),
+                        optional,
+                    ),
                 ),
             ),
         ),
@@ -5613,7 +5641,13 @@ RECORD_RULES: Mapping[str, RecordRule] = MappingProxyType(
                 FieldRule("definition", union(ref("table_def"), ref("query_def"))),
                 FieldRule("item", ref("select_item")),
                 FieldRule("field", ref("project_row_field")),
-                FieldRule("fact", ref("project_aggregate_result_fact")),
+                FieldRule(
+                    "fact",
+                    union(
+                        ref("project_aggregate_result_fact"),
+                        ref("project_aggregate_leaf_fact"),
+                    ),
+                ),
                 FieldRule("effective_argument", union(ANCHOR, optional)),
                 FieldRule("result_value_type", ref("value_type")),
             ),
@@ -5624,7 +5658,13 @@ RECORD_RULES: Mapping[str, RecordRule] = MappingProxyType(
                 FieldRule("field", ref("project_row_field")),
                 FieldRule(
                     "aggregate_fact",
-                    union(ref("project_aggregate_result_fact"), optional),
+                    union(
+                        union(
+                            ref("project_aggregate_result_fact"),
+                            ref("project_aggregate_composition_result_fact"),
+                        ),
+                        optional,
+                    ),
                 ),
             ),
         ),
@@ -5684,7 +5724,13 @@ RECORD_RULES: Mapping[str, RecordRule] = MappingProxyType(
                 ),
                 FieldRule("target_fields", seq(ref("project_row_field"))),
                 FieldRule(
-                    "aggregate_result_facts", seq(ref("project_aggregate_result_fact"))
+                    "aggregate_result_facts",
+                    seq(
+                        union(
+                            ref("project_aggregate_result_fact"),
+                            ref("project_aggregate_composition_result_fact"),
+                        )
+                    ),
                 ),
                 FieldRule(
                     "status",
@@ -5881,6 +5927,26 @@ RECORD_RULES: Mapping[str, RecordRule] = MappingProxyType(
                         )
                     ),
                 ),
+            ),
+        ),
+        "project_aggregate_leaf_fact": RecordRule(
+            "project_aggregate_leaf_fact",
+            (
+                FieldRule("call", ref("call_expr")),
+                FieldRule("function", TEXT),
+                FieldRule("argument_value_types", mapping(ANCHOR, ref("value_type"))),
+                FieldRule("result_value_type", ref("value_type")),
+            ),
+        ),
+        "project_aggregate_composition_result_fact": RecordRule(
+            "project_aggregate_composition_result_fact",
+            (
+                FieldRule("expression", ANCHOR),
+                FieldRule("output_name", TEXT),
+                FieldRule("grouped", BOOLEAN),
+                FieldRule("location", ref("source_location")),
+                FieldRule("leaves", seq(ref("project_aggregate_leaf_fact"))),
+                FieldRule("expression_value_types", mapping(ANCHOR, ref("value_type"))),
             ),
         ),
         "project_aggregate_result_fact": RecordRule(
@@ -9497,7 +9563,13 @@ RECORD_RULES: Mapping[str, RecordRule] = MappingProxyType(
             "project_aggregate_selected_result",
             (
                 FieldRule("field", ref("project_row_field")),
-                FieldRule("fact", ref("project_aggregate_result_fact")),
+                FieldRule(
+                    "fact",
+                    union(
+                        ref("project_aggregate_result_fact"),
+                        ref("project_aggregate_composition_result_fact"),
+                    ),
+                ),
             ),
         ),
         "project_ir_aggregate_evaluation_context": RecordRule(
@@ -9514,7 +9586,13 @@ RECORD_RULES: Mapping[str, RecordRule] = MappingProxyType(
                 ),
                 FieldRule("group_keys", seq(ref("group_by_item"))),
                 FieldRule(
-                    "aggregate_results", seq(ref("project_aggregate_result_fact"))
+                    "aggregate_results",
+                    seq(
+                        union(
+                            ref("project_aggregate_result_fact"),
+                            ref("project_aggregate_composition_result_fact"),
+                        )
+                    ),
                 ),
                 FieldRule("let_scope", ref("project_relation_let_scope_facts")),
                 FieldRule(
@@ -9965,6 +10043,22 @@ _predicate_fields = {
     "named_join_clause": (
         FieldRule("uses_named_input", BOOLEAN),
         FieldRule("target_binding_span", union(ref("span"), optional)),
+    ),
+    "project_joined_composition_output_occurrence": (
+        FieldRule("composition", ref("project_aggregate_composition_result_fact")),
+        FieldRule(
+            "composition_aggregates", seq(ref("project_joined_aggregate_occurrence"))
+        ),
+        FieldRule(
+            "composition_group_keys",
+            mapping(
+                ANCHOR,
+                union(
+                    ref("project_joined_group_key_occurrence"),
+                    ref("project_joined_computed_group_key_occurrence"),
+                ),
+            ),
+        ),
     ),
     "project_predicate_aggregate_expression_analysis": (
         FieldRule(

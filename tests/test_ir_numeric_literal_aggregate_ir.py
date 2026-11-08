@@ -160,11 +160,11 @@ def test_grouped_numeric_literal_aggregates_lower_with_group_keys() -> None:
     )
     projections = _projections(relation)
 
-    assert [key.name for key in relation.group_keys] == ["status"]
-    assert [key.qualifier for key in relation.group_keys] == [()]
-    assert [key.field for key in relation.group_keys] == [
-        FieldId(owner=_orders_symbol(), name="status")
-    ]
+    (key,) = relation.group_keys
+    assert isinstance(key, FieldRefIR)
+    assert key.name == "status"
+    assert key.qualifier == ()
+    assert key.field == FieldId(owner=_orders_symbol(), name="status")
     _assert_field(projections["status"].expression, "status")
     _assert_binary_aggregate(
         projections["total"].expression,
@@ -291,7 +291,7 @@ def test_phase26_field_only_expression_aggregate_arguments_still_lower() -> None
         ("value = sum(amount % tax)", "PIE-S2315"),
         ("value = sum(amount + len(status))", "PIE-S2315"),
         ("value = sum(avg(amount))", "PIE-S2311"),
-        ("value = sum(amount) + 1", "PIE-S2310"),
+        ("value = sum(amount) if True else 1", "PIE-S2310"),
         ("value = count(1)", "PIE-S2315"),
         ("value = min(amount + 1)", "PIE-S2315"),
         ("value = max(score * 2)", "PIE-S2315"),

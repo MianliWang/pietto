@@ -48,11 +48,27 @@ aggregate result occurrence != grain factor
 ```
 
 One `ProjectAggregateFactOccurrence` is identified by the exact
-`GROUP_AGGREGATE` plan-node ref plus aggregate-result position in its exact
-evaluation context. Construction follows aggregate-context order and then
-aggregate-result order. Every concrete aggregate result appears once;
-non-aggregate select values, window results, relation declarations, and
-JOIN-deferred aggregate-looking source text do not become facts.
+`GROUP_AGGREGATE` plan-node ref plus its primitive aggregate-call occurrence
+position in that evaluation context. Construction follows aggregate-context
+order, selected outer-result order and then the actual leaf encounter order.
+Every concrete primitive call occurrence appears once; repeated calls are not
+deduplicated. Non-aggregate select values, window results, relation declarations
+and JOIN-deferred aggregate-looking source text do not become facts.
+
+Phase76 extends this catalog to the newly admitted aggregate compositions.
+`aggregate_result_position` and the pure inspection `AGGREGATE_FACT.result_position`
+are the flattened primitive-leaf ordinal, not an index into the outer SELECT
+result list. `selected_ordinal`, `output_name` and the retained outer result
+still identify the owning selected output. A composition may therefore own
+several primitive facts; a zero-leaf grouped output owns none. Each primitive
+uses its existing `ProjectAggregateExpressionAnalysis` for the actual call,
+arguments and result type/nullability; the outer field remains the separate
+GROUP/final-output authority. A shared common-grain candidate is referenced
+with its owning alignment, without collapsing those occurrences.
+
+The earlier one-fact-per-result correspondence is unchanged for direct
+one-call results: their positions, function names and wire fields retain the
+same values. No new inspection field or synthetic function is introduced.
 
 Each fact retains its exact aggregate context/result/select occurrence and
 selected ordinal, its distinct GROUP-stage and final/home field authorities,

@@ -15,6 +15,7 @@ from pietto._project.aggregate_grouped_schema import ProjectComputedGroupKeyFact
 from pietto._project.project_joined_aggregation import (
     ProjectJoinedComputedGroupKeyOccurrence,
 )
+from pietto._project.model import ProjectAggregateCompositionResultFact
 from pietto._project.project_query_block_ir import ProjectIRReusedEffectiveOutput
 from pietto._project import project_sql_plan_expressions as row
 from pietto._project import project_sql_plan_aggregation as plan_aggregation
@@ -568,6 +569,33 @@ def _literal_ports(origin, ports):
     )
 
 
+def _active_specialized_literal(plan, layout, literal) -> bool:
+    """Read actual post-aggregate/window filter uses, not retained fact maps."""
+    definitions = {definition.original.ref for definition in layout.definitions}
+    blocks = {block.ref for block in plan.blocks if block.definition in definitions}
+    expressions = {expression.ref: expression for expression in plan.expressions}
+    children = _operand_children(plan)
+    pending = [
+        item.predicate
+        for item in plan.filters
+        if item.site.block in blocks
+        and item.site.role.value in {"satisfying", "qualify"}
+    ]
+    seen = set()
+    literals = set()
+    while pending:
+        reference = pending.pop()
+        if reference in seen:
+            continue
+        seen.add(reference)
+        expression = expressions.get(reference)
+        if expression is None:
+            continue
+        literals.add(id(expression.expression))
+        pending.extend(children.get(reference, ()))
+    return id(literal) in literals
+
+
 def _verify_value(request, value, original, expressions_seen, nodes):
     """Walk the supplied SQL nodes against original refs; never build expectations."""
     plan = request.plan
@@ -655,8 +683,13 @@ def _verify_value(request, value, original, expressions_seen, nodes):
                     leaf.site.reason.value == "specialized_or_structural_context"
                     and request.verification.literal_policy.value
                     == "bind_safe_literals"
-                    and leaf.site.position.role.value
-                    not in {"select", "let", "where", "on", "unknown"}
+                    and (
+                        leaf.site.position.role.value
+                        not in {"select", "let", "where", "on", "unknown"}
+                        or _active_specialized_literal(
+                            plan, request.layout, leaf.site.position.literal
+                        )
+                    )
                 )
                 or (
                     leaf.site.reason.value == "call_argument_subtree"
@@ -1265,6 +1298,9 @@ def _decimal_operand_origin(value, family):
             type(value) is rows.SQLStageReference
             and value.column.field is not None
             and value.column.source_port is not None
+            or family == "postgres"
+            and type(value) in {rows.SQLStageReference, rows.SQLOperation}
+            and rows._decimal_parameters(family, realization) is not None
         ):
             return "decimal"
         return None
@@ -1279,6 +1315,9 @@ def _decimal_operand_origin(value, family):
         type(value) is rows.SQLStageReference
         and value.column.field is not None
         and value.column.source_port is not None
+        or family == "postgres"
+        and type(value) in {rows.SQLStageReference, rows.SQLOperation}
+        and rows.proven_int_bounds(realization) is not None
     ):
         return "int"
     return None
@@ -2477,7 +2516,7 @@ def _verify_aggregate_body(
             function = "count_distinct_tuple"
         if function is None or function not in grouping.SPELLING:
             raise ValueError("aggregate function outside the promised domain")
-        ordered = value.source.item.expression.aggregate_order_by
+        ordered = plan_aggregation.aggregate_call(value.source).aggregate_order_by
         if (
             len(arguments) != len(value.arguments)
             or len(ordered) != len(value.order_by)
@@ -2870,11 +2909,9 @@ def _verify_window_column(request, column, window, export, columns, definitions,
             return False
     # A placeholder's use (order, index) is checked by verify_row_parameters;
     # here the control takes the same use and re-derives everything else.
-    native = {
-        a.parameter.original.ref: a.parameter.use
-        for a in column.arguments
-        if a.parameter is not None
-    }
+    native = parameters.occurrence_uses(
+        tuple(a.parameter.use for a in column.arguments if a.parameter is not None)
+    )
     expected, problem = windowing.independent_arguments(
         policy,
         items,
@@ -2890,13 +2927,8 @@ def _verify_window_column(request, column, window, export, columns, definitions,
     if aggregate and (
         (control_read is None) is bool(expected)
         or (control_read is None and function != "count")
-        or (
-            control_read is not None
-            and grouping.resolved_argument_problem(
-                function, True, control_read.realization, request.family
-            )
-            is not None
-        )
+        or windowing.aggregate_argument_problem(request.family, function, expected)
+        is not None
     ):
         return False
     if column.argument_cast != (
@@ -6317,6 +6349,7 @@ def verify_row_query(request, query, *, _guarded=None):
                 kind == "projection"
                 and stage is not None
                 and not window_projections.get(block.ref)
+                and not projections.get(block.ref)
             ):
                 _verify_aggregate_projection(
                     request,
@@ -6340,10 +6373,10 @@ def verify_row_query(request, query, *, _guarded=None):
             if body.aggregation is not None or (
                 aggregate_projections.get(block.ref)
                 and not window_projections.get(block.ref)
+                and not projections.get(block.ref)
             ):
-                # A mixed visible projection carries both this aggregation's
-                # results and this body's window results; only that shape may
-                # reach the claim-based path.
+                # Mixed projections retain every aggregate, scalar and window
+                # output claim before resolving the visible export order.
                 return False
             if kind == "window" and not window_blocks.get(block.ref):
                 return False
@@ -6587,6 +6620,11 @@ def verify_row_query(request, query, *, _guarded=None):
                     return False
                 if kind == "let" and export.source is not item.expression:
                     return False
+                if request.family != "postgres" and isinstance(
+                    getattr(item.site, "evidence", None),
+                    ProjectAggregateCompositionResultFact,
+                ):
+                    return False
                 realization = _verify_row_value(
                     request,
                     column.value,
@@ -6594,7 +6632,9 @@ def verify_row_query(request, query, *, _guarded=None):
                     readable,
                     children,
                     state,
-                    reference_type=row.ProjectSQLJoinedReference
+                    reference_type=grouping.ProjectSQLResultReference
+                    if kind == "projection" and stage is not None
+                    else row.ProjectSQLJoinedReference
                     if joined_definition
                     else row.ProjectSQLReference,
                 )
@@ -6789,7 +6829,9 @@ def verify_row_query(request, query, *, _guarded=None):
         block_reads = state.get("block_reads", [])
         if (
             len({id(s) for s in symbols}) != len(symbols)
-            or len(state["expressions"]) != len(plan.expressions)
+            # Each operand and column keeps its checked multiplicity above;
+            # a shared DAG node can be visited at several authored uses.
+            or len({id(e) for e in state["expressions"]}) != len(plan.expressions)
             or {id(e) for e in state["expressions"]}
             != {id(e) for e in plan.expressions}
             or len(block_reads) != len(plan.expression_block_uses)

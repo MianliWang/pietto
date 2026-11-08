@@ -8,6 +8,7 @@ from enum import StrEnum
 from heapq import heappop, heappush
 from typing import cast
 
+from pietto._project.model import ProjectAggregateCompositionResultFact
 from pietto._project.project_grain import (
     grain_dependency_closure,
 )
@@ -264,12 +265,44 @@ def _verify_multifact_catalog(
     issues: list[ProjectPhase62VerificationIssue],
 ) -> None:
     properties = _base_properties(root)
-    expected = tuple(
-        (context, position, aggregate_result)
-        for context in root.evaluation.aggregate_contexts
-        for position, aggregate_result in enumerate(context.aggregate_results)
-    )
-    valid = len(root.facts) == len(expected)
+    expected = []
+    for context in root.evaluation.aggregate_contexts:
+        current = []
+        for outer in context.aggregate_results:
+            selected = tuple(
+                item
+                for item in context.semantic_facts.select_facts
+                if item.aggregate_result_fact is outer
+            )
+            leaves = (
+                outer.leaves
+                if isinstance(outer, ProjectAggregateCompositionResultFact)
+                else (outer,)
+            )
+            for leaf in leaves:
+                analyses = tuple(
+                    analysis
+                    for analysis in context.readiness.finalization.analyses
+                    if analysis.fact is leaf
+                    and len(selected) == 1
+                    and analysis.item is selected[0].item
+                )
+                if len(analyses) != 1:
+                    _record(
+                        issues, ProjectPhase62VerificationIssueKind.MULTIFACT_CATALOG
+                    )
+                    return
+                current.append((context, len(current), outer, analyses[0]))
+        if tuple(id(item[3]) for item in current) != tuple(
+            id(analysis) for analysis in context.readiness.finalization.analyses
+        ):
+            _record(issues, ProjectPhase62VerificationIssueKind.MULTIFACT_CATALOG)
+            return
+        expected.extend(current)
+    if len(root.facts) != len(expected):
+        _record(issues, ProjectPhase62VerificationIssueKind.MULTIFACT_CATALOG)
+        return
+    valid = True
     expected_by_context = {
         context.operator.node.ref: tuple(
             fact for fact in root.facts if fact.context is context
@@ -279,7 +312,7 @@ def _verify_multifact_catalog(
     expected_by_home: dict[
         ProjectIROutputValueRef, tuple[ProjectAggregateFactOccurrence, ...]
     ] = {}
-    for fact, (context, position, aggregate_result) in zip(
+    for fact, (context, position, aggregate_result, aggregate) in zip(
         root.facts, expected, strict=True
     ):
         select_matches = tuple(
@@ -298,6 +331,7 @@ def _verify_multifact_catalog(
             and fact.identity.aggregate_result_position == position
             and fact.context is context
             and fact.aggregate_result is aggregate_result
+            and fact.aggregate is aggregate
             and len(select_matches) == 1
             and fact.select_fact is select_matches[0]
             and fact.selected_output_ordinal

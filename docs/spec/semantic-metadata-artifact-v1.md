@@ -240,10 +240,17 @@ Relation `query` objects contain:
 | Field | Type | Required | Meaning |
 |---|---|---|---|
 | `where.present` | boolean | yes | Whether a where clause exists. |
-| `group_keys` | array | yes | Field-reference objects in GROUP BY order. |
+| `group_keys` | array | yes | Actual field-reference dependency leaves, in GROUP BY item order and then expression encounter order. |
 | `satisfying.present` | boolean | yes | Whether a result predicate exists. |
 | `order_by` | array | yes | Order posture objects. |
 | `limit` | object or null | yes | Static limit object, otherwise `null`. |
+
+`group_keys` is a field-reference summary, not a complete key-expression
+inventory. A computed key contributes every actual field leaf, including
+repeated occurrences, in encounter order. A literal-only key contributes no
+field reference; an empty array (or `group_keys=none` in text) does not prove
+that the relation has no GROUP BY. Raw expressions and synthetic field names
+are not added to v1. Existing direct-field summaries retain their bytes.
 
 Order posture objects contain `scope`, `direction`, `expression_kind`, and
 `field_leaves`. `scope` is `input` or `grouped_result`. `direction` is `ASC` or
@@ -332,7 +339,7 @@ Artifact v1 is single-file only.
 | `relations` | Table/query definition order. |
 | `schema.fields` | Existing row-field order. |
 | `projections` | Projection order. |
-| `group_keys` | GROUP BY item order after current semantic normalization. |
+| `group_keys` | GROUP BY item order after current semantic normalization, then field-leaf encounter order within each item; repeated occurrences remain. |
 | `aggregates` | Projection order, then encounter order inside each projection. |
 | `order_by` | Source order. |
 | `lineage.field_leaves` | Deterministic first-encounter order within the owning expression summary. |

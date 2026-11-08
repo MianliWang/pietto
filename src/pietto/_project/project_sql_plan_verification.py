@@ -1264,23 +1264,45 @@ def _row_site(
             is (aggregation.authority(block.ref.scope.completed, entry) is None)
         )
     if isinstance(site, aggregation.ProjectSQLAggregateSite):
+        if role is row.ProjectSQLExpressionRole.SELECT:
+            return (
+                isinstance(evidence, aggregation.ProjectAggregateCompositionResultFact)
+                and isinstance(occurrence, SelectItem)
+                and site.expression is evidence.expression
+                and occurrence.expression is evidence.expression
+                and entry.owner.definition.select_items[ordinal] is occurrence
+                and any(
+                    aggregation.composition_fact(output) is evidence
+                    for output in site.authority.outputs
+                )
+                and _same(site.references, aggregation.composition_references(evidence))
+            )
         if role is row.ProjectSQLExpressionRole.AGGREGATE_ARGUMENT:
+            sources = tuple(
+                source
+                for source in site.authority.aggregates
+                if source.item is occurrence
+                and aggregation.argument_evidence(source) is evidence
+            )
+            if len(sources) != 1:
+                return False
+            call = aggregation.aggregate_call(sources[0])
             if (
                 not isinstance(occurrence, SelectItem)
-                or not isinstance(occurrence.expression, CallExpr)
-                or not occurrence.expression.arguments
+                or not isinstance(call, CallExpr)
+                or not call.arguments
             ):
                 return False
             authored = (
-                *aggregation.call_arguments(occurrence.expression),
-                *(item.expression for item in occurrence.expression.aggregate_order_by),
+                *aggregation.call_arguments(call),
+                *(item.expression for item in call.aggregate_order_by),
             )
             normalized = tuple(
                 evidence.effective_argument
                 if index == 0
                 and isinstance(evidence, aggregation.ProjectAggregateExpressionAnalysis)
                 and evidence.predicate_expression is not None
-                else _aggregate_child(occurrence.expression, expression, evidence)
+                else _aggregate_child(call, expression, evidence)
                 if isinstance(evidence, row.ProjectConcreteJoinedNamespaceExpression)
                 else expression
                 for index, expression in enumerate(authored)
@@ -1563,7 +1585,7 @@ def _aggregate_structure(plan):
             zip(values, original.aggregates, strict=True)
         ):
             result = ports.get(value.result)
-            call = source.item.expression
+            call = aggregation.aggregate_call(source)
             if (
                 result is None
                 or not isinstance(call, CallExpr)
@@ -1579,14 +1601,14 @@ def _aggregate_structure(plan):
             if (
                 result.block is not block.ref
                 or result.kind is not row.ProjectSQLStagePortKind.EXPORT
-                or result.key is not source.item
+                or result.key is not aggregation.aggregate_key(source)
                 or result.source is not value.ref
                 or result.type_evidence is not source.result_value_type
             ):
                 return False
         aggregate_site_sources = []
         for source in original.aggregates:
-            call = source.item.expression
+            call = aggregation.aggregate_call(source)
             if not isinstance(call, CallExpr):
                 return False
             aggregate_site_sources.extend(
@@ -1607,6 +1629,17 @@ def _aggregate_structure(plan):
                     definition.entry.owner.definition.satisfying_clause,
                 )
             )
+        for index, item in enumerate(definition.entry.owner.definition.select_items):
+            matched = tuple(
+                output
+                for output in original.outputs
+                if (fact := aggregation.composition_fact(output)) is not None
+                and fact.expression is item.expression
+            )
+            if matched:
+                expected_sites.append(
+                    (row.ProjectSQLExpressionRole.SELECT, index, item)
+                )
         sites = tuple(
             site
             for site in plan.expression_sites
@@ -1625,32 +1658,31 @@ def _aggregate_structure(plan):
                 or site.occurrence is not occurrence
             ):
                 return False
-        projections = plan.aggregate_projections[
-            projection_count : projection_count + len(original.outputs)
-        ]
-        projection_count += len(original.outputs)
         rows = row.row_authority(plan.scope.completed, definition.entry)
-        if rows is None or len(projections) != sum(
-            not isinstance(f.item.expression, WindowExpr) for f in rows.selections
-        ):
+        if rows is None:
             return False
-        for projection, source, key, export, semantic in zip(
-            projections,
-            original.outputs,
-            original.output_keys,
-            tuple(
-                export
-                for export, semantic in zip(
-                    definition.exports, rows.selections, strict=True
-                )
-                if not isinstance(semantic.item.expression, WindowExpr)
-            ),
-            tuple(
-                semantic
-                for semantic in rows.selections
-                if not isinstance(semantic.item.expression, WindowExpr)
-            ),
-            strict=True,
+        selected = tuple(
+            (export, semantic)
+            for export, semantic in zip(
+                definition.exports, rows.selections, strict=True
+            )
+            if not isinstance(semantic.item.expression, WindowExpr)
+        )
+        direct = tuple(
+            (source, key, export, semantic)
+            for source, key, (export, semantic) in zip(
+                original.outputs, original.output_keys, selected, strict=True
+            )
+            if aggregation.composition_fact(source) is None
+        )
+        projections = plan.aggregate_projections[
+            projection_count : projection_count + len(direct)
+        ]
+        projection_count += len(direct)
+        if len(projections) != len(direct):
+            return False
+        for projection, (source, key, export, semantic) in zip(
+            projections, direct, strict=True
         ):
             port = ports.get(projection.input)
             projection_block = blocks.get(projection.block)
@@ -2465,7 +2497,7 @@ def _whole_plan(plan: ProjectSQLPlan) -> tuple[ProjectSQLPlanVerificationIssue, 
                     aggregate.argument_references,
                     strict=True,
                 ):
-                    call = source.item.expression
+                    call = aggregation.aggregate_call(source)
                     if not isinstance(call, CallExpr):
                         return (Issue.STRUCTURE,)
                     children = (
@@ -2547,7 +2579,24 @@ def _whole_plan(plan: ProjectSQLPlan) -> tuple[ProjectSQLPlanVerificationIssue, 
                     )
                 ]
             elif aggregate is not None:
-                specs = []
+                compositions = {
+                    id(fact.expression): fact
+                    for output in aggregate.outputs
+                    if (fact := aggregation.composition_fact(output)) is not None
+                }
+                specs = [
+                    (
+                        row.ProjectSQLExpressionRole.SELECT,
+                        i,
+                        selection.item,
+                        compositions[id(selection.item.expression)],
+                        aggregation.composition_references(
+                            compositions[id(selection.item.expression)]
+                        ),
+                    )
+                    for i, selection in enumerate(authority.selections)
+                    if id(selection.item.expression) in compositions
+                ]
             else:
                 specs = [
                     (row.ProjectSQLExpressionRole.SELECT, i, fact.item, evidence, refs)
@@ -2645,6 +2694,7 @@ def _whole_plan(plan: ProjectSQLPlan) -> tuple[ProjectSQLPlanVerificationIssue, 
                         for a in plan.aggregates
                         if a.aggregation is aggregate_stage.ref
                         and a.source.item is site.occurrence
+                        and aggregation.argument_evidence(a.source) is site.evidence
                     )
                     if len(matches) != 1:
                         return (Issue.STRUCTURE,)
@@ -2656,7 +2706,7 @@ def _whole_plan(plan: ProjectSQLPlan) -> tuple[ProjectSQLPlanVerificationIssue, 
                     evidence = aggregation.argument_evidence(aggregate_value.source)
                     if evidence is None:
                         return (Issue.STRUCTURE,)
-                    call = aggregate_value.source.item.expression
+                    call = aggregation.aggregate_call(aggregate_value.source)
                     if not isinstance(call, CallExpr):
                         return (Issue.STRUCTURE,)
                     aggregate_authored_children = (
@@ -2891,11 +2941,16 @@ def _row_expressions(plan, site_specs, root_by_site, symbols) -> bool:
     for site, incoming in site_specs:
         aggregate_site = isinstance(site, aggregation.ProjectSQLAggregateSite)
         qualify_site = isinstance(site, windows.ProjectSQLQualifySite)
-        result_site = (
-            aggregate_site and site.role is row.ProjectSQLExpressionRole.SATISFYING
+        result_site = aggregate_site and site.role in {
+            row.ProjectSQLExpressionRole.SATISFYING,
+            row.ProjectSQLExpressionRole.SELECT,
+        }
+        site_references = (
+            aggregation.site_references(site) if aggregate_site else site.references
         )
+        expansions = aggregation.site_expansions(site) if aggregate_site else {}
         atomic = (
-            {id(row.reference_expression(r)) for r in site.references}
+            {id(row.reference_expression(r)) for r in site_references}
             if result_site or qualify_site
             else set()
         )
@@ -2920,6 +2975,7 @@ def _row_expressions(plan, site_specs, root_by_site, symbols) -> bool:
         variants[CallExpr] = (
             aggregation.ProjectSQLAggregateArgumentCall
             if aggregate_site
+            and site.role is row.ProjectSQLExpressionRole.AGGREGATE_ARGUMENT
             else row.ProjectSQLScalarCall
         )
         # Traverse actual source independently of the expression allocator.
@@ -2954,12 +3010,20 @@ def _row_expressions(plan, site_specs, root_by_site, symbols) -> bool:
             and r.input_field.resolved_type.kind
             is ProjectResolvedTypeKind.NESTED_RELATION
         }
+        if source_expression is None:
+            return False
         pending, nodes = [source_expression], []
+        seen_expanded = set()
         lists: dict[
             int, tuple[str, Expression, Expression | None, Expression | None]
         ] = {}
         while pending:
             node = pending.pop()
+            if expansions:
+                node = expansions.get(node, node)
+                if id(node) in seen_expanded:
+                    continue
+                seen_expanded.add(id(node))
             if type(node) not in _KNOWN_EXPRESSIONS | {
                 ParameterRefExpr,
                 ast_nodes.AnyExpr,
@@ -3030,7 +3094,14 @@ def _row_expressions(plan, site_specs, root_by_site, symbols) -> bool:
         local = {id(n): value for n, value in zip(nodes, values, strict=True)}
         if len(local) != len(nodes):
             return False
-        types = {id(n): (n, v) for n, v in expression_types(site.evidence).items()}
+        for alias, expanded in expansions.items():
+            local[id(alias)] = local[id(expanded)]
+        typed = (
+            aggregation.site_types(site)
+            if aggregate_site
+            else expression_types(site.evidence)
+        )
+        types = {id(n): (n, v) for n, v in typed.items()}
         checked_values = {
             id(item.expression): item for item in existence_values(site.evidence)
         }
@@ -3042,7 +3113,7 @@ def _row_expressions(plan, site_specs, root_by_site, symbols) -> bool:
         checked_bindings = {
             id(item.input.binding): item for item in checked_values.values()
         }
-        references = iter(site.references)
+        references = iter(site_references)
         environment = {id(port.key): port for port in incoming}
         reference_position = 0
         elements = {
@@ -3140,7 +3211,14 @@ def _row_expressions(plan, site_specs, root_by_site, symbols) -> bool:
                 elif result_site:
                     assert isinstance(site, aggregation.ProjectSQLAggregateSite)
                     original = site.authority.source
-                    if isinstance(
+                    if isinstance(reference, Expression):
+                        if not any(
+                            reference is part
+                            for fact in aggregation.site_compositions(site)
+                            for part in aggregation.composition_references(fact)
+                        ):
+                            return False
+                    elif isinstance(
                         reference, aggregation.ProjectJoinedSatisfyingOutputReference
                     ):
                         if not isinstance(
@@ -3198,7 +3276,7 @@ def _row_expressions(plan, site_specs, root_by_site, symbols) -> bool:
                     if not isinstance(reference, ProjectModuleExpressionReferenceFact):
                         return False
                     definition = site.evidence.definition
-                    call = site.occurrence.expression
+                    call = site.evidence.call
                     if not isinstance(call, CallExpr):
                         return False
                     authored = (
@@ -3222,6 +3300,22 @@ def _row_expressions(plan, site_specs, root_by_site, symbols) -> bool:
                         )
                         for expression in authored[: positions[0]]
                     )
+                    if site.evidence.call is not site.evidence.item.expression:
+                        from pietto._project.module_semantic_fact_preservation import (
+                            scalar_field_reference_leaves,
+                        )
+
+                        authored_leaves = scalar_field_reference_leaves(
+                            site.evidence.item.expression
+                        )
+                        positions = tuple(
+                            i
+                            for i, leaf in enumerate(authored_leaves)
+                            if leaf is reference.expression
+                        )
+                        if len(positions) != 1:
+                            return False
+                        dependency_base = positions[0] - reference_position
                     if (
                         reference.owner is not site.owner
                         or reference.role
@@ -5106,6 +5200,8 @@ def _result_structure(plan):
             for uses in order.inputs:
                 for use in uses:
                     key = results.order_key(use, aggregate)
+                    if results.composition_order(use, aggregate):
+                        continue
                     if id(key) in seen:
                         continue
                     seen.add(id(key))
@@ -5366,10 +5462,13 @@ def _result_structure(plan):
                                 )
                             )
                             if quotient is not None
+                            or results.composition_order(original, aggregate)
                             else (
                                 helpers[id(results.order_key(original, aggregate))].ref,
                             )
                         )
+                        if requirement is None and not expected_ports:
+                            return False
                         if (
                             use.item is not item.ref
                             or type(use.position) is not int
@@ -6715,6 +6814,24 @@ def _literal_schema(plan, policy):
     expected = tuple(L.positions(plan))
     if len(expected) != len(plan.literal_sites):
         return False
+    specialized_roles = {
+        L.ProjectSQLLiteralRole.AGGREGATE_ARGUMENT,
+        L.ProjectSQLLiteralRole.SATISFYING,
+        L.ProjectSQLLiteralRole.QUALIFY,
+        L.ProjectSQLLiteralRole.WINDOW_ARGUMENT,
+        L.ProjectSQLLiteralRole.WINDOW_PARTITION,
+        L.ProjectSQLLiteralRole.WINDOW_ORDER,
+        L.ProjectSQLLiteralRole.FRAME,
+        L.ProjectSQLLiteralRole.ORDER,
+        L.ProjectSQLLiteralRole.LIMIT,
+        L.ProjectSQLLiteralRole.CONNECTOR,
+        L.ProjectSQLLiteralRole.TYPE,
+    }
+    specialized = {
+        id(position.literal)
+        for position in expected
+        if position.role in specialized_roles
+    }
     bound = []
     transports = {}
     for site, position in zip(plan.literal_sites, expected, strict=True):
@@ -6829,6 +6946,8 @@ def _literal_schema(plan, policy):
             reason = Why.VALUE_REPRESENTATION
         else:
             reason = None
+        if reason is None and id(position.literal) in specialized:
+            reason = Why.SPECIALIZED
         disposition = (
             L.ProjectSQLLiteralDisposition.BOUND
             if reason is None

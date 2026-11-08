@@ -892,3 +892,79 @@ def test_float_equivalence_capability_admits_only_a_null_reason(tmp_path, form):
         outcome = evaluate(forged)
         assert outcome.status is not pure.ProjectQueryBlockIRPureStatus.OK
         assert outcome.canonical_bytes is None
+
+
+@pytest.mark.parametrize("grouped", (False, True))
+def test_primitive_aggregate_inspection_retains_each_composition_leaf(
+    tmp_path, grouped
+):
+    from pietto._project.project_phase62_verification import verify_project_phase62
+    from pietto.semantic.aggregates import semantic_aggregate_call_name
+
+    source = """shape R:
+    id: Int
+    value: Int | None
+    other: Int | None
+source rows: R = postgres.table("rows")
+query result:
+    from rows
+"""
+    if grouped:
+        source += "    group by id\n"
+    source += """    select:
+        total = coalesce(sum(value), 0)
+        mixed = coalesce(max(other), 0) + coalesce(sum(value), 0)
+        direct = count()
+"""
+    if grouped:
+        source += "        fixed = 7\n"
+    _, completed, _, _ = _build(tmp_path, source)
+    verification = completed.verification
+    root = verification.root
+    facts = root.facts
+    assert tuple(
+        semantic_aggregate_call_name(fact.aggregate.call) for fact in facts
+    ) == ("sum", "max", "sum", "count")
+    assert tuple(fact.aggregate_result_position for fact in facts) == (0, 1, 2, 3)
+    assert tuple(fact.selected_output_ordinal for fact in facts) == (0, 1, 1, 2)
+    assert facts[0].aggregate.call is not facts[2].aggregate.call
+    assert facts[1].aggregate_result is facts[2].aggregate_result
+    assert facts[0].aggregate.result_value_type.nullability.value == "nullable"
+    assert facts[0].home_field.evidence.nullability.value == "non_null"
+    for fact in facts:
+        assert fact.aggregate.item is fact.select_fact.item
+        assert all(
+            argument in fact.aggregate.argument_value_types
+            for argument in fact.aggregate.call.arguments
+        )
+    assert (
+        facts[1].aggregate.call.arguments[0]
+        not in facts[0].aggregate.argument_value_types
+    )
+    assert tuple(locality.fact for locality in root.home_localities) == facts
+    assert len(root.home_alignments) == 6
+    assert len({fact.identity for fact in facts}) == 4
+    product = base_inspection.build_project_phase62_inspection(
+        build_project_phase62_analysis_bundle(verification)
+    )
+    records = tuple(
+        record
+        for record in product.document.records
+        if record.kind is base_pure.ProjectPhase62RecordKind.AGGREGATE_FACT
+    )
+    assert tuple(
+        next(field.value.text for field in record.fields if field.key == "function")
+        for record in records
+    ) == ("sum", "max", "sum", "count")
+    assert (
+        base_pure.evaluate_project_phase62_document(product.document).canonical_bytes
+        == product.canonical_bytes
+    )
+    with pytest.raises(ValueError, match="exact context result"):
+        replace(facts[0], aggregate=facts[2].aggregate)
+    for damaged in (
+        (_unsafe(facts[0], aggregate=facts[2].aggregate), *facts[1:]),
+        facts[:-1],
+        (facts[1], facts[0], *facts[2:]),
+    ):
+        assert not verify_project_phase62(_unsafe(root, facts=damaged)).verified

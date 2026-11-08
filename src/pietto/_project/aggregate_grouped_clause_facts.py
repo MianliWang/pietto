@@ -25,7 +25,8 @@ from pietto._project.let_scope_facts import (
     checked_let_values,
 )
 from pietto._project.model import (
-    ProjectAggregateResultFact,
+    ProjectAnyAggregateResultFact,
+    ProjectAggregateCompositionResultFact,
     ProjectRelationRowSchemaStatus,
     ProjectRowField,
     ProjectRowResultRole,
@@ -68,13 +69,15 @@ from pietto.semantic.aggregates import (
     FLOAT_STATISTIC_AGGREGATE_NAMES,
     ORDERED_VALUE_AGGREGATE_NAMES,
     aggregate_argument_can_use_let_scope,
+    aggregate_composition_leaves,
+    is_semantic_aggregate_call,
     child_expressions,
     contains_semantic_aggregate,
     effective_semantic_aggregate_argument_expression,
     is_count_distinct_tuple,
     semantic_aggregate_call_name,
 )
-from pietto.semantic.expressions import infer_row_expression
+from pietto.semantic.expressions import infer_row_expression, _infer
 from pietto.semantic.let_bindings import admitted_relation_let_expressions
 from pietto.semantic.model import (
     CheckMode,
@@ -155,7 +158,7 @@ class ProjectRelationClauseDependencyFact:
     source_occurrence: GroupByItem | Expression | OrderItem
     target_occurrence: ProjectAnyGroupKeyFact | SelectItem
     target_field: ProjectRowField
-    aggregate_result_fact: ProjectAggregateResultFact | None
+    aggregate_result_fact: ProjectAnyAggregateResultFact | None
 
     def __post_init__(self) -> None:
         """Validate local shape and identity invariants."""
@@ -203,11 +206,15 @@ class ProjectRelationClauseDependencyFact:
         if self.target_field.result_role is not ProjectRowResultRole.AGGREGATE_RESULT:
             raise ValueError("Output dependency requires a grouped output role")
         fact = self.aggregate_result_fact
-        if not isinstance(fact, ProjectAggregateResultFact):
+        if not isinstance(fact, ProjectAnyAggregateResultFact):
             raise ValueError("Aggregate output dependency requires aggregate fact")
         if fact.output_name != self.target_field.name:
             raise ValueError("Aggregate output dependency fact identity mismatch")
         selected_expression = self.target_occurrence.expression
+        if isinstance(fact, ProjectAggregateCompositionResultFact):
+            if fact.expression is not selected_expression or not fact.grouped:
+                raise ValueError("Aggregate composition dependency identity mismatch")
+            return
         if (
             not isinstance(selected_expression, CallExpr)
             or semantic_aggregate_call_name(selected_expression) != fact.function
@@ -386,7 +393,7 @@ class ProjectAggregateGroupedClauseReadiness:
 class _OutputTarget:
     item: SelectItem
     field: ProjectRowField
-    aggregate_fact: ProjectAggregateResultFact | None
+    aggregate_fact: ProjectAnyAggregateResultFact | None
 
 
 @dataclass(frozen=True, slots=True)
@@ -543,6 +550,22 @@ def _single_file_grouping_diagnostics(
     typed: list[Diagnostic] = []
     for item in definition.select_items:
         found: list[Diagnostic] = []
+        if not is_semantic_aggregate_call(item.expression):
+            for leaf in aggregate_composition_leaves(item.expression) or ():
+                if is_semantic_aggregate_call(leaf):
+                    _infer(
+                        leaf,
+                        schema,
+                        types,
+                        found,
+                        report_unknown_name=True,
+                        field_qualifier=qualifier,
+                        allow_aggregate_projection=True,
+                        bare_value_types=None
+                        if let_scope_facts is None
+                        else let_scope_facts.value_types,
+                        bare_value_expressions=lets,
+                    )
         infer_row_expression(
             item.expression,
             schema,
@@ -567,6 +590,7 @@ def _single_file_grouping_diagnostics(
         relation_let_expressions={definition: lets},
         type_expansions={},
         reported_errors=frozenset(typed),
+        order_output_ports=True,
     )
     having: list[Diagnostic] = []
     if definition.satisfying_clause is not None:
@@ -580,6 +604,7 @@ def _single_file_grouping_diagnostics(
             if let_scope_facts is None
             else {definition: let_scope_facts.value_types},
             joined_inputs={definition: schema},
+            projection_value_types=types,
         )
     # The project's window stage, which this check does not run, types a
     # selected window result; a single file orders by one under GROUP BY.
@@ -1306,6 +1331,13 @@ def _satisfying_facts(
         if let_scope_facts is not None
         else admitted_relation_let_expressions(definition, semantic_input)
     )
+    projection_types: dict[Expression, ValueType] = {}
+    for analysis in finalization.analyses:
+        projection_types.update(analysis.argument_value_types)
+        projection_types[analysis.call] = analysis.result_value_type
+    for fact in finalization.aggregate_result_facts.values():
+        if isinstance(fact, ProjectAggregateCompositionResultFact):
+            projection_types.update(fact.expression_value_types)
     result_predicates, diagnostics = check_satisfying_clauses(
         Script(
             span=definition.span,
@@ -1315,6 +1347,7 @@ def _satisfying_facts(
         from_resolutions={definition.from_clause: upstream_definition},
         source_row_schemas=source_row_schemas,
         relation_row_schemas=relation_row_schemas,
+        projection_value_types=projection_types,
         relation_let_expressions={definition: let_expressions},
         relation_let_value_types=(
             None

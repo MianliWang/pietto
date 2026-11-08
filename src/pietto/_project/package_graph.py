@@ -37,7 +37,9 @@ from pietto._project.let_scope_facts import (
     ProjectRelationLetScopeFacts,
 )
 from pietto._project.model import (
+    ProjectAnyAggregateResultFact,
     ProjectAggregateResultFact,
+    ProjectAggregateCompositionResultFact,
     ProjectDiscoveryError,
     ProjectDiscoveryErrorKind,
     ProjectRelationRowSchemaReason,
@@ -804,7 +806,7 @@ class PackageGraphExpressionLineage:
         compare=False,
         hash=False,
     )
-    aggregate_evidence: ProjectAggregateResultFact | None = field(
+    aggregate_evidence: ProjectAnyAggregateResultFact | None = field(
         default=None,
         repr=False,
         compare=False,
@@ -878,7 +880,11 @@ class PackageGraphExpressionLineage:
         if self.kind is PackageGraphExpressionLineageKind.AGGREGATE:
             if (
                 type(self.owner_witness) is not ProjectModuleSelectFact
-                or type(self.aggregate_evidence) is not ProjectAggregateResultFact
+                or type(self.aggregate_evidence)
+                not in {
+                    ProjectAggregateResultFact,
+                    ProjectAggregateCompositionResultFact,
+                }
                 or self.owner_witness.aggregate_result_fact
                 is not self.aggregate_evidence
             ):

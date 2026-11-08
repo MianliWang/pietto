@@ -4081,3 +4081,205 @@ def test_a_relationship_over_query_rows_replays_as_its_written_on(tmp_path, sour
     values = tuple(value.value for value in outcome.artifact.fixed_values)
     assert emit_compiled(loaded, values).rendered.sql == sql
     assert prepare_live_template(outcome.artifact).artifact.rendered.sql == sql
+
+
+def test_mysql_compiled_aggregate_scalar_keeps_two_query_boundary(tmp_path):
+    from dataclasses import replace
+    from pietto._project.project_compiled_schema import FIELDS, CompiledError, Record
+    from pietto._project.project_compiled_verification import verify_description
+
+    item = emission.aggregate_fixture("mysql", "X_aggregate_global", "bag")
+    source = item["source"].split("query result:", 1)[0] + (
+        "table totals:\n    from agg\n    select:\n        total = min(value)\n"
+        "query result:\n    from totals\n    select:\n        result = coalesce(total, 0)\n"
+    )
+    checked, outcome = emission.build_case(tmp_path, source, item["contract"])
+    assert checked.verified and outcome.status == "VERIFIED", outcome.blockers
+    artifact = outcome.artifact
+    assert artifact is not None
+    built = build_compiled(artifact)
+    loaded = load_compiled(
+        built.payload,
+        expected_pin=built.pin,
+        accepted_producer=built.producer,
+        accepted_compatibility=built.compatibility,
+    )
+    assert emit_compiled(loaded, ()).rendered.sql == artifact.rendered.sql
+    records = built.root.records
+    aggregate = next(
+        record for record in records.values() if record.address.kind == "aggregate"
+    )
+    projection = next(
+        record
+        for record in records.values()
+        if record.address.kind == "row"
+        and record.get("stage") == "projection"
+        and any(value.kind == "operation" for value in record.get("values"))
+    )
+    assert projection.get("owner") != aggregate.get("owner")
+    values = list(projection.values)
+    values[FIELDS["row"].index("owner")] = aggregate.get("owner")
+    forged = Record(projection.address, tuple(values))
+    description = replace(
+        built.root.description,
+        members=tuple(
+            (
+                name,
+                tuple(
+                    forged if record.address == forged.address else record
+                    for record in members
+                ),
+            )
+            for name, members in built.root.description.members
+        ),
+    )
+    with pytest.raises(CompiledError, match="^COMPILED_AGGREGATE_COMPOSITION_TARGET$"):
+        verify_description(description)
+
+
+@pytest.mark.parametrize(
+    "expression", ("Float(total)", "total if n > 0 else 0", "total > 0")
+)
+def test_compiled_aggregate_composition_keeps_two_query_expression_boundaries(
+    tmp_path, expression
+):
+    from dataclasses import replace
+    from pietto._project.project_compiled_schema import FIELDS, CompiledError, Record
+    from pietto._project.project_compiled_verification import verify_description
+
+    item = emission.aggregate_fixture("postgres", "X_aggregate_global", "bag")
+    source = item["source"].split("query result:", 1)[0] + (
+        "table totals:\n    from agg\n    select:\n        total = sum(value)\n        n = count()\n"
+        "query result:\n    from totals\n    select:\n"
+        f"        result = {expression}\n"
+    )
+    checked, outcome = emission.build_case(tmp_path, source, item["contract"])
+    assert checked.verified and outcome.status == "VERIFIED", outcome.blockers
+    artifact = outcome.artifact
+    assert artifact is not None
+    built = build_compiled(artifact)
+    loaded = load_compiled(
+        built.payload,
+        expected_pin=built.pin,
+        accepted_producer=built.producer,
+        accepted_compatibility=built.compatibility,
+    )
+    assert emit_compiled(loaded, ()).rendered.sql == artifact.rendered.sql
+    records = built.root.records
+    aggregate = next(
+        record for record in records.values() if record.address.kind == "aggregate"
+    )
+    projection = next(
+        record
+        for record in records.values()
+        if record.address.kind == "row"
+        and record.get("stage") == "projection"
+        and any(value.kind == "operation" for value in record.get("values"))
+    )
+    assert projection.get("owner") != aggregate.get("owner")
+    values = list(projection.values)
+    values[FIELDS["row"].index("owner")] = aggregate.get("owner")
+    forged = Record(projection.address, tuple(values))
+    description = replace(
+        built.root.description,
+        members=tuple(
+            (
+                name,
+                tuple(
+                    forged if record.address == forged.address else record
+                    for record in members
+                ),
+            )
+            for name, members in built.root.description.members
+        ),
+    )
+    with pytest.raises(
+        CompiledError, match="^COMPILED_AGGREGATE_COMPOSITION_EXPRESSION$"
+    ):
+        verify_description(description)
+    from pietto._project import project_sql_emission_portable as portable
+    from pietto._project import project_sql_emission_pure_boundary as pure
+
+    data = portable.export_emission_observation(
+        artifact, artifact.request
+    ).canonical_bytes
+    assert (
+        data is not None
+        and pure.parse_emission_observation(data).status is pure.Status.OK
+    )
+    document = json.loads(data)
+    bodies = [
+        record["fields"]
+        for record in document["records"]
+        if record["ref"][0] == "row_body"
+    ]
+    aggregate_body = next(body for body in bodies if body["aggregation"] is not None)
+    projection_body = next(
+        body
+        for body in bodies
+        if body["block_kind"] == "projection"
+        and any(column[0] == "row_value_column" for column in body["columns"])
+    )
+    assert projection_body["definition"] != aggregate_body["definition"]
+    projection_body["definition"] = aggregate_body["definition"]
+    refused = pure.parse_emission_observation(json.dumps(document))
+    assert refused.status is pure.Status.INVALID_RELATION
+    assert refused.detail == "aggregate composition expression"
+
+
+@pytest.mark.parametrize("expression", ("1", "1 + 2"))
+def test_compiled_global_aggregate_rejects_zero_leaf_projection(tmp_path, expression):
+    from dataclasses import replace
+    from pietto._project.project_compiled_schema import FIELDS, CompiledError, Record
+    from pietto._project.project_compiled_verification import verify_description
+
+    item = emission.aggregate_fixture("postgres", "X_aggregate_global", "bag")
+    source = item["source"].split("query result:", 1)[0] + (
+        "table totals:\n    from agg\n    select:\n        n = count()\n"
+        "query result:\n    from totals\n    select:\n"
+        f"        fixed = {expression}\n"
+    )
+    checked, outcome = emission.build_case(tmp_path, source, item["contract"])
+    assert checked.verified and outcome.status == "VERIFIED"
+    artifact = outcome.artifact
+    assert artifact is not None
+    built = build_compiled(artifact)
+    loaded = load_compiled(
+        built.payload,
+        expected_pin=built.pin,
+        accepted_producer=built.producer,
+        accepted_compatibility=built.compatibility,
+    )
+    assert emit_compiled(loaded, ()).rendered.sql == artifact.rendered.sql
+    aggregate = next(
+        record
+        for record in built.root.records.values()
+        if record.address.kind == "aggregate"
+    )
+    projection = next(
+        record
+        for record in built.root.records.values()
+        if record.address.kind == "row"
+        and record.get("stage") == "projection"
+        and any(value.kind != "read" for value in record.get("values"))
+    )
+    values = list(projection.values)
+    values[FIELDS["row"].index("owner")] = aggregate.get("owner")
+    forged = Record(projection.address, tuple(values))
+    description = replace(
+        built.root.description,
+        members=tuple(
+            (
+                name,
+                tuple(
+                    forged if record.address == forged.address else record
+                    for record in members
+                ),
+            )
+            for name, members in built.root.description.members
+        ),
+    )
+    with pytest.raises(
+        CompiledError, match="^COMPILED_GLOBAL_AGGREGATE_COMPOSITION_LEAF$"
+    ):
+        verify_description(description)

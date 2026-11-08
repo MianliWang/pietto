@@ -1234,3 +1234,92 @@ def test_numeric_transport_preserves_large_int_and_signed_zero():
     for text in ("NaN", "inf", "-inf", "0x1p+999999", "1.0"):
         with pytest.raises(pure._Reject):
             pure._float(text)
+
+
+@pytest.mark.parametrize("joined", (False, True))
+def test_aggregate_composition_preserves_real_leaf_facts_in_portable_plan(
+    tmp_path, joined
+):
+    from _pietto_plan_aggregate import _ordinary, _group_source
+    from _pietto_plan_selected import _roots
+    from pietto._project.project_sql_plan import build_project_sql_plan
+    from pietto._project.project_sql_plan_verification import verify_project_sql_plan
+
+    source = (
+        _group_source(
+            visible=(("combined", "coalesce(sum(r.key) + sum(r.key), 0) + lhs.id"),)
+        )
+        .replace("total = count()", "row_count = count()")
+        .replace(
+            "    key: Int | None\n", "    key: Int | None\n    row_key = unique(id)\n"
+        )
+        if joined
+        else _ordinary(
+            "    select:\n        total = coalesce(sum(value) + sum(value), 0)\n"
+        )
+    )
+    roots = _roots(tmp_path, source)
+    plan = build_project_sql_plan(*roots)
+    verified = verify_project_sql_plan(plan, *roots)
+    assert verified.verified
+    product = portable.build_project_sql_plan_portable(verified)
+    assert portable.verify_project_sql_plan_portable(product, verified).verified
+    decoded = pure.parse_project_sql_plan_document(product.canonical_bytes)
+    assert decoded.status is pure.Status.OK
+    view = pure.Inspection(decoded)
+    assert len(view.for_kind("project_aggregate_leaf_fact")) == 2
+    assert len(view.for_kind("project_aggregate_composition_result_fact")) == 1
+    composition = view.for_kind("project_aggregate_composition_result_fact")[0]
+    leaves = next(field.value for field in composition.fields if field.name == "leaves")
+    assert isinstance(leaves.data, tuple)
+    for changed in (leaves.data[:1], tuple(reversed(leaves.data))):
+        forged = _change(
+            product.document,
+            composition,
+            "leaves",
+            schema.Value(schema.Tag.SEQUENCE, changed),
+        )
+        assert (
+            pure.evaluate_project_sql_plan_document(forged).status is not pure.Status.OK
+        )
+
+    if joined:
+        output = view.for_kind("project_joined_composition_output_occurrence")[0]
+        forged = _change(
+            product.document,
+            output,
+            "composition_group_keys",
+            schema.Value(schema.Tag.MAPPING, ()),
+        )
+        assert (
+            pure.evaluate_project_sql_plan_document(forged).status is not pure.Status.OK
+        )
+
+
+def test_grouped_zero_leaf_composition_cannot_be_reclassified_global(tmp_path):
+    from _pietto_plan_aggregate import _ordinary
+    from _pietto_plan_selected import _roots
+    from pietto._project.project_sql_plan import build_project_sql_plan
+    from pietto._project.project_sql_plan_verification import verify_project_sql_plan
+
+    roots = _roots(
+        tmp_path,
+        _ordinary(
+            "    group by:\n        id\n    select:\n        fixed = 7\n        count_rows = count()\n"
+        ),
+    )
+    verified = verify_project_sql_plan(build_project_sql_plan(*roots), *roots)
+    assert verified.verified
+    product = portable.build_project_sql_plan_portable(verified)
+    decoded = pure.parse_project_sql_plan_document(product.canonical_bytes)
+    assert decoded.status is pure.Status.OK
+    composition = pure.Inspection(decoded).for_kind(
+        "project_aggregate_composition_result_fact"
+    )[0]
+    forged = _change(
+        product.document,
+        composition,
+        "grouped",
+        schema.Value(schema.Tag.BOOLEAN, False),
+    )
+    assert pure.evaluate_project_sql_plan_document(forged).status is not pure.Status.OK

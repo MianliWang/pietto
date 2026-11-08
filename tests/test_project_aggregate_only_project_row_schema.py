@@ -320,6 +320,7 @@ def test_table_and_query_one_output_candidates_are_identical(
         kind=ProjectResolvedTypeKind.BUILTIN,
     )
     assert selected.field.nullability is ProjectRowFieldNullability.NON_NULL
+    assert isinstance(selected.fact, ProjectAggregateResultFact)
     assert selected.fact.function == "count"
     assert selected.fact.argument_count == 0
 
@@ -407,7 +408,11 @@ def test_qualified_multiple_repeated_and_duplicate_aliases_preserve_select_order
         "repeated",
         "latest",
     )
-    assert tuple(result.fact.function for result in selected) == (
+    functions = []
+    for result in selected:
+        assert isinstance(result.fact, ProjectAggregateResultFact)
+        functions.append(result.fact.function)
+    assert tuple(functions) == (
         "count",
         "count_distinct",
         "sum",
@@ -469,7 +474,7 @@ def test_qualified_multiple_repeated_and_duplicate_aliases_preserve_select_order
         "query aggregate:\n"
         "    from users\n"
         "    select:\n"
-        "        result = sum(amount) + 1\n",
+        "        result = sum(amount) + amount\n",
         "query aggregate:\n"
         "    from users\n"
         "    select:\n"
@@ -773,4 +778,89 @@ def _location(expression: Expression, *, fallback_path: str) -> SourceLocation:
         column=span.column,
         end_line=span.end_line,
         end_column=span.end_column,
+    )
+
+
+@pytest.mark.parametrize(
+    "expression, nullable, functions",
+    [
+        ("coalesce(sum(amount), 0)", ProjectRowFieldNullability.NON_NULL, ("sum",)),
+        (
+            "sum(amount) + sum(amount)",
+            ProjectRowFieldNullability.UNKNOWN,
+            ("sum", "sum"),
+        ),
+        (
+            "sum(amount) * 100 / count()",
+            ProjectRowFieldNullability.UNKNOWN,
+            ("sum", "count"),
+        ),
+    ],
+)
+def test_composition_retains_every_aggregate_occurrence(
+    tmp_path, expression, nullable, functions
+):
+    from pietto._project.model import ProjectAggregateCompositionResultFact
+    from pietto._project.aggregate_grouped_dependency_lineage import (
+        build_project_aggregate_grouped_dependency_lineage_readiness,
+    )
+    from pietto.semantic.aggregates import (
+        aggregate_composition_leaves,
+        is_semantic_aggregate_call,
+    )
+
+    _, semantic, definition, input_schema, upstream = _aggregate_inputs(
+        tmp_path,
+        "query aggregate:\n    from users\n    select:\n        total = "
+        + expression
+        + "\n",
+    )
+    readiness = build_project_aggregate_grouped_dependency_lineage_readiness(
+        definition=definition,
+        input_schema=input_schema,
+        upstream_symbol=upstream,
+        upstream_lineage=None,
+        fallback_path="models.pietto",
+    )
+    finalization = readiness.clause_readiness.finalization
+    assert isinstance(finalization.candidate, ProjectAggregateSchemaFacts)
+    selected = next(iter(finalization.candidate.selected_results.values()))
+    fact = selected.fact
+    assert isinstance(fact, ProjectAggregateCompositionResultFact)
+    assert all(analysis.field is selected.field for analysis in finalization.analyses)
+    assert tuple(analysis.call for analysis in finalization.analyses) == tuple(
+        leaf.call for leaf in fact.leaves
+    )
+    for analysis in finalization.analyses:
+        if analysis.argument_value_types:
+            original = analysis.fact
+            from pietto._project.model import ProjectAggregateLeafFact
+            from pietto.semantic.model import EffectiveNullability
+
+            assert isinstance(original, ProjectAggregateLeafFact)
+            types = dict(original.argument_value_types)
+            argument = next(iter(types))
+            types[argument] = replace(
+                types[argument], nullability=EffectiveNullability.UNKNOWN
+            )
+            forged = replace(original, argument_value_types=types)
+            with pytest.raises(ValueError, match="exact retained argument"):
+                replace(analysis, fact=forged)
+    graph = readiness.dependency_graph
+    assert len(graph.edges) == len(functions)
+    with pytest.raises(ValueError):
+        replace(readiness, dependency_graph=replace(graph, edges=graph.edges[:-1]))
+    assert fact.expression is definition.select_items[0].expression
+    assert selected.field.nullability is nullable
+    assert tuple(leaf.function for leaf in fact.leaves) == functions
+    parts = aggregate_composition_leaves(fact.expression)
+    assert parts is not None
+    calls = tuple(part for part in parts if is_semantic_aggregate_call(part))
+    assert len(calls) == len(fact.leaves)
+    assert all(leaf.call is call for leaf, call in zip(fact.leaves, calls))
+    assert len({id(leaf.call) for leaf in fact.leaves}) == len(fact.leaves)
+    assert semantic.model is not None
+    assert (
+        semantic.model.relation_row_schemas[definition].fields["total"].nullability
+        is nullable
     )

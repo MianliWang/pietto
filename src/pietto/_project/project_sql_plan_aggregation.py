@@ -9,6 +9,8 @@ from typing import TYPE_CHECKING, cast
 
 from pietto.ast_nodes import (
     Expression,
+    NameExpr,
+    DottedNameExpr,
     CallExpr,
     LiteralExpr,
     SelectItem,
@@ -21,7 +23,10 @@ from pietto.semantic.aggregates import GROUP_TEST_AGGREGATE_NAMES, callee_name
 from pietto.semantic.generators import generator_of
 from pietto.semantic.model import ValueType, SatisfyingResultPredicateInfo
 from pietto.ir.model import SymbolId
-from pietto._project.model import ProjectRowResultRole
+from pietto._project.model import (
+    ProjectRowResultRole,
+    ProjectAggregateCompositionResultFact,
+)
 from pietto._project.module_catalog import ProjectDeclarationOccurrence
 from pietto._project.aggregate_grouped_schema import (
     ProjectAggregateExpressionAnalysis,
@@ -31,6 +36,7 @@ from pietto._project.aggregate_grouped_schema import (
     ProjectComputedGroupKeyFact,
     ProjectAggregateSchemaFacts,
     ProjectGroupedSchemaFacts,
+    _resolve_composition_group_key,
 )
 from pietto._project.aggregate_grouped_clause_facts import (
     ProjectAggregateGroupedClauseReadiness,
@@ -101,9 +107,10 @@ type Output = (
     | ProjectGroupedSelectedResult
     | ProjectJoinedStageOutputOccurrence
 )
-type ResultKey = GroupKey | SelectItem
+type ResultKey = GroupKey | SelectItem | CallExpr
 type Reference = (
-    ProjectModuleExpressionReferenceFact
+    Expression
+    | ProjectModuleExpressionReferenceFact
     | ProjectJoinedNamespaceReferenceResolution
     | ProjectRelationClauseDependencyFact
     | ProjectJoinedSatisfyingOutputReference
@@ -115,7 +122,8 @@ type Risk = (
     | ProjectJoinedAggregatePairLinkage
 )
 type Evidence = (
-    ProjectAggregateExpressionAnalysis
+    ProjectAggregateCompositionResultFact
+    | ProjectAggregateExpressionAnalysis
     | ProjectConcreteJoinedNamespaceExpression
     | ProjectJoinedSatisfyingAnalysis
     | SatisfyingResultPredicateInfo
@@ -183,6 +191,8 @@ def authority(
                     output_keys.append(output.group_key)
                 elif output.aggregate is not None:
                     output_keys.append(output.aggregate.item)
+                elif output.composition is not None:
+                    output_keys.append(output.item)
                 else:
                     return None
             return ProjectSQLAggregationAuthority(
@@ -253,9 +263,7 @@ def authority(
     selected_keys = {
         id(item): key for item, key in source.finalization.group_projections
     }
-    analyses = {id(value.item): value for value in source.finalization.analyses}
-    if len(analyses) != len(source.finalization.analyses):
-        return None
+    analyses = source.finalization.analyses
     results_by_item = {
         id(item): (item, value) for item, value in candidate.selected_results.items()
     }
@@ -272,22 +280,44 @@ def authority(
         result = matched[1]
         outputs.append(result)
         if result.field.result_role is ProjectRowResultRole.AGGREGATE_RESULT:
-            analysis = analyses.get(id(selection.item))
-            if (
-                analysis is None
-                or analysis.item is not selection.item
-                or analysis.field is not result.field
-                or analysis.fact
-                is not (
-                    result.fact
-                    if isinstance(result, ProjectAggregateSelectedResult)
-                    else result.aggregate_fact
-                )
-            ):
-                return None
-            aggregates.append(analysis)
-            argument_references.append(references)
-            output_keys.append(selection.item)
+            fact = (
+                result.fact
+                if isinstance(result, ProjectAggregateSelectedResult)
+                else result.aggregate_fact
+            )
+            matches = tuple(value for value in analyses if value.item is selection.item)
+            if isinstance(fact, ProjectAggregateCompositionResultFact):
+                if len(matches) != len(fact.leaves) or any(
+                    value.fact is not leaf for value, leaf in zip(matches, fact.leaves)
+                ):
+                    return None
+                for analysis in matches:
+                    child_ids = {
+                        id(node)
+                        for argument in (
+                            *analysis.call.arguments,
+                            *(o.expression for o in analysis.call.aggregate_order_by),
+                        )
+                        for node in _argument_nodes(argument)
+                    }
+                    aggregates.append(analysis)
+                    argument_references.append(
+                        tuple(
+                            reference
+                            for reference in references
+                            if id(_reference_expression(reference)) in child_ids
+                        )
+                    )
+                output_keys.append(selection.item)
+            else:
+                if len(matches) != 1:
+                    return None
+                analysis = matches[0]
+                if analysis.field is not result.field or analysis.fact is not fact:
+                    return None
+                aggregates.append(analysis)
+                argument_references.append(references)
+                output_keys.append(selection.item)
         else:
             key = selected_keys.get(id(selection.item))
             if key is None:
@@ -464,6 +494,56 @@ class ProjectSQLAggregateDemand:
     origin: ProjectSQLPlanRef
 
 
+def aggregate_call(source: Aggregate) -> CallExpr:
+    return source.call
+
+
+def aggregate_key(source: Aggregate) -> SelectItem | CallExpr:
+    return source.call if source.call is not source.item.expression else source.item
+
+
+def composition_fact(output: Output) -> ProjectAggregateCompositionResultFact | None:
+    fact = (
+        output.fact
+        if isinstance(output, ProjectAggregateSelectedResult)
+        else output.aggregate_fact
+        if isinstance(output, ProjectGroupedSelectedResult)
+        else output.composition
+    )
+    return fact if isinstance(fact, ProjectAggregateCompositionResultFact) else None
+
+
+def composition_references(
+    fact: ProjectAggregateCompositionResultFact,
+) -> tuple[Expression, ...]:
+    from pietto.semantic.aggregates import aggregate_composition_leaves
+
+    return tuple(
+        node
+        for node in aggregate_composition_leaves(fact.expression) or ()
+        if isinstance(node, (NameExpr, DottedNameExpr, CallExpr))
+    )
+
+
+def _argument_nodes(expression: Expression) -> tuple[Expression, ...]:
+    from pietto.semantic.aggregates import child_expressions
+
+    return (
+        expression,
+        *(
+            node
+            for child in child_expressions(expression)
+            for node in _argument_nodes(child)
+        ),
+    )
+
+
+def _reference_expression(reference: Reference) -> Expression:
+    from pietto._project.project_sql_plan_expressions import reference_expression
+
+    return reference_expression(reference)
+
+
 def argument_evidence(
     source: Aggregate,
 ) -> (
@@ -480,18 +560,132 @@ def result_type(source: Aggregate) -> ValueType:
     return source.result_value_type
 
 
+def reference_composition(
+    reference: Reference,
+) -> ProjectAggregateCompositionResultFact | None:
+    if isinstance(reference, ProjectRelationClauseDependencyFact):
+        fact = reference.aggregate_result_fact
+        return fact if isinstance(fact, ProjectAggregateCompositionResultFact) else None
+    if isinstance(reference, ProjectJoinedSatisfyingOutputReference):
+        return reference.output.composition
+    return None
+
+
+def site_compositions(
+    site: ProjectSQLAggregateSite,
+) -> tuple[ProjectAggregateCompositionResultFact, ...]:
+    if isinstance(site.evidence, ProjectAggregateCompositionResultFact):
+        return (site.evidence,)
+    return tuple(
+        fact
+        for reference in site.references
+        if (fact := reference_composition(reference)) is not None
+    )
+
+
+def site_expansions(site: ProjectSQLAggregateSite) -> Mapping[Expression, Expression]:
+    return {
+        _reference_expression(reference): fact.expression
+        for reference in site.references
+        if (fact := reference_composition(reference)) is not None
+    }
+
+
+def site_references(site: ProjectSQLAggregateSite) -> tuple[Reference, ...]:
+    references = []
+    seen = set()
+    for reference in site.references:
+        fact = reference_composition(reference)
+        parts = composition_references(fact) if fact is not None else (reference,)
+        for part in parts:
+            expression = _reference_expression(part)
+            if id(expression) not in seen:
+                seen.add(id(expression))
+                references.append(part)
+    return tuple(references)
+
+
 def site_types(site: ProjectSQLAggregateSite) -> Mapping[Expression, ValueType]:
     evidence = site.evidence
     if isinstance(evidence, ProjectAggregateExpressionAnalysis):
         return evidence.argument_value_types
-    if isinstance(evidence, SatisfyingResultPredicateInfo):
-        return evidence.expression_value_types
-    return evidence.value_types
+    values = dict(
+        evidence.expression_value_types
+        if isinstance(
+            evidence,
+            (SatisfyingResultPredicateInfo, ProjectAggregateCompositionResultFact),
+        )
+        else evidence.value_types
+    )
+    for fact in site_compositions(site):
+        values.update(fact.expression_value_types)
+    return values
 
 
 def result_key(site: ProjectSQLAggregateSite, reference: Reference) -> ResultKey:
+    if isinstance(reference, Expression):
+        if not any(
+            reference is part
+            for fact in site_compositions(site)
+            for part in composition_references(fact)
+        ):
+            raise ValueError("Composition reference is outside its selected expression")
+        if isinstance(reference, CallExpr):
+            matches = tuple(
+                source
+                for source in site.authority.aggregates
+                if aggregate_call(source) is reference
+            )
+            if len(matches) != 1:
+                raise ValueError(
+                    "Composition call requires its exact aggregate occurrence"
+                )
+            return aggregate_key(matches[0])
+        if not isinstance(reference, (NameExpr, DottedNameExpr)):
+            raise ValueError(
+                "Composition result reference requires a call or group key"
+            )
+        if isinstance(site.authority.source, ProjectConcreteJoinedAggregation):
+            keys = tuple(
+                output.composition_group_keys[reference]
+                for output in site.authority.source.stage_outputs
+                if reference in output.composition_group_keys
+            )
+            if len(keys) != 1:
+                raise ValueError(
+                    "Joined composition requires its exact group-key occurrence"
+                )
+            return keys[0]
+        source = site.authority.source
+        assert isinstance(source, ProjectAggregateGroupedClauseReadiness)
+        candidate = source.finalization.candidate
+        analyses = source.finalization.analyses
+        if not isinstance(candidate, ProjectGroupedSchemaFacts) or not analyses:
+            raise ValueError(
+                "Composition group reference requires its original grouped scope"
+            )
+        context = analyses[0]
+        if any(
+            analysis.definition is not context.definition
+            or analysis.input_schema is not context.input_schema
+            or analysis.let_scope is not context.let_scope
+            for analysis in analyses
+        ):
+            raise ValueError(
+                "Composition group references require one exact input scope"
+            )
+        key = _resolve_composition_group_key(
+            definition=context.definition,
+            expression=reference,
+            input_schema=context.input_schema,
+            let_scope_facts=context.let_scope,
+            group_keys=candidate.group_keys,
+        )
+        if key is None:
+            raise ValueError("Composition reference requires one exact group key")
+        return key
     if isinstance(reference, ProjectJoinedSatisfyingAggregateReference):
-        return reference.aggregate.item
+        return aggregate_key(reference.aggregate)
     if isinstance(reference, ProjectJoinedSatisfyingOutputReference):
         item = reference.output.item
     elif isinstance(reference, ProjectRelationClauseDependencyFact) and isinstance(
@@ -532,7 +726,7 @@ def satisfying_effects(value: ProjectSQLAggregationAuthority):
 
 
 def arguments(source: Aggregate) -> tuple[Expression, ...]:
-    call = source.item.expression
+    call = aggregate_call(source)
     if not isinstance(call, CallExpr):
         raise ValueError("Aggregate authority requires an original direct call")
     return call_arguments(call)

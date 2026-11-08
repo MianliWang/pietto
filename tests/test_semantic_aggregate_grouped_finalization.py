@@ -25,7 +25,7 @@ from pietto._project.aggregate_grouped_schema import (
 from pietto._project.check import check_project_parse_only
 from pietto._project.json_v2 import project_check_result_to_json_dict
 from pietto._project.model import (
-    ProjectAggregateResultFact,
+    ProjectAnyAggregateResultFact,
     ProjectParseCheckResult,
     ProjectRelationRowSchemaReason,
     ProjectRelationRowSchemaState,
@@ -284,7 +284,7 @@ def test_finalization_carrier_is_frozen_defensive_and_schema_fact_atomic(
         setattr(finalization, "aggregate_result_facts", {})
     with pytest.raises(TypeError):
         cast(
-            MutableMapping[str, ProjectAggregateResultFact],
+            MutableMapping[str, ProjectAnyAggregateResultFact],
             finalization.aggregate_result_facts,
         )["other"] = next(iter(finalization.aggregate_result_facts.values()))
 

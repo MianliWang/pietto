@@ -2885,3 +2885,17 @@ def test_a_float_observation_decodes_cells_and_checks_metadata(target):
         "metadata": [[label, kind] for label, kind in zip(labels, types)],
     }
     cases.check_float_case(truth, _float_document("fc_rows"), target, case, "fc_rows")
+
+
+def test_checked_remainder_oracle_keeps_exact_dividend_sign_and_bag():
+    label, remainder = cases.CHECKED_BIGINT_ROWS["V_row_blocked", "modulo"]
+    assert label == "rest"
+    assert [
+        remainder(value)
+        for value in (-(1 << 63), -(1 << 63) + 1, -7, -2, -1, 0, 1, 2, 7, (1 << 63) - 1)
+    ] == [0, -1, -1, 0, -1, 0, 1, 0, 1, 1]
+    rows, label = cases.checked_bigint_expectation(
+        "postgres", "V_row_blocked", "modulo"
+    )
+    assert label == "rest"
+    assert rows == [[{"kind": "int", "value": value}] for value in ("1", "1", "0", "1")]

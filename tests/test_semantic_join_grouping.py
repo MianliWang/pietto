@@ -1125,7 +1125,7 @@ def test_approved_let_and_multi_field_aggregate_dependencies_are_complete(
     assert linkage.closure.factors == linkage.final_grain.active
 
 
-def test_nested_composed_arity_type_alias_shape_and_unapproved_let_fail_closed(
+def test_nested_arity_type_alias_shape_and_unapproved_let_fail_closed(
     built: _Built,
 ) -> None:
     result = _result(built, "aggregate_errors")
@@ -1140,7 +1140,6 @@ def test_nested_composed_arity_type_alias_shape_and_unapproved_let_fail_closed(
     )
     assert tuple(item.kind for item in issues) == (
         aggregation.ProjectJoinedAggregateIssueKind.NESTED,
-        aggregation.ProjectJoinedAggregateIssueKind.COMPOSED,
         aggregation.ProjectJoinedAggregateIssueKind.WRONG_ARGUMENT_TYPE,
         aggregation.ProjectJoinedAggregateIssueKind.WRONG_ARITY,
         aggregation.ProjectJoinedAggregateIssueKind.ALIAS_REQUIRED,
@@ -1149,7 +1148,6 @@ def test_nested_composed_arity_type_alias_shape_and_unapproved_let_fail_closed(
     )
     assert _error_codes(result) == (
         "PIE-S2311",
-        "PIE-S2310",
         "PIE-S2314",
         "PIE-S2309",
         "PIE-S2313",
@@ -5443,3 +5441,262 @@ def test_a_full_join_match_already_in_on_names_only_the_other_remedies(
             f"{_UNAVAILABLE}q (an aggregate may read rows repeated by {clause})",
         )
     ]
+
+
+@pytest.mark.parametrize("kind", ("inner", "left", "right", "full"))
+@pytest.mark.parametrize("empty", (False, True))
+def test_joined_composition_preserves_every_real_leaf_and_outer_type(
+    tmp_path: Path,
+    kind: str,
+    empty: bool,
+) -> None:
+    where = "    where False\n" if empty else ""
+    source = (
+        PROJECT_SOURCE.split("query absent_stage:")[0]
+        + f"""query composed:
+    from accounts
+    let event = events
+    {kind} join event on account_events(accounts, event)
+    let bucket = abs(accounts.id)
+{where}    group by:
+        accounts.id
+        event.id
+        bucket
+    select:
+        shifted = bucket + 1
+        total = coalesce(sum(event.metric), 0)
+        repeated = coalesce(sum(event.metric), 0) + coalesce(sum(event.metric), 0)
+        ratio = sum(event.metric) * 100 / count()
+        literal = 7
+        direct = count()
+        both = coalesce(sum(accounts.metric), 0) + coalesce(sum(event.metric), 0)
+    having:
+        total >= 0
+    order by total
+"""
+    )
+    semantic = slice7._semantic_project(
+        tmp_path / "project", {"main.pietto": source}, reverse_creation=False
+    )
+    completed = build_project_completed_semantic_result(semantic)
+    assert type(completed) is ProjectConcreteCompletedSemanticResult
+    result = next(
+        result
+        for tail in completed.effective_outputs.current_tails
+        for result in tail.window_set.aggregation_set.results
+    )
+    assert type(result) is aggregation.ProjectConcreteJoinedAggregation, (
+        result.diagnostics
+    )
+    assert len(result.aggregates) == 8
+    assert len(result.grain_linkages) == 8
+    assert len(result.pair_linkages) == 28
+    assert tuple(link.aggregate for link in result.grain_linkages) == result.aggregates
+    assert (
+        tuple(
+            leaf
+            for output in result.stage_outputs
+            for leaf in (
+                (output.aggregate,)
+                if output.aggregate is not None
+                else output.composition_aggregates
+            )
+        )
+        == result.aggregates
+    )
+    total = result.stage_outputs[1]
+    assert total.value_type.nullability is EffectiveNullability.NON_NULL
+    assert (
+        total.composition_aggregates[0].result_value_type.nullability
+        is EffectiveNullability.NULLABLE
+    )
+    repeated = result.stage_outputs[2]
+    assert len(repeated.composition_aggregates) == 2
+    left, right = repeated.composition_aggregates
+    assert left.call is not right.call and left.item is right.item
+    assert (
+        left.field_dependencies[0].field_semantics
+        is right.field_dependencies[0].field_semantics
+    )
+    assert len(result.stage_outputs[0].composition_group_keys) == 1
+    assert result.stage_outputs[4].composition_aggregates == ()
+    assert result.satisfying is not None
+    reference = result.satisfying.references[0]
+    assert type(reference) is aggregation.ProjectJoinedSatisfyingOutputReference
+    assert reference.output is total
+    with pytest.raises(ValueError, match="complete exact"):
+        replace(repeated, composition_aggregates=repeated.composition_aggregates[:1])
+    with pytest.raises(ValueError, match="exact source order"):
+        replace(result, aggregates=result.aggregates[:-1])
+    with pytest.raises(ValueError, match="exact source order"):
+        replace(result, stage_outputs=result.stage_outputs[:-2])
+
+    for omitted in (0, 4):
+        outputs = tuple(
+            output
+            for index, output in enumerate(result.stage_outputs)
+            if index != omitted
+        )
+        with pytest.raises(ValueError, match="exact source order"):
+            replace(
+                result,
+                stage_outputs=outputs,
+                post_aggregate=replace(result.post_aggregate, outputs=outputs),
+            )
+    assert total.composition is not None
+    leaf = total.composition.leaves[0]
+    original_arguments = dict(leaf.argument_value_types)
+    argument = leaf.call.arguments[0]
+    forged_argument_maps = (
+        {**original_arguments, argument: replace(original_arguments[argument])},
+        {**original_arguments, total.item.expression: total.value_type},
+    )
+    for arguments in forged_argument_maps:
+        forged_leaf = replace(leaf, argument_value_types=arguments)
+        with pytest.raises(ValueError, match="complete exact"):
+            replace(
+                total, composition=replace(total.composition, leaves=(forged_leaf,))
+            )
+    for output in (total, result.stage_outputs[0], result.stage_outputs[4]):
+        assert output.composition is not None
+        values = dict(output.composition.expression_value_types)
+        false_type = replace(
+            output.value_type, nullability=EffectiveNullability.NULLABLE
+        )
+        with pytest.raises(ValueError, match="independently inferred"):
+            replace(
+                output,
+                value_type=false_type,
+                composition=replace(
+                    output.composition,
+                    expression_value_types={
+                        **values,
+                        output.item.expression: false_type,
+                    },
+                ),
+            )
+        with pytest.raises(ValueError, match="independently inferred"):
+            replace(
+                output,
+                composition=replace(
+                    output.composition,
+                    expression_value_types={
+                        **values,
+                        leaf.call.arguments[0]: leaf.result_value_type,
+                    },
+                ),
+            )
+    both = result.stage_outputs[6].composition_aggregates
+    assert (
+        both[0].field_dependencies[0].field_semantics
+        is not both[1].field_dependencies[0].field_semantics
+    )
+
+
+@pytest.mark.parametrize(
+    "expression",
+    (
+        "coalesce(sum(event.metric), 0) + accounts.metric",
+        "coalesce(sum(event.metric), 0) + total",
+        "coalesce(sum(event.metric), 0) + later",
+        "sum(sum(event.metric)) + 1",
+        "sum(event.metric) > 0",
+        "sum(event.metric) if accounts.id > 0 else 0",
+    ),
+)
+def test_joined_composition_keeps_row_alias_nested_and_wrapper_refusals(
+    tmp_path: Path,
+    expression: str,
+) -> None:
+    source = (
+        PROJECT_SOURCE.split("query absent_stage:")[0]
+        + f"""query rejected:
+    from accounts
+    let event = events
+    inner join event on account_events(accounts, event)
+    group by:
+        accounts.id
+    select:
+        total = {expression}
+        later = count()
+"""
+    )
+    semantic = slice7._semantic_project(
+        tmp_path / "project", {"main.pietto": source}, reverse_creation=False
+    )
+    completed = build_project_completed_semantic_result(semantic)
+    assert type(completed) is ProjectConcreteCompletedSemanticResult
+    result = next(
+        result
+        for tail in completed.effective_outputs.current_tails
+        for result in tail.window_set.aggregation_set.results
+    )
+    assert type(result) is aggregation.ProjectNonConcreteJoinedAggregation
+    assert result.post_aggregate is None
+
+
+@pytest.mark.parametrize(
+    "group", ("", "    let bucket = abs(event.metric)\n    group by:\n        bucket\n")
+)
+def test_joined_composition_retains_all_fanout_requirements(
+    tmp_path: Path, group: str
+) -> None:
+    source = (
+        PROJECT_SOURCE.split("query absent_stage:")[0]
+        + f"""query fanout:
+    from accounts
+    let event = events
+    inner join event on account_events(accounts, event)
+{group}    select:
+        total = coalesce(sum(accounts.metric), 0) + coalesce(sum(accounts.metric), 0)
+"""
+    )
+    semantic = slice7._semantic_project(
+        tmp_path / "project", {"main.pietto": source}, reverse_creation=False
+    )
+    completed = build_project_completed_semantic_result(semantic)
+    assert type(completed) is ProjectConcreteCompletedSemanticResult
+    result = next(
+        result
+        for tail in completed.effective_outputs.current_tails
+        for result in tail.window_set.aggregation_set.results
+    )
+    assert type(result) is aggregation.ProjectNonConcreteJoinedAggregation
+    assert (
+        result.reason
+        is aggregation.ProjectJoinedAggregationNonConcreteReason.AGGREGATE_ALGEBRA_REQUIRED
+    )
+    assert len(result.grain_linkages) == 2
+    assert all(link.requirements for link in result.grain_linkages)
+    assert len(result.pair_linkages) == 1
+
+
+@pytest.mark.parametrize("select", ("key = accounts.id + 1", "key = 1"))
+def test_joined_composition_without_a_real_aggregate_keeps_pure_grouping_refusal(
+    tmp_path: Path,
+    select: str,
+) -> None:
+    source = (
+        PROJECT_SOURCE.split("query absent_stage:")[0]
+        + f"""query pure:
+    from accounts
+    let event = events
+    inner join event on account_events(accounts, event)
+    group by:
+        accounts.id
+    select:
+        {select}
+"""
+    )
+    semantic = slice7._semantic_project(
+        tmp_path / "project", {"main.pietto": source}, reverse_creation=False
+    )
+    completed = build_project_completed_semantic_result(semantic)
+    assert type(completed) is ProjectConcreteCompletedSemanticResult
+    result = next(
+        result
+        for tail in completed.effective_outputs.current_tails
+        for result in tail.window_set.aggregation_set.results
+    )
+    assert type(result) is aggregation.ProjectNonConcreteJoinedAggregation
+    assert _error_codes(result) == ("PIE-S2320",)

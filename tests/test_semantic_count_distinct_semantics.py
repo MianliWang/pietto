@@ -244,13 +244,10 @@ def test_projection_alias_is_not_a_count_distinct_argument() -> None:
             ("PIE-S2311", "Nested aggregate count() is not supported"),
         ),
         (
-            "unique_values = count_distinct(customer_id) + 1",
+            "unique_values = count_distinct(customer_id) if True else 1",
             (
                 "PIE-S2310",
-                "Aggregate projection must be a direct aggregate call; "
-                "composition around count_distinct() is not supported yet; select the count_distinct() "
-                "under a name in one query, then compute with that name in "
-                "another that reads it with `from`",
+                "Aggregate composition requires scalar calls or arithmetic over direct aggregates, group keys and literals; invalid composition around count_distinct(); select the count_distinct() under a name in one query, then compute with that name in another that reads it with `from`",
             ),
         ),
         (

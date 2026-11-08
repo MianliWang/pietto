@@ -2,9 +2,12 @@ from __future__ import annotations
 
 import pytest
 
+from pietto.ast_nodes import TableDef
 from pietto.errors import Severity
+from pietto.ir import build_ir
 from pietto.parser_api import parse_source
-from pietto.semantic import analyze
+from pietto.semantic import EffectiveNullability, analyze
+from pietto.sql import emit_postgres_sql
 
 SOURCE_PREFIX = (
     "shape Order:\n"
@@ -147,7 +150,7 @@ def test_no_group_aggregate_behavior_remains_distinct_from_grouped_behavior() ->
     ("projections", "expected_codes"),
     [
         (("customer_id", "total = count()"), ["PIE-S2318"]),
-        (("label = lower(region)", "total = count()"), ["PIE-S2319"]),
+        (("label = lower(status)", "total = count()"), ["PIE-S2319"]),
         (("region",), ["PIE-S2320"]),
         (("region", "count()"), ["PIE-S2313"]),
     ],
@@ -243,8 +246,8 @@ def test_computed_grouped_order_output_remains_deferred() -> None:
     [
         ("total = sum(avg(amount))", "PIE-S2311"),
         ("total = count(count())", "PIE-S2311"),
-        ("total = sum(amount) + 1", "PIE-S2310"),
-        ("total = lower(min(amount))", "PIE-S2310"),
+        ("total = sum(amount) if True else 1", "PIE-S2310"),
+        ("total = lower(min(amount))", "PIE-S2104"),
         ("total = sum(total_amount)", "PIE-S2102"),
         # Phase 39 Slice 3 accepts "total = count(amount + tax)" semantically.
         ("total = count(1)", "PIE-S2315"),
@@ -281,3 +284,30 @@ def test_grouped_sql_like_aggregate_syntax_remains_parser_rejected(
     source = _grouped_relation(projections=("region", projection))
 
     assert "PIE-P1000" in _parser_codes(source)
+
+
+def test_group_key_scalar_beside_aggregate_keeps_type_having_and_sql() -> None:
+    parsed = _parse(
+        _grouped_relation(
+            projections=("label = lower(region)", "total = count()"),
+            satisfying='label != "blocked"',
+            order_items=("label asc",),
+        )
+    )
+    semantic = analyze(parsed)
+    assert semantic.diagnostics == ()
+    script = semantic.script or parsed
+    relation = script.definitions[-1]
+    assert isinstance(relation, TableDef)
+    field = semantic.model.relation_row_schemas[relation].fields["label"]
+    assert (field.resolved_type.name, field.nullability) == (
+        "Text",
+        EffectiveNullability.NON_NULL,
+    )
+    lowered = build_ir(script, semantic.model)
+    assert lowered.ir is not None and lowered.diagnostics == ()
+    sql = emit_postgres_sql(lowered.ir)
+    assert sql.diagnostics == ()
+    assert 'lower("region") AS "label"' in sql.artifacts[0].sql
+    assert 'GROUP BY\n    "region"' in sql.artifacts[0].sql
+    assert 'ORDER BY\n    lower("region") ASC' in sql.artifacts[0].sql

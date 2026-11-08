@@ -323,7 +323,7 @@ def test_concrete_direct_qualified_chained_and_computed_row_let_matrix(
         "    from users\n"
         "    let gross = amount + tax\n"
         "    select:\n"
-        "        total = sum(gross) + 1\n",
+        "        total = sum(gross) + amount\n",
     ),
 )
 def test_selected_let_direct_call_boundary_rejects_ordinary_hidden_qualified_alias_and_composed_forms(
@@ -359,7 +359,7 @@ def test_selected_let_direct_call_boundary_rejects_ordinary_hidden_qualified_ali
         "min(amount + tax)",
         "max(score * weight)",
         "sum(avg(amount))",
-        "sum(amount) + 1",
+        "sum(amount) + amount",
     ),
 )
 def test_unsupported_inline_literal_division_comparison_call_extrema_nested_and_composed_forms_return_none(
@@ -724,10 +724,11 @@ def _no_group_rows(
         fallback_path="models.pietto",
     )
     assert isinstance(facts, ProjectAggregateSchemaFacts)
-    return tuple(
-        (item, result.field, result.fact)
-        for item, result in facts.selected_results.items()
-    )
+    rows: list[AggregateRow] = []
+    for item, result in facts.selected_results.items():
+        assert isinstance(result.fact, ProjectAggregateResultFact)
+        rows.append((item, result.field, result.fact))
+    return tuple(rows)
 
 
 def _grouped_rows(
@@ -746,6 +747,7 @@ def _grouped_rows(
     for item, result in facts.selected_results.items():
         fact = result.aggregate_fact
         if fact is not None:
+            assert isinstance(fact, ProjectAggregateResultFact)
             rows.append((item, result.field, fact))
     return tuple(rows)
 
@@ -922,3 +924,26 @@ def _location(expression: Expression) -> SourceLocation:
         end_line=span.end_line,
         end_column=span.end_column,
     )
+
+
+def test_selected_let_composition_retains_original_argument_scope(tmp_path):
+    from pietto._project.model import ProjectAggregateCompositionResultFact
+
+    _, _, definition, input_schema, upstream = _candidate_inputs(
+        tmp_path,
+        "query candidate:\n    from users\n    let gross = amount + tax\n    select:\n        total = coalesce(sum(gross), 0)\n",
+    )
+    facts = build_project_aggregate_schema_facts(
+        definition=definition,
+        input_schema=input_schema,
+        upstream_symbol=upstream,
+        fallback_path="models.pietto",
+    )
+    assert facts is not None
+    selected = next(iter(facts.selected_results.values()))
+    assert isinstance(selected.fact, ProjectAggregateCompositionResultFact)
+    leaf = selected.fact.leaves[0]
+    assert isinstance(leaf.call.arguments[0], NameExpr)
+    assert leaf.call.arguments[0].name == "gross"
+    assert selected.field.nullability is ProjectRowFieldNullability.NON_NULL
+    assert leaf.result_value_type.nullability.value == "nullable"

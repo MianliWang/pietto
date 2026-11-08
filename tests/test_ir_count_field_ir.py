@@ -160,11 +160,11 @@ def test_grouped_count_field_lowers_with_group_keys_preserved() -> None:
     relation = _relation_ir(ir_result.ir)
     projections = {projection.name: projection for projection in relation.projections}
 
-    assert [key.name for key in relation.group_keys] == ["status"]
-    assert [key.qualifier for key in relation.group_keys] == [()]
-    assert [key.field for key in relation.group_keys] == [
-        FieldId(owner=_orders_symbol(), name="status")
-    ]
+    (key,) = relation.group_keys
+    assert isinstance(key, FieldRefIR)
+    assert key.name == "status"
+    assert key.qualifier == ()
+    assert key.field == FieldId(owner=_orders_symbol(), name="status")
     _assert_aggregate(
         projections["known_amounts"].expression,
         "count",
@@ -201,11 +201,11 @@ def test_grouped_qualified_count_field_lowers_with_group_keys_preserved() -> Non
     relation = _relation_ir(ir_result.ir)
     projections = {projection.name: projection for projection in relation.projections}
 
-    assert [key.name for key in relation.group_keys] == ["status"]
-    assert [key.qualifier for key in relation.group_keys] == [("orders",)]
-    assert [key.field for key in relation.group_keys] == [
-        FieldId(owner=_orders_symbol(), name="status")
-    ]
+    (key,) = relation.group_keys
+    assert isinstance(key, FieldRefIR)
+    assert key.name == "status"
+    assert key.qualifier == ("orders",)
+    assert key.field == FieldId(owner=_orders_symbol(), name="status")
     _assert_aggregate(
         projections["known_scores"].expression,
         "count",
@@ -286,10 +286,8 @@ def test_direct_lower_expr_for_valid_count_field_uses_aggregate_call_ir() -> Non
             "PIE-S2311",
         ),
         (
-            SOURCE_PREFIX + "table order_completeness:\n"
-            "    from orders\n"
-            "    select:\n"
-            "        known_values = count(amount) + 1\n",
+            SOURCE_PREFIX
+            + "table order_completeness:\n    from orders\n    select:\n        known_values = count(amount) if True else 1\n",
             "PIE-S2310",
         ),
         (

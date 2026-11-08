@@ -1009,6 +1009,98 @@ class ProjectAggregateResultFact:
 
 
 @dataclass(frozen=True, slots=True)
+class ProjectAggregateLeafFact:
+    """One authored aggregate occurrence inside a selected scalar expression."""
+
+    call: CallExpr
+    function: str
+    argument_value_types: Mapping[Expression, ValueType]
+    result_value_type: ValueType
+
+    def __post_init__(self) -> None:
+        from pietto.semantic.aggregates import semantic_aggregate_call_name
+        from pietto.semantic.model import ValueType, ValueTypeKind
+
+        if (
+            type(self.call) is not CallExpr
+            or type(self.function) is not str
+            or not self.function
+            or semantic_aggregate_call_name(self.call) != self.function
+            or type(self.result_value_type) is not ValueType
+            or self.result_value_type.kind is not ValueTypeKind.KNOWN
+        ):
+            raise ValueError(
+                "Aggregate leaf requires its authored call and result type"
+            )
+        values = _readonly_mapping(self.argument_value_types)
+        if any(argument not in values for argument in self.call.arguments):
+            raise ValueError("Aggregate leaf requires every authored argument type")
+        if any(type(value) is not ValueType for value in values.values()):
+            raise ValueError("Aggregate leaf requires argument value types")
+        object.__setattr__(self, "argument_value_types", values)
+
+
+@dataclass(frozen=True, slots=True)
+class ProjectAggregateCompositionResultFact:
+    """A selected scalar result with every real aggregate occurrence in order."""
+
+    expression: Expression
+    output_name: str
+    grouped: bool
+    location: SourceLocation
+    leaves: tuple[ProjectAggregateLeafFact, ...]
+    expression_value_types: Mapping[Expression, ValueType]
+
+    def __post_init__(self) -> None:
+        from pietto.semantic.aggregates import (
+            aggregate_composition_leaves,
+            is_semantic_aggregate_call,
+        )
+        from pietto.semantic.model import ValueType, ValueTypeKind
+
+        parts = aggregate_composition_leaves(self.expression)
+        if parts is None or is_semantic_aggregate_call(self.expression):
+            raise ValueError("Aggregate composition requires a scalar expression")
+        if type(self.output_name) is not str or not self.output_name:
+            raise ValueError("Aggregate composition requires output name")
+        if type(self.grouped) is not bool or type(self.location) is not SourceLocation:
+            raise ValueError("Aggregate composition requires grouping and location")
+        calls = tuple(part for part in parts if is_semantic_aggregate_call(part))
+        if not self.grouped and (
+            not calls
+            or any(isinstance(part, (NameExpr, DottedNameExpr)) for part in parts)
+        ):
+            raise ValueError(
+                "Global aggregate composition requires a real aggregate and no row reads"
+            )
+        if (
+            type(self.leaves) is not tuple
+            or len(calls) != len(self.leaves)
+            or any(
+                type(leaf) is not ProjectAggregateLeafFact or leaf.call is not call
+                for call, leaf in zip(calls, self.leaves)
+            )
+        ):
+            raise ValueError(
+                "Aggregate composition requires all authored leaves in order"
+            )
+        values = _readonly_mapping(self.expression_value_types)
+        result = values.get(self.expression)
+        if type(result) is not ValueType or result.kind is not ValueTypeKind.KNOWN:
+            raise ValueError("Aggregate composition requires its final expression type")
+        if any(
+            values.get(leaf.call) is not leaf.result_value_type for leaf in self.leaves
+        ):
+            raise ValueError("Aggregate composition requires exact leaf result types")
+        object.__setattr__(self, "expression_value_types", values)
+
+
+ProjectAnyAggregateResultFact = (
+    ProjectAggregateResultFact | ProjectAggregateCompositionResultFact
+)
+
+
+@dataclass(frozen=True, slots=True)
 class ProjectRowSchema:
     """Ordered private project row schema scaffold."""
 
@@ -1134,7 +1226,7 @@ class _ProjectRelationRowSchemasResult:
     relation_let_scope_facts: dict[TableDef | QueryDef, ProjectRelationLetScopeFacts]
     relation_aggregate_result_facts: dict[
         TableDef | QueryDef,
-        Mapping[str, ProjectAggregateResultFact],
+        Mapping[str, ProjectAnyAggregateResultFact],
     ]
     relation_window_result_facts: dict[
         TableDef | QueryDef,
@@ -1274,7 +1366,7 @@ class ProjectSemanticModel:
     )
     relation_aggregate_result_facts: Mapping[
         TableDef | QueryDef,
-        Mapping[str, ProjectAggregateResultFact],
+        Mapping[str, ProjectAnyAggregateResultFact],
     ] = field(default_factory=lambda: _readonly_mapping())
     relation_window_result_facts: Mapping[
         TableDef | QueryDef,
@@ -1354,7 +1446,7 @@ def _validate_project_aggregate_result_facts(
     relation_row_schemas: Mapping[TableDef | QueryDef, ProjectRowSchema],
     relation_aggregate_result_facts: Mapping[
         TableDef | QueryDef,
-        Mapping[str, ProjectAggregateResultFact],
+        Mapping[str, ProjectAnyAggregateResultFact],
     ],
 ) -> None:
     """Validate inert aggregate-result facts against supplied private schemas."""
@@ -1366,7 +1458,7 @@ def _validate_project_aggregate_result_facts(
         if schema is None:
             raise ValueError("Project aggregate result facts require relation schema")
         for output_name, fact in facts.items():
-            if not isinstance(fact, ProjectAggregateResultFact):
+            if not isinstance(fact, ProjectAnyAggregateResultFact):
                 raise ValueError("Project aggregate result facts require fact values")
             if output_name != fact.output_name:
                 raise ValueError("Project aggregate result fact output key mismatch")
@@ -1379,6 +1471,24 @@ def _validate_project_aggregate_result_facts(
                 )
             if fact.grouped is not (definition.group_by_clause is not None):
                 raise ValueError("Project aggregate result fact grouped mismatch")
+            if isinstance(fact, ProjectAggregateCompositionResultFact):
+                matches = tuple(
+                    item
+                    for item in definition.select_items
+                    if item.alias == output_name and item.expression is fact.expression
+                )
+                if len(matches) != 1:
+                    raise ValueError(
+                        "Project aggregate composition requires its exact selected expression"
+                    )
+                value = fact.expression_value_types[fact.expression]
+                if (
+                    row_field.resolved_type.name != value.resolved_type.name
+                    or row_field.nullability.value != value.nullability.value
+                ):
+                    raise ValueError(
+                        "Project aggregate composition field must retain its final scalar type"
+                    )
 
     for definition, schema in relation_row_schemas.items():
         facts = relation_aggregate_result_facts.get(definition)
@@ -2363,7 +2473,7 @@ def _build_project_relation_row_schemas(
     ] = {}
     relation_aggregate_result_facts: dict[
         TableDef | QueryDef,
-        Mapping[str, ProjectAggregateResultFact],
+        Mapping[str, ProjectAnyAggregateResultFact],
     ] = {}
     relation_window_result_facts: dict[
         TableDef | QueryDef,
@@ -2860,7 +2970,7 @@ def _record_project_relation_terminal_bundle(
     relation_let_scope_facts: dict[TableDef | QueryDef, ProjectRelationLetScopeFacts],
     relation_aggregate_result_facts: dict[
         TableDef | QueryDef,
-        Mapping[str, ProjectAggregateResultFact],
+        Mapping[str, ProjectAnyAggregateResultFact],
     ],
     relation_window_result_facts: dict[
         TableDef | QueryDef,
@@ -2873,7 +2983,7 @@ def _record_project_relation_terminal_bundle(
     definition: TableDef | QueryDef,
     state: ProjectRelationRowSchemaState,
     let_scope_facts: ProjectRelationLetScopeFacts,
-    aggregate_result_facts: Mapping[str, ProjectAggregateResultFact],
+    aggregate_result_facts: Mapping[str, ProjectAnyAggregateResultFact],
     window_result_facts: Mapping[str, WindowResultProjectFact],
     dependency_graph: ProjectRelationRowDependencyGraph,
     lineage: ProjectRelationRowLineage,

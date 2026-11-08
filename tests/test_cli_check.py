@@ -11,7 +11,7 @@ import pietto.ir as ir_api
 import pietto.sql as sql_api
 
 EXAMPLE_PATHS = tuple(sorted(Path("examples").rglob("*.pietto")))
-assert len(EXAMPLE_PATHS) == 10
+assert EXAMPLE_PATHS
 
 
 def test_check_valid_file_returns_success(

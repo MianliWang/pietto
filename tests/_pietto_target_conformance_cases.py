@@ -962,6 +962,10 @@ def meaning_logical(variant):
 CHECKED_BIGINT_ROWS = {
     ("V_row_blocked", "int_overflow"): ("big", lambda value: value + 1),
     ("V_row_blocked", "unary_overflow"): ("negated", lambda value: -value),
+    ("V_row_blocked", "modulo"): (
+        "rest",
+        lambda value: value % 2 if value >= 0 else -((-value) % 2),
+    ),
 }
 
 

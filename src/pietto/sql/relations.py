@@ -10,6 +10,7 @@ from typing import Any
 from pietto._generated_names import generated_name
 from pietto.ir.model import (
     AggregateCallIR,
+    aggregate_composition_leaves,
     AggregateWindowCallIR,
     AnyFieldIR,
     ExpressionIR,
@@ -981,13 +982,15 @@ def _validate_grouped_relation(relation: RelationIR) -> None:
     saw_aggregate = False
     for projection in relation.projections:
         expression = projection.expression
-        if isinstance(expression, AggregateCallIR):
-            saw_aggregate = True
-            orderable_expressions.append(expression)
-            continue
-        if (
-            isinstance(expression, FieldRefIR) and expression.field in group_fields
-        ) or expression in relation.group_keys:
+        leaves = aggregate_composition_leaves(expression, relation.group_keys)
+        if leaves is not None and all(
+            isinstance(leaf, (AggregateCallIR, LiteralIR))
+            or isinstance(leaf, FieldRefIR)
+            and leaf.field in group_fields
+            or leaf in relation.group_keys
+            for leaf in leaves
+        ):
+            saw_aggregate |= any(isinstance(leaf, AggregateCallIR) for leaf in leaves)
             orderable_expressions.append(expression)
             continue
         if isinstance(expression, (WindowCallIR, AggregateWindowCallIR)):

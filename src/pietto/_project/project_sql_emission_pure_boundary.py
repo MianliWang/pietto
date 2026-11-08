@@ -1082,24 +1082,17 @@ def _aggregate_casts(
 def _decimal_sum_cast(family: str, function: str, argument, result) -> str | None:
     """The E10 result cast is derived from two retained Decimal carriers."""
 
-    if family != "postgres" or function != "sum" or argument is None or result is None:
+    if family != "postgres" or function != "sum":
         return None
-    if argument.get("tag") != "Decimal" or result.get("tag") != "Decimal":
+    parameters = _pg_decimal_parameters(argument)
+    if parameters is None:
         return None
-    storage, domain = argument.get("storage"), argument.get("domain")
-    if not isinstance(storage, dict) or not isinstance(domain, dict):
-        return None
-    precision, scale = storage.get("precision"), storage.get("scale")
+    precision, scale = parameters
     if (
-        storage.get("kind") != "pg_numeric"
-        or not isinstance(precision, int)
-        or not isinstance(scale, int)
-        or not 0 <= scale <= precision <= 46
-        or domain != {"kind": "decimal", "precision": precision, "scale": scale}
-        or result.get("storage")
-        != {"kind": "pg_numeric", "precision": precision + 19, "scale": scale}
-        or result.get("domain")
-        != {"kind": "decimal", "precision": precision + 19, "scale": scale}
+        not 1 <= precision <= 46
+        or scale > 30
+        or _pg_decimal_parameters(result) != (precision + 19, scale)
+        or result["nullable"] is not True
     ):
         return None
     return f"pg_catalog.numeric({precision + 19}, {scale})"
@@ -1680,6 +1673,98 @@ class _Check:
             _require(
                 op["operator"] in schema.OPERATORS[op["kind"]], "operation operator"
             )
+            result = doc[op["realization"]]
+            if family == "postgres" and result["tag"] == "Decimal":
+                operands = tuple(
+                    _value_realization(doc, child) for child in op["operands"]
+                )
+                if op["kind"] == "arithmetic":
+                    _require(
+                        len(operands) == 2 and op["operator"] in {"+", "-", "*"},
+                        "Decimal arithmetic operator",
+                    )
+                    parameters = []
+                    for child, operand in zip(op["operands"], operands, strict=True):
+                        decimal = _pg_decimal_parameters(operand)
+                        if decimal is not None:
+                            parameters.append(decimal)
+                        else:
+                            _require(_is_pg_int(operand), "Decimal arithmetic operand")
+                            literal = _literal_int(doc, child)
+                            parameters.append(
+                                (
+                                    max(1, len(str(abs(literal))))
+                                    if literal is not None
+                                    else {16: 5, 32: 10, 64: 19}[
+                                        _SIGNED_STORAGE_BITS[operand["storage"]["kind"]]
+                                    ],
+                                    0,
+                                )
+                            )
+                    (lp, ls), (rp, rs) = parameters
+                    if op["operator"] in {"+", "-"}:
+                        scale = max(ls, rs)
+                        precision = max(lp - ls, rp - rs) + 1 + scale
+                    elif {operand["tag"] for operand in operands} == {"Decimal", "Int"}:
+                        precision, scale = (
+                            parameters[0]
+                            if operands[0]["tag"] == "Decimal"
+                            else parameters[1]
+                        )
+                        precision += 19
+                    else:
+                        precision, scale = lp + rp, ls + rs
+                    _require(
+                        1 <= precision <= 65
+                        and 0 <= scale <= min(precision, 30)
+                        and _pg_decimal_parameters(result) == (precision, scale)
+                        and result["nullable"] == "unknown",
+                        "Decimal arithmetic carrier",
+                    )
+                elif (
+                    op["kind"] == "sign"
+                    or op["kind"] == "scalar_call"
+                    and op["operator"] == "abs"
+                ):
+                    _require(
+                        len(operands) == 1
+                        and _pg_decimal_parameters(operands[0]) is not None
+                        and _pg_decimal_parameters(result)
+                        == _pg_decimal_parameters(operands[0])
+                        and result["nullable"] == operands[0]["nullable"],
+                        "Decimal unary carrier",
+                    )
+                elif op["kind"] == "scalar_call" and op["operator"] in {
+                    "coalesce",
+                    "nullif",
+                }:
+                    nullabilities = tuple(
+                        True if child.kind == "sql_null" else operand["nullable"]
+                        for child, operand in zip(op["operands"], operands, strict=True)
+                    )
+                    nullable = (
+                        (True if nullabilities[0] is False else nullabilities[0])
+                        if op["operator"] == "nullif"
+                        else False
+                        if any(value is False for value in nullabilities)
+                        else "unknown"
+                        if "unknown" in nullabilities
+                        else True
+                    )
+                    carriers = tuple(
+                        _pg_decimal_parameters(operand)
+                        for operand in operands
+                        if operand is not None
+                        and operand["storage"].get("kind") != "typed_null"
+                    )
+                    _require(
+                        bool(carriers)
+                        and carriers[0] is not None
+                        and all(carrier == carriers[0] for carrier in carriers)
+                        and _pg_decimal_parameters(result) == carriers[0]
+                        and result["nullable"] == nullable,
+                        "Decimal scalar carrier",
+                    )
             if op["kind"] == "scalar_call" and op["operator"] == "date_of":
                 _require(
                     _is_realization(
@@ -1942,7 +2027,7 @@ class _Check:
                 else _value_realization(doc, column["argument"])
             )
             argument_tag = None if argument is None else argument.get("tag")
-            result = _value_realization(doc, doc[column["column"]]["realization"])
+            result = doc[doc[column["column"]]["realization"]]
             argument_cast, result_cast = _aggregate_casts(
                 family, column["function"], argument_tag
             )
@@ -1972,7 +2057,7 @@ class _Check:
                     and result["nullable"] is True,
                     "float sum or avg result",
                 )
-            elif column["function"] == "sum":
+            elif column["function"] == "sum" and decimal_cast is None:
                 # Q1: PostgreSQL only; the checked bigint narrowing bounds an
                 # Int argument's exact sum, NULL for an empty input.
                 _require(
@@ -2234,6 +2319,89 @@ class _Check:
     # structural specifics
     def shapes(self) -> None:
         doc = self.doc
+        aggregate_stages: dict[Ref, list[Ref]] = {}
+        for ref in doc.all("row_body"):
+            body = doc[ref]
+            if body["aggregation"] is not None:
+                aggregate_stages.setdefault(body["definition"], []).append(ref)
+        for ref in doc.all("row_body"):
+            body = doc[ref]
+            if (
+                body["block_kind"] != "projection"
+                or body["definition"] not in aggregate_stages
+            ):
+                continue
+            roots = [
+                doc[column]["value"]
+                for column in body["columns"]
+                if column.kind == "row_value_column"
+            ]
+            if not roots:
+                continue
+            stages = aggregate_stages[body["definition"]]
+            _require(len(stages) == 1, "aggregate composition stage")
+            stage_body = doc[stages[0]]
+            stage = doc[stage_body["aggregation"]]
+            _require(
+                bool(stage["values"])
+                and stage_body["columns"] == (*stage["keys"], *stage["values"]),
+                "aggregate composition stage",
+            )
+            _require(
+                stage["mode"] in {"grouped", "global"}
+                and bool(stage["keys"]) is (stage["mode"] == "grouped"),
+                "aggregate composition mode",
+            )
+            _require(self.family == "postgres", "aggregate composition target")
+            for root in roots:
+                pending = [root]
+                seen = set()
+                reads_aggregate = False
+                while pending:
+                    value = pending.pop()
+                    if value in seen:
+                        continue
+                    seen.add(value)
+                    fields = doc[value]
+                    if value.kind == "sql_operation":
+                        _require(
+                            fields["kind"] in {"scalar_call", "sign", "arithmetic"},
+                            "aggregate composition expression",
+                        )
+                        pending.extend(fields["operands"])
+                    elif value.kind in {"sql_unary", "sql_anchor"}:
+                        pending.append(fields["operand"])
+                    elif value.kind == "sql_stage_reference":
+                        origin_ref = doc[fields["column"]]["aggregate"]
+                        _require(origin_ref is not None, "aggregate composition scope")
+                        origin = doc[origin_ref]
+                        _require(
+                            origin["aggregation"] == stage["aggregation"]
+                            and origin["kind"] in {"group_key", "aggregate_result"},
+                            "aggregate composition scope",
+                        )
+                        aggregate_result = origin["kind"] == "aggregate_result"
+                        subject = "aggregate" if aggregate_result else "key"
+                        claimed = stage["values"] if aggregate_result else stage["keys"]
+                        _require(
+                            sum(
+                                doc[column][subject] == origin[subject]
+                                and doc[column]["export"] == origin["result"]
+                                for column in claimed
+                            )
+                            == 1,
+                            "aggregate composition scope",
+                        )
+                        reads_aggregate |= aggregate_result
+                    else:
+                        _require(
+                            value.kind in {"sql_literal", "sql_parameter", "sql_null"},
+                            "aggregate composition terminal",
+                        )
+                _require(
+                    stage["mode"] == "grouped" or reads_aggregate,
+                    "global aggregate composition leaf",
+                )
         for ref in doc.all("join_body"):
             join = doc[ref]
             _require(len(join["inputs"]) == 2, "join inputs")
@@ -4065,7 +4233,9 @@ class _ProvenIntRanges:
             return _I64_MIN, _I64_MAX
         if function == "sum" and column["argument"] is not None:
             argument = self.value(column["argument"])
-            return "Float" if argument == "Float" else (_I64_MIN, _I64_MAX)
+            return (
+                argument if argument in {"Float", "Decimal"} else (_I64_MIN, _I64_MAX)
+            )
         if function == "avg":
             return "Float"
         if function in {"min", "max"} and column["argument"] is not None:
@@ -4156,6 +4326,17 @@ class _ProvenIntRanges:
             return (-high, -low) if op["operator"] == "-" else (low, high)
         if op["kind"] == "arithmetic" and len(ranges) == 2:
             (a, b), (c, d) = ranges
+            if op["operator"] in {"/", "%"}:
+                result = self.doc[op["realization"]]
+                if (
+                    self.family == "postgres"
+                    and _is_pg_int(result)
+                    and dict(result["storage"]) == {"kind": "pg_int8"}
+                    and dict(result["domain"])
+                    == {"kind": "int_range", "min": str(_I64_MIN), "max": str(_I64_MAX)}
+                ):
+                    return _I64_MIN, _I64_MAX
+                return self._UNKNOWN
             if op["operator"] == "+":
                 return a + c, b + d
             if op["operator"] == "-":

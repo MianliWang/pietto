@@ -660,6 +660,7 @@ def verify_emission_generation(value, target, expected):
                         "between",
                         "int_overflow",
                         "unary_overflow",
+                        "modulo",
                         "float_comparison",
                         "float_arithmetic",
                     }

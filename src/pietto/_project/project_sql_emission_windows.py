@@ -685,7 +685,7 @@ def parameter_argument(family, policy, item, native):
 
     role = item.role.value
     parameter = item.parameter
-    use = None if native is None else native.get(item.ref)
+    use = None if native is None else parameters.take_use(native, item.ref)
     if (
         family not in STRUCTURAL_COUNT_STORAGE
         or parameter is None
@@ -1106,10 +1106,13 @@ def aggregate_argument_problem(family: str, function: str, arguments):
     read = arguments[0].read
     if read is None:
         return "PIE-B1003", "aggregate_argument_not_a_direct_established_field"
-    # The grouped PostgreSQL parity (Float SUM and AVG, counts of Text, Bool,
-    # Float and Decimal, extrema of Float and Decimal) has no window witness;
+    # The grouped PostgreSQL parity (Decimal SUM, Float SUM and AVG, counts
+    # of Text, Bool, Float and Decimal, extrema of Float and Decimal) has no
+    # window witness;
     # an aggregate over a window keeps the Int domain it was reviewed with.
     tag = getattr(read.realization, "tag", None)
+    if function in {"sum", "avg"} and tag == "Decimal":
+        return "PIE-B1004", "decimal_aggregate_range_proof_missing"
     if function in {"sum", "avg"} and tag == "Float":
         return "PIE-B1004", "float_aggregate_finite_result_proof_missing"
     if (function == "count" and tag in {"Text", "Bool", "Float", "Decimal"}) or (

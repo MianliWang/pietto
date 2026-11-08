@@ -662,7 +662,7 @@ def test_cli_json_sum_avg_sql_output_writes_exact_sql(
         ("        revenue = sum(status)\n", "PIE-S2314"),
         ("        average = avg(status)\n", "PIE-S2314"),
         ("        revenue = sum(avg(amount))\n", "PIE-S2311"),
-        ("        revenue = sum(amount) + 1\n", "PIE-S2310"),
+        ("        revenue = sum(amount) if True else 1\n", "PIE-S2310"),
         ("        status\n        revenue = sum(amount)\n", "PIE-S2312"),
     ],
 )

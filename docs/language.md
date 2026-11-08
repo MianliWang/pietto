@@ -581,7 +581,7 @@ first column give every rule.
 | `Float` equality ([Float values](#float-values)) | comparisons and GROUP BY; DISTINCT and set forms are project-only | as PostgreSQL; GROUP BY beside a wide `Text` key may split `-0.0` and `0.0` | comparisons, GROUP BY, DISTINCT, ORDER BY, every set form, window `partition by` and `order by`, `string_agg` order keys and FULL JOIN equalities, also over a window `percent_rank` or `cume_dist` result | comparisons with a literal or header parameter, ordering inequalities, `in`, `nullif`, relation ORDER BY and UNION ALL; the other forms refused (PIE-B1003) |
 | JOIN aggregates without fan-out ([Aggregates](#aggregates-and-grouping)) | accepted | accepted | accepted | accepted; `sum(Int)` stays PIE-B1004 |
 | Top-level constants and `--set` ([Top-level constants](#top-level-constants)) | literals; `DATE '...'`, `TIMESTAMP '...'` | as PostgreSQL | refused (PIE-S2392) | refused (PIE-S2392) |
-| Project aggregate arguments ([Aggregates](#aggregates-and-grouping)): `count`/`count_distinct` of `Text`, `Bool`, `Float`, `Decimal`; `min`/`max` of `Float`, `Decimal`; `sum`/`avg` of `Float`; a row expression argument (`sum(qty * 2)`) | emitted (unchanged) | emitted (unchanged) | emitted, also an argument holding a scalar call over JOIN rows (`count(lower(r.label))`); direct `sum(Decimal(p, s))` emits as checked `numeric(p + 19, s)` only for `p + 19 <= 65`; Decimal `avg` and other Decimal sum shapes stay PIE-B1004 | as PostgreSQL, except `count_distinct` of a `Float` (PIE-B1003), `sum`/`avg` of a `Float` `sum` of a `Decimal`, and `sum` of an `Int` such as `sum(qty * 2)` (PIE-B1004), and over JOIN rows an argument holding a scalar call (PIE-B1003); an `Int` expression not proved to fit BIGINT is PIE-B1002 first |
+| Project aggregate arguments ([Aggregates](#aggregates-and-grouping)): `count`/`count_distinct` of `Text`, `Bool`, `Float`, `Decimal`; `min`/`max` of `Float`, `Decimal`; `sum`/`avg` of `Float`; a row expression argument (`sum(qty * 2)`) | emitted (unchanged) | emitted (unchanged) | emitted, also an argument holding a scalar call over JOIN rows (`count(lower(r.label))`); direct `sum(Decimal(p, s))` emits as checked `numeric(p + 19, s)` only for `p + 19 <= 65`; Decimal `avg` and other Decimal sum shapes stay PIE-B1004 | as PostgreSQL, except `count_distinct` of a `Float` (PIE-B1003), `sum`/`avg` of a `Float`, `sum` of a `Decimal`, and `sum` of an `Int` such as `sum(qty * 2)` (PIE-B1004), and over JOIN rows an argument holding a scalar call (PIE-B1003); an `Int` expression not proved to fit BIGINT is PIE-B1002 first |
 | `count_distinct(a, b, ...)` ([Aggregates](#aggregates-and-grouping)) | `COUNT(DISTINCT CASE WHEN a IS NOT NULL AND b IS NOT NULL THEN ROW(a, b) END)` | `COUNT(DISTINCT a, b)` | as PostgreSQL single file, `schema_version = 2` (PIE-S2334 in a `schema_version = 1` project), also over JOIN rows | refused (PIE-B1003 `count_distinct_tuple_not_admitted_on_target`) |
 | `len(c.xs)`, `sum(o.f for o in c.xs ...)`, `any(t for o in c.xs)` ([Nested relations](#nested-relations-collect-and-unnest)) | `sum` and `any` refused at check (PIE-S2334; a single file collects no list); `len(c.xs)` has no list to read (PIE-S2102 for an unknown field, or only the Collect's own refusals) | as PostgreSQL | the count column; `sum` and `any` a scalar subquery over `pg_catalog.unnest` of the list's arrays | refused (PIE-B1003 `collect_not_admitted_on_target`) |
 | `min(x)`, `max(x)` of a `Timestamp` or `Date` ([Aggregates](#aggregates-and-grouping)) | emitted (unchanged) | emitted (unchanged) | emitted (unchanged) | emitted as on PostgreSQL: `MIN(x)` and `MAX(x)` keep `DATETIME(6)`, microseconds kept, and `DATE`, NULL for an empty input; over a window refused (PIE-B1003), as every MySQL aggregate window |
@@ -2783,7 +2783,7 @@ and `first_value(age)` are `Int`, `sum(amount)` and `max(amount)` over an
 `count(lower(email))` accepts, and the SQL is that of the same program with
 base-typed fields; with `type Flag = Bool`, `where flag` over a `flag:
 Flag` field filters as a `Bool` field does. A pair the base type
-refuses is refused alike, such as `amount * 2` or `-amount` (PIE-S2105),
+refuses is refused alike, such as `amount * 2.0` (PIE-S2105),
 `count` of an alias of `Any` is PIE-S2314 as `count` of `Any` is, and
 `lower(amount)` is PIE-S2104, whose message names the type as written (`got
 Money`). An alias of an enum or a shape is not expanded there, but it reads
@@ -2793,6 +2793,17 @@ and an alias of an enum as the enum for an aggregate argument too: with
 `type Phase = Status`, `count` of a `Phase` field is PIE-S2314 as
 `count` of a `Status` field is (`got Phase`), and a `Phase` field compares
 with a `Status` field.
+
+A `Decimal` multiplied by an `Int`, in either order, keeps the Decimal's
+scale. Unary `+` and `-` keep its type, precision, scale and nullability.
+This also holds for aliases of these types. Single-file PostgreSQL and MySQL
+emit these expressions, including `sum(amount * n)` for a Decimal field
+`amount` and an Int field `n`. PostgreSQL projects require the qualified
+carrier rules in the [project guide](project-package.md#emission-rules):
+multiplication produces `Decimal(p + 19, s)` only when `p + 19 <= 65`, and
+a sign preserves `(p, s)`. MySQL projects retain their refusal. Decimal/Float
+arithmetic remains PIE-S2105; this rule does not introduce a Decimal literal
+or a project Decimal division or average.
 
 `/` follows SQL division. `Int / Int` is an `Int` truncated toward zero (`7 /
 2` is `3`, `-7 / 2` is `-3`): PostgreSQL emits `a / b`, and MySQL, whose `/`
@@ -4010,10 +4021,9 @@ columns, `count_distinct(x)` for one``, also as the JSON `suggestion`.
 In project SQL an admitted expression argument (`sum(qty * 2)`,
 `count(lower(label))`) is emitted inside the aggregate by the same rules as a
 `let`: it is admitted exactly where `let t = qty * 2` with `sum(t)` is, and
-refused with the same blocker where that `let` is (for example `%` is
-`binary_operator_not_admitted`, Float arithmetic over a field on MySQL
-`float_literal_operands_required`, an `Int` times a `Decimal` literal
-`arithmetic_requires_signed_int_operands`). Over JOIN rows PostgreSQL also
+refused with the same blocker where that `let` is; for example, Float
+arithmetic over a field on MySQL remains
+`float_literal_operands_required`. Over JOIN rows PostgreSQL also
 emits an aggregate argument that holds a scalar call such as `lower`
 (`count(lower(r.label))`), while a joined `let t = lower(r.label)` with
 `count(t)` stays BLOCKED: a joined `let` admits such a call only directly
@@ -4703,15 +4713,28 @@ the project query-block rule: its selected bindings are window results, not
 ordinary projection aliases. In either mode, a window argument, PARTITION BY
 or ORDER BY that names the computed key keeps its existing window-specific
 refusal (see [Windows](#windows)).
+In a single file with a known input row, a GROUP BY key may directly name
+one concrete computed row `let`, and SELECT may read that same binding,
+with or without an output alias. It keeps the binding's inferred type and
+nullability. The computation may read earlier lets; an alias whose entire
+value names another computed binding is still refused. Two bindings keep
+their separate identities even if their expressions are equal, while
+repeating one binding as a key is PIE-S2317. PostgreSQL and MySQL emit the
+computation as a group-key value; a literal or signed literal must not become
+a SELECT-position ordinal. This grants no new source-row grain and does not
+change the window, HAVING or aggregate-composition boundaries. The existing
+two-query route remains accepted.
+
 With JOIN inputs a `let` binding that only renames a field, such as
 `g = r.n` with `group by g`, groups by that field, and selecting the name
 selects that field's key, as selecting the field does. A `let` alias of a
-computed binding, single-file checks, and LEGACY_FLAT projects keep their
-existing rejection (a single file says what to write instead: the field in
-place of a `let` name of a group key field, an EXPLICIT_MODULES project for a
-computed key, or that the name is not a GROUP BY key); with JOIN inputs a selected `let` name that names no group
-key, such an alias included, is PIE-S2333 at the table or query rather than an
-unknown field.
+computed binding keeps its rejection. A single file still refuses a
+qualified let name, a selected non-key let, a computed key over an unknown
+input row, or selection of a let that merely renames a group-key field;
+that last form must select the field itself. LEGACY_FLAT projects retain
+their existing row-typing rejection. With JOIN inputs a selected `let`
+name that names no group key, such an alias included, is PIE-S2333 at the
+table or query rather than an unknown field.
 
 ## Windows
 

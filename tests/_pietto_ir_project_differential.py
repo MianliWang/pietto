@@ -17,6 +17,8 @@ import pietto._project.project_ir_pure_boundary as pure
 import pietto._project.project_ir_verification as verification
 from pietto._project import check as project_check
 from pietto._project.model import (
+    ProjectAggregateResultFact,
+    ProjectAnyAggregateResultFact,
     ProjectSemanticResult,
     build_empty_project_semantic_result,
 )
@@ -295,6 +297,12 @@ def _query_observation(
     return [values[key] for key in keys]
 
 
+def _direct_aggregate_value(item: ProjectAnyAggregateResultFact) -> list[object]:
+    # The fixed PROJECT_FILE_ITEMS corpus contains only direct aggregate calls.
+    assert isinstance(item, ProjectAggregateResultFact)
+    return [item.function, item.output_name, item.grouped, item.argument_count]
+
+
 def _project_observation(
     result: ProjectIRPipelineResult,
     *,
@@ -390,10 +398,7 @@ def _project_observation(
                     if type(property_) is properties.ProjectIRProvidedLocalGrainEvidence
                     and property_.output is context.result_row_output
                 ),
-                [
-                    [item.function, item.output_name, item.grouped, item.argument_count]
-                    for item in context.aggregate_results
-                ],
+                [_direct_aggregate_value(item) for item in context.aggregate_results],
                 context.readiness.status.value,
                 [
                     context.input_effect.determinism.value,

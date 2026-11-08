@@ -336,6 +336,11 @@ def _fields(value: Any) -> tuple[str, tuple[tuple[str, Any], ...]]:
     elif isinstance(value, aggregate_grouped_schema.ProjectAggregateExpressionAnalysis):
         if value.predicate_expression is not None and value.predicate_expression.calls:
             kind = "project_predicate_aggregate_expression_analysis"
+    elif (
+        isinstance(value, project_joined_aggregation.ProjectJoinedStageOutputOccurrence)
+        and value.composition is not None
+    ):
+        kind = "project_joined_composition_output_occurrence"
     elif isinstance(value, ast_nodes.JoinClause) and value.uses_named_input:
         kind = "named_join_clause"
     elif isinstance(value, ast_nodes.FromClause) and value.binding_name is not None:
@@ -860,6 +865,8 @@ _ADAPTERS: Mapping[type, str] = {
     project_grain.ProjectGroupedGrainFactorIdentity: "project_grouped_grain_factor_identity",
     project_grain.ProjectGrainDependencyFact: "project_grain_dependency_fact",
     project_model.ProjectAggregateResultFact: "project_aggregate_result_fact",
+    project_model.ProjectAggregateLeafFact: "project_aggregate_leaf_fact",
+    project_model.ProjectAggregateCompositionResultFact: "project_aggregate_composition_result_fact",
     ast_nodes.SatisfyingClause: "satisfying_clause",
     ast_nodes.QualifyClause: "qualify_clause",
     ast_nodes.GroupByItem: "group_by_item",
@@ -1033,6 +1040,7 @@ _ADAPTERS: Mapping[type, str] = {
     project_ir_properties.ProjectIRPropertyStage: "project_ir_property_stage",
     project_ir_properties.ProjectIRProvidedCardinalityUpperBound: "project_ir_provided_cardinality_upper_bound",
     project_ir_properties.ProjectIRProvidedRelationOrdering: "project_ir_provided_relation_ordering",
+    project_ir_properties.ProjectIRProvidedLocalGrainEvidence: "project_ir_provided_local_grain_evidence",
     project_ir_properties.ProjectIRProvidedOutputShape: "project_ir_provided_output_shape",
     project_ir_properties.ProjectIRProvidedBagMultiplicity: "project_ir_provided_bag_multiplicity",
     project_ir_properties.ProjectIRProvidedClosedBindings: "project_ir_provided_closed_bindings",

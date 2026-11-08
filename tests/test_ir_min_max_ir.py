@@ -144,10 +144,10 @@ def test_grouped_min_max_projections_lower_to_aggregate_call_ir() -> None:
     relation = _relation_ir(ir_result.ir)
     projections = {projection.name: projection for projection in relation.projections}
 
-    assert [key.name for key in relation.group_keys] == ["status"]
-    assert [key.field for key in relation.group_keys] == [
-        FieldId(owner=_orders_symbol(), name="status")
-    ]
+    (key,) = relation.group_keys
+    assert isinstance(key, FieldRefIR)
+    assert key.name == "status"
+    assert key.field == FieldId(owner=_orders_symbol(), name="status")
     _assert_aggregate(
         projections["smallest_amount"].expression,
         "min",
@@ -206,8 +206,8 @@ def test_direct_lower_expr_for_valid_min_max_uses_aggregate_call_ir() -> None:
         ("        value = min(max(amount))\n", "PIE-S2311"),
         ("        value = min(status)\n", "PIE-S2314"),
         ("        min(amount)\n", "PIE-S2313"),
-        ("        value = min(amount) + 1\n", "PIE-S2310"),
-        ("        value = lower(min(amount))\n", "PIE-S2310"),
+        ("        value = min(amount) if True else 1\n", "PIE-S2310"),
+        ("        value = lower(min(amount))\n", "PIE-S2104"),
     ],
 )
 def test_invalid_min_max_projection_shapes_do_not_emit_aggregate_call_ir(

@@ -1301,6 +1301,39 @@ FILTERED_AGGREGATE_ARITIES = {"filtered_count": 1, "filtered_sum": 2}
 GROUP_TEST_AGGREGATE_FUNCTIONS = frozenset({"group_any", "group_all"})
 
 
+def aggregate_composition_leaves(
+    expression: ExpressionIR,
+    group_keys: tuple[ExpressionIR, ...] = (),
+) -> tuple[ExpressionIR, ...] | None:
+    """Closed scalar result shapes, keeping each aggregate occurrence atomic."""
+    if (
+        isinstance(expression, (AggregateCallIR, FieldRefIR, LiteralIR))
+        or expression in group_keys
+    ):
+        return (expression,)
+    if isinstance(expression, CallIR):
+        children = expression.arguments
+    elif isinstance(expression, BinaryIR) and expression.operator in {
+        "+",
+        "-",
+        "*",
+        "/",
+        "%",
+    }:
+        children = (expression.left, expression.right)
+    elif isinstance(expression, UnaryIR) and expression.operator in {"+", "-"}:
+        children = (expression.operand,)
+    else:
+        return None
+    leaves: list[ExpressionIR] = []
+    for child in children:
+        parts = aggregate_composition_leaves(child, group_keys)
+        if parts is None:
+            return None
+        leaves.extend(parts)
+    return tuple(leaves)
+
+
 def _aggregate_window_contains_window(expression: ExpressionIR) -> bool:
     pending = [expression]
     while pending:

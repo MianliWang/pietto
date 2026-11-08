@@ -318,7 +318,7 @@ def test_emit_sql_output_writes_only_expanded_sql(
             "    from orders\n    let one = 1\n    select:\n        total = sum(one)\n",
             "PIE-S2315",
         ),
-        (
+        pytest.param(
             "    from orders\n"
             "    let gross = amount + tax\n"
             "    group by:\n"
@@ -326,9 +326,10 @@ def test_emit_sql_output_writes_only_expanded_sql(
             "    select:\n"
             "        status\n"
             "        total = count()\n",
-            "PIE-S2102",
+            "PIE-S2318",
+            id="non_key_select_beside_computed_group_key",
         ),
-        (
+        pytest.param(
             "    from orders\n"
             "    let one = 1\n"
             "    group by:\n"
@@ -336,7 +337,8 @@ def test_emit_sql_output_writes_only_expanded_sql(
             "    select:\n"
             "        status\n"
             "        total = count()\n",
-            "PIE-S2102",
+            "PIE-S2318",
+            id="non_key_select_beside_literal_group_key",
         ),
         (
             "    from orders\n"

@@ -238,13 +238,10 @@ def test_decimal_division_remains_deferred_without_diagnostic() -> None:
             ("PIE-S2311", "Nested aggregate avg() is not supported"),
         ),
         (
-            "value = sum(price) + 1",
+            "value = sum(price) if True else 1",
             (
                 "PIE-S2310",
-                "Aggregate projection must be a direct aggregate call; "
-                "composition around sum() is not supported yet; select the sum() "
-                "under a name in one query, then compute with that name in "
-                "another that reads it with `from`",
+                "Aggregate composition requires scalar calls or arithmetic over direct aggregates, group keys and literals; invalid composition around sum(); select the sum() under a name in one query, then compute with that name in another that reads it with `from`",
             ),
         ),
     ],

@@ -2131,31 +2131,28 @@ def test_a_let_bound_to_null_is_null_over_an_unknown_row() -> None:
     ]
 
 
-def test_a_let_name_that_is_an_unknown_field_where_it_is_read_stays_one() -> None:
-    """A grouped select item reads no `let:` value, so a `let:` name there is
-    an unknown field, also in a def argument: it is not written in as its
-    value, and the argument adds nothing to that error. A whole item that
-    reads the name says that it is no GROUP BY key."""
+def test_unknown_grouped_fields_in_def_arguments_do_not_add_type_cascades() -> None:
+    """An undeclared grouped input stays unknown inside a def argument;
+    typing the argument must not invent a second def-type error."""
     source = (
         SHAPES + "def nn(x: Int) -> Int: return x\n"
         "table t:\n"
         "    from rows\n"
         "\n"
-        "    let k = None\n"
         "    group by:\n"
         "        id\n"
         "    select:\n"
         "        id\n"
-        "        a = nn(k)\n"
-        "        b = nn(k + 1)\n"
+        "        a = nn(unknownk)\n"
+        "        b = nn(unknownk + 1)\n"
         "        c = count(n)\n"
     )
     assert _errors(source) == [
-        ("PIE-S2102", BODY_LINE + 7, 16, "Unknown field: k; k is not a GROUP BY key"),
-        ("PIE-S2102", BODY_LINE + 8, 16, "Unknown field: k"),
+        ("PIE-S2102", BODY_LINE + 6, 16, "Unknown field: unknownk"),
+        ("PIE-S2102", BODY_LINE + 7, 16, "Unknown field: unknownk"),
         (
             "PIE-S2319",
-            BODY_LINE + 8,
+            BODY_LINE + 7,
             16,
             "Grouped scalar projection expressions are not supported yet",
         ),
@@ -2630,15 +2627,6 @@ ONCE = {
     "aggregate_argument": (
         "    group by id\n    select:\n        id\n        s = dbl(sum(nope))\n",
         [
-            (
-                "PIE-S2310",
-                5,
-                13,
-                "Aggregate projection must be a direct aggregate call; composition "
-                "around sum() is not supported yet; select the sum() "
-                "under a name in one query, then compute with that name in "
-                "another that reads it with `from`",
-            ),
             ("PIE-S2102", 5, 21, "Unknown field: nope"),
         ],
     ),

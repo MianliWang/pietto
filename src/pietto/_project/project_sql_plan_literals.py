@@ -198,12 +198,15 @@ type Witness = (
 )
 
 
-def literal_nodes(expression: Expression):
+def literal_nodes(expression: Expression, leaves: tuple[Expression, ...] = ()):
     """Closed, iterative source traversal; windows own their separate consumers."""
     pending: list[tuple[Expression, int | None]] = [(expression, None)]
     links: list[tuple[Expression, int, int | None]] = []
+    terminals = {id(leaf) for leaf in leaves}
     while pending:
         node, predecessor = pending.pop()
+        if id(node) in terminals:
+            continue
         if type(node) not in _KNOWN_EXPRESSIONS:
             raise ValueError(f"Unsupported literal expression: {type(node).__name__}")
         if type(node) is LiteralExpr:
@@ -315,9 +318,10 @@ def positions(plan: ProjectSQLPlan):
         types,
         consumer=None,
         owner=None,
+        leaves=(),
     ):
         roots[definition].append(
-            (context, expression, role, evidence, types, consumer, owner)
+            (context, expression, role, evidence, types, consumer, owner, leaves)
         )
 
     for source in plan.sources:
@@ -353,9 +357,39 @@ def positions(plan: ProjectSQLPlan):
             root,
             role_map.get(site.role, R.UNKNOWN),
             site.evidence,
-            {id(e): (e, t) for e, t in expression_types(site.evidence).items()},
+            {
+                id(e): (e, t)
+                for e, t in (
+                    aggregation.site_types(site)
+                    if isinstance(site, aggregation.ProjectSQLAggregateSite)
+                    else expression_types(site.evidence)
+                ).items()
+            },
             site.ref,
+            leaves=aggregation.composition_references(site.evidence)
+            if isinstance(
+                site.evidence, aggregation.ProjectAggregateCompositionResultFact
+            )
+            else (),
         )
+        if isinstance(
+            site, aggregation.ProjectSQLAggregateSite
+        ) and aggregation.site_expansions(site):
+            seen = set()
+            for fact in aggregation.site_compositions(site):
+                if id(fact) in seen:
+                    continue
+                seen.add(id(fact))
+                add(
+                    owners[id(site.owner)],
+                    site,
+                    fact.expression,
+                    role_map.get(site.role, R.UNKNOWN),
+                    fact,
+                    {id(e): (e, t) for e, t in fact.expression_value_types.items()},
+                    site.ref,
+                    leaves=aggregation.composition_references(fact),
+                )
     windows = {w.ref: w for w in plan.windows}
     for argument in plan.window_arguments:
         window = windows[argument.window]
@@ -399,8 +433,17 @@ def positions(plan: ProjectSQLPlan):
             {},
         )
     for definition, entries in roots.items():
-        for context, expression, role, evidence, types, consumer, owner in entries:
-            for literal, ancestry in literal_nodes(expression):
+        for (
+            context,
+            expression,
+            role,
+            evidence,
+            types,
+            consumer,
+            owner,
+            leaves,
+        ) in entries:
+            for literal, ancestry in literal_nodes(expression, leaves):
                 typed = types.get(id(literal))
                 expression_value = expressions.get((consumer, id(literal)))
                 yield ProjectSQLLiteralPosition(
@@ -561,8 +604,16 @@ def build(plan: ProjectSQLPlan, policy: ProjectSQLLiteralPolicy, ref):
     sites, slots, values, uses = [], [], [], []
     replacements = {}
     expressions = {e.ref: e for e in plan.expressions}
-    for position in positions(plan):
+    actual_positions = tuple(positions(plan))
+    specialized = {
+        id(position.literal)
+        for position in actual_positions
+        if classify(position, policy) is ProjectSQLLiteralReason.SPECIALIZED
+    }
+    for position in actual_positions:
         reason = classify(position, policy)
+        if reason is None and id(position.literal) in specialized:
+            reason = ProjectSQLLiteralReason.SPECIALIZED
         site = ProjectSQLLiteralSite(
             ref=ref(K.LITERAL_SITE),
             position=position,

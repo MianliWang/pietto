@@ -13,7 +13,10 @@ from pietto._project.aggregate_grouped_clause_facts import (
     ProjectRelationClauseDependencyKind,
     build_project_aggregate_grouped_clause_readiness,
 )
-from pietto._project.aggregate_grouped_schema import ProjectGroupKeyFact
+from pietto._project.aggregate_grouped_schema import (
+    ProjectAggregateExpressionAnalysis,
+    ProjectGroupKeyFact,
+)
 from pietto._project.let_scope_facts import (
     ProjectLetScopeFactsReason,
     ProjectLetScopeFactsStatus,
@@ -21,7 +24,8 @@ from pietto._project.let_scope_facts import (
     build_project_relation_let_scope_facts,
 )
 from pietto._project.model import (
-    ProjectAggregateResultFact,
+    ProjectAnyAggregateResultFact,
+    ProjectAggregateCompositionResultFact,
     ProjectRelationRowSchemaStatus,
     ProjectRowField,
     ProjectRowFieldProvenance,
@@ -149,6 +153,7 @@ class ProjectAggregateGroupedDependencyLineageReadiness:
             finalization.aggregate_result_facts,
             upstream_symbol,
             graph,
+            finalization.analyses,
         )
         _validate_lineage_shape(
             self.definition,
@@ -162,7 +167,7 @@ class ProjectAggregateGroupedDependencyLineageReadiness:
 class _SelectedOutput:
     item: SelectItem
     field: ProjectRowField
-    aggregate_fact: ProjectAggregateResultFact | None
+    aggregate_fact: ProjectAnyAggregateResultFact | None
 
 
 class _ClassifiedFailure(Exception):
@@ -315,7 +320,7 @@ def _build_dependency_graph(
 def _selected_outputs(
     definition: _DerivedRelation,
     schema: ProjectRowSchema,
-    aggregate_result_facts: Mapping[str, ProjectAggregateResultFact],
+    aggregate_result_facts: Mapping[str, ProjectAnyAggregateResultFact],
 ) -> tuple[_SelectedOutput, ...]:
     selected_items = tuple(
         item
@@ -338,7 +343,7 @@ def _selected_outputs(
             if aggregate_fact is not None:
                 _conflicting_failure()
         elif field.result_role is ProjectRowResultRole.AGGREGATE_RESULT:
-            if not isinstance(aggregate_fact, ProjectAggregateResultFact):
+            if not isinstance(aggregate_fact, ProjectAnyAggregateResultFact):
                 _conflicting_failure()
         else:
             _conflicting_failure()
@@ -463,26 +468,88 @@ def _add_aggregate_edges(
     fallback_path: str,
 ) -> None:
     fact = selected.aggregate_fact
+    if isinstance(fact, ProjectAggregateCompositionResultFact):
+        edge_start = len(builder.edges)
+        for leaf in fact.leaves:
+            _add_aggregate_call_edges(
+                builder,
+                definition=definition,
+                selected=selected,
+                call=leaf.call,
+                input_schema=input_schema,
+                upstream_symbol=upstream_symbol,
+                let_facts=let_facts,
+                fallback_path=fallback_path,
+            )
+        from pietto.semantic.aggregates import aggregate_composition_leaves
+
+        for part in aggregate_composition_leaves(fact.expression) or ():
+            if not isinstance(part, (NameExpr, DottedNameExpr)):
+                continue
+            name = _direct_lookup_name(
+                part,
+                relation_qualifier=definition.from_clause.binding_name
+                or definition.from_clause.source_name,
+            )
+            if name is None:
+                _conflicting_failure()
+            builder.add_edge(
+                ProjectRowDependencyEdge(
+                    kind=ProjectRowDependencyEdgeKind.AGGREGATE_ARGUMENT,
+                    from_node=_output_node(definition, selected.field.name),
+                    to_node=_let_binding_node(definition, name)
+                    if name in let_facts.value_types
+                    else _upstream_field_node(upstream_symbol, name),
+                    location=_expression_location(part, fallback_path=fallback_path),
+                )
+            )
+        if len(builder.edges) == edge_start:
+            builder.add_edge(
+                ProjectRowDependencyEdge(
+                    kind=ProjectRowDependencyEdgeKind.AGGREGATE_RELATION_INPUT,
+                    from_node=_output_node(definition, selected.field.name),
+                    to_node=_relation_input_node(upstream_symbol),
+                    location=fact.location,
+                )
+            )
+        return
     call = selected.item.expression
-    if not isinstance(fact, ProjectAggregateResultFact) or not isinstance(
-        call,
-        CallExpr,
+    if not isinstance(fact, ProjectAnyAggregateResultFact) or not isinstance(
+        call, CallExpr
     ):
-        _conflicting_failure()
-    function_name = semantic_aggregate_call_name(call)
-    if function_name is None:
         _conflicting_failure()
     if (
-        function_name != fact.function
-        or selected.item.alias != fact.output_name
-        or selected.field.name != fact.output_name
+        semantic_aggregate_call_name(call) != fact.function
         or len(call.arguments) != fact.argument_count
-        or fact.grouped is not (definition.group_by_clause is not None)
     ):
         _conflicting_failure()
+    _add_aggregate_call_edges(
+        builder,
+        definition=definition,
+        selected=selected,
+        call=call,
+        input_schema=input_schema,
+        upstream_symbol=upstream_symbol,
+        let_facts=let_facts,
+        fallback_path=fallback_path,
+    )
 
+
+def _add_aggregate_call_edges(
+    builder: _GraphBuilder,
+    *,
+    definition: _DerivedRelation,
+    selected: _SelectedOutput,
+    call: CallExpr,
+    input_schema: ProjectRowSchema,
+    upstream_symbol: ProjectSymbol,
+    let_facts: ProjectRelationLetScopeFacts,
+    fallback_path: str,
+) -> None:
+    function_name = semantic_aggregate_call_name(call)
+    assert function_name is not None
     output_node = _output_node(definition, selected.field.name)
-    if fact.argument_count == 0:
+    if len(call.arguments) == 0:
         if function_name != COUNT_AGGREGATE_NAME:
             _conflicting_failure()
         builder.add_edge(
@@ -494,7 +561,7 @@ def _add_aggregate_edges(
             )
         )
         return
-    if fact.argument_count != 1:
+    if len(call.arguments) != 1:
         _conflicting_failure()
 
     argument = call.arguments[0]
@@ -778,9 +845,10 @@ def _validate_non_concrete_outcome(
 def _validate_graph_shape(
     definition: _DerivedRelation,
     schema: ProjectRowSchema,
-    aggregate_result_facts: Mapping[str, ProjectAggregateResultFact],
+    aggregate_result_facts: Mapping[str, ProjectAnyAggregateResultFact],
     upstream_symbol: ProjectSymbol,
     graph: ProjectRelationRowDependencyGraph,
+    analyses: tuple[ProjectAggregateExpressionAnalysis, ...],
 ) -> None:
     if len(set(graph.nodes)) != len(graph.nodes) or len(set(graph.edges)) != len(
         graph.edges
@@ -899,7 +967,7 @@ def _validate_graph_shape(
         if (
             not isinstance(provenance, ProjectRowFieldProvenance)
             or provenance.kind is not ProjectRowFieldProvenanceKind.AGGREGATE
-            or not isinstance(aggregate_fact, ProjectAggregateResultFact)
+            or not isinstance(aggregate_fact, ProjectAnyAggregateResultFact)
         ):
             raise ValueError("Aggregate output requires exact result fact")
         argument_edges = tuple(
@@ -912,6 +980,39 @@ def _validate_graph_shape(
             for edge in outgoing
             if edge.kind is ProjectRowDependencyEdgeKind.AGGREGATE_RELATION_INPUT
         )
+        if isinstance(aggregate_fact, ProjectAggregateCompositionResultFact):
+            if not analyses or any(
+                analysis.definition is not definition
+                or analysis.input_schema is not analyses[0].input_schema
+                or analysis.let_scope is not analyses[0].let_scope
+                for analysis in analyses
+            ):
+                raise ValueError(
+                    "Composition dependencies require their exact input scope"
+                )
+            if aggregate_fact.location.path is None:
+                raise ValueError(
+                    "Composition dependency requires its original source path"
+                )
+            expected = _GraphBuilder()
+            _add_aggregate_edges(
+                expected,
+                definition=definition,
+                selected=_SelectedOutput(
+                    item=selected_items[output_name],
+                    field=field,
+                    aggregate_fact=aggregate_fact,
+                ),
+                input_schema=analyses[0].input_schema,
+                upstream_symbol=upstream_symbol,
+                let_facts=analyses[0].let_scope,
+                fallback_path=aggregate_fact.location.path,
+            )
+            if outgoing != tuple(expected.edges):
+                raise ValueError(
+                    "Composition dependencies must retain every authored operand"
+                )
+            continue
         if aggregate_fact.argument_count == 0:
             relation_target = None if not relation_edges else relation_edges[0].to_node
             if (

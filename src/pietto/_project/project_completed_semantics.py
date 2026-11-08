@@ -3733,7 +3733,17 @@ def derive_compiled_semantics(root, values, parameters=None):
                             decimal_operand_origins=tuple(
                                 "decimal"
                                 if item.value_type.resolved_type.name == "Decimal"
-                                and item.origin == "field"
+                                and (
+                                    item.origin == "field"
+                                    or family == "postgres"
+                                    and item.address.kind
+                                    in {"read", "port", "operation"}
+                                    and item.realization is not None
+                                    and physical._decimal_parameters(
+                                        family, item.realization
+                                    )
+                                    is not None
+                                )
                                 else "decimal_parameter"
                                 if item.value_type.resolved_type.name == "Decimal"
                                 and item.origin == "parameter"
@@ -3743,7 +3753,15 @@ def derive_compiled_semantics(root, values, parameters=None):
                                 and type(item.value) is int
                                 else "int"
                                 if item.value_type.resolved_type.name == "Int"
-                                and item.origin == "field"
+                                and (
+                                    item.origin == "field"
+                                    or family == "postgres"
+                                    and item.address.kind
+                                    in {"read", "port", "operation"}
+                                    and item.realization is not None
+                                    and physical.proven_int_bounds(item.realization)
+                                    is not None
+                                )
                                 else "int_parameter"
                                 if item.value_type.resolved_type.name == "Int"
                                 and item.origin == "parameter"
@@ -5154,6 +5172,10 @@ def verify_compiled_semantics(value):
                             else None,
                         )
                     else:
+                        from pietto._project import (
+                            project_sql_emission_rows as physical,
+                        )
+
                         realization = resolved_row_realization(
                             family,
                             role,
@@ -5167,7 +5189,17 @@ def verify_compiled_semantics(value):
                             decimal_operand_origins=tuple(
                                 "decimal"
                                 if item.value_type.resolved_type.name == "Decimal"
-                                and item.origin == "field"
+                                and (
+                                    item.origin == "field"
+                                    or family == "postgres"
+                                    and item.address.kind
+                                    in {"read", "port", "operation"}
+                                    and item.realization is not None
+                                    and physical._decimal_parameters(
+                                        family, item.realization
+                                    )
+                                    is not None
+                                )
                                 else "decimal_parameter"
                                 if item.value_type.resolved_type.name == "Decimal"
                                 and item.origin == "parameter"
@@ -5177,7 +5209,15 @@ def verify_compiled_semantics(value):
                                 and type(item.value) is int
                                 else "int"
                                 if item.value_type.resolved_type.name == "Int"
-                                and item.origin == "field"
+                                and (
+                                    item.origin == "field"
+                                    or family == "postgres"
+                                    and item.address.kind
+                                    in {"read", "port", "operation"}
+                                    and item.realization is not None
+                                    and physical.proven_int_bounds(item.realization)
+                                    is not None
+                                )
                                 else "int_parameter"
                                 if item.value_type.resolved_type.name == "Int"
                                 and item.origin == "parameter"

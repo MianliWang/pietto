@@ -9,7 +9,11 @@ from types import MappingProxyType
 from typing import Any, cast
 
 from pietto.ast_nodes import AuthoredJoinKind
-from pietto._project.model import ProjectAggregateResultFact
+from pietto._project.aggregate_grouped_schema import ProjectAggregateExpressionAnalysis
+from pietto._project.model import (
+    ProjectAnyAggregateResultFact,
+    ProjectAggregateCompositionResultFact,
+)
 from pietto._project.module_semantic_fact_preservation import ProjectModuleSelectFact
 from pietto._project.project_grain import (
     ProjectGrainBasisState,
@@ -129,13 +133,54 @@ class ProjectAggregateFactIdentity:
             raise ValueError("Aggregate fact result position must be non-negative.")
 
 
+def _aggregate_fact_primitives(
+    context: ProjectIRAggregateEvaluationContext,
+) -> tuple[
+    tuple[ProjectAnyAggregateResultFact, ProjectAggregateExpressionAnalysis], ...
+]:
+    """Actual aggregate leaves in source order, retaining their outer selection."""
+    result = []
+    for outer in context.aggregate_results:
+        selected = tuple(
+            item
+            for item in context.semantic_facts.select_facts
+            if item.aggregate_result_fact is outer
+        )
+        if len(selected) != 1:
+            raise ValueError("Aggregate primitive requires one exact outer selection.")
+        leaves = (
+            outer.leaves
+            if isinstance(outer, ProjectAggregateCompositionResultFact)
+            else (outer,)
+        )
+        for leaf in leaves:
+            matches = tuple(
+                analysis
+                for analysis in context.readiness.finalization.analyses
+                if analysis.fact is leaf and analysis.item is selected[0].item
+            )
+            if len(matches) != 1:
+                raise ValueError(
+                    "Aggregate primitive requires one exact leaf analysis."
+                )
+            result.append((outer, matches[0]))
+    if tuple(id(analysis) for _, analysis in result) != tuple(
+        id(analysis) for analysis in context.readiness.finalization.analyses
+    ):
+        raise ValueError("Aggregate primitive inventory must retain every actual leaf.")
+    return tuple(result)
+
+
 @dataclass(frozen=True, slots=True, kw_only=True)
 class ProjectAggregateFactOccurrence:
     identity: ProjectAggregateFactIdentity
     context: ProjectIRAggregateEvaluationContext = field(
         repr=False, compare=False, hash=False
     )
-    aggregate_result: ProjectAggregateResultFact = field(
+    aggregate_result: ProjectAnyAggregateResultFact = field(
+        repr=False, compare=False, hash=False
+    )
+    aggregate: ProjectAggregateExpressionAnalysis = field(
         repr=False, compare=False, hash=False
     )
     select_fact: ProjectModuleSelectFact = field(repr=False, compare=False, hash=False)
@@ -158,11 +203,13 @@ class ProjectAggregateFactOccurrence:
 
     def __post_init__(self) -> None:
         position = self.identity.aggregate_result_position
+        primitives = _aggregate_fact_primitives(self.context)
         if (
             type(self.context) is not ProjectIRAggregateEvaluationContext
             or self.identity.aggregate_node != self.context.operator.node.ref
-            or position >= len(self.context.aggregate_results)
-            or self.context.aggregate_results[position] is not self.aggregate_result
+            or position >= len(primitives)
+            or primitives[position][0] is not self.aggregate_result
+            or primitives[position][1] is not self.aggregate
         ):
             raise ValueError("Aggregate fact requires its exact context result.")
         select_matches = tuple(
@@ -648,15 +695,18 @@ class ProjectMultiFactAnalysis:
         ):
             raise ValueError("Multi-fact analysis requires exact shared roots.")
         expected_fact_roots = tuple(
-            (context, position, aggregate_result)
+            (context, position, aggregate_result, aggregate)
             for context in self.evaluation.aggregate_contexts
-            for position, aggregate_result in enumerate(context.aggregate_results)
+            for position, (aggregate_result, aggregate) in enumerate(
+                _aggregate_fact_primitives(context)
+            )
         )
         if len(self.facts) != len(expected_fact_roots) or any(
             fact.context is not context
             or fact.aggregate_result_position != position
             or fact.aggregate_result is not aggregate_result
-            for fact, (context, position, aggregate_result) in zip(
+            or fact.aggregate is not aggregate
+            for fact, (context, position, aggregate_result, aggregate) in zip(
                 self.facts, expected_fact_roots, strict=True
             )
         ):
@@ -748,7 +798,8 @@ def _build_fact(
     ],
     context: ProjectIRAggregateEvaluationContext,
     aggregate_result_position: int,
-    aggregate_result: ProjectAggregateResultFact,
+    aggregate_result: ProjectAnyAggregateResultFact,
+    aggregate: ProjectAggregateExpressionAnalysis,
 ) -> ProjectAggregateFactOccurrence:
     select_matches = tuple(
         item
@@ -789,6 +840,7 @@ def _build_fact(
         ),
         context=context,
         aggregate_result=aggregate_result,
+        aggregate=aggregate,
         select_fact=select_fact,
         selected_output_ordinal=ordinal,
         stage_scalar_output=stage_scalar,
@@ -1382,9 +1434,12 @@ def build_project_multifact_analysis(
             context=context,
             aggregate_result_position=position,
             aggregate_result=aggregate_result,
+            aggregate=aggregate,
         )
         for context in evaluation.aggregate_contexts
-        for position, aggregate_result in enumerate(context.aggregate_results)
+        for position, (aggregate_result, aggregate) in enumerate(
+            _aggregate_fact_primitives(context)
+        )
     )
     home_localities = tuple(_home_locality(fact) for fact in facts)
     facts_by_context: dict[

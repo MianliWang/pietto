@@ -265,7 +265,7 @@ def test_backends_emit_grouped_count_expression_sql(
         ("value = min(amount + tax)", "PIE-S2315"),
         ("value = max(amount + tax)", "PIE-S2315"),
         ("value = count(count())", "PIE-S2311"),
-        ("value = count(amount) + 1", "PIE-S2310"),
+        ("value = count(amount) if True else 1", "PIE-S2310"),
         ("value = count_if(active)", "PIE-S2103"),
     ],
 )

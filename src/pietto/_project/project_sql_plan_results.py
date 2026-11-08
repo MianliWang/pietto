@@ -340,6 +340,11 @@ def order_types(item):
 def order_key(use, aggregate):
     target = use.target
     if isinstance(target, windows.ProjectJoinedWindowInputBinding):
+        if (
+            target.stage_output is not None
+            and aggregation.composition_fact(target.stage_output) is not None
+        ):
+            return target.stage_output.item
         return windows.joined_target(target)
     if isinstance(
         target,
@@ -352,12 +357,34 @@ def order_key(use, aggregate):
     return windows.group_target(target, aggregate)
 
 
+def composition_order(use, aggregate) -> bool:
+    if aggregate is None:
+        return False
+    key = order_key(use, aggregate)
+    return any(
+        key is output_key and aggregation.composition_fact(output) is not None
+        for output, output_key in zip(
+            aggregate.outputs, aggregate.output_keys, strict=True
+        )
+    )
+
+
 def selected_targets(completed, entry) -> tuple[tuple[object, ...], ...]:
     """Read retained SELECT references; a computed result exposes no free inputs."""
     semantic = entry.semantic_entry
-    if not isinstance(semantic, ProjectCompletedEffectiveOutput):
-        return ()
     rows = row.row_authority(completed, entry)
+    if not isinstance(semantic, ProjectCompletedEffectiveOutput):
+        if not isinstance(rows, row.ProjectSQLRowAuthority):
+            return ()
+        return tuple(
+            (selection.item,)
+            if isinstance(
+                selection.aggregate_result_fact,
+                aggregation.ProjectAggregateCompositionResultFact,
+            )
+            else ()
+            for selection in rows.selections
+        )
     result: list[tuple[object, ...]] = []
     for position, field in enumerate(semantic.fields):
         source = field.source
@@ -811,6 +838,8 @@ def build(plan, ref):
             for uses in order.inputs:
                 for use in uses:
                     key = order_key(use, aggregate)
+                    if composition_order(use, aggregate):
+                        continue
                     if id(key) not in seen:
                         seen.add(id(key))
                         previous = pre_projection[id(key)]
@@ -974,6 +1003,7 @@ def build(plan, ref):
                                 visible.get(id(original.determination_target), ())
                             )
                             if quotient is not None
+                            or composition_order(original, aggregate)
                             else (helpers[id(order_key(original, aggregate))],)
                         )
                         value = ProjectSQLOrderUse(

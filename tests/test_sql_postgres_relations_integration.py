@@ -14,6 +14,11 @@ EXAMPLE_PATHS = tuple(sorted(Path("examples").rglob("*.pietto")))
 assert EXAMPLE_PATHS, "Expected at least one committed Pietto example."
 
 EXPECTED_EXAMPLE_ARTIFACTS = {
+    Path("examples/queries/aggregate_composition.pietto"): (
+        "sales_summary",
+        "sales_totals",
+        "sales_summary_two_queries",
+    ),
     Path("examples/queries/active_user_emails.pietto"): (
         "active_users",
         "active_user_emails",

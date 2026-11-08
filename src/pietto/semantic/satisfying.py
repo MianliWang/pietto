@@ -27,6 +27,7 @@ from pietto.ast_nodes import (
 from pietto.errors import Diagnostic, Severity, SourceLocation
 from pietto.semantic.aggregates import (
     aggregate_argument_can_use_let_scope,
+    aggregate_composition_leaves,
     contains_semantic_aggregate,
     effective_semantic_aggregate_argument_expression,
     invalid_context_diagnostic,
@@ -41,7 +42,11 @@ from pietto.semantic.expressions import (
     query_parameter_value_type,
     resolved_comparison_value_type,
 )
-from pietto.semantic.group_by import _effective_group_key_expression
+from pietto.semantic.group_by import (
+    _effective_group_key_expression,
+    composed_aggregate_output_field,
+    open_input_schema,
+)
 from pietto.semantic.model import (
     EffectiveNullability,
     ResolvedType,
@@ -101,7 +106,7 @@ def check_satisfying_clauses(
     A predicate of unknown type is not refused for that alone. With
     `record_unknown`, its fact is still collected so that single-file emission
     can refuse it deterministically; without it, the predicate has no fact.
-    Over a row of unknown type, whose outputs have no type, a direct aggregate
+    Over a row of unknown type, whose outputs have no type, an aggregate
     output has the type typing gave it (``projection_value_types``), such as
     `count()`, an `Int` whatever the row.
     """
@@ -142,7 +147,9 @@ def check_satisfying_clauses(
             definition,
             input_schema=input_schema,
             relation_row_schemas=relation_row_schemas,
-            let_expansions=let_expansions if input_schema.joined else None,
+            let_expansions=let_expansions,
+            projection_value_types=projection_value_types,
+            type_expansions=type_expansions,
         )
         relation_diagnostics: list[Diagnostic] = []
         expression_value_types: dict[Expression, ValueType] = {}
@@ -250,6 +257,8 @@ def _satisfying_output_scope(
     input_schema: RowSchema,
     relation_row_schemas: Mapping[DerivedRelation, RowSchema],
     let_expansions: Mapping[str, Expression] | None,
+    projection_value_types: Mapping[Expression, ValueType] | None,
+    type_expansions: Mapping[TypeExpr, ResolvedType] | None,
 ) -> dict[str, _SatisfyingOutput]:
     group_key_identities = {
         identity
@@ -258,7 +267,9 @@ def _satisfying_output_scope(
             identity := _field_identity(
                 definition,
                 _effective_group_key_expression(
-                    item.key, let_expansions=let_expansions, let_stack=frozenset()
+                    item.key,
+                    let_expansions=let_expansions if input_schema.joined else None,
+                    let_stack=frozenset(),
                 ),
                 input_schema,
             )
@@ -267,18 +278,37 @@ def _satisfying_output_scope(
     }
     schema = relation_row_schemas.get(definition, RowSchema(is_unknown=True))
     scope: dict[str, _SatisfyingOutput] = {}
+    has_aggregate = any(
+        contains_semantic_aggregate(item.expression) for item in definition.select_items
+    )
     for item in definition.select_items:
         output_name = _projection_output_name(item)
         if output_name is None or output_name in scope:
             continue
+        field = schema.fields.get(output_name)
         supported = _is_group_key_projection(
             definition,
             item,
             input_schema=input_schema,
             group_key_identities=group_key_identities,
-        ) or _is_direct_aggregate_projection(item)
+        ) or _is_aggregate_projection(item)
+        if (
+            not supported
+            and has_aggregate
+            and not isinstance(item.expression, (NameExpr, DottedNameExpr))
+        ):
+            _, _, supported = composed_aggregate_output_field(
+                item,
+                definition=definition,
+                input_schema=open_input_schema(definition)
+                if input_schema.is_unknown
+                else input_schema,
+                expression_value_types=projection_value_types,
+                let_expansions=let_expansions,
+                type_expansions=type_expansions,
+            )
         scope[output_name] = _SatisfyingOutput(
-            field=schema.fields.get(output_name),
+            field=field,
             supported=supported,
             expression=item.expression,
         )
@@ -290,8 +320,8 @@ def _typed_outputs(
     projection_value_types: Mapping[Expression, ValueType],
 ) -> dict[str, _SatisfyingOutput] | None:
     """``scope`` of a relation over a row of unknown type, whose outputs have
-    no type, with each supported output (a direct aggregate, the only one
-    there) of the known type typing gave it, such as `count()`; None when
+    no type, with each supported aggregate output of the known type typing
+    gave it, such as `count()` or `count() + 1`; None when
     there is none."""
 
     typed = dict(scope)
@@ -361,11 +391,17 @@ def _field_identity(
     return None
 
 
-def _is_direct_aggregate_projection(item: SelectItem) -> bool:
+def _is_aggregate_projection(item: SelectItem) -> bool:
+    if item.alias is None:
+        return False
+    if isinstance(item.expression, CallExpr) and is_semantic_aggregate_call(
+        item.expression
+    ):
+        return True
+    # Unknown-row outputs get their known expression types in _typed_outputs.
     return (
-        item.alias is not None
-        and isinstance(item.expression, CallExpr)
-        and is_semantic_aggregate_call(item.expression)
+        contains_semantic_aggregate(item.expression)
+        and aggregate_composition_leaves(item.expression) is not None
     )
 
 

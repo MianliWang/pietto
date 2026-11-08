@@ -34,6 +34,7 @@ from pietto.ir import (
     build_ir,
 )
 from pietto.ir.model import LimitIR, OrderDirectionIR, OrderItemIR
+from pietto.ast_nodes import QueryDef
 from pietto.errors import Severity
 from pietto.parser_api import parse_source
 from pietto.semantic import analyze
@@ -785,3 +786,219 @@ def _forbid_ir_and_sql(monkeypatch: pytest.MonkeyPatch) -> None:
 
     monkeypatch.setattr(cli.ir_api, "build_ir", unexpected_call)
     monkeypatch.setattr(cli.sql_api, "emit_postgres_sql", unexpected_call)
+
+
+@pytest.mark.parametrize(
+    "connector,emitter,summed,counted",
+    [
+        (
+            "postgres.table",
+            emit_postgres_sql,
+            'CAST(SUM(CAST("amount" AS pg_catalog.int8)) AS pg_catalog.int8)',
+            "COUNT(*)",
+        ),
+        ("mysql.table", emit_mysql_sql, "SUM(`amount`)", "COUNT(*)"),
+    ],
+)
+@pytest.mark.parametrize(
+    "composition", ["sum(amount)", "coalesce(sum(amount), 0)", "sum(amount) + count()"]
+)
+def test_selected_aggregate_result_alias_keeps_having_and_order_scope(
+    connector: str,
+    emitter: Callable[[ScriptIR], SqlResult],
+    summed: str,
+    counted: str,
+    composition: str,
+) -> None:
+    source = (
+        _source_prefix(connector)
+        + f"query summary:\n    from orders\n    group by region\n    select region, total = {composition}\n    having total > 0\n    order by total desc\n"
+    )
+    parsed = parse_source(source)
+    assert parsed.ast is not None and parsed.diagnostics == ()
+    semantic = analyze(parsed.ast)
+    assert semantic.diagnostics == ()
+    script = semantic.script or parsed.ast
+    lowered = build_ir(script, semantic.model)
+    assert lowered.ir is not None and lowered.diagnostics == ()
+    result = emitter(lowered.ir)
+    assert result.diagnostics == () and len(result.artifacts) == 1
+    value = (
+        summed
+        if composition == "sum(amount)"
+        else f"COALESCE({summed}, 0)"
+        if composition.startswith("coalesce")
+        else f"{summed} + {counted}"
+    )
+    predicate_value = f"({value})" if composition == "sum(amount) + count()" else value
+    sql = result.artifacts[0].sql
+    assert f"HAVING\n    {predicate_value} > 0\nORDER BY\n    {value} DESC" in sql
+
+
+@pytest.mark.parametrize("predicate", ["total + 1 > 0", "coalesce(total, 0) > 0"])
+def test_composed_output_alias_does_not_expand_having_expression_forms(
+    predicate: str,
+) -> None:
+    source = (
+        _source_prefix("postgres.table")
+        + f"query summary:\n    from orders\n    group by region\n    select region, total = coalesce(sum(amount), 0)\n    having {predicate}\n"
+    )
+    parsed = parse_source(source)
+    assert parsed.ast is not None and parsed.diagnostics == ()
+    semantic = analyze(parsed.ast)
+    assert any(d.code == "PIE-S2327" for d in semantic.diagnostics)
+
+
+@pytest.mark.parametrize(
+    "connector,emitter",
+    [("postgres.table", emit_postgres_sql), ("mysql.table", emit_mysql_sql)],
+)
+@pytest.mark.parametrize(
+    "projection", ["count()", "count() + 1", "coalesce(count(), 0)"]
+)
+def test_unknown_row_aggregate_alias_keeps_its_typed_having_scope(
+    connector: str, emitter: Callable[[ScriptIR], SqlResult], projection: str
+) -> None:
+    source = f'source rows = {connector}("rows")\nquery q:\n    from rows\n    group by key\n    select total = {projection}\n    having total > 0\n'
+    parsed = parse_source(source)
+    assert parsed.ast is not None and parsed.diagnostics == ()
+    semantic = analyze(parsed.ast)
+    assert not [d for d in semantic.diagnostics if d.severity is Severity.ERROR]
+    lowered = build_ir(semantic.script or parsed.ast, semantic.model)
+    assert lowered.ir is not None and lowered.diagnostics == ()
+    result = emitter(lowered.ir)
+    assert result.artifacts == ()
+    assert [d.code for d in result.diagnostics] == ["PIE-B1000"]
+
+
+@pytest.mark.parametrize(
+    "projection",
+    ["count() + raw", "coalesce(count(), sign(raw))", "count() + len(raw)"],
+)
+def test_unknown_row_having_does_not_admit_a_raw_composition_sibling(
+    projection: str,
+) -> None:
+    source = f'source rows = postgres.table("rows")\nquery q:\n    from rows\n    group by key\n    select total = {projection}\n    having total > 0\n'
+    parsed = parse_source(source)
+    assert parsed.ast is not None and parsed.diagnostics == ()
+    semantic = analyze(parsed.ast)
+    assert any(d.code == "PIE-S2310" for d in semantic.diagnostics)
+
+
+@pytest.mark.parametrize(
+    "connector,emitter",
+    [("postgres.table", emit_postgres_sql), ("mysql.table", emit_mysql_sql)],
+)
+@pytest.mark.parametrize("computed_key", [False, True])
+@pytest.mark.parametrize("projection", ["key + 1", "7"])
+def test_grouped_scalar_output_beside_a_real_aggregate_keeps_having_and_order(
+    connector: str,
+    emitter: Callable[[ScriptIR], SqlResult],
+    computed_key: bool,
+    projection: str,
+) -> None:
+    key = "bucket" if computed_key else "amount"
+    binding = "    let bucket = amount + 1\n" if computed_key else ""
+    value = projection.replace("key", key)
+    order = "n" if projection == "7" else "label"
+    one = (
+        _source_prefix(connector)
+        + f"query result:\n    from orders\n{binding}    group by {key}\n    select label = {value}, n = count()\n    having label > 0\n    order by {order} desc\n"
+    )
+    two = (
+        _source_prefix(connector)
+        + f"query grouped:\n    from orders\n{binding}    group by {key}\n    select {key}, n = count()\nquery result:\n    from grouped\n    where {value} > 0\n    select label = {value}, n\n    order by {order} desc\n"
+    )
+    schemas = []
+    for source in (one, two):
+        parsed = parse_source(source)
+        assert parsed.ast is not None and parsed.diagnostics == ()
+        semantic = analyze(parsed.ast)
+        assert not [d for d in semantic.diagnostics if d.severity is Severity.ERROR]
+        script = semantic.script or parsed.ast
+        selected = script.definitions[-1]
+        assert isinstance(selected, QueryDef)
+        fields = semantic.model.relation_row_schemas[selected].fields
+        schemas.append(
+            tuple(
+                (name, field.resolved_type, field.nullability)
+                for name, field in fields.items()
+            )
+        )
+        lowered = build_ir(script, semantic.model)
+        assert lowered.ir is not None and lowered.diagnostics == ()
+        result = emitter(lowered.ir)
+        assert result.diagnostics == ()
+        assert "ORDER BY" in result.artifacts[-1].sql
+        assert ("HAVING" if source == one else "WHERE") in result.artifacts[-1].sql
+    assert schemas[0] == schemas[1]
+
+
+@pytest.mark.parametrize(
+    "connector,emitter",
+    [("postgres.table", emit_postgres_sql), ("mysql.table", emit_mysql_sql)],
+)
+def test_unknown_row_literal_output_beside_count_keeps_check_but_refuses_emission(
+    connector: str, emitter: Callable[[ScriptIR], SqlResult]
+) -> None:
+    parsed = parse_source(
+        f'source rows = {connector}("rows")\nquery q:\n    from rows\n    group by key\n    select fixed = 7, n = count()\n    having fixed > 0\n'
+    )
+    assert parsed.ast is not None and parsed.diagnostics == ()
+    semantic = analyze(parsed.ast)
+    assert not [d for d in semantic.diagnostics if d.severity is Severity.ERROR]
+    lowered = build_ir(semantic.script or parsed.ast, semantic.model)
+    assert lowered.ir is not None and lowered.diagnostics == ()
+    result = emitter(lowered.ir)
+    assert result.artifacts == () and [d.code for d in result.diagnostics] == [
+        "PIE-B1000"
+    ]
+
+
+@pytest.mark.parametrize(
+    "projection,code",
+    [
+        ("label = amount + 1, n = count()", "PIE-S2319"),
+        ("label = label + 1, n = count()", "PIE-S2102"),
+        ("label = later + 1, later = count()", "PIE-S2102"),
+        ("label = 7", "PIE-S2319"),
+        ("region", "PIE-S2320"),
+    ],
+)
+def test_grouped_zero_leaf_outputs_keep_raw_self_forward_and_no_aggregate_refusals(
+    projection: str, code: str
+) -> None:
+    parsed = parse_source(
+        _source_prefix("postgres.table")
+        + f"query q:\n    from orders\n    group by region\n    select {projection}\n"
+    )
+    assert parsed.ast is not None and parsed.diagnostics == ()
+    semantic = analyze(parsed.ast)
+    assert any(d.code == code for d in semantic.diagnostics)
+
+
+def test_global_standalone_literal_beside_aggregate_keeps_mixed_projection_refusal() -> (
+    None
+):
+    parsed = parse_source(
+        _source_prefix("postgres.table")
+        + "query q:\n    from orders\n    select fixed = 7, n = count()\n"
+    )
+    assert parsed.ast is not None and parsed.diagnostics == ()
+    semantic = analyze(parsed.ast)
+    assert any(d.code == "PIE-S2312" for d in semantic.diagnostics)
+
+
+@pytest.mark.parametrize("value", ["7", "-7", "True", '"text"'])
+def test_grouped_standalone_constant_order_alias_keeps_positional_key_refusal(
+    value: str,
+) -> None:
+    parsed = parse_source(
+        _source_prefix("postgres.table")
+        + f"query q:\n    from orders\n    group by amount\n    select fixed = {value}, n = count()\n    order by fixed\n"
+    )
+    assert parsed.ast is not None and parsed.diagnostics == ()
+    semantic = analyze(parsed.ast)
+    assert [d.code for d in semantic.diagnostics if d.severity is Severity.ERROR] == [
+        "PIE-S2380"
+    ]

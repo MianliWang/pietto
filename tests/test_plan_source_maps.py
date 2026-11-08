@@ -1251,3 +1251,159 @@ query result:
         pure.evaluate_project_sql_plan_document(damaged_document).status
         is not pure.Status.OK
     )
+
+
+@pytest.mark.parametrize("joined", (False, True))
+@pytest.mark.parametrize("policy", tuple(P))
+def test_having_composition_bridge_keeps_actual_alias_uses_and_scope(
+    tmp_path, joined, policy
+):
+    from _pietto_plan_aggregate import _ordinary, _group_source
+    from pietto._project import project_sql_plan_aggregation as aggregation
+    from pietto._project import project_sql_plan_expressions as row
+    from pietto._project import project_sql_plan_portable as portable
+    from pietto._project import project_sql_plan_portable_schema as schema
+    from pietto._project import project_sql_plan_pure_boundary as pure
+
+    if joined:
+        source = (
+            _group_source(visible=(("total", "sum(r.key) + 1"),))
+            .replace("        total = count()", "        n = count()")
+            .replace(
+                "    key: Int | None\n",
+                "    key: Int | None\n    row_key = unique(id)\n",
+            )
+        )
+    else:
+        source = _ordinary(
+            "    group by:\n        id\n    select:\n        total = sum(value) + 1\n        n = count()\n"
+        )
+    source += "    having total > 0 and total < 10\n    order by total\n"
+    _, plan, checked, product, verified, _ = _mapped(_roots(tmp_path, source), policy)
+    assert verified.verified
+    having = next(
+        site for site in plan.expression_sites if site.role.value == "satisfying"
+    )
+    assert isinstance(having, aggregation.ProjectSQLAggregateSite)
+    assert len(having.references) == 2
+    owner = having.owner.definition
+    assert isinstance(owner, (ast.QueryDef, ast.TableDef))
+    fact = aggregation.reference_composition(having.references[0])
+    assert fact is not None
+    expanded = next(
+        value
+        for value in plan.expressions
+        if value.site is having and value.expression is fact.expression
+    )
+    entries = tuple(
+        entry for entry in product.entries if entry.original.subject is expanded.ref
+    )
+    assert entries
+    bridges = []
+    for entry in entries:
+        local = tuple(value for value in product.associations if value.entry is entry)
+        assert any(
+            value.kind is K.CAUSE and value.observed is expanded.expression
+            for value in local
+        )
+        uses = tuple(value for value in local if value.kind is K.NORMALIZED_EXPRESSION)
+        assert len(uses) == 2
+        for association, reference in zip(uses, having.references, strict=True):
+            assert association.observed is expanded.expression
+            assert association.evidence is reference
+            assert association.site.occurrence is row.reference_expression(reference)
+            assert association.site.container is owner
+            assert association.site.declaration is having.owner
+            assert having.occurrence is owner.satisfying_clause
+            assert any(
+                node is association.site.occurrence
+                for node in row.scalar_nodes(having.expression)
+            )
+        bridges.extend(uses)
+    selected = {
+        value.ref for value in plan.expressions if value.site.role.value == "select"
+    }
+    assert not any(
+        value.kind is K.NORMALIZED_EXPRESSION
+        and value.entry.original.subject in selected
+        and any(value.evidence is reference for reference in having.references)
+        for value in product.associations
+    )
+    original = bridges[0]
+    damaged = _graft(
+        product,
+        associations=tuple(
+            value for value in product.associations if value is not original
+        ),
+    )
+    assert not maps.verify_project_sql_source_map(damaged, checked).verified
+    damaged = _graft(
+        product,
+        associations=_changed(
+            product.associations,
+            original,
+            _graft(original, evidence=having.references[1]),
+        ),
+    )
+    assert not maps.verify_project_sql_source_map(damaged, checked).verified
+    body_nodes = row.scalar_nodes(
+        fact.expression, aggregation.composition_references(fact)
+    )
+    other_observed = next(
+        node for node in body_nodes if node is not expanded.expression
+    )
+    damaged = _graft(
+        product,
+        associations=_changed(
+            product.associations, original, _graft(original, observed=other_observed)
+        ),
+    )
+    assert not maps.verify_project_sql_source_map(damaged, checked).verified
+    encoded = portable.build_project_sql_plan_portable(checked, source_map=verified)
+    assert (
+        pure.parse_project_sql_plan_document(encoded.canonical_bytes).status
+        is pure.Status.OK
+    )
+    identities = {id(value): ref for ref, value in encoded.bindings}
+    target = identities[id(original)]
+    other = identities[id(having.references[1])]
+    forged = replace(
+        encoded.document,
+        records=tuple(
+            replace(
+                record,
+                fields=tuple(
+                    replace(field, value=schema.Value(schema.Tag.REF, other))
+                    if field.name == "evidence"
+                    else field
+                    for field in record.fields
+                ),
+            )
+            if record.ref == target
+            else record
+            for record in encoded.document.records
+        ),
+    )
+    assert pure.evaluate_project_sql_plan_document(forged).status is not pure.Status.OK
+    observed_ref = identities[id(other_observed)]
+    forged_observed = replace(
+        encoded.document,
+        records=tuple(
+            replace(
+                record,
+                fields=tuple(
+                    replace(field, value=schema.Value(schema.Tag.REF, observed_ref))
+                    if field.name == "observed"
+                    else field
+                    for field in record.fields
+                ),
+            )
+            if record.ref == target
+            else record
+            for record in encoded.document.records
+        ),
+    )
+    assert (
+        pure.evaluate_project_sql_plan_document(forged_observed).status
+        is not pure.Status.OK
+    )

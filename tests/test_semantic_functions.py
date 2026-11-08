@@ -144,20 +144,9 @@ _DATE_TRUNC = (
         ('date_trunc("hour", opened_on)', [("PIE-S2104", _DATE_TRUNC)]),
         ('date_trunc("month", id)', [("PIE-S2104", _DATE_TRUNC)]),
         ('date_trunc("month", opened_on)', []),
-        # A refused aggregate leaves the value unknown; only its own error
-        # says what to write.
         (
             'date_trunc("month", min(opened_on))',
-            [
-                ("PIE-S2104", "Invalid arguments for function date_trunc"),
-                (
-                    "PIE-S2310",
-                    "Aggregate projection must be a direct aggregate call; "
-                    "composition around min() is not supported yet; select the "
-                    "min() under a name in one query, then compute with that name "
-                    "in another that reads it with `from`",
-                ),
-            ],
+            [],
         ),
     ],
 )
@@ -197,20 +186,9 @@ _ROUND = (
         ("round(amount, id)", [("PIE-S2104", _ROUND)]),
         ("round(ratio)", []),
         ("round(amount, 2)", []),
-        # A refused aggregate leaves the value unknown; only its own error
-        # says what to write.
         (
             "round(avg(ratio), 2)",
-            [
-                ("PIE-S2104", "Invalid arguments for function round"),
-                (
-                    "PIE-S2310",
-                    "Aggregate projection must be a direct aggregate call; "
-                    "composition around avg() is not supported yet; select the "
-                    "avg() under a name in one query, then compute with that name "
-                    "in another that reads it with `from`",
-                ),
-            ],
+            [("PIE-S2104", _ROUND)],
         ),
     ],
 )

@@ -331,8 +331,7 @@ def _query_metadata(relation: RelationIR) -> SemanticMetadataQuery:
         group_keys=tuple(
             leaf
             for key in relation.group_keys
-            for leaf in (_field_leaf(key, fallback_relation=relation.source.name),)
-            if leaf is not None
+            for leaf in _field_leaves(key, fallback_relation=relation.source.name)
         ),
         satisfying=SemanticMetadataClausePresence(
             present=relation.result_predicate is not None
@@ -424,12 +423,14 @@ def _expression_kind(expression: ExpressionIR) -> str:
 
 def _field_leaves(
     expression: ExpressionIR,
+    *,
+    fallback_relation: str | None = None,
 ) -> tuple[SemanticMetadataFieldLeaf, ...]:
     return tuple(
         leaf
         for item in _walk_expressions(expression)
         if isinstance(item, FieldRefIR)
-        for leaf in (_field_leaf(item),)
+        for leaf in (_field_leaf(item, fallback_relation=fallback_relation),)
         if leaf is not None
     )
 

@@ -295,7 +295,7 @@ def test_count_family_cli_json_artifact_success_remains_generic(
         ("value = min(amount + tax)", "PIE-S2315"),
         ("value = max(amount + tax)", "PIE-S2315"),
         ("value = count(count())", "PIE-S2311"),
-        ("value = count(amount) + 1", "PIE-S2310"),
+        ("value = count(amount) if True else 1", "PIE-S2310"),
     ],
 )
 def test_count_family_rejected_semantic_matrix_remains_fail_closed(

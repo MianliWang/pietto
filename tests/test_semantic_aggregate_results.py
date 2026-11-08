@@ -337,7 +337,9 @@ def test_grouped_aggregate_typeclass_matrix_semantic_and_ir_are_locked() -> None
         _assert_value_type(schema.fields[name], expected_type, expected_nullability)
 
     relation_ir = _relation_ir(script_ir)
-    assert [key.name for key in relation_ir.group_keys] == ["status"]
+    (key,) = relation_ir.group_keys
+    assert isinstance(key, FieldRefIR)
+    assert key.name == "status"
     _assert_aggregate_ir_matrix(script_ir, GROUPED_ROW_SCHEMA)
 
 
@@ -890,7 +892,9 @@ def test_ir_aggregate_call_matrix_matches_semantic_results() -> None:
         }
 
         if grouped:
-            assert [key.name for key in relation.group_keys] == ["status"]
+            (key,) = relation.group_keys
+            assert isinstance(key, FieldRefIR)
+            assert key.name == "status"
 
         for name, expected_type, expected_nullability in expected_schema:
             projection = projections[name]
@@ -1047,7 +1051,7 @@ def test_count_field_boundary_types_are_locked_with_enum_fail_closed() -> None:
         "value = sum(1)",
         "value = avg(1)",
         "value = sum(avg(amount))",
-        "value = sum(amount) + 1",
+        "value = sum(amount) if True else 1",
         "value = sum(amount / tax)",
     ],
 )
@@ -1169,6 +1173,7 @@ def _compile(source: str) -> tuple[Script, SemanticResult, ScriptIR]:
     script = _parse(source)
     semantic = analyze(script)
     assert _error_codes(semantic) == []
+    script = semantic.script or script
     ir_result = build_ir(script, semantic.model)
     assert ir_result.diagnostics == ()
     assert ir_result.ir is not None
@@ -1337,3 +1342,86 @@ def _ir_nullability(nullability: EffectiveNullability) -> NullabilityIR:
     if nullability is EffectiveNullability.NULLABLE:
         return NullabilityIR.NULLABLE
     return NullabilityIR.UNKNOWN
+
+
+@pytest.mark.parametrize(
+    "connector,emit",
+    [("postgres.table", emit_postgres_sql), ("mysql.table", emit_mysql_sql)],
+)
+@pytest.mark.parametrize("grouped", [False, True])
+@pytest.mark.parametrize(
+    "expression,type_name,nullability,aggregates",
+    [
+        ("coalesce(sum(amount), 0)", "Int", EffectiveNullability.NON_NULL, 1),
+        ("sum(amount) * 100 / count()", "Int", EffectiveNullability.UNKNOWN, 2),
+        ("round(avg(price), 2)", "Decimal", EffectiveNullability.NULLABLE, 1),
+        ("coalesce(sum(amount), count())", "Int", EffectiveNullability.NON_NULL, 2),
+        ("sum(amount) + sum(amount)", "Int", EffectiveNullability.UNKNOWN, 2),
+        ("count() + 1", "Int", EffectiveNullability.UNKNOWN, 1),
+        ("count_distinct(customer_id) + 1", "Int", EffectiveNullability.UNKNOWN, 1),
+        ("min(amount) + 1", "Int", EffectiveNullability.UNKNOWN, 1),
+        ("year(min(created_at))", "Int", EffectiveNullability.NULLABLE, 1),
+        ("round(stddev(score))", "Float", EffectiveNullability.NULLABLE, 1),
+    ],
+)
+def test_scalar_aggregate_results_keep_types_and_every_leaf(
+    connector, emit, grouped, expression, type_name, nullability, aggregates
+):
+    from pietto.ir.model import aggregate_composition_leaves
+
+    source = MATRIX_SHAPE + f'source orders: Order = {connector}("orders")\n'
+    source += "query q:\n    from orders\n"
+    if grouped:
+        source += "    group by status\n"
+    source += f"    select value = {expression}\n"
+    script, semantic, ir = _compile(source)
+    field = semantic.model.relation_row_schemas[_relation_ast(script)].fields["value"]
+    assert (field.resolved_type.name, field.nullability) == (type_name, nullability)
+    leaves = aggregate_composition_leaves(_relation_ir(ir).projections[0].expression)
+    assert leaves is not None
+    calls = [leaf for leaf in leaves if isinstance(leaf, AggregateCallIR)]
+    assert len(calls) == aggregates
+    assert len({id(call) for call in calls}) == aggregates
+    result = emit(ir)
+    assert result.diagnostics == ()
+    assert len(result.artifacts) == 1
+
+
+@pytest.mark.parametrize(
+    "expression,code",
+    [
+        ("sum(amount) + tax", "PIE-S2310"),
+        ("sum(amount) + avg(sum(tax))", "PIE-S2311"),
+        ("round(avg(score), 2)", "PIE-S2104"),
+        ("sum(amount) if True else 0", "PIE-S2310"),
+        ("lower(min(amount))", "PIE-S2104"),
+    ],
+)
+def test_scalar_aggregate_results_keep_their_remaining_boundaries(expression, code):
+    source = MATRIX_SHAPE + 'source orders: Order = postgres.table("orders")\n'
+    source += f"query q:\n    from orders\n    select value = {expression}\n"
+    assert code in _error_codes(analyze(_parse(source)))
+
+
+@pytest.mark.parametrize("key", ["amount", "amount + tax"])
+def test_aggregate_composition_reads_the_exact_grouped_let_key(key):
+    source = MATRIX_SHAPE + 'source orders: Order = postgres.table("orders")\n'
+    source += f"query q:\n    from orders\n    let bucket = {key}\n    group by bucket\n    select value = bucket + coalesce(sum(amount), 0)\n    order by value\n"
+    _, _, ir = _compile(source)
+    result = emit_postgres_sql(ir)
+    assert result.diagnostics == ()
+    assert "GROUP BY" in result.artifacts[0].sql
+
+
+def test_aggregate_composition_rejects_a_sibling_computed_let_with_the_same_value():
+    source = MATRIX_SHAPE + 'source orders: Order = postgres.table("orders")\n'
+    source += "query q:\n    from orders\n    let bucket = amount + tax\n    let other = amount + tax\n    group by bucket\n    select value = other + sum(amount)\n"
+    assert "PIE-S2310" in _error_codes(analyze(_parse(source)))
+
+
+def test_composed_ordered_aggregate_keeps_its_unique_order_requirement():
+    source = MATRIX_SHAPE + 'source orders: Order = postgres.table("orders")\n'
+    source += "query q:\n    from orders\n    select value = coalesce(first(amount, order by tax), 0)\n"
+    result = analyze(_parse(source))
+    assert _error_codes(result) == ["PIE-S2104"]
+    assert "unique key" in result.diagnostics[0].message

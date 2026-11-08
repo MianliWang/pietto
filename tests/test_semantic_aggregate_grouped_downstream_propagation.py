@@ -36,6 +36,7 @@ from pietto._project.let_scope_facts import (
     ProjectRelationLetScopeFacts,
 )
 from pietto._project.model import (
+    ProjectAggregateResultFact,
     ProjectParseCheckResult,
     ProjectParsedInput,
     ProjectRelationRowSchemaReason,
@@ -329,12 +330,17 @@ def test_aggregate_only_schema_facts_graph_and_lineage_are_persisted_atomically(
         for field in schema.fields.values()
     )
     assert tuple(facts) == ("total", "maximum", "summed")
-    assert tuple(fact.function for fact in facts.values()) == (
+    total_fact, maximum_fact, summed_fact = facts.values()
+    assert isinstance(total_fact, ProjectAggregateResultFact)
+    assert isinstance(maximum_fact, ProjectAggregateResultFact)
+    assert isinstance(summed_fact, ProjectAggregateResultFact)
+    direct_facts = (total_fact, maximum_fact, summed_fact)
+    assert tuple(fact.function for fact in direct_facts) == (
         "count",
         "max",
         "sum",
     )
-    assert tuple(fact.argument_count for fact in facts.values()) == (0, 1, 1)
+    assert tuple(fact.argument_count for fact in direct_facts) == (0, 1, 1)
     assert model.relation_let_scope_facts[definition].status is (
         ProjectLetScopeFactsStatus.ABSENT
     )
@@ -385,7 +391,13 @@ def test_grouped_schema_group_key_and_aggregate_facts_preserve_select_order(
         ProjectRowResultRole.AGGREGATE_RESULT,
     )
     assert tuple(facts) == ("total", "summed")
-    assert tuple(fact.function for fact in facts.values()) == ("count", "sum")
+    total_fact, summed_fact = facts.values()
+    assert isinstance(total_fact, ProjectAggregateResultFact)
+    assert isinstance(summed_fact, ProjectAggregateResultFact)
+    assert tuple(fact.function for fact in (total_fact, summed_fact)) == (
+        "count",
+        "sum",
+    )
     assert all(fact.grouped for fact in facts.values())
     projection_edges = tuple(
         (edge.kind, edge.from_node.name, edge.to_node.field_name)
@@ -460,7 +472,13 @@ def test_selected_let_and_field_bearing_expression_aggregates_use_one_canonical_
     assert model.relation_row_lineages[definition] is readiness.lineage
     persisted_facts = model.relation_aggregate_result_facts[definition]
     assert tuple(persisted_facts) == ("total", "weighted", "distinct_status")
-    assert tuple(fact.function for fact in persisted_facts.values()) == (
+    total_fact, weighted_fact, distinct_fact = persisted_facts.values()
+    assert isinstance(total_fact, ProjectAggregateResultFact)
+    assert isinstance(weighted_fact, ProjectAggregateResultFact)
+    assert isinstance(distinct_fact, ProjectAggregateResultFact)
+    assert tuple(
+        fact.function for fact in (total_fact, weighted_fact, distinct_fact)
+    ) == (
         "sum",
         "avg",
         "count_distinct",

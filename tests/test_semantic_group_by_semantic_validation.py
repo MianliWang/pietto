@@ -144,7 +144,7 @@ def test_non_grouped_plain_projection_is_rejected_with_unknown_schema_field() ->
     _assert_field(schema.fields["total"], "Int", EffectiveNullability.NON_NULL)
 
 
-def test_scalar_group_key_expression_projection_is_deferred() -> None:
+def test_scalar_group_key_expression_projection_keeps_its_checked_type() -> None:
     script = _parse(
         SOURCE_PREFIX + "table grouped_orders:\n"
         "    from orders\n"
@@ -159,11 +159,8 @@ def test_scalar_group_key_expression_projection_is_deferred() -> None:
     result = analyze(script)
     schema = result.model.relation_row_schemas[relation]
 
-    assert _errors(result) == [
-        ("PIE-S2319", "Grouped scalar projection expressions are not supported yet"),
-    ]
-    assert schema.fields["label"].resolved_type.kind is TypeKind.UNKNOWN
-    assert schema.fields["label"].nullability is EffectiveNullability.UNKNOWN
+    assert _errors(result) == []
+    _assert_field(schema.fields["label"], "Text", EffectiveNullability.NON_NULL)
     _assert_field(schema.fields["total"], "Int", EffectiveNullability.NON_NULL)
 
 
@@ -241,7 +238,7 @@ def test_unsupported_grouped_order_by_items_emit_s2321(order_item: str) -> None:
             ("PIE-S2318", "Grouped projection is not a GROUP BY key: name", 7, 9),
         ),
         (
-            "    select:\n        kind\n        u = lower(kind)\n        n = count()\n",
+            "    select:\n        kind\n        u = lower(name)\n        n = count()\n",
             (
                 "PIE-S2319",
                 "Grouped scalar projection expressions are not supported yet",
@@ -384,13 +381,10 @@ def test_duplicate_group_key_over_a_source_without_a_shape_is_refused() -> None:
             ("PIE-S2311", "Nested aggregate avg() is not supported"),
         ),
         (
-            "revenue = sum(amount) + 1",
+            "revenue = sum(amount) if True else 1",
             (
                 "PIE-S2310",
-                "Aggregate projection must be a direct aggregate call; "
-                "composition around sum() is not supported yet; select the sum() "
-                "under a name in one query, then compute with that name in "
-                "another that reads it with `from`",
+                "Aggregate composition requires scalar calls or arithmetic over direct aggregates, group keys and literals; invalid composition around sum(); select the sum() under a name in one query, then compute with that name in another that reads it with `from`",
             ),
         ),
     ],

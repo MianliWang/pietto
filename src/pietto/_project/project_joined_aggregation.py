@@ -16,7 +16,11 @@ from pietto._project.existence_values import (
     ProjectAnyValue,
 )
 from pietto.ast_nodes import AnyExpr, CollectRelationExpr
-from pietto._project.model import ProjectRowFieldNullability
+from pietto._project.model import (
+    ProjectAggregateCompositionResultFact,
+    ProjectAggregateLeafFact,
+    ProjectRowFieldNullability,
+)
 from pietto._project.project_current_joins import (
     ProjectCurrentJoinRegion,
     compiled_forward_at_most_one,
@@ -95,7 +99,7 @@ from pietto.ast_nodes import (
     UnaryExpr,
     WindowExpr,
 )
-from pietto.errors import Diagnostic, Severity
+from pietto.errors import Diagnostic, Severity, SourceLocation
 from pietto.semantic import catalog as semantic_catalog
 from pietto.semantic import group_by as semantic_group_by
 from pietto.semantic import satisfying as semantic_satisfying
@@ -104,6 +108,7 @@ from pietto.semantic.expressions import (
     _check_inlined_argument,
     checks_inlined_arguments,
     comparison_literals,
+    infer_row_expression,
     query_parameter_value_type,
     resolved_comparison_value_type,
 )
@@ -525,7 +530,15 @@ class ProjectJoinedAggregateOccurrence:
             or self.selected_output_ordinal < 0
             or self.selected_output_ordinal >= len(definition.select_items)
             or definition.select_items[self.selected_output_ordinal] is not self.item
-            or self.item.expression is not self.call
+            or not any(
+                part is self.call
+                for part in (
+                    semantic_aggregates.aggregate_composition_leaves(
+                        self.item.expression
+                    )
+                    or ()
+                )
+            )
             or self.item.alias is None
             or semantic_aggregates.semantic_aggregate_call_name(self.call)
             != self.function_name
@@ -582,6 +595,20 @@ class ProjectJoinedAggregateOccurrence:
             raise ValueError(
                 "Aggregate result type must come from the existing kernel."
             )
+
+
+def _aggregate_argument_value_types(
+    aggregate: ProjectJoinedAggregateOccurrence,
+) -> dict[Expression, ValueType]:
+    return {
+        expression: value
+        for analysis in (
+            aggregate.argument_analysis,
+            *aggregate.extra_argument_analyses,
+        )
+        if analysis is not None
+        for expression, value in analysis.value_types.items()
+    }
 
 
 @dataclass(frozen=True, slots=True, kw_only=True, eq=False)
@@ -937,8 +964,9 @@ def _aggregate_attempt(
     input_filter: ProjectConcreteJoinedRowFilter,
     selected_output_ordinal: int,
     item: SelectItem,
+    expression: Expression | None = None,
 ) -> ProjectJoinedAggregateResult:
-    expression = item.expression
+    expression = item.expression if expression is None else expression
     nested = semantic_aggregates.nested_semantic_aggregate(expression)
     if nested is not None:
         return ProjectJoinedAggregateIssue(
@@ -1324,16 +1352,34 @@ def _build_aggregate_results(
     input_filter: ProjectConcreteJoinedRowFilter,
 ) -> tuple[ProjectJoinedAggregateResult, ...]:
     definition = _definition(input_filter)
-    return tuple(
-        _aggregate_attempt(
-            input_filter=input_filter,
-            selected_output_ordinal=ordinal,
-            item=item,
+    results: list[ProjectJoinedAggregateResult] = []
+    for ordinal, item in enumerate(definition.select_items):
+        if type(
+            item.expression
+        ) is WindowExpr or not semantic_aggregates.contains_semantic_aggregate(
+            item.expression
+        ):
+            continue
+        parts = semantic_aggregates.aggregate_composition_leaves(item.expression)
+        calls = (
+            tuple(
+                part
+                for part in parts
+                if semantic_aggregates.is_semantic_aggregate_call(part)
+            )
+            if parts is not None
+            else (item.expression,)
         )
-        for ordinal, item in enumerate(definition.select_items)
-        if type(item.expression) is not WindowExpr
-        and semantic_aggregates.contains_semantic_aggregate(item.expression)
-    )
+        results.extend(
+            _aggregate_attempt(
+                input_filter=input_filter,
+                selected_output_ordinal=ordinal,
+                item=item,
+                expression=call,
+            )
+            for call in calls
+        )
+    return tuple(results)
 
 
 class ProjectJoinedStageOutputRole(StrEnum):
@@ -1370,6 +1416,12 @@ class ProjectJoinedStageOutputOccurrence:
         hash=False,
     )
 
+    composition: ProjectAggregateCompositionResultFact | None = None
+    composition_aggregates: tuple[ProjectJoinedAggregateOccurrence, ...] = ()
+    composition_group_keys: Mapping[Expression, ProjectJoinedAnyGroupKey] = field(
+        default_factory=dict, repr=False, compare=False, hash=False
+    )
+
     def __post_init__(self) -> None:
         definition = _definition(self.input_filter)
         if (
@@ -1385,6 +1437,99 @@ class ProjectJoinedStageOutputOccurrence:
             raise ValueError(
                 "Stage output requires exact selected occurrence evidence."
             )
+        object.__setattr__(
+            self,
+            "composition_group_keys",
+            MappingProxyType(dict(self.composition_group_keys)),
+        )
+        if self.composition is not None:
+            parts = semantic_aggregates.aggregate_composition_leaves(
+                self.item.expression
+            )
+            if (
+                type(self.composition) is not ProjectAggregateCompositionResultFact
+                or self.role is not ProjectJoinedStageOutputRole.AGGREGATE_RESULT
+                or self.aggregate is not None
+                or self.group_key is not None
+                or self.composition.expression is not self.item.expression
+                or self.composition.output_name != self.output_name
+                or self.composition.grouped != (definition.group_by_clause is not None)
+                or self.value_type
+                is not self.composition.expression_value_types[self.item.expression]
+                or len(self.composition.leaves) != len(self.composition_aggregates)
+                or any(
+                    leaf.call is not occurrence.call
+                    or not _same_objects(
+                        tuple(leaf.argument_value_types),
+                        tuple(_aggregate_argument_value_types(occurrence)),
+                    )
+                    or any(
+                        leaf.argument_value_types.get(expression) is not value
+                        for expression, value in _aggregate_argument_value_types(
+                            occurrence
+                        ).items()
+                    )
+                    or leaf.result_value_type is not occurrence.result_value_type
+                    or occurrence.input_filter is not self.input_filter
+                    or occurrence.item is not self.item
+                    for leaf, occurrence in zip(
+                        self.composition.leaves, self.composition_aggregates
+                    )
+                )
+                or parts is None
+                or not _same_objects(
+                    tuple(self.composition_group_keys),
+                    tuple(
+                        part
+                        for part in parts
+                        if type(part) in {NameExpr, DottedNameExpr}
+                    ),
+                )
+                or any(
+                    key.input_filter is not self.input_filter
+                    or _group_key_expression(self.input_filter, expression, (key,))
+                    is not key
+                    or self.composition.expression_value_types.get(expression)
+                    is not key.value_type
+                    for expression, key in self.composition_group_keys.items()
+                )
+            ):
+                raise ValueError(
+                    "Composition output requires complete exact leaf and group-key evidence."
+                )
+            values: dict[Expression, ValueType] = {
+                occurrence.call: occurrence.result_value_type
+                for occurrence in self.composition_aggregates
+            }
+            values.update(
+                (expression, key.value_type)
+                for expression, key in self.composition_group_keys.items()
+            )
+            diagnostics: list[Diagnostic] = []
+            expected = infer_row_expression(
+                self.item.expression,
+                RowSchema(),
+                values,
+                diagnostics,
+                report_unknown_name=True,
+            )
+            if (
+                diagnostics
+                or expected != self.value_type
+                or not _same_objects(
+                    tuple(values), tuple(self.composition.expression_value_types)
+                )
+                or any(
+                    self.composition.expression_value_types.get(expression) != value
+                    for expression, value in values.items()
+                )
+            ):
+                raise ValueError(
+                    "Composition output requires independently inferred complete scalar types."
+                )
+            return
+        if self.composition_aggregates or self.composition_group_keys:
+            raise ValueError("Direct stage outputs cannot retain composition evidence.")
         if self.role is ProjectJoinedStageOutputRole.GROUP_KEY:
             if (
                 not isinstance(self.group_key, ProjectJoinedAnyGroupKey)
@@ -1476,11 +1621,19 @@ def _group_key_projection(
     item: SelectItem,
     group_keys: tuple[ProjectJoinedAnyGroupKey, ...],
 ) -> ProjectJoinedAnyGroupKey | None:
-    if type(item.expression) not in {NameExpr, DottedNameExpr}:
+    return _group_key_expression(input_filter, item.expression, group_keys)
+
+
+def _group_key_expression(
+    input_filter: ProjectConcreteJoinedRowFilter,
+    expression: Expression,
+    group_keys: tuple[ProjectJoinedAnyGroupKey, ...],
+) -> ProjectJoinedAnyGroupKey | None:
+    if type(expression) not in {NameExpr, DottedNameExpr}:
         return None
     resolutions, field_semantics, _ = _direct_field_resolution(
         input_filter,
-        cast(NameExpr | DottedNameExpr, item.expression),
+        cast(NameExpr | DottedNameExpr, expression),
         expand_let=False,
     )
     if field_semantics is None:
@@ -1498,7 +1651,7 @@ def _group_key_projection(
         # the field does.
         _, field_semantics, _ = _direct_field_resolution(
             input_filter,
-            cast(NameExpr | DottedNameExpr, item.expression),
+            cast(NameExpr | DottedNameExpr, expression),
             expand_let=True,
         )
         if field_semantics is None:
@@ -1512,6 +1665,95 @@ def _group_key_projection(
     if len(matches) > 1:
         raise ValueError("Concrete group keys cannot repeat one field occurrence.")
     return None if not matches else matches[0]
+
+
+def _composition_output(
+    input_filter: ProjectConcreteJoinedRowFilter,
+    ordinal: int,
+    item: SelectItem,
+    group_keys: tuple[ProjectJoinedAnyGroupKey, ...],
+    aggregates: tuple[ProjectJoinedAggregateOccurrence, ...],
+) -> ProjectJoinedStageOutputOccurrence | tuple[Diagnostic, ...]:
+    parts = semantic_aggregates.aggregate_composition_leaves(item.expression)
+    assert parts is not None
+    calls = tuple(
+        part for part in parts if semantic_aggregates.is_semantic_aggregate_call(part)
+    )
+    if not _same_objects(calls, tuple(aggregate.call for aggregate in aggregates)):
+        return ()
+    keys: dict[Expression, ProjectJoinedAnyGroupKey] = {}
+    diagnostics: list[Diagnostic] = []
+    values: dict[Expression, ValueType] = {
+        aggregate.call: aggregate.result_value_type for aggregate in aggregates
+    }
+    for part in parts:
+        if type(part) in {NameExpr, DottedNameExpr}:
+            key = _group_key_expression(input_filter, part, group_keys)
+            if key is None:
+                reference = cast(NameExpr | DottedNameExpr, part)
+                resolutions, input_field, reads_let = _direct_field_resolution(
+                    input_filter, reference, expand_let=False
+                )
+                diagnostics.append(
+                    _direct_read_diagnostic(input_filter, reference, resolutions)
+                    if input_field is None and not reads_let
+                    else semantic_group_by._non_grouped_projection_diagnostic(reference)
+                )
+            else:
+                keys[part] = key
+                values[part] = key.value_type
+        elif type(part) is ParameterRefExpr:
+            # SELECT parameters remain owned by the existing PIE-S2355 gate.
+            return (
+                semantic_aggregates.deferred_composition_diagnostic(item.expression),
+            )
+    if diagnostics:
+        return tuple(diagnostics)
+    result_type = infer_row_expression(
+        item.expression, RowSchema(), values, diagnostics, report_unknown_name=True
+    )
+    if diagnostics:
+        return tuple(diagnostics)
+    if (
+        result_type.kind is not ValueTypeKind.KNOWN
+        or result_type.resolved_type.kind is not TypeKind.BUILTIN
+    ):
+        return (semantic_aggregates.deferred_composition_diagnostic(item.expression),)
+    span = item.expression.span
+    assert item.alias is not None
+    fact = ProjectAggregateCompositionResultFact(
+        expression=item.expression,
+        output_name=item.alias,
+        grouped=_definition(input_filter).group_by_clause is not None,
+        location=SourceLocation(
+            path=span.path or input_filter.entry.owner.identity.module_path,
+            line=span.line,
+            column=span.column,
+            end_line=span.end_line,
+            end_column=span.end_column,
+        ),
+        leaves=tuple(
+            ProjectAggregateLeafFact(
+                call=aggregate.call,
+                function=aggregate.function_name,
+                argument_value_types=_aggregate_argument_value_types(aggregate),
+                result_value_type=aggregate.result_value_type,
+            )
+            for aggregate in aggregates
+        ),
+        expression_value_types=values,
+    )
+    return ProjectJoinedStageOutputOccurrence(
+        input_filter=input_filter,
+        selected_output_ordinal=ordinal,
+        item=item,
+        output_name=item.alias,
+        role=ProjectJoinedStageOutputRole.AGGREGATE_RESULT,
+        value_type=result_type,
+        composition=fact,
+        composition_aggregates=aggregates,
+        composition_group_keys=keys,
+    )
 
 
 def _build_stage_outputs(
@@ -1528,7 +1770,6 @@ def _build_stage_outputs(
     definition = _definition(input_filter)
     if mode is ProjectJoinedAggregationMode.ABSENT:
         return (), ()
-    aggregate_by_item = {id(aggregate.item): aggregate for aggregate in aggregates}
     outputs: list[ProjectJoinedStageOutputOccurrence] = []
     issues: list[ProjectJoinedSelectedOutputIssue] = []
     seen_names: set[str] = set()
@@ -1561,9 +1802,12 @@ def _build_stage_outputs(
             # read only by that GLOBAL-mode check below.
             non_aggregate_items.append((ordinal, item))
             continue
-        if semantic_aggregates.contains_semantic_aggregate(item.expression):
-            aggregate = aggregate_by_item.get(id(item))
-            if aggregate is not None and output_name is not None:
+        item_aggregates = tuple(
+            aggregate for aggregate in aggregates if aggregate.item is item
+        )
+        if semantic_aggregates.is_semantic_aggregate_call(item.expression):
+            if len(item_aggregates) == 1 and output_name is not None:
+                aggregate = item_aggregates[0]
                 outputs.append(
                     ProjectJoinedStageOutputOccurrence(
                         input_filter=input_filter,
@@ -1575,6 +1819,35 @@ def _build_stage_outputs(
                         aggregate=aggregate,
                     )
                 )
+            continue
+        parts = semantic_aggregates.aggregate_composition_leaves(item.expression)
+        if (
+            parts is not None
+            and output_name is not None
+            and not (
+                type(item.expression) in {NameExpr, DottedNameExpr}
+                and _group_key_projection(input_filter, item, group_keys) is not None
+            )
+        ):
+            composed = _composition_output(
+                input_filter, ordinal, item, group_keys, item_aggregates
+            )
+            if type(composed) is ProjectJoinedStageOutputOccurrence:
+                outputs.append(composed)
+                continue
+            if semantic_aggregates.contains_semantic_aggregate(item.expression):
+                if composed:
+                    issues.append(
+                        ProjectJoinedSelectedOutputIssue(
+                            input_filter=input_filter,
+                            selected_output_ordinal=ordinal,
+                            item=item,
+                            kind=ProjectJoinedSelectedOutputIssueKind.GROUPED_SCALAR_PROJECTION,
+                            diagnostics=cast(tuple[Diagnostic, ...], composed),
+                        )
+                    )
+                continue
+        if semantic_aggregates.contains_semantic_aggregate(item.expression):
             continue
         if type(item.expression) is CollectRelationExpr:
             issues.append(
@@ -3916,10 +4189,13 @@ def _require_stage_evidence(
 ) -> None:
     definition = _definition(input_filter)
     expected_aggregate_items = tuple(
-        item
+        (item, call)
         for item in definition.select_items
         if type(item.expression) is not WindowExpr
-        and semantic_aggregates.contains_semantic_aggregate(item.expression)
+        for call in (
+            semantic_aggregates.aggregate_composition_leaves(item.expression) or ()
+        )
+        if semantic_aggregates.is_semantic_aggregate_call(call)
     )
     final_grain = (
         input_filter.joined_semantics.multifact_region.final_properties.relational.grain
@@ -3944,8 +4220,39 @@ def _require_stage_evidence(
             or output.input_filter is not input_filter
             for output in stage_outputs
         )
+        or not _same_objects(
+            aggregates,
+            tuple(
+                leaf
+                for output in stage_outputs
+                for leaf in (
+                    (output.aggregate,)
+                    if output.aggregate is not None
+                    else output.composition_aggregates
+                )
+            ),
+        )
+        or any(
+            not any(key is retained for retained in group_keys)
+            for output in stage_outputs
+            for key in output.composition_group_keys.values()
+        )
         or tuple(output.selected_output_ordinal for output in stage_outputs)
-        != tuple(sorted(output.selected_output_ordinal for output in stage_outputs))
+        != tuple(
+            ordinal
+            for ordinal, item in enumerate(definition.select_items)
+            if mode is not ProjectJoinedAggregationMode.ABSENT
+            and type(item.expression) is not WindowExpr
+        )
+        or not _same_objects(
+            tuple(output.item for output in stage_outputs),
+            tuple(
+                item
+                for item in definition.select_items
+                if mode is not ProjectJoinedAggregationMode.ABSENT
+                and type(item.expression) is not WindowExpr
+            ),
+        )
         or any(
             type(protection) is not ProjectJoinedGroupProtection
             or protection.input_filter is not input_filter
@@ -3953,8 +4260,8 @@ def _require_stage_evidence(
         )
         or len(aggregates) != len(expected_aggregate_items)
         or any(
-            aggregate.item is not item
-            for aggregate, item in zip(
+            aggregate.item is not item or aggregate.call is not call
+            for aggregate, (item, call) in zip(
                 aggregates,
                 expected_aggregate_items,
                 strict=True,

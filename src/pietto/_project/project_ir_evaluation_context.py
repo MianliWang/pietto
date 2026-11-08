@@ -9,7 +9,7 @@ from pietto._project.aggregate_grouped_clause_facts import (
     ProjectAggregateGroupedClauseReadinessStatus,
 )
 from pietto._project.let_scope_facts import ProjectRelationLetScopeFacts
-from pietto._project.model import ProjectAggregateResultFact
+from pietto._project.model import ProjectAnyAggregateResultFact
 from pietto._project.module_semantic_fact_preservation import (
     ProjectModuleRelationSemanticFacts,
     ProjectModuleWindowOutputFact,
@@ -171,7 +171,7 @@ class ProjectIRAggregateEvaluationContext(ProjectIRGroupedEvaluationContext):
         hash=False,
     )
     group_keys: tuple[GroupByItem, ...]
-    aggregate_results: tuple[ProjectAggregateResultFact, ...]
+    aggregate_results: tuple[ProjectAnyAggregateResultFact, ...]
     let_scope: ProjectRelationLetScopeFacts = field(
         repr=False,
         compare=False,

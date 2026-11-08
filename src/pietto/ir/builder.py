@@ -58,6 +58,7 @@ from pietto.ir.lowering import (
 )
 from pietto.ir.model import (
     AggregateCallIR,
+    aggregate_composition_leaves,
     AggregateWindowCallIR,
     BinaryIR,
     ComparisonIR,
@@ -942,7 +943,18 @@ def _grouped_order_output_expressions(
         if projection.name is None or projection.name in output_expressions:
             continue
         expression = projection.expression
-        if isinstance(expression, AggregateCallIR) or expression in group_keys:
+        leaves = aggregate_composition_leaves(expression, group_keys)
+        if expression in group_keys or (
+            not isinstance(expression, FieldRefIR)
+            and leaves is not None
+            and all(
+                isinstance(leaf, (AggregateCallIR, LiteralIR))
+                or isinstance(leaf, FieldRefIR)
+                and leaf.field in group_key_fields
+                or leaf in group_keys
+                for leaf in leaves
+            )
+        ):
             output_expressions[projection.name] = _GroupedOrderExpression(expression)
             continue
         if (

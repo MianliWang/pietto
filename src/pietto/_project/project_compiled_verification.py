@@ -2063,6 +2063,76 @@ def verify_description(value: Description) -> None:
     }
     located_slots = set()
     execution_relations = selected_relations(records, entry)
+    aggregate_stages: dict[Address, list[Record]] = {}
+    for record in records.values():
+        if record.address.kind == "aggregate" and record.address in execution_relations:
+            aggregate_stages.setdefault(record.get("owner"), []).append(record)
+    for relation in records.values():
+        if not (
+            relation.address in execution_relations
+            and relation.address.kind == "row"
+            and relation.get("stage") == "projection"
+            and relation.get("owner") in aggregate_stages
+        ):
+            continue
+        composition_roots = tuple(
+            root for root in relation.get("values") if root.kind != "read"
+        )
+        if not composition_roots:
+            continue
+        stages = aggregate_stages[relation.get("owner")]
+        need(
+            len(stages) == 1 and bool(stages[0].get("values")),
+            "AGGREGATE_COMPOSITION_STAGE",
+        )
+        stage = stages[0]
+        need(family == "postgres", "AGGREGATE_COMPOSITION_TARGET")
+        for composition_root in composition_roots:
+            composition_values: list[Address] = [composition_root]
+            composition_seen: set[Address] = set()
+            reads_aggregate = False
+            while composition_values:
+                composition_value = composition_values.pop()
+                if composition_value in composition_seen:
+                    continue
+                composition_seen.add(composition_value)
+                need(
+                    composition_value.kind != "parameter_read",
+                    "AGGREGATE_PARAMETER_POSITION",
+                )
+                if composition_value.kind == "operation":
+                    operation = records[composition_value]
+                    role, token = operation.get("operator")
+                    need(
+                        role == "scalar_call"
+                        or role == "unary"
+                        and token in {"+", "-"}
+                        or role == "binary"
+                        and token in {"+", "-", "*", "/", "%"},
+                        "AGGREGATE_COMPOSITION_EXPRESSION",
+                    )
+                    composition_values.extend(operation.get("operands"))
+                elif composition_value.kind == "read":
+                    read = composition_value
+                    read_seen: set[Address] = set()
+                    while read.kind == "read" and read not in read_seen:
+                        read_seen.add(read)
+                        port = records[records[read].get("port")]
+                        if port.get("owner") == stage.address:
+                            need(
+                                port.get("source")
+                                in (*stage.get("keys"), *stage.get("values")),
+                                "AGGREGATE_COMPOSITION_SCOPE",
+                            )
+                            reads_aggregate |= port.get("source") in stage.get("values")
+                            break
+                        read = port.get("source")
+                    else:
+                        raise CompiledError("COMPILED_AGGREGATE_COMPOSITION_SCOPE")
+            need(
+                stage.get("mode") == "grouped" or reads_aggregate,
+                "GLOBAL_AGGREGATE_COMPOSITION_LEAF",
+            )
     for relation in records.values():
         if relation.address not in execution_relations:
             continue
@@ -7888,7 +7958,10 @@ def verify_logical_export(description, checked, references):
     """Compare retained inputs to the actual source plan, without its exporter."""
     from pietto._project.project_sql_plan import ProjectSQLPlan
     from pietto._project import project_sql_plan_expressions as scalar
-    from pietto._project.project_sql_plan_aggregation import ProjectSQLResultReference
+    from pietto._project.project_sql_plan_aggregation import (
+        ProjectSQLResultReference,
+        aggregate_call,
+    )
     from pietto._project.project_sql_plan_windows import ProjectSQLWindowReference
     from pietto._project.project_sql_emission_aggregation import function_name
     from pietto._project.project_sql_emission_contract import source_family
@@ -8619,7 +8692,7 @@ def verify_logical_export(description, checked, references):
                         zip(value.get("order_by"), item.order_by, strict=True)
                     ):
                         order = records[address]
-                        call = item.source.item.expression
+                        call = aggregate_call(item.source)
                         need(type(call) is CallExpr, "RETAINED_AGGREGATE_ORDER")
                         if type(call) is not CallExpr:
                             raise CompiledError("COMPILED_RETAINED_AGGREGATE_ORDER")

@@ -685,7 +685,7 @@ def test_cli_emits_decimal_product_sum_and_avg_arguments(
         ("value = min(amount + tax)", "PIE-S2315"),
         ("value = max(score * weight)", "PIE-S2315"),
         ("value = sum(avg(amount))", "PIE-S2311"),
-        ("value = sum(amount) + 1", "PIE-S2310"),
+        ("value = sum(amount) if True else 1", "PIE-S2310"),
     ],
 )
 def test_unsupported_semantic_shapes_stop_before_sql_without_artifacts(
@@ -742,7 +742,7 @@ def test_unsupported_semantic_shapes_stop_before_sql_without_artifacts(
         "count_division_argument",
         "min_expression_argument",
         "max_expression_argument",
-        "decimal_int_multiplication_argument",
+        "decimal_float_multiplication_argument",
     ],
 )
 def test_malformed_hand_built_aggregate_expression_ir_fails_closed_with_pie_b1000(
@@ -865,11 +865,11 @@ def _malformed_aggregate(case: str) -> AggregateCallIR:
         return _aggregate("min", INT_NULLABLE, _binary(amount, "+", tax, INT_NON_NULL))
     if case == "max_expression_argument":
         return _aggregate("max", INT_NULLABLE, _binary(amount, "+", tax, INT_NON_NULL))
-    if case == "decimal_int_multiplication_argument":
+    if case == "decimal_float_multiplication_argument":
         return _aggregate(
             "sum",
             DECIMAL_NULLABLE,
-            _binary(price, "*", amount, DECIMAL_NON_NULL),
+            _binary(price, "*", _literal(1.5, FLOAT_NON_NULL), DECIMAL_NON_NULL),
         )
     raise AssertionError(f"Unknown malformed aggregate case: {case}")
 

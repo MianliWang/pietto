@@ -141,16 +141,11 @@ def test_sum_and_avg_are_no_group_aggregates_not_scalar_functions() -> None:
             ),
         ),
         (
-            SOURCE_PREFIX + "table paid_order_stats:\n"
-            "    from orders\n"
-            "    select:\n"
-            "        total = count() + 1\n",
+            SOURCE_PREFIX
+            + "table paid_order_stats:\n    from orders\n    select:\n        total = count() if True else 1\n",
             (
                 "PIE-S2310",
-                "Aggregate projection must be a direct aggregate call; "
-                "composition around count() is not supported yet; select the count() "
-                "under a name in one query, then compute with that name in "
-                "another that reads it with `from`",
+                "Aggregate composition requires scalar calls or arithmetic over direct aggregates, group keys and literals; invalid composition around count(); select the count() under a name in one query, then compute with that name in another that reads it with `from`",
             ),
         ),
         (
@@ -173,11 +168,8 @@ def test_sum_and_avg_are_no_group_aggregates_not_scalar_functions() -> None:
             "    select:\n"
             "        total = lower(count())\n",
             (
-                "PIE-S2310",
-                "Aggregate projection must be a direct aggregate call; "
-                "composition around count() is not supported yet; select the count() "
-                "under a name in one query, then compute with that name in "
-                "another that reads it with `from`",
+                "PIE-S2104",
+                "Invalid argument type for function lower at position 1: expected Text, got Int",
             ),
         ),
         (
@@ -217,7 +209,7 @@ def test_count_aggregate_diagnostics(
     "projection",
     [
         "total = count(amount, status)",
-        "total = count() + 1",
+        "total = count() if True else 1",
         "total = count(count())",
     ],
 )

@@ -16,7 +16,7 @@ from pietto._project.let_scope_facts import (
     build_project_relation_let_scope_facts,
 )
 from pietto._project.model import (
-    ProjectAggregateResultFact,
+    ProjectAnyAggregateResultFact,
     ProjectRelationRowSchemaReason,
     ProjectRelationRowSchemaState,
     ProjectRelationRowSchemaStatus,
@@ -53,7 +53,7 @@ class ProjectAggregateGroupedPersistenceBundle:
     let_scope_facts: ProjectRelationLetScopeFacts
     dependency_lineage_readiness: ProjectAggregateGroupedDependencyLineageReadiness
     state: ProjectRelationRowSchemaState
-    aggregate_result_facts: Mapping[str, ProjectAggregateResultFact]
+    aggregate_result_facts: Mapping[str, ProjectAnyAggregateResultFact]
 
     def __post_init__(self) -> None:
         """Freeze facts and enforce exact nested authority and atomicity."""

@@ -1195,7 +1195,7 @@ def _aggregate_blockers(entry, rows, aggregate):
     clause = definition.group_by_clause
     expected_keys = () if clause is None else clause.items
     if (
-        not aggregate.aggregates
+        (not aggregate.aggregates and not aggregate.keys)
         or len(aggregate.keys) != len(expected_keys)
         or len(aggregate.outputs)
         != sum(
@@ -1217,7 +1217,7 @@ def _aggregate_blockers(entry, rows, aggregate):
     ):
         return ((K.EXPRESSION_EVIDENCE, clause),)
     for source, references in zip(aggregate.aggregates, aggregate.argument_references):
-        call = source.item.expression
+        call = aggregation.aggregate_call(source)
         if not isinstance(call, CallExpr) or (
             len(call.arguments) > 1
             and not (
@@ -1365,13 +1365,13 @@ def _scalar_blocker(expression, evidence, aggregate=None, block_reads=frozenset(
         aggregation.argument_evidence(aggregate) is not evidence
         or not aggregation.arguments(aggregate)
         or not any(
-            _aggregate_child(aggregate.item.expression, argument, evidence)
+            _aggregate_child(aggregation.aggregate_call(aggregate), argument, evidence)
             is expression
             for argument in (
                 *aggregation.arguments(aggregate),
                 *(
                     item.expression
-                    for item in aggregate.item.expression.aggregate_order_by
+                    for item in aggregation.aggregate_call(aggregate).aggregate_order_by
                 ),
             )
         )
@@ -1728,7 +1728,11 @@ class ProjectSQLProjection:
     semantic: ProjectModuleSelectFact
     symbol: ProjectSQLSymbol | None
     expression: ProjectSQLPlanRef
-    site: row.ProjectSQLExpressionSite | row.ProjectSQLJoinedSite
+    site: (
+        row.ProjectSQLExpressionSite
+        | row.ProjectSQLJoinedSite
+        | aggregation.ProjectSQLAggregateSite
+    )
 
 
 class ProjectSQLOriginRole(StrEnum):
@@ -2998,27 +3002,58 @@ def build_project_sql_plan(
         )
         if source_expression is None:
             raise ValueError("SQL expression site requires its checked expression.")
-        result_site = (
-            isinstance(site, aggregation.ProjectSQLAggregateSite)
-            and site.role is row.ProjectSQLExpressionRole.SATISFYING
-        )
+        result_site = isinstance(
+            site, aggregation.ProjectSQLAggregateSite
+        ) and site.role in {
+            row.ProjectSQLExpressionRole.SATISFYING,
+            row.ProjectSQLExpressionRole.SELECT,
+        }
         qualify_site = isinstance(site, windows.ProjectSQLQualifySite)
+        site_references = (
+            aggregation.site_references(site)
+            if isinstance(site, aggregation.ProjectSQLAggregateSite)
+            else site.references
+        )
+        expansions = (
+            aggregation.site_expansions(site)
+            if isinstance(site, aggregation.ProjectSQLAggregateSite)
+            else {}
+        )
         terminals = (
-            tuple(row.reference_expression(r) for r in site.references)
+            tuple(row.reference_expression(r) for r in site_references)
             if result_site or qualify_site
             else ()
         )
         terminal_ids = {id(n) for n in terminals}
         nested = listed_reads(site.references)
-        nodes = row.scalar_nodes(source_expression, terminals, nested)
+        if expansions:
+            pending, nodes, seen = [source_expression], [], set()
+            while pending:
+                node = pending.pop()
+                node = expansions.get(node, node)
+                if id(node) in seen:
+                    continue
+                seen.add(id(node))
+                nodes.append(node)
+                if id(node) not in terminal_ids:
+                    pending.extend(reversed(row.scalar_children(node, nested)))
+        else:
+            nodes = row.scalar_nodes(source_expression, terminals, nested)
         elements = row.element_reads(source_expression, nested)
         node_refs = {id(n): ref(K.EXPRESSION) for n in nodes}
         if len(node_refs) != len(nodes):
             raise ValueError(
                 "One authored expression site must retain distinct tree occurrences."
             )
-        types = {id(n): (n, v) for n, v in expression_types(site.evidence).items()}
-        references = {id(row.reference_expression(r)): r for r in site.references}
+        for alias, expanded in expansions.items():
+            node_refs[id(alias)] = node_refs[id(expanded)]
+        typed = (
+            aggregation.site_types(site)
+            if isinstance(site, aggregation.ProjectSQLAggregateSite)
+            else expression_types(site.evidence)
+        )
+        types = {id(n): (n, v) for n, v in typed.items()}
+        references = {id(row.reference_expression(r)): r for r in site_references}
         any_values = {
             id(value.expression): value for value in existence_values(site.evidence)
         }
@@ -3212,6 +3247,7 @@ def build_project_sql_plan(
                             aggregation.ProjectJoinedSatisfyingAggregateReference,
                             aggregation.ProjectJoinedSatisfyingOutputReference,
                             aggregation.ProjectRelationClauseDependencyFact,
+                            Expression,
                         ),
                     ):
                         raise ValueError(
@@ -3291,7 +3327,10 @@ def build_project_sql_plan(
                             symbol=symbol,
                         )
             elif isinstance(node, CallExpr):
-                if isinstance(site, aggregation.ProjectSQLAggregateSite):
+                if (
+                    isinstance(site, aggregation.ProjectSQLAggregateSite)
+                    and site.role is row.ProjectSQLExpressionRole.AGGREGATE_ARGUMENT
+                ):
                     if site.role is not row.ProjectSQLExpressionRole.AGGREGATE_ARGUMENT:
                         raise ValueError(
                             "Scalar calls require retained aggregate argument authority"
@@ -3912,7 +3951,7 @@ def build_project_sql_plan(
                         aggregate.aggregates, aggregate.argument_references, strict=True
                     )
                 ):
-                    call = source.item.expression
+                    call = aggregation.aggregate_call(source)
                     assert isinstance(call, CallExpr)
                     arguments = []
                     order_by = []
@@ -3971,7 +4010,7 @@ def build_project_sql_plan(
                     output_port = stage_port(
                         block_ref,
                         row.ProjectSQLStagePortKind.EXPORT,
-                        source.item,
+                        aggregation.aggregate_key(source),
                         value_ref,
                         value_type,
                         local_symbols,
@@ -4265,6 +4304,42 @@ def build_project_sql_plan(
                             aggregate.output_keys[aggregate_position],
                         )
                         aggregate_position += 1
+                        composition = aggregation.composition_fact(source)
+                        if composition is not None:
+                            current_site = aggregation.ProjectSQLAggregateSite(
+                                ref=ref(K.EXPRESSION_SITE),
+                                owner=entry.owner,
+                                block=block_ref,
+                                role=row.ProjectSQLExpressionRole.SELECT,
+                                ordinal=index,
+                                occurrence=semantic.item,
+                                expression=composition.expression,
+                                aggregation=aggregate_ref,
+                                authority=aggregate,
+                                evidence=composition,
+                                references=aggregation.composition_references(
+                                    composition
+                                ),
+                            )
+                            sites.append(current_site)
+                            root_expression = expression(
+                                current_site, local_ports, local_symbols, stage_context
+                            )
+                            projections.append(
+                                ProjectSQLProjection(
+                                    ref=ref(K.PROJECTION),
+                                    block=block_ref,
+                                    input_use=None if use is None else use.ref,
+                                    source_port=None,
+                                    input_port=None,
+                                    export=export.ref,
+                                    semantic=semantic,
+                                    symbol=None,
+                                    expression=root_expression,
+                                    site=current_site,
+                                )
+                            )
+                            continue
                         input_port = local_ports.get(id(key))
                         if (
                             input_port is None

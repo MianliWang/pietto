@@ -170,10 +170,8 @@ def test_direct_lower_expr_for_valid_sum_avg_no_longer_uses_generic_call_ir() ->
             "PIE-S2311",
         ),
         (
-            SOURCE_PREFIX + "table paid_order_stats:\n"
-            "    from orders\n"
-            "    select:\n"
-            "        revenue = sum(amount) + 1\n",
+            SOURCE_PREFIX
+            + "table paid_order_stats:\n    from orders\n    select:\n        revenue = sum(amount) if True else 1\n",
             "PIE-S2310",
         ),
         (

@@ -1589,6 +1589,133 @@ def _relationships(document, declared):
     def require(condition):
         _require(condition, Status.INVALID_RELATION)
 
+    for ref in kinds.get("project_aggregate_leaf_fact", ()):
+        leaf = fields[ref]
+        call = fields[leaf["call"]]
+        callee = fields[call["callee"]]
+        require(callee.get("name") == leaf["function"])
+        require(fields[leaf["result_value_type"]]["kind"] == "known")
+        require(
+            all(
+                argument in dict(leaf["argument_value_types"])
+                for argument in call["arguments"]
+            )
+        )
+    aggregate_names = {
+        "count",
+        "count_distinct",
+        "sum",
+        "avg",
+        "min",
+        "max",
+        "stddev",
+        "variance",
+        "pvariance",
+        "pstdev",
+        "median",
+        "quantile",
+        "string_agg",
+        "first",
+        "last",
+        "any",
+        "all",
+    }
+    composition_names = {}
+    composition_nodes = {}
+    for ref in kinds.get("project_aggregate_composition_result_fact", ()):
+        composition = fields[ref]
+        values = dict(composition["expression_value_types"])
+        require(composition["expression"] in values)
+        require(fields[values[composition["expression"]]]["kind"] == "known")
+        expected, names, pending = [], [], [composition["expression"]]
+        observed_nodes = []
+        seen_nodes = set()
+        while pending:
+            node = pending.pop()
+            require(node not in seen_nodes)
+            seen_nodes.add(node)
+            observed_nodes.append(node)
+            value, kind = fields[node], declared[node].kind
+            require(node in values)
+            if kind in {"call_expr", "ordered_call_expr"}:
+                function = fields[value["callee"]].get("name")
+                if function in aggregate_names:
+                    expected.append(node)
+                    continue
+                pending.extend(reversed(value["arguments"]))
+            elif kind == "binary_expr":
+                require(value["operator"] in {"+", "-", "*", "/", "%"})
+                pending.extend((value["right"], value["left"]))
+            elif kind == "unary_expr":
+                require(value["operator"] in {"+", "-"})
+                pending.append(value["operand"])
+            else:
+                require(
+                    kind
+                    in {
+                        "name_expr",
+                        "dotted_name_expr",
+                        "literal_expr",
+                        "parameter_ref_expr",
+                    }
+                )
+                if kind in {"name_expr", "dotted_name_expr"}:
+                    names.append(node)
+        composition_names[ref] = tuple(names)
+        composition_nodes[ref] = tuple(observed_nodes)
+        require(composition["grouped"] or (bool(expected) and not names))
+        require(
+            tuple(expected)
+            == tuple(fields[leaf]["call"] for leaf in composition["leaves"])
+        )
+        require(
+            all(
+                values[fields[leaf]["call"]] == fields[leaf]["result_value_type"]
+                for leaf in composition["leaves"]
+            )
+        )
+
+    for ref in kinds.get("project_joined_composition_output_occurrence", ()):
+        output = fields[ref]
+        composition = fields[output["composition"]]
+        require(
+            output["aggregate"] is None
+            and output["group_key"] is None
+            and output["role"] == "aggregate_result"
+        )
+        require(fields[output["item"]]["expression"] == composition["expression"])
+        require(
+            output["value_type"]
+            == dict(composition["expression_value_types"])[composition["expression"]]
+        )
+        require(
+            tuple(fields[leaf]["call"] for leaf in composition["leaves"])
+            == tuple(
+                fields[value]["call"] for value in output["composition_aggregates"]
+            )
+        )
+        for leaf, occurrence in zip(
+            composition["leaves"], output["composition_aggregates"], strict=True
+        ):
+            require(
+                fields[leaf]["result_value_type"]
+                == fields[occurrence]["result_value_type"]
+            )
+            require(
+                fields[occurrence]["item"] == output["item"]
+                and fields[occurrence]["input_filter"] == output["input_filter"]
+            )
+        require(
+            tuple(expression for expression, _ in output["composition_group_keys"])
+            == composition_names[output["composition"]]
+        )
+        for expression, key in output["composition_group_keys"]:
+            require(fields[key]["input_filter"] == output["input_filter"])
+            require(
+                dict(composition["expression_value_types"])[expression]
+                == fields[key]["value_type"]
+            )
+
     for ref in kinds.get("named_join_clause", ()):
         require(
             fields[ref]["uses_named_input"] is True
@@ -1861,9 +1988,34 @@ def _relationships(document, declared):
             source_children = source["arguments"]
         elif declared[ref].kind == "project_sql_membership":
             source_children = (source["value"], *source["options"])
+        site = fields[expression["site"]]
+        expansions = {}
+        if site.get("role") == "satisfying":
+            for reference in site.get("references", ()):
+                evidence = fields[reference]
+                fact = evidence.get("aggregate_result_fact")
+                if (
+                    fact is None
+                    and declared[reference].kind
+                    == "project_joined_satisfying_output_reference"
+                ):
+                    fact = fields[evidence["output"]].get("composition")
+                if (
+                    fact is not None
+                    and declared[fact].kind
+                    == "project_aggregate_composition_result_fact"
+                ):
+                    authored = evidence.get(
+                        "source_occurrence", evidence.get("expression")
+                    )
+                    require(authored is not None)
+                    expansions[authored] = fields[fact]["expression"]
         for child, source_child in zip(children, source_children, strict=True):
             require(fields[child]["kind"] == "expression")
-            require(fields[primary[child]]["expression"] == source_child)
+            require(
+                fields[primary[child]]["expression"]
+                == expansions.get(source_child, source_child)
+            )
         operands = tuple(fields[r] for r in operand_groups.get(expression["ref"], ()))
         require(tuple(item["child"] for item in operands) == children)
         require(
@@ -2131,6 +2283,27 @@ def _relationships(document, declared):
             f.value for f in declared[position["literal"]].fields if f.name == "value"
         )
         require(value == literal)
+    specialized_roles = {
+        "aggregate_argument",
+        "satisfying",
+        "qualify",
+        "window_argument",
+        "window_partition",
+        "window_order",
+        "frame",
+        "relation_order",
+        "limit",
+        "connector",
+        "type_argument",
+    }
+    specialized_literals = {
+        fields[fields[site]["position"]]["literal"]
+        for site in p["literal_sites"]
+        if fields[fields[site]["position"]]["role"] in specialized_roles
+    }
+    for site in p["literal_sites"]:
+        if fields[fields[site]["position"]]["literal"] in specialized_literals:
+            require(fields[site]["disposition"] != "bound")
     bound_sites = tuple(
         ref for ref in p["literal_sites"] if fields[ref]["disposition"] == "bound"
     )
@@ -2198,6 +2371,12 @@ def _relationships(document, declared):
                 "project_sql_expression_site",
                 "project_sql_joined_site",
                 "project_sql_match_site",
+            )
+            or (
+                declared[context].kind == "project_sql_aggregate_site"
+                and site["role"] == "select"
+                and declared[site["evidence"]].kind
+                == "project_aggregate_composition_result_fact"
             )
         )
         require(site["role"] in ("select", "let", "where", "match"))
@@ -2855,6 +3034,54 @@ def _relationships(document, declared):
                 site["occurrence"] == window["authored"]
                 and association["observed"] == window["effective"]
             )
+    composition_source_routes = {}
+    for expression_ref in p["expressions"]:
+        expression = fields[expression_ref]
+        current_site = fields[expression["site"]]
+        if (
+            declared[expression["site"]].kind != "project_sql_aggregate_site"
+            or current_site["role"] != "satisfying"
+        ):
+            continue
+        for reference in current_site["references"]:
+            evidence = fields[reference]
+            fact = evidence.get("aggregate_result_fact")
+            authored = evidence.get("source_occurrence")
+            if declared[reference].kind == "project_joined_satisfying_output_reference":
+                output = fields[evidence["output"]]
+                fact = output.get("composition")
+                authored = evidence["expression"]
+            if (
+                fact not in composition_nodes
+                or expression["expression"] not in composition_nodes[fact]
+            ):
+                continue
+            require(authored is not None)
+            composition_source_routes.setdefault(expression["ref"], []).append(
+                ("normalized_expression", authored, reference)
+            )
+    for literal_site in p["literal_sites"]:
+        site_data = fields[literal_site]
+        inherited = composition_source_routes.get(
+            fields[site_data["position"]]["expression"]
+        )
+        if inherited:
+            composition_source_routes[site_data["ref"]] = inherited
+    for slot in p["literal_slots"]:
+        slot_data = fields[slot]
+        inherited = composition_source_routes.get(fields[slot_data["site"]]["ref"])
+        if inherited:
+            composition_source_routes[slot_data["ref"]] = inherited
+    for fixed in envelope["values"]:
+        fixed_data = fields[fixed]
+        inherited = composition_source_routes.get(fields[fixed_data["slot"]]["ref"])
+        if inherited:
+            composition_source_routes[fixed_data["ref"]] = inherited
+    for use in p["bind_uses"]:
+        use_data = fields[use]
+        inherited = composition_source_routes.get(use_data["expression"])
+        if inherited:
+            composition_source_routes[use_data["ref"]] = inherited
     origin_entries = {
         fields[fields[r]["original"]]["ref"]: r for r in source_map["entries"]
     }
@@ -2882,7 +3109,11 @@ def _relationships(document, declared):
                 "relationship_predicate_generated_argument",
             }
         )
-        expected_expanded = tuple(predicate_sources.get(original["cause"], ()))
+        expected_predicate = tuple(predicate_sources.get(original["cause"], ()))
+        expected_expanded = (
+            *expected_predicate,
+            *composition_source_routes.get(original["subject"], ()),
+        )
         require(
             tuple(
                 (a["kind"], fields[a["site"]]["occurrence"], a["evidence"])
@@ -2898,7 +3129,7 @@ def _relationships(document, declared):
                 for a in expanded
             )
         )
-        require(bool(causes) != bool(expected_expanded))
+        require(bool(causes) != bool(expected_predicate))
         for cause in causes:
             require(
                 cause["observed"]

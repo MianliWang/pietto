@@ -296,7 +296,12 @@ def test_every_admitted_artifact_exports_corresponds_and_decodes(
             root / str(number), item["source"], item["contract"], item["policy"]
         )[1]
         statuses[case, variant] = outcome.status
-        assert outcome.status == emission.expected_status(case, variant, target)
+        assert outcome.status == emission.expected_status(case, variant, target), (
+            target,
+            case,
+            variant,
+            outcome.blockers,
+        )
         artifact = outcome.artifact
         if artifact is None:
             refused = portable.export_emission_observation(outcome, None)
@@ -411,6 +416,9 @@ def test_every_admitted_artifact_exports_corresponds_and_decodes(
         if target == "mysql"
         else (absent == set())
     ), absent
+    assert statuses["V_row_blocked", "modulo"] == (
+        "VERIFIED" if target == "postgres" else "BLOCKED"
+    )
 
 
 def test_views_are_immutable_and_lookups_follow_slice12_semantics(tmp_path_factory):
@@ -2589,3 +2597,160 @@ def test_a_date_orders_a_postgresql_string_agg_for_a_public_consumer(tmp_path):
     assert portable.verify_emission_observation(
         data, artifact, artifact.request
     ).corresponds
+
+
+@pytest.mark.parametrize("operator", ("/", "%"))
+def test_aggregate_integer_quotient_keeps_exact_signed64_proof(tmp_path, operator):
+    item = emission.aggregate_fixture("postgres", "X_aggregate_global", "bag")
+    source = item["source"].split("query result:", 1)[0] + (
+        "query result:\n    from agg\n    select:\n"
+        f"        result = sum(value) {operator} count()\n"
+    )
+    checked, outcome = emission.build_case(tmp_path, source, item["contract"])
+    assert checked.verified and outcome.status == "VERIFIED"
+    artifact = outcome.artifact
+    assert artifact is not None
+    data = portable.export_emission_observation(
+        artifact, artifact.request
+    ).canonical_bytes
+    assert data is not None and _status(data) == (OK, None)
+    document = json.loads(data)
+    operation = next(
+        node
+        for node in _records(document, "sql_operation")
+        if node["kind"] == "arithmetic" and node["operator"] == operator
+    )
+    result = _record(document, operation["realization"])
+    assert result["domain"] == {
+        "kind": "int_range",
+        "min": str(-(2**63)),
+        "max": str(2**63 - 1),
+    }
+
+    def narrowed(candidate):
+        _record(candidate, operation["realization"])["domain"].update(
+            min=str(-(2**53)), max=str(2**53)
+        )
+
+    def wrong_storage(candidate):
+        _record(candidate, operation["realization"])["storage"] = {"kind": "pg_int4"}
+
+    for change in (narrowed, wrong_storage):
+        assert _status(_mutated(data, change))[0] is not OK
+
+
+@pytest.mark.parametrize("expression", ("1", "1 + 2"))
+def test_pure_global_aggregate_rejects_zero_leaf_projection(tmp_path, expression):
+    item = emission.aggregate_fixture("postgres", "X_aggregate_global", "bag")
+    source = item["source"].split("query result:", 1)[0] + (
+        "table totals:\n    from agg\n    select:\n        n = count()\n"
+        "query result:\n    from totals\n    select:\n"
+        f"        fixed = {expression}\n"
+    )
+    checked, outcome = emission.build_case(tmp_path, source, item["contract"])
+    assert checked.verified and outcome.status == "VERIFIED"
+    artifact = outcome.artifact
+    assert artifact is not None
+    data = portable.export_emission_observation(
+        artifact, artifact.request
+    ).canonical_bytes
+    assert data is not None and _status(data) == (OK, None)
+
+    def same_query(candidate):
+        aggregate = next(
+            body
+            for body in _records(candidate, "row_body")
+            if body["aggregation"] is not None
+        )
+        projection = next(
+            body
+            for body in _records(candidate, "row_body")
+            if body["block_kind"] == "projection"
+            and any(column[0] == "row_value_column" for column in body["columns"])
+        )
+        assert projection["definition"] != aggregate["definition"]
+        projection["definition"] = aggregate["definition"]
+
+    assert _status(_mutated(data, same_query)) == (
+        pure.Status.INVALID_RELATION,
+        "global aggregate composition leaf",
+    )
+
+
+@pytest.mark.parametrize(
+    "expression,operator,nullable",
+    (
+        ("min(amount) + 1", "+", "unknown"),
+        ("coalesce(min(amount), max(amount))", "coalesce", True),
+        ("nullif(min(amount), max(amount))", "nullif", True),
+    ),
+)
+def test_decimal_aggregate_composition_rejects_non_null_graft(
+    tmp_path, expression, operator, nullable
+):
+    item = emission.aggregate_fixture("postgres", "X_aggregate_global", "bag")
+    source = (
+        item["source"].split("query result:", 1)[0]
+        + f"query result:\n    from agg\n    select:\n        result = {expression}\n"
+    )
+    checked, outcome = emission.build_case(tmp_path, source, item["contract"])
+    assert checked.verified and outcome.status == "VERIFIED"
+    artifact = outcome.artifact
+    assert artifact is not None
+    data = portable.export_emission_observation(
+        artifact, artifact.request
+    ).canonical_bytes
+    assert data is not None and _status(data) == (OK, None)
+    document = json.loads(data)
+    operation = next(
+        node
+        for node in _records(document, "sql_operation")
+        if node["operator"] == operator
+    )
+    realization = _record(document, operation["realization"])
+    assert realization["nullable"] == nullable
+    realization["nullable"] = False
+    assert _status(_encode(document))[0] is pure.Status.INVALID_RELATION
+
+
+def test_pure_composition_rejects_external_scalar_read(tmp_path):
+    item = emission.aggregate_fixture("postgres", "X_aggregate_global", "bag")
+    source = item["source"].split("query result:", 1)[0] + (
+        "table totals:\n    from agg\n    select:\n        total = min(value)\n"
+        "table other:\n    from agg\n    select:\n        total = max(value)\n"
+        "query result:\n    from totals\n    select:\n"
+        "        result = coalesce(total, (scalar other.total))\n"
+    )
+    checked, outcome = emission.build_case(tmp_path, source, item["contract"])
+    assert checked.verified and outcome.status == "VERIFIED"
+    artifact = outcome.artifact
+    assert artifact is not None
+    data = portable.export_emission_observation(
+        artifact, artifact.request
+    ).canonical_bytes
+    assert data is not None and _status(data) == (OK, None)
+    document = json.loads(data)
+    bodies = _records(document, "row_body")
+    projection = next(body for body in bodies if body["final"])
+    operation = _record(document, _record(document, projection["columns"][0])["value"])
+    read = next(
+        operand
+        for operand in operation["operands"]
+        if operand[0] == "sql_stage_reference"
+    )
+    origin = _record(
+        document, _record(document, _record(document, read)["column"])["aggregate"]
+    )
+    aggregate = next(
+        body
+        for body in bodies
+        if body["aggregation"] is not None
+        and _record(document, body["aggregation"])["aggregation"]
+        == origin["aggregation"]
+    )
+    assert any(operand[0] == "sql_block_read" for operand in operation["operands"])
+    projection["definition"] = aggregate["definition"]
+    assert _status(_encode(document)) == (
+        pure.Status.INVALID_RELATION,
+        "aggregate composition terminal",
+    )

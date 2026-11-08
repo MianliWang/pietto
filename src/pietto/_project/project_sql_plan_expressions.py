@@ -830,6 +830,8 @@ def evidence_types(
 
 
 def reference_expression(reference) -> Expression:
+    if isinstance(reference, Expression):
+        return reference
     if isinstance(
         reference,
         (
@@ -872,6 +874,8 @@ def reference_key(reference):
 
 
 def stage_key_label(key):
+    if isinstance(key, CallExpr):
+        return "aggregate_result"
     if isinstance(key, windows.ProjectModuleWindowOutputFact):
         if key.output_name is None:
             raise ValueError("Selected window port lost its authored output name")

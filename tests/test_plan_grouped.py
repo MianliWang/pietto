@@ -638,7 +638,7 @@ def test_aggregate_inspection_uses_exact_refs(aggregation_plans):
     (
         "    group by:\n        id\n    select:\n        id\n",
         "    select:\n        total = sum(sum(value))\n",
-        "    select:\n        total = sum(value) + 1\n",
+        "    select:\n        total = sum(value) + id\n",
         "    select:\n        id\n        total = sum(value)\n",
         "    select:\n        total = count()\n    having:\n        total > 0\n",
         "    group by:\n        id\n    select:\n        total = count()\n    having:\n        value > 0\n",
@@ -1131,3 +1131,328 @@ def test_unknown_aggregate_group_key_fails_closed(tmp_path: Path, monkeypatch):
         patch.setattr(type(key), "__setattr__", object.__setattr__)
         patch.setattr(key, "key", UnknownExpression(span=key.key.span))
         assert not verification._aggregate_structure(plan)
+
+
+@pytest.mark.parametrize("grouped", (False, True))
+@pytest.mark.parametrize(
+    "expression, functions",
+    (
+        ("coalesce(sum(value), 0)", ("sum",)),
+        ("sum(value) + sum(value)", ("sum", "sum")),
+        ("sum(value) * 100 / count()", ("sum", "count")),
+    ),
+)
+def test_plan_composition_keeps_real_leaf_ports(
+    tmp_path, grouped, expression, functions
+):
+    prefix = "    group by:\n        id\n" if grouped else ""
+    _, plan, view = _plan_product(
+        tmp_path,
+        _ordinary(prefix + "    select:\n        total = " + expression + "\n"),
+    )
+    from pietto.semantic.aggregates import semantic_aggregate_call_name
+
+    assert (
+        tuple(
+            semantic_aggregate_call_name(value.source.call) for value in view.aggregates
+        )
+        == functions
+    )
+    assert len({id(value.source.call) for value in view.aggregates}) == len(functions)
+    assert len({value.result for value in view.aggregates}) == len(functions)
+    assert len(plan.projections) == 1
+    assert plan.aggregate_projections == ()
+    references = tuple(
+        value
+        for value in plan.expressions
+        if isinstance(value, aggregation.ProjectSQLResultReference)
+    )
+    assert len(references) == len(functions)
+    for aggregate, reference in zip(view.aggregates, references):
+        assert reference.expression is aggregate.source.call
+
+
+def test_plan_grouped_composition_reads_hidden_key_and_all_aggregates(tmp_path):
+    _, plan, view = _plan_product(
+        tmp_path,
+        _ordinary("""    group by:
+        id
+    select:
+        label = id + 1
+        total = coalesce(sum(value), 0) + id
+        direct = count()
+        fixed = 7
+"""),
+    )
+    assert len(view.group_keys) == 1
+    assert len(view.aggregates) == 2
+    assert len(plan.projections) == 3
+    assert len(plan.aggregate_projections) == 1
+    refs = tuple(
+        value
+        for value in plan.expressions
+        if isinstance(value, aggregation.ProjectSQLResultReference)
+    )
+    assert len(refs) == 3
+
+    from dataclasses import replace
+
+    for output in view.aggregations[0].authority.outputs:
+        fact = aggregation.composition_fact(output)
+        if fact is not None and not fact.leaves:
+            with pytest.raises(ValueError, match="Global aggregate composition"):
+                replace(fact, grouped=False)
+
+
+@pytest.mark.parametrize(
+    "body",
+    (
+        "    select:\n        total = sum(value) + id\n",
+        "    select:\n        total = sum(value) + total\n",
+        "    select:\n        total = sum(value) + later\n        later = count()\n",
+        "    group by:\n        id\n    select:\n        key = value + 1\n        total = count()\n",
+    ),
+)
+def test_composition_rejects_row_and_output_alias_scope(tmp_path, body):
+    from _pietto_project_join import _completed
+
+    result = _completed(tmp_path, _ordinary(body))
+    assert not result.ok
+
+
+def test_composition_group_key_only_scalar_keeps_group_stage(tmp_path):
+    _, plan, view = _plan_product(
+        tmp_path,
+        _ordinary("""    group by:
+        id
+    select:
+        next_id = id + 1
+        total = count()
+"""),
+    )
+    assert len(view.group_keys) == 1
+    assert len(view.aggregates) == 1
+    assert len(plan.projections) == 1
+
+
+def test_composition_imported_result_keeps_leaf_occurrences(tmp_path):
+    (tmp_path / "a.pietto").write_text(
+        _ordinary(
+            "    select:\n        total = sum(value) + sum(value)\n", kind="table"
+        ).replace("table result:", "table grouped:")
+        + "export table grouped\n"
+    )
+    (tmp_path / "b.pietto").write_text(
+        'from "a.pietto" import table grouped as Public\nexport table Public\n'
+    )
+    _, plan, view = _plan_product(
+        tmp_path,
+        """from "b.pietto" import table Public as Alias
+query result:
+    from Alias
+    select:
+        total
+""",
+    )
+    assert len(view.aggregates) == 2
+    assert len({id(value.source.call) for value in view.aggregates}) == 2
+    assert len(plan.projections) == 2
+
+
+@pytest.mark.parametrize("ordered", (False, True))
+@pytest.mark.parametrize("direct", (False, True))
+def test_composition_having_alias_expands_checked_dag_and_keeps_order_output(
+    tmp_path, ordered, direct
+):
+    body = "    where id > 0\n    group by:\n        id\n    select:\n        total = coalesce(sum(value), 0)\n"
+    if direct:
+        body += "        raw = sum(value)\n"
+    body += "    having total > 0 and total < 10\n"
+    if ordered:
+        body += "    order by total\n"
+    roots, plan, view = _plan_product(tmp_path, _ordinary(body))
+    assert len(view.aggregates) == 1 + int(direct)
+    having = next(
+        site for site in plan.expression_sites if site.role.value == "satisfying"
+    )
+    assert len(having.references) == 2
+    refs = tuple(
+        value
+        for value in plan.expressions
+        if value.site is having
+        and isinstance(value, aggregation.ProjectSQLResultReference)
+    )
+    assert len(refs) == 1
+    assert refs[0].expression is view.aggregates[0].source.call
+
+    from pietto._project import project_sql_plan_portable as portable
+    from pietto._project import project_sql_plan_pure_boundary as pure
+
+    verified = verify_project_sql_plan(plan, *roots)
+    product = portable.build_project_sql_plan_portable(verified)
+    assert (
+        pure.parse_project_sql_plan_document(product.canonical_bytes).status
+        is pure.Status.OK
+    )
+
+
+@pytest.mark.parametrize(
+    "expression, leaves",
+    (
+        ("coalesce(sum(r.key), 0)", 1),
+        ("sum(r.key) + sum(r.key)", 2),
+        ("coalesce(sum(r.key), 0) + lhs.id", 1),
+    ),
+)
+def test_joined_composition_keeps_leaf_and_group_port_identities(
+    tmp_path, expression, leaves
+):
+    source = (
+        _group_source(visible=(("combined", expression),))
+        .replace("total = count()", "row_count = count()")
+        .replace(
+            "    key: Int | None\n", "    key: Int | None\n    row_key = unique(id)\n"
+        )
+    )
+    _, plan, view = _plan_product(tmp_path, source)
+    assert len(view.aggregates) == leaves + 1
+    assert len({id(value.source.call) for value in view.aggregates}) == leaves + 1
+    assert len(plan.projections) == 1
+    assert len(plan.aggregate_projections) == 1
+    composed = next(
+        output
+        for output in view.aggregations[0].authority.outputs
+        if isinstance(output, aggregation.ProjectJoinedStageOutputOccurrence)
+        and output.composition is not None
+    )
+    assert composed.composition is not None
+    assert tuple(leaf.call for leaf in composed.composition.leaves) == tuple(
+        value.call for value in composed.composition_aggregates
+    )
+    refs = tuple(
+        value
+        for value in plan.expressions
+        if isinstance(value, aggregation.ProjectSQLResultReference)
+    )
+    for reference in refs:
+        key = aggregation.result_key(reference.site, reference.reference)
+        assert any(
+            port.ref is reference.port and port.key is key for port in plan.stage_ports
+        )
+
+
+def test_joined_composition_having_and_order_keep_outer_alias_scope(tmp_path):
+    source = (
+        _group_source(visible=(("combined", "coalesce(sum(r.key), 0)"),))
+        .replace("total = count()", "row_count = count()")
+        .replace(
+            "    key: Int | None\n", "    key: Int | None\n    row_key = unique(id)\n"
+        )
+    )
+    source += "    having combined > 0 and combined < 10\n    order by combined\n"
+    _, plan, view = _plan_product(tmp_path, source)
+    assert len(view.aggregates) == 2
+    having = next(
+        site for site in plan.expression_sites if site.role.value == "satisfying"
+    )
+    assert len(having.references) == 2
+    assert isinstance(having, ProjectSQLAggregateSite)
+    assert len(aggregation.site_expansions(having)) == 2
+    assert (
+        len(
+            tuple(
+                value
+                for value in plan.expressions
+                if value.site is having
+                and isinstance(value, aggregation.ProjectSQLResultReference)
+            )
+        )
+        == 1
+    )
+
+
+@pytest.mark.parametrize("expression", ("sum(r.key)", "coalesce(sum(r.key), 0)"))
+def test_joined_composition_does_not_erase_join_grain_refusal(tmp_path, expression):
+    source = _group_source(visible=(("combined", expression),)).replace(
+        "total = count()", "row_count = count()"
+    )
+    result = _completed(tmp_path, source)
+    assert not result.ok
+    assert any(
+        diagnostic.code == "PIE-S2333" and "rows repeated by JOIN" in diagnostic.message
+        for diagnostic in result.diagnostics
+    )
+
+
+@pytest.mark.parametrize("joined", (False, True))
+@pytest.mark.parametrize("expression", ("id + 1", "7"))
+def test_grouped_zero_leaf_output_alias_reads_use_checked_having_and_order_ports(
+    tmp_path, joined, expression
+):
+    if joined:
+        source = _group_source(
+            visible=(("computed", expression.replace("id", "lhs.id")),)
+        ).replace("total = count()", "row_count = count()")
+    else:
+        source = _ordinary(
+            "    group by:\n        id\n    select:\n        computed = "
+            + expression
+            + "\n        row_count = count()\n"
+        )
+    source += "    having computed > 0 and computed < 10\n    order by computed\n"
+    roots, plan, view = _plan_product(tmp_path, source)
+    assert len(view.aggregates) == 1
+    facts = tuple(
+        fact
+        for output in view.aggregations[0].authority.outputs
+        if (fact := aggregation.composition_fact(output)) is not None
+    )
+    assert len(facts) == 1 and not facts[0].leaves
+    having = next(
+        site for site in plan.expression_sites if site.role.value == "satisfying"
+    )
+    assert isinstance(having, ProjectSQLAggregateSite)
+    assert len(having.references) == 2
+    assert len(
+        tuple(
+            value
+            for value in plan.expressions
+            if value.site is having
+            and isinstance(value, aggregation.ProjectSQLResultReference)
+        )
+    ) == (0 if expression == "7" else 1)
+    from pietto._project import project_sql_plan_portable as portable
+    from pietto._project import project_sql_plan_pure_boundary as pure
+
+    verified = verify_project_sql_plan(plan, *roots)
+    product = portable.build_project_sql_plan_portable(verified)
+    assert (
+        pure.parse_project_sql_plan_document(product.canonical_bytes).status
+        is pure.Status.OK
+    )
+
+
+@pytest.mark.parametrize(
+    "binding, key", (("alias = id", "alias"), ("computed = id + 1", "computed"))
+)
+def test_composition_group_keys_preserve_bare_let_identity(tmp_path, binding, key):
+    source = _ordinary(
+        f"    let {binding}\n    group by:\n        {key}\n    select:\n        total = coalesce(sum(value), 0) + {key}\n"
+    )
+    _, plan, view = _plan_product(tmp_path, source)
+    group = view.group_keys[0].source
+    references = tuple(
+        value
+        for value in plan.expressions
+        if isinstance(value, aggregation.ProjectSQLResultReference)
+        and value.expression is not view.aggregates[0].source.call
+    )
+    assert len(references) == 1
+    assert aggregation.result_key(references[0].site, references[0].reference) is group
+
+
+def test_composition_never_qualifies_a_computed_let_as_an_input_field(tmp_path):
+    source = _ordinary(
+        "    let computed = id + 1\n    group by:\n        computed\n    select:\n        total = coalesce(sum(value), 0) + rows.computed\n"
+    )
+    assert not _completed(tmp_path, source).ok

@@ -446,8 +446,12 @@ def _expand_relation_row_lineages(
         facts: list[ProjectRowLineageFact] = []
         fact_keys: set[_LineageFactKey] = set()
 
-        def add_fact(fact: ProjectRowLineageFact) -> None:
-            key = _lineage_fact_key(fact)
+        def add_fact(
+            fact: ProjectRowLineageFact,
+            *,
+            aggregate_origin: SourceLocation | None = None,
+        ) -> None:
+            key = _lineage_fact_key(fact, aggregate_origin=aggregate_origin)
             if key in fact_keys:
                 return
             fact_keys.add(key)
@@ -470,7 +474,14 @@ def _expand_relation_row_lineages(
                         output_segment=fact.output_segment,
                         upstream_segment=upstream_segment,
                         location=fact.location,
-                    )
+                    ),
+                    aggregate_origin=fact.location
+                    if fact.kind
+                    in {
+                        ProjectRowLineageFactKind.AGGREGATE_ARGUMENT,
+                        ProjectRowLineageFactKind.AGGREGATE_RELATION_INPUT,
+                    }
+                    else None,
                 )
 
         active.remove(definition)
@@ -709,11 +720,23 @@ def _is_lineage_edge_kind(kind: ProjectRowDependencyEdgeKind) -> bool:
     }
 
 
-def _lineage_fact_key(fact: ProjectRowLineageFact) -> _LineageFactKey:
+def _lineage_fact_key(
+    fact: ProjectRowLineageFact, *, aggregate_origin: SourceLocation | None = None
+) -> _LineageFactKey:
     return (
         fact.kind,
         _lineage_segment_key(fact.output_segment),
         _lineage_segment_key(fact.upstream_segment),
+        aggregate_origin
+        or (
+            fact.location
+            if fact.kind
+            in {
+                ProjectRowLineageFactKind.AGGREGATE_ARGUMENT,
+                ProjectRowLineageFactKind.AGGREGATE_RELATION_INPUT,
+            }
+            else None
+        ),
     )
 
 
@@ -742,6 +765,7 @@ type _LineageFactKey = tuple[
     ProjectRowLineageFactKind,
     _LineageSegmentKey,
     _LineageSegmentKey,
+    SourceLocation | None,
 ]
 type _LineageExpander = Callable[[_DerivedRelation], ProjectRelationRowLineage]
 

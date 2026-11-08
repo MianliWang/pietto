@@ -252,7 +252,7 @@ def test_cli_check_succeeds_for_valid_grouped_relation(
             "    group by:\n"
             "        status\n"
             "    select:\n"
-            "        label = lower(status)\n"
+            "        label = lower(status) if True else status\n"
             "        total = count()\n",
             ["PIE-S2319"],
         ),

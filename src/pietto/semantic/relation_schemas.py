@@ -24,7 +24,6 @@ from pietto.semantic.aggregates import (
     unknown_row_generator_diagnostic,
     aggregate_alias_required_diagnostic,
     contains_semantic_aggregate,
-    deferred_composition_diagnostic,
     deferred_argument_expression_diagnostic,
     extremum_reads_let,
     is_count_distinct_tuple,
@@ -47,6 +46,7 @@ from pietto.semantic.expressions import (
 )
 from pietto.semantic.group_by import (
     count_distinct_tuple_checked,
+    composed_aggregate_output_field,
     open_input_schema,
     passes_unfit_field,
     project_grouped_schema,
@@ -224,6 +224,7 @@ def _project_schema(
     type_expansions: Mapping[TypeExpr, ResolvedType] | None,
     reported_errors: frozenset[Diagnostic] | None = None,
     reserved_let_names: Mapping[DerivedRelation, frozenset[str]] | None = None,
+    order_output_ports: bool = False,
 ) -> tuple[RowSchema, list[Diagnostic]]:
     """Build ordered output fields from stable projection names."""
 
@@ -247,6 +248,7 @@ def _project_schema(
             type_expansions=type_expansions,
             reported_errors=reported_errors,
             let_extrema=False,
+            order_output_ports=order_output_ports,
         )
 
     fields: dict[str, RowField] = {}
@@ -389,8 +391,20 @@ def _aggregate_projection_diagnostics(
             continue
 
         if not is_semantic_aggregate_call(expression):
-            diagnostics.append(deferred_composition_diagnostic(expression))
-            invalid_items.add(item)
+            _, found, valid = composed_aggregate_output_field(
+                item,
+                definition=definition,
+                input_schema=input_schema,
+                expression_value_types=expression_value_types,
+                let_expansions=let_expansions,
+                type_expansions=type_expansions,
+                reported_errors=reported_errors,
+            )
+            diagnostics.extend(found)
+            if valid:
+                valid_aggregate_items.append(item)
+            else:
+                invalid_items.add(item)
             continue
 
         assert isinstance(expression, CallExpr)

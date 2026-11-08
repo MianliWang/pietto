@@ -504,6 +504,8 @@ def emission_blockers(request: PreparedEmission, *, _guarded=None):
             raise ValueError("inconsistent retained meaning")
     except (ValueError, TypeError, AttributeError):
         return (Blocker("PIE-B1008", "scalar_meaning_correspondence"),)
+    from pietto._project.model import ProjectAggregateCompositionResultFact
+
     # D-S06-1: a Collect read or an Unnest the target does not admit is
     # refused at its own read or let, once, in source order, whatever else the
     # statement reads (D-S08-4: PostgreSQL admits a Collect read of the
@@ -511,6 +513,18 @@ def emission_blockers(request: PreparedEmission, *, _guarded=None):
     # check, the scalar meaning admission included, then sees admitted reads.
     nested = sorted(
         (
+            *(
+                Blocker(
+                    "PIE-B1003",
+                    "aggregate_composition_not_admitted_on_target",
+                    projection.ref,
+                    evidence.expression.span,
+                )
+                for projection in plan.projections
+                for evidence in (getattr(projection.site, "evidence", None),)
+                if request.family != "postgres"
+                and isinstance(evidence, ProjectAggregateCompositionResultFact)
+            ),
             *(
                 Blocker(
                     "PIE-B1003",
@@ -834,7 +848,7 @@ def build_sql_ast(request: PreparedEmission):
     allocated = parameters.allocate_uses(
         request.family, tuple(occurrences), resource_limits(request)["parameters"]
     )
-    uses = {use.original.ref: use for use in allocated}
+    uses = parameters.occurrence_uses(allocated)
     ctes: dict[Any, SQLCTE] = {}
     selected = None
     for definition in request.layout.definitions:
@@ -2167,13 +2181,11 @@ def realize_rows(request):
         except ValueError:
             add("PIE-B1008", "expression_tree_structure", reference)
             return
+
         # Parameter reads join the literal chains in the one rendering order;
         # an inline let's own native occurrences render at its read, after a
         # membership read's left value (an inner read's let closes first).
-        order = {id(node): i for i, node in enumerate(rendered)}
-
-        def inline_key(node):
-            start = order[id(node)]
+        def inline_key(start, node):
             value = getattr(node, "value", None)
             end = start + (
                 0 if value is None else len(rows.rendered_tree_nodes(plan, value))
@@ -2182,15 +2194,15 @@ def realize_rows(request):
 
         native = sorted(
             (
-                *(((order[id(leaf)], 0, 0), chain, leaf) for chain, leaf in chains),
+                *(((position, 0, 0), chain, leaf) for position, chain, leaf in chains),
                 *(
-                    ((order[id(node)], 0, 0), None, node)
-                    for node in rendered
+                    ((position, 0, 0), None, node)
+                    for position, node in enumerate(rendered)
                     if type(node) is row.ProjectSQLParameterRead
                 ),
                 *(
-                    (inline_key(node), None, node)
-                    for node in rendered
+                    (inline_key(position, node), None, node)
+                    for position, node in enumerate(rendered)
                     if isinstance(node, INLINE_READS)
                     and producers.get(node.use) in inline
                 ),
@@ -2229,7 +2241,7 @@ def realize_rows(request):
         return RowRealization(
             (Blocker("PIE-B1008", "native_occurrence_allocation", str(error)),), None
         )
-    uses = {use.original.ref: use for use in allocated}
+    uses = parameters.occurrence_uses(allocated)
     stage_ports = {port.ref: port for port in plan.stage_ports}
     units: list[Any] = []
     bodies: list[RowBody] = []
@@ -2378,6 +2390,7 @@ def realize_rows(request):
                 kind == "projection"
                 and stage is not None
                 and not window_projection.get(block.ref)
+                and not projections.get(block.ref)
             ):
                 built, problem = grouping.build_projections(
                     request,
@@ -2613,7 +2626,9 @@ def realize_rows(request):
                     readable,
                     item.expression,
                     uses,
-                    reference_type=reference_type,
+                    reference_type=grouping.ProjectSQLResultReference
+                    if kind == "projection" and stage is not None
+                    else reference_type,
                 )
                 if value is None:
                     # Every unsupported value in this body keeps its own cause.

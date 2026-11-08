@@ -342,7 +342,7 @@ def stage_schedule_valid(
 def function_name(source) -> str | None:
     """The retained aggregate function identity; never re-read from source text."""
     if isinstance(source, aggregation.ProjectAggregateExpressionAnalysis):
-        return aggregation.filtered_function(source.item.expression) or (
+        return aggregation.filtered_function(aggregation.aggregate_call(source)) or (
             source.fact.function
         )
     name = getattr(source, "function_name", None)
@@ -1023,6 +1023,7 @@ def blocks_admitted(plan, *, single_input_use: bool = False) -> bool:
     keys = _grouped(plan.group_keys, "aggregation")
     values = _grouped(plan.aggregates, "aggregation")
     projections = _grouped(plan.aggregate_projections, "block")
+    scalar_projections = _grouped(plan.projections, "block")
     for definition in named:
         blocks = sorted(blocks_by_definition[definition.ref], key=lambda b: b.position)
         kinds = tuple(block.kind.value for block in blocks)
@@ -1068,8 +1069,13 @@ def blocks_admitted(plan, *, single_input_use: bool = False) -> bool:
             item.aggregation is not stage.ref for item in items
         ):
             return False
+        scalar_items = scalar_projections.get(blocks[-1].ref, ())
+        for item in scalar_items:
+            if item.export in claimed:
+                return False
+            claimed[item.export] = item
         if not windowed and (
-            len(items) != len(definition.exports)
+            len(claimed) != len(definition.exports)
             or any(export.ref not in claimed for export in definition.exports)
         ):
             return False
@@ -1244,7 +1250,7 @@ def build_stage(
             function = "count_distinct_tuple"
         if function is None or function not in SPELLING:
             return None, (*unsupported_function(function), value.ref, location)
-        ordered = value.source.item.expression.aggregate_order_by
+        ordered = aggregation.aggregate_call(value.source).aggregate_order_by
         if (
             len(arguments) != len(value.arguments)
             or len(ordered) != len(value.order_by)

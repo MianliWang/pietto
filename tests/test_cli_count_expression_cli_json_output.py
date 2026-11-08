@@ -309,7 +309,7 @@ def test_cli_json_output_writes_count_expression_sql_and_keeps_artifacts(
         ("value = min(amount + tax)", "PIE-S2315"),
         ("value = max(amount + tax)", "PIE-S2315"),
         ("value = count(count())", "PIE-S2311"),
-        ("value = count(amount) + 1", "PIE-S2310"),
+        ("value = count(amount) if True else 1", "PIE-S2310"),
     ],
 )
 def test_deferred_count_expression_forms_do_not_write_json_output(

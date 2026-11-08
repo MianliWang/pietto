@@ -258,13 +258,10 @@ def test_decimal_multiplication_preserves_the_decimal_scalar_type() -> None:
             ("PIE-S2311", "Nested aggregate avg() is not supported"),
         ),
         (
-            "value = sum(amount) + 1",
+            "value = sum(amount) if True else 1",
             (
                 "PIE-S2310",
-                "Aggregate projection must be a direct aggregate call; "
-                "composition around sum() is not supported yet; select the sum() "
-                "under a name in one query, then compute with that name in "
-                "another that reads it with `from`",
+                "Aggregate composition requires scalar calls or arithmetic over direct aggregates, group keys and literals; invalid composition around sum(); select the sum() under a name in one query, then compute with that name in another that reads it with `from`",
             ),
         ),
     ],

@@ -97,10 +97,11 @@ def test_ir_group_keys_inline_expand_row_let_names_to_field_refs() -> None:
         "        total = count()\n"
     )
 
-    assert [(key.name, key.qualifier) for key in relation.group_keys] == [
-        ("status", ()),
-        ("region", ("orders",)),
-    ]
+    status_key, region_key = relation.group_keys
+    assert isinstance(status_key, FieldRefIR)
+    assert isinstance(region_key, FieldRefIR)
+    assert (status_key.name, status_key.qualifier) == ("status", ())
+    assert (region_key.name, region_key.qualifier) == ("region", ("orders",))
     assert not _field_refs_named(relation, {"status_key", "region_key", "bucket"})
 
 
@@ -758,7 +759,10 @@ def test_computed_group_key_preserves_its_type_and_nullable_row(
             "PIE-S2102",
         ),
         ("    group by orders.bucket\n    select n = count()\n", "PIE-S2102"),
-        ("    group by bucket\n    select n = coalesce(sum(amount), 0)\n", "PIE-S2310"),
+        (
+            "    group by bucket\n    select n = sum(amount) if True else 0\n",
+            "PIE-S2310",
+        ),
     ],
 )
 def test_computed_group_key_keeps_identity_and_composition_boundaries(

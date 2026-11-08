@@ -146,10 +146,10 @@ def test_grouped_decimal_aggregates_lower_with_group_keys_preserved() -> None:
     relation = _relation_ir(ir_result.ir)
     projections = {projection.name: projection for projection in relation.projections}
 
-    assert [key.name for key in relation.group_keys] == ["status"]
-    assert [key.field for key in relation.group_keys] == [
-        FieldId(owner=_orders_symbol(), name="status")
-    ]
+    (key,) = relation.group_keys
+    assert isinstance(key, FieldRefIR)
+    assert key.name == "status"
+    assert key.field == FieldId(owner=_orders_symbol(), name="status")
     for name, function, expected_arguments in (
         ("total_amount", "sum", ("amount",)),
         ("average_amount", "avg", ("amount",)),
@@ -185,7 +185,7 @@ def test_direct_lower_expr_for_decimal_aggregate_uses_aggregate_call_ir() -> Non
         ("        value = min(amount + amount)\n", "PIE-S2315"),
         ("        value = max(amount + amount)\n", "PIE-S2315"),
         ("        value = sum(avg(amount))\n", "PIE-S2311"),
-        ("        value = sum(amount) + 1\n", "PIE-S2310"),
+        ("        value = sum(amount) if True else 1\n", "PIE-S2310"),
         ("        sum(amount)\n", "PIE-S2313"),
         ("        status\n        value = sum(amount)\n", "PIE-S2312"),
     ],

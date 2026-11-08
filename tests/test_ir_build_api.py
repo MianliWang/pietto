@@ -511,7 +511,9 @@ def test_example_ast_definitions_have_matching_ir_definitions(path: Path) -> Non
         semantic_errors,
     )
 
-    ir_result = build_ir(parse_result.ast, semantic_result.model)
+    ir_result = build_ir(
+        semantic_result.script or parse_result.ast, semantic_result.model
+    )
     ir_errors = tuple(
         diagnostic
         for diagnostic in ir_result.diagnostics

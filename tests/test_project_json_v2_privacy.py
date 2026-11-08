@@ -19,6 +19,7 @@ from pietto._project.json_v2 import (
     render_project_json_document,
 )
 from pietto._project.model import (
+    ProjectAggregateResultFact,
     ProjectParseCheckResult,
     ProjectRelationRowSchemaReason,
     ProjectRelationRowSchemaStatus,
@@ -845,10 +846,12 @@ def test_out_of_order_aggregate_grouped_chain_preserves_all_six_map_orders(
         "rows",
     )
     assert tuple(model.relation_aggregate_result_facts[grouped]) == ("total",)
-    assert tuple(
-        fact.function
-        for fact in model.relation_aggregate_result_facts[final_aggregate].values()
-    ) == ("sum", "count")
+    total_fact, rows_fact = model.relation_aggregate_result_facts[
+        final_aggregate
+    ].values()
+    assert isinstance(total_fact, ProjectAggregateResultFact)
+    assert isinstance(rows_fact, ProjectAggregateResultFact)
+    assert tuple(fact.function for fact in (total_fact, rows_fact)) == ("sum", "count")
     assert all(
         field.result_role is ProjectRowResultRole.AGGREGATE_RESULT
         for field in model.relation_row_schemas[final_aggregate].fields.values()

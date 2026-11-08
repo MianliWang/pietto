@@ -130,11 +130,11 @@ def test_grouped_count_distinct_lowers_with_group_keys_preserved() -> None:
     relation = _relation_ir(ir_result.ir)
     projections = {projection.name: projection for projection in relation.projections}
 
-    assert [key.name for key in relation.group_keys] == ["status"]
-    assert [key.qualifier for key in relation.group_keys] == [()]
-    assert [key.field for key in relation.group_keys] == [
-        FieldId(owner=_orders_symbol(), name="status")
-    ]
+    (key,) = relation.group_keys
+    assert isinstance(key, FieldRefIR)
+    assert key.name == "status"
+    assert key.qualifier == ()
+    assert key.field == FieldId(owner=_orders_symbol(), name="status")
     _assert_aggregate(
         projections["unique_customers"].expression,
         "count_distinct",
@@ -171,11 +171,11 @@ def test_grouped_qualified_count_distinct_lowers_with_group_keys_preserved() -> 
     relation = _relation_ir(ir_result.ir)
     projections = {projection.name: projection for projection in relation.projections}
 
-    assert [key.name for key in relation.group_keys] == ["status"]
-    assert [key.qualifier for key in relation.group_keys] == [("orders",)]
-    assert [key.field for key in relation.group_keys] == [
-        FieldId(owner=_orders_symbol(), name="status")
-    ]
+    (key,) = relation.group_keys
+    assert isinstance(key, FieldRefIR)
+    assert key.name == "status"
+    assert key.qualifier == ("orders",)
+    assert key.field == FieldId(owner=_orders_symbol(), name="status")
     _assert_aggregate(
         projections["unique_customers"].expression,
         "count_distinct",
@@ -263,10 +263,8 @@ def test_direct_lower_expr_for_valid_count_distinct_uses_aggregate_call_ir() -> 
             "PIE-S2311",
         ),
         (
-            SOURCE_PREFIX + "table unique_order_values:\n"
-            "    from orders\n"
-            "    select:\n"
-            "        unique_values = count_distinct(customer_id) + 1\n",
+            SOURCE_PREFIX
+            + "table unique_order_values:\n    from orders\n    select:\n        unique_values = count_distinct(customer_id) if True else 1\n",
             "PIE-S2310",
         ),
         (

@@ -16,6 +16,7 @@ from pietto import cli
 from pietto._project.json_v2 import project_check_result_to_json_dict
 from pietto._project.let_scope_facts import ProjectLetScopeFactsStatus
 from pietto._project.model import (
+    ProjectAggregateResultFact,
     ProjectParseCheckResult,
     ProjectRelationRowSchemaReason,
     ProjectRelationRowSchemaStatus,
@@ -2662,6 +2663,7 @@ def test_aggregate_results_preserve_function_arguments_type_nullability_origin_a
     relation = _relation(semantic, "main.pietto", "result")
     assert len(relation.aggregate_result_facts) == 1
     fact = relation.aggregate_result_facts[0]
+    assert isinstance(fact, ProjectAggregateResultFact)
     selected = relation.select_facts[1]
     assert (fact.function, fact.argument_count, fact.grouped) == ("sum", 1, True)
     assert selected.aggregate_result_fact is fact

@@ -1061,3 +1061,47 @@ def test_unknown_literal_schema_ancestry_fails_closed(products) -> None:
         plan, literal_sites=_tuple_replaced(plan.literal_sites, site, bad)
     )
     assert verification._literal_schema(candidate, P.BIND_SAFE_LITERALS) is False
+
+
+@pytest.mark.parametrize("having", (False, True))
+def test_composition_literal_uses_share_specialized_disposition_by_identity(
+    tmp_path, having
+):
+    body = "    where id > 0\n    group by:\n        id\n    select:\n        total = sum(value) + 1\n        independent = count() + 1\n"
+    if having:
+        body += "    having total > 0 and total < 10\n"
+    _, plan, checked, _ = _product(tmp_path, _ordinary(body))
+    ones = tuple(
+        site for site in plan.literal_sites if site.position.literal.value == 1
+    )
+    selected = tuple(site for site in ones if site.position.role is R.SELECT)
+    assert len(selected) == 2
+    first, independent = selected
+    assert first.position.literal is not independent.position.literal
+    assert independent.disposition is literal.ProjectSQLLiteralDisposition.BOUND
+    if having:
+        repeated = tuple(
+            site for site in ones if site.position.literal is first.position.literal
+        )
+        assert len(repeated) == 2
+        assert all(
+            site.disposition
+            is literal.ProjectSQLLiteralDisposition.PRESERVED_WITH_REASON
+            and site.reason is Why.SPECIALIZED
+            for site in repeated
+        )
+    else:
+        assert first.disposition is literal.ProjectSQLLiteralDisposition.BOUND
+    assert any(
+        site.position.role is R.WHERE
+        and site.disposition is literal.ProjectSQLLiteralDisposition.BOUND
+        for site in plan.literal_sites
+    )
+    from pietto._project import project_sql_plan_portable as portable
+    from pietto._project import project_sql_plan_pure_boundary as pure
+
+    product = portable.build_project_sql_plan_portable(checked)
+    assert (
+        pure.parse_project_sql_plan_document(product.canonical_bytes).status
+        is pure.Status.OK
+    )

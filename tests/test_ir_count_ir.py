@@ -99,10 +99,8 @@ def test_direct_lower_expr_for_valid_count_no_longer_uses_generic_call_ir() -> N
             "PIE-S2308",
         ),
         (
-            SOURCE_PREFIX + "table paid_order_stats:\n"
-            "    from orders\n"
-            "    select:\n"
-            "        total = count() + 1\n",
+            SOURCE_PREFIX
+            + "table paid_order_stats:\n    from orders\n    select:\n        total = count() if True else 1\n",
             "PIE-S2310",
         ),
         (
@@ -124,7 +122,7 @@ def test_direct_lower_expr_for_valid_count_no_longer_uses_generic_call_ir() -> N
             "    from orders\n"
             "    select:\n"
             "        total = lower(count())\n",
-            "PIE-S2310",
+            "PIE-S2104",
         ),
         (
             SOURCE_PREFIX + "table paid_order_stats:\n"

@@ -36,6 +36,7 @@ from pietto.ast_nodes import (
 from pietto.errors import Diagnostic, Severity, SourceLocation
 from pietto.semantic.aggregates import (
     ORDERED_VALUE_AGGREGATE_NAMES,
+    aggregate_composition_leaves,
     semantic_aggregate_call_name,
 )
 from pietto.semantic.model import (
@@ -67,7 +68,7 @@ def ordered_value_diagnostics(
 ) -> list[Diagnostic]:
     """PIE-S2334 at a `first` or `last` over JOIN rows and PIE-S2104 at the
     first key of its order that fails the proof, for each such call that is a
-    whole SELECT item whose typing admitted it and that has no error in
+    direct SELECT aggregate leaf whose typing admitted it and has no error in
     ``reported``."""
 
     found: list[Diagnostic] = []
@@ -75,64 +76,64 @@ def ordered_value_diagnostics(
         if not isinstance(definition, (TableDef, QueryDef)):
             continue
         for item in definition.select_items:
-            call = item.expression
-            name = semantic_aggregate_call_name(call)
-            typed = expression_value_types.get(call)
-            if name not in ORDERED_VALUE_AGGREGATE_NAMES or typed is None:
-                continue
-            assert isinstance(call, CallExpr)
-            if ordered_value_reported(call, reported):
-                continue
-            if definition.join_clauses or definition.join_filters:
-                found.append(ordered_value_join_diagnostic(call))
-                continue
-            source = from_resolutions.get(definition.from_clause)
-            schema = (
-                source_row_schemas.get(source)
-                if isinstance(source, SourceDef)
-                else relation_row_schemas.get(source)
-                if isinstance(source, (TableDef, QueryDef))
-                else None
-            )
-            if schema is not None and schema.is_unknown:
-                # A source without a shape, or a relation over one: no key
-                # is known to be a field, never None or unique.
-                found.append(
-                    _unknown_input_diagnostic(
-                        call, source_keys=isinstance(source, SourceDef)
-                    )
+            for call in aggregate_composition_leaves(item.expression) or ():
+                name = semantic_aggregate_call_name(call)
+                typed = expression_value_types.get(call)
+                if name not in ORDERED_VALUE_AGGREGATE_NAMES or typed is None:
+                    continue
+                assert isinstance(call, CallExpr)
+                if ordered_value_reported(call, reported):
+                    continue
+                if definition.join_clauses or definition.join_filters:
+                    found.append(ordered_value_join_diagnostic(call))
+                    continue
+                source = from_resolutions.get(definition.from_clause)
+                schema = (
+                    source_row_schemas.get(source)
+                    if isinstance(source, SourceDef)
+                    else relation_row_schemas.get(source)
+                    if isinstance(source, (TableDef, QueryDef))
+                    else None
                 )
-                continue
-            if typed.kind is not ValueTypeKind.KNOWN:
-                continue
-            shape = (
-                type_symbols.get(source.shape_name)
-                if isinstance(source, SourceDef) and source.shape_name is not None
-                else None
-            )
-            problem = ordered_value_order_diagnostic(
-                call,
-                fields={}
-                if schema is None
-                else {
-                    field_name: row_field.nullability
-                    is not EffectiveNullability.NON_NULL
-                    for field_name, row_field in schema.fields.items()
-                },
-                qualifier=definition.from_clause.binding_name
-                or definition.from_clause.source_name,
-                lets=let_expressions.get(definition, {}),
-                where=definition,
-                group_keys=()
-                if definition.group_by_clause is None
-                else tuple(group.key for group in definition.group_by_clause.items),
-                unique_keys=tuple(unique.field_names for unique in shape.uniques)
-                if isinstance(shape, ShapeDef)
-                else (),
-                source_keys=isinstance(source, SourceDef),
-            )
-            if problem is not None:
-                found.append(problem)
+                if schema is not None and schema.is_unknown:
+                    # A source without a shape, or a relation over one: no key
+                    # is known to be a field, never None or unique.
+                    found.append(
+                        _unknown_input_diagnostic(
+                            call, source_keys=isinstance(source, SourceDef)
+                        )
+                    )
+                    continue
+                if typed.kind is not ValueTypeKind.KNOWN:
+                    continue
+                shape = (
+                    type_symbols.get(source.shape_name)
+                    if isinstance(source, SourceDef) and source.shape_name is not None
+                    else None
+                )
+                problem = ordered_value_order_diagnostic(
+                    call,
+                    fields={}
+                    if schema is None
+                    else {
+                        field_name: row_field.nullability
+                        is not EffectiveNullability.NON_NULL
+                        for field_name, row_field in schema.fields.items()
+                    },
+                    qualifier=definition.from_clause.binding_name
+                    or definition.from_clause.source_name,
+                    lets=let_expressions.get(definition, {}),
+                    where=definition,
+                    group_keys=()
+                    if definition.group_by_clause is None
+                    else tuple(group.key for group in definition.group_by_clause.items),
+                    unique_keys=tuple(unique.field_names for unique in shape.uniques)
+                    if isinstance(shape, ShapeDef)
+                    else (),
+                    source_keys=isinstance(source, SourceDef),
+                )
+                if problem is not None:
+                    found.append(problem)
     return found
 
 

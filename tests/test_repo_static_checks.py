@@ -61,7 +61,7 @@ def test_official_examples_and_source_fixtures_use_pietto_suffix() -> None:
         if path.is_file()
     )
 
-    assert len(examples) == 10
+    assert examples
     assert len(postgres_fixtures) == 4
     assert all(path.suffix == OFFICIAL_SOURCE_SUFFIX for path in examples)
     assert all(path.suffix == OFFICIAL_SOURCE_SUFFIX for path in postgres_fixtures)

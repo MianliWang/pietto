@@ -30,6 +30,7 @@ from pietto._project.project_compiled_verification import (
 from pietto._project.model import CompiledProjectInput
 from pietto._project.trusted_source import require_trusted_sources
 from pietto._project.project_sql_emission_contract import BoundSource
+from pietto._project import project_sql_plan_aggregation as plan_aggregation
 from pietto._project import project_sql_emission_ast as sql
 from pietto._project import project_sql_emission_parameters as parameters
 from pietto._project import project_sql_emission_rows as rows
@@ -2537,13 +2538,13 @@ class _LogicalExport(_Export):
                         "aggregate_order",
                         self.expression(order, (use,)),
                         "asc"
-                        if item.source.item.expression.aggregate_order_by[
-                            position
-                        ].direction
+                        if plan_aggregation.aggregate_call(item.source)
+                        .aggregate_order_by[position]
+                        .direction
                         is None
-                        else item.source.item.expression.aggregate_order_by[
-                            position
-                        ].direction,
+                        else plan_aggregation.aggregate_call(item.source)
+                        .aggregate_order_by[position]
+                        .direction,
                     )
                     for position, order in enumerate(item.order_by)
                 ),

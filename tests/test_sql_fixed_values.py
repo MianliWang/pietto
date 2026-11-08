@@ -210,9 +210,6 @@ def test_component_zero_one_many_mapping_does_not_claim_query_duplication(
     [
         ("-9223372036854775808", "PIE-B1002"),  # positive leaf cannot fit signed64
         ("9223372036854775808", "PIE-B1002"),
-        # Slice6 admits signed-Int +,-,* and field signs, so these boundaries keep
-        # their purpose with an operator and a node type it still does not admit.
-        ("id % 2", "PIE-B1003"),
     ],
 )
 def test_complete_shape_and_representation_boundaries(
@@ -790,3 +787,35 @@ def test_expression_scoped_premises_bind_to_the_reading_field(
                 scope[change]["position"] += 1
         with pytest.raises(ValueError):
             probe.decode_public(probe.encoded(moved))
+
+
+@pytest.mark.parametrize("target", ("postgres", "mysql"))
+def test_integer_remainder_keeps_its_selected_target_and_fixed_value_boundary(
+    tmp_path, target
+):
+    item = probe.native_fixture(target, "preserve")
+    source = item["source"].replace("id = id", "value = id % 2")
+    checked, outcome = probe.build_case(
+        tmp_path, source, item["contract"], item["policy"]
+    )
+    assert checked.verified
+    document = probe.decode_public(serialize_project_sql_emission(outcome))
+    if target == "mysql":
+        assert document["status"] == "BLOCKED" and document["artifact"] is None
+        assert [(b["code"], b["subject"]["detail"]) for b in document["blockers"]] == [
+            ("PIE-B1003", "binary_operator_not_admitted")
+        ]
+        assert "sql" not in document and "fixed_values" not in document
+        return
+    assert document["status"] == "VERIFIED" and outcome.artifact is not None
+    assert verify_project_sql_emission(
+        outcome.artifact, outcome.artifact.request
+    ).verified
+    (column,) = document["columns"]
+    assert (
+        column["label"],
+        column["logical_type"]["name"],
+        column["representation"]["storage"],
+    ) == ("value", "Int", {"kind": "pg_int8"})
+    assert " % " in document["sql"]
+    assert document["fixed_values"] == []

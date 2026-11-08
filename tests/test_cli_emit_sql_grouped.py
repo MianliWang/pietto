@@ -106,15 +106,6 @@ INVALID_GROUPED_CASES = (
         "PIE-S2318",
     ),
     (
-        "scalar_grouped_projection",
-        "    group by:\n"
-        "        status\n"
-        "    select:\n"
-        "        label = lower(status)\n"
-        "        total = count()\n",
-        "PIE-S2319",
-    ),
-    (
         "pure_grouping",
         "    group by:\n        status\n    select:\n        status\n",
         "PIE-S2320",
@@ -146,11 +137,7 @@ INVALID_GROUPED_CASES = (
     ),
     (
         "aggregate_composition",
-        "    group by:\n"
-        "        status\n"
-        "    select:\n"
-        "        status\n"
-        "        revenue = sum(amount) + 1\n",
+        "    group by:\n        status\n    select:\n        status\n        revenue = sum(amount) if True else 1\n",
         "PIE-S2310",
     ),
     (
@@ -283,6 +270,53 @@ def test_valid_grouped_emit_sql_output_writes_sql_and_suppresses_stdout(
 
 
 @pytest.mark.parametrize(
+    "dialect,connector", [("postgres", "postgres.table"), ("mysql", "mysql.table")]
+)
+def test_admitted_grouped_scalar_json_output_writes_sql(
+    dialect: str,
+    connector: str,
+    tmp_path: Path,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    source_path = tmp_path / f"{dialect}-grouped-scalar.pietto"
+    output_path = tmp_path / f"{dialect}-grouped-scalar.sql"
+    source_path.write_text(
+        _grouped_source(
+            connector,
+            "    group by:\n        status\n    select:\n"
+            "        label = lower(status)\n        total = count()\n",
+        ),
+        encoding="utf-8",
+    )
+    output_path.write_text("existing SQL\n", encoding="utf-8")
+    assert (
+        cli.main(
+            [
+                "emit-sql",
+                str(source_path),
+                "--dialect",
+                dialect,
+                "--format",
+                "json",
+                "--output",
+                str(output_path),
+            ]
+        )
+        == 0
+    )
+    document = _read_json(capsys)
+    assert document["ok"] is True
+    assert document["diagnostics"] == []
+    assert document["cli_errors"] == []
+    assert document["output"] == {"path": str(output_path), "written": True}
+    artifacts = cast(list[dict[str, object]], document["artifacts"])
+    assert len(artifacts) == 1
+    written = output_path.read_text(encoding="utf-8")
+    assert cast(str, artifacts[0]["sql"]) in written
+    assert "existing SQL" not in written
+
+
+@pytest.mark.parametrize(
     ("input_path", "dialect", "connector", "expected_from"), DIALECT_CASES
 )
 @pytest.mark.parametrize(("case_name", "body", "expected_code"), INVALID_GROUPED_CASES)
@@ -302,7 +336,7 @@ def test_invalid_grouped_emit_sql_json_output_fails_before_sql_without_writing(
     source_path = tmp_path / f"{dialect}-{case_name}.pietto"
     output_path = tmp_path / f"{dialect}-{case_name}.sql"
     output_path.write_text("existing SQL\n", encoding="utf-8")
-    source_path.write_text(_invalid_grouped_source(connector, body), encoding="utf-8")
+    source_path.write_text(_grouped_source(connector, body), encoding="utf-8")
     monkeypatch.chdir(REPO_ROOT)
 
     assert (
@@ -544,7 +578,7 @@ def _field(name: str, value_type: TypeRefIR) -> FieldRefIR:
     )
 
 
-def _invalid_grouped_source(connector: str, body: str) -> str:
+def _grouped_source(connector: str, body: str) -> str:
     return (
         "shape Order:\n"
         "    status: Text\n"

@@ -22,6 +22,7 @@ from pietto._project.aggregate_grouped_schema import (
 from pietto._project.check import check_project_parse_only
 from pietto._project.json_v2 import project_check_result_to_json_dict
 from pietto._project.model import (
+    ProjectAggregateResultFact,
     ProjectParseCheckResult,
     ProjectParsedInput,
     ProjectRelationRowSchemaReason,
@@ -381,6 +382,7 @@ def test_table_and_query_share_one_key_one_aggregate_candidate_shape(
             fallback_path="models.pietto",
         ),
     )
+    assert isinstance(aggregate_fact, ProjectAggregateResultFact)
     assert aggregate_fact.function == "count"
     assert aggregate_fact.grouped is True
     assert aggregate_fact.argument_count == 0
@@ -483,11 +485,20 @@ def test_multiple_keys_and_direct_aggregates_preserve_exact_select_order(
         ProjectRowResultRole.AGGREGATE_RESULT,
         ProjectRowResultRole.GROUP_KEY,
     )
-    assert tuple(
-        result.aggregate_fact.function
-        for result in selected
-        if result.aggregate_fact is not None
-    ) == ("count", "count", "count_distinct", "sum", "avg", "min", "max")
+    functions = []
+    for result in selected:
+        if result.aggregate_fact is not None:
+            assert isinstance(result.aggregate_fact, ProjectAggregateResultFact)
+            functions.append(result.aggregate_fact.function)
+    assert tuple(functions) == (
+        "count",
+        "count",
+        "count_distinct",
+        "sum",
+        "avg",
+        "min",
+        "max",
+    )
     assert tuple(
         result.field.resolved_type.name
         for result in selected
@@ -1564,8 +1575,8 @@ _QUANTILE_FRACTION = (
             [
                 (
                     "PIE-S2310",
-                    "Aggregate projection must be a direct aggregate call; "
-                    "composition around sum() is not supported yet; select the sum() "
+                    "Aggregate composition requires scalar calls or arithmetic over "
+                    "direct aggregates, group keys and literals; invalid composition around sum(); select the sum() "
                     "under a name in one query, then compute with that name in "
                     "another that reads it with `from`",
                     8,
@@ -1669,7 +1680,7 @@ def test_project_check_reports_grouping_errors_without_joins_as_a_file_does(
                 ],
             )
         )
-    assert found == [(1, expected)] * 2
+    assert found == [(1 if expected else 0, expected)] * 2
 
 
 def test_project_check_names_an_aggregate_field_argument_by_its_declared_type(

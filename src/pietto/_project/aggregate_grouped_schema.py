@@ -3,9 +3,9 @@
 from __future__ import annotations
 
 from collections.abc import Mapping
-from dataclasses import InitVar, dataclass, field as dataclass_field
+from dataclasses import InitVar, dataclass, field as dataclass_field, replace
 from types import MappingProxyType
-from typing import TYPE_CHECKING, cast
+from typing import TYPE_CHECKING
 
 from pietto._project.let_scope_facts import (
     ProjectLetScopeFactsReason,
@@ -15,6 +15,9 @@ from pietto._project.let_scope_facts import (
 )
 from pietto._project.model import (
     ProjectAggregateResultFact,
+    ProjectAnyAggregateResultFact,
+    ProjectAggregateCompositionResultFact,
+    ProjectAggregateLeafFact,
     ProjectRelationRowSchemaReason,
     ProjectRelationRowSchemaState,
     ProjectRelationRowSchemaStatus,
@@ -59,6 +62,8 @@ from pietto.semantic.aggregates import (
     ORDERED_VALUE_AGGREGATE_NAMES,
     QUANTILE_AGGREGATE_NAME,
     aggregate_order_expressions,
+    aggregate_composition_leaves,
+    is_semantic_aggregate_call,
     aggregate_argument_can_use_let_scope,
     contains_semantic_aggregate,
     count_distinct_tuple_diagnostic,
@@ -75,10 +80,11 @@ from pietto.semantic.aggregates import (
     semantic_aggregate_call_name,
     semantic_projection_aggregate_result_value_type,
 )
-from pietto.semantic.expressions import _check_inlined_argument
+from pietto.semantic.expressions import _check_inlined_argument, infer_row_expression
 from pietto.semantic.let_bindings import admitted_relation_let_expressions
 from pietto.semantic.model import (
     EffectiveNullability,
+    RowSchema,
     TypeKind,
     ValueType,
     ValueTypeKind,
@@ -224,14 +230,14 @@ class ProjectAggregateExpressionAnalysis:
     let_scope: ProjectRelationLetScopeFacts
     upstream_symbol: ProjectSymbol
     field: ProjectRowField
-    fact: ProjectAggregateResultFact
+    fact: ProjectAggregateResultFact | ProjectAggregateLeafFact
     effective_argument: Expression | None
     argument_value_types: Mapping[Expression, ValueType]
     result_value_type: ValueType
     predicate_expression: ProjectRelationshipPredicateExpression | None = None
 
     def __post_init__(self) -> None:
-        call = self.item.expression
+        call = self.call
         if (
             not isinstance(call, CallExpr)
             or not any(self.item is item for item in self.definition.select_items)
@@ -239,7 +245,10 @@ class ProjectAggregateExpressionAnalysis:
             or self.let_scope.input_schema is not self.input_schema
             or self.field.provenance is None
             or self.field.provenance.symbol is not self.upstream_symbol
-            or self.fact.argument_count != len(call.arguments)
+            or (
+                isinstance(self.fact, ProjectAggregateResultFact)
+                and self.fact.argument_count != len(call.arguments)
+            )
             or (self.effective_argument is None) is bool(call.arguments)
             or self.result_value_type.kind is not ValueTypeKind.KNOWN
         ):
@@ -262,7 +271,27 @@ class ProjectAggregateExpressionAnalysis:
                 raise ValueError("Aggregate analysis lost its authored argument type")
         elif values:
             raise ValueError("Row count cannot retain scalar argument types")
+        if isinstance(self.fact, ProjectAggregateLeafFact) and (
+            self.result_value_type is not self.fact.result_value_type
+            or len(values) != len(self.fact.argument_value_types)
+            or any(
+                expression is not original or value is not original_type
+                for (expression, value), (original, original_type) in zip(
+                    values.items(), self.fact.argument_value_types.items()
+                )
+            )
+        ):
+            raise ValueError(
+                "Aggregate leaf analysis requires its exact retained argument and result types"
+            )
         object.__setattr__(self, "argument_value_types", values)
+
+    @property
+    def call(self) -> CallExpr:
+        if isinstance(self.fact, ProjectAggregateLeafFact):
+            return self.fact.call
+        assert isinstance(self.item.expression, CallExpr)
+        return self.item.expression
 
 
 @dataclass(frozen=True, slots=True)
@@ -270,14 +299,14 @@ class ProjectAggregateSelectedResult:
     """One project-private aggregate selected-result candidate."""
 
     field: ProjectRowField
-    fact: ProjectAggregateResultFact
+    fact: ProjectAnyAggregateResultFact
 
     def __post_init__(self) -> None:
         """Reject malformed private aggregate selected-result candidates."""
 
         if not isinstance(self.field, ProjectRowField):
             raise ValueError("Aggregate selected result requires a row field")
-        if not isinstance(self.fact, ProjectAggregateResultFact):
+        if not isinstance(self.fact, ProjectAnyAggregateResultFact):
             raise ValueError("Aggregate selected result requires an aggregate fact")
 
         if self.field.result_role is not ProjectRowResultRole.AGGREGATE_RESULT:
@@ -294,6 +323,16 @@ class ProjectAggregateSelectedResult:
             raise ValueError("Aggregate selected result requires AGGREGATE provenance")
         if self.field.name != self.fact.output_name:
             raise ValueError("Aggregate selected result output name mismatch")
+        if isinstance(self.fact, ProjectAggregateCompositionResultFact):
+            value = self.fact.expression_value_types[self.fact.expression]
+            if (
+                self.field.resolved_type.name != value.resolved_type.name
+                or self.field.nullability.value != value.nullability.value
+                or provenance.location != self.fact.location
+            ):
+                raise ValueError(
+                    "Composition selected field must retain its final scalar type"
+                )
         if (
             not isinstance(self.field.resolved_type, ProjectResolvedType)
             or not isinstance(
@@ -303,12 +342,12 @@ class ProjectAggregateSelectedResult:
             or self.field.resolved_type.kind not in SCALAR_RESOLVED_TYPE_KINDS
         ):
             raise ValueError("Aggregate selected result requires a concrete type")
-        if (
-            not isinstance(
-                self.field.nullability,
-                ProjectRowFieldNullability,
-            )
-            or self.field.nullability is ProjectRowFieldNullability.UNKNOWN
+        if not isinstance(
+            self.field.nullability,
+            ProjectRowFieldNullability,
+        ) or (
+            self.field.nullability is ProjectRowFieldNullability.UNKNOWN
+            and not isinstance(self.fact, ProjectAggregateCompositionResultFact)
         ):
             raise ValueError("Aggregate selected result requires concrete nullability")
 
@@ -338,6 +377,15 @@ class ProjectAggregateSchemaFacts:
                     "Aggregate schema facts require selected-result values"
                 )
             call = item.expression
+            if isinstance(selected_result.fact, ProjectAggregateCompositionResultFact):
+                if (
+                    selected_result.fact.expression is not call
+                    or selected_result.fact.grouped
+                ):
+                    raise ValueError("Aggregate composition selected identity mismatch")
+                if item.alias != selected_result.field.name:
+                    raise ValueError("Aggregate composition output identity mismatch")
+                continue
             if not isinstance(call, CallExpr):
                 raise ValueError(
                     "Aggregate schema facts require direct aggregate calls"
@@ -368,7 +416,7 @@ class ProjectGroupedSelectedResult:
     """One project-private grouped selected-result candidate."""
 
     field: ProjectRowField
-    aggregate_fact: ProjectAggregateResultFact | None
+    aggregate_fact: ProjectAnyAggregateResultFact | None
 
     def __post_init__(self) -> None:
         """Reject malformed private grouped selected-result candidates."""
@@ -417,9 +465,14 @@ class ProjectGroupedSelectedResult:
                 )
             return
 
-        if not isinstance(self.aggregate_fact, ProjectAggregateResultFact):
+        if not isinstance(self.aggregate_fact, ProjectAnyAggregateResultFact):
             raise ValueError("Grouped aggregate result requires an aggregate fact")
-        if self.field.nullability is ProjectRowFieldNullability.UNKNOWN:
+        if (
+            self.field.nullability is ProjectRowFieldNullability.UNKNOWN
+            and not isinstance(
+                self.aggregate_fact, ProjectAggregateCompositionResultFact
+            )
+        ):
             raise ValueError("Grouped aggregate result requires concrete nullability")
         if self.field.field_def is not None:
             raise ValueError("Grouped aggregate result cannot carry a field definition")
@@ -432,6 +485,8 @@ class ProjectGroupedSelectedResult:
             raise ValueError("Grouped aggregate result output name mismatch")
         if self.aggregate_fact.grouped is not True:
             raise ValueError("Grouped aggregate result requires a grouped fact")
+        if isinstance(self.aggregate_fact, ProjectAggregateCompositionResultFact):
+            ProjectAggregateSelectedResult(field=self.field, fact=self.aggregate_fact)
 
 
 @dataclass(frozen=True, slots=True)
@@ -491,6 +546,14 @@ class ProjectGroupedSchemaFacts:
                 continue
 
             aggregate_count += 1
+            if isinstance(
+                selected_result.aggregate_fact, ProjectAggregateCompositionResultFact
+            ):
+                if selected_result.aggregate_fact.expression is not item.expression:
+                    raise ValueError("Grouped composition selected identity mismatch")
+                if item.alias != selected_result.field.name:
+                    raise ValueError("Grouped composition output identity mismatch")
+                continue
             call = item.expression
             if not isinstance(call, CallExpr):
                 raise ValueError(
@@ -588,7 +651,7 @@ class ProjectAggregateGroupedSchemaFinalization:
     """Atomic unpersisted aggregate/grouped schema and aggregate-fact decision."""
 
     state: ProjectRelationRowSchemaState
-    aggregate_result_facts: Mapping[str, ProjectAggregateResultFact]
+    aggregate_result_facts: Mapping[str, ProjectAnyAggregateResultFact]
     candidate: ProjectAggregateSchemaFacts | ProjectGroupedSchemaFacts | None = (
         dataclass_field(default=None, init=False)
     )
@@ -652,16 +715,20 @@ class ProjectAggregateGroupedSchemaFinalization:
                 for item, value in self.candidate.selected_results.items()
                 if item is analysis.item
             )
-            if (
-                len(matches) != 1
-                or matches[0].field is not analysis.field
-                or (
-                    matches[0].fact
-                    if isinstance(matches[0], ProjectAggregateSelectedResult)
-                    else matches[0].aggregate_fact
-                )
-                is not analysis.fact
-            ):
+            if len(matches) != 1:
+                raise ValueError("Aggregate analysis requires its exact selection")
+            selected = matches[0]
+            fact = (
+                selected.fact
+                if isinstance(selected, ProjectAggregateSelectedResult)
+                else selected.aggregate_fact
+            )
+            if isinstance(fact, ProjectAggregateCompositionResultFact):
+                if selected.field is not analysis.field or not any(
+                    leaf is analysis.fact for leaf in fact.leaves
+                ):
+                    raise ValueError("Composition analysis requires its exact leaf")
+            elif selected.field is not analysis.field or fact is not analysis.fact:
                 raise ValueError(
                     "Finalization must bind each original aggregate analysis"
                 )
@@ -822,6 +889,7 @@ class _ProjectAggregateSelectedResultAttempt:
     result: ProjectAggregateSelectedResult | None
     failure_reason: ProjectRelationRowSchemaReason | None
     analysis: ProjectAggregateExpressionAnalysis | None = None
+    leaf_analyses: tuple[ProjectAggregateExpressionAnalysis, ...] = ()
 
     def __post_init__(self) -> None:
         if self.analysis is not None and (
@@ -1011,6 +1079,8 @@ def _build_project_group_key_schema_attempt(
             selected_expression,
             (NameExpr, DottedNameExpr),
         ):
+            if aggregate_composition_leaves(selected_expression) is not None:
+                continue
             failure_reasons.append(
                 ProjectRelationRowSchemaReason.INVALID_AGGREGATE_OR_GROUPED_OUTPUT
             )
@@ -1142,7 +1212,14 @@ def _build_project_aggregate_schema_attempt(
 ) -> ProjectAggregateGroupedCandidateAttempt:
     """Build one structured aggregate-only candidate attempt."""
 
-    if definition.group_by_clause is not None or not definition.select_items:
+    if (
+        definition.group_by_clause is not None
+        or not definition.select_items
+        or not any(
+            contains_semantic_aggregate(item.expression)
+            for item in definition.select_items
+        )
+    ):
         return _failed_candidate_attempt(
             ProjectRelationRowSchemaReason.INVALID_AGGREGATE_OR_GROUPED_OUTPUT
         )
@@ -1205,6 +1282,7 @@ def _build_project_aggregate_schema_attempt(
         selected_occurrences.append((item, selected_attempt.result))
         if selected_attempt.analysis is not None:
             analyses.append(selected_attempt.analysis)
+        analyses.extend(selected_attempt.leaf_analyses)
 
     failure_reason = _candidate_failure_reason(failure_reasons)
     if failure_reason is not None:
@@ -1376,7 +1454,6 @@ def _build_project_grouped_schema_attempt(
 
     analyses: list[ProjectAggregateExpressionAnalysis] = []
     selected_occurrences: list[tuple[SelectItem, ProjectGroupedSelectedResult]] = []
-    aggregate_count = 0
     aggregate_selection_count = 0
     for item in definition.select_items:
         if type(item.expression) is WindowExpr:
@@ -1424,7 +1501,7 @@ def _build_project_grouped_schema_attempt(
         aggregate_result = aggregate_attempt.result
         if aggregate_attempt.analysis is not None:
             analyses.append(aggregate_attempt.analysis)
-        aggregate_count += 1
+        analyses.extend(aggregate_attempt.leaf_analyses)
         selected_occurrences.append(
             (
                 item,
@@ -1436,8 +1513,7 @@ def _build_project_grouped_schema_attempt(
         )
 
     if (
-        aggregate_count == 0
-        and aggregate_selection_count == 0
+        aggregate_selection_count == 0
         and not failure_reasons
         and group_key_facts is not None
         and len(selected_occurrences) == len(_base_selected_items(definition))
@@ -1539,7 +1615,7 @@ def _finalize_project_aggregate_grouped_candidate(
         )
 
     schema_fields: dict[str, ProjectRowField] = {}
-    aggregate_result_facts: dict[str, ProjectAggregateResultFact] = {}
+    aggregate_result_facts: dict[str, ProjectAnyAggregateResultFact] = {}
     for field, fact in occurrences:
         schema_fields[field.name] = field
         if fact is not None:
@@ -1562,7 +1638,7 @@ def _aggregate_grouped_selected_occurrences(
     facts: ProjectAggregateSchemaFacts | ProjectGroupedSchemaFacts,
     upstream_symbol: ProjectSymbol,
 ) -> tuple[
-    tuple[tuple[ProjectRowField, ProjectAggregateResultFact | None], ...],
+    tuple[tuple[ProjectRowField, ProjectAnyAggregateResultFact | None], ...],
     ProjectRelationRowSchemaReason | None,
 ]:
     """Validate complete occurrence-level field/fact coherence before dicts."""
@@ -1574,7 +1650,7 @@ def _aggregate_grouped_selected_occurrences(
             ProjectRelationRowSchemaReason.CONFLICTING_AGGREGATE_OR_GROUPED_FACTS,
         )
 
-    occurrences: list[tuple[ProjectRowField, ProjectAggregateResultFact | None]] = []
+    occurrences: list[tuple[ProjectRowField, ProjectAnyAggregateResultFact | None]] = []
     grouped_flags: set[bool] = set()
     for item in base_selected_items:
         selected_result = facts.selected_results.get(item)
@@ -1613,7 +1689,10 @@ def _aggregate_grouped_selected_occurrences(
             not isinstance(field.resolved_type, ProjectResolvedType)
             or field.resolved_type.kind not in SCALAR_RESOLVED_TYPE_KINDS
             or not isinstance(field.nullability, ProjectRowFieldNullability)
-            or field.nullability is ProjectRowFieldNullability.UNKNOWN
+            or (
+                field.nullability is ProjectRowFieldNullability.UNKNOWN
+                and not isinstance(fact, ProjectAggregateCompositionResultFact)
+            )
             or fact is None
         ):
             return (
@@ -1666,23 +1745,26 @@ def _aggregate_selected_structure_failure_reason(
 ) -> ProjectRelationRowSchemaReason | None:
     """Apply canonical aggregate identity and arity checks without type facts."""
 
-    call = item.expression
-    if not isinstance(call, CallExpr):
+    if not item.alias:
         return ProjectRelationRowSchemaReason.INVALID_AGGREGATE_OR_GROUPED_OUTPUT
-    function_name = semantic_aggregate_call_name(call)
-    if function_name is None or not item.alias:
+    parts = aggregate_composition_leaves(item.expression)
+    if parts is None:
         return ProjectRelationRowSchemaReason.INVALID_AGGREGATE_OR_GROUPED_OUTPUT
-    if nested_semantic_aggregate(call) is not None:
-        return ProjectRelationRowSchemaReason.INVALID_AGGREGATE_OR_GROUPED_OUTPUT
-    if not is_supported_semantic_aggregate_arity(
-        function_name,
-        len(call.arguments),
-    ):
-        return ProjectRelationRowSchemaReason.INVALID_AGGREGATE_OR_GROUPED_OUTPUT
-    if internal_order_diagnostic(call) is not None:
-        return ProjectRelationRowSchemaReason.INVALID_AGGREGATE_OR_GROUPED_OUTPUT
-    if quantile_fraction_diagnostic(call) is not None:
-        return ProjectRelationRowSchemaReason.INVALID_AGGREGATE_OR_GROUPED_OUTPUT
+    for call in parts:
+        if not is_semantic_aggregate_call(call):
+            continue
+        assert isinstance(call, CallExpr)
+        function_name = semantic_aggregate_call_name(call)
+        assert function_name is not None
+        if (
+            nested_semantic_aggregate(call) is not None
+            or not is_supported_semantic_aggregate_arity(
+                function_name, len(call.arguments)
+            )
+            or internal_order_diagnostic(call) is not None
+            or quantile_fraction_diagnostic(call) is not None
+        ):
+            return ProjectRelationRowSchemaReason.INVALID_AGGREGATE_OR_GROUPED_OUTPUT
     return None
 
 
@@ -1720,16 +1802,164 @@ def _build_project_aggregate_selected_result_attempt(
     pretyped_arguments: Mapping[Expression, ProjectNoJoinScalarExpression]
     | None = None,
 ) -> _ProjectAggregateSelectedResultAttempt:
+    reason = _aggregate_selected_structure_failure_reason(item)
+    if reason is not None:
+        return _failed_selected_result_attempt(reason)
+    parts = aggregate_composition_leaves(item.expression)
+    assert parts is not None
+    if definition.group_by_clause is None and not any(
+        is_semantic_aggregate_call(part) for part in parts
+    ):
+        return _failed_selected_result_attempt(
+            ProjectRelationRowSchemaReason.INVALID_AGGREGATE_OR_GROUPED_OUTPUT
+        )
+    analyses = []
+    for call in parts:
+        if not is_semantic_aggregate_call(call):
+            continue
+        assert isinstance(call, CallExpr)
+        analysis, reason = _build_project_aggregate_call_analysis(
+            definition=definition,
+            item=item,
+            call=call,
+            input_schema=input_schema,
+            upstream_symbol=upstream_symbol,
+            let_scope_facts=let_scope_facts,
+            fallback_path=fallback_path,
+            let_extrema=let_extrema,
+            pretyped_arguments=pretyped_arguments,
+        )
+        if analysis is None:
+            assert reason is not None
+            return _failed_selected_result_attempt(reason)
+        analyses.append(analysis)
+    if is_semantic_aggregate_call(item.expression):
+        analysis = analyses[0]
+        assert isinstance(analysis.fact, ProjectAggregateResultFact)
+        return _ProjectAggregateSelectedResultAttempt(
+            result=ProjectAggregateSelectedResult(
+                field=analysis.field, fact=analysis.fact
+            ),
+            analysis=analysis,
+            failure_reason=None,
+        )
+    group_attempt = (
+        _build_project_group_key_schema_attempt(
+            definition=definition,
+            input_schema=input_schema,
+            upstream_symbol=upstream_symbol,
+            fallback_path=fallback_path,
+            let_scope_facts=let_scope_facts,
+            let_computed_keys=let_extrema,
+        )
+        if definition.group_by_clause is not None
+        else None
+    )
+    groups = (
+        group_attempt.facts.group_keys
+        if group_attempt is not None
+        and isinstance(group_attempt.facts, ProjectGroupKeySchemaFacts)
+        else ()
+    )
+    values = {analysis.call: analysis.result_value_type for analysis in analyses}
+    for part in parts:
+        if not isinstance(part, (NameExpr, DottedNameExpr)):
+            continue
+        key = _resolve_composition_group_key(
+            definition=definition,
+            expression=part,
+            input_schema=input_schema,
+            let_scope_facts=let_scope_facts,
+            group_keys=groups,
+        )
+        if key is None:
+            return _failed_selected_result_attempt(
+                ProjectRelationRowSchemaReason.INVALID_AGGREGATE_OR_GROUPED_OUTPUT
+            )
+        values[part] = (
+            key.value_type
+            if isinstance(key, ProjectComputedGroupKeyFact)
+            else project_row_field_to_semantic_value_type(
+                key.input_field, key.input_field.nullability
+            )
+        )
+    diagnostics = []
+    result_type = infer_row_expression(
+        item.expression,
+        RowSchema(),
+        values,
+        diagnostics,
+        report_unknown_name=True,
+        field_qualifier=definition.from_clause.binding_name
+        or definition.from_clause.source_name,
+    )
+    if (
+        diagnostics
+        or result_type.kind is not ValueTypeKind.KNOWN
+        or result_type.resolved_type.kind is not TypeKind.BUILTIN
+    ):
+        return _failed_selected_result_attempt(
+            ProjectRelationRowSchemaReason.INVALID_AGGREGATE_OR_GROUPED_OUTPUT
+        )
+    location = _expression_location(item.expression, fallback_path=fallback_path)
+    assert item.alias is not None
+    field = ProjectRowField(
+        name=item.alias,
+        resolved_type=ProjectResolvedType(
+            name=result_type.resolved_type.name, kind=ProjectResolvedTypeKind.BUILTIN
+        ),
+        nullability=ProjectRowFieldNullability(result_type.nullability.value),
+        field_def=None,
+        provenance=ProjectRowFieldProvenance(
+            kind=ProjectRowFieldProvenanceKind.AGGREGATE,
+            symbol=upstream_symbol,
+            location=location,
+        ),
+        result_role=ProjectRowResultRole.AGGREGATE_RESULT,
+    )
+    analyses = [replace(analysis, field=field) for analysis in analyses]
+    leaves = tuple(analysis.fact for analysis in analyses)
+    assert all(isinstance(leaf, ProjectAggregateLeafFact) for leaf in leaves)
+    fact = ProjectAggregateCompositionResultFact(
+        expression=item.expression,
+        output_name=item.alias,
+        grouped=definition.group_by_clause is not None,
+        location=location,
+        leaves=leaves,
+        expression_value_types=values,
+    )
+    return _ProjectAggregateSelectedResultAttempt(
+        result=ProjectAggregateSelectedResult(field=field, fact=fact),
+        leaf_analyses=tuple(analyses),
+        failure_reason=None,
+    )
+
+
+def _build_project_aggregate_call_analysis(
+    *,
+    definition: TableDef | QueryDef,
+    item: SelectItem,
+    call: CallExpr,
+    input_schema: ProjectRowSchema,
+    upstream_symbol: ProjectSymbol,
+    let_scope_facts: ProjectRelationLetScopeFacts,
+    fallback_path: str,
+    let_extrema: bool = False,
+    pretyped_arguments: Mapping[Expression, ProjectNoJoinScalarExpression]
+    | None = None,
+) -> tuple[
+    ProjectAggregateExpressionAnalysis | None, ProjectRelationRowSchemaReason | None
+]:
     """Build one aggregate result or retain its exact failure category."""
 
     structural_reason = _aggregate_selected_structure_failure_reason(item)
     if structural_reason is not None:
-        return _failed_selected_result_attempt(structural_reason)
+        return None, (structural_reason)
     if (
-        is_count_distinct_tuple(item.expression)
+        is_count_distinct_tuple(call)
         and count_distinct_tuple_diagnostic(
-            cast(CallExpr, item.expression),
-            (None,) * len(cast(CallExpr, item.expression).arguments),
+            call,
+            (None,) * len(call.arguments),
             let_expansions=let_scope_facts.binding_expressions,
         )
         is not None
@@ -1737,12 +1967,10 @@ def _build_project_aggregate_selected_result_attempt(
         # Two or more different direct fields, as in a single file, whose
         # check reports the refusal (with a `let:` name read,
         # `_call_argument_errors`).
-        return _failed_selected_result_attempt(
+        return None, (
             ProjectRelationRowSchemaReason.INVALID_AGGREGATE_OR_GROUPED_OUTPUT
         )
 
-    call = item.expression
-    assert isinstance(call, CallExpr)
     function_name = semantic_aggregate_call_name(call)
     assert function_name is not None
     output_name = item.alias
@@ -1776,7 +2004,7 @@ def _build_project_aggregate_selected_result_attempt(
         )
         if argument_attempt.value_type is None:
             assert argument_attempt.failure_reason is not None
-            return _failed_selected_result_attempt(argument_attempt.failure_reason)
+            return None, (argument_attempt.failure_reason)
         if position == 0:
             argument_type = argument_attempt.value_type
         assert argument_attempt.value_types is not None
@@ -1793,7 +2021,7 @@ def _build_project_aggregate_selected_result_attempt(
             or key_types[expression].kind is not ValueTypeKind.KNOWN
             for expression in order_expressions
         ):
-            return _failed_selected_result_attempt(
+            return None, (
                 ProjectRelationRowSchemaReason.UNAVAILABLE_AGGREGATE_OR_GROUPED_FACT
             )
         argument_values.update(key_types)
@@ -1817,7 +2045,7 @@ def _build_project_aggregate_selected_result_attempt(
         or result_type.kind is not ValueTypeKind.KNOWN
         or result_type.resolved_type.kind is not TypeKind.BUILTIN
     ):
-        return _failed_selected_result_attempt(
+        return None, (
             ProjectRelationRowSchemaReason.UNAVAILABLE_AGGREGATE_OR_GROUPED_FACT
         )
     if result_type.nullability is EffectiveNullability.NON_NULL:
@@ -1825,7 +2053,7 @@ def _build_project_aggregate_selected_result_attempt(
     elif result_type.nullability is EffectiveNullability.NULLABLE:
         project_nullability = ProjectRowFieldNullability.NULLABLE
     else:
-        return _failed_selected_result_attempt(
+        return None, (
             ProjectRelationRowSchemaReason.UNAVAILABLE_AGGREGATE_OR_GROUPED_FACT
         )
 
@@ -1845,41 +2073,41 @@ def _build_project_aggregate_selected_result_attempt(
         ),
         result_role=ProjectRowResultRole.AGGREGATE_RESULT,
     )
-    fact = ProjectAggregateResultFact(
-        function=function_name,
-        output_name=output_name,
-        grouped=definition.group_by_clause is not None,
-        argument_count=len(arguments),
-        location=location,
-    )
-    return _ProjectAggregateSelectedResultAttempt(
-        result=ProjectAggregateSelectedResult(
-            field=field,
-            fact=fact,
-        ),
-        analysis=ProjectAggregateExpressionAnalysis(
-            definition=definition,
-            item=item,
-            input_schema=input_schema,
-            let_scope=let_scope_facts,
-            upstream_symbol=upstream_symbol,
-            field=field,
-            fact=fact,
-            effective_argument=None
-            if argument_attempt is None
-            else argument_attempt.effective_expression,
+    fact = (
+        ProjectAggregateResultFact(
+            function=function_name,
+            output_name=output_name,
+            grouped=definition.group_by_clause is not None,
+            argument_count=len(arguments),
+            location=location,
+        )
+        if call is item.expression
+        else ProjectAggregateLeafFact(
+            call=call,
+            function=function_name,
             argument_value_types=argument_values,
             result_value_type=result_type,
-            predicate_expression=(
-                pretyped_arguments[arguments[0]].predicate_expression
-                if arguments
-                and pretyped_arguments
-                and arguments[0] in pretyped_arguments
-                else None
-            ),
-        ),
-        failure_reason=None,
+        )
     )
+    return ProjectAggregateExpressionAnalysis(
+        definition=definition,
+        item=item,
+        input_schema=input_schema,
+        let_scope=let_scope_facts,
+        upstream_symbol=upstream_symbol,
+        field=field,
+        fact=fact,
+        effective_argument=None
+        if argument_attempt is None
+        else argument_attempt.effective_expression,
+        argument_value_types=argument_values,
+        result_value_type=result_type,
+        predicate_expression=(
+            pretyped_arguments[arguments[0]].predicate_expression
+            if arguments and pretyped_arguments and arguments[0] in pretyped_arguments
+            else None
+        ),
+    ), None
 
 
 def _build_project_aggregate_let_scope_facts(
@@ -2258,7 +2486,7 @@ def _group_key_field_is_concrete_ready(field: ProjectRowField) -> bool:
 
 def _aggregate_field_fact_is_concrete_ready(
     field: ProjectRowField,
-    fact: ProjectAggregateResultFact,
+    fact: ProjectAnyAggregateResultFact,
 ) -> bool:
     provenance = field.provenance
     return (
@@ -2266,11 +2494,14 @@ def _aggregate_field_fact_is_concrete_ready(
         and isinstance(field.resolved_type, ProjectResolvedType)
         and field.resolved_type.kind is ProjectResolvedTypeKind.BUILTIN
         and isinstance(field.nullability, ProjectRowFieldNullability)
-        and field.nullability is not ProjectRowFieldNullability.UNKNOWN
+        and (
+            field.nullability is not ProjectRowFieldNullability.UNKNOWN
+            or isinstance(fact, ProjectAggregateCompositionResultFact)
+        )
         and field.field_def is None
         and isinstance(provenance, ProjectRowFieldProvenance)
         and provenance.kind is ProjectRowFieldProvenanceKind.AGGREGATE
-        and isinstance(fact, ProjectAggregateResultFact)
+        and isinstance(fact, ProjectAnyAggregateResultFact)
         and field.name == fact.output_name
         and provenance.location == fact.location
     )
@@ -2364,6 +2595,38 @@ def _effective_group_key_expression(
             let_stack=let_stack | frozenset((expression.name,)),
         )
     return expression
+
+
+def _resolve_composition_group_key(
+    *,
+    definition: TableDef | QueryDef,
+    expression: NameExpr | DottedNameExpr,
+    input_schema: ProjectRowSchema,
+    let_scope_facts: ProjectRelationLetScopeFacts,
+    group_keys: tuple[ProjectAnyGroupKeyFact, ...],
+) -> ProjectAnyGroupKeyFact | None:
+    effective = _effective_group_key_expression(
+        expression,
+        let_expressions=let_scope_facts.binding_expressions,
+        let_stack=frozenset(),
+    )
+    resolved = _resolve_input_field(definition, effective, input_schema)
+    matches = tuple(
+        key
+        for key in group_keys
+        if (
+            isinstance(key, ProjectComputedGroupKeyFact)
+            and isinstance(expression, NameExpr)
+            and isinstance(effective, NameExpr)
+            and effective.name == key.binding.name
+        )
+        or (
+            isinstance(key, ProjectGroupKeyFact)
+            and resolved is not None
+            and key.input_field is resolved[1]
+        )
+    )
+    return matches[0] if len(matches) == 1 else None
 
 
 def _resolve_input_field(

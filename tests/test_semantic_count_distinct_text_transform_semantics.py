@@ -241,13 +241,10 @@ def test_unsupported_count_distinct_transform_shapes_use_s2315(
             ("PIE-S2311", "Nested aggregate avg() is not supported"),
         ),
         (
-            "value = count_distinct(lower(status)) + 1",
+            "value = count_distinct(lower(status)) if True else 1",
             (
                 "PIE-S2310",
-                "Aggregate projection must be a direct aggregate call; "
-                "composition around count_distinct() is not supported yet; select the count_distinct() "
-                "under a name in one query, then compute with that name in "
-                "another that reads it with `from`",
+                "Aggregate composition requires scalar calls or arithmetic over direct aggregates, group keys and literals; invalid composition around count_distinct(); select the count_distinct() under a name in one query, then compute with that name in another that reads it with `from`",
             ),
         ),
     ],

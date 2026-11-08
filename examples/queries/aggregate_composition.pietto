@@ -1,0 +1,34 @@
+shape Sale:
+    category: Text
+    qty: Int | None
+    amount: Decimal | None
+
+source sales: Sale = postgres.table("sales")
+
+query sales_summary:
+    from sales
+    let category_key = lower(trim(category))
+    group by category_key
+    select:
+        category_key
+        units = coalesce(sum(qty), 0)
+        average_amount = round(avg(amount), 2)
+        signed_amount = -sum(amount * qty)
+
+query sales_totals:
+    from sales
+    let category_key = lower(trim(category))
+    group by category_key
+    select:
+        category_key
+        units = sum(qty)
+        average_amount = avg(amount)
+        signed_amount = sum(amount * qty)
+
+query sales_summary_two_queries:
+    from sales_totals
+    select:
+        category_key
+        units = coalesce(units, 0)
+        average_amount = round(average_amount, 2)
+        signed_amount = -signed_amount

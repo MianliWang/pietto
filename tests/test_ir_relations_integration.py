@@ -207,7 +207,9 @@ def test_relation_examples_match_ast_definition_count_kind_and_order(
         semantic_errors,
     )
 
-    ir_result = build_ir(parse_result.ast, semantic_result.model)
+    ir_result = build_ir(
+        semantic_result.script or parse_result.ast, semantic_result.model
+    )
     ir_errors = tuple(
         diagnostic
         for diagnostic in ir_result.diagnostics

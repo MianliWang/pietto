@@ -1011,33 +1011,32 @@ def rendered_tree_nodes(plan, reference):
 
 def _tree_nodes(plan, reference, *, render_order):
     result = []
-    pending = [reference]
-    seen = set()
+    pending = [(reference, False)]
+    active = set()
     while pending:
-        current = pending.pop()
+        current, leaving = pending.pop()
+        if leaving:
+            active.remove(id(current))
+            continue
         position = getattr(current, "position", None)
         if type(position) is not int or not 0 <= position < len(plan.expressions):
             raise ValueError("expression reference outside the current plan")
         expression = plan.expressions[position]
-        if expression.ref is not current or id(current) in seen:
+        if expression.ref is not current or id(current) in active:
             raise ValueError("expression reference identity or cycle")
-        seen.add(id(current))
+        active.add(id(current))
+        pending.append((current, True))
         result.append(expression)
         if type(expression) is row.ProjectSQLScalarCall:
-            pending.extend(reversed(expression.arguments))
+            children = expression.arguments
         elif type(expression) is row.ProjectSQLListOperation:
-            pending.extend(
-                reversed(
-                    tuple(
-                        child
-                        for child in (expression.body, expression.condition)
-                        if child is not None
-                    )
-                )
+            children = tuple(
+                child
+                for child in (expression.body, expression.condition)
+                if child is not None
             )
         elif type(expression) is row.ProjectSQLMembership:
-            pending.extend(reversed(expression.options))
-            pending.append(expression.value)
+            children = (expression.value, *expression.options)
         else:
             fields = CHILD_FIELDS.get(type(expression), ())
             children = tuple(getattr(expression, name) for name in fields)
@@ -1051,7 +1050,7 @@ def _tree_nodes(plan, reference, *, render_order):
                         len(children),
                     )
                 )
-            pending.extend(reversed(children))
+        pending.extend((child, False) for child in reversed(children))
     return tuple(result)
 
 
@@ -1062,17 +1061,16 @@ def rendered_constant_chains(plan, reference):
 
 def _constant_chains(expressions, plan):
     result = []
-    covered = set()
-    for expression in expressions:
-        if expression.ref in covered:
-            continue
+    position = 0
+    while position < len(expressions):
+        expression = expressions[position]
         chain = parameters.original_chain(plan, expression.ref)
         if chain is None:
+            position += 1
             continue
         signs, leaf = chain
-        covered.update(sign.ref for sign in signs)
-        covered.add(leaf.ref)
-        result.append((expression.ref, leaf))
+        result.append((position + len(signs), expression.ref, leaf))
+        position += len(signs) + 1
     return tuple(result)
 
 
@@ -1109,7 +1107,7 @@ def build_row_value(
             return None, problem
         return parameters.build_value(plan, reference, family, uses), None
     if type(expression) is row.ProjectSQLParameterRead:
-        use = uses.get(expression.ref)
+        use = parameters.take_use(uses, expression.ref)
         if use is None or use.parameter is not expression.parameter:
             return None, ("PIE-B1008", "native_occurrence_allocation")
         nullable = value_nullable(expression)
@@ -1611,6 +1609,9 @@ def decimal_operand_origin(value, family: str) -> str | None:
             type(value) is SQLStageReference
             and value.column.field is not None
             and value.column.source_port is not None
+            or family == "postgres"
+            and type(value) in {SQLStageReference, SQLOperation}
+            and _decimal_parameters(family, realization) is not None
         ):
             return "decimal"
         return None
@@ -1625,6 +1626,9 @@ def decimal_operand_origin(value, family: str) -> str | None:
         type(value) is SQLStageReference
         and value.column.field is not None
         and value.column.source_port is not None
+        or family == "postgres"
+        and type(value) in {SQLStageReference, SQLOperation}
+        and proven_int_bounds(realization) is not None
     ):
         return "int"
     return None
@@ -2094,13 +2098,14 @@ def _conditional(request, columns, expression, tag, nullable, uses, reference_ty
     values, problem = _operands(
         request,
         columns,
-        (expression.when_true, expression.condition, expression.when_false),
+        (expression.condition, expression.when_true, expression.when_false),
         uses,
         reference_type,
     )
     if values is None:
         assert problem is not None
         return None, problem
+    values = (values[1], values[0], values[2])
     realized = tuple(realization_of(value, request.family) for value in values)
     checked, problem = resolved_conditional_realization(
         request.family, tag, nullable, realized

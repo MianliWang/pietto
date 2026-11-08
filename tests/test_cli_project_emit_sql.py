@@ -899,6 +899,37 @@ def test_a_selected_file_name_that_is_not_utf8_rejects_emission(
         main.read_text() + "\nquery counted:\n    from rows\n    select:\n"
         "        n = sum(money)\n"
     )
+    if target == "postgres":
+        contract_path = root / "contract.json"
+        contract = json.loads(contract_path.read_text())
+        contract["environment"].append(
+            {"key": "identifier_case", "scope": "statement", "value": "quoted_exact"}
+        )
+        contract_path.write_text(json.dumps(contract))
+        # Qualify the SUM before restoring the invalid source filename.
+        unnamed.unlink()
+        try:
+            code, out, err = run(changed(8, "counted", "query"))
+            admitted = json.loads(out)
+            assert (code, err, admitted["status"]) == (0, "", "VERIFIED")
+            assert admitted["columns"][0]["representation"]["storage"] == {
+                "kind": "pg_numeric",
+                "precision": 28,
+                "scale": 2,
+            }
+        finally:
+            unnamed.write_bytes(b"")
+    code, out, err = run(changed(8, "counted", "query"))
+    document = failure(out)
+    assert (code, document["status"], document["cli_errors"]) == (
+        (2, "INPUT_REJECTED", rejected) if target == "postgres" else (1, "BLOCKED", [])
+    )
+    if target == "mysql":
+        assert [item["subject"]["detail"] for item in document["blockers"]] == [
+            "decimal_aggregate_range_proof_missing"
+        ]
+    # AVG remains refused before source-path serialization on both targets.
+    main.write_text(main.read_text().replace("n = sum(money)", "n = avg(money)"))
     code, out, err = run(changed(8, "counted", "query"))
     document = failure(out)
     assert (code, document["status"], document["cli_errors"]) == (1, "BLOCKED", [])
@@ -2657,13 +2688,11 @@ def test_blockers_name_their_own_reason_place_and_remedy(tmp_path: Path) -> None
         " invent a range, meaning or bound in the contract.\n"
     )
     contract = _reasons_contract()
-    # Every refused aggregate at its own item, in select order, with its
-    # reason; a PostgreSQL Float or Decimal extreme or distinct count emits.
+    # Decimal SUM now emits with its checked widened carrier; AVG retains its
+    # exact refusal location and remedy, beside accepted extremes and counts.
     assert _reasons(tmp_path, "aggregates", contract) == (
         1,
         "pietto.sql-emission.v1 BLOCKED\n"
-        "blocker PIE-B1004 MISSING_EVIDENCE:"
-        f" decimal_aggregate_range_proof_missing (main.pietto:16:9)\n{decimal_hint}"
         "blocker PIE-B1004 MISSING_EVIDENCE:"
         f" decimal_aggregate_range_proof_missing (main.pietto:19:9)\n{decimal_hint}",
     )

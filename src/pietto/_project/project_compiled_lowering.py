@@ -321,11 +321,13 @@ def emit_compiled(root, values, named=None):
             )
         if address.kind == "parameter_read":
             uses = native_by_literal.get(address, ())
-            if len(uses) != 1 or seen_uses.get(address):
+            position = seen_uses.get(address, 0)
+            if position >= len(uses):
                 raise CompiledError("COMPILED_PARAMETER_EXPANSION")
-            seen_uses[address] = 1
+            native = uses[position]
+            seen_uses[address] = position + 1
             return rows.SQLParameterRead(
-                original, uses[0], uses[0].physical_type, fact.realization
+                original, native, native.physical_type, fact.realization
             )
         if address.kind in ("literal", "null_literal"):
             site = next(
@@ -361,10 +363,12 @@ def emit_compiled(root, values, named=None):
             return list_operation(address, record, fact, use, producer, join_contexts)
         if (role, token) in BLOCK_READ_OPERATORS:
             return block_read(address, fact, token, use, producer, alias, join_contexts)
-        operands = tuple(
-            scalar(a, use, producer, alias, join_contexts)
-            for a in record.get("operands")
-        )
+        arguments = record.get("operands")
+        built_operands = {
+            position: scalar(arguments[position], use, producer, alias, join_contexts)
+            for position in rows.rendered_operand_order(role, len(arguments))
+        }
+        operands = tuple(built_operands[position] for position in range(len(arguments)))
         if role == "unary" and type(operands[0]) in (
             parameters.SQLAnchor,
             parameters.SQLUnary,

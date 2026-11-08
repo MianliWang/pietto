@@ -12,7 +12,7 @@ from pietto._project.let_scope_facts import (
     ProjectRelationLetScopeFacts,
 )
 from pietto._project.model import (
-    ProjectAggregateResultFact,
+    ProjectAnyAggregateResultFact,
     ProjectRelationRowSchemaReason,
     ProjectRelationRowSchemaState,
     ProjectRelationRowSchemaStatus,
@@ -88,7 +88,7 @@ class ProjectWindowPersistenceBundle:
 
     definition: _DerivedRelation
     state: ProjectRelationRowSchemaState
-    aggregate_result_facts: Mapping[str, ProjectAggregateResultFact]
+    aggregate_result_facts: Mapping[str, ProjectAnyAggregateResultFact]
     window_result_facts: Mapping[str, WindowResultProjectFact]
     dependency_graph: ProjectRelationRowDependencyGraph
     lineage: ProjectRelationRowLineage
@@ -150,7 +150,7 @@ def build_project_window_persistence(
     fallback_path: str,
     let_scope_facts: ProjectRelationLetScopeFacts,
     base_state: ProjectRelationRowSchemaState,
-    base_aggregate_result_facts: Mapping[str, ProjectAggregateResultFact],
+    base_aggregate_result_facts: Mapping[str, ProjectAnyAggregateResultFact],
     base_dependency_graph: ProjectRelationRowDependencyGraph,
     base_lineage: ProjectRelationRowLineage,
 ) -> ProjectWindowPersistenceBundle:

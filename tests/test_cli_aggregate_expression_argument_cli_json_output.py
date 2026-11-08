@@ -310,7 +310,7 @@ def test_cli_json_output_writes_file_and_keeps_expression_argument_artifacts(
         ("value = min(amount + tax)", "PIE-S2315"),
         ("value = max(score * weight)", "PIE-S2315"),
         ("value = sum(avg(amount))", "PIE-S2311"),
-        ("value = sum(amount) + 1", "PIE-S2310"),
+        ("value = sum(amount) if True else 1", "PIE-S2310"),
     ],
 )
 def test_unsupported_expression_argument_json_output_does_not_write(

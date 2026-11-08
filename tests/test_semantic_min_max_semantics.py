@@ -206,23 +206,17 @@ def test_min_max_reject_unsupported_direct_field_argument_types(
             ("PIE-S2313", "Aggregate min() projection requires an explicit alias"),
         ),
         (
-            "value = min(amount) + 1",
+            "value = min(amount) if True else 1",
             (
                 "PIE-S2310",
-                "Aggregate projection must be a direct aggregate call; "
-                "composition around min() is not supported yet; select the min() "
-                "under a name in one query, then compute with that name in "
-                "another that reads it with `from`",
+                "Aggregate composition requires scalar calls or arithmetic over direct aggregates, group keys and literals; invalid composition around min(); select the min() under a name in one query, then compute with that name in another that reads it with `from`",
             ),
         ),
         (
             "value = lower(min(amount))",
             (
-                "PIE-S2310",
-                "Aggregate projection must be a direct aggregate call; "
-                "composition around min() is not supported yet; select the min() "
-                "under a name in one query, then compute with that name in "
-                "another that reads it with `from`",
+                "PIE-S2104",
+                "Invalid argument type for function lower at position 1: expected Text, got Int",
             ),
         ),
     ],

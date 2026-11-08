@@ -251,8 +251,7 @@ _COUNT = "count matching rows with `sum(1 for o in group if ...)`"
             "sum(1 for o in group if o.paid) + 1",
             "sum",
             "PIE-S2310",
-            "Aggregate projection must be a direct aggregate call; composition "
-            "around sum() is not supported yet",
+            "Aggregate composition requires scalar calls or arithmetic over direct aggregates, group keys and literals; invalid composition around sum()",
             "select the sum() under a name in one query, then compute with that "
             "name in another that reads it with `from`",
         ),
@@ -594,8 +593,7 @@ _RENAME = "rename the relation group to read this group's rows"
             "not all(o.paid for o in group)",
             "not",
             "PIE-S2310",
-            "Aggregate projection must be a direct aggregate call; composition "
-            "around all() is not supported yet",
+            "Aggregate composition requires scalar calls or arithmetic over direct aggregates, group keys and literals; invalid composition around all()",
             "select the all() under a name in one query, then compute with that "
             "name in another that reads it with `from`",
         ),
@@ -603,8 +601,7 @@ _RENAME = "rename the relation group to read this group's rows"
             "any(o.paid for o in group) and True",
             "any",
             "PIE-S2310",
-            "Aggregate projection must be a direct aggregate call; composition "
-            "around any() is not supported yet",
+            "Aggregate composition requires scalar calls or arithmetic over direct aggregates, group keys and literals; invalid composition around any()",
             "select the any() under a name in one query, then compute with that "
             "name in another that reads it with `from`",
         ),
