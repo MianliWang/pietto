@@ -2940,7 +2940,7 @@ def derive_compiled_semantics(root, values, parameters=None):
                             candidates.append(facts[sibling].value_type)
                     elif (
                         role == "binary"
-                        and token in ("+", "-", "*")
+                        and token in ("+", "-", "*", "/", "%")
                         and len(parent_operands) == 2
                     ):
                         # An arithmetic NULL takes its other operand's type (D-12),
@@ -3305,6 +3305,9 @@ def derive_compiled_semantics(root, values, parameters=None):
                             if defaults[0] is None
                             else windowing.BINDING_DEFAULT
                             if type(defaults[0]) is windowing.ParameterStatic
+                            else windowing._text_literal(defaults[0], family)
+                            if type(defaults[0]) is str
+                            and typed.resolved_type.name == "Text"
                             else str(defaults[0])
                         )
                         realized, problem = windowing.resolved_value_result(
@@ -3414,7 +3417,7 @@ def derive_compiled_semantics(root, values, parameters=None):
                         origin = "unsupported"
                 elif (
                     role == "binary"
-                    and token in ("+", "-", "*", "and", "or")
+                    and token in ("+", "-", "*", "/", "%", "and", "or")
                     and len(arguments) == 2
                 ):
                     typed, error = resolved_binary_value_type(token, *arguments)
@@ -4287,7 +4290,7 @@ def verify_compiled_semantics(value):
                             candidates.append(by_address[sibling].value_type)
                     elif (
                         role == "binary"
-                        and token in ("+", "-", "*")
+                        and token in ("+", "-", "*", "/", "%")
                         and len(parent_operands) == 2
                     ):
                         sibling = parent_operands[1 - position]
@@ -4632,6 +4635,9 @@ def verify_compiled_semantics(value):
                             if defaults[0] is None
                             else windowing.BINDING_DEFAULT
                             if type(defaults[0]) is windowing.ParameterStatic
+                            else windowing._text_literal(defaults[0], family)
+                            if type(defaults[0]) is str
+                            and typed.resolved_type.name == "Text"
                             else str(defaults[0])
                         )
                         # A parameter value is its own anchor (a MySQL SIGNED

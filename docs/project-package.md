@@ -1015,15 +1015,22 @@ all yet; emit with --dialect postgres.`). Compiled bundles and live templates
 carry it unchanged: the compiled `aggregate_value` function is `group_any` or
 `group_all` with the test as its one argument.
 
+PostgreSQL projects also emit signed-`Int` `/` and `%`, same-type `Float`
+`/` and exact binary64 `%`, and a static `Text` literal default of `lag` or
+`lead`, when their physical realization and required evidence close. A zero
+divisor raises the PostgreSQL error 22012; Float arithmetic can also fail
+with checked 22003. MySQL projects keep these forms refused. Nonliteral
+Text defaults remain refused.
+
 `check --project` also accepts the following forms, which
 `emit-sql --project` reports BLOCKED on both dialects whatever the contract
 declares:
 
 - a comparison of a `Float` with an `Int` (`price > 1`; write `price > 1.0`)
   or of a `Decimal` value with a literal (`amount > 1.5`);
-- `/` and `%`, whatever their operand types, `Float(x) / y` included;
+- `Decimal` division;
 - `matches(...)`;
-- a `Text` default of `lag` or `lead` (`lead(label, 1, "none")`);
+- a nonliteral `Text` default of `lag` or `lead` (a header parameter or field);
 - `Int` arithmetic whose result is not proved to fit a signed 64-bit integer,
   on PostgreSQL only where its range lies wholly outside signed 64 bits.
   The proof uses the storage type, not the declared `int_range`. On

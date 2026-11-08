@@ -372,6 +372,10 @@ def _render_expression_sql(expression: ExpressionIR, *, nested: bool) -> str:
         _refuse_text_null_operand(f"operator {expression.operator}", expression.operand)
         sql = f"{operator}{_render_expression_sql(expression.operand, nested=True)}"
     elif isinstance(expression, BinaryIR):
+        if expression.operator == "%" and _builtin_type_name(expression) == "Float":
+            # E5's exact binary64 lowering is a PostgreSQL project feature;
+            # single-file emitters must never output unsupported float8 `%`.
+            raise ValueError("PostgreSQL Float remainder requires project emission")
         operator = _supported_operator(
             _BINARY_OPERATORS,
             expression.operator,

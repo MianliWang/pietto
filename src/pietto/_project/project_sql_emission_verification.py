@@ -89,6 +89,9 @@ from pietto.ast_nodes import (
     UnaryExpr,
 )
 from pietto._project.project_sql_emission_rendering import (
+    FLOAT_REMAINDER_BETWEEN,
+    FLOAT_REMAINDER_PREFIX,
+    FLOAT_REMAINDER_SUFFIX,
     OPERATORS,
     RenderedSQL,
     RenderingEvent,
@@ -1517,6 +1520,17 @@ def resolved_row_realization(
         and tag == "Float"
         and all(item.tag == "Float" for item in operands)
     ):
+        if kind == "binary" and operator in {"/", "%"}:
+            if family != "postgres" or not all(
+                _float_carrier(item, "postgres") for item in operands
+            ):
+                raise ValueError("float division or remainder")
+            return rows.Realization(
+                "Float",
+                {"kind": "pg_float8"},
+                nullable,
+                {"kind": "finite_float", "format": "binary64"},
+            )
         if kind == "unary" or float_values is None:
             # E4: PostgreSQL's float8 sign is exact and its checked +, - and *
             # refuse a non-finite result (SQLSTATE 22003).
@@ -1543,6 +1557,20 @@ def resolved_row_realization(
         )
     if tag != "Int" or any(item.tag != "Int" for item in operands):
         raise ValueError("arithmetic domain")
+    if kind == "binary" and operator in {"/", "%"}:
+        if family != "postgres":
+            raise ValueError("integer division or remainder")
+        return rows.Realization(
+            "Int",
+            {"kind": "pg_int8"},
+            nullable,
+            {
+                "kind": "int_range",
+                "min": str(rows.SIGNED64[0]),
+                "max": str(rows.SIGNED64[1]),
+            },
+            rows.SIGNED64,
+        )
     nulls = [
         item.nullable is True
         and item.storage == {"kind": "typed_null"}
@@ -1717,6 +1745,7 @@ def _float_checked(family, value):
         family == "postgres"
         and type(value) is rows.SQLOperation
         and value.kind == "arithmetic"
+        and value.original.expression.operator != "%"
         and value.realization.tag == "Float"
         and any(_float_literal_value(operand) is None for operand in value.operands)
     )
@@ -1752,6 +1781,8 @@ def _target_checked(family, value):
     elif value.kind == "arithmetic" and len(bounds) == 2:
         (a, b), (c, d) = bounds
         operator = value.original.expression.operator
+        if operator in {"/", "%"}:
+            return False
         if operator == "+":
             low, high = a + c, b + d
         elif operator == "-":
@@ -1940,6 +1971,14 @@ def resolved_window_value_result(family, carrier, origin, default, retained):
         raise ValueError("window value result logical type")
     if family == "mysql" and tag == "Bool":
         raise ValueError("MySQL Bool window value result outside Phase66")
+    if tag == "Text":
+        width = windowing.text_default_width(default)
+        if default not in {None, "NULL"} and width is None:
+            raise ValueError("window Text default")
+        domain = dict(carrier.domain)
+        if width is not None:
+            domain["max_characters"] = max(domain["max_characters"], width)
+        return rows.Realization(tag, carrier.storage, bool(nullable), domain)
     if tag != "Int":
         return rows.Realization(tag, carrier.storage, bool(nullable), carrier.domain)
     storage, domain = resolved_window_integer_result(family, carrier, origin, default)
@@ -7690,6 +7729,29 @@ def verify_row_bytes(query, rendered):
                 take("syntax", "comparison_escape", reference, " ESCAPE '!'")
                 take("syntax", "comparison_close", reference, ")")
                 spans.append(("comparison", reference, start, offset))
+                return
+            if (
+                value.kind == "arithmetic"
+                and value.original.expression.operator == "%"
+                and value.realization.tag == "Float"
+            ):
+                if query.request.family != "postgres":
+                    raise ValueError("unrenderable float remainder")
+                take(
+                    "syntax", "float_remainder_open", reference, FLOAT_REMAINDER_PREFIX
+                )
+                operation_operand(value, 0, alias)
+                take(
+                    "syntax",
+                    "float_remainder_between",
+                    reference,
+                    FLOAT_REMAINDER_BETWEEN,
+                )
+                operation_operand(value, 1, alias)
+                take(
+                    "syntax", "float_remainder_close", reference, FLOAT_REMAINDER_SUFFIX
+                )
+                spans.append(("binary", reference, start, offset))
                 return
             opening, operator, closing, role = OPERATORS[value.kind]
             take("syntax", opening, reference, "(")

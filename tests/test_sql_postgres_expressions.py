@@ -748,6 +748,19 @@ def test_division_renders_sql_division_without_a_cast() -> None:
         assert render_expression_sql(other) == '"n" / 2'
 
 
+def test_float_remainder_never_reaches_the_single_file_postgres_renderer() -> None:
+    expression = BinaryIR(
+        span=SPAN,
+        value_type=FLOAT_TYPE,
+        left=_typed_field("ratio", FLOAT_TYPE),
+        operator="%",
+        right=LiteralIR(span=SPAN, value_type=FLOAT_TYPE, value=0.1),
+    )
+
+    with pytest.raises(ValueError, match="Float remainder requires project emission"):
+        render_expression_sql(expression)
+
+
 def test_nested_compound_expressions_are_parenthesized() -> None:
     left = ComparisonIR(
         span=SPAN,

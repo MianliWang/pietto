@@ -47,6 +47,7 @@ from pietto._project.project_sql_emission_joins import (
 )
 from pietto.ast_nodes import AuthoredJoinKind
 from pietto._project import project_sql_emission_parameters as parameters
+from pietto._project import project_sql_emission_portable_schema as schema
 from pietto._project import project_sql_emission_rows as rows
 
 __all__: tuple[str, ...] = ()
@@ -229,6 +230,13 @@ OPERATORS = {
         "comparison",
     ),
 }
+
+# E5: PostgreSQL has no float8 `%`.  This local scalar subquery keeps both
+# authored operands single-evaluation values, then computes fmod over their
+# exact binary64 integer units.  It is not a Pietto-visible numeric carrier.
+FLOAT_REMAINDER_PREFIX, FLOAT_REMAINDER_BETWEEN, FLOAT_REMAINDER_SUFFIX = (
+    schema.FLOAT_REMAINDER_TOKENS
+)
 
 
 def operator_token(node):
@@ -1047,6 +1055,26 @@ class _Writer:
             self.emit(" ESCAPE '!'", "syntax", "comparison_escape", reference)
             self.emit(")", "syntax", "comparison_close", reference)
             self.enclose("comparison", reference, start)
+            return
+        if (
+            value.kind == "arithmetic"
+            and value.original.expression.operator == "%"
+            and value.realization.tag == "Float"
+        ):
+            if self.request.family != "postgres":
+                raise ValueError("unrenderable float remainder")
+            self.emit(
+                FLOAT_REMAINDER_PREFIX, "syntax", "float_remainder_open", reference
+            )
+            self.scalar(value.operands[0], alias)
+            self.emit(
+                FLOAT_REMAINDER_BETWEEN, "syntax", "float_remainder_between", reference
+            )
+            self.scalar(value.operands[1], alias)
+            self.emit(
+                FLOAT_REMAINDER_SUFFIX, "syntax", "float_remainder_close", reference
+            )
+            self.enclose("binary", reference, start)
             return
         opening, operator, closing, role = OPERATORS[value.kind]
         self.emit("(", "syntax", opening, reference)

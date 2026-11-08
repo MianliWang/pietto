@@ -451,7 +451,7 @@ def test_a_null_number_fits_beside_numbers_as_the_database_reads_it(
     # SQL writes each such NULL as a typed NULL, and one beside a `Float`
     # result as that `Float`, so the column has the type Pietto gives it.
     # The other operands of `coalesce` and `in` keep their typed twin's rule,
-    # `%` takes no `Float`, which PostgreSQL has no remainder for, and a
+    # `%` keeps its matching-known-type rule (Int or Float), and a
     # nullable numeric `def` parameter takes a NULL number of another numeric
     # type, the call typed with it in place as its SQL is, but no other one.
     source = _NULL_NUMBER_HEAD + (

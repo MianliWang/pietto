@@ -17,7 +17,7 @@ from pietto.ir.model import SymbolNamespace
 
 __all__: tuple[str, ...] = ()
 
-ARITHMETIC = ("+", "-", "*")
+ARITHMETIC = ("+", "-", "*", "/", "%")
 LOGICAL = ("and", "or")
 COMPARISONS = {
     "==": " = ",
@@ -1421,6 +1421,8 @@ def target_checked(family: str, operation) -> bool:
             return False
         bounds.append(interval)
     if operation.kind == "arithmetic" and len(bounds) == 2:
+        if operation.original.expression.operator in {"/", "%"}:
+            return False
         low, high = _interval(
             operation.original.expression.operator, bounds[0], bounds[1]
         )
@@ -1449,6 +1451,7 @@ def checked_evidence(family: str, operation) -> tuple[str, ...]:
     if (
         family == "postgres"
         and operation.kind == "arithmetic"
+        and operation.original.expression.operator != "%"
         and operation.realization.tag == "Float"
         and any(_float_literal_value(o) is None for o in operation.operands)
     ):
@@ -1641,9 +1644,11 @@ def resolved_binary_realization(
                 + 1
                 + scale
             )
-        else:
+        elif operator == "*":
             scale = left_scale + right_scale
             precision = left_precision + right_precision
+        else:
+            return None, ("PIE-B1003", "binary_operator_not_admitted")
         if precision > 65 or scale > 30:
             return None, ("PIE-B1002", "decimal_result_outside_physical_range")
         storage = {
@@ -1661,6 +1666,41 @@ def resolved_binary_realization(
             None,
         )
     if tag == left.tag == right.tag == "Float":
+        if operator == "%":
+            if not (
+                family == "postgres"
+                and float_carrier(left, family)
+                and float_carrier(right, family)
+            ):
+                return None, (
+                    "PIE-B1003",
+                    "float_remainder_exact_binary64_not_realized",
+                )
+            return (
+                Realization(
+                    "Float",
+                    {"kind": "pg_float8"},
+                    nullable,
+                    FINITE_FLOAT,
+                ),
+                None,
+            )
+        if operator == "/":
+            if not (
+                family == "postgres"
+                and float_carrier(left, family)
+                and float_carrier(right, family)
+            ):
+                return None, ("PIE-B1003", "float_division_not_realized")
+            return (
+                Realization(
+                    "Float",
+                    {"kind": "pg_float8"},
+                    nullable,
+                    FINITE_FLOAT,
+                ),
+                None,
+            )
         if float_values is not None:
             left_value, right_value = float_values
             result = {
@@ -1689,6 +1729,21 @@ def resolved_binary_realization(
         )
     if tag != "Int" or left.tag != "Int" or right.tag != "Int":
         return None, ("PIE-B1003", "arithmetic_requires_signed_int_operands")
+    if operator in {"/", "%"}:
+        if family != "postgres":
+            return None, ("PIE-B1003", "binary_operator_not_admitted")
+        # PostgreSQL's int8 operators preserve the value or raise; no MySQL
+        # NULL-on-zero path is admitted by this PostgreSQL-first slice.
+        return (
+            Realization(
+                "Int",
+                {"kind": "pg_int8"},
+                nullable,
+                {"kind": "int_range", "min": str(SIGNED64[0]), "max": str(SIGNED64[1])},
+                SIGNED64,
+            ),
+            None,
+        )
     if _typed_null(left) is not _typed_null(right):
         return _null_int_arithmetic(
             family, right if _typed_null(left) else left, nullable

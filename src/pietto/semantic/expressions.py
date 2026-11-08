@@ -3734,6 +3734,8 @@ def resolved_binary_value_type(
     if operator == "%":
         if _is_builtin(left_type, "Int") and _is_builtin(right_type, "Int"):
             return _builtin_value_type("Int", EffectiveNullability.UNKNOWN), None
+        if _is_builtin(left_type, "Float") and _is_builtin(right_type, "Float"):
+            return _builtin_value_type("Float", EffectiveNullability.UNKNOWN), None
         return _UNKNOWN_VALUE_TYPE, "Int operands"
     if operator in {"+", "-", "*"}:
         name = _binary_arithmetic_result_type(operator, left_type, right_type)
@@ -5144,8 +5146,9 @@ def _null_number_type(
     keep exact, and PostgreSQL and MySQL convert an `Int` to a `Decimal` and
     either to a `Float` where they need one type, so a NULL number fits beside
     numbers of other types; the widest decides the type, nullable. A
-    ``remainder`` takes no `Float`, which PostgreSQL has no `%` for. The
-    operands that are not always null keep the operator's own rule
+    A `Float` remainder is accepted only for two non-null Float operands and
+    has a PostgreSQL project-only lowering; an always-null number does not
+    establish that target qualification. The operands that are not always null keep the operator's own rule
     (``shared``), so a NULL number lets no other numbers of different types
     mix."""
 

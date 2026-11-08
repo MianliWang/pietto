@@ -35,6 +35,54 @@ def _emit_file(tmp_path, capsys, target: str, body: str) -> dict:
     return json.loads(capsys.readouterr().out)
 
 
+@pytest.mark.parametrize("target", ("postgres", "mysql"))
+@pytest.mark.parametrize(
+    ("body", "code"),
+    (
+        (
+            "query q:\n    from sales\n    select:\n        rest = weight % 0.1\n",
+            "PIE-B1000",
+        ),
+        (
+            "query q:\n    from sales\n    select:\n        rest = 1.0 % 0.1\n",
+            "PIE-B1000",
+        ),
+        (
+            "query q:\n    from sales\n    select:\n        rest = -0.0 % 0.1\n",
+            "PIE-B1000",
+        ),
+        (
+            "query q:\n    from sales\n    select:\n        rest = weight % 0.0\n",
+            "PIE-B1000",
+        ),
+        (
+            "query q:\n    from sales\n    select:\n        total = count(weight % 0.1)\n",
+            "PIE-B1000",
+        ),
+        (
+            "def remainder(x: Float) -> Float: return x % 0.1\n"
+            "query q:\n    from sales\n    select:\n        rest = remainder(weight)\n",
+            None,
+        ),
+    ),
+)
+def test_single_file_float_remainder_remains_target_refused(
+    tmp_path, capsys, target, body, code
+):
+    """E5's exact Float remainder is project-only until each target qualifies."""
+    document = _emit_file(
+        tmp_path,
+        capsys,
+        target,
+        body,
+    )
+
+    assert document["artifacts"] == []
+    assert document["diagnostics"]
+    if code is not None:
+        assert any(item["code"] == code for item in document["diagnostics"])
+
+
 def test_postgres_writes_the_first_element_of_an_ordered_array_agg(
     tmp_path, capsys
 ) -> None:

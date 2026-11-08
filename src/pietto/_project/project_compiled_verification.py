@@ -1957,7 +1957,7 @@ def verify_description(value: Description) -> None:
             allowed = {
                 "unary": ({"+", "-"}, 1),
                 "not": ({"not"}, 1),
-                "binary": ({"+", "-", "*", "and", "or"}, 2),
+                "binary": ({"+", "-", "*", "/", "%", "and", "or"}, 2),
                 "comparison": (
                     {"==", "!=", "<", "<=", ">", ">=", "like", "not like"},
                     2,
@@ -6602,10 +6602,15 @@ def verify_compiled_window_stage(body, record, request, produced, sources):
                 )
                 check_read(argument.read, address)
             else:
+                expected_literal = (
+                    "NULL"
+                    if static[role] is None
+                    else windowing._text_literal(static[role], request.family)
+                    if role == "default" and type(static[role]) is str
+                    else str(static[role])
+                )
                 need(
-                    argument.read is None
-                    and argument.literal
-                    == ("NULL" if static[role] is None else str(static[role])),
+                    argument.read is None and argument.literal == expected_literal,
                     "WINDOW_STATIC_ARGUMENT",
                 )
         check_spec(column.specification, value.get("specification"))

@@ -2808,6 +2808,14 @@ mode, where it is written: once in a `def` body, not at its calls, and in a
 reported in single files and LEGACY_FLAT projects. To keep the fraction of an
 `Int` division, convert explicitly:
 
+In PostgreSQL project emission, `Float % Float` is the finite binary64
+truncating-quotient remainder (`fmod`): its magnitude is less than the
+divisor's and its sign, including zero's sign, follows the dividend. It uses
+an exact binary64-unit lowering, not PostgreSQL's nonexistent float8 `%` or a
+Float-to-Decimal conversion. Single-file PostgreSQL and every MySQL Float `%`
+stay refused until separately qualified; mixed Int/Float and Decimal `%` are
+also refused.
+
 ```pietto PIE-S2106
 shape Order:
     id: Int
@@ -2880,8 +2888,9 @@ they need one type: with a `Float` field `fl`, `(None + d) + 1.5` and
 `n if b else 1.5`, `coalesce(d, n)` and `sign(fl)` are refused. The remaining
 operands that are not always null must satisfy `in` and `coalesce`'s original
 type rule, so `coalesce(d, None + n, fl)` and `d in (fl, None + n)` are refused as
-`coalesce(d, fl)` and `d in (fl, 1.5)` are. `%` takes no `Float`, which
-PostgreSQL has no remainder for, so `(None + fl) % 2` is still PIE-S2105. A
+`coalesce(d, fl)` and `d in (fl, 1.5)` are. An always-null Float does not
+qualify the PostgreSQL project-only Float remainder, so `(None + fl) % 2` is
+still PIE-S2105. A
 nullable numeric `def` parameter also takes such a number of another numeric
 type, and the call is typed with that number in place, as its SQL is: with
 `def fn(x: Float | None) -> Float | None: return x`, `fn(None + n)` is an

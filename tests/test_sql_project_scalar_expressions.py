@@ -12,6 +12,7 @@ from pietto._project import project_sql_emission_parameters as parameters
 from pietto._project import project_sql_emission_portable as portable
 from pietto._project import project_sql_emission_pure_boundary as pure
 from pietto._project import project_sql_emission_rows as rows
+from pietto._project import project_sql_emission_windows as windowing
 from pietto._project.project_sql_emission import (
     emit_project_sql,
     serialize_project_sql_emission,
@@ -23,6 +24,37 @@ from pietto._project.project_sql_emission_verification import (
 
 
 TARGETS = ("postgres", "mysql")
+
+
+def test_text_window_default_tokens_accept_only_ascii_octal_utf8() -> None:
+    carrier = {
+        "tag": "Text",
+        "storage": {"kind": "pg_text"},
+        "domain": {
+            "kind": "text",
+            "max_characters": 1,
+            "encoding": "UTF8",
+            "collation": "C",
+            "padding": "NO PAD",
+        },
+    }
+    valid = "E'\\351\\233\\252'"
+    assert windowing.text_default_width(valid) == 1
+    assert windowing._text_literal("a\x00b", "postgres") is None
+    assert windowing._text_literal("\ud800", "postgres") is None
+    assert all(
+        windowing.text_default_width(token) is None
+        and pure._window_value_representation("postgres", {}, carrier, token, {})
+        is None
+        for token in (
+            "E'\\000'",
+            "E'\\400'",
+            "E'\\777'",
+            "E'\\١٢٣'",
+            "E'\\351\\233'",
+            "'snow'",
+        )
+    )
 
 
 def graft(value, **changes):
@@ -386,6 +418,22 @@ def test_q1_scalar_surface_is_verified_through_both_project_targets(tmp_path, ta
     assert portable.verify_emission_observation(
         observed.canonical_bytes, artifact, artifact.request
     ).corresponds
+    from pietto._project.project_compiled_build import build_compiled
+    from pietto._project.project_compiled_loading import load_compiled
+    from pietto._project.project_execution_template import (
+        prepare_compiled_template,
+    )
+
+    built = build_compiled(artifact)
+    template = prepare_compiled_template(
+        load_compiled(
+            built.payload,
+            expected_pin=built.pin,
+            accepted_producer=built.producer,
+            accepted_compatibility=built.compatibility,
+        )
+    )
+    assert template.artifact.rendered.sql == artifact.rendered.sql
 
     document = probe.decode_public(serialize_project_sql_emission(outcome))
     labels = [column["label"] for column in document["columns"]]
@@ -557,6 +605,121 @@ FLOAT_FIELD_ARITHMETIC_BODY = """query result:
         nested = ratio - ratio * ratio
         folded = 1.5 + 2.25
 """
+
+FLOAT_REMAINDER_BODY = """query result:
+    from rows
+    select:
+        id
+        remainder = ratio % 0.1
+"""
+
+TEXT_WINDOW_DEFAULT_BODY = """query result:
+    from rows
+    select:
+        id
+        previous = lag(text, 1, "雪") window(order by id)
+        following = lead(text, 1, "a'b") window(order by id)
+"""
+
+
+@pytest.mark.parametrize("target", TARGETS)
+def test_postgres_text_window_defaults_are_escaped_and_widen_the_result(
+    tmp_path, target
+):
+    """E7 opens only static Text literals beside Text lag/lead values."""
+    checked, outcome = emit(tmp_path, target, TEXT_WINDOW_DEFAULT_BODY)
+    assert checked.verified
+    if target == "mysql":
+        assert outcome.status == "BLOCKED" and outcome.artifact is None
+        assert [(blocker.code, blocker.detail) for blocker in outcome.blockers] == [
+            ("PIE-B1003", "window_default_literal_kind_not_realized_yet"),
+        ]
+        return
+    assert outcome.status == "VERIFIED", outcome.blockers
+    artifact = outcome.artifact
+    assert artifact is not None
+    sql = artifact.rendered.sql.decode("utf-8")
+    assert "E'\\351\\233\\252'" in sql
+    assert "E'\\141\\047\\142'" in sql
+    document = probe.decode_public(serialize_project_sql_emission(outcome))
+    defaults = [
+        column["representation"]["domain"]["max_characters"]
+        for column in document["columns"]
+        if column["label"] in {"previous", "following"}
+    ]
+    assert len(defaults) == 2 and min(defaults) >= 3
+    observed = portable.export_emission_observation(artifact, artifact.request)
+    assert observed.status is portable.ObservationStatus.OK
+    assert observed.canonical_bytes is not None
+    assert (
+        pure.parse_emission_observation(observed.canonical_bytes).status
+        is pure.Status.OK
+    )
+    assert portable.verify_emission_observation(
+        observed.canonical_bytes, artifact, artifact.request
+    ).corresponds
+    from pietto._project.project_compiled_build import build_compiled
+    from pietto._project.project_compiled_loading import load_compiled
+    from pietto._project.project_execution_template import (
+        prepare_compiled_template,
+    )
+
+    built = build_compiled(artifact)
+    template = prepare_compiled_template(
+        load_compiled(
+            built.payload,
+            expected_pin=built.pin,
+            accepted_producer=built.producer,
+            accepted_compatibility=built.compatibility,
+        )
+    )
+    assert template.artifact.rendered.sql == artifact.rendered.sql
+
+
+@pytest.mark.parametrize("target", TARGETS)
+def test_postgres_float_remainder_uses_the_exact_binary64_lowering(tmp_path, target):
+    """E5 admits same-type Float `%` only through the PostgreSQL exact path."""
+    checked, outcome = emit(tmp_path, target, FLOAT_REMAINDER_BODY)
+    assert checked.verified
+    if target == "mysql":
+        assert outcome.status == "BLOCKED" and outcome.artifact is None
+        assert [(blocker.code, blocker.detail) for blocker in outcome.blockers] == [
+            ("PIE-B1003", "float_remainder_exact_binary64_not_realized")
+        ]
+        return
+    assert outcome.status == "VERIFIED", outcome.blockers
+    artifact = outcome.artifact
+    assert artifact is not None
+    sql = artifact.rendered.sql.decode("utf-8")
+    assert 'WITH "__pietto_s04_operands" AS MATERIALIZED (SELECT ' in sql
+    assert "pg_catalog.float8send" in sql
+    assert "pg_catalog.mod" in sql
+    observed = portable.export_emission_observation(artifact, artifact.request)
+    assert observed.status is portable.ObservationStatus.OK
+    assert observed.canonical_bytes is not None
+    assert (
+        pure.parse_emission_observation(observed.canonical_bytes).status
+        is pure.Status.OK
+    )
+    assert portable.verify_emission_observation(
+        observed.canonical_bytes, artifact, artifact.request
+    ).corresponds
+    from pietto._project.project_compiled_build import build_compiled
+    from pietto._project.project_compiled_loading import load_compiled
+    from pietto._project.project_execution_template import (
+        prepare_compiled_template,
+    )
+
+    built = build_compiled(artifact)
+    template = prepare_compiled_template(
+        load_compiled(
+            built.payload,
+            expected_pin=built.pin,
+            accepted_producer=built.producer,
+            accepted_compatibility=built.compatibility,
+        )
+    )
+    assert template.artifact.rendered.sql == artifact.rendered.sql
 
 
 @pytest.mark.parametrize("target", TARGETS)

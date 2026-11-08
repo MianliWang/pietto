@@ -44,6 +44,26 @@ MAX_INT_TEXT = 20
 MAX_FLOAT_TEXT = 32
 
 SCOPE_KIND = "selected_plan"
+
+# Fixed PostgreSQL-only E5 tokens.  The pure observation boundary consumes
+# these data constants without importing the compiler renderer.
+FLOAT_REMAINDER_TOKENS = (
+    '((WITH "__pietto_s04_operands" AS MATERIALIZED (SELECT ',
+    ' AS "left_value", ',
+    """ AS "right_value"), "__pietto_s04_bytes" AS (
+SELECT "left_value", "right_value", pg_catalog.float8send("left_value") AS "left_bytes", pg_catalog.float8send("right_value") AS "right_bytes" FROM "__pietto_s04_operands"
+), "__pietto_s04_parts" AS (
+SELECT "left_value", "right_value", pg_catalog.get_byte("left_bytes", 0) >= 128 AS "left_negative",
+(pg_catalog.get_byte("left_bytes", 0) % 128) * 16 + pg_catalog.get_byte("left_bytes", 1) / 16 AS "left_exponent",
+(pg_catalog.get_byte("right_bytes", 0) % 128) * 16 + pg_catalog.get_byte("right_bytes", 1) / 16 AS "right_exponent",
+(pg_catalog.get_byte("left_bytes", 1) % 16)::numeric * pg_catalog.power(2::numeric, 48::numeric) + pg_catalog.get_byte("left_bytes", 2)::numeric * pg_catalog.power(2::numeric, 40::numeric) + pg_catalog.get_byte("left_bytes", 3)::numeric * pg_catalog.power(2::numeric, 32::numeric) + pg_catalog.get_byte("left_bytes", 4)::numeric * pg_catalog.power(2::numeric, 24::numeric) + pg_catalog.get_byte("left_bytes", 5)::numeric * pg_catalog.power(2::numeric, 16::numeric) + pg_catalog.get_byte("left_bytes", 6)::numeric * pg_catalog.power(2::numeric, 8::numeric) + pg_catalog.get_byte("left_bytes", 7)::numeric AS "left_fraction",
+(pg_catalog.get_byte("right_bytes", 1) % 16)::numeric * pg_catalog.power(2::numeric, 48::numeric) + pg_catalog.get_byte("right_bytes", 2)::numeric * pg_catalog.power(2::numeric, 40::numeric) + pg_catalog.get_byte("right_bytes", 3)::numeric * pg_catalog.power(2::numeric, 32::numeric) + pg_catalog.get_byte("right_bytes", 4)::numeric * pg_catalog.power(2::numeric, 24::numeric) + pg_catalog.get_byte("right_bytes", 5)::numeric * pg_catalog.power(2::numeric, 16::numeric) + pg_catalog.get_byte("right_bytes", 6)::numeric * pg_catalog.power(2::numeric, 8::numeric) + pg_catalog.get_byte("right_bytes", 7)::numeric AS "right_fraction" FROM "__pietto_s04_bytes"
+), "__pietto_s04_units" AS (
+SELECT "left_negative", ("left_fraction" + CASE WHEN "left_exponent" = 0 THEN 0 ELSE pg_catalog.power(2::numeric, 52::numeric) END) * pg_catalog.power(2::numeric, GREATEST("left_exponent" - 1, 0)::numeric) AS "left_units", ("right_fraction" + CASE WHEN "right_exponent" = 0 THEN 0 ELSE pg_catalog.power(2::numeric, 52::numeric) END) * pg_catalog.power(2::numeric, GREATEST("right_exponent" - 1, 0)::numeric) AS "right_units" FROM "__pietto_s04_parts"
+), "__pietto_s04_magnitude" AS (
+SELECT "left_negative", (pg_catalog.mod("left_units", "right_units") * pg_catalog.power(5::numeric, 1074::numeric) * 1e-1074::numeric)::double precision AS "value" FROM "__pietto_s04_units"
+) SELECT CASE WHEN "left_negative" THEN -"value" ELSE "value" END FROM "__pietto_s04_magnitude"))""",
+)
 # The retained Phase65 plan reference kinds, spelled as data.
 PLAN_KINDS = frozenset(
     {
@@ -836,7 +856,7 @@ ANCHOR_SUFFIX = {
 }
 OPERATORS = {
     "sign": ("+", "-"),
-    "arithmetic": ("+", "-", "*"),
+    "arithmetic": ("+", "-", "*", "/", "%"),
     "logical": ("and", "or"),
     "comparison": ("==", "!=", "<", "<=", ">", ">=", "like", "not like"),
     "null_test": ("is null", "is not null"),
@@ -1085,7 +1105,10 @@ OVERLAYS = {
     "null_cast": (("null_cast_open",), ("null_cast_close",)),
     "reference": (("value_scope",), ("value_column",)),
     "capture": (("capture_scope",), ("capture_column",)),
-    "binary": (("binary_open",), ("binary_close",)),
+    "binary": (
+        ("binary_open", "float_remainder_open"),
+        ("binary_close", "float_remainder_close"),
+    ),
     "comparison": (("comparison_open",), ("comparison_close",)),
     "between": (("between_open",), ("between_close",)),
     "not": (("not_open",), ("not_close",)),

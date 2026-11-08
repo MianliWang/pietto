@@ -688,6 +688,19 @@ def test_division_renders_sql_division_without_a_cast() -> None:
         assert render_mysql_expression(other) == "`n` / 2"
 
 
+def test_float_remainder_never_reaches_the_single_file_mysql_renderer() -> None:
+    expression = BinaryIR(
+        span=SPAN,
+        value_type=FLOAT_TYPE,
+        left=_typed_field("ratio", "Float"),
+        operator="%",
+        right=LiteralIR(span=SPAN, value_type=FLOAT_TYPE, value=0.1),
+    )
+
+    with pytest.raises(MySqlRenderError, match="Float remainder is not qualified"):
+        render_mysql_expression(expression)
+
+
 def test_nested_compound_expressions_are_parenthesized() -> None:
     expression = BinaryIR(
         span=SPAN,

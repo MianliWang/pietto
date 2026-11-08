@@ -177,6 +177,38 @@ def _window_value_representation(family, read, carrier, default, doc):
         return None
     if family == "mysql" and carrier["tag"] == "Bool":
         return None
+    if carrier["tag"] == "Text":
+        if default in {None, "NULL"}:
+            return dict(storage), dict(domain)
+        if family != "postgres" or not isinstance(default, str):
+            return None
+        if not (default.startswith("E'") and default.endswith("'")):
+            return None
+        encoded, octets = default[2:-1], bytearray()
+        while encoded:
+            if (
+                len(encoded) < 4
+                or encoded[0] != "\\"
+                or any(character not in "01234567" for character in encoded[1:4])
+            ):
+                return None
+            octet = int(encoded[1:4], 8)
+            if octet == 0 or octet > 255:
+                return None
+            octets.append(octet)
+            encoded = encoded[4:]
+        try:
+            width = len(octets.decode("utf-8"))
+        except UnicodeDecodeError:
+            return None
+        if (
+            domain.get("kind") != "text"
+            or type(domain.get("max_characters")) is not int
+        ):
+            return None
+        result = dict(domain)
+        result["max_characters"] = max(result["max_characters"], width)
+        return dict(storage), result
     if carrier["tag"] != "Int":
         return dict(storage), dict(domain)
     kind = storage.get("kind")
@@ -3185,6 +3217,31 @@ class _Tokens:
                 "comparison escape",
             )
             return
+        if role in {
+            "float_remainder_open",
+            "float_remainder_between",
+            "float_remainder_close",
+        }:
+            _require(
+                node is not None
+                and node["kind"] == "arithmetic"
+                and node["operator"] == "%"
+                and self.family == "postgres",
+                "float remainder subject",
+            )
+            expected = dict(
+                zip(
+                    (
+                        "float_remainder_open",
+                        "float_remainder_between",
+                        "float_remainder_close",
+                    ),
+                    schema.FLOAT_REMAINDER_TOKENS,
+                    strict=True,
+                )
+            )[role]
+            _require(text == expected, "float remainder spelling")
+            return
         if role.startswith("scalar_call_"):
             _require(
                 node is not None and node["kind"] == "scalar_call",
@@ -4094,6 +4151,7 @@ class _Requirements:
                 op is not None
                 and self.family == "postgres"
                 and op["kind"] == "arithmetic"
+                and op["operator"] != "%"
                 and self.doc[op["realization"]]["tag"] == "Float"
                 and not all(_float_literal(self.doc, item) for item in op["operands"])
             )

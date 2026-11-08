@@ -642,6 +642,44 @@ def _integer_literal(value) -> str | None:
     return str(value) if type(value) is int and not isinstance(value, bool) else None
 
 
+def _text_literal(value, family) -> str | None:
+    """One retained PostgreSQL Text default, escaped by the literal owner."""
+
+    if family != "postgres" or type(value) is not str or "\x00" in value:
+        return None
+    try:
+        return parameters.scalar_token("Text", value, family)
+    except UnicodeError:
+        return None
+
+
+def text_default_width(default: str | None) -> int | None:
+    """Character width of the fixed E'\\ooo' Text default token, if any."""
+
+    if default is None or default == "NULL":
+        return None
+    if not (default.startswith("E'") and default.endswith("'")):
+        return None
+    encoded = default[2:-1]
+    octets = bytearray()
+    while encoded:
+        if (
+            len(encoded) < 4
+            or encoded[0] != "\\"
+            or any(character not in "01234567" for character in encoded[1:4])
+        ):
+            return None
+        octet = int(encoded[1:4], 8)
+        if octet == 0 or octet > 255:
+            return None
+        octets.append(octet)
+        encoded = encoded[4:]
+    try:
+        return len(octets.decode("utf-8"))
+    except UnicodeDecodeError:
+        return None
+
+
 def parameter_argument(family, policy, item, native):
     """One header-parameter window argument as its native placeholder leaf."""
 
@@ -724,7 +762,8 @@ def independent_arguments(policy, items, uses, available, *, family=None, native
             if fact.always_null:
                 realized.append(WindowArgument(item.position, role, literal="NULL"))
                 continue
-            literal = _integer_literal(getattr(fact.expression, "value", None))
+            raw = getattr(fact.expression, "value", None)
+            literal = _integer_literal(raw) or _text_literal(raw, family)
             if literal is None:
                 return None, (
                     "PIE-B1003",
@@ -1245,6 +1284,14 @@ def resolved_value_result(family, carrier, origin, default, retained):
             "PIE-B1002",
             "mysql_bool_window_result_representation_not_supported_in_phase66",
         )
+    if tag == "Text":
+        width = text_default_width(default)
+        if default not in {None, "NULL"} and width is None:
+            return None, ("PIE-B1003", "window_default_literal_kind_not_realized_yet")
+        domain = dict(carrier.domain)
+        if width is not None:
+            domain["max_characters"] = max(domain["max_characters"], width)
+        return rows.Realization(tag, carrier.storage, bool(nullable), domain), None
     if tag != "Int":
         return (
             rows.Realization(tag, carrier.storage, bool(nullable), carrier.domain),
@@ -1483,6 +1530,13 @@ def resolved_arguments(function, arguments, records, family):
             value = None
         elif address.kind == "literal" and record.get("tag") == "Int":
             value = record.get("value").value
+        elif (
+            address.kind == "literal"
+            and role == "default"
+            and family == "postgres"
+            and record.get("tag") == "Text"
+        ):
+            value = record.get("value").value
         else:
             raise CompiledError("COMPILED_WINDOW_STATIC")
         if role != "default":
@@ -1490,7 +1544,7 @@ def resolved_arguments(function, arguments, records, family):
                 raise CompiledError("COMPILED_WINDOW_STATIC")
             if family == "postgres" and value > I32_MAX:
                 raise CompiledError("COMPILED_WINDOW_INT32")
-        elif value is not None and not I64_MIN <= value <= I64_MAX:
+        elif type(value) is int and not I64_MIN <= value <= I64_MAX:
             raise CompiledError("COMPILED_WINDOW_DEFAULT")
         if records[record.get("site")].get("disposition") != "preserved_with_reason":
             raise CompiledError("COMPILED_WINDOW_STATIC_SLOT")
@@ -1616,13 +1670,20 @@ def build_compiled_stage(plan, record, reads, leaves):
         static = dict(
             resolved_arguments(function, value.get("arguments"), records, family)
         )
+        fact = facts[address]
         arguments = tuple(
             WindowArgument(i, role, parameter=leaves(a))
             if a.kind == "parameter_read"
             else WindowArgument(i, role, read=reads[a])
             if role == "value"
             else WindowArgument(
-                i, role, literal="NULL" if static[role] is None else str(static[role])
+                i,
+                role,
+                literal="NULL"
+                if static[role] is None
+                else _text_literal(static[role], family)
+                if role == "default" and fact.value_type.resolved_type.name == "Text"
+                else str(static[role]),
             )
             for i, (role, a) in enumerate(value.get("arguments"))
         )
@@ -1640,7 +1701,6 @@ def build_compiled_stage(plan, record, reads, leaves):
             family, function, arguments
         ):
             raise CompiledError("COMPILED_WINDOW_ARGUMENT")
-        fact = facts[address]
         expected, problem = result_realization(
             family,
             function,

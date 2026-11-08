@@ -23,7 +23,9 @@ PARAMETERIZED_FORMAT = "pietto.compiled-execution.v2"
 # logicals, unnest (Phase71 S09); 7/7: the one Phase73 bump, for aggregate
 # window values, median/quantile and conditional count/sum aggregate values,
 # typed parameter records and the now() scalar call.
-VERSIONS = (7, 1, 7, 1)
+# 8/8: the one Phase76 bump, for binary division/remainder and retained
+# Text window defaults. Later Phase76 record changes use these marks.
+VERSIONS = (8, 1, 8, 1)
 MEMBERS = ("structure", "parameters", "targets", "obligations", "outputs")
 MAX_BYTES = 32 * 1024 * 1024
 MAX_VALUES = 1 << 20

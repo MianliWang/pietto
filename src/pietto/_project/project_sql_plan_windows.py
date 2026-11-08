@@ -996,7 +996,7 @@ def resolved_result_type(function, value_type, arguments):
                     name=value_type.resolved_type.name,
                     kind=value_type.resolved_type.kind,
                 )
-                if default is None
+                if default is None or type(default) is str
                 else LogicalTypeIdentity(name="Int", kind=TypeKind.BUILTIN),
             )
             from pietto._project.project_sql_emission_windows import ParameterStatic

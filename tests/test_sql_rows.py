@@ -327,9 +327,9 @@ def test_filter_preserves_bag_multiplicity_of_surviving_rows(built, target):
             for target in ("postgres", "mysql")
             for variant, code, detail in (
                 ("bool_comparison", "PIE-B1003", "comparison_type_pair_not_admitted"),
-                ("modulo", "PIE-B1003", "binary_operator_not_admitted"),
             )
         ),
+        ("mysql", "modulo", "PIE-B1003", "binary_operator_not_admitted"),
     ),
 )
 def test_row_boundaries_keep_no_usable_partial_sql(
@@ -448,7 +448,7 @@ def test_float_comparisons_with_rows_on_both_sides(
 
 
 @pytest.mark.parametrize("target", ("postgres", "mysql"))
-def test_typed_division_stays_outside_the_project_row_boundary(tmp_path, target):
+def test_typed_division_is_postgres_only_at_the_project_row_boundary(tmp_path, target):
     item = probe.fixture(target, "V_row_blocked", "modulo")
     source = item["source"].replace("rest = id % 2", "half = id / 2")
     assert source != item["source"]
@@ -456,6 +456,30 @@ def test_typed_division_stays_outside_the_project_row_boundary(tmp_path, target)
         tmp_path, source, item["contract"], item["policy"]
     )
     assert checked.verified
+    if target == "postgres":
+        assert outcome.status == "VERIFIED"
+        assert outcome.artifact is not None
+        assert " / " in outcome.artifact.rendered.sql.decode("utf-8")
+        return
+    assert outcome.status == "BLOCKED" and outcome.artifact is None
+    public = probe.decode_public(serialize_project_sql_emission(outcome))
+    assert ("PIE-B1003", "binary_operator_not_admitted") in [
+        (blocker["code"], blocker["subject"]["detail"])
+        for blocker in public["blockers"]
+    ]
+
+
+@pytest.mark.parametrize("target", ("postgres", "mysql"))
+def test_typed_remainder_is_postgres_only_at_the_project_row_boundary(tmp_path, target):
+    item = probe.fixture(target, "V_row_blocked", "modulo")
+    checked, outcome = probe.build_case(
+        tmp_path, item["source"], item["contract"], item["policy"]
+    )
+    assert checked.verified
+    if target == "postgres":
+        assert outcome.status == "VERIFIED" and outcome.artifact is not None
+        assert " % " in outcome.artifact.rendered.sql.decode("utf-8")
+        return
     assert outcome.status == "BLOCKED" and outcome.artifact is None
     public = probe.decode_public(serialize_project_sql_emission(outcome))
     assert ("PIE-B1003", "binary_operator_not_admitted") in [
