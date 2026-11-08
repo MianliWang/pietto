@@ -122,13 +122,11 @@ def test_semantic_numeric_promotion_matrix_is_locked() -> None:
 @pytest.mark.parametrize(
     "projection",
     [
-        "value = +price",
         "value = score + price",
         "value = status + status",
         "value = order_date + amount",
         "value = created_at - amount",
         "value = active + amount",
-        "value = score % score",
         "value = amount % score",
     ],
 )
@@ -445,14 +443,10 @@ def test_decimal_value_facts_keep_logical_types_and_deferred_operators() -> None
     assert divided.nullability is EffectiveNullability.UNKNOWN
     assert division_diagnostics == ()
     unary, unary_diagnostics = expression_facts("+price")
-    assert unary.kind is ValueTypeKind.UNKNOWN
-    assert unary_diagnostics == (
-        (
-            "PIE-S2105",
-            "Invalid operands for operator +: a Decimal has no sign operator yet; "
-            "write `x` for `+x`",
-        ),
-    )
+    assert unary.kind is ValueTypeKind.KNOWN
+    assert unary.resolved_type.name == "Decimal"
+    assert unary.nullability is EffectiveNullability.NON_NULL
+    assert unary_diagnostics == ()
 
 
 def _source_prefix(connector: str) -> str:

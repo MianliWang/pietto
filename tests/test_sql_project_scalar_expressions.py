@@ -2687,3 +2687,81 @@ def test_postgres_select_item_date_trunc_reads_a_let_unit(tmp_path):
         'AS "c4" FROM "public"."rows" AS "s0") '
         'SELECT date_trunc("t1"."c4", "t1"."c0") AS "month_stamp" FROM "p0" AS "t1"'
     )
+
+
+@pytest.mark.parametrize(
+    "expression,precision",
+    [
+        ("money * id", 28),
+        ("id * money", 28),
+        ("money * 2", 28),
+        ("-money", 9),
+        ("+money", 9),
+        ("-(money * id)", 28),
+    ],
+)
+def test_decimal_multiply_and_sign_close_project_readers(
+    tmp_path, expression, precision
+):
+    from pietto._project.project_compiled_build import build_compiled
+    from pietto._project.project_compiled_loading import load_compiled
+    from pietto._project.project_compiled_lowering import emit_compiled
+
+    body = f"table result:\n    from rows\n    select:\n        result = {expression}\n"
+    checked, outcome = emit(tmp_path, "postgres", body)
+    assert checked.verified and outcome.status == "VERIFIED", outcome.blockers
+    assert outcome.artifact is not None
+    document = probe.decode_public(serialize_project_sql_emission(outcome))
+    storage = document["columns"][0]["representation"]["storage"]
+    assert storage == {"kind": "pg_numeric", "precision": precision, "scale": 2}
+    observation = portable.export_emission_observation(
+        outcome.artifact, outcome.artifact.request
+    )
+    assert observation.status is portable.ObservationStatus.OK
+    assert observation.canonical_bytes is not None
+    assert (
+        pure.parse_emission_observation(observation.canonical_bytes).status
+        is pure.Status.OK
+    )
+    built = build_compiled(outcome.artifact)
+    loaded = load_compiled(
+        built.payload,
+        expected_pin=built.pin,
+        accepted_producer=built.producer,
+        accepted_compatibility=built.compatibility,
+    )
+    replay = emit_compiled(loaded, ())
+    assert replay.rendered.sql == outcome.artifact.rendered.sql
+
+
+@pytest.mark.parametrize("expression", ["money * id", "id * money", "-money", "+money"])
+def test_mysql_project_decimal_multiply_and_sign_remain_refused(tmp_path, expression):
+    body = f"table result:\n    from rows\n    select:\n        result = {expression}\n"
+    checked, outcome = emit(tmp_path, "mysql", body)
+    assert checked.verified and outcome.status == "BLOCKED"
+
+
+@pytest.mark.parametrize("target", TARGETS)
+def test_different_scale_decimal_product_preserves_native_sql(tmp_path, target):
+    item = probe.parameterized_fixture(
+        target,
+        "table result:\n    from rows\n    select:\n        product = money * ratio\n",
+    )
+    source = item["source"].replace("ratio: Float", "ratio: Decimal(8, 3)")
+    contract = json.loads(item["contract"])
+    representation = contract["sources"][0]["fields"][4]["representation"]
+    representation["storage"] = {
+        "kind": "pg_numeric" if target == "postgres" else "my_decimal",
+        "precision": 8,
+        "scale": 3,
+    }
+    representation["domain"] = {"kind": "decimal", "precision": 8, "scale": 3}
+    _, outcome = probe.build_case(
+        tmp_path, source, probe.encoded(contract).decode(), "preserve_literals"
+    )
+    assert outcome.status == "VERIFIED", outcome.blockers
+    assert outcome.artifact is not None
+    sql = outcome.artifact.rendered.sql
+    assert b"CAST(" not in sql
+    assert b" * " in sql
+    probe.decode_public(serialize_project_sql_emission(outcome))

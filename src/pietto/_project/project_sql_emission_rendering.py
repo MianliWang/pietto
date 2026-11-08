@@ -1076,13 +1076,27 @@ class _Writer:
             )
             self.enclose("binary", reference, start)
             return
-        if value.kind == "arithmetic" and value.realization.tag == "Decimal":
-            if self.request.family != "postgres":
-                raise ValueError("unrenderable Decimal arithmetic")
+        if (
+            self.request.family == "postgres"
+            and value.kind == "arithmetic"
+            and value.realization.tag == "Decimal"
+            and (
+                value.original.expression.operator in {"+", "-"}
+                and len(
+                    {
+                        rows.realization_of(o, "postgres").storage.get("scale")
+                        for o in value.operands
+                    }
+                )
+                > 1
+                or {rows.realization_of(o, "postgres").tag for o in value.operands}
+                == {"Decimal", "Int"}
+            )
+        ):
             precision = value.realization.storage.get("precision")
             scale = value.realization.storage.get("scale")
             if (
-                value.original.expression.operator not in {"+", "-"}
+                value.original.expression.operator not in {"+", "-", "*"}
                 or type(precision) is not int
                 or type(scale) is not int
             ):

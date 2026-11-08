@@ -342,3 +342,38 @@ def test_missing_or_computed_decimal_facts_stay_unavailable(tmp_path, computed):
         terminal.blocker.equivalence.evidence[0].reason
         is ProjectRowEquivalenceReason.DECIMAL_PARAMETERS_MISSING
     )
+
+
+@pytest.mark.parametrize("precision,scale", [(9, 2), (46, 30)])
+def test_decimal_product_and_sign_bind_exact_result_readers(tmp_path, precision, scale):
+    from pietto._project.project_result_output import prepare_output
+
+    source = probe.decimal_source("postgres", precision, scale)
+    source = (
+        source.split("table result:", 1)[0]
+        + "table result:\n    from rows\n    select:\n        renamed = amount * 2\n        optional = -optional\n"
+    )
+    checked = probe.build_neutral(tmp_path / "project", {"main.pietto": source})
+    outcome = emit_project_sql(
+        checked, probe.decimal_input("postgres", precision, scale)
+    )
+    assert outcome.status == "VERIFIED", outcome.blockers
+    assert outcome.artifact is not None
+    output = prepare_output(outcome.artifact)
+    observations = list(probe.decimal_observations("postgres", precision, scale))
+    observations[0] = replace(
+        observations[0], decimal=binding.DecimalObservation(precision + 19, scale)
+    )
+    producer = binding.bind_producer(
+        output.contract, outcome.artifact, tuple(observations), output=output
+    )
+    assert isinstance(producer.fields[0], binding.ProducerFieldBinding)
+    assert producer.fields[0].observation.decimal == binding.DecimalObservation(
+        precision + 19, scale
+    )
+    value = probe.decimal_literal(10 ** (precision + 19) - 1, scale)
+    assert arrow._value(value, producer.fields[0]) == value
+    with pytest.raises(ResultError, match="VALUE_DOMAIN"):
+        arrow._value(
+            probe.decimal_literal(10 ** (precision + 19), scale), producer.fields[0]
+        )

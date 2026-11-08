@@ -3801,6 +3801,13 @@ def derive_compiled_semantics(root, values, parameters=None):
                             if tag == "Int" and type(value) is int
                             else None,
                         )
+                    elif tag == "Decimal" and family == "postgres":
+                        inner = inputs[0]
+                        if physical._decimal_parameters(family, inner) is None:
+                            raise CompiledError("COMPILED_UNARY_DOMAIN")
+                        realized = physical.Realization(
+                            "Decimal", inner.storage, nullable, inner.domain
+                        )
                     elif tag == "Float":
                         realized = physical.float_sign(family, inputs[0], nullable)
                     else:

@@ -1190,6 +1190,12 @@ def build_row_value(
         if problem is not None:
             return None, problem
         inner = realization_of(operand, family)
+        if tag == inner.tag == "Decimal" and family == "postgres":
+            if _decimal_parameters(family, inner) is None:
+                return None, ("PIE-B1004", "decimal_source_carrier_missing")
+            return SQLOperation(
+                expression, "sign", (operand,), replace(inner, nullable=nullable)
+            ), None
         if tag == "Float":
             checked = float_sign(family, inner, nullable)
             if checked is None:
@@ -1452,13 +1458,6 @@ def checked_evidence(family: str, operation) -> tuple[str, ...]:
     if (
         family == "postgres"
         and operation.kind == "arithmetic"
-        and operation.original.expression.operator in {"+", "-"}
-        and operation.realization.tag == "Decimal"
-    ):
-        return (TARGET_CHECKED_DECIMAL,)
-    if (
-        family == "postgres"
-        and operation.kind == "arithmetic"
         and operation.original.expression.operator != "%"
         and operation.realization.tag == "Float"
         and any(_float_literal_value(o) is None for o in operation.operands)
@@ -1552,6 +1551,9 @@ def decimal_operand_parameters(
         return None
     bounds = proven_int_bounds(value)
     if bounds is None or value.storage.get("kind") not in INT_WIDTHS:
+        return None
+    physical = signed_range(value.storage)
+    if physical is None or not physical[0] <= bounds[0] <= bounds[1] <= physical[1]:
         return None
     if origin == "int_literal":
         low, high = bounds
@@ -1744,6 +1746,15 @@ def resolved_binary_realization(
                 + 1
                 + scale
             )
+        elif operator == "*" and {left.tag, right.tag} == {"Decimal", "Int"}:
+            if family != "postgres":
+                return None, ("PIE-B1003", "binary_operator_not_admitted")
+            # |d| < 10**(p-s), |int64| < 10**19: the product needs at most
+            # p+19 digits and retains s fractional digits, without rounding.
+            precision, scale = (
+                left_parameters if left.tag == "Decimal" else right_parameters
+            )
+            precision += 19
         elif operator == "*" and "decimal_parameter" in decimal_operand_origins:
             return None, ("PIE-B1003", "decimal_direct_source_operands_required")
         elif (

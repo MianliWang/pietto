@@ -44,11 +44,21 @@ DB metadata prerequisites, schema-versioned public output contracts, Artifact
 v2/display contracts, and cast syntax/design prerequisites.
 
 Later work widened the Current Decimal Scalar Behavior below: `Decimal` with
-`Decimal` under `+`, `-` and `*`, and `Decimal` with `Int` under `+` and `-`,
+`Decimal` under `+`, `-` and `*`, and `Decimal` with `Int` under `+`, `-` and `*`,
 now return logical `Decimal UNKNOWN`. The
 [operator and comparison matrix](operator-comparison-matrix-contract-v1.md)
 records the current accepted, refused and deferred Decimal pairs, and the
 `def` body check that proves such a result of `NON_NULL` operands `NON_NULL`.
+
+A unary `+` or `-` now preserves the logical Decimal type and nullability.
+In a PostgreSQL project it also preserves the qualified `(p,s)` carrier.
+A `Decimal(p,s) * Int` product, with the operands in either order, uses
+`Decimal(p+19,s)` only while `p+19 <= 65`: `|d| < 10^(p-s)` and
+`|int64| < 10^19`, so multiplication is exact at the original scale and
+fits that precision. This is a product bound, independent of cardinality.
+MySQL project multiplication and signs remain refused; single-file SQL uses
+the target's native Decimal arithmetic. Decimal/Float arithmetic, project
+Decimal division and project Decimal `avg` are not opened by this rule.
 
 ## Trusted Baseline
 

@@ -3282,11 +3282,21 @@ class _Tokens:
             _require(
                 node is not None
                 and node["kind"] == "arithmetic"
-                and node["operator"] in {"+", "-"}
+                and node["operator"] in {"+", "-", "*"}
                 and self.family == "postgres",
                 "Decimal arithmetic subject",
             )
             assert node is not None
+            if node["operator"] == "*":
+                ranges = _ProvenIntRanges(self.doc, self.family)
+                operands = tuple(ranges.value(ref) for ref in node["operands"])
+                _require(
+                    len(operands) == 2
+                    and operands.count("Decimal") == 1
+                    and sum(ranges.as_range(value) is not None for value in operands)
+                    == 1,
+                    "Decimal product cast operands",
+                )
             realization = self.doc[node["realization"]]
             storage = realization["storage"]
             precision, scale = storage.get("precision"), storage.get("scale")
@@ -4128,6 +4138,15 @@ class _ProvenIntRanges:
             return self._UNKNOWN
         if any(value is self._EMPTY for value in values):
             return self._EMPTY
+        if (
+            self.family == "postgres"
+            and op["kind"] == "arithmetic"
+            and op["operator"] in {"+", "-", "*"}
+            and len(values) == 2
+            and "Decimal" in values
+            and all(value == "Decimal" or self.known(value) for value in values)
+        ):
+            return "Decimal"
         if any(value in {"Float", "Decimal"} for value in values):
             # A Float or Decimal operation keeps its operands' one shared tag.
             return values[0] if len(set(values)) == 1 else self._UNKNOWN
@@ -4206,30 +4225,6 @@ class _Requirements:
     def checked_evidence(self, evidence: Any, value: Ref) -> None:
         """Q2 evidence follows the independently rebuilt operand proof; E4
         evidence marks a PostgreSQL Float `+`, `-` or `*` no fold proves."""
-        op = self.doc[value] if value.kind == "sql_operation" else None
-        if (
-            op is not None
-            and self.family == "postgres"
-            and op["kind"] == "arithmetic"
-            and op["operator"] in {"+", "-"}
-            and self.doc[op["realization"]]["tag"] == "Decimal"
-        ):
-            result = self.doc[op["realization"]]
-            storage, domain = result["storage"], result["domain"]
-            _require(
-                storage.get("kind") == "pg_numeric"
-                and type(storage.get("precision")) is int
-                and type(storage.get("scale")) is int
-                and domain
-                == {
-                    "kind": "decimal",
-                    "precision": storage["precision"],
-                    "scale": storage["scale"],
-                }
-                and evidence == (_TARGET_CHECKED_DECIMAL,),
-                "Decimal checked result",
-            )
-            return
         interval = self.ranges.target_checked(value)
         _require(interval is not self.ranges._UNKNOWN, "target checked proof")
         if interval is None:

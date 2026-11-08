@@ -671,7 +671,7 @@ def test_decimal_carrier_boundaries_fail_closed(family: str) -> None:
         direct_decimal_sources=True,
     )
     assert realized is None
-    assert problem == ("PIE-B1003", "arithmetic_requires_signed_int_operands")
+    assert problem == ("PIE-B1004", "decimal_source_carrier_missing")
 
 
 def test_postgres_decimal_int_and_scale_mismatch_use_exact_carriers() -> None:
@@ -1340,3 +1340,113 @@ def test_float_equivalence_admits_postgres_keys_and_order_each_finite(name):
                 realized.storage,
                 realized.domain,
             )
+
+
+@pytest.mark.parametrize("precision,scale", [(9, 2), (46, 30), (47, 30)])
+@pytest.mark.parametrize("reverse", [False, True])
+@pytest.mark.parametrize(
+    "origins", [("decimal", "int"), ("decimal_parameter", "int_parameter")]
+)
+def test_decimal_int_product_uses_its_own_digits_bound(
+    precision, scale, reverse, origins
+):
+    operands = (
+        _decimal("postgres", precision, scale),
+        _physical_integer("postgres", "pg_int8"),
+    )
+    if reverse:
+        operands, origins = operands[::-1], origins[::-1]
+    realized, problem = rows.resolved_binary_realization(
+        "postgres", "*", "Decimal", True, *operands, decimal_operand_origins=origins
+    )
+    if precision > 46:
+        assert realized is None
+        assert problem == ("PIE-B1002", "decimal_result_outside_physical_range")
+        with pytest.raises(ValueError, match="outside physical range"):
+            verification.resolved_row_realization(
+                "postgres",
+                "binary",
+                "*",
+                "Decimal",
+                True,
+                operands,
+                decimal_operand_origins=origins,
+            )
+        return
+    assert problem is None and realized is not None
+    assert realized.storage == {
+        "kind": "pg_numeric",
+        "precision": precision + 19,
+        "scale": scale,
+    }
+    assert realized.nullable is True
+    reconstructed = verification.resolved_row_realization(
+        "postgres",
+        "binary",
+        "*",
+        "Decimal",
+        True,
+        operands,
+        decimal_operand_origins=origins,
+    )
+    assert reconstructed.storage == realized.storage
+    assert reconstructed.domain == realized.domain
+    assert reconstructed.nullable == realized.nullable
+
+
+@pytest.mark.parametrize(
+    "bounds",
+    [
+        rows.SIGNED64,
+        (rows.SIGNED64[0], rows.SIGNED64[0]),
+        (rows.SIGNED64[1], rows.SIGNED64[1]),
+        (2**70, 2**70),
+        (-(2**70), -(2**70)),
+        (1, -1),
+    ],
+)
+@pytest.mark.parametrize("origin", ["int", "int_literal", "int_parameter"])
+def test_decimal_product_rejects_forged_integer_physical_bounds(bounds, origin):
+    integer = rows.Realization(
+        "Int",
+        {"kind": "pg_int8"},
+        False,
+        {"kind": "int_range", "min": str(bounds[0]), "max": str(bounds[1])},
+        bounds,
+    )
+    operands = (_decimal("postgres", 46, 30), integer)
+    origins = ("decimal", origin)
+    realized, problem = rows.resolved_binary_realization(
+        "postgres", "*", "Decimal", False, *operands, decimal_operand_origins=origins
+    )
+    accepted = rows.SIGNED64[0] <= bounds[0] <= bounds[1] <= rows.SIGNED64[1] and (
+        origin != "int_literal" or bounds[0] == bounds[1]
+    )
+    if not accepted:
+        assert realized is None and problem == (
+            "PIE-B1004",
+            "decimal_source_carrier_missing",
+        )
+        with pytest.raises(ValueError, match="decimal source carrier"):
+            verification.resolved_row_realization(
+                "postgres",
+                "binary",
+                "*",
+                "Decimal",
+                False,
+                operands,
+                decimal_operand_origins=origins,
+            )
+    else:
+        assert problem is None and realized is not None
+        assert realized.storage == {"kind": "pg_numeric", "precision": 65, "scale": 30}
+        checked = verification.resolved_row_realization(
+            "postgres",
+            "binary",
+            "*",
+            "Decimal",
+            False,
+            operands,
+            decimal_operand_origins=origins,
+        )
+        assert checked.storage == realized.storage

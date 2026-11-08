@@ -1542,6 +1542,15 @@ def resolved_row_realization(
                 + 1
                 + scale
             )
+        elif operator == "*" and {item.tag for item in operands} == {"Decimal", "Int"}:
+            if family != "postgres":
+                raise ValueError("decimal int target")
+            precision, scale = (
+                (left_precision, left_scale)
+                if operands[0].tag == "Decimal"
+                else (right_precision, right_scale)
+            )
+            precision += 19
         elif operator == "*" and "decimal_parameter" in decimal_operand_origins:
             raise ValueError("decimal direct source operands")
         elif (
@@ -1565,6 +1574,16 @@ def resolved_row_realization(
             nullable,
             {"kind": "decimal", "precision": precision, "scale": scale},
         )
+    if kind == "unary" and tag == "Decimal":
+        if (
+            family != "postgres"
+            or operator not in {"+", "-"}
+            or len(operands) != 1
+            or rows._decimal_parameters(family, operands[0]) is None
+        ):
+            raise ValueError("decimal sign carrier")
+        inner = operands[0]
+        return rows.Realization("Decimal", inner.storage, nullable, inner.domain)
     if (
         kind in {"binary", "unary"}
         and tag == "Float"
@@ -7814,12 +7833,28 @@ def verify_row_bytes(query, rendered):
                 )
                 spans.append(("binary", reference, start, offset))
                 return
-            if value.kind == "arithmetic" and value.realization.tag == "Decimal":
+            if (
+                query.request.family == "postgres"
+                and value.kind == "arithmetic"
+                and value.realization.tag == "Decimal"
+                and (
+                    value.original.expression.operator in {"+", "-"}
+                    and len(
+                        {
+                            rows.realization_of(o, "postgres").storage.get("scale")
+                            for o in value.operands
+                        }
+                    )
+                    > 1
+                    or {rows.realization_of(o, "postgres").tag for o in value.operands}
+                    == {"Decimal", "Int"}
+                )
+            ):
                 precision = value.realization.storage.get("precision")
                 scale = value.realization.storage.get("scale")
                 if (
                     query.request.family != "postgres"
-                    or value.original.expression.operator not in {"+", "-"}
+                    or value.original.expression.operator not in {"+", "-", "*"}
                     or type(precision) is not int
                     or type(scale) is not int
                 ):
@@ -9449,14 +9484,6 @@ def verify_row_generated_requirements(request, query, generated):
                         node_premises(request, node.realization, operands, kind),
                         (TARGET_CHECKED,)
                         if _target_checked(request.family, node)
-                        else (rows.TARGET_CHECKED_DECIMAL,)
-                        if (
-                            request.family == "postgres"
-                            and type(node) is rows.SQLOperation
-                            and node.kind == "arithmetic"
-                            and node.original.expression.operator in {"+", "-"}
-                            and node.realization.tag == "Decimal"
-                        )
                         else (grouping.TARGET_CHECKED_BINARY64,)
                         if _float_checked(request.family, node)
                         else (),

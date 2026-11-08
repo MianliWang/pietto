@@ -239,8 +239,17 @@ def test_scalar_function_facts_cover_the_closed_builtin_catalog() -> None:
         (1, "Float", "+", ("Float", "preserve_operand")),
         (2, "Int", "-", ("Int", "preserve_operand")),
         (3, "Float", "-", ("Float", "preserve_operand")),
+        (5, "Decimal", "+", ("Decimal", "preserve_operand")),
+        (6, "Decimal", "-", ("Decimal", "preserve_operand")),
     ),
-    ids=("int-plus", "float-plus", "int-minus", "float-minus"),
+    ids=(
+        "int-plus",
+        "float-plus",
+        "int-minus",
+        "float-minus",
+        "decimal-plus",
+        "decimal-minus",
+    ),
 )
 def test_unary_operator_fact_is_exact(
     index: int,
@@ -287,6 +296,8 @@ def test_unary_operator_fact_is_exact(
         (24, "Float", "/", ("Float", "Float", "unknown")),
         (25, "Bool", "and", ("Bool", "Bool", "unknown")),
         (26, "Bool", "or", ("Bool", "Bool", "unknown")),
+        (27, "Decimal", "*", ("Int", "Decimal", "unknown")),
+        (28, "Int", "*", ("Decimal", "Decimal", "unknown")),
     ),
     ids=(
         "int-add-int",
@@ -316,6 +327,8 @@ def test_unary_operator_fact_is_exact(
         "float-div-float",
         "bool-and-bool",
         "bool-or-bool",
+        "decimal-mul-int",
+        "int-mul-decimal",
     ),
 )
 def test_binary_operator_fact_is_exact(

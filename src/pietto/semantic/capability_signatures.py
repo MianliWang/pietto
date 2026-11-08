@@ -685,6 +685,8 @@ _UNARY_SIGNATURES = (
     ("Int", "-", ("Int", "preserve_operand")),
     ("Float", "-", ("Float", "preserve_operand")),
     ("Bool", "not", ("Bool", "preserve_operand")),
+    ("Decimal", "+", ("Decimal", "preserve_operand")),
+    ("Decimal", "-", ("Decimal", "preserve_operand")),
 )
 
 _UNARY_OPERATOR_FACTS: tuple[CapabilityFact, ...] = _freeze_signatures(
@@ -859,6 +861,8 @@ _BINARY_SIGNATURES = (
     ("Float", "/", "Float", "Float", "division"),
     ("Bool", "and", "Bool", "Bool", "bool"),
     ("Bool", "or", "Bool", "Bool", "bool"),
+    ("Decimal", "*", "Int", "Decimal", "decimal_int"),
+    ("Int", "*", "Decimal", "Decimal", "decimal_int"),
 )
 
 _BINARY_OPERATOR_FACTS: tuple[CapabilityFact, ...] = _freeze_signatures(

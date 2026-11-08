@@ -9216,7 +9216,15 @@ def _decode_fixed_public(document, limits):
             raise AssertionError
 
         if node["kind"] == "sign":
-            if operands[0]["tag"] == "Float":
+            if operands[0]["tag"] == "Decimal":
+                _need(family == "postgres", "Decimal sign target")
+                result = {
+                    "tag": "Decimal",
+                    "storage": operands[0]["storage"],
+                    "domain": operands[0]["domain"],
+                    "nullable": nullable,
+                }
+            elif operands[0]["tag"] == "Float":
                 source = operands[0].get("float_value")
                 if source is None and "value" in operands[0]:
                     source = operands[0]["value"]["value"]
@@ -9259,10 +9267,15 @@ def _decode_fixed_public(document, limits):
                     operation=True,
                 )
         elif node["kind"] == "arithmetic":
-            if all(item["tag"] == "Decimal" for item in operands):
+            if any(item["tag"] == "Decimal" for item in operands) and all(
+                item["tag"] in {"Decimal", "Int"} for item in operands
+            ):
                 _need(
                     all(
-                        "read" in item and item["read"]["field"] is not None
+                        "read" in item
+                        and item["read"]["field"] is not None
+                        or item["tag"] == "Int"
+                        and "value" in item
                         for item in operands
                     ),
                     "Decimal direct source operands",
@@ -9271,7 +9284,8 @@ def _decode_fixed_public(document, limits):
                 expected_kind = "pg_numeric" if family == "postgres" else "my_decimal"
                 _need(
                     all(
-                        item["storage"].get("kind") == expected_kind
+                        item["tag"] == "Int"
+                        or item["storage"].get("kind") == expected_kind
                         and item["storage"].get("precision")
                         == item["domain"].get("precision")
                         and item["storage"].get("scale") == item["domain"].get("scale")
@@ -9279,11 +9293,30 @@ def _decode_fixed_public(document, limits):
                     ),
                     "Decimal physical carrier",
                 )
-                lp, ls = left["domain"]["precision"], left["domain"]["scale"]
-                rp, rs = right["domain"]["precision"], right["domain"]["scale"]
+
+                def digits(item):
+                    if item["tag"] == "Decimal":
+                        return item["domain"]["precision"], item["domain"]["scale"]
+                    low, high = row_interval(item)
+                    if "value" in item:
+                        _need(low == high, "Int literal digits")
+                        return max(1, len(str(abs(low)))), 0
+                    return {"pg_int2": 5, "pg_int4": 10, "pg_int8": 19}[
+                        item["storage"]["kind"]
+                    ], 0
+
+                lp, ls = digits(left)
+                rp, rs = digits(right)
                 if node["operator"] in {" + ", " - "}:
-                    _need(ls == rs, "Decimal scale")
-                    precision, scale = max(lp - ls, rp - rs) + 1 + ls, ls
+                    _need(family == "postgres" or ls == rs, "Decimal scale")
+                    scale = max(ls, rs)
+                    precision = max(lp - ls, rp - rs) + 1 + scale
+                elif {item["tag"] for item in operands} == {"Decimal", "Int"}:
+                    _need(family == "postgres", "Decimal product target")
+                    precision, scale = (
+                        (lp, ls) if left["tag"] == "Decimal" else (rp, rs)
+                    )
+                    precision += 19
                 else:
                     precision, scale = lp + rp, ls + rs
                 _need(precision <= 65 and scale <= 30, "Decimal result carrier")

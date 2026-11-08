@@ -47,7 +47,9 @@ def test_decimal_int_add_subtract_scalar_matrix_returns_logical_decimal() -> Non
             "        decimal_plus_int = price + amount\n"
             "        int_plus_decimal = amount + price\n"
             "        decimal_minus_int = price - amount\n"
-            "        int_minus_decimal = amount - price\n",
+            "        int_minus_decimal = amount - price\n"
+            "        decimal_times_int = price * amount\n"
+            "        int_times_decimal = amount * price\n",
         )
     )
     result = analyze(script)
@@ -59,6 +61,8 @@ def test_decimal_int_add_subtract_scalar_matrix_returns_logical_decimal() -> Non
         ("int_plus_decimal", "+"),
         ("decimal_minus_int", "-"),
         ("int_minus_decimal", "-"),
+        ("decimal_times_int", "*"),
+        ("int_times_decimal", "*"),
     ):
         expression = _select_expression(relation, alias)
         assert isinstance(expression, BinaryExpr)
@@ -138,14 +142,12 @@ def test_decimal_int_aggregate_expressions_lower_and_render_sql() -> None:
 @pytest.mark.parametrize(
     "projection",
     [
-        "value = price * amount",
-        "value = amount * price",
         "value = score + price",
         "value = price + score",
         "value = price % amount",
     ],
 )
-def test_decimal_int_multiply_modulo_and_float_decimal_remain_fail_closed(
+def test_decimal_int_modulo_and_float_decimal_remain_fail_closed(
     projection: str,
 ) -> None:
     result = analyze(
@@ -187,8 +189,6 @@ def test_decimal_int_division_remains_unknown_without_diagnostic() -> None:
     "projection",
     [
         "value = sum(price + 1)",
-        "value = sum(price * amount)",
-        "value = avg(amount * price)",
         "value = sum(price + score)",
         "value = count_distinct(price + amount)",
         "value = min(price + amount)",
@@ -347,3 +347,31 @@ def _error_codes(result: SemanticResult) -> list[str]:
 
 def _sql_text(result: SqlResult) -> str:
     return "\n".join(artifact.sql for artifact in result.artifacts)
+
+
+@pytest.mark.parametrize(
+    "expression",
+    [
+        "sum(price * amount)",
+        "sum(amount * price)",
+        "sum(-price)",
+        "sum(+price)",
+        "price * 2",
+        "2 * price",
+        "-price",
+        "+price",
+    ],
+)
+@pytest.mark.parametrize("target", ["postgres", "mysql"])
+def test_decimal_product_and_sign_emit_single_file(expression, target):
+    _, _, script_ir = _compile(
+        _source(
+            target + ".table",
+            "table result:\n    from orders\n    select:\n        value = "
+            + expression
+            + "\n",
+        )
+    )
+    result = (emit_postgres_sql if target == "postgres" else emit_mysql_sql)(script_ir)
+    assert result.diagnostics == ()
+    assert _sql_text(result)

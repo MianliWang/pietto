@@ -3121,9 +3121,7 @@ def resolved_unary_value_type(
                 nullability=operand_type.nullability,
             ), None
         return _UNKNOWN_VALUE_TYPE, "Bool operand"
-    if operator in _DECIMAL_SIGN and _is_builtin(operand_type, "Decimal"):
-        return _UNKNOWN_VALUE_TYPE, _DECIMAL_SIGN[operator]
-    if not _is_numeric(operand_type):
+    if not (_is_numeric(operand_type) or _is_builtin(operand_type, "Decimal")):
         return _UNKNOWN_VALUE_TYPE, "numeric operand"
     return ValueType(
         resolved_type=operand_type.resolved_type,
@@ -3747,27 +3745,13 @@ def resolved_binary_value_type(
             return _UNKNOWN_VALUE_TYPE, _text_plus_expected(left_type, joins)
         if _is_decimal_float_pair(left_type, right_type):
             return _UNKNOWN_VALUE_TYPE, _DECIMAL_FLOAT
-        if _is_decimal_int_pair(left_type, right_type):
-            return _UNKNOWN_VALUE_TYPE, _DECIMAL_TIMES_INT
         return _UNKNOWN_VALUE_TYPE, "numeric operands"
     return _UNKNOWN_VALUE_TYPE, None
 
 
-# A Decimal is a number, so where its rule refuses a pair or a sign the
-# message names that rule, also as the JSON suggestion, and does not expect
-# numeric operands.
+# Decimal/Float arithmetic names its refused pair in the JSON suggestion.
 _DECIMAL_FLOAT = "a Decimal does not mix with a Float in `+`, `-` or `*`"
-_DECIMAL_TIMES_INT = (
-    "a Decimal multiplies only by a Decimal; Decimal times Int is not supported yet"
-)
-_DECIMAL_SIGN = {
-    "-": "a Decimal has no sign operator yet; write `0 - x` for `-x`",
-    "+": "a Decimal has no sign operator yet; write `x` for `+x`",
-}
-_DECIMAL_RULES = frozenset(
-    {_DECIMAL_FLOAT, _DECIMAL_TIMES_INT, *_DECIMAL_SIGN.values()}
-)
-
+_DECIMAL_RULES = frozenset({_DECIMAL_FLOAT})
 
 _TEXT_JOIN = "numeric operands; use `concat(...)` to join Text values"
 _TEXT_INT_JOIN = (
@@ -6361,7 +6345,7 @@ def _binary_arithmetic_result_type(
         and _is_builtin(right_type, "Decimal")
     ):
         return "Decimal"
-    if operator in {"+", "-"} and _is_decimal_int_pair(left_type, right_type):
+    if operator in {"+", "-", "*"} and _is_decimal_int_pair(left_type, right_type):
         return "Decimal"
     return None
 

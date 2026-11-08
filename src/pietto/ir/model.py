@@ -1394,7 +1394,7 @@ def _aggregate_window_numeric_argument_shape(
         if not left_valid or not right_valid:
             return False, False, False
         if expression_type == "Decimal":
-            allowed = {"Decimal"} if expression.operator == "*" else {"Decimal", "Int"}
+            allowed = {"Decimal", "Int"}
             valid = (
                 left_type in allowed
                 and right_type in allowed

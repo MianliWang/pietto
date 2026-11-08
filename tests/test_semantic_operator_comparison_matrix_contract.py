@@ -14,6 +14,8 @@ def test_unary_numeric_matrix_preserves_current_behavior() -> None:
         ("optional_amount", "Int", EffectiveNullability.NULLABLE),
         ("score", "Float", EffectiveNullability.NON_NULL),
         ("weight", "Float", EffectiveNullability.NULLABLE),
+        ("price", "Decimal", EffectiveNullability.NON_NULL),
+        ("discount", "Decimal", EffectiveNullability.NULLABLE),
     ):
         for operator in ("+", "-"):
             value, diagnostics = expression_facts(operator + field)
@@ -24,15 +26,11 @@ def test_unary_numeric_matrix_preserves_current_behavior() -> None:
             assert diagnostics == ()
 
     for operator in ("+", "-"):
-        for field in ("price", "discount", "status", "active"):
+        for field in ("status", "active"):
             value, diagnostics = expression_facts(operator + field)
             assert value.kind is ValueTypeKind.UNKNOWN
             assert value.nullability is EffectiveNullability.UNKNOWN
-            detail = (
-                _DECIMAL_SIGN[operator]
-                if field in {"price", "discount"}
-                else "expected numeric operand"
-            )
+            detail = "expected numeric operand"
             assert diagnostics == (
                 ("PIE-S2105", f"Invalid operands for operator {operator}: {detail}"),
             )
@@ -61,8 +59,8 @@ def test_binary_numeric_decimal_modulo_and_division_matrix_preserves_behavior() 
         ("amount", "score", "Float", ("+", "-", "*")),
         ("score", "amount", "Float", ("+", "-", "*")),
         ("price", "discount", "Decimal", ("+", "-", "*")),
-        ("price", "amount", "Decimal", ("+", "-")),
-        ("amount", "price", "Decimal", ("+", "-")),
+        ("price", "amount", "Decimal", ("+", "-", "*")),
+        ("amount", "price", "Decimal", ("+", "-", "*")),
     ):
         for operator in operators:
             value, diagnostics = expression_facts(f"{left} {operator} {right}")
@@ -79,8 +77,6 @@ def test_binary_numeric_decimal_modulo_and_division_matrix_preserves_behavior() 
     assert diagnostics == ()
 
     for expression, operator, detail in (
-        ("price * amount", "*", _DECIMAL_TIMES_INT),
-        ("amount * price", "*", _DECIMAL_TIMES_INT),
         ("score + price", "+", _DECIMAL_FLOAT),
         ("price - score", "-", _DECIMAL_FLOAT),
         ("price * score", "*", _DECIMAL_FLOAT),
@@ -147,14 +143,7 @@ def test_binary_numeric_decimal_modulo_and_division_matrix_preserves_behavior() 
                 )
 
 
-_DECIMAL_TIMES_INT = (
-    "a Decimal multiplies only by a Decimal; Decimal times Int is not supported yet"
-)
 _DECIMAL_FLOAT = "a Decimal does not mix with a Float in `+`, `-` or `*`"
-_DECIMAL_SIGN = {
-    "-": "a Decimal has no sign operator yet; write `0 - x` for `-x`",
-    "+": "a Decimal has no sign operator yet; write `x` for `+x`",
-}
 _INT_DIVISION = (
     "PIE-S2106",
     "`/` of two Int values truncates in SQL (`7 / 2` is 3, not 3.5); "
@@ -305,7 +294,6 @@ def test_a_null_arithmetic_operand_takes_the_type_of_the_other_operand() -> None
         ),
         ("None - active", "-", "numeric operands"),
         ("order_date * None", "*", "numeric operands"),
-        ("score % None", "%", "Int operands"),
         ("None / status", "/", "numeric operands"),
     ):
         value, diagnostics = expression_facts(expression)
@@ -643,6 +631,8 @@ def test_type_alias_operands_read_as_their_base_type() -> None:
         ("amount - 1", ("BUILTIN", "Decimal", unknown)),
         ("1 + amount", ("BUILTIN", "Decimal", unknown)),
         ("amount * fee", ("BUILTIN", "Decimal", unknown)),
+        ("amount * 2", ("BUILTIN", "Decimal", unknown)),
+        ("-amount", ("BUILTIN", "Decimal", non_null)),
         ("cash + amount", ("BUILTIN", "Decimal", unknown)),
         ("ratio * 2.5", ("BUILTIN", "Float", unknown)),
         ("age + ratio", ("BUILTIN", "Float", unknown)),
@@ -660,10 +650,8 @@ def test_type_alias_operands_read_as_their_base_type() -> None:
 
     refused = ("UNKNOWN", "<unknown>", unknown)
     for expression, operator, detail in (
-        ("amount * 2", "*", _DECIMAL_TIMES_INT),
         ("amount % 2", "%", "expected Int operands"),
         ("1.0 + amount", "+", _DECIMAL_FLOAT),
-        ("-amount", "-", _DECIMAL_SIGN["-"]),
         ("doc + 1", "+", "expected numeric operands"),
         ("flag + 1", "+", "expected numeric operands"),
         ("age and flag", "and", "expected Bool operands"),

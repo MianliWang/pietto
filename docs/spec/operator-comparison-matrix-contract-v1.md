@@ -88,13 +88,13 @@ arguments included, records the results below and in the comparison matrix.
 |---|---|---|
 | Unary `+` / `-` | `Int` | currently accepted; preserves `Int` and operand nullability |
 | Unary `+` / `-` | `Float` | currently accepted; preserves `Float` and operand nullability |
-| Unary `+` / `-` | `Decimal` | currently rejected with existing `PIE-S2105`; Decimal unary is not accepted (`-` names the rule as `` a Decimal has no sign operator yet; write `0 - x` for `-x` `` and `+` as `` a Decimal has no sign operator yet; write `x` for `+x` ``, also as the JSON `suggestion`) |
+| Unary `+` / `-` | `Decimal` | currently accepted; preserves `Decimal` and operand nullability; PostgreSQL projects preserve the qualified `(p,s)` carrier |
 | Unary `+` / `-` | `Text`, `Bool`, `Date`, `Timestamp`, `UUID`, `Bytes`, `Json`, `Any`, `Enum` | currently rejected with existing invalid numeric-operand behavior where the operand type is known; unknown or unsupported operands remain unknown |
 | Binary `+` / `-` / `*` | `Int` / `Int` | currently accepted as `Int UNKNOWN` |
 | Binary `+` / `-` / `*` | `Int` / `Float`, `Float` / `Int`, `Float` / `Float` | currently accepted as `Float UNKNOWN` |
 | Binary `+` / `-` / `*` | `Decimal` / `Decimal` | currently accepted as `Decimal UNKNOWN` |
 | Binary `+` / `-` | `Decimal` / `Int`, `Int` / `Decimal` | currently accepted as `Decimal UNKNOWN`; an integer literal such as `2` is an `Int` operand |
-| Binary `*` | `Decimal` / `Int`, `Int` / `Decimal` | currently rejected with existing `PIE-S2105` (`a Decimal multiplies only by a Decimal; Decimal times Int is not supported yet`, also as the JSON `suggestion`) |
+| Binary `*` | `Decimal` / `Int`, `Int` / `Decimal` | currently accepted as `Decimal UNKNOWN`; PostgreSQL projects use `Decimal(p+19,s)` while `p+19 <= 65`; MySQL projects remain refused |
 | Binary `+` / `-` / `*` | `Decimal` / `Float`, `Float` / `Decimal` | currently rejected with existing `PIE-S2105` (`` a Decimal does not mix with a Float in `+`, `-` or `*` ``, also as the JSON `suggestion`); a dotted literal such as `1.5` is a `Float` operand |
 | Modulo `%` | `Int` / `Int` | currently accepted as `Int UNKNOWN` |
 | Modulo `%` | `Float` / `Float` | currently accepted as `Float UNKNOWN`; truncating-quotient remainder (`math.fmod`), with the dividend sign including zero; PostgreSQL project emission requires its exact binary64 lowering; single-file emission and MySQL remain refused |
@@ -110,8 +110,7 @@ arguments included, records the results below and in the comparison matrix.
 Every row above reads a type alias operand, including an alias chain, as the
 builtin type it expands to, and records that base type, not the alias, as the
 result: with `type Age = Int`, `age + 1` is `Int UNKNOWN` and `-age`
-is `Int`, and with `type Money = Decimal(12, 2)`, `money * 2` reports
-`PIE-S2105` as `Decimal` does. A later defect fix extended this from `/` to
+is `Int`, and with `type Money = Decimal(12, 2)`, `money * 2` returns logical `Decimal`, as a non-aliased `Decimal` does. A later defect fix extended this from `/` to
 `+`, `-`, `*`, `%`, unary `+`/`-` and `and`/`or`; unary `not` already read it.
 An alias of an Enum or shape is not expanded.
 
@@ -134,15 +133,17 @@ Slice 7 recorded the Slice 6 Decimal boundaries. Later work accepted
 `Decimal * Decimal` and `Decimal` with `Int` under `+` and `-`. PostgreSQL
 project emission now retains an E9 result carrier: for admitted operands,
 `s = max(s1, s2)` and `p = max(p1-s1, p2-s2)+1+s`, bounded by `p <= 65` and
-`s <= 30`; it casts a qualified source arithmetic result to that
-`numeric(p,s)` carrier. A typed header parameter participates only in an E9
+`s <= 30`; newly admitted mixed-Int and different-scale operations are cast to that
+`numeric(p,s)` carrier. Existing same-scale Decimal SQL stays byte-identical.
+The closed digit formulas prove the arithmetic range statically. A typed header parameter participates only in an E9
 Decimal/Int pair or a Decimal pair whose scales differ and whose carrier
-therefore changes. A same-scale Decimal parameter pair and any parameter
-Decimal multiplication keep their existing refusal. MySQL Decimal/Int and
+therefore changes. A same-scale Decimal parameter pair and parameter `Decimal * Decimal` keep
+their existing refusal. Qualified `Decimal * Int` parameters participate in
+the PostgreSQL product rule. MySQL Decimal/Int and
 different-scale Decimal project forms remain refused.
 Decimal division stays deferred, there are no Decimal literals, and no cast
 reads or produces a Decimal (`cast(Int as Float)` is the only cast).
-Inside `sum` and `avg`, a `Decimal * Decimal` argument passes `check`, and
+Inside `sum` and `avg`, a `Decimal * Decimal` or `Decimal * Int` argument passes `check`, and
 single-file `emit-sql` renders it on both targets as it renders a `Decimal`
 `+` or `-` argument, with no inserted cast: `sum(a * b)` emits
 `SUM(("a" * "b"))` on PostgreSQL and the same SQL with backtick-quoted names
@@ -353,3 +354,14 @@ Slice 7 does not authorize:
 - Enum SQL or comparison behavior;
 - Bytes or Json behavior expansion;
 - native database type metadata.
+
+The `Decimal * Int` product has its own digit proof: an operand in
+`Decimal(p,s)` has absolute value less than `10^(p-s)` and a signed 64-bit
+`Int` has absolute value less than `10^19`. Their product is therefore
+strictly below `10^(p+19-s)` and retains scale `s`, including zero and
+negative operands. PostgreSQL project emission casts it to `numeric(p+19,s)`
+only when `p+19 <= 65`; a unary sign preserves `(p,s)`. No source cardinality
+or returned-row limit is used. Single files render both multiplication orders
+and signs directly on PostgreSQL and MySQL, including `sum(amount * n)`
+with an `Int` field `n`. Decimal/Float arithmetic remains `PIE-S2105`;
+project Decimal division and `avg` remain refused.

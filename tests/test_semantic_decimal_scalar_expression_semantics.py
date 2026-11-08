@@ -95,29 +95,16 @@ def test_decimal_arithmetic_inside_decimal_comparison_shape_is_locked() -> None:
     assert where_type.nullability is EffectiveNullability.UNKNOWN
 
 
-_DECIMAL_TIMES_INT = (
-    "a Decimal multiplies only by a Decimal; Decimal times Int is not supported yet"
-)
 _DECIMAL_FLOAT = "a Decimal does not mix with a Float in `+`, `-` or `*`"
 
 
 @pytest.mark.parametrize(
     ("expression_source", "operator", "rule"),
     [
-        ("price * amount", "*", _DECIMAL_TIMES_INT),
-        ("amount * price", "*", _DECIMAL_TIMES_INT),
-        ("price * 2", "*", _DECIMAL_TIMES_INT),
-        ("2 * price", "*", _DECIMAL_TIMES_INT),
         ("score + price", "+", _DECIMAL_FLOAT),
         ("price + score", "+", _DECIMAL_FLOAT),
         ("price - 1.5", "-", _DECIMAL_FLOAT),
         ("price * 2.00", "*", _DECIMAL_FLOAT),
-        (
-            "-price",
-            "-",
-            "a Decimal has no sign operator yet; write `0 - x` for `-x`",
-        ),
-        ("+price", "+", "a Decimal has no sign operator yet; write `x` for `+x`"),
     ],
 )
 def test_invalid_decimal_arithmetic_forms_reuse_s2105(
@@ -176,13 +163,7 @@ def test_decimal_rule_reaches_json_suggestion_in_file_and_project(
         "        negated = -money\n        kept = +money\n",
         encoding="utf-8",
     )
-    sign = "a Decimal has no sign operator yet; write"
-    rules = [
-        ("*", 9, _DECIMAL_TIMES_INT),
-        ("-", 10, _DECIMAL_FLOAT),
-        ("-", 11, f"{sign} `0 - x` for `-x`"),
-        ("+", 12, f"{sign} `x` for `+x`"),
-    ]
+    rules = [("-", 10, _DECIMAL_FLOAT)]
 
     for argv in (
         ["check", str(tmp_path / "main.pietto")],
