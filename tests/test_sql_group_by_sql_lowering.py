@@ -29,7 +29,7 @@ from pietto.ir import (
 from pietto.ir.model import OrderDirectionIR, OrderItemIR, StaticValue
 from pietto.parser_api import parse_file, parse_source
 from pietto.semantic import analyze
-from pietto.sql import SqlResult, emit_postgres_sql
+from pietto.sql import SqlArtifactKind, SqlResult, emit_postgres_sql
 from pietto.sql.mysql import emit_mysql_sql
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
@@ -857,3 +857,70 @@ def test_group_key_ir_refuses_aggregates_even_inside_scalar_expressions(
     )
     assert emitted.artifacts == ()
     assert emitted.diagnostics
+
+
+def _compile_computed_key_source(source: str) -> ScriptIR:
+    result = parse_source(source, path="phase43-slice4.pietto")
+    assert result.diagnostics == ()
+    assert result.ast is not None
+    semantic = analyze(result.ast)
+    assert semantic.diagnostics == ()
+    assert semantic.script is not None
+    ir_result = build_ir(semantic.script, semantic.model)
+    assert ir_result.diagnostics == ()
+    assert ir_result.ir is not None
+    return ir_result.ir
+
+
+COMPUTED_KEY_SOURCE_PREFIX = (
+    "shape Order:\n"
+    "    id: Int\n"
+    "    amount: Int\n"
+    "    tax: Int\n"
+    "    status: Text\n"
+    "    region: Text | None\n"
+    "    active: Bool\n"
+    'source orders: Order = postgres.table("orders")\n'
+)
+
+
+@pytest.mark.parametrize("dialect", ["postgres", "mysql"])
+@pytest.mark.parametrize("value", ["amount + tax", "lower(region)", "1", "-1", '"all"'])
+def test_computed_group_key_emits_with_dependencies_and_distinct_binding_identity(
+    dialect: str, value: str
+) -> None:
+    prefix = COMPUTED_KEY_SOURCE_PREFIX.replace("postgres.table", dialect + ".table")
+    source = (
+        "query grouped_orders:\n    from orders\n"
+        f"    let first = {value}\n    let second = {value}\n"
+        "    group by first, second\n    select a = first, b = second, n = count()\n"
+        "    order by a\n"
+    )
+    ir = _compile_computed_key_source(prefix + source)
+    relation = _relation_ir(ir, "grouped_orders")
+    result = (emit_mysql_sql if dialect == "mysql" else emit_postgres_sql)(ir)
+    assert result.diagnostics == ()
+    assert len(result.artifacts) == 1
+    assert result.artifacts[0].kind is SqlArtifactKind.RELATION
+    sql = result.artifacts[0].sql
+    assert len(relation.group_keys) == 2
+    assert len(relation.projections) == 3
+    assert "GROUP BY" in sql
+    assert "ORDER BY" in sql
+    if value in {"1", '"all"'}:
+        assert "COALESCE(" in sql
+
+
+def test_computed_key_can_depend_on_multiple_earlier_lets() -> None:
+    ir = _compile_computed_key_source(
+        COMPUTED_KEY_SOURCE_PREFIX + "query grouped_orders:\n    from orders\n"
+        "    let base = orders.amount + orders.tax\n"
+        "    let factor = 2\n    let bucket = base * factor\n"
+        "    group by bucket\n    select bucket, n = count()\n",
+    )
+    result = emit_postgres_sql(ir)
+    assert result.diagnostics == ()
+    assert len(result.artifacts) == 1
+    assert result.artifacts[0].kind is SqlArtifactKind.RELATION
+    sql = result.artifacts[0].sql
+    assert "GROUP BY" in sql and "COUNT(*)" in sql

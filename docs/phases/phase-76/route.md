@@ -141,7 +141,7 @@ byte for byte; only changed statements run again.
 
 ## Budget
 
-Cumulative repair caps (stop and ask at any cap): C150/F450/D4400/S12
+Cumulative repair caps (stop and ask at any cap): C150/F450/D10000/S12
 (D76.17). D counts one per diagnostic command, and a loop inside one command
 counts once. Database runs, and the probe and design lines before this route,
 count. Each batch push is pre-approved once Gate 2 passes on its exact tree

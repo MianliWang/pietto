@@ -740,3 +740,237 @@ def test_fmt_needs_a_path_or_a_project(capsys: pytest.CaptureFixture[str]) -> No
     assert capsys.readouterr().err.splitlines()[-1] == (
         "pietto fmt: error: argument --project: Project root must be a non-empty path."
     )
+
+
+@pytest.mark.skipif(
+    sys.platform == "win32", reason="requires directory-relative writes"
+)
+@pytest.mark.parametrize("replacement", ["directory", "symlink", "hardlink"])
+@pytest.mark.parametrize("when", ["read", "format", "temporary"])
+@pytest.mark.parametrize("parent", ["sub", "."])
+def test_fmt_project_directory_replacement_preserves_both_sources(
+    replacement: str,
+    when: str,
+    parent: str,
+    tmp_path: Path,
+    capsys: pytest.CaptureFixture[str],
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    root = _project(tmp_path, {"sub/a.pietto": MESSY})
+    target = root / parent
+    moved = tmp_path / "moved"
+    other = tmp_path / "other"
+    relative = Path("a.pietto" if parent == "sub" else "sub/a.pietto")
+    (other / relative.parent).mkdir(parents=True)
+    if replacement == "hardlink":
+        os.link(target / relative, other / relative)
+    else:
+        (other / relative).write_bytes(MESSY)
+    from pietto._project import check
+
+    owner = check if when == "read" else cli
+    hook = {
+        "read": "_read_selected_source",
+        "format": "format_source",
+        "temporary": "open_replacement",
+    }[when]
+    original = getattr(owner, hook)
+
+    def replace_directory(*args: Any, **kwargs: Any) -> Any:
+        result = original(*args, **kwargs)
+        target.rename(moved)
+        if replacement == "symlink":
+            target.symlink_to(other, target_is_directory=True)
+        else:
+            other.rename(target)
+        return result
+
+    monkeypatch.setattr(owner, hook, replace_directory)
+
+    assert cli.main(["fmt", "--write", "--project", str(root)]) == 2
+    captured = capsys.readouterr()
+    assert captured.out == "" and "error:" in captured.err
+    assert (moved / relative).read_bytes() == MESSY
+    assert (target / relative).read_bytes() == MESSY
+    assert not list(moved.rglob(".pietto-*.tmp"))
+    assert not list(target.rglob(".pietto-*.tmp"))
+
+
+@pytest.mark.skipif(
+    sys.platform == "win32", reason="requires directory-relative writes"
+)
+def test_fmt_project_final_replace_stays_in_the_opened_directory(
+    tmp_path: Path,
+    capsys: pytest.CaptureFixture[str],
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    root = _project(tmp_path, {"sub/a.pietto": MESSY})
+    moved = tmp_path / "moved"
+    other = tmp_path / "other"
+    other.mkdir()
+    (other / "a.pietto").write_bytes(MESSY)
+    original = os.replace
+
+    def move_then_replace(src: Any, dst: Any, **kwargs: Any) -> None:
+        (root / "sub").rename(moved)
+        (root / "sub").symlink_to(other, target_is_directory=True)
+        original(src, dst, **kwargs)
+
+    monkeypatch.setattr(os, "replace", move_then_replace)
+
+    assert cli.main(["fmt", "--write", "--project", str(root)]) == 0
+    assert capsys.readouterr() == ("", "")
+    assert (moved / "a.pietto").read_bytes() == FORMATTED
+    assert (other / "a.pietto").read_bytes() == MESSY
+    assert sorted(item.name for item in moved.iterdir()) == ["a.pietto"]
+    assert sorted(item.name for item in other.iterdir()) == ["a.pietto"]
+
+
+@pytest.mark.parametrize("relative_open", [True, False])
+@pytest.mark.parametrize("changed", [False, True])
+def test_fmt_project_checks_source_identity_and_keeps_the_path_fallback(
+    relative_open: bool,
+    changed: bool,
+    tmp_path: Path,
+    capsys: pytest.CaptureFixture[str],
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from pietto._project import check, path_trust
+
+    if relative_open and not path_trust._supports_directory_relative_open():
+        pytest.skip("requires directory-relative writes")
+    if not relative_open:
+        monkeypatch.setattr(
+            path_trust, "_supports_directory_relative_open", lambda: False
+        )
+        monkeypatch.setattr(check, "_supports_directory_relative_open", lambda: False)
+    root = _project(tmp_path, {"sub/a.pietto": MESSY})
+    path = root / "sub/a.pietto"
+    original = cli.format_source
+
+    def format_then_replace(*args: Any, **kwargs: Any) -> Any:
+        result = original(*args, **kwargs)
+        if changed:
+            path.rename(path.with_suffix(".old"))
+            path.write_bytes(MESSY)
+        return result
+
+    monkeypatch.setattr(cli, "format_source", format_then_replace)
+
+    assert cli.main(["fmt", "--write", "--project", str(root)]) == (2 if changed else 0)
+    assert capsys.readouterr() == (
+        "",
+        "sub/a.pietto: error: source file changed while it was formatted; "
+        "the source file was not changed\n"
+        if changed
+        else "",
+    )
+    assert path.read_bytes() == (MESSY if changed else FORMATTED)
+    if changed:
+        assert path.with_suffix(".old").read_bytes() == MESSY
+    assert not list(root.rglob(".pietto-*.tmp"))
+
+
+@pytest.mark.skipif(
+    sys.platform == "win32", reason="requires directory-relative writes"
+)
+@pytest.mark.parametrize("failure", ["none", "parse", "read", "write"])
+def test_fmt_project_reuses_and_closes_opened_parents(
+    failure: str,
+    tmp_path: Path,
+    capsys: pytest.CaptureFixture[str],
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from pietto._project import check
+
+    root = _project(tmp_path, {"sub/a.pietto": MESSY, "sub/b.pietto": MESSY})
+    if failure == "parse":
+        (root / "sub/b.pietto").write_bytes(b"shape:\n")
+    elif failure == "read":
+        (root / "sub/b.pietto").write_bytes(b"\xff")
+    elif failure == "write":
+
+        def refuse(*args: Any, **kwargs: Any) -> None:
+            raise PermissionError(13, "denied")
+
+        monkeypatch.setattr(cli, "open_replacement", refuse)
+    descriptors: list[int] = []
+    original = check._open_pinned_directory
+
+    def record(*args: Any, **kwargs: Any) -> int:
+        descriptor = original(*args, **kwargs)
+        descriptors.append(descriptor)
+        return descriptor
+
+    monkeypatch.setattr(check, "_open_pinned_directory", record)
+
+    assert (
+        cli.main(["fmt", "--write", "--project", str(root)])
+        == {
+            "none": 0,
+            "parse": 1,
+            "read": 2,
+            "write": 2,
+        }[failure]
+    )
+    capsys.readouterr()
+    assert len(descriptors) == 1
+    with pytest.raises(OSError):
+        os.fstat(descriptors[0])
+    expected = FORMATTED if failure == "none" else MESSY
+    assert (root / "sub/a.pietto").read_bytes() == expected
+    assert not list(root.rglob(".pietto-*.tmp"))
+
+
+@pytest.mark.parametrize(
+    "missing",
+    [
+        None,
+        "open_only",
+        "open",
+        "access",
+        "stat",
+        "unlink",
+        "rename",
+        "follow_symlinks",
+    ],
+)
+def test_fmt_project_selects_only_supported_directory_write_operations(
+    missing: str | None,
+    tmp_path: Path,
+    capsys: pytest.CaptureFixture[str],
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    native = cli._supports_project_fmt_directory_writes()
+    if sys.platform == "linux":
+        assert native  # Exercise the actual strong path on the Linux test runner.
+    if missing == "open_only":
+        monkeypatch.setattr(os, "supports_dir_fd", {os.open})
+    elif missing == "follow_symlinks":
+        monkeypatch.setattr(
+            os, "supports_follow_symlinks", os.supports_follow_symlinks - {os.stat}
+        )
+    elif missing is not None:
+        monkeypatch.setattr(
+            os, "supports_dir_fd", os.supports_dir_fd - {getattr(os, missing)}
+        )
+    root = _project(tmp_path, {"sub/a.pietto": MESSY})
+    replacements: list[dict[str, Any]] = []
+    original = os.replace
+
+    def record(src: Any, dst: Any, **kwargs: Any) -> None:
+        replacements.append(kwargs)
+        original(src, dst, **kwargs)
+
+    monkeypatch.setattr(os, "replace", record)
+
+    assert cli.main(["fmt", "--write", "--project", str(root)]) == 0
+    assert capsys.readouterr() == ("", "")
+    assert (root / "sub/a.pietto").read_bytes() == FORMATTED
+    assert len(replacements) == 1
+    if native and missing is None:
+        assert type(replacements[0]["src_dir_fd"]) is int
+        assert replacements[0]["src_dir_fd"] == replacements[0]["dst_dir_fd"]
+    else:
+        assert replacements == [{}]
+    assert not list(root.rglob(".pietto-*.tmp"))

@@ -45,7 +45,11 @@ from pietto._project.model import (
     ProjectRoot,
     ProjectSemanticResult,
 )
-from pietto._project.path_trust import ProjectPinnedRoot
+from pietto._project.path_trust import (
+    ProjectPinnedRoot,
+    _open_pinned_directory,
+    _supports_directory_relative_open,
+)
 from pietto._project.selected_input_index import ProjectSelectedInputEntry
 from pietto._project.source_selection import select_project_sources
 from pietto._project.trusted_source import (
@@ -1548,7 +1552,10 @@ def _overlay_source(
 
 
 def read_explicit_module_sources(
-    root: str | Path, command: str
+    root: str | Path,
+    command: str,
+    *,
+    opened_directories: dict[Path, tuple[ProjectPinnedRoot, int]] | None = None,
 ) -> tuple[
     tuple[ProjectDiscoveryError, ...],
     tuple[
@@ -1560,7 +1567,9 @@ def read_explicit_module_sources(
     project in module order: its selected entry with the trusted text, or
     with the PIE-P1006 diagnostic of a source over the size limit, and the
     project errors; one without a path stops the reading. `command` names
-    the caller in the refusal of any other schema version."""
+    the caller in the refusal of any other schema version. The formatter may
+    retain one opened parent per directory; its caller owns closing every
+    descriptor in ``opened_directories``, including on errors."""
 
     config_result = load_project_config(root)
     config = config_result.config
@@ -1590,6 +1599,21 @@ def read_explicit_module_sources(
         tuple[ProjectSelectedInputEntry, ProjectTrustedSourceSnapshot | Diagnostic]
     ] = []
     for entry in selection.selected_input_index.entries:
+        if opened_directories is not None and _supports_directory_relative_open():
+            parent = entry.canonical_path.parent
+            if parent not in opened_directories:
+                try:
+                    descriptor = _open_pinned_directory(selection.pinned_root, parent)
+                except OSError:
+                    errors.append(
+                        ProjectDiscoveryError(
+                            ProjectDiscoveryErrorKind.SOURCE_READ,
+                            "Project source file is not readable.",
+                            entry.identity.path,
+                        )
+                    )
+                    continue
+                opened_directories[parent] = (selection.pinned_root, descriptor)
         source = _read_selected_source(selection.pinned_root, entry)
         if not isinstance(source, ProjectDiscoveryError):
             sources.append((entry, source))

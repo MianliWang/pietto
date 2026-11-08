@@ -28,16 +28,16 @@ def test_analyze_accepts_mode_overrides(mode: CheckMode) -> None:
     assert result.model.mode is mode
 
 
-def test_analyze_uses_header_mode_and_override_takes_precedence() -> None:
+@pytest.mark.parametrize("header_mode", [None, "loose", "checked", "strict"])
+def test_analyze_ignores_hand_built_header_mode(header_mode: str | None) -> None:
     # The parser refuses a header line (PIE-P1000); an AST built by hand may
     # still carry one.
     empty = _parse("")
-    script = replace(empty, header=Header(span=empty.span, mode="loose"))
+    script = replace(empty, header=Header(span=empty.span, mode=header_mode))
 
-    assert analyze(script).model.mode is CheckMode.LOOSE
-    assert (
-        analyze(script, mode_override=CheckMode.STRICT).model.mode is CheckMode.STRICT
-    )
+    assert analyze(script).model.mode is CheckMode.CHECKED
+    for mode in CheckMode:
+        assert analyze(script, mode_override=mode).model.mode is mode
 
 
 def test_analyze_returns_model_and_empty_diagnostics() -> None:

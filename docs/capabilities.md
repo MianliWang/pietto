@@ -4,11 +4,13 @@ This page shows, for each feature family, whether `check` accepts it and
 `emit-sql` emits it in a single file (`check FILE`, `emit-sql FILE --dialect
 ...`) and in an explicit-module project (`schema_version = 2`,
 `check --project ROOT`, `emit-sql --project ROOT`), for PostgreSQL and MySQL.
-It describes `0.1.10`, whose
-[release notes](release-notes.md#aggregates-cross-module-reuse-and-editor-tools-public-alpha-release-notes--0110)
-give each change. Each
-row was recorded by running one plain example of the family through these
-commands, with a project emission contract that declares every premise
+It describes `0.1.10` plus explicitly marked unreleased source changes;
+its [release notes](release-notes.md#aggregates-cross-module-reuse-and-editor-tools-public-alpha-release-notes--0110)
+cover the published distribution. A **candidate** cell describes the Phase76
+B2 source candidate, whose final validation and publication are pending;
+it is not a released capability. Other rows were recorded by running one
+plain example of the family through these commands, with a project emission
+contract that declares every premise
 ([project SQL emission](project-package.md#project-sql-emission)). A cell
 states what that example did. The [language reference](language.md) gives
 every rule and limit, and
@@ -28,6 +30,10 @@ SQL of each function added after 0.1.8.
 | `where`, `let` values, `select`, `order by`, `limit` | yes | yes | yes | yes; `Int` arithmetic that may leave 64 bits, such as `amount * 2` over a `bigint` column, BLOCKED PIE-B1002 `arithmetic_outside_physical_range` | [0.1.7](release-notes.md#nested-results-and-project-emission-public-alpha-release-notes--017) |
 | `Float` arithmetic and sign on a field (`price * 2.0`, `-price`) | yes | yes | yes | BLOCKED PIE-B1003 `float_literal_operands_required` (`unary_sign_requires_int_operand` for `-price`) | [Unreleased](release-notes.d/76-s03-float-arithmetic-and-keys.md#float-arithmetic-and-float-keys-in-postgresql-projects) |
 | `group by`, `having`, `count`, `min`, `max`, `avg` | yes | yes | yes | yes | [Aggregates](language.md#aggregates-and-grouping) |
+| Scalar calls or arithmetic over direct aggregates (`coalesce(sum(qty), 0)` with nullable `Int` qty) | candidate yes | candidate yes | candidate yes, with existing carrier proofs | candidate BLOCKED PIE-B1003 `aggregate_composition_not_admitted_on_target` | [Unreleased](release-notes.d/76-s10-aggregate-composition.md) |
+| A computed `let` GROUP BY key selected by the same binding | candidate yes | candidate yes | yes | yes | [Unreleased](release-notes.d/76-s09-computed-let-grouping.md) |
+| Direct `sum(Decimal(p, s))` | yes | yes | candidate yes when `p + 19 <= 65` and `s <= 30`, with checked cast | BLOCKED PIE-B1004 `decimal_aggregate_range_proof_missing` | [Unreleased](release-notes.d/76-s05-decimal-project.md) |
+| `Float % Float` | candidate refused PIE-B1000 | candidate refused PIE-B1000 | candidate yes | candidate BLOCKED PIE-B1003 `binary_operator_not_admitted` | [Unreleased](release-notes.d/76-s04-project-expression.md) |
 | `sum` of an `Int` | yes | yes | yes | BLOCKED PIE-B1004 `sum_int_aggregate_range_proof_missing` | [0.1.7](release-notes.md#nested-results-and-project-emission-public-alpha-release-notes--017) |
 | `sum(1 for o in group if t)` | yes | yes | yes | BLOCKED PIE-B1003 `conditional_count_not_admitted_on_target` | [0.1.10](release-notes.md#aggregates-cross-module-reuse-and-editor-tools-public-alpha-release-notes--0110), [projects](release-notes.md#conditional-count-and-sum-in-projects) |
 | `sum(o.f for o in group if t)` | yes | refused PIE-B1000 | yes | BLOCKED PIE-B1004 `sum_int_aggregate_range_proof_missing` for an `Int` `o.f` | [0.1.10](release-notes.md#aggregates-cross-module-reuse-and-editor-tools-public-alpha-release-notes--0110), [projects](release-notes.md#conditional-count-and-sum-in-projects) |

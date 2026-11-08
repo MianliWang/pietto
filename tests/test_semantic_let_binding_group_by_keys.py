@@ -774,40 +774,6 @@ def test_computed_group_key_keeps_identity_and_composition_boundaries(
     assert code in _error_codes(semantic)
 
 
-@pytest.mark.parametrize("dialect", ["postgres", "mysql"])
-@pytest.mark.parametrize("value", ["amount + tax", "lower(region)", "1", "-1", '"all"'])
-def test_computed_group_key_emits_with_dependencies_and_distinct_binding_identity(
-    dialect: str, value: str
-) -> None:
-    prefix = SOURCE_PREFIX if dialect == "postgres" else MYSQL_SOURCE_PREFIX
-    source = (
-        "query grouped_orders:\n    from orders\n"
-        f"    let first = {value}\n    let second = {value}\n"
-        "    group by first, second\n    select a = first, b = second, n = count()\n"
-        "    order by a\n"
-    )
-    sql = _sql_for(source, prefix=prefix, dialect=dialect)
-    relation = _relation_ir(source, prefix=prefix)
-    assert len(relation.group_keys) == 2
-    assert len(relation.projections) == 3
-    assert "GROUP BY" in sql
-    assert "ORDER BY" in sql
-    if value in {"1", '"all"'}:
-        assert "COALESCE(" in sql
-
-
-def test_computed_key_can_depend_on_multiple_earlier_lets() -> None:
-    sql = _sql_for(
-        "query grouped_orders:\n    from orders\n"
-        "    let base = orders.amount + orders.tax\n"
-        "    let factor = 2\n    let bucket = base * factor\n"
-        "    group by bucket\n    select bucket, n = count()\n",
-        prefix=SOURCE_PREFIX,
-        dialect="postgres",
-    )
-    assert "GROUP BY" in sql and "COUNT(*)" in sql
-
-
 def test_computed_group_key_does_not_expose_other_inputs_to_qualify() -> None:
     semantic = _semantic_for(
         "query grouped_orders:\n    from orders\n    let bucket = amount + tax\n"

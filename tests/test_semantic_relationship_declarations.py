@@ -10,7 +10,7 @@ from pietto._project.project_ir_operators import ProjectIRLogicalOperatorKind
 from pietto import ast_nodes as ast
 from pietto.ast_nodes import Script
 from pietto.errors import Diagnostic
-from pietto.ir.model import RelationIR, ScriptIR
+from pietto.ir.model import FieldRefIR, RelationIR, ScriptIR
 from pietto.parser_api import parse_source
 from pietto.semantic import analyze
 from pietto.semantic.model import (
@@ -1183,6 +1183,7 @@ def test_modern_alias_grouped_let_order_and_window_keep_actual_field_owner(
     relation = next(
         item for item in lowered.ir.definitions if isinstance(item, RelationIR)
     )
+    assert isinstance(relation.group_keys[0], FieldRefIR)
     assert relation.group_keys[0].field is not None
     assert relation.group_keys[0].field.owner is not None
     assert relation.group_keys[0].field.owner.name == "items"

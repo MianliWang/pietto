@@ -210,7 +210,18 @@ user, is not a regular file or is in a directory it cannot write.
 It then replaces each module that changes, atomically and in module order, and
 stops with exit 2 at the first one that changed after it was read or that it
 cannot replace; the modules already replaced stay replaced. It writes no file
-that the project does not select.
+that the project does not select. In the Phase76 B2 source candidate, on
+platforms with directory-relative file operations, each source parent directory
+is held from the trusted source read
+through replacement; the opened file identity and original bytes are checked,
+and temporary files, replacement and cleanup use that held directory. A
+change detected before replacement refuses the write; moving the directory
+at the final operation cannot redirect the write to another directory.
+This guarantee starts at the trusted read, not directory discovery. Platforms
+without those operations, including Windows, retain the path-based fallback
+with an opened-source identity check; it does not eliminate every directory
+race. Formatting remains a sequence of per-file replacements, not a
+whole-project transaction.
 
 ### Migrating old source
 
@@ -3860,6 +3871,39 @@ WHERE ("ordered_at" BETWEEN '2026-01-01 00:00:00' AND '2026-12-31 23:59:59') AND
 
 ## Aggregates and grouping
 
+The Phase76 B2 source candidate admits an explicitly named SELECT expression
+that wraps direct aggregates in scalar calls or arithmetic (`+`, `-`, `*`,
+`/`, `%` and unary signs). Outside aggregate arguments it reads only GROUP BY
+keys and literals. Each aggregate keeps its argument and JOIN fan-out rules;
+each scalar keeps its type rules. A computed `let` key is the same binding
+listed by GROUP BY, not another binding with an equal expression.
+For `qty: Int | None`, examples are `total = coalesce(sum(qty), 0)` and
+`ratio = sum(qty) * 100 / count()`. In a single file,
+`rounded = round(avg(amount), 2)` works for `amount: Decimal | None`;
+`avg(Int)` and `avg(Float)` return Float, whose two-argument `round` remains
+refused. Project Decimal `avg` remains refused.
+
+In a grouped query with a real SELECT aggregate, another named output may
+use only group keys and literals, such as `label = id + 1` or `fixed = 7`.
+The whole grouped query still needs an aggregate. Without GROUP BY, a separate
+`fixed = 7` beside `n = count()` remains PIE-S2312; `n = count() + 1` is
+accepted. Single-file ORDER BY of a standalone literal output stays
+PIE-S2380; a project can order by its already projected value port.
+HAVING and ORDER BY keep their selected-output namespaces and existing syntax.
+
+This first version adds no casts, constructors, conditionals, comparisons,
+windows or generators around aggregates, no nested aggregates, no non-key
+raw fields outside aggregates, and no references to another output of the
+same SELECT. Aggregate SELECT parameter positions remain PIE-S2355.
+Over an unknown input row a composition whose count result can be typed may
+pass `check`, but emission retains its refusal. The existing two-query route
+remains accepted; the [worked example](../examples/queries/aggregate_composition.pietto)
+places both forms beside typed inputs. PostgreSQL projects admit only
+qualified carriers; MySQL projects retain PIE-B1003
+`aggregate_composition_not_admitted_on_target`. These candidate changes are
+not part of the published `0.1.10` distribution; B2 validation and publication
+remain pending.
+
 The current aggregate family is:
 
 ```text
@@ -3913,12 +3957,14 @@ signed 64-bit range, and a sum outside that range is the run-time error
 SQLSTATE 22003, never a wrong value, by the same rule. Project SQL on MySQL reports
 `sum(Int)` BLOCKED with `PIE-B1004` (`sum_int_aggregate_range_proof_missing`),
 as `CAST(DECIMAL AS SIGNED)` would clamp an out-of-range sum, although
-`check --project` accepts it and single-file MySQL `emit-sql` emits `SUM`; Decimal
-`sum`/`avg` require
-an exact aggregate range/scale and division proof (a Decimal sum has no
-bounded precision and a Decimal average no fixed scale, so no `Decimal(p, s)`
-carrier holds the result: `decimal_aggregate_range_proof_missing`), and on
-MySQL Float `sum`/`avg` require a finite-result proof. PostgreSQL project SQL
+`check --project` accepts it and single-file MySQL `emit-sql` emits `SUM`.
+PostgreSQL project `sum` of a direct qualified `Decimal(p, s)` field uses
+`CAST(SUM(x) AS pg_catalog.numeric(p + 19, s))` when `p + 19 <= 65` and
+`s <= 30`; an oversized sum raises SQLSTATE 22003. This is a checked result
+carrier, not a source-cardinality proof. Other Decimal sum shapes, MySQL
+Decimal sums and project Decimal averages keep PIE-B1004
+`decimal_aggregate_range_proof_missing`. MySQL Float `sum`/`avg` still require
+a finite-result proof. PostgreSQL project SQL
 emits `sum` and `avg` of a finite `Float` as the single-file `SUM(x)` and
 `AVG(x)` with the R13 evidence `target_checked_binary64_overflow`: the target
 raises SQLSTATE 22003 instead of returning an infinite value (`avg` also where

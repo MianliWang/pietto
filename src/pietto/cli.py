@@ -8,6 +8,7 @@ import os
 import stat
 import sys
 from collections.abc import Callable, Sequence
+from contextlib import ExitStack
 from dataclasses import replace
 from importlib.metadata import PackageNotFoundError, version
 from pathlib import Path
@@ -39,6 +40,8 @@ from pietto.errors import Diagnostic, Severity
 
 if TYPE_CHECKING:
     from pietto.ast_nodes import Script
+    from pietto._project.path_trust import ProjectPinnedRoot
+    from pietto._project.trusted_source import ProjectTrustedSourceSnapshot
     from pietto._project.json_v2 import RelatedLocations
     from pietto._project.model import (
         ProjectDiscoveryError,
@@ -888,7 +891,26 @@ def _run_fmt(path: Path, *, check: bool, write: bool) -> int:
     return 0
 
 
+def _supports_project_fmt_directory_writes() -> bool:
+    """Require every directory-relative operation used by project formatting."""
+
+    from pietto._project.path_trust import _supports_directory_relative_open
+
+    # CPython advertises renameat through os.rename, not os.replace.
+    return (
+        _supports_directory_relative_open()
+        and {os.access, os.stat, os.unlink, os.rename}.issubset(os.supports_dir_fd)
+        and os.stat in os.supports_follow_symlinks
+        and hasattr(os, "O_NONBLOCK")
+    )
+
+
 def _run_project_fmt(root: Path, *, write: bool) -> int:
+    with ExitStack() as opened:
+        return _run_project_fmt_opened(root, write=write, opened=opened)
+
+
+def _run_project_fmt_opened(root: Path, *, write: bool, opened: ExitStack) -> int:
     """Check or rewrite every module of a schema_version 2 project in module
     order, as fmt formats one file; write no file unless every module reads,
     parses and formats, and, with ``write``, none is a symbolic link and each
@@ -896,7 +918,20 @@ def _run_project_fmt(root: Path, *, write: bool) -> int:
 
     from pietto._project.check import read_explicit_module_sources
 
-    errors, sources = read_explicit_module_sources(root, "fmt --project")
+    directories: dict[Path, tuple[ProjectPinnedRoot, int]] = {}
+    try:
+        errors, sources = read_explicit_module_sources(
+            root,
+            "fmt --project",
+            opened_directories=(
+                directories
+                if write and _supports_project_fmt_directory_writes()
+                else None
+            ),
+        )
+    finally:
+        for _, descriptor in directories.values():
+            opened.callback(os.close, descriptor)
     if errors:
         for error in errors:
             _print_project_error(error)
@@ -912,7 +947,7 @@ def _run_project_fmt(root: Path, *, write: bool) -> int:
             _print_cli_error(name, "source file must not be a symbolic link")
         if links:
             return _EXIT_USAGE_ERROR
-    changed: list[tuple[str, Path, str, str]] = []
+    changed: list[tuple[ProjectTrustedSourceSnapshot, str]] = []
     refused = False
     for _, source in sources:
         if isinstance(source, Diagnostic):
@@ -929,16 +964,16 @@ def _run_project_fmt(root: Path, *, write: bool) -> int:
         if result.source is None:
             refused = True
         elif result.changed:
-            path = source.selected_input.canonical_path
-            changed.append((source.path, path, source.source_text, result.source))
+            changed.append((source, result.source))
     if refused:
         return _EXIT_DIAGNOSTIC_ERROR
     if not write:
-        for name, *_ in changed:
-            _write_stderr(f"would reformat: {_escape_cli_text(name)}\n")
+        for source, _ in changed:
+            _write_stderr(f"would reformat: {_escape_cli_text(source.path)}\n")
         return _EXIT_DIAGNOSTIC_ERROR if changed else 0
     unwritable = False
-    for name, path, _, _ in changed:
+    for source, _ in changed:
+        name, path = source.path, source.selected_input.canonical_path
         try:
             _refuse_unsafe_source(path)
             _refuse_unwritable(path, "source file")
@@ -952,19 +987,93 @@ def _run_project_fmt(root: Path, *, write: bool) -> int:
             unwritable = True
     if unwritable:
         return _EXIT_USAGE_ERROR
-    for name, path, text, formatted in changed:
+    for source, formatted in changed:
+        name, path = source.path, source.selected_input.canonical_path
         try:
-            _refuse_unsafe_source(path)  # again, as it may have changed since
-            _replace_file(
-                path,
+            _replace_project_source(
+                source,
                 formatted.encode("utf-8"),
-                "source file",
-                expected=text.encode("utf-8"),
+                opened_directory=directories.get(path.parent),
             )
         except (OSError, ValueError) as error:
             _print_cli_error(name, _cli_error_message(error, path))
             return _EXIT_USAGE_ERROR
     return 0
+
+
+def _replace_project_source(
+    source: ProjectTrustedSourceSnapshot,
+    data: bytes,
+    *,
+    opened_directory: tuple[ProjectPinnedRoot, int] | None,
+) -> None:
+    """Bind a project's replacement to its trusted bytes and opened directory."""
+
+    from pietto._project.path_trust import (
+        _filesystem_state,
+        _fstat_state,
+        _open_pinned_directory,
+    )
+
+    path = source.selected_input.canonical_path
+    expected = source.source_text.encode("utf-8")
+    changed = (
+        "source file changed while it was formatted; the source file was not changed"
+    )
+    _refuse_unsafe_source(path)
+    if opened_directory is None:
+        # Windows needs native directory handles to close the remaining path race.
+        with path.open("rb") as current:
+            if _fstat_state(current.fileno()) != source.opened_target_state:
+                raise ValueError(changed)
+        _replace_file(path, data, "source file", expected=expected)
+        return
+
+    pinned, directory = opened_directory
+    temporary_path: Path | None = None
+    try:
+        descriptor = os.open(
+            path.name, os.O_RDONLY | os.O_NOFOLLOW | os.O_NONBLOCK, dir_fd=directory
+        )
+        with os.fdopen(descriptor, "rb") as current:
+            if _fstat_state(current.fileno()) != source.opened_target_state:
+                raise ValueError(changed)
+            if is_read_only(path, dir_fd=directory):
+                raise ValueError(
+                    "source file is read-only; the source file was not changed"
+                )
+            if is_owned_by_another_user(path, dir_fd=directory):
+                raise ValueError(
+                    "source file belongs to another user; the source file was not changed"
+                )
+            temporary, temporary_path = open_replacement(path, dir_fd=directory)
+            with temporary:
+                temporary.write(data)
+            if (
+                current.read(len(expected) + 1) != expected
+                or _fstat_state(current.fileno()) != source.opened_target_state
+                or _filesystem_state(
+                    os.stat(path.name, dir_fd=directory, follow_symlinks=False)
+                )
+                != source.opened_target_state
+            ):
+                raise ValueError(changed)
+            verified = _open_pinned_directory(pinned, path.parent)
+            try:
+                if not os.path.samestat(os.fstat(directory), os.fstat(verified)):
+                    raise ValueError(changed)
+            finally:
+                os.close(verified)
+            os.replace(
+                temporary_path, path.name, src_dir_fd=directory, dst_dir_fd=directory
+            )
+            temporary_path = None
+    finally:
+        if temporary_path is not None:
+            try:
+                os.unlink(temporary_path, dir_fd=directory)
+            except OSError:
+                pass
 
 
 def _refuse_unsafe_source(path: Path) -> None:

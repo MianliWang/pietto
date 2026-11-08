@@ -723,7 +723,7 @@ def _binary_evidence(kind: str) -> tuple[CapabilityEvidence, ...]:
         "decimal": "tests/test_semantic_decimal_scalar_expression_semantics.py",
         "decimal_int": "tests/test_semantic_decimal_int_exact_arithmetic.py",
         "modulo": "tests/test_semantic_core_scalar_expression_semantics.py",
-        "float_remainder": "tests/test_sql_project_scalar_expressions.py",
+        "float_remainder": "tests/test_execution_compiled_families.py",
         "division": "tests/test_semantic_operator_comparison_matrix_contract.py",
         "bool": "tests/test_semantic_core_scalar_expression_semantics.py",
     }[kind]

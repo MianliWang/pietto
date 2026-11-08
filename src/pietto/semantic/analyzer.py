@@ -269,7 +269,6 @@ def _analyze_script(
 ) -> SemanticResult:
     mode = mode_override or CheckMode.CHECKED
     try:
-        mode = mode_override or _mode_from_script(script)
         # A SELECT item's `any(... for o in group)` is the test of a group.
         script = group_any_calls(script)
         parsed = script
@@ -1801,14 +1800,6 @@ def _relation_let_expressions_for_satisfying(
         }
         for definition, scope in let_scopes.items()
     }
-
-
-def _mode_from_script(script: Script) -> CheckMode:
-    """Select the declared mode or the checked default."""
-
-    if script.header is None or script.header.mode is None:
-        return CheckMode.CHECKED
-    return CheckMode(script.header.mode)
 
 
 def _namespace_for(

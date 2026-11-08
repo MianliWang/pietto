@@ -33,6 +33,20 @@ from pietto._project.project_result_output import prepare_output
 from pietto._project.project_sql_emission import serialize_project_sql_emission
 from pietto._project.project_sql_emission_cli import POLICIES, emit_project
 
+from _pietto_sql_emission import graft
+
+from dataclasses import replace
+from typing import Any
+import _pietto_sql_emission as probe
+from _pietto_sql_emission import S05_POSTGRES_BODY
+from _pietto_sql_emission import emit_aggregate_composition
+from pietto._project import project_sql_emission_portable as portable
+from pietto._project import project_sql_emission_pure_boundary as pure
+from pietto._project.project_sql_emission_ast import SQLRowQuery
+from pietto._project.project_sql_emission_verification import (
+    verify_project_sql_emission,
+)
+
 
 @pytest.mark.parametrize("target", ("postgres", "mysql"))
 @pytest.mark.parametrize("case,variant", CASES)
@@ -4083,6 +4097,51 @@ def test_a_relationship_over_query_rows_replays_as_its_written_on(tmp_path, sour
     assert prepare_live_template(outcome.artifact).artifact.rendered.sql == sql
 
 
+@pytest.mark.parametrize(
+    "expression,precision",
+    [
+        ("money * id", 28),
+        ("id * money", 28),
+        ("money * 2", 28),
+        ("-money", 9),
+        ("+money", 9),
+        ("-(money * id)", 28),
+    ],
+)
+def test_decimal_multiply_and_sign_close_project_readers(
+    tmp_path, expression, precision
+):
+    from pietto._project import project_sql_emission_portable as portable
+    from pietto._project import project_sql_emission_pure_boundary as pure
+
+    body = f"table result:\n    from rows\n    select:\n        result = {expression}\n"
+    item = emission.parameterized_fixture("postgres", body, protocol=False)
+    checked, outcome = emission.build_case(tmp_path, item["source"], item["contract"])
+    assert checked.verified and outcome.status == "VERIFIED", outcome.blockers
+    assert outcome.artifact is not None
+    document = emission.decode_public(serialize_project_sql_emission(outcome))
+    storage = document["columns"][0]["representation"]["storage"]
+    assert storage == {"kind": "pg_numeric", "precision": precision, "scale": 2}
+    observation = portable.export_emission_observation(
+        outcome.artifact, outcome.artifact.request
+    )
+    assert observation.status is portable.ObservationStatus.OK
+    assert observation.canonical_bytes is not None
+    assert (
+        pure.parse_emission_observation(observation.canonical_bytes).status
+        is pure.Status.OK
+    )
+    built = build_compiled(outcome.artifact)
+    loaded = load_compiled(
+        built.payload,
+        expected_pin=built.pin,
+        accepted_producer=built.producer,
+        accepted_compatibility=built.compatibility,
+    )
+    replay = emit_compiled(loaded, ())
+    assert replay.rendered.sql == outcome.artifact.rendered.sql
+
+
 def test_mysql_compiled_aggregate_scalar_keeps_two_query_boundary(tmp_path):
     from dataclasses import replace
     from pietto._project.project_compiled_schema import FIELDS, CompiledError, Record
@@ -4283,3 +4342,702 @@ def test_compiled_global_aggregate_rejects_zero_leaf_projection(tmp_path, expres
         CompiledError, match="^COMPILED_GLOBAL_AGGREGATE_COMPOSITION_LEAF$"
     ):
         verify_description(description)
+
+
+TEXT_WINDOW_DEFAULT_BODY = """query result:
+    from rows
+    select:
+        id
+        previous = lag(text, 1, "雪") window(order by id)
+        following = lead(text, 1, "a'b") window(order by id)
+"""
+
+
+FLOAT_REMAINDER_BODY = """query result:
+    from rows
+    select:
+        id
+        remainder = ratio % 0.1
+"""
+
+
+FLOAT_FIELD_ARITHMETIC_BODY = """query result:
+    from rows
+    where ratio * 2.0 > 1.0
+    select:
+        id
+        doubled = ratio * 2.0
+        summed = ratio + ratio
+        negated = -ratio
+        nested = ratio - ratio * ratio
+        folded = 1.5 + 2.25
+"""
+
+
+TARGETS = ("postgres", "mysql")
+
+
+def emit(tmp_path, target, body):
+    item = probe.parameterized_fixture(
+        target, body, "preserve_literals", protocol=False
+    )
+    return probe.build_case(
+        tmp_path, item["source"], item["contract"], "preserve_literals"
+    )
+
+
+def emit_source(tmp_path, target, body):
+    item = probe.aggregate_fixture(target, "X_aggregate_grouped", "hidden")
+    contract = json.loads(item["contract"])
+    header = probe.AGGREGATE_HEADER.format(target=target)
+    _, outcome = probe.build_case(
+        tmp_path, header + body, probe.encoded(contract).decode(), "preserve_literals"
+    )
+    return outcome
+
+
+def row_query(artifact):
+    query = artifact.ast
+    assert isinstance(query, SQLRowQuery)
+    return query
+
+
+def public(outcome) -> dict[str, Any]:
+    """The independent consumer's verdict over the published bytes alone."""
+    return probe.decode_public(serialize_project_sql_emission(outcome))
+
+
+def test_postgres_decimal_carriers_emit_exact_addition(tmp_path):
+    checked, outcome = emit(tmp_path, "postgres", S05_POSTGRES_BODY)
+    assert checked.verified and outcome.status == "VERIFIED", outcome.blockers
+    assert outcome.artifact is not None
+    document = json.loads(serialize_project_sql_emission(outcome).decode())
+    assert "pg_catalog.numeric(22, 2)" in document["sql"]
+    assert "pg_catalog.numeric(10, 2)" in document["sql"]
+    observed = portable.export_emission_observation(
+        outcome.artifact, outcome.artifact.request
+    )
+    assert observed.status is portable.ObservationStatus.OK
+    assert observed.canonical_bytes is not None
+    assert (
+        pure.parse_emission_observation(observed.canonical_bytes).status
+        is pure.Status.OK
+    )
+
+    from pietto._project.project_compiled_build import build_compiled
+    from pietto._project.project_compiled_loading import load_compiled
+    from pietto._project.project_compiled_lowering import emit_compiled
+
+    built = build_compiled(outcome.artifact)
+    loaded = load_compiled(
+        built.payload,
+        expected_pin=built.pin,
+        accepted_producer=built.producer,
+        accepted_compatibility=built.compatibility,
+    )
+    assert emit_compiled(loaded, ()).request.family == "postgres"
+
+
+@pytest.mark.parametrize("target", TARGETS)
+def test_postgres_text_window_defaults_are_escaped_and_widen_the_result(
+    tmp_path, target
+):
+    """E7 opens only static Text literals beside Text lag/lead values."""
+    checked, outcome = emit(tmp_path, target, TEXT_WINDOW_DEFAULT_BODY)
+    assert checked.verified
+    if target == "mysql":
+        assert outcome.status == "BLOCKED" and outcome.artifact is None
+        assert [(blocker.code, blocker.detail) for blocker in outcome.blockers] == [
+            ("PIE-B1003", "window_default_literal_kind_not_realized_yet"),
+        ]
+        return
+    assert outcome.status == "VERIFIED", outcome.blockers
+    artifact = outcome.artifact
+    assert artifact is not None
+    sql = artifact.rendered.sql.decode("utf-8")
+    assert "E'\\351\\233\\252'" in sql
+    assert "E'\\141\\047\\142'" in sql
+    document = probe.decode_public(serialize_project_sql_emission(outcome))
+    defaults = [
+        column["representation"]["domain"]["max_characters"]
+        for column in document["columns"]
+        if column["label"] in {"previous", "following"}
+    ]
+    assert len(defaults) == 2 and min(defaults) >= 3
+    observed = portable.export_emission_observation(artifact, artifact.request)
+    assert observed.status is portable.ObservationStatus.OK
+    assert observed.canonical_bytes is not None
+    assert (
+        pure.parse_emission_observation(observed.canonical_bytes).status
+        is pure.Status.OK
+    )
+    assert portable.verify_emission_observation(
+        observed.canonical_bytes, artifact, artifact.request
+    ).corresponds
+    from pietto._project.project_compiled_build import build_compiled
+    from pietto._project.project_compiled_loading import load_compiled
+    from pietto._project.project_execution_template import (
+        prepare_compiled_template,
+    )
+
+    built = build_compiled(artifact)
+    template = prepare_compiled_template(
+        load_compiled(
+            built.payload,
+            expected_pin=built.pin,
+            accepted_producer=built.producer,
+            accepted_compatibility=built.compatibility,
+        )
+    )
+    assert template.artifact.rendered.sql == artifact.rendered.sql
+
+
+@pytest.mark.parametrize("target", TARGETS)
+def test_postgres_float_remainder_uses_the_exact_binary64_lowering(tmp_path, target):
+    """E5 admits same-type Float `%` only through the PostgreSQL exact path."""
+    checked, outcome = emit(tmp_path, target, FLOAT_REMAINDER_BODY)
+    assert checked.verified
+    if target == "mysql":
+        assert outcome.status == "BLOCKED" and outcome.artifact is None
+        assert [(blocker.code, blocker.detail) for blocker in outcome.blockers] == [
+            ("PIE-B1003", "float_remainder_exact_binary64_not_realized")
+        ]
+        return
+    assert outcome.status == "VERIFIED", outcome.blockers
+    artifact = outcome.artifact
+    assert artifact is not None
+    sql = artifact.rendered.sql.decode("utf-8")
+    assert 'WITH "__pietto_s04_operands" AS MATERIALIZED (SELECT ' in sql
+    assert "pg_catalog.float8send" in sql
+    assert "pg_catalog.mod" in sql
+    observed = portable.export_emission_observation(artifact, artifact.request)
+    assert observed.status is portable.ObservationStatus.OK
+    assert observed.canonical_bytes is not None
+    assert (
+        pure.parse_emission_observation(observed.canonical_bytes).status
+        is pure.Status.OK
+    )
+    assert portable.verify_emission_observation(
+        observed.canonical_bytes, artifact, artifact.request
+    ).corresponds
+    from pietto._project.project_compiled_build import build_compiled
+    from pietto._project.project_compiled_loading import load_compiled
+    from pietto._project.project_execution_template import (
+        prepare_compiled_template,
+    )
+
+    built = build_compiled(artifact)
+    template = prepare_compiled_template(
+        load_compiled(
+            built.payload,
+            expected_pin=built.pin,
+            accepted_producer=built.producer,
+            accepted_compatibility=built.compatibility,
+        )
+    )
+    assert template.artifact.rendered.sql == artifact.rendered.sql
+
+
+@pytest.mark.parametrize("target", TARGETS)
+def test_postgres_float_field_arithmetic_rests_on_the_checked_float8_operator(
+    tmp_path, target
+):
+    """E4: PostgreSQL emits Float `+`, `-`, `*` over a field uncast, each with
+    the R05 evidence that its checked float8 operator refuses a non-finite
+    result (SQLSTATE 22003), and a sign, which never fails, without it; a
+    literal fold stays statically checked. The observation, the independent
+    public consumer and the compiled template agree. MySQL keeps it refused."""
+    checked, outcome = emit(tmp_path, target, FLOAT_FIELD_ARITHMETIC_BODY)
+    assert checked.verified
+    if target == "mysql":
+        assert outcome.status == "BLOCKED" and outcome.artifact is None
+        assert [(b.code, b.detail) for b in outcome.blockers] == [
+            ("PIE-B1003", "float_literal_operands_required")
+        ]
+        return
+    assert outcome.status == "VERIFIED", outcome.blockers
+    document = probe.decode_public(serialize_project_sql_emission(outcome))
+    sql = document["sql"]
+    ratio = '"t1"."c4"'
+    for spelling in (
+        f"({ratio} * CAST('2.0' AS pg_catalog.float8)) AS \"doubled\"",
+        f'({ratio} + {ratio}) AS "summed"',
+        f'(-{ratio}) AS "negated"',
+        f'({ratio} - ({ratio} * {ratio})) AS "nested"',
+        "(CAST('1.5' AS pg_catalog.float8) + CAST('2.25' AS pg_catalog.float8))",
+    ):
+        assert spelling in sql
+    checked_token = {"overflow": "target_checked_binary64_overflow"}
+    assert [
+        r["evidence"] for r in document["requirements"] if r["kind"] == "arithmetic"
+    ] == [
+        [{"operator": "*"}, checked_token],
+        [{"operator": "*"}, checked_token],
+        [{"operator": "+"}, checked_token],
+        [{"operator": "-"}],
+        [{"operator": "-"}, checked_token],
+        [{"operator": "*"}, checked_token],
+        [{"operator": "+"}],
+    ]
+    assert all(
+        c["representation"]["storage"] == {"kind": "pg_float8"}
+        and c["representation"]["domain"]
+        == {"kind": "finite_float", "format": "binary64"}
+        for c in document["columns"][1:]
+    )
+    artifact = outcome.artifact
+    assert artifact is not None
+    observed = portable.export_emission_observation(artifact, artifact.request)
+    assert observed.status is portable.ObservationStatus.OK
+    assert observed.canonical_bytes is not None
+    assert (
+        pure.parse_emission_observation(observed.canonical_bytes).status
+        is pure.Status.OK
+    )
+    assert portable.verify_emission_observation(
+        observed.canonical_bytes, artifact, artifact.request
+    ).corresponds
+    from pietto._project.project_compiled_build import build_compiled
+    from pietto._project.project_compiled_loading import load_compiled
+    from pietto._project.project_execution_template import (
+        prepare_compiled_template,
+    )
+
+    built = build_compiled(artifact)
+    template = prepare_compiled_template(
+        load_compiled(
+            built.payload,
+            expected_pin=built.pin,
+            accepted_producer=built.producer,
+            accepted_compatibility=built.compatibility,
+        )
+    )
+    assert template.artifact.rendered.sql == artifact.rendered.sql
+
+
+@pytest.mark.parametrize("policy", ("preserve_literals", "bind_safe_literals"))
+@pytest.mark.parametrize(
+    "grouped,expression,leaf_functions",
+    [
+        (False, "coalesce(sum(value), 0)", ("sum",)),
+        (False, "sum(value) + sum(value)", ("sum", "sum")),
+        (False, "sum(value) * 100 / count()", ("sum", "count")),
+        (False, "abs(min(value))", ("min",)),
+        (False, "abs(avg(value))", ("avg",)),
+        pytest.param(False, "avg(value) / 2.0", ("avg",), id="float_division"),
+        pytest.param(
+            False, "sum(value) % count()", ("sum", "count"), id="int_remainder"
+        ),
+        (False, "abs(max(amount))", ("max",)),
+        (False, "coalesce(min(amount), max(amount))", ("min", "max")),
+        (True, "coalesce(sum(value), 0) + coalesce(key, 0)", ("sum",)),
+        (True, "coalesce(key, 0) + 1", ()),
+        pytest.param(True, "1 + 2", (), id="grouped_constant"),
+    ],
+)
+def test_aggregate_composition_preserves_leaf_ports_and_closes_readers(
+    tmp_path, policy, grouped, expression, leaf_functions
+):
+    from pietto._project import project_sql_emission_aggregation as grouping
+    from pietto._project.project_compiled_build import build_compiled
+    from pietto._project.project_compiled_loading import load_compiled
+    from pietto._project.project_compiled_lowering import emit_compiled
+
+    body = "query result:\n    from agg\n"
+    if grouped:
+        body += "    group by:\n        key\n"
+    body += f"    select:\n        result = {expression}\n        direct = count()\n"
+    checked, outcome = emit_aggregate_composition(tmp_path, body, policy=policy)
+    assert checked.verified and outcome.status == "VERIFIED", outcome.blockers
+    artifact = outcome.artifact
+    assert artifact is not None
+    assert verify_project_sql_emission(artifact, artifact.request).verified
+    aggregate_columns = [
+        column
+        for stage in row_query(artifact).bodies
+        for column in stage.columns
+        if type(column) is grouping.AggregateValueColumn
+    ]
+    assert tuple(column.function for column in aggregate_columns) == (
+        *leaf_functions,
+        "count",
+    )
+    assert len(
+        {id(column.aggregate.source.call) for column in aggregate_columns}
+    ) == len(aggregate_columns)
+    for column in aggregate_columns:
+        if column.function == "sum":
+            assert column.column.realization.nullable is True
+    document = probe.decode_public(serialize_project_sql_emission(outcome))
+    if expression == "coalesce(sum(value), 0)":
+        assert document["columns"][0]["nullable"] is False
+    observation = portable.export_emission_observation(artifact, artifact.request)
+    assert observation.canonical_bytes is not None
+    assert (
+        pure.parse_emission_observation(observation.canonical_bytes).status
+        is pure.Status.OK
+    )
+    assert portable.verify_emission_observation(
+        observation.canonical_bytes, artifact, artifact.request
+    ).corresponds
+    built = build_compiled(artifact)
+    loaded = load_compiled(
+        built.payload,
+        expected_pin=built.pin,
+        accepted_producer=built.producer,
+        accepted_compatibility=built.compatibility,
+    )
+    replay = emit_compiled(
+        loaded, tuple(value.value for value in artifact.fixed_values)
+    )
+    assert replay.rendered.sql == artifact.rendered.sql
+    from pietto._project.project_result_output import prepare_output
+
+    assert [
+        (c.label, c.realization.nullable) for c in prepare_output(replay).columns
+    ] == [(c.label, c.realization.nullable) for c in prepare_output(artifact).columns]
+
+
+@pytest.mark.parametrize("policy", ("preserve_literals", "bind_safe_literals"))
+def test_aggregate_composition_keeps_legal_repeated_where_parameters(tmp_path, policy):
+    from decimal import Decimal
+    from pietto._project.project_compiled_schema import CompiledError
+    from pietto._project.project_compiled_build import build_compiled
+    from pietto._project.project_compiled_loading import load_compiled
+    from pietto._project.project_compiled_lowering import emit_compiled
+
+    checked, outcome = emit_aggregate_composition(
+        tmp_path,
+        "query result(floor: Decimal(9, 2)):\n    from agg\n"
+        "    where amount >= floor or amount <= floor\n"
+        "    select:\n        result = coalesce(min(amount), max(amount))\n",
+        policy=policy,
+    )
+    assert checked.verified and outcome.status == "VERIFIED", outcome.blockers
+    artifact = outcome.artifact
+    assert artifact is not None
+    document = probe.decode_public(serialize_project_sql_emission(outcome))
+    assert [
+        (u["owner"]["parameter"], u["server_index"], u["physical_type"])
+        for u in document["parameter_uses"]
+    ] == [(0, 1, "pg_numeric")] * 2
+    observed = portable.export_emission_observation(artifact, artifact.request)
+    assert observed.status is portable.ObservationStatus.OUTSIDE_SCHEMA
+    built = build_compiled(artifact)
+    loaded = load_compiled(
+        built.payload,
+        expected_pin=built.pin,
+        accepted_producer=built.producer,
+        accepted_compatibility=built.compatibility,
+    )
+    replay = emit_compiled(loaded, (), (Decimal("1.25"),))
+    assert replay.rendered.sql == artifact.rendered.sql
+    assert len(replay.parameter_uses) == 2
+    with pytest.raises(CompiledError, match="COMPILED_BINDING_PARAMETERS"):
+        emit_compiled(loaded, (), (Decimal("1.234"),))
+
+    from pietto._project.project_compiled_schema import FIELDS, Record
+    from pietto._project.project_compiled_verification import verify_description
+
+    records = built.root.records
+    projection = next(
+        record
+        for record in records.values()
+        if record.address.kind == "row" and record.get("stage") == "projection"
+    )
+    operation = records[projection.get("values")[0]]
+    parameter = next(address for address in records if address.kind == "parameter_read")
+    values = list(operation.values)
+    values[FIELDS["operation"].index("operands")] = (
+        operation.get("operands")[0],
+        parameter,
+    )
+    forged = Record(operation.address, tuple(values))
+    description = replace(
+        built.root.description,
+        members=tuple(
+            (
+                name,
+                tuple(
+                    forged if record.address == forged.address else record
+                    for record in members
+                ),
+            )
+            for name, members in built.root.description.members
+        ),
+    )
+    with pytest.raises(CompiledError, match="^COMPILED_AGGREGATE_PARAMETER_POSITION$"):
+        verify_description(description)
+
+
+@pytest.mark.parametrize("policy", ("preserve_literals", "bind_safe_literals"))
+@pytest.mark.parametrize("ordering", ("total", "total desc"))
+def test_aggregate_composition_having_alias_and_order_close_readers(
+    tmp_path, policy, ordering
+):
+    from pietto._project.project_compiled_build import build_compiled
+    from pietto._project.project_compiled_loading import load_compiled
+    from pietto._project.project_compiled_lowering import emit_compiled
+    from pietto._project.project_result_output import prepare_output
+
+    checked, outcome = emit_aggregate_composition(
+        tmp_path,
+        "query result:\n    from agg\n    where rid > 0\n"
+        "    group by key\n    select:\n"
+        "        total = coalesce(sum(value), 0)\n        raw = sum(value)\n"
+        "    having total > 0 and total < 10\n"
+        f"    order by {ordering}\n",
+        policy=policy,
+    )
+    assert checked.verified and outcome.status == "VERIFIED", outcome.blockers
+    artifact = outcome.artifact
+    assert artifact is not None
+    document = probe.decode_public(serialize_project_sql_emission(outcome))
+    assert [column["nullable"] for column in document["columns"]] == [False, True]
+    from pietto._project.project_sql_plan import ProjectSQLPlan
+
+    assert isinstance(checked.plan, ProjectSQLPlan)
+    assert len(checked.plan.aggregates) == 2
+    assert verify_project_sql_emission(artifact, artifact.request).verified
+    observation = portable.export_emission_observation(artifact, artifact.request)
+    assert observation.canonical_bytes is not None
+    assert (
+        pure.parse_emission_observation(observation.canonical_bytes).status
+        is pure.Status.OK
+    )
+    assert portable.verify_emission_observation(
+        observation.canonical_bytes, artifact, artifact.request
+    ).corresponds
+    built = build_compiled(artifact)
+    loaded = load_compiled(
+        built.payload,
+        expected_pin=built.pin,
+        accepted_producer=built.producer,
+        accepted_compatibility=built.compatibility,
+    )
+    replay = emit_compiled(
+        loaded, tuple(value.value for value in artifact.fixed_values)
+    )
+    assert replay.rendered.sql == artifact.rendered.sql
+    assert [
+        column.realization.nullable for column in prepare_output(replay).columns
+    ] == [False, True]
+
+
+@pytest.mark.parametrize("policy", ("preserve_literals", "bind_safe_literals"))
+@pytest.mark.parametrize("grouped", (False, True))
+def test_aggregate_composition_join_keeps_each_leaf_and_original_input_port(
+    tmp_path, policy, grouped
+):
+    from pietto._project import project_sql_emission_aggregation as grouping
+    from pietto._project.project_sql_plan_aggregation import aggregate_call
+    from pietto._project.project_sql_emission_ast import SQLJoinQuery
+    from pietto._project.project_compiled_build import build_compiled
+    from pietto._project.project_compiled_loading import load_compiled
+    from pietto._project.project_compiled_lowering import emit_compiled
+
+    body = (
+        "query result:\n    from agg\n    let rhs = agg\n"
+        "    inner join rhs on agg.rid == rhs.rid\n"
+        + ("    group by agg.key\n" if grouped else "")
+        + "    select:\n"
+        + ("        bucket = coalesce(agg.key, 0)\n" if grouped else "")
+        + "        total = coalesce(sum(rhs.value), 0) + coalesce(sum(rhs.value), 0)\n"
+        "        raw = sum(agg.value)\n        n = count()\n"
+        + (
+            "    having total > 0 and total < 100\n    order by total\n"
+            if grouped
+            else ""
+        )
+    )
+    checked, outcome = emit_aggregate_composition(tmp_path, body, policy=policy)
+    assert checked.verified and outcome.status == "VERIFIED", outcome.blockers
+    artifact = outcome.artifact
+    assert artifact is not None and isinstance(artifact.ast, SQLJoinQuery)
+    values = [
+        column
+        for stage in artifact.ast.bodies
+        for column in stage.columns
+        if type(column) is grouping.AggregateValueColumn
+    ]
+    assert tuple(column.function for column in values) == ("sum", "sum", "sum", "count")
+    assert len({id(aggregate_call(column.aggregate.source)) for column in values}) == 4
+    assert values[0].argument.port is values[1].argument.port
+    assert values[0].argument.port is not values[2].argument.port
+    assert all(column.column.realization.nullable is True for column in values[:3])
+    probe.decode_public(serialize_project_sql_emission(outcome))
+    assert verify_project_sql_emission(artifact, artifact.request).verified
+    observed = portable.export_emission_observation(artifact, artifact.request)
+    assert observed.canonical_bytes is not None
+    assert (
+        pure.parse_emission_observation(observed.canonical_bytes).status
+        is pure.Status.OK
+    )
+    assert portable.verify_emission_observation(
+        observed.canonical_bytes, artifact, artifact.request
+    ).corresponds
+    built = build_compiled(artifact)
+    loaded = load_compiled(
+        built.payload,
+        expected_pin=built.pin,
+        accepted_producer=built.producer,
+        accepted_compatibility=built.compatibility,
+    )
+    assert (
+        emit_compiled(
+            loaded, tuple(value.value for value in artifact.fixed_values)
+        ).rendered.sql
+        == artifact.rendered.sql
+    )
+
+
+@pytest.mark.parametrize("policy", ("preserve_literals", "bind_safe_literals"))
+@pytest.mark.parametrize(
+    "expression,precision",
+    (
+        ("min(amount) + 1", 10),
+        ("max(amount) - 1", 10),
+        ("sum(amount) + 1", 29),
+        ("min(amount) * 2", 28),
+        ("sum(amount) * 2", 47),
+        ("abs(sum(amount)) + 1", 29),
+        ("-sum(amount)", 28),
+        ("abs(sum(amount))", 28),
+    ),
+)
+def test_decimal_aggregate_result_carriers_close_readers(
+    tmp_path, policy, expression, precision
+):
+    from pietto._project.project_compiled_build import build_compiled
+    from pietto._project.project_compiled_loading import load_compiled
+    from pietto._project.project_compiled_lowering import emit_compiled
+
+    checked, outcome = emit_aggregate_composition(
+        tmp_path,
+        f"query result:\n    from agg\n    select:\n        result = {expression}\n",
+        policy=policy,
+    )
+    assert checked.verified and outcome.status == "VERIFIED", outcome.blockers
+    artifact = outcome.artifact
+    assert artifact is not None
+    document = probe.decode_public(serialize_project_sql_emission(outcome))
+    assert document["columns"][0]["representation"]["storage"] == {
+        "kind": "pg_numeric",
+        "precision": precision,
+        "scale": 2,
+    }
+    observed = portable.export_emission_observation(artifact, artifact.request)
+    assert observed.canonical_bytes is not None
+    assert (
+        pure.parse_emission_observation(observed.canonical_bytes).status
+        is pure.Status.OK
+    )
+    assert portable.verify_emission_observation(
+        observed.canonical_bytes, artifact, artifact.request
+    ).corresponds
+    built = build_compiled(artifact)
+    loaded = load_compiled(
+        built.payload,
+        expected_pin=built.pin,
+        accepted_producer=built.producer,
+        accepted_compatibility=built.compatibility,
+    )
+    assert (
+        emit_compiled(
+            loaded, tuple(value.value for value in artifact.fixed_values)
+        ).rendered.sql
+        == artifact.rendered.sql
+    )
+
+
+@pytest.mark.parametrize("policy", ("preserve_literals", "bind_safe_literals"))
+def test_composition_having_keeps_one_authored_literal_value(tmp_path, policy):
+    from pietto._project.project_compiled_build import build_compiled
+    from pietto._project.project_compiled_loading import load_compiled
+    from pietto._project.project_compiled_lowering import emit_compiled
+
+    checked, outcome = emit_aggregate_composition(
+        tmp_path,
+        "query result:\n    from agg\n    where rid > 0\n    group by key\n"
+        "    select:\n        total = sum(value) + 1\n        extra = 1\n"
+        "    having total > 0 and total < 100\n    order by total\n",
+        policy=policy,
+    )
+    assert checked.verified and outcome.status == "VERIFIED", outcome.blockers
+    artifact = outcome.artifact
+    assert artifact is not None
+    probe.decode_public(serialize_project_sql_emission(outcome))
+    defaults = tuple(value.value for value in artifact.fixed_values)
+    assert defaults == ((0, 1) if policy == "bind_safe_literals" else ())
+    if policy == "bind_safe_literals":
+        from pietto._project.project_sql_emission_verification import (
+            _active_specialized_literal,
+        )
+
+        plan = artifact.request.plan
+        shared = next(
+            site.position.literal
+            for site in plan.literal_sites
+            if site.position.role.value == "select"
+            and site.position.literal.value == 1
+            and site.reason is not None
+            and site.reason.value == "specialized_or_structural_context"
+        )
+        assert _active_specialized_literal(plan, artifact.request.layout, shared)
+        inactive = graft(
+            plan,
+            filters=tuple(
+                item for item in plan.filters if item.site.role.value != "satisfying"
+            ),
+        )
+        assert inactive.literal_sites is plan.literal_sites
+        assert not _active_specialized_literal(
+            inactive, artifact.request.layout, shared
+        )
+    observed = portable.export_emission_observation(artifact, artifact.request)
+    assert observed.canonical_bytes is not None
+    assert (
+        pure.parse_emission_observation(observed.canonical_bytes).status
+        is pure.Status.OK
+    )
+    built = build_compiled(artifact)
+    loaded = load_compiled(
+        built.payload,
+        expected_pin=built.pin,
+        accepted_producer=built.producer,
+        accepted_compatibility=built.compatibility,
+    )
+    assert emit_compiled(loaded, defaults).rendered.sql == artifact.rendered.sql
+    if defaults:
+        rebound = emit_compiled(loaded, (0, 7))
+        assert rebound.rendered.sql == artifact.rendered.sql
+        assert tuple(value.value for value in rebound.fixed_values) == (0, 7)
+
+
+def test_postgres_string_agg_orders_by_a_float_key(tmp_path):
+    """E6: a Float string_agg order key compares as a PostgreSQL Float group
+    key does, by real value with -0.0 and 0.0 tied; the compiled template keeps
+    it. (MySQL has no project string_agg.)"""
+    outcome = emit_source(
+        tmp_path,
+        "postgres",
+        "table result:\n    from agg\n    select:\n"
+        '        summary = string_agg(label, "//", order by ratio desc, rid)\n',
+    )
+    assert outcome.status == "VERIFIED", outcome.blockers
+    assert outcome.artifact is not None
+    sql = public(outcome)["sql"]
+    assert ' ORDER BY "s0"."ratio value" DESC, "s0"."row id" ASC)' in sql
+
+    from pietto._project.project_compiled_build import build_compiled
+    from pietto._project.project_compiled_loading import load_compiled
+    from pietto._project.project_compiled_lowering import emit_compiled
+
+    built = build_compiled(outcome.artifact)
+    loaded = load_compiled(
+        built.payload,
+        expected_pin=built.pin,
+        accepted_producer=built.producer,
+        accepted_compatibility=built.compatibility,
+    )
+    assert emit_compiled(loaded, ()).rendered.sql == outcome.artifact.rendered.sql

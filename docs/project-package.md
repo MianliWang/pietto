@@ -896,6 +896,30 @@ and PostgreSQL `sum(Int)` rules are new in `0.1.7`, are listed in its
 the planned `0.1.11` release, not additions to the `0.1.10` distribution.
 Git publication and natural exact-head CI remain the lifecycle authority.
 
+The Phase76 B2 aggregate-composition candidate uses these same qualified
+carriers for scalar calls and arithmetic over direct aggregate results,
+group keys and literals. For `qty: Int | None`, a PostgreSQL project can
+select `total = coalesce(sum(qty), 0)` without a second query. Every aggregate
+still needs its own argument, carrier and JOIN fan-out proof; a Decimal
+operation keeps its established carrier and operation-specific proof.
+The checked Decimal SUM cast above does not prove a product's digit bound.
+Grouped outputs without aggregate leaves are admitted only beside a real
+SELECT aggregate and only over group keys and literals. HAVING and ORDER BY
+may reuse admitted selected outputs; they gain no new expression syntax.
+
+MySQL project emission refuses each authored outer composition in source
+order with PIE-B1003 `aggregate_composition_not_admitted_on_target`.
+The existing two-query route remains available within its target's existing
+rules. Project Decimal `avg`, nested aggregates and new SELECT parameter
+positions are not admitted; parameter reads there remain PIE-S2355. A legal
+WHERE parameter stays legal beside composition, but an emission observation
+containing parameter reads remains `OUTSIDE_SCHEMA` for portable export.
+When one authored literal has a specialized use across SELECT and HAVING,
+all reads derived from that identity preserve its value. Equal literal text
+at a different source occurrence does not share that restriction; this is
+not a blanket refusal of bind-safe slots. B2 final validation and publication
+are pending; candidate emission is not a release claim.
+
 These proofs belong to project SQL emission, not to `check --project`: the
 check accepts, for example, `avg` over a `Decimal` field, or `sum` over an
 `Int`, `Float` or `Decimal` field on MySQL, and `emit-sql --project` then
@@ -1111,13 +1135,13 @@ Install a release from PyPI into a virtual environment, as the
 verified with CPython 3.12 and 3.13 on Linux x86-64; other platforms and
 Python versions are not covered by this evidence.
 
-When `0.1.10` is published, its wheel and sdist on PyPI will be the files
+The published `0.1.10` wheel and sdist on PyPI are byte-identical to the files
 attached to the
 [v0.1.10 GitHub pre-release](https://github.com/MianliWang/pietto/releases/tag/v0.1.10),
 together with `SHA256SUMS`, which lists the SHA-256 of the wheel and the sdist.
 To check files downloaded from that release, keep their names and run
 `sha256sum --ignore-missing -c SHA256SUMS` in the download directory. GitHub
-will also offer an automatic source archive under the same name as the sdist,
+also offers an automatic source archive under the same name as the sdist,
 `pietto-0.1.10.tar.gz`; it is a snapshot of the v0.1.10 repository tag, not the
 sdist, and it is not listed in `SHA256SUMS`.
 
@@ -1125,13 +1149,27 @@ Version `0.1.10` rejects bundles and saved jobs produced by `0.1.9` or earlier
 by code identity; Pietto neither migrates nor rewrites those bytes, so retained
 state needs its matching old environment (see
 [execution](execution.md#known-limitations)). The Pietto extension for VS Code
-`0.2.0` (repository `MianliWang/pietto-vscode-extension`, commit `5484ebdb`)
-shows diagnostics through `pietto lsp`. It is not yet on the Visual Studio
-Marketplace: until it is, use a generic LSP client as
+shows diagnostics through `pietto lsp`. Version `0.2.1` (repository
+`MianliWang/pietto-vscode-extension`, commit `7fafa7c4`) was published to the
+Visual Studio Marketplace on 2026-11-07; the downloaded VSIX was checked
+byte-for-byte against the accepted local artifact that day. This records
+that publication, not a claim about the latest Marketplace version.
+A generic LSP client is also available as
 [editor diagnostics](editor-lsp.md#vs-code-with-a-generic-lsp-client)
-describes, or install the extension from its repository. The extension
-`0.1.0` accepted only the `0.1.2` wheel or its baseline fingerprint and
-refuses `0.1.10`.
+describes. The historical extension `0.1.0` accepted only the `0.1.2` wheel
+or its baseline fingerprint and refuses `0.1.10`.
+
+The Phase76 source candidate changes compiled version marks once, from
+`(7, 1, 7, 1)` to `(8, 1, 8, 1)`; later Phase76 slices use those marks.
+Keep an exact `pietto==0.1.10` environment for retained `0.1.10` bundles and
+saved jobs. The new environment refuses incompatible records with a typed
+failure and does not migrate or rewrite them. Recompile from original
+source, contracts and parameters to create new records in that environment.
+Reading saved results is a separate operation under their own format,
+code-identity and trust contract; recompiling does not convert result bytes.
+Running again is a separate database execution against its then-current
+state, not an effect of recompilation. These source changes are intended for
+`0.1.11` after Phase76 and Phase77, subject to separate release approval.
 
 ## Optional Arrow dependency
 

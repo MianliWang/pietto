@@ -909,12 +909,9 @@ def _binary_select_expression(relation: TableDef, alias: str) -> BinaryExpr:
     raise AssertionError(f"Missing select alias: {alias}")
 
 
-@pytest.mark.parametrize(
-    "connector,emitter,quote",
-    [("postgres.table", emit_postgres_sql, '"'), ("mysql.table", emit_mysql_sql, "`")],
-)
-def test_decimal_int_products_and_signs_keep_logical_types_and_sql(
-    connector, emitter, quote
+@pytest.mark.parametrize("connector", ["postgres.table", "mysql.table"])
+def test_decimal_int_products_and_signs_keep_logical_types_and_precision(
+    connector: str,
 ) -> None:
     source = BASE_SOURCE.replace("postgres.table", connector) + (
         "query projected:\n    from orders\n    select:\n"
@@ -923,7 +920,10 @@ def test_decimal_int_products_and_signs_keep_logical_types_and_sql(
         "        positive = +price\n"
         "        negative = -price\n"
     )
-    parsed, semantic, ir = _compile(source)
+    parsed = _parse(source)
+    semantic = analyze(parsed)
+    assert _error_codes(semantic) == []
+    assert semantic.script is not None
     script = semantic.script or parsed
     relation = _relation_ast(script, "projected")
     fields = semantic.model.relation_row_schemas[relation].fields
@@ -942,13 +942,3 @@ def test_decimal_int_products_and_signs_keep_logical_types_and_sql(
             "Decimal",
             expected_nullability,
         )
-    emitted = emitter(ir)
-    assert emitted.diagnostics == ()
-    qprice, qamount = f"{quote}price{quote}", f"{quote}amount{quote}"
-    for value, name in [
-        (f"{qprice} * {qamount}", "product"),
-        (f"{qamount} * {qprice}", "reverse"),
-        (f"+{qprice}", "positive"),
-        (f"-{qprice}", "negative"),
-    ]:
-        assert f"{value} AS {quote}{name}{quote}" in emitted.artifacts[0].sql

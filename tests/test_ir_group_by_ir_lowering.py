@@ -40,9 +40,13 @@ def test_grouped_relation_lowers_group_keys_after_semantic_gate_retirement() -> 
     relation = _relation_ir(script_ir, "grouped_orders")
 
     assert _errors(semantic_result) == []
-    assert [key.name for key in relation.group_keys] == ["status", "region"]
-    assert [key.qualifier for key in relation.group_keys] == [(), ("orders",)]
-    assert [key.field for key in relation.group_keys] == [
+    status_key, region_key = relation.group_keys
+    assert isinstance(status_key, FieldRefIR)
+    assert isinstance(region_key, FieldRefIR)
+    field_keys = (status_key, region_key)
+    assert [key.name for key in field_keys] == ["status", "region"]
+    assert [key.qualifier for key in field_keys] == [(), ("orders",)]
+    assert [key.field for key in field_keys] == [
         FieldId(owner=_orders_symbol(), name="status"),
         FieldId(owner=_orders_symbol(), name="region"),
     ]
@@ -80,7 +84,11 @@ def test_bare_and_qualified_duplicate_group_keys_lower_once_in_source_order() ->
         ("PIE-S2317", "Duplicate GROUP BY key: status"),
         ("PIE-S2317", "Duplicate GROUP BY key: orders.region"),
     ]
-    assert [(key.name, key.qualifier, key.field) for key in relation.group_keys] == [
+    status_key, region_key = relation.group_keys
+    assert isinstance(status_key, FieldRefIR)
+    assert isinstance(region_key, FieldRefIR)
+    field_keys = (status_key, region_key)
+    assert [(key.name, key.qualifier, key.field) for key in field_keys] == [
         ("status", ("orders",), FieldId(owner=_orders_symbol(), name="status")),
         ("region", (), FieldId(owner=_orders_symbol(), name="region")),
     ]
@@ -99,10 +107,13 @@ def test_unknown_group_key_is_not_lowered_into_precise_group_key_ir() -> None:
     assert _errors(semantic_result) == [
         ("PIE-S2102", "Unknown field: missing"),
     ]
-    assert [key.name for key in relation.group_keys] == ["status"]
+    (status_key,) = relation.group_keys
+    assert isinstance(status_key, FieldRefIR)
+    field_keys = (status_key,)
+    assert [key.name for key in field_keys] == ["status"]
     assert all(
         key.field != FieldId(owner=_orders_symbol(), name="missing")
-        for key in relation.group_keys
+        for key in field_keys
     )
 
 

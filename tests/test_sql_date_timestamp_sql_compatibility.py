@@ -145,7 +145,9 @@ def test_ir_date_timestamp_extrema_aggregate_calls_match_semantics() -> None:
         }
 
         if grouped:
-            assert [key.name for key in relation.group_keys] == ["category"]
+            (category_key,) = relation.group_keys
+            assert isinstance(category_key, FieldRefIR)
+            assert [key.name for key in (category_key,)] == ["category"]
 
         _assert_aggregate(
             projections["first_event_date"].expression,

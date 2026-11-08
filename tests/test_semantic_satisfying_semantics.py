@@ -697,3 +697,32 @@ def test_join_satisfying_reads_grouped_outputs_and_recognizes_input_fields(
         ]
         diagnostic = result.diagnostics[0]
         assert (diagnostic.location.line, diagnostic.location.column) == (19, 9)
+
+
+@pytest.mark.parametrize("predicate", ["total + 1 > 0", "coalesce(total, 0) > 0"])
+def test_composed_output_alias_does_not_expand_having_expression_forms(
+    predicate: str,
+) -> None:
+    source = (
+        "shape Order:\n    region: Text\n    amount: Int\n"
+        'source orders: Order = postgres.table("orders")\n'
+        + f"query summary:\n    from orders\n    group by region\n    select region, total = coalesce(sum(amount), 0)\n    having {predicate}\n"
+    )
+    parsed = parse_source(source)
+    assert parsed.ast is not None and parsed.diagnostics == ()
+    semantic = analyze(parsed.ast)
+    assert any(d.code == "PIE-S2327" for d in semantic.diagnostics)
+
+
+@pytest.mark.parametrize(
+    "projection",
+    ["count() + raw", "coalesce(count(), sign(raw))", "count() + len(raw)"],
+)
+def test_unknown_row_having_does_not_admit_a_raw_composition_sibling(
+    projection: str,
+) -> None:
+    source = f'source rows = postgres.table("rows")\nquery q:\n    from rows\n    group by key\n    select total = {projection}\n    having total > 0\n'
+    parsed = parse_source(source)
+    assert parsed.ast is not None and parsed.diagnostics == ()
+    semantic = analyze(parsed.ast)
+    assert any(d.code == "PIE-S2310" for d in semantic.diagnostics)

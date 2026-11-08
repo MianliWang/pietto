@@ -26,6 +26,11 @@ from pietto.semantic.expressions import (
 from pietto.semantic.model import EffectiveNullability, ValueTypeKind
 from pietto.semantic.relation_limits import MAX_RELATION_LIMIT, valid_resolved_limit
 
+from pathlib import Path
+from typing import Any
+from _pietto_sql_query_parameters import typed_case
+from pietto._project.project_sql_emission import serialize_project_sql_emission
+
 
 def data_only():
     # A decoder fixture, deliberately not a valid executable graph or trusted
@@ -2618,3 +2623,98 @@ def test_a_mysql_root_never_declares_a_typed_parameter(tmp_path):
         )
         with pytest.raises(wire.CompiledError, match="^COMPILED_PARAMETER$"):
             verify_description(changed)
+
+
+@pytest.mark.parametrize(
+    "expression",
+    [
+        "money * factor",
+        "factor * money",
+        "value * id",
+        "id * value",
+        "value * factor",
+        "-value",
+    ],
+)
+def test_decimal_int_parameters_survive_compiled_replay(tmp_path, expression):
+    from _pietto_sql_query_parameters import typed_case
+    from pietto._project.project_sql_emission import serialize_project_sql_emission
+    from pietto._project.project_compiled_build import build_compiled
+    from pietto._project.project_compiled_loading import load_compiled
+    from pietto._project.project_compiled_lowering import emit_compiled
+    from pietto._project.project_sql_emission_portable import (
+        export_emission_observation,
+    )
+    from pietto._project.project_sql_emission_portable import ObservationStatus
+
+    body = (
+        "query result(value: Decimal(9, 2), factor: Int):\n    from rows\n    select:\n        total = "
+        + expression
+        + "\n"
+    )
+    checked, outcome = typed_case(tmp_path, "postgres", body)
+    assert checked.verified and outcome.status == "VERIFIED", outcome.blockers
+    artifact = outcome.artifact
+    assert artifact is not None
+    doc = json.loads(serialize_project_sql_emission(outcome))
+    assert doc["columns"][0]["representation"]["storage"] == {
+        "kind": "pg_numeric",
+        "precision": 9 if expression == "-value" else 28,
+        "scale": 2,
+    }
+    observed = export_emission_observation(artifact, artifact.request)
+    # Header parameters retain their existing portable-observation boundary.
+    assert observed.status is ObservationStatus.OUTSIDE_SCHEMA
+    built = build_compiled(artifact)
+    loaded = load_compiled(
+        built.payload,
+        expected_pin=built.pin,
+        accepted_producer=built.producer,
+        accepted_compatibility=built.compatibility,
+    )
+    assert emit_compiled(loaded, ()).rendered.sql == artifact.rendered.sql
+
+
+def _document(outcome) -> dict[str, Any]:
+    return json.loads(serialize_project_sql_emission(outcome))
+
+
+@pytest.mark.parametrize(
+    ("body", "carrier"),
+    (
+        (
+            "query result(fee: Decimal(8, 3)):\n    from rows\n"
+            "    select:\n        total = money + fee\n",
+            (11, 3),
+        ),
+        (
+            "query result(delta: Int):\n    from rows\n"
+            "    select:\n        total = money + delta\n",
+            (22, 2),
+        ),
+    ),
+    ids=("different_decimal_scale", "int_parameter"),
+)
+def test_postgres_e9_parameter_pairs_change_the_decimal_carrier(
+    tmp_path: Path, body: str, carrier: tuple[int, int]
+) -> None:
+    checked, outcome = typed_case(tmp_path, "postgres", body)
+    assert checked.verified and outcome.status == "VERIFIED", outcome.blockers
+    document = _document(outcome)
+    assert document["columns"][0]["representation"]["storage"] == {
+        "kind": "pg_numeric",
+        "precision": carrier[0],
+        "scale": carrier[1],
+    }
+    from pietto._project.project_compiled_build import build_compiled
+    from pietto._project.project_compiled_loading import load_compiled
+    from pietto._project.project_compiled_lowering import emit_compiled
+
+    built = build_compiled(outcome.artifact)
+    loaded = load_compiled(
+        built.payload,
+        expected_pin=built.pin,
+        accepted_producer=built.producer,
+        accepted_compatibility=built.compatibility,
+    )
+    assert emit_compiled(loaded, ()).rendered.sql == outcome.artifact.rendered.sql

@@ -296,3 +296,19 @@ def _write(tmp_path: Path, name: str, text: str) -> Path:
     path = tmp_path / name
     path.write_text(text, encoding="utf-8")
     return path
+
+
+@pytest.mark.parametrize("value", ["7", "-7", "True", '"text"'])
+def test_grouped_standalone_constant_order_alias_keeps_positional_key_refusal(
+    value: str,
+) -> None:
+    parsed = parse_source(
+        "shape Order:\n    region: Text\n    amount: Int\n"
+        'source orders: Order = postgres.table("orders")\n'
+        + f"query q:\n    from orders\n    group by amount\n    select fixed = {value}, n = count()\n    order by fixed\n"
+    )
+    assert parsed.ast is not None and parsed.diagnostics == ()
+    semantic = analyze(parsed.ast)
+    assert [d.code for d in semantic.diagnostics if d.severity is Severity.ERROR] == [
+        "PIE-S2380"
+    ]

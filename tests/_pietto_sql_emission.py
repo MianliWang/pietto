@@ -18,6 +18,8 @@ from tempfile import TemporaryDirectory
 from typing import Any, cast
 from uuid import UUID
 
+from copy import copy
+
 CONFIG = 'schema_version = 2\n[sources]\ninclude = ["*.pietto"]\n'
 COLLECT_VARIANTS = (
     "closed",
@@ -16274,3 +16276,36 @@ def main():
 
 if __name__ == "__main__":
     main()
+
+
+S05_POSTGRES_BODY = """table result:
+    from rows
+    let plus_id = money + id
+    let left_literal = 1 + money
+    select:
+        plus_id
+        left_literal
+"""
+
+
+def emit_aggregate_composition(
+    tmp_path, body, *, target="postgres", policy="preserve_literals"
+):
+    item = aggregate_fixture(target, "X_aggregate_global", "bag")
+    source = item["source"].split("query result:", 1)[0] + body
+    contract = json.loads(item["contract"])
+    contract["environment"].append(
+        {
+            "key": "parameter_protocol",
+            "scope": "statement",
+            "value": "postgres_extended" if target == "postgres" else "mysql_prepared",
+        }
+    )
+    return build_case(tmp_path, source, encoded(contract), policy)
+
+
+def graft(value, **changes):
+    result = copy(value)
+    for name, changed in changes.items():
+        object.__setattr__(result, name, changed)
+    return result

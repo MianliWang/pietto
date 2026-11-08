@@ -347,31 +347,3 @@ def _error_codes(result: SemanticResult) -> list[str]:
 
 def _sql_text(result: SqlResult) -> str:
     return "\n".join(artifact.sql for artifact in result.artifacts)
-
-
-@pytest.mark.parametrize(
-    "expression",
-    [
-        "sum(price * amount)",
-        "sum(amount * price)",
-        "sum(-price)",
-        "sum(+price)",
-        "price * 2",
-        "2 * price",
-        "-price",
-        "+price",
-    ],
-)
-@pytest.mark.parametrize("target", ["postgres", "mysql"])
-def test_decimal_product_and_sign_emit_single_file(expression, target):
-    _, _, script_ir = _compile(
-        _source(
-            target + ".table",
-            "table result:\n    from orders\n    select:\n        value = "
-            + expression
-            + "\n",
-        )
-    )
-    result = (emit_postgres_sql if target == "postgres" else emit_mysql_sql)(script_ir)
-    assert result.diagnostics == ()
-    assert _sql_text(result)

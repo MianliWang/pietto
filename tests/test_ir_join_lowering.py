@@ -1705,11 +1705,15 @@ def test_recursive_expression_lowering_never_falls_back_to_from_fields(
 
 def test_grouped_join_keeps_same_named_input_keys_and_result_scope_identity() -> None:
     _, _, _, relation = _build_join(INTEGRATION_PREFIX + GROUPED_JOIN)
-    assert [key.field for key in relation.group_keys] == [
+    own_key, peer_key = relation.group_keys
+    assert isinstance(own_key, FieldRefIR)
+    assert isinstance(peer_key, FieldRefIR)
+    field_keys = (own_key, peer_key)
+    assert [key.field for key in field_keys] == [
         _input_field(0, "id"),
         _input_field(1, "id"),
     ]
-    assert [key.qualifier for key in relation.group_keys] == [("nodes",), ("peer",)]
+    assert [key.qualifier for key in field_keys] == [("nodes",), ("peer",)]
     assert relation.order_by[0].expression == relation.projections[1].expression
     assert relation.order_by[1].expression == relation.projections[0].expression
     assert relation.order_by[2].expression == relation.projections[3].expression
@@ -1801,6 +1805,7 @@ def test_join_free_ir_is_unchanged_when_a_join_relation_is_appended() -> None:
     _, _, combined, _ = _build_join(source + ROW_JOIN)
     assert combined.definitions[:-1] == standalone.definitions
     assert plain.inputs == plain.joins == ()
+    assert isinstance(plain.group_keys[0], FieldRefIR)
     assert plain.group_keys[0].field == FieldId(
         SymbolId(SymbolNamespace.RELATION, "nodes"), "id"
     )
@@ -1919,7 +1924,13 @@ def test_duplicate_join_group_keys_deduplicate_by_input_identity() -> None:
         join_reads=JoinReads(relation.inputs, facts.field_reads),
     )
     assert keys == relation.group_keys
-    assert [key.field for key in keys] == [_input_field(0, "id"), _input_field(1, "id")]
+    own_key, peer_key = keys
+    assert isinstance(own_key, FieldRefIR)
+    assert isinstance(peer_key, FieldRefIR)
+    assert [key.field for key in (own_key, peer_key)] == [
+        _input_field(0, "id"),
+        _input_field(1, "id"),
+    ]
 
 
 def test_build_after_failed_tail_check_reports_the_unresolved_field_read() -> None:

@@ -1,14 +1,14 @@
 # Execution (public alpha)
 
-**Version:** This document describes the public alpha API of the `0.1.10`
-candidate. Release availability is established only when the exact accepted
-files appear on the versioned GitHub pre-release and PyPI `0.1.10` channels.
+**Version:** This document describes the `0.1.10` public alpha API plus
+explicitly marked unreleased source changes. The accepted `0.1.10` files are
+published on its versioned GitHub pre-release and PyPI channels.
 The published `0.1.2` distributions select `pyarrow==25.0.1`; the published
-`0.1.3`, `0.1.4`, `0.1.5`, `0.1.6`, `0.1.7`, `0.1.8` and `0.1.9`
-distributions and this candidate select `pyarrow==26.0.0`. The published `0.1.5` distributions select
+`0.1.3`, `0.1.4`, `0.1.5`, `0.1.6`, `0.1.7`, `0.1.8`, `0.1.9`
+and `0.1.10` distributions select `pyarrow==26.0.0`. The published `0.1.5` distributions select
 `mysql-connector-python==26.7.0`, `adbc-driver-postgresql==1.12.0` and
 `adbc-driver-manager==1.12.0`; the published `0.1.6`, `0.1.7`, `0.1.8` and
-`0.1.9` distributions and this candidate select `mysql-connector-python==26.10.0` and
+`0.1.9` and `0.1.10` distributions select `mysql-connector-python==26.10.0` and
 `1.13.0` of both ADBC packages. The historical `0.1.1` wheel does not provide this alpha surface.
 
 `pietto.execution` compiles one query of your project, runs it explicitly on
@@ -1589,6 +1589,13 @@ or a successful semantic check alone establishes none of those premises.
   A bundle or saved-job record made under `0.1.9` or earlier is refused under
   `0.1.10` by the changed code identity. The old bytes are preserved; use their
   matching old environment. Pietto supplies no migration or rewrite.
+  The Phase76 source candidate changes compiled marks from `(7, 1, 7, 1)`
+  to `(8, 1, 8, 1)` once. Keep `pietto==0.1.10` for its retained bundles
+  and jobs; a new matching environment requires recompilation from source.
+  Recompiling does not convert saved results or rerun a query. Reading old
+  results follows their separate format, code-identity and trust contract;
+  rerunning is a new database execution. This candidate is not a `0.1.10`
+  release update (see [upgrading](project-package.md#installing-a-release)).
 - The pin of a bundle is a content identity, not a signature, and protects the
   bytes only when it comes from your own records. There is no signing,
   registry or revocation.
