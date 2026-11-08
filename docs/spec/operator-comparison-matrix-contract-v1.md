@@ -131,18 +131,25 @@ single-file PostgreSQL emission refuses it with `PIE-B1000`, as PostgreSQL
 finds no operator for operands that are all an untyped NULL.
 
 Slice 7 recorded the Slice 6 Decimal boundaries. Later work accepted
-`Decimal * Decimal` and `Decimal` with `Int` under `+` and `-`, so the rows
-above are the current Decimal arithmetic: Decimal division stays deferred,
-there are no Decimal literals, and no cast reads or produces `Decimal`
-(`cast(Int as Float)` is the only cast). An accepted result is logical
-`Decimal` with no precision or scale, even when its operands are declared
-`Decimal(p, s)`, and both targets emit the bare operator with no inserted cast.
+`Decimal * Decimal` and `Decimal` with `Int` under `+` and `-`. PostgreSQL
+project emission now retains an E9 result carrier: for admitted operands,
+`s = max(s1, s2)` and `p = max(p1-s1, p2-s2)+1+s`, bounded by `p <= 65` and
+`s <= 30`; it casts a qualified source arithmetic result to that
+`numeric(p,s)` carrier. A typed header parameter participates only in an E9
+Decimal/Int pair or a Decimal pair whose scales differ and whose carrier
+therefore changes. A same-scale Decimal parameter pair and any parameter
+Decimal multiplication keep their existing refusal. MySQL Decimal/Int and
+different-scale Decimal project forms remain refused.
+Decimal division stays deferred, there are no Decimal literals, and no cast
+reads or produces a Decimal (`cast(Int as Float)` is the only cast).
 Inside `sum` and `avg`, a `Decimal * Decimal` argument passes `check`, and
 single-file `emit-sql` renders it on both targets as it renders a `Decimal`
 `+` or `-` argument, with no inserted cast: `sum(a * b)` emits
 `SUM(("a" * "b"))` on PostgreSQL and the same SQL with backtick-quoted names
-on MySQL. `emit-sql --project` still reports it BLOCKED, as it does every
-`Decimal` `sum` and `avg`. Each target computes a `Decimal * Decimal` product,
+on MySQL. `emit-sql --project` emits only a direct qualified PostgreSQL
+`sum(Decimal(p,s))` under the E10 checked result cast; it still reports a
+computed Decimal sum such as `sum(a * b)`, every Decimal `avg`, and every
+MySQL Decimal sum BLOCKED. Each target computes a `Decimal * Decimal` product,
 alone or inside `sum` and `avg`, with its own decimal arithmetic, so the two
 targets can return different values: MySQL rounds the product to at most 30
 fractional digits and, without a warning, can drop fractional digits of

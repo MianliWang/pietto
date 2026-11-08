@@ -1377,6 +1377,7 @@ SIGNED64 = (-(1 << 63), (1 << 63) - 1)
 # checked signed 64-bit operation or narrowing refuses an out-of-range value
 # with SQLSTATE 22003 and never returns a wrapped one.
 TARGET_CHECKED_SIGNED64 = "target_checked_signed64_narrowing"
+TARGET_CHECKED_DECIMAL = "target_checked_decimal_overflow"
 # Evidence that a binary64 result is finite because the target refuses an
 # overflowing operation or accumulation (SQLSTATE 22003) instead of returning
 # an infinity or a wrong value.
@@ -1448,6 +1449,13 @@ def checked_evidence(family: str, operation) -> tuple[str, ...]:
     finite, bounded by the target's checked float8 operator (E4)."""
     if target_checked(family, operation):
         return (TARGET_CHECKED_SIGNED64,)
+    if (
+        family == "postgres"
+        and operation.kind == "arithmetic"
+        and operation.original.expression.operator in {"+", "-"}
+        and operation.realization.tag == "Decimal"
+    ):
+        return (TARGET_CHECKED_DECIMAL,)
     if (
         family == "postgres"
         and operation.kind == "arithmetic"
@@ -1533,6 +1541,46 @@ def _decimal_parameters(family: str, value: Realization) -> tuple[int, int] | No
     return precision, scale
 
 
+def decimal_operand_parameters(
+    family: str, value: Realization, origin: str | None
+) -> tuple[int, int] | None:
+    """One independently classified E9 carrier; a default never promotes it."""
+
+    if origin in {"decimal", "decimal_parameter"}:
+        return _decimal_parameters(family, value)
+    if origin not in {"int", "int_literal", "int_parameter"} or value.tag != "Int":
+        return None
+    bounds = proven_int_bounds(value)
+    if bounds is None or value.storage.get("kind") not in INT_WIDTHS:
+        return None
+    if origin == "int_literal":
+        low, high = bounds
+        if low != high:
+            return None
+        return max(1, len(str(abs(low)))), 0
+    return {16: (5, 0), 32: (10, 0), 64: (19, 0)}[INT_WIDTHS[value.storage["kind"]]]
+
+
+def decimal_sum_realization(
+    family: str, value: Realization, nullable: bool | str
+) -> Realization | None:
+    """A PostgreSQL Decimal sum is exact in this carrier or the target rejects it."""
+
+    parameters_ = _decimal_parameters(family, value)
+    if family != "postgres" or parameters_ is None:
+        return None
+    precision, scale = parameters_
+    result_precision = precision + 19
+    if result_precision > 65 or scale > 30:
+        return None
+    return Realization(
+        "Decimal",
+        {"kind": "pg_numeric", "precision": result_precision, "scale": scale},
+        nullable,
+        {"kind": "decimal", "precision": result_precision, "scale": scale},
+    )
+
+
 def _float_literal_value(value) -> float | None:
     """Return one exact finite Float literal/sign value, never a field value."""
 
@@ -1548,6 +1596,36 @@ def _float_literal_value(value) -> float | None:
     except (AttributeError, IndexError, TypeError, ValueError):
         return None
     return result if type(result) is float and math.isfinite(result) else None
+
+
+def decimal_operand_origin(value, family: str) -> str | None:
+    """The E9 operand class retained by the row tree, never an inferred value."""
+
+    realization = realization_of(value, family)
+    if realization.tag == "Decimal":
+        if type(value) is SQLParameterRead:
+            return "decimal_parameter"
+        if (
+            type(value) is SQLStageReference
+            and value.column.field is not None
+            and value.column.source_port is not None
+        ):
+            return "decimal"
+        return None
+    if realization.tag != "Int":
+        return None
+    static = _static_literal_value(value)
+    if static is not None and static[0] == "Int" and type(static[1]) is int:
+        return "int_literal"
+    if type(value) is SQLParameterRead:
+        return "int_parameter"
+    if (
+        type(value) is SQLStageReference
+        and value.column.field is not None
+        and value.column.source_port is not None
+    ):
+        return "int"
+    return None
 
 
 def _operands(
@@ -1592,6 +1670,9 @@ def _binary(
             and value.column.source_port is not None
             for value in values
         ),
+        decimal_operand_origins=tuple(
+            decimal_operand_origin(value, request.family) for value in values
+        ),
         float_values=(
             None
             if float_left is None or float_right is None
@@ -1615,6 +1696,7 @@ def resolved_binary_realization(
     right,
     *,
     direct_decimal_sources: bool = False,
+    decimal_operand_origins: tuple[str | None, ...] | None = None,
     float_values: tuple[float, float] | None = None,
 ):
     """Original range/domain law over resolved operands; no name resolution."""
@@ -1626,25 +1708,49 @@ def resolved_binary_realization(
         return _bool(family, nullable), None
     if operator not in ARITHMETIC:
         return None, ("PIE-B1003", "binary_operator_not_admitted")
-    if tag == left.tag == right.tag == "Decimal":
-        if not direct_decimal_sources:
+    if tag == "Decimal" and {left.tag, right.tag} <= {"Decimal", "Int"}:
+        if decimal_operand_origins is None:
+            decimal_operand_origins = (
+                ("decimal", "decimal") if direct_decimal_sources else (None, None)
+            )
+        if len(decimal_operand_origins) != 2 or any(
+            origin is None for origin in decimal_operand_origins
+        ):
             return None, ("PIE-B1003", "decimal_direct_source_operands_required")
-        left_parameters = _decimal_parameters(family, left)
-        right_parameters = _decimal_parameters(family, right)
+        left_parameters = decimal_operand_parameters(
+            family, left, decimal_operand_origins[0]
+        )
+        right_parameters = decimal_operand_parameters(
+            family, right, decimal_operand_origins[1]
+        )
         if left_parameters is None or right_parameters is None:
             return None, ("PIE-B1004", "decimal_source_carrier_missing")
         left_precision, left_scale = left_parameters
         right_precision, right_scale = right_parameters
         if operator in {"+", "-"}:
-            if left_scale != right_scale:
+            if (
+                left.tag == right.tag == "Decimal"
+                and "decimal_parameter" in decimal_operand_origins
+                and left_scale == right_scale
+            ):
+                return None, ("PIE-B1003", "decimal_direct_source_operands_required")
+            if family != "postgres" and "Int" in {left.tag, right.tag}:
+                return None, ("PIE-B1003", "arithmetic_requires_signed_int_operands")
+            if family != "postgres" and left_scale != right_scale:
                 return None, ("PIE-B1003", "decimal_scale_mismatch")
-            scale = left_scale
+            scale = max(left_scale, right_scale)
             precision = (
                 max(left_precision - left_scale, right_precision - right_scale)
                 + 1
                 + scale
             )
-        elif operator == "*":
+        elif operator == "*" and "decimal_parameter" in decimal_operand_origins:
+            return None, ("PIE-B1003", "decimal_direct_source_operands_required")
+        elif (
+            operator == "*"
+            and left.tag == right.tag == "Decimal"
+            and "decimal_parameter" not in decimal_operand_origins
+        ):
             scale = left_scale + right_scale
             precision = left_precision + right_precision
         else:

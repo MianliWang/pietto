@@ -855,11 +855,15 @@ same checked `sum(Int)` spelling, so a sum of a `bigint` column outside signed
 MySQL keeps project `sum(Int)` BLOCKED with `PIE-B1004`,
 as its `CAST(DECIMAL AS SIGNED)` would clamp an out-of-range sum, and Int
 arithmetic not proved to fit signed 64 bits BLOCKED with `PIE-B1002`.
-Decimal `sum`/`avg` remain fail-closed with `PIE-B1004`
-(`decimal_aggregate_range_proof_missing`): a Decimal sum has no bounded
-precision and a Decimal average no fixed scale, so no `Decimal(p, s)` carrier
-holds the result, and caller JSON cannot supply that proof. MySQL keeps Float
-`sum`/`avg` fail-closed without a finite result proof.
+PostgreSQL project `sum(Decimal(p, s))` emits only for a direct qualified
+Decimal field with `p + 19 <= 65` and `s <= 30`. It is
+`CAST(SUM(x) AS pg_catalog.numeric(p + 19, s))`: PostgreSQL returns the exact
+carrier or raises SQLSTATE 22003 when the sum is too wide. Its R13 evidence is
+`{"overflow": "target_checked_decimal_overflow"}`. This cast does not claim a
+source-row count. `avg(Decimal)`, Decimal sums outside that carrier and MySQL
+Decimal sums remain fail-closed with `PIE-B1004`
+(`decimal_aggregate_range_proof_missing`). MySQL keeps Float `sum`/`avg`
+fail-closed without a finite result proof.
 
 The rules in the previous paragraph postdate the published `0.1.2` (GitHub
 pre-release `v0.1.2` and PyPI `0.1.2`) and are not part of those

@@ -8215,8 +8215,16 @@ def _decode_fixed_public(document, limits):
                 "column": source_body["outgoing"][0]["realization"],
                 "inline": inline,
             }
-        _need(role in {"binary_open", "comparison_open"}, "row expression node")
-        take("syntax", role, "(", original)
+        _need(
+            role in {"binary_open", "comparison_open", "decimal_arithmetic_open"},
+            "row expression node",
+        )
+        take(
+            "syntax",
+            role,
+            "CAST((" if role == "decimal_arithmetic_open" else "(",
+            original,
+        )
         left, left_cast = null_cast_operand(block, port_kind, original)
         widened = False
         if not left_cast:
@@ -8228,10 +8236,20 @@ def _decode_fixed_public(document, limits):
             right = row_parse(block, port_kind)
         if operator_role == "comparison_operator" and token in {" LIKE ", " NOT LIKE "}:
             take("syntax", "comparison_escape", " ESCAPE '!'", original)
-        closing = "binary_close" if role == "binary_open" else "comparison_close"
-        closed, _ = take("syntax", closing, ")", original)
+        closing = (
+            "decimal_arithmetic_close"
+            if role == "decimal_arithmetic_open"
+            else "binary_close"
+            if role == "binary_open"
+            else "comparison_close"
+        )
+        closed, closing_text = take("syntax", closing, subject=original)
         if operator_role == "arithmetic_operator":
-            _need(role == "binary_open" and token in ARITHMETIC_TOKENS, "operator")
+            _need(
+                role in {"binary_open", "decimal_arithmetic_open"}
+                and token in ARITHMETIC_TOKENS,
+                "operator",
+            )
             kind, enclosure = "arithmetic", "binary"
         elif operator_role == "logical_operator":
             _need(role == "binary_open" and token in LOGICAL_TOKENS, "operator")
@@ -8245,6 +8263,14 @@ def _decode_fixed_public(document, limits):
             kind, enclosure = "comparison", "comparison"
         _need(not widened or kind == "arithmetic", "int8 widening")
         _need(kind == "arithmetic" or not (left_cast or right_cast), "typed NULL cast")
+        if role == "decimal_arithmetic_open":
+            _need(
+                closing_text.startswith(") AS pg_catalog.numeric(")
+                and closing_text.endswith("))"),
+                "Decimal arithmetic cast",
+            )
+        else:
+            _need(closing_text == ")", "row expression close")
         expected_ranges.append((enclosure, original, start, closed["end"]))
         return {
             "kind": kind,
@@ -9730,7 +9756,7 @@ def _decode_fixed_public(document, limits):
         result_cast = None
         if peek() == "aggregate_result_cast_open":
             take("syntax", "aggregate_result_cast_open", "CAST(", subject)
-            result_cast = "pg_catalog.int8"
+            result_cast = "pending"
         _, spelling = take("syntax", "aggregate_open", subject=subject)
         _need(spelling in AGGREGATE_SPELLINGS, "aggregate spelling")
         # Only a PostgreSQL variance is CAST(VAR_SAMP(x) AS float8) or
@@ -9899,17 +9925,20 @@ def _decode_fixed_public(document, limits):
                     argument_cast = token[4:-1]
         closed, _ = take("syntax", "aggregate_close", ")", subject)
         if result_cast is not None:
-            # Q1: only a PostgreSQL SUM is narrowed by a checked bigint CAST.
             _need(
                 family == "postgres" and spelling in {"SUM(", "VAR_SAMP(", "VAR_POP("},
                 "sum result cast",
             )
-            closed, _ = take(
-                "syntax",
-                "aggregate_result_cast_close",
-                f" AS {result_cast})",
-                subject,
+            closed, token = take(
+                "syntax", "aggregate_result_cast_close", subject=subject
             )
+            _need(token.startswith(" AS ") and token.endswith(")"), "sum result cast")
+            actual_cast = token[4:-1]
+            _need(
+                result_cast == "pending" or actual_cast == result_cast,
+                "sum result cast",
+            )
+            result_cast = actual_cast
         if root:
             closed, _ = take("syntax", "aggregate_root_close", ")", subject)
         _need(not zero or function == "filtered_sum", "conditional sum zero")
@@ -9954,6 +9983,7 @@ def _decode_fixed_public(document, limits):
     ):
         """This result's own domain: a count is not its argument's value range."""
         floating = argument is not None and argument["tag"] == "Float"
+        decimal_sum = argument is not None and argument["tag"] == "Decimal"
         _need(
             (result_cast is not None)
             is (
@@ -10045,6 +10075,37 @@ def _decode_fixed_public(document, limits):
         if function == "sum":
             # Q1: an exact PostgreSQL sum narrowed to bigint by a checked CAST,
             # NULL for an empty input; MySQL emits no SUM of an Int.
+            if decimal_sum:
+                assert argument is not None
+                storage, domain = argument["storage"], argument["domain"]
+                precision, scale = storage.get("precision"), storage.get("scale")
+                _need(
+                    family == "postgres"
+                    and argument_cast is None
+                    and storage
+                    == {"kind": "pg_numeric", "precision": precision, "scale": scale}
+                    and domain
+                    == {"kind": "decimal", "precision": precision, "scale": scale}
+                    and type(precision) is int
+                    and type(scale) is int
+                    and 0 <= scale <= precision <= 46
+                    and result_cast == f"pg_catalog.numeric({precision + 19}, {scale})",
+                    "SUM Decimal cast",
+                )
+                return {
+                    "tag": "Decimal",
+                    "storage": {
+                        "kind": "pg_numeric",
+                        "precision": precision + 19,
+                        "scale": scale,
+                    },
+                    "nullable": True,
+                    "domain": {
+                        "kind": "decimal",
+                        "precision": precision + 19,
+                        "scale": scale,
+                    },
+                }
             _need(
                 family == "postgres"
                 and argument is not None

@@ -188,6 +188,72 @@ C5_POSTGRES_LET_SCALE_BODY = """table result:
 """
 
 
+S05_POSTGRES_BODY = """table result:
+    from rows
+    let plus_id = money + id
+    let left_literal = 1 + money
+    select:
+        plus_id
+        left_literal
+"""
+
+
+S05_SUM_BODY = """table result:
+    from rows
+    select:
+        total = sum(money)
+"""
+
+
+def test_postgres_decimal_carriers_emit_exact_addition(tmp_path):
+    checked, outcome = emit(tmp_path, "postgres", S05_POSTGRES_BODY)
+    assert checked.verified and outcome.status == "VERIFIED", outcome.blockers
+    assert outcome.artifact is not None
+    document = json.loads(serialize_project_sql_emission(outcome).decode())
+    assert "pg_catalog.numeric(22, 2)" in document["sql"]
+    assert "pg_catalog.numeric(10, 2)" in document["sql"]
+    observed = portable.export_emission_observation(
+        outcome.artifact, outcome.artifact.request
+    )
+    assert observed.status is portable.ObservationStatus.OK
+    assert observed.canonical_bytes is not None
+    assert (
+        pure.parse_emission_observation(observed.canonical_bytes).status
+        is pure.Status.OK
+    )
+
+    from pietto._project.project_compiled_build import build_compiled
+    from pietto._project.project_compiled_loading import load_compiled
+    from pietto._project.project_compiled_lowering import emit_compiled
+
+    built = build_compiled(outcome.artifact)
+    loaded = load_compiled(
+        built.payload,
+        expected_pin=built.pin,
+        accepted_producer=built.producer,
+        accepted_compatibility=built.compatibility,
+    )
+    assert emit_compiled(loaded, ()).request.family == "postgres"
+
+
+def test_postgres_decimal_sum_emits_checked_result_carrier(tmp_path):
+    checked, outcome = emit(tmp_path, "postgres", S05_SUM_BODY)
+    assert checked.verified and outcome.status == "VERIFIED", outcome.blockers
+    document = json.loads(serialize_project_sql_emission(outcome).decode())
+    assert "CAST(SUM(" in document["sql"]
+    assert "AS pg_catalog.numeric(28, 2))" in document["sql"]
+
+
+def test_mysql_decimal_int_stays_refused(tmp_path):
+    checked, outcome = emit(tmp_path, "mysql", S05_POSTGRES_BODY)
+    assert checked.verified and outcome.status == "BLOCKED"
+
+
+def test_mysql_decimal_sum_stays_refused(tmp_path):
+    checked, outcome = emit(tmp_path, "mysql", S05_SUM_BODY)
+    assert checked.verified and outcome.status == "BLOCKED"
+
+
 def test_postgres_scalar_project_forms_are_verified(tmp_path):
     checked, outcome = emit(tmp_path, "postgres", C5_POSTGRES_SCALAR_BODY)
     assert checked.verified and outcome.status == "VERIFIED"

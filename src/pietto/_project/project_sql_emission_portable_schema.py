@@ -1106,8 +1106,8 @@ OVERLAYS = {
     "reference": (("value_scope",), ("value_column",)),
     "capture": (("capture_scope",), ("capture_column",)),
     "binary": (
-        ("binary_open", "float_remainder_open"),
-        ("binary_close", "float_remainder_close"),
+        ("binary_open", "float_remainder_open", "decimal_arithmetic_open"),
+        ("binary_close", "float_remainder_close", "decimal_arithmetic_close"),
     ),
     "comparison": (("comparison_open",), ("comparison_close",)),
     "between": (("between_open",), ("between_close",)),

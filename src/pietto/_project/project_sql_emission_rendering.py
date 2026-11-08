@@ -1076,6 +1076,29 @@ class _Writer:
             )
             self.enclose("binary", reference, start)
             return
+        if value.kind == "arithmetic" and value.realization.tag == "Decimal":
+            if self.request.family != "postgres":
+                raise ValueError("unrenderable Decimal arithmetic")
+            precision = value.realization.storage.get("precision")
+            scale = value.realization.storage.get("scale")
+            if (
+                value.original.expression.operator not in {"+", "-"}
+                or type(precision) is not int
+                or type(scale) is not int
+            ):
+                raise ValueError("unrenderable Decimal arithmetic")
+            self.emit("CAST((", "syntax", "decimal_arithmetic_open", reference)
+            self.operand(value, 0, alias)
+            self.emit(operator_token(value), "syntax", "arithmetic_operator", reference)
+            self.operand(value, 1, alias)
+            self.emit(
+                f") AS pg_catalog.numeric({precision}, {scale}))",
+                "syntax",
+                "decimal_arithmetic_close",
+                reference,
+            )
+            self.enclose("binary", reference, start)
+            return
         opening, operator, closing, role = OPERATORS[value.kind]
         self.emit("(", "syntax", opening, reference)
         self.operand(value, 0, alias)

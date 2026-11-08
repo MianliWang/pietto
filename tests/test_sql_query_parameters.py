@@ -1626,8 +1626,13 @@ def test_typed_parameters_cast_to_their_source_carrier_on_postgresql(
             "    select:\n        id\n        total = money + floor\n",
             [("PIE-B1003", "decimal_direct_source_operands_required")],
         ),
+        (
+            "query result(floor: Decimal(9, 2)):\n    from rows\n"
+            "    select:\n        id\n        total = money * floor\n",
+            [("PIE-B1003", "decimal_direct_source_operands_required")],
+        ),
     ),
-    ids=("other_precision", "arithmetic"),
+    ids=("other_precision", "same_shape_arithmetic", "parameter_multiplication"),
 )
 def test_a_decimal_parameter_keeps_the_existing_decimal_laws(
     tmp_path: Path, body: str, expected: list[tuple[str, str]]
@@ -1637,6 +1642,47 @@ def test_a_decimal_parameter_keeps_the_existing_decimal_laws(
     _, outcome = typed_case(tmp_path, "postgres", body)
     assert outcome.status == "BLOCKED"
     assert [(b.code, b.detail) for b in outcome.blockers] == expected
+
+
+@pytest.mark.parametrize(
+    ("body", "carrier"),
+    (
+        (
+            "query result(fee: Decimal(8, 3)):\n    from rows\n"
+            "    select:\n        total = money + fee\n",
+            (11, 3),
+        ),
+        (
+            "query result(delta: Int):\n    from rows\n"
+            "    select:\n        total = money + delta\n",
+            (22, 2),
+        ),
+    ),
+    ids=("different_decimal_scale", "int_parameter"),
+)
+def test_postgres_e9_parameter_pairs_change_the_decimal_carrier(
+    tmp_path: Path, body: str, carrier: tuple[int, int]
+) -> None:
+    checked, outcome = typed_case(tmp_path, "postgres", body)
+    assert checked.verified and outcome.status == "VERIFIED", outcome.blockers
+    document = _document(outcome)
+    assert document["columns"][0]["representation"]["storage"] == {
+        "kind": "pg_numeric",
+        "precision": carrier[0],
+        "scale": carrier[1],
+    }
+    from pietto._project.project_compiled_build import build_compiled
+    from pietto._project.project_compiled_loading import load_compiled
+    from pietto._project.project_compiled_lowering import emit_compiled
+
+    built = build_compiled(outcome.artifact)
+    loaded = load_compiled(
+        built.payload,
+        expected_pin=built.pin,
+        accepted_producer=built.producer,
+        accepted_compatibility=built.compatibility,
+    )
+    assert emit_compiled(loaded, ()).rendered.sql == outcome.artifact.rendered.sql
 
 
 @pytest.mark.parametrize(

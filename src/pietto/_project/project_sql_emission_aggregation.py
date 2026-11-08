@@ -522,6 +522,17 @@ def result_realization(family: str, function: str, argument, retained):
     if function == "sum":
         # An empty or all-null input sums to NULL; the CAST bounds the rest.
         if (
+            family == "postgres"
+            and argument is not None
+            and argument.realization.tag == "Decimal"
+            and tag == "Decimal"
+            and nullable is True
+        ):
+            result = rows.decimal_sum_realization(family, argument.realization, True)
+            if result is not None:
+                return result, None
+            return None, ("PIE-B1004", "decimal_aggregate_range_proof_missing")
+        if (
             family != "postgres"
             or argument is None
             or argument.realization.tag != "Int"
@@ -822,6 +833,13 @@ def resolved_argument_problem(
         if family == "postgres":
             return None
         return "PIE-B1004", "sum_int_aggregate_range_proof_missing"
+    if function == "sum" and realization.tag == "Decimal":
+        if (
+            direct_reference
+            and rows.decimal_sum_realization(family, realization, True) is not None
+        ):
+            return None
+        return "PIE-B1004", "decimal_aggregate_range_proof_missing"
     # Only a sum or an average has a range or finite-result proof to supply;
     # any other function outside the reviewed Int domain is refused below.
     if function in {"sum", "avg"} and realization.tag == "Decimal":
@@ -881,7 +899,11 @@ def argument_cast(family: str, function: str, argument) -> str | None:
         return None
     if family == "postgres" and float_argument(argument):
         return None
-    if argument is None or argument.realization.tag != "Int":
+    if argument is None:
+        raise ValueError("AVG or SUM input cast requires its proven Int argument")
+    if argument.realization.tag == "Decimal" and function == "sum":
+        return None
+    if argument.realization.tag != "Int":
         raise ValueError("AVG or SUM input cast requires its proven Int argument")
     if function == "sum":
         return result_cast(family, function, argument)
@@ -901,7 +923,17 @@ def result_cast(family: str, function: str, argument) -> str | None:
         function = "sum"
     if function != "sum" or family == "postgres" and float_argument(argument):
         return None
-    if family != "postgres" or argument is None or argument.realization.tag != "Int":
+    if family != "postgres" or argument is None:
+        raise ValueError("SUM result cast requires a PostgreSQL Int argument")
+    if argument.realization.tag == "Decimal":
+        result = rows.decimal_sum_realization(family, argument.realization, True)
+        if result is None:
+            raise ValueError("SUM result cast requires a qualified PostgreSQL Decimal")
+        return "pg_catalog.numeric(%d, %d)" % (
+            result.storage["precision"],
+            result.storage["scale"],
+        )
+    if argument.realization.tag != "Int":
         raise ValueError("SUM result cast requires a PostgreSQL Int argument")
     return "pg_catalog.int8"
 
@@ -912,6 +944,8 @@ def aggregate_evidence(function: str, argument_tag: str | None) -> tuple[str, ..
     deviation the target checks."""
     if function in {"sum", "filtered_sum"} and argument_tag == "Int":
         return (rows.TARGET_CHECKED_SIGNED64,)
+    if function == "sum" and argument_tag == "Decimal":
+        return (rows.TARGET_CHECKED_DECIMAL,)
     if function in {"sum", "avg", *SPREAD_FUNCTIONS} and argument_tag == "Float":
         return (TARGET_CHECKED_BINARY64,)
     return ()

@@ -3730,6 +3730,26 @@ def derive_compiled_semantics(root, values, parameters=None):
                             direct_decimal_sources=all(
                                 item.origin == "field" for item in input_facts
                             ),
+                            decimal_operand_origins=tuple(
+                                "decimal"
+                                if item.value_type.resolved_type.name == "Decimal"
+                                and item.origin == "field"
+                                else "decimal_parameter"
+                                if item.value_type.resolved_type.name == "Decimal"
+                                and item.origin == "parameter"
+                                else "int_literal"
+                                if item.value_type.resolved_type.name == "Int"
+                                and item.origin == "literal"
+                                and type(item.value) is int
+                                else "int"
+                                if item.value_type.resolved_type.name == "Int"
+                                and item.origin == "field"
+                                else "int_parameter"
+                                if item.value_type.resolved_type.name == "Int"
+                                and item.origin == "parameter"
+                                else None
+                                for item in input_facts
+                            ),
                             float_values=(
                                 tuple(item.value for item in input_facts)
                                 if all(
@@ -5136,6 +5156,26 @@ def verify_compiled_semantics(value):
                             tuple(i.realization for i in inputs),
                             direct_decimal_sources=all(
                                 item.origin == "field" for item in inputs
+                            ),
+                            decimal_operand_origins=tuple(
+                                "decimal"
+                                if item.value_type.resolved_type.name == "Decimal"
+                                and item.origin == "field"
+                                else "decimal_parameter"
+                                if item.value_type.resolved_type.name == "Decimal"
+                                and item.origin == "parameter"
+                                else "int_literal"
+                                if item.value_type.resolved_type.name == "Int"
+                                and item.origin == "literal"
+                                and type(item.value) is int
+                                else "int"
+                                if item.value_type.resolved_type.name == "Int"
+                                and item.origin == "field"
+                                else "int_parameter"
+                                if item.value_type.resolved_type.name == "Int"
+                                and item.origin == "parameter"
+                                else None
+                                for item in inputs
                             ),
                             float_values=(
                                 tuple(item.value for item in inputs)

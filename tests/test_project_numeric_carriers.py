@@ -65,6 +65,19 @@ def _literal_integer(family: str, value: int) -> rows.Realization:
     )
 
 
+def _physical_integer(family: str, kind: str) -> rows.Realization:
+    bounds = rows.signed_range({"kind": kind})
+    assert bounds is not None
+    low, high = bounds
+    return rows.Realization(
+        "Int",
+        {"kind": kind},
+        False,
+        {"kind": "int_range", "min": str(low), "max": str(high)},
+        (low, high),
+    )
+
+
 @pytest.mark.parametrize("family", ("postgres", "mysql"))
 def test_int_source_arithmetic_uses_physical_proof_not_declared_json_range(
     family: str,
@@ -606,8 +619,12 @@ def test_decimal_carrier_boundaries_fail_closed(family: str) -> None:
         mismatched_scale,
         direct_decimal_sources=True,
     )
-    assert realized is None
-    assert problem == ("PIE-B1003", "decimal_scale_mismatch")
+    if family == "postgres":
+        assert problem is None and realized is not None
+        assert realized.domain == {"kind": "decimal", "precision": 13, "scale": 3}
+    else:
+        assert realized is None
+        assert problem == ("PIE-B1003", "decimal_scale_mismatch")
 
     too_wide = (_decimal(family, 65, 0), _decimal(family, 1, 0))
     realized, problem = rows.resolved_binary_realization(
@@ -655,6 +672,173 @@ def test_decimal_carrier_boundaries_fail_closed(family: str) -> None:
     )
     assert realized is None
     assert problem == ("PIE-B1003", "arithmetic_requires_signed_int_operands")
+
+
+def test_postgres_decimal_int_and_scale_mismatch_use_exact_carriers() -> None:
+    decimal = _decimal("postgres", 3, 2)
+    int2 = _physical_integer("postgres", "pg_int2")
+    literal = _literal_integer("postgres", 1)
+
+    realized, problem = rows.resolved_binary_realization(
+        "postgres",
+        "+",
+        "Decimal",
+        False,
+        decimal,
+        int2,
+        decimal_operand_origins=("decimal", "int"),
+    )
+    assert problem is None and realized is not None
+    assert realized.domain == {"kind": "decimal", "precision": 8, "scale": 2}
+    independently_reconstructed = verification.resolved_row_realization(
+        "postgres",
+        "binary",
+        "+",
+        "Decimal",
+        False,
+        (decimal, int2),
+        decimal_operand_origins=("decimal", "int"),
+    )
+    assert independently_reconstructed.storage == realized.storage
+
+    realized, problem = rows.resolved_binary_realization(
+        "postgres",
+        "+",
+        "Decimal",
+        False,
+        decimal,
+        literal,
+        decimal_operand_origins=("decimal", "int_literal"),
+    )
+    assert problem is None and realized is not None
+    assert realized.domain == {"kind": "decimal", "precision": 4, "scale": 2}
+
+    mixed = _decimal("postgres", 5, 3)
+    realized, problem = rows.resolved_binary_realization(
+        "postgres",
+        "-",
+        "Decimal",
+        False,
+        decimal,
+        mixed,
+        decimal_operand_origins=("decimal", "decimal"),
+    )
+    assert problem is None and realized is not None
+    assert realized.domain == {"kind": "decimal", "precision": 6, "scale": 3}
+
+
+def test_postgres_decimal_sum_uses_checked_wide_result() -> None:
+    source = _decimal("postgres", 46, 30)
+    result = rows.decimal_sum_realization("postgres", source, True)
+    assert result is not None
+    assert result.storage == {"kind": "pg_numeric", "precision": 65, "scale": 30}
+    assert (
+        rows.decimal_sum_realization("postgres", _decimal("postgres", 47, 30), True)
+        is None
+    )
+
+
+def test_same_scale_decimal_parameters_stay_refused_in_both_realizers() -> None:
+    left = _decimal("postgres", 9, 2)
+    right = _decimal("postgres", 9, 2)
+    realized, problem = rows.resolved_binary_realization(
+        "postgres",
+        "+",
+        "Decimal",
+        False,
+        left,
+        right,
+        decimal_operand_origins=("decimal", "decimal_parameter"),
+    )
+    assert realized is None
+    assert problem == ("PIE-B1003", "decimal_direct_source_operands_required")
+    with pytest.raises(ValueError, match="decimal direct source operands"):
+        verification.resolved_row_realization(
+            "postgres",
+            "binary",
+            "+",
+            "Decimal",
+            False,
+            (left, right),
+            decimal_operand_origins=("decimal", "decimal_parameter"),
+        )
+
+
+@pytest.mark.parametrize(
+    ("operator", "left", "right", "origins", "accepted"),
+    (
+        ("+", (9, 2), (19, 0), ("decimal_parameter", "int"), True),
+        ("+", (19, 0), (9, 2), ("int", "decimal_parameter"), True),
+        ("+", (9, 2), (19, 0), ("decimal", "int_parameter"), True),
+        ("+", (19, 0), (9, 2), ("int_parameter", "decimal"), True),
+        ("+", (9, 2), (19, 0), ("decimal_parameter", "int_parameter"), True),
+        ("-", (9, 2), (19, 0), ("decimal_parameter", "int"), True),
+        ("-", (19, 0), (9, 2), ("int", "decimal_parameter"), True),
+        ("-", (9, 2), (19, 0), ("decimal", "int_parameter"), True),
+        ("-", (19, 0), (9, 2), ("int_parameter", "decimal"), True),
+        ("-", (9, 2), (19, 0), ("decimal_parameter", "int_parameter"), True),
+        ("+", (9, 2), (8, 3), ("decimal_parameter", "decimal"), True),
+        ("+", (8, 3), (9, 2), ("decimal", "decimal_parameter"), True),
+        ("-", (9, 2), (8, 3), ("decimal_parameter", "decimal_parameter"), True),
+        ("+", (9, 2), (8, 2), ("decimal_parameter", "decimal"), False),
+        ("-", (9, 2), (8, 2), ("decimal", "decimal_parameter"), False),
+        ("+", (9, 2), (9, 2), ("decimal_parameter", "decimal_parameter"), False),
+        ("*", (9, 2), (8, 3), ("decimal_parameter", "decimal"), False),
+        ("*", (9, 2), (8, 3), ("decimal", "decimal_parameter"), False),
+        ("*", (9, 2), (8, 3), ("decimal_parameter", "decimal_parameter"), False),
+    ),
+)
+def test_parameter_e9_matrix_has_one_live_and_independent_boundary(
+    operator: str,
+    left: tuple[int, int],
+    right: tuple[int, int],
+    origins: tuple[str, str],
+    accepted: bool,
+) -> None:
+    def operand(parameters: tuple[int, int], origin: str) -> rows.Realization:
+        if origin.startswith("decimal"):
+            return _decimal("postgres", *parameters)
+        return _physical_integer("postgres", "pg_int8")
+
+    left_value, right_value = (
+        operand(left, origins[0]),
+        operand(right, origins[1]),
+    )
+    realized, problem = rows.resolved_binary_realization(
+        "postgres",
+        operator,
+        "Decimal",
+        False,
+        left_value,
+        right_value,
+        decimal_operand_origins=origins,
+    )
+    if not accepted:
+        assert realized is None
+        assert problem == ("PIE-B1003", "decimal_direct_source_operands_required")
+        with pytest.raises(ValueError, match="decimal direct source operands"):
+            verification.resolved_row_realization(
+                "postgres",
+                "binary",
+                operator,
+                "Decimal",
+                False,
+                (left_value, right_value),
+                decimal_operand_origins=origins,
+            )
+        return
+    assert problem is None and realized is not None
+    reconstructed = verification.resolved_row_realization(
+        "postgres",
+        "binary",
+        operator,
+        "Decimal",
+        False,
+        (left_value, right_value),
+        decimal_operand_origins=origins,
+    )
+    assert reconstructed.storage == realized.storage
+    assert reconstructed.domain == realized.domain
 
 
 @pytest.mark.parametrize("family", ("postgres", "mysql"))

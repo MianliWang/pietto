@@ -1254,12 +1254,34 @@ def _operand_children(plan):
     return result
 
 
-def _direct_decimal_source(value):
-    return (
+def _decimal_operand_origin(value, family):
+    """Independently recover the E9 source class from the retained value tree."""
+
+    realization = rows.realization_of(value, family)
+    if realization.tag == "Decimal":
+        if type(value) is rows.SQLParameterRead:
+            return "decimal_parameter"
+        if (
+            type(value) is rows.SQLStageReference
+            and value.column.field is not None
+            and value.column.source_port is not None
+        ):
+            return "decimal"
+        return None
+    if realization.tag != "Int":
+        return None
+    static = rows._static_literal_value(value)
+    if static is not None and static[0] == "Int" and type(static[1]) is int:
+        return "int_literal"
+    if type(value) is rows.SQLParameterRead:
+        return "int_parameter"
+    if (
         type(value) is rows.SQLStageReference
         and value.column.field is not None
         and value.column.source_port is not None
-    )
+    ):
+        return "int"
+    return None
 
 
 def _float_literal_value(value):
@@ -1380,7 +1402,18 @@ def _row_realization(request, expression, operands, operand_values):
         operands,
         direct_decimal_sources=(
             kind == "binary"
-            and all(_direct_decimal_source(value) for value in operand_values)
+            and all(
+                _decimal_operand_origin(value, request.family) == "decimal"
+                for value in operand_values
+            )
+        ),
+        decimal_operand_origins=(
+            tuple(
+                _decimal_operand_origin(value, request.family)
+                for value in operand_values
+            )
+            if kind == "binary" and len(operand_values) == 2
+            else None
         ),
         float_values=(
             None if any(value is None for value in float_values) else float_values
@@ -1397,6 +1430,7 @@ def resolved_row_realization(
     operands,
     *,
     direct_decimal_sources=False,
+    decimal_operand_origins: tuple[str | None, ...] | None = None,
     float_values=None,
     rows_both_sides=None,
 ):
@@ -1474,35 +1508,47 @@ def resolved_row_realization(
     if (
         kind == "binary"
         and tag == "Decimal"
-        and all(item.tag == "Decimal" for item in operands)
+        and all(item.tag in {"Decimal", "Int"} for item in operands)
     ):
-        if not direct_decimal_sources:
+        if decimal_operand_origins is None:
+            decimal_operand_origins = (
+                ("decimal", "decimal") if direct_decimal_sources else (None, None)
+            )
+        if len(decimal_operand_origins) != 2 or any(
+            origin is None for origin in decimal_operand_origins
+        ):
             raise ValueError("decimal direct source operands")
-        expected_storage = "pg_numeric" if family == "postgres" else "my_decimal"
         parameters = []
-        for item in operands:
-            precision, scale = item.storage.get("precision"), item.storage.get("scale")
-            if (
-                item.storage.get("kind") != expected_storage
-                or type(precision) is not int
-                or type(scale) is not int
-                or not 0 <= scale <= precision <= 65
-                or item.domain
-                != {"kind": "decimal", "precision": precision, "scale": scale}
-            ):
+        for item, origin in zip(operands, decimal_operand_origins, strict=True):
+            parameters_ = rows.decimal_operand_parameters(family, item, origin)
+            if parameters_ is None:
                 raise ValueError("decimal source carrier")
-            parameters.append((precision, scale))
+            parameters.append(parameters_)
         (left_precision, left_scale), (right_precision, right_scale) = parameters
         if operator in {"+", "-"}:
-            if left_scale != right_scale:
+            if (
+                all(item.tag == "Decimal" for item in operands)
+                and "decimal_parameter" in decimal_operand_origins
+                and left_scale == right_scale
+            ):
+                raise ValueError("decimal direct source operands")
+            if family != "postgres" and any(item.tag == "Int" for item in operands):
+                raise ValueError("decimal int target")
+            if family != "postgres" and left_scale != right_scale:
                 raise ValueError("decimal scale mismatch")
-            scale = left_scale
+            scale = max(left_scale, right_scale)
             precision = (
                 max(left_precision - left_scale, right_precision - right_scale)
                 + 1
                 + scale
             )
-        elif operator == "*":
+        elif operator == "*" and "decimal_parameter" in decimal_operand_origins:
+            raise ValueError("decimal direct source operands")
+        elif (
+            operator == "*"
+            and all(item.tag == "Decimal" for item in operands)
+            and "decimal_parameter" not in decimal_operand_origins
+        ):
             scale = left_scale + right_scale
             precision = left_precision + right_precision
         else:
@@ -1511,7 +1557,11 @@ def resolved_row_realization(
             raise ValueError("decimal result outside physical range")
         return rows.Realization(
             "Decimal",
-            {"kind": expected_storage, "precision": precision, "scale": scale},
+            {
+                "kind": "pg_numeric" if family == "postgres" else "my_decimal",
+                "precision": precision,
+                "scale": scale,
+            },
             nullable,
             {"kind": "decimal", "precision": precision, "scale": scale},
         )
@@ -2177,6 +2227,17 @@ def _aggregate_result_realization(family, function, argument, retained):
         )
     if function == "sum":
         # Q1: a PostgreSQL bigint narrowed by its checked CAST, NULL when empty.
+        if (
+            family == "postgres"
+            and argument is not None
+            and argument.realization.tag == "Decimal"
+            and tag == "Decimal"
+            and nullable is True
+        ):
+            result = rows.decimal_sum_realization(family, argument.realization, True)
+            if result is not None:
+                return result
+            raise ValueError("decimal sum result domain")
         if (
             family != "postgres"
             or argument is None
@@ -7753,6 +7814,28 @@ def verify_row_bytes(query, rendered):
                 )
                 spans.append(("binary", reference, start, offset))
                 return
+            if value.kind == "arithmetic" and value.realization.tag == "Decimal":
+                precision = value.realization.storage.get("precision")
+                scale = value.realization.storage.get("scale")
+                if (
+                    query.request.family != "postgres"
+                    or value.original.expression.operator not in {"+", "-"}
+                    or type(precision) is not int
+                    or type(scale) is not int
+                ):
+                    raise ValueError("unrenderable Decimal arithmetic")
+                take("syntax", "decimal_arithmetic_open", reference, "CAST((")
+                operation_operand(value, 0, alias)
+                take("syntax", "arithmetic_operator", reference, operator_token(value))
+                operation_operand(value, 1, alias)
+                take(
+                    "syntax",
+                    "decimal_arithmetic_close",
+                    reference,
+                    f") AS pg_catalog.numeric({precision}, {scale}))",
+                )
+                spans.append(("binary", reference, start, offset))
+                return
             opening, operator, closing, role = OPERATORS[value.kind]
             take("syntax", opening, reference, "(")
             operation_operand(value, 0, alias)
@@ -9366,6 +9449,14 @@ def verify_row_generated_requirements(request, query, generated):
                         node_premises(request, node.realization, operands, kind),
                         (TARGET_CHECKED,)
                         if _target_checked(request.family, node)
+                        else (rows.TARGET_CHECKED_DECIMAL,)
+                        if (
+                            request.family == "postgres"
+                            and type(node) is rows.SQLOperation
+                            and node.kind == "arithmetic"
+                            and node.original.expression.operator in {"+", "-"}
+                            and node.realization.tag == "Decimal"
+                        )
                         else (grouping.TARGET_CHECKED_BINARY64,)
                         if _float_checked(request.family, node)
                         else (),
@@ -9556,6 +9647,8 @@ def verify_row_generated_requirements(request, query, generated):
                         else (grouping.TARGET_CHECKED_BINARY64,)
                         if column.function in {"sum", "avg", *grouping.SPREAD_FUNCTIONS}
                         and argument_tag == "Float"
+                        else (rows.TARGET_CHECKED_DECIMAL,)
+                        if column.function == "sum" and argument_tag == "Decimal"
                         else (TARGET_CHECKED,)
                         if column.function in {"sum", "filtered_sum"}
                         else (),

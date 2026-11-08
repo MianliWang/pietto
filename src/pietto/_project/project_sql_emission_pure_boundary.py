@@ -1051,6 +1051,7 @@ _TARGET_CHECKED = "target_checked_signed64_narrowing"
 # an overflowing binary64 accumulation with SQLSTATE 22003, so a result is
 # finite.
 _TARGET_CHECKED_BINARY64 = "target_checked_binary64_overflow"
+_TARGET_CHECKED_DECIMAL = "target_checked_decimal_overflow"
 # The sample and population variances and deviations.
 _SPREAD_FUNCTIONS = frozenset({"stddev", "variance", "pvariance", "pstdev"})
 
@@ -1078,10 +1079,38 @@ def _aggregate_casts(
     return None, None
 
 
+def _decimal_sum_cast(family: str, function: str, argument, result) -> str | None:
+    """The E10 result cast is derived from two retained Decimal carriers."""
+
+    if family != "postgres" or function != "sum" or argument is None or result is None:
+        return None
+    if argument.get("tag") != "Decimal" or result.get("tag") != "Decimal":
+        return None
+    storage, domain = argument.get("storage"), argument.get("domain")
+    if not isinstance(storage, dict) or not isinstance(domain, dict):
+        return None
+    precision, scale = storage.get("precision"), storage.get("scale")
+    if (
+        storage.get("kind") != "pg_numeric"
+        or not isinstance(precision, int)
+        or not isinstance(scale, int)
+        or not 0 <= scale <= precision <= 46
+        or domain != {"kind": "decimal", "precision": precision, "scale": scale}
+        or result.get("storage")
+        != {"kind": "pg_numeric", "precision": precision + 19, "scale": scale}
+        or result.get("domain")
+        != {"kind": "decimal", "precision": precision + 19, "scale": scale}
+    ):
+        return None
+    return f"pg_catalog.numeric({precision + 19}, {scale})"
+
+
 def _aggregate_evidence(function: str, argument_tag: str | None) -> tuple[str, ...]:
     """R13 evidence from the function and its argument tag, never a cast."""
     if function in {"sum", "filtered_sum"} and argument_tag == "Int":
         return (_TARGET_CHECKED,)
+    if function == "sum" and argument_tag == "Decimal":
+        return (_TARGET_CHECKED_DECIMAL,)
     if function in {"sum", "avg", *_SPREAD_FUNCTIONS} and argument_tag == "Float":
         return (_TARGET_CHECKED_BINARY64,)
     return ()
@@ -1907,14 +1936,21 @@ class _Check:
                 expected is not None and column["spelling"] == expected,
                 "aggregate spelling",
             )
-            argument_tag = (
+            argument = (
                 None
                 if column["argument"] is None
-                else (_value_realization(doc, column["argument"]) or {}).get("tag")
+                else _value_realization(doc, column["argument"])
             )
+            argument_tag = None if argument is None else argument.get("tag")
+            result = _value_realization(doc, doc[column["column"]]["realization"])
             argument_cast, result_cast = _aggregate_casts(
                 family, column["function"], argument_tag
             )
+            decimal_cast = _decimal_sum_cast(
+                family, column["function"], argument, result
+            )
+            if decimal_cast is not None:
+                argument_cast, result_cast = None, decimal_cast
             _require(
                 column["argument_cast"] == argument_cast
                 and column["result_cast"] == result_cast
@@ -3242,6 +3278,33 @@ class _Tokens:
             )[role]
             _require(text == expected, "float remainder spelling")
             return
+        if role in {"decimal_arithmetic_open", "decimal_arithmetic_close"}:
+            _require(
+                node is not None
+                and node["kind"] == "arithmetic"
+                and node["operator"] in {"+", "-"}
+                and self.family == "postgres",
+                "Decimal arithmetic subject",
+            )
+            assert node is not None
+            realization = self.doc[node["realization"]]
+            storage = realization["storage"]
+            precision, scale = storage.get("precision"), storage.get("scale")
+            _require(
+                realization["tag"] == "Decimal"
+                and storage.get("kind") == "pg_numeric"
+                and type(precision) is int
+                and type(scale) is int
+                and 0 <= scale <= precision <= 65
+                and text
+                == (
+                    "CAST(("
+                    if role == "decimal_arithmetic_open"
+                    else f") AS pg_catalog.numeric({precision}, {scale}))"
+                ),
+                "Decimal arithmetic spelling",
+            )
+            return
         if role.startswith("scalar_call_"):
             _require(
                 node is not None and node["kind"] == "scalar_call",
@@ -4143,6 +4206,30 @@ class _Requirements:
     def checked_evidence(self, evidence: Any, value: Ref) -> None:
         """Q2 evidence follows the independently rebuilt operand proof; E4
         evidence marks a PostgreSQL Float `+`, `-` or `*` no fold proves."""
+        op = self.doc[value] if value.kind == "sql_operation" else None
+        if (
+            op is not None
+            and self.family == "postgres"
+            and op["kind"] == "arithmetic"
+            and op["operator"] in {"+", "-"}
+            and self.doc[op["realization"]]["tag"] == "Decimal"
+        ):
+            result = self.doc[op["realization"]]
+            storage, domain = result["storage"], result["domain"]
+            _require(
+                storage.get("kind") == "pg_numeric"
+                and type(storage.get("precision")) is int
+                and type(storage.get("scale")) is int
+                and domain
+                == {
+                    "kind": "decimal",
+                    "precision": storage["precision"],
+                    "scale": storage["scale"],
+                }
+                and evidence == (_TARGET_CHECKED_DECIMAL,),
+                "Decimal checked result",
+            )
+            return
         interval = self.ranges.target_checked(value)
         _require(interval is not self.ranges._UNKNOWN, "target checked proof")
         if interval is None:
