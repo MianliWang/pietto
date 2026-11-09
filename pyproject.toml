@@ -39,7 +39,7 @@ arrow = [
 ]
 execute-postgres = [
     "pyarrow==26.0.0",
-    "psycopg[binary]==3.3.5",
+    "psycopg[binary]==3.3.8",
 ]
 execute-mysql = [
     "pyarrow==26.0.0",
@@ -67,7 +67,7 @@ build-backend = "uv_build"
 
 [dependency-groups]
 target-conformance = [
-    "psycopg[binary]==3.3.5",
+    "psycopg[binary]==3.3.8",
     "mysql-connector-python==26.10.0",
 ]
 dev = [
