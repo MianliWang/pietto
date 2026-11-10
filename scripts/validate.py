@@ -60,7 +60,7 @@ except JobStoreError as error:
 PYTEST_DIST_CHOICES = ("loadfile", "loadscope")
 PYTEST_WORKER_MEMORY_BYTES = 1024 * 1024 * 1024
 PYTEST_MIN_MEMORY_RESERVE_BYTES = 1024 * 1024 * 1024
-PYTEST_MAX_RESOURCE_WORKERS = 8
+PYTEST_MAX_RESOURCE_WORKERS = 20
 
 
 def _read_text(path: str) -> str | None:

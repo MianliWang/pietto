@@ -62,7 +62,7 @@ def test_no_custom_scheduler_exists_and_the_retained_policy_is_intact() -> None:
     assert validate.PYTEST_DIST_CHOICES == ("loadfile", "loadscope")
     assert validate.PYTEST_WORKER_MEMORY_BYTES == 1024 * 1024 * 1024
     assert validate.PYTEST_MIN_MEMORY_RESERVE_BYTES == 1024 * 1024 * 1024
-    assert validate.PYTEST_MAX_RESOURCE_WORKERS == 8
+    assert validate.PYTEST_MAX_RESOURCE_WORKERS == 20
 
     command_source = inspect.getsource(validate._pytest_command)
     assert 'dist_mode = args.pytest_dist or "loadfile"' in command_source

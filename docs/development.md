@@ -141,12 +141,15 @@ and keep files of at least 20 seconds, rounded to 10 seconds. A stale or missing
 run.
 
 The local validator chooses its pytest worker count from usable CPUs and memory:
-one GiB per worker after reserving max(1 GiB, total / 5), at most eight
+one GiB per worker after reserving max(1 GiB, total / 5), at most twenty
 (`PYTEST_MAX_RESOURCE_WORKERS`). Hosted runtime jobs stay capped at four
 workers. The usual authoritative entry is
-`UV_PYTHON=3.13.13 UV_NO_SYNC=1 UV_LOCKED=1 .venv/bin/python scripts/validate.py --timings --oom-guard on --pytest-workers 8`;
-the explicit eight is the owner-approved standing choice for the integration
-host, because an explicit count bypasses the memory estimate. Add
+`UV_PYTHON=3.13.13 UV_NO_SYNC=1 UV_LOCKED=1 .venv/bin/python scripts/validate.py --timings --oom-guard on --pytest-workers 20`;
+an explicit count bypasses the memory estimate, so it needs the owner. On
+2026-11-10 the owner asked to try a cap of 20, with 24 at most, and the lead
+adopted twenty as the integration host's standing explicit count after a
+measured 20-worker full run passed in 270 s with MemAvailable at or above
+14.9 GB. Add
 `--pytest-maxprocesses N` to leave room on a shared machine. The OOM guard
 still stops a gate under sustained memory pressure, and registry standalone
 nodes run as separate units so that extra workers are not stuck behind them.
@@ -505,7 +508,8 @@ execution evidence.
 The [Interlude V Slice1 guard](spec/validation-performance-interlude-v-slice1-wsl-oom-emergency-guard-v1.md)
 adds `--oom-guard {auto,on,off}` to the validator. Local supported Linux/WSL auto mode
 supervises each gate in its own process group; CI auto mode and explicit off retain the
-old execution path. Startup worker selection, the four-worker ceiling and loadfile are
+old execution path. The guard leaves startup worker selection, its ceiling
+(`PYTEST_MAX_RESOURCE_WORKERS`, under [validation tiers](#validation-tiers)) and loadfile
 unchanged. A resource-pressure abort is not a semantic/test failure. It is an incomplete
 validation start and must be recorded distinctly as exit 75 / `RESOURCE_PRESSURE_ABORTED`.
 There is no automatic retry or dynamic resizing; later recovery requires explicit task

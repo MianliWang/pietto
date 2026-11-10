@@ -674,7 +674,7 @@ def test_default_local_gates_and_existing_worker_policy_remain_complete(monkeypa
         "test typing",
         "tests",
     )
-    assert v.PYTEST_MAX_RESOURCE_WORKERS == 8
+    assert v.PYTEST_MAX_RESOURCE_WORKERS == 20
     parser = v._build_parser()
     monkeypatch.setattr(
         v, "_resource_worker_count", lambda maximum=None: min(maximum or 4, 4)
