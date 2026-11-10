@@ -22,7 +22,7 @@
 
 ## 1. 当前状态（原机 2026-11-10 09:35Z 停止）
 
-- **main 没有变**，仍是 `f8ccd2c4`。待发布的 batch 是三个 commit，放在 handoff 分支上（`handoff/p77-claude-20261110~1` = `3c7a21cd`）：
+- **main 没有变**，仍是 `f8ccd2c4`。待发布的 batch 是三个 commit，放在 handoff 分支上（commit `3c7a21cd95bb5f3902628c9bdb8320bd9afa97b2`）：
   `597a41ec` M77 依赖维护（PyArrow 26.0.1 / Psycopg 3.3.8）、`e429f393` 编辑器 hover/definition/symbols、
   `3c7a21cd` Phase77 route/决定/status 文档。最终 tree `4bb7489a`。
   handoff 分支最上面那个 `handoff/phase77/` commit **绝不能进 main**。
@@ -85,7 +85,7 @@ docker pull container-registry.oracle.com/mysql/community-server@sha256:7dcc4add
 （PYTHONPATH 优先于 `.venv` 里指向 main 的 editable 安装）。完整私有包（含原始会话记录和 raw 证据）在 owner 的
 OneDrive `pietto-handoff/`，只在需要追溯时解压，绝不上传到 GitHub。
 
-批量 Gate 2 的 batch worktree：`git worktree add --detach ../p77-batch1 origin/handoff/p77-claude-20261110~1`，
+批量 Gate 2 的 batch worktree：`git worktree add --detach ../p77-batch1 3c7a21cd95bb5f3902628c9bdb8320bd9afa97b2`，
 修完后在这个 worktree 里改写 commit（每个 slice 仍是一个 commit），再按 AGENTS.md 的 Gate 3 push。
 
 ## 4. 私有包（OneDrive）
