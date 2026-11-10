@@ -9,9 +9,11 @@ from collections.abc import Iterable
 from pietto.ast_nodes import (
     BlockRelationDef,
     Definition,
+    ImportStatement,
     Node,
     Script,
     SetRelationDef,
+    Span,
 )
 from pietto.errors import SourceLocation
 from pietto.semantic.model import SemanticModel
@@ -37,11 +39,21 @@ class EditorUse:
 
 
 @dataclass(frozen=True, slots=True)
+class EditorLink:
+    """One import path occurrence and the path of the one module that the
+    module graph resolved it to."""
+
+    location: SourceLocation
+    target: str
+
+
+@dataclass(frozen=True, slots=True)
 class EditorFacts:
     """The pure editor projection for one source document."""
 
     declarations: tuple[EditorDeclaration, ...] = ()
     uses: tuple[EditorUse, ...] = ()
+    links: tuple[EditorLink, ...] = ()
 
 
 def single_file_editor_facts(
@@ -117,6 +129,14 @@ def editor_use(
     return EditorUse(location=_location(node, path=path), detail=detail, target=target)
 
 
+def editor_link(statement: ImportStatement, target: str, *, path: str) -> EditorLink:
+    """Detach one import path after its caller resolved it to one module."""
+
+    return EditorLink(
+        location=_span_location(statement.target_span, path), target=target
+    )
+
+
 def _declaration(
     definition: Node, *, path: str | None = None
 ) -> EditorDeclaration | None:
@@ -156,7 +176,10 @@ def _kind(definition: Node) -> str:
 
 
 def _location(node: Node, *, path: str | None = None) -> SourceLocation:
-    span = node.span
+    return _span_location(node.span, path)
+
+
+def _span_location(span: Span, path: str | None) -> SourceLocation:
     return SourceLocation(
         path=span.path if span.path is not None else path,
         line=span.line,

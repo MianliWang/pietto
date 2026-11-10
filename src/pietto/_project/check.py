@@ -13,8 +13,10 @@ import pietto.parser_api as parser_api
 from pietto._builtin_shadows import imported_nodes
 from pietto._editor_facts import (
     EditorFacts,
+    EditorLink,
     authored_declarations,
     editor_declaration,
+    editor_link,
     editor_use,
 )
 from pietto.ast_nodes import (
@@ -488,7 +490,8 @@ def _stopped_modules(parse: ProjectParseCheckResult, ok: bool) -> frozenset[str]
 def _project_editor_facts(
     semantic_result: ProjectSemanticResult,
 ) -> Mapping[str, EditorFacts]:
-    """Detach exact schema-v2 declaration, type and FROM resolution facts. A
+    """Detach exact schema-v2 declaration, type and FROM resolution facts,
+    and each import path that the module graph resolved to one module. A
     type use whose canonical type is unknown, as when an alias base or an
     imported name is unknown, ambiguous, blocked or cyclic, has no fact."""
 
@@ -496,8 +499,22 @@ def _project_editor_facts(
         return {}
     type_roots = semantic_result.module_type_source_resolutions
     relation_roots = semantic_result.module_relation_resolutions
-    if type_roots is None or relation_roots is None:
+    graph = semantic_result.module_graph
+    if type_roots is None or relation_roots is None or graph is None:
         return {}
+    # The graph has one evidence edge for each import item whose module path
+    # names a selected module, whether or not the item itself resolves, so
+    # the items of one import statement share its one path occurrence.
+    links: dict[str, dict[int, EditorLink]] = {}
+    for edge in graph.evidence_edges:
+        request = edge.request
+        module_links = links.setdefault(edge.origin.identity.path, {})
+        if request.module_statement_position not in module_links:
+            module_links[request.module_statement_position] = editor_link(
+                request.source_statement,
+                edge.target.identity.path,
+                path=edge.origin.identity.path,
+            )
     types = {
         environment.module.path: environment for environment in type_roots.environments
     }
@@ -574,9 +591,11 @@ def _project_editor_facts(
                         path=module.path,
                     )
                 )
+        module_links = links.get(module.path, {})
         facts[module.path] = EditorFacts(
             declarations=declarations,
             uses=tuple(uses),
+            links=tuple(module_links[position] for position in sorted(module_links)),
         )
     return MappingProxyType(facts)
 

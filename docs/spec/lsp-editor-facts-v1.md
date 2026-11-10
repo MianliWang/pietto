@@ -2,7 +2,9 @@
 
 ED.02 approves the standard-LSP, ephemeral-snapshot direction for the selected
 editor work: hover, go-to-definition and document symbols. ED.03 adds
-[formatting](#formatting) of the open buffer, which reads no snapshot. This
+[workspace symbols and document links](#workspace-symbols-and-document-links),
+which read the same snapshots, and [formatting](#formatting) of the open
+buffer, which reads none. This
 alpha contract is implemented by `pietto lsp`. It adds no CLI command, JSON
 artifact, or post-alpha compatibility promise. [LSP diagnostics
 v1](lsp-diagnostics-v1.md) continues to specify the diagnostic protocol.
@@ -11,16 +13,18 @@ v1](lsp-diagnostics-v1.md) continues to specify the diagnostic protocol.
 
 The server keeps one immutable, in-process snapshot for an analysis
 of one current document or project epoch. It answers the standard LSP
-`textDocument/hover`, `textDocument/definition` and
-`textDocument/documentSymbol` requests, the fact requests, only from such
-snapshots. The fact requests do not parse, analyze, check a project, build
-IR, read disk, select a root, or fall back to a name lookup. Formatting, the
-one request that parses, parses only its own buffer.
+`textDocument/hover`, `textDocument/definition`,
+`textDocument/documentSymbol`, `textDocument/documentLink` and
+`workspace/symbol` requests, the fact requests, only from such snapshots. The
+fact requests do not parse, analyze, check a project, build IR,
+read disk, select a root, or fall back to a name lookup. Formatting, the one
+request that parses, parses only its own buffer.
 
 The snapshot is not serialized, returned as an artifact, retained across a
 server session, or shared with another process. It holds detached values only:
 URI, document/root epoch, source ranges, declaration kind, display/type text,
-and exact target identity. It never exposes AST, semantic/project result,
+and exact target identity, including the module that an import path resolves
+to. It never exposes AST, semantic/project result,
 overlay source, trusted opened bytes, source carrier, or resolver object.
 
 The Semantic Metadata Artifact v1 is not this snapshot: it is single-file,
@@ -97,25 +101,91 @@ Until a separate source-range fact exists, both `range` and `selectionRange`
 are the declaration's full span. Symbols have no definition target merely
 because they are shown.
 
+## Workspace symbols and document links
+
+`workspace/symbol` answers from every current snapshot once no analysis is
+scheduled or running (see [Fail-closed request
+behavior](#fail-closed-request-behavior)). Its result is a
+`SymbolInformation[]` with one item for each retained declaration that
+document symbols list for its document: the declaration's `name` and `kind`,
+and a `location` with the document's URI and the declaration's full span as
+its `range`, as in a flat document symbol. The URI follows the rule for
+returned locations above: the unique open URI of the document, or the file URI
+of a closed module. The order is fixed: the roots in `projectRoots` order,
+each root's modules in the order `pietto check --project` selects them, then
+the documents checked as their own files in URI code-point order, and within
+each document its declarations in source order. LSP 3.17 fixes no order, and
+3.18 leaves ranking to the editor, so this one is the server's fixed analysis
+order, in which documents checked as their own files come after every root.
+Every occurrence is kept: two modules, or two buffers checked as their own
+files, that declare one name each list it, and no root, URI or buffer wins. A
+document or module without facts lists nothing: a failed or omitted
+partial-project module, one with an error of its own, each module of a
+legacy-flat root or of a root whose check could not run, a refused document,
+and a document that shows a root, URI or selected-name conflict diagnostic.
+
+The query is matched by one rule. A declaration matches when every character
+of `query` appears in its name in the same order, not necessarily adjacent,
+where an ASCII letter matches its other case and no other character is folded;
+an empty `query` matches every declaration. So `AU` and `act` match
+`active_users`, and `tca` does not. The client may filter and rank the result
+again. LSP 3.17 sets no match rule. LSP 3.18 advises, without requiring it, a
+case-insensitive match of the query's characters in order and no prefix,
+substring or similar strict match, and this rule is that match for Pietto
+names, which are all ASCII: folding ASCII letters ignores case in every name.
+A query character outside ASCII matches no name; folding the query by Unicode
+case rules would let a character such as U+212A KELVIN SIGN match `k` and
+would make the result depend on a Unicode version. A `query` that is not a
+string returns JSON-RPC `-32602`. There is no `workspaceSymbol/resolve` and
+no partial result.
+
+`textDocument/documentLink` waits and refuses as the other requests on one
+document do. Its result is a `DocumentLink[]` with one link for each import
+statement of the document that the module graph of the same selected-root
+analysis resolved, in source order. The link's `range` is the import path's
+string literal, quotes included, and its `target` is the URI of the module
+whose project-relative path is the import string exactly, character for
+character, as `pietto check --project` resolves it; no path is built from the
+string. The target URI follows the rule for returned locations above. Each
+import statement is one link however many items it imports, and two statements
+that import from one module are two links.
+
+Links are facts of the importing document, so a module of a legacy-flat root,
+an omitted module and a module with an error of its own, which includes one
+that imports a path no selected module has, have no links. Nor has a document
+checked as its own file, even with facts: a single file resolves no import
+(PIE-S2708 warns at each one). The target needs no facts of its own, as a link
+names a module and not a declaration, and LSP 3.17 asks only that a target be
+a URI: a module with an error of its own is a target. No link leads to a
+module that the analysis left out, to a path that two selected names share, to
+a module whose path shows a root or URI conflict diagnostic, or to a module
+whose open document had a change refused, until that document is opened
+again; such an import path has no link. `documentLink/resolve` is not
+provided, so every link carries its target, since LSP 3.17 reads a link
+without one as a link to resolve later, and links have no tooltip.
+
 ## Fail-closed request behavior
 
 A fact request waits while an analysis of its URI, or of a project root that
 contains its path, is scheduled or running; that includes a root analysis
 that an edit of another file of the root schedules. Pending analyses of other
 units do not hold it, although they can run before one it waits for (see
-[Performance and verification](#performance-and-verification)). A waiting
+[Performance and verification](#performance-and-verification)). A
+`workspace/symbol` request, which has no document, waits while any analysis is
+scheduled or running, and no document event makes it stale. A waiting
 request starts
 no analysis and is answered once those analyses end, from the snapshots they
 leave. If an open, change or close of its URI arrives first, the request is
 stale and has no result. No response order is promised: a request on another
 document can be answered before an earlier one that still waits. `shutdown`
 stops pending analysis, so it answers each waiting request with no result
-before its own response; `$/cancelRequest` adds no behavior.
+(`[]` for document symbols, document links and workspace symbols) before its
+own response; `$/cancelRequest` adds no behavior.
 
-Hover and definition return `null`, and document symbols return `[]`, for a
-missing snapshot, a stale request, a refused document, an omitted
-partial-project module, a module with an error of its own, a module of a
-legacy-flat root, or a URI that receives a root, URI or selected-name alias
+Hover and definition return `null`, and document symbols and document links
+return `[]`, for a missing snapshot, a stale request, a refused document, an
+omitted partial-project module, a module with an error of its own, a module of
+a legacy-flat root, or a URI that receives a root, URI or selected-name alias
 conflict diagnostic. A use whose
 type is unknown, or whose target belongs to a module without facts, has
 neither hover nor definition. An unsupported or ambiguous position has no
@@ -172,8 +242,9 @@ Phase82 freeze (D75.05), and the edit follows it.
 ## Capability and client boundary
 
 `initialize` advertises
-`hoverProvider`, `definitionProvider`, `documentSymbolProvider` and
-`documentFormattingProvider` alongside
+`hoverProvider`, `definitionProvider`, `documentSymbolProvider`,
+`documentFormattingProvider`, `workspaceSymbolProvider` (`true`) and
+`documentLinkProvider` (`{"resolveProvider": false}`) alongside
 the existing diagnostic capabilities. The existing VS Code LSP client can
 consume these standard capabilities; it needs no private-core import, custom
 transport, or editor-facts artifact.
@@ -184,21 +255,26 @@ hover when the client supports it, otherwise a standard language/value
 are supported and flat `SymbolInformation[]` otherwise. Keep both projections
 in the same source order, use supported symbol kinds, and never mix the two
 array formats. Definition uses `Location`, so no location-link capability is
-required.
+required. Workspace symbols are always `SymbolInformation[]` with a full
+`Location`, so no `workspace.symbol.resolveSupport` is required.
 
-No completion, references, workspace symbols, code action, range or on-type
-formatting, model view, capability matrix, SQL preview change, execution, or
+No completion, references, code action, range or on-type formatting, symbol
+or link resolve, model view, capability matrix, SQL preview change, execution, or
 workspace mutation is included.
 
 ## Performance and verification
 
 Facts are projected at most once per existing analysis: from a single file's
 successful check, or from a project's final pass when it does not stop. The
-projection is bounded by the checked modules' declaration and exact-resolution
-occurrences. Each fact request performs only current-epoch index lookup: zero
-parse, semantic-analysis, project-check, or IR calls. Formatting makes one
-`format_source` call on its buffer and no other. There is no persistent
-cache.
+projection is bounded by the checked modules' declaration, exact-resolution
+and import statement occurrences. Each fact request performs only current-epoch
+lookups, and a workspace symbol request one pass over the current snapshots:
+zero parse, semantic-analysis, project-check, or IR calls. That pass looks up
+each module's URI and owner among the open documents and the roots and matches
+each declaration's name once, so it costs
+O(modules × (open documents + roots) + declarations); a document link request
+makes the same lookup for each of its links. Formatting makes one
+`format_source` call on its buffer and no other. There is no persistent cache.
 
 The server runs one analysis at a time, and always the first pending one in a
 fixed order: every root, in `projectRoots` order, before any document checked
@@ -220,7 +296,11 @@ Tests must cover single-file and cross-module type/from targets; import aliases
 and re-exports; stale versions and requests that wait for an analysis; root
 and URI aliases; UTF-16 with CRLF and lone CR; partial-project omissions and
 modules with errors of their own; overlapping ranges; source ordering; and
-proof that each request makes no analysis call. Each returned range and target
+proof that each request makes no analysis call. Workspace symbol tests must
+cover the order and completeness of every occurrence across roots, modules and
+buffers, the query rule, and each document without facts; document link tests
+must cover exact targets, URI spellings, statements with several items or one
+target, and each suppressed target. Each returned range and target
 must come from the exact retained occurrence, not a reconstructed name.
 Formatting tests must cover byte equality with `pietto fmt` over the `fmt`
 corpus, end positions with a leading U+FEFF, CRLF, lone CR and astral
@@ -336,7 +416,9 @@ now marks 3.18 current and 3.17 previous; the route pins 3.17), the VS Code
 documentation at 16:58:41Z, and the VS Code 1.145.2 source at 17:01:26Z
 (UTC). The pages were read as text converted from their HTML, so their layout
 and images were not checked. VS Code source describes one version and
-promises nothing.
+promises nothing. The workspace symbol and document link records also keep
+the earlier offline read of `vscode-languageclient` 9.0.1, as installed with
+the Pietto extension at `e61444f`.
 
 Formatting (ED.03 C1):
 
@@ -369,3 +451,35 @@ VS Code format on save (ED.03 C1):
 | Disposition | No server change: whole-document formatting serves Format Document and format on save in `file` mode, and range formatting stays out of scope. |
 | WHAT_NOT_TO_COPY | No reliance on VS Code's edit minimizing, its fallback to another formatter, or a save-time limit. |
 | Pietto owner affected | LSP server and `docs/editor-lsp.md`; the extension repository is unchanged. |
+
+Workspace symbols (ED.03 C2):
+
+| Field | Review |
+| --- | --- |
+| Snapshot/date | [LSP 3.17 `workspace/symbol` and `workspaceSymbol/resolve`](https://microsoft.github.io/language-server-protocol/specifications/lsp/3.17/specification/#workspace_symbol), read 2026-11-10T16:57:23Z, with the [LSP 3.18 section](https://microsoft.github.io/language-server-protocol/specifications/lsp/3.18/specification/#workspace_symbol), read 16:58:14Z; `vscode-languageclient` 9.0.1 as installed, read 2026-11-10. |
+| Problem/constraints | List the analysed declarations of every root and open document through the existing connection, with no index, cache or winner. |
+| Semantic/identity model | In 3.17 `query` is "A query string to filter symbols by. Clients may send an empty string here to request all symbols."; no match rule and no order are fixed. 3.18 adds that the query should be read in a relaxed way, as editors apply their own highlighting and scoring, with the rule of thumb of a case-insensitive match of its characters in order and no prefix, substring or similar strict match: advice, not a requirement. Each item is one retained declaration occurrence under its document's URI. |
+| Layering/dependency direction | Retained declarations feed the response; the editor filters, ranks and shows it. |
+| Algorithms/data structures/complexity | The protocol fixes none. Pietto scans the current snapshots once, looking up each module's URI and owner among the open documents and the roots, O(modules × (open documents + roots) + declarations), with the ordered, ASCII case-insensitive subsequence rule, which is 3.18's rule of thumb for ASCII names. |
+| Interface/version/capability model | `workspaceSymbolProvider` is a boolean or `WorkspaceSymbolOptions` with an optional `resolveProvider`. The result is `SymbolInformation[] \| WorkspaceSymbol[] \| null`, and the specification recommends `WorkspaceSymbol`, whose `location` may hold only a `uri` for a client with `workspace.symbol.resolveSupport`; a `SymbolInformation` location is a full `Location`. Pietto's items, a `name`, a `kind` and a full `location`, have the shape of both, so they need no client capability and no resolve. 3.18 names the bare form `LocationUriOnly` and keeps the wire shape. `vscode-languageclient` 9.0.1 sends `workspaceSymbol/resolve` only when the server's options set `resolveProvider`. |
+| Testing/operational lifecycle | Order, completeness, the query rule, waits, URI spellings and each suppression, through the public session. |
+| Pitfalls/migration costs | A match stricter than the editor's own, such as a prefix or substring match, hides symbols that the editor would rank; Unicode case folding of the query would tie the result to a Unicode version. |
+| Disposition | Keep full locations, no resolve, the fixed analysis order and the ordered, ASCII case-insensitive subsequence rule. |
+| WHAT_NOT_TO_COPY | No server-side ranking, prefix or substring match, Unicode case folding, name index, cache or resolve round trip. |
+| Pietto owner affected | LSP server and project editor analysis. |
+
+Document links (ED.03 C2):
+
+| Field | Review |
+| --- | --- |
+| Snapshot/date | [LSP 3.17 `textDocument/documentLink` and `documentLink/resolve`](https://microsoft.github.io/language-server-protocol/specifications/lsp/3.17/specification/#textDocument_documentLink), read 2026-11-10T16:57:23Z; the 3.18 page keeps `target?: URI`; `vscode-languageclient` 9.0.1 as installed, read 2026-11-10. |
+| Problem/constraints | Follow an import path to the module that the same analysis resolved, through the existing connection, without building a path from the import string. |
+| Semantic/identity model | A `DocumentLink` has a required `range`, an optional `target` URI ("The uri this link points to. If missing a resolve request is sent later."), a `tooltip` for a client with `tooltipSupport`, and `data`. The target may be any URI, a non-workspace one included; the specification sets no other condition on it, so the module graph's exact resolution decides it. |
+| Layering/dependency direction | The module graph's import resolution feeds the response; the editor shows and follows the link. |
+| Algorithms/data structures/complexity | The protocol fixes none. One link per resolved import statement, projected with the analysis and answered by lookup, with each target's URI and owner looked up among the open documents and the roots. |
+| Interface/version/capability model | `documentLinkProvider` is `DocumentLinkOptions`, not a boolean, with an optional `resolveProvider`; the result is `DocumentLink[] \| null`. The specification does not say what a link without a target means when the server has no resolve provider, so a server without resolve gives every target; Pietto advertises `{"resolveProvider": false}`. `vscode-languageclient` 9.0.1 sends `documentLink/resolve` only when `resolveProvider` is set. |
+| Testing/operational lifecycle | Exact ranges and targets, URI spellings, statements with several items or one target, and each suppressed target, through the public session. |
+| Pitfalls/migration costs | A link built from the import string would name files that the analysis never resolved; as a target may be any URI, the server alone keeps it to a selected module. |
+| Disposition | Keep one link per resolved statement, its target always given, no tooltip and no resolve; a target needs no facts of its own. |
+| WHAT_NOT_TO_COPY | No path built from an import string, link outside the analysis, tooltip or resolve round trip. |
+| Pietto owner affected | LSP server, `_editor_facts.py` and `_project_editor_facts`. |

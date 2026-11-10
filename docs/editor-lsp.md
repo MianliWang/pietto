@@ -1,8 +1,9 @@
 # Editor support: `pietto lsp` (alpha)
 
 `pietto lsp` checks files and configured projects for diagnostics, supplies
-hover, go-to-definition and document symbols from the same analysis, and
-formats the open buffer as `pietto fmt` formats a file. Backend
+hover, go-to-definition, document and workspace symbols, and links on import
+paths from the same analysis, and formats the open buffer as `pietto fmt`
+formats a file. Backend
 refusals (`PIE-B...`) still appear only in
 `pietto emit-sql`.
 
@@ -21,15 +22,31 @@ let, parameter and function-call bindings are not yet navigation facts, so a
 `from` that reads a relation let or a table-function input has no hover or
 definition.
 
+Workspace symbols list the outline's declarations of every module of the
+configured roots and of every other open document: the roots in `projectRoots` order, each
+root's modules in the order `pietto check --project` selects them, then the
+other open documents in URI order, each in source order. A declaration is
+listed when the characters of the query appear in its name in order, ignoring
+the case of ASCII letters, and every declaration is listed for an empty query;
+a name declared twice is listed twice. The path of each import in a schema-v2
+project module is a link to the module whose project-relative path it names
+exactly, as `pietto check --project` resolves it, even when that module has
+errors of its own. There is no link in a single file, and none to a module
+that the check left out, whose file shows a root, URI or file-name conflict
+diagnostic, or whose open document had a change refused, until that document
+is reopened.
+
 These requests return no facts for stale or failed analyses, omitted modules,
 modules with errors of their own, modules of a legacy-flat
 (`schema_version = 1`) root, unknown types, ambiguous ranges, or a file that
 shows a root, URI or file-name conflict diagnostic. A file that no root selects
 is checked alone under each URI it is open under, so each such buffer keeps
 its own facts. Beside a project module with an error, the other modules keep their
-facts, but no use navigates into that module. A request waits while an analysis
+facts, but no use navigates into that module; only an import path links to it.
+A request waits while an analysis
 of its document, or of a project root that contains it, is pending, and has no
-result if the document changes first or the server shuts down. Requests query
+result if the document changes first or the server shuts down. A workspace
+symbol request waits while any analysis is pending. Requests query
 the current snapshot without rechecking or reading files. The server does not
 watch external disk changes; project facts refresh when its existing document
 notifications cause a new analysis. The

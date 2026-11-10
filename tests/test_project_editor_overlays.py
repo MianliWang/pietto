@@ -31,6 +31,7 @@ from pietto._project.trusted_source import (
     ProjectSource,
     ProjectTrustedSourceSnapshot,
 )
+from pietto.errors import SourceLocation
 
 TOML = 'schema_version = 2\n\n[sources]\ninclude = ["*.pietto"]\n'
 MODELS = """shape User:
@@ -113,6 +114,51 @@ def test_cli_project_checks_do_not_build_editor_facts(
 
     monkeypatch.setattr(check, "_project_editor_facts", unexpected)
     assert _cli_json(root)["diagnostics"] == []
+
+
+def test_editor_links_are_the_import_paths_the_module_graph_resolved(
+    tmp_path: Path,
+) -> None:
+    """Each import statement of a module with facts is one link, at its path
+    in the buffer checked, to the selected module the graph resolved it to:
+    a statement's items do not repeat it, two statements to one module stay
+    two, and a path that names no selected module leaves its module no
+    facts."""
+
+    b = """from "a.pietto" import (
+    table active_users,
+)
+
+from "models.pietto" import (
+    shape User,
+    source users,
+)
+
+from "models.pietto" import (
+    source users as again,
+)
+"""
+    exported = A_OK + "\nexport (\n    table active_users,\n)\n"
+    unresolved = 'from "nope.pietto" import (\n    shape User,\n)\n'
+    root = _project(tmp_path, models=MODELS, a=exported, b="", c="")
+    checked = check.check_project_editor_diagnostics(
+        root, overlays={"b.pietto": b, "c.pietto": unresolved}
+    )
+    assert [(d.code, d.location.path) for d in checked.report.diagnostics] == [
+        ("PIE-S2701", "c.pietto")
+    ]
+    assert sorted(checked.facts) == ["a.pietto", "b.pietto", "models.pietto"]
+    assert [
+        (link.location, link.target) for link in checked.facts["b.pietto"].links
+    ] == [
+        (SourceLocation("b.pietto", 1, 6, 1, 16), "a.pietto"),
+        (SourceLocation("b.pietto", 5, 6, 5, 21), "models.pietto"),
+        (SourceLocation("b.pietto", 10, 6, 10, 21), "models.pietto"),
+    ]
+    assert [link.target for link in checked.facts["a.pietto"].links] == [
+        "models.pietto"
+    ]
+    assert checked.facts["models.pietto"].links == ()
 
 
 def test_an_overlay_reads_a_file_the_disk_cannot_and_keeps_the_size_limit(

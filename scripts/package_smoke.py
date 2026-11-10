@@ -549,6 +549,8 @@ def _smoke_installed_lsp(
         "definitionProvider": True,
         "documentSymbolProvider": True,
         "documentFormattingProvider": True,
+        "workspaceSymbolProvider": True,
+        "documentLinkProvider": {"resolveProvider": False},
     }
     expected = framed(
         {

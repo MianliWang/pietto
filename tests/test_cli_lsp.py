@@ -315,6 +315,8 @@ def test_lifecycle_over_a_process() -> None:
                     "definitionProvider": True,
                     "documentSymbolProvider": True,
                     "documentFormattingProvider": True,
+                    "workspaceSymbolProvider": True,
+                    "documentLinkProvider": {"resolveProvider": False},
                 },
                 "serverInfo": {"name": "pietto", "version": cli._package_version()},
             },
@@ -1126,10 +1128,12 @@ def test_partial_project_omissions_have_no_editor_snapshot(tmp_path: Path) -> No
         [
             request(1, "textDocument/documentSymbol", a_uri),
             request(2, "textDocument/documentSymbol", b_uri),
+            request(3, "textDocument/documentLink", a_uri),
         ],
     )
     assert response(messages, 1)["result"] == []
     assert [item["name"] for item in response(messages, 2)["result"]] == ["Standalone"]
+    assert response(messages, 3)["result"] == []
 
 
 def test_a_semantic_error_leaves_other_modules_their_editor_facts(
@@ -1301,6 +1305,420 @@ def test_target_omitted_on_a_later_root_analysis_has_no_stale_definition(
     )
     assert response(messages, 1)["result"]["uri"] == models_uri
     assert response(messages, 2)["result"] is None
+
+
+def symbols(request_id: int, query: object) -> Message:
+    return {
+        "jsonrpc": "2.0",
+        "id": request_id,
+        "method": "workspace/symbol",
+        "params": {"query": query},
+    }
+
+
+def test_workspace_symbols_list_every_retained_declaration_in_order(
+    tmp_path: Path,
+) -> None:
+    """Every root in `projectRoots` order with its modules in selection
+    order, then every document checked as its own file in URI code-point
+    order: each lists exactly its flat document symbols, under the URI they
+    carry, with no name, path or text deduplicated."""
+
+    root = project(tmp_path, models=MODELS, a=A_OK, b="shape User:\n    id: Int\n")
+    other = project(tmp_path, "other", models=MODELS)
+    alias = f"{root.as_uri()}/./models.pietto"
+    loose = (tmp_path / "loose.pietto").as_uri()
+    loose_alias = f"{tmp_path.as_uri()}/./loose.pietto"
+    untitled = "untitled:Untitled-1"
+    # U+212A KELVIN SIGN, which Unicode lowers to k, is no ASCII letter.
+    queries = ["", "AcUs", "zd", "uSeRs", "ua", "\u212a"]
+    documents = [
+        (root / "a.pietto").as_uri(),
+        (root / "b.pietto").as_uri(),
+        alias,
+        (other / "models.pietto").as_uri(),
+        loose_alias,
+        loose,
+        untitled,
+    ]
+    messages = session(
+        init(root, other),
+        [],
+        [
+            opened(untitled, "shape Zed:\n    id: Int\n"),
+            opened(loose, "shape Lock:\n    id: Int\n"),
+            opened(loose_alias, "shape Lock:\n    id: Int\n"),
+            opened(alias, MODELS),
+        ],
+        [
+            *(symbols(number, query) for number, query in enumerate(queries, 1)),
+            *(
+                request(number, "textDocument/documentSymbol", uri)
+                for number, uri in enumerate(documents, 10)
+            ),
+        ],
+    )
+    listed = response(messages, 1)["result"]
+    assert [
+        (item["location"]["uri"], item["name"], item["kind"]) for item in listed
+    ] == [
+        (documents[0], "active_users", 5),
+        (documents[1], "User", 5),
+        (alias, "User", 5),
+        (alias, "users", 13),
+        (documents[3], "User", 5),
+        (documents[3], "users", 13),
+        (loose_alias, "Lock", 5),
+        (loose, "Lock", 5),
+        (untitled, "Zed", 5),
+    ]
+    for number, uri in enumerate(documents, 10):
+        flat = response(messages, number)["result"]
+        assert flat
+        assert [item for item in listed if item["location"]["uri"] == uri] == flat
+    # The characters of the query appear in order, an ASCII letter in either
+    # case; no other letter is folded.
+    assert [
+        [item["name"] for item in response(messages, number)["result"]]
+        for number in range(2, len(queries) + 1)
+    ] == [["active_users"], ["Zed"], ["active_users", "users", "users"], [], []]
+
+
+def test_workspace_symbols_leave_out_documents_without_facts(tmp_path: Path) -> None:
+    """A failed or omitted module, one with an error of its own, a
+    legacy-flat root, a refused document, a module open under two URIs and a
+    module that two roots select list nothing, under no root; once the URI
+    conflict and the refusal end, both list again."""
+
+    root = project(
+        tmp_path,
+        models=MODELS.replace("id: UUID", "id UUID"),
+        a=A_OK,
+        b="shape Standalone:\n    id: Int\n",
+        c="shape Bad:\n    id: Nope\n",
+        d="shape Twice:\n    id: Int\n",
+    )
+    flat = project(tmp_path, "flat", models=MODELS.split("\nexport (")[0])
+    (flat / "pietto.toml").write_text(
+        TOML.replace("schema_version = 2", "schema_version = 1"), encoding="utf-8"
+    )
+    outer = project(tmp_path, "port", top="shape Top:\n    id: Int\n")
+    (outer / "pietto.toml").write_text(
+        TOML.replace('"*.pietto"', '"**/*.pietto"'), encoding="utf-8"
+    )
+    project(outer, "sub", models=MODELS)
+    d_uri, d_alias = (root / "d.pietto").as_uri(), f"{root.as_uri()}/./d.pietto"
+    refused = (tmp_path / "refused.pietto").as_uri()
+    messages = session(
+        init(root, flat, outer, outer / "sub"),
+        [
+            opened(d_uri, "shape Twice:\n    id: Int\n"),
+            opened(d_alias, "shape Twice:\n    id: Int\n"),
+            opened(refused, "shape Refused:\n    id: Int\n", 1),
+        ],
+        [changed(refused, "shape Refused:\n    id: Int\n", 2, ranged=True)],
+        [symbols(1, "")],
+        [closed(d_alias), opened(refused, "shape Reopened:\n    id: Int\n", 3)],
+        [symbols(2, "")],
+    )
+    names = [[item["name"] for item in response(messages, n)["result"]] for n in (1, 2)]
+    # port and port/sub both select sub/models.pietto, so neither root lists
+    # its User or users, while port keeps top.pietto's Top.
+    assert names == [
+        ["Standalone", "Top"],
+        ["Standalone", "Twice", "Top", "Reopened"],
+    ]
+
+
+def test_workspace_symbols_and_links_wait_and_call_no_analysis(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A workspace symbol request waits while any analysis is pending, even
+    of a unit outside every root, and a link request as the other requests
+    on its document do. Answering either calls no analysis entry point;
+    shutdown answers a waiting one with no items, and malformed parameters
+    and resolve requests are errors."""
+
+    root = project(tmp_path, models=MODELS, a=A_OK)
+    a_uri, alone = (root / "a.pietto").as_uri(), (tmp_path / "x.pietto").as_uri()
+    script = Script()
+    real = _lsp._check_text_with_editor_facts
+    inside: list[str] = []
+
+    def checking(text: str, *, path: str | None = None) -> object:
+        # A request received while this analysis runs waits for it.
+        script.batches[0].append(symbols(3, ""))
+        return real(text, path=path)
+
+    def guard(owner: object, name: str) -> None:
+        wrapped = getattr(owner, name)
+
+        def guarded(*args: Any, **kwargs: Any) -> object:
+            assert not inside, f"{name} while answering"
+            return wrapped(*args, **kwargs)
+
+        monkeypatch.setattr(owner, name, guarded)
+
+    def answering(name: str) -> None:
+        wrapped = getattr(_lsp._Server, name)
+
+        def answer(*args: Any, **kwargs: Any) -> object:
+            inside.append(name)
+            try:
+                return wrapped(*args, **kwargs)
+            finally:
+                inside.pop()
+
+        monkeypatch.setattr(_lsp._Server, name, answer)
+
+    monkeypatch.setattr(_lsp, "_check_text_with_editor_facts", checking)
+    for name in (
+        "_check_text_with_editor_facts",
+        "check_project_editor_diagnostics",
+        "selected_project_paths",
+        "parse_source",
+        "analyze",
+        "format_source",
+    ):
+        guard(_lsp, name)
+    for name in ("_touch", "_analyse"):
+        guard(_lsp._Server, name)
+    for name in ("_answer", "_answer_symbols"):
+        answering(name)
+    messages = session(
+        init(root),
+        [
+            opened(a_uri, A_OK),
+            opened(alone, "shape Alone:\n    id: Int\n"),
+            symbols(1, ""),
+            request(2, "textDocument/documentLink", a_uri),
+        ],
+        [
+            symbols(4, 7),
+            {"jsonrpc": "2.0", "id": 5, "method": "workspace/symbol"},
+            {**request(6, "textDocument/documentLink", a_uri), "params": {}},
+            {"jsonrpc": "2.0", "id": 7, "method": "workspaceSymbol/resolve"},
+            {"jsonrpc": "2.0", "id": 8, "method": "documentLink/resolve"},
+        ],
+        script=script,
+    )
+    order = [item.get("id", item.get("params", {}).get("uri")) for item in messages]
+    # The link request waits only for its root; the symbol requests also for
+    # the file outside it.
+    assert order.index(a_uri) < order.index(2) < order.index(alone)
+    assert order.index(alone) < order.index(1) < order.index(3)
+    everything = response(messages, 1)["result"]
+    assert [item["name"] for item in everything] == [
+        "active_users",
+        "User",
+        "users",
+        "Alone",
+    ]
+    assert response(messages, 3)["result"] == everything
+    assert response(messages, 2)["result"] == [
+        {
+            "range": {
+                "start": {"line": 0, "character": 5},
+                "end": {"line": 0, "character": 20},
+            },
+            "target": (root / "models.pietto").as_uri(),
+        }
+    ]
+    assert [response(messages, n)["error"]["code"] for n in (4, 5, 6, 7, 8)] == [
+        -32602,
+        -32602,
+        -32602,
+        -32601,
+        -32601,
+    ]
+    script = Script(
+        [init(root), notify("initialized")],
+        [
+            opened(a_uri, A_OK),
+            symbols(1, ""),
+            request(2, "textDocument/documentLink", a_uri),
+            SHUTDOWN,
+        ],
+        [EXIT],
+    )
+    out = io.BytesIO()
+    assert _lsp._Server(script, out, "test").run() == 0
+    answers = [item for item in frames(out.getvalue()) if "id" in item]
+    assert [(item["id"], item["result"]) for item in answers[1:]] == [
+        (1, []),
+        (2, []),
+        (99, None),
+    ]
+
+
+def test_import_paths_link_to_the_exact_module_of_the_same_analysis(
+    tmp_path: Path,
+) -> None:
+    """Each import statement of a module with facts links, at its path, to
+    the module whose path the import names, under that module's URI, even
+    when that module has an error of its own. A module with an error of its
+    own and a single file have none, and none leads to a module open under
+    two URIs, one whose change was refused until it reopens, or one that two
+    roots select."""
+
+    exported = A_OK + "\nexport (\n    table active_users,\n)\n"
+    b = """from "a.pietto" import (
+    table active_users,
+)
+
+from "models.pietto" import (
+    shape User,
+    source users,
+)
+
+from "models.pietto" import (
+    source users as again,
+)
+
+table copied:
+    from active_users
+    select:
+        id
+"""
+    base = "type Base = Nope\n\nexport (\n    type Base,\n)\n"
+    alias = 'from "w.pietto" import (\n    type Base,\n)\n\ntype Email = Base\n'
+    root = project(
+        tmp_path,
+        models=MODELS,
+        a=exported,
+        b=b,
+        c=A_BAD.replace("active_users", "emails"),
+        w=base,
+        x=alias,
+    )
+    models_alias = f"{root.as_uri()}/./models.pietto"
+    a_uri, b_uri = (root / "a.pietto").as_uri(), (root / "b.pietto").as_uri()
+    single = "untitled:Untitled-1"
+    single_text = 'from "models.pietto" import (\n    shape User,\n)\n\nshape Row:\n'
+    single_text += "    id: Int\n"
+
+    def link(line: int, end: int, target: str) -> Message:
+        return {
+            "range": {
+                "start": {"line": line, "character": 5},
+                "end": {"line": line, "character": end},
+            },
+            "target": target,
+        }
+
+    messages = session(
+        init(root),
+        [opened(models_alias, MODELS), opened(single, single_text)],
+        [
+            request(1, "textDocument/documentLink", b_uri),
+            request(2, "textDocument/documentLink", (root / "x.pietto").as_uri()),
+            request(3, "textDocument/documentLink", (root / "c.pietto").as_uri()),
+            request(4, "textDocument/documentLink", models_alias),
+            request(5, "textDocument/documentLink", f"{root.as_uri()}/./b.pietto"),
+            request(6, "textDocument/documentLink", single),
+            request(7, "textDocument/documentSymbol", single),
+        ],
+        [opened(a_uri, exported), opened(f"{root.as_uri()}/./a.pietto", exported)],
+        [request(8, "textDocument/documentLink", b_uri)],
+        [
+            closed(f"{root.as_uri()}/./a.pietto"),
+            changed(models_alias, MODELS, 2, ranged=True),
+        ],
+        [
+            request(9, "textDocument/documentLink", b_uri),
+            request(10, "textDocument/documentSymbol", b_uri),
+        ],
+        [opened(models_alias, MODELS, 3)],
+        [request(11, "textDocument/documentLink", b_uri)],
+    )
+    # One link per statement, whatever its items, and one per statement that
+    # names the same module.
+    to_models = [link(4, 20, models_alias), link(9, 20, models_alias)]
+    assert response(messages, 1)["result"] == [link(0, 15, a_uri), *to_models]
+    # w has an error of its own, which leaves the link to it.
+    w_uri = (root / "w.pietto").as_uri()
+    assert response(messages, 2)["result"] == [link(0, 15, w_uri)]
+    assert [response(messages, n)["result"] for n in (3, 4, 5, 6)] == [[]] * 4
+    # The single file has facts but resolves no import (PIE-S2708 warns).
+    assert [item["name"] for item in response(messages, 7)["result"]] == ["Row"]
+    # Once a.pietto is open under two URIs, no link leads there.
+    assert response(messages, 8)["result"] == to_models
+    # Nor, until it reopens, to models.pietto once its change is refused,
+    # though b keeps its facts.
+    assert response(messages, 9)["result"] == [link(0, 15, a_uri)]
+    assert [item["name"] for item in response(messages, 10)["result"]] == ["copied"]
+    assert response(messages, 11)["result"] == [link(0, 15, a_uri), *to_models]
+
+    top = """from "sub/models.pietto" import (
+    shape User,
+)
+
+from "local.pietto" import (
+    shape Local,
+)
+"""
+    local = "shape Local:\n    id: Int\n\nexport (\n    shape Local,\n)\n"
+    outer = project(tmp_path, "port", top=top, local=local)
+    (outer / "pietto.toml").write_text(
+        TOML.replace('"*.pietto"', '"**/*.pietto"'), encoding="utf-8"
+    )
+    project(outer, "sub", models=MODELS)
+    messages = session(
+        init(outer, outer / "sub"),
+        [],
+        [request(1, "textDocument/documentLink", (outer / "top.pietto").as_uri())],
+    )
+    # Two roots select sub/models.pietto, so only the other import links.
+    assert response(messages, 1)["result"] == [
+        link(4, 19, (outer / "local.pietto").as_uri())
+    ]
+
+
+def test_workspace_symbols_and_links_keep_percent_encoded_and_non_ascii_uris(
+    tmp_path: Path,
+) -> None:
+    """Under a root whose path holds a space and a non-ASCII letter, symbols
+    and link targets name a closed module by its file URI as
+    `Path.as_uri()` escapes it. Once the client opens the modules under
+    another spelling of their paths, with lower-case escapes, both name each
+    module by the client's URI."""
+
+    root = project(tmp_path, "bay é", models=MODELS, a=A_OK)
+    a_file, models_file = (
+        (root / "a.pietto").as_uri(),
+        (root / "models.pietto").as_uri(),
+    )
+    assert "/bay%20%C3%A9/" in a_file
+    a_open, models_open = (
+        uri.replace("%C3%A9", "%c3%a9") for uri in (a_file, models_file)
+    )
+
+    def located(result: list[Message]) -> list[tuple[str, str]]:
+        return [(item["location"]["uri"], item["name"]) for item in result]
+
+    def link(target: str) -> list[Message]:
+        start, end = {"line": 0, "character": 5}, {"line": 0, "character": 20}
+        return [{"range": {"start": start, "end": end}, "target": target}]
+
+    messages = session(
+        init(root),
+        [],
+        [symbols(1, ""), request(2, "textDocument/documentLink", a_file)],
+        [opened(models_open, MODELS), opened(a_open, A_OK)],
+        [symbols(3, ""), request(4, "textDocument/documentLink", a_open)],
+    )
+    assert located(response(messages, 1)["result"]) == [
+        (a_file, "active_users"),
+        (models_file, "User"),
+        (models_file, "users"),
+    ]
+    assert response(messages, 2)["result"] == link(models_file)
+    assert located(response(messages, 3)["result"]) == [
+        (a_open, "active_users"),
+        (models_open, "User"),
+        (models_open, "users"),
+    ]
+    assert response(messages, 4)["result"] == link(models_open)
 
 
 def formatting(request_id: int, uri: object, **options: object) -> Message:
@@ -2203,6 +2621,8 @@ table copied:
             request(3, "textDocument/definition", copied_uri, 5, 9),
             request(4, "textDocument/hover", copied_uri, 5, 9),
             request(5, "textDocument/documentSymbol", copied_uri),
+            request(6, "textDocument/documentLink", copied_uri),
+            symbols(7, ""),
         ],
     )
     assert "two names" in publishes(messages, uri)[-1]["diagnostics"][0]["message"]
@@ -2211,6 +2631,13 @@ table copied:
     assert response(messages, 3)["result"] is None
     assert response(messages, 4)["result"] is None
     assert [item["name"] for item in response(messages, 5)["result"]] == ["copied"]
+    # Neither name lists its declarations, and no import path links there.
+    assert response(messages, 6)["result"] == []
+    assert [item["name"] for item in response(messages, 7)["result"]] == [
+        "copied",
+        "User",
+        "users",
+    ]
 
 
 def test_two_selected_names_of_one_path_get_only_the_names_error(

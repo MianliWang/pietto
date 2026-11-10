@@ -2,14 +2,15 @@
 
 `pietto lsp` is an alpha Language Server Protocol server. This page specifies
 its diagnostic protocol; [editor facts v1](lsp-editor-facts-v1.md) specifies
-hover, definition, document symbols and formatting. Neither contract adds
+hover, definition, document symbols, workspace symbols, document links and
+formatting. Neither contract adds
 an editor facts format, a CLI JSON command, or any compiler semantics.
 
 The server checks a document or project for editor diagnostics and facts, and
-formats an open buffer. It has no completion, references, workspace symbols,
-code actions, range or on-type formatting, SQL preview, execution, package,
-compiled-build, workspace-edit or configuration-update operation. A request
-for an unsupported method receives JSON-RPC `-32601` after initialization.
+formats an open buffer. It has no completion, references, code actions, range
+or on-type formatting, SQL preview, execution, package, compiled-build,
+workspace-edit or configuration-update operation. A request for an
+unsupported method receives JSON-RPC `-32601` after initialization.
 
 This contract remains alpha until the Phase82 freeze. Editor consumers must
 not infer facts or stability beyond the advertised, specified capabilities.
@@ -40,7 +41,9 @@ The successful `initialize` result has exactly these advertised capabilities:
   "hoverProvider": true,
   "definitionProvider": true,
   "documentSymbolProvider": true,
-  "documentFormattingProvider": true
+  "documentFormattingProvider": true,
+  "workspaceSymbolProvider": true,
+  "documentLinkProvider": {"resolveProvider": false}
 }
 ```
 
@@ -171,7 +174,7 @@ trusted bytes. Formatting proposes one edit of an open buffer and applies
 none. A selected project still applies its normal source-selection,
 read, parse, semantic, and import rules to every non-overlay input.
 
-The three editor requests use detached facts from the same analysis, and
+The fact requests use detached facts from the same analysis, and
 formatting uses only the buffer it formats, under
 [their contract](lsp-editor-facts-v1.md). The protocol provides no general
 editor-model artifact, semantic-metadata dump or backend capability state.

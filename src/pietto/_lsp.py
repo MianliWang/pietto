@@ -8,6 +8,7 @@ import json
 import os
 import queue
 import re
+import string
 import sys
 import threading
 from dataclasses import dataclass
@@ -19,6 +20,7 @@ from urllib.parse import unquote, urlsplit
 from pietto._editor_facts import (
     EditorDeclaration,
     EditorFacts,
+    EditorLink,
     EditorUse,
     single_file_editor_facts,
 )
@@ -40,6 +42,7 @@ _MAX_HEADER = 65536
 _CHUNK = 65536
 _LINE_BREAK = re.compile(r"\r\n|\r|\n")
 _LONE_SURROGATE = re.compile("[\ud800-\udfff]")
+_ASCII_LOWER = str.maketrans(string.ascii_uppercase, string.ascii_lowercase)
 _WINDOWS_DRIVE = re.compile(r"/[A-Za-z]:")
 _ROOTS_ERROR = "projectRoots must be a list of distinct absolute paths"
 _WHOLE_CHANGES = "Pietto needs whole-document changes; reopen this file."
@@ -162,7 +165,7 @@ class _Server:
         self.epochs: dict[_Key, int] = {}
         self.snapshots: dict[_Key, _EditorSnapshot] = {}
         # Editor requests that wait for a pending analysis, in arrival order,
-        # each with its document epoch.
+        # each with its document URI and epoch, or a workspace symbol query.
         self.held: list[tuple[int | str, str, str, dict[str, int] | None, int]] = []
         self.selections: list[frozenset[Path]] = []
         self.extras: list[frozenset[Path]] = []
@@ -246,10 +249,13 @@ class _Server:
             self._error(request_id, -32600, "Server is already initialized")
         elif method == "textDocument/formatting":
             self._format(request_id, params)
+        elif method == "workspace/symbol":
+            self._workspace_symbol(request_id, params)
         elif method in {
             "textDocument/hover",
             "textDocument/definition",
             "textDocument/documentSymbol",
+            "textDocument/documentLink",
         }:
             self._editor_request(request_id, method, params)
         else:
@@ -302,6 +308,8 @@ class _Server:
                         "definitionProvider": True,
                         "documentSymbolProvider": True,
                         "documentFormattingProvider": True,
+                        "workspaceSymbolProvider": True,
+                        "documentLinkProvider": {"resolveProvider": False},
                     },
                     "serverInfo": {"name": "pietto", "version": self.version},
                 },
@@ -515,7 +523,7 @@ class _Server:
                 report.texts.get(relative),
                 open_buffer=document is not None and not document.refused,
             )
-            facts[path] = _root_editor_facts(item, root)
+            facts[path] = _root_editor_facts(item, root, path_counts)
         self.snapshots[unit] = _EditorSnapshot(epoch, facts, tables)
 
     def _publish_root(
@@ -754,10 +762,9 @@ class _Server:
         if not isinstance(uri, str):
             self._error(request_id, -32602, "Invalid params")
             return
-        position = (
-            _position(params) if method != "textDocument/documentSymbol" else None
-        )
-        if method != "textDocument/documentSymbol" and position is None:
+        positioned = method in {"textDocument/hover", "textDocument/definition"}
+        position = _position(params) if positioned else None
+        if positioned and position is None:
             self._error(request_id, -32602, "Invalid params")
             return
         self._answer(
@@ -774,8 +781,12 @@ class _Server:
     ) -> None:
         """Answer from the current snapshot, or hold the request while an
         analysis that can change its document's facts is pending. A request
-        whose document changed since `epoch` has a stale position."""
+        whose document changed since `epoch` has a stale position. A
+        workspace symbol request holds its query in `uri`."""
 
+        if method == "workspace/symbol":
+            self._answer_symbols(request_id, uri)
+            return
         if self.epochs.get(("file", uri), 0) != epoch:
             self._send_editor_result(request_id, method, None, uri=uri)
             return
@@ -799,6 +810,15 @@ class _Server:
         if method == "textDocument/documentSymbol":
             self._send_editor_result(request_id, method, facts, snapshot.tables, uri)
             return
+        if method == "textDocument/documentLink":
+            links = [
+                {"range": range_, "target": target}
+                for link in facts.links
+                if (range_ := _fact_range(link.location, snapshot.tables)) is not None
+                and (target := self._module_uri(link, owner)) is not None
+            ]
+            self._send({"jsonrpc": "2.0", "id": request_id, "result": links})
+            return
         assert position is not None
         table = snapshot.tables.get(path)
         if table is None:
@@ -813,6 +833,56 @@ class _Server:
         self._send_editor_result(
             request_id, method, result, snapshot.tables, target_uri
         )
+
+    def _workspace_symbol(
+        self, request_id: int | str, params: dict[str, object]
+    ) -> None:
+        query = params.get("query")
+        if not isinstance(query, str):
+            self._error(request_id, -32602, "Invalid params")
+            return
+        self._answer_symbols(request_id, query)
+
+    def _answer_symbols(self, request_id: int | str, query: str) -> None:
+        """Answer from every current snapshot once no analysis is pending, or
+        hold the request: each retained declaration whose name holds the
+        characters of `query` in order, an ASCII letter in either case. Roots
+        come in `projectRoots` order with their modules in selection order,
+        then the documents checked as their own files in URI code-point
+        order, each in source order. A module shown under no URI of its own,
+        as in a root, URI or name conflict, lists nothing."""
+
+        if self.dirty:
+            self.held.append((request_id, "workspace/symbol", query, None, 0))
+            return
+        wanted = query.translate(_ASCII_LOWER)
+        symbols: list[dict[str, object]] = []
+        for unit in sorted(self.snapshots, key=_unit_order):
+            snapshot = self.snapshots[unit]
+            if snapshot.epoch != self.epochs.get(unit, 0):
+                continue
+            kind, value = unit
+            for path, facts in snapshot.facts.items():
+                if kind == "file":
+                    assert isinstance(value, str)
+                    uri = value
+                else:
+                    assert path is not None
+                    uri = self._uri(path)
+                if self._owner(uri, path) != unit:
+                    continue
+                symbols.extend(
+                    {
+                        "name": item.name,
+                        "kind": item.kind,
+                        "location": {"uri": uri, "range": range_},
+                    }
+                    for item in facts.declarations
+                    if _matches(wanted, item.name)
+                    and (range_ := _fact_range(item.location, snapshot.tables))
+                    is not None
+                )
+        self._send({"jsonrpc": "2.0", "id": request_id, "result": symbols})
 
     def _format(self, request_id: int | str, params: dict[str, object]) -> None:
         """Answer at once with the open buffer as `pietto fmt` formats it: one
@@ -868,6 +938,15 @@ class _Server:
         uri = self._uri(path)
         return uri if self._owner(uri, path) == owner else None
 
+    def _module_uri(self, link: EditorLink, owner: _Key) -> str | None:
+        """The URI of the module that a link of `owner`, a root, resolves to,
+        or None where that root does not own the module's URI, as in a root
+        or URI conflict."""
+
+        path = Path(link.target)
+        uri = self._uri(path)
+        return uri if self._owner(uri, path) == owner else None
+
     def _send_editor_result(
         self,
         request_id: int | str,
@@ -891,12 +970,15 @@ class _Server:
                 if isinstance(value, EditorUse)
                 else None
             )
-        else:
+        elif method == "textDocument/definition":
             result = (
                 _definition(value, tables, uri)
                 if isinstance(value, EditorUse)
                 else None
             )
+        else:
+            # A document link or workspace symbol request without a snapshot.
+            result = []
         self._send({"jsonrpc": "2.0", "id": request_id, "result": result})
 
     # Output.
@@ -1054,6 +1136,14 @@ def _editor_use_at(
     return matches[0] if len(matches) == 1 else None
 
 
+def _matches(query: str, name: str) -> bool:
+    """Whether the characters of `query`, already lowered, appear in `name`
+    in order, an ASCII letter in either case."""
+
+    letters = iter(name.translate(_ASCII_LOWER))
+    return all(character in letters for character in query)
+
+
 def _contains(range_: dict[str, object], position: dict[str, int]) -> bool:
     start = range_["start"]
     end = range_["end"]
@@ -1136,8 +1226,12 @@ def _fact_range(
     return table.range(location) if table is not None else None
 
 
-def _root_editor_facts(facts: EditorFacts, root: Path) -> EditorFacts:
-    """Attach one selected root while retaining each exact relative occurrence."""
+def _root_editor_facts(
+    facts: EditorFacts, root: Path, path_counts: Mapping[Path, int]
+) -> EditorFacts:
+    """Attach one selected root while retaining each exact relative occurrence.
+    A link to a path that two selected names share leads to no one module, so
+    it is left out."""
 
     declarations = tuple(
         _root_editor_declaration(item, root) for item in facts.declarations
@@ -1155,6 +1249,14 @@ def _root_editor_facts(facts: EditorFacts, root: Path) -> EditorFacts:
                 ),
             )
             for item in facts.uses
+        ),
+        links=tuple(
+            EditorLink(
+                location=_root_location(item.location, root),
+                target=str(target),
+            )
+            for item in facts.links
+            if path_counts.get(target := _join(root, item.target)) == 1
         ),
     )
 
