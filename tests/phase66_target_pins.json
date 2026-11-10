@@ -2,8 +2,8 @@
   "format": "pietto.target-conformance-pins.v1",
   "platform": "linux/amd64",
   "drivers": {
-    "psycopg": "3.3.5",
-    "psycopg-binary": "3.3.5",
+    "psycopg": "3.3.8",
+    "psycopg-binary": "3.3.8",
     "mysql-connector-python": "26.10.0"
   },
   "targets": {

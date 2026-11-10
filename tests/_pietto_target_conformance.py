@@ -133,8 +133,8 @@ def load_pins(path: Path) -> tuple[dict[str, Any], str]:
     ):
         raise ValueError("invalid pins envelope")
     if value["drivers"] != {
-        "psycopg": "3.3.5",
-        "psycopg-binary": "3.3.5",
+        "psycopg": "3.3.8",
+        "psycopg-binary": "3.3.8",
         "mysql-connector-python": "26.10.0",
     } or set(value["targets"]) != set(cases.TARGETS):
         raise ValueError("invalid driver or target denominator")

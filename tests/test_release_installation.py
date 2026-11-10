@@ -45,21 +45,21 @@ from pietto._project.project_job_workspace import JobStoreError
 
 # The selections chosen by the S18 dispatch, stated independently of pyproject.
 EXTRAS = {
-    "arrow": ["pyarrow==26.0.0"],
-    "execute-postgres": ["pyarrow==26.0.0", "psycopg[binary]==3.3.5"],
-    "execute-mysql": ["pyarrow==26.0.0", "mysql-connector-python==26.10.0"],
+    "arrow": ["pyarrow==26.0.1"],
+    "execute-postgres": ["pyarrow==26.0.1", "psycopg[binary]==3.3.8"],
+    "execute-mysql": ["pyarrow==26.0.1", "mysql-connector-python==26.10.0"],
     "execute-postgres-adbc": [
-        "pyarrow==26.0.0",
+        "pyarrow==26.0.1",
         "adbc-driver-postgresql==1.13.0",
         "adbc-driver-manager==1.13.0",
     ],
 }
 ROUTES = ("execute-postgres", "execute-mysql", "execute-postgres-adbc")
 CORE = {"antlr4-python3-runtime==4.13.2"}
-ARROW = CORE | {"pyarrow==26.0.0"}
+ARROW = CORE | {"pyarrow==26.0.1"}
 POSTGRES = ARROW | {
-    "psycopg==3.3.5",
-    "psycopg-binary==3.3.5 ; implementation_name != 'pypy'",
+    "psycopg==3.3.8",
+    "psycopg-binary==3.3.8 ; implementation_name != 'pypy'",
     "typing-extensions==4.16.0 ; python_full_version < '3.13'",
     "tzdata==2026.4 ; sys_platform == 'win32'",
 }
@@ -133,9 +133,9 @@ def test_selections_are_exactly_the_dispatch_extras_and_core_is_unchanged():
         "adbc-driver-postgresql": "1.13.0",
         "antlr4-python3-runtime": "4.13.2",
         "mysql-connector-python": "26.10.0",
-        "psycopg": "3.3.5",
-        "psycopg-binary": "3.3.5",
-        "pyarrow": "26.0.0",
+        "psycopg": "3.3.8",
+        "psycopg-binary": "3.3.8",
+        "pyarrow": "26.0.1",
         "ruff": "0.17.3",
         "typing-extensions": "4.16.0",
     }
@@ -195,9 +195,9 @@ def test_locked_closure_of_each_selection(extras):
 @pytest.mark.parametrize(
     "text",
     (
-        "psycopg[binary]==3.3.5; extra == 'execute-postgres'",
-        'psycopg [ binary ] == 3.3.5 ; (extra=="execute-postgres")',
-        "Psycopg[Binary]==3.3.5;extra=='execute-postgres'",
+        "psycopg[binary]==3.3.8; extra == 'execute-postgres'",
+        'psycopg [ binary ] == 3.3.8 ; (extra=="execute-postgres")',
+        "Psycopg[Binary]==3.3.8;extra=='execute-postgres'",
     ),
 )
 def test_artifact_requirement_extras_are_parsed_and_kept(text):
@@ -205,19 +205,19 @@ def test_artifact_requirement_extras_are_parsed_and_kept(text):
         "psycopg",
         ("binary",),
         "==",
-        "3.3.5",
+        "3.3.8",
         "execute-postgres",
     )
 
 
 def test_dropped_or_malformed_requirement_extras_never_match():
-    assert smoke._dependency("psycopg==3.3.5; extra == 'execute-postgres'")[1] == ()
+    assert smoke._dependency("psycopg==3.3.8; extra == 'execute-postgres'")[1] == ()
     for bad in (
-        "psycopg[,binary]==3.3.5",
-        "psycopg[binary,]==3.3.5",
-        "psycopg[bin ary]==3.3.5",
-        "psycopg[binary]]==3.3.5",
-        "psycopg[binary==3.3.5",
+        "psycopg[,binary]==3.3.8",
+        "psycopg[binary,]==3.3.8",
+        "psycopg[bin ary]==3.3.8",
+        "psycopg[binary]]==3.3.8",
+        "psycopg[binary==3.3.8",
     ):
         with pytest.raises(smoke.SmokeFailure, match="unsupported artifact"):
             smoke._dependency(bad)
@@ -228,8 +228,8 @@ def test_dropped_or_malformed_requirement_extras_never_match():
 ROUTE_DAMAGE = {
     # A route dependency loses its own requirement extra.
     (
-        b"Requires-Dist: psycopg[binary]==3.3.5;",
-        b"Requires-Dist: psycopg==3.3.5;",
+        b"Requires-Dist: psycopg[binary]==3.3.8;",
+        b"Requires-Dist: psycopg==3.3.8;",
     ): REQUIREMENTS_DIFFER,
     # A required route dependency is removed.
     (
@@ -238,8 +238,8 @@ ROUTE_DAMAGE = {
     ): REQUIREMENTS_DIFFER,
     # An optional dependency is moved into the unconditional core.
     (
-        b"Requires-Dist: pyarrow==26.0.0; extra == 'execute-mysql'\n",
-        b"Requires-Dist: pyarrow==26.0.0\n",
+        b"Requires-Dist: pyarrow==26.0.1; extra == 'execute-mysql'\n",
+        b"Requires-Dist: pyarrow==26.0.1\n",
     ): REQUIREMENTS_DIFFER,
     (
         b"Requires-Dist: adbc-driver-manager==1.13.0;",
@@ -412,10 +412,10 @@ def test_each_route_checks_exactly_its_declared_selection():
     checked = {extra: {d: v for d, v, _m in pin} for extra, pin in pins.items()}
     # psycopg[binary] is psycopg plus psycopg-binary of the same release.
     assert checked["execute-postgres"] == {
-        "psycopg": "3.3.5",
-        "psycopg-binary": "3.3.5",
+        "psycopg": "3.3.8",
+        "psycopg-binary": "3.3.8",
     }
-    assert declared["execute-postgres"] == {"pyarrow": "26.0.0", "psycopg": "3.3.5"}
+    assert declared["execute-postgres"] == {"pyarrow": "26.0.1", "psycopg": "3.3.8"}
     assert arrow.PYARROW == (
         "pyarrow",
         declared["execute-postgres"]["pyarrow"],

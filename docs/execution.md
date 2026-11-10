@@ -11,6 +11,18 @@ and `0.1.10` distributions select `pyarrow==26.0.0`. The published `0.1.5` distr
 `0.1.9` and `0.1.10` distributions select `mysql-connector-python==26.10.0` and
 `1.13.0` of both ADBC packages. The historical `0.1.1` wheel does not provide this alpha surface.
 
+This checkout's unreleased dependency maintenance pins `pyarrow==26.0.1` and
+`psycopg[binary]==3.3.8`; the published `0.1.10` distributions keep `26.0.0`
+and `3.3.5`. Fresh native runs on the integration host (Linux x86-64, CPython
+3.13.13, the lock's exact artifacts) passed these selected cases with the new
+pins: against MySQL 8.4.12, the six `mysql_rows` native cases (rows, empty,
+schema, bundle, cancel and deadline), and against PostgreSQL 18.6 the 18
+CA-verification cells of `postgres_rows` and `postgres_adbc`, bounded delivery,
+early close, cancellation and a typed `Timestamp` on `postgres_rows`, and the
+lifetime of an exported Arrow batch on `postgres_adbc`. They do not rerun
+nested results or the other column types with the new pins; the published
+`0.1.10` evidence is unchanged.
+
 `pietto.execution` compiles one query of your project, runs it explicitly on
 PostgreSQL 18.6 through the PostgreSQL rows route, and hands you typed Arrow
 batches and the attempt's real terminal state. A compiled query can also be
@@ -61,9 +73,9 @@ Linux-only (see [Known limitations](#known-limitations)).
 
 | Route | Selected target and dependencies | Explicit prerequisites | Qualified native evidence | Not claimed |
 | --- | --- | --- | --- | --- |
-| `postgres_rows` | PostgreSQL 18.6; `psycopg[binary]==3.3.5`; `pyarrow==26.0.0` | One TCP host, `PostgresAccess`, `PostgresDeploymentPremise`, and SCRAM-SHA-256; TLS `require`, or `verify-full` against a caller-supplied `ca_file`. | Linux x86-64, CPython 3.13.13. | Windows native execution; another PostgreSQL release, libpq closure or TLS profile (client certificates, revocation lists, `verify-ca`, a system CA store). |
-| `mysql_rows` | MySQL 8.4.12; `mysql-connector-python==26.10.0`; `pyarrow==26.0.0` | One TCP host, `MySQLAccess`, `MySQLDeploymentPremise`, and caller-supplied CA with certificate and server-identity verification. | Linux x86-64, CPython 3.13.13. | Windows native execution; another MySQL release, connector version or provider profile. |
-| `postgres_adbc` | PostgreSQL 18.6; `adbc-driver-postgresql==1.13.0`; `adbc-driver-manager==1.13.0`; `pyarrow==26.0.0` | PostgreSQL TCP access, deployment premise, SCRAM profile with the same two TLS profiles as `postgres_rows`, and the selected driver closure. | Linux x86-64, CPython 3.13.13. | Windows native execution; another ADBC/libpq closure, PostgreSQL release, TLS profile or platform. |
+| `postgres_rows` | PostgreSQL 18.6; `psycopg[binary]==3.3.8`; `pyarrow==26.0.1` (the published `0.1.10` selects `3.3.5` and `26.0.0`) | One TCP host, `PostgresAccess`, `PostgresDeploymentPremise`, and SCRAM-SHA-256; TLS `require`, or `verify-full` against a caller-supplied `ca_file`. | Linux x86-64, CPython 3.13.13 with 3.3.5/26.0.0; the new pins passed the maintenance runs listed above. | Windows native execution; another PostgreSQL release, libpq closure or TLS profile (client certificates, revocation lists, `verify-ca`, a system CA store). |
+| `mysql_rows` | MySQL 8.4.12; `mysql-connector-python==26.10.0`; `pyarrow==26.0.1` (the published `0.1.10` selects `26.0.0`) | One TCP host, `MySQLAccess`, `MySQLDeploymentPremise`, and caller-supplied CA with certificate and server-identity verification. | Linux x86-64, CPython 3.13.13 with 26.0.0; the new pin passed the maintenance runs listed above. | Windows native execution; another MySQL release, connector version or provider profile. |
+| `postgres_adbc` | PostgreSQL 18.6; `adbc-driver-postgresql==1.13.0`; `adbc-driver-manager==1.13.0`; `pyarrow==26.0.1` (the published `0.1.10` selects `26.0.0`) | PostgreSQL TCP access, deployment premise, SCRAM profile with the same two TLS profiles as `postgres_rows`, and the selected driver closure. | Linux x86-64, CPython 3.13.13 with 26.0.0; the new pin passed the maintenance runs listed above. | Windows native execution; another ADBC/libpq closure, PostgreSQL release, TLS profile or platform. |
 
 The qualified profile is the integration host with the lock's exact artifacts.
 Installing an extra selects no route, grants no execution, opens no source and
@@ -84,12 +96,12 @@ pip install "pietto[execute-postgres]"
 
 | Extra | Route | Adds |
 | --- | --- | --- |
-| `execute-postgres` | `postgres_rows` | `psycopg[binary]==3.3.5` |
+| `execute-postgres` | `postgres_rows` | `psycopg[binary]==3.3.8` (the published `0.1.10` selects `3.3.5`) |
 | `execute-postgres-adbc` | `postgres_adbc` | `adbc-driver-postgresql==1.13.0`, `adbc-driver-manager==1.13.0` |
 | `execute-mysql` | `mysql_rows` | `mysql-connector-python==26.10.0` |
 
-Each extra also selects `pyarrow==26.0.0`, because captured results are Arrow
-IPC; saved-result use without any database driver needs only `pietto[arrow]`.
+Each extra also selects `pyarrow==26.0.1` (the published `0.1.10` selects
+`26.0.0`), because captured results are Arrow IPC; saved-result use without any database driver needs only `pietto[arrow]`.
 Extras combine, for example `pip install "pietto[execute-postgres,execute-mysql]"`,
 and a wheel built from the matching checkout takes the same extras (see
 [install from a checkout](../README.md#install-from-a-checkout)). Compiling,
@@ -98,9 +110,14 @@ extras. Without the selected route closure, opening an attempt is refused before
 any connection: an absent pinned driver with `PIE-R2001`
 (`EXECUTION_DEPENDENCY_MISSING`) and another installed version with the route's
 version refusal `PIE-R2002`; another installed driver is never a fallback.
-These extras were verified on CPython 3.13.13, Linux x86-64, with the lock's
-exact artifacts; other platforms, interpreters and driver versions are not
-covered.
+An environment that keeps the pins of an earlier release, such as `pyarrow
+26.0.0` or `psycopg 3.3.5` from `0.1.10`, is refused with `PIE-R2002`;
+upgrading `pietto` alone does not upgrade an extra's packages, so reinstall
+with the extra, for example `pip install -U "pietto[execute-postgres]"`.
+The published 3.3.5/26.0.0 extras were verified on CPython 3.13.13, Linux
+x86-64, with the lock's exact artifacts; this checkout's 3.3.8/26.0.1 passed
+the maintenance runs listed at the top of this guide. Other platforms,
+interpreters and driver versions are not covered.
 
 Pietto source examples below use the modern syntax of this checkout. Installed
 release documentation remains the authority for that release's source surface;
@@ -1333,7 +1350,7 @@ route, cursor API or whole-result materializer.
   deployment premise, not a grant or proof of compliance.
 - **Selected dependency and ambient inputs.** Only
   `mysql-connector-python==26.10.0`, its own `mysql.connector.connection` file,
-  and `pyarrow==26.0.0` are accepted. A missing selected dependency is
+  and `pyarrow==26.0.1` are accepted. A missing selected dependency is
   `PIE-R2001`; a wrong, shadowed or unloadable selected file is `PIE-R2002`.
   `SSLKEYLOGFILE`, `OPENSSL_CONF` and `OPENSSL_MODULES` are refused before the
   private MySQL module imports `ssl`; their values are never read. Earlier
@@ -1347,7 +1364,7 @@ route, cursor API or whole-result materializer.
 
 `postgres_adbc` reuses `PostgresAccess` and `PostgresDeploymentPremise`, but
 selects exactly `adbc-driver-postgresql==1.13.0`,
-`adbc-driver-manager==1.13.0` and `pyarrow==26.0.0`. It uses the same bound
+`adbc-driver-manager==1.13.0` and `pyarrow==26.0.1`. It uses the same bound
 query, `ResultHandle`, `ResultBatch`, schema protocol and `Outcome` as the
 other rows routes; it exposes no ADBC connection, reader, URI, driver path or
 fallback to `postgres_rows`. Its private bridge creates the route-bound ADBC
@@ -1416,7 +1433,7 @@ file or certificate supplies a connection setting.
   `PSYCOPG_WAIT_FUNC`, which only selects psycopg's I/O wait function, is
   accepted.
 - **Pinned driver and Arrow files.** The imported `psycopg` and `psycopg_binary` must be
-  files recorded by the installed `psycopg 3.3.5` and `psycopg-binary 3.3.5`
+  files recorded by the installed `psycopg 3.3.8` and `psycopg-binary 3.3.8`
   distributions, and the implementation psycopg selected must be
   psycopg-binary's own module, whatever it calls itself; a shadowing copy on
   `PYTHONPATH` or in the working directory is refused with `PIE-R2002` before it
@@ -1431,7 +1448,7 @@ file or certificate supplies a connection setting.
   shadowing, not a deliberately constructed environment, which can run arbitrary
   code anyway. Run scripts with `python -I` to keep the working directory and
   `PYTHONPATH` out of the import path. PyArrow must be the installed
-  `pyarrow 26.0.0` distribution's own files: a missing package is `PIE-R2001`,
+  `pyarrow 26.0.1` distribution's own files: a missing package is `PIE-R2001`,
   and another release or a shadowing copy is `PIE-R2002`, before connecting.
 - **Code identity.** Each compile, bundle load and attempt identifies the
   installed Pietto and ANTLR runtime code from the installed files at that
@@ -1517,8 +1534,8 @@ the no-state statement below.
 | `export_bundle(...)` | none | none; the bytes are encoded in memory | none | none |
 | `load_bundle(...)` | none | the installed Pietto and ANTLR runtime `.py` files and the `METADATA` and `RECORD` of each ANTLR runtime distribution on `sys.path`, for the code identity; no project file, nothing looked up next to the bytes and no environment variable | none | none |
 | `execute(...)`, with or without `values` | none | the installed code and ANTLR metadata again, to bind afresh | none | none |
-| `pa.schema(result)` | none | the `METADATA` and `RECORD` of pyarrow | none | PyArrow 26.0.0 if it was not already imported |
-| entering, or the first `next()` | one TCP connection: TLS with channel binding unless `disable`, verified against `ca_file` when you give one, SCRAM-SHA-256; `BEGIN ... READ ONLY`; a settings read; catalog reads that qualify the sources, between two reads of the session context | environment variable names and the value of `PSYCOPG_IMPL`; with it unset, whether a `psycopg_c` module is loaded or can be found on the import path (it is not imported); the `METADATA` and `RECORD` of psycopg, psycopg-binary and pyarrow; the type of `/dev/null`; with `ca_file`, that file (libpq reads it) | one non-daemon `pietto-deadline-<attempt>` timer | psycopg 3.3.5 and PyArrow 26.0.0 |
+| `pa.schema(result)` | none | the `METADATA` and `RECORD` of pyarrow | none | PyArrow 26.0.1 if it was not already imported |
+| entering, or the first `next()` | one TCP connection: TLS with channel binding unless `disable`, verified against `ca_file` when you give one, SCRAM-SHA-256; `BEGIN ... READ ONLY`; a settings read; catalog reads that qualify the sources, between two reads of the session context | environment variable names and the value of `PSYCOPG_IMPL`; with it unset, whether a `psycopg_c` module is loaded or can be found on the import path (it is not imported); the `METADATA` and `RECORD` of psycopg, psycopg-binary and pyarrow; the type of `/dev/null`; with `ca_file`, that file (libpq reads it) | one non-daemon `pietto-deadline-<attempt>` timer | psycopg 3.3.8 and PyArrow 26.0.1 |
 | the first `next()` | a read of the session context, the statement timeout (`set_config`), then one prepared statement of at most 10 s; the whole result is read into client memory | none | as above | none |
 | each later `next()` | a read of the session context before the batch is returned | none | as above | none |
 | the end of the result, or `close()` | a read of the session context, then `COMMIT` at the end, `ROLLBACK` before it; the connection closes | none | the timer is joined (at most 3 s) | none |

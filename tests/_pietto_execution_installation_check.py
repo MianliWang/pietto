@@ -32,8 +32,8 @@ CORE = {
     )["project"]["version"],
     "antlr4-python3-runtime": "4.13.2",
 }
-ARROW = {**CORE, "pyarrow": "26.0.0"}
-POSTGRES = {**ARROW, "psycopg": "3.3.5", "psycopg-binary": "3.3.5"}
+ARROW = {**CORE, "pyarrow": "26.0.1"}
+POSTGRES = {**ARROW, "psycopg": "3.3.8", "psycopg-binary": "3.3.8"}
 MYSQL = {**ARROW, "mysql-connector-python": "26.10.0"}
 ADBC = {
     **ARROW,
@@ -62,12 +62,12 @@ EXTRAS = {
 REQUIRES = frozenset(
     {
         ("antlr4-python3-runtime", (), "==4.13.2", None),
-        ("pyarrow", (), "==26.0.0", "arrow"),
-        ("pyarrow", (), "==26.0.0", "execute-postgres"),
-        ("psycopg", ("binary",), "==3.3.5", "execute-postgres"),
-        ("pyarrow", (), "==26.0.0", "execute-mysql"),
+        ("pyarrow", (), "==26.0.1", "arrow"),
+        ("pyarrow", (), "==26.0.1", "execute-postgres"),
+        ("psycopg", ("binary",), "==3.3.8", "execute-postgres"),
+        ("pyarrow", (), "==26.0.1", "execute-mysql"),
         ("mysql-connector-python", (), "==26.10.0", "execute-mysql"),
-        ("pyarrow", (), "==26.0.0", "execute-postgres-adbc"),
+        ("pyarrow", (), "==26.0.1", "execute-postgres-adbc"),
         ("adbc-driver-postgresql", (), "==1.13.0", "execute-postgres-adbc"),
         ("adbc-driver-manager", (), "==1.13.0", "execute-postgres-adbc"),
     }
@@ -387,7 +387,7 @@ def check_cell(cell: dict, wheel: bytes) -> dict:
     need(facts["lazy"] == [], "LAZY_IMPORT")
     need(
         facts["arrow"]
-        == ("ARROW_DEPENDENCY_MISSING" if recipe == "core" else "26.0.0"),
+        == ("ARROW_DEPENDENCY_MISSING" if recipe == "core" else "26.0.1"),
         "ARROW_BOUNDARY",
     )
     selected = set(EXTRAS[recipe])
@@ -633,7 +633,9 @@ def _rewrite_wheel(wheel: bytes, metadata_edit) -> bytes:
 def _optional_into_core(e):
     def edit(data):
         return re.sub(
-            rb"(Requires-Dist: pyarrow ?==26\.0\.0) ?; ?extra ?== ?['\"]execute-mysql['\"]",
+            rb"(Requires-Dist: pyarrow ?=="
+            + re.escape(ARROW["pyarrow"]).encode()
+            + rb") ?; ?extra ?== ?['\"]execute-mysql['\"]",
             rb"\1",
             data,
             count=1,

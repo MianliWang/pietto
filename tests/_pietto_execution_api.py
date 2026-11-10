@@ -393,7 +393,7 @@ def unnest_setup_statements():
     return tuple(result)
 
 
-# psycopg 3.3.5 hands every connection string, password included, to its
+# psycopg 3.3.8 hands every connection string, password included, to its
 # selected implementation's `Conninfo.parse`; this copy records each one.
 PSYCOPG_C = """
 import pathlib
