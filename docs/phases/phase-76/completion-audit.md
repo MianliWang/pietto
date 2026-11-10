@@ -33,6 +33,20 @@ No tag or package release is part of these batches. Phase76 and Phase77 are
 planned together for core `0.1.11`, with separate release approval; PyPI is
 uploaded by the owner.
 
+**Publication follow-up, 2026-11-08.** B2 is published at
+`f8ccd2c44a2d9adf431a496bd9bbae037783176f`, tree
+`460e3e135d1dcb0b926928bc2632a889410f258a`. Its final Python 3.13 Gate 2
+passed 27,593 tests with 41 skips, plus golden and package checks. Natural
+[CI 42489408515](https://github.com/MianliWang/pietto/actions/runs/42489408515),
+push/main attempt 1, accepted all 21 jobs. The ten final-CI profile nodes
+passed individually; their analysis and independent review closed in the
+external ledger on the same day. Per-node monotonic durations and the UTC
+window disagree, so the profile supports no precise total-time or speedup
+claim. The retained plan/emission, pure-boundary, consumer-memo and repository
+fact-acquisition follow-ups transfer to Phase77 planning without authorizing
+cache, verifier or scheduler changes. Phase76 is complete and published;
+the combined core release remains separate.
+
 ## Accepted scope
 
 The release-note fragments linked below contain the precise public forms and

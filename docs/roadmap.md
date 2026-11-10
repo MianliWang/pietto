@@ -129,27 +129,30 @@ zeros is on the Phase77 Gate 1 agenda.
 ### Editor work package
 
 The editor line is its own work package beside Phases 76–80, tied to none of
-them; it starts when the owner approves its Gate 1, which sets its scope and
-budget. The core semantic owner provides the facts and the extension
-consumes them. Its first public contract is a spec page
-`docs/spec/lsp-diagnostics-v1.md` for the diagnostics of `pietto lsp`. It
-then sets an editor latency budget, deciding whether the linear analysis of
-layered JOIN DAGs and the FD sharing of PMS-6 (see the
-[project-mode follow-up](#project-mode-follow-up)) come first, and a public
-editor-facts contract, which first weighs extending the
-[semantic metadata artifact v1](spec/semantic-metadata-artifact-v1.md)
-before a new format. The capability facts are planned to live in that
-contract, in four layers (check, SQL emission, execution, result reading)
-and three states (unsupported, unknown, not qualified), read alike by
-editors and AI tools, with each backend filling its own profile. Hover,
-definition and symbols then build on the contract, and the extension's model
-view is rebuilt on the column view.
+them. The core semantic owner provides the facts and the extension consumes
+them. [LSP diagnostics v1](spec/lsp-diagnostics-v1.md) describes the
+diagnostic protocol of `pietto lsp`, and
+[LSP editor facts v1](spec/lsp-editor-facts-v1.md) the hover, go-to-definition
+and document symbols that ED.01 and ED.02 selected, from an ephemeral
+in-process snapshot with the existing metadata formats unchanged; both are
+alpha contracts. Each remaining step needs its own Gate 1: an editor latency
+budget over a representative corpus, which decides whether the linear
+analysis of layered JOIN DAGs and the FD sharing of PMS-6 (see the
+[project-mode follow-up](#project-mode-follow-up)) come first; the capability
+facts, whose carrier that Gate 1 chooses after weighing the
+[semantic metadata artifact v1](spec/semantic-metadata-artifact-v1.md), in
+four layers (check, SQL emission, execution, result reading) and three states
+(unsupported, unknown, not qualified), read alike by editors and AI tools,
+with each backend filling its own profile; and the extension's model view,
+rebuilt on the column view.
 
 The owner's VS Code extension (`MianliWang/pietto-vscode-extension`) takes
 its diagnostics from `pietto lsp` and versions apart from Pietto, with a
 minimum Pietto version that its own checks enforce: `0.2.0` stays, small
 changes ship as `0.2.x`, `0.3.0` comes only with a user-visible editor
-feature, and no Marketplace pre-release channel is used. It gets a CI in its
+feature, and no Marketplace pre-release channel is used. PostgreSQL SQL
+preview is the feature now published on the independent `0.3.0` line (see
+[status](status.md)). It gets a CI in its
 repository, which needs its own authorization, and its Marketplace timing is
 the owner's. Each Pietto phase that changes the grammar or the built-in
 catalog carries the extension sync, made by the lead, and the sync script
@@ -157,14 +160,14 @@ stops reading the private `pietto.parser_api._parse_migration_source`.
 
 ### Third dialect
 
-Before the first Gate 1 of Phase78 or Phase79, a separate
-ARCHITECTURE_DECISION chooses how the new backends are built: small
-hand-written target adapters with sqlglot as a development-only oracle, or
-sqlglot dialect families as a runtime dependency of the new backends only,
-with the PostgreSQL and MySQL emitters kept and Pietto still deciding the SQL
-bytes and semantics. It states the dependency, pinning, byte-stability and
-error-ownership costs of each, and decides whether DuckDB comes before
-SQLite. Rows 78 and 79 stand until then.
+The owner selected AD78.01 on 2026-11-08: small Pietto-owned target adapters,
+with sqlglot only as a test oracle, and the limited DuckDB path before SQLite.
+The existing PostgreSQL/MySQL emitters retain their SQL-byte and semantic
+authority; sqlglot is not a runtime dependency. Phase numbers stay unchanged.
+The limited Phase79 DuckDB vertical is scheduled ahead of Phase78 SQLite.
+Each backend's Gate 1 still binds its supported forms, pinned dependencies,
+error ownership and qualification; this architecture decision does not open a
+dialect by itself.
 
 ### Phase81 scope
 
@@ -187,10 +190,7 @@ Phase81 if it changes a public type contract, otherwise to `2.0`.
 
 ### Tests and maintenance
 
-The third whole-tree test pass ends before the end of Phase78. The
-dependency updates held back for `0.1.10` come after Phase76 closes and
-before the Phase77 Gate 0, as a separately authorized maintenance batch with
-a real-database run. The CI scheduler fix for module fixtures built in
+The third whole-tree test pass ends before the end of Phase78. The CI scheduler fix for module fixtures built in
 several shards (F3) is authorized as its own maintenance batch, with its
 evidence under the
 [CI workload governance](architecture/ci-workload-governance-v1.md). The
