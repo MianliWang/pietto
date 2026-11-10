@@ -11,7 +11,7 @@ import queue
 import subprocess
 import sys
 import threading
-from collections.abc import Callable
+from collections.abc import Callable, Sequence
 from pathlib import Path, PurePath, PurePosixPath, PureWindowsPath
 from typing import Any, cast
 
@@ -86,7 +86,12 @@ def frames(data: bytes) -> list[Message]:
     return messages
 
 
-def init(*roots: Path, related: bool = False) -> Message:
+def init(
+    *roots: Path,
+    related: bool = False,
+    plaintext_hover: bool = False,
+    hierarchical_symbols: bool = False,
+) -> Message:
     params: Message = {
         "initializationOptions": {"projectRoots": [str(r) for r in roots]}
     }
@@ -94,6 +99,17 @@ def init(*roots: Path, related: bool = False) -> Message:
         params["capabilities"] = {
             "textDocument": {"publishDiagnostics": {"relatedInformation": True}}
         }
+    if plaintext_hover or hierarchical_symbols:
+        capabilities = cast(dict[str, object], params.setdefault("capabilities", {}))
+        text_document = cast(
+            dict[str, object], capabilities.setdefault("textDocument", {})
+        )
+        if plaintext_hover:
+            text_document["hover"] = {"contentFormat": ["plaintext"]}
+        if hierarchical_symbols:
+            text_document["documentSymbol"] = {
+                "hierarchicalDocumentSymbolSupport": True
+            }
     return {"jsonrpc": "2.0", "id": 0, "method": "initialize", "params": params}
 
 
@@ -122,11 +138,24 @@ def closed(uri: str) -> Message:
     return notify("textDocument/didClose", textDocument={"uri": uri})
 
 
+def request(
+    request_id: int,
+    method: str,
+    uri: str,
+    line: int | None = None,
+    character: int | None = None,
+) -> Message:
+    params: Message = {"textDocument": {"uri": uri}}
+    if line is not None and character is not None:
+        params["position"] = {"line": line, "character": character}
+    return {"jsonrpc": "2.0", "id": request_id, "method": method, "params": params}
+
+
 class Script:
     """A scripted inbox. The server reads each batch as already received and
     analyses only when the batch is used up; a callable runs when reached."""
 
-    def __init__(self, *batches: list[object]) -> None:
+    def __init__(self, *batches: Sequence[object]) -> None:
         self.batches = [list(batch) for batch in batches]
 
     def get(self) -> object:
@@ -148,7 +177,7 @@ class Script:
 
 
 def session(
-    first: Message, *batches: list[object], script: Script | None = None
+    first: Message, *batches: Sequence[object], script: Script | None = None
 ) -> list[Message]:
     """Run one in-process session: `first` with `initialized`, each batch,
     then shutdown and exit; return everything the server wrote."""
@@ -171,6 +200,10 @@ def publishes(messages: list[Message], uri: str | None = None) -> list[Message]:
         if message.get("method") == "textDocument/publishDiagnostics"
         and (uri is None or message["params"]["uri"] == uri)
     ]
+
+
+def response(messages: list[Message], request_id: int) -> Message:
+    return next(item for item in messages if item.get("id") == request_id)
 
 
 def run_process(data: bytes, *arguments: str) -> tuple[int, list[Message], bytes]:
@@ -270,6 +303,9 @@ def test_lifecycle_over_a_process() -> None:
                 "capabilities": {
                     "positionEncoding": "utf-16",
                     "textDocumentSync": {"openClose": True, "change": 1},
+                    "hoverProvider": True,
+                    "definitionProvider": True,
+                    "documentSymbolProvider": True,
                 },
                 "serverInfo": {"name": "pietto", "version": cli._package_version()},
             },
@@ -278,6 +314,527 @@ def test_lifecycle_over_a_process() -> None:
     ]
     assert cli.main(["lsp", "--help"]) == 0
     assert cli.main(["lsp", "extra"]) == 2
+
+
+@pytest.mark.parametrize("method", ["textDocument/hover", "textDocument/definition"])
+@pytest.mark.parametrize(
+    "position", [None, {"line": True, "character": 0}, {"line": 0, "character": -1}]
+)
+def test_editor_positions_are_checked_without_a_snapshot(
+    tmp_path: Path, method: str, position: object
+) -> None:
+    message = request(1, method, (tmp_path / "unopened.pietto").as_uri())
+    if position is not None:
+        message["params"]["position"] = position
+    messages = session(init(), [message])
+    assert response(messages, 1)["error"]["code"] == -32602
+
+
+def test_single_file_editor_requests_use_one_current_semantic_snapshot(
+    tmp_path: Path,
+) -> None:
+    text = """shape User:
+    id: Int
+
+source users: User = postgres.table("public.users")
+
+table rows:
+    from users
+    select id
+"""
+    path = tmp_path / "rows.pietto"
+    uri = path.as_uri()
+    messages = session(
+        init(),
+        [opened(uri, text, 1)],
+        [
+            request(1, "textDocument/hover", uri, 1, 8),
+            request(2, "textDocument/definition", uri, 6, 9),
+            request(3, "textDocument/documentSymbol", uri),
+            request(4, "textDocument/hover", uri, 7, 11),
+        ],
+    )
+    assert response(messages, 1)["result"] == {
+        "contents": {"language": "pietto", "value": "builtin Int"},
+        "range": {
+            "start": {"line": 1, "character": 8},
+            "end": {"line": 1, "character": 11},
+        },
+    }
+    assert response(messages, 2)["result"] == {
+        "uri": uri,
+        "range": {
+            "start": {"line": 3, "character": 0},
+            "end": {"line": 3, "character": 51},
+        },
+    }
+    assert response(messages, 3)["result"] == [
+        {
+            "name": "User",
+            "kind": 5,
+            "location": {
+                "uri": uri,
+                "range": {
+                    "start": {"line": 0, "character": 0},
+                    "end": {"line": 1, "character": 11},
+                },
+            },
+        },
+        {
+            "name": "users",
+            "kind": 13,
+            "location": {
+                "uri": uri,
+                "range": {
+                    "start": {"line": 3, "character": 0},
+                    "end": {"line": 3, "character": 51},
+                },
+            },
+        },
+        {
+            "name": "rows",
+            "kind": 5,
+            "location": {
+                "uri": uri,
+                "range": {
+                    "start": {"line": 5, "character": 0},
+                    "end": {"line": 7, "character": 13},
+                },
+            },
+        },
+    ]
+    assert response(messages, 4)["result"] is None
+
+
+def test_editor_requests_fail_closed_until_the_changed_epoch_is_analyzed(
+    tmp_path: Path,
+) -> None:
+    first = "shape User:\n    id: Int\n"
+    second = "shape Account:\n    id: Int\n"
+    uri = (tmp_path / "shape.pietto").as_uri()
+    messages = session(
+        init(),
+        [opened(uri, first, 1)],
+        [changed(uri, second, 2), request(1, "textDocument/documentSymbol", uri)],
+        [request(2, "textDocument/documentSymbol", uri)],
+    )
+    assert response(messages, 1)["result"] == []
+    assert response(messages, 2)["result"][0]["name"] == "Account"
+
+
+def test_untitled_document_symbols_and_definition_stay_in_the_open_document() -> None:
+    text = """shape User:
+    id: Int
+
+source users: User = postgres.table("users")
+
+table rows:
+    from users
+    select id
+"""
+    uri = "untitled:rows"
+    messages = session(
+        init(),
+        [opened(uri, text, 1)],
+        [
+            request(1, "textDocument/documentSymbol", uri),
+            request(2, "textDocument/definition", uri, 6, 9),
+        ],
+    )
+    assert [item["name"] for item in response(messages, 1)["result"]] == [
+        "User",
+        "users",
+        "rows",
+    ]
+    assert response(messages, 2)["result"]["uri"] == uri
+
+
+def test_document_symbols_keep_constants_and_relationships_in_source_order(
+    tmp_path: Path,
+) -> None:
+    text = """shape User:
+    id: Int
+
+cutoff: Int = 1
+
+relationship same(a: User, b: User): a.id == b.id
+
+source users: User = postgres.table("users")
+"""
+    uri = (tmp_path / "symbols.pietto").as_uri()
+    messages = session(
+        init(),
+        [opened(uri, text, 1)],
+        [request(1, "textDocument/documentSymbol", uri)],
+    )
+    assert [
+        (item["name"], item["kind"], item.get("detail"))
+        for item in response(messages, 1)["result"]
+    ] == [
+        ("User", 5, None),
+        ("cutoff", 14, None),
+        ("same", 12, None),
+        ("users", 13, None),
+    ]
+
+
+def test_project_document_symbols_keep_relationships_between_relations(
+    tmp_path: Path,
+) -> None:
+    text = """shape User:
+    id: Int
+
+source users: User = postgres.table("users")
+
+table all_users:
+    from users
+    select:
+        id
+
+relationship same(a: User, b: User): a.id == b.id
+
+query visible_users:
+    from all_users
+    select:
+        id
+"""
+    root = project(tmp_path, symbols=text)
+    uri = (root / "symbols.pietto").as_uri()
+    messages = session(
+        init(root, hierarchical_symbols=True),
+        [opened(uri, text, 1)],
+        [request(1, "textDocument/documentSymbol", uri)],
+    )
+    assert publishes(messages, uri)[-1]["diagnostics"] == []
+    symbols = response(messages, 1)["result"]
+    assert [symbol["name"] for symbol in symbols] == [
+        "User",
+        "users",
+        "all_users",
+        "same",
+        "visible_users",
+    ]
+    assert (symbols[3]["kind"], symbols[3]["detail"]) == (12, "relationship same")
+    assert symbols[3]["range"]["start"] == {"line": 10, "character": 0}
+
+
+@pytest.mark.parametrize("ending", ["\r\n", "\r"], ids=["crlf", "cr"])
+def test_definition_ranges_keep_utf16_bom_and_astral_coordinates(
+    tmp_path: Path, ending: str
+) -> None:
+    source_line = 'source users: User = postgres.table("\U0001f600")'
+    text = "\ufeff" + ending.join(
+        (
+            "shape User:",
+            "    id: Int",
+            "",
+            source_line,
+            "",
+            "table rows:",
+            "    from users",
+            "    select id",
+            "",
+        )
+    )
+    uri = (tmp_path / "coordinates.pietto").as_uri()
+    messages = session(
+        init(),
+        [opened(uri, text, 1)],
+        [request(1, "textDocument/definition", uri, 6, 9)],
+    )
+    assert response(messages, 1)["result"] == {
+        "uri": uri,
+        "range": {
+            "start": {"line": 3, "character": 0},
+            "end": {
+                "line": 3,
+                "character": len(source_line.encode("utf-16-le")) // 2,
+            },
+        },
+    }
+
+
+def test_closed_and_noncanonical_request_uris_have_no_editor_snapshot(
+    tmp_path: Path,
+) -> None:
+    text = "shape User:\n    id: Int\n"
+    uri = (tmp_path / "shape.pietto").as_uri()
+    other = f"{tmp_path.as_uri()}/./shape.pietto"
+    messages = session(
+        init(),
+        [opened(uri, text, 1)],
+        [
+            request(1, "textDocument/documentSymbol", other),
+            closed(uri),
+            request(2, "textDocument/documentSymbol", uri),
+        ],
+    )
+    assert response(messages, 1)["result"] == []
+    assert response(messages, 2)["result"] == []
+
+
+def test_editor_request_does_not_start_a_second_analysis(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    text = """shape User:
+    id: Int
+
+source users: User = postgres.table("users")
+
+table rows:
+    from users
+    select id
+"""
+    uri = (tmp_path / "shape.pietto").as_uri()
+    script = Script()
+    real = _lsp._check_text_with_editor_facts
+
+    def checked(value: str, *, path: str | None = None) -> object:
+        result = real(value, path=path)
+        monkeypatch.setattr(
+            _lsp,
+            "_check_text_with_editor_facts",
+            lambda *_args, **_kwargs: (_ for _ in ()).throw(
+                AssertionError("second analysis")
+            ),
+        )
+        return result
+
+    monkeypatch.setattr(_lsp, "_check_text_with_editor_facts", checked)
+    messages = session(
+        init(),
+        [opened(uri, text, 1)],
+        [
+            request(1, "textDocument/hover", uri, 1, 8),
+            request(2, "textDocument/definition", uri, 6, 9),
+            request(3, "textDocument/documentSymbol", uri),
+        ],
+        script=script,
+    )
+    assert response(messages, 1)["result"]["contents"]["value"] == "builtin Int"
+    assert response(messages, 2)["result"]["uri"] == uri
+    assert response(messages, 3)["result"][0]["name"] == "User"
+
+
+@pytest.mark.parametrize("project_mode", [False, True], ids=["single", "project"])
+def test_navigation_targets_use_the_unique_open_uri(
+    tmp_path: Path, project_mode: bool
+) -> None:
+    text = """shape User:
+    id: Int
+
+source users: User = postgres.table("public.users")
+
+table rows:
+    from users
+    select id
+"""
+    if project_mode:
+        root = project(tmp_path, models=MODELS, a=A_OK)
+        target_uri = f"{root.as_uri()}/./models.pietto"
+        source_uri = (root / "a.pietto").as_uri()
+        initialization = init(root)
+        opened_documents = [opened(target_uri, MODELS, 1), opened(source_uri, A_OK, 1)]
+        source_line = 5
+    else:
+        target_uri = source_uri = f"{tmp_path.as_uri()}/./single.pietto"
+        initialization = init()
+        opened_documents = [opened(source_uri, text, 1)]
+        source_line = 6
+    messages = session(
+        initialization,
+        opened_documents,
+        [
+            request(1, "textDocument/definition", source_uri, source_line, 9),
+            request(2, "textDocument/documentSymbol", target_uri),
+        ],
+    )
+    assert response(messages, 1)["result"]["uri"] == target_uri
+    symbols = response(messages, 2)["result"]
+    assert symbols
+    assert all(item["location"]["uri"] == target_uri for item in symbols)
+
+
+def test_project_definition_uses_the_exact_imported_relation_occurrence(
+    tmp_path: Path,
+) -> None:
+    root = project(tmp_path, models=MODELS, a=A_OK)
+    a_uri = (root / "a.pietto").as_uri()
+    models_uri = (root / "models.pietto").as_uri()
+    messages = session(
+        init(root),
+        [],
+        [opened(a_uri, A_OK, 1)],
+        [request(1, "textDocument/definition", a_uri, 5, 9)],
+    )
+    assert response(messages, 1)["result"] == {
+        "uri": models_uri,
+        "range": {
+            "start": {"line": 5, "character": 0},
+            "end": {"line": 5, "character": 51},
+        },
+    }
+
+
+def test_project_type_definition_and_capability_response_shapes(tmp_path: Path) -> None:
+    root = project(tmp_path, models=MODELS, a=A_OK)
+    models_uri = (root / "models.pietto").as_uri()
+    messages = session(
+        init(root, plaintext_hover=True, hierarchical_symbols=True),
+        [],
+        [opened((root / "a.pietto").as_uri(), A_OK, 1)],
+        [
+            request(1, "textDocument/hover", models_uri, 1, 8),
+            request(2, "textDocument/definition", models_uri, 1, 8),
+            request(3, "textDocument/documentSymbol", models_uri),
+        ],
+    )
+    assert response(messages, 1)["result"] == {
+        "contents": {"kind": "plaintext", "value": "builtin UUID"},
+        "range": {
+            "start": {"line": 1, "character": 8},
+            "end": {"line": 1, "character": 12},
+        },
+    }
+    assert response(messages, 2)["result"] is None
+    symbols = response(messages, 3)["result"]
+    assert [symbol["name"] for symbol in symbols] == ["User", "users"]
+    assert all("selectionRange" in symbol for symbol in symbols)
+
+
+def test_project_definition_keeps_the_reexported_alias_target_occurrence(
+    tmp_path: Path,
+) -> None:
+    a = """from "models.pietto" import (
+    source users as local_users,
+)
+
+export (
+    source local_users,
+)
+"""
+    b = """from "a.pietto" import (
+    source local_users as again,
+)
+
+table rows:
+    from again
+    select id
+"""
+    root = project(tmp_path, models=MODELS, a=a, b=b)
+    b_uri = (root / "b.pietto").as_uri()
+    messages = session(
+        init(root),
+        [],
+        [opened(b_uri, b, 1)],
+        [request(1, "textDocument/definition", b_uri, 5, 9)],
+    )
+    assert response(messages, 1)["result"] == {
+        "uri": (root / "models.pietto").as_uri(),
+        "range": {
+            "start": {"line": 5, "character": 0},
+            "end": {"line": 5, "character": 51},
+        },
+    }
+
+
+def test_project_type_definition_keeps_the_reexported_alias_target_occurrence(
+    tmp_path: Path,
+) -> None:
+    models = """shape Row:
+    id: Int
+
+export (
+    shape Row,
+)
+"""
+    a = """from "models.pietto" import (
+    shape Row as Local,
+)
+
+export (
+    shape Local,
+)
+"""
+    b = """from "a.pietto" import (
+    shape Local as Remote,
+)
+
+shape Wrapper:
+    value: Remote
+"""
+    root = project(tmp_path, models=models, a=a, b=b)
+    b_uri = (root / "b.pietto").as_uri()
+    messages = session(
+        init(root),
+        [],
+        [opened(b_uri, b, 1)],
+        [request(1, "textDocument/definition", b_uri, 5, 12)],
+    )
+    assert response(messages, 1)["result"] == {
+        "uri": (root / "models.pietto").as_uri(),
+        "range": {
+            "start": {"line": 0, "character": 0},
+            "end": {"line": 1, "character": 11},
+        },
+    }
+
+
+def test_partial_project_omissions_have_no_editor_snapshot(tmp_path: Path) -> None:
+    root = project(
+        tmp_path,
+        models=MODELS.replace("id: UUID", "id UUID"),
+        a=A_OK,
+        b="shape Standalone:\n    id: Int\n",
+    )
+    a_uri = (root / "a.pietto").as_uri()
+    b_uri = (root / "b.pietto").as_uri()
+    messages = session(
+        init(root),
+        [],
+        [
+            request(1, "textDocument/documentSymbol", a_uri),
+            request(2, "textDocument/documentSymbol", b_uri),
+        ],
+    )
+    assert response(messages, 1)["result"] == []
+    assert [item["name"] for item in response(messages, 2)["result"]] == ["Standalone"]
+
+
+def test_definition_refuses_a_target_open_under_two_uris(tmp_path: Path) -> None:
+    root = project(tmp_path, models=MODELS, a=A_OK)
+    a_uri = (root / "a.pietto").as_uri()
+    models_uri = (root / "models.pietto").as_uri()
+    alias_uri = f"{root.as_uri()}/./models.pietto"
+    messages = session(
+        init(root),
+        [],
+        [
+            opened(a_uri, A_OK, 1),
+            opened(models_uri, MODELS, 1),
+            opened(alias_uri, MODELS, 1),
+        ],
+        [request(1, "textDocument/definition", a_uri, 5, 9)],
+    )
+    assert response(messages, 1)["result"] is None
+
+
+def test_target_omitted_on_a_later_root_analysis_has_no_stale_definition(
+    tmp_path: Path,
+) -> None:
+    root = project(tmp_path, models=MODELS, a=A_OK)
+    a_uri = (root / "a.pietto").as_uri()
+    models_uri = (root / "models.pietto").as_uri()
+    broken = MODELS.replace("id: UUID", "id UUID")
+    messages = session(
+        init(root),
+        [],
+        [request(1, "textDocument/definition", a_uri, 5, 9)],
+        [opened(models_uri, broken, 2)],
+        [request(2, "textDocument/definition", a_uri, 5, 9)],
+    )
+    assert response(messages, 1)["result"]["uri"] == models_uri
+    assert response(messages, 2)["result"] is None
 
 
 def test_protocol_errors_over_a_process() -> None:
@@ -304,7 +861,7 @@ def test_protocol_errors_over_a_process() -> None:
         (None, -32700),
         (None, -32600),
         (0, None),
-        (3, -32601),
+        (3, -32602),
         (4, -32600),
         (99, None),
         (6, -32600),
@@ -799,6 +1356,47 @@ def test_a_uri_in_another_letter_case_checks_its_buffer(
     assert publishes(messages, (root / "a.pietto").as_uri()) == []
 
 
+def test_editor_facts_refuse_selected_name_collisions_and_their_targets(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    copied = """from "a.pietto" import (
+    table active_users,
+)
+
+table copied:
+    from active_users
+    select:
+        id
+"""
+    exported = A_OK + "\nexport (\n    table active_users,\n)\n"
+    root = project(tmp_path, models=MODELS, a=exported, copied=copied)
+    if (root / "A.pietto").exists():
+        pytest.skip("needs two file names that differ only in letter case")
+    (root / "A.pietto").write_text(
+        exported.replace("active_users", "other_users"), encoding="utf-8"
+    )
+    monkeypatch.setattr(_lsp, "Path", FoldedPath)
+    uri = (root / "a.pietto").as_uri()
+    copied_uri = (root / "copied.pietto").as_uri()
+    messages = session(
+        init(root),
+        [opened(uri, exported, 1), opened(copied_uri, copied, 1)],
+        [
+            request(1, "textDocument/documentSymbol", uri),
+            request(2, "textDocument/hover", uri, 5, 9),
+            request(3, "textDocument/definition", copied_uri, 5, 9),
+            request(4, "textDocument/hover", copied_uri, 5, 9),
+            request(5, "textDocument/documentSymbol", copied_uri),
+        ],
+    )
+    assert "two names" in publishes(messages, uri)[-1]["diagnostics"][0]["message"]
+    assert response(messages, 1)["result"] == []
+    assert response(messages, 2)["result"] is None
+    assert response(messages, 3)["result"] is None
+    assert response(messages, 4)["result"] is None
+    assert [item["name"] for item in response(messages, 5)["result"]] == ["copied"]
+
+
 def test_two_selected_names_of_one_path_get_only_the_names_error(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
@@ -810,13 +1408,13 @@ def test_two_selected_names_of_one_path_get_only_the_names_error(
     # Windows, both selected files have one path.
     monkeypatch.setattr(_lsp, "Path", FoldedPath)
     seen: list[dict[str, str]] = []
-    real = _lsp.check_project_diagnostics
+    real = _lsp.check_project_editor_diagnostics
 
     def checking(root: Path, *, overlays: dict[str, str]) -> object:
         seen.append(dict(overlays))
         return real(root, overlays=overlays)
 
-    monkeypatch.setattr(_lsp, "check_project_diagnostics", checking)
+    monkeypatch.setattr(_lsp, "check_project_editor_diagnostics", checking)
     upper, lower = (root / "A.pietto").as_uri(), (root / "a.pietto").as_uri()
     messages = session(
         init(root),
@@ -951,14 +1549,14 @@ def test_a_result_made_stale_while_checking_is_dropped(
     root = project(tmp_path, models=MODELS, a=A_OK)
     uri = (root / "a.pietto").as_uri()
     script = Script()
-    real = _lsp.check_project_diagnostics
+    real = _lsp.check_project_editor_diagnostics
 
     def checking(root: Path, *, overlays: dict[str, str]) -> object:
         if overlays.get("a.pietto") == A_BAD:
             script.batches[0].append(changed(uri, A_OK, 2))
         return real(root, overlays=overlays)
 
-    monkeypatch.setattr(_lsp, "check_project_diagnostics", checking)
+    monkeypatch.setattr(_lsp, "check_project_editor_diagnostics", checking)
     messages = session(init(root), [opened(uri, A_BAD, 1)], script=script)
     assert publishes(messages, uri) == [{"uri": uri, "diagnostics": [], "version": 2}]
 

@@ -103,6 +103,18 @@ def test_an_overlay_replaces_only_the_read_of_its_selected_file(
     assert _cli_json(root)["diagnostics"] == []
 
 
+def test_diagnostics_only_project_checks_do_not_build_editor_facts(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    root = _project(tmp_path, models=MODELS, a=A_OK)
+
+    def unexpected(_: object) -> object:
+        raise AssertionError("editor facts must stay out of diagnostics-only checks")
+
+    monkeypatch.setattr(check, "_project_editor_facts", unexpected)
+    assert check.check_project_diagnostics(root, overlays={}).diagnostics == ()
+
+
 def test_an_overlay_reads_a_file_the_disk_cannot_and_keeps_the_size_limit(
     tmp_path: Path,
 ) -> None:

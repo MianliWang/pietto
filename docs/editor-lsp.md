@@ -1,73 +1,41 @@
-# Editor diagnostics: `pietto lsp` (alpha)
+# Editor support: `pietto lsp` (alpha)
 
-`pietto lsp` is a language server for editors. It runs the `pietto check`
-stage on the files you edit and pushes the diagnostics to the editor. It does
-nothing else: no hover, completion, go-to-definition, formatting or SQL. The
-editor runs no dialect, so backend refusals (`PIE-B...`) appear only in
-`pietto emit-sql`. This is an alpha contract for editors; it adds no CLI JSON
-document and changes no other command.
+`pietto lsp` checks files and configured projects for diagnostics and supplies
+hover, go-to-definition and document symbols from the same analysis. Backend
+refusals (`PIE-B...`) still appear only in
+`pietto emit-sql`.
 
-## What the server does
+The protocol, lifecycle, full-document synchronization, UTF-16 position,
+project-overlay, conflict, diagnostic, resource, and trust rules are the
+[LSP diagnostics v1](spec/lsp-diagnostics-v1.md) alpha contract. In
+particular, it has no completion, formatting, SQL preview or execution feature.
 
-- It speaks JSON-RPC 2.0 with Language Server Protocol framing on standard
-  input and output. `pietto lsp --stdio` is the same command; `--stdio` is
-  accepted because generic clients add it.
-- The editor sends whole documents (full sync), and positions are UTF-16, as
-  every LSP client expects.
-- Project roots come only from the `projectRoots` initialization option: a
-  list of absolute paths, each the same as `pietto check --project PATH`.
-  Without the option there are no roots. Any other value, and two paths that
-  name one directory (also through a symbolic link), are refused with the
-  JSON-RPC error `-32602`. Pietto never guesses a root from the workspace or
-  the working directory. To change the roots, restart the server.
-- Every module that a root selects is checked, whether it is open or not, and
-  shows the diagnostics of `pietto check --project ROOT --format json`. An
-  open file is checked from its unsaved buffer. The buffer is only read for
-  these diagnostics: nothing is written, and `emit-sql`, compiled builds and
-  packages refuse buffer text by type.
-- In a `schema_version = 2` root, a read, parse, header, def import or
-  naming error, an error of the checks after naming, or an import cycle in
-  one module no longer hides the other modules: that module, and every
-  module that imports it directly or through other modules, is left out and
-  the rest is checked again, at most five times. Each module still checked
-  shows what `pietto check --project ROOT --format json` shows with the
-  left-out modules in `[sources].exclude`. A root of another schema version,
-  like the command line, stays all or nothing.
-- Any other open file is checked like `pietto check FILE`. A module that
-  imports names reports them as unknown (and the import as `PIE-S2708`) until
-  its project root is in `projectRoots`.
-- A diagnostic shows its `message` and then, on a new line, its JSON
-  `suggestion`, unless the message already contains that text.
-- Project errors show as `project error: <kind>: <message>`: at the file they
-  name, else at `pietto.toml`, else in a message window.
-- Each published set for an open file carries the document version it was
-  computed from. A newer edit makes an older result stale, and the server
-  drops it instead of publishing it.
+Hover describes resolved type and `from` references. Go-to-definition follows
+their exact declaration, including supported imports and re-exports inside a
+configured schema-v2 project. Builtin types have a hover description but no
+authored definition. The outline lists named top-level declarations in source
+order, including single-file constants and relationship templates. Field,
+let, parameter and function-call bindings are not yet navigation facts.
 
-The server adds five messages of its own, without a `PIE-` code. Each of
-the first three is the only diagnostic its file gets; the server picks no
-root, no buffer and no file. A file open under two URIs is checked from the
-disk until one of them is closed.
-
-| When | Message |
-|---|---|
-| Two configured roots select the same file | `This file belongs to two project roots: <root 1> and <root 2>. Keep one of them in projectRoots.` |
-| A selected file is open under two URIs, for example `file:///r/a.pietto` and `file:///r/./a.pietto`, or `file:///r/A.pietto` on Windows | `This file is open under two URIs: <uri 1> and <uri 2>. Keep one of them open.` (URIs in code-point order) |
-| Two selected files have names that differ only in letter case, which a case-sensitive directory on Windows can hold | `This file is selected under two names that differ only in letter case: <name 1> and <name 2>. Rename one of them.` (names relative to the root, in code-point order) |
-| A module was not checked because a module it imports has errors | `Not checked: this module imports <file>, which has errors.` (two or more files: `<file 1>, <file 2> and <file 3>, which have errors.`, in code-point order; Information, at its import) |
-| The editor sent a partial change | `Pietto needs whole-document changes; reopen this file.` |
+These requests return no facts for stale or failed analyses, omitted modules,
+ambiguous ranges or root/URI conflicts. They query the current snapshot without
+rechecking or reading files. The server does not watch external disk changes;
+project facts refresh when its existing document notifications cause a new
+analysis. The [editor facts contract](spec/lsp-editor-facts-v1.md) defines the
+exact availability and client-capability rules.
 
 ## The Pietto extension for VS Code
 
-The tested client is the Pietto extension for VS Code `0.2.0`, commit
+The Phase75 acceptance used the Pietto extension for VS Code `0.2.0`, commit
 `5484ebdb` of the repository `MianliWang/pietto-vscode-extension`. It starts
 `pietto lsp` through `vscode-languageclient` 9.0.1 and sends its setting
 `pietto.projectRoots` as the `projectRoots` initialization option. Its
 acceptance, which the [Phase75 route](phases/phase-75/route.md) requires, ran
-in VS Code 1.145.2 on the batch-1 head `ff1aa713`. The extension is not yet
-on the Visual Studio Marketplace: until it is, install it from its repository
-or use a generic LSP client as the next section shows. The extension `0.1.0`
-accepted only Pietto `0.1.2`.
+in VS Code 1.145.2 on the batch-1 head `ff1aa713`. The independent extension
+has since published its `0.3.0` SQL-preview code; [status](status.md) records
+that repository state separately from the owner's Marketplace upload. Follow
+its repository's installation instructions or use a generic LSP client as
+the next section shows. The extension `0.1.0` accepted only Pietto `0.1.2`.
 
 ## VS Code with a generic LSP client
 
