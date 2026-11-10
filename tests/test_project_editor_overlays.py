@@ -80,7 +80,7 @@ def test_an_overlay_replaces_only_the_read_of_its_selected_file(
     tmp_path: Path,
 ) -> None:
     root = _project(tmp_path, models=MODELS, a=A_OK)
-    before = check.check_project_diagnostics(root, overlays={})
+    before = _report(root, {})
     assert before.errors == () and before.diagnostics == ()
     assert before.paths == ("a.pietto", "models.pietto")
     assert before.texts == {"a.pietto": A_OK, "models.pietto": MODELS}
@@ -93,13 +93,25 @@ def test_an_overlay_replaces_only_the_read_of_its_selected_file(
         ProjectOverlaySource,
         ProjectTrustedSourceSnapshot,
     ]
-    report = check.check_project_diagnostics(root, overlays={"a.pietto": A_BAD})
+    report = _report(root, {"a.pietto": A_BAD})
     assert [(d.code, d.location.path) for d in report.diagnostics] == [
         ("PIE-S2102", "a.pietto")
     ]
     assert report.texts["a.pietto"] == A_BAD
     # The disk is unchanged, and the CLI reads the disk.
     assert (root / "a.pietto").read_text(encoding="utf-8") == A_OK
+    assert _cli_json(root)["diagnostics"] == []
+
+
+def test_cli_project_checks_do_not_build_editor_facts(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    root = _project(tmp_path, models=MODELS, a=A_OK)
+
+    def unexpected(_: object) -> object:
+        raise AssertionError("editor facts must stay out of the CLI check")
+
+    monkeypatch.setattr(check, "_project_editor_facts", unexpected)
     assert _cli_json(root)["diagnostics"] == []
 
 
@@ -232,4 +244,4 @@ def _all(sources: tuple[ProjectSource, ...]) -> tuple[ProjectSource, ...]:
 
 
 def _report(root: Path, overlays: dict[str, str]) -> check.ProjectDiagnosticsReport:
-    return check.check_project_diagnostics(root, overlays=overlays)
+    return check.check_project_editor_diagnostics(root, overlays=overlays).report

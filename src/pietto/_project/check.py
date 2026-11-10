@@ -6,10 +6,17 @@ from collections import deque
 from collections.abc import Mapping
 from dataclasses import dataclass, replace
 from pathlib import Path
+from types import MappingProxyType
 from typing import TYPE_CHECKING, cast
 
 import pietto.parser_api as parser_api
 from pietto._builtin_shadows import imported_nodes
+from pietto._editor_facts import (
+    EditorFacts,
+    authored_declarations,
+    editor_declaration,
+    editor_use,
+)
 from pietto.ast_nodes import (
     Definition,
     ExportStatement,
@@ -42,6 +49,7 @@ from pietto._project.model import (
     ProjectInput,
     ProjectParsedInput,
     ProjectParseCheckResult,
+    ProjectResolvedTypeKind,
     ProjectRoot,
     ProjectSemanticResult,
 )
@@ -125,9 +133,20 @@ class ProjectDiagnosticsReport:
     not_checked: tuple[tuple[SourceLocation, str], ...]
 
 
-def check_project_diagnostics(
+@dataclass(frozen=True, slots=True)
+class ProjectEditorDiagnostics:
+    """Private diagnostics-plus-facts result for the editor's one-pass check."""
+
+    report: ProjectDiagnosticsReport
+    facts: Mapping[str, EditorFacts]
+
+    def __post_init__(self) -> None:
+        object.__setattr__(self, "facts", MappingProxyType(dict(self.facts)))
+
+
+def check_project_editor_diagnostics(
     root: str | Path, *, overlays: Mapping[str, str]
-) -> ProjectDiagnosticsReport:
+) -> ProjectEditorDiagnostics:
     """Check a project for an editor, past the modules that stop the check.
 
     Each selected path in `overlays` (project-relative path to editor text)
@@ -142,8 +161,10 @@ def check_project_diagnostics(
     A left-out module that no pass failed, and a failed one without an error
     of its own (a member of an import cycle), reports one message instead, at
     its first import of a left-out module, naming each failed module with an
-    error of its own that it imports, directly or through other modules. The
-    CLI never calls this."""
+    error of its own that it imports, directly or through other modules.
+    The editor facts are those of each module that no pass failed or left
+    out and that has no error of its own, from the last pass when that pass
+    does not stop. The CLI never calls this."""
 
     passes = [_check_pass(root, frozenset(), overlays)]
     paths = tuple(item.path for item in passes[0][0].inputs)
@@ -151,7 +172,7 @@ def check_project_diagnostics(
     failed: set[str] = set()
     blocked: set[str] = set()
     while True:
-        parse, _, _, stopped = passes[-1]
+        parse, _, _, stopped, _ = passes[-1]
         imports.update(
             (
                 parsed.path,
@@ -176,7 +197,7 @@ def check_project_diagnostics(
         passes.append(_check_pass(root, frozenset(failed | blocked), overlays))
     checked = {
         item.path: position
-        for position, (parse, _, _, _) in enumerate(passes)
+        for position, (parse, _, _, _, _) in enumerate(passes)
         for item in parse.inputs
     }
     errors: list[ProjectDiscoveryError] = []
@@ -184,6 +205,7 @@ def check_project_diagnostics(
     related: dict[Diagnostic, tuple[SourceLocation, ...]] = {}
     texts: dict[str, str] = {}
     not_checked: list[tuple[SourceLocation, str]] = []
+    facts_by_path: dict[str, EditorFacts] = {}
     own_errors = {
         path: [error for error in passes[checked[path]][0].errors if error.path == path]
         for path in paths
@@ -198,7 +220,7 @@ def check_project_diagnostics(
     # not checked reaches at least one failed module with an error.
     erring = {path for path in failed if own_errors[path] or _has_errors(own[path])}
     for path in paths:
-        parse, _, found_related, _ = passes[checked[path]]
+        parse, _, found_related, _, pass_facts = passes[checked[path]]
         texts.update(
             (source.path, source.source_text)
             for source in parse.trusted_source_snapshots
@@ -221,31 +243,50 @@ def check_project_diagnostics(
                 for item in own[path]
                 if item in found_related
             )
-    parse, found, found_related, _ = passes[-1]
+        if (
+            path not in failed
+            and path not in blocked
+            and not own_errors[path]
+            and not _has_errors(own[path])
+        ):
+            facts = pass_facts.get(path)
+            if facts is not None:
+                facts_by_path[path] = facts
+    parse, found, found_related, _, _ = passes[-1]
     errors.extend(error for error in parse.errors if error.path not in paths)
     rest = tuple(item for item in found if item.location.path not in paths)
     diagnostics.extend(rest)
     related.update(
         (item, found_related[item]) for item in rest if item in found_related
     )
-    return ProjectDiagnosticsReport(
-        errors=tuple(errors),
-        paths=paths,
-        diagnostics=tuple(diagnostics),
-        related_locations=related,
-        texts=texts,
-        not_checked=tuple(not_checked),
+    return ProjectEditorDiagnostics(
+        report=ProjectDiagnosticsReport(
+            errors=tuple(errors),
+            paths=paths,
+            diagnostics=tuple(diagnostics),
+            related_locations=related,
+            texts=texts,
+            not_checked=tuple(not_checked),
+        ),
+        facts=facts_by_path,
     )
 
 
 def _check_pass(
-    root: str | Path, excluded: frozenset[str], overlays: Mapping[str, str]
+    root: str | Path,
+    excluded: frozenset[str],
+    overlays: Mapping[str, str],
 ) -> tuple[
-    ProjectParseCheckResult, tuple[Diagnostic, ...], RelatedLocations, frozenset[str]
+    ProjectParseCheckResult,
+    tuple[Diagnostic, ...],
+    RelatedLocations,
+    frozenset[str],
+    Mapping[str, EditorFacts],
 ]:
     """One project check without the modules in ``excluded``: its parse
-    check, the diagnostics and related locations the CLI reports for it, and
-    the modules it fails when it stops, none when it completes."""
+    check, the diagnostics and related locations the CLI reports for it, the
+    modules it fails when it stops, none when it completes, and the editor
+    facts of a pass that completes."""
 
     from pietto._project.json_v2 import module_related_locations
 
@@ -253,25 +294,26 @@ def _check_pass(
     related = module_related_locations(parse)
     explicit = parse.compilation_mode is ProjectCompilationMode.EXPLICIT_MODULES
     if parse.ok:
-        diagnostics, ok, semantic_related = check_project_semantics(parse)
-        # Semantic analysis stops only at an import cycle.
+        diagnostics, _, semantic_related, stopped, facts = (
+            _check_project_semantics_with_facts(parse, editor_facts=True)
+        )
         return (
             parse,
             (*parse.diagnostics, *diagnostics),
             {**related, **semantic_related},
-            _failed_modules(_module_diagnostics(parse), (), ())
-            if explicit and not ok
-            else frozenset(),
+            stopped,
+            facts,
         )
     paths = {item.path for item in parse.inputs}
     if not explicit or any(error.path not in paths for error in parse.errors):
-        return parse, parse.diagnostics, related, frozenset()
+        return parse, parse.diagnostics, related, frozenset(), {}
     return (
         parse,
         parse.diagnostics,
         related,
         _failed_modules(parse.module_diagnostic_facts, parse.errors, parse.diagnostics)
         & paths,
+        {},
     )
 
 
@@ -386,16 +428,44 @@ def check_project_semantics(
     diagnostic equal to an earlier one once, at its first position; the parse
     check applies that rule to its own diagnostics."""
 
+    diagnostics, ok, related, _, _ = _check_project_semantics_with_facts(
+        parse_result, editor_facts=False
+    )
+    return diagnostics, ok, related
+
+
+def _check_project_semantics_with_facts(
+    parse_result: ProjectParseCheckResult, *, editor_facts: bool
+) -> tuple[
+    tuple[Diagnostic, ...],
+    bool,
+    RelatedLocations,
+    frozenset[str],
+    Mapping[str, EditorFacts],
+]:
+    """Run one semantic pass. With `editor_facts`, also return the modules
+    it fails when it stops, and the editor facts of its modules only when it
+    neither stops nor exceeds the recursion limit; without it, both are
+    empty."""
+
     from pietto._project.json_v2 import module_related_locations
     from pietto._project.model import build_empty_project_semantic_result
 
     related: RelatedLocations = {}
+    stopped: frozenset[str] = frozenset()
+    facts: Mapping[str, EditorFacts] = {}
     try:
         semantic_result = build_empty_project_semantic_result(parse_result)
         related = module_related_locations(semantic_result)
         diagnostics, ok = project_semantic_boundary(semantic_result)
+        if editor_facts:
+            stopped = _stopped_modules(parse_result, ok)
+            if not stopped:
+                facts = _project_editor_facts(semantic_result)
     except RecursionError:
         diagnostics, ok = (project_recursion_limit_diagnostic(parse_result),), False
+        if editor_facts:
+            stopped = _stopped_modules(parse_result, ok)
     if parse_result.compilation_mode is ProjectCompilationMode.EXPLICIT_MODULES:
         earlier = set(parse_result.diagnostics)
         diagnostics = tuple(
@@ -403,7 +473,112 @@ def check_project_semantics(
             for diagnostic in dict.fromkeys(diagnostics)
             if diagnostic not in earlier
         )
-    return diagnostics, ok, related
+    return diagnostics, ok, related, stopped, facts
+
+
+def _stopped_modules(parse: ProjectParseCheckResult, ok: bool) -> frozenset[str]:
+    """The modules a semantic pass of `parse` fails when it stops, none when
+    it completes: semantic analysis stops only at an import cycle."""
+
+    if ok or parse.compilation_mode is not ProjectCompilationMode.EXPLICIT_MODULES:
+        return frozenset()
+    return _failed_modules(_module_diagnostics(parse), (), ())
+
+
+def _project_editor_facts(
+    semantic_result: ProjectSemanticResult,
+) -> Mapping[str, EditorFacts]:
+    """Detach exact schema-v2 declaration, type and FROM resolution facts. A
+    type use whose canonical type is unknown, as when an alias base or an
+    imported name is unknown, ambiguous, blocked or cyclic, has no fact."""
+
+    if semantic_result.compilation_mode is not ProjectCompilationMode.EXPLICIT_MODULES:
+        return {}
+    type_roots = semantic_result.module_type_source_resolutions
+    relation_roots = semantic_result.module_relation_resolutions
+    if type_roots is None or relation_roots is None:
+        return {}
+    types = {
+        environment.module.path: environment for environment in type_roots.environments
+    }
+    relations = {
+        environment.module.path: environment
+        for environment in relation_roots.environments
+    }
+    facts: dict[str, EditorFacts] = {}
+    for module in semantic_result.modules:
+        parsed = module.parsed_input
+        if parsed is None:
+            continue
+        # The checked script has its def calls inlined; the module's authored
+        # defs are its scalar callables.
+        authored = replace(
+            parsed.script,
+            definitions=(
+                *(
+                    item
+                    for item in parsed.script.definitions
+                    if type(item) is not FunctionDef
+                ),
+                *parsed.scalar_callables,
+            ),
+        )
+        declarations = tuple(
+            declaration
+            for definition in authored_declarations(authored)
+            if (declaration := editor_declaration(definition, path=module.path))
+            is not None
+        )
+        uses = []
+        relation_environment = relations.get(module.path)
+        if relation_environment is not None:
+            for resolution in relation_environment.resolutions:
+                target = resolution.target_symbol.target_occurrence
+                # A relation let or a table-function input is no top-level
+                # declaration, so a use that reads one has no fact.
+                if target.block_local:
+                    continue
+                target_declaration = editor_declaration(
+                    target.definition, path=target.identity.module_path
+                )
+                if target_declaration is None:
+                    continue
+                uses.append(
+                    editor_use(
+                        resolution.reference.from_clause,
+                        f"{target.identity.declaration_kind.value} "
+                        f"{target.identity.declared_name}",
+                        target_declaration,
+                        path=module.path,
+                    )
+                )
+        type_environment = types.get(module.path)
+        if type_environment is not None:
+            for resolution in type_environment.type_resolutions:
+                if resolution.canonical_kind is ProjectResolvedTypeKind.UNKNOWN:
+                    continue
+                symbol = resolution.direct_symbol
+                target_declaration = (
+                    editor_declaration(
+                        symbol.target_occurrence.definition,
+                        path=symbol.target_occurrence.identity.module_path,
+                    )
+                    if symbol is not None
+                    else None
+                )
+                uses.append(
+                    editor_use(
+                        resolution.reference.type_expr,
+                        f"{resolution.canonical_kind.value} {resolution.canonical_name}",
+                        target_declaration,
+                        path=module.path,
+                    )
+                )
+        facts[module.path] = EditorFacts(
+            declarations=declarations,
+            uses=tuple(uses),
+        )
+    return MappingProxyType(facts)
 
 
 def project_semantic_boundary(

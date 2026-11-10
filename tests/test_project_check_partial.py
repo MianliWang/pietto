@@ -1,6 +1,6 @@
-"""Partial analysis for the editor (`check_project_diagnostics`): a project
-check that leaves out each module that stops it, and each module that imports
-one, and checks the other modules again. Every case checks the three laws:
+"""Partial analysis for the editor (`check_project_editor_diagnostics`): a
+project check that leaves out each module that stops it, and each module that
+imports one, and checks the other modules again. Every case checks the three laws:
 a module still checked reports what `check --project --format json` reports
 with the left-out modules in `[sources].exclude` (restriction), that check
 completes (completeness), and each left-out module has an error or one
@@ -22,7 +22,7 @@ import pietto._project.check as project_check
 from pietto import cli_json
 from pietto._project.check import (
     ProjectDiagnosticsReport,
-    check_project_diagnostics,
+    check_project_editor_diagnostics,
     check_project_parse_only,
 )
 from pietto.cli import main
@@ -402,6 +402,55 @@ def test_a_check_without_modules_to_leave_out_is_the_cli_check(
     assert report.not_checked == ()
 
 
+def test_only_a_pass_that_does_not_stop_projects_editor_facts(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    root = _project(tmp_path, _CASES["semantic cycle"][0])
+    projected: list[tuple[str, ...]] = []
+    project = project_check._project_editor_facts
+
+    def projecting(semantic_result: Any) -> Any:
+        facts = project(semantic_result)
+        projected.append(tuple(facts))
+        return facts
+
+    monkeypatch.setattr(project_check, "_project_editor_facts", projecting)
+    facts = check_project_editor_diagnostics(root, overlays={}).facts
+    # The first pass stops at the e/f import cycle and projects nothing; the
+    # second, without e and f, projects once. a has an error of its own.
+    assert projected == [("a.pietto", "models.pietto")]
+    assert list(facts) == ["models.pietto"]
+    assert [item.name for item in facts["models.pietto"].declarations] == [
+        "User",
+        "users",
+        "pos",
+    ]
+
+
+@pytest.mark.parametrize(
+    "overflowing", ["project_semantic_boundary", "_project_editor_facts"]
+)
+def test_a_pass_past_the_recursion_limit_projects_no_editor_facts(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, overflowing: str
+) -> None:
+    root = _project(
+        tmp_path,
+        {"models.pietto": _MODELS, "b.pietto": "shape Standalone:\n    id: Int\n"},
+    )
+    facts = check_project_editor_diagnostics(root, overlays={}).facts
+    assert sorted(facts) == ["b.pietto", "models.pietto"]
+
+    def overflow(_: object) -> None:
+        raise RecursionError
+
+    monkeypatch.setattr(project_check, overflowing, overflow)
+    result = check_project_editor_diagnostics(root, overlays={})
+    # The limit is reported at one module, but the pass that reaches it,
+    # in analysis or in the projection, leaves every module without facts.
+    assert [item.code for item in result.report.diagnostics] == ["PIE-S2006"]
+    assert dict(result.facts) == {}
+
+
 def test_the_cli_check_still_stops_at_its_first_stop(tmp_path: Path) -> None:
     root = _project(tmp_path, _CASES["stages"][0])
 
@@ -460,7 +509,7 @@ def _partial(
         return parse_only(root, overlays=overlays, exclude=exclude)
 
     monkeypatch.setattr(project_check, "check_project_parse_only", recorded)
-    report = check_project_diagnostics(root, overlays={})
+    report = check_project_editor_diagnostics(root, overlays={}).report
     monkeypatch.undo()
     return report, excluded
 

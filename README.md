@@ -578,8 +578,8 @@ not promises or dates, and the detailed plan lives in the
   first.
 - **Data tools**: pandas, Polars, NumPy, SciPy and Matplotlib interoperability.
 - **Column types**: database-native arrays and JSON columns.
-- **Editors**: hover, go-to-definition and symbols beside the diagnostics of
-  `pietto lsp`.
+- **Editors**: a model view and capability facts beside the diagnostics,
+  hover, definitions and document symbols of `pietto lsp`.
 - **Assurance**: more real-database, differential and fuzz testing, clearer
   diagnostics and faster compiles.
 - **Stability**: a 1.0 release with frozen syntax, CLI, APIs and support

@@ -12,12 +12,20 @@ import sys
 import threading
 from dataclasses import dataclass
 from pathlib import Path, PurePath, PurePosixPath, PureWindowsPath
-from typing import BinaryIO, Protocol
+from types import MappingProxyType
+from typing import BinaryIO, Mapping, Protocol
 from urllib.parse import unquote, urlsplit
 
+from pietto._editor_facts import (
+    EditorDeclaration,
+    EditorFacts,
+    EditorUse,
+    single_file_editor_facts,
+)
 from pietto._project.check import (
     ProjectDiagnosticsReport,
-    check_project_diagnostics,
+    ProjectEditorDiagnostics,
+    check_project_editor_diagnostics,
     selected_project_paths,
 )
 from pietto.errors import Diagnostic, Severity, SourceLocation
@@ -121,6 +129,19 @@ class _Document:
     refused: bool = False
 
 
+@dataclass(frozen=True, slots=True)
+class _EditorSnapshot:
+    """Facts for exactly one LSP unit and analysis epoch."""
+
+    epoch: int
+    facts: Mapping[Path | None, EditorFacts]
+    tables: Mapping[Path | None, _Lines]
+
+    def __post_init__(self) -> None:
+        object.__setattr__(self, "facts", MappingProxyType(dict(self.facts)))
+        object.__setattr__(self, "tables", MappingProxyType(dict(self.tables)))
+
+
 class _Server:
     def __init__(self, inbox: _Inbox, stdout: BinaryIO, version: str) -> None:
         self.inbox = inbox
@@ -130,9 +151,15 @@ class _Server:
         self.exit_code: int | None = None
         self.roots: tuple[Path, ...] = ()
         self.related = False
+        self.hover_plaintext = False
+        self.hierarchical_symbols = False
         self.documents: dict[str, _Document] = {}
         self.dirty: dict[_Key, None] = {}
         self.epochs: dict[_Key, int] = {}
+        self.snapshots: dict[_Key, _EditorSnapshot] = {}
+        # Editor requests that wait for a pending analysis, in arrival order,
+        # each with its document epoch.
+        self.held: list[tuple[int | str, str, str, dict[str, int] | None, int]] = []
         self.selections: list[frozenset[Path]] = []
         self.extras: list[frozenset[Path]] = []
         self.published: dict[str, tuple[_Key, Path | None]] = {}
@@ -145,6 +172,8 @@ class _Server:
                 self._drain()
                 while self.exit_code is None and self.state == "running" and self.dirty:
                     self._analyse(min(self.dirty, key=_unit_order))
+                    if self.exit_code is None:
+                        self._answer_held()
         except _Closed:
             return 1
         assert self.exit_code is not None
@@ -204,9 +233,19 @@ class _Server:
         elif method == "shutdown":
             self.state = "shutdown"
             self.dirty.clear()
+            # Shutdown stops the analyses that a waiting request waits for.
+            for held_id, held_method, _, _, _ in self.held:
+                self._send_editor_result(held_id, held_method, None)
+            self.held = []
             self._send({"jsonrpc": "2.0", "id": request_id, "result": None})
         elif method == "initialize":
             self._error(request_id, -32600, "Server is already initialized")
+        elif method in {
+            "textDocument/hover",
+            "textDocument/definition",
+            "textDocument/documentSymbol",
+        }:
+            self._editor_request(request_id, method, params)
         else:
             self._error(request_id, -32601, f"Method not found: {method}")
 
@@ -234,6 +273,16 @@ class _Server:
             )
             is True
         )
+        formats = _field(params, "capabilities", "textDocument", "hover").get(
+            "contentFormat"
+        )
+        self.hover_plaintext = isinstance(formats, list) and "plaintext" in formats
+        self.hierarchical_symbols = (
+            _field(params, "capabilities", "textDocument", "documentSymbol").get(
+                "hierarchicalDocumentSymbolSupport"
+            )
+            is True
+        )
         self.state = "running"
         self._send(
             {
@@ -243,6 +292,9 @@ class _Server:
                     "capabilities": {
                         "positionEncoding": "utf-16",
                         "textDocumentSync": {"openClose": True, "change": 1},
+                        "hoverProvider": True,
+                        "definitionProvider": True,
+                        "documentSymbolProvider": True,
                     },
                     "serverInfo": {"name": "pietto", "version": self.version},
                 },
@@ -316,42 +368,63 @@ class _Server:
         """Mark the units a document event can change, and make any analysis
         of them running now stale."""
 
-        units: list[_Key] = [("file", document.uri)]
-        if document.path is not None:
+        for unit in self._units(document.uri, document.path):
+            self.epochs[unit] = self.epochs.get(unit, 0) + 1
+            self.snapshots.pop(unit, None)
+            self.dirty[unit] = None
+
+    def _units(self, uri: str, path: Path | None) -> list[_Key]:
+        """The units whose analysis can change what `uri` shows: its own file
+        unit, whose epoch counts the document events at `uri`, and each root
+        that contains `path`."""
+
+        units: list[_Key] = [("file", uri)]
+        if path is not None:
             units.extend(
                 ("root", index)
                 for index, root in enumerate(self.roots)
-                if document.path.is_relative_to(root)
+                if path.is_relative_to(root)
             )
-        for unit in units:
-            self.epochs[unit] = self.epochs.get(unit, 0) + 1
-            self.dirty[unit] = None
+        return units
 
     # Analysis.
 
     def _analyse(self, unit: _Key) -> None:
         """Check one unit, then publish its result unless a message received
         meanwhile made it stale, as the server never publishes diagnostics of
-        a text older than the newest one it has received."""
+        a text older than the newest one it has received. The unit stays
+        dirty until an analysis of its current epoch ends, so that a request
+        received meanwhile waits for it."""
 
-        del self.dirty[unit]
         epoch = self.epochs.get(unit, 0)
         kind, value = unit
         if kind == "root":
             assert isinstance(value, int)
-            report, selections = self._check_root(value)
+            checked, selections = self._check_root(value)
             self._drain()
             if self._current(unit, epoch):
-                self._publish_root(value, report, selections)
+                self._set_root_snapshot(unit, epoch, value, checked)
+                self._publish_root(
+                    value, checked.report if checked is not None else None, selections
+                )
         else:
             assert isinstance(value, str)
             document = self.documents.get(value)
             if document is None or self._owner(value, document.path) != unit:
+                del self.dirty[unit]
                 self._sweep()
                 return
-            diagnostics = _check_text(document.text)
+            diagnostics, facts = _check_text_with_editor_facts(
+                document.text,
+                path=str(document.path) if document.path is not None else None,
+            )
             self._drain()
             if self._current(unit, epoch):
+                self.snapshots[unit] = _EditorSnapshot(
+                    epoch,
+                    {document.path: facts},
+                    {document.path: _Lines(document.text, open_buffer=True)},
+                )
                 table = _Lines(document.text, open_buffer=True)
                 self._publish(
                     value,
@@ -369,13 +442,13 @@ class _Server:
         if self.exit_code is not None or self.state != "running":
             return False
         if self.epochs.get(unit, 0) != epoch:
-            self.dirty[unit] = None
             return False
+        del self.dirty[unit]
         return True
 
     def _check_root(
         self, index: int
-    ) -> tuple[ProjectDiagnosticsReport | None, list[frozenset[Path]]]:
+    ) -> tuple[ProjectEditorDiagnostics | None, list[frozenset[Path]]]:
         root = self.roots[index]
         # A buffer is keyed by the selected entry its path matches, as a URI
         # may spell it in another letter case where paths ignore case. A
@@ -393,16 +466,47 @@ class _Server:
             and len(self._uris(document.path)) == 1
         }
         try:
-            report = check_project_diagnostics(root, overlays=overlays)
+            checked = check_project_editor_diagnostics(root, overlays=overlays)
         except (OSError, ValueError):
-            report = None
+            checked = None
         selections = [
-            frozenset(_join(root, path) for path in report.paths)
-            if position == index and report is not None
+            frozenset(_join(root, path) for path in checked.report.paths)
+            if position == index and checked is not None
             else frozenset(_entries(other))
             for position, other in enumerate(self.roots)
         ]
-        return report, selections
+        return checked, selections
+
+    def _set_root_snapshot(
+        self,
+        unit: _Key,
+        epoch: int,
+        index: int,
+        checked: ProjectEditorDiagnostics | None,
+    ) -> None:
+        if checked is None:
+            self.snapshots.pop(unit, None)
+            return
+        root = self.roots[index]
+        report = checked.report
+        tables: dict[Path | None, _Lines] = {}
+        facts: dict[Path | None, EditorFacts] = {}
+        path_counts: dict[Path, int] = {}
+        for relative in report.paths:
+            path = _join(root, relative)
+            path_counts[path] = path_counts.get(path, 0) + 1
+        for relative, item in checked.facts.items():
+            path = _join(root, relative)
+            if path_counts.get(path) != 1:
+                continue
+            uris = self._uris(path)
+            document = self.documents.get(uris[0]) if len(uris) == 1 else None
+            tables[path] = _Lines(
+                report.texts.get(relative),
+                open_buffer=document is not None and not document.refused,
+            )
+            facts[path] = _root_editor_facts(item, root)
+        self.snapshots[unit] = _EditorSnapshot(epoch, facts, tables)
 
     def _publish_root(
         self,
@@ -632,6 +736,129 @@ class _Server:
             "range": self._table(root, report, path, {}).range(location),
         }
 
+    def _editor_request(
+        self, request_id: int | str, method: str, params: dict[str, object]
+    ) -> None:
+        item = _field(params, "textDocument")
+        uri = item.get("uri")
+        if not isinstance(uri, str):
+            self._error(request_id, -32602, "Invalid params")
+            return
+        position = (
+            _position(params) if method != "textDocument/documentSymbol" else None
+        )
+        if method != "textDocument/documentSymbol" and position is None:
+            self._error(request_id, -32602, "Invalid params")
+            return
+        self._answer(
+            request_id, method, uri, position, self.epochs.get(("file", uri), 0)
+        )
+
+    def _answer(
+        self,
+        request_id: int | str,
+        method: str,
+        uri: str,
+        position: dict[str, int] | None,
+        epoch: int,
+    ) -> None:
+        """Answer from the current snapshot, or hold the request while an
+        analysis that can change its document's facts is pending. A request
+        whose document changed since `epoch` has a stale position."""
+
+        if self.epochs.get(("file", uri), 0) != epoch:
+            self._send_editor_result(request_id, method, None, uri=uri)
+            return
+        document = self.documents.get(uri)
+        path = document.path if document is not None else _absolute_uri_path(uri)
+        if any(unit in self.dirty for unit in self._units(uri, path)):
+            self.held.append((request_id, method, uri, position, epoch))
+            return
+        owner = self._owner(uri, path)
+        if owner is None or owner[0] not in {"file", "root"}:
+            self._send_editor_result(request_id, method, None, uri=uri)
+            return
+        snapshot = self.snapshots.get(owner)
+        if snapshot is None or snapshot.epoch != self.epochs.get(owner, 0):
+            self._send_editor_result(request_id, method, None, uri=uri)
+            return
+        facts = snapshot.facts.get(path)
+        if facts is None:
+            self._send_editor_result(request_id, method, None, uri=uri)
+            return
+        if method == "textDocument/documentSymbol":
+            self._send_editor_result(request_id, method, facts, snapshot.tables, uri)
+            return
+        assert position is not None
+        table = snapshot.tables.get(path)
+        if table is None:
+            self._send_editor_result(request_id, method, None, uri=uri)
+            return
+        result = _editor_use_at(facts, table, position)
+        target_uri = None
+        if result is not None and result.target is not None:
+            target_uri = self._target_uri(result.target, owner, snapshot)
+            if target_uri is None:
+                result = None
+        self._send_editor_result(
+            request_id, method, result, snapshot.tables, target_uri
+        )
+
+    def _answer_held(self) -> None:
+        """Answer each held request that no longer waits, in arrival order."""
+
+        held, self.held = self.held, []
+        for request in held:
+            self._answer(*request)
+
+    def _target_uri(
+        self, target: EditorDeclaration, owner: _Key, snapshot: _EditorSnapshot
+    ) -> str | None:
+        """The URI of a target that `owner`'s snapshot holds, or None. A file
+        unit is one open document under one URI, and so is its target."""
+
+        path = Path(target.location.path) if target.location.path is not None else None
+        if path not in snapshot.facts:
+            return None
+        kind, value = owner
+        if kind == "file":
+            assert isinstance(value, str)
+            return value
+        assert path is not None
+        uri = self._uri(path)
+        return uri if self._owner(uri, path) == owner else None
+
+    def _send_editor_result(
+        self,
+        request_id: int | str,
+        method: str,
+        value: EditorFacts | EditorUse | None,
+        tables: Mapping[Path | None, _Lines] | None = None,
+        uri: str | None = None,
+    ) -> None:
+        """`uri` is the document's for symbols, and the target's for a
+        definition."""
+
+        tables = {} if tables is None else tables
+        if method == "textDocument/documentSymbol":
+            facts = value if isinstance(value, EditorFacts) else EditorFacts()
+            result: object = _document_symbols(
+                facts, self.hierarchical_symbols, tables, uri
+            )
+        elif method == "textDocument/hover":
+            result = (
+                _hover(value, self.hover_plaintext, tables)
+                if isinstance(value, EditorUse)
+                else None
+            )
+        else:
+            result = (
+                _definition(value, tables, uri)
+                if isinstance(value, EditorUse)
+                else None
+            )
+        self._send({"jsonrpc": "2.0", "id": request_id, "result": result})
+
     # Output.
 
     def _publish(
@@ -717,9 +944,14 @@ class _Lines:
 
 
 def uri_to_path(uri: str, *, windows: bool = os.name == "nt") -> PurePath | None:
-    """The filesystem path of a `file:` URI, or None for any other URI."""
+    """The filesystem path of a `file:` URI, or None for any other URI. A
+    `file:` URI that does not parse, as with an unclosed bracketed host, has
+    no path either, so it names a standalone document."""
 
-    parts = urlsplit(uri)
+    try:
+        parts = urlsplit(uri)
+    except ValueError:
+        return None
     if parts.scheme.lower() != "file":
         return None
     path = unquote(parts.path)
@@ -732,15 +964,167 @@ def uri_to_path(uri: str, *, windows: bool = os.name == "nt") -> PurePath | None
     return None if host else PurePosixPath(path)
 
 
-def _check_text(text: str) -> tuple[Diagnostic, ...]:
-    """The diagnostics of `pietto check FILE --format json` for `text`."""
+def _check_text_with_editor_facts(
+    text: str, *, path: str | None = None
+) -> tuple[tuple[Diagnostic, ...], EditorFacts]:
+    """Check one buffer once and retain facts only on semantic success."""
 
     parsed = parse_source(text)
     if parsed.ast is None or any(
         diagnostic.severity is Severity.ERROR for diagnostic in parsed.diagnostics
     ):
-        return parsed.diagnostics
-    return (*parsed.diagnostics, *analyze(parsed.ast).diagnostics)
+        return parsed.diagnostics, EditorFacts()
+    semantic = analyze(parsed.ast)
+    diagnostics = (*parsed.diagnostics, *semantic.diagnostics)
+    if any(diagnostic.severity is Severity.ERROR for diagnostic in diagnostics):
+        return diagnostics, EditorFacts()
+    return diagnostics, single_file_editor_facts(parsed.ast, semantic.model, path=path)
+
+
+def _absolute_uri_path(uri: str) -> Path | None:
+    path = uri_to_path(uri)
+    return Path(path) if path is not None and path.is_absolute() else None
+
+
+def _position(params: dict[str, object]) -> dict[str, int] | None:
+    position = _field(params, "position")
+    line, character = position.get("line"), position.get("character")
+    if type(line) is not int or type(character) is not int or line < 0 or character < 0:
+        return None
+    return {"line": line, "character": character}
+
+
+def _editor_use_at(
+    facts: EditorFacts, lines: _Lines, position: dict[str, int]
+) -> EditorUse | None:
+    matches = tuple(
+        use for use in facts.uses if _contains(lines.range(use.location), position)
+    )
+    return matches[0] if len(matches) == 1 else None
+
+
+def _contains(range_: dict[str, object], position: dict[str, int]) -> bool:
+    start = range_["start"]
+    end = range_["end"]
+    assert isinstance(start, dict) and isinstance(end, dict)
+    lower = (start["line"], start["character"])
+    upper = (end["line"], end["character"])
+    point = (position["line"], position["character"])
+    return lower <= point < upper
+
+
+def _hover(
+    use: EditorUse, plaintext: bool, tables: Mapping[Path | None, _Lines]
+) -> dict[str, object] | None:
+    range_ = _fact_range(use.location, tables)
+    if range_ is None:
+        return None
+    contents: object = (
+        {"kind": "plaintext", "value": use.detail}
+        if plaintext
+        else {"language": "pietto", "value": use.detail}
+    )
+    return {"contents": contents, "range": range_}
+
+
+def _definition(
+    use: EditorUse, tables: Mapping[Path | None, _Lines], target_uri: str | None
+) -> dict[str, object] | None:
+    target = use.target
+    if target is None:
+        return None
+    range_ = _fact_range(target.location, tables)
+    if range_ is None:
+        return None
+    if target_uri is None:
+        return None
+    return {
+        "uri": target_uri,
+        "range": range_,
+    }
+
+
+def _document_symbols(
+    facts: EditorFacts,
+    hierarchical: bool,
+    tables: Mapping[Path | None, _Lines],
+    uri: str | None,
+) -> list[dict[str, object]]:
+    if hierarchical:
+        return [
+            {
+                "name": item.name,
+                "detail": item.detail,
+                "kind": item.kind,
+                "range": range_,
+                "selectionRange": range_,
+            }
+            for item in facts.declarations
+            if (range_ := _fact_range(item.location, tables)) is not None
+        ]
+    return [
+        {
+            "name": item.name,
+            "kind": item.kind,
+            "location": {
+                "uri": uri,
+                "range": range_,
+            },
+        }
+        for item in facts.declarations
+        if uri is not None
+        and (range_ := _fact_range(item.location, tables)) is not None
+    ]
+
+
+def _fact_range(
+    location: SourceLocation, tables: Mapping[Path | None, _Lines]
+) -> dict[str, object] | None:
+    path = Path(location.path) if location.path is not None else None
+    table = tables.get(path)
+    return table.range(location) if table is not None else None
+
+
+def _root_editor_facts(facts: EditorFacts, root: Path) -> EditorFacts:
+    """Attach one selected root while retaining each exact relative occurrence."""
+
+    declarations = tuple(
+        _root_editor_declaration(item, root) for item in facts.declarations
+    )
+    return EditorFacts(
+        declarations=declarations,
+        uses=tuple(
+            EditorUse(
+                location=_root_location(item.location, root),
+                detail=item.detail,
+                target=(
+                    _root_editor_declaration(item.target, root)
+                    if item.target is not None
+                    else None
+                ),
+            )
+            for item in facts.uses
+        ),
+    )
+
+
+def _root_editor_declaration(item: EditorDeclaration, root: Path) -> EditorDeclaration:
+    return EditorDeclaration(
+        location=_root_location(item.location, root),
+        name=item.name,
+        kind=item.kind,
+        detail=item.detail,
+    )
+
+
+def _root_location(location: SourceLocation, root: Path) -> SourceLocation:
+    return SourceLocation(
+        path=(str(_join(root, location.path)) if location.path is not None else None),
+        line=location.line,
+        column=location.column,
+        end_line=location.end_line,
+        end_column=location.end_column,
+    )
 
 
 def _entries(root: Path) -> dict[Path, str | None]:
