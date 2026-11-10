@@ -20,7 +20,7 @@
   C = 按根因计的修复；S = 范围修复。历史保守上界 D≈5,340（`costs.md`），不是实际用量。
 - MySQL nested 载体已定：私有版本化 JSON envelope `mysql_json_envelope_v1`（AD77.01）。
 
-## 1. 当前状态（原机 2026-11-10 09:50Z 停止）
+## 1. 当前状态（原机 2026-11-10 09:35Z 停止）
 
 - **main 没有变**，仍是 `f8ccd2c4`。待发布的 batch 是三个 commit，放在 handoff 分支上（`handoff/p77-claude-20261110~1` = `3c7a21cd`）：
   `597a41ec` M77 依赖维护（PyArrow 26.0.1 / Psycopg 3.3.8）、`e429f393` 编辑器 hover/definition/symbols、
@@ -87,3 +87,11 @@ OneDrive `pietto-handoff/`，只在需要追溯时解压，绝不上传到 GitHu
 
 批量 Gate 2 的 batch worktree：`git worktree add --detach ../p77-batch1 origin/handoff/p77-claude-20261110~1`，
 修完后在这个 worktree 里改写 commit（每个 slice 仍是一个 commit），再按 AGENTS.md 的 Gate 3 push。
+
+## 4. 私有包（OneDrive）
+
+`C:\Users\rough\OneDrive\pietto-handoff\`（WSL 路径 `/mnt/c/Users/rough/OneDrive/pietto-handoff/`）：
+`phase77-recovery-20261110T093301Z.tar.gz`（367 MB，完整 ledger，含原始会话记录 `records/` 和 raw 证据，不含缓存/venv）、
+`phase77-candidate-exports-20261110T093301Z.tar.gz`、`claude-memory-20261110T093301Z.tar.gz`（原机 Claude 记忆目录）和
+`SHA256SUMS-20261110T093301Z`。先 `sha256sum -c` 校验。只在需要追溯原始证据时解压到 `.cache/` 下；绝不提交到 Git。
+GitHub handoff 分支与私有包内容不同时，以 handoff 分支为准（它更新于私有包之后）。

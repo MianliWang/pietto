@@ -260,7 +260,7 @@ evidence stays here; the monitor now logs `rg` counts and RSS per command.
   publication would still need its own Gate 2 on `fd63dc9c`.
 - S12 occurrence repair runs as workflow `wf_8493458e-6ad` in `candidates/s12`.
 
-### Batch preparation and machine handoff — 2026-11-10 09:50Z
+### Batch preparation and machine handoff — 2026-11-10 09:35Z
 
 - Owner asked to push a recent checkpoint and continue on a stronger computer.
   Batch built in `pietto-wt/p77-batch1-claude`: `597a41ec` (M77, tree
