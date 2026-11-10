@@ -23,7 +23,9 @@ project model, module binding and formatter files that its new code reads, is
 in the write set of an unpublished Phase77 candidate (the Wave A slices S08,
 S10, S11, S14, S16, S17 and S25, and S12) or in the planned write set of
 S20, so each replays onto EB1 with no shared hunk. Phase77 slices without a
-candidate are not covered.
+candidate are not covered. This measurement, made before EB1's push, does not
+satisfy the [midpoint](#midpoint-unfreeze-and-closure)'s overlap item, which
+measures again on the EB1 head after its natural CI.
 
 Before Gate 0, these runs happened besides paper records (PL.02). The PyPI
 metadata and hash fetch and isolated install probe of PL.05 (a), which sheet
