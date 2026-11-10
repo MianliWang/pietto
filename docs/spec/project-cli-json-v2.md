@@ -465,6 +465,23 @@ consumer that requires a statically proved finite result refuses a document
 with this evidence. The emission observation lists the token in that
 requirement's `evidence`.
 
+After `0.1.10`, a project `Float / Float` or `Float % Float` that is not
+emitted is BLOCKED with the additive PIE-B1003 detail
+`float_division_not_realized` or `float_remainder_exact_binary64_not_realized`,
+located as `binary_operator_not_admitted` is and with its suggestion: a MySQL
+one, and a PostgreSQL one with an operand whose carrier is not the reviewed
+finite `pg_float8` carrier, such as a `percent_rank` or `cume_dist` result
+read from another relation, whose window distribution carrier is admitted for
+comparisons but not for `/` or `%`. On either target, one with an operand
+refused on its own reports that operand's refusal instead, as the operand
+alone reports it: PIE-B1003 `unary_sign_requires_int_operand` for MySQL
+`-ratio / ratio` and `-ratio % ratio`, and PIE-B1003
+`float_literal_operands_required` for `(f * 2.0) / 2.0` over such a result `f`.
+Both literal policies refuse it alike. In `0.1.10` such a `/` was BLOCKED with
+`binary_operator_not_admitted`, and a `Float %` failed `check --project` with
+PIE-S2105, which the BLOCKED `emit-sql --project` document carried as a
+diagnostic without a blocker; `check --project` now accepts both forms.
+
 A PostgreSQL `median` or `quantile` aggregate column has the `spelling`
 `PERCENTILE_CONT`, the `argument_cast` `pg_catalog.float8` and no
 `result_cast`; it is written `PERCENTILE_CONT(<fraction>) WITHIN GROUP (ORDER

@@ -331,6 +331,81 @@ def test_internal_errors_propagate_and_unencodable_output_raises(
         compile_sql(root, **values)
 
 
+# A Float `/` or `%` that the target cannot realize is a classified refusal,
+# returned by compile_sql and raised as CompileRejected by compile_query: a
+# MySQL one over a literal or field operand, and a PostgreSQL one over a window
+# distribution result read from another relation.
+DISTRIBUTION = """query ranked:
+    from rows
+    select:
+        id
+        f = cume_dist() window(order by id)
+"""
+FLOAT_REFUSALS = (
+    ("mysql", "rows", "ratio / 2.0", "float_division_not_realized"),
+    ("mysql", "rows", "ratio % ratio", "float_remainder_exact_binary64_not_realized"),
+    ("postgres", "ranked", "f / 2.0", "float_division_not_realized"),
+    ("postgres", "ranked", "f % 2.0", "float_remainder_exact_binary64_not_realized"),
+)
+
+
+def float_refusal(tmp_path: Path, target: str, relation: str, value: str) -> Path:
+    body = f"query result:\n    from {relation}\n    select:\n        id\n"
+    item = probe.parameterized_fixture(
+        target, f"{DISTRIBUTION}{body}        g = {value}\n"
+    )
+    root = tmp_path / "project"
+    root.mkdir()
+    (root / "pietto.toml").write_text(probe.CONFIG)
+    for file, content in probe.source_files(item["source"]).items():
+        (root / file).write_text(content, encoding="utf-8")
+    (root / "contract.json").write_text(item["contract"], encoding="utf-8")
+    return root
+
+
+@pytest.mark.parametrize("policy", POLICIES.values())
+@pytest.mark.parametrize("target,relation,value,detail", FLOAT_REFUSALS)
+def test_an_unrealized_float_operation_is_a_blocked_document(
+    tmp_path: Path, target: str, relation: str, value: str, detail: str, policy: str
+) -> None:
+    """It is located at its select item with the suggestion of
+    `binary_operator_not_admitted`, alike for both literal policies."""
+    from pietto._project.project_sql_emission_suggestions import blocker_suggestion
+
+    root = float_refusal(tmp_path, target, relation, value)
+    source = (root / "main.pietto").read_text(encoding="utf-8")
+    line = source.splitlines().index(f"        g = {value}") + 1
+    place = {
+        "column": 9,
+        "end_column": 9 + len(f"g = {value}"),
+        "end_line": line,
+        "line": line,
+        "path": "main.pietto",
+    }
+    hint = blocker_suggestion("PIE-B1003", "binary_operator_not_admitted", target)
+    values = single(target, kind="query", literal_policy=policy)
+    emission = compile_sql(root, **values)
+    document = same(emission, space_argv(root, values, batch=False))
+    assert emission.status == "BLOCKED"
+    assert [
+        (b["code"], b["subject"]["detail"], b["location"], b["suggestion"])
+        for b in document["blockers"]
+    ] == [("PIE-B1003", detail, place, hint)]
+
+
+@pytest.mark.parametrize("target,relation,value,detail", FLOAT_REFUSALS)
+def test_compile_query_raises_the_typed_refusal_of_an_unrealized_float_operation(
+    tmp_path: Path, target: str, relation: str, value: str, detail: str
+) -> None:
+    root = float_refusal(tmp_path, target, relation, value)
+    values = single(target, kind="query")
+    with pytest.raises(execution.CompileRejected) as refused:
+        execution.compile_query(root, **values)
+    assert refused.value.status == "BLOCKED"
+    assert refused.value.emission == compile_sql(root, **values).document
+    assert f"blocker PIE-B1003 UNSUPPORTED_RULE: {detail} " in str(refused.value)
+
+
 def test_a_verified_emission_needs_no_execution_template(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:

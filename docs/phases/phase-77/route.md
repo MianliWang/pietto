@@ -176,7 +176,7 @@ candidates, and S20, which has none, takes D2 by the lead's binding.
 | Slice | Forms | Current MySQL project refusal | Before it opens |
 | --- | --- | --- | --- |
 | S14 | E2: a `def` that inlines to a conditional in a query a JOIN reads; E3: a scalar call in an aggregate argument over JOIN rows | PIE-B1003 `scalar_projection_requires_later_slice` (E2) or `operator_not_implemented_in_slice6` (E3), then `join_shape_not_admitted_in_slice7` | An E2 cell; BETWEEN, `in`, cast, scalar call and LATERAL each get a cell or are listed as retained; the PostgreSQL and MySQL flat parents. |
-| S15 | E5: `Int /` (`DIV`), `Int %`, `Float /` | PIE-B1003 `binary_operator_not_admitted` (`Int`); `Float /` computes `float_division_not_realized`, but on `ab972f36` `emit-sql --project` stops with `ValueError: unclassified blocker suggestion` instead of returning it | Attaches to S01's numeric child; a zero divisor returns NULL and the result is nullable; `INT64_MIN / -1` and `INT64_MIN % -1` are preregistered as unobserved, not as pass criteria, and a PostgreSQL/MySQL difference escalates under the second prerequisite above; Float `/` and `%` cells; a PostgreSQL differential. |
+| S15 | E5: `Int /` (`DIV`), `Int %`, `Float /` | PIE-B1003 `binary_operator_not_admitted` (`Int`), `float_division_not_realized` (`ab972f36` computed it, but `emit-sql --project` stopped with `ValueError: unclassified blocker suggestion` instead of returning it) | Attaches to S01's numeric child; a zero divisor returns NULL and the result is nullable; `INT64_MIN / -1` and `INT64_MIN % -1` are preregistered as unobserved, not as pass criteria, and a PostgreSQL/MySQL difference escalates under the second prerequisite above; Float `/` and `%` cells; a PostgreSQL differential. |
 | S16 | E7: a `Text` literal default of `lag` or `lead` | PIE-B1003 `window_default_literal_kind_not_realized_yet` | The default's metadata is `Text` without the binary flag; a field default stays refused, with its control. |
 | S17 | E9: `Decimal ± Int` and `Decimal ± Decimal` of different scales | PIE-B1003 `arithmetic_requires_signed_int_operands`, `decimal_scale_mismatch` | Split from the shared Decimal candidate; closed-form precision (D76.02); a PostgreSQL differential. |
 | S18 | N1: `Decimal * Int` in either order and a unary sign on a `Decimal` | PIE-B1003 `binary_operator_not_admitted`, `unary_sign_requires_int_operand` | The 65/30 bounds; a result beyond 65 digits is refused at compile time (D76.04). |
@@ -189,9 +189,21 @@ open enters the D77.07 packet.
 | Residual | Current MySQL project refusal | Bound to |
 | --- | --- | --- |
 | E4: `Float` `+`, `-`, `*` and sign on a field | PIE-B1003 `float_literal_operands_required`, `unary_sign_requires_int_operand` | S15, after S05 settles MySQL Float overflow |
-| `Float % Float` | computes PIE-B1003 `float_remainder_exact_binary64_not_realized`, but on `ab972f36` `emit-sql --project` stops with `ValueError: unclassified blocker suggestion` instead of returning it | S15 |
+| `Float % Float` | PIE-B1003 `float_remainder_exact_binary64_not_realized` (`ab972f36` computed it, but `emit-sql --project` stopped with `ValueError: unclassified blocker suggestion` instead of returning it) | S15 |
 | E6: `Float` window keys and `percent_rank`/`cume_dist` result keys | PIE-B1002 `window_partition_comparison_domain_unsupported`, `window_order_comparison_domain_unsupported`; PIE-B1003 `group_key_type_outside_reviewed_comparison_domain` | S06/S07 |
 | `max(a, b)`, `min(a, b)` of two `Date` values | PIE-B1003 `conditional_realization_not_admitted` | S14; the delivered PostgreSQL form is not reclassified as unfinished |
+
+The lead rules (inform; stated to the owner on 2026-11-10) that repairing the
+crash on S15's `Float /` and on the `Float %` bound to S15 is Phase77 work:
+the Phase77 batch that publishes this matrix carries the repair under D77.06
+and counts it on Phase77's ledger (D77.05), and an owner objection changes
+later batches only. The repair returns PIE-B1003 BLOCKED documents for MySQL
+project `Float /` and `Float %`, for a PostgreSQL one with a `None` operand,
+and for a project `/` or `%` over a `percent_rank` or `cume_dist` result read
+from another relation on either target, all of which raised the same
+`ValueError` on `ab972f36`. It also gives a suggestion to
+eleven more details that project emission can state but that no ordinary
+source reaches today. It opens no form, and S15 keeps both MySQL forms.
 
 E1, E8 and D1 have no S14–S20 work: the MySQL CROSS JOIN of E1 is open and
 FULL JOIN stays approved non-support, E8's exact-decimal-literal premise is

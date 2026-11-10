@@ -11,6 +11,7 @@ native-target evidence live in the package smoke and the target facility.
 
 from __future__ import annotations
 
+import ast
 import contextlib
 import errno
 import io
@@ -3005,3 +3006,368 @@ def test_new_semantic_blocker_requires_a_classified_suggestion():
 
     with pytest.raises(ValueError, match="unclassified blocker"):
         blocker_suggestion("PIE-B1003", "future_unreviewed_operation", "postgres")
+
+
+RANKED = """query ranked:
+    from rows
+    select:
+        id
+        f = cume_dist() window(order by id)
+"""
+
+
+@pytest.mark.parametrize("policy", ["preserve", "bind-safe"])
+@pytest.mark.parametrize(
+    "target,relation,value,detail",
+    [
+        ("mysql", "rows", "ratio / 2.0", "float_division_not_realized"),
+        ("mysql", "rows", "ratio / ratio", "float_division_not_realized"),
+        ("mysql", "rows", "ratio % 0.1", "float_remainder_exact_binary64_not_realized"),
+        (
+            "mysql",
+            "rows",
+            "ratio % ratio",
+            "float_remainder_exact_binary64_not_realized",
+        ),
+        ("postgres", "rows", "ratio / None", "float_division_not_realized"),
+        (
+            "postgres",
+            "rows",
+            "None % ratio",
+            "float_remainder_exact_binary64_not_realized",
+        ),
+        ("postgres", "ranked", "f / 2.0", "float_division_not_realized"),
+        (
+            "postgres",
+            "ranked",
+            "f % 2.0",
+            "float_remainder_exact_binary64_not_realized",
+        ),
+        # The form these are located and remedied as, still refused on MySQL.
+        ("mysql", "rows", "id / 2", "binary_operator_not_admitted"),
+    ],
+)
+def test_project_float_division_and_remainder_are_deterministic_refusals(
+    tmp_path: Path, target: str, relation: str, value: str, detail: str, policy: str
+) -> None:
+    """A Float `/` or `%` the target cannot realize, a MySQL one over a literal
+    or field operand, a PostgreSQL one with a `None` operand and one over a
+    distribution result read from another relation, is refused at its select
+    item with the suggestion of
+    `binary_operator_not_admitted`, alike in JSON and text and for both
+    literal policies."""
+    from pietto._project.project_sql_emission_suggestions import blocker_suggestion
+
+    item = "g = " + value
+    body = (
+        f"query result:\n    from {relation}\n    select:\n        id\n        {item}\n"
+    )
+    case = probe.parameterized_fixture(target, RANKED + body)
+    root = tmp_path / "project"
+    root.mkdir()
+    (root / "pietto.toml").write_text(probe.CONFIG)
+    for file, content in probe.source_files(case["source"]).items():
+        (root / file).write_text(content, encoding="utf-8", newline="\n")
+    (root / "contract.json").write_text(case["contract"], encoding="utf-8")
+    line = case["source"].splitlines().index(" " * 8 + item) + 1
+    place = {
+        "column": 9,
+        "end_column": 9 + len(item),
+        "end_line": line,
+        "line": line,
+        "path": "main.pietto",
+    }
+    hint = blocker_suggestion("PIE-B1003", "binary_operator_not_admitted", target)
+    query = {"kind": "query", "literal_policy": policy}
+    code, out, err = run(argv(root, target, format="json", **query))
+    assert code == 1 and err == ""
+    assert [
+        (b["code"], b["subject"]["detail"], b["location"], b["suggestion"])
+        for b in json.loads(out)["blockers"]
+    ] == [("PIE-B1003", detail, place, hint)]
+    code, out, err = run(argv(root, target, format="text", **query))
+    assert code == 1 and out == b""
+    blocker = f"blocker PIE-B1003 UNSUPPORTED_RULE: {detail} (main.pietto:{line}:9)"
+    assert f"{blocker}\n  hint: {hint}\n" in err
+
+
+def _stated_blocker_details() -> tuple[set[tuple[str, str]], list[str]]:
+    """Each (code, detail) pair the compiler's sources state, and each place
+    whose detail this reading cannot tell.
+
+    A pair is a PIE-B1001 to PIE-B1008 literal followed by its detail in one
+    call or tuple. The detail is a literal, either branch of a conditional,
+    what a local helper's callers pass as that parameter, what the function a
+    detail variable is bound from returns, or a computed family below,
+    enumerated by the functions and constants that compute it and read only
+    in the functions that state it. A helper parameter is read only when
+    every call of the helper is in view and the helper never rebinds it, so
+    that of a module-level helper or of one passed on as a value is unread. A
+    detail variable is read only when its scope binds it by plain `name = ...`
+    assignments alone, so one that an unpacking, augmented, annotated, walrus
+    or chained assignment, a for, with or comprehension target or a del also
+    binds is unread. A code literal outside a pair, a comparison or a mapping
+    key is unread too."""
+    from pietto._project import project_sql_emission_aggregation as grouping
+    from pietto._project import project_sql_emission_windows as windowing
+    from pietto._project.project_sql_emission_ast import PREMISE_VALUES
+    from pietto._project.project_sql_plan import ProjectSQLPlanBlockerKind
+
+    filtered = grouping.FILTERED_FUNCTIONS
+    counted = filtered - grouping.GROUP_TEST_FUNCTIONS
+    spread = grouping.SPREAD_FUNCTIONS
+    # The argument law judges each function the R13 gate (SPELLING) admits,
+    # and each window aggregate, except string_agg's Text law, the filtered
+    # forms' _domain_detail, a first or last argument (refused before its
+    # domain) and a distinct-tuple count (judged as count_distinct).
+    argued = (
+        grouping.SPELLING.keys()
+        - {"string_agg", "count_distinct_tuple"}
+        - filtered
+        - grouping.ORDERED_VALUE_FUNCTIONS
+    ) | windowing.AGGREGATE
+    premises = ("row_domain_matches", "read_only_object")
+    families = {
+        "issue": {"artifact_correspondence"},  # every PIE-B1008 has one remedy
+        "b.kind.value": {kind.value for kind in ProjectSQLPlanBlockerKind},
+        "key + '_declaration_missing'": {
+            f"{k}_declaration_missing" for k in PREMISE_VALUES
+        },
+        "key + '_declaration_mismatch'": {
+            f"{k}_declaration_mismatch" for k in PREMISE_VALUES
+        },
+        "key + '_declaration_required'": {
+            f"{k}_declaration_required" for k in premises
+        },
+        "function + '_argument_outside_reviewed_int_domain'": {
+            f"{f}_argument_outside_reviewed_int_domain" for f in argued
+        },
+        "_domain_detail(function)": {grouping._domain_detail(f) for f in filtered},
+        "_target_detail(function)": {grouping._target_detail(f) for f in filtered},
+        "function + '_int_not_admitted_on_target'": {
+            f"{f}_int_not_admitted_on_target" for f in spread
+        },
+        "function + '_result_not_non_null_int'": {
+            f"{f}_result_not_non_null_int" for f in counted
+        },
+        "function + '_result_logical_type_or_argument_drift'": {
+            f"{f}_result_logical_type_or_argument_drift"
+            for f in {"sum", "avg", *spread}
+        },
+        # Only a target that refuses it is named: an aggregate window off
+        # PostgreSQL, a frame unit or exclusion the target does not admit.
+        "f'window_aggregate_approved_non_support_on_{target}'": {
+            windowing.aggregate_target_problem("mysql")[1]
+        },
+        "f'window_frame_{unit}_approved_non_support_on_{target}'": {
+            f"window_frame_{unit}_approved_non_support_on_{t}"
+            for unit, admitted in windowing.FRAME_UNIT_TARGETS.items()
+            for t in TARGETS
+            if t not in admitted
+        },
+        "f'window_frame_exclusion_approved_non_support_on_{target}'": {
+            f"window_frame_exclusion_approved_non_support_on_{t}"
+            for admitted in windowing.EXCLUSION_TARGETS.values()
+            for t in TARGETS
+            if t not in admitted
+        },
+    }
+    # Where each family is computed. The same text anywhere else is unread,
+    # since its variable may range over other values there.
+    emission = "project_sql_emission"
+    homes = {
+        "issue": {
+            f"{emission}._realize_prepared_sql",
+            f"{emission}._realize_row_query",
+        },
+        "b.kind.value": {f"{emission}_contract.prepare_project_sql_emission"},
+        "key + '_declaration_missing'": {f"{emission}_ast.operator_premise_problems"},
+        "key + '_declaration_mismatch'": {f"{emission}_ast.operator_premise_problems"},
+        "key + '_declaration_required'": {f"{emission}_ast.source_premise_problems"},
+        "function + '_argument_outside_reviewed_int_domain'": {
+            f"{emission}_aggregation.resolved_argument_problem",
+            f"{emission}_aggregation.mysql_float_argument_problem",
+            f"{emission}_windows.aggregate_argument_problem",
+        },
+        "_domain_detail(function)": {
+            f"{emission}_aggregation.filtered_problem",
+            f"{emission}_aggregation.resolved_filtered_problem",
+        },
+        "_target_detail(function)": {
+            f"{emission}_aggregation.filtered_problem",
+            f"{emission}_aggregation.resolved_filtered_problem",
+        },
+        "function + '_int_not_admitted_on_target'": {
+            f"{emission}_aggregation.resolved_argument_problem"
+        },
+        "function + '_result_not_non_null_int'": {
+            f"{emission}_aggregation.result_realization"
+        },
+        "function + '_result_logical_type_or_argument_drift'": {
+            f"{emission}_aggregation.result_realization"
+        },
+        "f'window_aggregate_approved_non_support_on_{target}'": {
+            f"{emission}_windows.aggregate_target_problem"
+        },
+        "f'window_frame_{unit}_approved_non_support_on_{target}'": {
+            f"{emission}_windows.frame_problem"
+        },
+        "f'window_frame_exclusion_approved_non_support_on_{target}'": {
+            f"{emission}_windows.frame_problem"
+        },
+    }
+    assert homes.keys() == families.keys()
+    code = re.compile(r"PIE-B100[1-8]")
+    suggestions = "project_sql_emission_suggestions.py"  # names, not states
+    stated: set[tuple[str, str]] = set()
+    unread: list[str] = []
+    used: set[tuple[str, str]] = set()
+    for path in sorted(Path(cli.__file__).resolve().parent.rglob("*.py")):
+        source = path.read_text(encoding="utf-8")
+        if not code.search(source) or path.name == suggestions:
+            continue
+        tree = ast.parse(source)
+        parent = {c: n for n in ast.walk(tree) for c in ast.iter_child_nodes(n)}
+        defs = {n.name: n for n in tree.body if isinstance(n, ast.FunctionDef)}
+
+        def function(node: ast.AST) -> ast.FunctionDef | ast.Module:
+            while not isinstance(node, (ast.FunctionDef, ast.Module)):
+                node = parent[node]
+            return node
+
+        def sources(name: ast.Name) -> list[ast.expr] | None:
+            """What a detail variable can hold: what a local helper's callers
+            pass as that parameter, or what the module function it is bound
+            from returns; None for any other variable, and for one its scope
+            binds in any other way."""
+            scope = function(parent[name])
+            stores = [
+                n
+                for n in ast.walk(scope)
+                if isinstance(n, ast.Name)
+                and n.id == name.id
+                and not isinstance(n.ctx, ast.Load)
+            ]
+            if isinstance(scope, ast.FunctionDef):
+                params = [a.arg for a in scope.args.args]
+                if name.id in params:
+                    at = params.index(name.id)
+                    owner = parent[scope]
+                    uses = [
+                        n
+                        for n in ast.walk(owner)
+                        if isinstance(n, ast.Name) and n.id == scope.name
+                    ]
+                    calls = [
+                        c
+                        for c in ast.walk(owner)
+                        if isinstance(c, ast.Call) and c.func in uses
+                    ]
+                    # Another module may call a module-level helper, a
+                    # helper passed on as a value has callers out of sight,
+                    # and a rebound parameter no longer holds what they pass.
+                    if (
+                        stores
+                        or isinstance(owner, ast.Module)
+                        or len(calls) != len(uses)
+                        or any(at >= len(c.args) for c in calls)
+                    ):
+                        return None
+                    return [c.args[at] for c in calls]
+            bound = [
+                n.value
+                for n in ast.walk(scope)
+                if isinstance(n, ast.Assign)
+                and [getattr(t, "id", None) for t in n.targets] == [name.id]
+            ]
+            # Each plain assignment stores the name once, so any other store
+            # (an unpacking, augmented, annotated, walrus or chained
+            # assignment, a for, with or comprehension target, a del) may give
+            # it a value this reading does not see.
+            if len(bound) != len(stores):
+                return None
+            callees = [
+                defs.get(getattr(getattr(v, "func", None), "id", "")) for v in bound
+            ]
+            resolved = [callee for callee in callees if callee is not None]
+            if not callees or len(resolved) != len(callees):
+                return None
+            return [
+                n.value
+                for callee in resolved
+                for n in ast.walk(callee)
+                if isinstance(n, ast.Return)
+                and n.value is not None
+                and not (isinstance(n.value, ast.Constant) and n.value.value is None)
+            ]
+
+        def details(node: ast.expr) -> set[str] | None:
+            """What one detail expression can be, or None when unread."""
+            if isinstance(node, ast.Constant) and type(node.value) is str:
+                return {node.value}
+            if isinstance(node, ast.IfExp):
+                parts = [details(node.body), details(node.orelse)]
+            elif isinstance(node, ast.Name) and (values := sources(node)) is not None:
+                parts = [details(value) for value in values]
+            else:
+                key = ast.unparse(node)
+                home = f"{path.stem}.{getattr(function(node), 'name', '')}"
+                if home not in homes.get(key, ()):
+                    return None
+                used.add((key, home))
+                return families[key]
+            known = [part for part in parts if part is not None]
+            return (
+                None if not parts or len(known) != len(parts) else set().union(*known)
+            )
+
+        heads = set()
+        for node in ast.walk(tree):
+            items = getattr(node, "args" if isinstance(node, ast.Call) else "elts", [])
+            for head, detail in zip(items, items[1:]):
+                if not (
+                    isinstance(head, ast.Constant) and code.fullmatch(str(head.value))
+                ):
+                    continue
+                heads.add(head)
+                found = details(detail)
+                if found is None:
+                    unread.append(f"{path.name}:{head.lineno}: {ast.unparse(detail)}")
+                stated.update((str(head.value), item) for item in found or ())
+        unread.extend(
+            f"{path.name}:{node.lineno}: {node.value} without a detail"
+            for node in ast.walk(tree)
+            if isinstance(node, ast.Constant)
+            and code.fullmatch(str(node.value))
+            and node not in heads
+            and not isinstance(parent.get(node), (ast.Compare, ast.Dict))
+        )
+    unread.extend(
+        f"no producer computes {key} in {home}"
+        for key in sorted(homes)
+        for home in sorted(homes[key])
+        if (key, home) not in used
+    )
+    return stated, unread
+
+
+def test_every_stated_blocker_detail_has_a_suggestion_on_each_target():
+    """A detail without a suggestion would make serializing its BLOCKED
+    document raise ValueError instead of reporting it, so each detail a
+    producer can state is classified before any input reaches it."""
+    from pietto._project.project_sql_emission_suggestions import blocker_suggestion
+
+    def classified(code: str, detail: str) -> bool:
+        try:
+            return all(blocker_suggestion(code, detail, f) for f in (*TARGETS, None))
+        except ValueError:
+            return False
+
+    stated, unread = _stated_blocker_details()
+    assert unread == []
+    # A literal pair, and one stated through a local `problem(detail)` helper.
+    assert {
+        ("PIE-B1003", "float_division_not_realized"),
+        ("PIE-B1001", "unnest_children_drift"),
+    } <= stated
+    assert sorted(pair for pair in stated if not classified(*pair)) == []

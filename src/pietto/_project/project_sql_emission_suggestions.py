@@ -78,11 +78,13 @@ _GROUPS = (
                 "distinct_boundary_evidence_missing",
                 "distinct_over_nested_group",
                 "distinct_tuple_includes_hidden_value",
+                "element_read_outside_list_scope",
                 "expression_block_producer_not_realized",
                 "expression_block_use_outside_scope",
                 "inline_let_without_body",
                 "inline_read_without_capture",
                 "let_export_expression_drift",
+                "list_read_outside_stage_scope",
                 "match_reference_outside_pre_match_scope",
                 "named_producer_not_realized",
                 "order_boundary_evidence_missing",
@@ -146,6 +148,8 @@ _GROUPS = (
                 "decimal_result_outside_physical_range",
                 "distinct_field_temporal_physical_representation_mismatch",
                 "distinct_field_uuid_physical_representation_mismatch",
+                "element_read_logical_type_drift",
+                "element_read_null_drift",
                 "empty_membership_not_non_null_bool",
                 "existence_result_not_non_null_bool",
                 "extrema_result_logical_type_drift",
@@ -161,6 +165,7 @@ _GROUPS = (
                 "group_key_uuid_physical_representation_mismatch",
                 "join_output_nullability_drift",
                 "join_port_logical_type_drift",
+                "list_operation_type_drift",
                 "literal_leaf_representation",
                 "logical_operand_outside_bool_domain",
                 "lpad_width_outside_physical_range",
@@ -226,6 +231,7 @@ _GROUPS = (
                 "match_reference_logical_type_missing",
                 "membership_condition_missing",
                 "membership_typed_null_context_missing",
+                "order_direction_evidence_missing",
                 "set_operand_field_representation_missing",
                 "substring_result_bound_missing",
                 "sum_int_aggregate_range_proof_missing",
@@ -294,8 +300,11 @@ _GROUPS = (
                 "date_trunc_unit_not_a_static_supported_text",
                 "decimal_direct_source_operands_required",
                 "decimal_scale_mismatch",
+                "float_division_not_realized",
                 "float_literal_operands_required",
+                "float_remainder_exact_binary64_not_realized",
                 "like_text_domain_not_admitted",
+                "list_operation_operand_not_admitted",
                 "literal_type_or_sign_context_not_supported",
                 "logical_operands_require_bool",
                 "membership_realization_not_admitted",
@@ -362,6 +371,7 @@ _GROUPS = (
             {
                 "aggregate_composition_not_admitted_on_target",
                 "collect_not_admitted_on_target",
+                "group_key_type_not_admitted",
                 "list_operation_not_admitted_on_target",
                 "mysql_correlated_order_or_limit_read_not_admitted",
                 "query_parameter_type_not_admitted_on_target",
@@ -422,8 +432,9 @@ any_reference_outside_lexical_scope group_key_outside_pre_aggregate_input group_
 join_input_terminal_drift join_input_use_not_bound join_predecessor_not_realized
 join_predecessor_port_drift limit_boundary_evidence_missing nested_read_without_group
 relationship_equality_not_retained relationship_equality_outside_pre_match_scope
-unnest_input_use_not_bound unnest_join_ambiguity unnest_source_not_in_left_input
-unnest_source_not_nested unnest_withheld_port_drift unnest_without_left_input
+unnest_children_drift unnest_collect_drift unnest_input_use_not_bound unnest_join_ambiguity
+unnest_join_kind_drift unnest_source_not_in_left_input unnest_source_not_nested
+unnest_withheld_port_drift unnest_without_left_input
 window_export_denominator window_order_outside_pre_window_input window_partition_outside_pre_window_input
 window_projection_drift window_projection_outside_result_scope window_projection_reads_non_window_port
 window_result_port_drift window_value_outside_pre_window_input""".split()
