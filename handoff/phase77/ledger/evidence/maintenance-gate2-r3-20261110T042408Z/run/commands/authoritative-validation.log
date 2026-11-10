@@ -1,0 +1,68 @@
+[validate] OOM guard enabled: Linux owned process groups
+[validate] lockfile: uv lock --check
+Resolved 23 packages in 11ms
+[validate] lockfile completed in 1.009s
+[validate] format: uv run ruff format --check .
+1114 files already formatted
+[validate] format completed in 1.011s
+[validate] lint: uv run ruff check .
+All checks passed!
+[validate] lint completed in 1.012s
+[validate] production typing: uv run pyright --threads 4
+venv .venv subdirectory not found in venv path /home/mianliwang/projects/pietto/.cache/phase77-recovery/candidates/maintenance.
+venv .venv subdirectory not found in venv path /home/mianliwang/projects/pietto/.cache/phase77-recovery/candidates/maintenance.
+venv .venv subdirectory not found in venv path /home/mianliwang/projects/pietto/.cache/phase77-recovery/candidates/maintenance.
+venv .venv subdirectory not found in venv path /home/mianliwang/projects/pietto/.cache/phase77-recovery/candidates/maintenance.
+venv .venv subdirectory not found in venv path /home/mianliwang/projects/pietto/.cache/phase77-recovery/candidates/maintenance.
+0 errors, 0 warnings, 0 informations
+[validate] production typing completed in 48.069s
+[validate] test typing: uv run pyright --project pyrightconfig.tests.json --threads 4
+venv .venv subdirectory not found in venv path /home/mianliwang/projects/pietto/.cache/phase77-recovery/candidates/maintenance.
+venv .venv subdirectory not found in venv path /home/mianliwang/projects/pietto/.cache/phase77-recovery/candidates/maintenance.
+venv .venv subdirectory not found in venv path /home/mianliwang/projects/pietto/.cache/phase77-recovery/candidates/maintenance.
+venv .venv subdirectory not found in venv path /home/mianliwang/projects/pietto/.cache/phase77-recovery/candidates/maintenance.
+venv .venv subdirectory not found in venv path /home/mianliwang/projects/pietto/.cache/phase77-recovery/candidates/maintenance.
+0 errors, 0 warnings, 0 informations
+[validate] test typing completed in 41.053s
+[validate] tests: uv run pytest -n 1 --dist=loadfile --pietto-storage-class=qualified
+============================= test session starts ==============================
+platform linux -- Python 3.13.13, pytest-9.2.0, pluggy-1.6.0
+rootdir: /home/mianliwang/projects/pietto/.cache/phase77-recovery/candidates/maintenance
+configfile: pytest.ini
+plugins: cov-7.1.0, xdist-3.8.0
+created: 1/1 worker
+1 worker [27634 items]
+
+........................................................................ [  0%]
+........................................................................ [  0%]
+........................................................................ [  0%]
+........................................................................ [  1%]
+........................................................................ [  1%]
+........................................................................ [  1%]
+........................................................................ [  1%]
+........................................................................ [  2%]
+........................................................................ [  2%]
+........................................................................ [  2%]
+...................Traceback (most recent call last):
+  File "/home/mianliwang/projects/pietto/.cache/phase77-recovery/candidates/maintenance/scripts/validate.py", line 346, in _run_guarded_gate
+    _raise_cancellation(cancelled)
+    ~~~~~~~~~~~~~~~~~~~^^^^^^^^^^^
+  File "/home/mianliwang/projects/pietto/.cache/phase77-recovery/candidates/maintenance/scripts/validate.py", line 312, in _raise_cancellation
+    raise KeyboardInterrupt
+KeyboardInterrupt
+
+During handling of the above exception, another exception occurred:
+
+Traceback (most recent call last):
+  File "/home/mianliwang/projects/pietto/.cache/phase77-recovery/candidates/maintenance/scripts/validate.py", line 594, in <module>
+    sys.exit(main(sys.argv[1:]))
+             ~~~~^^^^^^^^^^^^^^
+  File "/home/mianliwang/projects/pietto/.cache/phase77-recovery/candidates/maintenance/scripts/validate.py", line 572, in main
+    _run_guarded_gate(name, command, args.oom_guard)
+    ~~~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/home/mianliwang/projects/pietto/.cache/phase77-recovery/candidates/maintenance/scripts/validate.py", line 416, in _run_guarded_gate
+    _raise_cancellation(cancelled)
+    ~~~~~~~~~~~~~~~~~~~^^^^^^^^^^^
+  File "/home/mianliwang/projects/pietto/.cache/phase77-recovery/candidates/maintenance/scripts/validate.py", line 312, in _raise_cancellation
+    raise KeyboardInterrupt
+KeyboardInterrupt

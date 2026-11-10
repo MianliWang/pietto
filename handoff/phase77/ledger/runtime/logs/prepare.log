@@ -1,0 +1,941 @@
++ git+ -C+ .cache/phase77-recovery/candidates/maintenance+ rev-parse+ HEAD
+f8ccd2c44a2d9adf431a496bd9bbae037783176f
+[exit 0]
++ git+ -C+ .cache/phase77-recovery/candidates/maintenance+ status+ --short
+ M README.md
+ M ci/phase67-arrow-compatibility-requirements.txt
+ M ci/phase68-executor-premise-requirements.txt
+ M docs/architecture/layering-and-coupling-laws-v1.md
+ M docs/execution.md
+ M docs/project-package.md
+ M docs/spec/diagnostics.md
+ M pyproject.toml
+ M scripts/ci_workloads.py
+ M scripts/package_smoke.py
+ M src/pietto/_project/project_arrow_result.py
+ M src/pietto/_project/project_execution_postgres.py
+ M src/pietto/_project/project_execution_postgres_adbc_native.py
+ M tests/_pietto_execution_api.py
+ M tests/_pietto_execution_api_mysql_native.py
+ M tests/_pietto_execution_cases.py
+ M tests/_pietto_execution_installation_check.py
+ M tests/_pietto_execution_installation_probe.py
+ M tests/_pietto_repo_package.py
+ M tests/_pietto_results_arrow_compatibility.py
+ M tests/_pietto_results_consumer.py
+ M tests/_pietto_results_nested.py
+ M tests/_pietto_results_nested_ipc_oracle.py
+ M tests/_pietto_results_product.py
+ M tests/_pietto_target_conformance.py
+ M tests/phase66_target_pins.json
+ M tests/test_ci_results_governance.py
+ M tests/test_execution_postgres_adbc.py
+ M tests/test_harness_execution_api_mysql_native.py
+ M tests/test_harness_target_conformance.py
+ M tests/test_release_installation.py
+ M tests/test_results_consumer.py
+ M tests/test_results_contract.py
+ M tests/test_results_optional_arrow.py
+ M uv.lock
+[exit 0]
++ sh+ -c+ git\ -C\ \"\$1\"\ ls-files\ -s\ --\ src\ pyproject.toml\ uv.lock\ \>\ \"\$2\"+ sh+ .cache/phase77-recovery/candidates/maintenance+ .cache/phase77-recovery/runtime/reports/source-before.index
+[exit 0]
++ env+ UV_PYTHON=3.13.13+ UV_CACHE_DIR=.cache/phase77-recovery/candidates/maintenance/.uv-runtime-cache+ UV_OFFLINE=1+ UV_NO_SYNC=1+ uv+ build+ .cache/phase77-recovery/candidates/maintenance+ --out-dir+ .cache/phase77-recovery/runtime/dist+ --clear+ --no-create-gitignore
+Building source distribution...
+  × Failed to build
+  │ `/home/mianliwang/projects/pietto/.cache/phase77-recovery/candidates/maintenance`
+  ├─▶ Failed to resolve requirements from `build-system.requires`
+  ├─▶ No solution found when resolving: `uv-build>=0.12.5, <0.14.0`
+  ╰─▶ Because uv-build was not found in the cache and you require
+      uv-build>=0.12.5,<0.14.0, we can conclude that your requirements are
+      unsatisfiable.
+
+hint: Packages were unavailable because the network was disabled. When the network is disabled, registry packages may only be read from the cache.
+[exit 2]
++ git+ -C+ .cache/phase77-recovery/candidates/maintenance+ rev-parse+ HEAD
+f8ccd2c44a2d9adf431a496bd9bbae037783176f
+[exit 0]
++ git+ -C+ .cache/phase77-recovery/candidates/maintenance+ status+ --short
+ M README.md
+ M ci/phase67-arrow-compatibility-requirements.txt
+ M ci/phase68-executor-premise-requirements.txt
+ M docs/architecture/layering-and-coupling-laws-v1.md
+ M docs/execution.md
+ M docs/project-package.md
+ M docs/spec/diagnostics.md
+ M pyproject.toml
+ M scripts/ci_workloads.py
+ M scripts/package_smoke.py
+ M src/pietto/_project/project_arrow_result.py
+ M src/pietto/_project/project_execution_postgres.py
+ M src/pietto/_project/project_execution_postgres_adbc_native.py
+ M tests/_pietto_execution_api.py
+ M tests/_pietto_execution_api_mysql_native.py
+ M tests/_pietto_execution_cases.py
+ M tests/_pietto_execution_installation_check.py
+ M tests/_pietto_execution_installation_probe.py
+ M tests/_pietto_repo_package.py
+ M tests/_pietto_results_arrow_compatibility.py
+ M tests/_pietto_results_consumer.py
+ M tests/_pietto_results_nested.py
+ M tests/_pietto_results_nested_ipc_oracle.py
+ M tests/_pietto_results_product.py
+ M tests/_pietto_target_conformance.py
+ M tests/phase66_target_pins.json
+ M tests/test_ci_results_governance.py
+ M tests/test_execution_postgres_adbc.py
+ M tests/test_harness_execution_api_mysql_native.py
+ M tests/test_harness_target_conformance.py
+ M tests/test_release_installation.py
+ M tests/test_results_consumer.py
+ M tests/test_results_contract.py
+ M tests/test_results_optional_arrow.py
+ M uv.lock
+[exit 0]
++ sh+ -c+ git\ -C\ \"\$1\"\ ls-files\ -s\ --\ src\ pyproject.toml\ uv.lock\ \>\ \"\$2\"+ sh+ .cache/phase77-recovery/candidates/maintenance+ .cache/phase77-recovery/runtime/reports/source-before.index
+[exit 0]
++ env+ UV_PYTHON=3.13.13+ UV_CACHE_DIR=.cache/phase77-recovery/candidates/maintenance/.uv-runtime-cache+ UV_OFFLINE=1+ UV_NO_SYNC=1+ uv+ build+ .cache/phase77-recovery/candidates/maintenance+ --out-dir+ .cache/phase77-recovery/runtime/dist+ --clear+ --no-create-gitignore
+Building source distribution...
+  × Failed to build
+  │ `/home/mianliwang/projects/pietto/.cache/phase77-recovery/candidates/maintenance`
+  ├─▶ Failed to resolve requirements from `build-system.requires`
+  ├─▶ No solution found when resolving: `uv-build>=0.12.5, <0.14.0`
+  ╰─▶ Because uv-build was not found in the cache and you require
+      uv-build>=0.12.5,<0.14.0, we can conclude that your requirements are
+      unsatisfiable.
+
+hint: Packages were unavailable because the network was disabled. When the network is disabled, registry packages may only be read from the cache.
+[exit 2]
++ env+ UV_PYTHON=3.13.13+ UV_CACHE_DIR=.cache/phase77-recovery/candidates/maintenance/.uv-runtime-cache+ UV_NO_SYNC=1+ UV_DEFAULT_INDEX=https://pypi.org/simple+ uv+ build+ .cache/phase77-recovery/candidates/maintenance+ --out-dir+ .cache/phase77-recovery/runtime/dist+ --clear+ --no-create-gitignore
+Building source distribution...
+Building wheel from source distribution...
+Successfully built .cache/phase77-recovery/runtime/dist/pietto-0.1.10.tar.gz
+Successfully built .cache/phase77-recovery/runtime/dist/pietto-0.1.10-py3-none-any.whl
+[exit 0]
++ sh+ -c+ git\ -C\ \"\$1\"\ ls-files\ -s\ --\ src\ pyproject.toml\ uv.lock\ \>\ \"\$2\"+ sh+ .cache/phase77-recovery/candidates/maintenance+ .cache/phase77-recovery/runtime/reports/source-after.index
+[exit 0]
++ cmp+ .cache/phase77-recovery/runtime/reports/source-before.index+ .cache/phase77-recovery/runtime/reports/source-after.index
+[exit 0]
++ sh+ -c+ sha256sum\ \"\$1\"/\*\ \>\ \"\$2\"+ sh+ .cache/phase77-recovery/runtime/dist+ .cache/phase77-recovery/runtime/reports/candidate-dist.sha256
+[exit 0]
++ python3.13+ -m+ venv+ /tmp/pietto-phase77-wheel-downloader
+[exit 0]
++ /tmp/pietto-phase77-wheel-downloader/bin/python+ -I+ -c+ import\ platform\,\ sys\;\ assert\ platform.python_implementation\(\)\ ==\ \"CPython\"\;\ assert\ platform.python_version\(\)\ ==\ \"3.13.13\"\;\ print\(sys.executable\)\;\ print\(sys.version\)
+/tmp/pietto-phase77-wheel-downloader/bin/python
+3.13.13 (main, Jun  2 2026, 22:27:49) [Clang 22.1.3 ]
+[exit 0]
++ mktemp -d /tmp/pietto-phase77-runtime-wheelhouse.XXXXXX
+/tmp/pietto-phase77-runtime-wheelhouse.brDhUy
+[exit 0]
++ env+ PIP_CACHE_DIR=/tmp/pietto-phase77-runtime-wheelhouse.brDhUy/pip-cache+ /tmp/pietto-phase77-wheel-downloader/bin/python+ -m+ pip+ install+ --dry-run+ --ignore-installed+ --only-binary=:all:+ --report+ .cache/phase77-recovery/runtime/reports/core-dev-resolve.json+ -r+ .cache/phase77-recovery/runtime/requirements/core-dev.txt
+Collecting antlr4-python3-runtime==4.13.2 (from -r .cache/phase77-recovery/runtime/requirements/core-dev.txt (line 2))
+  Downloading antlr4_python3_runtime-4.13.2-py3-none-any.whl.metadata (304 bytes)
+Collecting coverage==7.14.1 (from -r .cache/phase77-recovery/runtime/requirements/core-dev.txt (line 3))
+  Downloading coverage-7.14.1-cp313-cp313-manylinux1_x86_64.manylinux_2_28_x86_64.manylinux_2_5_x86_64.whl.metadata (8.6 kB)
+Collecting execnet==2.1.2 (from -r .cache/phase77-recovery/runtime/requirements/core-dev.txt (line 4))
+  Downloading execnet-2.1.2-py3-none-any.whl.metadata (2.9 kB)
+Collecting iniconfig==2.3.0 (from -r .cache/phase77-recovery/runtime/requirements/core-dev.txt (line 5))
+  Downloading iniconfig-2.3.0-py3-none-any.whl.metadata (2.5 kB)
+Collecting mysql-connector-python==26.10.0 (from -r .cache/phase77-recovery/runtime/requirements/core-dev.txt (line 6))
+  Downloading mysql_connector_python-26.10.0-cp313-cp313-manylinux_2_28_x86_64.whl.metadata (11 kB)
+Collecting nodeenv==1.10.0 (from -r .cache/phase77-recovery/runtime/requirements/core-dev.txt (line 7))
+  Downloading nodeenv-1.10.0-py2.py3-none-any.whl.metadata (24 kB)
+Collecting packaging==26.2 (from -r .cache/phase77-recovery/runtime/requirements/core-dev.txt (line 8))
+  Downloading packaging-26.2-py3-none-any.whl.metadata (3.5 kB)
+Collecting pluggy==1.6.0 (from -r .cache/phase77-recovery/runtime/requirements/core-dev.txt (line 9))
+  Downloading pluggy-1.6.0-py3-none-any.whl.metadata (4.8 kB)
+Collecting psycopg==3.3.8 (from psycopg[binary]==3.3.8->-r .cache/phase77-recovery/runtime/requirements/core-dev.txt (line 10))
+  Downloading psycopg-3.3.8-py3-none-any.whl.metadata (4.4 kB)
+Collecting psycopg-binary==3.3.8 (from -r .cache/phase77-recovery/runtime/requirements/core-dev.txt (line 11))
+  Downloading psycopg_binary-3.3.8-cp313-cp313-manylinux2014_x86_64.manylinux_2_17_x86_64.whl.metadata (2.7 kB)
+Collecting pygments==2.20.0 (from -r .cache/phase77-recovery/runtime/requirements/core-dev.txt (line 12))
+  Downloading pygments-2.20.0-py3-none-any.whl.metadata (2.5 kB)
+Collecting pyright==1.1.414 (from -r .cache/phase77-recovery/runtime/requirements/core-dev.txt (line 13))
+  Downloading pyright-1.1.414-py3-none-any.whl.metadata (6.9 kB)
+Collecting pytest==9.2.0 (from -r .cache/phase77-recovery/runtime/requirements/core-dev.txt (line 14))
+  Downloading pytest-9.2.0-py3-none-any.whl.metadata (7.9 kB)
+Collecting pytest-cov==7.1.0 (from -r .cache/phase77-recovery/runtime/requirements/core-dev.txt (line 15))
+  Downloading pytest_cov-7.1.0-py3-none-any.whl.metadata (32 kB)
+Collecting pytest-xdist==3.8.0 (from -r .cache/phase77-recovery/runtime/requirements/core-dev.txt (line 16))
+  Downloading pytest_xdist-3.8.0-py3-none-any.whl.metadata (3.0 kB)
+Collecting ruff==0.17.3 (from -r .cache/phase77-recovery/runtime/requirements/core-dev.txt (line 17))
+  Downloading ruff-0.17.3-py3-none-manylinux_2_17_x86_64.manylinux2014_x86_64.whl.metadata (20 kB)
+Collecting typing-extensions>=4.1 (from pyright==1.1.414->-r .cache/phase77-recovery/runtime/requirements/core-dev.txt (line 13))
+  Downloading typing_extensions-4.16.0-py3-none-any.whl.metadata (3.3 kB)
+Would install Pygments-2.20.0 antlr4-python3-runtime-4.13.2 coverage-7.14.1 execnet-2.1.2 iniconfig-2.3.0 mysql-connector-python-26.10.0 nodeenv-1.10.0 packaging-26.2 pluggy-1.6.0 psycopg-3.3.8 psycopg-binary-3.3.8 pyright-1.1.414 pytest-9.2.0 pytest-cov-7.1.0 pytest-xdist-3.8.0 ruff-0.17.3 typing_extensions-4.16.0
+
+[notice] A new release of pip is available: 26.0.1 -> 26.3
+[notice] To update, run: /tmp/pietto-phase77-wheel-downloader/bin/python -m pip install --upgrade pip
+[exit 0]
++ env+ PIP_CACHE_DIR=/tmp/pietto-phase77-runtime-wheelhouse.brDhUy/pip-cache+ /tmp/pietto-phase77-wheel-downloader/bin/python+ -m+ pip+ install+ --dry-run+ --ignore-installed+ --only-binary=:all:+ --report+ .cache/phase77-recovery/runtime/reports/native-resolve.json+ -r+ .cache/phase77-recovery/runtime/requirements/native.txt
+Collecting antlr4-python3-runtime==4.13.2 (from -r .cache/phase77-recovery/runtime/requirements/native.txt (line 2))
+  Using cached antlr4_python3_runtime-4.13.2-py3-none-any.whl.metadata (304 bytes)
+Collecting psycopg==3.3.8 (from psycopg[binary]==3.3.8->-r .cache/phase77-recovery/runtime/requirements/native.txt (line 3))
+  Using cached psycopg-3.3.8-py3-none-any.whl.metadata (4.4 kB)
+Collecting mysql-connector-python==26.10.0 (from -r .cache/phase77-recovery/runtime/requirements/native.txt (line 4))
+  Using cached mysql_connector_python-26.10.0-cp313-cp313-manylinux_2_28_x86_64.whl.metadata (11 kB)
+Collecting pyarrow==26.0.1 (from -r .cache/phase77-recovery/runtime/requirements/native.txt (line 5))
+  Downloading pyarrow-26.0.1-cp313-cp313-manylinux_2_28_x86_64.whl.metadata (3.0 kB)
+Collecting adbc-driver-postgresql==1.13.0 (from -r .cache/phase77-recovery/runtime/requirements/native.txt (line 6))
+  Downloading adbc_driver_postgresql-1.13.0-py3-none-manylinux_2_26_x86_64.manylinux_2_28_x86_64.whl.metadata (4.0 kB)
+Collecting adbc-driver-manager==1.13.0 (from -r .cache/phase77-recovery/runtime/requirements/native.txt (line 7))
+  Downloading adbc_driver_manager-1.13.0-cp313-cp313-manylinux_2_27_x86_64.manylinux_2_28_x86_64.whl.metadata (3.3 kB)
+Collecting opentelemetry-api==1.33.1 (from -r .cache/phase77-recovery/runtime/requirements/native.txt (line 8))
+  Downloading opentelemetry_api-1.33.1-py3-none-any.whl.metadata (1.6 kB)
+Collecting opentelemetry-sdk==1.33.1 (from -r .cache/phase77-recovery/runtime/requirements/native.txt (line 9))
+  Downloading opentelemetry_sdk-1.33.1-py3-none-any.whl.metadata (1.6 kB)
+Collecting opentelemetry-semantic-conventions==0.54b1 (from -r .cache/phase77-recovery/runtime/requirements/native.txt (line 10))
+  Downloading opentelemetry_semantic_conventions-0.54b1-py3-none-any.whl.metadata (2.5 kB)
+Collecting wrapt==2.5.0 (from -r .cache/phase77-recovery/runtime/requirements/native.txt (line 11))
+  Downloading wrapt-2.5.0-cp313-cp313-manylinux1_x86_64.manylinux_2_28_x86_64.manylinux_2_5_x86_64.whl.metadata (7.6 kB)
+Collecting typing-extensions==4.16.0 (from -r .cache/phase77-recovery/runtime/requirements/native.txt (line 12))
+  Using cached typing_extensions-4.16.0-py3-none-any.whl.metadata (3.3 kB)
+Collecting deprecated>=1.2.6 (from opentelemetry-api==1.33.1->-r .cache/phase77-recovery/runtime/requirements/native.txt (line 8))
+  Downloading deprecated-3.0.1-py3-none-any.whl.metadata (6.5 kB)
+Collecting importlib-metadata<8.7.0,>=6.0 (from opentelemetry-api==1.33.1->-r .cache/phase77-recovery/runtime/requirements/native.txt (line 8))
+  Downloading importlib_metadata-8.6.1-py3-none-any.whl.metadata (4.7 kB)
+Collecting psycopg-binary==3.3.8 (from psycopg[binary]==3.3.8->-r .cache/phase77-recovery/runtime/requirements/native.txt (line 3))
+  Using cached psycopg_binary-3.3.8-cp313-cp313-manylinux2014_x86_64.manylinux_2_17_x86_64.whl.metadata (2.7 kB)
+Collecting zipp>=3.20 (from importlib-metadata<8.7.0,>=6.0->opentelemetry-api==1.33.1->-r .cache/phase77-recovery/runtime/requirements/native.txt (line 8))
+  Downloading zipp-4.1.2-py3-none-any.whl.metadata (3.6 kB)
+Would install Deprecated-3.0.1 adbc-driver-manager-1.13.0 adbc-driver-postgresql-1.13.0 antlr4-python3-runtime-4.13.2 importlib_metadata-8.6.1 mysql-connector-python-26.10.0 opentelemetry-api-1.33.1 opentelemetry-sdk-1.33.1 opentelemetry-semantic-conventions-0.54b1 psycopg-3.3.8 psycopg-binary-3.3.8 pyarrow-26.0.1 typing_extensions-4.16.0 wrapt-2.5.0 zipp-4.1.2
+
+[notice] A new release of pip is available: 26.0.1 -> 26.3
+[notice] To update, run: /tmp/pietto-phase77-wheel-downloader/bin/python -m pip install --upgrade pip
+[exit 0]
++ env+ PIP_CACHE_DIR=/tmp/pietto-phase77-runtime-wheelhouse.brDhUy/pip-cache+ /tmp/pietto-phase77-wheel-downloader/bin/python+ -m+ pip+ download+ --only-binary=:all:+ --dest+ /tmp/pietto-phase77-runtime-wheelhouse.brDhUy+ -r+ .cache/phase77-recovery/runtime/requirements/core-dev.txt
+Collecting antlr4-python3-runtime==4.13.2 (from -r .cache/phase77-recovery/runtime/requirements/core-dev.txt (line 2))
+  Using cached antlr4_python3_runtime-4.13.2-py3-none-any.whl.metadata (304 bytes)
+Collecting coverage==7.14.1 (from -r .cache/phase77-recovery/runtime/requirements/core-dev.txt (line 3))
+  Using cached coverage-7.14.1-cp313-cp313-manylinux1_x86_64.manylinux_2_28_x86_64.manylinux_2_5_x86_64.whl.metadata (8.6 kB)
+Collecting execnet==2.1.2 (from -r .cache/phase77-recovery/runtime/requirements/core-dev.txt (line 4))
+  Using cached execnet-2.1.2-py3-none-any.whl.metadata (2.9 kB)
+Collecting iniconfig==2.3.0 (from -r .cache/phase77-recovery/runtime/requirements/core-dev.txt (line 5))
+  Using cached iniconfig-2.3.0-py3-none-any.whl.metadata (2.5 kB)
+Collecting mysql-connector-python==26.10.0 (from -r .cache/phase77-recovery/runtime/requirements/core-dev.txt (line 6))
+  Using cached mysql_connector_python-26.10.0-cp313-cp313-manylinux_2_28_x86_64.whl.metadata (11 kB)
+Collecting nodeenv==1.10.0 (from -r .cache/phase77-recovery/runtime/requirements/core-dev.txt (line 7))
+  Using cached nodeenv-1.10.0-py2.py3-none-any.whl.metadata (24 kB)
+Collecting packaging==26.2 (from -r .cache/phase77-recovery/runtime/requirements/core-dev.txt (line 8))
+  Using cached packaging-26.2-py3-none-any.whl.metadata (3.5 kB)
+Collecting pluggy==1.6.0 (from -r .cache/phase77-recovery/runtime/requirements/core-dev.txt (line 9))
+  Using cached pluggy-1.6.0-py3-none-any.whl.metadata (4.8 kB)
+Collecting psycopg==3.3.8 (from psycopg[binary]==3.3.8->-r .cache/phase77-recovery/runtime/requirements/core-dev.txt (line 10))
+  Using cached psycopg-3.3.8-py3-none-any.whl.metadata (4.4 kB)
+Collecting psycopg-binary==3.3.8 (from -r .cache/phase77-recovery/runtime/requirements/core-dev.txt (line 11))
+  Using cached psycopg_binary-3.3.8-cp313-cp313-manylinux2014_x86_64.manylinux_2_17_x86_64.whl.metadata (2.7 kB)
+Collecting pygments==2.20.0 (from -r .cache/phase77-recovery/runtime/requirements/core-dev.txt (line 12))
+  Using cached pygments-2.20.0-py3-none-any.whl.metadata (2.5 kB)
+Collecting pyright==1.1.414 (from -r .cache/phase77-recovery/runtime/requirements/core-dev.txt (line 13))
+  Using cached pyright-1.1.414-py3-none-any.whl.metadata (6.9 kB)
+Collecting pytest==9.2.0 (from -r .cache/phase77-recovery/runtime/requirements/core-dev.txt (line 14))
+  Using cached pytest-9.2.0-py3-none-any.whl.metadata (7.9 kB)
+Collecting pytest-cov==7.1.0 (from -r .cache/phase77-recovery/runtime/requirements/core-dev.txt (line 15))
+  Using cached pytest_cov-7.1.0-py3-none-any.whl.metadata (32 kB)
+Collecting pytest-xdist==3.8.0 (from -r .cache/phase77-recovery/runtime/requirements/core-dev.txt (line 16))
+  Using cached pytest_xdist-3.8.0-py3-none-any.whl.metadata (3.0 kB)
+Collecting ruff==0.17.3 (from -r .cache/phase77-recovery/runtime/requirements/core-dev.txt (line 17))
+  Using cached ruff-0.17.3-py3-none-manylinux_2_17_x86_64.manylinux2014_x86_64.whl.metadata (20 kB)
+Collecting typing-extensions>=4.1 (from pyright==1.1.414->-r .cache/phase77-recovery/runtime/requirements/core-dev.txt (line 13))
+  Using cached typing_extensions-4.16.0-py3-none-any.whl.metadata (3.3 kB)
+Downloading antlr4_python3_runtime-4.13.2-py3-none-any.whl (144 kB)
+Downloading coverage-7.14.1-cp313-cp313-manylinux1_x86_64.manylinux_2_28_x86_64.manylinux_2_5_x86_64.whl (254 kB)
+Downloading execnet-2.1.2-py3-none-any.whl (40 kB)
+Downloading iniconfig-2.3.0-py3-none-any.whl (7.5 kB)
+Downloading mysql_connector_python-26.10.0-cp313-cp313-manylinux_2_28_x86_64.whl (21.5 MB)
+   ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━ 21.5/21.5 MB 70.1 MB/s  0:00:00
+Downloading nodeenv-1.10.0-py2.py3-none-any.whl (23 kB)
+Downloading packaging-26.2-py3-none-any.whl (100 kB)
+Downloading pluggy-1.6.0-py3-none-any.whl (20 kB)
+Downloading psycopg-3.3.8-py3-none-any.whl (216 kB)
+Downloading psycopg_binary-3.3.8-cp313-cp313-manylinux2014_x86_64.manylinux_2_17_x86_64.whl (5.2 MB)
+   ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━ 5.2/5.2 MB 80.2 MB/s  0:00:00
+Downloading pygments-2.20.0-py3-none-any.whl (1.2 MB)
+   ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━ 1.2/1.2 MB 51.5 MB/s  0:00:00
+Downloading pyright-1.1.414-py3-none-any.whl (6.2 MB)
+   ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━ 6.2/6.2 MB 86.7 MB/s  0:00:00
+Downloading pytest-9.2.0-py3-none-any.whl (411 kB)
+Downloading pytest_cov-7.1.0-py3-none-any.whl (22 kB)
+Downloading pytest_xdist-3.8.0-py3-none-any.whl (46 kB)
+Downloading ruff-0.17.3-py3-none-manylinux_2_17_x86_64.manylinux2014_x86_64.whl (10.6 MB)
+   ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━ 10.6/10.6 MB 93.0 MB/s  0:00:00
+Downloading typing_extensions-4.16.0-py3-none-any.whl (45 kB)
+Saved /tmp/pietto-phase77-runtime-wheelhouse.brDhUy/antlr4_python3_runtime-4.13.2-py3-none-any.whl
+Saved /tmp/pietto-phase77-runtime-wheelhouse.brDhUy/coverage-7.14.1-cp313-cp313-manylinux1_x86_64.manylinux_2_28_x86_64.manylinux_2_5_x86_64.whl
+Saved /tmp/pietto-phase77-runtime-wheelhouse.brDhUy/execnet-2.1.2-py3-none-any.whl
+Saved /tmp/pietto-phase77-runtime-wheelhouse.brDhUy/iniconfig-2.3.0-py3-none-any.whl
+Saved /tmp/pietto-phase77-runtime-wheelhouse.brDhUy/mysql_connector_python-26.10.0-cp313-cp313-manylinux_2_28_x86_64.whl
+Saved /tmp/pietto-phase77-runtime-wheelhouse.brDhUy/nodeenv-1.10.0-py2.py3-none-any.whl
+Saved /tmp/pietto-phase77-runtime-wheelhouse.brDhUy/packaging-26.2-py3-none-any.whl
+Saved /tmp/pietto-phase77-runtime-wheelhouse.brDhUy/pluggy-1.6.0-py3-none-any.whl
+Saved /tmp/pietto-phase77-runtime-wheelhouse.brDhUy/psycopg-3.3.8-py3-none-any.whl
+Saved /tmp/pietto-phase77-runtime-wheelhouse.brDhUy/psycopg_binary-3.3.8-cp313-cp313-manylinux2014_x86_64.manylinux_2_17_x86_64.whl
+Saved /tmp/pietto-phase77-runtime-wheelhouse.brDhUy/pygments-2.20.0-py3-none-any.whl
+Saved /tmp/pietto-phase77-runtime-wheelhouse.brDhUy/pyright-1.1.414-py3-none-any.whl
+Saved /tmp/pietto-phase77-runtime-wheelhouse.brDhUy/pytest-9.2.0-py3-none-any.whl
+Saved /tmp/pietto-phase77-runtime-wheelhouse.brDhUy/pytest_cov-7.1.0-py3-none-any.whl
+Saved /tmp/pietto-phase77-runtime-wheelhouse.brDhUy/pytest_xdist-3.8.0-py3-none-any.whl
+Saved /tmp/pietto-phase77-runtime-wheelhouse.brDhUy/ruff-0.17.3-py3-none-manylinux_2_17_x86_64.manylinux2014_x86_64.whl
+Saved /tmp/pietto-phase77-runtime-wheelhouse.brDhUy/typing_extensions-4.16.0-py3-none-any.whl
+Successfully downloaded antlr4-python3-runtime coverage execnet iniconfig mysql-connector-python nodeenv packaging pluggy psycopg psycopg-binary pygments pyright pytest pytest-cov pytest-xdist ruff typing-extensions
+
+[notice] A new release of pip is available: 26.0.1 -> 26.3
+[notice] To update, run: /tmp/pietto-phase77-wheel-downloader/bin/python -m pip install --upgrade pip
+[exit 0]
++ env+ PIP_CACHE_DIR=/tmp/pietto-phase77-runtime-wheelhouse.brDhUy/pip-cache+ /tmp/pietto-phase77-wheel-downloader/bin/python+ -m+ pip+ download+ --only-binary=:all:+ --dest+ /tmp/pietto-phase77-runtime-wheelhouse.brDhUy+ -r+ .cache/phase77-recovery/runtime/requirements/native.txt
+Collecting antlr4-python3-runtime==4.13.2 (from -r .cache/phase77-recovery/runtime/requirements/native.txt (line 2))
+  File was already downloaded /tmp/pietto-phase77-runtime-wheelhouse.brDhUy/antlr4_python3_runtime-4.13.2-py3-none-any.whl
+Collecting psycopg==3.3.8 (from psycopg[binary]==3.3.8->-r .cache/phase77-recovery/runtime/requirements/native.txt (line 3))
+  File was already downloaded /tmp/pietto-phase77-runtime-wheelhouse.brDhUy/psycopg-3.3.8-py3-none-any.whl
+Collecting mysql-connector-python==26.10.0 (from -r .cache/phase77-recovery/runtime/requirements/native.txt (line 4))
+  File was already downloaded /tmp/pietto-phase77-runtime-wheelhouse.brDhUy/mysql_connector_python-26.10.0-cp313-cp313-manylinux_2_28_x86_64.whl
+Collecting pyarrow==26.0.1 (from -r .cache/phase77-recovery/runtime/requirements/native.txt (line 5))
+  Using cached pyarrow-26.0.1-cp313-cp313-manylinux_2_28_x86_64.whl.metadata (3.0 kB)
+Collecting adbc-driver-postgresql==1.13.0 (from -r .cache/phase77-recovery/runtime/requirements/native.txt (line 6))
+  Using cached adbc_driver_postgresql-1.13.0-py3-none-manylinux_2_26_x86_64.manylinux_2_28_x86_64.whl.metadata (4.0 kB)
+Collecting adbc-driver-manager==1.13.0 (from -r .cache/phase77-recovery/runtime/requirements/native.txt (line 7))
+  Using cached adbc_driver_manager-1.13.0-cp313-cp313-manylinux_2_27_x86_64.manylinux_2_28_x86_64.whl.metadata (3.3 kB)
+Collecting opentelemetry-api==1.33.1 (from -r .cache/phase77-recovery/runtime/requirements/native.txt (line 8))
+  Using cached opentelemetry_api-1.33.1-py3-none-any.whl.metadata (1.6 kB)
+Collecting opentelemetry-sdk==1.33.1 (from -r .cache/phase77-recovery/runtime/requirements/native.txt (line 9))
+  Using cached opentelemetry_sdk-1.33.1-py3-none-any.whl.metadata (1.6 kB)
+Collecting opentelemetry-semantic-conventions==0.54b1 (from -r .cache/phase77-recovery/runtime/requirements/native.txt (line 10))
+  Using cached opentelemetry_semantic_conventions-0.54b1-py3-none-any.whl.metadata (2.5 kB)
+Collecting wrapt==2.5.0 (from -r .cache/phase77-recovery/runtime/requirements/native.txt (line 11))
+  Using cached wrapt-2.5.0-cp313-cp313-manylinux1_x86_64.manylinux_2_28_x86_64.manylinux_2_5_x86_64.whl.metadata (7.6 kB)
+Collecting typing-extensions==4.16.0 (from -r .cache/phase77-recovery/runtime/requirements/native.txt (line 12))
+  File was already downloaded /tmp/pietto-phase77-runtime-wheelhouse.brDhUy/typing_extensions-4.16.0-py3-none-any.whl
+Collecting deprecated>=1.2.6 (from opentelemetry-api==1.33.1->-r .cache/phase77-recovery/runtime/requirements/native.txt (line 8))
+  Using cached deprecated-3.0.1-py3-none-any.whl.metadata (6.5 kB)
+Collecting importlib-metadata<8.7.0,>=6.0 (from opentelemetry-api==1.33.1->-r .cache/phase77-recovery/runtime/requirements/native.txt (line 8))
+  Using cached importlib_metadata-8.6.1-py3-none-any.whl.metadata (4.7 kB)
+Collecting psycopg-binary==3.3.8 (from psycopg[binary]==3.3.8->-r .cache/phase77-recovery/runtime/requirements/native.txt (line 3))
+  File was already downloaded /tmp/pietto-phase77-runtime-wheelhouse.brDhUy/psycopg_binary-3.3.8-cp313-cp313-manylinux2014_x86_64.manylinux_2_17_x86_64.whl
+Collecting zipp>=3.20 (from importlib-metadata<8.7.0,>=6.0->opentelemetry-api==1.33.1->-r .cache/phase77-recovery/runtime/requirements/native.txt (line 8))
+  Using cached zipp-4.1.2-py3-none-any.whl.metadata (3.6 kB)
+Downloading pyarrow-26.0.1-cp313-cp313-manylinux_2_28_x86_64.whl (55.0 MB)
+   ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━ 55.0/55.0 MB 55.0 MB/s  0:00:01
+Downloading adbc_driver_postgresql-1.13.0-py3-none-manylinux_2_26_x86_64.manylinux_2_28_x86_64.whl (3.6 MB)
+   ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━ 3.6/3.6 MB 85.5 MB/s  0:00:00
+Downloading adbc_driver_manager-1.13.0-cp313-cp313-manylinux_2_27_x86_64.manylinux_2_28_x86_64.whl (4.2 MB)
+   ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━ 4.2/4.2 MB 93.4 MB/s  0:00:00
+Downloading opentelemetry_api-1.33.1-py3-none-any.whl (65 kB)
+Downloading opentelemetry_sdk-1.33.1-py3-none-any.whl (118 kB)
+Downloading opentelemetry_semantic_conventions-0.54b1-py3-none-any.whl (194 kB)
+Downloading wrapt-2.5.0-cp313-cp313-manylinux1_x86_64.manylinux_2_28_x86_64.manylinux_2_5_x86_64.whl (248 kB)
+Downloading importlib_metadata-8.6.1-py3-none-any.whl (26 kB)
+Downloading deprecated-3.0.1-py3-none-any.whl (22 kB)
+Downloading zipp-4.1.2-py3-none-any.whl (10 kB)
+Saved /tmp/pietto-phase77-runtime-wheelhouse.brDhUy/pyarrow-26.0.1-cp313-cp313-manylinux_2_28_x86_64.whl
+Saved /tmp/pietto-phase77-runtime-wheelhouse.brDhUy/adbc_driver_postgresql-1.13.0-py3-none-manylinux_2_26_x86_64.manylinux_2_28_x86_64.whl
+Saved /tmp/pietto-phase77-runtime-wheelhouse.brDhUy/adbc_driver_manager-1.13.0-cp313-cp313-manylinux_2_27_x86_64.manylinux_2_28_x86_64.whl
+Saved /tmp/pietto-phase77-runtime-wheelhouse.brDhUy/opentelemetry_api-1.33.1-py3-none-any.whl
+Saved /tmp/pietto-phase77-runtime-wheelhouse.brDhUy/opentelemetry_sdk-1.33.1-py3-none-any.whl
+Saved /tmp/pietto-phase77-runtime-wheelhouse.brDhUy/opentelemetry_semantic_conventions-0.54b1-py3-none-any.whl
+Saved /tmp/pietto-phase77-runtime-wheelhouse.brDhUy/wrapt-2.5.0-cp313-cp313-manylinux1_x86_64.manylinux_2_28_x86_64.manylinux_2_5_x86_64.whl
+Saved /tmp/pietto-phase77-runtime-wheelhouse.brDhUy/importlib_metadata-8.6.1-py3-none-any.whl
+Saved /tmp/pietto-phase77-runtime-wheelhouse.brDhUy/deprecated-3.0.1-py3-none-any.whl
+Saved /tmp/pietto-phase77-runtime-wheelhouse.brDhUy/zipp-4.1.2-py3-none-any.whl
+Successfully downloaded antlr4-python3-runtime psycopg mysql-connector-python pyarrow adbc-driver-postgresql adbc-driver-manager opentelemetry-api opentelemetry-sdk opentelemetry-semantic-conventions wrapt typing-extensions psycopg-binary importlib-metadata deprecated zipp
+
+[notice] A new release of pip is available: 26.0.1 -> 26.3
+[notice] To update, run: /tmp/pietto-phase77-wheel-downloader/bin/python -m pip install --upgrade pip
+[exit 0]
++ find+ /tmp/pietto-phase77-runtime-wheelhouse.brDhUy+ -maxdepth+ 1+ -type+ f+ -name+ \*.whl+ -printf+ %f\\n
+iniconfig-2.3.0-py3-none-any.whl
+wrapt-2.5.0-cp313-cp313-manylinux1_x86_64.manylinux_2_28_x86_64.manylinux_2_5_x86_64.whl
+pytest_xdist-3.8.0-py3-none-any.whl
+zipp-4.1.2-py3-none-any.whl
+coverage-7.14.1-cp313-cp313-manylinux1_x86_64.manylinux_2_28_x86_64.manylinux_2_5_x86_64.whl
+mysql_connector_python-26.10.0-cp313-cp313-manylinux_2_28_x86_64.whl
+opentelemetry_sdk-1.33.1-py3-none-any.whl
+nodeenv-1.10.0-py2.py3-none-any.whl
+pygments-2.20.0-py3-none-any.whl
+adbc_driver_postgresql-1.13.0-py3-none-manylinux_2_26_x86_64.manylinux_2_28_x86_64.whl
+pluggy-1.6.0-py3-none-any.whl
+packaging-26.2-py3-none-any.whl
+adbc_driver_manager-1.13.0-cp313-cp313-manylinux_2_27_x86_64.manylinux_2_28_x86_64.whl
+opentelemetry_semantic_conventions-0.54b1-py3-none-any.whl
+pytest_cov-7.1.0-py3-none-any.whl
+opentelemetry_api-1.33.1-py3-none-any.whl
+pytest-9.2.0-py3-none-any.whl
+pyarrow-26.0.1-cp313-cp313-manylinux_2_28_x86_64.whl
+psycopg-3.3.8-py3-none-any.whl
+typing_extensions-4.16.0-py3-none-any.whl
+psycopg_binary-3.3.8-cp313-cp313-manylinux2014_x86_64.manylinux_2_17_x86_64.whl
+importlib_metadata-8.6.1-py3-none-any.whl
+deprecated-3.0.1-py3-none-any.whl
+pyright-1.1.414-py3-none-any.whl
+execnet-2.1.2-py3-none-any.whl
+antlr4_python3_runtime-4.13.2-py3-none-any.whl
+ruff-0.17.3-py3-none-manylinux_2_17_x86_64.manylinux2014_x86_64.whl
+[exit 0]
++ find+ /tmp/pietto-phase77-runtime-wheelhouse.brDhUy+ -maxdepth+ 1+ -type+ f+ \!+ -name+ \*.whl+ -print
+[exit 0]
++ cp+ -a+ /tmp/pietto-phase77-runtime-wheelhouse.brDhUy/.+ .cache/phase77-recovery/runtime/wheelhouse/
+[exit 0]
++ /tmp/pietto-phase77-wheel-downloader/bin/python+ -I+ .cache/phase77-recovery/runtime/build_manifest.py
+[exit 0]
++ env+ UV_PYTHON=3.13.13+ UV_CACHE_DIR=.cache/phase77-recovery/candidates/maintenance/.uv-runtime-cache+ UV_OFFLINE=1+ UV_NO_SYNC=1+ uv+ venv+ --python+ 3.13.13+ .cache/phase77-recovery/runtime/venvs/core-dev
+Using CPython 3.13.13
+Creating virtual environment at: .cache/phase77-recovery/runtime/venvs/core-dev
+Activate with: source .cache/phase77-recovery/runtime/venvs/core-dev/bin/activate
+[exit 0]
++ env+ UV_PYTHON=3.13.13+ UV_CACHE_DIR=.cache/phase77-recovery/candidates/maintenance/.uv-runtime-cache+ UV_OFFLINE=1+ UV_NO_SYNC=1+ uv+ pip+ install+ --python+ .cache/phase77-recovery/runtime/venvs/core-dev/bin/python+ --no-index+ --find-links+ .cache/phase77-recovery/runtime/wheelhouse+ .cache/phase77-recovery/runtime/dist/pietto-0.1.10-py3-none-any.whl+ -r+ .cache/phase77-recovery/runtime/requirements/core-dev.txt
+Using Python 3.13.13 environment at: .cache/phase77-recovery/runtime/venvs/core-dev
+Resolved 18 packages in 13ms
+Prepared 18 packages in 478ms
+Installed 18 packages in 163ms
+ + antlr4-python3-runtime==4.13.2
+ + coverage==7.14.1
+ + execnet==2.1.2
+ + iniconfig==2.3.0
+ + mysql-connector-python==26.10.0
+ + nodeenv==1.10.0
+ + packaging==26.2
+ + pietto==0.1.10 (from file:///home/mianliwang/projects/pietto/.cache/phase77-recovery/runtime/dist/pietto-0.1.10-py3-none-any.whl)
+ + pluggy==1.6.0
+ + psycopg==3.3.8
+ + psycopg-binary==3.3.8
+ + pygments==2.20.0
+ + pyright==1.1.414
+ + pytest==9.2.0
+ + pytest-cov==7.1.0
+ + pytest-xdist==3.8.0
+ + ruff==0.17.3
+ + typing-extensions==4.16.0
+[exit 0]
++ env+ UV_PYTHON=3.13.13+ UV_CACHE_DIR=.cache/phase77-recovery/candidates/maintenance/.uv-runtime-cache+ UV_OFFLINE=1+ UV_NO_SYNC=1+ uv+ venv+ --python+ 3.13.13+ .cache/phase77-recovery/runtime/venvs/native
+Using CPython 3.13.13
+Creating virtual environment at: .cache/phase77-recovery/runtime/venvs/native
+Activate with: source .cache/phase77-recovery/runtime/venvs/native/bin/activate
+[exit 0]
++ env+ UV_PYTHON=3.13.13+ UV_CACHE_DIR=.cache/phase77-recovery/candidates/maintenance/.uv-runtime-cache+ UV_OFFLINE=1+ UV_NO_SYNC=1+ uv+ pip+ install+ --python+ .cache/phase77-recovery/runtime/venvs/native/bin/python+ --no-index+ --find-links+ .cache/phase77-recovery/runtime/wheelhouse+ .cache/phase77-recovery/runtime/dist/pietto-0.1.10-py3-none-any.whl+ -r+ .cache/phase77-recovery/runtime/requirements/native.txt
+Using Python 3.13.13 environment at: .cache/phase77-recovery/runtime/venvs/native
+Resolved 16 packages in 9ms
+Prepared 10 packages in 234ms
+Installed 16 packages in 28ms
+ + adbc-driver-manager==1.13.0
+ + adbc-driver-postgresql==1.13.0
+ + antlr4-python3-runtime==4.13.2
+ + deprecated==3.0.1
+ + importlib-metadata==8.6.1
+ + mysql-connector-python==26.10.0
+ + opentelemetry-api==1.33.1
+ + opentelemetry-sdk==1.33.1
+ + opentelemetry-semantic-conventions==0.54b1
+ + pietto==0.1.10 (from file:///home/mianliwang/projects/pietto/.cache/phase77-recovery/runtime/dist/pietto-0.1.10-py3-none-any.whl)
+ + psycopg==3.3.8
+ + psycopg-binary==3.3.8
+ + pyarrow==26.0.1
+ + typing-extensions==4.16.0
+ + wrapt==2.5.0
+ + zipp==4.1.2
+[exit 0]
++ .cache/phase77-recovery/runtime/venvs/core-dev/bin/python+ -I+ -c+ import\ importlib.metadata\ as\ m\,\ platform\,\ pietto\,\ sys\;\ assert\ platform.python_version\(\)\ ==\ \"3.13.13\"\;\ assert\ \"pyarrow\"\ not\ in\ \{x.metadata\[\"Name\"\].lower\(\)\ for\ x\ in\ m.distributions\(\)\}\;\ print\(sys.executable\)\;\ print\(pietto.__file__\)\;\ print\(m.version\(\"psycopg\"\)\,\ m.version\(\"mysql-connector-python\"\)\,\ m.version\(\"pytest\"\)\)
+/home/mianliwang/projects/pietto/.cache/phase77-recovery/runtime/venvs/core-dev/bin/python
+/home/mianliwang/projects/pietto/.cache/phase77-recovery/runtime/venvs/core-dev/lib/python3.13/site-packages/pietto/__init__.py
+3.3.8 26.10.0 9.2.0
+[exit 0]
++ .cache/phase77-recovery/runtime/venvs/native/bin/python+ -I+ -c+ import\ adbc_driver_manager\,\ adbc_driver_postgresql\,\ importlib.metadata\ as\ m\,\ mysql.connector\,\ platform\,\ psycopg\,\ pyarrow\,\ sys\,\ wrapt\;\ assert\ platform.python_version\(\)\ ==\ \"3.13.13\"\;\ print\(sys.executable\)\;\ print\(pyarrow.__file__\)\;\ print\(psycopg.__file__\)\;\ print\(mysql.connector.__file__\)\;\ print\(adbc_driver_manager.__file__\)\;\ print\(adbc_driver_postgresql.__file__\)\;\ print\(wrapt.__file__\)\;\ print\(\{x:m.version\(x\)\ for\ x\ in\ \(\"pyarrow\"\,\ \"psycopg\"\,\ \"psycopg-binary\"\,\ \"mysql-connector-python\"\,\ \"adbc-driver-manager\"\,\ \"adbc-driver-postgresql\"\,\ \"opentelemetry-api\"\,\ \"opentelemetry-sdk\"\,\ \"opentelemetry-semantic-conventions\"\,\ \"wrapt\"\)\}\)
+/home/mianliwang/projects/pietto/.cache/phase77-recovery/runtime/venvs/native/bin/python
+/home/mianliwang/projects/pietto/.cache/phase77-recovery/runtime/venvs/native/lib/python3.13/site-packages/pyarrow/__init__.py
+/home/mianliwang/projects/pietto/.cache/phase77-recovery/runtime/venvs/native/lib/python3.13/site-packages/psycopg/__init__.py
+/home/mianliwang/projects/pietto/.cache/phase77-recovery/runtime/venvs/native/lib/python3.13/site-packages/mysql/connector/__init__.py
+/home/mianliwang/projects/pietto/.cache/phase77-recovery/runtime/venvs/native/lib/python3.13/site-packages/adbc_driver_manager/__init__.py
+/home/mianliwang/projects/pietto/.cache/phase77-recovery/runtime/venvs/native/lib/python3.13/site-packages/adbc_driver_postgresql/__init__.py
+/home/mianliwang/projects/pietto/.cache/phase77-recovery/runtime/venvs/native/lib/python3.13/site-packages/wrapt/__init__.py
+{'pyarrow': '26.0.1', 'psycopg': '3.3.8', 'psycopg-binary': '3.3.8', 'mysql-connector-python': '26.10.0', 'adbc-driver-manager': '1.13.0', 'adbc-driver-postgresql': '1.13.0', 'opentelemetry-api': '1.33.1', 'opentelemetry-sdk': '1.33.1', 'opentelemetry-semantic-conventions': '0.54b1', 'wrapt': '2.5.0'}
+[exit 0]
++ .cache/phase77-recovery/runtime/venvs/native/bin/python+ -I+ .cache/phase77-recovery/native-maintenance/runnable-rebind/mysql/selfcheck.py+ --candidate+ .cache/phase77-recovery/candidates/maintenance+ --wheel+ .cache/phase77-recovery/runtime/dist/pietto-0.1.10-py3-none-any.whl
+Traceback (most recent call last):
+  File "/home/mianliwang/projects/pietto/.cache/phase77-recovery/native-maintenance/runnable-rebind/mysql/selfcheck.py", line 196, in <module>
+    raise SystemExit(main())
+                     ~~~~^^
+  File "/home/mianliwang/projects/pietto/.cache/phase77-recovery/native-maintenance/runnable-rebind/mysql/selfcheck.py", line 42, in main
+    import test_harness_execution_api_mysql_native as fixture
+  File "/home/mianliwang/projects/pietto/.cache/phase77-recovery/candidates/maintenance/tests/test_harness_execution_api_mysql_native.py", line 9, in <module>
+    import pytest
+ModuleNotFoundError: No module named 'pytest'
+[exit 1]
++ git+ -C+ .cache/phase77-recovery/candidates/maintenance+ rev-parse+ HEAD
+f8ccd2c44a2d9adf431a496bd9bbae037783176f
+[exit 0]
++ git+ -C+ .cache/phase77-recovery/candidates/maintenance+ status+ --short
+ M README.md
+ M ci/phase67-arrow-compatibility-requirements.txt
+ M ci/phase68-executor-premise-requirements.txt
+ M docs/architecture/layering-and-coupling-laws-v1.md
+ M docs/execution.md
+ M docs/project-package.md
+ M docs/spec/diagnostics.md
+ M pyproject.toml
+ M scripts/ci_workloads.py
+ M scripts/package_smoke.py
+ M src/pietto/_project/project_arrow_result.py
+ M src/pietto/_project/project_execution_postgres.py
+ M src/pietto/_project/project_execution_postgres_adbc_native.py
+ M tests/_pietto_execution_api.py
+ M tests/_pietto_execution_api_mysql_native.py
+ M tests/_pietto_execution_cases.py
+ M tests/_pietto_execution_installation_check.py
+ M tests/_pietto_execution_installation_probe.py
+ M tests/_pietto_repo_package.py
+ M tests/_pietto_results_arrow_compatibility.py
+ M tests/_pietto_results_consumer.py
+ M tests/_pietto_results_nested.py
+ M tests/_pietto_results_nested_ipc_oracle.py
+ M tests/_pietto_results_product.py
+ M tests/_pietto_target_conformance.py
+ M tests/phase66_target_pins.json
+ M tests/test_ci_results_governance.py
+ M tests/test_execution_postgres_adbc.py
+ M tests/test_harness_execution_api_mysql_native.py
+ M tests/test_harness_target_conformance.py
+ M tests/test_release_installation.py
+ M tests/test_results_consumer.py
+ M tests/test_results_contract.py
+ M tests/test_results_optional_arrow.py
+ M uv.lock
+[exit 0]
++ sh+ -c+ cd\ \"\$1\"\ \&\&\ \{\ find\ src\ -type\ f\ -print0\ \|\ sort\ -z\ \|\ xargs\ -0\ sha256sum\;\ sha256sum\ pyproject.toml\ uv.lock\;\ \}\ \>\ \"\$2\"+ sh+ .cache/phase77-recovery/candidates/maintenance+ .cache/phase77-recovery/runtime/reports/source-before.sha256
+sh: 1: cannot create .cache/phase77-recovery/runtime/reports/source-before.sha256: Directory nonexistent
+[exit 2]
++ git+ -C+ /home/mianliwang/projects/pietto/.cache/phase77-recovery/candidates/maintenance+ rev-parse+ HEAD
+f8ccd2c44a2d9adf431a496bd9bbae037783176f
+[exit 0]
++ git+ -C+ /home/mianliwang/projects/pietto/.cache/phase77-recovery/candidates/maintenance+ status+ --short
+ M README.md
+ M ci/phase67-arrow-compatibility-requirements.txt
+ M ci/phase68-executor-premise-requirements.txt
+ M docs/architecture/layering-and-coupling-laws-v1.md
+ M docs/execution.md
+ M docs/project-package.md
+ M docs/spec/diagnostics.md
+ M pyproject.toml
+ M scripts/ci_workloads.py
+ M scripts/package_smoke.py
+ M src/pietto/_project/project_arrow_result.py
+ M src/pietto/_project/project_execution_postgres.py
+ M src/pietto/_project/project_execution_postgres_adbc_native.py
+ M tests/_pietto_execution_api.py
+ M tests/_pietto_execution_api_mysql_native.py
+ M tests/_pietto_execution_cases.py
+ M tests/_pietto_execution_installation_check.py
+ M tests/_pietto_execution_installation_probe.py
+ M tests/_pietto_repo_package.py
+ M tests/_pietto_results_arrow_compatibility.py
+ M tests/_pietto_results_consumer.py
+ M tests/_pietto_results_nested.py
+ M tests/_pietto_results_nested_ipc_oracle.py
+ M tests/_pietto_results_product.py
+ M tests/_pietto_target_conformance.py
+ M tests/phase66_target_pins.json
+ M tests/test_ci_results_governance.py
+ M tests/test_execution_postgres_adbc.py
+ M tests/test_harness_execution_api_mysql_native.py
+ M tests/test_harness_target_conformance.py
+ M tests/test_release_installation.py
+ M tests/test_results_consumer.py
+ M tests/test_results_contract.py
+ M tests/test_results_optional_arrow.py
+ M uv.lock
+[exit 0]
++ sh+ -c+ cd\ \"\$1\"\ \&\&\ \{\ find\ src\ -type\ f\ -print0\ \|\ sort\ -z\ \|\ xargs\ -0\ sha256sum\;\ sha256sum\ pyproject.toml\ uv.lock\;\ \}\ \>\ \"\$2\"+ sh+ /home/mianliwang/projects/pietto/.cache/phase77-recovery/candidates/maintenance+ /home/mianliwang/projects/pietto/.cache/phase77-recovery/runtime/reports/source-before.sha256
+[exit 0]
++ env+ UV_PYTHON=3.13.13+ UV_CACHE_DIR=/home/mianliwang/projects/pietto/.cache/phase77-recovery/candidates/maintenance/.uv-runtime-cache+ UV_OFFLINE=1+ UV_NO_SYNC=1+ uv+ build+ /home/mianliwang/projects/pietto/.cache/phase77-recovery/candidates/maintenance+ --out-dir+ /home/mianliwang/projects/pietto/.cache/phase77-recovery/runtime/dist+ --clear+ --no-create-gitignore
+Building source distribution...
+Building wheel from source distribution...
+Successfully built .cache/phase77-recovery/runtime/dist/pietto-0.1.10.tar.gz
+Successfully built .cache/phase77-recovery/runtime/dist/pietto-0.1.10-py3-none-any.whl
+[exit 0]
++ sh+ -c+ cd\ \"\$1\"\ \&\&\ \{\ find\ src\ -type\ f\ -print0\ \|\ sort\ -z\ \|\ xargs\ -0\ sha256sum\;\ sha256sum\ pyproject.toml\ uv.lock\;\ \}\ \>\ \"\$2\"+ sh+ /home/mianliwang/projects/pietto/.cache/phase77-recovery/candidates/maintenance+ /home/mianliwang/projects/pietto/.cache/phase77-recovery/runtime/reports/source-after.sha256
+[exit 0]
++ cmp+ /home/mianliwang/projects/pietto/.cache/phase77-recovery/runtime/reports/source-before.sha256+ /home/mianliwang/projects/pietto/.cache/phase77-recovery/runtime/reports/source-after.sha256
+[exit 0]
++ sh+ -c+ sha256sum\ \"\$1\"/\*\ \>\ \"\$2\"+ sh+ /home/mianliwang/projects/pietto/.cache/phase77-recovery/runtime/dist+ /home/mianliwang/projects/pietto/.cache/phase77-recovery/runtime/reports/candidate-dist.sha256
+[exit 0]
++ python3.13+ -m+ venv+ /tmp/pietto-phase77-wheel-downloader
+[exit 0]
++ /tmp/pietto-phase77-wheel-downloader/bin/python+ -I+ -c+ import\ platform\,\ sys\;\ assert\ platform.python_implementation\(\)\ ==\ \"CPython\"\;\ assert\ platform.python_version\(\)\ ==\ \"3.13.13\"\;\ print\(sys.executable\)\;\ print\(sys.version\)
+/tmp/pietto-phase77-wheel-downloader/bin/python
+3.13.13 (main, Jun  2 2026, 22:27:49) [Clang 22.1.3 ]
+[exit 0]
++ mktemp -d /tmp/pietto-phase77-runtime-wheelhouse.XXXXXX
+/tmp/pietto-phase77-runtime-wheelhouse.4keDQV
+[exit 0]
++ env+ PIP_CACHE_DIR=/tmp/pietto-phase77-runtime-wheelhouse.4keDQV/pip-cache+ /tmp/pietto-phase77-wheel-downloader/bin/python+ -m+ pip+ install+ --dry-run+ --ignore-installed+ --only-binary=:all:+ --report+ /home/mianliwang/projects/pietto/.cache/phase77-recovery/runtime/reports/core-dev-resolve.json+ -r+ /home/mianliwang/projects/pietto/.cache/phase77-recovery/runtime/requirements/core-dev.txt
+Collecting antlr4-python3-runtime==4.13.2 (from -r /home/mianliwang/projects/pietto/.cache/phase77-recovery/runtime/requirements/core-dev.txt (line 2))
+  Downloading antlr4_python3_runtime-4.13.2-py3-none-any.whl.metadata (304 bytes)
+Collecting coverage==7.14.1 (from -r /home/mianliwang/projects/pietto/.cache/phase77-recovery/runtime/requirements/core-dev.txt (line 3))
+  Downloading coverage-7.14.1-cp313-cp313-manylinux1_x86_64.manylinux_2_28_x86_64.manylinux_2_5_x86_64.whl.metadata (8.6 kB)
+Collecting execnet==2.1.2 (from -r /home/mianliwang/projects/pietto/.cache/phase77-recovery/runtime/requirements/core-dev.txt (line 4))
+  Downloading execnet-2.1.2-py3-none-any.whl.metadata (2.9 kB)
+Collecting iniconfig==2.3.0 (from -r /home/mianliwang/projects/pietto/.cache/phase77-recovery/runtime/requirements/core-dev.txt (line 5))
+  Downloading iniconfig-2.3.0-py3-none-any.whl.metadata (2.5 kB)
+Collecting mysql-connector-python==26.10.0 (from -r /home/mianliwang/projects/pietto/.cache/phase77-recovery/runtime/requirements/core-dev.txt (line 6))
+  Downloading mysql_connector_python-26.10.0-cp313-cp313-manylinux_2_28_x86_64.whl.metadata (11 kB)
+Collecting nodeenv==1.10.0 (from -r /home/mianliwang/projects/pietto/.cache/phase77-recovery/runtime/requirements/core-dev.txt (line 7))
+  Downloading nodeenv-1.10.0-py2.py3-none-any.whl.metadata (24 kB)
+Collecting packaging==26.2 (from -r /home/mianliwang/projects/pietto/.cache/phase77-recovery/runtime/requirements/core-dev.txt (line 8))
+  Downloading packaging-26.2-py3-none-any.whl.metadata (3.5 kB)
+Collecting pluggy==1.6.0 (from -r /home/mianliwang/projects/pietto/.cache/phase77-recovery/runtime/requirements/core-dev.txt (line 9))
+  Downloading pluggy-1.6.0-py3-none-any.whl.metadata (4.8 kB)
+Collecting psycopg==3.3.8 (from psycopg[binary]==3.3.8->-r /home/mianliwang/projects/pietto/.cache/phase77-recovery/runtime/requirements/core-dev.txt (line 10))
+  Downloading psycopg-3.3.8-py3-none-any.whl.metadata (4.4 kB)
+Collecting psycopg-binary==3.3.8 (from -r /home/mianliwang/projects/pietto/.cache/phase77-recovery/runtime/requirements/core-dev.txt (line 11))
+  Downloading psycopg_binary-3.3.8-cp313-cp313-manylinux2014_x86_64.manylinux_2_17_x86_64.whl.metadata (2.7 kB)
+Collecting pygments==2.20.0 (from -r /home/mianliwang/projects/pietto/.cache/phase77-recovery/runtime/requirements/core-dev.txt (line 12))
+  Downloading pygments-2.20.0-py3-none-any.whl.metadata (2.5 kB)
+Collecting pyright==1.1.414 (from -r /home/mianliwang/projects/pietto/.cache/phase77-recovery/runtime/requirements/core-dev.txt (line 13))
+  Downloading pyright-1.1.414-py3-none-any.whl.metadata (6.9 kB)
+Collecting pytest==9.2.0 (from -r /home/mianliwang/projects/pietto/.cache/phase77-recovery/runtime/requirements/core-dev.txt (line 14))
+  Downloading pytest-9.2.0-py3-none-any.whl.metadata (7.9 kB)
+Collecting pytest-cov==7.1.0 (from -r /home/mianliwang/projects/pietto/.cache/phase77-recovery/runtime/requirements/core-dev.txt (line 15))
+  Downloading pytest_cov-7.1.0-py3-none-any.whl.metadata (32 kB)
+Collecting pytest-xdist==3.8.0 (from -r /home/mianliwang/projects/pietto/.cache/phase77-recovery/runtime/requirements/core-dev.txt (line 16))
+  Downloading pytest_xdist-3.8.0-py3-none-any.whl.metadata (3.0 kB)
+Collecting ruff==0.17.3 (from -r /home/mianliwang/projects/pietto/.cache/phase77-recovery/runtime/requirements/core-dev.txt (line 17))
+  Downloading ruff-0.17.3-py3-none-manylinux_2_17_x86_64.manylinux2014_x86_64.whl.metadata (20 kB)
+Collecting typing-extensions>=4.1 (from pyright==1.1.414->-r /home/mianliwang/projects/pietto/.cache/phase77-recovery/runtime/requirements/core-dev.txt (line 13))
+  Downloading typing_extensions-4.16.0-py3-none-any.whl.metadata (3.3 kB)
+Would install Pygments-2.20.0 antlr4-python3-runtime-4.13.2 coverage-7.14.1 execnet-2.1.2 iniconfig-2.3.0 mysql-connector-python-26.10.0 nodeenv-1.10.0 packaging-26.2 pluggy-1.6.0 psycopg-3.3.8 psycopg-binary-3.3.8 pyright-1.1.414 pytest-9.2.0 pytest-cov-7.1.0 pytest-xdist-3.8.0 ruff-0.17.3 typing_extensions-4.16.0
+
+[notice] A new release of pip is available: 26.0.1 -> 26.3
+[notice] To update, run: /tmp/pietto-phase77-wheel-downloader/bin/python -m pip install --upgrade pip
+[exit 0]
++ env+ PIP_CACHE_DIR=/tmp/pietto-phase77-runtime-wheelhouse.4keDQV/pip-cache+ /tmp/pietto-phase77-wheel-downloader/bin/python+ -m+ pip+ install+ --dry-run+ --ignore-installed+ --only-binary=:all:+ --report+ /home/mianliwang/projects/pietto/.cache/phase77-recovery/runtime/reports/native-resolve.json+ -r+ /home/mianliwang/projects/pietto/.cache/phase77-recovery/runtime/requirements/native.txt
+Collecting antlr4-python3-runtime==4.13.2 (from -r /home/mianliwang/projects/pietto/.cache/phase77-recovery/runtime/requirements/native.txt (line 2))
+  Using cached antlr4_python3_runtime-4.13.2-py3-none-any.whl.metadata (304 bytes)
+Collecting iniconfig==2.3.0 (from -r /home/mianliwang/projects/pietto/.cache/phase77-recovery/runtime/requirements/native.txt (line 3))
+  Using cached iniconfig-2.3.0-py3-none-any.whl.metadata (2.5 kB)
+Collecting packaging==26.2 (from -r /home/mianliwang/projects/pietto/.cache/phase77-recovery/runtime/requirements/native.txt (line 4))
+  Using cached packaging-26.2-py3-none-any.whl.metadata (3.5 kB)
+Collecting pluggy==1.6.0 (from -r /home/mianliwang/projects/pietto/.cache/phase77-recovery/runtime/requirements/native.txt (line 5))
+  Using cached pluggy-1.6.0-py3-none-any.whl.metadata (4.8 kB)
+Collecting psycopg==3.3.8 (from psycopg[binary]==3.3.8->-r /home/mianliwang/projects/pietto/.cache/phase77-recovery/runtime/requirements/native.txt (line 6))
+  Using cached psycopg-3.3.8-py3-none-any.whl.metadata (4.4 kB)
+Collecting pygments==2.20.0 (from -r /home/mianliwang/projects/pietto/.cache/phase77-recovery/runtime/requirements/native.txt (line 7))
+  Using cached pygments-2.20.0-py3-none-any.whl.metadata (2.5 kB)
+Collecting pytest==9.2.0 (from -r /home/mianliwang/projects/pietto/.cache/phase77-recovery/runtime/requirements/native.txt (line 8))
+  Using cached pytest-9.2.0-py3-none-any.whl.metadata (7.9 kB)
+Collecting mysql-connector-python==26.10.0 (from -r /home/mianliwang/projects/pietto/.cache/phase77-recovery/runtime/requirements/native.txt (line 9))
+  Using cached mysql_connector_python-26.10.0-cp313-cp313-manylinux_2_28_x86_64.whl.metadata (11 kB)
+Collecting pyarrow==26.0.1 (from -r /home/mianliwang/projects/pietto/.cache/phase77-recovery/runtime/requirements/native.txt (line 10))
+  Downloading pyarrow-26.0.1-cp313-cp313-manylinux_2_28_x86_64.whl.metadata (3.0 kB)
+Collecting adbc-driver-postgresql==1.13.0 (from -r /home/mianliwang/projects/pietto/.cache/phase77-recovery/runtime/requirements/native.txt (line 11))
+  Downloading adbc_driver_postgresql-1.13.0-py3-none-manylinux_2_26_x86_64.manylinux_2_28_x86_64.whl.metadata (4.0 kB)
+Collecting adbc-driver-manager==1.13.0 (from -r /home/mianliwang/projects/pietto/.cache/phase77-recovery/runtime/requirements/native.txt (line 12))
+  Downloading adbc_driver_manager-1.13.0-cp313-cp313-manylinux_2_27_x86_64.manylinux_2_28_x86_64.whl.metadata (3.3 kB)
+Collecting opentelemetry-api==1.33.1 (from -r /home/mianliwang/projects/pietto/.cache/phase77-recovery/runtime/requirements/native.txt (line 13))
+  Downloading opentelemetry_api-1.33.1-py3-none-any.whl.metadata (1.6 kB)
+Collecting opentelemetry-sdk==1.33.1 (from -r /home/mianliwang/projects/pietto/.cache/phase77-recovery/runtime/requirements/native.txt (line 14))
+  Downloading opentelemetry_sdk-1.33.1-py3-none-any.whl.metadata (1.6 kB)
+Collecting opentelemetry-semantic-conventions==0.54b1 (from -r /home/mianliwang/projects/pietto/.cache/phase77-recovery/runtime/requirements/native.txt (line 15))
+  Downloading opentelemetry_semantic_conventions-0.54b1-py3-none-any.whl.metadata (2.5 kB)
+Collecting wrapt==2.5.0 (from -r /home/mianliwang/projects/pietto/.cache/phase77-recovery/runtime/requirements/native.txt (line 16))
+  Downloading wrapt-2.5.0-cp313-cp313-manylinux1_x86_64.manylinux_2_28_x86_64.manylinux_2_5_x86_64.whl.metadata (7.6 kB)
+Collecting typing-extensions==4.16.0 (from -r /home/mianliwang/projects/pietto/.cache/phase77-recovery/runtime/requirements/native.txt (line 17))
+  Using cached typing_extensions-4.16.0-py3-none-any.whl.metadata (3.3 kB)
+Collecting deprecated>=1.2.6 (from opentelemetry-api==1.33.1->-r /home/mianliwang/projects/pietto/.cache/phase77-recovery/runtime/requirements/native.txt (line 13))
+  Downloading deprecated-3.0.1-py3-none-any.whl.metadata (6.5 kB)
+Collecting importlib-metadata<8.7.0,>=6.0 (from opentelemetry-api==1.33.1->-r /home/mianliwang/projects/pietto/.cache/phase77-recovery/runtime/requirements/native.txt (line 13))
+  Downloading importlib_metadata-8.6.1-py3-none-any.whl.metadata (4.7 kB)
+Collecting psycopg-binary==3.3.8 (from psycopg[binary]==3.3.8->-r /home/mianliwang/projects/pietto/.cache/phase77-recovery/runtime/requirements/native.txt (line 6))
+  Using cached psycopg_binary-3.3.8-cp313-cp313-manylinux2014_x86_64.manylinux_2_17_x86_64.whl.metadata (2.7 kB)
+Collecting zipp>=3.20 (from importlib-metadata<8.7.0,>=6.0->opentelemetry-api==1.33.1->-r /home/mianliwang/projects/pietto/.cache/phase77-recovery/runtime/requirements/native.txt (line 13))
+  Downloading zipp-4.1.2-py3-none-any.whl.metadata (3.6 kB)
+Would install Deprecated-3.0.1 Pygments-2.20.0 adbc-driver-manager-1.13.0 adbc-driver-postgresql-1.13.0 antlr4-python3-runtime-4.13.2 importlib_metadata-8.6.1 iniconfig-2.3.0 mysql-connector-python-26.10.0 opentelemetry-api-1.33.1 opentelemetry-sdk-1.33.1 opentelemetry-semantic-conventions-0.54b1 packaging-26.2 pluggy-1.6.0 psycopg-3.3.8 psycopg-binary-3.3.8 pyarrow-26.0.1 pytest-9.2.0 typing_extensions-4.16.0 wrapt-2.5.0 zipp-4.1.2
+
+[notice] A new release of pip is available: 26.0.1 -> 26.3
+[notice] To update, run: /tmp/pietto-phase77-wheel-downloader/bin/python -m pip install --upgrade pip
+[exit 0]
++ env+ PIP_CACHE_DIR=/tmp/pietto-phase77-runtime-wheelhouse.4keDQV/pip-cache+ /tmp/pietto-phase77-wheel-downloader/bin/python+ -m+ pip+ download+ --only-binary=:all:+ --dest+ /tmp/pietto-phase77-runtime-wheelhouse.4keDQV+ -r+ /home/mianliwang/projects/pietto/.cache/phase77-recovery/runtime/requirements/core-dev.txt
+Collecting antlr4-python3-runtime==4.13.2 (from -r /home/mianliwang/projects/pietto/.cache/phase77-recovery/runtime/requirements/core-dev.txt (line 2))
+  Using cached antlr4_python3_runtime-4.13.2-py3-none-any.whl.metadata (304 bytes)
+Collecting coverage==7.14.1 (from -r /home/mianliwang/projects/pietto/.cache/phase77-recovery/runtime/requirements/core-dev.txt (line 3))
+  Using cached coverage-7.14.1-cp313-cp313-manylinux1_x86_64.manylinux_2_28_x86_64.manylinux_2_5_x86_64.whl.metadata (8.6 kB)
+Collecting execnet==2.1.2 (from -r /home/mianliwang/projects/pietto/.cache/phase77-recovery/runtime/requirements/core-dev.txt (line 4))
+  Using cached execnet-2.1.2-py3-none-any.whl.metadata (2.9 kB)
+Collecting iniconfig==2.3.0 (from -r /home/mianliwang/projects/pietto/.cache/phase77-recovery/runtime/requirements/core-dev.txt (line 5))
+  Using cached iniconfig-2.3.0-py3-none-any.whl.metadata (2.5 kB)
+Collecting mysql-connector-python==26.10.0 (from -r /home/mianliwang/projects/pietto/.cache/phase77-recovery/runtime/requirements/core-dev.txt (line 6))
+  Using cached mysql_connector_python-26.10.0-cp313-cp313-manylinux_2_28_x86_64.whl.metadata (11 kB)
+Collecting nodeenv==1.10.0 (from -r /home/mianliwang/projects/pietto/.cache/phase77-recovery/runtime/requirements/core-dev.txt (line 7))
+  Using cached nodeenv-1.10.0-py2.py3-none-any.whl.metadata (24 kB)
+Collecting packaging==26.2 (from -r /home/mianliwang/projects/pietto/.cache/phase77-recovery/runtime/requirements/core-dev.txt (line 8))
+  Using cached packaging-26.2-py3-none-any.whl.metadata (3.5 kB)
+Collecting pluggy==1.6.0 (from -r /home/mianliwang/projects/pietto/.cache/phase77-recovery/runtime/requirements/core-dev.txt (line 9))
+  Using cached pluggy-1.6.0-py3-none-any.whl.metadata (4.8 kB)
+Collecting psycopg==3.3.8 (from psycopg[binary]==3.3.8->-r /home/mianliwang/projects/pietto/.cache/phase77-recovery/runtime/requirements/core-dev.txt (line 10))
+  Using cached psycopg-3.3.8-py3-none-any.whl.metadata (4.4 kB)
+Collecting psycopg-binary==3.3.8 (from -r /home/mianliwang/projects/pietto/.cache/phase77-recovery/runtime/requirements/core-dev.txt (line 11))
+  Using cached psycopg_binary-3.3.8-cp313-cp313-manylinux2014_x86_64.manylinux_2_17_x86_64.whl.metadata (2.7 kB)
+Collecting pygments==2.20.0 (from -r /home/mianliwang/projects/pietto/.cache/phase77-recovery/runtime/requirements/core-dev.txt (line 12))
+  Using cached pygments-2.20.0-py3-none-any.whl.metadata (2.5 kB)
+Collecting pyright==1.1.414 (from -r /home/mianliwang/projects/pietto/.cache/phase77-recovery/runtime/requirements/core-dev.txt (line 13))
+  Using cached pyright-1.1.414-py3-none-any.whl.metadata (6.9 kB)
+Collecting pytest==9.2.0 (from -r /home/mianliwang/projects/pietto/.cache/phase77-recovery/runtime/requirements/core-dev.txt (line 14))
+  Using cached pytest-9.2.0-py3-none-any.whl.metadata (7.9 kB)
+Collecting pytest-cov==7.1.0 (from -r /home/mianliwang/projects/pietto/.cache/phase77-recovery/runtime/requirements/core-dev.txt (line 15))
+  Using cached pytest_cov-7.1.0-py3-none-any.whl.metadata (32 kB)
+Collecting pytest-xdist==3.8.0 (from -r /home/mianliwang/projects/pietto/.cache/phase77-recovery/runtime/requirements/core-dev.txt (line 16))
+  Using cached pytest_xdist-3.8.0-py3-none-any.whl.metadata (3.0 kB)
+Collecting ruff==0.17.3 (from -r /home/mianliwang/projects/pietto/.cache/phase77-recovery/runtime/requirements/core-dev.txt (line 17))
+  Using cached ruff-0.17.3-py3-none-manylinux_2_17_x86_64.manylinux2014_x86_64.whl.metadata (20 kB)
+Collecting typing-extensions>=4.1 (from pyright==1.1.414->-r /home/mianliwang/projects/pietto/.cache/phase77-recovery/runtime/requirements/core-dev.txt (line 13))
+  Using cached typing_extensions-4.16.0-py3-none-any.whl.metadata (3.3 kB)
+Downloading antlr4_python3_runtime-4.13.2-py3-none-any.whl (144 kB)
+Downloading coverage-7.14.1-cp313-cp313-manylinux1_x86_64.manylinux_2_28_x86_64.manylinux_2_5_x86_64.whl (254 kB)
+Downloading execnet-2.1.2-py3-none-any.whl (40 kB)
+Downloading iniconfig-2.3.0-py3-none-any.whl (7.5 kB)
+Downloading mysql_connector_python-26.10.0-cp313-cp313-manylinux_2_28_x86_64.whl (21.5 MB)
+   ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━ 21.5/21.5 MB 9.6 MB/s  0:00:02
+Downloading nodeenv-1.10.0-py2.py3-none-any.whl (23 kB)
+Downloading packaging-26.2-py3-none-any.whl (100 kB)
+Downloading pluggy-1.6.0-py3-none-any.whl (20 kB)
+Downloading psycopg-3.3.8-py3-none-any.whl (216 kB)
+Downloading psycopg_binary-3.3.8-cp313-cp313-manylinux2014_x86_64.manylinux_2_17_x86_64.whl (5.2 MB)
+   ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━ 5.2/5.2 MB 6.5 MB/s  0:00:00
+Downloading pygments-2.20.0-py3-none-any.whl (1.2 MB)
+   ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━ 1.2/1.2 MB 7.3 MB/s  0:00:00
+Downloading pyright-1.1.414-py3-none-any.whl (6.2 MB)
+   ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━ 6.2/6.2 MB 6.3 MB/s  0:00:00
+Downloading pytest-9.2.0-py3-none-any.whl (411 kB)
+Downloading pytest_cov-7.1.0-py3-none-any.whl (22 kB)
+Downloading pytest_xdist-3.8.0-py3-none-any.whl (46 kB)
+Downloading ruff-0.17.3-py3-none-manylinux_2_17_x86_64.manylinux2014_x86_64.whl (10.6 MB)
+   ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━ 10.6/10.6 MB 8.2 MB/s  0:00:01
+Downloading typing_extensions-4.16.0-py3-none-any.whl (45 kB)
+Saved /tmp/pietto-phase77-runtime-wheelhouse.4keDQV/antlr4_python3_runtime-4.13.2-py3-none-any.whl
+Saved /tmp/pietto-phase77-runtime-wheelhouse.4keDQV/coverage-7.14.1-cp313-cp313-manylinux1_x86_64.manylinux_2_28_x86_64.manylinux_2_5_x86_64.whl
+Saved /tmp/pietto-phase77-runtime-wheelhouse.4keDQV/execnet-2.1.2-py3-none-any.whl
+Saved /tmp/pietto-phase77-runtime-wheelhouse.4keDQV/iniconfig-2.3.0-py3-none-any.whl
+Saved /tmp/pietto-phase77-runtime-wheelhouse.4keDQV/mysql_connector_python-26.10.0-cp313-cp313-manylinux_2_28_x86_64.whl
+Saved /tmp/pietto-phase77-runtime-wheelhouse.4keDQV/nodeenv-1.10.0-py2.py3-none-any.whl
+Saved /tmp/pietto-phase77-runtime-wheelhouse.4keDQV/packaging-26.2-py3-none-any.whl
+Saved /tmp/pietto-phase77-runtime-wheelhouse.4keDQV/pluggy-1.6.0-py3-none-any.whl
+Saved /tmp/pietto-phase77-runtime-wheelhouse.4keDQV/psycopg-3.3.8-py3-none-any.whl
+Saved /tmp/pietto-phase77-runtime-wheelhouse.4keDQV/psycopg_binary-3.3.8-cp313-cp313-manylinux2014_x86_64.manylinux_2_17_x86_64.whl
+Saved /tmp/pietto-phase77-runtime-wheelhouse.4keDQV/pygments-2.20.0-py3-none-any.whl
+Saved /tmp/pietto-phase77-runtime-wheelhouse.4keDQV/pyright-1.1.414-py3-none-any.whl
+Saved /tmp/pietto-phase77-runtime-wheelhouse.4keDQV/pytest-9.2.0-py3-none-any.whl
+Saved /tmp/pietto-phase77-runtime-wheelhouse.4keDQV/pytest_cov-7.1.0-py3-none-any.whl
+Saved /tmp/pietto-phase77-runtime-wheelhouse.4keDQV/pytest_xdist-3.8.0-py3-none-any.whl
+Saved /tmp/pietto-phase77-runtime-wheelhouse.4keDQV/ruff-0.17.3-py3-none-manylinux_2_17_x86_64.manylinux2014_x86_64.whl
+Saved /tmp/pietto-phase77-runtime-wheelhouse.4keDQV/typing_extensions-4.16.0-py3-none-any.whl
+Successfully downloaded antlr4-python3-runtime coverage execnet iniconfig mysql-connector-python nodeenv packaging pluggy psycopg psycopg-binary pygments pyright pytest pytest-cov pytest-xdist ruff typing-extensions
+
+[notice] A new release of pip is available: 26.0.1 -> 26.3
+[notice] To update, run: /tmp/pietto-phase77-wheel-downloader/bin/python -m pip install --upgrade pip
+[exit 0]
++ env+ PIP_CACHE_DIR=/tmp/pietto-phase77-runtime-wheelhouse.4keDQV/pip-cache+ /tmp/pietto-phase77-wheel-downloader/bin/python+ -m+ pip+ download+ --only-binary=:all:+ --dest+ /tmp/pietto-phase77-runtime-wheelhouse.4keDQV+ -r+ /home/mianliwang/projects/pietto/.cache/phase77-recovery/runtime/requirements/native.txt
+Collecting antlr4-python3-runtime==4.13.2 (from -r /home/mianliwang/projects/pietto/.cache/phase77-recovery/runtime/requirements/native.txt (line 2))
+  File was already downloaded /tmp/pietto-phase77-runtime-wheelhouse.4keDQV/antlr4_python3_runtime-4.13.2-py3-none-any.whl
+Collecting iniconfig==2.3.0 (from -r /home/mianliwang/projects/pietto/.cache/phase77-recovery/runtime/requirements/native.txt (line 3))
+  File was already downloaded /tmp/pietto-phase77-runtime-wheelhouse.4keDQV/iniconfig-2.3.0-py3-none-any.whl
+Collecting packaging==26.2 (from -r /home/mianliwang/projects/pietto/.cache/phase77-recovery/runtime/requirements/native.txt (line 4))
+  File was already downloaded /tmp/pietto-phase77-runtime-wheelhouse.4keDQV/packaging-26.2-py3-none-any.whl
+Collecting pluggy==1.6.0 (from -r /home/mianliwang/projects/pietto/.cache/phase77-recovery/runtime/requirements/native.txt (line 5))
+  File was already downloaded /tmp/pietto-phase77-runtime-wheelhouse.4keDQV/pluggy-1.6.0-py3-none-any.whl
+Collecting psycopg==3.3.8 (from psycopg[binary]==3.3.8->-r /home/mianliwang/projects/pietto/.cache/phase77-recovery/runtime/requirements/native.txt (line 6))
+  File was already downloaded /tmp/pietto-phase77-runtime-wheelhouse.4keDQV/psycopg-3.3.8-py3-none-any.whl
+Collecting pygments==2.20.0 (from -r /home/mianliwang/projects/pietto/.cache/phase77-recovery/runtime/requirements/native.txt (line 7))
+  File was already downloaded /tmp/pietto-phase77-runtime-wheelhouse.4keDQV/pygments-2.20.0-py3-none-any.whl
+Collecting pytest==9.2.0 (from -r /home/mianliwang/projects/pietto/.cache/phase77-recovery/runtime/requirements/native.txt (line 8))
+  File was already downloaded /tmp/pietto-phase77-runtime-wheelhouse.4keDQV/pytest-9.2.0-py3-none-any.whl
+Collecting mysql-connector-python==26.10.0 (from -r /home/mianliwang/projects/pietto/.cache/phase77-recovery/runtime/requirements/native.txt (line 9))
+  File was already downloaded /tmp/pietto-phase77-runtime-wheelhouse.4keDQV/mysql_connector_python-26.10.0-cp313-cp313-manylinux_2_28_x86_64.whl
+Collecting pyarrow==26.0.1 (from -r /home/mianliwang/projects/pietto/.cache/phase77-recovery/runtime/requirements/native.txt (line 10))
+  Using cached pyarrow-26.0.1-cp313-cp313-manylinux_2_28_x86_64.whl.metadata (3.0 kB)
+Collecting adbc-driver-postgresql==1.13.0 (from -r /home/mianliwang/projects/pietto/.cache/phase77-recovery/runtime/requirements/native.txt (line 11))
+  Using cached adbc_driver_postgresql-1.13.0-py3-none-manylinux_2_26_x86_64.manylinux_2_28_x86_64.whl.metadata (4.0 kB)
+Collecting adbc-driver-manager==1.13.0 (from -r /home/mianliwang/projects/pietto/.cache/phase77-recovery/runtime/requirements/native.txt (line 12))
+  Using cached adbc_driver_manager-1.13.0-cp313-cp313-manylinux_2_27_x86_64.manylinux_2_28_x86_64.whl.metadata (3.3 kB)
+Collecting opentelemetry-api==1.33.1 (from -r /home/mianliwang/projects/pietto/.cache/phase77-recovery/runtime/requirements/native.txt (line 13))
+  Using cached opentelemetry_api-1.33.1-py3-none-any.whl.metadata (1.6 kB)
+Collecting opentelemetry-sdk==1.33.1 (from -r /home/mianliwang/projects/pietto/.cache/phase77-recovery/runtime/requirements/native.txt (line 14))
+  Using cached opentelemetry_sdk-1.33.1-py3-none-any.whl.metadata (1.6 kB)
+Collecting opentelemetry-semantic-conventions==0.54b1 (from -r /home/mianliwang/projects/pietto/.cache/phase77-recovery/runtime/requirements/native.txt (line 15))
+  Using cached opentelemetry_semantic_conventions-0.54b1-py3-none-any.whl.metadata (2.5 kB)
+Collecting wrapt==2.5.0 (from -r /home/mianliwang/projects/pietto/.cache/phase77-recovery/runtime/requirements/native.txt (line 16))
+  Using cached wrapt-2.5.0-cp313-cp313-manylinux1_x86_64.manylinux_2_28_x86_64.manylinux_2_5_x86_64.whl.metadata (7.6 kB)
+Collecting typing-extensions==4.16.0 (from -r /home/mianliwang/projects/pietto/.cache/phase77-recovery/runtime/requirements/native.txt (line 17))
+  File was already downloaded /tmp/pietto-phase77-runtime-wheelhouse.4keDQV/typing_extensions-4.16.0-py3-none-any.whl
+Collecting deprecated>=1.2.6 (from opentelemetry-api==1.33.1->-r /home/mianliwang/projects/pietto/.cache/phase77-recovery/runtime/requirements/native.txt (line 13))
+  Using cached deprecated-3.0.1-py3-none-any.whl.metadata (6.5 kB)
+Collecting importlib-metadata<8.7.0,>=6.0 (from opentelemetry-api==1.33.1->-r /home/mianliwang/projects/pietto/.cache/phase77-recovery/runtime/requirements/native.txt (line 13))
+  Using cached importlib_metadata-8.6.1-py3-none-any.whl.metadata (4.7 kB)
+Collecting psycopg-binary==3.3.8 (from psycopg[binary]==3.3.8->-r /home/mianliwang/projects/pietto/.cache/phase77-recovery/runtime/requirements/native.txt (line 6))
+  File was already downloaded /tmp/pietto-phase77-runtime-wheelhouse.4keDQV/psycopg_binary-3.3.8-cp313-cp313-manylinux2014_x86_64.manylinux_2_17_x86_64.whl
+Collecting zipp>=3.20 (from importlib-metadata<8.7.0,>=6.0->opentelemetry-api==1.33.1->-r /home/mianliwang/projects/pietto/.cache/phase77-recovery/runtime/requirements/native.txt (line 13))
+  Using cached zipp-4.1.2-py3-none-any.whl.metadata (3.6 kB)
+Downloading pyarrow-26.0.1-cp313-cp313-manylinux_2_28_x86_64.whl (55.0 MB)
+   ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━ 55.0/55.0 MB 49.8 MB/s  0:00:01
+Downloading adbc_driver_postgresql-1.13.0-py3-none-manylinux_2_26_x86_64.manylinux_2_28_x86_64.whl (3.6 MB)
+   ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━ 3.6/3.6 MB 84.8 MB/s  0:00:00
+Downloading adbc_driver_manager-1.13.0-cp313-cp313-manylinux_2_27_x86_64.manylinux_2_28_x86_64.whl (4.2 MB)
+   ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━ 4.2/4.2 MB 84.2 MB/s  0:00:00
+Downloading opentelemetry_api-1.33.1-py3-none-any.whl (65 kB)
+Downloading opentelemetry_sdk-1.33.1-py3-none-any.whl (118 kB)
+Downloading opentelemetry_semantic_conventions-0.54b1-py3-none-any.whl (194 kB)
+Downloading wrapt-2.5.0-cp313-cp313-manylinux1_x86_64.manylinux_2_28_x86_64.manylinux_2_5_x86_64.whl (248 kB)
+Downloading importlib_metadata-8.6.1-py3-none-any.whl (26 kB)
+Downloading deprecated-3.0.1-py3-none-any.whl (22 kB)
+Downloading zipp-4.1.2-py3-none-any.whl (10 kB)
+Saved /tmp/pietto-phase77-runtime-wheelhouse.4keDQV/pyarrow-26.0.1-cp313-cp313-manylinux_2_28_x86_64.whl
+Saved /tmp/pietto-phase77-runtime-wheelhouse.4keDQV/adbc_driver_postgresql-1.13.0-py3-none-manylinux_2_26_x86_64.manylinux_2_28_x86_64.whl
+Saved /tmp/pietto-phase77-runtime-wheelhouse.4keDQV/adbc_driver_manager-1.13.0-cp313-cp313-manylinux_2_27_x86_64.manylinux_2_28_x86_64.whl
+Saved /tmp/pietto-phase77-runtime-wheelhouse.4keDQV/opentelemetry_api-1.33.1-py3-none-any.whl
+Saved /tmp/pietto-phase77-runtime-wheelhouse.4keDQV/opentelemetry_sdk-1.33.1-py3-none-any.whl
+Saved /tmp/pietto-phase77-runtime-wheelhouse.4keDQV/opentelemetry_semantic_conventions-0.54b1-py3-none-any.whl
+Saved /tmp/pietto-phase77-runtime-wheelhouse.4keDQV/wrapt-2.5.0-cp313-cp313-manylinux1_x86_64.manylinux_2_28_x86_64.manylinux_2_5_x86_64.whl
+Saved /tmp/pietto-phase77-runtime-wheelhouse.4keDQV/importlib_metadata-8.6.1-py3-none-any.whl
+Saved /tmp/pietto-phase77-runtime-wheelhouse.4keDQV/deprecated-3.0.1-py3-none-any.whl
+Saved /tmp/pietto-phase77-runtime-wheelhouse.4keDQV/zipp-4.1.2-py3-none-any.whl
+Successfully downloaded antlr4-python3-runtime iniconfig packaging pluggy psycopg pygments pytest mysql-connector-python pyarrow adbc-driver-postgresql adbc-driver-manager opentelemetry-api opentelemetry-sdk opentelemetry-semantic-conventions wrapt typing-extensions psycopg-binary importlib-metadata deprecated zipp
+
+[notice] A new release of pip is available: 26.0.1 -> 26.3
+[notice] To update, run: /tmp/pietto-phase77-wheel-downloader/bin/python -m pip install --upgrade pip
+[exit 0]
++ find+ /tmp/pietto-phase77-runtime-wheelhouse.4keDQV+ -maxdepth+ 1+ -type+ f+ -name+ \*.whl+ -printf+ %f\\n
+iniconfig-2.3.0-py3-none-any.whl
+wrapt-2.5.0-cp313-cp313-manylinux1_x86_64.manylinux_2_28_x86_64.manylinux_2_5_x86_64.whl
+pytest_xdist-3.8.0-py3-none-any.whl
+zipp-4.1.2-py3-none-any.whl
+coverage-7.14.1-cp313-cp313-manylinux1_x86_64.manylinux_2_28_x86_64.manylinux_2_5_x86_64.whl
+mysql_connector_python-26.10.0-cp313-cp313-manylinux_2_28_x86_64.whl
+opentelemetry_sdk-1.33.1-py3-none-any.whl
+nodeenv-1.10.0-py2.py3-none-any.whl
+pygments-2.20.0-py3-none-any.whl
+adbc_driver_postgresql-1.13.0-py3-none-manylinux_2_26_x86_64.manylinux_2_28_x86_64.whl
+pluggy-1.6.0-py3-none-any.whl
+packaging-26.2-py3-none-any.whl
+adbc_driver_manager-1.13.0-cp313-cp313-manylinux_2_27_x86_64.manylinux_2_28_x86_64.whl
+opentelemetry_semantic_conventions-0.54b1-py3-none-any.whl
+pytest_cov-7.1.0-py3-none-any.whl
+opentelemetry_api-1.33.1-py3-none-any.whl
+pytest-9.2.0-py3-none-any.whl
+pyarrow-26.0.1-cp313-cp313-manylinux_2_28_x86_64.whl
+psycopg-3.3.8-py3-none-any.whl
+typing_extensions-4.16.0-py3-none-any.whl
+psycopg_binary-3.3.8-cp313-cp313-manylinux2014_x86_64.manylinux_2_17_x86_64.whl
+importlib_metadata-8.6.1-py3-none-any.whl
+deprecated-3.0.1-py3-none-any.whl
+pyright-1.1.414-py3-none-any.whl
+execnet-2.1.2-py3-none-any.whl
+antlr4_python3_runtime-4.13.2-py3-none-any.whl
+ruff-0.17.3-py3-none-manylinux_2_17_x86_64.manylinux2014_x86_64.whl
+[exit 0]
++ find+ /tmp/pietto-phase77-runtime-wheelhouse.4keDQV+ -maxdepth+ 1+ -type+ f+ \!+ -name+ \*.whl+ -print
+[exit 0]
++ cp+ -a+ /tmp/pietto-phase77-runtime-wheelhouse.4keDQV/.+ /home/mianliwang/projects/pietto/.cache/phase77-recovery/runtime/wheelhouse/
+[exit 0]
++ /tmp/pietto-phase77-wheel-downloader/bin/python+ -I+ /home/mianliwang/projects/pietto/.cache/phase77-recovery/runtime/build_manifest.py
+[exit 0]
++ env+ UV_PYTHON=3.13.13+ UV_CACHE_DIR=/home/mianliwang/projects/pietto/.cache/phase77-recovery/candidates/maintenance/.uv-runtime-cache+ UV_OFFLINE=1+ UV_NO_SYNC=1+ uv+ venv+ --python+ 3.13.13+ /home/mianliwang/projects/pietto/.cache/phase77-recovery/runtime/venvs/core-dev
+Using CPython 3.13.13
+Creating virtual environment at: .cache/phase77-recovery/runtime/venvs/core-dev
+error: Failed to create virtual environment
+  Caused by: A virtual environment already exists at: .cache/phase77-recovery/runtime/venvs/core-dev
+
+hint: Use the `--clear` flag or set `UV_VENV_CLEAR=1` to replace the existing virtual environment
+[exit 2]
++ env+ UV_PYTHON=3.13.13+ UV_CACHE_DIR=/home/mianliwang/projects/pietto/.cache/phase77-recovery/candidates/maintenance/.uv-runtime-cache+ UV_OFFLINE=1+ UV_NO_SYNC=1+ uv+ pip+ install+ --python+ /home/mianliwang/projects/pietto/.cache/phase77-recovery/runtime/venvs/core-dev/bin/python+ --no-index+ --find-links+ /home/mianliwang/projects/pietto/.cache/phase77-recovery/runtime/wheelhouse+ /home/mianliwang/projects/pietto/.cache/phase77-recovery/runtime/dist/pietto-0.1.10-py3-none-any.whl+ -r+ /home/mianliwang/projects/pietto/.cache/phase77-recovery/runtime/requirements/core-dev.txt
+Using Python 3.13.13 environment at: .cache/phase77-recovery/runtime/venvs/core-dev
+Resolved 18 packages in 3ms
+Prepared 1 package in 34ms
+Uninstalled 1 package in 2ms
+Installed 1 package in 6ms
+ ~ pietto==0.1.10 (from file:///home/mianliwang/projects/pietto/.cache/phase77-recovery/runtime/dist/pietto-0.1.10-py3-none-any.whl)
+[exit 0]
++ env+ UV_PYTHON=3.13.13+ UV_CACHE_DIR=/home/mianliwang/projects/pietto/.cache/phase77-recovery/candidates/maintenance/.uv-runtime-cache+ UV_OFFLINE=1+ UV_NO_SYNC=1+ uv+ pip+ install+ --python+ /home/mianliwang/projects/pietto/.cache/phase77-recovery/runtime/venvs/native/bin/python+ --no-index+ --find-links+ /home/mianliwang/projects/pietto/.cache/phase77-recovery/runtime/wheelhouse+ /home/mianliwang/projects/pietto/.cache/phase77-recovery/runtime/dist/pietto-0.1.10-py3-none-any.whl+ -r+ /home/mianliwang/projects/pietto/.cache/phase77-recovery/runtime/requirements/native.txt
+Using Python 3.13.13 environment at: .cache/phase77-recovery/runtime/venvs/native
+Resolved 21 packages in 6ms
+Uninstalled 1 package in 3ms
+Installed 6 packages in 10ms
+ + iniconfig==2.3.0
+ + packaging==26.2
+ ~ pietto==0.1.10 (from file:///home/mianliwang/projects/pietto/.cache/phase77-recovery/runtime/dist/pietto-0.1.10-py3-none-any.whl)
+ + pluggy==1.6.0
+ + pygments==2.20.0
+ + pytest==9.2.0
+[exit 0]
++ env+ UV_PYTHON=3.13.13+ UV_CACHE_DIR=/home/mianliwang/projects/pietto/.cache/phase77-recovery/candidates/maintenance/.uv-runtime-cache+ UV_OFFLINE=1+ UV_NO_SYNC=1+ uv+ pip+ check+ --python+ /home/mianliwang/projects/pietto/.cache/phase77-recovery/runtime/venvs/core-dev/bin/python
+Using Python 3.13.13 environment at: .cache/phase77-recovery/runtime/venvs/core-dev
+Checked 18 packages in 0.68ms
+All installed packages are compatible
+[exit 0]
++ env+ UV_PYTHON=3.13.13+ UV_CACHE_DIR=/home/mianliwang/projects/pietto/.cache/phase77-recovery/candidates/maintenance/.uv-runtime-cache+ UV_OFFLINE=1+ UV_NO_SYNC=1+ uv+ pip+ check+ --python+ /home/mianliwang/projects/pietto/.cache/phase77-recovery/runtime/venvs/native/bin/python
+Using Python 3.13.13 environment at: .cache/phase77-recovery/runtime/venvs/native
+Checked 21 packages in 0.75ms
+All installed packages are compatible
+[exit 0]
++ /home/mianliwang/projects/pietto/.cache/phase77-recovery/runtime/venvs/core-dev/bin/python+ -I+ -c+ import\ importlib.metadata\ as\ m\,\ platform\,\ pietto\,\ sys\;\ assert\ platform.python_version\(\)\ ==\ \"3.13.13\"\;\ assert\ \"pyarrow\"\ not\ in\ \{x.metadata\[\"Name\"\].lower\(\)\ for\ x\ in\ m.distributions\(\)\}\;\ print\(sys.executable\)\;\ print\(pietto.__file__\)\;\ print\(m.version\(\"psycopg\"\)\,\ m.version\(\"mysql-connector-python\"\)\,\ m.version\(\"pytest\"\)\)
+/home/mianliwang/projects/pietto/.cache/phase77-recovery/runtime/venvs/core-dev/bin/python
+/home/mianliwang/projects/pietto/.cache/phase77-recovery/runtime/venvs/core-dev/lib/python3.13/site-packages/pietto/__init__.py
+3.3.8 26.10.0 9.2.0
+[exit 0]
++ /home/mianliwang/projects/pietto/.cache/phase77-recovery/runtime/venvs/native/bin/python+ -I+ -c+ import\ adbc_driver_manager\,\ adbc_driver_postgresql\,\ importlib.metadata\ as\ m\,\ mysql.connector\,\ platform\,\ psycopg\,\ pyarrow\,\ sys\,\ wrapt\;\ assert\ platform.python_version\(\)\ ==\ \"3.13.13\"\;\ print\(sys.executable\)\;\ print\(pyarrow.__file__\)\;\ print\(psycopg.__file__\)\;\ print\(mysql.connector.__file__\)\;\ print\(adbc_driver_manager.__file__\)\;\ print\(adbc_driver_postgresql.__file__\)\;\ print\(wrapt.__file__\)\;\ print\(\{x:m.version\(x\)\ for\ x\ in\ \(\"pyarrow\"\,\ \"psycopg\"\,\ \"psycopg-binary\"\,\ \"mysql-connector-python\"\,\ \"adbc-driver-manager\"\,\ \"adbc-driver-postgresql\"\,\ \"opentelemetry-api\"\,\ \"opentelemetry-sdk\"\,\ \"opentelemetry-semantic-conventions\"\,\ \"wrapt\"\,\ \"pytest\"\)\}\)
+/home/mianliwang/projects/pietto/.cache/phase77-recovery/runtime/venvs/native/bin/python
+/home/mianliwang/projects/pietto/.cache/phase77-recovery/runtime/venvs/native/lib/python3.13/site-packages/pyarrow/__init__.py
+/home/mianliwang/projects/pietto/.cache/phase77-recovery/runtime/venvs/native/lib/python3.13/site-packages/psycopg/__init__.py
+/home/mianliwang/projects/pietto/.cache/phase77-recovery/runtime/venvs/native/lib/python3.13/site-packages/mysql/connector/__init__.py
+/home/mianliwang/projects/pietto/.cache/phase77-recovery/runtime/venvs/native/lib/python3.13/site-packages/adbc_driver_manager/__init__.py
+/home/mianliwang/projects/pietto/.cache/phase77-recovery/runtime/venvs/native/lib/python3.13/site-packages/adbc_driver_postgresql/__init__.py
+/home/mianliwang/projects/pietto/.cache/phase77-recovery/runtime/venvs/native/lib/python3.13/site-packages/wrapt/__init__.py
+{'pyarrow': '26.0.1', 'psycopg': '3.3.8', 'psycopg-binary': '3.3.8', 'mysql-connector-python': '26.10.0', 'adbc-driver-manager': '1.13.0', 'adbc-driver-postgresql': '1.13.0', 'opentelemetry-api': '1.33.1', 'opentelemetry-sdk': '1.33.1', 'opentelemetry-semantic-conventions': '0.54b1', 'wrapt': '2.5.0', 'pytest': '9.2.0'}
+[exit 0]
++ /home/mianliwang/projects/pietto/.cache/phase77-recovery/runtime/venvs/native/bin/python+ -I+ .cache/phase77-recovery/native-maintenance/runnable-rebind/mysql/selfcheck.py+ --candidate+ /home/mianliwang/projects/pietto/.cache/phase77-recovery/candidates/maintenance+ --wheel+ /home/mianliwang/projects/pietto/.cache/phase77-recovery/runtime/dist/pietto-0.1.10-py3-none-any.whl
+mysql none campaign self-check passed
+[exit 0]
++ /home/mianliwang/projects/pietto/.cache/phase77-recovery/runtime/venvs/native/bin/python+ -I+ /home/mianliwang/projects/pietto/.cache/phase77-recovery/runtime/inspect_candidate_artifacts.py
+[exit 0]
++ sh+ -c+ find\ \"\$1\"\ -maxdepth\ 1\ -type\ f\ \!\ -name\ \"\*.whl\"\ -print\ \|\ grep\ .\ \&\&\ exit\ 1\ \|\|\ true+ sh+ /home/mianliwang/projects/pietto/.cache/phase77-recovery/runtime/wheelhouse
+[exit 0]
++ sh+ -c+ sha256sum\ \"\$1\"/\*.whl\ \"\$2\"/\*\ \>\ \"\$3\"+ sh+ /home/mianliwang/projects/pietto/.cache/phase77-recovery/runtime/wheelhouse+ /home/mianliwang/projects/pietto/.cache/phase77-recovery/runtime/dist+ /home/mianliwang/projects/pietto/.cache/phase77-recovery/runtime/reports/all-artifacts.sha256
+[exit 0]
++ env+ UV_PYTHON=3.13.13+ UV_CACHE_DIR=/home/mianliwang/projects/pietto/.cache/phase77-recovery/candidates/maintenance/.uv-runtime-cache+ UV_OFFLINE=1+ UV_NO_SYNC=1+ uv+ pip+ install+ --python+ /home/mianliwang/projects/pietto/.cache/phase77-recovery/runtime/venvs/core-dev/bin/python+ --no-index+ --find-links+ /home/mianliwang/projects/pietto/.cache/phase77-recovery/runtime/wheelhouse+ /home/mianliwang/projects/pietto/.cache/phase77-recovery/runtime/dist/pietto-0.1.10-py3-none-any.whl+ -r+ /home/mianliwang/projects/pietto/.cache/phase77-recovery/runtime/requirements/core-dev.txt
+Using Python 3.13.13 environment at: .cache/phase77-recovery/runtime/venvs/core-dev
+Checked 17 packages in 2ms
+[exit 0]
++ env+ UV_PYTHON=3.13.13+ UV_CACHE_DIR=/home/mianliwang/projects/pietto/.cache/phase77-recovery/candidates/maintenance/.uv-runtime-cache+ UV_OFFLINE=1+ UV_NO_SYNC=1+ uv+ pip+ install+ --python+ /home/mianliwang/projects/pietto/.cache/phase77-recovery/runtime/venvs/native/bin/python+ --no-index+ --find-links+ /home/mianliwang/projects/pietto/.cache/phase77-recovery/runtime/wheelhouse+ /home/mianliwang/projects/pietto/.cache/phase77-recovery/runtime/dist/pietto-0.1.10-py3-none-any.whl+ -r+ /home/mianliwang/projects/pietto/.cache/phase77-recovery/runtime/requirements/native.txt
+Using Python 3.13.13 environment at: .cache/phase77-recovery/runtime/venvs/native
+Checked 17 packages in 1ms
+[exit 0]
++ env+ UV_PYTHON=3.13.13+ UV_CACHE_DIR=/home/mianliwang/projects/pietto/.cache/phase77-recovery/candidates/maintenance/.uv-runtime-cache+ UV_OFFLINE=1+ UV_NO_SYNC=1+ uv+ pip+ check+ --python+ /home/mianliwang/projects/pietto/.cache/phase77-recovery/runtime/venvs/core-dev/bin/python
+Using Python 3.13.13 environment at: .cache/phase77-recovery/runtime/venvs/core-dev
+Checked 18 packages in 0.54ms
+All installed packages are compatible
+[exit 0]
++ env+ UV_PYTHON=3.13.13+ UV_CACHE_DIR=/home/mianliwang/projects/pietto/.cache/phase77-recovery/candidates/maintenance/.uv-runtime-cache+ UV_OFFLINE=1+ UV_NO_SYNC=1+ uv+ pip+ check+ --python+ /home/mianliwang/projects/pietto/.cache/phase77-recovery/runtime/venvs/native/bin/python
+Using Python 3.13.13 environment at: .cache/phase77-recovery/runtime/venvs/native
+Checked 21 packages in 0.52ms
+All installed packages are compatible
+[exit 0]
++ /home/mianliwang/projects/pietto/.cache/phase77-recovery/runtime/venvs/native/bin/python+ -I+ /home/mianliwang/projects/pietto/.cache/phase77-recovery/runtime/build_manifest.py
+[exit 0]
++ /home/mianliwang/projects/pietto/.cache/phase77-recovery/runtime/venvs/core-dev/bin/python+ -I+ -c+ import\ importlib.metadata\ as\ m\,\ platform\,\ pietto\,\ sys\;\ assert\ platform.python_version\(\)\ ==\ \"3.13.13\"\;\ assert\ \"pyarrow\"\ not\ in\ \{x.metadata\[\"Name\"\].lower\(\)\ for\ x\ in\ m.distributions\(\)\}\;\ print\(sys.executable\)\;\ print\(pietto.__file__\)\;\ print\(m.version\(\"psycopg\"\)\,\ m.version\(\"mysql-connector-python\"\)\,\ m.version\(\"pytest\"\)\)
+/home/mianliwang/projects/pietto/.cache/phase77-recovery/runtime/venvs/core-dev/bin/python
+/home/mianliwang/projects/pietto/.cache/phase77-recovery/runtime/venvs/core-dev/lib/python3.13/site-packages/pietto/__init__.py
+3.3.8 26.10.0 9.2.0
+[exit 0]
++ /home/mianliwang/projects/pietto/.cache/phase77-recovery/runtime/venvs/native/bin/python+ -I+ -c+ import\ adbc_driver_manager\,\ adbc_driver_postgresql\,\ importlib.metadata\ as\ m\,\ mysql.connector\,\ platform\,\ psycopg\,\ pyarrow\,\ sys\,\ wrapt\;\ assert\ platform.python_version\(\)\ ==\ \"3.13.13\"\;\ print\(sys.executable\)\;\ print\(pyarrow.__file__\)\;\ print\(psycopg.__file__\)\;\ print\(mysql.connector.__file__\)\;\ print\(adbc_driver_manager.__file__\)\;\ print\(adbc_driver_postgresql.__file__\)\;\ print\(wrapt.__file__\)\;\ print\(\{x:m.version\(x\)\ for\ x\ in\ \(\"pyarrow\"\,\ \"psycopg\"\,\ \"psycopg-binary\"\,\ \"mysql-connector-python\"\,\ \"adbc-driver-manager\"\,\ \"adbc-driver-postgresql\"\,\ \"opentelemetry-api\"\,\ \"opentelemetry-sdk\"\,\ \"opentelemetry-semantic-conventions\"\,\ \"wrapt\"\,\ \"pytest\"\)\}\)
+/home/mianliwang/projects/pietto/.cache/phase77-recovery/runtime/venvs/native/bin/python
+/home/mianliwang/projects/pietto/.cache/phase77-recovery/runtime/venvs/native/lib/python3.13/site-packages/pyarrow/__init__.py
+/home/mianliwang/projects/pietto/.cache/phase77-recovery/runtime/venvs/native/lib/python3.13/site-packages/psycopg/__init__.py
+/home/mianliwang/projects/pietto/.cache/phase77-recovery/runtime/venvs/native/lib/python3.13/site-packages/mysql/connector/__init__.py
+/home/mianliwang/projects/pietto/.cache/phase77-recovery/runtime/venvs/native/lib/python3.13/site-packages/adbc_driver_manager/__init__.py
+/home/mianliwang/projects/pietto/.cache/phase77-recovery/runtime/venvs/native/lib/python3.13/site-packages/adbc_driver_postgresql/__init__.py
+/home/mianliwang/projects/pietto/.cache/phase77-recovery/runtime/venvs/native/lib/python3.13/site-packages/wrapt/__init__.py
+{'pyarrow': '26.0.1', 'psycopg': '3.3.8', 'psycopg-binary': '3.3.8', 'mysql-connector-python': '26.10.0', 'adbc-driver-manager': '1.13.0', 'adbc-driver-postgresql': '1.13.0', 'opentelemetry-api': '1.33.1', 'opentelemetry-sdk': '1.33.1', 'opentelemetry-semantic-conventions': '0.54b1', 'wrapt': '2.5.0', 'pytest': '9.2.0'}
+[exit 0]
++ /home/mianliwang/projects/pietto/.cache/phase77-recovery/runtime/venvs/native/bin/python+ -I+ .cache/phase77-recovery/native-maintenance/runnable-rebind/mysql/selfcheck.py+ --candidate+ /home/mianliwang/projects/pietto/.cache/phase77-recovery/candidates/maintenance+ --wheel+ /home/mianliwang/projects/pietto/.cache/phase77-recovery/runtime/dist/pietto-0.1.10-py3-none-any.whl
+mysql none campaign self-check passed
+[exit 0]
++ /home/mianliwang/projects/pietto/.cache/phase77-recovery/runtime/venvs/native/bin/python+ -I+ /home/mianliwang/projects/pietto/.cache/phase77-recovery/runtime/inspect_candidate_artifacts.py
+[exit 0]
++ sh+ -c+ find\ \"\$1\"\ -maxdepth\ 1\ -type\ f\ \!\ -name\ \"\*.whl\"\ -print\ \|\ grep\ .\ \&\&\ exit\ 1\ \|\|\ true+ sh+ /home/mianliwang/projects/pietto/.cache/phase77-recovery/runtime/wheelhouse
+[exit 0]
++ sh+ -c+ sha256sum\ \"\$1\"/\*.whl\ \"\$2\"/\*\ \>\ \"\$3\"+ sh+ /home/mianliwang/projects/pietto/.cache/phase77-recovery/runtime/wheelhouse+ /home/mianliwang/projects/pietto/.cache/phase77-recovery/runtime/dist+ /home/mianliwang/projects/pietto/.cache/phase77-recovery/runtime/reports/all-artifacts.sha256
+[exit 0]

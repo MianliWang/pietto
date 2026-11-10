@@ -1,0 +1,269 @@
+diff --git a/docs/language.md b/docs/language.md
+index e934e84f..c4ea1d84 100644
+--- a/docs/language.md
++++ b/docs/language.md
+@@ -596,7 +596,7 @@ first column give every rule.
+ | `count_distinct(a, b, ...)` ([Aggregates](#aggregates-and-grouping)) | `COUNT(DISTINCT CASE WHEN a IS NOT NULL AND b IS NOT NULL THEN ROW(a, b) END)` | `COUNT(DISTINCT a, b)` | as PostgreSQL single file, `schema_version = 2` (PIE-S2334 in a `schema_version = 1` project), also over JOIN rows | refused (PIE-B1003 `count_distinct_tuple_not_admitted_on_target`) |
+ | `len(c.xs)`, `sum(o.f for o in c.xs ...)`, `any(t for o in c.xs)` ([Nested relations](#nested-relations-collect-and-unnest)) | `sum` and `any` refused at check (PIE-S2334; a single file collects no list); `len(c.xs)` has no list to read (PIE-S2102 for an unknown field, or only the Collect's own refusals) | as PostgreSQL | the count column; `sum` and `any` a scalar subquery over `pg_catalog.unnest` of the list's arrays | refused (PIE-B1003 `collect_not_admitted_on_target`) |
+ | `min(x)`, `max(x)` of a `Timestamp` or `Date` ([Aggregates](#aggregates-and-grouping)) | emitted (unchanged) | emitted (unchanged) | emitted (unchanged) | emitted as on PostgreSQL: `MIN(x)` and `MAX(x)` keep `DATETIME(6)`, microseconds kept, and `DATE`, NULL for an empty input; over a window refused (PIE-B1003), as every MySQL aggregate window |
+-| `asof left join`, `asof inner join` ([Backward asof JOIN](#backward-asof-join)) | emitted | emitted, except in a relation with a FULL JOIN (PIE-B1000) | emitted in a table or query without a relation `let NAME:` block whose FROM is not a table function, elsewhere refused (PIE-S2336); a `let NAME:` block as the joined input is PIE-S2386, where a single file refuses the block itself (PIE-S2345); an aggregate after it only where its `on` keys match a unique key (PIE-S2333) | as PostgreSQL |
++| `asof left join`, `asof inner join` ([Backward asof JOIN](#backward-asof-join)) | emitted | emitted, including the existing FULL derived-table emulation; this source candidate still awaits qualified native MySQL evidence | emitted in a table or query without a relation `let NAME:` block whose FROM is not a table function, elsewhere refused (PIE-S2336); a `let NAME:` block as the joined input is PIE-S2386, where a single file refuses the block itself (PIE-S2345); an aggregate after it only where its `on` keys match a unique key (PIE-S2333) | as PostgreSQL |
+ 
+ ## Types and shapes
+ 
+diff --git a/docs/spec/diagnostics.md b/docs/spec/diagnostics.md
+index 779887f2..bc3f37b5 100644
+--- a/docs/spec/diagnostics.md
++++ b/docs/spec/diagnostics.md
+@@ -362,7 +362,7 @@ source keys refined later are not proofs. See [single-file JOINs](../language.md
+ 
+ | Code | Meaning |
+ |---|---|
+-| `PIE-B1000` | Selected single-file PostgreSQL/private MySQL SQL backend emission case is unsupported or invalid. JOIN refusals are once per relation at the relation span and preserve other artifacts: `PostgreSQL SQL emission is not implemented for RelationIR: <name>. PostgreSQL FULL JOIN <b> needs an ON made only of equalities between Int fields of its two sides; Pietto does not rewrite other FULL JOIN conditions yet`; or `PostgreSQL SQL emission is not implemented for RelationIR: <name>. A SEMI or ANTI JOIN before FULL JOIN <b> is not available in PostgreSQL emission yet`, the text kept for an `any` or `not any` filter before a later JOIN that is still pending at the FULL JOIN; MySQL refuses the same FULL JOINs with the same texts, `MySQL` for `PostgreSQL`, checking each FULL JOIN of the relation in JOIN order before any refusal of its FULL JOIN emulation below. The pending-filter FULL refusal precedes the FULL predicate refusal, which precedes the existing PostgreSQL text-NULL condition guard. That guard covers authored JOIN ON and EXISTS conditions; the untyped-NULL-output guard, which refuses a relation with a NULL output of no type that another relation reads, counts a relation that reads it as a JOIN target as well as one that reads it from FROM. MySQL emulates a FULL JOIN that passes these checks with UNION ALL in a derived table named `__pietto_full`, or the first of `__pietto_full2`, `__pietto_full3`, ... that no input or `any` alias of the statement takes in any case, and then refuses it when a field read after it has a type that is not builtin or is `Any`, with `MySQL SQL emission is not implemented for RelationIR: <name>. MySQL emulates FULL JOIN <b> with UNION ALL, which keeps the column types of builtin types other than Any only; <binding>.<field> has type <type>`; a relation with more than 8 FULL JOINs that pass these checks, each of which repeats the inputs before it, is refused before that type refusal with `MySQL SQL emission is not implemented for RelationIR: <name>. MySQL emulates at most 8 FULL JOINs in one relation, as each repeats the inputs before it`. A MySQL JOIN statement whose input or `any` aliases include two that differ only in case is refused before these refusals and before its QUALIFY derived-table refusal below, with `MySQL SQL emission is not implemented for RelationIR: <name>. Its SQL aliases inputs <first> and <second>, whose names MySQL may compare without case; rename one of them`. MySQL window frames refuse an offset GROUPS bound with `MySQL does not support GROUPS frames with an offset` and an EXCLUDE other than NO OTHERS with `MySQL does not support EXCLUDE CURRENT ROW, GROUP or TIES`; a single-file window key that names a computed Text `let`, which MySQL could compare under the connection collation, is refused with `MySQL does not support a computed Text window key`. A statement defines each table or query of the file that it reads, and each one those read, as a CTE. A CTE takes the place of a table named without a schema in the CTEs after it and in the main SELECT (MySQL compares the names case-insensitively), so a statement that reads such a table there is refused once at its relation span with `PostgreSQL SQL emission is not implemented for RelationIR: <name>. Its SQL defines relation <cte> as a CTE, which would hide table <table> read in the same SQL; rename the relation or read the table with its schema` (MySQL: the same text with `MySQL` for `PostgreSQL`), naming the first such read in statement order; a MySQL statement with two CTEs whose names differ only in case is refused with `MySQL SQL emission is not implemented for RelationIR: <name>. Its SQL defines relations <first> and <second> as CTEs, whose names MySQL may compare without case; rename one of them`; a MySQL statement that would define as a CTE a relation with two outputs whose names differ only in case is refused with `MySQL SQL emission is not implemented for RelationIR: <name>. Its SQL defines relation <cte> as a CTE with outputs <first> and <second>, whose names MySQL compares without case; rename one of them`, and a MySQL QUALIFY relation whose derived table would hold two such outputs with `MySQL SQL emission is not implemented for RelationIR: <name>. Its QUALIFY derived table has outputs <first> and <second>, whose names MySQL compares without case; rename one of them`. An ORDER BY key that reads a SELECT output by its name (a selected window result, or an output over a row of unknown type) is emitted as that output's SELECT list position when the list holds an unaliased item (PIE-S2304), which PostgreSQL and MySQL each name by rules of their own, or, on MySQL, which compares the names without case, another output whose name differs from it only in case; beside an unaliased item an input field key is qualified with the name FROM gives the input, and a CTE gives each unaliased output a private alias `__pietto_column_<n>` that no name the statement selects or reads takes, in any case, while the relation's own SELECT keeps it unaliased. A statement whose relation, or a CTE of it, reads a CTE over a row of unknown type, such as a source without a shape, by a name the CTE's relation gives no output (its ORDER BY, HAVING and QUALIFY may also read the reader's own outputs, as Pietto binds them: a key such as `Z` beside an output `z`, or `z + 1`, reads the CTE; MySQL compares the CTE's column names without case) is refused once at its relation span with `PostgreSQL SQL emission is not implemented for RelationIR: <name>. Its SQL reads <field> from relation <cte>, which names no output <field>`, naming the first such read in source order of the first reader in statement order, followed, when that relation has unaliased outputs and no output whose name differs from <field> only in case, by ``; if it means the unaliased output at line <l>, column <c>, which has no name a reader can use, write `<field> = ...` there to name it`` (`one of the unaliased outputs at line <l>, column <c> and line ..., which have` for several), after the hidden-table and MySQL case refusals (MySQL: the same text with `MySQL` for `PostgreSQL`). Errors the statement's SQL already had come first; the file's other artifacts are kept. A statement that reads a table or query whose own SQL is refused is refused with that relation's reason, each at its own relation in definition order. MySQL refuses `stddev`, `variance`, `pvariance` and `pstdev` of an `Int` argument (`MySQL SQL emission is not implemented for RelationIR: <name>. MySQL aggregate stddev of an Int argument is not supported`; each other name adds `; emit with --dialect postgres`), as MySQL computes an integer variance in DOUBLE (a `Float` one is `STDDEV_SAMP(x)`, `VAR_SAMP(x)`, `VAR_POP(x)` and `STDDEV_POP(x)`), and every `median` and `quantile` (`MySQL SQL emission is not implemented for RelationIR: <name>. MySQL aggregate median is not supported: MySQL has no interpolated percentile; emit this relation for PostgreSQL`, `quantile` for a `quantile`), and every `first` and `last` (`MySQL SQL emission is not implemented for RelationIR: <name>. MySQL has no ordered first or last yet; emit with --dialect postgres`); PostgreSQL writes `first(x, order by k, id)` as `(ARRAY_AGG(x ORDER BY k ASC, id ASC))[1]` and `last` with every key direction flipped. An asof JOIN renders as `LEFT JOIN LATERAL (SELECT * FROM <source> AS <b> WHERE <on> ORDER BY <b>.<time> DESC LIMIT 1) AS <b> ON TRUE` (`INNER JOIN LATERAL` for `asof inner join`), on MySQL with its own quotes; MySQL refuses an asof JOIN in a relation with a FULL JOIN, which it emulates with UNION ALL, with `MySQL SQL emission is not implemented for RelationIR: <name>. MySQL has no ASOF JOIN in a relation with a FULL JOIN yet; emit with --dialect postgres`, at the asof JOIN's place among the FULL JOIN checks above, which walk the JOINs in order. MySQL refuses the conditional sum of a group, `sum(o.f for o in group if ...)`: `MySQL SQL emission is not implemented for RelationIR: <name>. MySQL conditional sum of an Int argument is not supported`, as MySQL sums integers in DECIMAL; the conditional count, `sum(1 for o in group if ...)`, renders `COUNT(CASE WHEN <test> THEN 1 END)` on both targets. MySQL writes the test of a group in a single file as PostgreSQL does, `(COUNT(CASE WHEN TEST THEN 1 END) > 0)` and `(COUNT(CASE WHEN TEST THEN NULL ELSE 1 END) = 0)`, an integer 0/1 (checked by a two-database differential). |
++| `PIE-B1000` | Selected single-file PostgreSQL/private MySQL SQL backend emission case is unsupported or invalid. JOIN refusals are once per relation at the relation span and preserve other artifacts: `PostgreSQL SQL emission is not implemented for RelationIR: <name>. PostgreSQL FULL JOIN <b> needs an ON made only of equalities between Int fields of its two sides; Pietto does not rewrite other FULL JOIN conditions yet`; or `PostgreSQL SQL emission is not implemented for RelationIR: <name>. A SEMI or ANTI JOIN before FULL JOIN <b> is not available in PostgreSQL emission yet`, the text kept for an `any` or `not any` filter before a later JOIN that is still pending at the FULL JOIN; MySQL refuses the same FULL JOINs with the same texts, `MySQL` for `PostgreSQL`, checking each FULL JOIN of the relation in JOIN order before any refusal of its FULL JOIN emulation below. The pending-filter FULL refusal precedes the FULL predicate refusal, which precedes the existing PostgreSQL text-NULL condition guard. That guard covers authored JOIN ON and EXISTS conditions; the untyped-NULL-output guard, which refuses a relation with a NULL output of no type that another relation reads, counts a relation that reads it as a JOIN target as well as one that reads it from FROM. MySQL emulates a FULL JOIN that passes these checks with UNION ALL in a derived table named `__pietto_full`, or the first of `__pietto_full2`, `__pietto_full3`, ... that no input or `any` alias of the statement takes in any case, and then refuses it when a field read after it has a type that is not builtin or is `Any`, with `MySQL SQL emission is not implemented for RelationIR: <name>. MySQL emulates FULL JOIN <b> with UNION ALL, which keeps the column types of builtin types other than Any only; <binding>.<field> has type <type>`; a relation with more than 8 FULL JOINs that pass these checks, each of which repeats the inputs before it, is refused before that type refusal with `MySQL SQL emission is not implemented for RelationIR: <name>. MySQL emulates at most 8 FULL JOINs in one relation, as each repeats the inputs before it`. A MySQL JOIN statement whose input or `any` aliases include two that differ only in case is refused before these refusals and before its QUALIFY derived-table refusal below, with `MySQL SQL emission is not implemented for RelationIR: <name>. Its SQL aliases inputs <first> and <second>, whose names MySQL may compare without case; rename one of them`. MySQL window frames refuse an offset GROUPS bound with `MySQL does not support GROUPS frames with an offset` and an EXCLUDE other than NO OTHERS with `MySQL does not support EXCLUDE CURRENT ROW, GROUP or TIES`; a single-file window key that names a computed Text `let`, which MySQL could compare under the connection collation, is refused with `MySQL does not support a computed Text window key`. A statement defines each table or query of the file that it reads, and each one those read, as a CTE. A CTE takes the place of a table named without a schema in the CTEs after it and in the main SELECT (MySQL compares the names case-insensitively), so a statement that reads such a table there is refused once at its relation span with `PostgreSQL SQL emission is not implemented for RelationIR: <name>. Its SQL defines relation <cte> as a CTE, which would hide table <table> read in the same SQL; rename the relation or read the table with its schema` (MySQL: the same text with `MySQL` for `PostgreSQL`), naming the first such read in statement order; a MySQL statement with two CTEs whose names differ only in case is refused with `MySQL SQL emission is not implemented for RelationIR: <name>. Its SQL defines relations <first> and <second> as CTEs, whose names MySQL may compare without case; rename one of them`; a MySQL statement that would define as a CTE a relation with two outputs whose names differ only in case is refused with `MySQL SQL emission is not implemented for RelationIR: <name>. Its SQL defines relation <cte> as a CTE with outputs <first> and <second>, whose names MySQL compares without case; rename one of them`, and a MySQL QUALIFY relation whose derived table would hold two such outputs with `MySQL SQL emission is not implemented for RelationIR: <name>. Its QUALIFY derived table has outputs <first> and <second>, whose names MySQL compares without case; rename one of them`. An ORDER BY key that reads a SELECT output by its name (a selected window result, or an output over a row of unknown type) is emitted as that output's SELECT list position when the list holds an unaliased item (PIE-S2304), which PostgreSQL and MySQL each name by rules of their own, or, on MySQL, which compares the names without case, another output whose name differs from it only in case; beside an unaliased item an input field key is qualified with the name FROM gives the input, and a CTE gives each unaliased output a private alias `__pietto_column_<n>` that no name the statement selects or reads takes, in any case, while the relation's own SELECT keeps it unaliased. A statement whose relation, or a CTE of it, reads a CTE over a row of unknown type, such as a source without a shape, by a name the CTE's relation gives no output (its ORDER BY, HAVING and QUALIFY may also read the reader's own outputs, as Pietto binds them: a key such as `Z` beside an output `z`, or `z + 1`, reads the CTE; MySQL compares the CTE's column names without case) is refused once at its relation span with `PostgreSQL SQL emission is not implemented for RelationIR: <name>. Its SQL reads <field> from relation <cte>, which names no output <field>`, naming the first such read in source order of the first reader in statement order, followed, when that relation has unaliased outputs and no output whose name differs from <field> only in case, by ``; if it means the unaliased output at line <l>, column <c>, which has no name a reader can use, write `<field> = ...` there to name it`` (`one of the unaliased outputs at line <l>, column <c> and line ..., which have` for several), after the hidden-table and MySQL case refusals (MySQL: the same text with `MySQL` for `PostgreSQL`). Errors the statement's SQL already had come first; the file's other artifacts are kept. A statement that reads a table or query whose own SQL is refused is refused with that relation's reason, each at its own relation in definition order. MySQL refuses `stddev`, `variance`, `pvariance` and `pstdev` of an `Int` argument (`MySQL SQL emission is not implemented for RelationIR: <name>. MySQL aggregate stddev of an Int argument is not supported`; each other name adds `; emit with --dialect postgres`), as MySQL computes an integer variance in DOUBLE (a `Float` one is `STDDEV_SAMP(x)`, `VAR_SAMP(x)`, `VAR_POP(x)` and `STDDEV_POP(x)`), and every `median` and `quantile` (`MySQL SQL emission is not implemented for RelationIR: <name>. MySQL aggregate median is not supported: MySQL has no interpolated percentile; emit this relation for PostgreSQL`, `quantile` for a `quantile`), and every `first` and `last` (`MySQL SQL emission is not implemented for RelationIR: <name>. MySQL has no ordered first or last yet; emit with --dialect postgres`); PostgreSQL writes `first(x, order by k, id)` as `(ARRAY_AGG(x ORDER BY k ASC, id ASC))[1]` and `last` with every key direction flipped. An asof JOIN renders as `LEFT JOIN LATERAL (SELECT * FROM <source> AS <b> WHERE <on> ORDER BY <b>.<time> DESC LIMIT 1) AS <b> ON TRUE` (`INNER JOIN LATERAL` for `asof inner join`), on MySQL with its own quotes. In a MySQL relation that also has a FULL JOIN, this source candidate keeps that ASOF selection at its source occurrence: a later ASOF reads the FULL derived-table ports, while an earlier or intermediate ASOF occurs in each necessary UNION ALL branch. Its `ORDER BY <b>.<time> DESC LIMIT 1`, source multiplicity and the FULL right-only `IS NULL` test are unchanged. Qualified native MySQL execution evidence is still pending. MySQL refuses the conditional sum of a group, `sum(o.f for o in group if ...)`: `MySQL SQL emission is not implemented for RelationIR: <name>. MySQL conditional sum of an Int argument is not supported`, as MySQL sums integers in DECIMAL; the conditional count, `sum(1 for o in group if ...)`, renders `COUNT(CASE WHEN <test> THEN 1 END)` on both targets. MySQL writes the test of a group in a single file as PostgreSQL does, `(COUNT(CASE WHEN TEST THEN 1 END) > 0)` and `(COUNT(CASE WHEN TEST THEN NULL ELSE 1 END) = 0)`, an integer 0/1 (checked by a two-database differential). |
+ | `PIE-B1001` | SOURCE_REALIZATION: explicit selected source mapping, identifier, family or row-domain/read-only declaration cannot realize the scan. `complete_ordered_source_schema_required` is located at the source declaration, with a related location at each shape field the contract leaves out or maps out of shape order |
+ | `PIE-B1002` | REPRESENTATION: selected logical/physical storage, value domain, nullability, Decimal parameters or output label do not correspond. Includes `table_function_binding_unrepresentable`: a table-function binding the target cannot spell as an identifier, at that input, once per such input in source order; and `arithmetic_outside_physical_range`, `unary_result_outside_physical_range` and `abs_result_outside_physical_range`: an `Int` operation whose result is not proved to fit signed 64 bits on MySQL, or whose exact range lies wholly outside signed 64 bits on PostgreSQL, where a `bigint` result that only may leave that range is emitted with the checked `bigint` operators and may fail while PostgreSQL plans or executes the statement with SQLSTATE 22003 instead (see [project emission rules](../project-package.md#emission-rules)). Includes `first_last_result_logical_type_drift`: a `first` or `last` result whose logical type is not its argument's, or that is non-null over a nullable argument. |
+ | `PIE-B1003` | UNSUPPORTED_RULE: target release or selected lowering shape has no current implementation; later-owned operators remain planned. Includes `aggregate_composition_not_admitted_on_target`: each authored outer aggregate composition in a MySQL project, in source order; the two-query route retains its existing target rules. Includes `zero_physical_source_not_admitted_on_target`: a MySQL statement whose only inputs are typed VALUES bodies; `query_parameter_type_not_admitted_on_target`: a MySQL query header parameter declared `Decimal(p, s)`, `Date`, `Timestamp` or `UUID`, read or not, at each such declaration in header order, before any placeholder is allocated; `table_function_not_admitted_on_target`: a MySQL statement with a table-function input, at that input, once per input in source order, whatever else it reads; `order`: an ORDER BY key the plan cannot write, such as one with a part of unknown type (the null literal in `None is None`), located at that ORDER BY item, or at the ORDER BY clause when the relation's ordering itself is unavailable; and `collect_not_admitted_on_target` and `unnest_not_admitted_on_target`: a statement whose plan reads a Collect read (`name = collect r`) or an Unnest (`let o = unnest(b.f)`) on a target that admits no lowering for it, at each Collect read and at each Unnest let, once each in source order, whatever else it reads; PostgreSQL admits a Collect read of the selected table or query; a general reader carrying a collection and targets other than PostgreSQL still report it. PostgreSQL also admits the single-Collect, single CROSS/INNER/LEFT Unnest shape with basic child leaves and flat final exports; other Unnest shapes retain this refusal. `list_operation_not_admitted_on_target`: a target other than PostgreSQL that would realize a list operation (`len(c.xs)`, or a `sum` or `any` generator over a row's field `c.xs`), at that operation's SELECT item, row `let` or WHERE; none does today, since the Collect read the list comes from is refused first (`collect_not_admitted_on_target`). Every plan-stage refusal (`order`, `group`, `join`, `window`, `qualify`, ...) is located at its clause where it has one, else at the declaration. An aggregate over an argument outside its reviewed domain is `<function>_argument_outside_reviewed_int_domain` for `count`, `count_distinct`, `min` and `max`: each admits an Int argument, `count` and `count_distinct` also an exact Timestamp, Date or UUID argument, `count` and `count_distinct` also a Text, Bool, Float or Decimal argument (on MySQL `count_distinct` no Float) and `min` and `max` also a Float or Decimal argument and an exact Timestamp or Date argument (each under the GROUP BY key law; MySQL `MIN` and `MAX` keep `DATETIME(6)` and `DATE`), and every other type is refused (only `sum` and `avg` of a Decimal argument, and on MySQL `sum`, `avg` and `stddev` of a Float argument, are PIE-B1004 range or finite-result proofs); `aggregate_argument_not_a_direct_established_field` refuses an aggregate argument that reads no row (a row expression such as `count(lower(label))` is emitted inside the aggregate as a LET would lower it); `stddev_int_not_admitted_on_target` refuses a MySQL `stddev` of an `Int` argument, which MySQL computes in DOUBLE (PostgreSQL emits `stddev` of an `int2`, `int4` or `int8` argument as `SQRT(CAST(VAR_SAMP(x) AS pg_catalog.float8))`), and `variance_int_not_admitted_on_target`, `pvariance_int_not_admitted_on_target` and `pstdev_int_not_admitted_on_target` a MySQL `variance`, `pvariance` and `pstdev` of one (PostgreSQL emits them as `CAST(VAR_SAMP(x) AS pg_catalog.float8)`, `CAST(VAR_POP(x) AS pg_catalog.float8)` and `SQRT(CAST(VAR_POP(x) AS pg_catalog.float8))`); `quantile_not_admitted_on_target` refuses every MySQL `median` and `quantile`, as MySQL has no interpolated percentile, with the suggestion `Emit this median or quantile for PostgreSQL, or keep it in check/plan: MySQL has no interpolated percentile.` (PostgreSQL emits one of an `int2`, `int4` or `int8` argument as `PERCENTILE_CONT(0.5) WITHIN GROUP (ORDER BY CAST(x AS pg_catalog.float8))`, the `quantile` fraction an anchored literal such as `CAST('0.9' AS pg_catalog.float8)` in place of `0.5`), and `median_argument_outside_reviewed_int_domain` and `quantile_argument_outside_reviewed_int_domain` a PostgreSQL argument of a type other than `Int` and `Float`; `conditional_count_not_admitted_on_target` refuses a MySQL conditional count `sum(1 for o in group if TEST)`, with the suggestion `MySQL has no conditional count yet; emit with --dialect postgres.` (PostgreSQL emits it as `COUNT(CASE WHEN TEST THEN 1 END)`); `conditional_test_reads_no_field` refuses, on either target, a conditional count or sum whose TEST reads no field (`if True`), with the suggestion ``Test a field of the member, such as `if o.paid`: a test that reads no field is the same for every row.``, and `group_test_reads_no_field` a test of a group whose TEST reads none (`any(True for o in group)`), with ``Test a field of the member, such as `any(o.paid for o in group)`: a test that reads no field is the same for every row.``; `group_test_not_admitted_on_target` refuses a MySQL test of a group, `any(TEST for o in group)` or `all(TEST for o in group)`, with the suggestion `MySQL has no group any or all yet; emit with --dialect postgres.` (PostgreSQL emits `(COUNT(CASE WHEN TEST THEN 1 END) > 0)` and `(COUNT(CASE WHEN TEST THEN NULL ELSE 1 END) = 0)`, a non-null `pg_bool`); `first_last_not_admitted_on_target` refuses every MySQL `first` and `last`, with the suggestion `Emit this first or last for PostgreSQL, or keep it in check/plan: MySQL has no ordered first or last yet.` (PostgreSQL emits `(ARRAY_AGG(x ORDER BY k ASC, ...))[1]`, `last` with every direction flipped), and `first_last_order_key_outside_reviewed_order_domain` a PostgreSQL order key outside the relation ORDER BY domain (R19); each refused aggregate is reported at its own select item, in select order, and a refused group key at its GROUP BY item. An aggregate over a window keeps these argument details and PIE-B1004 proofs, at its window; on MySQL every one is `window_aggregate_approved_non_support_on_mysql`, at the window, until its real-database differential, with the suggestion `Emit this aggregate window for PostgreSQL, or keep it in check/plan: a project's MySQL aggregate window awaits its real-database differential.` (PostgreSQL emits it as the aggregate with `OVER`, `sum` of an Int as `CAST(SUM(CAST(x AS pg_catalog.int8)) OVER (...) AS pg_catalog.int8)` and `avg` of an Int as `AVG(CAST(x AS pg_catalog.float8)) OVER (...)`). `set_row_equivalence_domain_unsupported` also refuses a MySQL INTERSECT or EXCEPT, either quantifier, over a Float column, once at the set body: MySQL compares -0.0 and 0.0 as different values there. On MySQL the equivalence, group-key, order and window-key details also refuse a window `percent_rank` or `cume_dist` result as a DISTINCT field, a set column (other than UNION ALL), a group key, an ORDER key or a window key, and `window_partition_comparison_domain_unsupported` and `window_order_comparison_domain_unsupported` (PIE-B1002) a Float window key; PostgreSQL emits these forms. On MySQL, which kept -0.0 and 0.0 apart when it deduplicated a Float beside a wide Text key, a Float GROUP BY key is `group_key_type_outside_reviewed_comparison_domain`, a Float DISTINCT field `distinct_field_comparison_domain_unsupported` and a Float UNION DISTINCT `set_row_equivalence_domain_unsupported` at the set body; a Float relation ORDER key is admitted on both targets, where `-0.0` and `0.0` tie. A MySQL Float `==` or `!=` whose two operands both read rows (a JOIN ON, a WHERE comparison across inputs, a correlated `any`/`exists`/scalar/capture predicate, or two fields of one row) is `comparison_type_pair_not_admitted`, located at its enclosing clause or select item: MySQL picks its own join and semijoin plans, its parser turns `NOT (x <> y)` into `x = y`, and a semijoin forced to materialize over a wide key returned outer rows twice, although every JOIN tried matched -0.0 with 0.0. In text output, a blocker an author can resolve (a missing or mismatched premise, an unreviewed release, `order`, an Int arithmetic range) is followed by a `hint:` line naming the reviewed value or remedy |
+diff --git a/src/pietto/sql/joins.py b/src/pietto/sql/joins.py
+index dd01212b..29bd8dbc 100644
+--- a/src/pietto/sql/joins.py
++++ b/src/pietto/sql/joins.py
+@@ -113,15 +113,6 @@ def render_join_sql(
+             conjuncts.append(target.render(join.condition))
+         joined = inputs[join.target_input]
+         if join.latest is not None:
+-            if not target.native_full and any(
+-                JoinKindIR(other.kind) is JoinKindIR.FULL for other in relation.joins
+-            ):
+-                # No differential has run an asof JOIN beside MySQL's
+-                # emulation of a FULL JOIN.
+-                raise target.error(
+-                    f"{target.name} has no ASOF JOIN in a relation with a FULL "
+-                    "JOIN yet; emit with --dialect postgres"
+-                )
+             # The latest matching row: the declared unique of the keys and
+             # the time makes it one row, and a NULL time never matches.
+             alias = target.quote(relation.inputs[join.target_input].binding)
+diff --git a/tests/test_sql_join_emission.py b/tests/test_sql_join_emission.py
+index cd3a45a5..7ea92c17 100644
+--- a/tests/test_sql_join_emission.py
++++ b/tests/test_sql_join_emission.py
+@@ -2585,42 +2585,191 @@ _ASOF_FULL = "let p2 = prices_id\n    full join p2 on orders.id == p2.id"
+ 
+ 
+ @pytest.mark.parametrize(
+-    "query",
++    (
++        "query",
++        "asof_input",
++        "asof_time_input",
++        "asof_join",
++        "asof_occurrences",
++        "full_unions",
++        "p2_right_occurrences",
++        "p3_right_occurrences",
++    ),
+     [
+-        {
+-            "join": f"asof left join price on {KEY} and {TIME}",
+-            "let": f"{_ASOF_FULL}\n    let price = prices",
+-        },
+-        {
+-            "join": f"asof inner join price on {KEY} and {TIME}",
+-            "let": f"{_ASOF_FULL}\n    let price = prices",
+-        },
+-        {
+-            "join": f"asof left join price on {KEY} and {TIME}",
+-            "after": f"    {_ASOF_FULL}\n",
+-        },
++        (
++            {
++                "join": f"asof left join price on {KEY} and {TIME}",
++                "let": f"{_ASOF_FULL}\n    let price = prices",
++            },
++            "`__pietto_full`.`__pietto_full_1`",
++            "`__pietto_full`.`__pietto_full_2`",
++            "LEFT JOIN LATERAL",
++            1,
++            1,
++            1,
++            0,
++        ),
++        (
++            {
++                "join": f"asof inner join price on {KEY} and {TIME}",
++                "let": f"{_ASOF_FULL}\n    let price = prices",
++            },
++            "`__pietto_full`.`__pietto_full_1`",
++            "`__pietto_full`.`__pietto_full_2`",
++            "INNER JOIN LATERAL",
++            1,
++            1,
++            1,
++            0,
++        ),
++        (
++            {
++                "join": f"asof left join price on {KEY} and {TIME}",
++                "after": f"    {_ASOF_FULL}\n",
++            },
++            "`orders`.`product_id`",
++            "`orders`.`ordered_at`",
++            "LEFT JOIN LATERAL",
++            2,
++            1,
++            1,
++            0,
++        ),
++        (
++            {
++                "join": f"asof left join price on {KEY} and {TIME}",
++                "let": f"{_ASOF_FULL}\n    let price = prices",
++                "after": "    let p3 = prices_id\n"
++                "    full join p3 on orders.id == p3.id\n",
++            },
++            "`__pietto_full`.`__pietto_full_1`",
++            "`__pietto_full`.`__pietto_full_2`",
++            "LEFT JOIN LATERAL",
++            2,
++            3,
++            2,
++            1,
++        ),
++        (
++            {
++                "join": f"asof inner join price on {KEY} and {TIME}",
++                "let": f"{_ASOF_FULL}\n    let price = prices",
++                "select": "select order_id = orders.id, full_id = p2.id, "
++                "c = price.amount_cents",
++            },
++            "`__pietto_full`.`__pietto_full_2`",
++            "`__pietto_full`.`__pietto_full_3`",
++            "INNER JOIN LATERAL",
++            1,
++            1,
++            1,
++            0,
++        ),
++        (
++            {
++                "join": f"asof inner join price on {KEY} and {TIME}",
++                "let": f"{_ASOF_FULL}\n    let price = prices",
++                "after": "    let p3 = prices_id\n"
++                "    full join p3 on orders.id == p3.id\n",
++                "select": "select order_id = orders.id, first_full_id = p2.id, "
++                "second_full_id = p3.id, c = price.amount_cents",
++            },
++            "`__pietto_full`.`__pietto_full_2`",
++            "`__pietto_full`.`__pietto_full_3`",
++            "INNER JOIN LATERAL",
++            2,
++            3,
++            2,
++            1,
++        ),
++    ],
++    ids=[
++        "full_before",
++        "full_before_inner",
++        "full_after",
++        "between_fulls",
++        "full_then_inner_asof",
++        "full_then_inner_asof_then_full",
+     ],
+-    ids=["full_before", "full_before_inner", "full_after"],
+ )
+-def test_mysql_refuses_an_asof_join_in_a_relation_with_a_full_join(
++def test_mysql_emulates_an_asof_join_in_a_relation_with_a_full_join(
+     query: dict[str, str],
++    asof_input: str,
++    asof_time_input: str,
++    asof_join: str,
++    asof_occurrences: int,
++    full_unions: int,
++    p2_right_occurrences: int,
++    p3_right_occurrences: int,
+ ) -> None:
+-    """PostgreSQL writes both JOINs natively; MySQL, which emulates the FULL
+-    JOIN with UNION ALL, keeps the asof JOIN refused there."""
++    """MySQL keeps the ASOF row choice in each necessary FULL UNION branch."""
+ 
+     [sql], diagnostics = _asof_sql("postgres", **query)
+     assert "\nFULL JOIN " in sql and " JOIN LATERAL " in sql and diagnostics == []
+-    assert _asof_sql("mysql", **query) == (
+-        [],
+-        [
+-            (
+-                "PIE-B1000",
+-                "MySQL SQL emission is not implemented for RelationIR: q. MySQL "
+-                "has no ASOF JOIN in a relation with a FULL JOIN yet; emit with "
+-                "--dialect postgres",
+-            )
+-        ],
++    [sql], diagnostics = _asof_sql("mysql", **query)
++    assert diagnostics == []
++    assert sql.count("UNION ALL") == full_unions
++    assert sql.count("JOIN LATERAL (SELECT * FROM `shop`.`prices` AS `price`") == (
++        asof_occurrences
++    )
++    assert sql.count(asof_join) == asof_occurrences
++    assert (
++        sql.count(
++            "WHERE ("
++            f"{asof_input} = `price`.`product_id`) AND "
++            f"({asof_time_input} >= `price`.`valid_from`)"
++        )
++        == asof_occurrences
++    )
++    assert sql.count("ORDER BY `price`.`valid_from` DESC LIMIT 1") == asof_occurrences
++    assert (
++        sql.count(
++            "RIGHT JOIN `shop`.`prices_id` AS `p2` ON `orders`.`id` = `p2`.`id`\n"
++            "WHERE `orders`.`id` IS NULL"
++        )
++        == p2_right_occurrences
++    )
++    assert (
++        sql.count(
++            "RIGHT JOIN `shop`.`prices_id` AS `p3` ON "
++            "`__pietto_full`.`__pietto_full_0` = `p3`.`id`\n"
++            "WHERE `__pietto_full`.`__pietto_full_0` IS NULL"
++        )
++        == p3_right_occurrences
++    )
++    assert "AS `price` ON TRUE" in sql
++
++
++@pytest.mark.parametrize("output_format", ["text", "json"])
++def test_cli_emits_mysql_asof_with_a_full_join(
++    tmp_path: Path, capsys: pytest.CaptureFixture[str], output_format: str
++) -> None:
++    query = {
++        "join": f"asof left join price on {KEY} and {TIME}",
++        "let": f"{_ASOF_FULL}\n    let price = prices",
++    }
++    source = asof_query(connector="mysql", **query)
++    [sql], diagnostics = _asof_sql("mysql", **query)
++    assert diagnostics == []
++    path = tmp_path / "asof-full.pietto"
++    path.write_text(source, encoding="utf-8")
++
++    assert (
++        cli.main(
++            ["emit-sql", str(path), "--dialect", "mysql", "--format", output_format]
++        )
++        == 0
+     )
++    captured = capsys.readouterr()
++    if output_format == "text":
++        assert captured.err == ""
++        assert captured.out.endswith(f"\n\n-- q\n{sql};\n")
++    else:
++        payload = json.loads(captured.out)
++        assert captured.err == ""
++        assert payload["ok"] is True
++        assert payload["diagnostics"] == []
++        assert payload["artifacts"][-1] == {"kind": "relation", "name": "q", "sql": sql}
+ 
+ 
+ # The two-level route: `per_order` counts the items of each order, grouped by

@@ -1,0 +1,294 @@
+diff --git a/src/pietto/_project/project_sql_emission_pure_boundary.py b/src/pietto/_project/project_sql_emission_pure_boundary.py
+index 44547fac..f44ddeae 100644
+--- a/src/pietto/_project/project_sql_emission_pure_boundary.py
++++ b/src/pietto/_project/project_sql_emission_pure_boundary.py
+@@ -180,23 +180,34 @@ def _window_value_representation(family, read, carrier, default, doc):
+     if carrier["tag"] == "Text":
+         if default in {None, "NULL"}:
+             return dict(storage), dict(domain)
+-        if family != "postgres" or not isinstance(default, str):
++        if family not in {"postgres", "mysql"} or not isinstance(default, str):
+             return None
+-        if not (default.startswith("E'") and default.endswith("'")):
+-            return None
+-        encoded, octets = default[2:-1], bytearray()
+-        while encoded:
+-            if (
+-                len(encoded) < 4
+-                or encoded[0] != "\\"
+-                or any(character not in "01234567" for character in encoded[1:4])
+-            ):
++        if family == "postgres" and default.startswith("E'") and default.endswith("'"):
++            encoded, octets = default[2:-1], bytearray()
++            while encoded:
++                if (
++                    len(encoded) < 4
++                    or encoded[0] != "\\"
++                    or any(character not in "01234567" for character in encoded[1:4])
++                ):
++                    return None
++                octet = int(encoded[1:4], 8)
++                if octet == 0 or octet > 255:
++                    return None
++                octets.append(octet)
++                encoded = encoded[4:]
++        elif family == "mysql" and default.startswith("X'") and default.endswith("'"):
++            encoded = default[2:-1]
++            if len(encoded) % 2 or re.fullmatch(r"[0-9A-Fa-f]*", encoded) is None:
+                 return None
+-            octet = int(encoded[1:4], 8)
+-            if octet == 0 or octet > 255:
++            try:
++                octets = bytearray.fromhex(encoded)
++            except ValueError:
++                return None
++            if 0 in octets:
+                 return None
+-            octets.append(octet)
+-            encoded = encoded[4:]
++        else:
++            return None
+         try:
+             width = len(octets.decode("utf-8"))
+         except UnicodeDecodeError:
+diff --git a/src/pietto/_project/project_sql_emission_windows.py b/src/pietto/_project/project_sql_emission_windows.py
+index 5749054a..f0e746c5 100644
+--- a/src/pietto/_project/project_sql_emission_windows.py
++++ b/src/pietto/_project/project_sql_emission_windows.py
+@@ -643,9 +643,9 @@ def _integer_literal(value) -> str | None:
+ 
+ 
+ def _text_literal(value, family) -> str | None:
+-    """One retained PostgreSQL Text default, escaped by the literal owner."""
++    """One static Text default, escaped by the literal owner."""
+ 
+-    if family != "postgres" or type(value) is not str or "\x00" in value:
++    if family not in {"postgres", "mysql"} or type(value) is not str or "\x00" in value:
+         return None
+     try:
+         return parameters.scalar_token("Text", value, family)
+@@ -654,26 +654,37 @@ def _text_literal(value, family) -> str | None:
+ 
+ 
+ def text_default_width(default: str | None) -> int | None:
+-    """Character width of the fixed E'\\ooo' Text default token, if any."""
++    """Character width of a fixed PostgreSQL or MySQL Text default token."""
+ 
+     if default is None or default == "NULL":
+         return None
+-    if not (default.startswith("E'") and default.endswith("'")):
+-        return None
+-    encoded = default[2:-1]
+-    octets = bytearray()
+-    while encoded:
+-        if (
+-            len(encoded) < 4
+-            or encoded[0] != "\\"
+-            or any(character not in "01234567" for character in encoded[1:4])
+-        ):
++    if default.startswith("E'") and default.endswith("'"):
++        encoded = default[2:-1]
++        octets = bytearray()
++        while encoded:
++            if (
++                len(encoded) < 4
++                or encoded[0] != "\\"
++                or any(character not in "01234567" for character in encoded[1:4])
++            ):
++                return None
++            octet = int(encoded[1:4], 8)
++            if octet == 0 or octet > 255:
++                return None
++            octets.append(octet)
++            encoded = encoded[4:]
++    elif default.startswith("X'") and default.endswith("'"):
++        encoded = default[2:-1]
++        if len(encoded) % 2 or any(character not in "0123456789abcdefABCDEF" for character in encoded):
++            return None
++        try:
++            octets = bytearray.fromhex(encoded)
++        except ValueError:
+             return None
+-        octet = int(encoded[1:4], 8)
+-        if octet == 0 or octet > 255:
++        if 0 in octets:
+             return None
+-        octets.append(octet)
+-        encoded = encoded[4:]
++    else:
++        return None
+     try:
+         return len(octets.decode("utf-8"))
+     except UnicodeDecodeError:
+@@ -1536,7 +1547,7 @@ def resolved_arguments(function, arguments, records, family):
+         elif (
+             address.kind == "literal"
+             and role == "default"
+-            and family == "postgres"
++                and family in {"postgres", "mysql"}
+             and record.get("tag") == "Text"
+         ):
+             value = record.get("value").value
+diff --git a/tests/test_execution_compiled_families.py b/tests/test_execution_compiled_families.py
+index 8e425401..6c07e885 100644
+--- a/tests/test_execution_compiled_families.py
++++ b/tests/test_execution_compiled_families.py
+@@ -4439,24 +4439,22 @@ def test_postgres_decimal_carriers_emit_exact_addition(tmp_path):
+ 
+ 
+ @pytest.mark.parametrize("target", TARGETS)
+-def test_postgres_text_window_defaults_are_escaped_and_widen_the_result(
++def test_text_window_defaults_are_escaped_and_widen_the_result(
+     tmp_path, target
+ ):
+     """E7 opens only static Text literals beside Text lag/lead values."""
+     checked, outcome = emit(tmp_path, target, TEXT_WINDOW_DEFAULT_BODY)
+     assert checked.verified
+-    if target == "mysql":
+-        assert outcome.status == "BLOCKED" and outcome.artifact is None
+-        assert [(blocker.code, blocker.detail) for blocker in outcome.blockers] == [
+-            ("PIE-B1003", "window_default_literal_kind_not_realized_yet"),
+-        ]
+-        return
+     assert outcome.status == "VERIFIED", outcome.blockers
+     artifact = outcome.artifact
+     assert artifact is not None
+     sql = artifact.rendered.sql.decode("utf-8")
+-    assert "E'\\351\\233\\252'" in sql
+-    assert "E'\\141\\047\\142'" in sql
++    if target == "postgres":
++        assert "E'\\351\\233\\252'" in sql
++        assert "E'\\141\\047\\142'" in sql
++    else:
++        assert "X'e99baa'" in sql
++        assert "X'612762'" in sql
+     document = probe.decode_public(serialize_project_sql_emission(outcome))
+     defaults = [
+         column["representation"]["domain"]["max_characters"]
+@@ -4476,20 +4474,54 @@ def test_postgres_text_window_defaults_are_escaped_and_widen_the_result(
+     ).corresponds
+     from pietto._project.project_compiled_build import build_compiled
+     from pietto._project.project_compiled_loading import load_compiled
++    from pietto._project.project_compiled_lowering import emit_compiled
+     from pietto._project.project_execution_template import (
+         prepare_compiled_template,
+     )
+ 
+     built = build_compiled(artifact)
+-    template = prepare_compiled_template(
+-        load_compiled(
+-            built.payload,
+-            expected_pin=built.pin,
+-            accepted_producer=built.producer,
+-            accepted_compatibility=built.compatibility,
+-        )
++    loaded = load_compiled(
++        built.payload,
++        expected_pin=built.pin,
++        accepted_producer=built.producer,
++        accepted_compatibility=built.compatibility,
+     )
++    template = prepare_compiled_template(loaded)
+     assert template.artifact.rendered.sql == artifact.rendered.sql
++    assert emit_compiled(loaded, ()).rendered.sql == artifact.rendered.sql
++
++
++def test_mysql_text_window_field_default_remains_refused(tmp_path):
++    body = TEXT_WINDOW_DEFAULT_BODY.replace('"雪"', "text", 1)
++    checked, outcome = emit(tmp_path, "mysql", body)
++    assert checked.verified and outcome.status == "BLOCKED"
++    assert [(blocker.code, blocker.detail) for blocker in outcome.blockers] == [
++        ("PIE-B1003", "window_default_literal_kind_not_realized_yet"),
++    ]
++
++
++def test_mysql_empty_text_window_default_replays_from_compiled(tmp_path):
++    body = """query result:
++    from rows
++    select:
++        previous = lag(text, 1, "") window(order by id)
++"""
++    checked, outcome = emit(tmp_path, "mysql", body)
++    assert checked.verified and outcome.status == "VERIFIED"
++    assert outcome.artifact is not None
++    assert "X''" in outcome.artifact.rendered.sql.decode("utf-8")
++    observed = portable.export_emission_observation(outcome.artifact, outcome.artifact.request)
++    assert observed.status is portable.ObservationStatus.OK
++    assert observed.canonical_bytes is not None
++    assert pure.parse_emission_observation(observed.canonical_bytes).status is pure.Status.OK
++    built = build_compiled(outcome.artifact)
++    loaded = load_compiled(
++        built.payload,
++        expected_pin=built.pin,
++        accepted_producer=built.producer,
++        accepted_compatibility=built.compatibility,
++    )
++    assert emit_compiled(loaded, ()).rendered.sql == outcome.artifact.rendered.sql
+ 
+ 
+ @pytest.mark.parametrize("target", TARGETS)
+diff --git a/tests/test_harness_sql_emission_portability.py b/tests/test_harness_sql_emission_portability.py
+index d8af03aa..c8cf0e1c 100644
+--- a/tests/test_harness_sql_emission_portability.py
++++ b/tests/test_harness_sql_emission_portability.py
+@@ -249,6 +249,37 @@ def test_schema_shared_emission_constants():
+             )
+ 
+ 
++def test_text_window_default_tokens_keep_their_target_family() -> None:
++    """A pure observation never accepts the other target's Text token."""
++
++    postgres = {
++        "tag": "Text",
++        "storage": {"kind": "pg_text"},
++        "domain": {"kind": "text", "max_characters": 0},
++    }
++    mysql = {
++        "tag": "Text",
++        "storage": {"kind": "my_utf8mb4_text"},
++        "domain": {"kind": "text", "max_characters": 0},
++    }
++    assert pure._window_value_representation(
++        "postgres", {}, postgres, r"E'\351\233\252'", {}
++    ) == ({"kind": "pg_text"}, {"kind": "text", "max_characters": 1})
++    assert pure._window_value_representation(
++        "mysql", {}, mysql, "X'e99baa'", {}
++    ) == ({"kind": "my_utf8mb4_text"}, {"kind": "text", "max_characters": 1})
++    assert pure._window_value_representation("mysql", {}, mysql, "X''", {}) == (
++        {"kind": "my_utf8mb4_text"},
++        {"kind": "text", "max_characters": 0},
++    )
++    assert pure._window_value_representation(
++        "postgres", {}, postgres, "X'e99baa'", {}
++    ) is None
++    assert pure._window_value_representation(
++        "mysql", {}, mysql, r"E'\351\233\252'", {}
++    ) is None
++
++
+ def test_pure_and_schema_import_closure_is_data_only():
+     code = (
+         "import sys\n"
+diff --git a/tests/test_sql_project_scalar_expressions.py b/tests/test_sql_project_scalar_expressions.py
+index 87616943..e19ef10b 100644
+--- a/tests/test_sql_project_scalar_expressions.py
++++ b/tests/test_sql_project_scalar_expressions.py
+@@ -44,6 +44,8 @@ def test_text_window_default_tokens_accept_only_ascii_octal_utf8() -> None:
+     }
+     valid = "E'\\351\\233\\252'"
+     assert windowing.text_default_width(valid) == 1
++    assert windowing.text_default_width("X'E99BAA'") == 1
++    assert windowing.text_default_width("X''") == 0
+     assert windowing._text_literal("a\x00b", "postgres") is None
+     assert windowing._text_literal("\ud800", "postgres") is None
+     assert all(
+@@ -57,6 +59,9 @@ def test_text_window_default_tokens_accept_only_ascii_octal_utf8() -> None:
+             "E'\\١٢٣'",
+             "E'\\351\\233'",
+             "'snow'",
++            "X'E99BA'",
++            "X'E9 9BAA'",
++            "X'00'",
+         )
+     )
+ 

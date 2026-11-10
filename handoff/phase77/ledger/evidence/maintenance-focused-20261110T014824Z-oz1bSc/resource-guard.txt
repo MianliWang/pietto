@@ -1,0 +1,4 @@
+load_1=0.53
+MemAvailable_kB=35469252
+requirement=load_1<10_and_MemAvailable_kB>6291456
+exit=2

@@ -1,0 +1,267 @@
+*** Begin Patch
+*** Add File: /tmp/pietto-duckdb-initiation/gate1-review.md
++# Independent review of the Phase79 DuckDB concrete Gate 1 draft
++
++Status: `REVIEW_ONLY`. This review inspected the current repository and the
++proposal. It ran no DuckDB, dependency, build, test, network, or repository
++write.
++
++## Findings that should be corrected before Gate 1 is adopted
++
++### 1. Name the existing compile equalities precisely
++
++The proposal is right that a DuckDB target must enter the existing project
++emission path: it cannot expose an execution compiler while the same target is
++refused by project emission. The current contracts, however, are two distinct
++ones:
++
++* `pietto.compiler.compile_sql` returns exactly the JSON stdout bytes of
++  `pietto emit-sql --project ... --format json` for the same arguments
++  (`src/pietto/compiler.py:1-15`,
++  `docs/spec/python-compile-api-v1.md:26-42`).
++* `pietto.execution.compile_query` takes the same project-emission arguments,
++  rejects the command's failed emission document, and then prepares a live
++  `CompiledQuery` (`docs/execution.md:572-604`).
++
++Replace “the Python compile API” with these named laws. Do not introduce
++`compile_queries`: that is a separate Phase80 candidate, not a Phase79 helper.
++The first vertical must make `compile_sql(..., dialect="duckdb")`, CLI project
++emission, and `compile_query(..., dialect="duckdb")` consume the same admitted
++project target. It must not claim an equality between an emission document and
++a `CompiledQuery` object.
++
++### 2. A fieldless premise is not current proof by itself
++
++There is no current DuckDB premise or execution invariant from which
++`DuckDBInProcessPremise()` can be derived. Existing deployment premises name
++and validate external source obligations. A no-field value cannot establish
++that an Arrow table had no file/network/origin history; only a route that
++accepts exactly `DuckDBArrowInput`, creates the session itself, refuses every
++other source kind/configuration, and never accepts a connection, path, SQL text
++or option can establish the *route-local* no-external-resource invariant.
++
++If retained, the premise must be described only as an explicit required route
++selection whose exact type is checked before session creation. It is not source
++provenance, a deployment attestation, or additional trust evidence. Otherwise
++remove it and make the exact `DuckDBArrowInput` plus route selection the sole
++public input boundary. The owner must choose between these public API shapes;
++the no-field object cannot be presented as an independently meaningful proof.
++
++### 3. Do not silently change `ExecutionLimits` from output limits to input limits
++
++Current `ExecutionLimits` is an attempt/delivery contract: it carries
++`batch_rows`, `batch_bytes`, `max_rows`, `max_bytes`, and `seconds`
++(`src/pietto/_project/project_execution.py:318-323`). Its documentation says
++it bounds an attempt and that `max_bytes` also includes qualifying profile and
++catalog reads (`docs/execution.md:649-652`); the runtime diagnostic defines a
++row/byte failure as delivery/qualification accounting
++(`docs/spec/diagnostics.md:414-418`). It does not currently cap caller input
++tables or IPC capture bytes.
++
++The draft's reuse for Arrow input capture therefore changes the public meaning
++of both `max_rows` and `max_bytes`. It cannot be called reuse without a
++decision. The owner must choose one of these explicit policies:
++
++1. Extend `ExecutionLimits` to include input snapshot rows/bytes and update
++   its public contract, accounting and outcome semantics; or
++2. give DuckDB capture a separate fixed, non-caller-configurable ceiling, with
++   its exact value and failure code selected at Gate 1; or
++3. introduce a separate public capture limit, which is a larger API expansion.
++
++Recommendation: option 2 for the first vertical. It preserves the current
++meaning of `ExecutionLimits` and bounds the new copy separately. Whichever
++option is selected must state whether IPC serialization bytes, Arrow buffer
++bytes, or both are measured, and when a rejected capture becomes observable.
++Output `ResultBatch` and its limits must remain the existing output/delivery
++meaning; a successful input capture is neither a delivered result nor an
++execution-success terminal.
++
++### 4. The IPC snapshot is a new input ownership boundary, not an existing result reuse
++
++Existing Arrow/result binding proves properties of Pietto-produced results; it
++does not authorize a caller-provided `pyarrow.Table` as a verified source or
++prove that arbitrary buffers can be copied without a resource/lifetime
++contract. The proposed snapshot can be a valid first implementation strategy,
++but Gate 1 must phrase it as a new input capture experiment: validate the table
++schema before registration, construct an owned snapshot, then prove mutation
++of caller-held input cannot affect the registered table. It must not infer
++source grain, source authenticity, freshness, or exact source identity from
++Arrow metadata.
++
++The target's `max_rows`/`max_bytes` decision above also controls whether an IPC
++snapshot can be made before those facts are known. A first vertical should not
++promise a zero-copy path, generic IPC ingestion, or a result-style ownership
++guarantee for every arbitrary Arrow allocation.
++
++### 5. A first vertical is not closure of the complete Phase79 owner row
++
++The roadmap assigns Phase79 a limited DuckDB local analysis path required for
++`0.2.0`, but it also retains the Phase79 owner as DuckDB deep adaptation.
++The historic planning proposal describes a larger route: input identity,
++projection/filter/parameters, aggregates/order/limit, JOIN, session/execution,
++results, cancellation, installed extra and acceptance. A one-source
++projection/filter vertical can be the first ordered Phase79 group. It cannot
++close Phase79's aggregate, JOIN, cancellation, reader, installation and
++interoperability work, or reclassify those items as completed by omitting them.
++
++Rename the proposed five rows `Phase79 B1 / first vertical`, add an explicit
++Phase79 retained-scope table, and make B1 close only its stated finite route.
++The later groups must retain exact owners and start gates. Phase80 may consume
++only a published, qualified Arrow result route; it is not proof that Phase79
++is complete.
++
++## Scope that can proceed without a new product choice
++
++After the owner chooses the three API/resource matters above, the following
++are implementation freedoms within the stated vertical: a Pietto-owned target
++renderer; one exact connector-literal identity; one owned in-memory session per
++attempt; no user SQL/configuration/session object; exact source-name matching;
++schema-by-ordinal/label/type/nullability validation; and fail-closed refusal of
++all unlisted source/query forms. Every cancellation/deadline claim remains
++conditional on a selected-driver observation.
++
++## Actual owner choices still required
++
++1. Keep or remove `DuckDBInProcessPremise`, and if kept recognize it only as
++   an explicit route selection rather than a provenance proof.
++2. Select the input snapshot limit policy and, for a fixed cap, its values and
++   rejection behavior.
++3. Select the DuckDB distribution/version, optional-extra name and platform
++   support matrix after local package evidence; no version is inferred here.
++4. Accept the Phase79 decomposition: B1 first vertical now, with all later
++   deep-adaptation groups explicitly retained and not marked closed.
++
++The existing target-adapter decision, DuckDB-before-SQLite order, no-runtime
++sqlglot rule, one named source identity, bundle/job exclusion, and fail-closed
++unlisted shapes do not need to be asked again.
+*** End Patch
+
+*** Begin Patch
+*** Add File: /tmp/pietto-duckdb-initiation/gate1-review.md
++# Independent review of the Phase79 DuckDB concrete Gate 1 draft
++
++Status: `REVIEW_ONLY`. This review inspected the current repository and the
++proposal. It ran no DuckDB, dependency, build, test, network, or repository
++write.
++
++## Findings that should be corrected before Gate 1 is adopted
++
++### 1. Name the existing compile equalities precisely
++
++The proposal is right that a DuckDB target must enter the existing project
++emission path: it cannot expose an execution compiler while the same target is
++refused by project emission. The current contracts, however, are two distinct
++ones:
++
++* `pietto.compiler.compile_sql` returns exactly the JSON stdout bytes of
++  `pietto emit-sql --project ... --format json` for the same arguments
++  (`src/pietto/compiler.py:1-15`,
++  `docs/spec/python-compile-api-v1.md:26-42`).
++* `pietto.execution.compile_query` takes the same project-emission arguments,
++  rejects the command's failed emission document, and then prepares a live
++  `CompiledQuery` (`docs/execution.md:572-604`).
++
++Replace “the Python compile API” with these named laws. Do not introduce
++`compile_queries`: that is a separate Phase80 candidate, not a Phase79 helper.
++The first vertical must make `compile_sql(..., dialect="duckdb")`, CLI project
++emission, and `compile_query(..., dialect="duckdb")` consume the same admitted
++project target. It must not claim an equality between an emission document and
++a `CompiledQuery` object.
++
++### 2. A fieldless premise is not current proof by itself
++
++There is no current DuckDB premise or execution invariant from which
++`DuckDBInProcessPremise()` can be derived. Existing deployment premises name
++and validate external source obligations. A no-field value cannot establish
++that an Arrow table had no file/network/origin history; only a route that
++accepts exactly `DuckDBArrowInput`, creates the session itself, refuses every
++other source kind/configuration, and never accepts a connection, path, SQL text
++or option can establish the route-local no-external-resource invariant.
++
++If retained, the premise must be described only as an explicit required route
++selection whose exact type is checked before session creation. It is not source
++provenance, a deployment attestation, or additional trust evidence. Otherwise
++remove it and make the exact `DuckDBArrowInput` plus route selection the sole
++public input boundary. The owner must choose between these public API shapes;
++the no-field object cannot be presented as independently meaningful proof.
++
++### 3. Do not silently change `ExecutionLimits` from output limits to input limits
++
++Current `ExecutionLimits` is an attempt/delivery contract: it carries
++`batch_rows`, `batch_bytes`, `max_rows`, `max_bytes`, and `seconds`
++(`src/pietto/_project/project_execution.py:318-323`). Its documentation says
++it bounds an attempt and that `max_bytes` also includes qualifying profile and
++catalog reads (`docs/execution.md:649-652`); the runtime diagnostic defines a
++row/byte failure as delivery/qualification accounting
++(`docs/spec/diagnostics.md:414-418`). It does not currently cap caller input
++tables or IPC capture bytes.
++
++The draft's reuse for Arrow input capture changes the public meaning of both
++`max_rows` and `max_bytes`. The owner must choose one explicit policy:
++
++1. Extend `ExecutionLimits` to include input snapshot rows/bytes and update
++   its public contract, accounting and outcome semantics;
++2. give DuckDB capture a separate fixed, non-caller-configurable ceiling, with
++   exact values and failure code selected at Gate 1; or
++3. introduce a separate public capture limit, a larger API expansion.
++
++Recommendation: option 2 for the first vertical. It preserves current
++`ExecutionLimits` meaning and bounds the new copy separately. The decision
++must say whether IPC serialization bytes, Arrow buffer bytes, or both are
++measured, and when a rejected capture becomes observable. Successful input
++capture is not a delivered result or an execution-success terminal.
++
++### 4. The IPC snapshot is a new input ownership boundary
++
++Existing Arrow/result binding proves properties of Pietto-produced results; it
++does not authorize a caller-provided `pyarrow.Table` as a verified source or
++prove arbitrary-buffer copy/lifetime behavior. A snapshot can be a first
++implementation strategy, but Gate 1 must call it a new input-capture
++experiment: validate schema before registration, make an owned snapshot, and
++prove later caller mutation cannot affect it. It must not infer source grain,
++authenticity, freshness, or identity from Arrow metadata.
++
++The input-ceiling decision controls whether an IPC snapshot can be made before
++size facts are known. The first vertical must not promise zero-copy ingestion,
++generic IPC ingestion, or result-style ownership for every Arrow allocation.
++
++### 5. A first vertical is not closure of the complete Phase79 owner row
++
++The roadmap assigns Phase79 a limited DuckDB local analysis path required for
++`0.2.0`, but retains Phase79 as DuckDB deep adaptation. The planning route
++includes input identity, projection/filter/parameters, aggregates/order/limit,
++JOIN, session/execution, results, cancellation, installed extra and
++acceptance. One-source projection/filter can be its first ordered group; it
++cannot close remaining aggregate, JOIN, cancellation, reader, installation or
++interoperability work simply by omitting them.
++
++Rename the five rows `Phase79 B1 / first vertical`, add a retained-scope table
++for later groups and their start gates, and state that B1 closes only its finite
++route. Phase80 may consume only a published, qualified Arrow result route; it
++does not prove Phase79 complete.
++
++## Scope that can proceed without a new product choice
++
++After the owner chooses the API/resource matters above, these are
++implementation freedoms: a Pietto-owned target renderer; one exact connector
++literal identity; one owned in-memory session per attempt; no user
++SQL/configuration/session object; exact source-name matching;
++schema-by-ordinal/label/type/nullability validation; and fail-closed unlisted
++source/query forms. Cancellation/deadline claims remain conditional on a
++selected-driver observation.
++
++## Actual owner choices still required
++
++1. Keep or remove `DuckDBInProcessPremise`; if retained it is route selection,
++   not provenance proof.
++2. Select input snapshot limit policy and, for a fixed cap, values and failure
++   behavior.
++3. Select distribution/version, optional-extra name and platform matrix after
++   local package evidence.
++4. Accept the Phase79 decomposition: B1 first vertical, later
++   deep-adaptation groups retained and not marked closed.
++
++The target-adapter decision, DuckDB-before-SQLite order, no-runtime-sqlglot
++rule, one named source identity, bundle/job exclusion and fail-closed unlisted
++shapes do not need another owner question.
+*** End Patch

@@ -1,0 +1,3 @@
+ M src/pietto/_project/project_sql_emission_joins.py
+ M tests/test_execution_compiled_families.py
+ M tests/test_sql_joins.py

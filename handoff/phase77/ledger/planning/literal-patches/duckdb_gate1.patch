@@ -1,0 +1,258 @@
+*** Begin Patch
+*** Add File: /tmp/pietto-duckdb-initiation/gate1-concrete.md
++# Phase79 DuckDB vertical — Gate 1 concrete proposal
++
++Status: `GATE1_PROPOSAL_ONLY`.  This fills the concrete items left open by
++`phase79-duckdb-gate1-draft.md`; it neither authorizes implementation nor
++selects a DuckDB distribution/version, extra, platform, database run, commit,
++push, or release.  AD78.01 is already binding: DuckDB is before SQLite, the
++adapter is Pietto-owned, and sqlglot is test-only.  PostgreSQL/MySQL SQL bytes
++and semantics remain their existing owners.
++
++## 1. Smallest coherent public route
++
++Adopt the existing compilation vocabulary rather than a parallel compiler:
++
++```python
++query = compile_query(..., dialect="duckdb", emission_contract=...)
++handle = execute(
++    query,
++    route="duckdb_arrow",
++    access=DuckDBArrowInput(name="orders", table=table),
++    premise=DuckDBInProcessPremise(),
++    limits=ExecutionLimits(...),
++    values=...,
++    parameters=...,
++)
++```
++
++`DuckDBArrowInput` is the only new public value: exactly one non-empty
++`name: str` and exactly one `pyarrow.Table`.  It is non-pickleable/non-copyable
++like the current access values.  `DuckDBInProcessPremise` has no caller
++controlled fields; it is a non-pickleable explicit assertion that this route
++has no external source, credential, schema, file, network, or durable database
++premise.  It prevents an omitted premise from being silently interpreted as
++one.  Neither type exposes a connection/session or accepts SQL text.
++
++Use the existing `compile_query`, `execute`, `ResultHandle`, `ResultBatch`,
++`Outcome`, binding, and Arrow C-data boundary.  Do not add `execute_duckdb`, a
++second query class, a session factory, an input registry, a configuration
++object, or a generic multi-input API.  The private route owner creates one
++in-memory session per handle attempt and owns every registration and close.
++
++This has one explicit public consequence which must be accepted with the
++route: `compile_query(..., dialect="duckdb")` is required to retain its
++documented equality with project `pietto emit-sql --dialect duckdb` and the
++Python compile API.  It therefore opens **project-mode** DuckDB emission for
++the admitted shapes.  It does not open single-file DuckDB `emit-sql`, change
++the PostgreSQL/MySQL bytes, or add DuckDB to a bundle/saved/relay/R1/R2 route.
++Trying to expose a DuckDB `compile_query` while keeping project emission closed
++would violate the current public equality law; a duplicate compiler is not an
++acceptable shortcut.
++
++`execute` accepts this route only when all of the following are true before a
++session is opened: the query is live (not a bundle), its dialect/family/release
++are the exact DuckDB target, its source set has exactly one DuckDB Arrow source,
++the input name equals that source connector literal byte-for-byte, and the
++input table has the admitted checked schema.  Bundles and every persisted,
++recovery, relay, publication, or job route remain `PUBLIC_ROUTE_UNAVAILABLE`
++until a separate gate qualifies them.
++
++## 2. Source mapping, capture, and lifetime
++
++Use one project-only connector spelling:
++
++```pietto
++source orders = duckdb.arrow("orders")
++```
++
++It has one non-empty Text literal argument.  The connector's declaration
++occurrence—not its display name, Arrow field labels, or table metadata—is the
++canonical source identity carried through semantic facts, IR, the target
++request, and the execution template.  The literal is only the registration
++key.  One query with zero, two, duplicated, or a foreign-family source is
++blocked before execution.
++
++At `execute` call time, after pure argument/type/limit validation and before
++the handle becomes usable, the adapter takes a bounded owned Arrow IPC
++snapshot of the supplied table.  It verifies the source columns by ordinal,
++label, Arrow type, nullability, rows, and retained bytes against the compiled
++source contract.  The existing `ExecutionLimits.max_rows` and `max_bytes` are
++also the first vertical's input-capture ceilings; no new limit class is added.
++The capture is tagged privately with the compiled source occurrence, connector
++literal, selected target identity, and its observed schema/row/byte facts.
++That is a binding record, not a claim about the data's origin, grain, or
++freshness.
++
++The caller may release or mutate objects used to build its original table as
++soon as `execute` returns: only the owned snapshot is later registered.  At
++handle opening, the private owner creates `:memory:`, registers that snapshot
++under the compiler-emitted, quoted connector literal, and executes exactly the
++compiler-owned statement.  It unregisters the relation and closes the session
++on EOF, explicit close, cancellation, deadline, or every failure path.  A
++refusal before opening creates no session; no session is shared or cached.
++
++Every result batch is revalidated through the existing producer/result/Arrow
++binding and detached into an owner-controlled Arrow allocation before it is
++yielded.  As for the current `ResultBatch`, an Arrow object successfully
++imported by the caller stays valid after the batch or handle closes.  This
++route makes no RSS, allocator, spill, optimizer-memory, or interruption claim.
++It may use an engine operation for cancellation/deadline only after the pinned
++driver experiment proves that it maps into the current `ResultHandle` terminal
++and cleanup vocabulary; otherwise Gate 2 stops rather than weakening those
++terms or claiming a no-op cancellation is delivery control.
++
++## 3. Target identity and provenance boundary
++
++The target is one exact `CapabilityProfileTarget(DATABASE, "duckdb",
++<owner-selected-release>)`.  The same family/release must appear in:
++
++- the emission contract target and its selected static capability profile;
++- the verified plan/template and compiler-visible `CompiledQuery` facts;
++- the private execution request and the runtime route check; and
++- the installed dependency admission.
++
++Dependency admission follows the current route pattern: before importing the
++driver, require the owner-selected distribution/version; then require the
++imported module origin to belong to exactly that installed distribution and
++version.  A missing package, wrong version, shadowed origin, or target mismatch
++is a refusal before session construction.  Do not invent a package-content
++digest or trust an engine-reported version as a substitute for this existing
++distribution/origin boundary.
++
++The exact pin, optional-extra name, and supported wheel/platform matrix are
++still `USER_DECISION_REQUIRED`: the present checkout has no local DuckDB pin
++to bind.  They are a hard Gate 2 prerequisite, not a version to guess from the
++network.  The driver identity proves only the selected local execution
++implementation.  It does not prove provenance of caller Arrow values, and the
++input binding record must never be exported as such a claim.
++
++## 4. First vertical's type and capability envelope
++
++Admit only one explicit-module project source and a single read-only row query
++whose source is `duckdb.arrow`; projection and direct scalar filtering are the
++only opened operators.  The single opened header shape is one non-null `Int`
++parameter used once in a direct filter comparison.  It uses the existing exact
++binding rules—no coercion, interpolation, or host-language fallback.  A future
++nullable or Float/Text/Bool parameter is separate work.
++
++| Item | Admitted first vertical | Refuse before session |
++| --- | --- | --- |
++| Source/result scalar types | `Int` signed 64-bit, `Text` UTF-8, `Bool`, finite `Float` (`float64`), each with its compiled nullability | Decimal, Date, Timestamp, UUID, enum/alias widening, Arrow `null` as an untyped column, binary, list/struct/map/union/dictionary/extension values |
++| NULL | A `None` value only in a field declared nullable; typed SQL NULL only for a later explicitly nullable parameter shape | NULL in a non-null field; an untyped NULL column; treating `NaN` as NULL |
++| Float | finite values, including `-0.0`; result validation must preserve the signed-zero distinction | input or result `NaN`, `+inf`, `-inf`, and any output that cannot pass the finite result boundary |
++| Query/engine | compiler-owned read-only statement over the one captured relation | arbitrary caller SQL; DDL/DML; pragmas/settings; catalog inspection; ATTACH/DETACH; COPY/import/export; files, paths, sockets, HTTP; extensions/install/load; Python/UDF/table functions; prepared external statements |
++| Relational surface | one source, direct projection/filter, existing result identity/nullability/multiplicity/ordering facts | joins, aggregates, grouping, windows, set operations, collect/unnest, derived sources, multiple inputs, discovery, compilation batches |
++
++The adapter must not turn a relation's unordered/bag fact into an ordered
++claim.  Acceptance compares order only where the checked Pietto result contract
++already makes it observable; otherwise it uses the contract's bag/occurrence
++oracle.  Column identity remains positional and the Arrow schema preserves
++compiler field order and exact labels.
++
++## 5. Minimal production ownership and explicit non-scope
++
++The proposed owned write set is deliberately narrow:
++
++1. `semantic/source_connectors.py` and its project connector path: recognize
++   only `duckdb.arrow("name")`; no grammar/AST change.
++2. Project target/profile/contract/renderer owners:
++   `project_sql_plan_target_assessment.py`, capability profile facts,
++   `project_sql_emission_contract.py`, and one new DuckDB project renderer.
++   They add only the target facts needed by the envelope above and fail closed
++   for every unmapped demand.
++3. Public compilation/execution dispatch:
++   `execution/_query.py`, `_access.py`, `_handle.py`, `__init__.py`, and
++   `project_public_execution.py`, plus one private DuckDB execution owner.
++   The route must use the existing result binding rather than create a DuckDB
++   result format.
++4. Existing compiled/template/reader verification only where it reads target
++   family/release.  It must keep DuckDB bundles and saved/recovery readers
++   unavailable; no new serialized record, schema version, or compatibility
++   migration is proposed.
++
++Do not change grammar/generated parsers, generic semantic/IR meaning,
++PostgreSQL/MySQL renderers, SQLite, sqlglot runtime dependencies, CLI text
++format, source discovery, package release behavior, job/workspace storage, or
++the public Arrow result schema.  Tests belong with their deepest owner:
++connector/target/render tests, execution input/lifetime tests, and result
++boundary tests—not phase-named test files.
++
++## 6. Finite acceptance required before a Gate 2 seal
++
++The acceptance set is intentionally six witnesses, not a dialect corpus:
++
++1. **Static target/refusal:** exact DuckDB project-emission bytes for the one
++   admitted query; a missing/foreign/conflicting profile and every excluded
++   source/query form blocks with the existing stable diagnostic ordering.
++2. **Driver identity:** missing, wrong-version, and shadowed module origin all
++   fail before any session; selected package/version/origin succeeds.
++3. **Capture identity/lifetime:** wrong/missing/extra name, wrong schema,
++   nullable mismatch, input row/byte over-limit, and post-call caller-buffer
++   mutation cannot change the registered snapshot.  One successful input binds
++   exactly its compiled source occurrence.
++4. **Values:** signed-64 endpoints; Bool/Text; nullable `NULL`; finite Float
++   with `-0.0`; rejection of non-finite input and output; output schema,
++   labels, nullability, values, multiplicity, and applicable order follow the
++   existing result contract.
++5. **Binding and isolation:** the sole non-null `Int` parameter succeeds once;
++   wrong type, omitted/extra name, and NULL refuse before the session.  The
++   generated statement cannot read an unregistered name, file, catalog or
++   caller SQL, and a fresh invocation cannot observe another invocation's
++   registration.
++6. **Lifecycle:** success, result-validation failure, early close, and every
++   setup failure close/unregister the owned session.  Deadline/cancel passes
++   only after a real selected-driver observation establishes the current
++   terminal-state semantics; absence of that proof blocks the route rather
++   than being called covered.
++
++`sqlglot` may parse/compare the fixed generated SQL only in tests and is not an
++oracle for result semantics, identity, capability admission, or production
++rendering.  The real-driver witnesses require separately authorized, offline
++local execution after the exact pin is selected; this proposal runs none.
++
++## 7. Phase79 budget proposal and stop rules
++
++Propose a five-slice Phase79 with cumulative `C120/F360/D1800/S4`, including
++all Gate 0/1 inspection, design, real-driver probes, failed candidates, and
++repair work.  `D` retains the established rule: one diagnostic command is one
++unit, including a loop inside it.  `S4` is the maximum scope-repair count; it
++does not buy new feature families.  This is a proposed cap, not current
++authority; the lead stops and asks at any cap or on a new public type/target,
++package, platform, driver-lifetime, cancellation, target-profile, or compiled
++reader issue outside this text.
++
++| Slice | Bounded outcome |
++| --- | --- |
++| S01 | exact pin/extra/platform decision, target/profile facts, connector spelling, no runtime run |
++| S02 | compiler-owned DuckDB renderer and project compile/CLI equality closure for the limited shape |
++| S03 | one private owned-session route, snapshot registration/lifetime, and existing Arrow-result binding |
++| S04 | six-witness acceptance, including the separately authorized real-driver observations |
++| S05 | acquisition consolidation, reader closure, phase audit and next-phase handoff |
++
++Gate 2 cannot begin until the owner explicitly accepts the dependency identity
++tuple and this public surface/budget, and supplies authorization for the local
++driver experiment.  A failed candidate is preserved; no unqualified run,
++sqlglot comparison, static renderer test, or local Arrow-only result is called
++DuckDB execution qualification.
+*** End Patch
+
+*** Begin Patch
+*** Update File: /tmp/pietto-duckdb-initiation/gate1-concrete.md
+@@
+-`DuckDBArrowInput` is the only new public value: exactly one non-empty
+-`name: str` and exactly one `pyarrow.Table`.  It is non-pickleable/non-copyable
+-like the current access values.  `DuckDBInProcessPremise` has no caller
++The only two new public value shapes are `DuckDBArrowInput`, with exactly one
++non-empty `name: str` and exactly one `pyarrow.Table`, and
++`DuckDBInProcessPremise`.  Both are non-pickleable/non-copyable like the
++current access values.  `DuckDBInProcessPremise` has no caller
+@@
+-session is opened: the query is live (not a bundle), its dialect/family/release
+-are the exact DuckDB target, its source set has exactly one DuckDB Arrow source,
+-the input name equals that source connector literal byte-for-byte, and the
++session is opened: the query is live (not a bundle), its dialect/family/release
++are the exact DuckDB target, its source set has exactly one DuckDB Arrow source,
++the input name equals that source connector literal exactly (with no
++normalization or case folding), and the
+*** End Patch

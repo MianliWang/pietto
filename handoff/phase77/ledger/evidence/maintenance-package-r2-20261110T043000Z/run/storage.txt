@@ -1,0 +1,1 @@
+ext4   rw,nosuid,nodev,relatime,discard,errors=remount-ro,data=ordered

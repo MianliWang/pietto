@@ -1,0 +1,13 @@
+e429f3930cf04b4e66b21352f565dfd67803550f feat: add editor hover, definitions and document symbols
+
+ docs/editor-lsp.md                               |  86 +---
+ docs/release-notes.d/77-e01-editor-navigation.md |  17 +
+ docs/spec/lsp-diagnostics-v1.md                  | 170 +++++++
+ docs/spec/lsp-editor-facts-v1.md                 | 156 ++++++
+ scripts/package_smoke.py                         |   3 +
+ src/pietto/_editor_facts.py                      | 154 ++++++
+ src/pietto/_lsp.py                               | 363 ++++++++++++-
+ src/pietto/_project/check.py                     | 179 ++++++-
+ tests/test_cli_lsp.py                            | 616 ++++++++++++++++++++++-
+ tests/test_project_editor_overlays.py            |  12 +
+ 10 files changed, 1663 insertions(+), 93 deletions(-)

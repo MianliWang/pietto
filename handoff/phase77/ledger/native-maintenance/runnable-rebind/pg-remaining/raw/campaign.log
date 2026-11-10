@@ -1,0 +1,20 @@
+2026-11-10T04:22:43.639Z pg: lock held
+2026-11-10T04:22:43.642Z pg: package 8f0f374f874144e3 624db00c6c115b18 de45e5e5d7b81c85 4e7912d8f7bd6c3c dd3cb68067887ee8 7795720ad05faca1 b634b69535b04f73 d963f807b9bc3a6d 2929d39b026f7030 56a174068d13d339 0a16cc2d17bb4826 548e72276b20c2bf 0591f9f804987b67 f55c24a9033b0c36 837ad9e5e496ce21 9ce8d29a1b7b0030 936a2829a9d65d13 ca9b383919953877 65afd287accdd0d9 936a2829a9d65d13 761b756c1d2d11c7 a5742f98f5d18d70 
+2026-11-10T04:22:43.673Z pg: certificates notAfter=Jan  9 04:19:42 2027 GMT notAfter=Jan  9 04:19:42 2027 GMT
+{"binding": "/home/mianliwang/projects/pietto/.cache/phase77-recovery/native-maintenance/runnable-rebind/pg-remaining/fresh-binding.json", "status": "exact"}
+2026-11-10T04:22:44.014Z pg: candidate base=f8ccd2c44a2d9adf431a496bd9bbae037783176f patch=548e72276b20c2bff3bb0613a527ef230fb9095942b562dca32a6150da12e1cc wheel=f4c96921c4d4ceb057830f2dd21f2e634325dac2bef933532747ae4aab963a73 lock=b2cc96b25b0b9f2225c4529f0123ae869cd804af0578b4f83c931a15aa893064 binding=0a16cc2d17bb48263b872c57aa30e56ad108ca7f0d62680a8ba6dd2cfd192b98
+2026-11-10T04:22:44.033Z pg: image sha256:f372eda99ac2ea249c3dce566dcdf468397035371284d2cf2103b4bc52b3b39e tags=[] digests=[postgres@sha256:a10c981235b4f635e65df0cfb66a5598064628128505dbc6a3ed4ca303717521]
+2026-11-10T04:22:44.056Z pg: docker run
+2461a78295df8fed8f024b2ab543721268d130e6f438d3efd80d8c73a9796d65
+2026-11-10T04:22:46.357Z pg: ready=1 after loop 2
+2026-11-10T04:22:46.377Z pg: inspect created=2026-11-10T04:22:44.077652513Z image=sha256:f372eda99ac2ea249c3dce566dcdf468397035371284d2cf2103b4bc52b3b39e nanocpus=2000000000 memory=2147483648 network=none tmpfs={"/var/lib/postgresql":"rw,size=1g"} cmd=["postgres","-c","timezone=UTC"]
+ pg_reload_conf 
+----------------
+ t
+(1 row)
+
+2026-11-10T04:22:47.722Z pg: version=18.6 (Debian 18.6-1.pgdg12+2) ssl=on cert=/var/lib/postgresql/tls/server.pem log_connections=on hba=/var/lib/postgresql/18/docker/pg_hba.conf hba_errors=0 hba_rules=2
+2026-11-10T04:22:47.832Z pg: relay pid=559284 port=51485
+2026-11-10T04:22:49.707Z remaining public exit 0
+pietto-p77-maint-pg-a30eea9e685bdfbbf15db1c8
+2026-11-10T04:22:52.002Z pg: cleanup={"container":{"id":"2461a78295df8fed8f024b2ab543721268d130e6f438d3efd80d8c73a9796d65","label":"pietto.phase77.pg-run=a30eea9e685bdfbbf15db1c8","label_value":"a30eea9e685bdfbbf15db1c8","name":"pietto-p77-maint-pg-a30eea9e685bdfbbf15db1c8"},"container_absent":true,"relay":{"reaped":true,"wait_status":143},"server_log_captured":true}

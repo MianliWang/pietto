@@ -1,0 +1,420 @@
+*** Begin Patch
+*** Add File: /tmp/pietto-p77-s13-prep/README.md
++# Phase77 S13 ordered first/last raw qualification preparation
++
++Status: `PREPARED_NOT_STARTED`. This is a parent-owned, database-free request
++builder. It opens no endpoint, creates no container, and does not claim a
++Pietto compiler result or target admission.
++
++## Scope
++
++The candidate is limited to direct value fields and the already-proven total
++internal order:
++
++- the source's `unique(row_id)` finishes the order;
++- every order key is direct and filtered non-NULL before the primitive sees it;
++- `first` is the first row in `order_a ASC, order_b DESC, row_id ASC`;
++- `last` is the first row after every one of those directions is reversed;
++- a grouped empty input yields no row, while a global empty input yields one
++  row whose ordered values are all NULL.
++
++The seed deliberately has duplicate `(order_a, order_b)` values, NULL values,
++two NULL-key rows, mixed UTF-8 text, and `-0.0`/`+0.0` Float values. NULL-key
++rows are excluded by the valid candidate filter. An unfiltered rank query is
++an observation-only probe: its target-specific NULL ordering must never become
++a Pietto promise.
++
++## Candidate choice
++
++PostgreSQL's raw baseline is its existing `ARRAY_AGG(value ORDER BY ...)[1]`
++shape. The MySQL raw primitive is the smallest candidate that does not encode
++a value into a string or select an arbitrary representative:
++
++```sql
++SELECT
++    MAX(CASE WHEN first_rank = 1 THEN value_column END)
++FROM (
++    SELECT
++        value_column,
++        ROW_NUMBER() OVER (ORDER BY order_a ASC, order_b DESC, row_id ASC)
++            AS first_rank
++    FROM ordered_value_rows
++    WHERE order_a IS NOT NULL AND order_b IS NOT NULL
++) AS ranked
++```
++
++One ranked row can contribute a non-NULL value to each conditional `MAX`; a
++selected NULL stays NULL. The campaign must prove that this preserves each
++direct carrier's native metadata and Float bits. It must not silently turn a
++carrier into JSON or text.
++
++`JSON_ARRAYAGG`/`JSON_EXTRACT` are not selected: JSON is not the direct typed
++carrier. `GROUP_CONCAT`, formatted composite keys, hashes, and `ANY_VALUE` are
++out: they either stringify/collapse values or choose a representative. No raw
++SQL below is Pietto-emitted SQL.
++
++## Parent hook
++
++After the existing one-engine lock, endpoint, relay, and prepared native
++observer are active, the parent may write and inspect the finite request:
++
++```text
++UV_PYTHON=3.13.13 CANDIDATE_PYTHON -I -B raw_hook.py --selfcheck
++UV_PYTHON=3.13.13 CANDIDATE_PYTHON -I -B raw_hook.py --request
++```
++
++For each target the parent must execute the listed DDL, seed using the listed
++typed parameter rows, perform the direct seed readback, then submit only the
++listed raw primitives through its existing prepared runner. It records SQL,
++typed binds, positional metadata, rows, warning list and terminal separately.
++The independent oracle derives expected selected `row_id`s from the literal
++fixture, not from candidate SQL; it compares selected values to the direct
++readback of those rows (including Float bits). Failures, raw statements and
++readbacks are retained by the parent.
++
++This preparation adds no product files, test owner, resource framework,
++database run, Gate 2, commit, or decision. A product change still needs a
++qualified public compiler artifact and the normal project/reader closure.
+*** Add File: /tmp/pietto-p77-s13-prep/raw_hook.py
++"""Offline request manifest for Phase77 S13 ordered-value qualification.
++
++This module has no endpoint, DBAPI, subprocess, or network path.  Its SQL is
++a raw primitive for a parent-owned native campaign, never Pietto-emitted SQL.
++"""
++
++from __future__ import annotations
++
++import argparse
++import json
++
++
++ORDER = "order_a ASC, order_b DESC, row_id ASC"
++REVERSED_ORDER = "order_a DESC, order_b ASC, row_id DESC"
++VALID_WHERE = "group_id = %s AND order_a IS NOT NULL AND order_b IS NOT NULL"
++
++
++def encoded(value: object) -> object:
++    if type(value) is float:
++        return {"float_hex": value.hex()}
++    return value
++
++
++def encoded_rows(values: tuple[tuple[object, ...], ...]) -> list[list[object]]:
++    return [[encoded(value) for value in row] for row in values]
++
++
++# (group_id, row_id, order_a, order_b, value_int, value_text, value_float)
++SEED = (
++    (1, 101, 1, 2, 11, "café", -0.0),
++    (1, 102, 1, 2, 12, "東京", 0.0),
++    (1, 103, 2, 0, None, "last-g1", None),
++    (1, 104, None, 9, 104, "NULL-order-a-🙂", 4.0),
++    (1, 105, 1, None, 105, "NULL-order-b-ß", -4.0),
++    (2, 201, 4, 0, 21, "plain", 2.0),
++    (2, 202, 4, 0, 22, "ß", 0.0),
++    (2, 203, 3, 9, 23, None, 1.5),
++)
++
++
++DDL = {
++    "postgres": (
++        "CREATE TABLE p77_ordered_value_rows ("
++        "group_id BIGINT NOT NULL, row_id BIGINT PRIMARY KEY, "
++        "order_a BIGINT, order_b BIGINT, value_int BIGINT, "
++        "value_text TEXT, value_float DOUBLE PRECISION)"
++    ),
++    "mysql": (
++        "CREATE TABLE p77_ordered_value_rows ("
++        "group_id BIGINT NOT NULL, row_id BIGINT NOT NULL PRIMARY KEY, "
++        "order_a BIGINT NULL, order_b BIGINT NULL, value_int BIGINT NULL, "
++        "value_text VARCHAR(128) CHARACTER SET utf8mb4 "
++        "COLLATE utf8mb4_0900_as_cs NULL, value_float DOUBLE NULL) "
++        "CHARACTER SET utf8mb4 COLLATE utf8mb4_0900_as_cs"
++    ),
++}
++
++
++POSTGRES_GROUPED = f"""SELECT
++    group_id,
++    (ARRAY_AGG(value_int ORDER BY {ORDER}))[1] AS first_int,
++    (ARRAY_AGG(value_text ORDER BY {ORDER}))[1] AS first_text,
++    (ARRAY_AGG(value_float ORDER BY {ORDER}))[1] AS first_float,
++    (ARRAY_AGG(value_int ORDER BY {REVERSED_ORDER}))[1] AS last_int,
++    (ARRAY_AGG(value_text ORDER BY {REVERSED_ORDER}))[1] AS last_text,
++    (ARRAY_AGG(value_float ORDER BY {REVERSED_ORDER}))[1] AS last_float
++FROM p77_ordered_value_rows
++WHERE {VALID_WHERE}
++GROUP BY group_id
++ORDER BY group_id"""
++
++POSTGRES_GLOBAL_EMPTY = f"""SELECT
++    (ARRAY_AGG(value_int ORDER BY {ORDER}))[1] AS first_int,
++    (ARRAY_AGG(value_text ORDER BY {ORDER}))[1] AS first_text,
++    (ARRAY_AGG(value_float ORDER BY {ORDER}))[1] AS first_float,
++    (ARRAY_AGG(value_int ORDER BY {REVERSED_ORDER}))[1] AS last_int,
++    (ARRAY_AGG(value_text ORDER BY {REVERSED_ORDER}))[1] AS last_text,
++    (ARRAY_AGG(value_float ORDER BY {REVERSED_ORDER}))[1] AS last_float
++FROM p77_ordered_value_rows
++WHERE {VALID_WHERE}"""
++
++
++MYSQL_RANKED = f"""SELECT
++    group_id, value_int, value_text, value_float,
++    ROW_NUMBER() OVER (PARTITION BY group_id ORDER BY {ORDER}) AS first_rank,
++    ROW_NUMBER() OVER (PARTITION BY group_id ORDER BY {REVERSED_ORDER}) AS last_rank
++FROM p77_ordered_value_rows
++WHERE {VALID_WHERE}"""
++
++MYSQL_GROUPED = f"""SELECT
++    ranked.group_id,
++    MAX(CASE WHEN first_rank = 1 THEN value_int END) AS first_int,
++    MAX(CASE WHEN first_rank = 1 THEN value_text END) AS first_text,
++    MAX(CASE WHEN first_rank = 1 THEN value_float END) AS first_float,
++    MAX(CASE WHEN last_rank = 1 THEN value_int END) AS last_int,
++    MAX(CASE WHEN last_rank = 1 THEN value_text END) AS last_text,
++    MAX(CASE WHEN last_rank = 1 THEN value_float END) AS last_float
++FROM (
++{MYSQL_RANKED}
++) AS ranked
++GROUP BY ranked.group_id
++ORDER BY ranked.group_id"""
++
++MYSQL_GLOBAL_EMPTY = f"""SELECT
++    MAX(CASE WHEN first_rank = 1 THEN value_int END) AS first_int,
++    MAX(CASE WHEN first_rank = 1 THEN value_text END) AS first_text,
++    MAX(CASE WHEN first_rank = 1 THEN value_float END) AS first_float,
++    MAX(CASE WHEN last_rank = 1 THEN value_int END) AS last_int,
++    MAX(CASE WHEN last_rank = 1 THEN value_text END) AS last_text,
++    MAX(CASE WHEN last_rank = 1 THEN value_float END) AS last_float
++FROM (
++{MYSQL_RANKED}
++) AS ranked"""
++
++
++NULL_KEY_OBSERVATION = f"""SELECT
++    row_id, order_a, order_b,
++    ROW_NUMBER() OVER (PARTITION BY group_id ORDER BY {ORDER}) AS observed_rank
++FROM p77_ordered_value_rows
++WHERE group_id = %s
++ORDER BY row_id"""
++
++
++def typed_group(value: int, target: str) -> dict[str, object]:
++    return {
++        "position": 1,
++        "logical": "Int",
++        "storage": "pg_int8" if target == "postgres" else "my_int64",
++        "nullable": False,
++        "value": value,
++    }
++
++
++def query(sql: str, group: int, target: str) -> dict[str, object]:
++    return {
++        "provenance": "raw_primitive_not_pietto_emitted",
++        "sql": sql,
++        "typed_parameters": [typed_group(group, target)],
++    }
++
++
++def request() -> dict[str, object]:
++    """Return the finite request consumed only by an already-leased parent."""
++
++    targets: dict[str, object] = {}
++    for target in ("postgres", "mysql"):
++        grouped = POSTGRES_GROUPED if target == "postgres" else MYSQL_GROUPED
++        empty = POSTGRES_GLOBAL_EMPTY if target == "postgres" else MYSQL_GLOBAL_EMPTY
++        targets[target] = {
++            "ddl": DDL[target],
++            "insert": {
++                "sql": (
++                    "INSERT INTO p77_ordered_value_rows "
++                    "(group_id, row_id, order_a, order_b, value_int, value_text, value_float) "
++                    "VALUES (%s, %s, %s, %s, %s, %s, %s)"
++                ),
++                "rows": encoded_rows(SEED),
++                "parameter_types": (
++                    "Int", "Int", "Int | None", "Int | None", "Int | None",
++                    "Text | None", "Float | None",
++                ),
++            },
++            "readback": query(
++                "SELECT group_id, row_id, order_a, order_b, value_int, value_text, "
++                "value_float FROM p77_ordered_value_rows ORDER BY row_id",
++                0,
++                target,
++            ),
++            "queries": {
++                "grouped_group_1": query(grouped, 1, target),
++                "grouped_group_2": query(grouped, 2, target),
++                "global_empty_group_3": query(empty, 3, target),
++                "null_key_observation_only": query(NULL_KEY_OBSERVATION, 1, target),
++            },
++        }
++        targets[target]["readback"]["typed_parameters"] = []
++
++    return {
++        "format": "pietto.phase77.s13.ordered-values-raw-request.v1",
++        "execution": "parent_bound_only",
++        "scope": {
++            "direct_value_field_only": True,
++            "authored_order": "order_a ASC, order_b DESC, row_id ASC",
++            "unique_tie_breaker": "row_id",
++            "null_order_keys": "filtered_before_candidate; unfiltered rank is observation only",
++            "selected_mysql_primitive": "row_number_plus_conditional_max",
++            "not_a_product_artifact": True,
++        },
++        "forbidden_candidates": (
++            "GROUP_CONCAT",
++            "string_or_hash_encoded_sort_or_value",
++            "ANY_VALUE",
++            "JSON_ARRAYAGG_or_JSON_EXTRACT_as_direct_carrier",
++        ),
++        "targets": targets,
++        "raw_oracle": {
++            "derived_from": "literal SEED and total-order law, never candidate SQL",
++            "selected_row_ids": {
++                "group_1": {"first": 101, "last": 103},
++                "group_2": {"first": 203, "last": 202},
++            },
++            "grouped_rows_in_order": (1, 2),
++            "grouped_empty_group_3": [],
++            "global_empty_group_3": {
++                "row_count": 1,
++                "values": (None, None, None, None, None, None),
++            },
++            "value_comparison": (
++                "for each first_/last_ column, read the expected row_id directly "
++                "from seed readback and compare its same carrier value; Float compares "
++                "binary64 bits, not decimal formatting"
++            ),
++            "duplicate_keys": "rows 101/102 and 201/202 require row_id as the tie-breaker",
++            "null_value_cases": "group_1 last_int/last_float and group_2 first_text",
++            "mixed_text_cases": ("café", "東京", "ß", "NULL-order-a-🙂"),
++            "float_bits": {
++                "first_group_1": "-0x0.0p+0",
++                "last_group_2": "0x0.0p+0",
++                "rule": "candidate bits equal direct selected-row readback bits",
++            },
++            "null_key_terminal": (
++                "observation query may succeed and must record its ranks, but no result "
++                "from it can qualify a Pietto lowering; the semantic layer rejects NULL keys"
++            ),
++        },
++        "required_observations": {
++            "metadata": (
++                "positional label, native type identity, nullability and carrier details for "
++                "every candidate column; selected columns must match direct value carriers, "
++                "not JSON/text payloads"
++            ),
++            "warnings": "exactly empty for every valid grouped/global candidate",
++            "terminal": "success for valid candidates; global empty is success with one NULL row",
++            "retain": ("raw_sql", "typed_parameters", "seed_readback", "rows", "metadata", "warnings", "terminal"),
++        },
++    }
++
++
++def selfcheck() -> None:
++    data = request()
++    assert len(SEED) == 8
++    assert {-0.0.hex(), 0.0.hex()} <= {
++        value.hex() for row in SEED for value in row if type(value) is float
++    }
++    assert {row[1] for row in SEED} == {101, 102, 103, 104, 105, 201, 202, 203}
++    assert sum(row[2] is None or row[3] is None for row in SEED) == 2
++    assert "GROUP_CONCAT" in data["forbidden_candidates"]
++    for target, item in data["targets"].items():
++        assert item["queries"]["grouped_group_1"]["provenance"] == "raw_primitive_not_pietto_emitted"
++        assert item["queries"]["global_empty_group_3"]["typed_parameters"][0]["value"] == 3
++        assert "ORDER BY" in item["queries"]["null_key_observation_only"]["sql"]
++        if target == "mysql":
++            assert "ROW_NUMBER()" in item["queries"]["grouped_group_1"]["sql"]
++            assert "JSON" not in item["queries"]["grouped_group_1"]["sql"]
++        else:
++            assert "ARRAY_AGG" in item["queries"]["grouped_group_1"]["sql"]
++
++
++def main() -> int:
++    parser = argparse.ArgumentParser()
++    mode = parser.add_mutually_exclusive_group(required=True)
++    mode.add_argument("--selfcheck", action="store_true")
++    mode.add_argument("--request", action="store_true")
++    args = parser.parse_args()
++    if args.selfcheck:
++        selfcheck()
++        return 0
++    print(json.dumps(request(), ensure_ascii=False, indent=2, sort_keys=True))
++    return 0
++
++
++if __name__ == "__main__":
++    raise SystemExit(main())
+*** End Patch
+
+*** Begin Patch
+*** Update File: /tmp/pietto-p77-s13-prep/raw_hook.py
+@@
+-    assert {-0.0.hex(), 0.0.hex()} <= {
++    assert {(-0.0).hex(), (0.0).hex()} <= {
+*** End Patch
+
+*** Begin Patch
+*** Update File: /tmp/pietto-p77-s13-prep/raw_hook.py
+@@
+             "queries": {
+                 "grouped_group_1": query(grouped, 1, target),
+                 "grouped_group_2": query(grouped, 2, target),
++                "grouped_empty_group_3": query(grouped, 3, target),
+                 "global_empty_group_3": query(empty, 3, target),
+                 "null_key_observation_only": query(NULL_KEY_OBSERVATION, 1, target),
+@@
+         assert item["queries"]["grouped_group_1"]["provenance"] == "raw_primitive_not_pietto_emitted"
++        assert item["queries"]["grouped_empty_group_3"]["typed_parameters"][0]["value"] == 3
+         assert item["queries"]["global_empty_group_3"]["typed_parameters"][0]["value"] == 3
+*** End Patch
+
+*** Begin Patch
+*** Update File: /tmp/pietto-p77-s13-prep/raw_hook.py
+@@
+ NULL_KEY_OBSERVATION = f"""SELECT
+@@
+ ORDER BY row_id"""
+ 
++VALUE_COLUMNS = (
++    ("first_int", "Int", True, "value_int"),
++    ("first_text", "Text", True, "value_text"),
++    ("first_float", "Float", True, "value_float"),
++    ("last_int", "Int", True, "value_int"),
++    ("last_text", "Text", True, "value_text"),
++    ("last_float", "Float", True, "value_float"),
++)
++
+@@
+         "required_observations": {
++            "valid_grouped": {
++                "columns": (("group_id", "Int", False, "group_id"), *VALUE_COLUMNS),
++                "metadata_rule": "each value carrier equals direct seed-readback carrier",
++                "warnings": (),
++                "terminal": "success",
++            },
++            "valid_global_empty": {
++                "columns": VALUE_COLUMNS,
++                "metadata_rule": "NULL values retain their selected direct carrier metadata",
++                "warnings": (),
++                "terminal": "success_one_row_all_value_columns_null",
++            },
++            "null_key_observation_only": {
++                "columns": (
++                    ("row_id", "Int", False, "row_id"),
++                    ("order_a", "Int", True, "order_a"),
++                    ("order_b", "Int", True, "order_b"),
++                    ("observed_rank", "Int", False, "target_observed"),
++                ),
++                "warnings": "record_only",
++                "terminal": "record_only_never_admits_lowering",
++            },
+             "metadata": (
+@@
+     assert "GROUP_CONCAT" in data["forbidden_candidates"]
++    assert data["required_observations"]["valid_global_empty"]["warnings"] == ()
+*** End Patch

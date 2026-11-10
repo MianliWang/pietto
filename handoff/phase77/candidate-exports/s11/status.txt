@@ -1,0 +1,10 @@
+ M src/pietto/_project/project_compiled_verification.py
+ M src/pietto/_project/project_sql_emission_aggregation.py
+ M src/pietto/_project/project_sql_emission_pure_boundary.py
+ M src/pietto/_project/project_sql_emission_rendering.py
+ M src/pietto/_project/project_sql_emission_suggestions.py
+ M src/pietto/_project/project_sql_emission_verification.py
+ M tests/_pietto_sql_emission.py
+ M tests/test_execution_compiled_families.py
+ M tests/test_harness_sql_emission_portability.py
+ M tests/test_sql_grouped.py

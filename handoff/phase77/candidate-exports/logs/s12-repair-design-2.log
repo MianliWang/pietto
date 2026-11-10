@@ -1,0 +1,105 @@
+MODE as_is
+=== direct_lets postgres plan=True status=VERIFIED
+  blockers: []
+  decode_public: EXC ValueError: closed scalar call spelling
+  sql: WITH "p0" ("c0", "c1", "c2", "c3") AS (SELECT "s0"."order.id" AS "c0", "s0"."key value" AS "c1", "s0"."label" AS "c2", (CASE WHEN ("s0"."order.id" > CAST($1 AS pg_catalog.int8)) THEN "s0"."label" ELSE CAST($2 AS pg_catalog.text) COLLATE "C" END) AS "c3" FROM "public"."phase66 lhs é" AS "s0"), "p1" ("c0", "c1", "c2", "c3", "c4") AS (SELECT "t1"."c0" AS "c0", "t1"."c1" AS "c1", "t1"."c2" AS "c2", "t1"."c3" AS "c3", (CASE WHEN ("t1"."c0" > CAST($3 AS pg_catalog.int8)) THEN CAST($4 AS pg_catalog.int8) ELSE CAST($5 AS pg_catalog.int8) END) AS "c4" FROM "p0" AS "t1") SELECT (CASE WHEN length("t2"."c3") >= "t2"."c4" THEN "t2"."c3" ELSE lpad("t2"."c3", CAST("t2"."c4" AS pg_catalog.int4), CAST(E'\351\233\252' AS pg_catalog.text) COLLATE "C") END) AS "p", (CASE WHEN length(CAST(E'\141\142' AS pg_catalog.text) COLLATE "C") >= "t2"."c4" THEN CAST(E'\141\142' AS pg_catalog.text) COLLATE "C" ELSE lpad(CAST(E'\141\142' AS pg_catalog.text) COLLATE "C", CAST("t2"."c4" AS pg_catalog.int4), CAST(E'\351\233\252' AS pg_catalog.text) COLLATE "C") END) AS "q" FROM "p1" AS "t2"
+  markers: 5 events: 5
+  uses: [(0, 1, 'pg_int8', 0), (1, 2, 'pg_text', 1), (2, 3, 'pg_int8', 3), (3, 4, 'pg_int8', 2), (4, 5, 'pg_int8', 4)]
+  fixed: (0, '雪', 5, 1, 3) slot tags: ['Int', 'Text', 'Int', 'Int', 'Int']
+  native_arguments: (0, '雪', 1, 5, 3)
+  verify: True
+  observation: (<ObservationStatus.OK: 'ok'>, <Status.OK: 'ok'>, True)
+  compiled: EXC CompiledError: COMPILED_EXPORT_SOURCE_BINDING
+  template: EXC CompiledError: COMPILED_EXPORT_SOURCE_BINDING
+=== direct_lets mysql plan=True status=VERIFIED
+  blockers: []
+  decode_public: EXC ValueError: closed scalar call spelling
+  sql: WITH `p0` (`c0`, `c1`, `c2`, `c3`) AS (SELECT `s0`.`order.id` AS `c0`, `s0`.`key value` AS `c1`, `s0`.`label` AS `c2`, (CASE WHEN (`s0`.`order.id` > CAST(? AS SIGNED)) THEN `s0`.`label` ELSE CAST(? AS CHAR CHARACTER SET utf8mb4) COLLATE utf8mb4_0900_bin END) AS `c3` FROM `phase66`.`phase66 lhs é` AS `s0`), `p1` (`c0`, `c1`, `c2`, `c3`, `c4`) AS (SELECT `t1`.`c0` AS `c0`, `t1`.`c1` AS `c1`, `t1`.`c2` AS `c2`, `t1`.`c3` AS `c3`, (CASE WHEN (`t1`.`c0` > CAST(? AS SIGNED)) THEN CAST(? AS SIGNED) ELSE CAST(? AS SIGNED) END) AS `c4` FROM `p0` AS `t1`) SELECT CASE WHEN CHAR_LENGTH(`t2`.`c3`) >= `t2`.`c4` THEN `t2`.`c3` ELSE LPAD(`t2`.`c3`, `t2`.`c4`, CAST(X'e99baa' AS CHAR CHARACTER SET utf8mb4) COLLATE utf8mb4_0900_bin) END AS `p`, CASE WHEN CHAR_LENGTH(CAST(X'6162' AS CHAR CHARACTER SET utf8mb4) COLLATE utf8mb4_0900_bin) >= `t2`.`c4` THEN CAST(X'6162' AS CHAR CHARACTER SET utf8mb4) COLLATE utf8mb4_0900_bin ELSE LPAD(CAST(X'6162' AS CHAR CHARACTER SET utf8mb4) COLLATE utf8mb4_0900_bin, `t2`.`c4`, CAST(X'e99baa' AS CHAR CHARACTER SET utf8mb4) COLLATE utf8mb4_0900_bin) END AS `q` FROM `p1` AS `t2`
+  markers: 5 events: 5
+  uses: [(0, 1, 'my_signed_int', 0), (1, 2, 'my_utf8mb4_text', 1), (2, 3, 'my_signed_int', 3), (3, 4, 'my_signed_int', 2), (4, 5, 'my_signed_int', 4)]
+  fixed: (0, '雪', 5, 1, 3) slot tags: ['Int', 'Text', 'Int', 'Int', 'Int']
+  native_arguments: (0, '雪', 1, 5, 3)
+  verify: True
+  observation: (<ObservationStatus.OK: 'ok'>, <Status.INVALID_RELATION: 'invalid_relation'>, False)
+  compiled: EXC CompiledError: COMPILED_EXPORT_SOURCE_BINDING
+  template: EXC CompiledError: COMPILED_EXPORT_SOURCE_BINDING
+=== inline_width postgres plan=True status=BLOCKED
+  blockers: [('PIE-B1008', 'fixed_value_or_parameter_correspondence')]
+  decode_public: BLOCKED
+  diagnostics: []
+=== inline_width mysql plan=True status=BLOCKED
+  blockers: [('PIE-B1008', 'fixed_value_or_parameter_correspondence')]
+  decode_public: BLOCKED
+  diagnostics: []
+=== inline_text postgres plan=True status=BLOCKED
+  blockers: [('PIE-B1008', 'fixed_value_or_parameter_correspondence')]
+  decode_public: BLOCKED
+  diagnostics: []
+=== inline_text mysql plan=True status=BLOCKED
+  blockers: [('PIE-B1008', 'fixed_value_or_parameter_correspondence')]
+  decode_public: BLOCKED
+  diagnostics: []
+=== starts_with_second postgres plan=True status=BLOCKED
+  blockers: [('PIE-B1008', 'fixed_value_or_parameter_correspondence')]
+  decode_public: BLOCKED
+  diagnostics: []
+=== starts_with_second mysql plan=True status=BLOCKED
+  blockers: [('PIE-B1008', 'fixed_value_or_parameter_correspondence')]
+  decode_public: BLOCKED
+  diagnostics: []
+=== starts_with_first postgres plan=True status=VERIFIED
+  blockers: []
+  decode_public: EXC ValueError: invalid public artifact
+  sql: SELECT (left((SELECT "e0"."c1" FROM (SELECT "t1"."c0" AS "c0", "t1"."c2" AS "c1" FROM (SELECT "s0"."order.id" AS "c0", "s0"."key value" AS "c1", "s0"."label" AS "c2" FROM "public"."phase66 rhs é" AS "s0" WHERE ((("s0"."order.id" = "s1"."order.id") AND ("s0"."label" = CAST($1 AS pg_catalog.text) COLLATE "C")) AND ("s0"."order.id" > CAST($2 AS pg_catalog.int8)))) AS "t1") AS "e0"), length("s1"."label") ) = "s1"."label") AS "p" FROM "public"."phase66 lhs é" AS "s1"
+  markers: 2 events: 2
+  uses: [(0, 1, 'pg_text', 0), (1, 2, 'pg_int8', 1)]
+  fixed: ('x', 7) slot tags: ['Text', 'Int']
+  native_arguments: ('x', 7)
+  verify: True
+  observation: (<ObservationStatus.OK: 'ok'>, <Status.OK: 'ok'>, True)
+  compiled: (True, [(0, 1), (1, 2)])
+  template: (['Text', 'Int'], ('x', 7), ('x雪', 8), True)
+=== starts_with_first mysql plan=True status=VERIFIED
+  blockers: []
+  decode_public: EXC ValueError: invalid public artifact
+  sql: SELECT (LEFT((SELECT `e0`.`c1` FROM (SELECT `t1`.`c0` AS `c0`, `t1`.`c2` AS `c1` FROM (SELECT `s0`.`order.id` AS `c0`, `s0`.`key value` AS `c1`, `s0`.`label` AS `c2` FROM `phase66`.`phase66 rhs é` AS `s0` WHERE (((`s0`.`order.id` = `s1`.`order.id`) AND (`s0`.`label` = CAST(? AS CHAR CHARACTER SET utf8mb4) COLLATE utf8mb4_0900_bin)) AND (`s0`.`order.id` > CAST(? AS SIGNED)))) AS `t1`) AS `e0`), CHAR_LENGTH(`s1`.`label`) ) = `s1`.`label`) AS `p` FROM `phase66`.`phase66 lhs é` AS `s1`
+  markers: 2 events: 2
+  uses: [(0, 1, 'my_utf8mb4_text', 0), (1, 2, 'my_signed_int', 1)]
+  fixed: ('x', 7) slot tags: ['Text', 'Int']
+  native_arguments: ('x', 7)
+  verify: True
+  observation: (<ObservationStatus.OK: 'ok'>, <Status.OK: 'ok'>, True)
+  compiled: (True, [(0, 1), (1, 2)])
+  template: (['Text', 'Int'], ('x', 7), ('x雪', 8), True)
+=== inline_outside postgres plan=True status=VERIFIED
+  blockers: []
+  decode_public: EXC ValueError: invalid public artifact
+  sql: SELECT CAST(length((SELECT "e0"."c1" FROM (SELECT "t1"."c0" AS "c0", "t1"."c2" AS "c1" FROM (SELECT "s0"."order.id" AS "c0", "s0"."key value" AS "c1", "s0"."label" AS "c2" FROM "public"."phase66 rhs é" AS "s0" WHERE ((("s0"."order.id" = "s1"."order.id") AND ("s0"."label" = CAST($1 AS pg_catalog.text) COLLATE "C")) AND ("s0"."order.id" > CAST($2 AS pg_catalog.int8)))) AS "t1") AS "e0")) AS pg_catalog.int8) AS "p" FROM "public"."phase66 lhs é" AS "s1"
+  markers: 2 events: 2
+  uses: [(0, 1, 'pg_text', 0), (1, 2, 'pg_int8', 1)]
+  fixed: ('x', 7) slot tags: ['Text', 'Int']
+  native_arguments: ('x', 7)
+  verify: True
+  observation: (<ObservationStatus.OK: 'ok'>, <Status.OK: 'ok'>, True)
+  compiled: (True, [(0, 1), (1, 2)])
+  template: (['Text', 'Int'], ('x', 7), ('x雪', 8), True)
+=== inline_outside mysql plan=True status=VERIFIED
+  blockers: []
+  decode_public: EXC ValueError: invalid public artifact
+  sql: SELECT CAST(CHAR_LENGTH((SELECT `e0`.`c1` FROM (SELECT `t1`.`c0` AS `c0`, `t1`.`c2` AS `c1` FROM (SELECT `s0`.`order.id` AS `c0`, `s0`.`key value` AS `c1`, `s0`.`label` AS `c2` FROM `phase66`.`phase66 rhs é` AS `s0` WHERE (((`s0`.`order.id` = `s1`.`order.id`) AND (`s0`.`label` = CAST(? AS CHAR CHARACTER SET utf8mb4) COLLATE utf8mb4_0900_bin)) AND (`s0`.`order.id` > CAST(? AS SIGNED)))) AS `t1`) AS `e0`)) AS SIGNED) AS `p` FROM `phase66`.`phase66 lhs é` AS `s1`
+  markers: 2 events: 2
+  uses: [(0, 1, 'my_utf8mb4_text', 0), (1, 2, 'my_signed_int', 1)]
+  fixed: ('x', 7) slot tags: ['Text', 'Int']
+  native_arguments: ('x', 7)
+  verify: True
+  observation: (<ObservationStatus.OK: 'ok'>, <Status.OK: 'ok'>, True)
+  compiled: (True, [(0, 1), (1, 2)])
+  template: (['Text', 'Int'], ('x', 7), ('x雪', 8), True)
+=== header_in_capture_lpad postgres plan=True status=BLOCKED
+  blockers: [('PIE-B1008', 'fixed_value_or_parameter_correspondence')]
+  decode_public: BLOCKED
+  diagnostics: []
+=== header_in_capture_lpad mysql plan=True status=BLOCKED
+  blockers: [('PIE-B1008', 'fixed_value_or_parameter_correspondence')]
+  decode_public: BLOCKED
+  diagnostics: []

@@ -1,0 +1,171 @@
+{
+  "ambient_home_root_sha256": "0abc00558c7b844c16b059ec0c511b272e363513381708c94ef2539614afa28a",
+  "candidate_base": "f8ccd2c44a2d9adf431a496bd9bbae037783176f",
+  "candidate_lock_sha256": "b2cc96b25b0b9f2225c4529f0123ae869cd804af0578b4f83c931a15aa893064",
+  "candidate_patch_sha256": "548e72276b20c2bff3bb0613a527ef230fb9095942b562dca32a6150da12e1cc",
+  "candidate_wheel_sha256": "f4c96921c4d4ceb057830f2dd21f2e634325dac2bef933532747ae4aab963a73",
+  "cells": [
+    {
+      "cell": "A1_full_ok",
+      "route": "postgres_rows",
+      "status": 0
+    },
+    {
+      "cell": "A2_wrong_ca",
+      "route": "postgres_rows",
+      "status": 0
+    },
+    {
+      "cell": "A3_missing_ca",
+      "route": "postgres_rows",
+      "status": 0
+    },
+    {
+      "cell": "A4_require",
+      "route": "postgres_rows",
+      "status": 0
+    },
+    {
+      "cell": "A5_disable_ca",
+      "route": "postgres_rows",
+      "status": 0
+    },
+    {
+      "cell": "A6_system_ca",
+      "route": "postgres_rows",
+      "status": 0
+    },
+    {
+      "cell": "C1_ambient_pgsslrootcert",
+      "route": "postgres_rows",
+      "status": 0
+    },
+    {
+      "cell": "A1_full_ok",
+      "route": "postgres_adbc",
+      "status": 0
+    },
+    {
+      "cell": "A2_wrong_ca",
+      "route": "postgres_adbc",
+      "status": 0
+    },
+    {
+      "cell": "A3_missing_ca",
+      "route": "postgres_adbc",
+      "status": 0
+    },
+    {
+      "cell": "A4_require",
+      "route": "postgres_adbc",
+      "status": 0
+    },
+    {
+      "cell": "A5_disable_ca",
+      "route": "postgres_adbc",
+      "status": 0
+    },
+    {
+      "cell": "A6_system_ca",
+      "route": "postgres_adbc",
+      "status": 0
+    },
+    {
+      "cell": "C1_ambient_pgsslrootcert",
+      "route": "postgres_adbc",
+      "status": 0
+    },
+    {
+      "cell": "B1_wrong_host",
+      "route": "postgres_rows",
+      "status": 0
+    },
+    {
+      "cell": "B2_require_any_name",
+      "route": "postgres_rows",
+      "status": 0
+    },
+    {
+      "cell": "B1_wrong_host",
+      "route": "postgres_adbc",
+      "status": 0
+    },
+    {
+      "cell": "B2_require_any_name",
+      "route": "postgres_adbc",
+      "status": 0
+    }
+  ],
+  "cleanup": {
+    "container": {
+      "id": "eca7c8457bc160d8d47231cfa83c8fdbee87c2d6af9a0359a1c2c438cbf7f29b",
+      "label": "pietto.phase77.pg-run=6e9bebbcef2b025b81cf508b",
+      "label_value": "6e9bebbcef2b025b81cf508b",
+      "name": "pietto-p77-maint-pg-6e9bebbcef2b025b81cf508b"
+    },
+    "container_absent": true,
+    "relay": {
+      "reaped": true,
+      "wait_status": 143
+    },
+    "server_log_captured": true
+  },
+  "complete": true,
+  "image": "sha256:f372eda99ac2ea249c3dce566dcdf468397035371284d2cf2103b4bc52b3b39e",
+  "inputs": {
+    "ORACLE.md": "60cc4cadfc7f73a307c64eacee10f62ae57193145895750b18a0c79c33516883",
+    "candidate.patch": "548e72276b20c2bff3bb0613a527ef230fb9095942b562dca32a6150da12e1cc",
+    "client.py": "986d141a2ceb2ecdfee144ea18a74403e19d8c613440e46ca21ba527761c1c73",
+    "fresh-binding.json": "94e22b81af11cb2990c80111f214b40b40f5981e64bb29db6ac257298773a894",
+    "fresh-start.sh": "2929d39b026f7030c8798e169b230604cae88ddeb58619d03e754b6ac9afd9c0",
+    "fresh_binding.py": "9b0a522ddd990f22d1ec5c8e207e6edce45ac7814eb3fb6b0041afe4bebe11ea",
+    "gen-tls.sh": "b634b69535b04f73c644cc1fe30770253c5b414b2a0e99f2f6fc05bbf60d59d9",
+    "in/fixture.sql": "2a310b4f7e60f444007ac2856d9920c8e56a977dcb7ffa74c81e7479d31180a8",
+    "in/pg_hba.conf": "f55c24a9033b0c36a89ef9b7f84ce557de50ff5973257d2a9d7ccc11bf0e1eaf",
+    "judge.py": "c30f6dce748a1208c79bc0f8741994f6a123441ecae289b591dc027a5478f5f7",
+    "pg.sh": "ae88786297bbec9c927c98eafaf7e25d7320adecf1f7d71cddc0e0fd6f0bea36",
+    "receipt.py": "b58ffaf5a2482b469d721ec2b1fcfeafd8257bb32e81fa74259516bd7b6c6597",
+    "relay.py": "dd3cb68067887ee80acd5801c4ea3c9f1b701daef89a3a11d2e4dff329b55754",
+    "sql/statement.sql": "1091fc2827007cadcd1c821937e212441eaa81a19cf77c984a8d211e93cc240f",
+    "target-run.sh": "56a174068d13d339d27ae3edfc80a16175214c3d6a38f563100d6735f6c32528",
+    "tls/ca.pem": "d8c3c92b281d82fd4f0beaaa4bd1f9e6072543b8bf0d6122b7a79e1811890605",
+    "tls/elsewhere.pem": "340305ea9c1be2dd0c68184b016310077440e6487157ffa665de4464ae10ff69",
+    "tls/other-ca.pem": "0abc00558c7b844c16b059ec0c511b272e363513381708c94ef2539614afa28a",
+    "tls/server.pem": "37c0467f2c9cce3fe39eff69c7e74b081315d4bb434b32fc40fa90ce0a11d9bd"
+  },
+  "invocation": {
+    "container_label": "pietto.phase77.pg-run=6e9bebbcef2b025b81cf508b",
+    "container_name": "pietto-p77-maint-pg-6e9bebbcef2b025b81cf508b",
+    "lock": "/tmp/claude-1000/pietto-docker-campaign-postgres.lock",
+    "nonce": "6e9bebbcef2b025b81cf508b",
+    "timeout_seconds": 7200
+  },
+  "network": "none",
+  "raw": {
+    "campaign.log": "849c0dcbc3a5190a8a0c794044e7658d15288a19e72ae314e7cb7bc05581b450",
+    "cell-A1_full_ok-postgres_adbc.json": "1ddc31b115bd831ea795242fd6f88959f8d88c9ef23f9d7d7a987132a77913a0",
+    "cell-A1_full_ok-postgres_rows.json": "75481d8fea7bb32e22d4e9ba594941a41e5886cb20a24893ec7636282508aa85",
+    "cell-A2_wrong_ca-postgres_adbc.json": "3066e8e2d94924c1caad29f320a5e8379e1be062ed3d414e888180d5110e0e46",
+    "cell-A2_wrong_ca-postgres_rows.json": "2ef4a5ef1ac0aef0363120cc88d53ed19f7a6ca4af7b78e537d20a7af9b3e059",
+    "cell-A3_missing_ca-postgres_adbc.json": "7a721888fc881020c99668a6fd5f056e0771f0d37030fc52093a1d46faadeb62",
+    "cell-A3_missing_ca-postgres_rows.json": "96199bd9f721e36e5db34bb1109db03d3ccb0528b84b397bf72f24ab5a6fadd9",
+    "cell-A4_require-postgres_adbc.json": "677a7a48c3fae6c2e3652d065576ceeb994f82a1862ffff06890c68861545385",
+    "cell-A4_require-postgres_rows.json": "de2c96b6e1b113d08581bef7bb5127fe90a8e2d4b9cce1a263133cacaa017faf",
+    "cell-A5_disable_ca-postgres_adbc.json": "e8f6aab630be6c2f717d710e9b2da0800805b3e71745df80261df4f679d8355a",
+    "cell-A5_disable_ca-postgres_rows.json": "203d876a9459204241ab782b673680955a50f3e6fb07192e95a5fee126ad5473",
+    "cell-A6_system_ca-postgres_adbc.json": "e5b7158e21d4dedd09324a3d6c64fb663213c4adc5ab1da5b9670b36aaeee239",
+    "cell-A6_system_ca-postgres_rows.json": "acc5b6c3f428014e04e7c286cf8047f53e206eb9740131918e11f8e211a43b4a",
+    "cell-B1_wrong_host-postgres_adbc.json": "ae311cf7fdf98e83a08d1b89da53f66c7ff16812da0cc1e834d03a4444843752",
+    "cell-B1_wrong_host-postgres_rows.json": "44d92dc548a83907db8861ddb72425b67711f9008314ad6a3afb3c282b91639a",
+    "cell-B2_require_any_name-postgres_adbc.json": "2704a45da366337c7ed870996a64c1335d44b9e96682e4c8f9d0e5d393486d17",
+    "cell-B2_require_any_name-postgres_rows.json": "08fc74782b905772227c244f3813a6560e0867b1874e5da32c44f46c57ec2acb",
+    "cell-C1_ambient_pgsslrootcert-postgres_adbc.json": "4889a691607ee376123308df682152d0cf96e0abc8150cd1e80b641d58c767a1",
+    "cell-C1_ambient_pgsslrootcert-postgres_rows.json": "754661de5e4eaf5e863adaaa1b196d8cbca1eb484b71cf5a691667bab9618417",
+    "cell-exits.tsv": "c3cbf4e05c3bdb0878fa88588621d3c835c4b6f741b7b30ffbbdee9786b7bd8d",
+    "cleanup.json": "7c9e5d146736509afa85c915a158c1d257eaebab290ae4281596dba949d66316",
+    "pg-server.log": "589dbf0df1b5ff56553f67cca0a386912ce7f57340ef970a6cacdee819d0eb05",
+    "relay.log": "62f035a076633aa1f423f6b3ef0df905b583317c927e13f024ba96ed99a803db"
+  },
+  "ready": true,
+  "schema": 1
+}

@@ -1,0 +1,7 @@
+2026-11-09 23:36:42.260 [error] Error: ENOENT: no such file or directory, access '/tmp/p77editorxdg.yYqSzq/wayland-0'
+    at async Object.access (node:internal/original-fs/promises:1313:10)
+    at async dL (file:///home/mianliwang/projects/pietto-vscode-extension-claude/.vscode-test/vscode-linux-x64-1.145.2/resources/app/out/vs/code/electron-utility/sharedProcess/sharedProcessMain.js:358:9413)
+    at async Promise.all (index 1)
+    at async SE.reportClientOSInfo (file:///home/mianliwang/projects/pietto-vscode-extension-claude/.vscode-test/vscode-linux-x64-1.145.2/resources/app/out/vs/code/electron-utility/sharedProcess/sharedProcessMain.js:368:18872)
+2026-11-09 23:36:42.334 [info] Started initializing default profile extensions in extensions installation folder. file:///home/mianliwang/projects/pietto/.cache/phase77-recovery/evidence/editor-host-r4-20261110T053700Z/host-extensions
+2026-11-09 23:36:42.519 [info] Completed initializing default profile extensions in extensions installation folder. file:///home/mianliwang/projects/pietto/.cache/phase77-recovery/evidence/editor-host-r4-20261110T053700Z/host-extensions

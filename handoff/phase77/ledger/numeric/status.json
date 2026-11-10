@@ -1,0 +1,29 @@
+{
+  "artifact": "pietto.phase77.numeric.recovery.v1",
+  "recovery_mode": "source-index-only",
+  "execution": {"database": "not run by recovery", "network": "not used by recovery", "historical_scripts": "not executed", "credentials_and_private_keys": "not restored or reusable"},
+  "numeric_v2": {
+    "source_path": "/tmp/pietto-p77-numeric-prereg-r4",
+    "source_state": "temporary source directory missing",
+    "recovered_state": "READY-for-bounded-raw-experiment from source assertions only",
+    "not_a": ["raw-run PASS", "Pietto feature qualification", "Gate 2 evidence"],
+    "requirements_recovered_from_source": ["each safe_unary route executes ordinal operations '+', '-', '+'", "literal arithmetic is observation only", "physical-column and prepared finite controls are strict", "MySQL MIN_INT * 1 is an observation", "probe receipt appends raw terminal before oracle judgement", "manifest equality and no-DB self-check were reported"]
+  },
+  "postgres_parent_r4": {
+    "source_path": "/tmp/pietto-p77-numeric-pg-parent-r4/raw",
+    "source_state": "raw directory missing",
+    "reported_state": "raw primitive observation PASS",
+    "reported_numeric_receipt_terminal": "success",
+    "reported_record_count": 119,
+    "reported_safe_unary_rows": [-7, -7, null],
+    "reported_parent_closure": {"inputs": 23, "raw": 13, "hook_files": 4},
+    "reported_cleanup": {"owned_container_removed": true, "relay_reaped": true},
+    "scope_limit": "not Pietto feature qualification and not Gate 2"
+  },
+  "failed_predecessors": [
+    {"round": "R1", "state": "preserved historical failure", "reported_reason": "hook mode gap; exit 126; Docker not started"},
+    {"round": "R2", "state": "preserved historical failure", "reported_reason": "POSIX $10/$11 parsing; exit 2; container cleanup reported"},
+    {"round": "R3", "state": "preserved historical failure", "reported_reason": "69 partial records then safe_unary:column:0 oracle mismatch; failing column row/metadata were not written"}
+  ],
+  "guardrails_recovered_from_source": ["explicit sh entry for hook invocation", "POSIX ${10} and ${11} parameter expansion repair", "owned container hex-ID guard", "capture failure server log before cleanup", "exact parent receipt/judge binding", "do not infer absent raw values from frozen seed or SQL"]
+}

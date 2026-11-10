@@ -1,0 +1,20 @@
+=== witness_ordered postgres plan=True status=VERIFIED
+  blockers: []
+  sql: WITH "p0" ("c0", "c1", "c2", "c3", "c4", "c5") AS (SELECT "s0"."order.id" AS "c0", "s0"."flag value" AS "c1", "s0"."text `""é" AS "c2", "s0"."amount value" AS "c3", "s0"."ratio value" AS "c4", (CASE WHEN "s0"."flag value" THEN "s0"."text `""é" ELSE CAST($1 AS pg_catalog.text) COLLATE "C" END) AS "c5" FROM "public"."phase66 source é" AS "s0"), "p1" ("c0", "c1", "c2", "c3", "c4", "c5", "c6") AS (SELECT "t1"."c0" AS "c0", "t1"."c1" AS "c1", "t1"."c2" AS "c2", "t1"."c3" AS "c3", "t1"."c4" AS "c4", "t1"."c5" AS "c5", (CASE WHEN ("t1"."c0" > CAST($2 AS pg_catalog.int8)) THEN CAST($3 AS pg_catalog.int8) ELSE CAST($4 AS pg_catalog.int8) END) AS "c6" FROM "p0" AS "t1") SELECT (CASE WHEN length("t2"."c5") >= "t2"."c6" THEN "t2"."c5" ELSE lpad("t2"."c5", CAST("t2"."c6" AS pg_catalog.int4), CAST(E'\351\233\252' AS pg_catalog.text) COLLATE "C") END) AS "padded", (CASE WHEN length(CAST(E'\141\142' AS pg_catalog.text) COLLATE "C") >= "t2"."c6" THEN CAST(E'\141\142' AS pg_catalog.text) COLLATE "C" ELSE lpad(CAST(E'\141\142' AS pg_catalog.text) COLLATE "C", CAST("t2"."c6" AS pg_catalog.int4), CAST(E'\351\233\252' AS pg_catalog.text) COLLATE "C") END) AS "fixed" FROM "p1" AS "t2"
+  uses: [(0, 1, 'pg_text', 0), (1, 2, 'pg_int8', 2), (2, 3, 'pg_int8', 1), (3, 4, 'pg_int8', 3)]
+  fixed: ('雪', 5, 0, 3)
+  native_arguments: ('雪', 0, 5, 3)
+  verify: True
+  observation: (<ObservationStatus.OK: 'ok'>, <Status.OK: 'ok'>, None, True)
+  compiled: (True, [(0, 1), (1, 2), (2, 3), (3, 4)])
+  template: (['Text', 'Int', 'Int', 'Int'], ('雪', 0, 5, 3), ('雪雪', 1, 6, 4), True)
+=== witness_ordered mysql plan=True status=VERIFIED
+  blockers: []
+  sql: WITH `p0` (`c0`, `c1`, `c2`, `c3`, `c4`, `c5`) AS (SELECT `s0`.`order.id` AS `c0`, `s0`.`flag value` AS `c1`, `s0`.`text ``"é` AS `c2`, `s0`.`amount value` AS `c3`, `s0`.`ratio value` AS `c4`, (CASE WHEN `s0`.`flag value` THEN `s0`.`text ``"é` ELSE CAST(? AS CHAR CHARACTER SET utf8mb4) COLLATE utf8mb4_0900_bin END) AS `c5` FROM `phase66`.`phase66 source é` AS `s0`), `p1` (`c0`, `c1`, `c2`, `c3`, `c4`, `c5`, `c6`) AS (SELECT `t1`.`c0` AS `c0`, `t1`.`c1` AS `c1`, `t1`.`c2` AS `c2`, `t1`.`c3` AS `c3`, `t1`.`c4` AS `c4`, `t1`.`c5` AS `c5`, (CASE WHEN (`t1`.`c0` > CAST(? AS SIGNED)) THEN CAST(? AS SIGNED) ELSE CAST(? AS SIGNED) END) AS `c6` FROM `p0` AS `t1`) SELECT CASE WHEN CHAR_LENGTH(`t2`.`c5`) >= `t2`.`c6` THEN `t2`.`c5` ELSE LPAD(`t2`.`c5`, `t2`.`c6`, CAST(X'e99baa' AS CHAR CHARACTER SET utf8mb4) COLLATE utf8mb4_0900_bin) END AS `padded`, CASE WHEN CHAR_LENGTH(CAST(X'6162' AS CHAR CHARACTER SET utf8mb4) COLLATE utf8mb4_0900_bin) >= `t2`.`c6` THEN CAST(X'6162' AS CHAR CHARACTER SET utf8mb4) COLLATE utf8mb4_0900_bin ELSE LPAD(CAST(X'6162' AS CHAR CHARACTER SET utf8mb4) COLLATE utf8mb4_0900_bin, `t2`.`c6`, CAST(X'e99baa' AS CHAR CHARACTER SET utf8mb4) COLLATE utf8mb4_0900_bin) END AS `fixed` FROM `p1` AS `t2`
+  uses: [(0, 1, 'my_utf8mb4_text', 0), (1, 2, 'my_signed_int', 2), (2, 3, 'my_signed_int', 1), (3, 4, 'my_signed_int', 3)]
+  fixed: ('雪', 5, 0, 3)
+  native_arguments: ('雪', 0, 5, 3)
+  verify: True
+  observation: (<ObservationStatus.OK: 'ok'>, <Status.INVALID_RELATION: 'invalid_relation'>, 'lpad realization', False)
+  compiled: (True, [(0, 1), (1, 2), (2, 3), (3, 4)])
+  template: (['Text', 'Int', 'Int', 'Int'], ('雪', 0, 5, 3), ('雪雪', 1, 6, 4), True)

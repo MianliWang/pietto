@@ -1,0 +1,6 @@
+ M src/pietto/_project/project_compiled_verification.py
+ M src/pietto/_project/project_sql_emission_pure_boundary.py
+ M src/pietto/_project/project_sql_emission_verification.py
+ M src/pietto/_project/project_sql_emission_windows.py
+ M tests/test_execution_compiled_families.py
+ M tests/test_sql_windows.py

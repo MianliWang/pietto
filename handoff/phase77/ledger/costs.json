@@ -1,0 +1,171 @@
+{
+  "schema": "phase77-cost-recovery-v1",
+  "recovered_at": "2026-11-09",
+  "authority": {
+    "decision": "D77.02",
+    "caps": {"C": 280, "F": 850, "D": 4000, "S": 12},
+    "units": {
+      "C": "distinct causal repair root, not each edit",
+      "F": "each pytest launch, including failed or interrupted; pre-launch guard refusal is excluded",
+      "D": "outer diagnostic command; loop inside one command is one; pure wait is zero",
+      "S": "scope repair"
+    }
+  },
+  "historical_phase77": {
+    "C": {"lower": 2, "upper": 280, "upper_kind": "authority_cap_only", "unknown": true},
+    "F": {
+      "lower": 72,
+      "classified_worker_ceiling": 73,
+      "whole_phase_upper": 850,
+      "whole_phase_upper_kind": "authority_cap_only",
+      "unknown": true,
+      "components": {"direct_worker_launches": 70, "B1_confirmed_launches": 2, "damaged_tail_possible_launches": 1}
+    },
+    "D": {
+      "lower": 13,
+      "classified_worker_ceiling": 747,
+      "whole_phase_upper": 4000,
+      "whole_phase_upper_kind": "authority_cap_only",
+      "unknown": true,
+      "components": {"classified_worker_inner_exec_commands": 816, "direct_worker_pytest_launches": 70, "damaged_tail_possible_diagnostic": 1}
+    },
+    "S": {"lower": 0, "upper": 12, "upper_kind": "authority_cap_only", "unknown": true}
+  },
+  "withdrawn_whole_phase_D_upper": {
+    "status": "WITHDRAWN",
+    "withdrawn_reason": "whole streams were excluded by agent/task name even though they contain Phase77 product work",
+    "method": "each indexed or current-session outer exec contributes max(1, tools.exec_command occurrences); mixed scope is retained unless its task stream is strictly excluded",
+    "indexed_all_mixed_units": 5168,
+    "strict_exclusions": {"M77": 1711, "editor": 1088, "future_duckdb_interop": 146},
+    "damaged_P77_flat_tail": 1,
+    "current_phase77_recovery_units": 549,
+    "upper": 2773,
+    "cap": 4000,
+    "certified_minimum_headroom": 1227,
+    "notes": ["Do not use this result for planning or authorization.", "The root 152-call figure is not used as a Phase77 total.", "Replacement requires per-command workdir/path or exact-task-turn classification."]
+  },
+  "strict_per_command_path_D_upper": {
+    "status": "CURRENT_CONSERVATIVE_BOUND",
+    "method": "for each outer record count max(1, tools.exec_command occurrences); retain every mixed or unknown command; exclude only an explicit non-P77 target path without a Phase77 product path",
+    "indexed_all_units": 5168,
+    "strict_path_exclusions": {"M77": 244, "editor": 325, "future": 6},
+    "damaged_P77_flat_tail_retained": 1,
+    "current_recovery_child_sessions_retained": 735,
+    "root_continuation_after_old_index_retained": 11,
+    "upper": 5340,
+    "cap": 4000,
+    "over_cap_by": 1340,
+    "certified_remaining_balance": null,
+    "notes": ["An upper bound above cap does not prove actual over-cap use.", "Do not infer an exclusion from an agent, record-file, or task name.", "Current recovery streams are retained when multi-purpose or unknown."]
+  },
+  "strict_path_rules": {
+    "M77_exclude_only_if": "explicit /tmp/pietto-maintenance* or p77-maint-* target and no Phase77 product path",
+    "editor_exclude_only_if": "explicit /tmp/pietto-editor*, /tmp/pietto-vscode*, or pietto-vscode-extension target and no Phase77 product task/path",
+    "future_exclude_only_if": "explicit /tmp/pietto-duckdb*, /tmp/pietto-sqlite*, or /tmp/pietto-interop* target and no Phase77 product path",
+    "otherwise": "retain as Phase77 for the conservative bound"
+  },
+  "minimum_manual_review_frontier": {
+    "required_exclusion_units_to_reach_cap": 1340,
+    "candidate_group_capacity": 1428,
+    "groups": [
+      {"record_file":"records/maintenance_integration.jsonl","retained_unknown_units":214,"call_id_anchor":"call_30f111d046e44f0093f0e46eb6a141a1"},
+      {"record_file":"records/maintenance_mysql_db.jsonl","retained_unknown_units":188,"call_id_anchor":"call_d9557f7ad9534b8e8ed8ba110d478165"},
+      {"record_file":"records/editor_implementation.jsonl","retained_unknown_units":161,"call_id_anchor":"call_cd845326045745e1859015fa8d477577"},
+      {"record_file":"records/maintenance_pg_db.jsonl","retained_unknown_units":147,"call_id_anchor":"call_218eeccd52b9437ca1ca7747c829ff88"},
+      {"record_file":"records/arrow_update.jsonl","retained_unknown_units":136,"call_id_anchor":"call_24870cf64d2f43d4b07452c66d02ed69"},
+      {"record_file":"records/vscode_scope.jsonl","retained_unknown_units":122,"call_id_anchor":"call_d69616d56af24550844af966e71e0b2c"},
+      {"record_file":"records/mysql_numeric_probe.jsonl","retained_unknown_units":120,"call_id_anchor":"call_ef576e026125423fb2d056376afa656e"},
+      {"record_file":"records/phase_scope.jsonl","retained_unknown_units":114,"call_id_anchor":"call_ef576e026125423fb2d056376afa656e"},
+      {"record_file":"records/root.jsonl","retained_unknown_units":114,"call_id_anchor":"call_a56fef81f79e4db2bfff56233187f8bc"},
+      {"record_file":"records/editor_latency.jsonl","retained_unknown_units":112,"call_id_anchor":"call_fb312a06fa5d487b963ca696f28e81d2"}
+    ],
+    "warning": "Group names are review handles only. Their entries require per-command evidence before any exclusion."
+  },
+  "current_recovery_session_inventory": {
+    "parent_session_id": "01a1bc21-176a-73f1-9e3d-09ef1bb4dcb1",
+    "child_session_units_retained": 735,
+    "child_session_files": [
+      "rollout-2026-11-09T19-44-27-01a1c2e9-d681-7ac1-aba5-fdedfa729d22.jsonl",
+      "rollout-2026-11-09T19-44-43-01a1c2ea-151f-7e22-a9dd-cadc48be85af.jsonl",
+      "rollout-2026-11-09T19-44-52-01a1c2ea-3a38-76b0-8d48-214fc54243fe.jsonl",
+      "rollout-2026-11-09T19-45-04-01a1c2ea-678f-78e3-be31-065dc2549942.jsonl",
+      "rollout-2026-11-09T19-45-13-01a1c2ea-8c6b-7231-85ba-82ae99c34600.jsonl",
+      "rollout-2026-11-09T19-45-28-01a1c2ea-c71f-7982-ae9c-ce2671a0f643.jsonl",
+      "rollout-2026-11-09T19-45-41-01a1c2ea-f783-7002-8172-31d394bb79c0.jsonl",
+      "rollout-2026-11-09T19-45-50-01a1c2eb-1d94-77e0-af17-b9b5e66f4a44.jsonl",
+      "rollout-2026-11-09T19-47-35-01a1c2ec-b644-7b31-bd0a-7ff793cf2967.jsonl",
+      "rollout-2026-11-09T19-51-08-01a1c2ef-f574-76d1-8a3b-b54f16f2feba.jsonl",
+      "rollout-2026-11-09T19-58-01-01a1c2f6-449c-7bb0-907d-a1ac7d38d0f2.jsonl",
+      "rollout-2026-11-09T20-09-32-01a1c300-cf8c-7031-9247-b9fc3e520122.jsonl"
+    ],
+    "root_continuation_after_old_index_units_retained": 11,
+    "reason": "the old session index did not contain these current recovery sessions; none was excluded merely by recover_* task name"
+  },
+  "recovery_append": {
+    "status": "WITHDRAWN",
+    "withdrawn_reason": "current recovery streams were separated by recover_* task name instead of per-command target evidence",
+    "scope": "current_recovery_sessions_absent_from_old_index",
+    "method": "max(1, tools.exec_command occurrences) per outer exec",
+    "all_current_recovery_units": 672,
+    "strictly_excluded_current_recovery_units": {"recover_maintenance_M77": 84, "recover_editor_evidence_editor": 18, "recover_planning_future": 28},
+    "phase77_charged_upper": 549,
+    "components": {"recover_scalar": 95, "recover_decimal": 108, "recover_windows": 36, "recover_tuple_asof": 45, "recover_native": 113, "recover_qualifiers": 47, "recover_numeric": 49, "recover_costs_session_snapshot_and_active_tail": 40, "root_continuation_after_old_index": 10, "guardian_sessions_retained_conservatively": 6},
+    "C": 0,
+    "F": 0,
+    "S": 0,
+    "notes": ["Do not use phase77_charged_upper or task-name exclusions for planning.", "No pytest, database, network, Gate 2, or product validation ran in this cost reconstruction.", "The previous D26 was an early child-only snapshot and is superseded."]
+  },
+  "classification_limits": [
+    "The mixed root session is proven to be the original root, but its 152 shell calls are not a Phase77 upper bound.",
+    "Classified-worker ceilings exclude unknown root/wrapper activity and therefore do not certify whole-phase remaining balance.",
+    "No unknown value is normalized to zero."
+  ],
+  "strict_exclusion_evidence": [
+    {"scope":"M77","record_file":"records/arrow_update.jsonl","units":235,"first_call_id":"call_ef576e026125423fb2d056376afa656e","last_call_id":"call_24870cf64d2f43d4b07452c66d02ed69"},
+    {"scope":"M77","record_file":"records/maintenance_gate2.jsonl","units":10,"call_id_anchor":"call_a711ccd3d4da41c3ad779765816a75a9"},
+    {"scope":"M77","record_file":"records/maintenance_integration.jsonl","units":405,"call_id_anchor":"call_30f111d046e44f0093f0e46eb6a141a1"},
+    {"scope":"M77","record_file":"records/maintenance_mysql_db.jsonl","units":363,"call_id_anchor":"call_d9557f7ad9534b8e8ed8ba110d478165"},
+    {"scope":"M77","record_file":"records/maintenance_pg_db.jsonl","units":345,"call_id_anchor":"call_218eeccd52b9437ca1ca7747c829ff88"},
+    {"scope":"M77","record_file":"records/maintenance_scope.jsonl","units":249,"call_id_anchor":"call_0d38fb06f1284520be1c5be0a49d7fcc"},
+    {"scope":"M77","record_file":"records/psycopg_candidate.jsonl","units":104,"call_id_anchor":"call_d7a0a8f7291d41cb83a992bbdfe014c4"},
+    {"scope":"editor","record_files":["records/editor_contract_draft.jsonl","records/editor_implementation.jsonl","records/editor_latency.jsonl","records/editor_protocol_review.jsonl","records/lsp_contract.jsonl","records/vscode_scope.jsonl"],"units":1088,"call_id_anchors":["call_788463e891614fe4a1e6e14924c25ac8","call_cd845326045745e1859015fa8d477577","call_fb312a06fa5d487b963ca696f28e81d2","call_bf371dbc85f248dba36b06bf5cdc5817","call_42faff0b98364af0bf555d0ba21cfe60","call_d69616d56af24550844af966e71e0b2c"]},
+    {"scope":"future_duckdb_interop","record_files":["records/duckdb_gate1.jsonl","records/duckdb_seam.jsonl","records/interop_gate1.jsonl"],"units":146,"call_id_anchors":["call_b1c86a936850481e8ad2df66aa54510c","call_afe94e959ed143ddb2362438b7b541bc","call_51a162b9cb4e4207989296b234ced2ad"]}
+  ],
+  "damage": {
+    "record_file": "records/gaps.json",
+    "worker_record": "records/p77_flat_pg_runner.jsonl",
+    "timestamp": "2026-11-08T23:27:04.576Z",
+    "call_id": "call_f6b908739c334cd88abc536e7cf1153d",
+    "effect": "one unclassified final outer call; add at most one to classified-worker D/F ceilings"
+  },
+  "worker_record_summary": [
+    {"record_file":"records/p77_aggregate_windows.jsonl","outer_records":72,"time_start":"2026-11-08T22:39:06.045Z","time_end":"2026-11-08T23:27:00.608Z","first_call_id":"call_38acdcccb13742ccad50c946e46cb9ae","last_call_id":"call_c696c9f4c7a24026bc91db2fba2cd385","direct_pytest_launches":16},
+    {"record_file":"records/p77_asof_full.jsonl","outer_records":99,"time_start":"2026-11-08T22:41:20.324Z","time_end":"2026-11-08T23:22:28.582Z","first_call_id":"call_f499dd0930bd442aa57d69e10347d803","last_call_id":"call_ec8d425f1664442cb9356d40db53877b","direct_pytest_launches":15},
+    {"record_file":"records/p77_cost_ledger.jsonl","outer_records":42,"time_start":"2026-11-08T22:32:17.835Z","time_end":"2026-11-08T22:50:22.451Z","first_call_id":"call_e85a2b6c3be649f1b0089fe16c37ff07","last_call_id":"call_7021cefd080b444c9fdc07715e0e877a","direct_pytest_launches":0},
+    {"record_file":"records/p77_decimal_closure.jsonl","outer_records":107,"time_start":"2026-11-08T22:12:34.427Z","time_end":"2026-11-08T23:25:15.283Z","first_call_id":"call_9892b315e7ed4dabae51303e3da4e3d0","last_call_id":"call_ca22e5a3392942c6b2676db05e9385b0","direct_pytest_launches":9},
+    {"record_file":"records/p77_division.jsonl","outer_records":20,"time_start":"2026-11-08T22:41:44.063Z","time_end":"2026-11-08T22:48:42.944Z","first_call_id":"call_543884c6f5b94f63bf4d89d9242af4f2","last_call_id":"call_a995a0a76cfb40f492229a585693d210","direct_pytest_launches":0},
+    {"record_file":"records/p77_flat_pg_runner.jsonl","outer_records":16,"time_start":"2026-11-08T23:20:32.370Z","time_end":"2026-11-08T23:25:31.819Z","first_call_id":"call_ac45e6082f9e45c39e5f16a912dde1ec","last_call_id":"call_c5483f5a18bd4223ad0e0ac078d7545b","direct_pytest_launches":0},
+    {"record_file":"records/p77_float_equivalence.jsonl","outer_records":49,"time_start":"2026-11-08T22:25:23.693Z","time_end":"2026-11-08T23:23:19.957Z","first_call_id":"call_57b6fbfd15a347c29e13ad73f2ff1e41","last_call_id":"call_c429757bdcec4781aa7070f310b0e7e0","direct_pytest_launches":0},
+    {"record_file":"records/p77_nested_decision.jsonl","outer_records":21,"time_start":"2026-11-08T22:29:54.847Z","time_end":"2026-11-08T22:59:26.201Z","first_call_id":"call_9635050da62d427f833485afe6cd938b","last_call_id":"call_1c4f3fb9a9ae458aba432e641b3fe5c2","direct_pytest_launches":0},
+    {"record_file":"records/p77_ordered_values.jsonl","outer_records":26,"time_start":"2026-11-08T22:41:30.383Z","time_end":"2026-11-08T22:48:31.460Z","first_call_id":"call_0d139aa00edf49d5a6f434eee0f0e65e","last_call_id":"call_e56e7219d4614f148dd11cbf522d1b40","direct_pytest_launches":0},
+    {"record_file":"records/p77_qualification_repair.jsonl","outer_records":68,"time_start":"2026-11-08T22:52:03.243Z","time_end":"2026-11-08T23:26:46.415Z","first_call_id":"call_7f1541e87ef2407788e711311c8814d7","last_call_id":"call_5bdebd6d9e6a42d2807291623976c2de","direct_pytest_launches":0},
+    {"record_file":"records/p77_qualification_review.jsonl","outer_records":39,"time_start":"2026-11-08T22:46:01.983Z","time_end":"2026-11-08T23:16:23.664Z","first_call_id":"call_627318ace7d6427ebfc0c37ad45737cb","last_call_id":"call_ea005f0d03e146ebaf388f2683dc2d47","direct_pytest_launches":0},
+    {"record_file":"records/p77_remaining_matrix.jsonl","outer_records":50,"time_start":"2026-11-08T22:29:54.671Z","time_end":"2026-11-08T23:10:46.772Z","first_call_id":"call_46968cf022f3401e85184d671e585692","last_call_id":"call_086f69f202204d2abe41e4d95327d6d2","direct_pytest_launches":0},
+    {"record_file":"records/p77_text_date.jsonl","outer_records":112,"time_start":"2026-11-08T20:09:00.251Z","time_end":"2026-11-08T22:44:56.927Z","first_call_id":"call_20141cb9fa8e49a291851684cd62acc3","last_call_id":"call_acf65b7c5065424d8f07495ab1573d61","direct_pytest_launches":17},
+    {"record_file":"records/p77_tuple_count.jsonl","outer_records":99,"time_start":"2026-11-08T22:36:44.253Z","time_end":"2026-11-08T23:04:11.428Z","first_call_id":"call_52ce0f6a30914bd6aa1ce44995dafaa7","last_call_id":"call_2ca398e6cbf943048903dcd27056165a","direct_pytest_launches":13},
+    {"record_file":"records/p77_typed_parameters.jsonl","outer_records":25,"time_start":"2026-11-08T22:46:29.251Z","time_end":"2026-11-08T22:55:33.591Z","first_call_id":"call_e7207f5ed4fd49f09145fa5bd1503460","last_call_id":"call_35ba4f0584ce4c3cb37ca94305d38056","direct_pytest_launches":0}
+  ],
+  "direct_pytest_call_ids": {
+    "records/p77_aggregate_windows.jsonl": ["call_9144ac62","call_41e3fd80","call_11858efc","call_63c350e2","call_d6fa6e26","call_d4ac6d72","call_c1bf5225","call_a70c981d","call_65f9c038","call_f73a6740","call_1c6e4394","call_fe2590f9","call_4be469b7","call_d114800c","call_18dd77ec","call_b7afe336"],
+    "records/p77_asof_full.jsonl": ["call_3708a9f8","call_dd23d78d","call_306ae4d2","call_ea5280bb","call_3717b3b3","call_0ab8dfcb","call_2849c34a","call_f6924dd3","call_41c3333a","call_cefefa11","call_31da4e61","call_0c0e4527","call_8f3f4cf5","call_858382aa","call_b28ea382"],
+    "records/p77_decimal_closure.jsonl": ["call_47352f07","call_0724da0f","call_2ec2a360","call_ee722a98","call_445dc530","call_f24c1eb1","call_3a6141b3","call_315342d9","call_8a751d37"],
+    "records/p77_text_date.jsonl": ["call_3da4e244","call_d3e588d1","call_ba8331ab","call_ee812c3a","call_6f23276e","call_03d2083b","call_5ddf7886","call_2ad2e8bb","call_39b6c7a0","call_b37be9f2","call_98df6b62","call_0459b874","call_341b84dd","call_8adf971c","call_24844c86","call_b969e374","call_70666dc7"],
+    "records/p77_tuple_count.jsonl": ["call_f880bfc8","call_121d8388","call_d9db8c87","call_3e89d8f2","call_0555088a","call_787617e3","call_b34e78be","call_1c3cbaae","call_782f3b4a","call_5e86cd2d","call_48bfb17f","call_460a6706","call_3795b9d8"]
+  },
+  "B1_terminal_evidence": {
+    "record_file": "records/p77_cost_ledger.jsonl",
+    "source_calls": ["call_0e0ec7dd", "call_ed88b24b", "call_a6bf86c7"],
+    "counted_launches": 2,
+    "notes": ["r3 started", "r4 started then SIGINT interrupted", "failed/interrupted starts are counted"]
+  }
+}

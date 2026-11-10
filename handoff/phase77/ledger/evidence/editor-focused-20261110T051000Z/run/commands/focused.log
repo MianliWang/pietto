@@ -1,0 +1,49 @@
+bringing up nodes...
+INTERNALERROR> Traceback (most recent call last):
+INTERNALERROR>   File "/home/mianliwang/projects/pietto/.cache/phase77-recovery/runtime/editor-runtime/core-dev/lib/python3.13/site-packages/_pytest/tmpdir.py", line 208, in getbasetemp
+INTERNALERROR>     rootdir.mkdir(mode=0o700, exist_ok=True)
+INTERNALERROR>     ~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^
+INTERNALERROR>   File "/home/mianliwang/.local/share/uv/python/cpython-3.13.13-linux-x86_64-gnu/lib/python3.13/pathlib/_local.py", line 722, in mkdir
+INTERNALERROR>     os.mkdir(self, mode)
+INTERNALERROR>     ~~~~~~~~^^^^^^^^^^^^
+INTERNALERROR> FileNotFoundError: [Errno 2] No such file or directory: '/home/mianliwang/projects/pietto/.cache/phase77-recovery/evidence/editor-focused-20261110T051000Z/run/tmp/pytest/pytest-of-mianliwang'
+INTERNALERROR> 
+INTERNALERROR> During handling of the above exception, another exception occurred:
+INTERNALERROR> 
+INTERNALERROR> Traceback (most recent call last):
+INTERNALERROR>   File "/home/mianliwang/projects/pietto/.cache/phase77-recovery/runtime/editor-runtime/core-dev/lib/python3.13/site-packages/_pytest/main.py", line 331, in wrap_session
+INTERNALERROR>     config.hook.pytest_sessionstart(session=session)
+INTERNALERROR>     ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^
+INTERNALERROR>   File "/home/mianliwang/projects/pietto/.cache/phase77-recovery/runtime/editor-runtime/core-dev/lib/python3.13/site-packages/pluggy/_hooks.py", line 512, in __call__
+INTERNALERROR>     return self._hookexec(self.name, self._hookimpls.copy(), kwargs, firstresult)
+INTERNALERROR>            ~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+INTERNALERROR>   File "/home/mianliwang/projects/pietto/.cache/phase77-recovery/runtime/editor-runtime/core-dev/lib/python3.13/site-packages/pluggy/_manager.py", line 120, in _hookexec
+INTERNALERROR>     return self._inner_hookexec(hook_name, methods, kwargs, firstresult)
+INTERNALERROR>            ~~~~~~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+INTERNALERROR>   File "/home/mianliwang/projects/pietto/.cache/phase77-recovery/runtime/editor-runtime/core-dev/lib/python3.13/site-packages/pluggy/_callers.py", line 167, in _multicall
+INTERNALERROR>     raise exception
+INTERNALERROR>   File "/home/mianliwang/projects/pietto/.cache/phase77-recovery/runtime/editor-runtime/core-dev/lib/python3.13/site-packages/pluggy/_callers.py", line 139, in _multicall
+INTERNALERROR>     teardown.throw(exception)
+INTERNALERROR>     ~~~~~~~~~~~~~~^^^^^^^^^^^
+INTERNALERROR>   File "/home/mianliwang/projects/pietto/.cache/phase77-recovery/runtime/editor-runtime/core-dev/lib/python3.13/site-packages/_pytest/logging.py", line 808, in pytest_sessionstart
+INTERNALERROR>     return (yield)
+INTERNALERROR>             ^^^^^
+INTERNALERROR>   File "/home/mianliwang/projects/pietto/.cache/phase77-recovery/runtime/editor-runtime/core-dev/lib/python3.13/site-packages/pluggy/_callers.py", line 121, in _multicall
+INTERNALERROR>     res = hook_impl.function(*args)
+INTERNALERROR>   File "/home/mianliwang/projects/pietto/.cache/phase77-recovery/runtime/editor-runtime/core-dev/lib/python3.13/site-packages/xdist/dsession.py", line 90, in pytest_sessionstart
+INTERNALERROR>     nodes = self.nodemanager.setup_nodes(putevent=self.queue.put)
+INTERNALERROR>   File "/home/mianliwang/projects/pietto/.cache/phase77-recovery/runtime/editor-runtime/core-dev/lib/python3.13/site-packages/xdist/workermanage.py", line 97, in setup_nodes
+INTERNALERROR>     return [self.setup_node(spec, putevent) for spec in self.specs]
+INTERNALERROR>             ~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^
+INTERNALERROR>   File "/home/mianliwang/projects/pietto/.cache/phase77-recovery/runtime/editor-runtime/core-dev/lib/python3.13/site-packages/xdist/workermanage.py", line 112, in setup_node
+INTERNALERROR>     node.setup()
+INTERNALERROR>     ~~~~~~~~~~^^
+INTERNALERROR>   File "/home/mianliwang/projects/pietto/.cache/phase77-recovery/runtime/editor-runtime/core-dev/lib/python3.13/site-packages/xdist/workermanage.py", line 340, in setup
+INTERNALERROR>     basetemp = self.config._tmp_path_factory.getbasetemp()
+INTERNALERROR>   File "/home/mianliwang/projects/pietto/.cache/phase77-recovery/runtime/editor-runtime/core-dev/lib/python3.13/site-packages/_pytest/tmpdir.py", line 212, in getbasetemp
+INTERNALERROR>     rootdir.mkdir(mode=0o700, exist_ok=True)
+INTERNALERROR>     ~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^
+INTERNALERROR>   File "/home/mianliwang/.local/share/uv/python/cpython-3.13.13-linux-x86_64-gnu/lib/python3.13/pathlib/_local.py", line 722, in mkdir
+INTERNALERROR>     os.mkdir(self, mode)
+INTERNALERROR>     ~~~~~~~~^^^^^^^^^^^^
+INTERNALERROR> FileNotFoundError: [Errno 2] No such file or directory: '/home/mianliwang/projects/pietto/.cache/phase77-recovery/evidence/editor-focused-20261110T051000Z/run/tmp/pytest/pytest-of-unknown'

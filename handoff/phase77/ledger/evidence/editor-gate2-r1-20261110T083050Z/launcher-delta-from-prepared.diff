@@ -1,0 +1,57 @@
+--- editor-gate2-prepared-20261110T053000Z/run-editor-gate2.sh	2026-11-09 23:42:58.295777730 -0500
++++ editor-gate2-r1-20261110T083050Z/run-editor-gate2-r1.sh	2026-11-10 03:30:50.045138240 -0500
+@@ -21,7 +21,8 @@
+ readonly EXPECTED_WHEEL="9d2b31b0fa72ee40b1f671b5aa50f5eb0fedc83fdc19fe3d20bf2378e2921dd2"
+ readonly EXPECTED_SDIST="3639469b78ba7ca78cb42d590ebd7c608767707e5f4cee98b3537229674bc7bf"
+ readonly RUN_DIR="$EVIDENCE_DIR/run"
+-readonly TMP_ROOT="$RUN_DIR/tmp"
++readonly SCRATCH="/tmp/claude-1000/pietto-editor-gate2-r1-20261110T083050Z"
++readonly TMP_ROOT="$SCRATCH/tmp"
+ readonly BINDINGS="$RUN_DIR/bindings"
+ readonly COMMANDS="$RUN_DIR/commands"
+ MONITOR_PID=""
+@@ -35,7 +36,7 @@
+     exit 65
+ fi
+ 
+-mkdir -p "$TMP_ROOT/pytest" "$BINDINGS" "$COMMANDS" "$RUN_DIR/uv-cache" "$RUN_DIR/xdg-cache"
++mkdir -p "$RUN_DIR" "$TMP_ROOT/pytest" "$BINDINGS" "$COMMANDS" "$SCRATCH/uv-cache" "$SCRATCH/xdg-cache"
+ touch "$RUN_DIR/STARTED"
+ 
+ export UV_PYTHON=3.13.13
+@@ -43,14 +44,14 @@
+ export UV_NO_SYNC=1
+ export UV_LOCKED=1
+ export UV_PYTHON_DOWNLOADS=never
+-export UV_CACHE_DIR="$RUN_DIR/uv-cache"
++export UV_CACHE_DIR="$SCRATCH/uv-cache"
+ export UV_FIND_LINKS="$WHEELHOUSE"
+ export VIRTUAL_ENV="$RUNTIME/core-dev"
+ export UV_PROJECT_ENVIRONMENT="$VIRTUAL_ENV"
+ export PATH="$VIRTUAL_ENV/bin:$PATH"
+ export TMPDIR="$TMP_ROOT"
+ export PYTEST_DEBUG_TEMPROOT="$TMP_ROOT/pytest"
+-export XDG_CACHE_HOME="$RUN_DIR/xdg-cache"
++export XDG_CACHE_HOME="$SCRATCH/xdg-cache"
+ export PYTHONDONTWRITEBYTECODE=1
+ 
+ fail() {
+@@ -119,6 +120,9 @@
+         done
+         printf '%s\n' 'top_processes_pid_ppid_rss_comm:'
+         ps -eo pid=,ppid=,rss=,comm= --sort=-rss | awk 'NR <= 32 { print }'
++        printf '%s\n' 'rss_kib_by_comm_top12:'
++        ps -eo rss=,comm= | awk '{ n[$2]++; s[$2] += $1 } END { for (c in s) printf "%d %d %s\n", s[c], n[c], c }' | sort -rn | awk 'NR <= 12 { print }'
++        printf 'process_count=%s rg_count=%s\n' "$(ps -e --no-headers | wc -l)" "$(ps -C rg --no-headers | wc -l)"
+         printf '%s\n' '--'
+     } >> "$RUN_DIR/resource-monitor.log"
+ }
+@@ -262,7 +266,7 @@
+     UV_PROJECT_ENVIRONMENT="$UV_PROJECT_ENVIRONMENT" PATH="$PATH" TMPDIR="$TMPDIR" \
+     PYTEST_DEBUG_TEMPROOT="$PYTEST_DEBUG_TEMPROOT" XDG_CACHE_HOME="$XDG_CACHE_HOME" \
+     PYTHONDONTWRITEBYTECODE=1 "$CORE_PYTHON" -B scripts/validate.py --timings \
+-    --oom-guard on --pytest-workers 1 --pytest-maxprocesses 1 --pytest-dist loadfile
++    --oom-guard on --pytest-workers 8 --pytest-dist loadfile
+ capture_state after
+ require_equal "$BINDINGS/before.status" "$BINDINGS/after.status"
+ require_equal "$BINDINGS/before.patch" "$BINDINGS/after.patch"

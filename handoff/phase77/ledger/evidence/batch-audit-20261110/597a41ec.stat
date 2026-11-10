@@ -1,0 +1,38 @@
+597a41ec858f3a5c2639f5dc1b19074c675f6721 build: adopt PyArrow 26.0.1 and Psycopg 3.3.8
+
+ README.md                                          |   4 +-
+ ci/phase67-arrow-compatibility-requirements.txt    |  10 +-
+ ci/phase68-executor-premise-requirements.txt       |   4 +-
+ docs/architecture/layering-and-coupling-laws-v1.md |   2 +-
+ docs/execution.md                                  |  32 ++--
+ docs/project-package.md                            |   8 +-
+ docs/spec/diagnostics.md                           |   2 +-
+ pyproject.toml                                     |  12 +-
+ scripts/ci_workloads.py                            |   2 +-
+ scripts/package_smoke.py                           |   4 +-
+ src/pietto/_project/project_arrow_result.py        |   2 +-
+ src/pietto/_project/project_execution_postgres.py  |   4 +-
+ .../project_execution_postgres_adbc_native.py      |   2 +-
+ tests/_pietto_execution_api.py                     |   2 +-
+ tests/_pietto_execution_api_mysql_native.py        |   2 +-
+ tests/_pietto_execution_cases.py                   |   6 +-
+ tests/_pietto_execution_installation_check.py      |  20 ++-
+ tests/_pietto_execution_installation_probe.py      |   8 +-
+ tests/_pietto_repo_package.py                      |  10 +-
+ tests/_pietto_results_arrow_compatibility.py       |   2 +-
+ tests/_pietto_results_consumer.py                  |   4 +-
+ tests/_pietto_results_nested.py                    |   2 +-
+ tests/_pietto_results_nested_ipc_oracle.py         |   4 +-
+ tests/_pietto_results_product.py                   |   2 +-
+ tests/_pietto_target_conformance.py                |   4 +-
+ tests/phase66_target_pins.json                     |   4 +-
+ tests/test_ci_results_governance.py                |   4 +-
+ tests/test_execution_postgres_adbc.py              |   2 +-
+ tests/test_harness_execution_api_mysql_native.py   |   2 +-
+ tests/test_harness_target_conformance.py           |   2 +-
+ tests/test_release_installation.py                 |  54 +++---
+ tests/test_results_consumer.py                     |   2 +-
+ tests/test_results_contract.py                     |   2 +-
+ tests/test_results_optional_arrow.py               |  31 ++--
+ uv.lock                                            | 187 +++++++++++----------
+ 35 files changed, 231 insertions(+), 213 deletions(-)

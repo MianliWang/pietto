@@ -1,0 +1,50 @@
+
+> pietto-vscode-extension@0.3.0 package
+> node -e "require('node:fs').mkdirSync('artifacts', {recursive: true})" && vsce package --out artifacts
+
+Executing prepublish script 'npm run vscode:prepublish'...
+
+> pietto-vscode-extension@0.3.0 vscode:prepublish
+> npm run build
+
+
+> pietto-vscode-extension@0.3.0 build
+> tsc -p .
+
+ WARNING  This extension consists of 338 files, out of which 168 are JavaScript files. For performance reasons, you should bundle your extension: https://aka.ms/vscode-bundle-extension. You should also exclude unnecessary files by adding them to your .vscodeignore: https://aka.ms/vscode-vscodeignore.
+
+ INFO  Files included in the VSIX:
+pietto-vscode-extension-0.3.0.vsix
+├─ [Content_Types].xml 
+├─ extension.vsixmanifest 
+└─ extension/
+   ├─ LICENSE.txt [1.04 KB]
+   ├─ changelog.md 
+   ├─ language-configuration.json [0.73 KB]
+   ├─ package.json [4.72 KB]
+   ├─ readme.md 
+   ├─ examples/
+   │  ├─ single.pietto [0.36 KB]
+   │  ├─ stages.pietto [0.44 KB]
+   │  └─ project/ (5 files) [1.14 KB]
+   ├─ images/
+   │  ├─ icon.png [2.18 KB]
+   │  ├─ pietto-file-dark.svg [0.85 KB]
+   │  ├─ pietto-file-light.svg [0.89 KB]
+   │  └─ pietto-readme-banner.png [26.51 KB]
+   ├─ node_modules/
+   │  ├─ semver/ (53 files) [98.7 KB]
+   │  ├─ vscode-jsonrpc/ (48 files) [203.49 KB]
+   │  ├─ vscode-languageclient/ (137 files) [704.62 KB]
+   │  ├─ vscode-languageserver-protocol/ (68 files) [356.78 KB]
+   │  └─ vscode-languageserver-types/ (9 files) [367.87 KB]
+   ├─ out/
+   │  └─ src/ (3 files) [22.53 KB]
+   ├─ snippets/
+   │  └─ pietto.json [6.89 KB]
+   └─ syntaxes/
+      └─ pietto.tmLanguage.json [22.11 KB]
+
+=> Run vsce ls --tree to see all included files.
+
+ DONE  Packaged: artifacts/pietto-vscode-extension-0.3.0.vsix (338 files, 511.35 KB)

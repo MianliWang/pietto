@@ -1,0 +1,43 @@
+2026-11-10T04:20:36.830Z pg: lock held
+2026-11-10T04:20:36.836Z pg: package 60cc4cadfc7f73a3 c30f6dce748a1208 986d141a2ceb2ecd b58ffaf5a2482b46 dd3cb68067887ee8 ae88786297bbec9c b634b69535b04f73 9b0a522ddd990f22 2929d39b026f7030 56a174068d13d339 94e22b81af11cb29 1091fc2827007cad 2a310b4f7e60f444 f55c24a9033b0c36 58a10935043b57fa 9ba40edddb7cf1f6 936a2829a9d65d13 d8c3c92b281d82fd 0abc00558c7b844c 37c0467f2c9cce3f 340305ea9c1be2dd 
+2026-11-10T04:20:36.899Z pg: certificates notAfter=Jan  9 04:19:41 2027 GMT notAfter=Jan  9 04:19:41 2027 GMT
+{"binding": "/home/mianliwang/projects/pietto/.cache/phase77-recovery/native-maintenance/runnable-rebind/pg-tls/fresh-binding.json", "status": "exact"}
+2026-11-10T04:20:37.297Z pg: candidate base=f8ccd2c44a2d9adf431a496bd9bbae037783176f patch=548e72276b20c2bff3bb0613a527ef230fb9095942b562dca32a6150da12e1cc wheel=f4c96921c4d4ceb057830f2dd21f2e634325dac2bef933532747ae4aab963a73 lock=b2cc96b25b0b9f2225c4529f0123ae869cd804af0578b4f83c931a15aa893064 binding=94e22b81af11cb2990c80111f214b40b40f5981e64bb29db6ac257298773a894
+2026-11-10T04:20:37.450Z pg: image sha256:f372eda99ac2ea249c3dce566dcdf468397035371284d2cf2103b4bc52b3b39e tags=[] digests=[postgres@sha256:a10c981235b4f635e65df0cfb66a5598064628128505dbc6a3ed4ca303717521]
+2026-11-10T04:20:37.472Z pg: docker run
+eca7c8457bc160d8d47231cfa83c8fdbee87c2d6af9a0359a1c2c438cbf7f29b
+2026-11-10T04:20:40.006Z pg: ready=1 after loop 2
+2026-11-10T04:20:40.028Z pg: inspect created=2026-11-10T04:20:37.514876009Z image=sha256:f372eda99ac2ea249c3dce566dcdf468397035371284d2cf2103b4bc52b3b39e nanocpus=2000000000 memory=2147483648 network=none tmpfs={"/var/lib/postgresql":"rw,size=1g"} cmd=["postgres","-c","timezone=UTC"]
+ pg_reload_conf 
+----------------
+ t
+(1 row)
+
+2026-11-10T04:20:41.517Z pg: version=18.6 (Debian 18.6-1.pgdg12+2) ssl=on cert=/var/lib/postgresql/tls/server.pem log_connections=on hba=/var/lib/postgresql/18/docker/pg_hba.conf hba_errors=0 hba_rules=2
+2026-11-10T04:20:41.621Z pg: relay pid=554804 port=51465
+2026-11-10T04:20:44.882Z cell A1_full_ok postgres_rows exit 0
+2026-11-10T04:20:47.610Z cell A2_wrong_ca postgres_rows exit 0
+2026-11-10T04:20:48.269Z cell A3_missing_ca postgres_rows exit 0
+2026-11-10T04:20:50.976Z cell A4_require postgres_rows exit 0
+2026-11-10T04:20:53.402Z cell A5_disable_ca postgres_rows exit 0
+2026-11-10T04:20:55.753Z cell A6_system_ca postgres_rows exit 0
+2026-11-10T04:20:58.200Z cell C1_ambient_pgsslrootcert postgres_rows exit 0
+2026-11-10T04:21:00.940Z cell A1_full_ok postgres_adbc exit 0
+2026-11-10T04:21:03.469Z cell A2_wrong_ca postgres_adbc exit 0
+2026-11-10T04:21:06.008Z cell A3_missing_ca postgres_adbc exit 0
+2026-11-10T04:21:08.857Z cell A4_require postgres_adbc exit 0
+2026-11-10T04:21:11.281Z cell A5_disable_ca postgres_adbc exit 0
+2026-11-10T04:21:13.735Z cell A6_system_ca postgres_adbc exit 0
+2026-11-10T04:21:16.115Z cell C1_ambient_pgsslrootcert postgres_adbc exit 0
+ pg_reload_conf 
+----------------
+ t
+(1 row)
+
+2026-11-10T04:21:17.555Z pg: swapped ssl=on cert=/var/lib/postgresql/tls/elsewhere.pem
+2026-11-10T04:21:19.066Z cell B1_wrong_host postgres_rows exit 0
+2026-11-10T04:21:19.729Z cell B2_require_any_name postgres_rows exit 0
+2026-11-10T04:21:22.091Z cell B1_wrong_host postgres_adbc exit 0
+2026-11-10T04:21:24.877Z cell B2_require_any_name postgres_adbc exit 0
+pietto-p77-maint-pg-6e9bebbcef2b025b81cf508b
+2026-11-10T04:21:28.212Z pg: cleanup={"container":{"id":"eca7c8457bc160d8d47231cfa83c8fdbee87c2d6af9a0359a1c2c438cbf7f29b","label":"pietto.phase77.pg-run=6e9bebbcef2b025b81cf508b","label_value":"6e9bebbcef2b025b81cf508b","name":"pietto-p77-maint-pg-6e9bebbcef2b025b81cf508b"},"container_absent":true,"relay":{"reaped":true,"wait_status":143},"server_log_captured":true}

@@ -1,0 +1,9 @@
+{
+  "answered_at_local": "2026-11-10 (America/Toronto), Claude takeover session",
+  "channel": "AskUserQuestion in Claude Code after the owner said 继续 on CLAUDE-HANDOFF.md",
+  "answers": {
+    "phase77_d_ceiling": "Raise D4000 -> D10000; C280/F850/S12 and all historical costs kept (recorded as D77.03)",
+    "mysql_nested_transport": "Private versioned JSON envelope mysql_json_envelope_v1 (recorded as AD77.01); count + per-child JSON arrays not selected"
+  },
+  "not_granted": ["commit", "push", "tag", "release", "external CI", "Phase78-80 start"]
+}

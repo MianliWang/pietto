@@ -1,0 +1,521 @@
+*** Begin Patch
+*** Add File: /tmp/pietto-phase80-interop/gate1-concrete.md
++# Phase80 interoperability: concrete Gate1 supplement
++
++Status: read-only preparation, 2026-11-08.  This supplements
++`gate1-mapping.md`; it does not select a public API, add a dependency, or
++authorize a Phase80 slice.
++
++## Answer
++
++No five-adapter public API is uniquely derivable today.  The existing
++contracts uniquely fix the *input boundary* and several refusals, but they do
++not fix a target library's accepted Arrow types, dtype/null representation,
++copy/retention behaviour, plot ownership, sparse-coordinate meaning, package
++layout, pins, or public error taxonomy.  Those are `USER_DECISION_REQUIRED`
++at Phase80 Gate1, not implementation details.
++
++What **is** already fixed:
++
++* Every adapter consumes exactly one caller-owned
++  `pietto.execution.ResultBatch`, never a `ResultHandle`, iterator, SQL text,
++  compiled query, or database connection.  Passing a handle to a library can
++  open and consume an attempt; the public documentation explicitly rules this
++  out.
++* The public C Data hand-off is
++  `pyarrow.record_batch(batch)`.  An imported Arrow record batch shares the
++  batch buffers and remains usable after `ResultBatch.close()`.  An adapter
++  therefore receives an open batch, does not close it, and must return an
++  object that remains usable after that close.  This is a lifetime guarantee,
++  not a zero-copy guarantee for any target object.
++* A closed input already fails with public `PIE-R4002`; an adapter must not
++  bypass that guard through private result owners.  The existing package pin
++  and provenance guard apply to `pyarrow==26.0.0` only.
++* Current batches have one **uniquely labelled** field per selected column,
++  in select order; rows retain server order and multiplicity.  Thus a
++  duplicate-field-name policy is not an input ambiguity for the present
++  `ResultBatch` contract.  Integer selectors remain a useful explicit API,
++  but are not a license to invent a name winner.
++* The current public Arrow result domain is finite `Int`, `Bool`, `Float`,
++  `Text`, `Decimal`, `Date`, timezone-free microsecond `Timestamp`, `UUID`,
++  and one-level `list<struct<...>>`.  `Float` is finite-only: NaN and infinity
++  are rejected before a batch is issued, while binary64 signed zero is kept.
++  There is no current generic Binary/dictionary/enum Arrow-result admission.
++  Therefore a Phase80 promise about NaN, generic binary, or enum/dictionary
++  conversion needs a separate result-domain decision; it cannot be justified
++  by the current batch boundary.
++
++`D75.03` does not add an executable batch: it says only that
++`compile_queries(...)` is a Phase80 Gate1 candidate.  It cannot be smuggled
++in as an adapter convenience or used to make a whole-result conversion.  The
++five adapters are complete without it; if it is selected, its compilation,
++trust, execution, multi-query ownership and result grouping form a separate
++Gate1 decision set.
++
++## Concrete candidate surface (requires Gate1 approval)
++
++The smallest coherent public spelling is a lazy `pietto.interop` package with
++one module per optional target.  The root package must be importable in the
++core-only installation and contain no optional imports.  Each function imports
++its own target and `pyarrow` only when called.
++
++```python
++# pietto.interop.pandas
++def to_pandas(batch: ResultBatch) -> "pandas.DataFrame": ...
++
++# pietto.interop.polars
++def to_polars(batch: ResultBatch) -> "polars.DataFrame": ...
++
++# pietto.interop.numpy
++def to_numpy(
++    batch: ResultBatch, column: int
++) -> tuple["numpy.ndarray", "numpy.ndarray"]: ...
++
++# pietto.interop.scipy
++def to_scipy_csr(
++    batch: ResultBatch,
++    row: int,
++    column: int,
++    value: int,
++    shape: tuple[int, int],
++) -> "scipy.sparse.csr_matrix": ...
++
++# pietto.interop.matplotlib
++def plot_line(
++    batch: ResultBatch, x: int, y: int, *, ax: "matplotlib.axes.Axes"
++) -> "matplotlib.lines.Line2D": ...
++
++def plot_scatter(
++    batch: ResultBatch, x: int, y: int, *, ax: "matplotlib.axes.Axes"
++) -> "matplotlib.collections.PathCollection": ...
++```
++
++This is a recommendation, not an inferred contract.  It deliberately takes
++an `Axes` rather than `ax=None`: requiring a caller-owned axes avoids silently
++choosing pyplot/current-axes/figure/backend ownership.  If the owner prefers
++the mapping's `ax=None`, Gate1 must instead specify whether a figure is
++created, who owns it, and whether importing pyplot or selecting a backend is
++permitted.
++
++The uniform two-array NumPy return is the least ambiguous nullable form:
++`(data, valid)` has equal one-dimensional shape and `valid.dtype == bool`,
++where `True` means the corresponding `data` item is present.  Gate1 still
++must decide the value in `data` where `valid` is false (or replace this choice
++with a masked array/refusal).  A plain `ndarray` is admissible only for an
++exact, non-null scalar column.  The signature never accepts a label because
++the API should not create a label-selection convention when positional select
++order is already the retained identity.
++
++The CSR candidate has no implicit coordinate convention: its Gate1 contract
++would need to say that all three selected fields are non-null exact integers
++for row/column and an admitted exact numeric value, coordinates are zero-based,
++`0 <= row < shape[0]` and `0 <= column < shape[1]`, duplicate coordinates
++refuse before CSR construction, and stored zero differs from missing.  A
++one-based convention, duplicate summing, conversion of an Int value to Float,
++or a shape inferred from observed maxima are materially different products.
++
++## Per-adapter admission and loss boundary
++
++The table is an approval checklist, not a claim about any uninstalled target.
++Every `admit` row needs an installed-product witness against the chosen pin;
++all other current Arrow types refuse before a target object is returned.
++
++| Adapter | Safe fixed boundary | Gate1 must choose and prove | Minimum initial refusal boundary |
++| --- | --- | --- | --- |
++| pandas | one completed Arrow batch, source field/row order, batch stays caller-owned | exact DataFrame dtype/null mapping; Decimal, date/timestamp, UUID and typed-empty handling; whether one-level nested rows are admitted | no string/object/JSON fallback; no rename, reorder, fill/drop or whole-handle materialization |
++| Polars | same as pandas | exact eager frame and null/type mapping; typed empty and nested list/struct representation | no string/JSON fallback, flattening, implicit collect, reorder or row loss |
++| NumPy | one positional scalar column | concrete scalar dtype table; nullable pair rule; false-mask payload; signed-zero byte witness; typed empty result | nested, Decimal/temporal/UUID/Text/Bool until each is proved; no object dtype, float widening, label lookup or null-to-NaN/zero |
++| SciPy | explicit three positions plus explicit shape | coordinate base, permitted value kinds/dtype, zero representation and duplicate rule | nulls, non-Int coordinates, negative/out-of-range coordinates, duplicate coordinates, inferred shape and null-to-zero |
++| Matplotlib | two positional scalar columns and caller-owned Axes | accepted numeric/date domains; null rule; whether the finite current result domain is sufficient; returned artist type | nested/non-numeric, nulls unless explicitly specified, sorting, aggregation, display, save, global-axes or backend side effects |
++
++For pandas and Polars, “one-level nesting” is expressly a Phase80 decision
++candidate in the roadmap.  It is not inherited merely because the private
++Arrow result owner can construct `list<struct<...>>`.  For NumPy, SciPy and
++Matplotlib, that shape is a whole-conversion refusal.  Empty batches retain
++the Arrow schema today; a target-specific typed-empty promise must be proved
++rather than inferred from a non-empty conversion.
++
++The mapping's future NaN rows cannot be an initial adapter acceptance test:
++the current result producer refuses NaN.  The correct initial tests are finite
++float nullability (if selected), IEEE signed-zero preservation, and a distinct
++future product decision if NaN is ever admitted upstream.
++
++## Ownership, errors, and dependency boundary
++
++1. The caller owns `ResultBatch`; adapters borrow it only for the synchronous
++   call and never call `close()`.  The returned target object is caller-owned.
++   An adapter may copy, or retain an imported Arrow object internally, to meet
++   post-close usability.  It makes no buffer-address, allocator, RSS, device,
++   thread-safety, or target mutability promise.
++2. Conversion starts by importing one checked Arrow `RecordBatch` through the
++   public protocol.  It does not call `_project` result builders, inspect SQL,
++   rebuild the schema, or consume a stream.  It cannot execute a query or
++   extend a result beyond this one batch.
++3. Existing `HandleMisuse`/`PIE-R4002` remains the closed-batch outcome.
++   The public exception/code for missing, wrong-version, shadowed, or target-
++   conversion-incompatible optional packages is **not** selected today.  Gate1
++   must choose either one new public interoperability error family or precise
++   propagation rules; reusing execution route diagnostics would conflate
++   target conversion with database execution.
++4. Keep `arrow` as the existing `pyarrow==26.0.0` extra.  The minimum package
++   shape is five independent extras, each resolving the Arrow pin plus exactly
++   its named target pin: `pandas`, `polars`, `numpy`, `scipy`, and
++   `matplotlib`.  A combined `interop` extra, target pins, transitive
++   constraints, and supported wheel/platform matrix are Gate1/package
++   decisions.  No dependency is added to core or the existing execution extras
++   by implication.
++5. Clean core imports and every individual extra selection must be tested.
++   Missing/wrong/shadowed target and Arrow packages fail before conversion;
++   importing another adapter must not require that target.  Current Linux
++   x86-64 CPython 3.12/3.13 Arrow evidence cannot prove support for the five
++   new targets.
++
++## Existing code and test ownership to reuse
++
++* `pietto.execution.ResultBatch` and `docs/execution.md` own the public
++  one-batch, close and lifetime contract.  Reuse `pyarrow.record_batch(batch)`
++  exactly; do not expose the private `ManagedBatch`, bindings or readers.
++* `project_arrow_result` remains the single scalar/nested Arrow schema and
++  full-validation owner.  It already selects `pyarrow==26.0.0`, validates
++  field order/nullability/type, and creates the schema-bearing empty batch.
++  Adapters consume it; they do not re-decide it.
++* `project_arrow_interop` already implements private CPU C Data ownership and
++  borrowed/copy safety.  It is not a public data-science adapter API and must
++  not become the bypass around `ResultBatch`.
++* `tests/test_execution_api_results.py`, `tests/test_results_arrow_ownership.py`,
++  `tests/test_results_optional_arrow.py`, and the result type/consumer owners
++  provide the present boundary witnesses.  Extend their deepest product owner
++  for common public-batch/lifetime behaviour; add target tests by product
++  function only (for example `tests/test_results_interop_pandas.py`), never a
++  Phase80-named test or a test-to-test import.
++* Package smoke, lock, clean-install and installed-product owners must cover
++  every selected extra.  This is not a database change: no DB campaign is
++  implied by one-batch conversion tests.
++
++## Phase80 initiation and budget draft
++
++This is a planning input, not authority.  It assumes the five adapters remain
++mandatory for `0.2.0`, retains all other Phase80 candidates as explicit
++deferrals, and starts no work before all blocking Gate1 choices below are
++recorded.
++
++### Blocking Gate1 decisions
++
++1. Approve/reject the six concrete public signatures above, including required
++   `Axes` versus `ax=None`, NumPy null return semantics, and the adapter error
++   family.
++2. Freeze an initial per-library type/loss table: each scalar, nullability,
++   empty-schema, signed-zero, Decimal/temporal/UUID and nested row is either
++   admitted with a target-pin witness or refused.  NaN needs an upstream
++   product decision first.
++3. Select all five target pins, extras and supported installed-product matrix;
++   decide whether a combined convenience extra exists.  This requires package
++   qualification, not a “latest” lookup during design.
++4. Select SciPy coordinate base/value/duplicate/zero rules and Matplotlib
++   null/date/figure/backend policy.  Neither follows from Arrow C Data.
++5. Decide `compile_queries(...)`, database-native array/JSON,
++   `postgres_adbc` nested, Float `round(..., digits)`, and the Arrow analysis
++   example independently.  The recommended initial adapter route takes none
++   of them.
++
++### Minimal route after approval
++
++| Slice | One owner-level outcome | Main verification |
++| --- | --- | --- |
++| S01 | common lazy public package, error/lifetime boundary, extras/clean-core contract | core import; one-batch/no-handle/closed-batch/lifetime; package selection damages |
++| S02 | pandas and Polars flat contracts, plus only approved nesting | exact type/null/empty/order/multiplicity and installed-product witnesses |
++| S03 | NumPy positional column and approved nullable representation | dtype/mask/empty/bounds/signed-zero/refusal matrix |
++| S04 | SciPy CSR explicit-coordinate contract | coordinate/shape/duplicate/zero/null damage matrix |
++| S05 | Matplotlib caller-Axes artists | identity/order/no-show-save/null/refusal matrix |
++| S06 | cross-extra package smoke, docs/examples, acquisition consolidation and audit-only closure | clean installations, public docs, final affected readers; no DB campaign unless another selected scope needs one |
++
++Proposed initial ceiling: `C90/F260/D1200/S8`, cumulative; `D` counts design
++and qualification commands as well as implementation diagnostics, and the lead
++stops for owner direction at any cap.  It is intentionally lower than the
++semantic/dialect phases but reserves real installed-product qualification and
++the required final affected-reader/package closure.  Gate1 should raise this
++only if it admits nesting, a new result domain, `compile_queries(...)`, or a
++database-native/ADBC candidate; those are scope additions, not repairs.
++
++No library was installed, no latest pin was queried, no database or test was
++run, and no repository file was changed for this supplement.
+*** End Patch
+
+*** Begin Patch
+*** Delete File: /tmp/pietto-phase80-interop/gate1-concrete.md
+*** Add File: /tmp/pietto-phase80-interop/gate1-concrete.md
++# Phase80 interoperability: concise Gate1 supplement
++
++Status: read-only preparation, 2026-11-08.  This supplements
++`gate1-mapping.md`; it neither selects a public API nor authorizes a slice.
++
++## Answer
++
++The existing contracts uniquely determine the safe seam, not five complete
++library contracts.  A Phase80 adapter must consume one open, caller-owned
++`pietto.execution.ResultBatch`; it must never accept a `ResultHandle`, query,
++SQL, iterator or whole result.  `pyarrow.record_batch(batch)` is the existing
++standard C Data conversion and must be reused.  The adapter neither closes the
++batch nor opens a database; its returned object remains usable after the batch
++closes, without a zero-copy, RSS, device, mutability or thread-safety promise.
++
++The source guarantees select order, row order, multiplicity and a unique field
++label per selected column.  A closed batch already raises `PIE-R4002` through
++the public `ResultBatch` guard.  Current Float output is finite binary64;
++signed zero is retained, but NaN and infinity are refused before a batch is
++issued.  Current results do not admit generic Binary/dictionary/enum output.
++No target conversion may silently fill/drop/rename/reorder/flatten/stringify or
++JSON-encode a value.
++
++There is no existing public data-science adapter to reuse.  The relevant
++existing reuse is exactly `ResultBatch`, `pyarrow.record_batch(batch)`, and the
++private Arrow result/ownership owners as their producers—not as an alternate
++public input.  There is no reason for each adapter to add its own error layer:
++closed-batch failures retain their existing public error and missing optional
++packages or target conversion failures use the normal import/target exception
++until Gate1 specifies otherwise.
++
++`D75.03` still makes `compile_queries(...)` only a Phase80 Gate1 candidate.
++It is not needed to convert one batch and must not be introduced as an adapter
++convenience.  The recommended route defers it, along with database-native
++array/JSON, `postgres_adbc` nested output, Float `round(..., digits)`, and the
++analysis example.
++
++## Single recommended v1 contract
++
++Use one small lazy public module, with local imports at call time:
++
++```python
++from pietto.interop import (
++    plot_line,
++    plot_scatter,
++    to_numpy,
++    to_pandas,
++    to_polars,
++    to_scipy_csr,
++)
++
++def to_pandas(batch: ResultBatch) -> "pandas.DataFrame": ...
++def to_polars(batch: ResultBatch) -> "polars.DataFrame": ...
++def to_numpy(batch: ResultBatch, column: int) -> "numpy.ndarray": ...
++def to_scipy_csr(
++    batch: ResultBatch,
++    row: int,
++    column: int,
++    value: int,
++    shape: tuple[int, int],
++) -> "scipy.sparse.csr_matrix": ...
++def plot_line(
++    batch: ResultBatch, x: int, y: int, *, ax: "matplotlib.axes.Axes"
++) -> "matplotlib.lines.Line2D": ...
++def plot_scatter(
++    batch: ResultBatch, x: int, y: int, *, ax: "matplotlib.axes.Axes"
++) -> "matplotlib.collections.PathCollection": ...
++```
++
++This is one recommended complete initial type/loss contract, to approve as one
++document and then verify against the selected installed targets:
++
++| Consumer | Admit | Preserve / refuse |
++| --- | --- | --- |
++| pandas, Polars | flat `Int`, `Bool`, finite `Float`, `Text`, including a typed empty batch | source field/row order, multiplicity and nulls; document the observed target dtype under its pin; refuse Decimal, Date, Timestamp, UUID and nested fields until individually admitted |
++| NumPy | one non-null `Int`, `Bool` or finite `Float` column | exact native dtype and shape, including typed empty and Float signed zero; refuse nullable, Text, Decimal, temporal, UUID and nested columns rather than introduce a mask/object convention |
++| SciPy | three non-null `Int64` columns for row, column and value | zero-based coordinates, explicit non-negative shape, no duplicate coordinates, stored zero distinct from missing; refuse all other types, negative/out-of-range indices and inferred shape |
++| Matplotlib | two non-null `Int` or finite `Float` columns and caller-supplied `Axes` | supplied order and returned artist identity; no sorting, aggregation, `show`, `save`, pyplot/current-Axes/backend selection or implicit figure ownership; refuse null, nonnumeric and nested inputs |
++
++Passing `ax` is required rather than using `ax=None`, so the API makes no
++hidden figure/backend ownership choice.  Positional selectors retain source
++order and avoid adding a second label-selection convention.  The narrow
++admission set is intentional: it makes all five libraries usable for the
++0.2.0 requirement while keeping every unproved conversion fail-closed.
++
++The current Arrow maintenance selection to consume is `pyarrow==26.0.1`.
++The checked-out result owner and package metadata still name `26.0.0`; this is
++not evidence against the maintenance selection and this report changes neither.
++The implementation should use the existing optional-dependency mechanism,
++keep imports lazy, and update the pinned package/install witnesses together;
++module subdivision, extra convenience groups and each target's mechanical pin
++are ordinary package implementation work, not further owner decisions.
++
++## The only two Gate1 choices
++
++1. **Approve the ResultBatch interoperability v1 type contract above.**  This
++   one approval covers the public signatures, pandas/Polars dtype/null witness
++   requirement, NumPy nullable refusal, SciPy coordinate/duplicate/zero law,
++   Matplotlib caller-Axes rule, all stated refusals, and no new adapter error
++   wrapper.  Each admitted row requires an installed-product witness; an
++   unproved target behaviour remains refused.
++2. **Confirm the recommended Phase80 scope boundary.**  Deliver only those
++   five one-batch adapters and defer `compile_queries(...)` and every other
++   listed Phase80 candidate.  Selecting any deferral is a new scope decision,
++   not a repair.
++
++## Reuse, verification, and route
++
++* Reuse `ResultBatch` and `docs/execution.md` for caller ownership and
++  post-close lifetime; reuse `project_arrow_result` as the sole checked schema
++  owner and `project_arrow_interop` only as its private C Data producer.
++* Extend the existing execution/result public and ownership tests for the
++  common boundary.  Add target tests by product function, not phase name.
++  Check core-only import, each selected optional installation, missing package,
++  closed batch, no handle/database open, order/multiplicity/null/refusal, typed
++  empty, signed zero, and post-close usability.  Package smoke and installed
++  consumers cover changed package inputs.  No database campaign follows from
++  one-batch conversion.
++* After Gate1, use six small slices: common public/lifetime/package boundary;
++  pandas+Polars; NumPy; SciPy; Matplotlib; package/docs/acquisition/audit.
++  This groups shared concerns without creating a framework.
++
++## Budget status
++
++No numeric `C/F/D/S` budget can be proposed truthfully from the current
++authority.  The repository's accessible records call `S` a scope-repair cap
++in particular phase decisions, and Phase76's `D` definition counts diagnostic
++commands; they do not define reusable Phase80 meanings for `C` or `F`, nor do
++they say that design/qualification commands count as `D`.  The budget draft is
++therefore `C=UNKNOWN, F=UNKNOWN, D=UNKNOWN, S=UNKNOWN`, with Gate1 required to
++define each unit and cap before a slice starts.  This report does not infer a
++count from historical phase budgets.
++
++No library was installed, no latest pin was queried, no test or database was
++run, and no repository file was changed.
+*** End Patch
+
+*** Begin Patch
+*** Add File: /tmp/pietto-phase80-interop/gate1-concrete.md
++# Phase80 interoperability: concise Gate1 supplement
++
++Status: read-only preparation, 2026-11-08.  This supplements
++`gate1-mapping.md`; it neither selects a public API nor authorizes a slice.
++
++## Answer
++
++The existing contracts uniquely determine the safe seam, not five complete
++library contracts.  A Phase80 adapter must consume one open, caller-owned
++`pietto.execution.ResultBatch`; it must never accept a `ResultHandle`, query,
++SQL, iterator or whole result.  `pyarrow.record_batch(batch)` is the existing
++standard C Data conversion and must be reused.  The adapter neither closes the
++batch nor opens a database; its returned object remains usable after the batch
++closes, without a zero-copy, RSS, device, mutability or thread-safety promise.
++
++The source guarantees select order, row order, multiplicity and a unique field
++label per selected column.  A closed batch already raises `PIE-R4002` through
++the public `ResultBatch` guard.  Current Float output is finite binary64;
++signed zero is retained, but NaN and infinity are refused before a batch is
++issued.  Current results do not admit generic Binary/dictionary/enum output.
++No target conversion may silently fill/drop/rename/reorder/flatten/stringify or
++JSON-encode a value.
++
++There is no existing public data-science adapter to reuse.  The relevant
++existing reuse is exactly `ResultBatch`, `pyarrow.record_batch(batch)`, and the
++private Arrow result/ownership owners as their producers—not as an alternate
++public input.  There is no reason for each adapter to add its own error layer:
++closed-batch failures retain their existing public error and missing optional
++packages or target conversion failures use the normal import/target exception
++until Gate1 specifies otherwise.
++
++`D75.03` still makes `compile_queries(...)` only a Phase80 Gate1 candidate.
++It is not needed to convert one batch and must not be introduced as an adapter
++convenience.  The recommended route defers it, along with database-native
++array/JSON, `postgres_adbc` nested output, Float `round(..., digits)`, and the
++analysis example.
++
++## Single recommended v1 contract
++
++Use one small lazy public module, with local imports at call time:
++
++```python
++from pietto.interop import (
++    plot_line,
++    plot_scatter,
++    to_numpy,
++    to_pandas,
++    to_polars,
++    to_scipy_csr,
++)
++
++def to_pandas(batch: ResultBatch) -> "pandas.DataFrame": ...
++def to_polars(batch: ResultBatch) -> "polars.DataFrame": ...
++def to_numpy(batch: ResultBatch, column: int) -> "numpy.ndarray": ...
++def to_scipy_csr(
++    batch: ResultBatch,
++    row: int,
++    column: int,
++    value: int,
++    shape: tuple[int, int],
++) -> "scipy.sparse.csr_matrix": ...
++def plot_line(
++    batch: ResultBatch, x: int, y: int, *, ax: "matplotlib.axes.Axes"
++) -> "matplotlib.lines.Line2D": ...
++def plot_scatter(
++    batch: ResultBatch, x: int, y: int, *, ax: "matplotlib.axes.Axes"
++) -> "matplotlib.collections.PathCollection": ...
++```
++
++This is one recommended complete initial type/loss contract, to approve as one
++document and then verify against the selected installed targets:
++
++| Consumer | Admit | Preserve / refuse |
++| --- | --- | --- |
++| pandas, Polars | flat `Int`, `Bool`, finite `Float`, `Text`, including a typed empty batch | source field/row order, multiplicity and nulls; document the observed target dtype under its pin; refuse Decimal, Date, Timestamp, UUID and nested fields until individually admitted |
++| NumPy | one non-null `Int`, `Bool` or finite `Float` column | exact native dtype and shape, including typed empty and Float signed zero; refuse nullable, Text, Decimal, temporal, UUID and nested columns rather than introduce a mask/object convention |
++| SciPy | three non-null `Int64` columns for row, column and value | zero-based coordinates, explicit non-negative shape, no duplicate coordinates, stored zero distinct from missing; refuse all other types, negative/out-of-range indices and inferred shape |
++| Matplotlib | two non-null `Int` or finite `Float` columns and caller-supplied `Axes` | supplied order and returned artist identity; no sorting, aggregation, `show`, `save`, pyplot/current-Axes/backend selection or implicit figure ownership; refuse null, nonnumeric and nested inputs |
++
++Passing `ax` is required rather than using `ax=None`, so the API makes no
++hidden figure/backend ownership choice.  Positional selectors retain source
++order and avoid adding a second label-selection convention.  The narrow
++admission set is intentional: it makes all five libraries usable for the
++0.2.0 requirement while keeping every unproved conversion fail-closed.
++
++The current Arrow maintenance selection to consume is `pyarrow==26.0.1`.
++The checked-out result owner and package metadata still name `26.0.0`; this is
++not evidence against the maintenance selection and this report changes neither.
++The implementation should use the existing optional-dependency mechanism,
++keep imports lazy, and update the pinned package/install witnesses together;
++module subdivision, extra convenience groups and each target's mechanical pin
++are ordinary package implementation work, not further owner decisions.
++
++## The only two Gate1 choices
++
++1. **Approve the ResultBatch interoperability v1 type contract above.**  This
++   one approval covers the public signatures, pandas/Polars dtype/null witness
++   requirement, NumPy nullable refusal, SciPy coordinate/duplicate/zero law,
++   Matplotlib caller-Axes rule, all stated refusals, and no new adapter error
++   wrapper.  Each admitted row requires an installed-product witness; an
++   unproved target behaviour remains refused.
++2. **Confirm the recommended Phase80 scope boundary.**  Deliver only those
++   five one-batch adapters and defer `compile_queries(...)` and every other
++   listed Phase80 candidate.  Selecting any deferral is a new scope decision,
++   not a repair.
++
++## Reuse, verification, and route
++
++* Reuse `ResultBatch` and `docs/execution.md` for caller ownership and
++  post-close lifetime; reuse `project_arrow_result` as the sole checked schema
++  owner and `project_arrow_interop` only as its private C Data producer.
++* Extend the existing execution/result public and ownership tests for the
++  common boundary.  Add target tests by product function, not phase name.
++  Check core-only import, each selected optional installation, missing package,
++  closed batch, no handle/database open, order/multiplicity/null/refusal, typed
++  empty, signed zero, and post-close usability.  Package smoke and installed
++  consumers cover changed package inputs.  No database campaign follows from
++  one-batch conversion.
++* After Gate1, use six small slices: common public/lifetime/package boundary;
++  pandas+Polars; NumPy; SciPy; Matplotlib; package/docs/acquisition/audit.
++  This groups shared concerns without creating a framework.
++
++## Budget status
++
++No numeric `C/F/D/S` budget can be proposed truthfully from the current
++authority.  The repository's accessible records call `S` a scope-repair cap
++in particular phase decisions, and Phase76's `D` definition counts diagnostic
++commands; they do not define reusable Phase80 meanings for `C` or `F`, nor do
++they say that design/qualification commands count as `D`.  The budget draft is
++therefore `C=UNKNOWN, F=UNKNOWN, D=UNKNOWN, S=UNKNOWN`, with Gate1 required to
++define each unit and cap before a slice starts.  This report does not infer a
++count from historical phase budgets.
++
++No library was installed, no latest pin was queried, no test or database was
++run, and no repository file was changed.
+*** End Patch

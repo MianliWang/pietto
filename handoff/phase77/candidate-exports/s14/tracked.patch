@@ -1,0 +1,133 @@
+diff --git a/src/pietto/_project/project_sql_emission_joins.py b/src/pietto/_project/project_sql_emission_joins.py
+index 8d0d1e5d..cfae5ff6 100644
+--- a/src/pietto/_project/project_sql_emission_joins.py
++++ b/src/pietto/_project/project_sql_emission_joins.py
+@@ -142,13 +142,19 @@ def sited_admitted(expression, family) -> bool:
+     renders them, by the single-input rules, in a definition with no JOIN of
+     its own (one the JOIN reads, or one that reads its rows), and a call inside
+     an aggregate argument; joined LET, WHERE and ON sites keep their limits,
+-    and MySQL keeps all of them until its own differential."""
++    and MySQL admits only an inlined conditional in a non-joined definition and
++    a scalar aggregate argument until its own differential admits more."""
+     site = expression.site
+     if type(site) is row.ProjectSQLJoinedSite:
+         return (
+             type(expression) in SITED
+             and site.role is row.ProjectSQLExpressionRole.SELECT
+         )
++    if family == "mysql":
++        return type(expression) is plan_aggregation.ProjectSQLAggregateArgumentCall or (
++            type(expression) is row.ProjectSQLConditional
++            and type(site) is row.ProjectSQLExpressionSite
++        )
+     if family != "postgres":
+         return False
+     return type(expression) is plan_aggregation.ProjectSQLAggregateArgumentCall or (
+diff --git a/tests/test_execution_compiled_families.py b/tests/test_execution_compiled_families.py
+index 8e425401..9709ca40 100644
+--- a/tests/test_execution_compiled_families.py
++++ b/tests/test_execution_compiled_families.py
+@@ -4018,8 +4018,9 @@ def test_max_and_min_of_two_dates_emit_replay_and_bind_on_postgresql(tmp_path, t
+     assert prepare_live_template(outcome.artifact).artifact.rendered.sql == sql
+ 
+ 
++@pytest.mark.parametrize("target", ("postgres", "mysql"))
+ def test_a_join_of_a_conditional_query_with_a_call_in_its_aggregate_replays(
+-    tmp_path,
++    tmp_path, target
+ ):
+     """On PostgreSQL a LEFT JOIN reads a query whose WHERE calls a def that
+     inlines to a conditional and counts `lower` of the joined label; under
+@@ -4032,20 +4033,25 @@ def test_a_join_of_a_conditional_query_with_a_call_in_its_aggregate_replays(
+         "    left join r on lhs.id == r.id\n    group by lhs.id\n"
+         "    select:\n        a = lhs.id\n        n = count(lower(r.label))\n"
+     )
+-    item = emission.labelled_join_witness("postgres", body, policy="bind_safe_literals")
++    item = emission.labelled_join_witness(target, body, policy="bind_safe_literals")
+     checked, outcome = emission.build_case(
+         tmp_path, item["source"], item["contract"], item["policy"]
+     )
+     assert checked.verified and outcome.status == "VERIFIED"
+     assert outcome.artifact is not None
+     sql = outcome.artifact.rendered.sql
+-    assert (
+-        b'WHERE ((CASE WHEN ("s0"."order.id" <= CAST($1 AS pg_catalog.int8)) '
+-        b"THEN CAST($2 AS pg_catalog.int8) ELSE CAST($3 AS pg_catalog.int8) END) "
+-        b"= CAST($4 AS pg_catalog.int8))"
+-    ) in sql
+-    assert b' LEFT JOIN "p1" AS "m1" ' in sql
+-    assert b'COUNT(lower("t0"."c4")) AS "c1"' in sql
++    if target == "postgres":
++        assert (
++            b'WHERE ((CASE WHEN ("s0"."order.id" <= CAST($1 AS pg_catalog.int8)) '
++            b"THEN CAST($2 AS pg_catalog.int8) ELSE CAST($3 AS pg_catalog.int8) END) "
++            b"= CAST($4 AS pg_catalog.int8))"
++        ) in sql
++        assert b' LEFT JOIN "p1" AS "m1" ' in sql
++        assert b'COUNT(lower("t0"."c4")) AS "c1"' in sql
++    else:
++        assert b"CASE WHEN" in sql
++        assert b" LEFT JOIN `p1` AS `m1` " in sql
++        assert b"COUNT(LOWER(`t0`.`c4`)) AS `c1`" in sql
+     built = build_compiled(outcome.artifact)
+     loaded = load_compiled(
+         built.payload,
+diff --git a/tests/test_sql_joins.py b/tests/test_sql_joins.py
+index e4b7145a..2c02786e 100644
+--- a/tests/test_sql_joins.py
++++ b/tests/test_sql_joins.py
+@@ -1837,7 +1837,7 @@ BESIDE_JOIN = {
+             f"WHERE ({BANDED.format(id=SOURCE_ID)} = CAST(2 AS pg_catalog.int8))",
+             " LEFT JOIN ",
+         ),
+-        [SCALAR, SCALAR, SHAPE],
++        None,
+     ),
+     "where_of_the_from_query": (
+         PREDECESSOR
+@@ -1845,7 +1845,7 @@ BESIDE_JOIN = {
+         + "    inner join l on l.id == pred.id\n"
+         + "    select:\n        a = pred.id\n        b = l.label\n",
+         (" INNER JOIN ",),
+-        [SCALAR, SCALAR, SHAPE],
++        None,
+     ),
+     "select_forms": (
+         "query pred:\n    from rhs\n    select:\n        id\n        b = band(id)\n"
+@@ -1969,14 +1969,11 @@ def test_a_scalar_call_in_an_aggregate_argument_over_join_rows(tmp_path, target)
+     )
+     outcome = labelled(tmp_path, target, body)
+     doc = public(outcome)
++    assert doc["status"] == "VERIFIED"
+     if target == "mysql":
+-        assert doc["status"] == "BLOCKED" and not outcome.diagnostics
+-        assert [blocker.detail for blocker in outcome.blockers] == [
+-            "operator_not_implemented_in_slice6",
+-            SHAPE,
+-        ]
++        assert "COUNT(LOWER(`t0`.`c5`))" in doc["sql"]
++        assert "COUNT(DISTINCT TRIM(`t0`.`c5`))" in doc["sql"]
+         return
+-    assert doc["status"] == "VERIFIED"
+     assert doc["sql"] == (
+         'WITH "p0" ("c0", "c1", "c2", "c3", "c4", "c5") AS (SELECT "m0"."order.id" '
+         'AS "c0", "m0"."key value" AS "c1", "m0"."label" AS "c2", "m1"."order.id" '
+@@ -2283,3 +2280,18 @@ def test_a_full_join_outside_its_reviewed_rule_is_refused_at_its_on_clause(
+     assert outcome.status == "BLOCKED" and outcome.artifact is None
+     on_clause = (11, 17, 11, 17 + len(f"on {condition}"))
+     assert located(outcome) == [("PIE-B1003", detail, on_clause)]
++
++
++def test_mysql_join_on_keeps_an_inlined_conditional_def_refused(tmp_path):
++    body = (
++        "query result:\n    from lhs\n    let r = rhs\n"
++        "    inner join r on band(lhs.id) == r.id\n"
++        "    select:\n        a = lhs.id\n"
++    )
++    outcome = labelled(tmp_path, "mysql", body)
++    assert public(outcome)["status"] == "BLOCKED" and not outcome.diagnostics
++    assert [blocker.detail for blocker in outcome.blockers] == [
++        SCALAR,
++        "match_condition_not_in_row_domain",
++        SHAPE,
++    ]

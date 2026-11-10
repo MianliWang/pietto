@@ -1,0 +1,8 @@
+ M src/pietto/_project/project_completed_semantics.py
+ M src/pietto/_project/project_sql_emission_pure_boundary.py
+ M src/pietto/_project/project_sql_emission_rows.py
+ M src/pietto/_project/project_sql_emission_verification.py
+ M tests/_pietto_sql_emission.py
+ M tests/test_execution_compiled_families.py
+ M tests/test_project_numeric_carriers.py
+ M tests/test_sql_project_scalar_expressions.py

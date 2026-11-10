@@ -1,0 +1,108 @@
+=== let_width postgres
+plan verified: True
+status: VERIFIED
+blockers: []
+sql: WITH "p0" ("c0", "c1", "c2", "c3") AS (SELECT "s0"."order.id" AS "c0", "s0"."key value" AS "c1", "s0"."label" AS "c2", (CASE WHEN ("s0"."order.id" > CAST($1 AS pg_catalog.int8)) THEN CAST($2 AS pg_catalog.int8) ELSE CAST($3 AS pg_catalog.int8) END) AS "c3" FROM "public"."phase66 lhs é" AS "s0") SELECT (CASE WHEN length("t1"."c2") >= "t1"."c3" THEN "t1"."c2" ELSE lpad("t1"."c2", CAST("t1"."c3" AS pg_catalog.int4), CAST(E'\351\233\252' AS pg_catalog.text) COLLATE "C") END) AS "p" FROM "p0" AS "t1"
+markers ?: 0 $: 3
+parameter events: 3
+uses: [(0, 1, 'pg_int8', 8016), (1, 2, 'pg_int8', 7856), (2, 3, 'pg_int8', 8176)]
+fixed: [5, 0, 3]
+leaves: 3
+verified: True
+=== let_width mysql
+plan verified: True
+status: VERIFIED
+blockers: []
+sql: WITH `p0` (`c0`, `c1`, `c2`, `c3`) AS (SELECT `s0`.`order.id` AS `c0`, `s0`.`key value` AS `c1`, `s0`.`label` AS `c2`, (CASE WHEN (`s0`.`order.id` > CAST(? AS SIGNED)) THEN CAST(? AS SIGNED) ELSE CAST(? AS SIGNED) END) AS `c3` FROM `phase66`.`phase66 lhs é` AS `s0`) SELECT CASE WHEN CHAR_LENGTH(`t1`.`c2`) >= `t1`.`c3` THEN `t1`.`c2` ELSE LPAD(`t1`.`c2`, `t1`.`c3`, CAST(X'e99baa' AS CHAR CHARACTER SET utf8mb4) COLLATE utf8mb4_0900_bin) END AS `p` FROM `p0` AS `t1`
+markers ?: 3 $: 0
+parameter events: 3
+uses: [(0, 1, 'my_signed_int', 3328), (1, 2, 'my_signed_int', 3168), (2, 3, 'my_signed_int', 3488)]
+fixed: [5, 0, 3]
+leaves: 3
+verified: True
+=== literal_args postgres
+plan verified: True
+status: VERIFIED
+blockers: []
+sql: SELECT (CASE WHEN length(CAST(E'\141\142' AS pg_catalog.text) COLLATE "C") >= (CASE WHEN ("s0"."order.id" > CAST(0 AS pg_catalog.int8)) THEN CAST(5 AS pg_catalog.int8) ELSE CAST(3 AS pg_catalog.int8) END) THEN CAST(E'\141\142' AS pg_catalog.text) COLLATE "C" ELSE lpad(CAST(E'\141\142' AS pg_catalog.text) COLLATE "C", CAST((CASE WHEN ("s0"."order.id" > CAST(0 AS pg_catalog.int8)) THEN CAST(5 AS pg_catalog.int8) ELSE CAST(3 AS pg_catalog.int8) END) AS pg_catalog.int4), CAST(E'\351\233\252' AS pg_catalog.text) COLLATE "C") END) AS "p" FROM "public"."phase66 lhs é" AS "s0"
+markers ?: 0 $: 0
+parameter events: 0
+uses: []
+fixed: []
+leaves: 0
+verified: True
+=== literal_args mysql
+plan verified: True
+status: VERIFIED
+blockers: []
+sql: SELECT CASE WHEN CHAR_LENGTH(CAST(X'6162' AS CHAR CHARACTER SET utf8mb4) COLLATE utf8mb4_0900_bin) >= (CASE WHEN (`s0`.`order.id` > CAST(0 AS SIGNED)) THEN CAST(5 AS SIGNED) ELSE CAST(3 AS SIGNED) END) THEN CAST(X'6162' AS CHAR CHARACTER SET utf8mb4) COLLATE utf8mb4_0900_bin ELSE LPAD(CAST(X'6162' AS CHAR CHARACTER SET utf8mb4) COLLATE utf8mb4_0900_bin, (CASE WHEN (`s0`.`order.id` > CAST(0 AS SIGNED)) THEN CAST(5 AS SIGNED) ELSE CAST(3 AS SIGNED) END), CAST(X'e99baa' AS CHAR CHARACTER SET utf8mb4) COLLATE utf8mb4_0900_bin) END AS `p` FROM `phase66`.`phase66 lhs é` AS `s0`
+markers ?: 0 $: 0
+parameter events: 0
+uses: []
+fixed: []
+leaves: 0
+verified: True
+=== def_width postgres
+plan verified: True
+status: VERIFIED
+blockers: []
+sql: SELECT (CASE WHEN length("s0"."label") >= (CASE WHEN ("s0"."order.id" <= CAST(3 AS pg_catalog.int8)) THEN CAST(1 AS pg_catalog.int8) ELSE CAST(2 AS pg_catalog.int8) END) THEN "s0"."label" ELSE lpad("s0"."label", CAST((CASE WHEN ("s0"."order.id" <= CAST(3 AS pg_catalog.int8)) THEN CAST(1 AS pg_catalog.int8) ELSE CAST(2 AS pg_catalog.int8) END) AS pg_catalog.int4), CAST(E'\351\233\252' AS pg_catalog.text) COLLATE "C") END) AS "p" FROM "public"."phase66 lhs é" AS "s0"
+markers ?: 0 $: 0
+parameter events: 0
+uses: []
+fixed: []
+leaves: 0
+verified: True
+=== def_width mysql
+plan verified: True
+status: VERIFIED
+blockers: []
+sql: SELECT CASE WHEN CHAR_LENGTH(`s0`.`label`) >= (CASE WHEN (`s0`.`order.id` <= CAST(3 AS SIGNED)) THEN CAST(1 AS SIGNED) ELSE CAST(2 AS SIGNED) END) THEN `s0`.`label` ELSE LPAD(`s0`.`label`, (CASE WHEN (`s0`.`order.id` <= CAST(3 AS SIGNED)) THEN CAST(1 AS SIGNED) ELSE CAST(2 AS SIGNED) END), CAST(X'e99baa' AS CHAR CHARACTER SET utf8mb4) COLLATE utf8mb4_0900_bin) END AS `p` FROM `phase66`.`phase66 lhs é` AS `s0`
+markers ?: 0 $: 0
+parameter events: 0
+uses: []
+fixed: []
+leaves: 0
+verified: True
+=== inline_width postgres
+plan verified: True
+status: BLOCKED
+blockers: [('PIE-B1008', 'fixed_value_or_parameter_correspondence')]
+public blockers: [('PIE-B1008', 'fixed_value_or_parameter_correspondence')]
+=== inline_width mysql
+plan verified: True
+status: BLOCKED
+blockers: [('PIE-B1008', 'fixed_value_or_parameter_correspondence')]
+public blockers: [('PIE-B1008', 'fixed_value_or_parameter_correspondence')]
+=== inline_text postgres
+plan verified: True
+status: BLOCKED
+blockers: [('PIE-B1008', 'fixed_value_or_parameter_correspondence')]
+public blockers: [('PIE-B1008', 'fixed_value_or_parameter_correspondence')]
+=== inline_text mysql
+plan verified: True
+status: BLOCKED
+blockers: [('PIE-B1008', 'fixed_value_or_parameter_correspondence')]
+public blockers: [('PIE-B1008', 'fixed_value_or_parameter_correspondence')]
+=== inline_round_pg postgres
+plan verified: True
+status: VERIFIED
+blockers: []
+sql: SELECT CAST(length((SELECT "e0"."c1" FROM (SELECT "t1"."c0" AS "c0", "t1"."c2" AS "c1" FROM (SELECT "s0"."order.id" AS "c0", "s0"."key value" AS "c1", "s0"."label" AS "c2" FROM "public"."phase66 rhs é" AS "s0" WHERE ((("s0"."order.id" = "s1"."order.id") AND ("s0"."label" = CAST($1 AS pg_catalog.text) COLLATE "C")) AND ("s0"."order.id" > CAST($2 AS pg_catalog.int8)))) AS "t1") AS "e0")) AS pg_catalog.int8) AS "p" FROM "public"."phase66 lhs é" AS "s1"
+markers ?: 0 $: 2
+parameter events: 2
+uses: [(0, 1, 'pg_text', 1392), (1, 2, 'pg_int8', 1552)]
+fixed: ['x', 7]
+leaves: 2
+verified: True
+=== inline_round_pg mysql
+plan verified: True
+status: VERIFIED
+blockers: []
+sql: SELECT CAST(CHAR_LENGTH((SELECT `e0`.`c1` FROM (SELECT `t1`.`c0` AS `c0`, `t1`.`c2` AS `c1` FROM (SELECT `s0`.`order.id` AS `c0`, `s0`.`key value` AS `c1`, `s0`.`label` AS `c2` FROM `phase66`.`phase66 rhs é` AS `s0` WHERE (((`s0`.`order.id` = `s1`.`order.id`) AND (`s0`.`label` = CAST(? AS CHAR CHARACTER SET utf8mb4) COLLATE utf8mb4_0900_bin)) AND (`s0`.`order.id` > CAST(? AS SIGNED)))) AS `t1`) AS `e0`)) AS SIGNED) AS `p` FROM `phase66`.`phase66 lhs é` AS `s1`
+markers ?: 2 $: 0
+parameter events: 2
+uses: [(0, 1, 'my_utf8mb4_text', 7376), (1, 2, 'my_signed_int', 5856)]
+fixed: ['x', 7]
+leaves: 2
+verified: True

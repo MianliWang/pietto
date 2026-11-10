@@ -1,0 +1,13 @@
+{
+  "tree": "2cce4da21d9b817d7c9d1be6bde007641daaab76",
+  "environment": {
+    "python": "3.13.13 (main, Jun  2 2026, 22:27:49) [Clang 22.1.3 ]",
+    "source": "/home/mianliwang/projects/pietto-wt/p76-s06-codex/src/pietto/__init__.py",
+    "pyarrow": "26.0.0",
+    "psycopg": "3.3.5",
+    "adbc": "1.13.0"
+  },
+  "sql_sha256": "1091fc2827007cadcd1c821937e212441eaa81a19cf77c984a8d211e93cc240f",
+  "oracle_sha256": "e0378e3cf042b0016c774aaf1c020a0a3dc6a88ffd7b1a5fb7967e08df71fb21",
+  "raw_absent": true
+}

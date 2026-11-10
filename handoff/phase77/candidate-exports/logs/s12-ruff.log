@@ -1,0 +1,9 @@
+F821 Undefined name `target`
+   --> tests/test_sql_project_scalar_expressions.py:292:56
+    |
+290 |         accepted_compatibility=built.compatibility,
+291 |     )
+292 |     assert emit_compiled(loaded, ()).request.family == target
+    |                                                        ^^^^^^
+
+Found 1 error.

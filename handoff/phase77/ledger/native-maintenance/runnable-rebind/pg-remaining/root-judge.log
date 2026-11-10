@@ -1,0 +1,18 @@
+PASS A1_full_ok postgres_rows 
+PASS A1_full_ok postgres_adbc 
+PASS A2_wrong_ca postgres_rows 
+PASS A2_wrong_ca postgres_adbc 
+PASS A3_missing_ca postgres_rows 
+PASS A3_missing_ca postgres_adbc 
+PASS A4_require postgres_rows 
+PASS A4_require postgres_adbc 
+PASS A5_disable_ca postgres_rows 
+PASS A5_disable_ca postgres_adbc 
+PASS A6_system_ca postgres_rows 
+PASS A6_system_ca postgres_adbc 
+PASS B1_wrong_host postgres_rows 
+PASS B1_wrong_host postgres_adbc 
+PASS B2_require_any_name postgres_rows 
+PASS B2_require_any_name postgres_adbc 
+FAIL C1_ambient_pgsslrootcert postgres_rows result ('failed', 'PIE-R2003', None) != ('rejected', 'PIE-R2003', 'AMBIENT_ENVIRONMENT')
+FAIL C1_ambient_pgsslrootcert postgres_adbc result ('rejected', 'PIE-R2003', 'EXECUTION_AMBIENT_CONNECTION_PROFILE') != ('rejected', 'PIE-R2003', 'AMBIENT_ENVIRONMENT')

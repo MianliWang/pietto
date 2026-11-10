@@ -1,0 +1,10 @@
+{"binding": "/home/mianliwang/projects/pietto/.cache/phase77-recovery/native-maintenance/runnable-rebind/pg-remaining/fresh-binding.json", "record": "/home/mianliwang/projects/pietto/.cache/phase77-recovery/runtime/venvs/native/lib/python3.13/site-packages/pietto-0.1.10.dist-info/RECORD", "wheel": {"path": "/home/mianliwang/projects/pietto/.cache/phase77-recovery/runtime/dist/pietto-0.1.10-py3-none-any.whl", "sha256": "f4c96921c4d4ceb057830f2dd21f2e634325dac2bef933532747ae4aab963a73"}}
+server.pem: OK
+elsewhere.pem: OK
+    IP Address:127.0.0.1
+    DNS:elsewhere.invalid
+notAfter=Jan  9 04:19:42 2027 GMT
+761b756c1d2d11c77a952cba57aa66370f8401e5c78817aaf0612277622f6bfa  ca.pem
+55a01a2dae6527fbfc55593932a354ca53e96425dbb1ed1809d138cd0c41ff04  other-ca.pem
+a5742f98f5d18d704c9d735776ff229641131ba919a6498ffbbb650e33d182e9  server.pem
+be356e94d832561d88e914e493a37b20c980d6d62f3fe4906c58368937683e00  elsewhere.pem

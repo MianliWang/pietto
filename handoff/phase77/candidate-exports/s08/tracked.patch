@@ -1,0 +1,451 @@
+diff --git a/src/pietto/_project/project_compiled_verification.py b/src/pietto/_project/project_compiled_verification.py
+index 5114e364..815ae5e0 100644
+--- a/src/pietto/_project/project_compiled_verification.py
++++ b/src/pietto/_project/project_compiled_verification.py
+@@ -6702,19 +6702,17 @@ def verify_compiled_window_stage(body, record, request, produced, sources):
+             == (expected.tag, expected.storage, expected.nullable, expected.domain),
+             "WINDOW_REALIZATION",
+         )
+-        # An aggregate over a window: PostgreSQL, R13's argument law and Q1's
+-        # casts over its one Int argument; every other window has no cast.
++        # An aggregate over a window keeps the target gate and R13's argument
++        # law; every other window has no cast.
+         need(
+             (
+                 function not in windowing.AGGREGATE
+-                or request.family == "postgres"
+-                and all(
+-                    windowing.grouping.resolved_argument_problem(
+-                        function, True, argument.read.realization, request.family
+-                    )
+-                    is None
+-                    for argument in column.arguments
++                or windowing.aggregate_target_problem(request.family, function)
++                is None
++                and windowing.aggregate_argument_problem(
++                    request.family, function, column.arguments
+                 )
++                is None
+             )
+             and column.argument_cast
+             == {"sum": "pg_catalog.int8", "avg": "pg_catalog.float8"}.get(function)
+diff --git a/src/pietto/_project/project_sql_emission_pure_boundary.py b/src/pietto/_project/project_sql_emission_pure_boundary.py
+index 44547fac..c1239722 100644
+--- a/src/pietto/_project/project_sql_emission_pure_boundary.py
++++ b/src/pietto/_project/project_sql_emission_pure_boundary.py
+@@ -1245,6 +1245,50 @@ def _source_field_matches_stage(doc, stage) -> bool:
+     )
+ 
+ 
++def _mysql_window_aggregate_admitted(doc, function, arguments, result) -> bool:
++    """Re-derive MySQL's finite direct aggregate-window carrier subset."""
++
++    count_result = _is_realization(
++        result,
++        "Int",
++        {"kind": "my_bigint"},
++        {"kind": "int_range", "min": "0", "max": str((1 << 63) - 1)},
++    ) and result["nullable"] is False
++    if function == "count" and not arguments:
++        return count_result
++    if function not in {"count", "min", "max"} or len(arguments) != 1:
++        return False
++    (argument,) = arguments
++    if argument["role"] != "value" or argument["read"] is None or argument["literal"] is not None:
++        return False
++    read = doc[argument["read"]]
++    if (
++        read["field"] is None
++        and read["aggregate"] is None
++        or not _source_field_matches_stage(doc, read)
++    ):
++        return False
++    carrier = doc[read["realization"]]
++    if function == "count":
++        return count_result and (
++            _is_key_value(carrier, "mysql") or _is_float(carrier, "mysql")
++        )
++    if carrier["tag"] not in {"Int", "Float", "Decimal", "Timestamp", "Date"}:
++        return False
++    if not (
++        _is_float(carrier, "mysql")
++        if carrier["tag"] == "Float"
++        else _is_key_value(carrier, "mysql")
++    ):
++        return False
++    return (
++        result["tag"] == carrier["tag"]
++        and dict(result["storage"]) == dict(carrier["storage"])
++        and dict(result["domain"]) == dict(carrier["domain"])
++        and result["nullable"] is True
++    )
++
++
+ def _validate_any_scopes(doc):
+     kinds = (
+         "sql_anchor",
+@@ -2550,7 +2594,16 @@ class _Check:
+                     if argument["read"] is not None
+                 ]
+                 _require(
+-                    self.family == "postgres"
++                    (
++                        self.family == "postgres"
++                        or self.family == "mysql"
++                        and _mysql_window_aggregate_admitted(
++                            doc,
++                            function,
++                            arguments,
++                            doc[doc[column["column"]]["realization"]],
++                        )
++                    )
+                     and tuple(argument["role"] for argument in arguments)
+                     in ((("value",), ()) if function == "count" else (("value",),))
+                     and len(reads) == len(arguments)
+diff --git a/src/pietto/_project/project_sql_emission_verification.py b/src/pietto/_project/project_sql_emission_verification.py
+index f375d03f..fc66246e 100644
+--- a/src/pietto/_project/project_sql_emission_verification.py
++++ b/src/pietto/_project/project_sql_emission_verification.py
+@@ -2874,7 +2874,7 @@ def _verify_window_column(request, column, window, export, columns, definitions,
+     ):
+         return False
+     aggregate = function in windowing.AGGREGATE
+-    if aggregate and request.family != "postgres":
++    if aggregate and windowing.aggregate_target_problem(request.family, function):
+         return False
+     policy = policies.get(window.ref)
+     if policy is None:
+diff --git a/src/pietto/_project/project_sql_emission_windows.py b/src/pietto/_project/project_sql_emission_windows.py
+index 5749054a..a108f413 100644
+--- a/src/pietto/_project/project_sql_emission_windows.py
++++ b/src/pietto/_project/project_sql_emission_windows.py
+@@ -907,8 +907,10 @@ def build_stage(
+         location = getattr(getattr(window.source, "item", None), "span", None)
+         if function is None or function not in SPELLING:
+             return None, None, (*unsupported_function(function), window.ref, location)
+-        if function in AGGREGATE and target != "postgres":
+-            return None, None, (*aggregate_target_problem(target), window.ref, location)
++        if function in AGGREGATE:
++            problem = aggregate_target_problem(target, function)
++            if problem is not None:
++                return None, None, (*problem, window.ref, location)
+         policy = policies.get(window.ref)
+         if policy is None:
+             return (
+@@ -1080,10 +1082,12 @@ def build_stage(
+     return columns, WindowStage(block.ref, tuple(definitions), tuple(columns)), None
+ 
+ 
+-def aggregate_target_problem(target: str) -> tuple[str, str]:
+-    """An aggregate over a window awaits its MySQL real-database evidence."""
++def aggregate_target_problem(target: str, function: str) -> tuple[str, str] | None:
++    """Only MySQL SUM and AVG windows still await numeric qualification."""
+ 
+-    return "PIE-B1003", f"window_aggregate_approved_non_support_on_{target}"
++    if target == "mysql" and function in {"sum", "avg"}:
++        return "PIE-B1003", f"window_aggregate_approved_non_support_on_{target}"
++    return None
+ 
+ 
+ def result_anchor(specification, arguments):
+@@ -1106,19 +1110,20 @@ def aggregate_argument_problem(family: str, function: str, arguments):
+     read = arguments[0].read
+     if read is None:
+         return "PIE-B1003", "aggregate_argument_not_a_direct_established_field"
+-    # The grouped PostgreSQL parity (Decimal SUM, Float SUM and AVG, counts
+-    # of Text, Bool, Float and Decimal, extrema of Float and Decimal) has no
+-    # window witness;
+-    # an aggregate over a window keeps the Int domain it was reviewed with.
+-    tag = getattr(read.realization, "tag", None)
+-    if function in {"sum", "avg"} and tag == "Decimal":
+-        return "PIE-B1004", "decimal_aggregate_range_proof_missing"
+-    if function in {"sum", "avg"} and tag == "Float":
+-        return "PIE-B1004", "float_aggregate_finite_result_proof_missing"
+-    if (function == "count" and tag in {"Text", "Bool", "Float", "Decimal"}) or (
+-        function in {"min", "max"} and tag in {"Float", "Decimal"}
+-    ):
+-        return "PIE-B1003", function + "_argument_outside_reviewed_int_domain"
++    if family == "mysql" and read.field is None and read.aggregate is None:
++        return "PIE-B1003", "aggregate_argument_not_a_direct_established_field"
++    # MySQL reuses the existing grouped carrier law for its opened direct
++    # aggregates. PostgreSQL retains its narrower established window domain.
++    if family == "postgres":
++        tag = getattr(read.realization, "tag", None)
++        if function in {"sum", "avg"} and tag == "Decimal":
++            return "PIE-B1004", "decimal_aggregate_range_proof_missing"
++        if function in {"sum", "avg"} and tag == "Float":
++            return "PIE-B1004", "float_aggregate_finite_result_proof_missing"
++        if (
++            function == "count" and tag in {"Text", "Bool", "Float", "Decimal"}
++        ) or (function in {"min", "max"} and tag in {"Float", "Decimal"}):
++            return "PIE-B1003", function + "_argument_outside_reviewed_int_domain"
+     return grouping.resolved_argument_problem(function, True, read.realization, family)
+ 
+ 
+@@ -1504,7 +1509,7 @@ def resolved_arguments(function, arguments, records, family):
+     )
+     if tuple(role for role, _ in arguments) != expected:
+         raise CompiledError("COMPILED_WINDOW_ROLES")
+-    if function in AGGREGATE and family != "postgres":
++    if function in AGGREGATE and aggregate_target_problem(family, function):
+         raise CompiledError("COMPILED_WINDOW_FUNCTION")
+     result = []
+     for role, address in arguments:
+diff --git a/tests/test_execution_compiled_families.py b/tests/test_execution_compiled_families.py
+index 8e425401..c747c8ce 100644
+--- a/tests/test_execution_compiled_families.py
++++ b/tests/test_execution_compiled_families.py
+@@ -113,6 +113,39 @@ def test_abs_replays_from_compiled_input(tmp_path, target):
+     _compare(original.artifact, refinement=False)
+ 
+ 
++def test_mysql_direct_aggregate_windows_replay_from_compiled_input(tmp_path):
++    """The admitted direct aggregate-window subset keeps its compiled SQL."""
++    from pietto._project.project_compiled_schema import CompiledError, FIELDS
++    from pietto._project.project_compiled_verification import verify_description
++
++    item = emission.parameterized_fixture(
++        "mysql",
++        "table result:\n    from rows\n    select:\n        id\n"
++        "        n = count() window(order by id)\n"
++        "        low = min(ratio) window(partition by flag order by id)\n"
++        "        high = max(money) window(order by id)\n",
++        protocol=False,
++    )
++    checked, outcome = emission.build_case(
++        tmp_path, item["source"], item["contract"], item["policy"]
++    )
++    assert checked.verified and outcome.status == "VERIFIED", outcome.blockers
++    built = build_compiled(outcome.artifact)
++    candidate = _compare(outcome.artifact, refinement=False, built=built)
++    assert candidate.rendered.sql == outcome.artifact.rendered.sql
++    minimum = next(
++        record
++        for record in built.root.description.records
++        if record.address.kind == "window_value" and record.get("function") == "min"
++    )
++    values = list(minimum.values)
++    values[FIELDS["window_value"].index("function")] = "sum"
++    with pytest.raises(CompiledError, match="^COMPILED_WINDOW_FUNCTION$"):
++        verify_description(
++            _replaced(built.root.description, {minimum.address: tuple(values)})
++        )
++
++
+ # Each scalar family's select lines and the SQL each target writes for it;
+ # MySQL project SQL refuses `concat`.
+ SCALAR_FAMILIES = {
+diff --git a/tests/test_sql_windows.py b/tests/test_sql_windows.py
+index 7ec741ab..9d40686f 100644
+--- a/tests/test_sql_windows.py
++++ b/tests/test_sql_windows.py
+@@ -878,8 +878,7 @@ def test_window_distribution_results_and_floats_key_on_postgres_only(target):
+ 
+ # An aggregate over a window keeps R13's argument law and casts over R15's
+ # frame: PostgreSQL SUM(Int) accumulates int8 and narrows by a checked CAST,
+-# AVG(Int) reads binary64, and count() is COUNT(*). MySQL keeps them refused
+-# until its real-database differential.
++# AVG(Int) reads binary64, and count() is COUNT(*).
+ _COLUMN = r'"[^"]+"\."[^"]+"'
+ AGGREGATE_WINDOWS = {
+     "sum": ("sum(id)", rf"CAST\(SUM\(CAST\({_COLUMN} AS pg_catalog\.int8\)\) OVER \("),
+@@ -1038,27 +1037,183 @@ def test_postgres_aggregate_window_arguments_keep_the_aggregate_domain(
+     assert [(b.code, b.detail) for b in outcome.blockers] == [(code, detail)]
+ 
+ 
+-@pytest.mark.parametrize("aggregate", sorted(AGGREGATE_WINDOWS))
+-def test_mysql_keeps_aggregate_windows_refused_before_its_database_evidence(
+-    aggregate,
+-):
+-    outcome = emit("mysql", select_body(AGGREGATE_WINDOWS[aggregate][0]))
++@pytest.mark.parametrize(
++    ("call", "spelling"),
++    (
++        ("count()", "COUNT(*)"),
++        ("count(text)", "COUNT(`s0`.`text ``\"é`)"),
++        ("count(ratio)", "COUNT(`s0`.`ratio value`)"),
++        ("min(id)", "MIN(`s0`.`order.id`)"),
++        ("min(ratio)", "MIN(`s0`.`ratio value`)"),
++        ("max(money)", "MAX(`s0`.`amount value`)"),
++    ),
++)
++def test_mysql_emits_direct_aggregate_window_scalars(call, spelling):
++    outcome = emit("mysql", select_body(call))
++    assert outcome.status == "VERIFIED", blockers(outcome)
++    assert f"{spelling} OVER (ORDER BY" in sql_of(outcome)
++    column = next(item for item in public(outcome)["columns"] if item["label"] == "w")
++    assert column["nullable"] is (not call.startswith("count"))
++    assert _observed(outcome) == "ok"
++
++
++@pytest.mark.parametrize(
++    ("body", "spelling"),
++    (
++        (
++            select_body(
++                "min(id)", frame="rows between 1 preceding and current row"
++            ),
++            "MIN(`s0`.`order.id`) OVER (ORDER BY `s0`.`order.id` ASC ROWS",
++        ),
++        (
++            "table result:\n    from rows\n    let recent = window(partition by flag order by id)\n"
++            "    select:\n        n = count() window recent\n",
++            "COUNT(",
++        ),
++        (
++            "table result:\n    from rows\n    group by:\n        flag\n    select:\n"
++            "        flag\n        low = min(id)\n        high = max(low) window(order by flag)\n",
++            "MAX(",
++        ),
++        (
++            "table result:\n    from rows\n    select:\n        id\n    qualify:\n"
++            "        count(id) window(order by id) > 1\n",
++            "COUNT(`s0`.`order.id`) OVER (ORDER BY",
++        ),
++        (
++            "query result:\n    from rows\n    let other = rows\n"
++            "    inner join other on rows.id == other.id\n    select:\n        id = rows.id\n"
++            "        high = max(other.id) window(partition by rows.flag order by rows.id)\n",
++            "MAX(",
++        ),
++    ),
++)
++def test_mysql_direct_aggregate_windows_keep_existing_window_forms(body, spelling):
++    outcome = emit("mysql", body)
++    assert outcome.status == "VERIFIED", blockers(outcome)
++    assert spelling in sql_of(outcome)
++    assert _observed(outcome) == "ok"
++
++
++@pytest.mark.parametrize("call", ("sum(id)", "avg(id)", "sum(ratio)", "avg(ratio)"))
++def test_mysql_keeps_numeric_aggregate_windows_at_their_target_gate(call):
++    outcome = emit("mysql", select_body(call))
+     assert outcome.status == "BLOCKED"
+     assert [(b.code, b.detail) for b in outcome.blockers] == [
+         ("PIE-B1003", "window_aggregate_approved_non_support_on_mysql")
+     ]
+-    # The public document carries the refusal with its suggestion.
+-    assert [
+-        (b["code"], b["subject"]["detail"], b["suggestion"])
+-        for b in public(outcome)["blockers"]
+-    ] == [
+-        (
+-            "PIE-B1003",
+-            "window_aggregate_approved_non_support_on_mysql",
+-            "Emit this aggregate window for PostgreSQL, or keep it in check/plan: "
+-            "a project's MySQL aggregate window awaits its real-database "
+-            "differential.",
++
++
++def test_mysql_direct_aggregate_window_type_matrix_and_pure_forgeries(tmp_path):
++    outcome = emit(
++        "mysql",
++        "table result:\n    from rows\n    select:\n        id\n"
++        "        count_flag = count(flag) window(order by id)\n"
++        "        count_text = count(text) window(order by id)\n"
++        "        count_money = count(money) window(order by id)\n"
++        "        low_int = min(id) window(order by id)\n"
++        "        low_float = min(ratio) window(order by id)\n"
++        "        low_money = min(money) window(order by id)\n"
++        "        high_int = max(id) window(order by id)\n"
++        "        high_float = max(ratio) window(order by id)\n"
++        "        high_money = max(money) window(order by id)\n",
++    )
++    assert outcome.status == "VERIFIED", blockers(outcome)
++    columns = {item["label"]: item for item in public(outcome)["columns"]}
++    for label in ("count_flag", "count_text", "count_money"):
++        assert (columns[label]["logical_type"]["name"], columns[label]["nullable"]) == (
++            "Int",
++            False,
++        )
++    for label, name in (
++        ("low_int", "Int"),
++        ("low_float", "Float"),
++        ("low_money", "Decimal"),
++        ("high_int", "Int"),
++        ("high_float", "Float"),
++        ("high_money", "Decimal"),
++    ):
++        assert (columns[label]["logical_type"]["name"], columns[label]["nullable"]) == (
++            name,
++            True,
+         )
++
++    def record(document, reference):
++        return next(item for item in document["records"] if item["ref"] == reference)
++
++    def count_parts(document):
++        count = next(
++            item
++            for item in document["records"]
++            if item["ref"][0] == "window_column"
++            and item["fields"]["function"] == "count"
++        )
++        (argument_ref,) = count["fields"]["arguments"]
++        argument = record(document, argument_ref)["fields"]
++        read = record(document, argument["read"])
++        return count, argument, read, record(document, read["fields"]["realization"])
++
++    def wrong_function(document):
++        count, _, _, _ = count_parts(document)
++        count["fields"]["function"] = "sum"
++
++    def wrong_carrier(document):
++        _, _, _, realization = count_parts(document)
++        realization["fields"]["storage"] = {"kind": "my_int"}
++
++    def wrong_result_nullability(document):
++        count, _, _, _ = count_parts(document)
++        result = record(document, count["fields"]["column"])
++        realization = record(document, result["fields"]["realization"])
++        realization["fields"]["nullable"] = True
++
++    def computed_argument(document):
++        _, _, read, _ = count_parts(document)
++        read["fields"]["field"] = None
++
++    for edit in (
++        wrong_function,
++        wrong_carrier,
++        wrong_result_nullability,
++        computed_argument,
++    ):
++        assert _observed(outcome, edit) != "ok"
++
++    for call in ("min(text)", "max(flag)"):
++        refused = emit("mysql", select_body(call))
++        assert [(b.code, b.detail) for b in refused.blockers] == [
++            ("PIE-B1003", "semantic_result_unsuccessful"),
++            ("PIE-B1003", "active_output_unavailable"),
++        ]
++
++    checked, temporal = probe.temporal_case(
++        tmp_path,
++        "mysql",
++        "    from rows\n    select:\n"
++        "        count_timestamp = count(ts) window(order by id)\n"
++        "        count_date = count(d) window(order by id)\n"
++        "        count_uuid = count(u) window(order by id)\n"
++        "        low_timestamp = min(ts) window(order by id)\n"
++        "        high_date = max(d) window(order by id)\n",
++    )
++    assert checked.verified and temporal.status == "VERIFIED", temporal.blockers
++    assert _observed(temporal) == "ok"
++
++
++@pytest.mark.parametrize("call", ("count(doubled)", "min(doubled)", "max(doubled)"))
++def test_mysql_aggregate_windows_refuse_computed_let_arguments_but_postgres_keeps_them(
++    call,
++):
++    body = (
++        "table result:\n    from rows\n    let doubled = id + 1\n    select:\n"
++        f"        value = {call} window(order by id)\n"
++    )
++    postgres = emit("postgres", body)
++    assert postgres.status == "VERIFIED", blockers(postgres)
++    mysql = emit("mysql", body)
++    assert [(b.code, b.detail) for b in mysql.blockers] == [
++        ("PIE-B1003", "aggregate_argument_not_a_direct_established_field")
+     ]
+ 
+ 

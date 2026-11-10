@@ -1,0 +1,4240 @@
+{
+  "arithmetic": [
+    {
+      "engine_observation": "must_success",
+      "logical_overflow": false,
+      "name": "safe_plus",
+      "values": [
+        -4,
+        9,
+        null
+      ]
+    },
+    {
+      "engine_observation": "must_success",
+      "logical_overflow": false,
+      "name": "safe_minus",
+      "values": [
+        4,
+        -9,
+        null
+      ]
+    },
+    {
+      "engine_observation": "must_success",
+      "logical_overflow": false,
+      "name": "safe_multiply",
+      "values": [
+        -21,
+        0,
+        9223372030926249001,
+        null
+      ]
+    },
+    {
+      "engine_observation": "observe",
+      "logical_overflow": false,
+      "name": "min_times_one",
+      "values": [
+        -9223372036854775808
+      ]
+    },
+    {
+      "engine_observation": "must_success",
+      "logical_overflow": false,
+      "name": "safe_unary",
+      "values": [
+        -7,
+        -7,
+        null
+      ]
+    },
+    {
+      "engine_observation": "must_1690_22003",
+      "logical_overflow": true,
+      "name": "over_plus",
+      "values": null
+    },
+    {
+      "engine_observation": "must_1690_22003",
+      "logical_overflow": true,
+      "name": "over_minus",
+      "values": null
+    },
+    {
+      "engine_observation": "must_1690_22003",
+      "logical_overflow": true,
+      "name": "over_multiply",
+      "values": null
+    },
+    {
+      "engine_observation": "must_1690_22003",
+      "logical_overflow": true,
+      "name": "over_negate",
+      "values": null
+    },
+    {
+      "engine_observation": "must_1690_22003",
+      "logical_overflow": true,
+      "name": "over_abs",
+      "values": null
+    }
+  ],
+  "arithmetic_forms": {
+    "abs_physical": "SELECT ABS(left_value) AS value FROM c77_signed_operands WHERE cell = <cell> ORDER BY ordinal",
+    "literal": "SELECT CAST(<left> AS SIGNED) <operator> CAST(<right> AS SIGNED) AS value",
+    "physical": "SELECT left_value <operator> right_value AS value FROM c77_signed_operands WHERE cell = <cell> ORDER BY ordinal",
+    "prepared": "SELECT left_value <operator> CAST(%s AS SIGNED) AS value FROM c77_signed_operands WHERE cell = %s ORDER BY ordinal",
+    "unary_physical": "SELECT <operator>left_value AS value FROM c77_signed_operands WHERE cell = <cell> ORDER BY ordinal"
+  },
+  "arithmetic_setup": [
+    "DROP TABLE IF EXISTS c77_signed_operands",
+    "CREATE TABLE c77_signed_operands (cell VARCHAR(32) NOT NULL, ordinal INT NOT NULL, left_value BIGINT NULL, right_value BIGINT NULL, PRIMARY KEY (cell, ordinal))",
+    "SHOW CREATE TABLE c77_signed_operands"
+  ],
+  "artifact": "pietto.phase77.numeric_primitive_probe.v2",
+  "differential_judgment": {
+    "min_times_one": "The logical Int value is MIN_INT, but raw MySQL remains unqualified OBSERVE because older evidence reported 1690. Either raw terminal is preserved; neither opens S01 alone.",
+    "mysql_overflow": "MySQL must retain its raw native errno 1690 and SQLSTATE 22003; do not translate it to PostgreSQL text.",
+    "postgres_overflow": "PostgreSQL records its own raw terminal; it is a reference observation, not a string oracle for MySQL.",
+    "safe": "Both targets must preserve the independent logical value, NULL and signed physical result evidence."
+  },
+  "mysql_relay_contract": {
+    "profile": "mysql-none-exec-stdio-v1",
+    "relay_command": "docker container exec -i /bin/bash -c fixed-3306-forward",
+    "relay_sha256": "c5aab62143c0c51cf7e9daad8f3df2e242212dd8327588fb4f8a546a1f5bf012",
+    "target_host": "127.0.0.1",
+    "target_port": 3306
+  },
+  "non_claims": [
+    "No emitted Pietto SQL is tested here.",
+    "No raw MySQL result opens a Pietto form.",
+    "SUM DECIMAL and CAST-to-SIGNED are separately observed.",
+    "Raw PostgreSQL output is not the MySQL error oracle."
+  ],
+  "overflow": {
+    "errno": 1690,
+    "sqlstate": "22003"
+  },
+  "plans": {
+    "mysql": {
+      "catalog": [
+        {
+          "expected": null,
+          "name": "show_operands",
+          "sql": "SHOW CREATE TABLE c77_signed_operands"
+        },
+        {
+          "expected": null,
+          "name": "show_sum",
+          "sql": "SHOW CREATE TABLE c77_signed_sum"
+        },
+        {
+          "expected": [
+            [
+              "c77_signed_operands",
+              "cell",
+              "varchar(32)",
+              "NO",
+              "PRI"
+            ],
+            [
+              "c77_signed_operands",
+              "ordinal",
+              "int",
+              "NO",
+              "PRI"
+            ],
+            [
+              "c77_signed_operands",
+              "left_value",
+              "bigint",
+              "YES",
+              ""
+            ],
+            [
+              "c77_signed_operands",
+              "right_value",
+              "bigint",
+              "YES",
+              ""
+            ],
+            [
+              "c77_signed_sum",
+              "cell",
+              "varchar(32)",
+              "NO",
+              "PRI"
+            ],
+            [
+              "c77_signed_sum",
+              "group_key",
+              "int",
+              "NO",
+              "PRI"
+            ],
+            [
+              "c77_signed_sum",
+              "ordinal",
+              "int",
+              "NO",
+              "PRI"
+            ],
+            [
+              "c77_signed_sum",
+              "value",
+              "bigint",
+              "YES",
+              ""
+            ]
+          ],
+          "name": "columns",
+          "sql": "SELECT TABLE_NAME, COLUMN_NAME, COLUMN_TYPE, IS_NULLABLE, COLUMN_KEY FROM INFORMATION_SCHEMA.COLUMNS WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME IN ('c77_signed_operands', 'c77_signed_sum') ORDER BY TABLE_NAME, ORDINAL_POSITION"
+        }
+      ],
+      "engine": "mysql",
+      "probes": [
+        {
+          "cell": "safe_plus",
+          "logical": {
+            "overflow": false,
+            "values": [
+              -4,
+              9,
+              null
+            ]
+          },
+          "routes": [
+            {
+              "classification": "observation",
+              "expected_by_query": [
+                [
+                  -4,
+                  9,
+                  null
+                ]
+              ],
+              "input_route": "literal",
+              "queries": [
+                {
+                  "parameters": [],
+                  "sql": "SELECT CAST(-7 AS SIGNED) + CAST(3 AS SIGNED) AS value UNION ALL SELECT CAST(0 AS SIGNED) + CAST(9 AS SIGNED) AS value UNION ALL SELECT CAST(NULL AS SIGNED) + CAST(1 AS SIGNED) AS value"
+                }
+              ]
+            },
+            {
+              "classification": "must_success",
+              "expected_by_query": [
+                [
+                  -4,
+                  9,
+                  null
+                ]
+              ],
+              "input_route": "column",
+              "queries": [
+                {
+                  "parameters": [],
+                  "sql": "SELECT left_value + right_value AS value FROM c77_signed_operands WHERE cell = 'safe_plus' ORDER BY ordinal"
+                }
+              ]
+            },
+            {
+              "classification": "must_success",
+              "expected_by_query": [
+                [
+                  -4
+                ],
+                [
+                  9
+                ],
+                [
+                  null
+                ]
+              ],
+              "input_route": "prepared",
+              "queries": [
+                {
+                  "parameters": [
+                    -7,
+                    3
+                  ],
+                  "sql": "SELECT CAST(%s AS SIGNED) + CAST(%s AS SIGNED) AS value"
+                },
+                {
+                  "parameters": [
+                    0,
+                    9
+                  ],
+                  "sql": "SELECT CAST(%s AS SIGNED) + CAST(%s AS SIGNED) AS value"
+                },
+                {
+                  "parameters": [
+                    null,
+                    1
+                  ],
+                  "sql": "SELECT CAST(%s AS SIGNED) + CAST(%s AS SIGNED) AS value"
+                }
+              ]
+            }
+          ]
+        },
+        {
+          "cell": "safe_minus",
+          "logical": {
+            "overflow": false,
+            "values": [
+              4,
+              -9,
+              null
+            ]
+          },
+          "routes": [
+            {
+              "classification": "observation",
+              "expected_by_query": [
+                [
+                  4,
+                  -9,
+                  null
+                ]
+              ],
+              "input_route": "literal",
+              "queries": [
+                {
+                  "parameters": [],
+                  "sql": "SELECT CAST(7 AS SIGNED) - CAST(3 AS SIGNED) AS value UNION ALL SELECT CAST(0 AS SIGNED) - CAST(9 AS SIGNED) AS value UNION ALL SELECT CAST(NULL AS SIGNED) - CAST(1 AS SIGNED) AS value"
+                }
+              ]
+            },
+            {
+              "classification": "must_success",
+              "expected_by_query": [
+                [
+                  4,
+                  -9,
+                  null
+                ]
+              ],
+              "input_route": "column",
+              "queries": [
+                {
+                  "parameters": [],
+                  "sql": "SELECT left_value - right_value AS value FROM c77_signed_operands WHERE cell = 'safe_minus' ORDER BY ordinal"
+                }
+              ]
+            },
+            {
+              "classification": "must_success",
+              "expected_by_query": [
+                [
+                  4
+                ],
+                [
+                  -9
+                ],
+                [
+                  null
+                ]
+              ],
+              "input_route": "prepared",
+              "queries": [
+                {
+                  "parameters": [
+                    7,
+                    3
+                  ],
+                  "sql": "SELECT CAST(%s AS SIGNED) - CAST(%s AS SIGNED) AS value"
+                },
+                {
+                  "parameters": [
+                    0,
+                    9
+                  ],
+                  "sql": "SELECT CAST(%s AS SIGNED) - CAST(%s AS SIGNED) AS value"
+                },
+                {
+                  "parameters": [
+                    null,
+                    1
+                  ],
+                  "sql": "SELECT CAST(%s AS SIGNED) - CAST(%s AS SIGNED) AS value"
+                }
+              ]
+            }
+          ]
+        },
+        {
+          "cell": "safe_multiply",
+          "logical": {
+            "overflow": false,
+            "values": [
+              -21,
+              0,
+              9223372030926249001,
+              null
+            ]
+          },
+          "routes": [
+            {
+              "classification": "observation",
+              "expected_by_query": [
+                [
+                  -21,
+                  0,
+                  9223372030926249001,
+                  null
+                ]
+              ],
+              "input_route": "literal",
+              "queries": [
+                {
+                  "parameters": [],
+                  "sql": "SELECT CAST(-7 AS SIGNED) * CAST(3 AS SIGNED) AS value UNION ALL SELECT CAST(0 AS SIGNED) * CAST(9 AS SIGNED) AS value UNION ALL SELECT CAST(3037000499 AS SIGNED) * CAST(3037000499 AS SIGNED) AS value UNION ALL SELECT CAST(NULL AS SIGNED) * CAST(1 AS SIGNED) AS value"
+                }
+              ]
+            },
+            {
+              "classification": "must_success",
+              "expected_by_query": [
+                [
+                  -21,
+                  0,
+                  9223372030926249001,
+                  null
+                ]
+              ],
+              "input_route": "column",
+              "queries": [
+                {
+                  "parameters": [],
+                  "sql": "SELECT left_value * right_value AS value FROM c77_signed_operands WHERE cell = 'safe_multiply' ORDER BY ordinal"
+                }
+              ]
+            },
+            {
+              "classification": "must_success",
+              "expected_by_query": [
+                [
+                  -21
+                ],
+                [
+                  0
+                ],
+                [
+                  9223372030926249001
+                ],
+                [
+                  null
+                ]
+              ],
+              "input_route": "prepared",
+              "queries": [
+                {
+                  "parameters": [
+                    -7,
+                    3
+                  ],
+                  "sql": "SELECT CAST(%s AS SIGNED) * CAST(%s AS SIGNED) AS value"
+                },
+                {
+                  "parameters": [
+                    0,
+                    9
+                  ],
+                  "sql": "SELECT CAST(%s AS SIGNED) * CAST(%s AS SIGNED) AS value"
+                },
+                {
+                  "parameters": [
+                    3037000499,
+                    3037000499
+                  ],
+                  "sql": "SELECT CAST(%s AS SIGNED) * CAST(%s AS SIGNED) AS value"
+                },
+                {
+                  "parameters": [
+                    null,
+                    1
+                  ],
+                  "sql": "SELECT CAST(%s AS SIGNED) * CAST(%s AS SIGNED) AS value"
+                }
+              ]
+            }
+          ]
+        },
+        {
+          "cell": "min_times_one",
+          "logical": {
+            "overflow": false,
+            "values": [
+              -9223372036854775808
+            ]
+          },
+          "routes": [
+            {
+              "classification": "observation",
+              "expected_by_query": [
+                [
+                  -9223372036854775808
+                ]
+              ],
+              "input_route": "literal",
+              "queries": [
+                {
+                  "parameters": [],
+                  "sql": "SELECT CAST(-9223372036854775808 AS SIGNED) * CAST(1 AS SIGNED) AS value"
+                }
+              ]
+            },
+            {
+              "classification": "observe",
+              "expected_by_query": [
+                [
+                  -9223372036854775808
+                ]
+              ],
+              "input_route": "column",
+              "queries": [
+                {
+                  "parameters": [],
+                  "sql": "SELECT left_value * right_value AS value FROM c77_signed_operands WHERE cell = 'min_times_one' ORDER BY ordinal"
+                }
+              ]
+            },
+            {
+              "classification": "observe",
+              "expected_by_query": [
+                [
+                  -9223372036854775808
+                ]
+              ],
+              "input_route": "prepared",
+              "queries": [
+                {
+                  "parameters": [
+                    -9223372036854775808,
+                    1
+                  ],
+                  "sql": "SELECT CAST(%s AS SIGNED) * CAST(%s AS SIGNED) AS value"
+                }
+              ]
+            }
+          ]
+        },
+        {
+          "cell": "safe_unary",
+          "logical": {
+            "overflow": false,
+            "values": [
+              -7,
+              -7,
+              null
+            ]
+          },
+          "routes": [
+            {
+              "classification": "observation",
+              "expected_by_query": [
+                [
+                  -7,
+                  -7,
+                  null
+                ]
+              ],
+              "input_route": "literal",
+              "queries": [
+                {
+                  "parameters": [],
+                  "sql": "SELECT +CAST(-7 AS SIGNED) AS value UNION ALL SELECT -CAST(7 AS SIGNED) AS value UNION ALL SELECT +CAST(NULL AS SIGNED) AS value"
+                }
+              ]
+            },
+            {
+              "classification": "must_success",
+              "expected_by_query": [
+                [
+                  -7,
+                  -7,
+                  null
+                ]
+              ],
+              "input_route": "column",
+              "queries": [
+                {
+                  "parameters": [],
+                  "sql": "SELECT CASE ordinal WHEN 0 THEN +left_value WHEN 1 THEN -left_value WHEN 2 THEN +left_value END AS value FROM c77_signed_operands WHERE cell = 'safe_unary' ORDER BY ordinal"
+                }
+              ]
+            },
+            {
+              "classification": "must_success",
+              "expected_by_query": [
+                [
+                  -7
+                ],
+                [
+                  -7
+                ],
+                [
+                  null
+                ]
+              ],
+              "input_route": "prepared",
+              "queries": [
+                {
+                  "parameters": [
+                    -7
+                  ],
+                  "sql": "SELECT +CAST(%s AS SIGNED) AS value"
+                },
+                {
+                  "parameters": [
+                    7
+                  ],
+                  "sql": "SELECT -CAST(%s AS SIGNED) AS value"
+                },
+                {
+                  "parameters": [
+                    null
+                  ],
+                  "sql": "SELECT +CAST(%s AS SIGNED) AS value"
+                }
+              ]
+            }
+          ]
+        },
+        {
+          "cell": "over_plus",
+          "logical": {
+            "overflow": true,
+            "values": null
+          },
+          "routes": [
+            {
+              "classification": "observation",
+              "expected_by_query": [
+                null
+              ],
+              "input_route": "literal",
+              "queries": [
+                {
+                  "parameters": [],
+                  "sql": "SELECT CAST(9223372036854775807 AS SIGNED) + CAST(1 AS SIGNED) AS value"
+                }
+              ]
+            },
+            {
+              "classification": "must_1690_22003",
+              "expected_by_query": [
+                null
+              ],
+              "input_route": "column",
+              "queries": [
+                {
+                  "parameters": [],
+                  "sql": "SELECT left_value + right_value AS value FROM c77_signed_operands WHERE cell = 'over_plus' ORDER BY ordinal"
+                }
+              ]
+            },
+            {
+              "classification": "must_1690_22003",
+              "expected_by_query": [
+                null
+              ],
+              "input_route": "prepared",
+              "queries": [
+                {
+                  "parameters": [
+                    9223372036854775807,
+                    1
+                  ],
+                  "sql": "SELECT CAST(%s AS SIGNED) + CAST(%s AS SIGNED) AS value"
+                }
+              ]
+            }
+          ]
+        },
+        {
+          "cell": "over_minus",
+          "logical": {
+            "overflow": true,
+            "values": null
+          },
+          "routes": [
+            {
+              "classification": "observation",
+              "expected_by_query": [
+                null
+              ],
+              "input_route": "literal",
+              "queries": [
+                {
+                  "parameters": [],
+                  "sql": "SELECT CAST(-9223372036854775808 AS SIGNED) - CAST(1 AS SIGNED) AS value"
+                }
+              ]
+            },
+            {
+              "classification": "must_1690_22003",
+              "expected_by_query": [
+                null
+              ],
+              "input_route": "column",
+              "queries": [
+                {
+                  "parameters": [],
+                  "sql": "SELECT left_value - right_value AS value FROM c77_signed_operands WHERE cell = 'over_minus' ORDER BY ordinal"
+                }
+              ]
+            },
+            {
+              "classification": "must_1690_22003",
+              "expected_by_query": [
+                null
+              ],
+              "input_route": "prepared",
+              "queries": [
+                {
+                  "parameters": [
+                    -9223372036854775808,
+                    1
+                  ],
+                  "sql": "SELECT CAST(%s AS SIGNED) - CAST(%s AS SIGNED) AS value"
+                }
+              ]
+            }
+          ]
+        },
+        {
+          "cell": "over_multiply",
+          "logical": {
+            "overflow": true,
+            "values": null
+          },
+          "routes": [
+            {
+              "classification": "observation",
+              "expected_by_query": [
+                null
+              ],
+              "input_route": "literal",
+              "queries": [
+                {
+                  "parameters": [],
+                  "sql": "SELECT CAST(3037000500 AS SIGNED) * CAST(3037000500 AS SIGNED) AS value"
+                }
+              ]
+            },
+            {
+              "classification": "must_1690_22003",
+              "expected_by_query": [
+                null
+              ],
+              "input_route": "column",
+              "queries": [
+                {
+                  "parameters": [],
+                  "sql": "SELECT left_value * right_value AS value FROM c77_signed_operands WHERE cell = 'over_multiply' ORDER BY ordinal"
+                }
+              ]
+            },
+            {
+              "classification": "must_1690_22003",
+              "expected_by_query": [
+                null
+              ],
+              "input_route": "prepared",
+              "queries": [
+                {
+                  "parameters": [
+                    3037000500,
+                    3037000500
+                  ],
+                  "sql": "SELECT CAST(%s AS SIGNED) * CAST(%s AS SIGNED) AS value"
+                }
+              ]
+            }
+          ]
+        },
+        {
+          "cell": "over_negate",
+          "logical": {
+            "overflow": true,
+            "values": null
+          },
+          "routes": [
+            {
+              "classification": "observation",
+              "expected_by_query": [
+                null
+              ],
+              "input_route": "literal",
+              "queries": [
+                {
+                  "parameters": [],
+                  "sql": "SELECT -CAST(-9223372036854775808 AS SIGNED) AS value"
+                }
+              ]
+            },
+            {
+              "classification": "must_1690_22003",
+              "expected_by_query": [
+                null
+              ],
+              "input_route": "column",
+              "queries": [
+                {
+                  "parameters": [],
+                  "sql": "SELECT -left_value AS value FROM c77_signed_operands WHERE cell = 'over_negate' ORDER BY ordinal"
+                }
+              ]
+            },
+            {
+              "classification": "must_1690_22003",
+              "expected_by_query": [
+                null
+              ],
+              "input_route": "prepared",
+              "queries": [
+                {
+                  "parameters": [
+                    -9223372036854775808
+                  ],
+                  "sql": "SELECT -CAST(%s AS SIGNED) AS value"
+                }
+              ]
+            }
+          ]
+        },
+        {
+          "cell": "over_abs",
+          "logical": {
+            "overflow": true,
+            "values": null
+          },
+          "routes": [
+            {
+              "classification": "observation",
+              "expected_by_query": [
+                null
+              ],
+              "input_route": "literal",
+              "queries": [
+                {
+                  "parameters": [],
+                  "sql": "SELECT ABS(CAST(-9223372036854775808 AS SIGNED)) AS value"
+                }
+              ]
+            },
+            {
+              "classification": "must_1690_22003",
+              "expected_by_query": [
+                null
+              ],
+              "input_route": "column",
+              "queries": [
+                {
+                  "parameters": [],
+                  "sql": "SELECT ABS(left_value) AS value FROM c77_signed_operands WHERE cell = 'over_abs' ORDER BY ordinal"
+                }
+              ]
+            },
+            {
+              "classification": "must_1690_22003",
+              "expected_by_query": [
+                null
+              ],
+              "input_route": "prepared",
+              "queries": [
+                {
+                  "parameters": [
+                    -9223372036854775808
+                  ],
+                  "sql": "SELECT ABS(CAST(%s AS SIGNED)) AS value"
+                }
+              ]
+            }
+          ]
+        },
+        {
+          "cell": "sum_empty",
+          "logical": {
+            "overflow": false,
+            "values": [
+              null
+            ]
+          },
+          "routes": [
+            {
+              "classification": "observation_decimal_or_target_native",
+              "expected_by_query": [
+                null
+              ],
+              "input_route": "raw_sum",
+              "queries": [
+                {
+                  "parameters": [
+                    "empty"
+                  ],
+                  "sql": "SELECT SUM(value) AS value FROM c77_signed_sum WHERE cell = %s"
+                }
+              ],
+              "result_shape": "scalar"
+            },
+            {
+              "classification": "observation_cast_or_clamp",
+              "expected_by_query": [
+                null
+              ],
+              "input_route": "cast_sum",
+              "queries": [
+                {
+                  "parameters": [
+                    "empty"
+                  ],
+                  "sql": "SELECT CAST(SUM(value) AS SIGNED) AS value FROM c77_signed_sum WHERE cell = %s"
+                }
+              ],
+              "result_shape": "scalar"
+            },
+            {
+              "classification": "must_success",
+              "expected_by_query": [
+                [
+                  null
+                ]
+              ],
+              "input_route": "guarded_sum",
+              "queries": [
+                {
+                  "parameters": [
+                    "empty"
+                  ],
+                  "sql": "SELECT CASE\n  WHEN SUM(value) > 9223372036854775807\n    THEN CAST(9223372036854775807 AS SIGNED) + CAST(1 AS SIGNED)\n  WHEN SUM(value) < -9223372036854775808\n    THEN CAST(-9223372036854775808 AS SIGNED) - CAST(1 AS SIGNED)\n  ELSE CAST(SUM(value) AS SIGNED)\nEND AS value FROM c77_signed_sum WHERE cell = %s"
+                }
+              ],
+              "result_shape": "scalar"
+            }
+          ]
+        },
+        {
+          "cell": "sum_all_null",
+          "logical": {
+            "overflow": false,
+            "values": [
+              null
+            ]
+          },
+          "routes": [
+            {
+              "classification": "observation_decimal_or_target_native",
+              "expected_by_query": [
+                null
+              ],
+              "input_route": "raw_sum",
+              "queries": [
+                {
+                  "parameters": [
+                    "all_null"
+                  ],
+                  "sql": "SELECT SUM(value) AS value FROM c77_signed_sum WHERE cell = %s"
+                }
+              ],
+              "result_shape": "scalar"
+            },
+            {
+              "classification": "observation_cast_or_clamp",
+              "expected_by_query": [
+                null
+              ],
+              "input_route": "cast_sum",
+              "queries": [
+                {
+                  "parameters": [
+                    "all_null"
+                  ],
+                  "sql": "SELECT CAST(SUM(value) AS SIGNED) AS value FROM c77_signed_sum WHERE cell = %s"
+                }
+              ],
+              "result_shape": "scalar"
+            },
+            {
+              "classification": "must_success",
+              "expected_by_query": [
+                [
+                  null
+                ]
+              ],
+              "input_route": "guarded_sum",
+              "queries": [
+                {
+                  "parameters": [
+                    "all_null"
+                  ],
+                  "sql": "SELECT CASE\n  WHEN SUM(value) > 9223372036854775807\n    THEN CAST(9223372036854775807 AS SIGNED) + CAST(1 AS SIGNED)\n  WHEN SUM(value) < -9223372036854775808\n    THEN CAST(-9223372036854775808 AS SIGNED) - CAST(1 AS SIGNED)\n  ELSE CAST(SUM(value) AS SIGNED)\nEND AS value FROM c77_signed_sum WHERE cell = %s"
+                }
+              ],
+              "result_shape": "scalar"
+            }
+          ]
+        },
+        {
+          "cell": "sum_safe",
+          "logical": {
+            "overflow": false,
+            "values": [
+              0
+            ]
+          },
+          "routes": [
+            {
+              "classification": "observation_decimal_or_target_native",
+              "expected_by_query": [
+                null
+              ],
+              "input_route": "raw_sum",
+              "queries": [
+                {
+                  "parameters": [
+                    "safe"
+                  ],
+                  "sql": "SELECT SUM(value) AS value FROM c77_signed_sum WHERE cell = %s"
+                }
+              ],
+              "result_shape": "scalar"
+            },
+            {
+              "classification": "observation_cast_or_clamp",
+              "expected_by_query": [
+                null
+              ],
+              "input_route": "cast_sum",
+              "queries": [
+                {
+                  "parameters": [
+                    "safe"
+                  ],
+                  "sql": "SELECT CAST(SUM(value) AS SIGNED) AS value FROM c77_signed_sum WHERE cell = %s"
+                }
+              ],
+              "result_shape": "scalar"
+            },
+            {
+              "classification": "must_success",
+              "expected_by_query": [
+                [
+                  0
+                ]
+              ],
+              "input_route": "guarded_sum",
+              "queries": [
+                {
+                  "parameters": [
+                    "safe"
+                  ],
+                  "sql": "SELECT CASE\n  WHEN SUM(value) > 9223372036854775807\n    THEN CAST(9223372036854775807 AS SIGNED) + CAST(1 AS SIGNED)\n  WHEN SUM(value) < -9223372036854775808\n    THEN CAST(-9223372036854775808 AS SIGNED) - CAST(1 AS SIGNED)\n  ELSE CAST(SUM(value) AS SIGNED)\nEND AS value FROM c77_signed_sum WHERE cell = %s"
+                }
+              ],
+              "result_shape": "scalar"
+            }
+          ]
+        },
+        {
+          "cell": "sum_minimum",
+          "logical": {
+            "overflow": false,
+            "values": [
+              -9223372036854775808
+            ]
+          },
+          "routes": [
+            {
+              "classification": "observation_decimal_or_target_native",
+              "expected_by_query": [
+                null
+              ],
+              "input_route": "raw_sum",
+              "queries": [
+                {
+                  "parameters": [
+                    "minimum"
+                  ],
+                  "sql": "SELECT SUM(value) AS value FROM c77_signed_sum WHERE cell = %s"
+                }
+              ],
+              "result_shape": "scalar"
+            },
+            {
+              "classification": "observation_cast_or_clamp",
+              "expected_by_query": [
+                null
+              ],
+              "input_route": "cast_sum",
+              "queries": [
+                {
+                  "parameters": [
+                    "minimum"
+                  ],
+                  "sql": "SELECT CAST(SUM(value) AS SIGNED) AS value FROM c77_signed_sum WHERE cell = %s"
+                }
+              ],
+              "result_shape": "scalar"
+            },
+            {
+              "classification": "must_success",
+              "expected_by_query": [
+                [
+                  -9223372036854775808
+                ]
+              ],
+              "input_route": "guarded_sum",
+              "queries": [
+                {
+                  "parameters": [
+                    "minimum"
+                  ],
+                  "sql": "SELECT CASE\n  WHEN SUM(value) > 9223372036854775807\n    THEN CAST(9223372036854775807 AS SIGNED) + CAST(1 AS SIGNED)\n  WHEN SUM(value) < -9223372036854775808\n    THEN CAST(-9223372036854775808 AS SIGNED) - CAST(1 AS SIGNED)\n  ELSE CAST(SUM(value) AS SIGNED)\nEND AS value FROM c77_signed_sum WHERE cell = %s"
+                }
+              ],
+              "result_shape": "scalar"
+            }
+          ]
+        },
+        {
+          "cell": "sum_maximum",
+          "logical": {
+            "overflow": false,
+            "values": [
+              9223372036854775807
+            ]
+          },
+          "routes": [
+            {
+              "classification": "observation_decimal_or_target_native",
+              "expected_by_query": [
+                null
+              ],
+              "input_route": "raw_sum",
+              "queries": [
+                {
+                  "parameters": [
+                    "maximum"
+                  ],
+                  "sql": "SELECT SUM(value) AS value FROM c77_signed_sum WHERE cell = %s"
+                }
+              ],
+              "result_shape": "scalar"
+            },
+            {
+              "classification": "observation_cast_or_clamp",
+              "expected_by_query": [
+                null
+              ],
+              "input_route": "cast_sum",
+              "queries": [
+                {
+                  "parameters": [
+                    "maximum"
+                  ],
+                  "sql": "SELECT CAST(SUM(value) AS SIGNED) AS value FROM c77_signed_sum WHERE cell = %s"
+                }
+              ],
+              "result_shape": "scalar"
+            },
+            {
+              "classification": "must_success",
+              "expected_by_query": [
+                [
+                  9223372036854775807
+                ]
+              ],
+              "input_route": "guarded_sum",
+              "queries": [
+                {
+                  "parameters": [
+                    "maximum"
+                  ],
+                  "sql": "SELECT CASE\n  WHEN SUM(value) > 9223372036854775807\n    THEN CAST(9223372036854775807 AS SIGNED) + CAST(1 AS SIGNED)\n  WHEN SUM(value) < -9223372036854775808\n    THEN CAST(-9223372036854775808 AS SIGNED) - CAST(1 AS SIGNED)\n  ELSE CAST(SUM(value) AS SIGNED)\nEND AS value FROM c77_signed_sum WHERE cell = %s"
+                }
+              ],
+              "result_shape": "scalar"
+            }
+          ]
+        },
+        {
+          "cell": "sum_over_positive",
+          "logical": {
+            "overflow": true,
+            "values": null
+          },
+          "routes": [
+            {
+              "classification": "observation_decimal_or_target_native",
+              "expected_by_query": [
+                null
+              ],
+              "input_route": "raw_sum",
+              "queries": [
+                {
+                  "parameters": [
+                    "over_positive"
+                  ],
+                  "sql": "SELECT SUM(value) AS value FROM c77_signed_sum WHERE cell = %s"
+                }
+              ],
+              "result_shape": "scalar"
+            },
+            {
+              "classification": "observation_cast_or_clamp",
+              "expected_by_query": [
+                null
+              ],
+              "input_route": "cast_sum",
+              "queries": [
+                {
+                  "parameters": [
+                    "over_positive"
+                  ],
+                  "sql": "SELECT CAST(SUM(value) AS SIGNED) AS value FROM c77_signed_sum WHERE cell = %s"
+                }
+              ],
+              "result_shape": "scalar"
+            },
+            {
+              "classification": "must_1690_22003",
+              "expected_by_query": [
+                null
+              ],
+              "input_route": "guarded_sum",
+              "queries": [
+                {
+                  "parameters": [
+                    "over_positive"
+                  ],
+                  "sql": "SELECT CASE\n  WHEN SUM(value) > 9223372036854775807\n    THEN CAST(9223372036854775807 AS SIGNED) + CAST(1 AS SIGNED)\n  WHEN SUM(value) < -9223372036854775808\n    THEN CAST(-9223372036854775808 AS SIGNED) - CAST(1 AS SIGNED)\n  ELSE CAST(SUM(value) AS SIGNED)\nEND AS value FROM c77_signed_sum WHERE cell = %s"
+                }
+              ],
+              "result_shape": "scalar"
+            }
+          ]
+        },
+        {
+          "cell": "sum_over_negative",
+          "logical": {
+            "overflow": true,
+            "values": null
+          },
+          "routes": [
+            {
+              "classification": "observation_decimal_or_target_native",
+              "expected_by_query": [
+                null
+              ],
+              "input_route": "raw_sum",
+              "queries": [
+                {
+                  "parameters": [
+                    "over_negative"
+                  ],
+                  "sql": "SELECT SUM(value) AS value FROM c77_signed_sum WHERE cell = %s"
+                }
+              ],
+              "result_shape": "scalar"
+            },
+            {
+              "classification": "observation_cast_or_clamp",
+              "expected_by_query": [
+                null
+              ],
+              "input_route": "cast_sum",
+              "queries": [
+                {
+                  "parameters": [
+                    "over_negative"
+                  ],
+                  "sql": "SELECT CAST(SUM(value) AS SIGNED) AS value FROM c77_signed_sum WHERE cell = %s"
+                }
+              ],
+              "result_shape": "scalar"
+            },
+            {
+              "classification": "must_1690_22003",
+              "expected_by_query": [
+                null
+              ],
+              "input_route": "guarded_sum",
+              "queries": [
+                {
+                  "parameters": [
+                    "over_negative"
+                  ],
+                  "sql": "SELECT CASE\n  WHEN SUM(value) > 9223372036854775807\n    THEN CAST(9223372036854775807 AS SIGNED) + CAST(1 AS SIGNED)\n  WHEN SUM(value) < -9223372036854775808\n    THEN CAST(-9223372036854775808 AS SIGNED) - CAST(1 AS SIGNED)\n  ELSE CAST(SUM(value) AS SIGNED)\nEND AS value FROM c77_signed_sum WHERE cell = %s"
+                }
+              ],
+              "result_shape": "scalar"
+            }
+          ]
+        },
+        {
+          "cell": "sum_group_safe",
+          "logical": {
+            "overflow": false,
+            "values": [
+              0
+            ]
+          },
+          "routes": [
+            {
+              "classification": "observation_decimal_or_target_native",
+              "expected_by_query": [
+                null
+              ],
+              "input_route": "raw_sum",
+              "queries": [
+                {
+                  "parameters": [
+                    "group_safe"
+                  ],
+                  "sql": "SELECT group_key, SUM(value) AS value FROM c77_signed_sum WHERE cell = %s GROUP BY group_key ORDER BY group_key"
+                }
+              ],
+              "result_shape": "grouped"
+            },
+            {
+              "classification": "observation_cast_or_clamp",
+              "expected_by_query": [
+                null
+              ],
+              "input_route": "cast_sum",
+              "queries": [
+                {
+                  "parameters": [
+                    "group_safe"
+                  ],
+                  "sql": "SELECT group_key, CAST(SUM(value) AS SIGNED) AS value FROM c77_signed_sum WHERE cell = %s GROUP BY group_key ORDER BY group_key"
+                }
+              ],
+              "result_shape": "grouped"
+            },
+            {
+              "classification": "must_success",
+              "expected_by_query": [
+                [
+                  [
+                    1,
+                    0
+                  ]
+                ]
+              ],
+              "input_route": "guarded_sum",
+              "queries": [
+                {
+                  "parameters": [
+                    "group_safe"
+                  ],
+                  "sql": "SELECT group_key, CASE\n  WHEN SUM(value) > 9223372036854775807\n    THEN CAST(9223372036854775807 AS SIGNED) + CAST(1 AS SIGNED)\n  WHEN SUM(value) < -9223372036854775808\n    THEN CAST(-9223372036854775808 AS SIGNED) - CAST(1 AS SIGNED)\n  ELSE CAST(SUM(value) AS SIGNED)\nEND AS value FROM c77_signed_sum WHERE cell = %s GROUP BY group_key ORDER BY group_key"
+                }
+              ],
+              "result_shape": "grouped"
+            }
+          ]
+        },
+        {
+          "cell": "sum_group_all_null",
+          "logical": {
+            "overflow": false,
+            "values": [
+              null
+            ]
+          },
+          "routes": [
+            {
+              "classification": "observation_decimal_or_target_native",
+              "expected_by_query": [
+                null
+              ],
+              "input_route": "raw_sum",
+              "queries": [
+                {
+                  "parameters": [
+                    "group_all_null"
+                  ],
+                  "sql": "SELECT group_key, SUM(value) AS value FROM c77_signed_sum WHERE cell = %s GROUP BY group_key ORDER BY group_key"
+                }
+              ],
+              "result_shape": "grouped"
+            },
+            {
+              "classification": "observation_cast_or_clamp",
+              "expected_by_query": [
+                null
+              ],
+              "input_route": "cast_sum",
+              "queries": [
+                {
+                  "parameters": [
+                    "group_all_null"
+                  ],
+                  "sql": "SELECT group_key, CAST(SUM(value) AS SIGNED) AS value FROM c77_signed_sum WHERE cell = %s GROUP BY group_key ORDER BY group_key"
+                }
+              ],
+              "result_shape": "grouped"
+            },
+            {
+              "classification": "must_success",
+              "expected_by_query": [
+                [
+                  [
+                    1,
+                    null
+                  ]
+                ]
+              ],
+              "input_route": "guarded_sum",
+              "queries": [
+                {
+                  "parameters": [
+                    "group_all_null"
+                  ],
+                  "sql": "SELECT group_key, CASE\n  WHEN SUM(value) > 9223372036854775807\n    THEN CAST(9223372036854775807 AS SIGNED) + CAST(1 AS SIGNED)\n  WHEN SUM(value) < -9223372036854775808\n    THEN CAST(-9223372036854775808 AS SIGNED) - CAST(1 AS SIGNED)\n  ELSE CAST(SUM(value) AS SIGNED)\nEND AS value FROM c77_signed_sum WHERE cell = %s GROUP BY group_key ORDER BY group_key"
+                }
+              ],
+              "result_shape": "grouped"
+            }
+          ]
+        },
+        {
+          "cell": "sum_group_overflow",
+          "logical": {
+            "overflow": true,
+            "values": null
+          },
+          "routes": [
+            {
+              "classification": "observation_decimal_or_target_native",
+              "expected_by_query": [
+                null
+              ],
+              "input_route": "raw_sum",
+              "queries": [
+                {
+                  "parameters": [
+                    "group_overflow"
+                  ],
+                  "sql": "SELECT group_key, SUM(value) AS value FROM c77_signed_sum WHERE cell = %s GROUP BY group_key ORDER BY group_key"
+                }
+              ],
+              "result_shape": "grouped"
+            },
+            {
+              "classification": "observation_cast_or_clamp",
+              "expected_by_query": [
+                null
+              ],
+              "input_route": "cast_sum",
+              "queries": [
+                {
+                  "parameters": [
+                    "group_overflow"
+                  ],
+                  "sql": "SELECT group_key, CAST(SUM(value) AS SIGNED) AS value FROM c77_signed_sum WHERE cell = %s GROUP BY group_key ORDER BY group_key"
+                }
+              ],
+              "result_shape": "grouped"
+            },
+            {
+              "classification": "must_1690_22003",
+              "expected_by_query": [
+                null
+              ],
+              "input_route": "guarded_sum",
+              "queries": [
+                {
+                  "parameters": [
+                    "group_overflow"
+                  ],
+                  "sql": "SELECT group_key, CASE\n  WHEN SUM(value) > 9223372036854775807\n    THEN CAST(9223372036854775807 AS SIGNED) + CAST(1 AS SIGNED)\n  WHEN SUM(value) < -9223372036854775808\n    THEN CAST(-9223372036854775808 AS SIGNED) - CAST(1 AS SIGNED)\n  ELSE CAST(SUM(value) AS SIGNED)\nEND AS value FROM c77_signed_sum WHERE cell = %s GROUP BY group_key ORDER BY group_key"
+                }
+              ],
+              "result_shape": "grouped"
+            }
+          ]
+        },
+        {
+          "cell": "mixed_decimal_warning",
+          "logical": {
+            "overflow": false,
+            "values": null
+          },
+          "routes": [
+            {
+              "classification": "observation_mixed_type",
+              "expected_by_query": [
+                null
+              ],
+              "input_route": "literal",
+              "queries": [
+                {
+                  "parameters": [],
+                  "sql": "SELECT CAST(1 AS SIGNED) + CAST(1.0 AS DECIMAL) AS value"
+                }
+              ]
+            }
+          ]
+        }
+      ],
+      "readback": [
+        {
+          "expected": [
+            [
+              "min_times_one",
+              0,
+              -9223372036854775808,
+              1
+            ],
+            [
+              "mixed_decimal",
+              0,
+              1,
+              1
+            ],
+            [
+              "over_abs",
+              0,
+              -9223372036854775808,
+              null
+            ],
+            [
+              "over_minus",
+              0,
+              -9223372036854775808,
+              1
+            ],
+            [
+              "over_multiply",
+              0,
+              3037000500,
+              3037000500
+            ],
+            [
+              "over_negate",
+              0,
+              -9223372036854775808,
+              null
+            ],
+            [
+              "over_plus",
+              0,
+              9223372036854775807,
+              1
+            ],
+            [
+              "safe_minus",
+              0,
+              7,
+              3
+            ],
+            [
+              "safe_minus",
+              1,
+              0,
+              9
+            ],
+            [
+              "safe_minus",
+              2,
+              null,
+              1
+            ],
+            [
+              "safe_multiply",
+              0,
+              -7,
+              3
+            ],
+            [
+              "safe_multiply",
+              1,
+              0,
+              9
+            ],
+            [
+              "safe_multiply",
+              2,
+              3037000499,
+              3037000499
+            ],
+            [
+              "safe_multiply",
+              3,
+              null,
+              1
+            ],
+            [
+              "safe_plus",
+              0,
+              -7,
+              3
+            ],
+            [
+              "safe_plus",
+              1,
+              0,
+              9
+            ],
+            [
+              "safe_plus",
+              2,
+              null,
+              1
+            ],
+            [
+              "safe_unary",
+              0,
+              -7,
+              null
+            ],
+            [
+              "safe_unary",
+              1,
+              7,
+              null
+            ],
+            [
+              "safe_unary",
+              2,
+              null,
+              null
+            ]
+          ],
+          "name": "operands",
+          "sql": "SELECT cell, ordinal, left_value, right_value FROM c77_signed_operands ORDER BY cell, ordinal"
+        },
+        {
+          "expected": [
+            [
+              "all_null",
+              1,
+              0,
+              null
+            ],
+            [
+              "all_null",
+              1,
+              1,
+              null
+            ],
+            [
+              "group_all_null",
+              1,
+              0,
+              null
+            ],
+            [
+              "group_all_null",
+              1,
+              1,
+              null
+            ],
+            [
+              "group_overflow",
+              1,
+              0,
+              9223372036854775807
+            ],
+            [
+              "group_overflow",
+              1,
+              1,
+              1
+            ],
+            [
+              "group_safe",
+              1,
+              0,
+              -7
+            ],
+            [
+              "group_safe",
+              1,
+              1,
+              7
+            ],
+            [
+              "group_safe",
+              1,
+              2,
+              null
+            ],
+            [
+              "maximum",
+              1,
+              0,
+              9223372036854775807
+            ],
+            [
+              "maximum",
+              1,
+              1,
+              0
+            ],
+            [
+              "minimum",
+              1,
+              0,
+              -9223372036854775808
+            ],
+            [
+              "minimum",
+              1,
+              1,
+              0
+            ],
+            [
+              "over_negative",
+              1,
+              0,
+              -9223372036854775808
+            ],
+            [
+              "over_negative",
+              1,
+              1,
+              -1
+            ],
+            [
+              "over_positive",
+              1,
+              0,
+              9223372036854775807
+            ],
+            [
+              "over_positive",
+              1,
+              1,
+              1
+            ],
+            [
+              "safe",
+              1,
+              0,
+              -7
+            ],
+            [
+              "safe",
+              1,
+              1,
+              0
+            ],
+            [
+              "safe",
+              1,
+              2,
+              7
+            ],
+            [
+              "safe",
+              1,
+              3,
+              null
+            ]
+          ],
+          "name": "sum",
+          "sql": "SELECT cell, group_key, ordinal, value FROM c77_signed_sum ORDER BY cell, group_key, ordinal"
+        }
+      ],
+      "seed": [
+        {
+          "parameters": [
+            "safe_plus",
+            0,
+            -7,
+            3
+          ],
+          "sql": "INSERT INTO c77_signed_operands (cell, ordinal, left_value, right_value) VALUES (%s, %s, %s, %s)"
+        },
+        {
+          "parameters": [
+            "safe_plus",
+            1,
+            0,
+            9
+          ],
+          "sql": "INSERT INTO c77_signed_operands (cell, ordinal, left_value, right_value) VALUES (%s, %s, %s, %s)"
+        },
+        {
+          "parameters": [
+            "safe_plus",
+            2,
+            null,
+            1
+          ],
+          "sql": "INSERT INTO c77_signed_operands (cell, ordinal, left_value, right_value) VALUES (%s, %s, %s, %s)"
+        },
+        {
+          "parameters": [
+            "safe_minus",
+            0,
+            7,
+            3
+          ],
+          "sql": "INSERT INTO c77_signed_operands (cell, ordinal, left_value, right_value) VALUES (%s, %s, %s, %s)"
+        },
+        {
+          "parameters": [
+            "safe_minus",
+            1,
+            0,
+            9
+          ],
+          "sql": "INSERT INTO c77_signed_operands (cell, ordinal, left_value, right_value) VALUES (%s, %s, %s, %s)"
+        },
+        {
+          "parameters": [
+            "safe_minus",
+            2,
+            null,
+            1
+          ],
+          "sql": "INSERT INTO c77_signed_operands (cell, ordinal, left_value, right_value) VALUES (%s, %s, %s, %s)"
+        },
+        {
+          "parameters": [
+            "safe_multiply",
+            0,
+            -7,
+            3
+          ],
+          "sql": "INSERT INTO c77_signed_operands (cell, ordinal, left_value, right_value) VALUES (%s, %s, %s, %s)"
+        },
+        {
+          "parameters": [
+            "safe_multiply",
+            1,
+            0,
+            9
+          ],
+          "sql": "INSERT INTO c77_signed_operands (cell, ordinal, left_value, right_value) VALUES (%s, %s, %s, %s)"
+        },
+        {
+          "parameters": [
+            "safe_multiply",
+            2,
+            3037000499,
+            3037000499
+          ],
+          "sql": "INSERT INTO c77_signed_operands (cell, ordinal, left_value, right_value) VALUES (%s, %s, %s, %s)"
+        },
+        {
+          "parameters": [
+            "safe_multiply",
+            3,
+            null,
+            1
+          ],
+          "sql": "INSERT INTO c77_signed_operands (cell, ordinal, left_value, right_value) VALUES (%s, %s, %s, %s)"
+        },
+        {
+          "parameters": [
+            "min_times_one",
+            0,
+            -9223372036854775808,
+            1
+          ],
+          "sql": "INSERT INTO c77_signed_operands (cell, ordinal, left_value, right_value) VALUES (%s, %s, %s, %s)"
+        },
+        {
+          "parameters": [
+            "safe_unary",
+            0,
+            -7,
+            null
+          ],
+          "sql": "INSERT INTO c77_signed_operands (cell, ordinal, left_value, right_value) VALUES (%s, %s, %s, %s)"
+        },
+        {
+          "parameters": [
+            "safe_unary",
+            1,
+            7,
+            null
+          ],
+          "sql": "INSERT INTO c77_signed_operands (cell, ordinal, left_value, right_value) VALUES (%s, %s, %s, %s)"
+        },
+        {
+          "parameters": [
+            "safe_unary",
+            2,
+            null,
+            null
+          ],
+          "sql": "INSERT INTO c77_signed_operands (cell, ordinal, left_value, right_value) VALUES (%s, %s, %s, %s)"
+        },
+        {
+          "parameters": [
+            "over_plus",
+            0,
+            9223372036854775807,
+            1
+          ],
+          "sql": "INSERT INTO c77_signed_operands (cell, ordinal, left_value, right_value) VALUES (%s, %s, %s, %s)"
+        },
+        {
+          "parameters": [
+            "over_minus",
+            0,
+            -9223372036854775808,
+            1
+          ],
+          "sql": "INSERT INTO c77_signed_operands (cell, ordinal, left_value, right_value) VALUES (%s, %s, %s, %s)"
+        },
+        {
+          "parameters": [
+            "over_multiply",
+            0,
+            3037000500,
+            3037000500
+          ],
+          "sql": "INSERT INTO c77_signed_operands (cell, ordinal, left_value, right_value) VALUES (%s, %s, %s, %s)"
+        },
+        {
+          "parameters": [
+            "over_negate",
+            0,
+            -9223372036854775808,
+            null
+          ],
+          "sql": "INSERT INTO c77_signed_operands (cell, ordinal, left_value, right_value) VALUES (%s, %s, %s, %s)"
+        },
+        {
+          "parameters": [
+            "over_abs",
+            0,
+            -9223372036854775808,
+            null
+          ],
+          "sql": "INSERT INTO c77_signed_operands (cell, ordinal, left_value, right_value) VALUES (%s, %s, %s, %s)"
+        },
+        {
+          "parameters": [
+            "mixed_decimal",
+            0,
+            1,
+            1
+          ],
+          "sql": "INSERT INTO c77_signed_operands (cell, ordinal, left_value, right_value) VALUES (%s, %s, %s, %s)"
+        },
+        {
+          "parameters": [
+            "all_null",
+            1,
+            0,
+            null
+          ],
+          "sql": "INSERT INTO c77_signed_sum (cell, group_key, ordinal, value) VALUES (%s, %s, %s, %s)"
+        },
+        {
+          "parameters": [
+            "all_null",
+            1,
+            1,
+            null
+          ],
+          "sql": "INSERT INTO c77_signed_sum (cell, group_key, ordinal, value) VALUES (%s, %s, %s, %s)"
+        },
+        {
+          "parameters": [
+            "safe",
+            1,
+            0,
+            -7
+          ],
+          "sql": "INSERT INTO c77_signed_sum (cell, group_key, ordinal, value) VALUES (%s, %s, %s, %s)"
+        },
+        {
+          "parameters": [
+            "safe",
+            1,
+            1,
+            0
+          ],
+          "sql": "INSERT INTO c77_signed_sum (cell, group_key, ordinal, value) VALUES (%s, %s, %s, %s)"
+        },
+        {
+          "parameters": [
+            "safe",
+            1,
+            2,
+            7
+          ],
+          "sql": "INSERT INTO c77_signed_sum (cell, group_key, ordinal, value) VALUES (%s, %s, %s, %s)"
+        },
+        {
+          "parameters": [
+            "safe",
+            1,
+            3,
+            null
+          ],
+          "sql": "INSERT INTO c77_signed_sum (cell, group_key, ordinal, value) VALUES (%s, %s, %s, %s)"
+        },
+        {
+          "parameters": [
+            "minimum",
+            1,
+            0,
+            -9223372036854775808
+          ],
+          "sql": "INSERT INTO c77_signed_sum (cell, group_key, ordinal, value) VALUES (%s, %s, %s, %s)"
+        },
+        {
+          "parameters": [
+            "minimum",
+            1,
+            1,
+            0
+          ],
+          "sql": "INSERT INTO c77_signed_sum (cell, group_key, ordinal, value) VALUES (%s, %s, %s, %s)"
+        },
+        {
+          "parameters": [
+            "maximum",
+            1,
+            0,
+            9223372036854775807
+          ],
+          "sql": "INSERT INTO c77_signed_sum (cell, group_key, ordinal, value) VALUES (%s, %s, %s, %s)"
+        },
+        {
+          "parameters": [
+            "maximum",
+            1,
+            1,
+            0
+          ],
+          "sql": "INSERT INTO c77_signed_sum (cell, group_key, ordinal, value) VALUES (%s, %s, %s, %s)"
+        },
+        {
+          "parameters": [
+            "over_positive",
+            1,
+            0,
+            9223372036854775807
+          ],
+          "sql": "INSERT INTO c77_signed_sum (cell, group_key, ordinal, value) VALUES (%s, %s, %s, %s)"
+        },
+        {
+          "parameters": [
+            "over_positive",
+            1,
+            1,
+            1
+          ],
+          "sql": "INSERT INTO c77_signed_sum (cell, group_key, ordinal, value) VALUES (%s, %s, %s, %s)"
+        },
+        {
+          "parameters": [
+            "over_negative",
+            1,
+            0,
+            -9223372036854775808
+          ],
+          "sql": "INSERT INTO c77_signed_sum (cell, group_key, ordinal, value) VALUES (%s, %s, %s, %s)"
+        },
+        {
+          "parameters": [
+            "over_negative",
+            1,
+            1,
+            -1
+          ],
+          "sql": "INSERT INTO c77_signed_sum (cell, group_key, ordinal, value) VALUES (%s, %s, %s, %s)"
+        },
+        {
+          "parameters": [
+            "group_safe",
+            1,
+            0,
+            -7
+          ],
+          "sql": "INSERT INTO c77_signed_sum (cell, group_key, ordinal, value) VALUES (%s, %s, %s, %s)"
+        },
+        {
+          "parameters": [
+            "group_safe",
+            1,
+            1,
+            7
+          ],
+          "sql": "INSERT INTO c77_signed_sum (cell, group_key, ordinal, value) VALUES (%s, %s, %s, %s)"
+        },
+        {
+          "parameters": [
+            "group_safe",
+            1,
+            2,
+            null
+          ],
+          "sql": "INSERT INTO c77_signed_sum (cell, group_key, ordinal, value) VALUES (%s, %s, %s, %s)"
+        },
+        {
+          "parameters": [
+            "group_all_null",
+            1,
+            0,
+            null
+          ],
+          "sql": "INSERT INTO c77_signed_sum (cell, group_key, ordinal, value) VALUES (%s, %s, %s, %s)"
+        },
+        {
+          "parameters": [
+            "group_all_null",
+            1,
+            1,
+            null
+          ],
+          "sql": "INSERT INTO c77_signed_sum (cell, group_key, ordinal, value) VALUES (%s, %s, %s, %s)"
+        },
+        {
+          "parameters": [
+            "group_overflow",
+            1,
+            0,
+            9223372036854775807
+          ],
+          "sql": "INSERT INTO c77_signed_sum (cell, group_key, ordinal, value) VALUES (%s, %s, %s, %s)"
+        },
+        {
+          "parameters": [
+            "group_overflow",
+            1,
+            1,
+            1
+          ],
+          "sql": "INSERT INTO c77_signed_sum (cell, group_key, ordinal, value) VALUES (%s, %s, %s, %s)"
+        }
+      ],
+      "setup": [
+        "SET SESSION sql_mode = 'ONLY_FULL_GROUP_BY,STRICT_ALL_TABLES,NO_ENGINE_SUBSTITUTION'",
+        "DROP TABLE IF EXISTS c77_signed_operands",
+        "DROP TABLE IF EXISTS c77_signed_sum",
+        "CREATE TEMPORARY TABLE c77_signed_operands (cell VARCHAR(32) NOT NULL, ordinal INTEGER NOT NULL, left_value BIGINT NULL, right_value BIGINT NULL, PRIMARY KEY (cell, ordinal))",
+        "CREATE TEMPORARY TABLE c77_signed_sum (cell VARCHAR(32) NOT NULL, group_key INTEGER NOT NULL, ordinal INTEGER NOT NULL, value BIGINT NULL, PRIMARY KEY (cell, group_key, ordinal))"
+      ]
+    },
+    "postgres": {
+      "catalog": [
+        {
+          "expected": [
+            [
+              "c77_signed_operands",
+              "cell",
+              "varchar",
+              true
+            ],
+            [
+              "c77_signed_operands",
+              "ordinal",
+              "int4",
+              true
+            ],
+            [
+              "c77_signed_operands",
+              "left_value",
+              "int8",
+              false
+            ],
+            [
+              "c77_signed_operands",
+              "right_value",
+              "int8",
+              false
+            ],
+            [
+              "c77_signed_sum",
+              "cell",
+              "varchar",
+              true
+            ],
+            [
+              "c77_signed_sum",
+              "group_key",
+              "int4",
+              true
+            ],
+            [
+              "c77_signed_sum",
+              "ordinal",
+              "int4",
+              true
+            ],
+            [
+              "c77_signed_sum",
+              "value",
+              "int8",
+              false
+            ]
+          ],
+          "name": "columns",
+          "sql": "SELECT a.attrelid::regclass::text, a.attname, t.typname, a.attnotnull FROM pg_attribute a JOIN pg_type t ON t.oid = a.atttypid WHERE a.attrelid IN ('c77_signed_operands'::regclass, 'c77_signed_sum'::regclass) AND a.attnum > 0 ORDER BY 1, a.attnum"
+        }
+      ],
+      "engine": "postgres",
+      "probes": [
+        {
+          "cell": "safe_plus",
+          "logical": {
+            "overflow": false,
+            "values": [
+              -4,
+              9,
+              null
+            ]
+          },
+          "routes": [
+            {
+              "classification": "observation",
+              "expected_by_query": [
+                [
+                  -4,
+                  9,
+                  null
+                ]
+              ],
+              "input_route": "literal",
+              "queries": [
+                {
+                  "parameters": [],
+                  "sql": "SELECT CAST(-7 AS bigint) + CAST(3 AS bigint) AS value UNION ALL SELECT CAST(0 AS bigint) + CAST(9 AS bigint) AS value UNION ALL SELECT CAST(NULL AS bigint) + CAST(1 AS bigint) AS value"
+                }
+              ]
+            },
+            {
+              "classification": "must_success",
+              "expected_by_query": [
+                [
+                  -4,
+                  9,
+                  null
+                ]
+              ],
+              "input_route": "column",
+              "queries": [
+                {
+                  "parameters": [],
+                  "sql": "SELECT left_value + right_value AS value FROM c77_signed_operands WHERE cell = 'safe_plus' ORDER BY ordinal"
+                }
+              ]
+            },
+            {
+              "classification": "must_success",
+              "expected_by_query": [
+                [
+                  -4
+                ],
+                [
+                  9
+                ],
+                [
+                  null
+                ]
+              ],
+              "input_route": "prepared",
+              "queries": [
+                {
+                  "parameters": [
+                    -7,
+                    3
+                  ],
+                  "sql": "SELECT CAST(%s AS bigint) + CAST(%s AS bigint) AS value"
+                },
+                {
+                  "parameters": [
+                    0,
+                    9
+                  ],
+                  "sql": "SELECT CAST(%s AS bigint) + CAST(%s AS bigint) AS value"
+                },
+                {
+                  "parameters": [
+                    null,
+                    1
+                  ],
+                  "sql": "SELECT CAST(%s AS bigint) + CAST(%s AS bigint) AS value"
+                }
+              ]
+            }
+          ]
+        },
+        {
+          "cell": "safe_minus",
+          "logical": {
+            "overflow": false,
+            "values": [
+              4,
+              -9,
+              null
+            ]
+          },
+          "routes": [
+            {
+              "classification": "observation",
+              "expected_by_query": [
+                [
+                  4,
+                  -9,
+                  null
+                ]
+              ],
+              "input_route": "literal",
+              "queries": [
+                {
+                  "parameters": [],
+                  "sql": "SELECT CAST(7 AS bigint) - CAST(3 AS bigint) AS value UNION ALL SELECT CAST(0 AS bigint) - CAST(9 AS bigint) AS value UNION ALL SELECT CAST(NULL AS bigint) - CAST(1 AS bigint) AS value"
+                }
+              ]
+            },
+            {
+              "classification": "must_success",
+              "expected_by_query": [
+                [
+                  4,
+                  -9,
+                  null
+                ]
+              ],
+              "input_route": "column",
+              "queries": [
+                {
+                  "parameters": [],
+                  "sql": "SELECT left_value - right_value AS value FROM c77_signed_operands WHERE cell = 'safe_minus' ORDER BY ordinal"
+                }
+              ]
+            },
+            {
+              "classification": "must_success",
+              "expected_by_query": [
+                [
+                  4
+                ],
+                [
+                  -9
+                ],
+                [
+                  null
+                ]
+              ],
+              "input_route": "prepared",
+              "queries": [
+                {
+                  "parameters": [
+                    7,
+                    3
+                  ],
+                  "sql": "SELECT CAST(%s AS bigint) - CAST(%s AS bigint) AS value"
+                },
+                {
+                  "parameters": [
+                    0,
+                    9
+                  ],
+                  "sql": "SELECT CAST(%s AS bigint) - CAST(%s AS bigint) AS value"
+                },
+                {
+                  "parameters": [
+                    null,
+                    1
+                  ],
+                  "sql": "SELECT CAST(%s AS bigint) - CAST(%s AS bigint) AS value"
+                }
+              ]
+            }
+          ]
+        },
+        {
+          "cell": "safe_multiply",
+          "logical": {
+            "overflow": false,
+            "values": [
+              -21,
+              0,
+              9223372030926249001,
+              null
+            ]
+          },
+          "routes": [
+            {
+              "classification": "observation",
+              "expected_by_query": [
+                [
+                  -21,
+                  0,
+                  9223372030926249001,
+                  null
+                ]
+              ],
+              "input_route": "literal",
+              "queries": [
+                {
+                  "parameters": [],
+                  "sql": "SELECT CAST(-7 AS bigint) * CAST(3 AS bigint) AS value UNION ALL SELECT CAST(0 AS bigint) * CAST(9 AS bigint) AS value UNION ALL SELECT CAST(3037000499 AS bigint) * CAST(3037000499 AS bigint) AS value UNION ALL SELECT CAST(NULL AS bigint) * CAST(1 AS bigint) AS value"
+                }
+              ]
+            },
+            {
+              "classification": "must_success",
+              "expected_by_query": [
+                [
+                  -21,
+                  0,
+                  9223372030926249001,
+                  null
+                ]
+              ],
+              "input_route": "column",
+              "queries": [
+                {
+                  "parameters": [],
+                  "sql": "SELECT left_value * right_value AS value FROM c77_signed_operands WHERE cell = 'safe_multiply' ORDER BY ordinal"
+                }
+              ]
+            },
+            {
+              "classification": "must_success",
+              "expected_by_query": [
+                [
+                  -21
+                ],
+                [
+                  0
+                ],
+                [
+                  9223372030926249001
+                ],
+                [
+                  null
+                ]
+              ],
+              "input_route": "prepared",
+              "queries": [
+                {
+                  "parameters": [
+                    -7,
+                    3
+                  ],
+                  "sql": "SELECT CAST(%s AS bigint) * CAST(%s AS bigint) AS value"
+                },
+                {
+                  "parameters": [
+                    0,
+                    9
+                  ],
+                  "sql": "SELECT CAST(%s AS bigint) * CAST(%s AS bigint) AS value"
+                },
+                {
+                  "parameters": [
+                    3037000499,
+                    3037000499
+                  ],
+                  "sql": "SELECT CAST(%s AS bigint) * CAST(%s AS bigint) AS value"
+                },
+                {
+                  "parameters": [
+                    null,
+                    1
+                  ],
+                  "sql": "SELECT CAST(%s AS bigint) * CAST(%s AS bigint) AS value"
+                }
+              ]
+            }
+          ]
+        },
+        {
+          "cell": "min_times_one",
+          "logical": {
+            "overflow": false,
+            "values": [
+              -9223372036854775808
+            ]
+          },
+          "routes": [
+            {
+              "classification": "observation",
+              "expected_by_query": [
+                [
+                  -9223372036854775808
+                ]
+              ],
+              "input_route": "literal",
+              "queries": [
+                {
+                  "parameters": [],
+                  "sql": "SELECT CAST(-9223372036854775808 AS bigint) * CAST(1 AS bigint) AS value"
+                }
+              ]
+            },
+            {
+              "classification": "must_success",
+              "expected_by_query": [
+                [
+                  -9223372036854775808
+                ]
+              ],
+              "input_route": "column",
+              "queries": [
+                {
+                  "parameters": [],
+                  "sql": "SELECT left_value * right_value AS value FROM c77_signed_operands WHERE cell = 'min_times_one' ORDER BY ordinal"
+                }
+              ]
+            },
+            {
+              "classification": "must_success",
+              "expected_by_query": [
+                [
+                  -9223372036854775808
+                ]
+              ],
+              "input_route": "prepared",
+              "queries": [
+                {
+                  "parameters": [
+                    -9223372036854775808,
+                    1
+                  ],
+                  "sql": "SELECT CAST(%s AS bigint) * CAST(%s AS bigint) AS value"
+                }
+              ]
+            }
+          ]
+        },
+        {
+          "cell": "safe_unary",
+          "logical": {
+            "overflow": false,
+            "values": [
+              -7,
+              -7,
+              null
+            ]
+          },
+          "routes": [
+            {
+              "classification": "observation",
+              "expected_by_query": [
+                [
+                  -7,
+                  -7,
+                  null
+                ]
+              ],
+              "input_route": "literal",
+              "queries": [
+                {
+                  "parameters": [],
+                  "sql": "SELECT +CAST(-7 AS bigint) AS value UNION ALL SELECT -CAST(7 AS bigint) AS value UNION ALL SELECT +CAST(NULL AS bigint) AS value"
+                }
+              ]
+            },
+            {
+              "classification": "must_success",
+              "expected_by_query": [
+                [
+                  -7,
+                  -7,
+                  null
+                ]
+              ],
+              "input_route": "column",
+              "queries": [
+                {
+                  "parameters": [],
+                  "sql": "SELECT CASE ordinal WHEN 0 THEN +left_value WHEN 1 THEN -left_value WHEN 2 THEN +left_value END AS value FROM c77_signed_operands WHERE cell = 'safe_unary' ORDER BY ordinal"
+                }
+              ]
+            },
+            {
+              "classification": "must_success",
+              "expected_by_query": [
+                [
+                  -7
+                ],
+                [
+                  -7
+                ],
+                [
+                  null
+                ]
+              ],
+              "input_route": "prepared",
+              "queries": [
+                {
+                  "parameters": [
+                    -7
+                  ],
+                  "sql": "SELECT +CAST(%s AS bigint) AS value"
+                },
+                {
+                  "parameters": [
+                    7
+                  ],
+                  "sql": "SELECT -CAST(%s AS bigint) AS value"
+                },
+                {
+                  "parameters": [
+                    null
+                  ],
+                  "sql": "SELECT +CAST(%s AS bigint) AS value"
+                }
+              ]
+            }
+          ]
+        },
+        {
+          "cell": "over_plus",
+          "logical": {
+            "overflow": true,
+            "values": null
+          },
+          "routes": [
+            {
+              "classification": "observation",
+              "expected_by_query": [
+                null
+              ],
+              "input_route": "literal",
+              "queries": [
+                {
+                  "parameters": [],
+                  "sql": "SELECT CAST(9223372036854775807 AS bigint) + CAST(1 AS bigint) AS value"
+                }
+              ]
+            },
+            {
+              "classification": "must_22003",
+              "expected_by_query": [
+                null
+              ],
+              "input_route": "column",
+              "queries": [
+                {
+                  "parameters": [],
+                  "sql": "SELECT left_value + right_value AS value FROM c77_signed_operands WHERE cell = 'over_plus' ORDER BY ordinal"
+                }
+              ]
+            },
+            {
+              "classification": "must_22003",
+              "expected_by_query": [
+                null
+              ],
+              "input_route": "prepared",
+              "queries": [
+                {
+                  "parameters": [
+                    9223372036854775807,
+                    1
+                  ],
+                  "sql": "SELECT CAST(%s AS bigint) + CAST(%s AS bigint) AS value"
+                }
+              ]
+            }
+          ]
+        },
+        {
+          "cell": "over_minus",
+          "logical": {
+            "overflow": true,
+            "values": null
+          },
+          "routes": [
+            {
+              "classification": "observation",
+              "expected_by_query": [
+                null
+              ],
+              "input_route": "literal",
+              "queries": [
+                {
+                  "parameters": [],
+                  "sql": "SELECT CAST(-9223372036854775808 AS bigint) - CAST(1 AS bigint) AS value"
+                }
+              ]
+            },
+            {
+              "classification": "must_22003",
+              "expected_by_query": [
+                null
+              ],
+              "input_route": "column",
+              "queries": [
+                {
+                  "parameters": [],
+                  "sql": "SELECT left_value - right_value AS value FROM c77_signed_operands WHERE cell = 'over_minus' ORDER BY ordinal"
+                }
+              ]
+            },
+            {
+              "classification": "must_22003",
+              "expected_by_query": [
+                null
+              ],
+              "input_route": "prepared",
+              "queries": [
+                {
+                  "parameters": [
+                    -9223372036854775808,
+                    1
+                  ],
+                  "sql": "SELECT CAST(%s AS bigint) - CAST(%s AS bigint) AS value"
+                }
+              ]
+            }
+          ]
+        },
+        {
+          "cell": "over_multiply",
+          "logical": {
+            "overflow": true,
+            "values": null
+          },
+          "routes": [
+            {
+              "classification": "observation",
+              "expected_by_query": [
+                null
+              ],
+              "input_route": "literal",
+              "queries": [
+                {
+                  "parameters": [],
+                  "sql": "SELECT CAST(3037000500 AS bigint) * CAST(3037000500 AS bigint) AS value"
+                }
+              ]
+            },
+            {
+              "classification": "must_22003",
+              "expected_by_query": [
+                null
+              ],
+              "input_route": "column",
+              "queries": [
+                {
+                  "parameters": [],
+                  "sql": "SELECT left_value * right_value AS value FROM c77_signed_operands WHERE cell = 'over_multiply' ORDER BY ordinal"
+                }
+              ]
+            },
+            {
+              "classification": "must_22003",
+              "expected_by_query": [
+                null
+              ],
+              "input_route": "prepared",
+              "queries": [
+                {
+                  "parameters": [
+                    3037000500,
+                    3037000500
+                  ],
+                  "sql": "SELECT CAST(%s AS bigint) * CAST(%s AS bigint) AS value"
+                }
+              ]
+            }
+          ]
+        },
+        {
+          "cell": "over_negate",
+          "logical": {
+            "overflow": true,
+            "values": null
+          },
+          "routes": [
+            {
+              "classification": "observation",
+              "expected_by_query": [
+                null
+              ],
+              "input_route": "literal",
+              "queries": [
+                {
+                  "parameters": [],
+                  "sql": "SELECT -CAST(-9223372036854775808 AS bigint) AS value"
+                }
+              ]
+            },
+            {
+              "classification": "must_22003",
+              "expected_by_query": [
+                null
+              ],
+              "input_route": "column",
+              "queries": [
+                {
+                  "parameters": [],
+                  "sql": "SELECT -left_value AS value FROM c77_signed_operands WHERE cell = 'over_negate' ORDER BY ordinal"
+                }
+              ]
+            },
+            {
+              "classification": "must_22003",
+              "expected_by_query": [
+                null
+              ],
+              "input_route": "prepared",
+              "queries": [
+                {
+                  "parameters": [
+                    -9223372036854775808
+                  ],
+                  "sql": "SELECT -CAST(%s AS bigint) AS value"
+                }
+              ]
+            }
+          ]
+        },
+        {
+          "cell": "over_abs",
+          "logical": {
+            "overflow": true,
+            "values": null
+          },
+          "routes": [
+            {
+              "classification": "observation",
+              "expected_by_query": [
+                null
+              ],
+              "input_route": "literal",
+              "queries": [
+                {
+                  "parameters": [],
+                  "sql": "SELECT ABS(CAST(-9223372036854775808 AS bigint)) AS value"
+                }
+              ]
+            },
+            {
+              "classification": "must_22003",
+              "expected_by_query": [
+                null
+              ],
+              "input_route": "column",
+              "queries": [
+                {
+                  "parameters": [],
+                  "sql": "SELECT ABS(left_value) AS value FROM c77_signed_operands WHERE cell = 'over_abs' ORDER BY ordinal"
+                }
+              ]
+            },
+            {
+              "classification": "must_22003",
+              "expected_by_query": [
+                null
+              ],
+              "input_route": "prepared",
+              "queries": [
+                {
+                  "parameters": [
+                    -9223372036854775808
+                  ],
+                  "sql": "SELECT ABS(CAST(%s AS bigint)) AS value"
+                }
+              ]
+            }
+          ]
+        },
+        {
+          "cell": "sum_empty",
+          "logical": {
+            "overflow": false,
+            "values": [
+              null
+            ]
+          },
+          "routes": [
+            {
+              "classification": "observation_decimal_or_target_native",
+              "expected_by_query": [
+                null
+              ],
+              "input_route": "raw_sum",
+              "queries": [
+                {
+                  "parameters": [
+                    "empty"
+                  ],
+                  "sql": "SELECT SUM(value) AS value FROM c77_signed_sum WHERE cell = %s"
+                }
+              ],
+              "result_shape": "scalar"
+            },
+            {
+              "classification": "observation_cast_or_clamp",
+              "expected_by_query": [
+                null
+              ],
+              "input_route": "cast_sum",
+              "queries": [
+                {
+                  "parameters": [
+                    "empty"
+                  ],
+                  "sql": "SELECT CAST(SUM(CAST(value AS bigint)) AS bigint) AS value FROM c77_signed_sum WHERE cell = %s"
+                }
+              ],
+              "result_shape": "scalar"
+            },
+            {
+              "classification": "must_success",
+              "expected_by_query": [
+                [
+                  null
+                ]
+              ],
+              "input_route": "guarded_sum",
+              "queries": [
+                {
+                  "parameters": [
+                    "empty"
+                  ],
+                  "sql": "SELECT CAST(SUM(CAST(value AS bigint)) AS bigint) AS value FROM c77_signed_sum WHERE cell = %s"
+                }
+              ],
+              "result_shape": "scalar"
+            }
+          ]
+        },
+        {
+          "cell": "sum_all_null",
+          "logical": {
+            "overflow": false,
+            "values": [
+              null
+            ]
+          },
+          "routes": [
+            {
+              "classification": "observation_decimal_or_target_native",
+              "expected_by_query": [
+                null
+              ],
+              "input_route": "raw_sum",
+              "queries": [
+                {
+                  "parameters": [
+                    "all_null"
+                  ],
+                  "sql": "SELECT SUM(value) AS value FROM c77_signed_sum WHERE cell = %s"
+                }
+              ],
+              "result_shape": "scalar"
+            },
+            {
+              "classification": "observation_cast_or_clamp",
+              "expected_by_query": [
+                null
+              ],
+              "input_route": "cast_sum",
+              "queries": [
+                {
+                  "parameters": [
+                    "all_null"
+                  ],
+                  "sql": "SELECT CAST(SUM(CAST(value AS bigint)) AS bigint) AS value FROM c77_signed_sum WHERE cell = %s"
+                }
+              ],
+              "result_shape": "scalar"
+            },
+            {
+              "classification": "must_success",
+              "expected_by_query": [
+                [
+                  null
+                ]
+              ],
+              "input_route": "guarded_sum",
+              "queries": [
+                {
+                  "parameters": [
+                    "all_null"
+                  ],
+                  "sql": "SELECT CAST(SUM(CAST(value AS bigint)) AS bigint) AS value FROM c77_signed_sum WHERE cell = %s"
+                }
+              ],
+              "result_shape": "scalar"
+            }
+          ]
+        },
+        {
+          "cell": "sum_safe",
+          "logical": {
+            "overflow": false,
+            "values": [
+              0
+            ]
+          },
+          "routes": [
+            {
+              "classification": "observation_decimal_or_target_native",
+              "expected_by_query": [
+                null
+              ],
+              "input_route": "raw_sum",
+              "queries": [
+                {
+                  "parameters": [
+                    "safe"
+                  ],
+                  "sql": "SELECT SUM(value) AS value FROM c77_signed_sum WHERE cell = %s"
+                }
+              ],
+              "result_shape": "scalar"
+            },
+            {
+              "classification": "observation_cast_or_clamp",
+              "expected_by_query": [
+                null
+              ],
+              "input_route": "cast_sum",
+              "queries": [
+                {
+                  "parameters": [
+                    "safe"
+                  ],
+                  "sql": "SELECT CAST(SUM(CAST(value AS bigint)) AS bigint) AS value FROM c77_signed_sum WHERE cell = %s"
+                }
+              ],
+              "result_shape": "scalar"
+            },
+            {
+              "classification": "must_success",
+              "expected_by_query": [
+                [
+                  0
+                ]
+              ],
+              "input_route": "guarded_sum",
+              "queries": [
+                {
+                  "parameters": [
+                    "safe"
+                  ],
+                  "sql": "SELECT CAST(SUM(CAST(value AS bigint)) AS bigint) AS value FROM c77_signed_sum WHERE cell = %s"
+                }
+              ],
+              "result_shape": "scalar"
+            }
+          ]
+        },
+        {
+          "cell": "sum_minimum",
+          "logical": {
+            "overflow": false,
+            "values": [
+              -9223372036854775808
+            ]
+          },
+          "routes": [
+            {
+              "classification": "observation_decimal_or_target_native",
+              "expected_by_query": [
+                null
+              ],
+              "input_route": "raw_sum",
+              "queries": [
+                {
+                  "parameters": [
+                    "minimum"
+                  ],
+                  "sql": "SELECT SUM(value) AS value FROM c77_signed_sum WHERE cell = %s"
+                }
+              ],
+              "result_shape": "scalar"
+            },
+            {
+              "classification": "observation_cast_or_clamp",
+              "expected_by_query": [
+                null
+              ],
+              "input_route": "cast_sum",
+              "queries": [
+                {
+                  "parameters": [
+                    "minimum"
+                  ],
+                  "sql": "SELECT CAST(SUM(CAST(value AS bigint)) AS bigint) AS value FROM c77_signed_sum WHERE cell = %s"
+                }
+              ],
+              "result_shape": "scalar"
+            },
+            {
+              "classification": "must_success",
+              "expected_by_query": [
+                [
+                  -9223372036854775808
+                ]
+              ],
+              "input_route": "guarded_sum",
+              "queries": [
+                {
+                  "parameters": [
+                    "minimum"
+                  ],
+                  "sql": "SELECT CAST(SUM(CAST(value AS bigint)) AS bigint) AS value FROM c77_signed_sum WHERE cell = %s"
+                }
+              ],
+              "result_shape": "scalar"
+            }
+          ]
+        },
+        {
+          "cell": "sum_maximum",
+          "logical": {
+            "overflow": false,
+            "values": [
+              9223372036854775807
+            ]
+          },
+          "routes": [
+            {
+              "classification": "observation_decimal_or_target_native",
+              "expected_by_query": [
+                null
+              ],
+              "input_route": "raw_sum",
+              "queries": [
+                {
+                  "parameters": [
+                    "maximum"
+                  ],
+                  "sql": "SELECT SUM(value) AS value FROM c77_signed_sum WHERE cell = %s"
+                }
+              ],
+              "result_shape": "scalar"
+            },
+            {
+              "classification": "observation_cast_or_clamp",
+              "expected_by_query": [
+                null
+              ],
+              "input_route": "cast_sum",
+              "queries": [
+                {
+                  "parameters": [
+                    "maximum"
+                  ],
+                  "sql": "SELECT CAST(SUM(CAST(value AS bigint)) AS bigint) AS value FROM c77_signed_sum WHERE cell = %s"
+                }
+              ],
+              "result_shape": "scalar"
+            },
+            {
+              "classification": "must_success",
+              "expected_by_query": [
+                [
+                  9223372036854775807
+                ]
+              ],
+              "input_route": "guarded_sum",
+              "queries": [
+                {
+                  "parameters": [
+                    "maximum"
+                  ],
+                  "sql": "SELECT CAST(SUM(CAST(value AS bigint)) AS bigint) AS value FROM c77_signed_sum WHERE cell = %s"
+                }
+              ],
+              "result_shape": "scalar"
+            }
+          ]
+        },
+        {
+          "cell": "sum_over_positive",
+          "logical": {
+            "overflow": true,
+            "values": null
+          },
+          "routes": [
+            {
+              "classification": "observation_decimal_or_target_native",
+              "expected_by_query": [
+                null
+              ],
+              "input_route": "raw_sum",
+              "queries": [
+                {
+                  "parameters": [
+                    "over_positive"
+                  ],
+                  "sql": "SELECT SUM(value) AS value FROM c77_signed_sum WHERE cell = %s"
+                }
+              ],
+              "result_shape": "scalar"
+            },
+            {
+              "classification": "observation_cast_or_clamp",
+              "expected_by_query": [
+                null
+              ],
+              "input_route": "cast_sum",
+              "queries": [
+                {
+                  "parameters": [
+                    "over_positive"
+                  ],
+                  "sql": "SELECT CAST(SUM(CAST(value AS bigint)) AS bigint) AS value FROM c77_signed_sum WHERE cell = %s"
+                }
+              ],
+              "result_shape": "scalar"
+            },
+            {
+              "classification": "must_22003",
+              "expected_by_query": [
+                null
+              ],
+              "input_route": "guarded_sum",
+              "queries": [
+                {
+                  "parameters": [
+                    "over_positive"
+                  ],
+                  "sql": "SELECT CAST(SUM(CAST(value AS bigint)) AS bigint) AS value FROM c77_signed_sum WHERE cell = %s"
+                }
+              ],
+              "result_shape": "scalar"
+            }
+          ]
+        },
+        {
+          "cell": "sum_over_negative",
+          "logical": {
+            "overflow": true,
+            "values": null
+          },
+          "routes": [
+            {
+              "classification": "observation_decimal_or_target_native",
+              "expected_by_query": [
+                null
+              ],
+              "input_route": "raw_sum",
+              "queries": [
+                {
+                  "parameters": [
+                    "over_negative"
+                  ],
+                  "sql": "SELECT SUM(value) AS value FROM c77_signed_sum WHERE cell = %s"
+                }
+              ],
+              "result_shape": "scalar"
+            },
+            {
+              "classification": "observation_cast_or_clamp",
+              "expected_by_query": [
+                null
+              ],
+              "input_route": "cast_sum",
+              "queries": [
+                {
+                  "parameters": [
+                    "over_negative"
+                  ],
+                  "sql": "SELECT CAST(SUM(CAST(value AS bigint)) AS bigint) AS value FROM c77_signed_sum WHERE cell = %s"
+                }
+              ],
+              "result_shape": "scalar"
+            },
+            {
+              "classification": "must_22003",
+              "expected_by_query": [
+                null
+              ],
+              "input_route": "guarded_sum",
+              "queries": [
+                {
+                  "parameters": [
+                    "over_negative"
+                  ],
+                  "sql": "SELECT CAST(SUM(CAST(value AS bigint)) AS bigint) AS value FROM c77_signed_sum WHERE cell = %s"
+                }
+              ],
+              "result_shape": "scalar"
+            }
+          ]
+        },
+        {
+          "cell": "sum_group_safe",
+          "logical": {
+            "overflow": false,
+            "values": [
+              0
+            ]
+          },
+          "routes": [
+            {
+              "classification": "observation_decimal_or_target_native",
+              "expected_by_query": [
+                null
+              ],
+              "input_route": "raw_sum",
+              "queries": [
+                {
+                  "parameters": [
+                    "group_safe"
+                  ],
+                  "sql": "SELECT group_key, SUM(value) AS value FROM c77_signed_sum WHERE cell = %s GROUP BY group_key ORDER BY group_key"
+                }
+              ],
+              "result_shape": "grouped"
+            },
+            {
+              "classification": "observation_cast_or_clamp",
+              "expected_by_query": [
+                null
+              ],
+              "input_route": "cast_sum",
+              "queries": [
+                {
+                  "parameters": [
+                    "group_safe"
+                  ],
+                  "sql": "SELECT group_key, CAST(SUM(CAST(value AS bigint)) AS bigint) AS value FROM c77_signed_sum WHERE cell = %s GROUP BY group_key ORDER BY group_key"
+                }
+              ],
+              "result_shape": "grouped"
+            },
+            {
+              "classification": "must_success",
+              "expected_by_query": [
+                [
+                  [
+                    1,
+                    0
+                  ]
+                ]
+              ],
+              "input_route": "guarded_sum",
+              "queries": [
+                {
+                  "parameters": [
+                    "group_safe"
+                  ],
+                  "sql": "SELECT group_key, CAST(SUM(CAST(value AS bigint)) AS bigint) AS value FROM c77_signed_sum WHERE cell = %s GROUP BY group_key ORDER BY group_key"
+                }
+              ],
+              "result_shape": "grouped"
+            }
+          ]
+        },
+        {
+          "cell": "sum_group_all_null",
+          "logical": {
+            "overflow": false,
+            "values": [
+              null
+            ]
+          },
+          "routes": [
+            {
+              "classification": "observation_decimal_or_target_native",
+              "expected_by_query": [
+                null
+              ],
+              "input_route": "raw_sum",
+              "queries": [
+                {
+                  "parameters": [
+                    "group_all_null"
+                  ],
+                  "sql": "SELECT group_key, SUM(value) AS value FROM c77_signed_sum WHERE cell = %s GROUP BY group_key ORDER BY group_key"
+                }
+              ],
+              "result_shape": "grouped"
+            },
+            {
+              "classification": "observation_cast_or_clamp",
+              "expected_by_query": [
+                null
+              ],
+              "input_route": "cast_sum",
+              "queries": [
+                {
+                  "parameters": [
+                    "group_all_null"
+                  ],
+                  "sql": "SELECT group_key, CAST(SUM(CAST(value AS bigint)) AS bigint) AS value FROM c77_signed_sum WHERE cell = %s GROUP BY group_key ORDER BY group_key"
+                }
+              ],
+              "result_shape": "grouped"
+            },
+            {
+              "classification": "must_success",
+              "expected_by_query": [
+                [
+                  [
+                    1,
+                    null
+                  ]
+                ]
+              ],
+              "input_route": "guarded_sum",
+              "queries": [
+                {
+                  "parameters": [
+                    "group_all_null"
+                  ],
+                  "sql": "SELECT group_key, CAST(SUM(CAST(value AS bigint)) AS bigint) AS value FROM c77_signed_sum WHERE cell = %s GROUP BY group_key ORDER BY group_key"
+                }
+              ],
+              "result_shape": "grouped"
+            }
+          ]
+        },
+        {
+          "cell": "sum_group_overflow",
+          "logical": {
+            "overflow": true,
+            "values": null
+          },
+          "routes": [
+            {
+              "classification": "observation_decimal_or_target_native",
+              "expected_by_query": [
+                null
+              ],
+              "input_route": "raw_sum",
+              "queries": [
+                {
+                  "parameters": [
+                    "group_overflow"
+                  ],
+                  "sql": "SELECT group_key, SUM(value) AS value FROM c77_signed_sum WHERE cell = %s GROUP BY group_key ORDER BY group_key"
+                }
+              ],
+              "result_shape": "grouped"
+            },
+            {
+              "classification": "observation_cast_or_clamp",
+              "expected_by_query": [
+                null
+              ],
+              "input_route": "cast_sum",
+              "queries": [
+                {
+                  "parameters": [
+                    "group_overflow"
+                  ],
+                  "sql": "SELECT group_key, CAST(SUM(CAST(value AS bigint)) AS bigint) AS value FROM c77_signed_sum WHERE cell = %s GROUP BY group_key ORDER BY group_key"
+                }
+              ],
+              "result_shape": "grouped"
+            },
+            {
+              "classification": "must_22003",
+              "expected_by_query": [
+                null
+              ],
+              "input_route": "guarded_sum",
+              "queries": [
+                {
+                  "parameters": [
+                    "group_overflow"
+                  ],
+                  "sql": "SELECT group_key, CAST(SUM(CAST(value AS bigint)) AS bigint) AS value FROM c77_signed_sum WHERE cell = %s GROUP BY group_key ORDER BY group_key"
+                }
+              ],
+              "result_shape": "grouped"
+            }
+          ]
+        },
+        {
+          "cell": "mixed_decimal_warning",
+          "logical": {
+            "overflow": false,
+            "values": null
+          },
+          "routes": [
+            {
+              "classification": "observation_mixed_type",
+              "expected_by_query": [
+                null
+              ],
+              "input_route": "literal",
+              "queries": [
+                {
+                  "parameters": [],
+                  "sql": "SELECT CAST(1 AS bigint) + CAST(1.0 AS numeric) AS value"
+                }
+              ]
+            }
+          ]
+        }
+      ],
+      "readback": [
+        {
+          "expected": [
+            [
+              "min_times_one",
+              0,
+              -9223372036854775808,
+              1
+            ],
+            [
+              "mixed_decimal",
+              0,
+              1,
+              1
+            ],
+            [
+              "over_abs",
+              0,
+              -9223372036854775808,
+              null
+            ],
+            [
+              "over_minus",
+              0,
+              -9223372036854775808,
+              1
+            ],
+            [
+              "over_multiply",
+              0,
+              3037000500,
+              3037000500
+            ],
+            [
+              "over_negate",
+              0,
+              -9223372036854775808,
+              null
+            ],
+            [
+              "over_plus",
+              0,
+              9223372036854775807,
+              1
+            ],
+            [
+              "safe_minus",
+              0,
+              7,
+              3
+            ],
+            [
+              "safe_minus",
+              1,
+              0,
+              9
+            ],
+            [
+              "safe_minus",
+              2,
+              null,
+              1
+            ],
+            [
+              "safe_multiply",
+              0,
+              -7,
+              3
+            ],
+            [
+              "safe_multiply",
+              1,
+              0,
+              9
+            ],
+            [
+              "safe_multiply",
+              2,
+              3037000499,
+              3037000499
+            ],
+            [
+              "safe_multiply",
+              3,
+              null,
+              1
+            ],
+            [
+              "safe_plus",
+              0,
+              -7,
+              3
+            ],
+            [
+              "safe_plus",
+              1,
+              0,
+              9
+            ],
+            [
+              "safe_plus",
+              2,
+              null,
+              1
+            ],
+            [
+              "safe_unary",
+              0,
+              -7,
+              null
+            ],
+            [
+              "safe_unary",
+              1,
+              7,
+              null
+            ],
+            [
+              "safe_unary",
+              2,
+              null,
+              null
+            ]
+          ],
+          "name": "operands",
+          "sql": "SELECT cell, ordinal, left_value, right_value FROM c77_signed_operands ORDER BY cell, ordinal"
+        },
+        {
+          "expected": [
+            [
+              "all_null",
+              1,
+              0,
+              null
+            ],
+            [
+              "all_null",
+              1,
+              1,
+              null
+            ],
+            [
+              "group_all_null",
+              1,
+              0,
+              null
+            ],
+            [
+              "group_all_null",
+              1,
+              1,
+              null
+            ],
+            [
+              "group_overflow",
+              1,
+              0,
+              9223372036854775807
+            ],
+            [
+              "group_overflow",
+              1,
+              1,
+              1
+            ],
+            [
+              "group_safe",
+              1,
+              0,
+              -7
+            ],
+            [
+              "group_safe",
+              1,
+              1,
+              7
+            ],
+            [
+              "group_safe",
+              1,
+              2,
+              null
+            ],
+            [
+              "maximum",
+              1,
+              0,
+              9223372036854775807
+            ],
+            [
+              "maximum",
+              1,
+              1,
+              0
+            ],
+            [
+              "minimum",
+              1,
+              0,
+              -9223372036854775808
+            ],
+            [
+              "minimum",
+              1,
+              1,
+              0
+            ],
+            [
+              "over_negative",
+              1,
+              0,
+              -9223372036854775808
+            ],
+            [
+              "over_negative",
+              1,
+              1,
+              -1
+            ],
+            [
+              "over_positive",
+              1,
+              0,
+              9223372036854775807
+            ],
+            [
+              "over_positive",
+              1,
+              1,
+              1
+            ],
+            [
+              "safe",
+              1,
+              0,
+              -7
+            ],
+            [
+              "safe",
+              1,
+              1,
+              0
+            ],
+            [
+              "safe",
+              1,
+              2,
+              7
+            ],
+            [
+              "safe",
+              1,
+              3,
+              null
+            ]
+          ],
+          "name": "sum",
+          "sql": "SELECT cell, group_key, ordinal, value FROM c77_signed_sum ORDER BY cell, group_key, ordinal"
+        }
+      ],
+      "seed": [
+        {
+          "parameters": [
+            "safe_plus",
+            0,
+            -7,
+            3
+          ],
+          "sql": "INSERT INTO c77_signed_operands (cell, ordinal, left_value, right_value) VALUES (%s, %s, %s, %s)"
+        },
+        {
+          "parameters": [
+            "safe_plus",
+            1,
+            0,
+            9
+          ],
+          "sql": "INSERT INTO c77_signed_operands (cell, ordinal, left_value, right_value) VALUES (%s, %s, %s, %s)"
+        },
+        {
+          "parameters": [
+            "safe_plus",
+            2,
+            null,
+            1
+          ],
+          "sql": "INSERT INTO c77_signed_operands (cell, ordinal, left_value, right_value) VALUES (%s, %s, %s, %s)"
+        },
+        {
+          "parameters": [
+            "safe_minus",
+            0,
+            7,
+            3
+          ],
+          "sql": "INSERT INTO c77_signed_operands (cell, ordinal, left_value, right_value) VALUES (%s, %s, %s, %s)"
+        },
+        {
+          "parameters": [
+            "safe_minus",
+            1,
+            0,
+            9
+          ],
+          "sql": "INSERT INTO c77_signed_operands (cell, ordinal, left_value, right_value) VALUES (%s, %s, %s, %s)"
+        },
+        {
+          "parameters": [
+            "safe_minus",
+            2,
+            null,
+            1
+          ],
+          "sql": "INSERT INTO c77_signed_operands (cell, ordinal, left_value, right_value) VALUES (%s, %s, %s, %s)"
+        },
+        {
+          "parameters": [
+            "safe_multiply",
+            0,
+            -7,
+            3
+          ],
+          "sql": "INSERT INTO c77_signed_operands (cell, ordinal, left_value, right_value) VALUES (%s, %s, %s, %s)"
+        },
+        {
+          "parameters": [
+            "safe_multiply",
+            1,
+            0,
+            9
+          ],
+          "sql": "INSERT INTO c77_signed_operands (cell, ordinal, left_value, right_value) VALUES (%s, %s, %s, %s)"
+        },
+        {
+          "parameters": [
+            "safe_multiply",
+            2,
+            3037000499,
+            3037000499
+          ],
+          "sql": "INSERT INTO c77_signed_operands (cell, ordinal, left_value, right_value) VALUES (%s, %s, %s, %s)"
+        },
+        {
+          "parameters": [
+            "safe_multiply",
+            3,
+            null,
+            1
+          ],
+          "sql": "INSERT INTO c77_signed_operands (cell, ordinal, left_value, right_value) VALUES (%s, %s, %s, %s)"
+        },
+        {
+          "parameters": [
+            "min_times_one",
+            0,
+            -9223372036854775808,
+            1
+          ],
+          "sql": "INSERT INTO c77_signed_operands (cell, ordinal, left_value, right_value) VALUES (%s, %s, %s, %s)"
+        },
+        {
+          "parameters": [
+            "safe_unary",
+            0,
+            -7,
+            null
+          ],
+          "sql": "INSERT INTO c77_signed_operands (cell, ordinal, left_value, right_value) VALUES (%s, %s, %s, %s)"
+        },
+        {
+          "parameters": [
+            "safe_unary",
+            1,
+            7,
+            null
+          ],
+          "sql": "INSERT INTO c77_signed_operands (cell, ordinal, left_value, right_value) VALUES (%s, %s, %s, %s)"
+        },
+        {
+          "parameters": [
+            "safe_unary",
+            2,
+            null,
+            null
+          ],
+          "sql": "INSERT INTO c77_signed_operands (cell, ordinal, left_value, right_value) VALUES (%s, %s, %s, %s)"
+        },
+        {
+          "parameters": [
+            "over_plus",
+            0,
+            9223372036854775807,
+            1
+          ],
+          "sql": "INSERT INTO c77_signed_operands (cell, ordinal, left_value, right_value) VALUES (%s, %s, %s, %s)"
+        },
+        {
+          "parameters": [
+            "over_minus",
+            0,
+            -9223372036854775808,
+            1
+          ],
+          "sql": "INSERT INTO c77_signed_operands (cell, ordinal, left_value, right_value) VALUES (%s, %s, %s, %s)"
+        },
+        {
+          "parameters": [
+            "over_multiply",
+            0,
+            3037000500,
+            3037000500
+          ],
+          "sql": "INSERT INTO c77_signed_operands (cell, ordinal, left_value, right_value) VALUES (%s, %s, %s, %s)"
+        },
+        {
+          "parameters": [
+            "over_negate",
+            0,
+            -9223372036854775808,
+            null
+          ],
+          "sql": "INSERT INTO c77_signed_operands (cell, ordinal, left_value, right_value) VALUES (%s, %s, %s, %s)"
+        },
+        {
+          "parameters": [
+            "over_abs",
+            0,
+            -9223372036854775808,
+            null
+          ],
+          "sql": "INSERT INTO c77_signed_operands (cell, ordinal, left_value, right_value) VALUES (%s, %s, %s, %s)"
+        },
+        {
+          "parameters": [
+            "mixed_decimal",
+            0,
+            1,
+            1
+          ],
+          "sql": "INSERT INTO c77_signed_operands (cell, ordinal, left_value, right_value) VALUES (%s, %s, %s, %s)"
+        },
+        {
+          "parameters": [
+            "all_null",
+            1,
+            0,
+            null
+          ],
+          "sql": "INSERT INTO c77_signed_sum (cell, group_key, ordinal, value) VALUES (%s, %s, %s, %s)"
+        },
+        {
+          "parameters": [
+            "all_null",
+            1,
+            1,
+            null
+          ],
+          "sql": "INSERT INTO c77_signed_sum (cell, group_key, ordinal, value) VALUES (%s, %s, %s, %s)"
+        },
+        {
+          "parameters": [
+            "safe",
+            1,
+            0,
+            -7
+          ],
+          "sql": "INSERT INTO c77_signed_sum (cell, group_key, ordinal, value) VALUES (%s, %s, %s, %s)"
+        },
+        {
+          "parameters": [
+            "safe",
+            1,
+            1,
+            0
+          ],
+          "sql": "INSERT INTO c77_signed_sum (cell, group_key, ordinal, value) VALUES (%s, %s, %s, %s)"
+        },
+        {
+          "parameters": [
+            "safe",
+            1,
+            2,
+            7
+          ],
+          "sql": "INSERT INTO c77_signed_sum (cell, group_key, ordinal, value) VALUES (%s, %s, %s, %s)"
+        },
+        {
+          "parameters": [
+            "safe",
+            1,
+            3,
+            null
+          ],
+          "sql": "INSERT INTO c77_signed_sum (cell, group_key, ordinal, value) VALUES (%s, %s, %s, %s)"
+        },
+        {
+          "parameters": [
+            "minimum",
+            1,
+            0,
+            -9223372036854775808
+          ],
+          "sql": "INSERT INTO c77_signed_sum (cell, group_key, ordinal, value) VALUES (%s, %s, %s, %s)"
+        },
+        {
+          "parameters": [
+            "minimum",
+            1,
+            1,
+            0
+          ],
+          "sql": "INSERT INTO c77_signed_sum (cell, group_key, ordinal, value) VALUES (%s, %s, %s, %s)"
+        },
+        {
+          "parameters": [
+            "maximum",
+            1,
+            0,
+            9223372036854775807
+          ],
+          "sql": "INSERT INTO c77_signed_sum (cell, group_key, ordinal, value) VALUES (%s, %s, %s, %s)"
+        },
+        {
+          "parameters": [
+            "maximum",
+            1,
+            1,
+            0
+          ],
+          "sql": "INSERT INTO c77_signed_sum (cell, group_key, ordinal, value) VALUES (%s, %s, %s, %s)"
+        },
+        {
+          "parameters": [
+            "over_positive",
+            1,
+            0,
+            9223372036854775807
+          ],
+          "sql": "INSERT INTO c77_signed_sum (cell, group_key, ordinal, value) VALUES (%s, %s, %s, %s)"
+        },
+        {
+          "parameters": [
+            "over_positive",
+            1,
+            1,
+            1
+          ],
+          "sql": "INSERT INTO c77_signed_sum (cell, group_key, ordinal, value) VALUES (%s, %s, %s, %s)"
+        },
+        {
+          "parameters": [
+            "over_negative",
+            1,
+            0,
+            -9223372036854775808
+          ],
+          "sql": "INSERT INTO c77_signed_sum (cell, group_key, ordinal, value) VALUES (%s, %s, %s, %s)"
+        },
+        {
+          "parameters": [
+            "over_negative",
+            1,
+            1,
+            -1
+          ],
+          "sql": "INSERT INTO c77_signed_sum (cell, group_key, ordinal, value) VALUES (%s, %s, %s, %s)"
+        },
+        {
+          "parameters": [
+            "group_safe",
+            1,
+            0,
+            -7
+          ],
+          "sql": "INSERT INTO c77_signed_sum (cell, group_key, ordinal, value) VALUES (%s, %s, %s, %s)"
+        },
+        {
+          "parameters": [
+            "group_safe",
+            1,
+            1,
+            7
+          ],
+          "sql": "INSERT INTO c77_signed_sum (cell, group_key, ordinal, value) VALUES (%s, %s, %s, %s)"
+        },
+        {
+          "parameters": [
+            "group_safe",
+            1,
+            2,
+            null
+          ],
+          "sql": "INSERT INTO c77_signed_sum (cell, group_key, ordinal, value) VALUES (%s, %s, %s, %s)"
+        },
+        {
+          "parameters": [
+            "group_all_null",
+            1,
+            0,
+            null
+          ],
+          "sql": "INSERT INTO c77_signed_sum (cell, group_key, ordinal, value) VALUES (%s, %s, %s, %s)"
+        },
+        {
+          "parameters": [
+            "group_all_null",
+            1,
+            1,
+            null
+          ],
+          "sql": "INSERT INTO c77_signed_sum (cell, group_key, ordinal, value) VALUES (%s, %s, %s, %s)"
+        },
+        {
+          "parameters": [
+            "group_overflow",
+            1,
+            0,
+            9223372036854775807
+          ],
+          "sql": "INSERT INTO c77_signed_sum (cell, group_key, ordinal, value) VALUES (%s, %s, %s, %s)"
+        },
+        {
+          "parameters": [
+            "group_overflow",
+            1,
+            1,
+            1
+          ],
+          "sql": "INSERT INTO c77_signed_sum (cell, group_key, ordinal, value) VALUES (%s, %s, %s, %s)"
+        }
+      ],
+      "setup": [
+        "DROP TABLE IF EXISTS c77_signed_operands",
+        "DROP TABLE IF EXISTS c77_signed_sum",
+        "CREATE TEMP TABLE c77_signed_operands (cell VARCHAR(32) NOT NULL, ordinal INTEGER NOT NULL, left_value BIGINT NULL, right_value BIGINT NULL, PRIMARY KEY (cell, ordinal))",
+        "CREATE TEMP TABLE c77_signed_sum (cell VARCHAR(32) NOT NULL, group_key INTEGER NOT NULL, ordinal INTEGER NOT NULL, value BIGINT NULL, PRIMARY KEY (cell, group_key, ordinal))"
+      ]
+    }
+  },
+  "postgres_relay_contract": {
+    "profile": "postgres-none-exec-stdio-v1",
+    "relay_command": "docker container exec -i /bin/bash -c fixed-5432-forward",
+    "relay_sha256": "dd3cb68067887ee80acd5801c4ea3c9f1b701daef89a3a11d2e4dff329b55754",
+    "target_host": "127.0.0.1",
+    "target_port": 5432
+  },
+  "run_interface": {
+    "engine_inputs": [
+      "one owned loopback endpoint from the reviewed network-none exec-stdio relay",
+      "a fresh candidate-only DB-API environment",
+      "the same ordered seed rows and statement labels on PostgreSQL and MySQL"
+    ],
+    "preflight": [
+      "UV_PYTHON=3.13.13 <candidate-python> -I -B p77_mysql_numeric_probe.py --self-check",
+      "record image/driver/session/relay identities before opening either target"
+    ],
+    "receipt": "p77_mysql_numeric_probe.py --run-plan PLAN --endpoint-json ENDPOINT --write-receipt RECEIPT consumes only the frozen plan; it does not choose a cell, route or operand at runtime"
+  },
+  "same_physical_seed": {
+    "mysql": {
+      "catalog": "SHOW CREATE TABLE plus Connector/Python cursor.description",
+      "checked_sum_candidate": "CASE\n  WHEN SUM(value) > 9223372036854775807\n    THEN CAST(9223372036854775807 AS SIGNED) + CAST(1 AS SIGNED)\n  WHEN SUM(value) < -9223372036854775808\n    THEN CAST(-9223372036854775808 AS SIGNED) - CAST(1 AS SIGNED)\n  ELSE CAST(SUM(value) AS SIGNED)\nEND",
+      "literal_cast": "CAST(<value> AS SIGNED)",
+      "signed_column": "BIGINT"
+    },
+    "postgres": {
+      "catalog": "pg_attribute/pg_type rows for each result and seed column",
+      "checked_sum": "CAST(SUM(CAST(value AS bigint)) AS bigint)",
+      "literal_cast": "CAST(<value> AS bigint)",
+      "signed_column": "BIGINT"
+    },
+    "prepared_parameters": "%s placeholders via each pinned DB-API driver"
+  },
+  "session": {
+    "metadata": "cursor.description retained for every successful SELECT",
+    "sql_mode": "ONLY_FULL_GROUP_BY,STRICT_ALL_TABLES,NO_ENGINE_SUBSTITUTION",
+    "warnings": "SHOW WARNINGS after every statement"
+  },
+  "status": "PREREGISTERED_NOT_STARTED",
+  "sum_forms": {
+    "grouped_guarded": "SELECT group_key, CASE\n  WHEN SUM(value) > 9223372036854775807\n    THEN CAST(9223372036854775807 AS SIGNED) + CAST(1 AS SIGNED)\n  WHEN SUM(value) < -9223372036854775808\n    THEN CAST(-9223372036854775808 AS SIGNED) - CAST(1 AS SIGNED)\n  ELSE CAST(SUM(value) AS SIGNED)\nEND AS value FROM c77_signed_sum WHERE cell = %s GROUP BY group_key ORDER BY group_key",
+    "guarded": "SELECT CASE\n  WHEN SUM(value) > 9223372036854775807\n    THEN CAST(9223372036854775807 AS SIGNED) + CAST(1 AS SIGNED)\n  WHEN SUM(value) < -9223372036854775808\n    THEN CAST(-9223372036854775808 AS SIGNED) - CAST(1 AS SIGNED)\n  ELSE CAST(SUM(value) AS SIGNED)\nEND AS value FROM c77_signed_sum WHERE cell = %s",
+    "narrowed": "SELECT CAST(SUM(value) AS SIGNED) AS value FROM c77_signed_sum WHERE cell = %s",
+    "raw": "SELECT SUM(value) AS value FROM c77_signed_sum WHERE cell = %s"
+  },
+  "sum_guard": "CASE\n  WHEN SUM(value) > 9223372036854775807\n    THEN CAST(9223372036854775807 AS SIGNED) + CAST(1 AS SIGNED)\n  WHEN SUM(value) < -9223372036854775808\n    THEN CAST(-9223372036854775808 AS SIGNED) - CAST(1 AS SIGNED)\n  ELSE CAST(SUM(value) AS SIGNED)\nEND",
+  "sum_setup": [
+    "DROP TABLE IF EXISTS c77_signed_sum",
+    "CREATE TABLE c77_signed_sum (cell VARCHAR(32) NOT NULL, group_key INT NOT NULL, ordinal INT NOT NULL, value BIGINT NULL, PRIMARY KEY (cell, group_key, ordinal))",
+    "SHOW CREATE TABLE c77_signed_sum"
+  ],
+  "sums": [
+    {
+      "engine_observation": "must_success",
+      "logical_overflow": false,
+      "name": "empty",
+      "values": [
+        null
+      ]
+    },
+    {
+      "engine_observation": "must_success",
+      "logical_overflow": false,
+      "name": "all_null",
+      "values": [
+        null
+      ]
+    },
+    {
+      "engine_observation": "must_success",
+      "logical_overflow": false,
+      "name": "safe",
+      "values": [
+        0
+      ]
+    },
+    {
+      "engine_observation": "must_success",
+      "logical_overflow": false,
+      "name": "minimum",
+      "values": [
+        -9223372036854775808
+      ]
+    },
+    {
+      "engine_observation": "must_success",
+      "logical_overflow": false,
+      "name": "maximum",
+      "values": [
+        9223372036854775807
+      ]
+    },
+    {
+      "engine_observation": "must_1690_22003",
+      "logical_overflow": true,
+      "name": "over_positive",
+      "values": null
+    },
+    {
+      "engine_observation": "must_1690_22003",
+      "logical_overflow": true,
+      "name": "over_negative",
+      "values": null
+    },
+    {
+      "engine_observation": "must_success",
+      "logical_overflow": false,
+      "name": "group_safe",
+      "values": [
+        0
+      ]
+    },
+    {
+      "engine_observation": "must_success",
+      "logical_overflow": false,
+      "name": "group_all_null",
+      "values": [
+        null
+      ]
+    },
+    {
+      "engine_observation": "must_1690_22003",
+      "logical_overflow": true,
+      "name": "group_overflow",
+      "values": null
+    }
+  ]
+}

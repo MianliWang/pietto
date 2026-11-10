@@ -1,0 +1,38 @@
+[validate] OOM guard enabled: Linux owned process groups
+[validate] lockfile: uv lock --check
+Resolved 23 packages in 2ms
+[validate] lockfile completed in 1.004s
+[validate] format: uv run ruff format --check .
+1114 files already formatted
+[validate] format completed in 1.045s
+[validate] lint: uv run ruff check .
+All checks passed!
+[validate] lint completed in 1.044s
+[validate] production typing: uv run pyright --threads 4
+venv .venv subdirectory not found in venv path /home/mianliwang/projects/pietto/.cache/phase77-recovery/candidates/maintenance.
+venv .venv subdirectory not found in venv path /home/mianliwang/projects/pietto/.cache/phase77-recovery/candidates/maintenance.
+venv .venv subdirectory not found in venv path /home/mianliwang/projects/pietto/.cache/phase77-recovery/candidates/maintenance.
+venv .venv subdirectory not found in venv path /home/mianliwang/projects/pietto/.cache/phase77-recovery/candidates/maintenance.
+venv .venv subdirectory not found in venv path /home/mianliwang/projects/pietto/.cache/phase77-recovery/candidates/maintenance.
+0 errors, 0 warnings, 0 informations
+[validate] production typing completed in 45.108s
+[validate] test typing: uv run pyright --project pyrightconfig.tests.json --threads 4
+venv .venv subdirectory not found in venv path /home/mianliwang/projects/pietto/.cache/phase77-recovery/candidates/maintenance.
+venv .venv subdirectory not found in venv path /home/mianliwang/projects/pietto/.cache/phase77-recovery/candidates/maintenance.
+venv .venv subdirectory not found in venv path /home/mianliwang/projects/pietto/.cache/phase77-recovery/candidates/maintenance.
+venv .venv subdirectory not found in venv path /home/mianliwang/projects/pietto/.cache/phase77-recovery/candidates/maintenance.
+venv .venv subdirectory not found in venv path /home/mianliwang/projects/pietto/.cache/phase77-recovery/candidates/maintenance.
+0 errors, 0 warnings, 0 informations
+[validate] test typing completed in 38.034s
+[validate] tests: uv run pytest -n 4 --dist=loadfile --pietto-storage-class=qualified
+============================= test session starts ==============================
+platform linux -- Python 3.13.13, pytest-9.2.0, pluggy-1.6.0
+rootdir: /home/mianliwang/projects/pietto/.cache/phase77-recovery/candidates/maintenance
+configfile: pytest.ini
+plugins: cov-7.1.0, xdist-3.8.0
+created: 4/4 workers
+4 workers [27634 items]
+
+............................................[validate] resource-pressure {"child_pid": 530712, "critical_threshold_bytes": 805306368, "effective_available_bytes": 3792248832, "effective_total_bytes": 42058223616, "elapsed_seconds": 255.024, "format": "pietto.validation-resource-pressure.v1", "gate": "tests", "hard_threshold_bytes": 4205822361, "memory_events_oom_delta": 0, "memory_events_oom_kill_delta": 0, "psi_full_avg10": 3.49, "reason": "RESOURCE_PRESSURE_ABORTED", "termination": "SIGTERM_SIGKILL", "trigger": "sustained_low_available"}
+[validate] tests completed in 255.025s
+[validate] total completed in 341.260s

@@ -1,0 +1,142 @@
++ mktemp -d /tmp/pietto-phase77-cp312-wrapt.XXXXXX
+/tmp/pietto-phase77-cp312-wrapt.pmdIFW
+[exit 0]
++ env+ PIP_CACHE_DIR=/tmp/pietto-phase77-cp312-wrapt.pmdIFW/pip-cache+ /tmp/pietto-phase77-wheel-downloader/bin/python+ -m+ pip+ install+ --dry-run+ --ignore-installed+ --no-deps+ --only-binary=:all:+ --platform+ manylinux_2_28_x86_64+ --implementation+ cp+ --python-version+ 3.12+ --abi+ cp312+ --report+ /home/mianliwang/projects/pietto/.cache/phase77-recovery/runtime/reports/wrapt-cp312-resolve.json+ wrapt==2.5.0
+Collecting wrapt==2.5.0
+  Downloading wrapt-2.5.0-cp312-cp312-manylinux1_x86_64.manylinux_2_28_x86_64.manylinux_2_5_x86_64.whl.metadata (7.6 kB)
+Would install wrapt-2.5.0
+
+[notice] A new release of pip is available: 26.0.1 -> 26.3
+[notice] To update, run: /tmp/pietto-phase77-wheel-downloader/bin/python -m pip install --upgrade pip
+[exit 0]
++ env+ PIP_CACHE_DIR=/tmp/pietto-phase77-cp312-wrapt.pmdIFW/pip-cache+ /tmp/pietto-phase77-wheel-downloader/bin/python+ -m+ pip+ download+ --no-deps+ --only-binary=:all:+ --platform+ manylinux_2_28_x86_64+ --implementation+ cp+ --python-version+ 3.12+ --abi+ cp312+ --dest+ /tmp/pietto-phase77-cp312-wrapt.pmdIFW+ wrapt==2.5.0
+Collecting wrapt==2.5.0
+  Using cached wrapt-2.5.0-cp312-cp312-manylinux1_x86_64.manylinux_2_28_x86_64.manylinux_2_5_x86_64.whl.metadata (7.6 kB)
+Downloading wrapt-2.5.0-cp312-cp312-manylinux1_x86_64.manylinux_2_28_x86_64.manylinux_2_5_x86_64.whl (250 kB)
+Saved /tmp/pietto-phase77-cp312-wrapt.pmdIFW/wrapt-2.5.0-cp312-cp312-manylinux1_x86_64.manylinux_2_28_x86_64.manylinux_2_5_x86_64.whl
+Successfully downloaded wrapt
+
+[notice] A new release of pip is available: 26.0.1 -> 26.3
+[notice] To update, run: /tmp/pietto-phase77-wheel-downloader/bin/python -m pip install --upgrade pip
+[exit 0]
++ test+ -f+ /tmp/pietto-phase77-cp312-wrapt.pmdIFW/wrapt-2.5.0-cp312-cp312-manylinux1_x86_64.manylinux_2_28_x86_64.manylinux_2_5_x86_64.whl
+[exit 0]
++ cp+ /tmp/pietto-phase77-cp312-wrapt.pmdIFW/wrapt-2.5.0-cp312-cp312-manylinux1_x86_64.manylinux_2_28_x86_64.manylinux_2_5_x86_64.whl+ /home/mianliwang/projects/pietto/.cache/phase77-recovery/runtime/wheelhouse/wrapt-2.5.0-cp312-cp312-manylinux1_x86_64.manylinux_2_28_x86_64.manylinux_2_5_x86_64.whl
+[exit 0]
++ sha256sum+ /home/mianliwang/projects/pietto/.cache/phase77-recovery/runtime/wheelhouse/wrapt-2.5.0-cp312-cp312-manylinux1_x86_64.manylinux_2_28_x86_64.manylinux_2_5_x86_64.whl
+0cabb9c17ab79b2549d1f23b36f436473ad9253ef53995a817feba26fae69d5b  /home/mianliwang/projects/pietto/.cache/phase77-recovery/runtime/wheelhouse/wrapt-2.5.0-cp312-cp312-manylinux1_x86_64.manylinux_2_28_x86_64.manylinux_2_5_x86_64.whl
+[exit 0]
++ env+ UV_PYTHON=3.13.13+ UV_CACHE_DIR=/home/mianliwang/projects/pietto/.cache/phase77-recovery/candidates/maintenance/.uv-runtime-cache+ UV_OFFLINE=1+ UV_NO_SYNC=1+ uv+ pip+ install+ --python+ /home/mianliwang/projects/pietto/.cache/phase77-recovery/runtime/venvs/core-dev/bin/python+ --no-index+ --find-links+ /home/mianliwang/projects/pietto/.cache/phase77-recovery/runtime/wheelhouse+ --editable+ /home/mianliwang/projects/pietto/.cache/phase77-recovery/candidates/maintenance+ -r+ /home/mianliwang/projects/pietto/.cache/phase77-recovery/runtime/requirements/core-dev.txt
+Using Python 3.13.13 environment at: .cache/phase77-recovery/runtime/venvs/core-dev
+Resolved 18 packages in 3ms
+   Building pietto @ file:///home/mianliwang/projects/pietto/.cache/phase77-recovery/candidates/maintenance
+  × Failed to build `pietto @
+  │ file:///home/mianliwang/projects/pietto/.cache/phase77-recovery/candidates/maintenance`
+  ├─▶ Failed to resolve requirements from `build-system.requires`
+  ├─▶ No solution found when resolving: `uv-build>=0.12.5, <0.14.0`
+  ╰─▶ Because uv-build was not found in the provided package locations and you
+      require uv-build>=0.12.5,<0.14.0, we can conclude that your requirements
+      are unsatisfiable.
+[exit 1]
++ mktemp -d /tmp/pietto-phase77-cp312-wrapt.XXXXXX
+/tmp/pietto-phase77-cp312-wrapt.tG9qN2
+[exit 0]
++ env+ PIP_CACHE_DIR=/tmp/pietto-phase77-cp312-wrapt.tG9qN2/pip-cache+ /tmp/pietto-phase77-wheel-downloader/bin/python+ -m+ pip+ install+ --dry-run+ --ignore-installed+ --no-deps+ --only-binary=:all:+ --platform+ manylinux_2_28_x86_64+ --implementation+ cp+ --python-version+ 3.12+ --abi+ cp312+ --report+ /home/mianliwang/projects/pietto/.cache/phase77-recovery/runtime/reports/wrapt-cp312-resolve.json+ wrapt==2.5.0
+Collecting wrapt==2.5.0
+  Downloading wrapt-2.5.0-cp312-cp312-manylinux1_x86_64.manylinux_2_28_x86_64.manylinux_2_5_x86_64.whl.metadata (7.6 kB)
+Would install wrapt-2.5.0
+
+[notice] A new release of pip is available: 26.0.1 -> 26.3
+[notice] To update, run: /tmp/pietto-phase77-wheel-downloader/bin/python -m pip install --upgrade pip
+[exit 0]
++ env+ PIP_CACHE_DIR=/tmp/pietto-phase77-cp312-wrapt.tG9qN2/pip-cache+ /tmp/pietto-phase77-wheel-downloader/bin/python+ -m+ pip+ download+ --no-deps+ --only-binary=:all:+ --platform+ manylinux_2_28_x86_64+ --implementation+ cp+ --python-version+ 3.12+ --abi+ cp312+ --dest+ /tmp/pietto-phase77-cp312-wrapt.tG9qN2+ wrapt==2.5.0
+Collecting wrapt==2.5.0
+  Using cached wrapt-2.5.0-cp312-cp312-manylinux1_x86_64.manylinux_2_28_x86_64.manylinux_2_5_x86_64.whl.metadata (7.6 kB)
+Downloading wrapt-2.5.0-cp312-cp312-manylinux1_x86_64.manylinux_2_28_x86_64.manylinux_2_5_x86_64.whl (250 kB)
+Saved /tmp/pietto-phase77-cp312-wrapt.tG9qN2/wrapt-2.5.0-cp312-cp312-manylinux1_x86_64.manylinux_2_28_x86_64.manylinux_2_5_x86_64.whl
+Successfully downloaded wrapt
+
+[notice] A new release of pip is available: 26.0.1 -> 26.3
+[notice] To update, run: /tmp/pietto-phase77-wheel-downloader/bin/python -m pip install --upgrade pip
+[exit 0]
++ test+ -f+ /tmp/pietto-phase77-cp312-wrapt.tG9qN2/wrapt-2.5.0-cp312-cp312-manylinux1_x86_64.manylinux_2_28_x86_64.manylinux_2_5_x86_64.whl
+[exit 0]
++ cmp+ /tmp/pietto-phase77-cp312-wrapt.tG9qN2/wrapt-2.5.0-cp312-cp312-manylinux1_x86_64.manylinux_2_28_x86_64.manylinux_2_5_x86_64.whl+ /home/mianliwang/projects/pietto/.cache/phase77-recovery/runtime/wheelhouse/wrapt-2.5.0-cp312-cp312-manylinux1_x86_64.manylinux_2_28_x86_64.manylinux_2_5_x86_64.whl
+[exit 0]
++ sha256sum+ /home/mianliwang/projects/pietto/.cache/phase77-recovery/runtime/wheelhouse/wrapt-2.5.0-cp312-cp312-manylinux1_x86_64.manylinux_2_28_x86_64.manylinux_2_5_x86_64.whl
+0cabb9c17ab79b2549d1f23b36f436473ad9253ef53995a817feba26fae69d5b  /home/mianliwang/projects/pietto/.cache/phase77-recovery/runtime/wheelhouse/wrapt-2.5.0-cp312-cp312-manylinux1_x86_64.manylinux_2_28_x86_64.manylinux_2_5_x86_64.whl
+[exit 0]
++ env+ PIP_CACHE_DIR=/tmp/pietto-phase77-cp312-wrapt.tG9qN2/pip-cache+ /tmp/pietto-phase77-wheel-downloader/bin/python+ -m+ pip+ install+ --dry-run+ --ignore-installed+ --no-deps+ --only-binary=:all:+ --report+ /home/mianliwang/projects/pietto/.cache/phase77-recovery/runtime/reports/uv-build-resolve.json+ uv-build==0.13.7
+Collecting uv-build==0.13.7
+  Downloading uv_build-0.13.7-py3-none-manylinux_2_17_x86_64.manylinux2014_x86_64.whl.metadata (1.7 kB)
+Would install uv-build-0.13.7
+
+[notice] A new release of pip is available: 26.0.1 -> 26.3
+[notice] To update, run: /tmp/pietto-phase77-wheel-downloader/bin/python -m pip install --upgrade pip
+[exit 0]
++ env+ PIP_CACHE_DIR=/tmp/pietto-phase77-cp312-wrapt.tG9qN2/pip-cache+ /tmp/pietto-phase77-wheel-downloader/bin/python+ -m+ pip+ download+ --no-deps+ --only-binary=:all:+ --dest+ /tmp/pietto-phase77-cp312-wrapt.tG9qN2+ uv-build==0.13.7
+Collecting uv-build==0.13.7
+  Using cached uv_build-0.13.7-py3-none-manylinux_2_17_x86_64.manylinux2014_x86_64.whl.metadata (1.7 kB)
+Downloading uv_build-0.13.7-py3-none-manylinux_2_17_x86_64.manylinux2014_x86_64.whl (1.3 MB)
+   ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━ 1.3/1.3 MB 5.2 MB/s  0:00:00
+Saved /tmp/pietto-phase77-cp312-wrapt.tG9qN2/uv_build-0.13.7-py3-none-manylinux_2_17_x86_64.manylinux2014_x86_64.whl
+Successfully downloaded uv-build
+
+[notice] A new release of pip is available: 26.0.1 -> 26.3
+[notice] To update, run: /tmp/pietto-phase77-wheel-downloader/bin/python -m pip install --upgrade pip
+[exit 0]
++ cp+ /tmp/pietto-phase77-cp312-wrapt.tG9qN2/uv_build-0.13.7-py3-none-manylinux_2_17_x86_64.manylinux2014_x86_64.whl+ /home/mianliwang/projects/pietto/.cache/phase77-recovery/runtime/wheelhouse/
+[exit 0]
++ sha256sum+ /home/mianliwang/projects/pietto/.cache/phase77-recovery/runtime/wheelhouse/uv_build-0.13.7-py3-none-manylinux_2_17_x86_64.manylinux2014_x86_64.whl
+e6f6770708419e6c752b726621c656e3c43b723e77502c2901494909dd143639  /home/mianliwang/projects/pietto/.cache/phase77-recovery/runtime/wheelhouse/uv_build-0.13.7-py3-none-manylinux_2_17_x86_64.manylinux2014_x86_64.whl
+[exit 0]
++ env+ UV_PYTHON=3.13.13+ UV_CACHE_DIR=/home/mianliwang/projects/pietto/.cache/phase77-recovery/candidates/maintenance/.uv-runtime-cache+ UV_OFFLINE=1+ UV_NO_SYNC=1+ uv+ pip+ install+ --python+ /home/mianliwang/projects/pietto/.cache/phase77-recovery/runtime/venvs/core-dev/bin/python+ --no-index+ --find-links+ /home/mianliwang/projects/pietto/.cache/phase77-recovery/runtime/wheelhouse+ --editable+ /home/mianliwang/projects/pietto/.cache/phase77-recovery/candidates/maintenance+ -r+ /home/mianliwang/projects/pietto/.cache/phase77-recovery/runtime/requirements/core-dev.txt
+Using Python 3.13.13 environment at: .cache/phase77-recovery/runtime/venvs/core-dev
+Resolved 18 packages in 3ms
+   Building pietto @ file:///home/mianliwang/projects/pietto/.cache/phase77-recovery/candidates/maintenance
+      Built pietto @ file:///home/mianliwang/projects/pietto/.cache/phase77-recovery/candidates/maintenance
+Prepared 1 package in 80ms
+Uninstalled 1 package in 4ms
+Installed 1 package in 1ms
+ - pietto==0.1.10 (from file:///home/mianliwang/projects/pietto/.cache/phase77-recovery/runtime/dist/pietto-0.1.10-py3-none-any.whl)
+ + pietto==0.1.10 (from file:///home/mianliwang/projects/pietto/.cache/phase77-recovery/candidates/maintenance)
+[exit 0]
++ env+ UV_PYTHON=3.13.13+ UV_CACHE_DIR=/home/mianliwang/projects/pietto/.cache/phase77-recovery/candidates/maintenance/.uv-runtime-cache+ UV_OFFLINE=1+ UV_NO_SYNC=1+ uv+ pip+ check+ --python+ /home/mianliwang/projects/pietto/.cache/phase77-recovery/runtime/venvs/core-dev/bin/python
+Using Python 3.13.13 environment at: .cache/phase77-recovery/runtime/venvs/core-dev
+Checked 18 packages in 0.56ms
+All installed packages are compatible
+[exit 0]
++ /home/mianliwang/projects/pietto/.cache/phase77-recovery/runtime/venvs/core-dev/bin/python+ -I+ -c+ import\ importlib.metadata\ as\ m\,\ pathlib\,\ pietto\,\ platform\;\ root=pathlib.Path\(\"/home/mianliwang/projects/pietto/.cache/phase77-recovery/candidates/maintenance\"\)\ /\ \"src\"\ /\ \"pietto\"\;\ assert\ platform.python_version\(\)\ ==\ \"3.13.13\"\;\ assert\ pathlib.Path\(pietto.__file__\).resolve\(\).parent\ ==\ root.resolve\(\)\;\ assert\ \"pyarrow\"\ not\ in\ \{x.metadata\[\"Name\"\].lower\(\)\ for\ x\ in\ m.distributions\(\)\}\;\ print\(pietto.__file__\)
+/home/mianliwang/projects/pietto/.cache/phase77-recovery/candidates/maintenance/src/pietto/__init__.py
+[exit 0]
++ /home/mianliwang/projects/pietto/.cache/phase77-recovery/runtime/venvs/native/bin/python+ -I+ /home/mianliwang/projects/pietto/.cache/phase77-recovery/runtime/rebind_manifest.py
+Traceback (most recent call last):
+  File "/home/mianliwang/projects/pietto/.cache/phase77-recovery/runtime/rebind_manifest.py", line 88, in <module>
+    raise SystemExit(main())
+                     ~~~~^^
+  File "/home/mianliwang/projects/pietto/.cache/phase77-recovery/runtime/rebind_manifest.py", line 46, in main
+    raise ValueError(f"artifact content drift {relative}")
+ValueError: artifact content drift pyproject.toml
+[exit 1]
++ /home/mianliwang/projects/pietto/.cache/phase77-recovery/runtime/venvs/native/bin/python+ -I+ /home/mianliwang/projects/pietto/.cache/phase77-recovery/runtime/rebind_manifest.py
+Traceback (most recent call last):
+  File "/home/mianliwang/projects/pietto/.cache/phase77-recovery/runtime/rebind_manifest.py", line 102, in <module>
+    raise SystemExit(main())
+                     ~~~~^^
+  File "/home/mianliwang/projects/pietto/.cache/phase77-recovery/runtime/rebind_manifest.py", line 46, in main
+    member = archive.extractfile(f"{prefix}/{relative}")
+  File "/home/mianliwang/.local/share/uv/python/cpython-3.13.13-linux-x86_64-gnu/lib/python3.13/tarfile.py", line 2518, in extractfile
+    tarinfo = self.getmember(member)
+  File "/home/mianliwang/.local/share/uv/python/cpython-3.13.13-linux-x86_64-gnu/lib/python3.13/tarfile.py", line 2082, in getmember
+    raise KeyError("filename %r not found" % name)
+KeyError: "filename 'pietto-0.1.10/src/pietto/__pycache__/__init__.cpython-313.pyc' not found"
+[exit 1]
++ /home/mianliwang/projects/pietto/.cache/phase77-recovery/runtime/venvs/native/bin/python+ -I+ /home/mianliwang/projects/pietto/.cache/phase77-recovery/runtime/rebind_manifest.py
+[exit 0]
++ /home/mianliwang/projects/pietto/.cache/phase77-recovery/runtime/venvs/native/bin/python+ -I+ /home/mianliwang/projects/pietto/.cache/phase77-recovery/runtime/rebind_wheelhouse_manifest.py
+[exit 0]
++ /home/mianliwang/projects/pietto/.cache/phase77-recovery/runtime/venvs/native/bin/python+ -I+ /home/mianliwang/projects/pietto/.cache/phase77-recovery/runtime/write_maintenance_mysql_binding.py
+[exit 0]
++ stat+ -c+ %n\ %s\ bytes+ /home/mianliwang/projects/pietto/.cache/phase77-recovery/runtime/wheelhouse/wrapt-2.5.0-cp312-cp312-manylinux1_x86_64.manylinux_2_28_x86_64.manylinux_2_5_x86_64.whl
+/home/mianliwang/projects/pietto/.cache/phase77-recovery/runtime/wheelhouse/wrapt-2.5.0-cp312-cp312-manylinux1_x86_64.manylinux_2_28_x86_64.manylinux_2_5_x86_64.whl 250177 bytes
+[exit 0]

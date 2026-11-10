@@ -1,0 +1,18 @@
+Pietto diagnostics are off: "/home/mianliwang/projects/pietto/.cache/phase77-recovery/runtime/editor-runtime/installed-wheel/bin/python" could not run "pietto lsp" (ModuleNotFoundError: No module named 'pietto'). Install pietto 0.1.10 or later in that Python environment, or run "Pietto: Select Python Interpreter", then "Pietto: Restart Language Server".
+[Error - 11:36:49 PM] Delivering pending changes failed
+TypeError: this.task is not a function
+	at /home/mianliwang/projects/pietto-vscode-extension-claude/node_modules/vscode-languageclient/lib/common/utils/async.js:28:35
+Pietto diagnostics are off: "" could not run "pietto lsp" (The argument 'file' cannot be empty. Received ''). Install pietto 0.1.10 or later in that Python environment, or run "Pietto: Select Python Interpreter", then "Pietto: Restart Language Server".
+Pietto diagnostics are not running: "pietto lsp" from "/home/mianliwang/projects/pietto-vscode-extension-claude/.local/silent-python" has not answered within 30 seconds. Run "Pietto: Restart Language Server" to replace it.
+[Error - 11:37:22 PM] Server initialization failed.
+  Message: Pending response rejected since connection got disposed
+  Code: -32097 
+[Info  - 11:37:22 PM] Connection to server got closed. Server will restart.
+true
+[Error - 11:37:22 PM] Restarting server failed
+Error: Client got disposed and can't be restarted.
+	at LanguageClient.start (/home/mianliwang/projects/pietto-vscode-extension-claude/node_modules/vscode-languageclient/lib/common/client.js:644:19)
+	at LanguageClient.handleConnectionClosed (/home/mianliwang/projects/pietto-vscode-extension-claude/node_modules/vscode-languageclient/lib/common/client.js:1189:18)
+[Error - 11:37:22 PM] Pietto client: couldn't create connection to server.
+  Message: Pending response rejected since connection got disposed
+  Code: -32097 

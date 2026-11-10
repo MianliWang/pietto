@@ -1,0 +1,10 @@
+{
+  "pietto.pythonPath": "/home/mianliwang/projects/pietto/.cache/phase77-recovery/runtime/editor-runtime/installed-wheel/bin/python",
+  "pietto.pythonArguments": [],
+  "extensions.autoUpdate": "off",
+  "extensions.autoCheckUpdates": false,
+  "update.mode": "none",
+  "telemetry.telemetryLevel": "off",
+  "workbench.startupEditor": "none",
+  "files.hotExit": "off"
+}

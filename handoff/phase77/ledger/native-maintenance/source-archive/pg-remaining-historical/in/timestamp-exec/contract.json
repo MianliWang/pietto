@@ -1,0 +1,24 @@
+{
+  "format": "pietto.emission-contract.v1",
+  "target": {"family": "postgres", "release": "18.6"},
+  "sources": [{
+    "selector": {"module": "main.pietto", "kind": "source", "name": "rows"},
+    "relation": {"namespace": "fixture", "name": "timestamps"},
+    "scan": "relation_rows",
+    "fields": [{
+      "ordinal": 0, "name": "occurred_at", "column": "occurred_at",
+      "representation": {"storage": {"kind": "pg_timestamp", "fractional_seconds": 6},
+                         "nullable": false, "domain": {"kind": "timestamp"}}
+    }],
+    "premises": [
+      {"key": "row_domain_matches", "scope": "source", "value": true},
+      {"key": "read_only_object", "scope": "source", "value": true}
+    ]
+  }],
+  "environment": [
+    {"key": "client_encoding", "scope": "statement", "value": "UTF8"},
+    {"key": "operator_environment", "scope": "statement", "value": "builtin_only"},
+    {"key": "identifier_case", "scope": "statement", "value": "quoted_exact"},
+    {"key": "parameter_protocol", "scope": "statement", "value": "postgres_extended"}
+  ]
+}

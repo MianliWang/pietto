@@ -1,0 +1,332 @@
+diff --git a/docs/capabilities.md b/docs/capabilities.md
+index b6f7c542..65a046ae 100644
+--- a/docs/capabilities.md
++++ b/docs/capabilities.md
+@@ -35,12 +35,12 @@ SQL of each function added after 0.1.8.
+ | Direct `sum(Decimal(p, s))` | yes | yes | candidate yes when `p + 19 <= 65` and `s <= 30`, with checked cast | BLOCKED PIE-B1004 `decimal_aggregate_range_proof_missing` | [Unreleased](release-notes.d/76-s05-decimal-project.md) |
+ | `Float % Float` | candidate refused PIE-B1000 | candidate refused PIE-B1000 | candidate yes | candidate BLOCKED PIE-B1003 `binary_operator_not_admitted` | [Unreleased](release-notes.d/76-s04-project-expression.md) |
+ | `sum` of an `Int` | yes | yes | yes | BLOCKED PIE-B1004 `sum_int_aggregate_range_proof_missing` | [0.1.7](release-notes.md#nested-results-and-project-emission-public-alpha-release-notes--017) |
+-| `sum(1 for o in group if t)` | yes | yes | yes | BLOCKED PIE-B1003 `conditional_count_not_admitted_on_target` | [0.1.10](release-notes.md#aggregates-cross-module-reuse-and-editor-tools-public-alpha-release-notes--0110), [projects](release-notes.md#conditional-count-and-sum-in-projects) |
++| `sum(1 for o in group if t)` | yes | yes | yes | candidate yes; native qualification pending | [Aggregates](language.md#aggregates-and-grouping) |
+ | `sum(o.f for o in group if t)` | yes | refused PIE-B1000 | yes | BLOCKED PIE-B1004 `sum_int_aggregate_range_proof_missing` for an `Int` `o.f` | [0.1.10](release-notes.md#aggregates-cross-module-reuse-and-editor-tools-public-alpha-release-notes--0110), [projects](release-notes.md#conditional-count-and-sum-in-projects) |
+ | `variance`, `pvariance`, `pstdev` of a `Float` | yes | yes | yes | BLOCKED PIE-B1004 `float_aggregate_finite_result_proof_missing` | [0.1.10](release-notes.md#variance-pvariance-and-pstdev-aggregates) |
+ | `variance`, `pvariance`, `pstdev` of an `Int` | yes | refused PIE-B1000 | yes | BLOCKED PIE-B1003 `variance_int_not_admitted_on_target` (`pvariance_`, `pstdev_` alike) | [0.1.10](release-notes.md#variance-pvariance-and-pstdev-aggregates) |
+ | `count_distinct(a, b, ...)` | yes | yes | yes | BLOCKED PIE-B1003 `count_distinct_tuple_not_admitted_on_target` | [0.1.10](release-notes.md#distinct-count-of-several-columns-count_distincta-b-) |
+-| `any(t for o in group)`, `all(t for o in group)` | yes | yes | yes | BLOCKED PIE-B1003 `group_test_not_admitted_on_target` | [0.1.10](release-notes.md#the-test-of-a-group-any-and-all-over-group) |
++| `any(t for o in group)`, `all(t for o in group)` | yes | yes | yes | candidate yes; native qualification pending | [Aggregates](language.md#aggregates-and-grouping) |
+ | `first(x, order by k, id)`, `last(...)` | yes | refused PIE-B1000 | yes | BLOCKED PIE-B1003 `first_last_not_admitted_on_target` | [0.1.10](release-notes.md#first-and-last-aggregates-arg_max-and-arg_min) |
+ | `string_agg(name, ",", order by name)` | yes | refused PIE-B1000 | yes | BLOCKED PIE-B1003 `aggregate_function_not_promised_in_slice8` | [Aggregates](language.md#aggregates-and-grouping), [0.1.10](release-notes.md#mysql-catch-up-in-projects) |
+ | `min`, `max` of a `Timestamp` or `Date` | yes | yes | yes | yes | [0.1.10](release-notes.md#mysql-catch-up-in-projects) |
+diff --git a/docs/language.md b/docs/language.md
+index e934e84f..37fb1540 100644
+--- a/docs/language.md
++++ b/docs/language.md
+@@ -582,8 +582,8 @@ first column give every rule.
+ | `variance(x)`, `pvariance(x)`, `pstdev(x)` ([Aggregates](#aggregates-and-grouping)) | `Int` and `Float` (`VAR_SAMP`, `VAR_POP`, `SQRT` of `VAR_POP`) | `Float` (`VAR_SAMP`, `VAR_POP`, `STDDEV_POP`); `Int` refused (PIE-B1000) | `Int` and `Float` | refused: `Int` PIE-B1003, `Float` PIE-B1004 |
+ | `median(x)`, `quantile(x, q)` ([Aggregates](#aggregates-and-grouping)) | `Int` and `Float` (`PERCENTILE_CONT ... WITHIN GROUP`) | refused (PIE-B1000) | `Int`; `Float` refused (PIE-B1004) | refused (PIE-B1003) |
+ | `first(x, order by k, id)`, `last(...)` ([Aggregates](#aggregates-and-grouping)) | `(ARRAY_AGG(x ORDER BY k ASC, id ASC))[1]`; `last` flips every direction | refused (PIE-B1000) | as a file; the value keeps its carrier; a key orders as a relation ORDER BY key (R19), else PIE-B1003 `first_last_order_key_outside_reviewed_order_domain` | refused (PIE-B1003 `first_last_not_admitted_on_target`) |
+-| `sum(1 for o in group if t)`, `sum(o.f for o in group if t)` ([Aggregates](#aggregates-and-grouping)) | `COUNT(CASE WHEN t THEN 1 END)`; `COALESCE(CAST(SUM(CASE WHEN t THEN CAST(f AS pg_catalog.int8) END) AS pg_catalog.int8), 0)` | count `COUNT(CASE WHEN t THEN 1 END)`; sum refused (PIE-B1000) | as PostgreSQL single file, `schema_version = 2` (PIE-S2334 in a `schema_version = 1` project); no JOIN inputs | refused: count PIE-B1003, sum PIE-B1004 |
+-| `any(t for o in group)`, `all(t for o in group)` ([Aggregates](#aggregates-and-grouping)) | `(COUNT(CASE WHEN t THEN 1 END) > 0)`; `(COUNT(CASE WHEN t THEN NULL ELSE 1 END) = 0)` | as PostgreSQL, an integer 0/1 | as PostgreSQL single file, `schema_version = 2` (PIE-S2334 in a `schema_version = 1` project); no JOIN inputs | refused (PIE-B1003 `group_test_not_admitted_on_target`) |
++| `sum(1 for o in group if t)`, `sum(o.f for o in group if t)` ([Aggregates](#aggregates-and-grouping)) | `COUNT(CASE WHEN t THEN 1 END)`; `COALESCE(CAST(SUM(CASE WHEN t THEN CAST(f AS pg_catalog.int8) END) AS pg_catalog.int8), 0)` | count `COUNT(CASE WHEN t THEN 1 END)`; sum refused (PIE-B1000) | as PostgreSQL single file, `schema_version = 2` (PIE-S2334 in a `schema_version = 1` project); no JOIN inputs | candidate: count uses `COUNT(CASE WHEN t THEN 1 END)`; Int sum stays PIE-B1004 pending native qualification |
++| `any(t for o in group)`, `all(t for o in group)` ([Aggregates](#aggregates-and-grouping)) | `(COUNT(CASE WHEN t THEN 1 END) > 0)`; `(COUNT(CASE WHEN t THEN NULL ELSE 1 END) = 0)` | as PostgreSQL, an integer 0/1 | as PostgreSQL single file, `schema_version = 2` (PIE-S2334 in a `schema_version = 1` project); no JOIN inputs | candidate: the same count forms, decoded as non-null Bool, pending native qualification |
+ | `max(a, b)`, `min(a, b)` ([Expressions](#expressions)) | `CASE WHEN` of `<`/`>` and `IS NOT NULL`; `Int`, `Decimal`, `Float`, `Text`, `Date`, `Timestamp`, `UUID`, `Bool` | as PostgreSQL; a `Bool` result arrives as an integer 0, 1 or NULL, as every computed `Bool` does on MySQL | `Int`, `Decimal`, `Float`, `Text`, `Date`, `Timestamp`, `UUID` as their comparison and conditional are; `Bool` refused (PIE-B1003) | as PostgreSQL project, except `Date`, refused (PIE-B1003) |
+ | `lpad(s, width, fill)` ([Expressions](#expressions)) | `CASE WHEN length(s) >= width THEN s ELSE lpad(...) END`; a literal width outside the signed 32-bit range refused (PIE-S2385 at check) | `CASE WHEN CHAR_LENGTH(s) >= width THEN s ELSE LPAD(...) END` | emitted for a width proven in the signed 32-bit range; refused otherwise (PIE-B1002, PIE-B1004) | refused (PIE-B1003) |
+ | `add_months(d, n)` ([Expressions](#expressions)) | `CAST((d + make_interval(months => CAST(n AS integer))) AS date)` | `DATE_ADD(d, INTERVAL n MONTH)` | emitted; a `None` argument refused (PIE-B1003) | refused (PIE-B1003) |
+diff --git a/src/pietto/_project/project_sql_emission_aggregation.py b/src/pietto/_project/project_sql_emission_aggregation.py
+index 7e4d3c1c..aadcf6ea 100644
+--- a/src/pietto/_project/project_sql_emission_aggregation.py
++++ b/src/pietto/_project/project_sql_emission_aggregation.py
+@@ -45,7 +45,8 @@ SPELLING = {
+     # `delimiter` slot.
+     "median": "PERCENTILE_CONT",
+     "quantile": "PERCENTILE_CONT",
+-    # PostgreSQL only, the conditional count and sum of a group:
++    # Conditional count is a target COUNT; conditional sum remains PostgreSQL
++    # only because MySQL accumulates its Int argument as DECIMAL.
+     # COUNT(CASE WHEN test THEN 1 END) and COALESCE(CAST(SUM(CASE WHEN test
+     # THEN CAST(x AS pg_catalog.int8) END) AS pg_catalog.int8), 0), the test
+     # of a sum in the `delimiter` slot.
+@@ -55,8 +56,8 @@ SPELLING = {
+     # THEN ROW(a, b) END), `count_distinct(a, b, ...)`: its first field is the
+     # `argument`, the others are `extra_arguments`.
+     "count_distinct_tuple": "COUNT",
+-    # PostgreSQL only, the test of a group: (COUNT(CASE WHEN test THEN 1 END)
+-    # > 0) and (COUNT(CASE WHEN test THEN NULL ELSE 1 END) = 0).
++    # A test of a group: (COUNT(CASE WHEN test THEN 1 END) > 0) and
++    # (COUNT(CASE WHEN test THEN NULL ELSE 1 END) = 0).
+     "group_any": "COUNT",
+     "group_all": "COUNT",
+     # PostgreSQL only: (ARRAY_AGG(x ORDER BY k ASC, ...))[1], the element
+@@ -486,19 +487,21 @@ def result_realization(family: str, function: str, argument, retained):
+         )
+     if function in GROUP_TEST_FUNCTIONS:
+         # A count compared with 0: a computed Bool, never NULL.
+-        if family != "postgres" or tag != "Bool" or nullable is not False:
++        if family not in {"postgres", "mysql"} or tag != "Bool" or nullable is not False:
+             return None, ("PIE-B1002", "group_test_result_not_non_null_bool")
+         return rows._bool(family, False), None
+     if function in FILTERED_FUNCTIONS:
+         # A conditional count is the target's own count; a conditional sum
+         # narrows to bigint with its checked CAST and is 0 for no match.
+-        if family != "postgres" or tag != "Int" or nullable is not False:
++        if tag != "Int" or nullable is not False:
+             return None, ("PIE-B1002", function + "_result_not_non_null_int")
+         if function == "filtered_count":
+             return (
+-                rows._checked_int({"kind": "pg_int8"}, 0, COUNT_MAX, False),
++                rows._checked_int({"kind": COUNT_STORAGE[family]}, 0, COUNT_MAX, False),
+                 None,
+             )
++        if family != "postgres":
++            return None, ("PIE-B1002", function + "_result_not_non_null_int")
+         return rows._checked_int({"kind": "pg_int8"}, *rows.SIGNED64, False), None
+     if function in COUNTING_FUNCTIONS:
+         if tag != "Int" or nullable is not False:
+@@ -684,9 +687,12 @@ def filtered_problem(function: str, argument, test, family: str):
+         problem = resolved_argument_problem("sum", True, argument.realization, family)
+         if problem is not None:
+             return problem
++    elif function in {"filtered_count", *GROUP_TEST_FUNCTIONS}:
++        if family not in {"postgres", "mysql"}:
++            return "PIE-B1003", _target_detail(function)
+     elif family != "postgres":
+         return "PIE-B1003", _target_detail(function)
+-    if family != "postgres" or rows.realization_of(test, family).tag != "Bool":
++    if rows.realization_of(test, family).tag != "Bool":
+         return "PIE-B1003", _domain_detail(function)
+     return None
+ 
+@@ -721,10 +727,13 @@ def resolved_filtered_problem(function: str, inputs, family: str):
+         problem = resolved_argument_problem("sum", True, realization, family)
+         if problem is not None:
+             return problem
++    elif function in {"filtered_count", *GROUP_TEST_FUNCTIONS}:
++        if family not in {"postgres", "mysql"}:
++            return "PIE-B1003", _target_detail(function)
+     elif family != "postgres":
+         return "PIE-B1003", _target_detail(function)
+     test = inputs[-1][1]
+-    if family != "postgres" or test is None or test.tag != "Bool":
++    if test is None or test.tag != "Bool":
+         return "PIE-B1003", _domain_detail(function)
+     return None
+ 
+diff --git a/src/pietto/_project/project_sql_emission_pure_boundary.py b/src/pietto/_project/project_sql_emission_pure_boundary.py
+index 44547fac..c5f859d1 100644
+--- a/src/pietto/_project/project_sql_emission_pure_boundary.py
++++ b/src/pietto/_project/project_sql_emission_pure_boundary.py
+@@ -2113,15 +2113,17 @@ class _Check:
+                     "string_agg typed inputs",
+                 )
+             elif column["function"] in {"filtered_count", "filtered_sum"}:
+-                # PostgreSQL only: a Bool test, of a sum in the delimiter slot
+-                # after its Int argument; a non-null bigint result, a count's
+-                # bounded by the count premise, a sum's by its checked CAST.
++                # A target COUNT admits conditional count on either target;
++                # conditional Int sum remains PostgreSQL-only.
+                 counted = column["function"] == "filtered_count"
+                 test = column["argument"] if counted else column["delimiter"]
+                 low = 0 if counted else -(1 << 63)
+                 result = doc[doc[column["column"]]["realization"]]
+                 _require(
+-                    family == "postgres"
++                    (
++                        counted and family in {"postgres", "mysql"}
++                        or not counted and family == "postgres"
++                    )
+                     and test is not None
+                     and (_value_realization(doc, test) or {}).get("tag") == "Bool"
+                     and (counted or column["delimiter"] is not None)
+@@ -2137,7 +2139,7 @@ class _Check:
+                     and _is_realization(
+                         result,
+                         "Int",
+-                        {"kind": "pg_int8"},
++                        {"kind": "pg_int8" if family == "postgres" else "my_bigint"},
+                         {
+                             "kind": "int_range",
+                             "min": str(low),
+@@ -2148,11 +2150,11 @@ class _Check:
+                     "conditional aggregate shape",
+                 )
+             elif column["function"] in {"group_any", "group_all"}:
+-                # PostgreSQL only: a Bool test, a count of it compared with 0,
+-                # a non-null computed Bool.
++                # A Bool test, a count of it compared with 0, and a non-null
++                # computed Bool on either reviewed target.
+                 result = doc[doc[column["column"]]["realization"]]
+                 _require(
+-                    family == "postgres"
++                    family in {"postgres", "mysql"}
+                     and column["argument"] is not None
+                     and (_value_realization(doc, column["argument"]) or {}).get("tag")
+                     == "Bool"
+@@ -2160,7 +2162,10 @@ class _Check:
+                     and not column["distinct"]
+                     and not column["order_by"]
+                     and _is_realization(
+-                        result, "Bool", {"kind": "pg_bool"}, {"kind": "bool01"}
++                        result,
++                        "Bool",
++                        {"kind": "pg_bool" if family == "postgres" else "my_signed_bool"},
++                        {"kind": "bool01"},
+                     )
+                     and result["nullable"] is False,
+                     "group test shape",
+diff --git a/src/pietto/_project/project_sql_emission_verification.py b/src/pietto/_project/project_sql_emission_verification.py
+index f375d03f..5e32792e 100644
+--- a/src/pietto/_project/project_sql_emission_verification.py
++++ b/src/pietto/_project/project_sql_emission_verification.py
+@@ -2242,23 +2242,27 @@ def _aggregate_result_realization(family, function, argument, retained):
+             },
+         )
+     if function in grouping.GROUP_TEST_FUNCTIONS:
+-        # A PostgreSQL count compared with 0: a computed Bool, never NULL.
+-        if family != "postgres" or tag != "Bool" or nullable is not False:
++        # A target count compared with 0: a computed Bool, never NULL.
++        if family not in {"postgres", "mysql"} or tag != "Bool" or nullable is not False:
+             raise ValueError("group test result domain")
+-        return rows.Realization("Bool", {"kind": "pg_bool"}, False, {"kind": "bool01"})
++        return rows.Realization("Bool", {"kind": rows.BOOL_RESULT[family]}, False, {"kind": "bool01"})
+     if function in grouping.FILTERED_FUNCTIONS:
+-        # A PostgreSQL conditional count, or conditional sum narrowed by its
+-        # checked CAST: never NULL, 0 when no row matches.
+-        if family != "postgres" or tag != "Int" or nullable is not False:
++        # A target conditional count, or PostgreSQL conditional sum narrowed
++        # by its checked CAST: never NULL, 0 when no row matches.
++        if tag != "Int" or nullable is not False:
+             raise ValueError("conditional aggregate result domain")
+         low, high = (
+             (0, grouping.COUNT_MAX)
+             if function == "filtered_count"
+             else (-(1 << 63), (1 << 63) - 1)
+         )
++        if (
++            function == "filtered_count" and family not in {"postgres", "mysql"}
++        ) or (function != "filtered_count" and family != "postgres"):
++            raise ValueError("conditional aggregate result domain")
+         return rows.Realization(
+             "Int",
+-            {"kind": "pg_int8"},
++            {"kind": "pg_int8" if family == "postgres" else "my_bigint"},
+             False,
+             {"kind": "int_range", "min": str(low), "max": str(high)},
+             (low, high),
+diff --git a/tests/test_execution_compiled_families.py b/tests/test_execution_compiled_families.py
+index 8e425401..f60e8e4e 100644
+--- a/tests/test_execution_compiled_families.py
++++ b/tests/test_execution_compiled_families.py
+@@ -528,6 +528,55 @@ def test_postgresql_group_tests_replay_from_compiled_input(group_test_original):
+     ] == [(), (), ("target_checked_signed64_narrowing",)]
+ 
+ 
++def test_mysql_conditional_count_and_group_tests_replay_from_compiled_input(tmp_path):
++    item = emission.aggregate_fixture("mysql", "X_aggregate_grouped", "hidden")
++    source = emission.AGGREGATE_HEADER.format(target="mysql") + (
++        "query result:\n    from agg\n    group by:\n        key\n    select:\n"
++        "        n = sum(1 for o in group if o.flag)\n"
++        "        a = all(o.flag for o in group)\n"
++        '        b = any(o.label == "a" for o in group)\n'
++    )
++    _, outcome = emission.build_case(tmp_path, source, item["contract"], item["policy"])
++    assert outcome.status == "VERIFIED" and outcome.artifact is not None
++    built = build_compiled(outcome.artifact)
++    loaded = load_compiled(built.payload, expected_pin=built.pin, accepted_producer=built.producer, accepted_compatibility=built.compatibility)
++    replay = emit_compiled(loaded, ())
++    assert replay.rendered.sql == outcome.artifact.rendered.sql
++    assert replay.request.family == "mysql"
++
++
++def test_mysql_group_test_compiled_function_forgery_is_refused(tmp_path):
++    from pietto._project.project_compiled_schema import FIELDS, CompiledError, Record, content_pin, encode
++
++    item = emission.aggregate_fixture("mysql", "X_aggregate_grouped", "hidden")
++    source = emission.AGGREGATE_HEADER.format(target="mysql") + (
++        "query result:\n    from agg\n    group by:\n        key\n    select:\n"
++        "        n = sum(1 for o in group if o.flag)\n        a = all(o.flag for o in group)\n        b = any(o.label == \"a\" for o in group)\n"
++    )
++    _, outcome = emission.build_case(tmp_path, source, item["contract"], item["policy"])
++    assert outcome.artifact is not None
++    built = build_compiled(outcome.artifact)
++    record = next(item for item in built.root.description.records if item.address.kind == "aggregate_value" and item.get("function") == "group_all")
++    values = list(record.values)
++    values[FIELDS[record.address.kind].index("function")] = "filtered_count"
++    forged = Record(record.address, tuple(values))
++    description = replace(built.root.description, members=tuple((name, tuple(forged if item.address == forged.address else item for item in members)) for name, members in built.root.description.members))
++    raw = encode(description)
++    with pytest.raises(CompiledError, match="^COMPILED_AGGREGATE_"):
++        emit_compiled(load_compiled(raw, expected_pin=content_pin(raw), accepted_producer=built.producer, accepted_compatibility=built.compatibility), ())
++
++
++@pytest.mark.parametrize("function", ("filtered_count", "group_any", "group_all"))
++def test_mysql_group_candidate_functions_refuse_an_unknown_target_family(function):
++    from pietto._project import project_sql_emission_aggregation as aggregation
++    from pietto._project import project_sql_emission_rows as rows
++
++    test = rows.Realization("Bool", {"kind": "my_bool01"}, True, {"kind": "bool01"})
++    assert aggregation.resolved_filtered_problem(function, (("read", test),), "duckdb") == (
++        "PIE-B1003", "conditional_count_not_admitted_on_target" if function == "filtered_count" else "group_test_not_admitted_on_target"
++    )
++
++
+ @pytest.mark.parametrize(
+     ("function", "forgery", "error"),
+     (
+diff --git a/tests/test_harness_sql_emission_portability.py b/tests/test_harness_sql_emission_portability.py
+index d8af03aa..1e87b116 100644
+--- a/tests/test_harness_sql_emission_portability.py
++++ b/tests/test_harness_sql_emission_portability.py
+@@ -1173,6 +1173,53 @@ def test_the_test_of_a_group_is_a_closed_data_relation(tmp_path):
+         assert _status(_mutated(data, edit))[0] is pure.Status.INVALID_RELATION
+ 
+ 
++def test_mysql_conditional_count_and_group_tests_are_candidate_data_relations(tmp_path):
++    """The MySQL candidate preserves the existing COUNT(CASE) meanings only."""
++    item = emission.aggregate_fixture("mysql", "X_aggregate_grouped", "hidden")
++    source = emission.AGGREGATE_HEADER.format(target="mysql") + (
++        "query result:\n    from agg\n    group by:\n        key\n    select:\n"
++        "        n = sum(1 for o in group if o.flag)\n"
++        "        a = all(o.flag for o in group)\n"
++        '        b = any(o.label == "a" for o in group)\n'
++    )
++    _, outcome = emission.build_case(tmp_path, source, item["contract"], item["policy"])
++    assert outcome.status == "VERIFIED" and outcome.artifact is not None
++    artifact = outcome.artifact
++    assert artifact.rendered.sql.decode() == (
++        "WITH `p0` (`c0`, `c1`, `c2`, `c3`) AS (SELECT `s0`.`group key` AS `c0`, "
++        "COUNT(CASE WHEN `s0`.`flag value` THEN 1 END) AS `c1`, "
++        "(COUNT(CASE WHEN `s0`.`flag value` THEN NULL ELSE 1 END) = 0) AS `c2`, "
++        "(COUNT(CASE WHEN (`s0`.`text ``\"é` = CAST(X'61' AS CHAR CHARACTER SET "
++        "utf8mb4) COLLATE utf8mb4_0900_bin) THEN 1 END) > 0) AS `c3` FROM "
++        "`phase66`.`phase66 agg é` AS `s0` GROUP BY `s0`.`group key`) SELECT "
++        "`t1`.`c1` AS `n`, `t1`.`c2` AS `a`, `t1`.`c3` AS `b` FROM `p0` AS `t1`\n"
++    )
++    observed = portable.export_emission_observation(artifact, artifact.request)
++    assert observed.status is portable.ObservationStatus.OK
++    assert observed.canonical_bytes is not None
++    document = json.loads(observed.canonical_bytes)
++    assert [
++        (column["function"], document[document[column["column"]]["realization"]]["storage"])
++        for column in _records(document, "aggregate_value_column")
++    ] == [
++        ("filtered_count", {"kind": "my_bigint"}),
++        ("group_all", {"kind": "my_signed_bool"}),
++        ("group_any", {"kind": "my_signed_bool"}),
++    ]
++    assert portable.verify_emission_observation(observed.canonical_bytes, artifact, artifact.request).corresponds
++
++
++def test_mysql_conditional_sum_remains_blocked(tmp_path):
++    item = emission.aggregate_fixture("mysql", "X_aggregate_grouped", "hidden")
++    source = emission.AGGREGATE_HEADER.format(target="mysql") + (
++        "query result:\n    from agg\n    group by:\n        key\n    select:\n"
++        "        s = sum(o.value for o in group if o.flag)\n"
++    )
++    _, outcome = emission.build_case(tmp_path, source, item["contract"], item["policy"])
++    assert outcome.status == "BLOCKED" and outcome.artifact is None
++    assert [(blocker.code, blocker.detail) for blocker in outcome.blockers] == [("PIE-B1004", "sum_int_aggregate_range_proof_missing")]
++
++
+ def test_quantile_order_cast_and_fraction_are_closed_data_relations(tmp_path):
+     """A public consumer admits a PostgreSQL median or quantile only as
+     PERCENTILE_CONT of a float8-cast Int with no result cast, a median

@@ -1,0 +1,57 @@
+{
+  "status": "HISTORICAL_RAW_PREP_ONLY",
+  "forbidden_evidence_claims": [
+    "database_runtime",
+    "driver_metadata",
+    "package_qualification",
+    "gate_result",
+    "publication"
+  ],
+  "artifacts": [
+    {
+      "id": "nested-logical-oracle",
+      "record": "p77_nested_decision.jsonl",
+      "lines": [166, 194, 226],
+      "original_files": ["p77_nested_raw_oracle.py", "p77_nested_raw_hook.py", "README.md"],
+      "status": "replayable_non_db_input"
+    },
+    {
+      "id": "s13-ordered-values",
+      "record": "p77_ordered_values.jsonl",
+      "lines": [143, 150, 183, 213],
+      "original_files": ["raw_hook.py", "README.md"],
+      "status": "replayable_non_db_input"
+    },
+    {
+      "id": "s15-division",
+      "record": "p77_division.jsonl",
+      "lines": [91, 120, 126, 131, 145, 161],
+      "original_files": ["s15_pure_judge.py", "ATTACH_PARENT_REQUEST.md", "ACTUAL_CHECKS.md"],
+      "status": "replayable_non_db_input",
+      "law": "PG/MySQL zero-division difference is existing D76.02"
+    },
+    {
+      "id": "s09-typed-parameters",
+      "record": "p77_typed_parameters.jsonl",
+      "lines": [129, 180, 194, 200],
+      "original_files": ["candidate-contract.md", "qualification-matrix.md", "write-set-and-checks.md", "pure_parameter_prep_selfcheck.py"],
+      "status": "replayable_non_db_input",
+      "implementation_choice": "UUID native bytes needs no new owner decision"
+    },
+    {
+      "id": "float-equivalence",
+      "record": "p77_float_equivalence.jsonl",
+      "lines": [144, 295, 426, 440, 612, 694],
+      "original_files": ["PLAN.md", "raw_hook.py"],
+      "status": "replayable_non_db_input",
+      "law": "existing signed-zero law; no renewed owner decision"
+    },
+    {
+      "id": "stats-probe",
+      "record": "editor_latency.jsonl",
+      "lines": [954, 963, 986, 1000, 1006, 1020, 1026, 1031, 1045, 1141, 1155, 1162, 1168, 1180, 1187, 1214, 1224, 1231],
+      "original_files": ["stats_probe.py", "README.md", "PLAN.md"],
+      "status": "replayable_non_db_input"
+    }
+  ]
+}

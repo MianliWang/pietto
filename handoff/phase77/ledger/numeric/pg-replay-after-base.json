@@ -1,0 +1,312 @@
+[
+  {
+    "line": 2934,
+    "call_id": "call_0a45a9e9aabb4586a33955cfc390cd22",
+    "changes": [
+      {
+        "path": ".cache/phase77-recovery/numeric/pg-parent-r4/parent_receipt.py",
+        "result": "deleted"
+      },
+      {
+        "path": ".cache/phase77-recovery/numeric/pg-parent-r4/parent_receipt.py",
+        "result": "added-or-replaced"
+      },
+      {
+        "path": ".cache/phase77-recovery/numeric/pg-parent-r4/parent_judge.py",
+        "result": "added-or-replaced"
+      },
+      {
+        "path": ".cache/phase77-recovery/numeric/pg-parent-r4/pg.sh",
+        "result": "updated-4"
+      }
+    ]
+  },
+  {
+    "line": 2940,
+    "call_id": "call_e8118c783aec46a394a66d0e4f3522fb",
+    "changes": [
+      {
+        "path": ".cache/phase77-recovery/numeric/pg-parent-r4/parent_receipt.py",
+        "result": "deleted"
+      }
+    ]
+  },
+  {
+    "line": 2945,
+    "call_id": "call_551a8ae77d5f411e8176723a3980fe7a",
+    "changes": [
+      {
+        "path": ".cache/phase77-recovery/numeric/pg-parent-r4/parent_receipt.py",
+        "result": "added-or-replaced"
+      }
+    ]
+  },
+  {
+    "line": 2952,
+    "call_id": "call_c214289b615440c885a5bafed0d87c12",
+    "changes": [
+      {
+        "path": ".cache/phase77-recovery/numeric/pg-parent-r4/parent_judge.py",
+        "result": "added-or-replaced"
+      }
+    ]
+  },
+  {
+    "line": 2959,
+    "call_id": "call_95fd10bc3efc44d68fd9fb24ae910be9",
+    "changes": [
+      {
+        "path": ".cache/phase77-recovery/numeric/pg-parent-r4/pg.sh",
+        "result": "hunk-not-found"
+      }
+    ]
+  },
+  {
+    "line": 2966,
+    "call_id": "call_b70d492f0a6e45b893ad9251afdd9769",
+    "changes": [
+      {
+        "path": ".cache/phase77-recovery/numeric/pg-parent-r4/parent_receipt.py",
+        "result": "updated-1"
+      },
+      {
+        "path": ".cache/phase77-recovery/numeric/pg-parent-r4/parent_judge.py",
+        "result": "updated-2"
+      },
+      {
+        "path": ".cache/phase77-recovery/numeric/pg-parent-r4/pg.sh",
+        "result": "updated-2"
+      }
+    ]
+  },
+  {
+    "line": 2982,
+    "call_id": "call_339950d39ded4fc2b07e7c9362281607",
+    "changes": [
+      {
+        "path": ".cache/phase77-recovery/numeric/pg-parent-r4/materialize_endpoint.py",
+        "result": "updated-3"
+      }
+    ]
+  },
+  {
+    "line": 2996,
+    "call_id": "call_493bdc5275bd40a6825820c226336083",
+    "changes": [
+      {
+        "path": ".cache/phase77-recovery/numeric/pg-parent-r4/parent_judge.py",
+        "result": "updated-1"
+      }
+    ]
+  },
+  {
+    "line": 3010,
+    "call_id": "call_2ebf6e76def74158854d14d43b0b09d5",
+    "changes": [
+      {
+        "path": ".cache/phase77-recovery/numeric/pg-parent-r4/parent_judge.py",
+        "result": "updated-1"
+      }
+    ]
+  },
+  {
+    "line": 3026,
+    "call_id": "call_7126ce3858184a2f877f6e2ca17c8ba8",
+    "changes": [
+      {
+        "path": ".cache/phase77-recovery/numeric/pg-parent-r4/parent_receipt.py",
+        "result": "updated-2"
+      },
+      {
+        "path": ".cache/phase77-recovery/numeric/pg-parent-r4/parent_judge.py",
+        "result": "updated-2"
+      },
+      {
+        "path": ".cache/phase77-recovery/numeric/pg-parent-r4/pg.sh",
+        "result": "updated-4"
+      }
+    ]
+  },
+  {
+    "line": 3032,
+    "call_id": "call_ebd6f2aefa0c42ea9d396e706013adac",
+    "changes": [
+      {
+        "path": ".cache/phase77-recovery/numeric/pg-parent-r4/parent_receipt.py",
+        "result": "hunk-not-found"
+      },
+      {
+        "path": ".cache/phase77-recovery/numeric/pg-parent-r4/parent_judge.py",
+        "result": "hunk-not-found"
+      },
+      {
+        "path": ".cache/phase77-recovery/numeric/pg-parent-r4/pg.sh",
+        "result": "hunk-not-found"
+      }
+    ]
+  },
+  {
+    "line": 3053,
+    "call_id": "call_d44eeebfeec34003ac0b1f49ac13acab",
+    "changes": [
+      {
+        "path": ".cache/phase77-recovery/numeric/pg-parent-r4/parent_judge.py",
+        "result": "updated-2"
+      }
+    ]
+  },
+  {
+    "line": 3060,
+    "call_id": "call_ff2c01cc3cd945c19d3886bbdf8ca5de",
+    "changes": [
+      {
+        "path": ".cache/phase77-recovery/numeric/pg-parent-r4/PREREG.md",
+        "result": "updated-2"
+      }
+    ]
+  },
+  {
+    "line": 3193,
+    "call_id": "call_3ca697f6aa144340ad2d70322df41c8c",
+    "changes": [
+      {
+        "path": ".cache/phase77-recovery/numeric/pg-parent-r4/parent_judge.py",
+        "result": "hunk-not-found"
+      }
+    ]
+  },
+  {
+    "line": 3206,
+    "call_id": "call_41779bf8c6604e1d838c11db72de7563",
+    "changes": [
+      {
+        "path": ".cache/phase77-recovery/numeric/pg-parent-r4/parent_judge.py",
+        "result": "updated-1"
+      }
+    ]
+  },
+  {
+    "line": 3215,
+    "call_id": "call_0159c399d4fd4a7b8351cf3ffc3b5122",
+    "changes": [
+      {
+        "path": ".cache/phase77-recovery/numeric/pg-parent-r4/parent_judge.py",
+        "result": "updated-2"
+      }
+    ]
+  },
+  {
+    "line": 3258,
+    "call_id": "call_2bcc58fa029e441091b0f1d4b01fedfe",
+    "changes": [
+      {
+        "path": ".cache/phase77-recovery/numeric/pg-parent-r4/parent_judge.py",
+        "result": "updated-1"
+      }
+    ]
+  },
+  {
+    "line": 3434,
+    "call_id": "call_ec745c2cc37b41d8b5baafa922626f27",
+    "changes": [
+      {
+        "path": ".cache/phase77-recovery/numeric/pg-parent-r4/pg.sh",
+        "result": "updated-3"
+      },
+      {
+        "path": ".cache/phase77-recovery/numeric/pg-parent-r4/numeric_pg_hook.sh",
+        "result": "hunk-not-found"
+      },
+      {
+        "path": ".cache/phase77-recovery/numeric/pg-parent-r4/gen-tls.sh",
+        "result": "missing-base"
+      },
+      {
+        "path": ".cache/phase77-recovery/numeric/pg-parent-r4/PREREG.md",
+        "result": "hunk-not-found"
+      }
+    ]
+  },
+  {
+    "line": 3599,
+    "call_id": "call_9870ef624147481086cb790925024523",
+    "changes": [
+      {
+        "path": ".cache/phase77-recovery/numeric/pg-parent-r4/pg.sh",
+        "result": "updated-2"
+      },
+      {
+        "path": ".cache/phase77-recovery/numeric/pg-parent-r4/numeric_pg_hook.sh",
+        "result": "hunk-not-found"
+      },
+      {
+        "path": ".cache/phase77-recovery/numeric/pg-parent-r4/gen-tls.sh",
+        "result": "missing-base"
+      },
+      {
+        "path": ".cache/phase77-recovery/numeric/pg-parent-r4/PREREG.md",
+        "result": "hunk-not-found"
+      }
+    ]
+  },
+  {
+    "line": 3639,
+    "call_id": "call_31c857f8fc9f42168ff3966a53f4f443",
+    "changes": [
+      {
+        "path": ".cache/phase77-recovery/numeric/pg-parent-r4/numeric_pg_hook.sh",
+        "result": "hunk-not-found"
+      }
+    ]
+  },
+  {
+    "line": 3934,
+    "call_id": "call_a84e63c5f2a54b3998e5cd693e820d62",
+    "changes": [
+      {
+        "path": ".cache/phase77-recovery/numeric/pg-parent-r4/pg.sh",
+        "result": "updated-2"
+      },
+      {
+        "path": ".cache/phase77-recovery/numeric/pg-parent-r4/gen-tls.sh",
+        "result": "missing-base"
+      },
+      {
+        "path": ".cache/phase77-recovery/numeric/pg-parent-r4/numeric_pg_hook.sh",
+        "result": "updated-4"
+      },
+      {
+        "path": ".cache/phase77-recovery/numeric/pg-parent-r4/materialize_endpoint.py",
+        "result": "updated-1"
+      },
+      {
+        "path": ".cache/phase77-recovery/numeric/pg-parent-r4/PREREG.md",
+        "result": "hunk-not-found"
+      }
+    ]
+  },
+  {
+    "line": 3955,
+    "call_id": "call_0364cce27c2b4110954b1b93e638602c",
+    "changes": [
+      {
+        "path": ".cache/phase77-recovery/numeric/pg-parent-r4/materialize_endpoint.py",
+        "result": "hunk-not-found"
+      },
+      {
+        "path": ".cache/phase77-recovery/numeric/pg-parent-r4/parent_judge.py",
+        "result": "updated-2"
+      }
+    ]
+  },
+  {
+    "line": 4006,
+    "call_id": "call_9fb5b0ad8cee4f878683a70258f867aa",
+    "changes": [
+      {
+        "path": ".cache/phase77-recovery/numeric/pg-parent-r4/pg.sh",
+        "result": "updated-1"
+      }
+    ]
+  }
+]

@@ -1,0 +1,9 @@
+ M docs/language.md
+ M src/pietto/_project/project_sql_emission_ast.py
+ M src/pietto/_project/project_sql_emission_pure_boundary.py
+ M src/pietto/_project/project_sql_emission_rendering.py
+ M src/pietto/_project/project_sql_emission_rows.py
+ M src/pietto/_project/project_sql_emission_verification.py
+ M tests/_pietto_sql_emission.py
+ M tests/test_sql_project_scalar_expressions.py
+?? docs/release-notes.d/77-s12-mysql-scalar-text-date.md

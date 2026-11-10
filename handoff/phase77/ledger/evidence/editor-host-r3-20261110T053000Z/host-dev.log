@@ -1,0 +1,26 @@
+
+> pietto-vscode-extension@0.3.0 test:host
+> npm run build && node out/tests/runHost.js
+
+
+> pietto-vscode-extension@0.3.0 build
+> tsc -p .
+
+[581192:1109/233611.288322:ERROR:dbus/bus.cc:406] Failed to connect to the bus: Failed to connect to socket /run/user/1000/bus: No such file or directory
+[581192:1109/233611.299069:ERROR:dbus/object_proxy.cc:572] Failed to call method: org.freedesktop.DBus.NameHasOwner: object_path= /org/freedesktop/DBus: unknown error type: 
+[581192:1109/233611.299351:ERROR:dbus/bus.cc:406] Failed to connect to the bus: Failed to connect to socket /run/user/1000/bus: No such file or directory
+[581192:1109/233611.301306:ERROR:dbus/object_proxy.cc:572] Failed to call method: org.freedesktop.DBus.NameHasOwner: object_path= /org/freedesktop/DBus: unknown error type: 
+WARNING: IPC handle "/home/mianliwang/projects/pietto/.cache/phase77-recovery/evidence/editor-host-r3-20261110T053000Z/xdg-runtime/vscode-cd2dff8a-1.14-main.sock" is longer than 107 chars, try a shorter --user-data-dir
+[91m[main 2026-11-10T04:36:11.335Z][0m Error: listen EINVAL: invalid argument /home/mianliwang/projects/pietto/.cache/phase77-recovery/evidence/editor-host-r3-20261110T053000Z/xdg-runtime/vscode-cd2dff8a-1.14-main.sock
+    at Server.setupListenHandle [as _listen2] (node:net:2368:21)
+    at listenInCluster (node:net:2499:12)
+    at Server.listen (node:net:2641:5)
+    at file:///home/mianliwang/projects/pietto-vscode-extension-claude/.vscode-test/vscode-linux-x64-1.145.2/resources/app/out/mainImpl.js:37:636
+    at new Promise (<anonymous>)
+    at O1 (file:///home/mianliwang/projects/pietto-vscode-extension-claude/.vscode-test/vscode-linux-x64-1.145.2/resources/app/out/mainImpl.js:37:587)
+    at AP.claimInstance (file:///home/mianliwang/projects/pietto-vscode-extension-claude/.vscode-test/vscode-linux-x64-1.145.2/resources/app/out/mainImpl.js:195:58559)
+    at file:///home/mianliwang/projects/pietto-vscode-extension-claude/.vscode-test/vscode-linux-x64-1.145.2/resources/app/out/mainImpl.js:195:55840
+    at i.invokeFunction (file:///home/mianliwang/projects/pietto-vscode-extension-claude/.vscode-test/vscode-linux-x64-1.145.2/resources/app/out/mainImpl.js:191:941)
+    at AP.startup (file:///home/mianliwang/projects/pietto-vscode-extension-claude/.vscode-test/vscode-linux-x64-1.145.2/resources/app/out/mainImpl.js:195:55751)
+Exit code:   1
+Test run failed with code 1

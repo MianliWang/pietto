@@ -1,0 +1,10 @@
+nproc=20
+online_cpus=20
+loadavg=0.14 0.45 4.59 4/1016 383505
+MemTotal:       41072484 kB
+MemAvailable:   35626556 kB
+/sys/fs/cgroup/cpu.max=max 100000 
+/sys/fs/cgroup/memory.max=max 
+/sys/fs/cgroup/memory.current=5358583808 
+/sys/fs/cgroup/memory.events=low 0 high 0 max 0 oom 0 oom_kill 0 oom_group_kill 0 
+process inventory intentionally not inspected; this sandbox cannot judge host process ownership.

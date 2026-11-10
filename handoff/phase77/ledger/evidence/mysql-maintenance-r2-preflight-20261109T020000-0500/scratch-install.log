@@ -1,0 +1,23 @@
+$ uv venv --python 3.13.13 /home/mianliwang/projects/pietto/.cache/phase77-recovery/evidence/mysql-maintenance-r2-preflight-20261109T020000-0500/scratch-prefix
+Using CPython 3.13.13
+Creating virtual environment at: scratch-prefix
+Activate with: source scratch-prefix/bin/activate
+$ uv pip install --python /home/mianliwang/projects/pietto/.cache/phase77-recovery/evidence/mysql-maintenance-r2-preflight-20261109T020000-0500/scratch-prefix/bin/python --no-index --find-links /home/mianliwang/projects/pietto/.cache/phase77-recovery/evidence/mysql-maintenance-r2-preflight-20261109T020000-0500/otel-house --strict opentelemetry-api==1.33.1 opentelemetry-sdk==1.33.1 /home/mianliwang/projects/pietto/.cache/phase77-recovery/evidence/mysql-maintenance-r2-preflight-20261109T020000-0500/otel-house/wrapt-2.5.0-cp313-cp313-manylinux1_x86_64.manylinux_2_28_x86_64.manylinux_2_5_x86_64.whl
+Using Python 3.13.13 environment at: scratch-prefix
+Resolved 8 packages in 4ms
+Prepared 8 packages in 14ms
+Installed 8 packages in 19ms
+ + deprecated==3.0.1
+ + importlib-metadata==8.6.1
+ + opentelemetry-api==1.33.1
+ + opentelemetry-sdk==1.33.1
+ + opentelemetry-semantic-conventions==0.54b1
+ + typing-extensions==4.16.0
+ + wrapt==2.5.0 (from file:///home/mianliwang/projects/pietto/.cache/phase77-recovery/evidence/mysql-maintenance-r2-preflight-20261109T020000-0500/otel-house/wrapt-2.5.0-cp313-cp313-manylinux1_x86_64.manylinux_2_28_x86_64.manylinux_2_5_x86_64.whl)
+ + zipp==4.1.2
+$ uv pip check --python /home/mianliwang/projects/pietto/.cache/phase77-recovery/evidence/mysql-maintenance-r2-preflight-20261109T020000-0500/scratch-prefix/bin/python
+Using Python 3.13.13 environment at: scratch-prefix
+Checked 8 packages in 0.46ms
+All installed packages are compatible
+$ /home/mianliwang/projects/pietto/.cache/phase77-recovery/evidence/mysql-maintenance-r2-preflight-20261109T020000-0500/scratch-prefix/bin/python -I -c import importlib.metadata as m; print({n:m.version(n) for n in ("opentelemetry-api","opentelemetry-sdk","opentelemetry-semantic-conventions","Deprecated","importlib-metadata","zipp","typing-extensions","wrapt")})
+{'opentelemetry-api': '1.33.1', 'opentelemetry-sdk': '1.33.1', 'opentelemetry-semantic-conventions': '0.54b1', 'Deprecated': '3.0.1', 'importlib-metadata': '8.6.1', 'zipp': '4.1.2', 'typing-extensions': '4.16.0', 'wrapt': '2.5.0'}

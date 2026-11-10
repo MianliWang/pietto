@@ -1,0 +1,5 @@
+ M src/pietto/_project/project_sql_emission_pure_boundary.py
+ M src/pietto/_project/project_sql_emission_windows.py
+ M tests/test_execution_compiled_families.py
+ M tests/test_harness_sql_emission_portability.py
+ M tests/test_sql_project_scalar_expressions.py

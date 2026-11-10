@@ -1,0 +1,451 @@
+*** Begin Patch
+*** Add File: /tmp/p77-mysql-nested-seam.md
++# Phase77 MySQL nested transport seam — read-only map
++
++Status: `PRE_GATE1_ARCHITECTURE_REVIEW`. Phase77's full S01–S27 scope is
++selected, but this document grants no MySQL nested SQL, decoder, driver,
++compiled-schema change, database run, version bump or release. Existing MySQL
++Collect/Unnest refusals remain authoritative until one exact transport passes
++the listed closure.
++
++## Existing PostgreSQL authority
++
++The logical collection is not a JSON value. A `collect` is an ordered bag of
++one relation let's rows. Its carrier is `pg_column_arrays_v1`:
++
++```text
++one collection field = count:int8, child-array[0], ..., child-array[n-1]
++```
++
++`project_sql_emission_rendering.py::_collect_lateral()` produces one `COUNT(*)`
+and one ordered `ARRAY_AGG` for every child. The order is the source-authored
++Collect ordinal; ties are deliberately unordered unless the Pietto program has
+a qualifying unique-key suffix. `_unnest_rows()` zips the child arrays by
++position. The result contract (`project_result_contract.py`), carrier output
++(`project_result_output.py`), producer binding (`project_result_binding.py`)
+and native reader (`project_execution_reader.py`) independently require the
++same child order, child identity, count, physical aliases and scalar laws.
++
++The current physical meanings are fixed:
++
++| Logical state | `pg_column_arrays_v1` state | Must remain distinct in a MySQL transport |
++| --- | --- | --- |
++| empty collection | `count = 0`, every child array `NULL` | `[]` |
++| one child whose field is `NULL` | `count = 1`, matching child array contains `NULL` | `[ {field: null} ]` / a one-child-row equivalent |
++| missing outer-JOIN container | `count = NULL`, every child array `NULL` | absent container, not empty collection |
++| duplicate children | array positions repeat | multiplicity is retained |
++| ordered children | every array has the same ordinal order | no unspecified JSON aggregation order can replace it |
++
++The currently admitted child set is exactly `Int`, `Bool`, `Text`, `Float`,
++`Decimal`, `Date`, `Timestamp`, and `UUID`; `Binary` is not an existing
++collection child (`CHILD_KINDS` excludes it). Adding Binary is a separate
++semantic/result-contract decision, not a MySQL transport detail.
++
++## Why one JSON blob is not yet an equivalent carrier
++
++`JSON_ARRAYAGG`/`JSON_TABLE` are candidate primitives only. No source in the
++current tree proves their behavior for the selected MySQL image, client driver
++or Python decoder. The following all require a preregistered MySQL experiment
++against generated candidate SQL and an independent logical oracle:
++
++| Child / fact | Loss or ambiguity to rule out |
++| --- | --- |
++| Int64 | JSON number/client decode may lose signed-64 identity or confuse range failures with values. |
++| Decimal(p,s) | JSON number text can erase scale/trailing zeros; JSON string preserves bytes only if a typed decoder and exact decimal policy prove it. |
++| finite Float, `-0.0` | JSON serialization/parsing can normalize negative zero or alter binary64; finite/NaN/Inf policy must stay fail-closed. |
++| Text | UTF-8 validity, exact code points, NUL/control characters, byte bounds and JSON escaping require an owned decoder, not a generic coercion. |
++| UUID | JSON strings/bytes need exact 16-byte canonical identity; no implicit textual normalization. |
++| Date/Timestamp | JSON strings need an exact civil date/microsecond/timezone-free grammar; locale/session formatting cannot supply it. |
++| NULL | JSON null is a child value; it cannot represent the absent outer container or empty collection. |
++| row order/multiplicity | JSON aggregation order must be bound to the generated Collect ordinal; duplicate rows and equal order keys must preserve the existing tie law. |
++| Unnest outer grain | `JSON_TABLE` expansion must preserve CROSS/INNER/LEFT cardinality, including `[]`, absent container and nonmatching `ON`; it cannot infer a placeholder from null children. |
++
++The most conservative candidate is therefore a private, versioned MySQL
++collection wire: one explicit container-presence/count field plus one typed,
++source-ordered encoded child sequence per child, decoded before Arrow
++allocation. A single anonymous JSON object/array cannot become a replacement
++without proving it carries all three container states and every child scalar
++law. Its spelling and record representation are an architecture decision.
++
++## Exact readers and writers that form the closure
++
++| Boundary | Existing files that must be extended or explicitly keep refusal |
++| --- | --- |
++| Collect/Unnest typed plan and emitted SQL | `project_sql_emission_nested.py`, `project_sql_emission_rows.py`, `project_sql_emission_results.py`, `project_sql_emission_ast.py`, `project_sql_emission_rendering.py`, `project_sql_emission_unnest.py` |
++| Target capability and physical contract | `project_sql_emission_contract.py`, `project_sql_plan_target_assessment.py`, `project_sql_emission_suggestions.py`, current MySQL capability profiles/contracts |
++| Public result shape and producer correspondence | `project_result_contract.py`, `project_result_contract_correspondence.py`, `project_result_output.py`, `project_result_binding.py` |
++| Native MySQL metadata and decoder | `project_execution_mysql.py`, `project_execution_mysql_native.py`, `project_execution_reader.py`; a typed collection decoder must run before `project_arrow_result.py` / `project_arrow_interop.py` allocate Arrow values |
++| Bounded execution and lifetime | `project_execution_nested.py` currently admits nested work only on unguarded `postgres_rows`; its resource/preflight law must be reused or a MySQL-specific equivalent must prove the same parent/child, Text-byte, result-byte, cleanup and cancellation facts |
++| Compiled/source-free exact identity | `project_compiled_build.py`, `project_compiled_lowering.py`, `project_compiled_schema.py`, `project_compiled_verification.py`, `project_result_reader.py`, `project_result_ipc.py`, plus saved/verified-export consumers that already handle nested rows |
++
++The compiled verifier currently requires `family == "postgres"` for Collect,
+list and Unnest records. `VERSIONS` is `(8, 1, 8, 1)`, published by Phase76.
+A MySQL nested representation may require a new compiled record; that is an
+input to the existing compatibility decision, not permission to bump marks or
+reinterpret old bundles. Old `0.1.10` records remain read under their own
+version/identity contract; a new record must be recompiled and independently
+verified.
++
++## Non-negotiable execution and reader laws
++
++1. Preserve exact Collect occurrence, producer relation-let, child port and
++   output-port identity. Equal labels, values or JSON keys are not a substitute.
++2. Keep source order and every repeated child. Do not add a repair sort, JSON
++   key sort, DISTINCT or implicit deduplication.
++3. Decode/validate the carrier before Arrow construction. Arrow list offsets,
++   child cardinality and null bitmap are built from the logical collection,
++   not trusted from arbitrary decoded Python data.
++4. Keep parent result rows as the batch/ACK unit and charge children against
++   the existing bounded resource law. A parent collection cannot be split
++   across batches.
++5. Preserve outer-join container absence through Unnest. The LEFT placeholder
++   is a JOIN fact, not a heuristic based on all-null child fields.
++6. Do not open ADBC, guarded/refined paths, relay/R2 or generic saved effects
++   merely because the ordinary MySQL rows decoder can read nested values.
++
++## Required S21–S24 evidence sequence
++
++1. Freeze one private wire descriptor and decoder input contract; write the
++   Oracle before the database campaign. Include every state in the first table
++   and the type/potential-loss rows above.
++2. S21 proves Collect SQL and raw MySQL output for an ordered, duplicate,
++   empty, all-NULL and outer-absent matrix.
++3. S22 proves JSON-table-or-equivalent expansion against CROSS/INNER/LEFT
++   cardinality and one `ON` mismatch matrix, without extending semantics.
++4. S23 proves native metadata, decoder, Arrow, saved/source-free reader and
++   cleanup terminals over the same frozen candidate. S24 adds only the finite
++   list/group/detail combinations Gate 1 names.
++
++Existing test owners are `test_sql_nested_relations.py`,
++`test_sql_nested_relations_unnest.py`, `test_execution_nested_relations.py`,
++`test_execution_nested_relations_admission.py`, `test_results_nested_relations.py`,
++`test_harness_nested_metamorphic.py`, and their flat helpers. Extend the
++deepest owner for the observed layer; do not add a Phase77-named test owner.
+*** End Patch
+
+*** Begin Patch
+*** Add File: /tmp/p77-mysql-nested-seam.md
++# Phase77 MySQL nested transport seam — read-only map
++
++Status: `PRE_GATE1_ARCHITECTURE_REVIEW`. Phase77's full S01–S27 scope is
++selected, but this document grants no MySQL nested SQL, decoder, driver,
++compiled-schema change, database run, version bump or release. Existing MySQL
++Collect/Unnest refusals remain authoritative until one exact transport passes
++the listed closure.
++
++## Existing PostgreSQL authority
++
++The logical collection is not a JSON value. A `collect` is an ordered bag of
++one relation let's rows. Its carrier is `pg_column_arrays_v1`:
++
++```text
++one collection field = count:int8, child-array[0], ..., child-array[n-1]
++```
++
++`project_sql_emission_rendering.py::_collect_lateral()` produces one `COUNT(*)`
++and one ordered `ARRAY_AGG` for every child. The order is the source-authored
++Collect ordinal; ties are deliberately unordered unless the Pietto program has
+a qualifying unique-key suffix. `_unnest_rows()` zips the child arrays by
++position. The result contract (`project_result_contract.py`), carrier output
++(`project_result_output.py`), producer binding (`project_result_binding.py`)
++and native reader (`project_execution_reader.py`) independently require the
++same child order, child identity, count, physical aliases and scalar laws.
++
++The current physical meanings are fixed:
++
++| Logical state | `pg_column_arrays_v1` state | Must remain distinct in a MySQL transport |
++| --- | --- | --- |
++| empty collection | `count = 0`, every child array `NULL` | `[]` |
++| one child whose field is `NULL` | `count = 1`, matching child array contains `NULL` | `[ {field: null} ]` / a one-child-row equivalent |
++| missing outer-JOIN container | `count = NULL`, every child array `NULL` | absent container, not empty collection |
++| duplicate children | array positions repeat | multiplicity is retained |
++| ordered children | every array has the same ordinal order | no unspecified JSON aggregation order can replace it |
++
++The currently admitted child set is exactly `Int`, `Bool`, `Text`, `Float`,
++`Decimal`, `Date`, `Timestamp`, and `UUID`; `Binary` is not an existing
++collection child (`CHILD_KINDS` excludes it). Adding Binary is a separate
++semantic/result-contract decision, not a MySQL transport detail.
++
++## Why one JSON blob is not yet an equivalent carrier
++
++`JSON_ARRAYAGG`/`JSON_TABLE` are candidate primitives only. No source in the
++current tree proves their behavior for the selected MySQL image, client driver
++or Python decoder. The following all require a preregistered MySQL experiment
++against generated candidate SQL and an independent logical oracle:
++
++| Child / fact | Loss or ambiguity to rule out |
++| --- | --- |
++| Int64 | JSON number/client decode may lose signed-64 identity or confuse range failures with values. |
++| Decimal(p,s) | JSON number text can erase scale/trailing zeros; JSON string preserves bytes only if a typed decoder and exact decimal policy prove it. |
++| finite Float, `-0.0` | JSON serialization/parsing can normalize negative zero or alter binary64; finite/NaN/Inf policy must stay fail-closed. |
++| Text | UTF-8 validity, exact code points, NUL/control characters, byte bounds and JSON escaping require an owned decoder, not a generic coercion. |
++| UUID | JSON strings/bytes need exact 16-byte canonical identity; no implicit textual normalization. |
++| Date/Timestamp | JSON strings need an exact civil date/microsecond/timezone-free grammar; locale/session formatting cannot supply it. |
++| NULL | JSON null is a child value; it cannot represent the absent outer container or empty collection. |
++| row order/multiplicity | JSON aggregation order must be bound to the generated Collect ordinal; duplicate rows and equal order keys must preserve the existing tie law. |
++| Unnest outer grain | `JSON_TABLE` expansion must preserve CROSS/INNER/LEFT cardinality, including `[]`, absent container and nonmatching `ON`; it cannot infer a placeholder from null children. |
++
++The most conservative candidate is therefore a private, versioned MySQL
++collection wire: one explicit container-presence/count field plus one typed,
++source-ordered encoded child sequence per child, decoded before Arrow
++allocation. A single anonymous JSON object/array cannot become a replacement
++without proving it carries all three container states and every child scalar
++law. Its spelling and record representation are an architecture decision.
++
++## Exact readers and writers that form the closure
++
++| Boundary | Existing files that must be extended or explicitly keep refusal |
++| --- | --- |
++| Collect/Unnest typed plan and emitted SQL | `project_sql_emission_nested.py`, `project_sql_emission_rows.py`, `project_sql_emission_results.py`, `project_sql_emission_ast.py`, `project_sql_emission_rendering.py`, `project_sql_emission_unnest.py` |
++| Target capability and physical contract | `project_sql_emission_contract.py`, `project_sql_plan_target_assessment.py`, `project_sql_emission_suggestions.py`, current MySQL capability profiles/contracts |
++| Public result shape and producer correspondence | `project_result_contract.py`, `project_result_contract_correspondence.py`, `project_result_output.py`, `project_result_binding.py` |
++| Native MySQL metadata and decoder | `project_execution_mysql.py`, `project_execution_mysql_native.py`, `project_execution_reader.py`; a typed collection decoder must run before `project_arrow_result.py` / `project_arrow_interop.py` allocate Arrow values |
++| Bounded execution and lifetime | `project_execution_nested.py` currently admits nested work only on unguarded `postgres_rows`; its resource/preflight law must be reused or a MySQL-specific equivalent must prove the same parent/child, Text-byte, result-byte, cleanup and cancellation facts |
++| Compiled/source-free exact identity | `project_compiled_build.py`, `project_compiled_lowering.py`, `project_compiled_schema.py`, `project_compiled_verification.py`, `project_result_reader.py`, `project_result_ipc.py`, plus saved/verified-export consumers that already handle nested rows |
++
++The compiled verifier currently requires `family == "postgres"` for Collect,
+list and Unnest records. `VERSIONS` is `(8, 1, 8, 1)`, published by Phase76.
+A MySQL nested representation may require a new compiled record; that is an
+input to the existing compatibility decision, not permission to bump marks or
+reinterpret old bundles. Old `0.1.10` records remain read under their own
+version/identity contract; a new record must be recompiled and independently
+verified.
++
++## Non-negotiable execution and reader laws
++
++1. Preserve exact Collect occurrence, producer relation-let, child port and
++   output-port identity. Equal labels, values or JSON keys are not a substitute.
++2. Keep source order and every repeated child. Do not add a repair sort, JSON
++   key sort, DISTINCT or implicit deduplication.
++3. Decode/validate the carrier before Arrow construction. Arrow list offsets,
++   child cardinality and null bitmap are built from the logical collection,
++   not trusted from arbitrary decoded Python data.
++4. Keep parent result rows as the batch/ACK unit and charge children against
++   the existing bounded resource law. A parent collection cannot be split
++   across batches.
++5. Preserve outer-join container absence through Unnest. The LEFT placeholder
++   is a JOIN fact, not a heuristic based on all-null child fields.
++6. Do not open ADBC, guarded/refined paths, relay/R2 or generic saved effects
++   merely because the ordinary MySQL rows decoder can read nested values.
++
++## Required S21–S24 evidence sequence
++
++1. Freeze one private wire descriptor and decoder input contract; write the
++   Oracle before the database campaign. Include every state in the first table
++   and the type/potential-loss rows above.
++2. S21 proves Collect SQL and raw MySQL output for an ordered, duplicate,
++   empty, all-NULL and outer-absent matrix.
++3. S22 proves JSON-table-or-equivalent expansion against CROSS/INNER/LEFT
++   cardinality and one `ON` mismatch matrix, without extending semantics.
++4. S23 proves native metadata, decoder, Arrow, saved/source-free reader and
++   cleanup terminals over the same frozen candidate. S24 adds only the finite
++   list/group/detail combinations Gate 1 names.
++
++Existing test owners are `test_sql_nested_relations.py`,
++`test_sql_nested_relations_unnest.py`, `test_execution_nested_relations.py`,
++`test_execution_nested_relations_admission.py`, `test_results_nested_relations.py`,
++`test_harness_nested_metamorphic.py`, and their flat helpers. Extend the
++deepest owner for the observed layer; do not add a Phase77-named test owner.
+*** End Patch
+
+*** Begin Patch
+*** Add File: /tmp/p77-mysql-nested-seam.md
++# Phase77 MySQL nested transport seam — read-only map
++
++Status: `PRE_GATE1_ARCHITECTURE_REVIEW`. Full Phase77 scope is selected; this
++document grants no nested SQL, decoder, driver, compiled-schema change,
++database run, version bump or release. MySQL Collect/Unnest stays refused.
++
++## Existing PostgreSQL authority
++
++A collection is an ordered bag of one relation let's rows, not a JSON value.
++Its `pg_column_arrays_v1` carrier is one `count:int8`, followed by one array
++per child field. `_collect_lateral()` renders `COUNT(*)` and an `ARRAY_AGG`
++ordered by the authored Collect ordinal for every child. `_unnest_rows()` zips
++the arrays by position. Ties remain unordered unless the authored order has a
++qualifying unique-key suffix.
++
++| Logical state | PostgreSQL carrier | MySQL transport must keep distinct |
++| --- | --- | --- |
++| empty | `count = 0`, all arrays `NULL` | `[]` |
++| one all-NULL child row | `count = 1`, arrays include null | `[ {field: null} ]` |
++| outer-JOIN missing container | `count = NULL`, all arrays `NULL` | absent container |
++| duplicate child | repeated array position | multiplicity |
++| ordered child rows | corresponding array positions | source order and tie law |
++
++The result contract, `project_result_output.py`, `project_result_binding.py`,
++`project_execution_reader.py`, `project_arrow_result.py`, and source-free
++result readers independently preserve the child ports, count, aliases, scalar
++laws, list offsets and output identity. The existing child set is only `Int`,
++`Bool`, `Text`, `Float`, `Decimal`, `Date`, `Timestamp`, `UUID`; `Binary` is
++not an admitted collection child. It cannot be added as a JSON detail.
++
++## JSON is a candidate primitive, not proof
++
++`JSON_ARRAYAGG` and `JSON_TABLE` require an exact MySQL campaign against
++generated SQL and a prewritten logical oracle. Nothing in the repository proves
++their current MySQL/driver/decoder behavior.
++
++| Value / fact | Required proof before admission |
++| --- | --- |
++| Int64 | JSON/client decode keeps signed-64 values and range failures distinct. |
++| Decimal(p,s) | Scale/trailing zeros survive a defined typed representation. |
++| finite Float and `-0.0` | Binary64 bits/negative zero are not normalized; nonfinite policy remains closed. |
++| Text | strict UTF-8, exact code points, controls/escaping and byte cap. |
++| UUID | exact canonical 16-byte identity; no implicit textual rewrite. |
++| Date/Timestamp | exact civil/date/microsecond grammar; no locale/session formatting. |
++| JSON null | remains a child value, never empty or absent container. |
++| aggregation/expansion | source ordinal, duplicates, CROSS/INNER/LEFT grain and unmatched `ON` behavior. |
++
++The conservative candidate is a private versioned wire: explicit
++container-presence/count plus one typed, source-ordered child sequence per
++child, decoded before Arrow allocation. A single anonymous JSON array/object
++cannot replace it unless it proves all three container states and scalar laws.
++
++## Reader/writer closure
++
++| Boundary | Existing owners that must change together or retain refusal |
++| --- | --- |
++| plan/SQL | `project_sql_emission_nested.py`, `_rows.py`, `_results.py`, `_ast.py`, `_rendering.py`, `_unnest.py` |
++| target/capability | `project_sql_emission_contract.py`, `project_sql_plan_target_assessment.py`, `project_sql_emission_suggestions.py` and MySQL profiles/contracts |
++| result authority | `project_result_contract.py`, `_correspondence.py`, `project_result_output.py`, `project_result_binding.py` |
++| native decoder | `project_execution_mysql.py`, `_mysql_native.py`, `project_execution_reader.py`, then `project_arrow_result.py` / `project_arrow_interop.py` |
++| resource/lifetime | `project_execution_nested.py`; it currently admits collections only on unguarded `postgres_rows`, so MySQL needs equivalent parent/child/Text/result/cleanup/cancel proof |
++| compiled/source-free | `project_compiled_build.py`, `_lowering.py`, `_schema.py`, `_verification.py`, `project_result_reader.py`, `project_result_ipc.py`, saved/verified-export consumers |
++
++Compiled verification currently requires `family == "postgres"` for Collect,
+list and Unnest records. Published `VERSIONS` is `(8, 1, 8, 1)`. A MySQL
+nested record is a compatibility decision input: do not bump marks, rewrite
+old records, or treat `0.1.10` evidence as evidence for it.
++
++## Mandatory invariants
++
++1. Preserve exact Collect occurrence, producer relation-let, child ports and
++   output ports. Equal labels, values or JSON keys are not authority.
++2. Preserve source order and repeated children. No repair sort, key sort,
++   `DISTINCT` or implicit deduplication.
++3. Decode and validate before Arrow allocation. Build offsets/null bitmap from
++   the verified logical collection, not arbitrary Python JSON values.
++4. Parents remain the batch/ACK unit; child occurrences retain existing bounded
++   charging and a parent collection never crosses batches.
++5. Outer-container absence survives Unnest. A LEFT placeholder is a JOIN fact,
++   never inferred from all-null children.
++6. Ordinary MySQL rows does not authorize ADBC, guarded/refined execution,
++   relay/R2 or other saved-result effects.
++
++## S21–S24 evidence sequence
++
++1. Freeze private wire/decoder contract and oracle before the DB campaign.
++2. S21: ordered, duplicate, empty, all-NULL and outer-absent Collect matrix.
++3. S22: chosen expansion primitive over CROSS/INNER/LEFT and `ON` mismatch.
++4. S23: metadata, decoder, Arrow, saved/source-free reader and cleanup over
++   the same frozen candidate. S24 only adds Gate-1-selected finite list/group/
++   detail combinations.
++
++Extend the deepest current owner: `test_sql_nested_relations.py`,
++`test_sql_nested_relations_unnest.py`, `test_execution_nested_relations.py`,
++`test_execution_nested_relations_admission.py`,
++`test_results_nested_relations.py`, `test_harness_nested_metamorphic.py` and
++their helpers. Do not add Phase77-named tests.
+*** End Patch
+
+*** Begin Patch
+*** Add File: /tmp/p77-mysql-nested-seam.md
++# Phase77 MySQL nested transport seam — read-only map
++
++Status: `PRE_GATE1_ARCHITECTURE_REVIEW`. Full Phase77 scope is selected.
++This grants no nested SQL, decoder, driver, compiled-schema change, database
++run, version bump, or release. MySQL Collect/Unnest stays refused.
++
++## PostgreSQL authority to preserve
++
++A collection is an ordered bag of one relation let's rows, not a JSON value.
++`pg_column_arrays_v1` represents it with `count:int8`, then one array per
++child. `_collect_lateral()` produces `COUNT(*)` and an `ARRAY_AGG` ordered by
++the authored Collect ordinal for every child. `_unnest_rows()` zips arrays by
++position. Ties stay unordered unless an authored unique-key suffix resolves
++them.
++
++| Logical state | PostgreSQL carrier | MySQL transport must keep distinct |
++| --- | --- | --- |
++| empty | `count = 0`, all arrays `NULL` | `[]` |
++| one all-NULL child | `count = 1`, array element `NULL` | one real child row |
++| outer-JOIN missing container | `count = NULL`, all arrays `NULL` | absent container |
++| duplicate children | repeated array position | multiplicity |
++| ordered children | corresponding array positions | source order and tie law |
++
++The result contract, `project_result_output.py`, `project_result_binding.py`,
++`project_execution_reader.py`, `project_arrow_result.py`, and source-free
++readers independently preserve child ports, count, aliases, scalar laws, list
++offsets, and output identity. Existing child types are exactly `Int`, `Bool`,
++`Text`, `Float`, `Decimal`, `Date`, `Timestamp`, `UUID`. `Binary` is excluded;
++adding it is not a transport detail.
++
++## JSON is an experiment, not proof
++
++`JSON_ARRAYAGG` and `JSON_TABLE` need an exact MySQL campaign over generated
++SQL plus a prewritten logical oracle. Current code proves neither their server,
++driver, nor decoder behavior.
++
++| Value or fact | Required proof |
++| --- | --- |
++| Int64 | signed-64 identity and range failure distinguish from values |
++| Decimal(p,s) | scale/trailing-zero policy and typed decoding |
++| finite Float / `-0.0` | binary64 and signed zero remain exact; nonfinite stays closed |
++| Text | strict UTF-8, controls/escaping, code points, byte cap |
++| UUID | exact canonical 16-byte identity, no textual normalization |
++| Date/Timestamp | exact civil/microsecond grammar, no locale/session formatting |
++| JSON null | child NULL only, never empty or absent container |
++| expansion | ordinal, duplicates, CROSS/INNER/LEFT grain, unmatched `ON` |
++
++The conservative option is a private versioned wire: explicit container
++presence/count plus one typed, source-ordered child sequence per child,
++validated before Arrow allocation. An anonymous JSON object/array cannot
++replace it until it proves the three container states and each scalar law.
++
++## Exact closure
++
++| Boundary | Existing owners that must change together or retain refusal |
++| --- | --- |
++| plan/SQL | `project_sql_emission_nested.py`, `_rows.py`, `_results.py`, `_ast.py`, `_rendering.py`, `_unnest.py` |
++| target/capability | `project_sql_emission_contract.py`, `project_sql_plan_target_assessment.py`, `project_sql_emission_suggestions.py`, MySQL profiles/contracts |
++| result authority | `project_result_contract.py`, `_correspondence.py`, `project_result_output.py`, `project_result_binding.py` |
++| native decode | `project_execution_mysql.py`, `_mysql_native.py`, `project_execution_reader.py`, then Arrow result/interop |
++| resource/lifetime | `project_execution_nested.py`; current nested route is unguarded `postgres_rows` only, so MySQL needs equivalent parent/child/Text/result/cleanup/cancel proof |
++| compiled/source-free | `project_compiled_build.py`, `_lowering.py`, `_schema.py`, `_verification.py`, `project_result_reader.py`, `project_result_ipc.py`, saved/verified-export readers |
++
++Compiled verification currently requires `family == "postgres"` for Collect,
++list, and Unnest records. Published `VERSIONS` is `(8, 1, 8, 1)`. A MySQL
++nested record is a compatibility decision input: do not bump marks, rewrite old
++records, or treat `0.1.10` evidence as evidence for it.
++
++## Mandatory laws
++
++1. Preserve exact Collect occurrence, producer relation-let, child ports and
++   output ports. Equal labels, values, or JSON keys are not authority.
++2. Preserve source order and repeats: no repair sort, key sort, `DISTINCT`, or
++   implicit deduplication.
++3. Validate before Arrow allocation; create offsets and null bitmap from the
++   logical collection, never arbitrary decoded Python JSON values.
++4. Parents remain the batch/ACK unit; child charging stays bounded and a parent
++   collection never crosses batches.
++5. Outer-container absence survives Unnest. A LEFT placeholder is a JOIN fact,
++   never inferred from all-null child fields.
++6. MySQL rows admission does not open ADBC, guarded/refined, relay/R2, or other
++   saved-result effects.
++
++## S21–S24 evidence order
++
++1. Freeze one private wire/decoder contract and oracle before the DB campaign.
++2. S21: ordered, duplicate, empty, all-NULL, outer-absent Collect matrix.
++3. S22: selected expansion primitive over CROSS/INNER/LEFT and `ON` mismatch.
++4. S23: metadata, decoder, Arrow, saved/source-free reader, cleanup on the
++   same frozen candidate. S24 only adds Gate-1-selected finite list/group/detail
++   combinations.
++
++Extend the deepest existing owner: `test_sql_nested_relations.py`,
++`test_sql_nested_relations_unnest.py`, `test_execution_nested_relations.py`,
++`test_execution_nested_relations_admission.py`,
++`test_results_nested_relations.py`, `test_harness_nested_metamorphic.py` and
++their helpers. Do not add Phase77-named tests.
+*** End Patch

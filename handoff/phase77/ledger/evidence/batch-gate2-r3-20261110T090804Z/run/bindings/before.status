@@ -1,0 +1,50 @@
+ M README.md
+ M ci/phase67-arrow-compatibility-requirements.txt
+ M ci/phase68-executor-premise-requirements.txt
+ M docs/architecture/layering-and-coupling-laws-v1.md
+ M docs/decisions.md
+ M docs/editor-lsp.md
+ M docs/execution.md
+ M docs/phases/phase-76/completion-audit.md
+ M docs/project-package.md
+ M docs/roadmap.md
+ M docs/spec/diagnostics.md
+ M docs/status.md
+ M pyproject.toml
+ M scripts/ci_workloads.py
+ M scripts/package_smoke.py
+ M src/pietto/_lsp.py
+ M src/pietto/_project/check.py
+ M src/pietto/_project/project_arrow_result.py
+ M src/pietto/_project/project_execution_postgres.py
+ M src/pietto/_project/project_execution_postgres_adbc_native.py
+ M tests/_pietto_execution_api.py
+ M tests/_pietto_execution_api_mysql_native.py
+ M tests/_pietto_execution_cases.py
+ M tests/_pietto_execution_installation_check.py
+ M tests/_pietto_execution_installation_probe.py
+ M tests/_pietto_repo_package.py
+ M tests/_pietto_results_arrow_compatibility.py
+ M tests/_pietto_results_consumer.py
+ M tests/_pietto_results_nested.py
+ M tests/_pietto_results_nested_ipc_oracle.py
+ M tests/_pietto_results_product.py
+ M tests/_pietto_target_conformance.py
+ M tests/phase66_target_pins.json
+ M tests/test_ci_results_governance.py
+ M tests/test_cli_lsp.py
+ M tests/test_execution_postgres_adbc.py
+ M tests/test_harness_execution_api_mysql_native.py
+ M tests/test_harness_target_conformance.py
+ M tests/test_project_editor_overlays.py
+ M tests/test_release_installation.py
+ M tests/test_results_consumer.py
+ M tests/test_results_contract.py
+ M tests/test_results_optional_arrow.py
+ M uv.lock
+?? docs/phases/phase-77/
+?? docs/release-notes.d/77-e01-editor-navigation.md
+?? docs/release-notes.d/77-m01-dependency-maintenance.md
+?? docs/spec/lsp-diagnostics-v1.md
+?? docs/spec/lsp-editor-facts-v1.md
+?? src/pietto/_editor_facts.py

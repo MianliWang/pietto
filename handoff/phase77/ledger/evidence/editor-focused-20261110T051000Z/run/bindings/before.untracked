@@ -1,0 +1,4 @@
+docs/release-notes.d/77-e01-editor-navigation.md
+docs/spec/lsp-diagnostics-v1.md
+docs/spec/lsp-editor-facts-v1.md
+src/pietto/_editor_facts.py

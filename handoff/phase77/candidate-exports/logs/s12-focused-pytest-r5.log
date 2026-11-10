@@ -1,0 +1,81 @@
+.F........                                                               [100%]
+=================================== FAILURES ===================================
+_____ test_now_is_one_utc_statement_snapshot_evaluated_at_execution[mysql] _____
+
+tmp_path = PosixPath('/tmp/pietto-phase77-s12-focused5/test_now_is_one_utc_statement_1')
+target = 'mysql'
+
+    @pytest.mark.parametrize("target", TARGETS)
+    def test_now_is_one_utc_statement_snapshot_evaluated_at_execution(tmp_path, target):
+        """`now()` is a UTC statement-start Timestamp retained by both forms."""
+        outcome = emit_temporal(
+            tmp_path / target,
+            target,
+            """table result:
+        from rows
+        where stamp <= now()
+        select:
+            stamp
+            seen = now()
+            day = date_of(now())
+    """,
+        )
+    
+        assert outcome.status == "VERIFIED" and outcome.artifact is not None
+        artifact = outcome.artifact
+        assert verify_project_sql_emission(artifact, artifact.request).verified
+        observed = portable.export_emission_observation(artifact, artifact.request)
+        assert observed.canonical_bytes is not None
+        assert (
+            pure.parse_emission_observation(observed.canonical_bytes).status
+            is pure.Status.OK
+        )
+        assert portable.verify_emission_observation(
+            observed.canonical_bytes, artifact, artifact.request
+        ).corresponds
+        sql = artifact.rendered.sql.decode()
+        now_sql = _NOW_SQL[target]
+        quote = '"' if target == "postgres" else "`"
+        stamp = '"s0"."stamp"' if target == "postgres" else "`s0`.`stamp`"
+        assert sql.count(now_sql) == 3
+        assert f"WHERE ({stamp} <= {now_sql})" in sql
+        day_sql = f"CAST({now_sql} AS date)" if target == "postgres" else f"DATE({now_sql})"
+        assert f"{now_sql} AS {quote}seen{quote}, {day_sql} AS {quote}day{quote}" in sql
+>       document = probe.decode_public(serialize_project_sql_emission(outcome))
+                   ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+
+tests/test_sql_project_scalar_expressions.py:764: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+tests/_pietto_sql_emission.py:15372: in decode_public
+    document = _validated_public(data)
+               ^^^^^^^^^^^^^^^^^^^^^^^
+tests/_pietto_sql_emission.py:15566: in _validated_public
+    _decode_fixed_public(document, limits)
+tests/_pietto_sql_emission.py:14809: in _decode_fixed_public
+    row_driver()
+tests/_pietto_sql_emission.py:14777: in row_driver
+    else row_select(block, False, header)
+         ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+tests/_pietto_sql_emission.py:12312: in row_select
+    root = row_resolve(parsed_predicate, incoming, alias, predicate)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+tests/_pietto_sql_emission.py:8909: in row_resolve
+    resolved_operands[position] = row_resolve(
+tests/_pietto_sql_emission.py:9842: in row_resolve
+    result = scalar_result(node["name"])
+             ^^^^^^^^^^^^^^^^^^^^^^^^^^^
+tests/_pietto_sql_emission.py:9144: in scalar_result
+    _need(family == "postgres" and not operands, "now carrier")
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+
+value = False, message = 'now carrier'
+
+    def _need(value, message="invalid public artifact"):
+        if not value:
+>           raise ValueError(message)
+E           ValueError: now carrier
+
+tests/_pietto_sql_emission.py:4758: ValueError
+=========================== short test summary info ============================
+FAILED tests/test_sql_project_scalar_expressions.py::test_now_is_one_utc_statement_snapshot_evaluated_at_execution[mysql]
+1 failed, 9 passed, 291 deselected in 2.62s

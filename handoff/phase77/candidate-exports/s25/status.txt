@@ -1,0 +1,5 @@
+ M docs/language.md
+ M docs/spec/diagnostics.md
+ M src/pietto/sql/joins.py
+ M tests/test_sql_join_emission.py
+?? docs/release-notes.d/77-s25-mysql-asof-full.md

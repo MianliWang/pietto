@@ -1,0 +1,404 @@
+{
+  "config_sha256": "9a2d363148854a9319a79b33017bf28324040a92d106b63d4607ed41204aaa2f",
+  "format": "pietto.mysql-none-main-worker.v2",
+  "inputs": {
+    "contract.json": "20cb451110c2cab735c158eb3b7e5535bad6b20e867dd550579c0bf9baab62f3",
+    "main.pietto": "46a5f10c0726eb763e2c3ccf07f1e81382cecf3f8581c7c7cb9ade21e75f417f",
+    "pietto.toml": "936a2829a9d65d1327bc3907650859525cc1bfbf5bc58dc4d9cf2ac831bfd4be"
+  },
+  "inputs_after": {
+    "contract.json": "20cb451110c2cab735c158eb3b7e5535bad6b20e867dd550579c0bf9baab62f3",
+    "main.pietto": "46a5f10c0726eb763e2c3ccf07f1e81382cecf3f8581c7c7cb9ade21e75f417f",
+    "pietto.toml": "936a2829a9d65d1327bc3907650859525cc1bfbf5bc58dc4d9cf2ac831bfd4be"
+  },
+  "inputs_unchanged": true,
+  "result": {
+    "bundle": {
+      "batches": 2,
+      "cleanup": "LOCAL_CLOSED_REMOTE_UNOBSERVED",
+      "deadline_expired": false,
+      "delivery": "COMPLETE",
+      "end": "COMPLETE",
+      "remote": "TRANSACTION_ACK",
+      "rows": [
+        [
+          1,
+          null
+        ],
+        [
+          1,
+          null
+        ]
+      ],
+      "source": "EOF",
+      "transaction": "COMMIT_ACK"
+    },
+    "factory": {
+      "dialect": "mysql",
+      "kind": "table",
+      "module": "main.pietto",
+      "name": "result",
+      "origin": "live"
+    },
+    "identity": {
+      "drivers": {
+        "mysql-connector-python": "26.10.0",
+        "pyarrow": "26.0.1"
+      },
+      "interpreter": [
+        "CPython",
+        "3.13.13",
+        "Linux"
+      ],
+      "origins": {
+        "mysql.connector.connection": "1f29ff0b2e0d557f251bc4b41bd42fe19111df05b25f8891d0c036bd992cd614",
+        "pietto": "669ac67bb23a0c8179995e0e415d76c46210c12311e29cd89d2612b45b0a194d"
+      }
+    },
+    "profile": {
+      "packets": {
+        "control": true,
+        "execute": true,
+        "handshake": [
+          {
+            "attribute_encoding": false,
+            "client_flags": 405514765,
+            "connect_args": false,
+            "traceparent": false
+          },
+          {
+            "attribute_encoding": false,
+            "client_flags": 405514765,
+            "connect_args": false,
+            "traceparent": false
+          }
+        ],
+        "prepare": true,
+        "query": [
+          {
+            "bytes": 48,
+            "command": 3,
+            "session": 13,
+            "traceparent": false
+          },
+          {
+            "bytes": 31,
+            "command": 3,
+            "session": 13,
+            "traceparent": false
+          },
+          {
+            "bytes": 48,
+            "command": 3,
+            "session": 14,
+            "traceparent": false
+          },
+          {
+            "bytes": 31,
+            "command": 3,
+            "session": 14,
+            "traceparent": false
+          },
+          {
+            "bytes": 32,
+            "command": 3,
+            "session": 13,
+            "traceparent": false
+          },
+          {
+            "bytes": 57,
+            "command": 3,
+            "session": 13,
+            "traceparent": false
+          },
+          {
+            "bytes": 55,
+            "command": 3,
+            "session": 13,
+            "traceparent": false
+          },
+          {
+            "bytes": 305,
+            "command": 3,
+            "session": 13,
+            "traceparent": false
+          },
+          {
+            "bytes": 27,
+            "command": 3,
+            "session": 13,
+            "traceparent": false
+          },
+          {
+            "bytes": 308,
+            "command": 3,
+            "session": 13,
+            "traceparent": false
+          },
+          {
+            "bytes": 27,
+            "command": 3,
+            "session": 14,
+            "traceparent": false
+          },
+          {
+            "bytes": 308,
+            "command": 3,
+            "session": 14,
+            "traceparent": false
+          },
+          {
+            "bytes": 305,
+            "command": 3,
+            "session": 13,
+            "traceparent": false
+          },
+          {
+            "bytes": 32,
+            "command": 3,
+            "session": 13,
+            "traceparent": false
+          },
+          {
+            "bytes": 119,
+            "command": 3,
+            "session": 13,
+            "traceparent": false
+          },
+          {
+            "bytes": 47,
+            "command": 3,
+            "session": 13,
+            "traceparent": false
+          },
+          {
+            "bytes": 168,
+            "command": 3,
+            "session": 13,
+            "traceparent": false
+          },
+          {
+            "bytes": 308,
+            "command": 3,
+            "session": 14,
+            "traceparent": false
+          },
+          {
+            "bytes": 305,
+            "command": 3,
+            "session": 13,
+            "traceparent": false
+          },
+          {
+            "bytes": 117,
+            "command": 3,
+            "session": 13,
+            "traceparent": false
+          },
+          {
+            "bytes": 308,
+            "command": 3,
+            "session": 14,
+            "traceparent": false
+          },
+          {
+            "bytes": 305,
+            "command": 3,
+            "session": 13,
+            "traceparent": false
+          },
+          {
+            "bytes": 308,
+            "command": 3,
+            "session": 14,
+            "traceparent": false
+          },
+          {
+            "bytes": 305,
+            "command": 3,
+            "session": 13,
+            "traceparent": false
+          },
+          {
+            "bytes": 308,
+            "command": 3,
+            "session": 14,
+            "traceparent": false
+          },
+          {
+            "bytes": 305,
+            "command": 3,
+            "session": 13,
+            "traceparent": false
+          },
+          {
+            "bytes": 308,
+            "command": 3,
+            "session": 14,
+            "traceparent": false
+          },
+          {
+            "bytes": 305,
+            "command": 3,
+            "session": 13,
+            "traceparent": false
+          },
+          {
+            "bytes": 108,
+            "command": 22,
+            "session": 13,
+            "traceparent": false
+          },
+          {
+            "bytes": 9,
+            "command": 23,
+            "session": 13,
+            "traceparent": false
+          },
+          {
+            "bytes": 308,
+            "command": 3,
+            "session": 14,
+            "traceparent": false
+          },
+          {
+            "bytes": 163,
+            "command": 3,
+            "session": 14,
+            "traceparent": false
+          },
+          {
+            "bytes": 308,
+            "command": 3,
+            "session": 14,
+            "traceparent": false
+          },
+          {
+            "bytes": 308,
+            "command": 3,
+            "session": 14,
+            "traceparent": false
+          },
+          {
+            "bytes": 308,
+            "command": 3,
+            "session": 14,
+            "traceparent": false
+          },
+          {
+            "bytes": 308,
+            "command": 3,
+            "session": 14,
+            "traceparent": false
+          },
+          {
+            "bytes": 305,
+            "command": 3,
+            "session": 13,
+            "traceparent": false
+          },
+          {
+            "bytes": 4,
+            "command": 25,
+            "session": 13,
+            "traceparent": false
+          },
+          {
+            "bytes": 308,
+            "command": 3,
+            "session": 14,
+            "traceparent": false
+          },
+          {
+            "bytes": 8,
+            "command": 3,
+            "session": 13,
+            "traceparent": false
+          }
+        ],
+        "query_attrs": [
+          []
+        ]
+      },
+      "sessions": [
+        {
+          "attrs": [],
+          "auth": "caching_sha2_password",
+          "connect_args": false,
+          "kind": "data",
+          "otel": false,
+          "tls": "TLSv1.3",
+          "traceparent": false
+        },
+        {
+          "attrs": [],
+          "auth": "caching_sha2_password",
+          "connect_args": false,
+          "kind": "control",
+          "otel": false,
+          "tls": "TLSv1.3",
+          "traceparent": false
+        }
+      ]
+    },
+    "rows": {
+      "batches": 2,
+      "cleanup": "LOCAL_CLOSED_REMOTE_UNOBSERVED",
+      "deadline_expired": false,
+      "delivery": "COMPLETE",
+      "end": "COMPLETE",
+      "remote": "TRANSACTION_ACK",
+      "rows": [
+        [
+          1,
+          null
+        ],
+        [
+          1,
+          null
+        ]
+      ],
+      "schema": [
+        [
+          "left_id",
+          "int64",
+          false
+        ],
+        [
+          "right_key",
+          "int64",
+          true
+        ]
+      ],
+      "source": "EOF",
+      "transaction": "COMMIT_ACK"
+    },
+    "schema": {
+      "schema": [
+        [
+          "left_id",
+          "int64",
+          false
+        ],
+        [
+          "right_key",
+          "int64",
+          true
+        ]
+      ]
+    },
+    "telemetry": {
+      "exporters": [],
+      "recording": true,
+      "selected_wheel": "wrapt-2.5.0-cp313-cp313-manylinux1_x86_64.manylinux_2_28_x86_64.manylinux_2_5_x86_64.whl",
+      "versions": {
+        "opentelemetry-api": "1.33.1",
+        "opentelemetry-sdk": "1.33.1",
+        "wrapt": "2.5.0"
+      }
+    }
+  },
+  "terminal": {
+    "state": "RETURNED"
+  }
+}

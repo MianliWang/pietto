@@ -1,0 +1,80 @@
+.F....F..F                                                               [100%]
+=================================== FAILURES ===================================
+_____ test_now_is_one_utc_statement_snapshot_evaluated_at_execution[mysql] _____
+
+tmp_path = PosixPath('/tmp/pietto-phase77-s12-focused2/test_now_is_one_utc_statement_1')
+target = 'mysql'
+
+    @pytest.mark.parametrize("target", TARGETS)
+    def test_now_is_one_utc_statement_snapshot_evaluated_at_execution(tmp_path, target):
+        """`now()` is a UTC statement-start Timestamp retained by both forms."""
+        outcome = emit_temporal(
+            tmp_path / target,
+            target,
+            """table result:
+        from rows
+        where stamp <= now()
+        select:
+            stamp
+            seen = now()
+            day = date_of(now())
+    """,
+        )
+    
+>       assert outcome.status == "VERIFIED" and outcome.artifact is not None
+E       AssertionError: assert ('BLOCKED' == 'VERIFIED'
+E         
+E         - VERIFIED
+E         + BLOCKED)
+
+tests/test_sql_project_scalar_expressions.py:744: AssertionError
+__________ test_lpad_and_add_months_project_forms_are_verified[mysql] __________
+
+tmp_path = PosixPath('/tmp/pietto-phase77-s12-focused2/test_lpad_and_add_months_proje1')
+target = 'mysql'
+
+    @pytest.mark.parametrize("target", TARGETS)
+    def test_lpad_and_add_months_project_forms_are_verified(tmp_path, target):
+        """`lpad` is as wide as its text or its width, as it never truncates;
+        `add_months` keeps the Date carrier. Both pass the portable boundary."""
+        checked, padded = emit(tmp_path / "pad", target, LPAD_BODY)
+        dated_checked, dated = probe.temporal_case(
+            tmp_path / "date", target, ADD_MONTHS_BODY
+        )
+        for plan, outcome in ((checked, padded), (dated_checked, dated)):
+>           assert plan.verified and outcome.status == "VERIFIED", outcome.blockers
+E           AssertionError: (Blocker(code='PIE-B1003', detail='scalar_call_signature_not_admitted', subject=ProjectSQLPlanRef(scope=ProjectSQLPlan...ojection'>, position=2), location=Span(path='main.pietto', line=14, column=9, end_line=14, end_column=46), related=()))
+E           assert (True and 'BLOCKED' == 'VERIFIED'
+E            +  where True = <pietto._project.project_sql_plan_verification.ProjectSQLPlanVerification object at 0x7a949a3d2fe0>.verified
+E             
+E             - VERIFIED
+E             + BLOCKED)
+
+tests/test_sql_project_scalar_expressions.py:1420: AssertionError
+_______________ test_mysql_project_sql_emits_lpad_and_add_months _______________
+
+tmp_path = PosixPath('/tmp/pietto-phase77-s12-focused2/test_mysql_project_sql_emits_l0')
+
+    def test_mysql_project_sql_emits_lpad_and_add_months(tmp_path):
+        checked, padded = emit(tmp_path / "pad", "mysql", LPAD_BODY)
+        dated_checked, dated = probe.temporal_case(
+            tmp_path / "date", "mysql", ADD_MONTHS_BODY
+        )
+        for plan, outcome, marker in (
+            (checked, padded, "LPAD("),
+            (dated_checked, dated, "DATE_ADD("),
+        ):
+>           assert plan.verified and outcome.status == "VERIFIED", outcome.blockers
+E           AssertionError: (Blocker(code='PIE-B1003', detail='scalar_call_signature_not_admitted', subject=ProjectSQLPlanRef(scope=ProjectSQLPlan...ojection'>, position=2), location=Span(path='main.pietto', line=14, column=9, end_line=14, end_column=46), related=()))
+E           assert (True and 'BLOCKED' == 'VERIFIED'
+E            +  where True = <pietto._project.project_sql_plan_verification.ProjectSQLPlanVerification object at 0x7a949a3c8100>.verified
+E             
+E             - VERIFIED
+E             + BLOCKED)
+
+tests/test_sql_project_scalar_expressions.py:1476: AssertionError
+=========================== short test summary info ============================
+FAILED tests/test_sql_project_scalar_expressions.py::test_now_is_one_utc_statement_snapshot_evaluated_at_execution[mysql]
+FAILED tests/test_sql_project_scalar_expressions.py::test_lpad_and_add_months_project_forms_are_verified[mysql]
+FAILED tests/test_sql_project_scalar_expressions.py::test_mysql_project_sql_emits_lpad_and_add_months
+3 failed, 7 passed, 291 deselected in 2.31s

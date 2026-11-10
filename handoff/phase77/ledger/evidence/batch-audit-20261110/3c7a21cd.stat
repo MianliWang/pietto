@@ -1,0 +1,9 @@
+3c7a21cd95bb5f3902628c9bdb8320bd9afa97b2 docs: record the Phase77 route and continuation decisions
+
+ docs/decisions.md                                  |  22 ++++
+ docs/phases/phase-76/completion-audit.md           |  14 +++
+ docs/phases/phase-77/route.md                      | 135 +++++++++++++++++++++
+ .../77-m01-dependency-maintenance.md               |  11 ++
+ docs/roadmap.md                                    |  25 ++--
+ docs/status.md                                     |  15 ++-
+ 6 files changed, 209 insertions(+), 13 deletions(-)

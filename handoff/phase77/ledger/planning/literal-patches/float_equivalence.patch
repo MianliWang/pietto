@@ -1,0 +1,550 @@
+*** Begin Patch
+*** Add File: /tmp/p77-float-equivalence/PLAN.md
++# Phase77 S06/S07: MySQL Float equality/equivalence raw plan
++
++## Status and boundary
++
++This is a non-canonical planning artifact only.  It authorizes no database
++run, compiler edit, document change, release, or claim of PASS.
++
++The fixed value contract is `finite binary64`: `-0.0 == 0.0`, while their
++bits remain distinct in transport and UNION ALL.  GROUP BY, DISTINCT,
++equality, sets, and `count_distinct` use that one equality law.  A merged
++GROUP/DISTINCT/set row must carry the complete tuple of some class member;
++which member is unspecified.  In particular, a rewrite must not normalize a
++zero, manufacture a tuple by choosing each Float column independently, or
++alter a NULL rule, projection origin, bag multiplicity, or UNION ALL bits.
++
++Current evidence is deliberately negative for MySQL 8.4.12:
++
++- GROUP BY, DISTINCT, and UNION DISTINCT split the two zero encodings when a
++  Float shares a `VARCHAR(1000)` (or wider) key.  A `VARCHAR(64)` observation
++  merged them, but is not a general qualification.
++- INTERSECT and EXCEPT compare the encodings as different.
++- Phase72 B10 records a materialized semijoin over a wide key that returned an
++  outer occurrence twice.  Joins and narrow-key cases matching zero do not
++  qualify this different plan shape.
++
++The raw B10 command, optimizer switches/hints, and plan record are not in the
++two reviewed sources.  Before any candidate is judged, retrieve that retained
++record and copy its *exact* statement, engine version, session settings and
++`EXPLAIN` evidence into the run receipt.  Do not replace it with guessed
++optimizer controls.
++
++## Shared raw fixture and observation record
++
++Each engine owns an isolated table set with parameterized inserts; no Float
++literal is evidence of negative zero.  Seed via the DBAPI with Python floats,
++then immediately read the rows back.  Record every seeded/read Float with
++`float.hex()` (including `-0x0.0p+0` and `0x0.0p+0`), rather than using an SQL
++hash, a string key, or a driver display format as an equality key.
++
++```
++eq_wide(id BIGINT NOT NULL, f1 DOUBLE NULL, text_key VARCHAR(1000) NULL,
++        f2 DOUBLE NULL, payload BIGINT NOT NULL)
++eq_narrow(id BIGINT NOT NULL, f1 DOUBLE NULL, text_key VARCHAR(64) NULL,
++          f2 DOUBLE NULL, payload BIGINT NOT NULL)
++eq_left(id BIGINT NOT NULL, f1 DOUBLE NULL, text_key VARCHAR(1000) NULL,
++        f2 DOUBLE NULL)
++eq_right(id BIGINT NOT NULL, f1 DOUBLE NULL, text_key VARCHAR(1000) NULL,
++         f2 DOUBLE NULL)
++```
++
++`W` is one exactly 1000-character value and `N` one 64-character value.
++Use the same values in every row for a class; a second wide value separates a
++nonzero control class.  The minimal discriminating zero rows are
++`(-0.0, W, +0.0)` and `(+0.0, W, -0.0)`.  They are one equality class but no
++source row has `(-0.0, W, -0.0)` or `(+0.0, W, +0.0)`, so an independent
++per-column representative is detectable.  Add exact duplicates of both,
++one `NULL`-containing tuple, one all-NULL Float pair, and finite nonzero rows.
++Run 0, 1, and many-member variants, plus the same data in a different insert
++order.  Keep the seed vectors, native column metadata, warnings, exact SQL,
++parameters, rows/bag, `float.hex()` bits, terminal error (if any), and
++EXPLAIN output in every raw record.
++
++The independent oracle is in memory only:
++
++- equality canonicalizes only the sign of a zero; NULL is handled by the
++  particular operation's existing three-valued/null-safe rule;
++- it computes each output bag/class cardinality from source occurrences;
++- for a merged visible row, it accepts its complete Float/non-Float tuple
++  only when that exact bits tuple is a source member of the corresponding
++  equality class (and rejects a column-wise synthetic tuple);
++- UNION ALL compares output occurrence bits exactly, with no equality
++  canonicalization.
++
++Metadata and seed readback are mandatory: a row count alone cannot establish
++the carrier or a negative-zero result.
++
++## Raw shape matrix
++
++| Slice/form | Pietto-source shape to compile after raw SQL qualification | Native SQL/probe shape | Oracle assertions |
++| --- | --- | --- | --- |
++| S06 row equality | `where left.f1 == right.f1`; same-row `f1 == f2`; `!=`; `not (f1 != f2)` | inner JOIN and same-row WHERE with two row reads | true/false/NULL per occurrence; both zero signs equal; no changed sign in transported selected Float |
++| S06 null-safe equality | `same_value(left.f1, right.f1)` and same-row form | MySQL `<=>`, separately from `=` | NULL/NULL true; NULL/non-NULL false; non-NULL zero equality; Bool is non-null |
++| S06 semijoin/anti | correlated `exists`/`any` and its anti form with Float + wide Text correlation | exact recovered B10 materialized SEMI/ANTI statement and plan, with right duplicates and both zeros | every outer occurrence appears once or zero times as specified; no duplicate outer id; ordinary JOIN/narrow control reported but never substitutes |
++| S07 GROUP | `group by f1, text_key, f2; select f1, text_key, f2, count()` | `GROUP BY f1, text_key, f2` for wide, narrow, Float-only, and multi-Float key cases | equality-class group count; NULL group; one whole-row key representative; 0/1/many and insert-order variants |
++| S07 DISTINCT | `select distinct: f1, text_key, f2` | `SELECT DISTINCT f1, text_key, f2` | one row per equality class, whole-row representative, no invented sign combination |
++| S07 scalar count | `count_distinct(f1)` globally and within a wide-key GROUP | `COUNT(DISTINCT f1)` in both scopes | zero counts once; NULL excluded; wide outer grouping is tested separately from the global aggregate |
++| S07 tuple count (preparation only) | `count_distinct(f1, text_key, f2)` | `COUNT(DISTINCT f1, text_key, f2)` | tuples containing any NULL excluded; Float equality per position; no S11 project admission follows from a raw result |
++| S07 sets | `union all`, `union distinct`, `intersect all/distinct`, `except all/distinct` over `(f1, text_key, f2)` | corresponding explicitly parenthesized native set statements | UNION ALL bit-exact bag; other forms use union presence, min(left,right), or max(left-right,0) per equality class; every merged tuple is an actual contributing member |
++| downstream check | a GROUP/DISTINCT/set output read by a later SEMI/ANTI or a second relation | two-layer native SQL using the exact output shape | same bag/representative test after the second layer; no source-order or plan-sensitive assumption |
++
++For every line run both engines against the same parameterized fixture.  A
++PostgreSQL result is a differential reference, not the sole oracle.  Capture
++the target's native metadata and warnings before decoding, and classify each
++cell as observation, terminal error, or failed invariant--not a blanket family
++PASS.
++
++## Candidate lowering disposition
++
++No candidate is selected yet.
++
++1. Keep native `=`/`<>` and `<=>` as the only S06 expression spelling under
++   test.  `CASE`, `COALESCE`, string/bit conversion, and zero normalization
++   are not candidates: they change NULL or zero/transport semantics.  Current
++   B10 evidence means a broad `rows_both_sides=False` relaxation is unsound.
++2. Native MySQL GROUP/DISTINCT/UNION DISTINCT is a known counterexample.  A
++   rewrite that groups normalized Float keys and uses `MIN`/`MAX` per selected
++   Float field is rejected in advance: the crossed-zero fixture can make an
++   absent whole row.  A window partition/row-number rewrite is also unselected
++   until its own wide-key partition behavior and complete-row representative
++   proof exist; it would be new relational machinery, not a local guard flip.
++3. Native INTERSECT/EXCEPT is a known counterexample.  A target-only emulation
++   would need occurrence identity, whole-row representatives, NULL semantics,
++   left-fold nesting, and ALL multiplicities.  No such lowering may be added
++   as a generic backend framework or a hash/string-concatenated tuple key.
++4. The existing MySQL UNION ALL path stays untouched and bit-preserving.
++   The direct `COUNT(DISTINCT Float)` spelling is a separately testable narrow
++   candidate only; its global observation cannot admit grouped, joined, wide
++   key, or tuple forms.  Tuple count remains S11-gated.
++
++Consequently the minimal outcome after an unsuccessful or incomplete campaign
++is *no code change*: retain existing MySQL blockers and the successful native
++transport/order/UNION ALL paths.  Opening any subset requires the owner to
++state the merged-row representative rule is exactly the existing contract,
++then a lowering/shape-specific proof that all rows, bits, NULLs and bags above
++survive.
++
++## Integration closure if evidence supports a bounded opening
++
++Do not implement from the renderer alone.  Rebind these existing owners on the
++actual integration tree, and edit only owners required by the approved shape:
++
++- S06 admission: `project_sql_emission_rows.py` comparison and `same_value`
++  realization, plus renderer only if a reviewed expression changes.  Preserve
++  `rows_both_sides` through plan, live, compiled, and independent verification.
++- S07 GROUP/count: `project_sql_emission_aggregation.py` group-key and MySQL
++  Float aggregate gates.
++- S07 DISTINCT: `project_sql_emission_results.py::distinct_problem` and its
++  result-boundary verifier.
++- S07 set: `project_sql_emission_sets.py`, set rendering, independent
++  set-column realization, and the pure/compiled/portable set readers if and
++  only if a retained equivalence representation changes.
++- Test owners, extended in place: `tests/test_sql_rows.py`,
++  `tests/test_sql_joins.py`, `tests/test_sql_grouped.py`,
++  `tests/test_sql_result_bounds.py`, `tests/test_sql_set_forms.py`,
++  `tests/test_project_numeric_carriers.py`, and
++  `tests/test_execution_compiled_families.py`.  Native qualification belongs
++  in the existing execution/qualification owner, not a phase-named test.
++
++PostgreSQL outputs/bytes and every current MySQL refusal outside the explicit
++approved shape are compatibility controls.  Raw native SQL success is not
++compiler, emitted-SQL, compiled, reader, Gate2, or CI evidence.
++
++## Unresolved items requiring owner/evidence closure
++
++- The exact Phase72 B10 raw record is required to reproduce and assess the
++  materialized-semijoin trigger; no guessed optimizer forcing is acceptable.
++- The owner must decide whether any MySQL merged-zero shape can meet the
++  existing whole-row representative obligation.  This is
++  `USER_DECISION_REQUIRED`, not an emitter choice.
++- No threshold can be inferred from `VARCHAR(64)` versus `VARCHAR(1000)`.
++  The observations delimit witnesses, not a static safe-width policy.
++- `count_distinct` tuple admission is outside S06/S07's implementation scope
++  unless S11 authority changes; raw tuple evidence does not alter that fact.
+*** End Patch
+
+*** Begin Patch
+*** Update File: /tmp/p77-float-equivalence/PLAN.md
+@@
+-The raw B10 command, optimizer switches/hints, and plan record are not in the
+-two reviewed sources.  Before any candidate is judged, retrieve that retained
+-record and copy its *exact* statement, engine version, session settings and
+-`EXPLAIN` evidence into the run receipt.  Do not replace it with guessed
+-optimizer controls.
++### Recovered evidence and remaining B10 gap
++
++The actual Phase72 raw source is
++`/home/mianliwang/.local/state/pietto/evidence/pietto-phase71-20261026/claude-takeover-20261027/claude-closeout-017-20261103/phase72/b72-0/DB-MATRIX.md`:
++
++- §0 records the MySQL 8.4.12 image, default and Pietto-target session modes,
++  raw SQL/output locations, and native client procedure.
++- §C defines `z_n = {-0}` and `z_p = {+0}`, using `-0e0` for MySQL, and gives
++  the actual set SQL/results plus the `Intersect materialize with
++  deduplication` observation.
++- Phase72 Lane E's `design-contract.md`, Stage 0 M1/M2, is an unexecuted
++  extension design: M1 specifies `VARCHAR(1000)`/`VARCHAR(16383)` dedup
++  witnesses and M2 spells `SELECT ... FROM z_n WHERE v IN (SELECT v FROM z_p)`.
++  It is not evidence that this SQL reproduced B10.
++
++I searched the retained Phase72 `b72-0`, Lane E, campaign, and `w5` receipt
++paths for the B10 phrase, a semijoin/materialization plan, and a wide-key raw
++statement.  They retain the documented conclusion but not the exact B10 SQL,
++optimizer switches/hints, EXPLAIN, seed vector, or output.  Therefore no
++artifact here claims a historical B10 replay.  Before any candidate is judged,
++recover that exact record from its external ledger; copy its *exact* statement,
++engine version, session settings, seed readback and `EXPLAIN` into the run
++receipt.  Do not replace it with guessed optimizer controls.
+@@
+ Metadata and seed readback are mandatory: a row count alone cannot establish
+ the carrier or a negative-zero result.
++
++`raw_hook.py --selfcheck` validates the static, finite raw-request manifest
++without a connection.  `raw_hook.py --request` prints the M1/M2-inspired
++wide-key SEMI/ANTI request for the engine parent to bind to an already-approved
++endpoint/resource lease.  It never imports a DBAPI or starts a container.  Its
++request is explicitly a new discriminating witness, not the unrecovered B10
++statement.
+*** Add File: /tmp/p77-float-equivalence/raw_hook.py
++"""Offline request manifest for the Phase77 Float-equivalence raw campaign.
++
++This script deliberately has no endpoint, DBAPI, subprocess, or network path.
++The engine parent owns those capabilities and consumes the JSON request only
++after its resource lease is active.
++"""
++
++from __future__ import annotations
++
++import argparse
++import json
++
++
++WIDE = "w" * 1000
++NARROW = "n" * 64
++
++
++def encoded(value: object) -> object:
++    if type(value) is float:
++        return {"float_hex": value.hex()}
++    return value
++
++
++def rows(values: tuple[tuple[int, float, str], ...]) -> list[list[object]]:
++    return [[encoded(cell) for cell in row] for row in values]
++
++
++OUTER = ((1, -0.0, WIDE), (2, 0.0, WIDE), (3, 1.5, NARROW))
++INNER = ((10, -0.0, WIDE), (11, 0.0, WIDE), (12, 1.5, NARROW))
++
++
++def request() -> dict[str, object]:
++    """Return a finite parent-bound request, never a claimed B10 replay."""
++
++    return {
++        "format": "pietto.phase77.float-raw-request.v1",
++        "execution": "parent_bound_only",
++        "historical_b10": {
++            "status": "exact_statement_unrecovered",
++            "known_conclusion": "wide-key materialized semijoin returned outer rows twice",
++            "must_record_before_comparison": [
++                "exact_statement",
++                "seed_readback",
++                "session_settings",
++                "explain",
++                "result_rows",
++            ],
++        },
++        "source_evidence": {
++            "matrix": "phase72/b72-0/DB-MATRIX.md section C",
++            "m1_m2_design": "phase72/lane-e-float/design-contract.md Stage 0 M1/M2",
++        },
++        "schema": [
++            "CREATE TABLE p77_outer (id BIGINT NOT NULL, v DOUBLE NOT NULL, wide VARCHAR(1000) CHARACTER SET utf8mb4 COLLATE utf8mb4_0900_bin NOT NULL)",
++            "CREATE TABLE p77_inner (id BIGINT NOT NULL, v DOUBLE NOT NULL, wide VARCHAR(1000) CHARACTER SET utf8mb4 COLLATE utf8mb4_0900_bin NOT NULL)",
++        ],
++        "insert": "INSERT INTO {table} (id, v, wide) VALUES (%s, %s, %s)",
++        "seed": {"outer": rows(OUTER), "inner": rows(INNER)},
++        "readback": "SELECT id, v, wide FROM {table} ORDER BY id",
++        "queries": {
++            "wide_semijoin_candidate": (
++                "SELECT o.id, o.v, o.wide FROM p77_outer AS o WHERE EXISTS "
++                "(SELECT 1 FROM p77_inner AS i WHERE i.v = o.v AND i.wide = o.wide) "
++                "ORDER BY o.id"
++            ),
++            "wide_antijoin_candidate": (
++                "SELECT o.id, o.v, o.wide FROM p77_outer AS o WHERE NOT EXISTS "
++                "(SELECT 1 FROM p77_inner AS i WHERE i.v = o.v AND i.wide = o.wide) "
++                "ORDER BY o.id"
++            ),
++        },
++        "explain_prefix": "EXPLAIN FORMAT=TREE ",
++        "oracle": {
++            "semijoin_outer_ids_once": [1, 2, 3],
++            "antijoin_outer_ids_once": [],
++            "float_equality": "finite binary64; -0.0 equals 0.0",
++            "transport": "selected Float bits must equal the selected outer row bits",
++            "failure": "any duplicate outer id, missing id, warning, non-finite readback, or absent materialization evidence",
++        },
++    }
++
++
++def selfcheck() -> None:
++    data = request()
++    assert len(WIDE) == 1000 and len(NARROW) == 64
++    assert (-0.0).hex() == "-0x0.0p+0" and (0.0).hex() == "0x0.0p+0"
++    assert data["execution"] == "parent_bound_only"
++    assert data["historical_b10"]["status"] == "exact_statement_unrecovered"
++    assert {row[0] for row in OUTER} == {1, 2, 3}
++    assert {row[0] for row in INNER} == {10, 11, 12}
++    for query in data["queries"].values():
++        assert "EXISTS" in query and "i.v = o.v" in query and "i.wide = o.wide" in query
++        assert "-0.0" not in query
++
++
++def main() -> int:
++    parser = argparse.ArgumentParser()
++    mode = parser.add_mutually_exclusive_group(required=True)
++    mode.add_argument("--selfcheck", action="store_true")
++    mode.add_argument("--request", action="store_true")
++    args = parser.parse_args()
++    if args.selfcheck:
++        selfcheck()
++        return 0
++    print(json.dumps(request(), ensure_ascii=False, indent=2, sort_keys=True))
++    return 0
++
++
++if __name__ == "__main__":
++    raise SystemExit(main())
+*** End Patch
+
+*** Begin Patch
+*** Add File: /tmp/p77-s25-static-review.md
++# S25 independent static semantic review
++
++Scope: `/tmp/pietto-p77-s25` against `f8ccd2c4`; inspected only.  No test,
++database, formatter, build, commit, or product edit was run by this reviewer.
++
++## Terminal
++
++`NOT_READY_FOR_TWO_DB` until F1 and F2 are repaired and independently
++re-reviewed.  No static production lowering defect was established beyond
++those closure gaps.  Even after them, native MySQL validity and the two-engine
++bag differential remain mandatory; emitted SQL strings are not execution
++evidence.
++
++## Confirmed preservation path
++
++The production diff deletes only the `not target.native_full` ASOF/FULL
++refusal in `sql/joins.py::render_join_sql`.  PostgreSQL invokes the same
++function with `native_full=True`, so the deleted branch was unreachable there;
++no other production caller supplies the MySQL `JoinTarget`.  This is a static
++reachability argument, not a byte-for-byte emission witness.
++
++For MySQL, `render_mysql_relation` first validates the whole relation under
++the existing FULL rule, then ` _render_mysql_full_relation` constructs the
++LEFT and RIGHT prefixes using `full_as=LEFT` and `full_as=RIGHT`, with the
++existing `UNION ALL` and right-only `IS NULL` filter.  Its outer stage rewrites
++fields through the FULL to derived-table ports before rendering later JOINs.
++Consequently, with the existing one-ASOF-per-query semantic rule:
++
++- ASOF before a FULL is independently rendered in both prefix branches; its
++  correlated key/time reads retain their pre-FULL input aliases.
++- ASOF after a FULL is rendered once over the derived ports, preserving the
++  full bag before the LEFT/INNER lateral choice.
++- Between two FULLs, it is in the second FULL's two prefix branches and reads
++  the first FULL's ports.  The second right-only filter still reads the first
++  earlier key through its port.
++
++The implementation retains `ORDER BY joined_time DESC LIMIT 1`, the declared
++key/time uniqueness premise, alias quoting, `UNION ALL`, and the right-only
++winner predicate.  Nothing in the static tree proves that MySQL 8.4 accepts
++every nested `LATERAL`/derived-table combination, or that its optimizer
++preserves the intended occurrence bag.
++
++## Findings
++
++### F1 — current language contract still says the newly admitted form is refused (medium)
++
++`docs/language.md:599`, the current feature matrix and complete language
++reference, says MySQL single-file ASOF is emitted “except in a relation with a
++FULL JOIN (PIE-B1000)”.  The candidate removes exactly that refusal.  It edits
++the diagnostic catalog and adds a release-note fragment, but neither corrects
++the language contract nor provides a narrower current statement.
++
++Required repair: update the MySQL cell at that language row to state the
++candidate's actual bounded surface (single-file only; existing backward ASOF
++forms and MySQL FULL emulation; native qualification still pending).  Do not
++edit `docs/decisions.md`, `docs/phases/.../completion-audit.md`, or assembled
++historical `docs/release-notes.md`: those correctly record the prior published
++state.  Recheck the release fragment against the repaired current contract.
++
++### F2 — static controls omit INNER ASOF in two required null-extension placements (medium verification gap)
++
++`tests/test_sql_join_emission.py` covers ASOF LEFT and INNER only when the
++FULL is before the ASOF source in the authored JOIN list (ASOF before FULL),
++then covers LEFT only for ASOF after one FULL and between two FULLs.  The
++semantic rule permits `asof inner join` in all three placements, and INNER is
++the form that must remove a FULL right-only row when its derived left-side
++ports are NULL.  Current string counts do not exercise that behavior's SQL
++shape for:
++
++- `FULL -> asof inner`, where the lateral predicate must read the first FULL
++  ports and `INNER JOIN LATERAL` must drop the null-extended right-only row;
++- `FULL -> asof inner -> FULL`, where that drop happens before the second
++  FULL's two branches and its right-only filter.
++
++Required repair: extend the existing parameterized SQL owner with exactly those
++two INNER cases.  Assert the existing port-qualified correlation and latest
++row ordering, `INNER JOIN LATERAL ... ON TRUE`, per-branch occurrence count,
++and both `p2`/`p3` right-only filters.  This is not a request for a new test
++owner or a new lowering.  The native campaign must then seed a matching left
++row, a first-FULL right-only row, duplicate candidate history rows/tie control,
++and a second-FULL right-only row, and compare the complete row bag.
++
++## Required native evidence after static repair
++
++Run the qualified MySQL and PostgreSQL differential with the existing actual
++rendered SQL, not a reconstructed hand SQL.  Cover LEFT and INNER ASOF in the
++three placements; match/no-match, NULL extension, duplicate outer occurrences,
++multiple eligible history rows, declared unique latest identity, and both
++right-only FULL branches.  Capture result metadata, exact row bags and
++`EXPLAIN`; confirm every emitted nested LATERAL/derived-table statement is
++valid.  A successful static SQL-string assertion alone cannot demonstrate any
++of these runtime facts.
+*** End Patch
+
+*** Begin Patch
+*** Update File: /tmp/p77-s25-static-review.md
+@@
+-the existing FULL rule, then ` _render_mysql_full_relation` constructs the
++the existing FULL rule, then `_render_mysql_full_relation` constructs the
+*** End Patch
+
+*** Begin Patch
+*** Add File: /tmp/p77-s25-qualification-review.md
++# S25 qualification pack independent review
++
++Reviewed final pack `/tmp/pietto-p77-s25-qualification` only; no database,
++network, product edit, candidate rebuild, or target-conformance runner was
++started.  Final reviewed hashes:
++
++- `build_pack.py`: `60e12d11283a396d797986919c7ce5eee63d5a712ea60379e2de76c45069e9de`
++- `judge.py`: `c5512dc36695f15c92d79aa856606c90d66f6015f9f1ad1d5a2a830c4aa87e82`
++- PostgreSQL plan: `f2f73cdaccf8a1d65fb23c28ba88dcb0bb5d966778e682c5d258c5578c3d93c4`
++- MySQL plan: `56621fbcd6fcaf3c8cbf8ea90f5837f5e2e8f517d568b9acadf177eaefcf85e8`
++
++The manifest binds candidate `f8ccd2c4` plus worktree patch digest
++`910ad30d69ea1825102843562417fb3ec56a2a6ef9f06d454952ed1639feb426`.
++
++## Terminal
++
++`PACK_NOT_READY_FOR_ENGINE_PARENT` until F1 is closed.  This is a campaign
++resource/cleanup blocker, not a product-lowering finding.  No runtime result
++or two-database qualification is claimed.
++
++## Confirmed static closure
++
++- Builder materializes each source through the candidate public CLI, preserves
++  its full single-file artifact list and selected `q` SQL, and records source
++  and CLI bytes with digests.  It does not hand-write Pietto SQL.
++- Both target plans cover before/after/between FULL placements, each with LEFT
++  and INNER ASOF.  The seed has duplicate outer `id=1` occurrences, latest
++  candidate history (`100` then `200`), a future row, null key/time rows, and
++  right-only rows at both FULL inputs.  The oracle keeps row bags, not order.
++- Physical `UNIQUE` constraints now mirror `ids.key` and `prices.latest`;
++  `orders` intentionally remains non-unique.  The `tie_refused` source omits
++  only the Price uniqueness proof and preserves the compiler terminal.
++- Expected metadata is positional/named/nullability-aware; warnings and the
++  clean rowset terminal are explicit per result case.
++- The judge recomputes the plan closure before binding a receipt, requires an
++  exact ordered case inventory, and compares source/CLI/SQL/artifact/DDL/seed,
++  metadata, warnings, terminal, bag, and tie terminal.
++- Pure no-DB mutation checks accepted both plans and rejected wrong SQL,
++  extra and missing cases, changed bag value, and a plan graft without a
++  recomputed closure.  The built-in self-check and both plan self-checks also
++  completed successfully in this review.
++
++## F1 — owned resource and cleanup evidence are underspecified (medium)
++
++The plans declare only:
++
++```json
++{"transaction":"rolled_back", "relations":"dropped", "connection":"closed"}
++```
++
++and the judge merely requires a receipt to copy that object.  They do not name
++an owned namespace lease, a pre-run absence/freshness check, concrete teardown
++SQL, teardown results, or a post-cleanup absence observation.  This matters
++materially for MySQL: the plan executes `CREATE DATABASE IF NOT EXISTS
++qual_s25`, which is DDL with implicit commits; a transaction rollback cannot
++remove that database.  An already-existing `qual_s25` can also produce a setup
++warning or collide with another owner, while the current warning contract does
++not state whether DDL/seed warnings are captured or ignored.
++
++Required repair before engine-parent execution:
++
++1. Bind `qual_s25` to a parent-issued, exclusive owned-resource lease and
++   require an explicit pre-run state (fresh/absent, or an owned reset state).
++2. Put target-specific setup and teardown actions into the plan/receipt
++   contract.  PostgreSQL may use one transaction opened before schema creation
++   and roll it back, or record an explicit owned-schema drop.  MySQL needs an
++   explicit post-run owned-database drop (not rollback) plus an absence result;
++   never drop an unverified pre-existing database.
++3. Record setup, seed, query and teardown warnings separately, with expected
++   values, and have the judge verify observed cleanup facts rather than a
++   copied declaration.
++
++After F1, the pack is ready to hand to the parent for the authorized native
++campaign; database validity, plan shape, metadata and full bag parity still
++remain runtime evidence to collect.
+*** End Patch
+
+*** Begin Patch
+*** Add File: /tmp/p77-s25-qualification-f1-followup.md
++# S25 qualification pack F1 follow-up review
++
++Reviewed the final coherent pack only.  Its hashes match the author-provided
++set:
++
++- README `0a14fffd5c5b5701c9c678f4a13ae650e40721788c2c4b75a7953c63b957734c`
++- builder `89bf05a01d9715a1a5cb627e92b7c028334436db2255ddc992ca8d34088c8ef2`
++- judge `b752a6399d67b683fd49f87d18b5a5611ebf1a075c4b1762a7358041af13f012`
++- PostgreSQL plan `24725f49f5ab382b1037bcc7e6f39cfb12012104427d2c80ccd4df7c7b11459e`
++- MySQL plan `28ba1a7f3ef2fea582714cc86d92099a37597b8db07c7a59cbd54f9d95c2561b`
++
++## Terminal
++
++`READY_FOR_ENGINE_PARENT`.
++
++This means the prior F1 preparation/cleanup blocker is closed.  It is not a
++native execution result, an accepted two-database differential, or a release
++claim.
++
++## F1 closure
++
++- Each plan now requires a target-specific exclusive parent lease, exact
++  `qual_s25` namespace, the required engine lock, and an absent namespace
++  before setup.  Materialized plans and scripts agree on the lock fields.
++- Setup uses non-idempotent `CREATE SCHEMA`/`CREATE DATABASE`, so an existing
++  namespace stops rather than being silently reused.  DDL and seed warnings
++  are separate and must be empty.
++- PostgreSQL teardown is `DROP SCHEMA "qual_s25" CASCADE`; MySQL teardown is
++  `DROP DATABASE \`qual_s25\``.  Both demand no teardown warnings and a
++  post-teardown absent namespace.  MySQL no longer relies on rollback across
++  implicit-commit DDL.
++- The receipt must carry non-empty issuer/lease id, the exact lease properties,
++  fresh-before observation, exact setup actions, exact teardown SQL/warnings,
++  and `namespace_present: false`.  The judge checks all of these in addition
++  to the previously reviewed artifact, metadata, warning, terminal and bag
++  contracts.
++- `judge.py --self-check` plus both plan self-checks passed in this review with
++  `python3 -I -B`; no database, network or product code was touched.  The
++  self-check also damages SQL, bag, inventory, DDL warnings, freshness,
++  teardown state and plan closure, and requires rejection.
++
++No residual static blocker was found.  The parent must still run the authorized
++engines and retain real SQL validity, metadata, warnings, row bags, plan and
++cleanup receipts before claiming qualification.
+*** End Patch

@@ -1,0 +1,111 @@
+{
+  "float_equivalence": {
+    "gaps": [],
+    "source_patch": "float_equivalence.patch",
+    "written": [
+      "float_equivalence/PLAN.md",
+      "float_equivalence/p77-s25-qualification-f1-followup.md",
+      "float_equivalence/p77-s25-qualification-review.md",
+      "float_equivalence/p77-s25-static-review.md",
+      "float_equivalence/raw_hook.py"
+    ]
+  },
+  "nested_oracle": {
+    "gaps": [],
+    "source_patch": "nested_oracle.patch",
+    "written": [
+      "nested_oracle/README.md",
+      "nested_oracle/p77_nested_raw_hook.py",
+      "nested_oracle/p77_nested_raw_oracle.py"
+    ]
+  },
+  "s09_typed_parameters": {
+    "gaps": [
+      {
+        "path": "/tmp/pietto-p77-s09-qualification/README.md",
+        "reason": "update hunk has no unique recorded base"
+      },
+      {
+        "path": "/tmp/pietto-p77-s09-qualification/candidate-contract.md",
+        "reason": "update hunk has no unique recorded base"
+      },
+      {
+        "path": "/tmp/pietto-p77-s09-qualification/write-set-and-checks.md",
+        "reason": "update hunk has no unique recorded base"
+      },
+      {
+        "path": "/tmp/pietto-p77-s09-qualification/pure_parameter_prep_selfcheck.py",
+        "reason": "update hunk has no unique recorded base"
+      },
+      {
+        "path": "/tmp/pietto-p77-s09-qualification/write-set-and-checks.md",
+        "reason": "update hunk has no unique recorded base"
+      }
+    ],
+    "source_patch": "s09_typed_parameters.patch",
+    "written": [
+      "s09_typed_parameters/README.md",
+      "s09_typed_parameters/candidate-contract.md",
+      "s09_typed_parameters/pure_parameter_prep_selfcheck.py",
+      "s09_typed_parameters/qualification-matrix.md",
+      "s09_typed_parameters/uuid-lowering-revision.md",
+      "s09_typed_parameters/write-set-and-checks.md"
+    ]
+  },
+  "s13_ordered_values": {
+    "gaps": [],
+    "source_patch": "s13_ordered_values.patch",
+    "written": [
+      "s13_ordered_values/README.md",
+      "s13_ordered_values/raw_hook.py"
+    ]
+  },
+  "s15_division": {
+    "gaps": [
+      {
+        "path": "/tmp/pietto-p77-s15-prep/ATTACH_PARENT_REQUEST.md",
+        "reason": "update hunk has no unique recorded base"
+      },
+      {
+        "path": "/tmp/pietto-p77-s15-prep/s15_pure_judge.py",
+        "reason": "update hunk has no unique recorded base"
+      }
+    ],
+    "source_patch": "s15_division.patch",
+    "written": [
+      "s15_division/ACTUAL_CHECKS.md",
+      "s15_division/ATTACH_PARENT_REQUEST.md",
+      "s15_division/s15_pure_judge.py"
+    ]
+  },
+  "stats_probe": {
+    "gaps": [
+      {
+        "path": "/tmp/p77-stats-probe/stats_probe.py",
+        "reason": "update hunk has no unique recorded base"
+      },
+      {
+        "path": "/tmp/p77-stats-probe/PLAN.md",
+        "reason": "update hunk has no unique recorded base"
+      },
+      {
+        "path": "/tmp/p77-stats-probe/README.md",
+        "reason": "update hunk has no unique recorded base"
+      },
+      {
+        "path": "/tmp/p77-stats-probe/PLAN.md",
+        "reason": "update hunk has no unique recorded base"
+      },
+      {
+        "path": "/tmp/p77-stats-probe/stats_probe.py",
+        "reason": "update hunk has no unique recorded base"
+      }
+    ],
+    "source_patch": "stats_probe.patch",
+    "written": [
+      "stats_probe/PLAN.md",
+      "stats_probe/README.md",
+      "stats_probe/stats_probe.py"
+    ]
+  }
+}

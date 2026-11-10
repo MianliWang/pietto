@@ -1,0 +1,230 @@
+{
+  "argv": [
+    "/home/mianliwang/projects/pietto/.cache/phase77-recovery/evidence/mysql-maintenance-r2-20261109T030000-0500/prefix/bin/python",
+    "-I",
+    "-B",
+    "-c",
+    "IPC_WORKER"
+  ],
+  "capture_overflow": false,
+  "config_sha256": "ddb6fafa112a95f80f5041336c6663e021ea25f8b604b646f39ec5ce13498456",
+  "format": "pietto.mysql-none-ipc-worker.v2",
+  "inputs": {
+    "contract.json": "20cb451110c2cab735c158eb3b7e5535bad6b20e867dd550579c0bf9baab62f3",
+    "main.pietto": "46a5f10c0726eb763e2c3ccf07f1e81382cecf3f8581c7c7cb9ade21e75f417f",
+    "pietto.toml": "936a2829a9d65d1327bc3907650859525cc1bfbf5bc58dc4d9cf2ac831bfd4be"
+  },
+  "inputs_after": {
+    "contract.json": "20cb451110c2cab735c158eb3b7e5535bad6b20e867dd550579c0bf9baab62f3",
+    "main.pietto": "46a5f10c0726eb763e2c3ccf07f1e81382cecf3f8581c7c7cb9ade21e75f417f",
+    "pietto.toml": "936a2829a9d65d1327bc3907650859525cc1bfbf5bc58dc4d9cf2ac831bfd4be"
+  },
+  "inputs_unchanged": true,
+  "launch": "STARTED",
+  "record": {
+    "batches": 2,
+    "delivered_rows": 2,
+    "end": "COMPLETE",
+    "ipc_rows": [
+      [
+        1,
+        null
+      ],
+      [
+        1,
+        null
+      ]
+    ],
+    "native_context": {
+      "context": {
+        "calls": [
+          {
+            "control_connection": 20,
+            "data_connection": 19,
+            "session_id": 19
+          },
+          {
+            "control_connection": 20,
+            "data_connection": 19,
+            "session_id": 19
+          },
+          {
+            "control_connection": 20,
+            "data_connection": 19,
+            "session_id": 19
+          },
+          {
+            "control_connection": 20,
+            "data_connection": 19,
+            "session_id": 19
+          },
+          {
+            "control_connection": 20,
+            "data_connection": 19,
+            "session_id": 19
+          },
+          {
+            "control_connection": 20,
+            "data_connection": 19,
+            "session_id": 19
+          },
+          {
+            "control_connection": 20,
+            "data_connection": 19,
+            "session_id": 19
+          },
+          {
+            "control_connection": 20,
+            "data_connection": 19,
+            "session_id": 19
+          }
+        ],
+        "count": 8,
+        "first": [
+          "8.4.12",
+          "pietto_query@%",
+          "NONE",
+          19,
+          "phase66",
+          "REPEATABLE-READ",
+          "utf8mb4",
+          "utf8mb4",
+          "utf8mb4",
+          "utf8mb4_0900_bin",
+          "ONLY_FULL_GROUP_BY,STRICT_ALL_TABLES,NO_ENGINE_SUBSTITUTION",
+          "+00:00",
+          0,
+          1000,
+          "067a6d98-dcaa-11f1-8af6-1133ca5f7a47",
+          67108864
+        ],
+        "first_shape": {
+          "arities": [
+            16
+          ],
+          "row_count": 1
+        },
+        "mismatches": [],
+        "shape_mismatches": [],
+        "truncated": false
+      },
+      "native": {
+        "calls": [
+          {
+            "control_connection": 20,
+            "data_connection": 19,
+            "session_id": 19
+          },
+          {
+            "control_connection": 20,
+            "data_connection": 19,
+            "session_id": 19
+          },
+          {
+            "control_connection": 20,
+            "data_connection": 19,
+            "session_id": 19
+          },
+          {
+            "control_connection": 20,
+            "data_connection": 19,
+            "session_id": 19
+          },
+          {
+            "control_connection": 20,
+            "data_connection": 19,
+            "session_id": 19
+          },
+          {
+            "control_connection": 20,
+            "data_connection": 19,
+            "session_id": 19
+          },
+          {
+            "control_connection": 20,
+            "data_connection": 19,
+            "session_id": 19
+          },
+          {
+            "control_connection": 20,
+            "data_connection": 19,
+            "session_id": 19
+          }
+        ],
+        "count": 8,
+        "error": null,
+        "first_expected": {
+          "cte_max_recursion_depth": "nonnegative_int",
+          "lower_case_table_names": 0,
+          "max_allowed_packet": "positive_int",
+          "prefix": [
+            "8.4.12",
+            "pietto_query@%",
+            "NONE",
+            19,
+            "phase66",
+            "REPEATABLE-READ",
+            "utf8mb4",
+            "utf8mb4",
+            "utf8mb4",
+            "utf8mb4_0900_bin"
+          ],
+          "server_uuid": "nonempty_str",
+          "sql_mode_set": [
+            "NO_ENGINE_SUBSTITUTION",
+            "ONLY_FULL_GROUP_BY",
+            "STRICT_ALL_TABLES"
+          ],
+          "time_zone": "+00:00"
+        },
+        "first_returned": [
+          "8.4.12",
+          "pietto_query@%",
+          "NONE",
+          19,
+          "phase66",
+          "REPEATABLE-READ",
+          "utf8mb4",
+          "utf8mb4",
+          "utf8mb4",
+          "utf8mb4_0900_bin",
+          "ONLY_FULL_GROUP_BY,STRICT_ALL_TABLES,NO_ENGINE_SUBSTITUTION",
+          "+00:00",
+          0,
+          1000,
+          "067a6d98-dcaa-11f1-8af6-1133ca5f7a47"
+        ],
+        "mismatches": []
+      }
+    },
+    "rows": [
+      [
+        1,
+        null
+      ],
+      [
+        1,
+        null
+      ]
+    ],
+    "schema": [
+      [
+        "left_id",
+        "int64",
+        false
+      ],
+      [
+        "right_key",
+        "int64",
+        true
+      ]
+    ],
+    "terminal": "success"
+  },
+  "returncode": 0,
+  "stderr": "",
+  "stderr_bytes": 0,
+  "stdout": "{\"terminal\": \"success\", \"native_context\": {\"native\": {\"count\": 8, \"first_expected\": {\"prefix\": [\"8.4.12\", \"pietto_query@%\", \"NONE\", 19, \"phase66\", \"REPEATABLE-READ\", \"utf8mb4\", \"utf8mb4\", \"utf8mb4\", \"utf8mb4_0900_bin\"], \"sql_mode_set\": [\"NO_ENGINE_SUBSTITUTION\", \"ONLY_FULL_GROUP_BY\", \"STRICT_ALL_TABLES\"], \"time_zone\": \"+00:00\", \"lower_case_table_names\": 0, \"cte_max_recursion_depth\": \"nonnegative_int\", \"server_uuid\": \"nonempty_str\", \"max_allowed_packet\": \"positive_int\"}, \"first_returned\": [\"8.4.12\", \"pietto_query@%\", \"NONE\", 19, \"phase66\", \"REPEATABLE-READ\", \"utf8mb4\", \"utf8mb4\", \"utf8mb4\", \"utf8mb4_0900_bin\", \"ONLY_FULL_GROUP_BY,STRICT_ALL_TABLES,NO_ENGINE_SUBSTITUTION\", \"+00:00\", 0, 1000, \"067a6d98-dcaa-11f1-8af6-1133ca5f7a47\"], \"calls\": [{\"session_id\": 19, \"data_connection\": 19, \"control_connection\": 20}, {\"session_id\": 19, \"data_connection\": 19, \"control_connection\": 20}, {\"session_id\": 19, \"data_connection\": 19, \"control_connection\": 20}, {\"session_id\": 19, \"data_connection\": 19, \"control_connection\": 20}, {\"session_id\": 19, \"data_connection\": 19, \"control_connection\": 20}, {\"session_id\": 19, \"data_connection\": 19, \"control_connection\": 20}, {\"session_id\": 19, \"data_connection\": 19, \"control_connection\": 20}, {\"session_id\": 19, \"data_connection\": 19, \"control_connection\": 20}], \"mismatches\": [], \"error\": null}, \"context\": {\"count\": 8, \"first\": [\"8.4.12\", \"pietto_query@%\", \"NONE\", 19, \"phase66\", \"REPEATABLE-READ\", \"utf8mb4\", \"utf8mb4\", \"utf8mb4\", \"utf8mb4_0900_bin\", \"ONLY_FULL_GROUP_BY,STRICT_ALL_TABLES,NO_ENGINE_SUBSTITUTION\", \"+00:00\", 0, 1000, \"067a6d98-dcaa-11f1-8af6-1133ca5f7a47\", 67108864], \"first_shape\": {\"row_count\": 1, \"arities\": [16]}, \"calls\": [{\"session_id\": 19, \"data_connection\": 19, \"control_connection\": 20}, {\"session_id\": 19, \"data_connection\": 19, \"control_connection\": 20}, {\"session_id\": 19, \"data_connection\": 19, \"control_connection\": 20}, {\"session_id\": 19, \"data_connection\": 19, \"control_connection\": 20}, {\"session_id\": 19, \"data_connection\": 19, \"control_connection\": 20}, {\"session_id\": 19, \"data_connection\": 19, \"control_connection\": 20}, {\"session_id\": 19, \"data_connection\": 19, \"control_connection\": 20}, {\"session_id\": 19, \"data_connection\": 19, \"control_connection\": 20}], \"mismatches\": [], \"shape_mismatches\": [], \"truncated\": false}}, \"rows\": [[1, null], [1, null]], \"ipc_rows\": [[1, null], [1, null]], \"schema\": [[\"left_id\", \"int64\", false], [\"right_key\", \"int64\", true]], \"end\": \"COMPLETE\", \"batches\": 2, \"delivered_rows\": 2}\n",
+  "stdout_bytes": 2497,
+  "timed_out": false
+}

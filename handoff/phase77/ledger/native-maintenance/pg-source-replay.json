@@ -1,0 +1,571 @@
+{
+  "record": "/home/mianliwang/projects/pietto/.cache/phase77-recovery/records/maintenance_pg_db.jsonl",
+  "base": "/home/mianliwang/.local/state/pietto/evidence/pietto-phase71-20261026/claude-takeover-20261027/claude-closeout-017-20261103/phase76/codex-recovery/s06/db-run2",
+  "written": [
+    "source-archive/pg-remaining-historical/COMMANDS.md",
+    "source-archive/pg-remaining-historical/ERRATUM.md",
+    "source-archive/pg-remaining-historical/ORACLE-ERRATA.md",
+    "source-archive/pg-remaining-historical/ORACLE.md",
+    "source-archive/pg-remaining-historical/PREREG.md",
+    "source-archive/pg-remaining-historical/RESULT.md",
+    "source-archive/pg-remaining-historical/ROOT-PREFLIGHT.json",
+    "source-archive/pg-remaining-historical/RUNBOOK.md",
+    "source-archive/pg-remaining-historical/RUN_STATUS.md",
+    "source-archive/pg-remaining-historical/client.py",
+    "source-archive/pg-remaining-historical/gen-tls.sh",
+    "source-archive/pg-remaining-historical/in/demo-exec/contract.json",
+    "source-archive/pg-remaining-historical/in/demo-exec/main.pietto",
+    "source-archive/pg-remaining-historical/in/demo-exec/pietto.toml",
+    "source-archive/pg-remaining-historical/in/fixture.sql",
+    "source-archive/pg-remaining-historical/in/ordered-exec/contract.json",
+    "source-archive/pg-remaining-historical/in/ordered-exec/main.pietto",
+    "source-archive/pg-remaining-historical/in/ordered-exec/pietto.toml",
+    "source-archive/pg-remaining-historical/in/pg_hba.conf",
+    "source-archive/pg-remaining-historical/in/timestamp-exec/contract.json",
+    "source-archive/pg-remaining-historical/in/timestamp-exec/main.pietto",
+    "source-archive/pg-remaining-historical/in/timestamp-exec/pietto.toml",
+    "source-archive/pg-remaining-historical/judge.py",
+    "source-archive/pg-remaining-historical/pg.sh",
+    "source-archive/pg-remaining-historical/raw_driver_child.py",
+    "source-archive/pg-remaining-historical/receipt.py",
+    "source-archive/pg-remaining-historical/relay.py",
+    "source-archive/pg-remaining-historical/root-judge.log",
+    "source-archive/pg-remaining-historical/root-run.log",
+    "source-archive/pg-remaining-historical/selftest.sh",
+    "source-archive/pg-remaining-historical/sql/emit-postgres.json",
+    "source-archive/pg-remaining-historical/sql/manifest.txt",
+    "source-archive/pg-remaining-historical/sql/statement.sql",
+    "source-archive/pg-remaining-historical/tls-gen.log",
+    "source-archive/pg-tls-historical/COMMANDS.md",
+    "source-archive/pg-tls-historical/ORACLE-ERRATA.md",
+    "source-archive/pg-tls-historical/ORACLE.md",
+    "source-archive/pg-tls-historical/RESULT.md",
+    "source-archive/pg-tls-historical/ROOT-PREFLIGHT.json",
+    "source-archive/pg-tls-historical/RUNBOOK.md",
+    "source-archive/pg-tls-historical/RUN_STATUS.md",
+    "source-archive/pg-tls-historical/client.py",
+    "source-archive/pg-tls-historical/gen-tls.sh",
+    "source-archive/pg-tls-historical/in/demo-exec/contract.json",
+    "source-archive/pg-tls-historical/in/demo-exec/main.pietto",
+    "source-archive/pg-tls-historical/in/demo-exec/pietto.toml",
+    "source-archive/pg-tls-historical/in/fixture.sql",
+    "source-archive/pg-tls-historical/in/pg_hba.conf",
+    "source-archive/pg-tls-historical/judge.py",
+    "source-archive/pg-tls-historical/pg.sh",
+    "source-archive/pg-tls-historical/receipt.py",
+    "source-archive/pg-tls-historical/relay.py",
+    "source-archive/pg-tls-historical/root-judge.log",
+    "source-archive/pg-tls-historical/root-run.log",
+    "source-archive/pg-tls-historical/selftest.sh",
+    "source-archive/pg-tls-historical/sql/emit-postgres.json",
+    "source-archive/pg-tls-historical/sql/manifest.txt",
+    "source-archive/pg-tls-historical/sql/statement.sql",
+    "source-archive/pg-tls-historical/tls-gen.log"
+  ],
+  "evidence": [
+    {
+      "line": 852,
+      "call_id": "call_4465b69028eb4ee69754c4164be01819",
+      "action": "update",
+      "file": "tls/pg.sh"
+    },
+    {
+      "line": 852,
+      "call_id": "call_4465b69028eb4ee69754c4164be01819",
+      "action": "update",
+      "file": "tls/client.py"
+    },
+    {
+      "line": 852,
+      "call_id": "call_4465b69028eb4ee69754c4164be01819",
+      "action": "update",
+      "file": "tls/judge.py"
+    },
+    {
+      "line": 852,
+      "call_id": "call_4465b69028eb4ee69754c4164be01819",
+      "action": "update",
+      "file": "tls/ORACLE.md"
+    },
+    {
+      "line": 866,
+      "call_id": "call_b712a74abd4e47ccac1856a88e688dc0",
+      "action": "update",
+      "file": "tls/judge.py"
+    },
+    {
+      "line": 915,
+      "call_id": "call_2e9219b7c17541a49c06cfdbd0c39a0e",
+      "action": "update",
+      "file": "tls/pg.sh"
+    },
+    {
+      "line": 929,
+      "call_id": "call_ef129a3805d944279342fb5a3d4c1dce",
+      "action": "update",
+      "file": "tls/client.py"
+    },
+    {
+      "line": 929,
+      "call_id": "call_ef129a3805d944279342fb5a3d4c1dce",
+      "action": "update",
+      "file": "tls/judge.py"
+    },
+    {
+      "line": 936,
+      "call_id": "call_7a5419d2bb7b4920b64be8a0a604c429",
+      "action": "update",
+      "file": "tls/judge.py"
+    },
+    {
+      "line": 1005,
+      "call_id": "call_40d62809b6f543bc82f4f3f3bbab4acd",
+      "action": "update",
+      "file": "tls/pg.sh"
+    },
+    {
+      "line": 1005,
+      "call_id": "call_40d62809b6f543bc82f4f3f3bbab4acd",
+      "action": "update",
+      "file": "tls/client.py"
+    },
+    {
+      "line": 1005,
+      "call_id": "call_40d62809b6f543bc82f4f3f3bbab4acd",
+      "action": "update",
+      "file": "tls/receipt.py"
+    },
+    {
+      "line": 1005,
+      "call_id": "call_40d62809b6f543bc82f4f3f3bbab4acd",
+      "action": "update",
+      "file": "tls/judge.py"
+    },
+    {
+      "line": 1018,
+      "call_id": "call_c546fdc9910448679dfcd7fffc5be6ae",
+      "action": "update",
+      "file": "tls/judge.py"
+    },
+    {
+      "line": 1038,
+      "call_id": "call_ec57c404c3be4054a2351757cc84ccf9",
+      "action": "update",
+      "file": "tls/judge.py"
+    },
+    {
+      "line": 1073,
+      "call_id": "call_98a4fadc814248d9bc31bda37eb3b4af",
+      "action": "update",
+      "file": "tls/client.py"
+    },
+    {
+      "line": 1073,
+      "call_id": "call_98a4fadc814248d9bc31bda37eb3b4af",
+      "action": "update",
+      "file": "tls/judge.py"
+    },
+    {
+      "line": 1150,
+      "call_id": "call_82c1a5923cfa4dc9ae599134d1d561a0",
+      "action": "update",
+      "file": "tls/gen-tls.sh"
+    },
+    {
+      "line": 1150,
+      "call_id": "call_82c1a5923cfa4dc9ae599134d1d561a0",
+      "action": "add",
+      "file": "tls/RUN_STATUS.md"
+    },
+    {
+      "line": 1150,
+      "call_id": "call_82c1a5923cfa4dc9ae599134d1d561a0",
+      "action": "add",
+      "file": "tls/selftest.sh"
+    },
+    {
+      "line": 1150,
+      "call_id": "call_82c1a5923cfa4dc9ae599134d1d561a0",
+      "action": "add",
+      "file": "tls/RUNBOOK.md"
+    },
+    {
+      "line": 1164,
+      "call_id": "call_a5cb650b15814cafb7831a8c33b753b0",
+      "action": "update",
+      "file": "tls/pg.sh"
+    },
+    {
+      "line": 1185,
+      "call_id": "call_a997ab3043c04fcda9551531c45be137",
+      "action": "update",
+      "file": "tls/RUN_STATUS.md"
+    },
+    {
+      "line": 1213,
+      "call_id": "call_36ab4bc4f2334742892bbf8d283c13d1",
+      "action": "update",
+      "file": "tls/pg.sh"
+    },
+    {
+      "line": 1213,
+      "call_id": "call_36ab4bc4f2334742892bbf8d283c13d1",
+      "action": "update",
+      "file": "tls/judge.py"
+    },
+    {
+      "line": 1213,
+      "call_id": "call_36ab4bc4f2334742892bbf8d283c13d1",
+      "action": "update",
+      "file": "tls/client.py"
+    },
+    {
+      "line": 1227,
+      "call_id": "call_6a86aa47f3354cb989f02857595b6a95",
+      "action": "update",
+      "file": "tls/pg.sh"
+    },
+    {
+      "line": 1501,
+      "call_id": "call_cd88cc9fe8904a3ab03837a7c7a8a4b4",
+      "action": "add",
+      "file": "prereg/PREREG.md"
+    },
+    {
+      "line": 1610,
+      "call_id": "call_03dab1d2cd3a4318abf2e04a87cbfbd8",
+      "action": "add",
+      "file": "remaining/in/timestamp-exec/main.pietto"
+    },
+    {
+      "line": 1610,
+      "call_id": "call_03dab1d2cd3a4318abf2e04a87cbfbd8",
+      "action": "add",
+      "file": "remaining/in/timestamp-exec/pietto.toml"
+    },
+    {
+      "line": 1610,
+      "call_id": "call_03dab1d2cd3a4318abf2e04a87cbfbd8",
+      "action": "add",
+      "file": "remaining/in/timestamp-exec/contract.json"
+    },
+    {
+      "line": 1610,
+      "call_id": "call_03dab1d2cd3a4318abf2e04a87cbfbd8",
+      "action": "update",
+      "file": "remaining/in/fixture.sql"
+    },
+    {
+      "line": 1619,
+      "call_id": "call_bf99ce536cdb4469963664608a61f7a9",
+      "action": "add",
+      "file": "remaining/client.py"
+    },
+    {
+      "line": 1635,
+      "call_id": "call_d14e4f629ffa4a73ac0f4809c4644fad",
+      "action": "add",
+      "file": "remaining/receipt.py"
+    },
+    {
+      "line": 1635,
+      "call_id": "call_d14e4f629ffa4a73ac0f4809c4644fad",
+      "action": "add",
+      "file": "remaining/judge.py"
+    },
+    {
+      "line": 1642,
+      "call_id": "call_bdc271e150a24d1bb80e21e602c969d3",
+      "action": "unapplied_update",
+      "file": "remaining/gen-tls.sh"
+    },
+    {
+      "line": 1642,
+      "call_id": "call_bdc271e150a24d1bb80e21e602c969d3",
+      "action": "unapplied_update",
+      "file": "remaining/pg.sh"
+    },
+    {
+      "line": 1649,
+      "call_id": "call_d67428079e414bea88e7dd72821b64cc",
+      "action": "add",
+      "file": "remaining/selftest.sh"
+    },
+    {
+      "line": 1649,
+      "call_id": "call_d67428079e414bea88e7dd72821b64cc",
+      "action": "add",
+      "file": "remaining/RUN_STATUS.md"
+    },
+    {
+      "line": 1656,
+      "call_id": "call_9931ed9e3ade4ab48d833cbc35b28595",
+      "action": "update",
+      "file": "remaining/selftest.sh"
+    },
+    {
+      "line": 1712,
+      "call_id": "call_e584bb2da7db4441992f45f97ea31578",
+      "action": "unapplied_update",
+      "file": "remaining/pg.sh"
+    },
+    {
+      "line": 1811,
+      "call_id": "call_64bcebbea0bc44c0be85581aeb5a26d5",
+      "action": "update",
+      "file": "remaining/client.py"
+    },
+    {
+      "line": 1811,
+      "call_id": "call_64bcebbea0bc44c0be85581aeb5a26d5",
+      "action": "add",
+      "file": "remaining/raw_driver_child.py"
+    },
+    {
+      "line": 1818,
+      "call_id": "call_3ab0985ece0246968628e6e9b795dab5",
+      "action": "update",
+      "file": "remaining/judge.py"
+    },
+    {
+      "line": 1825,
+      "call_id": "call_5be41c6f14ac4160b7caa11beb1b7d09",
+      "action": "update",
+      "file": "remaining/judge.py"
+    },
+    {
+      "line": 1832,
+      "call_id": "call_0fe5ba0b501c4a82a6c1ac4c7341b1fd",
+      "action": "update",
+      "file": "remaining/receipt.py"
+    },
+    {
+      "line": 1832,
+      "call_id": "call_0fe5ba0b501c4a82a6c1ac4c7341b1fd",
+      "action": "update",
+      "file": "remaining/judge.py"
+    },
+    {
+      "line": 1832,
+      "call_id": "call_0fe5ba0b501c4a82a6c1ac4c7341b1fd",
+      "action": "unapplied_update",
+      "file": "remaining/pg.sh"
+    },
+    {
+      "line": 1839,
+      "call_id": "call_ccfc92dd0e6f4194beae30c3ad56d652",
+      "action": "update",
+      "file": "remaining/judge.py"
+    },
+    {
+      "line": 1846,
+      "call_id": "call_0de8d937d7044fc2a126ea240473357a",
+      "action": "update",
+      "file": "remaining/judge.py"
+    },
+    {
+      "line": 1872,
+      "call_id": "call_dce6f08a9e3749ef87132885578effe4",
+      "action": "update",
+      "file": "remaining/judge.py"
+    },
+    {
+      "line": 1895,
+      "call_id": "call_7196d45523b14425b574fa1a3541b2c1",
+      "action": "update",
+      "file": "remaining/client.py"
+    },
+    {
+      "line": 1895,
+      "call_id": "call_7196d45523b14425b574fa1a3541b2c1",
+      "action": "update",
+      "file": "remaining/judge.py"
+    },
+    {
+      "line": 1902,
+      "call_id": "call_0baa7d57984f468b9a4d3f92812cb4f3",
+      "action": "update",
+      "file": "remaining/judge.py"
+    },
+    {
+      "line": 1929,
+      "call_id": "call_1a8e1efc4f2145cc9b603dd561f6659d",
+      "action": "update",
+      "file": "remaining/judge.py"
+    },
+    {
+      "line": 1962,
+      "call_id": "call_8bff24b291724f57a8ba931974ed46a7",
+      "action": "update",
+      "file": "remaining/judge.py"
+    },
+    {
+      "line": 2089,
+      "call_id": "call_aced77a4a7f24bc182bd125eb3f8573f",
+      "action": "add",
+      "file": "remaining/in/ordered-exec/main.pietto"
+    },
+    {
+      "line": 2089,
+      "call_id": "call_aced77a4a7f24bc182bd125eb3f8573f",
+      "action": "add",
+      "file": "remaining/in/ordered-exec/pietto.toml"
+    },
+    {
+      "line": 2089,
+      "call_id": "call_aced77a4a7f24bc182bd125eb3f8573f",
+      "action": "add",
+      "file": "remaining/in/ordered-exec/contract.json"
+    },
+    {
+      "line": 2096,
+      "call_id": "call_e19dd865b84546d7a15cde725fa775ce",
+      "action": "update",
+      "file": "remaining/client.py"
+    },
+    {
+      "line": 2096,
+      "call_id": "call_e19dd865b84546d7a15cde725fa775ce",
+      "action": "update",
+      "file": "remaining/judge.py"
+    },
+    {
+      "line": 2103,
+      "call_id": "call_9028fde436e748cf81c850aa0a79cf60",
+      "action": "update",
+      "file": "remaining/judge.py"
+    },
+    {
+      "line": 2110,
+      "call_id": "call_7fd6d68c43d748cab371addae3139bc5",
+      "action": "update",
+      "file": "remaining/receipt.py"
+    },
+    {
+      "line": 2110,
+      "call_id": "call_7fd6d68c43d748cab371addae3139bc5",
+      "action": "update",
+      "file": "remaining/judge.py"
+    },
+    {
+      "line": 2117,
+      "call_id": "call_36a4ad32926445fc8f6f551235c8286d",
+      "action": "update",
+      "file": "remaining/judge.py"
+    },
+    {
+      "line": 2124,
+      "call_id": "call_830423bd596d4e7b90ac898ca2b9b29b",
+      "action": "update",
+      "file": "remaining/client.py"
+    },
+    {
+      "line": 2124,
+      "call_id": "call_830423bd596d4e7b90ac898ca2b9b29b",
+      "action": "update",
+      "file": "remaining/judge.py"
+    },
+    {
+      "line": 2229,
+      "call_id": "call_2f0ab4ea97a84ddf9bba87790fc5278d",
+      "action": "update",
+      "file": "remaining/client.py"
+    },
+    {
+      "line": 2271,
+      "call_id": "call_69343e2258ed4572b0aeeafbced1251f",
+      "action": "update",
+      "file": "remaining/client.py"
+    },
+    {
+      "line": 2271,
+      "call_id": "call_69343e2258ed4572b0aeeafbced1251f",
+      "action": "update",
+      "file": "remaining/judge.py"
+    },
+    {
+      "line": 2458,
+      "call_id": "call_8754bcb76708413c91b80d49e7efb7b2",
+      "action": "unapplied_update",
+      "file": "r4/gen-tls.sh"
+    },
+    {
+      "line": 2458,
+      "call_id": "call_8754bcb76708413c91b80d49e7efb7b2",
+      "action": "unapplied_update",
+      "file": "r4/pg.sh"
+    },
+    {
+      "line": 2458,
+      "call_id": "call_8754bcb76708413c91b80d49e7efb7b2",
+      "action": "update",
+      "file": "r4/selftest.sh"
+    },
+    {
+      "line": 2458,
+      "call_id": "call_8754bcb76708413c91b80d49e7efb7b2",
+      "action": "update",
+      "file": "r4/receipt.py"
+    },
+    {
+      "line": 2458,
+      "call_id": "call_8754bcb76708413c91b80d49e7efb7b2",
+      "action": "update",
+      "file": "r4/judge.py"
+    },
+    {
+      "line": 2458,
+      "call_id": "call_8754bcb76708413c91b80d49e7efb7b2",
+      "action": "add",
+      "file": "r4/ERRATUM.md"
+    },
+    {
+      "line": 2458,
+      "call_id": "call_8754bcb76708413c91b80d49e7efb7b2",
+      "action": "update",
+      "file": "r4/RUN_STATUS.md"
+    },
+    {
+      "line": 2465,
+      "call_id": "call_da7d38ce01214135b04476c3c84d2fe7",
+      "action": "update",
+      "file": "r4/receipt.py"
+    },
+    {
+      "line": 2465,
+      "call_id": "call_da7d38ce01214135b04476c3c84d2fe7",
+      "action": "update",
+      "file": "r4/judge.py"
+    },
+    {
+      "line": 2472,
+      "call_id": "call_ab3918194f0b4c8ab3ccbc9a938ca64d",
+      "action": "update",
+      "file": "r4/PREREG.md"
+    },
+    {
+      "line": 2486,
+      "call_id": "call_84160223dd84469aa4dede6bb688299c",
+      "action": "update",
+      "file": "r4/judge.py"
+    },
+    {
+      "line": 2523,
+      "call_id": "call_352873bbde8849e3b09ddcc1cfaf19ef",
+      "action": "update",
+      "file": "r4/RUN_STATUS.md"
+    },
+    {
+      "line": 2551,
+      "call_id": "call_85b46829a0cb422b8ebffc0ec3f8fe41",
+      "action": "update",
+      "file": "r4/RUN_STATUS.md"
+    },
+    {
+      "line": 2656,
+      "call_id": "call_bab124f31687405780ab5b6795377376",
+      "action": "update",
+      "file": "r4/RUN_STATUS.md"
+    }
+  ]
+}

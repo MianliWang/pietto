@@ -1,0 +1,2 @@
+1091fc2827007cadcd1c821937e212441eaa81a19cf77c984a8d211e93cc240f sql/statement.sql (the sql field of sql/emit-postgres.json)
+cfdae96312f457ed2b32a08cfbe53c44d7556aaf70799c20a7b241de291894a0  sql/emit-postgres.json

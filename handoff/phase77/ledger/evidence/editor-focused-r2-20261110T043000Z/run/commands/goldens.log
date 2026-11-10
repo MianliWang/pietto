@@ -1,0 +1,1 @@
+[goldens] verified 41 fixtures: 34 SQL byte-exact, 7 JSON structural; no missing or orphan fixtures

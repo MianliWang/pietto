@@ -1,0 +1,843 @@
+diff --git a/docs/language.md b/docs/language.md
+index e934e84f..8bd92ead 100644
+--- a/docs/language.md
++++ b/docs/language.md
+@@ -576,7 +576,7 @@ first column give every rule.
+ 
+ | Feature | PostgreSQL single file | MySQL single file | PostgreSQL project | MySQL project |
+ | --- | --- | --- | --- | --- |
+-| `concat(a, b)` ([Expressions](#expressions)) | `(a \|\| b)` | `CONCAT(a, b)` | emitted; refused for only `None` (PIE-B1003) or a binding-width `Text` (PIE-B1004) | refused (PIE-B1003) |
++| `concat(a, b)` ([Expressions](#expressions)) | `(a \|\| b)` | `CONCAT(a, b)` | emitted; refused for only `None` (PIE-B1003) or a binding-width `Text` (PIE-B1004) | candidate emitted; native qualification pending |
+ | `same_value(a, b)` ([Expressions](#expressions)) | `(a IS NOT DISTINCT FROM b)` | `(a <=> b)` | select items, WHERE and `let`, select items after a JOIN; `Float` where `==` is, not `Bool`, not in a JOIN `on` or a WHERE after a JOIN | as PostgreSQL, a `Float` only beside an operand that reads no row (two row `Float` operands PIE-B1003), and not a GROUP BY key or DISTINCT column |
+ | `stddev(x)` ([Aggregates](#aggregates-and-grouping)) | `Int` and `Float` | `Float` (`STDDEV_SAMP`); `Int` refused (PIE-B1000) | `Int` and `Float` | refused: `Int` PIE-B1003, `Float` PIE-B1004 |
+ | `variance(x)`, `pvariance(x)`, `pstdev(x)` ([Aggregates](#aggregates-and-grouping)) | `Int` and `Float` (`VAR_SAMP`, `VAR_POP`, `SQRT` of `VAR_POP`) | `Float` (`VAR_SAMP`, `VAR_POP`, `STDDEV_POP`); `Int` refused (PIE-B1000) | `Int` and `Float` | refused: `Int` PIE-B1003, `Float` PIE-B1004 |
+@@ -585,9 +585,9 @@ first column give every rule.
+ | `sum(1 for o in group if t)`, `sum(o.f for o in group if t)` ([Aggregates](#aggregates-and-grouping)) | `COUNT(CASE WHEN t THEN 1 END)`; `COALESCE(CAST(SUM(CASE WHEN t THEN CAST(f AS pg_catalog.int8) END) AS pg_catalog.int8), 0)` | count `COUNT(CASE WHEN t THEN 1 END)`; sum refused (PIE-B1000) | as PostgreSQL single file, `schema_version = 2` (PIE-S2334 in a `schema_version = 1` project); no JOIN inputs | refused: count PIE-B1003, sum PIE-B1004 |
+ | `any(t for o in group)`, `all(t for o in group)` ([Aggregates](#aggregates-and-grouping)) | `(COUNT(CASE WHEN t THEN 1 END) > 0)`; `(COUNT(CASE WHEN t THEN NULL ELSE 1 END) = 0)` | as PostgreSQL, an integer 0/1 | as PostgreSQL single file, `schema_version = 2` (PIE-S2334 in a `schema_version = 1` project); no JOIN inputs | refused (PIE-B1003 `group_test_not_admitted_on_target`) |
+ | `max(a, b)`, `min(a, b)` ([Expressions](#expressions)) | `CASE WHEN` of `<`/`>` and `IS NOT NULL`; `Int`, `Decimal`, `Float`, `Text`, `Date`, `Timestamp`, `UUID`, `Bool` | as PostgreSQL; a `Bool` result arrives as an integer 0, 1 or NULL, as every computed `Bool` does on MySQL | `Int`, `Decimal`, `Float`, `Text`, `Date`, `Timestamp`, `UUID` as their comparison and conditional are; `Bool` refused (PIE-B1003) | as PostgreSQL project, except `Date`, refused (PIE-B1003) |
+-| `lpad(s, width, fill)` ([Expressions](#expressions)) | `CASE WHEN length(s) >= width THEN s ELSE lpad(...) END`; a literal width outside the signed 32-bit range refused (PIE-S2385 at check) | `CASE WHEN CHAR_LENGTH(s) >= width THEN s ELSE LPAD(...) END` | emitted for a width proven in the signed 32-bit range; refused otherwise (PIE-B1002, PIE-B1004) | refused (PIE-B1003) |
+-| `add_months(d, n)` ([Expressions](#expressions)) | `CAST((d + make_interval(months => CAST(n AS integer))) AS date)` | `DATE_ADD(d, INTERVAL n MONTH)` | emitted; a `None` argument refused (PIE-B1003) | refused (PIE-B1003) |
+-| `now()` ([Expressions](#expressions)) | `(statement_timestamp() AT TIME ZONE 'UTC')`, in SELECT items and WHERE | `UTC_TIMESTAMP(6)`, in SELECT items and WHERE | emitted, compiled and bound as a template | refused (PIE-B1003 `scalar_call_signature_not_admitted`) |
++| `lpad(s, width, fill)` ([Expressions](#expressions)) | `CASE WHEN length(s) >= width THEN s ELSE lpad(...) END`; a literal width outside the signed 32-bit range refused (PIE-S2385 at check) | `CASE WHEN CHAR_LENGTH(s) >= width THEN s ELSE LPAD(...) END` | emitted for a width proven in the signed 32-bit range; refused otherwise (PIE-B1002, PIE-B1004) | candidate emitted for the same proven width; native qualification pending |
++| `add_months(d, n)` ([Expressions](#expressions)) | `CAST((d + make_interval(months => CAST(n AS integer))) AS date)` | `DATE_ADD(d, INTERVAL n MONTH)` | emitted; a `None` argument refused (PIE-B1003) | candidate emitted for non-conditional Date/month inputs; native qualification pending |
++| `now()` ([Expressions](#expressions)) | `(statement_timestamp() AT TIME ZONE 'UTC')`, in SELECT items and WHERE | `UTC_TIMESTAMP(6)`, in SELECT items and WHERE | emitted, compiled and bound as a template | candidate emitted, compiled and bound as a template; native qualification pending |
+ | Always-null numbers, D-12 ([Expressions](#expressions)) | typed NULL casts | typed NULL casts | `Int` arithmetic with `None`; `Float` and `Decimal` refused | as PostgreSQL |
+ | `Float` equality ([Float values](#float-values)) | comparisons and GROUP BY; DISTINCT and set forms are project-only | as PostgreSQL; GROUP BY beside a wide `Text` key may split `-0.0` and `0.0` | comparisons, GROUP BY, DISTINCT, ORDER BY, every set form, window `partition by` and `order by`, `string_agg` order keys and FULL JOIN equalities, also over a window `percent_rank` or `cume_dist` result | comparisons with a literal or header parameter, ordering inequalities, `in`, `nullif`, relation ORDER BY and UNION ALL; the other forms refused (PIE-B1003) |
+ | JOIN aggregates without fan-out ([Aggregates](#aggregates-and-grouping)) | accepted | accepted | accepted | accepted; `sum(Int)` stays PIE-B1004 |
+@@ -3329,7 +3329,8 @@ whose proven range leaves the signed 32-bit range, such as an `Int` field
+ stored as `bigint` (PIE-B1002 `lpad_width_outside_physical_range`), a text or
+ width with no proven bound, a `None` width included (PIE-B1004 `lpad_result_bound_missing`), and a
+ `None` text (PIE-B1003 `scalar_call_signature_not_admitted`). MySQL project
+-SQL refuses `lpad` (PIE-B1003 `scalar_call_signature_not_admitted`).
++SQL has the same non-truncating candidate shape, including every repeated
++`s` and `width` occurrence; native qualification remains pending.
+ 
+ `add_months(d, n)` moves the `Date` `d` by `n` whole months, back for a
+ negative `n`. When the day does not exist in the month reached, it is that
+@@ -3345,7 +3346,8 @@ MONTH)`; PostgreSQL raises an error for an `n` outside the signed 32-bit range,
+ a number of months far past any date. A result after 9999-12-31 is outside
+ Pietto's dates: PostgreSQL gives a later date, MySQL NULL. PostgreSQL project
+ SQL keeps the `Date` carrier and refuses a `None` argument (PIE-B1003); MySQL
+-project SQL refuses `add_months` (PIE-B1003 `scalar_call_signature_not_admitted`).
++project SQL has the same candidate Date carrier for non-conditional arguments;
++native qualification remains pending.
+ 
+ A `def lpad` or `def add_months` is PIE-S2398 with a suggestion to rename it
+ (see the def section), and a `constraint` or `derive` of either name no longer
+@@ -3362,8 +3364,8 @@ which is the transaction start), and single-file MySQL SQL is
+ session, and Pietto's own PostgreSQL and MySQL connections run in UTC anyway
+ (`timezone=UTC`, `time_zone='+00:00'`). `date_of(now())` is the UTC date. A
+ column that stores local time differs from `now()` by the local offset. MySQL
+-project SQL refuses `now()` with PIE-B1003
+-`scalar_call_signature_not_admitted`.
++project SQL emits the same UTC expression as a candidate; native qualification
++remains pending.
+ 
+ `now()` is evaluated when the SQL runs, never when Pietto checks, emits,
+ explains, compiles or loads it: emitted SQL, compiled bundles and golden
+diff --git a/src/pietto/_project/project_sql_emission_ast.py b/src/pietto/_project/project_sql_emission_ast.py
+index 9e20401b..9c380cfb 100644
+--- a/src/pietto/_project/project_sql_emission_ast.py
++++ b/src/pietto/_project/project_sql_emission_ast.py
+@@ -2177,7 +2177,7 @@ def realize_rows(request):
+             return
+         try:
+             chains = rows.rendered_constant_chains(plan, reference)
+-            rendered = rows.rendered_tree_nodes(plan, reference)
++            rendered = rows.rendered_tree_nodes(plan, reference, family)
+         except ValueError:
+             add("PIE-B1008", "expression_tree_structure", reference)
+             return
+@@ -2188,7 +2188,7 @@ def realize_rows(request):
+         def inline_key(start, node):
+             value = getattr(node, "value", None)
+             end = start + (
+-                0 if value is None else len(rows.rendered_tree_nodes(plan, value))
++                0 if value is None else len(rows.rendered_tree_nodes(plan, value, family))
+             )
+             return (end, 1, -start)
+ 
+@@ -3659,19 +3659,19 @@ def join_values(unit):
+     return tuple(values)
+ 
+ 
+-def spliced_value_nodes(values):
++def spliced_value_nodes(values, family=None):
+     """Every value node in exact SQL order; an inline let's own nodes follow
+     the read that renders it, after a membership read's left operand."""
+     result = []
+     for value in values:
+-        nodes = rows.rendered_value_nodes(value)
++        nodes = rows.rendered_value_nodes(value, family)
+         pending: dict[int, list[tuple[Any, ...]]] = {}
+         for position, node in enumerate(nodes):
+             result.append(node)
+             if type(node) is rows.SQLBlockRead and inline_body(node.target.producer):
+-                end = position + len(rows.rendered_value_nodes(node)) - 1
++                end = position + len(rows.rendered_value_nodes(node, family)) - 1
+                 pending.setdefault(end, []).append(
+-                    spliced_value_nodes(inline_values(node.target.producer))
++                    spliced_value_nodes(inline_values(node.target.producer), family)
+                 )
+             # An inner read closes before the read whose operand holds it.
+             for spliced in reversed(pending.pop(position, ())):
+@@ -3709,7 +3709,7 @@ def row_parameter_leaves(query):
+                 if value.parameter is not None:
+                     result.append(value.parameter)
+                 continue
+-            for node in spliced_value_nodes((value,)):
++            for node in spliced_value_nodes((value,), query.request.family):
+                 if type(node) is rows.SQLParameterRead:
+                     result.append(node)
+                     continue
+diff --git a/src/pietto/_project/project_sql_emission_pure_boundary.py b/src/pietto/_project/project_sql_emission_pure_boundary.py
+index 44547fac..83e1572d 100644
+--- a/src/pietto/_project/project_sql_emission_pure_boundary.py
++++ b/src/pietto/_project/project_sql_emission_pure_boundary.py
+@@ -1777,11 +1777,11 @@ class _Check:
+                 )
+             if op["kind"] == "scalar_call" and op["operator"] == "now":
+                 _require(
+-                    family == "postgres"
++                    family in {"postgres", "mysql"}
+                     and _is_realization(
+                         doc[op["realization"]],
+                         "Timestamp",
+-                        {"kind": "pg_timestamp", "fractional_seconds": 6},
++                        {"kind": "pg_timestamp" if family == "postgres" else "my_datetime", "fractional_seconds": 6},
+                         {"kind": "timestamp"},
+                     )
+                     and doc[op["realization"]]["nullable"] is False,
+@@ -1867,22 +1867,23 @@ class _Check:
+                         "int_to_text realization",
+                     )
+             elif op["kind"] == "scalar_call" and op["operator"] == "concat":
+-                _require(family == "postgres", "concat family")
++                _require(family in {"postgres", "mysql"}, "concat family")
+             elif op["kind"] == "scalar_call" and op["operator"] == "lpad":
+                 fill = _literal_text(doc, operands[2])
+                 _require(
+-                    family == "postgres"
+-                    and _is_pg_text_value(doc, operands[0])
++                    family in {"postgres", "mysql"}
++                    and _value_tag(doc, operands[0]) == "Text"
++                    and _is_key_value(_value_realization(doc, operands[0]), family)
+                     and _value_tag(doc, operands[1]) == "Int"
+                     and type(fill) is str
+                     and len(fill) == 1
+-                    and _is_pg_text_input(result),
++                    and _is_key_value(result, family),
+                     "lpad realization",
+                 )
+             elif op["kind"] == "scalar_call" and op["operator"] == "add_months":
+-                date = {"kind": "pg_date"}, {"kind": "date"}
++                date = ({"kind": "pg_date" if family == "postgres" else "my_date"}, {"kind": "date"})
+                 _require(
+-                    family == "postgres"
++                    family in {"postgres", "mysql"}
+                     and _is_realization(
+                         _value_realization(doc, operands[0]), "Date", *date
+                     )
+@@ -3115,21 +3116,41 @@ class _Tokens:
+                             ("scalar_call_close", " ) END)"),
+                         ]
+                 elif name == "lpad":
+-                    expected = [
+-                        ("scalar_call_open", "(CASE WHEN length("),
+-                        ("scalar_call_separator", ") >= "),
+-                        ("scalar_call_separator", " THEN "),
+-                        ("scalar_call_separator", " ELSE lpad("),
+-                        ("scalar_call_separator", ", CAST("),
+-                        ("scalar_call_separator", " AS pg_catalog.int4), "),
+-                        ("scalar_call_close", ") END)"),
+-                    ]
++                    expected = (
++                        [
++                            ("scalar_call_open", "(CASE WHEN length("),
++                            ("scalar_call_separator", ") >= "),
++                            ("scalar_call_separator", " THEN "),
++                            ("scalar_call_separator", " ELSE lpad("),
++                            ("scalar_call_separator", ", CAST("),
++                            ("scalar_call_separator", " AS pg_catalog.int4), "),
++                            ("scalar_call_close", ") END)"),
++                        ]
++                        if self.family == "postgres"
++                        else [
++                            ("scalar_call_open", "CASE WHEN CHAR_LENGTH("),
++                            ("scalar_call_separator", ") >= "),
++                            ("scalar_call_separator", " THEN "),
++                            ("scalar_call_separator", " ELSE LPAD("),
++                            ("scalar_call_separator", ", "),
++                            ("scalar_call_separator", ", "),
++                            ("scalar_call_close", ") END"),
++                        ]
++                    )
+                 elif name == "add_months":
+-                    expected = [
+-                        ("scalar_call_open", "CAST(("),
+-                        ("scalar_call_separator", " + make_interval(months => CAST("),
+-                        ("scalar_call_close", " AS pg_catalog.int4))) AS date)"),
+-                    ]
++                    expected = (
++                        [
++                            ("scalar_call_open", "CAST(("),
++                            ("scalar_call_separator", " + make_interval(months => CAST("),
++                            ("scalar_call_close", " AS pg_catalog.int4))) AS date)"),
++                        ]
++                        if self.family == "postgres"
++                        else [
++                            ("scalar_call_open", "DATE_ADD("),
++                            ("scalar_call_separator", ", INTERVAL "),
++                            ("scalar_call_close", " MONTH)"),
++                        ]
++                    )
+                 else:
+                     expected = (
+                         [
+@@ -3513,6 +3534,7 @@ class _Tokens:
+                     "abs": "ABS",
+                     "nullif": "NULLIF",
+                     "coalesce": "COALESCE",
++                    "concat": "CONCAT",
+                 },
+             }[self.family]
+             if role == "scalar_call_open":
+@@ -3520,6 +3542,8 @@ class _Tokens:
+                     expected = (
+                         "(statement_timestamp() AT TIME ZONE 'UTC'"
+                         if self.family == "postgres"
++                        else "UTC_TIMESTAMP(6"
++                        if self.family == "mysql"
+                         else ""
+                     )
+                 elif name == "same_value":
+diff --git a/src/pietto/_project/project_sql_emission_rendering.py b/src/pietto/_project/project_sql_emission_rendering.py
+index 5952b41f..ab4b1864 100644
+--- a/src/pietto/_project/project_sql_emission_rendering.py
++++ b/src/pietto/_project/project_sql_emission_rendering.py
+@@ -647,13 +647,14 @@ class _Writer:
+                     "abs": "ABS",
+                     "nullif": "NULLIF",
+                     "coalesce": "COALESCE",
++                    "concat": "CONCAT",
+                 },
+             }[self.request.family].get(name)
+             if name == "now":
+-                if self.request.family != "postgres" or value.operands:
++                if value.operands:
+                     raise ValueError("unrenderable scalar call")
+                 self.emit(
+-                    "(statement_timestamp() AT TIME ZONE 'UTC'",
++                    "(statement_timestamp() AT TIME ZONE 'UTC'" if self.request.family == "postgres" else "UTC_TIMESTAMP(6" if self.request.family == "mysql" else "",
+                     "syntax",
+                     "scalar_call_open",
+                     reference,
+@@ -711,36 +712,52 @@ class _Writer:
+                     raise ValueError("unrenderable scalar call")
+                 self.enclose("scalar_call", reference, start)
+                 return
+-            if name in {"lpad", "add_months"}:
+-                # The text before each operand, which these positions name,
++            if name in {"lpad", "add_months"}:                # The text before each operand, which these positions name,
+                 # then the closing text.
+                 texts, positions = {
+-                    # PostgreSQL lpad() truncates a longer text; lpad never does.
+-                    "lpad": (
+-                        (
+-                            "(CASE WHEN length(",
+-                            ") >= ",
+-                            " THEN ",
+-                            " ELSE lpad(",
+-                            ", CAST(",
+-                            " AS pg_catalog.int4), ",
+-                            ") END)",
++                    "postgres": {
++                        # PostgreSQL lpad() truncates a longer text; Pietto never does.
++                        "lpad": (
++                            (
++                                "(CASE WHEN length(",
++                                ") >= ",
++                                " THEN ",
++                                " ELSE lpad(",
++                                ", CAST(",
++                                " AS pg_catalog.int4), ",
++                                ") END)",
++                            ),
++                            (0, 1, 0, 0, 1, 2),
+                         ),
+-                        (0, 1, 0, 0, 1, 2),
+-                    ),
+-                    "add_months": (
+-                        (
+-                            "CAST((",
+-                            " + make_interval(months => CAST(",
+-                            " AS pg_catalog.int4))) AS date)",
++                        "add_months": (
++                            (
++                                "CAST((",
++                                " + make_interval(months => CAST(",
++                                " AS pg_catalog.int4))) AS date)",
++                            ),
++                            (0, 1),
+                         ),
+-                        (0, 1),
+-                    ),
+-                }[name]
+-                if (
+-                    self.request.family != "postgres"
+-                    or len(value.operands) != max(positions) + 1
+-                ):
++                    },
++                    "mysql": {
++                        "lpad": (
++                            (
++                                "CASE WHEN CHAR_LENGTH(",
++                                ") >= ",
++                                " THEN ",
++                                " ELSE LPAD(",
++                                ", ",
++                                ", ",
++                                ") END",
++                            ),
++                            (0, 1, 0, 0, 1, 2),
++                        ),
++                        "add_months": (
++                            ("DATE_ADD(", ", INTERVAL ", " MONTH)"),
++                            (0, 1),
++                        ),
++                    },
++                }[self.request.family][name]
++                if len(value.operands) != max(positions) + 1:
+                     raise ValueError("unrenderable scalar call")
+                 for index, text in enumerate(texts):
+                     self.emit(
+diff --git a/src/pietto/_project/project_sql_emission_rows.py b/src/pietto/_project/project_sql_emission_rows.py
+index b6c88069..568151c8 100644
+--- a/src/pietto/_project/project_sql_emission_rows.py
++++ b/src/pietto/_project/project_sql_emission_rows.py
+@@ -1004,12 +1004,12 @@ def tree_nodes(plan, reference):
+     return _tree_nodes(plan, reference, render_order=False)
+ 
+ 
+-def rendered_tree_nodes(plan, reference):
++def rendered_tree_nodes(plan, reference, family=None):
+     """Preorder original nodes in the order the SQL renderer visits them."""
+-    return _tree_nodes(plan, reference, render_order=True)
++    return _tree_nodes(plan, reference, render_order=True, family=family)
+ 
+ 
+-def _tree_nodes(plan, reference, *, render_order):
++def _tree_nodes(plan, reference, *, render_order, family=None):
+     result = []
+     pending = [(reference, False)]
+     active = set()
+@@ -1029,6 +1029,8 @@ def _tree_nodes(plan, reference, *, render_order):
+         result.append(expression)
+         if type(expression) is row.ProjectSQLScalarCall:
+             children = expression.arguments
++            if family == "mysql" and expression.callee_symbol.name == "lpad":
++                children = tuple(children[index] for index in (0, 1, 0, 0, 1, 2))
+         elif type(expression) is row.ProjectSQLListOperation:
+             children = tuple(
+                 child
+@@ -2312,14 +2314,13 @@ def resolved_scalar_call_realization(
+     refusing one); `same_value` is admitted exactly where `==` is.
+     """
+     if symbol.namespace is SymbolNamespace.CALLABLE and symbol.name == "now":
+-        # The statement's start as a UTC microsecond civil Timestamp, on
+-        # PostgreSQL; a MySQL project waits for a run of its own SQL.
+-        if family != "postgres" or values or tag != "Timestamp" or nullable:
++        # The statement's start as a UTC microsecond civil Timestamp.
++        if family not in {"postgres", "mysql"} or values or tag != "Timestamp" or nullable:
+             return None, ("PIE-B1003", "scalar_call_signature_not_admitted")
+         return (
+             Realization(
+                 "Timestamp",
+-                {"kind": "pg_timestamp", "fractional_seconds": 6},
++                {"kind": "pg_timestamp" if family == "postgres" else "my_datetime", "fractional_seconds": 6},
+                 False,
+                 {"kind": "timestamp"},
+             ),
+@@ -2501,9 +2502,9 @@ def resolved_scalar_call_realization(
+         if result is not None:
+             return result, None
+     if name == "lpad":
+-        # Never truncates, so as wide as the text or the width; PostgreSQL
+-        # lpad() takes an int4 width. MySQL project SQL refuses it.
+-        if family != "postgres" or len(values) != 3 or tag != "Text":
++        # Never truncates, so as wide as the text or the width; the qualified
++        # project forms retain the existing int4 width bound.
++        if family not in {"postgres", "mysql"} or len(values) != 3 or tag != "Text":
+             return None, ("PIE-B1003", "scalar_call_signature_not_admitted")
+         text, width, fill = values
+         fill_literal = static_values[2]
+@@ -2528,24 +2529,21 @@ def resolved_scalar_call_realization(
+             return result, None
+     if (
+         name == "add_months"
+-        and family == "postgres"
++        and family in {"postgres", "mysql"}
+         and len(values) == 2
+         and tag == "Date"
+-        and value.storage == {"kind": "pg_date"}
++        and value.storage == {"kind": "pg_date" if family == "postgres" else "my_date"}
+         and value.domain == {"kind": "date"}
+         and values[1].tag == "Int"
+         and not _typed_null(values[1])
+     ):
+-        # A date plus months, clamped to the end of a shorter month; MySQL
+-        # project SQL refuses it.
++        # A date plus months, clamped to the end of a shorter month.
+         return Realization("Date", value.storage, nullable, value.domain), None
+     if name == "concat":
+-        # NULL when any argument is; otherwise as wide as all of them. MySQL
+-        # types a CONCAT from storage lengths and a literal's UTF-8 bytes, not
+-        # from these widths, so MySQL project SQL refuses it.
++        # NULL when any argument is; otherwise as wide as all of them.
+         concrete = tuple(item for item in values if not _typed_null(item))
+         if (
+-            family != "postgres"
++            family not in {"postgres", "mysql"}
+             or len(values) < 2
+             or tag != "Text"
+             or not concrete
+@@ -2744,12 +2742,12 @@ def value_nodes(value) -> tuple[Any, ...]:
+     return _value_nodes(value, render_order=False)
+ 
+ 
+-def rendered_value_nodes(value) -> tuple[Any, ...]:
++def rendered_value_nodes(value, family=None) -> tuple[Any, ...]:
+     """Preorder image of one admitted tree in SQL rendering order."""
+-    return _value_nodes(value, render_order=True)
++    return _value_nodes(value, render_order=True, family=family)
+ 
+ 
+-def _value_nodes(value, *, render_order) -> tuple[Any, ...]:
++def _value_nodes(value, *, render_order, family=None) -> tuple[Any, ...]:
+     if type(value) in {SQLStageReference, SQLCapturedReference}:
+         return (value,)
+     if type(value) is SQLBlockRead:
+@@ -2762,7 +2760,7 @@ def _value_nodes(value, *, render_order) -> tuple[Any, ...]:
+                     *value.operands,
+                     *((value.predicate,) if value.predicate is not None else ()),
+                 )
+-                for node in _value_nodes(operand, render_order=render_order)
++                for node in _value_nodes(operand, render_order=render_order, family=family)
+             ),
+         )
+     if type(value) is SQLListOperation:
+@@ -2771,7 +2769,7 @@ def _value_nodes(value, *, render_order) -> tuple[Any, ...]:
+             *(
+                 node
+                 for operand in value.operands
+-                for node in _value_nodes(operand, render_order=render_order)
++                for node in _value_nodes(operand, render_order=render_order, family=family)
+             ),
+         )
+     if type(value) is SQLOperation:
+@@ -2784,8 +2782,15 @@ def _value_nodes(value, *, render_order) -> tuple[Any, ...]:
+             if render_order
+             else value.operands
+         )
++        if (
++            render_order
++            and family == "mysql"
++            and value.kind == "scalar_call"
++            and value.original.callee_symbol.name == "lpad"
++        ):
++            operands = tuple(value.operands[index] for index in (0, 1, 0, 0, 1, 2))
+         for operand in operands:
+-            result.extend(_value_nodes(operand, render_order=render_order))
++            result.extend(_value_nodes(operand, render_order=render_order, family=family))
+         return tuple(result)
+     return (value,)
+ 
+diff --git a/src/pietto/_project/project_sql_emission_verification.py b/src/pietto/_project/project_sql_emission_verification.py
+index f375d03f..42bca216 100644
+--- a/src/pietto/_project/project_sql_emission_verification.py
++++ b/src/pietto/_project/project_sql_emission_verification.py
+@@ -7416,8 +7416,8 @@ def verify_row_bytes(query, rendered):
+                         "replace": "replace",
+                         "abs": "abs",
+                         "nullif": "NULLIF",
+-                        "coalesce": "COALESCE",
+-                        "concat": "",
++                    "coalesce": "COALESCE",
++                    "concat": "",
+                     },
+                     "mysql": {
+                         "lower": "LOWER",
+@@ -7428,16 +7428,17 @@ def verify_row_bytes(query, rendered):
+                         "abs": "ABS",
+                         "nullif": "NULLIF",
+                         "coalesce": "COALESCE",
++                    "concat": "CONCAT",
+                     },
+                 }[query.request.family].get(name)
+                 if name == "now":
+-                    if query.request.family != "postgres" or value.operands:
++                    if value.operands:
+                         raise ValueError("scalar call family")
+                     take(
+                         "syntax",
+                         "scalar_call_open",
+                         reference,
+-                        "(statement_timestamp() AT TIME ZONE 'UTC'",
++                        "(statement_timestamp() AT TIME ZONE 'UTC'" if query.request.family == "postgres" else "UTC_TIMESTAMP(6" if query.request.family == "mysql" else "",
+                     )
+                     take("syntax", "scalar_call_close", reference, ")")
+                     spans.append(("scalar_call", reference, start, offset))
+@@ -7502,31 +7503,48 @@ def verify_row_bytes(query, rendered):
+                     return
+                 if name in {"lpad", "add_months"}:
+                     texts, positions = {
+-                        "lpad": (
+-                            (
+-                                "(CASE WHEN length(",
+-                                ") >= ",
+-                                " THEN ",
+-                                " ELSE lpad(",
+-                                ", CAST(",
+-                                " AS pg_catalog.int4), ",
+-                                ") END)",
++                        "postgres": {
++                            "lpad": (
++                                (
++                                    "(CASE WHEN length(",
++                                    ") >= ",
++                                    " THEN ",
++                                    " ELSE lpad(",
++                                    ", CAST(",
++                                    " AS pg_catalog.int4), ",
++                                    ") END)",
++                                ),
++                                (0, 1, 0, 0, 1, 2),
+                             ),
+-                            (0, 1, 0, 0, 1, 2),
+-                        ),
+-                        "add_months": (
+-                            (
+-                                "CAST((",
+-                                " + make_interval(months => CAST(",
+-                                " AS pg_catalog.int4))) AS date)",
++                            "add_months": (
++                                (
++                                    "CAST((",
++                                    " + make_interval(months => CAST(",
++                                    " AS pg_catalog.int4))) AS date)",
++                                ),
++                                (0, 1),
+                             ),
+-                            (0, 1),
+-                        ),
+-                    }[name]
+-                    if (
+-                        query.request.family != "postgres"
+-                        or len(value.operands) != max(positions) + 1
+-                    ):
++                        },
++                        "mysql": {
++                            "lpad": (
++                                (
++                                    "CASE WHEN CHAR_LENGTH(",
++                                    ") >= ",
++                                    " THEN ",
++                                    " ELSE LPAD(",
++                                    ", ",
++                                    ", ",
++                                    ") END",
++                                ),
++                                (0, 1, 0, 0, 1, 2),
++                            ),
++                            "add_months": (
++                                ("DATE_ADD(", ", INTERVAL ", " MONTH)"),
++                                (0, 1),
++                            ),
++                        },
++                    }[query.request.family][name]
++                    if len(value.operands) != max(positions) + 1:
+                         raise ValueError("scalar call family")
+                     for index, text in enumerate(texts):
+                         take(
+diff --git a/tests/_pietto_sql_emission.py b/tests/_pietto_sql_emission.py
+index b79cc8ad..fa57cf0f 100644
+--- a/tests/_pietto_sql_emission.py
++++ b/tests/_pietto_sql_emission.py
+@@ -8165,6 +8165,9 @@ def _decode_fixed_public(document, limits):
+                 # `now()`, PostgreSQL only, without operands.
+                 _need(family == "postgres", "now family")
+                 operands, name, close = [], "now", ")"
++            elif opening == "UTC_TIMESTAMP(6":
++                _need(family == "mysql", "now family")
++                operands, name, close = [], "now", ")"
+             elif opening == "(":
+                 # PostgreSQL `concat` and `same_value` both open with `(`; the
+                 # separator after the first operand tells them apart.
+@@ -9138,10 +9141,10 @@ def _decode_fixed_public(document, limits):
+             nonlocal nullable
+             if name == "now":
+                 # The statement's UTC start, never NULL.
+-                _need(family == "postgres" and not operands, "now carrier")
++                _need(family in {"postgres", "mysql"} and not operands, "now carrier")
+                 return {
+                     "tag": "Timestamp",
+-                    "storage": {"kind": "pg_timestamp", "fractional_seconds": 6},
++                    "storage": {"kind": "pg_timestamp" if family == "postgres" else "my_datetime", "fractional_seconds": 6},
+                     "nullable": False,
+                     "domain": {"kind": "timestamp"},
+                 }
+diff --git a/tests/test_sql_project_scalar_expressions.py b/tests/test_sql_project_scalar_expressions.py
+index 87616943..e51b40d4 100644
+--- a/tests/test_sql_project_scalar_expressions.py
++++ b/tests/test_sql_project_scalar_expressions.py
+@@ -719,15 +719,15 @@ def test_q1_timestamp_civil_parts_preserve_the_exact_timestamp6_carrier(
+         assert "AS SIGNED)" in sql
+ 
+ 
+-_NOW_SQL = "(statement_timestamp() AT TIME ZONE 'UTC')"
++_NOW_SQL = {
++    "postgres": "(statement_timestamp() AT TIME ZONE 'UTC')",
++    "mysql": "UTC_TIMESTAMP(6)",
++}
+ 
+ 
+ @pytest.mark.parametrize("target", TARGETS)
+ def test_now_is_one_utc_statement_snapshot_evaluated_at_execution(tmp_path, target):
+-    """Project PostgreSQL emits `now()` as the statement's UTC start, a
+-    never-None microsecond Timestamp, in SELECT items and WHERE; the compiled
+-    bundle and the live template keep the expression, never a value. A MySQL
+-    project refuses it until a run of the project's own SQL."""
++    """`now()` is a UTC statement-start Timestamp retained by both forms."""
+     outcome = emit_temporal(
+         tmp_path / target,
+         target,
+@@ -741,15 +741,6 @@ def test_now_is_one_utc_statement_snapshot_evaluated_at_execution(tmp_path, targ
+ """,
+     )
+ 
+-    if target == "mysql":
+-        assert outcome.status == "BLOCKED" and outcome.artifact is None
+-        assert [
+-            (blocker["code"], blocker["subject"]["detail"])
+-            for blocker in probe.decode_public(serialize_project_sql_emission(outcome))[
+-                "blockers"
+-            ]
+-        ] == [("PIE-B1003", "scalar_call_signature_not_admitted")]
+-        return
+     assert outcome.status == "VERIFIED" and outcome.artifact is not None
+     artifact = outcome.artifact
+     assert verify_project_sql_emission(artifact, artifact.request).verified
+@@ -763,9 +754,13 @@ def test_now_is_one_utc_statement_snapshot_evaluated_at_execution(tmp_path, targ
+         observed.canonical_bytes, artifact, artifact.request
+     ).corresponds
+     sql = artifact.rendered.sql.decode()
+-    assert sql.count(_NOW_SQL) == 3
+-    assert f'WHERE ("s0"."stamp" <= {_NOW_SQL})' in sql
+-    assert f'{_NOW_SQL} AS "seen", CAST({_NOW_SQL} AS date) AS "day"' in sql
++    now_sql = _NOW_SQL[target]
++    quote = '"' if target == "postgres" else "`"
++    stamp = '"s0"."stamp"' if target == "postgres" else "`s0`.`stamp`"
++    assert sql.count(now_sql) == 3
++    assert f"WHERE ({stamp} <= {now_sql})" in sql
++    day_sql = f"CAST({now_sql} AS date)" if target == "postgres" else f"DATE({now_sql})"
++    assert f"{now_sql} AS {quote}seen{quote}, {day_sql} AS {quote}day{quote}" in sql
+     document = probe.decode_public(serialize_project_sql_emission(outcome))
+     columns = {column["label"]: column for column in document["columns"]}
+     assert (columns["seen"]["logical_type"]["name"], columns["seen"]["nullable"]) == (
+@@ -785,7 +780,7 @@ def test_now_is_one_utc_statement_snapshot_evaluated_at_execution(tmp_path, targ
+         accepted_producer=built.producer,
+         accepted_compatibility=built.compatibility,
+     )
+-    assert emit_compiled(loaded, ()).request.family == "postgres"
++    assert emit_compiled(loaded, ()).request.family == target
+     template = prepare_live_template(artifact)
+     assert template.artifact.rendered.sql.decode() == sql
+     assert template.slots == ()
+@@ -1391,24 +1386,12 @@ def test_concat_of_only_none_stays_fail_closed(tmp_path):
+     ),
+     ids=("let_and_select", "where", "def_body"),
+ )
+-def test_mysql_project_sql_refuses_concat(tmp_path, body, location):
+-    """MySQL types a CONCAT from its arguments' storage lengths and counts a
+-    literal's UTF-8 bytes, not from the declared widths, so MySQL project SQL
+-    refuses `concat`, as it refuses `round` and `date_trunc`; single-file
+-    MySQL SQL renders CONCAT."""
++def test_mysql_project_sql_emits_concat(tmp_path, body, location):
+     checked, outcome = emit(tmp_path, "mysql", body)
+-    assert checked.verified
++    assert checked.verified and outcome.status == "VERIFIED", outcome.blockers
+     document = json.loads(serialize_project_sql_emission(outcome))
+-    assert document["status"] == "BLOCKED" and document["diagnostics"] == []
+-    assert [
+-        (
+-            b["code"],
+-            b["subject"]["detail"],
+-            b["location"]["line"],
+-            b["location"]["column"],
+-        )
+-        for b in document["blockers"]
+-    ] == [("PIE-B1003", "scalar_call_signature_not_admitted", *location)]
++    assert document["status"] == "VERIFIED" and document["diagnostics"] == []
++    assert "CONCAT(" in document["sql"]
+ 
+ 
+ LPAD_BODY = """table result:
+@@ -1425,12 +1408,13 @@ ADD_MONTHS_BODY = """    from rows
+ """
+ 
+ 
+-def test_postgres_lpad_and_add_months_project_forms_are_verified(tmp_path):
++@pytest.mark.parametrize("target", TARGETS)
++def test_lpad_and_add_months_project_forms_are_verified(tmp_path, target):
+     """`lpad` is as wide as its text or its width, as it never truncates;
+     `add_months` keeps the Date carrier. Both pass the portable boundary."""
+-    checked, padded = emit(tmp_path / "pad", "postgres", LPAD_BODY)
++    checked, padded = emit(tmp_path / "pad", target, LPAD_BODY)
+     dated_checked, dated = probe.temporal_case(
+-        tmp_path / "date", "postgres", ADD_MONTHS_BODY
++        tmp_path / "date", target, ADD_MONTHS_BODY
+     )
+     for plan, outcome in ((checked, padded), (dated_checked, dated)):
+         assert plan.verified and outcome.status == "VERIFIED", outcome.blockers
+@@ -1445,8 +1429,12 @@ def test_postgres_lpad_and_add_months_project_forms_are_verified(tmp_path):
+         )
+     assert padded.artifact is not None and dated.artifact is not None
+     sql = padded.artifact.rendered.sql.decode()
+-    assert sql.count("(CASE WHEN length(") == 2
+-    assert sql.count(" AS pg_catalog.int4), CAST(") == 2
++    if target == "postgres":
++        assert sql.count("(CASE WHEN length(") == 2
++        assert sql.count(" AS pg_catalog.int4), CAST(") == 2
++    else:
++        assert sql.count("CASE WHEN CHAR_LENGTH(") == 2
++        assert sql.count(" ELSE LPAD(") == 2
+     widths = [
+         column.value.realization.domain["max_characters"]
+         for body in row_query(padded.artifact).bodies
+@@ -1455,14 +1443,19 @@ def test_postgres_lpad_and_add_months_project_forms_are_verified(tmp_path):
+     ]
+     assert widths == [64, 100]
+     sql = dated.artifact.rendered.sql.decode()
+-    assert sql.count(" + make_interval(months => CAST(") == 3
+-    assert sql.count(" AS pg_catalog.int4))) AS date)") == 3
++    if target == "postgres":
++        assert sql.count(" + make_interval(months => CAST(") == 3
++        assert sql.count(" AS pg_catalog.int4))) AS date)") == 3
++    else:
++        assert sql.count("DATE_ADD(") == 3
++        assert sql.count(" INTERVAL ") == 3
+ 
+ 
+-def test_postgres_lpad_refuses_a_width_outside_int4(tmp_path):
++@pytest.mark.parametrize("target", TARGETS)
++def test_lpad_refuses_a_width_outside_int4(tmp_path, target):
+     checked, outcome = emit(
+         tmp_path,
+-        "postgres",
++        target,
+         'table result:\n    from rows\n    select:\n        p = lpad(text, id, "0")\n',
+     )
+     assert checked.verified and outcome.status == "BLOCKED"
+@@ -1471,22 +1464,71 @@ def test_postgres_lpad_refuses_a_width_outside_int4(tmp_path):
+     ]
+ 
+ 
+-def test_mysql_project_sql_refuses_lpad_and_add_months(tmp_path):
+-    """MySQL project SQL refuses both until the two-database differential
+-    admits them; single-file MySQL SQL renders LPAD and DATE_ADD."""
++def test_mysql_project_sql_emits_lpad_and_add_months(tmp_path):
+     checked, padded = emit(tmp_path / "pad", "mysql", LPAD_BODY)
+     dated_checked, dated = probe.temporal_case(
+         tmp_path / "date", "mysql", ADD_MONTHS_BODY
+     )
+-    for plan, outcome, lines in (
+-        (checked, padded, (11, 12)),
+-        (dated_checked, dated, (12, 13, 14)),
++    for plan, outcome, marker in (
++        (checked, padded, "LPAD("),
++        (dated_checked, dated, "DATE_ADD("),
+     ):
+-        assert plan.verified
+-        assert public_blockers(outcome) == [
+-            ("PIE-B1003", "scalar_call_signature_not_admitted", line, 9)
+-            for line in lines
+-        ]
++        assert plan.verified and outcome.status == "VERIFIED", outcome.blockers
++        assert outcome.artifact is not None
++        assert marker.encode() in outcome.artifact.rendered.sql
++
++
++def test_mysql_s12_conditional_text_is_replayed_and_conditional_date_stays_refused(tmp_path):
++    """Text and Int-width conditionals preserve each repeated SQL occurrence;
++    Date/month conditionals remain outside the selected scalar boundary."""
++    checked, text = emit(
++        tmp_path / "text",
++        "mysql",
++        """table result:
++    from rows
++    let chosen = text if flag else "雪"
++    let width = 5 if flag else 3
++    select:
++        joined = concat(chosen, "-", "-")
++        padded = lpad(text, width, "雪")
++""",
++        policy="bind_safe_literals",
++    )
++    assert checked.verified and text.status == "VERIFIED", text.blockers
++    assert text.artifact is not None
++    sql = text.artifact.rendered.sql.decode()
++    assert "CONCAT(" in sql and "CASE WHEN" in sql and "LPAD(" in sql
++    observed = portable.export_emission_observation(text.artifact, text.artifact.request)
++    assert observed.canonical_bytes is not None
++    assert pure.parse_emission_observation(observed.canonical_bytes).status is pure.Status.OK
++    from pietto._project.project_compiled_build import build_compiled
++    from pietto._project.project_compiled_loading import load_compiled
++    from pietto._project.project_compiled_lowering import emit_compiled
++    from pietto._project.project_execution_template import prepare_live_template
++
++    built = build_compiled(text.artifact)
++    loaded = load_compiled(
++        built.payload,
++        expected_pin=built.pin,
++        accepted_producer=built.producer,
++        accepted_compatibility=built.compatibility,
++    )
++    assert emit_compiled(loaded, tuple(value.value for value in text.artifact.fixed_values)).rendered.sql == text.artifact.rendered.sql
++    template = prepare_live_template(text.artifact)
++    assert [slot.tag for slot in template.slots] == ["Text", "Int", "Int"]
++
++    _, date = probe.temporal_case(
++        tmp_path / "date",
++        "mysql",
++        """    from rows
++    let chosen_date = d if d == d else d2
++    let months = 1 if d == d else 2
++    select:
++        moved = add_months(chosen_date, months)
++""",
++    )
++    assert date.status == "BLOCKED" and date.artifact is None
++    assert [blocker.detail for blocker in date.blockers] == ["conditional_realization_not_admitted"]
+ 
+ 
+ @pytest.mark.parametrize("target", TARGETS)

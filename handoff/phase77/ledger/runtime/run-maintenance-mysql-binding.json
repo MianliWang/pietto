@@ -1,0 +1,15 @@
+{
+  "candidate": "/home/mianliwang/projects/pietto/.cache/phase77-recovery/candidates/maintenance",
+  "candidate_manifest": "/home/mianliwang/projects/pietto/.cache/phase77-recovery/runtime/candidate-artifacts-rebind-manifest.json",
+  "expected_binding": "/home/mianliwang/projects/pietto/.cache/phase77-recovery/evidence/mysql-maintenance-preflight-20261109T000000-0500/expected-binding.json",
+  "format": "pietto.phase77.run-maintenance-mysql-binding.v1",
+  "house_directory": "/home/mianliwang/projects/pietto/.cache/phase77-recovery/evidence/mysql-maintenance-preflight-20261109T000000-0500/house/pietto-phase68-slice18-wheelhouse",
+  "house_parent": "/home/mianliwang/projects/pietto/.cache/phase77-recovery/evidence/mysql-maintenance-preflight-20261109T000000-0500/house",
+  "interpreter": "/home/mianliwang/projects/pietto/.cache/phase77-recovery/runtime/venvs/native/bin/python",
+  "lock": "/tmp/claude-1000/pietto-docker-campaign-mysql.lock",
+  "manifest": "/home/mianliwang/projects/pietto/.cache/phase77-recovery/runtime/wheelhouse-rebind-manifest.json",
+  "otel_house": "/home/mianliwang/projects/pietto/.cache/phase77-recovery/evidence/mysql-maintenance-preflight-20261109T000000-0500/otel-house",
+  "status": "PREPARED_NO_DB_EXECUTION",
+  "wheel": "/home/mianliwang/projects/pietto/.cache/phase77-recovery/runtime/dist/pietto-0.1.10-py3-none-any.whl",
+  "wheel_sha256": "f4c96921c4d4ceb057830f2dd21f2e634325dac2bef933532747ae4aab963a73"
+}

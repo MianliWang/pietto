@@ -1,0 +1,20 @@
+{
+  "artifact": "pietto.phase77.numeric.recovered-source-integrity.v1",
+  "method": "static extraction of archived apply_patch literals and saved command output; no archived command was executed",
+  "v2": {
+    "p77_mysql_numeric_probe.py": {"sha256": "afd07a0f4e557d3c2c9c599e4d571e5516ad3b94f285c964756022b52a0737a1", "source": "records/mysql_numeric_probe.jsonl patch sequence, including lines 2178, 2191, 2209", "historical_file_bytes": "not retained"},
+    "manifest.json": {"sha256": "35af4112417e72688dc06d31f5ef64e302c1c05cc11f7d699831ae9d4ef3954e", "source": "deterministically regenerated from recovered probe via --write-manifest", "historical_file_bytes": "not retained"},
+    "materialize_endpoint.py": {"sha256": "13c976e3b6e24ea76cb54ebc40598f9c5265c8c7ca02237d811adc02e13d7b2c", "source": "records/mysql_numeric_probe.jsonl static patch sequence", "historical_file_bytes": "not retained"},
+    "numeric_pg_hook.sh": {"sha256": "562a011cc1588dead7c4d53fdfdb7671d356d4ce65ab3304d25e989e726c4800", "source": "records/mysql_numeric_probe.jsonl static patch sequence", "historical_file_bytes": "not retained"}
+  },
+  "pg_parent_r4": {
+    "pg.sh": {"sha256": "6fd643a95b5112b9259e39bd4066355430f2be8f339bae1ecb9420552db81633", "source": "maintenance_pg_db saved output line 2889 plus R4 patches through line 4006", "historical_file_bytes": "partially retained as output plus complete patches"},
+    "parent_receipt.py": {"sha256": "b822bd50b1dfde52866483ac0f3a81f8bc91fd7502a876682b7b039a1df14ec8", "source": "maintenance_pg_db full add/update patches", "historical_file_bytes": "hash appears in historic package log"},
+    "parent_judge.py": {"sha256": "1dbcc48f416fe7fcb9c2e112ff43c3b55b99d13fa1aa2b25185910f1ef3c0710", "source": "maintenance_pg_db full add/update patches", "historical_file_bytes": "hash appears in historic package log"},
+    "materialize_endpoint.py": {"sha256": "8dc6be8b08e819e84b0ecf456a47ef3e046bf4be0b697ab567f85e88be91f9ab", "source": "v2 source copied then PG R4 patch sequence", "historical_file_bytes": "not retained"},
+    "numeric_pg_hook.sh": {"sha256": "c393cead09a399f7e9b278b76cc80fff372ce96f1dd360ed90aab4bb62b90d25", "source": "v2 source copied then PG R3/R4 patches", "historical_file_bytes": "not retained"},
+    "relay.py": {"sha256": "dd3cb68067887ee80acd5801c4ea3c9f1b701daef89a3a11d2e4dff329b55754", "source": "archived Phase76 db-run2 relay.py", "historical_file_bytes": "matches R4 preflight expected hash"},
+    "gen-tls.sh": {"sha256": "02a3b9ecc30e867dec9650e9d688fe8567a6b7b25ed608f04f5555c58e131c29", "source": "archived Phase76 db-run2 gen-tls.sh plus R4 path-only patch", "historical_file_bytes": "base bytes retained; output path intentionally retargeted"}
+  },
+  "excluded": ["raw receipts", "raw logs", "endpoint JSON", "TLS private keys", "database passwords", "candidate wheel and patch"]
+}

@@ -1,0 +1,544 @@
+diff --git a/src/pietto/_project/project_compiled_verification.py b/src/pietto/_project/project_compiled_verification.py
+index 5114e364..24400ca8 100644
+--- a/src/pietto/_project/project_compiled_verification.py
++++ b/src/pietto/_project/project_compiled_verification.py
+@@ -1469,6 +1469,9 @@ def verify_description(value: Description) -> None:
+                     # The distinct tuples of two or more fields.
+                     or get("function") == "count_distinct_tuple"
+                     and len(arguments) > 1
++                    and all(argument.address.kind == "read" for argument in arguments)
++                    and len({argument.get("port") for argument in arguments})
++                    == len(arguments)
+                     and not order_by
+                     or get("function")
+                     in (
+diff --git a/src/pietto/_project/project_sql_emission_aggregation.py b/src/pietto/_project/project_sql_emission_aggregation.py
+index 7e4d3c1c..19c92044 100644
+--- a/src/pietto/_project/project_sql_emission_aggregation.py
++++ b/src/pietto/_project/project_sql_emission_aggregation.py
+@@ -51,8 +51,8 @@ SPELLING = {
+     # of a sum in the `delimiter` slot.
+     "filtered_count": "COUNT",
+     "filtered_sum": "SUM",
+-    # PostgreSQL only: COUNT(DISTINCT CASE WHEN a IS NOT NULL AND b IS NOT NULL
+-    # THEN ROW(a, b) END), `count_distinct(a, b, ...)`: its first field is the
++    # PostgreSQL: COUNT(DISTINCT CASE WHEN a IS NOT NULL AND b IS NOT NULL
++    # THEN ROW(a, b) END); MySQL: COUNT(DISTINCT a, b). Its first field is the
+     # `argument`, the others are `extra_arguments`.
+     "count_distinct_tuple": "COUNT",
+     # PostgreSQL only, the test of a group: (COUNT(CASE WHEN test THEN 1 END)
+@@ -656,6 +656,18 @@ def argument_problem(function: str, argument, family: str):
+     return resolved_argument_problem(function, direct, argument.realization, family)
+ 
+ 
++def count_distinct_tuple_members_are_distinct(members) -> bool:
++    """Whether tuple members name distinct direct stage occurrences."""
++    ports = []
++    for member in members:
++        if type(member) is not rows.SQLStageReference or any(
++            member.port is port for port in ports
++        ):
++            return False
++        ports.append(member.port)
++    return len(ports) > 1
++
++
+ def filtered_problem(function: str, argument, test, family: str):
+     """The argument law of a conditional count, ``filtered_count`` over its
+     test alone, of a test of the group, ``group_any`` or ``group_all`` over
+@@ -772,13 +784,13 @@ def resolved_argument_problem(
+     A port that is not a direct reference is a row operation, judged by its
+     carrier as a direct one is: each caller refuses any other argument first."""
+     if function == "count_distinct_tuple":
+-        # Each field of a PostgreSQL distinct-tuple count is an established
+-        # direct field that `count_distinct(x)` counts, compared field by field
+-        # in an anonymous record with that type's equality.
+-        if family != "postgres":
+-            return "PIE-B1003", "count_distinct_tuple_not_admitted_on_target"
++        # Each field is an established direct field that `count_distinct(x)`
++        # counts. MySQL opens only its independently reviewed Int/Bool/Text
++        # carriers; its Float/Decimal and temporal tuple proofs remain closed.
+         if not direct_reference:
+             return "PIE-B1003", "aggregate_argument_not_a_direct_established_field"
++        if family == "mysql" and realization.tag not in {"Int", "Bool", "Text"}:
++            return "PIE-B1003", "count_distinct_tuple_not_admitted_on_target"
+         function = "count_distinct"
+     if function in ORDERED_VALUE_FUNCTIONS:
+         # ARRAY_AGG keeps one row's value of any admitted carrier exactly.
+@@ -1270,16 +1282,6 @@ def build_stage(
+         delimiter = None
+         extra_arguments = ()
+         if function == "count_distinct_tuple":
+-            if family != "postgres":
+-                return (
+-                    None,
+-                    (
+-                        "PIE-B1003",
+-                        "count_distinct_tuple_not_admitted_on_target",
+-                        value.ref,
+-                        location,
+-                    ),
+-                )
+             realized = []
+             for argument_ref in value.arguments:
+                 current, problem = rows.build_row_value(
+@@ -1669,7 +1671,9 @@ def build_compiled_stage(plan, record, arguments):
+             elif function == "count_distinct_tuple":
+                 # Every field of a distinct-tuple count, the first included.
+                 if (
+-                    not delimiters
++                    not count_distinct_tuple_members_are_distinct(
++                        (argument, *delimiters)
++                    )
+                     or order_by
+                     or any(
+                         argument_problem(
+diff --git a/src/pietto/_project/project_sql_emission_pure_boundary.py b/src/pietto/_project/project_sql_emission_pure_boundary.py
+index 44547fac..77b712b3 100644
+--- a/src/pietto/_project/project_sql_emission_pure_boundary.py
++++ b/src/pietto/_project/project_sql_emission_pure_boundary.py
+@@ -2214,17 +2214,27 @@ class _Check:
+                     "quantile shape",
+                 )
+             elif column["function"] == "count_distinct_tuple":
+-                # PostgreSQL only: two or more established direct fields,
+-                # counted DISTINCT as one anonymous record.
++                # Two or more established direct fields, counted DISTINCT as
++                # a PostgreSQL anonymous record or native MySQL arguments.
++                members = (column["argument"], *column["extra_arguments"])
+                 _require(
+-                    family == "postgres"
++                    family in {"postgres", "mysql"}
+                     and column["distinct"] is True
+-                    and column["argument"] is not None
+-                    and column["argument"].kind == "sql_stage_reference"
+-                    and bool(column["extra_arguments"])
++                    and len(members) > 1
+                     and all(
+-                        member.kind == "sql_stage_reference"
+-                        for member in column["extra_arguments"]
++                        member is not None and member.kind == "sql_stage_reference"
++                        for member in members
++                    )
++                    and len({doc[member]["port"] for member in members if member is not None})
++                    == len(members)
++                    and (
++                        family != "mysql"
++                        or all(
++                            (realization := _value_realization(doc, member)) is not None
++                            and realization.get("tag") in {"Int", "Bool", "Text"}
++                            and _is_key_value(realization, family)
++                            for member in members
++                        )
+                     )
+                     and column["delimiter"] is None
+                     and not column["order_by"],
+@@ -3191,16 +3201,26 @@ class _Tokens:
+                 )
+             elif column["function"] == "count_distinct_tuple":
+                 count = 1 + len(column["extra_arguments"])
+-                expected = [
+-                    ("aggregate_open", "COUNT("),
+-                    ("aggregate_distinct", "DISTINCT "),
+-                    ("aggregate_tuple_open", "CASE WHEN "),
+-                    *[("aggregate_tuple_and", " IS NOT NULL AND ")] * (count - 1),
+-                    ("aggregate_tuple_then", " IS NOT NULL THEN ROW("),
+-                    *[("aggregate_separator", ", ")] * (count - 1),
+-                    ("aggregate_tuple_close", ") END"),
+-                    ("aggregate_close", ")"),
+-                ]
++                expected = (
++                    [
++                        ("aggregate_open", "COUNT("),
++                        ("aggregate_distinct", "DISTINCT "),
++                        *[("aggregate_separator", ", ")] * (count - 1),
++                        ("aggregate_close", ")"),
++                    ]
++                    if family == "mysql"
++                    else [
++                        ("aggregate_open", "COUNT("),
++                        ("aggregate_distinct", "DISTINCT "),
++                        ("aggregate_tuple_open", "CASE WHEN "),
++                        *[("aggregate_tuple_and", " IS NOT NULL AND ")]
++                        * (count - 1),
++                        ("aggregate_tuple_then", " IS NOT NULL THEN ROW("),
++                        *[("aggregate_separator", ", ")] * (count - 1),
++                        ("aggregate_tuple_close", ") END"),
++                        ("aggregate_close", ")"),
++                    ]
++                )
+                 _require(
+                     aggregate_tokens == expected, "count_distinct_tuple token sequence"
+                 )
+diff --git a/src/pietto/_project/project_sql_emission_rendering.py b/src/pietto/_project/project_sql_emission_rendering.py
+index 5952b41f..7da5c104 100644
+--- a/src/pietto/_project/project_sql_emission_rendering.py
++++ b/src/pietto/_project/project_sql_emission_rendering.py
+@@ -1197,8 +1197,8 @@ def _aggregate_value(w: _Writer, column, alias) -> None:
+             text, role = rendered_direction(column.function, item.direction)
+             w.emit(text, "syntax", role, reference)
+     elif column.function == "count_distinct_tuple":
+-        # COUNT(DISTINCT CASE WHEN a IS NOT NULL AND b IS NOT NULL THEN ROW(a, b)
+-        # END): a row with any NULL field counts nothing.
++        # PostgreSQL's CASE/ROW and MySQL's multi-argument COUNT both omit a
++        # row when any field is NULL.
+         members = (column.argument, *column.extra_arguments)
+         if (
+             not column.distinct
+@@ -1209,21 +1209,27 @@ def _aggregate_value(w: _Writer, column, alias) -> None:
+         ):
+             raise ValueError("unrenderable count_distinct_tuple")
+         w.emit("DISTINCT ", "syntax", "aggregate_distinct", reference)
+-        w.emit("CASE WHEN ", "syntax", "aggregate_tuple_open", reference)
+-        for position, member in enumerate(members):
+-            w.scalar(member, alias)
+-            last = position == len(members) - 1
+-            w.emit(
+-                " IS NOT NULL THEN ROW(" if last else " IS NOT NULL AND ",
+-                "syntax",
+-                "aggregate_tuple_then" if last else "aggregate_tuple_and",
+-                reference,
+-            )
+-        for position, member in enumerate(members):
+-            if position:
+-                w.emit(", ", "syntax", "aggregate_separator", reference)
+-            w.scalar(member, alias)
+-        w.emit(") END", "syntax", "aggregate_tuple_close", reference)
++        if w.request.family == "mysql":
++            for position, member in enumerate(members):
++                if position:
++                    w.emit(", ", "syntax", "aggregate_separator", reference)
++                w.scalar(member, alias)
++        else:
++            w.emit("CASE WHEN ", "syntax", "aggregate_tuple_open", reference)
++            for position, member in enumerate(members):
++                w.scalar(member, alias)
++                last = position == len(members) - 1
++                w.emit(
++                    " IS NOT NULL THEN ROW(" if last else " IS NOT NULL AND ",
++                    "syntax",
++                    "aggregate_tuple_then" if last else "aggregate_tuple_and",
++                    reference,
++                )
++            for position, member in enumerate(members):
++                if position:
++                    w.emit(", ", "syntax", "aggregate_separator", reference)
++                w.scalar(member, alias)
++            w.emit(") END", "syntax", "aggregate_tuple_close", reference)
+     elif column.function in QUANTILE_FUNCTIONS:
+         # PERCENTILE_CONT(fraction) WITHIN GROUP (ORDER BY CAST(x AS float8)).
+         if (
+diff --git a/src/pietto/_project/project_sql_emission_suggestions.py b/src/pietto/_project/project_sql_emission_suggestions.py
+index 24d27258..7fac923c 100644
+--- a/src/pietto/_project/project_sql_emission_suggestions.py
++++ b/src/pietto/_project/project_sql_emission_suggestions.py
+@@ -476,7 +476,7 @@ _ACTIONS = {
+     "offset_range_requires_exactly_one_order_key": "Use exactly one reviewed ORDER key for an offset RANGE frame, or keep this frame in check/plan.",
+     "offset_range_requires_a_non_null_order_key": "Use a non-null signed-Int ORDER key for an offset RANGE frame; do not declare a nullable source non-null in the contract.",
+     "offset_range_requires_a_signed_int_order_key": "Use a signed-Int ORDER key for an offset RANGE frame, or keep the frame in check/plan.",
+-    "count_distinct_tuple_not_admitted_on_target": "Emit this count_distinct of several columns for PostgreSQL, or keep it in check/plan: a project's MySQL emission has no COUNT(DISTINCT a, b) yet (a single file emits it).",
++    "count_distinct_tuple_not_admitted_on_target": "A project's MySQL emission accepts count_distinct of several columns only for direct Int, Bool or Text fields; keep another carrier tuple in check/plan.",
+     "first_last_not_admitted_on_target": "Emit this first or last for PostgreSQL, or keep it in check/plan: MySQL has no ordered first or last yet.",
+     "quantile_not_admitted_on_target": "Emit this median or quantile for PostgreSQL, or keep it in check/plan: MySQL has no interpolated percentile.",
+     "stddev_int_not_admitted_on_target": "Emit this Int stddev for PostgreSQL, or keep it in check/plan: MySQL computes an integer deviation in DOUBLE, which loses Int accuracy; casting the input does not restore it.",
+diff --git a/src/pietto/_project/project_sql_emission_verification.py b/src/pietto/_project/project_sql_emission_verification.py
+index f375d03f..59712b8e 100644
+--- a/src/pietto/_project/project_sql_emission_verification.py
++++ b/src/pietto/_project/project_sql_emission_verification.py
+@@ -2527,7 +2527,10 @@ def _verify_aggregate_body(
+         argument = column.argument
+         if function == "count_distinct_tuple":
+             members = (argument, *column.extra_arguments)
+-            if request.family != "postgres" or len(members) != len(value.arguments):
++            if (
++                len(members) != len(value.arguments)
++                or not grouping.count_distinct_tuple_members_are_distinct(members)
++            ):
+                 raise ValueError("count_distinct_tuple arguments")
+             for member, expected_ref in zip(members, value.arguments, strict=True):
+                 _verify_row_value(
+@@ -8415,28 +8418,34 @@ def verify_row_bytes(query, rendered):
+                 ):
+                     raise ValueError("count_distinct_tuple rendering")
+                 take("syntax", "aggregate_distinct", reference, "DISTINCT ")
+-                take("syntax", "aggregate_tuple_open", reference, "CASE WHEN ")
+-                for position, member in enumerate(members):
+-                    scalar(member, alias)
+-                    if position == len(members) - 1:
+-                        take(
+-                            "syntax",
+-                            "aggregate_tuple_then",
+-                            reference,
+-                            " IS NOT NULL THEN ROW(",
+-                        )
+-                    else:
+-                        take(
+-                            "syntax",
+-                            "aggregate_tuple_and",
+-                            reference,
+-                            " IS NOT NULL AND ",
+-                        )
+-                for position, member in enumerate(members):
+-                    if position:
+-                        take("syntax", "aggregate_separator", reference, ", ")
+-                    scalar(member, alias)
+-                take("syntax", "aggregate_tuple_close", reference, ") END")
++                if request.family == "mysql":
++                    for position, member in enumerate(members):
++                        if position:
++                            take("syntax", "aggregate_separator", reference, ", ")
++                        scalar(member, alias)
++                else:
++                    take("syntax", "aggregate_tuple_open", reference, "CASE WHEN ")
++                    for position, member in enumerate(members):
++                        scalar(member, alias)
++                        if position == len(members) - 1:
++                            take(
++                                "syntax",
++                                "aggregate_tuple_then",
++                                reference,
++                                " IS NOT NULL THEN ROW(",
++                            )
++                        else:
++                            take(
++                                "syntax",
++                                "aggregate_tuple_and",
++                                reference,
++                                " IS NOT NULL AND ",
++                            )
++                    for position, member in enumerate(members):
++                        if position:
++                            take("syntax", "aggregate_separator", reference, ", ")
++                        scalar(member, alias)
++                    take("syntax", "aggregate_tuple_close", reference, ") END")
+             elif column.function in grouping.QUANTILE_FUNCTIONS:
+                 if (
+                     column.distinct
+diff --git a/tests/_pietto_sql_emission.py b/tests/_pietto_sql_emission.py
+index b79cc8ad..f0f357c8 100644
+--- a/tests/_pietto_sql_emission.py
++++ b/tests/_pietto_sql_emission.py
+@@ -4584,7 +4584,8 @@ PER_TARGET_STATUS = {
+                 "sum_float",
+                 "avg_float",
+                 "inline_arguments",
+-                # MySQL keeps a project COUNT(DISTINCT a, b) refused.
++                # This mixed fixture retains Decimal/Float tuple refusals;
++                # direct Int/Bool/Text tuples have their own focused owner.
+                 "count_distinct_tuple",
+             )
+         ),
+@@ -10266,6 +10267,12 @@ def _decode_fixed_public(document, limits):
+                         "aggregate argument cast",
+                     )
+                     argument_cast = token[4:-1]
++                if distinct and spelling == "COUNT(" and family == "mysql":
++                    while peek() == "aggregate_separator":
++                        take("syntax", "aggregate_separator", ", ", subject)
++                        extra_arguments.append(row_parse(block))
++                    if extra_arguments:
++                        function = "count_distinct_tuple"
+         closed, _ = take("syntax", "aggregate_close", ")", subject)
+         if result_cast is not None:
+             _need(
+@@ -11875,7 +11882,12 @@ def _decode_fixed_public(document, limits):
+                             "an aggregate argument is one direct established field",
+                         )
+                         _need(
+-                            argument["tag"] == "Int"
++                            (
++                                node["function"] == "count_distinct_tuple"
++                                and family == "mysql"
++                                and argument["tag"] in {"Int", "Bool", "Text"}
++                            )
++                            or argument["tag"] == "Int"
+                             or (
+                                 family == "postgres"
+                                 and node["function"] == "sum"
+@@ -11954,9 +11966,19 @@ def _decode_fixed_public(document, limits):
+                     _need(
+                         "read" in member
+                         and (
+-                            member["tag"] in {"Int", "Timestamp", "Date", "UUID"}
+-                            or family == "postgres"
+-                            and member["tag"] in {"Float", "Decimal", "Text", "Bool"}
++                            member["tag"] in {"Int", "Bool", "Text"}
++                            if family == "mysql"
++                            else member["tag"]
++                            in {
++                                "Int",
++                                "Timestamp",
++                                "Date",
++                                "UUID",
++                                "Float",
++                                "Decimal",
++                                "Text",
++                                "Bool",
++                            }
+                         ),
+                         "count_distinct_tuple field carrier",
+                     )
+diff --git a/tests/test_execution_compiled_families.py b/tests/test_execution_compiled_families.py
+index 8e425401..4980ec19 100644
+--- a/tests/test_execution_compiled_families.py
++++ b/tests/test_execution_compiled_families.py
+@@ -331,6 +331,71 @@ def test_aggregate_parity_replays_from_compiled_input(
+     ]
+ 
+ 
++def test_mysql_count_distinct_tuple_direct_carriers_replay_from_compiled_input(
++    tmp_path,
++):
++    """The admitted native tuple spelling survives compiled reconstruction
++    without widening the direct Int/Bool/Text carrier boundary."""
++    item = emission.aggregate_fixture("mysql", "X_aggregate_grouped", "hidden")
++    source = emission.AGGREGATE_HEADER.format(target="mysql") + (
++        "table result:\n    from agg\n    select:\n"
++        "        text_flag = count_distinct(label, flag)\n"
++        "        int_text = count_distinct(key, label)\n"
++        "        all_three = count_distinct(key, flag, label)\n"
++    )
++    checked, original = emission.build_case(
++        tmp_path, source, item["contract"], item["policy"]
++    )
++    assert checked.verified and original.status == "VERIFIED", original.blockers
++    assert original.artifact is not None
++    candidate = _compare(original.artifact, refinement=False)
++    assert candidate.rendered.sql == original.artifact.rendered.sql
++    assert candidate.rendered.sql.count(b"COUNT(DISTINCT ") == 3
++    assert b"CASE WHEN" not in candidate.rendered.sql
++
++
++def test_compiled_count_distinct_tuple_rejects_a_duplicate_direct_read(tmp_path):
++    """A forged compiled tuple cannot name one direct source occurrence twice."""
++    from dataclasses import replace
++    from pietto._project.project_compiled_schema import (
++        FIELDS,
++        CompiledError,
++        Record,
++        content_pin,
++        encode,
++    )
++
++    original = build(tmp_path, "postgres", "V_aggregate_blocked", "count_distinct_tuple")
++    assert original.status == "VERIFIED" and original.artifact is not None
++    built = build_compiled(original.artifact)
++    aggregate = next(
++        record
++        for record in built.root.description.records
++        if record.address.kind == "aggregate_value"
++        and record.get("function") == "count_distinct_tuple"
++        and len(record.get("arguments")) == 2
++    )
++    first, *_rest = aggregate.get("arguments")
++    values = list(aggregate.values)
++    values[FIELDS[aggregate.address.kind].index("arguments")] = (first, first)
++    forged = Record(aggregate.address, tuple(values))
++    description = replace(
++        built.root.description,
++        members=tuple(
++            (name, tuple(forged if record.address == forged.address else record for record in members))
++            for name, members in built.root.description.members
++        ),
++    )
++    raw = encode(description)
++    with pytest.raises(CompiledError, match="^COMPILED_AGGREGATE_SIGNATURE$"):
++        load_compiled(
++            raw,
++            expected_pin=content_pin(raw),
++            accepted_producer=built.producer,
++            accepted_compatibility=built.compatibility,
++        )
++
++
+ @pytest.fixture(scope="module")
+ def inline_arguments_bundle(tmp_path_factory):
+     """The PostgreSQL `inline_arguments` bundle, built once: each forgery
+diff --git a/tests/test_harness_sql_emission_portability.py b/tests/test_harness_sql_emission_portability.py
+index d8af03aa..1b193897 100644
+--- a/tests/test_harness_sql_emission_portability.py
++++ b/tests/test_harness_sql_emission_portability.py
+@@ -1004,6 +1004,10 @@ def test_count_distinct_tuple_is_a_closed_data_relation(tmp_path_factory):
+     def dropped(candidate):
+         _records(candidate, "aggregate_value_column")[3]["extra_arguments"].pop()
+ 
++    def duplicated(candidate):
++        column = _records(candidate, "aggregate_value_column")[3]
++        column["extra_arguments"][0] = column["argument"]
++
+     for edit in (
+         field("function", "count_distinct"),
+         field("spelling", "SUM"),
+@@ -1013,6 +1017,10 @@ def test_count_distinct_tuple_is_a_closed_data_relation(tmp_path_factory):
+     # A field the column no longer names is a value record nothing owns.
+     for edit in (field("extra_arguments", []), dropped):
+         assert _status(_mutated(data, edit))[0] is pure.Status.INVALID_REF
++    assert (
++        _status(_mutated(data, duplicated, recanonical=True))[0]
++        is pure.Status.INVALID_RELATION
++    )
+ 
+ 
+ @pytest.mark.parametrize("variant", ("sum_float", "avg_float"))
+diff --git a/tests/test_sql_grouped.py b/tests/test_sql_grouped.py
+index 36dd18b9..5b173515 100644
+--- a/tests/test_sql_grouped.py
++++ b/tests/test_sql_grouped.py
+@@ -129,6 +129,30 @@ def test_postgres_string_agg_compiled_order_keys_keep_scalar_operations(tmp_path
+     assert emit_compiled(loaded, ()).request.family == "postgres"
+ 
+ 
++def test_mysql_count_distinct_tuple_uses_native_direct_int_bool_text_arguments(tmp_path):
++    """MySQL opens only direct Int/Bool/Text tuple carriers and keeps their
++    SQL-native NULL elision; PostgreSQL retains its CASE/ROW spelling."""
++    outcome = emit_source(
++        tmp_path,
++        "mysql",
++        "table result:\n    from agg\n    select:\n"
++        "        text_flag = count_distinct(label, flag)\n"
++        "        int_text = count_distinct(key, label)\n"
++        "        all_three = count_distinct(key, flag, label)\n",
++    )
++    assert outcome.status == "VERIFIED", outcome.blockers
++    data = public(outcome)
++    assert data["status"] == "VERIFIED"
++    assert "COUNT(DISTINCT `s0`.`text ``\"é`, `s0`.`flag value`)" in data["sql"]
++    assert "COUNT(DISTINCT `s0`.`group key`, `s0`.`text ``\"é`)" in data["sql"]
++    assert "CASE WHEN" not in data["sql"] and "ROW(" not in data["sql"]
++    assert [column(data, label)["logical_type"]["name"] for label in (
++        "text_flag",
++        "int_text",
++        "all_three",
++    )] == ["Int"] * 3
++
++
+ @pytest.mark.parametrize("target", TARGETS)
+ def test_a_group_key_over_another_relations_window_result_emits(tmp_path, target):
+     """A GROUP BY key over another table's `rank()` column is that window
+@@ -1709,7 +1733,7 @@ def test_a_float_median_needs_a_finite_result_proof(tmp_path, target):
+             ),
+             ("count",) * 4,
+             [[]] * 4,
+-            [("PIE-B1003", "count_distinct_tuple_not_admitted_on_target")] * 4,
++            [("PIE-B1003", "count_distinct_tuple_not_admitted_on_target")] * 2,
+         ),
+     ),
+ )
+@@ -1768,12 +1792,12 @@ def test_postgres_aggregates_reach_single_file_argument_parity(
+         ] == mysql_blockers
+         assert all(blocker["suggestion"] for blocker in data["blockers"])
+         if variant == "count_distinct_tuple":
+-            # Only the project emitter lacks the spelling (a two-database
+-            # differential passed for the single file's).
++            # MySQL's direct Int/Bool/Text tuple spelling is separate from the
++            # still-unqualified Decimal and Float carriers in this fixture.
+             assert {blocker["suggestion"] for blocker in data["blockers"]} == {
+-                "Emit this count_distinct of several columns for PostgreSQL, or "
+-                "keep it in check/plan: a project's MySQL emission has no "
+-                "COUNT(DISTINCT a, b) yet (a single file emits it)."
++                "A project's MySQL emission accepts count_distinct of several "
++                "columns only for direct Int, Bool or Text fields; keep another "
++                "carrier tuple in check/plan."
+             }
+         return
+     assert outcome.status == "VERIFIED", outcome.blockers

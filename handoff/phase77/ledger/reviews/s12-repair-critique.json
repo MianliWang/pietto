@@ -1,0 +1,40 @@
+{
+ "verdict": "NEEDS_CHANGES",
+ "issues": [
+  {
+   "severity": "medium",
+   "issue": "Plan P reclassifies R1 instead of resolving it, but §0 says it is resolved. Under Plan P the success witness that R1 requires cannot exist by construction: a bindable Text/Int whose own marker sits at a repeated s/width position, for both direct and inline lpad, accepted by the decoder, verifier, compiled path and template. The required 'each rendered marker has its own leaf/use' holds only vacuously, because every artifact where a marker repeats is refused. This needs an explicit owner/reviewer decision before implementation, or the re-review will stay BLOCKED.",
+   "evidence": "Design §0 says 'R1 不再存在'; §12 risk 1 and §11 (Option O = USER_DECISION_REQUIRED) admit the literal witness is not delivered. reviews/s12.md R1 requires '可绑定 Text 或 Int 位于实际重复的 s/width 位置' to succeed on the decoder, verifier, compiled and template paths. The proposed W1 (logs/s12-repair-design-6.log) puts all 4 markers in CTEs p0/p1 and has zero '?' inside either LPAD, so no test exercises a marker at a repeated position. Every inline variant is BLOCKED. Suggested fix: change §0 to 'R1 reclassified (repeated native markers refused on both targets)' and record the decision for acceptance."
+  },
+  {
+   "severity": "medium",
+   "issue": "Undisclosed change to a MySQL public diagnostic. Under Plan P, MySQL sources with a capturing-let read that carries native markers at a repeated lpad position move from the documented refusal PIE-B1003 scalar_call_signature_not_admitted (UNSUPPORTED_RULE, with hint) to PIE-B1008 fixed_value_or_parameter_correspondence (ARTIFACT_INTEGRITY). The design compares these cases only to PostgreSQL base. The refusal now depends on the builder emitting an artifact that its own verifier rejects.",
+   "evidence": "Base logs/s12-repair-design-4.log lines 22-31 and 94-95 (MySQL inline_width, inline_text, header_in_capture_lpad) give [PIE-B1003 scalar_call_signature_not_admitted]. Simulated Plan P logs/s12-repair-design-3.log lines 30-31, 38-39 and 102-103 give [PIE-B1008 fixed_value_or_parameter_correspondence]. docs/spec/diagnostics.md:373 defines B1008 as ARTIFACT_INTEGRITY. The mechanism is verify_row_parameters len(tokens) != len(leaves) (project_sql_emission_verification.py:10024-10031). The design §3 table says only '(PG base 同)', and W2 asserts B1008 for MySQL without calling it a change. Fix: either record and accept this as an intentional MySQL public change, or add an explicit MySQL builder refusal (B1003) for native occurrences under repeated lpad operands. The second option makes MySQL and PG diagnostics differ, which is a trade-off to decide."
+  },
+  {
+   "severity": "medium",
+   "issue": "Outside R1/R2, but kept unchanged by the design (§5.5), and the proposed §7 doc text would claim parity: MySQL returns NULL where Pietto claims a non-null value. MySQL LPAD (and any string function) returns NULL when the result would exceed max_allowed_packet. MySQL DATE_ADD returns NULL past 9999-12-31. The candidate admits any MySQL lpad width within PostgreSQL's int4 bound and keeps nullability from the inputs. Both are wrong facts that do not fail closed. The template path reaches them with ordinary values.",
+   "evidence": "project_sql_emission_rows.py:2504-2528: MySQL lpad accepts any proven width in [-2^31, 2^31-1] and returns _text_result(family, text, nullable, max(...)) with input nullability. LPAD checks count*mbmaxlen against max_allowed_packet (8.0 default 64 MiB, so more than 16,777,216 chars under utf8mb4). lpad(\"ab\", 20000000, \"x\"), or a W1-style template rebinding of width to 20000000, returns NULL on MySQL but a string on PostgreSQL. rows.py:2529-2541: add_months keeps input nullability, but DATE_ADD('9999-12-31', INTERVAL 1 MONTH) is NULL on MySQL (a common SCD2 sentinel). Design §7 proposes 'the same non-truncating candidate shape and the same refusals as PostgreSQL'. This breaks the product law that unknown or conflicting facts fail closed. Needs a MySQL-specific bound or nullable result, or an explicit open item before DB qualification."
+  },
+  {
+   "severity": "low",
+   "issue": "The design overstates the compiled path's independence (§5.3/§5.4). Compiled verification has no token-count law: it checks leaves == uses and recomputes bytes, but not parameter events == leaves. The compiled lowering and the compiled verifier therefore share the walker's blind spot for repeated markers. On PostgreSQL a repeated $k is valid SQL, so this does no harm. On MySQL a repeated '?' is an argument-count defect. Today it is safe only because bundles are built from VERIFIED emissions and pinned by content. The gap already exists for MySQL starts_with/ends_with.",
+   "evidence": "project_compiled_verification.py:6205-6214 (EMISSION_PARAMETER_INVENTORY compares row_parameter_leaves to plan.parameter_uses and used_parameters ids) and 6246 (verify_row_bytes only). project_sql_emission_verification.py:1149-1166 sends CompiledPreparedEmission to verify_compiled_emission and never calls verify_row_parameters. project_compiled_lowering.py:1406-1453 takes uses per authored leaf. Optional hardening: add len([e for e in rendered.events if e.kind == 'parameter']) == len(leaves) to EMISSION_PARAMETER_INVENTORY (no wire change, no change for valid bundles), or state that the guarantee relies on provenance."
+  },
+  {
+   "severity": "low",
+   "issue": "The shape of the R3 fix. Part of the new MySQL anchored-Text branch ('literal/parameter') can never run: a bound Text parameter cannot be lpad's first operand. The fix also adds a parallel copy of _is_pg_text_value. A single family-parametric anchored-text predicate would be better. The PostgreSQL lpad check must come back byte-for-byte to base.",
+   "evidence": "project_sql_plan_literals.py:492-493: any CallExpr ancestor gives CALL_ARGUMENT, so no bound literal is ever an lpad operand. PIE-S2355 refuses header parameters in lpad (docs/spec/diagnostics.md:262). The candidate swapped _is_pg_text_value/_is_pg_text_input for _is_key_value, which maps to _is_pg_order_value (project_sql_emission_pure_boundary.py:1871-1882 vs 971-1009 and 1153). _value_realization (pure_boundary.py:764-857) has a Text anchor image only for pg_text, which is the real root cause of 'lpad realization' on MySQL (logs/s12-repair-design-6.log)."
+  },
+  {
+   "severity": "low",
+   "issue": "The design substitutes the pure boundary plus verify_emission_observation for the test-side public decoder, because probe.decode_public cannot decode lpad or add_months on either target. This is acceptable, but it needs explicit reviewer acceptance, since R1 names the public canonical decoder among the required success oracles.",
+   "evidence": "tests/_pietto_sql_emission.py:8288-8294 ('closed scalar call spelling') has no lpad or add_months opening for either family. Design §9 ('未纳入') and §12 risk 4 note this, and logs 2 and 4 show PG lpad already fails there on base. No PostgreSQL byte change and no compiled wire change were found. Checked: the walker revert restores base, and native_use records stay one per use (project_sql_plan.py:5887-5909). All rendered-order consumers are covered once the walker is family-free: ast:3062, verification:9451, ast:3742, binding_verification:651, guard_preparation:237, compiled:6209, the serializer strict zip (project_sql_emission.py:1158-1162), guard_rendering:72, inspection:207 and portable:955-969. The candidate also mixed chain positions from the family-free walker with rendered positions from the family-aware walker in collect (ast.py:2179-2191); the revert removes that too."
+  },
+  {
+   "severity": "low",
+   "issue": "Budget accounting. This is a note, not a defect.",
+   "evidence": "F = 0 (no pytest launched). D = 43 read-only outer shell commands (git status/diff, grep, sed, cat/ls of existing logs). No ruff run and no logs written, because no pytest or ruff command was executed. Nothing was edited in the candidate clone or the canonical repo."
+  }
+ ]
+}

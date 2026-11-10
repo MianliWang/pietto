@@ -1,0 +1,985 @@
+*** Begin Patch
+*** Add File: /tmp/p77-stats-probe/README.md
++# Phase77 S04/S05 raw statistics probe
++
++Status: `PRE_RUN / NOT_PIETTO_QUALIFIED`. This directory is an owned, stdlib-only
++preparation for one later raw PostgreSQL/MySQL campaign. It does not start
++Docker, discover an endpoint, compile Pietto, or assert that a raw SQL result
++opens an emitter or reader path.
++
++`stats_probe.py --selfcheck` validates the static plan and judge without a
++database. A future owner supplies `--run --endpoint ENDPOINT.json --table NAME`
++only after the resource parent freezes the image, endpoint, session settings,
++owned table lifetime and engine lock. The driver requires an explicit endpoint;
++it has no default DSN, environment lookup, container command or network path.
++
++Every `(engine, function, case)` record holds the exact SQL, bound parameters,
++seed readback, normalized column metadata, warnings and either one result row
++or a terminal error. Float seeds and observed values use `float.hex()`; Int
++seeds remain decimal integers. The judge rejects missing metadata or warnings,
++non-singleton rows, NULL shape mistakes, NaN/infinity, unexpected warning-only
++conversion, and terminal errors that claim delivered rows.
++
++The Int statistics oracle uses exact `Fraction` arithmetic and the existing
++language bounds: `epsilon * variance` and `2 * epsilon * deviation`. The Float
++statistics oracle computes its independent binary64-image truth with `Decimal`
++and applies the existing magnitude/count/spread bounds separately for deviation
++and variance. `SUM`/`AVG` use no invented epsilon: successful finite values are
++recorded by exact bits only, while empty/all-null and terminal observations are
++judged by their declared shape.
++
++The raw plan contains `VAR_SAMP(CAST(value AS DECIMAL(65,0)))` for MySQL Int
++statistics only as reconnaissance. It is not an approved Pietto lowering.
+*** Add File: /tmp/p77-stats-probe/stats_probe.py
++"""Raw S04/S05 stats campaign plan, future driver and independent judge.
++
++No database work happens unless the future owner passes --run explicitly.
++"""
++
++from __future__ import annotations
++
++import argparse
++from dataclasses import dataclass
++from decimal import Decimal, localcontext
++from fractions import Fraction
++import json
++import math
++from pathlib import Path
++import random
++import re
++from typing import Any
++
++
++EPSILON = Decimal(2) ** -52
++TABLE_PATTERN = re.compile(r"^p77_stats_[a-z0-9_]+$")
++STAT_FUNCTIONS = ("stddev", "variance", "pvariance", "pstdev")
++SUM_AVG_FUNCTIONS = ("sum", "avg")
++
++
++@dataclass(frozen=True, slots=True)
++class Cell:
++    name: str
++    kind: str
++    values: tuple[int | float | None, ...]
++    terminal_statistics: bool = False
++    terminal_sum_avg: bool = False
++
++
++def _seeded_ints() -> tuple[int, ...]:
++    rng = random.Random(72)
++    return tuple(rng.randint(-(10**6), 10**6) for _ in range(10_000))
++
++
++INT_CELLS = (
++    Cell("I0", "Int", ()),
++    Cell("I1", "Int", (7,)),
++    Cell("I1N", "Int", (7, None, None)),
++    Cell("IN", "Int", (None, None)),
++    Cell("I2", "Int", (1, 2)),
++    Cell("M8", "Int", (2, 4, 4, 4, 5, 5, 7, 9)),
++    Cell("I53", "Int", tuple((1 << 53) + offset for offset in (1, 3, 5))),
++    Cell("I64", "Int", (-(1 << 63), (1 << 63) - 1)),
++    Cell("IS", "Int", (0, 100_000_000)),
++    Cell("IN10K", "Int", _seeded_ints()),
++)
++FLOAT_CELLS = (
++    Cell("F0", "Float", ()),
++    Cell("FN", "Float", (None, None)),
++    Cell("F1", "Float", (1.5,)),
++    Cell("F2", "Float", (1.0, 2.0)),
++    Cell("F3", "Float", (0.1, 0.2, 0.3)),
++    Cell("FZ", "Float", (-0.0, 0.0)),
++    Cell("FO", "Float", (1e9 + 0.1, 1e9 + 0.1, 1e9 + 0.1, 1e9 + 0.2)),
++    Cell("FL", "Float", (1e150, 3e150, 5e150)),
++    Cell("FT", "Float", (1e-300, 3e-300, 5e-300)),
++    Cell("FOVER_SUM", "Float", (1.7e308, 1.7e308), terminal_sum_avg=True),
++    Cell("O1", "Float", (1e200, -1e200)),
++    Cell("O2", "Float", (1.7e308, -1.7e308), terminal_statistics=True),
++)
++
++
++def encoded_value(value: int | float | None) -> int | str | None:
++    if value is None or type(value) is int:
++        return value
++    if type(value) is float:
++        return value.hex()
++    raise TypeError("seed value")
++
++
++def decoded_value(value: int | str | None, kind: str) -> int | float | None:
++    if value is None:
++        return None
++    if kind == "Int" and type(value) is int:
++        return value
++    if kind == "Float" and type(value) is str:
++        return float.fromhex(value)
++    raise ValueError("seed encoding")
++
++
++def cell_by_name(name: str) -> Cell:
++    for cell in (*INT_CELLS, *FLOAT_CELLS):
++        if cell.name == name:
++            return cell
++    raise ValueError("unknown cell")
++
++
++def sql(engine: str, function: str, kind: str, table: str) -> tuple[str, str, str, str]:
++    if engine not in {"postgres", "mysql"} or function not in {
++        *STAT_FUNCTIONS,
++        *SUM_AVG_FUNCTIONS,
++    }:
++        raise ValueError("engine/function")
++    if not TABLE_PATTERN.fullmatch(table):
++        raise ValueError("owned table name")
++    if engine == "postgres":
++        quote, placeholder, field = '"', "%s", "DOUBLE PRECISION" if kind == "Float" else "BIGINT"
++        table_name = f'{quote}{table}{quote}'
++        value = '"value"'
++    else:
++        quote, placeholder, field = "`", "%s", "DOUBLE" if kind == "Float" else "BIGINT"
++        table_name = f'{quote}{table}{quote}'
++        value = "`value`"
++    create = f"CREATE TABLE {table_name} ({quote}ordinal{quote} INTEGER NOT NULL, {value} {field} NULL)"
++    insert = f"INSERT INTO {table_name} ({quote}ordinal{quote}, {value}) VALUES ({placeholder}, {placeholder})"
++    readback = f"SELECT {quote}ordinal{quote}, {value} FROM {table_name} ORDER BY {quote}ordinal{quote}"
++    argument = value if kind == "Float" or engine == "postgres" else f"CAST({value} AS DECIMAL(65,0))"
++    expression = {
++        "sum": f"SUM({value})",
++        "avg": f"AVG({value})",
++        "stddev": f"STDDEV_SAMP({argument})",
++        "variance": f"VAR_SAMP({argument})",
++        "pvariance": f"VAR_POP({argument})",
++        "pstdev": f"STDDEV_POP({argument})",
++    }[function]
++    return create, insert, readback, f"SELECT {expression} AS {quote}result{quote} FROM {table_name}"
++
++
++def _present(cell: Cell) -> list[Decimal]:
++    return [
++        Decimal(value) if cell.kind == "Int" else Decimal.from_float(value)
++        for value in cell.values
++        if value is not None
++    ]
++
++
++def _variance(values: list[Decimal], population: bool) -> Decimal | None:
++    if not values or (not population and len(values) < 2):
++        return None
++    with localcontext() as context:
++        context.prec = 1300
++        mean = sum(values) / Decimal(len(values))
++        return sum((value - mean) ** 2 for value in values) / Decimal(
++            len(values) if population else len(values) - 1
++        )
++
++
++def statistic_truth(cell: Cell, function: str) -> Decimal | None:
++    values = _present(cell)
++    population = function in {"pvariance", "pstdev"}
++    variance = _variance(values, population)
++    if variance is None:
++        return None
++    if function in {"variance", "pvariance"}:
++        return variance
++    with localcontext() as context:
++        context.prec = 1300
++        return variance.sqrt()
++
++
++def statistic_bound(cell: Cell, function: str, truth: Decimal) -> Decimal:
++    if truth == 0:
++        return Decimal(0)
++    if cell.kind == "Int":
++        return (EPSILON if function in {"variance", "pvariance"} else 2 * EPSILON) * truth
++    values = _present(cell)
++    count = len(values)
++    with localcontext() as context:
++        context.prec = 1300
++        rms = (sum(value * value for value in values) / Decimal(count - 1)).sqrt()
++        deviation = truth if function in {"stddev", "pstdev"} else truth.sqrt()
++        deviation_bound = 4 * EPSILON * deviation + 8 * count * EPSILON * rms + 2 * (Decimal(count) * (Decimal(2) ** -1074)).sqrt()
++        return deviation_bound if function in {"stddev", "pstdev"} else 2 * deviation * deviation_bound
++
++
++def _float_value(value: object) -> float:
++    if type(value) is not float or not math.isfinite(value):
++        raise ValueError("finite binary64 result required")
++    return value
++
++
++def _metadata(value: object) -> list[dict[str, object]]:
++    if type(value) is not list or len(value) != 1 or type(value[0]) is not dict:
++        raise ValueError("one result metadata record required")
++    item = value[0]
++    if "type_code" not in item or "flags" not in item or item["type_code"] is None:
++        raise ValueError("result metadata incomplete")
++    return value
++
++
++def _seed_readback(cell: Cell, value: object) -> None:
++    if type(value) is not list or len(value) != len(cell.values):
++        raise ValueError("seed readback cardinality")
++    expected = [encoded_value(item) for item in cell.values]
++    actual = []
++    for ordinal, item in enumerate(value):
++        if type(item) is not dict or item.get("ordinal") != ordinal or "value" not in item:
++            raise ValueError("seed readback shape")
++        decoded = decoded_value(item["value"], cell.kind)
++        actual.append(encoded_value(decoded))
++    if actual != expected:
++        raise ValueError("seed readback identity")
++
++
++def validate(record: object) -> str:
++    if type(record) is not dict:
++        raise ValueError("record object")
++    required = {"engine", "function", "case", "seed", "sql", "params", "seed_readback", "metadata", "warnings", "outcome"}
++    if set(record) != required:
++        raise ValueError("record keys")
++    engine, function = record["engine"], record["function"]
++    if engine not in {"postgres", "mysql"} or function not in {*STAT_FUNCTIONS, *SUM_AVG_FUNCTIONS}:
++        raise ValueError("record engine/function")
++    cell = cell_by_name(str(record["case"]))
++    if record["seed"] != [encoded_value(value) for value in cell.values]:
++        raise ValueError("seed record")
++    if type(record["sql"]) is not str or type(record["params"]) is not list:
++        raise ValueError("sql/params")
++    if type(record["warnings"]) is not list:
++        raise ValueError("warnings required")
++    if record["warnings"]:
++        raise ValueError("warning-only conversion rejected")
++    _seed_readback(cell, record["seed_readback"])
++    outcome = record["outcome"]
++    if type(outcome) is not dict or set(outcome) != {"status", "rows", "error"}:
++        raise ValueError("outcome shape")
++    if outcome["status"] == "error":
++        if outcome["rows"] != [] or type(outcome["error"]) is not dict:
++            raise ValueError("terminal error must have no rows and an error record")
++        if not any(outcome["error"].get(key) is not None for key in ("sqlstate", "errno", "message")):
++            raise ValueError("terminal error identity")
++        if cell.terminal_statistics and function in STAT_FUNCTIONS:
++            return "terminal-observed"
++        if cell.terminal_sum_avg and function in SUM_AVG_FUNCTIONS:
++            return "terminal-observed"
++        raise ValueError("unexpected terminal error")
++    if outcome["status"] != "row" or outcome["error"] is not None:
++        raise ValueError("row outcome")
++    _metadata(record["metadata"])
++    rows = outcome["rows"]
++    if type(rows) is not list or len(rows) != 1 or type(rows[0]) is not list or len(rows[0]) != 1:
++        raise ValueError("single aggregate row")
++    observed = rows[0][0]
++    if function in SUM_AVG_FUNCTIONS:
++        if not _present(cell):
++            if observed is not None:
++                raise ValueError("sum/avg NULL shape")
++            return "raw-null-observed"
++        _float_value(observed)
++        return "raw-bits-observed"
++    truth = statistic_truth(cell, function)
++    if truth is None:
++        if observed is not None:
++            raise ValueError("statistic NULL shape")
++        return "statistic-null"
++    observed_float = _float_value(observed)
++    observed_decimal = Decimal.from_float(observed_float)
++    if truth == 0:
++        if observed_float != 0.0:
++            raise ValueError("exact zero statistic")
++        return "statistic-zero"
++    if cell.kind == "Float" and (
++        (function in {"variance", "pvariance"} and truth < Decimal("1e-322"))
++        or (function in {"stddev", "pstdev"} and truth < Decimal("1e-161"))
++    ) and observed_float == 0.0:
++        return "statistic-underflow-observed"
++    if abs(observed_decimal - truth) > statistic_bound(cell, function, truth):
++        raise ValueError("statistic spread bound")
++    return "statistic-bounded"
++
++
++def _description(item: object) -> dict[str, object]:
++    if hasattr(item, "name"):
++        return {"name": item.name, "type_code": getattr(item, "type_code", None), "flags": getattr(item, "flags", None)}
++    if type(item) is tuple and len(item) >= 2:
++        return {"name": item[0], "type_code": item[1], "flags": item[7] if len(item) > 7 else None}
++    raise ValueError("driver description")
++
++
++def _warnings(connection: object, engine: str) -> list[dict[str, object]]:
++    if engine == "postgres":
++        return []
++    cursor = connection.cursor()
++    try:
++        cursor.execute("SHOW WARNINGS")
++        return [
++            {"level": row[0], "code": row[1], "message": row[2]}
++            for row in cursor.fetchall()
++        ]
++    finally:
++        cursor.close()
++
++
++def _connect(engine: str, endpoint: dict[str, object]):
++    if engine == "postgres":
++        import psycopg
++
++        return psycopg.connect(str(endpoint["dsn"]))
++    import mysql.connector
++
++    return mysql.connector.connect(**endpoint)
++
++
++def run(engine: str, endpoint_path: Path, table: str, output: Path) -> None:
++    endpoint = json.loads(endpoint_path.read_text(encoding="utf-8"))
++    if type(endpoint) is not dict:
++        raise ValueError("endpoint object")
++    connection = _connect(engine, endpoint)
++    try:
++        for cell in (*INT_CELLS, *FLOAT_CELLS):
++            for function in (*STAT_FUNCTIONS, *SUM_AVG_FUNCTIONS):
++                if cell.kind == "Int" and function in SUM_AVG_FUNCTIONS:
++                    continue
++                if cell.terminal_statistics and function in SUM_AVG_FUNCTIONS:
++                    continue
++                if cell.terminal_sum_avg and function in STAT_FUNCTIONS:
++                    continue
++                create, insert, readback, statement = sql(engine, function, cell.kind, table)
++                cursor = connection.cursor()
++                try:
++                    cursor.execute(f"DROP TABLE IF EXISTS {'`' if engine == 'mysql' else chr(34)}{table}{'`' if engine == 'mysql' else chr(34)}")
++                    cursor.execute(create)
++                    for ordinal, value in enumerate(cell.values):
++                        cursor.execute(insert, (ordinal, value))
++                    cursor.execute(readback)
++                    seed_readback = [
++                        {"ordinal": row[0], "value": encoded_value(row[1])}
++                        for row in cursor.fetchall()
++                    ]
++                    cursor.execute(statement)
++                    rows = [[encoded_value(value) if type(value) is float else value for value in row] for row in cursor.fetchall()]
++                    record = {
++                        "engine": engine,
++                        "function": function,
++                        "case": cell.name,
++                        "seed": [encoded_value(value) for value in cell.values],
++                        "sql": statement,
++                        "params": [],
++                        "seed_readback": seed_readback,
++                        "metadata": [_description(item) for item in cursor.description],
++                        "warnings": _warnings(connection, engine),
++                        "outcome": {"status": "row", "rows": rows, "error": None},
++                    }
++                except Exception as error:
++                    record = {
++                        "engine": engine,
++                        "function": function,
++                        "case": cell.name,
++                        "seed": [encoded_value(value) for value in cell.values],
++                        "sql": statement,
++                        "params": [],
++                        "seed_readback": [],
++                        "metadata": [],
++                        "warnings": _warnings(connection, engine),
++                        "outcome": {
++                            "status": "error",
++                            "rows": [],
++                            "error": {"sqlstate": getattr(error, "sqlstate", None), "errno": getattr(error, "errno", None), "message": str(error)},
++                        },
++                    }
++                finally:
++                    cursor.close()
++                record["judge"] = validate(record)
++                output.write_text(json.dumps(record, sort_keys=True) + "\n", encoding="utf-8")
++    finally:
++        connection.close()
++
++
++def _record(cell: Cell, function: str, value: object) -> dict[str, object]:
++    return {
++        "engine": "postgres",
++        "function": function,
++        "case": cell.name,
++        "seed": [encoded_value(item) for item in cell.values],
++        "sql": "SELECT candidate",
++        "params": [],
++        "seed_readback": [{"ordinal": index, "value": encoded_value(item)} for index, item in enumerate(cell.values)],
++        "metadata": [{"name": "result", "type_code": 701, "flags": None}],
++        "warnings": [],
++        "outcome": {"status": "row", "rows": [[value]], "error": None},
++    }
++
++
++def _reject(record: dict[str, object]) -> None:
++    try:
++        validate(record)
++    except ValueError:
++        return
++    raise AssertionError("malformed record was accepted")
++
++
++def selfcheck() -> None:
++    int_cell = cell_by_name("I2")
++    int_truth = statistic_truth(int_cell, "variance")
++    assert int_truth is not None
++    good = _record(int_cell, "variance", float(int_truth))
++    assert validate(good) == "statistic-bounded"
++    missing_warnings = dict(good)
++    missing_warnings.pop("warnings")
++    _reject(missing_warnings)
++    missing_metadata = dict(good)
++    missing_metadata["metadata"] = []
++    _reject(missing_metadata)
++    wrong_arity = dict(good)
++    wrong_arity["outcome"] = {"status": "row", "rows": [[1.0, 2.0]], "error": None}
++    _reject(wrong_arity)
++    wrong_null = _record(cell_by_name("F0"), "sum", 0.0)
++    _reject(wrong_null)
++    for invalid in (math.nan, math.inf, -math.inf):
++        _reject(_record(cell_by_name("F3"), "sum", invalid))
++    _reject(_record(int_cell, "variance", 100.0))
++    terminal = _record(cell_by_name("FOVER_SUM"), "sum", None)
++    terminal["outcome"] = {"status": "error", "rows": [[1.0]], "error": {"sqlstate": "22003", "errno": None, "message": "overflow"}}
++    _reject(terminal)
++    print("selfcheck: pass")
++
++
++def main() -> int:
++    parser = argparse.ArgumentParser()
++    parser.add_argument("--selfcheck", action="store_true")
++    parser.add_argument("--run", action="store_true")
++    parser.add_argument("--engine", choices=("postgres", "mysql"))
++    parser.add_argument("--endpoint", type=Path)
++    parser.add_argument("--table")
++    parser.add_argument("--output", type=Path)
++    args = parser.parse_args()
++    if args.selfcheck:
++        selfcheck()
++        return 0
++    if not args.run or not all((args.engine, args.endpoint, args.table, args.output)):
++        parser.error("--run --engine --endpoint --table --output are required for a future DB run")
++    run(args.engine, args.endpoint, args.table, args.output)
++    return 0
++
++
++if __name__ == "__main__":
++    raise SystemExit(main())
+*** End Patch
+
+*** Begin Patch
+*** Update File: /tmp/p77-stats-probe/stats_probe.py
+@@
+ def _float_value(value: object) -> float:
++    if type(value) is str:
++        value = float.fromhex(value)
+     if type(value) is not float or not math.isfinite(value):
+@@
+-def run(engine: str, endpoint_path: Path, table: str, output: Path) -> None:
++def run(engine: str, endpoint_path: Path, table: str, output: Path) -> None:
+@@
+-    connection = _connect(engine, endpoint)
++    if output.exists():
++        raise ValueError("owned output directory already exists")
++    output.mkdir(mode=0o700, parents=True)
++    connection = _connect(engine, endpoint)
+@@
+-                    record = {
++                    record = {
+@@
+-                            "error": {"sqlstate": getattr(error, "sqlstate", None), "errno": getattr(error, "errno", None), "message": str(error)},
++                            "error": {"sqlstate": getattr(error, "sqlstate", None), "errno": getattr(error, "errno", None), "message": type(error).__name__},
+@@
+-                record["judge"] = validate(record)
+-                output.write_text(json.dumps(record, sort_keys=True) + "\n", encoding="utf-8")
++                record["judge"] = validate(record)
++                (output / f"{engine}-{function}-{cell.name}.json").write_text(
++                    json.dumps(record, sort_keys=True) + "\n", encoding="utf-8"
++                )
+     finally:
+-        connection.close()
++        try:
++            cursor = connection.cursor()
++            try:
++                quote = "`" if engine == "mysql" else '"'
++                cursor.execute(f"DROP TABLE IF EXISTS {quote}{table}{quote}")
++            finally:
++                cursor.close()
++        finally:
++            connection.close()
+*** End Patch
+
+*** Begin Patch
+*** Update File: /tmp/p77-stats-probe/stats_probe.py
+@@
+ def encoded_value(value: int | float | None) -> int | str | None:
+@@
+     raise TypeError("seed value")
++
++
++def encoded_result(value: object) -> object:
++    if type(value) is float:
++        return value.hex()
++    if value is None or type(value) in {int, str, bool}:
++        return value
++    if type(value) is Decimal:
++        return {"decimal": format(value, "f")}
++    return {"type": type(value).__name__, "repr": repr(value)}
+@@
+-                    rows = [[encoded_value(value) if type(value) is float else value for value in row] for row in cursor.fetchall()]
++                    rows = [[encoded_result(value) for value in row] for row in cursor.fetchall()]
+@@
+-                record["judge"] = validate(record)
++                try:
++                    record["judge"] = {"status": "RAW_OBSERVATION", "result": validate(record)}
++                except ValueError as error:
++                    record["judge"] = {"status": "REJECTED", "reason": str(error)}
+*** End Patch
+
+*** Begin Patch
+*** Add File: /tmp/p77-stats-probe/PLAN.md
++# S04/S05 raw-stats plan
++
++This plan prepares `C77-float-stat`, a future raw target observation package.
++It is not a Pietto SQL test, an emitter proof, a database qualification or a
++two-database differential result.
++
++## Fixed records
++
++For every applicable `(engine, function, case)`, the driver writes one JSON
++record after the future resource parent supplies an endpoint and owned output
++directory. A record includes:
++
++1. `engine`, `function`, `case`, exact raw `sql`, bound `params`, and the
++   value seed. `IN10K` is regenerated from `random.Random(72)`.
++2. An ordinal readback of the inserted seed: Int values are exact JSON
++   integers; Float values are `float.hex()` strings, including the zero sign.
++3. One normalized result-column metadata entry with `name`, `type_code` and
++   `flags`; all target warnings; and either one one-column row or a terminal
++   error containing only SQLSTATE/errno/exception type.
++4. A local judge result. `RAW_OBSERVATION` says only that the raw result meets
++   its narrow precondition; `REJECTED` retains a nonconforming primitive result.
++
++The output directory must be absent before the run. The driver creates it with
++mode 0700, creates its exact owned table, and drops that table in `finally`.
++The resource parent still owns endpoint creation, engine lock, image identity,
++session SQL mode, time ceiling, container cleanup, raw receipt and campaign
++manifest. This driver has no Docker command, default endpoint or environment
++credential lookup.
++
++## Raw SQL matrix
++
++| Pietto function | PostgreSQL primitive | MySQL Float primitive | MySQL Int reconnaissance only |
++| --- | --- | --- | --- |
++| `stddev` | `STDDEV_SAMP(value)` | `STDDEV_SAMP(value)` | `STDDEV_SAMP(CAST(value AS DECIMAL(65,0)))` |
++| `variance` | `VAR_SAMP(value)` | `VAR_SAMP(value)` | `VAR_SAMP(CAST(value AS DECIMAL(65,0)))` |
++| `pvariance` | `VAR_POP(value)` | `VAR_POP(value)` | `VAR_POP(CAST(value AS DECIMAL(65,0)))` |
++| `pstdev` | `STDDEV_POP(value)` | `STDDEV_POP(value)` | `STDDEV_POP(CAST(value AS DECIMAL(65,0)))` |
++| `sum` / `avg` | raw `SUM(value)` / `AVG(value)` on Float only | same | not in S04/S05 probe |
++
++The MySQL Int expressions deliberately prove nothing beyond primitive behavior:
++their output carrier, warning posture, precision and terminal behavior decide
++whether an emitter proposal is possible. `STD`, `STDDEV` and `VARIANCE` never
++appear because their sample/population aliases disagree across targets.
++
++## Cell matrix and judge
++
++S04 Int statistics use `I0`, `I1`, `I1N`, `IN`, `I2`, `M8`, `I53`, `I64`,
++`IS` and the fixed `IN10K` seed. Empty/all-NULL, sample/population cardinality,
++NULL skipping, direct-BIGINT precision loss, signed endpoints and accumulation
++are all distinct cells. The oracle uses exact `Fraction`/`Decimal` truth. It
++accepts Int variance only within `epsilon * variance` and deviation only
++within `2 * epsilon * deviation`, with exact zero exact.
++
++S05 Float statistics and SUM/AVG use `F0`, `FN`, `F1`, `F2`, `F3`, `FZ`,
++`FO`, `FL`, `FT`, `FOVER_SUM`, `O1` and `O2`. Float statistics use the existing
++language magnitude/count/spread law: the deviation bound is
++`4*epsilon*s + 8*n*epsilon*r + 2*sqrt(n*2^-1074)` and the separate variance
++bound is `2*s*deviation_bound`. Documented very-small variance/deviation may
++underflow to zero. `O2` statistics must terminate without rows.
++
++SUM/AVG have no closeness or ULP tolerance in this plan. Empty/all-NULL must be
++NULL; successful nonempty results must be finite binary64 and are preserved as
++bits. `FOVER_SUM` may record a zero-row terminal or a finite result, but never
++an infinity, NaN, warning-only conversion or a delivered row after terminal.
++
++## Preconditions for a future `--run`
++
++The future resource-parent invocation must use an endpoint JSON file outside
++the record output. PostgreSQL expects `{"dsn": "..."}`; MySQL expects the
++keyword arguments accepted by `mysql.connector.connect`. The endpoint file is
++never copied into a record or error message. The resource parent freezes the
++real image, server version, session settings, source candidate and any emitted
++Pietto SQL separately. A raw record does not satisfy any of those product
++closures.
++
++Before a future run, execute `stats_probe.py --selfcheck`; it rejects missing
++warnings/metadata, bad seed readback, wrong arity, NULL mismatch, NaN, infinity,
+out-of-bound statistics and errors that claim rows. This has passed locally
++with CPython 3.13.13 and performs no connection.
+*** End Patch
+
+*** Begin Patch
+*** Add File: /tmp/p77-stats-probe/PLAN.md
++# S04/S05 raw-stats plan
++
++This prepares `C77-float-stat`, a future raw target observation package. It is
++not a Pietto SQL test, emitter proof, database qualification or differential
++result.
++
++## Fixed records
++
++For every applicable `(engine, function, case)`, the future driver writes one
++JSON record with exact raw SQL, bound parameters, seed, ordinal seed readback,
++metadata, warnings and either one one-column row or terminal error. `IN10K`
++uses `random.Random(72)`. Int seeds remain JSON integers; Float seeds and raw
++results use `float.hex()`, preserving zero sign. Terminal errors retain only
++SQLSTATE, errno and exception type.
++
++The output directory must be absent; the driver creates it 0700 and drops its
++owned table in `finally`. The resource parent still owns endpoint creation,
++engine lock, image identity, SQL mode, time ceiling, container cleanup, raw
++receipt and campaign manifest. This driver has no Docker command, default
++endpoint or environment credential lookup.
++
++## Raw SQL matrix
++
++| Pietto function | PostgreSQL primitive | MySQL Float primitive | MySQL Int reconnaissance only |
++| --- | --- | --- | --- |
++| `stddev` | `STDDEV_SAMP(value)` | `STDDEV_SAMP(value)` | `STDDEV_SAMP(CAST(value AS DECIMAL(65,0)))` |
++| `variance` | `VAR_SAMP(value)` | `VAR_SAMP(value)` | `VAR_SAMP(CAST(value AS DECIMAL(65,0)))` |
++| `pvariance` | `VAR_POP(value)` | `VAR_POP(value)` | `VAR_POP(CAST(value AS DECIMAL(65,0)))` |
++| `pstdev` | `STDDEV_POP(value)` | `STDDEV_POP(value)` | `STDDEV_POP(CAST(value AS DECIMAL(65,0)))` |
++| `sum` / `avg` | raw `SUM(value)` / `AVG(value)` on Float only | same | not in this probe |
++
++The MySQL Int expressions prove only primitive behavior. Their carrier,
++warnings, precision and terminal behavior decide whether an emitter proposal
++is possible. `STD`, `STDDEV` and `VARIANCE` never appear because their
++sample/population aliases disagree across targets.
++
++## Cell matrix and judge
++
++S04 Int statistics use `I0`, `I1`, `I1N`, `IN`, `I2`, `M8`, `I53`, `I64`,
++`IS` and `IN10K`. The exact `Fraction`/`Decimal` truth accepts Int variance
++only within `epsilon * variance` and deviation only within
++`2 * epsilon * deviation`; zero remains exact.
++
++S05 Float statistics and SUM/AVG use `F0`, `FN`, `F1`, `F2`, `F3`, `FZ`,
++`FO`, `FL`, `FT`, `FOVER_SUM`, `O1` and `O2`. The existing Float deviation
++bound is `4*epsilon*s + 8*n*epsilon*r + 2*sqrt(n*2^-1074)`; variance has its
++own `2*s*deviation_bound` rule. Documented tiny Float statistics may underflow
++to zero. `O2` statistics must terminate with no rows.
++
++SUM/AVG have no new closeness or ULP tolerance. Empty/all-NULL must be NULL;
++successful nonempty results must be finite binary64 and are preserved as bits.
++`FOVER_SUM` may record a zero-row terminal or a finite result, never infinity,
++NaN, warning-only conversion or a row after terminal.
++
++## Future `--run` preconditions
++
++The endpoint JSON stays outside the output: PostgreSQL expects `{"dsn":"..."}`;
++MySQL expects `mysql.connector.connect` keyword arguments. It is never copied
++into a record or error. The future resource parent separately freezes images,
++server/session identity, source candidate and emitted Pietto SQL. A raw record
++does not close any product reader, compiler or qualification boundary.
++
++Run `stats_probe.py --selfcheck` before a future campaign. It rejects missing
++warnings/metadata, bad seed readback, wrong arity, NULL mismatch, NaN, infinity,
++out-of-bound statistics and terminal rows. It passed locally on CPython 3.13.13
++without a connection.
+*** End Patch
+
+*** Begin Patch
+*** Update File: /tmp/p77-stats-probe/stats_probe.py
+@@
+-from fractions import Fraction
+@@
+*** Update File: /tmp/p77-stats-probe/PLAN.md
+@@
+-`IS` and `IN10K`. The exact `Fraction`/`Decimal` truth accepts Int variance
++`IS` and `IN10K`. The exact `Decimal` truth accepts Int variance
+*** End Patch
+
+*** Begin Patch
+*** Update File: /tmp/p77-stats-probe/stats_probe.py
+@@
+-from fractions import Fraction
+*** End Patch
+
+*** Begin Patch
+*** Update File: /tmp/p77-stats-probe/PLAN.md
+@@
+-`IS` and `IN10K`. The exact `Fraction`/`Decimal` truth accepts Int variance
++`IS` and `IN10K`. The exact `Decimal` truth accepts Int variance
+*** End Patch
+
+*** Begin Patch
+*** Update File: /tmp/p77-stats-probe/stats_probe.py
+@@
+ def selfcheck() -> None:
++    _reject(None)  # type: ignore[arg-type]
+     int_cell = cell_by_name("I2")
+*** End Patch
+
+*** Begin Patch
+*** Update File: /tmp/p77-stats-probe/stats_probe.py
+@@
+ class Cell:
+@@
+-    terminal_sum_avg: bool = False
++    sum_must_terminal: bool = False
++    avg_may_terminal: bool = False
+@@
+-    Cell("FOVER_SUM", "Float", (1.7e308, 1.7e308), terminal_sum_avg=True),
++    Cell("FOVER_SUM", "Float", (1.7e308, 1.7e308), sum_must_terminal=True, avg_may_terminal=True),
+@@
+-    argument = value if kind == "Float" or engine == "postgres" else f"CAST({value} AS DECIMAL(65,0))"
+-    expression = {
+-        "sum": f"SUM({value})",
+-        "avg": f"AVG({value})",
+-        "stddev": f"STDDEV_SAMP({argument})",
+-        "variance": f"VAR_SAMP({argument})",
+-        "pvariance": f"VAR_POP({argument})",
+-        "pstdev": f"STDDEV_POP({argument})",
+-    }[function]
++    if engine == "postgres" and kind == "Int" and function in STAT_FUNCTIONS:
++        expression = {
++            "stddev": f"SQRT(CAST(VAR_SAMP({value}) AS double precision))",
++            "variance": f"CAST(VAR_SAMP({value}) AS double precision)",
++            "pvariance": f"CAST(VAR_POP({value}) AS double precision)",
++            "pstdev": f"SQRT(CAST(VAR_POP({value}) AS double precision))",
++        }[function]
++    else:
++        argument = value if kind == "Float" or engine == "postgres" else f"CAST({value} AS DECIMAL(65,0))"
++        expression = {
++            "sum": f"SUM({value})",
++            "avg": f"AVG({value})",
++            "stddev": f"STDDEV_SAMP({argument})",
++            "variance": f"VAR_SAMP({argument})",
++            "pvariance": f"VAR_POP({argument})",
++            "pstdev": f"STDDEV_POP({argument})",
++        }[function]
+@@
+-        rms = (sum(value * value for value in values) / Decimal(count - 1)).sqrt()
++        denominator = count if function in {"pvariance", "pstdev"} else count - 1
++        rms = (sum(value * value for value in values) / Decimal(denominator)).sqrt()
+@@
+-    required = {"engine", "function", "case", "seed", "sql", "params", "seed_readback", "metadata", "warnings", "outcome"}
++    required = {"engine", "function", "case", "table", "seed", "sql", "params", "seed_readback", "metadata", "warnings", "outcome"}
+@@
+-    if type(record["sql"]) is not str or type(record["params"]) is not list:
++    if type(record["table"]) is not str or type(record["params"]) is not list:
+         raise ValueError("sql/params")
++    _, _, _, expected_sql = sql(str(engine), str(function), cell.kind, record["table"])
++    if record["sql"] != expected_sql or record["params"] != []:
++        raise ValueError("planned SQL/params identity")
+@@
+-        if cell.terminal_sum_avg and function in SUM_AVG_FUNCTIONS:
++        if cell.sum_must_terminal and function == "sum":
+             return "terminal-observed"
++        if cell.avg_may_terminal and function == "avg":
++            return "raw-avg-terminal-observed"
+@@
+     if function in SUM_AVG_FUNCTIONS:
+@@
+-        _float_value(observed)
++        _float_value(observed)
++        if cell.sum_must_terminal and function == "sum":
++            raise ValueError("sum overflow must terminate")
++        if cell.avg_may_terminal and function == "avg":
++            return "raw-avg-finite-observed"
+         return "raw-bits-observed"
+@@
+-        return "statistic-null"
++        return "raw-statistic-null"
+@@
+-        return "statistic-zero"
++        return "raw-statistic-zero"
+@@
+-        return "statistic-underflow-observed"
++        return "raw-statistic-underflow-observed"
+@@
+-    return "statistic-bounded"
++    return "raw-statistic-within-contract-bound"
+@@
+                         "engine": engine,
+                         "function": function,
+                         "case": cell.name,
++                        "table": table,
+@@
+                         "engine": engine,
+                         "function": function,
+                         "case": cell.name,
++                        "table": table,
+@@
+-def _record(cell: Cell, function: str, value: object) -> dict[str, object]:
++def _record(cell: Cell, function: str, value: object) -> dict[str, object]:
++    table = "p77_stats_selfcheck"
++    _, _, _, statement = sql("postgres", function, cell.kind, table)
+     return {
+@@
+         "function": function,
+         "case": cell.name,
++        "table": table,
+@@
+-        "sql": "SELECT candidate",
++        "sql": statement,
+@@
+-    assert validate(good) == "statistic-bounded"
++    assert validate(good) == "raw-statistic-within-contract-bound"
+*** End Patch
+
+*** Begin Patch
+*** Update File: /tmp/p77-stats-probe/stats_probe.py
+@@
+-                if cell.terminal_sum_avg and function in STAT_FUNCTIONS:
++                if (cell.sum_must_terminal or cell.avg_may_terminal) and function in STAT_FUNCTIONS:
+*** End Patch
+
+*** Begin Patch
+*** Update File: /tmp/p77-stats-probe/PLAN.md
+@@
+-| `stddev` | `STDDEV_SAMP(value)` | `STDDEV_SAMP(value)` | `STDDEV_SAMP(CAST(value AS DECIMAL(65,0)))` |
+-| `variance` | `VAR_SAMP(value)` | `VAR_SAMP(value)` | `VAR_SAMP(CAST(value AS DECIMAL(65,0)))` |
+-| `pvariance` | `VAR_POP(value)` | `VAR_POP(value)` | `VAR_POP(CAST(value AS DECIMAL(65,0)))` |
+-| `pstdev` | `STDDEV_POP(value)` | `STDDEV_POP(value)` | `STDDEV_POP(CAST(value AS DECIMAL(65,0)))` |
++| `stddev` | Int: `SQRT(CAST(VAR_SAMP(value) AS double precision))`; Float: `STDDEV_SAMP(value)` | `STDDEV_SAMP(value)` | `STDDEV_SAMP(CAST(value AS DECIMAL(65,0)))` |
++| `variance` | Int: `CAST(VAR_SAMP(value) AS double precision)`; Float: `VAR_SAMP(value)` | `VAR_SAMP(value)` | `VAR_SAMP(CAST(value AS DECIMAL(65,0)))` |
++| `pvariance` | Int: `CAST(VAR_POP(value) AS double precision)`; Float: `VAR_POP(value)` | `VAR_POP(value)` | `VAR_POP(CAST(value AS DECIMAL(65,0)))` |
++| `pstdev` | Int: `SQRT(CAST(VAR_POP(value) AS double precision))`; Float: `STDDEV_POP(value)` | `STDDEV_POP(value)` | `STDDEV_POP(CAST(value AS DECIMAL(65,0)))` |
+@@
+-`FOVER_SUM` may record a zero-row terminal or a finite result, never infinity,
+-NaN, warning-only conversion or a row after terminal.
++`FOVER_SUM` has separate functions: SUM must terminate with zero rows; AVG may
++record either a zero-row terminal or its own finite binary64 observation. Neither
++may return infinity, NaN, warning-only conversion or a row after terminal.
+*** Update File: /tmp/p77-stats-probe/README.md
+@@
+-SUM/AVG use no invented epsilon: successful finite values are
+-recorded by exact bits only, while empty/all-null and terminal observations are
+-judged by their declared shape.
++SUM/AVG use no invented epsilon: successful finite values are recorded by exact
++bits only, while empty/all-null and terminal observations are judged by their
++declared shape. The overflow SUM and AVG cases keep separate dispositions.
+*** End Patch
+
+*** Begin Patch
+*** Update File: /tmp/p77-stats-probe/PLAN.md
+@@
+-| `stddev` | `STDDEV_SAMP(value)` | `STDDEV_SAMP(value)` | `STDDEV_SAMP(CAST(value AS DECIMAL(65,0)))` |
+-| `variance` | `VAR_SAMP(value)` | `VAR_SAMP(value)` | `VAR_SAMP(CAST(value AS DECIMAL(65,0)))` |
+-| `pvariance` | `VAR_POP(value)` | `VAR_POP(value)` | `VAR_POP(CAST(value AS DECIMAL(65,0)))` |
+-| `pstdev` | `STDDEV_POP(value)` | `STDDEV_POP(value)` | `STDDEV_POP(CAST(value AS DECIMAL(65,0)))` |
++| `stddev` | Int: `SQRT(CAST(VAR_SAMP(value) AS double precision))`; Float: `STDDEV_SAMP(value)` | `STDDEV_SAMP(value)` | `STDDEV_SAMP(CAST(value AS DECIMAL(65,0)))` |
++| `variance` | Int: `CAST(VAR_SAMP(value) AS double precision)`; Float: `VAR_SAMP(value)` | `VAR_SAMP(value)` | `VAR_SAMP(CAST(value AS DECIMAL(65,0)))` |
++| `pvariance` | Int: `CAST(VAR_POP(value) AS double precision)`; Float: `VAR_POP(value)` | `VAR_POP(value)` | `VAR_POP(CAST(value AS DECIMAL(65,0)))` |
++| `pstdev` | Int: `SQRT(CAST(VAR_POP(value) AS double precision))`; Float: `STDDEV_POP(value)` | `STDDEV_POP(value)` | `STDDEV_POP(CAST(value AS DECIMAL(65,0)))` |
+@@
+-`FOVER_SUM` may record a zero-row terminal or a finite result, never infinity,
+-NaN, warning-only conversion or a row after terminal.
++`FOVER_SUM` has separate functions: SUM must terminate with zero rows; AVG may
++record either a zero-row terminal or its own finite binary64 observation. Neither
++may return infinity, NaN, warning-only conversion or a row after terminal.
+*** End Patch
+
+*** Begin Patch
+*** Update File: /tmp/p77-stats-probe/README.md
+@@
+-The Int statistics oracle uses exact `Fraction` arithmetic and the existing
++The Int statistics oracle uses exact `Decimal` arithmetic and the existing
+@@
+-recorded by exact bits only, while empty/all-null and terminal observations are
+-judged by their declared shape.
++recorded by exact bits only, while empty/all-null and terminal observations are
++judged by their declared shape. Overflow SUM and AVG have separate dispositions.
+*** End Patch
+
+*** Begin Patch
+*** Update File: /tmp/p77-stats-probe/stats_probe.py
+@@
+     good = _record(int_cell, "variance", float(int_truth))
+     assert validate(good) == "raw-statistic-within-contract-bound"
++    wrong_sql = dict(good)
++    wrong_sql["sql"] = "SELECT wrong"
++    _reject(wrong_sql)
+@@
+     _reject(_record(int_cell, "variance", 100.0))
++    _reject(_record(cell_by_name("FOVER_SUM"), "sum", 1.7e308))
++    assert validate(_record(cell_by_name("FOVER_SUM"), "avg", 1.7e308)) == "raw-avg-finite-observed"
++    f2 = cell_by_name("F2")
++    pvariance = statistic_truth(f2, "pvariance")
++    variance = statistic_truth(f2, "variance")
++    assert pvariance is not None and variance is not None
++    assert statistic_bound(f2, "pvariance", pvariance) != statistic_bound(f2, "variance", variance)
+     terminal = _record(cell_by_name("FOVER_SUM"), "sum", None)
+-    terminal["outcome"] = {"status": "error", "rows": [[1.0]], "error": {"sqlstate": "22003", "errno": None, "message": "overflow"}}
+-    _reject(terminal)
++    terminal["outcome"] = {"status": "error", "rows": [], "error": {"sqlstate": "22003", "errno": None, "message": "overflow"}}
++    assert validate(terminal) == "terminal-observed"
++    terminal["outcome"] = {"status": "error", "rows": [[1.0]], "error": {"sqlstate": "22003", "errno": None, "message": "overflow"}}
++    _reject(terminal)
+*** End Patch
+
+*** Begin Patch
+*** Update File: /tmp/p77-stats-probe/stats_probe.py
+@@
+-    _metadata(record["metadata"])
++    metadata = _metadata(record["metadata"])
++    expected_type_code = 701 if engine == "postgres" else (5 if cell.kind == "Float" else None)
++    if expected_type_code is not None and metadata[0]["type_code"] != expected_type_code:
++        raise ValueError("result carrier metadata")
+@@
+     missing_metadata = dict(good)
+     missing_metadata["metadata"] = []
+     _reject(missing_metadata)
++    wrong_metadata = dict(good)
++    wrong_metadata["metadata"] = [{"name": "result", "type_code": 0, "flags": None}]
++    _reject(wrong_metadata)
+*** End Patch
+
+*** Begin Patch
+*** Update File: /tmp/p77-stats-probe/stats_probe.py
+@@
+-    _metadata(record["metadata"])
++    metadata = _metadata(record["metadata"])
++    expected_type_code = 701 if engine == "postgres" else (5 if cell.kind == "Float" else None)
++    if expected_type_code is not None and metadata[0]["type_code"] != expected_type_code:
++        raise ValueError("result carrier metadata")
+@@
+-                cursor = connection.cursor()
++                seed_readback: list[dict[str, object]] = []
++                cursor = connection.cursor()
+@@
+-                    seed_readback = [
++                    seed_readback = [
+@@
+-                        "seed_readback": [],
++                        "seed_readback": seed_readback,
+@@
+     missing_metadata = dict(good)
+     missing_metadata["metadata"] = []
+     _reject(missing_metadata)
++    wrong_metadata = dict(good)
++    wrong_metadata["metadata"] = [{"name": "result", "type_code": 0, "flags": None}]
++    _reject(wrong_metadata)
+*** End Patch
+
+*** Begin Patch
+*** Update File: /tmp/p77-stats-probe/stats_probe.py
+@@
+ def _warnings(connection: object, engine: str) -> list[dict[str, object]]:
+@@
+     finally:
+         cursor.close()
++
++
++def _captured_warnings(connection: object, engine: str) -> list[dict[str, object]]:
++    try:
++        return _warnings(connection, engine)
++    except Exception as error:
++        return [{"capture_error": type(error).__name__}]
+@@
+-                        "warnings": _warnings(connection, engine),
++                        "warnings": _captured_warnings(connection, engine),
+@@
+-                        "warnings": _warnings(connection, engine),
++                        "warnings": _captured_warnings(connection, engine),
+*** End Patch

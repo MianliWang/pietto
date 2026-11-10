@@ -1,0 +1,40 @@
+$ uv venv --python 3.13.13 /home/mianliwang/projects/pietto/.cache/phase77-recovery/evidence/mysql-maintenance-r2-20261109T030000-0500/prefix
+Using CPython 3.13.13
+Creating virtual environment at: prefix
+Activate with: source prefix/bin/activate
+$ uv pip install --python /home/mianliwang/projects/pietto/.cache/phase77-recovery/evidence/mysql-maintenance-r2-20261109T030000-0500/prefix/bin/python --no-index --find-links /home/mianliwang/projects/pietto/.cache/phase77-recovery/evidence/mysql-maintenance-r2-preflight-20261109T020000-0500/house/pietto-phase68-slice18-wheelhouse --constraint /home/mianliwang/projects/pietto/.cache/phase77-recovery/evidence/mysql-maintenance-r2-preflight-20261109T020000-0500/house/pietto-phase68-slice18-constraints.txt --link-mode copy --strict /home/mianliwang/projects/pietto/.cache/phase77-recovery/runtime/dist/pietto-0.1.10-py3-none-any.whl[execute-mysql]
+Using Python 3.13.13 environment at: prefix
+Resolved 4 packages in 5ms
+Prepared 4 packages in 183ms
+Installed 4 packages in 170ms
+ + antlr4-python3-runtime==4.13.2
+ + mysql-connector-python==26.10.0
+ + pietto==0.1.10 (from file:///home/mianliwang/projects/pietto/.cache/phase77-recovery/runtime/dist/pietto-0.1.10-py3-none-any.whl)
+ + pyarrow==26.0.1
+$ uv pip check --python /home/mianliwang/projects/pietto/.cache/phase77-recovery/evidence/mysql-maintenance-r2-20261109T030000-0500/prefix/bin/python
+Using Python 3.13.13 environment at: prefix
+Checked 4 packages in 0.38ms
+All installed packages are compatible
+$ uv pip freeze --python /home/mianliwang/projects/pietto/.cache/phase77-recovery/evidence/mysql-maintenance-r2-20261109T030000-0500/prefix/bin/python
+antlr4-python3-runtime==4.13.2
+mysql-connector-python==26.10.0
+pietto @ file:///home/mianliwang/projects/pietto/.cache/phase77-recovery/runtime/dist/pietto-0.1.10-py3-none-any.whl
+pyarrow==26.0.1
+Using Python 3.13.13 environment at: prefix
+$ uv pip install --python /home/mianliwang/projects/pietto/.cache/phase77-recovery/evidence/mysql-maintenance-r2-20261109T030000-0500/prefix/bin/python --no-index --find-links /home/mianliwang/projects/pietto/.cache/phase77-recovery/evidence/mysql-maintenance-r2-preflight-20261109T020000-0500/otel-house --strict opentelemetry-api==1.33.1 opentelemetry-sdk==1.33.1 /home/mianliwang/projects/pietto/.cache/phase77-recovery/evidence/mysql-maintenance-r2-preflight-20261109T020000-0500/otel-house/wrapt-2.5.0-cp313-cp313-manylinux1_x86_64.manylinux_2_28_x86_64.manylinux_2_5_x86_64.whl
+Using Python 3.13.13 environment at: prefix
+Resolved 8 packages in 5ms
+Prepared 8 packages in 17ms
+Installed 8 packages in 21ms
+ + deprecated==3.0.1
+ + importlib-metadata==8.6.1
+ + opentelemetry-api==1.33.1
+ + opentelemetry-sdk==1.33.1
+ + opentelemetry-semantic-conventions==0.54b1
+ + typing-extensions==4.16.0
+ + wrapt==2.5.0 (from file:///home/mianliwang/projects/pietto/.cache/phase77-recovery/evidence/mysql-maintenance-r2-preflight-20261109T020000-0500/otel-house/wrapt-2.5.0-cp313-cp313-manylinux1_x86_64.manylinux_2_28_x86_64.manylinux_2_5_x86_64.whl)
+ + zipp==4.1.2
+$ uv pip check --python /home/mianliwang/projects/pietto/.cache/phase77-recovery/evidence/mysql-maintenance-r2-20261109T030000-0500/prefix/bin/python
+Using Python 3.13.13 environment at: prefix
+Checked 12 packages in 0.59ms
+All installed packages are compatible

@@ -1,0 +1,65 @@
+1794284441.551160 listening 51465
+1794284441.698485830 mark pietto-p77-maint-mark begin A1_full_ok postgres_rows
+1794284444.431706 accept 1
+1794284444.638937 close 1 up=14403 down=15432 rc=0
+1794284445.966254371 mark pietto-p77-maint-mark end A1_full_ok postgres_rows
+1794284446.052302901 mark pietto-p77-maint-mark begin A2_wrong_ca postgres_rows
+1794284447.283978 accept 2
+1794284447.354345 close 2 up=1563 down=799 rc=0
+1794284448.720850436 mark pietto-p77-maint-mark end A2_wrong_ca postgres_rows
+1794284448.805475675 mark pietto-p77-maint-mark begin A3_missing_ca postgres_rows
+1794284449.867271 accept 3
+1794284449.347215497 mark pietto-p77-maint-mark end A3_missing_ca postgres_rows
+1794284449.424741706 mark pietto-p77-maint-mark begin A4_require postgres_rows
+1794284450.541369 accept 4
+1794284450.746509 close 4 up=14403 down=15432 rc=0
+1794284452.065019121 mark pietto-p77-maint-mark end A4_require postgres_rows
+1794284452.148671801 mark pietto-p77-maint-mark begin A5_disable_ca postgres_rows
+1794284454.482920337 mark pietto-p77-maint-mark end A5_disable_ca postgres_rows
+1794284454.561567050 mark pietto-p77-maint-mark begin A6_system_ca postgres_rows
+1794284456.835760006 mark pietto-p77-maint-mark end A6_system_ca postgres_rows
+1794284456.913651547 mark pietto-p77-maint-mark begin C1_ambient_pgsslrootcert postgres_rows
+1794284459.284648402 mark pietto-p77-maint-mark end C1_ambient_pgsslrootcert postgres_rows
+1794284459.363928382 mark pietto-p77-maint-mark begin A1_full_ok postgres_adbc
+1794284460.427423 accept 5
+1794284460.527925 accept 6
+1794284460.534683 close 5 up=3085 down=180533 rc=0
+1794284460.749058 close 6 up=19215 down=18985 rc=0
+1794284462.031170244 mark pietto-p77-maint-mark end A1_full_ok postgres_adbc
+1794284462.114782778 mark pietto-p77-maint-mark begin A2_wrong_ca postgres_adbc
+1794284463.216560 accept 7
+1794284463.282990 close 7 up=1554 down=799 rc=0
+1794284464.550390375 mark pietto-p77-maint-mark end A2_wrong_ca postgres_adbc
+1794284464.630977756 mark pietto-p77-maint-mark begin A3_missing_ca postgres_adbc
+1794284465.741252 accept 8
+1794284467.105709738 mark pietto-p77-maint-mark end A3_missing_ca postgres_adbc
+1794284467.185857528 mark pietto-p77-maint-mark begin A4_require postgres_adbc
+1794284468.289912 accept 9
+1794284468.437102 accept 10
+1794284468.443861 close 9 up=3085 down=180532 rc=0
+1794284468.665752 close 10 up=19215 down=18983 rc=0
+1794284469.938647980 mark pietto-p77-maint-mark end A4_require postgres_adbc
+1794284470.021026244 mark pietto-p77-maint-mark begin A5_disable_ca postgres_adbc
+1794284472.365625139 mark pietto-p77-maint-mark end A5_disable_ca postgres_adbc
+1794284472.442807815 mark pietto-p77-maint-mark begin A6_system_ca postgres_adbc
+1794284474.823934611 mark pietto-p77-maint-mark end A6_system_ca postgres_adbc
+1794284474.902959727 mark pietto-p77-maint-mark begin C1_ambient_pgsslrootcert postgres_adbc
+1794284477.198158338 mark pietto-p77-maint-mark end C1_ambient_pgsslrootcert postgres_adbc
+1794284477.635268237 mark pietto-p77-maint-mark begin B1_wrong_host postgres_rows
+1794284478.798741 accept 11
+1794284478.912398 close 11 up=1660 down=839 rc=0
+1794284480.150800187 mark pietto-p77-maint-mark end B1_wrong_host postgres_rows
+1794284480.232060889 mark pietto-p77-maint-mark begin B2_require_any_name postgres_rows
+1794284479.354305 accept 12
+1794284479.535466 close 12 up=14403 down=15448 rc=0
+1794284480.803227428 mark pietto-p77-maint-mark end B2_require_any_name postgres_rows
+1794284480.880787796 mark pietto-p77-maint-mark begin B1_wrong_host postgres_adbc
+1794284481.868087 accept 13
+1794284481.924202 close 13 up=1651 down=838 rc=0
+1794284483.178119583 mark pietto-p77-maint-mark end B1_wrong_host postgres_adbc
+1794284483.257822022 mark pietto-p77-maint-mark begin B2_require_any_name postgres_adbc
+1794284484.345390 accept 14
+1794284484.440510 accept 15
+1794284484.447312 close 14 up=3085 down=180548 rc=0
+1794284484.684522 close 15 up=19215 down=19000 rc=0
+1794284485.959372138 mark pietto-p77-maint-mark end B2_require_any_name postgres_adbc

@@ -1,0 +1,208 @@
+
+> pietto-vscode-extension@0.3.0 test
+> npm run build && node --test out/tests/*.test.js
+
+
+> pietto-vscode-extension@0.3.0 build
+> tsc -p .
+
+TAP version 13
+# Subtest: every Pietto tree the corpus names contributes a block, and every block parsed
+ok 1 - every Pietto tree the corpus names contributes a block, and every block parsed
+  ---
+  duration_ms: 2.091423
+  type: 'test'
+  ...
+# Subtest: corpus blocks tokenize without invalid scopes
+ok 2 - corpus blocks tokenize without invalid scopes
+  ---
+  duration_ms: 176.177115
+  type: 'test'
+  ...
+# Subtest: every keyword occurrence of the corpus gets its keyword scope and every keyword-named name does not
+ok 3 - every keyword occurrence of the corpus gets its keyword scope and every keyword-named name does not
+  ---
+  duration_ms: 46.348097
+  type: 'test'
+  ...
+# Subtest: strings, numbers and comments of the corpus are whole and never leak
+ok 4 - strings, numbers and comments of the corpus are whole and never leak
+  ---
+  duration_ms: 49.185828
+  type: 'test'
+  ...
+# Subtest: builtin types and functions equal the Pietto catalog snapshot
+ok 5 - builtin types and functions equal the Pietto catalog snapshot
+  ---
+  duration_ms: 7.088954
+  type: 'test'
+  ...
+# Subtest: keyword scopes cover exactly the Pietto.g4 keywords, retired header words excluded
+ok 6 - keyword scopes cover exactly the Pietto.g4 keywords, retired header words excluded
+  ---
+  duration_ms: 3.437917
+  type: 'test'
+  ...
+# Subtest: the snapshot records the grammar facts the TextMate grammar relies on
+ok 7 - the snapshot records the grammar facts the TextMate grammar relies on
+  ---
+  duration_ms: 0.579336
+  type: 'test'
+  ...
+# Subtest: every snippet has a checking case and expands without placeholders or braces
+ok 8 - every snippet has a checking case and expands without placeholders or braces
+  ---
+  duration_ms: 4.406946
+  type: 'test'
+  ...
+# Subtest: expanded snippets pass the real Pietto check and are already formatted
+not ok 9 - expanded snippets pass the real Pietto check and are already formatted
+  ---
+  duration_ms: 2.238635
+  type: 'test'
+  location: '/home/mianliwang/projects/pietto-vscode-extension-claude/out/tests/grammar-snippets.test.js:122:22'
+  failureType: 'testCodeFailure'
+  error: 'Set PIETTO_TEST_PYTHON to a Python that has pietto 0.1.10 or later.'
+  code: 'ERR_TEST_FAILURE'
+  stack: |-
+    python (/home/mianliwang/projects/pietto-vscode-extension-claude/out/tests/editor.js:31:15)
+    pietto (/home/mianliwang/projects/pietto-vscode-extension-claude/out/tests/grammar-snippets.test.js:88:73)
+    assertClean (/home/mianliwang/projects/pietto-vscode-extension-claude/out/tests/grammar-snippets.test.js:102:19)
+    TestContext.<anonymous> (/home/mianliwang/projects/pietto-vscode-extension-claude/out/tests/grammar-snippets.test.js:128:13)
+    Test.runInAsyncScope (node:async_hooks:214:14)
+    Test.run (node:internal/test_runner/test:1047:25)
+    Test.processPendingSubtests (node:internal/test_runner/test:744:18)
+    Test.postRun (node:internal/test_runner/test:1173:19)
+    Test.run (node:internal/test_runner/test:1101:12)
+    async startSubtestAfterBootstrap (node:internal/test_runner/harness:296:3)
+  ...
+# Subtest: the server runs the pietto console entry point in isolated mode after the launcher arguments
+ok 10 - the server runs the pietto console entry point in isolated mode after the launcher arguments
+  ---
+  duration_ms: 2.769856
+  type: 'test'
+  ...
+# Subtest: SQL preview passes a filename as an argument, never as Python source
+ok 11 - SQL preview passes a filename as an argument, never as Python source
+  ---
+  duration_ms: 0.546938
+  type: 'test'
+  ...
+# Subtest: SQL preview accepts only the public PostgreSQL emit-sql v1 envelope and preserves artifact order
+ok 12 - SQL preview accepts only the public PostgreSQL emit-sql v1 envelope and preserves artifact order
+  ---
+  duration_ms: 1.110376
+  type: 'test'
+  ...
+# Subtest: SQL preview does not show a document that becomes stale while it opens
+ok 13 - SQL preview does not show a document that becomes stale while it opens
+  ---
+  duration_ms: 0.47499
+  type: 'test'
+  ...
+# Subtest: the server script is valid Python
+not ok 14 - the server script is valid Python
+  ---
+  duration_ms: 0.533421
+  type: 'test'
+  location: '/home/mianliwang/projects/pietto-vscode-extension-claude/out/tests/launch.test.js:56:22'
+  failureType: 'testCodeFailure'
+  error: 'Set PIETTO_TEST_PYTHON to a Python that has pietto 0.1.10 or later.'
+  code: 'ERR_TEST_FAILURE'
+  stack: |-
+    python (/home/mianliwang/projects/pietto-vscode-extension-claude/out/tests/editor.js:31:15)
+    TestContext.<anonymous> (/home/mianliwang/projects/pietto-vscode-extension-claude/out/tests/launch.test.js:57:77)
+    Test.runInAsyncScope (node:async_hooks:214:14)
+    Test.run (node:internal/test_runner/test:1047:25)
+    Test.processPendingSubtests (node:internal/test_runner/test:744:18)
+    Test.postRun (node:internal/test_runner/test:1173:19)
+    Test.run (node:internal/test_runner/test:1101:12)
+    async Test.processPendingSubtests (node:internal/test_runner/test:744:7)
+  ...
+# Subtest: the probe resolves with the cause of a failure, including one that stops the interpreter from starting
+ok 15 - the probe resolves with the cause of a failure, including one that stops the interpreter from starting
+  ---
+  duration_ms: 107.362058
+  type: 'test'
+  ...
+# Subtest: list settings keep their strings; any other value is empty
+ok 16 - list settings keep their strings; any other value is empty
+  ---
+  duration_ms: 0.311911
+  type: 'test'
+  ...
+# Subtest: project roots resolve against their workspace folder, keep order and drop duplicates
+ok 17 - project roots resolve against their workspace folder, keep order and drop duplicates
+  ---
+  duration_ms: 0.336776
+  type: 'test'
+  ...
+# Subtest: a wsl.exe launcher maps drive paths to /mnt and back
+ok 18 - a wsl.exe launcher maps drive paths to /mnt and back
+  ---
+  duration_ms: 0.680915
+  type: 'test'
+  ...
+# Subtest: real TextMate tokenization respects Pietto strings, comments and case
+ok 19 - real TextMate tokenization respects Pietto strings, comments and case
+  ---
+  duration_ms: 64.359219
+  type: 'test'
+  ...
+# Subtest: contextual keywords remain names in declarations, fields, paths and aliases
+ok 20 - contextual keywords remain names in declarations, fields, paths and aliases
+  ---
+  duration_ms: 20.937636
+  type: 'test'
+  ...
+# Subtest: clause, join, window and frame words are keywords where the grammar reads them
+ok 21 - clause, join, window and frame words are keywords where the grammar reads them
+  ---
+  duration_ms: 79.883636
+  type: 'test'
+  ...
+# Subtest: unnest( is a built-in call; a member call or a name spelled unnest is not
+ok 22 - unnest( is a built-in call; a member call or a name spelled unnest is not
+  ---
+  duration_ms: 1.736221
+  type: 'test'
+  ...
+# Subtest: every word of a documented window frame is scoped inline and in a window block
+ok 23 - every word of a documented window frame is scoped inline and in a window block
+  ---
+  duration_ms: 4.643805
+  type: 'test'
+  ...
+# Subtest: frame and field-constraint words used as names get no keyword scope
+ok 24 - frame and field-constraint words used as names get no keyword scope
+  ---
+  duration_ms: 10.813851
+  type: 'test'
+  ...
+# Subtest: a name that only contains a keyword or built-in name is never scoped as one
+ok 25 - a name that only contains a keyword or built-in name is never scoped as one
+  ---
+  duration_ms: 272.158601
+  type: 'test'
+  ...
+# Subtest: declarations, parameters, types, modules and retired header lines
+ok 26 - declarations, parameters, types, modules and retired header lines
+  ---
+  duration_ms: 27.539656
+  type: 'test'
+  ...
+# Subtest: editing configuration follows the colon and indentation grammar
+ok 27 - editing configuration follows the colon and indentation grammar
+  ---
+  duration_ms: 3.285824
+  type: 'test'
+  ...
+1..27
+# tests 27
+# suites 0
+# pass 25
+# fail 2
+# cancelled 0
+# skipped 0
+# todo 0
+# duration_ms 581.098721

@@ -1,0 +1,109 @@
+..........F                                                              [100%]
+=================================== FAILURES ===================================
+_ test_mysql_s12_conditional_text_is_replayed_and_conditional_date_stays_refused _
+
+tmp_path = PosixPath('/tmp/pietto-phase77-s12-focused9/test_mysql_s12_conditional_tex0')
+
+    def test_mysql_s12_conditional_text_is_replayed_and_conditional_date_stays_refused(tmp_path):
+        """Text and Int-width conditionals preserve each repeated SQL occurrence;
+        Date/month conditionals remain outside the selected scalar boundary."""
+        checked, text = emit(
+            tmp_path / "text",
+            "mysql",
+            """table result:
+        from rows
+        let chosen = text if flag else "雪"
+        let width = 5 if flag else 3
+        select:
+            joined = concat(chosen, "-", "-")
+            padded = lpad(text, width, "雪")
+    """,
+            policy="bind_safe_literals",
+        )
+        assert checked.verified and text.status == "VERIFIED", text.blockers
+        assert text.artifact is not None
+        sql = text.artifact.rendered.sql.decode()
+        assert "CONCAT(" in sql and "CASE WHEN" in sql and "LPAD(" in sql
+        observed = portable.export_emission_observation(text.artifact, text.artifact.request)
+        assert observed.canonical_bytes is not None
+        assert pure.parse_emission_observation(observed.canonical_bytes).status is pure.Status.OK
+        from pietto._project.project_compiled_build import build_compiled
+        from pietto._project.project_compiled_loading import load_compiled
+        from pietto._project.project_compiled_lowering import emit_compiled
+        from pietto._project.project_execution_template import prepare_live_template
+    
+        built = build_compiled(text.artifact)
+        loaded = load_compiled(
+            built.payload,
+            expected_pin=built.pin,
+            accepted_producer=built.producer,
+            accepted_compatibility=built.compatibility,
+        )
+        assert emit_compiled(loaded, tuple(value.value for value in text.artifact.fixed_values)).rendered.sql == text.artifact.rendered.sql
+        template = prepare_live_template(text.artifact)
+        assert [slot.tag for slot in template.slots] == ["Text", "Int", "Int"]
+    
+>       date = emit_temporal(
+            tmp_path / "date",
+            "mysql",
+            """table result:
+        from rows
+        let chosen_date = d if d == d else d2
+        let months = 1 if d == d else 2
+        select:
+            moved = add_months(chosen_date, months)
+    """,
+        )
+
+tests/test_sql_project_scalar_expressions.py:1520: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+tests/test_sql_project_scalar_expressions.py:91: in emit_temporal
+    checked = temporal_probe.build_neutral(directory, {"main.pietto": source + body})
+              ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+
+directory = PosixPath('/tmp/pietto-phase77-s12-focused9/test_mysql_s12_conditional_tex0/date')
+sources = {'main.pietto': 'shape Row:\n    stamp: Timestamp\n    optional_stamp: Timestamp | None\n    identifier: UUID\n    opt...f d == d else d2\n    let months = 1 if d == d else 2\n    select:\n        moved = add_months(chosen_date, months)\n'}
+
+    def build_neutral(directory, sources):
+        from pietto._project.check import check_project_parse_only
+        from pietto._project.model import build_empty_project_semantic_result
+        from pietto._project.project_completed_semantics import (
+            build_project_completed_semantic_result,
+            ProjectConcreteCompletedSemanticResult,
+        )
+        from pietto._project.project_query_block_ir import build_project_query_block_ir
+        from pietto._project.project_query_block_ir_verification import (
+            verify_project_query_block_ir,
+            build_project_query_block_ir_analysis_bundle,
+        )
+        from pietto._project.project_sql_plan import build_project_sql_plan
+        from pietto._project.project_sql_plan_verification import verify_project_sql_plan
+    
+        directory.mkdir()
+        (directory / "pietto.toml").write_text(
+            'schema_version = 2\n[sources]\ninclude = ["*.pietto"]\n'
+        )
+        for name, text in sources.items():
+            (directory / name).write_text(text, encoding="utf-8")
+        parsed = check_project_parse_only(directory)
+        assert parsed.ok
+        completed = build_project_completed_semantic_result(
+            build_empty_project_semantic_result(parsed)
+        )
+        assert isinstance(completed, ProjectConcreteCompletedSemanticResult)
+        ir = build_project_query_block_ir(completed)
+        bundle = build_project_query_block_ir_analysis_bundle(
+            verify_project_query_block_ir(ir)
+        )
+        (owner,) = tuple(o for o in ir.owners if o.definition.name == "result")
+        plan = build_project_sql_plan(completed, bundle, owner)
+        checked = verify_project_sql_plan(plan, completed, bundle, owner)
+>       assert checked.verified
+               ^^^^^^^^^^^^^^^^
+E       AssertionError
+
+tests/_pietto_results_product.py:302: AssertionError
+=========================== short test summary info ============================
+FAILED tests/test_sql_project_scalar_expressions.py::test_mysql_s12_conditional_text_is_replayed_and_conditional_date_stays_refused
+1 failed, 10 passed, 291 deselected in 3.83s

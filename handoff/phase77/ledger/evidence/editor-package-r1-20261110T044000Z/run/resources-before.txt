@@ -1,0 +1,3 @@
+MemTotal:       41072484 kB
+MemAvailable:   36343436 kB
+full avg10=0.00 avg60=0.00 avg300=0.00 total=216103417

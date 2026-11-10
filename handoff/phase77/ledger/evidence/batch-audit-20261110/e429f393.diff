@@ -1,0 +1,2160 @@
+e429f3930cf04b4e66b21352f565dfd67803550f feat: add editor hover, definitions and document symbols
+
+diff --git a/docs/editor-lsp.md b/docs/editor-lsp.md
+index 2805bfea..94fcc130 100644
+--- a/docs/editor-lsp.md
++++ b/docs/editor-lsp.md
+@@ -1,73 +1,41 @@
+-# Editor diagnostics: `pietto lsp` (alpha)
++# Editor support: `pietto lsp` (alpha)
+ 
+-`pietto lsp` is a language server for editors. It runs the `pietto check`
+-stage on the files you edit and pushes the diagnostics to the editor. It does
+-nothing else: no hover, completion, go-to-definition, formatting or SQL. The
+-editor runs no dialect, so backend refusals (`PIE-B...`) appear only in
+-`pietto emit-sql`. This is an alpha contract for editors; it adds no CLI JSON
+-document and changes no other command.
++`pietto lsp` checks files and configured projects for diagnostics and supplies
++hover, go-to-definition and document symbols from the same analysis. Backend
++refusals (`PIE-B...`) still appear only in
++`pietto emit-sql`.
+ 
+-## What the server does
++The protocol, lifecycle, full-document synchronization, UTF-16 position,
++project-overlay, conflict, diagnostic, resource, and trust rules are the
++[LSP diagnostics v1](spec/lsp-diagnostics-v1.md) alpha contract. In
++particular, it has no completion, formatting, SQL preview or execution feature.
+ 
+-- It speaks JSON-RPC 2.0 with Language Server Protocol framing on standard
+-  input and output. `pietto lsp --stdio` is the same command; `--stdio` is
+-  accepted because generic clients add it.
+-- The editor sends whole documents (full sync), and positions are UTF-16, as
+-  every LSP client expects.
+-- Project roots come only from the `projectRoots` initialization option: a
+-  list of absolute paths, each the same as `pietto check --project PATH`.
+-  Without the option there are no roots. Any other value, and two paths that
+-  name one directory (also through a symbolic link), are refused with the
+-  JSON-RPC error `-32602`. Pietto never guesses a root from the workspace or
+-  the working directory. To change the roots, restart the server.
+-- Every module that a root selects is checked, whether it is open or not, and
+-  shows the diagnostics of `pietto check --project ROOT --format json`. An
+-  open file is checked from its unsaved buffer. The buffer is only read for
+-  these diagnostics: nothing is written, and `emit-sql`, compiled builds and
+-  packages refuse buffer text by type.
+-- In a `schema_version = 2` root, a read, parse, header, def import or
+-  naming error, an error of the checks after naming, or an import cycle in
+-  one module no longer hides the other modules: that module, and every
+-  module that imports it directly or through other modules, is left out and
+-  the rest is checked again, at most five times. Each module still checked
+-  shows what `pietto check --project ROOT --format json` shows with the
+-  left-out modules in `[sources].exclude`. A root of another schema version,
+-  like the command line, stays all or nothing.
+-- Any other open file is checked like `pietto check FILE`. A module that
+-  imports names reports them as unknown (and the import as `PIE-S2708`) until
+-  its project root is in `projectRoots`.
+-- A diagnostic shows its `message` and then, on a new line, its JSON
+-  `suggestion`, unless the message already contains that text.
+-- Project errors show as `project error: <kind>: <message>`: at the file they
+-  name, else at `pietto.toml`, else in a message window.
+-- Each published set for an open file carries the document version it was
+-  computed from. A newer edit makes an older result stale, and the server
+-  drops it instead of publishing it.
++Hover describes resolved type and `from` references. Go-to-definition follows
++their exact declaration, including supported imports and re-exports inside a
++configured schema-v2 project. Builtin types have a hover description but no
++authored definition. The outline lists named top-level declarations in source
++order, including single-file constants and relationship templates. Field,
++let, parameter and function-call bindings are not yet navigation facts.
+ 
+-The server adds five messages of its own, without a `PIE-` code. Each of
+-the first three is the only diagnostic its file gets; the server picks no
+-root, no buffer and no file. A file open under two URIs is checked from the
+-disk until one of them is closed.
+-
+-| When | Message |
+-|---|---|
+-| Two configured roots select the same file | `This file belongs to two project roots: <root 1> and <root 2>. Keep one of them in projectRoots.` |
+-| A selected file is open under two URIs, for example `file:///r/a.pietto` and `file:///r/./a.pietto`, or `file:///r/A.pietto` on Windows | `This file is open under two URIs: <uri 1> and <uri 2>. Keep one of them open.` (URIs in code-point order) |
+-| Two selected files have names that differ only in letter case, which a case-sensitive directory on Windows can hold | `This file is selected under two names that differ only in letter case: <name 1> and <name 2>. Rename one of them.` (names relative to the root, in code-point order) |
+-| A module was not checked because a module it imports has errors | `Not checked: this module imports <file>, which has errors.` (two or more files: `<file 1>, <file 2> and <file 3>, which have errors.`, in code-point order; Information, at its import) |
+-| The editor sent a partial change | `Pietto needs whole-document changes; reopen this file.` |
++These requests return no facts for stale or failed analyses, omitted modules,
++ambiguous ranges or root/URI conflicts. They query the current snapshot without
++rechecking or reading files. The server does not watch external disk changes;
++project facts refresh when its existing document notifications cause a new
++analysis. The [editor facts contract](spec/lsp-editor-facts-v1.md) defines the
++exact availability and client-capability rules.
+ 
+ ## The Pietto extension for VS Code
+ 
+-The tested client is the Pietto extension for VS Code `0.2.0`, commit
++The Phase75 acceptance used the Pietto extension for VS Code `0.2.0`, commit
+ `5484ebdb` of the repository `MianliWang/pietto-vscode-extension`. It starts
+ `pietto lsp` through `vscode-languageclient` 9.0.1 and sends its setting
+ `pietto.projectRoots` as the `projectRoots` initialization option. Its
+ acceptance, which the [Phase75 route](phases/phase-75/route.md) requires, ran
+-in VS Code 1.145.2 on the batch-1 head `ff1aa713`. The extension is not yet
+-on the Visual Studio Marketplace: until it is, install it from its repository
+-or use a generic LSP client as the next section shows. The extension `0.1.0`
+-accepted only Pietto `0.1.2`.
++in VS Code 1.145.2 on the batch-1 head `ff1aa713`. The independent extension
++has since published its `0.3.0` SQL-preview code; [status](status.md) records
++that repository state separately from the owner's Marketplace upload. Follow
++its repository's installation instructions or use a generic LSP client as
++the next section shows. The extension `0.1.0` accepted only Pietto `0.1.2`.
+ 
+ ## VS Code with a generic LSP client
+ 
+diff --git a/docs/release-notes.d/77-e01-editor-navigation.md b/docs/release-notes.d/77-e01-editor-navigation.md
+new file mode 100644
+index 00000000..d5bed9b2
+--- /dev/null
++++ b/docs/release-notes.d/77-e01-editor-navigation.md
+@@ -0,0 +1,17 @@
++### Editor navigation — independent editor work package
++
++The alpha `pietto lsp` server now provides hover and go-to-definition for
++resolved type and `from` references, plus document symbols for named top-level
++declarations. Configured schema-v2 projects retain exact import and re-export
++targets; single-file constants and relationship templates appear in source order.
++
++The server answers from facts attached to its current analysis. Unknown,
++conflicting, omitted or stale facts produce no navigation result; a request
++does not reparse, compile or read disk. Builtin types have hover text and no
++authored definition. Field, let, parameter and function-call navigation,
++workspace symbols and filesystem watching remain outside this first version.
++
++Standard LSP capability negotiation handles hover and symbol response formats.
++Existing diagnostic codes, CLI JSON, semantic metadata and relation-column
++formats are unchanged. This is the independently authorized editor line,
++not an additional MySQL slice or a Marketplace release.
+diff --git a/docs/spec/lsp-diagnostics-v1.md b/docs/spec/lsp-diagnostics-v1.md
+new file mode 100644
+index 00000000..29564a33
+--- /dev/null
++++ b/docs/spec/lsp-diagnostics-v1.md
+@@ -0,0 +1,170 @@
++# LSP diagnostics v1
++
++`pietto lsp` is an alpha Language Server Protocol server. This page specifies
++its diagnostic protocol; [editor facts v1](lsp-editor-facts-v1.md) specifies
++hover, definition and document symbols. Neither contract adds
++an editor facts format, a CLI JSON command, or any compiler semantics.
++
++The server checks a document or project for editor diagnostics and facts. It has no
++completion, references, workspace symbols, code actions, formatting,
++SQL preview, execution, package, compiled-build, workspace-edit or
++configuration-update operation. A request for an unsupported method receives
++JSON-RPC `-32601` after initialization.
++
++This contract remains alpha until the Phase82 freeze. Editor consumers must
++not infer facts or stability beyond the advertised, specified capabilities.
++
++## Transport and lifecycle
++
++The command is `pietto lsp`; `pietto lsp --stdio` is an equivalent spelling.
++It uses JSON-RPC 2.0 over standard input and standard output with LSP
++`Content-Length` framing and UTF-8 request bodies. Standard output contains
++only framed JSON-RPC messages. A malformed header or truncated frame writes
++`pietto lsp: invalid message header; stopping` to standard error and exits
++with status 1. Invalid JSON produces JSON-RPC `-32700` and does not by itself
++end a valid session. Batch requests are rejected with `-32600`.
++
++The session begins in the uninitialized state. `initialize` is the sole
++accepted request there; another request receives `-32002`. A successful
++`shutdown` request returns `null`, stops pending analysis, and moves the
++session to the shutdown state; later requests receive `-32600`. The `exit`
++notification ends with status 0 only after shutdown, and with status 1
++otherwise. Unknown notifications and `$/cancelRequest` add no behavior.
++
++The successful `initialize` result has exactly these advertised capabilities:
++
++```json
++{
++  "positionEncoding": "utf-16",
++  "textDocumentSync": {"openClose": true, "change": 1},
++  "hoverProvider": true,
++  "definitionProvider": true,
++  "documentSymbolProvider": true
++}
++```
++
++It also includes `serverInfo` with name `pietto` and the running package
++version. `change: 1` means full-document synchronization.
++
++## Initialization and roots
++
++`initializationOptions.projectRoots` is optional. If present, it must be a
++list of distinct absolute filesystem paths. Paths are normalized and resolved
++for duplicate detection, so two spellings of a directory, including a symlink,
++are not distinct. Any other shape, a relative path, or a duplicate returns
++`-32602` with:
++
++```
++projectRoots must be a list of distinct absolute paths
++```
++
++No option or an empty list means that no project roots exist. The server never
++derives roots from a workspace folder, current directory, URI, or configuration
++file. Roots are fixed for the session; changing them requires a new server.
++
++For every root, the server uses the same project selection as
++`pietto check --project ROOT`. It publishes diagnostics for selected open and
++closed modules. A selected module with exactly one open `file:` URI uses that
++whole unsaved buffer as a diagnostic overlay. The overlay changes no source
++file and is never a trusted source read, compilation input, emission input,
++package input, or execution input.
++
++For a schema-version-2 project, partial analysis may omit an erroneous module
++and its direct or transitive importers, then check the remaining modules. It
++uses at most five passes. An omitted importer receives the Information
++diagnostic described below. Other schema versions retain the command-line
++all-or-nothing project behavior.
++
++A document that is not selected by exactly one configured root is checked as
++the equivalent of `pietto check FILE` against its whole open text. An isolated
++module can therefore show unresolved-import diagnostics until its root is
++configured.
++
++## Documents, paths, and freshness
++
++The server consumes `textDocument/didOpen`, `textDocument/didChange`, and
++`textDocument/didClose`. `languageId` is not an admission check. A supported
++change has exactly one `contentChanges` item with a string `text` and no
++`range`; an empty text string is valid. A ranged change, an empty or multi-item
++`contentChanges` list, or another malformed change refuses the document until
++a new `didOpen` arrives. The refusal publishes the editor-only message in the
++table below.
++
++When document versions are integers, a change whose version is no newer than
++the stored version is ignored. A diagnostic set calculated for an older
++document epoch is dropped, rather than published after a newer open, change,
++or close. Each published set for a versioned open document carries that
++document version.
++
++Positions use zero-based UTF-16 code units. Pietto source locations are
++converted from their one-based source positions; CRLF, CR, and LF are line
++breaks, astral characters use two UTF-16 units, and ranges clamp at the last
++available position. An opened buffer retains a leading U+FEFF in its shown
++range, while a closed disk document does not. Unpaired UTF-16 surrogate code
++points in an opened buffer are replaced by U+FFFD before checking.
++
++Only `file:` URIs map to filesystem paths. `localhost` is local; on Windows,
++drive-letter, UNC, and `wsl$` file URIs map through Windows path rules. Other
++URI schemes remain standalone documents.
++
++One logical file may not choose a winner among aliases. If multiple configured
++roots select it, or it is open under multiple URIs, each relevant URI receives
++only the corresponding editor-only conflict diagnostic. Its project check then
++uses disk content rather than any competing buffer. Before a previously owned
++URI is replaced by a diagnostic set for the same path, the server clears the
++unowned stale URI first.
++
++## Diagnostics
++
++The server emits `textDocument/publishDiagnostics` with the URI, ordered
++diagnostics, and a version when one is available. Compiler diagnostics preserve
++the existing diagnostic code, compiler order, source range, and `source` value
++`pietto`. Error severity is LSP `1`; warning severity is LSP `2`. The displayed
++message is the compiler message plus a newline and suggestion only when that
++suggestion is not already a substring of the message.
++
++If the client sets
++`capabilities.textDocument.publishDiagnostics.relatedInformation` to `true`, a
++project diagnostic with related locations includes ordered
++`relatedInformation` items. Without that capability the field is omitted.
++
++Project loading/configuration errors are not compiler `PIE-*` diagnostics.
++They are editor-only errors formatted as `project error: <kind>: <message>`.
++They publish at their named file when present, otherwise at `pietto.toml` when
++it exists, otherwise once through `window/showMessage` as
++`Pietto project root <root>: <messages>`.
++
++The following editor-only diagnostics have no `code`, use `source: "pietto"`,
++LSP Error severity `1`, and a zero-length range at the document start unless
++noted otherwise. They do not reserve a `PIE-*` code.
++
++| Condition | Message |
++| --- | --- |
++| Two or more roots select one file | `This file belongs to two project roots: <root 1> and <root 2>. Keep one of them in projectRoots.` |
++| One file is open under two or more URIs | `This file is open under two URIs: <uri 1> and <uri 2>. Keep one of them open.` |
++| A case-insensitive path represents two selected names that differ only by letter case | `This file is selected under two names that differ only in letter case: <name 1> and <name 2>. Rename one of them.` |
++| Unsupported partial `didChange` | `Pietto needs whole-document changes; reopen this file.` |
++| Project loading/configuration failure | `project error: <kind>: <message>` |
++
++The first three lists are in code-point order. They replace every ordinary
++diagnostic for the affected file; they do not select a root, URI, filename, or
++buffer winner.
++
++When partial project analysis skips an importer, it instead receives one
++Information diagnostic: `Not checked: this module imports <file>, which has
++errors.` It has LSP severity `3`, `source: "pietto"`, no `code`, and the
++range of the import. More than one file is listed in code-point order using
++the ordinary English list form.
++
++## Resource and trust boundaries
++
++The server reads and analyzes input for diagnostics and detached editor facts. It
++does not write documents, format files, open database connections, emit SQL,
++compile, package, execute, discover a workspace root, or use editor text as
++trusted bytes. A selected project still applies its normal source-selection,
++read, parse, semantic, and import rules to every non-overlay input.
++
++The three editor requests use detached facts from the same analysis, under
++[their contract](lsp-editor-facts-v1.md). The protocol provides no general
++editor-model artifact, semantic-metadata dump or backend capability state.
++Consumers must not depend on private server implementation details.
+diff --git a/docs/spec/lsp-editor-facts-v1.md b/docs/spec/lsp-editor-facts-v1.md
+new file mode 100644
+index 00000000..795e9576
+--- /dev/null
++++ b/docs/spec/lsp-editor-facts-v1.md
+@@ -0,0 +1,156 @@
++# LSP editor facts v1 — implementation contract
++
++ED.02 approves the standard-LSP, ephemeral-snapshot direction for the selected
++editor work: hover, go-to-definition and document symbols. This alpha contract
++is implemented by `pietto lsp`. It adds no CLI command, JSON artifact, or
++post-alpha compatibility promise. [LSP diagnostics v1](lsp-diagnostics-v1.md)
++continues to specify the diagnostic protocol.
++
++## Boundary
++
++The server keeps one immutable, in-process snapshot for an analysis
++of one current document or project epoch. It answers only standard LSP
++`textDocument/hover`, `textDocument/definition`, and
++`textDocument/documentSymbol` requests from that snapshot. The requests do
++not parse, analyze, check a project, build IR, read disk, select a root, or
++fall back to a name lookup.
++
++The snapshot is not serialized, returned as an artifact, retained across a
++server session, or shared with another process. It holds detached values only:
++URI, document/root epoch, source ranges, declaration kind, display/type text,
++and exact target identity. It never exposes AST, semantic/project result,
++overlay source, trusted opened bytes, source carrier, or resolver object.
++
++The Semantic Metadata Artifact v1 is not this snapshot: it is single-file,
++requires parse, semantics and IR success, and deliberately exposes no partial
++facts. The project relation-column view also cannot supply this contract: it
++has no use ranges, overlay/version identity, or partial-project facts. Neither
++format changes here.
++
++## Snapshot admission and invalidation
++
++A server makes a snapshot only from the same successful analysis that produces
++the current diagnostics. A single file may use the existing semantic result.
++For an explicit-module project, a sibling internal editor pass projects facts
++from the same final partial-analysis pass; `ProjectDiagnosticsReport` remains
++diagnostics-only.
++
++Every entry binds its selected-root identity, exact source URI, document epoch,
++and overlay provenance. A snapshot is discarded on open, change, close, root
++conflict, URI or selected-name conflict, refusal, observed configuration/source-selection change, or a
++newer analysis epoch. A failed or omitted module produces no facts. The server
++does not replace an ambiguous overlay with disk text.
++
++There is no filesystem watcher or configuration-update method in this version.
++Closed project files belong to the most recent observed root epoch; document
++notifications trigger reanalysis. Requests do not inspect disk to detect an
++otherwise unobserved external edit.
++
++The projection preserves all occurrences and their source order. It must not
++deduplicate uses by spelling, canonical name, type, path, or target. A lookup
++whose range covers more than one retained fact, or whose identity is absent,
++returns no result.
++
++Returned locations retain the unique open URI spelling for their document;
++closed project targets use their filesystem URI. A canonical path must not
++replace the URI of an unsaved buffer. Conflicting selected names suppress
++both that document's facts and uses that would navigate to it.
++
++## First facts
++
++The first definition-capable facts are only these exact resolution paths:
++
++| Context | Use | Exact target |
++| --- | --- | --- |
++| Single file | `FromClause.span` | `SemanticModel.from_resolutions[from_clause]`, then that authored declaration's span |
++| Single file | `TypeExpr.span` | `SemanticModel.type_resolutions[type_expr].definition`; a builtin or unresolved type has no target |
++| Schema-v2 project | relation `FromClause.span` | the owning module environment's `find_from_clause`, then `target_symbol.target_occurrence` |
++| Schema-v2 project | `TypeExpr.span` | the owning module type environment's `find_type_expr`, then `direct_symbol.target_occurrence`; a builtin or missing direct symbol has no target |
++
++The project target is valid only when its declaration occurrence belongs to the
++same successful selected-root analysis. A bare module path, name, import alias,
++re-export, field, let, parameter, or same-spelling declaration is never used to
++choose a replacement target.
++
++Hover may return a plain-text declaration kind and canonical type/display text
++only when the snapshot holds both a unique source range and that exact fact. It
++does not infer a type from a name or emit a partial approximation. Definition
++returns one standard `Location` only for a retained exact target; otherwise it
++returns `null`.
++
++Document symbols list retained named top-level declarations in authored source order.
++Until a separate source-range fact exists, both `range` and `selectionRange`
++are the declaration's full span. Symbols have no definition target merely
++because they are shown.
++
++## Fail-closed request behavior
++
++Hover and definition return `null`, and document symbols return `[]`, for a
++missing or stale snapshot, a refused document, an omitted partial-project
++module, or a root, URI or selected-name alias conflict. An unsupported or ambiguous position
++has no hover or definition result. A builtin can have a known hover type but
++has no authored definition target; that does not suppress the document's
++other symbols. These paths do not publish an editor-only diagnostic, reread
++the document, or change diagnostics. Malformed request parameters return
++JSON-RPC `-32602`, rather than masquerading as an unknown symbol.
++
++## Capability and client boundary
++
++`initialize` advertises
++`hoverProvider`, `definitionProvider`, and `documentSymbolProvider` alongside
++the existing diagnostic capabilities. The existing VS Code LSP client can
++consume these standard capabilities; it needs no private-core import, custom
++transport, or editor-facts artifact.
++
++Client capabilities govern representation: use a plaintext `MarkupContent`
++hover when the client supports it, otherwise a standard language/value
++`MarkedString`. Return `DocumentSymbol[]` when hierarchical document symbols
++are supported and flat `SymbolInformation[]` otherwise. Keep both projections
++in the same source order, use supported symbol kinds, and never mix the two
++array formats. Definition uses `Location`, so no location-link capability is
++required.
++
++No completion, references, workspace symbols, code action, formatting, model
++view, capability matrix, SQL preview change, execution, or workspace mutation
++is included.
++
++## Performance and verification
++
++Snapshot construction runs once per existing analysis and is bounded by the
++retained declaration and exact-resolution occurrences. Each request performs
++only current-epoch index lookup: zero parse, semantic-analysis, project-check,
++or IR calls. There is no persistent cache.
++
++The ED01 observation at `/tmp/pietto-ed01-lsp-observation/RESULT.md` measured
++the current diagnostics server only: a 45–109 byte single file and a two-module
++199 byte schema-v2 project. It is not a latency budget or evidence for JOIN,
++FD, large-project, cancellation, Windows, or UI behavior. Gate 1 must set a
++representative corpus and budget after measuring snapshot construction and all
++three request families.
++
++Tests must cover single-file and cross-module type/from targets; import aliases
++and re-exports; stale versions; root and URI aliases; UTF-16 with CRLF and
++lone CR; partial-project omissions; overlapping ranges; source ordering; and
++proof that each request makes no analysis call. Each returned range and target
++must come from the exact retained occurrence, not a reconstructed name.
++
++## External-reference review
++
++The reviewed source is Microsoft's LSP 3.17 specification:
++[hover](https://raw.githubusercontent.com/microsoft/language-server-protocol/gh-pages/_specifications/lsp/3.17/language/hover.md),
++[definition](https://raw.githubusercontent.com/microsoft/language-server-protocol/gh-pages/_specifications/lsp/3.17/language/definition.md), and
++[document symbols](https://raw.githubusercontent.com/microsoft/language-server-protocol/gh-pages/_specifications/lsp/3.17/language/documentSymbol.md).
++
++| Field | Review |
++| --- | --- |
++| Snapshot/date | LSP 3.17 source, reviewed 2026-11-08. |
++| Problem/constraints | Supply three editor features through the existing LSP connection. |
++| Semantic/identity model | Protocol ranges and locations carry Pietto-owned identity; they do not establish binding. |
++| Layering/dependency direction | Core facts feed protocol responses; the extension consumes them. |
++| Algorithms/data structures/complexity | The protocol selects no analysis algorithm; this proposal uses bounded ephemeral facts. |
++| Interface/version/capability model | Standard responses and client capability negotiation; Pietto features remain alpha. |
++| Testing/operational lifecycle | Test response variants, ranges, stale epochs and empty results through the public session. |
++| Pitfalls/migration costs | Rich symbols and hover content require capability handling; full spans have less precise selection. |
++| Disposition | Reuse the existing standard wire messages. |
++| WHAT_NOT_TO_COPY | No inferred bindings, new artifact, client-side semantic resolver or persistent cache. |
++| Pietto owner affected | Semantic projection, project editor analysis and LSP server. |
+diff --git a/scripts/package_smoke.py b/scripts/package_smoke.py
+index 34f27465..4acf875a 100644
+--- a/scripts/package_smoke.py
++++ b/scripts/package_smoke.py
+@@ -545,6 +545,9 @@ def _smoke_installed_lsp(
+     capabilities = {
+         "positionEncoding": "utf-16",
+         "textDocumentSync": {"openClose": True, "change": 1},
++        "hoverProvider": True,
++        "definitionProvider": True,
++        "documentSymbolProvider": True,
+     }
+     expected = framed(
+         {
+diff --git a/src/pietto/_editor_facts.py b/src/pietto/_editor_facts.py
+new file mode 100644
+index 00000000..50c67c0a
+--- /dev/null
++++ b/src/pietto/_editor_facts.py
+@@ -0,0 +1,154 @@
++"""Detached editor facts projected from one successful semantic analysis."""
++
++from __future__ import annotations
++
++from dataclasses import dataclass
++from collections.abc import Iterable
++
++from pietto.ast_nodes import (
++    Definition,
++    Node,
++    Script,
++)
++from pietto.errors import SourceLocation
++from pietto.semantic.model import SemanticModel
++
++
++@dataclass(frozen=True, slots=True)
++class EditorDeclaration:
++    """One declaration location and display value detached from semantic state."""
++
++    location: SourceLocation
++    name: str
++    kind: int
++    detail: str
++
++
++@dataclass(frozen=True, slots=True)
++class EditorUse:
++    """One exact authored use, never a name-based approximation."""
++
++    location: SourceLocation
++    detail: str
++    target: EditorDeclaration | None
++
++
++@dataclass(frozen=True, slots=True)
++class EditorFacts:
++    """The pure editor projection for one source document."""
++
++    declarations: tuple[EditorDeclaration, ...] = ()
++    uses: tuple[EditorUse, ...] = ()
++
++
++def single_file_editor_facts(
++    script: Script, model: SemanticModel, *, path: str | None = None
++) -> EditorFacts:
++    """Project exact single-file type and FROM resolutions into pure values."""
++
++    declarations = tuple(
++        declaration
++        for definition in authored_declarations(script)
++        if (declaration := _declaration(definition, path=path)) is not None
++    )
++    uses: list[EditorUse] = []
++    for from_clause, target in model.from_resolutions.items():
++        uses.append(
++            EditorUse(
++                location=_location(from_clause, path=path),
++                detail=_display(target),
++                target=_declaration(target, path=path),
++            )
++        )
++    for type_expr, resolved in model.type_resolutions.items():
++        definition = resolved.definition
++        target = (
++            _declaration(definition, path=path)
++            if isinstance(definition, Definition)
++            else None
++        )
++        uses.append(
++            EditorUse(
++                location=_location(type_expr, path=path),
++                detail=f"{resolved.kind.value} {resolved.name}",
++                target=target,
++            )
++        )
++    return EditorFacts(declarations=declarations, uses=tuple(uses))
++
++
++def authored_declarations(script: Script) -> tuple[Node, ...]:
++    """Every currently admitted named top-level declaration in source order."""
++
++    declarations: Iterable[Node] = (
++        *script.definitions,
++        *script.relationship_templates,
++        *script.constants,
++    )
++    return tuple(
++        sorted(declarations, key=lambda item: (item.span.line, item.span.column))
++    )
++
++
++def editor_declaration(
++    definition: Node, *, path: str | None = None
++) -> EditorDeclaration | None:
++    """Detach a named declaration, or refuse a node without that identity."""
++
++    return _declaration(definition, path=path)
++
++
++def editor_use(
++    node: Node,
++    detail: str,
++    target: EditorDeclaration | None,
++    *,
++    path: str | None = None,
++) -> EditorUse:
++    """Build one detached use after its caller already proved its binding."""
++
++    return EditorUse(location=_location(node, path=path), detail=detail, target=target)
++
++
++def _declaration(
++    definition: Node, *, path: str | None = None
++) -> EditorDeclaration | None:
++    name = getattr(definition, "name", None)
++    if not isinstance(name, str) or not name:
++        return None
++    kind = {
++        "EnumDef": 10,
++        "FunctionDef": 12,
++        "RelationshipTemplate": 12,
++        "SourceDef": 13,
++        "ConstantDef": 14,
++    }.get(type(definition).__name__, 5)
++    return EditorDeclaration(
++        location=_location(definition, path=path),
++        name=name,
++        kind=kind,
++        detail=f"{_kind(definition)} {name}",
++    )
++
++
++def _display(definition: Definition) -> str:
++    return f"{_kind(definition)} {definition.name}"
++
++
++def _kind(definition: Node) -> str:
++    name = type(definition).__name__
++    return {
++        "ConstantDef": "constant",
++        "RelationshipTemplate": "relationship",
++    }.get(name, name.removesuffix("Def").lower())
++
++
++def _location(node: Node, *, path: str | None = None) -> SourceLocation:
++    span = node.span
++    return SourceLocation(
++        path=span.path if span.path is not None else path,
++        line=span.line,
++        column=span.column,
++        end_line=span.end_line,
++        end_column=span.end_column,
++    )
+diff --git a/src/pietto/_lsp.py b/src/pietto/_lsp.py
+index 760faa5d..9310bcf7 100644
+--- a/src/pietto/_lsp.py
++++ b/src/pietto/_lsp.py
+@@ -12,12 +12,20 @@ import sys
+ import threading
+ from dataclasses import dataclass
+ from pathlib import Path, PurePath, PurePosixPath, PureWindowsPath
+-from typing import BinaryIO, Protocol
++from types import MappingProxyType
++from typing import BinaryIO, Mapping, Protocol
+ from urllib.parse import unquote, urlsplit
+ 
++from pietto._editor_facts import (
++    EditorDeclaration,
++    EditorFacts,
++    EditorUse,
++    single_file_editor_facts,
++)
+ from pietto._project.check import (
+     ProjectDiagnosticsReport,
+-    check_project_diagnostics,
++    ProjectEditorDiagnostics,
++    check_project_editor_diagnostics,
+     selected_project_paths,
+ )
+ from pietto.errors import Diagnostic, Severity, SourceLocation
+@@ -121,6 +129,19 @@ class _Document:
+     refused: bool = False
+ 
+ 
++@dataclass(frozen=True, slots=True)
++class _EditorSnapshot:
++    """Facts for exactly one LSP unit and analysis epoch."""
++
++    epoch: int
++    facts: Mapping[Path | None, EditorFacts]
++    tables: Mapping[Path | None, _Lines]
++
++    def __post_init__(self) -> None:
++        object.__setattr__(self, "facts", MappingProxyType(dict(self.facts)))
++        object.__setattr__(self, "tables", MappingProxyType(dict(self.tables)))
++
++
+ class _Server:
+     def __init__(self, inbox: _Inbox, stdout: BinaryIO, version: str) -> None:
+         self.inbox = inbox
+@@ -130,9 +151,12 @@ class _Server:
+         self.exit_code: int | None = None
+         self.roots: tuple[Path, ...] = ()
+         self.related = False
++        self.hover_plaintext = False
++        self.hierarchical_symbols = False
+         self.documents: dict[str, _Document] = {}
+         self.dirty: dict[_Key, None] = {}
+         self.epochs: dict[_Key, int] = {}
++        self.snapshots: dict[_Key, _EditorSnapshot] = {}
+         self.selections: list[frozenset[Path]] = []
+         self.extras: list[frozenset[Path]] = []
+         self.published: dict[str, tuple[_Key, Path | None]] = {}
+@@ -207,6 +231,12 @@ class _Server:
+             self._send({"jsonrpc": "2.0", "id": request_id, "result": None})
+         elif method == "initialize":
+             self._error(request_id, -32600, "Server is already initialized")
++        elif method in {
++            "textDocument/hover",
++            "textDocument/definition",
++            "textDocument/documentSymbol",
++        }:
++            self._editor_request(request_id, method, params)
+         else:
+             self._error(request_id, -32601, f"Method not found: {method}")
+ 
+@@ -234,6 +264,16 @@ class _Server:
+             )
+             is True
+         )
++        formats = _field(params, "capabilities", "textDocument", "hover").get(
++            "contentFormat"
++        )
++        self.hover_plaintext = isinstance(formats, list) and "plaintext" in formats
++        self.hierarchical_symbols = (
++            _field(params, "capabilities", "textDocument", "documentSymbol").get(
++                "hierarchicalDocumentSymbolSupport"
++            )
++            is True
++        )
+         self.state = "running"
+         self._send(
+             {
+@@ -243,6 +283,9 @@ class _Server:
+                     "capabilities": {
+                         "positionEncoding": "utf-16",
+                         "textDocumentSync": {"openClose": True, "change": 1},
++                        "hoverProvider": True,
++                        "definitionProvider": True,
++                        "documentSymbolProvider": True,
+                     },
+                     "serverInfo": {"name": "pietto", "version": self.version},
+                 },
+@@ -325,6 +368,7 @@ class _Server:
+             )
+         for unit in units:
+             self.epochs[unit] = self.epochs.get(unit, 0) + 1
++            self.snapshots.pop(unit, None)
+             self.dirty[unit] = None
+ 
+     # Analysis.
+@@ -339,19 +383,30 @@ class _Server:
+         kind, value = unit
+         if kind == "root":
+             assert isinstance(value, int)
+-            report, selections = self._check_root(value)
++            checked, selections = self._check_root(value)
+             self._drain()
+             if self._current(unit, epoch):
+-                self._publish_root(value, report, selections)
++                self._set_root_snapshot(unit, epoch, value, checked)
++                self._publish_root(
++                    value, checked.report if checked is not None else None, selections
++                )
+         else:
+             assert isinstance(value, str)
+             document = self.documents.get(value)
+             if document is None or self._owner(value, document.path) != unit:
+                 self._sweep()
+                 return
+-            diagnostics = _check_text(document.text)
++            diagnostics, facts = _check_text_with_editor_facts(
++                document.text,
++                path=str(document.path) if document.path is not None else None,
++            )
+             self._drain()
+             if self._current(unit, epoch):
++                self.snapshots[unit] = _EditorSnapshot(
++                    epoch,
++                    {document.path: facts},
++                    {document.path: _Lines(document.text, open_buffer=True)},
++                )
+                 table = _Lines(document.text, open_buffer=True)
+                 self._publish(
+                     value,
+@@ -375,7 +430,7 @@ class _Server:
+ 
+     def _check_root(
+         self, index: int
+-    ) -> tuple[ProjectDiagnosticsReport | None, list[frozenset[Path]]]:
++    ) -> tuple[ProjectEditorDiagnostics | None, list[frozenset[Path]]]:
+         root = self.roots[index]
+         # A buffer is keyed by the selected entry its path matches, as a URI
+         # may spell it in another letter case where paths ignore case. A
+@@ -393,16 +448,47 @@ class _Server:
+             and len(self._uris(document.path)) == 1
+         }
+         try:
+-            report = check_project_diagnostics(root, overlays=overlays)
++            checked = check_project_editor_diagnostics(root, overlays=overlays)
+         except (OSError, ValueError):
+-            report = None
++            checked = None
+         selections = [
+-            frozenset(_join(root, path) for path in report.paths)
+-            if position == index and report is not None
++            frozenset(_join(root, path) for path in checked.report.paths)
++            if position == index and checked is not None
+             else frozenset(_entries(other))
+             for position, other in enumerate(self.roots)
+         ]
+-        return report, selections
++        return checked, selections
++
++    def _set_root_snapshot(
++        self,
++        unit: _Key,
++        epoch: int,
++        index: int,
++        checked: ProjectEditorDiagnostics | None,
++    ) -> None:
++        if checked is None:
++            self.snapshots.pop(unit, None)
++            return
++        root = self.roots[index]
++        report = checked.report
++        tables: dict[Path | None, _Lines] = {}
++        facts: dict[Path | None, EditorFacts] = {}
++        path_counts: dict[Path, int] = {}
++        for relative in report.paths:
++            path = _join(root, relative)
++            path_counts[path] = path_counts.get(path, 0) + 1
++        for relative, item in checked.facts.items():
++            path = _join(root, relative)
++            if path_counts.get(path) != 1:
++                continue
++            uris = self._uris(path)
++            document = self.documents.get(uris[0]) if len(uris) == 1 else None
++            tables[path] = _Lines(
++                report.texts.get(relative),
++                open_buffer=document is not None and not document.refused,
++            )
++            facts[path] = _root_editor_facts(item, root)
++        self.snapshots[unit] = _EditorSnapshot(epoch, facts, tables)
+ 
+     def _publish_root(
+         self,
+@@ -632,6 +718,98 @@ class _Server:
+             "range": self._table(root, report, path, {}).range(location),
+         }
+ 
++    def _editor_request(
++        self, request_id: int | str, method: str, params: dict[str, object]
++    ) -> None:
++        item = _field(params, "textDocument")
++        uri = item.get("uri")
++        if not isinstance(uri, str):
++            self._error(request_id, -32602, "Invalid params")
++            return
++        position = (
++            _position(params) if method != "textDocument/documentSymbol" else None
++        )
++        if method != "textDocument/documentSymbol" and position is None:
++            self._error(request_id, -32602, "Invalid params")
++            return
++        document = self.documents.get(uri)
++        path = document.path if document is not None else _absolute_uri_path(uri)
++        owner = self._owner(uri, path)
++        if owner is None or owner[0] not in {"file", "root"}:
++            self._send_editor_result(request_id, method, None, uri=uri)
++            return
++        snapshot = self.snapshots.get(owner)
++        if snapshot is None or snapshot.epoch != self.epochs.get(owner, 0):
++            self._send_editor_result(request_id, method, None, uri=uri)
++            return
++        facts = snapshot.facts.get(path)
++        if facts is None:
++            self._send_editor_result(request_id, method, None, uri=uri)
++            return
++        if method == "textDocument/documentSymbol":
++            self._send_editor_result(request_id, method, facts, snapshot.tables, uri)
++            return
++        assert position is not None
++        table = snapshot.tables.get(path)
++        if table is None:
++            self._send_editor_result(request_id, method, None, uri=uri)
++            return
++        result = _editor_use_at(facts, table, position)
++        if (
++            result is not None
++            and result.target is not None
++            and not self._target_available(result.target, owner)
++        ):
++            result = None
++        self._send_editor_result(request_id, method, result, snapshot.tables, uri)
++
++    def _target_available(self, target: EditorDeclaration, owner: _Key) -> bool:
++        if target.location.path is None:
++            return owner[0] == "file"
++        path = Path(target.location.path)
++        uri = self._uri(path)
++        snapshot = self.snapshots.get(owner)
++        return (
++            self._owner(uri, path) == owner
++            and snapshot is not None
++            and path in snapshot.facts
++        )
++
++    def _send_editor_result(
++        self,
++        request_id: int | str,
++        method: str,
++        value: EditorFacts | EditorUse | None,
++        tables: Mapping[Path | None, _Lines] | None = None,
++        uri: str | None = None,
++    ) -> None:
++        tables = {} if tables is None else tables
++        if method == "textDocument/documentSymbol":
++            facts = value if isinstance(value, EditorFacts) else EditorFacts()
++            result: object = _document_symbols(
++                facts, self.hierarchical_symbols, tables, uri
++            )
++        elif method == "textDocument/hover":
++            result = (
++                _hover(value, self.hover_plaintext, tables)
++                if isinstance(value, EditorUse)
++                else None
++            )
++        else:
++            target_uri = uri
++            if (
++                isinstance(value, EditorUse)
++                and value.target is not None
++                and value.target.location.path is not None
++            ):
++                target_uri = self._uri(Path(value.target.location.path))
++            result = (
++                _definition(value, tables, target_uri)
++                if isinstance(value, EditorUse)
++                else None
++            )
++        self._send({"jsonrpc": "2.0", "id": request_id, "result": result})
++
+     # Output.
+ 
+     def _publish(
+@@ -735,12 +913,171 @@ def uri_to_path(uri: str, *, windows: bool = os.name == "nt") -> PurePath | None
+ def _check_text(text: str) -> tuple[Diagnostic, ...]:
+     """The diagnostics of `pietto check FILE --format json` for `text`."""
+ 
++    diagnostics, _ = _check_text_with_editor_facts(text)
++    return diagnostics
++
++
++def _check_text_with_editor_facts(
++    text: str, *, path: str | None = None
++) -> tuple[tuple[Diagnostic, ...], EditorFacts]:
++    """Check one buffer once and retain facts only on semantic success."""
++
+     parsed = parse_source(text)
+     if parsed.ast is None or any(
+         diagnostic.severity is Severity.ERROR for diagnostic in parsed.diagnostics
+     ):
+-        return parsed.diagnostics
+-    return (*parsed.diagnostics, *analyze(parsed.ast).diagnostics)
++        return parsed.diagnostics, EditorFacts()
++    semantic = analyze(parsed.ast)
++    diagnostics = (*parsed.diagnostics, *semantic.diagnostics)
++    if any(diagnostic.severity is Severity.ERROR for diagnostic in diagnostics):
++        return diagnostics, EditorFacts()
++    return diagnostics, single_file_editor_facts(parsed.ast, semantic.model, path=path)
++
++
++def _absolute_uri_path(uri: str) -> Path | None:
++    path = uri_to_path(uri)
++    return Path(path) if path is not None and path.is_absolute() else None
++
++
++def _position(params: dict[str, object]) -> dict[str, int] | None:
++    position = _field(params, "position")
++    line, character = position.get("line"), position.get("character")
++    if type(line) is not int or type(character) is not int or line < 0 or character < 0:
++        return None
++    return {"line": line, "character": character}
++
++
++def _editor_use_at(
++    facts: EditorFacts, lines: _Lines, position: dict[str, int]
++) -> EditorUse | None:
++    matches = tuple(
++        use for use in facts.uses if _contains(lines.range(use.location), position)
++    )
++    return matches[0] if len(matches) == 1 else None
++
++
++def _contains(range_: dict[str, object], position: dict[str, int]) -> bool:
++    start = range_["start"]
++    end = range_["end"]
++    assert isinstance(start, dict) and isinstance(end, dict)
++    lower = (start["line"], start["character"])
++    upper = (end["line"], end["character"])
++    point = (position["line"], position["character"])
++    return lower <= point < upper
++
++
++def _hover(
++    use: EditorUse, plaintext: bool, tables: Mapping[Path | None, _Lines]
++) -> dict[str, object] | None:
++    range_ = _fact_range(use.location, tables)
++    if range_ is None:
++        return None
++    contents: object = (
++        {"kind": "plaintext", "value": use.detail}
++        if plaintext
++        else {"language": "pietto", "value": use.detail}
++    )
++    return {"contents": contents, "range": range_}
++
++
++def _definition(
++    use: EditorUse, tables: Mapping[Path | None, _Lines], target_uri: str | None
++) -> dict[str, object] | None:
++    target = use.target
++    if target is None:
++        return None
++    range_ = _fact_range(target.location, tables)
++    if range_ is None:
++        return None
++    if target_uri is None:
++        return None
++    return {
++        "uri": target_uri,
++        "range": range_,
++    }
++
++
++def _document_symbols(
++    facts: EditorFacts,
++    hierarchical: bool,
++    tables: Mapping[Path | None, _Lines],
++    uri: str | None,
++) -> list[dict[str, object]]:
++    if hierarchical:
++        return [
++            {
++                "name": item.name,
++                "detail": item.detail,
++                "kind": item.kind,
++                "range": range_,
++                "selectionRange": range_,
++            }
++            for item in facts.declarations
++            if (range_ := _fact_range(item.location, tables)) is not None
++        ]
++    return [
++        {
++            "name": item.name,
++            "kind": item.kind,
++            "location": {
++                "uri": uri,
++                "range": range_,
++            },
++        }
++        for item in facts.declarations
++        if uri is not None
++        and (range_ := _fact_range(item.location, tables)) is not None
++    ]
++
++
++def _fact_range(
++    location: SourceLocation, tables: Mapping[Path | None, _Lines]
++) -> dict[str, object] | None:
++    path = Path(location.path) if location.path is not None else None
++    table = tables.get(path)
++    return table.range(location) if table is not None else None
++
++
++def _root_editor_facts(facts: EditorFacts, root: Path) -> EditorFacts:
++    """Attach one selected root while retaining each exact relative occurrence."""
++
++    declarations = tuple(
++        _root_editor_declaration(item, root) for item in facts.declarations
++    )
++    return EditorFacts(
++        declarations=declarations,
++        uses=tuple(
++            EditorUse(
++                location=_root_location(item.location, root),
++                detail=item.detail,
++                target=(
++                    _root_editor_declaration(item.target, root)
++                    if item.target is not None
++                    else None
++                ),
++            )
++            for item in facts.uses
++        ),
++    )
++
++
++def _root_editor_declaration(item: EditorDeclaration, root: Path) -> EditorDeclaration:
++    return EditorDeclaration(
++        location=_root_location(item.location, root),
++        name=item.name,
++        kind=item.kind,
++        detail=item.detail,
++    )
++
++
++def _root_location(location: SourceLocation, root: Path) -> SourceLocation:
++    return SourceLocation(
++        path=(str(_join(root, location.path)) if location.path is not None else None),
++        line=location.line,
++        column=location.column,
++        end_line=location.end_line,
++        end_column=location.end_column,
++    )
+ 
+ 
+ def _entries(root: Path) -> dict[Path, str | None]:
+diff --git a/src/pietto/_project/check.py b/src/pietto/_project/check.py
+index ba87069d..f03aed4c 100644
+--- a/src/pietto/_project/check.py
++++ b/src/pietto/_project/check.py
+@@ -6,10 +6,17 @@ from collections import deque
+ from collections.abc import Mapping
+ from dataclasses import dataclass, replace
+ from pathlib import Path
++from types import MappingProxyType
+ from typing import TYPE_CHECKING, cast
+ 
+ import pietto.parser_api as parser_api
+ from pietto._builtin_shadows import imported_nodes
++from pietto._editor_facts import (
++    EditorFacts,
++    authored_declarations,
++    editor_declaration,
++    editor_use,
++)
+ from pietto.ast_nodes import (
+     Definition,
+     ExportStatement,
+@@ -125,6 +132,17 @@ class ProjectDiagnosticsReport:
+     not_checked: tuple[tuple[SourceLocation, str], ...]
+ 
+ 
++@dataclass(frozen=True, slots=True)
++class ProjectEditorDiagnostics:
++    """Private diagnostics-plus-facts result for the editor's one-pass check."""
++
++    report: ProjectDiagnosticsReport
++    facts: Mapping[str, EditorFacts]
++
++    def __post_init__(self) -> None:
++        object.__setattr__(self, "facts", MappingProxyType(dict(self.facts)))
++
++
+ def check_project_diagnostics(
+     root: str | Path, *, overlays: Mapping[str, str]
+ ) -> ProjectDiagnosticsReport:
+@@ -145,13 +163,35 @@ def check_project_diagnostics(
+     error of its own that it imports, directly or through other modules. The
+     CLI never calls this."""
+ 
+-    passes = [_check_pass(root, frozenset(), overlays)]
++    report, _ = _check_project_editor_diagnostics(
++        root, overlays=overlays, editor_facts=False
++    )
++    return report
++
++
++def check_project_editor_diagnostics(
++    root: str | Path, *, overlays: Mapping[str, str]
++) -> ProjectEditorDiagnostics:
++    """Run the editor's project check once and return detached successful facts."""
++
++    report, facts = _check_project_editor_diagnostics(
++        root, overlays=overlays, editor_facts=True
++    )
++    return ProjectEditorDiagnostics(report=report, facts=facts)
++
++
++def _check_project_editor_diagnostics(
++    root: str | Path, *, overlays: Mapping[str, str], editor_facts: bool
++) -> tuple[ProjectDiagnosticsReport, Mapping[str, EditorFacts]]:
++    """Shared check path; only this private caller retains pure editor facts."""
++
++    passes = [_check_pass(root, frozenset(), overlays, editor_facts=editor_facts)]
+     paths = tuple(item.path for item in passes[0][0].inputs)
+     imports: dict[str, tuple[ImportStatement, ...]] = {}
+     failed: set[str] = set()
+     blocked: set[str] = set()
+     while True:
+-        parse, _, _, stopped = passes[-1]
++        parse, _, _, stopped, _ = passes[-1]
+         imports.update(
+             (
+                 parsed.path,
+@@ -173,10 +213,14 @@ def check_project_diagnostics(
+         }
+         if failed | blocked >= set(paths):
+             break
+-        passes.append(_check_pass(root, frozenset(failed | blocked), overlays))
++        passes.append(
++            _check_pass(
++                root, frozenset(failed | blocked), overlays, editor_facts=editor_facts
++            )
++        )
+     checked = {
+         item.path: position
+-        for position, (parse, _, _, _) in enumerate(passes)
++        for position, (parse, _, _, _, _) in enumerate(passes)
+         for item in parse.inputs
+     }
+     errors: list[ProjectDiscoveryError] = []
+@@ -184,6 +228,7 @@ def check_project_diagnostics(
+     related: dict[Diagnostic, tuple[SourceLocation, ...]] = {}
+     texts: dict[str, str] = {}
+     not_checked: list[tuple[SourceLocation, str]] = []
++    facts_by_path: dict[str, EditorFacts] = {}
+     own_errors = {
+         path: [error for error in passes[checked[path]][0].errors if error.path == path]
+         for path in paths
+@@ -198,7 +243,7 @@ def check_project_diagnostics(
+     # not checked reaches at least one failed module with an error.
+     erring = {path for path in failed if own_errors[path] or _has_errors(own[path])}
+     for path in paths:
+-        parse, _, found_related, _ = passes[checked[path]]
++        parse, _, found_related, _, pass_facts = passes[checked[path]]
+         texts.update(
+             (source.path, source.source_text)
+             for source in parse.trusted_source_snapshots
+@@ -221,7 +266,16 @@ def check_project_diagnostics(
+                 for item in own[path]
+                 if item in found_related
+             )
+-    parse, found, found_related, _ = passes[-1]
++        if (
++            path not in failed
++            and path not in blocked
++            and not own_errors[path]
++            and not _has_errors(own[path])
++        ):
++            facts = pass_facts.get(path)
++            if facts is not None:
++                facts_by_path[path] = facts
++    parse, found, found_related, _, _ = passes[-1]
+     errors.extend(error for error in parse.errors if error.path not in paths)
+     rest = tuple(item for item in found if item.location.path not in paths)
+     diagnostics.extend(rest)
+@@ -235,13 +289,21 @@ def check_project_diagnostics(
+         related_locations=related,
+         texts=texts,
+         not_checked=tuple(not_checked),
+-    )
++    ), facts_by_path
+ 
+ 
+ def _check_pass(
+-    root: str | Path, excluded: frozenset[str], overlays: Mapping[str, str]
++    root: str | Path,
++    excluded: frozenset[str],
++    overlays: Mapping[str, str],
++    *,
++    editor_facts: bool,
+ ) -> tuple[
+-    ProjectParseCheckResult, tuple[Diagnostic, ...], RelatedLocations, frozenset[str]
++    ProjectParseCheckResult,
++    tuple[Diagnostic, ...],
++    RelatedLocations,
++    frozenset[str],
++    Mapping[str, EditorFacts],
+ ]:
+     """One project check without the modules in ``excluded``: its parse
+     check, the diagnostics and related locations the CLI reports for it, and
+@@ -253,7 +315,9 @@ def _check_pass(
+     related = module_related_locations(parse)
+     explicit = parse.compilation_mode is ProjectCompilationMode.EXPLICIT_MODULES
+     if parse.ok:
+-        diagnostics, ok, semantic_related = check_project_semantics(parse)
++        diagnostics, ok, semantic_related, facts = _check_project_semantics_with_facts(
++            parse, editor_facts=editor_facts
++        )
+         # Semantic analysis stops only at an import cycle.
+         return (
+             parse,
+@@ -262,16 +326,18 @@ def _check_pass(
+             _failed_modules(_module_diagnostics(parse), (), ())
+             if explicit and not ok
+             else frozenset(),
++            facts,
+         )
+     paths = {item.path for item in parse.inputs}
+     if not explicit or any(error.path not in paths for error in parse.errors):
+-        return parse, parse.diagnostics, related, frozenset()
++        return parse, parse.diagnostics, related, frozenset(), {}
+     return (
+         parse,
+         parse.diagnostics,
+         related,
+         _failed_modules(parse.module_diagnostic_facts, parse.errors, parse.diagnostics)
+         & paths,
++        {},
+     )
+ 
+ 
+@@ -386,14 +452,28 @@ def check_project_semantics(
+     diagnostic equal to an earlier one once, at its first position; the parse
+     check applies that rule to its own diagnostics."""
+ 
++    diagnostics, ok, related, _ = _check_project_semantics_with_facts(
++        parse_result, editor_facts=False
++    )
++    return diagnostics, ok, related
++
++
++def _check_project_semantics_with_facts(
++    parse_result: ProjectParseCheckResult, *, editor_facts: bool
++) -> tuple[tuple[Diagnostic, ...], bool, RelatedLocations, Mapping[str, EditorFacts]]:
++    """Run one semantic pass and detach editor facts only after it succeeds."""
++
+     from pietto._project.json_v2 import module_related_locations
+     from pietto._project.model import build_empty_project_semantic_result
+ 
+     related: RelatedLocations = {}
++    facts: Mapping[str, EditorFacts] = {}
+     try:
+         semantic_result = build_empty_project_semantic_result(parse_result)
+         related = module_related_locations(semantic_result)
+         diagnostics, ok = project_semantic_boundary(semantic_result)
++        if ok and editor_facts:
++            facts = _project_editor_facts(semantic_result)
+     except RecursionError:
+         diagnostics, ok = (project_recursion_limit_diagnostic(parse_result),), False
+     if parse_result.compilation_mode is ProjectCompilationMode.EXPLICIT_MODULES:
+@@ -403,7 +483,82 @@ def check_project_semantics(
+             for diagnostic in dict.fromkeys(diagnostics)
+             if diagnostic not in earlier
+         )
+-    return diagnostics, ok, related
++    return diagnostics, ok, related, facts
++
++
++def _project_editor_facts(
++    semantic_result: ProjectSemanticResult,
++) -> Mapping[str, EditorFacts]:
++    """Detach exact schema-v2 declaration, type and FROM resolution facts."""
++
++    if semantic_result.compilation_mode is not ProjectCompilationMode.EXPLICIT_MODULES:
++        return {}
++    type_roots = semantic_result.module_type_source_resolutions
++    relation_roots = semantic_result.module_relation_resolutions
++    if type_roots is None or relation_roots is None:
++        return {}
++    types = {
++        environment.module.path: environment for environment in type_roots.environments
++    }
++    relations = {
++        environment.module.path: environment
++        for environment in relation_roots.environments
++    }
++    facts: dict[str, EditorFacts] = {}
++    for module in semantic_result.modules:
++        parsed = module.parsed_input
++        if parsed is None:
++            continue
++        declarations = tuple(
++            declaration
++            for definition in authored_declarations(parsed.script)
++            if (declaration := editor_declaration(definition, path=module.path))
++            is not None
++        )
++        uses = []
++        relation_environment = relations.get(module.path)
++        if relation_environment is not None:
++            for resolution in relation_environment.resolutions:
++                target = resolution.target_symbol.target_occurrence
++                target_declaration = editor_declaration(
++                    target.definition, path=target.identity.module_path
++                )
++                if target_declaration is None:
++                    continue
++                uses.append(
++                    editor_use(
++                        resolution.reference.from_clause,
++                        f"{target.identity.declaration_kind.value} "
++                        f"{target.identity.declared_name}",
++                        target_declaration,
++                        path=module.path,
++                    )
++                )
++        type_environment = types.get(module.path)
++        if type_environment is not None:
++            for resolution in type_environment.type_resolutions:
++                symbol = resolution.direct_symbol
++                target_declaration = (
++                    editor_declaration(
++                        symbol.target_occurrence.definition,
++                        path=symbol.target_occurrence.identity.module_path,
++                    )
++                    if symbol is not None
++                    else None
++                )
++                uses.append(
++                    editor_use(
++                        resolution.reference.type_expr,
++                        f"{resolution.canonical_kind.value} {resolution.canonical_name}",
++                        target_declaration,
++                        path=module.path,
++                    )
++                )
++        facts[module.path] = EditorFacts(
++            declarations=declarations,
++            uses=tuple(uses),
++        )
++    return MappingProxyType(facts)
+ 
+ 
+ def project_semantic_boundary(
+diff --git a/tests/test_cli_lsp.py b/tests/test_cli_lsp.py
+index 6cdec663..49a6f1b9 100644
+--- a/tests/test_cli_lsp.py
++++ b/tests/test_cli_lsp.py
+@@ -11,7 +11,7 @@ import queue
+ import subprocess
+ import sys
+ import threading
+-from collections.abc import Callable
++from collections.abc import Callable, Sequence
+ from pathlib import Path, PurePath, PurePosixPath, PureWindowsPath
+ from typing import Any, cast
+ 
+@@ -86,7 +86,12 @@ def frames(data: bytes) -> list[Message]:
+     return messages
+ 
+ 
+-def init(*roots: Path, related: bool = False) -> Message:
++def init(
++    *roots: Path,
++    related: bool = False,
++    plaintext_hover: bool = False,
++    hierarchical_symbols: bool = False,
++) -> Message:
+     params: Message = {
+         "initializationOptions": {"projectRoots": [str(r) for r in roots]}
+     }
+@@ -94,6 +99,17 @@ def init(*roots: Path, related: bool = False) -> Message:
+         params["capabilities"] = {
+             "textDocument": {"publishDiagnostics": {"relatedInformation": True}}
+         }
++    if plaintext_hover or hierarchical_symbols:
++        capabilities = cast(dict[str, object], params.setdefault("capabilities", {}))
++        text_document = cast(
++            dict[str, object], capabilities.setdefault("textDocument", {})
++        )
++        if plaintext_hover:
++            text_document["hover"] = {"contentFormat": ["plaintext"]}
++        if hierarchical_symbols:
++            text_document["documentSymbol"] = {
++                "hierarchicalDocumentSymbolSupport": True
++            }
+     return {"jsonrpc": "2.0", "id": 0, "method": "initialize", "params": params}
+ 
+ 
+@@ -122,11 +138,24 @@ def closed(uri: str) -> Message:
+     return notify("textDocument/didClose", textDocument={"uri": uri})
+ 
+ 
++def request(
++    request_id: int,
++    method: str,
++    uri: str,
++    line: int | None = None,
++    character: int | None = None,
++) -> Message:
++    params: Message = {"textDocument": {"uri": uri}}
++    if line is not None and character is not None:
++        params["position"] = {"line": line, "character": character}
++    return {"jsonrpc": "2.0", "id": request_id, "method": method, "params": params}
++
++
+ class Script:
+     """A scripted inbox. The server reads each batch as already received and
+     analyses only when the batch is used up; a callable runs when reached."""
+ 
+-    def __init__(self, *batches: list[object]) -> None:
++    def __init__(self, *batches: Sequence[object]) -> None:
+         self.batches = [list(batch) for batch in batches]
+ 
+     def get(self) -> object:
+@@ -148,7 +177,7 @@ class Script:
+ 
+ 
+ def session(
+-    first: Message, *batches: list[object], script: Script | None = None
++    first: Message, *batches: Sequence[object], script: Script | None = None
+ ) -> list[Message]:
+     """Run one in-process session: `first` with `initialized`, each batch,
+     then shutdown and exit; return everything the server wrote."""
+@@ -173,6 +202,10 @@ def publishes(messages: list[Message], uri: str | None = None) -> list[Message]:
+     ]
+ 
+ 
++def response(messages: list[Message], request_id: int) -> Message:
++    return next(item for item in messages if item.get("id") == request_id)
++
++
+ def run_process(data: bytes, *arguments: str) -> tuple[int, list[Message], bytes]:
+     result = subprocess.run(
+         [sys.executable, "-c", PROGRAM, "lsp", *arguments],
+@@ -270,6 +303,9 @@ def test_lifecycle_over_a_process() -> None:
+                 "capabilities": {
+                     "positionEncoding": "utf-16",
+                     "textDocumentSync": {"openClose": True, "change": 1},
++                    "hoverProvider": True,
++                    "definitionProvider": True,
++                    "documentSymbolProvider": True,
+                 },
+                 "serverInfo": {"name": "pietto", "version": cli._package_version()},
+             },
+@@ -280,6 +316,527 @@ def test_lifecycle_over_a_process() -> None:
+     assert cli.main(["lsp", "extra"]) == 2
+ 
+ 
++@pytest.mark.parametrize("method", ["textDocument/hover", "textDocument/definition"])
++@pytest.mark.parametrize(
++    "position", [None, {"line": True, "character": 0}, {"line": 0, "character": -1}]
++)
++def test_editor_positions_are_checked_without_a_snapshot(
++    tmp_path: Path, method: str, position: object
++) -> None:
++    message = request(1, method, (tmp_path / "unopened.pietto").as_uri())
++    if position is not None:
++        message["params"]["position"] = position
++    messages = session(init(), [message])
++    assert response(messages, 1)["error"]["code"] == -32602
++
++
++def test_single_file_editor_requests_use_one_current_semantic_snapshot(
++    tmp_path: Path,
++) -> None:
++    text = """shape User:
++    id: Int
++
++source users: User = postgres.table("public.users")
++
++table rows:
++    from users
++    select id
++"""
++    path = tmp_path / "rows.pietto"
++    uri = path.as_uri()
++    messages = session(
++        init(),
++        [opened(uri, text, 1)],
++        [
++            request(1, "textDocument/hover", uri, 1, 8),
++            request(2, "textDocument/definition", uri, 6, 9),
++            request(3, "textDocument/documentSymbol", uri),
++            request(4, "textDocument/hover", uri, 7, 11),
++        ],
++    )
++    assert response(messages, 1)["result"] == {
++        "contents": {"language": "pietto", "value": "builtin Int"},
++        "range": {
++            "start": {"line": 1, "character": 8},
++            "end": {"line": 1, "character": 11},
++        },
++    }
++    assert response(messages, 2)["result"] == {
++        "uri": uri,
++        "range": {
++            "start": {"line": 3, "character": 0},
++            "end": {"line": 3, "character": 51},
++        },
++    }
++    assert response(messages, 3)["result"] == [
++        {
++            "name": "User",
++            "kind": 5,
++            "location": {
++                "uri": uri,
++                "range": {
++                    "start": {"line": 0, "character": 0},
++                    "end": {"line": 1, "character": 11},
++                },
++            },
++        },
++        {
++            "name": "users",
++            "kind": 13,
++            "location": {
++                "uri": uri,
++                "range": {
++                    "start": {"line": 3, "character": 0},
++                    "end": {"line": 3, "character": 51},
++                },
++            },
++        },
++        {
++            "name": "rows",
++            "kind": 5,
++            "location": {
++                "uri": uri,
++                "range": {
++                    "start": {"line": 5, "character": 0},
++                    "end": {"line": 7, "character": 13},
++                },
++            },
++        },
++    ]
++    assert response(messages, 4)["result"] is None
++
++
++def test_editor_requests_fail_closed_until_the_changed_epoch_is_analyzed(
++    tmp_path: Path,
++) -> None:
++    first = "shape User:\n    id: Int\n"
++    second = "shape Account:\n    id: Int\n"
++    uri = (tmp_path / "shape.pietto").as_uri()
++    messages = session(
++        init(),
++        [opened(uri, first, 1)],
++        [changed(uri, second, 2), request(1, "textDocument/documentSymbol", uri)],
++        [request(2, "textDocument/documentSymbol", uri)],
++    )
++    assert response(messages, 1)["result"] == []
++    assert response(messages, 2)["result"][0]["name"] == "Account"
++
++
++def test_untitled_document_symbols_and_definition_stay_in_the_open_document() -> None:
++    text = """shape User:
++    id: Int
++
++source users: User = postgres.table("users")
++
++table rows:
++    from users
++    select id
++"""
++    uri = "untitled:rows"
++    messages = session(
++        init(),
++        [opened(uri, text, 1)],
++        [
++            request(1, "textDocument/documentSymbol", uri),
++            request(2, "textDocument/definition", uri, 6, 9),
++        ],
++    )
++    assert [item["name"] for item in response(messages, 1)["result"]] == [
++        "User",
++        "users",
++        "rows",
++    ]
++    assert response(messages, 2)["result"]["uri"] == uri
++
++
++def test_document_symbols_keep_constants_and_relationships_in_source_order(
++    tmp_path: Path,
++) -> None:
++    text = """shape User:
++    id: Int
++
++cutoff: Int = 1
++
++relationship same(a: User, b: User): a.id == b.id
++
++source users: User = postgres.table("users")
++"""
++    uri = (tmp_path / "symbols.pietto").as_uri()
++    messages = session(
++        init(),
++        [opened(uri, text, 1)],
++        [request(1, "textDocument/documentSymbol", uri)],
++    )
++    assert [
++        (item["name"], item["kind"], item.get("detail"))
++        for item in response(messages, 1)["result"]
++    ] == [
++        ("User", 5, None),
++        ("cutoff", 14, None),
++        ("same", 12, None),
++        ("users", 13, None),
++    ]
++
++
++def test_project_document_symbols_keep_relationships_between_relations(
++    tmp_path: Path,
++) -> None:
++    text = """shape User:
++    id: Int
++
++source users: User = postgres.table("users")
++
++table all_users:
++    from users
++    select:
++        id
++
++relationship same(a: User, b: User): a.id == b.id
++
++query visible_users:
++    from all_users
++    select:
++        id
++"""
++    root = project(tmp_path, symbols=text)
++    uri = (root / "symbols.pietto").as_uri()
++    messages = session(
++        init(root, hierarchical_symbols=True),
++        [opened(uri, text, 1)],
++        [request(1, "textDocument/documentSymbol", uri)],
++    )
++    assert publishes(messages, uri)[-1]["diagnostics"] == []
++    symbols = response(messages, 1)["result"]
++    assert [symbol["name"] for symbol in symbols] == [
++        "User",
++        "users",
++        "all_users",
++        "same",
++        "visible_users",
++    ]
++    assert (symbols[3]["kind"], symbols[3]["detail"]) == (12, "relationship same")
++    assert symbols[3]["range"]["start"] == {"line": 10, "character": 0}
++
++
++@pytest.mark.parametrize("ending", ["\r\n", "\r"], ids=["crlf", "cr"])
++def test_definition_ranges_keep_utf16_bom_and_astral_coordinates(
++    tmp_path: Path, ending: str
++) -> None:
++    source_line = 'source users: User = postgres.table("\U0001f600")'
++    text = "\ufeff" + ending.join(
++        (
++            "shape User:",
++            "    id: Int",
++            "",
++            source_line,
++            "",
++            "table rows:",
++            "    from users",
++            "    select id",
++            "",
++        )
++    )
++    uri = (tmp_path / "coordinates.pietto").as_uri()
++    messages = session(
++        init(),
++        [opened(uri, text, 1)],
++        [request(1, "textDocument/definition", uri, 6, 9)],
++    )
++    assert response(messages, 1)["result"] == {
++        "uri": uri,
++        "range": {
++            "start": {"line": 3, "character": 0},
++            "end": {
++                "line": 3,
++                "character": len(source_line.encode("utf-16-le")) // 2,
++            },
++        },
++    }
++
++
++def test_closed_and_noncanonical_request_uris_have_no_editor_snapshot(
++    tmp_path: Path,
++) -> None:
++    text = "shape User:\n    id: Int\n"
++    uri = (tmp_path / "shape.pietto").as_uri()
++    other = f"{tmp_path.as_uri()}/./shape.pietto"
++    messages = session(
++        init(),
++        [opened(uri, text, 1)],
++        [
++            request(1, "textDocument/documentSymbol", other),
++            closed(uri),
++            request(2, "textDocument/documentSymbol", uri),
++        ],
++    )
++    assert response(messages, 1)["result"] == []
++    assert response(messages, 2)["result"] == []
++
++
++def test_editor_request_does_not_start_a_second_analysis(
++    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
++) -> None:
++    text = """shape User:
++    id: Int
++
++source users: User = postgres.table("users")
++
++table rows:
++    from users
++    select id
++"""
++    uri = (tmp_path / "shape.pietto").as_uri()
++    script = Script()
++    real = _lsp._check_text_with_editor_facts
++
++    def checked(value: str, *, path: str | None = None) -> object:
++        result = real(value, path=path)
++        monkeypatch.setattr(
++            _lsp,
++            "_check_text_with_editor_facts",
++            lambda *_args, **_kwargs: (_ for _ in ()).throw(
++                AssertionError("second analysis")
++            ),
++        )
++        return result
++
++    monkeypatch.setattr(_lsp, "_check_text_with_editor_facts", checked)
++    messages = session(
++        init(),
++        [opened(uri, text, 1)],
++        [
++            request(1, "textDocument/hover", uri, 1, 8),
++            request(2, "textDocument/definition", uri, 6, 9),
++            request(3, "textDocument/documentSymbol", uri),
++        ],
++        script=script,
++    )
++    assert response(messages, 1)["result"]["contents"]["value"] == "builtin Int"
++    assert response(messages, 2)["result"]["uri"] == uri
++    assert response(messages, 3)["result"][0]["name"] == "User"
++
++
++@pytest.mark.parametrize("project_mode", [False, True], ids=["single", "project"])
++def test_navigation_targets_use_the_unique_open_uri(
++    tmp_path: Path, project_mode: bool
++) -> None:
++    text = """shape User:
++    id: Int
++
++source users: User = postgres.table("public.users")
++
++table rows:
++    from users
++    select id
++"""
++    if project_mode:
++        root = project(tmp_path, models=MODELS, a=A_OK)
++        target_uri = f"{root.as_uri()}/./models.pietto"
++        source_uri = (root / "a.pietto").as_uri()
++        initialization = init(root)
++        opened_documents = [opened(target_uri, MODELS, 1), opened(source_uri, A_OK, 1)]
++        source_line = 5
++    else:
++        target_uri = source_uri = f"{tmp_path.as_uri()}/./single.pietto"
++        initialization = init()
++        opened_documents = [opened(source_uri, text, 1)]
++        source_line = 6
++    messages = session(
++        initialization,
++        opened_documents,
++        [
++            request(1, "textDocument/definition", source_uri, source_line, 9),
++            request(2, "textDocument/documentSymbol", target_uri),
++        ],
++    )
++    assert response(messages, 1)["result"]["uri"] == target_uri
++    symbols = response(messages, 2)["result"]
++    assert symbols
++    assert all(item["location"]["uri"] == target_uri for item in symbols)
++
++
++def test_project_definition_uses_the_exact_imported_relation_occurrence(
++    tmp_path: Path,
++) -> None:
++    root = project(tmp_path, models=MODELS, a=A_OK)
++    a_uri = (root / "a.pietto").as_uri()
++    models_uri = (root / "models.pietto").as_uri()
++    messages = session(
++        init(root),
++        [],
++        [opened(a_uri, A_OK, 1)],
++        [request(1, "textDocument/definition", a_uri, 5, 9)],
++    )
++    assert response(messages, 1)["result"] == {
++        "uri": models_uri,
++        "range": {
++            "start": {"line": 5, "character": 0},
++            "end": {"line": 5, "character": 51},
++        },
++    }
++
++
++def test_project_type_definition_and_capability_response_shapes(tmp_path: Path) -> None:
++    root = project(tmp_path, models=MODELS, a=A_OK)
++    models_uri = (root / "models.pietto").as_uri()
++    messages = session(
++        init(root, plaintext_hover=True, hierarchical_symbols=True),
++        [],
++        [opened((root / "a.pietto").as_uri(), A_OK, 1)],
++        [
++            request(1, "textDocument/hover", models_uri, 1, 8),
++            request(2, "textDocument/definition", models_uri, 1, 8),
++            request(3, "textDocument/documentSymbol", models_uri),
++        ],
++    )
++    assert response(messages, 1)["result"] == {
++        "contents": {"kind": "plaintext", "value": "builtin UUID"},
++        "range": {
++            "start": {"line": 1, "character": 8},
++            "end": {"line": 1, "character": 12},
++        },
++    }
++    assert response(messages, 2)["result"] is None
++    symbols = response(messages, 3)["result"]
++    assert [symbol["name"] for symbol in symbols] == ["User", "users"]
++    assert all("selectionRange" in symbol for symbol in symbols)
++
++
++def test_project_definition_keeps_the_reexported_alias_target_occurrence(
++    tmp_path: Path,
++) -> None:
++    a = """from "models.pietto" import (
++    source users as local_users,
++)
++
++export (
++    source local_users,
++)
++"""
++    b = """from "a.pietto" import (
++    source local_users as again,
++)
++
++table rows:
++    from again
++    select id
++"""
++    root = project(tmp_path, models=MODELS, a=a, b=b)
++    b_uri = (root / "b.pietto").as_uri()
++    messages = session(
++        init(root),
++        [],
++        [opened(b_uri, b, 1)],
++        [request(1, "textDocument/definition", b_uri, 5, 9)],
++    )
++    assert response(messages, 1)["result"] == {
++        "uri": (root / "models.pietto").as_uri(),
++        "range": {
++            "start": {"line": 5, "character": 0},
++            "end": {"line": 5, "character": 51},
++        },
++    }
++
++
++def test_project_type_definition_keeps_the_reexported_alias_target_occurrence(
++    tmp_path: Path,
++) -> None:
++    models = """shape Row:
++    id: Int
++
++export (
++    shape Row,
++)
++"""
++    a = """from "models.pietto" import (
++    shape Row as Local,
++)
++
++export (
++    shape Local,
++)
++"""
++    b = """from "a.pietto" import (
++    shape Local as Remote,
++)
++
++shape Wrapper:
++    value: Remote
++"""
++    root = project(tmp_path, models=models, a=a, b=b)
++    b_uri = (root / "b.pietto").as_uri()
++    messages = session(
++        init(root),
++        [],
++        [opened(b_uri, b, 1)],
++        [request(1, "textDocument/definition", b_uri, 5, 12)],
++    )
++    assert response(messages, 1)["result"] == {
++        "uri": (root / "models.pietto").as_uri(),
++        "range": {
++            "start": {"line": 0, "character": 0},
++            "end": {"line": 1, "character": 11},
++        },
++    }
++
++
++def test_partial_project_omissions_have_no_editor_snapshot(tmp_path: Path) -> None:
++    root = project(
++        tmp_path,
++        models=MODELS.replace("id: UUID", "id UUID"),
++        a=A_OK,
++        b="shape Standalone:\n    id: Int\n",
++    )
++    a_uri = (root / "a.pietto").as_uri()
++    b_uri = (root / "b.pietto").as_uri()
++    messages = session(
++        init(root),
++        [],
++        [
++            request(1, "textDocument/documentSymbol", a_uri),
++            request(2, "textDocument/documentSymbol", b_uri),
++        ],
++    )
++    assert response(messages, 1)["result"] == []
++    assert [item["name"] for item in response(messages, 2)["result"]] == ["Standalone"]
++
++
++def test_definition_refuses_a_target_open_under_two_uris(tmp_path: Path) -> None:
++    root = project(tmp_path, models=MODELS, a=A_OK)
++    a_uri = (root / "a.pietto").as_uri()
++    models_uri = (root / "models.pietto").as_uri()
++    alias_uri = f"{root.as_uri()}/./models.pietto"
++    messages = session(
++        init(root),
++        [],
++        [
++            opened(a_uri, A_OK, 1),
++            opened(models_uri, MODELS, 1),
++            opened(alias_uri, MODELS, 1),
++        ],
++        [request(1, "textDocument/definition", a_uri, 5, 9)],
++    )
++    assert response(messages, 1)["result"] is None
++
++
++def test_target_omitted_on_a_later_root_analysis_has_no_stale_definition(
++    tmp_path: Path,
++) -> None:
++    root = project(tmp_path, models=MODELS, a=A_OK)
++    a_uri = (root / "a.pietto").as_uri()
++    models_uri = (root / "models.pietto").as_uri()
++    broken = MODELS.replace("id: UUID", "id UUID")
++    messages = session(
++        init(root),
++        [],
++        [request(1, "textDocument/definition", a_uri, 5, 9)],
++        [opened(models_uri, broken, 2)],
++        [request(2, "textDocument/definition", a_uri, 5, 9)],
++    )
++    assert response(messages, 1)["result"]["uri"] == models_uri
++    assert response(messages, 2)["result"] is None
++
++
+ def test_protocol_errors_over_a_process() -> None:
+     hover = {"jsonrpc": "2.0", "id": 1, "method": "textDocument/hover"}
+     deep = b"[" * 100_000 + b"]" * 100_000
+@@ -304,7 +861,7 @@ def test_protocol_errors_over_a_process() -> None:
+         (None, -32700),
+         (None, -32600),
+         (0, None),
+-        (3, -32601),
++        (3, -32602),
+         (4, -32600),
+         (99, None),
+         (6, -32600),
+@@ -799,6 +1356,47 @@ def test_a_uri_in_another_letter_case_checks_its_buffer(
+     assert publishes(messages, (root / "a.pietto").as_uri()) == []
+ 
+ 
++def test_editor_facts_refuse_selected_name_collisions_and_their_targets(
++    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
++) -> None:
++    copied = """from "a.pietto" import (
++    table active_users,
++)
++
++table copied:
++    from active_users
++    select:
++        id
++"""
++    exported = A_OK + "\nexport (\n    table active_users,\n)\n"
++    root = project(tmp_path, models=MODELS, a=exported, copied=copied)
++    if (root / "A.pietto").exists():
++        pytest.skip("needs two file names that differ only in letter case")
++    (root / "A.pietto").write_text(
++        exported.replace("active_users", "other_users"), encoding="utf-8"
++    )
++    monkeypatch.setattr(_lsp, "Path", FoldedPath)
++    uri = (root / "a.pietto").as_uri()
++    copied_uri = (root / "copied.pietto").as_uri()
++    messages = session(
++        init(root),
++        [opened(uri, exported, 1), opened(copied_uri, copied, 1)],
++        [
++            request(1, "textDocument/documentSymbol", uri),
++            request(2, "textDocument/hover", uri, 5, 9),
++            request(3, "textDocument/definition", copied_uri, 5, 9),
++            request(4, "textDocument/hover", copied_uri, 5, 9),
++            request(5, "textDocument/documentSymbol", copied_uri),
++        ],
++    )
++    assert "two names" in publishes(messages, uri)[-1]["diagnostics"][0]["message"]
++    assert response(messages, 1)["result"] == []
++    assert response(messages, 2)["result"] is None
++    assert response(messages, 3)["result"] is None
++    assert response(messages, 4)["result"] is None
++    assert [item["name"] for item in response(messages, 5)["result"]] == ["copied"]
++
++
+ def test_two_selected_names_of_one_path_get_only_the_names_error(
+     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+ ) -> None:
+@@ -810,13 +1408,13 @@ def test_two_selected_names_of_one_path_get_only_the_names_error(
+     # Windows, both selected files have one path.
+     monkeypatch.setattr(_lsp, "Path", FoldedPath)
+     seen: list[dict[str, str]] = []
+-    real = _lsp.check_project_diagnostics
++    real = _lsp.check_project_editor_diagnostics
+ 
+     def checking(root: Path, *, overlays: dict[str, str]) -> object:
+         seen.append(dict(overlays))
+         return real(root, overlays=overlays)
+ 
+-    monkeypatch.setattr(_lsp, "check_project_diagnostics", checking)
++    monkeypatch.setattr(_lsp, "check_project_editor_diagnostics", checking)
+     upper, lower = (root / "A.pietto").as_uri(), (root / "a.pietto").as_uri()
+     messages = session(
+         init(root),
+@@ -951,14 +1549,14 @@ def test_a_result_made_stale_while_checking_is_dropped(
+     root = project(tmp_path, models=MODELS, a=A_OK)
+     uri = (root / "a.pietto").as_uri()
+     script = Script()
+-    real = _lsp.check_project_diagnostics
++    real = _lsp.check_project_editor_diagnostics
+ 
+     def checking(root: Path, *, overlays: dict[str, str]) -> object:
+         if overlays.get("a.pietto") == A_BAD:
+             script.batches[0].append(changed(uri, A_OK, 2))
+         return real(root, overlays=overlays)
+ 
+-    monkeypatch.setattr(_lsp, "check_project_diagnostics", checking)
++    monkeypatch.setattr(_lsp, "check_project_editor_diagnostics", checking)
+     messages = session(init(root), [opened(uri, A_BAD, 1)], script=script)
+     assert publishes(messages, uri) == [{"uri": uri, "diagnostics": [], "version": 2}]
+ 
+diff --git a/tests/test_project_editor_overlays.py b/tests/test_project_editor_overlays.py
+index 129d8a56..d234a985 100644
+--- a/tests/test_project_editor_overlays.py
++++ b/tests/test_project_editor_overlays.py
+@@ -103,6 +103,18 @@ def test_an_overlay_replaces_only_the_read_of_its_selected_file(
+     assert _cli_json(root)["diagnostics"] == []
+ 
+ 
++def test_diagnostics_only_project_checks_do_not_build_editor_facts(
++    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
++) -> None:
++    root = _project(tmp_path, models=MODELS, a=A_OK)
++
++    def unexpected(_: object) -> object:
++        raise AssertionError("editor facts must stay out of diagnostics-only checks")
++
++    monkeypatch.setattr(check, "_project_editor_facts", unexpected)
++    assert check.check_project_diagnostics(root, overlays={}).diagnostics == ()
++
++
+ def test_an_overlay_reads_a_file_the_disk_cannot_and_keeps_the_size_limit(
+     tmp_path: Path,
+ ) -> None:

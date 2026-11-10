@@ -1,0 +1,33 @@
+{
+  "artifacts": [
+    {
+      "filename": "pietto-0.1.10-py3-none-any.whl",
+      "record": {
+        "path": "pietto-0.1.10.dist-info/RECORD",
+        "sha256": "c20c655bc03f0c5d94d44f2571068dfb3436a804562733b7227e44648de502de"
+      },
+      "sha256": "f4c96921c4d4ceb057830f2dd21f2e634325dac2bef933532747ae4aab963a73",
+      "size": 2943212
+    },
+    {
+      "filename": "pietto-0.1.10.tar.gz",
+      "record": null,
+      "sha256": "15b43b884064e0837bbfa891b8eea44996acc2592bd169b5a6ea96e29d29cfff",
+      "size": 2758097
+    }
+  ],
+  "candidate": "/home/mianliwang/projects/pietto/.cache/phase77-recovery/candidates/maintenance",
+  "format": "pietto.phase77.runtime-candidate-artifacts.v1",
+  "head": "f8ccd2c44a2d9adf431a496bd9bbae037783176f",
+  "source_closure": {
+    "after_sha256": "2ba4504b0d6a09242facd6ba8bd10fd23e3c0d9deaca21219bad1b5c57a54a99",
+    "before_sha256": "2ba4504b0d6a09242facd6ba8bd10fd23e3c0d9deaca21219bad1b5c57a54a99",
+    "paths": [
+      "src/**",
+      "pyproject.toml",
+      "uv.lock"
+    ],
+    "unchanged": true
+  },
+  "tree": "460e3e135d1dcb0b926928bc2632a889410f258a"
+}

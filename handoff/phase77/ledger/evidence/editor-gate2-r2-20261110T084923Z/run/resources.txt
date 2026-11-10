@@ -1,0 +1,9 @@
+nproc=20
+online_cpus=20
+loadavg=2.54 6.41 5.44 3/990 745487
+MemTotal:       41072484 kB
+MemAvailable:   35519732 kB
+/sys/fs/cgroup/cpu.max=max 100000 
+/sys/fs/cgroup/memory.max=max 
+/sys/fs/cgroup/memory.current=25530671104 
+/sys/fs/cgroup/memory.events=low 0 high 0 max 0 oom 0 oom_kill 6 oom_group_kill 0 

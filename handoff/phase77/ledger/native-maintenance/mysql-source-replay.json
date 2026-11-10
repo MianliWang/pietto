@@ -1,0 +1,809 @@
+{
+  "record": "/home/mianliwang/projects/pietto/.cache/phase77-recovery/records/maintenance_mysql_db.jsonl",
+  "replay": "literal apply_patch source only; no launcher or database command was executed",
+  "files": [
+    "source-archive/mysql-historical/README.md",
+    "source-archive/mysql-historical/campaign.py",
+    "source-archive/mysql-historical/judge.py",
+    "source-archive/mysql-historical/mysql.sh",
+    "source-archive/mysql-historical/preflight.py",
+    "source-archive/mysql-historical/relay.py",
+    "source-archive/mysql-historical/selfcheck.py",
+    "source-archive/mysql-prereg/PREREG.md"
+  ],
+  "sha256": {
+    "source-archive/mysql-prereg/PREREG.md": "d25ea0002dc4c2795be561ed20644f6ff47bddbea7658836f951b44af21fc02a",
+    "source-archive/mysql-historical/relay.py": "615f0cab556fbd7af29b132a98cafb7ed0d500871184ad3f7e143723fa7021f1",
+    "source-archive/mysql-historical/judge.py": "7cfacfa496f9742dddc48a0aedad3fbd311dba59b3ec0f89af3c7a76755c17b7",
+    "source-archive/mysql-historical/README.md": "7fadd8976bb82eb81483a0a209e9696f8d53469ffff70331802f809b20f89a6a",
+    "source-archive/mysql-historical/mysql.sh": "7d862d032ca05e37728875095f7a0215cf84e0fa3b2a32eae10e3b17c8413d10",
+    "source-archive/mysql-historical/campaign.py": "c2c38ce086a19e56ccbb45c9d46b74763e915d242bc914398735725e8ef56fbd",
+    "source-archive/mysql-historical/preflight.py": "cc271e0f7cac70ca9bc3895a0b27462626a87b6a899ef1c277cfe107f6c3d697",
+    "source-archive/mysql-historical/selfcheck.py": "cebc86d9c2857d2fb0cec6ae07cf7984d8c459d3d01f711377eface5f4048e59"
+  },
+  "evidence": [
+    {
+      "line": 677,
+      "call_id": "call_366b6974d600458aa803ed2a482f3ee7",
+      "action": "add",
+      "file": "source-archive/mysql-prereg/PREREG.md"
+    },
+    {
+      "line": 761,
+      "call_id": "call_07dab87cb26c4ab7bde3ed810c3d471e",
+      "action": "update",
+      "file": "source-archive/mysql-prereg/PREREG.md"
+    },
+    {
+      "line": 798,
+      "call_id": "call_046b9515847044ee87c388439240531f",
+      "action": "update",
+      "file": "source-archive/mysql-prereg/PREREG.md"
+    },
+    {
+      "line": 893,
+      "call_id": "call_17d95ea190064529a82b739674370f16",
+      "action": "add",
+      "file": "source-archive/mysql-historical/relay.py"
+    },
+    {
+      "line": 893,
+      "call_id": "call_17d95ea190064529a82b739674370f16",
+      "action": "add",
+      "file": "source-archive/mysql-historical/judge.py"
+    },
+    {
+      "line": 893,
+      "call_id": "call_17d95ea190064529a82b739674370f16",
+      "action": "add",
+      "file": "source-archive/mysql-historical/selfcheck.py"
+    },
+    {
+      "line": 893,
+      "call_id": "call_17d95ea190064529a82b739674370f16",
+      "action": "add",
+      "file": "source-archive/mysql-historical/README.md"
+    },
+    {
+      "line": 907,
+      "call_id": "call_f4b399fb9107489ba359c31f6b7c400f",
+      "action": "update",
+      "file": "source-archive/mysql-historical/relay.py"
+    },
+    {
+      "line": 907,
+      "call_id": "call_f4b399fb9107489ba359c31f6b7c400f",
+      "action": "update",
+      "file": "source-archive/mysql-historical/judge.py"
+    },
+    {
+      "line": 921,
+      "call_id": "call_8151fb3590df490d8835637053d3ba12",
+      "action": "update",
+      "file": "source-archive/mysql-historical/selfcheck.py"
+    },
+    {
+      "line": 928,
+      "call_id": "call_8c535a48894145f18b83ce0b89e67b28",
+      "action": "update",
+      "file": "source-archive/mysql-historical/selfcheck.py"
+    },
+    {
+      "line": 996,
+      "call_id": "call_d9bc65f1914c4967b1d3f6df57361c91",
+      "action": "add",
+      "file": "source-archive/mysql-historical/campaign.py"
+    },
+    {
+      "line": 1014,
+      "call_id": "call_68062168e81e4e4a8d4580b4e72b99d2",
+      "action": "update",
+      "file": "source-archive/mysql-historical/campaign.py"
+    },
+    {
+      "line": 1028,
+      "call_id": "call_56ca5cf3e922411783ba4fa6e70b1737",
+      "action": "add",
+      "file": "source-archive/mysql-historical/mysql.sh"
+    },
+    {
+      "line": 1028,
+      "call_id": "call_56ca5cf3e922411783ba4fa6e70b1737",
+      "action": "update",
+      "file": "source-archive/mysql-historical/README.md"
+    },
+    {
+      "line": 1041,
+      "call_id": "call_ccb5493b80e84d9db0a85119f1cbc4e6",
+      "action": "update",
+      "file": "source-archive/mysql-historical/selfcheck.py"
+    },
+    {
+      "line": 1053,
+      "call_id": "call_1b6678a4809b4fff8f343f98010d2a57",
+      "action": "update",
+      "file": "source-archive/mysql-prereg/PREREG.md"
+    },
+    {
+      "line": 1067,
+      "call_id": "call_108127a9afad45b7bc7ff0afdbf785e6",
+      "action": "update",
+      "file": "source-archive/mysql-historical/campaign.py"
+    },
+    {
+      "line": 1081,
+      "call_id": "call_b3e133f2dcd84beeac83bd6e9a359e50",
+      "action": "update",
+      "file": "source-archive/mysql-historical/relay.py"
+    },
+    {
+      "line": 1088,
+      "call_id": "call_0f8e93ff28d345b594ea3806734ea46b",
+      "action": "update",
+      "file": "source-archive/mysql-historical/judge.py"
+    },
+    {
+      "line": 1088,
+      "call_id": "call_0f8e93ff28d345b594ea3806734ea46b",
+      "action": "update",
+      "file": "source-archive/mysql-historical/campaign.py"
+    },
+    {
+      "line": 1088,
+      "call_id": "call_0f8e93ff28d345b594ea3806734ea46b",
+      "action": "update",
+      "file": "source-archive/mysql-historical/selfcheck.py"
+    },
+    {
+      "line": 1102,
+      "call_id": "call_1682b2d84d2a4910bb1b4ddd9fce954a",
+      "action": "update",
+      "file": "source-archive/mysql-historical/campaign.py"
+    },
+    {
+      "line": 1109,
+      "call_id": "call_a6c45d223cfe4ef786cc9767654c6eeb",
+      "action": "update",
+      "file": "source-archive/mysql-historical/campaign.py"
+    },
+    {
+      "line": 1116,
+      "call_id": "call_a047e7730aed4d8ebe2f42731086388c",
+      "action": "update",
+      "file": "source-archive/mysql-historical/selfcheck.py"
+    },
+    {
+      "line": 1137,
+      "call_id": "call_74b6695beded491caaa87912057ee43d",
+      "action": "update",
+      "file": "source-archive/mysql-historical/campaign.py"
+    },
+    {
+      "line": 1158,
+      "call_id": "call_11a35fa0b03a4e979dbb68dc6fe0af2e",
+      "action": "update",
+      "file": "source-archive/mysql-historical/campaign.py"
+    },
+    {
+      "line": 1186,
+      "call_id": "call_aa6e0b9c6284461bbdcdd34d9a1a647a",
+      "action": "update",
+      "file": "source-archive/mysql-historical/campaign.py"
+    },
+    {
+      "line": 1193,
+      "call_id": "call_d1540f2de3134f76a2c388f637ef21b1",
+      "action": "update",
+      "file": "source-archive/mysql-historical/campaign.py"
+    },
+    {
+      "line": 1289,
+      "call_id": "call_7b3c0a62198948238460b732b5aef3a0",
+      "action": "delete",
+      "file": "source-archive/mysql-historical/campaign.py"
+    },
+    {
+      "line": 1296,
+      "call_id": "call_fef7fdd48e6541e69cc31f3f50ebd22f",
+      "action": "add",
+      "file": "source-archive/mysql-historical/campaign.py"
+    },
+    {
+      "line": 1303,
+      "call_id": "call_d5df782a3e3143a88779ea6739c8476f",
+      "action": "update",
+      "file": "source-archive/mysql-historical/mysql.sh"
+    },
+    {
+      "line": 1303,
+      "call_id": "call_d5df782a3e3143a88779ea6739c8476f",
+      "action": "update",
+      "file": "source-archive/mysql-historical/README.md"
+    },
+    {
+      "line": 1310,
+      "call_id": "call_c909e59b98994e42bbcacf3d2798c4eb",
+      "action": "update",
+      "file": "source-archive/mysql-historical/judge.py"
+    },
+    {
+      "line": 1324,
+      "call_id": "call_422da35b262d4ad3a94b23c11e4d97de",
+      "action": "update",
+      "file": "source-archive/mysql-historical/selfcheck.py"
+    },
+    {
+      "line": 1331,
+      "call_id": "call_21fd4612b9bc4995b8446a8ebdf24a3c",
+      "action": "update",
+      "file": "source-archive/mysql-historical/campaign.py"
+    },
+    {
+      "line": 1354,
+      "call_id": "call_764e040c77b44a008d63e8bb6a3b819e",
+      "action": "update",
+      "file": "source-archive/mysql-historical/campaign.py"
+    },
+    {
+      "line": 1354,
+      "call_id": "call_764e040c77b44a008d63e8bb6a3b819e",
+      "action": "add",
+      "file": "source-archive/mysql-historical/preflight.py"
+    },
+    {
+      "line": 1361,
+      "call_id": "call_857437f7760f44d9b93c8217dde7c03a",
+      "action": "update",
+      "file": "source-archive/mysql-historical/mysql.sh"
+    },
+    {
+      "line": 1361,
+      "call_id": "call_857437f7760f44d9b93c8217dde7c03a",
+      "action": "update",
+      "file": "source-archive/mysql-historical/README.md"
+    },
+    {
+      "line": 1368,
+      "call_id": "call_e82f9f532304476a93fc1206ca0ac6e9",
+      "action": "update",
+      "file": "source-archive/mysql-historical/judge.py"
+    },
+    {
+      "line": 1368,
+      "call_id": "call_e82f9f532304476a93fc1206ca0ac6e9",
+      "action": "update",
+      "file": "source-archive/mysql-historical/campaign.py"
+    },
+    {
+      "line": 1375,
+      "call_id": "call_8be638d9e44a4cc29c062cfba0425418",
+      "action": "update",
+      "file": "source-archive/mysql-historical/relay.py"
+    },
+    {
+      "line": 1382,
+      "call_id": "call_b60c5730b4cb4bb4bccc750c30e1262b",
+      "action": "update",
+      "file": "source-archive/mysql-historical/relay.py"
+    },
+    {
+      "line": 1396,
+      "call_id": "call_2d10282175444c1183652200d40b1e62",
+      "action": "delete",
+      "file": "source-archive/mysql-historical/selfcheck.py"
+    },
+    {
+      "line": 1401,
+      "call_id": "call_b6ead11d027849779210c8e204c0e203",
+      "action": "add",
+      "file": "source-archive/mysql-historical/selfcheck.py"
+    },
+    {
+      "line": 1422,
+      "call_id": "call_2c5c16b425d34f059045e2c64f292fc0",
+      "action": "update",
+      "file": "source-archive/mysql-prereg/PREREG.md"
+    },
+    {
+      "line": 1445,
+      "call_id": "call_cc2f554c48894a799bdb2adc30b22218",
+      "action": "update",
+      "file": "source-archive/mysql-historical/judge.py"
+    },
+    {
+      "line": 1445,
+      "call_id": "call_cc2f554c48894a799bdb2adc30b22218",
+      "action": "update",
+      "file": "source-archive/mysql-historical/campaign.py"
+    },
+    {
+      "line": 1452,
+      "call_id": "call_2baeaccbd8a24bfe9377c1980f7747bf",
+      "action": "update",
+      "file": "source-archive/mysql-historical/selfcheck.py"
+    },
+    {
+      "line": 1459,
+      "call_id": "call_34033be3d6dd446b827707b691046c75",
+      "action": "update",
+      "file": "source-archive/mysql-historical/selfcheck.py"
+    },
+    {
+      "line": 1471,
+      "call_id": "call_9f14555851a246569f82b71d525aa1ea",
+      "action": "update",
+      "file": "source-archive/mysql-historical/selfcheck.py"
+    },
+    {
+      "line": 1582,
+      "call_id": "call_6216d13a2cc146aa8e41d3e09670bbc4",
+      "action": "update",
+      "file": "source-archive/mysql-historical/campaign.py"
+    },
+    {
+      "line": 1587,
+      "call_id": "call_d49124f9116d48068785e504f6712b73",
+      "action": "update",
+      "file": "source-archive/mysql-historical/campaign.py"
+    },
+    {
+      "line": 1601,
+      "call_id": "call_8b04f9aacfea48f7bf6b3b43eccc4c95",
+      "action": "update",
+      "file": "source-archive/mysql-historical/campaign.py"
+    },
+    {
+      "line": 1608,
+      "call_id": "call_7b7a773829f342cca0f101529af6b785",
+      "action": "update",
+      "file": "source-archive/mysql-historical/campaign.py"
+    },
+    {
+      "line": 1615,
+      "call_id": "call_5850fcc45fdc4e88b2bdd9ae9bbaf7fc",
+      "action": "update",
+      "file": "source-archive/mysql-historical/campaign.py"
+    },
+    {
+      "line": 1622,
+      "call_id": "call_1ffbe5025173438db89195e89e2e83fc",
+      "action": "update",
+      "file": "source-archive/mysql-historical/relay.py"
+    },
+    {
+      "line": 1629,
+      "call_id": "call_9bc013d075674714a2e0aebebde579c0",
+      "action": "update",
+      "file": "source-archive/mysql-historical/campaign.py"
+    },
+    {
+      "line": 1636,
+      "call_id": "call_80d89d5728a8437e8cf069d09645f1fc",
+      "action": "update",
+      "file": "source-archive/mysql-historical/mysql.sh"
+    },
+    {
+      "line": 1650,
+      "call_id": "call_dd5cada92f8a414fa359db420bc7365e",
+      "action": "update",
+      "file": "source-archive/mysql-historical/README.md"
+    },
+    {
+      "line": 1650,
+      "call_id": "call_dd5cada92f8a414fa359db420bc7365e",
+      "action": "update",
+      "file": "source-archive/mysql-prereg/PREREG.md"
+    },
+    {
+      "line": 1664,
+      "call_id": "call_70bc28346b8b4312a501626677982bbb",
+      "action": "update",
+      "file": "source-archive/mysql-historical/campaign.py"
+    },
+    {
+      "line": 1671,
+      "call_id": "call_1c7a4660729e4b57ab9e30b8d9f7abd5",
+      "action": "update",
+      "file": "source-archive/mysql-historical/judge.py"
+    },
+    {
+      "line": 1678,
+      "call_id": "call_9887621b40514fc8ab7113e81bb3c5f8",
+      "action": "update",
+      "file": "source-archive/mysql-historical/selfcheck.py"
+    },
+    {
+      "line": 1685,
+      "call_id": "call_3d8e41e8dc294cfa985f2d216f586244",
+      "action": "update",
+      "file": "source-archive/mysql-historical/selfcheck.py"
+    },
+    {
+      "line": 1699,
+      "call_id": "call_cdf4143b8347471a8f09645f7ee8d805",
+      "action": "update",
+      "file": "source-archive/mysql-historical/selfcheck.py"
+    },
+    {
+      "line": 1761,
+      "call_id": "call_1fc7c96d0fce436987c5a757c9492cbf",
+      "action": "update",
+      "file": "source-archive/mysql-historical/selfcheck.py"
+    },
+    {
+      "line": 1825,
+      "call_id": "call_eb4d0818c98344078094399f127fa1e0",
+      "action": "update",
+      "file": "source-archive/mysql-historical/campaign.py"
+    },
+    {
+      "line": 1832,
+      "call_id": "call_d92f5ebde938489486bf9c9382f23f35",
+      "action": "update",
+      "file": "source-archive/mysql-historical/judge.py"
+    },
+    {
+      "line": 1846,
+      "call_id": "call_52a48d1491bb421384fb4e407a860e18",
+      "action": "update",
+      "file": "source-archive/mysql-historical/selfcheck.py"
+    },
+    {
+      "line": 1860,
+      "call_id": "call_021c8da6df5d43bab37e122e70822c47",
+      "action": "update",
+      "file": "source-archive/mysql-historical/selfcheck.py"
+    },
+    {
+      "line": 1942,
+      "call_id": "call_2459387e057448bdac9918132ba77dd7",
+      "action": "update",
+      "file": "source-archive/mysql-historical/judge.py"
+    },
+    {
+      "line": 1949,
+      "call_id": "call_aaa3bc7e96284ac6868f161e721bc450",
+      "action": "update",
+      "file": "source-archive/mysql-historical/selfcheck.py"
+    },
+    {
+      "line": 1956,
+      "call_id": "call_63ec803f0ddc4d57a8b8c78b6f28d376",
+      "action": "update",
+      "file": "source-archive/mysql-historical/selfcheck.py"
+    },
+    {
+      "line": 1975,
+      "call_id": "call_2f119143d8834664975b06916bd23cf4",
+      "action": "update",
+      "file": "source-archive/mysql-historical/judge.py"
+    },
+    {
+      "line": 1987,
+      "call_id": "call_9798c6f23d2e4bddb1faabe7519358c3",
+      "action": "update",
+      "file": "source-archive/mysql-historical/selfcheck.py"
+    },
+    {
+      "line": 2023,
+      "call_id": "call_0db4dc6061ac4cb7bfb19a6a083d122d",
+      "action": "update",
+      "file": "source-archive/mysql-historical/judge.py"
+    },
+    {
+      "line": 2030,
+      "call_id": "call_afffd8452f214ae9a41eeaf4d951567d",
+      "action": "update",
+      "file": "source-archive/mysql-historical/selfcheck.py"
+    },
+    {
+      "line": 2126,
+      "call_id": "call_a3fccaa53a2d452e8067373945ee53ed",
+      "action": "update",
+      "file": "source-archive/mysql-historical/selfcheck.py"
+    },
+    {
+      "line": 2185,
+      "call_id": "call_6b323fc135bc4ac19b3febd6b1b0bf45",
+      "action": "update",
+      "file": "source-archive/mysql-historical/campaign.py"
+    },
+    {
+      "line": 2192,
+      "call_id": "call_cb10b9ea6cab43ddab2d2997b9c89465",
+      "action": "update",
+      "file": "source-archive/mysql-historical/judge.py"
+    },
+    {
+      "line": 2192,
+      "call_id": "call_cb10b9ea6cab43ddab2d2997b9c89465",
+      "action": "update",
+      "file": "source-archive/mysql-historical/selfcheck.py"
+    },
+    {
+      "line": 2269,
+      "call_id": "call_7f1182a85add401389f45fade9bebcb5",
+      "action": "update",
+      "file": "source-archive/mysql-historical/campaign.py"
+    },
+    {
+      "line": 2327,
+      "call_id": "call_631265b5bbfb44fa87c0e7bd2beda082",
+      "action": "update",
+      "file": "source-archive/mysql-historical/campaign.py"
+    },
+    {
+      "line": 2334,
+      "call_id": "call_df65100cc531488b8f1d5f60314037f3",
+      "action": "update",
+      "file": "source-archive/mysql-historical/judge.py"
+    },
+    {
+      "line": 2334,
+      "call_id": "call_df65100cc531488b8f1d5f60314037f3",
+      "action": "update",
+      "file": "source-archive/mysql-historical/selfcheck.py"
+    },
+    {
+      "line": 2341,
+      "call_id": "call_dd2e858d00e741379af5c2f2348a9a2e",
+      "action": "update",
+      "file": "source-archive/mysql-prereg/PREREG.md"
+    },
+    {
+      "line": 2348,
+      "call_id": "call_a080ca8f23334a879245dbaa7f8c5bf8",
+      "action": "update",
+      "file": "source-archive/mysql-historical/selfcheck.py"
+    },
+    {
+      "line": 2472,
+      "call_id": "call_96f4d69d61934f60b731625ec1ef7b2a",
+      "action": "update",
+      "file": "source-archive/mysql-historical/relay.py"
+    },
+    {
+      "line": 2479,
+      "call_id": "call_ce64cce0e8664327af77d8e8b48fdece",
+      "action": "update",
+      "file": "source-archive/mysql-historical/campaign.py"
+    },
+    {
+      "line": 2529,
+      "call_id": "call_c6a93954adad41019fff4ea73bfb9a43",
+      "action": "update",
+      "file": "source-archive/mysql-historical/relay.py"
+    },
+    {
+      "line": 2616,
+      "call_id": "call_7943541486c648968871bc1e922ad8f5",
+      "action": "update",
+      "file": "source-archive/mysql-historical/campaign.py"
+    },
+    {
+      "line": 2625,
+      "call_id": "call_8b7f52503f2b4c2183e20c02aa54c323",
+      "action": "update",
+      "file": "source-archive/mysql-historical/campaign.py"
+    },
+    {
+      "line": 2698,
+      "call_id": "call_658190999af94100be5c5920bb96755c",
+      "action": "update",
+      "file": "source-archive/mysql-historical/campaign.py"
+    },
+    {
+      "line": 2712,
+      "call_id": "call_15bbcd84f1fa41a5b12077677a2aaf09",
+      "action": "update",
+      "file": "source-archive/mysql-historical/campaign.py"
+    },
+    {
+      "line": 2719,
+      "call_id": "call_b72bc0ad61064d2db163c4e6cc986175",
+      "action": "update",
+      "file": "source-archive/mysql-historical/selfcheck.py"
+    },
+    {
+      "line": 2805,
+      "call_id": "call_13e3a603b9174f6f9d75727d5f8d97eb",
+      "action": "update",
+      "file": "source-archive/mysql-historical/campaign.py"
+    },
+    {
+      "line": 2901,
+      "call_id": "call_93f9f3559db2491e8a7a49803e010876",
+      "action": "update",
+      "file": "source-archive/mysql-historical/campaign.py"
+    },
+    {
+      "line": 2908,
+      "call_id": "call_414bdceff1dc4527a9fda29cb59f5932",
+      "action": "update",
+      "file": "source-archive/mysql-historical/campaign.py"
+    },
+    {
+      "line": 2915,
+      "call_id": "call_1d94c924ab60456b88840f06253e2e5e",
+      "action": "update",
+      "file": "source-archive/mysql-historical/campaign.py"
+    },
+    {
+      "line": 2922,
+      "call_id": "call_7c4cb30019ea4c248cbe1e86ccb2a844",
+      "action": "update",
+      "file": "source-archive/mysql-historical/campaign.py"
+    },
+    {
+      "line": 2936,
+      "call_id": "call_875196bb11f643a598cecbe0fdf5a414",
+      "action": "update",
+      "file": "source-archive/mysql-historical/campaign.py"
+    },
+    {
+      "line": 2948,
+      "call_id": "call_eb73ab738d884c2ca529993d3fe581ad",
+      "action": "update",
+      "file": "source-archive/mysql-historical/selfcheck.py"
+    },
+    {
+      "line": 2955,
+      "call_id": "call_0bc57d70b8a142fa894a8de6a44dc9c3",
+      "action": "update",
+      "file": "source-archive/mysql-historical/campaign.py"
+    },
+    {
+      "line": 2962,
+      "call_id": "call_6bd455c96cc64bddae87a21b666c81e7",
+      "action": "update",
+      "file": "source-archive/mysql-historical/campaign.py"
+    },
+    {
+      "line": 2995,
+      "call_id": "call_348faa01f8464a7fadd0973caca9fc08",
+      "action": "update",
+      "file": "source-archive/mysql-historical/campaign.py"
+    },
+    {
+      "line": 3027,
+      "call_id": "call_b064708503c34ec1b2ec722f943c64dc",
+      "action": "update",
+      "file": "source-archive/mysql-historical/campaign.py"
+    },
+    {
+      "line": 3049,
+      "call_id": "call_c91282fff2c94f74abfac6916a6ec2cf",
+      "action": "update",
+      "file": "source-archive/mysql-historical/campaign.py"
+    },
+    {
+      "line": 3056,
+      "call_id": "call_05f9dda91a0c4145ada0d1e1bba7fd40",
+      "action": "update",
+      "file": "source-archive/mysql-historical/campaign.py"
+    },
+    {
+      "line": 3073,
+      "call_id": "call_7097228be4be46c385c172dda7cb961f",
+      "action": "update",
+      "file": "source-archive/mysql-historical/campaign.py"
+    },
+    {
+      "line": 3073,
+      "call_id": "call_7097228be4be46c385c172dda7cb961f",
+      "action": "update",
+      "file": "source-archive/mysql-prereg/PREREG.md"
+    },
+    {
+      "line": 3110,
+      "call_id": "call_f77718a9952f40c78f37a2141b4a4f8d",
+      "action": "update",
+      "file": "source-archive/mysql-historical/selfcheck.py"
+    },
+    {
+      "line": 3197,
+      "call_id": "call_834f8fd1ac524272b283c3f593a41bd9",
+      "action": "update",
+      "file": "source-archive/mysql-historical/campaign.py"
+    },
+    {
+      "line": 3204,
+      "call_id": "call_da2b6ab953dc4ee3aabea28993481f97",
+      "action": "update",
+      "file": "source-archive/mysql-historical/selfcheck.py"
+    },
+    {
+      "line": 3256,
+      "call_id": "call_d612664492c845f8b392cb41654c3c03",
+      "action": "update",
+      "file": "source-archive/mysql-historical/campaign.py"
+    },
+    {
+      "line": 3263,
+      "call_id": "call_ffa99ab54f204d8da1993dac01d37174",
+      "action": "update",
+      "file": "source-archive/mysql-historical/campaign.py"
+    },
+    {
+      "line": 3322,
+      "call_id": "call_13e843e1fa804500b52e887a0a8bbf9e",
+      "action": "update",
+      "file": "source-archive/mysql-historical/campaign.py"
+    },
+    {
+      "line": 3345,
+      "call_id": "call_4ef3af336251420c907d7081e65fad67",
+      "action": "update",
+      "file": "source-archive/mysql-historical/campaign.py"
+    },
+    {
+      "line": 3352,
+      "call_id": "call_1c6cf5336d3f43e0adb0f3738bd41b13",
+      "action": "update",
+      "file": "source-archive/mysql-historical/selfcheck.py"
+    },
+    {
+      "line": 3359,
+      "call_id": "call_3ce4c01148d248b0a5dd97f3aa71327e",
+      "action": "update",
+      "file": "source-archive/mysql-historical/selfcheck.py"
+    },
+    {
+      "line": 3407,
+      "call_id": "call_94e7e8e0e3eb4b3c9be905f81b58d391",
+      "action": "update",
+      "file": "source-archive/mysql-historical/campaign.py"
+    },
+    {
+      "line": 3426,
+      "call_id": "call_2d3522661c674ecf81f9f39a038de838",
+      "action": "update",
+      "file": "source-archive/mysql-historical/campaign.py"
+    },
+    {
+      "line": 3440,
+      "call_id": "call_4c5bdf00a0194201af3c1e7227e46058",
+      "action": "update",
+      "file": "source-archive/mysql-historical/selfcheck.py"
+    },
+    {
+      "line": 3578,
+      "call_id": "call_79161a14638d46d388284d7b596904a7",
+      "action": "update",
+      "file": "source-archive/mysql-historical/campaign.py"
+    },
+    {
+      "line": 3585,
+      "call_id": "call_15fec208670b40b094f80e8eada20667",
+      "action": "update",
+      "file": "source-archive/mysql-historical/campaign.py"
+    },
+    {
+      "line": 3592,
+      "call_id": "call_ba5c54d3316343b796d72d344b825906",
+      "action": "update",
+      "file": "source-archive/mysql-historical/selfcheck.py"
+    },
+    {
+      "line": 3599,
+      "call_id": "call_a488965650fe431c859499dcd9e0cf8e",
+      "action": "update",
+      "file": "source-archive/mysql-prereg/PREREG.md"
+    },
+    {
+      "line": 3649,
+      "call_id": "call_ca7be02d11724e3f8863555efa2c61e6",
+      "action": "update",
+      "file": "source-archive/mysql-historical/campaign.py"
+    },
+    {
+      "line": 3649,
+      "call_id": "call_ca7be02d11724e3f8863555efa2c61e6",
+      "action": "update",
+      "file": "source-archive/mysql-prereg/PREREG.md"
+    }
+  ],
+  "campaign_sha256_expected": "c2c38ce086a19e56ccbb45c9d46b74763e915d242bc914398735725e8ef56fbd",
+  "campaign_sha256_actual": "c2c38ce086a19e56ccbb45c9d46b74763e915d242bc914398735725e8ef56fbd",
+  "campaign_sha256_matches": true
+}

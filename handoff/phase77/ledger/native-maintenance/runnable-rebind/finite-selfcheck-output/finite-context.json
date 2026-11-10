@@ -1,0 +1,31 @@
+{
+  "argv": [
+    "/home/mianliwang/projects/pietto/.venv/bin/python",
+    "-I",
+    "-B",
+    "-c",
+    "IPC_WORKER"
+  ],
+  "capture_overflow": false,
+  "config_sha256": "e162344c3d1fc964379d159e3c4c44c12722b71e248c288c49c738df87578558",
+  "format": "pietto.mysql-none-ipc-worker.v2",
+  "inputs": {
+    "contract.json": "9eb856d9a2bb1b811f70c924771a722e27c87c88a683ef64a5dbc596411b7eac",
+    "main.pietto": "53ad920bf2bdaa3f9cf052b9e8c535a9a746ce4226d18d3e35cc09a95940cc00",
+    "pietto.toml": "d9d6f0ee8f09d7ff24559928ca7c5a85af1108e7ae11b0eea75b132fb816eb34"
+  },
+  "inputs_after": {
+    "contract.json": "9eb856d9a2bb1b811f70c924771a722e27c87c88a683ef64a5dbc596411b7eac",
+    "main.pietto": "53ad920bf2bdaa3f9cf052b9e8c535a9a746ce4226d18d3e35cc09a95940cc00",
+    "pietto.toml": "d9d6f0ee8f09d7ff24559928ca7c5a85af1108e7ae11b0eea75b132fb816eb34"
+  },
+  "inputs_unchanged": true,
+  "launch": "STARTED",
+  "record": null,
+  "returncode": 1,
+  "stderr": "Traceback (most recent call last):\n  File \"<string>\", line 4, in <module>\n    import pyarrow as pa\nModuleNotFoundError: No module named 'pyarrow'\n",
+  "stderr_bytes": 146,
+  "stdout": "",
+  "stdout_bytes": 0,
+  "timed_out": false
+}

@@ -1,0 +1,5712 @@
+timestamp_utc=2026-11-10T08:31:13Z
+MemTotal:       41072484 kB
+MemAvailable:   35907972 kB
+psi_memory_some avg10=0.00 avg60=0.00 avg300=0.00 total=253096404
+psi_memory_full avg10=0.00 avg60=0.00 avg300=0.00 total=216109771
+/sys/fs/cgroup/memory.max=max 
+/sys/fs/cgroup/memory.current=14881996800 
+/sys/fs/cgroup/memory.events=low 0 high 0 max 0 oom 0 oom_kill 6 oom_group_kill 0 
+top_processes_pid_ppid_rss_comm:
+ 504585   18746 713284 MainThread
+ 596079   18746 642456 MainThread
+ 504610  504585 609264 codex
+ 505460  504585 346988 cpptools
+ 614145  504585 317624 claude
+    487       1 241184 ovs-vswitchd
+ 505206  504585 201240 MainThread
+  18746   18742 179840 MainThread
+ 596514  596079 145944 codex
+ 581355  581354 130992 node
+  18769   18746 106632 MainThread
+ 506070   18734 104380 cpptools-srv2
+ 506054   18734 96940 cpptools-srv2
+ 581255  504610 87116 npm exec xcodeb
+ 552279  552274 85300 MainThread
+ 596069  596068 82172 MainThread
+ 581256  504610 81688 node
+ 581262  504610 80580 node
+ 581272  504610 79224 node
+ 597779  596079 75808 MainThread
+ 596046  596045 68752 MainThread
+  19188   18746 62680 MainThread
+ 596056   18746 60904 MainThread
+ 596139  596129 58424 MainThread
+   1414       1 57384 dockerd
+ 542436  504585 53004 python
+ 581279  504610 48144 node
+  19423   18746 41208 MainThread
+ 504557  504556 35140 MainThread
+ 504806  504585 33000 MainThread
+   1288       1 30712 containerd
+ 524935  504610 20684 codex-code-mode
+rss_kib_by_comm_top12:
+2456528 16 MainThread
+755208 2 codex
+438776 10 node
+346924 1 cpptools
+317624 1 claude
+241184 1 ovs-vswitchd
+201320 2 cpptools-srv2
+100256 2 npm
+67148 2 python
+57384 1 dockerd
+30712 1 containerd
+22532 7 bash
+process_count=105 rg_count=0
+--
+timestamp_utc=2026-11-10T08:31:23Z
+MemTotal:       41072484 kB
+MemAvailable:   33702388 kB
+psi_memory_some avg10=0.00 avg60=0.00 avg300=0.00 total=253097069
+psi_memory_full avg10=0.00 avg60=0.00 avg300=0.00 total=216110437
+/sys/fs/cgroup/memory.max=max 
+/sys/fs/cgroup/memory.current=17282772992 
+/sys/fs/cgroup/memory.events=low 0 high 0 max 0 oom 0 oom_kill 6 oom_group_kill 0 
+top_processes_pid_ppid_rss_comm:
+ 504585   18746 713300 MainThread
+ 596079   18746 642456 MainThread
+ 695601  695585 609320 node
+ 504610  504585 609224 codex
+ 695600  695585 594548 node
+ 695594  695585 584204 node
+ 695593  695585 441664 node
+ 505460  504585 342168 cpptools
+ 614145  504585 329172 claude
+    487       1 241184 ovs-vswitchd
+ 505206  504585 201248 MainThread
+  18746   18742 179840 MainThread
+ 596514  596079 145944 codex
+ 581355  581354 130992 node
+  18769   18746 106632 MainThread
+ 506070   18734 104380 cpptools-srv2
+ 695585  695584 99112 node
+ 506054   18734 96940 cpptools-srv2
+ 581255  504610 87116 npm exec xcodeb
+ 552279  552274 85300 MainThread
+ 596069  596068 82172 MainThread
+ 581256  504610 81688 node
+ 581262  504610 80580 node
+ 581272  504610 79224 node
+ 597779  596079 75808 MainThread
+ 596046  596045 68752 MainThread
+  19188   18746 62680 MainThread
+ 596056   18746 60904 MainThread
+ 596139  596129 58424 MainThread
+   1414       1 57384 dockerd
+ 542436  504585 53004 python
+ 581279  504610 48144 node
+rss_kib_by_comm_top12:
+2768380 15 node
+2456552 16 MainThread
+755168 2 codex
+342184 1 cpptools
+329172 1 claude
+241184 1 ovs-vswitchd
+201320 2 cpptools-srv2
+100256 2 npm
+71040 2 python
+57384 1 dockerd
+30996 1 pyright
+30712 1 containerd
+process_count=112 rg_count=0
+--
+timestamp_utc=2026-11-10T08:31:33Z
+MemTotal:       41072484 kB
+MemAvailable:   32466104 kB
+psi_memory_some avg10=0.00 avg60=0.00 avg300=0.00 total=253097069
+psi_memory_full avg10=0.00 avg60=0.00 avg300=0.00 total=216110437
+/sys/fs/cgroup/memory.max=max 
+/sys/fs/cgroup/memory.current=18565595136 
+/sys/fs/cgroup/memory.events=low 0 high 0 max 0 oom 0 oom_kill 6 oom_group_kill 0 
+top_processes_pid_ppid_rss_comm:
+ 695600  695585 842876 node
+ 695594  695585 840488 node
+ 695601  695585 826708 node
+ 695593  695585 771280 node
+ 504585   18746 713300 MainThread
+ 596079   18746 642456 MainThread
+ 504610  504585 608888 codex
+ 505460  504585 518028 cpptools
+ 614145  504585 319440 claude
+    487       1 241184 ovs-vswitchd
+ 505206  504585 201248 MainThread
+  18746   18742 179840 MainThread
+ 596514  596079 145944 codex
+ 581355  581354 130992 node
+  18769   18746 106632 MainThread
+ 506070   18734 104380 cpptools-srv2
+ 695585  695584 99128 node
+ 506054   18734 96940 cpptools-srv2
+ 581255  504610 87116 npm exec xcodeb
+ 552279  552274 85300 MainThread
+ 596069  596068 82172 MainThread
+ 581256  504610 81688 node
+ 581262  504610 80580 node
+ 581272  504610 79224 node
+ 597779  596079 75812 MainThread
+ 596046  596045 68752 MainThread
+  19188   18746 62680 MainThread
+ 596056   18746 60904 MainThread
+ 596139  596129 58424 MainThread
+   1414       1 57384 dockerd
+ 542436  504585 53004 python
+ 581279  504610 48144 node
+rss_kib_by_comm_top12:
+3819312 15 node
+2456556 16 MainThread
+754832 2 codex
+518220 1 cpptools
+319440 1 claude
+241184 1 ovs-vswitchd
+201320 2 cpptools-srv2
+100256 2 npm
+71040 2 python
+57384 1 dockerd
+30996 1 pyright
+30712 1 containerd
+process_count=112 rg_count=0
+--
+timestamp_utc=2026-11-10T08:31:43Z
+MemTotal:       41072484 kB
+MemAvailable:   31687468 kB
+psi_memory_some avg10=0.00 avg60=0.00 avg300=0.00 total=253097069
+psi_memory_full avg10=0.00 avg60=0.00 avg300=0.00 total=216110437
+/sys/fs/cgroup/memory.max=max 
+/sys/fs/cgroup/memory.current=19343339520 
+/sys/fs/cgroup/memory.events=low 0 high 0 max 0 oom 0 oom_kill 6 oom_group_kill 0 
+top_processes_pid_ppid_rss_comm:
+ 695593  695585 1133352 node
+ 695594  695585 1100100 node
+ 695600  695585 928396 node
+ 695601  695585 871056 node
+ 504585   18746 713304 MainThread
+ 596079   18746 642456 MainThread
+ 504610  504585 609936 codex
+ 505460  504585 518136 cpptools
+ 614145  504585 320332 claude
+    487       1 241184 ovs-vswitchd
+ 505206  504585 201248 MainThread
+  18746   18742 179844 MainThread
+ 596514  596079 145964 codex
+ 581355  581354 130992 node
+  18769   18746 106632 MainThread
+ 506070   18734 104380 cpptools-srv2
+ 506054   18734 96940 cpptools-srv2
+ 581255  504610 87116 npm exec xcodeb
+ 552279  552274 85300 MainThread
+ 695585  695584 83092 node
+ 596069  596068 82172 MainThread
+ 581256  504610 81688 node
+ 581262  504610 80580 node
+ 581272  504610 79224 node
+ 597779  596079 75812 MainThread
+ 596046  596045 68752 MainThread
+  19188   18746 62680 MainThread
+ 596056   18746 60904 MainThread
+ 596139  596129 58424 MainThread
+   1414       1 57384 dockerd
+ 542436  504585 53004 python
+ 581279  504610 48144 node
+rss_kib_by_comm_top12:
+4555552 15 node
+2456564 16 MainThread
+755900 2 codex
+518052 1 cpptools
+320332 1 claude
+241184 1 ovs-vswitchd
+201320 2 cpptools-srv2
+100256 2 npm
+71044 2 python
+57384 1 dockerd
+30996 1 pyright
+30712 1 containerd
+process_count=112 rg_count=0
+--
+timestamp_utc=2026-11-10T08:31:53Z
+MemTotal:       41072484 kB
+MemAvailable:   34720636 kB
+psi_memory_some avg10=0.00 avg60=0.00 avg300=0.00 total=253097069
+psi_memory_full avg10=0.00 avg60=0.00 avg300=0.00 total=216110437
+/sys/fs/cgroup/memory.max=max 
+/sys/fs/cgroup/memory.current=16260030464 
+/sys/fs/cgroup/memory.events=low 0 high 0 max 0 oom 0 oom_kill 6 oom_group_kill 0 
+top_processes_pid_ppid_rss_comm:
+ 695600  695585 960332 node
+ 504585   18746 713304 MainThread
+ 596079   18746 642456 MainThread
+ 504610  504585 608312 codex
+ 505460  504585 518056 cpptools
+ 614145  504585 326944 claude
+    487       1 241184 ovs-vswitchd
+ 505206  504585 201248 MainThread
+  18746   18742 179844 MainThread
+ 596514  596079 145920 codex
+ 581355  581354 130992 node
+  18769   18746 106632 MainThread
+ 506070   18734 104380 cpptools-srv2
+ 506054   18734 96940 cpptools-srv2
+ 581255  504610 87116 npm exec xcodeb
+ 552279  552274 85300 MainThread
+ 695585  695584 83560 node
+ 596069  596068 82172 MainThread
+ 581256  504610 81688 node
+ 581262  504610 80580 node
+ 581272  504610 79224 node
+ 597779  596079 75812 MainThread
+ 596046  596045 68752 MainThread
+  19188   18746 62680 MainThread
+ 596056   18746 60904 MainThread
+ 596139  596129 58424 MainThread
+   1414       1 57384 dockerd
+ 542436  504585 53004 python
+ 581279  504610 48144 node
+  19423   18746 41208 MainThread
+ 504557  504556 35140 MainThread
+ 504806  504585 33000 MainThread
+rss_kib_by_comm_top12:
+2456564 16 MainThread
+1482692 12 node
+754232 2 codex
+518416 1 cpptools
+326944 1 claude
+241184 1 ovs-vswitchd
+201320 2 cpptools-srv2
+100256 2 npm
+71048 2 python
+57384 1 dockerd
+30996 1 pyright
+30712 1 containerd
+process_count=109 rg_count=0
+--
+timestamp_utc=2026-11-10T08:32:03Z
+MemTotal:       41072484 kB
+MemAvailable:   34712548 kB
+psi_memory_some avg10=0.00 avg60=0.00 avg300=0.00 total=253097069
+psi_memory_full avg10=0.00 avg60=0.00 avg300=0.00 total=216110437
+/sys/fs/cgroup/memory.max=max 
+/sys/fs/cgroup/memory.current=16311021568 
+/sys/fs/cgroup/memory.events=low 0 high 0 max 0 oom 0 oom_kill 6 oom_group_kill 0 
+top_processes_pid_ppid_rss_comm:
+ 695600  695585 1007392 node
+ 504585   18746 713304 MainThread
+ 596079   18746 642456 MainThread
+ 504610  504585 608252 codex
+ 505460  504585 518068 cpptools
+ 614145  504585 328120 claude
+    487       1 241184 ovs-vswitchd
+ 505206  504585 201248 MainThread
+  18746   18742 179844 MainThread
+ 596514  596079 145920 codex
+ 581355  581354 130992 node
+  18769   18746 106632 MainThread
+ 506070   18734 104380 cpptools-srv2
+ 506054   18734 96940 cpptools-srv2
+ 581255  504610 87116 npm exec xcodeb
+ 552279  552274 85300 MainThread
+ 695585  695584 83560 node
+ 596069  596068 82172 MainThread
+ 581256  504610 81688 node
+ 581262  504610 80580 node
+ 581272  504610 79224 node
+ 597779  596079 75812 MainThread
+ 596046  596045 68752 MainThread
+  19188   18746 62680 MainThread
+ 596056   18746 60904 MainThread
+ 596139  596129 58424 MainThread
+   1414       1 57384 dockerd
+ 542436  504585 53004 python
+ 581279  504610 48144 node
+  19423   18746 41208 MainThread
+ 504557  504556 35140 MainThread
+ 504806  504585 33000 MainThread
+rss_kib_by_comm_top12:
+2456564 16 MainThread
+1529736 12 node
+754172 2 codex
+518260 1 cpptools
+328120 1 claude
+241184 1 ovs-vswitchd
+201320 2 cpptools-srv2
+100256 2 npm
+71052 2 python
+57384 1 dockerd
+30996 1 pyright
+30712 1 containerd
+process_count=109 rg_count=0
+--
+timestamp_utc=2026-11-10T08:32:13Z
+MemTotal:       41072484 kB
+MemAvailable:   33218084 kB
+psi_memory_some avg10=0.00 avg60=0.00 avg300=0.00 total=253097069
+psi_memory_full avg10=0.00 avg60=0.00 avg300=0.00 total=216110437
+/sys/fs/cgroup/memory.max=max 
+/sys/fs/cgroup/memory.current=17806143488 
+/sys/fs/cgroup/memory.events=low 0 high 0 max 0 oom 0 oom_kill 6 oom_group_kill 0 
+top_processes_pid_ppid_rss_comm:
+ 696196  696183 716368 node
+ 504585   18746 713304 MainThread
+ 696198  696183 667004 node
+ 696197  696183 654412 node
+ 596079   18746 642456 MainThread
+ 504610  504585 608320 codex
+ 696204  696183 545060 node
+ 505460  504585 518440 cpptools
+ 614145  504585 304692 claude
+    487       1 241184 ovs-vswitchd
+ 505206  504585 201248 MainThread
+  18746   18742 179844 MainThread
+ 596514  596079 145920 codex
+ 581355  581354 130992 node
+  18769   18746 106632 MainThread
+ 506070   18734 104380 cpptools-srv2
+ 696183  696179 99520 node
+ 506054   18734 96940 cpptools-srv2
+ 581255  504610 87116 npm exec xcodeb
+ 552279  552274 85300 MainThread
+ 596069  596068 82172 MainThread
+ 581256  504610 81688 node
+ 581262  504610 80580 node
+ 581272  504610 79224 node
+ 597779  596079 75812 MainThread
+ 596046  596045 68752 MainThread
+  19188   18746 62680 MainThread
+ 596056   18746 60904 MainThread
+ 596139  596129 58424 MainThread
+   1414       1 57384 dockerd
+ 542436  504585 53004 python
+ 581279  504610 48144 node
+rss_kib_by_comm_top12:
+3124652 15 node
+2456564 16 MainThread
+754240 2 codex
+518160 1 cpptools
+304692 1 claude
+241184 1 ovs-vswitchd
+201320 2 cpptools-srv2
+100256 2 npm
+71052 2 python
+57384 1 dockerd
+31032 1 pyright
+30712 1 containerd
+process_count=112 rg_count=0
+--
+timestamp_utc=2026-11-10T08:32:23Z
+MemTotal:       41072484 kB
+MemAvailable:   31900216 kB
+psi_memory_some avg10=0.00 avg60=0.00 avg300=0.00 total=253097069
+psi_memory_full avg10=0.00 avg60=0.00 avg300=0.00 total=216110437
+/sys/fs/cgroup/memory.max=max 
+/sys/fs/cgroup/memory.current=19125809152 
+/sys/fs/cgroup/memory.events=low 0 high 0 max 0 oom 0 oom_kill 6 oom_group_kill 0 
+top_processes_pid_ppid_rss_comm:
+ 696198  696183 1017152 node
+ 696196  696183 988592 node
+ 696197  696183 965736 node
+ 696204  696183 855668 node
+ 504585   18746 713304 MainThread
+ 596079   18746 642456 MainThread
+ 504610  504585 608256 codex
+ 505460  504585 518080 cpptools
+ 614145  504585 305100 claude
+    487       1 241184 ovs-vswitchd
+ 505206  504585 201248 MainThread
+  18746   18742 179844 MainThread
+ 596514  596079 145920 codex
+ 581355  581354 130992 node
+  18769   18746 106632 MainThread
+ 506070   18734 104380 cpptools-srv2
+ 696183  696179 99540 node
+ 506054   18734 96940 cpptools-srv2
+ 581255  504610 87116 npm exec xcodeb
+ 552279  552274 85300 MainThread
+ 596069  596068 82172 MainThread
+ 581256  504610 81688 node
+ 581262  504610 80580 node
+ 581272  504610 79224 node
+ 597779  596079 75816 MainThread
+ 596046  596045 68752 MainThread
+  19188   18746 62680 MainThread
+ 596056   18746 60904 MainThread
+ 596139  596129 58424 MainThread
+   1414       1 57384 dockerd
+ 542436  504585 53004 python
+ 581279  504610 48144 node
+rss_kib_by_comm_top12:
+4366560 15 node
+2456568 16 MainThread
+754176 2 codex
+518188 1 cpptools
+305100 1 claude
+241184 1 ovs-vswitchd
+201320 2 cpptools-srv2
+100256 2 npm
+71056 2 python
+57384 1 dockerd
+31032 1 pyright
+30712 1 containerd
+process_count=112 rg_count=0
+--
+timestamp_utc=2026-11-10T08:32:34Z
+MemTotal:       41072484 kB
+MemAvailable:   30034688 kB
+psi_memory_some avg10=0.00 avg60=0.00 avg300=0.00 total=253097069
+psi_memory_full avg10=0.00 avg60=0.00 avg300=0.00 total=216110437
+/sys/fs/cgroup/memory.max=max 
+/sys/fs/cgroup/memory.current=21086187520 
+/sys/fs/cgroup/memory.events=low 0 high 0 max 0 oom 0 oom_kill 6 oom_group_kill 0 
+top_processes_pid_ppid_rss_comm:
+ 696197  696183 1467692 node
+ 696196  696183 1462936 node
+ 696198  696183 1420364 node
+ 696204  696183 1347784 node
+ 504585   18746 713316 MainThread
+ 596079   18746 642456 MainThread
+ 504610  504585 608256 codex
+ 505460  504585 518452 cpptools
+ 614145  504585 304980 claude
+    487       1 241184 ovs-vswitchd
+ 505206  504585 201248 MainThread
+  18746   18742 179844 MainThread
+ 596514  596079 145920 codex
+ 581355  581354 130992 node
+  18769   18746 106632 MainThread
+ 506070   18734 104380 cpptools-srv2
+ 506054   18734 96940 cpptools-srv2
+ 581255  504610 87116 npm exec xcodeb
+ 696183  696179 85348 node
+ 552279  552274 85300 MainThread
+ 596069  596068 82172 MainThread
+ 581256  504610 81688 node
+ 581262  504610 80580 node
+ 581272  504610 79224 node
+ 597779  596079 75816 MainThread
+ 596046  596045 68752 MainThread
+  19188   18746 62680 MainThread
+ 596056   18746 60904 MainThread
+ 596139  596129 58424 MainThread
+   1414       1 57384 dockerd
+ 542436  504585 53004 python
+ 581279  504610 48144 node
+rss_kib_by_comm_top12:
+6228548 15 node
+2456580 16 MainThread
+754176 2 codex
+518092 1 cpptools
+304948 1 claude
+241184 1 ovs-vswitchd
+201320 2 cpptools-srv2
+100256 2 npm
+71060 2 python
+57384 1 dockerd
+31032 1 pyright
+30712 1 containerd
+process_count=112 rg_count=0
+--
+timestamp_utc=2026-11-10T08:32:44Z
+MemTotal:       41072484 kB
+MemAvailable:   28287828 kB
+psi_memory_some avg10=0.00 avg60=0.00 avg300=0.00 total=253097069
+psi_memory_full avg10=0.00 avg60=0.00 avg300=0.00 total=216110437
+/sys/fs/cgroup/memory.max=max 
+/sys/fs/cgroup/memory.current=22855458816 
+/sys/fs/cgroup/memory.events=low 0 high 0 max 0 oom 0 oom_kill 6 oom_group_kill 0 
+top_processes_pid_ppid_rss_comm:
+ 696198  696183 1905620 node
+ 696197  696183 1893176 node
+ 696196  696183 1807348 node
+ 696204  696183 1772484 node
+ 504585   18746 713316 MainThread
+ 596079   18746 642456 MainThread
+ 504610  504585 608488 codex
+ 505460  504585 518228 cpptools
+ 614145  504585 302880 claude
+    487       1 241184 ovs-vswitchd
+ 505206  504585 201248 MainThread
+  18746   18742 179844 MainThread
+ 596514  596079 145924 codex
+ 581355  581354 130992 node
+  18769   18746 106632 MainThread
+ 506070   18734 104380 cpptools-srv2
+ 506054   18734 96940 cpptools-srv2
+ 581255  504610 87116 npm exec xcodeb
+ 696183  696179 86156 node
+ 552279  552274 85300 MainThread
+ 596069  596068 82172 MainThread
+ 581256  504610 81688 node
+ 581262  504610 80580 node
+ 581272  504610 79224 node
+ 597779  596079 75816 MainThread
+ 596046  596045 68752 MainThread
+  19188   18746 62680 MainThread
+ 596056   18746 60904 MainThread
+ 596139  596129 58424 MainThread
+   1414       1 57384 dockerd
+ 542436  504585 53004 python
+ 581279  504610 48144 node
+rss_kib_by_comm_top12:
+7904852 15 node
+2456580 16 MainThread
+754412 2 codex
+518476 1 cpptools
+302880 1 claude
+241184 1 ovs-vswitchd
+201320 2 cpptools-srv2
+100256 2 npm
+71060 2 python
+57384 1 dockerd
+31032 1 pyright
+30712 1 containerd
+process_count=112 rg_count=0
+--
+timestamp_utc=2026-11-10T08:32:54Z
+MemTotal:       41072484 kB
+MemAvailable:   34438692 kB
+psi_memory_some avg10=0.00 avg60=0.00 avg300=0.00 total=253097069
+psi_memory_full avg10=0.00 avg60=0.00 avg300=0.00 total=216110437
+/sys/fs/cgroup/memory.max=max 
+/sys/fs/cgroup/memory.current=16518483968 
+/sys/fs/cgroup/memory.events=low 0 high 0 max 0 oom 0 oom_kill 6 oom_group_kill 0 
+top_processes_pid_ppid_rss_comm:
+ 504585   18746 713316 MainThread
+ 596079   18746 642456 MainThread
+ 504610  504585 608196 codex
+ 505460  504585 518224 cpptools
+ 614145  504585 302676 claude
+    487       1 241184 ovs-vswitchd
+ 505206  504585 201884 MainThread
+  18746   18742 179844 MainThread
+ 696576  696569 171560 python
+ 696570  696569 171536 python
+ 696588  696569 168784 python
+ 696573  696569 168104 python
+ 696582  696569 167180 python
+ 696579  696569 167056 python
+ 696585  696569 166728 python
+ 696591  696569 166624 python
+ 596514  596079 145904 codex
+ 581355  581354 130992 node
+  18769   18746 106632 MainThread
+ 506070   18734 104380 cpptools-srv2
+ 506054   18734 96940 cpptools-srv2
+ 581255  504610 87116 npm exec xcodeb
+ 552279  552274 85300 MainThread
+ 596069  596068 82172 MainThread
+ 581256  504610 81688 node
+ 581262  504610 80580 node
+ 581272  504610 79224 node
+ 597779  596079 75816 MainThread
+ 596046  596045 68752 MainThread
+  19188   18746 62680 MainThread
+ 596056   18746 60904 MainThread
+ 596139  596129 58424 MainThread
+rss_kib_by_comm_top12:
+2457216 16 MainThread
+1421132 10 python
+754100 2 codex
+518140 1 cpptools
+438780 10 node
+302676 1 claude
+241184 1 ovs-vswitchd
+201320 2 cpptools-srv2
+100256 2 npm
+57384 1 dockerd
+41052 1 pytest
+30712 1 containerd
+process_count=115 rg_count=0
+--
+timestamp_utc=2026-11-10T08:33:04Z
+MemTotal:       41072484 kB
+MemAvailable:   34246080 kB
+psi_memory_some avg10=0.00 avg60=0.00 avg300=0.00 total=253097069
+psi_memory_full avg10=0.00 avg60=0.00 avg300=0.00 total=216110437
+/sys/fs/cgroup/memory.max=max 
+/sys/fs/cgroup/memory.current=16758603776 
+/sys/fs/cgroup/memory.events=low 0 high 0 max 0 oom 0 oom_kill 6 oom_group_kill 0 
+top_processes_pid_ppid_rss_comm:
+ 504585   18746 713320 MainThread
+ 596079   18746 642456 MainThread
+ 504610  504585 608160 codex
+ 505460  504585 518236 cpptools
+ 614145  504585 302776 claude
+    487       1 241184 ovs-vswitchd
+ 505206  504585 201884 MainThread
+ 696576  696569 197636 python
+ 696582  696569 197580 python
+ 696585  696569 197580 python
+ 696573  696569 197568 python
+ 696591  696569 197536 python
+ 696570  696569 197516 python
+ 696579  696569 197496 python
+ 696588  696569 197492 python
+  18746   18742 179844 MainThread
+ 596514  596079 145904 codex
+ 581355  581354 130992 node
+  18769   18746 106632 MainThread
+ 506070   18734 104380 cpptools-srv2
+ 506054   18734 96940 cpptools-srv2
+ 581255  504610 87116 npm exec xcodeb
+ 552279  552274 85300 MainThread
+ 596069  596068 82172 MainThread
+ 581256  504610 81688 node
+ 581262  504610 80580 node
+ 581272  504610 79224 node
+ 597779  596079 75816 MainThread
+ 596046  596045 68752 MainThread
+  19188   18746 62684 MainThread
+ 596056   18746 60904 MainThread
+ 596139  596129 58424 MainThread
+rss_kib_by_comm_top12:
+2457224 16 MainThread
+1651464 10 python
+754064 2 codex
+518264 1 cpptools
+438780 10 node
+302776 1 claude
+241184 1 ovs-vswitchd
+201320 2 cpptools-srv2
+100256 2 npm
+57384 1 dockerd
+41052 1 pytest
+30712 1 containerd
+process_count=115 rg_count=0
+--
+timestamp_utc=2026-11-10T08:33:14Z
+MemTotal:       41072484 kB
+MemAvailable:   33866388 kB
+psi_memory_some avg10=0.00 avg60=0.00 avg300=0.00 total=253097069
+psi_memory_full avg10=0.00 avg60=0.00 avg300=0.00 total=216110437
+/sys/fs/cgroup/memory.max=max 
+/sys/fs/cgroup/memory.current=17124798464 
+/sys/fs/cgroup/memory.events=low 0 high 0 max 0 oom 0 oom_kill 6 oom_group_kill 0 
+top_processes_pid_ppid_rss_comm:
+ 504585   18746 713324 MainThread
+ 596079   18746 642456 MainThread
+ 504610  504585 608140 codex
+ 505460  504585 519216 cpptools
+ 614145  504585 302204 claude
+ 696576  696569 242736 python
+ 696585  696569 242684 python
+ 696579  696569 242656 python
+ 696570  696569 242644 python
+ 696591  696569 242640 python
+ 696573  696569 242632 python
+ 696588  696569 242608 python
+ 696582  696569 242384 python
+    487       1 241184 ovs-vswitchd
+ 505206  504585 201884 MainThread
+  18746   18742 179844 MainThread
+ 596514  596079 145904 codex
+ 581355  581354 130992 node
+  18769   18746 106632 MainThread
+ 506070   18734 104380 cpptools-srv2
+ 506054   18734 96940 cpptools-srv2
+ 581255  504610 87116 npm exec xcodeb
+ 552279  552274 85300 MainThread
+ 596069  596068 82172 MainThread
+ 581256  504610 81688 node
+ 581262  504610 80580 node
+ 581272  504610 79224 node
+ 597779  596079 75820 MainThread
+ 596046  596045 68752 MainThread
+  19188   18746 62708 MainThread
+ 596056   18746 60904 MainThread
+ 596139  596129 58424 MainThread
+rss_kib_by_comm_top12:
+2457260 16 MainThread
+2012192 10 python
+754044 2 codex
+518160 1 cpptools
+438780 10 node
+302204 1 claude
+241184 1 ovs-vswitchd
+201320 2 cpptools-srv2
+100256 2 npm
+57384 1 dockerd
+41224 1 pytest
+30712 1 containerd
+process_count=115 rg_count=0
+--
+timestamp_utc=2026-11-10T08:33:24Z
+MemTotal:       41072484 kB
+MemAvailable:   33576404 kB
+psi_memory_some avg10=0.00 avg60=0.00 avg300=0.00 total=253097069
+psi_memory_full avg10=0.00 avg60=0.00 avg300=0.00 total=216110437
+/sys/fs/cgroup/memory.max=max 
+/sys/fs/cgroup/memory.current=17464000512 
+/sys/fs/cgroup/memory.events=low 0 high 0 max 0 oom 0 oom_kill 6 oom_group_kill 0 
+top_processes_pid_ppid_rss_comm:
+ 504585   18746 713324 MainThread
+ 596079   18746 642456 MainThread
+ 504610  504585 608100 codex
+ 505460  504585 518276 cpptools
+ 614145  504585 302720 claude
+ 696588  696569 285528 python
+ 696576  696569 285464 python
+ 696570  696569 285404 python
+ 696579  696569 284692 python
+ 696585  696569 284612 python
+ 696573  696569 284340 python
+ 696591  696569 284288 python
+ 696582  696569 276104 python
+    487       1 241184 ovs-vswitchd
+ 505206  504585 201884 MainThread
+  18746   18742 179844 MainThread
+ 596514  596079 145904 codex
+ 581355  581354 130992 node
+  18769   18746 106632 MainThread
+ 506070   18734 104380 cpptools-srv2
+ 506054   18734 96940 cpptools-srv2
+ 581255  504610 87116 npm exec xcodeb
+ 552279  552274 85300 MainThread
+ 596069  596068 82172 MainThread
+ 581256  504610 81688 node
+ 581262  504610 80580 node
+ 581272  504610 79224 node
+ 597779  596079 75820 MainThread
+ 596046  596045 68752 MainThread
+  19188   18746 62708 MainThread
+ 596056   18746 60904 MainThread
+ 596139  596129 58424 MainThread
+rss_kib_by_comm_top12:
+2457260 16 MainThread
+2341700 10 python
+754004 2 codex
+518528 1 cpptools
+438780 10 node
+302720 1 claude
+241184 1 ovs-vswitchd
+201320 2 cpptools-srv2
+100256 2 npm
+57384 1 dockerd
+41224 1 pytest
+30712 1 containerd
+process_count=115 rg_count=0
+--
+timestamp_utc=2026-11-10T08:33:34Z
+MemTotal:       41072484 kB
+MemAvailable:   32804380 kB
+psi_memory_some avg10=0.00 avg60=0.00 avg300=0.00 total=253097069
+psi_memory_full avg10=0.00 avg60=0.00 avg300=0.00 total=216110437
+/sys/fs/cgroup/memory.max=max 
+/sys/fs/cgroup/memory.current=18155352064 
+/sys/fs/cgroup/memory.events=low 0 high 0 max 0 oom 0 oom_kill 6 oom_group_kill 0 
+top_processes_pid_ppid_rss_comm:
+ 504585   18746 713324 MainThread
+ 596079   18746 642456 MainThread
+ 504610  504585 608100 codex
+ 505460  504585 519060 cpptools
+ 696570  696569 327520 python
+ 696588  696569 315980 python
+ 696585  696569 315160 python
+ 696582  696569 314916 python
+ 696579  696569 314576 python
+ 696576  696569 313760 python
+ 696573  696569 313756 python
+ 696591  696569 313648 python
+ 614145  504585 302736 claude
+    487       1 241184 ovs-vswitchd
+ 505206  504585 202336 MainThread
+  18746   18742 179844 MainThread
+ 596514  596079 145904 codex
+ 696569  696566 139748 pytest
+ 581355  581354 130992 node
+  18769   18746 106632 MainThread
+ 506070   18734 104380 cpptools-srv2
+ 506054   18734 96940 cpptools-srv2
+ 581255  504610 87116 npm exec xcodeb
+ 696983  696591 87028 python
+ 552279  552274 85300 MainThread
+ 596069  596068 82172 MainThread
+ 696981  696573 82004 python
+ 581256  504610 81688 node
+ 697008  696576 81184 python
+ 581262  504610 80580 node
+ 581272  504610 79224 node
+ 597779  596079 75820 MainThread
+rss_kib_by_comm_top12:
+2925180 14 python
+2457712 16 MainThread
+754004 2 codex
+518368 1 cpptools
+438780 10 node
+302736 1 claude
+241184 1 ovs-vswitchd
+201320 2 cpptools-srv2
+139748 1 pytest
+100256 2 npm
+57384 1 dockerd
+30712 1 containerd
+process_count=119 rg_count=0
+--
+timestamp_utc=2026-11-10T08:33:44Z
+MemTotal:       41072484 kB
+MemAvailable:   32331400 kB
+psi_memory_some avg10=0.00 avg60=0.00 avg300=0.00 total=253097069
+psi_memory_full avg10=0.00 avg60=0.00 avg300=0.00 total=216110437
+/sys/fs/cgroup/memory.max=max 
+/sys/fs/cgroup/memory.current=18491576320 
+/sys/fs/cgroup/memory.events=low 0 high 0 max 0 oom 0 oom_kill 6 oom_group_kill 0 
+top_processes_pid_ppid_rss_comm:
+ 504585   18746 713332 MainThread
+ 596079   18746 642456 MainThread
+ 504610  504585 608172 codex
+ 505460  504585 518232 cpptools
+ 696570  696569 358628 python
+ 696588  696569 348280 python
+ 696585  696569 323052 python
+ 696582  696569 319804 python
+ 696579  696569 314576 python
+ 696576  696569 313760 python
+ 696573  696569 313756 python
+ 696591  696569 313648 python
+ 614145  504585 302204 claude
+    487       1 241184 ovs-vswitchd
+ 505206  504585 202440 MainThread
+  18746   18742 179844 MainThread
+ 596514  596079 145928 codex
+ 696569  696566 139900 pytest
+ 696983  696591 138020 python
+ 581355  581354 130996 node
+  18769   18746 106632 MainThread
+ 506070   18734 104380 cpptools-srv2
+ 506054   18734 96940 cpptools-srv2
+ 581255  504610 87116 npm exec xcodeb
+ 552279  552274 85300 MainThread
+ 696981  696573 82864 python
+ 697046  696579 82368 python
+ 697008  696576 82212 python
+ 596069  596068 82172 MainThread
+ 581256  504610 81688 node
+ 581262  504610 80580 node
+ 581272  504610 79224 node
+rss_kib_by_comm_top12:
+3285488 17 python
+2457824 16 MainThread
+754100 2 codex
+518192 1 cpptools
+438784 10 node
+302204 1 claude
+241184 1 ovs-vswitchd
+201320 2 cpptools-srv2
+139900 1 pytest
+100256 2 npm
+57384 1 dockerd
+30712 1 containerd
+process_count=122 rg_count=0
+--
+timestamp_utc=2026-11-10T08:33:54Z
+MemTotal:       41072484 kB
+MemAvailable:   32484440 kB
+psi_memory_some avg10=0.00 avg60=0.00 avg300=0.00 total=253097069
+psi_memory_full avg10=0.00 avg60=0.00 avg300=0.00 total=216110437
+/sys/fs/cgroup/memory.max=max 
+/sys/fs/cgroup/memory.current=18506616832 
+/sys/fs/cgroup/memory.events=low 0 high 0 max 0 oom 0 oom_kill 6 oom_group_kill 0 
+top_processes_pid_ppid_rss_comm:
+ 504585   18746 713344 MainThread
+ 596079   18746 642456 MainThread
+ 504610  504585 607412 codex
+ 505460  504585 518392 cpptools
+ 696570  696569 368300 python
+ 696588  696569 348320 python
+ 696585  696569 325448 python
+ 696582  696569 319804 python
+ 696579  696569 314576 python
+ 696576  696569 313760 python
+ 696573  696569 313756 python
+ 696591  696569 313648 python
+ 614145  504585 302720 claude
+    487       1 241184 ovs-vswitchd
+ 505206  504585 202448 MainThread
+  18746   18742 179844 MainThread
+ 696983  696591 150068 python
+ 596514  596079 145908 codex
+ 696569  696566 140000 pytest
+ 581355  581354 130996 node
+ 697384  696573 122736 python
+ 697403  696576 121184 python
+ 697408  696579 116588 python
+  18769   18746 106632 MainThread
+ 506070   18734 104380 cpptools-srv2
+ 506054   18734 96940 cpptools-srv2
+ 581255  504610 87116 npm exec xcodeb
+ 552279  552274 85300 MainThread
+ 596069  596068 82172 MainThread
+ 581256  504610 81688 node
+ 581262  504610 80580 node
+ 581272  504610 79224 node
+rss_kib_by_comm_top12:
+3276276 15 python
+2457844 16 MainThread
+753320 2 codex
+518204 1 cpptools
+438784 10 node
+302720 1 claude
+241184 1 ovs-vswitchd
+201320 2 cpptools-srv2
+140000 1 pytest
+100256 2 npm
+57384 1 dockerd
+30712 1 containerd
+process_count=120 rg_count=0
+--
+timestamp_utc=2026-11-10T08:34:04Z
+MemTotal:       41072484 kB
+MemAvailable:   32356732 kB
+psi_memory_some avg10=0.00 avg60=0.00 avg300=0.00 total=253097069
+psi_memory_full avg10=0.00 avg60=0.00 avg300=0.00 total=216110437
+/sys/fs/cgroup/memory.max=max 
+/sys/fs/cgroup/memory.current=18593923072 
+/sys/fs/cgroup/memory.events=low 0 high 0 max 0 oom 0 oom_kill 6 oom_group_kill 0 
+top_processes_pid_ppid_rss_comm:
+ 504585   18746 713344 MainThread
+ 596079   18746 642456 MainThread
+ 504610  504585 607228 codex
+ 505460  504585 518236 cpptools
+ 696570  696569 366908 python
+ 696588  696569 348336 python
+ 696585  696569 326428 python
+ 696582  696569 321252 python
+ 696579  696569 314576 python
+ 696576  696569 313760 python
+ 696573  696569 313756 python
+ 696591  696569 313648 python
+ 614145  504585 302732 claude
+    487       1 241184 ovs-vswitchd
+ 505206  504585 202448 MainThread
+  18746   18742 179844 MainThread
+ 696983  696591 149256 python
+ 697408  696579 149000 python
+ 697384  696573 147336 python
+ 697403  696576 147028 python
+ 596514  596079 145908 codex
+ 696569  696566 140168 pytest
+ 581355  581354 130996 node
+  18769   18746 106632 MainThread
+ 506070   18734 104380 cpptools-srv2
+ 506054   18734 96940 cpptools-srv2
+ 581255  504610 87116 npm exec xcodeb
+ 552279  552274 85300 MainThread
+ 596069  596068 82172 MainThread
+ 581256  504610 81688 node
+ 581262  504610 80580 node
+ 581272  504610 79224 node
+rss_kib_by_comm_top12:
+3354196 15 python
+2459632 16 MainThread
+753136 2 codex
+518596 1 cpptools
+438784 10 node
+302732 1 claude
+241184 1 ovs-vswitchd
+201320 2 cpptools-srv2
+140168 1 pytest
+100256 2 npm
+57384 1 dockerd
+30712 1 containerd
+process_count=120 rg_count=0
+--
+timestamp_utc=2026-11-10T08:34:14Z
+MemTotal:       41072484 kB
+MemAvailable:   32478728 kB
+psi_memory_some avg10=0.00 avg60=0.00 avg300=0.00 total=253097069
+psi_memory_full avg10=0.00 avg60=0.00 avg300=0.00 total=216110437
+/sys/fs/cgroup/memory.max=max 
+/sys/fs/cgroup/memory.current=18558095360 
+/sys/fs/cgroup/memory.events=low 0 high 0 max 0 oom 0 oom_kill 6 oom_group_kill 0 
+top_processes_pid_ppid_rss_comm:
+ 504585   18746 713344 MainThread
+ 596079   18746 642456 MainThread
+ 504610  504585 607240 codex
+ 505460  504585 518624 cpptools
+ 696570  696569 366916 python
+ 696588  696569 348476 python
+ 696585  696569 325404 python
+ 696582  696569 322436 python
+ 696579  696569 314576 python
+ 696576  696569 313760 python
+ 696573  696569 313756 python
+ 696591  696569 313648 python
+ 614145  504585 302204 claude
+    487       1 241184 ovs-vswitchd
+ 505206  504585 202448 MainThread
+ 696983  696591 185936 python
+  18746   18742 179844 MainThread
+ 697384  696573 146384 python
+ 596514  596079 145908 codex
+ 697408  696579 145188 python
+ 697403  696576 144736 python
+ 696569  696566 140328 pytest
+ 581355  581354 130996 node
+  18769   18746 106632 MainThread
+ 506070   18734 104380 cpptools-srv2
+ 506054   18734 96940 cpptools-srv2
+ 581255  504610 87116 npm exec xcodeb
+ 552279  552274 85300 MainThread
+ 596069  596068 82172 MainThread
+ 581256  504610 81688 node
+ 581262  504610 80580 node
+ 581272  504610 79224 node
+rss_kib_by_comm_top12:
+3312492 14 python
+2459636 16 MainThread
+753148 2 codex
+518348 1 cpptools
+438784 10 node
+302204 1 claude
+241184 1 ovs-vswitchd
+201320 2 cpptools-srv2
+140328 1 pytest
+100256 2 npm
+57384 1 dockerd
+30712 1 containerd
+process_count=119 rg_count=0
+--
+timestamp_utc=2026-11-10T08:34:24Z
+MemTotal:       41072484 kB
+MemAvailable:   32441604 kB
+psi_memory_some avg10=0.00 avg60=0.00 avg300=0.00 total=253097069
+psi_memory_full avg10=0.00 avg60=0.00 avg300=0.00 total=216110437
+/sys/fs/cgroup/memory.max=max 
+/sys/fs/cgroup/memory.current=18680733696 
+/sys/fs/cgroup/memory.events=low 0 high 0 max 0 oom 0 oom_kill 6 oom_group_kill 0 
+top_processes_pid_ppid_rss_comm:
+ 504585   18746 713344 MainThread
+ 596079   18746 642456 MainThread
+ 504610  504585 607172 codex
+ 505460  504585 518276 cpptools
+ 696570  696569 366968 python
+ 696588  696569 349440 python
+ 696585  696569 325404 python
+ 696582  696569 323044 python
+ 696579  696569 314576 python
+ 696576  696569 313760 python
+ 696573  696569 313756 python
+ 696591  696569 313648 python
+ 614145  504585 302720 claude
+    487       1 241184 ovs-vswitchd
+ 505206  504585 202460 MainThread
+  18746   18742 179844 MainThread
+ 696983  696591 179428 python
+ 697384  696573 165884 python
+ 697403  696576 164696 python
+ 697408  696579 160220 python
+ 596514  596079 145908 codex
+ 696569  696566 140460 pytest
+ 581355  581354 130996 node
+  18769   18746 106632 MainThread
+ 506070   18734 104380 cpptools-srv2
+ 506054   18734 96940 cpptools-srv2
+ 581255  504610 87116 npm exec xcodeb
+ 552279  552274 85300 MainThread
+ 596069  596068 82172 MainThread
+ 581256  504610 81688 node
+ 581262  504610 80580 node
+ 581272  504610 79224 node
+rss_kib_by_comm_top12:
+3435212 15 python
+2459648 16 MainThread
+753080 2 codex
+518440 1 cpptools
+438784 10 node
+302720 1 claude
+241184 1 ovs-vswitchd
+201320 2 cpptools-srv2
+140460 1 pytest
+100256 2 npm
+57384 1 dockerd
+30712 1 containerd
+process_count=120 rg_count=0
+--
+timestamp_utc=2026-11-10T08:34:34Z
+MemTotal:       41072484 kB
+MemAvailable:   32274280 kB
+psi_memory_some avg10=0.00 avg60=0.00 avg300=0.00 total=253097069
+psi_memory_full avg10=0.00 avg60=0.00 avg300=0.00 total=216110437
+/sys/fs/cgroup/memory.max=max 
+/sys/fs/cgroup/memory.current=18798395392 
+/sys/fs/cgroup/memory.events=low 0 high 0 max 0 oom 0 oom_kill 6 oom_group_kill 0 
+top_processes_pid_ppid_rss_comm:
+ 504585   18746 713344 MainThread
+ 596079   18746 642456 MainThread
+ 504610  504585 607172 codex
+ 505460  504585 518648 cpptools
+ 696570  696569 366968 python
+ 696588  696569 349440 python
+ 696591  696569 337420 python
+ 696585  696569 325404 python
+ 696582  696569 323552 python
+ 696579  696569 314576 python
+ 696576  696569 313760 python
+ 696573  696569 313756 python
+ 614145  504585 302732 claude
+    487       1 241184 ovs-vswitchd
+ 505206  504585 202464 MainThread
+ 697384  696573 182692 python
+ 697403  696576 182544 python
+  18746   18742 179844 MainThread
+ 697408  696579 179524 python
+ 596514  596079 145908 codex
+ 696569  696566 140576 pytest
+ 581355  581354 130996 node
+ 698102  696570 107656 python
+  18769   18746 106632 MainThread
+ 506070   18734 104380 cpptools-srv2
+ 698260  696591 102760 python
+ 506054   18734 96940 cpptools-srv2
+ 581255  504610 87116 npm exec xcodeb
+ 552279  552274 85300 MainThread
+ 698137  698102 84936 python
+ 596069  596068 82172 MainThread
+ 581256  504610 81688 node
+rss_kib_by_comm_top12:
+3556256 16 python
+2459652 16 MainThread
+753080 2 codex
+518372 1 cpptools
+438784 10 node
+302732 1 claude
+241184 1 ovs-vswitchd
+201320 2 cpptools-srv2
+140576 1 pytest
+100256 2 npm
+57384 1 dockerd
+30712 1 containerd
+process_count=121 rg_count=0
+--
+timestamp_utc=2026-11-10T08:34:45Z
+MemTotal:       41072484 kB
+MemAvailable:   32195524 kB
+psi_memory_some avg10=0.00 avg60=0.00 avg300=0.00 total=253097069
+psi_memory_full avg10=0.00 avg60=0.00 avg300=0.00 total=216110437
+/sys/fs/cgroup/memory.max=max 
+/sys/fs/cgroup/memory.current=18873925632 
+/sys/fs/cgroup/memory.events=low 0 high 0 max 0 oom 0 oom_kill 6 oom_group_kill 0 
+top_processes_pid_ppid_rss_comm:
+ 504585   18746 713344 MainThread
+ 596079   18746 642456 MainThread
+ 504610  504585 607172 codex
+ 505460  504585 519416 cpptools
+ 696570  696569 366968 python
+ 696588  696569 351408 python
+ 696591  696569 343308 python
+ 696585  696569 325484 python
+ 696582  696569 323552 python
+ 696573  696569 320136 python
+ 696579  696569 314576 python
+ 696576  696569 313760 python
+ 614145  504585 302204 claude
+    487       1 241184 ovs-vswitchd
+ 697384  696573 204776 python
+ 505206  504585 202464 MainThread
+  18746   18742 179844 MainThread
+ 697403  696576 176772 python
+ 697408  696579 174636 python
+ 596514  596079 145928 codex
+ 698102  696570 140784 python
+ 696569  696566 140656 pytest
+ 581355  581354 130996 node
+ 698643  696591 115120 python
+  18769   18746 106632 MainThread
+ 506070   18734 104380 cpptools-srv2
+ 506054   18734 96940 cpptools-srv2
+ 581255  504610 87116 npm exec xcodeb
+ 552279  552274 85300 MainThread
+ 698137  698102 84936 python
+ 596069  596068 82172 MainThread
+ 581256  504610 81688 node
+rss_kib_by_comm_top12:
+3635060 16 python
+2459652 16 MainThread
+753100 2 codex
+518400 1 cpptools
+438784 10 node
+302204 1 claude
+241184 1 ovs-vswitchd
+201320 2 cpptools-srv2
+140656 1 pytest
+100256 2 npm
+57384 1 dockerd
+30712 1 containerd
+process_count=121 rg_count=0
+--
+timestamp_utc=2026-11-10T08:34:55Z
+MemTotal:       41072484 kB
+MemAvailable:   31756920 kB
+psi_memory_some avg10=0.00 avg60=0.00 avg300=0.00 total=253097069
+psi_memory_full avg10=0.00 avg60=0.00 avg300=0.00 total=216110437
+/sys/fs/cgroup/memory.max=max 
+/sys/fs/cgroup/memory.current=19085619200 
+/sys/fs/cgroup/memory.events=low 0 high 0 max 0 oom 0 oom_kill 6 oom_group_kill 0 
+top_processes_pid_ppid_rss_comm:
+ 504585   18746 713344 MainThread
+ 596079   18746 642456 MainThread
+ 504610  504585 607532 codex
+ 505460  504585 518524 cpptools
+ 696570  696569 366968 python
+ 696588  696569 351408 python
+ 696591  696569 343308 python
+ 696579  696569 339236 python
+ 696576  696569 338260 python
+ 696573  696569 338256 python
+ 696585  696569 325484 python
+ 696582  696569 323552 python
+ 614145  504585 302768 claude
+    487       1 241184 ovs-vswitchd
+ 505206  504585 202464 MainThread
+  18746   18742 179844 MainThread
+ 698102  696570 165844 python
+ 596514  596079 145908 codex
+ 698643  696591 144348 python
+ 698865  696579 143984 python
+ 698866  696576 142488 python
+ 696569  696566 140772 pytest
+ 581355  581354 130996 node
+ 698816  696573 129044 python
+  18769   18746 106632 MainThread
+ 506070   18734 104380 cpptools-srv2
+ 506054   18734 96940 cpptools-srv2
+ 581255  504610 87116 npm exec xcodeb
+ 552279  552274 85300 MainThread
+ 698137  698102 84936 python
+ 698886  698865 84604 python
+ 698868  698816 84464 python
+rss_kib_by_comm_top12:
+3861908 19 python
+2459656 16 MainThread
+753440 2 codex
+518416 1 cpptools
+438784 10 node
+302768 1 claude
+241184 1 ovs-vswitchd
+201320 2 cpptools-srv2
+140772 1 pytest
+100256 2 npm
+57384 1 dockerd
+30712 1 containerd
+process_count=124 rg_count=0
+--
+timestamp_utc=2026-11-10T08:35:05Z
+MemTotal:       41072484 kB
+MemAvailable:   31895104 kB
+psi_memory_some avg10=0.00 avg60=0.00 avg300=0.00 total=253097069
+psi_memory_full avg10=0.00 avg60=0.00 avg300=0.00 total=216110437
+/sys/fs/cgroup/memory.max=max 
+/sys/fs/cgroup/memory.current=19148091392 
+/sys/fs/cgroup/memory.events=low 0 high 0 max 0 oom 0 oom_kill 6 oom_group_kill 0 
+top_processes_pid_ppid_rss_comm:
+ 504585   18746 713344 MainThread
+ 596079   18746 642456 MainThread
+ 504610  504585 607328 codex
+ 505460  504585 518452 cpptools
+ 696570  696569 366968 python
+ 696588  696569 351408 python
+ 696591  696569 343308 python
+ 696579  696569 339236 python
+ 696576  696569 338260 python
+ 696573  696569 338256 python
+ 696585  696569 325484 python
+ 696582  696569 323584 python
+ 614145  504585 302756 claude
+    487       1 241184 ovs-vswitchd
+ 505206  504585 202464 MainThread
+  18746   18742 179848 MainThread
+ 698102  696570 165524 python
+ 698816  696573 158800 python
+ 698865  696579 158268 python
+ 698866  696576 156168 python
+ 698643  696591 143928 python
+ 596514  596079 143564 codex
+ 696569  696566 140896 pytest
+ 581355  581354 130996 node
+  18769   18746 106632 MainThread
+ 506070   18734 104380 cpptools-srv2
+ 506054   18734 96940 cpptools-srv2
+ 581255  504610 87116 npm exec xcodeb
+ 552279  552274 85300 MainThread
+ 698137  698102 84936 python
+ 698886  698865 84604 python
+ 698868  698816 84464 python
+rss_kib_by_comm_top12:
+3918920 19 python
+2459660 16 MainThread
+750892 2 codex
+518728 1 cpptools
+438784 10 node
+302756 1 claude
+241184 1 ovs-vswitchd
+201320 2 cpptools-srv2
+140896 1 pytest
+100256 2 npm
+57384 1 dockerd
+30712 1 containerd
+process_count=124 rg_count=0
+--
+timestamp_utc=2026-11-10T08:35:15Z
+MemTotal:       41072484 kB
+MemAvailable:   31813300 kB
+psi_memory_some avg10=0.00 avg60=0.00 avg300=0.00 total=253097069
+psi_memory_full avg10=0.00 avg60=0.00 avg300=0.00 total=216110437
+/sys/fs/cgroup/memory.max=max 
+/sys/fs/cgroup/memory.current=19324346368 
+/sys/fs/cgroup/memory.events=low 0 high 0 max 0 oom 0 oom_kill 6 oom_group_kill 0 
+top_processes_pid_ppid_rss_comm:
+ 504585   18746 713360 MainThread
+ 596079   18746 642456 MainThread
+ 504610  504585 607256 codex
+ 505460  504585 518416 cpptools
+ 696570  696569 366968 python
+ 696588  696569 351472 python
+ 696591  696569 343308 python
+ 696579  696569 339236 python
+ 696576  696569 338260 python
+ 696573  696569 338256 python
+ 696585  696569 325488 python
+ 696582  696569 323644 python
+ 614145  504585 302228 claude
+    487       1 241184 ovs-vswitchd
+ 505206  504585 202896 MainThread
+ 698102  696570 186768 python
+  18746   18742 179848 MainThread
+ 698643  696591 164076 python
+ 698816  696573 160804 python
+ 698865  696579 159300 python
+ 698866  696576 155996 python
+ 596514  596079 143528 codex
+ 696569  696566 141100 pytest
+ 581355  581354 130996 node
+ 699587       1 111252 notus-scanner
+  18769   18746 106632 MainThread
+ 506070   18734 104380 cpptools-srv2
+ 699460  696588 102628 python
+ 506054   18734 96940 cpptools-srv2
+ 581255  504610 87116 npm exec xcodeb
+ 552279  552274 85300 MainThread
+ 698137  698102 84936 python
+rss_kib_by_comm_top12:
+4065932 20 python
+2460108 16 MainThread
+750784 2 codex
+518776 1 cpptools
+438784 10 node
+302228 1 claude
+241184 1 ovs-vswitchd
+201320 2 cpptools-srv2
+141100 1 pytest
+111252 1 notus-scanner
+100256 2 npm
+57384 1 dockerd
+process_count=126 rg_count=0
+--
+timestamp_utc=2026-11-10T08:35:25Z
+MemTotal:       41072484 kB
+MemAvailable:   31816712 kB
+psi_memory_some avg10=0.00 avg60=0.00 avg300=0.00 total=253097069
+psi_memory_full avg10=0.00 avg60=0.00 avg300=0.00 total=216110437
+/sys/fs/cgroup/memory.max=max 
+/sys/fs/cgroup/memory.current=19366182912 
+/sys/fs/cgroup/memory.events=low 0 high 0 max 0 oom 0 oom_kill 6 oom_group_kill 0 
+top_processes_pid_ppid_rss_comm:
+ 504585   18746 713396 MainThread
+ 596079   18746 642456 MainThread
+ 504610  504585 607256 codex
+ 505460  504585 518432 cpptools
+ 696570  696569 366968 python
+ 696588  696569 351472 python
+ 696591  696569 343308 python
+ 696579  696569 339236 python
+ 696576  696569 338260 python
+ 696573  696569 338256 python
+ 696585  696569 327632 python
+ 696582  696569 324544 python
+ 614145  504585 302744 claude
+    487       1 241184 ovs-vswitchd
+ 505206  504585 202896 MainThread
+ 698102  696570 197364 python
+ 698816  696573 183388 python
+  18746   18742 179848 MainThread
+ 698643  696591 176984 python
+ 698866  696576 175352 python
+ 698865  696579 171120 python
+ 596514  596079 143528 codex
+ 696569  696566 141220 pytest
+ 581355  581354 130996 node
+  18769   18746 106632 MainThread
+ 506070   18734 104380 cpptools-srv2
+ 699460  696588 103372 python
+ 506054   18734 96940 cpptools-srv2
+ 581255  504610 87116 npm exec xcodeb
+ 552279  552274 85300 MainThread
+ 698137  698102 84936 python
+ 698886  698865 84604 python
+rss_kib_by_comm_top12:
+4146984 20 python
+2460144 16 MainThread
+750784 2 codex
+518796 1 cpptools
+438784 10 node
+302744 1 claude
+241184 1 ovs-vswitchd
+201320 2 cpptools-srv2
+141220 1 pytest
+100256 2 npm
+57384 1 dockerd
+30712 1 containerd
+process_count=125 rg_count=0
+--
+timestamp_utc=2026-11-10T08:35:35Z
+MemTotal:       41072484 kB
+MemAvailable:   31807348 kB
+psi_memory_some avg10=0.00 avg60=0.00 avg300=0.00 total=253097069
+psi_memory_full avg10=0.00 avg60=0.00 avg300=0.00 total=216110437
+/sys/fs/cgroup/memory.max=max 
+/sys/fs/cgroup/memory.current=19397910528 
+/sys/fs/cgroup/memory.events=low 0 high 0 max 0 oom 0 oom_kill 6 oom_group_kill 0 
+top_processes_pid_ppid_rss_comm:
+ 504585   18746 713396 MainThread
+ 596079   18746 642456 MainThread
+ 504610  504585 606908 codex
+ 505460  504585 518520 cpptools
+ 696570  696569 366968 python
+ 696588  696569 351472 python
+ 696591  696569 343308 python
+ 696579  696569 339236 python
+ 696576  696569 338260 python
+ 696573  696569 338256 python
+ 696585  696569 327632 python
+ 696582  696569 324544 python
+ 614145  504585 302756 claude
+    487       1 241184 ovs-vswitchd
+ 505206  504585 202896 MainThread
+ 698102  696570 197492 python
+ 698816  696573 188152 python
+ 698866  696576 186024 python
+ 698865  696579 184080 python
+  18746   18742 179848 MainThread
+ 698643  696591 174076 python
+ 596514  596079 143528 codex
+ 696569  696566 141328 pytest
+ 581355  581354 130996 node
+  18769   18746 106632 MainThread
+ 506070   18734 104380 cpptools-srv2
+ 699460  696588 103796 python
+ 506054   18734 96940 cpptools-srv2
+ 581255  504610 87116 npm exec xcodeb
+ 552279  552274 85300 MainThread
+ 698137  698102 84936 python
+ 698886  698865 84604 python
+rss_kib_by_comm_top12:
+4173024 20 python
+2460144 16 MainThread
+750436 2 codex
+518520 1 cpptools
+438784 10 node
+302756 1 claude
+241184 1 ovs-vswitchd
+201320 2 cpptools-srv2
+141328 1 pytest
+100256 2 npm
+57384 1 dockerd
+30712 1 containerd
+process_count=125 rg_count=0
+--
+timestamp_utc=2026-11-10T08:35:45Z
+MemTotal:       41072484 kB
+MemAvailable:   31590344 kB
+psi_memory_some avg10=0.00 avg60=0.00 avg300=0.00 total=253097069
+psi_memory_full avg10=0.00 avg60=0.00 avg300=0.00 total=216110437
+/sys/fs/cgroup/memory.max=max 
+/sys/fs/cgroup/memory.current=19160408064 
+/sys/fs/cgroup/memory.events=low 0 high 0 max 0 oom 0 oom_kill 6 oom_group_kill 0 
+top_processes_pid_ppid_rss_comm:
+ 504585   18746 713404 MainThread
+ 596079   18746 642456 MainThread
+ 504610  504585 607160 codex
+ 505460  504585 518516 cpptools
+ 696591  696569 392208 python
+ 696573  696569 376188 python
+ 696570  696569 366968 python
+ 696588  696569 351472 python
+ 696579  696569 339236 python
+ 696576  696569 338260 python
+ 698102  696570 332536 python
+ 696582  696569 332004 python
+ 696585  696569 327632 python
+ 614145  504585 302228 claude
+    487       1 241184 ovs-vswitchd
+ 505206  504585 202896 MainThread
+ 698865  696579 182552 python
+ 698866  696576 179956 python
+  18746   18742 179848 MainThread
+ 596514  596079 143620 codex
+ 696569  696566 141384 pytest
+ 581355  581354 130996 node
+  18769   18746 106632 MainThread
+ 506070   18734 104380 cpptools-srv2
+ 506054   18734 96940 cpptools-srv2
+ 581255  504610 87116 npm exec xcodeb
+ 552279  552274 85300 MainThread
+ 596069  596068 82172 MainThread
+ 581256  504610 81688 node
+ 581262  504610 80580 node
+ 581272  504610 79224 node
+ 597779  596079 75828 MainThread
+rss_kib_by_comm_top12:
+3714956 15 python
+2460152 16 MainThread
+750780 2 codex
+518664 1 cpptools
+438784 10 node
+302228 1 claude
+241184 1 ovs-vswitchd
+201320 2 cpptools-srv2
+141384 1 pytest
+100256 2 npm
+57384 1 dockerd
+30712 1 containerd
+process_count=119 rg_count=0
+--
+timestamp_utc=2026-11-10T08:35:55Z
+MemTotal:       41072484 kB
+MemAvailable:   31847448 kB
+psi_memory_some avg10=0.00 avg60=0.00 avg300=0.00 total=253097069
+psi_memory_full avg10=0.00 avg60=0.00 avg300=0.00 total=216110437
+/sys/fs/cgroup/memory.max=max 
+/sys/fs/cgroup/memory.current=19367526400 
+/sys/fs/cgroup/memory.events=low 0 high 0 max 0 oom 0 oom_kill 6 oom_group_kill 0 
+top_processes_pid_ppid_rss_comm:
+ 504585   18746 713404 MainThread
+ 596079   18746 642456 MainThread
+ 504610  504585 607296 codex
+ 505460  504585 518484 cpptools
+ 696570  696569 402848 python
+ 696591  696569 392208 python
+ 696579  696569 377008 python
+ 696576  696569 376192 python
+ 696573  696569 376188 python
+ 696588  696569 351472 python
+ 696582  696569 334504 python
+ 696585  696569 327632 python
+ 614145  504585 302744 claude
+    487       1 241184 ovs-vswitchd
+ 505206  504585 202896 MainThread
+  18746   18742 179852 MainThread
+ 596514  596079 143572 codex
+ 696569  696566 141412 pytest
+ 581355  581354 130996 node
+ 700337  696576 125164 python
+ 700310  696573 124724 python
+ 700338  696579 124496 python
+ 700344  696570 112572 python
+  18769   18746 106632 MainThread
+ 506070   18734 104380 cpptools-srv2
+ 700307  696591 103908 python
+ 506054   18734 96940 cpptools-srv2
+ 581255  504610 87116 npm exec xcodeb
+ 552279  552274 85300 MainThread
+ 700359  700344 84920 python
+ 596069  596068 82172 MainThread
+ 581256  504610 81688 node
+rss_kib_by_comm_top12:
+3910128 19 python
+2460160 16 MainThread
+750868 2 codex
+518524 1 cpptools
+438784 10 node
+302744 1 claude
+241184 1 ovs-vswitchd
+201320 2 cpptools-srv2
+141412 1 pytest
+100256 2 npm
+57384 1 dockerd
+30712 1 containerd
+process_count=124 rg_count=0
+--
+timestamp_utc=2026-11-10T08:36:05Z
+MemTotal:       41072484 kB
+MemAvailable:   31771656 kB
+psi_memory_some avg10=0.00 avg60=0.00 avg300=0.00 total=253097069
+psi_memory_full avg10=0.00 avg60=0.00 avg300=0.00 total=216110437
+/sys/fs/cgroup/memory.max=max 
+/sys/fs/cgroup/memory.current=19542994944 
+/sys/fs/cgroup/memory.events=low 0 high 0 max 0 oom 0 oom_kill 6 oom_group_kill 0 
+top_processes_pid_ppid_rss_comm:
+ 504585   18746 713404 MainThread
+ 596079   18746 642456 MainThread
+ 504610  504585 607268 codex
+ 505460  504585 518848 cpptools
+ 696570  696569 402848 python
+ 696591  696569 392208 python
+ 696579  696569 377008 python
+ 696576  696569 376192 python
+ 696573  696569 376188 python
+ 696588  696569 351472 python
+ 696582  696569 334512 python
+ 696585  696569 326608 python
+ 614145  504585 302756 claude
+    487       1 241184 ovs-vswitchd
+ 505206  504585 202896 MainThread
+  18746   18742 179852 MainThread
+ 700307  696591 173844 python
+ 700338  696579 149912 python
+ 700337  696576 147424 python
+ 700310  696573 147352 python
+ 596514  596079 143572 codex
+ 696569  696566 141476 pytest
+ 700344  696570 139568 python
+ 581355  581354 130996 node
+  18769   18746 106632 MainThread
+ 506070   18734 104380 cpptools-srv2
+ 506054   18734 96940 cpptools-srv2
+ 581255  504610 87116 npm exec xcodeb
+ 552279  552274 85300 MainThread
+ 700359  700344 84920 python
+ 596069  596068 82172 MainThread
+ 581256  504610 81688 node
+rss_kib_by_comm_top12:
+4074308 19 python
+2460160 16 MainThread
+750840 2 codex
+518488 1 cpptools
+438784 10 node
+302756 1 claude
+241184 1 ovs-vswitchd
+201320 2 cpptools-srv2
+141476 1 pytest
+100256 2 npm
+57384 1 dockerd
+30712 1 containerd
+process_count=124 rg_count=0
+--
+timestamp_utc=2026-11-10T08:36:15Z
+MemTotal:       41072484 kB
+MemAvailable:   31791556 kB
+psi_memory_some avg10=0.00 avg60=0.00 avg300=0.00 total=253097069
+psi_memory_full avg10=0.00 avg60=0.00 avg300=0.00 total=216110437
+/sys/fs/cgroup/memory.max=max 
+/sys/fs/cgroup/memory.current=19587809280 
+/sys/fs/cgroup/memory.events=low 0 high 0 max 0 oom 0 oom_kill 6 oom_group_kill 0 
+top_processes_pid_ppid_rss_comm:
+ 504585   18746 713404 MainThread
+ 596079   18746 642456 MainThread
+ 504610  504585 609744 codex
+ 505460  504585 518596 cpptools
+ 696570  696569 402848 python
+ 696591  696569 392208 python
+ 696579  696569 377008 python
+ 696576  696569 376192 python
+ 696573  696569 376188 python
+ 696588  696569 351480 python
+ 696582  696569 334516 python
+ 696585  696569 326608 python
+ 614145  504585 302228 claude
+    487       1 241184 ovs-vswitchd
+ 505206  504585 202896 MainThread
+ 700307  696591 183492 python
+  18746   18742 179852 MainThread
+ 700344  696570 167396 python
+ 700338  696579 148604 python
+ 700310  696573 147792 python
+ 700337  696576 146972 python
+ 596514  596079 143572 codex
+ 696569  696566 141504 pytest
+ 581355  581354 130996 node
+  18769   18746 106632 MainThread
+ 506070   18734 104380 cpptools-srv2
+ 506054   18734 96940 cpptools-srv2
+ 581255  504610 87116 npm exec xcodeb
+ 552279  552274 85300 MainThread
+ 700359  700344 84920 python
+ 596069  596068 82172 MainThread
+ 581256  504610 81688 node
+rss_kib_by_comm_top12:
+4110480 19 python
+2460160 16 MainThread
+753316 2 codex
+518512 1 cpptools
+438784 10 node
+302228 1 claude
+241184 1 ovs-vswitchd
+201320 2 cpptools-srv2
+141504 1 pytest
+100256 2 npm
+57384 1 dockerd
+30712 1 containerd
+process_count=124 rg_count=0
+--
+timestamp_utc=2026-11-10T08:36:25Z
+MemTotal:       41072484 kB
+MemAvailable:   31710360 kB
+psi_memory_some avg10=0.00 avg60=0.00 avg300=0.00 total=253097069
+psi_memory_full avg10=0.00 avg60=0.00 avg300=0.00 total=216110437
+/sys/fs/cgroup/memory.max=max 
+/sys/fs/cgroup/memory.current=19698384896 
+/sys/fs/cgroup/memory.events=low 0 high 0 max 0 oom 0 oom_kill 6 oom_group_kill 0 
+top_processes_pid_ppid_rss_comm:
+ 504585   18746 713404 MainThread
+ 596079   18746 642456 MainThread
+ 504610  504585 609704 codex
+ 505460  504585 518544 cpptools
+ 696570  696569 402848 python
+ 696591  696569 392208 python
+ 696579  696569 377008 python
+ 696576  696569 376192 python
+ 696573  696569 376188 python
+ 696588  696569 351480 python
+ 696582  696569 335000 python
+ 696585  696569 326608 python
+ 614145  504585 302744 claude
+    487       1 241184 ovs-vswitchd
+ 505206  504585 202896 MainThread
+ 700337  696576 186884 python
+ 700310  696573 186492 python
+ 700338  696579 184228 python
+ 700307  696591 181456 python
+  18746   18742 179852 MainThread
+ 700344  696570 164316 python
+ 596514  596079 143572 codex
+ 696569  696566 141552 pytest
+ 581355  581354 130996 node
+  18769   18746 106632 MainThread
+ 506070   18734 104380 cpptools-srv2
+ 506054   18734 96940 cpptools-srv2
+ 581255  504610 87116 npm exec xcodeb
+ 552279  552274 85300 MainThread
+ 700359  700344 84920 python
+ 596069  596068 82172 MainThread
+ 581256  504610 81688 node
+rss_kib_by_comm_top12:
+4220080 19 python
+2460160 16 MainThread
+753276 2 codex
+518544 1 cpptools
+438784 10 node
+302744 1 claude
+241184 1 ovs-vswitchd
+201320 2 cpptools-srv2
+141552 1 pytest
+100256 2 npm
+57384 1 dockerd
+30712 1 containerd
+process_count=124 rg_count=0
+--
+timestamp_utc=2026-11-10T08:36:35Z
+MemTotal:       41072484 kB
+MemAvailable:   31619672 kB
+psi_memory_some avg10=0.00 avg60=0.00 avg300=0.00 total=253097069
+psi_memory_full avg10=0.00 avg60=0.00 avg300=0.00 total=216110437
+/sys/fs/cgroup/memory.max=max 
+/sys/fs/cgroup/memory.current=19799556096 
+/sys/fs/cgroup/memory.events=low 0 high 0 max 0 oom 0 oom_kill 6 oom_group_kill 0 
+top_processes_pid_ppid_rss_comm:
+ 504585   18746 713404 MainThread
+ 596079   18746 642456 MainThread
+ 504610  504585 609704 codex
+ 505460  504585 518612 cpptools
+ 696570  696569 402848 python
+ 696591  696569 392208 python
+ 696579  696569 377008 python
+ 696576  696569 376192 python
+ 696573  696569 376188 python
+ 696588  696569 351480 python
+ 696582  696569 335000 python
+ 696585  696569 325604 python
+ 614145  504585 302756 claude
+    487       1 241184 ovs-vswitchd
+ 700307  696591 207048 python
+ 505206  504585 202896 MainThread
+ 700344  696570 197844 python
+  18746   18742 179852 MainThread
+ 700337  696576 178804 python
+ 700310  696573 177524 python
+ 700338  696579 176496 python
+ 596514  596079 143572 codex
+ 696569  696566 141736 pytest
+ 581355  581354 130996 node
+  18769   18746 106632 MainThread
+ 506070   18734 104380 cpptools-srv2
+ 506054   18734 96940 cpptools-srv2
+ 581255  504610 87116 npm exec xcodeb
+ 552279  552274 85300 MainThread
+ 700359  700344 84920 python
+ 596069  596068 82172 MainThread
+ 581256  504610 81688 node
+rss_kib_by_comm_top12:
+4327076 20 python
+2460164 16 MainThread
+753276 2 codex
+518932 1 cpptools
+438784 10 node
+302756 1 claude
+241184 1 ovs-vswitchd
+201320 2 cpptools-srv2
+141736 1 pytest
+100256 2 npm
+57384 1 dockerd
+30712 1 containerd
+process_count=125 rg_count=0
+--
+timestamp_utc=2026-11-10T08:36:45Z
+MemTotal:       41072484 kB
+MemAvailable:   31762140 kB
+psi_memory_some avg10=0.00 avg60=0.00 avg300=0.00 total=253097069
+psi_memory_full avg10=0.00 avg60=0.00 avg300=0.00 total=216110437
+/sys/fs/cgroup/memory.max=max 
+/sys/fs/cgroup/memory.current=19482247168 
+/sys/fs/cgroup/memory.events=low 0 high 0 max 0 oom 0 oom_kill 6 oom_group_kill 0 
+top_processes_pid_ppid_rss_comm:
+ 504585   18746 713404 MainThread
+ 596079   18746 642456 MainThread
+ 504610  504585 609704 codex
+ 505460  504585 518612 cpptools
+ 696579  696569 403916 python
+ 696576  696569 403100 python
+ 696573  696569 403096 python
+ 696570  696569 402848 python
+ 696591  696569 392208 python
+ 696588  696569 351480 python
+ 696582  696569 333976 python
+ 696585  696569 329256 python
+ 614145  504585 302252 claude
+    487       1 241184 ovs-vswitchd
+ 505206  504585 202896 MainThread
+ 700307  696591 199884 python
+ 700344  696570 198620 python
+  18746   18742 179852 MainThread
+ 596514  596079 143592 codex
+ 696569  696566 141944 pytest
+ 581355  581354 130996 node
+  18769   18746 106632 MainThread
+ 506070   18734 104380 cpptools-srv2
+ 701480  696588 102544 python
+ 506054   18734 96940 cpptools-srv2
+ 581255  504610 87116 npm exec xcodeb
+ 552279  552274 85300 MainThread
+ 700359  700344 84920 python
+ 596069  596068 82172 MainThread
+ 581256  504610 81688 node
+ 581262  504610 80580 node
+ 581272  504610 79224 node
+rss_kib_by_comm_top12:
+3852960 18 python
+2460168 16 MainThread
+753296 2 codex
+518972 1 cpptools
+438788 10 node
+302252 1 claude
+241184 1 ovs-vswitchd
+201320 2 cpptools-srv2
+141944 1 pytest
+100256 2 npm
+57384 1 dockerd
+30712 1 containerd
+process_count=123 rg_count=0
+--
+timestamp_utc=2026-11-10T08:36:56Z
+MemTotal:       41072484 kB
+MemAvailable:   31935608 kB
+psi_memory_some avg10=0.00 avg60=0.00 avg300=0.00 total=253097069
+psi_memory_full avg10=0.00 avg60=0.00 avg300=0.00 total=216110437
+/sys/fs/cgroup/memory.max=max 
+/sys/fs/cgroup/memory.current=19255914496 
+/sys/fs/cgroup/memory.events=low 0 high 0 max 0 oom 0 oom_kill 6 oom_group_kill 0 
+top_processes_pid_ppid_rss_comm:
+ 504585   18746 713412 MainThread
+ 596079   18746 642456 MainThread
+ 504610  504585 608956 codex
+ 505460  504585 518996 cpptools
+ 696570  696569 402848 python
+ 696591  696569 356328 python
+ 696588  696569 351480 python
+ 696579  696569 341760 python
+ 696576  696569 341476 python
+ 696573  696569 340560 python
+ 696585  696569 335536 python
+ 696582  696569 334452 python
+ 614145  504585 302756 claude
+    487       1 241184 ovs-vswitchd
+ 700344  696570 232652 python
+ 505206  504585 202896 MainThread
+  18746   18742 179864 MainThread
+ 596514  596079 143556 codex
+ 696569  696566 142100 pytest
+ 581355  581354 130996 node
+ 701931  696585 117552 python3.12
+  18769   18746 106632 MainThread
+ 506070   18734 104380 cpptools-srv2
+ 701480  696588 103620 python
+ 506054   18734 96940 cpptools-srv2
+ 702052  696591 87968 python
+ 581255  504610 87116 npm exec xcodeb
+ 552279  552274 85300 MainThread
+ 700359  700344 84920 python
+ 596069  596068 82172 MainThread
+ 581256  504610 81688 node
+ 581262  504610 80580 node
+rss_kib_by_comm_top12:
+3464784 15 python
+2460188 16 MainThread
+752512 2 codex
+518676 1 cpptools
+438788 10 node
+302756 1 claude
+241184 1 ovs-vswitchd
+201320 2 cpptools-srv2
+142100 1 pytest
+117552 1 python3.12
+100256 2 npm
+57384 1 dockerd
+process_count=121 rg_count=0
+--
+timestamp_utc=2026-11-10T08:37:06Z
+MemTotal:       41072484 kB
+MemAvailable:   32075616 kB
+psi_memory_some avg10=0.00 avg60=0.00 avg300=0.00 total=253097069
+psi_memory_full avg10=0.00 avg60=0.00 avg300=0.00 total=216110437
+/sys/fs/cgroup/memory.max=max 
+/sys/fs/cgroup/memory.current=19277496320 
+/sys/fs/cgroup/memory.events=low 0 high 0 max 0 oom 0 oom_kill 6 oom_group_kill 0 
+top_processes_pid_ppid_rss_comm:
+ 504585   18746 719556 MainThread
+ 596079   18746 642456 MainThread
+ 504610  504585 608492 codex
+ 505460  504585 518620 cpptools
+ 696570  696569 443184 python
+ 696576  696569 356492 python
+ 696591  696569 356328 python
+ 696588  696569 351480 python
+ 696579  696569 343404 python
+ 696573  696569 340560 python
+ 696585  696569 335536 python
+ 696582  696569 334452 python
+ 614145  504585 307892 claude
+    487       1 241184 ovs-vswitchd
+ 505206  504585 202896 MainThread
+  18746   18742 179892 MainThread
+ 701931  696585 145428 python3.12
+ 596514  596079 143556 codex
+ 696569  696566 142524 pytest
+ 702052  696591 138968 python
+ 581355  581354 130996 node
+ 702076  696573 127340 python
+  18769   18746 106632 MainThread
+ 506070   18734 104380 cpptools-srv2
+ 701480  696588 103620 python
+ 506054   18734 96940 cpptools-srv2
+ 581255  504610 87116 npm exec xcodeb
+ 552279  552274 85300 MainThread
+ 596069  596068 82172 MainThread
+ 581256  504610 81688 node
+ 581262  504610 80580 node
+ 581272  504610 79224 node
+rss_kib_by_comm_top12:
+3376156 14 python
+2466360 16 MainThread
+752048 2 codex
+518984 1 cpptools
+438788 10 node
+307892 1 claude
+241184 1 ovs-vswitchd
+201320 2 cpptools-srv2
+145428 1 python3.12
+142524 1 pytest
+100256 2 npm
+57384 1 dockerd
+process_count=120 rg_count=0
+--
+timestamp_utc=2026-11-10T08:37:16Z
+MemTotal:       41072484 kB
+MemAvailable:   31970340 kB
+psi_memory_some avg10=0.00 avg60=0.00 avg300=0.00 total=253097069
+psi_memory_full avg10=0.00 avg60=0.00 avg300=0.00 total=216110437
+/sys/fs/cgroup/memory.max=max 
+/sys/fs/cgroup/memory.current=19527774208 
+/sys/fs/cgroup/memory.events=low 0 high 0 max 0 oom 0 oom_kill 6 oom_group_kill 0 
+top_processes_pid_ppid_rss_comm:
+ 504585   18746 719556 MainThread
+ 596079   18746 642456 MainThread
+ 504610  504585 608404 codex
+ 505460  504585 518624 cpptools
+ 696570  696569 443184 python
+ 696576  696569 360328 python
+ 696591  696569 356328 python
+ 696588  696569 351544 python
+ 696579  696569 345620 python
+ 696573  696569 340560 python
+ 696585  696569 335536 python
+ 696582  696569 334480 python
+ 614145  504585 315112 claude
+    487       1 241184 ovs-vswitchd
+ 505206  504585 203348 MainThread
+  18746   18742 179892 MainThread
+ 701931  696585 159956 python3.12
+ 702052  696591 147496 python
+ 702076  696573 146024 python
+ 596514  596079 143556 codex
+ 696569  696566 142848 pytest
+ 581355  581354 130996 node
+ 702354  696570 124468 python
+  18769   18746 106632 MainThread
+ 506070   18734 104380 cpptools-srv2
+ 506054   18734 96940 cpptools-srv2
+ 581255  504610 87116 npm exec xcodeb
+ 552279  552274 85300 MainThread
+ 702377  702354 84896 python
+ 702633  702615 84404 python
+ 702615  696576 82804 python
+ 596069  596068 82172 MainThread
+rss_kib_by_comm_top12:
+3608940 16 python
+2466812 16 MainThread
+751960 2 codex
+518984 1 cpptools
+438788 10 node
+315112 1 claude
+241184 1 ovs-vswitchd
+201320 2 cpptools-srv2
+159956 1 python3.12
+142848 1 pytest
+100256 2 npm
+57384 1 dockerd
+process_count=122 rg_count=0
+--
+timestamp_utc=2026-11-10T08:37:26Z
+MemTotal:       41072484 kB
+MemAvailable:   32030224 kB
+psi_memory_some avg10=0.00 avg60=0.00 avg300=0.00 total=253097069
+psi_memory_full avg10=0.00 avg60=0.00 avg300=0.00 total=216110437
+/sys/fs/cgroup/memory.max=max 
+/sys/fs/cgroup/memory.current=19580428288 
+/sys/fs/cgroup/memory.events=low 0 high 0 max 0 oom 0 oom_kill 6 oom_group_kill 0 
+top_processes_pid_ppid_rss_comm:
+ 504585   18746 719560 MainThread
+ 596079   18746 642456 MainThread
+ 504610  504585 608408 codex
+ 505460  504585 518260 cpptools
+ 696570  696569 443184 python
+ 696576  696569 360328 python
+ 696591  696569 356328 python
+ 696588  696569 351644 python
+ 696579  696569 343120 python
+ 696573  696569 340560 python
+ 696585  696569 335536 python
+ 696582  696569 334496 python
+ 614145  504585 315240 claude
+    487       1 241184 ovs-vswitchd
+ 505206  504585 203348 MainThread
+  18746   18742 179896 MainThread
+ 701931  696585 161224 python3.12
+ 702052  696591 147500 python
+ 702076  696573 144804 python
+ 596514  596079 143556 codex
+ 696569  696566 143060 pytest
+ 702354  696570 139640 python
+ 581355  581354 130996 node
+ 702615  696576 126436 python
+  18769   18746 106632 MainThread
+ 506070   18734 104380 cpptools-srv2
+ 506054   18734 96940 cpptools-srv2
+ 581255  504610 87116 npm exec xcodeb
+ 552279  552274 85300 MainThread
+ 702633  702615 84908 python
+ 702377  702354 84896 python
+ 596069  596068 82172 MainThread
+rss_kib_by_comm_top12:
+3664652 16 python
+2466820 16 MainThread
+751964 2 codex
+518820 1 cpptools
+438788 10 node
+315240 1 claude
+241184 1 ovs-vswitchd
+201320 2 cpptools-srv2
+161224 1 python3.12
+143068 1 pytest
+100256 2 npm
+57384 1 dockerd
+process_count=122 rg_count=0
+--
+timestamp_utc=2026-11-10T08:37:36Z
+MemTotal:       41072484 kB
+MemAvailable:   31914004 kB
+psi_memory_some avg10=0.00 avg60=0.00 avg300=0.00 total=253097069
+psi_memory_full avg10=0.00 avg60=0.00 avg300=0.00 total=216110437
+/sys/fs/cgroup/memory.max=max 
+/sys/fs/cgroup/memory.current=19713921024 
+/sys/fs/cgroup/memory.events=low 0 high 0 max 0 oom 0 oom_kill 6 oom_group_kill 0 
+top_processes_pid_ppid_rss_comm:
+ 504585   18746 719560 MainThread
+ 596079   18746 642456 MainThread
+ 504610  504585 608408 codex
+ 505460  504585 517520 cpptools
+ 696570  696569 443184 python
+ 696576  696569 360328 python
+ 696591  696569 356328 python
+ 696588  696569 351684 python
+ 696579  696569 343316 python
+ 696573  696569 340560 python
+ 696585  696569 335536 python
+ 696582  696569 334752 python
+ 614145  504585 311572 claude
+    487       1 241184 ovs-vswitchd
+ 505206  504585 203348 MainThread
+ 702076  696573 183464 python
+ 702052  696591 182464 python
+  18746   18742 179896 MainThread
+ 702354  696570 166192 python
+ 701931  696585 159636 python3.12
+ 596514  596079 143556 codex
+ 696569  696566 143200 pytest
+ 702615  696576 141220 python
+ 581355  581354 130996 node
+  18769   18746 106636 MainThread
+ 506070   18734 104380 cpptools-srv2
+ 506054   18734 96940 cpptools-srv2
+ 581255  504610 87116 npm exec xcodeb
+ 552279  552274 85300 MainThread
+ 702633  702615 84908 python
+ 702377  702354 84896 python
+ 596069  596068 82172 MainThread
+rss_kib_by_comm_top12:
+3780100 16 python
+2466828 16 MainThread
+751964 2 codex
+517196 1 cpptools
+438788 10 node
+311572 1 claude
+241184 1 ovs-vswitchd
+201320 2 cpptools-srv2
+159636 1 python3.12
+143200 1 pytest
+100256 2 npm
+57384 1 dockerd
+process_count=122 rg_count=0
+--
+timestamp_utc=2026-11-10T08:37:46Z
+MemTotal:       41072484 kB
+MemAvailable:   31877764 kB
+psi_memory_some avg10=0.00 avg60=0.00 avg300=0.00 total=253097069
+psi_memory_full avg10=0.00 avg60=0.00 avg300=0.00 total=216110437
+/sys/fs/cgroup/memory.max=max 
+/sys/fs/cgroup/memory.current=19789307904 
+/sys/fs/cgroup/memory.events=low 0 high 0 max 0 oom 0 oom_kill 6 oom_group_kill 0 
+top_processes_pid_ppid_rss_comm:
+ 504585   18746 719572 MainThread
+ 596079   18746 642456 MainThread
+ 504610  504585 608620 codex
+ 505460  504585 517332 cpptools
+ 696570  696569 443184 python
+ 696576  696569 360328 python
+ 696591  696569 356328 python
+ 696588  696569 351684 python
+ 696579  696569 344408 python
+ 696573  696569 340560 python
+ 696585  696569 335536 python
+ 696582  696569 334776 python
+ 614145  504585 329292 claude
+    487       1 241184 ovs-vswitchd
+ 505206  504585 203348 MainThread
+ 701931  696585 195216 python3.12
+  18746   18742 179896 MainThread
+ 702052  696591 179488 python
+ 702076  696573 176396 python
+ 702615  696576 165768 python
+ 702354  696570 165156 python
+ 596514  596079 143576 codex
+ 696569  696566 143344 pytest
+ 581355  581354 131000 node
+  18769   18746 106636 MainThread
+ 506070   18734 104380 cpptools-srv2
+ 506054   18734 96940 cpptools-srv2
+ 581255  504610 87116 npm exec xcodeb
+ 552279  552274 85300 MainThread
+ 702633  702615 84908 python
+ 702377  702354 84896 python
+ 596069  596068 82172 MainThread
+rss_kib_by_comm_top12:
+3794684 16 python
+2466844 16 MainThread
+752196 2 codex
+518320 1 cpptools
+438792 10 node
+329340 1 claude
+241184 1 ovs-vswitchd
+201320 2 cpptools-srv2
+195216 1 python3.12
+143344 1 pytest
+100256 2 npm
+57384 1 dockerd
+process_count=122 rg_count=0
+--
+timestamp_utc=2026-11-10T08:37:56Z
+MemTotal:       41072484 kB
+MemAvailable:   31830992 kB
+psi_memory_some avg10=0.00 avg60=0.00 avg300=0.00 total=253097069
+psi_memory_full avg10=0.00 avg60=0.00 avg300=0.00 total=216110437
+/sys/fs/cgroup/memory.max=max 
+/sys/fs/cgroup/memory.current=19680112640 
+/sys/fs/cgroup/memory.events=low 0 high 0 max 0 oom 0 oom_kill 6 oom_group_kill 0 
+top_processes_pid_ppid_rss_comm:
+ 504585   18746 719736 MainThread
+ 596079   18746 642456 MainThread
+ 504610  504585 608456 codex
+ 505460  504585 515572 cpptools
+ 696570  696569 443184 python
+ 696573  696569 363572 python
+ 696591  696569 363212 python
+ 696576  696569 360328 python
+ 696588  696569 356000 python
+ 696579  696569 344532 python
+ 614145  504585 339368 claude
+ 696585  696569 335536 python
+ 696582  696569 334776 python
+    487       1 241184 ovs-vswitchd
+ 505206  504585 203348 MainThread
+ 701931  696585 190176 python3.12
+ 702354  696570 186872 python
+  18746   18742 179896 MainThread
+ 702615  696576 166988 python
+ 696569  696566 143560 pytest
+ 596514  596079 143552 codex
+ 581355  581354 131000 node
+  18769   18746 106636 MainThread
+ 506070   18734 104380 cpptools-srv2
+ 506054   18734 96940 cpptools-srv2
+ 703884  696591 94544 python
+ 703908  696573 88440 python
+ 581255  504610 87116 npm exec xcodeb
+ 552279  552274 85300 MainThread
+ 702633  702615 84908 python
+ 702377  702354 84896 python
+ 596069  596068 82172 MainThread
+rss_kib_by_comm_top12:
+3679068 16 python
+2467008 16 MainThread
+752008 2 codex
+515488 1 cpptools
+438792 10 node
+339368 1 claude
+241184 1 ovs-vswitchd
+201320 2 cpptools-srv2
+190168 1 python3.12
+143560 1 pytest
+100256 2 npm
+57384 1 dockerd
+process_count=122 rg_count=0
+--
+timestamp_utc=2026-11-10T08:38:06Z
+MemTotal:       41072484 kB
+MemAvailable:   31913368 kB
+psi_memory_some avg10=0.00 avg60=0.00 avg300=0.00 total=253097069
+psi_memory_full avg10=0.00 avg60=0.00 avg300=0.00 total=216110437
+/sys/fs/cgroup/memory.max=max 
+/sys/fs/cgroup/memory.current=19716628480 
+/sys/fs/cgroup/memory.events=low 0 high 0 max 0 oom 0 oom_kill 6 oom_group_kill 0 
+top_processes_pid_ppid_rss_comm:
+ 504585   18746 719576 MainThread
+ 596079   18746 642456 MainThread
+ 504610  504585 608420 codex
+ 505460  504585 502204 cpptools
+ 696570  696569 443184 python
+ 696573  696569 363572 python
+ 696591  696569 363212 python
+ 696576  696569 360328 python
+ 696588  696569 359084 python
+ 696579  696569 344532 python
+ 696585  696569 335536 python
+ 696582  696569 334776 python
+ 614145  504585 325592 claude
+    487       1 241184 ovs-vswitchd
+ 505206  504585 203348 MainThread
+ 702354  696570 199748 python
+ 701931  696585 187896 python3.12
+ 702615  696576 185612 python
+  18746   18742 179896 MainThread
+ 696569  696566 143716 pytest
+ 596514  596079 143552 codex
+ 581355  581354 131000 node
+  18769   18746 106636 MainThread
+ 506070   18734 104380 cpptools-srv2
+ 703908  696573 103608 python
+ 506054   18734 96940 cpptools-srv2
+ 581255  504610 87116 npm exec xcodeb
+ 552279  552274 85300 MainThread
+ 702633  702615 84908 python
+ 702377  702354 84896 python
+ 596069  596068 82172 MainThread
+ 581256  504610 81688 node
+rss_kib_by_comm_top12:
+3644192 16 python
+2466848 16 MainThread
+751972 2 codex
+502244 1 cpptools
+438792 10 node
+325592 1 claude
+241184 1 ovs-vswitchd
+201320 2 cpptools-srv2
+187896 1 python3.12
+143716 1 pytest
+100256 2 npm
+57384 1 dockerd
+process_count=122 rg_count=0
+--
+timestamp_utc=2026-11-10T08:38:16Z
+MemTotal:       41072484 kB
+MemAvailable:   31861288 kB
+psi_memory_some avg10=0.00 avg60=0.00 avg300=0.00 total=253097069
+psi_memory_full avg10=0.00 avg60=0.00 avg300=0.00 total=216110437
+/sys/fs/cgroup/memory.max=max 
+/sys/fs/cgroup/memory.current=19767558144 
+/sys/fs/cgroup/memory.events=low 0 high 0 max 0 oom 0 oom_kill 6 oom_group_kill 0 
+top_processes_pid_ppid_rss_comm:
+ 504585   18746 719576 MainThread
+ 596079   18746 642464 MainThread
+ 504610  504585 608376 codex
+ 505460  504585 473500 cpptools
+ 696570  696569 443184 python
+ 696573  696569 363572 python
+ 696588  696569 363556 python
+ 696591  696569 363212 python
+ 696576  696569 360328 python
+ 696579  696569 344532 python
+ 696585  696569 335536 python
+ 696582  696569 334776 python
+ 614145  504585 311848 claude
+    487       1 241184 ovs-vswitchd
+ 701931  696585 222012 python3.12
+ 505206  504585 203348 MainThread
+ 702615  696576 196876 python
+ 702354  696570 193604 python
+  18746   18742 179896 MainThread
+ 696569  696566 143852 pytest
+ 596514  596079 143552 codex
+ 581355  581354 131000 node
+ 704284  696573 125264 python
+ 704261  696591 124028 python
+  18769   18746 106636 MainThread
+ 506070   18734 104380 cpptools-srv2
+ 506054   18734 96940 cpptools-srv2
+ 581255  504610 87116 npm exec xcodeb
+ 552279  552274 85300 MainThread
+ 702633  702615 84908 python
+ 702377  702354 84896 python
+ 596069  596068 82172 MainThread
+rss_kib_by_comm_top12:
+3789540 16 python
+2466856 16 MainThread
+751928 2 codex
+473632 1 cpptools
+438792 10 node
+311848 1 claude
+241184 1 ovs-vswitchd
+222012 1 python3.12
+201320 2 cpptools-srv2
+143852 1 pytest
+100256 2 npm
+57384 1 dockerd
+process_count=122 rg_count=0
+--
+timestamp_utc=2026-11-10T08:38:26Z
+MemTotal:       41072484 kB
+MemAvailable:   31641480 kB
+psi_memory_some avg10=0.00 avg60=0.00 avg300=0.00 total=253097069
+psi_memory_full avg10=0.00 avg60=0.00 avg300=0.00 total=216110437
+/sys/fs/cgroup/memory.max=max 
+/sys/fs/cgroup/memory.current=19860918272 
+/sys/fs/cgroup/memory.events=low 0 high 0 max 0 oom 0 oom_kill 6 oom_group_kill 0 
+top_processes_pid_ppid_rss_comm:
+ 504585   18746 719580 MainThread
+ 596079   18746 642464 MainThread
+ 504610  504585 608376 codex
+ 505460  504585 479200 cpptools
+ 696570  696569 443184 python
+ 696585  696569 382172 python
+ 696588  696569 370036 python
+ 696573  696569 363572 python
+ 696591  696569 363212 python
+ 696576  696569 360328 python
+ 696579  696569 344664 python
+ 696582  696569 342288 python
+ 614145  504585 315384 claude
+    487       1 241184 ovs-vswitchd
+ 702354  696570 228744 python
+ 505206  504585 203348 MainThread
+ 702615  696576 191940 python
+  18746   18742 179896 MainThread
+ 704284  696573 148696 python
+ 704261  696591 148576 python
+ 696569  696566 143988 pytest
+ 596514  596079 143552 codex
+ 581355  581354 131000 node
+ 704610  696585 116532 python
+  18769   18746 106636 MainThread
+ 506070   18734 104380 cpptools-srv2
+ 506054   18734 96940 cpptools-srv2
+ 581255  504610 87116 npm exec xcodeb
+ 552279  552274 85300 MainThread
+ 702633  702615 84908 python
+ 702377  702354 84896 python
+ 596069  596068 82172 MainThread
+rss_kib_by_comm_top12:
+4045016 17 python
+2466864 16 MainThread
+751928 2 codex
+479200 1 cpptools
+438792 10 node
+315384 1 claude
+241184 1 ovs-vswitchd
+201320 2 cpptools-srv2
+143988 1 pytest
+100256 2 npm
+57384 1 dockerd
+30840 1 containerd
+process_count=122 rg_count=0
+--
+timestamp_utc=2026-11-10T08:38:36Z
+MemTotal:       41072484 kB
+MemAvailable:   31841128 kB
+psi_memory_some avg10=0.00 avg60=0.00 avg300=0.00 total=253097069
+psi_memory_full avg10=0.00 avg60=0.00 avg300=0.00 total=216110437
+/sys/fs/cgroup/memory.max=max 
+/sys/fs/cgroup/memory.current=19729674240 
+/sys/fs/cgroup/memory.events=low 0 high 0 max 0 oom 0 oom_kill 6 oom_group_kill 0 
+top_processes_pid_ppid_rss_comm:
+ 504585   18746 713448 MainThread
+ 596079   18746 642464 MainThread
+ 504610  504585 608372 codex
+ 696570  696569 493624 python
+ 696585  696569 382172 python
+ 696588  696569 373544 python
+ 696573  696569 363572 python
+ 696591  696569 363212 python
+ 696576  696569 360328 python
+ 696579  696569 344664 python
+ 696582  696569 342288 python
+ 505460  504585 328140 cpptools
+ 614145  504585 319676 claude
+    487       1 241184 ovs-vswitchd
+ 702615  696576 227548 python
+ 505206  504585 203348 MainThread
+  18746   18742 179896 MainThread
+ 704261  696591 147596 python
+ 704284  696573 147520 python
+ 704610  696585 145732 python
+ 696569  696566 144156 pytest
+ 596514  596079 143552 codex
+ 581355  581354 131000 node
+  18769   18746 106636 MainThread
+ 506070   18734 104380 cpptools-srv2
+ 506054   18734 96940 cpptools-srv2
+ 581255  504610 87116 npm exec xcodeb
+ 704979  696570 86432 python3.12
+ 552279  552274 85300 MainThread
+ 702633  702615 84908 python
+ 705004  704979 84032 python3.12
+ 596069  596068 82172 MainThread
+rss_kib_by_comm_top12:
+3847976 15 python
+2460732 16 MainThread
+751924 2 codex
+438792 10 node
+328140 1 cpptools
+319676 1 claude
+241184 1 ovs-vswitchd
+201320 2 cpptools-srv2
+170464 2 python3.12
+144156 1 pytest
+100256 2 npm
+57384 1 dockerd
+process_count=121 rg_count=0
+--
+timestamp_utc=2026-11-10T08:38:46Z
+MemTotal:       41072484 kB
+MemAvailable:   32022708 kB
+psi_memory_some avg10=0.00 avg60=0.00 avg300=0.00 total=253097069
+psi_memory_full avg10=0.00 avg60=0.00 avg300=0.00 total=216110437
+/sys/fs/cgroup/memory.max=max 
+/sys/fs/cgroup/memory.current=19724546048 
+/sys/fs/cgroup/memory.events=low 0 high 0 max 0 oom 0 oom_kill 6 oom_group_kill 0 
+top_processes_pid_ppid_rss_comm:
+ 504585   18746 713448 MainThread
+ 596079   18746 642464 MainThread
+ 504610  504585 608372 codex
+ 696570  696569 493624 python
+ 696576  696569 396208 python
+ 696585  696569 382172 python
+ 696588  696569 378180 python
+ 696573  696569 363572 python
+ 696591  696569 363212 python
+ 696579  696569 344664 python
+ 696582  696569 342288 python
+ 505460  504585 328312 cpptools
+ 614145  504585 327232 claude
+    487       1 241184 ovs-vswitchd
+ 505206  504585 203348 MainThread
+  18746   18742 179904 MainThread
+ 704610  696585 160056 python
+ 704261  696591 155340 python
+ 704284  696573 151808 python
+ 696569  696566 144308 pytest
+ 596514  596079 143556 codex
+ 581355  581354 131000 node
+ 704979  696570 130304 python3.12
+ 705345  696576 117376 python3.12
+  18769   18746 106636 MainThread
+ 506070   18734 104380 cpptools-srv2
+ 506054   18734 96940 cpptools-srv2
+ 581255  504610 87116 npm exec xcodeb
+ 552279  552274 85300 MainThread
+ 705004  704979 84424 python3.12
+ 596069  596068 82172 MainThread
+ 581256  504610 81688 node
+rss_kib_by_comm_top12:
+3603044 13 python
+2460740 16 MainThread
+751928 2 codex
+438792 10 node
+332104 3 python3.12
+328312 1 cpptools
+327232 1 claude
+241184 1 ovs-vswitchd
+201320 2 cpptools-srv2
+144308 1 pytest
+100256 2 npm
+57384 1 dockerd
+process_count=120 rg_count=0
+--
+timestamp_utc=2026-11-10T08:38:57Z
+MemTotal:       41072484 kB
+MemAvailable:   31984128 kB
+psi_memory_some avg10=0.00 avg60=0.00 avg300=0.00 total=253097069
+psi_memory_full avg10=0.00 avg60=0.00 avg300=0.00 total=216110437
+/sys/fs/cgroup/memory.max=max 
+/sys/fs/cgroup/memory.current=19844472832 
+/sys/fs/cgroup/memory.events=low 0 high 0 max 0 oom 0 oom_kill 6 oom_group_kill 0 
+top_processes_pid_ppid_rss_comm:
+ 504585   18746 713452 MainThread
+ 596079   18746 642464 MainThread
+ 504610  504585 608372 codex
+ 696570  696569 493624 python
+ 696588  696569 406252 python
+ 696576  696569 396208 python
+ 696585  696569 382172 python
+ 696573  696569 363572 python
+ 696591  696569 363212 python
+ 696579  696569 346240 python
+ 696582  696569 342288 python
+ 505460  504585 328312 cpptools
+ 614145  504585 327684 claude
+    487       1 241184 ovs-vswitchd
+ 505206  504585 203348 MainThread
+  18746   18742 179904 MainThread
+ 704284  696573 179236 python
+ 704261  696591 176144 python
+ 704610  696585 158260 python
+ 705345  696576 146620 python3.12
+ 696569  696566 144504 pytest
+ 596514  596079 143536 codex
+ 704979  696570 138976 python3.12
+ 581355  581354 131000 node
+  18769   18746 106636 MainThread
+ 506070   18734 104380 cpptools-srv2
+ 506054   18734 96940 cpptools-srv2
+ 581255  504610 87116 npm exec xcodeb
+ 552279  552274 85300 MainThread
+ 705004  704979 84424 python3.12
+ 596069  596068 82172 MainThread
+ 581256  504610 81688 node
+rss_kib_by_comm_top12:
+3678476 13 python
+2460744 16 MainThread
+751908 2 codex
+438792 10 node
+370020 3 python3.12
+328312 1 cpptools
+327684 1 claude
+241184 1 ovs-vswitchd
+201320 2 cpptools-srv2
+144504 1 pytest
+100256 2 npm
+57384 1 dockerd
+process_count=120 rg_count=0
+--
+timestamp_utc=2026-11-10T08:39:07Z
+MemTotal:       41072484 kB
+MemAvailable:   31896068 kB
+psi_memory_some avg10=0.00 avg60=0.00 avg300=0.00 total=253097069
+psi_memory_full avg10=0.00 avg60=0.00 avg300=0.00 total=216110437
+/sys/fs/cgroup/memory.max=max 
+/sys/fs/cgroup/memory.current=19931856896 
+/sys/fs/cgroup/memory.events=low 0 high 0 max 0 oom 0 oom_kill 6 oom_group_kill 0 
+top_processes_pid_ppid_rss_comm:
+ 504585   18746 713452 MainThread
+ 596079   18746 642464 MainThread
+ 504610  504585 608392 codex
+ 696570  696569 493624 python
+ 696588  696569 409324 python
+ 696576  696569 396208 python
+ 696585  696569 382172 python
+ 696573  696569 363572 python
+ 696591  696569 363212 python
+ 696582  696569 359832 python
+ 696579  696569 346240 python
+ 505460  504585 328312 cpptools
+ 614145  504585 319952 claude
+    487       1 241184 ovs-vswitchd
+ 505206  504585 203348 MainThread
+ 705345  696576 191156 python3.12
+  18746   18742 179904 MainThread
+ 704284  696573 179016 python
+ 704261  696591 172184 python
+ 704979  696570 164376 python3.12
+ 704610  696585 162540 python
+ 696569  696566 144688 pytest
+ 596514  596079 143536 codex
+ 581355  581354 131000 node
+  18769   18746 106636 MainThread
+ 506070   18734 104380 cpptools-srv2
+ 506054   18734 96940 cpptools-srv2
+ 581255  504610 87116 npm exec xcodeb
+ 552279  552274 85300 MainThread
+ 705004  704979 84424 python3.12
+ 596069  596068 82172 MainThread
+ 581256  504610 81688 node
+rss_kib_by_comm_top12:
+3699192 13 python
+2460744 16 MainThread
+751928 2 codex
+439956 3 python3.12
+438792 10 node
+328312 1 cpptools
+319952 1 claude
+241184 1 ovs-vswitchd
+201320 2 cpptools-srv2
+144688 1 pytest
+100256 2 npm
+57384 1 dockerd
+process_count=120 rg_count=0
+--
+timestamp_utc=2026-11-10T08:39:17Z
+MemTotal:       41072484 kB
+MemAvailable:   31750852 kB
+psi_memory_some avg10=0.00 avg60=0.00 avg300=0.00 total=253097069
+psi_memory_full avg10=0.00 avg60=0.00 avg300=0.00 total=216110437
+/sys/fs/cgroup/memory.max=max 
+/sys/fs/cgroup/memory.current=19998576640 
+/sys/fs/cgroup/memory.events=low 0 high 0 max 0 oom 0 oom_kill 6 oom_group_kill 0 
+top_processes_pid_ppid_rss_comm:
+ 504585   18746 713520 MainThread
+ 596079   18746 642468 MainThread
+ 504610  504585 608212 codex
+ 696570  696569 493624 python
+ 696588  696569 409324 python
+ 696576  696569 396208 python
+ 696585  696569 382172 python
+ 696573  696569 363572 python
+ 696591  696569 363212 python
+ 696582  696569 359840 python
+ 696579  696569 346240 python
+ 505460  504585 328312 cpptools
+ 614145  504585 319112 claude
+    487       1 241184 ovs-vswitchd
+ 704284  696573 208924 python
+ 704261  696591 206616 python
+ 505206  504585 203348 MainThread
+ 704610  696585 194240 python
+  18746   18742 179924 MainThread
+ 704979  696570 163028 python3.12
+ 705345  696576 158616 python3.12
+ 696569  696566 144848 pytest
+ 596514  596079 143536 codex
+ 581355  581354 131000 node
+  18769   18746 106636 MainThread
+ 506070   18734 104380 cpptools-srv2
+ 506054   18734 96940 cpptools-srv2
+ 581255  504610 87116 npm exec xcodeb
+ 552279  552274 85300 MainThread
+ 705004  704979 84424 python3.12
+ 596069  596068 82172 MainThread
+ 581256  504610 81688 node
+rss_kib_by_comm_top12:
+3795232 13 python
+2460840 16 MainThread
+751748 2 codex
+438792 10 node
+406068 3 python3.12
+328312 1 cpptools
+319112 1 claude
+241184 1 ovs-vswitchd
+201320 2 cpptools-srv2
+144848 1 pytest
+100256 2 npm
+57384 1 dockerd
+process_count=121 rg_count=0
+--
+timestamp_utc=2026-11-10T08:39:27Z
+MemTotal:       41072484 kB
+MemAvailable:   31829868 kB
+psi_memory_some avg10=0.00 avg60=0.00 avg300=0.00 total=253097069
+psi_memory_full avg10=0.00 avg60=0.00 avg300=0.00 total=216110437
+/sys/fs/cgroup/memory.max=max 
+/sys/fs/cgroup/memory.current=19981254656 
+/sys/fs/cgroup/memory.events=low 0 high 0 max 0 oom 0 oom_kill 6 oom_group_kill 0 
+top_processes_pid_ppid_rss_comm:
+ 504585   18746 714580 MainThread
+ 596079   18746 642468 MainThread
+ 504610  504585 609312 codex
+ 696570  696569 493624 python
+ 696573  696569 426360 python
+ 696591  696569 426000 python
+ 696588  696569 409364 python
+ 696576  696569 396208 python
+ 696585  696569 382172 python
+ 696582  696569 359840 python
+ 696579  696569 346240 python
+ 505460  504585 328312 cpptools
+ 614145  504585 319292 claude
+    487       1 241184 ovs-vswitchd
+ 505206  504585 203348 MainThread
+ 704610  696585 185104 python
+  18746   18742 179960 MainThread
+ 704979  696570 164968 python3.12
+ 705345  696576 158580 python3.12
+ 696569  696566 144976 pytest
+ 596514  596079 144224 codex
+ 581355  581354 131000 node
+  18769   18746 106636 MainThread
+ 506070   18734 104380 cpptools-srv2
+ 706358  696591 99484 python
+ 506054   18734 96940 cpptools-srv2
+ 706360  696573 95712 python
+ 581255  504610 87116 npm exec xcodeb
+ 552279  552274 85300 MainThread
+ 705004  704979 84424 python3.12
+ 596069  596068 82172 MainThread
+ 581256  504610 81688 node
+rss_kib_by_comm_top12:
+3693140 13 python
+2461936 16 MainThread
+753536 2 codex
+438792 10 node
+407976 3 python3.12
+328312 1 cpptools
+319292 1 claude
+241184 1 ovs-vswitchd
+201320 2 cpptools-srv2
+144976 1 pytest
+100256 2 npm
+57384 1 dockerd
+process_count=120 rg_count=0
+--
+timestamp_utc=2026-11-10T08:39:37Z
+MemTotal:       41072484 kB
+MemAvailable:   31871404 kB
+psi_memory_some avg10=0.00 avg60=0.00 avg300=0.00 total=253097069
+psi_memory_full avg10=0.00 avg60=0.00 avg300=0.00 total=216110437
+/sys/fs/cgroup/memory.max=max 
+/sys/fs/cgroup/memory.current=20083027968 
+/sys/fs/cgroup/memory.events=low 0 high 0 max 0 oom 0 oom_kill 6 oom_group_kill 0 
+top_processes_pid_ppid_rss_comm:
+ 504585   18746 714640 MainThread
+ 596079   18746 642468 MainThread
+ 504610  504585 608760 codex
+ 696570  696569 493624 python
+ 696573  696569 426360 python
+ 696591  696569 426000 python
+ 696588  696569 409364 python
+ 696576  696569 396208 python
+ 696585  696569 382172 python
+ 696582  696569 359840 python
+ 696579  696569 346240 python
+ 505460  504585 328312 cpptools
+ 614145  504585 318652 claude
+ 704610  696585 273256 python
+    487       1 241184 ovs-vswitchd
+ 505206  504585 203348 MainThread
+  18746   18742 179960 MainThread
+ 704979  696570 172868 python3.12
+ 705345  696576 159716 python3.12
+ 696569  696566 145084 pytest
+ 596514  596079 144196 codex
+ 581355  581354 131000 node
+  18769   18746 106636 MainThread
+ 506070   18734 104380 cpptools-srv2
+ 706360  696573 103536 python
+ 706358  696591 103492 python
+ 506054   18734 96940 cpptools-srv2
+ 581255  504610 87116 npm exec xcodeb
+ 552279  552274 85300 MainThread
+ 705004  704979 84424 python3.12
+ 596069  596068 82172 MainThread
+ 581256  504610 81688 node
+rss_kib_by_comm_top12:
+3800072 13 python
+2461996 16 MainThread
+752956 2 codex
+438792 10 node
+417008 3 python3.12
+328312 1 cpptools
+318652 1 claude
+241184 1 ovs-vswitchd
+201320 2 cpptools-srv2
+145084 1 pytest
+100256 2 npm
+57384 1 dockerd
+process_count=120 rg_count=0
+--
+timestamp_utc=2026-11-10T08:39:47Z
+MemTotal:       41072484 kB
+MemAvailable:   31723788 kB
+psi_memory_some avg10=0.00 avg60=0.00 avg300=0.00 total=253097069
+psi_memory_full avg10=0.00 avg60=0.00 avg300=0.00 total=216110437
+/sys/fs/cgroup/memory.max=max 
+/sys/fs/cgroup/memory.current=20211232768 
+/sys/fs/cgroup/memory.events=low 0 high 0 max 0 oom 0 oom_kill 6 oom_group_kill 0 
+top_processes_pid_ppid_rss_comm:
+ 504585   18746 714732 MainThread
+ 596079   18746 642468 MainThread
+ 504610  504585 608760 codex
+ 696570  696569 493624 python
+ 696573  696569 426360 python
+ 696591  696569 426000 python
+ 696588  696569 409716 python
+ 696576  696569 396208 python
+ 696585  696569 382172 python
+ 696582  696569 359840 python
+ 696579  696569 346240 python
+ 505460  504585 328312 cpptools
+ 614145  504585 318700 claude
+    487       1 241184 ovs-vswitchd
+ 704610  696585 221264 python
+ 505206  504585 203348 MainThread
+ 704979  696570 200372 python3.12
+ 705345  696576 195976 python3.12
+  18746   18742 179960 MainThread
+ 706360  696573 153204 python
+ 706358  696591 152440 python
+ 696569  696566 145236 pytest
+ 596514  596079 144276 codex
+ 581355  581354 131000 node
+  18769   18746 106636 MainThread
+ 506070   18734 104380 cpptools-srv2
+ 506054   18734 96940 cpptools-srv2
+ 581255  504610 87116 npm exec xcodeb
+ 552279  552274 85300 MainThread
+ 705004  704979 84424 python3.12
+ 596069  596068 82172 MainThread
+ 581256  504610 81688 node
+rss_kib_by_comm_top12:
+3838336 13 python
+2462092 16 MainThread
+753036 2 codex
+480772 3 python3.12
+438792 10 node
+328312 1 cpptools
+318700 1 claude
+241184 1 ovs-vswitchd
+201320 2 cpptools-srv2
+145236 1 pytest
+100256 2 npm
+57384 1 dockerd
+process_count=120 rg_count=0
+--
+timestamp_utc=2026-11-10T08:39:57Z
+MemTotal:       41072484 kB
+MemAvailable:   31699280 kB
+psi_memory_some avg10=0.00 avg60=0.00 avg300=0.00 total=253097069
+psi_memory_full avg10=0.00 avg60=0.00 avg300=0.00 total=216110437
+/sys/fs/cgroup/memory.max=max 
+/sys/fs/cgroup/memory.current=20299268096 
+/sys/fs/cgroup/memory.events=low 0 high 0 max 0 oom 0 oom_kill 6 oom_group_kill 0 
+top_processes_pid_ppid_rss_comm:
+ 504585   18746 714828 MainThread
+ 596079   18746 642468 MainThread
+ 504610  504585 608760 codex
+ 696570  696569 493624 python
+ 696585  696569 432080 python
+ 696573  696569 426360 python
+ 696591  696569 426000 python
+ 696588  696569 412436 python
+ 696576  696569 396208 python
+ 696582  696569 359840 python
+ 696579  696569 346272 python
+ 614145  504585 341052 claude
+ 505460  504585 328312 cpptools
+    487       1 241184 ovs-vswitchd
+ 505206  504585 203348 MainThread
+ 704979  696570 198324 python3.12
+ 706360  696573 187512 python
+ 705345  696576 187000 python3.12
+ 706358  696591 184896 python
+  18746   18742 179968 MainThread
+ 696569  696566 145456 pytest
+ 596514  596079 144232 codex
+ 581355  581354 131000 node
+ 706792  696585 124380 python3.12
+  18769   18746 107156 MainThread
+ 506070   18734 104380 cpptools-srv2
+ 506054   18734 96940 cpptools-srv2
+ 581255  504610 87116 npm exec xcodeb
+ 552279  552274 85300 MainThread
+ 705004  704979 84424 python3.12
+ 596069  596068 82172 MainThread
+ 581256  504610 81688 node
+rss_kib_by_comm_top12:
+3736496 12 python
+2462716 16 MainThread
+752992 2 codex
+595252 4 python3.12
+438792 10 node
+341052 1 claude
+328312 1 cpptools
+241184 1 ovs-vswitchd
+201320 2 cpptools-srv2
+145456 1 pytest
+100256 2 npm
+57384 1 dockerd
+process_count=120 rg_count=0
+--
+timestamp_utc=2026-11-10T08:40:07Z
+MemTotal:       41072484 kB
+MemAvailable:   31703624 kB
+psi_memory_some avg10=0.00 avg60=0.00 avg300=0.00 total=253097069
+psi_memory_full avg10=0.00 avg60=0.00 avg300=0.00 total=216110437
+/sys/fs/cgroup/memory.max=max 
+/sys/fs/cgroup/memory.current=20371312640 
+/sys/fs/cgroup/memory.events=low 0 high 0 max 0 oom 0 oom_kill 6 oom_group_kill 0 
+top_processes_pid_ppid_rss_comm:
+ 504585   18746 720144 MainThread
+ 596079   18746 642468 MainThread
+ 504610  504585 608764 codex
+ 696570  696569 493624 python
+ 696585  696569 432080 python
+ 696573  696569 426360 python
+ 696591  696569 426000 python
+ 696588  696569 414812 python
+ 696576  696569 396208 python
+ 696582  696569 359844 python
+ 696579  696569 346244 python
+ 614145  504585 330204 claude
+ 505460  504585 328312 cpptools
+    487       1 241184 ovs-vswitchd
+ 505206  504585 203800 MainThread
+ 704979  696570 195028 python3.12
+ 705345  696576 183928 python3.12
+ 706360  696573 183416 python
+ 706358  696591 181532 python
+  18746   18742 180008 MainThread
+ 696569  696566 145724 pytest
+ 706792  696585 145040 python3.12
+ 596514  596079 144232 codex
+ 581355  581354 131000 node
+  18769   18746 107156 MainThread
+ 506070   18734 104380 cpptools-srv2
+ 506054   18734 96940 cpptools-srv2
+ 581255  504610 87116 npm exec xcodeb
+ 552279  552274 85300 MainThread
+ 705004  704979 84424 python3.12
+ 596069  596068 82172 MainThread
+ 581256  504610 81688 node
+rss_kib_by_comm_top12:
+3731384 12 python
+2544220 17 MainThread
+752996 2 codex
+608420 4 python3.12
+438792 10 node
+330204 1 claude
+328312 1 cpptools
+241184 1 ovs-vswitchd
+201320 2 cpptools-srv2
+145724 1 pytest
+100256 2 npm
+57384 1 dockerd
+process_count=121 rg_count=0
+--
+timestamp_utc=2026-11-10T08:40:17Z
+MemTotal:       41072484 kB
+MemAvailable:   31494360 kB
+psi_memory_some avg10=0.00 avg60=0.00 avg300=0.00 total=253097069
+psi_memory_full avg10=0.00 avg60=0.00 avg300=0.00 total=216110437
+/sys/fs/cgroup/memory.max=max 
+/sys/fs/cgroup/memory.current=20463030272 
+/sys/fs/cgroup/memory.events=low 0 high 0 max 0 oom 0 oom_kill 6 oom_group_kill 0 
+top_processes_pid_ppid_rss_comm:
+ 504585   18746 724512 MainThread
+ 596079   18746 642468 MainThread
+ 504610  504585 608544 codex
+ 696570  696569 493624 python
+ 696585  696569 432080 python
+ 696573  696569 426360 python
+ 696591  696569 426000 python
+ 696588  696569 414812 python
+ 696576  696569 396208 python
+ 696582  696569 359844 python
+ 696579  696569 346240 python
+ 614145  504585 334452 claude
+ 505460  504585 328312 cpptools
+    487       1 241184 ovs-vswitchd
+ 704979  696570 226604 python3.12
+ 705345  696576 215460 python3.12
+ 505206  504585 203800 MainThread
+ 706358  696591 181532 python
+ 706360  696573 181368 python
+  18746   18742 180028 MainThread
+ 706792  696585 161016 python3.12
+ 696569  696566 146040 pytest
+ 596514  596079 144232 codex
+ 581355  581354 131000 node
+  18769   18746 107156 MainThread
+ 506070   18734 104380 cpptools-srv2
+ 506054   18734 96940 cpptools-srv2
+ 581255  504610 87116 npm exec xcodeb
+ 552279  552274 85300 MainThread
+ 705004  704979 84424 python3.12
+ 596069  596068 82172 MainThread
+ 581256  504610 81688 node
+rss_kib_by_comm_top12:
+3729336 12 python
+2548608 17 MainThread
+752776 2 codex
+687504 4 python3.12
+438792 10 node
+334452 1 claude
+328312 1 cpptools
+241184 1 ovs-vswitchd
+201320 2 cpptools-srv2
+146048 1 pytest
+100256 2 npm
+57384 1 dockerd
+process_count=121 rg_count=0
+--
+timestamp_utc=2026-11-10T08:40:27Z
+MemTotal:       41072484 kB
+MemAvailable:   31009596 kB
+psi_memory_some avg10=0.00 avg60=0.00 avg300=0.00 total=253097069
+psi_memory_full avg10=0.00 avg60=0.00 avg300=0.00 total=216110437
+/sys/fs/cgroup/memory.max=max 
+/sys/fs/cgroup/memory.current=21042053120 
+/sys/fs/cgroup/memory.events=low 0 high 0 max 0 oom 0 oom_kill 6 oom_group_kill 0 
+top_processes_pid_ppid_rss_comm:
+ 504585   18746 745532 MainThread
+ 505206  504585 675920 MainThread
+ 596079   18746 642468 MainThread
+ 504610  504585 608460 codex
+ 696570  696569 544068 python
+ 696576  696569 432492 python
+ 696585  696569 432080 python
+ 696573  696569 426360 python
+ 696591  696569 426000 python
+ 696588  696569 414812 python
+ 696582  696569 359844 python
+ 696579  696569 346240 python
+ 614145  504585 334648 claude
+ 505460  504585 328312 cpptools
+    487       1 241184 ovs-vswitchd
+ 706360  696573 207528 python
+ 706358  696591 206376 python
+  18746   18742 180044 MainThread
+ 706792  696585 156724 python3.12
+ 696569  696566 146408 pytest
+ 596514  596079 144232 codex
+ 581355  581354 131000 node
+  18769   18746 107156 MainThread
+ 506070   18734 104380 cpptools-srv2
+ 506054   18734 96940 cpptools-srv2
+ 707633  696576 93992 python3.12
+ 581255  504610 87116 npm exec xcodeb
+ 552279  552274 85300 MainThread
+ 707648  707630 84468 python
+ 707630  696570 82252 python
+ 596069  596068 82172 MainThread
+ 581256  504610 81688 node
+rss_kib_by_comm_top12:
+4047152 15 python
+3042520 17 MainThread
+752692 2 codex
+438792 10 node
+334648 1 claude
+328312 1 cpptools
+250716 2 python3.12
+241184 1 ovs-vswitchd
+201320 2 cpptools-srv2
+146416 1 pytest
+100256 2 npm
+80088 1 conda
+process_count=125 rg_count=0
+--
+timestamp_utc=2026-11-10T08:40:37Z
+MemTotal:       41072484 kB
+MemAvailable:   30487536 kB
+psi_memory_some avg10=0.00 avg60=0.00 avg300=0.00 total=253097069
+psi_memory_full avg10=0.00 avg60=0.00 avg300=0.00 total=216110437
+/sys/fs/cgroup/memory.max=max 
+/sys/fs/cgroup/memory.current=21680660480 
+/sys/fs/cgroup/memory.events=low 0 high 0 max 0 oom 0 oom_kill 6 oom_group_kill 0 
+top_processes_pid_ppid_rss_comm:
+ 505206  504585 1304296 MainThread
+ 504585   18746 745936 MainThread
+ 596079   18746 642468 MainThread
+ 504610  504585 610500 codex
+ 696570  696569 545132 python
+ 696576  696569 432492 python
+ 696585  696569 432080 python
+ 696573  696569 426360 python
+ 696591  696569 426000 python
+ 696588  696569 414812 python
+ 696582  696569 359844 python
+ 696579  696569 346240 python
+ 614145  504585 335672 claude
+ 505460  504585 328312 cpptools
+    487       1 241184 ovs-vswitchd
+ 706358  696591 198372 python
+ 706360  696573 198256 python
+  18746   18742 180044 MainThread
+ 706792  696585 160012 python3.12
+ 696569  696566 146660 pytest
+ 596514  596079 144232 codex
+ 581355  581354 131000 node
+ 707633  696576 120996 python3.12
+  18769   18746 107156 MainThread
+ 506070   18734 104380 cpptools-srv2
+ 506054   18734 96940 cpptools-srv2
+ 581255  504610 87116 npm exec xcodeb
+ 707910  696570 86460 python
+ 552279  552274 85300 MainThread
+ 707933  707910 84608 python
+ 596069  596068 82172 MainThread
+ 581256  504610 81688 node
+rss_kib_by_comm_top12:
+4022008 14 python
+3670560 17 MainThread
+754732 2 codex
+438792 10 node
+335672 1 claude
+328312 1 cpptools
+281008 2 python3.12
+241184 1 ovs-vswitchd
+201320 2 cpptools-srv2
+146660 1 pytest
+100256 2 npm
+57384 1 dockerd
+process_count=121 rg_count=0
+--
+timestamp_utc=2026-11-10T08:40:48Z
+MemTotal:       41072484 kB
+MemAvailable:   30069628 kB
+psi_memory_some avg10=0.00 avg60=0.00 avg300=0.00 total=253097069
+psi_memory_full avg10=0.00 avg60=0.00 avg300=0.00 total=216110437
+/sys/fs/cgroup/memory.max=max 
+/sys/fs/cgroup/memory.current=21732667392 
+/sys/fs/cgroup/memory.events=low 0 high 0 max 0 oom 0 oom_kill 6 oom_group_kill 0 
+top_processes_pid_ppid_rss_comm:
+ 505206  504585 1280344 MainThread
+ 504585   18746 746096 MainThread
+ 596079   18746 642512 MainThread
+ 504610  504585 610468 codex
+ 696570  696569 596560 python
+ 696588  696569 520000 python
+ 696576  696569 432492 python
+ 696585  696569 432080 python
+ 696573  696569 426360 python
+ 696591  696569 426000 python
+ 696582  696569 365568 python
+ 614145  504585 347212 claude
+ 696579  696569 346240 python
+ 505460  504585 328312 cpptools
+    487       1 241184 ovs-vswitchd
+  18746   18742 180052 MainThread
+ 706792  696585 160168 python3.12
+ 696569  696566 146964 pytest
+ 596514  596079 143964 codex
+ 581355  581354 131000 node
+ 707633  696576 130800 python3.12
+  18769   18746 107172 MainThread
+ 506070   18734 104380 cpptools-srv2
+ 506054   18734 96940 cpptools-srv2
+ 708165  696570 96620 python3.12
+ 581255  504610 87116 npm exec xcodeb
+ 552279  552274 85300 MainThread
+ 708203  708165 84836 python3.12
+ 596069  596068 82172 MainThread
+ 581256  504610 81688 node
+ 581262  504610 80580 node
+ 581272  504610 79224 node
+rss_kib_by_comm_top12:
+3788864 13 python
+3646836 17 MainThread
+754432 2 codex
+472424 4 python3.12
+438796 10 node
+347212 1 claude
+328312 1 cpptools
+241184 1 ovs-vswitchd
+201320 2 cpptools-srv2
+146964 1 pytest
+100256 2 npm
+57384 1 dockerd
+process_count=121 rg_count=0
+--
+timestamp_utc=2026-11-10T08:40:58Z
+MemTotal:       41072484 kB
+MemAvailable:   30415216 kB
+psi_memory_some avg10=0.00 avg60=0.00 avg300=0.00 total=253097069
+psi_memory_full avg10=0.00 avg60=0.00 avg300=0.00 total=216110437
+/sys/fs/cgroup/memory.max=max 
+/sys/fs/cgroup/memory.current=21751586816 
+/sys/fs/cgroup/memory.events=low 0 high 0 max 0 oom 0 oom_kill 6 oom_group_kill 0 
+top_processes_pid_ppid_rss_comm:
+ 505206  504585 1286656 MainThread
+ 696570  696569 749000 python
+ 504585   18746 746836 MainThread
+ 596079   18746 642512 MainThread
+ 504610  504585 610468 codex
+ 696582  696569 450472 python
+ 696588  696569 450408 python
+ 696576  696569 432492 python
+ 696585  696569 432080 python
+ 614145  504585 361756 claude
+ 696573  696569 359936 python
+ 696579  696569 346240 python
+ 696591  696569 345332 python
+ 505460  504585 328312 cpptools
+    487       1 241184 ovs-vswitchd
+ 706792  696585 194748 python3.12
+  18746   18742 180060 MainThread
+ 707633  696576 160428 python3.12
+ 696569  696566 147532 pytest
+ 596514  596079 143868 codex
+ 581355  581354 131000 node
+ 708460  696582 117344 python
+  18769   18746 107172 MainThread
+ 506070   18734 104380 cpptools-srv2
+ 506054   18734 96940 cpptools-srv2
+ 708629  696570 96000 python3.12
+ 581255  504610 87116 npm exec xcodeb
+ 552279  552274 85300 MainThread
+ 596069  596068 82172 MainThread
+ 581256  504610 81688 node
+ 581262  504610 80580 node
+ 581272  504610 79224 node
+rss_kib_by_comm_top12:
+3755244 11 python
+3653900 17 MainThread
+754336 2 codex
+451200 3 python3.12
+438796 10 node
+362668 1 claude
+328312 1 cpptools
+241184 1 ovs-vswitchd
+201320 2 cpptools-srv2
+147532 1 pytest
+100256 2 npm
+57384 1 dockerd
+process_count=119 rg_count=0
+--
+timestamp_utc=2026-11-10T08:41:08Z
+MemTotal:       41072484 kB
+MemAvailable:   30543388 kB
+psi_memory_some avg10=0.00 avg60=0.00 avg300=0.00 total=253097069
+psi_memory_full avg10=0.00 avg60=0.00 avg300=0.00 total=216110437
+/sys/fs/cgroup/memory.max=max 
+/sys/fs/cgroup/memory.current=21810003968 
+/sys/fs/cgroup/memory.events=low 0 high 0 max 0 oom 0 oom_kill 6 oom_group_kill 0 
+top_processes_pid_ppid_rss_comm:
+ 505206  504585 1291240 MainThread
+ 696570  696569 749000 python
+ 504585   18746 746932 MainThread
+ 596079   18746 642512 MainThread
+ 504610  504585 610504 codex
+ 696582  696569 450472 python
+ 696588  696569 450408 python
+ 696576  696569 432492 python
+ 696585  696569 432080 python
+ 696579  696569 358540 python
+ 696573  696569 356212 python
+ 614145  504585 349740 claude
+ 696591  696569 347300 python
+ 505460  504585 328312 cpptools
+    487       1 241184 ovs-vswitchd
+ 706792  696585 189656 python3.12
+  18746   18742 180060 MainThread
+ 707633  696576 162704 python3.12
+ 696569  696566 147808 pytest
+ 596514  596079 143868 codex
+ 708460  696582 132720 python
+ 581355  581354 131000 node
+ 708629  696570 122972 python3.12
+  18769   18746 107172 MainThread
+ 506070   18734 104380 cpptools-srv2
+ 506054   18734 96940 cpptools-srv2
+ 581255  504610 87116 npm exec xcodeb
+ 552279  552274 85300 MainThread
+ 596069  596068 82172 MainThread
+ 581256  504610 81688 node
+ 581262  504610 80580 node
+ 581272  504610 79224 node
+rss_kib_by_comm_top12:
+3781164 11 python
+3658584 17 MainThread
+754372 2 codex
+475332 3 python3.12
+438796 10 node
+349740 1 claude
+328312 1 cpptools
+241184 1 ovs-vswitchd
+201320 2 cpptools-srv2
+147808 1 pytest
+100256 2 npm
+57384 1 dockerd
+process_count=119 rg_count=0
+--
+timestamp_utc=2026-11-10T08:41:18Z
+MemTotal:       41072484 kB
+MemAvailable:   30440004 kB
+psi_memory_some avg10=0.00 avg60=0.00 avg300=0.00 total=253097069
+psi_memory_full avg10=0.00 avg60=0.00 avg300=0.00 total=216110437
+/sys/fs/cgroup/memory.max=max 
+/sys/fs/cgroup/memory.current=21937586176 
+/sys/fs/cgroup/memory.events=low 0 high 0 max 0 oom 0 oom_kill 6 oom_group_kill 0 
+top_processes_pid_ppid_rss_comm:
+ 505206  504585 1291860 MainThread
+ 504585   18746 752180 MainThread
+ 696570  696569 749000 python
+ 596079   18746 642512 MainThread
+ 504610  504585 610448 codex
+ 696582  696569 450472 python
+ 696588  696569 450408 python
+ 696576  696569 432492 python
+ 696585  696569 432080 python
+ 696579  696569 364588 python
+ 696573  696569 356180 python
+ 696591  696569 347576 python
+ 614145  504585 335912 claude
+ 505460  504585 328312 cpptools
+    487       1 241184 ovs-vswitchd
+ 706792  696585 224348 python3.12
+  18746   18742 180064 MainThread
+ 707633  696576 168308 python3.12
+ 708460  696582 157684 python
+ 708629  696570 156088 python3.12
+ 696569  696566 148188 pytest
+ 596514  596079 143868 codex
+ 581355  581354 131000 node
+  18769   18746 107172 MainThread
+ 506070   18734 104380 cpptools-srv2
+ 506054   18734 96940 cpptools-srv2
+ 581255  504610 87116 npm exec xcodeb
+ 552279  552274 85300 MainThread
+ 596069  596068 82172 MainThread
+ 581256  504610 81688 node
+ 581262  504610 80580 node
+ 581272  504610 79224 node
+rss_kib_by_comm_top12:
+3812420 11 python
+3664456 17 MainThread
+754316 2 codex
+548744 3 python3.12
+438796 10 node
+335912 1 claude
+328312 1 cpptools
+241184 1 ovs-vswitchd
+201320 2 cpptools-srv2
+148188 1 pytest
+100256 2 npm
+57384 1 dockerd
+process_count=119 rg_count=0
+--
+timestamp_utc=2026-11-10T08:41:28Z
+MemTotal:       41072484 kB
+MemAvailable:   30104064 kB
+psi_memory_some avg10=0.00 avg60=0.00 avg300=0.00 total=253097069
+psi_memory_full avg10=0.00 avg60=0.00 avg300=0.00 total=216110437
+/sys/fs/cgroup/memory.max=max 
+/sys/fs/cgroup/memory.current=22236131328 
+/sys/fs/cgroup/memory.events=low 0 high 0 max 0 oom 0 oom_kill 6 oom_group_kill 0 
+top_processes_pid_ppid_rss_comm:
+ 505206  504585 1291860 MainThread
+ 696585  696569 784392 python
+ 504585   18746 752184 MainThread
+ 696570  696569 749000 python
+ 596079   18746 642512 MainThread
+ 504610  504585 610448 codex
+ 696582  696569 450472 python
+ 696588  696569 450408 python
+ 696576  696569 432492 python
+ 696579  696569 364552 python
+ 696573  696569 356276 python
+ 696591  696569 348392 python
+ 614145  504585 337316 claude
+ 505460  504585 328312 cpptools
+    487       1 241184 ovs-vswitchd
+ 707633  696576 194284 python3.12
+  18746   18742 180068 MainThread
+ 708629  696570 158916 python3.12
+ 708460  696582 156980 python
+ 696569  696566 148456 pytest
+ 596514  596079 143868 codex
+ 581355  581354 131000 node
+ 709254       1 123336 notus-scanner
+  18769   18746 107172 MainThread
+ 506070   18734 104380 cpptools-srv2
+ 506054   18734 96940 cpptools-srv2
+ 581255  504610 87116 npm exec xcodeb
+ 552279  552274 85300 MainThread
+ 596069  596068 82172 MainThread
+ 581256  504610 81688 node
+ 581262  504610 80580 node
+ 581272  504610 79224 node
+rss_kib_by_comm_top12:
+4164904 11 python
+3664464 17 MainThread
+754316 2 codex
+438796 10 node
+353208 2 python3.12
+337316 1 claude
+328312 1 cpptools
+241184 1 ovs-vswitchd
+201320 2 cpptools-srv2
+148456 1 pytest
+123336 1 notus-scanner
+100256 2 npm
+process_count=119 rg_count=0
+--
+timestamp_utc=2026-11-10T08:41:38Z
+MemTotal:       41072484 kB
+MemAvailable:   30102592 kB
+psi_memory_some avg10=0.00 avg60=0.00 avg300=0.00 total=253097069
+psi_memory_full avg10=0.00 avg60=0.00 avg300=0.00 total=216110437
+/sys/fs/cgroup/memory.max=max 
+/sys/fs/cgroup/memory.current=22342979584 
+/sys/fs/cgroup/memory.events=low 0 high 0 max 0 oom 0 oom_kill 6 oom_group_kill 0 
+top_processes_pid_ppid_rss_comm:
+ 505206  504585 1291860 MainThread
+ 696585  696569 784392 python
+ 504585   18746 752204 MainThread
+ 696570  696569 749000 python
+ 596079   18746 642512 MainThread
+ 504610  504585 610448 codex
+ 696588  696569 455476 python
+ 696582  696569 450472 python
+ 696576  696569 432492 python
+ 696579  696569 372464 python
+ 696573  696569 366580 python
+ 696591  696569 348392 python
+ 614145  504585 337944 claude
+ 505460  504585 328312 cpptools
+    487       1 241184 ovs-vswitchd
+ 708460  696582 192792 python
+ 707633  696576 192252 python3.12
+  18746   18742 180068 MainThread
+ 708629  696570 158436 python3.12
+ 696569  696566 148844 pytest
+ 596514  596079 143852 codex
+ 581355  581354 131000 node
+  18769   18746 107172 MainThread
+ 506070   18734 104380 cpptools-srv2
+ 709386  696579 101452 python
+ 506054   18734 96940 cpptools-srv2
+ 581255  504610 87116 npm exec xcodeb
+ 552279  552274 85300 MainThread
+ 596069  596068 82172 MainThread
+ 581256  504610 81688 node
+ 581262  504610 80580 node
+ 581272  504610 79224 node
+rss_kib_by_comm_top12:
+4325452 12 python
+3664484 17 MainThread
+754300 2 codex
+438796 10 node
+350688 2 python3.12
+337944 1 claude
+328312 1 cpptools
+241184 1 ovs-vswitchd
+201320 2 cpptools-srv2
+148844 1 pytest
+100256 2 npm
+57384 1 dockerd
+process_count=119 rg_count=0
+--
+timestamp_utc=2026-11-10T08:41:48Z
+MemTotal:       41072484 kB
+MemAvailable:   30012892 kB
+psi_memory_some avg10=0.00 avg60=0.00 avg300=0.00 total=253097069
+psi_memory_full avg10=0.00 avg60=0.00 avg300=0.00 total=216110437
+/sys/fs/cgroup/memory.max=max 
+/sys/fs/cgroup/memory.current=22388002816 
+/sys/fs/cgroup/memory.events=low 0 high 0 max 0 oom 0 oom_kill 6 oom_group_kill 0 
+top_processes_pid_ppid_rss_comm:
+ 505206  504585 1291864 MainThread
+ 696585  696569 784392 python
+ 504585   18746 752244 MainThread
+ 696570  696569 749000 python
+ 596079   18746 642512 MainThread
+ 504610  504585 610448 codex
+ 696588  696569 456252 python
+ 696582  696569 450472 python
+ 696576  696569 432492 python
+ 696579  696569 372464 python
+ 696573  696569 367540 python
+ 696591  696569 348392 python
+ 614145  504585 340244 claude
+ 505460  504585 328312 cpptools
+    487       1 241184 ovs-vswitchd
+ 707633  696576 218996 python3.12
+ 708629  696570 197124 python3.12
+ 708460  696582 184244 python
+  18746   18742 180088 MainThread
+ 696569  696566 148936 pytest
+ 596514  596079 143876 codex
+ 581355  581354 131004 node
+  18769   18746 107172 MainThread
+ 506070   18734 104380 cpptools-srv2
+ 506054   18734 96940 cpptools-srv2
+ 581255  504610 87116 npm exec xcodeb
+ 552279  552274 85300 MainThread
+ 596069  596068 82172 MainThread
+ 581256  504610 81688 node
+ 581262  504610 80580 node
+ 581272  504610 79224 node
+ 597779  596079 75860 MainThread
+rss_kib_by_comm_top12:
+4291184 12 python
+3664556 17 MainThread
+754324 2 codex
+438800 10 node
+416120 2 python3.12
+340244 1 claude
+328312 1 cpptools
+241184 1 ovs-vswitchd
+201320 2 cpptools-srv2
+148936 1 pytest
+100256 2 npm
+57384 1 dockerd
+process_count=119 rg_count=0
+--
+timestamp_utc=2026-11-10T08:41:58Z
+MemTotal:       41072484 kB
+MemAvailable:   29756352 kB
+psi_memory_some avg10=0.00 avg60=0.00 avg300=0.00 total=253097069
+psi_memory_full avg10=0.00 avg60=0.00 avg300=0.00 total=216110437
+/sys/fs/cgroup/memory.max=max 
+/sys/fs/cgroup/memory.current=22717894656 
+/sys/fs/cgroup/memory.events=low 0 high 0 max 0 oom 0 oom_kill 6 oom_group_kill 0 
+top_processes_pid_ppid_rss_comm:
+ 505206  504585 1291864 MainThread
+ 696576  696569 834240 python
+ 696585  696569 784392 python
+ 504585   18746 752244 MainThread
+ 696570  696569 749000 python
+ 596079   18746 642512 MainThread
+ 504610  504585 610448 codex
+ 696588  696569 454204 python
+ 696582  696569 450472 python
+ 696573  696569 379944 python
+ 696579  696569 372464 python
+ 696591  696569 356340 python
+ 614145  504585 342828 claude
+ 505460  504585 328312 cpptools
+    487       1 241184 ovs-vswitchd
+ 708460  696582 219416 python
+ 708629  696570 192084 python3.12
+  18746   18742 180088 MainThread
+ 696569  696566 149076 pytest
+ 596514  596079 143852 codex
+ 581355  581354 131004 node
+  18769   18746 107172 MainThread
+ 506070   18734 104380 cpptools-srv2
+ 506054   18734 96940 cpptools-srv2
+ 709815  696579 92584 python
+ 581255  504610 87116 npm exec xcodeb
+ 552279  552274 85300 MainThread
+ 596069  596068 82172 MainThread
+ 581256  504610 81688 node
+ 581262  504610 80580 node
+ 581272  504610 79224 node
+ 597779  596079 75860 MainThread
+rss_kib_by_comm_top12:
+4765060 12 python
+3664556 17 MainThread
+754300 2 codex
+438800 10 node
+342828 1 claude
+328312 1 cpptools
+241184 1 ovs-vswitchd
+201320 2 cpptools-srv2
+192084 1 python3.12
+149076 1 pytest
+100256 2 npm
+57384 1 dockerd
+process_count=118 rg_count=0
+--
+timestamp_utc=2026-11-10T08:42:08Z
+MemTotal:       41072484 kB
+MemAvailable:   29087476 kB
+psi_memory_some avg10=0.00 avg60=0.00 avg300=0.00 total=253097069
+psi_memory_full avg10=0.00 avg60=0.00 avg300=0.00 total=216110437
+/sys/fs/cgroup/memory.max=max 
+/sys/fs/cgroup/memory.current=23305142272 
+/sys/fs/cgroup/memory.events=low 0 high 0 max 0 oom 0 oom_kill 6 oom_group_kill 0 
+top_processes_pid_ppid_rss_comm:
+ 505206  504585 1291868 MainThread
+ 696582  696569 894356 python
+ 696576  696569 884152 python
+ 696585  696569 834304 python
+ 504585   18746 752252 MainThread
+ 696570  696569 749000 python
+ 596079   18746 642512 MainThread
+ 504610  504585 610468 codex
+ 696588  696569 454828 python
+ 696573  696569 379908 python
+ 696579  696569 372464 python
+ 696591  696569 356308 python
+ 614145  504585 340936 claude
+ 505460  504585 328312 cpptools
+    487       1 241184 ovs-vswitchd
+ 708629  696570 222960 python3.12
+  18746   18742 180096 MainThread
+ 696569  696566 149232 pytest
+ 596514  596079 143852 codex
+ 581355  581354 131004 node
+  18769   18746 107172 MainThread
+ 506070   18734 104380 cpptools-srv2
+ 709995  696573 104312 python
+ 506054   18734 96940 cpptools-srv2
+ 581255  504610 87116 npm exec xcodeb
+ 552279  552274 85300 MainThread
+ 710021  696591 82556 python
+ 710022  696579 82424 python
+ 596069  596068 82172 MainThread
+ 581256  504610 81688 node
+ 581262  504610 80580 node
+ 581272  504610 79224 node
+rss_kib_by_comm_top12:
+5266560 13 python
+3664576 17 MainThread
+754320 2 codex
+438800 10 node
+340936 1 claude
+328312 1 cpptools
+241184 1 ovs-vswitchd
+222960 1 python3.12
+201320 2 cpptools-srv2
+149232 1 pytest
+100256 2 npm
+57384 1 dockerd
+process_count=119 rg_count=0
+--
+timestamp_utc=2026-11-10T08:42:18Z
+MemTotal:       41072484 kB
+MemAvailable:   28263504 kB
+psi_memory_some avg10=0.00 avg60=0.00 avg300=0.00 total=253097069
+psi_memory_full avg10=0.00 avg60=0.00 avg300=0.00 total=216110437
+/sys/fs/cgroup/memory.max=max 
+/sys/fs/cgroup/memory.current=23840849920 
+/sys/fs/cgroup/memory.events=low 0 high 0 max 0 oom 0 oom_kill 6 oom_group_kill 0 
+top_processes_pid_ppid_rss_comm:
+ 696576  696569 1304328 python
+ 505206  504585 1192908 MainThread
+ 696570  696569 995988 python
+ 696582  696569 949808 python
+ 696585  696569 938600 python
+ 504585   18746 752272 MainThread
+ 596079   18746 642512 MainThread
+ 504610  504585 610448 codex
+ 696588  696569 454828 python
+ 696573  696569 379908 python
+ 696579  696569 372464 python
+ 696591  696569 356340 python
+ 614145  504585 343136 claude
+ 505460  504585 328312 cpptools
+    487       1 241184 ovs-vswitchd
+  18746   18742 180116 MainThread
+ 696569  696566 149656 pytest
+ 596514  596079 143852 codex
+ 581355  581354 131004 node
+  18769   18746 107172 MainThread
+ 506070   18734 104380 cpptools-srv2
+ 710126  696573 104172 python
+ 710125  696579 100848 python
+ 506054   18734 96940 cpptools-srv2
+ 581255  504610 87116 npm exec xcodeb
+ 552279  552274 85300 MainThread
+ 596069  596068 82172 MainThread
+ 581256  504610 81688 node
+ 581262  504610 80580 node
+ 581272  504610 79224 node
+ 597779  596079 75860 MainThread
+ 707019  504585 75708 MainThread
+rss_kib_by_comm_top12:
+6029352 12 python
+3565676 17 MainThread
+754300 2 codex
+438800 10 node
+343136 1 claude
+328312 1 cpptools
+241184 1 ovs-vswitchd
+201320 2 cpptools-srv2
+149656 1 pytest
+100256 2 npm
+57384 1 dockerd
+30840 1 containerd
+process_count=117 rg_count=0
+--
+timestamp_utc=2026-11-10T08:42:28Z
+MemTotal:       41072484 kB
+MemAvailable:   28686316 kB
+psi_memory_some avg10=0.00 avg60=0.00 avg300=0.00 total=253097069
+psi_memory_full avg10=0.00 avg60=0.00 avg300=0.00 total=216110437
+/sys/fs/cgroup/memory.max=max 
+/sys/fs/cgroup/memory.current=23851102208 
+/sys/fs/cgroup/memory.events=low 0 high 0 max 0 oom 0 oom_kill 6 oom_group_kill 0 
+top_processes_pid_ppid_rss_comm:
+ 696576  696569 1307692 python
+ 505206  504585 1192908 MainThread
+ 696570  696569 995988 python
+ 696585  696569 963504 python
+ 696582  696569 955996 python
+ 504585   18746 752276 MainThread
+ 596079   18746 642512 MainThread
+ 504610  504585 610448 codex
+ 696588  696569 454828 python
+ 696573  696569 379908 python
+ 696579  696569 373204 python
+ 696591  696569 356308 python
+ 614145  504585 343248 claude
+ 505460  504585 328312 cpptools
+    487       1 241184 ovs-vswitchd
+  18746   18742 180140 MainThread
+ 696569  696566 150328 pytest
+ 596514  596079 143852 codex
+ 581355  581354 131004 node
+  18769   18746 107172 MainThread
+ 506070   18734 104380 cpptools-srv2
+ 506054   18734 96940 cpptools-srv2
+ 581255  504610 87116 npm exec xcodeb
+ 552279  552274 85300 MainThread
+ 710376  696573 84592 python
+ 596069  596068 82172 MainThread
+ 581256  504610 81688 node
+ 581262  504610 80580 node
+ 710377  696591 79512 python
+ 581272  504610 79224 node
+ 597779  596079 75860 MainThread
+ 707019  504585 75708 MainThread
+rss_kib_by_comm_top12:
+6023472 12 python
+3565708 17 MainThread
+754300 2 codex
+438800 10 node
+343248 1 claude
+328312 1 cpptools
+241184 1 ovs-vswitchd
+201320 2 cpptools-srv2
+150328 1 pytest
+100256 2 npm
+57384 1 dockerd
+30840 1 containerd
+process_count=118 rg_count=0
+--
+timestamp_utc=2026-11-10T08:42:38Z
+MemTotal:       41072484 kB
+MemAvailable:   29442152 kB
+psi_memory_some avg10=0.00 avg60=0.00 avg300=0.00 total=253097069
+psi_memory_full avg10=0.00 avg60=0.00 avg300=0.00 total=216110437
+/sys/fs/cgroup/memory.max=max 
+/sys/fs/cgroup/memory.current=22957146112 
+/sys/fs/cgroup/memory.events=low 0 high 0 max 0 oom 0 oom_kill 6 oom_group_kill 0 
+top_processes_pid_ppid_rss_comm:
+ 696576  696569 1311788 python
+ 696570  696569 997800 python
+ 696585  696569 976020 python
+ 696582  696569 955964 python
+ 504585   18746 752352 MainThread
+ 596079   18746 642512 MainThread
+ 504610  504585 610448 codex
+ 696588  696569 454828 python
+ 505206  504585 386944 MainThread
+ 696573  696569 379908 python
+ 696579  696569 373208 python
+ 696591  696569 356308 python
+ 614145  504585 340692 claude
+ 505460  504585 328312 cpptools
+    487       1 241184 ovs-vswitchd
+  18746   18742 180140 MainThread
+ 696569  696566 151724 pytest
+ 596514  596079 143876 codex
+ 581355  581354 131004 node
+  18769   18746 107172 MainThread
+ 506070   18734 104380 cpptools-srv2
+ 506054   18734 96940 cpptools-srv2
+ 710698  696591 93140 python
+ 581255  504610 87116 npm exec xcodeb
+ 552279  552274 85300 MainThread
+ 596069  596068 82172 MainThread
+ 581256  504610 81688 node
+ 581262  504610 80580 node
+ 581272  504610 79224 node
+ 597779  596079 75864 MainThread
+ 707019  504585 75708 MainThread
+ 596046  596045 68752 MainThread
+rss_kib_by_comm_top12:
+5992372 12 python
+2759824 17 MainThread
+754324 2 codex
+438800 10 node
+340692 1 claude
+328312 1 cpptools
+241184 1 ovs-vswitchd
+201320 2 cpptools-srv2
+151724 1 pytest
+100256 2 npm
+57384 1 dockerd
+30840 1 containerd
+process_count=117 rg_count=0
+--
+timestamp_utc=2026-11-10T08:42:48Z
+MemTotal:       41072484 kB
+MemAvailable:   29188384 kB
+psi_memory_some avg10=0.00 avg60=0.00 avg300=0.00 total=253097069
+psi_memory_full avg10=0.00 avg60=0.00 avg300=0.00 total=216110437
+/sys/fs/cgroup/memory.max=max 
+/sys/fs/cgroup/memory.current=23219101696 
+/sys/fs/cgroup/memory.events=low 0 high 0 max 0 oom 0 oom_kill 6 oom_group_kill 0 
+top_processes_pid_ppid_rss_comm:
+ 696576  696569 1302836 python
+ 696570  696569 997992 python
+ 696585  696569 981896 python
+ 696582  696569 955964 python
+ 504585   18746 752352 MainThread
+ 596079   18746 642512 MainThread
+ 504610  504585 610448 codex
+ 696588  696569 454844 python
+ 505206  504585 386944 MainThread
+ 696573  696569 379908 python
+ 696579  696569 373216 python
+ 696591  696569 356308 python
+ 614145  504585 344228 claude
+ 505460  504585 328312 cpptools
+    487       1 241184 ovs-vswitchd
+  18746   18742 180160 MainThread
+ 696569  696566 155720 pytest
+ 596514  596079 143852 codex
+ 581355  581354 131004 node
+  18769   18746 107172 MainThread
+ 506070   18734 104380 cpptools-srv2
+ 506054   18734 96940 cpptools-srv2
+ 711305  696570 93524 python
+ 581255  504610 87116 npm exec xcodeb
+ 552279  552274 85300 MainThread
+ 711416  696573 85136 python
+ 596069  596068 82172 MainThread
+ 581256  504610 81688 node
+ 581262  504610 80580 node
+ 581272  504610 79224 node
+ 597779  596079 75864 MainThread
+ 707019  504585 75708 MainThread
+rss_kib_by_comm_top12:
+6286432 16 python
+2759852 17 MainThread
+754300 2 codex
+438800 10 node
+344228 1 claude
+328312 1 cpptools
+241184 1 ovs-vswitchd
+201320 2 cpptools-srv2
+155728 1 pytest
+100256 2 npm
+57384 1 dockerd
+30840 1 containerd
+process_count=121 rg_count=0
+--
+timestamp_utc=2026-11-10T08:42:58Z
+MemTotal:       41072484 kB
+MemAvailable:   29389200 kB
+psi_memory_some avg10=0.00 avg60=0.00 avg300=0.00 total=253097069
+psi_memory_full avg10=0.00 avg60=0.00 avg300=0.00 total=216110437
+/sys/fs/cgroup/memory.max=max 
+/sys/fs/cgroup/memory.current=23213862912 
+/sys/fs/cgroup/memory.events=low 0 high 0 max 0 oom 0 oom_kill 6 oom_group_kill 0 
+top_processes_pid_ppid_rss_comm:
+ 696576  696569 1300112 python
+ 696570  696569 997992 python
+ 696585  696569 988372 python
+ 696582  696569 955964 python
+ 504585   18746 752352 MainThread
+ 596079   18746 642512 MainThread
+ 504610  504585 610448 codex
+ 696588  696569 455544 python
+ 696579  696569 395124 python
+ 505206  504585 386944 MainThread
+ 696573  696569 379908 python
+ 696591  696569 356308 python
+ 614145  504585 344500 claude
+ 505460  504585 328312 cpptools
+    487       1 241184 ovs-vswitchd
+  18746   18742 180180 MainThread
+ 696569  696566 160344 pytest
+ 596514  596079 143852 codex
+ 581355  581354 131004 node
+  18769   18746 107172 MainThread
+ 506070   18734 104380 cpptools-srv2
+ 712485  696570 104196 python
+ 712508  696573 103172 python
+ 506054   18734 96940 cpptools-srv2
+ 712566  696591 88948 python
+ 581255  504610 87116 npm exec xcodeb
+ 552279  552274 85300 MainThread
+ 596069  596068 82172 MainThread
+ 581256  504610 81688 node
+ 581262  504610 80580 node
+ 581272  504610 79224 node
+ 597779  596079 75864 MainThread
+rss_kib_by_comm_top12:
+6227360 14 python
+2759872 17 MainThread
+754300 2 codex
+438800 10 node
+344500 1 claude
+328312 1 cpptools
+241184 1 ovs-vswitchd
+201320 2 cpptools-srv2
+160344 1 pytest
+100256 2 npm
+57384 1 dockerd
+30840 1 containerd
+process_count=119 rg_count=0
+--
+timestamp_utc=2026-11-10T08:43:09Z
+MemTotal:       41072484 kB
+MemAvailable:   29512956 kB
+psi_memory_some avg10=0.00 avg60=0.00 avg300=0.00 total=253097069
+psi_memory_full avg10=0.00 avg60=0.00 avg300=0.00 total=216110437
+/sys/fs/cgroup/memory.max=max 
+/sys/fs/cgroup/memory.current=23065513984 
+/sys/fs/cgroup/memory.events=low 0 high 0 max 0 oom 0 oom_kill 6 oom_group_kill 0 
+top_processes_pid_ppid_rss_comm:
+ 696576  696569 1300112 python
+ 696570  696569 997992 python
+ 696585  696569 988384 python
+ 696582  696569 955964 python
+ 504585   18746 752352 MainThread
+ 596079   18746 642512 MainThread
+ 504610  504585 610468 codex
+ 696588  696569 455648 python
+ 505206  504585 386944 MainThread
+ 696579  696569 385464 python
+ 696573  696569 379972 python
+ 696591  696569 358668 python
+ 614145  504585 333788 claude
+ 505460  504585 328312 cpptools
+    487       1 241184 ovs-vswitchd
+  18746   18742 180200 MainThread
+ 696569  696566 162424 pytest
+ 596514  596079 143852 codex
+ 581355  581354 131004 node
+  18769   18746 107172 MainThread
+ 506070   18734 104380 cpptools-srv2
+ 506054   18734 96940 cpptools-srv2
+ 581255  504610 87116 npm exec xcodeb
+ 552279  552274 85300 MainThread
+ 713206  696582 83360 python
+ 596069  596068 82172 MainThread
+ 581256  504610 81688 node
+ 581262  504610 80580 node
+ 581272  504610 79224 node
+ 713272  696570 77120 python
+ 597779  596079 75864 MainThread
+ 707019  504585 75708 MainThread
+rss_kib_by_comm_top12:
+6054620 12 python
+2759892 17 MainThread
+754320 2 codex
+438800 10 node
+333788 1 claude
+328312 1 cpptools
+241184 1 ovs-vswitchd
+201320 2 cpptools-srv2
+162428 1 pytest
+100256 2 npm
+57384 1 dockerd
+30840 1 containerd
+process_count=117 rg_count=0
+--
+timestamp_utc=2026-11-10T08:43:19Z
+MemTotal:       41072484 kB
+MemAvailable:   29354636 kB
+psi_memory_some avg10=0.00 avg60=0.00 avg300=0.00 total=253097069
+psi_memory_full avg10=0.00 avg60=0.00 avg300=0.00 total=216110437
+/sys/fs/cgroup/memory.max=max 
+/sys/fs/cgroup/memory.current=23310422016 
+/sys/fs/cgroup/memory.events=low 0 high 0 max 0 oom 0 oom_kill 6 oom_group_kill 0 
+top_processes_pid_ppid_rss_comm:
+ 696576  696569 1300112 python
+ 696570  696569 997992 python
+ 696585  696569 987548 python
+ 696582  696569 955964 python
+ 504585   18746 753272 MainThread
+ 596079   18746 642512 MainThread
+ 504610  504585 610288 codex
+ 696588  696569 458540 python
+ 505206  504585 445480 MainThread
+ 696591  696569 392792 python
+ 696579  696569 383416 python
+ 696573  696569 379908 python
+ 614145  504585 342548 claude
+ 505460  504585 328312 cpptools
+    487       1 241184 ovs-vswitchd
+  18746   18742 180208 MainThread
+ 696569  696566 166116 pytest
+ 596514  596079 143852 codex
+ 581355  581354 131004 node
+  18769   18746 107176 MainThread
+ 506070   18734 104380 cpptools-srv2
+ 713790  696582 101844 python
+ 506054   18734 96940 cpptools-srv2
+ 713911  696573 90344 python
+ 713925  696570 88360 python
+ 581255  504610 87116 npm exec xcodeb
+ 552279  552274 85300 MainThread
+ 596069  596068 82172 MainThread
+ 581256  504610 81688 node
+ 581262  504610 80580 node
+ 581272  504610 79224 node
+ 597779  596079 75864 MainThread
+rss_kib_by_comm_top12:
+6209876 13 python
+2819400 17 MainThread
+754140 2 codex
+438800 10 node
+342548 1 claude
+328312 1 cpptools
+241184 1 ovs-vswitchd
+201320 2 cpptools-srv2
+166116 1 pytest
+100256 2 npm
+57384 1 dockerd
+30840 1 containerd
+process_count=118 rg_count=0
+--
+timestamp_utc=2026-11-10T08:43:29Z
+MemTotal:       41072484 kB
+MemAvailable:   29226892 kB
+psi_memory_some avg10=0.00 avg60=0.00 avg300=0.00 total=253097069
+psi_memory_full avg10=0.00 avg60=0.00 avg300=0.00 total=216110437
+/sys/fs/cgroup/memory.max=max 
+/sys/fs/cgroup/memory.current=23332974592 
+/sys/fs/cgroup/memory.events=low 0 high 0 max 0 oom 0 oom_kill 6 oom_group_kill 0 
+top_processes_pid_ppid_rss_comm:
+ 696576  696569 1300116 python
+ 696570  696569 997992 python
+ 696585  696569 985492 python
+ 696582  696569 955964 python
+ 504585   18746 753272 MainThread
+ 596079   18746 642512 MainThread
+ 504610  504585 610256 codex
+ 696588  696569 462456 python
+ 505206  504585 445480 MainThread
+ 696591  696569 405068 python
+ 696579  696569 383416 python
+ 696573  696569 381060 python
+ 614145  504585 354788 claude
+ 505460  504585 328312 cpptools
+    487       1 241184 ovs-vswitchd
+  18746   18742 180232 MainThread
+ 696569  696566 169676 pytest
+ 596514  596079 143852 codex
+ 581355  581354 131004 node
+  18769   18746 107176 MainThread
+ 506070   18734 104380 cpptools-srv2
+ 714419  696570 99680 python
+ 506054   18734 96940 cpptools-srv2
+ 714523  696579 88732 python
+ 581255  504610 87116 npm exec xcodeb
+ 552279  552274 85300 MainThread
+ 596069  596068 82172 MainThread
+ 581256  504610 81688 node
+ 581262  504610 80580 node
+ 581272  504610 79224 node
+ 714711  696582 76860 python
+ 597779  596079 75868 MainThread
+rss_kib_by_comm_top12:
+6209896 13 python
+2819428 17 MainThread
+754108 2 codex
+438800 10 node
+354788 1 claude
+328312 1 cpptools
+241184 1 ovs-vswitchd
+201320 2 cpptools-srv2
+169676 1 pytest
+100256 2 npm
+57384 1 dockerd
+30840 1 containerd
+process_count=118 rg_count=0
+--
+timestamp_utc=2026-11-10T08:43:39Z
+MemTotal:       41072484 kB
+MemAvailable:   29459204 kB
+psi_memory_some avg10=0.00 avg60=0.00 avg300=0.00 total=253097069
+psi_memory_full avg10=0.00 avg60=0.00 avg300=0.00 total=216110437
+/sys/fs/cgroup/memory.max=max 
+/sys/fs/cgroup/memory.current=23215976448 
+/sys/fs/cgroup/memory.events=low 0 high 0 max 0 oom 0 oom_kill 6 oom_group_kill 0 
+top_processes_pid_ppid_rss_comm:
+ 696576  696569 1300120 python
+ 696585  696569 1000420 python
+ 696570  696569 997992 python
+ 696582  696569 955964 python
+ 504585   18746 753272 MainThread
+ 596079   18746 642512 MainThread
+ 504610  504585 610256 codex
+ 696588  696569 462860 python
+ 505206  504585 445480 MainThread
+ 696591  696569 402012 python
+ 696579  696569 383416 python
+ 696573  696569 382088 python
+ 614145  504585 341452 claude
+ 505460  504585 328312 cpptools
+    487       1 241184 ovs-vswitchd
+  18746   18742 180240 MainThread
+ 696569  696566 174008 pytest
+ 596514  596079 143876 codex
+ 581355  581354 131004 node
+  18769   18746 107176 MainThread
+ 506070   18734 104380 cpptools-srv2
+ 506054   18734 96940 cpptools-srv2
+ 715524  696582 93452 python
+ 581255  504610 87116 npm exec xcodeb
+ 552279  552274 85300 MainThread
+ 596069  596068 82172 MainThread
+ 581256  504610 81688 node
+ 581262  504610 80580 node
+ 581272  504610 79224 node
+ 597779  596079 75868 MainThread
+ 707019  504585 75744 MainThread
+ 596046  596045 68752 MainThread
+rss_kib_by_comm_top12:
+6082340 12 python
+2819436 17 MainThread
+754132 2 codex
+438800 10 node
+341452 1 claude
+328312 1 cpptools
+241184 1 ovs-vswitchd
+201320 2 cpptools-srv2
+174012 1 pytest
+100256 2 npm
+57384 1 dockerd
+30840 1 containerd
+process_count=117 rg_count=0
+--
+timestamp_utc=2026-11-10T08:43:49Z
+MemTotal:       41072484 kB
+MemAvailable:   29561016 kB
+psi_memory_some avg10=0.00 avg60=0.00 avg300=0.00 total=253097069
+psi_memory_full avg10=0.00 avg60=0.00 avg300=0.00 total=216110437
+/sys/fs/cgroup/memory.max=max 
+/sys/fs/cgroup/memory.current=23189962752 
+/sys/fs/cgroup/memory.events=low 0 high 0 max 0 oom 0 oom_kill 6 oom_group_kill 0 
+top_processes_pid_ppid_rss_comm:
+ 696576  696569 1300116 python
+ 696585  696569 1005304 python
+ 696570  696569 998056 python
+ 696582  696569 955964 python
+ 504585   18746 753272 MainThread
+ 596079   18746 642512 MainThread
+ 504610  504585 610256 codex
+ 696588  696569 462860 python
+ 505206  504585 445480 MainThread
+ 696573  696569 428348 python
+ 696591  696569 396908 python
+ 696579  696569 383904 python
+ 614145  504585 341144 claude
+ 505460  504585 328312 cpptools
+    487       1 241184 ovs-vswitchd
+  18746   18742 180260 MainThread
+ 696569  696566 177020 pytest
+ 596514  596079 143852 codex
+ 581355  581354 131004 node
+  18769   18746 107176 MainThread
+ 506070   18734 104380 cpptools-srv2
+ 506054   18734 96940 cpptools-srv2
+ 581255  504610 87116 npm exec xcodeb
+ 552279  552274 85300 MainThread
+ 596069  596068 82172 MainThread
+ 581256  504610 81688 node
+ 581262  504610 80580 node
+ 581272  504610 79224 node
+ 597779  596079 75868 MainThread
+ 707019  504585 75744 MainThread
+ 596046  596045 68752 MainThread
+  19188   18746 64492 MainThread
+rss_kib_by_comm_top12:
+6004512 10 python
+2819456 17 MainThread
+754108 2 codex
+438804 10 node
+341144 1 claude
+328312 1 cpptools
+241184 1 ovs-vswitchd
+201320 2 cpptools-srv2
+177028 1 pytest
+100256 2 npm
+57384 1 dockerd
+30840 1 containerd
+process_count=115 rg_count=0
+--
+timestamp_utc=2026-11-10T08:43:59Z
+MemTotal:       41072484 kB
+MemAvailable:   29546544 kB
+psi_memory_some avg10=0.00 avg60=0.00 avg300=0.00 total=253097069
+psi_memory_full avg10=0.00 avg60=0.00 avg300=0.00 total=216110437
+/sys/fs/cgroup/memory.max=max 
+/sys/fs/cgroup/memory.current=23290658816 
+/sys/fs/cgroup/memory.events=low 0 high 0 max 0 oom 0 oom_kill 6 oom_group_kill 0 
+top_processes_pid_ppid_rss_comm:
+ 696576  696569 1300372 python
+ 696585  696569 1005348 python
+ 696570  696569 998056 python
+ 696582  696569 955964 python
+ 504585   18746 753280 MainThread
+ 596079   18746 642512 MainThread
+ 504610  504585 610256 codex
+ 696588  696569 462860 python
+ 505206  504585 438956 MainThread
+ 696573  696569 420996 python
+ 696591  696569 396916 python
+ 696579  696569 391068 python
+ 614145  504585 346732 claude
+ 505460  504585 328312 cpptools
+    487       1 241184 ovs-vswitchd
+ 696569  696566 184032 pytest
+  18746   18742 180260 MainThread
+ 596514  596079 143312 codex
+ 581355  581354 131004 node
+  18769   18746 107176 MainThread
+ 506070   18734 104380 cpptools-srv2
+ 719113  696576 97012 python
+ 506054   18734 96940 cpptools-srv2
+ 581255  504610 87116 npm exec xcodeb
+ 552279  552274 85300 MainThread
+ 596069  596068 82172 MainThread
+ 581256  504610 81688 node
+ 581262  504610 80580 node
+ 581272  504610 79224 node
+ 597779  596079 75868 MainThread
+ 707019  504585 75744 MainThread
+ 596046  596045 68752 MainThread
+rss_kib_by_comm_top12:
+6101656 11 python
+2812940 17 MainThread
+753568 2 codex
+438804 10 node
+346732 1 claude
+328312 1 cpptools
+241184 1 ovs-vswitchd
+201320 2 cpptools-srv2
+184040 1 pytest
+100256 2 npm
+57384 1 dockerd
+30840 1 containerd
+process_count=116 rg_count=0
+--
+timestamp_utc=2026-11-10T08:44:09Z
+MemTotal:       41072484 kB
+MemAvailable:   29818244 kB
+psi_memory_some avg10=0.00 avg60=0.00 avg300=0.00 total=253097074
+psi_memory_full avg10=0.00 avg60=0.00 avg300=0.00 total=216110441
+/sys/fs/cgroup/memory.max=max 
+/sys/fs/cgroup/memory.current=23078072320 
+/sys/fs/cgroup/memory.events=low 0 high 0 max 0 oom 0 oom_kill 6 oom_group_kill 0 
+top_processes_pid_ppid_rss_comm:
+ 696576  696569 1300372 python
+ 696585  696569 1005476 python
+ 696570  696569 1003316 python
+ 696582  696569 955964 python
+ 596079   18746 642512 MainThread
+ 504585   18746 613844 MainThread
+ 504610  504585 610264 codex
+ 696588  696569 462860 python
+ 505206  504585 438956 MainThread
+ 696573  696569 420996 python
+ 696591  696569 396972 python
+ 696579  696569 391068 python
+ 614145  504585 342888 claude
+ 505460  504585 328312 cpptools
+    487       1 241184 ovs-vswitchd
+ 696569  696566 193360 pytest
+  18746   18742 180276 MainThread
+ 596514  596079 143272 codex
+ 581355  581354 131004 node
+  18769   18746 107176 MainThread
+ 506070   18734 104380 cpptools-srv2
+ 506054   18734 96940 cpptools-srv2
+ 581255  504610 87116 npm exec xcodeb
+ 552279  552274 85300 MainThread
+ 596069  596068 82172 MainThread
+ 581256  504610 81688 node
+ 581262  504610 80580 node
+ 581272  504610 79224 node
+ 597779  596079 75868 MainThread
+ 707019  504585 75744 MainThread
+ 596046  596045 68752 MainThread
+  19188   18746 64492 MainThread
+rss_kib_by_comm_top12:
+6010100 10 python
+2673520 17 MainThread
+753536 2 codex
+438804 10 node
+342888 1 claude
+328312 1 cpptools
+241184 1 ovs-vswitchd
+201320 2 cpptools-srv2
+193364 1 pytest
+100256 2 npm
+57384 1 dockerd
+30840 1 containerd
+process_count=115 rg_count=0
+--
+timestamp_utc=2026-11-10T08:44:19Z
+MemTotal:       41072484 kB
+MemAvailable:   29577224 kB
+psi_memory_some avg10=0.00 avg60=0.00 avg300=0.00 total=253097074
+psi_memory_full avg10=0.00 avg60=0.00 avg300=0.00 total=216110441
+/sys/fs/cgroup/memory.max=max 
+/sys/fs/cgroup/memory.current=23235387392 
+/sys/fs/cgroup/memory.events=low 0 high 0 max 0 oom 0 oom_kill 6 oom_group_kill 0 
+top_processes_pid_ppid_rss_comm:
+ 696576  696569 1301608 python
+ 696585  696569 1005804 python
+ 696570  696569 1000456 python
+ 696582  696569 955964 python
+ 596079   18746 642512 MainThread
+ 504585   18746 623632 MainThread
+ 504610  504585 610200 codex
+ 696588  696569 462860 python
+ 505206  504585 449384 MainThread
+ 696573  696569 420996 python
+ 696579  696569 412644 python
+ 696591  696569 397188 python
+ 614145  504585 349548 claude
+ 505460  504585 328312 cpptools
+    487       1 241184 ovs-vswitchd
+ 696569  696566 200516 pytest
+  18746   18742 180276 MainThread
+ 596514  596079 143272 codex
+ 581355  581354 131004 node
+  18769   18746 107176 MainThread
+ 506070   18734 104380 cpptools-srv2
+ 721506  696576 102176 python
+ 506054   18734 96940 cpptools-srv2
+ 581255  504610 87116 npm exec xcodeb
+ 552279  552274 85300 MainThread
+ 596069  596068 82172 MainThread
+ 581256  504610 81688 node
+ 581262  504610 80580 node
+ 581272  504610 79224 node
+ 597779  596079 75872 MainThread
+ 707019  504585 75744 MainThread
+ 596046  596045 68752 MainThread
+rss_kib_by_comm_top12:
+6132764 11 python
+2693740 17 MainThread
+753472 2 codex
+438804 10 node
+349548 1 claude
+328312 1 cpptools
+241184 1 ovs-vswitchd
+201320 2 cpptools-srv2
+200516 1 pytest
+100256 2 npm
+57384 1 dockerd
+30840 1 containerd
+process_count=116 rg_count=0
+--
+timestamp_utc=2026-11-10T08:44:29Z
+MemTotal:       41072484 kB
+MemAvailable:   29607044 kB
+psi_memory_some avg10=0.00 avg60=0.00 avg300=0.00 total=253097074
+psi_memory_full avg10=0.00 avg60=0.00 avg300=0.00 total=216110441
+/sys/fs/cgroup/memory.max=max 
+/sys/fs/cgroup/memory.current=23248228352 
+/sys/fs/cgroup/memory.events=low 0 high 0 max 0 oom 0 oom_kill 6 oom_group_kill 0 
+top_processes_pid_ppid_rss_comm:
+ 696576  696569 1301612 python
+ 696585  696569 1016236 python
+ 696570  696569 1000456 python
+ 696582  696569 955964 python
+ 596079   18746 642512 MainThread
+ 504585   18746 623632 MainThread
+ 504610  504585 610200 codex
+ 696588  696569 464628 python
+ 505206  504585 449384 MainThread
+ 696573  696569 420996 python
+ 696579  696569 412644 python
+ 696591  696569 397188 python
+ 614145  504585 352600 claude
+ 505460  504585 328312 cpptools
+    487       1 241184 ovs-vswitchd
+ 696569  696566 206044 pytest
+  18746   18742 180296 MainThread
+ 596514  596079 143272 codex
+ 581355  581354 131004 node
+  18769   18746 107176 MainThread
+ 506070   18734 104380 cpptools-srv2
+ 506054   18734 96940 cpptools-srv2
+ 581255  504610 87116 npm exec xcodeb
+ 552279  552274 85300 MainThread
+ 596069  596068 82172 MainThread
+ 581256  504610 81688 node
+ 581262  504610 80580 node
+ 723031  696576 80524 python
+ 581272  504610 79224 node
+ 597779  596079 75872 MainThread
+ 707019  504585 75744 MainThread
+ 596046  596045 68752 MainThread
+rss_kib_by_comm_top12:
+6123316 11 python
+2693760 17 MainThread
+753472 2 codex
+438804 10 node
+352600 1 claude
+328312 1 cpptools
+241184 1 ovs-vswitchd
+206056 1 pytest
+201320 2 cpptools-srv2
+100256 2 npm
+57384 1 dockerd
+30840 1 containerd
+process_count=116 rg_count=0
+--
+timestamp_utc=2026-11-10T08:44:39Z
+MemTotal:       41072484 kB
+MemAvailable:   29598260 kB
+psi_memory_some avg10=0.00 avg60=0.00 avg300=0.00 total=253097074
+psi_memory_full avg10=0.00 avg60=0.00 avg300=0.00 total=216110441
+/sys/fs/cgroup/memory.max=max 
+/sys/fs/cgroup/memory.current=23267606528 
+/sys/fs/cgroup/memory.events=low 0 high 0 max 0 oom 0 oom_kill 6 oom_group_kill 0 
+top_processes_pid_ppid_rss_comm:
+ 696576  696569 1301608 python
+ 696585  696569 1014908 python
+ 696570  696569 1000736 python
+ 696582  696569 955964 python
+ 596079   18746 642512 MainThread
+ 504585   18746 623640 MainThread
+ 504610  504585 610200 codex
+ 696588  696569 464720 python
+ 505206  504585 449384 MainThread
+ 696573  696569 420996 python
+ 696579  696569 412644 python
+ 696591  696569 397188 python
+ 614145  504585 345292 claude
+ 505460  504585 328312 cpptools
+    487       1 241184 ovs-vswitchd
+ 696569  696566 210192 pytest
+  18746   18742 180316 MainThread
+ 596514  596079 143292 codex
+ 581355  581354 131004 node
+  18769   18746 107176 MainThread
+ 506070   18734 104380 cpptools-srv2
+ 723773  696576 102760 python
+ 506054   18734 96940 cpptools-srv2
+ 581255  504610 87116 npm exec xcodeb
+ 552279  552274 85300 MainThread
+ 596069  596068 82172 MainThread
+ 581256  504610 81688 node
+ 581262  504610 80580 node
+ 581272  504610 79224 node
+ 597779  596079 75872 MainThread
+ 707019  504585 75744 MainThread
+ 596046  596045 68752 MainThread
+rss_kib_by_comm_top12:
+6144588 11 python
+2693788 17 MainThread
+753492 2 codex
+438804 10 node
+345292 1 claude
+328312 1 cpptools
+241184 1 ovs-vswitchd
+210192 1 pytest
+201320 2 cpptools-srv2
+100256 2 npm
+57384 1 dockerd
+30840 1 containerd
+process_count=116 rg_count=0
+--
+timestamp_utc=2026-11-10T08:44:49Z
+MemTotal:       41072484 kB
+MemAvailable:   29672876 kB
+psi_memory_some avg10=0.00 avg60=0.00 avg300=0.00 total=253097074
+psi_memory_full avg10=0.00 avg60=0.00 avg300=0.00 total=216110441
+/sys/fs/cgroup/memory.max=max 
+/sys/fs/cgroup/memory.current=23222677504 
+/sys/fs/cgroup/memory.events=low 0 high 0 max 0 oom 0 oom_kill 6 oom_group_kill 0 
+top_processes_pid_ppid_rss_comm:
+ 696576  696569 1302092 python
+ 696585  696569 1052644 python
+ 696570  696569 1000736 python
+ 696582  696569 955964 python
+ 596079   18746 642512 MainThread
+ 504585   18746 623640 MainThread
+ 504610  504585 610200 codex
+ 696588  696569 465340 python
+ 505206  504585 449384 MainThread
+ 696573  696569 420996 python
+ 696579  696569 412644 python
+ 696591  696569 397216 python
+ 614145  504585 345240 claude
+ 505460  504585 328312 cpptools
+    487       1 241184 ovs-vswitchd
+ 696569  696566 215400 pytest
+  18746   18742 180316 MainThread
+ 596514  596079 143344 codex
+ 581355  581354 131008 node
+  18769   18746 107176 MainThread
+ 506070   18734 104380 cpptools-srv2
+ 506054   18734 96940 cpptools-srv2
+ 581255  504610 87116 npm exec xcodeb
+ 552279  552274 85300 MainThread
+ 596069  596068 82172 MainThread
+ 581256  504610 81688 node
+ 581262  504610 80580 node
+ 581272  504610 79224 node
+ 597779  596079 75872 MainThread
+ 707019  504585 75744 MainThread
+ 596046  596045 68752 MainThread
+  19188   18746 64492 MainThread
+rss_kib_by_comm_top12:
+6080708 10 python
+2693788 17 MainThread
+753544 2 codex
+438808 10 node
+345240 1 claude
+328312 1 cpptools
+241184 1 ovs-vswitchd
+215412 1 pytest
+201320 2 cpptools-srv2
+100256 2 npm
+57384 1 dockerd
+30840 1 containerd
+process_count=115 rg_count=0
+--
+timestamp_utc=2026-11-10T08:44:59Z
+MemTotal:       41072484 kB
+MemAvailable:   29721308 kB
+psi_memory_some avg10=0.00 avg60=0.00 avg300=0.00 total=253097074
+psi_memory_full avg10=0.00 avg60=0.00 avg300=0.00 total=216110441
+/sys/fs/cgroup/memory.max=max 
+/sys/fs/cgroup/memory.current=23229976576 
+/sys/fs/cgroup/memory.events=low 0 high 0 max 0 oom 0 oom_kill 6 oom_group_kill 0 
+top_processes_pid_ppid_rss_comm:
+ 696576  696569 1309700 python
+ 696585  696569 1052660 python
+ 696570  696569 1007164 python
+ 696582  696569 955964 python
+ 596079   18746 642512 MainThread
+ 504585   18746 623652 MainThread
+ 504610  504585 610200 codex
+ 696588  696569 465340 python
+ 696573  696569 436252 python
+ 696579  696569 412652 python
+ 505206  504585 398144 MainThread
+ 696591  696569 397220 python
+ 614145  504585 344808 claude
+ 505460  504585 328312 cpptools
+    487       1 241184 ovs-vswitchd
+ 696569  696566 223780 pytest
+  18746   18742 180336 MainThread
+ 596514  596079 143300 codex
+ 581355  581354 131008 node
+  18769   18746 107176 MainThread
+ 506070   18734 104380 cpptools-srv2
+ 506054   18734 96940 cpptools-srv2
+ 581255  504610 87116 npm exec xcodeb
+ 552279  552274 85300 MainThread
+ 596069  596068 82172 MainThread
+ 581256  504610 81688 node
+ 581262  504610 80580 node
+ 581272  504610 79224 node
+ 597779  596079 75872 MainThread
+ 707019  504585 75744 MainThread
+ 596046  596045 68752 MainThread
+  19188   18746 64492 MainThread
+rss_kib_by_comm_top12:
+6110008 10 python
+2642580 17 MainThread
+753500 2 codex
+438808 10 node
+344808 1 claude
+328312 1 cpptools
+241184 1 ovs-vswitchd
+223788 1 pytest
+201320 2 cpptools-srv2
+100256 2 npm
+57384 1 dockerd
+30840 1 containerd
+process_count=115 rg_count=0
+--
+timestamp_utc=2026-11-10T08:45:10Z
+MemTotal:       41072484 kB
+MemAvailable:   29652208 kB
+psi_memory_some avg10=0.00 avg60=0.00 avg300=0.00 total=253097074
+psi_memory_full avg10=0.00 avg60=0.00 avg300=0.00 total=216110441
+/sys/fs/cgroup/memory.max=max 
+/sys/fs/cgroup/memory.current=23318499328 
+/sys/fs/cgroup/memory.events=low 0 high 0 max 0 oom 0 oom_kill 6 oom_group_kill 0 
+top_processes_pid_ppid_rss_comm:
+ 696576  696569 1309700 python
+ 696585  696569 1052660 python
+ 696570  696569 1007164 python
+ 696582  696569 955964 python
+ 596079   18746 642512 MainThread
+ 504585   18746 623972 MainThread
+ 504610  504585 612272 codex
+ 696588  696569 465340 python
+ 696573  696569 436252 python
+ 696579  696569 412652 python
+ 505206  504585 398144 MainThread
+ 696591  696569 397332 python
+ 614145  504585 345948 claude
+ 505460  504585 328312 cpptools
+    487       1 241184 ovs-vswitchd
+ 696569  696566 227396 pytest
+  18746   18742 180356 MainThread
+ 596514  596079 143300 codex
+ 581355  581354 131008 node
+  18769   18746 107276 MainThread
+ 506070   18734 104380 cpptools-srv2
+ 506054   18734 96940 cpptools-srv2
+ 581255  504610 87116 npm exec xcodeb
+ 552279  552274 85300 MainThread
+ 596069  596068 82172 MainThread
+ 581256  504610 81688 node
+ 581262  504610 80580 node
+ 581272  504610 79224 node
+ 597779  596079 75872 MainThread
+ 707019  504585 75744 MainThread
+ 596046  596045 68752 MainThread
+  19188   18746 64492 MainThread
+rss_kib_by_comm_top12:
+6171956 11 python
+2643020 17 MainThread
+755572 2 codex
+438808 10 node
+345948 1 claude
+328312 1 cpptools
+241184 1 ovs-vswitchd
+227408 1 pytest
+201320 2 cpptools-srv2
+100256 2 npm
+57384 1 dockerd
+30840 1 containerd
+process_count=119 rg_count=0
+--
+timestamp_utc=2026-11-10T08:45:20Z
+MemTotal:       41072484 kB
+MemAvailable:   28512308 kB
+psi_memory_some avg10=0.00 avg60=0.00 avg300=0.00 total=253097074
+psi_memory_full avg10=0.00 avg60=0.00 avg300=0.00 total=216110441
+/sys/fs/cgroup/memory.max=max 
+/sys/fs/cgroup/memory.current=24512811008 
+/sys/fs/cgroup/memory.events=low 0 high 0 max 0 oom 0 oom_kill 6 oom_group_kill 0 
+top_processes_pid_ppid_rss_comm:
+ 505206  504585 1440752 MainThread
+ 696576  696569 1309976 python
+ 696585  696569 1052664 python
+ 696570  696569 1007168 python
+ 696582  696569 956032 python
+ 504585   18746 660880 MainThread
+ 596079   18746 642512 MainThread
+ 504610  504585 611064 codex
+ 696588  696569 465340 python
+ 696573  696569 436252 python
+ 696579  696569 412644 python
+ 696591  696569 397396 python
+ 614145  504585 347212 claude
+ 505460  504585 341876 cpptools
+    487       1 241184 ovs-vswitchd
+ 696569  696566 233388 pytest
+  18746   18742 180364 MainThread
+ 596514  596079 143300 codex
+ 581355  581354 131008 node
+  18769   18746 107312 MainThread
+ 506070   18734 104380 cpptools-srv2
+ 506054   18734 96940 cpptools-srv2
+ 581255  504610 87116 npm exec xcodeb
+ 552279  552274 85300 MainThread
+ 596069  596068 82172 MainThread
+ 581256  504610 81688 node
+ 581262  504610 80580 node
+ 581272  504610 79224 node
+ 597779  596079 75876 MainThread
+ 707019  504585 75744 MainThread
+ 596046  596045 68752 MainThread
+  19188   18746 64492 MainThread
+rss_kib_by_comm_top12:
+6151120 11 python
+3723224 17 MainThread
+754364 2 codex
+438808 10 node
+347212 1 claude
+341640 1 cpptools
+241184 1 ovs-vswitchd
+233388 1 pytest
+201320 2 cpptools-srv2
+100256 2 npm
+57384 1 dockerd
+30840 1 containerd
+process_count=116 rg_count=0
+--
+timestamp_utc=2026-11-10T08:45:30Z
+MemTotal:       41072484 kB
+MemAvailable:   28259652 kB
+psi_memory_some avg10=0.00 avg60=0.00 avg300=0.00 total=253097074
+psi_memory_full avg10=0.00 avg60=0.00 avg300=0.00 total=216110441
+/sys/fs/cgroup/memory.max=max 
+/sys/fs/cgroup/memory.current=24719368192 
+/sys/fs/cgroup/memory.events=low 0 high 0 max 0 oom 0 oom_kill 6 oom_group_kill 0 
+top_processes_pid_ppid_rss_comm:
+ 505206  504585 1649648 MainThread
+ 696576  696569 1310180 python
+ 696585  696569 1055768 python
+ 696570  696569 1007164 python
+ 696582  696569 956032 python
+ 504585   18746 660880 MainThread
+ 596079   18746 642512 MainThread
+ 504610  504585 610972 codex
+ 696588  696569 465340 python
+ 696573  696569 436252 python
+ 696579  696569 412644 python
+ 696591  696569 397576 python
+ 614145  504585 347816 claude
+ 505460  504585 343120 cpptools
+    487       1 241184 ovs-vswitchd
+ 696569  696566 236792 pytest
+  18746   18742 180400 MainThread
+ 596514  596079 143300 codex
+ 581355  581354 131008 node
+  18769   18746 107312 MainThread
+ 506070   18734 104380 cpptools-srv2
+ 506054   18734 96940 cpptools-srv2
+ 581255  504610 87116 npm exec xcodeb
+ 552279  552274 85300 MainThread
+ 596069  596068 82172 MainThread
+ 581256  504610 81688 node
+ 581262  504610 80580 node
+ 581272  504610 79224 node
+ 597779  596079 75876 MainThread
+ 707019  504585 75744 MainThread
+ 596046  596045 68752 MainThread
+  19188   18746 64492 MainThread
+rss_kib_by_comm_top12:
+6114048 10 python
+3931516 17 MainThread
+754272 2 codex
+438808 10 node
+347816 1 claude
+343176 1 cpptools
+241184 1 ovs-vswitchd
+236792 1 pytest
+201320 2 cpptools-srv2
+100256 2 npm
+57384 1 dockerd
+30840 1 containerd
+process_count=115 rg_count=0
+--
+timestamp_utc=2026-11-10T08:45:40Z
+MemTotal:       41072484 kB
+MemAvailable:   28122396 kB
+psi_memory_some avg10=0.00 avg60=0.00 avg300=0.00 total=253097074
+psi_memory_full avg10=0.00 avg60=0.00 avg300=0.00 total=216110441
+/sys/fs/cgroup/memory.max=max 
+/sys/fs/cgroup/memory.current=24884604928 
+/sys/fs/cgroup/memory.events=low 0 high 0 max 0 oom 0 oom_kill 6 oom_group_kill 0 
+top_processes_pid_ppid_rss_comm:
+ 505206  504585 1650056 MainThread
+ 696576  696569 1310180 python
+ 696585  696569 1055768 python
+ 696570  696569 1007164 python
+ 696582  696569 980800 python
+ 504585   18746 660880 MainThread
+ 596079   18746 642540 MainThread
+ 504610  504585 610972 codex
+ 505460  504585 470200 cpptools
+ 696588  696569 465348 python
+ 696573  696569 437464 python
+ 696579  696569 412644 python
+ 696591  696569 404088 python
+ 614145  504585 347020 claude
+    487       1 241184 ovs-vswitchd
+ 696569  696566 240420 pytest
+  18746   18742 180400 MainThread
+ 596514  596079 143320 codex
+ 581355  581354 131008 node
+  18769   18746 107312 MainThread
+ 506070   18734 104380 cpptools-srv2
+ 506054   18734 96940 cpptools-srv2
+ 581255  504610 87116 npm exec xcodeb
+ 552279  552274 85300 MainThread
+ 596069  596068 82172 MainThread
+ 581256  504610 81688 node
+ 581262  504610 80580 node
+ 581272  504610 79224 node
+ 597779  596079 75876 MainThread
+ 707019  504585 75744 MainThread
+ 596046  596045 68752 MainThread
+  19188   18746 64492 MainThread
+rss_kib_by_comm_top12:
+6146564 10 python
+3931952 17 MainThread
+754292 2 codex
+470200 1 cpptools
+438808 10 node
+347020 1 claude
+241184 1 ovs-vswitchd
+240420 1 pytest
+201320 2 cpptools-srv2
+100256 2 npm
+57384 1 dockerd
+30840 1 containerd
+process_count=115 rg_count=0
+--
+timestamp_utc=2026-11-10T08:45:50Z
+MemTotal:       41072484 kB
+MemAvailable:   28204232 kB
+psi_memory_some avg10=0.00 avg60=0.00 avg300=0.00 total=253097074
+psi_memory_full avg10=0.00 avg60=0.00 avg300=0.00 total=216110441
+/sys/fs/cgroup/memory.max=max 
+/sys/fs/cgroup/memory.current=24761516032 
+/sys/fs/cgroup/memory.events=low 0 high 0 max 0 oom 0 oom_kill 6 oom_group_kill 0 
+top_processes_pid_ppid_rss_comm:
+ 505206  504585 1650704 MainThread
+ 696576  696569 1310180 python
+ 696585  696569 1055772 python
+ 696570  696569 1007164 python
+ 696582  696569 984392 python
+ 504585   18746 660880 MainThread
+ 596079   18746 642540 MainThread
+ 504610  504585 610972 codex
+ 696588  696569 465532 python
+ 696573  696569 438944 python
+ 696579  696569 412644 python
+ 696591  696569 405096 python
+ 614145  504585 345168 claude
+ 505460  504585 329312 cpptools
+ 696569  696566 244696 pytest
+    487       1 241184 ovs-vswitchd
+  18746   18742 180424 MainThread
+ 596514  596079 143284 codex
+ 581355  581354 131008 node
+  18769   18746 107312 MainThread
+ 506070   18734 104380 cpptools-srv2
+ 506054   18734 96940 cpptools-srv2
+ 581255  504610 87116 npm exec xcodeb
+ 552279  552274 85300 MainThread
+ 596069  596068 82172 MainThread
+ 581256  504610 81688 node
+ 581262  504610 80580 node
+ 581272  504610 79224 node
+ 597779  596079 75876 MainThread
+ 707019  504585 75744 MainThread
+ 596046  596045 68752 MainThread
+  19188   18746 64492 MainThread
+rss_kib_by_comm_top12:
+6152820 10 python
+3932624 17 MainThread
+754256 2 codex
+438808 10 node
+345168 1 claude
+329312 1 cpptools
+244708 1 pytest
+241184 1 ovs-vswitchd
+201320 2 cpptools-srv2
+100256 2 npm
+57384 1 dockerd
+30840 1 containerd
+process_count=115 rg_count=0
+--
+timestamp_utc=2026-11-10T08:46:00Z
+MemTotal:       41072484 kB
+MemAvailable:   28278356 kB
+psi_memory_some avg10=0.00 avg60=0.00 avg300=0.00 total=253097074
+psi_memory_full avg10=0.00 avg60=0.00 avg300=0.00 total=216110441
+/sys/fs/cgroup/memory.max=max 
+/sys/fs/cgroup/memory.current=24812478464 
+/sys/fs/cgroup/memory.events=low 0 high 0 max 0 oom 0 oom_kill 6 oom_group_kill 0 
+top_processes_pid_ppid_rss_comm:
+ 505206  504585 1651052 MainThread
+ 696576  696569 1310180 python
+ 696585  696569 1055772 python
+ 696570  696569 1010796 python
+ 696582  696569 994512 python
+ 504585   18746 660880 MainThread
+ 596079   18746 642540 MainThread
+ 504610  504585 610212 codex
+ 696588  696569 465536 python
+ 696573  696569 441956 python
+ 696579  696569 417668 python
+ 696591  696569 405108 python
+ 614145  504585 344728 claude
+ 505460  504585 329312 cpptools
+ 696569  696566 258156 pytest
+    487       1 241184 ovs-vswitchd
+  18746   18742 180424 MainThread
+ 596514  596079 143284 codex
+ 581355  581354 131008 node
+  18769   18746 107312 MainThread
+ 506070   18734 104380 cpptools-srv2
+ 506054   18734 96940 cpptools-srv2
+ 581255  504610 87116 npm exec xcodeb
+ 552279  552274 85300 MainThread
+ 596069  596068 82172 MainThread
+ 581256  504610 81688 node
+ 581262  504610 80580 node
+ 581272  504610 79224 node
+ 597779  596079 75876 MainThread
+ 707019  504585 75744 MainThread
+ 596046  596045 68752 MainThread
+  19188   18746 64492 MainThread
+rss_kib_by_comm_top12:
+6174612 10 python
+3932972 17 MainThread
+753496 2 codex
+438808 10 node
+344728 1 claude
+329312 1 cpptools
+258156 1 pytest
+241184 1 ovs-vswitchd
+201320 2 cpptools-srv2
+100256 2 npm
+57384 1 dockerd
+30840 1 containerd
+process_count=115 rg_count=0
+--
+timestamp_utc=2026-11-10T08:46:10Z
+MemTotal:       41072484 kB
+MemAvailable:   28276708 kB
+psi_memory_some avg10=0.00 avg60=0.00 avg300=0.00 total=253097074
+psi_memory_full avg10=0.00 avg60=0.00 avg300=0.00 total=216110441
+/sys/fs/cgroup/memory.max=max 
+/sys/fs/cgroup/memory.current=24861839360 
+/sys/fs/cgroup/memory.events=low 0 high 0 max 0 oom 0 oom_kill 6 oom_group_kill 0 
+top_processes_pid_ppid_rss_comm:
+ 505206  504585 1651364 MainThread
+ 696576  696569 1310180 python
+ 696585  696569 1055772 python
+ 696570  696569 1014032 python
+ 696582  696569 997820 python
+ 504585   18746 671128 MainThread
+ 596079   18746 642540 MainThread
+ 504610  504585 610116 codex
+ 696588  696569 465532 python
+ 696573  696569 446324 python
+ 696579  696569 419860 python
+ 696591  696569 405256 python
+ 614145  504585 344736 claude
+ 505460  504585 329312 cpptools
+ 696569  696566 265744 pytest
+    487       1 241184 ovs-vswitchd
+  18746   18742 180476 MainThread
+ 596514  596079 143284 codex
+ 581355  581354 131008 node
+  18769   18746 107312 MainThread
+ 506070   18734 104380 cpptools-srv2
+ 506054   18734 96940 cpptools-srv2
+ 581255  504610 87116 npm exec xcodeb
+ 552279  552274 85300 MainThread
+ 596069  596068 82172 MainThread
+ 581256  504610 81688 node
+ 581262  504610 80580 node
+ 581272  504610 79224 node
+ 597779  596079 75880 MainThread
+ 707019  504585 75744 MainThread
+ 596046  596045 68752 MainThread
+  19188   18746 64492 MainThread
+rss_kib_by_comm_top12:
+6187868 10 python
+3943588 17 MainThread
+753400 2 codex
+438808 10 node
+344736 1 claude
+329312 1 cpptools
+265744 1 pytest
+241184 1 ovs-vswitchd
+201320 2 cpptools-srv2
+100256 2 npm
+57384 1 dockerd
+30840 1 containerd
+process_count=115 rg_count=0
+--
+timestamp_utc=2026-11-10T08:46:20Z
+MemTotal:       41072484 kB
+MemAvailable:   28143704 kB
+psi_memory_some avg10=0.00 avg60=0.00 avg300=0.00 total=253097074
+psi_memory_full avg10=0.00 avg60=0.00 avg300=0.00 total=216110441
+/sys/fs/cgroup/memory.max=max 
+/sys/fs/cgroup/memory.current=24962375680 
+/sys/fs/cgroup/memory.events=low 0 high 0 max 0 oom 0 oom_kill 6 oom_group_kill 0 
+top_processes_pid_ppid_rss_comm:
+ 505206  504585 1651396 MainThread
+ 696576  696569 1310348 python
+ 696570  696569 1063004 python
+ 696585  696569 1055772 python
+ 696582  696569 1008532 python
+ 504585   18746 671128 MainThread
+ 596079   18746 642540 MainThread
+ 504610  504585 610076 codex
+ 696588  696569 465532 python
+ 696573  696569 446328 python
+ 696579  696569 424860 python
+ 696591  696569 409932 python
+ 614145  504585 347172 claude
+ 505460  504585 329312 cpptools
+ 696569  696566 263016 pytest
+    487       1 241184 ovs-vswitchd
+  18746   18742 180476 MainThread
+ 596514  596079 143284 codex
+ 581355  581354 131008 node
+  18769   18746 107312 MainThread
+ 506070   18734 104380 cpptools-srv2
+ 506054   18734 96940 cpptools-srv2
+ 581255  504610 87116 npm exec xcodeb
+ 552279  552274 85300 MainThread
+ 596069  596068 82172 MainThread
+ 581256  504610 81688 node
+ 581262  504610 80580 node
+ 581272  504610 79224 node
+ 597779  596079 75880 MainThread
+ 707019  504585 75744 MainThread
+ 596046  596045 68752 MainThread
+  19188   18746 64492 MainThread
+rss_kib_by_comm_top12:
+6283244 11 python
+3943620 17 MainThread
+753360 2 codex
+438808 10 node
+347172 1 claude
+329312 1 cpptools
+263016 1 pytest
+241184 1 ovs-vswitchd
+201320 2 cpptools-srv2
+100256 2 npm
+57384 1 dockerd
+30840 1 containerd
+process_count=116 rg_count=0
+--
+timestamp_utc=2026-11-10T08:46:30Z
+MemTotal:       41072484 kB
+MemAvailable:   27649088 kB
+psi_memory_some avg10=0.00 avg60=0.00 avg300=0.00 total=253097074
+psi_memory_full avg10=0.00 avg60=0.00 avg300=0.00 total=216110441
+/sys/fs/cgroup/memory.max=max 
+/sys/fs/cgroup/memory.current=25392586752 
+/sys/fs/cgroup/memory.events=low 0 high 0 max 0 oom 0 oom_kill 6 oom_group_kill 0 
+top_processes_pid_ppid_rss_comm:
+ 505206  504585 1651396 MainThread
+ 696582  696569 1397672 python
+ 696576  696569 1310348 python
+ 696570  696569 1065688 python
+ 696585  696569 1055776 python
+ 504585   18746 674084 MainThread
+ 596079   18746 642540 MainThread
+ 504610  504585 610076 codex
+ 696588  696569 476056 python
+ 696573  696569 450664 python
+ 696579  696569 440816 python
+ 696591  696569 410124 python
+ 614145  504585 347424 claude
+ 505460  504585 329312 cpptools
+ 696569  696566 267340 pytest
+    487       1 241184 ovs-vswitchd
+  18746   18742 180476 MainThread
+ 596514  596079 143284 codex
+ 581355  581354 131008 node
+  18769   18746 107312 MainThread
+ 506070   18734 104380 cpptools-srv2
+ 506054   18734 96940 cpptools-srv2
+ 581255  504610 87116 npm exec xcodeb
+ 552279  552274 85300 MainThread
+ 596069  596068 82172 MainThread
+ 581256  504610 81688 node
+ 581262  504610 80580 node
+ 581272  504610 79224 node
+ 597779  596079 75880 MainThread
+ 707019  504585 75744 MainThread
+ 596046  596045 68752 MainThread
+  19188   18746 64492 MainThread
+rss_kib_by_comm_top12:
+6680236 10 python
+3946580 17 MainThread
+753360 2 codex
+438808 10 node
+347424 1 claude
+329312 1 cpptools
+267360 1 pytest
+241184 1 ovs-vswitchd
+201320 2 cpptools-srv2
+100256 2 npm
+57384 1 dockerd
+30840 1 containerd
+process_count=115 rg_count=0
+--
+timestamp_utc=2026-11-10T08:46:40Z
+MemTotal:       41072484 kB
+MemAvailable:   27862312 kB
+psi_memory_some avg10=0.00 avg60=0.00 avg300=0.00 total=253097074
+psi_memory_full avg10=0.00 avg60=0.00 avg300=0.00 total=216110441
+/sys/fs/cgroup/memory.max=max 
+/sys/fs/cgroup/memory.current=25145389056 
+/sys/fs/cgroup/memory.events=low 0 high 0 max 0 oom 0 oom_kill 6 oom_group_kill 0 
+top_processes_pid_ppid_rss_comm:
+ 505206  504585 1651396 MainThread
+ 696576  696569 1310348 python
+ 696582  696569 1122620 python
+ 696570  696569 1065692 python
+ 696585  696569 1057784 python
+ 504585   18746 677084 MainThread
+ 596079   18746 642540 MainThread
+ 504610  504585 610076 codex
+ 696588  696569 476920 python
+ 696573  696569 451680 python
+ 696579  696569 440052 python
+ 696591  696569 414404 python
+ 614145  504585 346764 claude
+ 505460  504585 329312 cpptools
+ 696569  696566 278548 pytest
+    487       1 241184 ovs-vswitchd
+  18746   18742 180476 MainThread
+ 596514  596079 143304 codex
+ 581355  581354 131008 node
+  18769   18746 107312 MainThread
+ 506070   18734 104380 cpptools-srv2
+ 506054   18734 96940 cpptools-srv2
+ 581255  504610 87116 npm exec xcodeb
+ 552279  552274 85300 MainThread
+ 596069  596068 82172 MainThread
+ 581256  504610 81688 node
+ 581262  504610 80580 node
+ 581272  504610 79224 node
+ 597779  596079 75880 MainThread
+ 707019  504585 75744 MainThread
+ 596046  596045 68752 MainThread
+  19188   18746 64492 MainThread
+rss_kib_by_comm_top12:
+6412600 10 python
+3949580 17 MainThread
+753380 2 codex
+438808 10 node
+346764 1 claude
+329312 1 cpptools
+278560 1 pytest
+241184 1 ovs-vswitchd
+201320 2 cpptools-srv2
+100256 2 npm
+57384 1 dockerd
+30840 1 containerd
+process_count=115 rg_count=0
+--
+timestamp_utc=2026-11-10T08:46:50Z
+MemTotal:       41072484 kB
+MemAvailable:   27773332 kB
+psi_memory_some avg10=0.00 avg60=0.00 avg300=0.00 total=253097074
+psi_memory_full avg10=0.00 avg60=0.00 avg300=0.00 total=216110441
+/sys/fs/cgroup/memory.max=max 
+/sys/fs/cgroup/memory.current=25291546624 
+/sys/fs/cgroup/memory.events=low 0 high 0 max 0 oom 0 oom_kill 6 oom_group_kill 0 
+top_processes_pid_ppid_rss_comm:
+ 505206  504585 1651396 MainThread
+ 696576  696569 1314816 python
+ 696582  696569 1121788 python
+ 696585  696569 1071216 python
+ 696570  696569 1065696 python
+ 504585   18746 677084 MainThread
+ 596079   18746 642540 MainThread
+ 504610  504585 610076 codex
+ 696588  696569 489648 python
+ 696573  696569 451680 python
+ 696579  696569 440052 python
+ 696591  696569 415688 python
+ 614145  504585 336528 claude
+ 505460  504585 329312 cpptools
+ 696569  696566 294952 pytest
+    487       1 241184 ovs-vswitchd
+  18746   18742 180484 MainThread
+ 596514  596079 143284 codex
+ 581355  581354 131008 node
+  18769   18746 107312 MainThread
+ 506070   18734 104380 cpptools-srv2
+ 506054   18734 96940 cpptools-srv2
+ 581255  504610 87116 npm exec xcodeb
+ 552279  552274 85300 MainThread
+ 596069  596068 82172 MainThread
+ 581256  504610 81688 node
+ 581262  504610 80580 node
+ 581272  504610 79224 node
+ 597779  596079 75880 MainThread
+ 707019  504585 75744 MainThread
+ 596046  596045 68752 MainThread
+  19188   18746 64492 MainThread
+rss_kib_by_comm_top12:
+6539004 12 python
+3949588 17 MainThread
+753360 2 codex
+438808 10 node
+336528 1 claude
+329312 1 cpptools
+294952 1 pytest
+241184 1 ovs-vswitchd
+201320 2 cpptools-srv2
+100256 2 npm
+57384 1 dockerd
+30840 1 containerd
+process_count=117 rg_count=0
+--
+timestamp_utc=2026-11-10T08:47:00Z
+MemTotal:       41072484 kB
+MemAvailable:   28345608 kB
+psi_memory_some avg10=0.00 avg60=0.00 avg300=0.00 total=253097074
+psi_memory_full avg10=0.00 avg60=0.00 avg300=0.00 total=216110441
+/sys/fs/cgroup/memory.max=max 
+/sys/fs/cgroup/memory.current=25428914176 
+/sys/fs/cgroup/memory.events=low 0 high 0 max 0 oom 0 oom_kill 6 oom_group_kill 0 
+top_processes_pid_ppid_rss_comm:
+ 696576  696569 1319912 python
+ 696582  696569 1121788 python
+ 696585  696569 1069640 python
+ 696570  696569 1065696 python
+ 505206  504585 816628 MainThread
+ 504585   18746 677084 MainThread
+ 596079   18746 642540 MainThread
+ 504610  504585 609332 codex
+ 696588  696569 515044 python
+ 696579  696569 490764 python
+ 696573  696569 451680 python
+ 696591  696569 417484 python
+ 614145  504585 342576 claude
+ 505460  504585 329312 cpptools
+ 696569  696566 302440 pytest
+    487       1 241184 ovs-vswitchd
+  18746   18742 180484 MainThread
+ 596514  596079 143284 codex
+ 581355  581354 131008 node
+  18769   18746 107312 MainThread
+ 506070   18734 104380 cpptools-srv2
+ 506054   18734 96940 cpptools-srv2
+ 581255  504610 87116 npm exec xcodeb
+ 552279  552274 85300 MainThread
+ 596069  596068 82172 MainThread
+ 581256  504610 81688 node
+ 581262  504610 80580 node
+ 581272  504610 79224 node
+ 597779  596079 75884 MainThread
+ 707019  504585 75744 MainThread
+ 596046  596045 68752 MainThread
+  19188   18746 64492 MainThread
+rss_kib_by_comm_top12:
+6525108 10 python
+3114824 17 MainThread
+752616 2 codex
+438808 10 node
+342576 1 claude
+329312 1 cpptools
+302440 1 pytest
+241184 1 ovs-vswitchd
+201320 2 cpptools-srv2
+100256 2 npm
+57384 1 dockerd
+30840 1 containerd
+process_count=116 rg_count=0
+--
+timestamp_utc=2026-11-10T08:47:10Z
+MemTotal:       41072484 kB
+MemAvailable:   28136124 kB
+psi_memory_some avg10=0.00 avg60=0.00 avg300=0.00 total=253097088
+psi_memory_full avg10=0.00 avg60=0.00 avg300=0.00 total=216110455
+/sys/fs/cgroup/memory.max=max 
+/sys/fs/cgroup/memory.current=26826600448 
+/sys/fs/cgroup/memory.events=low 0 high 0 max 0 oom 0 oom_kill 6 oom_group_kill 0 
+top_processes_pid_ppid_rss_comm:
+ 696576  696569 1319924 python
+ 696585  696569 1243276 python
+ 696582  696569 1119804 python
+ 696570  696569 1065696 python
+ 505206  504585 704648 MainThread
+ 696588  696569 699324 python
+ 504585   18746 677084 MainThread
+ 596079   18746 642540 MainThread
+ 504610  504585 609352 codex
+ 696579  696569 490888 python
+ 696573  696569 451712 python
+ 696591  696569 423284 python
+ 614145  504585 338916 claude
+ 505460  504585 329312 cpptools
+ 696569  696566 309024 pytest
+    487       1 241184 ovs-vswitchd
+  18746   18742 180484 MainThread
+ 596514  596079 143284 codex
+ 581355  581354 131008 node
+  18769   18746 107312 MainThread
+ 506070   18734 104380 cpptools-srv2
+ 506054   18734 96940 cpptools-srv2
+ 581255  504610 87116 npm exec xcodeb
+ 552279  552274 85300 MainThread
+ 596069  596068 82172 MainThread
+ 581256  504610 81688 node
+ 581262  504610 80580 node
+ 581272  504610 79224 node
+ 597779  596079 75884 MainThread
+ 707019  504585 75744 MainThread
+ 596046  596045 68752 MainThread
+  19188   18746 64492 MainThread
+rss_kib_by_comm_top12:
+6887008 10 python
+3002844 17 MainThread
+752636 2 codex
+438808 10 node
+338916 1 claude
+329312 1 cpptools
+309040 1 pytest
+241184 1 ovs-vswitchd
+201320 2 cpptools-srv2
+100256 2 npm
+57384 1 dockerd
+30840 1 containerd
+process_count=116 rg_count=0
+--
+timestamp_utc=2026-11-10T08:47:20Z
+MemTotal:       41072484 kB
+MemAvailable:   26917664 kB
+psi_memory_some avg10=0.00 avg60=0.00 avg300=0.00 total=253097091
+psi_memory_full avg10=0.00 avg60=0.00 avg300=0.00 total=216110456
+/sys/fs/cgroup/memory.max=max 
+/sys/fs/cgroup/memory.current=28428242944 
+/sys/fs/cgroup/memory.events=low 0 high 0 max 0 oom 0 oom_kill 6 oom_group_kill 0 
+top_processes_pid_ppid_rss_comm:
+ 696576  696569 1322000 python
+ 696582  696569 1117872 python
+ 696585  696569 1072268 python
+ 696570  696569 1065696 python
+ 696591  696569 1033048 python
+ 696573  696569 894592 python
+ 505206  504585 763048 MainThread
+ 504585   18746 683872 MainThread
+ 596079   18746 642540 MainThread
+ 696588  696569 620436 python
+ 504610  504585 609592 codex
+ 696579  696569 491360 python
+ 614145  504585 341796 claude
+ 505460  504585 339088 cpptools
+ 696569  696566 315932 pytest
+    487       1 241184 ovs-vswitchd
+  18746   18742 180484 MainThread
+ 596514  596079 143284 codex
+ 581355  581354 131008 node
+  18769   18746 107312 MainThread
+ 506070   18734 104380 cpptools-srv2
+ 506054   18734 96940 cpptools-srv2
+ 581255  504610 87116 npm exec xcodeb
+ 552279  552274 85300 MainThread
+ 596069  596068 82172 MainThread
+ 581256  504610 81688 node
+ 581262  504610 80580 node
+ 581272  504610 79224 node
+ 597779  596079 75884 MainThread
+ 707019  504585 75744 MainThread
+ 741319  696570 71080 python
+ 596046  596045 68752 MainThread
+rss_kib_by_comm_top12:
+7814436 12 python
+3068032 17 MainThread
+752876 2 codex
+438808 10 node
+341796 1 claude
+339088 1 cpptools
+315940 1 pytest
+241184 1 ovs-vswitchd
+201320 2 cpptools-srv2
+100256 2 npm
+57384 1 dockerd
+35972 1 git
+process_count=117 rg_count=0
+--
+timestamp_utc=2026-11-10T08:47:31Z
+MemTotal:       41072484 kB
+MemAvailable:   26740704 kB
+psi_memory_some avg10=0.00 avg60=0.00 avg300=0.00 total=253097091
+psi_memory_full avg10=0.00 avg60=0.00 avg300=0.00 total=216110456
+/sys/fs/cgroup/memory.max=max 
+/sys/fs/cgroup/memory.current=29302894592 
+/sys/fs/cgroup/memory.events=low 0 high 0 max 0 oom 0 oom_kill 6 oom_group_kill 0 
+top_processes_pid_ppid_rss_comm:
+ 696576  696569 1325736 python
+ 696582  696569 1127476 python
+ 696585  696569 1072332 python
+ 696570  696569 1065824 python
+ 696573  696569 1040060 python
+ 696591  696569 1033048 python
+ 505206  504585 764972 MainThread
+ 504585   18746 683872 MainThread
+ 596079   18746 642540 MainThread
+ 504610  504585 609544 codex
+ 696588  696569 521836 python
+ 696579  696569 491360 python
+ 614145  504585 345960 claude
+ 505460  504585 330244 cpptools
+ 696569  696566 319500 pytest
+    487       1 241184 ovs-vswitchd
+  18746   18742 180484 MainThread
+ 596514  596079 143284 codex
+ 581355  581354 131008 node
+  18769   18746 107312 MainThread
+ 506070   18734 104380 cpptools-srv2
+ 506054   18734 96940 cpptools-srv2
+ 581255  504610 87116 npm exec xcodeb
+ 552279  552274 85300 MainThread
+ 596069  596068 82172 MainThread
+ 581256  504610 81688 node
+ 581262  504610 80580 node
+ 581272  504610 79224 node
+ 742042  696573 76548 python
+ 597779  596079 75884 MainThread
+ 707019  504585 75744 MainThread
+ 742264  696570 73524 python
+rss_kib_by_comm_top12:
+7958432 13 python
+3069956 17 MainThread
+752828 2 codex
+438808 10 node
+345960 1 claude
+330244 1 cpptools
+319500 1 pytest
+241184 1 ovs-vswitchd
+201320 2 cpptools-srv2
+100256 2 npm
+57384 1 dockerd
+30840 1 containerd
+process_count=119 rg_count=0
+--
+timestamp_utc=2026-11-10T08:47:41Z
+MemTotal:       41072484 kB
+MemAvailable:   26811548 kB
+psi_memory_some avg10=0.00 avg60=0.00 avg300=0.00 total=253097091
+psi_memory_full avg10=0.00 avg60=0.00 avg300=0.00 total=216110456
+/sys/fs/cgroup/memory.max=max 
+/sys/fs/cgroup/memory.current=30399315968 
+/sys/fs/cgroup/memory.events=low 0 high 0 max 0 oom 0 oom_kill 6 oom_group_kill 0 
+top_processes_pid_ppid_rss_comm:
+ 696576  696569 1326504 python
+ 696582  696569 1116232 python
+ 696585  696569 1086000 python
+ 696570  696569 1065852 python
+ 696573  696569 1040060 python
+ 696591  696569 1033176 python
+ 505206  504585 765188 MainThread
+ 504585   18746 683872 MainThread
+ 596079   18746 642540 MainThread
+ 504610  504585 609396 codex
+ 696588  696569 520812 python
+ 696579  696569 491360 python
+ 614145  504585 340716 claude
+ 505460  504585 330244 cpptools
+ 696569  696566 321300 pytest
+    487       1 241184 ovs-vswitchd
+  18746   18742 180484 MainThread
+ 596514  596079 143288 codex
+ 581355  581354 131008 node
+  18769   18746 107312 MainThread
+ 506070   18734 104380 cpptools-srv2
+ 506054   18734 96940 cpptools-srv2
+ 581255  504610 87116 npm exec xcodeb
+ 552279  552274 85300 MainThread
+ 596069  596068 82172 MainThread
+ 581256  504610 81688 node
+ 581262  504610 80580 node
+ 581272  504610 79224 node
+ 597779  596079 75884 MainThread
+ 707019  504585 75744 MainThread
+ 596046  596045 68752 MainThread
+  19188   18746 64492 MainThread
+rss_kib_by_comm_top12:
+7808176 11 python
+3070172 17 MainThread
+752684 2 codex
+438812 10 node
+340716 1 claude
+330244 1 cpptools
+321300 1 pytest
+241184 1 ovs-vswitchd
+201320 2 cpptools-srv2
+100256 2 npm
+57384 1 dockerd
+30840 1 containerd
+process_count=117 rg_count=0
+--
+timestamp_utc=2026-11-10T08:47:51Z
+MemTotal:       41072484 kB
+MemAvailable:   27171732 kB
+psi_memory_some avg10=0.00 avg60=0.00 avg300=0.00 total=253097091
+psi_memory_full avg10=0.00 avg60=0.00 avg300=0.00 total=216110456
+/sys/fs/cgroup/memory.max=max 
+/sys/fs/cgroup/memory.current=31709360128 
+/sys/fs/cgroup/memory.events=low 0 high 0 max 0 oom 0 oom_kill 6 oom_group_kill 0 
+top_processes_pid_ppid_rss_comm:
+ 696576  696569 1326504 python
+ 696582  696569 1116232 python
+ 696585  696569 1086000 python
+ 696570  696569 1065852 python
+ 696573  696569 1039052 python
+ 696591  696569 1033176 python
+ 505206  504585 765272 MainThread
+ 504585   18746 683876 MainThread
+ 596079   18746 642540 MainThread
+ 504610  504585 609396 codex
+ 696588  696569 520812 python
+ 696579  696569 491380 python
+ 614145  504585 345080 claude
+ 505460  504585 330244 cpptools
+ 696569  696566 321328 pytest
+    487       1 241184 ovs-vswitchd
+  18746   18742 180484 MainThread
+ 596514  596079 143268 codex
+ 581355  581354 131008 node
+  18769   18746 107312 MainThread
+ 506070   18734 104380 cpptools-srv2
+ 506054   18734 96940 cpptools-srv2
+ 581255  504610 87116 npm exec xcodeb
+ 552279  552274 85300 MainThread
+ 596069  596068 82172 MainThread
+ 581256  504610 81688 node
+ 581262  504610 80580 node
+ 581272  504610 79224 node
+ 597779  596079 75888 MainThread
+ 707019  504585 75744 MainThread
+ 596046  596045 68752 MainThread
+  19188   18746 64492 MainThread
+rss_kib_by_comm_top12:
+7752044 10 python
+3070264 17 MainThread
+752664 2 codex
+438812 10 node
+345080 1 claude
+330244 1 cpptools
+321328 1 pytest
+241184 1 ovs-vswitchd
+201320 2 cpptools-srv2
+100256 2 npm
+57384 1 dockerd
+30840 1 containerd
+process_count=116 rg_count=0
+--
+timestamp_utc=2026-11-10T08:48:01Z
+MemTotal:       41072484 kB
+MemAvailable:   27131828 kB
+psi_memory_some avg10=0.00 avg60=0.00 avg300=0.00 total=253097091
+psi_memory_full avg10=0.00 avg60=0.00 avg300=0.00 total=216110456
+/sys/fs/cgroup/memory.max=max 
+/sys/fs/cgroup/memory.current=33013440512 
+/sys/fs/cgroup/memory.events=low 0 high 0 max 0 oom 0 oom_kill 6 oom_group_kill 0 
+top_processes_pid_ppid_rss_comm:
+ 696576  696569 1326504 python
+ 696582  696569 1116232 python
+ 696585  696569 1086000 python
+ 696570  696569 1065852 python
+ 696573  696569 1039052 python
+ 696591  696569 1033176 python
+ 505206  504585 765312 MainThread
+ 504585   18746 683880 MainThread
+ 596079   18746 642540 MainThread
+ 504610  504585 609396 codex
+ 696588  696569 520812 python
+ 696579  696569 491812 python
+ 614145  504585 347152 claude
+ 505460  504585 330244 cpptools
+ 696569  696566 321340 pytest
+    487       1 241184 ovs-vswitchd
+  18746   18742 180484 MainThread
+ 596514  596079 143268 codex
+ 581355  581354 131008 node
+  18769   18746 107312 MainThread
+ 506070   18734 104380 cpptools-srv2
+ 506054   18734 96940 cpptools-srv2
+ 581255  504610 87116 npm exec xcodeb
+ 552279  552274 85300 MainThread
+ 596069  596068 82172 MainThread
+ 581256  504610 81688 node
+ 581262  504610 80580 node
+ 581272  504610 79224 node
+ 597779  596079 75888 MainThread
+ 707019  504585 75744 MainThread
+ 596046  596045 68752 MainThread
+  19188   18746 64492 MainThread
+rss_kib_by_comm_top12:
+7752476 10 python
+3070308 17 MainThread
+752664 2 codex
+438812 10 node
+347152 1 claude
+330244 1 cpptools
+321340 1 pytest
+241184 1 ovs-vswitchd
+201320 2 cpptools-srv2
+100256 2 npm
+57384 1 dockerd
+30840 1 containerd
+process_count=116 rg_count=0
+--
+timestamp_utc=2026-11-10T08:48:11Z
+MemTotal:       41072484 kB
+MemAvailable:   27059468 kB
+psi_memory_some avg10=0.00 avg60=0.00 avg300=0.00 total=253097091
+psi_memory_full avg10=0.00 avg60=0.00 avg300=0.00 total=216110456
+/sys/fs/cgroup/memory.max=max 
+/sys/fs/cgroup/memory.current=33720664064 
+/sys/fs/cgroup/memory.events=low 0 high 0 max 0 oom 0 oom_kill 6 oom_group_kill 0 
+top_processes_pid_ppid_rss_comm:
+ 696576  696569 1326480 python
+ 696582  696569 1116228 python
+ 696585  696569 1085996 python
+ 696570  696569 1065824 python
+ 696573  696569 1039028 python
+ 696591  696569 1033172 python
+ 505206  504585 764912 MainThread
+ 504585   18746 683884 MainThread
+ 596079   18746 642540 MainThread
+ 504610  504585 609444 codex
+ 696588  696569 520796 python
+ 696579  696569 510196 python
+ 614145  504585 345448 claude
+ 505460  504585 330244 cpptools
+ 696569  696566 288956 pytest
+    487       1 241184 ovs-vswitchd
+  18746   18742 180484 MainThread
+ 596514  596079 143268 codex
+ 581355  581354 131008 node
+  18769   18746 107312 MainThread
+ 506070   18734 104380 cpptools-srv2
+ 506054   18734 96940 cpptools-srv2
+ 581255  504610 87116 npm exec xcodeb
+ 552279  552274 85300 MainThread
+ 596069  596068 82172 MainThread
+ 581256  504610 81688 node
+ 581262  504610 80580 node
+ 581272  504610 79224 node
+ 597779  596079 75888 MainThread
+ 707019  504585 75744 MainThread
+ 596046  596045 68752 MainThread
+  19188   18746 64492 MainThread
+rss_kib_by_comm_top12:
+7770756 10 python
+3069912 17 MainThread
+752712 2 codex
+438812 10 node
+345448 1 claude
+330244 1 cpptools
+288956 1 pytest
+241184 1 ovs-vswitchd
+201320 2 cpptools-srv2
+100256 2 npm
+57384 1 dockerd
+30840 1 containerd
+process_count=115 rg_count=0
+--

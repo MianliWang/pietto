@@ -1,0 +1,64 @@
+{
+  "format": "phase77-native-maintenance-recovery-v1",
+  "scope": "forensic recovery inputs only; no canonical files, databases, networks, installs, containers, or cleanup were run",
+  "source_sessions": {
+    "mysql": {
+      "path": "/home/mianliwang/.codex/sessions/2026/11/08/rollout-2026-11-08T13-07-13-01a1bc57-cea2-7dd0-a4d9-602a6b4d08bf.jsonl",
+      "agent": "/root/maintenance_mysql_db",
+      "candidate": {
+        "campaign_sha256": "c2c38ce086a19e56ccbb45c9d46b74763e915d242bc914398735725e8ef56fbd",
+        "selfcheck_sha256": "cebc86d9c2857d2fb0cec6ae07cf7984d8c459d3d01f711377eface5f4048e59",
+        "wheel_sha256": "f4c96921c4d4ceb057830f2dd21f2e634325dac2bef933532747ae4aab963a73",
+        "wheel": "pietto-0.1.10-py3-none-any.whl"
+      },
+      "recoverable_inputs": [
+        "campaign.py",
+        "relay.py",
+        "judge.py",
+        "preflight.py",
+        "selfcheck.py",
+        "PREREG.md"
+      ],
+      "transcript_locations": {
+        "initial_source_additions": "ordinals 892, 980, 995",
+        "current_bounded_context_changes": "ordinals 3255, 3321, 3344, 3406",
+        "r8_fixture_and_prereg_label": "ordinal 3648",
+        "final_no_docker_compile_and_selfcheck": "ordinal 3657, call_3f71bd76c49348c9b855af829084ae25",
+        "r8_launcher_request_without_result": "ordinal 3680, call_d9557f7ad9534b8e8ed8ba110d478165"
+      }
+    },
+    "postgresql": {
+      "path": "/home/mianliwang/.codex/sessions/2026/11/08/rollout-2026-11-08T13-07-00-01a1bc57-9b18-7471-82b5-d2b3a30b393e.jsonl",
+      "agent": "/root/maintenance_pg_db",
+      "candidate": {
+        "wheel_sha256": "f4c96921c4d4ceb057830f2dd21f2e634325dac2bef933532747ae4aab963a73",
+        "wheel": "pietto-0.1.10-py3-none-any.whl",
+        "pyarrow": "26.0.1",
+        "psycopg": "3.3.8",
+        "adbc_driver_postgresql": "1.13.0"
+      },
+      "recoverable_inputs": [
+        "TLS R2 relay and receipt/judge closure",
+        "remaining R4 relay, parent runner, judge, compare receipt, and PREREG.md"
+      ],
+      "transcript_locations": {
+        "remaining_prereg_source": "ordinal 1500",
+        "r3_failure_report": "ordinal 2436",
+        "r4_pass_report": "ordinal 2634",
+        "four_path_status": "ordinal 2858"
+      }
+    }
+  },
+  "source_recovery": {
+    "state": "HISTORICAL_BYTE_ARCHIVE_AND_NEW_REBIND_MATERIALIZED",
+    "reason": "The literal source replay materializes campaign.py, mysql.sh, relay.py, judge.py, preflight.py, selfcheck.py, and PREREG.md under source-archive. campaign.py matches the recorded final hash c2c38ce086a19e56ccbb45c9d46b74763e915d242bc914398735725e8ef56fbd. runnable-rebind/mysql has a new identity-taking launcher and inherits no review or runtime result.",
+    "fresh_run_rule": "Reconstruct only from the listed tool-call inputs, re-run source AST/compile/self-checks under UV_PYTHON=3.13.13 in an offline fresh environment, and bind fresh candidate, identity, wheelhouse, TLS, database, and relay inputs before any execution.",
+    "forbidden_reuse": [
+      "old runtime secrets",
+      "private keys",
+      "old database state",
+      "old cleanup state",
+      "old raw outputs as a fresh-run result"
+    ]
+  }
+}

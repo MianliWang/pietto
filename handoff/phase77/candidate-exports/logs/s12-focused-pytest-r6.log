@@ -1,0 +1,72 @@
+.F........                                                               [100%]
+=================================== FAILURES ===================================
+_____ test_now_is_one_utc_statement_snapshot_evaluated_at_execution[mysql] _____
+
+tmp_path = PosixPath('/tmp/pietto-phase77-s12-focused6/test_now_is_one_utc_statement_1')
+target = 'mysql'
+
+    @pytest.mark.parametrize("target", TARGETS)
+    def test_now_is_one_utc_statement_snapshot_evaluated_at_execution(tmp_path, target):
+        """`now()` is a UTC statement-start Timestamp retained by both forms."""
+        outcome = emit_temporal(
+            tmp_path / target,
+            target,
+            """table result:
+        from rows
+        where stamp <= now()
+        select:
+            stamp
+            seen = now()
+            day = date_of(now())
+    """,
+        )
+    
+        assert outcome.status == "VERIFIED" and outcome.artifact is not None
+        artifact = outcome.artifact
+        assert verify_project_sql_emission(artifact, artifact.request).verified
+        observed = portable.export_emission_observation(artifact, artifact.request)
+        assert observed.canonical_bytes is not None
+        assert (
+            pure.parse_emission_observation(observed.canonical_bytes).status
+            is pure.Status.OK
+        )
+        assert portable.verify_emission_observation(
+            observed.canonical_bytes, artifact, artifact.request
+        ).corresponds
+        sql = artifact.rendered.sql.decode()
+        now_sql = _NOW_SQL[target]
+        quote = '"' if target == "postgres" else "`"
+        stamp = '"s0"."stamp"' if target == "postgres" else "`s0`.`stamp`"
+        assert sql.count(now_sql) == 3
+        assert f"WHERE ({stamp} <= {now_sql})" in sql
+        day_sql = f"CAST({now_sql} AS date)" if target == "postgres" else f"DATE({now_sql})"
+        assert f"{now_sql} AS {quote}seen{quote}, {day_sql} AS {quote}day{quote}" in sql
+        document = probe.decode_public(serialize_project_sql_emission(outcome))
+        columns = {column["label"]: column for column in document["columns"]}
+        assert (columns["seen"]["logical_type"]["name"], columns["seen"]["nullable"]) == (
+            "Timestamp",
+            False,
+        )
+    
+        from pietto._project.project_compiled_build import build_compiled
+        from pietto._project.project_compiled_loading import load_compiled
+        from pietto._project.project_compiled_lowering import emit_compiled
+        from pietto._project.project_execution_template import prepare_live_template
+    
+        built = build_compiled(artifact)
+        loaded = load_compiled(
+            built.payload,
+            expected_pin=built.pin,
+            accepted_producer=built.producer,
+            accepted_compatibility=built.compatibility,
+        )
+>       assert emit_compiled(loaded, ()).request.family == "postgres"
+E       AssertionError: assert 'mysql' == 'postgres'
+E         
+E         - postgres
+E         + mysql
+
+tests/test_sql_project_scalar_expressions.py:783: AssertionError
+=========================== short test summary info ============================
+FAILED tests/test_sql_project_scalar_expressions.py::test_now_is_one_utc_statement_snapshot_evaluated_at_execution[mysql]
+1 failed, 9 passed, 291 deselected in 2.67s

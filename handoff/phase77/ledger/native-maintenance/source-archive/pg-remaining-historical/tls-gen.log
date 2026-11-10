@@ -1,0 +1,9 @@
+server.pem: OK
+elsewhere.pem: OK
+    IP Address:127.0.0.1
+    DNS:elsewhere.invalid
+notAfter=Jan  6 08:29:07 2027 GMT
+c3c2214362d4f15cf0fe2a6f3a31a585bab67b5163d5dc831b3ee58ed8ede504  ca.pem
+c24203b31887aed00457eda34e3a89dd8bdf5521e2a5c69a6c9f7f9e6b7e424a  other-ca.pem
+3f7f83627d62693f4cadcd2c04cec7c2be947330c46a42569eeea2abce255d6b  server.pem
+8fb8936062952c7359675ae38cadd352268d7bfc045df4403b5a90af48ee9df7  elsewhere.pem

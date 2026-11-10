@@ -1,0 +1,42 @@
+{
+    "telemetry.sqmId": "",
+    "telemetry.machineId": "eeef809721e14787947c877dcb307d0c64485738cb9d7d3ae0be1ce9dd5c6135",
+    "telemetry.devDeviceId": "44f43ce1-bf37-4aeb-a802-95306a226066",
+    "backupWorkspaces": {
+        "workspaces": [],
+        "folders": [],
+        "emptyWindows": []
+    },
+    "windowControlHeight": 35,
+    "theme": "vs-dark",
+    "themeBackground": "#000c18",
+    "windowSplash": {
+        "zoomLevel": 0,
+        "baseTheme": "vs-dark",
+        "colorInfo": {
+            "foreground": "#cccccc",
+            "background": "#000c18",
+            "editorBackground": "#000c18",
+            "titleBarBackground": "#10192c",
+            "titleBarInactiveBackground": "#181d29",
+            "activityBarBackground": "#051336",
+            "modernActivityBarBackground": "#051336",
+            "modernActivityBarInactiveBackground": "#051336",
+            "modernActivityBarBorder": "#2b2b4a",
+            "modernPanelBorder": "#2b2b4a",
+            "modernUIShellBackground": "#10192c",
+            "modernUIInactiveShellBackground": "#181d29",
+            "sideBarBackground": "#060621",
+            "panelBackground": "#000c18",
+            "editorGroupBorder": "#2b2b4a",
+            "editorBorder": "#2b2b4a",
+            "surfaceBackground": "#060621",
+            "surfaceBorder": "#2b2b4a",
+            "agentsPanelBackground": "#060621",
+            "agentsPanelBorder": "#2b2b4a",
+            "statusBarBackground": "#10192c",
+            "statusBarInactiveBackground": "#181d29",
+            "statusBarNoFolderBackground": "#10192c"
+        }
+    }
+}

@@ -1,0 +1,75 @@
+{
+  "candidate": {
+    "base": "f8ccd2c44a2d9adf431a496bd9bbae037783176f",
+    "lock_sha256": "b2cc96b25b0b9f2225c4529f0123ae869cd804af0578b4f83c931a15aa893064",
+    "patch_sha256": "548e72276b20c2bff3bb0613a527ef230fb9095942b562dca32a6150da12e1cc",
+    "path": "/home/mianliwang/projects/pietto/.cache/phase77-recovery/candidates/maintenance"
+  },
+  "dependencies": {
+    "adbc-driver-manager": "1.13.0",
+    "adbc-driver-postgresql": "1.13.0",
+    "pietto": "0.1.10",
+    "psycopg": "3.3.8",
+    "psycopg-binary": "3.3.8",
+    "pyarrow": "26.0.1"
+  },
+  "format": "pietto.phase77.pg-fresh-binding.v1",
+  "integrity": {
+    "adbc-driver-manager": {
+      "payloads": 35,
+      "record_sha256": "3f8727b2a888480127d1d00a4e9739341ed22e48e2b229b152a7e4c03a299bb3"
+    },
+    "adbc-driver-postgresql": {
+      "payloads": 13,
+      "record_sha256": "f2d8e8a1da517a6c7a30df7beeedbbd5b481d47077280294df18c5740693c86d"
+    },
+    "pietto": {
+      "payloads": 368,
+      "record_sha256": "f9f265858e5645976282a07bfb335839254be018084b4789a37d1445300a50e7"
+    },
+    "psycopg": {
+      "payloads": 92,
+      "record_sha256": "64b8c0947cb02aee29ac67bfdae599d98b281077a7e1354089b8f3400a065082"
+    },
+    "psycopg-binary": {
+      "payloads": 33,
+      "record_sha256": "9c4d8bdac6f5161b15842973fd089858557512019ade580eb01912dc9b0bd239"
+    },
+    "pyarrow": {
+      "payloads": 754,
+      "record_sha256": "310ead8e599cc87fa8bcb2da6420301eb4bde428ce0e406eaa78f8eb85b6cbce"
+    }
+  },
+  "origins": {
+    "adbc-driver-manager": "/home/mianliwang/projects/pietto/.cache/phase77-recovery/runtime/venvs/native/lib/python3.13/site-packages",
+    "adbc-driver-postgresql": "/home/mianliwang/projects/pietto/.cache/phase77-recovery/runtime/venvs/native/lib/python3.13/site-packages",
+    "pietto": "/home/mianliwang/projects/pietto/.cache/phase77-recovery/runtime/venvs/native/lib/python3.13/site-packages",
+    "psycopg": "/home/mianliwang/projects/pietto/.cache/phase77-recovery/runtime/venvs/native/lib/python3.13/site-packages",
+    "psycopg-binary": "/home/mianliwang/projects/pietto/.cache/phase77-recovery/runtime/venvs/native/lib/python3.13/site-packages",
+    "pyarrow": "/home/mianliwang/projects/pietto/.cache/phase77-recovery/runtime/venvs/native/lib/python3.13/site-packages"
+  },
+  "pietto": {
+    "direct_url": "{\"url\":\"file:///home/mianliwang/projects/pietto/.cache/phase77-recovery/runtime/dist/pietto-0.1.10-py3-none-any.whl\",\"archive_info\":{}}",
+    "module": "/home/mianliwang/projects/pietto/.cache/phase77-recovery/runtime/venvs/native/lib/python3.13/site-packages/pietto/__init__.py",
+    "record": "/home/mianliwang/projects/pietto/.cache/phase77-recovery/runtime/venvs/native/lib/python3.13/site-packages/pietto-0.1.10.dist-info/RECORD",
+    "record_sha256": "f9f265858e5645976282a07bfb335839254be018084b4789a37d1445300a50e7"
+  },
+  "python": "/home/mianliwang/.local/share/uv/python/cpython-3.13.13-linux-x86_64-gnu/bin/python3.13",
+  "site_packages": "/home/mianliwang/projects/pietto/.cache/phase77-recovery/runtime/venvs/native/lib/python3.13/site-packages",
+  "source_sha256": {
+    "client.py": "986d141a2ceb2ecdfee144ea18a74403e19d8c613440e46ca21ba527761c1c73",
+    "fresh-start.sh": "2929d39b026f7030c8798e169b230604cae88ddeb58619d03e754b6ac9afd9c0",
+    "fresh_binding.py": "9b0a522ddd990f22d1ec5c8e207e6edce45ac7814eb3fb6b0041afe4bebe11ea",
+    "gen-tls.sh": "b634b69535b04f73c644cc1fe30770253c5b414b2a0e99f2f6fc05bbf60d59d9",
+    "judge.py": "114414daee00efef8e1aac4e368f3c0f5110a086c0c8422dbe78e167e3511b9a",
+    "pg.sh": "ae88786297bbec9c927c98eafaf7e25d7320adecf1f7d71cddc0e0fd6f0bea36",
+    "receipt.py": "b58ffaf5a2482b469d721ec2b1fcfeafd8257bb32e81fa74259516bd7b6c6597",
+    "relay.py": "dd3cb68067887ee80acd5801c4ea3c9f1b701daef89a3a11d2e4dff329b55754",
+    "selftest.sh": "bd8b157c5da42fe0a4c60f7559c0be248ddedc62129c4a8980ef27169eaa8c74",
+    "target-run.sh": "56a174068d13d339d27ae3edfc80a16175214c3d6a38f563100d6735f6c32528"
+  },
+  "wheel": {
+    "path": "/home/mianliwang/projects/pietto/.cache/phase77-recovery/runtime/dist/pietto-0.1.10-py3-none-any.whl",
+    "sha256": "f4c96921c4d4ceb057830f2dd21f2e634325dac2bef933532747ae4aab963a73"
+  }
+}

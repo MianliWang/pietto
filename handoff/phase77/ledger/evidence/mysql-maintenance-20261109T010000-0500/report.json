@@ -1,0 +1,110 @@
+{
+  "cleanup": "PASS",
+  "failure": {
+    "kind": "ValueError",
+    "reason": "OTEL_INSTALL",
+    "stage": "install"
+  },
+  "format": "pietto.execution-api-mysql-native.v1",
+  "install": {
+    "candidate": {
+      "check": {
+        "argv": [
+          "uv",
+          "pip",
+          "check",
+          "--python",
+          "/home/mianliwang/projects/pietto/.cache/phase77-recovery/evidence/mysql-maintenance-20261109T010000-0500/prefix/bin/python"
+        ],
+        "returncode": 0,
+        "stderr": "Using Python 3.13.13 environment at: prefix\nChecked 4 packages in 0.44ms\nAll installed packages are compatible\n",
+        "stdout": ""
+      },
+      "freeze": {
+        "argv": [
+          "uv",
+          "pip",
+          "freeze",
+          "--python",
+          "/home/mianliwang/projects/pietto/.cache/phase77-recovery/evidence/mysql-maintenance-20261109T010000-0500/prefix/bin/python"
+        ],
+        "returncode": 0,
+        "stderr": "Using Python 3.13.13 environment at: prefix\n",
+        "stdout": "antlr4-python3-runtime==4.13.2\nmysql-connector-python==26.10.0\npietto @ file:///home/mianliwang/projects/pietto/.cache/phase77-recovery/runtime/dist/pietto-0.1.10-py3-none-any.whl\npyarrow==26.0.1\n"
+      },
+      "install": {
+        "argv": [
+          "uv",
+          "pip",
+          "install",
+          "--python",
+          "/home/mianliwang/projects/pietto/.cache/phase77-recovery/evidence/mysql-maintenance-20261109T010000-0500/prefix/bin/python",
+          "--no-index",
+          "--find-links",
+          "/home/mianliwang/projects/pietto/.cache/phase77-recovery/evidence/mysql-maintenance-preflight-20261109T000000-0500/house/pietto-phase68-slice18-wheelhouse",
+          "--constraint",
+          "/home/mianliwang/projects/pietto/.cache/phase77-recovery/evidence/mysql-maintenance-preflight-20261109T000000-0500/house/pietto-phase68-slice18-constraints.txt",
+          "--link-mode",
+          "copy",
+          "--strict",
+          "/home/mianliwang/projects/pietto/.cache/phase77-recovery/runtime/dist/pietto-0.1.10-py3-none-any.whl[execute-mysql]"
+        ],
+        "returncode": 0,
+        "stderr": "Using Python 3.13.13 environment at: prefix\nResolved 4 packages in 5ms\nPrepared 4 packages in 213ms\nInstalled 4 packages in 231ms\n + antlr4-python3-runtime==4.13.2\n + mysql-connector-python==26.10.0\n + pietto==0.1.10 (from file:///home/mianliwang/projects/pietto/.cache/phase77-recovery/runtime/dist/pietto-0.1.10-py3-none-any.whl)\n + pyarrow==26.0.1\n",
+        "stdout": ""
+      },
+      "venv": {
+        "argv": [
+          "uv",
+          "venv",
+          "--python",
+          "3.13.13",
+          "/home/mianliwang/projects/pietto/.cache/phase77-recovery/evidence/mysql-maintenance-20261109T010000-0500/prefix"
+        ],
+        "returncode": 0,
+        "stderr": "Using CPython 3.13.13\nCreating virtual environment at: prefix\nActivate with: source prefix/bin/activate\n",
+        "stdout": ""
+      }
+    },
+    "check": {
+      "argv": [
+        "uv",
+        "pip",
+        "check",
+        "--python",
+        "/home/mianliwang/projects/pietto/.cache/phase77-recovery/evidence/mysql-maintenance-20261109T010000-0500/prefix/bin/python"
+      ],
+      "returncode": 0,
+      "stderr": "Using Python 3.13.13 environment at: prefix\nChecked 4 packages in 0.52ms\nAll installed packages are compatible\n",
+      "stdout": ""
+    },
+    "telemetry": {
+      "argv": [
+        "uv",
+        "pip",
+        "install",
+        "--python",
+        "/home/mianliwang/projects/pietto/.cache/phase77-recovery/evidence/mysql-maintenance-20261109T010000-0500/prefix/bin/python",
+        "--no-index",
+        "--find-links",
+        "/home/mianliwang/projects/pietto/.cache/phase77-recovery/evidence/mysql-maintenance-preflight-20261109T000000-0500/otel-house",
+        "--strict",
+        "opentelemetry-api==1.33.1",
+        "opentelemetry-sdk==1.33.1",
+        "/home/mianliwang/projects/pietto/.cache/phase77-recovery/evidence/mysql-maintenance-preflight-20261109T000000-0500/otel-house/wrapt-2.5.0-cp313-cp313-manylinux1_x86_64.manylinux_2_28_x86_64.manylinux_2_5_x86_64.whl"
+      ],
+      "returncode": 1,
+      "stderr": "Using Python 3.13.13 environment at: prefix\n  \u00d7 No solution found when resolving dependencies:\n  \u2570\u2500\u25b6 Because deprecated was not found in the provided package locations and\n      opentelemetry-api==1.33.1 depends on deprecated>=1.2.6, we can conclude\n      that opentelemetry-api==1.33.1 cannot be used.\n      And because you require opentelemetry-api==1.33.1, we can conclude that\n      your requirements are unsatisfiable.\n",
+      "stdout": ""
+    }
+  },
+  "otel_unselected": "wrapt-2.5.0-cp312-cp312-manylinux1_x86_64.manylinux_2_28_x86_64.manylinux_2_5_x86_64.whl",
+  "otel_wheels": {
+    "opentelemetry_api-1.33.1-py3-none-any.whl": "4db83ebcf7ea93e64637ec6ee6fabee45c5cbe4abd9cf3da95c43828ddb50b83",
+    "opentelemetry_sdk-1.33.1-py3-none-any.whl": "19ea73d9a01be29cacaa5d6c8ce0adc0b7f7b4d58cc52f923e4413609f670112",
+    "opentelemetry_semantic_conventions-0.54b1-py3-none-any.whl": "29dab644a7e435b58d3a3918b58c333c92686236b30f7891d5e51f02933ca60d",
+    "wrapt-2.5.0-cp313-cp313-manylinux1_x86_64.manylinux_2_28_x86_64.manylinux_2_5_x86_64.whl": "b95a6eca3b927853529eea958310563c83140ae8451dd5dc4399c7da385dc4f3"
+  },
+  "status": "FAILED",
+  "wheel_sha256": "f4c96921c4d4ceb057830f2dd21f2e634325dac2bef933532747ae4aab963a73"
+}

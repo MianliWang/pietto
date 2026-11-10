@@ -1,0 +1,12 @@
+2026-11-09 23:36:40.763 [info] [node-compile-cache] main: packaged cache enabled (status: enabled, configured: /home/mianliwang/projects/pietto-vscode-extension-claude/.vscode-test/vscode-linux-x64-1.145.2/resources/app/node-compile-cache/main, active: /home/mianliwang/projects/pietto-vscode-extension-claude/.vscode-test/vscode-linux-x64-1.145.2/resources/app/node-compile-cache/main/v24.22.1-x64-60e4fe36)
+2026-11-09 23:36:40.766 [info] StorageMainService: creating application shared storage
+2026-11-09 23:36:40.835 [info] [shared storage] Creating shared storage database at ':memory:' (wasCreated: true)
+2026-11-09 23:36:40.835 [info] [shared storage] Initializing fallback application storage (path: in-memory)
+2026-11-09 23:36:40.851 [info] [shared storage] Fallback application storage initialized with 3 items
+2026-11-09 23:36:40.851 [info] update#setState disabled
+2026-11-09 23:36:40.851 [info] update#ctor - updates are disabled by the environment
+2026-11-09 23:36:43.125 [info] AgentHostProcessManager: agent host started
+2026-11-09 23:36:43.593 [error] [AgentHost:stderr] (node:582943) [DEP0169] DeprecationWarning: `url.parse()` behavior is not standardized and prone to errors that have security implications. Use the WHATWG URL API instead. CVEs are not issued for `url.parse()` vulnerabilities.
+(Use `exe --trace-deprecation ...` to show where the warning was created)
+
+2026-11-09 23:37:23.343 [info] Extension host with pid 582952 exited with code: 0, signal: unknown.

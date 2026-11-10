@@ -1,0 +1,25 @@
+{
+  "binding": {
+    "head": "f8ccd2c44a2d9adf431a496bd9bbae037783176f",
+    "lock_sha256": "b2cc96b25b0b9f2225c4529f0123ae869cd804af0578b4f83c931a15aa893064",
+    "patch_sha256": "548e72276b20c2bff3bb0613a527ef230fb9095942b562dca32a6150da12e1cc",
+    "pins_sha256": "572a36a890cda4dc286cd9f9fcccf7998a292fc3b437b7836937960c74e87e92",
+    "wheel_sha256": "f4c96921c4d4ceb057830f2dd21f2e634325dac2bef933532747ae4aab963a73"
+  },
+  "files": {
+    "expected_binding": "500f051707c0e944b92bc98cdb33e20f3398948546082177cd2f1a511dcecc31",
+    "native_report": "953adb37bd4f88812db4f91ac63b9730132cb97c818248c98f7b427b2b450791",
+    "receipt": "34df9b40a390cd544a9dbb9419251bce6146a7ad62a62381fe3a20dc36bd79cb",
+    "relay": "a15f390bf60e304345d7de45f26fd4211f7284ec95c5f3bf9501d6828a1d2935",
+    "resources": "44571ed8556f6c0bbb4690b7c6949bff9f7bb00dbc0183adfefcfc6e69f21e00"
+  },
+  "format": "pietto.mysql-none-maintenance-verdict.v1",
+  "sources": {
+    "campaign.py": "c2c38ce086a19e56ccbb45c9d46b74763e915d242bc914398735725e8ef56fbd",
+    "judge.py": "7cfacfa496f9742dddc48a0aedad3fbd311dba59b3ec0f89af3c7a76755c17b7",
+    "mysql.sh": "e23a0aee1a3244ec04fa7a81eb7adcc2dcdc566556c45f3a7e79b55d6c246dca",
+    "preflight.py": "cc271e0f7cac70ca9bc3895a0b27462626a87b6a899ef1c277cfe107f6c3d697",
+    "relay.py": "615f0cab556fbd7af29b132a98cafb7ed0d500871184ad3f7e143723fa7021f1"
+  },
+  "verdict": "ACCEPTED"
+}

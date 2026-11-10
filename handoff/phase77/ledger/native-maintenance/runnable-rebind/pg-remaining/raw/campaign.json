@@ -1,0 +1,71 @@
+{
+  "candidate_base": "f8ccd2c44a2d9adf431a496bd9bbae037783176f",
+  "candidate_lock_sha256": "b2cc96b25b0b9f2225c4529f0123ae869cd804af0578b4f83c931a15aa893064",
+  "candidate_patch_sha256": "548e72276b20c2bff3bb0613a527ef230fb9095942b562dca32a6150da12e1cc",
+  "candidate_wheel_sha256": "f4c96921c4d4ceb057830f2dd21f2e634325dac2bef933532747ae4aab963a73",
+  "cleanup": {
+    "container": {
+      "id": "2461a78295df8fed8f024b2ab543721268d130e6f438d3efd80d8c73a9796d65",
+      "label": "pietto.phase77.pg-run=a30eea9e685bdfbbf15db1c8",
+      "label_value": "a30eea9e685bdfbbf15db1c8",
+      "name": "pietto-p77-maint-pg-a30eea9e685bdfbbf15db1c8"
+    },
+    "container_absent": true,
+    "relay": {
+      "reaped": true,
+      "wait_status": 143
+    },
+    "server_log_captured": true
+  },
+  "complete": true,
+  "image": "sha256:f372eda99ac2ea249c3dce566dcdf468397035371284d2cf2103b4bc52b3b39e",
+  "inputs": {
+    "ERRATUM.md": "f2a4b5b50ff98a79fef818a580943951739432bfbdb0825f7c97c8e05c8e0598",
+    "PREREG.md": "8f0f374f874144e363f95ff7b7ead1da9a5a57fc43c1a0df6ade30c7cc89d2aa",
+    "candidate.patch": "548e72276b20c2bff3bb0613a527ef230fb9095942b562dca32a6150da12e1cc",
+    "client.py": "de45e5e5d7b81c859fd21bb065f61d61cf416083ffa6f332b714a716b8c54847",
+    "fresh-binding.json": "0a16cc2d17bb48263b872c57aa30e56ad108ca7f0d62680a8ba6dd2cfd192b98",
+    "fresh-start.sh": "2929d39b026f7030c8798e169b230604cae88ddeb58619d03e754b6ac9afd9c0",
+    "fresh_binding.py": "d963f807b9bc3a6d241fafabf45197b522433048af0452da541b40ca86512a97",
+    "gen-tls.sh": "b634b69535b04f73c644cc1fe30770253c5b414b2a0e99f2f6fc05bbf60d59d9",
+    "in/fixture.sql": "0591f9f804987b67c8a80834084e04f65ee15842455ae391194a938c9edba25a",
+    "in/ordered-exec/contract.json": "837ad9e5e496ce21631a09f258c1fb50ea711bf812b0e0075cec2c6386797d39",
+    "in/ordered-exec/main.pietto": "9ce8d29a1b7b00305f9d6e38e9178154414d0470d17b881bb6322134a9ad184f",
+    "in/ordered-exec/pietto.toml": "936a2829a9d65d1327bc3907650859525cc1bfbf5bc58dc4d9cf2ac831bfd4be",
+    "in/pg_hba.conf": "f55c24a9033b0c36a89ef9b7f84ce557de50ff5973257d2a9d7ccc11bf0e1eaf",
+    "in/timestamp-exec/contract.json": "ca9b383919953877b0d0a13b9ddff82c75ff66fb5747e46b1084bcfc1d38f586",
+    "in/timestamp-exec/main.pietto": "65afd287accdd0d9ec053bc2f93160ee6f543269c650e292b9d6f461e77f0f51",
+    "in/timestamp-exec/pietto.toml": "936a2829a9d65d1327bc3907650859525cc1bfbf5bc58dc4d9cf2ac831bfd4be",
+    "judge.py": "624db00c6c115b18550a1985dd2a7b7e4101e2717c8dc59196f7f31fbc7138bb",
+    "pg.sh": "7795720ad05faca151f67bef6d8c6234effd01df31562c99a605d2c56f7e62d5",
+    "raw_driver_child.py": "42ee9f6a81c4db9e791c48c88c452f09d2087f4047640809081c057cc279f35c",
+    "receipt.py": "4e7912d8f7bd6c3cba9537a4cdef49d0eea07466bbff1484ab5f671a41301a67",
+    "relay.py": "dd3cb68067887ee80acd5801c4ea3c9f1b701daef89a3a11d2e4dff329b55754",
+    "target-run.sh": "56a174068d13d339d27ae3edfc80a16175214c3d6a38f563100d6735f6c32528",
+    "tls/ca-key.pem": "fa70a67d243e32c878e369958eb235bf255faff3cfbe486431f5b3ac0128215f",
+    "tls/ca.pem": "761b756c1d2d11c77a952cba57aa66370f8401e5c78817aaf0612277622f6bfa",
+    "tls/elsewhere-key.pem": "4689ea2acd8a3d52ff1d40dd8319bd2e446de165202689610e1218321ccb1f38",
+    "tls/elsewhere.pem": "be356e94d832561d88e914e493a37b20c980d6d62f3fe4906c58368937683e00",
+    "tls/other-ca-key.pem": "732afe3e9ffee6c22e3073fd4b10522f59b391eb89cc82968cfd317709a7f6d3",
+    "tls/other-ca.pem": "55a01a2dae6527fbfc55593932a354ca53e96425dbb1ed1809d138cd0c41ff04",
+    "tls/server-key.pem": "666d86c34aebbf1ba6ea0badbd12d48a428b075d7ae14214081b067a1e90f94f",
+    "tls/server.pem": "a5742f98f5d18d704c9d735776ff229641131ba919a6498ffbbb650e33d182e9"
+  },
+  "invocation": {
+    "container_label": "pietto.phase77.pg-run=a30eea9e685bdfbbf15db1c8",
+    "container_name": "pietto-p77-maint-pg-a30eea9e685bdfbbf15db1c8",
+    "lock": "/tmp/claude-1000/pietto-docker-campaign-postgres.lock",
+    "nonce": "a30eea9e685bdfbbf15db1c8",
+    "timeout_seconds": 7200
+  },
+  "network": "none",
+  "raw": {
+    "campaign.log": "5501434f2c2266f15231f85ffd4d44446e109bd16051e6a25cd08df291740a9d",
+    "cleanup.json": "a5f42a446db81c98e96fcf2e0465c5e840d17f5a38c0dca5c84be12e643860d6",
+    "client.err": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+    "client.json": "ab41a57bd43d142cdbd598cf60ffad497e52935ce4358a0c790e4fbeb719334e",
+    "pg-server.log": "575f1bf42685ac94ff787c1c294368e8a385b271a542ed561604c3588a1d50bb",
+    "relay.log": "32c4510cb8ed4efab0f77599334ab1911f6e1a2f7f3628f8f8a2facda9ab4aa7"
+  },
+  "schema": 1
+}

@@ -1,0 +1,2 @@
+/home/mianliwang/projects/pietto/.cache/phase77-recovery/runtime/editor-runtime/installed-wheel/bin/python
+/home/mianliwang/projects/pietto/.cache/phase77-recovery/runtime/editor-runtime/installed-wheel/lib/python3.13/site-packages/pietto/__init__.py

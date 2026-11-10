@@ -1,0 +1,9 @@
+classification=FRESH_FOCUSED_LOCAL_MAINTENANCE
+not_claimed=Gate2,native,database,publication,natural-CI
+pytest_exit=0
+pytest_summary=408 passed in 209.15s (0:03:29)
+scope=tests/test_results_optional_arrow.py tests/test_release_installation.py tests/test_execution_executor_premises.py tests/test_harness_target_conformance.py
+execution=single pytest invocation with -n 2 --dist loadfile -q
+runtime=3.13.13 core-dev; candidate-origin; pyarrow absent
+resource_guard=PASS via resource-guard-v2.txt; resource-guard.txt preserves pre-run awk variable-name error
+post_run_integrity=see post-run-integrity.txt

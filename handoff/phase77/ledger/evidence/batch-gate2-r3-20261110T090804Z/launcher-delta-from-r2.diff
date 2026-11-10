@@ -1,0 +1,19 @@
+--- editor-gate2-r2-20261110T084923Z/run-editor-gate2-r2.sh	2026-11-10 03:49:23.847532789 -0500
++++ batch-gate2-r3-20261110T090804Z/run-batch-gate2-r3.sh	2026-11-10 04:08:04.677191603 -0500
+@@ -15,13 +15,13 @@
+ readonly SDIST="$RECOVERY_ROOT/evidence/editor-focused-20261110T051000Z/run/dist/pietto-0.1.10.tar.gz"
+ readonly EXPECTED_HEAD="f8ccd2c44a2d9adf431a496bd9bbae037783176f"
+ readonly EXPECTED_BASELINE_TREE="460e3e135d1dcb0b926928bc2632a889410f258a"
+-readonly EXPECTED_DIRTY_TREE="d927402bda7c77d44d74f2903b0a41ca9d1b8256"
+-readonly EXPECTED_PATCH="76bbac7a9f23809840c456f42cecd7251ad5305dc3cdbeff44addc9625aeba6b"
++readonly EXPECTED_DIRTY_TREE="4bb7489ac5c1c7e6212b85795ffe89bdf0be2d61"
++readonly EXPECTED_PATCH="ce24e65a00ffec8dfd49154f86d9390f35991c3d87fa0cc55d90442a30c35af9"
+ readonly EXPECTED_LOCK="b2cc96b25b0b9f2225c4529f0123ae869cd804af0578b4f83c931a15aa893064"
+ readonly EXPECTED_WHEEL="9d2b31b0fa72ee40b1f671b5aa50f5eb0fedc83fdc19fe3d20bf2378e2921dd2"
+ readonly EXPECTED_SDIST="3639469b78ba7ca78cb42d590ebd7c608767707e5f4cee98b3537229674bc7bf"
+ readonly RUN_DIR="$EVIDENCE_DIR/run"
+-readonly SCRATCH="/tmp/claude-1000/pietto-editor-gate2-r2-20261110T084923Z"
++readonly SCRATCH="/tmp/claude-1000/pietto-batch-gate2-r3-20261110T090804Z"
+ readonly TMP_ROOT="$SCRATCH/tmp"
+ readonly BINDINGS="$RUN_DIR/bindings"
+ readonly COMMANDS="$RUN_DIR/commands"

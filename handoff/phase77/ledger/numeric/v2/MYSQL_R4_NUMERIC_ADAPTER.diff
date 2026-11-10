@@ -1,0 +1,79 @@
+--- /tmp/pietto-p77-maint-mysql-none-campaign/campaign.py
++++ /tmp/pietto-p77-maint-mysql-none-campaign/campaign.py
+@@
+ def run(args: argparse.Namespace) -> int:
+     candidate, wheel, directory = args.candidate.resolve(), args.wheel.resolve(), args.run_dir.resolve()
++    numeric_hook_dir = None if args.numeric_hook_dir is None else args.numeric_hook_dir.resolve()
++    numeric_run_dir = None if args.numeric_run_dir is None else args.numeric_run_dir.resolve()
++    require((numeric_hook_dir is None) == (numeric_run_dir is None), "NUMERIC_ARGUMENTS")
++    if numeric_hook_dir is not None:
++        require((numeric_hook_dir / "numeric_mysql_hook.py").is_file(), "NUMERIC_HOOK")
+@@
+     import _pietto_target_conformance_resources as resources
++    numeric_evidence: dict[str, Path] | None = None
+@@
+         def acquire(self) -> None:
++            nonlocal numeric_evidence
+@@
+             try:
+                 self.manager = self.connect(query=False)
+@@
+                 raise
++            if numeric_hook_dir is not None:
++                sys.path.insert(0, str(numeric_hook_dir))
++                from numeric_mysql_hook import run as run_numeric_probe
++                numeric_evidence = run_numeric_probe(
++                    self.manager,
++                    container_id=self.container_id,
++                    port=self.port,
++                    ca_file=self.ca_path,
++                    run_directory=numeric_run_dir,
++                    candidate_python=Path(sys.executable),
++                )
++                self.event(
++                    "numeric_probe_completed",
++                    files={name: sha256(path) for name, path in numeric_evidence.items()},
++                )
+@@
+     receipt = {
+@@
+     }
++    if numeric_evidence is not None:
++        receipt["numeric_probe"] = {
++            "bootstrap": json.loads(numeric_evidence["bootstrap"].read_text(encoding="utf-8")),
++            "files": {name: sha256(path) for name, path in numeric_evidence.items()},
++        }
+@@
+     parser.add_argument("--run-dir", type=Path, required=True)
++    parser.add_argument("--numeric-hook-dir", type=Path)
++    parser.add_argument("--numeric-run-dir", type=Path)
+--- /tmp/pietto-p77-maint-mysql-none-campaign/judge.py
++++ /tmp/pietto-p77-maint-mysql-none-campaign/judge.py
+@@
+     parser.add_argument("--resources", type=Path, required=True)
++    parser.add_argument("--require-numeric", action="store_true")
+@@
+     started = by_name["container_start_observed"]
++    if args.require_numeric:
++        numeric = receipt.get("numeric_probe")
++        if not isinstance(numeric, dict) or set(numeric) != {"bootstrap", "files"}:
++            fail("NUMERIC_RECEIPT")
++        bootstrap = numeric["bootstrap"]
++        files = numeric["files"]
++        if (
++            not isinstance(bootstrap, dict)
++            or bootstrap.get("format") != "pietto.phase77.numeric_mysql_bootstrap.v1"
++            or bootstrap.get("container_id") != started.get("id")
++            or bootstrap.get("role") != "pietto_numeric_probe"
++            or bootstrap.get("database") != "pietto_numeric_probe"
++            or not isinstance(files, dict)
++            or set(files) != {"endpoint", "binding", "receipt", "bootstrap"}
++            or not all(isinstance(value, str) and len(value) == 64 for value in files.values())
++        ):
++            fail("NUMERIC_BINDING")
+--- /tmp/pietto-p77-maint-mysql-none-campaign/mysql.sh
++++ /tmp/pietto-p77-maint-mysql-none-campaign/mysql.sh
+@@
+     --expected-binding "$EXPECTED_BINDING" --run-dir "$RUN_DIRECTORY"
++    # Numeric child only: append --numeric-hook-dir /tmp/pietto-p77-numeric-prereg
++    # and --numeric-run-dir /tmp/pietto-p77-numeric-mysql-run-NONCE.

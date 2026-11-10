@@ -1,0 +1,64 @@
+{
+  "format": "pietto.phase77.mysql-maintenance-preflight.v1",
+  "status": "READY_FOR_ROOT_START",
+  "scope": "M77 MySQL maintenance fresh campaign preparation only",
+  "binding": {
+    "expected_binding_path": "expected-binding.json",
+    "expected_binding_sha256": "500f051707c0e944b92bc98cdb33e20f3398948546082177cd2f1a511dcecc31",
+    "head": "f8ccd2c44a2d9adf431a496bd9bbae037783176f",
+    "patch_sha256": "548e72276b20c2bff3bb0613a527ef230fb9095942b562dca32a6150da12e1cc",
+    "pins_sha256": "572a36a890cda4dc286cd9f9fcccf7998a292fc3b437b7836937960c74e87e92",
+    "lock_sha256": "b2cc96b25b0b9f2225c4529f0123ae869cd804af0578b4f83c931a15aa893064",
+    "wheel_sha256": "f4c96921c4d4ceb057830f2dd21f2e634325dac2bef933532747ae4aab963a73"
+  },
+  "candidate": {
+    "path": "/home/mianliwang/projects/pietto/.cache/phase77-recovery/candidates/maintenance",
+    "tree": "460e3e135d1dcb0b926928bc2632a889410f258a",
+    "index_patch_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+    "dirty": true,
+    "old_base_only_manifest_reused": false
+  },
+  "sources": {
+    "campaign.py": "c2c38ce086a19e56ccbb45c9d46b74763e915d242bc914398735725e8ef56fbd",
+    "judge.py": "7cfacfa496f9742dddc48a0aedad3fbd311dba59b3ec0f89af3c7a76755c17b7",
+    "relay.py": "615f0cab556fbd7af29b132a98cafb7ed0d500871184ad3f7e143723fa7021f1",
+    "mysql.sh": "e23a0aee1a3244ec04fa7a81eb7adcc2dcdc566556c45f3a7e79b55d6c246dca",
+    "preflight.py": "cc271e0f7cac70ca9bc3895a0b27462626a87b6a899ef1c277cfe107f6c3d697",
+    "selfcheck.py": "cebc86d9c2857d2fb0cec6ae07cf7984d8c459d3d01f711377eface5f4048e59"
+  },
+  "runtime": {
+    "python": "CPython 3.13.13",
+    "wheel": "pietto-0.1.10-py3-none-any.whl",
+    "wheel_sha256": "f4c96921c4d4ceb057830f2dd21f2e634325dac2bef933532747ae4aab963a73",
+    "selfcheck": "PASS",
+    "installation_house": "hardlinked exact helper layout; existing wheelhouse() accepted all eight lock artifacts",
+    "otel_house": {
+      "status": "existing _otel_wheels() accepted all required filenames",
+      "cp312_wrapt_sha256": "0cabb9c17ab79b2549d1f23b36f436473ad9253ef53995a817feba26fae69d5b",
+      "cp312_wrapt_size": 250177,
+      "hardlinked": true
+    }
+  },
+  "image": {
+    "repository": "container-registry.oracle.com/mysql/community-server",
+    "platform_digest": "sha256:7dcc4add9183664de3a214daf85a50c3ba6cccfd7534f700b6561bf5b41885be",
+    "cached_config_digest": "sha256:c9570e7b94230d3717b88a334acaea49a4fe6b162f68a8f2927eaaf866b7f867",
+    "cached": true,
+    "pull_performed": false
+  },
+  "prestart": {
+    "owned_container_prefix": "pietto-p77-maint-my-",
+    "existing_owned_containers": [],
+    "run_directory": "must be a new absent direct child of evidence/mysql-maintenance-*",
+    "engine_lock": "/tmp/claude-1000/pietto-docker-campaign-mysql.lock",
+    "engine_lock_preflight": "uncontended flock -n succeeded",
+    "host_loopback_readiness": "not applicable before container acquisition; campaign records authenticated in-container 127.0.0.1:3306 readiness before relay",
+    "launch": {
+      "status": "not started",
+      "run_directory": "/home/mianliwang/projects/pietto/.cache/phase77-recovery/evidence/mysql-maintenance-20261109T010000-0500",
+      "run_directory_absent": true,
+      "command": "set -a; . /home/mianliwang/projects/pietto/.cache/phase77-recovery/evidence/mysql-maintenance-preflight-20261109T000000-0500/launch.env; set +a; exec /home/mianliwang/projects/pietto/.cache/phase77-recovery/native-maintenance/runnable-rebind/mysql/mysql.sh /home/mianliwang/projects/pietto/.cache/phase77-recovery/evidence/mysql-maintenance-20261109T010000-0500",
+      "launcher_guards": ["flock -w 600", "timeout 7200", "UV_PYTHON=3.13.13", "UV_OFFLINE=1", "UV_LINK_MODE=copy", "--pull=never"]
+    }
+  }
+}

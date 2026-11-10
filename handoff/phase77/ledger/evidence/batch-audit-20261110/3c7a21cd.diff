@@ -1,0 +1,291 @@
+3c7a21cd95bb5f3902628c9bdb8320bd9afa97b2 docs: record the Phase77 route and continuation decisions
+
+diff --git a/docs/decisions.md b/docs/decisions.md
+index 5ce0f98d..a02e329c 100644
+--- a/docs/decisions.md
++++ b/docs/decisions.md
+@@ -946,3 +946,25 @@ D75.01 records.
+ | Phase82 freeze | From Phase76 on, each completion audit adds its freeze inputs to the freeze ledger in the roadmap, and Phase82 only rules on them. Recorded now: the compile API and the column-view JSON freeze; the `fmt` output freezes after its layout items; `pietto lsp` freezes only its diagnostic protocol; the editor-only messages get a catalog without PIE codes; `pietto.sql.emit_postgres_sql` stays public and enters the API inventory; the two compiled leftovers of reminder 8, with their owners. Before the freeze `language.md` states a single-file rule: single files open project-only forms one at a time, DISTINCT first, with no promise that they stay a subset of projects, and a form not opened names the project spelling in its hint. | (a) Q24, Q25, R7; (h) reminder 8 |
+ | Maintenance and tests | The dependency updates held back for `0.1.10` come after it, as a separately authorized maintenance batch with a real-database run, after Phase76 closes and before the Phase77 Gate 0. The CI scheduler fix for module fixtures built in several shards (F3) is authorized as its own maintenance batch, with its evidence under the CI workload governance. The third whole-tree test pass ends before the end of Phase78. The import time of `pietto.execution` may be fixed before Phase80. Each completion audit records the Gate 2 duration. | (a) Q6, Q28, R9; the window of the dependency updates: the lead's plan review of 2026-11-07, inform |
+ | Tentative 98–106 | The rows 98–106 follow 97 as `TENTATIVE / OWNER ONLY` candidates and authorize no work: 98 MCP compile and context, 99 official user skills, 100 controlled AI actions, 101 metrics and analysis models, 102 nested extensions, 103 the remaining function and semantic gaps, 104 user model tests and drift, 105 a bounded SQL-to-Pietto import, which replaces the owner's wish "near Phase100" (Q31), and 106 result browsing and multi-host presentation. Only 98 and 99 are open as limited directions: check and compile only, with no database credentials. 95 (writes), 97 (streams) and 106 (a web UI) stay out unless `AGENTS.md` changes. The roadmap states that rows 88 and 89 stand in tension with "Pietto is not a query optimizer" in `AGENTS.md`. | (a) Q31; (h) 3, 4 |
++
++## Phase77–80 and editor continuation — owner decisions (2026-11-08)
++
++The owner selected these three directions in the continuation's Gate 1
++questions. They settle the choices below, not an unrecorded budget,
++database campaign, new numeric law, publication or release.
++
++| Decision | Selected direction | Boundary |
++| --- | --- | --- |
++| D77.01 Scope | Keep the complete 27-slice Phase77 route, including S21–S24 nested results. | The alternative that separates the nested work into another work package was not selected. Exact numeric and nested qualification still precedes opening each form. |
++| AD78.01 Backend architecture and order | Build small Pietto-owned target adapters; use sqlglot only as a test oracle. Deliver the limited DuckDB path before SQLite. | Existing PostgreSQL/MySQL emitters keep their SQL-byte and semantic authority. No runtime sqlglot dependency or blanket new-dialect support is introduced. Phase numbers and the five-library Phase80 outcome stay unchanged. |
++| ED.01 Feature priority | Prioritize hover, go-to-definition and document symbols after the diagnostic contract and core-owned editor facts. | The model-view rebuild follows later. Existing semantic metadata must be assessed before a new facts format; this choice does not freeze that format or an editor latency budget. |
++| M77.01 Dependency maintenance | Adopt the reviewed PyArrow `26.0.1` plus Psycopg/Psycopg-binary `3.3.8` maintenance candidate; `3.3.8` replaces the original #110 proposal of `3.3.7`. | Local tests and package smoke do not grant database qualification; the selected routes still need fresh evidence. Historical `26.0.0` / `3.3.5` evidence stays unchanged. |
++| D77.02 Execution and budget | Proceed with the complete 27-slice Phase77 scope under cumulative `C280/F850/D4000/S12`. The maintenance and Phase77 validations may use the fixed PostgreSQL 18.6 and MySQL 8.4.12 images locally without network access, at most one owned container per engine and two hours per campaign, with the corresponding Gate 2. | Engine locks, pinned images, owned cleanup, exact input/oracle evidence and failure preservation remain required. No commit, push or release is authorized. |
++| ED.02 Facts contract | Use a core-process ephemeral snapshot invalidated with document versions, exposing only standard LSP hover, definition and document symbols. Existing metadata and relation-column formats stay unchanged. | Return a definition only from exact core binding evidence; unknown/conflicting facts yield no result. Requests perform no new parsing or compilation. No independent editor-facts artifact or persistent cache is introduced. |
++
++## Phase77 continuation — owner decisions (2026-11-10)
++
++| Decision | Selected direction | Boundary |
++| --- | --- | --- |
++| D77.03 Budget | Raise the cumulative Phase77 ceiling to `C280/F850/D10000/S12`; only D changes. | The reconstructed whole-phase D figure of 5,340 is a conservative upper bound, not an actual use count or a certified balance. Every historical cost and failure stays counted. |
++| AD77.01 MySQL nested transport | Use a private, versioned JSON envelope (`mysql_json_envelope_v1`): for each parent row, explicit container presence and count, then typed child tuples in source order, each with an explicit ordinal, validated before any Arrow allocation. | Private wire, not a public contract. The empty collection, one all-NULL child row and an absent outer-join container stay distinct. A prewritten logical oracle and a generated-SQL MySQL campaign precede opening each S21–S24 form. Compiled-record changes or a compatibility mark are not part of this choice. The count plus per-child JSON arrays alternative was not selected. |
+diff --git a/docs/phases/phase-76/completion-audit.md b/docs/phases/phase-76/completion-audit.md
+index b30108a5..ddc89fa2 100644
+--- a/docs/phases/phase-76/completion-audit.md
++++ b/docs/phases/phase-76/completion-audit.md
+@@ -33,6 +33,20 @@ No tag or package release is part of these batches. Phase76 and Phase77 are
+ planned together for core `0.1.11`, with separate release approval; PyPI is
+ uploaded by the owner.
+ 
++**Publication follow-up, 2026-11-08.** B2 is published at
++`f8ccd2c44a2d9adf431a496bd9bbae037783176f`, tree
++`460e3e135d1dcb0b926928bc2632a889410f258a`. Its final Python 3.13 Gate 2
++passed 27,593 tests with 41 skips, plus golden and package checks. Natural
++[CI 42489408515](https://github.com/MianliWang/pietto/actions/runs/42489408515),
++push/main attempt 1, accepted all 21 jobs. The ten final-CI profile nodes
++passed individually; their analysis and independent review closed in the
++external ledger on the same day. Per-node monotonic durations and the UTC
++window disagree, so the profile supports no precise total-time or speedup
++claim. The retained plan/emission, pure-boundary, consumer-memo and repository
++fact-acquisition follow-ups transfer to Phase77 planning without authorizing
++cache, verifier or scheduler changes. Phase76 is complete and published;
++the combined core release remains separate.
++
+ ## Accepted scope
+ 
+ The release-note fragments linked below contain the precise public forms and
+diff --git a/docs/phases/phase-77/route.md b/docs/phases/phase-77/route.md
+new file mode 100644
+index 00000000..bf098050
+--- /dev/null
++++ b/docs/phases/phase-77/route.md
+@@ -0,0 +1,135 @@
++# Phase77 route — LOCAL IMPLEMENTATION AUTHORIZED
++
++The owner selected the complete 27-slice scope in D77.01 on 2026-11-08,
++then approved local execution and validation under D77.02. Substantive numeric
++and nested decisions below still precede their affected openings. Each push
++needs the owner's batch authorization, and no release is authorized; local
++development is not publication.
++
++## Starting point and outcome
++
++The proposed baseline is published `main` at
++`f8ccd2c44a2d9adf431a496bd9bbae037783176f`, tree
++`460e3e135d1dcb0b926928bc2632a889410f258a`. Its exact-head push workflow
++`42489408515`, attempt 1, accepted 21 jobs. Before Gate 1, Gate 0 must
++rebind the live branch/tree/remote/CI, Phase76 completion audit, dependency
++inputs, and PostgreSQL/MySQL image and session identities. The Phase76 handoff
++rather than this draft determines exact residual MySQL forms.
++
++The outcome is selected existing Pietto forms on MySQL, each with current
++PostgreSQL/MySQL differential evidence and the real semantic, emission,
++execution, and reader closure. A raw MySQL success does not change Pietto
++semantics or open a compiler form. Phase76 PostgreSQL openings and formatter
++work are regression inputs, not Phase77 deliverables.
++
++## Selected scope
++
++The complete S01–S27 route is selected. The alternative of separate flat and
++nested work packages was not selected; these are dependency groups within the
++same scope:
++
++| Group | Product slices | Boundary |
++| --- | --- | --- |
++| A — flat MySQL adaptation | S01–S20 and S25 | Opens only selected flat forms; cannot close Phase77 while S21–S24 remain unresolved. |
++| B — nested MySQL results | S21–S24 | Opens only the approved one-layer nested forms after its separate transport decision. |
++
++S26/S27 are phase-wide acquisition/audit work: they run only after both
++groups are complete or an owner decision records each retained exception.
++Keeping S21–S24 numbered avoids treating unfinished nested work as resolved.
++
++`C280/F850/D10000/S12` is the approved cumulative ceiling for the complete
++27-slice route (D77.02, D raised by D77.03), not a target or a per-group allowance. No handoff or
++lane resets it. Each lane reports its checks and repairs to the integrator.
++
++Out of scope: `string_agg`, project FULL JOIN emulation, median/quantile
++emulation, arbitrary-depth nesting, new syntax, general optimization, SQL
++escapes, and PostgreSQL SQL rewrites. Existing refusals remain until a later
++decision admits a specific form.
++
++## Existing semantics and qualification prerequisites
++
++1. The [Float value contract](../../language.md) already makes `-0.0` and
++   `0.0` two encodings of one value. Equality, grouping, DISTINCT, sets and
++   unique keys share that equivalence; ordering ties them. A merged class may
++   return any member's encoding, while transport and UNION ALL preserve bits.
++   S06/S07 prove this law and bag multiplicity for each admitted MySQL shape;
++   they do not introduce another zero policy or a canonical `+0.0` rewrite.
++2. `IMPLEMENTATION_FREEDOM`: prove that MySQL `1690`/`22003` and the emitted
++   operations preserve the existing signed-64 checked-`Int` outcome. A changed
++   observable value/error contract is `USER_DECISION_REQUIRED`; a failed proof
++   retains the refusal. Decimal, unsigned and Float substitutions are excluded.
++3. `ARCHITECTURE_DECISION`, escalating if observable behavior changes: a
++   `sum(Int)` strategy that preserves signed-64 value, NULL and overflow
++   behavior. Exact MySQL `DECIMAL` accumulation is not itself a Pietto `Int`.
++4. The selected scope includes `first`/`last` and the same-relation ASOF/FULL
++   backlog. Preserve their existing order, tie and NULL rules. A proposed
++   cadence exception or changed meaning, rather than a target proof, requires
++   a new owner decision.
++5. `ARCHITECTURE_DECISION`: before S21–S23, the MySQL nested transport seam:
++   occurrence identity, order, empty/missing/NULL, exact leaf decode,
++   resource lifetime, and live/compiled/Arrow/saved-reader closure.
++   AD77.01 selects the private versioned JSON envelope.
++
++D76.02 already distinguishes zero divisors by target: PostgreSQL raises
++`22012`, while MySQL `/`, `DIV` and `%` return NULL. S15 preserves this
++documented difference and its result nullability; it does not normalize MySQL
++errors to PostgreSQL errors. A native MySQL overflow remains a native target
++failure, not a new portable `PIE-*` exception promise. No statistical precision
++or tolerance is relaxed merely to pass a differential cell.
++
++The separately scoped dependency-maintenance window precedes formal Gate 0.
++It determines the disposition of the open `pyarrow 26.0.1` and
++`psycopg[binary] 3.3.7` proposals with its own real-database evidence. The
++owner selected the Psycopg retarget at `3.3.8` in M77.01: its
++[upstream release notes](https://www.psycopg.org/psycopg3/docs/news.html#psycopg-3-3-8)
++revert `3.3.7`'s system SSL-directory change. Selecting the pin is not TLS
++qualification. Maintenance is not a Phase77 slice and uses the explicitly
++approved D77.02 validation envelope.
++
++Gate 1 also must assign P76-PERF-1 through P76-PERF-4: preserve operation,
++root and object identity before changing Project SQL readers; measure input
++scale before public/pure emission changes; bind exact document/mutation
++identity before inferring memo behavior; and retain or replace the independent
++repository-fact oracle at maintenance triage. These are bounded follow-ups,
++not authority for a global cache or deleted verification.
++
++## Proposed ordered work
++
++| Slice(s) | Proposed result | Required acceptance before it opens |
++| --- | --- | --- |
++| S01–S03 | Checked `Int`, `sum(Int)`, conditional/JOIN/two-level sums | Signed-64 decision; literal and parameter boundary probes; independent result reader. |
++| S04–S05 | `Int` statistics and finite Float aggregates | Per-operation type/NULL/extreme oracle. |
++| S06–S07 | Float row equality, `same_value`, grouping, DISTINCT, sets and `count_distinct` | Merged-zero decision and bag/multiplicity controls. |
++| S08–S12 | Aggregate windows, typed parameters, conditional count/`any`/`all`, multi-column `count_distinct`, selected text/date/`now` forms | Per-form four-layer capability matrix and target qualification. |
++| S13 | Ordered `first`/`last` | Selected order/tie/NULL contract and refusal controls. |
++| S14–S20 | Phase76 MySQL E/N/D residuals | Gate-0 residual matrix; do not reimplement completed PostgreSQL forms. |
++| S21–S24 | One-layer Collect, Unnest, decoder/Arrow/saved readers, selected list/group/detail forms | Separate nested decision and finite matrix; dependency order S21 → S22 → S23 → S24. |
++| S25 | Single-file same-relation ASOF with existing FULL emulation | Existing ASOF/FULL limits, PostgreSQL differential, and no project-FULL claim. |
++| S26–S27 | Acquisition/capability/lag/package closure; audit/handoff | All selected product slices plus every retained-debt/deferral disposition. |
++
++Every selected target cell records exact source/configuration/SQL/parameters,
++catalog/physical metadata/raw result and an independent oracle. PostgreSQL and
++MySQL campaigns may run one owned container each under the existing engine
++locks, fixed local images, `--pull=never --network none`, owned cleanup and a
++two-hour ceiling (D77.02). A failing cell keeps its
++deterministic refusal; no target-specific fallback is invented.
++
++## Initiation-gate checklist
++
++| Fields | Proposed answer or Gate 1 blocker |
++| --- | --- |
++| 1–2: authority and outcome | Rebind exact live evidence; selected MySQL parity only, never blanket parity. |
++| 3–6: semantics, identity, states, proof | Existing type/NULL/bag/order/aggregate/nested contracts remain authority; preserve authored occurrence, module, relation, target, parameter and reader identity; distinguish planned, observed, qualified, Gate 2, CI and release claims. |
++| 7–11: ownership, dependencies, versioning, capabilities, interchange | Semantics/IR remain neutral; MySQL owns realization, readers own decoded facts; no implicit migration; four-layer states distinguish unsupported/unknown/unqualified; nested interchange is blocked pending S21–S23. |
++| 12–16: execution, lifecycle, trust, algorithms, complexity | Execution remains explicit/read-only; pinned target/config/raw evidence are trust inputs; lifecycle and complexity ceilings require Gate 1, especially nested rows/children. |
++| 17–21: invalidation, cache, concurrency, diagnostics, inspection | Re-evaluate actual compiled/public/pure/reader consumers; no new global cache; engine locks preserve isolation; diagnostic order/location remain stable; inspection cannot open a form. |
++| 22–27: UX, conformance, fuzz, packaging, support, release | Canonical source/formatter spelling remains; each form needs a PG/MySQL differential, an independent value/error oracle and finite NULL/boundary/permutation controls. Reuse existing conformance and forged-input owners; no new fuzz framework. Maintenance binds dependency identity; platform support is not expanded; `0.1.11` needs separate release approval. |
++| 28–30: readiness, route, repairs | Full scope, C/F/D/S ceiling and local validation are approved. Maintenance qualification, the exact per-form matrix, nested transport and P76-PERF disposition precede their affected acceptance. Stop for a budget cap, unproved input/evidence identity, trust regression, or a required change of product law. Preserve failed candidates. Pushes need per-batch owner authorization; no release is authorized. |
++
++## Activation record
++
++The owner approved local implementation and its validation in D77.02. The
++integrator binds the maintenance-qualified candidate, each slice's exact forms,
++write set and differential matrix before opening that slice. A new numeric law
++or nested transport decision is resolved before its first consumer. Local
++candidate work does not certify Gate 2, publication or phase completion.
+diff --git a/docs/release-notes.d/77-m01-dependency-maintenance.md b/docs/release-notes.d/77-m01-dependency-maintenance.md
+new file mode 100644
+index 00000000..7e6ed09d
+--- /dev/null
++++ b/docs/release-notes.d/77-m01-dependency-maintenance.md
+@@ -0,0 +1,11 @@
++### Dependency maintenance: PyArrow 26.0.1 and Psycopg 3.3.8
++
++- The optional extras pin `pyarrow==26.0.1` (`arrow`, `execute-postgres`,
++  `execute-mysql` and `execute-postgres-adbc`) and `psycopg[binary]==3.3.8`
++  (`execute-postgres`); `0.1.10` pinned `26.0.0` and `3.3.5`. The core
++  install is unchanged and still needs no Arrow.
++- Psycopg `3.3.8` is chosen over `3.3.7`, whose change to the system SSL
++  directory lookup `3.3.8` reverts.
++- SQL output, results, diagnostics and saved-result formats are unchanged.
++  The PostgreSQL rows, ADBC and TLS routes and the MySQL route passed fresh
++  local runs against PostgreSQL 18.6 and MySQL 8.4.12.
+diff --git a/docs/roadmap.md b/docs/roadmap.md
+index 6a960a84..68f3ff27 100644
+--- a/docs/roadmap.md
++++ b/docs/roadmap.md
+@@ -131,8 +131,9 @@ zeros is on the Phase77 Gate 1 agenda.
+ The editor line is its own work package beside Phases 76–80, tied to none of
+ them; it starts when the owner approves its Gate 1, which sets its scope and
+ budget. The core semantic owner provides the facts and the extension
+-consumes them. Its first public contract is a spec page
+-`docs/spec/lsp-diagnostics-v1.md` for the diagnostics of `pietto lsp`. It
++consumes them. The existing diagnostic protocol is described by
++[LSP diagnostics v1](spec/lsp-diagnostics-v1.md), an alpha contract for
++`pietto lsp`. The feature work package
+ then sets an editor latency budget, deciding whether the linear analysis of
+ layered JOIN DAGs and the FD sharing of PMS-6 (see the
+ [project-mode follow-up](#project-mode-follow-up)) come first, and a public
+@@ -149,7 +150,9 @@ The owner's VS Code extension (`MianliWang/pietto-vscode-extension`) takes
+ its diagnostics from `pietto lsp` and versions apart from Pietto, with a
+ minimum Pietto version that its own checks enforce: `0.2.0` stays, small
+ changes ship as `0.2.x`, `0.3.0` comes only with a user-visible editor
+-feature, and no Marketplace pre-release channel is used. It gets a CI in its
++feature, and no Marketplace pre-release channel is used. PostgreSQL SQL
++preview is the feature now published on the independent `0.3.0` line (see
++[status](status.md)). It gets a CI in its
+ repository, which needs its own authorization, and its Marketplace timing is
+ the owner's. Each Pietto phase that changes the grammar or the built-in
+ catalog carries the extension sync, made by the lead, and the sync script
+@@ -157,14 +160,14 @@ stops reading the private `pietto.parser_api._parse_migration_source`.
+ 
+ ### Third dialect
+ 
+-Before the first Gate 1 of Phase78 or Phase79, a separate
+-ARCHITECTURE_DECISION chooses how the new backends are built: small
+-hand-written target adapters with sqlglot as a development-only oracle, or
+-sqlglot dialect families as a runtime dependency of the new backends only,
+-with the PostgreSQL and MySQL emitters kept and Pietto still deciding the SQL
+-bytes and semantics. It states the dependency, pinning, byte-stability and
+-error-ownership costs of each, and decides whether DuckDB comes before
+-SQLite. Rows 78 and 79 stand until then.
++The owner selected AD78.01 on 2026-11-08: small Pietto-owned target adapters,
++with sqlglot only as a test oracle, and the limited DuckDB path before SQLite.
++The existing PostgreSQL/MySQL emitters retain their SQL-byte and semantic
++authority; sqlglot is not a runtime dependency. Phase numbers stay unchanged.
++The limited Phase79 DuckDB vertical is scheduled ahead of Phase78 SQLite.
++Each backend's Gate 1 still binds its supported forms, pinned dependencies,
++error ownership and qualification; this architecture decision does not open a
++dialect by itself.
+ 
+ ### Phase81 scope
+ 
+diff --git a/docs/status.md b/docs/status.md
+index ffc1fe2b..5a63c5d0 100644
+--- a/docs/status.md
++++ b/docs/status.md
+@@ -162,8 +162,19 @@ documentation does not supersede that evidence.
+ | Phase74 | `COMPLETED / PUBLISHED` under its [completion audit](phases/phase-74/completion-audit.md): batch 2 (S09 `variance`, `pvariance` and `pstdev`, S10 `count_distinct(a, b, ...)`, S11 `all` and `any` over a group, S12 `first` and `last`, the S04 follow-up that opens MySQL project `min` and `max` of a `Timestamp` or `Date`, S07 the two-module example and the acquisition consolidation, and the audit S08) was fast-forward pushed as seven commits on `ef29b423`, ending at `24645b36afa0dce61c1ceaae2be496bdd9366d3d` (tree `22b2b05a04158a7a17b79479c73a05ee41fda8a6`); natural exact-head CI `42316298753` attempt 1 accepted all 21 jobs. Gate 0 binds `main` at `37143dcb`, Gate 1 is D74.01–D74.16 in the [decision record](decisions.md#phase74--owner-decisions-2026-11-05-and-2026-11-06), and the [route](phases/phase-74/route.md) has 12 slices. 74-A and 74-B are delivered; every MySQL form without a passing two-database run is refused and listed in the release notes. Compiled `VERSIONS` stays `(7, 1, 7, 1)` (D74.15). Phase74 ships in `0.1.10` together with Phase73 and Phase75, after Phase75 closes, with separate approval (D74.14). The [Phase75 handoff](phases/phase-74/phase75-handoff.md) carries the MySQL items, the deferred decision points and the follow-ups. |
+ | Phase75 batch 1 | `COMPLETED / PUBLISHED`; the route publication and S01–S07 (the relation column view, the Python compile API, `fmt --project`, the header-line refusal, the `emit-sql --help` batch form with the capability page and the D8 hints in two commits, editor partial analysis and `pietto lsp`) and the Phase74 follow-up for a false PIE-S2315 were fast-forward pushed together as ten commits on `24645b36`, ending at `ff1aa71389cacf6eb43ed5c94df53246f7f84eae` (tree `db2fbbaadd2a6c8365c6ee40ecd6466a2a0613d6`); natural exact-head CI `42333099891` attempt 1 accepted all 21 jobs. The VS Code acceptance with the owner's extension passed on the batch-1 candidate before the push. |
+ | Phase75 | `COMPLETED / PUBLISHED` under its [completion audit](phases/phase-75/completion-audit.md): batch 2 (S08 one fmt spelling, S09 the second whole-tree test pass and the acquisition consolidation, the `module` field of the column view's `enum` and `shape` types, the audit S10 and the `0.1.10` release commit) was fast-forward pushed as five commits on `ff1aa713`, ending at the release commit `8e7c43f1852b2c26318b3217268a1f7416f44965` (tree `dceca22cc2ae0c1a5dabfb7d047d59d283912996`); natural exact-head CI `42343772631` attempt 1 accepted all 21 jobs; Gate 0 binds `main` at `24645b36`, Gate 1 is D75.01–D75.18 in the [decision record](decisions.md#phase75--owner-decisions-2026-11-05-to-2026-11-07), and the [route](phases/phase-75/route.md) has 10 slices. The column view, the compile API, `fmt --project`, `pietto lsp` and editor partial analysis are alpha surfaces until the Phase82 freeze; the VS Code acceptance with the owner's extension passed again on the batch-1 head. Phase75 changes no SQL output, grammar, IR or compiled record; `VERSIONS` stays `(7, 1, 7, 1)` (D75.17). Phase75 ships in `0.1.10` together with Phase73 and Phase74 (D75.16). The [Phase76 handoff](phases/phase-75/phase76-handoff.md) carries the deferred decision points and the follow-ups. |
+-| Phase76 | S01–S12 implementation is complete under the [completion audit](phases/phase-76/completion-audit.md). B1 is published at `87668dc1946986cc84cf60fcccab68abf8bc5418`, tree `c10c5d016f19957c1c34e1d21c462e6d0c9a1bd2`, with natural CI `42422096727` (21/21). B2 carries S04/S05/S08–S12; its final Gate 2 seal and natural exact-head CI own phase publication, followed by the required final-CI profile. The combined Phase76/77 core `0.1.11` release remains separately approved; these batches do not tag or upload a package. |
+-| Next | After Phase76 B2 publication and its final-CI profile, perform the separately scoped dependency-maintenance window and formal Phase77 Gate 0/Gate 1. Independent later-phase preparation and the editor feature candidate use their own scope and evidence; neither is part of Phase76 B2. Core `0.1.11` is requested separately after Phase76 and Phase77 close. |
++| Phase76 | `COMPLETED / PUBLISHED` under the [completion audit](phases/phase-76/completion-audit.md). B1 is published at `87668dc1946986cc84cf60fcccab68abf8bc5418`, tree `c10c5d016f19957c1c34e1d21c462e6d0c9a1bd2`, with natural CI `42422096727` (21/21). B2 carries S04/S05/S08–S12 as seven commits ending at `f8ccd2c44a2d9adf431a496bd9bbae037783176f`, tree `460e3e135d1dcb0b926928bc2632a889410f258a`; its Python 3.13 Gate 2 passed 27,593 tests with 41 skips, and [natural exact-head CI `42489408515`](https://github.com/MianliWang/pietto/actions/runs/42489408515), push/main attempt 1, passed all 21 jobs. The ten final-CI profile nodes and independent analysis closed on 2026-11-08; retained performance follow-ups enter Phase77 planning. Core `0.1.11` remains a separate release after Phase76 and Phase77; no tag or package upload is part of these batches. |
++| VS Code extension | The independent extension's `0.3.0` code is published at [`e61444f90e3f426557fd805b66e3d75e20b55e5a`](https://github.com/MianliWang/pietto-vscode-extension/commit/e61444f90e3f426557fd805b66e3d75e20b55e5a): read-only single-file PostgreSQL SQL preview. Its repository has no CI workflow at that head. The accepted VSIX and the owner's Marketplace upload are separate from core publication; the recorded upload remains pending. |
++| Dependency maintenance | `PUBLISHED IN THE MAINTENANCE/EDITOR BATCH` (M77.01): the extras pin PyArrow `26.0.1` and Psycopg/Psycopg-binary `3.3.8`. Fresh local runs passed the complete MySQL campaign, PostgreSQL TLS 18/18 and the remaining PostgreSQL lifecycle cases with owned cleanup, plus independent package smoke. The batch's Python 3.13 Gate 2 and natural exact-head CI own its publication. These results open no Phase77 product form. |
++| Editor navigation | `PUBLISHED IN THE MAINTENANCE/EDITOR BATCH` (ED.01–ED.02): hover and go-to-definition for resolved type and `from` references, and top-level document symbols, through [standard LSP](editor-lsp.md). Fresh checks passed 88 focused tests, 41 goldens, package smoke, 27/27 extension Node tests and development and installed-VSIX VS Code 1.145.2 host acceptance (13 passed and one optional old-Python skip each). The batch Gate 2 and natural exact-head CI own its publication; no release or Marketplace upload is claimed. |
++| Next | Integrate the complete 27-slice [Phase77 scope](phases/phase-77/route.md) under `C280/F850/D10000/S12` and the fixed, offline database profile (M77.01, D77.01–D77.03); MySQL nested results use the private versioned JSON envelope (AD77.01). Each later batch needs the owner's push authorization; no release is authorized. New backends use small Pietto-owned adapters with sqlglot only as a test oracle, with DuckDB before SQLite (AD78.01). Core `0.1.11` is requested separately after Phase76 and Phase77 close. |
++
++The 2026-11-09 continuation found the earlier `/tmp` candidate snapshots and
++raw validation artifacts absent. Phase77 inputs are recovered in the ignored
++`.cache/phase77-recovery/` directory; recovered source and historical tool
++summaries replace neither missing native receipts nor a Gate 2. The original
++PostgreSQL TLS comparison failure stays preserved: its oracle confused the
++public error category with the route-specific detail, and a minimal corrected
++child passed a new 18-cell campaign against the unchanged public contract.
+ 
+ ## Phase67 当前路线
+ 

@@ -1,0 +1,21 @@
+{
+  "cwd": "/home/mianliwang/projects/pietto/.cache/phase77-recovery/candidates/maintenance",
+  "executable": "/home/mianliwang/projects/pietto/.cache/phase77-recovery/runtime/venvs/core-dev/bin/python",
+  "origin_under_candidate": true,
+  "pietto_origin": "/home/mianliwang/projects/pietto/.cache/phase77-recovery/candidates/maintenance/src/pietto/__init__.py",
+  "pyarrow_spec": null,
+  "sys_path": [
+    "",
+    "/home/mianliwang/.local/share/uv/python/cpython-3.13.13-linux-x86_64-gnu/lib/python313.zip",
+    "/home/mianliwang/.local/share/uv/python/cpython-3.13.13-linux-x86_64-gnu/lib/python3.13",
+    "/home/mianliwang/.local/share/uv/python/cpython-3.13.13-linux-x86_64-gnu/lib/python3.13/lib-dynload",
+    "/home/mianliwang/projects/pietto/.cache/phase77-recovery/runtime/venvs/core-dev/lib/python3.13/site-packages",
+    "/home/mianliwang/projects/pietto/.cache/phase77-recovery/candidates/maintenance/src"
+  ],
+  "version": "3.13.13 (main, Jun  2 2026, 22:27:49) [Clang 22.1.3 ]",
+  "version_info": [
+    3,
+    13,
+    13
+  ]
+}

@@ -1,0 +1,31 @@
+{
+  "format": "pietto.editor-combined-candidate.v1",
+  "classification": "PREPARED_NOT_VALIDATED",
+  "baseline": {
+    "head": "f8ccd2c44a2d9adf431a496bd9bbae037783176f",
+    "tree": "460e3e135d1dcb0b926928bc2632a889410f258a"
+  },
+  "candidate": {
+    "path": "candidates/editor-combined",
+    "temporary_index_tree": "a5d300bb1e6a0216ee95b62552466f407cdc40cb",
+    "binary_diff_sha256": "a1a867ec37151a58c38db75902c4f14b32bbbaf1967fa85c0cb17293f3aa6799",
+    "modified_tracked_paths": 40,
+    "untracked_paths": 4,
+    "modified_path_list_sha256": "fb51c13758e6384ce310be296cc826bfefe66047fa885a91c54465521138c66b",
+    "untracked_path_list_sha256": "25b00b5f92d8690d07beb138c858fad6bbc09afed7d8c971a754733e5e168d55",
+    "uv_lock_sha256": "b2cc96b25b0b9f2225c4529f0123ae869cd804af0578b4f83c931a15aa893064"
+  },
+  "maintenance_input": {
+    "source": "candidates/maintenance",
+    "patch_sha256": "548e72276b20c2bff3bb0613a527ef230fb9095942b562dca32a6150da12e1cc",
+    "note": "All tracked maintenance changes were applied first. scripts/package_smoke.py then received the independent editor capability hunk."
+  },
+  "editor_input_source": "/home/mianliwang/projects/pietto",
+  "validation": {
+    "focused_r1": "FAILED_BEFORE_COLLECTION_RUNNER_TMPDIR",
+    "focused_r2": "PASS_88_TESTS_AND_41_GOLDEN_FIXTURES",
+    "gate2": "NOT_RUN",
+    "package_smoke": "PASS_CORE_AND_ARROW_INSTALLED_CELLS",
+    "vscode_host": "NOT_RUN"
+  }
+}

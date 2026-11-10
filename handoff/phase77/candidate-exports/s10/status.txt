@@ -1,0 +1,8 @@
+ M docs/capabilities.md
+ M docs/language.md
+ M src/pietto/_project/project_sql_emission_aggregation.py
+ M src/pietto/_project/project_sql_emission_pure_boundary.py
+ M src/pietto/_project/project_sql_emission_verification.py
+ M tests/test_execution_compiled_families.py
+ M tests/test_harness_sql_emission_portability.py
+?? docs/release-notes.d/77-s10-mysql-group-tests.md

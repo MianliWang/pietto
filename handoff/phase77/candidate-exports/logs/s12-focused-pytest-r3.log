@@ -1,0 +1,44 @@
+.F........                                                               [100%]
+=================================== FAILURES ===================================
+_____ test_now_is_one_utc_statement_snapshot_evaluated_at_execution[mysql] _____
+
+tmp_path = PosixPath('/tmp/pietto-phase77-s12-focused3/test_now_is_one_utc_statement_1')
+target = 'mysql'
+
+    @pytest.mark.parametrize("target", TARGETS)
+    def test_now_is_one_utc_statement_snapshot_evaluated_at_execution(tmp_path, target):
+        """`now()` is a UTC statement-start Timestamp retained by both forms."""
+        outcome = emit_temporal(
+            tmp_path / target,
+            target,
+            """table result:
+        from rows
+        where stamp <= now()
+        select:
+            stamp
+            seen = now()
+            day = date_of(now())
+    """,
+        )
+    
+        assert outcome.status == "VERIFIED" and outcome.artifact is not None
+        artifact = outcome.artifact
+        assert verify_project_sql_emission(artifact, artifact.request).verified
+        observed = portable.export_emission_observation(artifact, artifact.request)
+        assert observed.canonical_bytes is not None
+>       assert (
+            pure.parse_emission_observation(observed.canonical_bytes).status
+            is pure.Status.OK
+        )
+E       assert <Status.INVALID_RELATION: 'invalid_relation'> is <Status.OK: 'ok'>
+E        +  where <Status.INVALID_RELATION: 'invalid_relation'> = Outcome(status=<Status.INVALID_RELATION: 'invalid_relation'>, view=None, canonical_bytes=None, detail='scalar call spelling').status
+E        +    where Outcome(status=<Status.INVALID_RELATION: 'invalid_relation'>, view=None, canonical_bytes=None, detail='scalar call spelling') = <function parse_emission_observation at 0x752df8949080>(b'{"format":"pietto.sql-emission-observation.v1","root":["artifact",0],"records":[{"ref":["artifact",0],"fields":{"req...fields":{"kind":"nonrecursive_with_bytes","subject":["sql_row_query",0],"rule":"R23","premises":[],"evidence":[]}}]}\n')
+E        +      where <function parse_emission_observation at 0x752df8949080> = pure.parse_emission_observation
+E        +      and   b'{"format":"pietto.sql-emission-observation.v1","root":["artifact",0],"records":[{"ref":["artifact",0],"fields":{"req...fields":{"kind":"nonrecursive_with_bytes","subject":["sql_row_query",0],"rule":"R23","premises":[],"evidence":[]}}]}\n' = EmissionObservation(status=<ObservationStatus.OK: 'ok'>, canonical_bytes=b'{"format":"pietto.sql-emission-observation....ields":{"kind":"nonrecursive_with_bytes","subject":["sql_row_query",0],"rule":"R23","premises":[],"evidence":[]}}]}\n').canonical_bytes
+E        +  and   <Status.OK: 'ok'> = <enum 'Status'>.OK
+E        +    where <enum 'Status'> = pure.Status
+
+tests/test_sql_project_scalar_expressions.py:749: AssertionError
+=========================== short test summary info ============================
+FAILED tests/test_sql_project_scalar_expressions.py::test_now_is_one_utc_statement_snapshot_evaluated_at_execution[mysql]
+1 failed, 9 passed, 291 deselected in 2.76s

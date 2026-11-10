@@ -1,0 +1,362 @@
+********************************************************************************
+WARNING: POSTGRES_HOST_AUTH_METHOD has been set to "trust". This will allow
+         anyone with access to the Postgres port to access your database without
+         a password, even if POSTGRES_PASSWORD is set. See PostgreSQL
+         documentation about "trust":
+         https://www.postgresql.org/docs/current/auth-trust.html
+         In Docker's default configuration, this is effectively any other
+         container on the same system.
+
+         It is not recommended to use POSTGRES_HOST_AUTH_METHOD=trust. Replace
+         it with "-e POSTGRES_PASSWORD=password" instead to set a password in
+         "docker run".
+********************************************************************************
+The files belonging to this database system will be owned by user "postgres".
+This user must also own the server process.
+
+The database cluster will be initialized with locale "en_US.utf8".
+The default database encoding has accordingly been set to "UTF8".
+The default text search configuration will be set to "english".
+
+Data page checksums are enabled.
+
+fixing permissions on existing directory /var/lib/postgresql/18/docker ... ok
+creating subdirectories ... ok
+selecting dynamic shared memory implementation ... posix
+selecting default "max_connections" ... 100
+selecting default "shared_buffers" ... 128MB
+selecting default time zone ... Etc/UTC
+creating configuration files ... ok
+running bootstrap script ... ok
+performing post-bootstrap initialization ... ok
+initdb: warning: enabling "trust" authentication for local connections
+initdb: hint: You can change this by editing pg_hba.conf or using the option -A, or --auth-local and --auth-host, the next time you run initdb.
+syncing data to disk ... ok
+
+
+Success. You can now start the database server using:
+
+    pg_ctl -D /var/lib/postgresql/18/docker -l logfile start
+
+waiting for server to start....2026-11-10 04:20:38.439 UTC [54] LOG:  starting PostgreSQL 18.6 (Debian 18.6-1.pgdg12+2) on x86_64-pc-linux-gnu, compiled by gcc (Debian 12.2.0-14+deb12u1) 12.2.0, 64-bit
+2026-11-10 04:20:38.444 UTC [54] LOG:  listening on Unix socket "/var/run/postgresql/.s.PGSQL.5432"
+2026-11-10 04:20:38.447 UTC [60] LOG:  database system was shut down at 2026-11-10 04:20:38 UTC
+2026-11-10 04:20:38.450 UTC [54] LOG:  database system is ready to accept connections
+ done
+server started
+
+/usr/local/bin/docker-entrypoint.sh: ignoring /docker-entrypoint-initdb.d/*
+
+waiting for server to shut down...2026-11-10 04:20:38.579 UTC [54] LOG:  received fast shutdown request
+.2026-11-10 04:20:38.579 UTC [54] LOG:  aborting any active transactions
+2026-11-10 04:20:38.581 UTC [54] LOG:  background worker "logical replication launcher" (PID 63) exited with exit code 1
+2026-11-10 04:20:38.581 UTC [58] LOG:  shutting down
+2026-11-10 04:20:38.581 UTC [58] LOG:  checkpoint starting: shutdown immediate
+2026-11-10 04:20:38.582 UTC [58] LOG:  checkpoint complete: wrote 0 buffers (0.0%), wrote 3 SLRU buffers; 0 WAL file(s) added, 0 removed, 0 recycled; write=0.001 s, sync=0.001 s, total=0.001 s; sync files=2, longest=0.001 s, average=0.001 s; distance=0 kB, estimate=0 kB; lsn=0/1759388, redo lsn=0/1759388
+2026-11-10 04:20:38.588 UTC [54] LOG:  database system is shut down
+ done
+server stopped
+
+PostgreSQL init process complete; ready for start up.
+
+2026-11-10 04:20:38.706 UTC [1] LOG:  starting PostgreSQL 18.6 (Debian 18.6-1.pgdg12+2) on x86_64-pc-linux-gnu, compiled by gcc (Debian 12.2.0-14+deb12u1) 12.2.0, 64-bit
+2026-11-10 04:20:38.712 UTC [1] LOG:  listening on IPv4 address "0.0.0.0", port 5432
+2026-11-10 04:20:38.715 UTC [1] LOG:  listening on IPv6 address "::", port 5432
+2026-11-10 04:20:38.721 UTC [1] LOG:  listening on Unix socket "/var/run/postgresql/.s.PGSQL.5432"
+2026-11-10 04:20:38.724 UTC [74] LOG:  database system was shut down at 2026-11-10 04:20:38 UTC
+2026-11-10 04:20:38.726 UTC [1] LOG:  database system is ready to accept connections
+2026-11-10 04:20:40.818 UTC [1] LOG:  received SIGHUP, reloading configuration files
+2026-11-10 04:20:40.818 UTC [1] LOG:  parameter "ssl_cert_file" changed to "/var/lib/postgresql/tls/server.pem"
+2026-11-10 04:20:40.818 UTC [1] LOG:  parameter "ssl_key_file" changed to "/var/lib/postgresql/tls/server-key.pem"
+2026-11-10 04:20:40.818 UTC [1] LOG:  parameter "ssl" changed to "on"
+2026-11-10 04:20:40.818 UTC [1] LOG:  parameter "log_connections" changed to "on"
+2026-11-10 04:20:40.914 UTC [167] LOG:  connection received: host=[local]
+2026-11-10 04:20:40.914 UTC [167] LOG:  connection authenticated: user="postgres" method=trust (/var/lib/postgresql/18/docker/pg_hba.conf:4)
+2026-11-10 04:20:40.914 UTC [167] LOG:  connection authorized: user=postgres database=postgres application_name=psql
+2026-11-10 04:20:40.996 UTC [174] LOG:  connection received: host=[local]
+2026-11-10 04:20:40.997 UTC [174] LOG:  connection authenticated: user="postgres" method=trust (/var/lib/postgresql/18/docker/pg_hba.conf:4)
+2026-11-10 04:20:40.997 UTC [174] LOG:  connection authorized: user=postgres database=postgres application_name=psql
+2026-11-10 04:20:41.080 UTC [182] LOG:  connection received: host=[local]
+2026-11-10 04:20:41.081 UTC [182] LOG:  connection authenticated: user="postgres" method=trust (/var/lib/postgresql/18/docker/pg_hba.conf:4)
+2026-11-10 04:20:41.081 UTC [182] LOG:  connection authorized: user=postgres database=postgres application_name=psql
+2026-11-10 04:20:41.159 UTC [189] LOG:  connection received: host=[local]
+2026-11-10 04:20:41.160 UTC [189] LOG:  connection authenticated: user="postgres" method=trust (/var/lib/postgresql/18/docker/pg_hba.conf:4)
+2026-11-10 04:20:41.160 UTC [189] LOG:  connection authorized: user=postgres database=postgres application_name=psql
+2026-11-10 04:20:41.254 UTC [196] LOG:  connection received: host=[local]
+2026-11-10 04:20:41.255 UTC [196] LOG:  connection authenticated: user="postgres" method=trust (/var/lib/postgresql/18/docker/pg_hba.conf:4)
+2026-11-10 04:20:41.255 UTC [196] LOG:  connection authorized: user=postgres database=postgres application_name=psql
+2026-11-10 04:20:41.344 UTC [203] LOG:  connection received: host=[local]
+2026-11-10 04:20:41.345 UTC [203] LOG:  connection authenticated: user="postgres" method=trust (/var/lib/postgresql/18/docker/pg_hba.conf:4)
+2026-11-10 04:20:41.345 UTC [203] LOG:  connection authorized: user=postgres database=postgres application_name=psql
+2026-11-10 04:20:41.429 UTC [210] LOG:  connection received: host=[local]
+2026-11-10 04:20:41.429 UTC [210] LOG:  connection authenticated: user="postgres" method=trust (/var/lib/postgresql/18/docker/pg_hba.conf:4)
+2026-11-10 04:20:41.430 UTC [210] LOG:  connection authorized: user=postgres database=postgres application_name=psql
+2026-11-10 04:20:41.507 UTC [217] LOG:  connection received: host=[local]
+2026-11-10 04:20:41.507 UTC [217] LOG:  connection authenticated: user="postgres" method=trust (/var/lib/postgresql/18/docker/pg_hba.conf:4)
+2026-11-10 04:20:41.507 UTC [217] LOG:  connection authorized: user=postgres database=postgres application_name=psql
+2026-11-10 04:20:41.691 UTC [224] LOG:  connection received: host=[local]
+2026-11-10 04:20:41.691 UTC [224] LOG:  connection authenticated: user="postgres" method=trust (/var/lib/postgresql/18/docker/pg_hba.conf:4)
+2026-11-10 04:20:41.691 UTC [224] LOG:  connection authorized: user=postgres database=postgres application_name=psql
+2026-11-10 04:20:41.693 UTC [224] LOG:  pietto-p77-maint-mark begin A1_full_ok postgres_rows
+2026-11-10 04:20:41.693 UTC [224] CONTEXT:  PL/pgSQL function inline_code_block line 1 at RAISE
+2026-11-10 04:20:41.693 UTC [224] STATEMENT:  DO $$BEGIN RAISE LOG 'pietto-p77-maint-mark begin A1_full_ok postgres_rows'; END$$
+2026-11-10 04:20:44.483 UTC [233] LOG:  connection received: host=127.0.0.1 port=48666
+2026-11-10 04:20:44.497 UTC [233] LOG:  connection authenticated: identity="pietto_reader" method=scram-sha-256 (/var/lib/postgresql/18/docker/pg_hba.conf:5)
+2026-11-10 04:20:44.497 UTC [233] LOG:  connection authorized: user=pietto_reader database=app application_name=pietto_private_execution SSL enabled (protocol=TLSv1.3, cipher=TLS_AES_256_GCM_SHA384, bits=256)
+2026-11-10 04:20:45.958 UTC [240] LOG:  connection received: host=[local]
+2026-11-10 04:20:45.958 UTC [240] LOG:  connection authenticated: user="postgres" method=trust (/var/lib/postgresql/18/docker/pg_hba.conf:4)
+2026-11-10 04:20:45.958 UTC [240] LOG:  connection authorized: user=postgres database=postgres application_name=psql
+2026-11-10 04:20:45.960 UTC [240] LOG:  pietto-p77-maint-mark end A1_full_ok postgres_rows
+2026-11-10 04:20:45.960 UTC [240] CONTEXT:  PL/pgSQL function inline_code_block line 1 at RAISE
+2026-11-10 04:20:45.960 UTC [240] STATEMENT:  DO $$BEGIN RAISE LOG 'pietto-p77-maint-mark end A1_full_ok postgres_rows'; END$$
+2026-11-10 04:20:46.043 UTC [247] LOG:  connection received: host=[local]
+2026-11-10 04:20:46.044 UTC [247] LOG:  connection authenticated: user="postgres" method=trust (/var/lib/postgresql/18/docker/pg_hba.conf:4)
+2026-11-10 04:20:46.044 UTC [247] LOG:  connection authorized: user=postgres database=postgres application_name=psql
+2026-11-10 04:20:46.045 UTC [247] LOG:  pietto-p77-maint-mark begin A2_wrong_ca postgres_rows
+2026-11-10 04:20:46.045 UTC [247] CONTEXT:  PL/pgSQL function inline_code_block line 1 at RAISE
+2026-11-10 04:20:46.045 UTC [247] STATEMENT:  DO $$BEGIN RAISE LOG 'pietto-p77-maint-mark begin A2_wrong_ca postgres_rows'; END$$
+2026-11-10 04:20:47.340 UTC [256] LOG:  connection received: host=127.0.0.1 port=48674
+2026-11-10 04:20:47.347 UTC [256] LOG:  could not accept SSL connection: tlsv1 alert unknown ca
+2026-11-10 04:20:48.711 UTC [263] LOG:  connection received: host=[local]
+2026-11-10 04:20:48.712 UTC [263] LOG:  connection authenticated: user="postgres" method=trust (/var/lib/postgresql/18/docker/pg_hba.conf:4)
+2026-11-10 04:20:48.712 UTC [263] LOG:  connection authorized: user=postgres database=postgres application_name=psql
+2026-11-10 04:20:48.713 UTC [263] LOG:  pietto-p77-maint-mark end A2_wrong_ca postgres_rows
+2026-11-10 04:20:48.713 UTC [263] CONTEXT:  PL/pgSQL function inline_code_block line 1 at RAISE
+2026-11-10 04:20:48.713 UTC [263] STATEMENT:  DO $$BEGIN RAISE LOG 'pietto-p77-maint-mark end A2_wrong_ca postgres_rows'; END$$
+2026-11-10 04:20:48.797 UTC [270] LOG:  connection received: host=[local]
+2026-11-10 04:20:48.798 UTC [270] LOG:  connection authenticated: user="postgres" method=trust (/var/lib/postgresql/18/docker/pg_hba.conf:4)
+2026-11-10 04:20:48.798 UTC [270] LOG:  connection authorized: user=postgres database=postgres application_name=psql
+2026-11-10 04:20:48.799 UTC [270] LOG:  pietto-p77-maint-mark begin A3_missing_ca postgres_rows
+2026-11-10 04:20:48.799 UTC [270] CONTEXT:  PL/pgSQL function inline_code_block line 1 at RAISE
+2026-11-10 04:20:48.799 UTC [270] STATEMENT:  DO $$BEGIN RAISE LOG 'pietto-p77-maint-mark begin A3_missing_ca postgres_rows'; END$$
+2026-11-10 04:20:48.067 UTC [279] LOG:  connection received: host=127.0.0.1 port=48684
+2026-11-10 04:20:49.339 UTC [286] LOG:  connection received: host=[local]
+2026-11-10 04:20:49.339 UTC [286] LOG:  connection authenticated: user="postgres" method=trust (/var/lib/postgresql/18/docker/pg_hba.conf:4)
+2026-11-10 04:20:49.340 UTC [286] LOG:  connection authorized: user=postgres database=postgres application_name=psql
+2026-11-10 04:20:49.341 UTC [286] LOG:  pietto-p77-maint-mark end A3_missing_ca postgres_rows
+2026-11-10 04:20:49.341 UTC [286] CONTEXT:  PL/pgSQL function inline_code_block line 1 at RAISE
+2026-11-10 04:20:49.341 UTC [286] STATEMENT:  DO $$BEGIN RAISE LOG 'pietto-p77-maint-mark end A3_missing_ca postgres_rows'; END$$
+2026-11-10 04:20:49.416 UTC [293] LOG:  connection received: host=[local]
+2026-11-10 04:20:49.417 UTC [293] LOG:  connection authenticated: user="postgres" method=trust (/var/lib/postgresql/18/docker/pg_hba.conf:4)
+2026-11-10 04:20:49.417 UTC [293] LOG:  connection authorized: user=postgres database=postgres application_name=psql
+2026-11-10 04:20:49.418 UTC [293] LOG:  pietto-p77-maint-mark begin A4_require postgres_rows
+2026-11-10 04:20:49.418 UTC [293] CONTEXT:  PL/pgSQL function inline_code_block line 1 at RAISE
+2026-11-10 04:20:49.418 UTC [293] STATEMENT:  DO $$BEGIN RAISE LOG 'pietto-p77-maint-mark begin A4_require postgres_rows'; END$$
+2026-11-10 04:20:50.593 UTC [302] LOG:  connection received: host=127.0.0.1 port=48686
+2026-11-10 04:20:50.606 UTC [302] LOG:  connection authenticated: identity="pietto_reader" method=scram-sha-256 (/var/lib/postgresql/18/docker/pg_hba.conf:5)
+2026-11-10 04:20:50.606 UTC [302] LOG:  connection authorized: user=pietto_reader database=app application_name=pietto_private_execution SSL enabled (protocol=TLSv1.3, cipher=TLS_AES_256_GCM_SHA384, bits=256)
+2026-11-10 04:20:52.057 UTC [309] LOG:  connection received: host=[local]
+2026-11-10 04:20:52.058 UTC [309] LOG:  connection authenticated: user="postgres" method=trust (/var/lib/postgresql/18/docker/pg_hba.conf:4)
+2026-11-10 04:20:52.058 UTC [309] LOG:  connection authorized: user=postgres database=postgres application_name=psql
+2026-11-10 04:20:52.059 UTC [309] LOG:  pietto-p77-maint-mark end A4_require postgres_rows
+2026-11-10 04:20:52.059 UTC [309] CONTEXT:  PL/pgSQL function inline_code_block line 1 at RAISE
+2026-11-10 04:20:52.059 UTC [309] STATEMENT:  DO $$BEGIN RAISE LOG 'pietto-p77-maint-mark end A4_require postgres_rows'; END$$
+2026-11-10 04:20:52.140 UTC [316] LOG:  connection received: host=[local]
+2026-11-10 04:20:52.141 UTC [316] LOG:  connection authenticated: user="postgres" method=trust (/var/lib/postgresql/18/docker/pg_hba.conf:4)
+2026-11-10 04:20:52.141 UTC [316] LOG:  connection authorized: user=postgres database=postgres application_name=psql
+2026-11-10 04:20:52.142 UTC [316] LOG:  pietto-p77-maint-mark begin A5_disable_ca postgres_rows
+2026-11-10 04:20:52.142 UTC [316] CONTEXT:  PL/pgSQL function inline_code_block line 1 at RAISE
+2026-11-10 04:20:52.142 UTC [316] STATEMENT:  DO $$BEGIN RAISE LOG 'pietto-p77-maint-mark begin A5_disable_ca postgres_rows'; END$$
+2026-11-10 04:20:54.474 UTC [323] LOG:  connection received: host=[local]
+2026-11-10 04:20:54.475 UTC [323] LOG:  connection authenticated: user="postgres" method=trust (/var/lib/postgresql/18/docker/pg_hba.conf:4)
+2026-11-10 04:20:54.475 UTC [323] LOG:  connection authorized: user=postgres database=postgres application_name=psql
+2026-11-10 04:20:54.476 UTC [323] LOG:  pietto-p77-maint-mark end A5_disable_ca postgres_rows
+2026-11-10 04:20:54.476 UTC [323] CONTEXT:  PL/pgSQL function inline_code_block line 1 at RAISE
+2026-11-10 04:20:54.476 UTC [323] STATEMENT:  DO $$BEGIN RAISE LOG 'pietto-p77-maint-mark end A5_disable_ca postgres_rows'; END$$
+2026-11-10 04:20:54.552 UTC [330] LOG:  connection received: host=[local]
+2026-11-10 04:20:54.553 UTC [330] LOG:  connection authenticated: user="postgres" method=trust (/var/lib/postgresql/18/docker/pg_hba.conf:4)
+2026-11-10 04:20:54.553 UTC [330] LOG:  connection authorized: user=postgres database=postgres application_name=psql
+2026-11-10 04:20:54.554 UTC [330] LOG:  pietto-p77-maint-mark begin A6_system_ca postgres_rows
+2026-11-10 04:20:54.554 UTC [330] CONTEXT:  PL/pgSQL function inline_code_block line 1 at RAISE
+2026-11-10 04:20:54.554 UTC [330] STATEMENT:  DO $$BEGIN RAISE LOG 'pietto-p77-maint-mark begin A6_system_ca postgres_rows'; END$$
+2026-11-10 04:20:56.827 UTC [337] LOG:  connection received: host=[local]
+2026-11-10 04:20:56.828 UTC [337] LOG:  connection authenticated: user="postgres" method=trust (/var/lib/postgresql/18/docker/pg_hba.conf:4)
+2026-11-10 04:20:56.828 UTC [337] LOG:  connection authorized: user=postgres database=postgres application_name=psql
+2026-11-10 04:20:56.830 UTC [337] LOG:  pietto-p77-maint-mark end A6_system_ca postgres_rows
+2026-11-10 04:20:56.830 UTC [337] CONTEXT:  PL/pgSQL function inline_code_block line 1 at RAISE
+2026-11-10 04:20:56.830 UTC [337] STATEMENT:  DO $$BEGIN RAISE LOG 'pietto-p77-maint-mark end A6_system_ca postgres_rows'; END$$
+2026-11-10 04:20:56.905 UTC [344] LOG:  connection received: host=[local]
+2026-11-10 04:20:56.906 UTC [344] LOG:  connection authenticated: user="postgres" method=trust (/var/lib/postgresql/18/docker/pg_hba.conf:4)
+2026-11-10 04:20:56.906 UTC [344] LOG:  connection authorized: user=postgres database=postgres application_name=psql
+2026-11-10 04:20:56.907 UTC [344] LOG:  pietto-p77-maint-mark begin C1_ambient_pgsslrootcert postgres_rows
+2026-11-10 04:20:56.907 UTC [344] CONTEXT:  PL/pgSQL function inline_code_block line 1 at RAISE
+2026-11-10 04:20:56.907 UTC [344] STATEMENT:  DO $$BEGIN RAISE LOG 'pietto-p77-maint-mark begin C1_ambient_pgsslrootcert postgres_rows'; END$$
+2026-11-10 04:20:59.277 UTC [351] LOG:  connection received: host=[local]
+2026-11-10 04:20:59.278 UTC [351] LOG:  connection authenticated: user="postgres" method=trust (/var/lib/postgresql/18/docker/pg_hba.conf:4)
+2026-11-10 04:20:59.278 UTC [351] LOG:  connection authorized: user=postgres database=postgres application_name=psql
+2026-11-10 04:20:59.279 UTC [351] LOG:  pietto-p77-maint-mark end C1_ambient_pgsslrootcert postgres_rows
+2026-11-10 04:20:59.279 UTC [351] CONTEXT:  PL/pgSQL function inline_code_block line 1 at RAISE
+2026-11-10 04:20:59.279 UTC [351] STATEMENT:  DO $$BEGIN RAISE LOG 'pietto-p77-maint-mark end C1_ambient_pgsslrootcert postgres_rows'; END$$
+2026-11-10 04:20:59.354 UTC [358] LOG:  connection received: host=[local]
+2026-11-10 04:20:59.355 UTC [358] LOG:  connection authenticated: user="postgres" method=trust (/var/lib/postgresql/18/docker/pg_hba.conf:4)
+2026-11-10 04:20:59.355 UTC [358] LOG:  connection authorized: user=postgres database=postgres application_name=psql
+2026-11-10 04:20:59.356 UTC [358] LOG:  pietto-p77-maint-mark begin A1_full_ok postgres_adbc
+2026-11-10 04:20:59.356 UTC [358] CONTEXT:  PL/pgSQL function inline_code_block line 1 at RAISE
+2026-11-10 04:20:59.356 UTC [358] STATEMENT:  DO $$BEGIN RAISE LOG 'pietto-p77-maint-mark begin A1_full_ok postgres_adbc'; END$$
+2026-11-10 04:21:00.475 UTC [367] LOG:  connection received: host=127.0.0.1 port=60606
+2026-11-10 04:21:00.487 UTC [367] LOG:  connection authenticated: identity="pietto_reader" method=scram-sha-256 (/var/lib/postgresql/18/docker/pg_hba.conf:5)
+2026-11-10 04:21:00.487 UTC [367] LOG:  connection authorized: user=pietto_reader database=app application_name=pietto_postgres_adbc SSL enabled (protocol=TLSv1.3, cipher=TLS_AES_256_GCM_SHA384, bits=256)
+2026-11-10 04:21:00.579 UTC [375] LOG:  connection received: host=127.0.0.1 port=60614
+2026-11-10 04:21:00.587 UTC [375] LOG:  connection authenticated: identity="pietto_reader" method=scram-sha-256 (/var/lib/postgresql/18/docker/pg_hba.conf:5)
+2026-11-10 04:21:00.587 UTC [375] LOG:  connection authorized: user=pietto_reader database=app application_name=pietto_postgres_adbc SSL enabled (protocol=TLSv1.3, cipher=TLS_AES_256_GCM_SHA384, bits=256)
+2026-11-10 04:21:02.021 UTC [384] LOG:  connection received: host=[local]
+2026-11-10 04:21:02.021 UTC [384] LOG:  connection authenticated: user="postgres" method=trust (/var/lib/postgresql/18/docker/pg_hba.conf:4)
+2026-11-10 04:21:02.021 UTC [384] LOG:  connection authorized: user=postgres database=postgres application_name=psql
+2026-11-10 04:21:02.023 UTC [384] LOG:  pietto-p77-maint-mark end A1_full_ok postgres_adbc
+2026-11-10 04:21:02.023 UTC [384] CONTEXT:  PL/pgSQL function inline_code_block line 1 at RAISE
+2026-11-10 04:21:02.023 UTC [384] STATEMENT:  DO $$BEGIN RAISE LOG 'pietto-p77-maint-mark end A1_full_ok postgres_adbc'; END$$
+2026-11-10 04:21:02.105 UTC [391] LOG:  connection received: host=[local]
+2026-11-10 04:21:02.106 UTC [391] LOG:  connection authenticated: user="postgres" method=trust (/var/lib/postgresql/18/docker/pg_hba.conf:4)
+2026-11-10 04:21:02.106 UTC [391] LOG:  connection authorized: user=postgres database=postgres application_name=psql
+2026-11-10 04:21:02.107 UTC [391] LOG:  pietto-p77-maint-mark begin A2_wrong_ca postgres_adbc
+2026-11-10 04:21:02.107 UTC [391] CONTEXT:  PL/pgSQL function inline_code_block line 1 at RAISE
+2026-11-10 04:21:02.107 UTC [391] STATEMENT:  DO $$BEGIN RAISE LOG 'pietto-p77-maint-mark begin A2_wrong_ca postgres_adbc'; END$$
+2026-11-10 04:21:03.269 UTC [400] LOG:  connection received: host=127.0.0.1 port=37356
+2026-11-10 04:21:03.275 UTC [400] LOG:  could not accept SSL connection: tlsv1 alert unknown ca
+2026-11-10 04:21:04.542 UTC [407] LOG:  connection received: host=[local]
+2026-11-10 04:21:04.542 UTC [407] LOG:  connection authenticated: user="postgres" method=trust (/var/lib/postgresql/18/docker/pg_hba.conf:4)
+2026-11-10 04:21:04.542 UTC [407] LOG:  connection authorized: user=postgres database=postgres application_name=psql
+2026-11-10 04:21:04.544 UTC [407] LOG:  pietto-p77-maint-mark end A2_wrong_ca postgres_adbc
+2026-11-10 04:21:04.544 UTC [407] CONTEXT:  PL/pgSQL function inline_code_block line 1 at RAISE
+2026-11-10 04:21:04.544 UTC [407] STATEMENT:  DO $$BEGIN RAISE LOG 'pietto-p77-maint-mark end A2_wrong_ca postgres_adbc'; END$$
+2026-11-10 04:21:04.623 UTC [414] LOG:  connection received: host=[local]
+2026-11-10 04:21:04.623 UTC [414] LOG:  connection authenticated: user="postgres" method=trust (/var/lib/postgresql/18/docker/pg_hba.conf:4)
+2026-11-10 04:21:04.623 UTC [414] LOG:  connection authorized: user=postgres database=postgres application_name=psql
+2026-11-10 04:21:04.625 UTC [414] LOG:  pietto-p77-maint-mark begin A3_missing_ca postgres_adbc
+2026-11-10 04:21:04.625 UTC [414] CONTEXT:  PL/pgSQL function inline_code_block line 1 at RAISE
+2026-11-10 04:21:04.625 UTC [414] STATEMENT:  DO $$BEGIN RAISE LOG 'pietto-p77-maint-mark begin A3_missing_ca postgres_adbc'; END$$
+2026-11-10 04:21:05.791 UTC [423] LOG:  connection received: host=127.0.0.1 port=37362
+2026-11-10 04:21:07.095 UTC [430] LOG:  connection received: host=[local]
+2026-11-10 04:21:07.095 UTC [430] LOG:  connection authenticated: user="postgres" method=trust (/var/lib/postgresql/18/docker/pg_hba.conf:4)
+2026-11-10 04:21:07.095 UTC [430] LOG:  connection authorized: user=postgres database=postgres application_name=psql
+2026-11-10 04:21:07.097 UTC [430] LOG:  pietto-p77-maint-mark end A3_missing_ca postgres_adbc
+2026-11-10 04:21:07.097 UTC [430] CONTEXT:  PL/pgSQL function inline_code_block line 1 at RAISE
+2026-11-10 04:21:07.097 UTC [430] STATEMENT:  DO $$BEGIN RAISE LOG 'pietto-p77-maint-mark end A3_missing_ca postgres_adbc'; END$$
+2026-11-10 04:21:07.177 UTC [437] LOG:  connection received: host=[local]
+2026-11-10 04:21:07.178 UTC [437] LOG:  connection authenticated: user="postgres" method=trust (/var/lib/postgresql/18/docker/pg_hba.conf:4)
+2026-11-10 04:21:07.178 UTC [437] LOG:  connection authorized: user=postgres database=postgres application_name=psql
+2026-11-10 04:21:07.180 UTC [437] LOG:  pietto-p77-maint-mark begin A4_require postgres_adbc
+2026-11-10 04:21:07.180 UTC [437] CONTEXT:  PL/pgSQL function inline_code_block line 1 at RAISE
+2026-11-10 04:21:07.180 UTC [437] STATEMENT:  DO $$BEGIN RAISE LOG 'pietto-p77-maint-mark begin A4_require postgres_adbc'; END$$
+2026-11-10 04:21:08.341 UTC [446] LOG:  connection received: host=127.0.0.1 port=37372
+2026-11-10 04:21:08.399 UTC [446] LOG:  connection authenticated: identity="pietto_reader" method=scram-sha-256 (/var/lib/postgresql/18/docker/pg_hba.conf:5)
+2026-11-10 04:21:08.399 UTC [446] LOG:  connection authorized: user=pietto_reader database=app application_name=pietto_postgres_adbc SSL enabled (protocol=TLSv1.3, cipher=TLS_AES_256_GCM_SHA384, bits=256)
+2026-11-10 04:21:08.488 UTC [455] LOG:  connection received: host=127.0.0.1 port=37376
+2026-11-10 04:21:08.495 UTC [455] LOG:  connection authenticated: identity="pietto_reader" method=scram-sha-256 (/var/lib/postgresql/18/docker/pg_hba.conf:5)
+2026-11-10 04:21:08.495 UTC [455] LOG:  connection authorized: user=pietto_reader database=app application_name=pietto_postgres_adbc SSL enabled (protocol=TLSv1.3, cipher=TLS_AES_256_GCM_SHA384, bits=256)
+2026-11-10 04:21:09.932 UTC [462] LOG:  connection received: host=[local]
+2026-11-10 04:21:09.932 UTC [462] LOG:  connection authenticated: user="postgres" method=trust (/var/lib/postgresql/18/docker/pg_hba.conf:4)
+2026-11-10 04:21:09.932 UTC [462] LOG:  connection authorized: user=postgres database=postgres application_name=psql
+2026-11-10 04:21:09.934 UTC [462] LOG:  pietto-p77-maint-mark end A4_require postgres_adbc
+2026-11-10 04:21:09.934 UTC [462] CONTEXT:  PL/pgSQL function inline_code_block line 1 at RAISE
+2026-11-10 04:21:09.934 UTC [462] STATEMENT:  DO $$BEGIN RAISE LOG 'pietto-p77-maint-mark end A4_require postgres_adbc'; END$$
+2026-11-10 04:21:10.010 UTC [469] LOG:  connection received: host=[local]
+2026-11-10 04:21:10.011 UTC [469] LOG:  connection authenticated: user="postgres" method=trust (/var/lib/postgresql/18/docker/pg_hba.conf:4)
+2026-11-10 04:21:10.011 UTC [469] LOG:  connection authorized: user=postgres database=postgres application_name=psql
+2026-11-10 04:21:10.012 UTC [469] LOG:  pietto-p77-maint-mark begin A5_disable_ca postgres_adbc
+2026-11-10 04:21:10.012 UTC [469] CONTEXT:  PL/pgSQL function inline_code_block line 1 at RAISE
+2026-11-10 04:21:10.012 UTC [469] STATEMENT:  DO $$BEGIN RAISE LOG 'pietto-p77-maint-mark begin A5_disable_ca postgres_adbc'; END$$
+2026-11-10 04:21:12.358 UTC [476] LOG:  connection received: host=[local]
+2026-11-10 04:21:12.359 UTC [476] LOG:  connection authenticated: user="postgres" method=trust (/var/lib/postgresql/18/docker/pg_hba.conf:4)
+2026-11-10 04:21:12.359 UTC [476] LOG:  connection authorized: user=postgres database=postgres application_name=psql
+2026-11-10 04:21:12.360 UTC [476] LOG:  pietto-p77-maint-mark end A5_disable_ca postgres_adbc
+2026-11-10 04:21:12.360 UTC [476] CONTEXT:  PL/pgSQL function inline_code_block line 1 at RAISE
+2026-11-10 04:21:12.360 UTC [476] STATEMENT:  DO $$BEGIN RAISE LOG 'pietto-p77-maint-mark end A5_disable_ca postgres_adbc'; END$$
+2026-11-10 04:21:12.434 UTC [483] LOG:  connection received: host=[local]
+2026-11-10 04:21:12.434 UTC [483] LOG:  connection authenticated: user="postgres" method=trust (/var/lib/postgresql/18/docker/pg_hba.conf:4)
+2026-11-10 04:21:12.434 UTC [483] LOG:  connection authorized: user=postgres database=postgres application_name=psql
+2026-11-10 04:21:12.436 UTC [483] LOG:  pietto-p77-maint-mark begin A6_system_ca postgres_adbc
+2026-11-10 04:21:12.436 UTC [483] CONTEXT:  PL/pgSQL function inline_code_block line 1 at RAISE
+2026-11-10 04:21:12.436 UTC [483] STATEMENT:  DO $$BEGIN RAISE LOG 'pietto-p77-maint-mark begin A6_system_ca postgres_adbc'; END$$
+2026-11-10 04:21:14.814 UTC [490] LOG:  connection received: host=[local]
+2026-11-10 04:21:14.815 UTC [490] LOG:  connection authenticated: user="postgres" method=trust (/var/lib/postgresql/18/docker/pg_hba.conf:4)
+2026-11-10 04:21:14.815 UTC [490] LOG:  connection authorized: user=postgres database=postgres application_name=psql
+2026-11-10 04:21:14.816 UTC [490] LOG:  pietto-p77-maint-mark end A6_system_ca postgres_adbc
+2026-11-10 04:21:14.816 UTC [490] CONTEXT:  PL/pgSQL function inline_code_block line 1 at RAISE
+2026-11-10 04:21:14.816 UTC [490] STATEMENT:  DO $$BEGIN RAISE LOG 'pietto-p77-maint-mark end A6_system_ca postgres_adbc'; END$$
+2026-11-10 04:21:14.895 UTC [497] LOG:  connection received: host=[local]
+2026-11-10 04:21:14.895 UTC [497] LOG:  connection authenticated: user="postgres" method=trust (/var/lib/postgresql/18/docker/pg_hba.conf:4)
+2026-11-10 04:21:14.895 UTC [497] LOG:  connection authorized: user=postgres database=postgres application_name=psql
+2026-11-10 04:21:14.897 UTC [497] LOG:  pietto-p77-maint-mark begin C1_ambient_pgsslrootcert postgres_adbc
+2026-11-10 04:21:14.897 UTC [497] CONTEXT:  PL/pgSQL function inline_code_block line 1 at RAISE
+2026-11-10 04:21:14.897 UTC [497] STATEMENT:  DO $$BEGIN RAISE LOG 'pietto-p77-maint-mark begin C1_ambient_pgsslrootcert postgres_adbc'; END$$
+2026-11-10 04:21:17.189 UTC [504] LOG:  connection received: host=[local]
+2026-11-10 04:21:17.190 UTC [504] LOG:  connection authenticated: user="postgres" method=trust (/var/lib/postgresql/18/docker/pg_hba.conf:4)
+2026-11-10 04:21:17.190 UTC [504] LOG:  connection authorized: user=postgres database=postgres application_name=psql
+2026-11-10 04:21:17.191 UTC [504] LOG:  pietto-p77-maint-mark end C1_ambient_pgsslrootcert postgres_adbc
+2026-11-10 04:21:17.191 UTC [504] CONTEXT:  PL/pgSQL function inline_code_block line 1 at RAISE
+2026-11-10 04:21:17.191 UTC [504] STATEMENT:  DO $$BEGIN RAISE LOG 'pietto-p77-maint-mark end C1_ambient_pgsslrootcert postgres_adbc'; END$$
+2026-11-10 04:21:17.273 UTC [511] LOG:  connection received: host=[local]
+2026-11-10 04:21:17.274 UTC [511] LOG:  connection authenticated: user="postgres" method=trust (/var/lib/postgresql/18/docker/pg_hba.conf:4)
+2026-11-10 04:21:17.274 UTC [511] LOG:  connection authorized: user=postgres database=postgres application_name=psql
+2026-11-10 04:21:17.276 UTC [1] LOG:  received SIGHUP, reloading configuration files
+2026-11-10 04:21:17.277 UTC [1] LOG:  parameter "ssl_cert_file" changed to "/var/lib/postgresql/tls/elsewhere.pem"
+2026-11-10 04:21:17.277 UTC [1] LOG:  parameter "ssl_key_file" changed to "/var/lib/postgresql/tls/elsewhere-key.pem"
+2026-11-10 04:21:17.366 UTC [518] LOG:  connection received: host=[local]
+2026-11-10 04:21:17.367 UTC [518] LOG:  connection authenticated: user="postgres" method=trust (/var/lib/postgresql/18/docker/pg_hba.conf:4)
+2026-11-10 04:21:17.367 UTC [518] LOG:  connection authorized: user=postgres database=postgres application_name=psql
+2026-11-10 04:21:17.464 UTC [525] LOG:  connection received: host=[local]
+2026-11-10 04:21:17.465 UTC [525] LOG:  connection authenticated: user="postgres" method=trust (/var/lib/postgresql/18/docker/pg_hba.conf:4)
+2026-11-10 04:21:17.465 UTC [525] LOG:  connection authorized: user=postgres database=postgres application_name=psql
+2026-11-10 04:21:17.547 UTC [532] LOG:  connection received: host=[local]
+2026-11-10 04:21:17.547 UTC [532] LOG:  connection authenticated: user="postgres" method=trust (/var/lib/postgresql/18/docker/pg_hba.conf:4)
+2026-11-10 04:21:17.547 UTC [532] LOG:  connection authorized: user=postgres database=postgres application_name=psql
+2026-11-10 04:21:17.626 UTC [539] LOG:  connection received: host=[local]
+2026-11-10 04:21:17.627 UTC [539] LOG:  connection authenticated: user="postgres" method=trust (/var/lib/postgresql/18/docker/pg_hba.conf:4)
+2026-11-10 04:21:17.627 UTC [539] LOG:  connection authorized: user=postgres database=postgres application_name=psql
+2026-11-10 04:21:17.628 UTC [539] LOG:  pietto-p77-maint-mark begin B1_wrong_host postgres_rows
+2026-11-10 04:21:17.628 UTC [539] CONTEXT:  PL/pgSQL function inline_code_block line 1 at RAISE
+2026-11-10 04:21:17.628 UTC [539] STATEMENT:  DO $$BEGIN RAISE LOG 'pietto-p77-maint-mark begin B1_wrong_host postgres_rows'; END$$
+2026-11-10 04:21:18.852 UTC [548] LOG:  connection received: host=127.0.0.1 port=51962
+2026-11-10 04:21:20.139 UTC [555] LOG:  connection received: host=[local]
+2026-11-10 04:21:20.140 UTC [555] LOG:  connection authenticated: user="postgres" method=trust (/var/lib/postgresql/18/docker/pg_hba.conf:4)
+2026-11-10 04:21:20.140 UTC [555] LOG:  connection authorized: user=postgres database=postgres application_name=psql
+2026-11-10 04:21:20.141 UTC [555] LOG:  pietto-p77-maint-mark end B1_wrong_host postgres_rows
+2026-11-10 04:21:20.141 UTC [555] CONTEXT:  PL/pgSQL function inline_code_block line 1 at RAISE
+2026-11-10 04:21:20.141 UTC [555] STATEMENT:  DO $$BEGIN RAISE LOG 'pietto-p77-maint-mark end B1_wrong_host postgres_rows'; END$$
+2026-11-10 04:21:20.224 UTC [562] LOG:  connection received: host=[local]
+2026-11-10 04:21:20.225 UTC [562] LOG:  connection authenticated: user="postgres" method=trust (/var/lib/postgresql/18/docker/pg_hba.conf:4)
+2026-11-10 04:21:20.225 UTC [562] LOG:  connection authorized: user=postgres database=postgres application_name=psql
+2026-11-10 04:21:20.226 UTC [562] LOG:  pietto-p77-maint-mark begin B2_require_any_name postgres_rows
+2026-11-10 04:21:20.226 UTC [562] CONTEXT:  PL/pgSQL function inline_code_block line 1 at RAISE
+2026-11-10 04:21:20.226 UTC [562] STATEMENT:  DO $$BEGIN RAISE LOG 'pietto-p77-maint-mark begin B2_require_any_name postgres_rows'; END$$
+2026-11-10 04:21:19.402 UTC [571] LOG:  connection received: host=127.0.0.1 port=57726
+2026-11-10 04:21:19.413 UTC [571] LOG:  connection authenticated: identity="pietto_reader" method=scram-sha-256 (/var/lib/postgresql/18/docker/pg_hba.conf:5)
+2026-11-10 04:21:19.413 UTC [571] LOG:  connection authorized: user=pietto_reader database=app application_name=pietto_private_execution SSL enabled (protocol=TLSv1.3, cipher=TLS_AES_256_GCM_SHA384, bits=256)
+2026-11-10 04:21:20.796 UTC [578] LOG:  connection received: host=[local]
+2026-11-10 04:21:20.796 UTC [578] LOG:  connection authenticated: user="postgres" method=trust (/var/lib/postgresql/18/docker/pg_hba.conf:4)
+2026-11-10 04:21:20.796 UTC [578] LOG:  connection authorized: user=postgres database=postgres application_name=psql
+2026-11-10 04:21:20.797 UTC [578] LOG:  pietto-p77-maint-mark end B2_require_any_name postgres_rows
+2026-11-10 04:21:20.797 UTC [578] CONTEXT:  PL/pgSQL function inline_code_block line 1 at RAISE
+2026-11-10 04:21:20.797 UTC [578] STATEMENT:  DO $$BEGIN RAISE LOG 'pietto-p77-maint-mark end B2_require_any_name postgres_rows'; END$$
+2026-11-10 04:21:20.871 UTC [585] LOG:  connection received: host=[local]
+2026-11-10 04:21:20.871 UTC [585] LOG:  connection authenticated: user="postgres" method=trust (/var/lib/postgresql/18/docker/pg_hba.conf:4)
+2026-11-10 04:21:20.871 UTC [585] LOG:  connection authorized: user=postgres database=postgres application_name=psql
+2026-11-10 04:21:20.873 UTC [585] LOG:  pietto-p77-maint-mark begin B1_wrong_host postgres_adbc
+2026-11-10 04:21:20.873 UTC [585] CONTEXT:  PL/pgSQL function inline_code_block line 1 at RAISE
+2026-11-10 04:21:20.873 UTC [585] STATEMENT:  DO $$BEGIN RAISE LOG 'pietto-p77-maint-mark begin B1_wrong_host postgres_adbc'; END$$
+2026-11-10 04:21:21.913 UTC [594] LOG:  connection received: host=127.0.0.1 port=57742
+2026-11-10 04:21:23.169 UTC [601] LOG:  connection received: host=[local]
+2026-11-10 04:21:23.170 UTC [601] LOG:  connection authenticated: user="postgres" method=trust (/var/lib/postgresql/18/docker/pg_hba.conf:4)
+2026-11-10 04:21:23.170 UTC [601] LOG:  connection authorized: user=postgres database=postgres application_name=psql
+2026-11-10 04:21:23.171 UTC [601] LOG:  pietto-p77-maint-mark end B1_wrong_host postgres_adbc
+2026-11-10 04:21:23.171 UTC [601] CONTEXT:  PL/pgSQL function inline_code_block line 1 at RAISE
+2026-11-10 04:21:23.171 UTC [601] STATEMENT:  DO $$BEGIN RAISE LOG 'pietto-p77-maint-mark end B1_wrong_host postgres_adbc'; END$$
+2026-11-10 04:21:23.248 UTC [608] LOG:  connection received: host=[local]
+2026-11-10 04:21:23.249 UTC [608] LOG:  connection authenticated: user="postgres" method=trust (/var/lib/postgresql/18/docker/pg_hba.conf:4)
+2026-11-10 04:21:23.249 UTC [608] LOG:  connection authorized: user=postgres database=postgres application_name=psql
+2026-11-10 04:21:23.250 UTC [608] LOG:  pietto-p77-maint-mark begin B2_require_any_name postgres_adbc
+2026-11-10 04:21:23.250 UTC [608] CONTEXT:  PL/pgSQL function inline_code_block line 1 at RAISE
+2026-11-10 04:21:23.250 UTC [608] STATEMENT:  DO $$BEGIN RAISE LOG 'pietto-p77-maint-mark begin B2_require_any_name postgres_adbc'; END$$
+2026-11-10 04:21:24.395 UTC [616] LOG:  connection received: host=127.0.0.1 port=57750
+2026-11-10 04:21:24.405 UTC [616] LOG:  connection authenticated: identity="pietto_reader" method=scram-sha-256 (/var/lib/postgresql/18/docker/pg_hba.conf:5)
+2026-11-10 04:21:24.405 UTC [616] LOG:  connection authorized: user=pietto_reader database=app application_name=pietto_postgres_adbc SSL enabled (protocol=TLSv1.3, cipher=TLS_AES_256_GCM_SHA384, bits=256)
+2026-11-10 04:21:24.486 UTC [626] LOG:  connection received: host=127.0.0.1 port=57764
+2026-11-10 04:21:24.495 UTC [626] LOG:  connection authenticated: identity="pietto_reader" method=scram-sha-256 (/var/lib/postgresql/18/docker/pg_hba.conf:5)
+2026-11-10 04:21:24.495 UTC [626] LOG:  connection authorized: user=pietto_reader database=app application_name=pietto_postgres_adbc SSL enabled (protocol=TLSv1.3, cipher=TLS_AES_256_GCM_SHA384, bits=256)
+2026-11-10 04:21:25.952 UTC [633] LOG:  connection received: host=[local]
+2026-11-10 04:21:25.953 UTC [633] LOG:  connection authenticated: user="postgres" method=trust (/var/lib/postgresql/18/docker/pg_hba.conf:4)
+2026-11-10 04:21:25.953 UTC [633] LOG:  connection authorized: user=postgres database=postgres application_name=psql
+2026-11-10 04:21:25.954 UTC [633] LOG:  pietto-p77-maint-mark end B2_require_any_name postgres_adbc
+2026-11-10 04:21:25.954 UTC [633] CONTEXT:  PL/pgSQL function inline_code_block line 1 at RAISE
+2026-11-10 04:21:25.954 UTC [633] STATEMENT:  DO $$BEGIN RAISE LOG 'pietto-p77-maint-mark end B2_require_any_name postgres_adbc'; END$$

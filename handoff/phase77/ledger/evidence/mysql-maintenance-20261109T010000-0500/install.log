@@ -1,0 +1,35 @@
+$ uv venv --python 3.13.13 /home/mianliwang/projects/pietto/.cache/phase77-recovery/evidence/mysql-maintenance-20261109T010000-0500/prefix
+Using CPython 3.13.13
+Creating virtual environment at: prefix
+Activate with: source prefix/bin/activate
+$ uv pip install --python /home/mianliwang/projects/pietto/.cache/phase77-recovery/evidence/mysql-maintenance-20261109T010000-0500/prefix/bin/python --no-index --find-links /home/mianliwang/projects/pietto/.cache/phase77-recovery/evidence/mysql-maintenance-preflight-20261109T000000-0500/house/pietto-phase68-slice18-wheelhouse --constraint /home/mianliwang/projects/pietto/.cache/phase77-recovery/evidence/mysql-maintenance-preflight-20261109T000000-0500/house/pietto-phase68-slice18-constraints.txt --link-mode copy --strict /home/mianliwang/projects/pietto/.cache/phase77-recovery/runtime/dist/pietto-0.1.10-py3-none-any.whl[execute-mysql]
+Using Python 3.13.13 environment at: prefix
+Resolved 4 packages in 5ms
+Prepared 4 packages in 213ms
+Installed 4 packages in 231ms
+ + antlr4-python3-runtime==4.13.2
+ + mysql-connector-python==26.10.0
+ + pietto==0.1.10 (from file:///home/mianliwang/projects/pietto/.cache/phase77-recovery/runtime/dist/pietto-0.1.10-py3-none-any.whl)
+ + pyarrow==26.0.1
+$ uv pip check --python /home/mianliwang/projects/pietto/.cache/phase77-recovery/evidence/mysql-maintenance-20261109T010000-0500/prefix/bin/python
+Using Python 3.13.13 environment at: prefix
+Checked 4 packages in 0.44ms
+All installed packages are compatible
+$ uv pip freeze --python /home/mianliwang/projects/pietto/.cache/phase77-recovery/evidence/mysql-maintenance-20261109T010000-0500/prefix/bin/python
+antlr4-python3-runtime==4.13.2
+mysql-connector-python==26.10.0
+pietto @ file:///home/mianliwang/projects/pietto/.cache/phase77-recovery/runtime/dist/pietto-0.1.10-py3-none-any.whl
+pyarrow==26.0.1
+Using Python 3.13.13 environment at: prefix
+$ uv pip install --python /home/mianliwang/projects/pietto/.cache/phase77-recovery/evidence/mysql-maintenance-20261109T010000-0500/prefix/bin/python --no-index --find-links /home/mianliwang/projects/pietto/.cache/phase77-recovery/evidence/mysql-maintenance-preflight-20261109T000000-0500/otel-house --strict opentelemetry-api==1.33.1 opentelemetry-sdk==1.33.1 /home/mianliwang/projects/pietto/.cache/phase77-recovery/evidence/mysql-maintenance-preflight-20261109T000000-0500/otel-house/wrapt-2.5.0-cp313-cp313-manylinux1_x86_64.manylinux_2_28_x86_64.manylinux_2_5_x86_64.whl
+Using Python 3.13.13 environment at: prefix
+  × No solution found when resolving dependencies:
+  ╰─▶ Because deprecated was not found in the provided package locations and
+      opentelemetry-api==1.33.1 depends on deprecated>=1.2.6, we can conclude
+      that opentelemetry-api==1.33.1 cannot be used.
+      And because you require opentelemetry-api==1.33.1, we can conclude that
+      your requirements are unsatisfiable.
+$ uv pip check --python /home/mianliwang/projects/pietto/.cache/phase77-recovery/evidence/mysql-maintenance-20261109T010000-0500/prefix/bin/python
+Using Python 3.13.13 environment at: prefix
+Checked 4 packages in 0.52ms
+All installed packages are compatible

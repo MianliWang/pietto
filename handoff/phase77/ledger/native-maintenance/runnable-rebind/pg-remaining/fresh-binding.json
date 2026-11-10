@@ -1,0 +1,76 @@
+{
+  "candidate": {
+    "base": "f8ccd2c44a2d9adf431a496bd9bbae037783176f",
+    "lock_sha256": "b2cc96b25b0b9f2225c4529f0123ae869cd804af0578b4f83c931a15aa893064",
+    "patch_sha256": "548e72276b20c2bff3bb0613a527ef230fb9095942b562dca32a6150da12e1cc",
+    "path": "/home/mianliwang/projects/pietto/.cache/phase77-recovery/candidates/maintenance"
+  },
+  "dependencies": {
+    "adbc-driver-manager": "1.13.0",
+    "adbc-driver-postgresql": "1.13.0",
+    "pietto": "0.1.10",
+    "psycopg": "3.3.8",
+    "psycopg-binary": "3.3.8",
+    "pyarrow": "26.0.1"
+  },
+  "format": "pietto.phase77.pg-fresh-binding.v1",
+  "integrity": {
+    "adbc-driver-manager": {
+      "payloads": 35,
+      "record_sha256": "3f8727b2a888480127d1d00a4e9739341ed22e48e2b229b152a7e4c03a299bb3"
+    },
+    "adbc-driver-postgresql": {
+      "payloads": 13,
+      "record_sha256": "f2d8e8a1da517a6c7a30df7beeedbbd5b481d47077280294df18c5740693c86d"
+    },
+    "pietto": {
+      "payloads": 368,
+      "record_sha256": "f9f265858e5645976282a07bfb335839254be018084b4789a37d1445300a50e7"
+    },
+    "psycopg": {
+      "payloads": 92,
+      "record_sha256": "64b8c0947cb02aee29ac67bfdae599d98b281077a7e1354089b8f3400a065082"
+    },
+    "psycopg-binary": {
+      "payloads": 33,
+      "record_sha256": "9c4d8bdac6f5161b15842973fd089858557512019ade580eb01912dc9b0bd239"
+    },
+    "pyarrow": {
+      "payloads": 754,
+      "record_sha256": "310ead8e599cc87fa8bcb2da6420301eb4bde428ce0e406eaa78f8eb85b6cbce"
+    }
+  },
+  "origins": {
+    "adbc-driver-manager": "/home/mianliwang/projects/pietto/.cache/phase77-recovery/runtime/venvs/native/lib/python3.13/site-packages",
+    "adbc-driver-postgresql": "/home/mianliwang/projects/pietto/.cache/phase77-recovery/runtime/venvs/native/lib/python3.13/site-packages",
+    "pietto": "/home/mianliwang/projects/pietto/.cache/phase77-recovery/runtime/venvs/native/lib/python3.13/site-packages",
+    "psycopg": "/home/mianliwang/projects/pietto/.cache/phase77-recovery/runtime/venvs/native/lib/python3.13/site-packages",
+    "psycopg-binary": "/home/mianliwang/projects/pietto/.cache/phase77-recovery/runtime/venvs/native/lib/python3.13/site-packages",
+    "pyarrow": "/home/mianliwang/projects/pietto/.cache/phase77-recovery/runtime/venvs/native/lib/python3.13/site-packages"
+  },
+  "pietto": {
+    "direct_url": "{\"url\":\"file:///home/mianliwang/projects/pietto/.cache/phase77-recovery/runtime/dist/pietto-0.1.10-py3-none-any.whl\",\"archive_info\":{}}",
+    "module": "/home/mianliwang/projects/pietto/.cache/phase77-recovery/runtime/venvs/native/lib/python3.13/site-packages/pietto/__init__.py",
+    "record": "/home/mianliwang/projects/pietto/.cache/phase77-recovery/runtime/venvs/native/lib/python3.13/site-packages/pietto-0.1.10.dist-info/RECORD",
+    "record_sha256": "f9f265858e5645976282a07bfb335839254be018084b4789a37d1445300a50e7"
+  },
+  "python": "/home/mianliwang/.local/share/uv/python/cpython-3.13.13-linux-x86_64-gnu/bin/python3.13",
+  "site_packages": "/home/mianliwang/projects/pietto/.cache/phase77-recovery/runtime/venvs/native/lib/python3.13/site-packages",
+  "source_sha256": {
+    "client.py": "de45e5e5d7b81c859fd21bb065f61d61cf416083ffa6f332b714a716b8c54847",
+    "fresh-start.sh": "2929d39b026f7030c8798e169b230604cae88ddeb58619d03e754b6ac9afd9c0",
+    "fresh_binding.py": "d963f807b9bc3a6d241fafabf45197b522433048af0452da541b40ca86512a97",
+    "gen-tls.sh": "b634b69535b04f73c644cc1fe30770253c5b414b2a0e99f2f6fc05bbf60d59d9",
+    "judge.py": "624db00c6c115b18550a1985dd2a7b7e4101e2717c8dc59196f7f31fbc7138bb",
+    "pg.sh": "7795720ad05faca151f67bef6d8c6234effd01df31562c99a605d2c56f7e62d5",
+    "raw_driver_child.py": "42ee9f6a81c4db9e791c48c88c452f09d2087f4047640809081c057cc279f35c",
+    "receipt.py": "4e7912d8f7bd6c3cba9537a4cdef49d0eea07466bbff1484ab5f671a41301a67",
+    "relay.py": "dd3cb68067887ee80acd5801c4ea3c9f1b701daef89a3a11d2e4dff329b55754",
+    "selftest.sh": "49bfd64445de00bd60db5c91150ea7e79d04e5214f1f27878633b0af634ce019",
+    "target-run.sh": "56a174068d13d339d27ae3edfc80a16175214c3d6a38f563100d6735f6c32528"
+  },
+  "wheel": {
+    "path": "/home/mianliwang/projects/pietto/.cache/phase77-recovery/runtime/dist/pietto-0.1.10-py3-none-any.whl",
+    "sha256": "f4c96921c4d4ceb057830f2dd21f2e634325dac2bef933532747ae4aab963a73"
+  }
+}

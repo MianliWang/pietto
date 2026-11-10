@@ -1,0 +1,29 @@
+{
+  "format": "pietto.emission-contract.v1",
+  "target": {"family": "postgres", "release": "18.6"},
+  "sources": [{
+    "selector": {"module": "main.pietto", "kind": "source", "name": "items"},
+    "relation": {"namespace": "fixture", "name": "items"},
+    "scan": "relation_rows",
+    "fields": [
+      {"ordinal": 0, "name": "id", "column": "item_id",
+       "representation": {"storage": {"kind": "pg_int8"}, "nullable": false,
+                          "domain": {"kind": "int_range", "min": "0", "max": "100"}}},
+      {"ordinal": 1, "name": "label", "column": "item_label",
+       "representation": {"storage": {"kind": "pg_text"}, "nullable": false,
+                          "domain": {"kind": "text", "max_characters": 64,
+                                     "encoding": "UTF8", "collation": "C",
+                                     "padding": "NO PAD"}}}
+    ],
+    "premises": [
+      {"key": "row_domain_matches", "scope": "source", "value": true},
+      {"key": "read_only_object", "scope": "source", "value": true}
+    ]
+  }],
+  "environment": [
+    {"key": "client_encoding", "scope": "statement", "value": "UTF8"},
+    {"key": "operator_environment", "scope": "statement", "value": "builtin_only"},
+    {"key": "identifier_case", "scope": "statement", "value": "quoted_exact"},
+    {"key": "parameter_protocol", "scope": "statement", "value": "postgres_extended"}
+  ]
+}

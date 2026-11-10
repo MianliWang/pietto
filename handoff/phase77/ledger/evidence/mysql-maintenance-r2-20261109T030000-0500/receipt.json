@@ -1,0 +1,853 @@
+{
+  "binding": {
+    "head": "f8ccd2c44a2d9adf431a496bd9bbae037783176f",
+    "lock_sha256": "b2cc96b25b0b9f2225c4529f0123ae869cd804af0578b4f83c931a15aa893064",
+    "patch_sha256": "548e72276b20c2bff3bb0613a527ef230fb9095942b562dca32a6150da12e1cc",
+    "pins_sha256": "572a36a890cda4dc286cd9f9fcccf7998a292fc3b437b7836937960c74e87e92",
+    "wheel_sha256": "f4c96921c4d4ceb057830f2dd21f2e634325dac2bef933532747ae4aab963a73"
+  },
+  "ipc": {
+    "batches": 2,
+    "delivered_rows": 2,
+    "end": "COMPLETE",
+    "ipc_rows": [
+      [
+        1,
+        null
+      ],
+      [
+        1,
+        null
+      ]
+    ],
+    "native_context": {
+      "context": {
+        "calls": [
+          {
+            "control_connection": 20,
+            "data_connection": 19,
+            "session_id": 19
+          },
+          {
+            "control_connection": 20,
+            "data_connection": 19,
+            "session_id": 19
+          },
+          {
+            "control_connection": 20,
+            "data_connection": 19,
+            "session_id": 19
+          },
+          {
+            "control_connection": 20,
+            "data_connection": 19,
+            "session_id": 19
+          },
+          {
+            "control_connection": 20,
+            "data_connection": 19,
+            "session_id": 19
+          },
+          {
+            "control_connection": 20,
+            "data_connection": 19,
+            "session_id": 19
+          },
+          {
+            "control_connection": 20,
+            "data_connection": 19,
+            "session_id": 19
+          },
+          {
+            "control_connection": 20,
+            "data_connection": 19,
+            "session_id": 19
+          }
+        ],
+        "count": 8,
+        "first": [
+          "8.4.12",
+          "pietto_query@%",
+          "NONE",
+          19,
+          "phase66",
+          "REPEATABLE-READ",
+          "utf8mb4",
+          "utf8mb4",
+          "utf8mb4",
+          "utf8mb4_0900_bin",
+          "ONLY_FULL_GROUP_BY,STRICT_ALL_TABLES,NO_ENGINE_SUBSTITUTION",
+          "+00:00",
+          0,
+          1000,
+          "067a6d98-dcaa-11f1-8af6-1133ca5f7a47",
+          67108864
+        ],
+        "first_shape": {
+          "arities": [
+            16
+          ],
+          "row_count": 1
+        },
+        "mismatches": [],
+        "shape_mismatches": [],
+        "truncated": false
+      },
+      "native": {
+        "calls": [
+          {
+            "control_connection": 20,
+            "data_connection": 19,
+            "session_id": 19
+          },
+          {
+            "control_connection": 20,
+            "data_connection": 19,
+            "session_id": 19
+          },
+          {
+            "control_connection": 20,
+            "data_connection": 19,
+            "session_id": 19
+          },
+          {
+            "control_connection": 20,
+            "data_connection": 19,
+            "session_id": 19
+          },
+          {
+            "control_connection": 20,
+            "data_connection": 19,
+            "session_id": 19
+          },
+          {
+            "control_connection": 20,
+            "data_connection": 19,
+            "session_id": 19
+          },
+          {
+            "control_connection": 20,
+            "data_connection": 19,
+            "session_id": 19
+          },
+          {
+            "control_connection": 20,
+            "data_connection": 19,
+            "session_id": 19
+          }
+        ],
+        "count": 8,
+        "error": null,
+        "first_expected": {
+          "cte_max_recursion_depth": "nonnegative_int",
+          "lower_case_table_names": 0,
+          "max_allowed_packet": "positive_int",
+          "prefix": [
+            "8.4.12",
+            "pietto_query@%",
+            "NONE",
+            19,
+            "phase66",
+            "REPEATABLE-READ",
+            "utf8mb4",
+            "utf8mb4",
+            "utf8mb4",
+            "utf8mb4_0900_bin"
+          ],
+          "server_uuid": "nonempty_str",
+          "sql_mode_set": [
+            "NO_ENGINE_SUBSTITUTION",
+            "ONLY_FULL_GROUP_BY",
+            "STRICT_ALL_TABLES"
+          ],
+          "time_zone": "+00:00"
+        },
+        "first_returned": [
+          "8.4.12",
+          "pietto_query@%",
+          "NONE",
+          19,
+          "phase66",
+          "REPEATABLE-READ",
+          "utf8mb4",
+          "utf8mb4",
+          "utf8mb4",
+          "utf8mb4_0900_bin",
+          "ONLY_FULL_GROUP_BY,STRICT_ALL_TABLES,NO_ENGINE_SUBSTITUTION",
+          "+00:00",
+          0,
+          1000,
+          "067a6d98-dcaa-11f1-8af6-1133ca5f7a47"
+        ],
+        "mismatches": []
+      }
+    },
+    "rows": [
+      [
+        1,
+        null
+      ],
+      [
+        1,
+        null
+      ]
+    ],
+    "schema": [
+      [
+        "left_id",
+        "int64",
+        false
+      ],
+      [
+        "right_key",
+        "int64",
+        true
+      ]
+    ],
+    "terminal": "success"
+  },
+  "native_report": {
+    "cases": {
+      "bundle": {
+        "batches": 2,
+        "cleanup": "LOCAL_CLOSED_REMOTE_UNOBSERVED",
+        "deadline_expired": false,
+        "delivery": "COMPLETE",
+        "end": "COMPLETE",
+        "remote": "TRANSACTION_ACK",
+        "rows": [
+          [
+            1,
+            null
+          ],
+          [
+            1,
+            null
+          ]
+        ],
+        "source": "EOF",
+        "transaction": "COMMIT_ACK"
+      },
+      "cancel": {
+        "batches": 0,
+        "blocked": {
+          "event": "statement/com/Execute",
+          "native_statement": "NativeStatement",
+          "purpose": "query",
+          "server": {
+            "current_rows": 1,
+            "end_event_id": null,
+            "process_command": "Execute",
+            "process_state": "executing",
+            "statement_event": "statement/com/Execute"
+          },
+          "session": 23,
+          "sql_sha256": "809b5fba00dd57422469286aef1ea2e03f650c00090234758323f08fee73064d"
+        },
+        "cancel": {
+          "observed": false,
+          "requested": true,
+          "sent": true
+        },
+        "cleanup": "LOCAL_CLOSED_REMOTE_UNOBSERVED",
+        "consumer_thread_joined": true,
+        "control_kill": true,
+        "deadline_expired": false,
+        "delivery": "FAILED",
+        "end": "CANCELLED",
+        "error": {
+          "code": "PIE-R3009",
+          "detail": null,
+          "receipt": null
+        },
+        "late_unchanged": true,
+        "primary": [
+          "PIE-R3009",
+          null,
+          null
+        ],
+        "remote": "REMOTE_QUIESCENCE_UNCONFIRMED",
+        "rows": 0,
+        "source": "INCOMPLETE",
+        "transaction": "UNKNOWN"
+      },
+      "deadline": {
+        "batches": 0,
+        "blocked": {
+          "event": "statement/com/Execute",
+          "native_statement": "NativeStatement",
+          "purpose": "query",
+          "server": {
+            "current_rows": 1,
+            "end_event_id": null,
+            "process_command": "Execute",
+            "process_state": "executing",
+            "statement_event": "statement/com/Execute"
+          },
+          "session": 26,
+          "sql_sha256": "809b5fba00dd57422469286aef1ea2e03f650c00090234758323f08fee73064d"
+        },
+        "cancel": {
+          "observed": true,
+          "requested": true,
+          "sent": true
+        },
+        "cleanup": "LOCAL_CLOSED_REMOTE_UNOBSERVED",
+        "consumer_thread_joined": true,
+        "control_kill": true,
+        "deadline_expired": true,
+        "delivery": "FAILED",
+        "end": "DEADLINE",
+        "error": {
+          "code": "PIE-R3001",
+          "detail": null
+        },
+        "late_unchanged": true,
+        "primary": [
+          "PIE-R3001",
+          null,
+          "query"
+        ],
+        "remote": "REMOTE_QUIESCENCE_UNCONFIRMED",
+        "rows": 0,
+        "source": "INCOMPLETE",
+        "transaction": "UNKNOWN"
+      },
+      "empty": {
+        "batches": 0,
+        "cleanup": "LOCAL_CLOSED_REMOTE_UNOBSERVED",
+        "deadline_expired": false,
+        "delivery": "COMPLETE",
+        "end": "COMPLETE",
+        "remote": "TRANSACTION_ACK",
+        "rows": [],
+        "source": "EOF",
+        "transaction": "COMMIT_ACK"
+      },
+      "rows": {
+        "batches": 2,
+        "cleanup": "LOCAL_CLOSED_REMOTE_UNOBSERVED",
+        "deadline_expired": false,
+        "delivery": "COMPLETE",
+        "end": "COMPLETE",
+        "remote": "TRANSACTION_ACK",
+        "rows": [
+          [
+            1,
+            null
+          ],
+          [
+            1,
+            null
+          ]
+        ],
+        "schema": [
+          [
+            "left_id",
+            "int64",
+            false
+          ],
+          [
+            "right_key",
+            "int64",
+            true
+          ]
+        ],
+        "source": "EOF",
+        "transaction": "COMMIT_ACK"
+      },
+      "schema": {
+        "schema": [
+          [
+            "left_id",
+            "int64",
+            false
+          ],
+          [
+            "right_key",
+            "int64",
+            true
+          ]
+        ]
+      }
+    },
+    "cleanup": "PASS",
+    "factory": {
+      "dialect": "mysql",
+      "kind": "table",
+      "module": "main.pietto",
+      "name": "result",
+      "origin": "live"
+    },
+    "format": "pietto.execution-api-mysql-native.v1",
+    "identity": {
+      "drivers": {
+        "mysql-connector-python": "26.10.0",
+        "pyarrow": "26.0.1"
+      },
+      "interpreter": [
+        "CPython",
+        "3.13.13",
+        "Linux"
+      ],
+      "origins": {
+        "mysql.connector.connection": "1f29ff0b2e0d557f251bc4b41bd42fe19111df05b25f8891d0c036bd992cd614",
+        "pietto": "669ac67bb23a0c8179995e0e415d76c46210c12311e29cd89d2612b45b0a194d"
+      },
+      "server": "8.4.12",
+      "wheel_sha256": "f4c96921c4d4ceb057830f2dd21f2e634325dac2bef933532747ae4aab963a73"
+    },
+    "install": {
+      "candidate": {
+        "check": {
+          "argv": [
+            "uv",
+            "pip",
+            "check",
+            "--python",
+            "/home/mianliwang/projects/pietto/.cache/phase77-recovery/evidence/mysql-maintenance-r2-20261109T030000-0500/prefix/bin/python"
+          ],
+          "returncode": 0,
+          "stderr": "Using Python 3.13.13 environment at: prefix\nChecked 4 packages in 0.38ms\nAll installed packages are compatible\n",
+          "stdout": ""
+        },
+        "freeze": {
+          "argv": [
+            "uv",
+            "pip",
+            "freeze",
+            "--python",
+            "/home/mianliwang/projects/pietto/.cache/phase77-recovery/evidence/mysql-maintenance-r2-20261109T030000-0500/prefix/bin/python"
+          ],
+          "returncode": 0,
+          "stderr": "Using Python 3.13.13 environment at: prefix\n",
+          "stdout": "antlr4-python3-runtime==4.13.2\nmysql-connector-python==26.10.0\npietto @ file:///home/mianliwang/projects/pietto/.cache/phase77-recovery/runtime/dist/pietto-0.1.10-py3-none-any.whl\npyarrow==26.0.1\n"
+        },
+        "install": {
+          "argv": [
+            "uv",
+            "pip",
+            "install",
+            "--python",
+            "/home/mianliwang/projects/pietto/.cache/phase77-recovery/evidence/mysql-maintenance-r2-20261109T030000-0500/prefix/bin/python",
+            "--no-index",
+            "--find-links",
+            "/home/mianliwang/projects/pietto/.cache/phase77-recovery/evidence/mysql-maintenance-r2-preflight-20261109T020000-0500/house/pietto-phase68-slice18-wheelhouse",
+            "--constraint",
+            "/home/mianliwang/projects/pietto/.cache/phase77-recovery/evidence/mysql-maintenance-r2-preflight-20261109T020000-0500/house/pietto-phase68-slice18-constraints.txt",
+            "--link-mode",
+            "copy",
+            "--strict",
+            "/home/mianliwang/projects/pietto/.cache/phase77-recovery/runtime/dist/pietto-0.1.10-py3-none-any.whl[execute-mysql]"
+          ],
+          "returncode": 0,
+          "stderr": "Using Python 3.13.13 environment at: prefix\nResolved 4 packages in 5ms\nPrepared 4 packages in 183ms\nInstalled 4 packages in 170ms\n + antlr4-python3-runtime==4.13.2\n + mysql-connector-python==26.10.0\n + pietto==0.1.10 (from file:///home/mianliwang/projects/pietto/.cache/phase77-recovery/runtime/dist/pietto-0.1.10-py3-none-any.whl)\n + pyarrow==26.0.1\n",
+          "stdout": ""
+        },
+        "venv": {
+          "argv": [
+            "uv",
+            "venv",
+            "--python",
+            "3.13.13",
+            "/home/mianliwang/projects/pietto/.cache/phase77-recovery/evidence/mysql-maintenance-r2-20261109T030000-0500/prefix"
+          ],
+          "returncode": 0,
+          "stderr": "Using CPython 3.13.13\nCreating virtual environment at: prefix\nActivate with: source prefix/bin/activate\n",
+          "stdout": ""
+        }
+      },
+      "check": {
+        "argv": [
+          "uv",
+          "pip",
+          "check",
+          "--python",
+          "/home/mianliwang/projects/pietto/.cache/phase77-recovery/evidence/mysql-maintenance-r2-20261109T030000-0500/prefix/bin/python"
+        ],
+        "returncode": 0,
+        "stderr": "Using Python 3.13.13 environment at: prefix\nChecked 12 packages in 0.59ms\nAll installed packages are compatible\n",
+        "stdout": ""
+      },
+      "telemetry": {
+        "argv": [
+          "uv",
+          "pip",
+          "install",
+          "--python",
+          "/home/mianliwang/projects/pietto/.cache/phase77-recovery/evidence/mysql-maintenance-r2-20261109T030000-0500/prefix/bin/python",
+          "--no-index",
+          "--find-links",
+          "/home/mianliwang/projects/pietto/.cache/phase77-recovery/evidence/mysql-maintenance-r2-preflight-20261109T020000-0500/otel-house",
+          "--strict",
+          "opentelemetry-api==1.33.1",
+          "opentelemetry-sdk==1.33.1",
+          "/home/mianliwang/projects/pietto/.cache/phase77-recovery/evidence/mysql-maintenance-r2-preflight-20261109T020000-0500/otel-house/wrapt-2.5.0-cp313-cp313-manylinux1_x86_64.manylinux_2_28_x86_64.manylinux_2_5_x86_64.whl"
+        ],
+        "returncode": 0,
+        "stderr": "Using Python 3.13.13 environment at: prefix\nResolved 8 packages in 5ms\nPrepared 8 packages in 17ms\nInstalled 8 packages in 21ms\n + deprecated==3.0.1\n + importlib-metadata==8.6.1\n + opentelemetry-api==1.33.1\n + opentelemetry-sdk==1.33.1\n + opentelemetry-semantic-conventions==0.54b1\n + typing-extensions==4.16.0\n + wrapt==2.5.0 (from file:///home/mianliwang/projects/pietto/.cache/phase77-recovery/evidence/mysql-maintenance-r2-preflight-20261109T020000-0500/otel-house/wrapt-2.5.0-cp313-cp313-manylinux1_x86_64.manylinux_2_28_x86_64.manylinux_2_5_x86_64.whl)\n + zipp==4.1.2\n",
+        "stdout": ""
+      }
+    },
+    "otel_unselected": "wrapt-2.5.0-cp312-cp312-manylinux1_x86_64.manylinux_2_28_x86_64.manylinux_2_5_x86_64.whl",
+    "otel_wheels": {
+      "opentelemetry_api-1.33.1-py3-none-any.whl": "4db83ebcf7ea93e64637ec6ee6fabee45c5cbe4abd9cf3da95c43828ddb50b83",
+      "opentelemetry_sdk-1.33.1-py3-none-any.whl": "19ea73d9a01be29cacaa5d6c8ce0adc0b7f7b4d58cc52f923e4413609f670112",
+      "opentelemetry_semantic_conventions-0.54b1-py3-none-any.whl": "29dab644a7e435b58d3a3918b58c333c92686236b30f7891d5e51f02933ca60d",
+      "wrapt-2.5.0-cp313-cp313-manylinux1_x86_64.manylinux_2_28_x86_64.manylinux_2_5_x86_64.whl": "b95a6eca3b927853529eea958310563c83140ae8451dd5dc4399c7da385dc4f3"
+    },
+    "profile": {
+      "attrs_oracle": {
+        "enabled": true,
+        "positive": [
+          [
+            "pietto_s06_marker",
+            "present"
+          ]
+        ],
+        "size": 512
+      },
+      "certificate": {
+        "reload": "ALTER INSTANCE RELOAD TLS",
+        "sans": [
+          "DNS:localhost",
+          "IP Address:127.0.0.1"
+        ],
+        "service": [
+          {
+            "fresh_leaf": true,
+            "host": "127.0.0.1",
+            "identity_verified": true,
+            "tls": "TLSv1.3"
+          },
+          {
+            "fresh_leaf": true,
+            "host": "localhost",
+            "identity_verified": true,
+            "tls": "TLSv1.3"
+          }
+        ]
+      },
+      "host": "localhost",
+      "identity_verified": true,
+      "packets": {
+        "control": true,
+        "execute": true,
+        "handshake": [
+          {
+            "attribute_encoding": false,
+            "client_flags": 405514765,
+            "connect_args": false,
+            "traceparent": false
+          },
+          {
+            "attribute_encoding": false,
+            "client_flags": 405514765,
+            "connect_args": false,
+            "traceparent": false
+          }
+        ],
+        "prepare": true,
+        "query": [
+          {
+            "bytes": 48,
+            "command": 3,
+            "session": 13,
+            "traceparent": false
+          },
+          {
+            "bytes": 31,
+            "command": 3,
+            "session": 13,
+            "traceparent": false
+          },
+          {
+            "bytes": 48,
+            "command": 3,
+            "session": 14,
+            "traceparent": false
+          },
+          {
+            "bytes": 31,
+            "command": 3,
+            "session": 14,
+            "traceparent": false
+          },
+          {
+            "bytes": 32,
+            "command": 3,
+            "session": 13,
+            "traceparent": false
+          },
+          {
+            "bytes": 57,
+            "command": 3,
+            "session": 13,
+            "traceparent": false
+          },
+          {
+            "bytes": 55,
+            "command": 3,
+            "session": 13,
+            "traceparent": false
+          },
+          {
+            "bytes": 305,
+            "command": 3,
+            "session": 13,
+            "traceparent": false
+          },
+          {
+            "bytes": 27,
+            "command": 3,
+            "session": 13,
+            "traceparent": false
+          },
+          {
+            "bytes": 308,
+            "command": 3,
+            "session": 13,
+            "traceparent": false
+          },
+          {
+            "bytes": 27,
+            "command": 3,
+            "session": 14,
+            "traceparent": false
+          },
+          {
+            "bytes": 308,
+            "command": 3,
+            "session": 14,
+            "traceparent": false
+          },
+          {
+            "bytes": 305,
+            "command": 3,
+            "session": 13,
+            "traceparent": false
+          },
+          {
+            "bytes": 32,
+            "command": 3,
+            "session": 13,
+            "traceparent": false
+          },
+          {
+            "bytes": 119,
+            "command": 3,
+            "session": 13,
+            "traceparent": false
+          },
+          {
+            "bytes": 47,
+            "command": 3,
+            "session": 13,
+            "traceparent": false
+          },
+          {
+            "bytes": 168,
+            "command": 3,
+            "session": 13,
+            "traceparent": false
+          },
+          {
+            "bytes": 308,
+            "command": 3,
+            "session": 14,
+            "traceparent": false
+          },
+          {
+            "bytes": 305,
+            "command": 3,
+            "session": 13,
+            "traceparent": false
+          },
+          {
+            "bytes": 117,
+            "command": 3,
+            "session": 13,
+            "traceparent": false
+          },
+          {
+            "bytes": 308,
+            "command": 3,
+            "session": 14,
+            "traceparent": false
+          },
+          {
+            "bytes": 305,
+            "command": 3,
+            "session": 13,
+            "traceparent": false
+          },
+          {
+            "bytes": 308,
+            "command": 3,
+            "session": 14,
+            "traceparent": false
+          },
+          {
+            "bytes": 305,
+            "command": 3,
+            "session": 13,
+            "traceparent": false
+          },
+          {
+            "bytes": 308,
+            "command": 3,
+            "session": 14,
+            "traceparent": false
+          },
+          {
+            "bytes": 305,
+            "command": 3,
+            "session": 13,
+            "traceparent": false
+          },
+          {
+            "bytes": 308,
+            "command": 3,
+            "session": 14,
+            "traceparent": false
+          },
+          {
+            "bytes": 305,
+            "command": 3,
+            "session": 13,
+            "traceparent": false
+          },
+          {
+            "bytes": 108,
+            "command": 22,
+            "session": 13,
+            "traceparent": false
+          },
+          {
+            "bytes": 9,
+            "command": 23,
+            "session": 13,
+            "traceparent": false
+          },
+          {
+            "bytes": 308,
+            "command": 3,
+            "session": 14,
+            "traceparent": false
+          },
+          {
+            "bytes": 163,
+            "command": 3,
+            "session": 14,
+            "traceparent": false
+          },
+          {
+            "bytes": 308,
+            "command": 3,
+            "session": 14,
+            "traceparent": false
+          },
+          {
+            "bytes": 308,
+            "command": 3,
+            "session": 14,
+            "traceparent": false
+          },
+          {
+            "bytes": 308,
+            "command": 3,
+            "session": 14,
+            "traceparent": false
+          },
+          {
+            "bytes": 308,
+            "command": 3,
+            "session": 14,
+            "traceparent": false
+          },
+          {
+            "bytes": 305,
+            "command": 3,
+            "session": 13,
+            "traceparent": false
+          },
+          {
+            "bytes": 4,
+            "command": 25,
+            "session": 13,
+            "traceparent": false
+          },
+          {
+            "bytes": 308,
+            "command": 3,
+            "session": 14,
+            "traceparent": false
+          },
+          {
+            "bytes": 8,
+            "command": 3,
+            "session": 13,
+            "traceparent": false
+          }
+        ],
+        "query_attrs": [
+          []
+        ]
+      },
+      "sessions": [
+        {
+          "attrs": [],
+          "auth": "caching_sha2_password",
+          "connect_args": false,
+          "kind": "data",
+          "otel": false,
+          "tls": "TLSv1.3",
+          "traceparent": false
+        },
+        {
+          "attrs": [],
+          "auth": "caching_sha2_password",
+          "connect_args": false,
+          "kind": "control",
+          "otel": false,
+          "tls": "TLSv1.3",
+          "traceparent": false
+        }
+      ],
+      "tls": "TLSv1.3"
+    },
+    "status": "PASS",
+    "telemetry": {
+      "exporters": [],
+      "recording": true,
+      "selected_wheel": "wrapt-2.5.0-cp313-cp313-manylinux1_x86_64.manylinux_2_28_x86_64.manylinux_2_5_x86_64.whl",
+      "versions": {
+        "opentelemetry-api": "1.33.1",
+        "opentelemetry-sdk": "1.33.1",
+        "wrapt": "2.5.0"
+      }
+    },
+    "wheel_sha256": "f4c96921c4d4ceb057830f2dd21f2e634325dac2bef933532747ae4aab963a73"
+  },
+  "sources": {
+    "campaign.py": "c2c38ce086a19e56ccbb45c9d46b74763e915d242bc914398735725e8ef56fbd",
+    "judge.py": "7cfacfa496f9742dddc48a0aedad3fbd311dba59b3ec0f89af3c7a76755c17b7",
+    "mysql.sh": "e23a0aee1a3244ec04fa7a81eb7adcc2dcdc566556c45f3a7e79b55d6c246dca",
+    "preflight.py": "cc271e0f7cac70ca9bc3895a0b27462626a87b6a899ef1c277cfe107f6c3d697",
+    "relay.py": "615f0cab556fbd7af29b132a98cafb7ed0d500871184ad3f7e143723fa7021f1"
+  },
+  "transport": {
+    "container_port": 3306,
+    "network": {
+      "attached": [],
+      "mode": "none"
+    },
+    "profile": "mysql-none-exec-stdio-v1",
+    "relay_command": "docker container exec -i /bin/bash -c fixed-3306-forward",
+    "relay_sha256": "615f0cab556fbd7af29b132a98cafb7ed0d500871184ad3f7e143723fa7021f1",
+    "route_tables": {
+      "default_ipv4": false,
+      "default_ipv6": false
+    }
+  }
+}

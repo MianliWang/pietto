@@ -1,0 +1,49 @@
+2026-11-09 23:36:43.442 [info] Extension host with pid 582952 started
+2026-11-09 23:36:43.442 [info] Skipping acquiring lock for /home/mianliwang/projects/pietto/.cache/phase77-recovery/evidence/editor-host-r4-20261110T053700Z/host-user-data/User/workspaceStorage/23f0eee788cbe2d9daf2e2bff5db153c.
+2026-11-09 23:36:43.462 [info] ExtensionService#_doActivateExtension vscode.github-authentication, startup: false, activationEvent: 'onAuthenticationRequest:github'
+2026-11-09 23:36:43.474 [info] ExtensionService#_doActivateExtension vscode.emmet, startup: false, activationEvent: 'onLanguage'
+2026-11-09 23:36:43.480 [info] ExtensionService#_doActivateExtension vscode.configuration-editing, startup: false, activationEvent: 'onLanguage:jsonc'
+2026-11-09 23:36:43.484 [info] ExtensionService#_doActivateExtension vscode.json-language-features, startup: false, activationEvent: 'onLanguage:jsonc'
+2026-11-09 23:36:43.539 [info] ExtensionService#_doActivateExtension vscode.typescript-language-features, startup: false, activationEvent: 'onLanguage:jsonc'
+2026-11-09 23:36:43.850 [info] ExtensionService#_doActivateExtension vscode.git-base, startup: true, activationEvent: '*', root cause: vscode.git
+2026-11-09 23:36:43.909 [info] ExtensionService#_doActivateExtension vscode.git, startup: true, activationEvent: '*'
+2026-11-09 23:36:43.931 [info] ExtensionService#_doActivateExtension vscode.github, startup: true, activationEvent: '*'
+2026-11-09 23:36:43.980 [warning] [vscode.git] Accessing a resource scoped configuration without providing a resource is not expected. To get the effective value for 'git.openRepositoryInParentFolders', provide the URI of a resource or 'null' for any resource.
+2026-11-09 23:36:43.980 [warning] [vscode.git] Accessing a resource scoped configuration without providing a resource is not expected. To get the effective value for 'git.showProgress', provide the URI of a resource or 'null' for any resource.
+2026-11-09 23:36:43.986 [info] Eager extensions activated
+2026-11-09 23:36:43.986 [info] [node-compile-cache] extension-host: packaged cache enabled (status: enabled, configured: /home/mianliwang/projects/pietto-vscode-extension-claude/.vscode-test/vscode-linux-x64-1.145.2/resources/app/node-compile-cache/extension-host, active: /home/mianliwang/projects/pietto-vscode-extension-claude/.vscode-test/vscode-linux-x64-1.145.2/resources/app/node-compile-cache/extension-host/v24.22.1-x64-60e4fe36)
+2026-11-09 23:36:44.000 [info] ExtensionService#_doActivateExtension TypeScriptTeam.jsts-chat-features, startup: false, activationEvent: 'onStartupFinished'
+2026-11-09 23:36:44.008 [info] ExtensionService#_doActivateExtension vscode.debug-auto-launch, startup: false, activationEvent: 'onStartupFinished'
+2026-11-09 23:36:44.009 [info] ExtensionService#_doActivateExtension vscode.merge-conflict, startup: false, activationEvent: 'onStartupFinished'
+2026-11-09 23:36:44.015 [info] ExtensionService#_doActivateExtension MianliWang.pietto-vscode-extension, startup: false, activationEvent: 'api'
+2026-11-09 23:36:48.652 [warning] Accessing a resource scoped configuration without providing a resource is not expected. To get the effective value for 'search.useIgnoreFiles', provide the URI of a resource or 'null' for any resource.
+2026-11-09 23:36:48.653 [warning] Accessing a resource scoped configuration without providing a resource is not expected. To get the effective value for 'search.useIgnoreFiles', provide the URI of a resource or 'null' for any resource.
+2026-11-09 23:37:22.878 [warning] DiagnosticCollection with name 'pietto' does already exist.
+2026-11-09 23:37:23.334 [info] Extension host terminating: received terminate message from renderer
+2026-11-09 23:37:23.340 [error] Canceled: Canceled
+	at new DC (file:///home/mianliwang/projects/pietto-vscode-extension-claude/.vscode-test/vscode-linux-x64-1.145.2/resources/app/out/vs/workbench/api/node/extensionHostProcess.js:32:155717)
+	at r._remoteCall (file:///home/mianliwang/projects/pietto-vscode-extension-claude/.vscode-test/vscode-linux-x64-1.145.2/resources/app/out/vs/workbench/api/node/extensionHostProcess.js:32:161801)
+	at Proxy.<anonymous> (file:///home/mianliwang/projects/pietto-vscode-extension-claude/.vscode-test/vscode-linux-x64-1.145.2/resources/app/out/vs/workbench/api/node/extensionHostProcess.js:32:158554)
+	at _e.<anonymous> (file:///home/mianliwang/projects/pietto-vscode-extension-claude/.vscode-test/vscode-linux-x64-1.145.2/resources/app/out/vs/workbench/api/node/extensionHostProcess.js:173:26641)
+	at _e.dispose (file:///home/mianliwang/projects/pietto-vscode-extension-claude/.vscode-test/vscode-linux-x64-1.145.2/resources/app/out/vs/workbench/api/node/extensionHostProcess.js:163:87517)
+	at DE (/home/mianliwang/projects/pietto-vscode-extension-claude/.vscode-test/vscode-linux-x64-1.145.2/resources/app/extensions/typescript-language-features/dist/extension.js:13:21586)
+	at Tl.dispose (/home/mianliwang/projects/pietto-vscode-extension-claude/.vscode-test/vscode-linux-x64-1.145.2/resources/app/extensions/typescript-language-features/dist/extension.js:13:21852)
+	at LC.dispose (/home/mianliwang/projects/pietto-vscode-extension-claude/.vscode-test/vscode-linux-x64-1.145.2/resources/app/extensions/typescript-language-features/dist/extension.js:23:11363)
+	at go (file:///home/mianliwang/projects/pietto-vscode-extension-claude/.vscode-test/vscode-linux-x64-1.145.2/resources/app/out/vs/workbench/api/node/extensionHostProcess.js:9:17520)
+	at hA._fn (file:///home/mianliwang/projects/pietto-vscode-extension-claude/.vscode-test/vscode-linux-x64-1.145.2/resources/app/out/vs/workbench/api/node/extensionHostProcess.js:169:18852)
+	at hA.dispose (file:///home/mianliwang/projects/pietto-vscode-extension-claude/.vscode-test/vscode-linux-x64-1.145.2/resources/app/out/vs/workbench/api/node/extensionHostProcess.js:26:577)
+	at PD._deactivate (file:///home/mianliwang/projects/pietto-vscode-extension-claude/.vscode-test/vscode-linux-x64-1.145.2/resources/app/out/vs/workbench/api/node/extensionHostProcess.js:169:15169)
+	at file:///home/mianliwang/projects/pietto-vscode-extension-claude/.vscode-test/vscode-linux-x64-1.145.2/resources/app/out/vs/workbench/api/node/extensionHostProcess.js:169:12471
+	at Array.map (<anonymous>)
+	at PD._deactivateAll (file:///home/mianliwang/projects/pietto-vscode-extension-claude/.vscode-test/vscode-linux-x64-1.145.2/resources/app/out/vs/workbench/api/node/extensionHostProcess.js:169:12459)
+	at PD.terminate (file:///home/mianliwang/projects/pietto-vscode-extension-claude/.vscode-test/vscode-linux-x64-1.145.2/resources/app/out/vs/workbench/api/node/extensionHostProcess.js:169:12810)
+	at r.terminate (file:///home/mianliwang/projects/pietto-vscode-extension-claude/.vscode-test/vscode-linux-x64-1.145.2/resources/app/out/vs/workbench/api/node/extensionHostProcess.js:171:1076)
+	at il (file:///home/mianliwang/projects/pietto-vscode-extension-claude/.vscode-test/vscode-linux-x64-1.145.2/resources/app/out/vs/workbench/api/node/extensionHostProcess.js:476:12860)
+	at Bm.value (file:///home/mianliwang/projects/pietto-vscode-extension-claude/.vscode-test/vscode-linux-x64-1.145.2/resources/app/out/vs/workbench/api/node/extensionHostProcess.js:476:11002)
+	at E._deliver (file:///home/mianliwang/projects/pietto-vscode-extension-claude/.vscode-test/vscode-linux-x64-1.145.2/resources/app/out/vs/workbench/api/node/extensionHostProcess.js:28:3644)
+	at E.fire (file:///home/mianliwang/projects/pietto-vscode-extension-claude/.vscode-test/vscode-linux-x64-1.145.2/resources/app/out/vs/workbench/api/node/extensionHostProcess.js:28:3962)
+	at ua.fire (file:///home/mianliwang/projects/pietto-vscode-extension-claude/.vscode-test/vscode-linux-x64-1.145.2/resources/app/out/vs/workbench/api/node/extensionHostProcess.js:30:8627)
+	at MessagePortMain.<anonymous> (file:///home/mianliwang/projects/pietto-vscode-extension-claude/.vscode-test/vscode-linux-x64-1.145.2/resources/app/out/vs/workbench/api/node/extensionHostProcess.js:476:9234)
+	at MessagePortMain.emit (node:events:514:28)
+	at Object.emit (node:electron/js2c/utility_init:2:2934)
+2026-11-09 23:37:23.342 [info] Extension host with pid 582952 exiting with code 0

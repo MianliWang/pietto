@@ -1,0 +1,1 @@
+env PYTHONDONTWRITEBYTECODE=1 PYTEST_DEBUG_TEMPROOT=/home/mianliwang/projects/pietto/.cache/phase77-recovery/evidence/editor-focused-20261110T051000Z/run/tmp/pytest /home/mianliwang/projects/pietto/.cache/phase77-recovery/runtime/editor-runtime/core-dev/bin/python -B -m pytest -n 2 --dist loadfile -q tests/test_cli_lsp.py tests/test_project_editor_overlays.py 

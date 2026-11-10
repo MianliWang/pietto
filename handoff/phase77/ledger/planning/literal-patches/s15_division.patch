@@ -1,0 +1,452 @@
+*** Begin Patch
+*** Add File: /tmp/pietto-p77-s15-prep/s15_pure_judge.py
++"""Pure judge for the Phase77 S15 MySQL signed-int primitive receipt.
++
++It opens no connection and does not qualify a Pietto product form.
++"""
++
++from __future__ import annotations
++
++import argparse
++import json
++from pathlib import Path
++from typing import Any
++
++
++MIN_INT = -(1 << 63)
++MAX_INT = (1 << 63) - 1
++FORMAT = "pietto.phase77.s15.raw-receipt.v1"
++ROUTES = ("literal", "physical_column", "prepared")
++OPERATORS = ("/", "%")
++SEED = (
++    ("negative_dividend", -7, 2),
++    ("negative_divisor", 7, -2),
++    ("both_negative", -7, -2),
++    ("null_left", None, 2),
++    ("null_right", 7, None),
++    ("zero_divisor", 7, 0),
++    ("minimum_by_one", MIN_INT, 1),
++    ("minimum_by_two", MIN_INT, 2),
++    ("minimum_by_three", MIN_INT, 3),
++    ("minimum_by_negative_one", MIN_INT, -1),
++)
++
++
++class ReceiptError(ValueError):
++    pass
++
++
++def _require(condition: bool, message: str) -> None:
++    if not condition:
++        raise ReceiptError(message)
++
++
++def _truncating_division(left: int, right: int) -> int:
++    """Integer division toward zero; Python's // is intentionally not used."""
++    quotient = abs(left) // abs(right)
++    return -quotient if (left < 0) != (right < 0) else quotient
++
++
++def expected_value(operator: str, left: int | None, right: int | None) -> int | None:
++    if left is None or right is None or right == 0:
++        return None
++    if left == MIN_INT and right == -1:
++        raise OverflowError("signed64 overflow is a native target terminal")
++    quotient = _truncating_division(left, right)
++    return quotient if operator == "/" else left - quotient * right
++
++
++def _complete_warnings(terminal: dict[str, Any], where: str) -> list[Any]:
++    warnings = terminal.get("warnings")
++    _require(terminal.get("warnings_error") is False, f"{where}: warnings receipt failed")
++    _require(isinstance(warnings, list), f"{where}: warnings must be raw list")
++    return warnings
++
++
++def _signed_bigint_metadata(metadata: Any, where: str) -> None:
++    _require(isinstance(metadata, list) and len(metadata) == 1, f"{where}: exactly one value metadata column required")
++    column = metadata[0]
++    _require(isinstance(column, list) and len(column) == 9, f"{where}: raw Connector/Python metadata required")
++    _require(type(column[0]) is str and type(column[1]) is int, f"{where}: malformed metadata")
++    _require(column[1] == 8, f"{where}: result is not BIGINT")
++    _require(type(column[7]) is int and not column[7] & 32, f"{where}: result is unsigned")
++
++
++def _success(terminal: Any, value: int | None, *, allow_warnings: bool, where: str) -> None:
++    _require(isinstance(terminal, dict) and terminal.get("kind") == "success", f"{where}: expected success")
++    warnings = _complete_warnings(terminal, where)
++    _require(allow_warnings or not warnings, f"{where}: safe/null cell has warning")
++    _signed_bigint_metadata(terminal.get("metadata"), where)
++    _require(terminal.get("rows") == [[value]], f"{where}: value differs from exact integer oracle")
++    _require(terminal.get("errno") is None and terminal.get("sqlstate") is None, f"{where}: success has native error")
++
++
++def _native_overflow(terminal: Any, where: str) -> None:
++    _require(isinstance(terminal, dict) and terminal.get("kind") == "error", f"{where}: expected native overflow")
++    _complete_warnings(terminal, where)
++    _require(terminal.get("rows") == [] and terminal.get("metadata") is None, f"{where}: error carries result data")
++    _require(terminal.get("errno") == 1690 and terminal.get("sqlstate") == "22003", f"{where}: expected native 1690/22003")
++    _require(type(terminal.get("message")) is str and terminal["message"], f"{where}: native message missing")
++
++
++def _seed_rows(seed: Any) -> None:
++    expected = [
++        {"ordinal": ordinal, "cell": cell, "left": left, "right": right}
++        for ordinal, (cell, left, right) in enumerate(SEED)
++    ]
++    _require(seed == expected, "seed is not the frozen ordered signed-64 seed")
++
++
++def _physical_seed(value: Any) -> None:
++    _require(isinstance(value, dict), "physical_seed missing")
++    _require(value.get("table") == "c77_s15_signed_operands", "physical seed table drift")
++    _seed_rows(value.get("readback"))
++    columns = value.get("show_columns")
++    _require(isinstance(columns, list), "physical SHOW COLUMNS missing")
++    by_name = {row[0]: row for row in columns if isinstance(row, list) and len(row) >= 2 and type(row[0]) is str}
++    for name in ("left_value", "right_value"):
++        row = by_name.get(name)
++        _require(row is not None and type(row[1]) is str and row[1].lower() == "bigint", f"{name} is not signed BIGINT")
++        _require("unsigned" not in row[1].lower(), f"{name} is unsigned")
++
++
++def _sql_shape(observation: dict[str, Any], route: str, operator: str, left: int | None, right: int | None, where: str) -> None:
++    statement = observation.get("statement")
++    _require(isinstance(statement, dict) and type(statement.get("sql")) is str, f"{where}: SQL missing")
++    sql = statement["sql"].upper()
++    parameters = statement.get("parameters")
++    _require(isinstance(parameters, list), f"{where}: raw parameter list missing")
++    token = " DIV " if operator == "/" else " % "
++    _require(token in f" {sql} ", f"{where}: wrong MySQL operator")
++    if route == "literal":
++        _require(parameters == [], f"{where}: literal route bound parameters")
++        _require(sql.count(" AS SIGNED)") >= 2, f"{where}: literals are not explicitly signed")
++    elif route == "physical_column":
++        _require("LEFT_VALUE" in sql and "RIGHT_VALUE" in sql, f"{where}: physical column route drift")
++        _require(parameters == [], f"{where}: physical operand route bound parameters")
++    else:
++        _require(sql.count("%S") >= 2 and sql.count(" AS SIGNED)") >= 2, f"{where}: prepared signed operands missing")
++        _require(parameters == [left, right], f"{where}: prepared values differ from ordered seed")
++
++
++def judge(receipt: Any) -> str:
++    _require(isinstance(receipt, dict), "receipt must be an object")
++    _require(receipt.get("format") == FORMAT, "receipt format mismatch")
++    _require(receipt.get("engine") == "mysql", "S15 raw judge accepts only MySQL")
++    _require(receipt.get("scope") == "raw_signed_int_primitive", "receipt claims product qualification")
++    _require(receipt.get("signed_range") == {"min": MIN_INT, "max": MAX_INT}, "signed range missing or changed")
++    _physical_seed(receipt.get("physical_seed"))
++    observations = receipt.get("observations")
++    _require(isinstance(observations, list), "observations missing")
++    expected_count = len(OPERATORS) * len(ROUTES) * len(SEED)
++    _require(len(observations) == expected_count, "observation matrix is incomplete")
++    position = 0
++    for operator in OPERATORS:
++        for route in ROUTES:
++            for ordinal, (cell, left, right) in enumerate(SEED):
++                observation = observations[position]
++                where = f"{operator}/{route}/{cell}"
++                _require(isinstance(observation, dict), f"{where}: observation malformed")
++                _require(
++                    observation.get("operator") == operator
++                    and observation.get("route") == route
++                    and observation.get("ordinal") == ordinal
++                    and observation.get("input") == {"left": left, "right": right},
++                    f"{where}: observation order or inputs drift",
++                )
++                _sql_shape(observation, route, operator, left, right, where)
++                try:
++                    value = expected_value(operator, left, right)
++                except OverflowError:
++                    _native_overflow(observation.get("terminal"), where)
++                else:
++                    _success(
++                        observation.get("terminal"),
++                        value,
++                        allow_warnings=right == 0,
++                        where=where,
++                    )
++                position += 1
++    return "S15_RAW_PRIMITIVE_MATCHED_NOT_PRODUCT_QUALIFIED"
++
++
++def _metadata() -> list[list[Any]]:
++    return [["value", 8, None, None, None, None, 1, 0, 63]]
++
++
++def _synthetic_receipt() -> dict[str, Any]:
++    observations = []
++    for operator in OPERATORS:
++        token = "DIV" if operator == "/" else "%"
++        for route in ROUTES:
++            for ordinal, (_, left, right) in enumerate(SEED):
++                if route == "literal":
++                    sql, parameters = f"SELECT CAST(1 AS SIGNED) {token} CAST(1 AS SIGNED) AS value", []
++                elif route == "physical_column":
++                    sql, parameters = f"SELECT left_value {token} right_value AS value FROM c77_s15_signed_operands", []
++                else:
++                    sql, parameters = f"SELECT CAST(%s AS SIGNED) {token} CAST(%s AS SIGNED) AS value", [left, right]
++                try:
++                    value = expected_value(operator, left, right)
++                    terminal: dict[str, Any] = {"kind": "success", "metadata": _metadata(), "rows": [[value]], "warnings": [], "warnings_error": False, "errno": None, "sqlstate": None}
++                    if right == 0:
++                        terminal["warnings"] = [["Warning", 1365, "Division by 0"]]
++                except OverflowError:
++                    terminal = {"kind": "error", "metadata": None, "rows": [], "warnings": [], "warnings_error": False, "errno": 1690, "sqlstate": "22003", "message": "BIGINT value is out of range"}
++                observations.append({"operator": operator, "route": route, "ordinal": ordinal, "input": {"left": left, "right": right}, "statement": {"sql": sql, "parameters": parameters}, "terminal": terminal})
++    return {
++        "format": FORMAT,
++        "engine": "mysql",
++        "scope": "raw_signed_int_primitive",
++        "signed_range": {"min": MIN_INT, "max": MAX_INT},
++        "physical_seed": {
++            "table": "c77_s15_signed_operands",
++            "show_columns": [["left_value", "bigint", "YES", "", None, ""], ["right_value", "bigint", "YES", "", None, ""]],
++            "readback": [{"ordinal": ordinal, "cell": cell, "left": left, "right": right} for ordinal, (cell, left, right) in enumerate(SEED)],
++        },
++        "observations": observations,
++    }
++
++
++def self_check() -> None:
++    receipt = _synthetic_receipt()
++    assert judge(receipt) == "S15_RAW_PRIMITIVE_MATCHED_NOT_PRODUCT_QUALIFIED"
++    for mutate in (
++        lambda value: value["observations"].pop(),
++        lambda value: value["observations"][0]["terminal"].update(metadata=[["value", 246, None, None, None, None, 1, 0, 63]]),
++        lambda value: value["observations"][-1]["terminal"].update(errno=None),
++        lambda value: value["observations"][5]["terminal"].update(warnings_error="RuntimeError"),
++    ):
++        bad = json.loads(json.dumps(receipt))
++        mutate(bad)
++        try:
++            judge(bad)
++        except ReceiptError:
++            continue
++        raise AssertionError("S15 pure judge accepted an incomplete or unsafe receipt")
++
++
++def main() -> int:
++    parser = argparse.ArgumentParser()
++    parser.add_argument("--receipt", type=Path)
++    parser.add_argument("--self-check", action="store_true")
++    args = parser.parse_args()
++    if args.self_check:
++        _require(args.receipt is None, "self-check takes no receipt")
++        self_check()
++        print("S15 pure judge self-check passed")
++        return 0
++    _require(args.receipt is not None, "--receipt is required")
++    print(judge(json.loads(args.receipt.read_text(encoding="utf-8"))))
++    return 0
++
++
++if __name__ == "__main__":
++    raise SystemExit(main())
+*** Add File: /tmp/pietto-p77-s15-prep/ATTACH_PARENT_REQUEST.md
++# Phase77 S15 — attachable MySQL raw-qualification request
++
++Status: `PREPARED_NOT_STARTED`.  This request owns only a pure receipt judge
++and its synthetic self-check in this directory.  It does not change Pietto,
++the frozen `/tmp/pietto-p77-numeric-prereg` manifest, its PostgreSQL parent,
++or any database resource lifecycle.
++
++## Parent request
++
++Attach one S15 child to the already reviewed, parent-owned MySQL campaign only
++after the parent has independently rebound its candidate, image, relay, lock,
++endpoint and cleanup authority.  Reuse its existing endpoint/materialization
++and raw Connector/Python receipt convention.  Do not add a resource wrapper,
++target launcher, driver, or product helper for this child.
++
++The parent supplies one JSON receipt to `s15_pure_judge.py --receipt RECEIPT`.
++It must contain the raw cursor metadata, rows, warnings and native error
++terminal for every observation; this judge performs no I/O other than reading
++that receipt.  Before a target run, invoke:
++
++```sh
++UV_PYTHON=3.13.13 UV_OFFLINE=1 UV_NO_SYNC=1 \
++  uv run python /tmp/pietto-p77-s15-prep/s15_pure_judge.py --self-check
++```
++
++The child uses the exact ordered `SEED` embedded in the judge for both `/` and
++`%`, and for all three routes in this order: `literal`, `physical_column`,
++`prepared`.  The physical table is `c77_s15_signed_operands`, with nullable,
++signed `BIGINT` `left_value`/`right_value`, and its raw `SHOW COLUMNS` plus
++ordered readback must be in the receipt.  Literal SQL explicitly casts both
++operands to `SIGNED`; prepared SQL binds the same values and explicitly casts
++each placeholder to `SIGNED`; physical SQL reads the two physical columns.
++No Decimal, unsigned, Float or Python/SQL floating-point oracle is allowed.
++
++The fixed cells cover negative dividend/divisor combinations, NULL on both
++sides, zero divisor, `INT64_MIN / 1`, `/ 2`, `/ 3`, and `INT64_MIN / -1`; the
++same rows cover each remainder.  Expected non-error values use exact integer
++truncation toward zero, and `remainder = dividend - quotient * divisor`.
++
++## Receipt terminal rule
++
++Every success has exactly one raw Connector/Python value metadata column,
++type-code `8` (BIGINT), no UNSIGNED flag, one row, and a completed raw warning
++receipt.  A nonzero safe/null cell must have no warning.  A zero-divisor cell
++must succeed with `NULL`; its raw warning list is retained rather than guessed
++or normalized.  `INT64_MIN / -1` and `INT64_MIN % -1` require one native error
++terminal: no rows, null metadata, completed warning receipt, errno `1690`,
++SQLSTATE `22003`, and a nonempty native message.  The judge rejects a warning
++retrieval failure, a Decimal/unsigned result, a missing terminal, a reordered
++seed, or a changed bind value.
++
++Success is only `S15_RAW_PRIMITIVE_MATCHED_NOT_PRODUCT_QUALIFIED`.  It means
++the raw target primitive is worth review; it neither opens S15 nor changes the
++current MySQL project refusal.
++
++## Required later candidate-emission evidence
++
++Only after a raw primitive receipt passes review may an implementation candidate
++be considered.  That later, separate experiment must compile actual MySQL
++project `Int / Int` and `Int % Int` source through
++`project_sql_emission_rows.py::resolved_binary_realization`, preserve the
++emitted SQL and prepared values verbatim, and pair them with the same ordered
++seed, raw metadata/warnings/native terminal, PostgreSQL differential and the
++plan/verifier/pure/compiled/result-reader closure.  It must preserve MySQL
++NULL-on-zero versus PostgreSQL `22012`; it must not translate MySQL `1690`/
++`22003` into a portable `PIE-*` promise.  A raw-plan result or this pure-judge
++result alone is not candidate emission, Gate 2, CI, publication or release.
+*** End Patch
+
+*** Begin Patch
+*** Update File: /tmp/pietto-p77-s15-prep/s15_pure_judge.py
+@@
+     if route == "literal":
+         _require(parameters == [], f"{where}: literal route bound parameters")
++        _require(statement.get("literal_operands") == [left, right], f"{where}: literal values differ from ordered seed")
+         _require(sql.count(" AS SIGNED)") >= 2, f"{where}: literals are not explicitly signed")
+     elif route == "physical_column":
+-        _require("LEFT_VALUE" in sql and "RIGHT_VALUE" in sql, f"{where}: physical column route drift")
++        _require("LEFT_VALUE" in sql and "RIGHT_VALUE" in sql and "ORDINAL" in sql, f"{where}: physical column route drift")
+@@
+ def _metadata() -> list[list[Any]]:
+     return [["value", 8, None, None, None, None, 1, 0, 63]]
+ 
+ 
++def _signed_literal(value: int | None) -> str:
++    return "NULL" if value is None else str(value)
++
++
+ def _synthetic_receipt() -> dict[str, Any]:
+@@
+                 if route == "literal":
+-                    sql, parameters = f"SELECT CAST(1 AS SIGNED) {token} CAST(1 AS SIGNED) AS value", []
++                    sql, parameters = f"SELECT CAST({_signed_literal(left)} AS SIGNED) {token} CAST({_signed_literal(right)} AS SIGNED) AS value", []
+                 elif route == "physical_column":
+-                    sql, parameters = f"SELECT left_value {token} right_value AS value FROM c77_s15_signed_operands", []
++                    sql, parameters = f"SELECT left_value {token} right_value AS value FROM c77_s15_signed_operands WHERE ordinal = {ordinal}", []
+@@
+-                observations.append({"operator": operator, "route": route, "ordinal": ordinal, "input": {"left": left, "right": right}, "statement": {"sql": sql, "parameters": parameters}, "terminal": terminal})
++                statement = {"sql": sql, "parameters": parameters}
++                if route == "literal":
++                    statement["literal_operands"] = [left, right]
++                observations.append({"operator": operator, "route": route, "ordinal": ordinal, "input": {"left": left, "right": right}, "statement": statement, "terminal": terminal})
+*** Update File: /tmp/pietto-p77-s15-prep/ATTACH_PARENT_REQUEST.md
+@@
+ The child uses the exact ordered `SEED` embedded in the judge for both `/` and
+ `%', and for all three routes in this order: `literal`, `physical_column`,
+ `prepared`.  The physical table is `c77_s15_signed_operands`, with nullable,
+ signed `BIGINT` `left_value`/`right_value`, and its raw `SHOW COLUMNS` plus
+ ordered readback must be in the receipt.  Literal SQL explicitly casts both
+ operands to `SIGNED`; prepared SQL binds the same values and explicitly casts
+ each placeholder to `SIGNED`; physical SQL reads the two physical columns.
++Each literal observation also carries its exact `literal_operands` pair; each
++physical statement identifies its seeded `ordinal`; prepared parameters equal
++that same pair.  These three route records therefore cannot borrow a result
++from another seed row.
+*** End Patch
+
+*** Begin Patch
+*** Update File: /tmp/pietto-p77-s15-prep/s15_pure_judge.py
+@@
+     if route == "literal":
+         _require(parameters == [], f"{where}: literal route bound parameters")
++        _require(statement.get("literal_operands") == [left, right], f"{where}: literal values differ from ordered seed")
+         _require(sql.count(" AS SIGNED)") >= 2, f"{where}: literals are not explicitly signed")
+     elif route == "physical_column":
+-        _require("LEFT_VALUE" in sql and "RIGHT_VALUE" in sql, f"{where}: physical column route drift")
++        _require("LEFT_VALUE" in sql and "RIGHT_VALUE" in sql and "ORDINAL" in sql, f"{where}: physical column route drift")
+@@
+ def _metadata() -> list[list[Any]]:
+     return [["value", 8, None, None, None, None, 1, 0, 63]]
+ 
+ 
++def _signed_literal(value: int | None) -> str:
++    return "NULL" if value is None else str(value)
++
++
+ def _synthetic_receipt() -> dict[str, Any]:
+@@
+                 if route == "literal":
+-                    sql, parameters = f"SELECT CAST(1 AS SIGNED) {token} CAST(1 AS SIGNED) AS value", []
++                    sql, parameters = f"SELECT CAST({_signed_literal(left)} AS SIGNED) {token} CAST({_signed_literal(right)} AS SIGNED) AS value", []
+                 elif route == "physical_column":
+-                    sql, parameters = f"SELECT left_value {token} right_value AS value FROM c77_s15_signed_operands", []
++                    sql, parameters = f"SELECT left_value {token} right_value AS value FROM c77_s15_signed_operands WHERE ordinal = {ordinal}", []
+@@
+-                observations.append({"operator": operator, "route": route, "ordinal": ordinal, "input": {"left": left, "right": right}, "statement": {"sql": sql, "parameters": parameters}, "terminal": terminal})
++                statement = {"sql": sql, "parameters": parameters}
++                if route == "literal":
++                    statement["literal_operands"] = [left, right]
++                observations.append({"operator": operator, "route": route, "ordinal": ordinal, "input": {"left": left, "right": right}, "statement": statement, "terminal": terminal})
+*** End Patch
+
+*** Begin Patch
+*** Update File: /tmp/pietto-p77-s15-prep/ATTACH_PARENT_REQUEST.md
+@@
+ signed `BIGINT` `left_value`/`right_value`, and its raw `SHOW COLUMNS` plus
+ ordered readback must be in the receipt.  Literal SQL explicitly casts both
+ operands to `SIGNED`; prepared SQL binds the same values and explicitly casts
+ each placeholder to `SIGNED`; physical SQL reads the two physical columns.
++Each literal observation also carries its exact `literal_operands` pair; each
++physical statement identifies its seeded `ordinal`; prepared parameters equal
++that same pair.  The three route records therefore cannot borrow a result from
++another seed row.
+ No Decimal, unsigned, Float or Python/SQL floating-point oracle is allowed.
+*** End Patch
+
+*** Begin Patch
+*** Add File: /tmp/pietto-p77-s15-prep/ACTUAL_CHECKS.md
++# Actual checks
++
++No target, network, Docker command, database connection, product source edit,
++manifest edit, PostgreSQL parent edit, test suite, Git mutation, commit or
++publication was run for this preparation.
++
++| Check | Command | Result |
++| --- | --- | --- |
++| Pure positive/negative receipt checks | `UV_PYTHON=3.13.13 UV_OFFLINE=1 UV_NO_SYNC=1 uv run python /tmp/pietto-p77-s15-prep/s15_pure_judge.py --self-check` | passed |
++| Syntax compilation | `UV_PYTHON=3.13.13 UV_OFFLINE=1 UV_NO_SYNC=1 uv run python -m py_compile /tmp/pietto-p77-s15-prep/s15_pure_judge.py` | passed |
++
++The first sandboxed attempt to run the first command could not create uv's
++cache lock; the recorded passing run used the same offline command after the
++normal sandbox escalation.  It did not run a target experiment.
+*** End Patch
+
+*** Begin Patch
+*** Update File: /tmp/pietto-p77-s15-prep/s15_pure_judge.py
+@@
+ def _complete_warnings(terminal: dict[str, Any], where: str) -> list[Any]:
+     warnings = terminal.get("warnings")
+     _require(terminal.get("warnings_error") is False, f"{where}: warnings receipt failed")
+     _require(isinstance(warnings, list), f"{where}: warnings must be raw list")
++    for warning in warnings:
++        _require(
++            isinstance(warning, list)
++            and len(warning) == 3
++            and type(warning[0]) is str
++            and type(warning[1]) is int
++            and type(warning[2]) is str,
++            f"{where}: warning is not a complete raw SHOW WARNINGS row",
++        )
+     return warnings
+@@
+         lambda value: value["observations"][-1]["terminal"].update(errno=None),
+         lambda value: value["observations"][5]["terminal"].update(warnings_error="RuntimeError"),
++        lambda value: value["observations"][5]["terminal"].update(warnings=[["Warning", 1365]]),
+*** End Patch

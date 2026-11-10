@@ -1,0 +1,25 @@
+
+> pietto-vscode-extension@0.3.0 test:host
+> npm run build && node out/tests/runHost.js
+
+
+> pietto-vscode-extension@0.3.0 build
+> tsc -p .
+
+[577193:1109/233223.055329:ERROR:dbus/bus.cc:406] Failed to connect to the bus: Failed to connect to socket /run/user/1000/bus: No such file or directory
+[577193:1109/233223.068609:ERROR:dbus/object_proxy.cc:572] Failed to call method: org.freedesktop.DBus.NameHasOwner: object_path= /org/freedesktop/DBus: unknown error type: 
+[577193:1109/233223.068769:ERROR:dbus/bus.cc:406] Failed to connect to the bus: Failed to connect to socket /run/user/1000/bus: No such file or directory
+[577193:1109/233223.070783:ERROR:dbus/object_proxy.cc:572] Failed to call method: org.freedesktop.DBus.NameHasOwner: object_path= /org/freedesktop/DBus: unknown error type: 
+[91m[main 2026-11-10T04:34:54.622Z][0m Error: listen EACCES: permission denied /run/user/1000/vscode-cdd845ec-1.14-main.sock
+    at Server.setupListenHandle [as _listen2] (node:net:2368:21)
+    at listenInCluster (node:net:2499:12)
+    at Server.listen (node:net:2641:5)
+    at file:///home/mianliwang/projects/pietto-vscode-extension-claude/.vscode-test/vscode-linux-x64-1.145.2/resources/app/out/mainImpl.js:37:636
+    at new Promise (<anonymous>)
+    at O1 (file:///home/mianliwang/projects/pietto-vscode-extension-claude/.vscode-test/vscode-linux-x64-1.145.2/resources/app/out/mainImpl.js:37:587)
+    at AP.claimInstance (file:///home/mianliwang/projects/pietto-vscode-extension-claude/.vscode-test/vscode-linux-x64-1.145.2/resources/app/out/mainImpl.js:195:58559)
+    at file:///home/mianliwang/projects/pietto-vscode-extension-claude/.vscode-test/vscode-linux-x64-1.145.2/resources/app/out/mainImpl.js:195:55840
+    at i.invokeFunction (file:///home/mianliwang/projects/pietto-vscode-extension-claude/.vscode-test/vscode-linux-x64-1.145.2/resources/app/out/mainImpl.js:191:941)
+    at AP.startup (file:///home/mianliwang/projects/pietto-vscode-extension-claude/.vscode-test/vscode-linux-x64-1.145.2/resources/app/out/mainImpl.js:195:55751)
+Exit code:   1
+Test run failed with code 1

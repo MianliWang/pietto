@@ -1,0 +1,59 @@
+{
+  "format": "pietto.phase77.mysql-maintenance-r2-otel-preflight.v1",
+  "status": "PASS",
+  "r1_preserved": "/home/mianliwang/projects/pietto/.cache/phase77-recovery/evidence/mysql-maintenance-20261109T010000-0500",
+  "binding": {
+    "expected_binding_sha256": "500f051707c0e944b92bc98cdb33e20f3398948546082177cd2f1a511dcecc31",
+    "head": "f8ccd2c44a2d9adf431a496bd9bbae037783176f",
+    "patch_sha256": "548e72276b20c2bff3bb0613a527ef230fb9095942b562dca32a6150da12e1cc",
+    "pins_sha256": "572a36a890cda4dc286cd9f9fcccf7998a292fc3b437b7836937960c74e87e92",
+    "lock_sha256": "b2cc96b25b0b9f2225c4529f0123ae869cd804af0578b4f83c931a15aa893064",
+    "wheel_sha256": "f4c96921c4d4ceb057830f2dd21f2e634325dac2bef933532747ae4aab963a73"
+  },
+  "installer": {
+    "python": "CPython 3.13.13",
+    "offline": true,
+    "command": [
+      "uv", "pip", "install", "--no-index", "--strict",
+      "opentelemetry-api==1.33.1", "opentelemetry-sdk==1.33.1",
+      "wrapt-2.5.0-cp313-cp313-manylinux1_x86_64.manylinux_2_28_x86_64.manylinux_2_5_x86_64.whl"
+    ],
+    "install_exit": 0,
+    "pip_check_exit": 0,
+    "log": "scratch-install.log",
+    "log_sha256": "71634f414c8a36fa3f2d329ff768d7d8306e48f58eea1758fd01734772b878f2"
+  },
+  "resolved_versions": {
+    "opentelemetry-api": "1.33.1",
+    "opentelemetry-sdk": "1.33.1",
+    "opentelemetry-semantic-conventions": "0.54b1",
+    "Deprecated": "3.0.1",
+    "importlib-metadata": "8.6.1",
+    "zipp": "4.1.2",
+    "typing-extensions": "4.16.0",
+    "wrapt": "2.5.0"
+  },
+  "otel_house": {
+    "closure": [
+      "opentelemetry_api-1.33.1-py3-none-any.whl",
+      "opentelemetry_sdk-1.33.1-py3-none-any.whl",
+      "opentelemetry_semantic_conventions-0.54b1-py3-none-any.whl",
+      "deprecated-3.0.1-py3-none-any.whl",
+      "importlib_metadata-8.6.1-py3-none-any.whl",
+      "zipp-4.1.2-py3-none-any.whl",
+      "typing_extensions-4.16.0-py3-none-any.whl",
+      "wrapt-2.5.0-cp313-cp313-manylinux1_x86_64.manylinux_2_28_x86_64.manylinux_2_5_x86_64.whl"
+    ],
+    "unselected_observation_wheel": {
+      "filename": "wrapt-2.5.0-cp312-cp312-manylinux1_x86_64.manylinux_2_28_x86_64.manylinux_2_5_x86_64.whl",
+      "sha256": "0cabb9c17ab79b2549d1f23b36f436473ad9253ef53995a817feba26fae69d5b"
+    },
+    "selected_wrapt_sha256": "b95a6eca3b927853529eea958310563c83140ae8451dd5dc4399c7da385dc4f3",
+    "hardlinked_from_runtime_wheelhouse": true
+  },
+  "r2_launch": {
+    "status": "READY_FOR_ROOT_START",
+    "run_directory": "/home/mianliwang/projects/pietto/.cache/phase77-recovery/evidence/mysql-maintenance-r2-20261109T030000-0500",
+    "command": "set -a; . /home/mianliwang/projects/pietto/.cache/phase77-recovery/evidence/mysql-maintenance-r2-preflight-20261109T020000-0500/launch.env; set +a; exec /home/mianliwang/projects/pietto/.cache/phase77-recovery/native-maintenance/runnable-rebind/mysql/mysql.sh /home/mianliwang/projects/pietto/.cache/phase77-recovery/evidence/mysql-maintenance-r2-20261109T030000-0500"
+  }
+}

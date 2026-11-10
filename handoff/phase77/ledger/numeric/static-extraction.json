@@ -1,0 +1,1417 @@
+{
+  "format": "pietto.phase77.numeric.static-extraction.v1",
+  "patches": [
+    {
+      "call_id": "call_03b7782ca50747c5b2c36e5c38d443f9",
+      "changes": [
+        {
+          "path": ".cache/phase77-recovery/numeric/v2/PREREG.md",
+          "result": "added"
+        },
+        {
+          "path": ".cache/phase77-recovery/numeric/v2/p77_mysql_numeric_probe.py",
+          "result": "added"
+        }
+      ],
+      "family": "numeric",
+      "line": 707,
+      "source": "/home/mianliwang/.codex/sessions/2026/11/08/rollout-2026-11-08T13-15-46-01a1bc5f-a2d1-7520-b9bb-561cb2e49f31.jsonl"
+    },
+    {
+      "call_id": "call_3e8efef4102544d485bf0efe08f82cd2",
+      "changes": [
+        {
+          "path": ".cache/phase77-recovery/numeric/v2/p77_mysql_numeric_probe.py",
+          "result": "updated-3"
+        }
+      ],
+      "family": "numeric",
+      "line": 716,
+      "source": "/home/mianliwang/.codex/sessions/2026/11/08/rollout-2026-11-08T13-15-46-01a1bc5f-a2d1-7520-b9bb-561cb2e49f31.jsonl"
+    },
+    {
+      "call_id": "call_5bd081fa56564164b4329f7e660a6b26",
+      "changes": [
+        {
+          "path": ".cache/phase77-recovery/numeric/v2/p77_mysql_numeric_probe.py",
+          "result": "updated-4"
+        }
+      ],
+      "family": "numeric",
+      "line": 725,
+      "source": "/home/mianliwang/.codex/sessions/2026/11/08/rollout-2026-11-08T13-15-46-01a1bc5f-a2d1-7520-b9bb-561cb2e49f31.jsonl"
+    },
+    {
+      "call_id": "call_f7cf0c23541b4cbbbcef9fed0b503dbc",
+      "changes": [
+        {
+          "path": ".cache/phase77-recovery/numeric/v2/p77_mysql_numeric_probe.py",
+          "result": "updated-10"
+        },
+        {
+          "path": ".cache/phase77-recovery/numeric/v2/PREREG.md",
+          "result": "updated-7"
+        }
+      ],
+      "family": "numeric",
+      "line": 776,
+      "source": "/home/mianliwang/.codex/sessions/2026/11/08/rollout-2026-11-08T13-15-46-01a1bc5f-a2d1-7520-b9bb-561cb2e49f31.jsonl"
+    },
+    {
+      "call_id": "call_865c114b89c244c990902a8e3533f684",
+      "changes": [
+        {
+          "path": ".cache/phase77-recovery/numeric/v2/PREREG.md",
+          "result": "updated-3"
+        },
+        {
+          "path": ".cache/phase77-recovery/numeric/v2/p77_mysql_numeric_probe.py",
+          "result": "updated-5"
+        }
+      ],
+      "family": "numeric",
+      "line": 792,
+      "source": "/home/mianliwang/.codex/sessions/2026/11/08/rollout-2026-11-08T13-15-46-01a1bc5f-a2d1-7520-b9bb-561cb2e49f31.jsonl"
+    },
+    {
+      "call_id": "call_9b8cff8578fc40d68067b74c247fbc33",
+      "changes": [
+        {
+          "path": ".cache/phase77-recovery/numeric/v2/p77_mysql_numeric_probe.py",
+          "result": "updated-9"
+        }
+      ],
+      "family": "numeric",
+      "line": 829,
+      "source": "/home/mianliwang/.codex/sessions/2026/11/08/rollout-2026-11-08T13-15-46-01a1bc5f-a2d1-7520-b9bb-561cb2e49f31.jsonl"
+    },
+    {
+      "call_id": "call_f6bef85fc92648faa51579ade46de59d",
+      "changes": [
+        {
+          "path": ".cache/phase77-recovery/numeric/v2/p77_mysql_numeric_probe.py",
+          "result": "updated-5"
+        }
+      ],
+      "family": "numeric",
+      "line": 843,
+      "source": "/home/mianliwang/.codex/sessions/2026/11/08/rollout-2026-11-08T13-15-46-01a1bc5f-a2d1-7520-b9bb-561cb2e49f31.jsonl"
+    },
+    {
+      "call_id": "call_f954d754cb864c7cb2abdbaf454a9a14",
+      "changes": [
+        {
+          "path": ".cache/phase77-recovery/numeric/v2/p77_mysql_numeric_probe.py",
+          "result": "updated-1"
+        }
+      ],
+      "family": "numeric",
+      "line": 856,
+      "source": "/home/mianliwang/.codex/sessions/2026/11/08/rollout-2026-11-08T13-15-46-01a1bc5f-a2d1-7520-b9bb-561cb2e49f31.jsonl"
+    },
+    {
+      "call_id": "call_d173eb67231a493a8caa8bb0393ed0c0",
+      "changes": [
+        {
+          "path": ".cache/phase77-recovery/numeric/v2/p77_mysql_numeric_probe.py",
+          "result": "updated-3"
+        }
+      ],
+      "family": "numeric",
+      "line": 863,
+      "source": "/home/mianliwang/.codex/sessions/2026/11/08/rollout-2026-11-08T13-15-46-01a1bc5f-a2d1-7520-b9bb-561cb2e49f31.jsonl"
+    },
+    {
+      "call_id": "call_e0278f0218d54009b66f114b61b39e70",
+      "changes": [
+        {
+          "path": ".cache/phase77-recovery/numeric/v2/p77_mysql_numeric_probe.py",
+          "result": "updated-2"
+        }
+      ],
+      "family": "numeric",
+      "line": 872,
+      "source": "/home/mianliwang/.codex/sessions/2026/11/08/rollout-2026-11-08T13-15-46-01a1bc5f-a2d1-7520-b9bb-561cb2e49f31.jsonl"
+    },
+    {
+      "call_id": "call_31177c97410c480caa5c756896ae1f1d",
+      "changes": [
+        {
+          "path": ".cache/phase77-recovery/numeric/v2/p77_mysql_numeric_probe.py",
+          "result": "updated-7"
+        }
+      ],
+      "family": "numeric",
+      "line": 881,
+      "source": "/home/mianliwang/.codex/sessions/2026/11/08/rollout-2026-11-08T13-15-46-01a1bc5f-a2d1-7520-b9bb-561cb2e49f31.jsonl"
+    },
+    {
+      "call_id": "call_8a7781bcbf4242ae8214b256e2778100",
+      "changes": [
+        {
+          "path": ".cache/phase77-recovery/numeric/v2/p77_mysql_numeric_probe.py",
+          "result": "updated-2"
+        },
+        {
+          "path": ".cache/phase77-recovery/numeric/v2/PREREG.md",
+          "result": "updated-1"
+        }
+      ],
+      "family": "numeric",
+      "line": 888,
+      "source": "/home/mianliwang/.codex/sessions/2026/11/08/rollout-2026-11-08T13-15-46-01a1bc5f-a2d1-7520-b9bb-561cb2e49f31.jsonl"
+    },
+    {
+      "call_id": "call_cddcc5c062814578a191e6ab2d165de1",
+      "changes": [
+        {
+          "path": ".cache/phase77-recovery/numeric/v2/p77_mysql_numeric_probe.py",
+          "result": "updated-8"
+        }
+      ],
+      "family": "numeric",
+      "line": 940,
+      "source": "/home/mianliwang/.codex/sessions/2026/11/08/rollout-2026-11-08T13-15-46-01a1bc5f-a2d1-7520-b9bb-561cb2e49f31.jsonl"
+    },
+    {
+      "call_id": "call_6392b7214adf43c082f36936ee640f9d",
+      "changes": [
+        {
+          "path": ".cache/phase77-recovery/numeric/v2/p77_mysql_numeric_probe.py",
+          "result": "updated-15"
+        }
+      ],
+      "family": "numeric",
+      "line": 977,
+      "source": "/home/mianliwang/.codex/sessions/2026/11/08/rollout-2026-11-08T13-15-46-01a1bc5f-a2d1-7520-b9bb-561cb2e49f31.jsonl"
+    },
+    {
+      "call_id": "call_078ca5a01b264d448221faa953183d4b",
+      "changes": [
+        {
+          "path": ".cache/phase77-recovery/numeric/v2/p77_mysql_numeric_probe.py",
+          "result": "hunk-not-found"
+        }
+      ],
+      "family": "numeric",
+      "line": 987,
+      "source": "/home/mianliwang/.codex/sessions/2026/11/08/rollout-2026-11-08T13-15-46-01a1bc5f-a2d1-7520-b9bb-561cb2e49f31.jsonl"
+    },
+    {
+      "call_id": "call_b53c8c0eebb84f7a97d09fe5b6d9d4a1",
+      "changes": [
+        {
+          "path": ".cache/phase77-recovery/numeric/v2/p77_mysql_numeric_probe.py",
+          "result": "updated-1"
+        }
+      ],
+      "family": "numeric",
+      "line": 1002,
+      "source": "/home/mianliwang/.codex/sessions/2026/11/08/rollout-2026-11-08T13-15-46-01a1bc5f-a2d1-7520-b9bb-561cb2e49f31.jsonl"
+    },
+    {
+      "call_id": "call_5221c186b05145a28b1b58ca1f0bb90c",
+      "changes": [
+        {
+          "path": ".cache/phase77-recovery/numeric/v2/invalid-endpoint.json",
+          "result": "added"
+        }
+      ],
+      "family": "numeric",
+      "line": 1009,
+      "source": "/home/mianliwang/.codex/sessions/2026/11/08/rollout-2026-11-08T13-15-46-01a1bc5f-a2d1-7520-b9bb-561cb2e49f31.jsonl"
+    },
+    {
+      "call_id": "call_293d292ce039454689054c341863b226",
+      "changes": [
+        {
+          "path": ".cache/phase77-recovery/numeric/v2/p77_mysql_numeric_probe.py",
+          "result": "hunk-not-found"
+        }
+      ],
+      "family": "numeric",
+      "line": 1032,
+      "source": "/home/mianliwang/.codex/sessions/2026/11/08/rollout-2026-11-08T13-15-46-01a1bc5f-a2d1-7520-b9bb-561cb2e49f31.jsonl"
+    },
+    {
+      "call_id": "call_50703e529fbd433696d5b58433a5bd8f",
+      "changes": [
+        {
+          "path": ".cache/phase77-recovery/numeric/v2/p77_mysql_numeric_probe.py",
+          "result": "updated-7"
+        }
+      ],
+      "family": "numeric",
+      "line": 1102,
+      "source": "/home/mianliwang/.codex/sessions/2026/11/08/rollout-2026-11-08T13-15-46-01a1bc5f-a2d1-7520-b9bb-561cb2e49f31.jsonl"
+    },
+    {
+      "call_id": "call_a138ef0b85cf4521a52dbeecd7ad9947",
+      "changes": [
+        {
+          "path": ".cache/phase77-recovery/numeric/v2/p77_mysql_numeric_probe.py",
+          "result": "hunk-not-found"
+        }
+      ],
+      "family": "numeric",
+      "line": 1225,
+      "source": "/home/mianliwang/.codex/sessions/2026/11/08/rollout-2026-11-08T13-15-46-01a1bc5f-a2d1-7520-b9bb-561cb2e49f31.jsonl"
+    },
+    {
+      "call_id": "call_1a4785ee7ad6481fa5bd664758bf0feb",
+      "changes": [
+        {
+          "path": ".cache/phase77-recovery/numeric/v2/p77_mysql_numeric_probe.py",
+          "result": "updated-6"
+        }
+      ],
+      "family": "numeric",
+      "line": 1241,
+      "source": "/home/mianliwang/.codex/sessions/2026/11/08/rollout-2026-11-08T13-15-46-01a1bc5f-a2d1-7520-b9bb-561cb2e49f31.jsonl"
+    },
+    {
+      "call_id": "call_7acba1c4b4264dadb5364b930f50e01c",
+      "changes": [
+        {
+          "path": ".cache/phase77-recovery/numeric/v2/p77_mysql_numeric_probe.py",
+          "result": "hunk-not-found"
+        }
+      ],
+      "family": "numeric",
+      "line": 1248,
+      "source": "/home/mianliwang/.codex/sessions/2026/11/08/rollout-2026-11-08T13-15-46-01a1bc5f-a2d1-7520-b9bb-561cb2e49f31.jsonl"
+    },
+    {
+      "call_id": "call_33a1aed52d3a492080e590b86ad1a0d3",
+      "changes": [
+        {
+          "path": ".cache/phase77-recovery/numeric/v2/p77_mysql_numeric_probe.py",
+          "result": "updated-2"
+        }
+      ],
+      "family": "numeric",
+      "line": 1255,
+      "source": "/home/mianliwang/.codex/sessions/2026/11/08/rollout-2026-11-08T13-15-46-01a1bc5f-a2d1-7520-b9bb-561cb2e49f31.jsonl"
+    },
+    {
+      "call_id": "call_b71e10b90abd4adbab769b14829e4867",
+      "changes": [
+        {
+          "path": ".cache/phase77-recovery/numeric/v2/p77_mysql_numeric_probe.py",
+          "result": "updated-2"
+        }
+      ],
+      "family": "numeric",
+      "line": 1262,
+      "source": "/home/mianliwang/.codex/sessions/2026/11/08/rollout-2026-11-08T13-15-46-01a1bc5f-a2d1-7520-b9bb-561cb2e49f31.jsonl"
+    },
+    {
+      "call_id": "call_588eb2600eb64c759386818d5e5d223d",
+      "changes": [
+        {
+          "path": ".cache/phase77-recovery/numeric/v2/p77_mysql_numeric_probe.py",
+          "result": "updated-4"
+        }
+      ],
+      "family": "numeric",
+      "line": 1269,
+      "source": "/home/mianliwang/.codex/sessions/2026/11/08/rollout-2026-11-08T13-15-46-01a1bc5f-a2d1-7520-b9bb-561cb2e49f31.jsonl"
+    },
+    {
+      "call_id": "call_92b85fb8bb1346829346bc07d0f882c0",
+      "changes": [
+        {
+          "path": ".cache/phase77-recovery/numeric/v2/p77_mysql_numeric_probe.py",
+          "result": "hunk-not-found"
+        }
+      ],
+      "family": "numeric",
+      "line": 1282,
+      "source": "/home/mianliwang/.codex/sessions/2026/11/08/rollout-2026-11-08T13-15-46-01a1bc5f-a2d1-7520-b9bb-561cb2e49f31.jsonl"
+    },
+    {
+      "call_id": "call_73eeced5e669488b9d651fa6e1ec8232",
+      "changes": [
+        {
+          "path": ".cache/phase77-recovery/numeric/v2/p77_mysql_numeric_probe.py",
+          "result": "updated-6"
+        }
+      ],
+      "family": "numeric",
+      "line": 1297,
+      "source": "/home/mianliwang/.codex/sessions/2026/11/08/rollout-2026-11-08T13-15-46-01a1bc5f-a2d1-7520-b9bb-561cb2e49f31.jsonl"
+    },
+    {
+      "call_id": "call_36605dfea52c41ff9f04b3deb2d1684f",
+      "changes": [
+        {
+          "path": ".cache/phase77-recovery/numeric/v2/p77_mysql_numeric_probe.py",
+          "result": "updated-2"
+        }
+      ],
+      "family": "numeric",
+      "line": 1304,
+      "source": "/home/mianliwang/.codex/sessions/2026/11/08/rollout-2026-11-08T13-15-46-01a1bc5f-a2d1-7520-b9bb-561cb2e49f31.jsonl"
+    },
+    {
+      "call_id": "call_541797a83fe64785a4713487e4a3d4d1",
+      "changes": [
+        {
+          "path": ".cache/phase77-recovery/numeric/v2/p77_mysql_numeric_probe.py",
+          "result": "updated-2"
+        }
+      ],
+      "family": "numeric",
+      "line": 1311,
+      "source": "/home/mianliwang/.codex/sessions/2026/11/08/rollout-2026-11-08T13-15-46-01a1bc5f-a2d1-7520-b9bb-561cb2e49f31.jsonl"
+    },
+    {
+      "call_id": "call_bc772bd418124dbdb3e4d52540cea995",
+      "changes": [
+        {
+          "path": ".cache/phase77-recovery/numeric/v2/p77_mysql_numeric_probe.py",
+          "result": "updated-1"
+        }
+      ],
+      "family": "numeric",
+      "line": 1327,
+      "source": "/home/mianliwang/.codex/sessions/2026/11/08/rollout-2026-11-08T13-15-46-01a1bc5f-a2d1-7520-b9bb-561cb2e49f31.jsonl"
+    },
+    {
+      "call_id": "call_8af5004f66b142b0b6ee0826a48c2cef",
+      "changes": [
+        {
+          "path": ".cache/phase77-recovery/numeric/v2/p77_mysql_numeric_probe.py",
+          "result": "hunk-not-found"
+        }
+      ],
+      "family": "numeric",
+      "line": 1360,
+      "source": "/home/mianliwang/.codex/sessions/2026/11/08/rollout-2026-11-08T13-15-46-01a1bc5f-a2d1-7520-b9bb-561cb2e49f31.jsonl"
+    },
+    {
+      "call_id": "call_32587fb250f64d3db96ce4bf66e60019",
+      "changes": [
+        {
+          "path": ".cache/phase77-recovery/numeric/v2/p77_mysql_numeric_probe.py",
+          "result": "updated-7"
+        }
+      ],
+      "family": "numeric",
+      "line": 1425,
+      "source": "/home/mianliwang/.codex/sessions/2026/11/08/rollout-2026-11-08T13-15-46-01a1bc5f-a2d1-7520-b9bb-561cb2e49f31.jsonl"
+    },
+    {
+      "call_id": "call_80a018bfbef84961b102c2d5871d1c39",
+      "changes": [
+        {
+          "path": ".cache/phase77-recovery/numeric/v2/p77_mysql_numeric_probe.py",
+          "result": "updated-6"
+        }
+      ],
+      "family": "numeric",
+      "line": 1432,
+      "source": "/home/mianliwang/.codex/sessions/2026/11/08/rollout-2026-11-08T13-15-46-01a1bc5f-a2d1-7520-b9bb-561cb2e49f31.jsonl"
+    },
+    {
+      "call_id": "call_1c59b801bb8842eaa863b391c570246f",
+      "changes": [
+        {
+          "path": ".cache/phase77-recovery/numeric/v2/p77_mysql_numeric_probe.py",
+          "result": "updated-1"
+        }
+      ],
+      "family": "numeric",
+      "line": 1439,
+      "source": "/home/mianliwang/.codex/sessions/2026/11/08/rollout-2026-11-08T13-15-46-01a1bc5f-a2d1-7520-b9bb-561cb2e49f31.jsonl"
+    },
+    {
+      "call_id": "call_d21ed98d3cd5484cacee178b13fcacbc",
+      "changes": [
+        {
+          "path": ".cache/phase77-recovery/numeric/v2/p77_mysql_numeric_probe.py",
+          "result": "updated-1"
+        }
+      ],
+      "family": "numeric",
+      "line": 1446,
+      "source": "/home/mianliwang/.codex/sessions/2026/11/08/rollout-2026-11-08T13-15-46-01a1bc5f-a2d1-7520-b9bb-561cb2e49f31.jsonl"
+    },
+    {
+      "call_id": "call_3fb1ee34f3464d84b401d65ad6f7ae76",
+      "changes": [
+        {
+          "path": ".cache/phase77-recovery/numeric/v2/p77_mysql_numeric_probe.py",
+          "result": "updated-4"
+        }
+      ],
+      "family": "numeric",
+      "line": 1453,
+      "source": "/home/mianliwang/.codex/sessions/2026/11/08/rollout-2026-11-08T13-15-46-01a1bc5f-a2d1-7520-b9bb-561cb2e49f31.jsonl"
+    },
+    {
+      "call_id": "call_22950afe81bc479ba8acb6e0e069399b",
+      "changes": [
+        {
+          "path": ".cache/phase77-recovery/numeric/v2/p77_mysql_numeric_probe.py",
+          "result": "updated-4"
+        }
+      ],
+      "family": "numeric",
+      "line": 1534,
+      "source": "/home/mianliwang/.codex/sessions/2026/11/08/rollout-2026-11-08T13-15-46-01a1bc5f-a2d1-7520-b9bb-561cb2e49f31.jsonl"
+    },
+    {
+      "call_id": "call_9e9ba4ee465f4a0ab3f6241f8846534f",
+      "changes": [
+        {
+          "path": ".cache/phase77-recovery/numeric/v2/p77_mysql_numeric_probe.py",
+          "result": "updated-1"
+        },
+        {
+          "path": ".cache/phase77-recovery/numeric/v2/PREREG.md",
+          "result": "hunk-not-found"
+        }
+      ],
+      "family": "numeric",
+      "line": 1581,
+      "source": "/home/mianliwang/.codex/sessions/2026/11/08/rollout-2026-11-08T13-15-46-01a1bc5f-a2d1-7520-b9bb-561cb2e49f31.jsonl"
+    },
+    {
+      "call_id": "call_e8a5d6d326f74e86bdbab60aacab752d",
+      "changes": [
+        {
+          "path": ".cache/phase77-recovery/numeric/v2/RUN_WRAPPER_PREREG.md",
+          "result": "added"
+        }
+      ],
+      "family": "numeric",
+      "line": 1590,
+      "source": "/home/mianliwang/.codex/sessions/2026/11/08/rollout-2026-11-08T13-15-46-01a1bc5f-a2d1-7520-b9bb-561cb2e49f31.jsonl"
+    },
+    {
+      "call_id": "call_cea4b541ede1471e82dcca7b49c86fa1",
+      "changes": [
+        {
+          "path": ".cache/phase77-recovery/numeric/v2/RUN_WRAPPER_PREREG.md",
+          "result": "updated-2"
+        }
+      ],
+      "family": "numeric",
+      "line": 1597,
+      "source": "/home/mianliwang/.codex/sessions/2026/11/08/rollout-2026-11-08T13-15-46-01a1bc5f-a2d1-7520-b9bb-561cb2e49f31.jsonl"
+    },
+    {
+      "call_id": "call_65cf05e1aa254cc7a6db68a30a171c56",
+      "changes": [
+        {
+          "path": ".cache/phase77-recovery/numeric/v2/materialize_endpoint.py",
+          "result": "added"
+        }
+      ],
+      "family": "numeric",
+      "line": 1685,
+      "source": "/home/mianliwang/.codex/sessions/2026/11/08/rollout-2026-11-08T13-15-46-01a1bc5f-a2d1-7520-b9bb-561cb2e49f31.jsonl"
+    },
+    {
+      "call_id": "call_bf6204c90f6241c786a8976b25685fce",
+      "changes": [
+        {
+          "path": ".cache/phase77-recovery/numeric/v2/materialize_endpoint.py",
+          "result": "updated-1"
+        }
+      ],
+      "family": "numeric",
+      "line": 1692,
+      "source": "/home/mianliwang/.codex/sessions/2026/11/08/rollout-2026-11-08T13-15-46-01a1bc5f-a2d1-7520-b9bb-561cb2e49f31.jsonl"
+    },
+    {
+      "call_id": "call_5d0fb356493448abb190b10ea0c4173e",
+      "changes": [
+        {
+          "path": ".cache/phase77-recovery/numeric/v2/numeric_pg_hook.sh",
+          "result": "added"
+        },
+        {
+          "path": ".cache/phase77-recovery/numeric/v2/numeric_mysql_hook.py",
+          "result": "added"
+        }
+      ],
+      "family": "numeric",
+      "line": 1717,
+      "source": "/home/mianliwang/.codex/sessions/2026/11/08/rollout-2026-11-08T13-15-46-01a1bc5f-a2d1-7520-b9bb-561cb2e49f31.jsonl"
+    },
+    {
+      "call_id": "call_bfbe5b1ec7c7445b94e3ef798e98d10f",
+      "changes": [
+        {
+          "path": ".cache/phase77-recovery/numeric/v2/p77_mysql_numeric_probe.py",
+          "result": "updated-1"
+        }
+      ],
+      "family": "numeric",
+      "line": 1739,
+      "source": "/home/mianliwang/.codex/sessions/2026/11/08/rollout-2026-11-08T13-15-46-01a1bc5f-a2d1-7520-b9bb-561cb2e49f31.jsonl"
+    },
+    {
+      "call_id": "call_7988cebb9da94a848529b377c9c2d896",
+      "changes": [
+        {
+          "path": ".cache/phase77-recovery/numeric/v2/numeric_pg_hook.sh",
+          "result": "updated-1"
+        }
+      ],
+      "family": "numeric",
+      "line": 1762,
+      "source": "/home/mianliwang/.codex/sessions/2026/11/08/rollout-2026-11-08T13-15-46-01a1bc5f-a2d1-7520-b9bb-561cb2e49f31.jsonl"
+    },
+    {
+      "call_id": "call_185df96c62af4908b2ce478a411d5360",
+      "changes": [
+        {
+          "path": ".cache/phase77-recovery/numeric/v2/numeric_pg_hook.sh",
+          "result": "updated-3"
+        }
+      ],
+      "family": "numeric",
+      "line": 1793,
+      "source": "/home/mianliwang/.codex/sessions/2026/11/08/rollout-2026-11-08T13-15-46-01a1bc5f-a2d1-7520-b9bb-561cb2e49f31.jsonl"
+    },
+    {
+      "call_id": "call_6ef49221043a4fa594f6ef41cb61cf45",
+      "changes": [
+        {
+          "path": ".cache/phase77-recovery/numeric/v2/RUN_WRAPPER_PREREG.md",
+          "result": "updated-2"
+        }
+      ],
+      "family": "numeric",
+      "line": 1801,
+      "source": "/home/mianliwang/.codex/sessions/2026/11/08/rollout-2026-11-08T13-15-46-01a1bc5f-a2d1-7520-b9bb-561cb2e49f31.jsonl"
+    },
+    {
+      "call_id": "call_0497ebc20e28448b8f173b682dd87425",
+      "changes": [
+        {
+          "path": ".cache/phase77-recovery/numeric/v2/numeric_mysql_hook.py",
+          "result": "updated-2"
+        },
+        {
+          "path": ".cache/phase77-recovery/numeric/v2/materialize_endpoint.py",
+          "result": "updated-1"
+        }
+      ],
+      "family": "numeric",
+      "line": 1851,
+      "source": "/home/mianliwang/.codex/sessions/2026/11/08/rollout-2026-11-08T13-15-46-01a1bc5f-a2d1-7520-b9bb-561cb2e49f31.jsonl"
+    },
+    {
+      "call_id": "call_a324c67025d046cea063bf8362452990",
+      "changes": [
+        {
+          "path": ".cache/phase77-recovery/numeric/v2/materialize_endpoint.py",
+          "result": "updated-2"
+        },
+        {
+          "path": ".cache/phase77-recovery/numeric/v2/p77_mysql_numeric_probe.py",
+          "result": "updated-1"
+        },
+        {
+          "path": ".cache/phase77-recovery/numeric/v2/RUN_WRAPPER_PREREG.md",
+          "result": "updated-1"
+        }
+      ],
+      "family": "numeric",
+      "line": 1924,
+      "source": "/home/mianliwang/.codex/sessions/2026/11/08/rollout-2026-11-08T13-15-46-01a1bc5f-a2d1-7520-b9bb-561cb2e49f31.jsonl"
+    },
+    {
+      "call_id": "call_66a1d641eec84735bd9953559c7be128",
+      "changes": [
+        {
+          "path": ".cache/phase77-recovery/numeric/v2/RESULT_CLASSIFICATION.md",
+          "result": "added"
+        }
+      ],
+      "family": "numeric",
+      "line": 1967,
+      "source": "/home/mianliwang/.codex/sessions/2026/11/08/rollout-2026-11-08T13-15-46-01a1bc5f-a2d1-7520-b9bb-561cb2e49f31.jsonl"
+    },
+    {
+      "call_id": "call_0c6ad97ef7c94c4a98b82ae4e136c79e",
+      "changes": [
+        {
+          "path": ".cache/phase77-recovery/numeric/v2/numeric_mysql_hook.py",
+          "result": "updated-6"
+        }
+      ],
+      "family": "numeric",
+      "line": 2012,
+      "source": "/home/mianliwang/.codex/sessions/2026/11/08/rollout-2026-11-08T13-15-46-01a1bc5f-a2d1-7520-b9bb-561cb2e49f31.jsonl"
+    },
+    {
+      "call_id": "call_321c6cbd79a44000926544dd72885bdb",
+      "changes": [
+        {
+          "path": ".cache/phase77-recovery/numeric/v2/MYSQL_R4_NUMERIC_ADAPTER.diff",
+          "result": "added"
+        }
+      ],
+      "family": "numeric",
+      "line": 2030,
+      "source": "/home/mianliwang/.codex/sessions/2026/11/08/rollout-2026-11-08T13-15-46-01a1bc5f-a2d1-7520-b9bb-561cb2e49f31.jsonl"
+    },
+    {
+      "call_id": "call_0d11b8972d9d4a8bbbbe7b5b89692d76",
+      "changes": [
+        {
+          "path": ".cache/phase77-recovery/numeric/v2/MYSQL_R4_NUMERIC_ADAPTER.diff",
+          "result": "updated-1"
+        },
+        {
+          "path": ".cache/phase77-recovery/numeric/v2/MYSQL_R4_ADAPTER_PREREG.md",
+          "result": "added"
+        }
+      ],
+      "family": "numeric",
+      "line": 2044,
+      "source": "/home/mianliwang/.codex/sessions/2026/11/08/rollout-2026-11-08T13-15-46-01a1bc5f-a2d1-7520-b9bb-561cb2e49f31.jsonl"
+    },
+    {
+      "call_id": "call_53345f3237b14fff9de611f9b6141027",
+      "changes": [
+        {
+          "path": ".cache/phase77-recovery/numeric/v2/MYSQL_R4_ADAPTER_PREREG.md",
+          "result": "updated-2"
+        }
+      ],
+      "family": "numeric",
+      "line": 2058,
+      "source": "/home/mianliwang/.codex/sessions/2026/11/08/rollout-2026-11-08T13-15-46-01a1bc5f-a2d1-7520-b9bb-561cb2e49f31.jsonl"
+    },
+    {
+      "call_id": "call_6ef61ed7292a47a4a5fcbdc0a7deacbe",
+      "changes": [
+        {
+          "path": ".cache/phase77-recovery/numeric/v2/materialize_endpoint.py",
+          "result": "updated-2"
+        },
+        {
+          "path": ".cache/phase77-recovery/numeric/v2/p77_mysql_numeric_probe.py",
+          "result": "updated-1"
+        },
+        {
+          "path": ".cache/phase77-recovery/numeric/v2/RUN_WRAPPER_PREREG.md",
+          "result": "updated-1"
+        }
+      ],
+      "family": "numeric",
+      "line": 2084,
+      "source": "/home/mianliwang/.codex/sessions/2026/11/08/rollout-2026-11-08T13-15-46-01a1bc5f-a2d1-7520-b9bb-561cb2e49f31.jsonl"
+    },
+    {
+      "call_id": "call_acda37f99cb74a7cb7e27447c6d16ada",
+      "changes": [
+        {
+          "path": ".cache/phase77-recovery/numeric/v2/p77_mysql_numeric_probe.py",
+          "result": "hunk-not-found"
+        }
+      ],
+      "family": "numeric",
+      "line": 2178,
+      "source": "/home/mianliwang/.codex/sessions/2026/11/08/rollout-2026-11-08T13-15-46-01a1bc5f-a2d1-7520-b9bb-561cb2e49f31.jsonl"
+    },
+    {
+      "call_id": "call_44bfdce4f4e3430cbe6be6fcbaccd697",
+      "changes": [
+        {
+          "path": ".cache/phase77-recovery/numeric/v2/p77_mysql_numeric_probe.py",
+          "result": "hunk-not-found"
+        }
+      ],
+      "family": "numeric",
+      "line": 2191,
+      "source": "/home/mianliwang/.codex/sessions/2026/11/08/rollout-2026-11-08T13-15-46-01a1bc5f-a2d1-7520-b9bb-561cb2e49f31.jsonl"
+    },
+    {
+      "call_id": "call_891932211f264935bf2c3016618973e8",
+      "changes": [
+        {
+          "path": ".cache/phase77-recovery/numeric/v2/p77_mysql_numeric_probe.py",
+          "result": "updated-1"
+        }
+      ],
+      "family": "numeric",
+      "line": 2204,
+      "source": "/home/mianliwang/.codex/sessions/2026/11/08/rollout-2026-11-08T13-15-46-01a1bc5f-a2d1-7520-b9bb-561cb2e49f31.jsonl"
+    },
+    {
+      "call_id": "call_b51dead72b75454e9faaf9273a3febc8",
+      "changes": [
+        {
+          "path": ".cache/phase77-recovery/numeric/v2/p77_mysql_numeric_probe.py",
+          "result": "updated-3"
+        }
+      ],
+      "family": "numeric",
+      "line": 2209,
+      "source": "/home/mianliwang/.codex/sessions/2026/11/08/rollout-2026-11-08T13-15-46-01a1bc5f-a2d1-7520-b9bb-561cb2e49f31.jsonl"
+    },
+    {
+      "call_id": "call_03f12befa83e49f4ba68c9ab45c7035c",
+      "changes": [
+        {
+          "path": ".cache/phase77-recovery/numeric/v2/p77_mysql_numeric_probe.py",
+          "result": "updated-5"
+        }
+      ],
+      "family": "numeric",
+      "line": 2216,
+      "source": "/home/mianliwang/.codex/sessions/2026/11/08/rollout-2026-11-08T13-15-46-01a1bc5f-a2d1-7520-b9bb-561cb2e49f31.jsonl"
+    },
+    {
+      "call_id": "call_218125ace7cf4c1da2a1cd16252288b7",
+      "changes": [
+        {
+          "path": ".cache/phase77-recovery/numeric/v2/p77_mysql_numeric_probe.py",
+          "result": "updated-1"
+        }
+      ],
+      "family": "numeric",
+      "line": 2223,
+      "source": "/home/mianliwang/.codex/sessions/2026/11/08/rollout-2026-11-08T13-15-46-01a1bc5f-a2d1-7520-b9bb-561cb2e49f31.jsonl"
+    },
+    {
+      "call_id": "call_4d4cd84d2bec4d2eb6807640f633589d",
+      "changes": [
+        {
+          "path": ".cache/phase77-recovery/numeric/v2/p77_mysql_numeric_probe.py",
+          "result": "updated-1"
+        }
+      ],
+      "family": "numeric",
+      "line": 2230,
+      "source": "/home/mianliwang/.codex/sessions/2026/11/08/rollout-2026-11-08T13-15-46-01a1bc5f-a2d1-7520-b9bb-561cb2e49f31.jsonl"
+    },
+    {
+      "call_id": "call_8f8611a998434ce689788ba22eb43d61",
+      "changes": [
+        {
+          "path": ".cache/phase77-recovery/numeric/v2/p77_mysql_numeric_probe.py",
+          "result": "updated-1"
+        }
+      ],
+      "family": "numeric",
+      "line": 2237,
+      "source": "/home/mianliwang/.codex/sessions/2026/11/08/rollout-2026-11-08T13-15-46-01a1bc5f-a2d1-7520-b9bb-561cb2e49f31.jsonl"
+    },
+    {
+      "call_id": "call_091b8cc08563475880a81430f089a6ac",
+      "changes": [
+        {
+          "path": ".cache/phase77-recovery/numeric/v2/materialize_endpoint.py",
+          "result": "updated-1"
+        },
+        {
+          "path": ".cache/phase77-recovery/numeric/v2/numeric_pg_hook.sh",
+          "result": "updated-1"
+        },
+        {
+          "path": ".cache/phase77-recovery/numeric/v2/RUN_WRAPPER_PREREG.md",
+          "result": "updated-2"
+        },
+        {
+          "path": ".cache/phase77-recovery/numeric/v2/PREREG.md",
+          "result": "updated-1"
+        }
+      ],
+      "family": "numeric",
+      "line": 2285,
+      "source": "/home/mianliwang/.codex/sessions/2026/11/08/rollout-2026-11-08T13-15-46-01a1bc5f-a2d1-7520-b9bb-561cb2e49f31.jsonl"
+    },
+    {
+      "call_id": "call_47289688afeb408db9de26353a24e6c3",
+      "changes": [
+        {
+          "path": ".cache/phase77-recovery/numeric/v2/RESULT_CLASSIFICATION.md",
+          "result": "updated-2"
+        }
+      ],
+      "family": "numeric",
+      "line": 2299,
+      "source": "/home/mianliwang/.codex/sessions/2026/11/08/rollout-2026-11-08T13-15-46-01a1bc5f-a2d1-7520-b9bb-561cb2e49f31.jsonl"
+    },
+    {
+      "call_id": "call_29da77d693534c1aa6bd1265a153a4fc",
+      "changes": [
+        {
+          "path": ".cache/phase77-recovery/numeric/v2/p77_mysql_numeric_probe.py",
+          "result": "updated-3"
+        }
+      ],
+      "family": "numeric",
+      "line": 2306,
+      "source": "/home/mianliwang/.codex/sessions/2026/11/08/rollout-2026-11-08T13-15-46-01a1bc5f-a2d1-7520-b9bb-561cb2e49f31.jsonl"
+    },
+    {
+      "call_id": "call_4ad0b3593296434bbca913548ce59394",
+      "changes": [
+        {
+          "path": ".cache/phase77-recovery/numeric/v2/p77_mysql_numeric_probe.py",
+          "result": "updated-1"
+        }
+      ],
+      "family": "numeric",
+      "line": 2313,
+      "source": "/home/mianliwang/.codex/sessions/2026/11/08/rollout-2026-11-08T13-15-46-01a1bc5f-a2d1-7520-b9bb-561cb2e49f31.jsonl"
+    },
+    {
+      "call_id": "call_538a8668cc8a44c1b5c169c90e586945",
+      "changes": [
+        {
+          "path": ".cache/phase77-recovery/numeric/v2/p77_mysql_numeric_probe.py",
+          "result": "updated-1"
+        },
+        {
+          "path": ".cache/phase77-recovery/numeric/v2/p77_mysql_numeric_probe.py",
+          "result": "updated-2"
+        },
+        {
+          "path": ".cache/phase77-recovery/numeric/v2/p77_mysql_numeric_probe.py",
+          "result": "updated-1"
+        },
+        {
+          "path": ".cache/phase77-recovery/numeric/v2/PREREG.md",
+          "result": "updated-1"
+        }
+      ],
+      "family": "numeric",
+      "line": 2400,
+      "source": "/home/mianliwang/.codex/sessions/2026/11/08/rollout-2026-11-08T13-15-46-01a1bc5f-a2d1-7520-b9bb-561cb2e49f31.jsonl"
+    },
+    {
+      "call_id": "call_d76b36e79a684bdcaad9772a18654cca",
+      "changes": [
+        {
+          "path": ".cache/phase77-recovery/numeric/v2/p77_mysql_numeric_probe.py",
+          "result": "hunk-not-found"
+        }
+      ],
+      "family": "numeric",
+      "line": 2406,
+      "source": "/home/mianliwang/.codex/sessions/2026/11/08/rollout-2026-11-08T13-15-46-01a1bc5f-a2d1-7520-b9bb-561cb2e49f31.jsonl"
+    },
+    {
+      "call_id": "call_f167cfc9bfca4da9ade7d486bbac8614",
+      "changes": [
+        {
+          "path": ".cache/phase77-recovery/numeric/v2/p77_mysql_numeric_probe.py",
+          "result": "hunk-not-found"
+        }
+      ],
+      "family": "numeric",
+      "line": 2411,
+      "source": "/home/mianliwang/.codex/sessions/2026/11/08/rollout-2026-11-08T13-15-46-01a1bc5f-a2d1-7520-b9bb-561cb2e49f31.jsonl"
+    },
+    {
+      "call_id": "call_7e195a3fdbcb4548ac005554489faf40",
+      "changes": [
+        {
+          "path": ".cache/phase77-recovery/numeric/v2/p77_mysql_numeric_probe.py",
+          "result": "hunk-not-found"
+        }
+      ],
+      "family": "numeric",
+      "line": 2425,
+      "source": "/home/mianliwang/.codex/sessions/2026/11/08/rollout-2026-11-08T13-15-46-01a1bc5f-a2d1-7520-b9bb-561cb2e49f31.jsonl"
+    },
+    {
+      "call_id": "call_49b2df7a6a614d249e7ca56c5c6366b4",
+      "changes": [
+        {
+          "path": ".cache/phase77-recovery/numeric/v2/PREREG.md",
+          "result": "hunk-not-found"
+        }
+      ],
+      "family": "numeric",
+      "line": 2430,
+      "source": "/home/mianliwang/.codex/sessions/2026/11/08/rollout-2026-11-08T13-15-46-01a1bc5f-a2d1-7520-b9bb-561cb2e49f31.jsonl"
+    },
+    {
+      "call_id": "call_8278ae55be00432b9be86df443bac98b",
+      "changes": [
+        {
+          "path": ".cache/phase77-recovery/numeric/v2/p77_mysql_numeric_probe.py",
+          "result": "updated-1"
+        }
+      ],
+      "family": "numeric",
+      "line": 2437,
+      "source": "/home/mianliwang/.codex/sessions/2026/11/08/rollout-2026-11-08T13-15-46-01a1bc5f-a2d1-7520-b9bb-561cb2e49f31.jsonl"
+    },
+    {
+      "call_id": "call_064fec2c5a294d7c87534bdb806caa32",
+      "changes": [
+        {
+          "path": ".cache/phase77-recovery/numeric/pg-parent-r4/numeric_pg_hook.sh",
+          "result": "missing-base"
+        },
+        {
+          "path": ".cache/phase77-recovery/numeric/pg-parent-r4/gen-tls.sh",
+          "result": "missing-base"
+        },
+        {
+          "path": ".cache/phase77-recovery/numeric/pg-parent-r4/pg.sh",
+          "result": "missing-base"
+        }
+      ],
+      "family": "pg",
+      "line": 2679,
+      "source": "/home/mianliwang/.codex/sessions/2026/11/08/rollout-2026-11-08T13-07-00-01a1bc57-9b18-7471-82b5-d2b3a30b393e.jsonl"
+    },
+    {
+      "call_id": "call_3a71e3383b344e478b997fc67a7971e1",
+      "changes": [
+        {
+          "path": ".cache/phase77-recovery/numeric/pg-parent-r4/pg.sh",
+          "result": "missing-base"
+        }
+      ],
+      "family": "pg",
+      "line": 2686,
+      "source": "/home/mianliwang/.codex/sessions/2026/11/08/rollout-2026-11-08T13-07-00-01a1bc57-9b18-7471-82b5-d2b3a30b393e.jsonl"
+    },
+    {
+      "call_id": "call_ed77abd6cf124a4885cc01b9892fe681",
+      "changes": [
+        {
+          "path": ".cache/phase77-recovery/numeric/pg-parent-r4/PREREG.md",
+          "result": "added"
+        }
+      ],
+      "family": "pg",
+      "line": 2693,
+      "source": "/home/mianliwang/.codex/sessions/2026/11/08/rollout-2026-11-08T13-07-00-01a1bc57-9b18-7471-82b5-d2b3a30b393e.jsonl"
+    },
+    {
+      "call_id": "call_bd4fda77f6ec470096e9ce7da852cc74",
+      "changes": [
+        {
+          "path": ".cache/phase77-recovery/numeric/pg-parent-r4/numeric_pg_hook.sh",
+          "result": "missing-base"
+        }
+      ],
+      "family": "pg",
+      "line": 2720,
+      "source": "/home/mianliwang/.codex/sessions/2026/11/08/rollout-2026-11-08T13-07-00-01a1bc57-9b18-7471-82b5-d2b3a30b393e.jsonl"
+    },
+    {
+      "call_id": "call_3f1b021b971843429dd9f00824901e13",
+      "changes": [
+        {
+          "path": ".cache/phase77-recovery/numeric/pg-parent-r4/parent_receipt.py",
+          "result": "added"
+        },
+        {
+          "path": ".cache/phase77-recovery/numeric/pg-parent-r4/pg.sh",
+          "result": "missing-base"
+        }
+      ],
+      "family": "pg",
+      "line": 2761,
+      "source": "/home/mianliwang/.codex/sessions/2026/11/08/rollout-2026-11-08T13-07-00-01a1bc57-9b18-7471-82b5-d2b3a30b393e.jsonl"
+    },
+    {
+      "call_id": "call_ffb4ca58a5bb449d9e4b73dca1bac4d5",
+      "changes": [
+        {
+          "path": ".cache/phase77-recovery/numeric/pg-parent-r4/parent_receipt.py",
+          "result": "add-already-exists"
+        }
+      ],
+      "family": "pg",
+      "line": 2776,
+      "source": "/home/mianliwang/.codex/sessions/2026/11/08/rollout-2026-11-08T13-07-00-01a1bc57-9b18-7471-82b5-d2b3a30b393e.jsonl"
+    },
+    {
+      "call_id": "call_22b85b91ab0c45eebf7ab2f097f59ff6",
+      "changes": [
+        {
+          "path": ".cache/phase77-recovery/numeric/pg-parent-r4/pg.sh",
+          "result": "missing-base"
+        }
+      ],
+      "family": "pg",
+      "line": 2783,
+      "source": "/home/mianliwang/.codex/sessions/2026/11/08/rollout-2026-11-08T13-07-00-01a1bc57-9b18-7471-82b5-d2b3a30b393e.jsonl"
+    },
+    {
+      "call_id": "call_918361d1a005443390cfb478d11af7f6",
+      "changes": [
+        {
+          "path": ".cache/phase77-recovery/numeric/pg-parent-r4/materialize_endpoint.py",
+          "result": "missing-base"
+        }
+      ],
+      "family": "pg",
+      "line": 2797,
+      "source": "/home/mianliwang/.codex/sessions/2026/11/08/rollout-2026-11-08T13-07-00-01a1bc57-9b18-7471-82b5-d2b3a30b393e.jsonl"
+    },
+    {
+      "call_id": "call_0a45a9e9aabb4586a33955cfc390cd22",
+      "changes": [
+        {
+          "path": ".cache/phase77-recovery/numeric/pg-parent-r4/parent_receipt.py",
+          "result": "deleted"
+        },
+        {
+          "path": ".cache/phase77-recovery/numeric/pg-parent-r4/parent_receipt.py",
+          "result": "added"
+        },
+        {
+          "path": ".cache/phase77-recovery/numeric/pg-parent-r4/parent_judge.py",
+          "result": "added"
+        },
+        {
+          "path": ".cache/phase77-recovery/numeric/pg-parent-r4/pg.sh",
+          "result": "missing-base"
+        }
+      ],
+      "family": "pg",
+      "line": 2934,
+      "source": "/home/mianliwang/.codex/sessions/2026/11/08/rollout-2026-11-08T13-07-00-01a1bc57-9b18-7471-82b5-d2b3a30b393e.jsonl"
+    },
+    {
+      "call_id": "call_e8118c783aec46a394a66d0e4f3522fb",
+      "changes": [
+        {
+          "path": ".cache/phase77-recovery/numeric/pg-parent-r4/parent_receipt.py",
+          "result": "deleted"
+        }
+      ],
+      "family": "pg",
+      "line": 2940,
+      "source": "/home/mianliwang/.codex/sessions/2026/11/08/rollout-2026-11-08T13-07-00-01a1bc57-9b18-7471-82b5-d2b3a30b393e.jsonl"
+    },
+    {
+      "call_id": "call_551a8ae77d5f411e8176723a3980fe7a",
+      "changes": [
+        {
+          "path": ".cache/phase77-recovery/numeric/pg-parent-r4/parent_receipt.py",
+          "result": "added"
+        }
+      ],
+      "family": "pg",
+      "line": 2945,
+      "source": "/home/mianliwang/.codex/sessions/2026/11/08/rollout-2026-11-08T13-07-00-01a1bc57-9b18-7471-82b5-d2b3a30b393e.jsonl"
+    },
+    {
+      "call_id": "call_c214289b615440c885a5bafed0d87c12",
+      "changes": [
+        {
+          "path": ".cache/phase77-recovery/numeric/pg-parent-r4/parent_judge.py",
+          "result": "add-already-exists"
+        }
+      ],
+      "family": "pg",
+      "line": 2952,
+      "source": "/home/mianliwang/.codex/sessions/2026/11/08/rollout-2026-11-08T13-07-00-01a1bc57-9b18-7471-82b5-d2b3a30b393e.jsonl"
+    },
+    {
+      "call_id": "call_95fd10bc3efc44d68fd9fb24ae910be9",
+      "changes": [
+        {
+          "path": ".cache/phase77-recovery/numeric/pg-parent-r4/pg.sh",
+          "result": "missing-base"
+        }
+      ],
+      "family": "pg",
+      "line": 2959,
+      "source": "/home/mianliwang/.codex/sessions/2026/11/08/rollout-2026-11-08T13-07-00-01a1bc57-9b18-7471-82b5-d2b3a30b393e.jsonl"
+    },
+    {
+      "call_id": "call_b70d492f0a6e45b893ad9251afdd9769",
+      "changes": [
+        {
+          "path": ".cache/phase77-recovery/numeric/pg-parent-r4/parent_receipt.py",
+          "result": "updated-1"
+        },
+        {
+          "path": ".cache/phase77-recovery/numeric/pg-parent-r4/parent_judge.py",
+          "result": "updated-2"
+        },
+        {
+          "path": ".cache/phase77-recovery/numeric/pg-parent-r4/pg.sh",
+          "result": "missing-base"
+        }
+      ],
+      "family": "pg",
+      "line": 2966,
+      "source": "/home/mianliwang/.codex/sessions/2026/11/08/rollout-2026-11-08T13-07-00-01a1bc57-9b18-7471-82b5-d2b3a30b393e.jsonl"
+    },
+    {
+      "call_id": "call_339950d39ded4fc2b07e7c9362281607",
+      "changes": [
+        {
+          "path": ".cache/phase77-recovery/numeric/pg-parent-r4/materialize_endpoint.py",
+          "result": "missing-base"
+        }
+      ],
+      "family": "pg",
+      "line": 2982,
+      "source": "/home/mianliwang/.codex/sessions/2026/11/08/rollout-2026-11-08T13-07-00-01a1bc57-9b18-7471-82b5-d2b3a30b393e.jsonl"
+    },
+    {
+      "call_id": "call_493bdc5275bd40a6825820c226336083",
+      "changes": [
+        {
+          "path": ".cache/phase77-recovery/numeric/pg-parent-r4/parent_judge.py",
+          "result": "hunk-not-found"
+        }
+      ],
+      "family": "pg",
+      "line": 2996,
+      "source": "/home/mianliwang/.codex/sessions/2026/11/08/rollout-2026-11-08T13-07-00-01a1bc57-9b18-7471-82b5-d2b3a30b393e.jsonl"
+    },
+    {
+      "call_id": "call_2ebf6e76def74158854d14d43b0b09d5",
+      "changes": [
+        {
+          "path": ".cache/phase77-recovery/numeric/pg-parent-r4/parent_judge.py",
+          "result": "hunk-not-found"
+        }
+      ],
+      "family": "pg",
+      "line": 3010,
+      "source": "/home/mianliwang/.codex/sessions/2026/11/08/rollout-2026-11-08T13-07-00-01a1bc57-9b18-7471-82b5-d2b3a30b393e.jsonl"
+    },
+    {
+      "call_id": "call_7126ce3858184a2f877f6e2ca17c8ba8",
+      "changes": [
+        {
+          "path": ".cache/phase77-recovery/numeric/pg-parent-r4/parent_receipt.py",
+          "result": "updated-2"
+        },
+        {
+          "path": ".cache/phase77-recovery/numeric/pg-parent-r4/parent_judge.py",
+          "result": "updated-2"
+        },
+        {
+          "path": ".cache/phase77-recovery/numeric/pg-parent-r4/pg.sh",
+          "result": "missing-base"
+        }
+      ],
+      "family": "pg",
+      "line": 3026,
+      "source": "/home/mianliwang/.codex/sessions/2026/11/08/rollout-2026-11-08T13-07-00-01a1bc57-9b18-7471-82b5-d2b3a30b393e.jsonl"
+    },
+    {
+      "call_id": "call_ebd6f2aefa0c42ea9d396e706013adac",
+      "changes": [
+        {
+          "path": ".cache/phase77-recovery/numeric/pg-parent-r4/parent_receipt.py",
+          "result": "hunk-not-found"
+        },
+        {
+          "path": ".cache/phase77-recovery/numeric/pg-parent-r4/parent_judge.py",
+          "result": "hunk-not-found"
+        },
+        {
+          "path": ".cache/phase77-recovery/numeric/pg-parent-r4/pg.sh",
+          "result": "missing-base"
+        }
+      ],
+      "family": "pg",
+      "line": 3032,
+      "source": "/home/mianliwang/.codex/sessions/2026/11/08/rollout-2026-11-08T13-07-00-01a1bc57-9b18-7471-82b5-d2b3a30b393e.jsonl"
+    },
+    {
+      "call_id": "call_d44eeebfeec34003ac0b1f49ac13acab",
+      "changes": [
+        {
+          "path": ".cache/phase77-recovery/numeric/pg-parent-r4/parent_judge.py",
+          "result": "updated-2"
+        }
+      ],
+      "family": "pg",
+      "line": 3053,
+      "source": "/home/mianliwang/.codex/sessions/2026/11/08/rollout-2026-11-08T13-07-00-01a1bc57-9b18-7471-82b5-d2b3a30b393e.jsonl"
+    },
+    {
+      "call_id": "call_ff2c01cc3cd945c19d3886bbdf8ca5de",
+      "changes": [
+        {
+          "path": ".cache/phase77-recovery/numeric/pg-parent-r4/PREREG.md",
+          "result": "updated-2"
+        }
+      ],
+      "family": "pg",
+      "line": 3060,
+      "source": "/home/mianliwang/.codex/sessions/2026/11/08/rollout-2026-11-08T13-07-00-01a1bc57-9b18-7471-82b5-d2b3a30b393e.jsonl"
+    },
+    {
+      "call_id": "call_3ca697f6aa144340ad2d70322df41c8c",
+      "changes": [
+        {
+          "path": ".cache/phase77-recovery/numeric/pg-parent-r4/parent_judge.py",
+          "result": "hunk-not-found"
+        }
+      ],
+      "family": "pg",
+      "line": 3193,
+      "source": "/home/mianliwang/.codex/sessions/2026/11/08/rollout-2026-11-08T13-07-00-01a1bc57-9b18-7471-82b5-d2b3a30b393e.jsonl"
+    },
+    {
+      "call_id": "call_41779bf8c6604e1d838c11db72de7563",
+      "changes": [
+        {
+          "path": ".cache/phase77-recovery/numeric/pg-parent-r4/parent_judge.py",
+          "result": "hunk-not-found"
+        }
+      ],
+      "family": "pg",
+      "line": 3206,
+      "source": "/home/mianliwang/.codex/sessions/2026/11/08/rollout-2026-11-08T13-07-00-01a1bc57-9b18-7471-82b5-d2b3a30b393e.jsonl"
+    },
+    {
+      "call_id": "call_0159c399d4fd4a7b8351cf3ffc3b5122",
+      "changes": [
+        {
+          "path": ".cache/phase77-recovery/numeric/pg-parent-r4/parent_judge.py",
+          "result": "hunk-not-found"
+        }
+      ],
+      "family": "pg",
+      "line": 3215,
+      "source": "/home/mianliwang/.codex/sessions/2026/11/08/rollout-2026-11-08T13-07-00-01a1bc57-9b18-7471-82b5-d2b3a30b393e.jsonl"
+    },
+    {
+      "call_id": "call_2bcc58fa029e441091b0f1d4b01fedfe",
+      "changes": [
+        {
+          "path": ".cache/phase77-recovery/numeric/pg-parent-r4/parent_judge.py",
+          "result": "hunk-not-found"
+        }
+      ],
+      "family": "pg",
+      "line": 3258,
+      "source": "/home/mianliwang/.codex/sessions/2026/11/08/rollout-2026-11-08T13-07-00-01a1bc57-9b18-7471-82b5-d2b3a30b393e.jsonl"
+    },
+    {
+      "call_id": "call_ec745c2cc37b41d8b5baafa922626f27",
+      "changes": [
+        {
+          "path": ".cache/phase77-recovery/numeric/pg-parent-r4/pg.sh",
+          "result": "missing-base"
+        },
+        {
+          "path": ".cache/phase77-recovery/numeric/pg-parent-r4/numeric_pg_hook.sh",
+          "result": "missing-base"
+        },
+        {
+          "path": ".cache/phase77-recovery/numeric/pg-parent-r4/gen-tls.sh",
+          "result": "missing-base"
+        },
+        {
+          "path": ".cache/phase77-recovery/numeric/pg-parent-r4/PREREG.md",
+          "result": "updated-3"
+        }
+      ],
+      "family": "pg",
+      "line": 3434,
+      "source": "/home/mianliwang/.codex/sessions/2026/11/08/rollout-2026-11-08T13-07-00-01a1bc57-9b18-7471-82b5-d2b3a30b393e.jsonl"
+    },
+    {
+      "call_id": "call_9870ef624147481086cb790925024523",
+      "changes": [
+        {
+          "path": ".cache/phase77-recovery/numeric/pg-parent-r4/pg.sh",
+          "result": "missing-base"
+        },
+        {
+          "path": ".cache/phase77-recovery/numeric/pg-parent-r4/numeric_pg_hook.sh",
+          "result": "missing-base"
+        },
+        {
+          "path": ".cache/phase77-recovery/numeric/pg-parent-r4/gen-tls.sh",
+          "result": "missing-base"
+        },
+        {
+          "path": ".cache/phase77-recovery/numeric/pg-parent-r4/PREREG.md",
+          "result": "updated-2"
+        }
+      ],
+      "family": "pg",
+      "line": 3599,
+      "source": "/home/mianliwang/.codex/sessions/2026/11/08/rollout-2026-11-08T13-07-00-01a1bc57-9b18-7471-82b5-d2b3a30b393e.jsonl"
+    },
+    {
+      "call_id": "call_31c857f8fc9f42168ff3966a53f4f443",
+      "changes": [
+        {
+          "path": ".cache/phase77-recovery/numeric/pg-parent-r4/numeric_pg_hook.sh",
+          "result": "missing-base"
+        }
+      ],
+      "family": "pg",
+      "line": 3639,
+      "source": "/home/mianliwang/.codex/sessions/2026/11/08/rollout-2026-11-08T13-07-00-01a1bc57-9b18-7471-82b5-d2b3a30b393e.jsonl"
+    },
+    {
+      "call_id": "call_a84e63c5f2a54b3998e5cd693e820d62",
+      "changes": [
+        {
+          "path": ".cache/phase77-recovery/numeric/pg-parent-r4/pg.sh",
+          "result": "missing-base"
+        },
+        {
+          "path": ".cache/phase77-recovery/numeric/pg-parent-r4/gen-tls.sh",
+          "result": "missing-base"
+        },
+        {
+          "path": ".cache/phase77-recovery/numeric/pg-parent-r4/numeric_pg_hook.sh",
+          "result": "missing-base"
+        },
+        {
+          "path": ".cache/phase77-recovery/numeric/pg-parent-r4/materialize_endpoint.py",
+          "result": "missing-base"
+        },
+        {
+          "path": ".cache/phase77-recovery/numeric/pg-parent-r4/PREREG.md",
+          "result": "updated-2"
+        }
+      ],
+      "family": "pg",
+      "line": 3934,
+      "source": "/home/mianliwang/.codex/sessions/2026/11/08/rollout-2026-11-08T13-07-00-01a1bc57-9b18-7471-82b5-d2b3a30b393e.jsonl"
+    },
+    {
+      "call_id": "call_0364cce27c2b4110954b1b93e638602c",
+      "changes": [
+        {
+          "path": ".cache/phase77-recovery/numeric/pg-parent-r4/materialize_endpoint.py",
+          "result": "missing-base"
+        },
+        {
+          "path": ".cache/phase77-recovery/numeric/pg-parent-r4/parent_judge.py",
+          "result": "hunk-not-found"
+        }
+      ],
+      "family": "pg",
+      "line": 3955,
+      "source": "/home/mianliwang/.codex/sessions/2026/11/08/rollout-2026-11-08T13-07-00-01a1bc57-9b18-7471-82b5-d2b3a30b393e.jsonl"
+    },
+    {
+      "call_id": "call_9fb5b0ad8cee4f878683a70258f867aa",
+      "changes": [
+        {
+          "path": ".cache/phase77-recovery/numeric/pg-parent-r4/pg.sh",
+          "result": "missing-base"
+        }
+      ],
+      "family": "pg",
+      "line": 4006,
+      "source": "/home/mianliwang/.codex/sessions/2026/11/08/rollout-2026-11-08T13-07-00-01a1bc57-9b18-7471-82b5-d2b3a30b393e.jsonl"
+    }
+  ]
+}
