@@ -123,8 +123,7 @@ on MySQL only after a passing two-database run (D74.09), and the capability
 page and the release notes list what MySQL refuses. Project `sum(Int)`,
 `stddev` of an `Int` (J12, D76.10) and MySQL nested results (D71.05) are
 approved exceptions with the target Phase77. Each release request lists the
-MySQL forms beyond the cadence (D76.09). The `Float` ±0 contract for merged
-zeros is on the Phase77 Gate 1 agenda.
+MySQL forms beyond the cadence (D76.09).
 
 ### Editor work package
 

@@ -149,7 +149,7 @@ an explicit count bypasses the memory estimate, so it needs the owner. On
 2026-11-10 the owner asked to try a cap of 20, with 24 at most, and the lead
 adopted twenty as the integration host's standing explicit count after a
 measured 20-worker full run passed in 270 s with MemAvailable at or above
-14.9 GB. Add
+14.9 GB (D77.17). Add
 `--pytest-maxprocesses N` to leave room on a shared machine. The OOM guard
 still stops a gate under sustained memory pressure, and registry standalone
 nodes run as separate units so that extra workers are not stuck behind them.

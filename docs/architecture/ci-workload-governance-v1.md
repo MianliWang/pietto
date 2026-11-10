@@ -51,7 +51,7 @@ Windows job不needs其他job，也不被needs；失败即整个run失败。POSIX
 的`* text=auto eol=lf`让Windows checkout保持与Linux相同的LF字节。此前的run没有这两个job，成本不完整，
 history在有三次含Windows job的run之前保持INSUFFICIENT_EVIDENCE。
 集成主机的权威validator至多20workers（`PYTEST_MAX_RESOURCE_WORKERS`；显式worker数绕过该上限与内存估算，须经批准，
-现行常设为显式20（owner 2026-11-10要求试用20、至多24，lead实测后采用），见[开发文档](../development.md#validation-tiers)）。改动上述任一上限都需单独授权。
+现行常设为显式20（owner 2026-11-10要求试用20、至多24，lead实测后采用，D77.17），见[开发文档](../development.md#validation-tiers)）。改动上述任一上限都需单独授权。
 
 loadfile的发放顺序由`tests/conftest.py`的`pytest_xdist_make_scheduler`决定，覆盖本地validator与两个loadfile分片：
 文件单元与stock loadfile相同，只先发registry中经review的`[[file_costs]]`估计（一次完整本地session里该文件
