@@ -12,7 +12,18 @@ Gate 0 (PL.01, PL.02). Each batch publishes under D77.06's conditions
 (ED.05). No tag, release, package upload, write or push to the extension
 repository, or Marketplace action is authorized (PL.01).
 
-Gate 0 binds the head and its natural CI; the read of that CI's eligible health and alerts and the re-measured Phase77 overlap are pending until the package's first implementation batch records them.
+Gate 0 binds the head and its natural CI. EB1, the package's first
+implementation batch, records that CI's eligible health and alerts as
+NOT_OBSERVED, because the public API needs a sign-in to download the run's
+artifacts and logs and `gh` is not signed in on the integration host (see
+[Dependencies and pins](#dependencies-and-pins)). EB1 measured the Phase77
+overlap again on 2026-11-10, after its rebase onto `a503167f` and not at
+Gate 0 or when its slices opened: none of its files, nor the module graph,
+project model, module binding and formatter files that its new code reads, is
+in the write set of an unpublished Phase77 candidate (the Wave A slices S08,
+S10, S11, S14, S16, S17 and S25, and S12) or in the planned write set of
+S20, so each replays onto EB1 with no shared hunk. Phase77 slices without a
+candidate are not covered.
 
 Before Gate 0, these runs happened besides paper records (PL.02). The PyPI
 metadata and hash fetch and isolated install probe of PL.05 (a), which sheet
@@ -138,7 +149,7 @@ AD78.01–AD78.03 and the D78, D79 and D80 rows do not bind E-C.
 | Slice | Delivers | Depends on | Write set | Checks | C/F/D/S |
 | --- | --- | --- | --- | --- | --- |
 | M1 | Latency measurement on a named corpus: the repository's example sources, the worked example, the `fmt` test corpus, and generated schema-v2 projects of layered JOIN DAGs at rising depth. It measures snapshot construction for single files and projects, publication of diagnostics after each edit, the three existing request families, and `format_source`. It proposes the budget, and states whether linear JOIN-DAG analysis or the FD sharing of PMS-6 must come first. | Gate 0 | The "Performance and verification" section of `docs/spec/lsp-editor-facts-v1.md`. The driver and raw timings stay in the lane's scratch folder, outside Git. | Runs under the lane rules on a quiet host. Each figure names its tree, Python, corpus paths, generator parameters and repeat count. No wall-time test is added: count laws are the only test bound. | 5/15/200/1 |
-| C1 | `textDocument/formatting` runs the pure `format_source` on the request's current buffer text. It answers when the request is read and never holds it for analysis. The result is one whole-document edit, `[]` when nothing changes, and `null` for a parse error (header lines included), `FormatRefusedError`, the size limit, or a URI that is not open. `FormattingOptions` are ignored (one layout, D75.05). It does no disk read or write. | Gate 0 | `src/pietto/_lsp.py`; a formatting section in `lsp-editor-facts-v1.md`; the method list of `lsp-diagnostics-v1.md`; `docs/editor-lsp.md`; `tests/test_cli_lsp.py`; `docs/release-notes.d/77-e02-lsp-formatting.md`; `scripts/package_smoke.py`, whose installed `pietto lsp` round trip expects the advertised capabilities (DERIVED_MECHANICAL). `source_format.py` is only read. | Byte equality with `pietto fmt` on the corpus; BOM, CRLF, lone CR and UTF-16 end positions; every refusal path; no semantic, project or IR call; advertised capability; `test_cli_format.py` and `test_parser_format.py` unchanged | 10/30/300/1 |
+| C1 | `textDocument/formatting` runs the pure `format_source` on the request's current buffer text. It answers when the request is read and never holds it for analysis. The result is one whole-document edit, `[]` when nothing changes, and `null` for a parse error (header lines included), `FormatRefusedError`, the size limit, a URI that is not open, a document whose last change was refused (until it is opened again), or a buffer whose last open or change had unpaired UTF-16 surrogates. `FormattingOptions` are ignored (one layout, D75.05). It does no disk read or write. | Gate 0 | `src/pietto/_lsp.py`; in `lsp-editor-facts-v1.md`, a Formatting section and its two external-reference records, and the opening, Boundary, fail-closed request, capability and performance text that ED.03's revision of ED.02 changes; in `lsp-diagnostics-v1.md`, the opening with its method list, the advertised capabilities and the resource and trust boundaries; `docs/editor-lsp.md`; `tests/test_cli_lsp.py`; `docs/release-notes.d/77-e02-lsp-formatting.md`; `scripts/package_smoke.py`, whose installed `pietto lsp` round trip expects the advertised capabilities (DERIVED_MECHANICAL). `source_format.py` is only read. | Byte equality with `pietto fmt` on the corpus; BOM, CRLF, lone CR and UTF-16 end positions; every refusal path; no semantic, project or IR call; advertised capability; `test_cli_format.py` and `test_parser_format.py` unchanged | 10/30/300/1 |
 | C2 | `workspace/symbol` over the current snapshots, waiting while any analysis is scheduled or running. It returns every retained declaration in root, module and source order, without deduplication, and a module without facts contributes none. `textDocument/documentLink` covers an import module path that resolves exactly to a module of the same selected-root analysis, with nothing for an unresolved, ambiguous, blocked or omitted module. Both use standard shapes, and the spec fixes the matching rule. | C1 merged | `_lsp.py`; `src/pietto/_editor_facts.py`; `_project_editor_facts` in `src/pietto/_project/check.py`; both LSP specs; `editor-lsp.md`; `tests/test_cli_lsp.py`; `tests/test_project_editor_overlays.py`; `77-e03-lsp-workspace-symbols.md`; `scripts/package_smoke.py`, whose installed `pietto lsp` round trip expects the advertised capabilities (DERIVED_MECHANICAL) | Occurrence completeness and order; URI spellings; partial-project omission; legacy-flat root; conflict suppression; zero analysis calls per request; `test_project_check_partial.py` unchanged | 15/45/350/1 |
 | C5 | `textDocument/completion` returns one complete list in a fixed order that does not depend on position: the keywords authored code can write, and the builtin types, scalar functions and aggregates of the core catalog. It excludes extension catalogs, which are not callable (D76.11), and names refused everywhere. It does no lexing, parsing or analysis, and offers no resolve or trigger characters. | C1 merged | `_lsp.py`; new private `src/pietto/_editor_completion.py`, which reads `semantic/catalog.py` and the generated lexer vocabulary without changing them; both LSP specs; `editor-lsp.md`; `tests/test_cli_lsp.py`; `77-e04-lsp-completion.md`; `scripts/package_smoke.py`, whose installed `pietto lsp` round trip expects the advertised capabilities (DERIVED_MECHANICAL) | An oracle written before the code: every item is accepted by `pietto check` in at least one authored position, and every accepted catalog entry appears. Deterministic output; zero parse or analysis calls; generated parser untouched | 10/30/250/1 |
 | C4 | Hover and definition for field references, `let` bindings, `def` and relationship parameters, and `def` and relationship calls. Each fact comes from a binding that the single-file `SemanticModel` or the project module environments already retain. Facts are kept per occurrence, without deduplication. A use with no retained exact binding has no fact. | M1 budget recorded; C2 merged; overlap measured again | `_editor_facts.py`; `_project_editor_facts`; `_lsp.py` if the projection changes; the "First facts" table, extended before the code; `editor-lsp.md`; both test owners; `77-e05-lsp-hover-definition.md`. Excluded: `semantic/**`, `_project/project_*`, IR | The exact-target table per context; stale, wait, alias and partial cases; zero analysis calls; projection bounded by occurrences (count test); a semantic-collision review against the published Phase77 batches (lesson 73-7) | 25/75/800/2 |
@@ -192,24 +203,26 @@ grammar or SQL output changes; any golden or generated difference is a stop.
 Natural CI owns Python 3.12 and 3.13. There is no database run, container or
 dependency fetch.
 
-The 11-field external-reference records are pending. C1 writes the records
-for LSP 3.17 formatting and for VS Code's format-on-save behaviour. C2 writes
-the records for `workspace/symbol` and `documentLink`, and C5 writes the
-record for `completion`. Each record comes before its slice's acceptance and
-needs the read the lead's dispatch allows; while a record is missing, its
-slice waits.
+The 11-field external-reference records of C1 and C2 are written in the
+[external-reference review](../spec/lsp-editor-facts-v1.md#external-reference-review)
+of LSP editor facts v1, from the 2026-11-10 snapshot: C1's for LSP 3.17
+formatting and for VS Code's format-on-save behaviour, and C2's for
+`workspace/symbol` and `documentLink`. The record for `completion`, which C5
+writes, is pending. Each record comes before its slice's acceptance and needs
+the read the lead's dispatch allows; while a record is missing, its slice
+waits.
 
 ## Dependencies and pins
 
 | Input | Pin | State |
 | --- | --- | --- |
 | Gate 0 head | `ab972f36`, the published D77.04 head; natural exact-head CI `42831340276` passed all 21 jobs | bound |
-| CI health | that head's eligible health and alerts | pending |
+| CI health | that head's eligible health and alerts; the midpoint reads the EB1 head's, and the closeout the latest published head's | NOT_OBSERVED: the public API needs a sign-in to download the run's artifacts and logs, and `gh` is not signed in on the integration host. The midpoint and the closeout read through a signed-in channel, `gh` signed in on the integration host or a read-only token, which needs the owner; without one they record NOT_OBSERVED with this reason |
 | Python | CPython 3.13.13 for Gate 2; 3.12 and 3.13 in natural CI | existing |
 | Runtime dependencies | none added; `pietto lsp` stays standard library only (D75.09) | existing |
-| LSP | 3.17 specification pages of the four new methods | pending snapshot |
-| VS Code | the 1.145.2 test host already on the integration host from the ED.01/ED.02 acceptance; no download | existing; the host check records the version it ran |
-| Extension | `MianliWang/pietto-vscode-extension` at `e61444f`, read only, with the `node_modules` already on the host; `vscode-languageclient` 9.0.1 as the editor draft observed | rebound at the host check |
+| LSP | 3.17 specification pages of the four new methods | bound to the 2026-11-10 snapshot: the 3.17 specification page read at 16:57:23Z, with the 3.18 page read at 16:58:14Z for comparison; the C1 and C2 records cite it |
+| VS Code | the 1.145.2 test host already on the integration host from the ED.01/ED.02 acceptance; no download | existing; the EB1 host check ran on 1.145.2 |
+| Extension | `MianliWang/pietto-vscode-extension` at `e61444f`, read only, with the `node_modules` already on the host; `vscode-languageclient` 9.0.1 as the editor draft observed | rebound by the EB1 host check, which ran `e61444f` from a `git archive` copy with `vscode-languageclient` 9.0.1 |
 | Formatter and catalog | `source_format.py`, `semantic/catalog.py` and the generated lexer at the Gate 0 tree, unchanged | existing |
 
 ## Budget
@@ -273,7 +286,7 @@ a rule for a whole documentation and tool batch, does not cover it.
 - C1 and C2 are on `main` with green natural exact-head CI;
 - the EB1 health and alerts have been read;
 - the ledger projects within its caps;
-- the Phase77 overlap has been measured again;
+- the Phase77 overlap has been measured again on the EB1 head after its natural CI, including every Phase77 candidate published or rebased since EB1's measurement (EB1's own measurement, before its push, does not satisfy this item);
 - the new and changed tests since Gate 0 are listed for Z1.
 
 EB2 seals only after the midpoint passes.
@@ -326,7 +339,7 @@ EB2 seals only after the midpoint passes.
 | 3 | Pietto semantics, project semantics and IR stay the authority. The editor projects their exact results, the module graph's import resolution, the core catalog and `format_source`, and derives no semantic fact. |
 | 4 | Identity domains: document URI and version, selected root and epoch, module, declaration occurrence, use occurrence, import-path occurrence, catalog entry. No name- or spelling-based target, no deduplication by spelling, type or target, no winner among roots or URIs (D75.12), and no canonical path in place of an unsaved buffer URI. |
 | 5 | A snapshot is absent, pending, current or discarded; facts come only from a current one. Formatting returns refused (`null`), unchanged (`[]`) or one edit from the buffer it reads. Completion is constant for the running package. |
-| 6 | Asserted: spec text. Derived: projected facts. Verified: protocol and count tests. Observed: M1 timings and the host check on the existing VS Code 1.145.2 test host. Unknown: client timeouts and the LSP snapshot (pending records). Disproven: none. Local, Gate 2, natural CI and release claims stay apart. |
+| 6 | Asserted: spec text. Derived: projected facts. Verified: protocol and count tests. Observed: M1 timings and the host check on the existing VS Code 1.145.2 test host. Unknown: client timeouts, the Gate 0 head's CI health (NOT_OBSERVED) and the `completion` record (pending for C5). The LSP snapshot is bound to 2026-11-10. Disproven: none. Local, Gate 2, natural CI and release claims stay apart. |
 | 7 | `_lsp.py` owns protocol, dispatch, capabilities and waits. `_editor_facts.py` and `_project_editor_facts` own the detached projection. `_editor_completion.py` owns the vocabulary projection. `source_format.py` and `semantic/catalog.py` stay unchanged owners. |
 | 8 | The editor layer depends on the formatter, semantic and project results and the catalog, never the reverse. No editor branch in semantic, IR or SQL code, and no re-decision of a type, binding or module. Layering tests run on the integrated tree. |
 | 9 | Additive capabilities in `initialize`; every surface is alpha until Phase82. No CLI JSON, metadata, column-view, compiled-record or `VERSIONS` change. `fmt` output may change before the freeze (D75.05). No migration. |
@@ -335,8 +348,8 @@ EB2 seals only after the midpoint passes.
 | 12 | No database or SQL execution. The server runs only the existing in-process check and the pure formatter; the execution plane is untouched. |
 | 13 | Snapshots live for one analysis epoch. Formatting state lives for one request. The completion list lives for one session. `shutdown` answers held requests with no result. No thread, file handle or process is added. |
 | 14 | Buffers stay their own type (D75.10). Formatting reads no disk and writes nothing. A document link targets only an exact resolved module and never a path built from the import string. No network, credentials or environment configuration. The extension repository is untouched. |
-| 15 | Existing snapshot lookups; a linear scan for workspace symbols with a fixed match rule; a precomputed vocabulary tuple; the existing formatter. No new index or cache. |
-| 16 | Projection is bounded by declarations and exact-resolution occurrences. A workspace symbol request costs O(declarations), completion O(vocabulary), and formatting O(source) under the UTF-8 size limit. M1 measures the known exponential growth of layered JOIN DAGs; E-C does not fix it. |
+| 15 | Existing snapshot lookups; one pass over the current snapshots for workspace symbols with a fixed match rule; a precomputed vocabulary tuple; the existing formatter. No new index or cache. |
+| 16 | Projection is bounded by declarations and exact-resolution occurrences. A workspace symbol request costs O(modules × (open documents + roots) + declarations), completion O(vocabulary), and formatting O(source) under the UTF-8 size limit. M1 measures the known exponential growth of layered JOIN DAGs; E-C does not fix it. |
 | 17 | New facts are discarded with their snapshot on open, change, close, conflict, a configuration change or a newer epoch. Import link targets are recomputed for each analysis. Formatting and completion keep no derived state. |
 | 18 | No persistent or cross-session cache. The snapshot is not authority beyond its epoch. |
 | 19 | The server loop stays single-threaded. Formatting and completion answer when read. Fact requests wait under the existing rule, and a workspace symbol request waits while any analysis is pending. No response order is promised. Lane concurrency follows PL.01 and PL.03. |
@@ -348,7 +361,7 @@ EB2 seals only after the midpoint passes.
 | 25 | One new private module in the existing wheel. No dependency, extra, entry point or generated file. Package smoke runs per batch. |
 | 26 | CPython 3.12 and 3.13; the Linux/WSL integration host; the host check on Linux only. Native Windows editor acceptance belongs to Phase81. No dialect change. |
 | 27 | Batches on `main` under D77.06's conditions, shipping as alpha in `0.1.11` (D76.14, ED.05). Fragments `77-e02` to `77-e05`. A rollback is a revert in a later batch. No deprecation. Phase82 rules on the freeze-ledger row. |
-| 28 | Pending prerequisites: the Gate 0 head's health (lead), the overlap measurement (lead), the external records (C1, C2, C5). Deferred: C3 (owner, after M1), C6 (own Gate 1), K1 (Gate 1 design, then after Phase77 S26), quick fixes (after the Phase81 diagnostic review), T1 (the interim PIE-B view), X0 and X2 (the extension patch with its CI, the model view) and extension CI (Q4, unapproved), X1 and X3 (the previews, code actions and restart) beyond their local development under EX.01 (all defined in the decision record's Gate 1 introduction), context-aware completion and signature help (an ARCHITECTURE_DECISION after M1), watched files (a later ARCHITECTURE_DECISION), `pietto.cli.main` (Phase82), JOIN facts (reminder 8 owner), the column-view location field (not before the freeze), JOIN-DAG linearity and PMS-6 (the owner, if M1 puts them first). The previous-audit item is NOT_APPLICABLE (owner Phase77 S27; PL.01). |
+| 28 | Pending prerequisite: C5's external record. EB1 measured the Phase77 overlap again (see the top of this route), the Gate 0 head's health is NOT_OBSERVED (lead; see Dependencies and pins), and the external records of C1 and C2 are written. Deferred: C3 (owner, after M1), C6 (own Gate 1), K1 (Gate 1 design, then after Phase77 S26), quick fixes (after the Phase81 diagnostic review), T1 (the interim PIE-B view), X0 and X2 (the extension patch with its CI, the model view) and extension CI (Q4, unapproved), X1 and X3 (the previews, code actions and restart) beyond their local development under EX.01 (all defined in the decision record's Gate 1 introduction), context-aware completion and signature help (an ARCHITECTURE_DECISION after M1), watched files (a later ARCHITECTURE_DECISION), `pietto.cli.main` (Phase82), JOIN facts (reminder 8 owner), the column-view location field (not before the freeze), JOIN-DAG linearity and PMS-6 (the owner, if M1 puts them first). The previous-audit item is NOT_APPLICABLE (owner Phase77 S27; PL.01). |
 | 29 | M1 alongside C1 → C2 → C5 → C4 → Z1 → Z2, in batches EB1 and EB2, with the write sets above and the Outcome non-goals. |
 | 30 | `C70/F210/D2400/S6`, cumulative. Stop at a cap, an unproved exact identity, a semantic, IR or SQL change, a new dependency, a required extension write, a public text outside the listed rows, a trust regression, a budget that needs an architecture change, or a Phase77 collision outside the write set. Failed candidates and heads are kept; each batch publishes under D77.06's conditions (ED.05). |
 
