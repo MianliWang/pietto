@@ -81,6 +81,16 @@ query optimizer; their Gate 1 resolves it, by narrowing the row or by an
 owner change of `AGENTS.md`, before any work starts. The editor line is a
 work package of its own beside these phases (see below).
 
+Phase77 follows its [route](phases/phase-77/route.md). On 2026-11-10 the owner
+approved the Gate 1 of Phase78 SQLite B1, Phase79 DuckDB B1, Phase80 and the
+editor core work package E-C, which run beside Phase77 under the shared rows
+PL.01–PL.06 of the
+[decision record](decisions.md#phase7880-and-editor-core-gate-1--owner-decisions-2026-11-10):
+see the [Phase78 route](phases/phase-78/route.md), the
+[Phase79 route](phases/phase-79/route.md), the
+[Phase80 route](phases/phase-80/route.md) and the
+[E-C route](editor/ed03-route.md).
+
 The owner's answers of 2026-11-07 settled the rules below; the
 [decision record](decisions.md#roadmap-after-0110--owner-decisions-2026-11-07)
 gives each with its source.
@@ -129,21 +139,26 @@ MySQL forms beyond the cadence (D76.09).
 
 The editor line is its own work package beside Phases 76–80, tied to none of
 them. The core semantic owner provides the facts and the extension consumes
-them. [LSP diagnostics v1](spec/lsp-diagnostics-v1.md) describes the
-diagnostic protocol of `pietto lsp`, and
+them. [LSP diagnostics v1](spec/lsp-diagnostics-v1.md) describes the diagnostic
+protocol of `pietto lsp`, and
 [LSP editor facts v1](spec/lsp-editor-facts-v1.md) the hover, go-to-definition
 and document symbols that ED.01 and ED.02 selected, from an ephemeral
 in-process snapshot with the existing metadata formats unchanged; both are
-alpha contracts. Each remaining step needs its own Gate 1: an editor latency
-budget over a representative corpus, which decides whether the linear
-analysis of layered JOIN DAGs and the FD sharing of PMS-6 (see the
-[project-mode follow-up](#project-mode-follow-up)) come first; the capability
-facts, whose carrier that Gate 1 chooses after weighing the
-[semantic metadata artifact v1](spec/semantic-metadata-artifact-v1.md), in
-four layers (check, SQL emission, execution, result reading) and three states
-(unsupported, unknown, not qualified), read alike by editors and AI tools,
-with each backend filling its own profile; and the extension's model view,
-rebuilt on the column view.
+alpha contracts. Each remaining step needs its own Gate 1. The owner approved
+the first on 2026-11-10: the editor core work package E-C (ED.03–ED.06, the
+[E-C route](editor/ed03-route.md)) first measures an editor latency budget over
+a representative corpus, which decides whether the linear analysis of layered
+JOIN DAGs and the FD sharing of PMS-6 (see the
+[project-mode follow-up](#project-mode-follow-up)) come first, and adds
+formatting, workspace symbols, document links, static-vocabulary completion and
+wider hover and definition to `pietto lsp`. Still ahead are the capability
+facts, which get a new versioned capability document whose own Gate 1 records
+the weighing against the
+[semantic metadata artifact v1](spec/semantic-metadata-artifact-v1.md) (ED.06),
+in four layers (check, SQL emission, execution, result reading) and three
+states (unsupported, unknown, not qualified), read alike by editors and AI
+tools, with each backend filling its own profile; and the extension's model
+view, rebuilt on the column view.
 
 The owner's VS Code extension (`MianliWang/pietto-vscode-extension`) takes
 its diagnostics from `pietto lsp` and versions apart from Pietto, with a
@@ -163,10 +178,13 @@ The owner selected AD78.01 on 2026-11-08: small Pietto-owned target adapters,
 with sqlglot only as a test oracle, and the limited DuckDB path before SQLite.
 The existing PostgreSQL/MySQL emitters retain their SQL-byte and semantic
 authority; sqlglot is not a runtime dependency. Phase numbers stay unchanged.
-The limited Phase79 DuckDB vertical is scheduled ahead of Phase78 SQLite.
-Each backend's Gate 1 still binds its supported forms, pinned dependencies,
-error ownership and qualification; this architecture decision does not open a
-dialect by itself.
+On 2026-11-10 AD78.02 revised that schedule: Phase78 SQLite B1 is implemented
+in parallel with Phase77 and Phase79 and publishes after Phase79 DuckDB B1,
+and AD78.03 fixes the third-dialect seam the two share. The
+[Phase78 route](phases/phase-78/route.md) and the
+[Phase79 route](phases/phase-79/route.md) bind each B1's supported forms,
+pinned dependencies, error ownership and qualification; this architecture
+decision does not open a dialect by itself.
 
 ### Phase81 scope
 
@@ -208,9 +226,9 @@ before its owner's Gate 1 takes it.
 | Automatic fan-out repair or reaggregation; a public aggregate state | the joined-aggregation and aggregation semantic owners, at the first Gate 1 that admits one or at a consumer; Phase82 freeze input |
 | PostgreSQL extension functions; the function/plugin SPI and user-written table functions | a Gate 1 with a named use case; Phase82 freeze input (D76.11) |
 | A new built-in table function | the first Gate 1 that names a case; Phase82 freeze input (D74.12) |
-| Database-native array and JSON columns; the `postgres_adbc` nested route | Phase80 Gate 1 candidates; the Phase82 freeze (D76.11) |
+| Database-native array and JSON columns; the `postgres_adbc` nested route | a later Phase80 Gate 1 (D80.06); the Phase82 freeze (D76.11) |
 | MySQL nested output and `JSON_TABLE` | Phase77 (D71.05) |
-| pandas and Polars nesting; the Arrow data-analysis example; `compile_queries(...)`; `round` of a `Float` with digits | Phase80 (J25, D75.03, D76.05) |
+| pandas and Polars nesting; the Arrow data-analysis example; `compile_queries(...)`; `round` of a `Float` with digits | a later Phase80 Gate 1 (J25, D75.03, D76.05, D80.06) |
 | Nested fuzz and high-intensity differential work; a readability and compile-time benchmark | Phase81 (J25) |
 | The nested public format | the Phase82 freeze |
 | Multi-level collections and the refused nested combinations; a capture let that reads another capture let | the NestedRelation semantic owner and the ProjectSQLPlan owner; the scope and capture semantic owner; each at its first admission Gate 1 |
