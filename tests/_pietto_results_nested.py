@@ -1325,7 +1325,7 @@ EXPECTED: dict[str, Any] = {
             "25": ["LIMIT", []],
             "26": ["ACCEPTED", ["ListArray", "RecordBatch", "StructArray", "array"]],
         },
-        arrow="26.0.0",
+        arrow="26.0.1",
     ),
     GROUPS[5]: dict(
         whole=230,

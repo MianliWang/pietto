@@ -1174,19 +1174,21 @@ state, not an effect of recompilation. These source changes are intended for
 ## Optional Arrow dependency
 
 The core distribution depends only on `antlr4-python3-runtime==4.13.2`.
-The public selector `pietto[arrow]` adds exactly `pyarrow==26.0.0`; it changes
+The public selector `pietto[arrow]` adds exactly `pyarrow==26.0.1`; it changes
 available dependencies, not the public Python API or CLI. Phase67 result
 modules remain private under `pietto._project`; Phase69 exposes the three
 execution routes and saved-result APIs as public alpha under
 `pietto.execution`. Package/CLI version is `0.1.10` and `requires-python`
 stays `>=3.12`. Its versioned GitHub pre-release and PyPI listing determine
 distribution availability once the accepted files are available.
-The verified extra matrix is CPython3.12/3.13 on Linux x86-64 with PyArrow26.0.0.
+The published verified extra matrix is CPython3.12/3.13 on Linux x86-64 with
+PyArrow26.0.0. The selected PyArrow26.0.1 candidate requires fresh
+qualification.
 See [checkout and local-wheel installation](../README.md#install-from-a-checkout).
 This is not a broader platform/version support promise.
 
 Phase68 S18 adds three route selectors, each Arrow plus one route's exact pins:
-`execute-postgres` (`psycopg[binary]==3.3.5`), `execute-mysql`
+`execute-postgres` (`psycopg[binary]==3.3.8`), `execute-mysql`
 (`mysql-connector-python==26.10.0`; the published `0.1.5` selects `26.7.0`) and `execute-postgres-adbc`
 (`adbc-driver-postgresql==1.13.0`, `adbc-driver-manager==1.13.0`; the published `0.1.5` selects `1.12.0`); see the
 [execution install](execution.md#install). Installation never chooses

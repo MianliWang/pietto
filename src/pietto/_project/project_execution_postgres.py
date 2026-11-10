@@ -55,8 +55,8 @@ from pietto._project.project_verification_scope import boundary
 
 __all__: tuple[str, ...] = ()
 # The pinned driver closure of `pietto[execute-postgres]`.
-DRIVERS = (("psycopg", "3.3.5", "psycopg"), ("psycopg-binary", "3.3.5", None))
-DRIVER_ORIGINS = (("psycopg-binary", "3.3.5", "psycopg_binary"),)
+DRIVERS = (("psycopg", "3.3.8", "psycopg"), ("psycopg-binary", "3.3.8", None))
+DRIVER_ORIGINS = (("psycopg-binary", "3.3.8", "psycopg_binary"),)
 
 
 def drivers():

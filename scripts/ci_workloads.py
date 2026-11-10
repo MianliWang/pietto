@@ -35,7 +35,7 @@ CASES = (
     "ipc",
     "device",
 )
-ARROW_VERSION = "26.0.0"
+ARROW_VERSION = "26.0.1"
 
 
 def canonical(value: object) -> bytes:

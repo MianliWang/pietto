@@ -21,7 +21,7 @@ import uuid
 
 ROOT = Path(__file__).resolve().parents[1]
 FORMAT = "pietto.arrow-readiness.v1"
-VERSION = "26.0.0"
+VERSION = "26.0.1"
 CASES = (
     "types",
     "carriers",

@@ -35,18 +35,18 @@ dependencies = [
 
 [project.optional-dependencies]
 arrow = [
-    "pyarrow==26.0.0",
+    "pyarrow==26.0.1",
 ]
 execute-postgres = [
-    "pyarrow==26.0.0",
-    "psycopg[binary]==3.3.5",
+    "pyarrow==26.0.1",
+    "psycopg[binary]==3.3.8",
 ]
 execute-mysql = [
-    "pyarrow==26.0.0",
+    "pyarrow==26.0.1",
     "mysql-connector-python==26.10.0",
 ]
 execute-postgres-adbc = [
-    "pyarrow==26.0.0",
+    "pyarrow==26.0.1",
     "adbc-driver-postgresql==1.13.0",
     "adbc-driver-manager==1.13.0",
 ]
@@ -67,7 +67,7 @@ build-backend = "uv_build"
 
 [dependency-groups]
 target-conformance = [
-    "psycopg[binary]==3.3.5",
+    "psycopg[binary]==3.3.8",
     "mysql-connector-python==26.10.0",
 ]
 dev = [

@@ -14,7 +14,7 @@ The canonical data is the tie-free FULL result of the literal oracle's
 ``C6_siblings`` program; the flat contract is its scalar parent projection.
 Importing this module never imports pyarrow. Only
 ``python tests/_pietto_results_nested_ipc_oracle.py --self-check --report P``
-builds payloads, with pyarrow 26.0.0 and without pietto.
+builds payloads, with pyarrow 26.0.1 and without pietto.
 """
 
 from __future__ import annotations
@@ -33,7 +33,7 @@ from typing import Any
 
 import _pietto_execution_nested_oracle as literal
 
-PYARROW = "26.0.0"
+PYARROW = "26.0.1"
 CATEGORIES = (
     "ACCEPT",
     "REFUSE_FRAME",
