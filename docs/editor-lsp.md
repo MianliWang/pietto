@@ -1,14 +1,15 @@
 # Editor support: `pietto lsp` (alpha)
 
-`pietto lsp` checks files and configured projects for diagnostics and supplies
-hover, go-to-definition and document symbols from the same analysis. Backend
+`pietto lsp` checks files and configured projects for diagnostics, supplies
+hover, go-to-definition and document symbols from the same analysis, and
+formats the open buffer as `pietto fmt` formats a file. Backend
 refusals (`PIE-B...`) still appear only in
 `pietto emit-sql`.
 
 The protocol, lifecycle, full-document synchronization, UTF-16 position,
 project-overlay, conflict, diagnostic, resource, and trust rules are the
 [LSP diagnostics v1](spec/lsp-diagnostics-v1.md) alpha contract. In
-particular, it has no completion, formatting, SQL preview or execution feature.
+particular, it has no completion, SQL preview or execution feature.
 
 Hover describes resolved type and `from` references. Go-to-definition follows
 their exact declaration, including supported imports and re-exports inside a
@@ -34,6 +35,17 @@ watch external disk changes; project facts refresh when its existing document
 notifications cause a new analysis. The
 [editor facts contract](spec/lsp-editor-facts-v1.md) defines the exact
 availability and client-capability rules.
+
+Formatting a document formats the text in the editor, not the file on disk:
+the server answers with one edit of the whole buffer that gives what
+`pietto fmt` prints for that text, with no edit when the buffer is already
+formatted, and with nothing when `pietto fmt` would refuse it (a parser error,
+a header line, the size limit, or output that formatting would not keep), when
+the document is not open, when its last change was refused, or when the editor
+sent unpaired UTF-16 surrogates. It does not wait for the analyses that edits
+schedule, although one that is already running ends first. It writes no file
+and ignores the editor's tab and whitespace options, because `fmt` has one
+layout. Its output may change before the Phase82 freeze.
 
 ## The Pietto extension for VS Code
 

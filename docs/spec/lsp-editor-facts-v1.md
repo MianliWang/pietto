@@ -1,19 +1,21 @@
 # LSP editor facts v1 — implementation contract
 
 ED.02 approves the standard-LSP, ephemeral-snapshot direction for the selected
-editor work: hover, go-to-definition and document symbols. This alpha contract
-is implemented by `pietto lsp`. It adds no CLI command, JSON artifact, or
-post-alpha compatibility promise. [LSP diagnostics v1](lsp-diagnostics-v1.md)
-continues to specify the diagnostic protocol.
+editor work: hover, go-to-definition and document symbols. ED.03 adds
+[formatting](#formatting) of the open buffer, which reads no snapshot. This
+alpha contract is implemented by `pietto lsp`. It adds no CLI command, JSON
+artifact, or post-alpha compatibility promise. [LSP diagnostics
+v1](lsp-diagnostics-v1.md) continues to specify the diagnostic protocol.
 
 ## Boundary
 
 The server keeps one immutable, in-process snapshot for an analysis
-of one current document or project epoch. It answers only standard LSP
-`textDocument/hover`, `textDocument/definition`, and
-`textDocument/documentSymbol` requests from that snapshot. The requests do
-not parse, analyze, check a project, build IR, read disk, select a root, or
-fall back to a name lookup.
+of one current document or project epoch. It answers the standard LSP
+`textDocument/hover`, `textDocument/definition` and
+`textDocument/documentSymbol` requests, the fact requests, only from such
+snapshots. The fact requests do not parse, analyze, check a project, build
+IR, read disk, select a root, or fall back to a name lookup. Formatting, the
+one request that parses, parses only its own buffer.
 
 The snapshot is not serialized, returned as an artifact, retained across a
 server session, or shared with another process. It holds detached values only:
@@ -97,7 +99,7 @@ because they are shown.
 
 ## Fail-closed request behavior
 
-A request waits while an analysis of its URI, or of a project root that
+A fact request waits while an analysis of its URI, or of a project root that
 contains its path, is scheduled or running; that includes a root analysis
 that an edit of another file of the root schedules. Pending analyses of other
 units do not hold it, although they can run before one it waits for (see
@@ -126,10 +128,52 @@ that maps to no filesystem path, such as a `file:` URI that does not parse, is
 not malformed: it names a standalone document, so a request on it is answered
 like any other, with no result unless that URI is open.
 
+## Formatting
+
+ED.03 revises ED.02 so that `textDocument/formatting` alone parses at request
+time, and only its own buffer. The server answers it as soon as it reads the
+request and never holds it for a scheduled analysis, although an analysis
+already running when it arrives ends before the server reads it (see
+[Performance and verification](#performance-and-verification)). It runs
+`pietto fmt`'s pure `format_source` on the whole current text of the document
+open at the request's URI. It reads no snapshot, disk file, project root or configuration,
+starts no analysis, calls no semantic, project or IR code, and writes nothing.
+The result is:
+
+- one `TextEdit` when formatting changes the buffer. Its range runs from line
+  0, character 0, to the end of the buffer: the line after the last CRLF, CR
+  or LF break, at that line's length in UTF-16 code units, where a leading
+  U+FEFF counts as one unit of line 0, as the buffer holds it. Its `newText` is
+  the formatted source, so the edit gives the bytes that `pietto fmt` prints
+  for a file of the buffer's text: it keeps the leading U+FEFF and writes
+  every line break as the buffer's first one, CRLF, CR or LF (LF when it has
+  none);
+- `[]` when the buffer is already formatted;
+- `null` when `pietto fmt` would refuse the buffer: a parser error, a retired
+  header line among them (PIE-P1000), a buffer over the 1,048,576-byte UTF-8
+  size limit (PIE-P1006), or a `FormatRefusedError`, whose formatted source
+  would exceed that limit or not keep the buffer's tokens, comments and
+  blocks. It is also `null` when the URI is not open;
+  for a document whose change was refused, until it is opened again; and for
+  a buffer whose last open or change had unpaired UTF-16 surrogates, which the
+  server holds as U+FFFD and so could not return as the client wrote them.
+
+A refusal publishes no diagnostic and shows no message; the published
+diagnostics and `pietto check` report the parser errors. `FormattingOptions`
+are ignored, whatever they hold, because `pietto fmt` has one layout (D75.05):
+tab size, spaces, trailing whitespace and final newlines change nothing. A
+`textDocument.uri` that is not a string returns JSON-RPC `-32602`. A URI that
+maps to no path, such as `untitled:Untitled-1`, formats like any other open
+buffer. Formatting depends only on the buffer at its URI, so a file open under
+two URIs formats each buffer apart and no root, URI or buffer wins. Range and
+on-type formatting are not provided. `fmt` output may change before the
+Phase82 freeze (D75.05), and the edit follows it.
+
 ## Capability and client boundary
 
 `initialize` advertises
-`hoverProvider`, `definitionProvider`, and `documentSymbolProvider` alongside
+`hoverProvider`, `definitionProvider`, `documentSymbolProvider` and
+`documentFormattingProvider` alongside
 the existing diagnostic capabilities. The existing VS Code LSP client can
 consume these standard capabilities; it needs no private-core import, custom
 transport, or editor-facts artifact.
@@ -142,17 +186,18 @@ in the same source order, use supported symbol kinds, and never mix the two
 array formats. Definition uses `Location`, so no location-link capability is
 required.
 
-No completion, references, workspace symbols, code action, formatting, model
-view, capability matrix, SQL preview change, execution, or workspace mutation
-is included.
+No completion, references, workspace symbols, code action, range or on-type
+formatting, model view, capability matrix, SQL preview change, execution, or
+workspace mutation is included.
 
 ## Performance and verification
 
 Facts are projected at most once per existing analysis: from a single file's
 successful check, or from a project's final pass when it does not stop. The
 projection is bounded by the checked modules' declaration and exact-resolution
-occurrences. Each request performs only current-epoch index lookup: zero
-parse, semantic-analysis, project-check, or IR calls. There is no persistent
+occurrences. Each fact request performs only current-epoch index lookup: zero
+parse, semantic-analysis, project-check, or IR calls. Formatting makes one
+`format_source` call on its buffer and no other. There is no persistent
 cache.
 
 The server runs one analysis at a time, and always the first pending one in a
@@ -166,12 +211,21 @@ root, waits while any root is analysed again before its own document is. A
 wait has no bound while edits keep an analysis that it waits for, or one
 earlier in that order, pending.
 
+The server reads no message while an analysis runs, so any request that
+arrives then, formatting included, is answered only after that analysis ends.
+Formatting then answers at once; a fact request also waits for the analyses
+above.
+
 Tests must cover single-file and cross-module type/from targets; import aliases
 and re-exports; stale versions and requests that wait for an analysis; root
 and URI aliases; UTF-16 with CRLF and lone CR; partial-project omissions and
 modules with errors of their own; overlapping ranges; source ordering; and
 proof that each request makes no analysis call. Each returned range and target
 must come from the exact retained occurrence, not a reconstructed name.
+Formatting tests must cover byte equality with `pietto fmt` over the `fmt`
+corpus, end positions with a leading U+FEFF, CRLF, lone CR and astral
+characters, every refusal path, ignored options, buffers that differ from the
+disk, and an answer that no analysis holds.
 
 ### Latency measurement (ED.03 M1)
 
@@ -275,3 +329,43 @@ The reviewed source is Microsoft's LSP 3.17 specification:
 | Disposition | Reuse the existing standard wire messages. |
 | WHAT_NOT_TO_COPY | No inferred bindings, new artifact, client-side semantic resolver or persistent cache. |
 | Pietto owner affected | Semantic projection, project editor analysis and LSP server. |
+
+The ED.03 records below read, on 2026-11-10, the LSP 3.17 specification page
+at 16:57:23Z and, for comparison, the LSP 3.18 page at 16:58:14Z (the site
+now marks 3.18 current and 3.17 previous; the route pins 3.17), the VS Code
+documentation at 16:58:41Z, and the VS Code 1.145.2 source at 17:01:26Z
+(UTC). The pages were read as text converted from their HTML, so their layout
+and images were not checked. VS Code source describes one version and
+promises nothing.
+
+Formatting (ED.03 C1):
+
+| Field | Review |
+| --- | --- |
+| Snapshot/date | [LSP 3.17 `textDocument/formatting`](https://microsoft.github.io/language-server-protocol/specifications/lsp/3.17/specification/#textDocument_formatting), with the base protocol's rule for a `null` result, read 2026-11-10T16:57:23Z; the 3.18 page keeps the same result type. |
+| Problem/constraints | Return `pietto fmt`'s layout of the open buffer through the existing connection, without an analysis, a disk read or a write. |
+| Semantic/identity model | The request names a document by URI and carries `FormattingOptions`: `tabSize`, `insertSpaces`, the optional `trimTrailingWhitespace`, `insertFinalNewline` and `trimFinalNewlines`, and other keys. The result, `TextEdit[] \| null`, describes the modification to the document. A `null` result signals a successful request, and the section gives `null` and `[]` no different meaning: both mean no change. It fixes no result for a buffer that cannot be formatted. |
+| Layering/dependency direction | `format_source` owns the layout; the server wraps its output as one edit of the buffer; the client applies it. |
+| Algorithms/data structures/complexity | The protocol fixes none; one `format_source` call, O(source) under the size limit. |
+| Interface/version/capability model | `documentFormattingProvider` is a boolean or `DocumentFormattingOptions`, and the request has no partial result; Pietto advertises `true`. The specification does not say how a server treats `insertSpaces: false` or the other options, so ignoring them, as one spaces-only layout requires (D75.05), is the server's choice. |
+| Testing/operational lifecycle | Byte equality with `pietto fmt`, UTF-16 end positions, each refusal path, ignored options and no analysis call, through the public session. |
+| Pitfalls/migration costs | A client cannot tell a refusal (`null`) from a formatted buffer (`[]`), so a refusal reaches the user only through the published diagnostics; telling them apart would need an error response or another channel. |
+| Disposition | Keep one whole-document edit, `[]` or `null`, ignored options, and no range or on-type formatting. |
+| WHAT_NOT_TO_COPY | No layout taken from the client's options, no error response for a refusal, no partial result. |
+| Pietto owner affected | LSP server; `source_format.py` is unchanged. |
+
+VS Code format on save (ED.03 C1):
+
+| Field | Review |
+| --- | --- |
+| Snapshot/date | The VS Code [Formatting](https://code.visualstudio.com/docs/editing/codebasics#_formatting) documentation, page dated 11/4/2026, read 2026-11-10T16:58:41Z; for what it leaves out, the VS Code 1.145.2 source [`format.ts`](https://github.com/microsoft/vscode/blob/1.145.2/src/vs/editor/contrib/format/browser/format.ts) and its format-on-save setting and save participant, read 2026-11-10T17:01:26Z. |
+| Problem/constraints | Know what a VS Code user gets from formatting and saving a `.pietto` file through the published extension's standard client. |
+| Semantic/identity model | The documentation names Format Document and Format Selection, says that formatting on type, save and paste is off by default, and describes `editor.formatOnSave` as "Format a file on save."; format on paste needs a formatter of a selection or range. In the 1.145.2 source the setting can be set per language, `editor.formatOnSaveMode` defaults to `file`, which formats the whole document, `modifications` needs range formatting and source control, and an automatic save does not format. |
+| Layering/dependency direction | VS Code decides when to ask and applies the edits; the server answers every formatting request alike, whichever action sent it. |
+| Algorithms/data structures/complexity | In the 1.145.2 source VS Code first makes the edits more minimal; a missing or empty result applies nothing, and on the API path the next formatter is asked. |
+| Interface/version/capability model | The user turns `editor.formatOnSave` on, for every file or for Pietto alone; Format Document and an explicit save in `file` mode ask for whole-document formatting. Format Selection, format on paste and `modifications` mode need range formatting, which Pietto does not provide. |
+| Testing/operational lifecycle | The route's connected VS Code check (the 1.145.2 test host and the extension at `e61444f`) must observe Format Document and a save with format on save on; until it runs, this behaviour is read, not observed. |
+| Pitfalls/migration costs | A missing and an empty result behave alike in 1.145.2, so the refusal paths cannot be seen in the editor; how the client passes a `null` on was not read. Neither the documentation nor this snapshot states a time limit for formatting on save, so whether a request answered only after a long running analysis misses a save (route risk 1) is still pending. The source may change in any release. |
+| Disposition | No server change: whole-document formatting serves Format Document and format on save in `file` mode, and range formatting stays out of scope. |
+| WHAT_NOT_TO_COPY | No reliance on VS Code's edit minimizing, its fallback to another formatter, or a save-time limit. |
+| Pietto owner affected | LSP server and `docs/editor-lsp.md`; the extension repository is unchanged. |

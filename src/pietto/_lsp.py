@@ -31,6 +31,7 @@ from pietto._project.check import (
 from pietto.errors import Diagnostic, Severity, SourceLocation
 from pietto.parser_api import parse_source
 from pietto.semantic import analyze
+from pietto.source_format import FormatRefusedError, format_source
 
 _EOF = object()
 _FRAMING_ERROR = object()
@@ -127,6 +128,9 @@ class _Document:
     text: str
     version: int | None
     refused: bool = False
+    # The client's text had unpaired surrogates, which `text` holds as
+    # U+FFFD, so `text` is not the client's buffer.
+    replaced: bool = False
 
 
 @dataclass(frozen=True, slots=True)
@@ -240,6 +244,8 @@ class _Server:
             self._send({"jsonrpc": "2.0", "id": request_id, "result": None})
         elif method == "initialize":
             self._error(request_id, -32600, "Server is already initialized")
+        elif method == "textDocument/formatting":
+            self._format(request_id, params)
         elif method in {
             "textDocument/hover",
             "textDocument/definition",
@@ -295,6 +301,7 @@ class _Server:
                         "hoverProvider": True,
                         "definitionProvider": True,
                         "documentSymbolProvider": True,
+                        "documentFormattingProvider": True,
                     },
                     "serverInfo": {"name": "pietto", "version": self.version},
                 },
@@ -327,6 +334,7 @@ class _Server:
                     _LONE_SURROGATE.sub("\ufffd", text),
                     version,
                 )
+                document.replaced = document.text != text
                 self.documents[uri] = document
                 self._touch(document)
         elif method == "textDocument/didChange":
@@ -358,7 +366,9 @@ class _Server:
                     version,
                 )
             else:
-                document.text = _LONE_SURROGATE.sub("\ufffd", str(change["text"]))
+                text = str(change["text"])
+                document.text = _LONE_SURROGATE.sub("\ufffd", text)
+                document.replaced = document.text != text
             self._touch(document)
         elif method == "textDocument/didClose" and document is not None:
             del self.documents[uri]
@@ -804,6 +814,36 @@ class _Server:
             request_id, method, result, snapshot.tables, target_uri
         )
 
+    def _format(self, request_id: int | str, params: dict[str, object]) -> None:
+        """Answer at once with the open buffer as `pietto fmt` formats it: one
+        edit of the whole document, none when it is formatted, or no result
+        when it is refused. No analysis holds it, and its options are
+        ignored."""
+
+        uri = _field(params, "textDocument").get("uri")
+        if not isinstance(uri, str):
+            self._error(request_id, -32602, "Invalid params")
+            return
+        document = self.documents.get(uri)
+        formatted: str | None = None
+        if document is not None and not document.refused and not document.replaced:
+            try:
+                formatted = format_source(document.text).source
+            except FormatRefusedError:
+                pass
+        result: list[dict[str, object]] | None = None
+        if document is not None and formatted is not None:
+            result = []
+            if formatted != document.text:
+                start = {"line": 0, "character": 0}
+                result.append(
+                    {
+                        "range": {"start": start, "end": _end(document.text)},
+                        "newText": formatted,
+                    }
+                )
+        self._send({"jsonrpc": "2.0", "id": request_id, "result": result})
+
     def _answer_held(self) -> None:
         """Answer each held request that no longer waits, in arrival order."""
 
@@ -979,6 +1019,17 @@ def _check_text_with_editor_facts(
     if any(diagnostic.severity is Severity.ERROR for diagnostic in diagnostics):
         return diagnostics, EditorFacts()
     return diagnostics, single_file_editor_facts(parsed.ast, semantic.model, path=path)
+
+
+def _end(text: str) -> dict[str, int]:
+    """The LSP position after the last character of `text`, a leading U+FEFF
+    included."""
+
+    lines = _LINE_BREAK.split(text)
+    return {
+        "line": len(lines) - 1,
+        "character": len(lines[-1].encode("utf-16-le")) // 2,
+    }
 
 
 def _absolute_uri_path(uri: str) -> Path | None:

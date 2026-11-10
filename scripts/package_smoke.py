@@ -548,6 +548,7 @@ def _smoke_installed_lsp(
         "hoverProvider": True,
         "definitionProvider": True,
         "documentSymbolProvider": True,
+        "documentFormattingProvider": True,
     }
     expected = framed(
         {

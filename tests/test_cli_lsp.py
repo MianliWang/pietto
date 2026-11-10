@@ -5,9 +5,11 @@ cancellation, through an in-test JSON-RPC client."""
 from __future__ import annotations
 
 import contextlib
+import dataclasses
 import io
 import json
 import queue
+import re
 import subprocess
 import sys
 import threading
@@ -17,10 +19,16 @@ from typing import Any, cast
 
 import pytest
 
-from pietto import _lsp, cli
+from pietto import _lsp, cli, source_format
 from pietto.errors import SourceLocation
 
 DEADLINE = 30
+REPO_ROOT = Path(__file__).resolve().parents[1]
+FORMAT_CORPUS = sorted(
+    path
+    for folder in ("examples", "tests/fixtures")
+    for path in (REPO_ROOT / folder).rglob("*.pietto")
+)
 PROGRAM = "import sys; from pietto.cli import main; sys.exit(main(sys.argv[1:]))"
 TOML = 'schema_version = 2\n\n[sources]\ninclude = ["*.pietto"]\n'
 MODELS = """shape User:
@@ -306,6 +314,7 @@ def test_lifecycle_over_a_process() -> None:
                     "hoverProvider": True,
                     "definitionProvider": True,
                     "documentSymbolProvider": True,
+                    "documentFormattingProvider": True,
                 },
                 "serverInfo": {"name": "pietto", "version": cli._package_version()},
             },
@@ -314,6 +323,46 @@ def test_lifecycle_over_a_process() -> None:
     ]
     assert cli.main(["lsp", "--help"]) == 0
     assert cli.main(["lsp", "extra"]) == 2
+
+
+def test_formatting_over_a_process() -> None:
+    uri, text = "untitled:Untitled-1", "shape A:\r\n  id: Int  # \xe9\U0001d11e\r\n"
+    code, messages, stderr = run_process(
+        frame(INIT)
+        + frame(notify("initialized"))
+        + frame(opened(uri, text))
+        + frame(formatting(1, uri))
+        + frame(closed(uri))
+        + frame(SHUTDOWN)
+        + frame(EXIT),
+        "--stdio",
+    )
+    assert (code, stderr) == (0, b"")
+    # The only notifications are the buffer's diagnostics, which the reader
+    # thread's timing may place before or after an answer.
+    assert all(
+        message["method"] == "textDocument/publishDiagnostics"
+        and message["params"]["uri"] == uri
+        for message in messages
+        if "method" in message
+    )
+    assert [message for message in messages if "method" not in message] == [
+        response(messages, 0),
+        {
+            "jsonrpc": "2.0",
+            "id": 1,
+            "result": [
+                {
+                    "range": {
+                        "start": {"line": 0, "character": 0},
+                        "end": {"line": 2, "character": 0},
+                    },
+                    "newText": "shape A:\r\n    id: Int  # \xe9\U0001d11e\r\n",
+                }
+            ],
+        },
+        {"jsonrpc": "2.0", "id": 99, "result": None},
+    ]
 
 
 @pytest.mark.parametrize("method", ["textDocument/hover", "textDocument/definition"])
@@ -1252,6 +1301,336 @@ def test_target_omitted_on_a_later_root_analysis_has_no_stale_definition(
     )
     assert response(messages, 1)["result"]["uri"] == models_uri
     assert response(messages, 2)["result"] is None
+
+
+def formatting(request_id: int, uri: object, **options: object) -> Message:
+    return {
+        "jsonrpc": "2.0",
+        "id": request_id,
+        "method": "textDocument/formatting",
+        "params": {
+            "textDocument": {"uri": uri},
+            "options": options or {"tabSize": 4, "insertSpaces": True},
+        },
+    }
+
+
+def offset(text: str, position: Mapping[str, int]) -> int:
+    """The index in `text` of an LSP position, as a client counts it: lines
+    end at CRLF, CR or LF, and an astral character takes two UTF-16 units."""
+
+    starts = [0, *(item.end() for item in re.finditer(r"\r\n|\r|\n", text))]
+    index, units = starts[position["line"]], 0
+    while units < position["character"]:
+        units += 2 if ord(text[index]) > 0xFFFF else 1
+        index += 1
+    return index
+
+
+def applied(text: str, edits: list[Message]) -> str:
+    """The buffer once a client applies `edits`, last first."""
+
+    for edit in reversed(edits):
+        start, end = (offset(text, edit["range"][key]) for key in ("start", "end"))
+        text = text[:start] + edit["newText"] + text[end:]
+    return text
+
+
+def test_formatting_edits_the_buffer_into_the_bytes_fmt_prints(
+    tmp_path: Path, capsysbinary: pytest.CaptureFixture[bytes]
+) -> None:
+    """Over the fmt corpus, as written and with its layout spoiled, and two
+    sources fmt refuses, the one edit turns the open buffer into what
+    `pietto fmt` prints for the same bytes; `[]` answers a file fmt leaves
+    alone, and no result one it refuses. Each buffer closes before any
+    analysis runs."""
+
+    refused = ["shape A:\n\tid: Int\n", "pietto 1\nshape A:\n  id: Int\n"]
+    buffers: list[tuple[Path, str]] = []
+    for number, path in enumerate(FORMAT_CORPUS):
+        text = path.read_bytes().decode("utf-8")
+        spoiled = re.sub(r"(?m)^( +)", r"\1\1", text).replace("\n", "  \r\n")
+        for name, value in (("written", text), ("spoiled", spoiled)):
+            buffers.append((tmp_path / f"{number}-{name}-{path.name}", value))
+    buffers += [(tmp_path / f"refused-{n}.pietto", v) for n, v in enumerate(refused)]
+    for copy, value in buffers:
+        copy.write_bytes(value.encode("utf-8"))
+    batch: list[object] = []
+    for number, (copy, value) in enumerate(buffers, start=1):
+        batch += [opened(copy.as_uri(), value), formatting(number, copy.as_uri())]
+        batch.append(closed(copy.as_uri()))
+    messages = session(init(), batch)
+    assert publishes(messages) == []
+    outcomes: set[str] = set()
+    for number, (copy, value) in enumerate(buffers, start=1):
+        code = cli.main(["fmt", str(copy)])
+        printed = capsysbinary.readouterr().out
+        result = response(messages, number)["result"]
+        if code != 0:
+            assert (result, printed) == (None, b"")
+            outcomes.add("refused")
+        elif printed == value.encode("utf-8"):
+            assert result == []
+            outcomes.add("unchanged")
+        else:
+            (edit,) = result
+            assert edit["range"]["start"] == {"line": 0, "character": 0}
+            assert offset(value, edit["range"]["end"]) == len(value)
+            assert applied(value, result).encode("utf-8") == printed
+            outcomes.add("changed")
+    assert outcomes == {"refused", "unchanged", "changed"}
+
+
+@pytest.mark.parametrize(
+    ("text", "end"),
+    [
+        pytest.param("\ufeff# \U0001d11e  ", (0, 7), id="bom_on_the_one_line"),
+        pytest.param("shape A:\r\n  id: Int  # \U0001d11e\r\n", (2, 0), id="crlf"),
+        pytest.param("shape A:\r  id: Int  # \U0001d11e", (1, 15), id="lone_cr"),
+        pytest.param("\ufeffshape A:\n  id: Int  # \xe9\U0001d11e", (1, 16), id="lf"),
+    ],
+)
+def test_a_formatting_edit_ends_at_the_utf16_end_of_the_buffer(
+    text: str, end: tuple[int, int]
+) -> None:
+    uri = "untitled:Untitled-1"
+    messages = session(init(), [opened(uri, text), formatting(1, uri), closed(uri)])
+    (edit,) = response(messages, 1)["result"]
+    assert edit["range"] == {
+        "start": {"line": 0, "character": 0},
+        "end": {"line": end[0], "character": end[1]},
+    }
+    assert offset(text, edit["range"]["end"]) == len(text)
+    assert applied(text, [edit]) == source_format.format_source(text).source
+
+
+def test_formatting_reads_only_the_open_buffer_and_writes_nothing(
+    tmp_path: Path,
+) -> None:
+    path = tmp_path / "a.pietto"
+    path.write_bytes(b"shape A:\n  id: Int\n")
+    uri, untitled = path.as_uri(), "untitled:Untitled-1"
+    buffer = "shape B:\n  name: Text\n"
+    formatted = "shape B:\n    name: Text\n"
+    messages = session(
+        init(),
+        [
+            formatting(1, uri),
+            opened(uri, buffer),
+            formatting(2, uri),
+            formatting(3, uri, tabSize=2, insertSpaces=False, trimFinalNewlines=False),
+            opened(untitled, buffer),
+            formatting(4, untitled),
+            changed(uri, formatted, 2),
+            formatting(5, uri),
+        ],
+        [closed(uri), formatting(6, uri)],
+    )
+    edit = {
+        "range": {
+            "start": {"line": 0, "character": 0},
+            "end": {"line": 2, "character": 0},
+        },
+        "newText": formatted,
+    }
+    # The options change nothing: fmt has one layout.
+    assert [response(messages, number)["result"] for number in range(1, 7)] == [
+        None,
+        [edit],
+        [edit],
+        [edit],
+        [],
+        None,
+    ]
+    assert path.read_bytes() == b"shape A:\n  id: Int\n"
+
+
+@pytest.mark.parametrize(
+    "text",
+    [
+        pytest.param("shape A:\n\tid: Int\n", id="parse_error"),
+        pytest.param("pietto 1\nshape A:\n  id: Int\n", id="header_line"),
+        pytest.param("# " + "x" * 1_048_576 + "\nshape A:\n  id: Int\n", id="size"),
+        pytest.param("shape A:\n  id: Int  # \ud800\n", id="unpaired_surrogate"),
+    ],
+)
+def test_formatting_has_no_result_for_a_buffer_fmt_would_refuse(text: str) -> None:
+    uri = "untitled:Untitled-1"
+    whole = "shape A:\n  id: Int\n"
+    messages = session(
+        init(),
+        [opened(uri, text), formatting(1, uri), changed(uri, whole, 2)],
+        [formatting(2, uri), changed(uri, text, 3), formatting(3, uri)],
+    )
+    assert response(messages, 1)["result"] is None
+    assert response(messages, 2)["result"][0]["newText"] == "shape A:\n    id: Int\n"
+    assert response(messages, 3)["result"] is None
+
+
+def test_formatting_has_no_result_when_fmt_refuses_its_output(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    uri = "untitled:Untitled-1"
+    text = "shape A:\n  id: Int\n"
+    refused: list[tuple[object, str, object]] = [
+        (source_format, "_render", lambda lines, newline: "shape B:\n    id: Int\n"),
+        (
+            source_format.parser_api,
+            "_source_exceeds_utf8_budget",
+            lambda value: len(value) > len(text),
+        ),
+    ]
+    for owner, name, replacement in refused:
+        with monkeypatch.context() as patched:
+            patched.setattr(owner, name, replacement)
+            with pytest.raises(source_format.FormatRefusedError):
+                source_format.format_source(text)
+            messages = session(init(), [opened(uri, text), formatting(1, uri)])
+        assert response(messages, 1)["result"] is None
+
+
+def test_formatting_a_refused_document_or_malformed_params(tmp_path: Path) -> None:
+    uri = (tmp_path / "x.pietto").as_uri()
+    text = "shape A:\n  id: Int\n"
+    messages = session(
+        init(),
+        [opened(uri, text, 1)],
+        [
+            changed(uri, "shape B:\n  id: Int\n", 2, ranged=True),
+            formatting(1, uri),
+            formatting(2, 7),
+            {"jsonrpc": "2.0", "id": 3, "method": "textDocument/formatting"},
+        ],
+        [opened(uri, text, 3), formatting(4, uri)],
+    )
+    assert response(messages, 1)["result"] is None
+    assert response(messages, 2)["error"]["code"] == -32602
+    assert response(messages, 3)["error"]["code"] == -32602
+    assert response(messages, 4)["result"][0]["newText"] == "shape A:\n    id: Int\n"
+
+
+def test_formatting_answers_at_once_and_calls_no_analysis(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """While it handles a formatting request, before or after the analyses of
+    its buffer, the server makes one format_source call on that buffer, calls
+    no analysis entry point, schedules, holds or forgets nothing and sends
+    only the answer, so the symbols request that the root analysis holds gets
+    its symbols and the session publishes what it publishes without
+    formatting."""
+
+    root = project(tmp_path, models=MODELS, a=A_OK)
+    a_uri, alone = (root / "a.pietto").as_uri(), (tmp_path / "x.pietto").as_uri()
+    messy, alone_text = A_OK.replace("\n", "  \n"), SINGLE.replace("\n", "  \n")
+    batch = [
+        opened(a_uri, messy),
+        request(1, "textDocument/documentSymbol", a_uri),
+        formatting(2, a_uri),
+        opened(alone, alone_text),
+        formatting(3, alone),
+    ]
+    later = [formatting(4, a_uri), formatting(5, alone)]
+    plain = session(
+        init(root),
+        [item for item in batch if item["method"] != "textDocument/formatting"],
+    )
+    symbols = response(plain, 1)["result"]
+    assert symbols
+    inside: list[object] = []
+    formatted: list[str] = []
+    sent: list[Message] = []
+    seen: list[tuple[int, ...]] = []
+    real_format, real_send = _lsp._Server._format, _lsp._Server._send
+    real_format_source = _lsp.format_source
+
+    def kept(server: _lsp._Server) -> object:
+        return (
+            {uri: dataclasses.replace(item) for uri, item in server.documents.items()},
+            dict(server.epochs),
+            dict(server.dirty),
+            list(server.held),
+            dict(server.snapshots),
+            list(server.selections),
+            list(server.extras),
+            dict(server.published),
+            dict(server.shown),
+        )
+
+    def format_once(
+        server: _lsp._Server, request_id: int | str, params: dict[str, object]
+    ) -> None:
+        state = kept(server)
+        seen.append(
+            (
+                len(server.snapshots),
+                len(server.published),
+                sum(map(len, server.selections)),
+                sum(map(len, server.extras)),
+                len(server.shown),
+            )
+        )
+        start = len(sent)
+        inside.append(request_id)
+        try:
+            real_format(server, request_id, params)
+        finally:
+            inside.pop()
+        assert kept(server) == state
+        assert [message.get("id") for message in sent[start:]] == [request_id]
+
+    def format_source(text: str, **options: Any) -> object:
+        assert inside, "format_source outside formatting"
+        formatted.append(text)
+        return real_format_source(text, **options)
+
+    def send(server: _lsp._Server, message: Message) -> None:
+        sent.append(message)
+        real_send(server, message)
+
+    def guard(owner: object, name: str) -> None:
+        real = getattr(owner, name)
+
+        def guarded(*args: Any, **kwargs: Any) -> object:
+            assert not inside, f"{name} while formatting"
+            return real(*args, **kwargs)
+
+        monkeypatch.setattr(owner, name, guarded)
+
+    for name in (
+        "_check_text_with_editor_facts",
+        "check_project_editor_diagnostics",
+        "selected_project_paths",
+        "parse_source",
+        "analyze",
+    ):
+        guard(_lsp, name)
+    for name in ("_touch", "_analyse"):
+        guard(_lsp._Server, name)
+    monkeypatch.setattr(_lsp, "format_source", format_source)
+    monkeypatch.setattr(_lsp._Server, "_format", format_once)
+    monkeypatch.setattr(_lsp._Server, "_send", send)
+    messages = session(init(root), batch, later)
+    assert formatted == [messy, alone_text] * 2
+    # The later requests find the root and the file unit analysed, the
+    # file's diagnostics published, and the root's selection, extra paths
+    # and message kept from its analyses, so a formatting that forgot any of
+    # them would show; the first ones find documents, epochs, units to
+    # analyse and a waiting request.
+    assert seen == [(0, 0, 2, 1, 1)] * 2 + [(2, 1, 2, 1, 1)] * 2
+    order = [message.get("id", message.get("method")) for message in messages]
+    published = order.index("textDocument/publishDiagnostics")
+    # The root analysis that the open schedules holds the symbols request, but
+    # not the formatting of either buffer.
+    assert order.index(2) < order.index(3) < published < order.index(1)
+    assert response(messages, 1)["result"] == symbols
+    assert publishes(messages) == publishes(plain)
+    assert applied(messy, response(messages, 2)["result"]) == A_OK
+    assert applied(alone_text, response(messages, 3)["result"]) == SINGLE
+    for number in (4, 5):
+        assert (
+            response(messages, number)["result"]
+            == response(messages, number - 2)["result"]
+        )
 
 
 def test_protocol_errors_over_a_process() -> None:
