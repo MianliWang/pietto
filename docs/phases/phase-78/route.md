@@ -77,7 +77,10 @@ arithmetic and the remaining types each need their own Gate 1.
 | D78.02 | Value rules: the lead's ARCHITECTURE_DECISION from the SQLite draft's Q4 (first option), not an owner answer; stated to the owner as inform, at the latest before S02 seals | S01 text, S02 refusals, Q0 cells |
 | D78.03 | Target identity and in-process qualification (sheet Q7; SQLite draft Q3 A, Q8) | Q0, S03 |
 | D78.04 | `PIE-B1000` refusals, native errors by `sqlite_errorname`, independent `sql/sqlite*.py` modules: the lead's ARCHITECTURE_DECISION from the SQLite draft's Q5 and Q6, stated to the owner as inform, at the latest before S02 seals | S02, S03; the B2 seam choice is deferred to the B2 Gate 1 (AD78.03) |
-| D78.05 | Cumulative `C80/F240/D2300/S3` from sheet §3.2, Phase78's own ledger; until the owner chooses, D1500, the figure of the option the owner selected, is the stop point | Budget section |
+| D78.05, D78.06 | Cumulative `C80/F240/D2300/S3` from sheet §3.2, Phase78's own ledger, which the owner chose on 2026-11-11 (D78.06), ending the D1500 stop point | Budget section |
+| D78.07 | `scripts/validate.py` declares `--pietto-sqlite-class=qualified`, so the authoritative Gate 2 runs the native cells on the qualified build (owner, 2026-11-11) | S03 write set; Qualification method |
+| D78.08 | The fixed PostgreSQL 18.6 image may run locally for the byte replays, under D77.02's conditions, on the Docker Engine (D77.19) (owner, 2026-11-11) | Qualification method; S03 |
+| D78.09 | Identifiers use a quoting under which an unknown name is an error, with no new premise; no Teach observation; D78.02 and D78.04 stand as stated (owner, 2026-11-11) | S02; support matrix |
 | D76.12, D76.13, D76.15, D76.17 | Extension sync rule; compiled `VERSIONS`; lane resource rules as PL.01 continues them; the D unit | B1 changes no compiled record, so `VERSIONS` stays; extension sync is deferred below |
 
 PL.05 (dependencies, packaging and the shared lane PK) and the editor rows
@@ -97,7 +100,7 @@ coverage, dependencies and the draft allocations of D78.05.
 | Q0 | Gate 0 rebind and probe matrix | None in the repository; the lane's own folder | Records interpreter, `sqlite_version()`, `sqlite_source_id()`, `PRAGMA compile_options` and each raw result; measures the pending cells (NaN and ±Inf into `STRICT` REAL; ±0 under `=`, GROUP BY, DISTINCT, `min`, `max`; `NULLS FIRST`/`LAST`; non-ASCII `Text` order; `Bool` in `STRICT` INTEGER; result types of `count`, `min`, `max`); repeats the build observation in the Gate 0 integration environment and on the CPython 3.12.13 on `PATH` | Gate 0 on the published D77.04 head `ab972f36` and its CI (PL.02); no probe cell runs before it | 0/0/100/0 |
 | S01 | SQLite rules text | `docs/language.md` (a new SQLite section; the connector paragraph names `sqlite.table`); `docs/release-notes.d/78-s01-sqlite-single-file.md` | `scripts/release_notes.py check`; the existing docs owners; every `pietto` block as `pietto fmt` writes it; each stated rule matches a Q0 cell | Q0 | 10/30/150/1 |
 | S02 | Single-file emitter and CLI dialect | New `src/pietto/sql/sqlite*.py`; `src/pietto/cli.py` (`_select_sql_emitter`); the SQLite entries, added only on top of the integrated Phase79 S02 lines and charged to this ledger (AD78.03), in `src/pietto/semantic/source_connectors.py` (`sqlite.table`), `src/pietto/ir/lowering.py`, the `cli.py` dialect set `_ENABLED_SQL_DIALECTS` and the `src/pietto/parser_api.py` header `dialect` hint set; `docs/spec/cli-json-v1.md`; `docs/spec/diagnostics.md` (the PIE-B1000 row); new `tests/test_sql_sqlite_emission.py`; new `tests/fixtures/golden/emit_sqlite_*` with `scripts/check_goldens.py`; in-place edits of `tests/test_sql_mysql_golden_corpus.py` and the existing header-hint owner; the S01 fragment | Focused pytest; Ruff; Pyright on `src` and on the changed tests (lesson 72-1); `scripts/check_goldens.py`, each new golden reviewed by a human with its input; repository-wide owners on the integrated tree (72-2); PostgreSQL and MySQL bytes of the existing goldens and documentation examples unchanged; each B1 form emits or refuses with its listed text; `tests/test_execution_api_postgres_rows.py:616` unchanged; the AD78.03 firewall still keeps `sqlite` out of the project PostgreSQL/MySQL pipeline | S01; Phase79 S02 in the integration tree | 30/90/800/1 |
-| S03 | In-process qualification | New `tests/test_sql_sqlite_native.py`; a flat `tests/_pietto_sql_sqlite_*.py` helper only if shared; `tests/conftest.py` if an environment class option is needed; `docs/spec/validation-runner-acceptance-v1.md` (a new domain row); `docs/development.md` (SQLite target validation); `ci/workloads.toml` only if the CI workload governance requires a declaration | Native cells against oracles written before the run; a fabricated-output self-test fails every fail-open shape (72-4); PostgreSQL replays bind the bytes they ran (72-5); a forged non-qualified build is refused; skips are counted beside passes (75-3); a failed cell is first a question about its judge (74-1); a form without a passing cell ships refused (73-6). The runner-acceptance specification, `docs/development.md` and `ci/workloads.toml` are VR2 acceptance rule paths, so the B1 batch runs its whole Gate 2 on the integration host, and under the owner's 2026-10-27 decision its natural CI is not recorded as a new bootstrap, so the Teach split stays void (PL.05, [validation runner acceptance](../../development.md#validation-runner-acceptance)) | S02 | 25/75/600/1 |
+| S03 | In-process qualification | New `tests/test_sql_sqlite_native.py`; a flat `tests/_pietto_sql_sqlite_*.py` helper only if shared; `tests/conftest.py` if an environment class option is needed; `scripts/validate.py` (the `--pietto-sqlite-class=qualified` declaration, D78.07); `docs/spec/validation-runner-acceptance-v1.md` (a new domain row); `docs/development.md` (SQLite target validation); `ci/workloads.toml` only if the CI workload governance requires a declaration | Native cells against oracles written before the run; a fabricated-output self-test fails every fail-open shape (72-4); PostgreSQL replays bind the bytes they ran (72-5); a forged non-qualified build is refused; skips are counted beside passes (75-3); a failed cell is first a question about its judge (74-1); a form without a passing cell ships refused (73-6). The runner-acceptance specification, `docs/development.md`, `scripts/validate.py` and `ci/workloads.toml` are VR2 acceptance rule paths, so the B1 batch runs its whole Gate 2 on the integration host, and under the owner's 2026-10-27 decision its natural CI is not recorded as a new bootstrap, so the Teach split stays void (PL.05, [validation runner acceptance](../../development.md#validation-runner-acceptance)) | S02 | 25/75/600/1 |
 | S04 | B1 closeout | `docs/capabilities.md` (a new SQLite section, not new columns); the fragment's known limitations; this route (B1 record and B2 handoff); the roadmap freeze ledger; `docs/status.md` | B1 acquisition review against the B1 base; docs owners; CI health and alerts read; Gate 2 duration recorded | S03; publication after DuckDB B1 | 10/30/250/0 |
 | B2 | Project mode | Its own Gate 1 | — | The AD78.03 seam (Phase79 S02 and S03); Phase77 S26/S27 | own ledger |
 
@@ -126,9 +129,10 @@ after the midpoint passes.
 
 **Unfreeze conditions.** These need the owner: a form beyond D78.01; a new
 `PIE-*` code or a public text outside the rows S02 lists; a dependency,
-container, database run or network access; executing SQL in the product or
-opening a caller's file; project mode; an extension-repository push; a change
-of the AD78.02 publication order; any ledger cap.
+container, database run or network access beyond the PostgreSQL byte replays
+of D78.08; executing SQL in the product or opening a caller's file; project
+mode; an extension-repository push; a change of the AD78.02 publication
+order; any ledger cap.
 
 **B1 closure.** S01–S04 are accepted on the integration tree, Gate 2 passes
 on the batch tree, and the batch publishes after the `0.1.11` cut and after
@@ -157,17 +161,20 @@ raw result. Oracles are Pietto-owned expected results written before the
 run, `src/pietto/_project/project_bag_null_oracle.py`, and byte replays of
 existing PostgreSQL outputs in the D76.09 (1) shape: re-emit the PostgreSQL
 statement, compare bytes, and reuse its saved result only when the bytes are
-unchanged. A new PostgreSQL or MySQL run is outside Phase78's authority and
-stops the lane. Controls cover NULLs, ±0, `Text` case and non-ASCII order,
-`Int` extremes, `Bool` values and row permutations, as a finite matrix rather
-than every permutation.
+unchanged. A new PostgreSQL run is authorized only to produce these replays,
+with the fixed PostgreSQL 18.6 image under D78.08; a MySQL run is outside
+Phase78's authority and stops the lane. Controls cover NULLs, ±0, `Text`
+case and non-ASCII order, `Int` extremes, `Bool` values and row
+permutations, as a finite matrix rather than every permutation.
 
 The new runner-acceptance domain row states its premise (the exact build
 triple) per runner; row 3 (job-store storage) is not borrowed. As in the
 job-store storage classes ([development](../../development.md)), hosted CI
 asserts the refusal, a run meant to provide the build fails when it is
-absent, and any other run prints a counted skip line. SQL byte and golden
-tests run everywhere.
+absent, and any other run prints a counted skip line. The authoritative
+Gate 2 is a run meant to provide the build: `scripts/validate.py` declares
+`--pietto-sqlite-class=qualified` (D78.07). SQL byte and golden tests run
+everywhere.
 
 ## External reference
 
@@ -247,7 +254,7 @@ a rule for a whole documentation and tool batch, does not cover it.
 | 9 | Versioning and migration | CLI JSON stays schema version 1 with one more successful `dialect` value; no compiled record changes, so `VERSIONS` stays (D76.13); no migration; the header `dialect` hint text for `sqlite` changes and is listed |
 | 10 | Target requirements versus provider capabilities | Requirements are the premises and forms; provider evidence is the measured triple. A dialect name or version never implies support; other builds are not qualified, not unsupported. The capability section states check, emission, execution (none) and result reading (none) |
 | 11 | Interchange | SQL text and CLI JSON cross the process boundary; no data, Arrow or files cross it; the compile API is unchanged |
-| 12 | Execution | None in the product. Test-only in-process runs are authorized under D78.03, with no Docker, lock or network |
+| 12 | Execution | None in the product. Test-only in-process runs are authorized under D78.03, with no Docker, lock or network; the PostgreSQL byte replays run the fixed PostgreSQL 18.6 image under D78.08 |
 | 13 | Resource lifecycle | Product: none. Tests open and close each connection themselves and keep files under the pytest base temporary directory; a failure leaves nothing outside it |
 | 14 | Security and trust | No untrusted database bytes are opened (deferred to its own Gate 1); the emitter writes no `ATTACH`, `PRAGMA` or extension loading; names are quoted per part; the build triple is the trust input of every qualification claim |
 | 15 | Algorithms and data structures | The existing IR walk and a direct tree renderer in the MySQL module shape; nothing new |
@@ -265,15 +272,15 @@ a rule for a whole documentation and tool batch, does not cover it.
 | 27 | Release, deprecation, and EOL | Publishes after the `0.1.11` cut and DuckDB B1, each push separately authorized; rides the `0.2.0` line as an alpha surface listed in release notes and the freeze ledger; rollback is an ordinary revert; no deprecation |
 | 28 | Readiness and exact deferred owners | Prerequisites: the published D77.04 head with CI, bound as `ab972f36` (PL.02); Q0; Phase79 S02 before S02. Deferred: B2 project mode (Phase78 B2 Gate 1); execution and file trust (its own Gate 1, Phase78 lead); arithmetic, division by zero, other types, JOINs, windows (B2 or later Gates 1); the SQLite capability-facts profile (editor capability-facts Gate 1); extension sync (extension lane after its authorization, before the release request carrying B1); third whole-tree test pass (own ledger, after Phase77 S27, before the Phase78 completion audit); Phase77 audit (Phase77 S27) |
 | 29 | Slice route | Q0 → S01 → (Phase79 S02) → S02 → midpoint → S03 → S04; non-goals as in the scope table |
-| 30 | Repair and stop conditions | D78.05 ceiling and its D1500 stop point; stop at any cap, unproved build or input identity, a needed new code, public text, dependency, database run or extension push, a trust regression, or a replay that changes a Phase77 meaning. Failed candidates and runs are preserved; no commit or push without authorization |
+| 30 | Repair and stop conditions | D78.05 ceiling, as the owner chose it (D78.06); stop at any cap, unproved build or input identity, a needed new code, public text, dependency, database run beyond D78.08 or extension push, a trust regression, or a replay that changes a Phase77 meaning. Failed candidates and runs are preserved; no commit or push without authorization |
 
 ## Budget
 
 `C80/F240/D2300/S3`, recorded from sheet §3.2, is the cumulative B1 ceiling
 (D78.05), not a target or a per-slice allowance. The option the owner selected
-stated `D1500`, so until the owner chooses, the lead stops and asks when
-Phase78's cumulative D reaches 1500. The slice allocations above sum to
-`C75/F225/D1900/S3`, above that stop point; `D400` is the replay reserve and
+at Gate 1 stated `D1500`, and on 2026-11-11 the owner chose `D2300`, which
+ends that stop point (D78.06). The slice allocations above sum to
+`C75/F225/D1900/S3`; `D400` is the replay reserve and
 `C5/F15` is unallocated. D counts one per diagnostic command, and a loop
 inside one command counts once (D76.17). The planning entry charged to Q0 is
 the SQLite draft's 31 and this route's drafting 35 shell commands, plus any
@@ -281,5 +288,5 @@ later fix of this route and Phase78's share of the shared passes after the
 approval. PL.06 records the shared sheet, critique, review, consolidation and
 fix-pass commands once and keeps those before the approval on Phase77. The
 lead keeps the running ledger; each lane reports its checks and repairs to
-the integrator. At any cap or stop point the lead stops and asks; no handoff
-or lane resets the ledger.
+the integrator. At any cap the lead stops and asks; no handoff or lane
+resets the ledger.

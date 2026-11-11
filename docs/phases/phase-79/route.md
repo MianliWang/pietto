@@ -146,7 +146,10 @@ deferrals table.
 | D79.05 | **Emission contract.** The target is `{"family": "duckdb", "release": "2.0.0"}` (D79.02), each source has `scan: "arrow_registration"`, and `MAX_PARAMETERS` has DuckDB's own limit (pending S00). This is a public compatibility change. | Q8 A |
 | D79.06 | **Session hardening.** Extensions are never installed or loaded automatically. External access is off. Replacement scans are off. `threads` and `memory_limit` are explicit. Nothing spills to a temporary directory. The configuration is locked and read back. If any item cannot be proven on the pin, the route is refused. | Q8 A |
 | D79.07 | **Qualification.** An in-process native matrix runs on the integration host, with no Docker and no engine lock, under a new runner-acceptance domain row. Natural CI installs the pinned duckdb into `arrow-ready`. | Q3 A; draft G7 A |
-| D79.08 | **Budget.** `C120/F360/D4100/S4` from sheet §3.2, plus a half share of PK `C40/F120/D1200/S4` (PL.05). Until the owner chooses, D1800, the lower plausible reading of the option the owner selected (lead, inform), is the stop point. | §3.2; the selected option |
+| D79.08, D79.09 | **Budget.** `C120/F360/D4100/S4` from sheet §3.2, plus a half share of PK `C40/F120/D1200/S4` (PL.05). The owner chose it on 2026-11-11 (D79.09), which ends the D1800 stop point that the lead had taken as the lower plausible reading of the option selected at Gate 1. | §3.2; the owner's answer of 2026-11-11 |
+| D79.10 | **Outcome values.** The S04 candidate's provisional `duckdb_arrow` outcome values, the details `DUCKDB_RESULT_CHECK` and `DUCKDB_ARROW_CAPTURE_COPY`, the failure phase names `driver`, `session`, `query`, `result`, `delivery`, `finalization` and `consumer`, and the PIE-R5001 cleanup entry names `unregister` and `close` are accepted; a name outside these lists, or a later change, goes back to the owner. | the owner's answer of 2026-11-11 |
+| D79.11 | **PyArrow missing or another release.** PIE-R2001 or PIE-R2002, raised as `RequestRejected`, as on the other Arrow routes; `execution.md` changes its category sentence. | the owner's answer of 2026-11-11 |
+| D79.12 | **Informs.** The D79.01 refusal mapping, the D79.04 `-0.0` admission and the spec's derived items (namespace `"arrow"`, `arrow_*` storage kinds, `Text` ordering `"C"`, parameter limit 65,535) stand. The lead also stated AD79.01 to the owner on 2026-11-11, as inform: it stays the lead's decision, and an objection from the owner before S04 seals reopens it. | the owner's answer of 2026-11-11; the lead's statement of 2026-11-11 |
 | AD78.03 | **Third-dialect seam (ARCHITECTURE_DECISION).** DuckDB gets an independent adapter with its own SQL AST, renderer and artifact verifier. It consumes `ProjectSQLPlan`, with dispatch at the CLI, `compiler._emit` and `compile_query`. The PostgreSQL/MySQL pipeline never receives `"duckdb"` or `"sqlite"`. A family firewall test reruns on the integration tree at every replay. S02 lands the shared connector and dialect-set hunks first; Phase78 S02 adds its SQLite entries only after that, serially, so those lines have one writer at a time. Assumption: `ProjectSQLPlan` is target-neutral. Not taken: threading a third family through the existing pipeline (B), or a general dialect registry (C). | Q9 A |
 | AD79.01 | **Failure ownership (lead ARCHITECTURE_DECISION, inform).** DuckDB runtime errors become the existing `AttemptFailed`/`Failure` with phase, type name, `sqlstate=None` and `vendor=None`, as `MySQLFailure` does. An interrupt counts as cancellation. An overflow is a native target failure, with no new PIE promise. | draft G5 |
 
@@ -313,11 +316,10 @@ a rule for a whole documentation and tool batch, does not cover it.
 
 The cumulative ceiling is `C120/F360/D4100/S4`, recorded from sheet §3.2,
 which includes the D800 replay reserve (D79.08). The option the owner selected
-named no figure; the lower plausible reading of it (lead, inform) is the
-DuckDB proposal's `D1800`, so until the owner chooses, the lead stops and
-asks when Phase79's own
-cumulative D reaches 1800. It is Phase79's ledger, not Phase77's, and no
-handoff or lane resets it. The shared PK ledger, `C40/F120/D1200/S4`, is
+at Gate 1 named no figure, and the lower plausible reading of it, the DuckDB
+proposal's `D1800`, was the stop point until 2026-11-11, when the owner chose
+`D4100` (D79.09). It is Phase79's ledger, not Phase77's,
+and no handoff or lane resets it. The shared PK ledger, `C40/F120/D1200/S4`, is
 borne half by Phase79 and half by Phase80 (PL.05). D counts one per
 diagnostic command, and a loop inside one command counts once (D76.17). The
 planning entry charged here is the DuckDB draft's 33 and this route's
@@ -425,8 +427,8 @@ Failed candidates, probes and runs stay in the ledger.
 | Other Phase79 work: multi-source, JOIN, aggregation, windows, ORDER BY and LIMIT, more parameters, `Decimal`, temporal, `UUID` and nested types, bundles, saved, relay and job routes, an install workflow, engine cancellation beyond B1 | Later Phase79 Gate 1s | The Phase82 freeze lists each one no Gate 1 takes as unsupported |
 | Platforms other than PL.05 | Phase81 | Its Gate 1 |
 | Reminder 8 (JOIN facts, forged compiled `median`) | Satisfied by exclusion: B1 has no JOIN and no new consumer of compiled admission, since bundles are refused | The first Phase79 slice that admits either |
-| Stating AD79.01 to the owner (inform) | The lead | Before S04 seals |
-| Stating the D79.01 refusal-code mapping and the D79.04 `-0.0` admission to the owner (inform) | The lead | Before S01 binds |
+| Stating AD79.01 to the owner (inform) | The lead; stated on 2026-11-11 (D79.12) | Before S04 seals |
+| Stating the D79.01 refusal-code mapping and the D79.04 `-0.0` admission to the owner (inform) | The lead; stated on 2026-11-11, and both stand (D79.12) | Before S01 binds |
 
 ## Initiation-gate checklist
 
@@ -461,4 +463,4 @@ Failed candidates, probes and runs stay in the ledger.
 | 27 | Release, deprecation and EOL | No Phase79 code, test, golden, extra, lock change or release-note fragment reaches `main` before the `0.1.11` cut; route and decision records (documentation only, with no code and no release-note fragment) may reach it earlier, in a Phase77 batch under D77.06 or a documentation batch under D77.14 (PL.04). B1 counts toward `0.2.0`, whose gate and release are approved separately. Nothing is deprecated. A failed head is kept and repaired by a child. |
 | 28 | Readiness and exact deferred owners | Ready: Gate 0 is bound to `ab972f36`; S00's remaining cells come before S01. Every deferral is in the table above with its owner and latest point. |
 | 29 | Slice route | S00–S08 as above, with their write sets, checks, dependencies and non-goals. |
-| 30 | Repair and stop conditions | `C120/F360/D4100/S4` plus half of PK with the D1800 stop point (D79.08), the midpoint, the unfreeze conditions and the stops above. Each publication is authorized on its own, and failures are preserved. |
+| 30 | Repair and stop conditions | `C120/F360/D4100/S4` plus half of PK (D79.08, D79.09), the midpoint, the unfreeze conditions and the stops above. Each publication is authorized on its own, and failures are preserved. |

@@ -250,7 +250,7 @@ installed cells.
 | Slice | Delivers | Depends on | Draft C/F/D/S |
 | --- | --- | --- | --- |
 | P0b | Probe. Done on 2026-11-10 (PL.05): exact versions, hashes and closures; on CPython 3.13.13, the int64, bool, float64, string, decimal128(10,2), date32 and timestamp[us] matrices with nulls, NaN, ±0 and both typed-empty shapes for pandas, Polars, NumPy and dense SciPy input, and Matplotlib's import effects. Remaining after Gate 0, offline in the probe's venv: int16 and int32, large_string, decimal128 at p = 38, the refusals of decimal256, UUID and nested fields, the pyplot-free `Figure()` path, and `csr_array` built from coordinate triplets with explicit zeros kept and int32 indices. Evidence only; the integrator copies the results into this route | Fetch and install: done before Gate 0 under PL.05 (a) (sheet Q3 A, owner 2026-11-10); remaining cells: Gate 0, before PK seals | 5/15/300/1 |
-| S01 | `pietto.interop` seam: lazy package, argument and closed-batch checks, error order, report checker, guide skeleton | Gate 0, D80.02, D80.04, AD80.01; the lead states the D80.02 Python-user-surface wording to the owner (inform) before S01 seals | 10/30/300/1 |
+| S01 | `pietto.interop` seam: lazy package, argument and closed-batch checks, error order, report checker, guide skeleton | Gate 0, D80.02, D80.04, AD80.01; the D80.02 Python-user-surface wording, stated to the owner as inform, stands (D80.08) | 10/30/300/1 |
 | S02 | pandas and Polars | S01; P0b before its qualification | 35/105/1000/2 |
 | S03 | NumPy | S01; P0b before its qualification | 15/45/400/1 |
 | S04 | SciPy | S01; P0b before its qualification | 20/60/500/2 |
@@ -423,6 +423,6 @@ cells.
 | 25 | Packaging | New `src/pietto/interop/` in the wheel file list; five extras; `uv.lock` regenerated on the integration tree; one hash allowlist; no generated file; the core dependency unchanged. |
 | 26 | Support matrix | CPython 3.12 and 3.13, Linux x86-64, glibc ≥ 2.28, `pietto[arrow,interop-X]`; other route extras under the same-PyArrow assumption; no Windows, macOS or 3.14 claim. |
 | 27 | Release | `0.2.0`, never before the `0.1.11` cut; alpha until Phase82; a failed row stays refused; breaking changes before 1.0 follow D76.13; release, tag and upload need their own approval. |
-| 28 | Readiness and deferrals | Prerequisites: D77.04 publication with natural CI, bound as `ab972f36` (PL.02); P0b's remaining cells; PK. Inform: the lead states the D80.02 Python-user-surface wording to the owner before S01 seals. Deferrals: the completion-audit item (Phase77 S27; PL.01) and D80.06's candidates with their roadmap and freeze-ledger points. |
+| 28 | Readiness and deferrals | Prerequisites: D77.04 publication with natural CI, bound as `ab972f36` (PL.02); P0b's remaining cells; PK. Inform: the D80.02 Python-user-surface wording was stated to the owner on 2026-11-11 and stands (D80.08). Deferrals: the completion-audit item (Phase77 S27; PL.01) and D80.06's candidates with their roadmap and freeze-ledger points. |
 | 29 | Slice route | P0b → S01 → S02–S05 → S06, with PK-80 beside them; batches IB1 and IB2. |
 | 30 | Repair and stop | The budget above; stop for a cap, an unproved row, a package or platform mismatch, a trust or compatibility change, or a repair that widens the table; failed candidates and evidence are kept; pushes need per-batch authorization. |

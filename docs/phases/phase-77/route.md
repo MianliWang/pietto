@@ -48,9 +48,10 @@ S26/S27 are phase-wide acquisition/audit work: they run only after both
 groups are complete or an owner decision records each retained exception.
 Keeping S21–S24 numbered avoids treating unfinished nested work as resolved.
 
-`C280/F850/D25000/S12` is the approved cumulative ceiling for the complete
-27-slice route (D77.02, D raised by D77.03 and D77.05), not a target or a per-group allowance. No handoff or
-lane resets it. Each lane reports its checks and repairs to the integrator.
+`C280/F850/D35000/S12` is the approved cumulative ceiling for the complete
+27-slice route (D77.02, D raised by D77.03, D77.05 and D77.18), not a target
+or a per-group allowance. No handoff or lane resets it. Each lane reports its
+checks and repairs to the integrator.
 
 Out of scope: `string_agg`, project FULL JOIN emulation, median/quantile
 emulation, arbitrary-depth nesting, new syntax, general optimization, SQL
