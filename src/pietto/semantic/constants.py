@@ -184,9 +184,12 @@ def _set_value(type_name: str, text: str) -> _Value | None:
 
 def _expression(type_name: str, value: _Value, span: Span) -> Expression:
     """The expression a read of a constant of ``value`` stands for, as it
-    would be written there: a negative number keeps its minus sign."""
+    would be written there: a negative number keeps its minus sign, as
+    `-0.0` does."""
 
-    if type_name in {"Int", "Float"} and cast(int | float, value) < 0:
+    if (type_name == "Int" and cast(int, value) < 0) or (
+        type_name == "Float" and math.copysign(1.0, cast(float, value)) < 0
+    ):
         return UnaryExpr(
             span=span,
             operator="-",

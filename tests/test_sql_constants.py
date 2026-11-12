@@ -90,3 +90,19 @@ def test_set_values_emit_the_bytes_of_the_same_source_values(dialect: str) -> No
     (limit_n,) = (item for item in negative.constants if item.name == "limit_n")
     assert type(limit_n.value) is UnaryExpr
     assert limit_n.value.span == parsed(source).constants[4].value.span
+
+
+@pytest.mark.parametrize("dialect", ["postgres", "mysql"])
+def test_a_negative_zero_reads_as_written(dialect: str) -> None:
+    query = (
+        "query q:\n    from events\n    select:\n        id\n"
+        "        flipped = -{v}\n        scaled = amount * {v}\n"
+    )
+    shape = SHAPE.format(dialect=dialect)
+    written = _sql(parsed(shape + query.format(v="(-0.0)")), dialect)
+
+    for constant, settings in (("-0.0", ()), ("1.0", (("flip", "-0.0"),))):
+        source = shape + f"flip: Float = {constant}\n\n" + query.format(v="flip")
+        sql = _sql(override_constants(parsed(source), settings), dialect)
+        # PostgreSQL would read `--0.0` as a comment and drop the column.
+        assert sql == written and "--" not in sql

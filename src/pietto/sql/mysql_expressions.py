@@ -268,7 +268,11 @@ def _render_mysql_expression(expression: ExpressionIR, *, nested: bool) -> str:
             expression.operator,
             "unary",
         )
-        sql = f"{operator}{_render_mysql_expression(expression.operand, nested=True)}"
+        operand = _render_mysql_expression(expression.operand, nested=True)
+        # A negative literal gets parentheses: `--` may start a comment.
+        if operand.startswith(("-", "+")):
+            operand = f"({operand})"
+        sql = f"{operator}{operand}"
     elif isinstance(expression, BinaryIR):
         if expression.operator == "%" and _builtin_type_name(expression) == "Float":
             raise MySqlRenderError("MySQL Float remainder is not qualified")

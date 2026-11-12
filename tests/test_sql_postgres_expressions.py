@@ -837,3 +837,11 @@ def test_expression_renderer_remains_internal_and_dependency_isolated() -> None:
     # Scalar ANY reads the checked `ExistsIR.connector`, as the relation emitter
     # reads `SourceIR.connector`; importing a connector stays forbidden.
     assert not any("connector" in name for name in imported)
+
+
+@pytest.mark.parametrize("operator", ["+", "-"])
+def test_unary_ir_parenthesises_a_negative_literal_operand(operator: str) -> None:
+    for value, literal in ((-1.5, "-1.5"), (-0.0, "-0.0"), (-3, "-3")):
+        assert render_expression_sql(_unary(operator, _literal(value))) == (
+            f"{operator}({literal})"
+        )

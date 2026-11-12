@@ -370,7 +370,11 @@ def _render_expression_sql(expression: ExpressionIR, *, nested: bool) -> str:
         if expression.operator == "-":
             _refuse_untyped_null_arithmetic(expression.operator, expression.operand)
         _refuse_text_null_operand(f"operator {expression.operator}", expression.operand)
-        sql = f"{operator}{_render_expression_sql(expression.operand, nested=True)}"
+        operand = _render_expression_sql(expression.operand, nested=True)
+        # A negative literal gets parentheses: `--` may start a comment.
+        if operand.startswith(("-", "+")):
+            operand = f"({operand})"
+        sql = f"{operator}{operand}"
     elif isinstance(expression, BinaryIR):
         if expression.operator == "%" and _builtin_type_name(expression) == "Float":
             # E5's exact binary64 lowering is a PostgreSQL project feature;
