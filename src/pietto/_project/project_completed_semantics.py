@@ -3708,7 +3708,15 @@ def derive_compiled_semantics(root, values, parameters=None):
                         )
                     elif role == "membership":
                         realized, problem = physical.resolved_membership_realization(
-                            family, tag, nullable, inputs
+                            family,
+                            tag,
+                            nullable,
+                            inputs,
+                            row_option_pair=_compiled_reads_row(records, operands[0])
+                            and any(
+                                _compiled_reads_row(records, child)
+                                for child in operands[1:]
+                            ),
                         )
                     elif role == "cast":
                         realized, problem = physical.resolved_cast_realization(
@@ -3891,6 +3899,7 @@ def derive_compiled_semantics(root, values, parameters=None):
                 "Bool",
                 True,
                 (left.require_realization(), facts[columns[0]].require_realization()),
+                row_option_pair=False,
             )
             if realized is None or problem is not None:
                 raise CompiledError("COMPILED_PHYSICAL_DOMAIN")
@@ -5102,6 +5111,14 @@ def verify_compiled_semantics(value):
                             typed.resolved_type.name,
                             NULLABILITY[typed.nullability],
                             tuple(item.realization for item in inputs),
+                            row_option_pair=any(
+                                _compiled_reads_row(records, child)
+                                for child in children[:1]
+                            )
+                            and any(
+                                _compiled_reads_row(records, child)
+                                for child in children[1:]
+                            ),
                         )
                         need(
                             realization is not None and problem is None,
@@ -5330,7 +5347,7 @@ def verify_compiled_semantics(value):
             pair = (left.realization, columns[0].realization)
             need(all(type(r) is Realization for r in pair), "SEMANTIC_DOMAIN")
             realization, problem = physical.resolved_membership_realization(
-                family, "Bool", True, pair
+                family, "Bool", True, pair, row_option_pair=False
             )
             need(realization is not None and problem is None, "SEMANTIC_DOMAIN")
     expected_retention = tuple(

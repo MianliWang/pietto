@@ -1102,9 +1102,13 @@ BLOCKED `group by` and
 EXCEPT, and a Float `==` or `!=` whose two operands both read rows (a JOIN
 `on`, a WHERE comparison across inputs, a correlated
 `any`/`exists`/scalar/capture predicate, or two fields of one row, such as
-`price == cost` or `not (price != cost)`); PostgreSQL emits them. A
-comparison with a literal or a header parameter (`price == 0.0`,
-`price == p`) and every ordering inequality (`price < cost`) emit on both
+`price == cost` or `not (price != cost)`), and a Float `in` or `not in`
+literal list whose value and one of its options both read rows, such as
+`price in (cost, 0.0)`, as each option stands for an `==` with the value;
+PostgreSQL emits them. A comparison with a literal or a header parameter
+(`price == 0.0`, `price == p`), a literal list whose value reads no row or
+whose options read none (`0.0 in (price, cost)`, `price in (0.0, -0.0)`)
+and every ordering inequality (`price < cost`) emit on both
 dialects. On MySQL 8.4.12, DISTINCT, GROUP BY and UNION DISTINCT kept
 `-0.0` and `0.0` apart beside a `VARCHAR(1000)` or wider key, INTERSECT and
 EXCEPT compared them as different values, and a semijoin forced to

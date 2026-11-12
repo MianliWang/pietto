@@ -2174,7 +2174,12 @@ def _membership(request, columns, expression, tag, nullable, uses, reference_typ
         return None, problem
     realized = tuple(realization_of(value, request.family) for value in values)
     checked, problem = resolved_membership_realization(
-        request.family, tag, nullable, realized
+        request.family,
+        tag,
+        nullable,
+        realized,
+        row_option_pair=_reads_row(values[0])
+        and any(_reads_row(value) for value in values[1:]),
     )
     if checked is None:
         assert problem is not None
@@ -2204,7 +2209,7 @@ def _relation_membership(
     if tag != "Bool" or nullable is not True:
         return None, ("PIE-B1002", "relation_membership_result_not_nullable_bool")
     checked, problem = resolved_membership_realization(
-        request.family, tag, nullable, (left, column[1])
+        request.family, tag, nullable, (left, column[1]), row_option_pair=False
     )
     if checked is None:
         assert problem is not None
@@ -2213,7 +2218,13 @@ def _relation_membership(
     return SQLBlockRead(expression, target, checked, kind, 0, (value,)), None
 
 
-def resolved_membership_realization(family, tag, nullable, values):
+def resolved_membership_realization(
+    family, tag, nullable, values, *, row_option_pair: bool
+):
+    """``row_option_pair`` is required: the value and a literal-list option
+    both read rows. Each option stands for a Float ``==``, which the comparison
+    law refuses on MySQL when both operands read rows. A relation read has no
+    option and passes False."""
     if not values or tag != "Bool":
         return None, ("PIE-B1003", "membership_realization_not_admitted")
     first = _concrete_values(values)
@@ -2235,6 +2246,8 @@ def resolved_membership_realization(family, tag, nullable, values):
         # narrowing it to the older comparison subset.
         if not _membership_carrier_matches(first, option):
             return None, ("PIE-B1003", "membership_type_pair_not_admitted")
+    if family == "mysql" and first.tag == "Float" and row_option_pair:
+        return None, ("PIE-B1003", "membership_type_pair_not_admitted")
     return _bool(family, nullable), None
 
 

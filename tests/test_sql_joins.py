@@ -2176,6 +2176,60 @@ def test_the_verifier_reads_the_rows_of_a_mysql_float_equality_itself(
     ]
 
 
+FLOAT_ROW_MEMBERSHIPS = {
+    "same_row_not_in": (
+        "    where ratio not in (ratio)\n",
+        " NOT IN (",
+        (10, 5, 10, 31),
+    ),
+    "correlated_any_in": (
+        "    let z = rows\n    where any(z.ratio in (rows.ratio, 1.0) for z in z)\n",
+        " WHERE EXISTS (",
+        (11, 5, 11, 55),
+    ),
+    "correlated_any_in_beside_text": (
+        "    let z = rows\n"
+        "    where any(z.ratio in (rows.ratio) and z.text == rows.text for z in z)\n",
+        " WHERE EXISTS (",
+        (11, 5, 11, 74),
+    ),
+}
+
+
+@pytest.mark.parametrize("target", TARGETS)
+@pytest.mark.parametrize("site", tuple(FLOAT_ROW_MEMBERSHIPS))
+def test_a_float_membership_between_two_row_reads_is_postgres_only(
+    tmp_path, monkeypatch, target, site
+):
+    """Each option of a literal list stands for an `==` with its value, so on
+    MySQL a value and an option that both read rows keep the membership
+    blocker at their WHERE filter; PostgreSQL emits the plain IN. With the
+    builder made to see no row read, the verifier refuses it itself."""
+    from pietto._project import project_sql_emission_rows as rows
+
+    lines, spelling, location = FLOAT_ROW_MEMBERSHIPS[site]
+    body = (
+        "query result:\n    from rows\n"
+        + lines
+        + "    select:\n        a = rows.ratio\n"
+    )
+    outcome = _float_rows(tmp_path / "law", target, body)
+    if target == "postgres":
+        assert outcome.status == "VERIFIED", outcome.blockers
+        assert spelling in public(outcome)["sql"]
+        return
+    assert outcome.status == "BLOCKED" and outcome.artifact is None
+    assert located(outcome) == [
+        ("PIE-B1003", "membership_type_pair_not_admitted", location)
+    ]
+    monkeypatch.setattr(rows, "_reads_row", lambda value: False)
+    forged = _float_rows(tmp_path / "forged", target, body)
+    assert forged.status == "BLOCKED" and forged.artifact is None
+    assert [(b.code, b.detail) for b in forged.blockers] == [
+        ("PIE-B1008", "plan_ast_correspondence")
+    ]
+
+
 @pytest.mark.parametrize("target", TARGETS)
 def test_a_float_equality_with_a_scalar_block_read_is_postgres_only(tmp_path, target):
     """A scalar block read reads rows, so on MySQL `ratio == scalar m.a` keeps
@@ -2204,6 +2258,8 @@ def test_a_float_equality_with_a_scalar_block_read_is_postgres_only(tmp_path, ta
         "    let z = rows\n    where any(z.ratio < rows.ratio for z in z)\n",
         "    let z = rows\n    where any(z.ratio == 0.0 for z in z)\n",
         "    let z = rows\n    where not any(z.ratio == -0.0 for z in z)\n",
+        "    let z = rows\n    where any(z.ratio in (0.0, -0.0) for z in z)\n",
+        "    where 0.0 in (ratio, 1.0)\n",
     ),
 )
 def test_float_inequalities_and_constant_equalities_emit_on_both_targets(

@@ -1387,7 +1387,12 @@ def _row_realization(request, expression, operands, operand_values):
         return result
     if kind == "membership":
         result, problem = rows.resolved_membership_realization(
-            request.family, tag, nullable, operands
+            request.family,
+            tag,
+            nullable,
+            operands,
+            row_option_pair=_reads_row(operand_values[0])
+            and any(_reads_row(value) for value in operand_values[1:]),
         )
         if result is None:
             raise ValueError(problem)
@@ -3307,7 +3312,7 @@ def _verify_block_membership(
     if candidate is None or left.tag != candidate.tag:
         raise ValueError("membership read column")
     checked, _ = rows.resolved_membership_realization(
-        request.family, "Bool", True, (left, candidate)
+        request.family, "Bool", True, (left, candidate), row_option_pair=False
     )
     if checked is None or not _same_realization(value.realization, checked):
         raise ValueError("membership read realization")

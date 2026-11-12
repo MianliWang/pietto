@@ -823,6 +823,55 @@ def test_a_compiled_float_equality_of_two_row_reads_is_refused_on_mysql(
 
 
 @pytest.mark.parametrize("target", ("postgres", "mysql"))
+def test_a_compiled_float_membership_of_two_row_reads_is_refused_on_mysql(
+    tmp_path, target, monkeypatch
+):
+    """`ratio in (ratio, 1.0)`, its option an `==` of two row reads, emitted
+    past the membership law, derives on PostgreSQL only; on MySQL derivation
+    refuses it and the independent verifier refuses a derivation forged past
+    that law."""
+    from pietto._project import project_sql_emission_rows as physical
+    from pietto._project.project_completed_semantics import (
+        derive_compiled_semantics,
+        verify_compiled_semantics,
+    )
+    from pietto._project.project_compiled_schema import CompiledError
+
+    law = physical.resolved_membership_realization
+
+    def admitted(*args, row_option_pair):
+        return law(*args, row_option_pair=False)
+
+    item = emission.fixture(target, "V_row_blocked", "float_comparison")
+    source = item["source"].replace(
+        "same = ratio == ratio", "same = ratio in (ratio, 1.0)"
+    )
+    with monkeypatch.context() as patch:
+        patch.setattr(physical, "resolved_membership_realization", admitted)
+        checked, original = emission.build_case(
+            tmp_path, source, item["contract"], item["policy"]
+        )
+        built = build_compiled(original.artifact)
+    assert checked.verified and original.status == "VERIFIED"
+    root = load_compiled(
+        built.payload,
+        expected_pin=built.pin,
+        accepted_producer=built.producer,
+        accepted_compatibility=built.compatibility,
+    )
+    if target == "postgres":
+        verify_compiled_semantics(derive_compiled_semantics(root, ()))
+        return
+    with pytest.raises(CompiledError, match="^COMPILED_PHYSICAL_DOMAIN$"):
+        derive_compiled_semantics(root, ())
+    with monkeypatch.context() as patch:
+        patch.setattr(physical, "resolved_membership_realization", admitted)
+        derived = derive_compiled_semantics(root, ())
+    with pytest.raises(CompiledError, match="^COMPILED_SEMANTIC_DOMAIN$"):
+        verify_compiled_semantics(derived)
+
+
+@pytest.mark.parametrize("target", ("postgres", "mysql"))
 @pytest.mark.parametrize("variant", ("let_key", "bind"))
 def test_computed_let_determinant_replays_from_compiled_input(
     tmp_path, target, variant

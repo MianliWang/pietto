@@ -102,6 +102,8 @@ def emit_temporal(directory, target, body):
     return emit_project_sql(checked, json.dumps(contract).encode())
 
 
+# MySQL refuses a Float option that reads a row beside a value that reads one
+# (an `==` of two row reads), so the Float membership lists a constant.
 Q1_BODY = """table result:
     from rows
     let lowered = lower(text)
@@ -116,7 +118,7 @@ Q1_BODY = """table result:
     let selected = id in (id, id)
     let text_membership = text in (text)
     let decimal_membership = money in (money)
-    let float_membership = ratio in (ratio)
+    let float_membership = ratio in (-0.0)
     let empty_selected = flag in ()
     let empty_excluded = flag not in ()
     let unknown_excluded = flag not in (flag)
@@ -1060,7 +1062,7 @@ def test_q1_membership_refuses_types_without_a_reviewed_sql_equality(tag):
         {"kind": "unreviewed"},
     )
     result, problem = rows.resolved_membership_realization(
-        "postgres", "Bool", False, (value, value)
+        "postgres", "Bool", False, (value, value), row_option_pair=False
     )
     assert result is None
     assert problem == ("PIE-B1003", "membership_type_pair_not_admitted")
@@ -1886,7 +1888,7 @@ def test_q1_text_carrier_rejects_collation_tampering(family, storage, domain):
     )
     literal = rows.Realization("Text", storage, False, domain)
     result, problem = rows.resolved_membership_realization(
-        family, "Bool", False, (field, literal)
+        family, "Bool", False, (field, literal), row_option_pair=False
     )
     assert result is None
     assert problem == ("PIE-B1003", "membership_type_pair_not_admitted")
