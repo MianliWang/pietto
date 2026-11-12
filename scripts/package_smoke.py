@@ -545,6 +545,7 @@ def _smoke_installed_lsp(
     capabilities = {
         "positionEncoding": "utf-16",
         "textDocumentSync": {"openClose": True, "change": 1},
+        "completionProvider": {},
         "hoverProvider": True,
         "definitionProvider": True,
         "documentSymbolProvider": True,

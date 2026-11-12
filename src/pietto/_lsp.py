@@ -17,6 +17,7 @@ from types import MappingProxyType
 from typing import BinaryIO, Mapping, Protocol
 from urllib.parse import unquote, urlsplit
 
+from pietto._editor_completion import completion_items
 from pietto._editor_facts import (
     EditorDeclaration,
     EditorFacts,
@@ -245,6 +246,19 @@ class _Server:
                 self._send_editor_result(held_id, held_method, None)
             self.held = []
             self._send({"jsonrpc": "2.0", "id": request_id, "result": None})
+        elif method == "textDocument/completion":
+            # Answered at once: the static vocabulary and the identifiers of
+            # the open buffer but the one being typed. A refused document's
+            # text is no longer the editor's buffer.
+            uri = _field(params, "textDocument").get("uri")
+            position = _position(params)
+            if isinstance(uri, str) and position is not None:
+                document = self.documents.get(uri)
+                text = None if document is None or document.refused else document.text
+                result = completion_items(text, position["line"], position["character"])
+                self._send({"jsonrpc": "2.0", "id": request_id, "result": result})
+            else:
+                self._error(request_id, -32602, "Invalid params")
         elif method == "initialize":
             self._error(request_id, -32600, "Server is already initialized")
         elif method == "textDocument/formatting":
@@ -309,6 +323,7 @@ class _Server:
                     "capabilities": {
                         "positionEncoding": "utf-16",
                         "textDocumentSync": {"openClose": True, "change": 1},
+                        "completionProvider": {},
                         "hoverProvider": True,
                         "definitionProvider": True,
                         "documentSymbolProvider": True,

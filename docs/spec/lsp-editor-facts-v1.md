@@ -4,7 +4,8 @@ ED.02 approves the standard-LSP, ephemeral-snapshot direction for the selected
 editor work: hover, go-to-definition and document symbols. ED.03 adds
 [workspace symbols and document links](#workspace-symbols-and-document-links),
 which read the same snapshots, and [formatting](#formatting) of the open
-buffer, which reads none. This
+buffer and [completion](#completion) from a static vocabulary and, under
+ED.09, the open buffer's identifiers, which read none. This
 alpha contract is implemented by `pietto lsp`. It adds no CLI command, JSON
 artifact, or post-alpha compatibility promise. [LSP diagnostics
 v1](lsp-diagnostics-v1.md) continues to specify the diagnostic protocol.
@@ -18,7 +19,9 @@ of one current document or project epoch. It answers the standard LSP
 `workspace/symbol` requests, the fact requests, only from such snapshots. The
 fact requests do not parse, analyze, check a project, build IR,
 read disk, select a root, or fall back to a name lookup. Formatting, the one
-request that parses, parses only its own buffer.
+request that parses, parses only its own buffer. Completion reads no snapshot,
+disk file or root and parses nothing: it answers one fixed vocabulary and the
+identifiers of the request's open buffer.
 
 The snapshot is not serialized, returned as an artifact, retained across a
 server session, or shared with another process. It holds detached values only:
@@ -239,12 +242,88 @@ two URIs formats each buffer apart and no root, URI or buffer wins. Range and
 on-type formatting are not provided. `fmt` output may change before the
 Phase82 freeze (D75.05), and the edit follows it.
 
+## Completion
+
+ED.03 replaces D75.09's "no completion" with completion from a static
+vocabulary, and ED.09 adds the identifiers of the open buffer. The server
+answers `textDocument/completion` as soon as it reads the request. It never
+holds the request for an analysis and reads no snapshot, disk file, project
+root, configuration or other document. Its one input besides the vocabulary
+is the server's current text of the request's URI, when that URI is open and
+its text is not refused; it finds that text's identifiers with one
+regular-expression scan and the request's position with one line-break scan,
+runs no generated lexer, and parses and analyses nothing. The result is one
+`CompletionItem[]`, which LSP reads as a complete list, and the position
+changes it only by the word being typed (below). Each item has only a `label`
+and a `kind`, in this order:
+
+1. the keywords that accepted source writes, with kind `14` (Keyword);
+2. the builtin types of the core catalog, with kind `7` (Class);
+3. its scalar functions, with kind `3` (Function);
+4. its aggregates, with kind `3` (Function);
+5. the identifiers of the open buffer that are not a label of groups 1–4,
+   with kind `1` (Text).
+
+Groups 1–4 are the same for every URI for the whole session. Each group is in
+code-point order. The keywords are the words of the
+generated lexer's literal names, with `True` and `False`, whose lexer rules
+each have two spellings and so no literal name. Left out are the words that
+no accepted source writes as a keyword, which `pietto check` refuses there
+(PIE-P1000): the retired header words `pietto`, `mode`, `dialect`, `encoding`,
+`loose`, `checked` and `strict`, and `satisfying`, `semi`, `anti`, `cast`,
+`null`, `nullable`, `endpoint` and `via`. A header word may still be a name,
+and `encoding` a type argument name, but neither is offered as one. A soft
+keyword is one keyword item, although source may also write it as a name.
+The types are the builtin scalar names. The scalar functions are the closed
+scalar catalog and its special forms (`coalesce`, `concat`, `now` and the
+others). The aggregates are the aggregate family and the group tests `any`
+and `all`. A word that is both a keyword and an aggregate (`all`, `any`,
+`first` and `last`) is one item of each kind: groups 1–4 deduplicate nothing
+by spelling.
+
+The identifiers are the distinct texts of the buffer's `IDENTIFIER` tokens as
+the generated lexer reads them: ASCII letters, digits and `_`, starting with a
+letter or `_`, outside comments, string literals and numbers, and not a word
+that the lexer reads as a keyword (`true` and `false` included). They are
+whatever the buffer writes, such as fields, `let` bindings, declarations,
+parameters, relation and imported names, connector names such as `postgres`,
+and names that resolve to nothing; nothing tells them apart and none is
+checked. A word that the lexer reads as a keyword is no identifier even where
+source writes it as a name, such as a field named `mode`. A word that is
+already a label of groups 1–4, such as `Int` or `count`, is not repeated.
+Group 5 also leaves out the spelling of the identifier that contains the
+request's position or ends at it: the word being typed, which VS Code's
+word-based suggestions leave out too. The position counts UTF-16 units on the
+buffer's lines, which `\r\n`, `\r` and `\n` end; a character past the end of
+its line is the line's end, and a line past the last one leaves nothing out.
+A URI that is not open, or whose text the server refused after an incremental
+change ([LSP diagnostics v1](lsp-diagnostics-v1.md)), gets groups 1–4 only.
+
+Groups 1–4 offer no window function, no function of the PostgreSQL extension
+catalogs, which are not callable (D76.11; a call is PIE-S2103), and no
+connector such as `postgres.table`; such a word appears only as an identifier
+that the buffer writes. There are no trigger characters, no
+`completionItem/resolve`, no use of the request's `context`, and no
+`textEdit`, `insertText`, snippet, `detail`, `documentation`, `sortText` or
+`filterText`: the client inserts the label and filters and sorts by it. Kinds
+`1`, `3`, `7` and `14` belong to the first protocol version, so a client needs
+no `completionItemKind` value set for them. A request whose `textDocument.uri`
+is not a string, or whose `position` is not two non-negative integers, returns
+JSON-RPC `-32602`. Any other request gets the list, also on a URI that maps to
+no path, and at a position past the end of its document.
+
+Groups 1–4 change only with the grammar's keywords and the core catalog,
+which ED.03 does not change; group 5 changes with the buffer. Context-aware
+completion and signature help are not provided; they wait for an
+ARCHITECTURE_DECISION after the M1 latency budget.
+
 ## Capability and client boundary
 
 `initialize` advertises
 `hoverProvider`, `definitionProvider`, `documentSymbolProvider`,
-`documentFormattingProvider`, `workspaceSymbolProvider` (`true`) and
-`documentLinkProvider` (`{"resolveProvider": false}`) alongside
+`documentFormattingProvider`, `workspaceSymbolProvider` (`true`),
+`documentLinkProvider` (`{"resolveProvider": false}`) and an empty
+`completionProvider` alongside
 the existing diagnostic capabilities. The existing VS Code LSP client can
 consume these standard capabilities; it needs no private-core import, custom
 transport, or editor-facts artifact.
@@ -258,9 +337,10 @@ array formats. Definition uses `Location`, so no location-link capability is
 required. Workspace symbols are always `SymbolInformation[]` with a full
 `Location`, so no `workspace.symbol.resolveSupport` is required.
 
-No completion, references, code action, range or on-type formatting, symbol
-or link resolve, model view, capability matrix, SQL preview change, execution, or
-workspace mutation is included.
+No context-aware completion, signature help, completion resolve, references,
+code action, range or on-type formatting, symbol or link resolve, model view,
+capability matrix, SQL preview change, execution, or workspace mutation is
+included.
 
 ## Performance and verification
 
@@ -274,7 +354,13 @@ each module's URI and owner among the open documents and the roots and matches
 each declaration's name once, so it costs
 O(modules × (open documents + roots) + declarations); a document link request
 makes the same lookup for each of its links. Formatting makes one
-`format_source` call on its buffer and no other. There is no persistent cache.
+`format_source` call on its buffer and no other. Completion builds groups
+1–4 once per process, from the lexer's literal names and the core catalog. A
+request copies them, scans the request's open buffer once for its identifiers
+and once for line breaks to place the position, then sorts the buffer's
+distinct identifiers: zero generated-lexer, parse, semantic-analysis,
+project-check, or IR calls, in time linear in the vocabulary and the buffer's
+length plus that sort. There is no persistent cache.
 
 The server runs one analysis at a time, and always the first pending one in a
 fixed order: every root, in `projectRoots` order, before any document checked
@@ -288,9 +374,9 @@ wait has no bound while edits keep an analysis that it waits for, or one
 earlier in that order, pending.
 
 The server reads no message while an analysis runs, so any request that
-arrives then, formatting included, is answered only after that analysis ends.
-Formatting then answers at once; a fact request also waits for the analyses
-above.
+arrives then, formatting and completion included, is answered only after that
+analysis ends. Formatting and completion then answer at once; a fact request
+also waits for the analyses above.
 
 Tests must cover single-file and cross-module type/from targets; import aliases
 and re-exports; stale versions and requests that wait for an analysis; root
@@ -306,6 +392,19 @@ Formatting tests must cover byte equality with `pietto fmt` over the `fmt`
 corpus, end positions with a leading U+FEFF, CRLF, lone CR and astral
 characters, every refusal path, ignored options, buffers that differ from the
 disk, and an answer that no analysis holds.
+
+Completion tests must check the list against an oracle written before the
+code: every item is accepted by `pietto check` in its role (a keyword as a
+keyword, a type as a type, a function or aggregate as a call), every refused
+word has a program that `check` refuses there, and every lexer word and core
+catalog entry is offered or refused. They must also show that the scan finds
+exactly the generated lexer's `IDENTIFIER` tokens over the oracle corpus and
+boundary texts; that a URI that is not open, closed or whose text was refused
+gets groups 1–4 alone at every position; that an open buffer gets groups 1–4
+and then its identifiers, without the one at the position, which is the only
+way the position changes the list, counted in UTF-16 units over `\r\n`, `\r`
+and `\n` lines; an answer before a pending analysis ends; `-32602` for
+malformed parameters; and no generated-lexer, parse or analysis call.
 
 ### Latency measurement (ED.03 M1)
 
@@ -410,7 +509,7 @@ The reviewed source is Microsoft's LSP 3.17 specification:
 | WHAT_NOT_TO_COPY | No inferred bindings, new artifact, client-side semantic resolver or persistent cache. |
 | Pietto owner affected | Semantic projection, project editor analysis and LSP server. |
 
-The ED.03 records below read, on 2026-11-10, the LSP 3.17 specification page
+The C1 and C2 records below read, on 2026-11-10, the LSP 3.17 specification page
 at 16:57:23Z and, for comparison, the LSP 3.18 page at 16:58:14Z (the site
 now marks 3.18 current and 3.17 previous; the route pins 3.17), the VS Code
 documentation at 16:58:41Z, and the VS Code 1.145.2 source at 17:01:26Z
@@ -418,7 +517,8 @@ documentation at 16:58:41Z, and the VS Code 1.145.2 source at 17:01:26Z
 and images were not checked. VS Code source describes one version and
 promises nothing. The workspace symbol and document link records also keep
 the earlier offline read of `vscode-languageclient` 9.0.1, as installed with
-the Pietto extension at `e61444f`.
+the Pietto extension at `e61444f`. The C5 completion record read the LSP
+3.17 page again, in the same way, on 2026-11-12 at 07:07:16Z.
 
 Formatting (ED.03 C1):
 
@@ -483,3 +583,19 @@ Document links (ED.03 C2):
 | Disposition | Keep one link per resolved statement, its target always given, no tooltip and no resolve; a target needs no facts of its own. |
 | WHAT_NOT_TO_COPY | No path built from an import string, link outside the analysis, tooltip or resolve round trip. |
 | Pietto owner affected | LSP server, `_editor_facts.py` and `_project_editor_facts`. |
+
+Completion (ED.03 C5):
+
+| Field | Review |
+| --- | --- |
+| Snapshot/date | [LSP 3.17 `textDocument/completion` and `completionItem/resolve`](https://microsoft.github.io/language-server-protocol/specifications/lsp/3.17/specification/#textDocument_completion), with `CompletionItem`, `CompletionItemKind` and `CompletionList.isIncomplete`, read 2026-11-12T07:07:16Z as text converted from the page's HTML. |
+| Problem/constraints | Offer the fixed Pietto vocabulary and the open buffer's identifiers (ED.09) through the existing LSP connection, with no analysis at request time. |
+| Semantic/identity model | The request carries a document URI and a position, and a `context` only when the client supports it. A `CompletionItem[]` result "is interpreted to be complete", the same as a `CompletionList` with `isIncomplete: false`. An item's `label` is inserted, sorted and filtered on when `insertText`, `sortText` and `filterText` are omitted, and by default the client filters and sorts. An item of groups 1–4 names a keyword or a core catalog entry; an item of group 5 is a word that the open buffer writes, which nothing resolves. No item names a binding or establishes a reference or type. |
+| Layering/dependency direction | The lexer's literal names and the core catalog feed a private vocabulary module, which also scans the open buffer for identifiers; the server projects the list; the extension consumes it. |
+| Algorithms/data structures/complexity | The protocol fixes none. One precomputed tuple for groups 1–4, copied per request; one regular-expression scan of the open buffer, whose distinct identifiers are sorted by code point, and one line-break scan that places the position; no index, prefix filter or ranking. |
+| Interface/version/capability model | `completionProvider` is `CompletionOptions`: its `triggerCharacters` are characters beyond the client's defaults (typically letters), and identifier characters need not be listed; `resolveProvider` is optional. Pietto advertises `{}`: no trigger or commit characters and no resolve. The result is `CompletionItem[]`, with no `itemDefaults` or `labelDetails` (3.17). A client without a `completionItemKind` value set supports the kinds from `Text` (1) to `Reference` (18) of the first protocol version, which hold Pietto's `1`, `3`, `7` and `14`. |
+| Testing/operational lifecycle | Test the list against the prewritten oracle and the scan against the generated lexer's `IDENTIFIER` tokens; test the word at the position, UTF-16 positions and line ends, URIs, closed and refused documents, malformed parameters, answer order and call counts through the public session. |
+| Pitfalls/migration costs | A client sorts and filters by label, so the server's order is not shown; a word that is a keyword and an aggregate appears twice; context-aware completion would need new facts. A client may filter a complete list as typing goes on without asking again, so group 5 holds the buffer's identifiers when the request was read. On 2026-11-11 a VS Code 1.145.2 development host with default settings and one open file observed that groups 1–4 alone removed the editor's word-based suggestions in a `.pietto` file, while the extension's snippets stayed: the start of a field, `let` or relation name of the open file had "No suggestions."; with group 5 those names came back, and only once the word being typed was left out did accepting the first suggestion complete it, since the typed prefix otherwise ranked first. Why VS Code leaves out its word-based suggestions was inferred from its 1.145.2 source, not observed. That host ran the local extension candidate `fc6da92f`, whose `LanguageClient` registration (document selector, no middleware) equals the pinned `e61444f`; EB2's connected check repeats it on `e61444f`. Words of other open documents, which VS Code's word-based suggestions can offer, are not offered. |
+| Disposition | Reuse the standard request and result shapes; add the open buffer's identifiers (ED.09). |
+| WHAT_NOT_TO_COPY | No incomplete list, text edit, item defaults, commit characters, snippets or resolve round trips; no position-dependent guess beyond leaving out the word being typed, client-side semantic filtering or cached analysis. |
+| Pietto owner affected | LSP server and the private completion vocabulary. |

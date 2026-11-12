@@ -18,9 +18,22 @@ from pathlib import Path, PurePath, PurePosixPath, PureWindowsPath
 from typing import Any, cast
 
 import pytest
+from antlr4 import InputStream
 
-from pietto import _lsp, cli, source_format
+from pietto import _editor_completion, _lsp, cli, source_format
 from pietto.errors import SourceLocation
+from pietto.generated.PiettoLexer import PiettoLexer
+from pietto.generated.PiettoParser import PiettoParser
+from pietto.parser_api import _parse_migration_source
+from pietto.semantic.aggregates import (
+    GROUP_TEST_AGGREGATE_NAMES,
+    SEMANTIC_AGGREGATE_NAMES,
+)
+from pietto.semantic.catalog import (
+    BUILTIN_FUNCTIONS,
+    BUILTIN_TYPE_NAMES,
+    SPECIAL_BUILTIN_FUNCTION_NAMES,
+)
 
 DEADLINE = 30
 REPO_ROOT = Path(__file__).resolve().parents[1]
@@ -311,6 +324,7 @@ def test_lifecycle_over_a_process() -> None:
                 "capabilities": {
                     "positionEncoding": "utf-16",
                     "textDocumentSync": {"openClose": True, "change": 1},
+                    "completionProvider": {},
                     "hoverProvider": True,
                     "definitionProvider": True,
                     "documentSymbolProvider": True,
@@ -2948,3 +2962,695 @@ export (
         for d in related
         for item in d["relatedInformation"]
     )
+
+
+# The completion oracle, written before `pietto._editor_completion`. Each
+# program passes `pietto check`, and together they write every keyword of
+# COMPLETION_ORACLE where the parser reads it as a keyword, not only as a
+# name, every builtin type as a type and every scalar function and aggregate
+# as a call.
+COMPLETION_WITNESSES = (
+    """type UserId = UUID
+type Percent = Float ensure 0 <= self <= 1
+
+type Username = Text(max = 32):
+    ensure len(self) >= 3
+
+enum Status:
+    draft
+    paid
+
+constraint positive(x: Int) -> Bool:
+    return x > 0
+
+derive normalized(x: Text) -> Text:
+    return lower(trim(x))
+
+def doubled(x: Int) -> Int:
+    return x * 2
+
+shape User:
+    id: Int
+    name: Text
+    score: Int | None
+    ratio: Float
+    born: Date
+    seen: Timestamp
+    amount: Decimal
+    active: Bool
+    key: UUID
+    raw: Bytes
+    doc: Json
+    anything: Any
+
+    unique_name = unique(name)
+    name_idx = index(name) when score is None
+    valid = check(ratio >= 0)
+
+source users: User = postgres.table("users")
+
+table scalars:
+    from users
+    where score is not None and not active or name like "a%"
+    select:
+        id
+        big = score if score > 10 else 0
+        listed = id in (1, 2, 3)
+        a = lower(name)
+        b = upper(name)
+        c = trim(name)
+        d = len(name)
+        e = substr(name, 1, 2)
+        f = replace(name, "a", "b")
+        g = lpad(name, 5, "x")
+        h = contains(name, "a")
+        i = starts_with(name, "a")
+        j = ends_with(name, "a")
+        k = abs(amount)
+        l = date_of(seen)
+        m = hour(seen)
+        n = minute(seen)
+        o = add_months(born, 1)
+        p = matches(name, "^a")
+        q = coalesce(score, 0)
+        r = nullif(id, 0)
+        s = sign(id)
+        t = year(born)
+        u = month(born)
+        v = day(born)
+        w = round(amount, 2)
+        x = date_trunc("month", seen)
+        y = concat(name, "x")
+        z = same_value(score, score)
+        now_at = now()
+
+query top_users:
+    from users
+    select id, score
+    order by score desc, id asc
+    limit 10
+""",
+    """shape Sale:
+    id: Int
+    category: Text
+    qty: Int | None
+    ratio: Float
+    amount: Decimal | None
+    paid: Bool
+
+    sale_id = unique(id)
+
+source sales: Sale = postgres.table("sales")
+
+query summary:
+    from sales
+    group by category
+    select:
+        category
+        a = count()
+        b = count_distinct(qty)
+        c = sum(qty)
+        d = avg(amount)
+        e = min(qty)
+        f = max(qty)
+        g = stddev(ratio)
+        h = variance(ratio)
+        i = pvariance(ratio)
+        j = pstdev(ratio)
+        k = median(ratio)
+        l = quantile(ratio, 0.5)
+        m = string_agg(category, ",", order by id)
+        n = first(qty, order by id)
+        o = last(qty, order by id)
+        p = any(s.paid for s in group)
+        q = all(s.paid for s in group)
+    having a > 1
+""",
+    """shape Item:
+    id: Int
+    category: Text
+    value: Int | None
+
+    item_id = unique(id)
+
+source items: Item = postgres.table("items")
+
+query windowed:
+    from items
+    let base = window(partition by category order by id rows between unbounded preceding and current row)
+    select:
+        id
+        position = row_number() window(order by id)
+        running = sum(value) window base
+        a = last_value(value) window(order by id range between unbounded preceding and unbounded following)
+        b = nth_value(value, 2) from last ignore nulls window(order by id groups between 1 preceding and current row exclude current row)
+        c = nth_value(value, 2) from first respect nulls window(order by id desc groups between 1 preceding and 1 following exclude ties)
+        d = first_value(value) window(order by id rows between 1 preceding and current row exclude no others)
+        e = first_value(value) window(order by id range current row exclude group)
+    qualify position <= 3
+""",
+    """cutoff: Int = 3
+
+shape Order:
+    id: Int
+    customer_id: Int
+    ordered_at: Timestamp
+
+    order_key = unique(id)
+
+shape Customer:
+    id: Int
+
+    customer_key = unique(id)
+
+shape Price:
+    customer_id: Int
+    valid_from: Timestamp
+
+    price_key = unique(customer_id, valid_from)
+
+source orders: Order = postgres.table("orders")
+
+source customers: Customer = postgres.table("customers")
+
+source prices: Price = postgres.table("prices")
+
+relationship OrderCustomer(order: Order, customer: Customer):
+    order.customer_id == customer.id
+
+query joined:
+    from orders
+    let a = customers
+    let b = customers
+    let c = customers
+    let d = customers
+    let e = customers
+    inner join a on OrderCustomer(orders, a)
+    left join b on orders.customer_id == b.id
+    right join c on orders.customer_id == c.id
+    full join d on orders.customer_id == d.id
+    cross join e
+    where orders.id > cutoff
+    select order_id = orders.id, yes = True, no = False
+
+query priced:
+    from orders
+    let price = prices
+    asof left join price on orders.customer_id == price.customer_id and orders.ordered_at >= price.valid_from
+    select order_id = orders.id
+""",
+)
+COMPLETION_PROJECT = {
+    "models": """shape Order:
+    id: Int
+    customer_id: Int
+    total: Int
+
+    order_key = unique(id)
+
+shape Customer:
+    id: Int
+    tier: Text
+
+    customer_key = unique(id)
+
+source orders: Order = postgres.table("orders")
+
+source customers: Customer = postgres.table("customers")
+
+export source orders, source customers
+""",
+    "report": """from "models.pietto" import (
+    source orders,
+    source customers as clients,
+)
+
+query vip_report(cutoff: Int):
+    let vip:
+        from clients
+        where tier == "gold"
+        select id
+    let big:
+        from orders
+        where customer_id in vip
+        select latest = max(total)
+    from orders
+    where total >= cutoff and customer_id not in vip
+    select id, biggest = scalar big.latest
+
+query with_recent:
+    let recent:
+        capture clients
+        from orders
+        where orders.customer_id == clients.id
+        select id
+    from clients
+    where exists recent
+    select id
+
+query union_codes:
+    let seed:
+        values(id: Int, label: Text | None):
+            1, "new"
+            2, None
+    let more:
+        values(id: Int, label: Text | None)
+    let combined:
+        union all seed, more
+    from combined
+    select id
+
+query shared_codes:
+    let seed:
+        values(id: Int)
+    let combined:
+        intersect distinct seed, seed
+    from combined
+    select id
+
+query other_codes:
+    let seed:
+        values(id: Int)
+    let combined:
+        except all seed, seed
+    from combined
+    select id
+
+query tiers:
+    from clients
+    select distinct tier
+
+query nested:
+    let recent:
+        from orders
+        select id
+        order by id
+    from orders
+    select:
+        customer_id
+        recent_orders = collect recent
+
+export query vip_report
+""",
+}
+COMPLETION_BASE = """shape User:
+    id: Int
+    name: Text | None
+
+source users: User = postgres.table("users")
+
+"""
+# Words that no accepted source writes as a keyword or calls, each with a
+# program that `pietto check` refuses where it writes it so, beside lines
+# that check accepts. The retired header words are still names, and
+# `encoding` a type argument name.
+COMPLETION_REFUSED = {
+    **{
+        word: f"{line}\n\nshape A:\n    id: Int\n"
+        for word, line in (
+            ("pietto", "pietto 1"),
+            ("mode", "mode loose"),
+            ("loose", "mode loose"),
+            ("checked", "mode checked"),
+            ("strict", "mode strict"),
+            ("dialect", "dialect postgres"),
+            ("encoding", "encoding utf8"),
+        )
+    },
+    "nullable": "shape A:\n    id: Int nullable\n",
+    "null": "shape A:\n    id: Int not null\n",
+    **{
+        word: COMPLETION_BASE + f"query q:\n    from users\n{body}"
+        for word, body in (
+            ("cast", "    select f = cast(id as Float)\n"),
+            (
+                "satisfying",
+                "    group by id\n    select id, n = count()\n"
+                "    satisfying:\n        n > 1\n",
+            ),
+            (
+                "semi",
+                "    let u = users\n    semi join u on users.id == u.id\n"
+                "    select id\n",
+            ),
+            (
+                "anti",
+                "    let u = users\n    anti join u on users.id == u.id\n"
+                "    select id\n",
+            ),
+            ("via", "    inner join users as u: via r\n    select id\n"),
+            ("similarity", '    select s = similarity(name, "a")\n'),
+            ("cosine_distance", "    select s = cosine_distance(id, id)\n"),
+        )
+    },
+    "endpoint": COMPLETION_BASE
+    + "relationship r:\n    endpoint a: users\n    endpoint b: users\n",
+}
+# The words of the generated lexer's literal names.
+LEXER_WORDS = {
+    name[1:-1]
+    for name in PiettoLexer.literalNames
+    if name.startswith("'") and name[1:-1].isidentifier()
+}
+TEXT, KEYWORD, CLASS, FUNCTION = 1, 14, 7, 3
+COMPLETION_ORACLE = [
+    *(
+        (word, KEYWORD)
+        for word in """False None True all and any as asc asof between by capture
+        check collect constraint cross current def derive desc distinct else
+        ensure enum except exclude exists export first following for from full
+        group groups having if ignore import in index inner intersect is join
+        last left let like limit no not nulls on or order others partition
+        preceding qualify query range relationship respect return right row rows
+        scalar select shape source table ties type unbounded union unique values
+        when where window""".split()
+    ),
+    *(
+        (name, CLASS)
+        for name in "Any Bool Bytes Date Decimal Float Int Json Text Timestamp UUID".split()
+    ),
+    *(
+        (name, FUNCTION)
+        for name in """abs add_months coalesce concat contains date_of date_trunc day
+        ends_with hour len lower lpad matches minute month now nullif replace round
+        same_value sign starts_with substr trim upper year""".split()
+    ),
+    *(
+        (name, FUNCTION)
+        for name in """all any avg count count_distinct first last max median min
+        pstdev pvariance quantile stddev string_agg sum variance""".split()
+    ),
+]
+
+
+def completion_roles(text: str) -> set[tuple[str, str]]:
+    """Each `(word, role)` of `text` as the parser reads it: `keyword`
+    for a keyword token that is no name, `type` for the name of a type
+    reference and `call` for a word followed by `(`."""
+
+    _, tree = _parse_migration_source(text, modern=True)
+    assert tree is not None
+    keywords = {PiettoLexer.TRUE, PiettoLexer.FALSE} | {
+        getattr(PiettoLexer, word.upper()) for word in LEXER_WORDS
+    }
+    names = {
+        PiettoParser.RULE_identifier,
+        PiettoParser.RULE_softKeyword,
+        PiettoParser.RULE_typeArgumentName,
+    }
+    terminals: list[Any] = []
+    stack: list[Any] = [tree]
+    while stack:
+        node = stack.pop()
+        children = getattr(node, "children", None)
+        if children is not None:
+            stack.extend(reversed(children))
+        elif hasattr(node, "symbol"):
+            terminals.append(node)
+    roles: set[tuple[str, str]] = set()
+    for node, after in zip(terminals, [*terminals[1:], None], strict=True):
+        token, parent = node.symbol, node.parentCtx
+        if token.type in keywords and parent.getRuleIndex() not in names:
+            roles.add((token.text, "keyword"))
+        if (
+            parent.getRuleIndex() == PiettoParser.RULE_identifier
+            and parent.parentCtx.getRuleIndex() == PiettoParser.RULE_typeReference
+        ):
+            roles.add((token.text, "type"))
+        if after is not None and after.symbol.type == PiettoLexer.LPAREN:
+            roles.add((token.text, "call"))
+    return roles
+
+
+def test_the_completion_oracle_is_what_check_accepts(tmp_path: Path) -> None:
+    witnessed: set[tuple[str, str]] = set()
+    for index, text in enumerate(COMPLETION_WITNESSES):
+        path = tmp_path / f"witness_{index}.pietto"
+        path.write_text(text, encoding="utf-8")
+        diagnostics = cli_json("check", str(path))["diagnostics"]
+        assert [d for d in diagnostics if d["severity"] == "error"] == [], index
+        witnessed |= completion_roles(text)
+    root = project(tmp_path, **COMPLETION_PROJECT)
+    assert cli_json("check", "--project", str(root))["diagnostics"] == []
+    for text in COMPLETION_PROJECT.values():
+        witnessed |= completion_roles(text)
+    role_of = {KEYWORD: "keyword", CLASS: "type", FUNCTION: "call"}
+    assert [
+        item
+        for item in COMPLETION_ORACLE
+        if (item[0], role_of[item[1]]) not in witnessed
+    ] == []
+    labels = {label for label, _ in COMPLETION_ORACLE}
+    accepted = COMPLETION_BASE + "query q:\n    from users\n    select id\n"
+    extension = {"similarity", "cosine_distance"}
+    for word, text in {"": accepted, **COMPLETION_REFUSED}.items():
+        path = tmp_path / f"refused_{word}.pietto"
+        path.write_text(text, encoding="utf-8")
+        errors = [
+            (d["code"], d["location"]["line"])
+            for d in cli_json("check", str(path))["diagnostics"]
+            if d["severity"] == "error"
+        ]
+        if not word:
+            assert errors == []
+            continue
+        # The one error refuses the word on the line that writes it; a
+        # retired relationship block is refused at its header, the line
+        # before its first `endpoint`.
+        line = next(
+            n
+            for n, row in enumerate(text.splitlines(), 1)
+            if re.search(rf"\b{word}\b", row)
+        )
+        code = "PIE-S2103" if word in extension else "PIE-P1000"
+        assert errors == [(code, line - 1 if word == "endpoint" else line)], word
+        assert word not in labels
+        assert {(word, "keyword"), (word, "call")} & completion_roles(text), word
+    # The oracle is complete: every lexer word is offered or refused, and so
+    # is every builtin of the core catalog; no extension function is offered.
+    keywords = {label for label, kind in COMPLETION_ORACLE if kind == KEYWORD}
+    assert LEXER_WORDS - keywords == set(COMPLETION_REFUSED) - extension
+    assert keywords - LEXER_WORDS == {"True", "False"}
+    assert {label for label, kind in COMPLETION_ORACLE if kind == CLASS} == set(
+        BUILTIN_TYPE_NAMES
+    )
+    catalog = [
+        *sorted({*BUILTIN_FUNCTIONS, *SPECIAL_BUILTIN_FUNCTION_NAMES}),
+        *sorted({*SEMANTIC_AGGREGATE_NAMES, *GROUP_TEST_AGGREGATE_NAMES}),
+    ]
+    assert [label for label, kind in COMPLETION_ORACLE if kind == FUNCTION] == catalog
+
+
+def test_completion_answers_the_oracle_at_once_at_every_position(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    items = [{"label": label, "kind": kind} for label, kind in COMPLETION_ORACLE]
+    code, messages, stderr = run_process(
+        frame(INIT)
+        + frame(request(1, "textDocument/completion", "untitled:Untitled-1", 0, 0))
+        + frame(SHUTDOWN)
+        + frame(EXIT)
+    )
+    assert (code, stderr) == (0, b"")
+    assert response(messages, 0)["result"]["capabilities"]["completionProvider"] == {}
+    assert response(messages, 1)["result"] == items
+    # Requests on a document whose analysis is pending, past its end, on a
+    # module of a root and on a URI that is not open are answered when read
+    # and start no analysis; the open buffer adds its identifiers, and the
+    # others get the static list.
+    root = project(tmp_path, models=MODELS)
+    uri = (tmp_path / "x.pietto").as_uri()
+    analyses: list[str] = []
+    running: list[str] = []
+    guarded: set[str] = set()
+    check_file = _lsp._check_text_with_editor_facts
+    check_root = _lsp.check_project_editor_diagnostics
+
+    def checked_file(text: str, *, path: str | None = None) -> object:
+        analyses.append("file")
+        running.append("file")
+        try:
+            return check_file(text, path=path)
+        finally:
+            running.pop()
+
+    def checked_root(root: str | Path, *, overlays: Mapping[str, str]) -> object:
+        analyses.append("root")
+        running.append("root")
+        try:
+            return check_root(root, overlays=overlays)
+        finally:
+            running.pop()
+
+    def analysing(name: str, function: Callable[..., object]) -> Callable[..., object]:
+        # Lexing, parsing and analysis run only inside the two analyses.
+        def call(*args: object, **kwargs: object) -> object:
+            assert running, f"{name} outside an analysis"
+            guarded.add(name)
+            return function(*args, **kwargs)
+
+        return call
+
+    monkeypatch.setattr(_lsp, "_check_text_with_editor_facts", checked_file)
+    monkeypatch.setattr(_lsp, "check_project_editor_diagnostics", checked_root)
+    for owner, name in (
+        (_lsp, "parse_source"),
+        (_lsp, "analyze"),
+        (PiettoLexer, "__init__"),
+    ):
+        monkeypatch.setattr(owner, name, analysing(name, getattr(owner, name)))
+    messages = session(
+        init(root),
+        [
+            opened(uri, SINGLE, 1),
+            request(1, "textDocument/completion", uri, 0, 0),
+            request(2, "textDocument/completion", uri, 99, 99),
+            request(
+                3, "textDocument/completion", (root / "models.pietto").as_uri(), 2, 4
+            ),
+            request(4, "textDocument/completion", "untitled:Untitled-1", 0, 0),
+        ],
+        [request(5, "textDocument/completion", uri, 8, 10)],
+    )
+    published = next(
+        index
+        for index, message in enumerate(messages)
+        if message.get("method") == "textDocument/publishDiagnostics"
+        and message["params"]["uri"] == uri
+    )
+    single = [
+        *items,
+        *(
+            {"label": word, "kind": TEXT}
+            for word in "User active_users email id nope_u postgres users".split()
+        ),
+    ]
+    assert [response(messages, n)["result"] for n in range(1, 6)] == [
+        single,
+        single,
+        items,
+        items,
+        [item for item in single if item["label"] != "email"],
+    ]
+    assert all(messages.index(response(messages, n)) < published for n in range(1, 5))
+    assert analyses == ["root", "file"]
+    assert guarded == {"parse_source", "analyze", "__init__"}
+    # With no document open, answering lexes, parses and analyses nothing
+    # either; malformed parameters are refused as for the other position
+    # requests.
+
+    def refused(*_args: object, **_kwargs: object) -> object:
+        raise AssertionError("lexed, parsed or analysed")
+
+    for owner, name in (
+        (_lsp, "parse_source"),
+        (_lsp, "analyze"),
+        (_lsp, "_check_text_with_editor_facts"),
+        (_lsp, "check_project_editor_diagnostics"),
+        (PiettoLexer, "__init__"),
+    ):
+        monkeypatch.setattr(owner, name, refused)
+    malformed = [
+        {"position": {"line": 0, "character": 0}},
+        {"textDocument": {"uri": 1}, "position": {"line": 0, "character": 0}},
+        {"textDocument": {"uri": uri}},
+        {"textDocument": {"uri": uri}, "position": {"line": -1, "character": 0}},
+        {"textDocument": {"uri": uri}, "position": {"line": 0, "character": True}},
+    ]
+    messages = session(
+        init(),
+        [
+            request(1, "textDocument/completion", uri, 0, 0),
+            *(
+                {
+                    "jsonrpc": "2.0",
+                    "id": 2 + index,
+                    "method": "textDocument/completion",
+                    "params": params,
+                }
+                for index, params in enumerate(malformed)
+            ),
+        ],
+    )
+    assert response(messages, 1)["result"] == items
+    assert [response(messages, 2 + n)["error"]["code"] for n in range(5)] == [
+        -32602
+    ] * 5
+
+
+# Buffers whose comments, strings, numbers, keywords and unknown characters
+# border on identifiers.
+COMPLETION_SCANS = (
+    "",
+    "﻿shape Zed:\n    a_1: Int\n",
+    "x = 'it\\'s fromage' # words in a comment\ny = \"a\\\"b c\" z\n",
+    's = "unterminated words\nnext_line = 1_000 + 1_a + 2.5x + 3._y + 4__z\n',
+    "t = 'escaped \\\nnewline' after\n\"\\\r\nend\n",
+    "café naïve _ __ True true False false None null mode fromage from_ select\n",
+    "\r\nwin\rmac\r\n#only\n'''\n\"\"\nx@y{z}`w`\n",
+    's = "a\\\\" b "c"\n',
+)
+
+
+def test_completion_adds_the_identifier_tokens_of_the_open_buffer() -> None:
+    # The scan finds exactly the generated lexer's IDENTIFIER tokens.
+    for text in (
+        *COMPLETION_WITNESSES,
+        *COMPLETION_PROJECT.values(),
+        *COMPLETION_REFUSED.values(),
+        SINGLE,
+        MODELS,
+        *COMPLETION_SCANS,
+    ):
+        tokens = PiettoLexer(InputStream(text)).getAllTokens()
+        identifiers = {t.text for t in tokens if t.type == PiettoLexer.IDENTIFIER}
+        assert _editor_completion.buffer_identifiers(text) == sorted(identifiers)
+    # Each request reads only its own document's current buffer. The word
+    # that touches the position (UTF-16 units over `\r`, `\r\n` and `\n`
+    # lines; past a line's end is its end, and a line past the last one
+    # leaves nothing out) is left out, a word that is already a label, such as
+    # `Int` or `count`, is not repeated, and a refused or closed document gets
+    # the static list. A document whose unpaired surrogate the server replaced
+    # is not refused; U+FFFD is one UTF-16 unit, as the surrogate was, so its
+    # identifiers and positions are the client's.
+    items = [{"label": label, "kind": kind} for label, kind in COMPLETION_ORACLE]
+
+    def words(*labels: str) -> list[dict[str, object]]:
+        return [*items, *({"label": label, "kind": TEXT} for label in labels)]
+
+    uri, other = "file:///w/words.pietto", "untitled:Untitled-2"
+    lone = "file:///w/lone.pietto"
+    zebra = "# zebra\rshape Zebra:\r\n    zebra_id: Int\n    count: Int\nzebr\n"
+    messages = session(
+        init(),
+        [
+            opened(uri, SINGLE, 1),
+            opened(other, "query walrus_report:\n    from users\n", 1),
+            request(1, "textDocument/completion", uri, 0, 0),
+            changed(uri, zebra + "\U0001f600\U0001f600\U0001f600 ab cd", 2),
+            request(2, "textDocument/completion", uri, 4, 4),
+            request(3, "textDocument/completion", uri, 2, 6),
+            request(4, "textDocument/completion", uri, 2, 99),
+            request(5, "textDocument/completion", uri, 5, 7),
+            request(6, "textDocument/completion", uri, 6, 0),
+            request(7, "textDocument/completion", other, 0, 0),
+            opened(lone, "alpha = '\ud800' beta\n", 1),
+            request(8, "textDocument/completion", lone, 0, 12),
+            changed(uri, "quokka", 3, ranged=True),
+            request(9, "textDocument/completion", uri, 0, 0),
+            closed(other),
+            request(10, "textDocument/completion", other, 0, 0),
+        ],
+    )
+    assert [response(messages, n)["result"] for n in range(1, 11)] == [
+        words("User", "active_users", "email", "id", "nope_u", "postgres", "users"),
+        words("Zebra", "ab", "cd", "zebra_id"),
+        words("Zebra", "ab", "cd", "zebr"),
+        words("Zebra", "ab", "cd", "zebr", "zebra_id"),
+        words("Zebra", "cd", "zebr", "zebra_id"),
+        words("Zebra", "ab", "cd", "zebr", "zebra_id"),
+        words("users", "walrus_report"),
+        words("alpha"),
+        items,
+        items,
+    ]

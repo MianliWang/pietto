@@ -2,15 +2,17 @@
 
 `pietto lsp` is an alpha Language Server Protocol server. This page specifies
 its diagnostic protocol; [editor facts v1](lsp-editor-facts-v1.md) specifies
-hover, definition, document symbols, workspace symbols, document links and
-formatting. Neither contract adds
+hover, definition, document symbols, workspace symbols, document links,
+formatting and completion. Neither contract adds
 an editor facts format, a CLI JSON command, or any compiler semantics.
 
-The server checks a document or project for editor diagnostics and facts, and
-formats an open buffer. It has no completion, references, code actions, range
-or on-type formatting, SQL preview, execution, package, compiled-build,
-workspace-edit or configuration-update operation. A request for an
-unsupported method receives JSON-RPC `-32601` after initialization.
+The server checks a document or project for editor diagnostics and facts,
+formats an open buffer, and offers a fixed completion vocabulary with the
+identifiers of the open buffer. It has no context-aware completion,
+references, code actions, range or on-type formatting, SQL preview,
+execution, package, compiled-build, workspace-edit or configuration-update
+operation. A request for an unsupported method receives JSON-RPC `-32601`
+after initialization.
 
 This contract remains alpha until the Phase82 freeze. Editor consumers must
 not infer facts or stability beyond the advertised, specified capabilities.
@@ -38,6 +40,7 @@ The successful `initialize` result has exactly these advertised capabilities:
 {
   "positionEncoding": "utf-16",
   "textDocumentSync": {"openClose": true, "change": 1},
+  "completionProvider": {},
   "hoverProvider": true,
   "definitionProvider": true,
   "documentSymbolProvider": true,
@@ -48,7 +51,8 @@ The successful `initialize` result has exactly these advertised capabilities:
 ```
 
 It also includes `serverInfo` with name `pietto` and the running package
-version. `change: 1` means full-document synchronization.
+version. `change: 1` means full-document synchronization. The empty
+`completionProvider` declares no trigger characters and no resolve request.
 
 ## Initialization and roots
 
@@ -174,8 +178,9 @@ trusted bytes. Formatting proposes one edit of an open buffer and applies
 none. A selected project still applies its normal source-selection,
 read, parse, semantic, and import rules to every non-overlay input.
 
-The fact requests use detached facts from the same analysis, and
-formatting uses only the buffer it formats, under
-[their contract](lsp-editor-facts-v1.md). The protocol provides no general
-editor-model artifact, semantic-metadata dump or backend capability state.
+The fact requests use detached facts from the same analysis, formatting uses
+only the buffer it formats, and completion a fixed vocabulary and the open
+buffer, under [their contract](lsp-editor-facts-v1.md). The protocol provides
+no general editor-model artifact, semantic-metadata dump or backend capability
+state.
 Consumers must not depend on private server implementation details.

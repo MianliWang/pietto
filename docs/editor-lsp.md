@@ -2,15 +2,17 @@
 
 `pietto lsp` checks files and configured projects for diagnostics, supplies
 hover, go-to-definition, document and workspace symbols, and links on import
-paths from the same analysis, and formats the open buffer as `pietto fmt`
-formats a file. Backend
+paths from the same analysis, formats the open buffer as `pietto fmt`
+formats a file, and completes Pietto keywords, builtin names and the names
+the file writes. Backend
 refusals (`PIE-B...`) still appear only in
 `pietto emit-sql`.
 
 The protocol, lifecycle, full-document synchronization, UTF-16 position,
 project-overlay, conflict, diagnostic, resource, and trust rules are the
 [LSP diagnostics v1](spec/lsp-diagnostics-v1.md) alpha contract. In
-particular, it has no completion, SQL preview or execution feature.
+particular, it has no context-aware completion, SQL preview or execution
+feature.
 
 Hover describes resolved type and `from` references. Go-to-definition follows
 their exact declaration, including supported imports and re-exports inside a
@@ -63,6 +65,30 @@ sent unpaired UTF-16 surrogates. It does not wait for the analyses that edits
 schedule, although one that is already running ends first. It writes no file
 and ignores the editor's tab and whitespace options, because `fmt` has one
 layout. Its output may change before the Phase82 freeze.
+
+Completion offers one list everywhere in a file: the keywords that current
+Pietto source writes, `True`, `False` and `None` included, the builtin types,
+the builtin scalar functions and aggregates, and then every name that the
+open file writes outside comments and strings, such as its fields, `let`
+names, relations and parameters, except the word you are typing. The editor
+filters it as you type. The names
+come from the file's current text alone, read as words: the server does not
+check them, tell a field from a relation, or read other files, and a name that
+is spelled like a keyword, such as a field named `mode`, is not among them.
+The fixed part offers nothing that `pietto check` refuses, such as a retired
+header word, `satisfying`, `semi join` or the PostgreSQL extension functions,
+and no window function. It never waits for a pending analysis: the server
+answers it as soon as it reads the request, which can be after an analysis
+that is already running ends. It has no trigger characters. A word that is
+both a keyword and an aggregate, such as `first`, appears once as each.
+
+On a development host of VS Code 1.145.2 with default settings and the Pietto
+extension, the keywords and builtins alone replaced the editor's word-based
+suggestions in a `.pietto` file: the start of a field, `let` or relation name
+of the open file had "No suggestions.", while the extension's snippets stayed.
+The names of the file are in the list so that they are still suggested. Words
+of other open files, which VS Code's word-based suggestions can offer, are
+not.
 
 ## The Pietto extension for VS Code
 
