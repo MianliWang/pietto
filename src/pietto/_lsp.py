@@ -273,7 +273,12 @@ class _Server:
             return
         normalized = tuple(Path(os.path.normpath(root)) for root in roots)
         # Two spellings of one directory, as through a symbolic link, are one.
-        if len({Path(os.path.realpath(root)) for root in normalized}) < len(roots):
+        try:
+            real = {Path(os.path.realpath(root)) for root in normalized}
+            distinct = len(real) == len(roots)
+        except ValueError:  # a path no file can have, as with a NUL
+            distinct = False
+        if not distinct:
             self._error(request_id, -32602, _ROOTS_ERROR)
             return
         self.roots = normalized

@@ -2111,6 +2111,7 @@ ROOTS_REFUSED = [
         },
     }
 ]
+POSIX_NAMES = pytest.mark.skipif(sys.platform == "win32", reason="POSIX file names")
 
 
 @pytest.mark.parametrize(
@@ -2119,6 +2120,10 @@ ROOTS_REFUSED = [
         {"projectRoots": "relative"},
         {"projectRoots": ["relative/root"]},
         {"projectRoots": ["/abs/root", "/abs/root/."]},
+        # No POSIX file has these names: a NUL, or a surrogate the file system
+        # encoding refuses. Windows realpath accepts both, so only POSIX refuses.
+        pytest.param({"projectRoots": ["/abs/a\x00b"]}, marks=POSIX_NAMES),
+        pytest.param({"projectRoots": ["/abs/r\ud800"]}, marks=POSIX_NAMES),
         {"projectRoots": [1]},
         {"projectRoots": None},
         ["/abs/root"],
