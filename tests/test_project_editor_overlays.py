@@ -161,6 +161,129 @@ from "models.pietto" import (
     assert checked.facts["models.pietto"].links == ()
 
 
+def test_editor_facts_keep_each_retained_field_and_let_reference(
+    tmp_path: Path,
+) -> None:
+    """Each name that a `let` value, `select` item or `where` reads is one
+    fact when its retained candidate bucket holds one candidate: a field of a
+    source, through an import alias too, defines its shape field; a field of
+    a relation let has no target; a `let` defines its binding, and a FROM
+    that reads a relation let defines that let. A name that inlining a def
+    which reads its parameter twice, or a comparison chain's middle operand,
+    copies is still one fact. A JOIN relation's reads, a def call and a
+    relationship call have no fact. Once the source's shape fails, the input
+    of each relation that reads it is unknown, and no name such a relation
+    reads has a fact, not even a `let`."""
+
+    models = """shape Order:
+    id: Int
+    customer_id: Int | None
+    amount: Int
+shape Customer:
+    id: Int
+    name: Text
+source orders: Order = postgres.table("shop.orders")
+source customers: Customer = postgres.table("shop.customers")
+relationship order_customer(order: Order, customer: Customer):
+    order.customer_id == customer.id
+def double(x: Int) -> Int: return x + x
+
+export (
+    shape Order,
+    shape Customer,
+    source orders,
+    source customers,
+    relationship order_customer,
+    def double,
+)
+"""
+    reads = """from "models.pietto" import (
+    source orders,
+    source orders as purchases,
+    source customers,
+    relationship order_customer,
+    def double,
+)
+
+query plain:
+    from purchases
+    let twice = double(amount)
+    where twice > id and 1 < amount < 10
+    select:
+        id
+        twice
+
+query frequent:
+    let counts:
+        from orders
+        group by:
+            customer_id
+        select:
+            customer_id
+            n = count()
+    from counts
+    where n > 10
+    select:
+        customer_id
+
+query order_names:
+    from orders
+    let customer = customers
+    inner join customer on order_customer(orders, customer)
+    select:
+        order_id = orders.id
+        customer_name = customer.name
+"""
+    root = _project(tmp_path, models=models, a=reads)
+    checked = check.check_project_editor_diagnostics(root, overlays={})
+    assert list(checked.report.diagnostics) == []
+    order = SourceLocation("models.pietto", 8, 1, 8, 53)
+    field_id = SourceLocation("models.pietto", 2, 5, 2, 12)
+    amount = SourceLocation("models.pietto", 4, 5, 4, 16)
+    twice = SourceLocation("a.pietto", 11, 5, 11, 31)
+    assert [
+        (
+            (use.location.line, use.location.column, use.location.end_column),
+            use.detail,
+            None if use.target is None else use.target.location,
+        )
+        for use in checked.facts["a.pietto"].uses
+    ] == [
+        ((10, 5, 19), "source orders", order),
+        ((19, 9, 20), "source orders", order),
+        ((25, 5, 16), "let counts", SourceLocation("a.pietto", 18, 5, 24, 24)),
+        ((31, 5, 16), "source orders", order),
+        ((11, 24, 30), "field amount", amount),
+        ((14, 9, 11), "field id", field_id),
+        ((15, 9, 14), "let twice", twice),
+        ((12, 11, 16), "let twice", twice),
+        ((12, 19, 21), "field id", field_id),
+        ((12, 30, 36), "field amount", amount),
+        (
+            (23, 13, 24),
+            "field customer_id",
+            SourceLocation("models.pietto", 3, 5, 3, 28),
+        ),
+        ((28, 9, 20), "field customer_id", None),
+        ((26, 11, 12), "field n", None),
+    ]
+
+    (root / "models.pietto").write_text(
+        models.replace("amount: Int", "amount: Nope"), encoding="utf-8", newline="\n"
+    )
+    checked = check.check_project_editor_diagnostics(root, overlays={})
+    assert [item.code for item in checked.report.diagnostics] == ["PIE-S2002"]
+    assert [
+        (use.location.line, use.location.column, use.detail)
+        for use in checked.facts["a.pietto"].uses
+    ] == [
+        (10, 5, "source orders"),
+        (19, 9, "source orders"),
+        (25, 5, "let counts"),
+        (31, 5, "source orders"),
+    ]
+
+
 def test_an_overlay_reads_a_file_the_disk_cannot_and_keeps_the_size_limit(
     tmp_path: Path,
 ) -> None:

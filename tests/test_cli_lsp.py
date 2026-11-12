@@ -728,7 +728,7 @@ table from_seeded:
     }
 
 
-def test_a_from_that_reads_a_let_or_a_table_function_has_no_editor_fact(
+def test_a_from_that_reads_a_relation_let_defines_it_and_a_table_function_has_none(
     tmp_path: Path,
 ) -> None:
     text = """shape User:
@@ -769,14 +769,36 @@ table again:
             request(6, "textDocument/documentSymbol", uri),
             request(7, "textDocument/hover", uri, 20, 9),
             request(8, "textDocument/definition", uri, 20, 9),
+            request(9, "textDocument/hover", uri, 9, 13),
+            request(10, "textDocument/definition", uri, 9, 13),
+            request(11, "textDocument/hover", uri, 12, 9),
+            request(12, "textDocument/definition", uri, 12, 9),
         ],
     )
     assert publishes(messages, uri)[-1]["diagnostics"] == []
-    # Neither the let nor the table-function input is a top-level
-    # declaration, so neither use has a fact; the let's own FROM keeps its,
-    # and so does a FROM that reads the declaration holding the let.
-    assert [response(messages, item)["result"] for item in (1, 2, 3, 4)] == [None] * 4
+    # A FROM that reads the relation let defines that let's occurrence; a
+    # table-function input is no declaration a use can name, so it has no
+    # fact. The let's own FROM keeps its fact, and so does a FROM that reads
+    # the declaration holding the let.
+    assert response(messages, 1)["result"]["contents"]["value"] == "let picked"
+    assert response(messages, 2)["result"] == {
+        "uri": uri,
+        "range": {
+            "start": {"line": 6, "character": 4},
+            "end": {"line": 9, "character": 14},
+        },
+    }
+    assert [response(messages, item)["result"] for item in (3, 4)] == [None] * 2
     assert response(messages, 5)["result"]["contents"]["value"] == "source users"
+    # A field that the let reads from the source defines the shape field; the
+    # same name read from the let is its field, with no authored target.
+    assert response(messages, 9)["result"]["contents"]["value"] == "field id"
+    assert response(messages, 10)["result"]["range"] == {
+        "start": {"line": 1, "character": 4},
+        "end": {"line": 1, "character": 11},
+    }
+    assert response(messages, 11)["result"]["contents"]["value"] == "field id"
+    assert response(messages, 12)["result"] is None
     assert [item["name"] for item in response(messages, 6)["result"]] == [
         "User",
         "users",
@@ -790,6 +812,111 @@ table again:
         "line": 5,
         "character": 0,
     }
+
+
+JOINED = """shape Order:
+    id: Int
+    customer_id: Int | None
+    amount: Int
+shape Customer:
+    id: Int
+    name: Text
+source orders: Order = postgres.table("shop.orders")
+source customers: Customer = postgres.table("shop.customers")
+relationship order_customer(order: Order, customer: Customer):
+    order.customer_id == customer.id
+def double(x: Int) -> Int: return x * 2
+
+query order_names:
+    from orders
+    let customer = customers
+    inner join customer on order_customer(orders, customer)
+    select:
+        order_id = orders.id
+        customer_name = customer.name
+
+query plain:
+    from orders
+    let twice = double(amount)
+    where twice > id
+    select:
+        id
+        twice
+"""
+
+
+def _field_and_call_uses(text: str) -> list[tuple[object, ...]]:
+    diagnostics, facts = _lsp._check_text_with_editor_facts(text)
+    assert diagnostics == ()
+    return [
+        (
+            (use.location.line, use.location.column, use.location.end_column),
+            use.detail,
+            None
+            if use.target is None
+            else (use.target.location.line, use.target.location.column),
+        )
+        for use in facts.uses
+        if use.detail.startswith(("field ", "relationship "))
+    ]
+
+
+def test_single_file_join_field_reads_and_relationship_calls_define_their_targets(
+    tmp_path: Path,
+) -> None:
+    """A JOIN relation's field read defines the source's shape field and a
+    relationship call its template, one fact per authored occurrence; the
+    reads that expanding the call adds, a read outside a JOIN, a let use, a
+    def call and a relationship parameter have none."""
+
+    assert _field_and_call_uses(JOINED) == [
+        ((19, 20, 29), "field id", (2, 5)),
+        ((20, 25, 38), "field name", (7, 5)),
+        ((17, 28, 42), "relationship order_customer", (10, 1)),
+    ]
+    for count in (1, 6):
+        repeated = JOINED.replace(
+            "        customer_name = customer.name\n",
+            "".join(f"        n{item} = customer.name\n" for item in range(count)),
+        )
+        uses = _field_and_call_uses(repeated)
+        assert [detail for _, detail, _ in uses].count("field name") == count
+        assert len(uses) == count + 2
+    uri = (tmp_path / "joined.pietto").as_uri()
+    positions = [(19, 30), (16, 30), (16, 45), (10, 6), (23, 25), (23, 18)]
+    positions += [(24, 12), (26, 9)]
+    messages = session(
+        init(),
+        [opened(uri, JOINED, 1)],
+        [
+            request(number, method, uri, line, character)
+            for index, (line, character) in enumerate(positions)
+            for number, method in (
+                (2 * index + 1, "textDocument/hover"),
+                (2 * index + 2, "textDocument/definition"),
+            )
+        ],
+    )
+    assert publishes(messages, uri)[-1]["diagnostics"] == []
+    assert response(messages, 1)["result"]["contents"]["value"] == "field name"
+    assert response(messages, 2)["result"] == {
+        "uri": uri,
+        "range": {
+            "start": {"line": 6, "character": 4},
+            "end": {"line": 6, "character": 14},
+        },
+    }
+    assert (
+        response(messages, 3)["result"]["contents"]["value"]
+        == "relationship order_customer"
+    )
+    assert response(messages, 4)["result"]["range"]["start"] == {
+        "line": 9,
+        "character": 0,
+    }
+    assert [response(messages, number)["result"] for number in range(5, 17)] == [
+        None
+    ] * 12
 
 
 @pytest.mark.parametrize("ending", ["\r\n", "\r"], ids=["crlf", "cr"])

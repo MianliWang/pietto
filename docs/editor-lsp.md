@@ -14,15 +14,19 @@ project-overlay, conflict, diagnostic, resource, and trust rules are the
 particular, it has no context-aware completion, SQL preview or execution
 feature.
 
-Hover describes resolved type and `from` references. Go-to-definition follows
-their exact declaration, including supported imports and re-exports inside a
-configured schema-v2 project. Builtin types have a hover description but no
-authored definition. The outline lists named top-level declarations in source
+Hover describes resolved type and `from` references, field and `let` reads
+and relationship calls. Go-to-definition follows their exact declaration,
+including supported imports and re-exports inside a configured schema-v2
+project. Builtin types have a hover description but no authored definition.
+A field read defines the shape field when its relation reads a source; a
+field of another relation, such as a relation let, has a hover but no
+definition. In a single file these are the field reads of a JOIN relation and
+relationship calls; in a project, the field and `let` reads of `let` values,
+`select` items and `where` of a relation without JOIN, and a `from` that reads
+a relation let. The outline lists named top-level declarations in source
 order, including `def` functions, relationship templates and single-file
-constants. Field,
-let, parameter and function-call bindings are not yet navigation facts, so a
-`from` that reads a relation let or a table-function input has no hover or
-definition.
+constants. Other reads, `def` calls and parameters, relationship parameters,
+and a `from` that reads a table-function input have no hover or definition.
 
 Workspace symbols list the outline's declarations of every module of the
 configured roots and of every other open document: the roots in `projectRoots` order, each

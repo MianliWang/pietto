@@ -15,7 +15,9 @@ from pietto._builtin_shadows import imported_nodes
 from pietto._editor_facts import (
     EditorFacts,
     EditorLink,
+    EditorUse,
     authored_declarations,
+    editor_binding,
     editor_declaration,
     editor_link,
     editor_use,
@@ -25,8 +27,10 @@ from pietto.ast_nodes import (
     ExportStatement,
     FunctionDef,
     ImportStatement,
+    LetRelationDef,
     ModuleDeclarationKind,
     Script,
+    SourceDef,
     Span,
 )
 from pietto._flat_relational_admission import legacy_flat_refused
@@ -102,6 +106,9 @@ if TYPE_CHECKING:
     from pietto._project.module_graph import (
         ProjectModuleDiagnosticSet,
         ProjectModuleGraph,
+    )
+    from pietto._project.module_semantic_fact_preservation import (
+        ProjectModuleSemanticFactEnvironment,
     )
     from pietto._project.selected_input_index import ProjectSelectedInputIndex
     from pietto.semantic.existence_generators import AnyUseInfo, AnyValueTrace
@@ -523,6 +530,15 @@ def _project_editor_facts(
         environment.module.path: environment
         for environment in relation_roots.environments
     }
+    semantic_facts = semantic_result.module_semantic_facts
+    semantic_environments = (
+        {}
+        if semantic_facts is None
+        else {
+            environment.module.path: environment
+            for environment in semantic_facts.environments
+        }
+    )
     facts: dict[str, EditorFacts] = {}
     for module in semantic_result.modules:
         parsed = module.parsed_input
@@ -552,8 +568,21 @@ def _project_editor_facts(
         if relation_environment is not None:
             for resolution in relation_environment.resolutions:
                 target = resolution.target_symbol.target_occurrence
-                # A relation let or a table-function input is no top-level
-                # declaration, so a use that reads one has no fact.
+                authored = target.authored
+                if type(authored) is LetRelationDef:
+                    uses.append(
+                        editor_use(
+                            resolution.reference.from_clause,
+                            f"let {authored.name}",
+                            editor_binding(
+                                authored, "let", path=target.identity.module_path
+                            ),
+                            path=module.path,
+                        )
+                    )
+                    continue
+                # A table-function input or an Unnest let is no declaration
+                # that a use can name, so a use that reads one has no fact.
                 if target.block_local:
                     continue
                 target_declaration = editor_declaration(
@@ -592,6 +621,9 @@ def _project_editor_facts(
                         path=module.path,
                     )
                 )
+        semantic_environment = semantic_environments.get(module.path)
+        if semantic_environment is not None:
+            uses.extend(_reference_uses(semantic_environment, module.path))
         module_links = links.get(module.path, {})
         facts[module.path] = EditorFacts(
             declarations=declarations,
@@ -599,6 +631,58 @@ def _project_editor_facts(
             links=tuple(module_links[position] for position in sorted(module_links)),
         )
     return MappingProxyType(facts)
+
+
+def _reference_uses(
+    environment: ProjectModuleSemanticFactEnvironment, path: str
+) -> list[EditorUse]:
+    """One use for each name that a `let` value, `select` item or `where` of a
+    relation without JOIN reads, when its retained candidate bucket is
+    concrete and holds one candidate: an input field, whose target is its
+    shape field when the relation reads a source, or a `let` binding. The
+    occurrence that inlining a def adds again has no use."""
+
+    from pietto._project.module_semantic_fact_preservation import (
+        ProjectModuleCandidateBucketStatus,
+    )
+
+    uses: list[EditorUse] = []
+    for relation in environment.relation_facts:
+        resolution = relation.resolution
+        reads_source = (
+            resolution is not None
+            and type(resolution.target_symbol.target_occurrence.definition) is SourceDef
+        )
+        for reference in (
+            *(item for binding in relation.let_bindings for item in binding.references),
+            *(
+                item
+                for selection in relation.select_facts
+                for item in selection.references
+            ),
+            *(() if relation.where_fact is None else relation.where_fact.references),
+        ):
+            field = reference.input_field
+            lets = reference.let_candidates
+            if (
+                reference.expression.span.occurrence
+                or reference.status is not ProjectModuleCandidateBucketStatus.CONCRETE
+                or reference.selected_output_candidates
+                or (field is not None) + len(lets) != 1
+            ):
+                continue
+            if field is None:
+                target = editor_binding(lets[0], "let", path=path)
+                detail = target.detail
+            else:
+                target = (
+                    editor_binding(field.field_def, "field")
+                    if reads_source and field.field_def is not None
+                    else None
+                )
+                detail = f"field {field.name}"
+            uses.append(editor_use(reference.expression, detail, target, path=path))
+    return uses
 
 
 def project_semantic_boundary(

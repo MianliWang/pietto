@@ -9,10 +9,14 @@ from collections.abc import Iterable
 from pietto.ast_nodes import (
     BlockRelationDef,
     Definition,
+    FieldDef,
     ImportStatement,
+    LetBinding,
+    LetRelationDef,
     Node,
     Script,
     SetRelationDef,
+    SourceDef,
     Span,
 )
 from pietto.errors import SourceLocation
@@ -59,7 +63,8 @@ class EditorFacts:
 def single_file_editor_facts(
     script: Script, model: SemanticModel, *, path: str | None = None
 ) -> EditorFacts:
-    """Project exact single-file type and FROM resolutions into pure values."""
+    """Project exact single-file type and FROM resolutions, JOIN field reads
+    and relationship calls into pure values."""
 
     declarations = tuple(
         declaration
@@ -91,6 +96,44 @@ def single_file_editor_facts(
                 location=_location(type_expr, path=path),
                 detail=f"{canonical.kind.value} {canonical.name}",
                 target=target,
+            )
+        )
+    # Only the occurrence the author wrote: a copy that inlining a def or
+    # expanding a relationship call adds has occurrence above 0.
+    for joins in model.relation_joins.values():
+        relations = {item.ordinal: item.relation for item in joins.inputs}
+        for read_expression, read in joins.field_reads.items():
+            if read_expression.span.occurrence:
+                continue
+            relation = relations[read.input]
+            schema = (
+                model.source_row_schemas.get(relation)
+                if isinstance(relation, SourceDef)
+                else None
+            )
+            row = None if schema is None else schema.fields.get(read.field)
+            definition = None if row is None else row.definition
+            uses.append(
+                editor_use(
+                    read_expression,
+                    f"field {read.field}",
+                    None
+                    if definition is None
+                    else editor_binding(definition, "field", path=path),
+                    path=path,
+                )
+            )
+    for call in model.relationship_calls:
+        callee = call.call.callee
+        if callee.span.occurrence:
+            continue
+        declaration = call.template.declaration
+        uses.append(
+            editor_use(
+                callee,
+                f"relationship {declaration.name}",
+                _declaration(declaration, path=path),
+                path=path,
             )
         )
     return EditorFacts(declarations=declarations, uses=tuple(uses))
@@ -127,6 +170,20 @@ def editor_use(
     """Build one detached use after its caller already proved its binding."""
 
     return EditorUse(location=_location(node, path=path), detail=detail, target=target)
+
+
+def editor_binding(
+    node: FieldDef | LetBinding | LetRelationDef, word: str, *, path: str | None = None
+) -> EditorDeclaration:
+    """Detach a field, `let` or relation-let target, which is no top-level
+    declaration, after its caller proved the binding."""
+
+    return EditorDeclaration(
+        location=_location(node, path=path),
+        name=node.name,
+        kind=8 if word == "field" else 13,
+        detail=f"{word} {node.name}",
+    )
 
 
 def editor_link(statement: ImportStatement, target: str, *, path: str) -> EditorLink:
