@@ -1263,6 +1263,18 @@ def verify_description(value: Description) -> None:
                 and tuple(p.get("source") for p in outputs) == get("values"),
                 "ROW_SHAPE",
             )
+            # Before the projection only a let adds a value to the ports it
+            # carries, and only an aggregate or a window feeds a satisfying or
+            # a qualify: the label is the body's stage, not a separate claim.
+            need(
+                get("stage") == "projection"
+                or len(values)
+                == len(refs(use.get("ports"), {"port"})) + (get("stage") == "let")
+                and (get("stage") == "satisfying")
+                is (producer.address.kind == "aggregate")
+                and (get("stage") == "qualify") is (producer.address.kind == "window"),
+                "ROW_SHAPE",
+            )
             if get("predicate") is not None:
                 ref(
                     get("predicate"),
@@ -2266,6 +2278,24 @@ def verify_description(value: Description) -> None:
             producer = record.get("producer")
             if producer.kind != "unnest":
                 incoming[record.get("consumer")].append(producer)
+    # Only a projection ends a declaration's stage chain: every other stage
+    # row feeds the next stage of its own declaration.
+    staged = {
+        producer
+        for consumer, producers in incoming.items()
+        if consumer.kind in ("row", "aggregate", "window")
+        for producer in producers
+        if producer.kind == "row"
+        and records[producer].get("owner") == records[consumer].get("owner")
+    }
+    need(
+        all(
+            (r.get("stage") == "projection") is (r.address not in staged)
+            for r in records.values()
+            if r.address.kind == "row"
+        ),
+        "ROW_SHAPE",
+    )
     reads = {a: [] for a in incoming}
     for record in records.values():
         if record.address.kind == "expression_block_use":

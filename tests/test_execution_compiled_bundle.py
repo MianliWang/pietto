@@ -583,6 +583,91 @@ def test_a_repinned_v2_payload_with_valid_looking_swaps_never_loads(tmp_path, ta
             )
 
 
+STAGED_BODIES = {
+    "having": (
+        "query result:\n    from rows\n    let a = id\n    where id > 2\n"
+        "    group by:\n        id\n    select:\n        k = id\n"
+        "        n = count()\n    having:\n        n > 1\n",
+        ["let", "where", "satisfying", "projection"],
+    ),
+    "qualify": (
+        "query result:\n    from rows\n    select:\n        id\n"
+        "        r = row_number() window(order by id)\n"
+        "    qualify row_number() window(order by id) <= 2\n",
+        ["qualify", "projection"],
+    ),
+}
+
+
+@pytest.mark.parametrize("target", ("postgres", "mysql"))
+@pytest.mark.parametrize("name", STAGED_BODIES)
+def test_a_repinned_row_never_loads_under_another_stage(tmp_path, target, name):
+    """A row's stage is its body's: only a let adds a value to what it
+    carries, only an aggregate or a window feeds a having or a qualify, and
+    only the projection ends the chain. Each other label, its predicate
+    dropped or added to match, is re-pinned and never loads; a WHERE
+    relabelled a let would replay a pass-through CTE."""
+    import pietto.execution as execution
+    from _pietto_sql_query_parameters import parameterized_case
+    from pietto._project.project_compiled_build import build_compiled
+    from pietto._project.project_compiled_loading import load_compiled
+    from pietto._project.project_execution_template import prepare_compiled_template
+
+    body, expected = STAGED_BODIES[name]
+    _, outcome = parameterized_case(tmp_path, target, body)
+    assert outcome.status == "VERIFIED", outcome.blockers
+    built = build_compiled(outcome.artifact)
+    prepare_compiled_template(
+        load_compiled(
+            built.payload,
+            expected_pin=built.pin,
+            accepted_producer=built.producer,
+            accepted_compatibility=built.compatibility,
+        )
+    )
+    description = built.root.description
+    rows = [r for r in description.records if r.address.kind == "row"]
+    assert [r.get("stage") for r in rows] == expected
+    filters = ("where", "satisfying", "qualify")
+    for row in rows:
+        for stage in ("let", *filters, "projection"):
+            if stage == row.get("stage"):
+                continue
+            predicate = (
+                (row.get("predicate") or row.get("values")[-1])
+                if stage in filters
+                else None
+            )
+
+            def relabel(r, row=row, stage=stage, predicate=predicate):
+                if r is not row:
+                    return r
+                return _set(_set(r, "predicate", predicate), "stage", stage)
+
+            raw = wire.encode(_forged(description, relabel))
+            with pytest.raises(wire.CompiledError) as refused:
+                load_compiled(
+                    raw,
+                    expected_pin=wire.content_pin(raw),
+                    accepted_producer=built.producer,
+                    accepted_compatibility=built.compatibility,
+                )
+            assert (row.get("stage"), stage, str(refused.value)) == (
+                row.get("stage"),
+                stage,
+                "COMPILED_ROW_SHAPE",
+            )
+            if (row.get("stage"), stage) == ("where", "let"):
+                with pytest.raises(execution.RequestRejected) as rejected:
+                    execution.load_bundle(
+                        raw,
+                        expected_pin=wire.content_pin(raw),
+                        accepted_producer=built.producer,
+                        accepted_compatibility=built.compatibility[-1],
+                    )
+                assert rejected.value.detail == "COMPILED_ROW_SHAPE"
+
+
 @pytest.mark.parametrize("target", ("postgres", "mysql"))
 def test_only_the_entry_query_and_its_lets_read_the_header(tmp_path, target):
     """A let's read travels in the v2 root and binds; a re-pinned root that
