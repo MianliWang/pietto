@@ -187,12 +187,13 @@ its uv cache and CPython 3.13.13 venv until PK seals, when PL.05 removes them;
 until then they serve the offline cells below and the lane environments. Lanes
 install on CPython 3.13 offline from that cache with `--require-hashes`, and
 PK resolves offline from it for the `uv.lock` regeneration and package smoke
-on each integration tree; any new networked package or metadata fetch needs a
-separate owner approval. The cache holds no CPython 3.12 wheels of pandas,
+on each integration tree; on 2026-11-11 the owner also allowed PK one networked
+`uv lock` and then the downloads the work needs, downloads only (PL.10). The
+cache holds no CPython 3.12 wheels of pandas,
 numpy, SciPy, Matplotlib or PyArrow, nor of Matplotlib's dependencies
 `contourpy`, `fonttools`, `kiwisolver` and `pillow`, so the CPython 3.12
-cells come from natural CI, and from PK's package smoke once the owner
-approves fetching those wheels. The Phase80 draft's 2026-11-10 PyPI reading
+cells come from natural CI, and from PK's package smoke once those wheels
+are fetched under PL.10. The Phase80 draft's 2026-11-10 PyPI reading
 was taken without network authorization and is not evidence; the probe
 replaces it.
 
@@ -312,10 +313,12 @@ a rule for a whole documentation and tool batch, does not cover it.
 
 ## Budget
 
-The cumulative Phase80 ceiling is `C120/F360/D4200/S10`, of which D800 is the
-replay reserve (D80.07); the per-slice drafts above sum to D3400 and are
-planning, not allowances. PK keeps its own `C40/F120/D1200/S4`, reported half
-to Phase79 and half to Phase80 (PL.05). D counts one per diagnostic command,
+The cumulative Phase80 ceiling is `C240/F720/D8400/S20`:
+`C120/F360/D4200/S10` (D80.07), doubled on 2026-11-12 (PL.09). Its D800
+replay reserve and the per-slice drafts above, which sum to D3400 and are
+planning, not allowances, keep their figures (PL.09). PK keeps its own
+`C80/F240/D2400/S8` (`C40/F120/D1200/S4` of PL.05, doubled by PL.09),
+reported half to Phase79 and half to Phase80. D counts one per diagnostic command,
 and the probe and design lines count (D76.17). The planning entry charged here
 is the Phase80 draft's 34 and this route's drafting 26 shell commands
 (read-only except the one that made this file's directory), plus any later fix
@@ -357,7 +360,7 @@ reported for the PL.04 option-C check.
 **Unfreeze conditions.** The owner decides any change of a D80.03 row or a
 signature, a new function, extra or combined extra, a platform, a pin change
 after qualification, a package or metadata fetch other than the completed
-probe fetch of PL.05 (PK resolves offline from the probe's uv cache), a
+probe fetch of PL.05 and the downloads PL.10 allows, a
 deferred candidate, a
 new PIE code or public text beyond the listed pages, and any
 extension-repository change.
@@ -409,7 +412,7 @@ cells.
 | 11 | Interchange | One in-process Arrow C Data import of one batch into one target object. No process, serialization, file, device or network crossing; DLPack stays Phase86. |
 | 12 | Execution | None: adapters compile, execute, connect and read handles not at all, and Matplotlib never renders, shows or saves. |
 | 13 | Resource lifecycle | As in "Errors and lifecycle": caller-owned batch, Axes and result; one batch of space; a failure leaves the batch open; no cancellation. |
-| 14 | Security and trust | Package identity is the boundary: exact pins, hash-allowlisted closures, installed-wheel witnesses, the PL.05 fetches only; no network, credential, file or database authority; target effects documented; no run-time version check. |
+| 14 | Security and trust | Package identity is the boundary: exact pins, hash-allowlisted closures, installed-wheel witnesses, the PL.05 and PL.10 fetches only; no network, credential, file or database authority; target effects documented; no run-time version check. |
 | 15 | Algorithms | One C Data import; the pandas `types_mapper` path; Polars `from_arrow` plus a schema comparison; a NumPy copy; SciPy validation, duplicate detection and canonical CSR; a Matplotlib envelope check. No cache. |
 | 16 | Complexity | Per call O(rows × fields) time, SciPy O(n log n + shape[0]); space O(batch + result); rows ≤ 4,096 and 8 MiB per batch; shape dimensions ≤ 4,096. |
 | 17 | Invalidation | No persisted fact. An Arrow type or producer change (Phase77 replays), a `PYARROW` change or a target pin change reruns the admission table and the installed cells. |

@@ -150,8 +150,9 @@ the first on 2026-11-10: the editor core work package E-C (ED.03–ED.06, the
 a representative corpus, which decides whether the linear analysis of layered
 JOIN DAGs and the FD sharing of PMS-6 (see the
 [project-mode follow-up](#project-mode-follow-up)) come first, and adds
-formatting, workspace symbols, document links, static-vocabulary completion and
-wider hover and definition to `pietto lsp`. Still ahead are the capability
+formatting, workspace symbols, document links, completion from the static
+vocabulary and the open buffer's identifiers (ED.09) and wider hover and
+definition to `pietto lsp`. Still ahead are the capability
 facts, which get a new versioned capability document whose own Gate 1 records
 the weighing against the
 [semantic metadata artifact v1](spec/semantic-metadata-artifact-v1.md) (ED.06),

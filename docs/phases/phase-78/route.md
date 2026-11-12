@@ -77,10 +77,11 @@ arithmetic and the remaining types each need their own Gate 1.
 | D78.02 | Value rules: the lead's ARCHITECTURE_DECISION from the SQLite draft's Q4 (first option), not an owner answer; stated to the owner as inform, at the latest before S02 seals | S01 text, S02 refusals, Q0 cells |
 | D78.03 | Target identity and in-process qualification (sheet Q7; SQLite draft Q3 A, Q8) | Q0, S03 |
 | D78.04 | `PIE-B1000` refusals, native errors by `sqlite_errorname`, independent `sql/sqlite*.py` modules: the lead's ARCHITECTURE_DECISION from the SQLite draft's Q5 and Q6, stated to the owner as inform, at the latest before S02 seals | S02, S03; the B2 seam choice is deferred to the B2 Gate 1 (AD78.03) |
-| D78.05, D78.06 | Cumulative `C80/F240/D2300/S3` from sheet §3.2, Phase78's own ledger, which the owner chose on 2026-11-11 (D78.06), ending the D1500 stop point | Budget section |
+| D78.05, D78.06, PL.09 | Cumulative `C80/F240/D2300/S3` from sheet §3.2, Phase78's own ledger, which the owner chose on 2026-11-11 (D78.06), ending the D1500 stop point, and doubled to `C160/F480/D4600/S6` on 2026-11-12 (PL.09) | Budget section |
 | D78.07 | `scripts/validate.py` declares `--pietto-sqlite-class=qualified`, so the authoritative Gate 2 runs the native cells on the qualified build (owner, 2026-11-11) | S03 write set; Qualification method |
 | D78.08 | The fixed PostgreSQL 18.6 image may run locally for the byte replays, under D77.02's conditions, on the Docker Engine (D77.19) (owner, 2026-11-11) | Qualification method; S03 |
 | D78.09 | Identifiers use a quoting under which an unknown name is an error, with no new premise; no Teach observation; D78.02 and D78.04 stand as stated (owner, 2026-11-11) | S02; support matrix |
+| D78.10 | The replay method under D78.08: one frozen, reviewed campaign that may contain void attempts and ends with its first `PASS` or `FAILED` run; its two hours are summed over all its attempts; the result is the lane's `tests/fixtures/sqlite/postgres_replay_v1.json` (lead) | Qualification method; S03 |
 | D76.12, D76.13, D76.15, D76.17 | Extension sync rule; compiled `VERSIONS`; lane resource rules as PL.01 continues them; the D unit | B1 changes no compiled record, so `VERSIONS` stays; extension sync is deferred below |
 
 PL.05 (dependencies, packaging and the shared lane PK) and the editor rows
@@ -272,16 +273,17 @@ a rule for a whole documentation and tool batch, does not cover it.
 | 27 | Release, deprecation, and EOL | Publishes after the `0.1.11` cut and DuckDB B1, each push separately authorized; rides the `0.2.0` line as an alpha surface listed in release notes and the freeze ledger; rollback is an ordinary revert; no deprecation |
 | 28 | Readiness and exact deferred owners | Prerequisites: the published D77.04 head with CI, bound as `ab972f36` (PL.02); Q0; Phase79 S02 before S02. Deferred: B2 project mode (Phase78 B2 Gate 1); execution and file trust (its own Gate 1, Phase78 lead); arithmetic, division by zero, other types, JOINs, windows (B2 or later Gates 1); the SQLite capability-facts profile (editor capability-facts Gate 1); extension sync (extension lane after its authorization, before the release request carrying B1); third whole-tree test pass (own ledger, after Phase77 S27, before the Phase78 completion audit); Phase77 audit (Phase77 S27) |
 | 29 | Slice route | Q0 → S01 → (Phase79 S02) → S02 → midpoint → S03 → S04; non-goals as in the scope table |
-| 30 | Repair and stop conditions | D78.05 ceiling, as the owner chose it (D78.06); stop at any cap, unproved build or input identity, a needed new code, public text, dependency, database run beyond D78.08 or extension push, a trust regression, or a replay that changes a Phase77 meaning. Failed candidates and runs are preserved; no commit or push without authorization |
+| 30 | Repair and stop conditions | D78.05 ceiling, as the owner chose it (D78.06) and doubled it (PL.09); stop at any cap, unproved build or input identity, a needed new code, public text, dependency, database run beyond D78.08 or extension push, a trust regression, or a replay that changes a Phase77 meaning. Failed candidates and runs are preserved; no commit or push without authorization |
 
 ## Budget
 
-`C80/F240/D2300/S3`, recorded from sheet §3.2, is the cumulative B1 ceiling
-(D78.05), not a target or a per-slice allowance. The option the owner selected
-at Gate 1 stated `D1500`, and on 2026-11-11 the owner chose `D2300`, which
-ends that stop point (D78.06). The slice allocations above sum to
-`C75/F225/D1900/S3`; `D400` is the replay reserve and
-`C5/F15` is unallocated. D counts one per diagnostic command, and a loop
+`C160/F480/D4600/S6` is the cumulative B1 ceiling, not a target or a
+per-slice allowance: `C80/F240/D2300/S3`, recorded from sheet §3.2 (D78.05),
+doubled on 2026-11-12 (PL.09). The option the owner selected at Gate 1
+stated `D1500`, and on 2026-11-11 the owner chose `D2300`, which ended that
+stop point (D78.06). The slice allocations above sum to
+`C75/F225/D1900/S3` and `D400` is the replay reserve; both keep their
+figures (PL.09), so `C85/F255/D2300/S3` is unallocated. D counts one per diagnostic command, and a loop
 inside one command counts once (D76.17). The planning entry charged to Q0 is
 the SQLite draft's 31 and this route's drafting 35 shell commands, plus any
 later fix of this route and Phase78's share of the shared passes after the

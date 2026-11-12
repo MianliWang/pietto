@@ -13,10 +13,11 @@ Gate 0 (PL.01, PL.02). Each batch publishes under D77.06's conditions
 repository, or Marketplace action is authorized (PL.01).
 
 Gate 0 binds the head and its natural CI. EB1, the package's first
-implementation batch, records that CI's eligible health and alerts as
+implementation batch, recorded that CI's eligible health and alerts as
 NOT_OBSERVED, because the public API needs a sign-in to download the run's
-artifacts and logs and `gh` is not signed in on the integration host (see
-[Dependencies and pins](#dependencies-and-pins)). EB1 measured the Phase77
+artifacts and logs and `gh` is not signed in on the integration host; the
+midpoint read them through the owner's read-only token (PL.07; see the
+[midpoint record](#midpoint-unfreeze-and-closure)). EB1 measured the Phase77
 overlap again on 2026-11-10, after its rebase onto `a503167f` and not at
 Gate 0 or when its slices opened: none of its files, nor the module graph,
 project model, module binding and formatter files that its new code reads, is
@@ -92,7 +93,8 @@ freeze:
 - formatting of the open buffer;
 - workspace symbols;
 - document links on import module paths;
-- completion from the static vocabulary;
+- completion from the static vocabulary and the open buffer's identifiers
+  (ED.09);
 - hover and definition for fields, lets, parameters and calls, taken from
   exact existing bindings.
 
@@ -124,11 +126,16 @@ D76.12 is triggered.
 | Id | Rule in this route | Source |
 | --- | --- | --- |
 | PL.01–PL.06 | The answers shared with Phase78–80: parallel start, lane rules and the previous-audit item (PL.01); Gate 0 and the work before it (PL.02); host pytest workers (PL.03); integration and version line (PL.04); dependencies and CI, which E-C does not use (PL.05); the planning ledger (PL.06) | Sheet Q1 A, Q2 A, Q3 A |
-| ED.03 | Scope above; ED.02 revised so that formatting alone parses its buffer at request time; static-vocabulary completion supersedes D75.09's "no completion"; semantic tokens wait for M1 and a separate owner decision | Q5 A |
-| ED.04 | The E-C cumulative ledger `C70/F210/D2400/S6`, its planning allocations and the acquisition reserve of the Budget section | Q1 A; sheet §3.2 |
+| ED.03 | Scope above; ED.02 revised so that formatting alone parses its buffer at request time; static-vocabulary completion supersedes D75.09's "no completion"; ED.09 adds the open buffer's identifiers; semantic tokens wait for M1 and a separate owner decision | Q5 A |
+| ED.04 | The E-C cumulative ledger, first `C70/F210/D2400/S6` and now `C140/F420/D7800/S12` (ED.10), its planning allocations and the acquisition reserve of the Budget section | Q1 A; sheet §3.2 |
 | ED.05 | Batches EB1 and EB2 reach `main` and widen the `0.1.11` alpha surface, each published under D77.06's conditions | Q2 A, whose separate push authorization for each batch the owner replaced on 2026-11-10 at 14:41Z |
 | ED.06 | Later steps: K1 gets a new versioned capability document (Q10 A chose the carrier before the weighing, revising the 2026-11-07 Editor line order; the K1 Gate 1 records the weighing against the semantic metadata artifact v1 that ED.01 requires, and a result for the artifact v1 returns the carrier to the owner; Gate 1 design now, implementation after Phase77 S26); references only complete, rename its own Gate 1; no location field in the column view before the freeze; the PIE-B view is an extension interim; the extension lane stays planning-only apart from the local X1 and X3 of EX.01 and the local commits of X0, X1 and X3 that EX.02 authorizes | Q10, Q11, Q12, Q13; Q4 not approved; EX.01 (lead, inform); EX.02 (owner, 2026-11-11) |
 | ED.07 | The defaults stand: a single-threaded server loop, no C3, no schedule for linear JOIN-DAG analysis or PMS-6, and `null` for a refused formatting request; M1's proposed budget stands as inform, recorded at the midpoint; the CI health reading uses the owner's read-only token (PL.07) | Owner, 2026-11-11 |
+| ED.08 | M1's latency budget, kept without a quiet-host repeat; a review bar, not a test | The lead's ARCHITECTURE_DECISION at the midpoint (inform) |
+| ED.09 | `textDocument/completion` offers the static vocabulary and then the open buffer's identifiers, without the one at the request's position, revising ED.03's completion item (4) | The owner's answer to the midpoint's second question, 2026-11-11; the position rule is the lead's (inform) |
+| ED.10 | ED.04's ledger becomes `C70/F210/D3900/S6`, then `C140/F420/D7800/S12` when the owner doubled every ledger (PL.09); the lead's stop points for C4's work and EB2's batch work, D600 each and then D1200 | The owner's answer to the midpoint's first question, 2026-11-11, and the owner's answer of 2026-11-12; the stop points are the lead's |
+| ED.11 | C4 delivers only the bindings that the semantic layer already retains and changes no semantic owner | The owner, 2026-11-11 to 2026-11-12 |
+| PL.09, PL.10 | Every ledger doubled; the downloads the work needs are authorized, downloads only | The owner, 2026-11-11 and 2026-11-12 |
 
 These existing decisions still bind E-C:
 
@@ -154,7 +161,7 @@ AD78.01–AD78.03 and the D78, D79 and D80 rows do not bind E-C.
 | M1 | Latency measurement on a named corpus: the repository's example sources, the worked example, the `fmt` test corpus, and generated schema-v2 projects of layered JOIN DAGs at rising depth. It measures snapshot construction for single files and projects, publication of diagnostics after each edit, the three existing request families, and `format_source`. It proposes the budget, and states whether linear JOIN-DAG analysis or the FD sharing of PMS-6 must come first. | Gate 0 | The "Performance and verification" section of `docs/spec/lsp-editor-facts-v1.md`. The driver and raw timings stay in the lane's scratch folder, outside Git. | Runs under the lane rules on a quiet host. Each figure names its tree, Python, corpus paths, generator parameters and repeat count. No wall-time test is added: count laws are the only test bound. | 5/15/200/1 |
 | C1 | `textDocument/formatting` runs the pure `format_source` on the request's current buffer text. It answers when the request is read and never holds it for analysis. The result is one whole-document edit, `[]` when nothing changes, and `null` for a parse error (header lines included), `FormatRefusedError`, the size limit, a URI that is not open, a document whose last change was refused (until it is opened again), or a buffer whose last open or change had unpaired UTF-16 surrogates. `FormattingOptions` are ignored (one layout, D75.05). It does no disk read or write. | Gate 0 | `src/pietto/_lsp.py`; in `lsp-editor-facts-v1.md`, a Formatting section and its two external-reference records, and the opening, Boundary, fail-closed request, capability and performance text that ED.03's revision of ED.02 changes; in `lsp-diagnostics-v1.md`, the opening with its method list, the advertised capabilities and the resource and trust boundaries; `docs/editor-lsp.md`; `tests/test_cli_lsp.py`; `docs/release-notes.d/77-e02-lsp-formatting.md`; `scripts/package_smoke.py`, whose installed `pietto lsp` round trip expects the advertised capabilities (DERIVED_MECHANICAL). `source_format.py` is only read. | Byte equality with `pietto fmt` on the corpus; BOM, CRLF, lone CR and UTF-16 end positions; every refusal path; no semantic, project or IR call; advertised capability; `test_cli_format.py` and `test_parser_format.py` unchanged | 10/30/300/1 |
 | C2 | `workspace/symbol` over the current snapshots, waiting while any analysis is scheduled or running. It returns every retained declaration in root, module and source order, without deduplication, and a module without facts contributes none. `textDocument/documentLink` covers an import module path that resolves exactly to a module of the same selected-root analysis, with nothing for an unresolved, ambiguous, blocked or omitted module. Both use standard shapes, and the spec fixes the matching rule. | C1 merged | `_lsp.py`; `src/pietto/_editor_facts.py`; `_project_editor_facts` in `src/pietto/_project/check.py`; both LSP specs; `editor-lsp.md`; `tests/test_cli_lsp.py`; `tests/test_project_editor_overlays.py`; `77-e03-lsp-workspace-symbols.md`; `scripts/package_smoke.py`, whose installed `pietto lsp` round trip expects the advertised capabilities (DERIVED_MECHANICAL) | Occurrence completeness and order; URI spellings; partial-project omission; legacy-flat root; conflict suppression; zero analysis calls per request; `test_project_check_partial.py` unchanged | 15/45/350/1 |
-| C5 | `textDocument/completion` returns one complete list in a fixed order that does not depend on position: the keywords authored code can write, and the builtin types, scalar functions and aggregates of the core catalog. It excludes extension catalogs, which are not callable (D76.11), and names refused everywhere. It does no lexing, parsing or analysis, and offers no resolve or trigger characters. | C1 merged | `_lsp.py`; new private `src/pietto/_editor_completion.py`, which reads `semantic/catalog.py` and the generated lexer vocabulary without changing them; both LSP specs; `editor-lsp.md`; `tests/test_cli_lsp.py`; `77-e04-lsp-completion.md`; `scripts/package_smoke.py`, whose installed `pietto lsp` round trip expects the advertised capabilities (DERIVED_MECHANICAL) | An oracle written before the code: every item is accepted by `pietto check` in at least one authored position, and every accepted catalog entry appears. Deterministic output; zero parse or analysis calls; generated parser untouched | 10/30/250/1 |
+| C5 | `textDocument/completion` returns one complete list: the keywords authored code can write and the builtin types, scalar functions and aggregates of the core catalog, in a fixed order, then the identifiers of the request's open buffer that the list does not already hold, in code-point order (ED.09). It excludes extension catalogs, which are not callable (D76.11), and names refused everywhere. One lexical scan of the open buffer finds its identifiers, without the one at the position; it does no parsing or analysis, and offers no resolve or trigger characters. | C1 merged | `_lsp.py`; new private `src/pietto/_editor_completion.py`, which reads `semantic/catalog.py` and the generated lexer vocabulary without changing them; both LSP specs; `editor-lsp.md`; `tests/test_cli_lsp.py`; `77-e04-lsp-completion.md`; `scripts/package_smoke.py`, whose installed `pietto lsp` round trip expects the advertised capabilities (DERIVED_MECHANICAL) | An oracle written before the code: every item is accepted by `pietto check` in at least one authored position, and every accepted catalog entry appears. Deterministic output; zero parse or analysis calls; generated parser untouched; the buffer scan finds exactly the generated lexer's IDENTIFIER tokens over the oracle corpus; the development-host word-suggestion check is repeated in EB2's editor checks | 10/30/250/1 |
 | C4 | Hover and definition for field references, `let` bindings, `def` and relationship parameters, and `def` and relationship calls. Each fact comes from a binding that the single-file `SemanticModel` or the project module environments already retain. Facts are kept per occurrence, without deduplication. A use with no retained exact binding has no fact. | M1 budget recorded; C2 merged; overlap measured again | `_editor_facts.py`; `_project_editor_facts`; `_lsp.py` if the projection changes; the "First facts" table, extended before the code; `editor-lsp.md`; both test owners; `77-e05-lsp-hover-definition.md`. Excluded: `semantic/**`, `_project/project_*`, IR | The exact-target table per context; stale, wait, alias and partial cases; zero analysis calls; projection bounded by occurrences (count test); a semantic-collision review against the published Phase77 batches (lesson 73-7) | 25/75/800/2 |
 | Z1 | Acquisition consolidation against the Gate 0 baseline. Shared hunks: the editor rows of `docs/status.md`; the editor section and a Phase82 freeze-ledger row of `docs/roadmap.md`, which also names the extension as a consumer of `pietto.cli.main(argv)` (DERIVED_MECHANICAL); `README.md:582` | C4 merged | Those documents and any test owner that the review consolidates | Exact coverage equivalence; fresh witnesses kept; the ten-slowest-node profile per [development](../development.md#phase-end-acquisition-consolidation); the closeout read of the latest published head's eligible CI health and alerts | 5/15/100/0, shared with Z2 (acquisition reserve) |
 | Z2 | Audit only: `docs/editor/ed03-completion-audit.md`, with the three acceptance layers, lessons, Gate 2 duration and the handoff to the next editor step | Z1 | That file | Independent audit read | from the Z1 reserve |
@@ -185,8 +192,9 @@ Acceptance has three layers:
   scratch-only host steps, and nothing is written to the extension's canonical
   worktree, committed or pushed. It uses only the VS Code 1.145.2 test host and
   the `node_modules` already on the host from the ED.01/ED.02 acceptance
-  ([status](../status.md)); any VS Code or npm download is a fetch that this
-  route rules out and needs the owner. It counts skips beside passes and covers
+  ([status](../status.md)); any VS Code or npm download is a fetch that needs
+  the owner, which PL.10 gives for the downloads the work needs. It counts
+  skips beside passes and covers
   each URI spelling the client sends. If the check cannot run, its slice
   records it as NOT_RUN and does not claim the connected layer.
 
@@ -220,7 +228,7 @@ waits.
 | Input | Pin | State |
 | --- | --- | --- |
 | Gate 0 head | `ab972f36`, the published D77.04 head; natural exact-head CI `42831340276` passed all 21 jobs | bound |
-| CI health | that head's eligible health and alerts; the midpoint reads the EB1 head's, and the closeout the latest published head's | NOT_OBSERVED: the public API needs a sign-in to download the run's artifacts and logs, and `gh` is not signed in on the integration host. The midpoint and the closeout read through a read-only fine-grained token that the owner provides (PL.07); until it is in place they record NOT_OBSERVED with this reason |
+| CI health | that head's eligible health and alerts; the midpoint reads the EB1 head's, and the closeout the latest published head's | Read at the midpoint through the owner's read-only fine-grained token (PL.07): INSUFFICIENT_EVIDENCE with a WATCH screen for the Gate 0 run, the EB1 run and the EB1 record run (see the [midpoint record](#midpoint-unfreeze-and-closure)). EB1 had recorded NOT_OBSERVED, because the public API needs a sign-in to download the run's artifacts and logs and `gh` is not signed in on the integration host. The closeout reads through the same token |
 | Python | CPython 3.13.13 for Gate 2; 3.12 and 3.13 in natural CI | existing |
 | Runtime dependencies | none added; `pietto lsp` stays standard library only (D75.09) | existing |
 | LSP | 3.17 specification pages of the four new methods | bound to the 2026-11-10 snapshot: the 3.17 specification page read at 16:57:23Z, with the 3.18 page read at 16:58:14Z for comparison; the C1 and C2 records cite it |
@@ -230,13 +238,18 @@ waits.
 
 ## Budget
 
-The cumulative E-C ledger is `C70/F210/D2400/S6` (ED.04). D counts one per
+The cumulative E-C ledger was `C70/F210/D2400/S6` (ED.04). The owner raised
+it to `C70/F210/D3900/S6` at the midpoint and doubled it to
+`C140/F420/D7800/S12` on 2026-11-12 (ED.10, PL.09); the lead's stop points
+for C4's work and for EB2's batch work are D1200 each (ED.10). D counts one per
 diagnostic command, and a loop inside one command counts once (D76.17). The
-per-slice figures above are planning allocations, not separate allowances. They
+per-slice figures above are planning allocations, not separate allowances, and
+the raises added none. They
 follow the sheet's E-C figures, except that C5/F15/D100 of the sheet's C5 draft
 (15/45/350/1) is moved into the acquisition reserve of Z1 and Z2 (5/15/100/0)
 that the initiation gate requires at the start and at the midpoint. Together
-they come to `C70/F210/D2000/S6`; the remaining 400 D is the replay reserve,
+they come to `C70/F210/D2000/S6`; the remaining 400 D of the first ledger's
+D2400 is the replay reserve, which the raises left unchanged (PL.09),
 and every replay onto a moved head draws on it. The midpoint re-estimates the
 acquisition reserve; if it does not fit, the lead asks the owner. The planning
 entry charged here is the editor draft's 21 and this route's drafting 17 shell
@@ -294,6 +307,152 @@ a rule for a whole documentation and tool batch, does not cover it.
 
 EB2 seals only after the midpoint passes.
 
+**Midpoint record (2026-11-11).** The midpoint passed with this record, the
+day before the owner doubled every ledger (PL.09):
+
+- M1's budget is ED.08, the lead's ARCHITECTURE_DECISION, whose proposal the
+  owner accepted as inform (ED.07).
+- C1 `25e3dd47` and C2 `4a664902` are on `main` in EB1, whose head
+  `ae48f00a` passed natural exact-head CI `42900771741`, push/main attempt 1,
+  with all 21 jobs.
+- Health. Read on 2026-11-11 between 10:21Z and 10:22Z through the owner's
+  read-only token (PL.07): the health artifacts of the Gate 0 run
+  `42831340276` (`ab972f36`), the EB1 run `42900771741` (`ae48f00a`) and the
+  EB1 record run `42917583571` (`41e27e5c`), each push/main attempt 1 and
+  passed with 21 of 21 jobs. Each workflow report verifies, and each says
+  INSUFFICIENT_EVIDENCE with a WATCH screen: the comparable samples are 0, 0
+  and 1 of the 3 needed (the Gate 0 run's history read was unavailable; EB1
+  changed the test set, 27,678 to 27,729 nodes per Python). The only alert
+  that needs no history is the structural `FEWER_UNITS_THAN_WORKERS` of the
+  plan-portability and emission-portability partitions (three nodes for four
+  workers) on both Pythons, the same in all three runs and older than Gate 0.
+  The other signals are provisional: `LONG_INDIVISIBLE_NODE` eighteen times in
+  each run, the same nine harness nodes on both Pythons; shard imbalance at
+  REVIEW for 3.13 (1.67) and WATCH for 3.12 (1.31) on the Gate 0 run, WATCH
+  for 3.13 (1.27) on the EB1 run, and none on `41e27e5c`. Each report's cost
+  is partial. Health stays advisory: E-C takes no action on it, and a
+  placement change needs its own evidence and authority. Wall times were
+  1057, 1067 and 1073 s, with job sums of 9572, 10159 and 9213 s.
+- Ledger. By the owner-held ledger, E-C had used C8 or less, F59 and D1,826
+  at the midpoint's eleventh review round (12:10Z) and D1,924 after the
+  twelfth. When the owner answered at about 15:50Z, the midpoint projected
+  D2,857 to D3,832 for C5's close, C4, EB2 and Z1/Z2, and the owner raised
+  the cap to D3900 (ED.10). Without stop points the projection after the
+  twelfth round was D2,934 to D3,909, nine above that cap, so the lead set
+  the two stop points of ED.10 (C4's work from the thirteenth round on, D600;
+  EB2's batch work, D600). With them, and with the thirteenth round's other
+  work and all its reviews (D71) counted, the projection was D3,005 to
+  D3,515, a margin of 385. C, F and S stayed far inside their caps. The
+  ledger rows came to D2,039 through the thirteenth round and to about D2,120
+  to D2,230 when the owner doubled the cap to `C140/F420/D7800/S12` and each
+  stop point to D1200 on 2026-11-12 (PL.09).
+- Overlap. Measured again on 2026-11-11 between 16:51Z and 17:10Z. Published
+  `main` was `e0116e41`, the former documentation candidate
+  `refs/pietto-candidates/docs-owner1111`: one commit on `41e27e5c`, which
+  holds the EB1 head `ae48f00a` and its publication record, whose natural CI
+  `42917583571` passed. `e0116e41` writes `docs/decisions.md`,
+  `docs/status.md`, this route and the Phase77 to Phase80 routes, so EB2's
+  shared hunks and the midpoint record follow it. The candidates were
+  `refs/pietto-candidates/wave-a` at `9bf4787b`, seven commits on `41e27e5c`
+  (S25 `1a8d6db0`, S10 `cbfee089`, S11 `ed3f5837`, S14 `5d0b5438`, S16
+  `8bfac060`, S17 `93f56540`, S08 `9bf4787b`);
+  `refs/pietto-candidates/wave-a-r7-partial` at `8bfac060`, the first five of
+  them; and `refs/pietto-candidates/s12` at `da8a925c`, rebuilt at 16:42:01Z
+  as one commit on `e0116e41`. That commit writes `docs/language.md`,
+  `docs/style.md`, the fragments `76-s07-mysql-constants-and-now.md` and
+  `77-s12-mysql-lpad-and-now.md`, `semantic/capability_signatures.py`,
+  `_project/project_completed_semantics.py`,
+  `_project/project_compiled_verification.py`, five
+  `_project/project_sql_emission_*.py` modules (`portable_schema`,
+  `pure_boundary`, `rendering`, `rows`, `verification`),
+  `tests/_pietto_sql_emission.py`, `tests/test_execution_compiled_bundle.py`,
+  `tests/test_semantic_scalar_function_operator_signature_facts.py` and
+  `tests/test_sql_project_scalar_expressions.py`. No candidate writes a file
+  of EB2's write sets: `_lsp.py`, `_editor_facts.py`,
+  `_editor_completion.py`, `_project/check.py`, both LSP specs,
+  `editor-lsp.md`, `scripts/package_smoke.py`, `tests/test_cli_lsp.py`,
+  `tests/test_project_editor_overlays.py`, `docs/status.md`,
+  `docs/roadmap.md` and `README.md`. The one shared file is
+  `docs/decisions.md` (Wave A only), which EB2 edits as a shared hunk at
+  batch end, serially. Of the files EB2 reads, none touches
+  `source_format.py`, the generated lexer, `semantic/catalog.py`,
+  `semantic/aggregates.py` or `semantic/model.py`. Wave A's S17 commit
+  `93f56540` changes `_project/project_completed_semantics.py` in a helper
+  after `_null_arithmetic_type` and in `derive_compiled_semantics` and
+  `verify_compiled_semantics`; S12 changes that file only in
+  `derive_compiled_semantics` and `verify_compiled_semantics`. C4 excludes
+  the file from its write set, and the editor projection reads none of these
+  functions. S12 also changes `semantic/capability_signatures.py`, inside the
+  `semantic/**` that EB2 reads: only strings of `_scalar_function_evidence`
+  (its test names, MySQL reference and comment) change. None of `_lsp.py`,
+  `_editor_facts.py`, the C5 lane's `_editor_completion.py`,
+  `_project/check.py`, `semantic/model.py`, `semantic/catalog.py` or
+  `semantic/aggregates.py` imports that module;
+  `_project/module_semantic_fact_preservation.py`, whose reference facts C4
+  reads, imports its `_CAPABILITY_SIGNATURE_FACTS` for the capability
+  inventory, which the projection does not read. C4's collision review at its
+  start (lesson 73-7) found that no candidate writes `ast_nodes.py`,
+  `parser_api.py`, `semantic/model.py`, `semantic/analyzer.py`,
+  `semantic/joins.py`, `semantic/relationship_predicates.py`,
+  `semantic/inline_functions.py`, `semantic/let_bindings.py`,
+  `_project/model.py`, `_project/module_catalog.py`,
+  `_project/module_relation_resolution.py`,
+  `_project/module_semantic_fact_preservation.py` or `_project/check.py`, the
+  files whose results the projection reads. Not covered: the Phase77 slices
+  without a candidate (among them S09, S13, S15, S20, S21–S24 and S26), and
+  S20's planned write set.
+- Tests for Z1. New and changed tests since Gate 0 (`ab972f36`), by
+  function, for Z1's acquisition review. CI collected 27,678 nodes per Python
+  at Gate 0 and 27,729 at `ae48f00a` and `41e27e5c`. E-C, published in EB1:
+  C1 `25e3dd47`, `tests/test_cli_lsp.py`: new
+  `test_a_formatting_edit_ends_at_the_utf16_end_of_the_buffer`,
+  `test_formatting_a_refused_document_or_malformed_params`,
+  `test_formatting_answers_at_once_and_calls_no_analysis`,
+  `test_formatting_edits_the_buffer_into_the_bytes_fmt_prints`,
+  `test_formatting_has_no_result_for_a_buffer_fmt_would_refuse`,
+  `test_formatting_has_no_result_when_fmt_refuses_its_output`,
+  `test_formatting_over_a_process`,
+  `test_formatting_reads_only_the_open_buffer_and_writes_nothing`; changed
+  `test_lifecycle_over_a_process`. C2 `4a664902`, `tests/test_cli_lsp.py`:
+  new `test_import_paths_link_to_the_exact_module_of_the_same_analysis`,
+  `test_workspace_symbols_and_links_keep_percent_encoded_and_non_ascii_uris`,
+  `test_workspace_symbols_and_links_wait_and_call_no_analysis`,
+  `test_workspace_symbols_leave_out_documents_without_facts`,
+  `test_workspace_symbols_list_every_retained_declaration_in_order`; changed
+  `test_editor_facts_refuse_selected_name_collisions_and_their_targets`,
+  `test_lifecycle_over_a_process`,
+  `test_partial_project_omissions_have_no_editor_snapshot`;
+  `tests/test_project_editor_overlays.py`: new
+  `test_editor_links_are_the_import_paths_the_module_graph_resolved`. M1
+  `26748232`: no test. E-C, pending in the C5 lane (uncommitted, on
+  `ab972f36`): `tests/test_cli_lsp.py` new
+  `test_the_completion_oracle_is_what_check_accepts`,
+  `test_completion_answers_the_oracle_at_once_at_every_position`,
+  `test_completion_adds_the_identifier_tokens_of_the_open_buffer`; changed
+  `test_lifecycle_over_a_process`. E-C, pending in the C4 lane (uncommitted,
+  on `e0116e41`): `tests/test_cli_lsp.py` new
+  `test_single_file_join_field_reads_and_relationship_calls_define_their_targets`;
+  `test_a_from_that_reads_a_let_or_a_table_function_has_no_editor_fact`
+  renamed `test_a_from_that_reads_a_relation_let_defines_it_and_a_table_function_has_none`
+  and changed; `tests/test_project_editor_overlays.py` new
+  `test_editor_facts_keep_each_retained_field_and_let_reference`. Not E-C,
+  published since Gate 0 (outside E-C's consolidation, listed because Z1
+  reviews against the Gate 0 baseline): `13b4251b` changed
+  `test_resource_worker_formula_respects_cpu_memory_and_optional_cap`,
+  `test_no_custom_scheduler_exists_and_the_retained_policy_is_intact`,
+  `test_default_local_gates_and_existing_worker_policy_remain_complete`,
+  `test_static_boundaries_and_witness_matrices_are_zero_delta` and
+  `test_fixed_thresholds_and_retained_startup_policy`; the Phase77 repair
+  `a503167f` added
+  `test_every_stated_blocker_detail_has_a_suggestion_on_each_target` and
+  `test_project_float_division_and_remainder_are_deterministic_refusals`
+  (`tests/test_cli_project_emit_sql.py`) and
+  `test_an_unrealized_float_operation_is_a_blocked_document` and
+  `test_compile_query_raises_the_typed_refusal_of_an_unrealized_float_operation`
+  (`tests/test_sql_compile_api.py`). The unpublished Phase77 candidates
+  (`wave-a`, `wave-a-r7-partial`, `s12`) touch none of E-C's test owners;
+  they belong to Phase77's own consolidation.
+
 **Unfreeze conditions.** Any of the following needs the owner:
 
 - a slice or LSP method beyond this route;
@@ -325,7 +484,7 @@ EB2 seals only after the midpoint passes.
 2. **A moving Phase77 base.** C4 can collide in meaning with decimal, S09 and
    S21–S24 while replays repeat. C4 comes last and reads semantic results
    without changing them. It gets a collision review, and replays draw from
-   the 400 D reserve.
+   the 400 D replay reserve of the Budget section.
 3. **A wider alpha surface.** The new surfaces enter `0.1.11` and light up in
    the published extension automatically, while the extension's own
    documentation cannot follow under Q4. `fmt` output may also change before
@@ -341,18 +500,18 @@ EB2 seals only after the midpoint passes.
 | 2 | The five LSP surfaces and the M1 budget above. Success does not include the non-goals in Outcome or any `0.1.11` release. |
 | 3 | Pietto semantics, project semantics and IR stay the authority. The editor projects their exact results, the module graph's import resolution, the core catalog and `format_source`, and derives no semantic fact. |
 | 4 | Identity domains: document URI and version, selected root and epoch, module, declaration occurrence, use occurrence, import-path occurrence, catalog entry. No name- or spelling-based target, no deduplication by spelling, type or target, no winner among roots or URIs (D75.12), and no canonical path in place of an unsaved buffer URI. |
-| 5 | A snapshot is absent, pending, current or discarded; facts come only from a current one. Formatting returns refused (`null`), unchanged (`[]`) or one edit from the buffer it reads. Completion is constant for the running package. |
-| 6 | Asserted: spec text. Derived: projected facts. Verified: protocol and count tests. Observed: M1 timings and the host check on the existing VS Code 1.145.2 test host. Unknown: client timeouts, the Gate 0 head's CI health (NOT_OBSERVED) and the `completion` record (pending for C5). The LSP snapshot is bound to 2026-11-10. Disproven: none. Local, Gate 2, natural CI and release claims stay apart. |
+| 5 | A snapshot is absent, pending, current or discarded; facts come only from a current one. Formatting returns refused (`null`), unchanged (`[]`) or one edit from the buffer it reads. Completion is the static vocabulary, constant for the running package, then the identifiers of the request's open buffer without the one at the position (ED.09). |
+| 6 | Asserted: spec text. Derived: projected facts. Verified: protocol and count tests. Observed: M1 timings, the host check on the existing VS Code 1.145.2 test host, and the Gate 0 head's CI health, which the midpoint read (INSUFFICIENT_EVIDENCE, WATCH). Unknown: client timeouts and the `completion` record (pending for C5). The LSP snapshot is bound to 2026-11-10. Disproven: none. Local, Gate 2, natural CI and release claims stay apart. |
 | 7 | `_lsp.py` owns protocol, dispatch, capabilities and waits. `_editor_facts.py` and `_project_editor_facts` own the detached projection. `_editor_completion.py` owns the vocabulary projection. `source_format.py` and `semantic/catalog.py` stay unchanged owners. |
 | 8 | The editor layer depends on the formatter, semantic and project results and the catalog, never the reverse. No editor branch in semantic, IR or SQL code, and no re-decision of a type, binding or module. Layering tests run on the integrated tree. |
 | 9 | Additive capabilities in `initialize`; every surface is alpha until Phase82. No CLI JSON, metadata, column-view, compiled-record or `VERSIONS` change. `fmt` output may change before the freeze (D75.05). No migration. |
 | 10 | Client capabilities govern the representation. The server advertises only the methods it implements. Target readiness and capability facts stay out (D75.09, ED.06). |
 | 11 | Only JSON-RPC 2.0 over stdio, with standard LSP result shapes. No snapshot, cache or artifact leaves the process. |
 | 12 | No database or SQL execution. The server runs only the existing in-process check and the pure formatter; the execution plane is untouched. |
-| 13 | Snapshots live for one analysis epoch. Formatting state lives for one request. The completion list lives for one session. `shutdown` answers held requests with no result. No thread, file handle or process is added. |
+| 13 | Snapshots live for one analysis epoch. Formatting state lives for one request. The static completion list lives for one session, and the buffer's identifiers for one request. `shutdown` answers held requests with no result. No thread, file handle or process is added. |
 | 14 | Buffers stay their own type (D75.10). Formatting reads no disk and writes nothing. A document link targets only an exact resolved module and never a path built from the import string. No network, credentials or environment configuration. The extension repository is untouched. |
-| 15 | Existing snapshot lookups; one pass over the current snapshots for workspace symbols with a fixed match rule; a precomputed vocabulary tuple; the existing formatter. No new index or cache. |
-| 16 | Projection is bounded by declarations and exact-resolution occurrences. A workspace symbol request costs O(modules × (open documents + roots) + declarations), completion O(vocabulary), and formatting O(source) under the UTF-8 size limit. M1 measures the known exponential growth of layered JOIN DAGs; E-C does not fix it. |
+| 15 | Existing snapshot lookups; one pass over the current snapshots for workspace symbols with a fixed match rule; a precomputed vocabulary tuple and one lexical scan of the open buffer per completion request; the existing formatter. No new index or cache. |
+| 16 | Projection is bounded by declarations and exact-resolution occurrences. A workspace symbol request costs O(modules × (open documents + roots) + declarations), completion O(vocabulary + buffer) plus sorting the buffer's distinct identifiers, and formatting O(source) under the UTF-8 size limit. M1 measures the known exponential growth of layered JOIN DAGs; E-C does not fix it. |
 | 17 | New facts are discarded with their snapshot on open, change, close, conflict, a configuration change or a newer epoch. Import link targets are recomputed for each analysis. Formatting and completion keep no derived state. |
 | 18 | No persistent or cross-session cache. The snapshot is not authority beyond its epoch. |
 | 19 | The server loop stays single-threaded. Formatting and completion answer when read. Fact requests wait under the existing rule, and a workspace symbol request waits while any analysis is pending. No response order is promised. Lane concurrency follows PL.01 and PL.03. |
@@ -364,9 +523,9 @@ EB2 seals only after the midpoint passes.
 | 25 | One new private module in the existing wheel. No dependency, extra, entry point or generated file. Package smoke runs per batch. |
 | 26 | CPython 3.12 and 3.13; the Linux/WSL integration host; the host check on Linux only. Native Windows editor acceptance belongs to Phase81. No dialect change. |
 | 27 | Batches on `main` under D77.06's conditions, shipping as alpha in `0.1.11` (D76.14, ED.05). Fragments `77-e02` to `77-e05`. A rollback is a revert in a later batch. No deprecation. Phase82 rules on the freeze-ledger row. |
-| 28 | Pending prerequisite: C5's external record. EB1 measured the Phase77 overlap again (see the top of this route), the Gate 0 head's health is NOT_OBSERVED (lead; see Dependencies and pins), and the external records of C1 and C2 are written. Deferred: C3 (owner, after M1), C6 (own Gate 1), K1 (Gate 1 design, then after Phase77 S26), quick fixes (after the Phase81 diagnostic review), T1 (the interim PIE-B view), X0 and X2 (the extension patch with its CI, the model view) and extension CI (Q4, unapproved) beyond X0's local commit, X1 and X3 (the previews, code actions and restart) beyond their local development and commits under EX.01 and EX.02 (all defined in the decision record's Gate 1 introduction), context-aware completion and signature help (an ARCHITECTURE_DECISION after M1), watched files (a later ARCHITECTURE_DECISION), `pietto.cli.main` (Phase82), JOIN facts (reminder 8 owner), the column-view location field (not before the freeze), JOIN-DAG linearity and PMS-6 (the owner, if M1 puts them first). The previous-audit item is NOT_APPLICABLE (owner Phase77 S27; PL.01). |
+| 28 | Pending prerequisite: C5's external record. EB1 measured the Phase77 overlap again (see the top of this route), the midpoint read the Gate 0 head's health (see Dependencies and pins), and the external records of C1 and C2 are written. Deferred: C3 (owner, after M1), C6 (own Gate 1), K1 (Gate 1 design, then after Phase77 S26), quick fixes (after the Phase81 diagnostic review), T1 (the interim PIE-B view), X0 and X2 (the extension patch with its CI, the model view) and extension CI (Q4, unapproved) beyond X0's local commit, X1 and X3 (the previews, code actions and restart) beyond their local development and commits under EX.01 and EX.02 (all defined in the decision record's Gate 1 introduction), context-aware completion and signature help (an ARCHITECTURE_DECISION after M1), watched files (a later ARCHITECTURE_DECISION), `pietto.cli.main` (Phase82), JOIN facts (reminder 8 owner), the column-view location field (not before the freeze), JOIN-DAG linearity and PMS-6 (the owner, if M1 puts them first). The previous-audit item is NOT_APPLICABLE (owner Phase77 S27; PL.01). |
 | 29 | M1 alongside C1 → C2 → C5 → C4 → Z1 → Z2, in batches EB1 and EB2, with the write sets above and the Outcome non-goals. |
-| 30 | `C70/F210/D2400/S6`, cumulative. Stop at a cap, an unproved exact identity, a semantic, IR or SQL change, a new dependency, a required extension write, a public text outside the listed rows, a trust regression, a budget that needs an architecture change, or a Phase77 collision outside the write set. Failed candidates and heads are kept; each batch publishes under D77.06's conditions (ED.05). |
+| 30 | `C140/F420/D7800/S12`, cumulative (ED.04, ED.10, PL.09), with the lead's stop points of ED.10. Stop at a cap or a stop point, an unproved exact identity, a semantic, IR or SQL change, a new dependency, a required extension write, a public text outside the listed rows, a trust regression, a budget that needs an architecture change, or a Phase77 collision outside the write set. Failed candidates and heads are kept; each batch publishes under D77.06's conditions (ED.05). |
 
 ## Activation record
 

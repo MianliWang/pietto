@@ -146,10 +146,11 @@ deferrals table.
 | D79.05 | **Emission contract.** The target is `{"family": "duckdb", "release": "2.0.0"}` (D79.02), each source has `scan: "arrow_registration"`, and `MAX_PARAMETERS` has DuckDB's own limit (pending S00). This is a public compatibility change. | Q8 A |
 | D79.06 | **Session hardening.** Extensions are never installed or loaded automatically. External access is off. Replacement scans are off. `threads` and `memory_limit` are explicit. Nothing spills to a temporary directory. The configuration is locked and read back. If any item cannot be proven on the pin, the route is refused. | Q8 A |
 | D79.07 | **Qualification.** An in-process native matrix runs on the integration host, with no Docker and no engine lock, under a new runner-acceptance domain row. Natural CI installs the pinned duckdb into `arrow-ready`. | Q3 A; draft G7 A |
-| D79.08, D79.09 | **Budget.** `C120/F360/D4100/S4` from sheet §3.2, plus a half share of PK `C40/F120/D1200/S4` (PL.05). The owner chose it on 2026-11-11 (D79.09), which ends the D1800 stop point that the lead had taken as the lower plausible reading of the option selected at Gate 1. | §3.2; the owner's answer of 2026-11-11 |
+| D79.08, D79.09 | **Budget.** `C120/F360/D4100/S4` from sheet §3.2, plus a half share of PK `C40/F120/D1200/S4` (PL.05). The owner chose it on 2026-11-11 (D79.09), which ends the D1800 stop point that the lead had taken as the lower plausible reading of the option selected at Gate 1. On 2026-11-12 the owner doubled it to `C240/F720/D8200/S8`, plus the half share of PK, whose ledger doubled to `C80/F240/D2400/S8` (PL.09). | §3.2; the owner's answers of 2026-11-11 and 2026-11-12 |
 | D79.10 | **Outcome values.** The S04 candidate's provisional `duckdb_arrow` outcome values, the details `DUCKDB_RESULT_CHECK` and `DUCKDB_ARROW_CAPTURE_COPY`, the failure phase names `driver`, `session`, `query`, `result`, `delivery`, `finalization` and `consumer`, and the PIE-R5001 cleanup entry names `unregister` and `close` are accepted; a name outside these lists, or a later change, goes back to the owner. | the owner's answer of 2026-11-11 |
 | D79.11 | **PyArrow missing or another release.** PIE-R2001 or PIE-R2002, raised as `RequestRejected`, as on the other Arrow routes; `execution.md` changes its category sentence. | the owner's answer of 2026-11-11 |
 | D79.12 | **Informs.** The D79.01 refusal mapping, the D79.04 `-0.0` admission and the spec's derived items (namespace `"arrow"`, `arrow_*` storage kinds, `Text` ordering `"C"`, parameter limit 65,535) stand. The lead also stated AD79.01 to the owner on 2026-11-11, as inform: it stays the lead's decision, and an objection from the owner before S04 seals reopens it. | the owner's answer of 2026-11-11; the lead's statement of 2026-11-11 |
+| D79.13–D79.15 | **Later answers.** A `Text` value of the input may hold NUL, which reaches DuckDB unchanged, once new qualification cells prove that DuckDB and the result reading handle it (D79.13, revising D79.04). A cancellation or deadline observed only after `to_arrow_table()` returned the whole result leaves `transaction` `COMMIT_ACK` (D79.14, an exception to D79.10). The details `DUCKDB_DRIVER_PROFILE` of PIE-R2002 and `DUCKDB_SESSION_CONTEXT` of PIE-R2006 are accepted (D79.15). | the owner's answers of 2026-11-11 and 2026-11-12 |
 | AD78.03 | **Third-dialect seam (ARCHITECTURE_DECISION).** DuckDB gets an independent adapter with its own SQL AST, renderer and artifact verifier. It consumes `ProjectSQLPlan`, with dispatch at the CLI, `compiler._emit` and `compile_query`. The PostgreSQL/MySQL pipeline never receives `"duckdb"` or `"sqlite"`. A family firewall test reruns on the integration tree at every replay. S02 lands the shared connector and dialect-set hunks first; Phase78 S02 adds its SQLite entries only after that, serially, so those lines have one writer at a time. Assumption: `ProjectSQLPlan` is target-neutral. Not taken: threading a third family through the existing pipeline (B), or a general dialect registry (C). | Q9 A |
 | AD79.01 | **Failure ownership (lead ARCHITECTURE_DECISION, inform).** DuckDB runtime errors become the existing `AttemptFailed`/`Failure` with phase, type name, `sqlstate=None` and `vendor=None`, as `MySQLFailure` does. An interrupt counts as cancellation. An overflow is a native target failure, with no new PIE promise. | draft G5 |
 
@@ -180,8 +181,9 @@ isolated install probe, shared with Phase80 (pandas, polars with
 polars-runtime-32, numpy, scipy and matplotlib), which ran outside every
 repository at 2026-11-10T11:32:46Z before Gate 0. PK resolves offline from the
 probe's uv cache for the `uv.lock` regeneration and package smoke on each
-integration tree; any new networked package or metadata fetch needs a separate
-owner approval. The probe facts this route relies on are stated inline in the
+integration tree; on 2026-11-11 the owner also allowed PK one networked
+`uv lock` and then the downloads the work needs, downloads only (PL.10). The
+probe facts this route relies on are stated inline in the
 table above: the versions, the wheel tags and the duckdb and PyArrow wheel
 sha256 values. The raw probe outputs are owner-held working records outside
 Git. Until PK seals, when PL.05 removes them, the probe's uv cache and venv
@@ -200,7 +202,7 @@ The column "Sheet" names the lane in the decision sheet. Budgets are
 | S02 | D2 | Target identity and the shared connector and dialect sets; the family firewall (AD78.03), which keeps `duckdb` and `sqlite` out of the PostgreSQL/MySQL pipeline, so no binary-default comparison there changes. Any binary-default edit that proves necessary is a measured exception the owner sees before it lands. | The connector set in `semantic/source_connectors.py` and its admission in `ir/lowering.py`; the plan's target admission (`project_sql_plan.py`, `project_sql_plan_target_assessment.py`); `FAMILIES` in `project_sql_emission_portable_schema.py` (`:831`); `RELEASES`, `MAX_PARAMETERS` and the scan value in `project_sql_emission_contract.py` (`:39-40`); the dialect choices of `cli.py` and `project_sql_emission_cli.py`; `execution/_query.py` (`_CHOICES`). Not written: `project_sql_plan_verification.py`, `project_sql_plan_pure_boundary.py` and the other Phase77 emission hot files. Tests in `tests/test_semantic_source_connectors.py`, `tests/test_project_capability_target_matrix.py` and `tests/test_sql_emission_closure.py`; the firewall, listing `duckdb` and `sqlite`, goes into a repository owner. | Focused tests; Ruff; `pyright` on `src` and on `pyrightconfig.tests.json`; the repository-wide owners and the firewall on the merged tree; goldens unchanged; `pietto fmt` keeps the spelling; single-file bytes unchanged; the lead decides whether D76.12 applies | S01 | 15/45/400/1 |
 | S03 | D3 | Independent adapter (AD78.03) | New `src/pietto/_project/project_duckdb_*.py`; dispatch hunks in the CLI, `compiler._emit` and `compile_query`; new `tests/test_sql_duckdb_emission.py`; `tests/test_sql_compile_api.py`; `tests/test_cli_project_emit_sql.py` | `compile_sql` returns the bytes of `emit-sql --project --dialect duckdb --format json`; a live query is built only from a VERIFIED document; a forged artifact is refused; PostgreSQL/MySQL goldens are unchanged; the adapter imports no duckdb, pyarrow or sqlglot | S02 | 35/105/900/1 |
 | S04 | D4 | Execution route, capture and lifecycle (D79.03, D79.04, D79.06, AD79.01). Results are fetched with `to_arrow_table()` at the pin, never the deprecated `fetch_arrow_table()` or `.arrow()`, which returns a `RecordBatchReader`; because `to_arrow_table()` drops non-null flags, S04 restores and verifies the compiled nullability before it binds a `ResultBatch`. | New `execution/_duckdb.py`; `_access.py`, `_handle.py`, `execution/__init__.py`; refusals in `_query.py` (`export_bundle`), `project_job_store.py` and `project_execution.py`. The DuckDB storage kind lives in its own module and is wired into `project_result_binding.py` and `project_execution_reader.py` only after Phase77 S23. Tests in `tests/test_execution_api_queries.py`, `tests/test_execution_api_errors.py`, `tests/test_execution_api_results.py` and `tests/test_results_optional_arrow.py`; new `tests/test_execution_api_duckdb_arrow.py` and `tests/_pietto_execution_duckdb.py` | Every request check runs before any DuckDB or PyArrow import; controls with forged tables; caller mutation after the call; close, cancel, deadline and setup failure; the existing routes' refusals unchanged | S02; the end-to-end tests need S03 | 30/90/800/1 |
-| S05 | PK | `execute-duckdb` packaging (D79.02) | `pyproject.toml`; `uv.lock`, regenerated on the integration tree offline from the probe's uv cache (PL.05); `tests/test_release_installation.py`; `scripts/package_smoke.py`; `ci/phase67-arrow-compatibility-requirements.txt`, the arrow-ready hash allowlist that package smoke installs; every literal pin reader | Package smoke with `--extra-env`, including the CPython 3.12 install, whose PyArrow wheel the probe's uv cache lacks (its fetch needs the owner, PL.05); installed wheel and sdist cells; pin-reader search | The PK schedule of PL.05: after Phase77's next published batch, integrating after Phase77 S26 | PK |
+| S05 | PK | `execute-duckdb` packaging (D79.02) | `pyproject.toml`; `uv.lock`, regenerated on the integration tree from the probe's uv cache, with one networked `uv lock` allowed (PL.05, PL.10); `tests/test_release_installation.py`; `scripts/package_smoke.py`; `ci/phase67-arrow-compatibility-requirements.txt`, the arrow-ready hash allowlist that package smoke installs; every literal pin reader | Package smoke with `--extra-env`, including the CPython 3.12 install, whose PyArrow wheel, missing from the probe's uv cache, PK fetched under PL.10's download approval on 2026-11-11; installed wheel and sdist cells; pin-reader search | The PK schedule of PL.05: after Phase77's next published batch, integrating after Phase77 S26 | PK |
 | S06 | D6 | Native qualification (D79.07) | Native cells in `tests/test_execution_api_duckdb_arrow.py` and `tests/test_harness_execution_api.py`; the domain row in `docs/spec/validation-runner-acceptance-v1.md` and `docs/development.md` | The matrix below. Both documents are VR2 acceptance rule paths, so the batch that carries S06 runs its whole Gate 2 on the integration host, and no new bootstrap is recorded (PL.05; owner, 2026-10-27) | S03, S04, S05; the midpoint | 15/45/500/0 |
 | S07 | D7 | CI wiring | The extra-env contents in `scripts/package_smoke.py` and `ci/phase67-arrow-compatibility-requirements.txt`, and `.github/workflows/ci.yml` only if needed; `ci_workload` declarations | Depth-one validation; the registry stays core-only | S06 | 5/15/150/0 |
 | S08 | D8 | Closeout: the B1 acquisition consolidation; the shared pages; freeze-ledger rows; the audit with its Phase78 and Phase79-B2 handoff | `docs/capabilities.md` (its own "DuckDB local path" subsection), `docs/spec/diagnostics.md`, `docs/execution.md`, `docs/project-package.md`, `docs/language.md`, `docs/roadmap.md`, `docs/status.md`, the fragment, `docs/phases/phase-79/completion-audit.md` | Docs and fragment tests; the bounded ten-slowest profile after publication; the Gate 2 duration is recorded | S06, S07; Phase77 S26 for the shared pages, unless the subsection stands alone | 10/40/300/1 |
@@ -250,9 +252,9 @@ The matrix covers:
   before any session;
 - the caps: 65,536 rows against 65,537, and 16 MiB at and above the limit;
 - refused Arrow types and values: dictionary, large_string, string_view,
-  extension and null types, NaN, ±Inf, invalid UTF-8 and NUL;
-- admitted values: `Int` extremes, the bits of `-0.0`, NULL only in nullable
-  fields;
+  extension and null types, NaN, ±Inf and invalid UTF-8;
+- admitted values: `Int` extremes, the bits of `-0.0`, NUL inside `Text`
+  (D79.13), NULL only in nullable fields;
 - each comparison operator;
 - caller mutation after the call;
 - the read-back of every session setting;
@@ -314,13 +316,15 @@ a rule for a whole documentation and tool batch, does not cover it.
 
 ## Budget, midpoint and stops
 
-The cumulative ceiling is `C120/F360/D4100/S4`, recorded from sheet §3.2,
-which includes the D800 replay reserve (D79.08). The option the owner selected
+The cumulative ceiling is `C240/F720/D8200/S8`: `C120/F360/D4100/S4`,
+recorded from sheet §3.2 (D79.08), doubled on 2026-11-12 (PL.09); its
+D800 replay reserve keeps its figure (PL.09). The option the owner selected
 at Gate 1 named no figure, and the lower plausible reading of it, the DuckDB
 proposal's `D1800`, was the stop point until 2026-11-11, when the owner chose
 `D4100` (D79.09). It is Phase79's ledger, not Phase77's,
-and no handoff or lane resets it. The shared PK ledger, `C40/F120/D1200/S4`, is
-borne half by Phase79 and half by Phase80 (PL.05). D counts one per
+and no handoff or lane resets it. The shared PK ledger, `C80/F240/D2400/S8`
+(`C40/F120/D1200/S4` of PL.05, doubled by PL.09), is borne half by
+Phase79 and half by Phase80. D counts one per
 diagnostic command, and a loop inside one command counts once (D76.17). The
 planning entry charged here is the DuckDB draft's 33 and this route's
 drafting 20 shell commands, plus any later fix of this route and Phase79's
@@ -353,7 +357,7 @@ when all of these hold:
   `ExecutionLimits`;
 - a runtime sqlglot dependency;
 - a package or metadata fetch other than the completed probe fetch of PL.05
-  (PK resolves offline from the probe's uv cache), a duckdb release other
+  and the downloads PL.10 allows, a duckdb release other
   than `2.0.0`, or a platform beyond PL.05;
 - any Docker use;
 - an extension-repository push;
@@ -419,7 +423,7 @@ Failed candidates, probes and runs stay in the ledger.
 | Item | Owner | Latest point |
 | --- | --- | --- |
 | Whether `0.2.0` needs B2 | The owner | The B1 audit (S08), before any `0.2.0` request |
-| NUL in `Text` input: refused until decided, as PIE-R1006 does for bound values | The owner | Before the B1 batch Gate 2 |
+| NUL in `Text` input: admitted by the owner on 2026-11-11 (D79.13); new qualification cells must first prove that DuckDB and the result reading handle it | Phase79's qualification | Before the B1 batch Gate 2 |
 | Wiring the result reader | S04 | After Phase77 S23 is integrated, before S06 |
 | Extension sync for `duckdb.arrow` (D76.12) | The lead rules at S02; a push needs a separate extension authorization | Before the B1 batch push |
 | Whether SQLite B2 reuses a generalized firewall or builds its own pipeline | The Phase78 B2 Gate 1 | Before any B2 code |
@@ -463,4 +467,4 @@ Failed candidates, probes and runs stay in the ledger.
 | 27 | Release, deprecation and EOL | No Phase79 code, test, golden, extra, lock change or release-note fragment reaches `main` before the `0.1.11` cut; route and decision records (documentation only, with no code and no release-note fragment) may reach it earlier, in a Phase77 batch under D77.06 or a documentation batch under D77.14 (PL.04). B1 counts toward `0.2.0`, whose gate and release are approved separately. Nothing is deprecated. A failed head is kept and repaired by a child. |
 | 28 | Readiness and exact deferred owners | Ready: Gate 0 is bound to `ab972f36`; S00's remaining cells come before S01. Every deferral is in the table above with its owner and latest point. |
 | 29 | Slice route | S00–S08 as above, with their write sets, checks, dependencies and non-goals. |
-| 30 | Repair and stop conditions | `C120/F360/D4100/S4` plus half of PK (D79.08, D79.09), the midpoint, the unfreeze conditions and the stops above. Each publication is authorized on its own, and failures are preserved. |
+| 30 | Repair and stop conditions | `C240/F720/D8200/S8` plus half of PK (D79.08, D79.09, PL.09), the midpoint, the unfreeze conditions and the stops above. Each publication is authorized on its own, and failures are preserved. |
