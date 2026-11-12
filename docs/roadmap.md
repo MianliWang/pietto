@@ -147,17 +147,9 @@ protocol of `pietto lsp`, and
 [LSP editor facts v1](spec/lsp-editor-facts-v1.md) the hover, go-to-definition
 and document symbols that ED.01 and ED.02 selected, from an ephemeral
 in-process snapshot with the existing metadata formats unchanged; both are
-alpha contracts. Each remaining step needs its own Gate 1. The owner approved
-the first on 2026-11-10: the editor core work package E-C (ED.03–ED.06, the
-[E-C route](editor/ed03-route.md)) first measures an editor latency budget over
-a representative corpus, which decides whether the linear analysis of layered
-JOIN DAGs and the FD sharing of PMS-6 (see the
-[project-mode follow-up](#project-mode-follow-up)) come first, and adds
-formatting, workspace symbols, document links, completion from the static
-vocabulary and the open buffer's identifiers (ED.09) and wider hover and
-definition to `pietto lsp`. Still ahead are the capability
-facts, which get a new versioned capability document whose own Gate 1 records
-the weighing against the
+alpha contracts. Each remaining step needs its own Gate 1. Still ahead are the
+capability facts, which get a new versioned capability document whose own
+Gate 1 records the weighing against the
 [semantic metadata artifact v1](spec/semantic-metadata-artifact-v1.md) (ED.06),
 in four layers (check, SQL emission, execution, result reading) and three
 states (unsupported, unknown, not qualified), read alike by editors and AI
@@ -256,6 +248,7 @@ each completion audit adds the freeze inputs of its phase here.
 | `pietto.project-relation-columns.v1`, with the kinds `type_alias` and `unknown` and the `module` field of type objects | freezes (owner, 2026-11-07) | D75.01 (owner answer B1-1, 2026-11-07) |
 | The `fmt` output, its layout items (the gaps between the tokens of a line, a head comment paragraph attached to the first declaration), a line width, options and a JSON output | the output freezes after its layout items | D75.05, D75.14 |
 | `pietto lsp`, editor partial analysis and the five editor-only messages; whether `pietto.cli.main(argv)` is a documented entry point | only the diagnostic protocol freezes; the messages get a catalog without PIE codes; the entry point is decided | D75.09–D75.12, Phase76 handoff |
+| The E-C alpha surfaces of `pietto lsp` (formatting of the open buffer, workspace symbols, import-path document links, completion from the static vocabulary and the open buffer's identifiers, and the hover and definition facts of LSP editor facts v1); the VS Code extension's use of `pietto.cli.main(argv)` to start the server | each surface freezes with its alpha contract or changes before the freeze; the entry point is decided with the `pietto lsp` row above | ED.03, ED.09, ED.11 |
 | `pietto.sql.emit_postgres_sql` | stays public and enters the API inventory | owner, 2026-11-07 |
 | The header rule and its tokens retained by Phase76 | removed under the migration/hint compatibility contract | D75.06, D76.12; [Phase76 audit](phases/phase-76/completion-audit.md) |
 | The nested public format; grouping extensions, automatic fan-out repair and a public aggregate state | frozen, or kept unsupported | Phase71 route, Phase74 handoff |
