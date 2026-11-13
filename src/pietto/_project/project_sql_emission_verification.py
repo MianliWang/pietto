@@ -2656,7 +2656,12 @@ def _verify_aggregate_body(
         argument = column.argument
         if function == "count_distinct_tuple":
             members = (argument, *column.extra_arguments)
-            if request.family != "postgres" or len(members) != len(value.arguments):
+            paired = pairing.project_form(request) is not None
+            if (
+                request.family != "postgres"
+                and not paired
+                or len(members) != len(value.arguments)
+            ):
                 raise ValueError("count_distinct_tuple arguments")
             for member, expected_ref in zip(members, value.arguments, strict=True):
                 _verify_row_value(
@@ -2668,8 +2673,11 @@ def _verify_aggregate_body(
                     state,
                     reference_type=reference_type,
                 )
+                # The gate above is this reader's pairing check.
                 if (
-                    grouping.argument_problem(function, member, request.family)
+                    grouping.argument_problem(
+                        function, member, request.family, paired=True
+                    )
                     is not None
                 ):
                     raise ValueError("count_distinct_tuple argument domain")
@@ -8760,29 +8768,32 @@ def verify_row_bytes(query, rendered):
                     or len(members) < 2
                 ):
                     raise ValueError("count_distinct_tuple rendering")
+                native = request.family == "mysql"
                 take("syntax", "aggregate_distinct", reference, "DISTINCT ")
-                take("syntax", "aggregate_tuple_open", reference, "CASE WHEN ")
-                for position, member in enumerate(members):
-                    scalar(member, alias)
-                    if position == len(members) - 1:
-                        take(
-                            "syntax",
-                            "aggregate_tuple_then",
-                            reference,
-                            " IS NOT NULL THEN ROW(",
-                        )
-                    else:
-                        take(
-                            "syntax",
-                            "aggregate_tuple_and",
-                            reference,
-                            " IS NOT NULL AND ",
-                        )
+                if not native:
+                    take("syntax", "aggregate_tuple_open", reference, "CASE WHEN ")
+                    for position, member in enumerate(members):
+                        scalar(member, alias)
+                        if position == len(members) - 1:
+                            take(
+                                "syntax",
+                                "aggregate_tuple_then",
+                                reference,
+                                " IS NOT NULL THEN ROW(",
+                            )
+                        else:
+                            take(
+                                "syntax",
+                                "aggregate_tuple_and",
+                                reference,
+                                " IS NOT NULL AND ",
+                            )
                 for position, member in enumerate(members):
                     if position:
                         take("syntax", "aggregate_separator", reference, ", ")
                     scalar(member, alias)
-                take("syntax", "aggregate_tuple_close", reference, ") END")
+                if not native:
+                    take("syntax", "aggregate_tuple_close", reference, ") END")
             elif column.function in grouping.QUANTILE_FUNCTIONS:
                 if (
                     column.distinct

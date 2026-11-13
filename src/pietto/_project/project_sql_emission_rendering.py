@@ -1303,7 +1303,8 @@ def _aggregate_value(w: _Writer, column, alias) -> None:
             w.emit(text, "syntax", role, reference)
     elif column.function == "count_distinct_tuple":
         # COUNT(DISTINCT CASE WHEN a IS NOT NULL AND b IS NOT NULL THEN ROW(a, b)
-        # END): a row with any NULL field counts nothing.
+        # END), on MySQL its own COUNT(DISTINCT a, b): a row with any NULL field
+        # counts nothing.
         members = (column.argument, *column.extra_arguments)
         if (
             not column.distinct
@@ -1313,22 +1314,25 @@ def _aggregate_value(w: _Writer, column, alias) -> None:
             or len(members) < 2
         ):
             raise ValueError("unrenderable count_distinct_tuple")
+        native = w.request.family == "mysql"
         w.emit("DISTINCT ", "syntax", "aggregate_distinct", reference)
-        w.emit("CASE WHEN ", "syntax", "aggregate_tuple_open", reference)
-        for position, member in enumerate(members):
-            w.scalar(member, alias)
-            last = position == len(members) - 1
-            w.emit(
-                " IS NOT NULL THEN ROW(" if last else " IS NOT NULL AND ",
-                "syntax",
-                "aggregate_tuple_then" if last else "aggregate_tuple_and",
-                reference,
-            )
+        if not native:
+            w.emit("CASE WHEN ", "syntax", "aggregate_tuple_open", reference)
+            for position, member in enumerate(members):
+                w.scalar(member, alias)
+                last = position == len(members) - 1
+                w.emit(
+                    " IS NOT NULL THEN ROW(" if last else " IS NOT NULL AND ",
+                    "syntax",
+                    "aggregate_tuple_then" if last else "aggregate_tuple_and",
+                    reference,
+                )
         for position, member in enumerate(members):
             if position:
                 w.emit(", ", "syntax", "aggregate_separator", reference)
             w.scalar(member, alias)
-        w.emit(") END", "syntax", "aggregate_tuple_close", reference)
+        if not native:
+            w.emit(") END", "syntax", "aggregate_tuple_close", reference)
     elif column.function in QUANTILE_FUNCTIONS:
         # PERCENTILE_CONT(fraction) WITHIN GROUP (ORDER BY CAST(x AS float8)).
         if (

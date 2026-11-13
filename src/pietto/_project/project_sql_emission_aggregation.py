@@ -54,9 +54,10 @@ SPELLING = {
     # of a sum in the `delimiter` slot.
     "filtered_count": "COUNT",
     "filtered_sum": "SUM",
-    # PostgreSQL only: COUNT(DISTINCT CASE WHEN a IS NOT NULL AND b IS NOT NULL
-    # THEN ROW(a, b) END), `count_distinct(a, b, ...)`: its first field is the
-    # `argument`, the others are `extra_arguments`.
+    # PostgreSQL: COUNT(DISTINCT CASE WHEN a IS NOT NULL AND b IS NOT NULL
+    # THEN ROW(a, b) END), and MySQL in a paired S11 form: COUNT(DISTINCT a, b),
+    # `count_distinct(a, b, ...)`: its first field is the `argument`, the
+    # others are `extra_arguments`.
     "count_distinct_tuple": "COUNT",
     # PostgreSQL only, the test of a group: (COUNT(CASE WHEN test THEN 1 END)
     # > 0) and (COUNT(CASE WHEN test THEN NULL ELSE 1 END) = 0).
@@ -1067,6 +1068,7 @@ def argument_problem(
     cell: bool = False,
     ranked=False,
     mysql_s03: bool = False,
+    paired=False,
 ):
     """R13 admits one established V01 field per aggregate argument, or one
     admitted row expression, as a LET would lower it. Any other
@@ -1074,7 +1076,8 @@ def argument_problem(
     field (only a forged compiled input holds one), reads no row and is refused.
     ``mysql_sum`` marks an S02 cell (rows.mysql_sum_cell), ``mysql_s03`` an
     S03 one (project_sql_emission_sum_forms); ``cell`` is the caller's own
-    derivation of the S05 cell."""
+    derivation of the S05 cell; ``paired`` as for
+    `resolved_argument_problem`."""
     direct = type(argument) is rows.SQLStageReference
     if not direct and not (
         type(argument) is rows.SQLOperation
@@ -1092,6 +1095,7 @@ def argument_problem(
         cell=cell,
         ranked=ranked,
         mysql_s03=mysql_s03,
+        paired=paired,
     )
 
 
@@ -1424,6 +1428,7 @@ def resolved_argument_problem(
     cell: bool = False,
     ranked=False,
     mysql_s03: bool = False,
+    paired=False,
 ):
     """The same R13 argument law for an already-resolved input port.
 
@@ -1438,8 +1443,10 @@ def resolved_argument_problem(
     if function == "count_distinct_tuple":
         # Each field of a PostgreSQL distinct-tuple count is an established
         # direct field that `count_distinct(x)` counts, compared field by field
-        # in an anonymous record with that type's equality.
-        if family != "postgres":
+        # in an anonymous record with that type's equality; MySQL counts the
+        # tuple itself, only in a statement its reader pairs with a form
+        # (``paired``, `project_sql_emission_paired`), and only S11's hold one.
+        if family != "postgres" and not paired:
             return "PIE-B1003", "count_distinct_tuple_not_admitted_on_target"
         if not direct_reference:
             return "PIE-B1003", "aggregate_argument_not_a_direct_established_field"
@@ -2018,7 +2025,8 @@ def build_stage(
         delimiter = None
         extra_arguments = ()
         if function == "count_distinct_tuple":
-            if family != "postgres":
+            paired = pairing.project_form(request) is not None
+            if family != "postgres" and not paired:
                 return (
                     None,
                     (
@@ -2040,7 +2048,8 @@ def build_stage(
                 if current is None:
                     assert problem is not None
                     return None, (*problem, value.ref, location)
-                problem = argument_problem(function, current, family)
+                # The gate above is this reader's pairing check.
+                problem = argument_problem(function, current, family, paired=True)
                 if problem is not None:
                     return None, (*problem, value.ref, location)
                 realized.append(current)
@@ -2752,6 +2761,7 @@ def build_compiled_stage(plan, record, arguments):
                     raise CompiledError("COMPILED_AGGREGATE_ARGUMENT")
             elif function == "count_distinct_tuple":
                 # Every field of a distinct-tuple count, the first included.
+                paired = pairing.compiled_form(records) is not None
                 if (
                     not delimiters
                     or order_by
@@ -2760,6 +2770,7 @@ def build_compiled_stage(plan, record, arguments):
                             function,
                             member,
                             records[Address("target", 0)].get("family"),
+                            paired=paired,
                         )
                         is not None
                         for member in (argument, *delimiters)

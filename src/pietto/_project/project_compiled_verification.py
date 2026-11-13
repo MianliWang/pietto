@@ -6163,6 +6163,12 @@ def _verify_compiled_emission(artifact, request):
                 )
                 arguments = value.get("arguments")
                 order_by = value.get("order_by")
+                # A MySQL distinct-tuple count reads only in a paired form (only
+                # S11's hold one).
+                paired = (
+                    function == "count_distinct_tuple"
+                    and pairing.compiled_form(records) is not None
+                )
                 need(
                     len(arguments)
                     == (
@@ -6178,7 +6184,9 @@ def _verify_compiled_emission(artifact, request):
                 for address, extra in zip(arguments[1:], column.extra_arguments):
                     scalar(extra, address, producer, use)
                     need(
-                        grouping.argument_problem(function, extra, request.family)
+                        grouping.argument_problem(
+                            function, extra, request.family, paired=paired
+                        )
                         is None,
                         "EMISSION_AGGREGATE_ARGUMENT",
                     )
@@ -6212,6 +6220,7 @@ def _verify_compiled_emission(artifact, request):
                                 cell=expression == spread_cell,
                                 ranked=ranked,
                                 mysql_s03=expression in mysql_s03,
+                                paired=paired,
                             )
                             is None
                         ),

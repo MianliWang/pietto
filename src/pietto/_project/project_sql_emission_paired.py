@@ -37,10 +37,15 @@ __all__: tuple[str, ...] = ()
 # s08_count_star, s08_min_rows_frame, s08_min_partition,
 # s08_count_named_window, s08_grouped_window, s08_qualify_count,
 # s08_join_window, then P-S08T-1..4 s08_temporal_candidate,
-# s08_temporal_nullable, s08_temporal_partition, s08_temporal_peers. Each form
-# holds one slice's construct only, so a form opens no other slice. Per form:
-# the sha256 of the module and contract, of the emitted SQL and of the
-# compiled records, and the number of compiled records.
+# s08_temporal_nullable, s08_temporal_partition, s08_temporal_peers. S11
+# distinct-tuple counts, one form per body: P-S11-1 to 8 s11_join_left,
+# s11_join_left_alias, s11_join_inner, s11_join_inner_alias,
+# s11_join_text_bykey, s11_join_text_bykey_inner, s11_join_global and
+# s11_join_collapse, P-S11B-1 and 4 s11_tuples and s11_empty, P-S11B-2
+# s11_int_pair, P-S11B-3 s11_grouped. Each form holds one slice's construct
+# only, so a form opens no other slice. Per form: the sha256 of the module and
+# contract, of the emitted SQL and of the compiled records, and the number of
+# compiled records.
 FORMS = (
     (
         "9e74ea22bb430348248b9b5dc0ef1c38f4c829020dd6015cd6e4703d0efb71a2",
@@ -144,6 +149,72 @@ FORMS = (
         "5c4960a8164bc48aa2ebaee92d4ed399762bbe5de224da5fb63813bdb0842170",
         478,
     ),
+    (
+        "f3998966a5c533d434db82ad99ca2658298bdcba8aaad3a8e05ffb8970f24d53",
+        "b6e6ff2489fc67d757bfb8c0db3705778879c45f5171a75b15ab0c237dd6c961",
+        "7c8ef0ed9b4c7700041683da5cd8cf705cc3f8e72a9b51e85c0de1c336eadece",
+        630,
+    ),
+    (
+        "6ddcc037e00caa987c24b8911a692e71c152406b72b6a1f044fad14de7f9c375",
+        "1e9abf6802ef81d9b456097a6355eb58453c3d872f7dae5af0d372f39f88ab79",
+        "b8091546fdc91bedc8e14e30378e2f3339e533a9a1674c30b057a3bdfc7e95e5",
+        630,
+    ),
+    (
+        "e143808797cac85ea5f59f64bba6a7fa32c7c4d5300a7f9879873c6e68326ba4",
+        "8afdaf6c550937a2740756232e0f70eefee334620339015dc57b322f43f743b6",
+        "c06cc387e7db44f97760a68e3935a2f407eac0851fa7986ba49a40138687081c",
+        630,
+    ),
+    (
+        "e3d129fedb662a191f2aa827177ba5a3ec3324044ca80f5cdee6cc34ae79298d",
+        "2076eebf2d4ef87a861381517aea593de1939bd578788114e23c98654b99586a",
+        "3c8c666974b1b9884bf36c3a61c07722f66450488811b8b38fc069b6e9e65ac5",
+        630,
+    ),
+    (
+        "9d88ef39a7e6ced91d5174307f1829dd491849075d55244ed6bcb7d8157e51b0",
+        "1b7fa4c3ca2f63217b81cb3b925c552692cab8da5dc35cb9d32df93877ee7c42",
+        "7a6e896ecf22bdca8f51a0016a1b7de624b6f3b00a64752b90189c12092c6d61",
+        625,
+    ),
+    (
+        "be64c446d6c1b8e8723fb5bbab1de34eb7107eb4edbcfe6cc6331fe0b4faeef0",
+        "3a8a8849732fa9426245c3f9296893371708e8722180f526e8287d1bec57fb52",
+        "92497eaf98acb60d8b2a8f59f3602232aa14a624a92a1296a9f835af803c7ad8",
+        625,
+    ),
+    (
+        "b36bffb9f459e223e3da4c7ec4d906bd2f209f0a5cb551df5713ead38b610460",
+        "c4e9f5255664cb2a9e14ec03d36d69f23902445a483a470821b30e09c9d769fa",
+        "99fe4c5b964adaa0fc637fe52dd9821a9ba1ccf5c0798782897e8a1aafa926e6",
+        592,
+    ),
+    (
+        "7b8506dcf09da96656f43a16e7ba046f7ebb5dcd9c169bd623806bba85f9c8e0",
+        "51a40a473376ccd45b7812019ff5e4b1e6bb013dab00a401f616dbfd3b64c1d6",
+        "4db0b7a403a9f10006c3a801ea7c0e9d59a5829178c218041a0898ee3aa86285",
+        671,
+    ),
+    (
+        "9e7d1fb88b9e65b948ea35255b45434d97507c3c5d82af0c55bc5dcb0914cb82",
+        "e92aa118987797dd593e56eaa6abefc404abf922c0d72f68b21fd46c8b1aabdf",
+        "274cf13859783451bea8f887a4a6475d41e86ca91e29f391debbe51126df9cdd",
+        239,
+    ),
+    (
+        "370e882c81a854a31964bb370c3d9a8f8a8bd28d98351113d7a65ce0b411fd72",
+        "a22efc077fc1dfc4bc1d81bdb674d892a0d69b5371be730ea6024a4f5aa004cc",
+        "8df5726de8c7c52e618bed46a4ad62b2d1b59c89f2226c466769c833229dd1d9",
+        154,
+    ),
+    (
+        "32c7063dfc261f7a25026d0a83a70b18a47a15337eb9ffc3601de17617823b01",
+        "d74f6ba0b14b04a10b9ab352e43464f9b5396faa5b68778b3846fd5f3f4b7086",
+        "ef3974b8d111ff425d048e8553be1497d626fc52f6677dd25c3862ec8847ee11",
+        184,
+    ),
 )
 _S16_FIXED = frozenset(
     "shape source query from select window order by lag lead mysql table"
@@ -166,6 +237,13 @@ SLICES = (
         | frozenset(
             "count min max partition between preceding and current row let group"
             " qualify inner join on Timestamp Date UUID".split()
+        ),
+    ),
+    (
+        range(17, 28),
+        frozenset(
+            "shape source query table from let left inner join on group by select"
+            " count_distinct unique mysql Int Bool Text Decimal Float None".split()
         ),
     ),
 )

@@ -5535,11 +5535,11 @@ def test_postgres_string_agg_orders_by_a_float_key(tmp_path):
     assert emit_compiled(loaded, ()).rendered.sql == outcome.artifact.rendered.sql
 
 
-# Phase77 Wave A (S16, S10, S08): a MySQL project emits a lag/lead Text literal
-# default, a conditional count and tests of a group, or count, min and max over
-# a window only in a statement that is one of its slice's paired
-# qualification-pack forms with only its names changed; everything else keeps
-# its 0.1.11 output.
+# Phase77 Wave A (S16, S10, S08, S11): a MySQL project emits a lag/lead Text
+# literal default, a conditional count and tests of a group, count, min and max
+# over a window, or a distinct-tuple count only in a statement that is one of
+# its slice's paired qualification-pack forms with only its names changed;
+# everything else keeps its 0.1.11 output.
 _LONG = {key: (value + "_" * 63)[:63] for key, value in paired_forms.NAMES.items()}
 _LONG_COLUMNS = tuple(f"c{i}" + "_" * 61 for i in range(8))
 _S10_KEPT = [
@@ -5549,11 +5549,16 @@ _S10_KEPT = [
 ]
 
 
+_S11_KEPT = ("PIE-B1003", "count_distinct_tuple_not_admitted_on_target")
+
+
 def _kept(form):
     if form in paired_forms.S16:
         return [("PIE-B1003", "window_default_literal_kind_not_realized_yet")]
     if form in paired_forms.S08:
         return [("PIE-B1003", "window_aggregate_approved_non_support_on_mysql")]
+    if form in paired_forms.S11:
+        return [_S11_KEPT] * paired_forms.FORMS[form][1].count("count_distinct(")
     return _S10_KEPT
 
 
@@ -5603,8 +5608,8 @@ def _fixed(form):
 @pytest.mark.parametrize("width", ("pack", "short", "long"))
 def test_mysql_emits_the_paired_forms(tmp_path, form, width):
     """Each digest the readers compare is recomputed from the pack's text;
-    each form emits with the pack's own Pietto names (S10's shape and source
-    are equal ignoring case) and with others."""
+    each form emits with the pack's own Pietto names (S10's and S11's shape
+    and source are equal ignoring case) and with others."""
     from pietto.execution import export_bundle, load_bundle
 
     kind = _kind(form)
@@ -5624,12 +5629,18 @@ def test_mysql_emits_the_paired_forms(tmp_path, form, width):
         if width == "short"
         else (
             _LONG,
-            paired_forms.physical_names(form, "n" * 63, "t" * 63, _LONG_COLUMNS),
+            paired_forms.physical_names(
+                form, "n" * 63, ("t" * 63, "u" * 63), _LONG_COLUMNS
+            ),
         )
     )
-    locator = "app.items" if width == "short" else "s" * 63 + "." + "t" * 63
+    locators = (
+        ("app.items", "app.ledger")
+        if width == "short"
+        else ("s" * 63 + "." + "t" * 63, "s" * 63 + "." + "u" * 63)
+    )
     directory = paired_forms.project(
-        tmp_path / "p", form, names=names, locator=locator, physical=physical
+        tmp_path / "p", form, names=names, locators=locators, physical=physical
     )
     if width == "long":
         # As `pietto fmt` writes it: an empty line between declarations.
@@ -5647,6 +5658,10 @@ def test_mysql_emits_the_paired_forms(tmp_path, form, width):
     columns = dict(zip((field[0] for field in world[2]), physical[2]))
     assert all(token.format_map(columns) in sql for token in paired_forms.SQL[form])
     assert "E'" not in sql
+    if form in paired_forms.S11:
+        # MySQL's own COUNT(DISTINCT a, b), once per count_distinct.
+        assert "CASE WHEN" not in sql and "ROW(" not in sql
+        assert sql.count("COUNT(DISTINCT ") == _kept(form).count(_S11_KEPT)
     assert [c["nullable"] for c in document["columns"]] == paired_forms.NULLABLE[form]
     # A count is a BIGINT, a test of a group a computed signed Bool; an
     # extreme, a lag/lead and a group key keep the value's carrier.
@@ -5713,7 +5728,13 @@ _S08_WORDS = (
         *((1, key, word) for key in ("previous", "text") for word in _S08_WORDS),
         *((3, "n", word) for word in ("lag", "lead", "order", "count", "partition")),
         (3, "value", "lag"),
-        *((6, "w", word) for word in ("sum", "all", "any")),
+        *((6, "w", word) for word in ("sum", "all", "any", "count_distinct", "left")),
+        *((17, "d", word) for word in ("sum", "any", "lag", "partition")),
+        (17, "r", "order"),
+        (25, "value", "lead"),
+        *((1, "previous", word) for word in ("count_distinct", "join", "let")),
+        *((3, "n", word) for word in ("left", "inner")),
+        (3, "value", "on"),
     ),
 )
 def test_mysql_forms_take_another_slice_keywords_as_names(tmp_path, form, key, word):
@@ -6011,6 +6032,150 @@ _UNPAIRED.update(
 )
 
 
+_S11_ON = "on ledger.row_no == rt.row_no"
+_S11_SOURCES = (
+    'source entry: Entry = mysql.table("app.items")\n',
+    'source ledger: Entry = mysql.table("app.ledger")\n',
+)
+_S11_ITEMS = (
+    "        tf = count_distinct(tag, f)\n",
+    "        it = count_distinct(bucket, tag)\n",
+)
+_UNPAIRED.update(
+    {
+        "s11_right_join": (17, lambda t: _swap(t, "left join", "right join"), None),
+        "s11_full_join": (
+            17,
+            lambda t: _swap(t, "left join", "full join"),
+            {"blockers": [("PIE-B1003", "mysql_full_join_approved_non_support")]},
+        ),
+        "s11_cross_join": (
+            23,
+            lambda t: _swap(t, "left join rt " + _S11_ON, "cross join rt"),
+            None,
+        ),
+        "s11_non_unique_on": (
+            17,
+            lambda t: _swap(t, _S11_ON, "on ledger.bucket == rt.bucket"),
+            None,
+        ),
+        "s11_swapped_on": (
+            17,
+            lambda t: _swap(t, _S11_ON, "on rt.row_no == ledger.row_no"),
+            None,
+        ),
+        "s11_join_without_let": (
+            17,
+            lambda t: _swap(
+                _swap(
+                    _swap(t, "    let rt = entry\n", ""), "join rt on", "join entry on"
+                ),
+                "rt.",
+                "entry.",
+            ),
+            None,
+        ),
+        "s11_unused_let_dropped": (
+            17,
+            lambda t: _swap(t, "    let rtag = rt.tag\n", ""),
+            None,
+        ),
+        "s11_member_order": (
+            17,
+            lambda t: _swap(t, "(ledger.tag, rt.row_no,", "(rt.row_no, ledger.tag,"),
+            None,
+        ),
+        "s11_other_member": (
+            17,
+            lambda t: _swap(t, "(ledger.tag,", "(ledger.qty,"),
+            None,
+        ),
+        "s11_extra_member": (
+            17,
+            lambda t: _swap(t, "rt.tag)", "rt.tag, ledger.f)"),
+            None,
+        ),
+        "s11_fewer_members": (17, lambda t: _swap(t, ", rt.tag)", ")"), None),
+        "s11_float_member": (
+            26,
+            lambda t: _swap(t, "(bucket, qty)", "(bucket, share)"),
+            None,
+        ),
+        "s11_sources_swapped": (
+            17,
+            lambda t: _swap(t, "".join(_S11_SOURCES), "".join(reversed(_S11_SOURCES))),
+            None,
+        ),
+        "s11_contract_sources_swapped": (
+            17,
+            lambda t: t,
+            {"contract": ("sources", None)},
+        ),
+        "s11_other_keys_column": (
+            17,
+            lambda t: t,
+            {"contract": ("keys_column", "c_other")},
+        ),
+        "s11_other_keys_namespace": (
+            17,
+            lambda t: t,
+            {"contract": ("keys_namespace", "other")},
+        ),
+        "s11_no_unique": (
+            17,
+            lambda t: _swap(t, "    entry_key = unique(row_no)\n", ""),
+            None,
+        ),
+        "s11_dropped_item": (
+            25,
+            lambda t: _swap(t, _S11_ITEMS[1], ""),
+            {"blockers": [_S11_KEPT] * 2},
+        ),
+        "s11_extra_item": (
+            25,
+            lambda t: t + "        again = count_distinct(tag, f)\n",
+            {"blockers": [_S11_KEPT] * 4},
+        ),
+        "s11_reordered_items": (
+            25,
+            lambda t: _swap(t, "".join(_S11_ITEMS), "".join(reversed(_S11_ITEMS))),
+            None,
+        ),
+        "s11_case_twin_labels": (25, lambda t: _swap(t, "it =", "TF ="), None),
+        "s11_keyword_label": (25, lambda t: _swap(t, "tf =", "join ="), None),
+        "s11_untwinned_names": (25, lambda t: t.replace("Entry", "Bucket"), None),
+        "s11_query_kind": (
+            25,
+            lambda t: _swap(t, "table q16:", "query q16:"),
+            {"kind": "query"},
+        ),
+        "s11_table_kind": (
+            27,
+            lambda t: _swap(t, "query q16:", "table q16:"),
+            {"kind": "table"},
+        ),
+        "s11_where": (
+            27,
+            lambda t: _swap(
+                t,
+                "    from entry\n",
+                "    from entry\n    where:\n        row_no > 1\n",
+            ),
+            None,
+        ),
+        "s11_bind_safe": (25, lambda t: t, {"policy": "bind-safe"}),
+        "s11_kelvin_column": (25, lambda t: t, {"contract": ("column", "c_\u212a")}),
+        "s11_extra_query": (
+            26,
+            lambda t: (
+                t + "\nquery other:\n    from entry\n    select:\n        row_no\n"
+            ),
+            None,
+        ),
+    }
+)
+
+
 @pytest.mark.parametrize("case", sorted(_UNPAIRED))
 def test_mysql_unpaired_statements_keep_the_main_output(tmp_path, case):
     """Every other statement reports its whole output from before Wave A."""
@@ -6034,6 +6199,12 @@ def test_mysql_unpaired_statements_keep_the_main_output(tmp_path, case):
             contract["sources"][0]["fields"][2]["column"] = value
         elif change == "nullable":
             contract["sources"][0]["fields"][value]["representation"]["nullable"] = True
+        elif change == "keys_column":
+            contract["sources"][1]["fields"][2]["column"] = value
+        elif change == "keys_namespace":
+            contract["sources"][1]["relation"]["namespace"] = value
+        elif change == "sources":
+            contract["sources"].reverse()
         elif change == "premise":
             contract["environment"].append(
                 {
@@ -6057,7 +6228,29 @@ def test_mysql_unpaired_statements_keep_the_main_output(tmp_path, case):
     )
 
 
-@pytest.mark.parametrize("form", (1, 3, 7))
+@pytest.mark.parametrize(
+    "form,edit,other",
+    (
+        (17, lambda t: _swap(t, "left join", "inner join"), 19),
+        (20, lambda t: _swap(t, "inner join", "left join"), 18),
+        (24, lambda t: t[: t.index("        dist2 =")], 21),
+    ),
+)
+def test_mysql_s11_variant_that_is_another_form_emits_it(tmp_path, form, edit, other):
+    """A JOIN kind or a SELECT list that makes one S11 form another emits as
+    that form does."""
+    directory = paired_forms.project(tmp_path / "p", form)
+    main = directory / "main.pietto"
+    main.write_text(
+        edit(main.read_text(encoding="utf-8")), encoding="utf-8", newline="\n"
+    )
+    result = _paired_compile(directory)
+    assert result.status == "VERIFIED", result.document
+    expected = _paired_compile(paired_forms.project(tmp_path / "other", other))
+    assert json.loads(result.document)["sql"] == json.loads(expected.document)["sql"]
+
+
+@pytest.mark.parametrize("form", (1, 3, 7, 17, 25))
 def test_mysql_paired_statement_without_its_sql_keeps_the_main_output(
     tmp_path, monkeypatch, form
 ):
@@ -6143,6 +6336,7 @@ def _not_from(monkeypatch, name, filename, function):
     return calls
 
 
+@pytest.mark.parametrize("form", (3, 17, 25))
 @pytest.mark.parametrize(
     "filename,function",
     (
@@ -6150,20 +6344,22 @@ def _not_from(monkeypatch, name, filename, function):
         ("project_sql_emission_verification.py", "_verify_aggregate_body"),
     ),
 )
-def test_mysql_each_live_s10_check_pairs_the_statement_itself(
-    tmp_path, monkeypatch, filename, function
+def test_mysql_each_live_aggregate_check_pairs_the_statement_itself(
+    tmp_path, monkeypatch, form, filename, function
 ):
-    """Emission's and the live verifier's argument laws each read the pairing
-    themselves: when one alone finds no form, the statement keeps main's
-    output."""
-    directory = paired_forms.project(tmp_path / "p", 3)
+    """Emission's and the live verifier's S10 and S11 argument laws each read
+    the pairing themselves: when one alone finds no form, the statement keeps
+    main's output."""
+    directory = paired_forms.project(tmp_path / "p", form)
+    kind = _kind(form)
     with pairing.closed():
-        before = _paired_compile(directory).document
+        before = _paired_compile(directory, kind=kind).document
     calls = _not_from(monkeypatch, "project_form", filename, function)
-    assert _paired_compile(directory).document == before
+    assert _paired_compile(directory, kind=kind).document == before
     assert calls
 
 
+@pytest.mark.parametrize("form", (3, 17, 25))
 @pytest.mark.parametrize(
     "filename,function",
     (
@@ -6173,14 +6369,16 @@ def test_mysql_each_live_s10_check_pairs_the_statement_itself(
         ("project_completed_semantics.py", "verify_compiled_semantics"),
     ),
 )
-def test_mysql_each_compiled_s10_check_pairs_the_bundle_itself(
-    tmp_path, monkeypatch, filename, function
+def test_mysql_each_compiled_aggregate_check_pairs_the_bundle_itself(
+    tmp_path, monkeypatch, form, filename, function
 ):
-    """Each compiled check of an S10 bundle's arguments reads the pairing
-    itself: when one alone finds no form, the bundle keeps main's refusal."""
+    """Each compiled check of an S10 or S11 bundle's arguments reads the
+    pairing itself: when one alone finds no form, the bundle keeps main's
+    refusal."""
     from pietto.execution import export_bundle
 
-    bundle = export_bundle(_paired_query(paired_forms.project(tmp_path / "p", 3)))
+    directory = paired_forms.project(tmp_path / "p", form)
+    bundle = export_bundle(_paired_query(directory, kind=_kind(form)))
     calls = _not_from(monkeypatch, "compiled_form", filename, function)
     assert _load_refusal(bundle, bundle.payload) == (
         "PIE-R1004",
@@ -6249,12 +6447,18 @@ def _load_refusal(bundle, payload):
         (1, _ENCODING, _SURROGATE, False),
         (3, _ENCODING, _SURROGATE, False),
         (7, _ENCODING, _SURROGATE, False),
+        (17, "c_body", "c_\u212a", False),
+        (17, "c_body", "c2", True),
+        (25, "c_body", "c_\u212a", False),
+        (25, "c_body", "c2", True),
+        (25, _ENCODING, _SURROGATE, False),
     ),
 )
 def test_mysql_forged_paired_bundles_are_refused(tmp_path, form, old, new, paired):
     """Each keeps main's refusal of a MySQL Text default, conditional count,
-    test of a group or aggregate window bundle, also one whose records are a
-    form's but whose SQL is not or that another check refuses."""
+    test of a group, aggregate window or distinct-tuple count bundle, also one
+    whose records are a form's but whose SQL is not or that another check
+    refuses."""
     directory = paired_forms.project(tmp_path / "p", form)
     bundle, payload = _paired_payload(directory, form, old, new)
     records = {r.address: r for r in compiled_schema.decode(payload).records}
@@ -6354,14 +6558,17 @@ def test_pure_reads_a_mysql_lag_default_by_its_position(tmp_path):
     )
 
 
-@pytest.mark.parametrize("form", paired_forms.S10)
-def test_pure_keeps_refusing_mysql_conditional_counts(tmp_path, form):
-    """The pure reader judges a paired S10 document on its own: as before, it
-    refuses every MySQL conditional count and test of a group."""
+@pytest.mark.parametrize("form", (*paired_forms.S10, *paired_forms.S11))
+def test_pure_keeps_refusing_mysql_paired_aggregates(tmp_path, form):
+    """The pure reader judges a paired S10 or S11 document on its own: as
+    before, it refuses every MySQL conditional count, test of a group and
+    distinct-tuple count."""
     observed = pure.parse_emission_observation(_pure_document(tmp_path, form))
     assert (observed.status, observed.detail) == (
         pure.Status.INVALID_RELATION,
-        "conditional aggregate shape",
+        "conditional aggregate shape"
+        if form in paired_forms.S10
+        else "count_distinct_tuple shape",
     )
 
 

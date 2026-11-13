@@ -3430,12 +3430,19 @@ def derive_compiled_semantics(root, values, parameters=None):
                     semantic_aggregate_result_value_type,
                 )
                 from pietto._project import project_sql_emission_aggregation as grouping
+                from pietto._project import project_sql_emission_paired as pairing
 
                 function = get("function")
                 if function not in grouping.SPELLING or not grouping.signature_arity(
                     function, len(operands)
                 ):
                     raise CompiledError("COMPILED_AGGREGATE_SIGNATURE")
+                # A MySQL distinct-tuple count reads only in a paired form (only
+                # S11's hold one).
+                paired = (
+                    function == "count_distinct_tuple"
+                    and pairing.compiled_form(records) is not None
+                )
                 if function == "count_distinct_tuple" and any(
                     physical_required
                     and grouping.resolved_argument_problem(
@@ -3443,6 +3450,7 @@ def derive_compiled_semantics(root, values, parameters=None):
                         facts[operand].address.kind == "read",
                         facts[operand].realization,
                         family,
+                        paired=paired,
                     )
                     is not None
                     or semantic_aggregate_result_value_type(
@@ -3474,8 +3482,6 @@ def derive_compiled_semantics(root, values, parameters=None):
                     # Its fraction is a literal, never a read.
                     raise CompiledError("COMPILED_AGGREGATE_ARGUMENT")
                 if function in grouping.FILTERED_FUNCTIONS:
-                    from pietto._project import project_sql_emission_paired as pairing
-
                     inputs = tuple(facts[operand] for operand in operands)
                     if (
                         physical_required
@@ -3510,6 +3516,7 @@ def derive_compiled_semantics(root, values, parameters=None):
                                 cell=ref == spread_cell,
                                 ranked=record.address in ranked,
                                 mysql_s03=ref in mysql_s03,
+                                paired=paired,
                             )
                             is not None
                         )
@@ -4895,12 +4902,19 @@ def verify_compiled_semantics(value):
                     _aggregate_result_realization,
                 )
                 from pietto._project import project_sql_emission_aggregation as grouping
+                from pietto._project import project_sql_emission_paired as pairing
 
                 function = get("function")
                 need(
                     function in grouping.SPELLING
                     and grouping.signature_arity(function, len(inputs)),
                     "SEMANTIC_AGGREGATE_SIGNATURE",
+                )
+                # A MySQL distinct-tuple count reads only in a paired form (only
+                # S11's hold one).
+                paired = (
+                    function == "count_distinct_tuple"
+                    and pairing.compiled_form(records) is not None
                 )
                 if function == "count_distinct_tuple" and physical_required:
                     # Each field of a distinct-tuple count is one direct read.
@@ -4911,6 +4925,7 @@ def verify_compiled_semantics(value):
                                 member.address.kind == "read",
                                 member.realization,
                                 family,
+                                paired=paired,
                             )
                             is None
                             for member in inputs[1:]
@@ -4930,8 +4945,6 @@ def verify_compiled_semantics(value):
                         "SEMANTIC_AGGREGATE_ARGUMENT",
                     )
                 elif physical_required and function in grouping.FILTERED_FUNCTIONS:
-                    from pietto._project import project_sql_emission_paired as pairing
-
                     need(
                         grouping.resolved_filtered_problem(
                             function,
@@ -4957,6 +4970,7 @@ def verify_compiled_semantics(value):
                             cell=current == spread_cell,
                             ranked=record.address in ranked,
                             mysql_s03=current in mysql_s03,
+                            paired=paired,
                         )
                         is None,
                         "SEMANTIC_AGGREGATE_ARGUMENT",

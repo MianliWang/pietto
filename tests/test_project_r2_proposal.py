@@ -1313,7 +1313,7 @@ def test_live_refinement_refuses_a_lateral_join_after_its_source_closure(
 
 def test_r2_refuses_a_paired_mysql_form_before_any_workspace(tmp_path):
     """A MySQL statement opened as a qualification-pack form is that form
-    only, so R2 refuses to refine it (Phase77 S16, S10, S08)."""
+    only, so R2 refuses to refine it (Phase77 S16, S10, S08, S11)."""
     import _pietto_sql_paired as paired_forms
     import pietto.execution as execution
     from pietto._project.project_execution_template import bind_values
@@ -1354,7 +1354,7 @@ def test_r2_refuses_a_paired_mysql_form_before_any_workspace(tmp_path):
         proposal.prepare_live_refinement(query, binding, inputs)
     with pytest.raises(ValueError, match="^PUBLIC_R2_PAIRED_FORM$"):
         proposal.check_live_refinement(query, inputs)
-    for form in (3, *paired_forms.S08):
+    for form in (3, *paired_forms.S08, 17, 25):
         kind = paired_forms.FORMS[form][1].split(" ", 1)[0]
         paired = compiled(paired_forms.project(tmp_path / f"f{form}", form), kind)
         paired_binding = bind_values(paired._template, ())

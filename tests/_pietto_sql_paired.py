@@ -1,12 +1,13 @@
 """The Phase77 Wave A qualification pack's paired forms, copied verbatim.
 
-PAIRS.md 5.4, 5.6, 5.9 and 5.5 give the paired bodies (`{name}` is the
-selected definition's name), 4.3, 4.6, 4.9 and 4.5 the MySQL worlds
-`rows_ntext`, `agg`, `rows` and `temporal` they read, and the pack's
-`mysql/plan.py` the MySQL contract its `compile_sql` runs with. `FORMS` is in
-the order of `project_sql_emission_paired.FORMS`: S16 P-S16-1..3, S10 bodies
-A (P-S10-1, 5), B (P-S10-2) and C (P-S10-3, 4), then S08 P-S08-1..7 and
-P-S08T-1..4. `project` writes one form with only its names changed.
+PAIRS.md 5.1, 5.4, 5.5, 5.6, 5.7 and 5.9 give the paired bodies (`{name}` is
+the selected definition's name), 4.1, 4.3, 4.5, 4.6 and 4.9 the MySQL worlds
+`agg_keys`, `rows_ntext`, `temporal`, `agg` and `rows` they read, and the
+pack's `mysql/plan.py` the MySQL contract its `compile_sql` runs with. `FORMS`
+is in the order of `project_sql_emission_paired.FORMS`: S16 P-S16-1..3, S10
+bodies A (P-S10-1, 5), B (P-S10-2) and C (P-S10-3, 4), S08 P-S08-1..7 and
+P-S08T-1..4, then S11 P-S11-1..8 and bodies D (P-S11B-1, 4), E (P-S11B-2)
+and F (P-S11B-3). `project` writes one form with only its names changed.
 """
 
 import json
@@ -45,6 +46,7 @@ AGG_HEADER = (
     "    agg_row = unique(rid)\n"
     'source agg: Agg = mysql.table("aggregate.locator.not.sql")\n'
 )
+KEYS_SOURCE = 'source keys: Agg = mysql.table("keys.locator.not.sql")\n'
 _TEXT = {
     "collation": "utf8mb4_0900_bin",
     "encoding": "utf8mb4",
@@ -53,6 +55,15 @@ _TEXT = {
     "padding": "NO PAD",
 }
 _INT = {"kind": "int_range", "max": "9007199254740993", "min": "-9007199254740993"}
+_AGG_FIELDS = (
+    ("key", "group key", "Int", True),
+    ("value", "value é", "Int", True),
+    ("flag", "flag value", "Bool", True),
+    ("label", 'text `"é', "Text", False),
+    ("amount", "amount value", "Decimal", False),
+    ("ratio", "ratio value", "Float", False),
+    ("rid", "row id", "Int", False),
+)
 # Per logical type: the pack's MySQL storage and domain (mysql/plan.py).
 STORAGE = {
     "Int": ({"kind": "my_bigint"}, _INT),
@@ -70,12 +81,13 @@ STORAGE = {
     "Date": ({"kind": "my_date"}, {"kind": "date"}),
     "UUID": ({"kind": "my_uuid_bytes"}, {"encoding": "standard_bytes", "kind": "uuid"}),
 }
-# Per world: its header, its source, its (field, pack column, logical type,
-# nullable) and the pack's namespace and table.
+# Per world: its header, its sources, their (field, pack column, logical type,
+# nullable) and the pack's namespace and tables. The sources of a world share
+# their shape, namespace and columns, as in the pack.
 WORLDS = {
     "rows_ntext": (
         HEADER,
-        "rows",
+        ("rows",),
         (
             ("id", "order.id", "Int", False),
             ("flag", "flag value", "Bool", True),
@@ -83,25 +95,18 @@ WORLDS = {
             ("money", "amount value", "Decimal", False),
             ("ratio", "ratio value", "Float", False),
         ),
-        ("phase66", "phase66 source é"),
+        ("phase66", ("phase66 source é",)),
     ),
-    "agg": (
-        AGG_HEADER,
-        "agg",
-        (
-            ("key", "group key", "Int", True),
-            ("value", "value é", "Int", True),
-            ("flag", "flag value", "Bool", True),
-            ("label", 'text `"é', "Text", False),
-            ("amount", "amount value", "Decimal", False),
-            ("ratio", "ratio value", "Float", False),
-            ("rid", "row id", "Int", False),
-        ),
-        ("phase66", "phase66 agg é"),
+    "agg": (AGG_HEADER, ("agg",), _AGG_FIELDS, ("phase66", ("phase66 agg é",))),
+    "agg_keys": (
+        AGG_HEADER + KEYS_SOURCE,
+        ("agg", "keys"),
+        _AGG_FIELDS,
+        ("phase66", ("phase66 agg é", "phase66 agg keys é")),
     ),
     "rows": (
         HEADER.replace("    text: Text | None\n", "    text: Text\n"),
-        "rows",
+        ("rows",),
         (
             ("id", "order_id", "Int", False),
             ("flag", "flag_value", "Bool", True),
@@ -109,11 +114,11 @@ WORLDS = {
             ("money", "amount_value", "Decimal", False),
             ("ratio", "ratio_value", "Float", False),
         ),
-        ("phase66", "phase66 source é"),
+        ("phase66", ("phase66 source é",)),
     ),
     "temporal": (
         TEMPORAL_HEADER,
-        "rows",
+        ("rows",),
         (
             ("id", "row_id", "Int", False),
             ("g", "group_key", "Int", True),
@@ -124,7 +129,7 @@ WORLDS = {
             ("d2", "d2_value", "Date", True),
             ("u", "uuid_value", "UUID", False),
         ),
-        ("phase66", "phase66 source é"),
+        ("phase66", ("phase66 source é",)),
     ),
 }
 _S10_TESTS = (
@@ -134,6 +139,27 @@ _S10_TESTS = (
 )
 _S10_GROUPED = "query {name}:\n    from agg\n    group by:\n        key\n    select:\n"
 _S08 = "table {name}:\n    from rows\n    select:\n        id\n"
+
+
+def _s11_join(join, members, key=None, kind="query"):
+    """PAIRS.md 5.1: keys LEFT or INNER joins agg on its unique rid."""
+    body = (
+        f"{kind} {{name}}:\n    from keys\n    let r = agg\n"
+        f"    {join} join r on keys.rid == r.rid\n    let lb = r.label\n"
+    )
+    if key is not None:
+        body += f"    group by:\n        {key}\n    select:\n        k = {key}\n"
+    else:
+        body += "    select:\n"
+    return body + f"        d = count_distinct({members})\n"
+
+
+_S11_TUPLES = (
+    "table {name}:\n    from agg\n    select:\n"
+    "        text_flag = count_distinct(label, flag)\n"
+    "        int_text = count_distinct(key, label)\n"
+    "        all_three = count_distinct(key, flag, label)\n"
+)
 # Per form: its world and its body.
 FORMS = (
     (
@@ -272,10 +298,34 @@ FORMS = (
         "        high_ts = max(ts) window(order by tier)\n"
         "        high_d2 = max(d2) window(order by tier)\n",
     ),
+    ("agg_keys", _s11_join("left", "keys.label, r.rid, r.label", "keys.rid")),
+    ("agg_keys", _s11_join("left", "keys.label, lb, r.rid", "keys.rid")),
+    ("agg_keys", _s11_join("inner", "keys.label, r.rid, r.label", "keys.rid")),
+    ("agg_keys", _s11_join("inner", "keys.label, lb, r.rid", "keys.rid")),
+    ("agg_keys", _s11_join("left", "keys.label, lb", "keys.key")),
+    ("agg_keys", _s11_join("inner", "keys.label, lb", "keys.key")),
+    ("agg_keys", _s11_join("left", "lb, keys.key", kind="table")),
+    (
+        "agg_keys",
+        _s11_join("left", "keys.label, lb", "keys.key")
+        + "        e = count_distinct(r.key, keys.label)\n",
+    ),
+    ("agg", _S11_TUPLES),
+    (
+        "agg",
+        "table {name}:\n    from agg\n    select:\n"
+        "        int_int = count_distinct(key, value)\n",
+    ),
+    (
+        "agg",
+        "query {name}:\n    from agg\n    group by:\n        key\n    select:\n"
+        "        k = key\n        n = count_distinct(label, flag)\n",
+    ),
 )
 S16 = range(3)
 S10 = range(3, 6)
 S08 = range(6, 17)
+S11 = range(17, 28)
 
 
 def _over(after, *calls):
@@ -293,9 +343,14 @@ _S10_SQL = (
     " COLLATE utf8mb4_0900_bin",
     "THEN 1 END) > 0)",
 )
-# Per form: the SQL fragments the pack's MySQL half preregisters (PAIRS.md 5.4,
-# 5.6, 5.9 and 5.5), `{field}` standing for the field's physical column; the
-# public nullability and the logical type of each public column PAIRS.md pairs.
+# The JOIN tuples' aggregate, its members named by the SQL's generated names.
+_S11_PLAIN = "COUNT(DISTINCT `t1`.`c3`, `t1`.`c13`, `t1`.`c10`) AS `c1`"
+_S11_ALIAS = "COUNT(DISTINCT `t1`.`c3`, `t1`.`c14`, `t1`.`c13`) AS `c1`"
+_S11_TEXT_FLAG = "COUNT(DISTINCT `s0`.`{label}`, `s0`.`{flag}`)"
+# Per form: the SQL fragments the pack's MySQL half preregisters (PAIRS.md 5.1,
+# 5.4, 5.5, 5.6, 5.7 and 5.9), `{field}` standing for the field's physical
+# column; the public nullability and the logical type of each public column
+# PAIRS.md pairs.
 SQL = (
     ("X''", "X'e99baa'"),
     ("X'e99baa'", "X'612762'"),
@@ -345,6 +400,21 @@ SQL = (
         ("MAX", "ts"),
         ("MAX", "d2"),
     ),
+    (_S11_PLAIN, " LEFT JOIN "),
+    (_S11_ALIAS, " LEFT JOIN "),
+    (_S11_PLAIN, " INNER JOIN "),
+    (_S11_ALIAS, " INNER JOIN "),
+    ("COUNT(DISTINCT `t1`.", " LEFT JOIN "),
+    ("COUNT(DISTINCT `t1`.", " INNER JOIN "),
+    ("COUNT(DISTINCT `t1`.", " LEFT JOIN "),
+    ("COUNT(DISTINCT `t1`.", " LEFT JOIN "),
+    (
+        _S11_TEXT_FLAG,
+        "COUNT(DISTINCT `s0`.`{key}`, `s0`.`{label}`)",
+        "COUNT(DISTINCT `s0`.`{key}`, `s0`.`{flag}`, `s0`.`{label}`)",
+    ),
+    ("COUNT(DISTINCT `s0`.`{key}`, `s0`.`{value}`)",),
+    (_S11_TEXT_FLAG,),
 )
 NULLABLE = (
     [False, True, True, True],
@@ -364,6 +434,13 @@ NULLABLE = (
     [False, False, False, True, True, True, True],
     [False, False, True, True, True, False],
     [False, False, False, False, True, True, True],
+    *([False, False],) * 4,
+    *([True, False],) * 2,
+    [False],
+    [True, False, False],
+    [False, False, False],
+    [False],
+    [True, False],
 )
 LOGICAL = (
     ("Int", "Text", "Text", "Text"),
@@ -383,6 +460,12 @@ LOGICAL = (
     ("Int", "Int", "Int", "Timestamp", "Date", "Timestamp", "Date"),
     ("Int", "Int", "Timestamp", "Date", "Date", "Int"),
     ("Int", "Int", "Int", "Int", "Int", "Timestamp", "Date"),
+    *(("Int", "Int"),) * 6,
+    ("Int",),
+    ("Int", "Int", "Int"),
+    ("Int", "Int", "Int"),
+    ("Int",),
+    ("Int", "Int"),
 )
 ENVIRONMENT = (
     ("client_encoding", "utf8mb4"),
@@ -452,6 +535,14 @@ NAMES = {
     "n_u": "nident",
     "n_d2": "nday2",
     "low_id": "lok",
+    "keys": "ledger",
+    "r": "rt",
+    "lb": "rtag",
+    "e": "dist2",
+    "text_flag": "tf",
+    "int_text": "it",
+    "all_three": "a3",
+    "int_int": "ii",
 }
 _COLUMNS = ("c_id", "c_flag", "c_body", "c_cash", "c_share", "c_f", "c_g", "c_h")
 # A name outside a string literal; a string literal and the frame keyword
@@ -464,22 +555,21 @@ _WORD = re.compile(
 _LOCATOR = re.compile(r'(?<=mysql\.table\(")[^"]*')
 
 
-def physical_names(form, namespace="app", table="items", columns=_COLUMNS):
-    """(namespace, table, columns) for form ``form``: one column per field."""
-    return namespace, table, tuple(columns[: len(WORLDS[FORMS[form][0]][2])])
-
-
-PHYSICAL = physical_names(0)
+def physical_names(form, namespace="app", tables=("items", "ledger"), columns=_COLUMNS):
+    """(namespace, tables, columns) for form ``form``: one table per source and
+    one column per field."""
+    _, sources, fields, _ = WORLDS[FORMS[form][0]]
+    return namespace, tuple(tables[: len(sources)]), tuple(columns[: len(fields)])
 
 
 def contract(form=0, physical=None, names=None):
     """The pack's contract of ``form``; ``physical`` and ``names`` rename its
-    names, by default the pack's namespace, table and columns."""
+    names, by default the pack's namespace, tables and columns."""
     names = names or {}
-    _, source, fields, (namespace, table) = WORLDS[FORMS[form][0]]
-    namespace, table, columns = physical or (
+    _, sources, fields, (namespace, tables) = WORLDS[FORMS[form][0]]
+    namespace, tables, columns = physical or (
         namespace,
-        table,
+        tables,
         tuple(field[1] for field in fields),
     )
     return {
@@ -517,6 +607,7 @@ def contract(form=0, physical=None, names=None):
                     "name": names.get(source, source),
                 },
             }
+            for source, table in zip(sources, tables, strict=True)
         ],
         "target": {"family": "mysql", "release": "8.4.12"},
     }
@@ -528,20 +619,29 @@ def pack(form):
     return WORLDS[world][0] + body.format(name="result")
 
 
-def module(form, names=NAMES, locator="app.items"):
-    """Form ``form``'s module with ``names`` and ``locator`` written over."""
-    text = _LOCATOR.sub(locator, pack(form), count=1)
+def module(form, names=NAMES, locators=("app.items", "app.ledger")):
+    """Form ``form``'s module with ``names`` and ``locators``, one per source,
+    written over."""
+    found = iter(locators)
+    text = _LOCATOR.sub(lambda match: next(found), pack(form))
     return _WORD.sub(lambda match: names.get(match[0], match[0]), text)
 
 
-def project(directory, form, *, names=NAMES, locator="app.items", physical=None):
+def project(
+    directory,
+    form,
+    *,
+    names=NAMES,
+    locators=("app.items", "app.ledger"),
+    physical=None,
+):
     """Write form ``form`` as a one-module MySQL project in ``directory``."""
     directory.mkdir(parents=True, exist_ok=True)
     (directory / "pietto.toml").write_text(
         'schema_version = 2\n[sources]\ninclude = ["*.pietto"]\n'
     )
     (directory / "main.pietto").write_text(
-        module(form, names, locator), encoding="utf-8", newline="\n"
+        module(form, names, locators), encoding="utf-8", newline="\n"
     )
     (directory / "contract.json").write_text(
         json.dumps(contract(form, physical or physical_names(form), names)),

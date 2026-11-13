@@ -604,7 +604,12 @@ each field read twice. The additive `ranges` roles for this form are the
 (` IS NOT NULL THEN ROW(`, after the last) and `aggregate_tuple_close`
 (`) END`), between `aggregate_distinct` and `aggregate_close`, with the
 existing `aggregate_separator` (`, `) between the fields inside `ROW(`. Its R13
-`aggregate` requirement carries no evidence.
+`aggregate` requirement carries no evidence. A MySQL one, emitted only in
+eleven paired forms
+([unreleased](../release-notes.d/77-s11-mysql-count-distinct-tuple.md)), is
+written `COUNT(DISTINCT a, b)` with the same `function`, each field read once,
+`aggregate_separator` between the fields and none of the four tuple roles;
+the count is a non-null `my_bigint`.
 
 A PostgreSQL project aggregate over a window (`sum`, `count`, `avg`, `min`
 or `max` with `OVER`) has `window_origin.function` `sum`, `count`, `avg`,
