@@ -422,7 +422,8 @@ def execute(
     tuple and ``parameters`` is None or a dict with string keys
     (PIE-R1002); then the query is bound afresh to the values and
     parameters (PIE-R1006, PIE-R1004) and the installed code identity is
-    read again (PIE-R1005); then the values of premise, access, isolation
+    read again (PIE-R1005); then a result wider than one batch is refused
+    (PIE-R1004 LIMIT); then the values of premise, access, isolation
     (its type included) and limits, in that order. The first failure is
     raised as RequestRejected. The driver and environment are checked when
     the attempt opens. Each call is a new attempt.

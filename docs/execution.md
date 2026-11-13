@@ -364,7 +364,10 @@ let with `capture` lines LATERAL, with or without its ORDER BY and LIMIT
 (`REFINEMENT_LATERAL_JOIN`). These checks read the live query alone, so
 `recover` makes them in this order also when its restated `values` or
 `parameters` cannot bind. Ordinary execution on every route, an ordinary
-`save` and bundles accept them.
+`save` and bundles accept them. Before all of these R2 checks,
+`save_recoverable`, and `recover` when its restated values and parameters
+bind, refuse a result wider than one batch (see [Results](#results)) with
+`PIE-R1004` (`LIMIT`).
 A `where any(...)` or `where not any(...)` test, with or without a later JOIN,
 alone or AND-composed with other filters, refines as the semi or anti JOIN it
 stands for: R2 reads the tested source or relation through its own refined
@@ -801,8 +804,10 @@ the selected route and the query was compiled for its selected dialect
 then checks that `values` is `None` or a tuple and `parameters` is `None` or a
 dict with string keys (`PIE-R1002`), binds the query to the values and
 parameters (`PIE-R1006`, `PIE-R1004`), reads the installed code identity
-again (`PIE-R1005`) and checks the values of `premise`, `access`, `isolation`
-(its type included) and `limits`, in this order, and raises the first refusal.
+again (`PIE-R1005`), refuses a result wider than one batch (`PIE-R1004`
+`LIMIT`, see [Results](#results)) and checks the values of `premise`,
+`access`, `isolation` (its type included) and `limits`, in this order, and
+raises the first refusal.
 When an attempt opens, refused environment variables run first; then the
 pinned driver and its selected implementation; then pinned PyArrow; all run
 before a connection. `pyarrow.schema(result)` can instead raise `HandleMisuse`
@@ -1249,6 +1254,13 @@ delivered batch, including one you have closed. A batch that would cross a bound
 is refused whole (`PIE-R3004`); it is never truncated, and batches already
 delivered remain valid. Only `outcome.end == "COMPLETE"` means every row was
 delivered.
+
+One batch holds at most 64 Arrow fields, and a collected field counts once
+for itself and once for each of its child fields. `execute()`, `save`,
+`save_recoverable` and `relay_live` refuse a query whose result needs more
+with `PIE-R1004` (`detail` `LIMIT`) while they prepare it, before any
+workspace access or connection; `compile_query`, `export_bundle` and
+`load_bundle` still accept it.
 
 The caller owns a returned batch independently of its handle and attempt. It
 may import the batch through PyArrow without a copy; that imported data remains

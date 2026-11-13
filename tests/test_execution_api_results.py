@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from types import SimpleNamespace
+from typing import Any
 
 import pytest
 
@@ -119,6 +120,105 @@ def test_results_documentation_has_the_consumption_script_and_output(tmp_path):
     assert (tmp_path / "consume_query.py").read_text(encoding="utf-8") == blocks[
         "python"
     ]
+
+
+def _wide(directory, fields):
+    """The documented query with `fields` selected columns."""
+    project = api.write_example(directory)
+    main = project / "main.pietto"
+    head = main.read_text(encoding="utf-8").split("table active_items")[0]
+    main.write_text(
+        head
+        + "table active_items:\n    from items\n    select:\n"
+        + "".join(f"        v{i} = id\n" for i in range(fields)),
+        encoding="utf-8",
+    )
+    return execution.compile_query(
+        project,
+        module="main.pietto",
+        kind="table",
+        name="active_items",
+        dialect="postgres",
+        emission_contract="contract.json",
+    )
+
+
+def _refusal(action):
+    with pytest.raises(execution.RequestRejected) as refused:
+        action()
+    return refused.value.code, refused.value.detail
+
+
+WIDE_ACCESS: dict[str, Any] = dict(
+    route="postgres_rows",
+    access=execution.PostgresAccess("127.0.0.1", 9, "app", "reader", "pw"),
+    premise=execution.PostgresDeploymentPremise(("fixture", "pg_catalog")),
+)
+
+
+def test_a_result_wider_than_one_batch_is_refused_before_it_runs(tmp_path):
+    """A batch holds at most 64 Arrow fields: a query whose result needs more
+    is refused while it is prepared, before a workspace or connection."""
+    fits = _wide(tmp_path / "fits", 64)
+    handle = execution.execute(fits, **WIDE_ACCESS)
+    assert handle.outcome.end == "NOT_STARTED"
+    handle.close()
+    wide = _wide(tmp_path / "wide", 65)
+    assert _refusal(lambda: execution.execute(wide, **WIDE_ACCESS)) == (
+        "PIE-R1004",
+        "LIMIT",
+    )
+    # The width is checked before a premise that does not cover the source.
+    premise = execution.PostgresDeploymentPremise(("public", "pg_catalog"))
+    narrow = dict(WIDE_ACCESS, premise=premise)
+    assert _refusal(lambda: execution.execute(fits, **narrow)) == (
+        "PIE-R1002",
+        "POSTGRES_DEPLOYMENT_PREMISE_SCOPE",
+    )
+    assert _refusal(lambda: execution.execute(wide, **narrow)) == (
+        "PIE-R1004",
+        "LIMIT",
+    )
+    # The workspace does not exist: opening it first would be PIE-R1009.
+    workspace = execution.WorkspaceRef(str(tmp_path / "never"), "ws-" + "0" * 32)
+    assert _refusal(
+        lambda: execution.save(
+            workspace, wide, operation="op-" + "0" * 32, **WIDE_ACCESS
+        )
+    ) == ("PIE-R1004", "LIMIT")
+
+
+def test_a_collected_field_counts_each_child_field_against_the_batch(tmp_path):
+    import _pietto_results_nested as nested
+    import _pietto_results_product as product
+
+    def query(fields):
+        project = tmp_path / f"collect{fields}"
+        children = tuple((f"c{k}", "Int8", False) for k in range(fields))
+        output = nested.collected(product, project, children, alone=True)
+        contract = output.artifact.request.accepted_bytes
+        (project / "contract.json").write_bytes(contract)
+        return execution.compile_query(
+            project,
+            module="main.pietto",
+            kind="query",
+            name="result",
+            dialect="postgres",
+            emission_contract="contract.json",
+        )
+
+    premise = execution.PostgresDeploymentPremise(("public", "pg_catalog"))
+    arguments = dict(WIDE_ACCESS, premise=premise)
+    # One list field and its 63 child fields: 64 Arrow fields fit a batch.
+    handle = execution.execute(query(63), **arguments)
+    assert handle.outcome.end == "NOT_STARTED"
+    handle.close()
+    # One list field and its 64 child fields: 65 Arrow fields.
+    wide = query(64)
+    assert _refusal(lambda: execution.execute(wide, **arguments)) == (
+        "PIE-R1004",
+        "LIMIT",
+    )
 
 
 def test_schema_failures_have_the_fixed_public_code():

@@ -791,8 +791,12 @@ def compiled_output(binding):
     from pietto._project.project_compiled_schema import Address
     from pietto._project.project_compiled_loading import supported_compatibility
     from pietto._project.project_refinement import prepare_compiled_refinement
-    from pietto._project.project_result_output import prepare_output
+    from pietto._project.project_result_output import (
+        NestedOutputColumn,
+        prepare_output,
+    )
     from pietto._project.project_guard_program import prepare_program
+    from pietto._project.project_arrow_result import BatchLimits, _dimensions
 
     verify_binding(binding)
     artifact = binding.artifact
@@ -818,6 +822,16 @@ def compiled_output(binding):
         else refinement.output
         if refinement is not None
         else prepare_output(artifact, binding=binding)
+    )
+    # Every batch carries all of these fields, a collected one's children
+    # included: a result wider than one batch is refused before any I/O.
+    _dimensions(
+        sum(
+            1 + len(c.children) if type(c) is NestedOutputColumn else 1
+            for c in output.columns
+        ),
+        0,
+        BatchLimits(),
     )
     return output, refinement, program
 
