@@ -2619,6 +2619,17 @@ def _ordered_value_type(records, record, typed):
     return ordered_value_result(typed, grouped=modes == {"grouped"})
 
 
+def _spread_cell(records, entry, family):
+    """The S05 cell of a MySQL bundle, from its records alone; None elsewhere."""
+    if family != "mysql":
+        return None
+    from pietto._project.project_sql_emission_aggregation import (
+        mysql_compiled_spread_cell,
+    )
+
+    return mysql_compiled_spread_cell(records, entry)
+
+
 def derive_compiled_semantics(root, values, parameters=None):
     """Derive resolved scalar inputs without calling any source elaborator.
 
@@ -2662,6 +2673,7 @@ def derive_compiled_semantics(root, values, parameters=None):
     executable = selected_records(records, records[root.description.query])
     slots = tuple(r for r in records.values() if r.address.kind == "slot")
     family = records[Address("target", 0)].get("family")
+    spread_cell = _spread_cell(records, records[root.description.query], family)
     if len(values) != len(slots):
         raise CompiledError("COMPILED_BINDING_SLOTS")
     replacements = {}
@@ -3078,6 +3090,7 @@ def derive_compiled_semantics(root, values, parameters=None):
                                 argument.address.kind == "read",
                                 argument.realization,
                                 family,
+                                cell=ref == spread_cell,
                             )
                             is not None
                         )
@@ -4024,6 +4037,7 @@ def verify_compiled_semantics(value):
         )
         request_objects[address] = request
     family = records[Address("target", 0)].get("family")
+    spread_cell = _spread_cell(records, records[value.root.description.query], family)
     slots = tuple(r for r in records.values() if r.address.kind == "slot")
     need(
         type(value.values) is tuple and len(slots) == len(value.values),
@@ -4469,6 +4483,7 @@ def verify_compiled_semantics(value):
                             argument.address.kind == "read",
                             argument.realization,
                             family,
+                            cell=current == spread_cell,
                         )
                         is None,
                         "SEMANTIC_AGGREGATE_ARGUMENT",

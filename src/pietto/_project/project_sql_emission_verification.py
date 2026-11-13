@@ -2320,17 +2320,22 @@ def _aggregate_result_realization(family, function, argument, retained):
     if function in grouping.SPREAD_FUNCTIONS:
         # CAST(VAR_SAMP(x) AS pg_catalog.float8) (or VAR_POP), under SQRT for a
         # deviation; NULL below two values (sample) or for none (population).
+        # A MySQL one (S05) is a DOUBLE of a DOUBLE argument.
         if (
-            family != "postgres"
-            or argument is None
-            or argument.realization.tag not in {"Int", "Float"}
+            argument is None
             or tag != "Float"
             or nullable is not True
+            or not (
+                family == "postgres"
+                and argument.realization.tag in {"Int", "Float"}
+                or family == "mysql"
+                and rows.float_carrier(argument.realization, family)
+            )
         ):
             raise ValueError("stddev result domain")
         return rows.Realization(
             "Float",
-            {"kind": "pg_float8"},
+            {"kind": "pg_float8" if family == "postgres" else "my_double"},
             True,
             {"kind": "finite_float", "format": "binary64"},
         )
@@ -2607,7 +2612,14 @@ def _verify_aggregate_body(
                     request.family,
                 )
                 if function in grouping.FILTERED_FUNCTIONS
-                else grouping.argument_problem(function, argument, request.family)
+                else grouping.argument_problem(
+                    function,
+                    argument,
+                    request.family,
+                    cell=request.family == "mysql"
+                    and function in grouping.SPREAD_FUNCTIONS
+                    and grouping.mysql_spread_cell(request.plan, value, argument),
+                )
             ) is not None:
                 raise ValueError("aggregate argument outside its admitted domain")
             if function == "quantile":
@@ -2667,7 +2679,7 @@ def _verify_aggregate_body(
             or column.aggregate is not value
             or value.source is not stage.authority.aggregates[offset]
             or column.function != function
-            or column.spelling != grouping.SPELLING[function]
+            or column.spelling != grouping.spelling(request.family, function)
             or column.distinct is not (function in grouping.DISTINCT_FUNCTIONS)
             or column.argument_cast
             != grouping.argument_cast(request.family, function, argument)
@@ -8350,7 +8362,8 @@ def verify_row_bytes(query, rendered):
             start = offset
             if column.function in grouping.GROUP_TEST_FUNCTIONS:
                 take("syntax", "aggregate_test_open", reference, "(")
-            if column.function in grouping.ROOT_FUNCTIONS:
+            root = grouping.rooted(query.request.family, column.function)
+            if root:
                 take("syntax", "aggregate_root_open", reference, "SQRT(")
             if column.function == "filtered_sum":
                 take("syntax", "aggregate_zero_open", reference, "COALESCE(")
@@ -8489,7 +8502,7 @@ def verify_row_bytes(query, rendered):
                     reference,
                     " AS " + column.result_cast + ")",
                 )
-            if column.function in grouping.ROOT_FUNCTIONS:
+            if root:
                 take("syntax", "aggregate_root_close", reference, ")")
             if column.function == "filtered_sum":
                 take("syntax", "aggregate_zero_close", reference, ", 0)")
@@ -9703,8 +9716,9 @@ def verify_row_generated_requirements(request, query, generated):
             if type(column) is grouping.AggregateValueColumn:
                 # Q1: only a PostgreSQL SUM(Int) rests on the target's checked
                 # bigint narrowing rather than a static range, and only a
-                # PostgreSQL sum, avg, variance or deviation of a Float on its
-                # checked binary64 overflow.
+                # PostgreSQL sum, avg, variance or deviation of a Float, or a
+                # MySQL variance or deviation of one (S05), on its checked
+                # binary64 overflow.
                 argument_tag = (
                     None
                     if column.argument is None
@@ -9716,7 +9730,11 @@ def verify_row_generated_requirements(request, query, generated):
                         column.aggregate.ref,
                         "R13",
                         operators,
-                        ()
+                        (grouping.TARGET_CHECKED_BINARY64,)
+                        if request.family == "mysql"
+                        and column.function in grouping.SPREAD_FUNCTIONS
+                        and argument_tag == "Float"
+                        else ()
                         if request.family != "postgres"
                         else (grouping.TARGET_CHECKED_BINARY64,)
                         if column.function in {"sum", "avg", *grouping.SPREAD_FUNCTIONS}

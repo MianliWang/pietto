@@ -4988,6 +4988,14 @@ def _verify_compiled_emission(artifact, request):
     refs = plan.references
     facts = {f.address: f for f in plan.ir.completed.facts}
     target = records[Address("target", 0)]
+    # The S05 cell, derived from the records alone.
+    spread_cell = (
+        grouping.mysql_compiled_spread_cell(
+            records, records[plan.ir.completed.root.description.query]
+        )
+        if request.family == "mysql"
+        else None
+    )
     need(
         request.accepted_bytes == target.get("contract").encode()
         and (request.family, request.release) == target.values[:2],
@@ -6112,7 +6120,7 @@ def _verify_compiled_emission(artifact, request):
                     and expression.kind == "aggregate_value"
                     and column.aggregate.ref is refs[expression]
                     and column.function == function
-                    and column.spelling == grouping.SPELLING[function]
+                    and column.spelling == grouping.spelling(request.family, function)
                     and column.distinct is (function in grouping.DISTINCT_FUNCTIONS),
                     "EMISSION_AGGREGATE_VALUE",
                 )
@@ -6158,7 +6166,10 @@ def _verify_compiled_emission(artifact, request):
                             is None
                             if function in grouping.FILTERED_FUNCTIONS
                             else grouping.argument_problem(
-                                function, column.argument, request.family
+                                function,
+                                column.argument,
+                                request.family,
+                                cell=expression == spread_cell,
                             )
                             is None
                         ),

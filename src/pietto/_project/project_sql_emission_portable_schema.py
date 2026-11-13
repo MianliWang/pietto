@@ -925,6 +925,9 @@ AGGREGATE_SPELLING = {
     "string_agg",
     "VAR_SAMP",
     "VAR_POP",
+    # MySQL (Phase77 S05).
+    "STDDEV_SAMP",
+    "STDDEV_POP",
     "PERCENTILE_CONT",
     "ARRAY_AGG",
 }

@@ -331,6 +331,191 @@ def test_aggregate_parity_replays_from_compiled_input(
     ]
 
 
+def _nullable_ratio(tmp_path, body, header="query result:"):
+    item = probe.nullable_ratio_fixture("mysql", header + "\n    from agg\n" + body)
+    _, outcome = probe.build_case(
+        tmp_path, item["source"], item["contract"], item["policy"]
+    )
+    assert outcome.status == "VERIFIED", outcome.blockers
+    return outcome
+
+
+@pytest.mark.parametrize(
+    "function,spelling",
+    (
+        ("stddev", "STDDEV_SAMP"),
+        ("variance", "VAR_SAMP"),
+        ("pvariance", "VAR_POP"),
+        ("pstdev", "STDDEV_POP"),
+    ),
+)
+def test_mysql_float_statistic_cell_replays_from_compiled_input(
+    tmp_path, function, spelling
+):
+    """Phase77 S05: the MySQL statistic of one nullable DOUBLE field alone,
+    its nullable DOUBLE result and its binary64 evidence replay from
+    compiled input."""
+    original = _nullable_ratio(
+        tmp_path, f"    select:\n        d = {function}(ratio)\n"
+    )
+    candidate = _compare(original.artifact, refinement=False)
+    assert f"(SELECT {spelling}(`s0`.`ratio value`) AS".encode() in (
+        candidate.rendered.sql
+    )
+    assert [
+        r.evidence for r in candidate.generated_requirements if r.kind == "aggregate"
+    ] == [BINARY64]
+
+
+def _renamed_statistic(tmp_path, body, header="query result:"):
+    """A loaded MySQL `max` bundle whose value is renamed `stddev`, and that
+    value's address."""
+    from pietto._project.project_compiled_schema import (
+        FIELDS,
+        Record,
+        content_pin,
+        encode,
+    )
+
+    built = build_compiled(_nullable_ratio(tmp_path, body, header).artifact)
+    (value,) = (
+        r
+        for r in built.root.description.records
+        if r.address.kind == "aggregate_value" and r.get("function") == "max"
+    )
+    values = list(value.values)
+    values[FIELDS["aggregate_value"].index("function")] = "stddev"
+    forged = Record(value.address, tuple(values))
+    description = replace(
+        built.root.description,
+        members=tuple(
+            (name, tuple(forged if r.address == forged.address else r for r in members))
+            for name, members in built.root.description.members
+        ),
+    )
+    raw = encode(description)
+    root = load_compiled(
+        raw,
+        expected_pin=content_pin(raw),
+        accepted_producer=built.producer,
+        accepted_compatibility=built.compatibility,
+    )
+    return root, forged.address
+
+
+@pytest.mark.parametrize(
+    "header,body,accepted",
+    (
+        ("query result:", "    select:\n        d = max(ratio)\n", True),
+        (
+            "query result:",
+            "    group by key\n    select:\n        key\n        d = max(ratio)\n",
+            False,
+        ),
+        (
+            "query result:",
+            "    select:\n        lo = min(ratio)\n        d = max(ratio)\n",
+            False,
+        ),
+        (
+            "query result:",
+            "    where rid > 1\n    select:\n        d = max(ratio)\n",
+            False,
+        ),
+        ("query result(low: Int):", "    select:\n        d = max(ratio)\n", False),
+        ("query result:", "    select:\n        d = max(ratio)\n    limit 1\n", False),
+    ),
+)
+def test_a_compiled_mysql_statistic_is_judged_by_its_records(
+    tmp_path, header, body, accepted
+):
+    """A MySQL `max` bundle whose value is renamed `stddev` replays as the S05
+    cell only where its records hold the cell's structure; renamed in a
+    grouped, two-value, filtered or limited aggregate, or in a query that
+    declares a header parameter it never reads, it stays refused."""
+    from pietto._project.project_compiled_schema import CompiledError
+
+    root, _ = _renamed_statistic(tmp_path, body, header)
+    if not accepted:
+        with pytest.raises(CompiledError, match="^COMPILED_AGGREGATE_ARGUMENT$"):
+            emit_compiled(root, ())
+        return
+    assert b"(SELECT STDDEV_SAMP(`s0`.`ratio value`) AS `c0` FROM" in (
+        emit_compiled(root, ()).rendered.sql
+    )
+
+
+@pytest.mark.parametrize(
+    "layer,code",
+    (
+        ("semantics", "COMPILED_SEMANTIC_AGGREGATE_ARGUMENT"),
+        ("stage", "COMPILED_AGGREGATE_ARGUMENT"),
+        ("emission", "COMPILED_EMISSION_AGGREGATE_ARGUMENT"),
+    ),
+)
+def test_each_compiled_reader_refuses_a_renamed_statistic_on_its_own(
+    tmp_path, monkeypatch, layer, code
+):
+    """With the cell check of every earlier compiled reader made to accept a
+    grouped `max` bundle renamed `stddev`, the semantic verifier, the stage
+    builder and the emission verifier each derive the cell from the records
+    themselves and refuse it."""
+    from pietto._project import project_completed_semantics as semantics
+    from pietto._project import project_sql_emission_aggregation as grouping
+    from pietto._project.project_compiled_schema import CompiledError
+
+    root, forged = _renamed_statistic(
+        tmp_path, "    group by key\n    select:\n        key\n        d = max(ratio)\n"
+    )
+    accept = lambda *args: forged  # noqa: E731
+    if layer == "semantics":
+        with monkeypatch.context() as patch:
+            patch.setattr(semantics, "_spread_cell", accept)
+            completed = semantics.derive_compiled_semantics(root, ())
+        with pytest.raises(CompiledError, match=f"^{code}$"):
+            semantics.verify_compiled_semantics(completed)
+        return
+    monkeypatch.setattr(semantics, "_spread_cell", accept)
+    if layer == "emission":
+        stage = grouping.build_compiled_stage
+
+        def accepting_stage(*args):
+            with monkeypatch.context() as inner:
+                inner.setattr(grouping, "mysql_compiled_spread_cell", accept)
+                return stage(*args)
+
+        monkeypatch.setattr(grouping, "build_compiled_stage", accepting_stage)
+    with pytest.raises(CompiledError, match=f"^{code}$"):
+        emit_compiled(root, ())
+
+
+@pytest.mark.parametrize("field", ("mode", "keys"))
+def test_the_compiled_statistic_cell_needs_a_global_aggregate_without_keys(
+    tmp_path, field
+):
+    """The compiled cell check reads the aggregate record's own mode and keys:
+    the cell's records with only that stage made grouped, or keyed by the
+    value's argument, leave the cell."""
+    from pietto._project import project_sql_emission_aggregation as grouping
+    from pietto._project.project_compiled_schema import FIELDS, Record
+
+    root = build_compiled(
+        _nullable_ratio(tmp_path, "    select:\n        d = stddev(ratio)\n").artifact
+    ).root
+    records = dict(root.records)
+    entry = records[root.description.query]
+    assert grouping.mysql_compiled_spread_cell(records, entry) is not None
+    stage = records[records[entry.get("terminal")].get("input")]
+    values = list(stage.values)
+    values[FIELDS["aggregate"].index(field)] = (
+        "grouped"
+        if field == "mode"
+        else records[stage.get("values")[0]].get("arguments")
+    )
+    records[stage.address] = Record(stage.address, tuple(values))
+    assert grouping.mysql_compiled_spread_cell(records, entry) is None
+
+
 @pytest.fixture(scope="module")
 def inline_arguments_bundle(tmp_path_factory):
     """The PostgreSQL `inline_arguments` bundle, built once: each forgery

@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from contextvars import ContextVar
 from dataclasses import dataclass, replace
 import json
 import math
@@ -32,6 +33,24 @@ COMPARISONS = {
 COMPARABLE = ("Int", "Text", "Decimal", "Timestamp", "Date", "Float")
 # One carrier's values order by their exact civil instant or day.
 TEMPORAL = ("Timestamp", "Date")
+# Rule two (D77.37, owner 2026-11-13T00:20Z): a MySQL statement that stays
+# refused reports main's whole blocker list. While this is set, emission
+# derives as main does: every Phase77 MySQL cell is shut.
+AS_MAIN = ContextVar("as_main", default=False)
+
+
+def as_main_if_refused(request, derive, refused):
+    """``derive()``; when ``refused`` holds of it for a MySQL statement,
+    ``derive()`` once more as main (AS_MAIN), unless it already is."""
+
+    result = derive()
+    if AS_MAIN.get() or request.family != "mysql" or not refused(result):
+        return result
+    token = AS_MAIN.set(True)
+    try:
+        return derive()
+    finally:
+        AS_MAIN.reset(token)
 
 
 FINITE_FLOAT = {"kind": "finite_float", "format": "binary64"}

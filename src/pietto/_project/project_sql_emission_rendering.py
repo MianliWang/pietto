@@ -27,11 +27,11 @@ from pietto._project.project_sql_emission_aggregation import (
     ORDERED_FUNCTIONS,
     ORDERED_VALUE_FUNCTIONS,
     QUANTILE_FUNCTIONS,
-    ROOT_FUNCTIONS,
     AggregateKeyColumn,
     AggregateProjectionColumn,
     AggregateValueColumn,
     rendered_direction,
+    rooted,
 )
 from pietto._project import project_sql_emission_windows as windowing
 from pietto._project import project_sql_emission_results as resulting
@@ -1136,7 +1136,8 @@ def _aggregate_value(w: _Writer, column, alias) -> None:
     start = w.offset
     if column.function in GROUP_TEST_FUNCTIONS:
         w.emit("(", "syntax", "aggregate_test_open", reference)
-    if column.function in ROOT_FUNCTIONS:
+    root = rooted(w.request.family, column.function)
+    if root:
         w.emit("SQRT(", "syntax", "aggregate_root_open", reference)
     if column.function == "filtered_sum":
         w.emit("COALESCE(", "syntax", "aggregate_zero_open", reference)
@@ -1267,7 +1268,7 @@ def _aggregate_value(w: _Writer, column, alias) -> None:
             "aggregate_result_cast_close",
             reference,
         )
-    if column.function in ROOT_FUNCTIONS:
+    if root:
         w.emit(")", "syntax", "aggregate_root_close", reference)
     if column.function == "filtered_sum":
         w.emit(", 0)", "syntax", "aggregate_zero_close", reference)

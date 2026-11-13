@@ -1054,6 +1054,138 @@ _TARGET_CHECKED_BINARY64 = "target_checked_binary64_overflow"
 _TARGET_CHECKED_DECIMAL = "target_checked_decimal_overflow"
 # The sample and population variances and deviations.
 _SPREAD_FUNCTIONS = frozenset({"stddev", "variance", "pvariance", "pstdev"})
+# Phase77 S05: their MySQL spellings, uncast and without SQRT, only in the
+# cell _mysql_spread_cell derives, as emission's MYSQL_SPREAD_SPELLING.
+_MYSQL_SPREAD_SPELLING = {
+    "stddev": "STDDEV_SAMP",
+    "variance": "VAR_SAMP",
+    "pvariance": "VAR_POP",
+    "pstdev": "STDDEV_POP",
+}
+# The document kinds that may stand in that cell; any other kind leaves it.
+_SPREAD_CELL_KINDS = frozenset(
+    {
+        "aggregate_origin",
+        "aggregate_projection_column",
+        "aggregate_stage",
+        "aggregate_value_column",
+        "artifact",
+        "association",
+        "bound_field",
+        "bound_source",
+        "event",
+        "generated_requirement",
+        "origin",
+        "original_requirement",
+        "owner",
+        "premise",
+        "realization",
+        "rendered",
+        "request",
+        "row_body",
+        "row_scan",
+        "row_stage_use",
+        "scope_definition",
+        "scope_use",
+        "sql_row_query",
+        "sql_stage_reference",
+        "sql_symbol",
+        "stage_column",
+        "terminal_binding",
+    }
+)
+# Kinds the cell holds exactly once (and two row bodies).
+_SPREAD_CELL_ONCE = (
+    "sql_row_query",
+    "row_scan",
+    "row_stage_use",
+    "aggregate_stage",
+    "aggregate_value_column",
+    "aggregate_projection_column",
+    "sql_stage_reference",
+)
+
+
+def _mysql_spread_cell(doc):
+    """The one aggregate_value_column in the S05 cell, from the document
+    alone, as emission's mysql_spread_cell derives it from the plan, or None.
+
+    The document holds no kind outside _SPREAD_CELL_KINDS (no parameter,
+    native use, fixed value, literal, operation, block or ANY read, JOIN,
+    set, result or window record), each kind of _SPREAD_CELL_ONCE once and
+    two row bodies, which are the query's. The final body is the one that
+    scans the stage use: a projection without predicate or window whose one
+    column reads the aggregate value's result. The body that stage use reads
+    is the aggregate body over the source scan, without predicate or window,
+    whose one column is that value, and its global stage has no key and that
+    one value. The value is a variance or deviation without order, delimiter,
+    extra argument or DISTINCT, and its argument reads a source field
+    directly. Bodies are found by these links, never by order or by the
+    `final` flag alone. The document records neither a relation `let` (`let
+    x = t`, read through `from x` or not) nor an unread header parameter, so
+    this reader cannot refuse either; the emitter and the live verifier
+    refuse both, and the compiled readers a header parameter."""
+
+    kinds = doc.kinds
+    if (
+        any(kind not in _SPREAD_CELL_KINDS for kind in kinds)
+        or any(len(doc.all(kind)) != 1 for kind in _SPREAD_CELL_ONCE)
+        or len(doc.all("row_body")) != 2
+    ):
+        return None
+    ((query,), (scan,), (use,), (stage,), (value,), (selected,), _) = (
+        doc.all(kind) for kind in _SPREAD_CELL_ONCE
+    )
+    bodies = tuple(doc[query]["bodies"])
+    finals = [body for body in bodies if doc[body]["scan"] == use]
+    inner = doc[use]["body"]
+    if (
+        sorted(bodies) != sorted(doc.all("row_body"))
+        or len(finals) != 1
+        or inner not in bodies
+        or inner == finals[0]
+    ):
+        return None
+    final, aggregate, column = doc[finals[0]], doc[inner], doc[value]
+    argument = column["argument"]
+    if (
+        final["final"] is not True
+        or final["block_kind"] != "projection"
+        or final["aggregation"] is not None
+        or final["predicate"] is not None
+        or final["window"] is not None
+        or tuple(final["columns"]) != (selected,)
+        or aggregate["final"] is not False
+        or aggregate["block_kind"] != "aggregate"
+        or aggregate["scan"] != scan
+        or aggregate["aggregation"] != stage
+        or aggregate["predicate"] is not None
+        or aggregate["window"] is not None
+        or tuple(aggregate["columns"]) != (value,)
+        or doc[stage]["mode"] != "global"
+        or tuple(doc[stage]["keys"])
+        or tuple(doc[stage]["values"]) != (value,)
+        or column["function"] not in _SPREAD_FUNCTIONS
+        or column["distinct"]
+        or column["delimiter"] is not None
+        or tuple(column["order_by"])
+        or tuple(column["extra_arguments"])
+        or argument is None
+        or argument.kind != "sql_stage_reference"
+        or doc[doc[selected]["read"]]["terminal"] != column["export"]
+    ):
+        return None
+    read = doc[doc[argument]["column"]]
+    if (
+        getattr(read["terminal"], "kind", None) != "source_port"
+        or read["field"] is None
+        or read["source_port"] is None
+        or read["literal"] is not None
+        or read["aggregate"] is not None
+        or read["window"] is not None
+    ):
+        return None
+    return value
 
 
 def _aggregate_casts(
@@ -1072,7 +1204,7 @@ def _aggregate_casts(
     if function == "sum":
         return "pg_catalog.int8", "pg_catalog.int8"
     if function in _SPREAD_FUNCTIONS:
-        return None, "pg_catalog.float8"
+        return None, ("pg_catalog.float8" if family == "postgres" else None)
     if function in {"median", "quantile"}:
         # PERCENTILE_CONT orders by the float8 image of each Int value.
         return "pg_catalog.float8", None
@@ -1993,6 +2125,7 @@ class _Check:
                         result["nullable"] == temporal["nullable"],
                         "date_trunc timestamp",
                     )
+        spread = _mysql_spread_cell(doc) if family == "mysql" else None
         for ref in doc.all("aggregate_value_column"):
             column = doc[ref]
             expected = {
@@ -2017,6 +2150,8 @@ class _Check:
                 "first": "ARRAY_AGG",
                 "last": "ARRAY_AGG",
             }.get(column["function"])
+            if family == "mysql" and column["function"] in _SPREAD_FUNCTIONS:
+                expected = _MYSQL_SPREAD_SPELLING[column["function"]]
             _require(
                 expected is not None and column["spelling"] == expected,
                 "aggregate spelling",
@@ -2078,18 +2213,25 @@ class _Check:
                     "sum result",
                 )
             if column["function"] in _SPREAD_FUNCTIONS:
-                # PostgreSQL only: one signed PostgreSQL Int or finite binary64
-                # Float argument, a nullable finite binary64 result.
+                # PostgreSQL: one signed PostgreSQL Int or finite binary64
+                # Float argument; MySQL (S05): only in its cell, one nullable
+                # DOUBLE argument. A nullable finite binary64 result.
                 argument = _value_realization(doc, column["argument"])
                 result = doc[doc[column["column"]]["realization"]]
+                _require(family != "mysql" or ref == spread, "mysql statistic cell")
                 _require(
-                    family == "postgres"
-                    and (
-                        _is_pg_float(argument)
-                        or _is_pg_int(argument)
-                        and argument["storage"]["kind"].startswith("pg_")
+                    (
+                        family == "postgres"
+                        and (
+                            _is_pg_float(argument)
+                            or _is_pg_int(argument)
+                            and argument["storage"]["kind"].startswith("pg_")
+                        )
+                        or family == "mysql"
+                        and _is_float(argument, family)
+                        and argument["nullable"] is True
                     )
-                    and _is_pg_float(result)
+                    and _is_float(result, family)
                     and result["nullable"] is True,
                     "variance or deviation result",
                 )
@@ -3292,7 +3434,10 @@ class _Tokens:
                     aggregate_tokens == expected, "conditional aggregate token sequence"
                 )
             else:
-                root = column["function"] in {"stddev", "pstdev"}
+                root = self.family == "postgres" and column["function"] in {
+                    "stddev",
+                    "pstdev",
+                }
                 expected = [("aggregate_root_open", "SQRT(")] if root else []
                 if column["result_cast"] is not None:
                     expected.append(("aggregate_result_cast_open", "CAST("))

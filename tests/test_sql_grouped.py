@@ -2279,3 +2279,370 @@ def test_min_and_max_of_a_temporal_carrier_keep_it(tmp_path, target):
             "domain": {"kind": "date"},
         },
     ]
+
+
+# Phase77 S05: MySQL emits a Float statistic only in the one cell whose
+# primitive the raw qualification ran: one nullable DOUBLE field of one source,
+# the only item of a global aggregate with no other clause.
+MYSQL_STATISTICS = {
+    "stddev": "STDDEV_SAMP",
+    "variance": "VAR_SAMP",
+    "pvariance": "VAR_POP",
+    "pstdev": "STDDEV_POP",
+}
+STATISTIC_SELECT = "query result:\n    from agg\n    select:\n"
+FLOAT_PROOF = ("PIE-B1004", "float_aggregate_finite_result_proof_missing")
+# Each shape beside or around that cell, with its refusal as measured on
+# main `e0116e41`.
+STATISTIC_SHAPES = {
+    "grouped": (
+        "query result:\n    from agg\n    group by key\n    select:\n"
+        "        key\n        d = stddev(ratio)\n",
+        [FLOAT_PROOF],
+    ),
+    "where": (
+        "query result:\n    from agg\n    where rid > 1\n    select:\n"
+        "        d = pstdev(ratio)\n",
+        [FLOAT_PROOF],
+    ),
+    "two_statistics": (
+        STATISTIC_SELECT + "        d = stddev(ratio)\n        v = variance(ratio)\n",
+        [FLOAT_PROOF, FLOAT_PROOF],
+    ),
+    "beside_count": (
+        STATISTIC_SELECT + "        d = variance(ratio)\n        n = count()\n",
+        [FLOAT_PROOF],
+    ),
+    "beside_min": (
+        STATISTIC_SELECT + "        n = min(ratio)\n        d = pvariance(ratio)\n",
+        [FLOAT_PROOF],
+    ),
+    "let_alias": (
+        "query result:\n    let x = agg\n    from x\n    select:\n"
+        "        d = stddev(ratio)\n",
+        [FLOAT_PROOF],
+    ),
+    "let_chain": (
+        "query result:\n    let x = agg\n    let y = x\n    from y\n    select:\n"
+        "        d = stddev(ratio)\n",
+        [FLOAT_PROOF],
+    ),
+    "let_unused_relation": (
+        "query result:\n    from agg\n    let r = agg\n    select:\n"
+        "        d = stddev(ratio)\n",
+        [FLOAT_PROOF],
+    ),
+    "let_unused_relation_first": (
+        "query result:\n    let r = agg\n    from agg\n    select:\n"
+        "        d = stddev(ratio)\n",
+        [FLOAT_PROOF],
+    ),
+    "unused_named_window": (
+        "query result:\n    from agg\n    let w = window(order by rid)\n"
+        "    select:\n        d = stddev(ratio)\n",
+        [FLOAT_PROOF],
+    ),
+    "upstream_table": (
+        "table base:\n    from agg\n    select:\n        ratio\n"
+        "query result:\n    from base\n    select:\n        d = stddev(ratio)\n",
+        [FLOAT_PROOF],
+    ),
+    "read_downstream": (
+        "query spread:\n    from agg\n    select:\n        d = stddev(ratio)\n"
+        "query result:\n    from spread\n    select:\n        d\n",
+        [FLOAT_PROOF],
+    ),
+    "self_join": (
+        "query result:\n    from agg\n    let r = agg\n"
+        "    inner join r on agg.rid == r.rid\n    select:\n"
+        "        d = stddev(r.ratio)\n",
+        [FLOAT_PROOF],
+    ),
+    "limit": (
+        STATISTIC_SELECT + "        d = stddev(ratio)\n    limit 1\n",
+        [FLOAT_PROOF],
+    ),
+    "header_parameter": (
+        "query result(low: Int):\n    from agg\n    select:\n        d = stddev(ratio)\n",
+        [FLOAT_PROOF],
+    ),
+    "union_all": (
+        "query a:\n    from agg\n    select:\n        d = stddev(ratio)\n"
+        "query b:\n    from agg\n    select:\n        d = variance(ratio)\n"
+        "query result:\n    union all:\n        from a\n        from b\n",
+        [FLOAT_PROOF],
+    ),
+    "inside_coalesce": (
+        STATISTIC_SELECT + "        d = coalesce(stddev(ratio), 0.0)\n",
+        [("PIE-B1003", "aggregate_composition_not_admitted_on_target")],
+    ),
+    "float_sum": (STATISTIC_SELECT + "        s = sum(ratio)\n", [FLOAT_PROOF]),
+    "float_avg": (STATISTIC_SELECT + "        a = avg(ratio)\n", [FLOAT_PROOF]),
+    # Rule two (D77.37): the cell refused for another reason, an output label
+    # past 256 characters, reports main's whole list (main `a015afcf`).
+    "long_label": (
+        STATISTIC_SELECT + "        " + "d" * 257 + " = stddev(ratio)\n",
+        [FLOAT_PROOF, ("PIE-B1002", "output_label_unrepresentable")],
+    ),
+}
+
+
+def emit_nullable(tmp_path, target, body, policy="preserve_literals"):
+    item = probe.nullable_ratio_fixture(target, body, policy)
+    _, outcome = probe.build_case(
+        tmp_path, item["source"], item["contract"], item["policy"]
+    )
+    return outcome
+
+
+@pytest.mark.parametrize(
+    ("declaration", "policy"),
+    (("query", "preserve_literals"), ("table", "bind_safe_literals")),
+)
+@pytest.mark.parametrize("function", sorted(MYSQL_STATISTICS))
+def test_mysql_emits_a_float_statistic_of_one_nullable_field_alone(
+    tmp_path, function, declaration, policy
+):
+    """The qualified primitive, uncast and outside SQRT, with a nullable
+    DOUBLE result and the binary64 overflow evidence (MySQL raises 22003 on
+    an overflow); the live, pure and public readers each accept it."""
+    from pietto._project import project_sql_emission_portable as portable
+    from pietto._project import project_sql_emission_pure_boundary as pure
+
+    outcome = emit_nullable(
+        tmp_path,
+        "mysql",
+        f"{declaration} result:\n    from agg\n    select:\n"
+        f"        d = {function}(ratio)\n",
+        policy,
+    )
+    assert outcome.status == "VERIFIED", outcome.blockers
+    data = public(outcome)
+    assert data["sql"] == (
+        f"WITH `p0` (`c0`) AS (SELECT {MYSQL_STATISTICS[function]}(`s0`.`ratio value`)"
+        " AS `c0` FROM `phase66`.`phase66 agg é` AS `s0`)"
+        " SELECT `t1`.`c0` AS `d` FROM `p0` AS `t1`"
+    )
+    assert column(data, "d")["logical_type"] == {
+        "kind": "builtin",
+        "name": "Float",
+        "parameters": None,
+    }
+    assert column(data, "d")["representation"] == {
+        "storage": {"kind": "my_double"},
+        "nullable": True,
+        "domain": {"kind": "finite_float", "format": "binary64"},
+    }
+    assert [
+        r["evidence"] for r in data["requirements"] if r["kind"] == "aggregate"
+    ] == [[{"overflow": "target_checked_binary64_overflow"}]]
+    artifact = outcome.artifact
+    assert artifact is not None
+    observed = portable.export_emission_observation(artifact, artifact.request)
+    assert observed.canonical_bytes is not None
+    assert pure.parse_emission_observation(observed.canonical_bytes).status is (
+        pure.Status.OK
+    )
+    assert portable.verify_emission_observation(
+        observed.canonical_bytes, artifact, artifact.request
+    ).corresponds
+
+
+@pytest.mark.parametrize("shape", ("not_null_field", *STATISTIC_SHAPES))
+def test_mysql_keeps_every_other_float_statistic_shape_refused(tmp_path, shape):
+    """A non-nullable field, and the cell beside, inside or around any other
+    form, keep main's code and detail, and the cell refused for another
+    reason main's whole list; a Float `sum` and `avg` stay refused."""
+    if shape == "not_null_field":
+        outcome = emit_source(
+            tmp_path, "mysql", STATISTIC_SELECT + "        d = stddev(ratio)\n"
+        )
+        expected = [FLOAT_PROOF]
+    else:
+        body, expected = STATISTIC_SHAPES[shape]
+        outcome = emit_nullable(tmp_path, "mysql", body)
+    assert outcome.status == "BLOCKED"
+    assert [(b.code, b.detail) for b in outcome.blockers] == expected
+    assert [
+        (b["code"], b["subject"]["detail"]) for b in public(outcome)["blockers"]
+    ] == expected
+
+
+def test_other_declarations_leave_the_mysql_float_statistic_statement_alone(
+    tmp_path,
+):
+    """The cell is one emitted statement: another declaration with a header
+    parameter, and others that read the cell through `from` or a JOIN, leave
+    its SQL byte for byte, and its compiled replay too."""
+    from pietto._project.project_compiled_build import build_compiled
+    from pietto._project.project_compiled_loading import load_compiled
+    from pietto._project.project_compiled_lowering import emit_compiled
+
+    cell = STATISTIC_SELECT + "        d = stddev(ratio)\n"
+    alone = emit_nullable(tmp_path / "alone", "mysql", cell)
+    beside = emit_nullable(
+        tmp_path / "beside",
+        "mysql",
+        cell + "query other(low: Int):\n    from agg\n    where rid > low\n"
+        "    select:\n        rid\n"
+        "query reader:\n    from result\n    select:\n        d\n"
+        "query joined:\n    from agg\n    let s = result\n    cross join s\n"
+        "    select:\n        rid\n        d = s.d\n",
+    )
+    assert (alone.status, beside.status) == ("VERIFIED", "VERIFIED"), beside.blockers
+    assert public(beside)["sql"] == public(alone)["sql"]
+    assert beside.artifact is not None
+    built = build_compiled(beside.artifact)
+    loaded = load_compiled(
+        built.payload,
+        expected_pin=built.pin,
+        accepted_producer=built.producer,
+        accepted_compatibility=built.compatibility,
+    )
+    assert emit_compiled(loaded, ()).rendered.sql.decode() == public(alone)["sql"]
+
+
+# Each forged shape, with the pure reader's and the public decoder's details.
+# An observation document does not record an unread header parameter, so the
+# pure reader accepts that one forgery; every other reader refuses it, the
+# public decoder from the v2 document that a header parameter makes.
+FORGED_STATISTICS = {
+    "grouped": ("mysql statistic cell", "aggregate argument carrier"),
+    "where": ("mysql statistic cell", "aggregate argument carrier"),
+    "two_statistics": ("mysql statistic cell", "aggregate argument carrier"),
+    "beside_count": ("mysql statistic cell", "aggregate argument carrier"),
+    "upstream_table": ("mysql statistic cell", "aggregate argument carrier"),
+    "header_parameter": (None, "mysql statistic header parameter"),
+    "not_null_field": ("variance or deviation result", "stddev casts"),
+}
+
+
+@pytest.mark.parametrize("shape", sorted(FORGED_STATISTICS))
+def test_a_forged_mysql_float_statistic_outside_its_cell_fails_every_reader(
+    tmp_path, monkeypatch, shape
+):
+    """With the plan's cell check bypassed in the producer, its live verifier
+    and serializer (for a non-nullable field the argument law too), the live
+    verifier refuses from the plan, also by its own aggregate body check, the
+    public decoder from the published document and the compiled readers from
+    the records; the pure reader refuses from the observation document,
+    except an unread header parameter, which that document does not record."""
+    from pietto._project import project_sql_emission_portable as portable
+    from pietto._project import project_sql_emission_pure_boundary as pure
+    from pietto._project import project_sql_emission_verification as verification
+    from pietto._project.project_compiled_build import build_compiled
+    from pietto._project.project_compiled_loading import load_compiled
+    from pietto._project.project_compiled_lowering import emit_compiled
+    from pietto._project.project_compiled_schema import CompiledError
+
+    pure_detail, public_detail = FORGED_STATISTICS[shape]
+    with monkeypatch.context() as patch:
+        patch.setattr(grouping, "mysql_spread_cell", lambda *args: True)
+        if shape == "not_null_field":
+            law = grouping.resolved_argument_problem
+            patch.setattr(
+                grouping,
+                "resolved_argument_problem",
+                lambda function, *args, **kwargs: (
+                    None
+                    if function in grouping.SPREAD_FUNCTIONS
+                    else law(function, *args, **kwargs)
+                ),
+            )
+            forged = emit_source(
+                tmp_path, "mysql", STATISTIC_SELECT + "        d = stddev(ratio)\n"
+            )
+        else:
+            forged = emit_nullable(tmp_path, "mysql", STATISTIC_SHAPES[shape][0])
+        assert forged.status == "VERIFIED"
+        published = serialize_project_sql_emission(forged)
+        artifact = forged.artifact
+        assert artifact is not None
+        built = build_compiled(artifact)
+    loaded = load_compiled(
+        built.payload,
+        expected_pin=built.pin,
+        accepted_producer=built.producer,
+        accepted_compatibility=built.compatibility,
+    )
+    with pytest.raises(CompiledError, match="^COMPILED_AGGREGATE_ARGUMENT$"):
+        emit_compiled(loaded, ())
+    verdict = verify_project_sql_emission(artifact, artifact.request)
+    assert not verdict.verified and "plan_ast_correspondence" in verdict.issues
+    with monkeypatch.context() as patch:
+        # Its own aggregate body check refuses without its re-derived blockers.
+        patch.setattr(verification, "_structural_blockers", lambda *args: ())
+        assert not verify_project_sql_emission(artifact, artifact.request).verified
+    assert json.loads(serialize_project_sql_emission(forged))["status"] == "BLOCKED"
+    result = pure.parse_emission_observation(
+        portable._Export(artifact, artifact.request).run()
+    )
+    assert (result.status, result.detail) == (
+        (pure.Status.OK, None)
+        if pure_detail is None
+        else (pure.Status.INVALID_RELATION, pure_detail)
+    )
+    assert json.loads(published)["status"] == "VERIFIED"
+    with pytest.raises(ValueError, match=f"^{public_detail}$"):
+        probe.decode_public(published)
+
+
+def _set_spelling(document):
+    _statistic_column(document)["spelling"] = "STDDEV_POP"
+
+
+def _set_result_cast(document):
+    _statistic_column(document)["result_cast"] = "DOUBLE"
+
+
+def _drop_evidence(document):
+    (requirement,) = (
+        row["fields"]
+        for row in document["records"]
+        if row["ref"][0] == "generated_requirement"
+        and row["fields"]["kind"] == "aggregate"
+    )
+    requirement["evidence"] = []
+
+
+def _set_grouped(document):
+    (stage,) = (
+        row["fields"]
+        for row in document["records"]
+        if row["ref"][0] == "aggregate_stage"
+    )
+    stage["mode"] = "grouped"
+
+
+def _statistic_column(document):
+    (column,) = (
+        row["fields"]
+        for row in document["records"]
+        if row["ref"][0] == "aggregate_value_column"
+    )
+    return column
+
+
+@pytest.mark.parametrize(
+    "edit", (_set_spelling, _set_result_cast, _drop_evidence, _set_grouped)
+)
+def test_a_tampered_mysql_float_statistic_observation_is_refused(tmp_path, edit):
+    """The pure reader refuses a MySQL `stddev` observation whose spelling,
+    result cast, overflow evidence or aggregation mode was changed."""
+    from pietto._project import project_sql_emission_portable as portable
+    from pietto._project import project_sql_emission_pure_boundary as pure
+
+    outcome = emit_nullable(
+        tmp_path, "mysql", STATISTIC_SELECT + "        d = stddev(ratio)\n"
+    )
+    assert outcome.status == "VERIFIED", outcome.blockers
+    artifact = outcome.artifact
+    assert artifact is not None
+    observed = portable.export_emission_observation(artifact, artifact.request)
+    assert observed.canonical_bytes is not None
+    document = json.loads(observed.canonical_bytes)
+    edit(document)
+    data = (
+        json.dumps(document, ensure_ascii=False, separators=(",", ":")) + "\n"
+    ).encode()
+    assert pure.parse_emission_observation(data).status is not pure.Status.OK

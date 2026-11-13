@@ -484,6 +484,20 @@ def field_premise_problems(premises, representation):
 
 
 def emission_blockers(request: PreparedEmission, *, _guarded=None):
+    """Every refusal of the statement; a refused MySQL statement reports
+    main's (rows.as_main_if_refused). Guard preparation defers the pending
+    enforcement, so only another blocker refuses a guarded statement."""
+    return rows.as_main_if_refused(
+        request,
+        lambda: _emission_blockers(request, _guarded),
+        lambda blockers: any(
+            _guarded is None or b.detail != "original_enforcement_not_fulfilled"
+            for b in blockers
+        ),
+    )
+
+
+def _emission_blockers(request: PreparedEmission, _guarded):
     if _guarded is not None:
         from pietto._project.project_guard_preparation import verify_scope
 

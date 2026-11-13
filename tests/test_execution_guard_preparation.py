@@ -11,6 +11,7 @@ from pietto._project.project_guard_preparation import (
     GuardPreparationError,
     verify_preparation,
 )
+from pietto._project import project_sql_emission_ast, project_sql_emission_rows
 from pietto._project.project_single_match import ProjectSingleMatchState
 from pietto._project.project_sql_plan import ProjectSQLPlan
 from pietto._project.project_sql_emission_ast import SQLJoinQuery
@@ -27,7 +28,7 @@ from pietto._project.project_result_output import prepare_output
 
 @pytest.mark.parametrize("target", ("postgres", "mysql"))
 def test_real_unproved_prepares_pending_without_old_verified_authority(
-    tmp_path, target
+    tmp_path, monkeypatch, target
 ):
     checked, contract = planned(tmp_path, target)
     original = emit_project_sql(checked, contract)
@@ -35,7 +36,17 @@ def test_real_unproved_prepares_pending_without_old_verified_authority(
     assert [b.detail for b in original.blockers] == [
         "original_enforcement_not_fulfilled"
     ]
+    derive, as_main = project_sql_emission_ast._emission_blockers, []
+
+    def recorded(*args):
+        as_main.append(project_sql_emission_rows.AS_MAIN.get())
+        return derive(*args)
+
+    monkeypatch.setattr(project_sql_emission_ast, "_emission_blockers", recorded)
     guarded = prepare_guarded(checked, contract)
+    # Rule two: the deferred pending enforcement alone refuses nothing, so
+    # guard preparation never derives the blockers again as main.
+    assert as_main and not any(as_main)
     assert type(checked.plan) is ProjectSQLPlan
     assert verify_preparation(guarded) is checked.plan.single_matches
     assert (

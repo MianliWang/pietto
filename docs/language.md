@@ -581,8 +581,8 @@ first column give every rule.
 | --- | --- | --- | --- | --- |
 | `concat(a, b)` ([Expressions](#expressions)) | `(a \|\| b)` | `CONCAT(a, b)` | emitted; refused for only `None` (PIE-B1003) or a binding-width `Text` (PIE-B1004) | refused (PIE-B1003) |
 | `same_value(a, b)` ([Expressions](#expressions)) | `(a IS NOT DISTINCT FROM b)` | `(a <=> b)` | select items, WHERE and `let`, select items after a JOIN; `Float` where `==` is, not `Bool`, not in a JOIN `on` or a WHERE after a JOIN | as PostgreSQL, a `Float` only beside an operand that reads no row (two row `Float` operands PIE-B1003), and not a GROUP BY key or DISTINCT column |
-| `stddev(x)` ([Aggregates](#aggregates-and-grouping)) | `Int` and `Float` | `Float` (`STDDEV_SAMP`); `Int` refused (PIE-B1000) | `Int` and `Float` | refused: `Int` PIE-B1003, `Float` PIE-B1004 |
-| `variance(x)`, `pvariance(x)`, `pstdev(x)` ([Aggregates](#aggregates-and-grouping)) | `Int` and `Float` (`VAR_SAMP`, `VAR_POP`, `SQRT` of `VAR_POP`) | `Float` (`VAR_SAMP`, `VAR_POP`, `STDDEV_POP`); `Int` refused (PIE-B1000) | `Int` and `Float` | refused: `Int` PIE-B1003, `Float` PIE-B1004 |
+| `stddev(x)` ([Aggregates](#aggregates-and-grouping)) | `Int` and `Float` | `Float` (`STDDEV_SAMP`); `Int` refused (PIE-B1000) | `Int` and `Float` | refused: `Int` PIE-B1003, `Float` PIE-B1004, except unreleased `STDDEV_SAMP` as the only select item of a global aggregate over one direct nullable `Float` field of one source with no `let`, other clause or header parameter |
+| `variance(x)`, `pvariance(x)`, `pstdev(x)` ([Aggregates](#aggregates-and-grouping)) | `Int` and `Float` (`VAR_SAMP`, `VAR_POP`, `SQRT` of `VAR_POP`) | `Float` (`VAR_SAMP`, `VAR_POP`, `STDDEV_POP`); `Int` refused (PIE-B1000) | `Int` and `Float` | refused: `Int` PIE-B1003, `Float` PIE-B1004, except unreleased `VAR_SAMP`, `VAR_POP`, `STDDEV_POP` in the shape of `stddev` |
 | `median(x)`, `quantile(x, q)` ([Aggregates](#aggregates-and-grouping)) | `Int` and `Float` (`PERCENTILE_CONT ... WITHIN GROUP`) | refused (PIE-B1000) | `Int`; `Float` refused (PIE-B1004) | refused (PIE-B1003) |
 | `first(x, order by k, id)`, `last(...)` ([Aggregates](#aggregates-and-grouping)) | `(ARRAY_AGG(x ORDER BY k ASC, id ASC))[1]`; `last` flips every direction | refused (PIE-B1000) | as a file; the value keeps its carrier; a key orders as a relation ORDER BY key (R19), else PIE-B1003 `first_last_order_key_outside_reviewed_order_domain` | refused (PIE-B1003 `first_last_not_admitted_on_target`) |
 | `sum(1 for o in group if t)`, `sum(o.f for o in group if t)` ([Aggregates](#aggregates-and-grouping)) | `COUNT(CASE WHEN t THEN 1 END)`; `COALESCE(CAST(SUM(CASE WHEN t THEN CAST(f AS pg_catalog.int8) END) AS pg_catalog.int8), 0)` | count `COUNT(CASE WHEN t THEN 1 END)`; sum refused (PIE-B1000) | as PostgreSQL single file, `schema_version = 2` (PIE-S2334 in a `schema_version = 1` project); no JOIN inputs | refused: count PIE-B1003, sum PIE-B1004 |
@@ -4196,6 +4196,24 @@ stddev`, `def variance`, `def pvariance` or `def pstdev` is PIE-S2398, as a
 `def` named after any other aggregate is; its suggestion says to rename the
 def. Semantic Metadata Artifact v1 lists none of the four, as it lists no
 `string_agg`.
+
+MySQL project SQL (unreleased, Phase77 S05) emits the four of a `Float` as
+those same four primitives, uncast, in one shape only: the single select item
+of a query or table whose only other clause is `from` one source, with no
+`let`, JOIN, `where`, `group by`, window, `order by`, `limit`, DISTINCT, set
+operation or header parameter (read or not), over one direct field declared
+`Float | None` (a nullable `DOUBLE`). Other declarations of the module do not
+change the emitted statement. Its R13 requirement carries the evidence
+`target_checked_binary64_overflow`: MySQL 8.4 fails the statement with
+SQLSTATE 22003 where the sum of squares overflows, as PostgreSQL does, and
+met the `Float` bounds above otherwise. Every other MySQL project shape keeps
+its refusal, such as PIE-B1003 for an `Int` argument, PIE-B1004
+(`float_aggregate_finite_result_proof_missing`) for a `Float` one beside
+another aggregate or under `where` or `group by`, and PIE-B1003
+(`aggregate_composition_not_admitted_on_target`) for
+`coalesce(stddev(x), 0.0)`. A statement in the shape that emission refuses
+for another reason, such as an output label past 256 characters, reports
+the blockers it has without the shape, this PIE-B1004 included.
 
 `median(x)` and `quantile(x, q)` are the interpolated median and quantile of
 the non-None values of one direct `Int` or `Float` field (or an alias of

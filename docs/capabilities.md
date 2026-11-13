@@ -4,9 +4,10 @@ This page shows, for each feature family, whether `check` accepts it and
 `emit-sql` emits it in a single file (`check FILE`, `emit-sql FILE --dialect
 ...`) and in an explicit-module project (`schema_version = 2`,
 `check --project ROOT`, `emit-sql --project ROOT`), for PostgreSQL and MySQL.
-It describes `0.1.11`, whose
+It describes `0.1.11` plus explicitly marked unreleased source changes; the
+`0.1.11`
 [release notes](release-notes.md#project-arithmetic-aggregate-composition-and-editor-navigation-public-alpha-release-notes--0111)
-give each change. Each row was recorded by running one
+give each released change. Each row was recorded by running one
 plain example of the family through these commands, with a project emission
 contract that declares every premise
 ([project SQL emission](project-package.md#project-sql-emission)). A cell
@@ -35,7 +36,7 @@ SQL of each function added after 0.1.8.
 | `sum` of an `Int` | yes | yes | yes | BLOCKED PIE-B1004 `sum_int_aggregate_range_proof_missing` | [0.1.7](release-notes.md#nested-results-and-project-emission-public-alpha-release-notes--017) |
 | `sum(1 for o in group if t)` | yes | yes | yes | BLOCKED PIE-B1003 `conditional_count_not_admitted_on_target` | [0.1.10](release-notes.md#aggregates-cross-module-reuse-and-editor-tools-public-alpha-release-notes--0110), [projects](release-notes.md#conditional-count-and-sum-in-projects) |
 | `sum(o.f for o in group if t)` | yes | refused PIE-B1000 | yes | BLOCKED PIE-B1004 `sum_int_aggregate_range_proof_missing` for an `Int` `o.f` | [0.1.10](release-notes.md#aggregates-cross-module-reuse-and-editor-tools-public-alpha-release-notes--0110), [projects](release-notes.md#conditional-count-and-sum-in-projects) |
-| `variance`, `pvariance`, `pstdev` of a `Float` | yes | yes | yes | BLOCKED PIE-B1004 `float_aggregate_finite_result_proof_missing` | [0.1.10](release-notes.md#variance-pvariance-and-pstdev-aggregates) |
+| `stddev`, `variance`, `pvariance`, `pstdev` of a `Float` | yes | yes | yes | BLOCKED PIE-B1004 `float_aggregate_finite_result_proof_missing`, except unreleased: emitted for one direct nullable field as the only select item of a global aggregate over one source with no `let`, other clause or header parameter | [0.1.10](release-notes.md#variance-pvariance-and-pstdev-aggregates), [Unreleased](release-notes.d/77-s05-mysql-float-statistics.md#mysql-float-statistics-of-one-nullable-field) |
 | `variance`, `pvariance`, `pstdev` of an `Int` | yes | refused PIE-B1000 | yes | BLOCKED PIE-B1003 `variance_int_not_admitted_on_target` (`pvariance_`, `pstdev_` alike) | [0.1.10](release-notes.md#variance-pvariance-and-pstdev-aggregates) |
 | `count_distinct(a, b, ...)` | yes | yes | yes | BLOCKED PIE-B1003 `count_distinct_tuple_not_admitted_on_target` | [0.1.10](release-notes.md#distinct-count-of-several-columns-count_distincta-b-) |
 | `any(t for o in group)`, `all(t for o in group)` | yes | yes | yes | BLOCKED PIE-B1003 `group_test_not_admitted_on_target` | [0.1.10](release-notes.md#the-test-of-a-group-any-and-all-over-group) |

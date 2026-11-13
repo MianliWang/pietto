@@ -15,7 +15,7 @@ from pietto._project.aggregate_grouped_schema import (
     ProjectGroupKeyFact,
 )
 from pietto._project.project_joined_aggregation import ProjectJoinedAggregationMode
-from pietto.ast_nodes import SourceDef
+from pietto.ast_nodes import QueryDef, SourceDef, TableDef
 from pietto.semantic.model import EffectiveNullability, TypeKind, ValueTypeKind
 
 __all__: tuple[str, ...] = ()
@@ -68,8 +68,17 @@ SPELLING = {
 # The sample and population variances and deviations: one Int or Float
 # argument, a PostgreSQL VAR_SAMP or VAR_POP cast to float8 once.
 SPREAD_FUNCTIONS = frozenset({"stddev", "variance", "pvariance", "pstdev"})
-# The aggregates whose rendering wraps the result (cast) in SQRT( ... ).
+# The aggregates whose PostgreSQL rendering wraps the result cast in SQRT( ... ).
 ROOT_FUNCTIONS = frozenset({"stddev", "pstdev"})
+# Phase77 S05: MySQL spells each of the four as the primitive its raw
+# qualification ran over a nullable DOUBLE column, with no cast and no SQRT,
+# and only in the cell of mysql_spread_cell.
+MYSQL_SPREAD_SPELLING = {
+    "stddev": "STDDEV_SAMP",
+    "variance": "VAR_SAMP",
+    "pvariance": "VAR_POP",
+    "pstdev": "STDDEV_POP",
+}
 # The value at the first or last row of a group's total order: the first
 # element of an ordered ARRAY_AGG, which keeps a NULL value.
 ORDERED_VALUE_FUNCTIONS = frozenset({"first", "last"})
@@ -542,19 +551,29 @@ def result_realization(family: str, function: str, argument, retained):
             return None, ("PIE-B1002", "sum_result_logical_type_or_argument_drift")
         return rows._checked_int({"kind": "pg_int8"}, *rows.SIGNED64, True), None
     if function in SPREAD_FUNCTIONS:
+        # A MySQL one (S05) is a DOUBLE of a DOUBLE argument.
         if (
-            family != "postgres"
-            or argument is None
-            or argument.realization.tag not in {"Int", "Float"}
+            argument is None
             or tag != "Float"
             or nullable is not True
+            or not (
+                family == "postgres"
+                and argument.realization.tag in {"Int", "Float"}
+                or family == "mysql"
+                and rows.float_carrier(argument.realization, family)
+            )
         ):
             return None, (
                 "PIE-B1002",
                 function + "_result_logical_type_or_argument_drift",
             )
         return (
-            rows.Realization("Float", {"kind": "pg_float8"}, True, rows.FINITE_FLOAT),
+            rows.Realization(
+                "Float",
+                {"kind": "pg_float8" if family == "postgres" else "my_double"},
+                True,
+                rows.FINITE_FLOAT,
+            ),
             None,
         )
     if function in QUANTILE_FUNCTIONS:
@@ -640,11 +659,12 @@ def float_argument(argument) -> bool:
     return argument is not None and argument.realization.tag == "Float"
 
 
-def argument_problem(function: str, argument, family: str):
+def argument_problem(function: str, argument, family: str, *, cell: bool = False):
     """R13 admits one established V01 field per aggregate argument, or one
     admitted row expression, as a LET would lower it. Any other
     argument, such as a bare literal or parameter or an operation that reads no
-    field (only a forged compiled input holds one), reads no row and is refused."""
+    field (only a forged compiled input holds one), reads no row and is refused.
+    ``cell`` is the caller's own derivation of the S05 cell."""
     direct = type(argument) is rows.SQLStageReference
     if not direct and not (
         type(argument) is rows.SQLOperation
@@ -653,7 +673,212 @@ def argument_problem(function: str, argument, family: str):
         )
     ):
         return "PIE-B1003", "aggregate_argument_not_a_direct_established_field"
-    return resolved_argument_problem(function, direct, argument.realization, family)
+    return resolved_argument_problem(
+        function, direct, argument.realization, family, cell=cell
+    )
+
+
+def spelling(family: str, function: str) -> str:
+    """The emitted spelling of one aggregate on its target."""
+    if family == "mysql" and function in SPREAD_FUNCTIONS:
+        return MYSQL_SPREAD_SPELLING[function]
+    return SPELLING[function]
+
+
+def rooted(family: str, function: str) -> bool:
+    """Whether the rendering wraps the aggregate in SQRT( ... ): a PostgreSQL
+    deviation, the root of its float8 variance."""
+    return family == "postgres" and function in ROOT_FUNCTIONS
+
+
+# Clauses and declarations of the emitted query that leave the S05 cell.
+_SPREAD_CELL_CLAUSES = (
+    "where_clause",
+    "group_by_clause",
+    "order_by_clause",
+    "limit_clause",
+    "satisfying_clause",
+    "qualify_clause",
+    "let_clause",
+    "named_windows",
+    "join_clauses",
+    "distinct_clause",
+    "naming_declarations",
+    "join_filters",
+)
+# Plan inventories that each leave the S05 cell when they hold anything.
+_SPREAD_CELL_EMPTY = (
+    "parameters",
+    "literal_slots",
+    "bind_uses",
+    "projections",
+    "expression_block_uses",
+    "captures",
+    "let_values",
+    "filters",
+    "joins",
+    "group_keys",
+    "aggregate_risks",
+    "windows",
+    "result_boundaries",
+    "distincts",
+    "orders",
+    "result_limits",
+    "set_bodies",
+    "values_bodies",
+    "collects",
+    "unnests",
+)
+
+
+def mysql_spread_cell(plan, aggregate, argument) -> bool:
+    """Phase77 S05: whether one MySQL `stddev`, `variance`, `pvariance` or
+    `pstdev` is in the one cell whose primitive (`SELECT STDDEV_SAMP(v) FROM
+    t` over a nullable DOUBLE column) the raw qualification judged
+    CANDIDATE_EMISSION_EXPERIMENT_READY, from the plan.
+
+    The emitted query or table is the plan's only one, written as a plain
+    query or table: it reads one source directly, with no `let` (a relation
+    one included), clause, window, JOIN or header parameter, and
+    selects exactly this aggregate of its one global aggregation, which has
+    no key and no other value; the argument is a direct read of a field of
+    that source. resolved_argument_problem checks the argument's carrier, a
+    nullable MySQL DOUBLE. Every check before the bindings is O(1). No
+    aggregate is in it while emission derives as main (rows.AS_MAIN)."""
+    from pietto._project.project_sql_plan import (
+        ProjectSQLBoundary,
+        ProjectSQLBoundaryReason,
+        ProjectSQLPlanRefKind,
+    )
+    from pietto._project.project_sql_plan_expressions import ProjectSQLStageKind
+
+    from pietto._project.module_catalog import authored_definitions
+
+    owner = plan.scope.selected_owner
+    body = owner.definition
+    module = plan.scope.completed.semantic_result.modules[owner.module_position]
+    # Normalization drops each relation `let` (`let x = agg`, read through
+    # `from x` or not) from the definition; only the authored one keeps it.
+    # An authored block form (`let x:`) has no such field: it leaves too.
+    authored = authored_definitions(module)[owner.declaration_position]
+    if (
+        rows.AS_MAIN.get()
+        or type(body) not in {QueryDef, TableDef}
+        or getattr(authored, "naming_declarations", None) != ()
+        or any(getattr(plan, name) for name in _SPREAD_CELL_EMPTY)
+        or any(getattr(body, name, ()) for name in _SPREAD_CELL_CLAUSES)
+        or len(body.select_items) != 1
+        or len(plan.blocks) != 2
+        or len(plan.input_uses) != 1
+        or len(plan.exports) != 1
+        or len(plan.aggregations) != 1
+        or len(plan.aggregates) != 1
+        or plan.aggregates[0] is not aggregate
+        or len(plan.aggregate_projections) != 1
+        or type(argument) is not rows.SQLStageReference
+    ):
+        return False
+    first, last = plan.blocks
+    stage = plan.aggregations[0]
+    definitions = tuple(
+        item
+        for item in plan.bindings.definitions
+        if type(item.entry.owner.definition) is not SourceDef
+    )
+    column = argument.column
+    return (
+        len(definitions) == 1
+        and definitions[0].entry.owner is owner
+        and first.definition is last.definition is stage.definition
+        and first.definition is definitions[0].ref
+        and first.kind is ProjectSQLStageKind.AGGREGATE
+        and last.kind is ProjectSQLStageKind.PROJECTION
+        and stage.block is first.ref
+        and type(first.boundary) is ProjectSQLBoundary
+        and first.boundary.reason is ProjectSQLBoundaryReason.SOURCE_INPUT
+        and first.boundary.use is plan.input_uses[0]
+        and stage.mode is ProjectJoinedAggregationMode.GLOBAL
+        and stage.aggregates == (aggregate.ref,)
+        and not stage.keys
+        and getattr(column.terminal, "kind", None) is ProjectSQLPlanRefKind.SOURCE_PORT
+        and column.field is not None
+        and column.source_port is not None
+        and column.literal is None
+        and column.aggregate is None
+        and column.window is None
+    )
+
+
+def mysql_compiled_spread_cell(records, entry):
+    """Compiled replay's mysql_spread_cell, from the records alone: the one
+    `aggregate_value` address in the cell, or None.
+
+    The entry requests and retains nothing, and its one export is the
+    output of its terminal, a projection row of its declaration without a
+    predicate, whose one value reads, through the row's own use, the one
+    output of a global aggregate of the same declaration with no key; that
+    aggregate reads a source through its own use, and its one value is a
+    variance or deviation without an order whose one argument reads a port
+    of that source through that use, and the bundle has no header parameter
+    record. Every check is O(1). A relation `let` (`let x = t`, read through
+    `from x` or not) leaves no record of its own, so these records cannot
+    refuse one; the emitter and the live verifier refuse it from the
+    authored declaration."""
+    from pietto._project.project_compiled_schema import Address
+
+    owner = entry.get("declaration")
+    terminal = records.get(entry.get("terminal"))
+    if (
+        entry.get("requests") != ()
+        or entry.get("retained") != ()
+        or terminal is None
+        or terminal.address.kind != "row"
+        or entry.get("exports") != terminal.get("outputs")
+        or len(terminal.get("outputs")) != 1
+        or terminal.get("stage") != "projection"
+        or terminal.get("owner") != owner
+        or terminal.get("predicate") is not None
+        or len(terminal.get("values")) != 1
+        or terminal.get("input").kind != "aggregate"
+    ):
+        return None
+    stage = records[terminal.get("input")]
+    selected, source = terminal.get("values")[0], stage.get("input")
+    if (
+        stage.get("owner") != owner
+        or stage.get("mode") != "global"
+        or stage.get("keys") != ()
+        or len(stage.get("values")) != 1
+        or len(stage.get("outputs")) != 1
+        or source.kind != "source"
+        or selected.kind != "read"
+        or records[selected].get("port") != stage.get("outputs")[0]
+        or records[selected].get("use") != terminal.get("use")
+        or records[terminal.get("use")].get("producer") != stage.address
+        or records[stage.get("use")].get("producer") != source
+    ):
+        return None
+    value = records[stage.get("values")[0]]
+    arguments = value.get("arguments")
+    if (
+        value.address.kind != "aggregate_value"
+        or value.get("function") not in SPREAD_FUNCTIONS
+        or value.get("order_by") != ()
+        or len(arguments) != 1
+        or arguments[0].kind != "read"
+    ):
+        return None
+    read = records[arguments[0]]
+    if (
+        read.get("use") != stage.get("use")
+        or read.get("role") != "value"
+        or records[read.get("port")].get("owner") != source
+    ):
+        return None
+    # Any header parameter record, read or not, leaves the cell.
+    if Address("parameter", 0) in records:
+        return None
+    return value.address
 
 
 def filtered_problem(function: str, argument, test, family: str):
@@ -760,7 +985,12 @@ def string_agg_argument_problem(argument):
 
 
 def resolved_argument_problem(
-    function: str, direct_reference: bool, realization, family: str
+    function: str,
+    direct_reference: bool,
+    realization,
+    family: str,
+    *,
+    cell: bool = False,
 ):
     """The same R13 argument law for an already-resolved input port.
 
@@ -770,7 +1000,8 @@ def resolved_argument_problem(
     the group-key law, as COUNT(DISTINCT x), MIN and MAX compare like GROUP BY,
     except a MySQL Float (`mysql_float_argument_problem`).
     A port that is not a direct reference is a row operation, judged by its
-    carrier as a direct one is: each caller refuses any other argument first."""
+    carrier as a direct one is: each caller refuses any other argument first.
+    ``cell`` is the caller's own derivation of the S05 cell."""
     if function == "count_distinct_tuple":
         # Each field of a PostgreSQL distinct-tuple count is an established
         # direct field that `count_distinct(x)` counts, compared field by field
@@ -808,6 +1039,17 @@ def resolved_argument_problem(
             return "PIE-B1003", function + "_int_not_admitted_on_target"
         if realization.tag == "Float":
             if family == "postgres" and rows.float_carrier(realization, family):
+                return None
+            # MySQL raised 22003 (1690) for each overflowing Float variance
+            # and deviation the raw qualification ran, over one direct
+            # nullable DOUBLE field, and only in that cell.
+            if (
+                family == "mysql"
+                and cell
+                and direct_reference
+                and rows.float_carrier(realization, family)
+                and realization.nullable is True
+            ):
                 return None
             return "PIE-B1004", "float_aggregate_finite_result_proof_missing"
         return "PIE-B1003", function + "_argument_outside_reviewed_int_domain"
@@ -914,11 +1156,14 @@ def result_cast(family: str, function: str, argument) -> str | None:
     """Q1: PostgreSQL SUM(Int) accumulates exactly and its result is narrowed
     to bigint by a checked CAST, which refuses an out-of-range sum with
     SQLSTATE 22003 instead of returning a wrong value. A PostgreSQL VAR_SAMP
-    or VAR_POP is cast to float8 once, under the fixed SQRT of a deviation."""
+    or VAR_POP is cast to float8 once, under the fixed SQRT of a deviation; a
+    MySQL variance or deviation of a DOUBLE (S05) is not cast."""
     if function in SPREAD_FUNCTIONS:
-        if family != "postgres" or argument is None:
-            raise ValueError("VAR_SAMP result cast requires a PostgreSQL argument")
-        return "pg_catalog.float8"
+        if family == "postgres" and argument is not None:
+            return "pg_catalog.float8"
+        if family == "mysql" and float_argument(argument):
+            return None
+        raise ValueError("variance result cast requires its admitted argument")
     if function == "filtered_sum":
         function = "sum"
     if function != "sum" or family == "postgres" and float_argument(argument):
@@ -1348,7 +1593,14 @@ def build_stage(
                     delimiter = test
                 problem = filtered_problem(function, argument, test, request.family)
             else:
-                problem = argument_problem(function, argument, request.family)
+                problem = argument_problem(
+                    function,
+                    argument,
+                    request.family,
+                    cell=family == "mysql"
+                    and function in SPREAD_FUNCTIONS
+                    and mysql_spread_cell(request.plan, value, argument),
+                )
             if problem is not None:
                 return None, (*problem, value.ref, location)
             if function == "quantile":
@@ -1430,7 +1682,7 @@ def build_stage(
             export,
             value,
             function,
-            SPELLING[function],
+            spelling(family, function),
             function in DISTINCT_FUNCTIONS,
             argument_cast(family, function, argument),
             argument,
@@ -1580,6 +1832,14 @@ def build_compiled_stage(plan, record, arguments):
 
     records = plan.ir.completed.root.records
     facts = {f.address: f for f in plan.ir.completed.facts}
+    family = records[Address("target", 0)].get("family")
+    cell = (
+        mysql_compiled_spread_cell(
+            records, records[plan.ir.completed.root.description.query]
+        )
+        if family == "mysql"
+        else None
+    )
     stage = CompiledAggregateSubject(plan.references[record.address])
     keys: list[Any] = []
     values: list[AggregateValueColumn] = []
@@ -1711,7 +1971,7 @@ def build_compiled_stage(plan, record, arguments):
             elif (
                 argument is not None
                 and argument_problem(
-                    function, argument, records[Address("target", 0)].get("family")
+                    function, argument, family, cell=expression.address == cell
                 )
                 is not None
             ):
@@ -1774,7 +2034,7 @@ def build_compiled_stage(plan, record, arguments):
                 port,
                 subject,
                 function,
-                SPELLING[function],
+                spelling(family, function),
                 function in DISTINCT_FUNCTIONS,
                 argument_cast(
                     records[Address("target", 0)].get("family"), function, argument

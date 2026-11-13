@@ -449,6 +449,51 @@ SPREAD_FUNCTIONS = {
     ("VAR_POP(", True): "pstdev",
     ("VAR_POP(", False): "pvariance",
 }
+# Phase77 S05: MySQL spells each of the four as its own primitive, uncast and
+# never under SQRT, only in the one cell whose primitive was qualified: the
+# public token roles below (a relation's namespace and its dot aside), that is
+# one global aggregate of one direct source column, selected once. A relation
+# `let` (`let x = t`, read through `from x` or not) publishes the same SQL and
+# token roles, so this decoder cannot refuse one.
+MYSQL_SPREAD_FUNCTIONS = {
+    "STDDEV_SAMP(": "stddev",
+    "VAR_SAMP(": "variance",
+    "VAR_POP(": "pvariance",
+    "STDDEV_POP(": "pstdev",
+}
+MYSQL_SPREAD_CELL_ROLES = (
+    "with",
+    "cte_name",
+    "cte_columns_open",
+    "terminal_column",
+    "cte_body_open",
+    "select",
+    "aggregate_open",
+    "value_scope",
+    "value_qualifier",
+    "value_column",
+    "aggregate_close",
+    "alias",
+    "label",
+    "from",
+    "relation",
+    "alias",
+    "relation_scope",
+    "cte_body_close",
+    "with_body",
+    "select",
+    "result_scope",
+    "result_qualifier",
+    "result_column",
+    "alias",
+    "label",
+    "from",
+    "stage_reference",
+    "alias",
+    "stage_scope",
+    "reference",
+    "aggregate",
+)
 # The eleven admitted Slice9 identities, keyed by the exact emitted call token.
 WINDOW_SPELLINGS = {
     "ROW_NUMBER(": "row_number",
@@ -1949,6 +1994,35 @@ def _aggregate_descriptor(target, name, relation):
             {"key": key, "scope": "source", "value": True}
             for key in ("row_domain_matches", "read_only_object")
         ],
+    }
+
+
+def nullable_ratio_fixture(target, body, policy="preserve_literals"):
+    """Phase77 S05: one body over the aggregation source whose `ratio` is a
+    nullable Float (a nullable DOUBLE on MySQL), the one carrier the raw
+    statistics qualification ran."""
+    item = aggregate_fixture(target, "X_aggregate_grouped", "hidden")
+    contract = json.loads(item["contract"])
+    for source in contract["sources"]:
+        for field in source["fields"]:
+            if field["name"] == "ratio":
+                field["representation"]["nullable"] = True
+    if policy == "bind_safe_literals":
+        contract["environment"].append(
+            {
+                "key": "parameter_protocol",
+                "scope": "statement",
+                "value": "postgres_extended"
+                if target == "postgres"
+                else "mysql_prepared",
+            }
+        )
+    header = AGGREGATE_HEADER.format(target=target)
+    return {
+        "source": header.replace("    ratio: Float\n", "    ratio: Float | None\n")
+        + body,
+        "contract": encoded(contract).decode(),
+        "policy": policy,
     }
 
 
@@ -6348,6 +6422,17 @@ def _decode_row_denominators(
 def _decode_fixed_public(document, limits):
     """Independent finite SELECT/WITH/leaf/sign grammar, including unused values."""
     family = document["target"]["family"]
+    mysql_spread_cell = (
+        family == "mysql"
+        and not document["parameter_uses"]
+        and not document["fixed_values"]
+        and tuple(
+            item["role"]
+            for item in document["ranges"]
+            if item["role"] not in {"namespace", "qualifier"}
+        )
+        == MYSQL_SPREAD_CELL_ROLES
+    )
     contract = document["request"]["contract"]
     premises = _public_premises(contract)
     joined = any(
@@ -10101,20 +10186,28 @@ def _decode_fixed_public(document, limits):
             take("syntax", "aggregate_result_cast_open", "CAST(", subject)
             result_cast = "pending"
         _, spelling = take("syntax", "aggregate_open", subject=subject)
-        _need(spelling in AGGREGATE_SPELLINGS, "aggregate spelling")
+        mysql_spread = (
+            family == "mysql" and not root and spelling in MYSQL_SPREAD_FUNCTIONS
+        )
+        _need(spelling in AGGREGATE_SPELLINGS or mysql_spread, "aggregate spelling")
         # Only a PostgreSQL variance is CAST(VAR_SAMP(x) AS float8) or
-        # VAR_POP, and only a deviation is under SQRT.
-        spread = (spelling, root) in SPREAD_FUNCTIONS
+        # VAR_POP, and only a deviation is under SQRT; a MySQL one is uncast.
+        spread = family == "postgres" and (spelling, root) in SPREAD_FUNCTIONS
         _need(
             (not root or spread)
-            and (not spread or family == "postgres" and result_cast is not None),
+            and (not spread or result_cast is not None)
+            and (not mysql_spread or result_cast is None),
             "variance square root",
         )
         if spread:
             result_cast = "pg_catalog.float8"
         distinct, argument, delimiter, order_by = False, None, None, []
         argument_cast, extra_arguments = None, []
-        function = SPREAD_FUNCTIONS.get((spelling, root), AGGREGATE_SPELLINGS[spelling])
+        function = (
+            MYSQL_SPREAD_FUNCTIONS[spelling]
+            if mysql_spread
+            else SPREAD_FUNCTIONS.get((spelling, root), AGGREGATE_SPELLINGS[spelling])
+        )
         _need(element is (spelling == "ARRAY_AGG("), "ARRAY_AGG element")
         if element:
             # (ARRAY_AGG(x ORDER BY k ...))[1]; `last` writes each authored
@@ -10331,6 +10424,7 @@ def _decode_fixed_public(document, limits):
             (result_cast is not None)
             is (
                 function in set(SPREAD_FUNCTIONS.values())
+                and family == "postgres"
                 or function in {"sum", "filtered_sum"}
                 and not floating
             ),
@@ -10400,18 +10494,28 @@ def _decode_fixed_public(document, limits):
             }
         if function in set(SPREAD_FUNCTIONS.values()):
             # The variance or deviation of an Int or a finite binary64 Float,
-            # NULL below two values (sample) or for none (population).
+            # NULL below two values (sample) or for none (population); on
+            # MySQL only in its cell, of a nullable DOUBLE, uncast (S05).
             _need(
-                family == "postgres"
-                and argument is not None
-                and argument["tag"] in {"Int", "Float"}
+                argument is not None
                 and argument_cast is None
-                and result_cast == "pg_catalog.float8",
+                and (
+                    family == "postgres"
+                    and argument["tag"] in {"Int", "Float"}
+                    and result_cast == "pg_catalog.float8"
+                    or mysql_spread_cell
+                    and argument["tag"] == "Float"
+                    and argument["storage"] == {"kind": "my_double"}
+                    and argument["nullable"] is True
+                    and result_cast is None
+                ),
                 "stddev casts",
             )
             return {
                 "tag": "Float",
-                "storage": {"kind": "pg_float8"},
+                "storage": {
+                    "kind": "pg_float8" if family == "postgres" else "my_double"
+                },
                 "nullable": True,
                 "domain": {"kind": "finite_float", "format": "binary64"},
             }
@@ -11885,6 +11989,11 @@ def _decode_fixed_public(document, limits):
                                 node["function"]
                                 in {"sum", "avg", *SPREAD_FUNCTIONS.values()}
                                 and family == "postgres"
+                                and argument["tag"] == "Float"
+                            )
+                            or (
+                                node["function"] in SPREAD_FUNCTIONS.values()
+                                and mysql_spread_cell
                                 and argument["tag"] == "Float"
                             )
                             or (
@@ -15124,6 +15233,18 @@ def _decode_parameterized_public(document, limits):
     _need(not fixed or document["request"]["literal_policy"] == "bind_safe_literals")
     header = _records(document["parameters"])
     _need(bool(header))
+    # Phase77 S05: the MySQL statistic's cell declares no header parameter, so
+    # no template that has one, read or not, spells a MySQL statistic.
+    _need(
+        family != "mysql"
+        or not any(
+            interval["role"] == "aggregate_open"
+            and sql[interval["start"] : interval["end"]].decode()
+            in MYSQL_SPREAD_FUNCTIONS
+            for interval in lexical
+        ),
+        "mysql statistic header parameter",
+    )
     names, reads = set(), {}
     for j, parameter in enumerate(header):
         _keys(parameter, ("parameter", "name", "tag", "nullable", "reads"))

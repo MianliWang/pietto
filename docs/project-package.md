@@ -990,8 +990,9 @@ count and the argument's own nullable carrier for an extreme, and the same row
 expression arguments (`count(lower(label))`), except that it keeps BLOCKED
 `count_distinct` of a `Float`
 (`count_distinct_argument_outside_reviewed_int_domain`: MySQL kept `-0.0` and
-`0.0` apart in deduplication beside a wide key), `sum`, `avg` and `stddev` of a
-`Float` (`float_aggregate_finite_result_proof_missing`), `sum` of an `Int`
+`0.0` apart in deduplication beside a wide key), `sum`, `avg` and, outside
+the one shape below, `stddev` of a `Float`
+(`float_aggregate_finite_result_proof_missing`), `sum` of an `Int`
 (`sum_int_aggregate_range_proof_missing`, so `sum(qty * 2)` too), and an `Int`
 row expression not proved to fit signed 64 bits (`PIE-B1002`).
 
@@ -1008,11 +1009,35 @@ forms; their R13 requirement carries the evidence
 overflowing accumulation with SQLSTATE 22003, so a returned variance or
 deviation is finite, and the statement may fail where the sum of squares
 overflows (about |x| > 1e154) even when the result itself is finite. MySQL
-project SQL keeps all four BLOCKED: an `Int` argument with `PIE-B1003`
+project SQL keeps all four BLOCKED for an `Int` argument with `PIE-B1003`
 (`stddev_int_not_admitted_on_target`, `variance_int_not_admitted_on_target`,
-`pvariance_int_not_admitted_on_target`, `pstdev_int_not_admitted_on_target`),
-a `Float` argument with `PIE-B1004`
-(`float_aggregate_finite_result_proof_missing`).
+`pvariance_int_not_admitted_on_target`, `pstdev_int_not_admitted_on_target`).
+Of a `Float` it emits them (unreleased, Phase77 S05) in one shape only: the
+single select item of a query or table whose only other clause is `from` one
+source, with no `let`, JOIN, `where`, `group by`, window, `order by`, `limit`,
+DISTINCT, set operation or header parameter (read or not), over one direct
+field declared `Float | None` (`my_double`, nullable). They are
+`STDDEV_SAMP(x)`, `VAR_SAMP(x)`, `VAR_POP(x)` and `STDDEV_POP(x)`, uncast,
+VERIFIED with a nullable `Float` result (`my_double`, `finite_float`) and the
+same R13 evidence `{"overflow": "target_checked_binary64_overflow"}`: MySQL
+fails an overflowing sum of squares with SQLSTATE 22003 (error 1690). The
+shape is that of the emitted statement, so other declarations of the module,
+such as one with a header parameter or one that reads the query, leave it and
+its SQL unchanged. Project emission and its live verifier judge the shape from
+the plan and from the declaration as written, which alone keeps a relation
+`let` (`let x = t`, read through `from x` or not) once the project normalizes
+it. The compiled bundle of such a `let` differs from that of a direct read
+only in source locations, and its emission observation, or that of an unread
+header parameter, only in source locations and the module's digest, so
+compiled replay cannot refuse the `let` and the observation reader neither;
+each judges only what its input records.
+Every other shape keeps its refusal, such as `PIE-B1004`
+(`float_aggregate_finite_result_proof_missing`) beside another aggregate
+and `PIE-B1003` `aggregate_composition_not_admitted_on_target` for
+`coalesce(stddev(x), 0.0)`. A statement in the shape that emission refuses
+for another reason, such as an output label past 256 characters or the
+contract's artifact byte limit, reports the blockers it has without the
+shape, this `PIE-B1004` included.
 
 PostgreSQL project SQL emits `median` and `quantile` of one direct `Int` field,
 whose carrier is `int2`, `int4` or `int8`, as

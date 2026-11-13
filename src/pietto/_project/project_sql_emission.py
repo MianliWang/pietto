@@ -163,7 +163,14 @@ def realize_project_sql(request):
                 InputError("emission_selector", "Invalid prepared emission roots."),
             ),
         )
-    return replace(_realize_prepared_sql(request), family=request.family)
+    # Rule two: a refused MySQL statement reports main's blockers, also when
+    # a check after emission_blockers refuses it.
+    outcome = rows.as_main_if_refused(
+        request,
+        lambda: _realize_prepared_sql(request),
+        lambda outcome: outcome.status == "BLOCKED",
+    )
+    return replace(outcome, family=request.family)
 
 
 def _realize_prepared_sql(request):
