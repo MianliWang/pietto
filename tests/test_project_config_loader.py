@@ -258,6 +258,75 @@ def test_toml_nested_too_deeply_reports_project_resource(
     )
 
 
+def test_a_nan_beside_an_exact_package_table_reports_its_own_fault(
+    tmp_path: Path,
+) -> None:
+    root = _project_root(
+        tmp_path,
+        "schema_version = 4\n"
+        + _PACKAGE_TABLE
+        + "[capability_environment]\nweight = nan\n",
+    )
+
+    assert load_project_config(root).errors == (
+        ProjectDiscoveryError(
+            ProjectDiscoveryErrorKind.CONFIG_SCHEMA,
+            "Project [capability_environment] contains unsupported key: weight.",
+            "pietto.toml",
+        ),
+    )
+
+
+@pytest.mark.parametrize("quote", ['"', "'"])
+def test_a_header_line_inside_a_string_does_not_prove_a_quoted_package_table(
+    tmp_path: Path, quote: str
+) -> None:
+    root = _project_root(
+        tmp_path,
+        f"schema_version = 4\n[capability_environment]\n[{quote}package{quote}]\n"
+        + _PACKAGE_TABLE.removeprefix('[package]\npath = "."\n')
+        + f"path = {quote * 3}\n[package] #{quote * 3} # c\n",
+    )
+
+    assert load_project_config(root).errors == (
+        ProjectDiscoveryError(
+            ProjectDiscoveryErrorKind.CONFIG_SCHEMA,
+            "Project configuration schema-v4 package activation "
+            "requires an exact [package] root table.",
+            "pietto.toml",
+        ),
+    )
+
+
+def test_header_proofs_parse_as_often_however_many_headers_a_string_holds(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    # A proof that parses once per header line is quadratic in such a file.
+    parses: list[str] = []
+    load = config.load_toml_text
+
+    def counted(text: str) -> dict[str, object]:
+        parses.append(text)
+        return load(text)
+
+    monkeypatch.setattr(config, "load_toml_text", counted)
+    counts: list[int] = []
+    for lines in (1, 200):
+        parses.clear()
+        (tmp_path / str(lines)).mkdir()
+        root = _project_root(
+            tmp_path / str(lines),
+            'schema_version = 4\n[capability_environment]\njunk = """\n'
+            + "[package]\n" * lines
+            + '"""\n'
+            + _PACKAGE_TABLE,
+        )
+        assert not load_project_config(root).ok
+        counts.append(len(parses))
+
+    assert counts[0] == counts[1]
+
+
 def test_missing_config_reports_config_read(tmp_path: Path) -> None:
     root = tmp_path / "project"
     root.mkdir()
@@ -413,6 +482,12 @@ def test_valid_pattern_subset_is_accepted(tmp_path: Path, pattern: str) -> None:
     assert result.config is not None
     assert result.config.sources is not None
     assert result.config.sources.include_patterns == (pattern,)
+
+
+_PACKAGE_TABLE = (
+    '[package]\npath = "."\nnamespace = "a"\nname = "x"\nversion = "1.0.0"\n'
+    'sha256 = "' + "0" * 64 + '"\n'
+)
 
 
 def _project_root(tmp_path: Path, config_text: str) -> Path:

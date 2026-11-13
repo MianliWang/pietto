@@ -64,10 +64,9 @@ _TOP_LEVEL_KEYS = frozenset(
 )
 _SOURCE_KEYS = frozenset({"include", "exclude"})
 _PACKAGE_KEYS = ("path", "namespace", "name", "version", "sha256")
-_PACKAGE_DECLARATION_PROBE_KEY = "__pietto_schema_v3_package_declaration_probe__"
 _PACKAGE_TABLE_HEADER = re.compile(
-    r"(?m)^(?P<indent>[ \t]*)\[[ \t]*package[ \t]*\][ \t]*(?:#[^\r\n]*)?"
-    r"(?P<newline>\r?\n|$)"
+    r"(?m)^(?P<indent>[ \t]*)\[[ \t]*package[ \t]*\]"
+    r"(?P<suffix>[ \t]*(?:#[^\r\n]*)?(?:\r?\n|$))"
 )
 _CAPABILITY_ENVIRONMENT_TABLE_HEADER = re.compile(
     r"(?m)^(?P<indent>[ \t]*)\[[ \t]*capability_environment[ \t]*\]"
@@ -934,25 +933,43 @@ def _has_exact_root_package_table(
 ) -> bool:
     """Prove that TOML's ``package`` mapping came from a root table header."""
 
-    for match in _PACKAGE_TABLE_HEADER.finditer(config_text):
-        probe_text = (
+    matches = tuple(_PACKAGE_TABLE_HEADER.finditer(config_text))
+    if not matches:
+        return False
+    probe_keys = _allocate_probe_keys(document, "package", len(matches))
+    # One parse finds the one header line whose probe lands in the table.
+    try:
+        located = load_toml_text(
+            _insert_header_probes(
+                config_text,
+                matches,
+                probe_keys,
+                frozenset(range(len(matches))),
+            )
+        )
+    except TomlTextError:
+        return False
+    positions = _mapping_probe_positions(located.get("package"), probe_keys)
+    if positions is None or len(positions) != 1:
+        return False
+    (position,) = positions
+    match, probe_key = matches[position], probe_keys[position]
+    # Renaming that line must move the whole table: it is the header itself.
+    try:
+        probed = load_toml_text(
             config_text[: match.start()]
             + match.group("indent")
-            + f"[{_PACKAGE_DECLARATION_PROBE_KEY}]"
-            + match.group("newline")
+            + f"[{probe_key}]"
+            + match.group("suffix")
             + config_text[match.end() :]
         )
-        try:
-            probed = load_toml_text(probe_text)
-        except TomlTextError:
-            continue
-        probe_value = probed.pop(_PACKAGE_DECLARATION_PROBE_KEY, None)
-        if probe_value is None or "package" in probed:
-            continue
-        probed["package"] = probe_value
-        if probed == document:
-            return True
-    return False
+    except TomlTextError:
+        return False
+    probe_value = probed.pop(probe_key, None)
+    if type(probe_value) is not dict or "package" in probed:
+        return False
+    probed["package"] = probe_value
+    return _toml_values_equivalent(probed, document)
 
 
 def _has_exact_root_table(
