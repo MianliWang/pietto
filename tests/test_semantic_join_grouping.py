@@ -4434,6 +4434,40 @@ def test_a_mixed_aggregate_join_reports_what_a_single_file_reports(
     ]
 
 
+@pytest.mark.parametrize("kind", ("left", "inner"))
+@pytest.mark.parametrize(
+    "select",
+    (
+        "        fixed = 7\n        n = count()",
+        "        n = count()\n        fixed = 7 + 1",
+    ),
+)
+def test_a_joined_literal_output_beside_an_aggregate_is_a_mixed_projection(
+    tmp_path: Path, kind: str, select: str
+) -> None:
+    """Without GROUP BY a literal output, the only one beside the aggregate,
+    is a row projection: PIE-S2312 as in a single file."""
+
+    text = _MIXED_FANOUT.replace("        price = o.item_id\n", "").format(
+        kind=kind, select=select, order=""
+    )
+    assert _mixed_parity_codes(tmp_path, text) == ["PIE-S2312"]
+
+
+@pytest.mark.parametrize("kind", ("left", "inner"))
+def test_a_joined_wrapped_aggregate_alone_is_accepted(
+    tmp_path: Path, kind: str
+) -> None:
+    """Without GROUP BY a lone output that wraps an aggregate, such as
+    `count() + 7`, is no row projection: a project accepts it as a single
+    file does."""
+
+    text = _MIXED_FANOUT.replace("        price = o.item_id\n", "").format(
+        kind=kind, select="        n = count() + 7", order=""
+    )
+    assert _mixed_parity_codes(tmp_path, text) == []
+
+
 _WINDOW = "row_number() window(order by items.id)"
 
 

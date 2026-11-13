@@ -1681,6 +1681,10 @@ def _composition_output(
     )
     if not _same_objects(calls, tuple(aggregate.call for aggregate in aggregates)):
         return ()
+    # Without GROUP BY an output with no aggregate is a row projection
+    # (PIE-S2312), as in a single file.
+    if not calls and _definition(input_filter).group_by_clause is None:
+        return ()
     keys: dict[Expression, ProjectJoinedAnyGroupKey] = {}
     diagnostics: list[Diagnostic] = []
     values: dict[Expression, ValueType] = {
