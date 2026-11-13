@@ -103,8 +103,9 @@ abstraction needs a current caller or invariant.
 - A batch audit is one round focused on cross-slice issues; a second round
   runs only after a medium or worse finding. Each slice keeps its independent
   verification.
-- Database campaigns may run one PostgreSQL and one MySQL container at the
-  same time, each under its engine's lock.
+- Database campaigns may run up to three PostgreSQL and three MySQL
+  containers at the same time; each campaign owns at most one container per
+  engine and holds one of that engine's three slot locks.
 - A phase keeps only its route, its decisions and its completion audit, which
   ends with the next-phase handoff. The roadmap lists only future work;
   historical phase plans live in Git history.

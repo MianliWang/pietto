@@ -97,8 +97,9 @@ gives each with its source.
 
 ### Versions
 
-`0.1.10` carries Phase73, Phase74 and Phase75. Pietto core Phase76 and
-Phase77 ship together as `0.1.11`. Phase78–80 ship as `0.2.0` once its gate
+`0.1.10` carries Phase73, Phase74 and Phase75. Pietto core `0.1.11` carries
+Phase76 and the repairs ready at its cut, and Phase77's remaining slices
+continue into `0.1.12` (PL.21). Phase78–80 ship as `0.2.0` once its gate
 below is met; Phase81 uses `0.2.x`, Phase82 uses `1.0.0rc1` and Phase83 uses
 `1.0`. The extension follows its own version line.
 
@@ -130,10 +131,12 @@ features reach PostgreSQL first, which finds the problems, and MySQL catches
 up in later batches; until then each MySQL path fails closed with a
 deterministic diagnostic. Semantics and IR stay dialect-neutral, a form opens
 on MySQL only after a passing two-database run (D74.09), and the capability
-page and the release notes list what MySQL refuses. Project `sum(Int)`,
-`stddev` of an `Int` (J12, D76.10) and MySQL nested results (D71.05) are
-approved exceptions with the target Phase77. Each release request lists the
-MySQL forms beyond the cadence (D76.09).
+page and the release notes list what MySQL refuses. Project `sum(Int)`
+(J12, D76.10) is an approved exception with the target Phase77; `stddev` of
+an `Int` (J12, D76.10) is one with no target phase (D77.34), and MySQL
+nested results (D71.05) one with the target of the separate later nested
+work package (D77.32). Each release request lists the MySQL forms beyond the
+cadence (D76.09).
 
 ### Editor work package
 
@@ -228,7 +231,7 @@ before its owner's Gate 1 takes it.
 | PostgreSQL extension functions; the function/plugin SPI and user-written table functions | a Gate 1 with a named use case; Phase82 freeze input (D76.11) |
 | A new built-in table function | the first Gate 1 that names a case; Phase82 freeze input (D74.12) |
 | Database-native array and JSON columns; the `postgres_adbc` nested route | a later Phase80 Gate 1 (D80.06); the Phase82 freeze (D76.11) |
-| MySQL nested output and `JSON_TABLE` | Phase77 (D71.05) |
+| MySQL nested output and `JSON_TABLE` | the separate nested work package, at its own Gate 1 (D71.05, D77.32) |
 | pandas and Polars nesting; the Arrow data-analysis example; `compile_queries(...)`; `round` of a `Float` with digits | a later Phase80 Gate 1 (J25, D75.03, D76.05, D80.06) |
 | Nested fuzz and high-intensity differential work; a readability and compile-time benchmark | Phase81 (J25) |
 | The nested public format | the Phase82 freeze |

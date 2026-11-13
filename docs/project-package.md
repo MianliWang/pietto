@@ -1169,7 +1169,7 @@ Reading saved results is a separate operation under their own format,
 code-identity and trust contract; recompiling does not convert result bytes.
 Running again is a separate database execution against its then-current
 state, not an effect of recompilation. These source changes are intended for
-`0.1.11` after Phase76 and Phase77, subject to separate release approval.
+`0.1.11` (PL.21), whose tag and PyPI upload follow PL.22's conditions.
 
 ## Optional Arrow dependency
 

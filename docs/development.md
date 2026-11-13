@@ -76,13 +76,15 @@ on their order, and documents or fragments that disagree. Only a finding of
 medium or worse severity opens a second round. Each slice is still checked by
 its own independent verifier before it is delivered.
 
-**Database campaigns.** A real-database campaign holds its engine's lock for
-the whole run, with `flock` on `/tmp/claude-1000/pietto-docker-campaign-postgres.lock`
-for PostgreSQL or `/tmp/claude-1000/pietto-docker-campaign-mysql.lock` for
-MySQL, so one PostgreSQL and one MySQL container may run at the same time but
-never two of one engine. A campaign that needs both engines takes the
-PostgreSQL lock first. These two locks replace the single
-`pietto-docker-campaign.lock`.
+**Database campaigns.** A real-database campaign holds one of its engine's
+three slot locks for the whole run, so up to three PostgreSQL and three MySQL
+containers may run at the same time, and a campaign owns at most one
+container per engine (PL.14). Slot 1 is `flock` on
+`/tmp/claude-1000/pietto-docker-campaign-postgres.lock` for PostgreSQL or
+`/tmp/claude-1000/pietto-docker-campaign-mysql.lock` for MySQL; slots 2 and 3
+add `-slot2` and `-slot3` before `.lock`. A campaign never holds two slots of
+one engine, and one that needs both engines takes the PostgreSQL lock first.
+These locks replace the single `pietto-docker-campaign.lock`.
 
 **Phase records.** A phase keeps its route and completion audit in
 `docs/phases/phase-NN/` and its owner decisions in [decisions](decisions.md).

@@ -2385,8 +2385,9 @@ PostgreSQL emits list operations (`emit-sql --project`, `compile_query`,
 bundles): `len` reads the list's count column, `sum` and `any` one scalar
 subquery each over the element rows of the list's arrays (`ROWS FROM` of one
 `pg_catalog.unnest` per child field); a list sum is cast to a checked
-`bigint`. MySQL refuses the Collect read a list operation reads until Phase77
-(PIE-B1003 `collect_not_admitted_on_target`). Single files, which have no
+`bigint`. MySQL refuses the Collect read a list operation reads (PIE-B1003
+`collect_not_admitted_on_target`) until a later nested work package opens
+it. Single files, which have no
 collected field, refuse a generator over `c.xs` with PIE-S2334 naming
 `schema_version = 2`; a `schema_version = 1` project refuses every generator.
 
@@ -2823,7 +2824,10 @@ too, which PostgreSQL emits as a checked `int8` (see
 [Aggregates and grouping](#aggregates-and-grouping)): `s / 2` with `s = 3` is
 `1` on both targets. With a `Float` operand the result is a
 `Float`, emitted as a bare `a / b` on both targets; Pietto never inserts a
-cast. Because Python's `/` keeps the fraction, every `/` whose two operands are
+cast. Project SQL on PostgreSQL fails the statement with SQLSTATE 22003 where
+the quotient of two non-zero values rounds to zero, which Python gives as
+`0.0`, as it does for such a product. Because Python's `/` keeps the
+fraction, every `/` whose two operands are
 `Int` (an alias of `Int` included) reports the warning PIE-S2106 in every check
 mode, where it is written: once in a `def` body, not at its calls, and in a
 `let` value, not where its name is read; it checks and emits as before. It is

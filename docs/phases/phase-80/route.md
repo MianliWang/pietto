@@ -54,7 +54,8 @@ to that published head (PL.02): `main` at
 - CI: the arrow-ready environment that `scripts/package_smoke.py --extra-env`
   builds in `.github/workflows/ci.yml`, and the core-only profile and
   six-shard ceiling of `scripts/ci_workloads.py`;
-- which Phase77 batches are published, above all S21–S24 and S26.
+- which Phase77 batches are published, above all S26 (S21–S24 left
+  Phase77, D77.32).
 
 The initiation gate's item "consume the previous completion audit" is
 `NOT_APPLICABLE`: Phase77 has no completion audit while Phase80 runs beside it
@@ -192,8 +193,9 @@ on each integration tree; on 2026-11-11 the owner also allowed PK one networked
 cache holds no CPython 3.12 wheels of pandas,
 numpy, SciPy, Matplotlib or PyArrow, nor of Matplotlib's dependencies
 `contourpy`, `fonttools`, `kiwisolver` and `pillow`, so the CPython 3.12
-cells come from natural CI, and from PK's package smoke once those wheels
-are fetched under PL.10. The Phase80 draft's 2026-11-10 PyPI reading
+cells come from natural CI and from PK's package smoke, which uses those
+wheels; PK fetched them under PL.10 on 2026-11-11. The Phase80 draft's
+2026-11-10 PyPI reading
 was taken without network authorization and is not evidence; the probe
 replaces it.
 
@@ -285,8 +287,8 @@ integration and orders the two shares itself.
 - Every lane starts from the latest integration head, names its base in its
   brief and rebases before delivery (Phase75 lesson 1, Lean Gate v3). The
   repository-wide owners run on the merged tree at each replay (Phase72
-  lesson 2), and the real-producer cases rerun too, because Phase77 S21–S23
-  change producers and readers.
+  lesson 2), and the real-producer cases rerun too, because Phase77
+  batches may change producers and readers.
 - Lanes write only under their own names (Phase75 lesson 4) and follow the
   lane rules of PL.01 and the pytest worker rule of PL.03; Gate 2 shares the
   integration host under PL.01, with the authoritative worker cap of PL.03.
@@ -332,7 +334,8 @@ asks.
 
 ## Risks
 
-1. Long life off `main`: replays across Phase77 S21–S27 move the Arrow types
+1. Long life off `main`: replays across the remaining Phase77 batches move
+   the Arrow types
    and producers the cases read. The replay reserve, published-boundary
    replays and the sheet Q2 option-C check at the Phase77 midpoint (PL.04)
    bound it.
@@ -354,8 +357,9 @@ asks.
 are integration-ready; the pin table carries every result; each D80.03 row is
 proven or stopped; the measured rate projects within the ceiling; the latest
 `main` natural CI health and alerts are read; the acquisition reserve has
-reviewed the new consumer and fixtures; and the Phase77 S21–S24 state is
-reported for the PL.04 option-C check.
+reviewed the new consumer and fixtures; and the PL.04 option-C check is
+reported, with S21–S24 recorded as moved to the nested work package
+(D77.32).
 
 **Unfreeze conditions.** The owner decides any change of a D80.03 row or a
 signature, a new function, extra or combined extra, a platform, a pin change

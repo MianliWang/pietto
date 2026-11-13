@@ -124,9 +124,10 @@ states the rules; the build appears in the support matrix of S04.
 emits with a reviewed golden or refuses with its listed text; the ledger's
 measured rate projects within D78.05, with the replay count and D spent; the
 latest published head's CI health and alerts are read; the acquisition
-reserve for S04 is re-estimated; Phase79 S02 and Phase77 S21–S24 status are
-recorded, and the sheet Q2 option-C check of PL.04 is done. S03 opens only
-after the midpoint passes.
+reserve for S04 is re-estimated; Phase79 S02 status is recorded, Phase77
+S21–S24 are recorded as moved to the nested work package (D77.32), and the
+sheet Q2 option-C check of PL.04 is done. S03 opens only after the midpoint
+passes.
 
 **Unfreeze conditions.** These need the owner: a form beyond D78.01; a new
 `PIE-*` code or a public text outside the rows S02 lists; a dependency,
@@ -228,9 +229,10 @@ a rule for a whole documentation and tool batch, does not cover it.
 
 ## Risks
 
-1. **A moving base.** Phase77 S21–S27 and Phase79 S02 move under B1 before
-   it can publish. New files first, the D400 replay reserve, published-batch
-   replay boundaries and the Q2 option-C check of PL.04 bound it.
+1. **A moving base.** The remaining Phase77 slices and Phase79 S02 move
+   under B1 before it can publish. New files first, the D400 replay reserve,
+   published-batch replay boundaries and the Q2 option-C check of PL.04 bound
+   it.
 2. **One qualifying build.** Hosted CI cannot run the native cells and a
    skipped test can pass without running. The explicit environment class,
    counted skips and byte tests on every runner bound it.
