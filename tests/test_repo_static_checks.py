@@ -3,6 +3,7 @@ from __future__ import annotations
 import json
 import re
 from pathlib import Path
+from typing import Any
 
 import pytest
 
@@ -168,6 +169,231 @@ table all_users:
 )
 def test_system_exit_codes_are_normalized(code: object, expected: int) -> None:
     assert cli._system_exit_code(SystemExit(code)) == expected
+
+
+# AD78.03: each third dialect has its own adapter, and the PostgreSQL/MySQL
+# pipeline never receives its family.
+ADAPTER_FAMILIES = ("duckdb", "sqlite")
+PIPELINE_FAMILIES = {"postgres", "mysql"}
+_FIREWALL_MODULE = """shape Order:
+    id: Int
+    amount: Int
+
+source orders: Order = duckdb.arrow("orders")
+source rows: Order = postgres.table("orders")
+
+query arrow_rows:
+    from orders
+    select:
+        id
+
+query table_rows:
+    from rows
+    select:
+        id
+"""
+# A single file of a source it knows, so its emission reaches the emitter.
+_FIREWALL_FILE = """shape Order:
+    id: Int
+    amount: Int
+
+source rows: Order = postgres.table("orders")
+
+query table_rows:
+    from rows
+    select:
+        id
+"""
+
+
+def _firewall_contract(family: str) -> str:
+    """A contract of `family` for the source of that family's own spelling."""
+
+    postgres = family == "postgres"
+    domain = {"kind": "int_range", "min": "-1", "max": "1"}
+    representation = {
+        "storage": {"kind": "pg_int8" if postgres else "arrow_int64"},
+        "nullable": False,
+        "domain": domain,
+    }
+    environment = [{"key": "client_encoding", "scope": "statement", "value": "UTF8"}]
+    if postgres:
+        environment.append(
+            {"key": "identifier_case", "scope": "statement", "value": "quoted_exact"}
+        )
+    source = {
+        "selector": {
+            "module": "main.pietto",
+            "kind": "source",
+            "name": "rows" if postgres else "orders",
+        },
+        "relation": {"namespace": "public" if postgres else "arrow", "name": "orders"},
+        "scan": "arrow_registration" if family == "duckdb" else "relation_rows",
+        "fields": [
+            {
+                "ordinal": i,
+                "name": name,
+                "column": name,
+                "representation": representation,
+            }
+            for i, name in enumerate(("id", "amount"))
+        ],
+        "premises": [
+            {"key": key, "scope": "source", "value": True}
+            for key in ("row_domain_matches", "read_only_object")
+        ],
+    }
+    releases = {"postgres": "18.6", "duckdb": "2.0.0", "sqlite": "3.53.1"}
+    return json.dumps(
+        {
+            "format": "pietto.emission-contract.v1",
+            "target": {"family": family, "release": releases[family]},
+            "sources": [source],
+            "environment": environment,
+        }
+    )
+
+
+def test_postgres_mysql_tables_admit_no_adapter_family() -> None:
+    from pietto import sql as sql_api
+    from pietto._project import project_sql_emission_contract as contract
+    from pietto._project import project_sql_emission_portable_schema as schema
+    from pietto.sql import mysql as mysql_backend
+
+    # The contract reader, the emitter and the artifact verifier admit a family
+    # by these tables, and their family branches assume one of the two.
+    for table in (contract.RELEASES, schema.FAMILIES, schema.QUOTES, schema.PHYSICAL):
+        assert not set(table) & set(ADAPTER_FAMILIES)
+    pipeline = {sql_api.emit_postgres_sql, mysql_backend.emit_mysql_sql}
+    for family in ADAPTER_FAMILIES:
+        assert cli._select_sql_emitter(family) not in pipeline
+
+
+def _error_kinds(value: object) -> set[str]:
+    """Every `cli_errors` kind in a project emission or batch document."""
+
+    if isinstance(value, dict):
+        kinds = {error["kind"] for error in value.get("cli_errors", ())}
+        return kinds.union(*map(_error_kinds, value.values()))
+    if isinstance(value, list):
+        return set().union(*map(_error_kinds, value))
+    return set()
+
+
+@pytest.mark.parametrize("family", ADAPTER_FAMILIES)
+def test_no_adapter_family_reaches_the_postgres_mysql_pipeline(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, family: str
+) -> None:
+    from pietto import compiler, execution
+    from pietto import sql as sql_api
+    from pietto._project import project_execution_template as template
+    from pietto._project import project_sql_emission_cli as emission_cli
+    from pietto.sql import mysql as mysql_backend
+
+    serving: list[str] = []  # the dialect of the request being driven
+    calls: list[tuple[str, str]] = []  # (serving dialect, entry) per entry call
+    families: list[object] = []
+
+    def family_of(item: object) -> object:
+        return getattr(getattr(item, "request", item), "family", None)
+
+    def spy(owner: object, name: str) -> None:
+        original = getattr(owner, name)
+
+        def recorded(*arguments: Any, **keywords: Any) -> Any:
+            calls.append((serving[-1], name))
+            result = original(*arguments, **keywords)
+            families.extend(
+                family_of(item) for item in (*arguments, *keywords.values(), result)
+            )
+            return result
+
+        monkeypatch.setattr(owner, name, recorded)
+
+    # The entries of the project pipeline, and the single-file emitters that
+    # `cli._select_sql_emitter` returns.
+    entries = (
+        (emission_cli, "prepare_project_sql_emission"),
+        (emission_cli, "realize_project_sql"),
+        (template, "prepare_live_template"),
+        (sql_api, "emit_postgres_sql"),
+        (mysql_backend, "emit_mysql_sql"),
+    )
+    for owner, name in entries:
+        spy(owner, name)
+    root = tmp_path / "project"
+    root.mkdir()
+    (root / "pietto.toml").write_text(
+        'schema_version = 2\n[sources]\ninclude = ["*.pietto"]\n', encoding="utf-8"
+    )
+    (root / "main.pietto").write_text(_FIREWALL_MODULE, encoding="utf-8")
+    (root / "own.json").write_text(_firewall_contract(family), encoding="utf-8")
+    (root / "postgres.json").write_text(
+        _firewall_contract("postgres"), encoding="utf-8"
+    )
+    single = tmp_path / "single.pietto"
+    single.write_text(_FIREWALL_FILE, encoding="utf-8")
+    documents: dict[str, list[object]] = {family: [], "postgres": []}
+    refusals: dict[str, list[tuple[str, str | None]]] = {family: [], "postgres": []}
+    for dialect in (family, "postgres"):
+        serving.append(dialect)
+        for contract in ("own.json", "postgres.json"):
+            for name in ("arrow_rows", "table_rows"):
+                selected = {"module": "main.pietto", "kind": "query", "name": name}
+                for output in ("json", "text"):
+                    result = emission_cli.run_project_emit_sql(
+                        [f"--project={root}"]
+                        + [f"--{key}={value}" for key, value in selected.items()]
+                        + [f"--dialect={dialect}", f"--emission-contract={contract}"]
+                        + [f"--format={output}"]
+                    )
+                    if output == "json":
+                        documents[dialect].append(json.loads(result.stdout))
+                emission = compiler.compile_sql(
+                    root, **selected, dialect=dialect, emission_contract=contract
+                )
+                documents[dialect].append(json.loads(emission.document))
+                try:
+                    execution.compile_query(
+                        root,
+                        **selected,
+                        dialect=dialect,
+                        emission_contract=contract,
+                    )
+                except execution.CompileRejected:
+                    pass
+                except execution.RequestRejected as refused:
+                    refusals[dialect].append((refused.code, refused.detail))
+            emission = compiler.compile_all_sql(
+                root, dialect=dialect, emission_contract=contract
+            )
+            documents[dialect].append(json.loads(emission.document))
+    for dialect in (family, "postgres", "mysql"):
+        serving.append(dialect)
+        for output in ("json", "text"):
+            cli.main(
+                ["emit-sql", str(single), f"--dialect={dialect}", f"--format={output}"]
+            )
+    # Every entry ran for the control dialects, so each spy is live.
+    assert {name for dialect, name in calls if dialect in PIPELINE_FAMILIES} == {
+        name for _, name in entries
+    }
+    # No entry ran for the adapter family's requests, and no pipeline object
+    # carries its family: a postgres request whose contract names it is
+    # refused by the contract reader, and the family goes no further.
+    assert [call for call in calls if call[0] == family] == []
+    assert set(families) - {None} <= PIPELINE_FAMILIES
+    # AD78.03 admits `duckdb` as a project dialect, so its requests passed the
+    # argument checks and the firewall stopped them; D78.01 leaves `sqlite`
+    # out of project mode, so its requests stop at the argument checks.
+    assert "usage" not in _error_kinds(documents["postgres"])
+    assert refusals["postgres"] == []
+    if family == "duckdb":
+        assert "usage" not in _error_kinds(documents[family])
+        assert refusals[family] == []
+    else:
+        assert _error_kinds(documents[family]) == {"usage"}
+        assert set(refusals[family]) == {("PIE-R1002", "PUBLIC_COMPILE_ARGUMENT")}
 
 
 def _read(path: str) -> str:

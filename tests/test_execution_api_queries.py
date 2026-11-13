@@ -157,6 +157,21 @@ def test_public_compile_and_bundle_accept_a_joined_computed_key(tmp_path):
     assert facts(loaded) == facts(query)
 
 
+def test_compile_query_takes_duckdb_as_a_dialect_argument(tmp_path):
+    """AD78.03: duckdb is a project dialect, so the documented project's
+    postgres contract refuses the compile; it is not an argument error
+    (PIE-R1002), which sqlite stays under D78.01."""
+    with pytest.raises(execution.CompileRejected):
+        execution.compile_query(
+            api.write_example(tmp_path / "example"),
+            module="main.pietto",
+            kind="table",
+            name="active_items",
+            dialect="duckdb",
+            emission_contract="contract.json",
+        )
+
+
 def test_compile_query_keeps_only_the_contract_sources_the_query_reads(tmp_path):
     """The whole contract is checked as the command checks it; each query is
     then compiled and bundled with the canonical contract of only the sources

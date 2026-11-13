@@ -407,6 +407,15 @@ def test_formatting_changes_only_the_whitespace_between_tokens(
     ]
 
 
+def test_fmt_keeps_a_duckdb_arrow_source_as_written() -> None:
+    canonical = (
+        'shape Order:\n    id: Int\n\nsource orders: Order = duckdb.arrow("orders")\n'
+    )
+    result = format_source(canonical)
+    assert result.source == canonical and not result.changed
+    assert _formatted(canonical.replace('"orders"', "'orders'")) == canonical
+
+
 _ROWS = (
     "shape R:\n    id: Int\n    name: Text\n    asc: Int\n\n"
     'source r: R = postgres.table("r")\n\nquery q:\n    from r\n'

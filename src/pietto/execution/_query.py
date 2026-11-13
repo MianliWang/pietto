@@ -11,7 +11,7 @@ import re
 
 from pietto._project import project_public_execution as composition
 from pietto._project.project_sql_emission import serialize_project_sql_emission
-from pietto._project.project_sql_emission_cli import _render_failure
+from pietto._project.project_sql_emission_cli import DIALECTS, _render_failure
 from pietto.execution._errors import (
     CompileRejected,
     RequestRejected,
@@ -30,7 +30,7 @@ __all__ = [
 
 _CHOICES = {
     "kind": ("table", "query"),
-    "dialect": ("postgres", "mysql"),
+    "dialect": DIALECTS,
     "literal_policy": ("preserve", "bind-safe"),
 }
 _RECORD = re.compile("[0-9a-f]{64}")
@@ -190,14 +190,15 @@ def compile_query(
 
     The arguments are those of ``pietto emit-sql --project``: the project
     root, the logical module, the declaration kind and name, the dialect
-    (``postgres`` or ``mysql``), the project-relative emission contract and
-    the literal policy (``preserve`` or ``bind-safe``). Compiling reads the
-    project files and the installed Pietto and ANTLR runtime code; it never
-    connects to a database or reads a schema. The whole contract is checked
-    as the command checks it; the query is then compiled with its own
-    contract: the canonical JSON of the sources it reads, in contract order,
-    and every premise scoped to the statement, to one of them or to an
-    expression over one, wherever the contract declares it.
+    (``postgres``, ``mysql`` or ``duckdb``), the project-relative emission
+    contract and the literal policy (``preserve`` or ``bind-safe``).
+    Compiling reads the project files and the installed Pietto and ANTLR
+    runtime code; it never connects to a database or reads a schema. The
+    whole contract is checked as the command checks it; the query is then
+    compiled with its own contract: the canonical JSON of the sources it
+    reads, in contract order, and every premise scoped to the statement, to
+    one of them or to an expression over one, wherever the contract declares
+    it.
 
     Raises CompileRejected with the same failure document as the command,
     or RequestRejected (PIE-R1001/R1002) for an invalid argument and

@@ -56,6 +56,7 @@ from pietto._project.project_sql_emission_contract import (
     MAX_INPUT_BYTES,
     InputError,
     bounded_listing,
+    RELEASES,
     PreparationFailure,
     canonical,
     prepare_project_sql_emission,
@@ -68,17 +69,22 @@ from pietto.semantic.analyzer import recursion_limit_diagnostic
 
 __all__: tuple[str, ...] = ()
 
+# The project emission dialects. AD78.03: only a family of the contract
+# reader's RELEASES reaches the PostgreSQL/MySQL tail of `_emit_owner`.
+DIALECTS = ("postgres", "mysql", "duckdb")
+_DIALECT_CHOICES = "{" + ",".join(DIALECTS) + "}"
+
 USAGE = (
     "usage: pietto emit-sql --project PATH --module LOGICAL_MODULE"
     " --kind {table,query}\n"
-    "                       --name NAME --dialect {postgres,mysql}"
+    f"                       --name NAME --dialect {_DIALECT_CHOICES}"
     " --emission-contract FILE\n"
     "                       [--literal-policy {preserve,bind-safe}]"
     " [--format {text,json}] [--output FILE]"
 )
 
 BATCH_USAGE = (
-    "usage: pietto emit-sql --project PATH --all --dialect {postgres,mysql}\n"
+    f"usage: pietto emit-sql --project PATH --all --dialect {_DIALECT_CHOICES}\n"
     "                       --emission-contract FILE"
     " [--module LOGICAL_MODULE] [--kind {table,query}] [--name NAME]\n"
     "                       [--literal-policy {preserve,bind-safe}]"
@@ -169,7 +175,7 @@ def _build_parser(*, batch: bool = False) -> argparse.ArgumentParser:
     )
     parser.add_argument("--kind", action=_Once, choices=KINDS)
     parser.add_argument("--name", action=_Once, help="declaration name")
-    parser.add_argument("--dialect", action=_Once, choices=("postgres", "mysql"))
+    parser.add_argument("--dialect", action=_Once, choices=DIALECTS)
     parser.add_argument(
         "--emission-contract", action=_Once, help="project-relative contract file"
     )
@@ -651,6 +657,18 @@ def _emit_owner(
                 context.diagnostics,
                 InputError(
                     "emission_selector", "Project planning roots are unavailable."
+                ),
+            )
+        if dialect not in RELEASES:
+            # AD78.03: the tail below never receives another family; the
+            # contract reader admits no target for it.
+            return _emission_failure(
+                "INPUT_REJECTED",
+                context.diagnostics,
+                InputError(
+                    "emission_contract_schema",
+                    "Invalid emission contract structure.",
+                    "target/family",
                 ),
             )
         prepared = prepare_project_sql_emission(

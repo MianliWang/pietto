@@ -113,6 +113,7 @@ from pietto.semantic import (
     ValueTypeKind,
 )
 from pietto.semantic.model import AnyFieldReadInfo, AnyValueSemanticInfo
+from pietto.semantic.source_connectors import SINGLE_FILE_CONNECTORS
 from pietto.semantic.window_semantics import (
     AggregateWindowAnalysis,
     FrameValueWindowSemanticFact,
@@ -1554,9 +1555,9 @@ def _aggregate_type_matches_ir(
 def _is_static_connector_call(expression: Expression) -> bool:
     """Allow the validated connector call omitted from expression typing."""
 
-    return isinstance(expression, CallExpr) and _callee_name(expression) in (
-        "postgres.table",
-        "mysql.table",
+    return (
+        isinstance(expression, CallExpr)
+        and _callee_name(expression) in SINGLE_FILE_CONNECTORS
     )
 
 

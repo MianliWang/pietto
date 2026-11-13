@@ -65,6 +65,93 @@ def test_completed_source_rules_preserve_single_file_diagnostics(
     assert all(d.severity is Severity.ERROR for d in completed.diagnostics)
 
 
+DUCKDB_ARGUMENTS = "Invalid source connector arguments for duckdb.arrow"
+
+
+@pytest.mark.parametrize(
+    ("connector", "project_message"),
+    [
+        ('duckdb.arrow("orders")', None),
+        ('duckdb.arrow(" Orders ")', None),
+        ("duckdb.arrow()", DUCKDB_ARGUMENTS),
+        ('duckdb.arrow("")', DUCKDB_ARGUMENTS),
+        ("duckdb.arrow(1)", DUCKDB_ARGUMENTS),
+        ('duckdb.arrow("orders", "extra")', DUCKDB_ARGUMENTS),
+        ('duckdb.arrow(concat("a", "b"))', DUCKDB_ARGUMENTS),
+        ('duckdb.Arrow("orders")', "Unknown source connector: duckdb.Arrow"),
+    ],
+)
+def test_only_explicit_module_projects_know_duckdb_arrow(
+    tmp_path: Path, connector: str, project_message: str | None
+) -> None:
+    from pietto.semantic.analyzer import analyze_project_namespace
+    from _pietto_project_join import (
+        _completed,
+    )
+
+    text = SHAPE + f"source users: UserRow = {connector}\n"
+    script = _parse(text, path="main.pietto")
+    call = script.definitions[-1]
+    assert isinstance(call, SourceDef)
+    span = call.connector.span
+    completed = _completed(tmp_path, text)
+    assert [(d.code, d.message) for d in completed.diagnostics] == (
+        [] if project_message is None else [("PIE-S2306", project_message)]
+    )
+    assert completed.ok is (project_message is None)
+    # Each refusal is on the call, as for mysql.table.
+    assert all(
+        (d.location.line, d.location.column, d.location.end_column)
+        == (span.line, span.column, span.end_column)
+        for d in completed.diagnostics
+    )
+    # A single file and a LEGACY_FLAT project keep the connector unknown.
+    unknown = [("PIE-S2306", f"Unknown source connector: {connector.split('(')[0]}")]
+    for result in (analyze(script), analyze_project_namespace(script)):
+        assert [(d.code, d.message) for d in result.diagnostics] == unknown
+
+
+@pytest.mark.parametrize("argument", ["missing", "None", "a.b"])
+def test_duckdb_arrow_follows_the_mysql_table_rule_for_untyped_arguments(
+    tmp_path: Path, argument: str
+) -> None:
+    from _pietto_project_join import (
+        _completed,
+    )
+
+    def messages(connector: str) -> list[tuple[str, str]]:
+        text = SHAPE + f"source users: UserRow = {connector}({argument})\n"
+        completed = _completed(tmp_path / connector, text)
+        return [(d.code, d.message) for d in completed.diagnostics]
+
+    mysql = messages("mysql.table")
+    assert messages("duckdb.arrow") == mysql
+    if argument == "missing":
+        assert mysql == [("PIE-S2102", "Unknown field: missing")]
+
+
+def test_a_single_file_connector_stays_unknown_in_a_legacy_flat_project(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """D78.01: SQLite B1 has no project mode, so a connector that a single
+    file gains, as `sqlite.table` would, stays unknown in a LEGACY_FLAT
+    project, whose connector set is its own."""
+    from pietto.semantic import analyzer
+    from pietto.semantic import source_connectors as connectors
+
+    widened = (*connectors.SINGLE_FILE_CONNECTORS, "sqlite.table")
+    monkeypatch.setattr(analyzer, "SINGLE_FILE_CONNECTORS", widened)
+    monkeypatch.setattr(connectors, "SINGLE_FILE_CONNECTORS", widened)
+    script = _parse(
+        SHAPE + 'source users: UserRow = sqlite.table("users")\n', path="main.pietto"
+    )
+    assert analyze(script).diagnostics == ()
+    assert [
+        (d.code, d.message)
+        for d in analyzer.analyze_project_namespace(script).diagnostics
+    ] == [("PIE-S2306", "Unknown source connector: sqlite.table")]
+
+
 def test_completed_checks_defining_modules_once_and_reuses_diagnostics(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
@@ -101,9 +188,9 @@ def test_completed_checks_defining_modules_once_and_reuses_diagnostics(
         emitted.extend(diagnostics)
         return types, diagnostics
 
-    def capture_checks(script, types):
+    def capture_checks(script, types, **options):
         checked_scripts.append(script)
-        diagnostics = check_connectors(script, types)
+        diagnostics = check_connectors(script, types, **options)
         emitted.extend(diagnostics)
         return diagnostics
 

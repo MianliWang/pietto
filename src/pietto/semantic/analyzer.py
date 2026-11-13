@@ -152,6 +152,8 @@ from pietto.semantic.relationship_predicates import (
 )
 from pietto.semantic.shapes import check_field_derives, check_shape_structures
 from pietto.semantic.source_connectors import (
+    LEGACY_FLAT_CONNECTORS,
+    SINGLE_FILE_CONNECTORS,
     check_source_connectors,
     check_table_names,
 )
@@ -800,7 +802,11 @@ def _analyze(
         d for d in any_diagnostics if id(d) not in failure_diagnostic_ids
     )
     diagnostics.extend(check_relation_limits(script))
-    connector_diagnostics = check_source_connectors(script, expression_value_types)
+    connector_diagnostics = check_source_connectors(
+        script,
+        expression_value_types,
+        connectors=SINGLE_FILE_CONNECTORS if single_file else LEGACY_FLAT_CONNECTORS,
+    )
     diagnostics.extend(connector_diagnostics)
     if single_file:
         diagnostics.extend(

@@ -127,7 +127,10 @@ from pietto.semantic.aggregates import ordered_value_result
 from pietto.semantic.constructor_calls import builtin_shadows
 from pietto.semantic.expressions import type_source_connector_arguments
 from pietto.semantic.join_fanout import TWO_LEVEL_ROUTE
-from pietto.semantic.source_connectors import check_source_connectors
+from pietto.semantic.source_connectors import (
+    EXPLICIT_MODULE_CONNECTORS,
+    check_source_connectors,
+)
 from pietto._project.project_relationship_predicates import (
     ProjectRelationshipPredicateCatalog,
 )
@@ -415,7 +418,11 @@ def _source_connector_diagnostics(
         script = module.parsed_input.script
         value_types, expression_diagnostics = type_source_connector_arguments(script)
         diagnostics.extend(expression_diagnostics)
-        diagnostics.extend(check_source_connectors(script, value_types))
+        diagnostics.extend(
+            check_source_connectors(
+                script, value_types, connectors=EXPLICIT_MODULE_CONNECTORS
+            )
+        )
     return tuple(diagnostics)
 
 

@@ -13,7 +13,13 @@ REPO_ROOT = Path(__file__).resolve().parents[1]
 
 
 def test_connector_catalog_is_exact_and_static() -> None:
-    assert connector_module._KNOWN_CONNECTORS == ("postgres.table", "mysql.table")
+    assert connector_module.SINGLE_FILE_CONNECTORS == ("postgres.table", "mysql.table")
+    assert connector_module.LEGACY_FLAT_CONNECTORS == ("postgres.table", "mysql.table")
+    assert connector_module.EXPLICIT_MODULE_CONNECTORS == (
+        "postgres.table",
+        "mysql.table",
+        "duckdb.arrow",
+    )
 
 
 def test_connector_modules_have_no_runtime_or_database_surface() -> None:

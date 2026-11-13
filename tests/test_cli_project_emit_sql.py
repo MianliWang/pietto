@@ -753,6 +753,26 @@ def test_text_usage_error_uses_stderr_banner_and_help_opens_nothing(
     assert not root.exists()
 
 
+def test_project_dialects_are_postgres_mysql_and_duckdb(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    # AD78.03 adds duckdb to the project dialects; D78.01 keeps sqlite out, a
+    # usage error above.
+    assert emission_cli.DIALECTS == ("postgres", "mysql", "duckdb")
+    choices = "--dialect {postgres,mysql,duckdb}"
+    assert choices in emission_cli.USAGE and choices in emission_cli.BATCH_USAGE
+    monkeypatch.setenv("COLUMNS", "80")
+    help_text = " ".join(run(["emit-sql", "--help"])[1].decode().split())
+    assert help_text.count(choices) == 2  # the single and the batch form
+    # The argument parser takes duckdb; the postgres contract is refused.
+    root, _ = project(tmp_path, "postgres")
+    _, out, err = run(argv(root, "duckdb"))
+    assert err == "" and "usage" not in dict(kinds(out))
+    _, out, err = run(batch_argv(root, "duckdb"))
+    refused = json.loads(out)["failure"] or {"cli_errors": []}
+    assert err == "" and "usage" not in [e["kind"] for e in refused["cli_errors"]]
+
+
 # --- explicit project boundary ---------------------------------------------------
 
 

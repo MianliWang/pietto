@@ -20,7 +20,16 @@ from pietto.semantic.model import TypeKind, ValueType, ValueTypeKind
 
 _POSTGRES_TABLE = "postgres.table"
 _MYSQL_TABLE = "mysql.table"
-_KNOWN_CONNECTORS = (_POSTGRES_TABLE, _MYSQL_TABLE)
+_DUCKDB_ARROW = "duckdb.arrow"
+# The built-in connectors of each compilation mode. A single file's set grows
+# with its emitters; a LEGACY_FLAT project emits no SQL and keeps its own set,
+# so a single-file-only connector (D78.01) stays unknown there. `duckdb.arrow`
+# is project-only (AD78.03), so only an EXPLICIT_MODULES project knows it.
+SINGLE_FILE_CONNECTORS = (_POSTGRES_TABLE, _MYSQL_TABLE)
+LEGACY_FLAT_CONNECTORS = (_POSTGRES_TABLE, _MYSQL_TABLE)
+EXPLICIT_MODULE_CONNECTORS = (_POSTGRES_TABLE, _MYSQL_TABLE, _DUCKDB_ARROW)
+# The connectors whose one argument is a non-empty string literal.
+_LITERAL_KEY_CONNECTORS = (_MYSQL_TABLE, _DUCKDB_ARROW)
 
 
 def check_table_names(
@@ -56,14 +65,17 @@ def check_table_names(
         if not isinstance(connector, CallExpr):
             continue
         connector_name = _callee_name(connector)
-        if connector_name not in _KNOWN_CONNECTORS or len(connector.arguments) != 1:
+        if (
+            connector_name not in SINGLE_FILE_CONNECTORS
+            or len(connector.arguments) != 1
+        ):
             # The signature check leaves a call with an Unknown argument to that
             # argument's error; an argument without one, such as an unquoted
             # dotted name, leaves the call's own error to this check.
             if not _has_start_within(starts, connector):
                 diagnostics.append(
                     _invalid_arguments_diagnostic(connector, connector_name)
-                    if connector_name in _KNOWN_CONNECTORS
+                    if connector_name in SINGLE_FILE_CONNECTORS
                     else _connector_diagnostic(
                         connector,
                         message=f"Unknown source connector: {connector_name}",
@@ -149,8 +161,12 @@ def _mysql_check_refuses(parts: list[str]) -> bool:
 def check_source_connectors(
     script: Script,
     expression_value_types: Mapping[Expression, ValueType],
+    *,
+    connectors: tuple[str, ...],
 ) -> list[Diagnostic]:
-    """Validate source connectors against the minimal built-in catalog."""
+    """Validate source connectors against the minimal built-in catalog of
+    one compilation mode: `connectors` is `SINGLE_FILE_CONNECTORS`,
+    `LEGACY_FLAT_CONNECTORS` or `EXPLICIT_MODULE_CONNECTORS`."""
 
     diagnostics: list[Diagnostic] = []
     for definition in script.definitions:
@@ -159,6 +175,7 @@ def check_source_connectors(
         diagnostic = _check_connector(
             definition.connector,
             expression_value_types,
+            connectors,
         )
         if diagnostic is not None:
             diagnostics.append(diagnostic)
@@ -168,6 +185,7 @@ def check_source_connectors(
 def _check_connector(
     expression: Expression,
     expression_value_types: Mapping[Expression, ValueType],
+    connectors: tuple[str, ...],
 ) -> Diagnostic | None:
     """Validate one connector call without database access or introspection."""
 
@@ -187,7 +205,7 @@ def _check_connector(
         return None
 
     connector_name = _callee_name(expression)
-    if connector_name not in _KNOWN_CONNECTORS:
+    if connector_name not in connectors:
         return _connector_diagnostic(
             expression,
             message=f"Unknown source connector: {connector_name}",
@@ -203,7 +221,7 @@ def _check_connector(
         or argument_type.resolved_type.name != "Text"
     ):
         return _invalid_arguments_diagnostic(expression, connector_name)
-    if connector_name == _MYSQL_TABLE:
+    if connector_name in _LITERAL_KEY_CONNECTORS:
         argument = expression.arguments[0]
         if (
             not isinstance(argument, LiteralExpr)
