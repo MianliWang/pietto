@@ -43,7 +43,8 @@ shape (PIE-S2303) and a computed projection without an alias (PIE-S2304).
 `loose` omits them, `checked` reports them as warnings, and `strict` reports
 them as errors. Project commands reject `--check-mode`. SQL emission always
 takes its dialect from `--dialect`; PostgreSQL and MySQL are the current
-backends.
+backends, and a single file can also be emitted as SQLite SQL for a flat
+subset ([SQLite single files](#sqlite-single-files)).
 
 A file has no header. The older header lines `pietto <number>`,
 `mode <mode>`, `dialect <name>` and `encoding <name>`, which warned with
@@ -53,10 +54,10 @@ refuses each one with PIE-P1000 in every check mode. Its suggestion names the
 line, as in ``Delete the header line `pietto 0.9`; it has no effect.``; a
 `mode loose` or `mode strict` line gets ``Delete the header line
 `mode strict`; in a single file pass `--check-mode strict` instead; a project
-never applied it.``, and `dialect postgres` or `dialect mysql` gets ``Delete
-the header line `dialect mysql`; it has no effect; `emit-sql` takes
-`--dialect mysql`.`` A header line never selected a language version, legacy
-spelling or the SQL backend.
+never applied it.``, and `dialect postgres`, `dialect mysql` or
+`dialect sqlite` gets ``Delete the header line `dialect mysql`; it has no
+effect; `emit-sql` takes `--dialect mysql`.`` A header line never selected a
+language version, legacy spelling or the SQL backend.
 
 To migrate, delete the header lines. `pietto migrate FILE > FILE.new` deletes
 each one that has no effect (`pietto <number>`, `mode checked`, `dialect`,
@@ -601,6 +602,88 @@ first column give every rule.
 | `min(x)`, `max(x)` of a `Timestamp` or `Date` ([Aggregates](#aggregates-and-grouping)) | emitted (unchanged) | emitted (unchanged) | emitted (unchanged) | emitted as on PostgreSQL: `MIN(x)` and `MAX(x)` keep `DATETIME(6)`, microseconds kept, and `DATE`, NULL for an empty input; over a window refused (PIE-B1003), as every MySQL aggregate window outside the paired forms ([0.1.12](release-notes.md#count-min-and-max-over-a-window-in-eleven-mysql-project-forms)) |
 | `asof left join`, `asof inner join` ([Backward asof JOIN](#backward-asof-join)) | emitted | emitted, except in a relation with a FULL JOIN (PIE-B1000) outside seven qualified files ([0.1.12](release-notes.md#an-asof-join-beside-a-full-join-in-seven-mysql-single-files)) | emitted in a table or query without a relation `let NAME:` block whose FROM is not a table function, elsewhere refused (PIE-S2336); a `let NAME:` block as the joined input is PIE-S2386, where a single file refuses the block itself (PIE-S2345); an aggregate after it only where its `on` keys match a unique key (PIE-S2333) | as PostgreSQL |
 
+### SQLite single files
+
+`pietto emit-sql FILE --dialect sqlite` writes SQLite SQL for one file, as
+text or as [CLI JSON v1](spec/cli-json-v1.md) with `"dialect": "sqlite"`. It
+covers a flat subset: a table or query that reads one `sqlite.table` source
+directly, with `where`, `select`, `order by`, `limit`, `group by` and the
+aggregates `count`, `min` and `max`, over `Int`, `Text`, `Bool` and `Float`
+fields, with no arithmetic. Its expressions are fields, literals, a
+comparison (`==`, `!=`, `<`, `<=`, `>`, `>=`) of two values of one type,
+`and`, `or`, `not`, `is None` and `is not None`; `min` and `max` take an
+`Int` or `Float` field, as `check` refuses one of a `Text` or `Bool` field
+on every target ([Aggregates](#aggregates-and-grouping)). A GROUP BY or
+ORDER BY key is a field, and in a relation with an aggregate an ORDER BY key
+is a selected GROUP BY key or aggregate. A sign before a number, as in `+5`,
+`-5` or `-0.0`, is a unary `+` or `-` operator, so it is arithmetic too.
+`sqlite.table("users")` names one bare table; a string with a dot, which
+would name a schema or an attached database, fails `check` with PIE-S2306 at
+the string (see [Sources and relations](#sources-and-relations)). The SQL
+quotes every name in backticks and writes every field with its table name,
+as in `` `users`.`id` ``, so that a column the table lacks fails the
+statement: SQLite would read a double-quoted name that names no column as
+text, and a bare name in WHERE, GROUP BY or ORDER BY can name an output.
+Every other form fails `emit-sql` with PIE-B1000, `SQLite SQL emission is not
+implemented for RelationIR: <name>. <reason>`, in the existing backend order:
+among them arithmetic, a comparison of an `Int` with a `Float`, `in` and range
+comparisons, `having`, a table or query that reads another, `Decimal`, `Date`,
+`Timestamp`, `UUID` and nested values, JOINs, windows, function calls such as
+the `LIKE`-style text functions, and every table and query of a file that
+declares a top-level constant, which `--set` needs. A project has no SQLite
+target: `emit-sql --project --dialect sqlite` stays a usage error and
+`compile_query(dialect="sqlite")` keeps PIE-R1002. Pietto writes the SQL text
+only; it runs no SQLite statement and opens no database file.
+
+The SQL assumes, and does not check, these properties of the database it
+runs on:
+
+- Every table a source names is a `STRICT` table whose column is `INTEGER`
+  for an `Int` field, `REAL` for a `Float` and `TEXT` for a `Text`. SQLite has
+  no Boolean column type, so a `Bool` column is an `INTEGER` that holds only
+  0, 1 or NULL: a 2 would pass `where flag` and fail `where flag == True`.
+- Every `TEXT` column has the default `BINARY` collation and the database
+  encoding is UTF-8; a `COLLATE NOCASE` column would make `"a"` and `"A"` one
+  value.
+- Every `REAL` value is finite. SQLite stores a NaN as NULL but keeps an
+  infinity, which is not a Pietto value.
+
+Under these premises the SQL means what the rules of this page say, with
+these SQLite facts:
+
+- **Int.** The whole signed 64-bit range is kept, compares and is a `min` or
+  `max` exactly, both extremes included. Arithmetic is refused: SQLite turns
+  a signed 64-bit overflow into a `REAL` value and gives NULL for a zero
+  divisor.
+- **Text.** Values compare, order and group by their UTF-8 bytes, which is
+  Unicode code point order: `"A" < "Z" < "a"`, `"a"` and `"A"` are different
+  values, and so are a precomposed `"é"` and an `"e"` followed by a combining
+  accent. A PostgreSQL or MySQL collation may order the same values otherwise.
+- **Bool.** SQLite's `TRUE` and `FALSE` are the integers 1 and 0, so a `Bool`
+  result arrives as an integer 0, 1 or NULL, as on MySQL.
+- **Float.** A `STRICT` `REAL` column does not keep the sign of a zero:
+  SQLite stores `-0.0` as `0.0`. With signed literals and arithmetic refused,
+  no value in SQLite single-file SQL is a negative zero, so the zero-sign
+  rules of [Float values](#float-values) never come into play. Arithmetic is
+  refused here as well: SQLite turns a `Float` overflow into an infinity, and
+  negating a stored `0.0` gives `0.0`, while Pietto's `-(0.0)` is `-0.0`.
+- **Order.** The language leaves the place of NULL in an order to the target,
+  and SQLite's own default puts NULL first in ascending order. SQLite SQL
+  writes `NULLS LAST` after every ascending key and `NULLS FIRST` after every
+  descending one, so NULL sorts last ascending and first descending: the
+  default that PostgreSQL documents, which the PostgreSQL emitter's SQL keeps
+  by writing no NULLS clause. Tied rows have no promised relative order, and
+  `limit 0` keeps no rows.
+- **Aggregates.** `count` gives an integer, 0 over no rows. `min` and `max`
+  keep their argument's type and give NULL over no rows or over only NULL
+  values. A `group by` over no rows gives no rows, and NULL keys form one
+  group.
+
+These rules hold on one measured SQLite library, which its version, source id
+and compile options identify together. A version number alone is not that
+identity, and no other build is qualified; the SQL text is the same whatever
+library later runs it.
+
 ## Types and shapes
 
 The builtin scalar names are:
@@ -701,9 +784,10 @@ value.
 - **Literals.** In project SQL a Float literal is a typed binary64 carrier and
   `-0.0` is a real negative zero. Single-file SQL writes a Float literal as SQL
   number text; the `-0.0` it writes arrives as `+0` on both PostgreSQL and
-  MySQL, so a negative zero in single-file output never comes from a `-0.0`
-  literal (it can come from stored data or from negating or multiplying a
-  Float field).
+  MySQL, so a negative zero in PostgreSQL or MySQL single-file output never
+  comes from a `-0.0` literal (it can come from stored data or from negating
+  or multiplying a Float field). SQLite single-file output has no negative
+  zero at all ([SQLite single files](#sqlite-single-files)).
 - **Identity.** A literal's or a bound parameter's identity is its bits:
   `-0.0` and `0.0` are different literals and different bindings, which
   compare equal.
@@ -801,8 +885,11 @@ source users: User = postgres.table("public.users")
 
 In single-file mode the connector string names one table: `"users"`, or with
 exactly one dot `"<schema>.<table>"`, where the schema is a PostgreSQL schema
-for `postgres.table` and a MySQL database for `mysql.table`. `emit-sql` quotes
-each part separately, so the source above emits `FROM "public"."users"`.
+for `postgres.table` and a MySQL database for `mysql.table`. A `sqlite.table`
+string names a bare table only, so one with a dot fails `check` with
+`PIE-S2306` at the string ([SQLite single files](#sqlite-single-files)).
+`emit-sql` quotes each part separately, so the source above emits
+`FROM "public"."users"`.
 PostgreSQL emission refuses any identifier, including an output name, longer
 than 63 UTF-8 bytes with PIE-B1000, because PostgreSQL would truncate it. A
 string with more than one dot or an empty part fails `check` with `PIE-S2306`
@@ -819,15 +906,20 @@ it with PIE-B1000. An argument that is not a string
 literal also fails single-file `check`: a bare unquoted name such as `users` with
 `PIE-S2102`, and an unquoted dotted name such as `public.users` or another
 expression with `PIE-S2306` at the argument, unless the connector call already
-has an error of its own: an unknown connector, or `postgres.table` or
-`mysql.table` without exactly one argument, fails single-file `check` with
-`PIE-S2306` on the whole call whatever its arguments are, unless an argument
-reports an error of its own such as that `PIE-S2102`; where defs are
-available, a call of a `def` there is PIE-S2397 instead (see
-[Inline functions](#inline-functions-def)). Project mode does not split or
-interpret the name, although its check still rejects an empty `mysql.table`
-string; project SQL emission takes the physical relation from its emission
-contract.
+has an error of its own: an unknown connector, or `postgres.table`,
+`mysql.table` or `sqlite.table` without exactly one argument, fails
+single-file `check` with `PIE-S2306` on the whole call whatever its arguments
+are, and so do one of the three with a non-`Text` argument such as `1` and a
+`mysql.table` with a `Text` argument that is not a string literal, such as
+`concat("a", "b")`, unless an argument reports an error of its own such as
+that `PIE-S2102`; where defs are available, a call of a `def` there is
+PIE-S2397 instead (see [Inline functions](#inline-functions-def)). Project
+mode does not split or interpret the name, although its check still rejects
+an empty `mysql.table` string; project SQL emission takes the physical
+relation from its emission contract. A project has no `sqlite.table`
+connector: its check refuses `sqlite.table("users")` with `PIE-S2306`
+`Unknown source connector: sqlite.table` on the whole call, as it refuses
+every connector it does not know.
 
 Tables and queries share this ordered clause shape:
 
