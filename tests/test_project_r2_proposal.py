@@ -424,7 +424,7 @@ def test_r2_refuses_a_now_read_before_any_workspace(tmp_path, monkeypatch):
     main.write_text(
         main.read_text(encoding="utf-8")
         + "table snap:\n    from items\n    where id > 0\n    select:\n"
-        "        id\n        seen = now()\n",
+        "        id\n        day = date_of(now())\n",
         encoding="utf-8",
     )
     query = execution.compile_query(

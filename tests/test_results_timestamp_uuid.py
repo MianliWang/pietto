@@ -2,8 +2,10 @@
 
 from dataclasses import replace
 from copy import copy
+from datetime import datetime
 import importlib.util
 import json
+from uuid import UUID
 
 import pytest
 
@@ -537,3 +539,66 @@ query result:
         None if field.meaning is None else field.meaning.canonical.name
         for field in replayed.contract.shape.fields
     ] == ["UUID", "Timestamp"]
+
+
+@pytest.mark.parametrize(
+    ("header", "kind", "item", "parameters"),
+    (
+        ("table snap:", "table", "seen = now()", None),
+        (
+            "query snap(start: Timestamp):",
+            "query",
+            "since = start",
+            {"start": datetime(2026, 1, 2)},
+        ),
+        ("query snap(key: UUID):", "query", "who = key", {"key": UUID(int=1)}),
+        (None, "query", "seen = now()", None),
+    ),
+    ids=("now", "timestamp-parameter", "uuid-parameter", "collected-now"),
+)
+def test_a_timestamp_output_without_source_meaning_is_refused_before_it_runs(
+    tmp_path, header, kind, item, parameters
+):
+    """Without a Timestamp or UUID source the program has no scalar meaning, so
+    `now()` or a Timestamp or UUID parameter selected as an output, also in a
+    collected child relation, is refused while execute() prepares the result,
+    as it is beside such a source, before any connection or schema export."""
+    import _pietto_execution_api as api
+    import pietto.execution as execution
+
+    if header is None:  # the child relation `members` that `result` collects
+        project = api.write_nested_collect(tmp_path)
+        main = project / "main.pietto"
+        source = main.read_text(encoding="utf-8").replace(
+            "            t\n", f"            t\n            {item}\n"
+        )
+        name, schemas = "result", ("public", "pg_catalog")
+    else:
+        project = api.write_example(tmp_path)
+        main = project / "main.pietto"
+        source = (
+            main.read_text(encoding="utf-8")
+            + f"{header}\n    from items\n    select:\n        id\n        {item}\n"
+        )
+        name, schemas = "snap", ("fixture", "pg_catalog")
+    main.write_text(source, encoding="utf-8")
+    query = execution.compile_query(
+        project,
+        module="main.pietto",
+        kind=kind,
+        name=name,
+        dialect="postgres",
+        emission_contract="contract.json",
+    )
+    with pytest.raises(execution.RequestRejected) as refused:
+        execution.execute(
+            query,
+            route="postgres_rows",
+            access=execution.PostgresAccess("127.0.0.1", 9, "app", "reader", "pw"),
+            premise=execution.PostgresDeploymentPremise(schemas),
+            parameters=parameters,
+        )
+    assert (refused.value.code, refused.value.detail) == (
+        "PIE-R1004",
+        "MEANING_OUTPUT",
+    )

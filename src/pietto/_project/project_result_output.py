@@ -153,6 +153,18 @@ def _prepare_output(artifact, *, binding=None, guarded=None):
                 source,
             )
         )
+    # A Timestamp or UUID value carries its meaning only from a source field; a
+    # program with no such field builds its contract without refusing one.
+    if any(
+        c.realization.tag in ("Timestamp", "UUID") and c.field.meaning is None
+        for column in columns
+        for c in (
+            column.children if isinstance(column, NestedOutputColumn) else (column,)
+        )
+    ):
+        from pietto._project.project_scalar_meaning import ScalarMeaningError
+
+        raise ScalarMeaningError("MEANING_OUTPUT")
     output = GeneralOutput(artifact, contract, binding, units, tuple(columns), guarded)
     verify_output(output, artifact, contract, binding=binding)
     return output

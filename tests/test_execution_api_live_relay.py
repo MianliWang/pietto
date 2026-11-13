@@ -63,15 +63,26 @@ def test_relay_requires_a_sink_before_opening_the_workspace(query):
     )
 
 
-def test_relay_refuses_a_now_read_before_the_sink_or_workspace(tmp_path):
+@pytest.mark.parametrize(
+    ("item", "detail", "save_code"),
+    (
+        ("day = date_of(now())", "STATEMENT_SNAPSHOT_ENTRY", "PIE-R1009"),
+        ("seen = now()", "MEANING_OUTPUT", "PIE-R1004"),
+    ),
+    ids=("read", "output"),
+)
+def test_relay_refuses_a_now_read_before_the_sink_or_workspace(
+    tmp_path, item, detail, save_code
+):
     """A relay of a query that reads `now()` is refused before any sink or
     workspace work; a plain save of it is not (its saved rows keep the
-    value), so it reaches the workspace."""
+    value), so it reaches the workspace. `now()` selected as an output has no
+    source meaning, so both refuse it first, while they prepare the result."""
     project = api.write_example(tmp_path / "project")
     main = project / "main.pietto"
     main.write_text(
         main.read_text(encoding="utf-8")
-        + "table snap:\n    from items\n    select:\n        id\n        seen = now()\n",
+        + f"table snap:\n    from items\n    select:\n        id\n        {item}\n",
         encoding="utf-8",
     )
     query = execution.compile_query(
@@ -105,10 +116,7 @@ def test_relay_refuses_a_now_read_before_the_sink_or_workspace(tmp_path):
             sink_budget_bytes=private_workspace.DEFAULT_BUDGET,
             values=values,
         )
-    assert (refused.value.code, refused.value.detail) == (
-        "PIE-R1004",
-        "STATEMENT_SNAPSHOT_ENTRY",
-    )
+    assert (refused.value.code, refused.value.detail) == ("PIE-R1004", detail)
     with pytest.raises(execution.RequestRejected) as saved:
         execution.save(
             workspace,
@@ -119,7 +127,7 @@ def test_relay_refuses_a_now_read_before_the_sink_or_workspace(tmp_path):
             premise=_premise(),
             values=values,
         )
-    assert saved.value.code == "PIE-R1009"
+    assert saved.value.code == save_code
 
 
 @pytest.mark.parametrize(

@@ -3398,7 +3398,13 @@ and does not read `now()` again. `relay_live` (PIE-R1004
 `STATEMENT_SNAPSHOT_ENTRY`) and R2 `save_recoverable`/`recover` (PIE-R1004
 `PUBLIC_R2_STATEMENT_SNAPSHOT`) refuse a query that reads `now()`, before
 any workspace or sink work, because a resumed attempt would read another
-statement's value.
+statement's value. Selected as an output, `now()` is a `Timestamp` without a
+source field, so for now, like a `Timestamp` parameter (see
+[Timestamp and UUID source meaning](#timestamp-and-uuid-source-meaning)), it
+has no meaning that a result can carry: `execute()`, `save`,
+`save_recoverable` and `relay_live` refuse it when they prepare the result,
+before any workspace or connection (PIE-R1004 `QUERY_NOT_EXECUTABLE`, detail
+`MEANING_OUTPUT`). `date_of(now())` and a WHERE comparison with `now()` run.
 
 `now()` is admitted only in a SELECT item, outside a window, and in a WHERE
 (PIE-S2387 elsewhere, with a specific hint for a GROUP BY key, an ORDER BY

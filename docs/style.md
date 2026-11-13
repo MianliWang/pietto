@@ -1224,7 +1224,10 @@ query current_offers:
 `datetime.now(timezone.utc).replace(tzinfo=None)`; it is not `datetime.now()`,
 which is local time. Every `now()` of one run is the same value, and a new run
 reads a new one; saved results keep the value of the run that saved them.
-`date_of(now())` is today's UTC date. Write `now()` in a SELECT item or a WHERE
+`date_of(now())` is today's UTC date. For now, `execute()`, `save`,
+`save_recoverable` and `relay_live` refuse `now()` selected as an output, as
+`checked_at` here (PIE-R1004 `MEANING_OUTPUT`); `checked_on` and the WHERE
+comparison run. Write `now()` in a SELECT item or a WHERE
 comparison; elsewhere, such as a GROUP BY or ORDER BY key, a JOIN `on`, a field
 `derive`, another `let`, HAVING, QUALIFY, a window, LIMIT or a `def` body, it
 is refused (PIE-S2387). If a column holds local time, comparing it with
