@@ -1,8 +1,8 @@
 -- LiteralCompatibility
 SELECT
     'O''Reilly' AS `QuotedText`,
-    '\\''; --' AS `EscapedText`,
-    '\b\n\r\t' AS `ControlText`,
+    _utf8mb4 X'5c273b202d2d' AS `EscapedText`,
+    _utf8mb4 X'080a0d09' AS `ControlText`,
     '你好' AS `UnicodeText`,
     NULL AS `Nothing`,
     TRUE AS `Truth`,
@@ -12,4 +12,4 @@ SELECT
     `order` AS `ReservedName`,
     `Rows`.`email` AS `QualifiedEmail`
 FROM `Sales`.`Compat``ibilityRows` AS `Rows`
-WHERE `email` = '\\''; --';
+WHERE `email` = _utf8mb4 X'5c273b202d2d';

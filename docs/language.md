@@ -763,7 +763,15 @@ PostgreSQL emission refuses any identifier, including an output name, longer
 than 63 UTF-8 bytes with PIE-B1000, because PostgreSQL would truncate it. A
 string with more than one dot or an empty part fails `check` with `PIE-S2306`
 at the string, except that an empty `mysql.table("")` keeps its existing
-`PIE-S2306` on the whole connector call. An argument that is not a string
+`PIE-S2306` on the whole connector call. A `mysql.table` part that project
+SQL emission would refuse to name, one that ends with a space or holds `/`,
+`\` or a character outside the Basic Multilingual Plane, such as
+`"app.users "` or `"𠀀.users"`, also fails `check` with `PIE-S2306` at the
+string. `check` knows no dialect, so a file that declares such a source
+fails `emit-sql` for PostgreSQL too, even when no statement reads it. A
+string with a part that holds NUL or has more than 64 characters passes
+`check` even when its other part would fail it, and MySQL emission refuses
+it with PIE-B1000. An argument that is not a string
 literal also fails single-file `check`: a bare unquoted name such as `users` with
 `PIE-S2102`, and an unquoted dotted name such as `public.users` or another
 expression with `PIE-S2306` at the argument, unless the connector call already
@@ -2821,7 +2829,13 @@ give the same value, and `pietto fmt` writes double quotes. In either form
 `"it's"` are one value, as are `'say "hi"'` and `"say \"hi\""`. `\\` is a
 backslash and `\n`, `\r`, `\t`, `\b` and `\f` are a line feed, carriage
 return, tab, backspace and form feed; any other escape is PIE-P1000, and a
-string ends on its line.
+string ends on its line. Single-file MySQL SQL writes a Text literal that
+holds a backslash or a control character as its UTF-8 bytes in hexadecimal
+with the `_utf8mb4` introducer, as project MySQL SQL writes its Text
+literals in hexadecimal: `"a\\b"` is `_utf8mb4 X'615c62'`, which MySQL reads
+the same with or without `NO_BACKSLASH_ESCAPES` and compares under the
+column's collation as any other literal. Another Text literal stays in single
+quotes with each `'` doubled.
 
 Arithmetic (`+ - * / %` and unary `+`/`-`), `not`, `and`, `or`, comparisons,
 `like`/`not like`, inclusive comparison chains, `in`, the arguments of the scalar functions

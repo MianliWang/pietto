@@ -100,13 +100,15 @@ def test_render_literal_supports_approved_scalar_values(
 @pytest.mark.parametrize(
     ("value", "expected"),
     [
-        ("path\\to\\file", "'path\\\\to\\\\file'"),
-        ("\\n", "'\\\\n'"),
-        ("\b\n\r\t\x1a", "'\\b\\n\\r\\t\\Z'"),
-        ("\\'; --", "'\\\\''; --'"),
+        ("path\\to\\file", "_utf8mb4 X'706174685c746f5c66696c65'"),
+        ("\\n", "_utf8mb4 X'5c6e'"),
+        ("\b\n\r\t\x1a", "_utf8mb4 X'080a0d091a'"),
+        ("\\'; --", "_utf8mb4 X'5c273b202d2d'"),
+        ("a\x01\x7f\x85\u00e9", "_utf8mb4 X'61017fc285c3a9'"),
+        ("a\u00a0\u2028\U0001f600", "'a\u00a0\u2028\U0001f600'"),
     ],
 )
-def test_render_literal_uses_canonical_mysql_escapes(
+def test_render_literal_writes_backslash_or_control_text_in_hex(
     value: str,
     expected: str,
 ) -> None:

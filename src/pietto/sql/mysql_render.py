@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import math
+import unicodedata
 from datetime import date, datetime
 
 MYSQL_IDENTIFIER_MAX_CHARACTERS = 64
@@ -65,25 +66,11 @@ def render_literal(value: object) -> str:
 
 def _render_text_literal(value: str) -> str:
     _validate_text(value, context="string literal")
-    escaped: list[str] = []
-    for character in value:
-        if character == "'":
-            escaped.append("''")
-        elif character == "\\":
-            escaped.append("\\\\")
-        elif character == "\b":
-            escaped.append("\\b")
-        elif character == "\n":
-            escaped.append("\\n")
-        elif character == "\r":
-            escaped.append("\\r")
-        elif character == "\t":
-            escaped.append("\\t")
-        elif character == "\x1a":
-            escaped.append("\\Z")
-        else:
-            escaped.append(character)
-    return "'" + "".join(escaped) + "'"
+    if any(c == "\\" or unicodedata.category(c) == "Cc" for c in value):
+        # Hex reads the same under NO_BACKSLASH_ESCAPES; the introducer keeps
+        # a Text literal, which compares under the column's collation.
+        return "_utf8mb4 X'" + value.encode().hex() + "'"
+    return "'" + value.replace("'", "''") + "'"
 
 
 def _validate_text(value: str, *, context: str) -> None:

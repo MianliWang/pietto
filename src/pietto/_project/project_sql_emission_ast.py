@@ -6,6 +6,7 @@ from dataclasses import dataclass, replace
 import json
 from typing import Any, cast
 from pietto.ast_nodes import AuthoredJoinKind, SourceDef, ValuesRelationDef
+from pietto.semantic.source_connectors import identifier_valid
 
 from pietto._project import project_sql_plan_expressions as row
 from pietto._project import project_sql_plan_aggregation as plan_aggregation
@@ -130,26 +131,6 @@ class GeneratedRequirement:
     # bigint result whose range the target checks instead of a static proof,
     # TARGET_CHECKED_BINARY64 a binary64 result the target checks is finite.
     evidence: tuple[str, ...] = ()
-
-
-def identifier_valid(name, family, *, label=False, relation=False):
-    if type(name) is not str or not name or "\0" in name:
-        return False
-    try:
-        encoded = name.encode("utf-8")
-    except UnicodeError:
-        return False
-    if family == "postgres":
-        return len(encoded) <= 63
-    if (
-        family != "mysql"
-        or len(name) > (256 if label else 64)
-        or any(ord(c) > 0xFFFF for c in name)
-    ):
-        return False
-    if not label and name.endswith(" "):
-        return False
-    return not relation or not any(c in name for c in (".", "/", "\\"))
 
 
 def projection_chain_shape(plan):

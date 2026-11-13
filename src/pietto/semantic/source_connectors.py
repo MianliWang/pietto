@@ -34,6 +34,9 @@ def check_table_names(
     connector argument and signature diagnostics) already has one inside the
     connector call. An unknown connector, or a known one without exactly one
     argument, is reported on the call when `reported` has nothing inside it.
+    A `mysql.table` string is also reported at the string when a part is a
+    name that project emission refuses (`identifier_valid`), unless a part
+    holds NUL or has more than 64 characters, which MySQL emission refuses.
     Project mode takes physical names from its emission contract instead, so
     only single-file analysis runs this check.
     """
@@ -84,17 +87,63 @@ def check_table_names(
             continue
         parts = argument.value.split(".")
         if (len(parts) == 1 and parts[0]) or (len(parts) == 2 and all(parts)):
-            continue
+            if connector_name != _MYSQL_TABLE or not _mysql_check_refuses(parts):
+                continue
+            problem = (
+                "a table or database name must not end with a space or hold "
+                "/, \\ or a character outside the Basic Multilingual Plane"
+            )
+        else:
+            problem = "expected <table> or <schema>.<table>"
         diagnostics.append(
             _connector_diagnostic(
                 argument,
                 message=(
                     f"Invalid source connector arguments for {connector_name}: "
-                    "expected <table> or <schema>.<table>"
+                    + problem
                 ),
             )
         )
     return diagnostics
+
+
+def identifier_valid(name, family, *, label=False, relation=False):
+    """Whether `family` SQL can name `name`: an output label, a column or,
+    with `relation`, a table or schema; the rule project emission applies."""
+    if type(name) is not str or not name or "\0" in name:
+        return False
+    try:
+        encoded = name.encode("utf-8")
+    except UnicodeError:
+        return False
+    if family == "postgres":
+        return len(encoded) <= 63
+    if (
+        family != "mysql"
+        or len(name) > (256 if label else 64)
+        or any(ord(c) > 0xFFFF for c in name)
+    ):
+        return False
+    if not label and name.endswith(" "):
+        return False
+    return not relation or not any(c in name for c in (".", "/", "\\"))
+
+
+def _mysql_check_refuses(parts: list[str]) -> bool:
+    """Whether single-file `check` refuses the parts of a `mysql.table` string.
+
+    It refuses what project emission cannot name and MySQL emission would
+    quote. A string with a part that holds NUL, is not UTF-8 or has more
+    than 64 characters keeps MySQL emission's own refusal of the whole name.
+    """
+    for part in parts:
+        try:
+            part.encode("utf-8")
+        except UnicodeError:
+            return False
+        if "\0" in part or len(part) > 64:
+            return False
+    return not all(identifier_valid(part, "mysql", relation=True) for part in parts)
 
 
 def check_source_connectors(

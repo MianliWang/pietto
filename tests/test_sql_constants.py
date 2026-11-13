@@ -27,7 +27,7 @@ SELECT = {
         "SELECT\n    `id` AS `id`,\n"
         "    DATE '2024-01-31' AS `as_of`,\n"
         "    TIMESTAMP '2024-01-31 08:30:00.250000' AS `stamped`,\n"
-        "    'it''s \\\\ ok' AS `tag`,\n"
+        "    _utf8mb4 X'69742773205c206f6b' AS `tag`,\n"
         "    TRUE AS `on`,\n"
         "    `amount` + (-1.5) AS `shifted`,\n"
         "    DATE(`at`) = DATE '2024-01-31' AS `same_day`,\n"

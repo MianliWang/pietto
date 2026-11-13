@@ -9,6 +9,7 @@ import pytest
 from antlr4 import ParserRuleContext
 from antlr4.Token import Token
 
+import pietto.cli as cli
 from pietto.ast_nodes import CallExpr, Script, ShapeDef, SourceDef
 from pietto.errors import Diagnostic, Severity
 from pietto.parser_api import parse_source
@@ -24,7 +25,7 @@ SHAPE = "shape UserRow:\n    id: UUID\n    email: Text\n"
         ('mysql.table("app.users")', ()),
         ('postgres.table("")', ("PIE-S2306",)),
         ('postgres.table("   ")', ()),
-        ('mysql.table("   ")', ()),
+        ('mysql.table("   ")', ("PIE-S2306",)),
         ('postgres.table(trim("users"))', ("PIE-S2306",)),
         ("postgres.table(123)", ("PIE-S2306",)),
         ('mysql.table("")', ("PIE-S2306",)),
@@ -53,7 +54,11 @@ def test_completed_source_rules_preserve_single_file_diagnostics(
     completed = _completed(tmp_path, text)
     assert tuple(d.code for d in expected) == codes
     # The single-file table-string rule does not apply to projects.
-    single_file_only = {'postgres.table("")', 'postgres.table(trim("users"))'}
+    single_file_only = {
+        'postgres.table("")',
+        'postgres.table(trim("users"))',
+        'mysql.table("   ")',
+    }
     completed_expected = () if connector in single_file_only else expected
     assert completed.diagnostics == completed_expected
     assert completed.ok is (not completed_expected)
@@ -257,6 +262,84 @@ def test_malformed_dotted_table_name_reports_pie_s2306_at_argument(
         location.end_line,
         location.end_column,
     ) == (span.path, span.line, span.column, span.end_line, span.end_column)
+
+
+@pytest.mark.parametrize(
+    ("table_name", "refused"),
+    [
+        ("\U0001f600.users", True),
+        ("app.users ", True),
+        ("   ", True),
+        ("app/users", True),
+        ("app.a\\\\b", True),
+        ("app.daily users", False),
+        ("app.\uffff", False),
+        # MySQL emission keeps its own PIE-B1000 for more than 64 characters,
+        # also when another part of the same string would fail check.
+        ("app." + "\U0001f600" * 65, False),
+        ("x" * 65 + ".a/b", False),
+    ],
+)
+def test_mysql_table_part_project_emission_refuses_reports_pie_s2306_at_string(
+    table_name: str, refused: bool
+) -> None:
+    text = SHAPE + 'source users: UserRow = {}("' + table_name + '")\n'
+    script = _parse(text.format("mysql.table"), path="table-names.pietto")
+    source = script.definitions[-1]
+    assert isinstance(source, SourceDef)
+    assert isinstance(source.connector, CallExpr)
+    span = source.connector.arguments[0].span
+
+    diagnostics = analyze(script).diagnostics
+
+    assert analyze(_parse(text.format("postgres.table"))).diagnostics == ()
+    assert [(d.code, d.severity, d.message) for d in diagnostics] == (
+        [
+            (
+                "PIE-S2306",
+                Severity.ERROR,
+                "Invalid source connector arguments for mysql.table: a table "
+                "or database name must not end with a space or hold /, \\ or "
+                "a character outside the Basic Multilingual Plane",
+            )
+        ]
+        if refused
+        else []
+    )
+    assert [
+        (
+            d.location.path,
+            d.location.line,
+            d.location.column,
+            d.location.end_line,
+            d.location.end_column,
+        )
+        for d in diagnostics
+    ] == [(span.path, span.line, span.column, span.end_line, span.end_column)] * refused
+
+
+def test_mysql_table_part_refusal_stops_postgres_emission_of_the_file(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    # check knows no dialect: the file reads only postgres.table, yet an
+    # unread mysql.table source with a refused part stops its emission.
+    path = tmp_path / "mixed.pietto"
+    path.write_text(
+        SHAPE
+        + 'source users: UserRow = postgres.table("app.users")\n'
+        + 'source others: UserRow = mysql.table("app/users")\n'
+        + "\ntable q:\n    from users\n    select:\n        email = email\n",
+        encoding="utf-8",
+    )
+
+    assert cli.main(["emit-sql", str(path), "--dialect", "postgres"]) == 1
+    captured = capsys.readouterr()
+    assert captured.out == ""
+    assert captured.err == (
+        f"{path}:5:38 PIE-S2306 error: Invalid source connector arguments for "
+        "mysql.table: a table or database name must not end with a space or "
+        "hold /, \\ or a character outside the Basic Multilingual Plane\n"
+    )
 
 
 def test_project_mode_does_not_apply_the_single_file_table_name_rule(
