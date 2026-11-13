@@ -11,7 +11,9 @@ last one, and a heavy file must not wait behind it. Registry standalone nodes
 of their own and inherit their file's estimate.
 
 It also registers ``--pietto-storage-class``, the explicit storage environment
-class that ``tests/_pietto_execution_jobs_probe.py`` resolves and applies.
+class that ``tests/_pietto_execution_jobs_probe.py`` resolves and applies, and
+``--pietto-sqlite-class``, the explicit class of the in-process SQLite
+qualification that ``tests/test_sql_sqlite_native.py`` resolves and applies.
 """
 
 from __future__ import annotations
@@ -61,6 +63,12 @@ def pytest_addoption(parser: pytest.Parser) -> None:
         "--pietto-storage-class",
         default=None,
         help="storage environment class: hosted-refusal, qualified or report",
+    )
+    parser.addoption(
+        "--pietto-sqlite-class",
+        default=None,
+        choices=("hosted-refusal", "qualified", "report"),
+        help="SQLite native qualification class: hosted-refusal, qualified or report",
     )
 
 

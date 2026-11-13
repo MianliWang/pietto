@@ -163,12 +163,14 @@ measured 20-worker full run passed in 270 s with MemAvailable at or above
 still stops a gate under sustained memory pressure, and registry standalone
 nodes run as separate units so that extra workers are not stuck behind them.
 
-The validator declares `--pietto-storage-class=qualified` for its pytest gate
-only, so hosted `ci_validation.py run` commands never inherit it. Before the
+The validator declares `--pietto-storage-class=qualified` and
+`--pietto-sqlite-class=qualified` for its pytest gate only, so hosted
+`ci_validation.py run` commands never inherit them. Before the
 first gate it checks the storage profile of pytest's temporary root
 (`PYTEST_DEBUG_TEMPROOT` or the system temporary directory). An unqualified
-profile, or a `PIETTO_STORAGE_CLASS` other than `qualified`, stops it with
-exit 2 before any gate runs, and that is not a validation start. A
+profile, or a `PIETTO_STORAGE_CLASS` or `PIETTO_SQLITE_CLASS` other than
+`qualified`, stops it with exit 2 before any gate runs, and that is not a
+validation start. A
 non-authoritative run on other storage calls pytest directly and gets the
 `report` class (see the S11 job store section below).
 
@@ -278,6 +280,96 @@ This routine review does not require a CI health alert. `ci_workload` and
 notes never select tests. Scheduler/topology/resource-policy changes still need
 existing evidence and separate authority. [C01](spec/validation-consolidation-c01-v1.md)
 bootstraps this procedure without rewriting closed Phase67/S03 history.
+
+## SQLite target validation
+
+`tests/test_sql_sqlite_native.py` qualifies the SQL of
+[SQLite single files](language.md#sqlite-single-files) in process (D78.03).
+Each cell emits one program with the SQLite backend, runs the SQL with the
+standard-library `sqlite3` on a test-owned `:memory:` database of `STRICT`
+tables, and judges the raw result against an oracle written before the run: a
+literal expected result, the pure BAG/NULL equality oracle, or Python's own
+comparison operators with NULL as unknown. A test without SQLite checks that
+each literal `where` oracle of one comparison, NULL test or bare `Bool` field
+keeps the rows those operators keep. The cells cover each form of the subset
+on `Int`, `Text`, `Bool` and `Float` values with NULLs, duplicates, order with
+its NULL placement, `limit`, empty inputs and the reviewed golden, and premise
+controls break one premise each. A coverage law reads the emitted bytes and
+requires a cell for each clause and value type of every comparison, NULL
+test, connective and order direction in the emitter's vocabulary, not one
+cell per operator. Native errors, for a name the database lacks and for the
+`STRICT` and `NOT NULL` fixture premises, are judged by class, code,
+`sqlite_errorname` and text.
+
+Each native test makes one native observation and records it as a user
+property: a cell its source, fixture, SQL bytes and raw rows (`cell`), a
+golden statement its name, fixture, SQL bytes and raw rows (`golden`), and a
+native error its source or insert, its SQL or parameters and the class, code,
+name and text (`native_error`, `premise_error`). The build observation is the
+`sqlite_build` property. A runtime witness fails a native test at teardown
+unless it made exactly one observation on the measured build, whatever class
+is declared, or none on a refused build, where only `hosted-refusal` lets a
+native test start; so a cell that returns before it runs is never passed. No
+Docker, engine lock, network access or new dependency is used, and no
+PostgreSQL or MySQL statement runs.
+
+The target is one measured build: release `3.53.1` together with the source id
+and compile options that the test's `QUALIFIED_SQLITE_BUILD` records. A
+version alone is no identity, and the job store's constant is neither imported
+nor borrowed. The cells run only when the running library is that build. On
+any other build an explicit SQLite class decides what the observed refusal
+does, as the storage classes of the
+[job store](#phase68-s11-job-store-validation) do for their own premise:
+
+- `hosted-refusal`: the asserted refusal is the result, and no cell runs;
+- `qualified`: the test fails with `PIETTO_SQLITE_REQUIRED <category>`;
+- `report`: the test skips with `PIETTO_NOT_RUN sqlite-native <category>`, so
+  a cell that did not run is counted, never passed.
+
+The category names the first part of the identity that differs:
+`SQLITE_BUILD_RELEASE`, `SQLITE_BUILD_SOURCE` or `SQLITE_BUILD_OPTIONS`.
+`--pietto-sqlite-class` or `PIETTO_SQLITE_CLASS` declares the class; a conflict
+or an unknown value fails closed, and the storage class never declares it.
+With neither, hosted CI (`GITHUB_ACTIONS=true`) is `hosted-refusal` and any
+other run is `report`; hosted `verify` refuses any `PIETTO_NOT_RUN` skip. A run
+meant to qualify the build declares `qualified`, so a missing build fails it.
+The authoritative validator declares `qualified` for its pytest gate
+([validation tiers](#validation-tiers)) and refuses a conflicting
+`PIETTO_SQLITE_CLASS` before any gate, as it refuses a conflicting storage
+class. It has no pre-check of the SQLite build: its storage pre-check
+observes the job store's build constant, not this one, so on another build
+that passes that pre-check the native tests fail the pytest gate, and the
+validation has started. On every runner
+the judge's self-test with fabricated outputs, the forged-build refusals, the
+class resolution, the Python oracle agreement and the coverage law run, and
+the law emits the program of each cell except the premise controls; so do the
+SQL and golden byte tests of `tests/test_sql_sqlite_emission.py`. A cell
+emits its own program only under `hosted-refusal` or on the measured build:
+under `qualified` or `report` on another build the module fixture fails or
+skips before the cell starts.
+[Validation runner acceptance](spec/validation-runner-acceptance-v1.md) row 9
+states where the premise holds.
+
+`tests/fixtures/sqlite/postgres_replay_v1.json` keeps the PostgreSQL byte
+replay (D78.08): the rows that one campaign on the pinned PostgreSQL 18.6
+image returned for the PostgreSQL bytes of every law cell and golden
+statement, each program with `sqlite.table` swapped for `postgres.table`.
+It holds each entry's statement sha256, columns, type OIDs, rows and
+divergences, the fixture tables the run loaded, the run's identity and the
+file's own regeneration method. On every runner, with no database,
+`test_each_postgres_replay_binds_the_bytes_it_ran` re-emits each PostgreSQL
+statement from the tree and compares its sha256, checks the fixture rows,
+and judges the saved rows against the cell's prewritten oracle by the replay
+rule: Pietto types kept, carriers by type OID (`numeric` only in a column
+that projects a bare `Float` literal), rows as a sequence or a bag, and a
+zero sign as the one declared divergence `ZERO_SIGN`, because a `STRICT`
+`REAL` column stores `-0.0` as `0.0` while PostgreSQL keeps the sign. No
+command regenerates the file
+([golden-fixture policy](spec/golden-fixture-policy-v1.md)): when an
+entry's bytes, fixture rows, oracle or carriers change, the test fails, the
+changed entries run again under a reviewed preregistration delta and
+D78.08's conditions, and a reviewed edit replaces only those entries and
+the source block; every unchanged entry keeps its saved rows.
 
 ## Explicit target conformance
 

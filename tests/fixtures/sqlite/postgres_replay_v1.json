@@ -1,0 +1,1597 @@
+{
+ "format": "pietto.phase78.s03.postgres-replay.v1",
+ "source": {
+  "what": "Rows that PostgreSQL 18.6 returned for the PostgreSQL bytes of each SQLite qualification cell of tests/test_sql_sqlite_native.py (its _LAW_CELLS, then the four statements of the emit_sqlite_single_file golden), each program with sqlite.table(\" swapped for postgres.table(\", on the fixture tables below (Phase78 S03, D78.08).",
+  "campaign": "Preregistration v2.3, attempt 2 of the campaign, PASS exit 0; attempt 1 (v2.2, 2026-11-11T16:28:55Z) was void by a driver defect before any container existed. The campaign ended with this run.",
+  "run_id": "p78-pg-replay-20261111T173905Z",
+  "started_utc": "2026-11-11T17:39:06.000694Z",
+  "finished_utc": "2026-11-11T17:39:10.166602Z",
+  "status": "PASS",
+  "preregistration_sha256": "d5d630dd9dcd8650ee6ed0b9f4fb5bed1c626330ef58c565c2bb73312d7a8c36",
+  "sha256sums_sha256": "ebaeb4e93e9a32af0e159708f5d34a9bbf714737a71dfb35ee76055ad746a884",
+  "driver_sha256": "7e7410ac6e0879da59a03ff34b92b87bcbd44955cf06473ca29fdfd1c39e3137",
+  "judge_sha256": "19dda527fd744ff239d77cd85a60f495066d0fd551757f0922a7cfc98332cb1f",
+  "manifest_sha256": "1091184a02eb82f75f10b29beafa1c35bb4aec103528dfe977da475d90304fdc",
+  "manifest_generator_sha256": "37310b6311e89cff45e63f0938a431de1bd24fb4022cfa10211dbfba68bb84df",
+  "manifest_input_sha256": {"src/pietto/sql/postgres.py": "fb0757217b1f0ae4e8705c1c5649987ab09bbd36fe4faed440c00fd7d4e7c527", "tests/fixtures/sqlite/single_file.pietto": "430c151f17e44ed6bbf7dbcc7cec7753fdd74912bafcef62a0eb2949fbfaed2e", "tests/phase66_target_pins.json": "572a36a890cda4dc286cd9f9fcccf7998a292fc3b437b7836937960c74e87e92", "tests/test_sql_sqlite_native.py": "96eec631c05badf7d406bfb9f0311306dab022be2a9dbfeeef83940a6bf8e4e7"},
+  "lane_base_head": "ab972f362c433b234a74f542c5d274d22c8cdeae",
+  "records_sha256": "34e58cd25bba85697d7c150feb67c3f6b4e7aba023918a6a2e0b34f3511d8a0b",
+  "result_sha256": "5db3febf336533072e3d1ba8bc4db839f21d299ea9bbf47a1302719893bdf74d",
+  "image": "docker.io/library/postgres:18.6-bookworm@sha256:a10c981235b4f635e65df0cfb66a5598064628128505dbc6a3ed4ca303717521",
+  "server_version": "18.6 (Debian 18.6-1.pgdg12+2)",
+  "server_version_num": "180006",
+  "server_encoding": "UTF8",
+  "timezone": "UTC",
+  "psycopg": "3.3.8 binary",
+  "libpq": 180006,
+  "runtime": "Docker Desktop 4.99.0 (245822), Engine 29.9.3, kernel 6.18.58.1-microsoft-standard-WSL2",
+  "container": "--pull=never --network none, removed by its label after the run"
+ },
+ "regeneration": "No command regenerates this file (golden-fixture policy). The replay driver wrote records.jsonl and result.json; each entry here copies, in manifest order, its record's sql_sha256, columns, type_oids and rows verbatim (a value is [type, text] as the replay driver wrote it: repr for int, float, str and bool, str for a decimal (OID 1700); null is NULL) and the judge's divergences; fixtures copy the manifest's tables. When an entry's PostgreSQL bytes, fixture rows, prewritten oracle or carriers change, test_each_postgres_replay_binds_the_bytes_it_ran in tests/test_sql_sqlite_native.py fails. Then the manifest is generated again from the tree, the changed or new entries run under a reviewed preregistration delta and D78.08's conditions, and a reviewed edit replaces only those entries and the source block; every unchanged entry keeps its saved rows (docs/development.md, SQLite target validation).",
+ "fixtures": {
+  "accounts": {
+   "table": "accounts",
+   "postgres_ddl": "CREATE TABLE \"accounts\" (\"id\" bigint NOT NULL, \"name\" text COLLATE \"C\" NOT NULL, \"active\" boolean NOT NULL, \"score\" double precision, \"region\" text COLLATE \"C\")",
+   "rows": [
+    [["int", "1"], ["str", "'Ann'"], ["bool", "True"], ["float", "0.9"], ["str", "'east'"]],
+    [["int", "2"], ["str", "'Mia'"], ["bool", "False"], null, ["str", "'west'"]],
+    [["int", "3"], ["str", "\"O'Neil `\u00e9`\""], ["bool", "True"], ["float", "0.5"], null],
+    [["int", "4"], ["str", "'Zed'"], ["bool", "True"], ["float", "0.4"], ["str", "'east'"]],
+    [["int", "5"], ["str", "'mo'"], ["bool", "False"], ["float", "2.0"], ["str", "'east'"]],
+    [["int", "6"], ["str", "'Bo'"], ["bool", "True"], null, ["str", "'west'"]]
+   ]
+  },
+  "bool-pairs": {
+   "table": "t",
+   "postgres_ddl": "CREATE TABLE \"t\" (\"id\" bigint NOT NULL, \"b\" boolean, \"c\" boolean)",
+   "rows": [
+    [["int", "1"], ["bool", "False"], ["bool", "False"]],
+    [["int", "2"], ["bool", "False"], ["bool", "True"]],
+    [["int", "3"], ["bool", "False"], null],
+    [["int", "4"], ["bool", "True"], ["bool", "False"]],
+    [["int", "5"], ["bool", "True"], ["bool", "True"]],
+    [["int", "6"], ["bool", "True"], null],
+    [["int", "7"], null, ["bool", "False"]],
+    [["int", "8"], null, ["bool", "True"]],
+    [["int", "9"], null, null]
+   ]
+  },
+  "rows": {
+   "table": "t",
+   "postgres_ddl": "CREATE TABLE \"t\" (\"id\" bigint NOT NULL, \"n\" bigint, \"s\" text COLLATE \"C\", \"b\" boolean, \"x\" double precision)",
+   "rows": [
+    [["int", "1"], ["int", "-9223372036854775808"], ["str", "'a'"], ["bool", "True"], ["float", "-0.5"]],
+    [["int", "2"], ["int", "9223372036854775807"], ["str", "'A'"], ["bool", "False"], ["float", "1e+300"]],
+    [["int", "3"], ["int", "0"], ["str", "'\u00e9'"], null, ["float", "0.0"]],
+    [["int", "4"], null, ["str", "'e\u0301'"], ["bool", "True"], ["float", "-0.0"]],
+    [["int", "5"], ["int", "7"], null, ["bool", "False"], null],
+    [["int", "6"], ["int", "7"], ["str", "'\u4e2d'"], ["bool", "True"], ["float", "2.5"]],
+    [["int", "7"], ["int", "7"], ["str", "'\u4e2d'"], ["bool", "True"], ["float", "2.5"]],
+    [["int", "8"], null, ["str", "'\ud83d\ude00'"], null, null],
+    [["int", "9"], ["int", "1"], ["str", "''"], ["bool", "False"], ["float", "1.0"]]
+   ]
+  }
+ },
+ "entries": [
+  {
+   "id": "select-every-type",
+   "fixture": "rows",
+   "postgres_sql_sha256": "951551f2fc5d1bee8f46b60b558714fe00a65e995005ac8be339555d67559a39",
+   "columns": ["id", "n", "s", "b", "x"],
+   "type_oids": [20, 20, 25, 16, 701],
+   "divergences": ["ZERO_SIGN"],
+   "rows": [
+    [["int", "1"], ["int", "-9223372036854775808"], ["str", "'a'"], ["bool", "True"], ["float", "-0.5"]],
+    [["int", "2"], ["int", "9223372036854775807"], ["str", "'A'"], ["bool", "False"], ["float", "1e+300"]],
+    [["int", "3"], ["int", "0"], ["str", "'\u00e9'"], null, ["float", "0.0"]],
+    [["int", "4"], null, ["str", "'e\u0301'"], ["bool", "True"], ["float", "-0.0"]],
+    [["int", "5"], ["int", "7"], null, ["bool", "False"], null],
+    [["int", "6"], ["int", "7"], ["str", "'\u4e2d'"], ["bool", "True"], ["float", "2.5"]],
+    [["int", "7"], ["int", "7"], ["str", "'\u4e2d'"], ["bool", "True"], ["float", "2.5"]],
+    [["int", "8"], null, ["str", "'\ud83d\ude00'"], null, null],
+    [["int", "9"], ["int", "1"], ["str", "''"], ["bool", "False"], ["float", "1.0"]]
+   ]
+  },
+  {
+   "id": "select-literals",
+   "fixture": "rows",
+   "postgres_sql_sha256": "5be89c8198fc11521ce60fb3be152f732fce224a011d6331652b5ecf10727869",
+   "columns": ["id", "big", "zero", "half", "nought", "quote", "wide", "truth", "falsity"],
+   "type_oids": [20, 20, 23, 1700, 1700, 25, 25, 16, 16],
+   "divergences": [],
+   "rows": [
+    [["int", "1"], ["int", "9223372036854775807"], ["int", "0"], ["decimal", "1.5"], ["decimal", "0.0"], ["str", "\"O'Neil\""], ["str", "'\u00e9\u4e2d\ud83d\ude00'"], ["bool", "True"], ["bool", "False"]]
+   ]
+  },
+  {
+   "id": "select-multiplicity",
+   "fixture": "rows",
+   "postgres_sql_sha256": "bf5c7923b808fab3598746d49ba844e93c1acdbf0f5f4d545e1d72f198c48067",
+   "columns": ["n", "s"],
+   "type_oids": [20, 25],
+   "divergences": [],
+   "rows": [
+    [["int", "-9223372036854775808"], ["str", "'a'"]],
+    [["int", "9223372036854775807"], ["str", "'A'"]],
+    [["int", "0"], ["str", "'\u00e9'"]],
+    [null, ["str", "'e\u0301'"]],
+    [["int", "7"], null],
+    [["int", "7"], ["str", "'\u4e2d'"]],
+    [["int", "7"], ["str", "'\u4e2d'"]],
+    [null, ["str", "'\ud83d\ude00'"]],
+    [["int", "1"], ["str", "''"]]
+   ]
+  },
+  {
+   "id": "select-bool-results",
+   "fixture": "rows",
+   "postgres_sql_sha256": "5a2943c94e68b4d92fee83c622105416de35774017d93826b7f5e3541f7cc364",
+   "columns": ["id", "yes", "flip", "missing"],
+   "type_oids": [20, 16, 16, 16],
+   "divergences": [],
+   "rows": [
+    [["int", "1"], ["bool", "True"], ["bool", "False"], ["bool", "False"]],
+    [["int", "2"], ["bool", "False"], ["bool", "True"], ["bool", "False"]],
+    [["int", "3"], null, null, ["bool", "False"]],
+    [["int", "4"], ["bool", "True"], ["bool", "False"], ["bool", "False"]],
+    [["int", "5"], ["bool", "False"], ["bool", "True"], ["bool", "True"]],
+    [["int", "6"], ["bool", "True"], ["bool", "False"], ["bool", "False"]],
+    [["int", "7"], ["bool", "True"], ["bool", "False"], ["bool", "False"]],
+    [["int", "8"], null, null, ["bool", "True"]],
+    [["int", "9"], ["bool", "False"], ["bool", "True"], ["bool", "False"]]
+   ]
+  },
+  {
+   "id": "select-connectives",
+   "fixture": "rows",
+   "postgres_sql_sha256": "0ddafd6c4b6592775472fda034eed8f961b35c26f090ce83679f58cb99e7e8c6",
+   "columns": ["id", "both", "either"],
+   "type_oids": [20, 16, 16],
+   "divergences": [],
+   "rows": [
+    [["int", "1"], ["bool", "True"], ["bool", "True"]],
+    [["int", "2"], ["bool", "False"], ["bool", "False"]],
+    [["int", "3"], null, null],
+    [["int", "4"], ["bool", "True"], ["bool", "True"]],
+    [["int", "5"], ["bool", "False"], ["bool", "True"]],
+    [["int", "6"], ["bool", "True"], ["bool", "True"]],
+    [["int", "7"], ["bool", "True"], ["bool", "True"]],
+    [["int", "8"], ["bool", "False"], ["bool", "True"]],
+    [["int", "9"], ["bool", "False"], ["bool", "False"]]
+   ]
+  },
+  {
+   "id": "where-int-ne",
+   "fixture": "rows",
+   "postgres_sql_sha256": "46aad86618b9796313c0cd44af09e9738a1ace600e44a9036e9af7ca044afefa",
+   "columns": ["id"],
+   "type_oids": [20],
+   "divergences": [],
+   "rows": [
+    [["int", "1"]],
+    [["int", "2"]],
+    [["int", "3"]],
+    [["int", "9"]]
+   ]
+  },
+  {
+   "id": "where-int-lt",
+   "fixture": "rows",
+   "postgres_sql_sha256": "809a3cb3052d73b5428d12e1e6343b619149a6e286d4e5d31188a62862fb0959",
+   "columns": ["id"],
+   "type_oids": [20],
+   "divergences": [],
+   "rows": [
+    [["int", "1"]]
+   ]
+  },
+  {
+   "id": "where-int-le",
+   "fixture": "rows",
+   "postgres_sql_sha256": "37ecb6b099dd0944721c513d9b556f9b52d6581cb1b02fdd6bca0f3f8ae13594",
+   "columns": ["id"],
+   "type_oids": [20],
+   "divergences": [],
+   "rows": [
+    [["int", "1"]],
+    [["int", "3"]]
+   ]
+  },
+  {
+   "id": "where-int-gt",
+   "fixture": "rows",
+   "postgres_sql_sha256": "b593ef753c88ce77c03b83e5421acd3355b610a82a71bf0fb4e8c5918573599a",
+   "columns": ["id"],
+   "type_oids": [20],
+   "divergences": [],
+   "rows": [
+    [["int", "2"]]
+   ]
+  },
+  {
+   "id": "where-int-ge-max",
+   "fixture": "rows",
+   "postgres_sql_sha256": "ed2e12819c3c6ad12aaa56e2c1e6f416440d0f75b4a19a606fbdf53dad89432c",
+   "columns": ["id"],
+   "type_oids": [20],
+   "divergences": [],
+   "rows": [
+    [["int", "2"]]
+   ]
+  },
+  {
+   "id": "where-text-lt-case",
+   "fixture": "rows",
+   "postgres_sql_sha256": "4288bd875a7f9b77bca69f0c1827d363f665a2aafa171ae34c77e3ca345de126",
+   "columns": ["id"],
+   "type_oids": [20],
+   "divergences": [],
+   "rows": [
+    [["int", "2"]],
+    [["int", "9"]]
+   ]
+  },
+  {
+   "id": "where-text-gt-non-ascii",
+   "fixture": "rows",
+   "postgres_sql_sha256": "b6ca3ef221a8daf1037086a16b91d71724a24bbcc88a4439e8414c51a0449516",
+   "columns": ["id"],
+   "type_oids": [20],
+   "divergences": [],
+   "rows": [
+    [["int", "3"]],
+    [["int", "6"]],
+    [["int", "7"]],
+    [["int", "8"]]
+   ]
+  },
+  {
+   "id": "where-text-ge-combining",
+   "fixture": "rows",
+   "postgres_sql_sha256": "cd996eb85e9b8c4f5b0210e45dca038f7c59946d8e3611feb3aa81954db5a330",
+   "columns": ["id"],
+   "type_oids": [20],
+   "divergences": [],
+   "rows": [
+    [["int", "3"]],
+    [["int", "4"]],
+    [["int", "6"]],
+    [["int", "7"]],
+    [["int", "8"]]
+   ]
+  },
+  {
+   "id": "where-text-le-empty",
+   "fixture": "rows",
+   "postgres_sql_sha256": "097ca5daafd8a73d85933ad1df64caefdd4fa3a0bacc61283203e532bb85bf54",
+   "columns": ["id"],
+   "type_oids": [20],
+   "divergences": [],
+   "rows": [
+    [["int", "9"]]
+   ]
+  },
+  {
+   "id": "where-text-ne",
+   "fixture": "rows",
+   "postgres_sql_sha256": "ed5a122506db7bd090a51895873ccc60b88e31a7029aa6806104cee321f974a0",
+   "columns": ["id"],
+   "type_oids": [20],
+   "divergences": [],
+   "rows": [
+    [["int", "2"]],
+    [["int", "3"]],
+    [["int", "4"]],
+    [["int", "6"]],
+    [["int", "7"]],
+    [["int", "8"]],
+    [["int", "9"]]
+   ]
+  },
+  {
+   "id": "where-bool-bare",
+   "fixture": "rows",
+   "postgres_sql_sha256": "99399b3e8d4c26187c01b717f91da6907d3c1e6ea47fd5bb080d8cf759def484",
+   "columns": ["id"],
+   "type_oids": [20],
+   "divergences": [],
+   "rows": [
+    [["int", "1"]],
+    [["int", "4"]],
+    [["int", "6"]],
+    [["int", "7"]]
+   ]
+  },
+  {
+   "id": "where-bool-not",
+   "fixture": "rows",
+   "postgres_sql_sha256": "a569188889dd9263f2e8bbfacd5c8c7490045eea3c469a2682d94a8de8f56af1",
+   "columns": ["id"],
+   "type_oids": [20],
+   "divergences": [],
+   "rows": [
+    [["int", "2"]],
+    [["int", "5"]],
+    [["int", "9"]]
+   ]
+  },
+  {
+   "id": "where-bool-ne",
+   "fixture": "rows",
+   "postgres_sql_sha256": "c64d6e8573888d145b688563fd16567cb8ddf0faa39492b9e44d8fb97fd1879f",
+   "columns": ["id"],
+   "type_oids": [20],
+   "divergences": [],
+   "rows": [
+    [["int", "1"]],
+    [["int", "4"]],
+    [["int", "6"]],
+    [["int", "7"]]
+   ]
+  },
+  {
+   "id": "where-bool-none",
+   "fixture": "rows",
+   "postgres_sql_sha256": "0134baf535d19502cd30f559e2e123659d44c2a38e2aa37a812bf8c4978941aa",
+   "columns": ["id"],
+   "type_oids": [20],
+   "divergences": [],
+   "rows": [
+    [["int", "3"]],
+    [["int", "8"]]
+   ]
+  },
+  {
+   "id": "where-bool-not-none",
+   "fixture": "rows",
+   "postgres_sql_sha256": "0f5424fd1c5d457229ea1014d980688f4fc726069bdbac6e3accbef0bf64c6b7",
+   "columns": ["id"],
+   "type_oids": [20],
+   "divergences": [],
+   "rows": [
+    [["int", "1"]],
+    [["int", "2"]],
+    [["int", "4"]],
+    [["int", "5"]],
+    [["int", "6"]],
+    [["int", "7"]],
+    [["int", "9"]]
+   ]
+  },
+  {
+   "id": "where-bool-lt-true",
+   "fixture": "rows",
+   "postgres_sql_sha256": "399fd29a8858d4d1693954226408b0db4249645f45c7bfd3e57debdccf2f4258",
+   "columns": ["id"],
+   "type_oids": [20],
+   "divergences": [],
+   "rows": [
+    [["int", "2"]],
+    [["int", "5"]],
+    [["int", "9"]]
+   ]
+  },
+  {
+   "id": "where-bool-lt-false",
+   "fixture": "rows",
+   "postgres_sql_sha256": "a1878f600c18d569f68f733d422b91b584ee112eebebbd9a85c0cd8172396ee9",
+   "columns": ["id"],
+   "type_oids": [20],
+   "divergences": [],
+   "rows": []
+  },
+  {
+   "id": "where-bool-le-true",
+   "fixture": "rows",
+   "postgres_sql_sha256": "70428719ffbd060509c2541a8e4ec7d0093ed72ab0af943196bdcefc2b02f7ae",
+   "columns": ["id"],
+   "type_oids": [20],
+   "divergences": [],
+   "rows": [
+    [["int", "1"]],
+    [["int", "2"]],
+    [["int", "4"]],
+    [["int", "5"]],
+    [["int", "6"]],
+    [["int", "7"]],
+    [["int", "9"]]
+   ]
+  },
+  {
+   "id": "where-bool-le-false",
+   "fixture": "rows",
+   "postgres_sql_sha256": "288be058499ba9186807c0cb25eb1491ee47826510cbd5f4d688f5d9e269c2fe",
+   "columns": ["id"],
+   "type_oids": [20],
+   "divergences": [],
+   "rows": [
+    [["int", "2"]],
+    [["int", "5"]],
+    [["int", "9"]]
+   ]
+  },
+  {
+   "id": "where-bool-gt-false",
+   "fixture": "rows",
+   "postgres_sql_sha256": "5fad006b0faf655dd47b6635a7e52dd99ceb2ce8c90e31472e69f75e6844312d",
+   "columns": ["id"],
+   "type_oids": [20],
+   "divergences": [],
+   "rows": [
+    [["int", "1"]],
+    [["int", "4"]],
+    [["int", "6"]],
+    [["int", "7"]]
+   ]
+  },
+  {
+   "id": "where-bool-gt-true",
+   "fixture": "rows",
+   "postgres_sql_sha256": "7102a364a16d32ca7b7675ae6a3d797df80fc689320ed9a5c032f6b688162c62",
+   "columns": ["id"],
+   "type_oids": [20],
+   "divergences": [],
+   "rows": []
+  },
+  {
+   "id": "where-bool-ge-false",
+   "fixture": "rows",
+   "postgres_sql_sha256": "4227b8a46bf7a138ba091c2fdef03be78dfa3472e7619090c907268248158565",
+   "columns": ["id"],
+   "type_oids": [20],
+   "divergences": [],
+   "rows": [
+    [["int", "1"]],
+    [["int", "2"]],
+    [["int", "4"]],
+    [["int", "5"]],
+    [["int", "6"]],
+    [["int", "7"]],
+    [["int", "9"]]
+   ]
+  },
+  {
+   "id": "where-bool-ge-true",
+   "fixture": "rows",
+   "postgres_sql_sha256": "bb6ad09246e79bd35ef71e779d7b13881c1702e848b8df2ed06b6d31c77fe760",
+   "columns": ["id"],
+   "type_oids": [20],
+   "divergences": [],
+   "rows": [
+    [["int", "1"]],
+    [["int", "4"]],
+    [["int", "6"]],
+    [["int", "7"]]
+   ]
+  },
+  {
+   "id": "where-bool-pair-lt",
+   "fixture": "bool-pairs",
+   "postgres_sql_sha256": "dd81e5fa1f881d0da1f407aaa51100dbc8ecdb715058257f5a8ad7fe7c9b2fb6",
+   "columns": ["id"],
+   "type_oids": [20],
+   "divergences": [],
+   "rows": [
+    [["int", "2"]]
+   ]
+  },
+  {
+   "id": "where-bool-pair-le",
+   "fixture": "bool-pairs",
+   "postgres_sql_sha256": "ade1398181a7db760f7bb7aa9afac1e00ae18596281bfce604c2a542bc8ddabd",
+   "columns": ["id"],
+   "type_oids": [20],
+   "divergences": [],
+   "rows": [
+    [["int", "1"]],
+    [["int", "2"]],
+    [["int", "5"]]
+   ]
+  },
+  {
+   "id": "where-bool-pair-gt",
+   "fixture": "bool-pairs",
+   "postgres_sql_sha256": "bfd3d037b5dc16cd8c974b03f84a401e3569888b93325b734c223e3425b5bd72",
+   "columns": ["id"],
+   "type_oids": [20],
+   "divergences": [],
+   "rows": [
+    [["int", "4"]]
+   ]
+  },
+  {
+   "id": "where-bool-pair-ge",
+   "fixture": "bool-pairs",
+   "postgres_sql_sha256": "8b1dfbafbc47d406b12f640aa1346b975e79d920509a64e91ed189e64076ba12",
+   "columns": ["id"],
+   "type_oids": [20],
+   "divergences": [],
+   "rows": [
+    [["int", "1"]],
+    [["int", "4"]],
+    [["int", "5"]]
+   ]
+  },
+  {
+   "id": "where-int-not-none",
+   "fixture": "rows",
+   "postgres_sql_sha256": "e8dfb9285e9f68337b7da0902d74688bc7dc1d016f58cb223a9678b64f37d9d5",
+   "columns": ["id"],
+   "type_oids": [20],
+   "divergences": [],
+   "rows": [
+    [["int", "1"]],
+    [["int", "2"]],
+    [["int", "3"]],
+    [["int", "5"]],
+    [["int", "6"]],
+    [["int", "7"]],
+    [["int", "9"]]
+   ]
+  },
+  {
+   "id": "where-text-none",
+   "fixture": "rows",
+   "postgres_sql_sha256": "4e1352adef36512faa55ccce2180edffa25abbb71df3bef401acf2e2cbc0f716",
+   "columns": ["id"],
+   "type_oids": [20],
+   "divergences": [],
+   "rows": [
+    [["int", "5"]]
+   ]
+  },
+  {
+   "id": "where-text-not-none",
+   "fixture": "rows",
+   "postgres_sql_sha256": "56fb28c4a4cee47b3ec19bd3d2e2c4af65560560469e4024e72c30d892300464",
+   "columns": ["id"],
+   "type_oids": [20],
+   "divergences": [],
+   "rows": [
+    [["int", "1"]],
+    [["int", "2"]],
+    [["int", "3"]],
+    [["int", "4"]],
+    [["int", "6"]],
+    [["int", "7"]],
+    [["int", "8"]],
+    [["int", "9"]]
+   ]
+  },
+  {
+   "id": "where-float-none",
+   "fixture": "rows",
+   "postgres_sql_sha256": "c908b83354762caa0e3ef0d485118d15f7317a81baa1ea98a089289e50f2d206",
+   "columns": ["id"],
+   "type_oids": [20],
+   "divergences": [],
+   "rows": [
+    [["int", "5"]],
+    [["int", "8"]]
+   ]
+  },
+  {
+   "id": "where-float-not-none",
+   "fixture": "rows",
+   "postgres_sql_sha256": "fb59bf0fbe6f0466cd43540ce813b43acb3de04f45edf928b578043837496fd9",
+   "columns": ["id"],
+   "type_oids": [20],
+   "divergences": [],
+   "rows": [
+    [["int", "1"]],
+    [["int", "2"]],
+    [["int", "3"]],
+    [["int", "4"]],
+    [["int", "6"]],
+    [["int", "7"]],
+    [["int", "9"]]
+   ]
+  },
+  {
+   "id": "where-float-eq-zero",
+   "fixture": "rows",
+   "postgres_sql_sha256": "ef772d3e9d3e5cd4e52f717f99626e68681a6fb92f70c94893c77934612b262b",
+   "columns": ["id"],
+   "type_oids": [20],
+   "divergences": [],
+   "rows": [
+    [["int", "3"]],
+    [["int", "4"]]
+   ]
+  },
+  {
+   "id": "where-float-lt",
+   "fixture": "rows",
+   "postgres_sql_sha256": "8632e4564bc3ee2106f4cf32f1960c4a4322a7eaaa137759f46d6a82d2ca9219",
+   "columns": ["id"],
+   "type_oids": [20],
+   "divergences": [],
+   "rows": [
+    [["int", "1"]],
+    [["int", "3"]],
+    [["int", "4"]]
+   ]
+  },
+  {
+   "id": "where-float-le-zero",
+   "fixture": "rows",
+   "postgres_sql_sha256": "8e844ac8f8efdb7a5f412f88ac77e86063d76c5af568ad38a7d4a273a81a8587",
+   "columns": ["id"],
+   "type_oids": [20],
+   "divergences": [],
+   "rows": [
+    [["int", "1"]],
+    [["int", "3"]],
+    [["int", "4"]]
+   ]
+  },
+  {
+   "id": "where-float-gt-zero",
+   "fixture": "rows",
+   "postgres_sql_sha256": "f3e2cf3bbd2debdca03a2297e174ec5c2d361d09858cc92a72ca484504cacab0",
+   "columns": ["id"],
+   "type_oids": [20],
+   "divergences": [],
+   "rows": [
+    [["int", "2"]],
+    [["int", "6"]],
+    [["int", "7"]],
+    [["int", "9"]]
+   ]
+  },
+  {
+   "id": "where-float-ge",
+   "fixture": "rows",
+   "postgres_sql_sha256": "124bbdaaed90c306cb3de66dff2218e968dc8bf2f5f6cf95bb15ae6443ff0c40",
+   "columns": ["id"],
+   "type_oids": [20],
+   "divergences": [],
+   "rows": [
+    [["int", "2"]],
+    [["int", "6"]],
+    [["int", "7"]]
+   ]
+  },
+  {
+   "id": "where-float-ne",
+   "fixture": "rows",
+   "postgres_sql_sha256": "bdce1502c6cc3c32bf7d4a6bb96881093b33834a79fd648efa890bb7aaeef3ab",
+   "columns": ["id"],
+   "type_oids": [20],
+   "divergences": [],
+   "rows": [
+    [["int", "1"]],
+    [["int", "2"]],
+    [["int", "3"]],
+    [["int", "4"]],
+    [["int", "6"]],
+    [["int", "7"]]
+   ]
+  },
+  {
+   "id": "where-three-valued",
+   "fixture": "rows",
+   "postgres_sql_sha256": "a36947ae9a3312abcac63fcf403298e8d29782b000ce9a4ce676c42c4b76c4bf",
+   "columns": ["id"],
+   "type_oids": [20],
+   "divergences": [],
+   "rows": [
+    [["int", "1"]],
+    [["int", "6"]],
+    [["int", "7"]]
+   ]
+  },
+  {
+   "id": "where-or-none",
+   "fixture": "rows",
+   "postgres_sql_sha256": "b7f99736c64e5f15745273bb2a13e9a2b184a8c9ae186ed54030cddb85e80fcf",
+   "columns": ["id"],
+   "type_oids": [20],
+   "divergences": [],
+   "rows": [
+    [["int", "1"]],
+    [["int", "4"]],
+    [["int", "5"]],
+    [["int", "6"]],
+    [["int", "7"]],
+    [["int", "8"]]
+   ]
+  },
+  {
+   "id": "where-not-or",
+   "fixture": "rows",
+   "postgres_sql_sha256": "0558e59e58d5e3079f5b3c3ebaf0b4d8739143b457ab7f7037e31fc791d13e71",
+   "columns": ["id"],
+   "type_oids": [20],
+   "divergences": [],
+   "rows": [
+    [["int", "2"]],
+    [["int", "3"]],
+    [["int", "6"]],
+    [["int", "7"]],
+    [["int", "9"]]
+   ]
+  },
+  {
+   "id": "order-int-asc",
+   "fixture": "rows",
+   "postgres_sql_sha256": "ba2cced92c5006b717d980d31ea522112e1091a7b1cfa45a71a802e52427801d",
+   "columns": ["id"],
+   "type_oids": [20],
+   "divergences": [],
+   "rows": [
+    [["int", "1"]],
+    [["int", "3"]],
+    [["int", "9"]],
+    [["int", "5"]],
+    [["int", "6"]],
+    [["int", "7"]],
+    [["int", "2"]],
+    [["int", "4"]],
+    [["int", "8"]]
+   ]
+  },
+  {
+   "id": "order-int-desc",
+   "fixture": "rows",
+   "postgres_sql_sha256": "f33f2108baf5803ce562f306e59567b41b7c8c32e5f1f076a7d1a5e442399b94",
+   "columns": ["id"],
+   "type_oids": [20],
+   "divergences": [],
+   "rows": [
+    [["int", "4"]],
+    [["int", "8"]],
+    [["int", "2"]],
+    [["int", "5"]],
+    [["int", "6"]],
+    [["int", "7"]],
+    [["int", "9"]],
+    [["int", "3"]],
+    [["int", "1"]]
+   ]
+  },
+  {
+   "id": "order-text-asc",
+   "fixture": "rows",
+   "postgres_sql_sha256": "71d651ea5ac25416548caaf79c1a5e96731e24c4b449471f78103c72240a25a2",
+   "columns": ["id"],
+   "type_oids": [20],
+   "divergences": [],
+   "rows": [
+    [["int", "9"]],
+    [["int", "2"]],
+    [["int", "1"]],
+    [["int", "4"]],
+    [["int", "3"]],
+    [["int", "6"]],
+    [["int", "7"]],
+    [["int", "8"]],
+    [["int", "5"]]
+   ]
+  },
+  {
+   "id": "order-text-desc",
+   "fixture": "rows",
+   "postgres_sql_sha256": "a716118f41c21111f83fc954ac93ddbe9d6610a97ae75aaf8a22be578db78387",
+   "columns": ["id"],
+   "type_oids": [20],
+   "divergences": [],
+   "rows": [
+    [["int", "5"]],
+    [["int", "8"]],
+    [["int", "6"]],
+    [["int", "7"]],
+    [["int", "3"]],
+    [["int", "4"]],
+    [["int", "1"]],
+    [["int", "2"]],
+    [["int", "9"]]
+   ]
+  },
+  {
+   "id": "order-bool-asc",
+   "fixture": "rows",
+   "postgres_sql_sha256": "f7942ae4f0582fd4bf8b250712f1ccd39ba424124c6c9762e77f5365cd0c125b",
+   "columns": ["id"],
+   "type_oids": [20],
+   "divergences": [],
+   "rows": [
+    [["int", "2"]],
+    [["int", "5"]],
+    [["int", "9"]],
+    [["int", "1"]],
+    [["int", "4"]],
+    [["int", "6"]],
+    [["int", "7"]],
+    [["int", "3"]],
+    [["int", "8"]]
+   ]
+  },
+  {
+   "id": "order-bool-desc",
+   "fixture": "rows",
+   "postgres_sql_sha256": "8f6692351943afb25a7fc1db00c4183436582c8c27e0aaf89315904341e835ba",
+   "columns": ["id"],
+   "type_oids": [20],
+   "divergences": [],
+   "rows": [
+    [["int", "3"]],
+    [["int", "8"]],
+    [["int", "1"]],
+    [["int", "4"]],
+    [["int", "6"]],
+    [["int", "7"]],
+    [["int", "2"]],
+    [["int", "5"]],
+    [["int", "9"]]
+   ]
+  },
+  {
+   "id": "order-float-asc",
+   "fixture": "rows",
+   "postgres_sql_sha256": "b4178e2cab3cc207be0de32dcd2bad53c9a7b15cc0381538331eb7eb925e97e6",
+   "columns": ["id"],
+   "type_oids": [20],
+   "divergences": [],
+   "rows": [
+    [["int", "1"]],
+    [["int", "3"]],
+    [["int", "4"]],
+    [["int", "9"]],
+    [["int", "6"]],
+    [["int", "7"]],
+    [["int", "2"]],
+    [["int", "5"]],
+    [["int", "8"]]
+   ]
+  },
+  {
+   "id": "order-float-desc",
+   "fixture": "rows",
+   "postgres_sql_sha256": "ba9c5ffdb7b44c5993cbe086516eda7ac7c760ee578f8ddab77c328d74676aec",
+   "columns": ["id"],
+   "type_oids": [20],
+   "divergences": [],
+   "rows": [
+    [["int", "5"]],
+    [["int", "8"]],
+    [["int", "2"]],
+    [["int", "6"]],
+    [["int", "7"]],
+    [["int", "9"]],
+    [["int", "3"]],
+    [["int", "4"]],
+    [["int", "1"]]
+   ]
+  },
+  {
+   "id": "order-two-keys",
+   "fixture": "rows",
+   "postgres_sql_sha256": "a32f854161810732d8504ee62c0d6ab52dff7bf649721021380c300bff9c1822",
+   "columns": ["id"],
+   "type_oids": [20],
+   "divergences": [],
+   "rows": [
+    [["int", "5"]],
+    [["int", "2"]],
+    [["int", "9"]],
+    [["int", "6"]],
+    [["int", "7"]],
+    [["int", "4"]],
+    [["int", "1"]],
+    [["int", "8"]],
+    [["int", "3"]]
+   ]
+  },
+  {
+   "id": "order-id-desc",
+   "fixture": "rows",
+   "postgres_sql_sha256": "9f9e1b5a4b5a9bd7a067e5d1789b5bf6d7e92276774a135e4c99506af2de3d99",
+   "columns": ["id"],
+   "type_oids": [20],
+   "divergences": [],
+   "rows": [
+    [["int", "9"]],
+    [["int", "8"]],
+    [["int", "7"]],
+    [["int", "6"]],
+    [["int", "5"]],
+    [["int", "4"]],
+    [["int", "3"]],
+    [["int", "2"]],
+    [["int", "1"]]
+   ]
+  },
+  {
+   "id": "order-field-not-output",
+   "fixture": "rows",
+   "postgres_sql_sha256": "e5e9f538035e65d84c7cc9483da439aa30ab1d25c0577c52bb6606a59a820119",
+   "columns": ["id", "N"],
+   "type_oids": [20, 25],
+   "divergences": [],
+   "rows": [
+    [["int", "1"], ["str", "'a'"]],
+    [["int", "3"], ["str", "'\u00e9'"]],
+    [["int", "9"], ["str", "''"]],
+    [["int", "5"], null],
+    [["int", "6"], ["str", "'\u4e2d'"]],
+    [["int", "7"], ["str", "'\u4e2d'"]],
+    [["int", "2"], ["str", "'A'"]],
+    [["int", "4"], ["str", "'e\u0301'"]],
+    [["int", "8"], ["str", "'\ud83d\ude00'"]]
+   ]
+  },
+  {
+   "id": "limit-three",
+   "fixture": "rows",
+   "postgres_sql_sha256": "16da890ae68800fab50f8446a0a9add68893b3766094d22ada8bcc2f8b35f875",
+   "columns": ["id"],
+   "type_oids": [20],
+   "divergences": [],
+   "rows": [
+    [["int", "1"]],
+    [["int", "2"]],
+    [["int", "3"]]
+   ]
+  },
+  {
+   "id": "limit-zero",
+   "fixture": "rows",
+   "postgres_sql_sha256": "10fee7e885ec3a8d5177d2f712b77cb89d424c6a96c94e46111842d20d9ce03b",
+   "columns": ["id"],
+   "type_oids": [20],
+   "divergences": [],
+   "rows": []
+  },
+  {
+   "id": "limit-keeps-duplicates",
+   "fixture": "rows",
+   "postgres_sql_sha256": "dba46cb9407b918a06294b58b093a7208ac9943e46a7513a4c17db722dd6751b",
+   "columns": ["n", "s"],
+   "type_oids": [20, 25],
+   "divergences": [],
+   "rows": [
+    [["int", "7"], ["str", "'\u4e2d'"]],
+    [["int", "7"], ["str", "'\u4e2d'"]]
+   ]
+  },
+  {
+   "id": "limit-nulls-first",
+   "fixture": "rows",
+   "postgres_sql_sha256": "9d56e639d029d6f381bc6dcc3455ae97c9949851f7fbaf84be05ae6fbce20bd7",
+   "columns": ["id"],
+   "type_oids": [20],
+   "divergences": [],
+   "rows": [
+    [["int", "5"]]
+   ]
+  },
+  {
+   "id": "limit-max",
+   "fixture": "rows",
+   "postgres_sql_sha256": "e29596a6196d0f46000392baba4f52d897f175093b9b01cb4b792177a18f9b13",
+   "columns": ["id"],
+   "type_oids": [20],
+   "divergences": [],
+   "rows": [
+    [["int", "1"]],
+    [["int", "2"]],
+    [["int", "3"]],
+    [["int", "4"]],
+    [["int", "5"]],
+    [["int", "6"]],
+    [["int", "7"]],
+    [["int", "8"]],
+    [["int", "9"]]
+   ]
+  },
+  {
+   "id": "count-each-type",
+   "fixture": "rows",
+   "postgres_sql_sha256": "258b466e855ae8c0ee7dc6ee6ed31cf8c6af1d080e8ac792774b45f72a7ddeba",
+   "columns": ["rows", "ns", "ss", "bs", "xs"],
+   "type_oids": [20, 20, 20, 20, 20],
+   "divergences": [],
+   "rows": [
+    [["int", "9"], ["int", "7"], ["int", "8"], ["int", "7"], ["int", "7"]]
+   ]
+  },
+  {
+   "id": "min-max-extremes",
+   "fixture": "rows",
+   "postgres_sql_sha256": "062f21c0dc7aaf1bd29823eb88dda9f75bc421b09e53718e86638c7cd7ad9cbd",
+   "columns": ["lo", "hi", "flo", "fhi"],
+   "type_oids": [20, 20, 701, 701],
+   "divergences": [],
+   "rows": [
+    [["int", "-9223372036854775808"], ["int", "9223372036854775807"], ["float", "-0.5"], ["float", "1e+300"]]
+   ]
+  },
+  {
+   "id": "aggregate-no-rows",
+   "fixture": "rows",
+   "postgres_sql_sha256": "48761b018334991206ebee50457f5abfb8fe2d6f6fad4ed2e0818edc3d2e9f8f",
+   "columns": ["rows", "seen", "lo", "hi"],
+   "type_oids": [20, 20, 20, 701],
+   "divergences": [],
+   "rows": [
+    [["int", "0"], ["int", "0"], null, null]
+   ]
+  },
+  {
+   "id": "group-no-rows",
+   "fixture": "rows",
+   "postgres_sql_sha256": "1a33b49a81ed60b204946edb2a384ad2ccff9c98c8bda52aea029e0cbf838bff",
+   "columns": ["s", "rows"],
+   "type_oids": [25, 20],
+   "divergences": [],
+   "rows": []
+  },
+  {
+   "id": "aggregate-only-nulls",
+   "fixture": "rows",
+   "postgres_sql_sha256": "9a7b0a852c79a102e66121b7d3ab237a2c8dcc3f23d578d8fa0ead8603399efc",
+   "columns": ["rows", "lo", "hi", "top"],
+   "type_oids": [20, 701, 701, 20],
+   "divergences": [],
+   "rows": [
+    [["int", "2"], null, null, ["int", "7"]]
+   ]
+  },
+  {
+   "id": "group-text",
+   "fixture": "rows",
+   "postgres_sql_sha256": "2c8d3af6e0df34b7a2b72dd9eb8a55d5f9efe3755bf79743c3f37344e3a5c83f",
+   "columns": ["s", "rows", "hi"],
+   "type_oids": [25, 20, 20],
+   "divergences": [],
+   "rows": [
+    [null, ["int", "1"], ["int", "7"]],
+    [["str", "'a'"], ["int", "1"], ["int", "-9223372036854775808"]],
+    [["str", "''"], ["int", "1"], ["int", "1"]],
+    [["str", "'\u4e2d'"], ["int", "2"], ["int", "7"]],
+    [["str", "'\u00e9'"], ["int", "1"], ["int", "0"]],
+    [["str", "'\ud83d\ude00'"], ["int", "1"], null],
+    [["str", "'e\u0301'"], ["int", "1"], null],
+    [["str", "'A'"], ["int", "1"], ["int", "9223372036854775807"]]
+   ]
+  },
+  {
+   "id": "group-bool",
+   "fixture": "rows",
+   "postgres_sql_sha256": "6647e0fd27eb778b150a08332f106fcbfa2d29af1fce1063bf91348a1e3ee7c4",
+   "columns": ["b", "rows", "lo"],
+   "type_oids": [16, 20, 701],
+   "divergences": [],
+   "rows": [
+    [null, ["int", "2"], ["float", "0.0"]],
+    [["bool", "False"], ["int", "3"], ["float", "1.0"]],
+    [["bool", "True"], ["int", "4"], ["float", "-0.5"]]
+   ]
+  },
+  {
+   "id": "group-float-zero",
+   "fixture": "rows",
+   "postgres_sql_sha256": "1ff1824ed12e5368bc86b0ae8ea732904e1b1207df9b1c9e871331f5529dde3c",
+   "columns": ["x", "rows"],
+   "type_oids": [701, 20],
+   "divergences": [],
+   "rows": [
+    [null, ["int", "2"]],
+    [["float", "0.0"], ["int", "2"]],
+    [["float", "2.5"], ["int", "2"]],
+    [["float", "1e+300"], ["int", "1"]],
+    [["float", "1.0"], ["int", "1"]],
+    [["float", "-0.5"], ["int", "1"]]
+   ]
+  },
+  {
+   "id": "group-int-null-key",
+   "fixture": "rows",
+   "postgres_sql_sha256": "ffb146b298bdf36ad27859362b1797881f9bdc9bb48e32184d3e31d827e1fc88",
+   "columns": ["n", "rows", "xs"],
+   "type_oids": [20, 20, 20],
+   "divergences": [],
+   "rows": [
+    [null, ["int", "2"], ["int", "1"]],
+    [["int", "0"], ["int", "1"], ["int", "1"]],
+    [["int", "-9223372036854775808"], ["int", "1"], ["int", "1"]],
+    [["int", "7"], ["int", "3"], ["int", "2"]],
+    [["int", "1"], ["int", "1"], ["int", "1"]],
+    [["int", "9223372036854775807"], ["int", "1"], ["int", "1"]]
+   ]
+  },
+  {
+   "id": "group-two-keys",
+   "fixture": "rows",
+   "postgres_sql_sha256": "059610dcad1ee6ee4b8961d917fcd7ed70a30563d4f4cfe7de6ea20d2da081ec",
+   "columns": ["b", "n", "rows"],
+   "type_oids": [16, 20, 20],
+   "divergences": [],
+   "rows": [
+    [null, null, ["int", "1"]],
+    [["bool", "True"], null, ["int", "1"]],
+    [["bool", "True"], ["int", "7"], ["int", "2"]],
+    [["bool", "True"], ["int", "-9223372036854775808"], ["int", "1"]],
+    [null, ["int", "0"], ["int", "1"]],
+    [["bool", "False"], ["int", "9223372036854775807"], ["int", "1"]],
+    [["bool", "False"], ["int", "1"], ["int", "1"]],
+    [["bool", "False"], ["int", "7"], ["int", "1"]]
+   ]
+  },
+  {
+   "id": "group-order-by-count",
+   "fixture": "rows",
+   "postgres_sql_sha256": "b771204300b17eed5328bdf2db597b8d02cabf34a1b05e26b73444127cf7fc8f",
+   "columns": ["b", "tag", "rows", "lo"],
+   "type_oids": [16, 25, 20, 20],
+   "divergences": [],
+   "rows": [
+    [["bool", "False"], ["str", "'k'"], ["int", "3"], ["int", "1"]],
+    [["bool", "True"], ["str", "'k'"], ["int", "3"], ["int", "-9223372036854775808"]],
+    [null, ["str", "'k'"], ["int", "1"], ["int", "0"]]
+   ]
+  },
+  {
+   "id": "group-order-by-max",
+   "fixture": "rows",
+   "postgres_sql_sha256": "f7f4b4cbddd2d4466fca94e1b1aa1e255401dd7af086d570e566e4bd299a1902",
+   "columns": ["s", "hi"],
+   "type_oids": [25, 701],
+   "divergences": ["ZERO_SIGN"],
+   "rows": [
+    [["str", "'\ud83d\ude00'"], null],
+    [null, null],
+    [["str", "'A'"], ["float", "1e+300"]],
+    [["str", "'\u4e2d'"], ["float", "2.5"]],
+    [["str", "''"], ["float", "1.0"]],
+    [["str", "'e\u0301'"], ["float", "-0.0"]],
+    [["str", "'\u00e9'"], ["float", "0.0"]],
+    [["str", "'a'"], ["float", "-0.5"]]
+   ]
+  },
+  {
+   "id": "group-order-by-key-desc",
+   "fixture": "rows",
+   "postgres_sql_sha256": "7381e2be511169b853142dcc2753c1463c60c249b1a7dfa77f140ec44b7b2546",
+   "columns": ["b", "rows"],
+   "type_oids": [16, 20],
+   "divergences": [],
+   "rows": [
+    [null, ["int", "2"]],
+    [["bool", "True"], ["int", "4"]],
+    [["bool", "False"], ["int", "3"]]
+   ]
+  },
+  {
+   "id": "group-limit",
+   "fixture": "rows",
+   "postgres_sql_sha256": "675fea7e07b103b8e83a0b447be143cdd98c02cd35bd1e9f271742f1f9f0fc69",
+   "columns": ["n", "rows"],
+   "type_oids": [20, 20],
+   "divergences": [],
+   "rows": [
+    [["int", "7"], ["int", "3"]],
+    [null, ["int", "2"]]
+   ]
+  },
+  {
+   "id": "oracle-eq-n-0",
+   "fixture": "rows",
+   "postgres_sql_sha256": "ac67602fa777c99915acca8531630d17ebc54ce3271efd40c3dd29217c2c584e",
+   "columns": ["id"],
+   "type_oids": [20],
+   "divergences": [],
+   "rows": [
+    [["int", "5"]],
+    [["int", "6"]],
+    [["int", "7"]]
+   ]
+  },
+  {
+   "id": "oracle-not-eq-n-0",
+   "fixture": "rows",
+   "postgres_sql_sha256": "d94f661dbbf401d42e802d268d1144f8200002bcc0d33648ff7707f6dd78c97c",
+   "columns": ["id"],
+   "type_oids": [20],
+   "divergences": [],
+   "rows": [
+    [["int", "1"]],
+    [["int", "2"]],
+    [["int", "3"]],
+    [["int", "9"]]
+   ]
+  },
+  {
+   "id": "oracle-eq-n-1",
+   "fixture": "rows",
+   "postgres_sql_sha256": "65d87f42065c1a2409affb9fea18199bb4170593d07e4bfd8f96a12287f6ce28",
+   "columns": ["id"],
+   "type_oids": [20],
+   "divergences": [],
+   "rows": [
+    [["int", "3"]]
+   ]
+  },
+  {
+   "id": "oracle-not-eq-n-1",
+   "fixture": "rows",
+   "postgres_sql_sha256": "b69bd81118dfa2fb308712f7415d957a9e5ab957b3a5ca4b9d7af5b30d62195e",
+   "columns": ["id"],
+   "type_oids": [20],
+   "divergences": [],
+   "rows": [
+    [["int", "1"]],
+    [["int", "2"]],
+    [["int", "5"]],
+    [["int", "6"]],
+    [["int", "7"]],
+    [["int", "9"]]
+   ]
+  },
+  {
+   "id": "oracle-eq-n-2",
+   "fixture": "rows",
+   "postgres_sql_sha256": "9e13e64b80e21783f719e34c1278f7747cab72a95b01d481f249a4d7ecab7d02",
+   "columns": ["id"],
+   "type_oids": [20],
+   "divergences": [],
+   "rows": [
+    [["int", "2"]]
+   ]
+  },
+  {
+   "id": "oracle-not-eq-n-2",
+   "fixture": "rows",
+   "postgres_sql_sha256": "286f9b436e6622ec45460cc32123140aa7324b6763f01aab2bb03bf59e947d3d",
+   "columns": ["id"],
+   "type_oids": [20],
+   "divergences": [],
+   "rows": [
+    [["int", "1"]],
+    [["int", "3"]],
+    [["int", "5"]],
+    [["int", "6"]],
+    [["int", "7"]],
+    [["int", "9"]]
+   ]
+  },
+  {
+   "id": "oracle-eq-s-3",
+   "fixture": "rows",
+   "postgres_sql_sha256": "44ebef4ba7ae33c492c12bebe2484d1390793c725ccfa43284066d4ceb891d72",
+   "columns": ["id"],
+   "type_oids": [20],
+   "divergences": [],
+   "rows": [
+    [["int", "1"]]
+   ]
+  },
+  {
+   "id": "oracle-not-eq-s-3",
+   "fixture": "rows",
+   "postgres_sql_sha256": "372ec2be82d859629a179ac9474bdcffe3eb7304ca0f98a240d16be62f63dfbe",
+   "columns": ["id"],
+   "type_oids": [20],
+   "divergences": [],
+   "rows": [
+    [["int", "2"]],
+    [["int", "3"]],
+    [["int", "4"]],
+    [["int", "6"]],
+    [["int", "7"]],
+    [["int", "8"]],
+    [["int", "9"]]
+   ]
+  },
+  {
+   "id": "oracle-eq-s-4",
+   "fixture": "rows",
+   "postgres_sql_sha256": "f3fe9763d692d038ae948f225bb6ee8f3ea00a8113202911b1df37b0087e0899",
+   "columns": ["id"],
+   "type_oids": [20],
+   "divergences": [],
+   "rows": [
+    [["int", "2"]]
+   ]
+  },
+  {
+   "id": "oracle-not-eq-s-4",
+   "fixture": "rows",
+   "postgres_sql_sha256": "930e70e75c48c4860052606017d21f86e9976e1b845fc81db1e08e699df932c7",
+   "columns": ["id"],
+   "type_oids": [20],
+   "divergences": [],
+   "rows": [
+    [["int", "1"]],
+    [["int", "3"]],
+    [["int", "4"]],
+    [["int", "6"]],
+    [["int", "7"]],
+    [["int", "8"]],
+    [["int", "9"]]
+   ]
+  },
+  {
+   "id": "oracle-eq-s-5",
+   "fixture": "rows",
+   "postgres_sql_sha256": "1fcf481723d13cd430f7dba2a353cf78024f403627cd0d8ccce4ca00be0623eb",
+   "columns": ["id"],
+   "type_oids": [20],
+   "divergences": [],
+   "rows": [
+    [["int", "3"]]
+   ]
+  },
+  {
+   "id": "oracle-not-eq-s-5",
+   "fixture": "rows",
+   "postgres_sql_sha256": "6189eee0756af64684bb1de7e977cfb0a2ec3989e1e575b0f9b0c9e090f4acb6",
+   "columns": ["id"],
+   "type_oids": [20],
+   "divergences": [],
+   "rows": [
+    [["int", "1"]],
+    [["int", "2"]],
+    [["int", "4"]],
+    [["int", "6"]],
+    [["int", "7"]],
+    [["int", "8"]],
+    [["int", "9"]]
+   ]
+  },
+  {
+   "id": "oracle-eq-s-6",
+   "fixture": "rows",
+   "postgres_sql_sha256": "ec889a8abe04e0e57e747d660707d0988bdea5081ceda24f9e0619900737542f",
+   "columns": ["id"],
+   "type_oids": [20],
+   "divergences": [],
+   "rows": [
+    [["int", "4"]]
+   ]
+  },
+  {
+   "id": "oracle-not-eq-s-6",
+   "fixture": "rows",
+   "postgres_sql_sha256": "692a44b92af2c5374603d36be95b8e0a87ff6256784cd5a61fe870a7907d2541",
+   "columns": ["id"],
+   "type_oids": [20],
+   "divergences": [],
+   "rows": [
+    [["int", "1"]],
+    [["int", "2"]],
+    [["int", "3"]],
+    [["int", "6"]],
+    [["int", "7"]],
+    [["int", "8"]],
+    [["int", "9"]]
+   ]
+  },
+  {
+   "id": "oracle-eq-s-7",
+   "fixture": "rows",
+   "postgres_sql_sha256": "258d6f73814f452a2a0b0221fadc017525287dce757daa104b5e28c1e9bfc5cb",
+   "columns": ["id"],
+   "type_oids": [20],
+   "divergences": [],
+   "rows": [
+    [["int", "9"]]
+   ]
+  },
+  {
+   "id": "oracle-not-eq-s-7",
+   "fixture": "rows",
+   "postgres_sql_sha256": "343780332a1404ba978471993f09612cc7e98aeb480f119e428351b48b57dfe2",
+   "columns": ["id"],
+   "type_oids": [20],
+   "divergences": [],
+   "rows": [
+    [["int", "1"]],
+    [["int", "2"]],
+    [["int", "3"]],
+    [["int", "4"]],
+    [["int", "6"]],
+    [["int", "7"]],
+    [["int", "8"]]
+   ]
+  },
+  {
+   "id": "oracle-eq-b-8",
+   "fixture": "rows",
+   "postgres_sql_sha256": "dd579cf045b563989f058dd39ca68de072a9186bae90f89f08c35a4680dc3cc2",
+   "columns": ["id"],
+   "type_oids": [20],
+   "divergences": [],
+   "rows": [
+    [["int", "1"]],
+    [["int", "4"]],
+    [["int", "6"]],
+    [["int", "7"]]
+   ]
+  },
+  {
+   "id": "oracle-not-eq-b-8",
+   "fixture": "rows",
+   "postgres_sql_sha256": "29d01c249cdba098c130635a568b52065d8be477321e058bd7001012d1134715",
+   "columns": ["id"],
+   "type_oids": [20],
+   "divergences": [],
+   "rows": [
+    [["int", "2"]],
+    [["int", "5"]],
+    [["int", "9"]]
+   ]
+  },
+  {
+   "id": "oracle-eq-b-9",
+   "fixture": "rows",
+   "postgres_sql_sha256": "fad6f3eb94490038e4088bf97956d5cb180886800d1f6c7dc3d8f24273606ce4",
+   "columns": ["id"],
+   "type_oids": [20],
+   "divergences": [],
+   "rows": [
+    [["int", "2"]],
+    [["int", "5"]],
+    [["int", "9"]]
+   ]
+  },
+  {
+   "id": "oracle-not-eq-b-9",
+   "fixture": "rows",
+   "postgres_sql_sha256": "636c16f98977e9a3d7eb290213778e334b2e2362f106f9af46f3e749c0576f07",
+   "columns": ["id"],
+   "type_oids": [20],
+   "divergences": [],
+   "rows": [
+    [["int", "1"]],
+    [["int", "4"]],
+    [["int", "6"]],
+    [["int", "7"]]
+   ]
+  },
+  {
+   "id": "python-select-int",
+   "fixture": "rows",
+   "postgres_sql_sha256": "bd8619f6481bd44907d06961e58457e55ecbca451a83ca5f9977b3a290f700e6",
+   "columns": ["id", "eq", "ne", "lt", "le", "gt", "ge", "missing", "present"],
+   "type_oids": [20, 16, 16, 16, 16, 16, 16, 16, 16],
+   "divergences": [],
+   "rows": [
+    [["int", "1"], ["bool", "False"], ["bool", "True"], ["bool", "True"], ["bool", "True"], ["bool", "False"], ["bool", "False"], ["bool", "False"], ["bool", "True"]],
+    [["int", "2"], ["bool", "False"], ["bool", "True"], ["bool", "False"], ["bool", "False"], ["bool", "True"], ["bool", "True"], ["bool", "False"], ["bool", "True"]],
+    [["int", "3"], ["bool", "False"], ["bool", "True"], ["bool", "True"], ["bool", "True"], ["bool", "False"], ["bool", "False"], ["bool", "False"], ["bool", "True"]],
+    [["int", "4"], null, null, null, null, null, null, ["bool", "True"], ["bool", "False"]],
+    [["int", "5"], ["bool", "True"], ["bool", "False"], ["bool", "False"], ["bool", "True"], ["bool", "False"], ["bool", "True"], ["bool", "False"], ["bool", "True"]],
+    [["int", "6"], ["bool", "True"], ["bool", "False"], ["bool", "False"], ["bool", "True"], ["bool", "False"], ["bool", "True"], ["bool", "False"], ["bool", "True"]],
+    [["int", "7"], ["bool", "True"], ["bool", "False"], ["bool", "False"], ["bool", "True"], ["bool", "False"], ["bool", "True"], ["bool", "False"], ["bool", "True"]],
+    [["int", "8"], null, null, null, null, null, null, ["bool", "True"], ["bool", "False"]],
+    [["int", "9"], ["bool", "False"], ["bool", "True"], ["bool", "True"], ["bool", "True"], ["bool", "False"], ["bool", "False"], ["bool", "False"], ["bool", "True"]]
+   ]
+  },
+  {
+   "id": "python-select-text",
+   "fixture": "rows",
+   "postgres_sql_sha256": "b32b66408bf33a0ded2da7a5c7d3cc4274b3bc3f3918be1c839e16f53729bd18",
+   "columns": ["id", "eq", "ne", "lt", "le", "gt", "ge", "missing", "present"],
+   "type_oids": [20, 16, 16, 16, 16, 16, 16, 16, 16],
+   "divergences": [],
+   "rows": [
+    [["int", "1"], ["bool", "True"], ["bool", "False"], ["bool", "False"], ["bool", "True"], ["bool", "False"], ["bool", "True"], ["bool", "False"], ["bool", "True"]],
+    [["int", "2"], ["bool", "False"], ["bool", "True"], ["bool", "True"], ["bool", "True"], ["bool", "False"], ["bool", "False"], ["bool", "False"], ["bool", "True"]],
+    [["int", "3"], ["bool", "False"], ["bool", "True"], ["bool", "False"], ["bool", "False"], ["bool", "True"], ["bool", "True"], ["bool", "False"], ["bool", "True"]],
+    [["int", "4"], ["bool", "False"], ["bool", "True"], ["bool", "False"], ["bool", "False"], ["bool", "True"], ["bool", "True"], ["bool", "False"], ["bool", "True"]],
+    [["int", "5"], null, null, null, null, null, null, ["bool", "True"], ["bool", "False"]],
+    [["int", "6"], ["bool", "False"], ["bool", "True"], ["bool", "False"], ["bool", "False"], ["bool", "True"], ["bool", "True"], ["bool", "False"], ["bool", "True"]],
+    [["int", "7"], ["bool", "False"], ["bool", "True"], ["bool", "False"], ["bool", "False"], ["bool", "True"], ["bool", "True"], ["bool", "False"], ["bool", "True"]],
+    [["int", "8"], ["bool", "False"], ["bool", "True"], ["bool", "False"], ["bool", "False"], ["bool", "True"], ["bool", "True"], ["bool", "False"], ["bool", "True"]],
+    [["int", "9"], ["bool", "False"], ["bool", "True"], ["bool", "True"], ["bool", "True"], ["bool", "False"], ["bool", "False"], ["bool", "False"], ["bool", "True"]]
+   ]
+  },
+  {
+   "id": "python-select-bool",
+   "fixture": "rows",
+   "postgres_sql_sha256": "ca416add531e9a974a2a896221963173bade803de6aad6c7eec19dac18256846",
+   "columns": ["id", "eq", "ne", "lt", "le", "gt", "ge", "missing", "present"],
+   "type_oids": [20, 16, 16, 16, 16, 16, 16, 16, 16],
+   "divergences": [],
+   "rows": [
+    [["int", "1"], ["bool", "True"], ["bool", "False"], ["bool", "False"], ["bool", "True"], ["bool", "False"], ["bool", "True"], ["bool", "False"], ["bool", "True"]],
+    [["int", "2"], ["bool", "False"], ["bool", "True"], ["bool", "True"], ["bool", "True"], ["bool", "False"], ["bool", "False"], ["bool", "False"], ["bool", "True"]],
+    [["int", "3"], null, null, null, null, null, null, ["bool", "True"], ["bool", "False"]],
+    [["int", "4"], ["bool", "True"], ["bool", "False"], ["bool", "False"], ["bool", "True"], ["bool", "False"], ["bool", "True"], ["bool", "False"], ["bool", "True"]],
+    [["int", "5"], ["bool", "False"], ["bool", "True"], ["bool", "True"], ["bool", "True"], ["bool", "False"], ["bool", "False"], ["bool", "False"], ["bool", "True"]],
+    [["int", "6"], ["bool", "True"], ["bool", "False"], ["bool", "False"], ["bool", "True"], ["bool", "False"], ["bool", "True"], ["bool", "False"], ["bool", "True"]],
+    [["int", "7"], ["bool", "True"], ["bool", "False"], ["bool", "False"], ["bool", "True"], ["bool", "False"], ["bool", "True"], ["bool", "False"], ["bool", "True"]],
+    [["int", "8"], null, null, null, null, null, null, ["bool", "True"], ["bool", "False"]],
+    [["int", "9"], ["bool", "False"], ["bool", "True"], ["bool", "True"], ["bool", "True"], ["bool", "False"], ["bool", "False"], ["bool", "False"], ["bool", "True"]]
+   ]
+  },
+  {
+   "id": "python-select-float",
+   "fixture": "rows",
+   "postgres_sql_sha256": "d847d93404574d6a76bd6ec103c5897041a45cfc1c917a856f85d0624222aab5",
+   "columns": ["id", "eq", "ne", "lt", "le", "gt", "ge", "missing", "present"],
+   "type_oids": [20, 16, 16, 16, 16, 16, 16, 16, 16],
+   "divergences": [],
+   "rows": [
+    [["int", "1"], ["bool", "False"], ["bool", "True"], ["bool", "True"], ["bool", "True"], ["bool", "False"], ["bool", "False"], ["bool", "False"], ["bool", "True"]],
+    [["int", "2"], ["bool", "False"], ["bool", "True"], ["bool", "False"], ["bool", "False"], ["bool", "True"], ["bool", "True"], ["bool", "False"], ["bool", "True"]],
+    [["int", "3"], ["bool", "True"], ["bool", "False"], ["bool", "False"], ["bool", "True"], ["bool", "False"], ["bool", "True"], ["bool", "False"], ["bool", "True"]],
+    [["int", "4"], ["bool", "True"], ["bool", "False"], ["bool", "False"], ["bool", "True"], ["bool", "False"], ["bool", "True"], ["bool", "False"], ["bool", "True"]],
+    [["int", "5"], null, null, null, null, null, null, ["bool", "True"], ["bool", "False"]],
+    [["int", "6"], ["bool", "False"], ["bool", "True"], ["bool", "False"], ["bool", "False"], ["bool", "True"], ["bool", "True"], ["bool", "False"], ["bool", "True"]],
+    [["int", "7"], ["bool", "False"], ["bool", "True"], ["bool", "False"], ["bool", "False"], ["bool", "True"], ["bool", "True"], ["bool", "False"], ["bool", "True"]],
+    [["int", "8"], null, null, null, null, null, null, ["bool", "True"], ["bool", "False"]],
+    [["int", "9"], ["bool", "False"], ["bool", "True"], ["bool", "False"], ["bool", "False"], ["bool", "True"], ["bool", "True"], ["bool", "False"], ["bool", "True"]]
+   ]
+  },
+  {
+   "id": "python-select-bool-pair",
+   "fixture": "bool-pairs",
+   "postgres_sql_sha256": "bd99504e7566bf9fe43a4e12d9d21e000dca05b2da59c56059c2e7409f7ff4e2",
+   "columns": ["id", "eq", "ne", "lt", "le", "gt", "ge"],
+   "type_oids": [20, 16, 16, 16, 16, 16, 16],
+   "divergences": [],
+   "rows": [
+    [["int", "1"], ["bool", "True"], ["bool", "False"], ["bool", "False"], ["bool", "True"], ["bool", "False"], ["bool", "True"]],
+    [["int", "2"], ["bool", "False"], ["bool", "True"], ["bool", "True"], ["bool", "True"], ["bool", "False"], ["bool", "False"]],
+    [["int", "3"], null, null, null, null, null, null],
+    [["int", "4"], ["bool", "False"], ["bool", "True"], ["bool", "False"], ["bool", "False"], ["bool", "True"], ["bool", "True"]],
+    [["int", "5"], ["bool", "True"], ["bool", "False"], ["bool", "False"], ["bool", "True"], ["bool", "False"], ["bool", "True"]],
+    [["int", "6"], null, null, null, null, null, null],
+    [["int", "7"], null, null, null, null, null, null],
+    [["int", "8"], null, null, null, null, null, null],
+    [["int", "9"], null, null, null, null, null, null]
+   ]
+  },
+  {
+   "id": "golden-active_accounts",
+   "fixture": "accounts",
+   "postgres_sql_sha256": "f9a88efa6ee2417afbb9646927899db3e7f49a173a19927e5691a2f698f8c99e",
+   "columns": ["id", "label", "score"],
+   "type_oids": [20, 25, 701],
+   "divergences": [],
+   "rows": [
+    [["int", "1"], ["str", "'Ann'"], ["float", "0.9"]],
+    [["int", "3"], ["str", "\"O'Neil `\u00e9`\""], ["float", "0.5"]],
+    [["int", "4"], ["str", "'Zed'"], ["float", "0.4"]]
+   ]
+  },
+  {
+   "id": "golden-ranked_names",
+   "fixture": "accounts",
+   "postgres_sql_sha256": "a1fbc3f1ee2e3ef6a24f5be712d5fc59a111c79e36ae5fd473776a8ff856ee68",
+   "columns": ["id", "name", "flagged", "kind", "weight", "rank"],
+   "type_oids": [20, 25, 16, 25, 1700, 20],
+   "divergences": [],
+   "rows": [
+    [["int", "5"], ["str", "'mo'"], ["bool", "True"], ["str", "'account'"], ["decimal", "1.5"], ["int", "9223372036854775807"]],
+    [["int", "3"], ["str", "\"O'Neil `\u00e9`\""], ["bool", "False"], ["str", "'account'"], ["decimal", "1.5"], ["int", "9223372036854775807"]]
+   ]
+  },
+  {
+   "id": "golden-region_counts",
+   "fixture": "accounts",
+   "postgres_sql_sha256": "bbb11665ef29bf3d6550cb3c9888490df574d4bb0d52736642ce59b920b031b5",
+   "columns": ["region", "accounts", "scored", "low", "high"],
+   "type_oids": [25, 20, 20, 20, 701],
+   "divergences": [],
+   "rows": [
+    [["str", "'east'"], ["int", "3"], ["int", "3"], ["int", "1"], ["float", "2.0"]],
+    [["str", "'west'"], ["int", "2"], ["int", "0"], ["int", "2"], null]
+   ]
+  },
+  {
+   "id": "golden-totals",
+   "fixture": "accounts",
+   "postgres_sql_sha256": "627f5d8c9eae81a16766fc7a0946161f8429701a82aa243bd6fdbeccb54fccdb",
+   "columns": ["rows", "top"],
+   "type_oids": [20, 20],
+   "divergences": [],
+   "rows": [
+    [["int", "6"], ["int", "6"]]
+   ]
+  }
+ ]
+}

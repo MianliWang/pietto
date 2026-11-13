@@ -38,11 +38,14 @@ EXPECTED_GATES = (
     ("tests", ("uv", "run", "pytest")),
 )
 QUALIFIED = "--pietto-storage-class=qualified"
+SQLITE_QUALIFIED = "--pietto-sqlite-class=qualified"
+# The pytest gate declares both qualified classes, in this order.
+DECLARED = (QUALIFIED, SQLITE_QUALIFIED)
 DEFAULT_GATES = (
     *EXPECTED_GATES[:-1],
     (
         "tests",
-        ("uv", "run", "pytest", "-n", "4", "--dist=loadfile", QUALIFIED),
+        ("uv", "run", "pytest", "-n", "4", "--dist=loadfile", *DECLARED),
     ),
 )
 
@@ -73,6 +76,8 @@ def _stable_resource_worker_count(monkeypatch: pytest.MonkeyPatch) -> None:
     )
     # The storage pre-check observes the host; its own tests below fake it.
     monkeypatch.setattr(validate, "_storage_precheck", lambda parser: None)
+    # The SQLite class check reads the host environment; its test sets it.
+    monkeypatch.delenv("PIETTO_SQLITE_CLASS", raising=False)
 
 
 def test_validation_script_exists_and_uses_only_standard_library_imports() -> None:
@@ -184,7 +189,7 @@ def test_validation_pytest_workers_off_keeps_serial_pytest_command(
 
     assert validate.main(("--pytest-workers", "off")) == 0
     assert calls[:-1] == [command for _, command in EXPECTED_GATES[:-1]]
-    assert calls[-1] == ("uv", "run", "pytest", QUALIFIED)
+    assert calls[-1] == ("uv", "run", "pytest", *DECLARED)
 
 
 def test_validation_pytest_integer_workers_use_loadfile_by_default(
@@ -205,7 +210,7 @@ def test_validation_pytest_integer_workers_use_loadfile_by_default(
 
     assert validate.main(("--pytest-workers", "4")) == 0
     assert calls[:-1] == [command for _, command in EXPECTED_GATES[:-1]]
-    assert calls[-1] == ("uv", "run", "pytest", "-n", "4", "--dist=loadfile", QUALIFIED)
+    assert calls[-1] == ("uv", "run", "pytest", "-n", "4", "--dist=loadfile", *DECLARED)
 
 
 def test_validation_pytest_integer_workers_are_capped_by_maxprocesses(
@@ -225,7 +230,7 @@ def test_validation_pytest_integer_workers_are_capped_by_maxprocesses(
     monkeypatch.setattr(validate.subprocess, "run", fake_run)
 
     assert validate.main(("--pytest-workers", "4", "--pytest-maxprocesses", "2")) == 0
-    assert calls[-1] == ("uv", "run", "pytest", "-n", "2", "--dist=loadfile", QUALIFIED)
+    assert calls[-1] == ("uv", "run", "pytest", "-n", "2", "--dist=loadfile", *DECLARED)
 
 
 def test_validation_pytest_auto_workers_support_maxprocesses(
@@ -256,7 +261,7 @@ def test_validation_pytest_auto_workers_support_maxprocesses(
         "--maxprocesses",
         "4",
         "--dist=loadfile",
-        QUALIFIED,
+        *DECLARED,
     )
 
 
@@ -281,7 +286,7 @@ def test_validation_pytest_logical_workers_use_cpu_count_and_maxprocesses(
         validate.main(("--pytest-workers", "logical", "--pytest-maxprocesses", "4"))
         == 0
     )
-    assert calls[-1] == ("uv", "run", "pytest", "-n", "4", "--dist=loadfile", QUALIFIED)
+    assert calls[-1] == ("uv", "run", "pytest", "-n", "4", "--dist=loadfile", *DECLARED)
 
 
 def test_validation_pytest_logical_workers_fall_back_to_one(
@@ -302,7 +307,7 @@ def test_validation_pytest_logical_workers_fall_back_to_one(
     monkeypatch.setattr(validate.os, "cpu_count", lambda: None)
 
     assert validate.main(("--pytest-workers", "logical")) == 0
-    assert calls[-1] == ("uv", "run", "pytest", "-n", "1", "--dist=loadfile", QUALIFIED)
+    assert calls[-1] == ("uv", "run", "pytest", "-n", "1", "--dist=loadfile", *DECLARED)
 
 
 def test_validation_pytest_dist_is_emitted_only_when_workers_are_enabled(
@@ -329,7 +334,7 @@ def test_validation_pytest_dist_is_emitted_only_when_workers_are_enabled(
         "-n",
         "2",
         "--dist=loadscope",
-        QUALIFIED,
+        *DECLARED,
     )
     assert "--dist=loadfile" not in calls[-1]
 
@@ -479,14 +484,14 @@ def test_validation_timings_compose_with_pytest_workers(
         *EXPECTED_GATES[:-1],
         (
             "tests",
-            ("uv", "run", "pytest", "-n", "2", "--dist=loadfile", QUALIFIED),
+            ("uv", "run", "pytest", "-n", "2", "--dist=loadfile", *DECLARED),
         ),
     )
     assert calls == [(command, REPO_ROOT, False) for _, command in expected_gates]
 
     output_lines = capsys.readouterr().out.splitlines()
     assert output_lines[-3:] == [
-        "[validate] tests: uv run pytest -n 2 --dist=loadfile " + QUALIFIED,
+        "[validate] tests: uv run pytest -n 2 --dist=loadfile " + " ".join(DECLARED),
         "[validate] tests completed in 0.750s",
         "[validate] total completed in 7.000s",
     ]
@@ -657,6 +662,38 @@ def test_storage_precheck_refuses_a_conflicting_environment_class(
     assert "PIETTO_STORAGE_CLASS conflicts" in capsys.readouterr().err
 
 
+@pytest.mark.parametrize("declared", ("qualified", "report", "hosted-refusal", ""))
+def test_a_conflicting_sqlite_class_is_refused_before_any_gate(
+    declared: str,
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    precheck = ("uv", "run", "python", "-c", validate.STORAGE_PRECHECK)
+    calls: list[tuple[str, ...]] = []
+
+    def fake_run(
+        command: tuple[str, ...], **_: object
+    ) -> subprocess.CompletedProcess[str]:
+        calls.append(command)
+        return subprocess.CompletedProcess(command, 0, "", "")
+
+    monkeypatch.setattr(validate, "_storage_precheck", storage_precheck)
+    monkeypatch.setattr(validate.subprocess, "run", fake_run)
+    monkeypatch.delenv("PIETTO_STORAGE_CLASS", raising=False)
+    monkeypatch.setenv("PIETTO_SQLITE_CLASS", declared)
+
+    if declared == "qualified":
+        assert validate.main(()) == 0
+        assert calls == [precheck, *(command for _, command in DEFAULT_GATES)]
+        return
+    with pytest.raises(SystemExit) as raised:
+        validate.main(())
+    # Exit 2 before the storage pre-check and every gate: not a start.
+    assert raised.value.code == 2
+    assert calls == []
+    assert "PIETTO_SQLITE_CLASS conflicts" in capsys.readouterr().err
+
+
 def test_storage_declaration_and_precheck_match_the_test_side_contract(
     pytestconfig: pytest.Config,
 ) -> None:
@@ -680,6 +717,14 @@ def test_storage_declaration_and_precheck_match_the_test_side_contract(
         "WORKSPACE_PROFILE_SQLITE",
         "WORKSPACE_PROFILE_FILESYSTEM",
     )
+
+
+def test_sqlite_declaration_is_an_option_the_tests_register(
+    pytestconfig: pytest.Config,
+) -> None:
+    option = SQLITE_QUALIFIED.split("=")[0]
+    assert validate.SQLITE_CLASS_DECLARATION == SQLITE_QUALIFIED
+    pytestconfig.getoption(option)  # registered by tests/conftest.py
 
 
 def test_slice2_validation_stays_separate_from_later_workflows() -> None:

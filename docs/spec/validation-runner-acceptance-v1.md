@@ -189,6 +189,7 @@ because rows 0 and 0b are not satisfied.
 | 6 | Golden audit | Locked environment, the compiler and fixture input closure | Satisfied | Not verified; not planned | — |
 | 7 | Package, Arrow and installed consumers | The build backend and the locked dependency wheels, the pinned pyarrow included, from the package index or, on a runner without network, from an offline cache or wheelhouse | Satisfied | Not planned | — |
 | 8 | Steps that need GitHub credentials or network | Authorized GitHub credentials and network access | Satisfied | Not satisfied: holds no credentials (R10); compute nodes have no network (observed 2026-10-09T03:29Z) | — |
+| 9 | SQLite single-file native qualification | Linux; the interpreter that runs pytest links the exact SQLite build of D78.03, release `3.53.1` with its source id and compile options together; in process on `:memory:`, with no storage, Docker or network premise | Satisfied: CPython 3.13.13 links that build (observed 2026-11-10 by Phase78 Q0 and the S03 cells) | Not observed | — |
 
 The observed storage profile decides row 3; a declared storage environment
 class never satisfies it. The authoritative validator declares the `qualified`
@@ -206,6 +207,18 @@ return or a skip is never a positive witness
 classes and their declaration, and its
 [validation tiers](../development.md#validation-tiers) own the validator's
 storage pre-check.
+
+The observed build decides row 9; a declared SQLite class never satisfies it,
+and row 3 is not borrowed: the job store's storage premise and class are not
+this premise and class. On any other build a native cell is the asserted
+refusal under `hosted-refusal` (the hosted CI default), a counted
+`PIETTO_NOT_RUN sqlite-native <category>` skip under `report` (the default
+elsewhere) or a `PIETTO_SQLITE_REQUIRED <category>` failure under `qualified`.
+The authoritative validator declares the `qualified` SQLite class for its
+pytest gate, so a Gate 2 validation never passes on a runner that does not
+satisfy row 9 and never counts its native cells as skips;
+[Development](../development.md#sqlite-target-validation) owns the class and
+its declaration.
 
 Within a Gate 2 validation, native campaigns and installed consumers (rows 4
 and 7) are produced and adopted only where their premises hold; as of

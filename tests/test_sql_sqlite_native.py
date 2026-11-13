@@ -1,0 +1,1630 @@
+"""In-process qualification of SQLite single-file SQL (Phase78 B1, D78.03).
+
+Each cell emits one single-file program with the SQLite backend, runs the SQL
+with the standard-library `sqlite3` on a test-owned `:memory:` database of
+`STRICT` tables, and judges the raw result against an oracle written before
+the run: a literal expected result, the pure BAG/NULL equality oracle, or
+Python's own comparison operators with NULL as unknown. Cells run only on the
+measured build, which its release, source id and compile options identify
+together. On any other build the SQLite class decides
+(`--pietto-sqlite-class` or `PIETTO_SQLITE_CLASS`): `hosted-refusal` keeps
+the asserted refusal after each cell has emitted its program, while
+`qualified` fails and `report` skips with a counted `PIETTO_NOT_RUN
+sqlite-native` line in the module fixture, before a cell emits anything.
+There only the coverage law (SQLite) and the PostgreSQL replay binding
+(PostgreSQL, the golden's statements too) emit programs, those of every cell
+except the premise controls, and the self-tests still run.
+"""
+
+from __future__ import annotations
+
+import ast
+import hashlib
+import json
+import math
+import operator
+import os
+import re
+import sqlite3
+from collections import Counter
+from collections.abc import Callable, Iterator, Mapping, Sequence
+from contextlib import closing
+from dataclasses import dataclass, replace
+from decimal import Decimal
+from pathlib import Path
+from typing import Any
+
+import pytest
+
+import _pietto_ir_bag_null_oracle as oracle
+from pietto.errors import Severity
+from pietto.ir import LiteralIR, RelationIR, ScriptIR, build_ir
+from pietto.parser_api import parse_source
+from pietto.semantic import analyze
+from pietto.sql import emit_postgres_sql, sqlite_relations
+from pietto.sql.sqlite import emit_sqlite_sql
+
+REPO_ROOT = Path(__file__).resolve().parents[1]
+SOURCE = REPO_ROOT / "tests/fixtures/sqlite/single_file.pietto"
+SQL_GOLDEN = REPO_ROOT / "tests/fixtures/golden/emit_sqlite_single_file.sql"
+# One PASS run of PostgreSQL 18.6 over the PostgreSQL bytes of every law cell
+# and golden statement (D78.08); the file states its source and regeneration.
+POSTGRES_REPLAY = REPO_ROOT / "tests/fixtures/sqlite/postgres_replay_v1.json"
+SQLITE_CLASS_VARIABLE = "PIETTO_SQLITE_CLASS"
+SQLITE_CLASSES = ("hosted-refusal", "qualified", "report")
+INT_MIN = -9_223_372_036_854_775_808
+INT_MAX = 9_223_372_036_854_775_807
+_RecordProperty = Callable[[str, object], None]
+
+
+@dataclass(frozen=True, slots=True)
+class _Build:
+    release: str
+    source_id: str
+    compile_options: tuple[str, ...]
+
+
+# The SQLite target of D78.03, owned by this dialect's qualification: family
+# sqlite, release 3.53.1, this source id and these compile options together.
+# It is a copy, not the job store's constant; a version alone is no identity.
+QUALIFIED_SQLITE_BUILD = _Build(
+    release="3.53.1",
+    source_id=(
+        "2026-05-05 10:34:17 "
+        "c88b22011a54b4f6fbd149e9f8e4de77658ce58143a1af0e3785e4e6475127e9"
+    ),
+    compile_options=(
+        "ATOMIC_INTRINSICS=1",
+        "COMPILER=clang-22.1.3",
+        "DEFAULT_AUTOVACUUM",
+        "DEFAULT_CACHE_SIZE=-2000",
+        "DEFAULT_FILE_FORMAT=4",
+        "DEFAULT_JOURNAL_SIZE_LIMIT=-1",
+        "DEFAULT_MMAP_SIZE=0",
+        "DEFAULT_PAGE_SIZE=4096",
+        "DEFAULT_PCACHE_INITSZ=20",
+        "DEFAULT_RECURSIVE_TRIGGERS",
+        "DEFAULT_SECTOR_SIZE=4096",
+        "DEFAULT_SYNCHRONOUS=2",
+        "DEFAULT_WAL_AUTOCHECKPOINT=1000",
+        "DEFAULT_WAL_SYNCHRONOUS=2",
+        "DEFAULT_WORKER_THREADS=0",
+        "DIRECT_OVERFLOW_READ",
+        "ENABLE_DBSTAT_VTAB",
+        "ENABLE_FTS3",
+        "ENABLE_FTS3_PARENTHESIS",
+        "ENABLE_FTS4",
+        "ENABLE_FTS5",
+        "ENABLE_GEOPOLY",
+        "ENABLE_MATH_FUNCTIONS",
+        "ENABLE_PERCENTILE",
+        "ENABLE_RTREE",
+        "MALLOC_SOFT_LIMIT=1024",
+        "MAX_ATTACHED=10",
+        "MAX_COLUMN=2000",
+        "MAX_COMPOUND_SELECT=500",
+        "MAX_DEFAULT_PAGE_SIZE=8192",
+        "MAX_EXPR_DEPTH=1000",
+        "MAX_FUNCTION_ARG=1000",
+        "MAX_LENGTH=1000000000",
+        "MAX_LIKE_PATTERN_LENGTH=50000",
+        "MAX_MMAP_SIZE=0x7fff0000",
+        "MAX_PAGE_COUNT=0xfffffffe",
+        "MAX_PAGE_SIZE=65536",
+        "MAX_SQL_LENGTH=1000000000",
+        "MAX_TRIGGER_DEPTH=1000",
+        "MAX_VARIABLE_NUMBER=32766",
+        "MAX_VDBE_OP=250000000",
+        "MAX_WORKER_THREADS=8",
+        "MUTEX_PTHREADS",
+        "SYSTEM_MALLOC",
+        "TEMP_STORE=1",
+        "THREADSAFE=1",
+    ),
+)
+
+
+def _observe(connection: sqlite3.Connection) -> _Build:
+    release, source_id = connection.execute(
+        "SELECT sqlite_version(), sqlite_source_id()"
+    ).fetchone()
+    options = connection.execute("PRAGMA compile_options").fetchall()
+    return _Build(release, source_id, tuple(row[0] for row in options))
+
+
+def _refusal(observed: _Build) -> str | None:
+    """The first part of the identity that differs, or None when it is the
+    measured build."""
+
+    if observed.release != QUALIFIED_SQLITE_BUILD.release:
+        return "SQLITE_BUILD_RELEASE"
+    if observed.source_id != QUALIFIED_SQLITE_BUILD.source_id:
+        return "SQLITE_BUILD_SOURCE"
+    if observed.compile_options != QUALIFIED_SQLITE_BUILD.compile_options:
+        return "SQLITE_BUILD_OPTIONS"
+    return None
+
+
+def _sqlite_class(environ: Mapping[str, str], option: str | None) -> str:
+    """The declared class; with none, hosted CI keeps the refusal and any
+    other run reports. A class never qualifies a build."""
+
+    declared = environ.get(SQLITE_CLASS_VARIABLE)
+    if option is not None and declared is not None and declared != option:
+        raise ValueError("PIETTO_SQLITE_CLASS_CONFLICT")
+    value = option if option is not None else declared
+    if value is None:
+        return "hosted-refusal" if environ.get("GITHUB_ACTIONS") == "true" else "report"
+    if value not in SQLITE_CLASSES:
+        raise ValueError("PIETTO_SQLITE_CLASS_UNKNOWN")
+    return value
+
+
+def _qualified(observed: _Build, declared: str) -> bool:
+    refusal = _refusal(observed)
+    if refusal is None:
+        return True
+    if declared == "hosted-refusal":
+        return False
+    if declared == "qualified":
+        pytest.fail(f"PIETTO_SQLITE_REQUIRED {refusal}", pytrace=False)
+    pytest.skip(f"PIETTO_NOT_RUN sqlite-native {refusal}")
+
+
+@pytest.fixture(scope="module")
+def native_build(request: pytest.FixtureRequest) -> bool:
+    """True on the measured build; False is the asserted refusal."""
+
+    declared = _sqlite_class(
+        os.environ, request.config.getoption("--pietto-sqlite-class")
+    )
+    with closing(sqlite3.connect(":memory:")) as connection:
+        observed = _observe(connection)
+    return _qualified(observed, declared)
+
+
+@dataclass(slots=True)
+class _Native:
+    """The native observations of one test, each kept as a user property."""
+
+    qualified: bool
+    record_property: _RecordProperty
+    observed: int = 0
+
+    def observe(self, name: str, payload: Sequence[object]) -> None:
+        self.record_property(name, json.dumps(payload))
+        self.observed += 1
+
+
+@pytest.fixture
+def native(
+    native_build: bool,
+    record_property: _RecordProperty,
+    request: pytest.FixtureRequest,
+) -> Iterator[_Native]:
+    """The runtime witness of a native test: exactly one native observation
+    on the measured build, whatever class is declared, and none on a refused
+    build, where only `hosted-refusal` lets a native test start."""
+
+    witness = _Native(native_build, record_property)
+    yield witness
+    expected = 1 if native_build else 0
+    if witness.observed != expected:
+        pytest.fail(
+            f"PIETTO_SQLITE_UNOBSERVED {request.node.name}: "
+            f"{witness.observed} native observations, expected {expected}",
+            pytrace=False,
+        )
+
+
+# Fixture tables. Every column follows the premises of the SQLite rules:
+# STRICT, BINARY collation, UTF-8, Bool as INTEGER 0/1, finite REAL. The
+# premise controls below break one premise each on purpose.
+_SCHEMA = (
+    "CREATE TABLE `t` (`id` INTEGER NOT NULL, `n` INTEGER, `s` TEXT, "
+    "`b` INTEGER, `x` REAL) STRICT"
+)
+_ROWS: tuple[tuple[object, ...], ...] = (
+    (1, INT_MIN, "a", 1, -0.5),
+    (2, INT_MAX, "A", 0, 1e300),
+    (3, 0, "\u00e9", None, 0.0),
+    (4, None, "e\u0301", 1, -0.0),
+    (5, 7, None, 0, None),
+    (6, 7, "\u4e2d", 1, 2.5),
+    (7, 7, "\u4e2d", 1, 2.5),
+    (8, None, "\U0001f600", None, None),
+    (9, 1, "", 0, 1.0),
+)
+# What a STRICT REAL column gives back: it keeps no zero sign (row 4).
+_READBACK: tuple[tuple[object, ...], ...] = (
+    (1, INT_MIN, "a", 1, -0.5),
+    (2, INT_MAX, "A", 0, 1e300),
+    (3, 0, "\u00e9", None, 0.0),
+    (4, None, "e\u0301", 1, 0.0),
+    (5, 7, None, 0, None),
+    (6, 7, "\u4e2d", 1, 2.5),
+    (7, 7, "\u4e2d", 1, 2.5),
+    (8, None, "\U0001f600", None, None),
+    (9, 1, "", 0, 1.0),
+)
+_ACCOUNTS = (
+    "CREATE TABLE `accounts` (`id` INTEGER NOT NULL, `name` TEXT NOT NULL, "
+    "`active` INTEGER NOT NULL, `score` REAL, `region` TEXT) STRICT"
+)
+# Two Bool fields over every pair of FALSE, TRUE and NULL.
+_PAIR_SCHEMA = (
+    "CREATE TABLE `t` (`id` INTEGER NOT NULL, `b` INTEGER, `c` INTEGER) STRICT"
+)
+_PAIRS: tuple[tuple[object, ...], ...] = (
+    (1, 0, 0),
+    (2, 0, 1),
+    (3, 0, None),
+    (4, 1, 0),
+    (5, 1, 1),
+    (6, 1, None),
+    (7, None, 0),
+    (8, None, 1),
+    (9, None, None),
+)
+_FIXTURES: dict[str, tuple[str, str, tuple[tuple[object, ...], ...]]] = {
+    "rows": ("t", _SCHEMA, _ROWS),
+    "bool-pairs": ("t", _PAIR_SCHEMA, _PAIRS),
+    "nocase": ("t", _SCHEMA.replace("`s` TEXT", "`s` TEXT COLLATE NOCASE"), _ROWS),
+    "bool-two": (
+        "t",
+        _SCHEMA,
+        ((1, None, None, 2, None), (2, None, None, 1, None), (3, None, None, 0, None)),
+    ),
+    "real-edges": (
+        "t",
+        _SCHEMA,
+        (
+            (1, None, None, None, math.inf),
+            (2, None, None, None, -math.inf),
+            (3, None, None, None, math.nan),
+        ),
+    ),
+    "accounts": (
+        "accounts",
+        _ACCOUNTS,
+        (
+            (1, "Ann", 1, 0.9, "east"),
+            (2, "Mia", 0, None, "west"),
+            (3, "O'Neil `\u00e9`", 1, 0.5, None),
+            (4, "Zed", 1, 0.4, "east"),
+            (5, "mo", 0, 2.0, "east"),
+            (6, "Bo", 1, None, "west"),
+        ),
+    ),
+}
+_HEADER = """shape Row:
+    id: Int
+    n: Int | None
+    s: Text | None
+    b: Bool | None
+    x: Float | None
+
+source t: Row = sqlite.table("t")
+
+"""
+_PAIR_HEADER = """shape Pair:
+    id: Int
+    b: Bool | None
+    c: Bool | None
+
+source t: Pair = sqlite.table("t")
+
+"""
+_TYPES = {"id": "Int", "n": "Int", "s": "Text", "b": "Bool", "x": "Float"}
+_COLUMN_TYPES = {**_TYPES, "c": "Bool"}
+_FIXTURE_COLUMNS = {"rows": tuple(_TYPES), "bool-pairs": ("id", "b", "c")}
+
+
+@dataclass(frozen=True, slots=True)
+class _Cell:
+    name: str
+    program: str
+    columns: tuple[str, ...]
+    rows: tuple[tuple[object, ...], ...]
+    ordered: bool
+    fixture: str = "rows"
+    # The `where` condition of a cell that selects only `id`.
+    condition: str | None = None
+
+
+@dataclass(frozen=True, slots=True)
+class _Record:
+    """What one native run returned for the SQL bytes it ran."""
+
+    sql: str
+    columns: tuple[str, ...]
+    rows: tuple[tuple[object, ...], ...]
+
+
+def _q(*clauses: str, header: str = _HEADER) -> str:
+    return header + "query q:\n    from t\n" + "".join(f"    {c}\n" for c in clauses)
+
+
+def _b(head: str, *items: str) -> str:
+    return head + ":" + "".join(f"\n        {item}" for item in items)
+
+
+def _ids(*values: object) -> tuple[tuple[object, ...], ...]:
+    return tuple((value,) for value in values)
+
+
+def _where(name: str, condition: str, *ids: object, fixture: str = "rows") -> _Cell:
+    header = _PAIR_HEADER if fixture == "bool-pairs" else _HEADER
+    program = _q(f"where {condition}", _b("select", "id"), header=header)
+    return _Cell(name, program, ("id",), _ids(*ids), False, fixture, condition)
+
+
+def _order(name: str, keys: tuple[str, ...], *ids: int) -> _Cell:
+    return _Cell(
+        name, _q(_b("select", "id"), _b("order by", *keys)), ("id",), _ids(*ids), True
+    )
+
+
+_LITERALS = (
+    "id",
+    "big = 9223372036854775807",
+    "zero = 0",
+    "half = 1.5",
+    "nought = 0.0",
+    'quote = "O\'Neil"',
+    'wide = "\u00e9\u4e2d\U0001f600"',
+    "truth = True",
+    "falsity = False",
+)
+_MATRIX: tuple[_Cell, ...] = (
+    _Cell(
+        "select-every-type", _q(_b("select", *_TYPES)), tuple(_TYPES), _READBACK, False
+    ),
+    _Cell(
+        "select-literals",
+        _q("where id == 1", _b("select", *_LITERALS)),
+        tuple(item.split(" = ")[0] for item in _LITERALS),
+        ((1, INT_MAX, 0, 1.5, 0.0, "O'Neil", "\u00e9\u4e2d\U0001f600", 1, 0),),
+        False,
+    ),
+    _Cell(
+        "select-multiplicity",
+        _q(_b("select", "n", "s")),
+        ("n", "s"),
+        (
+            (INT_MIN, "a"),
+            (INT_MAX, "A"),
+            (0, "\u00e9"),
+            (None, "e\u0301"),
+            (7, None),
+            (7, "\u4e2d"),
+            (7, "\u4e2d"),
+            (None, "\U0001f600"),
+            (1, ""),
+        ),
+        False,
+    ),
+    _Cell(
+        "select-bool-results",
+        _q(
+            _b("select", "id", "yes = b == True", "flip = not b", "missing = x is None")
+        ),
+        ("id", "yes", "flip", "missing"),
+        (
+            (1, 1, 0, 0),
+            (2, 0, 1, 0),
+            (3, None, None, 0),
+            (4, 1, 0, 0),
+            (5, 0, 1, 1),
+            (6, 1, 0, 0),
+            (7, 1, 0, 0),
+            (8, None, None, 1),
+            (9, 0, 1, 0),
+        ),
+        False,
+    ),
+    _Cell(
+        "select-connectives",
+        _q(
+            _b(
+                "select",
+                "id",
+                "both = b and (x is not None)",
+                "either = b or (x is None)",
+            )
+        ),
+        ("id", "both", "either"),
+        (
+            (1, 1, 1),
+            (2, 0, 0),
+            (3, None, None),
+            (4, 1, 1),
+            (5, 0, 1),
+            (6, 1, 1),
+            (7, 1, 1),
+            (8, 0, 1),
+            (9, 0, 0),
+        ),
+        False,
+    ),
+    _where("where-int-ne", "n != 7", 1, 2, 3, 9),
+    _where("where-int-lt", "n < 0", 1),
+    _where("where-int-le", "n <= 0", 1, 3),
+    _where("where-int-gt", "n > 7", 2),
+    _where("where-int-ge-max", "n >= 9223372036854775807", 2),
+    _where("where-text-lt-case", 'n is not None and s < "a"', 2, 9),
+    _where("where-text-gt-non-ascii", 's > "z"', 3, 6, 7, 8),
+    _where("where-text-ge-combining", 's >= "e"', 3, 4, 6, 7, 8),
+    _where("where-text-le-empty", 's <= ""', 9),
+    _where("where-text-ne", 's != "a"', 2, 3, 4, 6, 7, 8, 9),
+    _where("where-bool-bare", "b", 1, 4, 6, 7),
+    _where("where-bool-not", "not b", 2, 5, 9),
+    _where("where-bool-ne", "b != False", 1, 4, 6, 7),
+    _where("where-bool-none", "b is None", 3, 8),
+    _where("where-bool-not-none", "b is not None", 1, 2, 4, 5, 6, 7, 9),
+    # Bool order: FALSE before TRUE, and NULL is unknown, so never kept.
+    _where("where-bool-lt-true", "b < True", 2, 5, 9),
+    _where("where-bool-lt-false", "b < False"),
+    _where("where-bool-le-true", "b <= True", 1, 2, 4, 5, 6, 7, 9),
+    _where("where-bool-le-false", "b <= False", 2, 5, 9),
+    _where("where-bool-gt-false", "b > False", 1, 4, 6, 7),
+    _where("where-bool-gt-true", "b > True"),
+    _where("where-bool-ge-false", "b >= False", 1, 2, 4, 5, 6, 7, 9),
+    _where("where-bool-ge-true", "b >= True", 1, 4, 6, 7),
+    _where("where-bool-pair-lt", "b < c", 2, fixture="bool-pairs"),
+    _where("where-bool-pair-le", "b <= c", 1, 2, 5, fixture="bool-pairs"),
+    _where("where-bool-pair-gt", "b > c", 4, fixture="bool-pairs"),
+    _where("where-bool-pair-ge", "b >= c", 1, 4, 5, fixture="bool-pairs"),
+    _where("where-int-not-none", "n is not None", 1, 2, 3, 5, 6, 7, 9),
+    _where("where-text-none", "s is None", 5),
+    _where("where-text-not-none", "s is not None", 1, 2, 3, 4, 6, 7, 8, 9),
+    _where("where-float-none", "x is None", 5, 8),
+    _where("where-float-not-none", "x is not None", 1, 2, 3, 4, 6, 7, 9),
+    _where("where-float-eq-zero", "x == 0.0", 3, 4),
+    _where("where-float-lt", "x < 0.5", 1, 3, 4),
+    _where("where-float-le-zero", "x <= 0.0", 1, 3, 4),
+    _where("where-float-gt-zero", "x > 0.0", 2, 6, 7, 9),
+    _where("where-float-ge", "x >= 2.5", 2, 6, 7),
+    _where("where-float-ne", "x != 1.0", 1, 2, 3, 4, 6, 7),
+    _where("where-three-valued", '(n > 0 or s == "a") and not (b == False)', 1, 6, 7),
+    _where("where-or-none", "b or x is None", 1, 4, 5, 6, 7, 8),
+    _where("where-not-or", 'not (s == "a" or n is None)', 2, 3, 6, 7, 9),
+    _order("order-int-asc", ("n", "id"), 1, 3, 9, 5, 6, 7, 2, 4, 8),
+    _order("order-int-desc", ("n desc", "id"), 4, 8, 2, 5, 6, 7, 9, 3, 1),
+    _order("order-text-asc", ("s", "id"), 9, 2, 1, 4, 3, 6, 7, 8, 5),
+    _order("order-text-desc", ("s desc", "id"), 5, 8, 6, 7, 3, 4, 1, 2, 9),
+    _order("order-bool-asc", ("b", "id"), 2, 5, 9, 1, 4, 6, 7, 3, 8),
+    _order("order-bool-desc", ("b desc", "id"), 3, 8, 1, 4, 6, 7, 2, 5, 9),
+    _order("order-float-asc", ("x", "id"), 1, 3, 4, 9, 6, 7, 2, 5, 8),
+    _order("order-float-desc", ("x desc", "id"), 5, 8, 2, 6, 7, 9, 3, 4, 1),
+    _order("order-two-keys", ("b", "x desc", "id"), 5, 2, 9, 6, 7, 4, 1, 8, 3),
+    _order("order-id-desc", ("id desc",), 9, 8, 7, 6, 5, 4, 3, 2, 1),
+    _Cell(
+        "order-field-not-output",
+        _q(_b("select", "id", "N = s"), _b("order by", "n", "id")),
+        ("id", "N"),
+        (
+            (1, "a"),
+            (3, "\u00e9"),
+            (9, ""),
+            (5, None),
+            (6, "\u4e2d"),
+            (7, "\u4e2d"),
+            (2, "A"),
+            (4, "e\u0301"),
+            (8, "\U0001f600"),
+        ),
+        True,
+    ),
+    _Cell(
+        "limit-three",
+        _q(_b("select", "id"), _b("order by", "id"), "limit 3"),
+        ("id",),
+        _ids(1, 2, 3),
+        True,
+    ),
+    _Cell(
+        "limit-zero",
+        _q(_b("select", "id"), _b("order by", "id"), "limit 0"),
+        ("id",),
+        (),
+        True,
+    ),
+    _Cell(
+        "limit-keeps-duplicates",
+        _q("where n == 7", _b("select", "n", "s"), _b("order by", "s"), "limit 2"),
+        ("n", "s"),
+        ((7, "\u4e2d"), (7, "\u4e2d")),
+        True,
+    ),
+    _Cell(
+        "limit-nulls-first",
+        _q(_b("select", "id"), _b("order by", "x desc", "id"), "limit 1"),
+        ("id",),
+        _ids(5),
+        True,
+    ),
+    _Cell(
+        "limit-max",
+        _q(_b("select", "id"), "limit 9223372036854775807"),
+        ("id",),
+        _ids(1, 2, 3, 4, 5, 6, 7, 8, 9),
+        False,
+    ),
+    _Cell(
+        "count-each-type",
+        _q(
+            _b(
+                "select",
+                "rows = count()",
+                "ns = count(n)",
+                "ss = count(s)",
+                "bs = count(b)",
+                "xs = count(x)",
+            )
+        ),
+        ("rows", "ns", "ss", "bs", "xs"),
+        ((9, 7, 8, 7, 7),),
+        False,
+    ),
+    _Cell(
+        "min-max-extremes",
+        _q(_b("select", "lo = min(n)", "hi = max(n)", "flo = min(x)", "fhi = max(x)")),
+        ("lo", "hi", "flo", "fhi"),
+        ((INT_MIN, INT_MAX, -0.5, 1e300),),
+        False,
+    ),
+    _Cell(
+        "aggregate-no-rows",
+        _q(
+            "where id > 100",
+            _b(
+                "select",
+                "rows = count()",
+                "seen = count(n)",
+                "lo = min(n)",
+                "hi = max(x)",
+            ),
+        ),
+        ("rows", "seen", "lo", "hi"),
+        ((0, 0, None, None),),
+        False,
+    ),
+    _Cell(
+        "group-no-rows",
+        _q("where id > 100", _b("group by", "s"), _b("select", "s", "rows = count()")),
+        ("s", "rows"),
+        (),
+        False,
+    ),
+    _Cell(
+        "aggregate-only-nulls",
+        _q(
+            "where x is None",
+            _b(
+                "select", "rows = count()", "lo = min(x)", "hi = max(x)", "top = max(n)"
+            ),
+        ),
+        ("rows", "lo", "hi", "top"),
+        ((2, None, None, 7),),
+        False,
+    ),
+    _Cell(
+        "group-text",
+        _q(_b("group by", "s"), _b("select", "s", "rows = count()", "hi = max(n)")),
+        ("s", "rows", "hi"),
+        (
+            ("a", 1, INT_MIN),
+            ("A", 1, INT_MAX),
+            ("\u00e9", 1, 0),
+            ("e\u0301", 1, None),
+            (None, 1, 7),
+            ("\u4e2d", 2, 7),
+            ("\U0001f600", 1, None),
+            ("", 1, 1),
+        ),
+        False,
+    ),
+    _Cell(
+        "group-bool",
+        _q(_b("group by", "b"), _b("select", "b", "rows = count()", "lo = min(x)")),
+        ("b", "rows", "lo"),
+        ((0, 3, 1.0), (1, 4, -0.5), (None, 2, 0.0)),
+        False,
+    ),
+    _Cell(
+        "group-float-zero",
+        _q(_b("group by", "x"), _b("select", "x", "rows = count()")),
+        ("x", "rows"),
+        ((-0.5, 1), (1e300, 1), (0.0, 2), (None, 2), (2.5, 2), (1.0, 1)),
+        False,
+    ),
+    _Cell(
+        "group-int-null-key",
+        _q(_b("group by", "n"), _b("select", "n", "rows = count()", "xs = count(x)")),
+        ("n", "rows", "xs"),
+        (
+            (INT_MIN, 1, 1),
+            (INT_MAX, 1, 1),
+            (0, 1, 1),
+            (None, 2, 1),
+            (7, 3, 2),
+            (1, 1, 1),
+        ),
+        False,
+    ),
+    _Cell(
+        "group-two-keys",
+        _q(_b("group by", "b", "n"), _b("select", "b", "n", "rows = count()")),
+        ("b", "n", "rows"),
+        (
+            (1, INT_MIN, 1),
+            (0, INT_MAX, 1),
+            (None, 0, 1),
+            (1, None, 1),
+            (0, 7, 1),
+            (1, 7, 2),
+            (None, None, 1),
+            (0, 1, 1),
+        ),
+        False,
+    ),
+    _Cell(
+        "group-order-by-count",
+        _q(
+            "where n is not None",
+            _b("group by", "b"),
+            _b("select", "b", 'tag = "k"', "rows = count()", "lo = min(n)"),
+            _b("order by", "rows desc", "b"),
+        ),
+        ("b", "tag", "rows", "lo"),
+        ((0, "k", 3, 1), (1, "k", 3, INT_MIN), (None, "k", 1, 0)),
+        True,
+    ),
+    _Cell(
+        "group-order-by-max",
+        _q(
+            _b("group by", "s"),
+            _b("select", "s", "hi = max(x)"),
+            _b("order by", "hi desc", "s"),
+        ),
+        ("s", "hi"),
+        (
+            ("\U0001f600", None),
+            (None, None),
+            ("A", 1e300),
+            ("\u4e2d", 2.5),
+            ("", 1.0),
+            ("e\u0301", 0.0),
+            ("\u00e9", 0.0),
+            ("a", -0.5),
+        ),
+        True,
+    ),
+    _Cell(
+        "group-order-by-key-desc",
+        _q(
+            _b("group by", "b"),
+            _b("select", "b", "rows = count()"),
+            _b("order by", "b desc"),
+        ),
+        ("b", "rows"),
+        ((None, 2), (1, 4), (0, 3)),
+        True,
+    ),
+    _Cell(
+        "group-limit",
+        _q(
+            _b("group by", "n"),
+            _b("select", "n", "rows = count()"),
+            _b("order by", "rows desc", "n"),
+            "limit 2",
+        ),
+        ("n", "rows"),
+        ((7, 3), (None, 2)),
+        True,
+    ),
+)
+# Each premise control breaks one premise of the SQLite rules on purpose: the
+# premise is the caller's, and this is what the SQL then means.
+_PREMISES: tuple[_Cell, ...] = (
+    _Cell(
+        "premise-nocase-merges-case",
+        _q('where s == "a"', _b("select", "id")),
+        ("id",),
+        _ids(1, 2),
+        False,
+        "nocase",
+    ),
+    _Cell(
+        "premise-bool-two-bare",
+        _q("where b", _b("select", "id")),
+        ("id",),
+        _ids(1, 2),
+        False,
+        "bool-two",
+    ),
+    _Cell(
+        "premise-bool-two-eq-true",
+        _q("where b == True", _b("select", "id")),
+        ("id",),
+        _ids(2),
+        False,
+        "bool-two",
+    ),
+    _Cell(
+        "premise-real-infinity-kept-nan-null",
+        _q(_b("select", "id", "x")),
+        ("id", "x"),
+        ((1, math.inf), (2, -math.inf), (3, None)),
+        False,
+        "real-edges",
+    ),
+)
+# Equality cells whose expected bag the pure BAG/NULL oracle derives from the
+# fixture rows: `==` keeps TRUE rows, `not (==)` keeps FALSE rows.
+_EQUALITIES = (
+    ("n", "7", 7),
+    ("n", "0", 0),
+    ("n", "9223372036854775807", INT_MAX),
+    ("s", '"a"', "a"),
+    ("s", '"A"', "A"),
+    ("s", '"\u00e9"', "\u00e9"),
+    ("s", '"e\u0301"', "e\u0301"),
+    ("s", '""', ""),
+    ("b", "True", True),
+    ("b", "False", False),
+)
+
+
+def _scalar(field: str, value: object) -> oracle.ProjectBagNullScalar:
+    if value is None:
+        return oracle.project_bag_null()
+    if field == "b":
+        assert value in (0, 1, True, False)
+        return oracle.project_bag_bool(bool(value))
+    if type(value) is int:
+        return oracle.project_bag_int(value)
+    assert type(value) is str
+    return oracle.project_bag_text(value)
+
+
+def _oracle_cells() -> tuple[_Cell, ...]:
+    position = tuple(_TYPES).index
+    cells: list[_Cell] = []
+    for field, spelling, value in _EQUALITIES:
+        truths = [
+            (
+                row[0],
+                oracle.evaluate_project_bag_null_equality(
+                    _scalar(field, row[position(field)]), _scalar(field, value)
+                ),
+            )
+            for row in _ROWS
+        ]
+        for prefix, condition, keep in (
+            ("oracle-eq", f"{field} == {spelling}", oracle.ProjectBagNullTruth.TRUE),
+            (
+                "oracle-not-eq",
+                f"not ({field} == {spelling})",
+                oracle.ProjectBagNullTruth.FALSE,
+            ),
+        ):
+            ids = (identifier for identifier, truth in truths if truth is keep)
+            cells.append(_where(f"{prefix}-{field}-{len(cells) // 2}", condition, *ids))
+    return tuple(cells)
+
+
+# Python's own comparison of two values of one type is the order oracle: Int
+# and Float by value (`-0.0 == 0.0`), Text by code point, which BINARY UTF-8
+# order keeps, and Bool with FALSE before TRUE. NULL makes a comparison unknown.
+_PYTHON_OPERATORS: dict[str, Callable[[Any, Any], object]] = {
+    "==": operator.eq,
+    "!=": operator.ne,
+    "<": operator.lt,
+    "<=": operator.le,
+    ">": operator.gt,
+    ">=": operator.ge,
+}
+_NULL_TESTS = ("is None", "is not None")
+_OUTPUTS = {
+    "==": "eq",
+    "!=": "ne",
+    "<": "lt",
+    "<=": "le",
+    ">": "gt",
+    ">=": "ge",
+    "is None": "missing",
+    "is not None": "present",
+}
+
+
+def _python_value(field: str, raw: object) -> object:
+    if raw is None or _COLUMN_TYPES[field] != "Bool":
+        return raw
+    assert raw in (0, 1)
+    return bool(raw)
+
+
+def _python_truth(left: object, spelling: str, right: object) -> bool | None:
+    if spelling in _NULL_TESTS:
+        return (left is None) is (spelling == "is None")
+    if left is None or right is None:
+        return None
+    return bool(_PYTHON_OPERATORS[spelling](left, right))
+
+
+def _sql_truth(truth: bool | None) -> int | None:
+    return None if truth is None else int(truth)
+
+
+def _python_cells() -> tuple[_Cell, ...]:
+    """SELECT cells whose expected values Python's operators derive from the
+    fixture rows: each emitted comparison and NULL test of each value type
+    against one literal, and the two Bool fields against each other."""
+
+    position = tuple(_TYPES).index
+    cells: list[_Cell] = []
+    for field, literal in (("n", "7"), ("s", '"a"'), ("b", "True"), ("x", "0.0")):
+        spellings = (*sqlite_relations._COMPARISONS, *_NULL_TESTS)
+        items = tuple(
+            f"{_OUTPUTS[spelling]} = {field} {spelling}"
+            + ("" if spelling in _NULL_TESTS else f" {literal}")
+            for spelling in spellings
+        )
+        value = ast.literal_eval(literal)
+        rows = tuple(
+            (
+                row[0],
+                *(
+                    _sql_truth(
+                        _python_truth(
+                            _python_value(field, row[position(field)]), spelling, value
+                        )
+                    )
+                    for spelling in spellings
+                ),
+            )
+            for row in _ROWS
+        )
+        columns = ("id", *(_OUTPUTS[spelling] for spelling in spellings))
+        name = f"python-select-{_TYPES[field].lower()}"
+        cells.append(_Cell(name, _q(_b("select", "id", *items)), columns, rows, False))
+    spellings = tuple(sqlite_relations._COMPARISONS)
+    rows = tuple(
+        (
+            identifier,
+            *(
+                _sql_truth(
+                    _python_truth(
+                        _python_value("b", b), spelling, _python_value("c", c)
+                    )
+                )
+                for spelling in spellings
+            ),
+        )
+        for identifier, b, c in _PAIRS
+    )
+    items = tuple(f"{_OUTPUTS[spelling]} = b {spelling} c" for spelling in spellings)
+    cells.append(
+        _Cell(
+            "python-select-bool-pair",
+            _q(_b("select", "id", *items), header=_PAIR_HEADER),
+            ("id", *(_OUTPUTS[spelling] for spelling in spellings)),
+            rows,
+            False,
+            "bool-pairs",
+        )
+    )
+    return tuple(cells)
+
+
+_LAW_CELLS = _MATRIX + _oracle_cells() + _python_cells()
+_CELLS = _LAW_CELLS + _PREMISES
+
+
+def _ir(program: str) -> ScriptIR:
+    parsed = parse_source(program, path="native.pietto")
+    assert parsed.diagnostics == ()
+    assert parsed.ast is not None
+    semantic = analyze(parsed.ast)
+    assert all(item.severity is not Severity.ERROR for item in semantic.diagnostics), (
+        semantic.diagnostics
+    )
+    assert semantic.script is not None
+    built = build_ir(semantic.script, semantic.model)
+    assert built.diagnostics == ()
+    assert built.ir is not None
+    return built.ir
+
+
+def _emit_all(program: str) -> tuple[tuple[str, str], ...]:
+    result = emit_sqlite_sql(_ir(program))
+    assert result.diagnostics == ()
+    return tuple((artifact.name, artifact.sql) for artifact in result.artifacts)
+
+
+def _emit(program: str) -> str:
+    ((_name, sql),) = _emit_all(program)
+    return sql
+
+
+def _run(fixture: str, sql: str) -> _Record:
+    table, schema, rows = _FIXTURES[fixture]
+    with closing(sqlite3.connect(":memory:")) as connection:
+        connection.execute(schema)
+        marks = ", ".join("?" * len(rows[0]))
+        connection.executemany(f"INSERT INTO `{table}` VALUES ({marks})", rows)
+        cursor = connection.execute(sql)
+        columns = tuple(item[0] for item in cursor.description)
+        return _Record(sql, columns, tuple(cursor.fetchall()))
+
+
+def _typed(row: object, width: int) -> tuple[tuple[str, str], ...]:
+    """A row as type names and reprs: 1, 1.0 and True differ, and so do
+    0.0 and -0.0 or a precomposed and a decomposed accent."""
+
+    if type(row) is not tuple or len(row) != width:
+        raise AssertionError(f"row {row!r} is not a tuple of width {width}")
+    return tuple((type(value).__name__, repr(value)) for value in row)
+
+
+def _judge(cell: _Cell, sql: str, record: object) -> None:
+    """Judge only a record of a native run of exactly these SQL bytes."""
+
+    if type(record) is not _Record:
+        raise AssertionError(f"{cell.name}: no native record: {record!r}")
+    if record.sql != sql:
+        raise AssertionError(f"{cell.name}: the record ran other SQL bytes")
+    if record.columns != cell.columns:
+        raise AssertionError(f"{cell.name}: columns {record.columns!r}")
+    if type(record.rows) is not tuple:
+        raise AssertionError(f"{cell.name}: rows are not a tuple")
+    width = len(cell.columns)
+    observed = [_typed(row, width) for row in record.rows]
+    expected = [_typed(row, width) for row in cell.rows]
+    if cell.ordered and observed != expected:
+        raise AssertionError(f"{cell.name}: rows {record.rows!r}")
+    if not cell.ordered and Counter(observed) != Counter(expected):
+        raise AssertionError(f"{cell.name}: bag {record.rows!r}")
+
+
+@pytest.mark.parametrize("cell", _CELLS, ids=lambda cell: cell.name)
+def test_each_cell_matches_its_prewritten_oracle(cell: _Cell, native: _Native) -> None:
+    sql = _emit(cell.program)
+    if not native.qualified:
+        return
+    record = _run(cell.fixture, sql)
+    native.observe("cell", [cell.program, cell.fixture, sql, repr(record.rows)])
+    _judge(cell, sql, record)
+
+
+_GOLDEN = {
+    "active_accounts": _Cell(
+        "active_accounts",
+        "",
+        ("id", "label", "score"),
+        ((1, "Ann", 0.9), (3, "O'Neil `\u00e9`", 0.5), (4, "Zed", 0.4)),
+        False,
+    ),
+    "ranked_names": _Cell(
+        "ranked_names",
+        "",
+        ("id", "name", "flagged", "kind", "weight", "rank"),
+        (
+            (5, "mo", 1, "account", 1.5, INT_MAX),
+            (3, "O'Neil `\u00e9`", 0, "account", 1.5, INT_MAX),
+        ),
+        True,
+    ),
+    "region_counts": _Cell(
+        "region_counts",
+        "",
+        ("region", "accounts", "scored", "low", "high"),
+        (("east", 3, 3, 1, 2.0), ("west", 2, 0, 2, None)),
+        True,
+    ),
+    "totals": _Cell("totals", "", ("rows", "top"), ((6, 6),), False),
+}
+
+
+@pytest.mark.parametrize("name", tuple(_GOLDEN))
+def test_the_reviewed_golden_runs_natively(name: str, native: _Native) -> None:
+    golden = SQL_GOLDEN.read_text(encoding="utf-8")
+    statements = tuple(
+        re.findall(r"^-- (\w+)\n(.*?);$", golden, re.MULTILINE | re.DOTALL)
+    )
+    # The golden bytes are the emitter's bytes for the fixture source.
+    assert _emit_all(SOURCE.read_text(encoding="utf-8")) == statements
+    assert tuple(statement for statement, _sql in statements) == tuple(_GOLDEN)
+    if not native.qualified:
+        return
+    sql = dict(statements)[name]
+    record = _run("accounts", sql)
+    native.observe("golden", [name, "accounts", sql, repr(record.rows)])
+    _judge(_GOLDEN[name], sql, record)
+
+
+# PostgreSQL type OIDs by Pietto type: int8 or int4, float8, text, bool. A
+# column that projects a bare Float literal may also arrive as numeric (1700),
+# because the PostgreSQL emitter writes that literal as a decimal.
+_PG_OIDS = {"Int": (20, 23), "Float": (701,), "Text": (25,), "Bool": (16,)}
+_PG_VALUES: dict[str, Callable[[str], object]] = {
+    "int": int,
+    "float": float,
+    "decimal": Decimal,
+    "str": ast.literal_eval,
+    "bool": {"True": True, "False": False}.__getitem__,
+}
+_PG_BOOLS: dict[object, bool] = {0: False, 1: True}
+
+
+def _postgres(program: str) -> dict[str, tuple[str, dict[str, tuple[str, bool]]]]:
+    """The PostgreSQL statements of a program with its `sqlite.table`
+    connector swapped for `postgres.table`, each with its output columns'
+    Pietto types and whether the column projects a bare Float literal."""
+
+    assert 'sqlite.table("' in program
+    script = _ir(program.replace('sqlite.table("', 'postgres.table("'))
+    result = emit_postgres_sql(script)
+    assert result.diagnostics == ()
+    found: dict[str, dict[str, tuple[str, bool]]] = {}
+    for relation in script.definitions:
+        if not isinstance(relation, RelationIR):
+            continue
+        columns = found.setdefault(relation.name, {})
+        fields = relation.row_schema.fields
+        for field, projection in zip(fields, relation.projections, strict=True):
+            assert projection.name in (None, field.name)
+            value = projection.expression
+            literal = isinstance(value, LiteralIR) and type(value.value) is float
+            columns[field.name] = (field.type_ref.canonical_name, literal)
+    return {item.name: (item.sql, found[item.name]) for item in result.artifacts}
+
+
+def _pg_key(kind: str, value: object, oid: int, signed: bool) -> object:
+    """A PostgreSQL value with its Pietto type kept, as the replay judge
+    compares it: a Float as the finite decimal of its shortest repr, with
+    its zero sign only when `signed`."""
+
+    if value is None:
+        return None
+    if kind != "Float":
+        if type(value) is not {"Int": int, "Text": str, "Bool": bool}[kind]:
+            raise AssertionError(f"{kind} carried as {value!r}")
+        return value
+    if type(value) is float and oid == 701:
+        number = Decimal(repr(value))
+    elif type(value) is Decimal and oid == 1700:
+        number = value
+    else:
+        raise AssertionError(f"Float carried as {value!r} under OID {oid}")
+    if not number.is_finite():
+        raise AssertionError(f"non-finite Float {value!r}")
+    return number, signed and number == 0 and number.is_signed()
+
+
+def _pg_rows(
+    kinds: Sequence[str],
+    rows: Sequence[Sequence[object]],
+    oids: Sequence[int],
+    signed: bool,
+) -> list[tuple[object, ...]]:
+    return [
+        tuple(
+            _pg_key(kind, value, oid, signed)
+            for kind, value, oid in zip(kinds, row, oids, strict=True)
+        )
+        for row in rows
+    ]
+
+
+def _loaded(value: object, saved: object) -> bool:
+    """Whether the replay loaded this fixture value: a Bool column's 0 or 1
+    as a boolean, every other value with its own type."""
+
+    if isinstance(saved, list) and saved[0] == "bool":
+        return type(value) is int and value in (0, 1) and saved[1] == repr(bool(value))
+    return saved == (None if value is None else [type(value).__name__, repr(value)])
+
+
+def test_each_postgres_replay_binds_the_bytes_it_ran() -> None:
+    """A saved PostgreSQL result counts for a cell only while the tree emits
+    the PostgreSQL bytes that ran, on the fixture rows the run loaded, and
+    while it meets the cell's prewritten oracle under the replay judge:
+    types kept, carriers by type OID, rows as a sequence or a bag, and a zero
+    sign as the one declared divergence (`ZERO_SIGN`). No database opens."""
+
+    replay = json.loads(POSTGRES_REPLAY.read_text(encoding="utf-8"))
+    assert replay["format"] == "pietto.phase78.s03.postgres-replay.v1"
+    assert set(replay["fixtures"]) == {entry["fixture"] for entry in replay["entries"]}
+    for name, saved in replay["fixtures"].items():
+        table, _schema, rows = _FIXTURES[name]
+        assert saved["table"] == table, name
+        assert len(saved["rows"]) == len(rows), name
+        for row, saved_row in zip(rows, saved["rows"]):
+            pairs = zip(row, saved_row, strict=True)
+            assert all(_loaded(value, item) for value, item in pairs), (name, row)
+    subjects = []
+    for cell in _LAW_CELLS:
+        ((sql, columns),) = _postgres(cell.program).values()
+        subjects.append((cell.name, cell, cell.fixture, sql, columns))
+    golden = _postgres(SOURCE.read_text(encoding="utf-8"))
+    for name, cell in _GOLDEN.items():
+        subjects.append(("golden-" + name, cell, "accounts", *golden[name]))
+    # One saved run per cell and golden statement, in that order, and no other.
+    assert [entry["id"] for entry in replay["entries"]] == [s[0] for s in subjects]
+    for entry, (name, cell, fixture, sql, columns) in zip(replay["entries"], subjects):
+        assert entry["fixture"] == fixture, name
+        digest = hashlib.sha256(sql.encode("utf-8")).hexdigest()
+        assert entry["postgres_sql_sha256"] == digest, name
+        assert tuple(entry["columns"]) == cell.columns == tuple(columns), name
+        kinds = [columns[column][0] for column in cell.columns]
+        oids = entry["type_oids"]
+        for column, oid in zip(cell.columns, oids, strict=True):
+            kind, literal = columns[column]
+            assert oid in _PG_OIDS[kind] + ((1700,) if literal else ()), (name, oid)
+        observed = [
+            [None if item is None else _PG_VALUES[item[0]](item[1]) for item in row]
+            for row in entry["rows"]
+        ]
+        # The prewritten oracle, with a Bool column's 0 and 1 as booleans.
+        wanted = [
+            [
+                _PG_BOOLS[value] if kind == "Bool" and value is not None else value
+                for kind, value in zip(kinds, row, strict=True)
+            ]
+            for row in cell.rows
+        ]
+        canonical = [_PG_OIDS[kind][0] for kind in kinds]
+        agree = []
+        for signed in (False, True):
+            seen = _pg_rows(kinds, observed, oids, signed)
+            want = _pg_rows(kinds, wanted, canonical, signed)
+            agree.append(
+                seen == want if cell.ordered else Counter(seen) == Counter(want)
+            )
+        assert agree[0], (name, entry["rows"])
+        assert entry["divergences"] == ([] if agree[1] else ["ZERO_SIGN"]), name
+
+
+_WIDE = """shape Wide:
+    id: Int
+    ghost: Int | None
+
+source t: Wide = sqlite.table("t")
+source absent: Wide = sqlite.table("absent")
+
+"""
+_NO_GHOST = ("OperationalError", 1, "SQLITE_ERROR", "no such column: t.ghost")
+
+
+@pytest.mark.parametrize(
+    ("program", "expected"),
+    [
+        (_WIDE + "query q:\n    from t\n    select:\n        ghost\n", _NO_GHOST),
+        (
+            _WIDE
+            + "query q:\n    from t\n    where ghost is None\n    select:\n        id\n",
+            _NO_GHOST,
+        ),
+        (
+            _WIDE
+            + "query q:\n    from t\n    select:\n        id\n    order by:\n        ghost\n",
+            _NO_GHOST,
+        ),
+        (
+            _WIDE + "query q:\n    from absent\n    select:\n        id\n",
+            ("OperationalError", 1, "SQLITE_ERROR", "no such table: absent"),
+        ),
+    ],
+    ids=("select", "where", "order-by", "table"),
+)
+def test_a_name_the_database_lacks_fails_the_statement(
+    program: str, expected: tuple[str, int, str, str], native: _Native
+) -> None:
+    sql = _emit(program)
+    if not native.qualified:
+        return
+    with pytest.raises(sqlite3.Error) as caught:
+        _run("rows", sql)
+    error = caught.value
+    observed = (
+        type(error).__name__,
+        error.sqlite_errorcode,
+        error.sqlite_errorname,
+        str(error),
+    )
+    native.observe("native_error", [program, "rows", sql, observed])
+    assert observed == expected
+
+
+@pytest.mark.parametrize(
+    ("schema", "insert", "parameters", "expected"),
+    [
+        # Python's name table has no entry for SQLITE_CONSTRAINT_DATATYPE, so
+        # this case judges the code and the text only.
+        (
+            _SCHEMA,
+            "INSERT INTO `t` (`id`, `n`) VALUES (?, ?)",
+            (1, "x"),
+            (
+                "IntegrityError",
+                3091,
+                None,
+                "cannot store TEXT value in INTEGER column t.n",
+            ),
+        ),
+        (
+            "CREATE TABLE `r` (`x` REAL NOT NULL) STRICT",
+            "INSERT INTO `r` VALUES (?)",
+            (math.nan,),
+            (
+                "IntegrityError",
+                1299,
+                "SQLITE_CONSTRAINT_NOTNULL",
+                "NOT NULL constraint failed: r.x",
+            ),
+        ),
+    ],
+    ids=("strict-text-into-integer", "nan-into-not-null-real"),
+)
+def test_the_fixture_premises_are_enforced_natively(
+    schema: str,
+    insert: str,
+    parameters: tuple[object, ...],
+    expected: tuple[str, int, str | None, str],
+    native: _Native,
+) -> None:
+    if not native.qualified:
+        return
+    with closing(sqlite3.connect(":memory:")) as connection:
+        connection.execute(schema)
+        with pytest.raises(sqlite3.Error) as caught:
+            connection.execute(insert, parameters)
+    error = caught.value
+    raw = (type(error).__name__, error.sqlite_errorcode, error.sqlite_errorname)
+    native.observe(
+        "premise_error", [schema, insert, repr(parameters), [*raw, str(error)]]
+    )
+    name = raw[2] if expected[2] is not None else None
+    assert (*raw[:2], name, str(error)) == expected
+
+
+def test_the_running_build_is_observed(
+    native_build: bool, record_property: _RecordProperty
+) -> None:
+    with closing(sqlite3.connect(":memory:")) as connection:
+        observed = _observe(connection)
+    record_property(
+        "sqlite_build",
+        json.dumps(
+            {
+                "sqlite3.sqlite_version": sqlite3.sqlite_version,
+                "sqlite_version()": observed.release,
+                "sqlite_source_id()": observed.source_id,
+                "compile_options": observed.compile_options,
+                "refusal": _refusal(observed),
+            }
+        ),
+    )
+    assert observed.release == sqlite3.sqlite_version
+    assert (_refusal(observed) is None) is native_build
+
+
+_FORGED = (
+    (replace(QUALIFIED_SQLITE_BUILD, release="3.53.2"), "SQLITE_BUILD_RELEASE"),
+    (
+        replace(
+            QUALIFIED_SQLITE_BUILD,
+            source_id=QUALIFIED_SQLITE_BUILD.source_id[:-1] + "8",
+        ),
+        "SQLITE_BUILD_SOURCE",
+    ),
+    (
+        replace(
+            QUALIFIED_SQLITE_BUILD,
+            compile_options=(
+                *QUALIFIED_SQLITE_BUILD.compile_options,
+                "ENABLE_LOAD_EXTENSION",
+            ),
+        ),
+        "SQLITE_BUILD_OPTIONS",
+    ),
+    (
+        replace(
+            QUALIFIED_SQLITE_BUILD,
+            compile_options=QUALIFIED_SQLITE_BUILD.compile_options[:-1],
+        ),
+        "SQLITE_BUILD_OPTIONS",
+    ),
+    (
+        replace(
+            QUALIFIED_SQLITE_BUILD,
+            compile_options=tuple(reversed(QUALIFIED_SQLITE_BUILD.compile_options)),
+        ),
+        "SQLITE_BUILD_OPTIONS",
+    ),
+    (
+        _Build(
+            "3.46.1",
+            "2024-08-13 09:16:08 "
+            "c9c2ab54ba1f5f46360f1b4f35d849cd3f080e6fc2b6c60e91b16c63f69aalt1",
+            ("COMPILER=gcc-15.2.0", "ENABLE_LOAD_EXTENSION"),
+        ),
+        "SQLITE_BUILD_RELEASE",
+    ),
+)
+
+
+@pytest.mark.parametrize(("forged", "category"), _FORGED)
+def test_a_forged_build_is_refused_in_every_class(
+    forged: _Build, category: str
+) -> None:
+    assert _refusal(forged) == category
+    assert _qualified(forged, "hosted-refusal") is False
+    with pytest.raises(
+        pytest.skip.Exception, match=f"^PIETTO_NOT_RUN sqlite-native {category}$"
+    ):
+        _qualified(forged, "report")
+    with pytest.raises(
+        pytest.fail.Exception, match=f"^PIETTO_SQLITE_REQUIRED {category}$"
+    ):
+        _qualified(forged, "qualified")
+    for declared in SQLITE_CLASSES:
+        assert _qualified(QUALIFIED_SQLITE_BUILD, declared) is True
+
+
+@pytest.mark.parametrize(
+    ("environ", "option", "expected"),
+    [
+        ({}, None, "report"),
+        ({"GITHUB_ACTIONS": "true"}, None, "hosted-refusal"),
+        ({"GITHUB_ACTIONS": "true"}, "qualified", "qualified"),
+        ({SQLITE_CLASS_VARIABLE: "qualified"}, None, "qualified"),
+        ({SQLITE_CLASS_VARIABLE: "report"}, "report", "report"),
+        # The job store's storage class is not this class.
+        ({"PIETTO_STORAGE_CLASS": "qualified"}, None, "report"),
+        ({"PIETTO_STORAGE_CLASS": "hosted-refusal"}, None, "report"),
+    ],
+)
+def test_the_sqlite_class_is_declared_or_defaulted(
+    environ: dict[str, str], option: str | None, expected: str
+) -> None:
+    assert _sqlite_class(environ, option) == expected
+
+
+@pytest.mark.parametrize(
+    ("environ", "option", "code"),
+    [
+        (
+            {SQLITE_CLASS_VARIABLE: "report"},
+            "qualified",
+            "PIETTO_SQLITE_CLASS_CONFLICT",
+        ),
+        ({SQLITE_CLASS_VARIABLE: "QUALIFIED"}, None, "PIETTO_SQLITE_CLASS_UNKNOWN"),
+        ({SQLITE_CLASS_VARIABLE: ""}, None, "PIETTO_SQLITE_CLASS_UNKNOWN"),
+    ],
+)
+def test_a_conflicting_or_unknown_sqlite_class_fails_closed(
+    environ: dict[str, str], option: str | None, code: str
+) -> None:
+    with pytest.raises(ValueError, match=f"^{code}$"):
+        _sqlite_class(environ, option)
+
+
+def _cell(name: str) -> _Cell:
+    (cell,) = (cell for cell in _CELLS if cell.name == name)
+    return cell
+
+
+def test_the_judge_fails_every_fabricated_fail_open_shape() -> None:
+    bag = _cell("select-multiplicity")
+    order = _cell("order-text-asc")
+    typed = _cell("select-literals")
+    sql = "SELECT fabricated"
+
+    def record(
+        cell: _Cell, rows: tuple[tuple[object, ...], ...] | None = None
+    ) -> _Record:
+        return _Record(sql, cell.columns, cell.rows if rows is None else rows)
+
+    for cell in (bag, order, typed):
+        _judge(cell, sql, record(cell))
+    _judge(bag, sql, record(bag, tuple(reversed(bag.rows))))
+
+    literal = typed.rows[0]
+    fabricated = [
+        (bag, None),
+        (bag, (sql, bag.columns, bag.rows)),
+        (bag, replace(record(bag), sql=sql + " ")),
+        (bag, replace(record(bag), columns=("n", "other"))),
+        (bag, replace(record(bag), columns=("n",))),
+        (bag, record(bag, ())),
+        (bag, record(bag, bag.rows[1:])),
+        (bag, record(bag, bag.rows + bag.rows[:1])),
+        (bag, record(bag, tuple(dict.fromkeys(bag.rows)))),
+        (bag, record(bag, tuple(row + (None,) for row in bag.rows))),
+        (bag, replace(record(bag), rows=list(bag.rows))),
+        (bag, record(bag, ((None, "a"), *bag.rows[1:]))),
+        (
+            bag,
+            record(
+                bag, ((INT_MIN, "a"), (INT_MAX, "A"), (0, "e\u0301"), *bag.rows[3:])
+            ),
+        ),
+        (order, record(order, (order.rows[1], order.rows[0], *order.rows[2:]))),
+        (order, record(order, order.rows[:-1])),
+        (typed, record(typed, ((True, *literal[1:]),))),
+        (typed, record(typed, ((1.0, *literal[1:]),))),
+        (typed, record(typed, ((*literal[:4], -0.0, *literal[5:]),))),
+        (typed, record(typed, ((*literal[:7], True, literal[8]),))),
+        (typed, record(typed, ((*literal[:2], False, *literal[3:]),))),
+    ]
+    for cell, output in fabricated:
+        with pytest.raises(AssertionError):
+            _judge(cell, sql, output)
+
+
+def _python_ids(cell: _Cell) -> tuple[tuple[object, ...], ...] | None:
+    """The ids a bare Bool field, one comparison or one NULL test keeps by
+    Python's operators; None for a compound condition."""
+
+    assert cell.condition is not None
+    columns = _FIXTURE_COLUMNS[cell.fixture]
+    match = re.fullmatch(
+        r'(\w+)(?: (==|!=|<=|>=|<|>) ("[^"]*"|\S+)| (is None|is not None))?',
+        cell.condition,
+    )
+    if match is None:
+        return None
+    field, spelling, right, test = match.groups()
+    kept = []
+    for row in _FIXTURES[cell.fixture][2]:
+        value = _python_value(field, row[columns.index(field)])
+        if test is not None:
+            truth = _python_truth(value, test, None)
+        elif spelling is None:
+            truth = value
+        elif right in columns:
+            truth = _python_truth(
+                value, spelling, _python_value(right, row[columns.index(right)])
+            )
+        else:
+            truth = _python_truth(value, spelling, ast.literal_eval(right))
+        if truth is True:
+            kept.append(row[0])
+    return _ids(*kept)
+
+
+def test_each_single_where_oracle_agrees_with_python() -> None:
+    """No SQLite: a prewritten `where` oracle of one comparison, NULL test or
+    bare Bool field keeps exactly the rows Python's operators keep."""
+
+    for cell in _LAW_CELLS:
+        if cell.condition is None:
+            continue
+        expected = _python_ids(cell)
+        if expected is None:
+            assert re.search(r"\b(and|or|not)\b", cell.condition), cell.name
+            continue
+        assert Counter(cell.rows) == Counter(expected), cell.name
+
+
+_SECTION = re.compile(r"\n(FROM|WHERE|GROUP BY|ORDER BY|LIMIT)\b")
+_TEXT_LITERAL = re.compile(r"'(?:[^']|'')*'")
+_AGGREGATE = re.compile(r"\b(COUNT|MIN|MAX)\((\*|`t`\.`(\w+)`)\)")
+_COLUMN = re.compile(r"`t`\.`(\w+)`")
+_FLOAT = re.compile(r"(?<![\w.`])\d+(?:\.\d+(?:e[+-]\d+)?|e[+-]\d+)(?![\w.`])")
+_INT = re.compile(r"(?<![\w.`])\d+(?![\w.`])")
+_OPERAND = r"`t`\.`\w+`|'\?'|TRUE|FALSE|\d+(?:\.\d+)?(?:e[+-]\d+)?"
+_COMPARISON = re.compile(rf"({_OPERAND}) (<>|<=|>=|=|<|>) ({_OPERAND})")
+_NULL_TEST = re.compile(r"(`t`\.`\w+`) (IS NOT NULL|IS NULL)")
+
+
+def _operand_type(operand: str) -> str:
+    column = _COLUMN.fullmatch(operand)
+    if column is not None:
+        return _COLUMN_TYPES[column[1]]
+    if operand == "'?'":
+        return "Text"
+    if operand in ("TRUE", "FALSE"):
+        return "Bool"
+    return "Float" if _FLOAT.fullmatch(operand) else "Int"
+
+
+def _forms(sql: str) -> set[str]:
+    """The forms one statement uses, read from its bytes: each comparison,
+    NULL test, connective and order direction with its clause and type."""
+
+    parts = _SECTION.split(_TEXT_LITERAL.sub("'?'", sql))
+    clauses = {"SELECT": parts[0], **dict(zip(parts[1::2], parts[2::2]))}
+    forms = {"limit"} if "LIMIT" in clauses else set()
+    for clause, text in clauses.items():
+        name = clause.lower()
+        for function, _argument, column in _AGGREGATE.findall(text):
+            forms.add(f"{function.lower()} {_COLUMN_TYPES[column] if column else '*'}")
+            if clause == "ORDER BY":
+                forms.add("order by aggregate")
+        for column in _COLUMN.findall(_AGGREGATE.sub("", text)):
+            forms.add(f"{name} {_COLUMN_TYPES[column]}")
+        if clause == "ORDER BY":
+            for column, direction in _ORDER_KEY.findall(text):
+                forms.add(f"order by {_COLUMN_TYPES[column]} {direction}")
+        if clause not in ("SELECT", "WHERE"):
+            continue
+        for literal, pattern in (("Float", _FLOAT), ("Int", _INT)):
+            if pattern.search(_FLOAT.sub("", text) if literal == "Int" else text):
+                forms.add(f"literal {literal}")
+        if "'?'" in text:
+            forms.add("literal Text")
+        if re.search(r"\b(TRUE|FALSE)\b", text):
+            forms.add("literal Bool")
+        for left, comparison, right in _COMPARISON.findall(text):
+            kinds = {_operand_type(left), _operand_type(right)}
+            assert len(kinds) == 1, sql
+            forms.add(f"{name} {kinds.pop()} {comparison}")
+        for operand, test in _NULL_TEST.findall(text):
+            forms.add(f"{name} {_operand_type(operand)} {test}")
+        for connective in re.findall(r"\b(AND|OR)\b", text):
+            forms.add(f"{name} Bool {connective}")
+        if re.search(r"\bNOT (?!NULL)", text):
+            forms.add(f"{name} Bool NOT")
+    return forms
+
+
+# The emitter's own vocabulary, so a new value type, operator, connective,
+# aggregate or direction needs a native cell before it can ship. Each
+# comparison and NULL test is required per clause and value type, not once.
+_KINDS = tuple(sorted(sqlite_relations._VALUE_TYPES))
+_ORDER_KEY = re.compile(
+    r"`t`\.`(\w+)` ("
+    + "|".join(map(re.escape, sqlite_relations._DIRECTIONS.values()))
+    + ")"
+)
+_REQUIRED_FORMS = {
+    *(
+        f"{clause} {kind}"
+        for clause in ("select", "where", "group by", "order by")
+        for kind in _KINDS
+    ),
+    *(f"count {kind}" for kind in ("*", *_KINDS)),
+    *(
+        f"{function.lower()} {kind}"
+        for function in sqlite_relations._EXTREMA.values()
+        for kind in sorted(sqlite_relations._EXTREMA_TYPES)
+    ),
+    "order by aggregate",
+    "limit",
+    *(f"literal {kind}" for kind in _KINDS),
+    *(
+        f"{clause} {kind} {test}"
+        for clause in ("select", "where")
+        for kind in _KINDS
+        for test in (
+            *sqlite_relations._COMPARISONS.values(),
+            "IS NULL",
+            "IS NOT NULL",
+        )
+    ),
+    *(
+        f"{clause} Bool {connective}"
+        for clause in ("select", "where")
+        for connective in (*sqlite_relations._CONNECTIVES.values(), "NOT")
+    ),
+    *(
+        f"order by {kind} {direction}"
+        for kind in _KINDS
+        for direction in sqlite_relations._DIRECTIONS.values()
+    ),
+}
+
+
+def _missing_forms(cells: Sequence[_Cell]) -> set[str]:
+    forms = set().union(*(_forms(_emit(cell.program)) for cell in cells))
+    return _REQUIRED_FORMS - forms
+
+
+def test_every_emitted_form_has_a_native_cell() -> None:
+    assert _missing_forms(_LAW_CELLS) == set()
+    assert len(_CELLS) == len({cell.name for cell in _CELLS})

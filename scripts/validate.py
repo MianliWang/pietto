@@ -43,6 +43,10 @@ PYTEST_COMMAND = ("uv", "run", "pytest")
 # Authoritative runs declare the qualified storage class; the pre-check below
 # refuses an unqualified host before any gate starts, so it is not a start.
 STORAGE_CLASS_DECLARATION = "--pietto-storage-class=qualified"
+# They also declare the qualified SQLite class (D78.03): on any build other
+# than the measured one the native SQLite tests fail, never skip. A
+# conflicting PIETTO_SQLITE_CLASS is refused before any gate starts.
+SQLITE_CLASS_DECLARATION = "--pietto-sqlite-class=qualified"
 STORAGE_PRECHECK = """\
 import os
 import sys
@@ -522,20 +526,30 @@ def _resolved_gates(
     args: argparse.Namespace,
     parser: argparse.ArgumentParser,
 ) -> tuple[tuple[str, tuple[str, ...]], ...]:
-    pytest_command = (*_pytest_command(args, parser), STORAGE_CLASS_DECLARATION)
+    pytest_command = (
+        *_pytest_command(args, parser),
+        STORAGE_CLASS_DECLARATION,
+        SQLITE_CLASS_DECLARATION,
+    )
     return tuple(
         (name, pytest_command if name == PYTEST_GATE_NAME else command)
         for name, command in GATES
     )
 
 
-def _storage_precheck(parser: argparse.ArgumentParser) -> None:
-    declared = os.environ.get("PIETTO_STORAGE_CLASS")
+def _refuse_conflicting_class(
+    parser: argparse.ArgumentParser, variable: str, kind: str
+) -> None:
+    declared = os.environ.get(variable)
     if declared is not None and declared != "qualified":
         parser.error(
-            "PIETTO_STORAGE_CLASS conflicts with the qualified storage class "
+            f"{variable} conflicts with the qualified {kind} class "
             "that authoritative validation declares"
         )
+
+
+def _storage_precheck(parser: argparse.ArgumentParser) -> None:
+    _refuse_conflicting_class(parser, "PIETTO_STORAGE_CLASS", "storage")
     result = subprocess.run(
         ("uv", "run", "python", "-c", STORAGE_PRECHECK),
         cwd=REPO_ROOT,
@@ -561,6 +575,8 @@ def main(argv: Sequence[str] | None = None) -> int:
     guarded = _oom_guard_enabled(args.oom_guard, parser)
     if guarded:
         print("[validate] OOM guard enabled: Linux owned process groups", flush=True)
+    if any(SQLITE_CLASS_DECLARATION in command for _name, command in gates):
+        _refuse_conflicting_class(parser, "PIETTO_SQLITE_CLASS", "SQLite")
     if any(STORAGE_CLASS_DECLARATION in command for _name, command in gates):
         _storage_precheck(parser)
     total_started = time.perf_counter() if args.timings else 0.0
