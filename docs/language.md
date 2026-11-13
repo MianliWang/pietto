@@ -2584,13 +2584,16 @@ parameter compares only with a `Decimal` of the same precision and scale
 (PIE-B1005 `decimal_comparison_parameter_conflict`) and, like any Decimal
 that is not a source field, is no arithmetic operand (PIE-B1003
 `decimal_direct_source_operands_required`); a `Timestamp` or `UUID` value
-carries its meaning only from a source field, so selecting such a parameter
-as an output emits, compiles, exports and binds, but `execute()` refuses it
-when it prepares the result and `save()` when it describes the binding
-(PIE-R1004 `QUERY_NOT_EXECUTABLE`, detail `MEANING_OUTPUT`). MySQL has no
-carrier for these four types yet: emitting a query that declares one, read or
-not, is BLOCKED with PIE-B1003 `query_parameter_type_not_admitted_on_target`
-at each such declaration, until a later MySQL catch-up.
+carries its meaning only from a source field or, for a `Timestamp`, from a
+selected `now()`, so selecting such a parameter as an output emits, compiles,
+exports and binds, but `execute()` refuses it when it prepares the result and
+`save()` when it describes the binding
+(PIE-R1004 `QUERY_NOT_EXECUTABLE`, detail `MEANING_OUTPUT`, or
+`MEANING_UNAVAILABLE` in a collected `let` beside a `Timestamp` or `UUID`
+source field). MySQL has no carrier for these four types yet: emitting a
+query that declares one, read or not, is BLOCKED with PIE-B1003
+`query_parameter_type_not_admitted_on_target` at each such declaration, until
+a later MySQL catch-up.
 
 A read, or a `let` binding or output whose value reads one, is available
 beneath unary, binary, comparison, null-test, BETWEEN, conditional,
@@ -3396,15 +3399,24 @@ fixtures hold the expression, never a value. A saved result keeps the values
 of the run that saved it, so a replay or a verified export shows those values
 and does not read `now()` again. `relay_live` (PIE-R1004
 `STATEMENT_SNAPSHOT_ENTRY`) and R2 `save_recoverable`/`recover` (PIE-R1004
-`PUBLIC_R2_STATEMENT_SNAPSHOT`) refuse a query that reads `now()`, before
-any workspace or sink work, because a resumed attempt would read another
-statement's value. Selected as an output, `now()` is a `Timestamp` without a
-source field, so for now, like a `Timestamp` parameter (see
-[Timestamp and UUID source meaning](#timestamp-and-uuid-source-meaning)), it
-has no meaning that a result can carry: `execute()`, `save`,
-`save_recoverable` and `relay_live` refuse it when they prepare the result,
-before any workspace or connection (PIE-R1004 `QUERY_NOT_EXECUTABLE`, detail
-`MEANING_OUTPUT`). `date_of(now())` and a WHERE comparison with `now()` run.
+`PUBLIC_R2_STATEMENT_SNAPSHOT`) for now refuse a query that reads `now()`,
+before any workspace or sink work, because a resumed attempt would read
+another statement's value. Selected as an output, `now()` has the civil
+meaning of a `Timestamp` source field (see
+[Timestamp and UUID source meaning](#timestamp-and-uuid-source-meaning)),
+which the statement's UTC start always has, beside `Timestamp` source fields
+or without any: as a SELECT item whose whole value is the call, also as a
+`def` argument and in a collected `let`, and in a column that another
+relation selected from it, which keeps that meaning wherever a source
+field's is kept, such as through `max`, whose result admits NULL. `execute()`
+and `save()` run such a query, and the column's Arrow type is
+`timestamp[us]`. Another expression over `now()`, such as
+`coalesce(now(), t)`, has no meaning that a result can carry, as for a
+`Timestamp` field: `execute()`, `save`, `save_recoverable` and `relay_live`
+refuse it when they prepare the result, before any workspace or connection
+(PIE-R1004 `QUERY_NOT_EXECUTABLE`, detail `MEANING_OUTPUT`, or
+`MEANING_UNAVAILABLE` in a collected `let` beside a `Timestamp` or `UUID`
+source field).
 
 `now()` is admitted only in a SELECT item, outside a window, and in a WHERE
 (PIE-S2387 elsewhere, with a specific hint for a GROUP BY key, an ORDER BY
@@ -5246,9 +5258,11 @@ Current PostgreSQL/MySQL producer admission additionally requires matching retai
 ## Timestamp and UUID source meaning
 
 Builtin names alone do not supply temporal/UUID meaning to project SQL. The
-compiler derives the approved closed meaning only for exact verified
-source/type occurrences and retains it through the result contract; source
-declarations and Arrow metadata cannot manufacture the upstream evidence.
+one exception is `now()`, whose statement time has the civil `Timestamp`
+meaning below. The compiler derives the approved closed meaning only for
+exact verified source/type occurrences and retains it through the result
+contract; source declarations and Arrow metadata cannot manufacture the
+upstream evidence.
 
 Civil Timestamp values are timezone-free proleptic Gregorian microseconds in
 the inclusive interval `1000-01-01 00:00:00.000000` through

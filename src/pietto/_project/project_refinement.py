@@ -281,13 +281,10 @@ def _computed_group_key(artifact):
     return False
 
 
-_NOW = ("scalar_call", "now")
-
-
 def _live_shape(artifact, requirements):
     """The R2 checks of the template's own structure, which read no value;
     a policy refinement's complete requirements, or None."""
-    from pietto._project.project_compiled_schema import Address
+    from pietto._project.project_compiled_schema import Address, NOW_OPERATOR
 
     records = artifact.request.verification.completed.root.records
     from pietto._project.project_execution_nested import collection_operations
@@ -296,7 +293,7 @@ def _live_shape(artifact, requirements):
         # A collected child row has no recovery coordinate in Phase71.
         raise ValueError("PUBLIC_R2_COLLECTION")
     if any(
-        address.kind == "operation" and record.get("operator") == _NOW
+        address.kind == "operation" and record.get("operator") == NOW_OPERATOR
         for address, record in records.items()
     ):
         # A resumed attempt would read another statement's `now()`.

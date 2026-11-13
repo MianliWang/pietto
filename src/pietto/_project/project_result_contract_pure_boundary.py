@@ -500,6 +500,40 @@ def prepared_order(value, types, reached, budget):
     order_value_type(value["value_type"], types, reached, budget)
 
 
+def timestamp_law(law):
+    """The one closed civil Timestamp law of a source entry or the clock."""
+    record(law, "kind calendar resolution timezone lower upper")
+    require(
+        all(
+            type(v) is str
+            for v in (
+                law["kind"],
+                law["calendar"],
+                law["resolution"],
+                law["timezone"],
+            )
+        )
+    )
+    require(
+        all(
+            type(v) is list and len(v) == 7 and all(type(n) is int for n in v)
+            for v in (law["lower"], law["upper"])
+        )
+    )
+    require(
+        law
+        == {
+            "kind": "timestamp",
+            "calendar": "proleptic_gregorian",
+            "resolution": "microsecond",
+            "timezone": "absent",
+            "lower": [1000, 1, 1, 0, 0, 0, 0],
+            "upper": [9999, 12, 31, 23, 59, 59, 499999],
+        },
+        "MEANING",
+    )
+
+
 def scalar_meaning_description(value, budget):
     record(value, "format sources")
     require(value["format"] == "pietto.scalar-meaning.v1", "TAG")
@@ -554,36 +588,7 @@ def scalar_meaning_description(value, budget):
             provenance_paths(origin)
         law = entry["law"]
         if kind == "Timestamp":
-            record(law, "kind calendar resolution timezone lower upper")
-            require(
-                all(
-                    type(v) is str
-                    for v in (
-                        law["kind"],
-                        law["calendar"],
-                        law["resolution"],
-                        law["timezone"],
-                    )
-                )
-            )
-            require(
-                all(
-                    type(v) is list and len(v) == 7 and all(type(n) is int for n in v)
-                    for v in (law["lower"], law["upper"])
-                )
-            )
-            require(
-                law
-                == {
-                    "kind": "timestamp",
-                    "calendar": "proleptic_gregorian",
-                    "resolution": "microsecond",
-                    "timezone": "absent",
-                    "lower": [1000, 1, 1, 0, 0, 0, 0],
-                    "upper": [9999, 12, 31, 23, 59, 59, 499999],
-                },
-                "MEANING",
-            )
+            timestamp_law(law)
         else:
             record(law, "kind byte_order byte_width")
             require(
@@ -612,6 +617,7 @@ class _Walk:
         self.types = types
         self.budget = budget
         self.meanings = meanings
+        self.clock_reached = False
         self.reached = []
         self.ports = set()
         self.leaves = leaves
@@ -694,7 +700,14 @@ def scalar_leaf(walk, leaf, position, siblings, parent_owner, parent_output, hol
     require((canonical["kind"] == "builtin") == (canonical["symbol"] is None))
     if canonical["kind"] == "builtin":
         require(canonical["name"] in BUILTINS, "TAG")
-    if (
+    if leaf.get("meaning") == "statement_clock":
+        require(
+            canonical == {"kind": "builtin", "name": "Timestamp", "symbol": None},
+            "REFERENCE",
+        )
+        walk.clock_reached = True
+        budget.reference()
+    elif (
         meanings is not None
         and canonical["kind"] == "builtin"
         and canonical["name"] in {"Timestamp", "UUID"}
@@ -850,13 +863,17 @@ def _validate_document(doc, *, limits=DocumentLimits()):
     record(
         doc,
         "format owner output field_count fields types multiplicity ordering"
-        + (" scalar_meaning" if "scalar_meaning" in doc else ""),
+        + (" scalar_meaning" if "scalar_meaning" in doc else "")
+        + (" statement_clock" if "statement_clock" in doc else ""),
     )
     meanings = (
         scalar_meaning_description(doc["scalar_meaning"], budget)
         if "scalar_meaning" in doc
         else None
     )
+    clock = "statement_clock" in doc
+    if clock:
+        timestamp_law(doc["statement_clock"])
     require(doc["format"] in (FORMAT, FORMAT_V2), "VERSION")
     owner(doc["owner"])
     require(doc["owner"]["identity"]["kind"] in {"table", "query"})
@@ -900,8 +917,10 @@ def _validate_document(doc, *, limits=DocumentLimits()):
             scalar_leaf(
                 walk, leaf, position, doc["fields"], doc["owner"], doc["output"], owner
             )
-    # One meaning, one encoding: a contract without a collection is only v1.
+    # One meaning, one encoding: a contract without a collection is only v1,
+    # and the clock is described only while a leaf reads it.
     require(nested == (doc["format"] == FORMAT_V2), "VERSION")
+    require(walk.clock_reached == clock, "REFERENCE")
     if doc["ordering"] is not None:
         ordering(walk, doc["ordering"], doc["owner"], owner)
     require(walk.reached == list(range(len(types))), "REFERENCE")

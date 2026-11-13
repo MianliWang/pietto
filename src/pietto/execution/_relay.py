@@ -10,6 +10,7 @@ from pietto._project import project_job_sink as private_sink
 from pietto._project import project_job_store as store
 from pietto._project import project_job_workspace as private_workspace
 from pietto._project import project_public_jobs as jobs
+from pietto._project.project_compiled_schema import NOW_OPERATOR
 from pietto.execution._errors import (
     RequestRejected,
     failure,
@@ -191,7 +192,7 @@ def relay_live(
     _collection_entry(query)
     records = query._template.artifact.request.verification.completed.root.records
     if any(
-        address.kind == "operation" and record.get("operator") == ("scalar_call", "now")
+        address.kind == "operation" and record.get("operator") == NOW_OPERATOR
         for address, record in records.items()
     ):
         # A sink would hold rows of a `now()` that a resumed relay reads anew.

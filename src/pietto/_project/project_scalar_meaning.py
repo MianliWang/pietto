@@ -2,7 +2,8 @@
 
 Acquisition applies an approved closed law to actual builtin source evidence.
 Verification reads the retained authorities independently; no constructor history
-or producer/Arrow description can supply an absent meaning.
+or producer/Arrow description can supply an absent meaning. `now()` reads the
+statement clock, the one meaning that comes from no source field.
 """
 
 from __future__ import annotations
@@ -59,6 +60,18 @@ class ScalarMeaningBundle:
         repr=False
     )
     entries: tuple[ScalarMeaningEntry, ...] = field(repr=False)
+
+
+@dataclass(frozen=True, slots=True, eq=False)
+class StatementClockMeaning:
+    """The statement clock that every now() of one statement reads. Its
+    identity is the holding contract's authority plus this clock, so the same
+    object in two contracts never means one value."""
+
+    law: TimestampMeaning = TimestampMeaning()
+
+
+STATEMENT_CLOCK = StatementClockMeaning()
 
 
 TIMESTAMP_LOWER = datetime(1000, 1, 1)
@@ -337,19 +350,40 @@ def operations_admitted(bundle) -> bool:
         return False
 
 
-def _output_entry(bundle, port):
-    if bundle is None:
-        return None
-    if type(bundle.verification) is CompiledSQLPlanVerification:
-        return _compiled_output_entry(bundle, port)
-    plan = bundle.verification.plan
+def _resolved(found, complete, kind, strict):
+    """The one meaning a traced output reaches. Under a bundle (strict) anything
+    else is refused; without one, only a complete trace to the clock counts."""
+    found = tuple(dict.fromkeys(found))  # eq=False ends: one per identity
+    if not strict:
+        clock = complete and len(found) == 1 and found[0] is STATEMENT_CLOCK
+        return STATEMENT_CLOCK if clock and kind == "Timestamp" else None
+    if not complete or len(found) != 1:
+        raise ScalarMeaningError("MEANING_OUTPUT")
+    entry = found[0]
+    reached = "Timestamp" if entry is STATEMENT_CLOCK else entry.canonical.name
+    if reached != kind:
+        raise ScalarMeaningError("MEANING_OUTPUT")
+    verify_law(entry.law, kind)
+    return entry
+
+
+def _output_entry(checked, bundle, port):
+    if type(checked) is CompiledSQLPlanVerification:
+        return _compiled_output_entry(checked, bundle, port)
+    from pietto._project.project_sql_plan_expressions import ProjectSQLScalarCall
+    from pietto.ir.model import SymbolNamespace
+
+    plan = checked.plan
     kind = port.field.evidence.resolved_type
     if kind.kind is not ProjectResolvedTypeKind.BUILTIN or kind.name not in (
         "Timestamp",
         "UUID",
     ):
         return None
-    source_entries = {entry.source_port.ref: entry for entry in bundle.entries}
+    strict = bundle is not None
+    ends: dict[Any, Any] = {STATEMENT_CLOCK: STATEMENT_CLOCK}
+    if strict:
+        ends.update((e.source_port.ref, e) for e in bundle.entries)
     edges: dict[Any, list[Any]] = {}
 
     def add(target, source):
@@ -374,8 +408,10 @@ def _output_entry(bundle, port):
             for definition in plan.bindings.definitions
             if definition.ref is unnest.definition
         )
+        # A verified plan never fails these unnest checks; without a bundle the
+        # guard of _prepare_output owns the refusal, so a generic leaf stays None.
         if len(matches) != 1 or len(definitions) != 1:
-            raise ScalarMeaningError("MEANING_OUTPUT")
+            return _resolved((), False, kind.name, strict)
         children = tuple(
             port
             for child in matches[0].children
@@ -404,7 +440,7 @@ def _output_entry(bundle, port):
                 )
             )
         ):
-            raise ScalarMeaningError("MEANING_OUTPUT")
+            return _resolved((), False, kind.name, strict)
         for export, child in zip(
             definitions[0].exports, matches[0].children, strict=True
         ):
@@ -416,6 +452,13 @@ def _output_entry(bundle, port):
         if source is None:
             expression = plan.expressions[projection.expression.position]
             source = getattr(expression, "port", None)
+            if (
+                type(expression) is ProjectSQLScalarCall
+                and expression.callee_symbol.namespace is SymbolNamespace.CALLABLE
+                and expression.callee_symbol.name == "now"
+                and not expression.arguments
+            ):
+                source = STATEMENT_CLOCK
         add(projection.ref, source)
         add(projection.export, source)
     for projection in plan.aggregate_projections:
@@ -441,35 +484,29 @@ def _output_entry(bundle, port):
         if current in seen:
             continue
         seen.add(current)
-        entry = source_entries.get(current)
+        entry = ends.get(current)
         if entry is not None:
-            if all(entry is not item for item in found):
-                found.append(entry)
+            found.append(entry)
             continue
         next_values = edges.get(current)
         if not next_values:
-            raise ScalarMeaningError("MEANING_OUTPUT")
+            return _resolved(found, False, kind.name, strict)
         pending.extend(next_values)
-    if len(found) != 1:
-        raise ScalarMeaningError("MEANING_OUTPUT")
-    entry = found[0]
-    if entry.canonical.name != kind.name:
-        raise ScalarMeaningError("MEANING_OUTPUT")
-    verify_law(entry.law, kind.name)
-    return entry
+    return _resolved(found, True, kind.name, strict)
 
 
-def _compiled_output_entry(bundle, port):
+def _compiled_output_entry(checked, bundle, port):
     """Resolve meaning through exact compiled value edges, preserving source identity."""
-    from pietto._project.project_compiled_schema import Address
+    from pietto._project.project_compiled_schema import Address, NOW_OPERATOR
 
-    plan = bundle.verification.plan
-    records = plan.ir.completed.root.records
-    if port.field.evidence.resolved_type.name not in ("Timestamp", "UUID"):
+    records = checked.plan.ir.completed.root.records
+    kind = port.field.evidence.resolved_type.name
+    if kind not in ("Timestamp", "UUID"):
         return None
+    strict = bundle is not None
     sources = {
         Address(e.source_port.ref.kind, e.source_port.ref.position): e
-        for e in bundle.entries
+        for e in (bundle.entries if strict else ())
     }
     pending = [Address(port.ref.kind, port.ref.position)]
     seen, found = set(), []
@@ -479,12 +516,12 @@ def _compiled_output_entry(bundle, port):
             continue
         seen.add(address)
         if address in sources:
-            entry = sources[address]
-            if all(entry is not e for e in found):
-                found.append(entry)
+            found.append(sources[address])
             continue
         record = records[address]
-        if address.kind == "port":
+        if address.kind == "operation" and record.get("operator") == NOW_OPERATOR:
+            found.append(STATEMENT_CLOCK)
+        elif address.kind == "port":
             pending.append(record.get("source"))
         elif address.kind == "read":
             pending.append(record.get("port"))
@@ -507,13 +544,12 @@ def _compiled_output_entry(bundle, port):
             try:
                 source = unnest_field_source(records, record)
             except (CompiledError, KeyError, TypeError) as exc:
-                raise ScalarMeaningError("MEANING_OUTPUT") from exc
+                if strict:
+                    raise ScalarMeaningError("MEANING_OUTPUT") from exc
+                source = None
             if source is None:
-                raise ScalarMeaningError("MEANING_OUTPUT")
+                return _resolved(found, False, kind, strict)
             pending.append(source)
         else:
-            raise ScalarMeaningError("MEANING_OUTPUT")
-    if len(found) != 1:
-        raise ScalarMeaningError("MEANING_OUTPUT")
-    verify_law(found[0].law, port.field.evidence.resolved_type.name)
-    return found[0]
+            return _resolved(found, False, kind, strict)
+    return _resolved(found, True, kind, strict)

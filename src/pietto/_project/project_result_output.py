@@ -153,8 +153,9 @@ def _prepare_output(artifact, *, binding=None, guarded=None):
                 source,
             )
         )
-    # A Timestamp or UUID value carries its meaning only from a source field; a
-    # program with no such field builds its contract without refusing one.
+    # A Timestamp or UUID value carries its meaning only from a source field or,
+    # for a Timestamp, from the statement clock of `now()`; a program with no
+    # such field builds its contract without refusing one.
     if any(
         c.realization.tag in ("Timestamp", "UUID") and c.field.meaning is None
         for column in columns

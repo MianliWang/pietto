@@ -14,6 +14,7 @@ from pietto._project.project_result_contract import (
     verify_result_contract,
 )
 from pietto._project.project_ir_properties import ProjectIRProvidedRelationOrdering
+from pietto._project.project_scalar_meaning import STATEMENT_CLOCK
 from pietto._project.project_final_outputs import ProjectRelationOrdering
 
 __all__: tuple[str, ...] = ()
@@ -492,8 +493,10 @@ class _Projection:
             provenance=self.provenance(leaf.provenance),
             type_resolution=self.resolution(leaf.shape.declared),
         )
-        # A verified leaf has a meaning only under a scalar meaning bundle.
-        if leaf.meaning is not None:
+        # A verified leaf has a meaning only from a bundle entry or the clock.
+        if leaf.meaning is STATEMENT_CLOCK:
+            described["meaning"] = "statement_clock"
+        elif leaf.meaning is not None:
             described["meaning"] = leaf.meaning.ordinal
         return described
 
@@ -560,26 +563,26 @@ class _Projection:
             keys=keys,
         )
 
-    def scalar_meaning(self, bundle):
+    def law(self, law):
         from pietto._project.project_scalar_meaning import TimestampMeaning
 
+        if type(law) is TimestampMeaning:
+            return self.obj(
+                kind="timestamp",
+                calendar=law.calendar,
+                resolution=law.resolution,
+                timezone=law.timezone,
+                lower=list(law.lower),
+                upper=list(law.upper),
+            )
+        return self.obj(
+            kind="uuid", byte_order=law.byte_order, byte_width=law.byte_width
+        )
+
+    def scalar_meaning(self, bundle):
         entries = []
         for entry in self.sequence(bundle.entries):
-            law = entry.law
-            description = (
-                self.obj(
-                    kind="timestamp",
-                    calendar=law.calendar,
-                    resolution=law.resolution,
-                    timezone=law.timezone,
-                    lower=list(law.lower),
-                    upper=list(law.upper),
-                )
-                if type(law) is TimestampMeaning
-                else self.obj(
-                    kind="uuid", byte_order=law.byte_order, byte_width=law.byte_width
-                )
-            )
+            description = self.law(entry.law)
             port = entry.source_port
             entries.append(
                 self.obj(
@@ -618,6 +621,13 @@ class _Projection:
         )
         if contract.scalar_meaning is not None:
             document["scalar_meaning"] = self.scalar_meaning(contract.scalar_meaning)
+        # One meaning, one encoding: the clock only while a leaf reads it.
+        if any(
+            leaf.meaning is STATEMENT_CLOCK
+            for f in fields
+            for leaf in (f.shape.fields if type(f.shape) is NestedShape else (f,))
+        ):
+            document["statement_clock"] = self.law(STATEMENT_CLOCK.law)
         return document
 
 

@@ -64,21 +64,39 @@ def test_relay_requires_a_sink_before_opening_the_workspace(query):
 
 
 @pytest.mark.parametrize(
-    ("item", "detail", "save_code"),
+    ("writer", "item", "detail", "save_code"),
     (
-        ("day = date_of(now())", "STATEMENT_SNAPSHOT_ENTRY", "PIE-R1009"),
-        ("seen = now()", "MEANING_OUTPUT", "PIE-R1004"),
+        (
+            api.write_example,
+            "day = date_of(now())",
+            "STATEMENT_SNAPSHOT_ENTRY",
+            "PIE-R1009",
+        ),
+        (api.write_example, "seen = now()", "STATEMENT_SNAPSHOT_ENTRY", "PIE-R1009"),
+        (
+            api.write_example,
+            "c = coalesce(now(), now())",
+            "MEANING_OUTPUT",
+            "PIE-R1004",
+        ),
+        (
+            api.write_temporal_example,
+            "stamp\n        seen = now()",
+            "STATEMENT_SNAPSHOT_ENTRY",
+            "PIE-R1009",
+        ),
     ),
-    ids=("read", "output"),
+    ids=("read", "output", "computed", "output-beside-source"),
 )
 def test_relay_refuses_a_now_read_before_the_sink_or_workspace(
-    tmp_path, item, detail, save_code
+    tmp_path, writer, item, detail, save_code
 ):
     """A relay of a query that reads `now()` is refused before any sink or
     workspace work; a plain save of it is not (its saved rows keep the
-    value), so it reaches the workspace. `now()` selected as an output has no
-    source meaning, so both refuse it first, while they prepare the result."""
-    project = api.write_example(tmp_path / "project")
+    value), so it reaches the workspace. An expression over `now()` selected
+    as an output has no meaning, so both refuse it first, while they prepare
+    the result."""
+    project = writer(tmp_path / "project")
     main = project / "main.pietto"
     main.write_text(
         main.read_text(encoding="utf-8")

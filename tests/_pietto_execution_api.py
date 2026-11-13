@@ -96,6 +96,40 @@ def write_example(directory, *, relation="items"):
     return project
 
 
+def write_temporal_example(directory):
+    """`write_example` whose `items` also has the source fields
+    `stamp: Timestamp` and `opt: Timestamp | None`, as microsecond columns."""
+    project = write_example(directory)
+    main = project / "main.pietto"
+    shape = "    id: Int\n    label: Text\n"
+    text = main.read_text(encoding="utf-8")
+    assert text.count(shape) == 1
+    main.write_text(
+        text.replace(
+            shape, shape + "    stamp: Timestamp\n    opt: Timestamp | None\n"
+        ),
+        encoding="utf-8",
+    )
+    contract = json.loads((project / "contract.json").read_text(encoding="utf-8"))
+    contract["sources"][0]["fields"] += [
+        {
+            "ordinal": ordinal,
+            "name": name,
+            "column": "item_" + name,
+            "representation": {
+                "storage": {"kind": "pg_timestamp", "fractional_seconds": 6},
+                "nullable": nullable,
+                "domain": {"kind": "timestamp"},
+            },
+        }
+        for ordinal, (name, nullable) in enumerate(
+            (("stamp", False), ("opt", True)), start=2
+        )
+    ]
+    (project / "contract.json").write_text(json.dumps(contract), encoding="utf-8")
+    return project
+
+
 def write_join_witness(directory, target, body):
     """Write a project whose `body` follows the JOIN witness header and whose
     contract publishes only its `lhs` source; returns the project root."""
@@ -114,8 +148,9 @@ def write_join_witness(directory, target, body):
     return project
 
 
-def write_nested_collect(directory, *, closed=False):
-    """Write one real S12 Collect project and its exact emission document.
+def write_nested_collect(directory, *, closed=False, temporal=False):
+    """Write one real S12 Collect project and its exact emission document;
+    ``temporal`` adds the collected source field `stamp: Timestamp`.
 
     The product fixture owns the source/contract construction.  This harness
     only keeps the resulting project bytes so the installed wheel compiles the
@@ -126,7 +161,8 @@ def write_nested_collect(directory, *, closed=False):
 
     project = Path(directory) / ("nested-closed" if closed else "nested-captured")
     project.parent.mkdir(parents=True, exist_ok=True)
-    output = nested.collected(product, project, closed=closed)
+    children = nested.IBT + ((("stamp", "Timestamp", False),) if temporal else ())
+    output = nested.collected(product, project, children, closed=closed)
     (project / "contract.json").write_bytes(output.artifact.request.accepted_bytes)
     return project
 

@@ -14,6 +14,7 @@ from pietto._project.project_result_contract import ResultError, verify_result_c
 from pietto._project.project_ir_properties import ProjectIRProvidedRelationOrdering
 from pietto._project.project_final_outputs import ProjectRelationOrdering
 from pietto._project.model import ProjectResolvedTypeKind
+from pietto._project.project_scalar_meaning import STATEMENT_CLOCK, TimestampMeaning
 
 __all__: tuple[str, ...] = ()
 
@@ -30,6 +31,7 @@ class _Correspondence:
         self.doc = doc
         self.checked = checked
         self.seen_types: list[Any] = []
+        self.clock = False
 
     def location(self, doc, value):
         if value is None:
@@ -424,12 +426,40 @@ class _Correspondence:
         for observed, origin in zip(doc["origins"], expected_origins, strict=True):
             self.provenance_paths(observed, origin)
 
+    def law(self, law, expected):
+        if type(expected) is TimestampMeaning:
+            same(
+                (
+                    law["calendar"],
+                    law["resolution"],
+                    law["timezone"],
+                    law["lower"],
+                    law["upper"],
+                ),
+                (
+                    expected.calendar,
+                    expected.resolution,
+                    expected.timezone,
+                    list(expected.lower),
+                    list(expected.upper),
+                ),
+            )
+        else:
+            same(
+                (law["byte_order"], law["byte_width"]),
+                (expected.byte_order, expected.byte_width),
+            )
+
+    def statement_clock(self):
+        """Described exactly when a verified leaf compared so far reads it."""
+        same("statement_clock" in self.doc, self.clock)
+        if self.clock:
+            self.law(self.doc["statement_clock"], STATEMENT_CLOCK.law)
+
     def scalar_meaning(self, bundle):
         if bundle is None:
             same("scalar_meaning" in self.doc, False)
             return
-        from pietto._project.project_scalar_meaning import TimestampMeaning
-
         sources = self.doc["scalar_meaning"]["sources"]
         same(len(sources), len(bundle.entries))
         for described, entry in zip(sources, bundle.entries, strict=True):
@@ -445,29 +475,7 @@ class _Correspondence:
             )
             self.symbol(described["canonical"]["symbol"], entry.canonical.symbol)
             self.resolution(described["type_resolution"], entry.declared)
-            law, expected = described["law"], entry.law
-            if type(expected) is TimestampMeaning:
-                same(
-                    (
-                        law["calendar"],
-                        law["resolution"],
-                        law["timezone"],
-                        law["lower"],
-                        law["upper"],
-                    ),
-                    (
-                        expected.calendar,
-                        expected.resolution,
-                        expected.timezone,
-                        list(expected.lower),
-                        list(expected.upper),
-                    ),
-                )
-            else:
-                same(
-                    (law["byte_order"], law["byte_width"]),
-                    (expected.byte_order, expected.byte_width),
-                )
+            self.law(described["law"], entry.law)
 
     def fields(self, contract):
         # The denominator comes from upstream plan exports, never the supplied view.
@@ -526,6 +534,9 @@ class _Correspondence:
         self.resolution(doc["type_resolution"], declared)
         if meaning is None:
             same("meaning" in doc, False)
+        elif meaning is STATEMENT_CLOCK:
+            same(doc["meaning"], "statement_clock")
+            self.clock = True
         else:
             same(doc["meaning"], meaning.ordinal)
 
@@ -642,6 +653,7 @@ def verify_contract_correspondence(view, contract, verification):
         same(doc["multiplicity"], entry.active_properties.multiplicity)
         checker.fields(contract)
         checker.scalar_meaning(contract.scalar_meaning)
+        checker.statement_clock()
         checker.ordering(
             doc["ordering"],
             entry.active_properties.ordering,

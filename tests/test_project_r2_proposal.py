@@ -407,9 +407,11 @@ def test_r2_refuses_a_computed_group_key_before_any_workspace(tmp_path, monkeypa
     }
 
 
-def test_r2_refuses_a_now_read_before_any_workspace(tmp_path, monkeypatch):
+@pytest.mark.parametrize("temporal", (False, True), ids=("plain", "beside-source"))
+def test_r2_refuses_a_now_read_before_any_workspace(tmp_path, monkeypatch, temporal):
     """A resumed R2 attempt would read another statement's `now()`, so a
-    query that reads it is no R2 shape in the first version."""
+    query that reads it is no R2 shape in the first version, also beside a
+    Timestamp source field."""
     import _pietto_execution_api as api
     import pietto.execution as execution
     from pietto._project import project_job_workspace as private_workspace
@@ -419,12 +421,13 @@ def test_r2_refuses_a_now_read_before_any_workspace(tmp_path, monkeypatch):
         raise AssertionError("a refused R2 request opened workspace state")
 
     monkeypatch.setattr(private_workspace, "open_workspace", forbidden)
-    project = api.write_example(Path(tmp_path) / "now")
+    writer = api.write_temporal_example if temporal else api.write_example
+    project = writer(Path(tmp_path) / "now")
     main = project / "main.pietto"
     main.write_text(
         main.read_text(encoding="utf-8")
         + "table snap:\n    from items\n    where id > 0\n    select:\n"
-        "        id\n        day = date_of(now())\n",
+        "        id\n        seen = now()\n",
         encoding="utf-8",
     )
     query = execution.compile_query(

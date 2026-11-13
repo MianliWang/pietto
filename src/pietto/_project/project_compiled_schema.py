@@ -622,6 +622,8 @@ BLOCK_READ_OPERATORS = (
 # has no scalar value or column, so it is no BLOCK_READ_OPERATORS member and
 # each of their readers decides about it on its own.
 COLLECT_OPERATOR = ("collect", "collect")
+# `now()` reads the statement clock and has no operand.
+NOW_OPERATOR = ("scalar_call", "now")
 
 
 def scalar_read_port(records, operation):

@@ -1114,10 +1114,10 @@ def test_build_refuses_a_broken_lineage_or_meaning(tmp_path, monkeypatch):
     bundle = acquire_scalar_meaning(checked)
     original = meaning._output_entry
 
-    def no_child_meaning(scalar_meaning, port):
+    def no_child_meaning(checked, scalar_meaning, port):
         if port.field.evidence.resolved_type.name == "Timestamp":
             raise meaning.ScalarMeaningError("MEANING_OUTPUT")
-        return original(scalar_meaning, port)
+        return original(checked, scalar_meaning, port)
 
     monkeypatch.setattr(meaning, "_output_entry", no_child_meaning)
     with pytest.raises(c.ResultError, match="MEANING_UNAVAILABLE"):

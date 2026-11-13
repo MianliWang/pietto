@@ -151,7 +151,7 @@ def build_result_contract(
     for ordinal, port in enumerate(plan.exports):
         kind = port.field.evidence.resolved_type.kind
         if kind in _SCALAR_KINDS:
-            leaves.append(_scalar_leaf(ordinal, port, scalar_meaning))
+            leaves.append(_scalar_leaf(checked, ordinal, port, scalar_meaning))
         elif kind is ProjectResolvedTypeKind.NESTED_RELATION:
             leaves.append(_nested_leaf(checked, ordinal, port, scalar_meaning))
         else:
@@ -202,13 +202,13 @@ def verify_result_contract(contract, checked) -> None:
     for ordinal, (leaf, port) in enumerate(
         zip(contract.shape.fields, ports, strict=True)
     ):
-        if not _same_leaf(leaf, ordinal, port, contract.scalar_meaning):
+        if not _same_leaf(checked, leaf, ordinal, port, contract.scalar_meaning):
             raise ResultError("FIELD")
         if type(leaf.shape) is NestedShape:
             _verify_nested(checked, leaf, port, contract.scalar_meaning)
 
 
-def _scalar_leaf(ordinal, port, scalar_meaning):
+def _scalar_leaf(checked, ordinal, port, scalar_meaning):
     from pietto._project.project_scalar_meaning import _output_entry
 
     evidence = port.field.evidence
@@ -220,11 +220,11 @@ def _scalar_leaf(ordinal, port, scalar_meaning):
         ScalarShape(declared, evidence.resolved_type),
         port.field.effective_nullability,
         evidence.provenance,
-        _output_entry(scalar_meaning, port),
+        _output_entry(checked, scalar_meaning, port),
     )
 
 
-def _same_leaf(leaf, ordinal, port, scalar_meaning) -> bool:
+def _same_leaf(checked, leaf, ordinal, port, scalar_meaning) -> bool:
     """One leaf's own facts against its port: a scalar leaf, or a container."""
     from pietto._project.project_scalar_meaning import _output_entry
 
@@ -250,7 +250,7 @@ def _same_leaf(leaf, ordinal, port, scalar_meaning) -> bool:
         and leaf.shape.declared is declared
         and leaf.shape.canonical is evidence.resolved_type
         and evidence.resolved_type.kind in _SCALAR_KINDS
-        and leaf.meaning is _output_entry(scalar_meaning, port)
+        and leaf.meaning is _output_entry(checked, scalar_meaning, port)
     )
 
 
@@ -356,7 +356,7 @@ def _nested_leaf(checked, ordinal, port, scalar_meaning):
         if kind not in _SCALAR_KINDS:
             raise ResultError("SCALAR_UNAVAILABLE")
         try:
-            fields.append(_scalar_leaf(position, child, scalar_meaning))
+            fields.append(_scalar_leaf(checked, position, child, scalar_meaning))
         except ScalarMeaningError as exc:
             # Never a child Timestamp or UUID without its meaning.
             raise ResultError("MEANING_UNAVAILABLE") from exc
@@ -392,7 +392,7 @@ def _verify_nested(checked, leaf, port, scalar_meaning) -> None:
             and type(shape.fields) is tuple
             and len(shape.fields) == len(children)
             and all(
-                _same_leaf(field, position, child, scalar_meaning)
+                _same_leaf(checked, field, position, child, scalar_meaning)
                 and type(field.shape) is ScalarShape
                 for position, (field, child) in enumerate(
                     zip(shape.fields, children, strict=True)
