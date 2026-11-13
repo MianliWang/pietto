@@ -1394,6 +1394,9 @@ def _row_realization(request, expression, operands, operand_values):
             cell=rows.mysql_scalar_cell(request.plan, expression, operand_values)
             if request.family == "mysql"
             else None,
+            # S01: emission's blockers, which verification re-derives first,
+            # leave a MySQL target-checked `abs` only in its cell.
+            mysql_checked=request.family == "mysql",
         )
         if result is None:
             raise ValueError(problem)
@@ -1483,6 +1486,9 @@ def _row_realization(request, expression, operands, operand_values):
         float_values=(
             None if any(value is None for value in float_values) else float_values
         ),
+        # S01: emission's blockers, which verification re-derives first, leave
+        # a MySQL target-checked sign or arithmetic only in its cell.
+        mysql_checked=request.family == "mysql" and kind in {"unary", "binary"},
     )
 
 
@@ -1499,11 +1505,13 @@ def resolved_row_realization(
     float_values=None,
     rows_both_sides=None,
     float_cell=None,
+    mysql_checked=False,
 ):
     """Existing independent physical-law checker over closed resolved inputs.
 
     A comparison requires ``rows_both_sides`` and takes ``float_cell`` (see
-    the shared comparison law).
+    the shared comparison law). ``mysql_checked`` marks an S01 cell, which its
+    caller derives.
     """
     if kind == "null_test":
         if tag != "Bool" or nullable is not False:
@@ -1768,8 +1776,17 @@ def resolved_row_realization(
     if (
         (low < limits[0] or high > limits[1])
         and not binding
-        and family == "postgres"
-        and storage == {"kind": "pg_int8"}
+        and (
+            family == "postgres"
+            and storage == {"kind": "pg_int8"}
+            # S01: MySQL's BIGINT operators raise 1690 (SQLSTATE 22003)
+            # alike, over the nullable BIGINT fields of a cell.
+            or mysql_checked
+            and all(
+                item.storage == {"kind": "my_bigint"} and item.nullable is True
+                for item in operands
+            )
+        )
         and low <= limits[1]
         and high >= limits[0]
     ):
@@ -1891,13 +1908,16 @@ def _float_checked(family, value):
 def _target_checked(family, value):
     """Independent Q2 image: a static PostgreSQL bigint sign, arithmetic or
     `abs` whose exact range, from its operands' proven ranges, leaves signed
-    64 bits, so the target's checked operator bounds it."""
+    64 bits, so the target's checked operator bounds it; on MySQL a
+    my_signed_int result, which only an S01 cell admits beyond its range."""
     if (
-        family != "postgres"
-        or type(value) is not rows.SQLOperation
+        type(value) is not rows.SQLOperation
         or value.realization.tag != "Int"
         or value.realization.binding
-        or value.realization.storage != {"kind": "pg_int8"}
+        or value.realization.storage
+        != {"postgres": {"kind": "pg_int8"}, "mysql": {"kind": "my_signed_int"}}.get(
+            family
+        )
     ):
         return False
     bounds = []
@@ -2339,17 +2359,23 @@ def _aggregate_result_realization(family, function, argument, retained):
                 return result
             raise ValueError("decimal sum result domain")
         if (
-            family != "postgres"
-            or argument is None
+            argument is None
             or argument.realization.tag != "Int"
             or tag != "Int"
             or nullable is not True
+            or family != "postgres"
+            and not (
+                # S02: the guarded SUM over a nullable BIGINT field.
+                family == "mysql"
+                and argument.realization.storage == {"kind": "my_bigint"}
+                and argument.realization.nullable is True
+            )
         ):
             raise ValueError("sum result domain")
         low, high = -(1 << 63), (1 << 63) - 1
         return rows.Realization(
             "Int",
-            {"kind": "pg_int8"},
+            {"kind": "pg_int8" if family == "postgres" else "my_signed_int"},
             True,
             {"kind": "int_range", "min": str(low), "max": str(high)},
             (low, high),
@@ -2665,6 +2691,9 @@ def _verify_aggregate_body(
                     function,
                     argument,
                     request.family,
+                    # S02: emission's blockers, which verification re-derives
+                    # first, leave a MySQL sum(Int) only in its cell.
+                    request.family == "mysql" and function == "sum",
                     cell=request.family == "mysql"
                     and function in grouping.SPREAD_FUNCTIONS
                     and grouping.mysql_spread_cell(request.plan, value, argument),
@@ -8545,6 +8574,36 @@ def verify_row_bytes(query, rendered):
         def aggregate_value(column, alias):
             reference = column.aggregate.ref
             start = offset
+            if (
+                query.request.family == "mysql"
+                and column.function == "sum"
+                and column.argument is not None
+                and rows.realization_of(column.argument, "mysql").tag == "Int"
+            ):
+                # S02: the guarded SUM, the argument read three times.
+                if column.distinct or column.argument_cast or column.result_cast:
+                    raise ValueError("MySQL sum shape")
+                take("syntax", "aggregate_guard_open", reference, "CASE WHEN SUM(")
+                scalar(column.argument, alias)
+                take(
+                    "syntax",
+                    "aggregate_guard_high",
+                    reference,
+                    ") > 9223372036854775807 THEN CAST(9223372036854775807 AS"
+                    " SIGNED) + CAST(1 AS SIGNED) WHEN SUM(",
+                )
+                scalar(column.argument, alias)
+                take(
+                    "syntax",
+                    "aggregate_guard_low",
+                    reference,
+                    ") < -9223372036854775808 THEN CAST(-9223372036854775808 AS"
+                    " SIGNED) - CAST(1 AS SIGNED) ELSE CAST(SUM(",
+                )
+                scalar(column.argument, alias)
+                take("syntax", "aggregate_guard_close", reference, ") AS SIGNED) END")
+                spans.append(("aggregate", reference, start, offset))
+                return
             if column.function in grouping.GROUP_TEST_FUNCTIONS:
                 take("syntax", "aggregate_test_open", reference, "(")
             root = grouping.rooted(query.request.family, column.function)
@@ -9899,11 +9958,11 @@ def verify_row_generated_requirements(request, query, generated):
                 expected.append(("group_key", column.key.ref, "R12", operators))
                 continue
             if type(column) is grouping.AggregateValueColumn:
-                # Q1: only a PostgreSQL SUM(Int) rests on the target's checked
-                # bigint narrowing rather than a static range, and only a
-                # PostgreSQL sum, avg, variance or deviation of a Float, or a
-                # MySQL variance or deviation of one (S05), on its checked
-                # binary64 overflow.
+                # Q1: only a PostgreSQL SUM(Int), or a MySQL one in its cell
+                # (S02), rests on the target's checked bigint narrowing rather
+                # than a static range, and only a PostgreSQL sum, avg, variance
+                # or deviation of a Float, or a MySQL variance or deviation of
+                # one (S05), on its checked binary64 overflow.
                 argument_tag = (
                     None
                     if column.argument is None
@@ -9919,6 +9978,10 @@ def verify_row_generated_requirements(request, query, generated):
                         if request.family == "mysql"
                         and column.function in grouping.SPREAD_FUNCTIONS
                         and argument_tag == "Float"
+                        else (TARGET_CHECKED,)
+                        if request.family == "mysql"
+                        and column.function == "sum"
+                        and argument_tag == "Int"
                         else ()
                         if request.family != "postgres"
                         else (grouping.TARGET_CHECKED_BINARY64,)

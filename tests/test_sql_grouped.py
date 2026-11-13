@@ -1254,13 +1254,29 @@ def test_global_with_satisfying_stays_rejected_at_its_own_boundary(tmp_path, tar
 
 @pytest.mark.parametrize("target", TARGETS)
 @pytest.mark.parametrize("variant", ("sum_direct", "sum_hidden_right"))
-def test_sum_of_an_int_is_a_checked_bigint_narrowing_on_postgresql_only(
-    tmp_path, target, variant
-):
+def test_sum_of_an_int_is_a_checked_bigint_narrowing(tmp_path, target, variant):
     """Q1: PostgreSQL sums exactly and narrows to bigint with a checked CAST,
     refusing an out-of-range sum with SQLSTATE 22003; MySQL's CAST(DECIMAL AS
-    SIGNED) would clamp one, so MySQL keeps the range-proof blocker."""
+    SIGNED) would clamp one, so MySQL keeps the range-proof blocker outside
+    its S02 cell. The direct sum is in that cell: MySQL emits the guarded SUM
+    with the same evidence and a nullable signed 64-bit carrier."""
     outcome = emit(tmp_path, target, "V_aggregate_blocked", variant)
+    if target == "mysql" and variant == "sum_direct":
+        assert outcome.status == "VERIFIED", outcome.blockers
+        data = public(outcome)
+        assert data["sql"].count("CASE WHEN SUM(`s0`.`value é`) > ") == 1
+        (aggregate,) = [r for r in data["requirements"] if r["kind"] == "aggregate"]
+        assert (aggregate["rule"], aggregate["evidence"]) == ("R13", CHECKED)
+        assert column(data, "s")["representation"] == {
+            "storage": {"kind": "my_signed_int"},
+            "nullable": True,
+            "domain": {
+                "kind": "int_range",
+                "min": "-9223372036854775808",
+                "max": SIGNED64,
+            },
+        }
+        return
     if target == "mysql":
         assert outcome.status == "BLOCKED"
         assert [(item.code, item.detail) for item in outcome.blockers] == [
@@ -2665,6 +2681,174 @@ def test_a_tampered_mysql_float_statistic_observation_is_refused(tmp_path, edit)
         json.dumps(document, ensure_ascii=False, separators=(",", ":")) + "\n"
     ).encode()
     assert pure.parse_emission_observation(data).status is not pure.Status.OK
+
+
+# --------------------------------------------------------------------------
+# Phase77 S02: MySQL sum(Int) in its cells
+# --------------------------------------------------------------------------
+
+# The public nullability of each cell body's columns.
+S02_NULLABLE = {
+    "s02_scalar": [True],
+    "s02_where": [True],
+    "s02_grouped": [False, True],
+    "s02_unselected_key": [True],
+    "s02_two_sums": [False, True, True],
+    "s02_beside_count": [False, True, False, True],
+    "s02_bigint_key": [False, True],
+    "s02_key_alias": [False, True],
+}
+
+
+@pytest.mark.parametrize("target", ("postgres", "mysql"))
+@pytest.mark.parametrize("cell", sorted(S02_NULLABLE))
+def test_mysql_sum_int_cells_emit_the_guarded_sum(tmp_path, cell, target):
+    """S02: a MySQL project emits a direct `sum` of a nullable BIGINT source
+    field, the whole value of a SELECT item of a query that reads its source
+    through a WHERE at most and groups by at most one non-null Int source
+    field, as the guarded SUM the native qualification ran: an exact DECIMAL
+    sum, CAST to SIGNED in range and a BIGINT overflow (1690, SQLSTATE 22003)
+    outside it, never a clamped value. The result is a nullable Int, NULL for
+    no or only NULL values. Both families emit the pinned SQL, PostgreSQL's
+    unchanged, and every reader accepts it."""
+    checked, outcome = probe.numeric_world(tmp_path, target, probe.NUMERIC_CELLS[cell])
+    assert checked.verified
+    probe.numeric_readers_accept(outcome)
+    assert outcome.artifact is not None
+    assert (
+        outcome.artifact.rendered.sql.decode() == probe.NUMERIC_CELL_SQL[cell, target]
+    )
+    document = json.loads(serialize_project_sql_emission(outcome))
+    assert [column["nullable"] for column in document["columns"]] == (
+        S02_NULLABLE[cell]
+    )
+
+
+@pytest.mark.parametrize(
+    "spelling", [name for name in probe.NUMERIC_SPELLINGS if name.startswith("s02")]
+)
+def test_mysql_sum_int_spellings_emit_the_direct_sql(tmp_path, spelling):
+    """A `group by:` block, a `table` declaration, parentheses, an identity
+    `def` around the argument and a read qualified by the source's own name
+    change nothing."""
+    _, outcome = probe.numeric_world(
+        tmp_path / "spelled", "mysql", probe.NUMERIC_SPELLINGS[spelling]
+    )
+    _, direct = probe.numeric_world(
+        tmp_path / "direct", "mysql", probe.NUMERIC_CELLS["s02_grouped"]
+    )
+    probe.numeric_readers_accept(outcome)
+    assert outcome.artifact is not None
+    assert direct.artifact is not None
+    assert outcome.artifact.rendered.sql == direct.artifact.rendered.sql
+
+
+def _numeric_blockers(outcome):
+    return [
+        (
+            blocker["code"],
+            blocker["subject"]["detail"],
+            blocker["location"]["line"],
+            blocker["location"]["column"],
+        )
+        for blocker in json.loads(serialize_project_sql_emission(outcome))["blockers"]
+    ]
+
+
+@pytest.mark.parametrize("policy", ("preserve_literals", "bind_safe_literals"))
+@pytest.mark.parametrize(
+    "shape", [name for name in probe.NUMERIC_REFUSALS if name.startswith("sum_")]
+)
+def test_mysql_sum_int_outside_its_cells_keeps_its_refusal(tmp_path, shape, policy):
+    """Every other MySQL `sum(Int)` keeps the refusal main reports, object for
+    object: a non-null or narrow argument, a computed or `let` argument, a
+    relation alias (`let x = rows` before `from x`), its chains and one
+    that nothing reads, a window nothing reads, an imported source, a
+    nullable or second key, an aggregate other than sum, count and min
+    beside it, a composed or conditional sum, HAVING, ORDER BY, LIMIT, a
+    header parameter read or not, or an upstream query; a cell sum beside
+    another refused sum keeps its own refusal too (owner
+    2026-11-13T00:20Z). PostgreSQL emits each as before."""
+    body = probe.NUMERIC_REFUSALS[shape]
+    _, outcome = probe.numeric_world(tmp_path / "mysql", "mysql", body, policy)
+    assert outcome.status == "BLOCKED" and outcome.artifact is None
+    assert _numeric_blockers(outcome) == probe.NUMERIC_REFUSAL_BLOCKERS[shape]
+    _, postgres = probe.numeric_world(tmp_path / "postgres", "postgres", body, policy)
+    assert postgres.status == "VERIFIED", postgres.blockers
+
+
+def test_a_bind_safe_literal_leaves_the_mysql_sum_cell(tmp_path):
+    """Under bind_safe_literals a WHERE literal becomes a bind-safe `?`,
+    which no cell holds: the query keeps main's refusal."""
+    _, bound = probe.numeric_world(
+        tmp_path, "mysql", probe.NUMERIC_CELLS["s02_where"], "bind_safe_literals"
+    )
+    assert _numeric_blockers(bound) == [
+        ("PIE-B1004", "sum_int_aggregate_range_proof_missing", 13, 9)
+    ]
+
+
+def test_a_forged_guarded_mysql_sum_column_is_refused(tmp_path):
+    """The guarded SUM renders no DISTINCT and no cast, so the renderer and
+    the byte verifier each refuse an S02 column that carries one instead of
+    dropping it (no emitted cell holds one)."""
+    from pietto._project.project_sql_emission_rendering import render_row_sql
+    from pietto._project.project_sql_emission_verification import verify_row_bytes
+
+    _, outcome = probe.numeric_world(
+        tmp_path, "mysql", probe.NUMERIC_CELLS["s02_grouped"]
+    )
+    artifact = outcome.artifact
+    assert artifact is not None
+    query = artifact.ast
+    assert type(query) is SQLRowQuery
+    (column,) = (
+        column
+        for body in query.bodies
+        for column in body.columns
+        if type(column) is grouping.AggregateValueColumn
+    )
+    for name, value in (
+        ("distinct", True),
+        ("argument_cast", "SIGNED"),
+        ("result_cast", "SIGNED"),
+    ):
+        original = getattr(column, name)
+        object.__setattr__(column, name, value)
+        try:
+            with pytest.raises(ValueError, match="^unrenderable MySQL sum$"):
+                render_row_sql(query)
+            assert not verify_row_bytes(query, artifact.rendered)
+        finally:
+            object.__setattr__(column, name, original)
+    assert verify_row_bytes(query, artifact.rendered)
+
+
+def test_mysql_sum_cells_are_derived_once_per_aggregation(tmp_path, monkeypatch):
+    """Emission and its verification each ask whether an aggregation can hold
+    an S02 cell once, however many sums it holds (P76-PERF-2)."""
+    from pietto._project import project_sql_emission_rows as rows
+
+    counts = []
+    for count in (1, 40):
+        calls = []
+        original = rows.mysql_sum_query
+        with monkeypatch.context() as patch:
+            patch.setattr(
+                rows,
+                "mysql_sum_query",
+                lambda plan, keys: calls.append(plan) or original(plan, keys),
+            )
+            sums = "".join(f"        x{index} = sum(a)\n" for index in range(count))
+            _, outcome = probe.numeric_world(
+                tmp_path / str(count),
+                "mysql",
+                "query result:\n    from rows\n    group by k\n    select:\n"
+                "        k\n" + sums,
+            )
+        assert outcome.status == "VERIFIED", outcome.blockers
+        counts.append(len(calls))
+    assert counts[0] == counts[1] > 0
 
 
 _GROUP_FORMS = {

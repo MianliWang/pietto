@@ -5330,7 +5330,11 @@ PER_TARGET_STATUS = {
     ("V_row_blocked", "int_overflow"): {"postgres": "VERIFIED", "mysql": "BLOCKED"},
     ("V_row_blocked", "unary_overflow"): {"postgres": "VERIFIED", "mysql": "BLOCKED"},
     ("V_row_blocked", "modulo"): {"postgres": "VERIFIED", "mysql": "BLOCKED"},
-    ("V_aggregate_blocked", "sum_direct"): {"postgres": "VERIFIED", "mysql": "BLOCKED"},
+    # S02: a direct sum of a nullable BIGINT field is a MySQL cell.
+    ("V_aggregate_blocked", "sum_direct"): {
+        "postgres": "VERIFIED",
+        "mysql": "VERIFIED",
+    },
     # Lane F: stddev is SQRT(CAST(VAR_SAMP(x) AS float8)) on PostgreSQL; MySQL
     # keeps Int refused (it computes BIGINT in DOUBLE) and Float unproved.
     ("V_aggregate_blocked", "stddev_direct"): {
@@ -8060,7 +8064,16 @@ def _decode_fixed_public(document, limits):
         checked = False
         if (
             operation
-            and storage == {"kind": "pg_int8"}
+            and (
+                storage == {"kind": "pg_int8"}
+                # S01: a MySQL cell over nullable BIGINT fields; the readers
+                # under test derive the rest of the cell.
+                or storage == {"kind": "my_signed_int"}
+                and all(
+                    o["storage"] == {"kind": "my_bigint"} and o["nullable"] is True
+                    for o in operands
+                )
+            )
             and not (I64_MIN <= low <= high <= I64_MAX)
             and low <= I64_MAX
             and high >= I64_MIN
@@ -10879,6 +10892,32 @@ def _decode_fixed_public(document, limits):
         start = lexical[cursor][0]["start"]
         subject = lexical[cursor][0]["subject"]
         _need(subject["kind"] == "aggregate", "aggregate occurrence kind")
+        if peek() == "aggregate_guard_open":
+            # S02: a MySQL SUM of an Int under its overflow guard, which reads
+            # the argument three times.
+            _need(family == "mysql", "guarded SUM family")
+            arguments = []
+            for role, text in MYSQL_SUM_GUARD[:-1]:
+                take("syntax", role, text, subject)
+                arguments.append(row_parse(block, repeated=bool(arguments)))
+            closed, _ = take("syntax", *MYSQL_SUM_GUARD[-1], subject)
+            _need(
+                len({encoded(dict(item, duplicate=None)) for item in arguments}) == 1,
+                "guarded SUM argument",
+            )
+            expected_ranges.append(("aggregate", subject, start, closed["end"]))
+            return {
+                "aggregate": subject,
+                "spelling": "SUM(",
+                "distinct": False,
+                "argument": arguments[0],
+                "delimiter": None,
+                "order_by": [],
+                "result_cast": None,
+                "argument_cast": None,
+                "function": "sum",
+                "extra_arguments": [],
+            }
         # A PostgreSQL test of a group is (COUNT(CASE ...) > 0) or = 0.
         tested = peek() == "aggregate_test_open"
         if tested:
@@ -11139,6 +11178,7 @@ def _decode_fixed_public(document, limits):
                 and family == "postgres"
                 or function in {"sum", "filtered_sum"}
                 and not floating
+                and family == "postgres"
             ),
             "sum result cast",
         )
@@ -11231,9 +11271,33 @@ def _decode_fixed_public(document, limits):
                 "nullable": True,
                 "domain": {"kind": "finite_float", "format": "binary64"},
             }
+        if function == "sum" and family == "mysql":
+            # S02: only a guarded SUM over a nullable BIGINT, whose BIGINT
+            # arithmetic raises 1690 outside signed 64 bits, NULL for an
+            # empty input.
+            assert argument is not None
+            _need(
+                argument["tag"] == "Int"
+                and argument["storage"] == {"kind": "my_bigint"}
+                and argument["nullable"] is True
+                and argument_cast is None
+                and result_cast is None,
+                "guarded SUM argument",
+            )
+            return {
+                "tag": "Int",
+                "storage": {"kind": "my_signed_int"},
+                "nullable": True,
+                "domain": {
+                    "kind": "int_range",
+                    "min": str(-(1 << 63)),
+                    "max": str((1 << 63) - 1),
+                },
+                "proven_int_range": (-(1 << 63), (1 << 63) - 1),
+            }
         if function == "sum":
             # Q1: an exact PostgreSQL sum narrowed to bigint by a checked CAST,
-            # NULL for an empty input; MySQL emits no SUM of an Int.
+            # NULL for an empty input.
             if decimal_sum:
                 assert argument is not None
                 storage, domain = argument["storage"], argument["domain"]
@@ -12052,6 +12116,7 @@ def _decode_fixed_public(document, limits):
                 "aggregate_zero_open",
                 "aggregate_test_open",
                 "aggregate_element_open",
+                "aggregate_guard_open",
             ):
                 node = {"kind": "aggregate", **aggregate_parse(block)}
             elif peek() == "window_open":
@@ -12809,6 +12874,12 @@ def _decode_fixed_public(document, limits):
                         row_generated[requirement] = (
                             *row_generated[requirement][:4],
                             [{"overflow": "target_checked_decimal_overflow"}],
+                        )
+                    elif node["function"] == "sum" and family == "mysql":
+                        # S02: the guard's checked BIGINT arithmetic, uncast.
+                        row_generated[requirement] = (
+                            *row_generated[requirement][:4],
+                            [{"overflow": TARGET_CHECKED}],
                         )
                     elif node["function"] in SPREAD_FUNCTIONS.values():
                         row_generated[requirement] = (
@@ -16196,6 +16267,24 @@ def public_validation_memo() -> Iterator[None]:
         _VALIDATED_PUBLIC = outer
 
 
+# S02: MySQL's guarded SUM of an Int, as (role, text) around its three
+# argument reads; restated here, never imported from the emitter.
+MYSQL_SUM_GUARD = (
+    ("aggregate_guard_open", "CASE WHEN SUM("),
+    (
+        "aggregate_guard_high",
+        ") > 9223372036854775807 THEN CAST(9223372036854775807 AS SIGNED)"
+        " + CAST(1 AS SIGNED) WHEN SUM(",
+    ),
+    (
+        "aggregate_guard_low",
+        ") < -9223372036854775808 THEN CAST(-9223372036854775808 AS SIGNED)"
+        " - CAST(1 AS SIGNED) ELSE CAST(SUM(",
+    ),
+    ("aggregate_guard_close", ") AS SIGNED) END"),
+)
+
+
 def decode_public(data: bytes) -> dict[str, Any]:
     """Validate data only. A decoded document grants no compiler authority."""
     validated = _VALIDATED_PUBLIC
@@ -17147,3 +17236,460 @@ def graft(value, **changes):
     for name, changed in changes.items():
         object.__setattr__(result, name, changed)
     return result
+
+
+# Phase77 S01/S02: one source over the native qualification's carriers: `a`
+# and `b` nullable BIGINT over all of signed 64 bits, `k` a non-null INT
+# (PostgreSQL integer) group key, `id` and `n` non-null BIGINT and `c` a
+# nullable INT.
+NUMERIC_HEADER = """shape Row:
+    id: Int
+    a: Int | None
+    b: Int | None
+    k: Int
+    n: Int
+    c: Int | None
+source rows: Row = {target}.table("opaque.locator.not.sql")
+"""
+
+
+def numeric_world(directory, target, body, policy="preserve_literals"):
+    """``body`` over NUMERIC_HEADER's source, with exact identifier case and
+    the native parameter protocol; a dict ``body`` maps module paths to their
+    text, main.pietto's after the header."""
+    contract = json.loads(fixture(target)["contract"])
+    contract["environment"] += [
+        {
+            "key": "identifier_case",
+            "scope": "statement",
+            "value": "quoted_exact"
+            if target == "postgres"
+            else "lower_case_table_names=0",
+        },
+        {
+            "key": "parameter_protocol",
+            "scope": "statement",
+            "value": "postgres_extended" if target == "postgres" else "mysql_prepared",
+        },
+    ]
+    wide, narrow = (
+        ("pg_int8", "pg_int4")
+        if target == "postgres"
+        else (
+            "my_bigint",
+            "my_int",
+        )
+    )
+    ranges = {
+        wide: {"kind": "int_range", "min": str(-(1 << 63)), "max": str((1 << 63) - 1)},
+        narrow: {
+            "kind": "int_range",
+            "min": str(-(1 << 31)),
+            "max": str((1 << 31) - 1),
+        },
+    }
+    contract["sources"][0]["fields"] = [
+        {
+            "ordinal": ordinal,
+            "name": name,
+            "column": column,
+            "representation": {
+                "storage": {"kind": kind},
+                "nullable": nullable,
+                "domain": ranges[kind],
+            },
+        }
+        for ordinal, (name, column, kind, nullable) in enumerate(
+            (
+                ("id", "id", wide, False),
+                ("a", "left_value", wide, True),
+                ("b", "right_value", wide, True),
+                ("k", "group_key", narrow, False),
+                ("n", "nn", wide, False),
+                ("c", "narrow", narrow, True),
+            )
+        )
+    ]
+    files = dict(body) if type(body) is dict else {"main.pietto": body}
+    files["main.pietto"] = NUMERIC_HEADER.format(target=target) + files.get(
+        "main.pietto", ""
+    )
+    return build_case(directory, files, encoded(contract).decode(), policy)
+
+
+# The bodies whose MySQL `Int` sign, arithmetic, `abs` (S01) and `sum(Int)`
+# (S02) are in their cells, the SQL each emits (also the candidate emission
+# experiment's byte source), other spellings of a cell, and refused bodies
+# with the MySQL blockers (code, detail, line, column) main reports for them,
+# under either literal policy.
+NUMERIC_CELLS = {
+    "s01_families": "query result:\n    from rows\n    select:\n        id\n        s = a + b\n        d = a - b\n        m = a * b\n        neg = -a\n        ab = abs(b)\n        p = +a\n        aa = a + a\n",
+    "s01_where": "query result:\n    from rows\n    where id > 3\n    select:\n        s = a + b\n",
+    "s01_table": "table result:\n    from rows\n    select:\n        m = a * b\n",
+    "s01_beside_field": "query result:\n    from rows\n    select:\n        a\n        neg = -b\n",
+    "s02_scalar": "query result:\n    from rows\n    select:\n        total = sum(a)\n",
+    "s02_where": "query result:\n    from rows\n    where id > 3\n    select:\n        total = sum(a)\n",
+    "s02_grouped": "query result:\n    from rows\n    group by k\n    select:\n        k\n        total = sum(a)\n",
+    "s02_unselected_key": "query result:\n    from rows\n    group by k\n    select:\n        total = sum(a)\n",
+    "s02_two_sums": "query result:\n    from rows\n    group by k\n    select:\n        k\n        x = sum(a)\n        y = sum(b)\n",
+    "s02_beside_count": "query result:\n    from rows\n    group by k\n    select:\n        k\n        x = sum(a)\n        c2 = count(b)\n        lo = min(a)\n",
+    "s02_bigint_key": "query result:\n    from rows\n    group by n\n    select:\n        n\n        x = sum(a)\n",
+    "s02_key_alias": "query result:\n    from rows\n    group by k\n    select:\n        kk = k\n        x = sum(a)\n",
+}
+NUMERIC_CELL_SQL = {
+    ("s01_families", "postgres"): (
+        'SELECT "s0"."id" AS "id", ("s0"."left_value" + "s0"."right_value") AS "s", ("s0"."left_value" - "s0"."right_value") AS "d", ("s0"."left_value" * "s0"."right_value") AS "m", (-"s0"."left_value") AS "neg", abs("s0"."right_value") AS "ab", (+"s0"."left_value") AS "p", ("s0"."left_value" + "s0"."left_value") AS "aa" FROM "public"."phase66 source é" AS "s0"'
+    ),
+    ("s01_families", "mysql"): (
+        "SELECT `s0`.`id` AS `id`, (`s0`.`left_value` + `s0`.`right_value`) AS `s`, (`s0`.`left_value` - `s0`.`right_value`) AS `d`, (`s0`.`left_value` * `s0`.`right_value`) AS `m`, (-`s0`.`left_value`) AS `neg`, ABS(`s0`.`right_value`) AS `ab`, (+`s0`.`left_value`) AS `p`, (`s0`.`left_value` + `s0`.`left_value`) AS `aa` FROM `phase66`.`phase66 source é` AS `s0`"
+    ),
+    ("s01_where", "postgres"): (
+        'WITH "p0" ("c0", "c1", "c2", "c3", "c4", "c5") AS (SELECT "s0"."id" AS "c0", "s0"."left_value" AS "c1", "s0"."right_value" AS "c2", "s0"."group_key" AS "c3", "s0"."nn" AS "c4", "s0"."narrow" AS "c5" FROM "public"."phase66 source é" AS "s0" WHERE ("s0"."id" > CAST(3 AS pg_catalog.int8))) SELECT ("t1"."c1" + "t1"."c2") AS "s" FROM "p0" AS "t1"'
+    ),
+    ("s01_where", "mysql"): (
+        "WITH `p0` (`c0`, `c1`, `c2`, `c3`, `c4`, `c5`) AS (SELECT `s0`.`id` AS `c0`, `s0`.`left_value` AS `c1`, `s0`.`right_value` AS `c2`, `s0`.`group_key` AS `c3`, `s0`.`nn` AS `c4`, `s0`.`narrow` AS `c5` FROM `phase66`.`phase66 source é` AS `s0` WHERE (`s0`.`id` > CAST(3 AS SIGNED))) SELECT (`t1`.`c1` + `t1`.`c2`) AS `s` FROM `p0` AS `t1`"
+    ),
+    ("s01_table", "postgres"): (
+        'SELECT ("s0"."left_value" * "s0"."right_value") AS "m" FROM "public"."phase66 source é" AS "s0"'
+    ),
+    ("s01_table", "mysql"): (
+        "SELECT (`s0`.`left_value` * `s0`.`right_value`) AS `m` FROM `phase66`.`phase66 source é` AS `s0`"
+    ),
+    ("s01_beside_field", "postgres"): (
+        'SELECT "s0"."left_value" AS "a", (-"s0"."right_value") AS "neg" FROM "public"."phase66 source é" AS "s0"'
+    ),
+    ("s01_beside_field", "mysql"): (
+        "SELECT `s0`.`left_value` AS `a`, (-`s0`.`right_value`) AS `neg` FROM `phase66`.`phase66 source é` AS `s0`"
+    ),
+    ("s02_scalar", "postgres"): (
+        'WITH "p0" ("c0") AS (SELECT CAST(SUM(CAST("s0"."left_value" AS pg_catalog.int8)) AS pg_catalog.int8) AS "c0" FROM "public"."phase66 source é" AS "s0") SELECT "t1"."c0" AS "total" FROM "p0" AS "t1"'
+    ),
+    ("s02_scalar", "mysql"): (
+        "WITH `p0` (`c0`) AS (SELECT CASE WHEN SUM(`s0`.`left_value`) > 9223372036854775807 THEN CAST(9223372036854775807 AS SIGNED) + CAST(1 AS SIGNED) WHEN SUM(`s0`.`left_value`) < -9223372036854775808 THEN CAST(-9223372036854775808 AS SIGNED) - CAST(1 AS SIGNED) ELSE CAST(SUM(`s0`.`left_value`) AS SIGNED) END AS `c0` FROM `phase66`.`phase66 source é` AS `s0`) SELECT `t1`.`c0` AS `total` FROM `p0` AS `t1`"
+    ),
+    ("s02_where", "postgres"): (
+        'WITH "p0" ("c0", "c1", "c2", "c3", "c4", "c5") AS (SELECT "s0"."id" AS "c0", "s0"."left_value" AS "c1", "s0"."right_value" AS "c2", "s0"."group_key" AS "c3", "s0"."nn" AS "c4", "s0"."narrow" AS "c5" FROM "public"."phase66 source é" AS "s0" WHERE ("s0"."id" > CAST(3 AS pg_catalog.int8))), "p1" ("c0") AS (SELECT CAST(SUM(CAST("t1"."c1" AS pg_catalog.int8)) AS pg_catalog.int8) AS "c0" FROM "p0" AS "t1") SELECT "t2"."c0" AS "total" FROM "p1" AS "t2"'
+    ),
+    ("s02_where", "mysql"): (
+        "WITH `p0` (`c0`, `c1`, `c2`, `c3`, `c4`, `c5`) AS (SELECT `s0`.`id` AS `c0`, `s0`.`left_value` AS `c1`, `s0`.`right_value` AS `c2`, `s0`.`group_key` AS `c3`, `s0`.`nn` AS `c4`, `s0`.`narrow` AS `c5` FROM `phase66`.`phase66 source é` AS `s0` WHERE (`s0`.`id` > CAST(3 AS SIGNED))), `p1` (`c0`) AS (SELECT CASE WHEN SUM(`t1`.`c1`) > 9223372036854775807 THEN CAST(9223372036854775807 AS SIGNED) + CAST(1 AS SIGNED) WHEN SUM(`t1`.`c1`) < -9223372036854775808 THEN CAST(-9223372036854775808 AS SIGNED) - CAST(1 AS SIGNED) ELSE CAST(SUM(`t1`.`c1`) AS SIGNED) END AS `c0` FROM `p0` AS `t1`) SELECT `t2`.`c0` AS `total` FROM `p1` AS `t2`"
+    ),
+    ("s02_grouped", "postgres"): (
+        'WITH "p0" ("c0", "c1") AS (SELECT "s0"."group_key" AS "c0", CAST(SUM(CAST("s0"."left_value" AS pg_catalog.int8)) AS pg_catalog.int8) AS "c1" FROM "public"."phase66 source é" AS "s0" GROUP BY "s0"."group_key") SELECT "t1"."c0" AS "k", "t1"."c1" AS "total" FROM "p0" AS "t1"'
+    ),
+    ("s02_grouped", "mysql"): (
+        "WITH `p0` (`c0`, `c1`) AS (SELECT `s0`.`group_key` AS `c0`, CASE WHEN SUM(`s0`.`left_value`) > 9223372036854775807 THEN CAST(9223372036854775807 AS SIGNED) + CAST(1 AS SIGNED) WHEN SUM(`s0`.`left_value`) < -9223372036854775808 THEN CAST(-9223372036854775808 AS SIGNED) - CAST(1 AS SIGNED) ELSE CAST(SUM(`s0`.`left_value`) AS SIGNED) END AS `c1` FROM `phase66`.`phase66 source é` AS `s0` GROUP BY `s0`.`group_key`) SELECT `t1`.`c0` AS `k`, `t1`.`c1` AS `total` FROM `p0` AS `t1`"
+    ),
+    ("s02_unselected_key", "postgres"): (
+        'WITH "p0" ("c0", "c1") AS (SELECT "s0"."group_key" AS "c0", CAST(SUM(CAST("s0"."left_value" AS pg_catalog.int8)) AS pg_catalog.int8) AS "c1" FROM "public"."phase66 source é" AS "s0" GROUP BY "s0"."group_key") SELECT "t1"."c1" AS "total" FROM "p0" AS "t1"'
+    ),
+    ("s02_unselected_key", "mysql"): (
+        "WITH `p0` (`c0`, `c1`) AS (SELECT `s0`.`group_key` AS `c0`, CASE WHEN SUM(`s0`.`left_value`) > 9223372036854775807 THEN CAST(9223372036854775807 AS SIGNED) + CAST(1 AS SIGNED) WHEN SUM(`s0`.`left_value`) < -9223372036854775808 THEN CAST(-9223372036854775808 AS SIGNED) - CAST(1 AS SIGNED) ELSE CAST(SUM(`s0`.`left_value`) AS SIGNED) END AS `c1` FROM `phase66`.`phase66 source é` AS `s0` GROUP BY `s0`.`group_key`) SELECT `t1`.`c1` AS `total` FROM `p0` AS `t1`"
+    ),
+    ("s02_two_sums", "postgres"): (
+        'WITH "p0" ("c0", "c1", "c2") AS (SELECT "s0"."group_key" AS "c0", CAST(SUM(CAST("s0"."left_value" AS pg_catalog.int8)) AS pg_catalog.int8) AS "c1", CAST(SUM(CAST("s0"."right_value" AS pg_catalog.int8)) AS pg_catalog.int8) AS "c2" FROM "public"."phase66 source é" AS "s0" GROUP BY "s0"."group_key") SELECT "t1"."c0" AS "k", "t1"."c1" AS "x", "t1"."c2" AS "y" FROM "p0" AS "t1"'
+    ),
+    ("s02_two_sums", "mysql"): (
+        "WITH `p0` (`c0`, `c1`, `c2`) AS (SELECT `s0`.`group_key` AS `c0`, CASE WHEN SUM(`s0`.`left_value`) > 9223372036854775807 THEN CAST(9223372036854775807 AS SIGNED) + CAST(1 AS SIGNED) WHEN SUM(`s0`.`left_value`) < -9223372036854775808 THEN CAST(-9223372036854775808 AS SIGNED) - CAST(1 AS SIGNED) ELSE CAST(SUM(`s0`.`left_value`) AS SIGNED) END AS `c1`, CASE WHEN SUM(`s0`.`right_value`) > 9223372036854775807 THEN CAST(9223372036854775807 AS SIGNED) + CAST(1 AS SIGNED) WHEN SUM(`s0`.`right_value`) < -9223372036854775808 THEN CAST(-9223372036854775808 AS SIGNED) - CAST(1 AS SIGNED) ELSE CAST(SUM(`s0`.`right_value`) AS SIGNED) END AS `c2` FROM `phase66`.`phase66 source é` AS `s0` GROUP BY `s0`.`group_key`) SELECT `t1`.`c0` AS `k`, `t1`.`c1` AS `x`, `t1`.`c2` AS `y` FROM `p0` AS `t1`"
+    ),
+    ("s02_beside_count", "postgres"): (
+        'WITH "p0" ("c0", "c1", "c2", "c3") AS (SELECT "s0"."group_key" AS "c0", CAST(SUM(CAST("s0"."left_value" AS pg_catalog.int8)) AS pg_catalog.int8) AS "c1", COUNT("s0"."right_value") AS "c2", MIN("s0"."left_value") AS "c3" FROM "public"."phase66 source é" AS "s0" GROUP BY "s0"."group_key") SELECT "t1"."c0" AS "k", "t1"."c1" AS "x", "t1"."c2" AS "c2", "t1"."c3" AS "lo" FROM "p0" AS "t1"'
+    ),
+    ("s02_beside_count", "mysql"): (
+        "WITH `p0` (`c0`, `c1`, `c2`, `c3`) AS (SELECT `s0`.`group_key` AS `c0`, CASE WHEN SUM(`s0`.`left_value`) > 9223372036854775807 THEN CAST(9223372036854775807 AS SIGNED) + CAST(1 AS SIGNED) WHEN SUM(`s0`.`left_value`) < -9223372036854775808 THEN CAST(-9223372036854775808 AS SIGNED) - CAST(1 AS SIGNED) ELSE CAST(SUM(`s0`.`left_value`) AS SIGNED) END AS `c1`, COUNT(`s0`.`right_value`) AS `c2`, MIN(`s0`.`left_value`) AS `c3` FROM `phase66`.`phase66 source é` AS `s0` GROUP BY `s0`.`group_key`) SELECT `t1`.`c0` AS `k`, `t1`.`c1` AS `x`, `t1`.`c2` AS `c2`, `t1`.`c3` AS `lo` FROM `p0` AS `t1`"
+    ),
+    ("s02_bigint_key", "postgres"): (
+        'WITH "p0" ("c0", "c1") AS (SELECT "s0"."nn" AS "c0", CAST(SUM(CAST("s0"."left_value" AS pg_catalog.int8)) AS pg_catalog.int8) AS "c1" FROM "public"."phase66 source é" AS "s0" GROUP BY "s0"."nn") SELECT "t1"."c0" AS "n", "t1"."c1" AS "x" FROM "p0" AS "t1"'
+    ),
+    ("s02_bigint_key", "mysql"): (
+        "WITH `p0` (`c0`, `c1`) AS (SELECT `s0`.`nn` AS `c0`, CASE WHEN SUM(`s0`.`left_value`) > 9223372036854775807 THEN CAST(9223372036854775807 AS SIGNED) + CAST(1 AS SIGNED) WHEN SUM(`s0`.`left_value`) < -9223372036854775808 THEN CAST(-9223372036854775808 AS SIGNED) - CAST(1 AS SIGNED) ELSE CAST(SUM(`s0`.`left_value`) AS SIGNED) END AS `c1` FROM `phase66`.`phase66 source é` AS `s0` GROUP BY `s0`.`nn`) SELECT `t1`.`c0` AS `n`, `t1`.`c1` AS `x` FROM `p0` AS `t1`"
+    ),
+    ("s02_key_alias", "postgres"): (
+        'WITH "p0" ("c0", "c1") AS (SELECT "s0"."group_key" AS "c0", CAST(SUM(CAST("s0"."left_value" AS pg_catalog.int8)) AS pg_catalog.int8) AS "c1" FROM "public"."phase66 source é" AS "s0" GROUP BY "s0"."group_key") SELECT "t1"."c0" AS "kk", "t1"."c1" AS "x" FROM "p0" AS "t1"'
+    ),
+    ("s02_key_alias", "mysql"): (
+        "WITH `p0` (`c0`, `c1`) AS (SELECT `s0`.`group_key` AS `c0`, CASE WHEN SUM(`s0`.`left_value`) > 9223372036854775807 THEN CAST(9223372036854775807 AS SIGNED) + CAST(1 AS SIGNED) WHEN SUM(`s0`.`left_value`) < -9223372036854775808 THEN CAST(-9223372036854775808 AS SIGNED) - CAST(1 AS SIGNED) ELSE CAST(SUM(`s0`.`left_value`) AS SIGNED) END AS `c1` FROM `phase66`.`phase66 source é` AS `s0` GROUP BY `s0`.`group_key`) SELECT `t1`.`c0` AS `kk`, `t1`.`c1` AS `x` FROM `p0` AS `t1`"
+    ),
+}
+NUMERIC_SPELLINGS = {
+    "s01_def": "def add(x: Int | None, y: Int | None) -> Int | None: return x + y\nquery result:\n    from rows\n    select:\n        s = add(a, b)\n",
+    "s01_parenthesized": "query result:\n    from rows\n    select:\n        s = (a + b)\n",
+    "s01_def_nested": "def add(x: Int | None, y: Int | None) -> Int | None: return x + y\ndef twice(x: Int | None, y: Int | None) -> Int | None: return add(x, y)\nquery result:\n    from rows\n    select:\n        s = twice(a, b)\n",
+    "s01_identity_def": "def idf(x: Int | None) -> Int | None: return x\nquery result:\n    from rows\n    select:\n        s = idf(a) + b\n",
+    "s01_qualified": "query result:\n    from rows\n    select:\n        s = rows.a + rows.b\n",
+    "s01_def_whole": "def idf(x: Int | None) -> Int | None: return x\nquery result:\n    from rows\n    select:\n        s = idf(a + b)\n",
+    "s01_def_swapped": "def radd(x: Int | None, y: Int | None) -> Int | None: return y + x\nquery result:\n    from rows\n    select:\n        s = radd(b, a)\n",
+    "s02_group_block": "query result:\n    from rows\n    group by:\n        k\n    select:\n        k\n        total = sum(a)\n",
+    "s02_table": "table result:\n    from rows\n    group by k\n    select:\n        k\n        total = sum(a)\n",
+    "s02_parenthesized": "query result:\n    from rows\n    group by k\n    select:\n        k\n        total = sum((a))\n",
+    "s02_identity_def": "def idf(x: Int | None) -> Int | None: return x\nquery result:\n    from rows\n    group by k\n    select:\n        k\n        total = sum(idf(a))\n",
+    "s02_qualified": "query result:\n    from rows\n    group by k\n    select:\n        k\n        total = sum(rows.a)\n",
+}
+# A source of main.pietto that other.pietto imports as ``{0}`` and reads.
+_NUMERIC_IMPORT = {
+    "main.pietto": "export source rows\n",
+    "other.pietto": 'from "main.pietto" import (\n    source {0},\n)\n',
+}
+NUMERIC_REFUSALS = {
+    "nonnull_operand": "query result:\n    from rows\n    select:\n        s = n + a\n",
+    "literal_operand": "query result:\n    from rows\n    select:\n        s = a + 1\n",
+    "narrow_operand": "query result:\n    from rows\n    select:\n        s = c + a\n",
+    "chained": "query result:\n    from rows\n    select:\n        s = a + b + a\n",
+    "negated_sum": "query result:\n    from rows\n    select:\n        s = -(a + b)\n",
+    "abs_of_negation": "query result:\n    from rows\n    select:\n        s = abs(-a)\n",
+    "conditional": "query result:\n    from rows\n    select:\n        s = a + b if id > 0 else a\n",
+    "coalesce": "query result:\n    from rows\n    select:\n        s = coalesce(a + b, 0)\n",
+    "in_let": "query result:\n    from rows\n    let t = a + b\n    select:\n        s = t\n",
+    "in_where": "query result:\n    from rows\n    where a + b > 0\n    select:\n        id\n",
+    "abs_in_where": "query result:\n    from rows\n    where abs(a) > 3\n    select:\n        id\n",
+    "order_by": "query result:\n    from rows\n    select:\n        s = a + b\n        id\n    order by:\n        id\n",
+    "limit": "query result:\n    from rows\n    select:\n        s = a + b\n    limit 3\n",
+    "distinct": "query result:\n    from rows\n    select distinct:\n        s = a + b\n",
+    "header_parameter": "query result(x: Int):\n    from rows\n    where id > x\n    select:\n        s = a + b\n",
+    "upstream_fields": "query up:\n    from rows\n    select:\n        a\n        b\nquery result:\n    from up\n    select:\n        s = a + b\n",
+    "upstream_operation": "query up:\n    from rows\n    select:\n        s = a + b\nquery result:\n    from up\n    select:\n        s\n",
+    "join": "query result:\n    from rows\n    let r = rows\n    inner join r on rows.id == r.id\n    select:\n        s = rows.a + r.b\n",
+    "union_operand": "query one:\n    from rows\n    select:\n        s = a + b\nquery two:\n    from rows\n    select:\n        s = a\nquery result:\n    union all one, two\n",
+    "sum_argument": "query result:\n    from rows\n    group by k\n    select:\n        k\n        s = sum(a + b)\n",
+    "sum_nonnull": "query result:\n    from rows\n    select:\n        x = sum(n)\n",
+    "sum_narrow": "query result:\n    from rows\n    select:\n        x = sum(c)\n",
+    "sum_nullable_key": "query result:\n    from rows\n    group by a\n    select:\n        a\n        x = sum(b)\n",
+    "sum_two_keys": "query result:\n    from rows\n    group by k, id\n    select:\n        k\n        id\n        x = sum(a)\n",
+    "sum_composed": "query result:\n    from rows\n    group by k\n    select:\n        k\n        x = sum(a) + 1\n",
+    "sum_coalesced": "query result:\n    from rows\n    group by k\n    select:\n        k\n        x = coalesce(sum(a), 0)\n",
+    "sum_having": "query result:\n    from rows\n    group by k\n    select:\n        k\n        x = sum(a)\n    having:\n        x > 1\n",
+    "sum_order_by": "query result:\n    from rows\n    group by k\n    select:\n        k\n        x = sum(a)\n    order by:\n        k\n",
+    "sum_limit": "query result:\n    from rows\n    group by k\n    select:\n        k\n        x = sum(a)\n    limit 2\n",
+    "sum_upstream": "query up:\n    from rows\n    select:\n        k\n        a\nquery result:\n    from up\n    group by k\n    select:\n        k\n        x = sum(a)\n",
+    "sum_let_argument": "query result:\n    from rows\n    let t = a\n    group by k\n    select:\n        k\n        x = sum(t)\n",
+    "sum_filtered": "query result:\n    from rows\n    group by k\n    select:\n        k\n        x = sum(o.a for o in group if o.id > 0)\n",
+    "sum_header_parameter": "query result(lo: Int):\n    from rows\n    where id > lo\n    group by k\n    select:\n        k\n        x = sum(a)\n",
+    # D77.24: no relation alias, no unread header parameter, no let and no
+    # aggregate beyond sum, count and min beside a sum.
+    "row_input_alias": "query result:\n    let x = rows\n    from x\n    select:\n        s = a + b\n",
+    "row_input_alias_chain": "query result:\n    let x = rows\n    let y = x\n    from y\n    select:\n        s = a + b\n",
+    "unused_header_parameter": "query result(z: Int):\n    from rows\n    select:\n        s = a + b\n",
+    "let_carry": "query result:\n    from rows\n    let t = a\n    select:\n        s = t + b\n",
+    "abs_nonnull": "query result:\n    from rows\n    select:\n        s = abs(n)\n",
+    "sum_row_input_alias": "query result:\n    let x = rows\n    from x\n    group by k\n    select:\n        k\n        total = sum(a)\n",
+    "sum_row_input_alias_chain": "query result:\n    let x = rows\n    let y = x\n    from y\n    group by k\n    select:\n        k\n        total = sum(a)\n",
+    "sum_unused_header_parameter": "query result(z: Int):\n    from rows\n    group by k\n    select:\n        k\n        t = sum(a)\n",
+    "sum_beside_avg": "query result:\n    from rows\n    group by k\n    select:\n        k\n        x = sum(a)\n        y = avg(a)\n",
+    # A relation alias that nothing reads leaves no trace in the plan.
+    "unread_row_input_alias": "query result:\n    let x = rows\n    from rows\n    select:\n        s = a + b\n",
+    "sum_unread_row_input_alias": "query result:\n    let x = rows\n    from rows\n    group by k\n    select:\n        k\n        total = sum(a)\n",
+    "unread_window": "query result:\n    from rows\n    let w = window(order by id)\n    select:\n        s = a + b\n",
+    "sum_unread_window": "query result:\n    from rows\n    let w = window(order by id)\n    group by k\n    select:\n        k\n        total = sum(a)\n",
+    # A source of another module, imported under its own name or another.
+    "imported_source": {
+        **_NUMERIC_IMPORT,
+        "other.pietto": _NUMERIC_IMPORT["other.pietto"].format("rows")
+        + "query result:\n    from rows\n    select:\n        s = a + b\n",
+    },
+    "imported_source_alias": {
+        **_NUMERIC_IMPORT,
+        "other.pietto": _NUMERIC_IMPORT["other.pietto"].format("rows as r")
+        + "query result:\n    from r\n    select:\n        s = a + b\n",
+    },
+    "sum_imported_source_alias": {
+        **_NUMERIC_IMPORT,
+        "other.pietto": _NUMERIC_IMPORT["other.pietto"].format("rows as r")
+        + "query result:\n    from r\n    group by k\n    select:\n        k\n        total = sum(a)\n",
+    },
+    # Owner 2026-11-13T00:20Z: a cell beside another refused form keeps
+    # main's refusal too.
+    "beside_literal_operand": "query result:\n    from rows\n    select:\n        s = a + b\n        t = a + 1\n",
+    "beside_two_refusals": "query result:\n    from rows\n    select:\n        s = a + b\n        t = n + a\n        u = -a\n",
+    "beside_division": "query result:\n    from rows\n    select:\n        s = a + b\n        t = a / b\n",
+    "sum_beside_sum_argument": "query result:\n    from rows\n    group by k\n    select:\n        k\n        x = sum(a)\n        y = sum(a + b)\n",
+    "sum_beside_sum_nonnull": "query result:\n    from rows\n    group by k\n    select:\n        k\n        x = sum(a)\n        y = sum(n)\n",
+}
+# Relation aliases and windows, read or not, imported sources and the direct
+# read each spells: only emission (the authored body and the source's module)
+# tells them apart, as compiled records and the pure document are the direct
+# read's apart from source positions and the source digest.
+NUMERIC_ALIASES = {
+    "row_input_alias": NUMERIC_SPELLINGS["s01_parenthesized"],
+    "row_input_alias_chain": NUMERIC_SPELLINGS["s01_parenthesized"],
+    "unread_row_input_alias": NUMERIC_SPELLINGS["s01_parenthesized"],
+    "sum_row_input_alias": NUMERIC_CELLS["s02_grouped"],
+    "sum_row_input_alias_chain": NUMERIC_CELLS["s02_grouped"],
+    "sum_unread_row_input_alias": NUMERIC_CELLS["s02_grouped"],
+    "unread_window": NUMERIC_SPELLINGS["s01_parenthesized"],
+    "sum_unread_window": NUMERIC_CELLS["s02_grouped"],
+    "imported_source": NUMERIC_SPELLINGS["s01_parenthesized"],
+    "imported_source_alias": NUMERIC_SPELLINGS["s01_parenthesized"],
+    "sum_imported_source_alias": NUMERIC_CELLS["s02_grouped"],
+}
+NUMERIC_REFUSAL_BLOCKERS = {
+    "nonnull_operand": [("PIE-B1002", "arithmetic_outside_physical_range", 12, 9)],
+    "literal_operand": [("PIE-B1002", "arithmetic_outside_physical_range", 12, 9)],
+    "narrow_operand": [("PIE-B1002", "arithmetic_outside_physical_range", 12, 9)],
+    "chained": [("PIE-B1002", "arithmetic_outside_physical_range", 12, 9)],
+    "negated_sum": [("PIE-B1002", "arithmetic_outside_physical_range", 12, 9)],
+    "abs_of_negation": [("PIE-B1002", "unary_result_outside_physical_range", 12, 9)],
+    "conditional": [("PIE-B1002", "arithmetic_outside_physical_range", 12, 9)],
+    "coalesce": [("PIE-B1002", "arithmetic_outside_physical_range", 12, 9)],
+    "in_let": [("PIE-B1002", "arithmetic_outside_physical_range", 11, 5)],
+    "in_where": [("PIE-B1002", "arithmetic_outside_physical_range", 11, 5)],
+    "abs_in_where": [("PIE-B1002", "abs_result_outside_physical_range", 11, 5)],
+    "order_by": [("PIE-B1002", "arithmetic_outside_physical_range", 12, 9)],
+    "limit": [("PIE-B1002", "arithmetic_outside_physical_range", 12, 9)],
+    "distinct": [("PIE-B1002", "arithmetic_outside_physical_range", 12, 9)],
+    "header_parameter": [("PIE-B1002", "arithmetic_outside_physical_range", 13, 9)],
+    "upstream_fields": [("PIE-B1002", "arithmetic_outside_physical_range", 17, 9)],
+    "upstream_operation": [("PIE-B1002", "arithmetic_outside_physical_range", 12, 9)],
+    "join": [("PIE-B1002", "arithmetic_outside_physical_range", 14, 9)],
+    "union_operand": [("PIE-B1002", "arithmetic_outside_physical_range", 12, 9)],
+    "sum_argument": [("PIE-B1002", "arithmetic_outside_physical_range", 14, 9)],
+    "sum_nonnull": [("PIE-B1004", "sum_int_aggregate_range_proof_missing", 12, 9)],
+    "sum_narrow": [("PIE-B1004", "sum_int_aggregate_range_proof_missing", 12, 9)],
+    "sum_nullable_key": [("PIE-B1004", "sum_int_aggregate_range_proof_missing", 14, 9)],
+    "sum_two_keys": [("PIE-B1004", "sum_int_aggregate_range_proof_missing", 15, 9)],
+    "sum_composed": [
+        ("PIE-B1003", "aggregate_composition_not_admitted_on_target", 14, 13)
+    ],
+    "sum_coalesced": [
+        ("PIE-B1003", "aggregate_composition_not_admitted_on_target", 14, 13)
+    ],
+    "sum_having": [("PIE-B1004", "sum_int_aggregate_range_proof_missing", 14, 9)],
+    "sum_order_by": [("PIE-B1004", "sum_int_aggregate_range_proof_missing", 14, 9)],
+    "sum_limit": [("PIE-B1004", "sum_int_aggregate_range_proof_missing", 14, 9)],
+    "sum_upstream": [("PIE-B1004", "sum_int_aggregate_range_proof_missing", 19, 9)],
+    "sum_let_argument": [("PIE-B1004", "sum_int_aggregate_range_proof_missing", 15, 9)],
+    "sum_filtered": [("PIE-B1004", "sum_int_aggregate_range_proof_missing", 14, 9)],
+    "sum_header_parameter": [
+        ("PIE-B1004", "sum_int_aggregate_range_proof_missing", 15, 9)
+    ],
+    "row_input_alias": [("PIE-B1002", "arithmetic_outside_physical_range", 13, 9)],
+    "row_input_alias_chain": [
+        ("PIE-B1002", "arithmetic_outside_physical_range", 14, 9)
+    ],
+    "unused_header_parameter": [
+        ("PIE-B1002", "arithmetic_outside_physical_range", 12, 9)
+    ],
+    "let_carry": [("PIE-B1002", "arithmetic_outside_physical_range", 13, 9)],
+    "abs_nonnull": [("PIE-B1002", "abs_result_outside_physical_range", 12, 9)],
+    "sum_row_input_alias": [
+        ("PIE-B1004", "sum_int_aggregate_range_proof_missing", 15, 9)
+    ],
+    "sum_row_input_alias_chain": [
+        ("PIE-B1004", "sum_int_aggregate_range_proof_missing", 16, 9)
+    ],
+    "sum_unused_header_parameter": [
+        ("PIE-B1004", "sum_int_aggregate_range_proof_missing", 14, 9)
+    ],
+    "sum_beside_avg": [("PIE-B1004", "sum_int_aggregate_range_proof_missing", 14, 9)],
+    "unread_row_input_alias": [
+        ("PIE-B1002", "arithmetic_outside_physical_range", 13, 9)
+    ],
+    "sum_unread_row_input_alias": [
+        ("PIE-B1004", "sum_int_aggregate_range_proof_missing", 15, 9)
+    ],
+    "unread_window": [("PIE-B1002", "arithmetic_outside_physical_range", 13, 9)],
+    "sum_unread_window": [
+        ("PIE-B1004", "sum_int_aggregate_range_proof_missing", 15, 9)
+    ],
+    "imported_source": [("PIE-B1002", "arithmetic_outside_physical_range", 7, 9)],
+    "imported_source_alias": [("PIE-B1002", "arithmetic_outside_physical_range", 7, 9)],
+    "sum_imported_source_alias": [
+        ("PIE-B1004", "sum_int_aggregate_range_proof_missing", 9, 9)
+    ],
+    "beside_literal_operand": [
+        ("PIE-B1002", "arithmetic_outside_physical_range", 12, 9),
+        ("PIE-B1002", "arithmetic_outside_physical_range", 13, 9),
+    ],
+    "beside_two_refusals": [
+        ("PIE-B1002", "arithmetic_outside_physical_range", 12, 9),
+        ("PIE-B1002", "arithmetic_outside_physical_range", 13, 9),
+        ("PIE-B1002", "unary_result_outside_physical_range", 14, 9),
+    ],
+    "beside_division": [
+        ("PIE-B1002", "arithmetic_outside_physical_range", 12, 9),
+        ("PIE-B1003", "binary_operator_not_admitted", 13, 9),
+    ],
+    "sum_beside_sum_argument": [
+        ("PIE-B1004", "sum_int_aggregate_range_proof_missing", 14, 9),
+        ("PIE-B1002", "arithmetic_outside_physical_range", 15, 9),
+    ],
+    "sum_beside_sum_nonnull": [
+        ("PIE-B1004", "sum_int_aggregate_range_proof_missing", 14, 9),
+        ("PIE-B1004", "sum_int_aggregate_range_proof_missing", 15, 9),
+    ],
+}
+
+
+def numeric_law_inputs(directory, body):
+    """The arguments emission passes to the MySQL S01/S02 cell laws while it
+    emits ``body`` (rows.mysql_checked_cell, mysql_sum_query, mysql_sum_cell),
+    the first call of each, for tests that edit one input at a time."""
+    from _pytest.monkeypatch import MonkeyPatch
+    from pietto._project import project_sql_emission_rows as rows
+
+    seen: dict[str, tuple] = {}
+    patch = MonkeyPatch()
+    try:
+        for name in ("mysql_checked_cell", "mysql_sum_query", "mysql_sum_cell"):
+            law = getattr(rows, name)
+            patch.setattr(
+                rows,
+                name,
+                lambda *args, _law=law, _name=name: (
+                    seen.setdefault(_name, args) and _law(*args)
+                ),
+            )
+        _, outcome = numeric_world(directory, "mysql", body)
+    finally:
+        patch.undo()
+    assert outcome.status == "VERIFIED", outcome.blockers
+    return seen
+
+
+def numeric_readers_accept(outcome):
+    """Every reader accepts a VERIFIED artifact: plain verification (plan),
+    the pure boundary (document), the independent public decoder, compiled
+    replay and its template (records) and the live template, with the
+    emitted SQL byte for byte."""
+    import _pietto_sql_emission_portable as portable
+    import _pietto_sql_emission_pure_boundary as pure
+    from pietto._project.project_compiled_build import build_compiled
+    from pietto._project.project_compiled_loading import load_compiled
+    from pietto._project.project_compiled_lowering import emit_compiled
+    from pietto._project.project_execution_template import (
+        bind_values,
+        prepare_compiled_template,
+        prepare_live_template,
+    )
+    from pietto._project.project_sql_emission import serialize_project_sql_emission
+    from pietto._project.project_sql_emission_verification import (
+        verify_project_sql_emission,
+    )
+
+    assert outcome.status == "VERIFIED", outcome.blockers
+    artifact = outcome.artifact
+    assert verify_project_sql_emission(artifact, artifact.request).verified
+    observed = portable.export_emission_observation(artifact, artifact.request)
+    assert observed.canonical_bytes is not None
+    parsed = pure.parse_emission_observation(observed.canonical_bytes)
+    assert parsed.status is pure.Status.OK, parsed.detail
+    assert portable.verify_emission_observation(
+        observed.canonical_bytes, artifact, artifact.request
+    ).corresponds
+    assert decode_public(serialize_project_sql_emission(outcome))["status"] == (
+        "VERIFIED"
+    )
+    built = build_compiled(artifact)
+    loaded = load_compiled(
+        built.payload,
+        expected_pin=built.pin,
+        accepted_producer=built.producer,
+        accepted_compatibility=built.compatibility,
+    )
+    assert emit_compiled(loaded, ()).rendered.sql == artifact.rendered.sql
+    for template in (
+        prepare_compiled_template(loaded),
+        prepare_live_template(artifact),
+    ):
+        assert template.slots == () and template.parameters == ()
+        assert bind_values(template, (), ()).artifact.rendered.sql == (
+            artifact.rendered.sql
+        )

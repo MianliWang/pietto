@@ -829,8 +829,10 @@ its authored direction and target NULL/collation behavior; hidden-input reuse
 is rejected. Q2 accepts only independently proved numeric realizations:
 signed-range Int arithmetic and direct `avg(Int)` with an input range and a
 target Float carrier, and, on PostgreSQL, the `Int` results its checked
-`bigint` operations bound. PostgreSQL emits `sum(Int)` of a direct `Int` input
-as `CAST(SUM(CAST(x AS pg_catalog.int8)) AS pg_catalog.int8)`: the sum
+`bigint` operations bound, as on MySQL in the unreleased (Phase77 S01/S02)
+cells that the [language page](language.md) states. PostgreSQL emits
+`sum(Int)` of a direct `Int` input as
+`CAST(SUM(CAST(x AS pg_catalog.int8)) AS pg_catalog.int8)`: the sum
 accumulates exactly, and its result is a nullable `Int` with storage
 `pg_int8` over the whole signed 64-bit range. An `Int` sign, `+`, `-`, `*` or
 `abs` over `bigint` operands whose exact range leaves signed 64 bits but meets
@@ -853,7 +855,9 @@ same checked `sum(Int)` spelling, so a sum of a `bigint` column outside signed
 64 bits also fails with 22003 rather than returning an out-of-range `numeric`.
 MySQL keeps project `sum(Int)` BLOCKED with `PIE-B1004`,
 as its `CAST(DECIMAL AS SIGNED)` would clamp an out-of-range sum, and Int
-arithmetic not proved to fit signed 64 bits BLOCKED with `PIE-B1002`.
+arithmetic not proved to fit signed 64 bits BLOCKED with `PIE-B1002`,
+outside the unreleased (Phase77 S01/S02) cells that the
+[language page](language.md) states.
 PostgreSQL admits exact Decimal/Int addition and subtraction and addition
 or subtraction of Decimals with different scales. Let `s = max(s1, s2)`;
 the result has precision `max(p1 - s1, p2 - s2) + 1 + s`. A physical Int
@@ -992,8 +996,11 @@ expression arguments (`count(lower(label))`), except that it keeps BLOCKED
 `0.0` apart in deduplication beside a wide key), `sum`, `avg` and, outside
 the one shape below, `stddev` of a `Float`
 (`float_aggregate_finite_result_proof_missing`), `sum` of an `Int`
-(`sum_int_aggregate_range_proof_missing`, so `sum(qty * 2)` too), and an `Int`
-row expression not proved to fit signed 64 bits (`PIE-B1002`).
+(`sum_int_aggregate_range_proof_missing`, so `sum(qty * 2)` too) outside the
+unreleased (Phase77 S02) cell of a direct nullable `BIGINT` field that the
+[language page](language.md) states, and an `Int` row expression not proved
+to fit signed 64 bits (`PIE-B1002`) outside its unreleased (Phase77 S01)
+cell there.
 
 PostgreSQL project SQL emits `stddev`, `variance`, `pvariance` and `pstdev` of
 one direct `Int` field, whose carrier is `int2`, `int4` or `int8`, as

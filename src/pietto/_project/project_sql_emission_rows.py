@@ -132,6 +132,351 @@ class Realization:
 
 
 INT_RANGE_OBLIGATION = "int_range_representable"
+# Phase77 S01/S02: the MySQL project cells whose checked signed 64-bit outcome
+# the native qualification paired with PostgreSQL (D77.24 whitelist). Emission
+# derives a cell from the plan (the live verifier re-derives emission's
+# blockers first), compiled replay from its records and the pure boundary from
+# its document; every other MySQL shape keeps its refusal. The plan tables a
+# cell's query may hold; any other non-empty one (a header parameter, slot,
+# let, window, JOIN, set, VALUES, result, Collect, Unnest, block or capture
+# read, or a table a later plan adds) closes its cells.
+_MYSQL_CELL_PLAN_TABLES = frozenset(
+    {
+        "aggregate_projections",
+        "aggregates",
+        "aggregations",
+        "all_exports",
+        "blocks",
+        "boundaries",
+        "demands",
+        "exports",
+        "expression_sites",
+        "expressions",
+        "filters",
+        "group_keys",
+        "input_ports",
+        "input_uses",
+        "literal_sites",
+        "operands",
+        "origins",
+        "projections",
+        "result_exports",
+        "result_ports",
+        "source_ports",
+        "sources",
+        "stage_ports",
+        "symbols",
+    }
+)
+# The fields of a cell's authored `query` or `table` that may be set; any
+# other one (a `let`, relation alias or window, read or not, a JOIN,
+# DISTINCT, ORDER BY, LIMIT, header parameter, or a field a later grammar
+# adds) closes its cells, as the plan keeps no trace of an unread one.
+_MYSQL_CELL_AUTHORED = frozenset(
+    {"span", "name", "from_clause", "where_clause", "group_by_clause", "select_items"}
+)
+# The aggregates an S02 cell's aggregation may hold beside its sums.
+MYSQL_SUM_STAGE_FUNCTIONS = frozenset({"sum", "count", "min"})
+
+
+def mysql_checked_operands(values) -> bool:
+    """The operand carrier of a cell: each is a nullable MySQL BIGINT source
+    field, the carrier the qualification probed."""
+
+    return bool(values) and all(
+        value.tag == "Int"
+        and value.storage == {"kind": "my_bigint"}
+        and value.nullable is True
+        and not value.binding
+        for value in values
+    )
+
+
+def mysql_checked_query(plan, *, aggregate: bool) -> bool:
+    """A cell's query, from the plan and its authored `query` or `table`:
+    its non-empty tables are among _MYSQL_CELL_PLAN_TABLES, it reads a
+    source of its own module through one WHERE at most, then
+    (``aggregate``) one aggregation of one GROUP BY key at most, then its
+    projection, and as written it sets only _MYSQL_CELL_AUTHORED fields.
+    Every check is O(1) in the program: at most four blocks, one source and
+    one authored declaration are read. No query is one while emission
+    derives as main (AS_MAIN)."""
+
+    from pietto._project.module_catalog import authored_definitions
+    from pietto._project.project_sql_plan import (
+        ProjectSQLBoundary,
+        ProjectSQLBoundaryReason,
+    )
+
+    stage = row.ProjectSQLStageKind
+    middle = (stage.AGGREGATE,) if aggregate else ()
+    owner = plan.scope.selected_owner
+    module = plan.scope.completed.semantic_result.modules[owner.module_position]
+    authored = authored_definitions(module)[owner.declaration_position]
+    return not (
+        AS_MAIN.get()
+        or any(
+            type(value := getattr(plan, name)) is tuple
+            and value
+            and name not in _MYSQL_CELL_PLAN_TABLES
+            for name in plan.__dataclass_fields__
+        )
+        or len(plan.group_keys) > 1
+        or tuple(block.kind for block in plan.blocks[:4])
+        not in ((*middle, stage.PROJECTION), (stage.WHERE, *middle, stage.PROJECTION))
+        or any(
+            type(block.boundary) is not ProjectSQLBoundary
+            or block.boundary.reason is not ProjectSQLBoundaryReason.SOURCE_INPUT
+            for block in plan.blocks
+        )
+        # A source imported, under its own name or another, reads as the
+        # same records as one declared here.
+        or any(binding.module is not module for binding in plan.sources)
+        # D77.24: the project folds a relation alias into the plan's FROM
+        # and drops an unread alias or window, so only the authored body
+        # still shows them; compiled records and the pure document cannot
+        # tell them from a direct read.
+        or any(
+            getattr(authored, name) not in (None, ())
+            for name in authored.__dataclass_fields__
+            if name not in _MYSQL_CELL_AUTHORED
+        )
+    )
+
+
+def mysql_field_column(column) -> bool:
+    """A source field column, read directly or carried by the query's own
+    stages, never a let value, literal, aggregate or window result."""
+
+    return (
+        type(column) is StageColumn
+        and column.field is not None
+        and column.source_port is not None
+        and column.literal is None
+        and column.aggregate is None
+        and column.window is None
+    )
+
+
+def mysql_field(value) -> bool:
+    """A read of a mysql_field_column."""
+
+    return type(value) is SQLStageReference and mysql_field_column(value.column)
+
+
+def mysql_checked_cell(plan, expression, values) -> bool:
+    """S01: a MySQL Int sign, arithmetic or `abs` is in its cell when it is
+    the whole value of a SELECT item of the emitted query, its operands are
+    source fields (mysql_field) and the query is mysql_checked_query's."""
+
+    site = getattr(expression, "site", None)
+    return (
+        type(site) is row.ProjectSQLExpressionSite
+        and site.role is row.ProjectSQLExpressionRole.SELECT
+        and site.occurrence.expression is expression.expression
+        and bool(values)
+        and all(mysql_field(value) for value in values)
+        and mysql_checked_query(plan, aggregate=False)
+    )
+
+
+def mysql_sum_query(plan, keys) -> bool:
+    """S02: an aggregation that can hold a MySQL sum(Int) cell, asked once
+    per aggregation stage: the query is mysql_checked_query's, its aggregates
+    are sums, counts and mins (MYSQL_SUM_STAGE_FUNCTIONS), each GROUP BY key
+    column a non-null Int source field (mysql_field_column), and no SELECT
+    item computes over an aggregate result. The scans of the plan's
+    aggregates and expressions run only for a query with one aggregation."""
+
+    from pietto._project.project_sql_emission_aggregation import function_name
+
+    return (
+        mysql_checked_query(plan, aggregate=True)
+        and all(
+            function_name(value.source) in MYSQL_SUM_STAGE_FUNCTIONS
+            for value in plan.aggregates
+        )
+        and all(
+            mysql_field_column(key)
+            and key.realization.tag == "Int"
+            and key.realization.nullable is False
+            for key in keys
+        )
+        and not any(
+            getattr(getattr(item, "site", None), "role", None)
+            is row.ProjectSQLExpressionRole.SELECT
+            for item in plan.expressions
+        )
+    )
+
+
+def mysql_sum_cell(aggregate, argument) -> bool:
+    """S02: a sum(Int) of a mysql_sum_query stage is in its cell when it is
+    the whole value of a SELECT item (a result fact; its analysis holds the
+    item's call itself) over a source field (mysql_field)."""
+
+    from pietto._project.aggregate_grouped_schema import ProjectAggregateResultFact
+
+    return type(aggregate.source.fact) is ProjectAggregateResultFact and mysql_field(
+        argument
+    )
+
+
+# The compiled record kinds a cell's bundle may hold (D77.24 whitelist), the
+# source's metadata and any literal or WHERE predicate call included; any
+# other kind (a parameter, slot, native use, block, capture or ANY read,
+# match, window, JOIN, result, set, VALUES, table function, Unnest, a legacy
+# scan, or a kind a later format adds) closes its cells.
+_MYSQL_CELL_RECORDS = frozenset(
+    {
+        "aggregate",
+        "aggregate_value",
+        "declaration",
+        "entry",
+        "expression_context",
+        "field",
+        "literal",
+        "null_literal",
+        "operation",
+        "output",
+        "policy",
+        "port",
+        "predicate_argument",
+        "predicate_call",
+        "premise",
+        "provider",
+        "read",
+        "requirement",
+        "requirement_link",
+        "requirement_origin",
+        "row",
+        "site",
+        "source",
+        "source_unique",
+        "target",
+        "use",
+    }
+)
+_MYSQL_CHECKED_OPERATORS = frozenset(
+    {
+        ("binary", "+"),
+        ("binary", "-"),
+        ("binary", "*"),
+        ("unary", "+"),
+        ("unary", "-"),
+        ("scalar_call", "abs"),
+    }
+)
+
+
+def mysql_compiled_cells(records, entry) -> tuple[frozenset, frozenset]:
+    """Compiled replay's S01 operations and S02 aggregate values in their
+    cells, from the records alone, as emission derives them from the plan
+    (mysql_checked_cell, mysql_sum_query). A relation alias or a window,
+    read or not, and an imported source leave a direct read's records apart
+    from source positions and the source digest, so only emission refuses
+    them.
+
+    The entry's terminal is a projection row of its declaration over one
+    aggregate of that declaration at most, over one WHERE row of it at most,
+    over a source; no other row or aggregate exists and every record is of a
+    kind in _MYSQL_CELL_RECORDS. One pass marks each port that carries a
+    source field: a source port, or a port of that WHERE row that reads a
+    marked port. An S01 operation is a whole value of the terminal row that
+    no other counted record names (a requirement only anchors it, a port
+    repeats its row's value), over reads of marked ports. An S02 value is a
+    sum over a read of a marked port; its aggregate has one key at most, a
+    read of a marked non-null Int port, holds sums, counts and mins only
+    (MYSQL_SUM_STAGE_FUNCTIONS), and the terminal row only reads its ports."""
+
+    empty: tuple[frozenset, frozenset] = (frozenset(), frozenset())
+    owner = entry.get("declaration")
+    terminal = records[entry.get("terminal")]
+    if terminal.address.kind != "row" or terminal.get("stage") != "projection":
+        return empty
+    chain, current = [terminal], records[terminal.get("input")]
+    if current.address.kind == "aggregate":
+        chain.append(current)
+        current = records[current.get("input")]
+    where = None
+    if current.address.kind == "row" and current.get("stage") == "where":
+        chain.append(current)
+        where = current.address
+        current = records[current.get("input")]
+    if current.address.kind != "source" or any(
+        unit.get("owner") != owner for unit in chain
+    ):
+        return empty
+    from pietto._project.project_compiled_schema import Address
+
+    units = {unit.address for unit in chain}
+    marked, named = set(), {}
+    for address, record in records.items():
+        kind = address.kind
+        if kind not in _MYSQL_CELL_RECORDS or (
+            kind in {"row", "aggregate"} and address not in units
+        ):
+            return empty
+        pending = [] if kind in {"requirement", "port"} else list(record.values)
+        while pending:
+            item = pending.pop()
+            if type(item) is tuple:
+                pending.extend(item)
+            elif type(item) is Address and item.kind == "operation":
+                named.setdefault(item, []).append(address)
+        if kind == "port":
+            port_owner, port_source = record.get("owner"), record.get("source")
+            if port_owner.kind == "source" or (
+                port_owner == where
+                and port_source is not None
+                and port_source.kind == "read"
+                and records[port_source].get("port") in marked
+            ):
+                marked.add(address)
+
+    def field(address) -> bool:
+        return address.kind == "read" and records[address].get("port") in marked
+
+    if chain[1:2] and chain[1].address.kind == "aggregate":
+        aggregate = chain[1]
+        keys = aggregate.get("keys")
+        if (
+            len(keys) > 1
+            or not all(
+                field(key)
+                and records[records[key].get("port")].get("logical")
+                == ("Int", "non_null")
+                for key in keys
+            )
+            or any(
+                records[value].get("function") not in MYSQL_SUM_STAGE_FUNCTIONS
+                for value in aggregate.get("values")
+            )
+            or not all(
+                value.kind == "read"
+                and records[records[value].get("port")].get("owner")
+                == aggregate.address
+                for value in terminal.get("values")
+            )
+        ):
+            return empty
+        return frozenset(), frozenset(
+            value
+            for value in aggregate.get("values")
+            if records[value].get("function") == "sum"
+            and len(records[value].get("arguments")) == 1
+            and field(records[value].get("arguments")[0])
+        )
+    return frozenset(
+        value
+        for value in terminal.get("values")
+        if named.get(value) == [terminal.address]
+        and records[value].get("operator") in _MYSQL_CHECKED_OPERATORS
+        and records[value].get("operands")
+        and all(field(item) for item in records[value].get("operands"))
+    ), frozenset()
+
+
 # The MySQL project cells of lpad and now() that the Phase77 native
 # qualification preregisters, as (name, place, operand kinds). The call is the
 # whole value of a SELECT item of the emitted query ("select"), or now() is
@@ -1919,7 +2264,15 @@ def build_row_value(
             if (expression.expression.operator == "-")
             else bounds
         )
-        checked = _unary_int(family, inner, low, high, nullable)
+        checked = _unary_int(
+            family,
+            inner,
+            low,
+            high,
+            nullable,
+            family == "mysql"
+            and mysql_checked_cell(request.plan, expression, (operand,)),
+        )
         if checked is None:
             return None, ("PIE-B1002", "unary_result_outside_physical_range")
         return SQLOperation(expression, "sign", (operand,), checked), None
@@ -2091,6 +2444,11 @@ SIGNED64 = (-(1 << 63), (1 << 63) - 1)
 # checked signed 64-bit operation or narrowing refuses an out-of-range value
 # with SQLSTATE 22003 and never returns a wrapped one.
 TARGET_CHECKED_SIGNED64 = "target_checked_signed64_narrowing"
+# The carrier of such a result on each target.
+CHECKED_INT_STORAGE = {
+    "postgres": {"kind": "pg_int8"},
+    "mysql": {"kind": "my_signed_int"},
+}
 TARGET_CHECKED_DECIMAL = "target_checked_decimal_overflow"
 # Evidence that a binary64 result is finite because the target refuses an
 # overflowing operation or accumulation (SQLSTATE 22003) instead of returning
@@ -2098,19 +2456,24 @@ TARGET_CHECKED_DECIMAL = "target_checked_decimal_overflow"
 TARGET_CHECKED_BINARY64 = "target_checked_binary64_overflow"
 
 
-def _target_checked_int(family, storage, low, high, nullable) -> Realization | None:
+def _target_checked_int(
+    family, storage, low, high, nullable, mysql_operands=()
+) -> Realization | None:
     """PostgreSQL computes a bigint operation with its checked operators, so a
     range that meets signed 64 bits is admitted, clipped to it. A range wholly
     outside it stays refused: such an operation could only fail. An admitted
     one may still fail while planning, wherever PostgreSQL folds operands it
     reduces to constants (a constant condition or COALESCE argument, a bound
-    value), even in a branch no row takes."""
-    if (
-        family != "postgres"
-        or storage != {"kind": "pg_int8"}
-        or high < SIGNED64[0]
-        or low > SIGNED64[1]
-    ):
+    value), even in a branch no row takes. MySQL's BIGINT operators raise
+    1690 (SQLSTATE 22003) the same way, admitted only in an S01 cell, whose
+    ``mysql_operands`` the caller passes (mysql_checked_operands)."""
+    if family == "mysql":
+        # Its storage is always my_signed_int (_arithmetic_storage).
+        if not mysql_checked_operands(mysql_operands):
+            return None
+    elif family != "postgres" or storage != {"kind": "pg_int8"}:
+        return None
+    if high < SIGNED64[0] or low > SIGNED64[1]:
         return None
     return _checked_int(
         storage, max(low, SIGNED64[0]), min(high, SIGNED64[1]), nullable
@@ -2123,10 +2486,9 @@ def target_checked(family: str, operation) -> bool:
     its operands, leaves signed 64 bits."""
     result = operation.realization
     if (
-        family != "postgres"
-        or result.tag != "Int"
+        result.tag != "Int"
         or result.binding
-        or result.storage != {"kind": "pg_int8"}
+        or result.storage != CHECKED_INT_STORAGE.get(family)
     ):
         return False
     bounds: list[tuple[int, int]] = []
@@ -2214,11 +2576,13 @@ def float_sign(family, inner, nullable) -> Realization | None:
     return Realization("Float", {"kind": "pg_float8"}, nullable, FINITE_FLOAT)
 
 
-def _unary_int(family, inner, low, high, nullable) -> Realization | None:
+def _unary_int(
+    family, inner, low, high, nullable, mysql_checked=False
+) -> Realization | None:
     """A one-operand Int result of range ``low``..``high`` in the operand's
     own signed integer type (unary `+`/`-` and `abs`), or bigint over a
     narrow PostgreSQL operand, proved per binding for a query parameter
-    operand that no static type holds."""
+    operand that no static type holds. ``mysql_checked`` marks an S01 cell."""
     storage = _arithmetic_storage(family, inner, inner)
     checked = _checked_int(storage, low, high, nullable)
     if checked is None:
@@ -2226,7 +2590,14 @@ def _unary_int(family, inner, low, high, nullable) -> Realization | None:
     if checked is None and inner.binding:
         return deferred_int(storage, nullable)
     if checked is None:
-        return _target_checked_int(family, storage, low, high, nullable)
+        return _target_checked_int(
+            family,
+            storage,
+            low,
+            high,
+            nullable,
+            (inner,) if mysql_checked else (),
+        )
     return replace(checked, binding=inner.binding)
 
 
@@ -2394,6 +2765,8 @@ def _binary(
             if float_left is None or float_right is None
             else (float_left, float_right)
         ),
+        mysql_checked=request.family == "mysql"
+        and mysql_checked_cell(request.plan, expression, values),
     )
     if checked is None:
         assert problem is not None
@@ -2414,8 +2787,10 @@ def resolved_binary_realization(
     direct_decimal_sources: bool = False,
     decimal_operand_origins: tuple[str | None, ...] | None = None,
     float_values: tuple[float, float] | None = None,
+    mysql_checked: bool = False,
 ):
-    """Original range/domain law over resolved operands; no name resolution."""
+    """Original range/domain law over resolved operands; no name resolution.
+    ``mysql_checked`` marks an S01 cell (mysql_checked_cell)."""
     if operator in LOGICAL:
         if tag != "Bool" or left.tag != "Bool" or right.tag != "Bool":
             return None, ("PIE-B1003", "logical_operands_require_bool")
@@ -2593,7 +2968,14 @@ def resolved_binary_realization(
     elif checked is not None:
         checked = replace(checked, binding=binding)
     else:
-        checked = _target_checked_int(family, storage, low, high, nullable)
+        checked = _target_checked_int(
+            family,
+            storage,
+            low,
+            high,
+            nullable,
+            (left, right) if mysql_checked else (),
+        )
     if checked is None:
         return None, ("PIE-B1002", "arithmetic_outside_physical_range")
     return checked, None
@@ -3391,6 +3773,8 @@ def _scalar_call(
         cell=mysql_scalar_cell(request.plan, expression, values)
         if request.family == "mysql"
         else None,
+        mysql_checked=request.family == "mysql"
+        and mysql_checked_cell(request.plan, expression, values),
     )
     if checked is None:
         assert problem is not None
@@ -3661,13 +4045,15 @@ def resolved_scalar_call_realization(
     rows_both_sides=True,
     float_cell=None,
     cell=None,
+    mysql_checked=False,
 ):
     """Admit only a canonical builtin identity with its proved physical result.
 
     ``rows_both_sides`` is the comparison law's row-read fact (default: the
     refusing one) and ``float_cell`` its MySQL Float cell; `same_value` is
     admitted exactly where `==` is. ``cell`` is a MySQL lpad or now() call's
-    cell (mysql_scalar_cell).
+    cell (mysql_scalar_cell). ``mysql_checked`` marks an S01 cell
+    (mysql_checked_cell) of `abs`.
     """
     if symbol.namespace is SymbolNamespace.CALLABLE and symbol.name == "now":
         # The statement's start as a UTC microsecond civil Timestamp, on
@@ -4011,7 +4397,12 @@ def resolved_scalar_call_realization(
             return None, ("PIE-B1004", "int_range_proof_missing")
         low, high = bounds
         checked = _unary_int(
-            family, value, max(low, -high, 0), max(-low, high), nullable
+            family,
+            value,
+            max(low, -high, 0),
+            max(-low, high),
+            nullable,
+            mysql_checked,
         )
         if checked is None:
             return None, ("PIE-B1002", "abs_result_outside_physical_range")

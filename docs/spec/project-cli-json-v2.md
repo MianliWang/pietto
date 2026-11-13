@@ -417,12 +417,36 @@ is then the part of that range inside signed 64 bits, and PostgreSQL's checked
 the statement may fail while PostgreSQL plans or executes it and never returns
 a wrong value; whether and when it fails depends on the execution plan. A consumer that requires a
 statically proved range refuses a document with this evidence. Every other
-requirement's `evidence` is unchanged, and no MySQL document carries it.
+requirement's `evidence` is unchanged, and no MySQL document carries it
+outside the unreleased cells below.
 
 The additive `ranges` roles for these PostgreSQL forms are
 `expression_range` role `int8_widen`, and `syntax` roles `int8_widen_open`,
 `int8_widen_close`, `aggregate_result_cast_open` and
 `aggregate_result_cast_close`.
+
+Unreleased (Phase77 S01/S02), a MySQL document carries the same evidence in
+the cells that the [language page](../language.md) states. A sign, `+`, `-`,
+`*` or `abs` over nullable `BIGINT` fields (kind `arithmetic` or
+`scalar_call`, rule R05) whose exact range leaves signed 64 bits ends its
+`evidence` with it, and a direct `sum` of such a field (kind `aggregate`, rule
+R13) has the `evidence` `[{"overflow": "target_checked_signed64_narrowing"}]`.
+Their storage is `my_signed_int`, and an operation's `int_range` is the part
+of its exact range inside signed 64 bits; MySQL's `BIGINT` operators raise
+error 1690 (SQLSTATE 22003) outside it. The operation is written uncast, as
+`(x + y)` or `ABS(x)`, with no additive role. The `sum` is written
+`CASE WHEN SUM(x) > 9223372036854775807 THEN CAST(9223372036854775807 AS
+SIGNED) + CAST(1 AS SIGNED) WHEN SUM(x) < -9223372036854775808 THEN
+CAST(-9223372036854775808 AS SIGNED) - CAST(1 AS SIGNED) ELSE CAST(SUM(x) AS
+SIGNED) END`, nullable over the whole signed 64-bit range. Its additive
+`ranges` roles are the `syntax` roles `aggregate_guard_open`
+(`CASE WHEN SUM(`), `aggregate_guard_high`
+(`) > 9223372036854775807 THEN CAST(9223372036854775807 AS SIGNED) + CAST(1
+AS SIGNED) WHEN SUM(`), `aggregate_guard_low` (`) < -9223372036854775808 THEN
+CAST(-9223372036854775808 AS SIGNED) - CAST(1 AS SIGNED) ELSE CAST(SUM(`) and
+`aggregate_guard_close` (`) AS SIGNED) END`), which open and close its
+`aggregate` range in place of `aggregate_open` and `aggregate_close`, with
+the field read between each two.
 
 A generated R13 `aggregate` requirement's `evidence` may also be
 `[{"overflow": "target_checked_binary64_overflow"}]`. It marks a PostgreSQL

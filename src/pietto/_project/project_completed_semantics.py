@@ -3076,6 +3076,11 @@ def derive_compiled_semantics(root, values, parameters=None):
     ):
         raise CompiledError("COMPILED_PHYSICAL_DOMAIN")
     ranked = _ranked_values(records, records[root.description.query], family)
+    mysql_checked, mysql_sums = (
+        physical.mysql_compiled_cells(records, records[root.description.query])
+        if family == "mysql"
+        else (frozenset(), frozenset())
+    )
     if len(values) != len(slots):
         raise CompiledError("COMPILED_BINDING_SLOTS")
     replacements = {}
@@ -3495,6 +3500,7 @@ def derive_compiled_semantics(root, values, parameters=None):
                                 argument.address.kind == "read",
                                 argument.realization,
                                 family,
+                                ref in mysql_sums,
                                 cell=ref == spread_cell,
                                 ranked=record.address in ranked,
                             )
@@ -4124,6 +4130,7 @@ def derive_compiled_semantics(root, values, parameters=None):
                             if family == "mysql" and token == "same_value"
                             else None,
                             cell=mysql_cells.get(ref),
+                            mysql_checked=ref in mysql_checked,
                         )
                     elif role == "conditional":
                         realized, problem = physical.resolved_conditional_realization(
@@ -4209,6 +4216,7 @@ def derive_compiled_semantics(root, values, parameters=None):
                                 )
                                 else None
                             ),
+                            mysql_checked=ref in mysql_checked,
                         )
                     elif role == "comparison":
                         realized, problem = (
@@ -4273,7 +4281,12 @@ def derive_compiled_semantics(root, values, parameters=None):
                             (-interval[1], -interval[0]) if token == "-" else interval
                         )
                         realized = physical._unary_int(
-                            family, inner, low, high, nullable
+                            family,
+                            inner,
+                            low,
+                            high,
+                            nullable,
+                            ref in mysql_checked,
                         )
                     if realized is None or problem is not None:
                         raise CompiledError("COMPILED_PHYSICAL_DOMAIN")
@@ -4473,6 +4486,11 @@ def verify_compiled_semantics(value):
         "SEMANTIC_DOMAIN",
     )
     ranked = _ranked_values(records, records[value.root.description.query], family)
+    mysql_checked, mysql_sums = (
+        physical.mysql_compiled_cells(records, records[value.root.description.query])
+        if family == "mysql"
+        else (frozenset(), frozenset())
+    )
     slots = tuple(r for r in records.values() if r.address.kind == "slot")
     need(
         type(value.values) is tuple and len(slots) == len(value.values),
@@ -4921,6 +4939,7 @@ def verify_compiled_semantics(value):
                             argument.address.kind == "read",
                             argument.realization,
                             family,
+                            current in mysql_sums,
                             cell=current == spread_cell,
                             ranked=record.address in ranked,
                         )
@@ -5536,6 +5555,7 @@ def verify_compiled_semantics(value):
                                 if family == "mysql" and token == "same_value"
                                 else None,
                                 cell=mysql_cells.get(current),
+                                mysql_checked=current in mysql_checked,
                             )
                         )
                         need(
@@ -5724,6 +5744,7 @@ def verify_compiled_semantics(value):
                             and inputs[0].realization is not None
                             and inputs[0].realization.tag == "Float"
                             else None,
+                            mysql_checked=current in mysql_checked,
                         )
                 else:
                     realization = None

@@ -595,7 +595,7 @@ first column give every rule.
 | `Float` equality ([Float values](#float-values)) | comparisons and GROUP BY; DISTINCT and set forms are project-only | as PostgreSQL; GROUP BY beside a wide `Text` key may split `-0.0` and `0.0` | comparisons, GROUP BY, DISTINCT, ORDER BY, every set form, window `partition by` and `order by`, `string_agg` order keys and FULL JOIN equalities, also over a window `percent_rank` or `cume_dist` result | comparisons with a literal or header parameter, ordering inequalities, `in` and `not in` (a literal list only when its value or all of its options read no row, a read of a let with `capture` lines only as a SELECT item (unreleased)), `nullif`, relation ORDER BY and UNION ALL; `==`, `!=` and `same_value` of two `Float` fields in the unreleased qualified same-row and JOIN forms, and GROUP BY of one to three keys in the unreleased qualified one-source forms, of [Float values](#float-values); the other forms refused (PIE-B1003) |
 | JOIN aggregates without fan-out ([Aggregates](#aggregates-and-grouping)) | accepted | accepted | accepted | accepted; `sum(Int)` stays PIE-B1004 |
 | Top-level constants and `--set` ([Top-level constants](#top-level-constants)) | literals; `DATE '...'`, `TIMESTAMP '...'` | as PostgreSQL | refused (PIE-S2392) | refused (PIE-S2392) |
-| Project aggregate arguments ([Aggregates](#aggregates-and-grouping)): `count`/`count_distinct` of `Text`, `Bool`, `Float`, `Decimal`; `min`/`max` of `Float`, `Decimal`; `sum`/`avg` of `Float`; a row expression argument (`sum(qty * 2)`) | emitted (unchanged) | emitted (unchanged) | emitted, also an argument holding a scalar call over JOIN rows (`count(lower(r.label))`); direct `sum(Decimal(p, s))` emits as checked `numeric(p + 19, s)` only for `p + 19 <= 65`; Decimal `avg` and other Decimal sum shapes stay PIE-B1004 | as PostgreSQL, except `count_distinct` of a `Float` (PIE-B1003), `sum`/`avg` of a `Float`, `sum` of a `Decimal`, and `sum` of an `Int` such as `sum(qty * 2)` (PIE-B1004), and over JOIN rows an argument holding a scalar call (PIE-B1003); an `Int` expression not proved to fit BIGINT is PIE-B1002 first |
+| Project aggregate arguments ([Aggregates](#aggregates-and-grouping)): `count`/`count_distinct` of `Text`, `Bool`, `Float`, `Decimal`; `min`/`max` of `Float`, `Decimal`; `sum`/`avg` of `Float`; a row expression argument (`sum(qty * 2)`) | emitted (unchanged) | emitted (unchanged) | emitted, also an argument holding a scalar call over JOIN rows (`count(lower(r.label))`); direct `sum(Decimal(p, s))` emits as checked `numeric(p + 19, s)` only for `p + 19 <= 65`; Decimal `avg` and other Decimal sum shapes stay PIE-B1004 | as PostgreSQL, except `count_distinct` of a `Float` (PIE-B1003), `sum`/`avg` of a `Float`, `sum` of a `Decimal`, and `sum` of an `Int` such as `sum(qty * 2)` (PIE-B1004) outside the unreleased sum cell of [Aggregates](#aggregates-and-grouping), and over JOIN rows an argument holding a scalar call (PIE-B1003); an `Int` expression not proved to fit BIGINT is PIE-B1002 first |
 | `count_distinct(a, b, ...)` ([Aggregates](#aggregates-and-grouping)) | `COUNT(DISTINCT CASE WHEN a IS NOT NULL AND b IS NOT NULL THEN ROW(a, b) END)` | `COUNT(DISTINCT a, b)` | as PostgreSQL single file, `schema_version = 2` (PIE-S2334 in a `schema_version = 1` project), also over JOIN rows | refused (PIE-B1003 `count_distinct_tuple_not_admitted_on_target`) |
 | `len(c.xs)`, `sum(o.f for o in c.xs ...)`, `any(t for o in c.xs)` ([Nested relations](#nested-relations-collect-and-unnest)) | `sum` and `any` refused at check (PIE-S2334; a single file collects no list); `len(c.xs)` has no list to read (PIE-S2102 for an unknown field, or only the Collect's own refusals) | as PostgreSQL | the count column; `sum` and `any` a scalar subquery over `pg_catalog.unnest` of the list's arrays | refused (PIE-B1003 `collect_not_admitted_on_target`) |
 | `min(x)`, `max(x)` of a `Timestamp` or `Date` ([Aggregates](#aggregates-and-grouping)) | emitted (unchanged) | emitted (unchanged) | emitted (unchanged) | emitted as on PostgreSQL: `MIN(x)` and `MAX(x)` keep `DATETIME(6)`, microseconds kept, and `DATE`, NULL for an empty input; over a window refused (PIE-B1003), as every MySQL aggregate window |
@@ -4107,8 +4107,9 @@ PIE-B1000 there, as it refuses every aggregate over such a source (see below).
 field values. `count` of a `Bool` field counts its False values too; to count
 the True ones write `sum(1 for o in group if o.paid)` (PIE-S2388 warns). The selected project numeric boundary admits Int unary `+`/`-`,
 `abs` and binary `+`, `-`, `*` only when the compiler can propagate a signed
-range that fits a signed 64-bit integer, or, on PostgreSQL, a `bigint` range
-that leaves signed 64 bits but meets them. The result keeps its operands' own
+range that fits a signed 64-bit integer, or, on PostgreSQL and in the MySQL
+cells below, a `bigint` range that leaves signed 64 bits but meets them. The
+result keeps its operands' own
 integer type where the range fits it; on PostgreSQL an operation on `int2` or
 `int4` operands whose range leaves that type is computed in `bigint`, its first
 operand written `CAST(x AS pg_catalog.int8)`, and MySQL computes every Int
@@ -4126,9 +4127,31 @@ value: the statement then fails even over no rows, or with the operation in a
 branch no row takes. A range wholly outside signed 64 bits, as that of a
 constant such as `9223372036854775807 + 1`, stays PIE-B1002, as such an
 operation could only fail, and MySQL keeps PIE-B1002 for any result not
-proved to fit signed 64 bits. `abs` of an `Int` is proved as
+proved to fit signed 64 bits outside one unreleased (Phase77 S01) cell: `+`,
+`-`, `*`, unary `-` or `abs` whose operands are nullable `BIGINT` fields of
+a source declared in the query's own module, read by its own name (`a` or
+`rows.a`), as the whole value of a SELECT item (parentheses and any `def`
+whose inlined body is that operation, such as `add(a, b)`, `idf(a + b)` or
+the identity `def` in `idf(a) + b`, count as it) of the `query` or `table`
+that `emit-sql --project` emits. Its
+other SELECT items may be any form the query emits otherwise. The query
+reads its source through one WHERE at most, of any predicate it emits
+otherwise, and as written holds no `let` (a value, a carried field or a
+relation alias such as `let x = rows`, read by `from x` or not read at all),
+window, JOIN, GROUP BY or aggregate, HAVING, DISTINCT, ORDER BY, LIMIT,
+header parameter (read or not), bind-safe `?`, set operand or read of
+another relation. MySQL's `BIGINT` operators raise error 1690 (SQLSTATE
+22003) outside signed 64 bits there, as PostgreSQL raises 22003, and the
+result is a `my_signed_int` whose range is the part of the exact range
+inside signed 64 bits, as on PostgreSQL;
+every other shape, such as `a + 1`, `n + a` or `abs(n)` over a non-null
+`n`, `-(a + b)`, the same operation in a `let` or WHERE, a query that
+declares a relation alias or a window, read or not, or one that reads an
+imported source, aliased or not, keeps its refusal. `abs` of an
+`Int` is proved as
 unary `-` is and fits exactly where `-` fits: where `-id` is PIE-B1002
-(`unary_result_outside_physical_range`), as over a MySQL `BIGINT` field,
+(`unary_result_outside_physical_range`), as over a MySQL `BIGINT` field
+outside that cell,
 `abs(id)` is PIE-B1002 (`abs_result_outside_physical_range`), though unlike
 `-` it reads no query header parameter (PIE-S2355); `abs` of a `Float` or
 `Decimal` keeps its argument's carrier. It also admits `avg(Int)` for a direct
@@ -4141,7 +4164,28 @@ signed 64-bit range, and a sum outside that range is the run-time error
 SQLSTATE 22003, never a wrong value, by the same rule. Project SQL on MySQL reports
 `sum(Int)` BLOCKED with `PIE-B1004` (`sum_int_aggregate_range_proof_missing`),
 as `CAST(DECIMAL AS SIGNED)` would clamp an out-of-range sum, although
-`check --project` accepts it and single-file MySQL `emit-sql` emits `SUM`.
+`check --project` accepts it and single-file MySQL `emit-sql` emits `SUM`,
+except in one unreleased (Phase77 S02) cell: a direct `sum` of a nullable
+`BIGINT` field of a source declared in the query's own module, read by its
+own name (`a` or `rows.a`), as the whole value of a SELECT item of the
+emitted `query` or `table` (parentheses and any `def` whose inlined body is
+the field, as in `sum((a))` or `sum(idf(a))`, count as it), which reads
+its source through one WHERE at most, groups by at most one non-null `Int`
+field of that source or not at all, selects only that key (under any name,
+or not at all) and direct aggregates, of which its aggregation holds `sum`,
+`count` and `min` only, and as written holds no `let` (a relation alias
+or a window, read or not, included),
+window, JOIN, HAVING, DISTINCT, ORDER BY, LIMIT, header parameter (read or
+not), bind-safe `?` or read of another relation (an imported source, aliased
+or not, included). There it emits `CASE WHEN SUM(x) > 9223372036854775807 THEN
+CAST(9223372036854775807 AS SIGNED) + CAST(1 AS SIGNED) WHEN SUM(x) <
+-9223372036854775808 THEN CAST(-9223372036854775808 AS SIGNED) - CAST(1 AS
+SIGNED) ELSE CAST(SUM(x) AS SIGNED) END`: the exact `DECIMAL` sum is
+narrowed in range, and outside it the `BIGINT` arithmetic of its branch
+raises error 1690 (SQLSTATE 22003), never a clamped value; the result is a
+nullable `Int`, NULL for no or only NULL values. A statement still refused
+reports exactly the blockers it has without either cell, a cell's own
+included, so `s = a + b` beside `t = a + 1` keeps both PIE-B1002.
 PostgreSQL project `sum` of a direct qualified `Decimal(p, s)` field uses
 `CAST(SUM(x) AS pg_catalog.numeric(p + 19, s))` when `p + 19 <= 65` and
 `s <= 30`; an oversized sum raises SQLSTATE 22003. This is a checked result
@@ -4854,7 +4898,7 @@ relations: single files emit it on PostgreSQL and MySQL; an
 EXPLICIT_MODULES project emits, compiles and binds it on PostgreSQL, while
 its MySQL emission blocks each Int `sum` (PIE-B1004
 `sum_int_aggregate_range_proof_missing`), as for any project MySQL Int
-`sum`.
+`sum` outside its cell.
 
 GROUP BY accepts fields and `let` names that rename fields. Self-join keys
 such as `customers.id` and `peer.id` remain distinct; a bare and qualified

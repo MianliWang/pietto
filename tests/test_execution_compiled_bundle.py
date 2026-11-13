@@ -28,6 +28,7 @@ from pietto.semantic.relation_limits import MAX_RELATION_LIMIT, valid_resolved_l
 
 from pathlib import Path
 from typing import Any
+import _pietto_sql_emission
 from _pietto_sql_query_parameters import (
     MYSQL_TYPED_OPEN,
     MYSQL_TYPED_REFUSED,
@@ -2958,6 +2959,721 @@ def test_postgres_e9_parameter_pairs_change_the_decimal_carrier(
         accepted_compatibility=built.compatibility,
     )
     assert emit_compiled(loaded, ()).rendered.sql == outcome.artifact.rendered.sql
+
+
+# Phase77 S01/S02: MySQL checked Int and sum(Int) cells.
+# Refused bodies whose forged artifact the emission's own verification
+# already refuses (PIE-B1008) or another rule stops first.
+_NUMERIC_UNFORGEABLE = {
+    "nonnull_operand": "PIE-B1008",
+    "literal_operand": "PIE-B1008",
+    "narrow_operand": "PIE-B1008",
+    "chained": "PIE-B1008",
+    "negated_sum": "PIE-B1008",
+    "sum_argument": "PIE-B1004",
+    "sum_nonnull": "PIE-B1008",
+    "sum_narrow": "PIE-B1008",
+    "sum_composed": "PIE-B1003",
+    "sum_coalesced": "PIE-B1003",
+    "sum_filtered": "PIE-B1004",
+    "beside_literal_operand": "PIE-B1008",
+    "beside_two_refusals": "PIE-B1008",
+    "beside_division": "PIE-B1003",
+    "sum_beside_sum_argument": "PIE-B1004",
+    "sum_beside_sum_nonnull": "PIE-B1008",
+}
+
+
+def _numeric_cells_opened(patch):
+    """The emission law with every MySQL Int sign, arithmetic, `abs` and
+    sum counted as in a cell over any Int operand."""
+    from pietto._project import project_sql_emission_rows as rows
+
+    patch.setattr(rows, "mysql_checked_cell", lambda plan, expression, values: True)
+    patch.setattr(
+        rows,
+        "mysql_checked_operands",
+        lambda values: bool(values) and all(value.tag == "Int" for value in values),
+    )
+    patch.setattr(rows, "mysql_sum_query", lambda plan, keys: True)
+    patch.setattr(rows, "mysql_sum_cell", lambda aggregate, argument: True)
+
+
+# Each refused S01/S02 body, and a WHERE cell whose literal a bind-safe `?`
+# replaces.
+_NUMERIC_FORGED = [
+    *(
+        (shape, "preserve_literals")
+        for shape in sorted(_pietto_sql_emission.NUMERIC_REFUSALS)
+    ),
+    ("s01_where", "bind_safe_literals"),
+    ("s02_where", "bind_safe_literals"),
+]
+
+
+@pytest.mark.parametrize(("shape", "policy"), _NUMERIC_FORGED)
+def test_forged_mysql_numeric_cells_fail_every_reader(
+    tmp_path, monkeypatch, shape, policy
+):
+    """An artifact of each refused S01/S02 body, emitted while every MySQL
+    Int operation and sum counts as in a cell, with its observation and
+    compiled bundle exported under that law, fails plain verification and
+    the live template (plan), the pure boundary (document) and compiled
+    replay and its template (records) once the law is back; a body whose
+    emission verifies itself or that another rule refuses has no artifact.
+    A relation alias or a window, read or not, or an imported source fails
+    the plan's readers only: its document and records are the direct read's
+    apart from source positions and the source digest, so the pure boundary
+    and compiled replay accept them (NUMERIC_ALIASES)."""
+    import _pietto_sql_emission_portable as portable
+    import _pietto_sql_emission_pure_boundary as pure
+    from pietto._project.project_compiled_lowering import emit_compiled
+    from pietto._project.project_execution_template import (
+        BindingError,
+        prepare_compiled_template,
+        prepare_live_template,
+    )
+    from pietto._project.project_sql_emission_verification import (
+        verify_project_sql_emission,
+    )
+
+    body = (
+        _pietto_sql_emission.NUMERIC_REFUSALS.get(shape)
+        or _pietto_sql_emission.NUMERIC_CELLS[shape]
+    )
+    with monkeypatch.context() as patch:
+        _numeric_cells_opened(patch)
+        _, outcome = _pietto_sql_emission.numeric_world(
+            tmp_path / "forged", "mysql", body, policy
+        )
+        artifact = outcome.artifact
+        if shape in _NUMERIC_UNFORGEABLE:
+            assert artifact is None
+            assert {
+                blocker["code"]
+                for blocker in json.loads(serialize_project_sql_emission(outcome))[
+                    "blockers"
+                ]
+            } == {_NUMERIC_UNFORGEABLE[shape]}
+            return
+        assert artifact is not None, outcome.blockers
+        observed = portable.export_emission_observation(artifact, artifact.request)
+        loaded = _numeric_loaded(artifact)
+    summed = shape.startswith(("sum_", "s02"))
+    assert not verify_project_sql_emission(artifact, artifact.request).verified
+    with pytest.raises(BindingError, match="^BINDING_ARTIFACT$"):
+        prepare_live_template(artifact)
+    values = tuple(value.value for value in artifact.fixed_values)
+    if shape in _pietto_sql_emission.NUMERIC_ALIASES:
+        _, direct = _pietto_sql_emission.numeric_world(
+            tmp_path / "direct", "mysql", _pietto_sql_emission.NUMERIC_ALIASES[shape]
+        )
+        assert direct.artifact is not None
+        assert artifact.rendered.sql == direct.artifact.rendered.sql
+        assert observed.canonical_bytes is not None
+        assert (
+            pure.parse_emission_observation(observed.canonical_bytes).status
+            is pure.Status.OK
+        )
+        assert emit_compiled(loaded, values).rendered.sql == artifact.rendered.sql
+        return
+    if artifact.request.plan.parameters:
+        # The pure boundary's closed schema has no header parameter.
+        assert observed.status is portable.ObservationStatus.OUTSIDE_SCHEMA
+    else:
+        assert observed.canonical_bytes is not None
+        refused = pure.parse_emission_observation(observed.canonical_bytes)
+        assert (refused.status, refused.detail) == (
+            pure.Status.INVALID_RELATION,
+            "sum result" if summed else "target checked evidence",
+        )
+    code = "COMPILED_AGGREGATE_ARGUMENT" if summed else "COMPILED_PHYSICAL_DOMAIN"
+    for replay in (
+        lambda: emit_compiled(loaded, values),
+        lambda: prepare_compiled_template(loaded),
+    ):
+        with pytest.raises(wire.CompiledError, match=f"^{code}$"):
+            replay()
+
+
+def _numeric_loaded(artifact, payload=None):
+    from pietto._project.project_compiled_build import build_compiled
+    from pietto._project.project_compiled_loading import load_compiled
+
+    built = build_compiled(artifact)
+    payload = built.payload if payload is None else payload(built.payload)
+    return load_compiled(
+        payload,
+        expected_pin=wire.content_pin(payload),
+        accepted_producer=built.producer,
+        accepted_compatibility=built.compatibility,
+    )
+
+
+def _numeric_rewritten(change):
+    """A payload rewriter: ``change`` applied to every record, encoded
+    again canonically (a forger's bundle, under its own pin)."""
+
+    def rewrite(payload):
+        description = wire.decode(payload)
+        return wire.encode(
+            wire.Description(
+                description.compatibility,
+                description.producer,
+                description.query,
+                tuple(
+                    (name, tuple(map(change, records)))
+                    for name, records in description.members
+                ),
+            )
+        )
+
+    return rewrite
+
+
+def _numeric_document(doc):
+    """An observation document edited by hand, in the canonical first-visit
+    preorder from its root: unreached records dropped and every local
+    reference renumbered."""
+    kinds = {record["ref"][0] for record in doc["records"]}
+    fields = {tuple(record["ref"]): record["fields"] for record in doc["records"]}
+
+    def local(value):
+        return (
+            type(value) is list
+            and len(value) == 2
+            and type(value[0]) is str
+            and value[0] in kinds
+            and type(value[1]) is int
+        )
+
+    def children(value):
+        if local(value):
+            return [tuple(value)]
+        if type(value) is dict:
+            value = list(value.values())
+        return (
+            [ref for item in value for ref in children(item)]
+            if type(value) is list
+            else []
+        )
+
+    new, counts, order, pending = {}, {}, [], [tuple(doc["root"])]
+    while pending:
+        ref = pending.pop()
+        if ref not in new:
+            new[ref] = [ref[0], counts.get(ref[0], 0)]
+            counts[ref[0]] = new[ref][1] + 1
+            order.append(ref)
+            pending.extend(reversed(children(fields[ref])))
+
+    def renamed(value):
+        if local(value):
+            return new[tuple(value)]
+        if type(value) is list:
+            return [renamed(item) for item in value]
+        if type(value) is dict:
+            return {key: renamed(item) for key, item in value.items()}
+        return value
+
+    return json.dumps(
+        {
+            "format": doc["format"],
+            "root": new[tuple(doc["root"])],
+            "records": [
+                {"ref": new[ref], "fields": renamed(fields[ref])} for ref in order
+            ],
+        },
+        ensure_ascii=False,
+        separators=(",", ":"),
+    ).encode()
+
+
+@pytest.mark.parametrize("shape", ("shared_operation", "nonnull_operand"))
+def test_tampered_mysql_checked_int_cells_fail_compiled_and_pure_readers(
+    tmp_path, shape
+):
+    """A forger who rewrites a native S01 bundle or observation so that the
+    `+` of one SELECT item is also the left operand of the comparison of
+    another, `(a + b) > b` (records may share an operation; a cell's never
+    is: the comparison itself would be admitted), or so that the `+` reads
+    the non-null BIGINT field `n` beside a nullable one, gets compiled
+    replay, its template and the pure boundary to refuse it; the untouched
+    bytes pass."""
+    import _pietto_sql_emission_portable as portable
+    import _pietto_sql_emission_pure_boundary as pure
+    from pietto._project.project_compiled_lowering import emit_compiled
+    from pietto._project.project_execution_template import prepare_compiled_template
+
+    second = "t = a > b" if shape == "shared_operation" else "n"
+    body = f"query result:\n    from rows\n    select:\n        s = a + b\n        {second}\n"
+    _, outcome = _pietto_sql_emission.numeric_world(tmp_path, "mysql", body)
+    artifact = outcome.artifact
+    assert artifact is not None, outcome.blockers
+    assert emit_compiled(_numeric_loaded(artifact), ()).rendered.sql == (
+        artifact.rendered.sql
+    )
+    # The comparison reads the `+` first, or the `+` reads `n` first.
+    reader, operand = (
+        (wire.Address("operation", 1), wire.Address("operation", 0))
+        if shape == "shared_operation"
+        else (wire.Address("operation", 0), wire.Address("read", 2))
+    )
+
+    def change(record):
+        if record.address != reader:
+            return record
+        values = list(record.values)
+        index = wire.FIELDS["operation"].index("operands")
+        values[index] = (operand, values[index][1])
+        return wire.Record(record.address, tuple(values))
+
+    loaded = _numeric_loaded(artifact, _numeric_rewritten(change))
+    for replay in (
+        lambda: emit_compiled(loaded, ()),
+        lambda: prepare_compiled_template(loaded),
+    ):
+        with pytest.raises(wire.CompiledError, match="^COMPILED_PHYSICAL_DOMAIN$"):
+            replay()
+
+    exported = portable.export_emission_observation(artifact, artifact.request)
+    assert exported.canonical_bytes is not None
+    doc = json.loads(exported.canonical_bytes)
+    assert (
+        pure.parse_emission_observation(_numeric_document(doc)).status is pure.Status.OK
+    )
+    fields = {tuple(record["ref"]): record["fields"] for record in doc["records"]}
+    if shape == "shared_operation":
+        fields["sql_operation", 1]["operands"][0] = ["sql_operation", 0]
+    else:
+        fields["sql_operation", 0]["operands"][0] = fields["row_value_column", 1][
+            "value"
+        ]
+    # The document's own structure stops it before its cell law: the shared
+    # operation's overlay carrier, or the reference's column name.
+    refused = pure.parse_emission_observation(_numeric_document(doc))
+    assert (refused.status, refused.detail) == (
+        pure.Status.INVALID_RELATION,
+        "overlay carrier" if shape == "shared_operation" else "column name",
+    )
+
+
+def test_tampered_mysql_sum_cell_argument_fails_compiled_replay(tmp_path):
+    """A forger who points a native S02 sum at its non-null INT group key
+    instead of its nullable BIGINT field gets compiled replay and its
+    template to refuse it; the untouched bytes pass."""
+    from pietto._project.project_compiled_lowering import emit_compiled
+    from pietto._project.project_execution_template import prepare_compiled_template
+
+    _, outcome = _pietto_sql_emission.numeric_world(
+        tmp_path, "mysql", _pietto_sql_emission.NUMERIC_CELLS["s02_grouped"]
+    )
+    artifact = outcome.artifact
+    assert artifact is not None, outcome.blockers
+    assert emit_compiled(_numeric_loaded(artifact), ()).rendered.sql == (
+        artifact.rendered.sql
+    )
+
+    def change(record):
+        if record.address.kind != "aggregate_value":
+            return record
+        values = list(record.values)
+        values[wire.FIELDS["aggregate_value"].index("arguments")] = (
+            wire.Address("read", 0),
+        )
+        return wire.Record(record.address, tuple(values))
+
+    loaded = _numeric_loaded(artifact, _numeric_rewritten(change))
+    for replay in (
+        lambda: emit_compiled(loaded, ()),
+        lambda: prepare_compiled_template(loaded),
+    ):
+        with pytest.raises(wire.CompiledError, match="^COMPILED_AGGREGATE_ARGUMENT$"):
+            replay()
+
+
+# The compiled readers that derive MySQL cells from the records, in replay
+# order: semantics, its independent verifier, the lowering's S02 argument
+# law and the compiled emission verifier's.
+_COMPILED_CELL_LAYERS = (
+    "derive_compiled_semantics",
+    "verify_compiled_semantics",
+    "build_compiled_stage",
+    "_verify_compiled_emission",
+)
+
+
+@pytest.mark.parametrize(
+    ("shape", "layer", "error", "message"),
+    (
+        (
+            "in_where",
+            "verify_compiled_semantics",
+            ValueError,
+            "integer result outside its physical range",
+        ),
+        (
+            "abs_in_where",
+            "verify_compiled_semantics",
+            wire.CompiledError,
+            "COMPILED_SEMANTIC_DOMAIN",
+        ),
+        (
+            "sum_having",
+            "verify_compiled_semantics",
+            wire.CompiledError,
+            "COMPILED_SEMANTIC_AGGREGATE_ARGUMENT",
+        ),
+        (
+            "sum_having",
+            "build_compiled_stage",
+            wire.CompiledError,
+            "COMPILED_AGGREGATE_ARGUMENT",
+        ),
+        (
+            "sum_having",
+            "_verify_compiled_emission",
+            wire.CompiledError,
+            "COMPILED_EMISSION_AGGREGATE_ARGUMENT",
+        ),
+    ),
+)
+def test_each_compiled_layer_refuses_cells_its_predecessors_forged(
+    tmp_path, monkeypatch, shape, layer, error, message
+):
+    """A forged bundle of a refused body replays while the layers before
+    ``layer`` count every operation and aggregate value as in a cell: the
+    layer itself, deriving the cells from the records again, refuses it."""
+    import sys
+
+    from pietto._project import project_sql_emission_rows as rows
+    from pietto._project.project_compiled_lowering import emit_compiled
+
+    with monkeypatch.context() as patch:
+        _numeric_cells_opened(patch)
+        _, outcome = _pietto_sql_emission.numeric_world(
+            tmp_path, "mysql", _pietto_sql_emission.NUMERIC_REFUSALS[shape]
+        )
+        assert outcome.artifact is not None, outcome.blockers
+        loaded = _numeric_loaded(outcome.artifact)
+    exact = rows.mysql_compiled_cells
+    opened = _COMPILED_CELL_LAYERS[: _COMPILED_CELL_LAYERS.index(layer)]
+
+    def cells(records, entry):
+        if sys._getframe(1).f_code.co_name not in opened:
+            return exact(records, entry)
+        return (
+            frozenset(a for a in records if a.kind == "operation"),
+            frozenset(a for a in records if a.kind == "aggregate_value"),
+        )
+
+    monkeypatch.setattr(rows, "mysql_compiled_cells", cells)
+    with pytest.raises(error, match=f"^{message}$"):
+        emit_compiled(loaded, ())
+
+
+# One S01 cell `s = a + b` beside a field and a comparison over fields, and
+# one S02 cell beside a count and a min, both over the same native law.
+_NUMERIC_LAW_S01 = (
+    "query result:\n    from rows\n    where id > 3\n    select:\n        a\n"
+    "        s = a + b\n        t = a > b\n"
+)
+
+
+def _numeric_records(tmp_path, body):
+    from pietto._project.project_compiled_build import build_compiled
+
+    _, outcome = _pietto_sql_emission.numeric_world(tmp_path, "mysql", body)
+    assert outcome.artifact is not None, outcome.blockers
+    description = wire.decode(build_compiled(outcome.artifact).payload)
+    return {record.address: record for record in description.records}, (
+        description.query
+    )
+
+
+def _record_edit(address, copy=False, **changes):
+    """A compiled record edit: ``changes`` replace fields of ``address``, or
+    of a new copy of it under ``address`` 9 with ``copy=True``."""
+
+    def edit(records):
+        source = records[address]
+        values = list(source.values)
+        for name, value in changes.items():
+            values[wire.FIELDS[address.kind].index(name)] = value
+        target = wire.Address(address.kind, 9) if copy else address
+        return {**records, target: wire.Record(target, tuple(values))}
+
+    return edit
+
+
+_A = wire.Address
+# D77.24: each edit of a native bundle that only one check of the compiled
+# S01/S02 law refuses (the S01 cell is operation 1, the S02 one value 0).
+_COMPILED_LAW_EDITS = {
+    "s01_terminal_stage": _record_edit(_A("row", 1), stage="where"),
+    "s01_input_not_source": _record_edit(_A("row", 0), input=_A("row", 1)),
+    "s01_other_owner": _record_edit(_A("row", 0), owner=_A("declaration", 0)),
+    "s01_extra_row": _record_edit(_A("row", 0), copy=True),
+    "s01_terminal_port_operand": _record_edit(_A("read", 8), port=_A("port", 12)),
+    "s01_unmarked_where_port": _record_edit(_A("read", 1), port=_A("port", 12)),
+    "s01_no_operand": _record_edit(_A("operation", 1), operands=()),
+    "s02_unmarked_key": _record_edit(_A("read", 0), port=_A("port", 6)),
+    "s02_terminal_reads_source": _record_edit(
+        _A("row", 0),
+        values=(_A("read", 0), _A("read", 5), _A("read", 6), _A("read", 7)),
+    ),
+    "s02_two_arguments": _record_edit(
+        _A("aggregate_value", 0), arguments=(_A("read", 1), _A("read", 1))
+    ),
+    "s02_unmarked_argument": _record_edit(
+        _A("aggregate_value", 0), arguments=(_A("read", 4),)
+    ),
+}
+
+
+@pytest.mark.parametrize("edit", sorted(_COMPILED_LAW_EDITS))
+def test_the_mysql_compiled_cell_law_refuses_each_edited_record(tmp_path, edit):
+    """Compiled replay's S01/S02 law finds exactly the native cells (not the
+    comparison, count or min beside them) and none once one record changes:
+    a terminal that is no projection, a WHERE row over no source or of
+    another declaration, a row outside the chain, an operand or key read of
+    a port that carries no source field, an operation without operands, a
+    terminal value that reads no aggregate port, or a sum over two or no
+    source-field arguments."""
+    from pietto._project import project_sql_emission_rows as rows
+
+    body = (
+        _NUMERIC_LAW_S01
+        if edit.startswith("s01")
+        else _pietto_sql_emission.NUMERIC_CELLS["s02_beside_count"]
+    )
+    records, query = _numeric_records(tmp_path, body)
+    native = (
+        (frozenset({_A("operation", 1)}), frozenset())
+        if edit.startswith("s01")
+        else (frozenset(), frozenset({_A("aggregate_value", 0)}))
+    )
+    assert rows.mysql_compiled_cells(records, records[query]) == native
+    edited = _COMPILED_LAW_EDITS[edit](records)
+    assert rows.mysql_compiled_cells(edited, edited[query]) == (
+        frozenset(),
+        frozenset(),
+    )
+
+
+def _doc_edit(kind, index, copy=False, first=False, **changes):
+    """A pure document edit: ``changes`` replace fields of one record (or of
+    a new copy under index 9 with ``copy=True``); ``first=True`` moves the
+    record to the front of the document's order."""
+
+    def edit(records):
+        import _pietto_sql_emission_pure_boundary as pure
+
+        ref = pure.Ref(kind, index)
+        target = pure.Ref(kind, 9) if copy else ref
+        record = pure.Record(target, {**records[ref].fields, **changes})
+        rest = {key: value for key, value in records.items() if key != target}
+        return {target: record, **rest} if first else {**rest, target: record}
+
+    return edit
+
+
+def _doc_ref(kind, index):
+    import _pietto_sql_emission_pure_boundary as pure
+
+    return pure.Ref(kind, index)
+
+
+def _doc_realization_edit(reference, **changes):
+    """An edit of the realization of the stage reference ``reference``."""
+
+    def edit(records):
+        ref = records[_doc_ref("sql_stage_reference", reference)].fields
+        realization = ref["realization"]
+        return _doc_edit(realization.kind, realization.index, **changes)(records)
+
+    return edit
+
+
+def _doc_column_edit(kind, index, field, **changes):
+    """An edit of the stage column that ``field`` of one record reads."""
+
+    def edit(records):
+        column = records[_doc_ref(kind, index)].fields[field]
+        return _doc_edit(column.kind, column.index, **changes)(records)
+
+    return edit
+
+
+def _doc_steps(*edits):
+    def edit(records):
+        for step in edits:
+            records = step(records)
+        return records
+
+    return edit
+
+
+# D77.24: each edit of a native observation document that only one check of
+# the pure S01/S02 law refuses (the S01 cell is sql_operation 1, the S02 one
+# aggregate_value_column 0).
+_PURE_LAW_EDITS = {
+    "s01_second_final": _doc_steps(
+        _doc_edit("row_body", 1, first=True), _doc_edit("row_body", 0, final=True)
+    ),
+    "s01_scan_not_source": lambda records: _doc_edit(
+        "row_body", 0, scan=_doc_ref("row_named_use", 0)
+    )(records),
+    "s01_stray_body": _doc_edit("row_body", 0, copy=True),
+    "s01_window": lambda records: _doc_edit(
+        "row_body", 1, window=_doc_ref("window_stage", 0)
+    )(records),
+    "s01_aggregation": lambda records: _doc_edit(
+        "row_body", 0, aggregation=_doc_ref("aggregate_stage", 0)
+    )(records),
+    "s01_aggregate_stage": lambda records: {
+        **records,
+        _doc_ref("aggregate_stage", 9): records[_doc_ref("row_body", 0)].__class__(
+            _doc_ref("aggregate_stage", 9), {}
+        ),
+    },
+    "s01_column_named_twice": lambda records: _doc_edit(
+        "row_body",
+        1,
+        columns=(
+            *records[_doc_ref("row_body", 1)].fields["columns"],
+            _doc_ref("row_value_column", 1),
+        ),
+    )(records),
+    "s01_shared_operation": lambda records: _doc_edit(
+        "row_value_column", 2, value=_doc_ref("sql_operation", 1)
+    )(records),
+    "s01_no_operand": _doc_edit("sql_operation", 1, operands=()),
+    "s01_operand_not_field": _doc_column_edit(
+        "sql_stage_reference", 2, "column", literal=0
+    ),
+    "s01_operand_storage": _doc_realization_edit(2, storage={"kind": "my_int"}),
+    "s01_operand_tag": _doc_realization_edit(2, tag="Decimal"),
+    "s02_final_value_column": lambda records: _doc_edit(
+        "row_body",
+        1,
+        columns=(
+            *records[_doc_ref("row_body", 1)].fields["columns"],
+            _doc_ref("row_value_column", 0),
+        ),
+    )(records),
+    "s02_key_not_field": _doc_column_edit("aggregate_key_column", 0, "read", literal=0),
+    "s02_key_tag": lambda records: _doc_edit(
+        "realization",
+        records[records[_doc_ref("aggregate_key_column", 0)].fields["read"]]
+        .fields["realization"]
+        .index,
+        tag="Text",
+    )(records),
+    "s02_argument_not_field": _doc_column_edit(
+        "sql_stage_reference", 0, "column", literal=0
+    ),
+    "s02_argument_nonnull": _doc_realization_edit(0, nullable=False),
+}
+
+
+@pytest.mark.parametrize("edit", sorted(_PURE_LAW_EDITS))
+def test_the_mysql_pure_cell_law_refuses_each_edited_record(tmp_path, edit):
+    """The pure boundary's S01/S02 law finds exactly the native cells (not
+    the comparison, count or min beside them) and none once one record of
+    the document changes: a second final body, a scan of no source, a body
+    outside the chain, a window, an aggregation or aggregate stage in an
+    S01 query, a column or operation named twice, an operation without
+    operands, an operand, key or argument that is no source field, an
+    operand or argument carrier other than a nullable BIGINT, a key that is
+    no Int, or a final column that projects no aggregate column."""
+    import _pietto_sql_emission_portable as portable
+    import _pietto_sql_emission_pure_boundary as pure
+
+    s01 = edit.startswith("s01")
+    body = (
+        _NUMERIC_LAW_S01
+        if s01
+        else _pietto_sql_emission.NUMERIC_CELLS["s02_beside_count"]
+    )
+    _, outcome = _pietto_sql_emission.numeric_world(tmp_path, "mysql", body)
+    artifact = outcome.artifact
+    assert artifact is not None, outcome.blockers
+    exported = portable.export_emission_observation(artifact, artifact.request)
+    assert exported.canonical_bytes is not None
+    view = pure.parse_emission_observation(exported.canonical_bytes).view
+    assert view is not None
+    records = dict(view.records)
+    native = (
+        (frozenset({pure.Ref("sql_operation", 1)}), frozenset())
+        if s01
+        else (frozenset(), frozenset({pure.Ref("aggregate_value_column", 0)}))
+    )
+    assert pure._mysql_cells(pure._Doc(records)) == native
+    edited = pure._Doc(_PURE_LAW_EDITS[edit](records))
+    assert pure._mysql_cells(edited) == (frozenset(), frozenset())
+
+
+def test_the_mysql_pure_cell_law_ends_at_a_fourth_body(tmp_path):
+    """P76-PERF-2: a document of more than three bodies holds no cell, and
+    the pure law reads as many records for 4 bodies as for 42."""
+    import _pietto_sql_emission_portable as portable
+    import _pietto_sql_emission_pure_boundary as pure
+
+    _, outcome = _pietto_sql_emission.numeric_world(tmp_path, "mysql", _NUMERIC_LAW_S01)
+    artifact = outcome.artifact
+    assert artifact is not None, outcome.blockers
+    exported = portable.export_emission_observation(artifact, artifact.request)
+    assert exported.canonical_bytes is not None
+    view = pure.parse_emission_observation(exported.canonical_bytes).view
+    assert view is not None
+    body = view.records[pure.Ref("row_body", 0)].fields
+
+    class Counted(pure._Doc):
+        reads = 0
+
+        def __getitem__(self, ref):
+            Counted.reads += 1
+            return super().__getitem__(ref)
+
+    counts = []
+    for extra in (2, 40):
+        records = dict(view.records)
+        for index in range(9, 9 + extra):
+            ref = pure.Ref("row_body", index)
+            records[ref] = pure.Record(ref, body)
+        Counted.reads = 0
+        assert pure._mysql_cells(Counted(records)) == (frozenset(), frozenset())
+        counts.append(Counted.reads)
+    assert counts[0] == counts[1]
+
+
+def test_mysql_sum_cells_are_derived_once_per_compiled_replay(tmp_path, monkeypatch):
+    """Compiled replay derives the S02 cells from the records a fixed number
+    of times, however many sums the cell's aggregate holds (P76-PERF-2)."""
+    from pietto._project import project_sql_emission_rows as rows
+    from pietto._project.project_compiled_lowering import emit_compiled
+
+    counts = []
+    for count in (1, 40):
+        sums = "".join(f"        x{index} = sum(a)\n" for index in range(count))
+        body = "query result:\n    from rows\n    group by k\n    select:\n        k\n"
+        _, outcome = _pietto_sql_emission.numeric_world(
+            tmp_path / str(count), "mysql", body + sums
+        )
+        assert outcome.artifact is not None, outcome.blockers
+        loaded = _numeric_loaded(outcome.artifact)
+        calls = []
+        with monkeypatch.context() as patch:
+            original = rows.mysql_compiled_cells
+            patch.setattr(
+                rows,
+                "mysql_compiled_cells",
+                lambda records, entry: calls.append(entry) or original(records, entry),
+            )
+            emit_compiled(loaded, ())
+        counts.append(len(calls))
+    assert counts[0] == counts[1] > 0
 
 
 def _loaded(artifact):

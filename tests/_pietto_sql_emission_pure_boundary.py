@@ -1690,6 +1690,198 @@ def _pg_decimal_parameters(realization):
     return precision, scale
 
 
+def _mysql_field_column(doc, column) -> bool:
+    """A stage column that is a source field, as emission's mysql_field reads
+    it: never a let value, literal, aggregate or window result."""
+
+    fields = doc[column]
+    return (
+        fields["field"] is not None
+        and fields["source_port"] is not None
+        and fields["literal"] is None
+        and fields["aggregate"] is None
+        and fields["window"] is None
+    )
+
+
+def _mysql_field_read(doc, ref) -> bool:
+    return (
+        type(ref) is Ref
+        and ref.kind == "sql_stage_reference"
+        and _mysql_field_column(doc, doc[ref]["column"])
+    )
+
+
+# Phase77 S01/S02 (D77.24 whitelist): the record kinds a MySQL cell's
+# document may hold, any literal included; any other kind (a parameter,
+# fixed value, native use, block, captured or named read, result, JOIN, set
+# or window record, a non-row query, or a kind a later schema adds) closes
+# its cells.
+_MYSQL_CELL_KINDS = frozenset(
+    {
+        "aggregate_key_column",
+        "aggregate_origin",
+        "aggregate_projection_column",
+        "aggregate_stage",
+        "aggregate_value_column",
+        "artifact",
+        "association",
+        "bound_field",
+        "bound_source",
+        "event",
+        "generated_requirement",
+        "literal_origin",
+        "origin",
+        "original_requirement",
+        "owner",
+        "premise",
+        "realization",
+        "rendered",
+        "request",
+        "row_body",
+        "row_carry_column",
+        "row_predicate",
+        "row_scan",
+        "row_stage_use",
+        "row_value_column",
+        "scope_definition",
+        "scope_use",
+        "sql_anchor",
+        "sql_literal",
+        "sql_null",
+        "sql_operation",
+        "sql_row_query",
+        "sql_stage_reference",
+        "sql_symbol",
+        "sql_unary",
+        "stage_column",
+        "terminal_binding",
+    }
+)
+
+
+def _mysql_cells(doc) -> tuple[frozenset, frozenset]:
+    """The S01 operations and S02 sum columns in their MySQL cells, as
+    emission derives them from the plan (mysql_checked_cell,
+    mysql_sum_query), here from the document alone; a relation alias or a
+    window, read or not, and an imported source leave a direct read's
+    document apart from source positions and the source digest, so only
+    emission refuses them. Every
+    record is of a kind in _MYSQL_CELL_KINDS, and the one final projection
+    body stands over one aggregate body at most, over one WHERE body at
+    most, over a source scan, with no window. An S01 operation is the whole
+    value of a column of that body, named once, over reads of nullable
+    BIGINT source fields; an S02 sum reads a nullable BIGINT source field,
+    its aggregate has one non-null Int source field key at most and sums,
+    counts and mins only, and the final body only projects the aggregate's
+    columns. The bound of three bodies only ends the walk early: the block
+    kinds and the chain that holds every body imply it."""
+
+    empty: tuple[frozenset, frozenset] = (frozenset(), frozenset())
+    if not _MYSQL_CELL_KINDS.issuperset(doc.kinds):
+        return empty
+    bodies = doc.all("row_body")
+    if len(bodies) > 3:
+        return empty
+    finals = [ref for ref in bodies if doc[ref]["final"] is True]
+    if len(finals) != 1:
+        return empty
+    chain = [finals[0]]
+    while doc[chain[-1]]["scan"].kind == "row_stage_use":
+        inner = doc[doc[chain[-1]]["scan"]]["body"]
+        # Only keeps the walk finite: producer order refuses a cycle first.
+        if inner in chain:
+            return empty
+        chain.append(inner)
+    kinds = [doc[ref]["block_kind"] for ref in reversed(chain)]
+    if (
+        doc[chain[-1]]["scan"].kind != "row_scan"
+        or len(chain) != len(bodies)
+        or any(doc[ref]["window"] is not None for ref in chain)
+    ):
+        return empty
+    aggregate = None
+    if kinds in (["aggregate", "projection"], ["where", "aggregate", "projection"]):
+        aggregate = chain[1]
+    elif kinds not in (["projection"], ["where", "projection"]):
+        return empty
+    if any(
+        (doc[ref]["aggregation"] is not None) is not (ref == aggregate) for ref in chain
+    ) or len(doc.all("aggregate_stage")) != (aggregate is not None):
+        return empty
+    final = doc[chain[0]]
+    if aggregate is None:
+        named: dict[Ref, int] = {}
+        for record in doc.records.values():
+            pending = list(record.fields.values())
+            while pending:
+                item = pending.pop()
+                if type(item) is tuple:
+                    pending.extend(item)
+                elif type(item) is Ref:
+                    named[item] = named.get(item, 0) + 1
+        operations = set()
+        for column in final["columns"]:
+            value = doc[column]["value"] if column.kind == "row_value_column" else None
+            if (
+                type(value) is Ref
+                and value.kind == "sql_operation"
+                and named.get(column) == 1
+                and named.get(value) == 1
+                and (
+                    doc[value]["kind"] in ("sign", "arithmetic")
+                    or doc[value]["kind"] == "scalar_call"
+                    and doc[value]["operator"] == "abs"
+                )
+                and doc[value]["operands"]
+                and all(
+                    _mysql_field_read(doc, item) and _mysql_checked_carrier(doc, item)
+                    for item in doc[value]["operands"]
+                )
+            ):
+                operations.add(value)
+        return frozenset(operations), frozenset()
+    stage = doc[doc[aggregate]["aggregation"]]
+    if (
+        len(stage["keys"]) > 1
+        or any(
+            column.kind != "aggregate_projection_column" for column in final["columns"]
+        )
+        or any(
+            doc[value]["function"] not in ("sum", "count", "min")
+            for value in stage["values"]
+        )
+    ):
+        return empty
+    for key in stage["keys"]:
+        read = doc[key]["read"]
+        realization = doc[doc[read]["realization"]]
+        if not (
+            _mysql_field_column(doc, read)
+            and realization["tag"] == "Int"
+            and realization["nullable"] is False
+        ):
+            return empty
+    return frozenset(), frozenset(
+        value
+        for value in stage["values"]
+        if doc[value]["function"] == "sum"
+        and _mysql_field_read(doc, doc[value]["argument"])
+        and _mysql_checked_carrier(doc, doc[value]["argument"])
+    )
+
+
+def _mysql_checked_carrier(doc, ref) -> bool:
+    """The S01/S02 operand carrier: a nullable MySQL BIGINT."""
+
+    realization = doc[doc[ref]["realization"]]
+    return (
+        realization["tag"] == "Int"
+        and dict(realization["storage"]) == {"kind": "my_bigint"}
+        and realization["nullable"] is True
+    )
+
+
 def _is_pg_int(realization) -> bool:
     if realization is None or realization["tag"] != "Int":
         return False
@@ -1856,9 +2048,10 @@ def _aggregate_casts(
     family: str, function: str, argument_tag: str | None
 ) -> tuple[str | None, str | None]:
     """The reviewed argument and result casts of one aggregate: AVG(Int)
-    averages binary64, PostgreSQL SUM(Int) is bigint before and after, and a
-    PostgreSQL VAR_SAMP or VAR_POP is cast to float8 once. A PostgreSQL SUM or
-    AVG of a float8 is already binary64."""
+    averages binary64, PostgreSQL SUM(Int) is bigint before and after (a
+    MySQL one is the guarded SUM, uncast), and a PostgreSQL VAR_SAMP or
+    VAR_POP is cast to float8 once. A PostgreSQL SUM or AVG of a float8 is
+    already binary64."""
     if function in {"avg", "sum"} and argument_tag == "Float":
         return None, None
     if function == "filtered_sum":
@@ -1866,6 +2059,8 @@ def _aggregate_casts(
     if function == "avg":
         return ("pg_catalog.float8" if family == "postgres" else "DOUBLE"), None
     if function == "sum":
+        if family != "postgres":
+            return None, None
         return "pg_catalog.int8", "pg_catalog.int8"
     if function in _SPREAD_FUNCTIONS:
         return None, ("pg_catalog.float8" if family == "postgres" else None)
@@ -3212,6 +3407,7 @@ class _Check:
                         "date_trunc timestamp",
                     )
         spread = _mysql_spread_cell(doc) if family == "mysql" else None
+        mysql_sums = _mysql_cells(doc)[1] if family == "mysql" else frozenset()
         # A MySQL `first` or `last` only in the S13 statement class.
         self.ranked = _ranked_stage(doc, family)
         for ref in doc.all("aggregate_value_column"):
@@ -3281,16 +3477,27 @@ class _Check:
                     "float sum or avg result",
                 )
             elif column["function"] == "sum" and decimal_cast is None:
-                # Q1: PostgreSQL only; the checked bigint narrowing bounds an
-                # Int argument's exact sum, NULL for an empty input.
+                # Q1: the checked bigint narrowing bounds an Int argument's
+                # exact sum, NULL for an empty input; on MySQL only an S02
+                # cell's guarded SUM over a nullable BIGINT field.
                 _require(
-                    family == "postgres"
-                    and (_value_realization(doc, column["argument"]) or {}).get("tag")
-                    == "Int"
+                    (
+                        family == "postgres"
+                        and (_value_realization(doc, column["argument"]) or {}).get(
+                            "tag"
+                        )
+                        == "Int"
+                        or family == "mysql"
+                        and ref in mysql_sums
+                    )
                     and _is_realization(
                         doc[doc[column["column"]]["realization"]],
                         "Int",
-                        {"kind": "pg_int8"},
+                        {
+                            "kind": "pg_int8"
+                            if family == "postgres"
+                            else "my_signed_int"
+                        },
                         {
                             "kind": "int_range",
                             "min": str(-(1 << 63)),
@@ -4604,6 +4811,24 @@ class _Tokens:
                 _require(
                     aggregate_tokens == expected, "conditional aggregate token sequence"
                 )
+            elif (
+                self.family == "mysql"
+                and column["function"] == "sum"
+                and column["argument"] is not None
+                and (_value_realization(doc, column["argument"]) or {}).get("tag")
+                == "Int"
+            ):
+                # S02: the guarded SUM, its argument read three times.
+                expected = [
+                    (role, schema.SYNTAX[role])
+                    for role in (
+                        "aggregate_guard_open",
+                        "aggregate_guard_high",
+                        "aggregate_guard_low",
+                        "aggregate_guard_close",
+                    )
+                ]
+                _require(aggregate_tokens == expected, "guarded sum token sequence")
             else:
                 root = self.family == "postgres" and column["function"] in {
                     "stddev",
@@ -5841,6 +6066,7 @@ class _ProvenIntRanges:
                         self.terminals[terminal] = (*producers, column)
         self.values: dict[Ref, tuple[int, int] | object] = {}
         self.visiting: set[Ref] = set()
+        self.mysql_checked = _mysql_cells(doc)[0] if family == "mysql" else frozenset()
 
     def value(self, ref: Ref) -> tuple[int, int] | object:
         if self.family != "postgres":
@@ -6195,6 +6421,8 @@ class _ProvenIntRanges:
         return self._UNKNOWN
 
     def target_checked(self, ref: Ref) -> tuple[int, int] | object | None:
+        if self.family == "mysql":
+            return self.mysql_target_checked(ref)
         if self.family != "postgres" or ref.kind != "sql_operation":
             return None
         op = self.doc[ref]
@@ -6221,6 +6449,34 @@ class _ProvenIntRanges:
             if interval[0] < _I64_MIN or interval[1] > _I64_MAX
             else None
         )
+
+    def mysql_target_checked(self, ref: Ref) -> tuple[int, int] | object | None:
+        """S01: an operation in its MySQL cell (_mysql_cells) over nullable
+        BIGINT fields, whose physical range is all of signed 64 bits, relies
+        on MySQL's checked BIGINT operator; any other MySQL operation claims
+        no target check."""
+        if ref not in self.mysql_checked:
+            return None
+        op = self.doc[ref]
+        full = (_I64_MIN, _I64_MAX)
+        count = len(op["operands"])
+        if op["kind"] == "sign" and count == 1:
+            interval = (-_I64_MAX, -_I64_MIN) if op["operator"] == "-" else full
+        elif op["kind"] == "scalar_call" and count == 1:
+            interval = (0, -_I64_MIN)
+        elif (
+            op["kind"] == "arithmetic"
+            and count == 2
+            and op["operator"] in ("+", "-", "*")
+        ):
+            interval = {
+                "+": (2 * _I64_MIN, 2 * _I64_MAX),
+                "-": (_I64_MIN - _I64_MAX, _I64_MAX - _I64_MIN),
+                "*": (_I64_MIN * _I64_MAX, _I64_MIN * _I64_MIN),
+            }[op["operator"]]
+        else:
+            return self._UNKNOWN
+        return self.checked(interval) if interval != full else None
 
 
 class _Requirements:
@@ -6276,7 +6532,8 @@ class _Requirements:
         result = self.doc[self.doc[value]["realization"]]
         _require(
             _is_pg_int(result)
-            and dict(result["storage"]) == {"kind": "pg_int8"}
+            and dict(result["storage"])
+            == {"kind": "pg_int8" if self.family == "postgres" else "my_signed_int"}
             and dict(result["domain"])
             == {"kind": "int_range", "min": str(low), "max": str(high)},
             "target checked result",

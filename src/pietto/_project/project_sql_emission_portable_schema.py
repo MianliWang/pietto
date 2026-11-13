@@ -1044,6 +1044,12 @@ SYNTAX = {
     "aggregate_close": ")",
     "aggregate_element_open": "(",
     "aggregate_element_close": ")[1]",
+    "aggregate_guard_open": "CASE WHEN SUM(",
+    "aggregate_guard_high": ") > 9223372036854775807 THEN "
+    "CAST(9223372036854775807 AS SIGNED) + CAST(1 AS SIGNED) WHEN SUM(",
+    "aggregate_guard_low": ") < -9223372036854775808 THEN "
+    "CAST(-9223372036854775808 AS SIGNED) - CAST(1 AS SIGNED) ELSE CAST(SUM(",
+    "aggregate_guard_close": ") AS SIGNED) END",
     "window_partition": "PARTITION BY ",
     "window_partition_separator": ", ",
     "window_partition_qualifier": ".",
@@ -1158,6 +1164,7 @@ OVERLAYS = {
             "aggregate_zero_open",
             "aggregate_test_open",
             "aggregate_element_open",
+            "aggregate_guard_open",
         ),
         (
             "aggregate_close",
@@ -1166,6 +1173,7 @@ OVERLAYS = {
             "aggregate_zero_close",
             "aggregate_test_close",
             "aggregate_element_close",
+            "aggregate_guard_close",
         ),
     ),
     "window": (

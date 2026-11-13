@@ -3,6 +3,7 @@
 from copy import copy
 from dataclasses import replace
 import json
+from types import SimpleNamespace
 
 import pytest
 
@@ -10,6 +11,7 @@ import _pietto_sql_emission as probe
 import _pietto_sql_float_cells as cells
 import _pietto_sql_emission_portable as portable
 import _pietto_sql_emission_pure_boundary as pure
+from pietto._project import project_sql_emission_aggregation as grouping
 from pietto._project import project_sql_emission_rows as rows
 from pietto._project.project_sql_emission import (
     serialize_project_sql_emission,
@@ -22,9 +24,14 @@ from pietto._project.project_sql_emission_ast import (
     SQLRowQuery,
 )
 from pietto._project.project_sql_emission_verification import (
+    resolved_row_realization,
     verify_project_sql_emission,
 )
-from pietto._project.project_sql_plan import ProjectSQLPlan
+from pietto._project.project_sql_plan import (
+    ProjectSQLBoundaryReason,
+    ProjectSQLPlan,
+)
+from pietto._project.project_sql_plan_expressions import ProjectSQLExpressionRole
 
 # The only truth tables this file uses. Never Python `and`/`or` or truthiness.
 AND = {
@@ -1585,3 +1592,367 @@ def test_unrelated_unused_source_description_is_not_over_rejected(tmp_path, targ
     assert outcome.status == "VERIFIED", serialize_project_sql_emission(outcome)
     public = probe.decode_public(serialize_project_sql_emission(outcome))
     assert [c["label"] for c in public["columns"]] == ["kept"]
+
+
+# --------------------------------------------------------------------------
+# Phase77 S01: MySQL checked Int in its cells
+# --------------------------------------------------------------------------
+
+# The public nullability of each cell body's columns.
+S01_NULLABLE = {
+    "s01_families": [
+        False,
+        "unknown",
+        "unknown",
+        "unknown",
+        True,
+        True,
+        True,
+        "unknown",
+    ],
+    "s01_where": ["unknown"],
+    "s01_table": ["unknown"],
+    "s01_beside_field": [True, True],
+}
+
+
+@pytest.mark.parametrize("target", ("postgres", "mysql"))
+@pytest.mark.parametrize("cell", sorted(S01_NULLABLE))
+def test_mysql_checked_int_cells_emit_and_every_reader_accepts(tmp_path, cell, target):
+    """S01: a MySQL project emits `+`, `-`, `*`, unary `-` and `abs` over
+    nullable BIGINT source fields as the whole value of a SELECT item of a
+    query that reads its source through a WHERE at most: MySQL's BIGINT
+    operators raise 1690 (SQLSTATE 22003) outside signed 64 bits, as
+    PostgreSQL's raise 22003. The result is a nullable Int over all of signed
+    64 bits. Both families emit the pinned SQL, PostgreSQL's unchanged, and
+    every reader accepts it."""
+    checked, outcome = probe.numeric_world(tmp_path, target, probe.NUMERIC_CELLS[cell])
+    assert checked.verified
+    probe.numeric_readers_accept(outcome)
+    assert outcome.artifact is not None
+    assert (
+        outcome.artifact.rendered.sql.decode() == probe.NUMERIC_CELL_SQL[cell, target]
+    )
+    document = json.loads(serialize_project_sql_emission(outcome))
+    assert [column["nullable"] for column in document["columns"]] == (
+        S01_NULLABLE[cell]
+    )
+
+
+@pytest.mark.parametrize("target", ("postgres", "mysql"))
+@pytest.mark.parametrize(
+    "spelling", [name for name in probe.NUMERIC_SPELLINGS if name.startswith("s01")]
+)
+def test_mysql_checked_int_spellings_emit_the_direct_sql(tmp_path, spelling, target):
+    """A `def` that inlines to the operation (its parameters swapped or not),
+    a `def` calling one, an identity `def` around an operand or the whole
+    operation, parentheses and reads qualified by the source's own name
+    change nothing: each emits `s = a + b`'s SQL. The plan holds the inlined
+    operation, so no reader sees the `def`."""
+    _, outcome = probe.numeric_world(
+        tmp_path / "spelled", target, probe.NUMERIC_SPELLINGS[spelling]
+    )
+    _, direct = probe.numeric_world(
+        tmp_path / "direct",
+        target,
+        "query result:\n    from rows\n    select:\n        s = a + b\n",
+    )
+    probe.numeric_readers_accept(outcome)
+    assert outcome.artifact is not None
+    assert direct.artifact is not None
+    assert outcome.artifact.rendered.sql == direct.artifact.rendered.sql
+
+
+def numeric_blockers(outcome):
+    """The public blockers as (code, detail, line, column)."""
+    return [
+        (
+            blocker["code"],
+            blocker["subject"]["detail"],
+            blocker["location"]["line"],
+            blocker["location"]["column"],
+        )
+        for blocker in json.loads(serialize_project_sql_emission(outcome))["blockers"]
+    ]
+
+
+@pytest.mark.parametrize("policy", ("preserve_literals", "bind_safe_literals"))
+@pytest.mark.parametrize(
+    "shape", [name for name in probe.NUMERIC_REFUSALS if not name.startswith("sum_")]
+)
+def test_mysql_checked_int_outside_its_cells_keeps_its_refusal(tmp_path, shape, policy):
+    """Every other MySQL Int operation that may leave signed 64 bits keeps
+    the refusal main reports, object for object: a non-null or narrow
+    operand, a literal, a nested operation, a `let` (a value, a carried
+    field or a relation alias, `let x = rows` before `from x`, its chains
+    and one that nothing reads, or a window nothing reads), WHERE, ORDER BY,
+    LIMIT, DISTINCT, a header parameter read or not, an imported source, an
+    upstream query, JOIN or set operand; a cell beside another refused form
+    keeps its own refusal too (owner 2026-11-13T00:20Z). PostgreSQL emits
+    each as before."""
+    body = probe.NUMERIC_REFUSALS[shape]
+    _, outcome = probe.numeric_world(tmp_path / "mysql", "mysql", body, policy)
+    assert outcome.status == "BLOCKED" and outcome.artifact is None
+    assert numeric_blockers(outcome) == probe.NUMERIC_REFUSAL_BLOCKERS[shape]
+    _, postgres = probe.numeric_world(tmp_path / "postgres", "postgres", body, policy)
+    assert postgres.status == "VERIFIED", postgres.blockers
+
+
+def test_a_refused_mysql_cell_query_reports_main_blockers_from_any_check(
+    tmp_path, monkeypatch
+):
+    """A refused statement reports main's blockers whichever check refuses
+    it: emission_blockers, which plain verification and guarded preparation
+    also read, and a later check of the emission (here plan correspondence),
+    each derive them again with every cell shut."""
+    from pietto._project import project_sql_emission as emission
+
+    seen = []
+    blockers = emission.emission_blockers
+    monkeypatch.setattr(
+        emission,
+        "emission_blockers",
+        lambda request: seen.append(blockers(request)) or seen[-1],
+    )
+    probe.numeric_world(
+        tmp_path / "beside", "mysql", probe.NUMERIC_REFUSALS["beside_literal_operand"]
+    )
+    assert [(b.code, b.location.line) for b in seen[0]] == [
+        ("PIE-B1002", 12),
+        ("PIE-B1002", 13),
+    ]
+    monkeypatch.setattr(emission, "verify_row_query", lambda request, query: False)
+    _, outcome = probe.numeric_world(
+        tmp_path / "late", "mysql", probe.NUMERIC_SPELLINGS["s01_parenthesized"]
+    )
+    assert numeric_blockers(outcome) == [
+        ("PIE-B1002", "arithmetic_outside_physical_range", 12, 9)
+    ]
+
+
+def test_a_bind_safe_literal_leaves_the_mysql_checked_int_cell(tmp_path):
+    """Under bind_safe_literals a WHERE literal becomes a bind-safe `?`, which
+    no cell holds: the query keeps main's refusal."""
+    _, outcome = probe.numeric_world(
+        tmp_path, "mysql", probe.NUMERIC_CELLS["s01_where"], "bind_safe_literals"
+    )
+    assert numeric_blockers(outcome) == [
+        ("PIE-B1002", "arithmetic_outside_physical_range", 13, 9)
+    ]
+
+
+@pytest.mark.parametrize(
+    "body",
+    (
+        "query result:\n    from rows\n    where id > -1\n    select:\n"
+        '        s = a + b\n        t = -1\n        u = "x"\n        v = 1.5\n'
+        "        w = True\n",
+        "query result:\n    from rows\n    where id in (-1, 2)\n    group by k\n"
+        "    select:\n        k\n        x = sum(a)\n",
+        "query result:\n    from rows\n    select:\n        s = a + b\n"
+        "        t = coalesce(a, None)\n",
+    ),
+)
+def test_every_reader_accepts_a_mysql_numeric_cell_beside_literals(tmp_path, body):
+    """A cell's query may hold literals of any kind beside it, a negative one
+    and None included, in its WHERE or its other SELECT items: emission verifies it
+    and every reader, whose cell laws admit only listed record kinds,
+    accepts it."""
+    _, outcome = probe.numeric_world(tmp_path, "mysql", body)
+    probe.numeric_readers_accept(outcome)
+
+
+def _plan_with(plan, **tables):
+    """A copy of a closed plan with some tables replaced."""
+    edited = copy(plan)
+    for name, value in tables.items():
+        object.__setattr__(edited, name, value)
+    return edited
+
+
+def _column_edit(**changes):
+    """An edit of the S01 cell's first operand column."""
+
+    def edit(plan, expression, values):
+        column = replace(values[0].column, **changes)
+        return plan, expression, (replace(values[0], column=column), *values[1:])
+
+    return edit
+
+
+def _boundary_edit(boundary):
+    def edit(plan, expression, values):
+        block = replace(plan.blocks[0], boundary=boundary(plan.blocks[0].boundary))
+        return _plan_with(plan, blocks=(block, *plan.blocks[1:])), expression, values
+
+    return edit
+
+
+def _site_edit(site):
+    def edit(plan, expression, values):
+        return plan, replace(expression, site=site(expression.site)), values
+
+    return edit
+
+
+def _operand_edit(**changes):
+    def edit(plan, expression, values):
+        realization = replace(values[0].realization, **changes)
+        return plan, expression, (replace(values[0], realization=realization),)
+
+    return edit
+
+
+# D77.24: each edit of a native S01 cell's input that only one check of the
+# emission law refuses, whatever other rule also refuses the shape it stands
+# for; the operand edits reach mysql_checked_operands, which compiled
+# semantics shares.
+S01_LAW_EDITS = {
+    "plan_table": lambda plan, expression, values: (
+        _plan_with(plan, windows=(None,)),
+        expression,
+        values,
+    ),
+    "boundary_type": _boundary_edit(lambda boundary: None),
+    "boundary_reason": _boundary_edit(
+        lambda boundary: replace(boundary, reason=ProjectSQLBoundaryReason.NAMED_INPUT)
+    ),
+    "site_type": _site_edit(
+        lambda site: SimpleNamespace(role=site.role, occurrence=site.occurrence)
+    ),
+    "site_role": _site_edit(
+        lambda site: replace(site, role=ProjectSQLExpressionRole.WHERE)
+    ),
+    "no_operand": lambda plan, expression, values: (plan, expression, ()),
+    "computed_operand": lambda plan, expression, values: (
+        plan,
+        expression,
+        (expression, *values[1:]),
+    ),
+    "column_not_field": _column_edit(field=None),
+    "column_not_source": _column_edit(source_port=None),
+    "column_literal": _column_edit(literal=object()),
+    "column_aggregate": _column_edit(aggregate=object()),
+    "column_window": _column_edit(window=object()),
+}
+S01_OPERAND_EDITS = {
+    "operand_tag": {"tag": "Decimal"},
+    "operand_binding": {"binding": True},
+}
+
+
+@pytest.mark.parametrize("edit", sorted(S01_LAW_EDITS))
+def test_the_mysql_checked_int_cell_law_refuses_each_edited_input(tmp_path, edit):
+    """The S01 law emission asks of each MySQL Int operation holds the
+    native `s = a + b` cell and refuses the cell once one of its inputs
+    changes: a plan table no cell holds, an input that is not the source, a
+    site that is not a SELECT item's, no or a computed operand, or an
+    operand column that is no source field."""
+    plan, expression, values = probe.numeric_law_inputs(
+        tmp_path, probe.NUMERIC_CELLS["s01_where"]
+    )["mysql_checked_cell"]
+    assert rows.mysql_checked_cell(plan, expression, values) is True
+    assert rows.mysql_checked_cell(*S01_LAW_EDITS[edit](plan, expression, values)) is (
+        False
+    )
+
+
+@pytest.mark.parametrize("edit", sorted(S01_OPERAND_EDITS))
+def test_the_mysql_checked_operand_law_refuses_each_edited_carrier(tmp_path, edit):
+    """A cell's operands are nullable BIGINT Int values that no binding
+    proves: another tag, a binding or no operand at all leaves the cell, and
+    MySQL's target-checked operation is then refused."""
+    _, _, values = probe.numeric_law_inputs(tmp_path, probe.NUMERIC_CELLS["s01_where"])[
+        "mysql_checked_cell"
+    ]
+    carriers = tuple(value.realization for value in values)
+    assert rows.mysql_checked_operands(carriers) is True
+    edited = (replace(carriers[0], **S01_OPERAND_EDITS[edit]), *carriers[1:])
+    assert rows.mysql_checked_operands(edited) is False
+    assert rows.mysql_checked_operands(()) is False
+    full = rows.SIGNED64[0] * 2, rows.SIGNED64[1] * 2
+    storage = {"kind": "my_signed_int"}
+    assert rows._target_checked_int("mysql", storage, *full, True, carriers)
+    assert rows._target_checked_int("mysql", storage, *full, True) is None
+    # Plain and compiled verification's own law: only a cell's operation
+    # (its caller marks it) relies on MySQL's checked BIGINT operator.
+    checked = resolved_row_realization(
+        "mysql", "binary", "+", "Int", "unknown", carriers, mysql_checked=True
+    )
+    assert checked.storage == storage and checked.proven_int_range == rows.SIGNED64
+    with pytest.raises(ValueError, match="outside its physical range"):
+        resolved_row_realization("mysql", "binary", "+", "Int", "unknown", carriers)
+
+
+def _key_edit(**changes):
+    def edit(plan, keys):
+        return plan, (replace(keys[0], **changes), *keys[1:])
+
+    return edit
+
+
+def _source_edit(**changes):
+    def edit(aggregate, argument):
+        source = replace(aggregate.source, **changes)
+        return replace(aggregate, source=source), argument
+
+    return edit
+
+
+# D77.24: each edit of a native S02 cell's input that only one check of the
+# emission law refuses, whatever other rule also refuses the shape it stands
+# for.
+S02_QUERY_EDITS = {
+    "key_not_field": _key_edit(field=None),
+    "key_not_int": lambda plan, keys: (
+        plan,
+        (replace(keys[0], realization=replace(keys[0].realization, tag="Text")),),
+    ),
+    "select_expression": lambda plan, keys: (
+        _plan_with(
+            plan,
+            expressions=(
+                *plan.expressions,
+                SimpleNamespace(
+                    site=SimpleNamespace(role=ProjectSQLExpressionRole.SELECT)
+                ),
+            ),
+        ),
+        keys,
+    ),
+}
+S02_CELL_EDITS = {
+    "fact": _source_edit(fact=None),
+    "computed_argument": lambda aggregate, argument: (aggregate, aggregate),
+}
+
+
+@pytest.mark.parametrize(
+    "edit", [*sorted(S02_QUERY_EDITS), *sorted(S02_CELL_EDITS), "result_carrier"]
+)
+def test_the_mysql_sum_cell_law_refuses_each_edited_input(tmp_path, edit):
+    """The S02 laws emission asks of a MySQL aggregation and of each of its
+    sums hold the native `group by k` cell and refuse it once one input
+    changes: a key that is no non-null Int source field, a SELECT item that
+    computes, a sum whose fact is no result fact, or a computed argument;
+    and the sum result law refuses a non-null BIGINT argument."""
+    seen = probe.numeric_law_inputs(tmp_path, probe.NUMERIC_CELLS["s02_grouped"])
+    plan, keys = seen["mysql_sum_query"]
+    aggregate, argument = seen["mysql_sum_cell"]
+    assert keys and rows.mysql_sum_query(plan, keys) is True
+    assert rows.mysql_sum_cell(aggregate, argument) is True
+    if edit in S02_QUERY_EDITS:
+        assert rows.mysql_sum_query(*S02_QUERY_EDITS[edit](plan, keys)) is False
+    elif edit in S02_CELL_EDITS:
+        assert rows.mysql_sum_cell(*S02_CELL_EDITS[edit](aggregate, argument)) is (
+            False
+        )
+    else:
+        assert grouping.result_realization("mysql", "sum", argument, ("Int", True))[0]
+        nonnull = SimpleNamespace(
+            realization=replace(argument.realization, nullable=False)
+        )
+        assert grouping.result_realization("mysql", "sum", nonnull, ("Int", True)) == (
+            None,
+            ("PIE-B1002", "sum_result_logical_type_or_argument_drift"),
+        )

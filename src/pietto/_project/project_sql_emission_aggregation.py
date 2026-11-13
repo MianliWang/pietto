@@ -923,14 +923,21 @@ def result_realization(family: str, function: str, argument, retained):
                 return result, None
             return None, ("PIE-B1004", "decimal_aggregate_range_proof_missing")
         if (
-            family != "postgres"
-            or argument is None
+            argument is None
             or argument.realization.tag != "Int"
             or tag != "Int"
             or nullable is not True
+            or family != "postgres"
+            and not (
+                family == "mysql"
+                and rows.mysql_checked_operands((argument.realization,))
+            )
         ):
             return None, ("PIE-B1002", "sum_result_logical_type_or_argument_drift")
-        return rows._checked_int({"kind": "pg_int8"}, *rows.SIGNED64, True), None
+        return (
+            rows._checked_int(rows.CHECKED_INT_STORAGE[family], *rows.SIGNED64, True),
+            None,
+        )
     if function in SPREAD_FUNCTIONS:
         # A MySQL one (S05) is a DOUBLE of a DOUBLE argument.
         if (
@@ -1046,13 +1053,20 @@ def float_argument(argument) -> bool:
 
 
 def argument_problem(
-    function: str, argument, family: str, *, cell: bool = False, ranked=False
+    function: str,
+    argument,
+    family: str,
+    mysql_sum: bool = False,
+    *,
+    cell: bool = False,
+    ranked=False,
 ):
     """R13 admits one established V01 field per aggregate argument, or one
     admitted row expression, as a LET would lower it. Any other
     argument, such as a bare literal or parameter or an operation that reads no
     field (only a forged compiled input holds one), reads no row and is refused.
-    ``cell`` is the caller's own derivation of the S05 cell."""
+    ``mysql_sum`` marks an S02 cell (rows.mysql_sum_cell); ``cell`` is the
+    caller's own derivation of the S05 cell."""
     direct = type(argument) is rows.SQLStageReference
     if not direct and not (
         type(argument) is rows.SQLOperation
@@ -1062,7 +1076,13 @@ def argument_problem(
     ):
         return "PIE-B1003", "aggregate_argument_not_a_direct_established_field"
     return resolved_argument_problem(
-        function, direct, argument.realization, family, cell=cell, ranked=ranked
+        function,
+        direct,
+        argument.realization,
+        family,
+        mysql_sum,
+        cell=cell,
+        ranked=ranked,
     )
 
 
@@ -1375,6 +1395,7 @@ def resolved_argument_problem(
     direct_reference: bool,
     realization,
     family: str,
+    mysql_sum: bool = False,
     *,
     cell: bool = False,
     ranked=False,
@@ -1462,8 +1483,14 @@ def resolved_argument_problem(
         return "PIE-B1003", function + "_argument_outside_reviewed_int_domain"
     if function == "sum" and realization.tag == "Int":
         # PostgreSQL sums exactly and narrows to bigint with its checked CAST;
-        # MySQL's CAST(DECIMAL AS SIGNED) would clamp an out-of-range sum.
-        if family == "postgres":
+        # MySQL's CAST(DECIMAL AS SIGNED) would clamp an out-of-range sum, so
+        # only an S02 cell's guarded SUM over a nullable BIGINT field
+        # (MYSQL_SUM_GUARD) is admitted there.
+        if family == "postgres" or (
+            mysql_sum
+            and direct_reference
+            and rows.mysql_checked_operands((realization,))
+        ):
             return None
         return "PIE-B1004", "sum_int_aggregate_range_proof_missing"
     if function == "sum" and realization.tag == "Decimal":
@@ -1559,6 +1586,13 @@ def result_cast(family: str, function: str, argument) -> str | None:
         function = "sum"
     if function != "sum" or family == "postgres" and float_argument(argument):
         return None
+    if (
+        family == "mysql"
+        and argument is not None
+        and rows.mysql_checked_operands((argument.realization,))
+    ):
+        # S02: the guarded SUM (MYSQL_SUM_GUARD) has no cast of its own.
+        return None
     if family != "postgres" or argument is None:
         raise ValueError("SUM result cast requires a PostgreSQL Int argument")
     if argument.realization.tag == "Decimal":
@@ -1572,6 +1606,37 @@ def result_cast(family: str, function: str, argument) -> str | None:
     if argument.realization.tag != "Int":
         raise ValueError("SUM result cast requires a PostgreSQL Int argument")
     return "pg_catalog.int8"
+
+
+# S02: MySQL's guarded SUM of an Int, as (role, text) between the three reads
+# of its argument. A sum outside signed 64 bits takes a branch whose BIGINT
+# arithmetic raises 1690 (SQLSTATE 22003); CAST(SUM(x) AS SIGNED) alone would
+# clamp it. The raw qualification ran this guard over a BIGINT column.
+MYSQL_SUM_GUARD = (
+    ("aggregate_guard_open", "CASE WHEN SUM("),
+    (
+        "aggregate_guard_high",
+        ") > 9223372036854775807 THEN CAST(9223372036854775807 AS SIGNED)"
+        " + CAST(1 AS SIGNED) WHEN SUM(",
+    ),
+    (
+        "aggregate_guard_low",
+        ") < -9223372036854775808 THEN CAST(-9223372036854775808 AS SIGNED)"
+        " - CAST(1 AS SIGNED) ELSE CAST(SUM(",
+    ),
+    ("aggregate_guard_close", ") AS SIGNED) END"),
+)
+
+
+def mysql_sum_guarded(family: str, column) -> bool:
+    """Whether one aggregate column renders as MYSQL_SUM_GUARD: a MySQL sum
+    of an Int, which only an S02 cell admits."""
+    return (
+        family == "mysql"
+        and column.function == "sum"
+        and column.argument is not None
+        and rows.realization_of(column.argument, family).tag == "Int"
+    )
 
 
 def aggregate_evidence(function: str, argument_tag: str | None) -> tuple[str, ...]:
@@ -1786,6 +1851,10 @@ def build_stage(
     columns: list[Any] = []
     key_columns: list[Any] = []
     value_columns: list[AggregateValueColumn] = []
+    # S02: whether this stage can hold a MySQL sum(Int) cell, asked once.
+    mysql_sums = family == "mysql" and rows.mysql_sum_query(
+        request.plan, tuple(available.get(key.input) for key in keys)
+    )
     for index, key in enumerate(keys):
         read = available.get(key.input)
         export = exports[index]
@@ -2004,6 +2073,9 @@ def build_stage(
                     function,
                     argument,
                     request.family,
+                    mysql_sums
+                    and function == "sum"
+                    and rows.mysql_sum_cell(value, argument),
                     cell=family == "mysql"
                     and function in SPREAD_FUNCTIONS
                     and mysql_spread_cell(request.plan, value, argument),
@@ -2520,6 +2592,20 @@ def build_compiled_stage(plan, record, arguments):
         else None
     )
     stage = CompiledAggregateSubject(plan.references[record.address])
+    # S02: the stage's MySQL sum cells, derived once and only beside a sum
+    # (which compiled semantics admits in a cell's one aggregate alone).
+    mysql_sums = (
+        rows.mysql_compiled_cells(
+            records, records[plan.ir.completed.root.description.query]
+        )[1]
+        if records[Address("target", 0)].get("family") == "mysql"
+        and any(
+            records[address].get("source").kind == "aggregate_value"
+            and records[records[address].get("source")].get("function") == "sum"
+            for address in record.get("outputs")
+        )
+        else frozenset()
+    )
     keys: list[Any] = []
     values: list[AggregateValueColumn] = []
     columns: list[Any] = []
@@ -2671,7 +2757,11 @@ def build_compiled_stage(plan, record, arguments):
             elif (
                 argument is not None
                 and argument_problem(
-                    function, argument, family, cell=expression.address == cell
+                    function,
+                    argument,
+                    family,
+                    expression.address in mysql_sums,
+                    cell=expression.address == cell,
                 )
                 is not None
             ):

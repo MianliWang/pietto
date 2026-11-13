@@ -4976,6 +4976,14 @@ def _verify_compiled_emission(artifact, request):
     active = selected_relations(
         records, records[plan.ir.completed.root.description.query]
     )
+    # S02: the MySQL sum cells, derived once from the records.
+    mysql_sums = (
+        rows.mysql_compiled_cells(
+            records, records[plan.ir.completed.root.description.query]
+        )[1]
+        if request.family == "mysql"
+        else frozenset()
+    )
     guarded = records[Address("policy", 0)].get("guarded")
     need(
         type(artifact)
@@ -6191,6 +6199,7 @@ def _verify_compiled_emission(artifact, request):
                                 function,
                                 column.argument,
                                 request.family,
+                                expression in mysql_sums,
                                 cell=expression == spread_cell,
                                 ranked=ranked,
                             )

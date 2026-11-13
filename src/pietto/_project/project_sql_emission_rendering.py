@@ -26,10 +26,12 @@ from pietto._project.project_sql_emission_aggregation import (
     GROUP_TEST_FUNCTIONS,
     ORDERED_FUNCTIONS,
     ORDERED_VALUE_FUNCTIONS,
+    MYSQL_SUM_GUARD,
     QUANTILE_FUNCTIONS,
     AggregateKeyColumn,
     AggregateProjectionColumn,
     AggregateValueColumn,
+    mysql_sum_guarded,
     ranked_body,
     ranked_layout,
     rendered_direction,
@@ -1204,6 +1206,15 @@ def _aggregate_value(w: _Writer, column, alias) -> None:
     """One aggregate occurrence: its own spelling over its own exact argument."""
     reference = column.aggregate.ref
     start = w.offset
+    if mysql_sum_guarded(w.request.family, column):
+        if column.distinct or column.argument_cast or column.result_cast:
+            raise ValueError("unrenderable MySQL sum")
+        for position, (role, text) in enumerate(MYSQL_SUM_GUARD):
+            if position:
+                w.scalar(column.argument, alias)
+            w.emit(text, "syntax", role, reference)
+        w.enclose("aggregate", reference, start)
+        return
     if column.function in GROUP_TEST_FUNCTIONS:
         w.emit("(", "syntax", "aggregate_test_open", reference)
     root = rooted(w.request.family, column.function)
