@@ -279,6 +279,7 @@ each completion audit adds the freeze inputs of its phase here.
 | The fixed civil `Timestamp` meaning of a `now()` output; the statement time that R2 records and `recover` binds | each freezes with the result contract and the R2 workspace, or changes before the freeze | D77.42, D77.49; [Phase77 audit](phases/phase-77/completion-audit.md) |
 | MySQL R2 refuses every form that `0.1.11` refused (`PUBLIC_R2_UNQUALIFIED_FORM`, by rule two) and every paired form (`PUBLIC_R2_PAIRED_FORM`) | a support-matrix row for R2 by target, or narrowed by forms that a native R2 qualification covers | D77.46, D77.67, D77.68 |
 | MySQL forms that open only byte for byte as a paired form (Wave A) | the 1.0 support matrix states them as paired forms, or a structural rule replaces them | D77.36; [Phase77 audit](phases/phase-77/completion-audit.md) |
+| SQLite single-file SQL: `emit-sql FILE --dialect sqlite`, the successful CLI JSON v1 `dialect` value `"sqlite"`, the `sqlite.table("name")` spelling with its PIE-S2306 texts, the PIE-B1000 SQLite reasons and the declared premises | frozen, kept alpha, or kept unsupported; the 1.0 support matrix lists the qualified SQLite build and every other build as not qualified | D78.01–D78.04; Phase78 B1 closeout |
 
 ## Project-mode follow-up
 

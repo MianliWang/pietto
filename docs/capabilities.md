@@ -3,7 +3,8 @@
 This page shows, for each feature family, whether `check` accepts it and
 `emit-sql` emits it in a single file (`check FILE`, `emit-sql FILE --dialect
 ...`) and in an explicit-module project (`schema_version = 2`,
-`check --project ROOT`, `emit-sql --project ROOT`), for PostgreSQL and MySQL.
+`check --project ROOT`, `emit-sql --project ROOT`), for PostgreSQL and MySQL;
+SQLite single files have a [section of their own](#sqlite-single-files).
 It describes `0.1.12`, whose
 [release notes](release-notes.md#mysql-project-catch-up-public-alpha-release-notes--0112)
 give each change. Each row was recorded by running one
@@ -100,3 +101,46 @@ Also observed:
 - A LEGACY_FLAT project (`schema_version = 1`) checks no JOIN and no
   `any(...)` (PIE-S2334), and `emit-sql --project` reads only
   `schema_version = 2` ([schema compatibility](project-package.md#schema-compatibility)).
+
+## SQLite single files
+
+`pietto emit-sql FILE --dialect sqlite` writes SQLite SQL for one file, as
+text or as CLI JSON v1 with `"dialect": "sqlite"`
+([SQLite single files](language.md#sqlite-single-files)); no release carries
+it yet. Each row was recorded by running one plain example through
+`check FILE` and `emit-sql FILE --dialect sqlite`, and its cell follows the
+legend above. `check FILE` takes no dialect, so a form that it refuses is
+refused alike for every target.
+
+| Feature | Single file, SQLite | Stated in |
+| --- | --- | --- |
+| A `sqlite.table("name")` source that names one bare table | yes | [SQLite single files](language.md#sqlite-single-files) |
+| A `sqlite.table` string with a dot, or an empty string | check PIE-S2306 at the string | [SQLite single files](language.md#sqlite-single-files) |
+| `where`, `select`, `order by`, `limit` over `Int`, `Text`, `Bool` and `Float` fields, with fields, unsigned literals, `==`, `!=`, `<`, `<=`, `>` and `>=` between two values of one type, `and`, `or`, `not`, `is None` and `is not None` | yes; every ascending key ends with `NULLS LAST` and every descending key with `NULLS FIRST` | [SQLite single files](language.md#sqlite-single-files) |
+| `group by` fields, `count`, and `min` and `max` of an `Int` or `Float` field | yes | [SQLite single files](language.md#sqlite-single-files) |
+| `min`, `max` of a `Text` or `Bool` field | check PIE-S2314 | [Aggregates](language.md#aggregates-and-grouping) |
+| Arithmetic, and a sign before a number (`-5`, `+0.0`) | refused PIE-B1000 | [SQLite single files](language.md#sqlite-single-files) |
+| An `Int` literal above 9223372036854775807 | check PIE-S2364 | [Expressions](language.md#expressions) |
+| A comparison of an `Int` with a `Float` | refused PIE-B1000 | [SQLite single files](language.md#sqlite-single-files) |
+| `in`, range comparisons, conditional expressions, casts, function calls (the `LIKE`-style text functions included), `any(...)` reads, a `None` literal that `check` accepts outside `is None` and `is not None` (such as `n = None` in `select`) | refused PIE-B1000 | [SQLite single files](language.md#sqlite-single-files) |
+| `== None`, `!= None` | check PIE-S2105 | [Expressions](language.md#expressions) |
+| `having`; `sum`, `avg` and every aggregate other than `count`, `min` and `max` | refused PIE-B1000 | [SQLite single files](language.md#sqlite-single-files) |
+| A table or query that reads another; JOINs; windows and `qualify` | refused PIE-B1000 | [SQLite single files](language.md#sqlite-single-files) |
+| A read of a `Decimal`, `Date`, `Timestamp` or `UUID` field | refused PIE-B1000 | [SQLite single files](language.md#sqlite-single-files) |
+| Every table and query of a file that declares a top-level constant | refused PIE-B1000 | [SQLite single files](language.md#sqlite-single-files) |
+
+- **Projects.** There is no SQLite project target: `check --project` refuses
+  a `sqlite.table` source with PIE-S2306 `Unknown source connector:
+  sqlite.table`, `emit-sql --project --dialect sqlite` is a usage error
+  (exit 2), and `compile_query(dialect="sqlite")` keeps PIE-R1002.
+- **Execution and result reading.** None: Pietto runs no SQLite statement,
+  opens no database file and reads no SQLite result.
+- **Support.** The SQL text and its goldens are tested wherever CI runs
+  (CPython 3.12 and 3.13). The native cells qualify the SQL in process on one
+  measured SQLite library only: release `3.53.1`, source id `2026-05-05
+  10:34:17 c88b22011a54b4f6fbd149e9f8e4de77658ce58143a1af0e3785e4e6475127e9`
+  and the 46 compile options that `tests/test_sql_sqlite_native.py` records,
+  observed under CPython 3.13.13 on Linux. A version number alone is not that
+  identity, and every other build, the SQLite of hosted CI, Windows and macOS
+  included, is not qualified
+  ([SQLite target validation](development.md#sqlite-target-validation)).

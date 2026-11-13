@@ -295,3 +295,186 @@ fix-pass commands once and keeps those before the approval on Phase77. The
 lead keeps the running ledger; each lane reports its checks and repairs to
 the integrator. At any cap the lead stops and asks; no handoff or lane
 resets the ledger.
+
+## B1 record
+
+B1 is a batch candidate. Its lane side was ready in round 15 on the lane
+base `ab972f36`. On 2026-11-13 the lead integrated S01–S04 as one commit
+each on the published `main` `a015afcf`, after the `0.1.11` release commit
+`d03d6e4b`, above the commits of the shared lane PK, Phase79 S01–S04 and
+S07, and Phase80 IB1 (S01–S05 and PK-80) in the same candidate chain; the PK
+commit carries Phase79 S05. On 2026-11-14, after `0.1.12` was published, the
+chain was replayed onto the published `main` `ab594829` in the same order,
+each slice still one commit, and each slice's release-note fragment joined
+its commit (PL.04); unless it says otherwise, this record names the commits
+of the chain on `a015afcf`. Phase80 S06 (IB2) is not in the chain, since its
+route lands it after IB1's natural CI; B1 does not wait for it. DuckDB B1 is
+Phase79 S00–S08; S06 and S08 are not below SQLite in that chain: S06 is only
+a candidate commit off it, and S08 is not written. Under AD78.03 the shared
+connector and dialect-set hunks of S02 were replayed onto the integrated
+Phase79 S02 lines (six files, ten conflicting hunks, resolved by the
+integration rehearsal's rules), and the family firewall passed on the
+integrated tree. Nothing is pushed: the lead runs B1's Gate 2 on the
+integration host on B1's batch tree. B1 publishes after the `0.1.11` cut
+(PL.04) and after DuckDB B1 (AD78.02; checklist item 27), so only once
+Phase79 S06–S08 have published or lie below S01. Whether one push that
+carries both B1 batches meets AD78.02 needs the lead's or the owner's
+ruling, and a change of that order needs the owner (unfreeze conditions).
+
+| Slice | State | Evidence |
+| --- | --- | --- |
+| Q0 | Build triple and probe cells measured. SQLite `3.53.1` with the qualified source id under the integration venv's CPython 3.13.13 and the host's user-local CPython 3.12.13 and 3.13.13; the host's system CPython 3.14.4 links `3.46.1`, not qualified. The raw cells cover STRICT types, NaN and ±Inf, ±0, NULLS placement, Text order, Bool storage, aggregate types, Int extremes and quoting | the Q0 summary of the lane's Q0 and S01 run of 2026-11-10; Gate 0 rebind: `ab972f36` with natural CI `42831340276`, 21 of 21 jobs ([Starting point](#starting-point)); that CI's health and alerts were not read (NOT_OBSERVED, PL.07). The re-measured Phase77 overlap that this route's opening leaves to the package's first implementation batch is NOT_RECORDED: B1 did not measure it again (owner: the Phase78 lead, who records it or its omission before B1's Gate 2 seal) |
+| S01 | `language.md` SQLite section and the fragment `78-s01-sqlite-single-file.md`, lane-reviewed; integrated as one commit; the fragment stayed off the chain until `0.1.12` was published and joined this commit in the replay of 2026-11-14 (PL.04; [status](../../status.md)) | `p78-review-s01-20261110`, `p78-s01-fix2-review-20261110` |
+| S02 | `src/pietto/sql/sqlite*.py`, CLI dialect, connector entries, CLI JSON and diagnostics rows, goldens and `tests/test_sql_sqlite_emission.py`, lane-reviewed; integrated as one commit. Upstream `check` now refuses an `Int` literal outside the signed 64-bit range (PIE-S2364), so the emitter test's case for it and that item of the PIE-B1000 list were dropped at integration | `lane-p78-s02-20261110T175728Z`, `r4-review-p78-s02`, `r5-review-p78-s02` |
+| S03 | `tests/test_sql_sqlite_native.py`: 105 cells (76 matrix, 20 BAG/NULL oracle, 5 Python oracle, 4 premise controls), all agreeing with their prewritten oracles on the first native run; a coverage law over 109 (clause, type, operator) forms derived from the emitter's vocabulary; a per-test runtime witness; the runner-acceptance row 9 and the `development.md` section. Native runs: CPython 3.13.13 only, class `qualified`, `sqlite_build` refusal null, 46 compile options. Integrated as one commit and sealed on 2026-11-13: on the integrated tree the three SQLite owners passed (220 tests: 136 native, 40 emission, 44 entrypoint; 105 `cell` and 4 `golden` properties, `sqlite_build` refusal null, 46 compile options), and the replay test binds the integrated PostgreSQL bytes | `lane-p78-s03r7-20261110T205022Z` (its first and third pytest junit outputs hold the `cell` properties), reviews `r6-review-p78-s03`, `r7-review-p78-s03`; round 8 fixed review r7's two low findings (witness wording, ledger file count); round 9 (`r9-p78`): `scripts/validate.py` declares `--pietto-sqlite-class=qualified` (D78.07), the importer scan of `tests/test_sql_sqlite_emission.py` resolves relative imports, and the PostgreSQL replay is preregistered but not run (in the lane's ignored working folder); round 10 (`r10-p78`): `scripts/validate.py` refuses a conflicting `PIETTO_SQLITE_CLASS` before any gate, and the replay preregistration is v2 (in the same ignored working folder, v1 kept), still not run; rounds 11 to 13 (`r11-p78` to `r13-run-p78`): v2.1 and v2.2 reviewed, v2.2's run void by a driver defect before any container, v2.3 reviewed CLEAN and its run `PASS`; round 14 (`r14-p78`): the result landed as `tests/fixtures/sqlite/postgres_replay_v1.json` with `test_each_postgres_replay_binds_the_bytes_it_ran`, and S03 is sealed on the lane side (the lane's S03 seal record); round 15 (`r15-p78`): review r14's three low findings fixed and the two hours summed over the campaign's attempts; integration run `p78close-20261113T155742Z` (its first pytest output and junit) |
+| S04 | This record, the capability section, the freeze-ledger row and the status row, integrated as one commit; the fragment's known limitations are in the S01 fragment. Each capability row was run once through `check` and `emit-sql --dialect sqlite` on the integrated tree | the lane's drafts of rounds 8 to 17, in its ignored working folder; the capability probe script of integration run `p78close-20261113T155742Z` and its second output (the first output came from an earlier version of that script, whose constant row failed `check` with PIE-P1000, and no saved script reproduces it); the `is not None` of the expression row in the repair round `px78r1-20261113T162030Z`, by its probe script and output |
+
+**S03 write set (owner, 2026-11-11, D78.07).** The owner chose that the
+authoritative validator declares the `qualified` SQLite class. S03 therefore
+also writes `scripts/validate.py` (its pytest gate declares
+`--pietto-sqlite-class=qualified` beside `--pietto-storage-class=qualified`)
+and `tests/test_ci_validation_entrypoint.py` (the gate's expected command
+and the option's registration). `scripts/validate.py` is a VR2 acceptance
+rule path, as `docs/development.md` and the runner-acceptance specification
+already are, so the batch rule is unchanged: B1 runs its whole Gate 2 on the
+integration host, and its natural CI records no new bootstrap, so the Teach
+split stays void (PL.05; owner, 2026-10-27). The Gate 2 interpreter, the
+integration `.venv`'s CPython 3.13.13, links the measured build: release,
+source id and all 46 compile options in order (observed 2026-11-11T09:34:55Z
+with the host's user-local CPython 3.13.13, the lane venv, the integration
+`.venv` and the user-local CPython 3.12.13, in round 9's comparison record).
+On a build other than the measured one that still passes the validator's
+storage pre-check, the native tests fail the pytest gate with
+`PIETTO_SQLITE_REQUIRED <category>`; they never skip. A
+`PIETTO_SQLITE_CLASS` other than `qualified` in the environment is refused
+with exit 2 before any gate, as a conflicting `PIETTO_STORAGE_CLASS` is, so
+it is no validation start. The lead decided in round 14 that S03 also holds
+`tests/test_ci_validation_entrypoint.py`, and that the replay result lands
+as `tests/fixtures/sqlite/postgres_replay_v1.json`; since the S03 seal the
+S03 write-set cell names both.
+
+### B1 acceptance list
+
+| # | Item (route row) | State |
+| ---: | --- | --- |
+| 1 | Native cells against oracles written before the run (S03) | Met on the measured build, CPython 3.13.13 only: the lane venv on the round-14 tree (round 14's second pytest output) and an integration worktree's `.venv` on the integrated S03 tree (2026-11-13), each with 105 `cell` and 4 `golden` properties and `sqlite_build` refusal null |
+| 2 | A fabricated-output self-test fails every fail-open shape (72-4) | Present; it runs on every runner and passed in round-7 pytest 3 and on the integrated tree |
+| 3 | PostgreSQL replays bind the bytes they ran (72-5) | **Met.** Authority D78.08 (owner, 2026-11-11), method D78.10 and D78.11. One campaign on the pinned PostgreSQL 18.6 image, Docker Engine of Docker Desktop 4.99.0 (Engine 29.9.3), one owned container with `--pull=never --network none`, under the engine lock: attempt 1, preregistration v2.2, 16:28:55Z, `VOID` (exit 6) by a driver defect before any container existed, charged; attempt 2, v2.3 (review r13 CLEAN), 17:39:05Z to 17:39:10Z, `PASS` (exit 0): 105 of 105 entries (the 101 law cells and the 4 golden statements), `ZERO_SIGN` declared on `select-every-type` and `group-order-by-max`, the three bare-literal columns as `numeric`, cleanup `success` (round 13's run record; run `p78-pg-replay-20261111T173905Z`). The two hours are summed over all attempts of the campaign, no attempt starts once they are spent, and each attempt runs under the campaign's remaining time as an outer limit (`timeout --foreground`, so the signal reaches the driver alone), which the frozen driver takes as a stop signal (D78.11, which revises D78.10's two-hour clause; the frozen driver timed each run from its own start; offline drills `r16-p78` and `r16-review-p78`). The campaign's two attempts ran before that rule, wrapped only in `setsid -w nice -n 19`, with no outer limit (the run records of rounds 12 and 13); their outer wall times, 1.32 s and 4.21 s (2 s and 5 s as the rule charges them), kept the campaign inside the two hours. Network-namespace evidence corrected: the round-13 probe used a namespace after `ip link set lo up`, not a fresh one (a fresh one has `lo` down and an empty IPv4 route file); the real container showed the lo-up state. Landed in round 14: `tests/fixtures/sqlite/postgres_replay_v1.json` and `test_each_postgres_replay_binds_the_bytes_it_ran`, which re-emits each PostgreSQL statement and compares its sha256, binds the fixture rows, oracle and carriers, and runs on every runner with no database; 18 mutation witnesses behaved as written beforehand (and, in round 15, the three witnesses of the fixture-set assertion), and the frozen generator on the landed tree changes only the input hash of the test file itself (the lane's S03 seal record). The replay test passed again on the integrated tree on 2026-11-13, so no entry needs a new campaign |
+| 4 | A forged non-qualified build is refused (S03) | Met (forged-build tests) |
+| 5 | Skips are counted beside passes (75-3) | Met for the module's own classes. **Decided by the owner on 2026-11-11 (D78.07):** `scripts/validate.py` declares `--pietto-sqlite-class=qualified`, so on a non-qualified build the authoritative run fails instead of skipping (S03 write set above). B1's Gate 2 still checks its junit for 105 `cell` properties and `sqlite_build` refusal null |
+| 6 | A failed cell is first a question about its judge (74-1) | No cell failed on the first native run or since |
+| 7 | A form without a passing cell ships refused (73-6) | Met by the coverage law on the measured build: every emitted (clause, type, operator) form has a cell |
+| 8 | VR2: whole Gate 2 on the integration host; natural CI is no new bootstrap; Teach split void (S03) | Lane side done: B1 changes three VR2 rule paths (`docs/development.md`, the runner-acceptance specification, `scripts/validate.py`) and not `ci/workloads.toml`. Gate 2 is the lead's, on the integration host, on B1's batch tree, whose publication order item 13 states; `scripts/validate.py` joins the VR2 paths B1 changes, with the same rule. Runner row 9's Teach column stays Not observed: the owner kept the default on 2026-11-11 (D78.09), no observation and no claim |
+| 9 | B1 acquisition review against the B1 base (S04) | Below; its bounded profile is pending the final natural CI health |
+| 10 | Docs owners (S04) | Passed on the final round-9 tree: review r9's first pytest output (632 passed, the seven `test_repo_*` owners among them). Round 10 changed `docs/development.md`, `scripts/validate.py` and the entrypoint test; the same 17 files passed on the round-10 tree (round 10's first pytest output, 636 passed). Round 14 changed `docs/development.md` again (the replay paragraph) and added the replay fixture and test; the same 17 files passed on the round-14 tree (round 14's second pytest output, 637 passed; an earlier start that round ended in a pytest usage error before collection and is kept). Round 15 changed the replay test and the fixture's `regeneration` text; the same 17 files passed on the round-15 tree (round 15's first pytest output, 637 passed). On the first integrated S04 tree, `5c31ff86`, 14 files passed (the integration run's second pytest output, 580 passed): eleven of those 17 and `tests/test_project_explain.py`, `tests/test_semantic_source_connectors.py` and `tests/test_sql_mysql_connector_semantic_surface.py`. The other six were not rerun there: `tests/test_ci_loadfile_scheduling.py`, `tests/test_ci_validation_typing_stages.py`, `tests/test_ci_validation_workload_scheduling.py`, `tests/test_ci_workflow.py`, `tests/test_harness_validation_resource_guard.py` and `tests/test_harness_validation_runner_receiver.py`. All of them rerun at Gate 2 on the batch tree |
+| 11 | CI health and alerts read (S04) | Pending (lead): no read yet; until the read-only token of PL.07 is in place on the integration host, each read records NOT_OBSERVED |
+| 12 | Gate 2 duration recorded (S04) | Pending; no Gate 2 has run on B1's batch tree |
+| 13 | S01–S04 accepted on the integration tree; Gate 2 on the batch tree; publication after the `0.1.11` cut and DuckDB B1 under its own push authorization, with green natural exact-head CI (B1 closure) | Pending (lead and owner): S01–S04 are commits of the integration candidate chain, which no Gate 2 has accepted yet. The `0.1.11` cut has passed (PL.04), but DuckDB B1 is not yet below SQLite B1: the chain holds Phase79 S01–S05 (S05 in the PK commit) and S07 below S01, while S06 and S08 are not below it. B1 publishes only once those slices have published or lie below it (AD78.02); whether one push that carries both B1 batches meets AD78.02 needs the lead's or the owner's ruling, and a change of that order needs the owner (unfreeze conditions) |
+| 14 | Midpoint record after S02 (route) | Not recorded. S03 opened in the lane on 2026-11-10, before S02 reached an integration tree, so the midpoint was not held where the route puts it; S02 first reached one on 2026-11-13, over the integrated Phase79 S02. This record claims no midpoint |
+| 15 | D78.02 and D78.04 stated to the owner as inform before S02 seals | Met: first stated in the lead's list of pending owner items of 2026-11-10 (item 11), which records no time; the owner took both as inform on 2026-11-11 (D78.09) |
+| 16 | Extension sync input of `sqlite.table` (D76.12, S01) | Read in S04, not in S01: the extension's `tests/sync_language.py` (extension `041797e`) reads the keywords of `grammar/Pietto.g4`, the built-in names of `src/pietto/semantic/catalog.py`, `aggregates.py` and `window_semantics.py`, and the `pietto` blocks of `README.md`, `docs/language.md`, `docs/style.md` and `docs/worked-example.md` and every `examples/**/*.pietto` file. B1 changes no grammar and none of those modules, so `sqlite.table` is no catalog change under D76.12 and B1 needs no sync patch; B1 adds no `pietto` block and no example either, so the extension's corpus is unchanged |
+| 17 | Phase77 completion audit read by S04 if it exists | Absent at `ae48f00a`, `e0116e41` and `a015afcf` (`docs/phases/phase-77/` holds only `route.md`). Present at `ab594829` and read in the replay of 2026-11-14: its handoff keeps B1 after DuckDB B1 (AD78.02, item 13), leaves the `verify_project_sql_plan` debt to Phase78 only if B2 changes project SQL emission, and keeps the Phase78–80 fragments off `main` until `0.1.12` is published, which it now is (S01 row). The Phase78 completion audit reads it again |
+
+### B1 acquisition review
+
+Base: `2a18113e`, the PK-80 commit of the chain replayed onto `ab594829`
+(`dee6fd46` on `a015afcf`, with the same test changes above it); Phase79
+S07, between it and S01, changes no test file. The lane counted against its
+base `ab972f36`. New:
+`tests/test_sql_sqlite_emission.py` (41 tests in the lane, 40 on the
+integrated tree), `tests/test_sql_sqlite_native.py` (136 tests since round
+14), `tests/fixtures/sqlite/` (the golden input and, since round 14, the
+PostgreSQL replay result) and the two `emit_sqlite_single_file` goldens.
+Changed: `tests/conftest.py` (the `--pietto-sqlite-class` option) and 16
+existing owners, 17 test files with 191 lines added and 53 removed,
+`tests/test_ci_validation_entrypoint.py` among them. The lane counted 17
+owners and 18 files, 502 lines added and 45 removed, against `ab972f36` in
+round 10, its copy of Phase79 S02's lines and their tests included. Timings
+are the per-test sums of round-7 pytest 1 (`-n 8`): emission 2.40 s, native
+0.81 s.
+
+- Native cells open a fresh `:memory:` connection per test, and a
+  module-scoped fixture observes the build once per worker module. Both are
+  kept: per-cell isolation, and D78.03's re-observation of the running build.
+- The coverage law re-emits the program of every cell but the premise
+  controls (0.281 s). It is kept: it runs on runners where no cell runs, so
+  it cannot reuse cell outputs.
+- `test_the_cli_alone_dispatches_the_sqlite_backend`, 2.08 s in round 7,
+  the slowest B1 node, parses every `src/pietto/**/*.py` with `ast.parse` to
+  find importers of `pietto.sql.sqlite`. Since round 9 it resolves a
+  relative `from` against the file's package and counts `from P import x` as
+  `P.x` too, so `from ..sql.sqlite import ...` and `from ..sql import sqlite`
+  are found (review r8's mutants). `tests/test_sql_mysql_api.py:238` and
+  `:292` walk the same files but read them as text. The existing owner
+  `tests/_pietto_repo_facts.py`
+  (`REPOSITORY_FACTS.python(path).imported_modules`) does not resolve
+  relative names (review r8: `sql` and `sql.sqlite` for those mutants), so a
+  migration to it first needs that resolution there; until then the fresh
+  parse is kept, with this reason. The scan of the three SQLite modules' own
+  imports also stays fresh: the owner drops a module-less `from . import x`,
+  which the test refuses. The time split and any gain are unmeasured. Owner:
+  the Phase78 lead, at the latest before B1's Gate 2 seal.
+- The edits of existing owners add in-process `cli.main` usage-error checks
+  and `tmp_path` projects (connector checks in
+  `tests/test_semantic_source_connectors.py`); no subprocess, database or
+  session fixture was added.
+- The round-14 replay test (0.481 s in round-14 pytest start 2, `-n 8`)
+  parses, analyses and lowers each law cell's program and the golden source
+  once more through the module's `_ir` and emits PostgreSQL bytes; the
+  coverage law does the same front-end work for the SQLite emitter. It is
+  kept fresh: the two tests emit for different backends, and sharing `_ir`
+  results across tests would be new shared state in the module. The native
+  module's per-test sum was 1.619 s in that run. Measured, not consolidated;
+  the acquisition owner decides with the rest of this list.
+- No consolidation was applied, so there is no structural or wall-time
+  improvement to report. The bounded profile of step 4 (the ten slowest
+  in-process nodes of the final natural CI health under cProfile) is
+  pending that health.
+
+Ledger: the rows of the lead's Phase78 ledger sum to about `C8/F55/D1830/S0`
+through its row of 16:01Z on 2026-11-13, before Gate 2 (C counts its upper
+bounds), against `C160/F480/D4600/S6`. Its row of 15:32Z states a running
+total of about D4463 instead, about D137 below the cap; which figure holds
+is pending the lead's ruling before Gate 2. The owner chose D2300 on
+2026-11-11 (D78.06), so D78.05's D1500 stop point no longer applies, and on
+2026-11-12 doubled every budget (PL.09; Phase78 from `C80/F240/D2300/S3`).
+Gate 2 duration: pending.
+
+## B2 handoff
+
+- **Gate 1 first.** B2 (project mode) needs its own Gate 1. Before any B2
+  code it decides whether SQLite generalizes the AD78.03 family firewall or
+  builds its own pipeline. It depends on Phase79 S02 and S03 and on Phase77
+  S26/S27.
+- **What B2 inherits.** The independent `src/pietto/sql/sqlite*.py` modules
+  and their PIE-B1000 reasons (D78.04). The qualification owner
+  `tests/test_sql_sqlite_native.py`, with its SQLite class, runtime witness
+  and a coverage law read from the emitter's vocabulary, so a form that B2
+  adds to that vocabulary has no passing law until it has a cell.
+  `QUALIFIED_SQLITE_BUILD` stays in that test until a production caller
+  needs it, then moves to `src/pietto/sql/`.
+- **Owner items.** Decided on 2026-11-11: the validator declares the
+  `qualified` SQLite class (D78.07), the Teach column of runner row 9 stays
+  Not observed (D78.09), and the PostgreSQL byte replay (72-5) is
+  authorized (D78.08). The replay passed on 2026-11-11 (D78.10). B2
+  inherits `tests/fixtures/sqlite/postgres_replay_v1.json` and its rules
+  (D78.10, D78.11): a campaign's two hours are summed over its attempts,
+  no attempt starts once they are spent, and each attempt runs under the
+  remaining time as an outer limit (`timeout --foreground`); an entry keeps
+  its saved rows only while its PostgreSQL bytes, fixture rows, oracle and
+  carriers are unchanged, and a form B2 adds has no replay until a new
+  campaign under a reviewed preregistration delta runs it. On 2026-11-11
+  (about 17:05Z) the owner ratified the lead's 10:15Z pull of the pinned
+  images by digest.
+- **Deferred owners.** Execution and caller-file trust (its own Gate 1,
+  Phase78 lead); arithmetic, division by zero, the remaining types, JOINs
+  and windows (B2 or later Gates 1); the SQLite capability-facts profile
+  (editor capability-facts Gate 1); the third whole-tree test pass (after
+  Phase77 S27, before the Phase78 completion audit); the Phase77 completion
+  audit (Phase77 S27). B1 needs no extension sync (acceptance item 16).
+- **Q0 facts B2 meets.** On the measured build, as raw Q0 cells: a signed
+  64-bit overflow and an out-of-range literal become `REAL`, a `Float`
+  overflow becomes an infinity, zero divisors give NULL, a NaN is stored as
+  NULL while infinities are kept, a `STRICT` `REAL` column stores `-0.0` as
+  `0.0`, `LIKE` folds ASCII case, and a double-quoted name that names no
+  column reads as text.
