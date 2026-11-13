@@ -1139,14 +1139,14 @@ Install a release from PyPI into a virtual environment, as the
 verified with CPython 3.12 and 3.13 on Linux x86-64; other platforms and
 Python versions are not covered by this evidence.
 
-The published `0.1.10` wheel and sdist on PyPI are byte-identical to the files
+The published `0.1.11` wheel and sdist on PyPI are byte-identical to the files
 attached to the
-[v0.1.10 GitHub pre-release](https://github.com/MianliWang/pietto/releases/tag/v0.1.10),
+[v0.1.11 GitHub pre-release](https://github.com/MianliWang/pietto/releases/tag/v0.1.11),
 together with `SHA256SUMS`, which lists the SHA-256 of the wheel and the sdist.
 To check files downloaded from that release, keep their names and run
 `sha256sum --ignore-missing -c SHA256SUMS` in the download directory. GitHub
 also offers an automatic source archive under the same name as the sdist,
-`pietto-0.1.10.tar.gz`; it is a snapshot of the v0.1.10 repository tag, not the
+`pietto-0.1.11.tar.gz`; it is a snapshot of the v0.1.11 repository tag, not the
 sdist, and it is not listed in `SHA256SUMS`.
 
 Version `0.1.11` rejects bundles and saved jobs produced by `0.1.10` or earlier

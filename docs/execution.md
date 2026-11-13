@@ -1,15 +1,15 @@
 # Execution (public alpha)
 
-**Version:** This document describes the public alpha API of the `0.1.11`
-candidate. Release availability is established only when the exact accepted
-files appear on the versioned GitHub pre-release and PyPI `0.1.11` channels.
+**Version:** This document describes the `0.1.11` public alpha API. The
+accepted `0.1.11` files are published on its versioned GitHub pre-release and
+PyPI channels.
 The published `0.1.2` distributions select `pyarrow==25.0.1`; the published
 `0.1.3`, `0.1.4`, `0.1.5`, `0.1.6`, `0.1.7`, `0.1.8`, `0.1.9`
-and `0.1.10` distributions select `pyarrow==26.0.0`, and `0.1.11` selects
-`pyarrow==26.0.1`. The published `0.1.5` distributions select
+and `0.1.10` distributions select `pyarrow==26.0.0`, and the published
+`0.1.11` distributions select `pyarrow==26.0.1`. The published `0.1.5` distributions select
 `mysql-connector-python==26.7.0`, `adbc-driver-postgresql==1.12.0` and
 `adbc-driver-manager==1.12.0`; the published `0.1.6`, `0.1.7`, `0.1.8`,
-`0.1.9` and `0.1.10` distributions and this candidate select `mysql-connector-python==26.10.0` and
+`0.1.9`, `0.1.10` and `0.1.11` distributions select `mysql-connector-python==26.10.0` and
 `1.13.0` of both ADBC packages. The historical `0.1.1` wheel does not provide this alpha surface.
 
 The dependency maintenance of `0.1.11` pins `pyarrow==26.0.1` and
