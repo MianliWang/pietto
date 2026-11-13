@@ -892,11 +892,11 @@ distributions; the published `0.1.3`, `0.1.4`, `0.1.5`, `0.1.6`, `0.1.7`,
 `0.1.8` and `0.1.9` include them. The Date source, temporal and UUID ordering, checked `bigint`
 and PostgreSQL `sum(Int)` rules are new in `0.1.7`, are listed in its
 [release notes](release-notes.md#nested-results-and-project-emission-public-alpha-release-notes--017) and are included in the published `0.1.7`,
-`0.1.8`, `0.1.9` and `0.1.10`. The Phase76 openings are source changes for
-the planned `0.1.11` release, not additions to the `0.1.10` distribution.
+`0.1.8`, `0.1.9` and `0.1.10`. The Phase76 openings are new in `0.1.11`,
+not additions to the `0.1.10` distribution.
 Git publication and natural exact-head CI remain the lifecycle authority.
 
-The Phase76 B2 aggregate-composition candidate uses these same qualified
+Since `0.1.11`, aggregate composition uses these same qualified
 carriers for scalar calls and arithmetic over direct aggregate results,
 group keys and literals. For `qty: Int | None`, a PostgreSQL project can
 select `total = coalesce(sum(qty), 0)` without a second query. Every aggregate
@@ -1149,7 +1149,7 @@ also offers an automatic source archive under the same name as the sdist,
 `pietto-0.1.10.tar.gz`; it is a snapshot of the v0.1.10 repository tag, not the
 sdist, and it is not listed in `SHA256SUMS`.
 
-Version `0.1.10` rejects bundles and saved jobs produced by `0.1.9` or earlier
+Version `0.1.11` rejects bundles and saved jobs produced by `0.1.10` or earlier
 by code identity; Pietto neither migrates nor rewrites those bytes, so retained
 state needs its matching old environment (see
 [execution](execution.md#known-limitations)). The Pietto extension for VS Code
@@ -1163,8 +1163,8 @@ A generic LSP client is also available as
 describes. The historical extension `0.1.0` accepted only the `0.1.2` wheel
 or its baseline fingerprint and refuses `0.1.10`.
 
-The Phase76 source candidate changes compiled version marks once, from
-`(7, 1, 7, 1)` to `(8, 1, 8, 1)`; later Phase76 slices use those marks.
+`0.1.11` changes compiled version marks once, from
+`(7, 1, 7, 1)` to `(8, 1, 8, 1)`.
 Keep an exact `pietto==0.1.10` environment for retained `0.1.10` bundles and
 saved jobs. The new environment refuses incompatible records with a typed
 failure and does not migrate or rewrite them. Recompile from original
@@ -1172,8 +1172,7 @@ source, contracts and parameters to create new records in that environment.
 Reading saved results is a separate operation under their own format,
 code-identity and trust contract; recompiling does not convert result bytes.
 Running again is a separate database execution against its then-current
-state, not an effect of recompilation. These source changes are intended for
-`0.1.11` (PL.21), whose tag and PyPI upload follow PL.22's conditions.
+state, not an effect of recompilation.
 
 ## Optional Arrow dependency
 
@@ -1183,7 +1182,7 @@ published `0.1.10` adds `26.0.0`); it changes
 available dependencies, not the public Python API or CLI. Phase67 result
 modules remain private under `pietto._project`; Phase69 exposes the three
 execution routes and saved-result APIs as public alpha under
-`pietto.execution`. Package/CLI version is `0.1.10` and `requires-python`
+`pietto.execution`. Package/CLI version is `0.1.11` and `requires-python`
 stays `>=3.12`. Its versioned GitHub pre-release and PyPI listing determine
 distribution availability once the accepted files are available.
 The extra matrix is CPython3.12/3.13 on Linux x86-64: the published `0.1.10`

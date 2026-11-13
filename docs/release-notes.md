@@ -1,5 +1,998 @@
 # Pietto release notes
 
+## Project arithmetic, aggregate composition and editor navigation public alpha release notes — 0.1.11
+
+**Status:** These notes cover `0.1.11`, the public alpha prepared from its
+release commit, which follows the Phase77 repair batch and changes only
+version owners and documentation. It is published only when the tag
+`v0.1.11`, the versioned GitHub pre-release and PyPI carry its accepted wheel
+and sdist; this document neither creates those channels nor substitutes for
+their byte verification. As for earlier releases, the compiler and package
+are covered on CPython 3.12 and 3.13 for Linux x86-64. CI also runs the
+platform-neutral tests with CPython 3.12 and 3.13 on Windows x86-64, and batch
+`emit-sql --project ROOT --all --output DIR` stays Linux-only; other platforms
+and Python versions are not covered.
+
+`0.1.11` is the release of Phase76 and of the work published before its
+cut: the Phase77 repairs, found by a whole-repository audit, the Phase77
+dependency maintenance and the independent editor work package. It retires
+no source spelling of `0.1.10`, but refuses `Int` literals outside signed 64
+bits (see "Upgrading from 0.1.10"). It brings PostgreSQL projects closer to
+single files, lets a single file group by a computed `let` and wrap
+aggregates in scalars, opens `Decimal * Int`, writes MySQL single-file
+constants and `now()`, verifies a PostgreSQL server against a CA file, and
+gives `pietto lsp` hover, definition, symbols, links, formatting and
+completion. The MySQL catch-up of Phase77 is not part of it; the known
+limitations list what MySQL still refuses. Each subsection below lists the
+changes against `0.1.10` that a program can observe, its compatibility rows
+and the new refusals; the last one lists the known limitations. The Python
+execution extras change two pins
+(see "Dependency maintenance: PyArrow 26.0.1 and Psycopg 3.3.8"). The
+sections from 0.1.10 down describe published files.
+
+### Highlights
+
+- **PostgreSQL projects closer to single files.** `Float` `+`, `-`, `*` and
+  sign over fields; `Float` window, `string_agg` and FULL JOIN keys; `Int /`,
+  `Int %`, `Float /` and `Float %`; `Decimal` plus or minus an `Int` or
+  another scale, `Decimal * Int` and checked `sum(Decimal(p, s))`; a
+  conditional, `in`, cast or scalar call beside a JOIN; `max(a, b)` and
+  `min(a, b)` of two `Date` values; and FULL and CROSS JOINs beside an unread
+  `Timestamp` or `UUID` field.
+- **Scalars around aggregates and computed keys.** `coalesce(sum(qty), 0)`
+  and `sum(qty) * 100 / count()` in a single file or a PostgreSQL project, and
+  a single-file GROUP BY of a computed `let`.
+- **MySQL single files** write top-level constants, `--set` values and
+  `now()` as PostgreSQL does.
+- **PostgreSQL server verification.** `PostgresAccess(..., ca_file=PATH)`
+  checks the server certificate against your CA file before any credential is
+  sent.
+- **Editor (alpha).** `pietto lsp` adds hover and go-to-definition, document
+  and workspace symbols, import links, formatting of the open buffer and
+  completion.
+- **Repairs.** Single-file PostgreSQL `Int` arithmetic is computed in 64 bits,
+  a negated `-0.0` constant no longer starts an SQL comment, MySQL `Float`
+  list membership over two row reads is refused, and inputs that stopped
+  `check`, `explain`, `emit-sql` or `pietto lsp` with a Python traceback now
+  get a diagnostic.
+
+### Upgrading from 0.1.10
+
+- **`Int` literals outside signed 64 bits are refused.** In a single file
+  such a literal is now PIE-S2364, such an `Int` constant PIE-S2391 and such a
+  `--set` value a usage error (exit 2); write a `Float` with a decimal point,
+  such as `100000000000000000000.0`, where a `Float` is meant. See
+  [Single-file `Int` literals in the signed 64-bit range](#single-file-int-literals-in-the-signed-64-bit-range).
+- **SQL text changes.** Single-file PostgreSQL SQL writes `len(s)` as
+  `CAST(length(s) AS bigint)`, casts the left operand of an `Int` `+`, `-`,
+  `*` or `%` whose operands may both be `integer`, and writes `-2147483648`
+  as `CAST(-2147483648 AS bigint)`; a sign before a constant whose value is
+  negative is parenthesised, as in `-(-0.0)` (`0.1.10` wrote `--0.0` on
+  PostgreSQL). A MySQL project `Float` literal
+  list whose value and an option both read rows, which `0.1.10` emitted, is
+  now BLOCKED (PIE-B1003 `membership_type_pair_not_admitted`).
+- **Execution extras.** The extras select `pyarrow==26.0.1` and
+  `psycopg[binary]==3.3.8`; an environment that keeps `pyarrow 26.0.0` or
+  `psycopg 3.3.5` is refused with PIE-R2002. Upgrading `pietto` alone leaves
+  them in place, so reinstall with the extra, for example
+  `pip install -U "pietto[execute-postgres]"`.
+- **Execution requests.** A query whose result needs more than the 64 Arrow
+  fields of one batch is refused while it is prepared, with PIE-R1004
+  (`LIMIT`), before any connection.
+- **Compiled bundles and saved jobs.** As with every release, those made
+  under `0.1.10` or earlier are refused by code identity; new bundles carry
+  the version marks `(8, 1, 8, 1)`. `load_bundle` now also refuses, with
+  PIE-R1008, a re-pinned bundle whose row stages do not follow its rows or
+  whose operands form a cycle or an unbounded expansion; bundles that Pietto
+  writes load as before. A compiled MySQL artifact that holds the `Float`
+  list above is refused when it is replayed.
+- **Configuration and packages.** A `pietto.toml` whose multi-line string
+  holds a line like a `[package]` header followed by a `#` comment with the
+  string's closing quotes can now be refused (see
+  [Project configuration `[package]` table proof](#project-configuration-package-table-proof)),
+  and a package asset path that starts with a non-ASCII letter and a colon,
+  such as `é:x.pietto`, is refused as `C:/x.pietto` is (exit 2).
+- Tools that compare exact diagnostics, SQL text or JSON must expect the
+  changes listed below: diagnostics where `0.1.10` stopped with a Python
+  traceback, changed messages of
+  PIE-S2310 and PIE-R2004, the removed PIE-S2105 `Decimal` messages, the new
+  suggestion of `set_row_equivalence_domain_unsupported`, project blockers
+  located at the refused form, and the additive R05 evidence value
+  `target_checked_binary64_overflow` of the project JSON v2 `arithmetic`
+  requirement, which strict readers must accept.
+- `PostgresAccess` gains the optional last field `ca_file`; calls without it
+  keep their meaning.
+- The output of `fmt` and the alpha surfaces `pietto lsp`, `pietto.compiler`
+  and the relation-column document may still change before the Phase82
+  freeze; each change is listed in these release notes. `pietto lsp` now
+  answers an invalid `projectRoots` list with the JSON-RPC error `-32602`
+  instead of stopping.
+
+### FULL and CROSS JOINs beside an unread `Timestamp` or `UUID` field (projects)
+
+- A `schema_version = 2` project relation with a FULL or CROSS JOIN now emits
+  on PostgreSQL, and one with a CROSS JOIN also on MySQL, when an input has a
+  `Timestamp` or `UUID` field that no JOIN of the relation passes to a read. `0.1.10` refused it on both targets with
+  PIE-B1003 `scalar_meaning_requires_field_projection`, which has no
+  location. The JOIN, its condition and the relation's rows, grain and
+  output are those that `0.1.10` emits for the same relation without that
+  field; the field is carried through the JOIN's CTE and never output, and
+  compiled bundles carry it unchanged. A two-database run (PostgreSQL 18.6,
+  MySQL 8.4.12) of these JOINs matched the expected rows on both databases.
+- A relation that reads a `Timestamp`, `Date` or `UUID` field through a FULL
+  or CROSS JOIN (a `select` item, a `where` operand, a group key or a window
+  key) keeps that refusal while an input has a `Timestamp` or `UUID` field. A
+  MySQL FULL JOIN stays refused (`mysql_full_join_approved_non_support`).
+
+Changed diagnostics (programs refused in `0.1.10` too; no accepted program
+changes):
+
+| Program | 0.1.10 | Now |
+| --- | --- | --- |
+| A project relation with a FULL or CROSS JOIN, an input with a `Timestamp` or `UUID` field that it does not read, and another refusal, such as `full join c on orders.customer_id == c.id and c.name == c.name` on PostgreSQL | PIE-B1003 `scalar_meaning_requires_field_projection`, no location | that relation's own refusals, here PIE-B1003 `full_join_equality_within_one_input` at the `on` condition |
+| The same relation with a FULL JOIN on MySQL | PIE-B1003 `scalar_meaning_requires_field_projection`, no location | PIE-B1003 `mysql_full_join_approved_non_support` at the JOIN, as without the field |
+
+### Scalar forms beside a JOIN in PostgreSQL projects
+
+- `emit-sql --project --dialect postgres` now emits a statement with a JOIN
+  whose other tables, queries and `let`s, those without a JOIN of their own,
+  use a conditional (also a `def` that inlines to one, such as
+  `length_band(minutes) == 2`), a comparison chain, `in`, a cast or a scalar
+  call: a query the JOIN reads, a `let` with capture lines that a JOIN reads
+  LATERAL, and a query that reads the JOIN's rows. Each renders as it does in
+  a statement without the JOIN, the CTE of a query the JOIN reads byte for
+  byte, and the compiled replay and the live template carry the same SQL. A
+  computed column of such a query, a derived `Date` among them, may be an
+  equality JOIN key. This closes the two-module example's limitation of
+  `0.1.10`: a query whose WHERE calls a def that inlines to a conditional is
+  no longer BLOCKED when another query JOINs it.
+- Over JOIN rows an aggregate argument that holds a scalar call is emitted
+  inside the aggregate, as over one input: `count(lower(r.label))`,
+  `count_distinct(trim(r.label))`, `count(len(r.label))`,
+  `count(lower(trim(r.label)))`.
+- Kept refused: such a form at a joined site, in the joined query's own
+  `let`, WHERE or `on` (`where band(r.id) == 2` after the JOIN, or
+  `let t = lower(r.label)` with `count(t)`), keeps its `0.1.10` blockers.
+- MySQL is unchanged: each of these statements keeps its `0.1.10` blockers
+  until its own two-database run.
+
+### `max(a, b)` and `min(a, b)` of two `Date` values in PostgreSQL projects
+
+- On PostgreSQL a project conditional whose values are two `Date` values of
+  one carrier is emitted as `CASE`, so `max(a, b)` and `min(a, b)` of two
+  `Date` values are too, with compiled replay and the live template, as for
+  two `Timestamp` values. MySQL keeps them refused (PIE-B1003
+  `conditional_realization_not_admitted`); project `Bool` values stay refused
+  on both targets.
+
+Compatibility (PostgreSQL projects; MySQL output is unchanged):
+
+| Input | Before (0.1.10) | Now |
+| --- | --- | --- |
+| A query whose WHERE calls `length_band(minutes) == 2`, read by another query's JOIN | BLOCKED PIE-B1003 `scalar_projection_requires_later_slice` at each SELECT item of the JOIN query, then `join_shape_not_admitted_in_slice7` | VERIFIED |
+| `count(lower(r.label))` over the rows of a JOIN | BLOCKED PIE-B1003 `operator_not_implemented_in_slice6`, `join_shape_not_admitted_in_slice7` | VERIFIED |
+| `max(a, b)`, `min(a, b)`, `a if c else b` of two `Date` values | BLOCKED PIE-B1003 `conditional_realization_not_admitted` | VERIFIED |
+
+Changed diagnostics (PostgreSQL projects; no message text changed): a
+statement with a JOIN that reads a table or query whose own form stays
+refused is now refused at that form, with its own blocker and suggestion.
+
+| Input | Before (0.1.10) | Now |
+| --- | --- | --- |
+| A query with `m = matches(label, "a.*")` read by another query's JOIN | BLOCKED PIE-B1003 `scalar_projection_requires_later_slice` at each SELECT item of the JOIN query, then `join_shape_not_admitted_in_slice7` (no location) | BLOCKED PIE-B1003 `scalar_call_signature_not_admitted` at the `matches` select item |
+
+### `Float` arithmetic and `Float` keys in PostgreSQL projects
+
+PostgreSQL project SQL (`emit-sql --project`) now emits these forms, which
+`check --project` already accepted (D76.02 E4, E6). MySQL project SQL keeps
+each one BLOCKED with its `0.1.10` code; the known limitations of this release
+list them. No VERIFIED output of `0.1.10` changes.
+
+- A `Float` `+`, `-` or `*` whose operands are not both `Float` literals, such
+  as `price * 2.0`, `price + cost` or `cost - price * price`, written
+  `(a * CAST('2.0' AS pg_catalog.float8))` or `(a + b)` (before: PIE-B1003
+  `float_literal_operands_required`), and a sign on a `Float` value, such as
+  `-price`, written `(-a)` (before: PIE-B1003
+  `unary_sign_requires_int_operand`). The value is Python's binary64 result,
+  the sign of a zero included (`-price` of `0.0` is `-0.0`). PostgreSQL fails
+  the statement with SQLSTATE 22003 where the result leaves binary64
+  (`value out of range: overflow`) and where a product of two non-zero values
+  rounds to zero (`value out of range: underflow`; Python gives `0.0`); it
+  never returns an infinity or a wrong value. Each such `+`, `-` or `*` has the
+  R05 evidence `{"overflow": "target_checked_binary64_overflow"}` (new on the
+  `arithmetic` requirement kind; a reader that requires a statically proved
+  finite result refuses it). The forms hold wherever a `let` does: in WHERE, a
+  computed `let` GROUP BY key, an aggregate argument (`sum(price * 2.0)`) and
+  over JOIN rows. A typed `None` operand keeps
+  `float_literal_operands_required`.
+- A `Float` as a window `partition by` or `order by` key (before: PIE-B1002
+  `window_partition_comparison_domain_unsupported`,
+  `window_order_comparison_domain_unsupported`), as a `string_agg` order key
+  (before: PIE-B1003 `group_key_type_outside_reviewed_comparison_domain`) and in
+  a FULL JOIN equality, alone or beside `Int` equalities (before: PIE-B1003
+  `full_join_equality_outside_reviewed_int_domain`).
+- A window `percent_rank` or `cume_dist` result read from another relation as
+  a `group by` key (before: PIE-B1003
+  `group_key_type_outside_reviewed_comparison_domain`), a `select distinct:`
+  column (before: `distinct_field_comparison_domain_unsupported`), a relation
+  `order by` key (before: `order_comparison_domain_unsupported`), a column of
+  UNION DISTINCT, INTERSECT and EXCEPT (before:
+  `set_row_equivalence_domain_unsupported`) and a window key (before: the
+  PIE-B1002 window details above).
+
+Each key compares by `Float` equality and orders by real value, as the
+[Float values](language.md#float-values) contract states: `-0.0` and `0.0` are
+one partition, peers of a window order and a FULL JOIN match, and a merged row
+shows some member's value. `count_distinct`, `min` and `max` of a
+`percent_rank` or `cume_dist` result, arithmetic over one, and an offset `RANGE`
+frame over a `Float` key stay BLOCKED.
+
+Fixed: a `group by` key over another relation's window result, such as
+`group by ranks.rk` with `rk = rank() window(order by g)` in the table
+`ranks`, was BLOCKED with PIE-B1008 `plan_ast_correspondence` on both
+dialects, because the independent emission verifier rebuilt the key column
+without the window origin the emitted column keeps; it is now emitted on
+PostgreSQL and MySQL.
+
+### Changed diagnostics
+
+The `PIE-B1003` detail `set_row_equivalence_domain_unsupported` keeps its
+code and ordering. Its suggestion changed from:
+
+> Use Int, Bool, Text, Decimal or Float with exact matching carriers. On MySQL a Float set is limited to UNION ALL, a window distribution result is limited to UNION ALL on both targets, and Timestamp to UNION ALL/DISTINCT; keep other unreviewed set carriers in check --project.
+
+to:
+
+> Use Int, Bool, Text, Decimal or Float with exact matching carriers. On MySQL a Float set, a window distribution result included, is limited to UNION ALL, and Timestamp to UNION ALL/DISTINCT; keep other unreviewed set carriers in check --project.
+
+The compiled record format is unchanged.
+
+### Project expression emission
+
+- PostgreSQL project emission now supports `Float % Float` over ordinary
+  finite `Float` operands with an exact binary64 truncating-quotient
+  remainder lowering. `check` and `check --project` accept it on both
+  targets; a single file and a MySQL project refuse it at emission (below).
+  Decimal and mixed numeric remainder still fail `check` with PIE-S2105.
+- PostgreSQL project `lag` and `lead` accept static Text literal defaults,
+  preserving UTF-8 text, C collation and the maximum result character width.
+- PostgreSQL project `Int / Int` and `Int % Int` now emit, and so does
+  `Float / Float` over ordinary finite `Float` operands; a zero divisor
+  remains a target error instead of becoming MySQL NULL.
+
+### Changed diagnostics
+
+- PostgreSQL project `Int / Int` and `Int % Int`, and `Float / Float` over
+  ordinary finite `Float` operands, previously blocked with
+  `PIE-B1003 binary_operator_not_admitted`, now emit.
+- A `Float %` failed `check --project` and `check` with PIE-S2105 in
+  `0.1.10`; both now accept it on both targets. A project emits it on
+  PostgreSQL over ordinary finite `Float` operands, the other project forms
+  below are BLOCKED, and a single file refuses it at emission.
+- A project `/` or `%` that stays BLOCKED reports the refusal of an operand
+  refused on its own, and a `/` of an `Int` and a `Float` reports
+  `arithmetic_requires_signed_int_operands`, where `0.1.10` reported
+  `binary_operator_not_admitted` (the last two project rows).
+
+The first two project rows hold for a literal operand, `None` included, or
+a field operand (`ratio / 2.0`, `None / ratio`, `ratio / ratio`,
+`ratio % 0.1` and `ratio % ratio` over a `Float` field `ratio`), and every
+project row holds for both literal policies. A `None` operand and a
+`percent_rank` or `cume_dist` result read from another relation are not
+ordinary finite `Float` operands. Each project blocker of the `Now`
+column is located as `binary_operator_not_admitted` is; an operand's refusal
+keeps the suggestion that operand has alone, and every other blocker has the
+suggestion of `binary_operator_not_admitted`.
+
+| Project form | 0.1.10 | Now |
+| --- | --- | --- |
+| MySQL `Float / Float` | BLOCKED PIE-B1003 `binary_operator_not_admitted` | BLOCKED PIE-B1003 `float_division_not_realized` |
+| MySQL `Float % Float` | `check --project` ERROR PIE-S2105 `Invalid operands for operator %: expected Int operands`; the `emit-sql --project` document is BLOCKED with that error and no blocker | BLOCKED PIE-B1003 `float_remainder_exact_binary64_not_realized` |
+| `/` over a `percent_rank` or `cume_dist` result read from another relation (`f / 2.0`), PostgreSQL or MySQL | BLOCKED PIE-B1003 `binary_operator_not_admitted` | BLOCKED PIE-B1003 `float_division_not_realized` |
+| `%` over such a result (`f % 2.0`), PostgreSQL or MySQL | as MySQL `Float % Float` | BLOCKED PIE-B1003 `float_remainder_exact_binary64_not_realized` |
+| PostgreSQL `/` with a `None` operand (`None / ratio`, `ratio / None`, `None / 2.0`, also in `where`) | BLOCKED PIE-B1003 `binary_operator_not_admitted` | BLOCKED PIE-B1003 `float_division_not_realized` |
+| PostgreSQL `%` with a `None` operand (`None % ratio`, `ratio % None`, `None % 2.0`, also in `where`) | as MySQL `Float % Float` | BLOCKED PIE-B1003 `float_remainder_exact_binary64_not_realized` |
+| `/` of an `Int` and a `Float` (`id / 2.0`, `ratio / id`, `2 / ratio`, also in `where`), PostgreSQL or MySQL | BLOCKED PIE-B1003 `binary_operator_not_admitted` | BLOCKED PIE-B1003 `arithmetic_requires_signed_int_operands` |
+| `/` or `%` with an operand refused on its own, such as MySQL `(id * 2) / 2`, `-id % 2` and `-ratio / ratio`, and `(f * 2.0) / 2.0` over such a result on PostgreSQL or MySQL | BLOCKED PIE-B1003 `binary_operator_not_admitted`; a `Float %`, such as MySQL `-ratio % ratio`, as MySQL `Float % Float` | BLOCKED with the refusal of the operand it holds, as that operand alone reports it: in order PIE-B1002 `arithmetic_outside_physical_range`, PIE-B1002 `unary_result_outside_physical_range`, PIE-B1003 `unary_sign_requires_int_operand` (also for `-ratio % ratio`) and PIE-B1003 `float_literal_operands_required` |
+
+| Single-file form | 0.1.10 | Now |
+| --- | --- | --- |
+| `Float % Float` (`ratio % ratio`, `ratio % 0.1`), PostgreSQL | `check` and `emit-sql` ERROR PIE-S2105 `Invalid operands for operator %: expected Int operands` at the `%` expression | `check` accepts it; `emit-sql` refuses it at the relation with PIE-B1000 `PostgreSQL SQL emission is not implemented for RelationIR: <name>. PostgreSQL Float remainder requires project emission` |
+| `Float % Float`, MySQL | as on PostgreSQL | `check` accepts it; `emit-sql` refuses it at the relation with PIE-B1000 `MySQL SQL emission is not implemented for RelationIR: <name>. MySQL Float remainder is not qualified` |
+
+#### Compiled compatibility
+
+This is the one Phase76 compiled schema and occurrence change: version
+marks become `(8, 1, 8, 1)`. Recompile bundles and saved jobs from `0.1.10`;
+the loader rejects their earlier marks with a typed failure. This does not
+request rerunning a database query or migrating saved result data; result
+reading keeps its separate existing contract.
+
+### PostgreSQL Decimal project carriers
+
+- PostgreSQL project emission now supports qualified Decimal plus/minus Int
+  and Decimal values of different scales, including typed header parameters
+  when the pair changes carrier shape. Its emitted arithmetic has the derived
+  `numeric(p,s)` carrier; an already-refused same-shape Decimal parameter pair,
+  Decimal literals, Decimal/Float and Decimal division remain refused.
+- Direct `sum(Decimal(p,s))` emits a checked `numeric(p+19,s)` result only
+  when that carrier fits 65 precision digits and 30 scale digits. A sum outside
+  it fails with SQLSTATE 22003 rather than returning a value outside Pietto's
+  result carrier. Decimal `avg` remains refused.
+
+### Changed diagnostics
+
+- PostgreSQL project `sum(Decimal(p,s))` forms that previously reported
+  `PIE-B1004 decimal_aggregate_range_proof_missing` now emit when their exact
+  input and result carrier satisfy the documented E10 bounds. MySQL and all
+  out-of-range or unqualified forms retain deterministic refusal.
+
+### PostgreSQL server verification with `ca_file`
+
+`PostgresAccess` gains an optional last field, `ca_file`: the path of a PEM
+file of the CAs you trust. With it, both PostgreSQL routes, `postgres_rows`
+and `postgres_adbc`, connect with libpq `sslmode=verify-full` and that file as
+the only root: the server's certificate must chain to a CA in the file and
+name `host`, in a subject alternative name of `host`'s kind (an IP address or
+a DNS name) or, when it has none of that kind, in its common name. Otherwise
+the attempt fails with `PIE-R2004` before the startup message, so neither the
+user name nor the password is sent; a missing file fails the same way. A `ca_file` with
+`sslmode="disable"`, an empty `ca_file`, `ca_file="system"` (libpq's name for
+the system's trusted roots) and a `ca_file` that is not a string are refused
+with `PIE-R1002` (`EXECUTION_ACCESS_PROFILE`) before any connection. Pietto
+reads no environment variable, default file or system store for a CA.
+`MySQLAccess` is unchanged; its `ca_file` stays required.
+
+Compatibility: `ca_file` defaults to `None` and comes after `sslmode`, so every
+existing call keeps its meaning and its connection options: without
+`ca_file`, `require` still encrypts without verifying the server. `repr()` of
+a `PostgresAccess` without `ca_file` is unchanged; with one it ends with
+`ca_file='PATH'`. No SQL, compiled record, bundle or saved-job record
+changes.
+
+### Read limits
+
+`ExecutionLimits` is the read-limit contract of execution, as documented in
+[Results](execution.md#results): `batch_rows` (at most 4096) and
+`batch_bytes` (at most 8 MiB) bound each batch, `max_rows` and `max_bytes`
+bound what an attempt delivers, `seconds` is its deadline, and each
+PostgreSQL statement has a server-side limit of at most 10 seconds. No limit
+changes. The PostgreSQL rows route still receives the whole native result at
+the first batch, so the delivery limits do not bound what the driver
+receives; bound the query with `limit`.
+
+Changed diagnostics (no accepted program changes):
+
+| Case | Before | After |
+| --- | --- | --- |
+| every `PIE-R2004` | message `the selected route's connection, TLS profile or authentication failed; PostgreSQL requires TCP SCRAM-SHA-256, a password encrypted with password_encryption='scram-sha-256', and a first matching pg_hba.conf scram-sha-256 line; MySQL requires caching_sha2_password, TLS and a caller CA that verifies server identity` | same code and category; message `the selected route's connection, TLS profile or authentication failed; PostgreSQL requires TCP SCRAM-SHA-256, a password encrypted with password_encryption='scram-sha-256', a first matching pg_hba.conf scram-sha-256 line and, with a ca_file, a server certificate that this CA verifies for the host; MySQL requires caching_sha2_password, TLS and a caller CA that verifies server identity` |
+| `PostgresAccess(..., ca_file=PATH)` | `TypeError` from the constructor | accepted, or `PIE-R1002` `EXECUTION_ACCESS_PROFILE` for the values above |
+
+### MySQL single files: constants, `--set` and `now()`
+
+- MySQL single-file emission writes top-level constants and `--set` values
+  as PostgreSQL does: each read is its literal, `DATE '...'` or
+  `TIMESTAMP '...'` for a `Date` or `Timestamp`, and the SQL is
+  byte-identical to the value written in the file. A table or query that
+  reads a constant, directly, through a `def` or a relationship or by reading
+  such a table or query, now emits; `0.1.10` refused each with PIE-B1000.
+  The statements of the two-database differential that checked constants
+  before `0.1.10` are emitted byte for byte.
+- `now()` in a MySQL single file is `UTC_TIMESTAMP(6)`, and `date_of(now())`
+  is `DATE(UTC_TIMESTAMP(6))`: the start of the running statement in UTC with
+  microseconds, one value for every read of the statement, whatever the
+  session time zone, as on PostgreSQL. A MySQL project still refuses `now()`
+  with PIE-B1003 `scalar_call_signature_not_admitted`.
+- The [capability page](capabilities.md) gains a row for `string_agg` and
+  splits query header parameters by type: `Bool`, `Int`, `Float` and `Text`
+  emit on MySQL projects, and `Decimal(p, s)`, `Date`, `Timestamp` and `UUID`
+  are BLOCKED there with PIE-B1003
+  `query_parameter_type_not_admitted_on_target`, as in `0.1.10`.
+
+Changed diagnostics (programs refused in `0.1.10`; no accepted program
+changes):
+
+| Code | Case | Before | After |
+| --- | --- | --- | --- |
+| PIE-B1000 | MySQL single file, a table or query that reads a constant | `MySQL SQL emission is not implemented for RelationIR: <name>. MySQL has no top-level constants yet; emit with --dialect postgres` | none: the relation emits, or reports the refusal of another form it holds |
+| PIE-B1000 | MySQL single file, a table or query that reads `now()` | `MySQL SQL emission is not implemented for RelationIR: <name>. Unsupported MySQL function call: now` | none: the relation emits, or reports the refusal of another form it holds |
+
+### Decimal multiplication by Int and unary signs
+
+`Decimal * Int` and `Int * Decimal`, and unary `+` and `-` of Decimal,
+now pass semantic checking. Single-file PostgreSQL and MySQL emission
+renders these forms, including `sum(amount * n)` for an Int field `n`.
+PostgreSQL projects retain an exact `Decimal(p+19,s)` product carrier while
+`p+19 <= 65`; unary signs preserve `(p,s)`. Qualified Decimal/Int header
+parameters use the same rule. MySQL project forms remain refused.
+
+This removes the former `PIE-S2105` messages and JSON suggestions
+`a Decimal multiplies only by a Decimal; Decimal times Int is not supported yet`
+and `a Decimal has no sign operator yet; write ...` for these forms, and the
+single-file product aggregate's `PIE-B1000`. Decimal/Float arithmetic still
+reports `PIE-S2105`; same-scale Decimal parameter addition and parameter
+Decimal/Decimal multiplication keep their refusal, as do project Decimal
+division and `avg`. Products wider than 65 digits remain `PIE-B1002`.
+
+### Computed let keys in single-file grouping
+
+Single-file queries can group by and select a concrete computed `let`, using
+its binding identity and inferred type as in projects. PostgreSQL and MySQL
+lower the key expression in place; nullable keys retain their nullability.
+The two-query form remains supported. The previous PIE-S2102 computed-key
+refusal and PIE-S2329 self-selection refusal disappear for admitted keys;
+non-key reads and invalid bindings remain refused. Scalar expressions around
+aggregate results are covered by the aggregate-composition notes.
+
+Semantic metadata keeps its v1 field-reference shape: computed GROUP BY keys
+report all real field dependency leaves in per-key encounter order, including
+repeats. A literal-only key has no field leaf; an empty `group_keys` summary
+is not proof that GROUP BY is absent. Existing direct-field JSON/text bytes
+are unchanged.
+
+### Scalars around aggregate results
+
+A single-file or PostgreSQL project SELECT can wrap direct aggregates in
+scalar calls and arithmetic, using literals and its GROUP BY keys:
+`coalesce(sum(qty), 0)` and `sum(qty) * 100 / count()` for `qty: Int | None`.
+In a single file, `round(avg(amount), 2)` accepts `amount: Decimal | None`.
+Each aggregate keeps its argument rules; each scalar keeps its type
+rules. The existing two-query route remains accepted. Computed `let` group
+keys retain their binding identity, and `first` and `last` retain their unique
+ordering requirement inside a scalar call.
+
+Nested aggregates, windows inside these expressions, raw input fields outside
+an aggregate that are not group keys, and same-SELECT aliases remain refused.
+This does not introduce general expressions after aggregation: conditional,
+comparison and constructor forms around aggregates remain outside this first
+version. A Float `avg` with a digits argument to `round` remains refused;
+a Decimal average here is a single-file form.
+
+`PIE-S2310` now says that aggregate composition requires scalar calls or
+arithmetic over direct aggregates, group keys and literals, then identifies
+the invalid composition. It retains the two-query suggestion. Supported
+compositions no longer produce that blanket refusal; an invalid scalar call
+reports its ordinary `PIE-S2104` type diagnostic instead, including a Float
+average passed to `round` with digits. Unknown names retain `PIE-S2102`.
+
+The worked example in `examples/queries/aggregate_composition.pietto` combines
+a computed Text group key, nullable Int quantities, nullable Decimal amounts,
+Decimal-by-Int multiplication, unary sign and aggregate composition, beside
+its two-query equivalent.
+
+In a grouped query with at least one real SELECT aggregate, another named
+scalar output may use only its group keys and literals, such as `label = id + 1`
+or `fixed = 7`. These checked outputs keep the existing HAVING and ORDER BY
+alias namespace. A whole grouped query without an aggregate stays refused.
+Without GROUP BY, a separate `fixed = 7` beside `n = count()` still reports
+`PIE-S2312`; a single wrapped aggregate such as `count() + 1` remains accepted.
+HAVING itself gains no new scalar-call or arithmetic syntax.
+
+Single-file ORDER BY of a standalone literal output remains refused with
+`PIE-S2380`, because spelling its value there would be read as a column
+position or rejected. A project's already projected ORDER BY port retains
+its existing value meaning.
+
+PostgreSQL projects use their qualified result carriers and retain each
+aggregate's argument and JOIN fan-out proofs. Decimal arithmetic keeps its
+operation-specific proof; SUM's checked cast is not a product range proof.
+MySQL projects refuse each authored outer composition in source order with
+`PIE-B1003 aggregate_composition_not_admitted_on_target`. The suggestion is
+`Keep this declaration in check/plan or select an artifact using the forms reviewed for the requested target. Do not relabel the target or source carrier to bypass this refusal.`
+The two-query route retains its target rules. Active compiled execution keeps
+the same boundary; retained logical-only records gain no execution grant.
+
+Aggregate SELECT parameter positions remain `PIE-S2355`. A legal WHERE
+parameter stays legal beside composition, while portable observation export
+with parameter reads stays `OUTSIDE_SCHEMA`. A specialized literal use across
+SELECT and HAVING makes every derived read of that authored identity preserve
+its value; equal text at another source occurrence is independent.
+
+Aggregate inspection records enumerate each real primitive call occurrence,
+including repeated calls, while keeping its outer selected-output ownership
+separate. `result_position` is the primitive-leaf ordinal and
+`selected_ordinal` remains the SELECT ordinal; a zero-leaf output creates no
+primitive fact. Existing direct-only record positions and wire fields remain
+unchanged.
+
+### Header compatibility and project formatting
+
+The semantic API ignores a hand-built Header's retired mode field:
+`analyze(script)` defaults to CHECKED, and `mode_override` is the caller's
+mode selection. Source headers still produce the same per-line `PIE-P1000`
+diagnostics, and `migrate` keeps its deletion and manual-migration behavior.
+The legacy header grammar and tokens remain until the Phase82 freeze to
+preserve those readers and their output bytes. No grammar, generated parser
+or built-in catalog input changed, so this change requires no extension sync.
+
+On platforms with directory-relative file operations, `fmt --project` binds
+each source write to the parent directory of its trusted read: it records that
+directory's identity at the read, reopens it for the write and refuses another
+directory, checks the opened file identity and original bytes, and uses the
+reopened directory for temporary files, replacement and cleanup. No directory
+stays open between reading and writing, so a project with more source
+directories than free file descriptors is formatted too. A detected directory
+or symlink replacement refuses the write; a move at the final operation cannot
+redirect the write to another directory. Formatting bytes and file order are
+unchanged.
+
+The directory binding starts at the trusted read, not initial directory
+discovery. The path-based fallback, including Windows, adds an opened-source
+identity check but does not eliminate every directory race. Writes remain
+atomic per file; a project is not one transaction.
+
+### A negated `-0.0` constant
+
+- A `Float` constant or `--set` value of `-0.0` now reads as `-0.0` written
+  in the file, a minus sign before `0.0`, as every other negative constant
+  does. Negating it emitted `--0.0` on both targets, which PostgreSQL reads
+  as the start of a comment: the rest of the line was lost, so the statement
+  failed or silently dropped the output. A sign before a negative literal is
+  now parenthesised.
+
+| Case | Before | After |
+| --- | --- | --- |
+| `flipped = -flip` with `flip: Float = -0.0` or `--set flip=-0.0` | `--0.0 AS "flipped"` | `-(-0.0) AS "flipped"` |
+| `scaled = amount * flip`, the same constant | `"amount" * -0.0 AS "scaled"` | `"amount" * (-0.0) AS "scaled"` |
+
+### An `any(...)` test as a window value is refused without a crash
+
+When the value of `lag`, `lead`, `first_value`, `last_value` or
+`nth_value`, or a `lag`/`lead` default, was an `any(...)` test, `check`,
+`check --project` and single-file `emit-sql` stopped with a Python
+traceback (`ValueError: Unsupported navigation expression: AnyExpr`) and
+`pietto lsp` exited when such a buffer was opened. Such a value is no direct
+field: a single file now reports PIE-S2104 at the call (`value must be a
+direct field or Bool, Text, Int, Float, or NULL literal`, or `default must
+be ...`). A project fails closed at the call too: with PIE-S2104 over JOIN
+inputs, as a single file does, and with PIE-S2103 over a single input, as
+it already does for a window whose PARTITION BY or ORDER BY reads
+`any(...)`. No accepted program changes.
+
+### Project aggregate windows keep their argument refusals
+
+A selected aggregate window in an explicit-module project, over the input
+rows, JOIN rows or grouped rows, whose argument nests an aggregate
+(PIE-S2311) or is refused by the aggregate argument rule (PIE-S2315) now
+reports that error where a single file reports it, instead of crashing:
+`sum(count()) window(order by id)` reports PIE-S2311
+`Nested aggregate count() is not supported` at the inner call, and
+`sum(None) window(order by id)` reports PIE-S2315
+`Aggregate function sum requires a direct field argument; expression
+arguments are not supported yet` at the call.
+
+| Command | Before (`0.1.10` and until this fix) | After |
+| --- | --- | --- |
+| `pietto check --project` | Python traceback, `ValueError: Window diagnostics must retain exact analyzer source evidence.` | the PIE-S2311 or PIE-S2315 error, exit 1 |
+| `pietto explain --project` | `project error: project_resource: Project relation columns are unavailable.` | the same error |
+| `pietto emit-sql --project` | `INPUT_REJECTED` with `emission_selector` `Project planning roots are unavailable.` | `BLOCKED` with the same error |
+| `pietto lsp` with the project in `projectRoots` | `project error: project_root: Project root could not be pinned.` at `pietto.toml` | the same error at the call |
+
+A window in a hidden QUALIFY already reported these errors. No code is new,
+and the CLI JSON, project JSON and relation-column formats are unchanged.
+
+### Editor project roots that no file can have
+
+The alpha `pietto lsp` server no longer stops when the `projectRoots`
+initialization option holds a path that no POSIX file can have: one with a
+NUL character, or with an unpaired UTF-16 surrogate that the file system
+encoding cannot write. It refuses such a list as it refuses any other invalid
+value, with the JSON-RPC error `-32602` and the message `projectRoots must be
+a list of distinct absolute paths`, and then waits for the next message.
+
+Before (measured at `864411cb` on Linux with CPython 3.13.13):
+`"projectRoots": ["/tmp/a\u0000b"]` ended the server with exit code 1 and a
+`ValueError` traceback on standard error, and `"projectRoots":
+["/tmp/r\ud800"]` ended it with exit code 2 and `pietto: error: terminal
+output could not be encoded`; neither request got a reply. After: both get the
+`-32602` error above. On Windows, whose `realpath` accepts both paths, nothing
+changes. Valid roots, diagnostics, the CLI commands, CLI JSON and PIE codes
+are unchanged. The surface is alpha until the Phase82 freeze.
+
+### PostgreSQL single-file `Int` literals and `len()` in 64 bits
+
+- PostgreSQL types `length()` and an integer literal that fits 32 bits as
+  `integer`, so single-file `Int` arithmetic over them failed with SQLSTATE
+  22003 (`integer out of range`) beyond 32 bits, although a Pietto `Int` is
+  a signed 64-bit integer: `1024 * 1024 * 1024 * 4` or `len(s) * len(s)`.
+  Single-file PostgreSQL SQL now writes `len(s)` as
+  `CAST(length(s) AS bigint)` and casts the left operand of an `Int` `+`,
+  `-`, `*` or `%` whose two operands may both be `integer`: such a literal,
+  or a sign, quotient, `abs`, `coalesce`, `nullif` or conditional of them.
+  PostgreSQL reads `-2147483648` as the smallest `integer`, so `-x`,
+  `abs(x)` and `x / -1` of it failed as well; that literal is now written
+  `CAST(-2147483648 AS bigint)` wherever it stands. Other arithmetic with a
+  field or another `bigint` operand, `/`, MySQL and project SQL are
+  unchanged.
+- Known limit, as before: PostgreSQL still computes in `integer` over an
+  output that is such a value where another relation reads it
+  (`x = 2147483647` read as `x + 1` fails with 22003), over `min` or `max`
+  of such a value, and over `ntile`.
+
+Changed PostgreSQL single-file SQL (measured on `main` before the change):
+
+| Pietto | Before | After |
+| --- | --- | --- |
+| `len(name)` | `length("name")` | `CAST(length("name") AS bigint)` |
+| `1024 * 1024 * 1024 * 4` | `((1024 * 1024) * 1024) * 4` | `((CAST(1024 AS bigint) * 1024) * 1024) * 4` |
+| `where id < 65536 * 65536` | `WHERE "id" < (65536 * 65536)` | `WHERE "id" < (CAST(65536 AS bigint) * 65536)` |
+| `-2147483647 - 1` | `(-2147483647) - 1` | `CAST(-2147483647 AS bigint) - 1` |
+| `-2147483648 * 2` | `(-2147483648) * 2` | `CAST(-2147483648 AS bigint) * 2` |
+| `-(-2147483648)`, `abs(-2147483648)` | `-(-2147483648)`, `abs((-2147483648))` | `-CAST(-2147483648 AS bigint)`, `abs(CAST(-2147483648 AS bigint))` |
+| `where id > -2147483648` | `WHERE "id" > (-2147483648)` | `WHERE "id" > CAST(-2147483648 AS bigint)` |
+| `count(len(name))` | `COUNT(length("name"))` | `COUNT(CAST(length("name") AS bigint))` |
+| `id * 2`, `7 / 2`, `2147483648 * 2` | unchanged | unchanged |
+
+### Single-file `Int` literals in the signed 64-bit range
+
+- A single file accepted an `Int` literal outside the signed 64-bit range,
+  which PostgreSQL computed as a `numeric` (so `/` kept a fraction) and
+  MySQL `DIV` refused at run time. An `Int` literal, with a sign written
+  directly before it, now lies from -9223372036854775808 to
+  9223372036854775807: outside it, a file with no other error reports
+  PIE-S2364, the code of a VALUES cell outside that range, at the literal.
+  `-9223372036854775808` is accepted. A limit, window frame offset or window
+  count out of range keeps its own error alone (PIE-S2307, PIE-S2104).
+  An `lpad` width or `substr` index beyond the range has only a PIE-S2385
+  warning, so it reports PIE-S2364 as well: `check` now fails, and
+  PostgreSQL `emit-sql` reports PIE-S2364 in place of its PIE-B1000.
+  The range holds wherever the literal stands, beside a `Decimal` or
+  `Float` value too: a single file can no longer compare a `Decimal` with
+  an integer beyond it, and a `Float` operand is written with a decimal
+  point (`100000000000000000000.0`).
+- An `Int` constant or `--set` value outside the range is no `Int` literal:
+  the constant reports PIE-S2391 and the `--set` value is a usage error
+  (exit 2). Their messages name the range.
+
+New refusals (programs accepted before):
+
+| Code | Case | Before | After |
+| --- | --- | --- | --- |
+| PIE-S2364 | `q = id / 9223372036854775808` in a single file | `check` passes with PIE-S2106 | ``Int literal 9223372036854775808 is outside the signed 64-bit range from -9223372036854775808 to 9223372036854775807.`` |
+| PIE-S2364 | `where amount > 100000000000000000000`, `amount: Decimal(38, 0)` | accepted, compared exactly | the same message |
+| PIE-S2364 | `ratio * 100000000000000000000`, `ratio: Float` | accepted | the same message; `ratio * 100000000000000000000.0` is accepted |
+| PIE-S2364 | `lpad(name, 99999999999999999999, "0")`, `substr(name, 99999999999999999999, 1)` | `check` passes with PIE-S2385; PostgreSQL `emit-sql` refuses with PIE-B1000 | the same message beside PIE-S2385, in `check`, `emit-sql` and `explain` |
+| PIE-S2391 | `n: Int = 9223372036854775808` | accepted | ``Constant `n` takes one `Int` literal: an integer such as `10` or `-10`, from -9223372036854775808 to 9223372036854775807.`` |
+| usage error | `--set n=9223372036854775808` | accepted | ``--set n: constant n has type Int; write an integer such as 10 or -10, from -9223372036854775808 to 9223372036854775807`` |
+
+### Results wider than one batch
+
+`execute()`, `save`, `save_recoverable` and `relay_live` refuse a query whose
+result needs more than the 64 Arrow fields of one batch with `PIE-R1004`
+(`detail` `LIMIT`) while they prepare it, before any workspace access or
+connection. A collected field counts once for itself and once for each of its
+child fields. `compile_query`, `export_bundle` and `load_bundle` still accept
+such a query.
+
+Before (measured at `864411cb` on Linux with CPython 3.13.13 and PyArrow
+26.0.1, without a database): a `table` of 65 columns compiled, exported and
+loaded, `execute()` returned a handle and `pa.schema(result)` had 65 fields,
+and the attempt's batch step refused one row with `PIE-R3004` (`detail`
+`LIMIT`), which names row and byte limits that a caller can change but not
+this one. Read from that code, without a database run: the attempt refused
+only after its statement had run, an empty result completed with no rows, and
+a saved empty result could not be read. After: the same `execute()` raises
+`RequestRejected` `PIE-R1004` and nothing connects, so an empty result of such
+a query is refused too.
+
+The check runs after the code identity check and before the premise, access,
+collection-route and R2 checks, so a request of more than 64 fields that one
+of those also refuses now gets `PIE-R1004` (`LIMIT`) first. Measured at
+`864411cb` and after: 65 columns with a premise that does not cover their
+source went from `PIE-R1002` to it, and a collected field with 64 child
+fields went from `PIE-R1003` (`COLLECTION_ROUTE`) on `postgres_adbc` and from
+`PIE-R1004` (`COLLECTION_ENTRY`) in `relay_live` to it. No PIE code is added;
+queries of at most 64 fields, SQL output and saved-result formats are
+unchanged.
+
+### Package asset paths that start with a letter and a colon
+
+A package manifest asset path of any kind whose first character is a
+non-ASCII letter followed by a colon, such as `é:x.pietto`, is now refused
+as `C:/x.pietto` is: `explain --project` reports `project_path`
+`Package manifest assets[0].path is structurally invalid.` and exits 2.
+In JSON output its `location` names the path as a `package_relative`
+value, where the `C:/x.pietto` error has a `null` location.
+
+A manifest with a lone `module_source` asset `é:x.pietto` used to pass,
+and `explain --project` printed a Python `ValueError` traceback and exited
+1. Manifests that were already refused now report this `project_path`
+error in place of a `config_schema` error located at `pietto-package.toml`,
+and still exit 2:
+
+- a `data` asset `é:x.pietto`, which reported
+  `Package manifest assets[0].kind must be module_source.`;
+- a `module_source` asset `é:x.txt`, which reported
+  `Package manifest assets[0].path must end with .pietto.`;
+- two `é:x.pietto` assets, which reported one
+  `Package manifest assets[1].path duplicates assets[0].path.` error and
+  now report one `project_path` error for each asset.
+
+No dependency path changed, and no diagnostic code or JSON shape was added.
+
+### Project configuration `[package]` table proof
+
+A schema-v3 or schema-v4 `pietto.toml` now proves its `[package]` root
+table with two TOML parses: one finds the only line that looks like a
+`[package]` header and opens the table, and one renames that line to prove
+it is the header, as before. The proof used to rename each such line in
+turn and parse the whole file again, so its work grew with the square of
+the number of such lines, for example lines inside a multi-line string.
+
+A NaN anywhere in the file no longer fails that proof, so the file reports
+its own fault, such as
+`Project [capability_environment] contains unsupported key: weight.`, where
+it reported
+`Project configuration schema-v4 package activation requires an exact [package] root table.`
+
+New refusal: a multi-line string that holds a line that looks like a
+`[package]` header followed by a `#` comment containing the string's closing
+quotes can now get the exact-table message where the file loaded before,
+for example inside the `[package]` table itself, or in a capability fact's
+`operands` array that continues on the next line. Every refusal keeps the
+`config_schema` kind, and no file that was refused now loads.
+
+### Single-file window values from every JOIN binding
+
+In a single file with JOIN inputs, the value of `lag`, `lead`,
+`first_value`, `last_value` or `nth_value`, and a `lag`/`lead` default, may
+now be a field of any JOIN binding, such as `lag(o.amount)` over a query
+that joins `o`, as a project already accepts. Before, only a field of the
+FROM relation was accepted there and `lag(o.amount)` was PIE-S2104 (`value
+must be a direct field or Bool, Text, Int, Float, or NULL literal`), even
+where the PIE-S2335 refusal of an ambiguous bare name asked for `o.amount`.
+PostgreSQL and MySQL emit the binding's column, such as
+`LAG("o"."amount") OVER (ORDER BY "o"."id" ASC)`, and a field that a LEFT
+JOIN may null-extend gives a nullable result. A hidden QUALIFY window
+accepts the same values. A wrong value of a JOIN binding now reports its
+real cause, as a project does: an unknown field, such as `lag(o.missing)`,
+reports only PIE-S2102, without a PIE-S2104 beside it, and a default of
+another type, such as `lag(o.amount, 1, "x")` over an Int `amount`,
+reports PIE-S2104 `value and default must have the same exact type`.
+
+### Editor navigation — independent editor work package
+
+The alpha `pietto lsp` server now provides hover and go-to-definition for
+resolved type and `from` references, plus document symbols for named top-level
+declarations. Configured schema-v2 projects retain exact import and re-export
+targets; `def` functions, relationship templates and single-file constants
+appear in source order.
+
+The server answers from facts attached to its current analysis; a request sent
+while an analysis of its document or project root is pending waits for it.
+Beside a project module with an error, the other modules keep their facts, but
+no use navigates into that module. Unknown, conflicting, omitted or stale
+facts, and a legacy-flat root, produce no navigation result; a request does
+not reparse, compile or read disk. Builtin types have hover text and no
+authored definition. Field, let, parameter and function-call navigation,
+including a `from` that reads a relation let or a table-function input,
+workspace symbols and filesystem watching remain outside this first version.
+
+Standard LSP capability negotiation handles hover and symbol response formats.
+A `file:` URI whose host does not parse, such as `file://[::1/x.pietto`, no
+longer stops the server: it is checked as a standalone document. Existing
+diagnostic codes, CLI JSON, semantic metadata and relation-column formats are
+unchanged. This is the independently authorized editor line,
+not an additional MySQL slice or a Marketplace release.
+
+### Editor formatting — editor core work package
+
+The alpha `pietto lsp` server now formats an open document: it advertises
+`documentFormattingProvider` and answers `textDocument/formatting` with one
+edit of the whole buffer that gives what `pietto fmt` prints for the same
+text: it keeps a leading byte order mark and writes every line break as the
+buffer's first one (LF when it has none). A buffer that is already formatted
+gets no edit. The request has no result when
+`pietto fmt` would refuse the buffer (a parser error, a retired header line,
+the size limit, or output that formatting would not keep), when the document
+is not open, when its last change was refused, or when the editor sent
+unpaired UTF-16 surrogates.
+
+Formatting reads only the open buffer: it neither waits for the analyses that
+edits schedule nor starts one, although an analysis already running when it
+arrives ends first; it reads and writes no file and publishes no
+diagnostic. The editor's formatting options are ignored, because `fmt` has one
+layout, and `fmt` output may still change before the Phase82 freeze. Range and
+on-type formatting are not provided. Diagnostics, hover, definition and
+document symbols are unchanged, and so are the CLI commands, CLI JSON, PIE
+codes, semantic metadata and relation-column formats. The surface is alpha
+until the Phase82 freeze.
+
+### Editor workspace symbols and import links — editor core work package
+
+The alpha `pietto lsp` server now advertises `workspaceSymbolProvider` and
+`documentLinkProvider`. A `workspace/symbol` request lists the declarations
+that document symbols list, for every module of the configured roots and
+every other open document: the roots in `projectRoots` order, each root's
+modules in the order `pietto check --project` selects them, then the other
+open documents in URI order, each in source order. Every occurrence is kept,
+so a name declared in two modules is listed twice. A declaration is listed
+when the characters of the query appear in its name in order, ignoring the
+case of ASCII letters, and every one is listed for an empty query. The
+request waits while any analysis is pending, and a module or document without
+facts lists nothing.
+
+A `textDocument/documentLink` request returns one link for each import of a
+schema-v2 project module, on the import path's string, to the module whose
+project-relative path the string names exactly, as `pietto check --project`
+resolves it. The target may have errors of its own, but there is no link in
+a single file or in a module without facts, and none to a module that the
+check left out, whose file shows a root, URI or file-name conflict, or whose
+open document had a change refused, until that document is reopened.
+Neither request resolves items later.
+
+Both answer from the analysis that the diagnostics come from, with no new
+check and no file read. Diagnostics, hover, definition, document symbols and
+formatting are unchanged, and so are the CLI commands, CLI JSON, PIE codes,
+semantic metadata and relation-column formats. The surface is alpha until the
+Phase82 freeze.
+
+### Editor completion — editor core work package
+
+The alpha `pietto lsp` server now advertises `completionProvider` and answers
+`textDocument/completion` with one list: the keywords that current source
+writes (`True`, `False` and `None` included), the builtin types, the scalar
+functions and aggregates of the core catalog, and then the identifiers that
+the open buffer writes outside comments and strings, such as its field, `let`,
+relation and parameter names, except the word being typed. Nothing else in
+the list depends on the position, so the editor filters it as you type. The
+server answers when it reads the request: it neither waits for nor starts an
+analysis. It reads the buffer's words with one scan and does not parse, check
+or classify them; a name spelled like a keyword, such as a field named `mode`,
+is not among them, and other files are not read.
+
+Words that `pietto check` refuses are not part of the fixed list: the retired
+header words, `satisfying`, `semi` and `anti` JOINs, `cast`, `null`,
+`nullable`, `endpoint` and `via`, and the PostgreSQL extension functions,
+which are not callable. Window functions are not part of it either. A word
+that is both a keyword and an aggregate, such as `first`, is one item of each.
+There are no trigger characters, no resolve request, no context-aware
+completion and no signature help.
+
+On a development host of VS Code 1.145.2 with default settings and the Pietto
+extension, the fixed list alone replaced the editor's word-based suggestions
+in a `.pietto` file: the start of a field, `let` or relation name of the open
+file had no suggestion, while the extension's snippets stayed. The buffer's
+names are in the list so that they are still suggested; words of other open
+files are not.
+
+Diagnostics and document symbols are unchanged, and so are the CLI commands,
+CLI JSON, PIE codes, semantic metadata and relation-column formats. The surface
+is alpha until the Phase82 freeze.
+
+### Editor hover and definition for fields, lets and calls — editor core work package
+
+The alpha `pietto lsp` server now answers hover and definition on more uses,
+each from a binding that the analysis already keeps, one fact per written
+occurrence. In a single file, a field read of a JOIN relation shows
+`field NAME` and, when it reads a source, defines the field of the source's
+shape; a relationship call shows `relationship NAME` and defines its
+template. In a schema-v2 project, a name that a `let` value, `select` item or
+`where` of a relation without JOIN reads shows `field NAME` or `let NAME`
+when the analysis bound it to exactly one input field or `let`: the field
+defines its shape field when the relation reads a source, and the `let` its
+binding. A `from` that reads a relation let now shows `let NAME` and defines
+that let.
+
+Every other use still has no hover or definition. In a single file, that is
+any other read, such as one of a relation without JOIN, and a `let` use. In a
+project, it is any other read, such as a JOIN relation's reads or a
+`group by`, `order by` or window read, and a relationship call. In both, it
+is a `def` call or parameter, a relationship parameter, a relationship call's
+argument and a `from` that reads a table-function input. The facts come
+from the analysis that the diagnostics come from, with no new check and no
+file read. Diagnostics, document and workspace symbols, links and formatting
+are unchanged, and so are the CLI commands, CLI JSON, PIE codes, semantic
+metadata and relation-column formats. The surface is alpha until the Phase82
+freeze.
+
+### MySQL `Float` literal-list membership over two row reads
+
+Fixed: MySQL project SQL (`emit-sql --project`) emitted a `Float` `in` or
+`not in` literal list whose value and one of its options both read rows,
+although each option stands for an `==` with the value and MySQL refuses
+that `==` (PIE-B1003 `comparison_type_pair_not_admitted`). Such a list is
+now BLOCKED with PIE-B1003 `membership_type_pair_not_admitted`, located as
+that comparison is. Examples are `ratio not in (ratio)` and
+`any(z.ratio in (rows.ratio) and z.text == rows.text for z in z)`, which
+`0.1.10` emitted as a correlated `EXISTS` that differs from the refused
+`==` form only in writing `IN (x)` for `= x`.
+
+- A literal list whose value reads no row, or whose options read none, such
+  as `0.0 in (ratio, 1.0)` or `ratio in (0.0, -0.0)`, is emitted as before.
+- `value in r` over the one column of a relation `r` is unchanged on both
+  targets, and PostgreSQL emits every form above as before.
+- A compiled MySQL artifact that holds such a list is refused when it is
+  replayed.
+
+### Dependency maintenance: PyArrow 26.0.1 and Psycopg 3.3.8
+
+- The optional extras now install `pyarrow==26.0.1` (`arrow`,
+  `execute-postgres`, `execute-mysql` and `execute-postgres-adbc`) and
+  `psycopg[binary]==3.3.8` (`execute-postgres`) instead of `26.0.0` and
+  `3.3.5`. The core install is unchanged and still needs no Arrow.
+- Only the new pins are accepted. An environment that keeps `pyarrow 26.0.0`
+  is refused with `PIE-R2002`, before any connection on every route and at
+  every public Arrow use including saved results, and `pa.schema(result)`
+  refuses it with `PIE-R4004`; `postgres_rows` likewise refuses
+  `psycopg 3.3.5` with `PIE-R2002` before connecting. Upgrading `pietto`
+  alone leaves an extra's packages in place, so reinstall with the extra, for
+  example `pip install -U "pietto[execute-postgres]"`.
+- Psycopg `3.3.8` is chosen over `3.3.7`, whose change to the system SSL
+  directory lookup `3.3.8` reverts.
+- SQL output, result values and saved-result formats are unchanged. The
+  `postgres_rows`, `postgres_adbc` and `mysql_rows` routes passed fresh local
+  runs with the new pins against PostgreSQL 18.6 and MySQL 8.4.12.
+
+### Known limitations of 0.1.11
+
+- **MySQL refusals.** MySQL support trails PostgreSQL: a form opens on MySQL
+  only after a two-database differential passes, and until then MySQL
+  emission refuses it with a PIE-B code and writes no SQL. The MySQL catch-up
+  of Phase77 is not part of this release; Phase77 continues it toward
+  `0.1.12`, and each form opens only when its own run passes. These forms are
+  refused on MySQL in `0.1.11`; the [capability page](capabilities.md) and
+  the subsections above give the codes of most of them:
+  - in single files and projects: `median` and `quantile` (MySQL has no
+    interpolated percentile), the conditional sum
+    `sum(o.f for o in group if ...)`, `string_agg` (`GROUP_CONCAT` truncates
+    silently), and `first` and `last`;
+  - in single files: `stddev`, `variance`, `pvariance` and `pstdev` of an
+    `Int`; a window key that names a computed `Text` `let`; and an asof JOIN
+    in a relation with a FULL JOIN;
+  - in projects: `Int` arithmetic not proved to fit signed 64 bits, `Int /`
+    and `Int %`; `sum` of an `Int`; `stddev`, `variance`, `pvariance` and
+    `pstdev` of an `Int`; `Float` arithmetic other than between two
+    literals, a sign on a `Float` value, `Float /` and `Float %`;
+    `count_distinct`, `sum`, `avg`, `stddev`, `variance`, `pvariance` and
+    `pstdev` of a `Float`; a `Float` GROUP BY key, `select distinct` over a
+    `Float`, `Float` `union distinct`, `intersect` and `except`, a `Float`
+    window key, `string_agg` ordered by a `Float` and a `percent_rank` or
+    `cume_dist` result as a key; `==` and `!=` between two `Float` row
+    reads, `same_value` of two such values and a `Float` literal list whose
+    value and an option both read rows; `Decimal(p, s)`, `Date`,
+    `Timestamp` and `UUID` query parameters; the conditional count,
+    aggregate windows, `count_distinct(a, b, ...)`, and `any` and `all` over
+    a group; scalar calls or arithmetic around aggregate results; `Decimal`
+    plus or minus an `Int` or another scale, `Decimal * Int`, a sign on a
+    `Decimal` and a direct `sum` of a `Decimal`; a conditional, `in`, cast
+    or scalar call beside a JOIN, and `max(a, b)` and `min(a, b)` of two
+    `Date` values; `lag` and `lead` with a `Text` literal default; `lpad`,
+    `add_months`, `concat`, `now()`, `round` with digits, `date_trunc` and
+    `Text(x)` of an `Int`; typed `values(...)` and `generate_series`; FULL
+    JOIN, which is not planned; and collected lists and nested results,
+    which leave Phase77 for a separate work package.
+
+  `sum` of an `Int` and nested results are approved exceptions to the
+  MySQL cadence; `stddev` of an `Int` is one too and has no target release.
+- On MySQL, `lower`, `upper` and `replace` give NULL when the result would
+  exceed the server's `max_allowed_packet`, although Pietto types the result
+  from its arguments.
+- `Float % Float` is accepted by `check` but refused by single-file
+  `emit-sql` on both targets (PIE-B1000); a PostgreSQL project emits it.
+- Window forms of `variance`, `pvariance`, `pstdev`,
+  `count_distinct(a, b, ...)`, `first` and `last` are refused, and
+  `any(... for o in group)` and `all(... for o in group)` take no window.
+  The conditional count and sum, `any`, `all`, `first` and `last` over JOIN
+  rows are refused (PIE-S2334): join in one query, then group it in another
+  that reads it with `from`.
+- A project FULL or CROSS JOIN that reads a `Timestamp`, `Date` or `UUID`
+  field (a `select` item, a `where` operand, a group key or a window key) is
+  BLOCKED (PIE-B1003 `scalar_meaning_requires_field_projection`) on both
+  targets while an input has a `Timestamp` or `UUID` field; an unread field
+  no longer blocks it.
+- `max(a, b)` and `min(a, b)` of two numeric types, such as an `Int` and a
+  `Float`, are refused (PIE-S2104), and six or more nested values stop at
+  PIE-S2399; a project `max(a, b)` of two `Bool` values is refused
+  (PIE-B1003) on both targets. `add_months` takes a `Date` only.
+- `pietto lsp` publishes no backend refusal (`PIE-B...`) and discovers no
+  root (roots come only from `projectRoots`); hover, definition and
+  completion cover only the uses their subsections list. A root nested
+  inside another root through a symbolic link publishes its modules under
+  both spellings without the overlap message.
+- The known limitations of 0.1.10 that the subsections above do not change
+  still hold.
+
 ## Aggregates, cross-module reuse and editor tools public alpha release notes — 0.1.10
 
 <a id="unreleased-changes-following-019"></a>

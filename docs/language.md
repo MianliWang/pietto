@@ -210,7 +210,7 @@ user, is not a regular file or is in a directory it cannot write.
 It then replaces each module that changes, atomically and in module order, and
 stops with exit 2 at the first one that changed after it was read or that it
 cannot replace; the modules already replaced stay replaced. It writes no file
-that the project does not select. In the Phase76 B2 source candidate, on
+that the project does not select. Since `0.1.11`, on
 platforms with directory-relative file operations, each source write is bound
 to the parent directory of its trusted read: that directory's identity is
 recorded at the read, and the write reopens the directory and refuses one with
@@ -3896,7 +3896,7 @@ WHERE ("ordered_at" BETWEEN '2026-01-01 00:00:00' AND '2026-12-31 23:59:59') AND
 
 ## Aggregates and grouping
 
-The Phase76 B2 source candidate admits an explicitly named SELECT expression
+Since `0.1.11`, Pietto admits an explicitly named SELECT expression
 that wraps direct aggregates in scalar calls or arithmetic (`+`, `-`, `*`,
 `/`, `%` and unary signs). Outside aggregate arguments it reads only GROUP BY
 keys and literals. Each aggregate keeps its argument and JOIN fan-out rules;
@@ -3925,9 +3925,7 @@ pass `check`, but emission retains its refusal. The existing two-query route
 remains accepted; the [worked example](../examples/queries/aggregate_composition.pietto)
 places both forms beside typed inputs. PostgreSQL projects admit only
 qualified carriers; MySQL projects retain PIE-B1003
-`aggregate_composition_not_admitted_on_target`. These candidate changes are
-not part of the published `0.1.10` distribution; B2 validation and publication
-remain pending.
+`aggregate_composition_not_admitted_on_target`.
 
 The current aggregate family is:
 

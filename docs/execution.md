@@ -1,18 +1,19 @@
 # Execution (public alpha)
 
-**Version:** This document describes the `0.1.10` public alpha API plus
-explicitly marked unreleased source changes. The accepted `0.1.10` files are
-published on its versioned GitHub pre-release and PyPI channels.
+**Version:** This document describes the public alpha API of the `0.1.11`
+candidate. Release availability is established only when the exact accepted
+files appear on the versioned GitHub pre-release and PyPI `0.1.11` channels.
 The published `0.1.2` distributions select `pyarrow==25.0.1`; the published
 `0.1.3`, `0.1.4`, `0.1.5`, `0.1.6`, `0.1.7`, `0.1.8`, `0.1.9`
-and `0.1.10` distributions select `pyarrow==26.0.0`. The published `0.1.5` distributions select
+and `0.1.10` distributions select `pyarrow==26.0.0`, and `0.1.11` selects
+`pyarrow==26.0.1`. The published `0.1.5` distributions select
 `mysql-connector-python==26.7.0`, `adbc-driver-postgresql==1.12.0` and
-`adbc-driver-manager==1.12.0`; the published `0.1.6`, `0.1.7`, `0.1.8` and
-`0.1.9` and `0.1.10` distributions select `mysql-connector-python==26.10.0` and
+`adbc-driver-manager==1.12.0`; the published `0.1.6`, `0.1.7`, `0.1.8`,
+`0.1.9` and `0.1.10` distributions and this candidate select `mysql-connector-python==26.10.0` and
 `1.13.0` of both ADBC packages. The historical `0.1.1` wheel does not provide this alpha surface.
 
-This checkout's unreleased dependency maintenance pins `pyarrow==26.0.1` and
-`psycopg[binary]==3.3.8`; the published `0.1.10` distributions keep `26.0.0`
+The dependency maintenance of `0.1.11` pins `pyarrow==26.0.1` and
+`psycopg[binary]==3.3.8`; the published `0.1.10` distributions select `26.0.0`
 and `3.3.5`. Fresh native runs on the integration host (Linux x86-64, CPython
 3.13.13, the lock's exact artifacts) passed these selected cases with the new
 pins: against MySQL 8.4.12, the six `mysql_rows` native cases (rows, empty,
@@ -87,7 +88,7 @@ execution or a supported Windows profile.
 
 ## Install
 
-The `0.1.10` distribution exposes `pietto.execution`. Install the extra of the
+The `0.1.11` distribution exposes `pietto.execution`. Install the extra of the
 route you use from PyPI into a fresh virtual environment:
 
 ```bash
@@ -115,7 +116,7 @@ An environment that keeps the pins of an earlier release, such as `pyarrow
 upgrading `pietto` alone does not upgrade an extra's packages, so reinstall
 with the extra, for example `pip install -U "pietto[execute-postgres]"`.
 The published 3.3.5/26.0.0 extras were verified on CPython 3.13.13, Linux
-x86-64, with the lock's exact artifacts; this checkout's 3.3.8/26.0.1 passed
+x86-64, with the lock's exact artifacts; the 3.3.8/26.0.1 of `0.1.11` passed
 the maintenance runs listed at the top of this guide. Other platforms,
 interpreters and driver versions are not covered.
 
@@ -262,7 +263,7 @@ except RequestRejected as error:
 
 ### Saved-result API
 
-These APIs are public alpha in `0.1.10`. They do not add a CLI database
+These APIs are public alpha in `0.1.11`. They do not add a CLI database
 command. Existing `check`, `emit-sql`, text output and JSON output keep their
 contracts: JSON uses `ensure_ascii=True` and one trailing newline, while
 `--output` reports its clear output error through the established CLI result
@@ -1615,16 +1616,16 @@ or a successful semantic check alone establishes none of those premises.
   environment that built it); there is no migration between versions. The
   identity is read from the installed files at each call, so restart running
   processes after the installed code changes.
-  A bundle or saved-job record made under `0.1.9` or earlier is refused under
-  `0.1.10` by the changed code identity. The old bytes are preserved; use their
+  A bundle or saved-job record made under `0.1.10` or earlier is refused under
+  `0.1.11` by the changed code identity. The old bytes are preserved; use their
   matching old environment. Pietto supplies no migration or rewrite.
-  The Phase76 source candidate changes compiled marks from `(7, 1, 7, 1)`
+  `0.1.11` changes compiled marks from `(7, 1, 7, 1)`
   to `(8, 1, 8, 1)` once. Keep `pietto==0.1.10` for its retained bundles
   and jobs; a new matching environment requires recompilation from source.
   Recompiling does not convert saved results or rerun a query. Reading old
   results follows their separate format, code-identity and trust contract;
-  rerunning is a new database execution. This candidate is not a `0.1.10`
-  release update (see [upgrading](project-package.md#installing-a-release)).
+  rerunning is a new database execution (see
+  [upgrading](project-package.md#installing-a-release)).
 - The pin of a bundle is a content identity, not a signature, and protects the
   bytes only when it comes from your own records. There is no signing,
   registry or revocation.

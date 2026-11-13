@@ -99,7 +99,9 @@ gives each with its source.
 
 `0.1.10` carries Phase73, Phase74 and Phase75. Pietto core `0.1.11` carries
 Phase76 and the repairs ready at its cut, and Phase77's remaining slices
-continue into `0.1.12` (PL.21). Phase78–80 ship as `0.2.0` once its gate
+continue into `0.1.12` (PL.21); `0.1.11` is published only when its tag,
+GitHub pre-release and PyPI carry the accepted files, under PL.22's
+conditions. Phase78–80 ship as `0.2.0` once its gate
 below is met; Phase81 uses `0.2.x`, Phase82 uses `1.0.0rc1` and Phase83 uses
 `1.0`. The extension follows its own version line.
 

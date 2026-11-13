@@ -4,11 +4,9 @@ This page shows, for each feature family, whether `check` accepts it and
 `emit-sql` emits it in a single file (`check FILE`, `emit-sql FILE --dialect
 ...`) and in an explicit-module project (`schema_version = 2`,
 `check --project ROOT`, `emit-sql --project ROOT`), for PostgreSQL and MySQL.
-It describes `0.1.10` plus explicitly marked unreleased source changes;
-its [release notes](release-notes.md#aggregates-cross-module-reuse-and-editor-tools-public-alpha-release-notes--0110)
-cover the published distribution. A **candidate** cell describes the Phase76
-B2 source candidate, whose final validation and publication are pending;
-it is not a released capability. Other rows were recorded by running one
+It describes `0.1.11`, whose
+[release notes](release-notes.md#project-arithmetic-aggregate-composition-and-editor-navigation-public-alpha-release-notes--0111)
+give each change. Each row was recorded by running one
 plain example of the family through these commands, with a project emission
 contract that declares every premise
 ([project SQL emission](project-package.md#project-sql-emission)). A cell
@@ -28,12 +26,12 @@ SQL of each function added after 0.1.8.
 | Feature | Single file, PostgreSQL | Single file, MySQL | Project, PostgreSQL | Project, MySQL | Stated in |
 | --- | --- | --- | --- | --- | --- |
 | `where`, `let` values, `select`, `order by`, `limit` | yes | yes | yes | yes; `Int` arithmetic that may leave 64 bits, such as `amount * 2` over a `bigint` column, BLOCKED PIE-B1002 `arithmetic_outside_physical_range` | [0.1.7](release-notes.md#nested-results-and-project-emission-public-alpha-release-notes--017) |
-| `Float` arithmetic and sign on a field (`price * 2.0`, `-price`) | yes | yes | yes | BLOCKED PIE-B1003 `float_literal_operands_required` (`unary_sign_requires_int_operand` for `-price`) | [Unreleased](release-notes.d/76-s03-float-arithmetic-and-keys.md#float-arithmetic-and-float-keys-in-postgresql-projects) |
+| `Float` arithmetic and sign on a field (`price * 2.0`, `-price`) | yes | yes | yes | BLOCKED PIE-B1003 `float_literal_operands_required` (`unary_sign_requires_int_operand` for `-price`) | [0.1.11](release-notes.md#float-arithmetic-and-float-keys-in-postgresql-projects) |
 | `group by`, `having`, `count`, `min`, `max`, `avg` | yes | yes | yes | yes | [Aggregates](language.md#aggregates-and-grouping) |
-| Scalar calls or arithmetic over direct aggregates (`coalesce(sum(qty), 0)` with nullable `Int` qty) | candidate yes | candidate yes | candidate yes, with existing carrier proofs | candidate BLOCKED PIE-B1003 `aggregate_composition_not_admitted_on_target` | [Unreleased](release-notes.d/76-s10-aggregate-composition.md) |
-| A computed `let` GROUP BY key selected by the same binding | candidate yes | candidate yes | yes | yes | [Unreleased](release-notes.d/76-s09-computed-let-grouping.md) |
-| Direct `sum(Decimal(p, s))` | yes | yes | candidate yes when `p + 19 <= 65` and `s <= 30`, with checked cast | BLOCKED PIE-B1004 `decimal_aggregate_range_proof_missing` | [Unreleased](release-notes.d/76-s05-decimal-project.md) |
-| `Float % Float` | candidate refused PIE-B1000 | candidate refused PIE-B1000 | candidate yes | BLOCKED PIE-B1003 `float_remainder_exact_binary64_not_realized`, unreleased; the Phase76 B2 candidate stops with `ValueError` instead (D77.10) | [Unreleased](release-notes.d/76-s04-project-expression.md) |
+| Scalar calls or arithmetic over direct aggregates (`coalesce(sum(qty), 0)` with nullable `Int` qty) | yes | yes | yes, with existing carrier proofs | BLOCKED PIE-B1003 `aggregate_composition_not_admitted_on_target` | [0.1.11](release-notes.md#scalars-around-aggregate-results) |
+| A computed `let` GROUP BY key selected by the same binding | yes | yes | yes | yes | [0.1.11](release-notes.md#computed-let-keys-in-single-file-grouping) |
+| Direct `sum(Decimal(p, s))` | yes | yes | yes when `p + 19 <= 65` and `s <= 30`, with checked cast | BLOCKED PIE-B1004 `decimal_aggregate_range_proof_missing` | [0.1.11](release-notes.md#postgresql-decimal-project-carriers) |
+| `Float % Float` | refused PIE-B1000 | refused PIE-B1000 | yes | BLOCKED PIE-B1003 `float_remainder_exact_binary64_not_realized` | [0.1.11](release-notes.md#project-expression-emission) |
 | `sum` of an `Int` | yes | yes | yes | BLOCKED PIE-B1004 `sum_int_aggregate_range_proof_missing` | [0.1.7](release-notes.md#nested-results-and-project-emission-public-alpha-release-notes--017) |
 | `sum(1 for o in group if t)` | yes | yes | yes | BLOCKED PIE-B1003 `conditional_count_not_admitted_on_target` | [0.1.10](release-notes.md#aggregates-cross-module-reuse-and-editor-tools-public-alpha-release-notes--0110), [projects](release-notes.md#conditional-count-and-sum-in-projects) |
 | `sum(o.f for o in group if t)` | yes | refused PIE-B1000 | yes | BLOCKED PIE-B1004 `sum_int_aggregate_range_proof_missing` for an `Int` `o.f` | [0.1.10](release-notes.md#aggregates-cross-module-reuse-and-editor-tools-public-alpha-release-notes--0110), [projects](release-notes.md#conditional-count-and-sum-in-projects) |
@@ -45,19 +43,19 @@ SQL of each function added after 0.1.8.
 | `string_agg(name, ",", order by name)` | yes | refused PIE-B1000 | yes | BLOCKED PIE-B1003 `aggregate_function_not_promised_in_slice8` | [Aggregates](language.md#aggregates-and-grouping), [0.1.10](release-notes.md#mysql-catch-up-in-projects) |
 | `min`, `max` of a `Timestamp` or `Date` | yes | yes | yes | yes | [0.1.10](release-notes.md#mysql-catch-up-in-projects) |
 | Ranking and navigation windows (`row_number`, `lag`) | yes | yes | yes | yes | [Windows](language.md#windows) |
-| A `Float` window key (`partition by price`, `order by price`) | yes | yes | yes | BLOCKED PIE-B1002 `window_partition_comparison_domain_unsupported` (`window_order_comparison_domain_unsupported` for `order by`) | [Unreleased](release-notes.d/76-s03-float-arithmetic-and-keys.md#float-arithmetic-and-float-keys-in-postgresql-projects) |
-| `string_agg(..., order by` a `Float` `)` | yes | refused PIE-B1000 | yes | BLOCKED PIE-B1003 `aggregate_function_not_promised_in_slice8` | [Unreleased](release-notes.d/76-s03-float-arithmetic-and-keys.md#float-arithmetic-and-float-keys-in-postgresql-projects) |
-| `group by` a `percent_rank` or `cume_dist` result of another table | yes | yes | yes | BLOCKED PIE-B1003 `group_key_type_outside_reviewed_comparison_domain` | [Unreleased](release-notes.d/76-s03-float-arithmetic-and-keys.md#float-arithmetic-and-float-keys-in-postgresql-projects) |
+| A `Float` window key (`partition by price`, `order by price`) | yes | yes | yes | BLOCKED PIE-B1002 `window_partition_comparison_domain_unsupported` (`window_order_comparison_domain_unsupported` for `order by`) | [0.1.11](release-notes.md#float-arithmetic-and-float-keys-in-postgresql-projects) |
+| `string_agg(..., order by` a `Float` `)` | yes | refused PIE-B1000 | yes | BLOCKED PIE-B1003 `aggregate_function_not_promised_in_slice8` | [0.1.11](release-notes.md#float-arithmetic-and-float-keys-in-postgresql-projects) |
+| `group by` a `percent_rank` or `cume_dist` result of another table | yes | yes | yes | BLOCKED PIE-B1003 `group_key_type_outside_reviewed_comparison_domain` | [0.1.11](release-notes.md#float-arithmetic-and-float-keys-in-postgresql-projects) |
 | Aggregate windows (`sum`, `count`, `avg`, `min`, `max` with `window`) | yes | yes | yes | BLOCKED PIE-B1003 `window_aggregate_approved_non_support_on_mysql` | [0.1.6](release-notes.md#corrections-and-mysql-parity-public-alpha-release-notes--016), [0.1.10](release-notes.md#aggregate-windows-in-projects) |
 | `qualify` | yes | yes | yes | yes | [0.1.6](release-notes.md#corrections-and-mysql-parity-public-alpha-release-notes--016) |
 | INNER, LEFT, RIGHT and CROSS JOIN | yes | yes | yes | yes | [0.1.5](release-notes.md#modern-syntax-public-alpha-release-notes--015), [0.1.6](release-notes.md#corrections-and-mysql-parity-public-alpha-release-notes--016) |
 | FULL JOIN on `Int` keys | yes | yes, as a derived table | yes | BLOCKED PIE-B1003 `mysql_full_join_approved_non_support` | [0.1.6](release-notes.md#corrections-and-mysql-parity-public-alpha-release-notes--016) |
-| FULL JOIN on a `Float` equality | refused PIE-B1000 | refused PIE-B1000 | yes | BLOCKED PIE-B1003 `comparison_type_pair_not_admitted` | [Unreleased](release-notes.d/76-s03-float-arithmetic-and-keys.md#float-arithmetic-and-float-keys-in-postgresql-projects) |
+| FULL JOIN on a `Float` equality | refused PIE-B1000 | refused PIE-B1000 | yes | BLOCKED PIE-B1003 `comparison_type_pair_not_admitted` | [0.1.11](release-notes.md#float-arithmetic-and-float-keys-in-postgresql-projects) |
 | `where any(...)`, `where not any(...)` | yes | yes | yes | yes | [0.1.5](release-notes.md#modern-syntax-public-alpha-release-notes--015) |
 | Aggregates over JOIN rows without fan-out | yes | yes | yes | yes (`sum` of an `Int` as above) | [0.1.9](release-notes.md#equality-nullability-and-asof-join-public-alpha-release-notes--019) |
-| A conditional (also a `def` that inlines to one), `in`, cast or scalar call in a query a JOIN reads, or in a query that reads JOIN rows | yes | yes | yes | BLOCKED PIE-B1003 `join_shape_not_admitted_in_slice7` | [Unreleased](release-notes.d/76-s02-joined-expressions.md#scalar-forms-beside-a-join-in-postgresql-projects) |
-| A scalar call in an aggregate argument over JOIN rows (`count(lower(r.label))`) | yes | yes | yes | BLOCKED PIE-B1003 `join_shape_not_admitted_in_slice7` | [Unreleased](release-notes.d/76-s02-joined-expressions.md#scalar-forms-beside-a-join-in-postgresql-projects) |
-| `max(a, b)`, `min(a, b)` of two `Date` values | yes | yes | yes | BLOCKED PIE-B1003 `conditional_realization_not_admitted` | [Unreleased](release-notes.d/76-s02-joined-expressions.md#maxa-b-and-mina-b-of-two-date-values-in-postgresql-projects) |
+| A conditional (also a `def` that inlines to one), `in`, cast or scalar call in a query a JOIN reads, or in a query that reads JOIN rows | yes | yes | yes | BLOCKED PIE-B1003 `join_shape_not_admitted_in_slice7` | [0.1.11](release-notes.md#scalar-forms-beside-a-join-in-postgresql-projects) |
+| A scalar call in an aggregate argument over JOIN rows (`count(lower(r.label))`) | yes | yes | yes | BLOCKED PIE-B1003 `join_shape_not_admitted_in_slice7` | [0.1.11](release-notes.md#scalar-forms-beside-a-join-in-postgresql-projects) |
+| `max(a, b)`, `min(a, b)` of two `Date` values | yes | yes | yes | BLOCKED PIE-B1003 `conditional_realization_not_admitted` | [0.1.11](release-notes.md#maxa-b-and-mina-b-of-two-date-values-in-postgresql-projects) |
 | `asof left join`, `asof inner join` | yes | yes | yes | yes | [0.1.9](release-notes.md#equality-nullability-and-asof-join-public-alpha-release-notes--019), [0.1.10](release-notes.md#asof-join-on-mysql) |
 | `def` functions | yes | yes | yes | yes | [Inline functions](language.md#inline-functions-def) |
 | A relationship parameter that takes the rows of a table or query | yes | yes | yes | yes | [0.1.10](release-notes.md#relationships-take-table-and-query-rows) |
@@ -80,9 +78,9 @@ Also observed:
 - A project FULL or CROSS JOIN is BLOCKED with PIE-B1003
   `scalar_meaning_requires_field_projection` on both targets when an input of
   the relation has a `Timestamp` or `UUID` field, even one it does not
-  read. INNER, LEFT and RIGHT JOINs are not affected. After `0.1.10`, an
+  read. INNER, LEFT and RIGHT JOINs are not affected. Since `0.1.11`, an
   unread field no longer blocks it on PostgreSQL, or a CROSS JOIN on MySQL
-  ([unreleased changes](release-notes.d/76-s01-join-port-admission.md)).
+  ([0.1.11](release-notes.md#full-and-cross-joins-beside-an-unread-timestamp-or-uuid-field-projects)).
 - Single-file `explain` refuses each JOIN relation with PIE-I1000
   ([Single files and projects](language.md#single-files-and-projects)).
 - A LEGACY_FLAT project (`schema_version = 1`) checks no JOIN and no
