@@ -650,14 +650,13 @@ class _Writer:
                 },
             }[self.request.family].get(name)
             if name == "now":
-                if self.request.family != "postgres" or value.operands:
+                opening = {
+                    "postgres": "(statement_timestamp() AT TIME ZONE 'UTC'",
+                    "mysql": "UTC_TIMESTAMP(6",
+                }.get(self.request.family)
+                if opening is None or value.operands:
                     raise ValueError("unrenderable scalar call")
-                self.emit(
-                    "(statement_timestamp() AT TIME ZONE 'UTC'",
-                    "syntax",
-                    "scalar_call_open",
-                    reference,
-                )
+                self.emit(opening, "syntax", "scalar_call_open", reference)
                 self.emit(")", "syntax", "scalar_call_close", reference)
                 self.enclose("scalar_call", reference, start)
                 return
@@ -737,10 +736,21 @@ class _Writer:
                         (0, 1),
                     ),
                 }[name]
-                if (
-                    self.request.family != "postgres"
-                    or len(value.operands) != max(positions) + 1
-                ):
+                if self.request.family == "mysql" and name == "lpad":
+                    # MySQL LPAD() cuts a longer text too; its width takes no
+                    # int4 cast.
+                    texts = (
+                        "CASE WHEN CHAR_LENGTH(",
+                        ") >= ",
+                        " THEN ",
+                        " ELSE LPAD(",
+                        ", ",
+                        ", ",
+                        ") END",
+                    )
+                elif self.request.family != "postgres":
+                    raise ValueError("unrenderable scalar call")
+                if len(value.operands) != max(positions) + 1:
                     raise ValueError("unrenderable scalar call")
                 for index, text in enumerate(texts):
                     self.emit(

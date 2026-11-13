@@ -45,6 +45,13 @@ MAX_FLOAT_TEXT = 32
 
 SCOPE_KIND = "selected_plan"
 
+# The widest MySQL project lpad width, not a codec limit: MySQL makes a
+# growing Text result NULL above max_allowed_packet, whose least value is
+# 1024 bytes, and 256 utf8mb4 characters never reach it. Emission, its
+# verifier and compiled replay (project_sql_emission_rows) and the pure
+# boundary read this one value.
+MYSQL_PACKET_FLOOR_CHARACTERS = 1024 // 4
+
 # Fixed PostgreSQL-only E5 tokens.  The pure observation boundary consumes
 # these data constants without importing the compiler renderer.
 FLOAT_REMAINDER_TOKENS = (

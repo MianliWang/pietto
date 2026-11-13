@@ -421,8 +421,9 @@ def test_scalar_function_fact_is_found(
 
 
 def test_mysql_gaps_are_provenance_not_generic_fact_support() -> None:
-    # MySQL project SQL refuses `concat`, `lpad`, `add_months` and an
-    # Int-to-Text cast; single-file MySQL renders them.
+    # MySQL project SQL refuses `concat`, `add_months` and an Int-to-Text
+    # cast, and `lpad` outside its Phase77 candidate cells; single-file MySQL
+    # renders them.
     scalar_facts = tuple(
         fact
         for fact in _facts("_SCALAR_FUNCTION_FACTS")

@@ -2,8 +2,10 @@
 
 from __future__ import annotations
 
+from collections import Counter
 from contextvars import ContextVar
 from dataclasses import dataclass, replace
+import functools
 import json
 import math
 from typing import Any
@@ -13,6 +15,10 @@ from pietto._project import project_sql_plan_windows as plan_windows
 from pietto._project import project_sql_plan_expressions as row
 from pietto._project import project_sql_emission_parameters as parameters
 from pietto._project.model import ProjectResolvedTypeKind
+from pietto._project.project_sql_emission_portable_schema import (
+    MYSQL_PACKET_FLOOR_CHARACTERS,
+)
+from pietto.ast_nodes import CallExpr, NameExpr, RelationScalarExpr
 from pietto.semantic.model import TypeKind, ValueTypeKind, EffectiveNullability
 from pietto.ir.model import SymbolNamespace
 
@@ -119,6 +125,380 @@ class Realization:
 
 
 INT_RANGE_OBLIGATION = "int_range_representable"
+# The MySQL project cells of lpad and now() that the Phase77 native
+# qualification preregisters, as (name, place, operand kinds). The call is the
+# whole value of a SELECT item of the emitted query ("select"), or now() is
+# the one argument of the `date_of` that is ("select_date_of"); lpad reads a
+# source field or a Text literal with a literal width and fill. Emission, the
+# live verifier, compiled replay and the pure boundary each derive a call's
+# cell from their own record; every other MySQL lpad and now() is refused.
+MYSQL_SCALAR_CELLS = frozenset(
+    {
+        ("lpad", "select", ("field", "literal", "literal")),
+        ("lpad", "select", ("literal", "literal", "literal")),
+        ("now", "select", ()),
+        ("now", "select_date_of", ()),
+    }
+)
+# Clauses that leave the emitted query outside every cell (Q2).
+_MYSQL_CELL_CLAUSES = (
+    "distinct_clause",
+    "group_by_clause",
+    "order_by_clause",
+    "limit_clause",
+    "satisfying_clause",
+    "qualify_clause",
+)
+# Compiled records whose presence leaves every cell closed: a header parameter
+# or its read, a bind-safe slot or native marker (Q3) and an aggregate (Q2).
+_MYSQL_CELL_CLOSING_RECORDS = frozenset(
+    {"parameter", "parameter_read", "slot", "native_use", "aggregate"}
+)
+# Compiled units, each owned by one declaration (Q4).
+_MYSQL_UNIT_RECORDS = frozenset(
+    {
+        "scan",
+        "row",
+        "join",
+        "window",
+        "result",
+        "set",
+        "values",
+        "table_function",
+        "unnest",
+    }
+)
+
+
+def mysql_scalar_place(plan, expression):
+    """The place of one call in MYSQL_SCALAR_CELLS, from the plan, or None.
+
+    Q1: the call, or the `date_of` that is its only argument, is the whole
+    value of a SELECT item of the emitted query. Q2: that query reads a source
+    through let, where and window stages only, with no JOIN, aggregate,
+    satisfying, QUALIFY, DISTINCT, ORDER BY or LIMIT. Q3: the emitted query
+    has no header parameter, no server parameter and no Collect. Q4: it has no
+    block read but the one _mysql_capture_read admits. Every check is O(1)
+    but one fact per plan, which _reads_captured_field computes once.
+    """
+    # The plan module stays out of this module's imports: runtime modules
+    # load these realizations without it.
+    from pietto._project.project_sql_plan import (
+        ProjectSQLBoundary,
+        ProjectSQLBoundaryReason,
+    )
+
+    site = getattr(expression, "site", None)
+    if (
+        plan.parameters
+        or plan.literal_slots
+        or plan.bind_uses
+        or plan.collects
+        or plan.aggregations
+        or type(site) is not row.ProjectSQLExpressionSite
+        or site.role is not row.ProjectSQLExpressionRole.SELECT
+        or site.owner is not plan.scope.selected_owner
+    ):
+        return None
+    index = site.block.position
+    block = plan.blocks[index] if 0 <= index < len(plan.blocks) else None
+    body = site.owner.definition
+    if (
+        block is None
+        or block.ref is not site.block
+        or block.kind is not row.ProjectSQLStageKind.PROJECTION
+        or type(block.boundary) is not ProjectSQLBoundary
+        or block.boundary.reason is not ProjectSQLBoundaryReason.SOURCE_INPUT
+        or any(getattr(body, name, None) is not None for name in _MYSQL_CELL_CLAUSES)
+        or getattr(body, "join_clauses", ())
+        or getattr(body, "join_filters", ())
+        or plan.expression_block_uses
+        and not _mysql_capture_read(plan, block)
+    ):
+        return None
+    value = site.occurrence.expression
+    if value is expression.expression:
+        return "select"
+    if (
+        type(value) is CallExpr
+        and type(value.callee) is NameExpr
+        and value.callee.name == "date_of"
+        and len(value.arguments) == 1
+        and value.arguments[0] is expression.expression
+    ):
+        return "select_date_of"
+    return None
+
+
+def _mysql_capture_read(plan, block) -> bool:
+    """Q4: the plan's one block read is a scalar read of its one capturing
+    let and the whole value of a SELECT item of the emitted query, whose
+    projection ``block`` is its first stage. The let reads a source directly,
+    through a WHERE at most, and reads a captured field; the plan holds no
+    other block (so at most three), JOIN, set, values, Unnest or result
+    stage. Each check is O(1) but the captured field read, which
+    _reads_captured_field answers once per plan."""
+    from pietto._project.project_sql_plan import (
+        ProjectSQLBoundary,
+        ProjectSQLBoundaryReason,
+    )
+
+    uses, captures = plan.expression_block_uses, plan.captures
+    if len(uses) != 1 or len(captures) != 1 or len(plan.blocks) > 3:
+        return False
+    capture = captures[0]
+    read = capture.read
+    found = (
+        plan.expressions[read.position]
+        if 0 <= read.position < len(plan.expressions)
+        else None
+    )
+    return (
+        block.position == 0
+        and found is not None
+        and found.ref is read
+        and type(found.expression) is RelationScalarExpr
+        and getattr(found, "use", None) is uses[0].ref
+        and found.site.role is row.ProjectSQLExpressionRole.SELECT
+        and found.site.owner is plan.scope.selected_owner
+        and found.site.occurrence.expression is found.expression
+        and not (
+            plan.joins
+            or plan.set_bodies
+            or plan.values_bodies
+            or plan.unnests
+            or plan.distincts
+            or plan.orders
+            or plan.result_limits
+        )
+        and all(
+            other is block
+            or other.definition is capture.inner
+            and other.kind
+            in (row.ProjectSQLStageKind.WHERE, row.ProjectSQLStageKind.PROJECTION)
+            and type(other.boundary) is ProjectSQLBoundary
+            and other.boundary.reason is ProjectSQLBoundaryReason.SOURCE_INPUT
+            for other in plan.blocks
+        )
+        and _reads_captured_field(plan)
+    )
+
+
+@functools.lru_cache(maxsize=1)
+def _reads_captured_field(plan) -> bool:
+    """Whether an expression of the plan reads a captured field. Every MySQL
+    lpad and now() call of one plan asks, so the last plan's answer is kept;
+    the cache holds that plan, so its identity is never reused."""
+
+    return any(type(item) is row.ProjectSQLCapturedField for item in plan.expressions)
+
+
+def mysql_operand_kind(value) -> str:
+    """The kind of one operand: "field" for a source field read, directly or
+    carried or renamed by the query's own stages (never a let value, literal
+    origin, aggregate or window result, or another query's output), "literal"
+    for an inline literal, and "other" otherwise."""
+
+    from pietto._project.project_sql_plan import ProjectSQLPlanRefKind
+
+    if type(value) is SQLStageReference:
+        column = value.column
+        return (
+            "field"
+            if getattr(column.terminal, "kind", None)
+            in {ProjectSQLPlanRefKind.SOURCE_PORT, ProjectSQLPlanRefKind.STAGE_PORT}
+            and column.field is not None
+            and column.source_port is not None
+            and column.literal is None
+            and column.aggregate is None
+            and column.window is None
+            else "other"
+        )
+    if (
+        type(value) is parameters.SQLAnchor
+        and type(value.operand) is parameters.SQLLiteral
+    ):
+        return "literal"
+    return "other"
+
+
+def mysql_scalar_cell(plan, expression, values):
+    """The (name, place, operand kinds) cell of one MySQL lpad or now() call,
+    or None for any other call and while emission derives as main (AS_MAIN)."""
+
+    symbol = expression.callee_symbol
+    if (
+        AS_MAIN.get()
+        or symbol.namespace is not SymbolNamespace.CALLABLE
+        or symbol.name not in {"lpad", "now"}
+    ):
+        return None
+    return (
+        symbol.name,
+        mysql_scalar_place(plan, expression),
+        tuple(mysql_operand_kind(value) for value in values),
+    )
+
+
+def mysql_compiled_scalar_cells(records, entry) -> dict:
+    """Compiled replay's cells of the selected entry, from its records alone,
+    keyed by operation, as mysql_scalar_cell derives them from the plan.
+
+    Q1: the operation is a whole value of the entry's terminal projection
+    row, or the one operand of a `date_of` that is, and no other record names
+    either: records may share an operation, which a SELECT item never does.
+    A requirement only anchors an operation and a port repeats its row's
+    value (ROW_SHAPE), so neither counts. Q2: below that row are, in
+    emission's order, its declaration's window at most, one WHERE row at most
+    and let rows, then a source; a predicate binds a where or qualify row
+    (ROW_PREDICATE), and the order tells a WHERE from a QUALIFY.
+    Q2 and Q3: no record is an aggregate, a parameter, its read, a slot or a
+    native use. Q4: no expression block use, or one that
+    _mysql_compiled_capture_read admits beside a read of a captured field.
+    One pass in address order checks the records and marks each port that
+    carries a source field: a source port, or a port of the declaration's row
+    or window that reads a marked port. An operand is a "field" when it reads
+    a marked port and a "literal" when it is a literal record; a port that
+    reads a later port stays unmarked, so its reader is "other" and refused.
+    """
+
+    owner = entry.get("declaration")
+    terminal = records[entry.get("terminal")]
+    if (
+        terminal.address.kind != "row"
+        or terminal.get("stage") != "projection"
+        or terminal.get("owner") != owner
+    ):
+        return {}
+    current, stages = records[terminal.get("input")], []
+    while current.address.kind == "window" or (
+        current.address.kind == "row" and current.get("stage") in {"let", "where"}
+    ):
+        if current.get("owner") != owner:
+            return {}
+        stages.append(
+            current.get("stage") if current.address.kind == "row" else "window"
+        )
+        current = records[current.get("input")]
+    # Emission's order from the terminal down: a window at most, then a WHERE
+    # at most, then lets. A QUALIFY row relabelled where sits over its window.
+    for stage in ("window", "where"):
+        if stages[:1] == [stage]:
+            del stages[0]
+    if current.address.kind != "source" or set(stages) - {"let"}:
+        return {}
+    from pietto._project.project_compiled_schema import Address
+
+    marked, block_reads, captures, owners = set(), [], [], set()
+    captured, named = False, {}
+    for address, record in records.items():
+        kind = address.kind
+        if kind in _MYSQL_CELL_CLOSING_RECORDS:
+            return {}
+        pending = [] if kind in {"requirement", "port"} else list(record.values)
+        while pending:
+            item = pending.pop()
+            if type(item) is tuple:
+                pending.extend(item)
+            elif type(item) is Address and item.kind == "operation":
+                named.setdefault(item, []).append(address)
+        if kind == "expression_block_use":
+            block_reads.append(record)
+        elif kind == "capture_use":
+            captures.append(record)
+        elif kind in _MYSQL_UNIT_RECORDS:
+            owners.add(record.get("owner"))
+        elif kind == "read" and record.get("role") == "capture":
+            captured = True
+        if kind == "port":
+            port_owner, port_source = record.get("owner"), record.get("source")
+            if port_owner.kind == "source" or (
+                port_owner.kind in {"row", "window"}
+                and port_source is not None
+                and port_source.kind == "read"
+                and records[port_owner].get("owner") == owner
+                and records[port_source].get("port") in marked
+            ):
+                marked.add(address)
+
+    def whole(operation, *also) -> bool:
+        # Named once by the terminal row and by each of ``also``, and by no
+        # other counted record.
+        return Counter(named.get(operation, ())) == Counter((terminal.address, *also))
+
+    if block_reads and not (
+        captured
+        and _mysql_compiled_capture_read(
+            records, terminal, block_reads, captures, owners, whole
+        )
+    ):
+        return {}
+
+    def kind(address) -> str:
+        if address.kind == "literal":
+            return "literal"
+        if address.kind == "read" and records[address].get("port") in marked:
+            return "field"
+        return "other"
+
+    cells: dict = {}
+    for value in terminal.get("values"):
+        if value.kind != "operation" or not whole(value):
+            continue
+        operator = records[value].get("operator")
+        operands = records[value].get("operands")
+        if operator in {("scalar_call", "lpad"), ("scalar_call", "now")}:
+            cells[value] = (operator[1], "select", tuple(kind(a) for a in operands))
+        elif (
+            operator == ("scalar_call", "date_of")
+            and len(operands) == 1
+            and operands[0].kind == "operation"
+            and records[operands[0]].get("operator") == ("scalar_call", "now")
+            and named.get(operands[0]) == [value]
+        ):
+            cells[operands[0]] = ("now", "select_date_of", ())
+    return cells
+
+
+def _mysql_compiled_capture_read(
+    records, terminal, block_reads, captures, owners, whole
+):
+    """Q4 from the records: the one expression block use is a scalar read,
+    a whole value of the terminal row that nothing else names (``whole``),
+    and the terminal row stands directly over its source; the
+    one capture is of that read; the read's producer is the capturing let's
+    projection row, over one WHERE row of that let at most, then a source;
+    and no unit belongs to a third declaration. (The caller has seen a read
+    of a captured field.)"""
+
+    use = block_reads[0]
+    producer = records[use.get("producer")]
+    if (
+        len(block_reads) != 1
+        or len(captures) != 1
+        or captures[0].get("read") != use.address
+        or records[use.get("operation")].get("operator") != ("scalar", "scalar")
+        or not whole(use.get("operation"), use.address)
+        or terminal.get("input").kind != "source"
+        or producer.address.kind != "row"
+        or producer.get("stage") != "projection"
+    ):
+        return False
+    let = producer.get("owner")
+    below = records[producer.get("input")]
+    if (
+        below.address.kind == "row"
+        and below.get("owner") == let
+        and below.get("stage") == "where"
+    ):
+        below = records[below.get("input")]
+    return (
+        below.address.kind == "source"
+        and let != terminal.get("owner")
+        and owners <= {terminal.get("owner"), let}
+    )
+
+
 TEXT_WIDTH_OBLIGATION = "text_result_width"
 TEXT_PROFILE = {
     "postgres": ("UTF8", "C", "NO PAD"),
@@ -2486,6 +2866,9 @@ def _scalar_call(
         and rows_both_sides
         and expression.callee_symbol.name == "same_value"
         else None,
+        cell=mysql_scalar_cell(request.plan, expression, values)
+        if request.family == "mysql"
+        else None,
     )
     if checked is None:
         assert problem is not None
@@ -2715,6 +3098,12 @@ def _static_literal_value(value):
     return (tag, result) if tag is not None else None
 
 
+def _mysql_cell_admits(family, cell) -> bool:
+    """PostgreSQL, or a MySQL call whose cell is in MYSQL_SCALAR_CELLS."""
+
+    return family == "postgres" or family == "mysql" and cell in MYSQL_SCALAR_CELLS
+
+
 def resolved_scalar_call_realization(
     family,
     symbol,
@@ -2725,22 +3114,34 @@ def resolved_scalar_call_realization(
     static_values=None,
     rows_both_sides=True,
     float_cell=None,
+    cell=None,
 ):
     """Admit only a canonical builtin identity with its proved physical result.
 
     ``rows_both_sides`` is the comparison law's row-read fact (default: the
     refusing one) and ``float_cell`` its MySQL Float cell; `same_value` is
-    admitted exactly where `==` is.
+    admitted exactly where `==` is. ``cell`` is a MySQL lpad or now() call's
+    cell (mysql_scalar_cell).
     """
     if symbol.namespace is SymbolNamespace.CALLABLE and symbol.name == "now":
         # The statement's start as a UTC microsecond civil Timestamp, on
-        # PostgreSQL; a MySQL project waits for a run of its own SQL.
-        if family != "postgres" or values or tag != "Timestamp" or nullable:
+        # PostgreSQL and in a MySQL project's cells (MYSQL_SCALAR_CELLS).
+        if (
+            not _mysql_cell_admits(family, cell)
+            or values
+            or tag != "Timestamp"
+            or nullable
+        ):
             return None, ("PIE-B1003", "scalar_call_signature_not_admitted")
         return (
             Realization(
                 "Timestamp",
-                {"kind": "pg_timestamp", "fractional_seconds": 6},
+                {
+                    "kind": {"postgres": "pg_timestamp", "mysql": "my_datetime"}[
+                        family
+                    ],
+                    "fractional_seconds": 6,
+                },
                 False,
                 {"kind": "timestamp"},
             ),
@@ -2923,8 +3324,9 @@ def resolved_scalar_call_realization(
             return result, None
     if name == "lpad":
         # Never truncates, so as wide as the text or the width; PostgreSQL
-        # lpad() takes an int4 width. MySQL project SQL refuses it.
-        if family != "postgres" or len(values) != 3 or tag != "Text":
+        # lpad() takes an int4 width. A MySQL project only in its cells
+        # (MYSQL_SCALAR_CELLS), whose width literal is from 0 to 256.
+        if not _mysql_cell_admits(family, cell) or len(values) != 3 or tag != "Text":
             return None, ("PIE-B1003", "scalar_call_signature_not_admitted")
         text, width, fill = values
         fill_literal = static_values[2]
@@ -2940,6 +3342,12 @@ def resolved_scalar_call_realization(
             return None, ("PIE-B1003", "scalar_call_signature_not_admitted")
         bounds = proven_int_bounds(width)
         maximum = text.domain.get("max_characters")
+        if family == "mysql" and (
+            bounds is None
+            or type(maximum) is not int
+            or not 0 <= bounds[0] <= bounds[1] <= MYSQL_PACKET_FLOOR_CHARACTERS
+        ):
+            return None, ("PIE-B1003", "scalar_call_signature_not_admitted")
         if bounds is None or type(maximum) is not int:
             return None, ("PIE-B1004", "lpad_result_bound_missing")
         if not all(-(1 << 31) <= bound <= (1 << 31) - 1 for bound in bounds):

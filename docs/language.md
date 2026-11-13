@@ -588,9 +588,9 @@ first column give every rule.
 | `sum(1 for o in group if t)`, `sum(o.f for o in group if t)` ([Aggregates](#aggregates-and-grouping)) | `COUNT(CASE WHEN t THEN 1 END)`; `COALESCE(CAST(SUM(CASE WHEN t THEN CAST(f AS pg_catalog.int8) END) AS pg_catalog.int8), 0)` | count `COUNT(CASE WHEN t THEN 1 END)`; sum refused (PIE-B1000) | as PostgreSQL single file, `schema_version = 2` (PIE-S2334 in a `schema_version = 1` project); no JOIN inputs | refused: count PIE-B1003, sum PIE-B1004 |
 | `any(t for o in group)`, `all(t for o in group)` ([Aggregates](#aggregates-and-grouping)) | `(COUNT(CASE WHEN t THEN 1 END) > 0)`; `(COUNT(CASE WHEN t THEN NULL ELSE 1 END) = 0)` | as PostgreSQL, an integer 0/1 | as PostgreSQL single file, `schema_version = 2` (PIE-S2334 in a `schema_version = 1` project); no JOIN inputs | refused (PIE-B1003 `group_test_not_admitted_on_target`) |
 | `max(a, b)`, `min(a, b)` ([Expressions](#expressions)) | `CASE WHEN` of `<`/`>` and `IS NOT NULL`; `Int`, `Decimal`, `Float`, `Text`, `Date`, `Timestamp`, `UUID`, `Bool` | as PostgreSQL; a `Bool` result arrives as an integer 0, 1 or NULL, as every computed `Bool` does on MySQL | `Int`, `Decimal`, `Float`, `Text`, `Date`, `Timestamp`, `UUID` as their comparison and conditional are; `Bool` refused (PIE-B1003) | as PostgreSQL project, except `Date`, refused (PIE-B1003) |
-| `lpad(s, width, fill)` ([Expressions](#expressions)) | `CASE WHEN length(s) >= width THEN s ELSE lpad(...) END`; a literal width outside the signed 32-bit range refused (PIE-S2385 at check) | `CASE WHEN CHAR_LENGTH(s) >= width THEN s ELSE LPAD(...) END` | emitted for a width proven in the signed 32-bit range; refused otherwise (PIE-B1002, PIE-B1004) | refused (PIE-B1003) |
+| `lpad(s, width, fill)` ([Expressions](#expressions)) | `CASE WHEN length(s) >= width THEN s ELSE lpad(...) END`; a literal width outside the signed 32-bit range refused (PIE-S2385 at check) | `CASE WHEN CHAR_LENGTH(s) >= width THEN s ELSE LPAD(...) END` | emitted for a width proven in the signed 32-bit range; refused otherwise (PIE-B1002, PIE-B1004) | unreleased: only in the qualified SELECT position the `lpad` paragraph of [Expressions](#expressions) gives; refused elsewhere (PIE-B1003) |
 | `add_months(d, n)` ([Expressions](#expressions)) | `CAST((d + make_interval(months => CAST(n AS integer))) AS date)` | `DATE_ADD(d, INTERVAL n MONTH)` | emitted; a `None` argument refused (PIE-B1003) | refused (PIE-B1003) |
-| `now()` ([Expressions](#expressions)) | `(statement_timestamp() AT TIME ZONE 'UTC')`, in SELECT items and WHERE | `UTC_TIMESTAMP(6)`, in SELECT items and WHERE | emitted, compiled and bound as a template | refused (PIE-B1003 `scalar_call_signature_not_admitted`) |
+| `now()` ([Expressions](#expressions)) | `(statement_timestamp() AT TIME ZONE 'UTC')`, in SELECT items and WHERE | `UTC_TIMESTAMP(6)`, in SELECT items and WHERE | emitted, compiled and bound as a template | unreleased: also as `date_of(now())`, only in the qualified SELECT position the `now()` paragraph of [Expressions](#expressions) gives; refused elsewhere (PIE-B1003) |
 | Always-null numbers, D-12 ([Expressions](#expressions)) | typed NULL casts | typed NULL casts | `Int` arithmetic with `None`; `Float` and `Decimal` refused | as PostgreSQL |
 | `Float` equality ([Float values](#float-values)) | comparisons and GROUP BY; DISTINCT and set forms are project-only | as PostgreSQL; GROUP BY beside a wide `Text` key may split `-0.0` and `0.0` | comparisons, GROUP BY, DISTINCT, ORDER BY, every set form, window `partition by` and `order by`, `string_agg` order keys and FULL JOIN equalities, also over a window `percent_rank` or `cume_dist` result | comparisons with a literal or header parameter, ordering inequalities, `in` and `not in` (a literal list only when its value or all of its options read no row), `nullif`, relation ORDER BY and UNION ALL; `==`, `!=` and `same_value` of two `Float` fields in the unreleased qualified same-row and JOIN forms of [Float values](#float-values); the other forms refused (PIE-B1003) |
 | JOIN aggregates without fan-out ([Aggregates](#aggregates-and-grouping)) | accepted | accepted | accepted | accepted; `sum(Int)` stays PIE-B1004 |
@@ -3399,8 +3399,36 @@ larger of the text's width and the width's upper bound; it refuses a width
 whose proven range leaves the signed 32-bit range, such as an `Int` field
 stored as `bigint` (PIE-B1002 `lpad_width_outside_physical_range`), a text or
 width with no proven bound, a `None` width included (PIE-B1004 `lpad_result_bound_missing`), and a
-`None` text (PIE-B1003 `scalar_call_signature_not_admitted`). MySQL project
-SQL refuses `lpad` (PIE-B1003 `scalar_call_signature_not_admitted`).
+`None` text (PIE-B1003 `scalar_call_signature_not_admitted`).
+MySQL project SQL (unreleased, Phase77 S12) emits the same `CASE WHEN
+CHAR_LENGTH(s) >= width THEN s ELSE LPAD(s, width, 'f') END` in one position
+only, the one its native qualification matched. The call is the whole value
+of a SELECT item (a `def` call counts as the body it expands to, and
+parentheses change nothing) of the query that `emit-sql --project` emits; `s` is a field of that query's
+source, read directly, through a row input alias (`let x = rows` before `from
+x`) or through row `let` names that only rename it, or a `Text` literal;
+`width` is an `Int` literal from 0 to 256. The query reads its source through
+row `let`, WHERE and window stages only: no JOIN, GROUP BY or other aggregate,
+HAVING, QUALIFY, DISTINCT, ORDER BY or LIMIT, no header parameter of its own,
+no bind-safe `?`, and no read of another relation except one `scalar` read of
+a capturing relation `let` that is the whole value of another SELECT item, in
+a query without row `let`, WHERE or window stages, where that relation `let`
+reads a captured field and its own source directly, through a WHERE at most.
+MySQL `LPAD` gives NULL for a result longer than `max_allowed_packet`, which is
+at least 1024 bytes, and a utf8mb4 character takes up to four, so the width
+stops at 256. Every other MySQL project `lpad` keeps the refusal it had before
+this position. Most often that is PIE-B1003
+`scalar_call_signature_not_admitted` at the `let`, clause or SELECT item that
+holds the call; an ORDER BY that names its SELECT item is PIE-B1003 `order`,
+and a SELECT item of a grouped query that checking admits PIE-B1003
+`aggregate_composition_not_admitted_on_target`. A query that another refusal
+stops first reports that refusal instead, for example a JOIN shape or window
+aggregate that MySQL project SQL refuses, a `Decimal(p, s)`, `Date`,
+`Timestamp` or `UUID` header parameter, a table function input, `Int`
+arithmetic outside its physical range (PIE-B1002) or a capturing `let` whose
+body has an ORDER BY or LIMIT. A statement with a call in this position that
+emission refuses for another reason, such as a `concat` beside it, reports
+the blockers it has without the position, this PIE-B1003 included.
 
 `add_months(d, n)` moves the `Date` `d` by `n` whole months, back for a
 negative `n`. When the day does not exist in the month reached, it is that
@@ -3434,8 +3462,13 @@ which is the transaction start), and single-file MySQL SQL is
 session, and Pietto's own PostgreSQL and MySQL connections run in UTC anyway
 (`timezone=UTC`, `time_zone='+00:00'`). `date_of(now())` is the UTC date. A
 column that stores local time differs from `now()` by the local offset. MySQL
-project SQL refuses `now()` with PIE-B1003
-`scalar_call_signature_not_admitted`.
+project SQL emits `UTC_TIMESTAMP(6)`, and `DATE(UTC_TIMESTAMP(6))` for
+`date_of(now())`, only as the whole value of a SELECT item (a `def` call counts
+as the body it expands to) of a query that meets the conditions the `lpad`
+paragraph above lists (unreleased, Phase77 S12).
+Every other MySQL project `now()` that checking admits, in a WHERE or in
+another SELECT position, keeps the refusal it had before, as that paragraph
+says of `lpad`.
 
 `now()` is evaluated when the SQL runs (an R2 generation reads one recorded
 value; see below), never when Pietto checks, emits, explains, compiles or

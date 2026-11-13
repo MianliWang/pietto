@@ -628,6 +628,7 @@ def _json(text: str) -> Any:
 
 
 UNITS = ("row_body", "row_result_body", "join_body", "set_body")
+AGGREGATE_COLUMNS = frozenset({"aggregate_key_column", "aggregate_value_column"})
 SCOPE_ROLES = frozenset(
     {
         "value_scope",
@@ -1285,12 +1286,193 @@ def _is_pg_text_input(realization) -> bool:
     )
 
 
-def _is_pg_text_value(doc, value) -> bool:
-    """A row Text carrier or one anchored PostgreSQL Text literal."""
+# The MySQL project cells of lpad and now(), as emission's MYSQL_SCALAR_CELLS
+# (project_sql_emission_rows) lists them; _mysql_scalar_cells derives each
+# call's cell from the document alone.
+_MYSQL_SCALAR_CELLS = frozenset(
+    {
+        ("lpad", "select", ("field", "literal", "literal")),
+        ("lpad", "select", ("literal", "literal", "literal")),
+        ("now", "select", ()),
+        ("now", "select_date_of", ()),
+    }
+)
+
+
+def _mysql_operand_kind(doc, ref) -> str:
+    """The kind of one operand, as emission's mysql_operand_kind gives it."""
+
+    if ref.kind == "sql_anchor":
+        return "literal" if doc[ref]["operand"].kind == "sql_literal" else "other"
+    if ref.kind != "sql_stage_reference":
+        return "other"
+    column = doc[doc[ref]["column"]]
+    return (
+        "field"
+        if getattr(column["terminal"], "kind", None) in ("source_port", "stage_port")
+        and column["field"] is not None
+        and column["source_port"] is not None
+        and column["literal"] is None
+        and column["aggregate"] is None
+        and column["window"] is None
+        else "other"
+    )
+
+
+def _mysql_stage(body) -> str | None:
+    """A row body's stage from what it renders, not its label or stage
+    fields: a predicate makes a where, window columns a window, neither a
+    let (or a projection); aggregate columns, or both, make none."""
+
+    kinds = {column.kind for column in body["columns"]}
+    if not kinds.isdisjoint(AGGREGATE_COLUMNS):
+        return None
+    windowed = "window_column" in kinds
+    if body["predicate"] is None:
+        return "window" if windowed else "let"
+    return None if windowed else "where"
+
+
+def _mysql_body_chain(doc, ref, order) -> int | None:
+    """How many row bodies lead from ``ref`` down its stage uses to a source
+    scan, each below ``ref`` a stage of ``order`` by its structure, labelled
+    so, and in that order: each once at most, a let repeated. None when they
+    do not. A QUALIFY body is a where over its window, so it is out of order
+    whatever its label."""
+
+    seen, scan = {ref}, doc[ref]["scan"]
+    while scan.kind == "row_stage_use":
+        inner = doc[scan]["body"]
+        stage = _mysql_stage(doc[inner])
+        if inner in seen or stage not in order or doc[inner]["block_kind"] != stage:
+            return None
+        order = order[order.index(stage) + (stage != "let") :]
+        seen.add(inner)
+        scan = doc[inner]["scan"]
+    return len(seen) if scan.kind == "row_scan" else None
+
+
+def _mysql_capture_read(doc, read, final, whole) -> bool:
+    """Q4 from the document: ``read`` is a scalar read and the whole value of
+    a column of the ``final`` body (``whole``), which scans its source
+    directly, beside a captured reference; the read's target is the capturing
+    let's projection body, over one WHERE body of it at most, then a source
+    scan, each body a stage by its structure (_mysql_stage); and the document
+    holds no other body."""
+
+    producer = doc[doc[read]["target"]]["producer"]
+    if (
+        doc[read]["kind"] != "scalar"
+        or not doc.all("sql_captured_reference")
+        or doc[final]["scan"].kind != "row_scan"
+        or producer.kind != "row_body"
+        or doc[producer]["final"] is not False
+        or doc[producer]["block_kind"] != "projection"
+        or _mysql_stage(doc[producer]) != "let"
+        or doc.all("row_result_body")
+        or doc.all("join_body")
+        or doc.all("set_body")
+        or read not in whole
+    ):
+        return False
+    count = _mysql_body_chain(doc, producer, ("where",))
+    return count is not None and len(doc.all("row_body")) == 1 + count
+
+
+def _mysql_scalar_cells(doc) -> dict:
+    """The cell of each MySQL lpad and now() operation, keyed by operation, as
+    emission's mysql_scalar_cell derives it from the plan.
+
+    Q1: the operation is the whole value of a column of the final projection
+    body, or the one operand of a `date_of` that is, and no other record
+    names the column, the value or that operand: records may share one,
+    which a SELECT item never does. Q2: that body has no predicate or
+    window, and below it are, in emission's order, a window body at most, a
+    WHERE body at most and let bodies, then a source scan; each body's stage
+    comes from its structure and its label must agree (_mysql_body_chain),
+    and no body aggregates. Q3: no
+    parameter, native use or fixed value. Q4: no ANY read and at most one
+    block read, as _mysql_capture_read admits.
+    """
+
+    cells: dict = {}
+    reads = doc.all("sql_block_read")
+    if (
+        doc.all("sql_parameter")
+        or doc.all("native_use")
+        or doc.all("fixed_value")
+        or doc.all("aggregate_stage")
+        or doc.all("sql_any_read")
+        or len(reads) > 1
+    ):
+        return cells
+    named: dict[Ref, int] = {}
+    for record in doc.records.values():
+        pending = list(record.fields.values())
+        while pending:
+            item = pending.pop()
+            if type(item) is tuple:
+                pending.extend(item)
+            elif type(item) is Ref:
+                named[item] = named.get(item, 0) + 1
+    for body_ref in doc.all("row_body"):
+        body = doc[body_ref]
+        if (
+            body["final"] is not True
+            or body["block_kind"] != "projection"
+            or _mysql_stage(body) != "let"
+            or _mysql_body_chain(doc, body_ref, ("window", "where", "let")) is None
+        ):
+            continue
+        whole = [
+            doc[column]["value"]
+            for column in body["columns"]
+            if column.kind == "row_value_column"
+            and named.get(column) == 1
+            and named.get(doc[column]["value"]) == 1
+        ]
+        if reads and not _mysql_capture_read(doc, reads[0], body_ref, whole):
+            continue
+        for value in whole:
+            if value.kind != "sql_operation" or doc[value]["kind"] != "scalar_call":
+                continue
+            op = doc[value]
+            if op["operator"] in ("lpad", "now"):
+                cells[value] = (
+                    op["operator"],
+                    "select",
+                    tuple(_mysql_operand_kind(doc, item) for item in op["operands"]),
+                )
+            elif (
+                op["operator"] == "date_of"
+                and len(op["operands"]) == 1
+                and op["operands"][0].kind == "sql_operation"
+                and doc[op["operands"][0]]["kind"] == "scalar_call"
+                and doc[op["operands"][0]]["operator"] == "now"
+                and named.get(op["operands"][0]) == 1
+            ):
+                cells[op["operands"][0]] = ("now", "select_date_of", ())
+    return cells
+
+
+def _is_text_input(realization, family: str) -> bool:
+    """One ordered Text value of the family's comparison profile."""
+
+    if family == "postgres":
+        return _is_pg_text_input(realization)
+    return (
+        realization is not None
+        and realization["tag"] == "Text"
+        and _is_key_value(realization, family)
+    )
+
+
+def _is_text_value(doc, value, family: str) -> bool:
+    """A row Text carrier or one anchored Text literal of the family."""
 
     realization = _value_realization(doc, value)
     if realization is not None:
-        return _is_pg_text_input(realization)
+        return _is_text_input(realization, family)
     if value.kind != "sql_anchor":
         return False
     anchor = doc[value]
@@ -1304,7 +1486,8 @@ def _is_pg_text_value(doc, value) -> bool:
     )
     return (
         anchor["tag"] == "Text"
-        and anchor["physical_type"] == "pg_text"
+        and anchor["physical_type"]
+        == {"postgres": "pg_text", "mysql": "my_utf8mb4_text"}[family]
         and fixed is not None
         and fixed.tag == "Text"
     )
@@ -1879,6 +2062,17 @@ class _Check:
     # units, scans and symbols
     def units(self) -> list[Ref]:
         doc, ast = self.doc, self.ast
+        # A body names a window or aggregation stage exactly when it renders
+        # one: window columns, or aggregate key or value columns.
+        for ref in doc.all("row_body"):
+            body = doc[ref]
+            kinds = {column.kind for column in body["columns"]}
+            _require(
+                (body["window"] is not None) is ("window_column" in kinds)
+                and (body["aggregation"] is not None)
+                is not kinds.isdisjoint(AGGREGATE_COLUMNS),
+                "stage columns",
+            )
         if ast.kind == "sql_select":
             return self.direct_units()
         fields = doc[ast]
@@ -2099,6 +2293,7 @@ class _Check:
                 and own == outer,
                 "captured reference",
             )
+        cells = _mysql_scalar_cells(doc) if family == "mysql" else {}
         for ref in doc.all("sql_operation"):
             op = doc[ref]
             _require(op["kind"] in schema.OPERATORS, "operation kind")
@@ -2227,15 +2422,24 @@ class _Check:
                 )
             if op["kind"] == "scalar_call" and op["operator"] == "now":
                 _require(
-                    family == "postgres"
+                    family in {"postgres", "mysql"}
                     and _is_realization(
                         doc[op["realization"]],
                         "Timestamp",
-                        {"kind": "pg_timestamp", "fractional_seconds": 6},
+                        {
+                            "kind": "pg_timestamp"
+                            if family == "postgres"
+                            else "my_datetime",
+                            "fractional_seconds": 6,
+                        },
                         {"kind": "timestamp"},
                     )
                     and doc[op["realization"]]["nullable"] is False,
                     "now result carrier",
+                )
+                _require(
+                    family != "mysql" or cells.get(ref) in _MYSQL_SCALAR_CELLS,
+                    "mysql scalar cell",
                 )
             arity = {
                 "sign": 1,
@@ -2320,13 +2524,25 @@ class _Check:
                 _require(family == "postgres", "concat family")
             elif op["kind"] == "scalar_call" and op["operator"] == "lpad":
                 fill = _literal_text(doc, operands[2])
+                width = _literal_int(doc, operands[1])
                 _require(
-                    family == "postgres"
-                    and _is_pg_text_value(doc, operands[0])
+                    family in {"postgres", "mysql"}
+                    and _is_text_value(doc, operands[0], family)
                     and _value_tag(doc, operands[1]) == "Int"
                     and type(fill) is str
                     and len(fill) == 1
-                    and _is_pg_text_input(result),
+                    and _is_text_input(result, family),
+                    "lpad realization",
+                )
+                _require(
+                    family != "mysql" or cells.get(ref) in _MYSQL_SCALAR_CELLS,
+                    "mysql scalar cell",
+                )
+                # In its cell a MySQL width is a literal from 0 to 256, as
+                # emission's is.
+                _require(
+                    family != "mysql"
+                    or width in range(schema.MYSQL_PACKET_FLOOR_CHARACTERS + 1),
                     "lpad realization",
                 )
             elif op["kind"] == "scalar_call" and op["operator"] == "add_months":
@@ -2563,8 +2779,8 @@ class _Check:
                     "string_agg shape",
                 )
                 _require(
-                    _is_pg_text_value(doc, column["argument"])
-                    and _is_pg_text_value(doc, column["delimiter"])
+                    _is_text_value(doc, column["argument"], "postgres")
+                    and _is_text_value(doc, column["delimiter"], "postgres")
                     and _is_pg_text(result, nullable=True, maximum=None)
                     and all(
                         _is_pg_order_value(_value_realization(doc, doc[item]["value"]))
@@ -3091,8 +3307,11 @@ class _Check:
         units = self.units()
         self.values()
         self.shapes()
-        _Tokens(self, units).run()
+        tokens = _Tokens(self, units)
+        tokens.run()
         _Requirements(self, units).run()
+        if self.family == "mysql":
+            _MysqlCellSql(tokens).run()
 
 
 class _Tokens:
@@ -3575,15 +3794,27 @@ class _Tokens:
                             ("scalar_call_close", " ) END)"),
                         ]
                 elif name == "lpad":
-                    expected = [
-                        ("scalar_call_open", "(CASE WHEN length("),
-                        ("scalar_call_separator", ") >= "),
-                        ("scalar_call_separator", " THEN "),
-                        ("scalar_call_separator", " ELSE lpad("),
-                        ("scalar_call_separator", ", CAST("),
-                        ("scalar_call_separator", " AS pg_catalog.int4), "),
-                        ("scalar_call_close", ") END)"),
-                    ]
+                    expected = (
+                        [
+                            ("scalar_call_open", "(CASE WHEN length("),
+                            ("scalar_call_separator", ") >= "),
+                            ("scalar_call_separator", " THEN "),
+                            ("scalar_call_separator", " ELSE lpad("),
+                            ("scalar_call_separator", ", CAST("),
+                            ("scalar_call_separator", " AS pg_catalog.int4), "),
+                            ("scalar_call_close", ") END)"),
+                        ]
+                        if self.family == "postgres"
+                        else [
+                            ("scalar_call_open", "CASE WHEN CHAR_LENGTH("),
+                            ("scalar_call_separator", ") >= "),
+                            ("scalar_call_separator", " THEN "),
+                            ("scalar_call_separator", " ELSE LPAD("),
+                            ("scalar_call_separator", ", "),
+                            ("scalar_call_separator", ", "),
+                            ("scalar_call_close", ") END"),
+                        ]
+                    )
                 elif name == "add_months":
                     expected = [
                         ("scalar_call_open", "CAST(("),
@@ -3983,7 +4214,7 @@ class _Tokens:
                     expected = (
                         "(statement_timestamp() AT TIME ZONE 'UTC'"
                         if self.family == "postgres"
-                        else ""
+                        else "UTC_TIMESTAMP(6"
                     )
                 elif name == "same_value":
                     expected = "("
@@ -4415,6 +4646,438 @@ class _Tokens:
                     in ("complete", "partial", "unavailable"),
                     "association location",
                 )
+
+
+# The roles a select item's value or a WHERE predicate holds in a MySQL lpad
+# or now() document: none spells a clause, a subquery, an aggregate or a
+# window (a join's membership_open does, but a join is a unit of its own,
+# which no frame below parses), and a parameter is refused by its kind.
+_EXPRESSION_ROLES = frozenset(
+    {
+        "value_scope",
+        "value_qualifier",
+        "value_column",
+        "anchor_open",
+        "anchor_close",
+        "null_cast_open",
+        "null_cast_close",
+        "scalar_call_open",
+        "scalar_call_separator",
+        "scalar_call_close",
+        "scalar_call_nested_open",
+        "scalar_call_nested_close",
+        "scalar_call_operator",
+        "comparison_open",
+        "comparison_operator",
+        "comparison_close",
+        "comparison_escape",
+        "binary_open",
+        "binary_close",
+        "arithmetic_operator",
+        "logical_operator",
+        "unary_open",
+        "unary_close",
+        "not_open",
+        "not_close",
+        "is_null_open",
+        "is_null_test",
+        "is_null_close",
+        "between_open",
+        "between_operator",
+        "between_separator",
+        "between_close",
+        "conditional_open",
+        "conditional_then",
+        "conditional_else",
+        "conditional_close",
+        "cast_open",
+        "cast_close",
+        "membership_open",
+        "membership_operator",
+        "membership_separator",
+        "membership_close",
+        "membership_constant",
+        *schema.TAGS,
+    }
+)
+# A capture read's own frames may also name an outer field.
+_INLINE_ROLES = _EXPRESSION_ROLES | {
+    "capture_scope",
+    "capture_qualifier",
+    "capture_column",
+}
+# One window call and its own OVER specification.
+_WINDOW_ROLES = frozenset(
+    {
+        "window_open",
+        "window_close",
+        "window_over",
+        "window_spec_open",
+        "window_spec_close",
+        "window_spec_separator",
+        "window_partition",
+        "window_partition_separator",
+        "window_partition_scope",
+        "window_partition_qualifier",
+        "window_partition_column",
+        "window_order",
+        "window_order_separator",
+        "window_order_scope",
+        "window_order_qualifier",
+        "window_order_column",
+        "window_order_direction",
+        "window_frame_unit",
+        "window_frame_start",
+        "window_frame_end",
+        "window_frame_exclusion",
+        "window_frame_separator",
+        "window_frame_and",
+        "window_argument_separator",
+        "window_argument_scope",
+        "window_argument_qualifier",
+        "window_argument_column",
+        "window_argument_literal",
+        "window_argument_cast_open",
+        "window_argument_cast_close",
+        "window_result_cast_open",
+        "window_result_cast_close",
+        "window_row_count",
+        "window_reference",
+    }
+)
+# A capture read, (SELECT e.c FROM (<let>) AS e), around its let.
+_SCALAR_READ = (
+    "scalar_open",
+    "scalar_select",
+    "scalar_scope",
+    "scalar_column_qualifier",
+    "scalar_column",
+    "scalar_from",
+    "inline_open",
+)
+_SCALAR_READ_END = ("inline_close", "scalar_alias", "scalar_scope", "scalar_close")
+# The operand each gap between a MySQL lpad's seven tokens renders: CASE WHEN
+# CHAR_LENGTH(x) >= w THEN x ELSE LPAD(x, w, fill) END.
+_LPAD_SLOTS = (0, 1, 0, 0, 1, 2)
+
+
+class _MysqlCellSql:
+    """Each MySQL lpad and now() in its cell, read from the rendered SQL.
+
+    _mysql_scalar_cells reads columns, predicates, scans and operands that
+    the token checks never tie to the SQL, so it can only refuse. This reads
+    every unit back from its verified tokens in the grammar _row_select
+    renders, SELECT item, ... FROM scan [WINDOW ...] [WHERE predicate], and
+    needs each call to be, rendered once, the whole item that its record's
+    final column names, over lets, at most one WHERE and at most one window
+    below them, then the source, or beside one capture read; and each lpad
+    operand to render its own record: an anchored literal, or a reference
+    that carried and renamed items lead to the source field that record
+    names. Anything else opens no cell."""
+
+    def __init__(self, tokens: _Tokens) -> None:
+        self.tokens, self.doc = tokens, tokens.doc
+        self.roles = [event["role"] for event in tokens.events]
+        self.depth = [0]  # the parenthesis depth before each token
+        for event, text in zip(tokens.events, tokens.texts, strict=True):
+            change = text.count("(") - text.count(")")
+            self.depth.append(
+                self.depth[-1] + (change if event["kind"] == "syntax" else 0)
+            )
+
+    def run(self) -> None:
+        doc, tokens, roles = self.doc, self.tokens, self.roles
+        calls = [
+            ref
+            for ref in doc.all("sql_operation")
+            if doc[ref]["kind"] == "scalar_call"
+            and doc[ref]["operator"] in ("lpad", "now")
+        ]
+        if not calls:
+            return
+        # No record bounds a window argument literal's text; only the Int or
+        # NULL the renderer writes keeps every literal free of a comma, a
+        # parenthesis, a clause or a comment that the frames below never see.
+        for event, text in zip(tokens.events, tokens.texts, strict=True):
+            if event["kind"] == "literal" and event["role"] not in schema.TAGS:
+                _require(
+                    event["role"] == "window_argument_literal"
+                    and (text == "NULL" or _INT.fullmatch(text) is not None),
+                    "mysql scalar cell",
+                )
+        segments = tokens.segments()
+        # Each CTE's frame and, by column, the source field that a carried or
+        # renamed item of it reads (units() names the columns c0, c1, ...).
+        frames: dict[str, tuple[dict, dict[str, tuple | None]]] = {}
+        for unit, start, end in segments[:-1]:
+            frame = self.frame(start, end)
+            names = [doc[column]["name"] for column in doc[unit]["cte_columns"]]
+            frames[doc[doc[unit]["symbol"]]["name"]] = (
+                frame,
+                {
+                    name: self.source(frames, frame, item["read"])
+                    for name, item in zip(names, frame["items"], strict=False)
+                    if item["kind"] in ("carry", "value")
+                },
+            )
+        unit, start, end = segments[-1]
+        final = self.frame(start, end, final=True)
+        captured = any(item["kind"] == "capture" for item in final["items"])
+        _require(
+            final["stage"] == "let"
+            and (not captured or (not frames and final["scan"][0] == "relation")),
+            "mysql scalar cell",
+        )
+        order, scan, seen = ("window", "where", "let"), final["scan"], set()
+        while scan[0] == "stage":
+            _require(scan[1] in frames and scan[1] not in seen, "mysql scalar cell")
+            seen.add(scan[1])
+            stage = frames[scan[1]][0]["stage"]
+            _require(stage in order, "mysql scalar cell")
+            order = order[order.index(stage) + (stage != "let") :]
+            scan = frames[scan[1]][0]["scan"]
+        opens: dict[PlanRef, int] = {}
+        for event in tokens.events:
+            if event["role"] == "scalar_call_open":
+                opens[event["subject"]] = opens.get(event["subject"], 0) + 1
+        # The final column each call is the value of, or the date_of operand of.
+        place: dict[Ref, tuple[int, bool]] = {}
+        for position, column in enumerate(doc[unit]["columns"]):
+            if column.kind == "row_value_column":
+                value = doc[column]["value"]
+                place[value] = (position, False)
+                if (
+                    value.kind == "sql_operation"
+                    and doc[value]["operator"] == "date_of"
+                ):
+                    for operand in doc[value]["operands"]:
+                        place[operand] = (position, True)
+        for ref in calls:
+            op = doc[ref]
+            _require(
+                ref in place and opens.get(op["original"]) == 1, "mysql scalar cell"
+            )
+            position, date_of = place[ref]
+            start, end = final["items"][position]["span"]
+            texts = tokens.texts[start:end]
+            if op["operator"] == "now":
+                # Each now() is rendered once and each item that a now()
+                # names holds one: so none is rendered anywhere else.
+                _require(
+                    texts
+                    == (
+                        ["DATE(", "UTC_TIMESTAMP(6", ")", ")"]
+                        if date_of
+                        else ["UTC_TIMESTAMP(6", ")"]
+                    ),
+                    "mysql scalar cell",
+                )
+                continue
+            marks = [
+                k
+                for k in range(start, end)
+                if tokens.events[k]["subject"] == op["original"]
+                and roles[k].startswith("scalar_call_")
+            ]
+            _require(
+                len(marks) == len(_LPAD_SLOTS) + 1
+                and marks[0] == start
+                and marks[-1] == end - 1,
+                "mysql scalar cell",
+            )
+            for slot, a, b in zip(_LPAD_SLOTS, marks[:-1], marks[1:], strict=True):
+                self.operand(
+                    op["operands"][slot], tokens.texts[a + 1 : b], final, frames
+                )
+
+    def operand(self, operand: Ref, texts, final, frames) -> None:
+        """One lpad slot renders its operand's own record: an anchored
+        literal, or a reference to the source field that record names."""
+
+        doc = self.doc
+        if operand.kind == "sql_anchor":
+            anchor = doc[operand]
+            leaf = anchor["operand"]
+            value = doc[leaf]["value"] if leaf.kind == "sql_literal" else None
+            _require(
+                value is not None
+                and texts
+                == [
+                    schema.SYNTAX["anchor_open"],
+                    schema.literal_token(value.tag, value.value, "mysql"),
+                    schema.ANCHOR_SUFFIX.get(anchor["physical_type"]),
+                ],
+                "mysql scalar cell",
+            )
+            return
+        _require(operand.kind == "sql_stage_reference", "mysql scalar cell")
+        reference = doc[operand]
+        column = doc[reference["column"]]
+        field = column["field"]
+        source = next(
+            (
+                doc[ref]
+                for ref in doc.all("bound_source")
+                if field in doc[ref]["fields"]
+            ),
+            None,
+        )
+        _require(
+            source is not None
+            and texts
+            == [
+                schema.quoted(final["alias"], "mysql"),
+                ".",
+                schema.quoted(column["name"], "mysql"),
+            ]
+            and self.source(frames, final, column["name"])
+            == (source["namespace"], source["name"], doc[field]["column"])
+            and _source_field_matches_stage(doc, column)
+            and doc[reference["realization"]] == doc[column["realization"]],
+            "mysql scalar cell",
+        )
+
+    def source(self, frames, frame, column: str) -> tuple | None:
+        """The source relation and column that ``column`` of the one scan of
+        ``frame`` (a CTE or the final query) is, through the CTEs it scans."""
+
+        scan = frame["scan"]
+        if scan[0] == "relation":
+            return (*scan[1:], column)
+        return frames[scan[1]][1].get(column) if scan[1] in frames else None
+
+    def frame(self, i: int, end: int, *, inline=False, final=False) -> dict:
+        """SELECT item, ... FROM scan [WINDOW ...] [WHERE predicate] up to
+        ``end``, as _row_select renders one body; an inline scan is a capture
+        read's only."""
+
+        roles, base, name = self.roles, self.depth[i], self.tokens.identifier
+        _require(i < end and roles[i] == "select", "mysql scalar cell")
+        items = []
+        while True:
+            k = i + 1
+            while k < end and not (roles[k] == "alias" and self.depth[k] == base):
+                k += 1
+            _require(
+                i + 1 < k < end - 2 and roles[k + 1] == "label", "mysql scalar cell"
+            )
+            items.append(self.item(i + 1, k, base, inline=inline, final=final))
+            i = k + 2
+            if roles[i] != "separator":
+                break
+        _require(roles[i] == "from", "mysql scalar cell")
+        i += 1
+        relation = ["namespace", "qualifier", "relation", "alias", "relation_scope"]
+        if roles[i : i + 5] == relation:
+            scan, alias, i = ("relation", name(i), name(i + 2)), name(i + 4), i + 5
+        elif roles[i : i + 3] == ["stage_reference", "alias", "stage_scope"]:
+            scan, alias, i = ("stage", name(i)), name(i + 2), i + 3
+        else:
+            _require(
+                inline and roles[i : i + 1] == ["inline_open"], "mysql scalar cell"
+            )
+            close = self.closing(i, end)
+            _require(
+                roles[close : close + 3] == ["inline_close", "alias", "stage_scope"],
+                "mysql scalar cell",
+            )
+            inner = self.frame(i + 1, close, inline=True)
+            scan, alias, i = ("inline", inner), name(close + 2), close + 3
+        windowed = any(item["kind"] == "window" for item in items)
+        # WINDOW `w` AS (spec), ..., as _window_clause writes it.
+        head = "window_clause"
+        while i < end and roles[i] == head:
+            close = self.closing(i + 3, end)
+            _require(
+                roles[i + 1 : i + 4]
+                == ["window_definition", "window_definition_as", "window_spec_open"]
+                and roles[close] == "window_spec_close"
+                and _WINDOW_ROLES.issuperset(roles[i + 4 : close]),
+                "mysql scalar cell",
+            )
+            i, head = close + 1, "window_clause_separator"
+        where = i < end and roles[i] == "where"
+        if where:
+            self.flat(i + 1, end, base)
+            self.expression(i + 1, end, inline)
+            i = end
+        _require(i == end and not (windowed and where), "mysql scalar cell")
+        stage = "window" if windowed else "where" if where else "let"
+        return {"items": items, "scan": scan, "alias": alias, "stage": stage}
+
+    def item(self, start: int, end: int, base: int, *, inline, final) -> dict:
+        roles, name, span = self.roles[start:end], self.tokens.identifier, (start, end)
+        self.flat(start, end, base)
+        for prefix in ("carry", "value", "window_result"):
+            if roles == [f"{prefix}_scope", f"{prefix}_qualifier", f"{prefix}_column"]:
+                return {
+                    "kind": prefix,
+                    "read": name(end - 1),
+                    "span": span,
+                }
+        if roles[0] in ("window_open", "window_result_cast_open"):
+            _require(_WINDOW_ROLES.issuperset(roles), "mysql scalar cell")
+            return {"kind": "window", "span": span}
+        if final and roles[0] == "scalar_open":
+            self.capture(start, end)
+            return {"kind": "capture", "span": span}
+        self.expression(start, end, inline)
+        return {"kind": "expression", "span": span}
+
+    def capture(self, start: int, end: int) -> None:
+        """Q4's read: of a let over a source scan or over one WHERE body of
+        it, naming an outer field."""
+
+        roles = self.roles
+        close = end - len(_SCALAR_READ_END)
+        _require(
+            tuple(roles[start : start + len(_SCALAR_READ)]) == _SCALAR_READ
+            and tuple(roles[close:end]) == _SCALAR_READ_END
+            and self.closing(start + len(_SCALAR_READ) - 1, end) == close
+            and "capture_scope" in roles[start:end],
+            "mysql scalar cell",
+        )
+        let = self.frame(start + len(_SCALAR_READ), close, inline=True)
+        scan = let["scan"]
+        _require(
+            let["stage"] == "let"
+            and (
+                scan[0] == "relation"
+                or (
+                    scan[0] == "inline"
+                    and scan[1]["stage"] == "where"
+                    and scan[1]["scan"][0] == "relation"
+                )
+            ),
+            "mysql scalar cell",
+        )
+
+    def expression(self, start: int, end: int, inline) -> None:
+        allowed = _INLINE_ROLES if inline else _EXPRESSION_ROLES
+        for k in range(start, end):
+            _require(
+                self.roles[k] in allowed
+                and self.tokens.events[k]["kind"] != "parameter",
+                "mysql scalar cell",
+            )
+
+    def flat(self, start: int, end: int, base: int) -> None:
+        """No comma at the frame's own depth, where it would start an item."""
+
+        for k in range(start, end):
+            if self.tokens.events[k]["kind"] == "syntax":
+                depth = self.depth[k]
+                for character in self.tokens.texts[k]:
+                    _require(character != "," or depth > base, "mysql scalar cell")
+                    depth += {"(": 1, ")": -1}.get(character, 0)
+
+    def closing(self, i: int, end: int) -> int:
+        """The token that closes the parenthesis token ``i`` opens."""
+
+        for k in range(i, end):
+            if self.depth[k + 1] == self.depth[i]:
+                return k
+        raise _Reject(Status.INVALID_RELATION, "mysql scalar cell")
 
 
 class _ProvenIntRanges:

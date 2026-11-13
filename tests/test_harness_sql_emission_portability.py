@@ -1893,6 +1893,39 @@ def test_requirement_inventory_mutations_reject(tmp_path_factory):
     )
 
 
+@pytest.mark.parametrize("target", ("postgres", "mysql"))
+def test_a_body_names_the_stage_its_columns_render(tmp_path_factory, target):
+    """A row body names a window or aggregation stage exactly when it renders
+    one: nulling the stage field leaves its window or aggregate columns, and
+    the document is refused, even with the aggregation's own generated
+    requirement dropped so that the inventory still matches, and even when
+    the grouped body keeps its key columns alone."""
+
+    def nulled(field, keys_only=False):
+        def edit(d):
+            for body in _records(d, "row_body"):
+                body[field] = None
+                if keys_only:
+                    body["columns"] = [
+                        c for c in body["columns"] if c[0] != "aggregate_value_column"
+                    ]
+            items = _records(d, "artifact")[0]["generated_requirements"]
+            items[:] = [r for r in items if _record(d, r)["kind"] != "aggregation"]
+
+        return edit
+
+    for case, edit in (
+        ("A_window_qualify", nulled("window")),
+        ("X_aggregate_grouped", nulled("aggregation")),
+        ("X_aggregate_grouped", nulled("aggregation", keys_only=True)),
+    ):
+        _, data = _observed(tmp_path_factory, target, case, "hidden")
+        assert _status(_mutated(data, edit, recanonical=True)) == (
+            pure.Status.INVALID_RELATION,
+            "stage columns",
+        ), case
+
+
 def test_order_carriers_c32_and_coherent_alternatives(tmp_path_factory):
     carriers = {}
     documents = {}

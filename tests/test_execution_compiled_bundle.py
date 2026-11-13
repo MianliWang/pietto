@@ -29,6 +29,7 @@ from pietto.semantic.relation_limits import MAX_RELATION_LIMIT, valid_resolved_l
 from pathlib import Path
 from typing import Any
 from _pietto_sql_query_parameters import typed_case
+from _pietto_sql_emission import LPAD_NOW_PAIRS, LPAD_NOW_REFUSALS, lpad_now_world
 from pietto._project.project_sql_emission import serialize_project_sql_emission
 
 
@@ -1270,9 +1271,10 @@ def test_the_two_level_route_template_renders_the_emitted_sql(tmp_path):
 
 
 def test_lpad_and_add_months_templates_render_the_emitted_sql(tmp_path):
-    """Project PostgreSQL `lpad` under a WHERE header parameter and
-    `add_months` over Date fields bind through a loaded compiled bundle and a
-    live template and render the emitted SQL byte for byte."""
+    """Project PostgreSQL `lpad` under a WHERE header parameter, MySQL `lpad`
+    in its cell and PostgreSQL `add_months` over Date fields bind through a
+    loaded compiled bundle and a live template and render the emitted SQL
+    byte for byte; the MySQL cell holds no server parameter."""
     import _pietto_sql_emission as probe
     from _pietto_sql_query_parameters import parameterized_case
     from pietto._project.project_compiled_build import build_compiled
@@ -1296,8 +1298,14 @@ def test_lpad_and_add_months_templates_render_the_emitted_sql(tmp_path):
         "        moved = add_months(d2, id)\n",
         entry="query result:",
     )
+    _, mysql_padded = parameterized_case(
+        tmp_path / "pad",
+        "mysql",
+        'table result:\n    from rows\n    select:\n        padded = lpad(text, 5, "0")\n',
+    )
     for outcome, values, form in (
         (padded, (3,), b"(CASE WHEN length("),
+        (mysql_padded, (), b"CASE WHEN CHAR_LENGTH("),
         (dated, (), b" + make_interval(months => CAST("),
     ):
         assert outcome.status == "VERIFIED", outcome.blockers
@@ -2939,3 +2947,1453 @@ def test_postgres_e9_parameter_pairs_change_the_decimal_carrier(
         accepted_compatibility=built.compatibility,
     )
     assert emit_compiled(loaded, ()).rendered.sql == outcome.artifact.rendered.sql
+
+
+def _loaded(artifact):
+    from pietto._project.project_compiled_build import build_compiled
+    from pietto._project.project_compiled_loading import load_compiled
+
+    built = build_compiled(artifact)
+    return load_compiled(
+        built.payload,
+        expected_pin=built.pin,
+        accepted_producer=built.producer,
+        accepted_compatibility=built.compatibility,
+    )
+
+
+class _CountedRecords:
+    """Compiled records that count each lookup and each item they yield."""
+
+    def __init__(self, records):
+        self.records, self.count = records, 0
+
+    def __getitem__(self, address):
+        self.count += 1
+        return self.records[address]
+
+    def items(self):
+        for item in self.records.items():
+            self.count += 1
+            yield item
+
+
+class _CountedExpressions(tuple):
+    """Plan expressions that count each item an iteration of them yields."""
+
+    yielded = 0
+
+    def __iter__(self):
+        for item in super().__iter__():
+            self.yielded += 1
+            yield item
+
+
+class _CountedPlan:
+    """A plan whose expressions are _CountedExpressions; every other
+    attribute is the plan's."""
+
+    def __init__(self, plan):
+        self.plan, self.expressions = plan, _CountedExpressions(plan.expressions)
+
+    def __getattr__(self, name):
+        return getattr(self.plan, name)
+
+
+class _CountedDocument:
+    """A pure observation document that counts each lookup, each reference
+    ``all`` returns and each record of a pass over ``records``."""
+
+    def __init__(self, doc):
+        self.doc, self.count = doc, 0
+
+    @property
+    def records(self):
+        self.count += len(self.doc.records)
+        return self.doc.records
+
+    def __getitem__(self, ref):
+        self.count += 1
+        return self.doc[ref]
+
+    def all(self, kind):
+        found = self.doc.all(kind)
+        self.count += len(found)
+        return found
+
+
+def _chained_lets(m):
+    """m chained row lets renaming `text`, and m * m cells reading the last."""
+    lets = "".join(
+        f"    let a{i} = {'text' if i == 0 else f'a{i - 1}'}\n" for i in range(m)
+    )
+    items = "".join(f'        p{i} = lpad(a{m - 1}, 5, "0")\n' for i in range(m * m))
+    return "table result:\n    from words\n" + lets + "    select:\n" + items
+
+
+def _beside_a_capture(m):
+    """One capture read and m * m cells beside it."""
+    items = "".join(f'        a{i} = lpad(label, 5, "0")\n' for i in range(m * m))
+    return (
+        "table result:\n    let matched:\n        capture lhs\n        from rhs\n"
+        '        where rhs.id == lhs.id and rhs.label == "x"\n'
+        "        select:\n            id\n            label\n    from lhs\n"
+        "    select:\n        m = scalar matched.label\n" + items
+    )
+
+
+@pytest.mark.parametrize(
+    "world,family", (("words", _chained_lets), ("pair", _beside_a_capture))
+)
+def test_mysql_lpad_and_now_cells_are_derived_in_linear_work(
+    tmp_path, monkeypatch, world, family
+):
+    """Compiled replay derives the cells with one pass over the records and
+    the pure boundary with one pass over the document: the lookups per record
+    and per node do not grow with the program, chained lets and m * m cells
+    beside them or beside a capture read alike. Emission and its verification
+    scan a plan's expressions once at most, however many calls ask."""
+    import _pietto_sql_emission_portable as portable
+    import _pietto_sql_emission_pure_boundary as pure
+    from pietto._project import project_sql_emission_rows as rows
+
+    compiled, observed = {}, {}
+    derive, place = pure._mysql_scalar_cells, rows.mysql_scalar_place
+    plans: dict[int, _CountedPlan] = {}
+
+    def counted_place(plan, expression):
+        if id(plan) not in plans:
+            plans[id(plan)] = _CountedPlan(plan)
+        return place(plans[id(plan)], expression)
+
+    for m in (4, 8, 16):
+        plans.clear()
+        with monkeypatch.context() as patch:
+            patch.setattr(rows, "mysql_scalar_place", counted_place)
+            _, outcome = lpad_now_world(tmp_path / f"m{m}", world, "mysql", family(m))
+        assert plans
+        assert sum(plan.expressions.yielded for plan in plans.values()) <= sum(
+            len(plan.expressions) for plan in plans.values()
+        )
+        artifact = outcome.artifact
+        assert artifact is not None, outcome.blockers
+        loaded = _loaded(artifact)
+        records = _CountedRecords(loaded.records)
+        cells = rows.mysql_compiled_scalar_cells(
+            records, loaded.records[loaded.description.query]
+        )
+        assert len(cells) == m * m
+        compiled[m] = records.count / len(loaded.records)
+        seen = []
+
+        def counted(doc):
+            document = _CountedDocument(doc)
+            found = derive(document)
+            seen.append((document.count / len(doc.records), len(found)))
+            return found
+
+        monkeypatch.setattr(pure, "_mysql_scalar_cells", counted)
+        export = portable.export_emission_observation(artifact, artifact.request)
+        assert export.canonical_bytes is not None
+        assert pure.parse_emission_observation(export.canonical_bytes).status is (
+            pure.Status.OK
+        )
+        monkeypatch.setattr(pure, "_mysql_scalar_cells", derive)
+        ((observed[m], derived),) = seen
+        assert derived == m * m
+    for m in (8, 16):
+        assert compiled[m] <= min(compiled[4] + 0.1, 1.3)
+        assert observed[m] <= min(observed[4] + 0.1, 1.3)
+
+
+# The refused bodies that another rule still refuses when every MySQL lpad
+# and now() counts as in a cell: a width above 256, negative or without a
+# bound, grouped and aggregate queries, an ORDER BY that names the item, a
+# capturing let body with ORDER BY or LIMIT, and concat.
+_LPAD_NOW_UNFORGEABLE = frozenset(
+    {
+        "width_257",
+        "width_16384",
+        "width_negative",
+        "width_field",
+        "width_def_300",
+        "grouped_lpad",
+        "grouped_now",
+        "grouped_having",
+        "grouped_without_aggregate",
+        "order_names_the_item",
+        "capture_body_order_limit",
+        "capture_body_limit_only",
+        "concat_of_lpad",
+        "cells_beside_concat",
+        "mixed_multi",
+        "having_ungrouped",
+        "global_aggregate",
+        "global_aggregate_window",
+        "grouped_window",
+    }
+)
+
+
+def _in_a_cell(law):
+    """``law`` with every MySQL lpad and now() it places counted as in a cell."""
+
+    def opened(plan, expression, values):
+        cell = law(plan, expression, values)
+        if cell is None:
+            return None
+        if cell[0] == "lpad":
+            return ("lpad", "select", ("field", "literal", "literal"))
+        return ("now", "select", ())
+
+    return opened
+
+
+def _assert_every_reader_refuses(artifact, observed, loaded, detail):
+    """Plain verification and the live template (plan), the pure boundary
+    (document) and compiled replay and template (records) refuse a forged
+    artifact, its observation and its loaded bundle."""
+    import _pietto_sql_emission_portable as portable
+    import _pietto_sql_emission_pure_boundary as pure
+    from pietto._project.project_compiled_lowering import emit_compiled
+    from pietto._project.project_execution_template import (
+        BindingError,
+        prepare_compiled_template,
+        prepare_live_template,
+    )
+    from pietto._project.project_sql_emission_verification import (
+        verify_project_sql_emission,
+    )
+
+    assert not verify_project_sql_emission(artifact, artifact.request).verified
+    with pytest.raises(BindingError, match="^BINDING_ARTIFACT$"):
+        prepare_live_template(artifact)
+    if artifact.request.plan.parameters:
+        # The pure boundary's closed schema has no header parameter.
+        assert observed.status is portable.ObservationStatus.OUTSIDE_SCHEMA
+    else:
+        assert observed.canonical_bytes is not None
+        refused = pure.parse_emission_observation(observed.canonical_bytes)
+        assert (refused.status, refused.detail) == (
+            pure.Status.INVALID_RELATION,
+            detail,
+        )
+    values = tuple(value.value for value in artifact.fixed_values)
+    for replay in (
+        lambda: emit_compiled(loaded, values),
+        lambda: prepare_compiled_template(loaded),
+    ):
+        with pytest.raises(wire.CompiledError, match="^COMPILED_PHYSICAL_DOMAIN$"):
+            replay()
+
+
+@pytest.mark.parametrize("shape", LPAD_NOW_REFUSALS)
+def test_forged_mysql_lpad_and_now_outside_their_cells_fail_every_reader(
+    tmp_path, monkeypatch, shape
+):
+    """An artifact of each refused body, emitted while every MySQL lpad and
+    now() counts as in a cell, with its observation and compiled bundle
+    exported under that law, fails each reader that derives the cells from
+    its own record once the law is back; a body that another rule refuses
+    has no artifact to forge. The pure boundary refuses the observation from
+    its SQL alone too: with every call in a cell by its records, the
+    rendered SQL is outside the cells, or another rule refuses it first."""
+    import _pietto_sql_emission_portable as portable
+    import _pietto_sql_emission_pure_boundary as pure
+    from pietto._project import project_sql_emission_rows as rows
+
+    world, policy, body = LPAD_NOW_REFUSALS[shape]
+    with monkeypatch.context() as patch:
+        patch.setattr(rows, "mysql_scalar_cell", _in_a_cell(rows.mysql_scalar_cell))
+        _, outcome = lpad_now_world(tmp_path, world, "mysql", body, policy)
+        artifact = outcome.artifact
+        if shape in _LPAD_NOW_UNFORGEABLE:
+            assert artifact is None and outcome.blockers
+            return
+        assert artifact is not None, outcome.blockers
+        observed = portable.export_emission_observation(artifact, artifact.request)
+        loaded = _loaded(artifact)
+    _assert_every_reader_refuses(artifact, observed, loaded, "mysql scalar cell")
+    if observed.canonical_bytes is None:
+        return
+    monkeypatch.setattr(
+        pure,
+        "_mysql_scalar_cells",
+        lambda doc: dict.fromkeys(
+            (
+                ref
+                for ref in doc.all("sql_operation")
+                if doc[ref]["operator"] in ("lpad", "now")
+            ),
+            ("now", "select", ()),
+        ),
+    )
+    refused = pure.parse_emission_observation(observed.canonical_bytes)
+    assert (refused.status, refused.detail) == (
+        pure.Status.INVALID_RELATION,
+        _REFUSED_BEFORE_THE_SQL.get(shape, "mysql scalar cell"),
+    )
+
+
+# The refused bodies whose observation another rule refuses before the
+# rendered cells when every call is in a cell by its records.
+_REFUSED_BEFORE_THE_SQL = {
+    "nested_lpad": "C5 scalar token sequence",
+    "text_capture_read": "inline unit",
+    "width_conditional": "lpad realization",
+}
+
+
+@pytest.mark.parametrize("policy", ("preserve_literals", "bind_safe_literals"))
+@pytest.mark.parametrize(
+    "item",
+    (
+        'p = lpad(text, 257, "0")',
+        'p = lpad(text, 300, "𝄞")',
+        'p = lpad(text, 16383, "0")',
+        'p = lpad(ntext, 1000, "雪")',
+        'p = lpad("ab", 300, "雪")',
+    ),
+)
+def test_forged_mysql_lpad_widths_above_256_fail_every_reader(
+    tmp_path, monkeypatch, item, policy
+):
+    """An artifact emitted in a cell while the MySQL lpad width bound is
+    raised, with its observation and compiled bundle exported under that
+    bound, fails each reader once the bound is back, the pure boundary
+    included: every reader keeps a MySQL width at 256 or below."""
+    import _pietto_sql_emission_portable as portable
+    from pietto._project import project_sql_emission_rows as rows
+
+    body = f"table result:\n    from words\n    select:\n        id\n        {item}\n"
+    with monkeypatch.context() as patch:
+        patch.setattr(rows, "MYSQL_PACKET_FLOOR_CHARACTERS", 1 << 20)
+        _, outcome = lpad_now_world(tmp_path, "words", "mysql", body, policy)
+        artifact = outcome.artifact
+        assert artifact is not None, outcome.blockers
+        observed = portable.export_emission_observation(artifact, artifact.request)
+        loaded = _loaded(artifact)
+    _assert_every_reader_refuses(artifact, observed, loaded, "lpad realization")
+
+
+def _reencoded(payload, change):
+    """``payload`` with ``change`` applied to every record, canonically
+    encoded again: a forger's bundle, which needs its own pin."""
+    description = wire.decode(payload)
+    members = tuple(
+        (name, tuple(map(change, records))) for name, records in description.members
+    )
+    return wire.encode(
+        wire.Description(
+            description.compatibility, description.producer, description.query, members
+        )
+    )
+
+
+def _with_field(record, name, value):
+    values = list(record.values)
+    values[wire.FIELDS[record.address.kind].index(name)] = value
+    return wire.Record(record.address, tuple(values))
+
+
+def _renumbered(doc):
+    """An observation document edited by hand, put back in the canonical
+    first-visit preorder from its root: unreached records dropped and every
+    local reference renumbered."""
+    kinds = {record["ref"][0] for record in doc["records"]}
+    fields = {tuple(record["ref"]): record["fields"] for record in doc["records"]}
+
+    def local(value):
+        return (
+            type(value) is list
+            and len(value) == 2
+            and type(value[0]) is str
+            and value[0] in kinds
+            and type(value[1]) is int
+        )
+
+    def children(value):
+        if local(value):
+            return [tuple(value)]
+        if type(value) is dict:
+            value = list(value.values())
+        if type(value) is not list:
+            return []
+        return [ref for item in value for ref in children(item)]
+
+    new, counts, order, pending = {}, {}, [], [tuple(doc["root"])]
+    while pending:
+        ref = pending.pop()
+        if ref not in new:
+            new[ref] = [ref[0], counts.get(ref[0], 0)]
+            counts[ref[0]] = new[ref][1] + 1
+            order.append(ref)
+            pending.extend(reversed(children(fields[ref])))
+
+    def renamed(value):
+        if local(value):
+            return new[tuple(value)]
+        if type(value) is list:
+            return [renamed(item) for item in value]
+        if type(value) is dict:
+            return {key: renamed(item) for key, item in value.items()}
+        return value
+
+    records = [{"ref": new[ref], "fields": renamed(fields[ref])} for ref in order]
+    return json.dumps(
+        {"format": doc["format"], "root": new[tuple(doc["root"])], "records": records},
+        ensure_ascii=False,
+        separators=(",", ":"),
+    ).encode()
+
+
+def _assert_bundle_loads_or_refused(built, payload, refused):
+    """Compiled replay, its template and the public loader under ``payload``'s
+    own pin: all accept it, or all refuse it as outside the physical domain
+    (load_bundle as PIE-R1004)."""
+    import pietto.execution as execution
+    from pietto._project.project_compiled_loading import load_compiled
+    from pietto._project.project_compiled_lowering import emit_compiled
+    from pietto._project.project_execution_template import prepare_compiled_template
+
+    pin = wire.content_pin(payload)
+    loaded = load_compiled(
+        payload,
+        expected_pin=pin,
+        accepted_producer=built.producer,
+        accepted_compatibility=built.compatibility,
+    )
+
+    def public():
+        return execution.load_bundle(
+            payload,
+            expected_pin=pin,
+            accepted_producer=built.producer,
+            accepted_compatibility=built.compatibility[-1],
+        )
+
+    if not refused:
+        emit_compiled(loaded, ())
+        prepare_compiled_template(loaded)
+        public()
+        return
+    for replay in (
+        lambda: emit_compiled(loaded, ()),
+        lambda: prepare_compiled_template(loaded),
+    ):
+        with pytest.raises(wire.CompiledError, match="^COMPILED_PHYSICAL_DOMAIN$"):
+            replay()
+    with pytest.raises(execution.RequestRejected) as rejected:
+        public()
+    assert (rejected.value.code, rejected.value.detail) == (
+        "PIE-R1004",
+        "COMPILED_PHYSICAL_DOMAIN",
+    )
+
+
+def _observation(artifact):
+    """The parsed canonical observation document of a native artifact."""
+    import _pietto_sql_emission_portable as portable
+
+    assert artifact is not None
+    export = portable.export_emission_observation(artifact, artifact.request)
+    assert export.canonical_bytes is not None
+    return json.loads(export.canonical_bytes)
+
+
+def _selected(*items):
+    return "table result:\n    from rows\n    select:\n        id\n" + "".join(
+        f"        {item}\n" for item in items
+    )
+
+
+# A native in-cell body, the operator of a second value of the same row and
+# the operator of the cell's operation (or capture read) that the forgery
+# makes that value read as its first operand; with one operator twice, the
+# forgery makes every reference to the row's last such operation name its
+# first instead.
+_REUSED = {
+    "lpad_twice_in_its_row": (
+        "rows",
+        _selected('p = lpad(text, 5, "0")', 'q = lpad(text, 5, "0")'),
+        ("scalar_call", "lpad"),
+        ("scalar_call", "lpad"),
+    ),
+    "lpad_in_a_comparison": (
+        "rows",
+        _selected('p = lpad(text, 5, "0")', 'b = text == "x"'),
+        ("comparison", "=="),
+        ("scalar_call", "lpad"),
+    ),
+    "lpad_in_lower": (
+        "rows",
+        _selected('p = lpad(text, 5, "0")', "q = lower(text)"),
+        ("scalar_call", "lower"),
+        ("scalar_call", "lpad"),
+    ),
+    "lpad_in_len": (
+        "rows",
+        _selected('p = lpad(text, 5, "0")', "n = len(text)"),
+        ("scalar_call", "len"),
+        ("scalar_call", "lpad"),
+    ),
+    "now_in_a_comparison": (
+        "temporal",
+        _selected("t = now()", "b = ts > ts"),
+        ("comparison", ">"),
+        ("scalar_call", "now"),
+    ),
+    "now_in_hour": (
+        "temporal",
+        _selected("t = now()", "h = hour(ts)"),
+        ("scalar_call", "hour"),
+        ("scalar_call", "now"),
+    ),
+    "now_of_date_of_in_hour": (
+        "temporal",
+        _selected("d = date_of(now())", "h = hour(ts)"),
+        ("scalar_call", "hour"),
+        ("scalar_call", "now"),
+    ),
+    "date_of_in_a_comparison": (
+        "temporal",
+        _selected("x = date_of(now())", "b = d == d"),
+        ("comparison", "=="),
+        ("scalar_call", "date_of"),
+    ),
+    "capture_read_in_a_comparison": (
+        "pair",
+        LPAD_NOW_PAIRS["s12_capture_context"] + '        b = label == "x"\n',
+        ("comparison", "=="),
+        ("scalar", "scalar"),
+    ),
+}
+
+
+@pytest.mark.parametrize("shape", sorted(_REUSED))
+def test_mysql_cell_operations_reused_in_their_row_fail_compiled_and_pure_readers(
+    tmp_path, shape
+):
+    """A forger who rewrites a native in-cell bundle or observation so that
+    another value of the same row reads the cell's lpad, now(), date_of or
+    capture read as an operand, or is that same operation (records may share an
+    operation; a SELECT item never does), gets compiled replay, its
+    template, load_bundle and the pure boundary to refuse it; the untouched
+    bytes pass. The plan readers never see such a graph: the same nesting
+    written in source is in LPAD_NOW_REFUSALS."""
+    import _pietto_sql_emission_pure_boundary as pure
+    from pietto._project.project_compiled_build import build_compiled
+
+    world, body, victim, shared = _REUSED[shape]
+    merged = victim == shared
+    _, outcome = lpad_now_world(tmp_path, world, "mysql", body)
+    artifact = outcome.artifact
+    assert outcome.status == "VERIFIED", outcome.blockers
+    built = build_compiled(artifact)
+    operations = [
+        record
+        for record in wire.decode(built.payload).records
+        if record.address.kind == "operation"
+    ]
+    target = [r.address for r in operations if r.get("operator") == shared]
+    target = target[0 if merged else -1]
+    reader = [r.address for r in operations if r.get("operator") == victim][-1]
+
+    def renamed(value: Any) -> Any:
+        if type(value) is tuple:
+            return tuple(map(renamed, value))
+        return target if value == reader else value
+
+    def reuse(record):
+        if merged and record.address != reader:
+            return wire.Record(record.address, renamed(record.values))
+        if merged or record.address != reader:
+            return record
+        return _with_field(record, "operands", (target, *record.get("operands")[1:]))
+
+    _assert_bundle_loads_or_refused(built, built.payload, False)
+    _assert_bundle_loads_or_refused(built, _reencoded(built.payload, reuse), True)
+
+    def operator(record):
+        kind, fields = record["ref"][0], record["fields"]
+        if kind == "sql_block_read":
+            return ("scalar", fields["kind"])
+        return (fields["kind"], fields["operator"]) if kind == "sql_operation" else None
+
+    doc = _observation(artifact)
+    assert pure.parse_emission_observation(_renumbered(doc)).status is pure.Status.OK
+    found = [r["ref"] for r in doc["records"] if operator(r) == shared]
+    found = found[0 if merged else -1]
+    (*_, last) = (r for r in doc["records"] if operator(r) == victim)
+
+    def named(value):
+        if value == last["ref"]:
+            return found
+        if type(value) is dict:
+            return {key: named(item) for key, item in value.items()}
+        return list(map(named, value)) if type(value) is list else value
+
+    if merged:
+        doc["records"] = [named(r) for r in doc["records"] if r is not last]
+    else:
+        last["fields"]["operands"][0] = found
+    refused = pure.parse_emission_observation(_renumbered(doc))
+    assert (refused.status, refused.detail) == (
+        pure.Status.INVALID_RELATION,
+        "mysql scalar cell",
+    )
+
+
+def test_a_mysql_cell_column_shared_with_a_lower_body_fails_the_pure_boundary(
+    tmp_path,
+):
+    """An observation forged so that a let body lists the final body's
+    in-cell lpad column at the same position (a document may share a
+    column; a SELECT item never is a let's) is refused at its cell."""
+    import _pietto_sql_emission_pure_boundary as pure
+
+    _, outcome = lpad_now_world(
+        tmp_path, "words", "mysql", LPAD_NOW_PAIRS["s12_context"]
+    )
+    artifact = outcome.artifact
+    assert outcome.status == "VERIFIED", outcome.blockers
+    doc = _observation(artifact)
+    fields = {tuple(r["ref"]): r["fields"] for r in doc["records"]}
+    bodies = [found for ref, found in fields.items() if ref[0] == "row_body"]
+    final = next(body for body in bodies if body["final"] is True)
+    below = next(body for body in bodies if body["final"] is not True)
+    assert below["block_kind"] == "let"
+    position, column = next(
+        (position, column)
+        for position, column in enumerate(final["columns"])
+        if column[0] == "row_value_column"
+        and fields[tuple(fields[tuple(column)]["value"])].get("operator") == "lpad"
+    )
+    below["columns"][position] = column
+    refused = pure.parse_emission_observation(_renumbered(doc))
+    assert (refused.status, refused.detail) == (
+        pure.Status.INVALID_RELATION,
+        "mysql scalar cell",
+    )
+
+
+def test_a_negative_mysql_lpad_width_literal_fails_compiled_and_pure_readers(
+    tmp_path,
+):
+    """Source cannot write a negative Int literal (`-1` is a sign operation,
+    outside every cell), but a forger can write -1 into the width literal of
+    an in-cell bundle or observation: compiled replay, its template,
+    load_bundle and the pure boundary refuse it, as every reader keeps a
+    MySQL width from 0 to 256."""
+    import _pietto_sql_emission_pure_boundary as pure
+    from pietto._project.project_compiled_build import build_compiled
+
+    _, outcome = lpad_now_world(
+        tmp_path, "rows", "mysql", _selected('p = lpad(text, 256, "0")')
+    )
+    artifact = outcome.artifact
+    assert outcome.status == "VERIFIED", outcome.blockers
+    built = build_compiled(artifact)
+
+    def negative(record):
+        if record.address.kind == "literal" and record.get("value") == wire.Scalar(
+            "Int", 256
+        ):
+            return _with_field(record, "value", wire.Scalar("Int", -1))
+        return record
+
+    payload = _reencoded(built.payload, negative)
+    assert payload != built.payload
+    _assert_bundle_loads_or_refused(built, payload, True)
+    doc = _observation(artifact)
+    (literal,) = (
+        r["fields"]["value"]
+        for r in doc["records"]
+        if r["ref"][0] == "sql_literal" and r["fields"]["value"]["tag"] == "Int"
+    )
+    literal["value"] = "-1"
+    refused = pure.parse_emission_observation(_renumbered(doc))
+    assert (refused.status, refused.detail) == (
+        pure.Status.INVALID_RELATION,
+        "lpad realization",
+    )
+
+
+def _stage_labelled(doc, labels):
+    """``doc`` with each row body's block kind renamed by ``labels``."""
+    edited = json.loads(json.dumps(doc))
+    for record in edited["records"]:
+        fields = record["fields"]
+        if record["ref"][0] == "row_body" and fields["block_kind"] in labels:
+            fields["block_kind"] = labels[fields["block_kind"]]
+    return _renumbered(edited)
+
+
+@pytest.mark.parametrize("shape", ("qualify_lpad_field", "qualify_now"))
+def test_a_forged_mysql_qualify_relabelled_where_fails_every_reader(
+    tmp_path, monkeypatch, shape
+):
+    """A QUALIFY body forged past the cell law and then relabelled to read as
+    a WHERE fails every reader: the plan readers refuse the artifact;
+    load_compiled and load_bundle refuse the bundle whose qualify row says
+    where (COMPILED_ROW_SHAPE), as only a window feeds a qualify, so no
+    compiled replay or template reads it; and the pure boundary refuses the
+    observation whose qualify body says where, alone (out of order) or with
+    its window body saying let (in order by label, not by structure).
+    Nulling the window body's stage field too is refused as a body whose
+    window columns name no window stage, and the cell law alone still sees
+    those columns as a window under the WHERE."""
+    import pietto.execution as execution
+    import _pietto_sql_emission_portable as portable
+    import _pietto_sql_emission_pure_boundary as pure
+    from pietto._project import project_sql_emission_rows as rows
+    from pietto._project.project_compiled_build import build_compiled
+    from pietto._project.project_compiled_loading import load_compiled
+
+    derive, docs = pure._mysql_scalar_cells, []
+    monkeypatch.setattr(
+        pure, "_mysql_scalar_cells", lambda d: docs.append(d) or derive(d)
+    )
+    world, policy, body = LPAD_NOW_REFUSALS[shape]
+    with monkeypatch.context() as patch:
+        patch.setattr(rows, "mysql_scalar_cell", _in_a_cell(rows.mysql_scalar_cell))
+        _, outcome = lpad_now_world(tmp_path, world, "mysql", body, policy)
+        artifact = outcome.artifact
+        assert artifact is not None, outcome.blockers
+        observed = portable.export_emission_observation(artifact, artifact.request)
+        built = build_compiled(artifact)
+        loaded = _loaded(artifact)
+    _assert_every_reader_refuses(artifact, observed, loaded, "mysql scalar cell")
+
+    def where(record):
+        if record.address.kind == "row" and record.get("stage") == "qualify":
+            return _with_field(record, "stage", "where")
+        return record
+
+    payload = _reencoded(built.payload, where)
+    assert payload != built.payload
+    with pytest.raises(wire.CompiledError, match="^COMPILED_ROW_SHAPE$"):
+        load_compiled(
+            payload,
+            expected_pin=wire.content_pin(payload),
+            accepted_producer=built.producer,
+            accepted_compatibility=built.compatibility,
+        )
+    with pytest.raises(execution.RequestRejected) as rejected:
+        execution.load_bundle(
+            payload,
+            expected_pin=wire.content_pin(payload),
+            accepted_producer=built.producer,
+            accepted_compatibility=built.compatibility[-1],
+        )
+    assert rejected.value.detail == "COMPILED_ROW_SHAPE"
+    assert observed.canonical_bytes is not None
+    doc = json.loads(observed.canonical_bytes)
+    relabelled = {"qualify": "where", "window": "let"}
+    for labels in ({"qualify": "where"}, relabelled):
+        refused = pure.parse_emission_observation(_stage_labelled(doc, labels))
+        assert (refused.status, refused.detail) == (
+            pure.Status.INVALID_RELATION,
+            "mysql scalar cell",
+        )
+    labelled = docs[-1]
+    (window,) = (
+        ref for ref in labelled.all("row_body") if labelled[ref]["window"] is not None
+    )
+    for record in doc["records"]:
+        if record["ref"][0] == "row_body" and record["fields"]["window"] is not None:
+            record["fields"]["window"] = None
+    refused = pure.parse_emission_observation(_stage_labelled(doc, relabelled))
+    assert (refused.status, refused.detail) == (
+        pure.Status.INVALID_RELATION,
+        "stage columns",
+    )
+    nulled = pure.Record(window, {**labelled[window], "window": None})
+    assert derive(pure._Doc({**labelled.records, window: nulled})) == {}
+
+
+def test_mysql_cell_stages_come_from_each_body_not_its_label(tmp_path, monkeypatch):
+    """The pure boundary takes a row body's stage from what it renders (a
+    predicate makes a where, window columns a window, neither a let or the
+    projection, aggregate columns none) and needs its label to agree: a
+    native in-cell observation whose WHERE body says let, or whose lets say
+    where, is refused at its cell, and a final projection that filters or
+    windows, or a capturing let's projection that filters, opens no cell.
+    The pure boundary and compiled replay each take one WHERE at most, over
+    the lets: a second WHERE, or a WHERE under a let, opens no cell."""
+    import _pietto_sql_emission_portable as portable
+    import _pietto_sql_emission_pure_boundary as pure
+    from pietto._project import project_sql_emission_rows as rows
+
+    derive, docs = pure._mysql_scalar_cells, []
+
+    def spied(doc):
+        docs.append(doc)
+        return derive(doc)
+
+    monkeypatch.setattr(pure, "_mysql_scalar_cells", spied)
+    bundles = {}
+    for world, form in (("words", "s12_context"), ("pair", "s12_capture_context")):
+        _, outcome = lpad_now_world(
+            tmp_path / form, world, "mysql", LPAD_NOW_PAIRS[form]
+        )
+        artifact = outcome.artifact
+        assert outcome.status == "VERIFIED" and artifact is not None, outcome.blockers
+        export = portable.export_emission_observation(artifact, artifact.request)
+        assert export.canonical_bytes is not None
+        assert pure.parse_emission_observation(export.canonical_bytes).status is (
+            pure.Status.OK
+        )
+        if form == "s12_context":
+            bundles[form] = _loaded(artifact)
+            doc = json.loads(export.canonical_bytes)
+            for labels in ({"where": "let"}, {"let": "where"}):
+                labelled = _stage_labelled(doc, labels)
+                refused = pure.parse_emission_observation(labelled)
+                assert (refused.status, refused.detail) == (
+                    pure.Status.INVALID_RELATION,
+                    "mysql scalar cell",
+                )
+    context, capture = docs[0], docs[-1]
+
+    def body(doc, **found):
+        (ref,) = (
+            ref
+            for ref in doc.all("row_body")
+            if all(doc[ref][name] == value for name, value in found.items())
+        )
+        return ref
+
+    def edited(doc, ref, **changes):
+        record = pure.Record(ref, {**doc[ref], **changes})
+        return pure._Doc({**doc.records, ref: record})
+
+    def stage(*kinds, predicate=None):
+        columns = tuple(pure.Ref(kind, 0) for kind in kinds)
+        return pure._mysql_stage({"columns": columns, "predicate": predicate})
+
+    final = body(context, final=True)
+    filters = body(context, block_kind="where")
+    where = context[filters]["predicate"]
+    below = context[context[filters]["scan"]]["body"]
+    window = next(
+        column
+        for column in context[body(context, block_kind="window")]["columns"]
+        if column.kind == "window_column"
+    )
+    producer = body(capture, final=False, block_kind="projection")
+    filtered = capture[body(capture, block_kind="where")]["predicate"]
+    assert derive(context) and derive(capture)
+    assert context[below]["block_kind"] == "let"
+    assert [stage("row_value_column"), stage("window_column")] == ["let", "window"]
+    assert stage("row_value_column", predicate=where) == "where"
+    assert stage("window_column", predicate=where) is None
+    assert stage("aggregate_key_column") is stage("aggregate_value_column") is None
+    assert derive(edited(context, final, predicate=where)) == {}
+    columns = (*context[final]["columns"], window)
+    assert derive(edited(context, final, columns=columns)) == {}
+    assert derive(edited(capture, producer, predicate=filtered)) == {}
+    twice = edited(context, below, predicate=where, block_kind="where")
+    assert derive(twice) == {}
+    unfiltered = edited(context, filters, predicate=None, block_kind="let")
+    assert derive(edited(unfiltered, below, predicate=where, block_kind="where")) == {}
+
+    loaded = bundles["s12_context"]
+    records = loaded.records
+    entry = records[loaded.description.query]
+    (where_row,) = (
+        record
+        for record in records.values()
+        if record.address.kind == "row" and record.get("stage") == "where"
+    )
+    below_row = records[where_row.get("input")]
+    assert rows.mysql_compiled_scalar_cells(records, entry)
+    assert below_row.get("stage") == "let"
+
+    def staged(*changes):
+        changed = dict(records)
+        for record, label in changes:
+            changed[record.address] = _with_field(record, "stage", label)
+        return changed
+
+    for changes in (
+        ((below_row, "where"),),
+        ((where_row, "let"), (below_row, "where")),
+    ):
+        assert rows.mysql_compiled_scalar_cells(staged(*changes), entry) == {}
+
+
+def _token(kind, role, subject, text):
+    return {"kind": kind, "role": role, "subject": subject, "start": 0, "end": 0}, text
+
+
+def _retokened(doc, edit):
+    """``doc`` with its token list edited, renumbered: ``edit`` takes and
+    returns (event fields, text) pairs; the SQL and the offsets follow, each
+    subject keeps its origins and the optional expression ranges go."""
+    edited = json.loads(json.dumps(doc))
+    fields = {tuple(r["ref"]): r["fields"] for r in edited["records"]}
+    (rendered,) = (r["fields"] for r in edited["records"] if r["ref"][0] == "rendered")
+    sql = rendered["sql"].encode()
+    tokens = [
+        (event, sql[event["start"] : event["end"]].decode())
+        for event in (fields[tuple(ref)] for ref in rendered["events"])
+    ]
+    origins = {json.dumps(event["subject"]): event["origins"] for event, _ in tokens}
+    edited["records"] = [r for r in edited["records"] if r["ref"][0] != "event"]
+    sql, refs = b"", []
+    for n, (event, text) in enumerate(edit(tokens)):
+        start, sql = len(sql), sql + text.encode()
+        event = {**event, "start": start, "end": len(sql)}
+        event["origins"] = origins.get(json.dumps(event["subject"]), [])
+        refs.append(["event", n])
+        edited["records"].append({"ref": refs[-1], "fields": event})
+    rendered.update(sql=sql.decode(), events=refs, expression_ranges=[])
+    return _renumbered(edited)
+
+
+def _wrapped(tokens, scan, alias, opener):
+    """``tokens`` as a scalar subquery of one scan, (SELECT ... FROM scan AS
+    alias), spelled with roles that need no block read record."""
+    (as_, _), (scope, _) = scan[3:]
+    return [
+        (opener, "("),
+        ({**opener, "role": "membership_select"}, "SELECT "),
+        *tokens,
+        ({**opener, "role": "membership_from"}, " FROM "),
+        *scan[:3],
+        ({**as_, "role": "exists_alias"}, " AS "),
+        (scope, alias),
+        ({**opener, "role": "binary_close"}, ")"),
+    ]
+
+
+# Record forgeries, each with the SQL forgery x_reads_the_id it agrees with.
+_RECORD_FORGERIES = (
+    "x_reads_the_id_record",
+    "x_reads_the_id_retyped",
+    "x_claims_its_text_field",
+)
+
+
+def _forged_cell_sql(doc, forgery):
+    """The native s12_context observation ``doc``, whose final query reads
+    p4 (a window over a WHERE over lets), with one forgery of its SQL that
+    leaves the records the cell law reads, or one of _RECORD_FORGERIES."""
+    forged = json.loads(json.dumps(doc))
+    fields = {tuple(r["ref"]): r["fields"] for r in forged["records"]}
+    final = next(f for k, f in fields.items() if k[0] == "row_body" and f["final"])
+    ident = fields[tuple(fields[tuple(final["columns"][0])]["value"])]
+    lpad = next(
+        f
+        for k, f in fields.items()
+        if k[0] == "sql_operation" and f["operator"] == "lpad"
+    )
+    x = fields[tuple(lpad["operands"][0])]  # the text operand of the item p
+    if forgery == "width_300":
+        (literal,) = (
+            f
+            for k, f in fields.items()
+            if k[0] == "sql_literal" and f["value"] == {"tag": "Int", "value": "2"}
+        )
+        literal["value"]["value"] = "300"  # WHERE id > 2 becomes id > 300
+    elif forgery == "x_reads_the_id_record":
+        x["column"] = ident["column"]
+    elif forgery in _RECORD_FORGERIES:
+        column = (
+            {**fields[tuple(ident["column"])], "realization": x["realization"]}
+            if forgery == "x_reads_the_id_retyped"
+            else {**fields[tuple(x["column"])], "name": "c0"}
+        )
+        forged["records"].append({"ref": ["stage_column", 1 << 20], "fields": column})
+        x["column"] = ["stage_column", 1 << 20]
+
+    def at(tokens, role, text=None, after=0):
+        return next(
+            i
+            for i, (event, spelled) in enumerate(tokens)
+            if i >= after and event["role"] == role and text in (None, spelled)
+        )
+
+    def edit(tokens):
+        s = max(i for i, (event, _) in enumerate(tokens) if event["role"] == "select")
+        item, select = tokens[s + 1 : s + 4], tokens[s][0]  # `t5`.`c0` AS `id`
+        now = at(tokens, "scalar_call_open", "UTC_TIMESTAMP(6")
+        a = at(tokens, "scalar_call_open", "CASE WHEN CHAR_LENGTH(", s)
+        b = at(tokens, "alias", after=a)  # the item p is tokens[a:b]
+        scan = tokens[at(tokens, "namespace") :][:5]
+        opener = {**select, "role": "binary_open"}
+        clauses = {
+            "group_by": (" GROUP BY ", "grouping"),
+            "order_by": (" ORDER BY ", "order"),
+            "where": (" WHERE ", "value"),
+        }
+        if forgery in clauses:
+            text, prefix = clauses[forgery]
+            roles = (prefix + "_scope", prefix + "_qualifier", prefix + "_column")
+            clause = [
+                ({**e, "role": r}, t) for (e, t), r in zip(item, roles, strict=True)
+            ]
+            return [*tokens, ({**select, "role": forgery}, text), *clause]
+        if forgery == "distinct":
+            distinct = ({**select, "role": "distinct"}, "DISTINCT ")
+            return [*tokens[: s + 1], distinct, *tokens[s + 1 :]]
+        if forgery == "subquery":
+            subquery = _wrapped(item, scan, item[0][1], opener)
+            return [*tokens[: s + 1], *subquery, *tokens[s + 4 :]]
+        if forgery == "window_subquery":
+            w = at(tokens, "window_order_scope")
+            subquery = _wrapped(tokens[w : w + 3], scan, tokens[w][1], opener)
+            return [*tokens[:w], *subquery, *tokens[w + 3 :]]
+        if forgery == "window_where":
+            w = at(tokens, "window_order_scope")
+            roles = ("value_scope", "value_qualifier", "value_column")
+            read = [
+                ({**e, "role": r}, t)
+                for (e, t), r in zip(tokens[w : w + 3], roles, strict=True)
+            ]
+            end = at(tokens, "with_body") - 1  # p4's cte_body_close
+            where = ({**select, "role": "where"}, " WHERE ")
+            return [*tokens[:end], where, *read, *tokens[end:]]
+        if forgery == "window_clause":
+            # WINDOW `t5` AS () after the query, named by a spelled scope.
+            name = ({**item[0][0], "role": "window_order_scope"}, item[0][1])
+            spelled = [
+                ({**select, "role": r}, t)
+                for r, t in (
+                    ("window_definition_as", " AS "),
+                    ("window_spec_open", "("),
+                    ("window_spec_close", ")"),
+                )
+            ]
+            clause = ({**select, "role": "window_clause"}, " WINDOW ")
+            return [*tokens, clause, name, *spelled]
+        if forgery == "cycle":
+            uses = [
+                i for i, (e, _) in enumerate(tokens) if e["role"] == "stage_reference"
+            ]
+            tokens[uses[0]] = tokens[uses[2]]  # p1 reads p2, which reads p1
+            return tokens
+        if forgery in ("now_compared", "lpad_compared"):
+            compare = tokens[at(tokens, "comparison_operator")]  # WHERE id > 2
+            first, last = (now, now + 2) if forgery == "now_compared" else (a, b)
+            return [
+                *tokens[:first],
+                ({**compare[0], "role": "comparison_open"}, "("),
+                *tokens[first:last],
+                compare,
+                *item,
+                ({**compare[0], "role": "comparison_close"}, ")"),
+                *tokens[last:],
+            ]
+        if forgery == "comma":
+            comma = ({**tokens[now][0], "role": "scalar_call_separator"}, ", ")
+            return [*tokens[: s + 4], comma, *item, *tokens[s + 4 :]]
+        if forgery == "now_twice":
+            return [*tokens[: s + 4], *tokens[now : now + 2], *tokens[s + 4 :]]
+        if forgery == "items_swapped":
+            return [
+                *tokens[: s + 1],
+                *tokens[a:b],
+                *tokens[s + 4 : a],
+                *item,
+                *tokens[b:],
+            ]
+        if forgery == "width_300":
+            where = at(tokens, "Int", after=at(tokens, "where"))
+            return [
+                (tokens[where][0], "300")
+                if i == where or (a < i < b and token[0]["role"] == "Int")
+                else token
+                for i, token in enumerate(tokens)
+            ]
+        assert forgery == "x_reads_the_id" or forgery in _RECORD_FORGERIES
+        return [
+            item[2] if a < i < b and token[0]["role"] == "value_column" else token
+            for i, token in enumerate(tokens)
+        ]
+
+    return _retokened(forged, edit)
+
+
+@pytest.mark.parametrize(
+    "forgery",
+    (
+        "group_by",
+        "order_by",
+        "where",
+        "distinct",
+        "subquery",
+        "window_subquery",
+        "window_where",
+        "window_clause",
+        "cycle",
+        "comma",
+        "now_twice",
+        "now_compared",
+        "lpad_compared",
+        "items_swapped",
+        "width_300",
+        "x_reads_the_id",
+        *_RECORD_FORGERIES,
+    ),
+)
+def test_mysql_cells_are_read_from_the_rendered_sql(tmp_path, forgery):
+    """The pure boundary reads each MySQL lpad and now() cell from the SQL
+    tokens themselves, not from the records the cell law reads, which no
+    token check ties to the SQL. A native in-cell observation whose SQL gains
+    a GROUP BY, ORDER BY or WHERE in its final query, a DISTINCT, a scalar
+    subquery in an item or in a window's ORDER BY, a WHERE in its window
+    body (a second WHERE), a WINDOW clause in its final query named by a
+    spelled scope, a cycle of lets, a second select item behind a
+    comma or a second now(), whose now() or lpad becomes one side of a
+    comparison or trades places with another item, whose lpad width reads
+    another literal (300, rewritten), or whose lpad reads the Int id column
+    instead of its text is refused at its cell, its records unchanged; so are
+    the reads of the id column whose operand record names the id column (a
+    Text reference to an Int column), names it retyped as Text, or names its
+    own text field under the id column's name. The untouched tokens, without
+    their optional ranges, pass."""
+    import _pietto_sql_emission_pure_boundary as pure
+
+    _, outcome = lpad_now_world(
+        tmp_path, "words", "mysql", LPAD_NOW_PAIRS["s12_context"]
+    )
+    assert outcome.status == "VERIFIED", outcome.blockers
+    doc = _observation(outcome.artifact)
+    native = pure.parse_emission_observation(_retokened(doc, lambda tokens: tokens))
+    assert native.status is pure.Status.OK
+    refused = pure.parse_emission_observation(_forged_cell_sql(doc, forgery))
+    assert (refused.status, refused.detail) == (
+        pure.Status.INVALID_RELATION,
+        "mysql scalar cell",
+    )
+
+
+def _forged_capture_sql(tokens, forgery):
+    """The tokens of the native s12_capture_context observation, whose item
+    m is (SELECT e0.c1 FROM (<let> FROM (<where>) AS t1) AS e0), with one
+    forgery."""
+
+    def at(role):
+        return next(i for i, (e, _) in enumerate(tokens) if e["role"] == role)
+
+    def renamed(i, role, text=None):
+        return ({**tokens[i][0], "role": role}, tokens[i][1] if text is None else text)
+
+    read = at("scalar_open")
+    let = read + 6  # the let's inline_open; its first value is let + 2 .. 4
+    close = at("scalar_close") - 3  # the let's inline_close
+    where, inner = at("where"), at("inline_close")  # the WHERE body's
+    if forgery == "head":
+        tokens[read + 1] = renamed(read + 1, "membership_select")
+    elif forgery == "tail":
+        tokens[close + 1] = renamed(close + 1, "exists_alias")
+    elif forgery == "closed_early":
+        early = [renamed(read, "binary_close", ")"), renamed(read, "binary_open")]
+        tokens[let + 5 : let + 5] = early
+    elif forgery == "let_filters":
+        tokens[close:close] = [tokens[where], *tokens[let + 2 : let + 5]]
+    elif forgery == "source_unfiltered":
+        captured = tokens[at("capture_scope") :][:3]
+        tokens[where:inner] = []
+        tokens[let + 8 : let + 11] = captured  # the let's c1 reads s1
+    else:
+        assert forgery == "derived_table"
+        scan = len(tokens) - 5  # FROM <namespace>.<relation> AS s1
+        alias = tokens[scan + 3]
+        tokens[scan:] = [
+            *tokens[let : close + 1],
+            alias,
+            renamed(scan + 4, "stage_scope"),
+        ]
+        tokens[read : at("scalar_close") + 1] = tokens[1:4]  # m reads id
+    return tokens
+
+
+@pytest.mark.parametrize(
+    "forgery",
+    (
+        "head",
+        "tail",
+        "closed_early",
+        "let_filters",
+        "source_unfiltered",
+        "derived_table",
+    ),
+)
+def test_a_mysql_capture_read_is_read_from_the_rendered_sql(tmp_path, forgery):
+    """A native observation with a capture read beside its cells is refused
+    at its cells, its records unchanged, when the read's SQL leaves the
+    grammar: its SELECT or AS spelled by another role, an item that closes
+    the let's parenthesis early, a WHERE in the capturing let, a source
+    body that no longer filters (its let reads the captured field instead),
+    or the let moved from the read into the query's FROM."""
+    import _pietto_sql_emission_pure_boundary as pure
+
+    _, outcome = lpad_now_world(
+        tmp_path, "pair", "mysql", LPAD_NOW_PAIRS["s12_capture_context"]
+    )
+    assert outcome.status == "VERIFIED", outcome.blockers
+    doc = _observation(outcome.artifact)
+    forged = _retokened(doc, lambda tokens: _forged_capture_sql(tokens, forgery))
+    refused = pure.parse_emission_observation(forged)
+    assert (refused.status, refused.detail) == (
+        pure.Status.INVALID_RELATION,
+        "mysql scalar cell",
+    )
+
+
+@pytest.mark.parametrize("forgery", ("order_by", "subquery"))
+def test_a_mysql_window_clause_beside_a_cell_is_read_from_the_rendered_sql(
+    tmp_path, forgery
+):
+    """A native in-cell observation whose WINDOW clause is followed by an
+    ORDER BY, or whose first definition orders by a scalar subquery, is
+    refused at its cell, its records unchanged; the untouched tokens, with
+    two definitions, pass."""
+    import _pietto_sql_emission_pure_boundary as pure
+
+    _, outcome = lpad_now_world(
+        tmp_path,
+        "words",
+        "mysql",
+        "table result:\n    from words\n    let w = window(order by id)\n"
+        "    let v = window(partition by text order by id desc)\n"
+        "    select:\n        id\n        r = row_number() window w\n"
+        "        k = rank() window v\n"
+        '        p = lpad(text, 5, "0")\n',
+    )
+    assert outcome.status == "VERIFIED", outcome.blockers
+    doc = _observation(outcome.artifact)
+
+    def edit(tokens):
+        roles = [event["role"] for event, _ in tokens]
+        w = roles.index("window_order_scope")  # in the definition only
+        read = tokens[w : w + 3]
+        if forgery == "order_by":
+            close = roles.index("window_spec_close") + 1
+            order = ({**tokens[close - 1][0], "role": "window_order"}, "ORDER BY ")
+            return [*tokens[:close], order, *read, *tokens[close:]]
+        scan = tokens[roles.index("namespace") :][:5]
+        select = tokens[len(roles) - 1 - roles[::-1].index("select")][0]
+        subquery = _wrapped(read, scan, read[0][1], {**select, "role": "binary_open"})
+        return [*tokens[:w], *subquery, *tokens[w + 3 :]]
+
+    native = pure.parse_emission_observation(_retokened(doc, lambda tokens: tokens))
+    assert native.status is pure.Status.OK
+    refused = pure.parse_emission_observation(_retokened(doc, edit))
+    assert (refused.status, refused.detail) == (
+        pure.Status.INVALID_RELATION,
+        "mysql scalar cell",
+    )
+
+
+def test_a_mysql_lpad_fill_read_from_another_literal_fails_the_pure_boundary(
+    tmp_path,
+):
+    """A native in-cell observation whose first lpad's fill token reads the
+    six-character literal of the second lpad, records unchanged, renders a
+    fill outside the cell and is refused at its cell."""
+    import _pietto_sql_emission_pure_boundary as pure
+
+    _, outcome = lpad_now_world(
+        tmp_path, "words", "mysql", LPAD_NOW_PAIRS["s12_lpad_literal"]
+    )
+    assert outcome.status == "VERIFIED", outcome.blockers
+    doc = _observation(outcome.artifact)
+
+    def edit(tokens):
+        # lpad("ab", 5, "雪") renders ab 5 ab ab 5 雪, then "abcdef" comes.
+        literals = [
+            i for i, (event, _) in enumerate(tokens) if event["kind"] == "literal"
+        ]
+        fill, other = literals[5], literals[6]
+        assert tokens[other][1] == "X'616263646566'"
+        tokens[fill] = (
+            {**tokens[fill][0], "subject": tokens[other][0]["subject"]},
+            tokens[other][1],
+        )
+        return tokens
+
+    refused = pure.parse_emission_observation(_retokened(doc, edit))
+    assert (refused.status, refused.detail) == (
+        pure.Status.INVALID_RELATION,
+        "mysql scalar cell",
+    )
+
+
+@pytest.mark.parametrize(
+    "argument",
+    (
+        "1) OVER ()) SELECT 1 AS `id` -- ",
+        "1) OVER () LIMIT 1), `zz` AS (SELECT NTILE(1",
+    ),
+)
+def test_a_mysql_window_argument_literal_beside_a_cell_is_an_integer_or_null(
+    tmp_path, argument
+):
+    """On MySQL no record bounds the text of a window argument literal. A
+    native in-cell observation whose ROW_NUMBER() becomes NTILE with a record
+    and token argument that closes the call, then comments out the rest of
+    the statement or limits the window's body, is refused at its cell; the
+    arguments 1 and NULL pass."""
+    import _pietto_sql_emission_pure_boundary as pure
+
+    source = LPAD_NOW_PAIRS["s12_context"]
+    _, outcome = lpad_now_world(tmp_path, "words", "mysql", source)
+    assert outcome.status == "VERIFIED", outcome.blockers
+    doc = _observation(outcome.artifact)
+
+    def ntile(argument):
+        forged = json.loads(json.dumps(doc))
+        (window,) = (r for r in forged["records"] if r["ref"][0] == "window_column")
+        window["fields"]["function"] = "ntile"
+        window["fields"]["arguments"] = [["window_argument", 1 << 20]]
+        literal = {"position": 0, "role": "bucket", "read": None, "literal": argument}
+        forged["records"].append(
+            {"ref": ["window_argument", 1 << 20], "fields": literal}
+        )
+
+        def edit(tokens):
+            w = next(i for i, (e, _) in enumerate(tokens) if e["role"] == "window_open")
+            subject = tokens[w][0]["subject"]
+            ntile = (tokens[w][0], "NTILE(")
+            argument_token = _token(
+                "literal", "window_argument_literal", subject, argument
+            )
+            return [*tokens[:w], ntile, argument_token, *tokens[w + 1 :]]
+
+        return pure.parse_emission_observation(_retokened(forged, edit))
+
+    assert ntile("1").status is ntile("NULL").status is pure.Status.OK
+    refused = ntile(argument)
+    assert (refused.status, refused.detail) == (
+        pure.Status.INVALID_RELATION,
+        "mysql scalar cell",
+    )
+
+
+@pytest.mark.parametrize(
+    "form",
+    (
+        "s12_lpad_field",
+        "s12_lpad_literal",
+        "s12_now",
+        "s12_context",
+        "s12_capture_context",
+    ),
+)
+def test_mysql_lpad_and_now_cells_agree_across_readers(tmp_path, monkeypatch, form):
+    """Emission (from the plan), compiled replay (from the records) and the
+    pure boundary (from the document) derive the same open cells."""
+    import _pietto_sql_emission as probe
+    import _pietto_sql_emission_portable as portable
+    import _pietto_sql_emission_pure_boundary as pure
+    from pietto._project import project_sql_emission_rows as rows
+
+    law, derive = rows.mysql_scalar_cell, pure._mysql_scalar_cells
+    emitted, observed = {}, []
+
+    def recorded(plan, expression, values):
+        cell = law(plan, expression, values)
+        if cell is not None:
+            # Emission realizes a call more than once; count it once.
+            emitted[id(expression.expression)] = cell
+        return cell
+
+    world = "pair" if form == "s12_capture_context" else "words"
+    with monkeypatch.context() as patch:
+        patch.setattr(rows, "mysql_scalar_cell", recorded)
+        _, outcome = lpad_now_world(
+            tmp_path, world, "mysql", probe.LPAD_NOW_PAIRS[form]
+        )
+    artifact = outcome.artifact
+    assert artifact is not None, outcome.blockers
+    loaded = _loaded(artifact)
+    replayed = rows.mysql_compiled_scalar_cells(
+        loaded.records, loaded.records[loaded.description.query]
+    )
+
+    def spied(doc):
+        found = derive(doc)
+        observed.extend(found.values())
+        return found
+
+    with monkeypatch.context() as patch:
+        patch.setattr(pure, "_mysql_scalar_cells", spied)
+        export = portable.export_emission_observation(artifact, artifact.request)
+        assert export.canonical_bytes is not None
+        assert pure.parse_emission_observation(export.canonical_bytes).status is (
+            pure.Status.OK
+        )
+    assert sorted(emitted.values()) == sorted(replayed.values()) == sorted(observed)
+    assert set(emitted.values()) <= rows.MYSQL_SCALAR_CELLS
+
+
+def test_compiled_replay_counts_the_rendered_parameter_markers(tmp_path, monkeypatch):
+    """A PostgreSQL `lpad` whose repeated text operand renders a capture
+    read's bind-safe markers, forged past the live parameter law, loads; its
+    compiled replay and template refuse it (six markers, two uses). MySQL
+    refuses the same forgery earlier, outside the lpad cells."""
+    import builtins
+
+    import _pietto_sql_emission as probe
+    from pietto._project import project_sql_emission as emission
+    from pietto._project import project_sql_emission_inspection as inspection
+    from pietto._project import project_sql_emission_rows as rows
+    from pietto._project import project_sql_emission_verification as verification
+    from pietto._project.project_compiled_lowering import emit_compiled
+    from pietto._project.project_execution_template import prepare_compiled_template
+
+    body = (
+        "table result:\n    let matched:\n        capture lhs\n        from rhs\n"
+        '        where rhs.id == lhs.id and rhs.label == "x" and rhs.id > 7\n'
+        "        select:\n            id\n            label\n    from lhs\n"
+        '    select:\n        p = lpad(scalar matched.label, 4, "雪")\n'
+    )
+    law = rows.mysql_scalar_cell
+
+    def opened(plan, expression, values):
+        cell = law(plan, expression, values)
+        return (
+            None
+            if cell is None
+            else ("lpad", "select", ("field", "literal", "literal"))
+        )
+
+    for target, refusal in (
+        ("postgres", "COMPILED_EMISSION_PARAMETER_INVENTORY"),
+        ("mysql", "COMPILED_PHYSICAL_DOMAIN"),
+    ):
+        item = probe.labelled_join_witness(target, body, policy="bind_safe_literals")
+        with monkeypatch.context() as patch:
+            patch.setattr(verification, "verify_row_parameters", lambda artifact: True)
+            patch.setattr(emission, "_public_document", lambda outcome: {})
+            patch.setattr(
+                inspection,
+                "zip",
+                lambda *args, strict=False: builtins.zip(*args),
+                raising=False,
+            )
+            patch.setattr(rows, "mysql_scalar_cell", opened)
+            _, outcome = probe.build_case(
+                tmp_path / target,
+                item["source"],
+                item["contract"],
+                "bind_safe_literals",
+            )
+            artifact = outcome.artifact
+            assert artifact is not None
+            assert (
+                sum(event.kind == "parameter" for event in artifact.rendered.events),
+                len(artifact.parameter_uses),
+            ) == (6, 2)
+            loaded = _loaded(artifact)
+        values = tuple(value.value for value in artifact.fixed_values)
+        for replay in (
+            lambda: emit_compiled(loaded, values),
+            lambda: prepare_compiled_template(loaded),
+        ):
+            with pytest.raises(wire.CompiledError, match=f"^{refusal}$"):
+                replay()

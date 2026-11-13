@@ -6266,6 +6266,8 @@ def _verify_compiled_emission(artifact, request):
         sorted(map(id, used_parameters)) == sorted(map(id, plan.parameter_uses))
         and tuple(leaf.use for leaf in ast.row_parameter_leaves(query))
         == plan.parameter_uses
+        and sum(event.kind == "parameter" for event in artifact.rendered.events)
+        == len(plan.parameter_uses)
         and artifact.parameter_uses is plan.parameter_uses
         and artifact.fixed_values is plan.fixed_envelope.values,
         "EMISSION_PARAMETER_INVENTORY",

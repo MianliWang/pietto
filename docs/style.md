@@ -1228,8 +1228,11 @@ reads a new one; saved results keep the value of the run that saved them.
 comparison; elsewhere, such as a GROUP BY or ORDER BY key, a JOIN `on`, a field
 `derive`, another `let`, HAVING, QUALIFY, a window, LIMIT or a `def` body, it
 is refused (PIE-S2387). If a column holds local time, comparing it with
-`now()` is off by the local offset from UTC. A MySQL project does not emit
-`now()` yet.
+`now()` is off by the local offset from UTC. Of the positions above, a MySQL
+project emits `now()` and `date_of(now())` only in the SELECT items that the
+`now()` paragraph of [Expressions](language.md#expressions) lists
+(unreleased); in a WHERE and in the other
+SELECT items it keeps the refusal it had before, as that paragraph says.
 
 ## The first or last value of a group: `first` and `last`
 

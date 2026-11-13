@@ -2871,6 +2871,11 @@ def derive_compiled_semantics(root, values, parameters=None):
     slots = tuple(r for r in records.values() if r.address.kind == "slot")
     family = records[Address("target", 0)].get("family")
     spread_cell = _spread_cell(records, records[root.description.query], family)
+    mysql_cells = (
+        physical.mysql_compiled_scalar_cells(records, records[root.description.query])
+        if family == "mysql"
+        else {}
+    )
     if len(values) != len(slots):
         raise CompiledError("COMPILED_BINDING_SLOTS")
     replacements = {}
@@ -3914,6 +3919,7 @@ def derive_compiled_semantics(root, values, parameters=None):
                             float_cell=_compiled_float_cell(records, ref)
                             if family == "mysql" and token == "same_value"
                             else None,
+                            cell=mysql_cells.get(ref),
                         )
                     elif role == "conditional":
                         realized, problem = physical.resolved_conditional_realization(
@@ -4243,6 +4249,13 @@ def verify_compiled_semantics(value):
         request_objects[address] = request
     family = records[Address("target", 0)].get("family")
     spread_cell = _spread_cell(records, records[value.root.description.query], family)
+    mysql_cells = (
+        physical.mysql_compiled_scalar_cells(
+            records, records[value.root.description.query]
+        )
+        if family == "mysql"
+        else {}
+    )
     slots = tuple(r for r in records.values() if r.address.kind == "slot")
     need(
         type(value.values) is tuple and len(slots) == len(value.values),
@@ -5301,6 +5314,7 @@ def verify_compiled_semantics(value):
                                 float_cell=_compiled_float_cell(records, current)
                                 if family == "mysql" and token == "same_value"
                                 else None,
+                                cell=mysql_cells.get(current),
                             )
                         )
                         need(

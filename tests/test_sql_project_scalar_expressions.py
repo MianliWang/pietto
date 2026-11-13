@@ -729,7 +729,7 @@ def test_now_is_one_utc_statement_snapshot_evaluated_at_execution(tmp_path, targ
     """Project PostgreSQL emits `now()` as the statement's UTC start, a
     never-None microsecond Timestamp, in SELECT items and WHERE; the compiled
     bundle and the live template keep the expression, never a value. A MySQL
-    project refuses it until a run of the project's own SQL."""
+    project refuses it in a WHERE, outside its candidate cells."""
     outcome = emit_temporal(
         tmp_path / target,
         target,
@@ -1473,22 +1473,621 @@ def test_postgres_lpad_refuses_a_width_outside_int4(tmp_path):
     ]
 
 
-def test_mysql_project_sql_refuses_lpad_and_add_months(tmp_path):
-    """MySQL project SQL refuses both until the two-database differential
-    admits them; single-file MySQL SQL renders LPAD and DATE_ADD."""
-    checked, padded = emit(tmp_path / "pad", "mysql", LPAD_BODY)
-    dated_checked, dated = probe.temporal_case(
-        tmp_path / "date", "mysql", ADD_MONTHS_BODY
+def test_mysql_project_sql_refuses_add_months(tmp_path):
+    """MySQL project SQL refuses `add_months` until a run of its own SQL
+    admits it (D77.07); single-file MySQL SQL renders DATE_ADD."""
+    checked, dated = probe.temporal_case(tmp_path, "mysql", ADD_MONTHS_BODY)
+    assert checked.verified
+    assert public_blockers(dated) == [
+        ("PIE-B1003", "scalar_call_signature_not_admitted", line, 9)
+        for line in (12, 13, 14)
+    ]
+
+
+# The preregistered native qualification pairs of MySQL project `lpad` and
+# `now()` (_pietto_sql_emission.LPAD_NOW_PAIRS); the SQL each body emits below
+# is the pair's byte source.
+LPAD_NOW_PAIRS = probe.LPAD_NOW_PAIRS
+# Each pair's public column nullability, which both halves judge.
+LPAD_NOW_PAIR_NULLABLE = {
+    "s12_lpad_field": [False, False, False, False],
+    "s12_lpad_nullable": [False, True, True],
+    "s12_lpad_literal": [False, False, False, False],
+    "s12_lpad_256": [False, False, True],
+    "s12_now": [False, False, False, False, False],
+    "s12_context": [False, False, False, False, True, False, False],
+    "s12_capture_context": [False, True, True, False, False],
+}
+LPAD_NOW_PAIR_SQL = {
+    ("s12_lpad_field", "postgres"): (
+        'SELECT "s0"."order.id" AS "id", (CASE WHEN length("s0"."text `""é") >= CAST(5 AS pg_catalog.int8) THEN "s0"."text `""é" ELSE lpad("s0"."text `""é", CAST(CAST(5 AS pg_catalog.int8) AS pg_catalog.int4), CAST(E\'\\060\' AS pg_catalog.text) COLLATE "C") END) AS "p5", (CASE WHEN length("s0"."text `""é") >= CAST(7 AS pg_catalog.int8) THEN "s0"."text `""é" ELSE lpad("s0"."text `""é", CAST(CAST(7 AS pg_catalog.int8) AS pg_catalog.int4), CAST(E\'\\351\\233\\252\' AS pg_catalog.text) COLLATE "C") END) AS "p7", (CASE WHEN length("s0"."text `""é") >= CAST(0 AS pg_catalog.int8) THEN "s0"."text `""é" ELSE lpad("s0"."text `""é", CAST(CAST(0 AS pg_catalog.int8) AS pg_catalog.int4), CAST(E\'\\170\' AS pg_catalog.text) COLLATE "C") END) AS "p0" FROM "public"."phase66 source é" AS "s0"'
+    ),
+    ("s12_lpad_field", "mysql"): (
+        'SELECT `s0`.`order.id` AS `id`, CASE WHEN CHAR_LENGTH(`s0`.`text ``"é`) >= CAST(5 AS SIGNED) THEN `s0`.`text ``"é` ELSE LPAD(`s0`.`text ``"é`, CAST(5 AS SIGNED), CAST(X\'30\' AS CHAR CHARACTER SET utf8mb4) COLLATE utf8mb4_0900_bin) END AS `p5`, CASE WHEN CHAR_LENGTH(`s0`.`text ``"é`) >= CAST(7 AS SIGNED) THEN `s0`.`text ``"é` ELSE LPAD(`s0`.`text ``"é`, CAST(7 AS SIGNED), CAST(X\'e99baa\' AS CHAR CHARACTER SET utf8mb4) COLLATE utf8mb4_0900_bin) END AS `p7`, CASE WHEN CHAR_LENGTH(`s0`.`text ``"é`) >= CAST(0 AS SIGNED) THEN `s0`.`text ``"é` ELSE LPAD(`s0`.`text ``"é`, CAST(0 AS SIGNED), CAST(X\'78\' AS CHAR CHARACTER SET utf8mb4) COLLATE utf8mb4_0900_bin) END AS `p0` FROM `phase66`.`phase66 source é` AS `s0`'
+    ),
+    ("s12_lpad_nullable", "postgres"): (
+        'SELECT "s0"."order.id" AS "id", (CASE WHEN length("s0"."ntext") >= CAST(5 AS pg_catalog.int8) THEN "s0"."ntext" ELSE lpad("s0"."ntext", CAST(CAST(5 AS pg_catalog.int8) AS pg_catalog.int4), CAST(E\'\\060\' AS pg_catalog.text) COLLATE "C") END) AS "n5", (CASE WHEN length("s0"."ntext") >= CAST(9 AS pg_catalog.int8) THEN "s0"."ntext" ELSE lpad("s0"."ntext", CAST(CAST(9 AS pg_catalog.int8) AS pg_catalog.int4), CAST(E\'\\040\' AS pg_catalog.text) COLLATE "C") END) AS "n9" FROM "public"."phase66 source é" AS "s0"'
+    ),
+    ("s12_lpad_nullable", "mysql"): (
+        "SELECT `s0`.`order.id` AS `id`, CASE WHEN CHAR_LENGTH(`s0`.`ntext`) >= CAST(5 AS SIGNED) THEN `s0`.`ntext` ELSE LPAD(`s0`.`ntext`, CAST(5 AS SIGNED), CAST(X'30' AS CHAR CHARACTER SET utf8mb4) COLLATE utf8mb4_0900_bin) END AS `n5`, CASE WHEN CHAR_LENGTH(`s0`.`ntext`) >= CAST(9 AS SIGNED) THEN `s0`.`ntext` ELSE LPAD(`s0`.`ntext`, CAST(9 AS SIGNED), CAST(X'20' AS CHAR CHARACTER SET utf8mb4) COLLATE utf8mb4_0900_bin) END AS `n9` FROM `phase66`.`phase66 source é` AS `s0`"
+    ),
+    ("s12_lpad_literal", "postgres"): (
+        'SELECT "s0"."order.id" AS "id", (CASE WHEN length(CAST(E\'\\141\\142\' AS pg_catalog.text) COLLATE "C") >= CAST(5 AS pg_catalog.int8) THEN CAST(E\'\\141\\142\' AS pg_catalog.text) COLLATE "C" ELSE lpad(CAST(E\'\\141\\142\' AS pg_catalog.text) COLLATE "C", CAST(CAST(5 AS pg_catalog.int8) AS pg_catalog.int4), CAST(E\'\\351\\233\\252\' AS pg_catalog.text) COLLATE "C") END) AS "a", (CASE WHEN length(CAST(E\'\\141\\142\\143\\144\\145\\146\' AS pg_catalog.text) COLLATE "C") >= CAST(3 AS pg_catalog.int8) THEN CAST(E\'\\141\\142\\143\\144\\145\\146\' AS pg_catalog.text) COLLATE "C" ELSE lpad(CAST(E\'\\141\\142\\143\\144\\145\\146\' AS pg_catalog.text) COLLATE "C", CAST(CAST(3 AS pg_catalog.int8) AS pg_catalog.int4), CAST(E\'\\060\' AS pg_catalog.text) COLLATE "C") END) AS "b", (CASE WHEN length(CAST(E\'\' AS pg_catalog.text) COLLATE "C") >= CAST(2 AS pg_catalog.int8) THEN CAST(E\'\' AS pg_catalog.text) COLLATE "C" ELSE lpad(CAST(E\'\' AS pg_catalog.text) COLLATE "C", CAST(CAST(2 AS pg_catalog.int8) AS pg_catalog.int4), CAST(E\'\\360\\235\\204\\236\' AS pg_catalog.text) COLLATE "C") END) AS "c" FROM "public"."phase66 source é" AS "s0"'
+    ),
+    ("s12_lpad_literal", "mysql"): (
+        "SELECT `s0`.`order.id` AS `id`, CASE WHEN CHAR_LENGTH(CAST(X'6162' AS CHAR CHARACTER SET utf8mb4) COLLATE utf8mb4_0900_bin) >= CAST(5 AS SIGNED) THEN CAST(X'6162' AS CHAR CHARACTER SET utf8mb4) COLLATE utf8mb4_0900_bin ELSE LPAD(CAST(X'6162' AS CHAR CHARACTER SET utf8mb4) COLLATE utf8mb4_0900_bin, CAST(5 AS SIGNED), CAST(X'e99baa' AS CHAR CHARACTER SET utf8mb4) COLLATE utf8mb4_0900_bin) END AS `a`, CASE WHEN CHAR_LENGTH(CAST(X'616263646566' AS CHAR CHARACTER SET utf8mb4) COLLATE utf8mb4_0900_bin) >= CAST(3 AS SIGNED) THEN CAST(X'616263646566' AS CHAR CHARACTER SET utf8mb4) COLLATE utf8mb4_0900_bin ELSE LPAD(CAST(X'616263646566' AS CHAR CHARACTER SET utf8mb4) COLLATE utf8mb4_0900_bin, CAST(3 AS SIGNED), CAST(X'30' AS CHAR CHARACTER SET utf8mb4) COLLATE utf8mb4_0900_bin) END AS `b`, CASE WHEN CHAR_LENGTH(CAST(X'' AS CHAR CHARACTER SET utf8mb4) COLLATE utf8mb4_0900_bin) >= CAST(2 AS SIGNED) THEN CAST(X'' AS CHAR CHARACTER SET utf8mb4) COLLATE utf8mb4_0900_bin ELSE LPAD(CAST(X'' AS CHAR CHARACTER SET utf8mb4) COLLATE utf8mb4_0900_bin, CAST(2 AS SIGNED), CAST(X'f09d849e' AS CHAR CHARACTER SET utf8mb4) COLLATE utf8mb4_0900_bin) END AS `c` FROM `phase66`.`phase66 source é` AS `s0`"
+    ),
+    ("s12_lpad_256", "postgres"): (
+        'SELECT "s0"."order.id" AS "id", (CASE WHEN length("s0"."text `""é") >= CAST(256 AS pg_catalog.int8) THEN "s0"."text `""é" ELSE lpad("s0"."text `""é", CAST(CAST(256 AS pg_catalog.int8) AS pg_catalog.int4), CAST(E\'\\360\\235\\204\\236\' AS pg_catalog.text) COLLATE "C") END) AS "w", (CASE WHEN length("s0"."ntext") >= CAST(256 AS pg_catalog.int8) THEN "s0"."ntext" ELSE lpad("s0"."ntext", CAST(CAST(256 AS pg_catalog.int8) AS pg_catalog.int4), CAST(E\'\\060\' AS pg_catalog.text) COLLATE "C") END) AS "z" FROM "public"."phase66 source é" AS "s0"'
+    ),
+    ("s12_lpad_256", "mysql"): (
+        "SELECT `s0`.`order.id` AS `id`, CASE WHEN CHAR_LENGTH(`s0`.`text ``\"é`) >= CAST(256 AS SIGNED) THEN `s0`.`text ``\"é` ELSE LPAD(`s0`.`text ``\"é`, CAST(256 AS SIGNED), CAST(X'f09d849e' AS CHAR CHARACTER SET utf8mb4) COLLATE utf8mb4_0900_bin) END AS `w`, CASE WHEN CHAR_LENGTH(`s0`.`ntext`) >= CAST(256 AS SIGNED) THEN `s0`.`ntext` ELSE LPAD(`s0`.`ntext`, CAST(256 AS SIGNED), CAST(X'30' AS CHAR CHARACTER SET utf8mb4) COLLATE utf8mb4_0900_bin) END AS `z` FROM `phase66`.`phase66 source é` AS `s0`"
+    ),
+    ("s12_now", "postgres"): (
+        'SELECT "s0"."order.id" AS "id", (statement_timestamp() AT TIME ZONE \'UTC\') AS "t1", (statement_timestamp() AT TIME ZONE \'UTC\') AS "t2", (statement_timestamp() AT TIME ZONE \'UTC\') AS "t3", CAST((statement_timestamp() AT TIME ZONE \'UTC\') AS date) AS "d" FROM "public"."phase66 source é" AS "s0"'
+    ),
+    ("s12_now", "mysql"): (
+        "SELECT `s0`.`order.id` AS `id`, UTC_TIMESTAMP(6) AS `t1`, UTC_TIMESTAMP(6) AS `t2`, UTC_TIMESTAMP(6) AS `t3`, DATE(UTC_TIMESTAMP(6)) AS `d` FROM `phase66`.`phase66 source é` AS `s0`"
+    ),
+    ("s12_context", "postgres"): (
+        'WITH "p0" ("c0", "c1", "c2", "c3") AS (SELECT "s0"."order.id" AS "c0", "s0"."text `""é" AS "c1", "s0"."ntext" AS "c2", "s0"."text `""é" AS "c3" FROM "public"."phase66 source é" AS "s0"), "p1" ("c0", "c1", "c2", "c3", "c4") AS (SELECT "t1"."c0" AS "c0", "t1"."c1" AS "c1", "t1"."c2" AS "c2", "t1"."c3" AS "c3", "t1"."c3" AS "c4" FROM "p0" AS "t1"), "p2" ("c0", "c1", "c2", "c3", "c4", "c5") AS (SELECT "t2"."c0" AS "c0", "t2"."c1" AS "c1", "t2"."c2" AS "c2", "t2"."c3" AS "c3", "t2"."c4" AS "c4", "t2"."c2" AS "c5" FROM "p1" AS "t2"), "p3" ("c0", "c1", "c2", "c3", "c4", "c5") AS (SELECT "t3"."c0" AS "c0", "t3"."c1" AS "c1", "t3"."c2" AS "c2", "t3"."c3" AS "c3", "t3"."c4" AS "c4", "t3"."c5" AS "c5" FROM "p2" AS "t3" WHERE ("t3"."c0" > CAST(2 AS pg_catalog.int8))), "p4" ("c0", "c1", "c2", "c3", "c4", "c5", "c6") AS (SELECT "t4"."c0" AS "c0", "t4"."c1" AS "c1", "t4"."c2" AS "c2", "t4"."c3" AS "c3", "t4"."c4" AS "c4", "t4"."c5" AS "c5", ROW_NUMBER() OVER (ORDER BY "t4"."c0" ASC) AS "c6" FROM "p3" AS "t4") SELECT "t5"."c0" AS "id", "t5"."c6" AS "r", (CASE WHEN length("t5"."c3") >= CAST(6 AS pg_catalog.int8) THEN "t5"."c3" ELSE lpad("t5"."c3", CAST(CAST(6 AS pg_catalog.int8) AS pg_catalog.int4), CAST(E\'\\055\' AS pg_catalog.text) COLLATE "C") END) AS "p", (CASE WHEN length("t5"."c4") >= CAST(7 AS pg_catalog.int8) THEN "t5"."c4" ELSE lpad("t5"."c4", CAST(CAST(7 AS pg_catalog.int8) AS pg_catalog.int4), CAST(E\'\\055\' AS pg_catalog.text) COLLATE "C") END) AS "p2", "t5"."c5" AS "q", (statement_timestamp() AT TIME ZONE \'UTC\') AS "t0", CAST((statement_timestamp() AT TIME ZONE \'UTC\') AS date) AS "d" FROM "p4" AS "t5"'
+    ),
+    ("s12_context", "mysql"): (
+        "WITH `p0` (`c0`, `c1`, `c2`, `c3`) AS (SELECT `s0`.`order.id` AS `c0`, `s0`.`text ``\"é` AS `c1`, `s0`.`ntext` AS `c2`, `s0`.`text ``\"é` AS `c3` FROM `phase66`.`phase66 source é` AS `s0`), `p1` (`c0`, `c1`, `c2`, `c3`, `c4`) AS (SELECT `t1`.`c0` AS `c0`, `t1`.`c1` AS `c1`, `t1`.`c2` AS `c2`, `t1`.`c3` AS `c3`, `t1`.`c3` AS `c4` FROM `p0` AS `t1`), `p2` (`c0`, `c1`, `c2`, `c3`, `c4`, `c5`) AS (SELECT `t2`.`c0` AS `c0`, `t2`.`c1` AS `c1`, `t2`.`c2` AS `c2`, `t2`.`c3` AS `c3`, `t2`.`c4` AS `c4`, `t2`.`c2` AS `c5` FROM `p1` AS `t2`), `p3` (`c0`, `c1`, `c2`, `c3`, `c4`, `c5`) AS (SELECT `t3`.`c0` AS `c0`, `t3`.`c1` AS `c1`, `t3`.`c2` AS `c2`, `t3`.`c3` AS `c3`, `t3`.`c4` AS `c4`, `t3`.`c5` AS `c5` FROM `p2` AS `t3` WHERE (`t3`.`c0` > CAST(2 AS SIGNED))), `p4` (`c0`, `c1`, `c2`, `c3`, `c4`, `c5`, `c6`) AS (SELECT `t4`.`c0` AS `c0`, `t4`.`c1` AS `c1`, `t4`.`c2` AS `c2`, `t4`.`c3` AS `c3`, `t4`.`c4` AS `c4`, `t4`.`c5` AS `c5`, ROW_NUMBER() OVER (ORDER BY `t4`.`c0` ASC) AS `c6` FROM `p3` AS `t4`) SELECT `t5`.`c0` AS `id`, `t5`.`c6` AS `r`, CASE WHEN CHAR_LENGTH(`t5`.`c3`) >= CAST(6 AS SIGNED) THEN `t5`.`c3` ELSE LPAD(`t5`.`c3`, CAST(6 AS SIGNED), CAST(X'2d' AS CHAR CHARACTER SET utf8mb4) COLLATE utf8mb4_0900_bin) END AS `p`, CASE WHEN CHAR_LENGTH(`t5`.`c4`) >= CAST(7 AS SIGNED) THEN `t5`.`c4` ELSE LPAD(`t5`.`c4`, CAST(7 AS SIGNED), CAST(X'2d' AS CHAR CHARACTER SET utf8mb4) COLLATE utf8mb4_0900_bin) END AS `p2`, `t5`.`c5` AS `q`, UTC_TIMESTAMP(6) AS `t0`, DATE(UTC_TIMESTAMP(6)) AS `d` FROM `p4` AS `t5`"
+    ),
+    ("s12_capture_context", "postgres"): (
+        'SELECT "s1"."order.id" AS "id", (SELECT "e0"."c1" FROM (SELECT "t1"."c0" AS "c0", "t1"."c2" AS "c1" FROM (SELECT "s0"."order.id" AS "c0", "s0"."key" AS "c1", "s0"."label" AS "c2" FROM "public"."phase66 rhs rel" AS "s0" WHERE (("s0"."order.id" = "s1"."order.id") AND ("s0"."label" = CAST(E\'\\170\' AS pg_catalog.text) COLLATE "C"))) AS "t1") AS "e0") AS "m", (CASE WHEN length("s1"."label") >= CAST(5 AS pg_catalog.int8) THEN "s1"."label" ELSE lpad("s1"."label", CAST(CAST(5 AS pg_catalog.int8) AS pg_catalog.int4), CAST(E\'\\060\' AS pg_catalog.text) COLLATE "C") END) AS "a", (statement_timestamp() AT TIME ZONE \'UTC\') AS "t0", CAST((statement_timestamp() AT TIME ZONE \'UTC\') AS date) AS "d" FROM "public"."phase66 lhs rel" AS "s1"'
+    ),
+    ("s12_capture_context", "mysql"): (
+        "SELECT `s1`.`order.id` AS `id`, (SELECT `e0`.`c1` FROM (SELECT `t1`.`c0` AS `c0`, `t1`.`c2` AS `c1` FROM (SELECT `s0`.`order.id` AS `c0`, `s0`.`key` AS `c1`, `s0`.`label` AS `c2` FROM `phase66`.`phase66 rhs rel` AS `s0` WHERE ((`s0`.`order.id` = `s1`.`order.id`) AND (`s0`.`label` = CAST(X'78' AS CHAR CHARACTER SET utf8mb4) COLLATE utf8mb4_0900_bin))) AS `t1`) AS `e0`) AS `m`, CASE WHEN CHAR_LENGTH(`s1`.`label`) >= CAST(5 AS SIGNED) THEN `s1`.`label` ELSE LPAD(`s1`.`label`, CAST(5 AS SIGNED), CAST(X'30' AS CHAR CHARACTER SET utf8mb4) COLLATE utf8mb4_0900_bin) END AS `a`, UTC_TIMESTAMP(6) AS `t0`, DATE(UTC_TIMESTAMP(6)) AS `d` FROM `phase66`.`phase66 lhs rel` AS `s1`"
+    ),
+}
+
+
+def _lpad_now_select(*items, head="", before="", source="words"):
+    lines = "".join(f"        {item}\n" for item in items)
+    return f"{before}table result:\n    from {source}\n{head}    select:\n{lines}"
+
+
+# Other spellings of the cells, each beside the direct spelling whose SQL it
+# emits byte for byte, in the world `s12_words`.
+LPAD_NOW_SPELLINGS = {
+    "def_body": (
+        _lpad_now_select(
+            "id",
+            "p = pad(text)",
+            before='def pad(x: Text) -> Text: return lpad(x, 5, "0")\n',
+        ),
+        _lpad_now_select("id", 'p = lpad(text, 5, "0")'),
+    ),
+    "def_width_argument": (
+        _lpad_now_select(
+            "id",
+            "p = padw(text, 5)",
+            before='def padw(x: Text, w: Int) -> Text: return lpad(x, w, "0")\n',
+        ),
+        _lpad_now_select("id", 'p = lpad(text, 5, "0")'),
+    ),
+    "def_now_argument": (
+        _lpad_now_select(
+            "id",
+            "t = same(now())",
+            before="def same(t: Timestamp) -> Timestamp: return t\n",
+        ),
+        _lpad_now_select("id", "t = now()"),
+    ),
+    "def_date_of_now": (
+        _lpad_now_select(
+            "id",
+            "d = on_day(now())",
+            before="def on_day(t: Timestamp) -> Date: return date_of(t)\n",
+        ),
+        _lpad_now_select("id", "d = date_of(now())"),
+    ),
+    "parenthesized_call": (
+        _lpad_now_select("id", 'p = (lpad(text, 5, "0"))'),
+        _lpad_now_select("id", 'p = lpad(text, 5, "0")'),
+    ),
+    "parenthesized_width": (
+        _lpad_now_select("id", 'p = lpad(text, (5), "0")'),
+        _lpad_now_select("id", 'p = lpad(text, 5, "0")'),
+    ),
+    "qualified_field": (
+        _lpad_now_select("id", 'p = lpad(words.text, 5, "0")'),
+        _lpad_now_select("id", 'p = lpad(text, 5, "0")'),
+    ),
+    "digit_separator": (
+        _lpad_now_select("id", 'p = lpad(text, 1_0, "0")'),
+        _lpad_now_select("id", 'p = lpad(text, 10, "0")'),
+    ),
+    "row_input_alias": (
+        "table result:\n    let x = words\n    from x\n    select:\n        id\n"
+        '        p = lpad(text, 5, "0")\n        t = now()\n',
+        _lpad_now_select("id", 'p = lpad(text, 5, "0")', "t = now()"),
+    ),
+}
+
+
+def _assert_lpad_now_cells(outcome, *, decodes):
+    """Every reader accepts an artifact whose MySQL lpad and now() calls are
+    in their cells: plain and pure verification, compiled replay and the live
+    and compiled templates, with no server parameter; ``decodes`` also asks
+    the public decoder (which reads now() but not lpad)."""
+    from pietto._project.project_compiled_build import build_compiled
+    from pietto._project.project_compiled_loading import load_compiled
+    from pietto._project.project_compiled_lowering import emit_compiled
+    from pietto._project.project_execution_template import (
+        bind_values,
+        prepare_compiled_template,
+        prepare_live_template,
     )
-    for plan, outcome, lines in (
-        (checked, padded, (11, 12)),
-        (dated_checked, dated, (12, 13, 14)),
+
+    assert outcome.status == "VERIFIED" and outcome.artifact is not None, (
+        outcome.blockers
+    )
+    artifact = outcome.artifact
+    assert artifact.parameter_uses == () and artifact.fixed_values == ()
+    assert not any(event.kind == "parameter" for event in artifact.rendered.events)
+    assert verify_project_sql_emission(artifact, artifact.request).verified
+    observed = portable.export_emission_observation(artifact, artifact.request)
+    assert observed.canonical_bytes is not None
+    assert (
+        pure.parse_emission_observation(observed.canonical_bytes).status
+        is pure.Status.OK
+    )
+    assert portable.verify_emission_observation(
+        observed.canonical_bytes, artifact, artifact.request
+    ).corresponds
+    if decodes:
+        assert (
+            probe.decode_public(serialize_project_sql_emission(outcome))["status"]
+            == "VERIFIED"
+        )
+    built = build_compiled(artifact)
+    loaded = load_compiled(
+        built.payload,
+        expected_pin=built.pin,
+        accepted_producer=built.producer,
+        accepted_compatibility=built.compatibility,
+    )
+    assert emit_compiled(loaded, ()).rendered.sql == artifact.rendered.sql
+    for template in (
+        prepare_compiled_template(loaded),
+        prepare_live_template(artifact),
     ):
-        assert plan.verified
-        assert public_blockers(outcome) == [
-            ("PIE-B1003", "scalar_call_signature_not_admitted", line, 9)
-            for line in lines
-        ]
+        assert template.slots == () and template.parameters == ()
+        assert bind_values(template, (), ()).artifact.rendered.sql == (
+            artifact.rendered.sql
+        )
+
+
+@pytest.mark.parametrize("target", TARGETS)
+@pytest.mark.parametrize(
+    "form", [form for form in LPAD_NOW_PAIRS if form != "s12_capture_context"]
+)
+def test_mysql_project_lpad_and_now_emit_only_in_their_cells(tmp_path, form, target):
+    """The pairs P-S12-1..6: a MySQL project emits `lpad` over a source field
+    or a Text literal with a literal width and fill, `now()` and
+    `date_of(now())` as whole SELECT item values of a query that reads its
+    source through row `let`, WHERE and window stages only. Both families
+    emit the pinned SQL, no server parameter and the pinned column
+    nullability; bind-safe literals change nothing when only the calls hold
+    literals."""
+    body = LPAD_NOW_PAIRS[form]
+    checked, outcome = probe.lpad_now_world(
+        tmp_path / "preserve", "words", target, body
+    )
+    assert checked.verified
+    _assert_lpad_now_cells(outcome, decodes=form == "s12_now")
+    assert outcome.artifact is not None
+    sql = outcome.artifact.rendered.sql.decode()
+    assert sql == LPAD_NOW_PAIR_SQL[form, target]
+    document = json.loads(serialize_project_sql_emission(outcome))
+    assert [column["nullable"] for column in document["columns"]] == (
+        LPAD_NOW_PAIR_NULLABLE[form]
+    )
+    if form != "s12_context":
+        # Its WHERE literal would become a bind-safe `?` (refused, below).
+        _, bound = probe.lpad_now_world(
+            tmp_path / "bind", "words", target, body, "bind_safe_literals"
+        )
+        assert bound.artifact is not None
+        assert bound.artifact.rendered.sql.decode() == sql
+
+
+@pytest.mark.parametrize("target", TARGETS)
+def test_mysql_project_lpad_and_now_beside_one_capture_read(tmp_path, target):
+    """The pair P-S12-7: beside one `scalar` read of a capturing relation let
+    whose body reads its source through a WHERE that reads the captured row,
+    in a query without row `let`, WHERE or window stages."""
+    form = "s12_capture_context"
+    checked, outcome = probe.lpad_now_world(
+        tmp_path, "pair", target, LPAD_NOW_PAIRS[form]
+    )
+    assert checked.verified
+    _assert_lpad_now_cells(outcome, decodes=False)
+    assert outcome.artifact is not None
+    assert outcome.artifact.rendered.sql.decode() == LPAD_NOW_PAIR_SQL[form, target]
+    document = json.loads(serialize_project_sql_emission(outcome))
+    assert [column["nullable"] for column in document["columns"]] == (
+        LPAD_NOW_PAIR_NULLABLE[form]
+    )
+
+
+@pytest.mark.parametrize("target", TARGETS)
+@pytest.mark.parametrize("spelling", LPAD_NOW_SPELLINGS)
+def test_mysql_project_lpad_and_now_spellings_emit_the_direct_sql(
+    tmp_path, spelling, target
+):
+    """A `def` call counts as the body it expands to, parentheses, a
+    qualified field, digit separators and a row input alias change nothing:
+    each spelling emits its direct spelling's SQL, in or out of the cells
+    alike."""
+    body, direct = LPAD_NOW_SPELLINGS[spelling]
+    _, outcome = probe.lpad_now_world(tmp_path / "spelled", "words", target, body)
+    _, expected = probe.lpad_now_world(tmp_path / "direct", "words", target, direct)
+    _assert_lpad_now_cells(outcome, decodes="lpad" not in direct)
+    assert outcome.artifact is not None and expected.artifact is not None
+    assert outcome.artifact.rendered.sql == expected.artifact.rendered.sql
+
+
+# MySQL project lpad and now() outside their cells, each (world, policy,
+# body) (_pietto_sql_emission.LPAD_NOW_REFUSALS).
+LPAD_NOW_REFUSALS = probe.LPAD_NOW_REFUSALS
+# Each MySQL refusal as main reports it: the blocker (by _LPAD_NOW_BLOCKERS
+# key), its location (line, column, end line, end column) and its subject
+# reference.
+LPAD_NOW_REFUSAL_BLOCKERS = {
+    "width_257": [("signature", 12, 9, 12, 33, "projection", 1)],
+    "width_16384": [("signature", 12, 9, 12, 35, "projection", 1)],
+    "width_negative": [("signature", 12, 9, 12, 32, "projection", 1)],
+    "width_unary_plus": [("signature", 12, 9, 12, 32, "projection", 1)],
+    "width_field": [("signature", 12, 9, 12, 32, "projection", 1)],
+    "width_conditional": [("signature", 12, 9, 12, 48, "projection", 1)],
+    "width_let": [("signature", 13, 9, 13, 31, "projection", 1)],
+    "width_def_300": [("signature", 13, 9, 13, 28, "projection", 1)],
+    "text_let_computed": [("signature", 13, 9, 13, 28, "projection", 1)],
+    "text_let_literal": [("signature", 13, 9, 13, 28, "projection", 1)],
+    "text_alias_of_computed": [("signature", 14, 9, 14, 28, "projection", 1)],
+    "text_conditional": [("signature", 12, 9, 12, 50, "projection", 1)],
+    "text_coalesce": [("signature", 12, 9, 12, 46, "projection", 1)],
+    "text_capture_read": [("signature", 19, 9, 19, 47, "projection", 2)],
+    "lpad_in_let": [("signature", 10, 5, 10, 31, "let_value", 0)],
+    "grouped_lpad": [("aggregate", 13, 13, 13, 31, "projection", 0)],
+    "grouped_now": [("aggregate", 13, 13, 13, 18, "projection", 0)],
+    "grouped_having": [("aggregate", 13, 13, 13, 31, "projection", 0)],
+    "grouped_without_aggregate": [
+        ("unsuccessful", 8, 1, 13, 31, "selected_plan", 0),
+        ("unavailable", 8, 1, 13, 31, "selected_plan", 0),
+        ("group", 10, 5, 10, 18, "selected_plan", 0),
+    ],
+    "lpad_where": [("signature", 10, 5, 10, 40, "filter", 0)],
+    "now_where": [("signature", 10, 5, 10, 42, "filter", 0)],
+    "order_other": [("signature", 12, 9, 12, 31, "projection", 1)],
+    "order_names_the_item": [("order", 13, 5, 13, 15, "selected_plan", 0)],
+    "limit_only": [("signature", 12, 9, 12, 31, "projection", 1)],
+    "limit_only_now": [("signature", 12, 9, 12, 18, "projection", 1)],
+    "distinct": [
+        ("signature", 12, 9, 12, 31, "projection", 1),
+        ("signature", 13, 9, 13, 18, "projection", 2),
+    ],
+    "join_inner": [
+        ("signature", 14, 9, 14, 36, "projection", 1),
+        ("signature", 15, 9, 15, 18, "projection", 2),
+    ],
+    "join_left": [("signature", 14, 9, 14, 36, "projection", 1)],
+    "upstream_cell": [("signature", 12, 9, 12, 31, "projection", 1)],
+    "union_operands": [("signature", 12, 9, 12, 31, "projection", 1)],
+    "capture_body_lpad": [("signature", 16, 13, 16, 36, "projection", 1)],
+    "upstream_named": [
+        ("signature", 18, 9, 18, 31, "projection", 3),
+        ("signature", 19, 9, 19, 18, "projection", 4),
+    ],
+    "relation_let_from": [("signature", 17, 9, 17, 31, "projection", 3)],
+    "union_input": [("signature", 27, 9, 27, 31, "projection", 5)],
+    "nested_lpad": [("signature", 12, 9, 12, 45, "projection", 1)],
+    "lower_of_lpad": [("signature", 12, 9, 12, 38, "projection", 1)],
+    "concat_of_lpad": [("signature", 12, 9, 12, 44, "projection", 1)],
+    "len_of_lpad": [("signature", 12, 9, 12, 36, "projection", 1)],
+    "compare_in_select": [("signature", 12, 9, 12, 38, "projection", 1)],
+    "now_compare": [("signature", 12, 9, 12, 26, "projection", 1)],
+    "hour_of_now": [("signature", 13, 9, 13, 24, "projection", 1)],
+    "minute_of_now": [("signature", 13, 9, 13, 26, "projection", 1)],
+    "date_of_conditional_now": [("signature", 13, 9, 13, 45, "projection", 1)],
+    "date_of_coalesce_now": [("signature", 13, 9, 13, 42, "projection", 1)],
+    # Rule two (D77.37): a cell's statement refused for another form reports
+    # main's whole list, the cells' PIE-B1003 included (main `d068b0cb`).
+    "cells_beside_concat": [
+        ("signature", 12, 9, 12, 31, "projection", 1),
+        ("signature", 13, 9, 13, 18, "projection", 2),
+        ("signature", 14, 9, 14, 30, "projection", 3),
+    ],
+    "mixed_multi": [
+        ("signature", 19, 9, 19, 38, "projection", 2),
+        ("signature", 20, 9, 20, 47, "projection", 3),
+        ("signature", 21, 9, 21, 18, "projection", 4),
+        ("signature", 22, 9, 22, 41, "projection", 5),
+    ],
+    "qualify_lpad_field": [("signature", 12, 9, 12, 31, "projection", 1)],
+    "qualify_lpad_literal_bind_safe": [("signature", 12, 9, 12, 31, "projection", 1)],
+    "qualify_now": [("signature", 12, 9, 12, 18, "projection", 1)],
+    "qualify_date_of_now": [("signature", 12, 9, 12, 27, "projection", 1)],
+    "qualify_where_nullable": [("signature", 13, 9, 13, 31, "projection", 1)],
+    "qualify_selected_window": [("signature", 13, 9, 13, 18, "projection", 1)],
+    "exists_where": [
+        ("signature", 20, 9, 20, 32, "projection", 2),
+        ("signature", 21, 9, 21, 18, "projection", 3),
+    ],
+    "scalar_where": [("signature", 21, 9, 21, 32, "projection", 3)],
+    "in_where": [("signature", 18, 9, 18, 32, "projection", 2)],
+    "any_where": [("signature", 14, 9, 14, 32, "projection", 1)],
+    "exists_select": [("signature", 20, 9, 20, 32, "projection", 3)],
+    "in_select": [("signature", 18, 9, 18, 32, "projection", 3)],
+    "any_select": [("signature", 14, 9, 14, 32, "projection", 2)],
+    "scalar_read_without_capture": [("signature", 19, 9, 19, 32, "projection", 3)],
+    "capture_beside_where": [("signature", 22, 9, 22, 32, "projection", 4)],
+    "capture_beside_row_let": [("signature", 22, 9, 22, 28, "projection", 4)],
+    "capture_read_inside_an_item": [("signature", 21, 9, 21, 32, "projection", 4)],
+    "capture_reads_no_captured_field": [
+        ("signature", 20, 9, 20, 32, "projection", 4),
+        ("signature", 21, 9, 21, 19, "projection", 5),
+    ],
+    "capture_reads_an_upstream": [
+        ("signature", 27, 9, 27, 32, "projection", 6),
+        ("signature", 28, 9, 28, 19, "projection", 7),
+    ],
+    "capture_reads_a_relation_let": [("signature", 26, 9, 26, 32, "projection", 6)],
+    "capture_reads_an_upstream_window": [("signature", 27, 9, 27, 32, "projection", 5)],
+    "capture_reads_an_upstream_qualify": [
+        ("signature", 27, 9, 27, 32, "projection", 5),
+        ("signature", 28, 9, 28, 19, "projection", 6),
+    ],
+    "capture_reads_an_upstream_distinct": [
+        ("signature", 26, 9, 26, 32, "projection", 5),
+    ],
+    "capture_reads_an_upstream_limit": [("signature", 28, 9, 28, 32, "projection", 5)],
+    "capture_body_order_limit": [
+        ("correlated", 21, 13, 21, 33, "expression_block_use", 0)
+    ],
+    "capture_body_limit_only": [
+        ("correlated", 20, 13, 20, 33, "expression_block_use", 0)
+    ],
+    "header_parameter_in_where": [("signature", 13, 9, 13, 31, "projection", 1)],
+    "header_parameter_in_where_now": [("signature", 13, 9, 13, 18, "projection", 1)],
+    "header_parameter_unread": [("signature", 12, 9, 12, 31, "projection", 1)],
+    "bind_safe_where": [("signature", 13, 9, 13, 31, "projection", 1)],
+    "bind_safe_select_literal": [("signature", 12, 9, 12, 31, "projection", 1)],
+    "bind_safe_context": [
+        ("signature", 15, 9, 15, 28, "projection", 1),
+        ("signature", 16, 9, 16, 29, "projection", 2),
+        ("signature", 18, 9, 18, 19, "projection", 4),
+        ("signature", 19, 9, 19, 27, "projection", 5),
+    ],
+    "bind_safe_capture_context": [
+        ("signature", 20, 9, 20, 32, "projection", 4),
+        ("signature", 21, 9, 21, 19, "projection", 5),
+        ("signature", 22, 9, 22, 27, "projection", 6),
+    ],
+    "having_ungrouped": [
+        ("unsuccessful", 8, 1, 14, 15, "selected_plan", 0),
+        ("unavailable", 8, 1, 14, 15, "selected_plan", 0),
+        ("satisfying", 13, 5, 14, 15, "selected_plan", 0),
+    ],
+    "global_aggregate": [
+        ("unsuccessful", 8, 1, 13, 18, "selected_plan", 0),
+        ("unavailable", 8, 1, 13, 18, "selected_plan", 0),
+    ],
+    "global_aggregate_window": [
+        ("unsuccessful", 8, 1, 13, 31, "selected_plan", 0),
+        ("unavailable", 8, 1, 13, 31, "selected_plan", 0),
+    ],
+    "grouped_window": [
+        ("unsuccessful", 8, 1, 14, 31, "selected_plan", 0),
+        ("unavailable", 8, 1, 14, 31, "selected_plan", 0),
+        ("group", 10, 5, 10, 18, "selected_plan", 0),
+    ],
+}
+# The PostgreSQL refusals of the same bodies (every other one is VERIFIED).
+LPAD_NOW_REFUSAL_POSTGRES = {
+    "width_field": [("PIE-B1002", "lpad_width_outside_physical_range")],
+    "grouped_without_aggregate": [
+        ("PIE-B1003", "semantic_result_unsuccessful"),
+        ("PIE-B1003", "active_output_unavailable"),
+        ("PIE-B1003", "group"),
+    ],
+    "order_names_the_item": [("PIE-B1003", "order")],
+    "mixed_multi": [("PIE-B1008", "fixed_value_or_parameter_correspondence")],
+    "having_ungrouped": [
+        ("PIE-B1003", "semantic_result_unsuccessful"),
+        ("PIE-B1003", "active_output_unavailable"),
+        ("PIE-B1003", "satisfying"),
+    ],
+    "global_aggregate": [
+        ("PIE-B1003", "semantic_result_unsuccessful"),
+        ("PIE-B1003", "active_output_unavailable"),
+    ],
+    "global_aggregate_window": [
+        ("PIE-B1003", "semantic_result_unsuccessful"),
+        ("PIE-B1003", "active_output_unavailable"),
+    ],
+    "grouped_window": [
+        ("PIE-B1003", "semantic_result_unsuccessful"),
+        ("PIE-B1003", "active_output_unavailable"),
+        ("PIE-B1003", "group"),
+    ],
+}
+# Diagnostics both families report at check (code, line, column).
+LPAD_NOW_REFUSAL_DIAGNOSTICS = {
+    "grouped_without_aggregate": [("PIE-S2319", 13, 13)],
+    "having_ungrouped": [("PIE-S2323", 13, 5)],
+    "global_aggregate": [("PIE-S2312", 11, 13)],
+    "global_aggregate_window": [("PIE-S2312", 11, 13)],
+    "grouped_window": [("PIE-S2319", 14, 13)],
+}
+_KEEP = (
+    "Keep this declaration in check/plan or select an artifact using the "
+    "forms reviewed for the requested target. Do not relabel the target or "
+    "source carrier to bypass this refusal."
+)
+_RERUN = (
+    "Run check --project and resolve the declaration diagnostics or missing "
+    "planning prerequisite, then emit again. Keep a still-unsupported "
+    "declaration in check/plan rather than fabricating plan evidence."
+)
+# Each PIE-B1003 blocker's detail, reason and suggestion.
+_LPAD_NOW_BLOCKERS = {
+    "signature": (
+        "scalar_call_signature_not_admitted",
+        "UNSUPPORTED_RULE",
+        "Use an already supported scalar form with its reviewed operand "
+        "carriers, or keep this expression in check/plan. Do not use a cast or "
+        "a different contract to force emission.",
+    ),
+    "aggregate": (
+        "aggregate_composition_not_admitted_on_target",
+        "UNSUPPORTED_RULE",
+        _KEEP,
+    ),
+    "correlated": (
+        "mysql_correlated_order_or_limit_read_not_admitted",
+        "UNSUPPORTED_RULE",
+        _KEEP,
+    ),
+    "order": (
+        "order",
+        "UNSUPPORTED_RULE",
+        "without GROUP BY, a key must be an input field, a restated selected "
+        "expression or a selected let name, of a type that orders",
+    ),
+    "unsuccessful": ("semantic_result_unsuccessful", "UNSUPPORTED_RULE", _RERUN),
+    "unavailable": ("active_output_unavailable", "UNSUPPORTED_RULE", _RERUN),
+    "group": ("group", "UNSUPPORTED_RULE", _RERUN),
+    "satisfying": ("satisfying", "UNSUPPORTED_RULE", _RERUN),
+}
+
+
+@pytest.mark.parametrize("target", TARGETS)
+@pytest.mark.parametrize("name", LPAD_NOW_REFUSALS)
+def test_mysql_project_lpad_and_now_outside_their_cells_stay_refused(
+    tmp_path, name, target
+):
+    """Every other MySQL project `lpad` and `now()` keeps main's refusal,
+    object for object, and so does a query that holds a cell beside another
+    refused form (rule two, D77.37). PostgreSQL keeps main's outcome."""
+    world, policy, body = LPAD_NOW_REFUSALS[name]
+    _, outcome = probe.lpad_now_world(tmp_path, world, target, body, policy)
+    document = json.loads(serialize_project_sql_emission(outcome))
+    assert [
+        (item["code"], item["location"]["line"], item["location"]["column"])
+        for item in document["diagnostics"]
+    ] == LPAD_NOW_REFUSAL_DIAGNOSTICS.get(name, [])
+    if target == "postgres":
+        expected = LPAD_NOW_REFUSAL_POSTGRES.get(name, [])
+        assert document["status"] == ("BLOCKED" if expected else "VERIFIED")
+        assert [
+            (item["code"], item["subject"]["detail"])
+            for item in document.get("blockers", [])
+        ] == expected
+        return
+    assert document["status"] == "BLOCKED" and outcome.artifact is None
+    assert document["blockers"] == [
+        {
+            "code": "PIE-B1003",
+            "location": {
+                "column": column,
+                "end_column": end_column,
+                "end_line": end_line,
+                "line": line,
+                "path": "main.pietto",
+            },
+            "reason": _LPAD_NOW_BLOCKERS[key][1],
+            "related": [],
+            "subject": {
+                "detail": _LPAD_NOW_BLOCKERS[key][0],
+                "reference": {"kind": kind, "position": at},
+            },
+            "suggestion": _LPAD_NOW_BLOCKERS[key][2],
+        }
+        for key, line, column, end_line, end_column, kind, at in (
+            LPAD_NOW_REFUSAL_BLOCKERS[name]
+        )
+    ]
+
+
+@pytest.mark.parametrize("width", (0, 256, 257, 16383, 16384, -1))
+@pytest.mark.parametrize("target", TARGETS)
+def test_mysql_project_lpad_width_stops_at_256(tmp_path, target, width):
+    """MySQL `LPAD` gives NULL above `max_allowed_packet`, at least 1024
+    bytes, four per utf8mb4 character, so a MySQL project width stops at 256;
+    PostgreSQL takes any int4 width."""
+    body = _lpad_now_select("id", f'p = lpad(text, {width}, "0")')
+    _, outcome = probe.lpad_now_world(tmp_path, "words", target, body)
+    if target == "postgres" or 0 <= width <= 256:
+        assert outcome.status == "VERIFIED", outcome.blockers
+        return
+    assert public_blockers(outcome) == [
+        ("PIE-B1003", "scalar_call_signature_not_admitted", 10, 9)
+    ]
+
+
+def test_mysql_conditional_text_or_width_into_lpad_and_conditional_date_stay_refused(
+    tmp_path,
+):
+    """A conditional text or width leaves `lpad` outside its cells, and a
+    conditional Date or month count stays outside `add_months`, on MySQL."""
+    _, text = probe.lpad_now_world(
+        tmp_path / "text",
+        "words",
+        "mysql",
+        _lpad_now_select(
+            "id",
+            'p = lpad(text if id > 1 else "雪", 5, "0")',
+            'w = lpad(text, 5 if id > 1 else 3, "0")',
+        ),
+    )
+    assert public_blockers(text) == [
+        ("PIE-B1003", "scalar_call_signature_not_admitted", line, 9)
+        for line in (10, 11)
+    ]
+    _, date = probe.temporal_case(
+        tmp_path / "date",
+        "mysql",
+        "    from rows\n    let chosen = d if id > 1 else d2\n"
+        "    let months = 1 if id > 1 else 2\n"
+        "    select:\n        moved = add_months(chosen, months)\n",
+    )
+    assert date.status == "BLOCKED" and date.artifact is None
+    assert [blocker.detail for blocker in date.blockers] == [
+        "conditional_realization_not_admitted"
+    ]
+
+
+@pytest.mark.parametrize("depth", (4, 8, 16, 32, 64))
+def test_mysql_project_nested_lpad_is_refused_in_linear_work(
+    tmp_path, monkeypatch, depth
+):
+    """Each nested call is realized once per derivation: the row value
+    builder runs at most twice per level in each of the three derivations of
+    a refused MySQL statement (rule two derives it twice more as main,
+    rows.as_main_if_refused), and MySQL refuses the nest at its select item."""
+    calls = []
+    build = rows.build_row_value
+
+    def counted(*args, **kwargs):
+        calls.append(None)
+        return build(*args, **kwargs)
+
+    monkeypatch.setattr(rows, "build_row_value", counted)
+    nested = "text"
+    for _ in range(depth):
+        nested = f'lpad({nested}, 5, "0")'
+    _, outcome = emit(
+        tmp_path, "mysql", _lpad_now_select("id", f"p = {nested}", source="rows")
+    )
+    assert len(calls) <= 3 * 2 * depth
+    assert public_blockers(outcome) == [
+        ("PIE-B1003", "scalar_call_signature_not_admitted", 12, 9)
+    ]
 
 
 @pytest.mark.parametrize("target", TARGETS)

@@ -42,6 +42,7 @@ the `PIE-R1002` of a deployment premise that names the wrong schema.
 
 `date_of(now())` and a WHERE comparison with `now()` run as before, and a
 MySQL project still refuses `now()` with `PIE-B1003`
-(`scalar_call_signature_not_admitted`). No PIE code or detail is added; SQL
-output, CLI JSON v1, project JSON v2, saved-result formats and the format and
-records of compiled bundles are unchanged.
+(`scalar_call_signature_not_admitted`) outside the position of "MySQL
+project `lpad` and `now()`". No PIE code or detail is added; SQL output, CLI
+JSON v1, project JSON v2, saved-result formats and the format and records of
+compiled bundles are unchanged.

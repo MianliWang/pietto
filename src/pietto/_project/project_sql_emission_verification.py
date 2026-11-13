@@ -1390,6 +1390,9 @@ def _row_realization(request, expression, operands, operand_values):
             ),
             rows_both_sides=rows_both_sides,
             float_cell=float_cell,
+            cell=rows.mysql_scalar_cell(request.plan, expression, operand_values)
+            if request.family == "mysql"
+            else None,
         )
         if result is None:
             raise ValueError(problem)
@@ -7468,14 +7471,13 @@ def verify_row_bytes(query, rendered):
                     },
                 }[query.request.family].get(name)
                 if name == "now":
-                    if query.request.family != "postgres" or value.operands:
+                    opening = {
+                        "postgres": "(statement_timestamp() AT TIME ZONE 'UTC'",
+                        "mysql": "UTC_TIMESTAMP(6",
+                    }.get(query.request.family)
+                    if opening is None or value.operands:
                         raise ValueError("scalar call family")
-                    take(
-                        "syntax",
-                        "scalar_call_open",
-                        reference,
-                        "(statement_timestamp() AT TIME ZONE 'UTC'",
-                    )
+                    take("syntax", "scalar_call_open", reference, opening)
                     take("syntax", "scalar_call_close", reference, ")")
                     spans.append(("scalar_call", reference, start, offset))
                     return
@@ -7560,10 +7562,19 @@ def verify_row_bytes(query, rendered):
                             (0, 1),
                         ),
                     }[name]
-                    if (
-                        query.request.family != "postgres"
-                        or len(value.operands) != max(positions) + 1
-                    ):
+                    if query.request.family == "mysql" and name == "lpad":
+                        texts = (
+                            "CASE WHEN CHAR_LENGTH(",
+                            ") >= ",
+                            " THEN ",
+                            " ELSE LPAD(",
+                            ", ",
+                            ", ",
+                            ") END",
+                        )
+                    elif query.request.family != "postgres":
+                        raise ValueError("scalar call family")
+                    if len(value.operands) != max(positions) + 1:
                         raise ValueError("scalar call family")
                     for index, text in enumerate(texts):
                         take(

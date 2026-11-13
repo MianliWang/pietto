@@ -1080,6 +1080,658 @@ def parameterized_fixture(
     }
 
 
+def scalar_words_world(target, body, policy="preserve_literals"):
+    """The qualification world `s12_words` of the MySQL project `lpad` and
+    `now()` pairs: source `words` with the published one-source fixture's
+    `id` and 64-character `text` fields and `ntext`, a nullable `text`, and
+    ``body`` beside it. Returns the source and the contract."""
+    contract = json.loads(
+        parameterized_fixture(
+            target, "", policy, protocol=policy == "bind_safe_literals"
+        )["contract"]
+    )
+    source = contract["sources"][0]
+    fields = {field["name"]: field for field in source["fields"]}
+    ntext = deepcopy(fields["text"])
+    ntext["name"] = ntext["column"] = "ntext"
+    ntext["representation"]["nullable"] = True
+    source["fields"] = [fields["id"], fields["text"], ntext]
+    for ordinal, field in enumerate(source["fields"]):
+        field["ordinal"] = ordinal
+    source["selector"]["name"] = "words"
+    header = (
+        "shape Word:\n    id: Int\n    text: Text\n    ntext: Text | None\n"
+        f'source words: Word = {target}.table("opaque.locator.not.sql")\n'
+    )
+    return header + body, encoded(contract).decode()
+
+
+def scalar_pair_world(target, body, policy="preserve_literals"):
+    """The qualification world `s12_pair` of the same pairs: sources `lhs` and
+    `rhs` of one keyed shape over the published fixture's `id` field, a
+    nullable Int `key` and a nullable `label` Text, and ``body`` beside
+    them. Returns the source and the contract."""
+    contract = json.loads(
+        parameterized_fixture(
+            target, "", policy, protocol=policy == "bind_safe_literals"
+        )["contract"]
+    )
+    fields = {field["name"]: field for field in contract["sources"][0]["fields"]}
+    key, label = deepcopy(fields["id"]), deepcopy(fields["text"])
+    key["name"] = key["column"] = "key"
+    label["name"] = label["column"] = "label"
+    for field in (key, label):
+        field["representation"]["nullable"] = True
+    sources = []
+    for name in ("lhs", "rhs"):
+        source = deepcopy(contract["sources"][0])
+        source["fields"] = deepcopy([fields["id"], key, label])
+        for ordinal, field in enumerate(source["fields"]):
+            field["ordinal"] = ordinal
+        source["selector"]["name"] = name
+        source["relation"]["name"] = f"phase66 {name} rel"
+        sources.append(source)
+    contract["sources"] = sources
+    header = (
+        "shape Row:\n    id: Int\n    key: Int | None\n    label: Text | None\n"
+        "    row_key = unique(id)\n"
+        f'source lhs: Row = {target}.table("lhs.locator.not.sql")\n'
+        f'source rhs: Row = {target}.table("rhs.locator.not.sql")\n'
+    )
+    return header + body, encoded(contract).decode()
+
+
+# The bodies of the preregistered native qualification pairs of MySQL project
+# `lpad` and `now()` (D74.09), keyed by form id: P-S12-1..6 in the world
+# `s12_words` (scalar_words_world), P-S12-7 in `s12_pair` (scalar_pair_world).
+# Each is its definition block with `{name}` written `result`.
+LPAD_NOW_PAIRS = {
+    "s12_lpad_field": """table result:
+    from words
+    select:
+        id
+        p5 = lpad(text, 5, "0")
+        p7 = lpad(text, 7, "雪")
+        p0 = lpad(text, 0, "x")
+""",
+    "s12_lpad_nullable": """table result:
+    from words
+    select:
+        id
+        n5 = lpad(ntext, 5, "0")
+        n9 = lpad(ntext, 9, " ")
+""",
+    "s12_lpad_literal": """table result:
+    from words
+    select:
+        id
+        a = lpad("ab", 5, "雪")
+        b = lpad("abcdef", 3, "0")
+        c = lpad("", 2, "𝄞")
+""",
+    "s12_lpad_256": """table result:
+    from words
+    select:
+        id
+        w = lpad(text, 256, "𝄞")
+        z = lpad(ntext, 256, "0")
+""",
+    "s12_now": """table result:
+    from words
+    select:
+        id
+        t1 = now()
+        t2 = now()
+        t3 = now()
+        d = date_of(now())
+""",
+    "s12_context": """table result:
+    from words
+    let t = text
+    let u = t
+    let g = ntext
+    where id > 2
+    select:
+        id
+        r = row_number() window(order by id)
+        p = lpad(t, 6, "-")
+        p2 = lpad(u, 7, "-")
+        q = g
+        t0 = now()
+        d = date_of(now())
+""",
+    "s12_capture_context": """table result:
+    let matched:
+        capture lhs
+        from rhs
+        where rhs.id == lhs.id and rhs.label == "x"
+        select:
+            id
+            label
+    from lhs
+    select:
+        id
+        m = scalar matched.label
+        a = lpad(label, 5, "0")
+        t0 = now()
+        d = date_of(now())
+""",
+}
+
+
+def lpad_now_world(directory, world, target, body, policy="preserve_literals"):
+    """Build one body in a named world: `rows` (the published one-source
+    fixture, with the native parameter protocol), `nullable` (the same with a
+    nullable `text`), `labelled` (the labelled two-source witness), `temporal`
+    (TEMPORAL_FIELDS over `rows`), `words` or `pair` (the pairs' worlds)."""
+    if world in ("words", "pair"):
+        build = scalar_words_world if world == "words" else scalar_pair_world
+        source, contract = build(target, body, policy)
+        return build_case(directory, source, contract, policy)
+    if world == "temporal":
+        entry, block = body.split("\n", 1)
+        return temporal_case(directory, target, block, policy, entry=entry)
+    if world == "labelled":
+        item = labelled_join_witness(target, body, policy=policy)
+        return build_case(directory, item["source"], item["contract"], policy)
+    item = parameterized_fixture(target, body, policy)
+    source, contract = item["source"], item["contract"]
+    if world == "nullable":
+        source = source.replace("    text: Text\n", "    text: Text | None\n", 1)
+        document = json.loads(contract)
+        document["sources"][0]["fields"][2]["representation"]["nullable"] = True
+        contract = encoded(document).decode()
+    return build_case(directory, source, contract, policy)
+
+
+_L = 'lpad(text, 5, "0")'
+_LL = 'lpad(label, 5, "0")'
+_PADW = 'def padw(x: Text, w: Int) -> Text: return lpad(x, w, "0")\n'
+_CAPTURE = (
+    "    let matched:\n        capture lhs\n        from rhs\n"
+    '        where rhs.id == lhs.id and rhs.label == "x"\n'
+    "        select:\n            id\n            label\n"
+)
+_RECENT = (
+    "    let recent:\n        capture lhs\n        from rhs\n"
+    "        where rhs.id == lhs.id\n        select:\n            id\n"
+)
+_IDS = "    let ids:\n        from rhs\n        select:\n            id\n"
+_ONE = (
+    "    let one:\n        from rhs\n        where rhs.id == 1\n"
+    "        select:\n            label\n"
+)
+_QUALIFY = "    qualify row_number() window(order by id) <= 3\n"
+_UPSTREAM = "table base:\n    from rhs\n    select:\n        id\n        label\n"
+
+
+def _rows(*items, head="", tail="", before="", entry="table result:"):
+    lines = "".join(f"        {item}\n" for item in items)
+    return f"{before}{entry}\n    from rows\n{head}    select:\n{lines}{tail}"
+
+
+def _beside(let, *items, before="", head=""):
+    """A body of `lhs` beside the relation let(s) ``let``."""
+    lines = "".join(f"        {item}\n" for item in items)
+    return f"{before}table result:\n{let}    from lhs\n{head}    select:\n{lines}"
+
+
+def _capturing(*lines):
+    """The capturing let `matched` of `lhs` with these body lines."""
+    body = "".join(f"        {line}\n" for line in lines)
+    return f"    let matched:\n        capture lhs\n{body}"
+
+
+_READS_BASE = ("from base", "where base.id == lhs.id", "select:", "    label")
+_CAPTURE_READS = ("id", "m = scalar matched.label", "a = " + _LL)
+_PRESERVE, _BIND_SAFE = "preserve_literals", "bind_safe_literals"
+# MySQL project lpad and now() outside their cells, by the rows of the cell
+# matrix: the width (B), the text (C), a let (D), a grouped query (E), a
+# WHERE (F), result stages (G, H), JOINs (I), other queries (J, K), nested
+# calls (L), several refused forms (M), QUALIFY (N), block reads and what a
+# capturing let reads (O), header and server parameters (P) and aggregates
+# (Q). Each is (world, policy, body). The positions where checking refuses
+# now() (PIE-S2387) are the semantic owner's.
+LPAD_NOW_REFUSALS = {
+    "width_257": ("rows", _PRESERVE, _rows("id", 'p = lpad(text, 257, "0")')),
+    "width_16384": ("rows", _PRESERVE, _rows("id", 'p = lpad(text, 16384, "0")')),
+    "width_negative": ("rows", _PRESERVE, _rows("id", 'p = lpad(text, -3, "0")')),
+    "width_unary_plus": ("rows", _PRESERVE, _rows("id", 'p = lpad(text, +5, "0")')),
+    "width_field": ("rows", _PRESERVE, _rows("id", 'p = lpad(text, id, "0")')),
+    "width_conditional": (
+        "rows",
+        _PRESERVE,
+        _rows("id", 'p = lpad(text, 5 if id > 1 else 3, "0")'),
+    ),
+    "width_let": (
+        "rows",
+        _PRESERVE,
+        _rows("id", 'p = lpad(text, w, "0")', head="    let w = 5\n"),
+    ),
+    "width_def_300": (
+        "rows",
+        _PRESERVE,
+        _rows("id", "p = padw(text, 300)", before=_PADW),
+    ),
+    "text_let_computed": (
+        "rows",
+        _PRESERVE,
+        _rows("id", 'p = lpad(t, 5, "0")', head="    let t = lower(text)\n"),
+    ),
+    "text_let_literal": (
+        "rows",
+        _PRESERVE,
+        _rows("id", 'p = lpad(t, 5, "0")', head='    let t = "ab"\n'),
+    ),
+    "text_alias_of_computed": (
+        "rows",
+        _PRESERVE,
+        _rows(
+            "id", 'p = lpad(u, 5, "0")', head="    let t = lower(text)\n    let u = t\n"
+        ),
+    ),
+    "text_conditional": (
+        "nullable",
+        _PRESERVE,
+        _rows("id", 'p = lpad(text if id > 1 else "z", 5, "0")'),
+    ),
+    "text_coalesce": (
+        "nullable",
+        _PRESERVE,
+        _rows("id", 'p = lpad(coalesce(text, "z"), 5, "0")'),
+    ),
+    "text_capture_read": (
+        "labelled",
+        _PRESERVE,
+        _beside(_CAPTURE, 'a = lpad(scalar matched.label, 5, "0")'),
+    ),
+    "lpad_in_let": ("rows", _PRESERVE, _rows("id", "p", head=f"    let p = {_L}\n")),
+    "grouped_lpad": (
+        "rows",
+        _PRESERVE,
+        'table result:\n    from rows\n    group by text\n    select:\n        text\n        p = lpad(text, 5, "0")\n        n = count(id)\n',
+    ),
+    "grouped_now": (
+        "rows",
+        _PRESERVE,
+        "table result:\n    from rows\n    group by text\n    select:\n        text\n        t = now()\n        n = count(id)\n",
+    ),
+    "grouped_having": (
+        "rows",
+        _PRESERVE,
+        'table result:\n    from rows\n    group by text\n    select:\n        text\n        p = lpad(text, 5, "0")\n        n = count(id)\n    having:\n        n > 0\n',
+    ),
+    "grouped_without_aggregate": (
+        "rows",
+        _PRESERVE,
+        'table result:\n    from rows\n    group by text\n    select:\n        text\n        p = lpad(text, 5, "0")\n',
+    ),
+    "lpad_where": ("rows", _PRESERVE, _rows("id", head=f'    where {_L} == "00abc"\n')),
+    "now_where": (
+        "rows",
+        _PRESERVE,
+        _rows("id", head="    where date_of(now()) > date_of(now())\n"),
+    ),
+    "order_other": (
+        "rows",
+        _PRESERVE,
+        _rows("id", f"p = {_L}", tail="    order by id\n"),
+    ),
+    "order_names_the_item": (
+        "rows",
+        _PRESERVE,
+        _rows("id", f"p = {_L}", tail="    order by p\n"),
+    ),
+    "limit_only": ("rows", _PRESERVE, _rows("id", f"p = {_L}", tail="    limit 2\n")),
+    "limit_only_now": (
+        "rows",
+        _PRESERVE,
+        _rows("id", "t = now()", tail="    limit 2\n"),
+    ),
+    "distinct": (
+        "rows",
+        _PRESERVE,
+        'table result:\n    from rows\n    select distinct:\n        id\n        p = lpad(text, 5, "0")\n        t = now()\n',
+    ),
+    "join_inner": (
+        "labelled",
+        _PRESERVE,
+        'table result:\n    from lhs\n    inner join rhs on rhs.id == lhs.id\n    select:\n        id = lhs.id\n        a = lpad(lhs.label, 5, "0")\n        t = now()\n',
+    ),
+    "join_left": (
+        "labelled",
+        _PRESERVE,
+        'table result:\n    from lhs\n    left join rhs on rhs.id == lhs.id\n    select:\n        id = lhs.id\n        a = lpad(lhs.label, 5, "0")\n',
+    ),
+    "upstream_cell": (
+        "rows",
+        _PRESERVE,
+        'table a:\n    from rows\n    select:\n        id\n        p = lpad(text, 5, "0")\n\ntable result:\n    from a\n    select:\n        id\n        p\n',
+    ),
+    "union_operands": (
+        "rows",
+        _PRESERVE,
+        'table a:\n    from rows\n    select:\n        id\n        p = lpad(text, 5, "0")\n\ntable b:\n    from rows\n    select:\n        id\n        p = lpad(text, 5, "1")\n\ntable result:\n    union all a, b\n',
+    ),
+    "capture_body_lpad": (
+        "labelled",
+        _PRESERVE,
+        _beside(
+            _capturing(
+                "from rhs",
+                "where rhs.id == lhs.id",
+                "select:",
+                "    id",
+                '    p = lpad(label, 5, "0")',
+            ),
+            "m = scalar matched.p",
+        ),
+    ),
+    "upstream_named": (
+        "rows",
+        _PRESERVE,
+        'table a:\n    from rows\n    select:\n        id\n        text\n\ntable result:\n    from a\n    select:\n        id\n        p = lpad(text, 5, "0")\n        t = now()\n',
+    ),
+    "relation_let_from": (
+        "rows",
+        _PRESERVE,
+        'table result:\n    let r:\n        from rows\n        select:\n            id\n            text\n    from r\n    select:\n        id\n        p = lpad(text, 5, "0")\n',
+    ),
+    "union_input": (
+        "rows",
+        _PRESERVE,
+        'table a:\n    from rows\n    select:\n        id\n        text\n\ntable b:\n    from rows\n    select:\n        id\n        text\n\ntable u:\n    union all a, b\n\ntable result:\n    from u\n    select:\n        id\n        p = lpad(text, 5, "0")\n',
+    ),
+    "nested_lpad": (
+        "rows",
+        _PRESERVE,
+        _rows("id", 'p = lpad(lpad(text, 3, "0"), 5, "1")'),
+    ),
+    "lower_of_lpad": ("rows", _PRESERVE, _rows("id", f"p = lower({_L})")),
+    "concat_of_lpad": ("rows", _PRESERVE, _rows("id", f'p = concat({_L}, "x")')),
+    "len_of_lpad": ("rows", _PRESERVE, _rows("id", f"n = len({_L})")),
+    "compare_in_select": ("rows", _PRESERVE, _rows("id", f'b = {_L} == "x"')),
+    "now_compare": ("rows", _PRESERVE, _rows("id", "b = now() > now()")),
+    "hour_of_now": ("temporal", _PRESERVE, _rows("id", "h = hour(now())")),
+    "minute_of_now": ("temporal", _PRESERVE, _rows("id", "m = minute(now())")),
+    "date_of_conditional_now": (
+        "temporal",
+        _PRESERVE,
+        _rows("id", "d = date_of(now() if id > 1 else ts)"),
+    ),
+    "date_of_coalesce_now": (
+        "temporal",
+        _PRESERVE,
+        _rows("id", "d = date_of(coalesce(ts2, now()))"),
+    ),
+    "cells_beside_concat": (
+        "rows",
+        _PRESERVE,
+        _rows("id", f"p = {_L}", "t = now()", 'c = concat(text, "x")'),
+    ),
+    "mixed_multi": (
+        "labelled",
+        _BIND_SAFE,
+        'table result:\n    let matched:\n        capture lhs\n        from rhs\n        where rhs.id == lhs.id and rhs.label == "x" and rhs.id > 7\n        select:\n            id\n            label\n    from lhs\n    select:\n        a = lpad(lhs.label, 300, "0")\n        b = lpad(scalar matched.label, 4, "雪")\n        c = now()\n        d = concat(lhs.label, lhs.label)\n',
+    ),
+    "qualify_lpad_field": ("rows", _PRESERVE, _rows("id", f"p = {_L}", tail=_QUALIFY)),
+    "qualify_lpad_literal_bind_safe": (
+        "rows",
+        _BIND_SAFE,
+        _rows("id", 'p = lpad("ab", 5, "0")', tail=_QUALIFY),
+    ),
+    "qualify_now": ("rows", _PRESERVE, _rows("id", "t = now()", tail=_QUALIFY)),
+    "qualify_date_of_now": (
+        "rows",
+        _PRESERVE,
+        _rows("id", "d = date_of(now())", tail=_QUALIFY),
+    ),
+    "qualify_where_nullable": (
+        "nullable",
+        _PRESERVE,
+        _rows("id", f"p = {_L}", head="    where id > 1\n", tail=_QUALIFY),
+    ),
+    "qualify_selected_window": (
+        "rows",
+        _PRESERVE,
+        _rows(
+            "id",
+            "r = row_number() window(order by id)",
+            "t = now()",
+            tail="    qualify r <= 2\n",
+        ),
+    ),
+    "exists_where": (
+        "labelled",
+        _PRESERVE,
+        _beside(
+            _RECENT, "id", "a = " + _LL, "t = now()", head="    where exists recent\n"
+        ),
+    ),
+    "scalar_where": (
+        "labelled",
+        _PRESERVE,
+        _beside(
+            _CAPTURE, "id", "a = " + _LL, head='    where scalar matched.label == "x"\n'
+        ),
+    ),
+    "in_where": (
+        "labelled",
+        _PRESERVE,
+        _beside(_IDS, "id", "a = " + _LL, head="    where id in ids\n"),
+    ),
+    "any_where": (
+        "labelled",
+        _PRESERVE,
+        _beside(
+            "", "id", "a = " + _LL, head="    where any(r.id == lhs.id for r in rhs)\n"
+        ),
+    ),
+    "exists_select": (
+        "labelled",
+        _PRESERVE,
+        _beside(_RECENT, "id", "e = exists recent", "a = " + _LL),
+    ),
+    "in_select": (
+        "labelled",
+        _PRESERVE,
+        _beside(_IDS, "id", "i = id in ids", "a = " + _LL),
+    ),
+    "any_select": (
+        "labelled",
+        _PRESERVE,
+        _beside("", "id", "y = any(r.id == lhs.id for r in rhs)", "a = " + _LL),
+    ),
+    "scalar_read_without_capture": (
+        "labelled",
+        _PRESERVE,
+        _beside(_ONE, "id", "m = scalar one.label", "a = " + _LL),
+    ),
+    "capture_beside_where": (
+        "labelled",
+        _PRESERVE,
+        _beside(_CAPTURE, *_CAPTURE_READS, head="    where id > 1\n"),
+    ),
+    "capture_beside_row_let": (
+        "labelled",
+        _PRESERVE,
+        _beside(
+            _CAPTURE,
+            "id",
+            "m = scalar matched.label",
+            'a = lpad(t, 5, "0")',
+            head="    let t = label\n",
+        ),
+    ),
+    "capture_read_inside_an_item": (
+        "labelled",
+        _PRESERVE,
+        _beside(
+            _CAPTURE, "id", 'm = coalesce(scalar matched.label, "z")', "a = " + _LL
+        ),
+    ),
+    "capture_reads_no_captured_field": (
+        "labelled",
+        _PRESERVE,
+        _beside(
+            _capturing("from rhs", "select:", "    id", "    label"),
+            *_CAPTURE_READS,
+            "t0 = now()",
+        ),
+    ),
+    "capture_reads_an_upstream": (
+        "labelled",
+        _PRESERVE,
+        _beside(
+            _capturing(
+                "from base", "where base.id == lhs.id", "select:", "    id", "    label"
+            ),
+            *_CAPTURE_READS,
+            "t0 = now()",
+            before=_UPSTREAM + "\n",
+        ),
+    ),
+    "capture_reads_a_relation_let": (
+        "labelled",
+        _PRESERVE,
+        _beside(
+            "    let base:\n        from rhs\n        select:\n            id\n            label\n"
+            + _capturing(
+                "from base", "where base.id == lhs.id", "select:", "    id", "    label"
+            ),
+            *_CAPTURE_READS,
+        ),
+    ),
+    "capture_reads_an_upstream_window": (
+        "labelled",
+        _PRESERVE,
+        _beside(
+            _capturing(*_READS_BASE),
+            *_CAPTURE_READS,
+            before=_UPSTREAM + "        r = row_number() window(order by id)\n\n",
+        ),
+    ),
+    "capture_reads_an_upstream_qualify": (
+        "labelled",
+        _PRESERVE,
+        _beside(
+            _capturing(*_READS_BASE),
+            *_CAPTURE_READS,
+            "t0 = now()",
+            before=_UPSTREAM + "    qualify row_number() window(order by id) <= 3\n\n",
+        ),
+    ),
+    "capture_reads_an_upstream_distinct": (
+        "labelled",
+        _PRESERVE,
+        _beside(
+            _capturing(*_READS_BASE),
+            *_CAPTURE_READS,
+            before="table base:\n    from rhs\n    select distinct:\n        id\n        label\n\n",
+        ),
+    ),
+    "capture_reads_an_upstream_limit": (
+        "labelled",
+        _PRESERVE,
+        _beside(
+            _capturing(*_READS_BASE),
+            *_CAPTURE_READS,
+            before=_UPSTREAM + "    order by id\n    limit 2\n\n",
+        ),
+    ),
+    "capture_body_order_limit": (
+        "labelled",
+        _PRESERVE,
+        _beside(
+            _capturing(
+                "from rhs",
+                "where rhs.id == lhs.id",
+                "select:",
+                "    label",
+                "order by id",
+                "limit 1",
+            ),
+            *_CAPTURE_READS,
+        ),
+    ),
+    "capture_body_limit_only": (
+        "labelled",
+        _PRESERVE,
+        _beside(
+            _capturing(
+                "from rhs", "where rhs.id == lhs.id", "select:", "    label", "limit 1"
+            ),
+            *_CAPTURE_READS,
+        ),
+    ),
+    "header_parameter_in_where": (
+        "rows",
+        _PRESERVE,
+        _rows(
+            "id",
+            f"p = {_L}",
+            head="    where id > low\n",
+            entry="query result(low: Int):",
+        ),
+    ),
+    "header_parameter_in_where_now": (
+        "rows",
+        _PRESERVE,
+        _rows(
+            "id",
+            "t = now()",
+            head="    where id > low\n",
+            entry="query result(low: Int):",
+        ),
+    ),
+    "header_parameter_unread": (
+        "rows",
+        _PRESERVE,
+        _rows("id", f"p = {_L}", entry="query result(low: Int):"),
+    ),
+    "bind_safe_where": (
+        "rows",
+        _BIND_SAFE,
+        _rows("id", f"p = {_L}", head="    where id > 2\n"),
+    ),
+    "bind_safe_select_literal": (
+        "rows",
+        _BIND_SAFE,
+        _rows("id", f"p = {_L}", 'q = "x"'),
+    ),
+    "bind_safe_context": ("words", _BIND_SAFE, LPAD_NOW_PAIRS["s12_context"]),
+    "bind_safe_capture_context": (
+        "pair",
+        _BIND_SAFE,
+        LPAD_NOW_PAIRS["s12_capture_context"],
+    ),
+    "having_ungrouped": (
+        "rows",
+        _PRESERVE,
+        _rows("id", f"p = {_L}", tail="    having:\n        id > 0\n"),
+    ),
+    "global_aggregate": (
+        "rows",
+        _PRESERVE,
+        _rows("n = count(id)", 'p = lpad("ab", 5, "0")', "t = now()"),
+    ),
+    "global_aggregate_window": (
+        "rows",
+        _PRESERVE,
+        _rows(
+            "n = count(id)",
+            "r = row_number() window(order by n)",
+            'p = lpad("ab", 5, "0")',
+        ),
+    ),
+    "grouped_window": (
+        "rows",
+        _PRESERVE,
+        'table result:\n    from rows\n    group by text\n    select:\n        text\n        r = row_number() window(order by text)\n        p = lpad("ab", 5, "0")\n',
+    ),
+}
+
+
 # Each typed variant reads its header over one Q1 meaning source
 # (`ratio` is that source's Timestamp or UUID column).
 TYPED_PARAMETER_BODIES = {
@@ -8247,8 +8899,12 @@ def _decode_fixed_public(document, limits):
                     )
                 name, close = "substr", ")"
             elif opening == "(statement_timestamp() AT TIME ZONE 'UTC'":
-                # `now()`, PostgreSQL only, without operands.
+                # `now()` without operands, on PostgreSQL ...
                 _need(family == "postgres", "now family")
+                operands, name, close = [], "now", ")"
+            elif opening == "UTC_TIMESTAMP(6":
+                # ... and in a MySQL project's cells.
+                _need(family == "mysql", "now family")
                 operands, name, close = [], "now", ")"
             elif opening == "(":
                 # PostgreSQL `concat` and `same_value` both open with `(`; the
@@ -9223,10 +9879,15 @@ def _decode_fixed_public(document, limits):
             nonlocal nullable
             if name == "now":
                 # The statement's UTC start, never NULL.
-                _need(family == "postgres" and not operands, "now carrier")
+                _need(family in {"postgres", "mysql"} and not operands, "now carrier")
                 return {
                     "tag": "Timestamp",
-                    "storage": {"kind": "pg_timestamp", "fractional_seconds": 6},
+                    "storage": {
+                        "kind": "pg_timestamp"
+                        if family == "postgres"
+                        else "my_datetime",
+                        "fractional_seconds": 6,
+                    },
                     "nullable": False,
                     "domain": {"kind": "timestamp"},
                 }

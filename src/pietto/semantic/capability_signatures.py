@@ -214,12 +214,13 @@ def _scalar_function_evidence(
     mysql_test = {
         "matches": "test_matches_relation_fails_closed_without_approximation",
         "concat": "test_mysql_project_sql_refuses_concat",
-        **dict.fromkeys(
-            ("lpad", "add_months"), "test_mysql_project_sql_refuses_lpad_and_add_months"
-        ),
+        "lpad": "test_mysql_project_lpad_and_now_outside_their_cells_stay_refused",
+        "add_months": "test_mysql_project_sql_refuses_add_months",
     }.get(name, "test_approved_function_mappings_are_uppercase_and_recursive")
     # Single-file MySQL renders CONCAT, LPAD and DATE_ADD; MySQL project
-    # emission refuses them, as it refuses an Int-to-Text cast.
+    # emission refuses CONCAT and DATE_ADD, as it refuses an Int-to-Text cast,
+    # and LPAD outside its Phase77 candidate cells; inside them LPAD is a
+    # candidate whose native qualification is pending, so the gap stays.
     mysql_backend = (
         "src/pietto/_project/project_sql_emission_rows.py"
         if name in {"concat", "lpad", "add_months"}
@@ -228,7 +229,8 @@ def _scalar_function_evidence(
     mysql_reference = {
         "matches": "_render_call rejects matches",
         "concat": "resolved_scalar_call_realization concat branch",
-        "lpad": "resolved_scalar_call_realization lpad branch",
+        "lpad": "resolved_scalar_call_realization lpad branch: refused outside "
+        "MYSQL_SCALAR_CELLS, width from 0 to 256 inside",
         "add_months": "resolved_scalar_call_realization add_months branch",
     }.get(name, "_FUNCTION_NAMES and _render_call")
     mysql_reason = (
