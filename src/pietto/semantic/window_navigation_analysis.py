@@ -359,6 +359,7 @@ def analyze_navigation_computation_arguments(
         value_expression,
         field_qualifier,
         allow_qualified_fields=allow_qualified_fields,
+        joined=input_schema.joined,
     ) or _names_computed_let(value_expression, computed_let_names):
         return _unsupported(
             expression=expression,
@@ -447,6 +448,7 @@ def analyze_navigation_computation_arguments(
             default_expression,
             field_qualifier,
             allow_qualified_fields=allow_qualified_fields,
+            joined=input_schema.joined,
         ) or _names_computed_let(default_expression, computed_let_names):
             return _unsupported(
                 expression=expression,
@@ -716,6 +718,7 @@ def analyze_frame_value_computation_arguments(
         value_expression,
         field_qualifier,
         allow_qualified_fields=allow_qualified_fields,
+        joined=input_schema.joined,
     ) or _names_computed_let(value_expression, computed_let_names):
         return _unsupported(
             expression=expression,
@@ -898,12 +901,16 @@ def _is_bounded_value_expression(
     field_qualifier: str,
     *,
     allow_qualified_fields: bool,
+    joined: bool,
 ) -> TypeGuard[BoundedNavigationExpression]:
     if type(expression) in {NameExpr, ParameterRefExpr}:
         return True
     if type(expression) is DottedNameExpr:
+        # Over a joined row the first part is any binding; inference resolves it.
         return len(expression.parts) == 2 and (
-            not allow_qualified_fields or expression.parts[0] == field_qualifier
+            not allow_qualified_fields
+            or joined
+            or expression.parts[0] == field_qualifier
         )
     if type(expression) is not LiteralExpr:
         return False

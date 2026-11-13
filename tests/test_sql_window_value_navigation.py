@@ -725,6 +725,61 @@ def test_a_window_of_an_earlier_relation_computed_column_emits_sql() -> None:
         ]
 
 
+def test_a_window_value_of_a_join_binding_emits_its_column() -> None:
+    """A single file's `lag` value or default and `first_value` value may be a
+    field of any JOIN binding; before, only the FROM relation's was."""
+    for connector, emitter, q, frame in (
+        (
+            "postgres.table",
+            emit_postgres_sql,
+            '"',
+            "RANGE BETWEEN UNBOUNDED PRECEDING AND CURRENT ROW EXCLUDE NO OTHERS",
+        ),
+        (
+            "mysql.table",
+            emit_mysql_sql,
+            "`",
+            "RANGE BETWEEN UNBOUNDED PRECEDING AND CURRENT ROW",
+        ),
+    ):
+        parsed = parse_source(
+            "shape Row:\n    id: Int\n    a: Int | None\n"
+            f'source s1: Row = {connector}("s1")\n'
+            f'source s2: Row = {connector}("s2")\n'
+            "query q:\n    from s1\n    let o = s2\n"
+            "    left join o on s1.id == o.id\n    select:\n"
+            "        previous = lag(o.a, 1, s1.id) window(order by s1.id)\n"
+            "        fill = lag(s1.id, 1, o.id) window(order by s1.id)\n"
+            "        first = first_value(o.id) window(order by s1.id)\n",
+            path="joined.pietto",
+        )
+        assert parsed.ast is not None
+        semantic = analyze(parsed.ast)
+        assert semantic.diagnostics == () and semantic.script is not None
+        lowered = build_ir(semantic.script, semantic.model)
+        assert lowered.diagnostics == () and lowered.ir is not None
+        relation = cast(RelationIR, lowered.ir.definitions[-1])
+        # A LEFT JOIN may null-extend `o`, so every result may be NULL.
+        assert [
+            cast(WindowCallIR, item.expression).value_type.nullability
+            for item in relation.projections
+        ] == [NullabilityIR.NULLABLE] * 3
+        emitted = emitter(lowered.ir)
+        order = f"ORDER BY {q}s1{q}.{q}id{q} ASC"
+        assert emitted.diagnostics == ()
+        assert [artifact.sql for artifact in emitted.artifacts] == [
+            f"SELECT\n"
+            f"    LAG({q}o{q}.{q}a{q}, 1, {q}s1{q}.{q}id{q}) OVER ({order}) "
+            f"AS {q}previous{q},\n"
+            f"    LAG({q}s1{q}.{q}id{q}, 1, {q}o{q}.{q}id{q}) OVER ({order}) "
+            f"AS {q}fill{q},\n"
+            f"    FIRST_VALUE({q}o{q}.{q}id{q}) OVER ({order} {frame}) "
+            f"AS {q}first{q}\n"
+            f"FROM {q}s1{q} AS {q}s1{q}\n"
+            f"LEFT JOIN {q}s2{q} AS {q}o{q} ON {q}s1{q}.{q}id{q} = {q}o{q}.{q}id{q}"
+        ]
+
+
 def test_let_bound_frame_offset_emits_its_inlined_literal() -> None:
     for connector, emitter, frame_sql in (
         (

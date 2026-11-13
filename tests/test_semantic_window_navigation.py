@@ -1274,7 +1274,7 @@ def test_an_expression_no_window_value_reads_is_no_direct_field(kind: str) -> No
         ),
     }[kind]()
     assert not _is_bounded_value_expression(
-        expression, "rows", allow_qualified_fields=False
+        expression, "rows", allow_qualified_fields=False, joined=False
     )
 
 
@@ -1434,3 +1434,89 @@ def test_a_value_or_default_naming_a_let_of_no_field_is_refused_at_the_call(
         if value == "None"
         else (1 if located else 0, located)
     )
+
+
+_JOINED_WINDOW = """shape Row:
+    id: Int
+    a: Int | None
+source s1: Row = postgres.table("s1")
+source s2: Row = postgres.table("s2")
+query q:
+    from s1
+    let o = s2
+    inner join o on s1.id == o.id
+{tail}"""
+
+
+@pytest.mark.parametrize(
+    ("tail", "expected"),
+    (
+        ("    select:\n        v = lag(o.a) window(order by o.id)\n", []),
+        ("    select:\n        v = lead(s1.id, 1, o.a) window(order by o.id)\n", []),
+        ("    select:\n        v = first_value(o.a) window(order by o.id)\n", []),
+        ("    select:\n        v = nth_value(o.a, 2) window(order by o.id)\n", []),
+        ("    select x = s1.id\n    qualify lag(o.a) window(order by o.id) > 1\n", []),
+        (
+            "    select:\n        v = lag(o.missing) window(order by o.id)\n",
+            [("PIE-S2102", "Unknown field: o.missing", 11, 17)],
+        ),
+        (
+            '    select:\n        v = lag(o.a, 1, "x") window(order by o.id)\n',
+            [
+                (
+                    "PIE-S2104",
+                    "Invalid arguments for function lag: value and default "
+                    "must have the same exact type",
+                    11,
+                    13,
+                )
+            ],
+        ),
+        (
+            "    select:\n"
+            "        v = lag(any(z.id == o.id for z in s2)) window(order by o.id)\n",
+            [
+                (
+                    "PIE-S2104",
+                    "Invalid arguments for function lag: value must be a direct "
+                    "field or Bool, Text, Int, Float, or NULL literal",
+                    11,
+                    13,
+                )
+            ],
+        ),
+    ),
+)
+def test_a_window_value_reads_a_field_of_any_join_binding(
+    tmp_path: Path,
+    capsys: pytest.CaptureFixture[str],
+    tail: str,
+    expected: list[tuple[str, str, int, int]],
+) -> None:
+    """Over a joined row a window value or default reads a field of any
+    binding, in a single file as in a project; an unknown one is only
+    PIE-S2102, and a default of another type or an `any(...)` test the
+    PIE-S2104 of its real cause, in both."""
+
+    from pietto import cli
+
+    source = _JOINED_WINDOW.format(tail=tail)
+    parsed = parse_source(source)
+    assert parsed.ast is not None and parsed.diagnostics == ()
+    assert [
+        (d.code, d.message, d.location.line, d.location.column)
+        for d in analyze(parsed.ast).diagnostics
+    ] == expected
+    (tmp_path / "pietto.toml").write_text(
+        'schema_version = 2\n\n[sources]\ninclude = ["*.pietto"]\n', encoding="utf-8"
+    )
+    (tmp_path / "main.pietto").write_text(source, encoding="utf-8")
+    code = cli.main(["check", "--project", str(tmp_path), "--format", "json"])
+    document = json.loads(capsys.readouterr().out)
+    assert (
+        code,
+        [
+            (d["code"], d["message"], d["location"]["line"], d["location"]["column"])
+            for d in document["diagnostics"]
+        ],
+    ) == (1 if expected else 0, expected)
