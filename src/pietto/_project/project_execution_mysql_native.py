@@ -329,12 +329,18 @@ class NativeStatement:
             raise ExecutionError("MYSQL_ROWSET_LIFETIME")
         self.owner._begin_operation(self)
         try:
-            rows, terminal = self.connection.get_rows(
-                count=count,
-                binary=True,
-                columns=self.metadata,
-                read_timeout=self.owner._timeout(),
-            )
+            rows, terminal, timeout = [], None, self.owner._timeout()
+            # One packet per call: the pinned read_binary_result appends the
+            # previous row again when an ERR packet follows one, and only a
+            # call that has read no row raises the ERR.
+            while len(rows) < count and terminal is None:
+                batch, terminal = self.connection.get_rows(
+                    count=1,
+                    binary=True,
+                    columns=self.metadata,
+                    read_timeout=timeout,
+                )
+                rows.extend(batch)
             if len(rows) > count:
                 raise ExecutionError("MYSQL_BATCH_ARITY")
             if terminal is not None:

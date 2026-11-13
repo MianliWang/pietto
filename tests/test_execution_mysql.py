@@ -655,6 +655,112 @@ def test_native_eof_requires_readonly_epoch_without_warnings_or_more_results(dam
         statement._packet(dict(packet, **damage))
 
 
+def _row(value):
+    """A binary-protocol row of one BIGINT column."""
+    return b"\x00\x00" + value.to_bytes(8, "little", signed=True)
+
+
+def _scripted_statement(*payloads):
+    """An executed statement whose pinned driver reads these result packets;
+    past the script the server sends nothing (the driver's read timeout)."""
+    from types import SimpleNamespace
+    from typing import Any, cast
+
+    from mysql.connector.connection import MySQLConnection
+    from mysql.connector.constants import FieldType
+    from mysql.connector.errors import ReadTimeoutError
+    from mysql.connector.protocol import MySQLProtocol
+    from pietto._project.project_execution_mysql_native import NativeStatement
+
+    packets = [
+        len(p).to_bytes(3, "little") + bytes([i]) + p for i, p in enumerate(payloads)
+    ]
+
+    def recv(read_timeout):
+        if not packets:
+            # The pinned driver's own read-timeout error, errno included; not
+            # the server's max_execution_time error 3024.
+            raise ReadTimeoutError(errno=3024)
+        return packets.pop(0)
+
+    connection = MySQLConnection()
+    connection._protocol = MySQLProtocol()
+    connection._socket = cast(Any, SimpleNamespace(recv=recv))
+    connection.unread_result = True
+    statement = object.__new__(NativeStatement)
+    statement.owner = cast(
+        Any,
+        SimpleNamespace(
+            _begin_operation=lambda _: None,
+            _end_operation=lambda _: None,
+            _timeout=lambda: 10,
+            _checkpoint=lambda: None,
+            _source="READING",
+        ),
+    )
+    statement.verify = lambda: None
+    statement.connection, statement.purpose = connection, "query"
+    statement.metadata = (("v", FieldType.LONGLONG, None, None, None, None, 1, 0, 63),)
+    statement.executed, statement.terminal = True, None
+    return statement, packets
+
+
+@pytest.mark.parametrize("count", (2, 256))
+def test_native_fetch_raises_a_server_error_that_follows_a_row(count):
+    """The pinned read_binary_result appends the previous row again when an
+    ERR packet follows one: a 2-row fetch returned it twice as data and a
+    larger one waited for the read timeout, losing the SQLSTATE."""
+    from mysql.connector.errors import DataError
+    from pietto._project.project_execution_mysql_native import MySQLFailure, failure
+
+    error = b"\xff" + (1690).to_bytes(2, "little") + b"#22003BIGINT out of range"
+    statement, packets = _scripted_statement(_row(-1), error)
+    with pytest.raises(DataError) as raised:
+        statement.fetch(count)
+    assert packets == [] and not statement.connection.unread_result
+    assert failure(raised.value, "query") == MySQLFailure(
+        "query", "DataError", "22003", 1690
+    )
+
+
+def test_native_rowset_read_raises_a_server_error_that_follows_its_rows():
+    """A guard or page read of at most 3 rows counted the repeated row as a
+    fourth and failed with MYSQL_ROWSET_ARITY instead of the server error."""
+    from types import SimpleNamespace
+    from typing import Any, cast
+
+    from mysql.connector.errors import DataError
+    from pietto._project.project_execution_mysql import MySQLExecution
+    from pietto._project.project_execution_mysql_native import MySQLFailure, failure
+
+    error = b"\xff" + (1242).to_bytes(2, "little") + b"#21000Subquery returns rows"
+    statement, packets = _scripted_statement(_row(1), _row(2), _row(3), error)
+    owner = cast(
+        Any,
+        SimpleNamespace(
+            request=SimpleNamespace(limits=SimpleNamespace(batch_rows=256)),
+            _charge_internal=lambda rows: None,
+        ),
+    )
+    with pytest.raises(DataError) as raised:
+        MySQLExecution._complete_rows(owner, statement, 3)
+    assert packets == []
+    assert failure(raised.value, "guard") == MySQLFailure(
+        "guard", "DataError", "21000", 1242
+    )
+
+
+def test_native_fetch_stops_at_its_count_and_at_the_eof():
+    eof = b"\xfe\x00\x00\x01\x20"
+    statement, packets = _scripted_statement(_row(1), _row(2), _row(3), eof)
+    assert statement.fetch(2) == ((1,), (2,))
+    assert len(packets) == 2 and statement.terminal is None
+    assert statement.fetch(2) == ((3,),)
+    assert statement.terminal == dict(status_flag=8193, warning_count=0)
+    assert packets == [] and statement.owner._source == "EOF"
+    assert not statement.connection.unread_result
+
+
 def test_cancel_after_request_verification_precedes_connection(tmp_path, monkeypatch):
     from pietto._project import project_execution_mysql as product
 

@@ -683,10 +683,12 @@ and fresh trust, source, value and deployment inputs.
 - `ExecutionLimits(batch_rows=256, batch_bytes=1 MiB, max_rows=1048576,
   max_bytes=64 MiB, seconds=20.0)` bounds one attempt; `seconds` is its
   deadline, `max_bytes` also counts the route's qualifying profile and catalog
-  reads, and each statement runs with a server-side timeout of at most 10
-  seconds that Pietto sets itself. It is the read-limit contract: Pietto has no
-  other read limit that you set, and [Results](#results) states what each
-  limit bounds and what it does not.
+  reads, and on the PostgreSQL routes each statement runs with a server-side
+  timeout of at most 10 seconds that Pietto sets itself; `mysql_rows` sets no
+  server-side timeout and waits at most 10 seconds for each read from the
+  server. It is the read-limit contract: Pietto has no other read limit that
+  you set, and [Results](#results) states what each limit bounds and what it
+  does not.
 - `execute(query, *, route, access, premise, limits=ExecutionLimits(),
   isolation="stable", values=None, parameters=None) -> ResultHandle` checks the
   request before
@@ -774,7 +776,8 @@ On `mysql_rows` a statement error, such as error 1242 of a `scalar` read of
 more than one row, does not end the transaction: finalization checks that it is
 still the transaction the attempt opened and sends `ROLLBACK`, so `transaction`
 is `ROLLBACK_ACK` once the server acknowledges it, with no cleanup failure for
-it.
+it. The error keeps its `sqlstate` whether it arrives when the statement runs
+or after some of its rows were read.
 
 A cleanup step that fails at the end is reported by where it happened. If the
 result was read to the end and the server acknowledged `COMMIT`, but a cleanup
