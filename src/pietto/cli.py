@@ -8,7 +8,6 @@ import os
 import stat
 import sys
 from collections.abc import Callable, Sequence
-from contextlib import ExitStack
 from dataclasses import replace
 from importlib.metadata import PackageNotFoundError, version
 from pathlib import Path
@@ -906,11 +905,6 @@ def _supports_project_fmt_directory_writes() -> bool:
 
 
 def _run_project_fmt(root: Path, *, write: bool) -> int:
-    with ExitStack() as opened:
-        return _run_project_fmt_opened(root, write=write, opened=opened)
-
-
-def _run_project_fmt_opened(root: Path, *, write: bool, opened: ExitStack) -> int:
     """Check or rewrite every module of a schema_version 2 project in module
     order, as fmt formats one file; write no file unless every module reads,
     parses and formats, and, with ``write``, none is a symbolic link and each
@@ -918,20 +912,14 @@ def _run_project_fmt_opened(root: Path, *, write: bool, opened: ExitStack) -> in
 
     from pietto._project.check import read_explicit_module_sources
 
-    directories: dict[Path, tuple[ProjectPinnedRoot, int]] = {}
-    try:
-        errors, sources = read_explicit_module_sources(
-            root,
-            "fmt --project",
-            opened_directories=(
-                directories
-                if write and _supports_project_fmt_directory_writes()
-                else None
-            ),
-        )
-    finally:
-        for _, descriptor in directories.values():
-            opened.callback(os.close, descriptor)
+    directories: dict[Path, tuple[ProjectPinnedRoot, os.stat_result]] = {}
+    errors, sources = read_explicit_module_sources(
+        root,
+        "fmt --project",
+        directory_identities=(
+            directories if write and _supports_project_fmt_directory_writes() else None
+        ),
+    )
     if errors:
         for error in errors:
             _print_project_error(error)
@@ -993,7 +981,7 @@ def _run_project_fmt_opened(root: Path, *, write: bool, opened: ExitStack) -> in
             _replace_project_source(
                 source,
                 formatted.encode("utf-8"),
-                opened_directory=directories.get(path.parent),
+                read_directory=directories.get(path.parent),
             )
         except (OSError, ValueError) as error:
             _print_cli_error(name, _cli_error_message(error, path))
@@ -1005,9 +993,10 @@ def _replace_project_source(
     source: ProjectTrustedSourceSnapshot,
     data: bytes,
     *,
-    opened_directory: tuple[ProjectPinnedRoot, int] | None,
+    read_directory: tuple[ProjectPinnedRoot, os.stat_result] | None,
 ) -> None:
-    """Bind a project's replacement to its trusted bytes and opened directory."""
+    """Bind a project's replacement to its trusted bytes and to the directory
+    it was read from."""
 
     from pietto._project.path_trust import (
         _filesystem_state,
@@ -1021,7 +1010,7 @@ def _replace_project_source(
         "source file changed while it was formatted; the source file was not changed"
     )
     _refuse_unsafe_source(path)
-    if opened_directory is None:
+    if read_directory is None:
         # Windows needs native directory handles to close the remaining path race.
         with path.open("rb") as current:
             if _fstat_state(current.fileno()) != source.opened_target_state:
@@ -1029,9 +1018,12 @@ def _replace_project_source(
         _replace_file(path, data, "source file", expected=expected)
         return
 
-    pinned, directory = opened_directory
+    pinned, identity = read_directory
+    directory = _open_pinned_directory(pinned, path.parent)
     temporary_path: Path | None = None
     try:
+        if not os.path.samestat(os.fstat(directory), identity):
+            raise ValueError(changed)
         descriptor = os.open(
             path.name, os.O_RDONLY | os.O_NOFOLLOW | os.O_NONBLOCK, dir_fd=directory
         )
@@ -1074,6 +1066,7 @@ def _replace_project_source(
                 os.unlink(temporary_path, dir_fd=directory)
             except OSError:
                 pass
+        os.close(directory)
 
 
 def _refuse_unsafe_source(path: Path) -> None:

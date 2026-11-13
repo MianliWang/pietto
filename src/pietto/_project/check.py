@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import os
 from collections import deque
 from collections.abc import Mapping
 from dataclasses import dataclass, replace
@@ -1749,7 +1750,8 @@ def read_explicit_module_sources(
     root: str | Path,
     command: str,
     *,
-    opened_directories: dict[Path, tuple[ProjectPinnedRoot, int]] | None = None,
+    directory_identities: dict[Path, tuple[ProjectPinnedRoot, os.stat_result]]
+    | None = None,
 ) -> tuple[
     tuple[ProjectDiscoveryError, ...],
     tuple[
@@ -1762,8 +1764,8 @@ def read_explicit_module_sources(
     with the PIE-P1006 diagnostic of a source over the size limit, and the
     project errors; one without a path stops the reading. `command` names
     the caller in the refusal of any other schema version. The formatter may
-    retain one opened parent per directory; its caller owns closing every
-    descriptor in ``opened_directories``, including on errors."""
+    record in ``directory_identities`` the identity of each parent opened
+    while reading, closed at once, so that its write refuses another one."""
 
     config_result = load_project_config(root)
     config = config_result.config
@@ -1793,11 +1795,15 @@ def read_explicit_module_sources(
         tuple[ProjectSelectedInputEntry, ProjectTrustedSourceSnapshot | Diagnostic]
     ] = []
     for entry in selection.selected_input_index.entries:
-        if opened_directories is not None and _supports_directory_relative_open():
+        if directory_identities is not None and _supports_directory_relative_open():
             parent = entry.canonical_path.parent
-            if parent not in opened_directories:
+            if parent not in directory_identities:
                 try:
                     descriptor = _open_pinned_directory(selection.pinned_root, parent)
+                    try:
+                        identity = os.fstat(descriptor)
+                    finally:
+                        os.close(descriptor)
                 except OSError:
                     errors.append(
                         ProjectDiscoveryError(
@@ -1807,7 +1813,7 @@ def read_explicit_module_sources(
                         )
                     )
                     continue
-                opened_directories[parent] = (selection.pinned_root, descriptor)
+                directory_identities[parent] = (selection.pinned_root, identity)
         source = _read_selected_source(selection.pinned_root, entry)
         if not isinstance(source, ProjectDiscoveryError):
             sources.append((entry, source))

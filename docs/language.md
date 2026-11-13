@@ -211,12 +211,14 @@ It then replaces each module that changes, atomically and in module order, and
 stops with exit 2 at the first one that changed after it was read or that it
 cannot replace; the modules already replaced stay replaced. It writes no file
 that the project does not select. In the Phase76 B2 source candidate, on
-platforms with directory-relative file operations, each source parent directory
-is held from the trusted source read
-through replacement; the opened file identity and original bytes are checked,
-and temporary files, replacement and cleanup use that held directory. A
-change detected before replacement refuses the write; moving the directory
-at the final operation cannot redirect the write to another directory.
+platforms with directory-relative file operations, each source write is bound
+to the parent directory of its trusted read: that directory's identity is
+recorded at the read, and the write reopens the directory and refuses one with
+another identity. No directory stays open between reading and writing. The
+opened file identity and original bytes are checked, and temporary files,
+replacement and cleanup use the reopened directory. A change detected before
+replacement refuses the write; moving the directory at the final operation
+cannot redirect the write to another directory.
 This guarantee starts at the trusted read, not directory discovery. Platforms
 without those operations, including Windows, retain the path-based fallback
 with an opened-source identity check; it does not eliminate every directory

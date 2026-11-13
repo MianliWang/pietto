@@ -922,6 +922,35 @@ def test_fmt_project_reuses_and_closes_opened_parents(
     assert not list(root.rglob(".pietto-*.tmp"))
 
 
+@pytest.mark.skipif(
+    sys.platform == "win32", reason="requires directory-relative writes"
+)
+def test_fmt_project_write_formats_more_directories_than_free_descriptors(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    import resource
+
+    root = tmp_path / "project"
+    for index in range(300):
+        (root / f"d{index:03}").mkdir(parents=True)
+        (root / f"d{index:03}/m.pietto").write_bytes(MESSY)
+    (root / "pietto.toml").write_text(
+        'schema_version = 2\n[sources]\ninclude = ["**/*.pietto"]\n'
+    )
+    lowest_free = os.open(os.devnull, os.O_RDONLY)
+    os.close(lowest_free)
+    soft, hard = resource.getrlimit(resource.RLIMIT_NOFILE)
+    resource.setrlimit(resource.RLIMIT_NOFILE, (min(soft, lowest_free + 64), hard))
+    try:
+        status = cli.main(["fmt", "--write", "--project", str(root)])
+    finally:
+        resource.setrlimit(resource.RLIMIT_NOFILE, (soft, hard))
+
+    assert status == 0
+    assert capsys.readouterr() == ("", "")
+    assert all(path.read_bytes() == FORMATTED for path in root.glob("d*/m.pietto"))
+
+
 @pytest.mark.parametrize(
     "missing",
     [
