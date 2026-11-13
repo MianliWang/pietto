@@ -17,16 +17,22 @@ Python: blocks use `:` and indentation, and `None`, `True` and `False` mean
 what they mean in Python. `pietto check` reports unknown fields, type errors
 and aggregates that a JOIN could count twice before any database sees the
 query, and `pietto emit-sql` writes plain PostgreSQL or MySQL SQL that you run
-with the tools you already use. This makes Pietto approachable for Python users
-who do not work in SQL every day, while making unsupported or unproven query
-shapes an error instead of guessing SQL. It checks the program, not the intent
-or the data in your database: review the emitted SQL and validate its results
-for your deployment.
+with the tools you already use. An unsupported or unproven query shape is an
+error, never guessed SQL. Pietto checks the program, not the intent or the
+data in your database: review the emitted SQL and validate its results for
+your deployment.
 
-**Version 0.1.11, public alpha.** The compiler and the `pietto` command never
-connect to a database; database access is available only from the explicit
-alpha Python API described below. The examples here use the source syntax of
-this version.
+The compiler has no runtime evaluation, database connection, transaction
+management, scheduler, or arbitrary I/O language features. The compiler and
+the `pietto` command never connect to a database; database access is
+available only from the explicit alpha Python API described below.
+
+## Status
+
+**Version 0.1.11, public alpha.** Pietto is pre-release. Before 1.0 a release
+may carry breaking changes: it lists them at the top of its
+[release notes](https://github.com/MianliWang/pietto/blob/main/docs/release-notes.md),
+and compiled bundles and saved jobs are not migrated between versions.
 
 ## Install
 
@@ -41,86 +47,31 @@ pip install pietto
 pietto --version
 ```
 
-On Windows, activate the environment with `.venv\Scripts\activate`. Optional
-extras install the same way, for example `pip install "pietto[arrow]"` (see
-"Optional extras and Python execution" below). With
+On Windows, activate the environment with `.venv\Scripts\activate`. With
 [uv](https://docs.astral.sh/uv/), `uv pip install pietto` installs into the
 active virtual environment, and `uv tool install --python 3.13 pietto` installs
-the `pietto` command in an environment of its own.
+the `pietto` command in an environment of its own. The compiler and CLI are
+verified with CPython 3.12 and 3.13 on Linux x86-64, and CI also runs the
+platform-neutral tests on Windows x86-64. The version's
+[GitHub release](https://github.com/MianliWang/pietto/releases) attaches the
+same wheel and sdist with `SHA256SUMS`
+([checking them](https://github.com/MianliWang/pietto/blob/main/docs/project-package.md#installing-a-release)).
 
-The compiler and CLI are verified with CPython 3.12 and 3.13 on Linux x86-64.
-CI also runs the parser, semantic, IR, plan, SQL, project, CLI and result
-tests with CPython 3.12 and 3.13 on Windows x86-64, where tests that need POSIX
-behavior skip. Batch `emit-sql --project ROOT --all --output DIR` is
-Linux-only and is not supported on Windows: there the batch goes to stdout, a
-single artifact still writes to `--output FILE`, and
-`pietto.compiler.compile_all_sql(...)` returns the batch document that
-`--all --format json` prints, for your own code to write.
-This version's [GitHub release](https://github.com/MianliWang/pietto/releases)
-also attaches the same wheel and sdist with `SHA256SUMS`; see
-[installing a release](https://github.com/MianliWang/pietto/blob/v0.1.11/docs/project-package.md#installing-a-release)
-to check them.
+The compiler and CLI need only the core package. The optional extras serve the
+alpha Python APIs, for example `pip install "pietto[execute-postgres]"`:
 
-Coming from 0.1.10? A 0.1.10 source file needs no `pietto migrate` step. An
-`Int` literal outside signed 64 bits is now refused; single-file PostgreSQL
-SQL casts some `Int` arithmetic to `bigint`; the execution extras select
-`pyarrow==26.0.1` and `psycopg[binary]==3.3.8`; and compiled bundles and
-saved jobs made by 0.1.10 are refused; see the
-[0.1.11 release notes](https://github.com/MianliWang/pietto/blob/v0.1.11/docs/release-notes.md#project-arithmetic-aggregate-composition-and-editor-navigation-public-alpha-release-notes--0111).
+| Extra | For |
+| --- | --- |
+| `pietto[arrow]` | typed Arrow results, and saved results without a database driver |
+| `pietto[execute-postgres]` | the `postgres_rows` route |
+| `pietto[execute-mysql]` | the `mysql_rows` route |
+| `pietto[execute-postgres-adbc]` | the `postgres_adbc` route |
 
-Coming from 0.1.9? A header line at the top of a file (`pietto 0.9`,
-`mode ...`, `dialect ...`, `encoding ...`), which 0.1.9 warned about with
-PIE-P1012, is now refused with PIE-P1000. `pietto migrate FILE > FILE.new`
-deletes the header lines without effect; it refuses a file with a
-`mode loose` or `mode strict` line (PIE-P1011), so delete that line by hand
-first and pass `--check-mode` instead. A dependency package with a header
-line must be migrated and published again. A `def` named `lpad`,
-`add_months`, `median`, `quantile`, `now`, `variance`, `pvariance`,
-`pstdev`, `any`, `all`, `first` or `last` is refused, as these are now
-builtins; some refusals and diagnostic texts change; `pietto fmt` writes one
-spelling, so it may reformat a file that 0.1.9 left as it was; and compiled
-bundles and saved jobs made by 0.1.9 are refused; see the
-[0.1.10 release notes](https://github.com/MianliWang/pietto/blob/v0.1.11/docs/release-notes.md#aggregates-cross-module-reuse-and-editor-tools-public-alpha-release-notes--0110).
-
-Coming from 0.1.8? A 0.1.8 source file needs no `pietto migrate` step unless
-it has a header line (`pietto 0.9`, `mode ...`, `dialect ...`,
-`encoding ...`): 0.1.9 warns about each one with PIE-P1012, and 0.1.10
-refuses it with PIE-P1000 (see
-[header lines are refused](https://github.com/MianliWang/pietto/blob/v0.1.11/docs/release-notes.md#header-lines-are-refused-pie-p1000)).
-`pietto migrate` deletes the header lines without effect; it refuses a file with
-a `mode loose` or `mode strict` line (PIE-P1011), so delete that line by hand
-first and pass `--check-mode` instead. `concat`, `same_value` and
-`stddev` are new builtins, so a `def` with the name
-`same_value` or `stddev` is refused; some project programs that failed now
-check, some refusals and diagnostic texts change, and single-file SQL types an
-always-None number; see the
-[0.1.9 release notes](https://github.com/MianliWang/pietto/blob/v0.1.11/docs/release-notes.md#equality-nullability-and-asof-join-public-alpha-release-notes--019).
-
-Coming from 0.1.7? A 0.1.7 source file needs no `pietto migrate` step. Project
-checks are faster for many relations, many JOINs and import cycles; some
-diagnostics of project relations that already report an error now match a
-single file more closely; and `explain --project` lists the dependencies'
-diagnostics after a root module that fails to parse, with one exit status
-change; see the
-[0.1.8 release notes](https://github.com/MianliWang/pietto/blob/v0.1.11/docs/release-notes.md#project-mode-quality-public-alpha-release-notes--018).
-
-Coming from 0.1.6? A 0.1.6 source file needs no `pietto migrate` step. In a project, a
-relation-name qualifier read through a `let` alias is now refused, as in a
-single file; single-file PostgreSQL `sum(Int)` emits checked `bigint` casts; and
-strict JSON readers must accept the new blocker `suggestion` and nested-result
-fields; see the
-[0.1.7 release notes](https://github.com/MianliWang/pietto/blob/v0.1.11/docs/release-notes.md#nested-results-and-project-emission-public-alpha-release-notes--017).
-
-Coming from 0.1.5? A 0.1.5 source file needs no migration. Some programs that
-0.1.5 accepted are refused or warned about, some emit different SQL, and
-`emit-sql` text output names and terminates each statement; see the
-[0.1.6 release notes](https://github.com/MianliWang/pietto/blob/v0.1.11/docs/release-notes.md#corrections-and-mysql-parity-public-alpha-release-notes--016).
-
-Coming from 0.1.4? A spelling that 0.1.5 retired fails with
-`PIE-P1000`, and `pietto migrate old.pietto > migrated.pietto && pietto check migrated.pietto`
-writes and checks the modern form of a file without changing it. Some programs that 0.1.4 accepted
-are refused, and some emit different SQL; see
-[Upgrading a 0.1.4 file](https://github.com/MianliWang/pietto/blob/v0.1.11/docs/release-notes.md#upgrading-a-014-file).
+Each extra pins exact versions
+([execution install](https://github.com/MianliWang/pietto/blob/main/docs/execution.md#install)),
+and every execution extra includes the Arrow pin. Extras combine, for example
+`pip install "pietto[execute-postgres,execute-mysql]"`. Installing an extra
+never selects a route, grants execution, opens a source or qualifies storage.
 
 ## Quick start
 
@@ -173,18 +124,14 @@ query customers_to_invite:
   a bare type such as `Int` never is. `customer_key = unique(id)` declares that
   no two customers share an `id`.
 - A `source` gives a shape to a database table: `"shop.customers"` is the
-  table `customers` in the schema `shop`.
-- A `relationship` is a reusable row predicate: `PlacedBy(order, customer)` is
-  true when the order belongs to the customer.
+  table `customers` in the schema `shop`. A `relationship` is a reusable row
+  predicate.
 - `customer_totals` keeps every customer, including one without orders (a
-  LEFT JOIN), and counts and sums the orders of each. An aggregate over JOIN rows
-  must not read rows that the JOIN may repeat; grouping by the customer's
-  declared unique key lets `check` prove that, and an aggregate it cannot
-  prove is refused with `PIE-S2381`. A customer without orders gets an
-  `order_count` of 0 and a `total_amount` of NULL (None in Python).
+  LEFT JOIN). Grouping by the customer's declared unique key lets `check`
+  prove that the aggregates do not read rows the JOIN may repeat; an
+  aggregate it cannot prove is refused with `PIE-S2381`.
 - `customers_to_invite` keeps the customers that have an email address and no
-  order. The lines of a `where:` block are joined with `and`, and
-  `not any(... for order in orders)` reads like Python's `any`.
+  order. The lines of a `where:` block are joined with `and`.
 
 Check the file, then write its PostgreSQL SQL:
 
@@ -217,158 +164,101 @@ FROM "shop"."customers" AS "customers"
 WHERE ("email" IS NOT NULL) AND (NOT EXISTS (SELECT 1 FROM "shop"."orders" AS "_pietto_value_1" WHERE "_pietto_value_1"."customer_id" = "customers"."id"));
 ```
 
-`check` does not generate or execute SQL, so a file that passes `check` can
-still be refused by `explain` or by the selected SQL dialect (`ignore nulls`
-is `PIE-B1000`); only
-`emit-sql --dialect X` shows that a file emits for X. `emit-sql` writes SQL to
-stdout by default and can atomically replace an explicitly selected regular
-output file. Text output writes the statements in backend order, each after a
-`-- <name>` line naming its table or query and ending with `;`, one blank line
-apart; `--format json` gives the same SQL without the name line or `;`. When
-there is no SQL to write, for example for a file without a table or query,
-`emit-sql --output` exits `2` and leaves the target file untouched. `pietto`
-with no arguments prints the top-level help to stdout and exits `0`.
-Terminal text uses the terminal's selected encoding; if it cannot represent an
-output, Pietto exits `2` with an ASCII-safe error instead of replacing or
-partially writing SQL. SQL files selected with `--output` remain UTF-8 and use
-LF line endings on every platform.
-`check`, `explain`, and `emit-sql` take `--check-mode loose`, `checked` (the
-default), or `strict` for one file. The
-[language guide](https://github.com/MianliWang/pietto/blob/v0.1.11/docs/language.md#source-structure)
-describes the modes.
-
-A single-file `postgres.table` or `mysql.table` string may be one table name
-or `<schema>.<table>` (for MySQL, `<database>.<table>`); each part is quoted
-separately, so `"public.users"` emits `FROM "public"."users"`, and more than
-one dot or an empty part fails `check` with `PIE-S2306`. Project SQL emission
-takes physical schema and relation names from its emission contract.
-
-Project SQL emission carries `Timestamp`, `Date` and `UUID` fields only as the
-contract-qualified physical values of its emission contract: Timestamp
-requires PostgreSQL `timestamp without time zone(6)` or MySQL `DATETIME(6)` and
-the fixed civil law, Date requires PostgreSQL `date` or MySQL `DATE`, and UUID
-requires PostgreSQL `uuid` or MySQL `BINARY(16)` and standard big-endian bytes.
-On those carriers it admits carrying and projecting the values, `==`/`!=`,
-`count`, `count_distinct`, `DISTINCT`, `GROUP BY`, direct inner/left/right
-equality joins and window partition keys. Timestamp and Date values also
-compare with `<`, `<=`, `>`, `>=`, in WHERE and in a JOIN ON condition
-alike, order a result or a window, and are `min`/`max` arguments on
-PostgreSQL; UUID values also compare and order by their unsigned
-big-endian bytes; `min`/`max` of a UUID (refused by `check` with
-`PIE-S2314`), full joins on these keys, range
-relationships, timezone conversion, parsing and other casts remain
-unavailable; `asof left join` and `asof inner join` pick the latest
-earlier row. See
-[Timestamp and UUID source meaning](https://github.com/MianliWang/pietto/blob/v0.1.11/docs/language.md#timestamp-and-uuid-source-meaning).
-
-`emit-sql` prints SQL for you to run yourself; to run a query of a project
-from Python and get its rows, see the
-[execution documentation](https://github.com/MianliWang/pietto/blob/v0.1.11/docs/execution.md).
-From Python, `pietto.compiler.compile_sql(...)` and `compile_all_sql(...)`
-return the same `emit-sql --project ... --format json` document as bytes,
-without a subprocess (alpha; see
-[Getting project SQL from Python](https://github.com/MianliWang/pietto/blob/v0.1.11/docs/project-package.md#getting-project-sql-from-python)).
-
-## Reusable row predicates and migration
-
-A relationship predicate takes named rows of declared shapes. Name a JOIN input
-with `let`, then pass the actual row aliases explicitly in ON. A predicate may
-include fixed filters and Boolean composition; it does not assert that a matching
-row exists or perform database writes. See the complete
-[multi-JOIN example](https://github.com/MianliWang/pietto/blob/v0.1.11/docs/language.md#named-inputs-and-reusable-relationship-predicates).
-
+With `mysql.table` sources, `emit-sql --dialect mysql` writes MySQL SQL.
 `check` does not generate SQL, so only `emit-sql --dialect X` shows that a
-file emits for X: a relation that X cannot emit is refused with
-`PIE-B1000`, and the other statements are kept. `pietto explain FILE` prints the
-semantic metadata of a file whose relations have no JOINs, and `pietto --help`
-lists every command.
+file emits for X: a relation that X cannot emit is refused with `PIE-B1000`,
+and the other statements are kept. `check`, `explain` and `emit-sql` take
+`--format json`, and for one file `--check-mode loose`, `checked` (the
+default) or `strict`; `pietto --help` lists every command.
 
-## What Pietto provides
+## What works now
 
-- Typed shapes, sources, tables and queries with computed fields, aggregates,
-  grouping, bounded window expressions and reusable scalar `def` functions,
+[Capabilities by mode and target](https://github.com/MianliWang/pietto/blob/main/docs/capabilities.md)
+shows, for each feature family, what `check` and `emit-sql` do in a single
+file and in a project, on PostgreSQL and on MySQL; the
+[language reference](https://github.com/MianliWang/pietto/blob/main/docs/language.md)
+gives every rule and limit.
+
+**Single files** (`check FILE`, `emit-sql FILE`, `fmt`, `explain FILE`):
+
+- Shapes, sources, tables and queries with `where`, `let` values, `select`,
+  `order by` and `limit`; `group by`, `having` and aggregates; ranking,
+  navigation and aggregate windows; `qualify`; and scalar `def` functions,
   which expand at compile time.
-- Single-file `check`, `explain` and `emit-sql` commands with text or JSON
-  output, `migrate` for 0.1.4 sources, `fmt` to format a source file, and
-  deterministic diagnostics that carry source locations where the stage
-  reporting them has one.
-- Single-file INNER, LEFT, RIGHT, FULL and CROSS JOINs, `any` and `not any`
-  filters, input-qualified field reads and aggregates guarded against JOIN
-  fan-out, for `check` and PostgreSQL and MySQL `emit-sql`, within the
-  [single-file JOIN limits](https://github.com/MianliWang/pietto/blob/v0.1.11/docs/language.md#single-file-joins).
-- Projects with an explicit `pietto.toml` root: deterministic checking and
-  formatting, and SQL emission of one selected table or query, or of all of
-  them at once with `--all`, for one dialect against an emission contract. Set
-  operations, DISTINCT, relation blocks, whole-relation reads, query header
-  parameters, typed VALUES and `generate_series` are available in
-  explicit-module projects, and on PostgreSQL so is one level of nested
-  results with `collect` and `unnest`.
-- Fail-closed compilation: unsupported syntax, meaning or backend capability is
-  a diagnostic, never guessed SQL. This is a guardrail when writing Pietto by
-  hand or from AI-generated code; it does not prove business logic or database
-  contents.
-- An alpha Python API that runs a compiled query through an explicit
-  PostgreSQL or MySQL route and returns typed Arrow batches with the attempt's
-  factual outcome, plus local saved-result workflows.
+- INNER, LEFT, RIGHT, FULL and CROSS JOINs, `asof left join` and
+  `asof inner join`, `any(...)` and `not any(...)` filters, and reusable
+  `relationship` predicates, within the
+  [single-file JOIN limits](https://github.com/MianliWang/pietto/blob/main/docs/language.md#single-file-joins).
+  An aggregate over JOIN rows must be one that `check` proves free of JOIN
+  fan-out.
+- `pietto fmt` formats a file; `pietto explain FILE` prints the semantic
+  metadata of a file whose relations have no JOINs.
 
-The compiler has no runtime evaluation, database connection, transaction
-management, scheduler, or arbitrary I/O language features.
+**Projects**, a directory with a `pietto.toml` of `schema_version = 2`:
 
-## Projects
+- Modules that `import` and `export` declarations, `def` functions and
+  relationships included; `check --project` and `fmt --project` cover every
+  module.
+- Forms that a single file refuses: `select distinct`, `union all` and the
+  other set operations, relation blocks (`let name:`), relation reads
+  (`x in name`, `exists name`, `scalar name.f`), query header parameters,
+  typed `values(...)`, `generate_series`, and nested results with `collect`
+  and `unnest`.
+- `emit-sql --project` compiles one table or query, or all of them with
+  `--all`, against an emission contract (see Project SQL emission below).
+  `--all --output DIR` writes files only on supported Linux filesystems, not
+  on Windows or macOS; there use batch stdout, a single `--output FILE` or
+  `pietto.compiler.compile_all_sql(...)`.
+- `explain --project` lists the output columns of every table and query
+  (alpha).
 
-Project commands use an explicit root containing `pietto.toml`:
+**PostgreSQL first, MySQL behind.** New forms reach PostgreSQL first; until a
+form reaches MySQL, it fails closed with a deterministic diagnostic.
 
-```text
-demo-project/
-├── pietto.toml
-└── models/
-    └── shop.pietto
-```
+- Single files emit these forms for both dialects, with the exceptions that
+  the capabilities page lists, such as `first`, `last` and `string_agg`,
+  which only PostgreSQL emits.
+- Project SQL on PostgreSQL emits every feature family of the capabilities
+  page, some within limits that the page states. A few forms that
+  `check --project` accepts, such as `matches(...)` and `Decimal` division,
+  are BLOCKED on both dialects.
+- Project SQL on MySQL emits the common core: filters, grouping with `count`,
+  `min`, `max` and `avg`, ranking and navigation windows, `qualify`, INNER,
+  LEFT, RIGHT, CROSS and `asof` JOINs, DISTINCT, set operations, relation
+  blocks, and query parameters of type `Bool`, `Int`, `Float` and `Text`.
+  Other forms are BLOCKED with a typed reason, among them `sum` of an `Int`,
+  `Float` arithmetic on a field, aggregate windows, FULL JOIN, typed
+  `values(...)`, `generate_series` and nested results.
 
-An explicit-module project (`schema_version = 2`) reads each selected file as
-one module, so `shop.pietto` above checks unchanged:
+**Editors and Python (alpha).** These interfaces may change in a later alpha
+release.
 
-```toml
-schema_version = 2
-
-[sources]
-include = ["models/*.pietto"]
-```
-
-Then run:
-
-```bash
-pietto check --project demo-project
-pietto fmt --write --project demo-project
-```
-
-`fmt --write --project` lays out every module as `pietto fmt` lays out one
-file, and `fmt --check --project` only lists the modules it would change. A
-module with parser errors refuses the whole project, and no file is written.
-
-Project input selection and diagnostics are deterministic. Project checking is
-not SQL generation; project SQL emission is a separate explicit command. The
-older legacy-flat mode (`schema_version = 1`) checks no JOIN and no `any(...)`
-(`PIE-S2334`); see
-[project and package](https://github.com/MianliWang/pietto/blob/v0.1.11/docs/project-package.md#schema-compatibility).
-`pietto explain --project` lists the output columns of every table and query
-of a `schema_version = 2` project (alpha; see
-[Listing relation columns](https://github.com/MianliWang/pietto/blob/v0.1.11/docs/project-package.md#listing-relation-columns)),
-and reads a `schema_version = 4` package-root project, which has no
-`[sources]`.
-[Explaining a package-root project](https://github.com/MianliWang/pietto/blob/v0.1.11/docs/project-package.md#explaining-a-package-root-project)
-shows a layout in which `check --project` and `explain --project` read the
-same files.
+- `pietto lsp` gives editors diagnostics, hover, go-to-definition, document
+  and workspace symbols, links on import paths, formatting of the open buffer
+  and completion of keywords, builtin names and the names a file writes; the
+  Pietto extension for VS Code uses it
+  ([editor support](https://github.com/MianliWang/pietto/blob/main/docs/editor-lsp.md)).
+- `pietto.compiler.compile_sql(...)` and `compile_all_sql(...)` return the
+  `emit-sql --project ... --format json` document as bytes, without a
+  subprocess
+  ([Python compile API](https://github.com/MianliWang/pietto/blob/main/docs/spec/python-compile-api-v1.md)).
+- `pietto.execution` runs a compiled project query through the
+  `postgres_rows` or `postgres_adbc` route (PostgreSQL 18.6) or the
+  `mysql_rows` route (MySQL 8.4.12), with explicit access and a deployment
+  premise, and returns typed Arrow batches with the attempt's factual terminal
+  state. It never accepts SQL text. It also offers local saved-result
+  workflows; its qualified native profile is CPython 3.13.13 on Linux x86-64
+  ([execution](https://github.com/MianliWang/pietto/blob/main/docs/execution.md)).
 
 ## Project SQL emission
 
-`emit-sql --project` compiles one explicitly selected `table` or `query` of an
-explicit-module project into the versioned `pietto.sql-emission.v1` artifact
+`emit-sql --project` compiles a `table` or `query` of an explicit-module
+project into the versioned `pietto.sql-emission.v1` JSON artifact
 (`pietto.sql-emission.v2` for a VERIFIED query with header parameters, see
-[project CLI JSON v2](https://github.com/MianliWang/pietto/blob/v0.1.11/docs/spec/project-cli-json-v2.md#emit-sql-result))
-for one explicitly selected dialect. The physical relation and column names,
-storage types and value premises come from an emission contract you write for
-your database; the compiler never connects to it.
+[project CLI JSON v2](https://github.com/MianliWang/pietto/blob/main/docs/spec/project-cli-json-v2.md#emit-sql-result))
+for one selected dialect. The physical relation and column names, storage types and
+value premises come from an emission contract that you write for your
+database; the compiler never connects to it.
 
 ```text
 demo-emit/
@@ -377,7 +267,7 @@ demo-emit/
 └── contract.json
 ```
 
-`pietto.toml` selects the explicit-module project mode:
+`pietto.toml`:
 
 ```toml
 schema_version = 2
@@ -435,24 +325,8 @@ table active_items:
 }
 ```
 
-This table compiles to one plain `SELECT`. On PostgreSQL, a table or query whose
-SQL needs named stages (a `WITH` clause), for example one with `where`,
-`group by`, `order by`, a window, a JOIN, a relation let or a set operation,
-also needs the statement premise
-`{"key": "identifier_case", "scope": "statement", "value": "quoted_exact"}` in
-`environment`; without it the artifact is BLOCKED with `PIE-B1004`
-(`identifier_case_declaration_missing`). `Timestamp` and `UUID` fields need
-the contract-qualified carriers described in
-[Timestamp and UUID source meaning](https://github.com/MianliWang/pietto/blob/v0.1.11/docs/language.md#timestamp-and-uuid-source-meaning).
-[Project SQL emission](https://github.com/MianliWang/pietto/blob/v0.1.11/docs/project-package.md#project-sql-emission)
-lists the premises with their PostgreSQL and MySQL values and when each is needed,
-gives a MySQL contract, and lists the forms that `check --project` accepts but
-project emission refuses, such as `count` of a `Text` field, arithmetic on a
-`Float` field, and `/`.
-
-Emit the artifact as JSON on stdout (`--format json` and
-`--literal-policy preserve` are the defaults; the contract path is relative to
-the project root):
+`pietto check --project demo-emit` checks the project. Emit the artifact as
+JSON on stdout (the contract path is relative to the project root):
 
 ```bash
 pietto emit-sql --project demo-emit --module main.pietto --kind table \
@@ -460,7 +334,7 @@ pietto emit-sql --project demo-emit --module main.pietto --kind table \
 ```
 
 Show the readable presentation on stdout and atomically write the same JSON
-artifact to a file (`--output` writes the JSON artifact in either `--format`):
+artifact to a file:
 
 ```bash
 pietto emit-sql --project demo-emit --module main.pietto --kind table \
@@ -468,138 +342,90 @@ pietto emit-sql --project demo-emit --module main.pietto --kind table \
     --format text --output active_items.sql-emission.json
 ```
 
-Exit codes are `0` for a VERIFIED artifact, `1` for BLOCKED (typed blockers or
-project diagnostics) and `2` for INPUT_REJECTED (usage, project, contract or
-output errors); failures carry no candidate SQL. To emit every top-level table
-and query of the project at once, add `--all` to `emit-sql --project`;
-`--module`, `--kind` and `--name` may still be given as exact filters that
-narrow the batch. The result is one `pietto.sql-emission.batch.v1` document
-whose items are the single-owner artifacts, and when every item is VERIFIED,
-`--output DIR` writes them to a new directory on supported Linux filesystems;
-see
-[project SQL emission](https://github.com/MianliWang/pietto/blob/v0.1.11/docs/project-package.md#project-sql-emission).
-A `--literal-policy bind-safe` artifact must be consumed together with its
-`fixed_values` and `parameter_uses`; its SQL alone is not a complete
-statement. The complete contract is the
-[Slice13 specification](https://github.com/MianliWang/pietto/blob/v0.1.11/docs/spec/phase66-slice13-project-emit-sql-cli-explicit-contract-atomic-output-v1.md).
+Exit codes are `0` for a VERIFIED artifact, `1` for BLOCKED and `2` for
+INPUT_REJECTED; a failure carries no candidate SQL. On PostgreSQL, SQL that
+needs named stages (a `WITH` clause), for example for `where`, `group by`, a
+JOIN or a set operation, also needs the statement premise
+`{"key": "identifier_case", "scope": "statement", "value": "quoted_exact"}`
+in `environment`.
+[Project SQL emission](https://github.com/MianliWang/pietto/blob/main/docs/project-package.md#project-sql-emission)
+lists every premise with its PostgreSQL and MySQL values and the forms that
+project emission refuses, gives a MySQL contract and describes `--all`, and
+the
+[worked example](https://github.com/MianliWang/pietto/blob/main/docs/worked-example.md)
+builds a larger project step by step.
 
-## Optional extras and Python execution
+## Roadmap
 
-The compiler and CLI need only the core package. Each extra adds exact pins
-for the alpha Python APIs; every execution extra includes the Arrow pin,
-because captured results are Arrow IPC:
+The [roadmap](https://github.com/MianliWang/pietto/blob/main/docs/roadmap.md)
+assigns future work to phases, and each phase sets its own scope when it
+starts; none of it is a promise or a date.
 
-| Extra | Adds |
+| Release | Planned |
 | --- | --- |
-| `pietto[arrow]` | `pyarrow==26.0.1` (typed Arrow results; saved results without a database driver; the published `0.1.10` selects `26.0.0`) |
-| `pietto[execute-postgres]` | `psycopg[binary]==3.3.8` (PostgreSQL rows; the published `0.1.10` selects `3.3.5`) |
-| `pietto[execute-mysql]` | `mysql-connector-python==26.10.0` (MySQL rows; the published `0.1.5` selects `26.7.0`) |
-| `pietto[execute-postgres-adbc]` | `adbc-driver-postgresql==1.13.0`, `adbc-driver-manager==1.13.0` (PostgreSQL ADBC; the published `0.1.5` selects `1.12.0`) |
+| `0.1.12` | The rest of the MySQL deep adaptation |
+| `0.2.0` | SQLite and DuckDB adaptation (`0.2.0` needs only the limited local DuckDB analysis path, not a complete third dialect); pandas, Polars, NumPy, SciPy and Matplotlib interoperability and the Python user surface |
+| `0.2.x` | Real-database, differential, metamorphic, fuzz and performance assurance; a diagnostic review; the CPython and Windows support decisions |
+| `1.0.0rc1` | A freeze of the public schemas, API, CLI, syntax and support matrix |
+| `1.0` | The stable release; a breaking change then waits for `2.0` |
 
-Extras combine, for example `pip install "pietto[execute-postgres,execute-mysql]"`.
-Installing an extra never selects a route, grants execution, opens a source or
-qualifies storage.
+The editor support ships on its own extension versions; capability facts and
+the extension's model view are still ahead.
 
-`pietto.execution` compiles a project query, or loads a query bundle under
-trust records that you keep, runs it through the `postgres_rows`,
-`mysql_rows` or `postgres_adbc` route with explicit access and a deployment
-premise, and returns typed Arrow batches with the attempt's factual terminal
-state. Its saved-result workspace adds ordinary save, source-free re-read,
-fixed-snapshot verified export, same-source recovery, local publication and
-relay to a local reference sink. On `postgres_rows` it also returns one level
-of nested results from `collect` and `unnest`. It never accepts SQL text, and
-its names, fields, `PIE-R` codes and behavior may change in a later alpha
-release. The
-[execution documentation](https://github.com/MianliWang/pietto/blob/v0.1.11/docs/execution.md)
-describes each route, its verified platform and its limits.
+## Documentation
+
+- [Language reference](https://github.com/MianliWang/pietto/blob/main/docs/language.md)
+- [Style](https://github.com/MianliWang/pietto/blob/main/docs/style.md)
+- [A worked example](https://github.com/MianliWang/pietto/blob/main/docs/worked-example.md)
+- [Capabilities by mode and target](https://github.com/MianliWang/pietto/blob/main/docs/capabilities.md)
+- [Project and package](https://github.com/MianliWang/pietto/blob/main/docs/project-package.md)
+- [Execution (alpha)](https://github.com/MianliWang/pietto/blob/main/docs/execution.md)
+- [Editor support (alpha)](https://github.com/MianliWang/pietto/blob/main/docs/editor-lsp.md)
+- [Release notes](https://github.com/MianliWang/pietto/blob/main/docs/release-notes.md)
+- [Roadmap](https://github.com/MianliWang/pietto/blob/main/docs/roadmap.md)
+- [Development](https://github.com/MianliWang/pietto/blob/main/docs/development.md)
+
+Public contracts:
+[CLI JSON v1](https://github.com/MianliWang/pietto/blob/main/docs/spec/cli-json-v1.md),
+[diagnostics](https://github.com/MianliWang/pietto/blob/main/docs/spec/diagnostics.md),
+[project JSON v2](https://github.com/MianliWang/pietto/blob/main/docs/spec/project-cli-json-v2.md),
+[semantic metadata artifact v1](https://github.com/MianliWang/pietto/blob/main/docs/spec/semantic-metadata-artifact-v1.md),
+[configuration](https://github.com/MianliWang/pietto/blob/main/docs/spec/pietto-config-v1.md)
+and [golden fixtures](https://github.com/MianliWang/pietto/blob/main/docs/spec/golden-fixture-policy-v1.md).
+Alpha contracts:
+[relation column view](https://github.com/MianliWang/pietto/blob/main/docs/spec/project-relation-columns-v1.md),
+[Python compile API](https://github.com/MianliWang/pietto/blob/main/docs/spec/python-compile-api-v1.md),
+[LSP diagnostics v1](https://github.com/MianliWang/pietto/blob/main/docs/spec/lsp-diagnostics-v1.md)
+and [LSP editor facts v1](https://github.com/MianliWang/pietto/blob/main/docs/spec/lsp-editor-facts-v1.md).
 
 ## Install from a checkout
 
 To work on Pietto itself, use the repository's locked `uv` environment and
-prefix the commands above with `uv run`:
+prefix the commands above with `uv run`; `scripts/validate.py` runs the full
+local validation:
 
 ```bash
 uv sync --locked
-uv run pietto --version
 uv run pietto --help
-```
-
-To try an extra from a checkout, install it into a separate environment:
-
-```bash
-uv venv /tmp/pietto-arrow
-uv pip install --python /tmp/pietto-arrow/bin/python ".[arrow]"
-```
-
-Or build and select the extra on that exact local wheel:
-
-```bash
-uv build --wheel
-uv pip install --python /tmp/pietto-arrow/bin/python "./dist/pietto-0.1.11-py3-none-any.whl[arrow]"
-```
-
-For a core-only wheel install, omit `[arrow]` and use a fresh environment.
-
-## Documentation
-
-- [Language](https://github.com/MianliWang/pietto/blob/v0.1.11/docs/language.md)
-- [Capabilities by mode and target](https://github.com/MianliWang/pietto/blob/v0.1.11/docs/capabilities.md)
-- [Project and package](https://github.com/MianliWang/pietto/blob/v0.1.11/docs/project-package.md)
-- [Execution](https://github.com/MianliWang/pietto/blob/v0.1.11/docs/execution.md)
-- [Release notes](https://github.com/MianliWang/pietto/blob/v0.1.11/docs/release-notes.md)
-- [Development](https://github.com/MianliWang/pietto/blob/v0.1.11/docs/development.md)
-- [Roadmap](https://github.com/MianliWang/pietto/blob/v0.1.11/docs/roadmap.md)
-- [Status](https://github.com/MianliWang/pietto/blob/v0.1.11/docs/status.md)
-
-Public contracts:
-
-- [CLI JSON v1](https://github.com/MianliWang/pietto/blob/v0.1.11/docs/spec/cli-json-v1.md)
-- [Diagnostics](https://github.com/MianliWang/pietto/blob/v0.1.11/docs/spec/diagnostics.md)
-- [Project JSON v2](https://github.com/MianliWang/pietto/blob/v0.1.11/docs/spec/project-cli-json-v2.md)
-- [Semantic metadata artifact v1](https://github.com/MianliWang/pietto/blob/v0.1.11/docs/spec/semantic-metadata-artifact-v1.md)
-- [Configuration](https://github.com/MianliWang/pietto/blob/v0.1.11/docs/spec/pietto-config-v1.md)
-- [Golden fixture policy](https://github.com/MianliWang/pietto/blob/v0.1.11/docs/spec/golden-fixture-policy-v1.md)
-
-## Development
-
-Run the authoritative local validation suite with:
-
-```bash
 uv run python scripts/validate.py
 ```
 
-The normal implementation loop is focused tests, Ruff, and targeted type
-checking. Natural CI runs the final Python 3.12 and 3.13 validation coverage.
+To try an extra, build a wheel and install it with the extra into a separate
+environment:
 
-## Direction
-
-Pietto is an early preview. These are the goals it is working toward; they are
-not promises or dates, and the detailed plan lives in the
-[roadmap](https://github.com/MianliWang/pietto/blob/v0.1.11/docs/roadmap.md).
-
-- **PostgreSQL first, MySQL close behind**: SQL for more of the project forms
-  that `check --project` accepts, on PostgreSQL first; MySQL follows later and
-  refuses a form with a clear diagnostic until a real MySQL server has checked
-  it.
-- **More databases**: SQLite and DuckDB, with a local DuckDB analysis path
-  first.
-- **Data tools**: pandas, Polars, NumPy, SciPy and Matplotlib interoperability.
-- **Column types**: database-native arrays and JSON columns.
-- **Editors**: a model view and capability facts beside the diagnostics,
-  hover, definitions, document symbols, formatting, workspace symbols, import
-  links and completion of `pietto lsp`.
-- **Assurance**: more real-database, differential and fuzz testing, clearer
-  diagnostics and faster compiles.
-- **Stability**: a 1.0 release with frozen syntax, CLI, APIs and support
-  matrix, and compatibility rules that later `1.x` releases keep.
+```bash
+uv build --wheel
+uv venv /tmp/pietto-arrow
+uv pip install --python /tmp/pietto-arrow/bin/python "./dist/pietto-0.1.11-py3-none-any.whl[arrow]"
+```
 
 ## License
 
 Pietto is released under the
-[MIT License](https://github.com/MianliWang/pietto/blob/v0.1.11/LICENSE).
+[MIT License](https://github.com/MianliWang/pietto/blob/main/LICENSE).
 Third-party material in the wheel, the sdist and the source archive is listed
-in [THIRD_PARTY_NOTICES.md](https://github.com/MianliWang/pietto/blob/v0.1.11/THIRD_PARTY_NOTICES.md),
+in [THIRD_PARTY_NOTICES.md](https://github.com/MianliWang/pietto/blob/main/THIRD_PARTY_NOTICES.md),
 with the original license texts in
-[LICENSES/](https://github.com/MianliWang/pietto/tree/v0.1.11/LICENSES).
+[LICENSES/](https://github.com/MianliWang/pietto/tree/main/LICENSES).
 The Pietto logo artwork in `docs/assets/brand/` is © Mianli Wang, all rights
 reserved, and is not covered by the MIT License that applies to the code.
