@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from collections.abc import Callable, Sequence
+from contextvars import ContextVar
 from dataclasses import dataclass
 
 from pietto.ir.model import (
@@ -20,6 +21,9 @@ from pietto.sql.mysql_expressions import render_mysql_expression
 from pietto.sql.mysql_render import MySqlRenderError
 from pietto.sql.mysql_render import quote_identifier as quote_mysql_identifier
 from pietto.sql.render import quote_identifier
+
+# True only while pietto.sql.mysql_paired emits a paired S25 form.
+ASOF_BESIDE_FULL = ContextVar("pietto_asof_beside_full", default=False)
 
 _JOIN_KEYWORDS = {
     JoinKindIR.INNER: "INNER JOIN",
@@ -113,11 +117,16 @@ def render_join_sql(
             conjuncts.append(target.render(join.condition))
         joined = inputs[join.target_input]
         if join.latest is not None:
-            if not target.native_full and any(
-                JoinKindIR(other.kind) is JoinKindIR.FULL for other in relation.joins
+            if (
+                not target.native_full
+                and not ASOF_BESIDE_FULL.get()
+                and any(
+                    JoinKindIR(other.kind) is JoinKindIR.FULL
+                    for other in relation.joins
+                )
             ):
-                # No differential has run an asof JOIN beside MySQL's
-                # emulation of a FULL JOIN.
+                # Only the paired S25 forms have run an asof JOIN beside
+                # MySQL's emulation of a FULL JOIN.
                 raise target.error(
                     f"{target.name} has no ASOF JOIN in a relation with a FULL "
                     "JOIN yet; emit with --dialect postgres"

@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import hashlib
 import json
 import os
 import re
@@ -7,6 +8,7 @@ import runpy
 import shlex
 import subprocess
 import sys
+from collections.abc import Callable
 from dataclasses import replace
 from pathlib import Path
 
@@ -54,6 +56,7 @@ from pietto.parser_api import parse_source
 from pietto.semantic import analyze
 from pietto.sql import SqlResult, emit_postgres_sql
 from pietto.sql.joins import MYSQL, POSTGRESQL, render_conjunction_sql, render_join_sql
+from pietto.sql import mysql_paired
 from pietto.sql.mysql import emit_mysql_sql
 from pietto.sql.mysql_render import MySqlRenderError
 from pietto.sql.mysql_render import (
@@ -2621,6 +2624,285 @@ def test_mysql_refuses_an_asof_join_in_a_relation_with_a_full_join(
             )
         ],
     )
+
+
+# PAIRS.md 5.3 P-S25-2 to 8 of the Phase77 qualification pack, in the order of
+# mysql_paired.FORMS: each query's `asof_query` parts and the pack's MySQL SQL,
+# its fragment counts (kind, asof JOINs, UNION ALLs, p2 and p3 right-only
+# branches, the lateral WHERE).
+_S25_LEFT = f"asof left join price on {KEY} and {TIME}"
+_S25_INNER = f"asof inner join price on {KEY} and {TIME}"
+_S25_BEFORE = f"{_ASOF_FULL}\n    let price = prices"
+_S25_AFTER = f"    {_ASOF_FULL}\n"
+_S25_P3 = "    let p3 = prices_id\n    full join p3 on orders.id == p3.id\n"
+_S25_ORDERS = "`orders`.`product_id` = `price`.`product_id`) AND (`orders`.`ordered_at`"
+_S25_PORT_12 = (
+    "`__pietto_full`.`__pietto_full_1` = `price`.`product_id`) AND "
+    "(`__pietto_full`.`__pietto_full_2`"
+)
+_S25_PORT_23 = (
+    "`__pietto_full`.`__pietto_full_2` = `price`.`product_id`) AND "
+    "(`__pietto_full`.`__pietto_full_3`"
+)
+_S25_FORMS: dict[str, tuple[dict[str, str], tuple[object, ...]]] = {
+    "full_before": (
+        {"join": _S25_LEFT, "let": _S25_BEFORE},
+        ("LEFT", 1, 1, 1, 0, _S25_PORT_12),
+    ),
+    "full_before_inner": (
+        {"join": _S25_INNER, "let": _S25_BEFORE},
+        ("INNER", 1, 1, 1, 0, _S25_PORT_12),
+    ),
+    "full_after": (
+        {"join": _S25_LEFT, "after": _S25_AFTER},
+        ("LEFT", 2, 1, 1, 0, _S25_ORDERS),
+    ),
+    "full_after_inner": (
+        {"join": _S25_INNER, "after": _S25_AFTER},
+        ("INNER", 2, 1, 1, 0, _S25_ORDERS),
+    ),
+    "between_fulls": (
+        {"join": _S25_LEFT, "let": _S25_BEFORE, "after": _S25_P3},
+        ("LEFT", 2, 3, 2, 1, _S25_PORT_12),
+    ),
+    "full_inner_ids": (
+        {
+            "join": _S25_INNER,
+            "let": _S25_BEFORE,
+            "select": "select order_id = orders.id, full_id = p2.id, "
+            "c = price.amount_cents",
+        },
+        ("INNER", 1, 1, 1, 0, _S25_PORT_23),
+    ),
+    "two_fulls_inner": (
+        {
+            "join": _S25_INNER,
+            "let": _S25_BEFORE,
+            "after": _S25_P3,
+            "select": "select order_id = orders.id, first_full_id = p2.id, "
+            "second_full_id = p3.id, c = price.amount_cents",
+        },
+        ("INNER", 2, 3, 2, 1, _S25_PORT_23),
+    ),
+}
+# Every name of the seven files, the `mysql.table` locator parts included.
+_S25_NAMES = (
+    "Order Price PriceOn Price3 PriceId PriceTwo PriceNone Rate PriceKeyed id"
+    " product_id region ordered_at ordered_on week_start score amount valid_from"
+    " valid_to valid_on amount_cents price_key on_key p3_key id_key a_key b_key"
+    " rate_key order_price o p orders prices prices_on prices3 prices_id"
+    " prices_two prices_none rates prices_keyed shop price_table q price p2 p3"
+    " order_id c full_id first_full_id second_full_id"
+).split()
+_S25_FOLDS = list(dict.fromkeys(name.lower() for name in _S25_NAMES))
+# Price and price stay equal ignoring case, as in the forms.
+_S25_RENAMES = {
+    "short": {
+        name: ("N" if name[0].isupper() else "n") + str(_S25_FOLDS.index(name.lower()))
+        for name in _S25_NAMES
+    },
+    "63_bytes": {name: name + "_" * (63 - len(name)) for name in _S25_NAMES},
+}
+_S25_MAIN = (
+    "MySQL SQL emission is not implemented for RelationIR: q. MySQL has no ASOF "
+    "JOIN in a relation with a FULL JOIN yet; emit with --dialect postgres"
+)
+
+
+def _s25_form(name: str) -> str:
+    return asof_query(connector="mysql", **_S25_FORMS[name][0])
+
+
+def _s25_emit(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str], source: str, *options: str
+) -> tuple[int, str]:
+    path = tmp_path / "shop.pietto"
+    path.write_text(source, encoding="utf-8")
+    code = cli.main(["emit-sql", str(path), "--dialect", "mysql", *options])
+    return code, capsys.readouterr().out
+
+
+def _s25_main(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+    source: str,
+) -> tuple[int, str]:
+    """The JSON output with no file paired, which is main's."""
+
+    with monkeypatch.context() as patch:
+        patch.setattr(mysql_paired, "FORMS", ())
+        return _s25_emit(tmp_path, capsys, source, "--format", "json")
+
+
+def test_the_paired_s25_files_are_the_qualification_pack_forms() -> None:
+    """Each digest is of the pack's text: the shapes with `mysql.table`, then
+    one query `q`, names and empty lines aside."""
+
+    texts = [mysql_paired.file_text(_s25_form(name)) for name in _S25_FORMS]
+    assert [hashlib.sha256(text.encode()).hexdigest() for text in texts if text] == [
+        form[0] for form in mysql_paired.FORMS
+    ]
+
+
+@pytest.mark.parametrize("rename", ["none", *_S25_RENAMES])
+@pytest.mark.parametrize("name", list(_S25_FORMS))
+def test_mysql_emits_an_asof_join_beside_a_full_join_in_a_paired_file(
+    name: str, rename: str, tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """The pack's SQL with only the file's names changed; empty lines and the
+    final newline do not count."""
+
+    source, expected = _s25_form(name), _S25_FORMS[name][1]
+    names = _S25_RENAMES.get(rename, {})
+    if rename == "short":
+        source = source.replace("\n\n", "\n\n\n")
+    elif rename != "none":
+        source = "\n".join(line for line in source.split("\n") if line)
+    source = re.sub(
+        r"[A-Za-z_]\w*", lambda match: names.get(match[0], match[0]), source
+    )
+    code, output = _s25_emit(tmp_path, capsys, source, "--format", "json")
+    document = json.loads(output)
+    assert (code, document["diagnostics"]) == (0, [])
+    assert [item["name"] for item in document["artifacts"]] == [
+        names.get(label, label) for label in ("price_table", "q")
+    ]
+    back = {new: old for old, new in names.items()}
+    sql = re.sub(
+        r"`([^`]*)`",
+        lambda match: f"`{back.get(match[1], match[1])}`",
+        document["artifacts"][1]["sql"],
+    )
+    kind, asof, unions, p2, p3, where = expected
+    counts = {
+        "LATERAL": asof,
+        f"{kind} JOIN LATERAL (SELECT * FROM `shop`.`prices` AS `price` WHERE "
+        f"({where} >= `price`.`valid_from`) ORDER BY `price`.`valid_from` DESC "
+        "LIMIT 1) AS `price` ON TRUE": asof,
+        "UNION ALL": unions,
+        "RIGHT JOIN `shop`.`prices_id` AS `p2` ON `orders`.`id` = `p2`.`id`\n"
+        "WHERE `orders`.`id` IS NULL\n) AS `__pietto_full`": p2,
+        "RIGHT JOIN `shop`.`prices_id` AS `p3` ON "
+        "`__pietto_full`.`__pietto_full_0` = `p3`.`id`\n"
+        "WHERE `__pietto_full`.`__pietto_full_0` IS NULL\n) AS `__pietto_full`": p3,
+    }
+    assert {fragment: sql.count(fragment) for fragment in counts} == counts
+
+
+def test_mysql_text_output_emits_a_paired_s25_file(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    code, output = _s25_emit(tmp_path, capsys, _s25_form("between_fulls"))
+    assert code == 0
+    assert output.count("UNION ALL") == 3 and output.count("LEFT JOIN LATERAL") == 2
+
+
+_S25_TABLE = '"shop.prices_id"'
+_S25_UNPAIRED: dict[str, Callable[[str], str]] = {
+    "one_part_tables": lambda text: text.replace('"shop.', '"'),
+    "another_schema": lambda text: text.replace(_S25_TABLE, '"db.prices_id"'),
+    "schema_equal_ignoring_case": lambda text: text.replace(
+        _S25_TABLE, '"Shop.prices_id"'
+    ),
+    # The source prices_id and its table share a name in the forms.
+    "table_renamed_alone": lambda text: text.replace(_S25_TABLE, '"shop.ids"'),
+    "schema_with_a_space": lambda text: text.replace('"shop.', '"sh op.'),
+    "non_ascii_schema": lambda text: text.replace('"shop.', '"sh\u00f6p.'),
+    # The Kelvin sign folds to an ASCII k without being one.
+    "kelvin_sign_schema": lambda text: text.replace('"shop.', '"\u212a.'),
+    "schema_of_64_bytes": lambda text: text.replace('"shop.', f'"{"s" * 64}.'),
+    "name_of_64_bytes": lambda text: re.sub(r"\bp3\b", "p" * 64, text),
+    "pietto_name": lambda text: re.sub(r"\bp3\b", "__PIETTO_p3", text),
+    # A column of prices equal to valid_from ignoring case, which the lateral
+    # SELECT * reads beside it.
+    "columns_equal_ignoring_case": lambda text: re.sub(
+        r"\bvalid_to\b", "Valid_from", text
+    ),
+    "two_spaces": lambda text: text.replace(", c = ", ",  c = "),
+    "comment": lambda text: text.replace("\nquery q:", "\n# q\nquery q:"),
+    "where": lambda text: text.replace(
+        "    select order_id", "    where orders.id > 0\n    select order_id"
+    ),
+    "limit": lambda text: text + "    limit 5\n",
+    "later_query": lambda text: (
+        text + "\nquery r:\n    from q\n    select n = q.order_id\n"
+    ),
+    "blank_line_of_spaces": lambda text: text.replace(
+        "\n\nquery q:", "\n    \nquery q:"
+    ),
+    "trailing_space": lambda text: text.replace("query q:\n", "query q: \n"),
+    "trailing_tab": lambda text: text.replace("query q:\n", "query q:\t\n"),
+    "crlf": lambda text: text.replace("\n", "\r\n"),
+    "bom": lambda text: "\ufeff" + text,
+    "locator_part_with_a_space": lambda text: text.replace(
+        _S25_TABLE, '"shop. prices_id"'
+    ),
+    # P-S25-9, the FULL ON that reads the asof row, until the owner keeps it.
+    "full_on_asof": lambda _: asof_query(
+        connector="mysql",
+        join=_S25_LEFT,
+        after="    let p2 = prices_id\n    full join p2 on price.product_id == p2.id\n",
+        select="select order_id = orders.id, c = price.amount_cents, pid = p2.id",
+    ),
+}
+
+
+@pytest.mark.parametrize("change", _S25_UNPAIRED.values(), ids=list(_S25_UNPAIRED))
+def test_mysql_keeps_main_output_for_a_file_that_is_not_a_paired_form(
+    change: Callable[[str], str],
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    """Anything but a name changed, or a name that is not one, keeps the whole
+    output main gives."""
+
+    source = change(_s25_form("between_fulls"))
+    main = _s25_main(tmp_path, monkeypatch, capsys, source)
+    assert _S25_MAIN in [item["message"] for item in json.loads(main[1])["diagnostics"]]
+    assert _s25_emit(tmp_path, capsys, source, "--format", "json") == main
+
+
+def test_a_paired_s25_file_whose_emission_differs_keeps_main_output(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """Another SQL, or a refusal only the paired emission meets, reports main's
+    whole output (rule two)."""
+
+    source = _s25_form("full_before")
+    main = _s25_main(tmp_path, monkeypatch, capsys, source)
+    assert [item["message"] for item in json.loads(main[1])["diagnostics"]] == [
+        _S25_MAIN
+    ]
+    with monkeypatch.context() as patch:
+        patch.setattr(
+            mysql_paired,
+            "FORMS",
+            tuple((form[0], form[0]) for form in mysql_paired.FORMS),
+        )
+        assert _s25_emit(tmp_path, capsys, source, "--format", "json") == main
+
+    def refused(script_ir: ScriptIR) -> SqlResult:
+        result = emit_mysql_sql(script_ir)
+        later = Diagnostic(
+            "PIE-B1000", Severity.ERROR, "later", SourceLocation("q.pietto", 1, 1)
+        )
+        return replace(result, diagnostics=(*result.diagnostics, later))
+
+    monkeypatch.setattr(mysql_paired, "emit_mysql_sql", refused)
+    assert _s25_emit(tmp_path, capsys, source, "--format", "json") == main
+
+
+def test_a_nul_cannot_spell_a_replaced_s25_name() -> None:
+    """A later `Order` written as the placeholder of the first would give the
+    form's text; the parser refuses a NUL too, but pairing does not rely on it."""
+
+    source = _s25_form("full_before")
+    at = source.index("Order", source.index("Order") + 1)
+    forged = source[:at] + "\x000.0\x00" + source[at + len("Order") :]
+    assert mysql_paired.file_text(source) is not None
+    assert mysql_paired.file_text(forged) is None
 
 
 # The two-level route: `per_order` counts the items of each order, grouped by

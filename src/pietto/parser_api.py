@@ -7,7 +7,7 @@ import unicodedata
 from _thread import allocate_lock, start_new_thread
 from threading import Event
 from collections.abc import Iterable, Iterator, Sequence
-from dataclasses import dataclass
+from dataclasses import dataclass, field, replace
 from pathlib import Path
 from typing import Any, cast
 
@@ -77,6 +77,9 @@ class ParseResult:
 
     ast: Script | None
     diagnostics: tuple[Diagnostic, ...]
+    # The text `parse_file` read; the CLI pairs MySQL forms by it. It is not
+    # part of the result's identity: parse_file equals parse_source.
+    source: str | None = field(default=None, compare=False, repr=False)
 
 
 def parse_source(source: str, *, path: str | Path | None = None) -> ParseResult:
@@ -902,7 +905,8 @@ def parse_file(path: str | Path) -> ParseResult:
             line=1,
             column=1,
         )
-    return parse_source(source_bytes.decode("utf-8"), path=source_path_value)
+    source = source_bytes.decode("utf-8")
+    return replace(parse_source(source, path=source_path_value), source=source)
 
 
 def source_declares_concat(source: str) -> bool:

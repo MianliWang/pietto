@@ -19,6 +19,7 @@ import pietto.ir as ir_api
 from pietto.ir.diagnostics import join_explain_diagnostics
 import pietto.sql as sql_api
 import pietto.sql.mysql as mysql_backend
+import pietto.sql.mysql_paired as mysql_paired
 from pietto import cli_json
 from pietto.source_format import FormatRefusedError, format_file, format_source
 from pietto.source_migration import migrate_file
@@ -690,6 +691,17 @@ def _run_emit_sql_json_command(arguments: Sequence[str]) -> int:
         check_mode=_check_mode(namespace.check_mode),
         settings=namespace.set,
     )
+
+
+def _emitted(
+    emitter: _SqlEmitter, script_ir: ir_api.ScriptIR, source: str | None
+) -> sql_api.SqlResult:
+    """The backend's SQL; MySQL emits a paired S25 file it refuses."""
+
+    result = emitter(script_ir)
+    if emitter is mysql_backend.emit_mysql_sql and result.diagnostics:
+        return mysql_paired.emit_paired(script_ir, source) or result
+    return result
 
 
 def _check_mode(value: str | None) -> semantic_api.CheckMode | None:
@@ -1575,7 +1587,7 @@ def _run_emit_sql_json(
         )
         return _EXIT_USAGE_ERROR
 
-    sql_result = emitter(ir_result.ir)
+    sql_result = _emitted(emitter, ir_result.ir, parse_result.source)
     diagnostics = (*diagnostics, *sql_result.diagnostics)
     if _has_errors(sql_result.diagnostics):
         _print_emit_sql_json(
@@ -1724,7 +1736,7 @@ def _run_emit_sql(
         _print_cli_error(path, "IR builder produced no IR")
         return _EXIT_DIAGNOSTIC_ERROR
 
-    sql_result = emitter(ir_result.ir)
+    sql_result = _emitted(emitter, ir_result.ir, parse_result.source)
     _render_diagnostics(sql_result.diagnostics, fallback_path=path)
     has_backend_errors = _has_errors(sql_result.diagnostics)
     if output_path is None:
