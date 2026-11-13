@@ -153,7 +153,7 @@ BASE_SHAPE = (
         ),
         (
             "length_status = count(len(status))",
-            'COUNT(length("status"))',
+            'COUNT(CAST(length("status") AS bigint))',
             "COUNT(CHAR_LENGTH(`status`))",
         ),
         (

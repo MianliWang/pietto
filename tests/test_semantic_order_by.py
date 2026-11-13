@@ -1114,9 +1114,9 @@ def test_key_over_the_let_inline_limit_reports_only_that_error() -> None:
 @pytest.mark.parametrize(
     ("let_lines", "key", "postgres_key", "mysql_key"),
     [
-        ((), "1 + 1", "1 + 1", "1 + 1"),
+        ((), "1 + 1", "CAST(1 AS bigint) + 1", "1 + 1"),
         ((), 'lower("x")', "lower('x')", "LOWER('x')"),
-        (("base = 2", "next = base + 1"), "next", "2 + 1", "2 + 1"),
+        (("base = 2", "next = base + 1"), "next", "CAST(2 AS bigint) + 1", "2 + 1"),
     ],
 )
 def test_computed_constant_order_key_still_emits_as_a_no_op_sort(

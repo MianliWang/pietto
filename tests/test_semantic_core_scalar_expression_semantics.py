@@ -315,7 +315,7 @@ def test_division_of_a_call_over_an_unknown_row_is_typed_by_its_signature() -> N
         "Int",
     )
     assert emit_postgres_sql(postgres_ir).artifacts[0].sql == (
-        'SELECT\n    length("t") / 2 AS "value"\nFROM "raw"'
+        'SELECT\n    CAST(length("t") AS bigint) / 2 AS "value"\nFROM "raw"'
     )
     assert emit_mysql_sql(mysql_ir).artifacts[0].sql == (
         "SELECT\n    CHAR_LENGTH(`t`) DIV 2 AS `value`\nFROM `raw`"

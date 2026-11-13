@@ -211,7 +211,7 @@ def test_lpad_never_truncates_and_add_months_clamps() -> None:
     for literal in (_literal(1 << 31), _unary("-", _literal((1 << 31) + 1))):
         with pytest.raises(ValueError, match="lpad width is outside signed int32"):
             render_expression_sql(_call("lpad", code, literal, _literal("0")))
-    assert "CAST((-2147483648) AS integer)" in render_expression_sql(
+    assert "CAST(CAST(-2147483648 AS bigint) AS integer)" in render_expression_sql(
         _call("lpad", code, _unary("-", _literal(1 << 31)), _literal("0"))
     )
 
@@ -237,7 +237,106 @@ def test_now_is_the_statement_start_in_utc_whatever_the_session_time_zone() -> N
 
 
 def test_len_call_uses_postgres_length() -> None:
-    assert render_expression_sql(_call("len", _field("email"))) == 'length("email")'
+    assert render_expression_sql(_call("len", _field("email"))) == (
+        'CAST(length("email") AS bigint)'
+    )
+
+
+def test_int_arithmetic_of_32_bit_literals_is_computed_in_bigint() -> None:
+    def literal(value: int) -> LiteralIR:
+        return LiteralIR(span=SPAN, value_type=INT_TYPE, value=value)
+
+    def binary(left: ExpressionIR, operator: str, right: ExpressionIR) -> BinaryIR:
+        return BinaryIR(
+            span=SPAN, value_type=INT_TYPE, left=left, operator=operator, right=right
+        )
+
+    def negative(value: int) -> UnaryIR:
+        return UnaryIR(
+            span=SPAN, value_type=INT_TYPE, operator="-", operand=literal(value)
+        )
+
+    field = _typed_field("n", INT_TYPE)
+    none = LiteralIR(span=SPAN, value_type=INT_TYPE, value=None)
+    cases = [
+        (binary(literal(65536), "*", literal(65536)), "CAST(65536 AS bigint) * 65536"),
+        (
+            binary(negative(2147483647), "-", literal(1)),
+            "CAST(-2147483647 AS bigint) - 1",
+        ),
+        (binary(literal(9), "%", literal(4)), "CAST(9 AS bigint) % 4"),
+        (
+            binary(binary(literal(7), "/", literal(2)), "+", literal(1)),
+            "CAST(7 / 2 AS bigint) + 1",
+        ),
+        (
+            binary(
+                ConditionalIR(
+                    span=SPAN,
+                    value_type=INT_TYPE,
+                    condition=_literal(True),
+                    when_true=literal(5),
+                    when_false=none,
+                ),
+                "*",
+                literal(1000000000),
+            ),
+            "CAST(CASE WHEN TRUE THEN 5 ELSE NULL END AS bigint) * 1000000000",
+        ),
+        (
+            binary(
+                replace(_call("abs", negative(5)), value_type=INT_TYPE),
+                "*",
+                literal(1000000000),
+            ),
+            "CAST(abs((-5)) AS bigint) * 1000000000",
+        ),
+        (
+            binary(
+                replace(_call("coalesce", none, literal(5)), value_type=INT_TYPE),
+                "-",
+                replace(_call("nullif", literal(5), literal(0)), value_type=INT_TYPE),
+            ),
+            "CAST(COALESCE(NULL, 5) AS bigint) - NULLIF(5, 0)",
+        ),
+        (
+            binary(
+                replace(_call("nullif", field, literal(5)), value_type=INT_TYPE),
+                "*",
+                literal(2),
+            ),
+            'NULLIF("n", 5) * 2',
+        ),
+        (
+            binary(
+                replace(_call("nullif", literal(5), field), value_type=INT_TYPE),
+                "*",
+                literal(2),
+            ),
+            'CAST(NULLIF(5, "n") AS bigint) * 2',
+        ),
+        (binary(literal(7), "/", literal(2)), "7 / 2"),
+        (binary(field, "*", literal(2)), '"n" * 2'),
+        (binary(literal(2), "*", field), '2 * "n"'),
+        (binary(literal(1 << 31), "*", literal(2)), "2147483648 * 2"),
+        # PostgreSQL reads `-2147483648` as integer's minimum.
+        (
+            binary(negative(1 << 31), "*", literal(2)),
+            "CAST(-2147483648 AS bigint) * 2",
+        ),
+        (
+            UnaryIR(
+                span=SPAN,
+                value_type=INT_TYPE,
+                operator="-",
+                operand=negative(1 << 31),
+            ),
+            "-CAST(-2147483648 AS bigint)",
+        ),
+        (negative((1 << 31) - 1), "-2147483647"),
+    ]
+    for expression, expected in cases:
+        assert render_expression_sql(expression) == expected
 
 
 @pytest.mark.parametrize("position", (1, 2))

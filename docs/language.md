@@ -2926,6 +2926,18 @@ checks alike. A `def` body, typed with its declared parameter types, must
 still have its declared result type (PIE-S2402). A relation whose SELECT
 output is such an always-null number completes in a project as in a single
 file, so the relations that read it report their own errors.
+PostgreSQL types `length()` and an integer literal that fits 32 bits as
+`integer`, whose `+`, `-` and `*` fail beyond 32 bits, so single-file
+PostgreSQL SQL writes `len(s)` as `CAST(length(s) AS bigint)` and casts the
+left operand of an `Int` `+`, `-`, `*` or `%` whose two operands may both be
+`integer` (such a literal, or a sign, quotient, `abs`, `coalesce`, `nullif`
+or conditional of them): `1024 * 1024 * 1024 * 4` is `((CAST(1024 AS
+bigint) * 1024) * 1024) * 4`, a signed 64-bit `Int` as everywhere else.
+PostgreSQL reads `-2147483648` as the smallest `integer`, so single-file
+PostgreSQL SQL writes that literal as `CAST(-2147483648 AS bigint)`.
+PostgreSQL still computes in `integer` over an output that is such a value
+where another relation reads it (`x = 2147483647` read as `x + 1`), over
+`min` or `max` of such a value, and over `ntile`.
 SQL types an always-null number as Pietto does. Single-file SQL writes a
 `None` operand of `+`, `-`, `*`, `/` or `%` as a NULL of the type it takes,
 `CAST(NULL AS bigint)`, `numeric` or `double precision` on PostgreSQL and

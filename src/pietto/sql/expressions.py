@@ -83,7 +83,6 @@ _FUNCTION_NAMES = {
     "lower": "lower",
     "upper": "upper",
     "trim": "trim",
-    "len": "length",
     "replace": "replace",
     "abs": "abs",
 }
@@ -375,6 +374,9 @@ def _render_expression_sql(expression: ExpressionIR, *, nested: bool) -> str:
         if operand.startswith(("-", "+")):
             operand = f"({operand})"
         sql = f"{operator}{operand}"
+        if sql == "-2147483648":
+            # PostgreSQL folds this sign into the literal: integer's minimum.
+            return f"CAST({sql} AS bigint)"
     elif isinstance(expression, BinaryIR):
         if expression.operator == "%" and _builtin_type_name(expression) == "Float":
             # E5's exact binary64 lowering is a PostgreSQL project feature;
@@ -392,7 +394,16 @@ def _render_expression_sql(expression: ExpressionIR, *, nested: bool) -> str:
         _refuse_text_null_operand(
             f"operator {expression.operator}", expression.left, expression.right
         )
-        left = _render_expression_sql(expression.left, nested=True)
+        # PostgreSQL types a literal that fits 32 bits as integer, whose
+        # `+ - *` fail past them; Pietto's Int is bigint.
+        widen = (
+            expression.operator in _WIDENED_OPERATORS
+            and _may_be_int4(expression.left)
+            and _may_be_int4(expression.right)
+        )
+        left = _render_expression_sql(expression.left, nested=not widen)
+        if widen:
+            left = f"CAST({left} AS bigint)"
         right = _render_expression_sql(expression.right, nested=True)
         sql = (
             f"{_number_operand(expression, expression.left, left)} {operator} "
@@ -408,6 +419,40 @@ def _render_expression_sql(expression: ExpressionIR, *, nested: bool) -> str:
 
 _NUMBER_SQL_TYPES = {"Int": "bigint", "Decimal": "numeric", "Float": "double precision"}
 _ARITHMETIC_OPERATORS = frozenset({"+", "-", "*", "/", "%"})
+_WIDENED_OPERATORS = frozenset({"+", "-", "*", "%"})
+_INT4 = range(-(1 << 31), 1 << 31)
+
+
+def _may_be_int4(expression: ExpressionIR) -> bool:
+    """Whether PostgreSQL may type ``expression``, an Int, as integer: a
+    literal that fits 32 bits, or a sign, quotient, `abs`, `coalesce`,
+    `nullif` or conditional of such values. Any other Int is bigint, as
+    `+ - * %` is once its left operand is cast."""
+
+    if _builtin_type_name(expression) != "Int":
+        return False
+    if type(expression) is LiteralIR:
+        return type(expression.value) is int and expression.value in _INT4
+    if type(expression) is UnaryIR:
+        return _may_be_int4(expression.operand)
+    if type(expression) is BinaryIR:
+        return (
+            expression.operator == "/"
+            and _may_be_int4(expression.left)
+            and _may_be_int4(expression.right)
+        )
+    if type(expression) is ConditionalIR:
+        values: tuple[ExpressionIR, ...] = (expression.when_true, expression.when_false)
+    elif type(expression) is CallIR and expression.callee in {"abs", "coalesce"}:
+        values = expression.arguments
+    elif type(expression) is CallIR and expression.callee == "nullif":
+        values = expression.arguments[:1]
+    else:
+        return False
+    return all(
+        _may_be_int4(value) or (type(value) is LiteralIR and value.value is None)
+        for value in values
+    )
 
 
 def _number_operand(parent: ExpressionIR, operand: ExpressionIR, rendered: str) -> str:
@@ -1529,6 +1574,9 @@ def _render_call(expression: CallIR) -> str:
     if expression.callee == "sign":
         # PostgreSQL sign() returns double precision or numeric; Pietto says Int.
         return f"CAST(sign({arguments[0]}) AS bigint)"
+    if expression.callee == "len":
+        # PostgreSQL length() returns integer; Pietto says Int.
+        return f"CAST(length({arguments[0]}) AS bigint)"
     return f"{_FUNCTION_NAMES[expression.callee]}({arguments[0]})"
 
 

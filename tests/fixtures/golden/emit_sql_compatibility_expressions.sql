@@ -1,7 +1,7 @@
 -- expression_compatibility
 SELECT
     lower(trim("email")) AS "normalized",
-    length("email") AS "text_length",
+    CAST(length("email") AS bigint) AS "text_length",
     "score" = 10 AS "equal",
     "score" <> 11 AS "not_equal",
     "score" < 12 AS "less",
@@ -19,7 +19,7 @@ SELECT
     "score" % 2 AS "modulo",
     "active" AND TRUE AS "conjunction",
     "active" OR FALSE AS "disjunction",
-    "score" + (2 * 3) AS "precedence",
+    "score" + (CAST(2 AS bigint) * 3) AS "precedence",
     ("score" + 2) * 3 AS "grouped"
 FROM "analytics"."metrics"
 WHERE (("age" >= 18) AND ("deleted_at" IS NULL)) OR ("email" ~ '.+@.+');

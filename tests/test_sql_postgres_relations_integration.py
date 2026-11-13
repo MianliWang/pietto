@@ -435,7 +435,7 @@ def test_pipeline_refuses_typed_uses_of_null_cases_on_postgresql() -> None:
         '    COALESCE(NULL, NULL) = "t" AS "x",\n'
         '    COALESCE((CASE WHEN "b" THEN NULL ELSE NULL END), "t") AS "y",\n'
         '    "st" = COALESCE(NULL, NULL) AS "z",\n'
-        '    length(NULLIF(NULL, NULL)) AS "w",\n'
+        '    CAST(length(NULLIF(NULL, NULL)) AS bigint) AS "w",\n'
         '    COALESCE(COALESCE(NULL, NULL), NULL) AS "v"\n'
         'FROM "app"."src"'
     ]

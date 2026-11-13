@@ -483,13 +483,16 @@ def test_alias_like_function_arguments_and_conditions_emit_base_typed_sql(
         if q == '"'
         else ("LOWER", "TRIM", "CHAR_LENGTH", "")
     )
+    measured = f"{length}({lower}({trim}({q}email{q})))"
+    if q == '"':
+        measured = f"CAST({measured} AS bigint)"
     assert sql.diagnostics == ()
     assert [artifact.sql for artifact in sql.artifacts] == [
         "SELECT\n"
         f"    {q}id{q} AS {q}id{q},\n"
         f"    {lower}({q}email{q}) AS {q}lowered{q},\n"
         f"    {trim}({q}handle{q}) AS {q}trimmed{q},\n"
-        f"    {length}({lower}({trim}({q}email{q}))) AS {q}length{q},\n"
+        f"    {measured} AS {q}length{q},\n"
         f"    'x' NOT LIKE {q}handle{q} ESCAPE '!' AS {q}hit{q}\n"
         f"FROM {q}people{q}\n"
         f"WHERE ({q}flag{q} AND ({q}email{q} LIKE 'a%' ESCAPE '!')) AND "

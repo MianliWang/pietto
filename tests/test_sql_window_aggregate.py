@@ -350,7 +350,8 @@ table grouped:
     assert lowered.ir is not None
     sql = emit_postgres_sql(lowered.ir).artifacts[0].sql
     assert (
-        'COUNT(length("category")) OVER (ORDER BY "category" ASC) AS "measured"' in sql
+        'COUNT(CAST(length("category") AS bigint)) OVER (ORDER BY "category" ASC) '
+        'AS "measured"' in sql
     )
 
 
@@ -473,7 +474,10 @@ query result:
         'CAST(SUM(CAST(CAST(SUM(CAST("right"."amount" AS pg_catalog.int8)) AS pg_catalog.int8) AS pg_catalog.int8)) OVER (ORDER BY "rows"."label" ASC) AS pg_catalog.int8)'
         in sql
     )
-    assert 'COUNT(length("rows"."label")) OVER (ORDER BY "rows"."label" ASC)' in sql
+    assert (
+        'COUNT(CAST(length("rows"."label") AS bigint)) OVER '
+        '(ORDER BY "rows"."label" ASC)' in sql
+    )
 
 
 def test_postgres_refuses_a_hand_built_groups_frame_without_order_by():
