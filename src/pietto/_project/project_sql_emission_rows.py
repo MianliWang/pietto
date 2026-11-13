@@ -41,22 +41,29 @@ COMPARABLE = ("Int", "Text", "Decimal", "Timestamp", "Date", "Float")
 TEMPORAL = ("Timestamp", "Date")
 # Rule two (D77.37, owner 2026-11-13T00:20Z): a MySQL statement that stays
 # refused reports main's whole blocker list. While this is set, emission
-# derives as main does: every Phase77 MySQL cell is shut.
+# derives as main does: every Phase77 MySQL cell is shut, and so is the R01
+# refusal of mysql_float_memberships, which as_main_if_refused keeps for a
+# statement main emits.
 AS_MAIN = ContextVar("as_main", default=False)
 
 
 def as_main_if_refused(request, derive, refused):
     """``derive()``; when ``refused`` holds of it for a MySQL statement,
-    ``derive()`` once more as main (AS_MAIN), unless it already is."""
+    ``derive()`` once more as main (AS_MAIN), unless it already is. When
+    main does not refuse it and its plan holds an R01 Float membership
+    (mysql_float_memberships), the first derivation stands: that refusal."""
 
     result = derive()
     if AS_MAIN.get() or request.family != "mysql" or not refused(result):
         return result
     token = AS_MAIN.set(True)
     try:
-        return derive()
+        main = derive()
     finally:
         AS_MAIN.reset(token)
+    if not refused(main) and mysql_float_memberships(request.plan):
+        return result
+    return main
 
 
 FINITE_FLOAT = {"kind": "finite_float", "format": "binary64"}
@@ -3513,6 +3520,30 @@ def _relation_membership(
         return None, problem
     kind = "not_in" if expression.expression.negated else "in"
     return SQLBlockRead(expression, target, checked, kind, 0, (value,)), None
+
+
+def mysql_float_memberships(plan) -> tuple:
+    """R01 (D77.28, PL.13): the plan's Float `in` and `not in` reads of a let
+    with capture lines outside a SELECT item, which MySQL emission refuses
+    with PIE-B1003 `membership_type_pair_not_admitted`. On MySQL 8.4.12 such
+    a read in a WHERE, flattened into a materialized semijoin beside a
+    VARCHAR(1000) key, returned the outer rows of `-0.0` and `0.0` twice (the
+    R01 cells, Freeze 3); every key, operator and nullability is refused. A
+    SELECT item, and every read of a let without capture lines, emit as
+    before. The semantic layer admits a relation read only in a WHERE or a
+    SELECT item."""
+    inline = {capture.inner for capture in plan.captures}
+    producers = {use.ref: use.producer for use in plan.expression_block_uses}
+    return tuple(
+        expression
+        for expression in plan.expressions
+        if type(expression) is row.ProjectSQLRelationMembership
+        and producers.get(expression.use) in inline
+        and getattr(expression.site, "role", None)
+        is not row.ProjectSQLExpressionRole.SELECT
+        and plan.expressions[expression.value.position].value_type.resolved_type.name
+        == "Float"
+    )
 
 
 def resolved_membership_realization(

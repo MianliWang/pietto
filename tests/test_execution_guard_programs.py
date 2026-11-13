@@ -169,6 +169,34 @@ def test_every_campaign_fixture_has_complete_original_contract_and_guard(
         verify_native_guard(render_guard(statement_for(refined_program, "guard")))
 
 
+@pytest.mark.parametrize("target", ("postgres", "mysql"))
+def test_a_guarded_correlated_float_membership_is_refused_on_mysql(tmp_path, target):
+    """R01: a Float read of a let with capture lines in the WHERE of a
+    guarded statement prepares on PostgreSQL; on MySQL the structural
+    blockers keep the emission blocker alone, the pending one deferred."""
+    from pietto._project.project_guard_preparation import GuardPreparationError
+
+    body = DIRECT.replace(
+        "query result:\n",
+        "query result:\n    let m:\n        capture lhs\n        from rhs\n"
+        "        where id == lhs.id\n        select:\n            f = 0.0\n",
+    ).replace(
+        "    select:\n        left_id",
+        "    where 0.0 in m\n    select:\n        left_id",
+    )
+    if target == "postgres":
+        program = prepare_program(prepare_guarded(*planned(tmp_path, target, body)))
+        assert len(program.subjects) == 1
+        return
+    with pytest.raises(
+        GuardPreparationError, match="^GUARD_PREPARATION_BLOCKED$"
+    ) as error:
+        prepare_guarded(*planned(tmp_path, target, body))
+    assert [(b.code, b.detail) for b in error.value.blockers] == [
+        ("PIE-B1003", "membership_type_pair_not_admitted")
+    ]
+
+
 def test_two_direct_boundaries_reject_complete_coordinated_grafts_without_builder(
     tmp_path, monkeypatch
 ):

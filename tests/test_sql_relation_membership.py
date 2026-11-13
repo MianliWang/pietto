@@ -19,6 +19,7 @@ import pytest
 import _pietto_sql_emission as probe
 import _pietto_sql_emission_portable as portable
 import _pietto_sql_emission_pure_boundary as pure
+import _pietto_sql_float_cells as float_cells
 from pietto._project import project_sql_emission_rows as rows
 from pietto._project import project_sql_plan_expressions as row
 from pietto._project.project_postgres_source_assurance import qualification_roots
@@ -1275,3 +1276,163 @@ def test_projection_correlated_read_cannot_use_an_earlier_compatible_stage(
     reference["subject"] = {"kind": "select_block", "position": 0}
     with pytest.raises(ValueError):
         probe.decode_public(probe.encoded(document))
+
+
+# R01 (D77.28, PL.13): in the R01 cells (Freeze 3) MySQL 8.4.12 returned the
+# outer rows of `-0.0` and `0.0` twice for r01_c_kw_in and r01_c_kw_nn_in
+# under semijoin materialization, so MySQL refuses every Float read of a let
+# with capture lines outside a SELECT item, at its own read. The uncorrelated
+# forms, a SELECT item and a Text read of such a let emit as before.
+R01_CLASS_C = tuple(name for name in float_cells.R01_FORMS if "_c_" in name)
+_R01_LET = (
+    "let m:",
+    "    capture r01o",
+    "    from r01i",
+    "    where kw == r01o.kw",
+    "    select:",
+)
+R01_KEPT = {
+    **{n: body for n, body in float_cells.R01_FORMS.items() if "_u_" in n},
+    **{
+        f"select_{n}": float_cells.query(
+            *_R01_LET, "        v", "from r01o", "select:", "    id", f"    f = v {o}"
+        )
+        for n, o in (("in", "in m"), ("not_in", "not in m"))
+    },
+    "text_where": float_cells.query(
+        *_R01_LET, "        kn", "from r01o", "where kn in m", "select:", "    id"
+    ),
+}
+_SCALAR_SUGGESTION = (
+    "Use an already supported scalar form with its reviewed operand carriers,"
+    " or keep this expression in check/plan. Do not use a cast or a different"
+    " contract to force emission."
+)
+
+
+def _as_mysql(sql: str) -> str:
+    return sql.replace('"', "`").replace("`public`", "`phase66`")
+
+
+def _emitted_as_main(directory: Path, name: str):
+    """A MySQL artifact of the R01 form ``name`` and its emission document,
+    made as main does (rows.AS_MAIN), which shuts the R01 refusal."""
+    token = rows.AS_MAIN.set(True)
+    try:
+        outcome = float_cells.build(directory, "mysql", float_cells.R01_FORMS[name])
+        artifact = outcome.artifact
+        assert outcome.status == "VERIFIED" and artifact is not None
+        observed = portable.export_emission_observation(artifact, artifact.request)
+    finally:
+        rows.AS_MAIN.reset(token)
+    assert observed.canonical_bytes is not None
+    return artifact, observed.canonical_bytes
+
+
+@pytest.mark.parametrize("name", R01_CLASS_C)
+def test_a_correlated_float_membership_outside_select_is_refused_on_mysql(
+    tmp_path: Path, name: str
+) -> None:
+    """Every class C form is BLOCKED on MySQL with PIE-B1003 at its read;
+    PostgreSQL emits the statement main emits on MySQL, quotes aside, and
+    the pure boundary accepts it."""
+    body = float_cells.R01_FORMS[name]
+    postgres = float_cells.build(tmp_path / "postgres", "postgres", body)
+    assert postgres.status == "VERIFIED" and postgres.artifact is not None
+    _observed(postgres.artifact)
+    main, _ = _emitted_as_main(tmp_path / "main", name)
+    assert _as_mysql(postgres.artifact.rendered.sql.decode()) == (
+        main.rendered.sql.decode()
+    )
+    outcome = float_cells.build(tmp_path / "mysql", "mysql", body)
+    assert outcome.status == "BLOCKED" and outcome.artifact is None
+    assert float_cells.refusals(outcome, body) == [
+        ("PIE-B1003", "membership_type_pair_not_admitted", _SCALAR_SUGGESTION, 9, 11)
+    ]
+
+
+def test_each_correlated_float_membership_is_refused_at_its_own_read(
+    tmp_path: Path,
+) -> None:
+    """Two reads in one WHERE, each refused in source order; the second let
+    is another let with capture lines."""
+    body = float_cells.query(
+        *_R01_LET,
+        "        v",
+        "let n:",
+        "    capture r01o",
+        "    from r01i",
+        "    where kn == r01o.kn",
+        "    select:",
+        "        nv",
+        "from r01o",
+        "where id > 0 and v in m or nv not in n",
+        "select:",
+        "    id",
+    )
+    outcome = float_cells.build(tmp_path, "mysql", body)
+    assert float_cells.refusals(outcome, body) == [
+        ("PIE-B1003", "membership_type_pair_not_admitted", _SCALAR_SUGGESTION, 15, 22),
+        ("PIE-B1003", "membership_type_pair_not_admitted", _SCALAR_SUGGESTION, 15, 32),
+    ]
+
+
+@pytest.mark.parametrize("name", sorted(R01_KEPT))
+def test_float_memberships_outside_the_r01_refusal_emit_as_before(
+    tmp_path: Path, name: str
+) -> None:
+    """Class U, a SELECT item and a Text read emit on both targets, the same
+    statement quotes aside, and the live verifier and the pure boundary
+    accept them."""
+    emitted = {}
+    for target in TARGETS:
+        outcome = float_cells.build(tmp_path / target, target, R01_KEPT[name])
+        artifact = outcome.artifact
+        assert outcome.status == "VERIFIED" and artifact is not None
+        assert verify_project_sql_emission(artifact, artifact.request).verified
+        _observed(artifact)
+        emitted[target] = artifact.rendered.sql.decode()
+    assert emitted["mysql"] == _as_mysql(emitted["postgres"])
+
+
+@pytest.mark.parametrize("name", ("r01_c_kw_in", "r01_c_kn_not_in"))
+def test_a_correlated_float_membership_refused_otherwise_reports_main(
+    tmp_path: Path, monkeypatch, name: str
+) -> None:
+    """D77.37: a class C form that main refuses for another reason reports
+    main's whole list, without the R01 blocker: under the unreviewed MySQL
+    release 8.4.11 the release blocker, and refused by a check later than
+    the emission blockers, that check's."""
+    from pietto._project import project_sql_emission as emission
+
+    body = float_cells.R01_FORMS[name]
+    release = float_cells.build(tmp_path / "release", "mysql", body, "8.4.11")
+    assert [(b.code, b.detail) for b in release.blockers] == [
+        ("PIE-B1003", "target_release_not_reviewed")
+    ]
+    monkeypatch.setattr(emission, "verify_row_query", lambda request, query: False)
+    late = float_cells.build(tmp_path / "late", "mysql", body)
+    assert [(b.code, b.detail) for b in late.blockers] == [
+        ("PIE-B1008", "plan_ast_correspondence")
+    ]
+
+
+@pytest.mark.parametrize("name", R01_CLASS_C)
+def test_a_forged_correlated_float_membership_fails_the_verifiers(
+    tmp_path: Path, monkeypatch, name: str
+) -> None:
+    """Emitted as main, past emission's refusal, a class C artifact is
+    refused by the live verifier from its plan, also with the emission
+    blockers it derives again made to see no such read, and by the pure
+    boundary from its document, each by its own reading."""
+    artifact, document = _emitted_as_main(tmp_path, name)
+    for _ in range(2):
+        assert verify_project_sql_emission(artifact, artifact.request).issues == (
+            "plan_ast_correspondence",
+        )
+        monkeypatch.setattr(rows, "mysql_float_memberships", lambda plan: ())
+    refused = pure.parse_emission_observation(document)
+    assert (refused.status, refused.detail) == (
+        pure.Status.INVALID_RELATION,
+        "MySQL Float block membership",
+    )

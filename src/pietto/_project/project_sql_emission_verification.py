@@ -3379,6 +3379,18 @@ def _verify_block_membership(
     )
     if checked is None or not _same_realization(value.realization, checked):
         raise ValueError("membership read realization")
+    # R01 (rows.mysql_float_memberships), read again from the plan: MySQL
+    # emits a Float read of a let with capture lines only as a SELECT item,
+    # unless emission derives as main (rows.AS_MAIN).
+    if (
+        request.family == "mysql"
+        and not rows.AS_MAIN.get()
+        and left.tag == "Float"
+        and expected.use.producer in {c.inner for c in request.plan.captures}
+        and getattr(expression.site, "role", None)
+        is not row.ProjectSQLExpressionRole.SELECT
+    ):
+        raise ValueError("membership read correlated Float")
     return value.realization
 
 

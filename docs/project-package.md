@@ -1136,7 +1136,10 @@ EXCEPT, and a Float `==` or `!=` whose two operands both read rows (a JOIN
 forms that [Float values](language.md#float-values) lists, and a Float `in`
 or `not in`
 literal list whose value and one of its options both read rows, such as
-`price in (cost, 0.0)`, as each option stands for an `==` with the value;
+`price in (cost, 0.0)`, as each option stands for an `==` with the value,
+and a Float `in` or `not in` read of a let with `capture` lines in a WHERE,
+such as `where price in m`, as MySQL may flatten it into a semijoin
+(unreleased; `0.1.11` emitted it);
 PostgreSQL emits them. A comparison with a literal or a header parameter
 (`price == 0.0`, `price == p`), a literal list whose value reads no row or
 whose options read none (`0.0 in (price, cost)`, `price in (0.0, -0.0)`)

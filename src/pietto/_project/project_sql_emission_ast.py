@@ -470,11 +470,37 @@ def emission_blockers(request: PreparedEmission, *, _guarded=None):
     enforcement, so only another blocker refuses a guarded statement."""
     return rows.as_main_if_refused(
         request,
-        lambda: _emission_blockers(request, _guarded),
+        lambda: (
+            *_emission_blockers(request, _guarded),
+            *_float_membership_blockers(request),
+        ),
         lambda blockers: any(
             _guarded is None or b.detail != "original_enforcement_not_fulfilled"
             for b in blockers
         ),
+    )
+
+
+def _float_membership_blockers(request):
+    """R01: each MySQL Float membership rows.mysql_float_memberships finds,
+    at its own read in source order; none while emission derives as main."""
+    if rows.AS_MAIN.get() or request.family != "mysql":
+        return ()
+    return tuple(
+        Blocker(
+            "PIE-B1003",
+            "membership_type_pair_not_admitted",
+            item.ref,
+            item.expression.span,
+        )
+        for item in sorted(
+            rows.mysql_float_memberships(request.plan),
+            key=lambda item: (
+                item.expression.span.path or "",
+                item.expression.span.line,
+                item.expression.span.column,
+            ),
+        )
     )
 
 

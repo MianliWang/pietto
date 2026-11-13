@@ -1257,6 +1257,64 @@ def test_a_compiled_float_membership_of_two_row_reads_is_refused_on_mysql(
 
 
 @pytest.mark.parametrize("target", ("postgres", "mysql"))
+@pytest.mark.parametrize(
+    "name",
+    ("r01_c_kw_in", "r01_c_kw_nn_not_in", "select", "r01_u_let_in", "r01_u_src_not_in"),
+)
+def test_a_compiled_correlated_float_membership_is_refused_on_mysql(
+    tmp_path, target, name, monkeypatch
+):
+    """R01: a class C form of the R01 cells, emitted as main (rows.AS_MAIN,
+    which shuts emission's refusal), derives on PostgreSQL only; on MySQL
+    derivation refuses it from the bundle's records and the independent
+    verifier refuses a derivation forged past that check. The same read as
+    a SELECT item, and a class U read, derive on both."""
+    from pietto._project import project_completed_semantics as semantics
+    from pietto._project import project_sql_emission_rows as physical
+    from pietto._project.project_compiled_schema import CompiledError
+
+    body = float_cells.R01_FORMS.get(name) or float_cells.query(
+        "let m:",
+        "    capture r01o",
+        "    from r01i",
+        "    where kw == r01o.kw",
+        "    select:",
+        "        v",
+        "from r01o",
+        "select:",
+        "    id",
+        "    f = v in m",
+    )
+    token = physical.AS_MAIN.set(True)
+    try:
+        outcome = float_cells.build(tmp_path, target, body)
+        assert outcome.status == "VERIFIED" and outcome.artifact is not None
+        with monkeypatch.context() as patch:
+            patch.setattr(semantics, "_compiled_float_membership", lambda *a: False)
+            built = build_compiled(outcome.artifact)
+    finally:
+        physical.AS_MAIN.reset(token)
+    root = load_compiled(
+        built.payload,
+        expected_pin=built.pin,
+        accepted_producer=built.producer,
+        accepted_compatibility=built.compatibility,
+    )
+    if target == "postgres" or name == "select" or "_u_" in name:
+        semantics.verify_compiled_semantics(
+            semantics.derive_compiled_semantics(root, ())
+        )
+        return
+    with pytest.raises(CompiledError, match="^COMPILED_PHYSICAL_DOMAIN$"):
+        semantics.derive_compiled_semantics(root, ())
+    with monkeypatch.context() as patch:
+        patch.setattr(semantics, "_compiled_float_membership", lambda *a: False)
+        derived = semantics.derive_compiled_semantics(root, ())
+    with pytest.raises(CompiledError, match="^COMPILED_SEMANTIC_DOMAIN$"):
+        semantics.verify_compiled_semantics(derived)
+
+
+@pytest.mark.parametrize("target", ("postgres", "mysql"))
 @pytest.mark.parametrize("variant", ("let_key", "bind"))
 def test_computed_let_determinant_replays_from_compiled_input(
     tmp_path, target, variant

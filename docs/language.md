@@ -592,7 +592,7 @@ first column give every rule.
 | `add_months(d, n)` ([Expressions](#expressions)) | `CAST((d + make_interval(months => CAST(n AS integer))) AS date)` | `DATE_ADD(d, INTERVAL n MONTH)` | emitted; a `None` argument refused (PIE-B1003) | refused (PIE-B1003) |
 | `now()` ([Expressions](#expressions)) | `(statement_timestamp() AT TIME ZONE 'UTC')`, in SELECT items and WHERE | `UTC_TIMESTAMP(6)`, in SELECT items and WHERE | emitted, compiled and bound as a template | unreleased: also as `date_of(now())`, only in the qualified SELECT position the `now()` paragraph of [Expressions](#expressions) gives; refused elsewhere (PIE-B1003) |
 | Always-null numbers, D-12 ([Expressions](#expressions)) | typed NULL casts | typed NULL casts | `Int` arithmetic with `None`; `Float` and `Decimal` refused | as PostgreSQL |
-| `Float` equality ([Float values](#float-values)) | comparisons and GROUP BY; DISTINCT and set forms are project-only | as PostgreSQL; GROUP BY beside a wide `Text` key may split `-0.0` and `0.0` | comparisons, GROUP BY, DISTINCT, ORDER BY, every set form, window `partition by` and `order by`, `string_agg` order keys and FULL JOIN equalities, also over a window `percent_rank` or `cume_dist` result | comparisons with a literal or header parameter, ordering inequalities, `in` and `not in` (a literal list only when its value or all of its options read no row), `nullif`, relation ORDER BY and UNION ALL; `==`, `!=` and `same_value` of two `Float` fields in the unreleased qualified same-row and JOIN forms, and GROUP BY of one to three keys in the unreleased qualified one-source forms, of [Float values](#float-values); the other forms refused (PIE-B1003) |
+| `Float` equality ([Float values](#float-values)) | comparisons and GROUP BY; DISTINCT and set forms are project-only | as PostgreSQL; GROUP BY beside a wide `Text` key may split `-0.0` and `0.0` | comparisons, GROUP BY, DISTINCT, ORDER BY, every set form, window `partition by` and `order by`, `string_agg` order keys and FULL JOIN equalities, also over a window `percent_rank` or `cume_dist` result | comparisons with a literal or header parameter, ordering inequalities, `in` and `not in` (a literal list only when its value or all of its options read no row, a read of a let with `capture` lines only as a SELECT item (unreleased)), `nullif`, relation ORDER BY and UNION ALL; `==`, `!=` and `same_value` of two `Float` fields in the unreleased qualified same-row and JOIN forms, and GROUP BY of one to three keys in the unreleased qualified one-source forms, of [Float values](#float-values); the other forms refused (PIE-B1003) |
 | JOIN aggregates without fan-out ([Aggregates](#aggregates-and-grouping)) | accepted | accepted | accepted | accepted; `sum(Int)` stays PIE-B1004 |
 | Top-level constants and `--set` ([Top-level constants](#top-level-constants)) | literals; `DATE '...'`, `TIMESTAMP '...'` | as PostgreSQL | refused (PIE-S2392) | refused (PIE-S2392) |
 | Project aggregate arguments ([Aggregates](#aggregates-and-grouping)): `count`/`count_distinct` of `Text`, `Bool`, `Float`, `Decimal`; `min`/`max` of `Float`, `Decimal`; `sum`/`avg` of `Float`; a row expression argument (`sum(qty * 2)`) | emitted (unchanged) | emitted (unchanged) | emitted, also an argument holding a scalar call over JOIN rows (`count(lower(r.label))`); direct `sum(Decimal(p, s))` emits as checked `numeric(p + 19, s)` only for `p + 19 <= 65`; Decimal `avg` and other Decimal sum shapes stay PIE-B1004 | as PostgreSQL, except `count_distinct` of a `Float` (PIE-B1003), `sum`/`avg` of a `Float`, `sum` of a `Decimal`, and `sum` of an `Int` such as `sum(qty * 2)` (PIE-B1004), and over JOIN rows an argument holding a scalar call (PIE-B1003); an `Int` expression not proved to fit BIGINT is PIE-B1002 first |
@@ -741,6 +741,18 @@ included, is PIE-B1003 `comparison_type_pair_not_admitted`. A statement of
 these forms that emission refuses for another reason, such as an output
 label past 256 characters, reports the blockers it has without the forms,
 this PIE-B1003 included.
+
+A Float `value in r` or `value not in r` whose `r` is a let with `capture`
+lines is a correlated IN subquery, which MySQL may flatten into a semijoin:
+materialized beside a `VARCHAR(1000)` key, MySQL 8.4.12 returned the outer
+rows of `-0.0` and `0.0` twice (the Phase77 R01 cells). MySQL project
+emission therefore refuses every such read written in a WHERE, whatever its
+key, operator or nullability, with PIE-B1003
+`membership_type_pair_not_admitted` at the read (`0.1.11` emitted it). As a
+SELECT item, and over a let without `capture` lines or a source, the read
+emits on both dialects as before, and PostgreSQL emits every form. A
+statement that emission refuses for another reason reports the blockers it
+has without this one.
 
 MySQL deduplicates GROUP BY rows in an internal temporary table, which kept
 `-0.0` and `0.0` apart beside a `VARCHAR(1000)` key. MySQL project emission
@@ -1956,7 +1968,8 @@ does not pair with its column, and with PIE-B1003
 there; a literal list whose elements are all null is PIE-S2105 at check. Project
 SQL renders the read as `(value [NOT] IN (SELECT e<n>.<column> FROM <block> AS
 e<n>))`, so an `order by` and `limit` of the read block stay inside its CTE and
-no IN subquery carries a LIMIT.
+no IN subquery carries a LIMIT. On MySQL a `Float` read of a let with
+`capture` lines emits only as a SELECT item (see [Float values](#float-values)).
 
 In an EXPLICIT_MODULES project a typed VALUES body is also the body of a
 top-level table or query. It is its own zero-input relation, read by `from`, a

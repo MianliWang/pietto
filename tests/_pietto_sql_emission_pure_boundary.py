@@ -2476,6 +2476,44 @@ def _inline_producer(doc, producer) -> bool:
     )
 
 
+def _mysql_float_membership(doc) -> bool:
+    """R01 from the document (emission: rows.mysql_float_memberships): a
+    Float `in` or `not in` read of a capturing let's inline body that is no
+    SELECT item, that is, not reached from a value column of a projection
+    body through operations alone, or reached from a predicate."""
+
+    def reach(roots) -> set:
+        seen, pending = set(), list(roots)
+        while pending:
+            item = pending.pop()
+            if item in seen:
+                continue
+            seen.add(item)
+            if item.kind == "sql_operation":
+                pending.extend(doc[item]["operands"])
+            elif item.kind == "sql_unary":
+                pending.append(doc[item]["operand"])
+        return seen
+
+    selected = reach(
+        doc[column]["value"]
+        for body in doc.all("row_body")
+        if doc[body]["block_kind"] == "projection"
+        for column in doc[body]["columns"]
+        if column.kind == "row_value_column"
+    )
+    filtered = reach(doc[item]["value"] for item in doc.all("row_predicate"))
+    return any(
+        doc[read]["kind"] in ("in", "not_in")
+        and _inline_producer(doc, doc[doc[read]["target"]]["producer"])
+        and _value_tag(doc, doc[read]["operands"][0]) == "Float"
+        # `in filtered` holds only of a forged document that shares one
+        # read between a value column and a predicate; no test forges one.
+        and (read not in selected or read in filtered)
+        for read in doc.all("sql_block_read")
+    )
+
+
 class _Check:
     def __init__(self, doc: _Doc) -> None:
         self.doc = doc
@@ -2803,6 +2841,10 @@ class _Check:
                 and own == outer,
                 "captured reference",
             )
+        _require(
+            family != "mysql" or not _mysql_float_membership(doc),
+            "MySQL Float block membership",
+        )
         cells = _mysql_scalar_cells(doc) if family == "mysql" else {}
         for ref in doc.all("sql_operation"):
             op = doc[ref]

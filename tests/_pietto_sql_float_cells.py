@@ -10,7 +10,9 @@ non-null Float `nv`; `f6z` is `f6o`'s with a nullable `kn`; `f6t` is an
 `id`, a nullable Float `f1` and a non-null Float `f3`; `f6u` adds to
 `f6s`'s fields a nullable Float `f4` and `f6k` the Text `kw`; `f6r` holds
 `f6s`'s fields as `f1`, `id`, `f2`; and `f6w` is an `id`, `v` and a NOT NULL
-Text `kv` (4000).
+Text `kv` (4000). The R01 cells' tables (D77.28) are `r01o` and `r01i`, an
+`id`, a nullable Float `v`, a non-null Float `nv` and the keys `kn` and `kw`,
+and `r01v`, a nullable Float `v` alone.
 """
 
 from copy import deepcopy
@@ -84,7 +86,20 @@ _SHAPES = "".join(_shape(shape) for shape in _FIELDS)
 # unique key and `d7` `s7` with an unread Decimal(9, 2) field.
 _FIELDS["U7"] = _FIELDS["S7"]
 _FIELDS["D7"] = (*_FIELDS["S7"], ("dz", "money", False, None))
-_READ_SHAPES = {"U7": _shape("U7", "    u7_key = unique(id)\n"), "D7": _shape("D7")}
+# The R01 cells' tables (D77.28), declared the same way: `r01o` and `r01i`
+# share one shape, which the first of them declares.
+_FIELDS["R01"] = (
+    *_FIELDS["Probe"][:2],
+    ("nv", "ratio", False, None),
+    *_FIELDS["Probe"][2:],
+)
+_FIELDS["VOnly"] = _FIELDS["Probe"][1:2]
+_READ_SHAPES = {
+    "U7": _shape("U7", "    u7_key = unique(id)\n"),
+    "D7": _shape("D7"),
+    "R01": _shape("R01"),
+    "VOnly": _shape("VOnly"),
+}
 # Each source as (name, shape, table).
 _SOURCES = (
     ("f6o", "Probe", "f6o"),
@@ -103,6 +118,9 @@ _SOURCES = (
     ("t7", "T7", "t7"),
     ("u7", "U7", "u7"),
     ("d7", "D7", "d7"),
+    ("r01o", "R01", "r01 outer"),
+    ("r01i", "R01", "r01 inner"),
+    ("r01v", "VOnly", "r01 inner"),
 )
 
 
@@ -139,7 +157,8 @@ def world(target, body, release=None):
                     field["representation"]["storage"]["length"] = width
             source["fields"].append(field)
         sources.append(source)
-        header += _READ_SHAPES.get(shape, "")
+        if f"shape {shape}:\n" not in header:
+            header += _READ_SHAPES.get(shape, "")
         header += f'source {name}: {shape} = {target}.table("{name}.locator")\n'
     contract["sources"] = sources
     return header + body, probe.encoded(contract).decode()
@@ -157,6 +176,43 @@ def query(*lines, declaration="table", parameters=None):
     return f"{declaration} result{header}:\n" + "".join(
         f"    {line}\n" for line in lines
     )
+
+
+def _r01(value, operator, key=None, block="m"):
+    """An R01 cell form: ``value`` [not] in a let ``m`` of r01i's ``value``,
+    with `capture r01o` and one ``key`` equality when ``key`` is given, or in
+    the source ``block``; the read is line 9, column 11 of a class C form."""
+    let = (
+        "let m:",
+        *(("    capture r01o",) if key else ()),
+        "    from r01i",
+        *((f"    where {key} == r01o.{key}",) if key else ()),
+        "    select:",
+        f"        {value}",
+    )
+    return query(
+        *(let if block == "m" else ()),
+        "from r01o",
+        f"where {value} {operator} {block}",
+        "select:",
+        "    id",
+        f"    {value}",
+    )
+
+
+_R01_OPERATORS = {"in": "in", "not_in": "not in"}
+# The twelve forms of the R01 cells (Freeze 3) in this world: class U, an
+# uncorrelated block, still emits on MySQL; class C, a let with capture lines,
+# returned outer rows twice there (r01_c_kw_in and r01_c_kw_nn_in) and every
+# class C read outside a SELECT item is refused.
+R01_FORMS = {
+    **{f"r01_u_let_{n}": _r01("v", o) for n, o in _R01_OPERATORS.items()},
+    **{f"r01_u_src_{n}": _r01("v", o, block="r01v") for n, o in _R01_OPERATORS.items()},
+    **{f"r01_u_let_nn_{n}": _r01("nv", o) for n, o in _R01_OPERATORS.items()},
+    **{f"r01_c_kn_{n}": _r01("v", o, "kn") for n, o in _R01_OPERATORS.items()},
+    **{f"r01_c_kw_{n}": _r01("v", o, "kw") for n, o in _R01_OPERATORS.items()},
+    **{f"r01_c_kw_nn_{n}": _r01("nv", o, "kw") for n, o in _R01_OPERATORS.items()},
+}
 
 
 _SAME_ROW = {

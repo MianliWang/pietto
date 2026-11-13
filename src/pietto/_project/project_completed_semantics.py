@@ -2603,6 +2603,37 @@ def _compiled_reads_row(records, address) -> bool:
     return any(_compiled_reads_row(records, child) for child in record.get("operands"))
 
 
+def _compiled_float_membership(records, use, value_type) -> bool:
+    """R01 from the bundle's records (emission: rows.mysql_float_memberships):
+    the relation membership read ``use`` of a ``value_type`` value is a Float
+    read of a let with capture lines (a capture record names the read) that
+    is no SELECT item: its consumer is not a projection row whose values reach
+    the read's operation through operations other than ANY or a list
+    operation. Derivation and the compiled verifier both ask; the caller
+    checks the MySQL family."""
+    if value_type.resolved_type.name != "Float" or not any(
+        r.address.kind == "capture_use" and r.get("read") == use.address
+        for r in records.values()
+    ):
+        return False
+    consumer = records[use.get("consumer")]
+    if consumer.address.kind != "row" or consumer.get("stage") != "projection":
+        return True
+    # An emitted projection row's values reach its read; the stop at ANY or a
+    # list operation and the final True refuse forged records, untested.
+    pending = list(consumer.get("values"))
+    while pending:
+        item = pending.pop()
+        if item == use.get("operation"):
+            return False
+        if item.kind == "operation" and records[item].get("operator")[0] not in (
+            "exists",
+            "list",
+        ):
+            pending.extend(records[item].get("operands"))
+    return True
+
+
 # The record kinds a Phase77 S06 cell's bundle may hold; any other (a let,
 # parameter, aggregate, window, result, set, block read, ...) is never a cell.
 _FLOAT_CELL_KINDS = frozenset(
@@ -4298,7 +4329,12 @@ def derive_compiled_semantics(root, values, parameters=None):
                 (left.require_realization(), facts[columns[0]].require_realization()),
                 row_option_pair=False,
             )
-            if realized is None or problem is not None:
+            if (
+                realized is None
+                or problem is not None
+                or family == "mysql"
+                and _compiled_float_membership(records, record, left.value_type)
+            ):
                 raise CompiledError("COMPILED_PHYSICAL_DOMAIN")
     retention = tuple(
         (r.address, project_joined_row_filter._SQL_ROW_RETENTION_EFFECTS)
@@ -5778,7 +5814,15 @@ def verify_compiled_semantics(value):
             realization, problem = physical.resolved_membership_realization(
                 family, "Bool", True, pair, row_option_pair=False
             )
-            need(realization is not None and problem is None, "SEMANTIC_DOMAIN")
+            need(
+                realization is not None
+                and problem is None
+                and not (
+                    family == "mysql"
+                    and _compiled_float_membership(records, record, left.value_type)
+                ),
+                "SEMANTIC_DOMAIN",
+            )
     expected_retention = tuple(
         (r.address, project_joined_row_filter._SQL_ROW_RETENTION_EFFECTS)
         for r in records.values()
