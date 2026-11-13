@@ -53,6 +53,13 @@ EXTRAS = {
         "adbc-driver-postgresql==1.13.0",
         "adbc-driver-manager==1.13.0",
     ],
+    # D79.02 and D80.05: each interop extra pins only its target library.
+    "execute-duckdb": ["pyarrow==26.0.1", "duckdb==2.0.0"],
+    "interop-pandas": ["pandas==3.1.1"],
+    "interop-polars": ["polars==2.1.0"],
+    "interop-numpy": ["numpy==2.5.4"],
+    "interop-scipy": ["scipy==1.18.1"],
+    "interop-matplotlib": ["matplotlib==3.11.2"],
 }
 ROUTES = ("execute-postgres", "execute-mysql", "execute-postgres-adbc")
 CORE = {"antlr4-python3-runtime==4.13.2"}
@@ -113,6 +120,12 @@ def test_selections_are_exactly_the_dispatch_extras_and_core_is_unchanged():
             {"name": "adbc-driver-postgresql"},
             {"name": "pyarrow"},
         ],
+        "execute-duckdb": [{"name": "duckdb"}, {"name": "pyarrow"}],
+        "interop-matplotlib": [{"name": "matplotlib"}],
+        "interop-numpy": [{"name": "numpy"}],
+        "interop-pandas": [{"name": "pandas"}],
+        "interop-polars": [{"name": "polars"}],
+        "interop-scipy": [{"name": "scipy"}],
     }
     assert package["metadata"]["provides-extras"] == list(EXTRAS)
     assert {
@@ -121,22 +134,36 @@ def test_selections_are_exactly_the_dispatch_extras_and_core_is_unchanged():
             "adbc-driver-manager",
             "adbc-driver-postgresql",
             "antlr4-python3-runtime",
+            "duckdb",
+            "matplotlib",
             "mysql-connector-python",
+            "numpy",
+            "pandas",
+            "polars",
+            "polars-runtime-32",
             "psycopg",
             "psycopg-binary",
             "pyarrow",
             "ruff",
+            "scipy",
             "typing-extensions",
         )
     } == {
         "adbc-driver-manager": "1.13.0",
         "adbc-driver-postgresql": "1.13.0",
         "antlr4-python3-runtime": "4.13.2",
+        "duckdb": "2.0.0",
+        "matplotlib": "3.11.2",
         "mysql-connector-python": "26.10.0",
+        "numpy": "2.5.4",
+        "pandas": "3.1.1",
+        "polars": "2.1.0",
+        "polars-runtime-32": "2.1.0",
         "psycopg": "3.3.8",
         "psycopg-binary": "3.3.8",
         "pyarrow": "26.0.1",
         "ruff": "0.17.4",
+        "scipy": "1.18.1",
         "typing-extensions": "4.16.0",
     }
     edges = {
@@ -190,6 +217,134 @@ def test_locked_closure_of_each_selection(extras):
         line.strip() for line in result.stdout.splitlines() if line[:1].isalpha()
     }
     assert exported == CLOSURES[extras]
+
+
+INTEROP = tuple(extra for extra in EXTRAS if extra.startswith("interop-"))
+
+
+def test_extra_env_cells_and_allowlists_cover_each_new_extra_pin():
+    assert smoke.INTEROP_EXTRAS == INTEROP
+    assert smoke.EXTRA_CELLS == {
+        "arrow": ("arrow",),
+        "execute-duckdb": ("arrow", "execute-duckdb"),
+        **{extra: ("arrow", extra) for extra in INTEROP},
+    }
+    allowed = smoke._allowlist_blocks()
+    for extra in ("execute-duckdb", *INTEROP):
+        for name, version in _pins(EXTRAS[extra]).items():
+            assert allowed[name][0] == version
+    # polars pins its runtime exactly itself (D80.05).
+    assert allowed["polars-runtime-32"][0] == "2.1.0"
+
+
+def test_extra_env_values_name_one_new_path_per_cell(tmp_path: Path):
+    ready, numpy = tmp_path / "arrow-ready", tmp_path / "numpy"
+    assert smoke._extra_cells([str(ready), f"interop-numpy={numpy}"]) == [
+        ("execute-duckdb", ready),
+        ("interop-numpy", numpy),
+    ]
+    for values in (
+        [str(ready), str(ready)],
+        [str(ready), f"interop-numpy={ready}"],
+        [f"interop-numpy={numpy}", f"interop-numpy={ready}"],
+    ):
+        with pytest.raises(smoke.SmokeFailure, match="its own path"):
+            smoke._extra_cells(values)
+    with pytest.raises(smoke.SmokeFailure, match="new owned path"):
+        smoke._extra_cells([f"interop-numpy={tmp_path}"])
+    for name in ("interop-pandsa", "execute-duckdb", "arrow"):
+        with pytest.raises(smoke.SmokeFailure, match="unknown extra environment cell"):
+            smoke._extra_cells([f"{name}={numpy}"])
+
+
+def _cell_closure(tmp_path, monkeypatch, cell, closure):
+    core = tmp_path / "core-requirements.txt"
+    core.write_text("antlr4-python3-runtime==4.13.2 \\\n    --hash=sha256:" + "0" * 64)
+    commands = []
+
+    def run(stage, command, **kwargs):
+        commands.append(command)
+        stdout = "antlr4-python3-runtime==4.13.2\n" + closure
+        return subprocess.CompletedProcess(command, 0, stdout=stdout.encode())
+
+    monkeypatch.setattr(smoke, "_run_command", run)
+    path = smoke._cell_requirements(tmp_path, cell, core)
+    (command,) = commands
+    assert command[:3] == ("uv", "export", "--locked")
+    selected = [command[i + 1] for i, a in enumerate(command) if a == "--extra"]
+    assert selected == list(smoke.EXTRA_CELLS[cell])
+    return smoke._pins(path.read_text(), "cell")
+
+
+@pytest.mark.parametrize(
+    "cell,closure",
+    (
+        ("execute-duckdb", "duckdb==2.0.0\npyarrow==26.0.1\n"),
+        ("interop-numpy", "numpy==2.5.4\npyarrow==26.0.1\n"),
+    ),
+)
+def test_each_cell_is_pre_seeded_with_only_its_locked_closure(
+    tmp_path, monkeypatch, cell, closure
+):
+    assert _cell_closure(tmp_path, monkeypatch, cell, closure) == smoke._pins(
+        closure, "closure"
+    )
+
+
+@pytest.mark.parametrize(
+    "closure,message",
+    (
+        ("pyarrow==26.0.1\nsix==1.17.0\n", "lacks a hash allowlist entry: six"),
+        ("pyarrow==26.0.1\ntzdata==2026.6\n", "differs from the lock: tzdata"),
+        (
+            "pyarrow==26.0.1\npyarrow==26.0.1 ; sys_platform == 'win32'\n",
+            "duplicate requirement pyarrow",
+        ),
+    ),
+)
+def test_a_cell_closure_outside_the_allowlists_fails_closed(
+    tmp_path, monkeypatch, closure, message
+):
+    with pytest.raises(smoke.SmokeFailure, match=message):
+        _cell_closure(tmp_path, monkeypatch, "interop-pandas", closure)
+
+
+def _qualified_wheel(url: str) -> bool:
+    """Whether CPython 3.12/3.13 on Linux glibc x86-64 may install this wheel."""
+    *_, abi, platforms = url.rsplit("/", 1)[1].removesuffix(".whl").split("-")
+    return abi in {"cp312", "cp313", "abi3", "none"} and any(
+        tag == "any" or re.fullmatch(r"manylinux\w*_x86_64", tag)
+        for tag in platforms.split(".")
+    )
+
+
+@pytest.mark.parametrize("cell", list(smoke.EXTRA_CELLS))
+def test_each_cell_locked_closure_agrees_with_the_allowlists(
+    tmp_path, monkeypatch, cell
+):
+    # The real lock, not a stub: each pre-seeded pin is the locked version, and
+    # every wheel of it that a qualified interpreter may install is allowlisted.
+    for name, value in (
+        ("UV_PYTHON", sys.executable),
+        ("UV_NO_SYNC", "1"),
+        ("UV_OFFLINE", "1"),
+    ):
+        monkeypatch.setenv(name, value)
+    core = tmp_path / "core-requirements.txt"
+    core.write_text("".join(f"{pin}\n" for pin in CORE))
+    path = smoke._cell_requirements(tmp_path, cell, core)
+    lock = tomllib.loads((REPO_ROOT / "uv.lock").read_text())
+    packages = {p["name"]: p for p in lock["package"]}
+    allowed = smoke._allowlist_blocks()
+    for name, version in smoke._pins(path.read_text(), "cell").items():
+        assert packages[name]["version"] == version
+        wheels = {
+            wheel["hash"].removeprefix("sha256:")
+            for wheel in packages[name]["wheels"]
+            if _qualified_wheel(wheel["url"])
+        }
+        hashes = set(re.findall(r"sha256:([0-9a-f]{64})", allowed[name][1]))
+        assert wheels and wheels <= hashes, name
 
 
 @pytest.mark.parametrize(

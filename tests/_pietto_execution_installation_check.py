@@ -70,9 +70,27 @@ REQUIRES = frozenset(
         ("pyarrow", (), "==26.0.1", "execute-postgres-adbc"),
         ("adbc-driver-postgresql", (), "==1.13.0", "execute-postgres-adbc"),
         ("adbc-driver-manager", (), "==1.13.0", "execute-postgres-adbc"),
+        ("pyarrow", (), "==26.0.1", "execute-duckdb"),
+        ("duckdb", (), "==2.0.0", "execute-duckdb"),
+        ("pandas", (), "==3.1.1", "interop-pandas"),
+        ("polars", (), "==2.1.0", "interop-polars"),
+        ("numpy", (), "==2.5.4", "interop-numpy"),
+        ("scipy", (), "==1.18.1", "interop-scipy"),
+        ("matplotlib", (), "==3.11.2", "interop-matplotlib"),
     }
 )
-PROVIDES = ("arrow", "execute-postgres", "execute-mysql", "execute-postgres-adbc")
+PROVIDES = (
+    "arrow",
+    "execute-postgres",
+    "execute-mysql",
+    "execute-postgres-adbc",
+    "execute-duckdb",
+    "interop-pandas",
+    "interop-polars",
+    "interop-numpy",
+    "interop-scipy",
+    "interop-matplotlib",
+)
 ROUTES = ("postgres_rows", "postgres_adbc", "mysql_rows")
 ROUTE_SELECTION = {
     "postgres_rows": "execute-postgres",

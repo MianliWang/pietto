@@ -663,7 +663,18 @@ def origin_observation() -> dict[str, Any]:
         or url.netloc
         or distribution.version != "0.1.12"
         or sorted(distribution.metadata.get_all("Provides-Extra") or ())
-        != ["arrow", "execute-mysql", "execute-postgres", "execute-postgres-adbc"]
+        != [
+            "arrow",
+            "execute-duckdb",
+            "execute-mysql",
+            "execute-postgres",
+            "execute-postgres-adbc",
+            "interop-matplotlib",
+            "interop-numpy",
+            "interop-pandas",
+            "interop-polars",
+            "interop-scipy",
+        ]
     ):
         raise ValueError("candidate distribution identity")
     wheel = Path(urllib.parse.unquote(url.path)).resolve()

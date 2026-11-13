@@ -97,6 +97,42 @@ PROJECT_EMIT_ARGUMENTS = (
     "contract.json",
 )
 
+# The extras of each installed cell. A bare --extra-env path is the arrow-ready
+# cell, which carries the pinned DuckDB (D79.07); `interop-X=PATH` builds
+# pietto[arrow,interop-X] (D80.05). Each cell is pre-seeded with only the
+# allowlist blocks of its own locked closure.
+INTEROP_EXTRAS = (
+    "interop-pandas",
+    "interop-polars",
+    "interop-numpy",
+    "interop-scipy",
+    "interop-matplotlib",
+)
+EXTRA_CELLS = {
+    "arrow": ("arrow",),
+    "execute-duckdb": ("arrow", "execute-duckdb"),
+    **{extra: ("arrow", extra) for extra in INTEROP_EXTRAS},
+}
+ALLOWLISTS = (
+    Path("ci/phase67-arrow-compatibility-requirements.txt"),
+    Path("ci/phase80-interop-requirements.txt"),
+)
+# Optional distributions' import roots that no public, CLI or private import
+# may load.
+OPTIONAL_ROOTS = frozenset(
+    {
+        "psycopg",
+        "psycopg_binary",
+        "pyarrow",
+        "duckdb",
+        "pandas",
+        "polars",
+        "numpy",
+        "scipy",
+        "matplotlib",
+    }
+)
+
 GENERATED_FILES = frozenset(
     {
         "Pietto.interp",
@@ -1387,10 +1423,7 @@ def _installed_check(wheel: Path, extra: str) -> None:
     importlib.import_module("pietto")
     cli = importlib.import_module("pietto.cli")
     importlib.import_module("pietto.execution")
-    if any(
-        name.split(".", 1)[0] in {"psycopg", "psycopg_binary", "pyarrow"}
-        for name in sys.modules
-    ):
+    if any(name.split(".", 1)[0] in OPTIONAL_ROOTS for name in sys.modules):
         raise SmokeFailure("public execution import eagerly loaded a route dependency")
     for arguments in (
         ("--version",),
@@ -1411,6 +1444,10 @@ def _installed_check(wheel: Path, extra: str) -> None:
             importlib.import_module(member[:-3].replace("/", "."))
     if any(name == "pyarrow" or name.startswith("pyarrow.") for name in sys.modules):
         raise SmokeFailure("public/CLI/private import eagerly loaded PyArrow")
+    if any(name.split(".", 1)[0] in OPTIONAL_ROOTS for name in sys.modules):
+        raise SmokeFailure(
+            "public/CLI/private import eagerly loaded an optional target"
+        )
     for name, module in tuple(sys.modules.items()):
         if name == "pietto" or name.startswith("pietto."):
             _installed_path(Path(module.__file__))
@@ -1452,6 +1489,25 @@ def _installed_check(wheel: Path, extra: str) -> None:
             "version": pa.__version__,
             "path": str(_installed_path(Path(pa.__file__))),
         }
+        for requirement in distribution.requires or ():
+            name, _, _, version, selected = _dependency(requirement)
+            if selected not in EXTRA_CELLS[extra] or name == "pyarrow":
+                continue
+            try:
+                target = importlib.metadata.distribution(name)
+            except importlib.metadata.PackageNotFoundError as error:
+                raise SmokeFailure(f"installed {name} is missing") from error
+            metadata = [
+                file
+                for file in target.files or ()
+                if file.name == "METADATA" and file.parent.name.endswith(".dist-info")
+            ]
+            if target.version != version or len(metadata) != 1:
+                raise SmokeFailure(f"installed {name} pin differs")
+            dependencies[name] = {
+                "version": target.version,
+                "path": str(_installed_path(Path(target.locate_file(metadata[0])))),
+            }
     print(
         json.dumps(
             {
@@ -1491,7 +1547,85 @@ def _check_installed_cell(
     print(result.stdout.decode(), end="", flush=True)
 
 
-def _install_extra(venv_dir: Path, scratch_dir: Path, wheel: Path) -> None:
+def _pins(text: str, source: str) -> dict[str, str]:
+    """Name -> version of each `name==version` requirement line."""
+    pins: dict[str, str] = {}
+    for line in text.splitlines():
+        if not line[:1].isalnum():
+            continue
+        found = re.match(r"([A-Za-z0-9][A-Za-z0-9._-]*)==([^\s;\\]+)", line)
+        if found is None:
+            raise SmokeFailure(f"unsupported requirement line in {source}")
+        name = re.sub(r"[-_.]+", "-", found[1]).lower()
+        if name in pins:
+            raise SmokeFailure(f"duplicate requirement {name} in {source}")
+        pins[name] = found[2]
+    return pins
+
+
+def _allowlist_blocks() -> dict[str, tuple[str, str]]:
+    """Name -> (version, hashed requirement block) across every allowlist."""
+    blocks: dict[str, tuple[str, str]] = {}
+    for relative in ALLOWLISTS:
+        source = relative.as_posix()
+        text = (REPO_ROOT / relative).read_text(encoding="utf-8")
+        for block in re.split(r"\n(?=[^\s#])", text):
+            lines = [
+                line
+                for line in block.splitlines()
+                if line.strip() and not line.startswith("#")
+            ]
+            if not lines:
+                continue
+            pins = _pins(lines[0], source)
+            if (
+                len(pins) != 1
+                or not set(pins).isdisjoint(blocks)
+                or len(lines) == 1
+                or not all(
+                    re.fullmatch(r"\s+--hash=sha256:[0-9a-f]{64}( \\)?", line)
+                    for line in lines[1:]
+                )
+            ):
+                raise SmokeFailure(f"malformed hash allowlist {source}")
+            ((name, version),) = pins.items()
+            blocks[name] = (version, "\n".join(lines))
+    return blocks
+
+
+def _cell_requirements(scratch_dir: Path, cell: str, core: Path) -> Path:
+    """Write the allowlist blocks of exactly this cell's locked closure."""
+    command = ["uv", "export", "--locked", "--no-dev", "--no-emit-project"]
+    for extra in EXTRA_CELLS[cell]:
+        command += ["--extra", extra]
+    closure = _run_command(
+        f"export locked {cell} closure",
+        (*command, "--no-header", "--no-hashes", "--format", "requirements-txt"),
+        cwd=REPO_ROOT,
+        capture_output=True,
+        env=_clean_environment(),
+    ).stdout.decode()
+    selected = _pins(closure, "locked closure")
+    for name in _pins(core.read_text(encoding="utf-8"), "locked core"):
+        selected.pop(name, None)
+    allowed = _allowlist_blocks()
+    blocks = []
+    for name, version in sorted(selected.items()):
+        if name not in allowed:
+            raise SmokeFailure(f"{cell} closure lacks a hash allowlist entry: {name}")
+        if allowed[name][0] != version:
+            raise SmokeFailure(
+                f"{cell} allowlist version differs from the lock: {name}"
+            )
+        blocks.append(allowed[name][1])
+    path = scratch_dir / f"{cell}-requirements.txt"
+    path.write_text("\n".join(blocks) + "\n", encoding="utf-8")
+    return path
+
+
+def _install_extra(
+    venv_dir: Path, scratch_dir: Path, wheel: Path, cell: str = "arrow"
+) -> None:
     if venv_dir.exists() or venv_dir.is_symlink():
         raise SmokeFailure("extra environment must begin at a new owned path")
     _run_command(
@@ -1507,6 +1641,7 @@ def _install_extra(venv_dir: Path, scratch_dir: Path, wheel: Path) -> None:
         cwd=REPO_ROOT,
         env=_clean_environment(),
     )
+    selected = _cell_requirements(scratch_dir, cell, core)
     # Hash verification pre-seeds dependencies; the wheel extra resolves them below.
     _run_command(
         "verify tested dependency wheels",
@@ -1523,13 +1658,13 @@ def _install_extra(venv_dir: Path, scratch_dir: Path, wheel: Path) -> None:
             "-r",
             str(core),
             "-r",
-            str(REPO_ROOT / "ci/phase67-arrow-compatibility-requirements.txt"),
+            str(selected),
         ),
         cwd=scratch_dir,
         env=_clean_environment(),
     )
     _run_command(
-        "install candidate arrow extra",
+        f"install candidate {cell} extras",
         (
             "uv",
             "pip",
@@ -1537,11 +1672,29 @@ def _install_extra(venv_dir: Path, scratch_dir: Path, wheel: Path) -> None:
             "--python",
             str(_venv_python(venv_dir)),
             "--no-index",
-            f"{wheel}[arrow]",
+            f"{wheel}[{','.join(EXTRA_CELLS[cell])}]",
         ),
         cwd=scratch_dir,
         env=_clean_environment(),
     )
+
+
+def _extra_cells(values: list[str]) -> list[tuple[str, Path]]:
+    """The arrow-ready cell of a bare path and each `interop-X=PATH` cell, each
+    once and at its own new owned path; any other `name=` value is refused."""
+    cells: dict[str, Path] = {}
+    for value in values:
+        name, separator, path = value.partition("=")
+        if separator and name not in INTEROP_EXTRAS:
+            raise SmokeFailure(f"unknown extra environment cell {name!r}")
+        cell = name if separator else "execute-duckdb"
+        prefix = Path(path if separator else value).absolute()
+        if cell in cells or prefix in cells.values():
+            raise SmokeFailure("each extra environment cell needs its own path")
+        if prefix.exists() or prefix.is_symlink():
+            raise SmokeFailure("extra environment must begin at a new owned path")
+        cells[cell] = prefix
+    return list(cells.items())
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -1549,8 +1702,10 @@ def main(argv: list[str] | None = None) -> int:
 
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--dist-dir", type=Path)
-    parser.add_argument("--extra-env", type=Path)
-    parser.add_argument("--installed-check", choices=("core", "arrow"))
+    parser.add_argument(
+        "--extra-env", action="append", default=[], metavar="[interop-X=]PATH"
+    )
+    parser.add_argument("--installed-check", choices=("core", *EXTRA_CELLS))
     parser.add_argument("--wheel", type=Path)
     args = parser.parse_args(argv)
     try:
@@ -1559,12 +1714,11 @@ def main(argv: list[str] | None = None) -> int:
                 parser.error("--installed-check requires --wheel")
             _installed_check(args.wheel, args.installed_check)
             return 0
-        for path, name in (
-            (args.extra_env, "extra environment"),
-            (args.dist_dir, "dist directory"),
+        cells = _extra_cells(args.extra_env)
+        if args.dist_dir is not None and (
+            args.dist_dir.exists() or args.dist_dir.is_symlink()
         ):
-            if path is not None and (path.exists() or path.is_symlink()):
-                raise SmokeFailure(f"{name} must begin at a new owned path")
+            raise SmokeFailure("dist directory must begin at a new owned path")
         contract = _project_contract()
         with tempfile.TemporaryDirectory(prefix="pietto-package-smoke-") as temporary:
             temporary_root = Path(temporary)
@@ -1617,13 +1771,12 @@ def main(argv: list[str] | None = None) -> int:
             )
             _smoke_installed_cli(venv_dir, scratch_dir, contract)
             _check_installed_cell(venv_dir, scratch_dir, wheel, "core")
-            if args.extra_env is not None:
-                extra_dir = args.extra_env.absolute()
-                extra_scratch = temporary_root / "extra-scratch"
+            for cell, extra_dir in cells:
+                extra_scratch = temporary_root / f"{cell}-scratch"
                 extra_scratch.mkdir()
-                _install_extra(extra_dir, extra_scratch, wheel)
+                _install_extra(extra_dir, extra_scratch, wheel, cell)
                 _smoke_installed_cli(extra_dir, extra_scratch, contract)
-                _check_installed_cell(extra_dir, extra_scratch, wheel, "arrow")
+                _check_installed_cell(extra_dir, extra_scratch, wheel, cell)
     except SmokeFailure as error:
         print(f"[package-smoke] error: {error}", file=sys.stderr)
         return error.exit_code

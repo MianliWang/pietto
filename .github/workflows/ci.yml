@@ -50,7 +50,13 @@ jobs:
         run: uv run python scripts/check_goldens.py
       - name: Smoke test installed package
         run: |
-          uv run python scripts/package_smoke.py --dist-dir "$RUNNER_TEMP/result-dist" --extra-env "$RUNNER_TEMP/arrow-ready"
+          uv run python scripts/package_smoke.py --dist-dir "$RUNNER_TEMP/result-dist" \
+            --extra-env "$RUNNER_TEMP/arrow-ready" \
+            --extra-env "interop-pandas=$RUNNER_TEMP/interop-pandas" \
+            --extra-env "interop-polars=$RUNNER_TEMP/interop-polars" \
+            --extra-env "interop-numpy=$RUNNER_TEMP/interop-numpy" \
+            --extra-env "interop-scipy=$RUNNER_TEMP/interop-scipy" \
+            --extra-env "interop-matplotlib=$RUNNER_TEMP/interop-matplotlib"
       - name: Run real isolated Arrow readiness consumer
         run: |
           "$RUNNER_TEMP/arrow-ready/bin/python" -I tests/_pietto_results_arrow_compatibility.py --report "$RUNNER_TEMP/arrow-reports/arrow-readiness-$GITHUB_RUN_ID-$GITHUB_RUN_ATTEMPT-3.12.json"
@@ -422,7 +428,13 @@ jobs:
         run: uv run python scripts/check_goldens.py
       - name: Smoke test installed package
         run: |
-          uv run python scripts/package_smoke.py --dist-dir "$RUNNER_TEMP/result-dist" --extra-env "$RUNNER_TEMP/arrow-ready"
+          uv run python scripts/package_smoke.py --dist-dir "$RUNNER_TEMP/result-dist" \
+            --extra-env "$RUNNER_TEMP/arrow-ready" \
+            --extra-env "interop-pandas=$RUNNER_TEMP/interop-pandas" \
+            --extra-env "interop-polars=$RUNNER_TEMP/interop-polars" \
+            --extra-env "interop-numpy=$RUNNER_TEMP/interop-numpy" \
+            --extra-env "interop-scipy=$RUNNER_TEMP/interop-scipy" \
+            --extra-env "interop-matplotlib=$RUNNER_TEMP/interop-matplotlib"
       - name: Run real isolated Arrow readiness consumer
         run: |
           "$RUNNER_TEMP/arrow-ready/bin/python" -I tests/_pietto_results_arrow_compatibility.py --report "$RUNNER_TEMP/arrow-reports/arrow-readiness-$GITHUB_RUN_ID-$GITHUB_RUN_ATTEMPT-3.13.json"

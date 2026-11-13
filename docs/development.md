@@ -728,7 +728,10 @@ HOLD 则给出 focused continuation 或 consolidated decision sheet。执行代�
 `pyarrow==26.0.1`（已发布 `0.1.10` 为 `26.0.0`），默认 locked setup 与既有core `.venv` 保持Arrow-free。
 两compiler/package jobs由 `scripts/package_smoke.py --dist-dir ... --extra-env ...`
 各构建一个wheel/sdist，先在全新core环境验证无PyArrow、lazy imports、真实缺依赖
-拒绝及原CLI/SQL，再在另一个全新prefix以候选wheel的 `[arrow]` 安装。hash-pinned
+拒绝及原CLI/SQL，再在另一个全新prefix以候选wheel的 `[arrow,execute-duckdb]` 安装
+（D79.07；裸 `--extra-env PATH` 即该arrow-ready单元），每个 `--extra-env interop-X=PATH`
+另在全新prefix安装 `[arrow,interop-X]`（D80.05）；各单元只按自身locked closure取
+`ci/` 哈希允许清单中的块预装。hash-pinned
 requirements仅预置并校验tested dependencies，随后wheel extra完整解析，不使用 `--no-deps`
 绕过selector。独立SDK9、product102/100及原22份neutral全文仍走既有required reports。
 

@@ -50,6 +50,25 @@ execute-postgres-adbc = [
     "adbc-driver-postgresql==1.13.0",
     "adbc-driver-manager==1.13.0",
 ]
+execute-duckdb = [
+    "pyarrow==26.0.1",
+    "duckdb==2.0.0",
+]
+interop-pandas = [
+    "pandas==3.1.1",
+]
+interop-polars = [
+    "polars==2.1.0",
+]
+interop-numpy = [
+    "numpy==2.5.4",
+]
+interop-scipy = [
+    "scipy==1.18.1",
+]
+interop-matplotlib = [
+    "matplotlib==3.11.2",
+]
 
 [project.scripts]
 pietto = "pietto.cli:main"
