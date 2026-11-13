@@ -2231,11 +2231,14 @@ def _aggregate_result_realization(family, function, argument, retained):
     tag, nullable = retained
     if function in grouping.ORDERED_VALUE_FUNCTIONS:
         # One row's value as it is: the argument's carrier, NULL where that
-        # value is or, without GROUP BY, for an empty input.
+        # value is or, without GROUP BY, for an empty input; on MySQL only a
+        # carrier the S13 qualification kept (`ranked_value`).
         carrier = None if argument is None else argument.realization
         if (
-            family != "postgres"
+            family not in {"postgres", "mysql"}
             or carrier is None
+            or family == "mysql"
+            and not grouping.ranked_value(carrier)
             or tag != carrier.tag
             or nullable not in {True, False}
             or (carrier.nullable is not False and nullable is not True)
@@ -2539,6 +2542,13 @@ def _verify_aggregate_body(
             raise ValueError("group determinant")
         state["nodes"] += 1
         state["symbols"].append(column.symbol)
+    # A MySQL `first` or `last` only in the S13 statement and carrier classes,
+    # derived again from the plan and this verifier's own stage columns.
+    ranked = (
+        request.family == "mysql"
+        and grouping.ranked_statement(request.plan)
+        and grouping.ranked_inputs(request.plan, columns, keys, values, reference_type)
+    )
     for offset, (value, column) in enumerate(zip(values, realized.values, strict=True)):
         index = len(keys) + offset
         export = ports.get(block.exports[index])
@@ -2642,6 +2652,7 @@ def _verify_aggregate_body(
                     cell=request.family == "mysql"
                     and function in grouping.SPREAD_FUNCTIONS
                     and grouping.mysql_spread_cell(request.plan, value, argument),
+                    ranked=ranked,
                 )
             ) is not None:
                 raise ValueError("aggregate argument outside its admitted domain")
@@ -8175,6 +8186,10 @@ def verify_row_bytes(query, rendered):
         def select(body):
             scan = body.scan
             alias = scan.symbol.name
+            ranked = grouping.ranked_body(request.family, body.aggregation)
+            ranks = dict(grouping.ranked_layout(body.aggregation)[1]) if ranked else {}
+            if ranked and len(ranks) != len(body.aggregation.values):
+                raise ValueError("ranked aggregation beside another aggregate")
             take("syntax", "select", body.block.ref, "SELECT ")
             for position, column in enumerate(body.columns):
                 if position:
@@ -8231,7 +8246,10 @@ def verify_row_bytes(query, rendered):
                         identifier=True,
                     )
                 elif type(column) is grouping.AggregateValueColumn:
-                    aggregate_value(column, alias)
+                    if ranked:
+                        ranked_value(column, alias, ranks[column])
+                    else:
+                        aggregate_value(column, alias)
                 elif type(column) is windowing.WindowColumn:
                     window_value(column, alias)
                 else:
@@ -8244,6 +8262,15 @@ def verify_row_bytes(query, rendered):
                     column.label,
                     identifier=True,
                 )
+            if ranked:
+                reference = body.aggregation.aggregation.ref
+                take("syntax", "from", reference, " FROM ")
+                ranked_rows(body, alias, ranks)
+            else:
+                scan_from(scan, alias)
+            select_tail(body, alias)
+
+        def scan_from(scan, alias):
             if type(scan) is RowScan:
                 take("syntax", "from", scan.source.ref, " FROM ")
                 take(
@@ -8312,6 +8339,8 @@ def verify_row_bytes(query, rendered):
                 take(
                     "identifier", "stage_scope", scan.block.ref, alias, identifier=True
                 )
+
+        def select_tail(body, alias):
             # One lateral per nested column, in column order, right after FROM.
             laterals = tuple(
                 c.lateral for c in body.columns if type(c) is nested.CollectColumn
@@ -8387,6 +8416,102 @@ def verify_row_bytes(query, rendered):
                     " WHERE ",
                 )
                 scalar(body.predicate.value, alias)
+
+        def ranked_value(column, alias, rank):
+            # A MySQL `first` or `last` (Phase77 S13): MAX(CASE WHEN the
+            # row's own ROW_NUMBER is 1 THEN its value END).
+            reference = column.aggregate.ref
+            start = offset
+            if (
+                column.function not in grouping.ORDERED_VALUE_FUNCTIONS
+                or column.spelling != "MAX"
+                or column.distinct
+                or column.argument_cast is not None
+                or column.result_cast is not None
+                or column.delimiter is not None
+                or column.extra_arguments
+                or not column.order_by
+            ):
+                raise ValueError("ranked aggregate rendering")
+            take("syntax", "aggregate_open", reference, "MAX(")
+            take("syntax", "aggregate_rank_open", reference, "CASE WHEN ")
+            take("identifier", "rank_scope", reference, alias, identifier=True)
+            take("syntax", "aggregate_rank_qualifier", reference, ".")
+            take("identifier", "rank_column", reference, rank, identifier=True)
+            take("syntax", "aggregate_rank_then", reference, " = 1 THEN ")
+            scalar(column.argument, alias)
+            take("syntax", "aggregate_rank_close", reference, " END")
+            take("syntax", "aggregate_close", reference, ")")
+            spans.append(("aggregate", reference, start, offset))
+
+        def ranked_rows(body, alias, ranks):
+            # Its derived table: each read column once, keys first, then one
+            # ROW_NUMBER per `first` or `last` in its own order, `last` in
+            # the reversed one, over the body's own scan.
+            stage = body.aggregation
+            reference = stage.aggregation.ref
+            listed, layout = grouping.ranked_layout(stage)
+            if dict(layout) != ranks:
+                raise ValueError("ranked layout")
+            take("syntax", "rank_open", reference, "(SELECT ")
+            for position, read in enumerate(listed):
+                if position:
+                    take("syntax", "rank_separator", reference, ", ")
+                take(
+                    "identifier", "rank_carry_scope", reference, alias, identifier=True
+                )
+                take("syntax", "rank_carry_qualifier", reference, ".")
+                take(
+                    "identifier",
+                    "rank_carry_column",
+                    read.terminal,
+                    read.name,
+                    identifier=True,
+                )
+            for column, name in layout:
+                subject = column.aggregate.ref
+                take("syntax", "rank_separator", subject, ", ")
+                take("syntax", "aggregate_rank_window", subject, "ROW_NUMBER() OVER (")
+                if stage.keys:
+                    take("syntax", "aggregate_rank_partition", subject, "PARTITION BY ")
+                    for position, key in enumerate(stage.keys):
+                        if position:
+                            take("syntax", "aggregate_rank_separator", subject, ", ")
+                        take(
+                            "identifier",
+                            "rank_partition_scope",
+                            subject,
+                            alias,
+                            identifier=True,
+                        )
+                        take(
+                            "syntax",
+                            "aggregate_rank_partition_qualifier",
+                            subject,
+                            ".",
+                        )
+                        take(
+                            "identifier",
+                            "rank_partition_column",
+                            key.read.terminal,
+                            key.read.name,
+                            identifier=True,
+                        )
+                    take("syntax", "aggregate_rank_spec_separator", subject, " ")
+                take("syntax", "aggregate_rank_order", subject, "ORDER BY ")
+                for position, item in enumerate(column.order_by):
+                    if position:
+                        take("syntax", "aggregate_rank_separator", subject, ", ")
+                    scalar(item.value, alias)
+                    text, role = grouping.rendered_direction(
+                        column.function, item.direction
+                    )
+                    take("syntax", role, subject, text)
+                take("syntax", "aggregate_rank_alias", subject, ") AS ")
+                take("identifier", "rank_label", subject, name, identifier=True)
+            scan_from(body.scan, alias)
+            take("syntax", "rank_close", reference, ") AS ")
+            take("identifier", "rank_scope", reference, alias, identifier=True)
 
         def aggregate_value(column, alias):
             reference = column.aggregate.ref

@@ -504,6 +504,37 @@ before `aggregate_open` (`ARRAY_AGG(`) and `aggregate_element_close` (`)[1]`) af
 and of a `last` `aggregate_order_reversed_direction`, whose text is the reverse of
 the authored direction. Its R13 `aggregate` requirement carries no evidence.
 
+A MySQL `first` or `last` aggregate column, emitted only in the forms that
+[Aggregates](../language.md#aggregates-and-grouping) lists
+([unreleased](../release-notes.d/77-s13-mysql-first-and-last.md)), has the
+`spelling` `MAX`, no `argument_cast` or `result_cast`, no `delimiter` and its
+internal order in `order_by` with each authored direction. It is written
+`MAX(CASE WHEN t.r1 = 1 THEN t.x END)` over a derived table `(SELECT t.x, ...,
+ROW_NUMBER() OVER (PARTITION BY t.key ORDER BY t.k ASC, ...) AS r1, ... FROM
+...) AS t`, which carries each column the aggregation reads once and numbers
+the rows with one `ROW_NUMBER` per `first` or `last`, without `PARTITION BY`
+when there is no GROUP BY; a `last` writes every direction flipped. Its
+logical type and representation are the argument's, and `nullable` is true.
+Instead of `aggregate_element_open`, `aggregate_element_close`,
+`aggregate_order` and `aggregate_order_separator`, its additive `ranges`
+roles are, inside `aggregate_open` (`MAX(`) and `aggregate_close`, the
+`syntax` roles `aggregate_rank_open` (`CASE WHEN `),
+`aggregate_rank_qualifier` (`.`), `aggregate_rank_then` (` = 1 THEN `) and
+`aggregate_rank_close` (` END`) with the `identifier` roles `rank_scope` and
+`rank_column`; for the derived table the `syntax` roles `rank_open`
+(`(SELECT `), `rank_separator` (`, `), `rank_carry_qualifier` (`.`) and
+`rank_close` (`) AS `) with the `identifier` roles `rank_carry_scope`,
+`rank_carry_column` and `rank_scope`; and for each `ROW_NUMBER` the `syntax`
+roles `aggregate_rank_window` (`ROW_NUMBER() OVER (`),
+`aggregate_rank_partition` (`PARTITION BY `),
+`aggregate_rank_partition_qualifier` (`.`), `aggregate_rank_spec_separator`
+(` `, after the partition), `aggregate_rank_order` (`ORDER BY `),
+`aggregate_rank_separator` (`, `, between keys) and `aggregate_rank_alias`
+(`) AS `) with the `identifier` roles `rank_partition_scope`,
+`rank_partition_column` and `rank_label`. Each key direction is
+`aggregate_order_direction` or `aggregate_order_reversed_direction`, as on
+PostgreSQL. Its R13 `aggregate` requirement carries no evidence.
+
 A PostgreSQL conditional count or sum of a group has the aggregate column
 `function` `filtered_count` or `filtered_sum` and the `spelling` `COUNT` or
 `SUM`. A conditional count keeps its Bool test in `argument` and has no

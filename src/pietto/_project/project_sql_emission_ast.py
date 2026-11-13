@@ -2097,6 +2097,8 @@ def realize_rows(request):
     blocks_by_definition = {
         definition.original.ref: (definition, blocks) for definition, blocks in groups
     }
+    # Phase77 S13: a MySQL `first` or `last` only in its qualified statement.
+    ranked = family == "mysql" and grouping.ranked_statement(plan)
     producers = {use.ref: use.producer for use in plan.expression_block_uses}
 
     def stage_roots(definition, blocks):
@@ -2374,6 +2376,7 @@ def realize_rows(request):
                     uses,
                     reference_type=reference_type,
                     symbol=SQLSymbol,
+                    ranked=ranked,
                 )
                 if built is None:
                     assert refused

@@ -2800,6 +2800,15 @@ def _compiled_float_cell(records, address):
     return cell
 
 
+def _ranked_values(records, entry, family):
+    """The `first` and `last` of the one MySQL aggregate that compiled replay
+    finds in the S13 statement class (`ranked_records`), by address."""
+    from pietto._project import project_sql_emission_aggregation as grouping
+
+    aggregate = None if family != "mysql" else grouping.ranked_records(records, entry)
+    return frozenset(() if aggregate is None else records[aggregate].get("values"))
+
+
 def _ordered_value_type(records, record, typed):
     """The result type of one compiled aggregate value: a `first` or `last` of
     an aggregation without GROUP BY may read an empty input, which gives None;
@@ -2880,6 +2889,7 @@ def derive_compiled_semantics(root, values, parameters=None):
         records, records[root.description.query]
     ):
         raise CompiledError("COMPILED_PHYSICAL_DOMAIN")
+    ranked = _ranked_values(records, records[root.description.query], family)
     if len(values) != len(slots):
         raise CompiledError("COMPILED_BINDING_SLOTS")
     replacements = {}
@@ -3297,6 +3307,7 @@ def derive_compiled_semantics(root, values, parameters=None):
                                 argument.realization,
                                 family,
                                 cell=ref == spread_cell,
+                                ranked=record.address in ranked,
                             )
                             is not None
                         )
@@ -4267,6 +4278,7 @@ def verify_compiled_semantics(value):
         ),
         "SEMANTIC_DOMAIN",
     )
+    ranked = _ranked_values(records, records[value.root.description.query], family)
     slots = tuple(r for r in records.values() if r.address.kind == "slot")
     need(
         type(value.values) is tuple and len(slots) == len(value.values),
@@ -4713,6 +4725,7 @@ def verify_compiled_semantics(value):
                             argument.realization,
                             family,
                             cell=current == spread_cell,
+                            ranked=record.address in ranked,
                         )
                         is None,
                         "SEMANTIC_AGGREGATE_ARGUMENT",

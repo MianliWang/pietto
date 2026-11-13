@@ -30,6 +30,8 @@ from pietto._project.project_sql_emission_aggregation import (
     AggregateKeyColumn,
     AggregateProjectionColumn,
     AggregateValueColumn,
+    ranked_body,
+    ranked_layout,
     rendered_direction,
     rooted,
 )
@@ -1140,6 +1142,64 @@ class _Writer:
         )
 
 
+def _ranked_value(w: _Writer, column, alias, rank) -> None:
+    """A MySQL `first` or `last` (Phase77 S13): the value of the one row its
+    ROW_NUMBER `rank` numbers 1, MAX(CASE WHEN <rank> = 1 THEN x END)."""
+    reference = column.aggregate.ref
+    start = w.offset
+    w.emit(column.spelling + "(", "syntax", "aggregate_open", reference)
+    w.emit("CASE WHEN ", "syntax", "aggregate_rank_open", reference)
+    w.identifier(alias, "rank_scope", reference)
+    w.emit(".", "syntax", "aggregate_rank_qualifier", reference)
+    w.identifier(rank, "rank_column", reference)
+    w.emit(" = 1 THEN ", "syntax", "aggregate_rank_then", reference)
+    w.scalar(column.argument, alias)
+    w.emit(" END", "syntax", "aggregate_rank_close", reference)
+    w.emit(")", "syntax", "aggregate_close", reference)
+    w.enclose("aggregate", reference, start)
+
+
+def _ranked_rows(w: _Writer, body, alias) -> None:
+    """MySQL's ranked derived table (Phase77 S13): the columns the aggregation
+    reads, then one ROW_NUMBER per `first` or `last` over its group's rows in
+    its own order, `last` in the reversed one, over the body's own scan."""
+    stage = body.aggregation
+    reference = stage.aggregation.ref
+    listed, ranks = ranked_layout(stage)
+    w.emit("(SELECT ", "syntax", "rank_open", reference)
+    for position, read in enumerate(listed):
+        if position:
+            w.emit(", ", "syntax", "rank_separator", reference)
+        w.identifier(alias, "rank_carry_scope", reference)
+        w.emit(".", "syntax", "rank_carry_qualifier", reference)
+        w.identifier(read.name, "rank_carry_column", read.terminal)
+    for column, name in ranks:
+        subject = column.aggregate.ref
+        w.emit(", ", "syntax", "rank_separator", subject)
+        w.emit("ROW_NUMBER() OVER (", "syntax", "aggregate_rank_window", subject)
+        if stage.keys:
+            w.emit("PARTITION BY ", "syntax", "aggregate_rank_partition", subject)
+            for position, key in enumerate(stage.keys):
+                if position:
+                    w.emit(", ", "syntax", "aggregate_rank_separator", subject)
+                w.identifier(alias, "rank_partition_scope", subject)
+                w.emit(".", "syntax", "aggregate_rank_partition_qualifier", subject)
+                w.identifier(key.read.name, "rank_partition_column", key.read.terminal)
+            w.emit(" ", "syntax", "aggregate_rank_spec_separator", subject)
+        w.emit("ORDER BY ", "syntax", "aggregate_rank_order", subject)
+        for position, item in enumerate(column.order_by):
+            if position:
+                w.emit(", ", "syntax", "aggregate_rank_separator", subject)
+            w.scalar(item.value, alias)
+            text, role = rendered_direction(column.function, item.direction)
+            w.emit(text, "syntax", role, subject)
+        w.emit(") AS ", "syntax", "aggregate_rank_alias", subject)
+        w.identifier(name, "rank_label", subject)
+    _scan_from(w, body.scan, alias)
+    w.emit(") AS ", "syntax", "rank_close", reference)
+    w.identifier(alias, "rank_scope", reference)
+
+
 def _aggregate_value(w: _Writer, column, alias) -> None:
     """One aggregate occurrence: its own spelling over its own exact argument."""
     reference = column.aggregate.ref
@@ -1428,6 +1488,8 @@ def _row_select(w: _Writer, body) -> None:
     """One stage body: its columns, its scan, its grouping and its filter."""
     scan = body.scan
     alias = scan.symbol.name
+    ranked = ranked_body(w.request.family, body.aggregation)
+    ranks = dict(ranked_layout(body.aggregation)[1]) if ranked else {}
     w.emit("SELECT ", "syntax", "select", body.block.ref)
     for position, column in enumerate(body.columns):
         if position:
@@ -1459,7 +1521,10 @@ def _row_select(w: _Writer, body) -> None:
             w.emit(".", "syntax", "result_qualifier", column.export.ref)
             w.identifier(column.read.name, "result_column", column.read.terminal)
         elif type(column) is AggregateValueColumn:
-            _aggregate_value(w, column, alias)
+            if column in ranks:
+                _ranked_value(w, column, alias, ranks[column])
+            else:
+                _aggregate_value(w, column, alias)
         elif type(column) is windowing.WindowColumn:
             _window_value(w, column, alias)
         elif type(column) is windowing.WindowProjectionColumn:
@@ -1470,6 +1535,18 @@ def _row_select(w: _Writer, body) -> None:
             w.scalar(column.value, alias)
         w.emit(" AS ", "syntax", "alias", column.export.ref)
         w.identifier(column.label, "label", column.export.ref)
+    if ranked:
+        w.emit(" FROM ", "syntax", "from", body.aggregation.aggregation.ref)
+        _ranked_rows(w, body, alias)
+    else:
+        _scan_from(w, scan, alias)
+    for lateral in body.laterals:
+        _collect_lateral(w, lateral)
+    _grouping_tail(w, body, alias)
+
+
+def _scan_from(w: _Writer, scan, alias) -> None:
+    """FROM one body's own scan, AS its alias."""
     if type(scan) is RowScan:
         w.emit(" FROM ", "syntax", "from", scan.source.ref)
         w.identifier(scan.realization.namespace, "namespace", scan.source.ref)
@@ -1501,8 +1578,10 @@ def _row_select(w: _Writer, body) -> None:
             w.identifier(scan.body.symbol.name, "stage_reference", reference)
         w.emit(" AS ", "syntax", "alias", scan.block.ref)
         w.identifier(alias, "stage_scope", scan.block.ref)
-    for lateral in body.laterals:
-        _collect_lateral(w, lateral)
+
+
+def _grouping_tail(w: _Writer, body, alias) -> None:
+    """One body's GROUP BY, window clause and filter, after its FROM."""
     stage = body.aggregation
     if stage is not None and stage.keys:
         # GROUP BY binds the actual input expressions, never an output alias or

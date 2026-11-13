@@ -650,6 +650,9 @@ SCOPE_ROLES = frozenset(
         "set_scope",
         "equality_scope",
         "join_column_scope",
+        "rank_scope",
+        "rank_carry_scope",
+        "rank_partition_scope",
     }
 )
 COLUMN_ROLES = frozenset(
@@ -671,6 +674,8 @@ COLUMN_ROLES = frozenset(
         "equality_column",
         "in_column",
         "capture_column",
+        "rank_carry_column",
+        "rank_partition_column",
     }
 )
 RELATION_ROLES = {
@@ -1838,6 +1843,334 @@ def _is_key_value(realization, family: str) -> bool:
     return False
 
 
+# The record kinds a ranked MySQL `first`/`last` document may hold
+# (_ranked_stage): one row query over a source, a WHERE body of bare carries
+# at most, its aggregation, projection and ordered result, nothing else.
+_RANKED_KINDS = frozenset(
+    {
+        "aggregate_key_column",
+        "aggregate_order_item",
+        "aggregate_origin",
+        "aggregate_projection_column",
+        "aggregate_stage",
+        "aggregate_value_column",
+        "artifact",
+        "association",
+        "bound_field",
+        "bound_source",
+        "event",
+        "generated_requirement",
+        "origin",
+        "original_requirement",
+        "owner",
+        "premise",
+        "realization",
+        "rendered",
+        "request",
+        "result_column",
+        "result_order",
+        "result_order_item",
+        "result_stage",
+        "row_body",
+        "row_carry_column",
+        "row_predicate",
+        "row_result_body",
+        "row_result_use",
+        "row_scan",
+        "row_stage_use",
+        "scope_definition",
+        "scope_use",
+        "sql_operation",
+        "sql_row_query",
+        "sql_stage_reference",
+        "sql_symbol",
+        "stage_column",
+        "terminal_binding",
+    }
+)
+# The token roles only a ranked derived table and its MAX(CASE ...) carry.
+_RANK_ROLES = frozenset(
+    {
+        "rank_open",
+        "rank_separator",
+        "rank_carry_scope",
+        "rank_carry_qualifier",
+        "rank_carry_column",
+        "rank_close",
+        "rank_scope",
+        "rank_column",
+        "rank_label",
+        "rank_partition_scope",
+        "rank_partition_column",
+        "aggregate_rank_open",
+        "aggregate_rank_qualifier",
+        "aggregate_rank_then",
+        "aggregate_rank_close",
+        "aggregate_rank_window",
+        "aggregate_rank_partition",
+        "aggregate_rank_partition_qualifier",
+        "aggregate_rank_spec_separator",
+        "aggregate_rank_order",
+        "aggregate_rank_separator",
+        "aggregate_rank_alias",
+    }
+)
+
+
+def _is_my_bigint(realization) -> bool:
+    return (
+        realization is not None
+        and realization["tag"] == "Int"
+        and dict(realization["storage"]) == {"kind": "my_bigint"}
+        and _is_key_value(realization, "mysql")
+    )
+
+
+def _is_my_varchar(realization) -> bool:
+    """A binary VARCHAR of a length the S13 qualification used, 32 or 64."""
+    length = None if realization is None else realization["storage"].get("length")
+    return (
+        realization is not None
+        and realization["tag"] == "Text"
+        and realization["storage"].get("kind") == "my_varchar"
+        and type(length) is int
+        and length in (32, 64)
+        and _is_key_value(realization, "mysql")
+    )
+
+
+def _is_ranked_value(realization) -> bool:
+    """A carrier the S13 qualification saw MySQL MAX(CASE ...) keep, as
+    emission's ranked_value: a nullable BIGINT, DOUBLE, binary VARCHAR(32) or
+    VARCHAR(64), or DECIMAL(65,30)."""
+    return (
+        realization is not None
+        and realization["nullable"] is True
+        and (
+            _is_my_bigint(realization)
+            or _is_float(realization, "mysql")
+            or _is_my_varchar(realization)
+            or realization["tag"] == "Decimal"
+            and dict(realization["storage"])
+            == {"kind": "my_decimal", "precision": 65, "scale": 30}
+            and _is_key_value(realization, "mysql")
+        )
+    )
+
+
+def _is_ranked_key(realization, *, group=False) -> bool:
+    """A ROW_NUMBER order key, as emission's ranked_key: a BIGINT or a
+    nullable binary VARCHAR; a PARTITION BY key is a non-null BIGINT."""
+    if group:
+        return _is_my_bigint(realization) and realization["nullable"] is False
+    return _is_my_bigint(realization) or (
+        _is_my_varchar(realization) and realization["nullable"] is True
+    )
+
+
+def _ranked_doc_filter(doc, ref, seen):
+    """A WHERE of the S13 class with no header parameter, each operation named
+    once: the source ports of its `and` of `f is not None` tests, each of a
+    nullable field, in order, or None."""
+    if ref in seen or ref.kind != "sql_operation":
+        return None
+    seen.add(ref)
+    node = doc[ref]
+    operands = node["operands"]
+    if (node["kind"], node["operator"]) == ("logical", "and"):
+        if len(operands) != 2:
+            return None
+        left, right = (_ranked_doc_filter(doc, operand, seen) for operand in operands)
+        return None if left is None or right is None else left + right
+    if (
+        (node["kind"], node["operator"]) != ("null_test", "is not null")
+        or len(operands) != 1
+        or operands[0].kind != "sql_stage_reference"
+        or doc[doc[operands[0]]["realization"]]["nullable"] is not True
+    ):
+        return None
+    return [doc[doc[operands[0]]["column"]]["source_port"]]
+
+
+def _ranked_stage(doc, family):
+    """Emission's ranked_statement and ranked_inputs from the document alone:
+    the one aggregate stage of a MySQL statement of the S13 class, or None.
+
+    The row query's bodies are, in order, a WHERE body at most, the
+    aggregation body and its projection, and by a key the result body. Each
+    body's stage comes from its structure (predicate, aggregation, window)
+    and its label must agree. The WHERE body carries bare columns over the
+    source scan under `_ranked_doc_filter`, whose tests each read another
+    order key of a `first` or `last`; a document holds no header parameter,
+    nor a relation alias, which reads as the source it names. The
+    aggregation body scans it or
+    the source, computes `first` and `last` only, GLOBAL or by one non-null
+    BIGINT key, of `_is_ranked_value` arguments, all in one order of
+    `_is_ranked_key` keys and directions; the projection reads its outputs in
+    order and, by a key, the key once more, the one ascending order item of
+    the result body, which has no DISTINCT or LIMIT. No other record kind is
+    present."""
+    if family != "mysql" or {ref.kind for ref in doc.records} - _RANKED_KINDS:
+        return None
+    stages = doc.all("aggregate_stage")
+    query = doc[Ref(*schema.ROOT)]["ast"]
+    if len(stages) != 1 or query.kind != "sql_row_query":
+        return None
+    stage_ref, bodies = stages[0], doc[query]["bodies"]
+    stage = doc[stage_ref]
+    keys, values = stage["keys"], stage["values"]
+    rows = [body for body in bodies if body.kind == "row_body"]
+    results = [body for body in bodies if body.kind == "row_result_body"]
+    if (
+        len(set(bodies)) != len(bodies)
+        or list(bodies) != rows + results
+        or len(rows) not in (2, 3)
+        or len(results) != bool(keys)
+        or len(keys) > 1
+        or not values
+        or stage["mode"] != ("grouped" if keys else "global")
+    ):
+        return None
+    *lower, aggregating, projecting = rows
+    body, projection = doc[aggregating], doc[projecting]
+    scan = body["scan"]
+    if (
+        body["aggregation"] != stage_ref
+        or (body["block_kind"], body["predicate"], body["window"], body["final"])
+        != ("aggregate", None, None, False)
+        or list(body["columns"]) != [*keys, *values]
+        or (
+            projection["block_kind"],
+            projection["aggregation"],
+            projection["predicate"],
+            projection["window"],
+        )
+        != ("projection", None, None, None)
+        or projection["scan"].kind != "row_stage_use"
+        or doc[projection["scan"]]["body"] != aggregating
+    ):
+        return None
+    seen: set = set()
+    tested: list = []
+    if lower:
+        where = doc[lower[0]]
+        if (
+            scan.kind != "row_stage_use"
+            or doc[scan]["body"] != lower[0]
+            or (where["block_kind"], where["aggregation"], where["window"])
+            != ("where", None, None)
+            or where["predicate"] is None
+            or where["final"] is not False
+            or where["scan"].kind != "row_scan"
+            or any(column.kind != "row_carry_column" for column in where["columns"])
+        ):
+            return None
+        tested = _ranked_doc_filter(doc, doc[where["predicate"]]["value"], seen)
+        if tested is None:
+            return None
+    elif scan.kind != "row_scan":
+        return None
+    if len(seen) != len(doc.all("sql_operation")):
+        return None
+    projected = list(projection["columns"][: len(keys) + len(values)])
+    extra = projection["columns"][len(projected) :]
+    if len(projected) != len(keys) + len(values) or any(
+        column.kind != "aggregate_projection_column"
+        or doc[doc[column]["read"]]["aggregate"] != doc[doc[own]["column"]]["aggregate"]
+        for column, own in zip(projected, [*keys, *values])
+    ):
+        return None
+    if keys:
+        origin = doc[doc[keys[0]]["column"]]["aggregate"]
+        result = doc[results[0]]
+        order = None if result["order"] is None else doc[result["order"]]
+        if (
+            projection["final"] is not False
+            or len(extra) != 1
+            or extra[0].kind != "row_carry_column"
+            or doc[doc[extra[0]]["read"]]["aggregate"] != origin
+            or doc[result["scan"]]["body"] != projecting
+            or result["distinct"] is not None
+            or result["limit"] is not None
+            or result["final"] is not True
+            or len(result["columns"]) != len(projected)
+            or order is None
+            or len(order["items"]) != 1
+            or doc[order["items"][0]]["direction"] != "asc"
+            or doc[order["items"][0]]["nulls"] is not None
+            or doc[order["items"][0]]["read"] != doc[extra[0]]["column"]
+            or not _is_ranked_key(
+                doc[doc[doc[keys[0]]["read"]]["realization"]], group=True
+            )
+        ):
+            return None
+    elif projection["final"] is not True or extra:
+        return None
+    for value in values:
+        column = doc[value]
+        if (
+            column["function"] not in ("first", "last")
+            or column["argument"] is None
+            or column["argument"].kind != "sql_stage_reference"
+            or column["delimiter"] is not None
+            or column["extra_arguments"]
+            or not column["order_by"]
+            or not _is_ranked_value(_value_realization(doc, column["argument"]))
+            or not all(
+                _is_ranked_key(_value_realization(doc, doc[item]["value"]))
+                for item in column["order_by"]
+            )
+        ):
+            return None
+    # One key list for every call; each `is not None` tests a distinct key.
+    lists = {
+        tuple(
+            (
+                doc[doc[doc[item]["value"]]["column"]]["source_port"]
+                if doc[item]["value"].kind == "sql_stage_reference"
+                else item,
+                doc[item]["direction"],
+            )
+            for item in doc[value]["order_by"]
+        )
+        for value in values
+    }
+    order = {port for fields in lists for port, _ in fields}
+    if (
+        len(lists) != 1
+        or len(set(tested)) != len(tested)
+        or not order.issuperset(tested)
+    ):
+        return None
+    return stage_ref
+
+
+def _ranked_layout(doc, stage_ref):
+    """Emission's ranked_layout from the document: the derived table's read
+    column names, keys first, each once, and each `first` or `last`'s
+    ROW_NUMBER name by its aggregate, `r<ordinal>` lengthened by `_` past
+    every read name that is not ASCII, then while it is an ASCII read name
+    without case."""
+    stage = doc[stage_ref]
+    listed: list[str] = []
+    for name in [doc[doc[key]["read"]]["name"] for key in stage["keys"]] + [
+        doc[doc[doc[value]["argument"]]["column"]]["name"] for value in stage["values"]
+    ]:
+        if name not in listed:
+            listed.append(name)
+    folded = {name.casefold() for name in listed if name.isascii()}
+    longest = max((len(name) for name in listed if not name.isascii()), default=0)
+    names = {}
+    for value in stage["values"]:
+        column = doc[value]
+        name = "r" + str(column["ordinal"])
+        name += "_" * max(0, longest + 1 - len(name))
+        while name.casefold() in folded:
+            name += "_"
+        names[column["aggregate"]] = name
+    return listed, names
+
+
 def _source_field_matches_stage(doc, stage) -> bool:
     """A source-derived stage keeps its source carrier, apart from null widening."""
 
@@ -1978,6 +2311,7 @@ class _Check:
         self.rendered = doc[artifact["rendered"]]
         self.ast = artifact["ast"]
         self.sql = self.rendered["sql"].encode("utf-8")
+        self.ranked = None
 
     # request and roots
     def roots(self) -> None:
@@ -2660,6 +2994,8 @@ class _Check:
                         "date_trunc timestamp",
                     )
         spread = _mysql_spread_cell(doc) if family == "mysql" else None
+        # A MySQL `first` or `last` only in the S13 statement class.
+        self.ranked = _ranked_stage(doc, family)
         for ref in doc.all("aggregate_value_column"):
             column = doc[ref]
             expected = {
@@ -2681,8 +3017,8 @@ class _Check:
                 "count_distinct_tuple": "COUNT",
                 "group_any": "COUNT",
                 "group_all": "COUNT",
-                "first": "ARRAY_AGG",
-                "last": "ARRAY_AGG",
+                "first": "ARRAY_AGG" if family == "postgres" else "MAX",
+                "last": "ARRAY_AGG" if family == "postgres" else "MAX",
             }.get(column["function"])
             if family == "mysql" and column["function"] in _SPREAD_FUNCTIONS:
                 expected = _MYSQL_SPREAD_SPELLING[column["function"]]
@@ -2842,12 +3178,14 @@ class _Check:
                     "group test shape",
                 )
             elif column["function"] in {"first", "last"}:
-                # PostgreSQL only: one argument's value at one row, of its own
-                # carrier, NULL where it is or for an empty input; R19 keys.
+                # One argument's value at one row, of its own carrier, NULL
+                # where it is or for an empty input; R19 keys on PostgreSQL,
+                # and on MySQL only the S13 statement and carriers.
                 argument = _value_realization(doc, column["argument"])
                 result = doc[doc[column["column"]]["realization"]]
+                ranked = self.ranked is not None and ref in doc[self.ranked]["values"]
                 _require(
-                    family == "postgres"
+                    (family == "postgres" or ranked)
                     and argument is not None
                     and column["delimiter"] is None
                     and bool(column["order_by"])
@@ -2857,7 +3195,9 @@ class _Check:
                     )
                     and (result["nullable"] is True or argument["nullable"] is False)
                     and all(
-                        _is_pg_order_value(
+                        _is_ranked_key(_value_realization(doc, doc[item]["value"]))
+                        if ranked
+                        else _is_pg_order_value(
                             order := _value_realization(doc, doc[item]["value"])
                         )
                         or order is not None
@@ -3341,6 +3681,7 @@ class _Tokens:
     def run(self) -> None:
         self.partition()
         self.bindings()
+        self.ranked_table()
         self.overlay_alignment()
         self.int8_widening()
         self.null_casts()
@@ -3571,6 +3912,13 @@ class _Tokens:
         for binding, definition in definitions.items():
             specifications[binding] = doc[definition["specification"]]
         per_subject: dict[tuple[str, PlanRef], list[Any]] = {}
+        ranked = self.check.ranked
+        rank_names = {} if ranked is None else _ranked_layout(doc, ranked)[1]
+        _require(
+            ranked is not None
+            or not any(event["role"] in _RANK_ROLES for event in self.events),
+            "rank token outside a ranked statement",
+        )
         # An inline let body opens and closes its own alias and label scope
         # inside its reading unit; a captured reference names that unit's row.
         inline_blocks = {doc[body]["block"]: body for body in self.check.inline}
@@ -3651,6 +3999,8 @@ class _Tokens:
                         _require(name in aliases or local_allowed, "scope alias")
                     elif role in COLUMN_ROLES:
                         _require(name in names.get(subject, ()), "column name")
+                    elif role in ("rank_column", "rank_label"):
+                        _require(rank_names.get(subject) == name, "rank name")
                     elif role in RELATION_ROLES:
                         slot = 0 if RELATION_ROLES[role] == "namespace" else 1
                         _require(
@@ -3895,6 +4245,44 @@ class _Tokens:
                 _require(
                     aggregate_tokens == expected, "count_distinct_tuple token sequence"
                 )
+            elif column["function"] in {"first", "last"} and self.family == "mysql":
+                # MAX(CASE WHEN rank = 1 THEN x END), then its ROW_NUMBER over
+                # its group in its own order, `last` in the reversed one.
+                flip = {"asc": " DESC", "desc": " ASC"}
+                ranked = self.check.ranked
+                if ranked is None:
+                    raise _Reject(Status.INVALID_RELATION, "first or last shape")
+                stage = doc[ranked]
+                expected = [
+                    ("aggregate_open", "MAX("),
+                    ("aggregate_rank_open", "CASE WHEN "),
+                    ("aggregate_rank_qualifier", "."),
+                    ("aggregate_rank_then", " = 1 THEN "),
+                    ("aggregate_rank_close", " END"),
+                    ("aggregate_close", ")"),
+                    ("aggregate_rank_window", "ROW_NUMBER() OVER ("),
+                ]
+                for position, _key in enumerate(stage["keys"]):
+                    expected += [
+                        ("aggregate_rank_separator", ", ")
+                        if position
+                        else ("aggregate_rank_partition", "PARTITION BY "),
+                        ("aggregate_rank_partition_qualifier", "."),
+                    ]
+                if stage["keys"]:
+                    expected.append(("aggregate_rank_spec_separator", " "))
+                expected.append(("aggregate_rank_order", "ORDER BY "))
+                for position, item in enumerate(column["order_by"]):
+                    if position:
+                        expected.append(("aggregate_rank_separator", ", "))
+                    direction = doc[item]["direction"]
+                    expected.append(
+                        ("aggregate_order_reversed_direction", flip[direction])
+                        if column["function"] == "last"
+                        else ("aggregate_order_direction", schema.DIRECTIONS[direction])
+                    )
+                expected.append(("aggregate_rank_alias", ") AS "))
+                _require(aggregate_tokens == expected, "ranked token sequence")
             elif column["function"] in {"first", "last"}:
                 # `last` is the first element of the reversed order.
                 flip = {"asc": " DESC", "desc": " ASC"}
@@ -4450,6 +4838,103 @@ class _Tokens:
             _require(text == expected, "join spelling")
         else:
             raise _Reject(Status.INVALID_RELATION, "syntax role")
+
+    def ranked_table(self) -> None:
+        """A ranked statement's derived table, token by token, from the
+        document: FROM (SELECT its read columns, then each ROW_NUMBER in its
+        own order, FROM its body's own scan) AS that scan's alias."""
+        ranked = self.check.ranked
+        if ranked is None:
+            return
+        doc, events, stage = self.doc, self.events, self.doc[ranked]
+        listed, names = _ranked_layout(doc, ranked)
+        (body,) = [b for b in doc.all("row_body") if doc[b]["aggregation"] == ranked]
+        scan = doc[body]["scan"]
+        alias = doc[doc[scan]["symbol"]]["name"]
+        table = stage["aggregation"]
+        starts = [
+            i
+            for i, event in enumerate(events)
+            if event["role"] == "from" and event["subject"] == table
+        ]
+        _require(len(starts) == 1, "ranked table")
+        i = starts[0]
+
+        def take(kind, role, subject=None, name=None):
+            nonlocal i
+            _require(
+                i < len(events)
+                and (events[i]["kind"], events[i]["role"]) == (kind, role)
+                and (subject is None or events[i]["subject"] == subject)
+                and (name is None or self.identifier(i) == name),
+                "ranked table",
+            )
+            i += 1
+
+        take("syntax", "from", table)
+        take("syntax", "rank_open", table)
+        for position, name in enumerate(listed):
+            if position:
+                take("syntax", "rank_separator", table)
+            take("identifier", "rank_carry_scope", table, alias)
+            take("syntax", "rank_carry_qualifier", table)
+            take("identifier", "rank_carry_column", None, name)
+        for value in stage["values"]:
+            column = doc[value]
+            own = column["aggregate"]
+            take("syntax", "rank_separator", own)
+            take("syntax", "aggregate_rank_window", own)
+            for position, key in enumerate(stage["keys"]):
+                take(
+                    "syntax",
+                    "aggregate_rank_separator"
+                    if position
+                    else "aggregate_rank_partition",
+                    own,
+                )
+                take("identifier", "rank_partition_scope", own, alias)
+                take("syntax", "aggregate_rank_partition_qualifier", own)
+                take(
+                    "identifier",
+                    "rank_partition_column",
+                    None,
+                    doc[doc[key]["read"]]["name"],
+                )
+            if stage["keys"]:
+                take("syntax", "aggregate_rank_spec_separator", own)
+            take("syntax", "aggregate_rank_order", own)
+            for position, item in enumerate(column["order_by"]):
+                if position:
+                    take("syntax", "aggregate_rank_separator", own)
+                reference = doc[doc[item]["value"]]
+                take("identifier", "value_scope", None, alias)
+                take("syntax", "value_qualifier")
+                take(
+                    "identifier", "value_column", None, doc[reference["column"]]["name"]
+                )
+                take(
+                    "syntax",
+                    "aggregate_order_reversed_direction"
+                    if column["function"] == "last"
+                    else "aggregate_order_direction",
+                    own,
+                )
+            take("syntax", "aggregate_rank_alias", own)
+            take("identifier", "rank_label", own, names[own])
+        if scan.kind == "row_scan":
+            take("syntax", "from")
+            take("identifier", "namespace")
+            take("syntax", "qualifier")
+            take("identifier", "relation")
+            take("syntax", "alias")
+            take("identifier", "relation_scope", None, alias)
+        else:
+            take("syntax", "from")
+            take("identifier", "stage_reference")
+            take("syntax", "alias")
+            take("identifier", "stage_scope", None, alias)
+        take("syntax", "rank_close", table)
+        take("identifier", "rank_scope", table, alias)
 
     def overlay_alignment(self) -> None:
         doc = self.doc

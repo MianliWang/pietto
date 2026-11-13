@@ -1277,7 +1277,9 @@ fields count toward it). A key that may be None needs a top-level
 `where k is not None`. A None value at the chosen row is the result; it is not
 skipped, as pandas' `groupby().first()` skips it. To keep the whole latest row,
 not one value, write `qualify row_number() window(partition by k order by t desc,
-id desc) == 1`. MySQL does not emit `first` or `last` yet.
+id desc) == 1`. A MySQL single file does not emit `first` or `last`; a MySQL
+project emits them only in the forms that
+[Aggregates](language.md#aggregates-and-grouping) lists (unreleased).
 
 ## The rows of each group: group, then collect
 

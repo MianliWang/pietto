@@ -5938,6 +5938,17 @@ def _verify_compiled_emission(artifact, request):
         need(len(body.columns) == len(ports), "EMISSION_COLUMNS")
         nested = tuple(c for c in body.columns if type(c) is collecting.CollectColumn)
         need(body.laterals == tuple(c.lateral for c in nested), "EMISSION_LATERALS")
+        # A MySQL `first` or `last` only in the S13 statement the records name.
+        ranked = (
+            request.family == "mysql"
+            and record.address.kind == "aggregate"
+            and grouping.ranked_records(
+                records,
+                records[plan.ir.completed.root.description.query],
+                record.address,
+            )
+            is not None
+        )
         for position, (column, address) in enumerate(
             zip(body.columns, ports, strict=True)
         ):
@@ -6170,6 +6181,7 @@ def _verify_compiled_emission(artifact, request):
                                 column.argument,
                                 request.family,
                                 cell=expression == spread_cell,
+                                ranked=ranked,
                             )
                             is None
                         ),

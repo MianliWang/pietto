@@ -584,7 +584,7 @@ first column give every rule.
 | `stddev(x)` ([Aggregates](#aggregates-and-grouping)) | `Int` and `Float` | `Float` (`STDDEV_SAMP`); `Int` refused (PIE-B1000) | `Int` and `Float` | refused: `Int` PIE-B1003, `Float` PIE-B1004, except unreleased `STDDEV_SAMP` as the only select item of a global aggregate over one direct nullable `Float` field of one source with no `let`, other clause or header parameter |
 | `variance(x)`, `pvariance(x)`, `pstdev(x)` ([Aggregates](#aggregates-and-grouping)) | `Int` and `Float` (`VAR_SAMP`, `VAR_POP`, `SQRT` of `VAR_POP`) | `Float` (`VAR_SAMP`, `VAR_POP`, `STDDEV_POP`); `Int` refused (PIE-B1000) | `Int` and `Float` | refused: `Int` PIE-B1003, `Float` PIE-B1004, except unreleased `VAR_SAMP`, `VAR_POP`, `STDDEV_POP` in the shape of `stddev` |
 | `median(x)`, `quantile(x, q)` ([Aggregates](#aggregates-and-grouping)) | `Int` and `Float` (`PERCENTILE_CONT ... WITHIN GROUP`) | refused (PIE-B1000) | `Int`; `Float` refused (PIE-B1004) | refused (PIE-B1003) |
-| `first(x, order by k, id)`, `last(...)` ([Aggregates](#aggregates-and-grouping)) | `(ARRAY_AGG(x ORDER BY k ASC, id ASC))[1]`; `last` flips every direction | refused (PIE-B1000) | as a file; the value keeps its carrier; a key orders as a relation ORDER BY key (R19), else PIE-B1003 `first_last_order_key_outside_reviewed_order_domain` | refused (PIE-B1003 `first_last_not_admitted_on_target`) |
+| `first(x, order by k, id)`, `last(...)` ([Aggregates](#aggregates-and-grouping)) | `(ARRAY_AGG(x ORDER BY k ASC, id ASC))[1]`; `last` flips every direction | refused (PIE-B1000) | as a file; the value keeps its carrier; a key orders as a relation ORDER BY key (R19), else PIE-B1003 `first_last_order_key_outside_reviewed_order_domain` | unreleased: `MAX(CASE WHEN <rank> = 1 THEN x END)` over a `ROW_NUMBER()` derived table, only in the qualified forms that [Aggregates](#aggregates-and-grouping) lists; otherwise refused (PIE-B1003 `first_last_not_admitted_on_target`) |
 | `sum(1 for o in group if t)`, `sum(o.f for o in group if t)` ([Aggregates](#aggregates-and-grouping)) | `COUNT(CASE WHEN t THEN 1 END)`; `COALESCE(CAST(SUM(CASE WHEN t THEN CAST(f AS pg_catalog.int8) END) AS pg_catalog.int8), 0)` | count `COUNT(CASE WHEN t THEN 1 END)`; sum refused (PIE-B1000) | as PostgreSQL single file, `schema_version = 2` (PIE-S2334 in a `schema_version = 1` project); no JOIN inputs | refused: count PIE-B1003, sum PIE-B1004 |
 | `any(t for o in group)`, `all(t for o in group)` ([Aggregates](#aggregates-and-grouping)) | `(COUNT(CASE WHEN t THEN 1 END) > 0)`; `(COUNT(CASE WHEN t THEN NULL ELSE 1 END) = 0)` | as PostgreSQL, an integer 0/1 | as PostgreSQL single file, `schema_version = 2` (PIE-S2334 in a `schema_version = 1` project); no JOIN inputs | refused (PIE-B1003 `group_test_not_admitted_on_target`) |
 | `max(a, b)`, `min(a, b)` ([Expressions](#expressions)) | `CASE WHEN` of `<`/`>` and `IS NOT NULL`; `Int`, `Decimal`, `Float`, `Text`, `Date`, `Timestamp`, `UUID`, `Bool` | as PostgreSQL; a `Bool` result arrives as an integer 0, 1 or NULL, as every computed `Bool` does on MySQL | `Int`, `Decimal`, `Float`, `Text`, `Date`, `Timestamp`, `UUID` as their comparison and conditional are; `Bool` refused (PIE-B1003) | as PostgreSQL project, except `Date`, refused (PIE-B1003) |
@@ -4438,11 +4438,11 @@ PostgreSQL emits `first(x, order by k, id)` as
 flipped, `(ARRAY_AGG(x ORDER BY k DESC, id DESC))[1]`; since no key is None, NULL
 placement never enters, and `ARRAY_AGG` keeps a None value and is NULL over no row.
 A schema_version = 2 project checks the same rules and emits the same shape
-(`spelling` `ARRAY_AGG`). MySQL has no ordered first or last yet: a single file is
-refused with PIE-B1000 (`MySQL has no ordered first or last yet; emit with
---dialect postgres`), a project with PIE-B1003
-`first_last_not_admitted_on_target`; a window in a derived table is the planned
-MySQL route. A schema_version = 1 project has no `first(...)` or `last(...)`
+(`spelling` `ARRAY_AGG`). A MySQL single file is refused with PIE-B1000 (`MySQL
+has no ordered first or last yet; emit with --dialect postgres`). A MySQL
+project (unreleased, Phase77 S13) emits SQL only in the forms below and
+refuses every other `first` and `last` with PIE-B1003 `first_last_not_admitted_on_target`.
+A schema_version = 1 project has no `first(...)` or `last(...)`
 (PIE-S2334, `set schema_version = 2 to check it`). `any_value`, `nth`, `head`,
 `arg_max`, `argmax`, `max_by`, `idxmax`, `arg_min`, `argmin`, `min_by` and
 `idxmin` calls are PIE-S2103 with a hint to the `first` form, and a `def first` or
@@ -4469,6 +4469,53 @@ WHERE "weight_kg" IS NOT NULL
 GROUP BY
     "shop_id";
 ```
+
+**MySQL project `first` and `last`.** A MySQL project writes
+`first(x, order by k, id)` as `MAX(CASE WHEN t.r1 = 1 THEN t.x END)` over the
+derived table `(SELECT t.g, t.x, ROW_NUMBER() OVER (PARTITION BY t.g ORDER BY
+t.k ASC, t.id ASC) AS r1 FROM ... AS t) AS t`, with one `ROW_NUMBER` per
+`first` or `last` and `last` with every direction flipped, only in the forms
+below. They follow the statements of the Phase77 raw qualification of MySQL
+8.4.12, which ranked every value of a statement by one key list, both ways,
+and its emission experiment matched them on PostgreSQL and MySQL.
+
+- The query reads one source by its own name, not through a relation alias
+  such as `let base = rows` and `from base`, directly or through a WHERE that
+  is an `and` of `f is not None` tests and at most one `f == p` test. Each
+  `f is not None` tests a nullable order key of a `first` or `last`, each key
+  once.
+  The `f == p` test compares the GROUP BY key, or without GROUP BY a non-null
+  `Int` (BIGINT) field, with a non-null `Int` header parameter, the query's
+  only one; a query with a header parameter has this test.
+- It groups by one non-null `Int` (BIGINT) field, selects it first and orders
+  by it ascending, or it has no GROUP BY and no ORDER BY.
+- Every other select item is a bare `first` or `last`, each ordered by the
+  same key list, field for field and direction for direction, and the query
+  has no other aggregate, row `let`, JOIN, DISTINCT, LIMIT, window or set
+  operation and reads no other relation or upstream query.
+- Each value is a nullable `Int` (BIGINT), `Float` (DOUBLE), `Text`
+  (VARCHAR(32) or VARCHAR(64) in `utf8mb4_0900_bin`, the two lengths the
+  qualification used) or `Decimal` (DECIMAL(65,30)) field, and each order key
+  an `Int` (BIGINT) field or a nullable `Text` field of that VARCHAR that the
+  WHERE proves never None.
+
+The rank column is `r<ordinal>`, lengthened with `_` past every name the
+derived table carries that is not ASCII, then while it equals an ASCII one
+without case, as MySQL compares column names. The result keeps the value's
+carrier and is nullable. Emission and its verifier derive the forms from the
+plan, compiled replay from the compiled records and the pure observation
+boundary from the observation document. A relation alias leaves no trace in
+the records or the document: its SQL is byte for byte the direct read's, and
+its records and document differ from the direct read's only in the source
+text's positions and digest, so only emission and its verifier refuse it.
+The document holds no header parameter, since portable export of a query with
+one is `OUTSIDE_SCHEMA`, so the pure boundary judges only the forms without
+one. A `Bool`, `Date`, `Timestamp` or `UUID` value, whose column metadata
+MySQL changed, and every other form keep PIE-B1003
+`first_last_not_admitted_on_target`, retained exceptions (D77.07), and so does
+a query in these forms that emission refuses for another reason: beside that
+refusal, such as an output label longer than 256 characters, or alone for the
+contract's SQL or artifact byte limit, which such a query never reaches.
 
 **Conditional count and sum, and the test of a group.** A generator `BODY for o in SOURCE if TEST` is
 written only as the only argument of a call, with one `for` and at most one

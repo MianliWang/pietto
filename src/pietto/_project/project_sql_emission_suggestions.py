@@ -488,7 +488,7 @@ _ACTIONS = {
     "offset_range_requires_a_non_null_order_key": "Use a non-null signed-Int ORDER key for an offset RANGE frame; do not declare a nullable source non-null in the contract.",
     "offset_range_requires_a_signed_int_order_key": "Use a signed-Int ORDER key for an offset RANGE frame, or keep the frame in check/plan.",
     "count_distinct_tuple_not_admitted_on_target": "Emit this count_distinct of several columns for PostgreSQL, or keep it in check/plan: a project's MySQL emission has no COUNT(DISTINCT a, b) yet (a single file emits it).",
-    "first_last_not_admitted_on_target": "Emit this first or last for PostgreSQL, or keep it in check/plan: MySQL has no ordered first or last yet.",
+    "first_last_not_admitted_on_target": "Emit this first or last for PostgreSQL, or keep it in check/plan: this first or last form is not admitted on MySQL yet.",
     "quantile_not_admitted_on_target": "Emit this median or quantile for PostgreSQL, or keep it in check/plan: MySQL has no interpolated percentile.",
     "stddev_int_not_admitted_on_target": "Emit this Int stddev for PostgreSQL, or keep it in check/plan: MySQL computes an integer deviation in DOUBLE, which loses Int accuracy; casting the input does not restore it.",
     "variance_int_not_admitted_on_target": "Emit this Int variance for PostgreSQL, or keep it in check/plan: MySQL computes an integer variance in DOUBLE, which loses Int accuracy; casting the input does not restore it.",

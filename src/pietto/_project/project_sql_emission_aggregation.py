@@ -2,10 +2,12 @@
 
 from __future__ import annotations
 
+import json
 from dataclasses import dataclass, replace
 from typing import Any
 
 from pietto._project import project_sql_plan_aggregation as aggregation
+from pietto._project import project_sql_plan_expressions as plan_expressions
 from pietto._project import project_sql_emission_nested as collecting
 from pietto._project import project_sql_emission_rows as rows
 from pietto._project import project_sql_emission_unnest as unnesting
@@ -59,12 +61,20 @@ SPELLING = {
     # > 0) and (COUNT(CASE WHEN test THEN NULL ELSE 1 END) = 0).
     "group_any": "COUNT",
     "group_all": "COUNT",
-    # PostgreSQL only: (ARRAY_AGG(x ORDER BY k ASC, ...))[1], the element
+    # PostgreSQL: (ARRAY_AGG(x ORDER BY k ASC, ...))[1], the element
     # wrapping fixed by the function (ORDERED_VALUE_FUNCTIONS); `last` flips
-    # every authored direction (`rendered_direction`).
+    # every authored direction (`rendered_direction`). MySQL spells them
+    # RANKED_SPELLING (`spelling`).
     "first": "ARRAY_AGG",
     "last": "ARRAY_AGG",
 }
+# Phase77 S13: MySQL writes `first` and `last` as MAX(CASE WHEN <rank> = 1
+# THEN x END) over a derived table that numbers the rows of each group with
+# ROW_NUMBER() OVER (PARTITION BY <key> ORDER BY <keys>), the primitive whose
+# raw MySQL 8.4.12 campaign (wave-b s13, campaign-20261111T1636Z) matched the
+# PostgreSQL reference for nullable BIGINT, DOUBLE, binary VARCHAR and DECIMAL
+# values only, and only in its own statement shape (`ranked_statement`).
+RANKED_SPELLING = "MAX"
 # The sample and population variances and deviations: one Int or Float
 # argument, a PostgreSQL VAR_SAMP or VAR_POP cast to float8 once.
 SPREAD_FUNCTIONS = frozenset({"stddev", "variance", "pvariance", "pstdev"})
@@ -426,6 +436,361 @@ def group_key_problem(realization: rows.Realization, *, distribution: bool = Tru
     return "PIE-B1003", "group_key_type_outside_reviewed_comparison_domain"
 
 
+def spelling(family: str, function: str) -> str:
+    """One aggregate's emitted function name on one target."""
+    if family == "mysql" and function in SPREAD_FUNCTIONS:
+        return MYSQL_SPREAD_SPELLING[function]
+    if family == "mysql" and function in ORDERED_VALUE_FUNCTIONS:
+        return RANKED_SPELLING
+    return SPELLING[function]
+
+
+# The VARCHAR lengths and the DECIMAL the S13 qualification used; others wait
+# for the candidate run (F8).
+RANKED_VARCHAR_LENGTHS = (32, 64)
+RANKED_DECIMAL = {"kind": "my_decimal", "precision": 65, "scale": 30}
+
+
+def _binary_varchar(realization) -> bool:
+    storage, domain = realization.storage, realization.domain
+    return (
+        storage.get("kind") == "my_varchar"
+        and set(storage) == {"kind", "length"}
+        and type(storage["length"]) is int
+        and storage["length"] in RANKED_VARCHAR_LENGTHS
+        and tuple(domain.get(key) for key in TEXT_DOMAIN_KEYS)
+        == ("utf8mb4", "utf8mb4_0900_bin", "NO PAD")
+    )
+
+
+def ranked_value(realization) -> bool:
+    """A MySQL `first` or `last` value whose carrier the qualification saw
+    MAX(CASE ...) keep: a nullable BIGINT, DOUBLE, binary VARCHAR(32) or
+    VARCHAR(64), or DECIMAL(65,30). A Bool, Date, Timestamp or UUID came back
+    with other column metadata."""
+    if realization is None or realization.nullable is not True:
+        return False
+    return (
+        realization.tag == "Int"
+        and realization.storage == {"kind": "my_bigint"}
+        or realization.tag == "Float"
+        and rows.float_carrier(realization, "mysql")
+        or realization.tag == "Text"
+        and _binary_varchar(realization)
+        or realization.tag == "Decimal"
+        and realization.storage == RANKED_DECIMAL
+    )
+
+
+def ranked_key(realization, *, group: bool = False) -> bool:
+    """A MySQL ROW_NUMBER order key of a class the qualification ordered by: a
+    BIGINT, or a nullable binary VARCHAR that a WHERE proves never None; with
+    ``group``, its PARTITION BY key, a non-null BIGINT."""
+    if realization is None:
+        return False
+    bigint = realization.tag == "Int" and realization.storage == {"kind": "my_bigint"}
+    if group:
+        return bigint and realization.nullable is False
+    return bigint or (
+        realization.tag == "Text"
+        and realization.nullable is True
+        and _binary_varchar(realization)
+    )
+
+
+def _ranked_read(plan, available, ref, reference_type):
+    """The realization of the stage column that one aggregate input reads
+    directly, without realizing it, or None."""
+    expression = _plan_node(plan, ref)
+    if expression is None or type(expression) is not reference_type:
+        return None
+    column = available.get(expression.port)
+    return column.realization if type(column) is rows.StageColumn else None
+
+
+def ranked_inputs(plan, available, keys, values, reference_type) -> bool:
+    """Whether every input of one MySQL aggregation is of a class S13
+    qualified: at most one non-null BIGINT key, only `first` and `last`, each
+    of one `ranked_value` field ordered by `ranked_key` fields, and a field
+    that the WHERE compares with a parameter of the key's class."""
+    if len(keys) > 1 or not values:
+        return False
+    for key in keys:
+        read = available.get(key.input)
+        if type(read) is not rows.StageColumn or not ranked_key(
+            read.realization, group=True
+        ):
+            return False
+    origin = _ranked_origin(plan)
+    where = _ranked_filter(plan, origin)
+    columns = {origin(port): column for port, column in available.items()}
+    if where is None or not all(
+        type(columns.get(field)) is rows.StageColumn
+        and ranked_key(columns[field].realization, group=True)
+        for field in where[1]
+    ):
+        return False
+    return all(
+        function_name(value.source) in ORDERED_VALUE_FUNCTIONS
+        and len(value.arguments) == 1
+        and bool(value.order_by)
+        and ranked_value(
+            _ranked_read(plan, available, value.arguments[0], reference_type)
+        )
+        and all(
+            ranked_key(_ranked_read(plan, available, ref, reference_type))
+            for ref in value.order_by
+        )
+        for value in values
+    )
+
+
+def _non_null_int(value_type) -> bool:
+    return (
+        value_type.kind is ValueTypeKind.KNOWN
+        and value_type.resolved_type.kind is TypeKind.BUILTIN
+        and value_type.resolved_type.name == "Int"
+        and value_type.nullability is EffectiveNullability.NON_NULL
+    )
+
+
+def _plan_node(plan, ref):
+    position = getattr(ref, "position", None)
+    if type(position) is not int or not 0 <= position < len(plan.expressions):
+        return None
+    node = plan.expressions[position]
+    return node if node.ref is ref else None
+
+
+def _ranked_origin(plan):
+    """The input port that a stage port reads, through stage ports."""
+    through = {port.ref: port.source for port in plan.stage_ports}
+
+    def origin(ref):
+        for _ in range(len(through) + 1):
+            if ref not in through:
+                return ref
+            ref = through[ref]
+        return None
+
+    return origin
+
+
+def _ranked_tests(plan, ref):
+    """The tests one `and` tree joins, in order, or None past another node."""
+    node = _plan_node(plan, ref)
+    if type(node) is not plan_expressions.ProjectSQLBinary:
+        return (node,)
+    if node.expression.operator != "and":
+        return None
+    left, right = _ranked_tests(plan, node.left), _ranked_tests(plan, node.right)
+    return None if left is None or right is None else left + right
+
+
+def _ranked_filter(plan, origin):
+    """The WHERE of the qualification's class, by the input port each test
+    reads: (the fields of its `f is not None` tests, each nullable, and of its
+    `f == p` tests, each with a non-null Int header parameter), or None for
+    any other test. No WHERE has neither."""
+    tests = _ranked_tests(plan, plan.filters[0].predicate) if plan.filters else ()
+    if tests is None:
+        return None
+    tested, compared = [], []
+    for node in tests:
+        if type(node) is plan_expressions.ProjectSQLIsNull:
+            field = _plan_node(plan, node.value)
+            if (
+                not node.expression.negated
+                or type(field) is not plan_expressions.ProjectSQLReference
+                or field.value_type.nullability is not EffectiveNullability.NULLABLE
+            ):
+                return None
+            tested.append(origin(field.port))
+        elif type(node) is plan_expressions.ProjectSQLComparison:
+            field = _plan_node(plan, node.left)
+            parameter = _plan_node(plan, node.right)
+            if (
+                node.expression.operator != "=="
+                or type(field) is not plan_expressions.ProjectSQLReference
+                or type(parameter) is not plan_expressions.ProjectSQLParameterRead
+                or not _non_null_int(parameter.value_type)
+            ):
+                return None
+            compared.append(origin(field.port))
+        else:
+            return None
+    return tested, compared
+
+
+def ranked_statement(plan) -> bool:
+    """Phase77 S13's whitelist of a whole MySQL statement, derived from the
+    plan alone: the forms the qualification witnessed and nothing else. One
+    query reads one source by its own name, through a WHERE at most, into one
+    aggregation, GLOBAL or by one key, and a projection of its bare key and
+    then its results, in order; a GROUP BY is ordered by its key ascending, a
+    GLOBAL one is not ordered. Every `first` and `last` orders by one authored
+    key list, field for field and direction for direction, as the
+    qualification ranked each statement. The WHERE (`_ranked_filter`) tests
+    each nullable order key of a `first` or `last` at most once for `is not
+    None` and compares at most one field, the group key when there is one,
+    with the one header parameter, which nothing else reads. The carriers are
+    `ranked_inputs`'. False while emission derives as main (rows.AS_MAIN).
+    O(1) unless the plan has one aggregation, then linear in the plan
+    once."""
+    from pietto._project.project_sql_plan import (
+        ProjectSQLBoundary,
+        ProjectSQLBoundaryReason,
+    )
+
+    if (
+        rows.AS_MAIN.get()
+        or len(plan.aggregations) != 1
+        or len(plan.input_uses) != 1
+        or len(plan.blocks) not in {2, 3}
+        or len(plan.filters) != len(plan.blocks) - 2
+        or len(plan.aggregations[0].keys) > 1
+        or any(
+            (
+                plan.joins,
+                plan.captures,
+                plan.expression_block_uses,
+                plan.collects,
+                plan.unnests,
+                plan.set_bodies,
+                plan.values_bodies,
+                plan.windows,
+                plan.let_values,
+                plan.projections,
+                plan.distincts,
+                plan.result_limits,
+                plan.literal_slots,
+                plan.bind_uses,
+            )
+        )
+    ):
+        return False
+    kinds = tuple(block.kind.value for block in plan.blocks)
+    boundary = plan.blocks[0].boundary
+    origin = _ranked_origin(plan)
+    where = _ranked_filter(plan, origin)
+    if (
+        kinds not in {("aggregate", "projection"), ("where", "aggregate", "projection")}
+        or type(boundary) is not ProjectSQLBoundary
+        or boundary.reason is not ProjectSQLBoundaryReason.SOURCE_INPUT
+        or where is None
+        # A relation alias (`let x = rows`, `from x`) stays on the normalized
+        # FROM only: compiled records and observations read as the source's.
+        or any(
+            type(item.entry.owner.definition) is QueryDef
+            and item.entry.owner.definition.from_clause.binding_name is not None
+            for item in plan.bindings.definitions
+        )
+    ):
+        return False
+    tested, compared = where
+    # Each call's authored key list: (input port, else its own ref, direction).
+    lists = set()
+    for aggregate in plan.aggregates:
+        authored = aggregation.aggregate_call(aggregate.source).aggregate_order_by
+        lists.add(
+            tuple(
+                (
+                    origin(node.port)
+                    if type(node := _plan_node(plan, ref))
+                    is plan_expressions.ProjectSQLReference
+                    else ref,
+                    item.direction or "asc",
+                )
+                for ref, item in zip(aggregate.order_by, authored, strict=True)
+            )
+        )
+    keys = {field for fields in lists for field, _ in fields}
+    if (
+        len(lists) != 1
+        or len(set(tested)) != len(tested)
+        or not keys.issuperset(tested)
+        or len(compared) > 1
+        or len(compared) != len(plan.parameters)
+    ):
+        return False
+    (stage,) = plan.aggregations
+    sources = {port.ref: port.source for port in plan.result_ports}
+    sources.update((item.ref, item.input) for item in plan.aggregate_projections)
+    sources.update(
+        (port.ref, port.source)
+        for port in plan.stage_ports
+        if port.kind.value == "input"
+    )
+
+    def source(ref):
+        # Through result, projection and input stage ports, to a result.
+        for _ in range(len(sources) + 1):
+            if ref not in sources:
+                return ref
+            ref = sources[ref]
+        return None
+
+    # The projection reads every key, then every result, each once, in order.
+    projected = [source(item.input) for item in plan.aggregate_projections]
+    if len(projected) != len(stage.results) or any(
+        read is not result for read, result in zip(projected, stage.results)
+    ):
+        return False
+    if not stage.keys:
+        return not plan.orders and not plan.order_items and not plan.order_uses
+    if any(
+        len(items) != 1
+        for items in (plan.group_keys, plan.orders, plan.order_items, plan.order_uses)
+    ):
+        return False
+    ((key,), (item,), (use,)) = (plan.group_keys, plan.order_items, plan.order_uses)
+    return (
+        item.source.direction.value == "asc"
+        and len(use.ports) == 1
+        and source(use.ports[0]) is key.result
+        and all(field is origin(key.input) for field in compared)
+    )
+
+
+def ranked_layout(stage):
+    """MySQL's ranked derived table for one aggregation stage: the columns its
+    outer SELECT and GROUP BY read, each once, keys first, and one ROW_NUMBER
+    name per `first` or `last`. MySQL compares column names character by
+    character without case or accents, so `r<ordinal>` is lengthened by `_`
+    past every read name that is not ASCII, then while it is an ASCII read
+    name without case. Linear in the stage."""
+    listed: dict[str, Any] = {}
+    for column in stage.keys:
+        listed.setdefault(column.read.name, column.read)
+    ordered = tuple(
+        column for column in stage.values if column.function in ORDERED_VALUE_FUNCTIONS
+    )
+    for column in ordered:
+        listed.setdefault(column.argument.column.name, column.argument.column)
+    folded = {name.casefold() for name in listed if name.isascii()}
+    longest = max((len(name) for name in listed if not name.isascii()), default=0)
+    ranks = []
+    for column in ordered:
+        name = f"r{column.ordinal}"
+        name += "_" * max(0, longest + 1 - len(name))
+        while name.casefold() in folded:
+            name += "_"
+        ranks.append((column, name))
+    return tuple(listed.values()), tuple(ranks)
+
+
+def ranked_body(family: str, stage) -> bool:
+    """Whether a MySQL aggregation body renders its ranked derived table."""
+    return (
+        family == "mysql"
+        and stage is not None
+        and any(
+            getattr(column, "function", None) in ORDERED_VALUE_FUNCTIONS
+            for column in stage.values
+        )
+    )
+
+
 def result_value(source):
     """The aggregate result's own retained logical tag and nullability."""
     value_type = aggregation.result_type(source)
@@ -452,8 +817,10 @@ def result_realization(family: str, function: str, argument, retained):
         # where that value is or, without GROUP BY, for an empty input.
         carrier = None if argument is None else argument.realization
         if (
-            family != "postgres"
+            family not in {"postgres", "mysql"}
             or carrier is None
+            or family == "mysql"
+            and not ranked_value(carrier)
             or tag != carrier.tag
             or nullable not in {True, False}
             or (carrier.nullable is not False and nullable is not True)
@@ -649,6 +1016,11 @@ def order_key_problem(function: str, family: str, realization):
         return group_key_problem(realization)
     from pietto._project.project_sql_emission_results import order_admitted
 
+    if family == "mysql":
+        # Only the keys the S13 qualification ordered by (`ranked_key`).
+        if ranked_key(realization):
+            return None
+        return "PIE-B1003", "first_last_not_admitted_on_target"
     if order_admitted(family, realization):
         return None
     return "PIE-B1003", "first_last_order_key_outside_reviewed_order_domain"
@@ -659,7 +1031,9 @@ def float_argument(argument) -> bool:
     return argument is not None and argument.realization.tag == "Float"
 
 
-def argument_problem(function: str, argument, family: str, *, cell: bool = False):
+def argument_problem(
+    function: str, argument, family: str, *, cell: bool = False, ranked=False
+):
     """R13 admits one established V01 field per aggregate argument, or one
     admitted row expression, as a LET would lower it. Any other
     argument, such as a bare literal or parameter or an operation that reads no
@@ -674,15 +1048,8 @@ def argument_problem(function: str, argument, family: str, *, cell: bool = False
     ):
         return "PIE-B1003", "aggregate_argument_not_a_direct_established_field"
     return resolved_argument_problem(
-        function, direct, argument.realization, family, cell=cell
+        function, direct, argument.realization, family, cell=cell, ranked=ranked
     )
-
-
-def spelling(family: str, function: str) -> str:
-    """The emitted spelling of one aggregate on its target."""
-    if family == "mysql" and function in SPREAD_FUNCTIONS:
-        return MYSQL_SPREAD_SPELLING[function]
-    return SPELLING[function]
 
 
 def rooted(family: str, function: str) -> bool:
@@ -991,6 +1358,7 @@ def resolved_argument_problem(
     family: str,
     *,
     cell: bool = False,
+    ranked=False,
 ):
     """The same R13 argument law for an already-resolved input port.
 
@@ -1012,8 +1380,12 @@ def resolved_argument_problem(
             return "PIE-B1003", "aggregate_argument_not_a_direct_established_field"
         function = "count_distinct"
     if function in ORDERED_VALUE_FUNCTIONS:
-        # ARRAY_AGG keeps one row's value of any admitted carrier exactly.
-        if family != "postgres":
+        # ARRAY_AGG keeps one row's value of any admitted carrier exactly;
+        # MySQL's ranked MAX(CASE ...) only a qualified one, in a statement
+        # its caller found `ranked` (Phase77 S13).
+        if family != "postgres" and not (
+            family == "mysql" and ranked and ranked_value(realization)
+        ):
             return "PIE-B1003", "first_last_not_admitted_on_target"
         if not direct_reference or realization is None:
             return "PIE-B1003", "aggregate_argument_not_a_direct_established_field"
@@ -1376,15 +1748,22 @@ def build_stage(
     *,
     reference_type,
     symbol,
+    ranked=False,
 ):
     """Realize one aggregation: its ordered determinants and its occurrences,
     or every problem refusing it: a determinant's first, or each occurrence's.
+    `ranked` is a MySQL statement `ranked_statement` admits; it stays ranked
+    only when every key and every `first` or `last` reads a qualified carrier
+    (`ranked_inputs`), else each refusal is the one before Phase77 S13.
 
     Every determinant binds the actual pre-aggregate input it already has a port
     for, and every occurrence keeps its own distinct result column even when two
     declarations spell the same aggregate over the same field.
     """
     family = request.family
+    ranked = ranked and ranked_inputs(
+        request.plan, available, keys, values, reference_type
+    )
     columns: list[Any] = []
     key_columns: list[Any] = []
     value_columns: list[AggregateValueColumn] = []
@@ -1600,6 +1979,7 @@ def build_stage(
                     cell=family == "mysql"
                     and function in SPREAD_FUNCTIONS
                     and mysql_spread_cell(request.plan, value, argument),
+                    ranked=ranked,
                 )
             if problem is not None:
                 return None, (*problem, value.ref, location)
@@ -1825,6 +2205,274 @@ class CompiledAggregateSubject:
     ref: Any
 
 
+# Compiled units, each a record of one of these kinds: a ranked statement has
+# a WHERE row at most, one aggregate, its projection row and, by a key, its
+# ordered result, and no other unit or relation read.
+_RANKED_UNIT_RECORDS = frozenset(
+    {
+        "scan",
+        "row",
+        "join",
+        "window",
+        "aggregate",
+        "result",
+        "set",
+        "values",
+        "table_function",
+        "unnest",
+        "expression_block_use",
+        "capture_use",
+        "any_filter",
+        "any_value",
+        "predicate_call",
+        "match_use",
+        "slot",
+    }
+)
+
+
+def _compiled_reads(records, addresses, consumer, ports=None) -> bool:
+    """Whether each address is a value read by the ``consumer`` unit through
+    its own input use (of one of ``ports``)."""
+    return type(addresses) is tuple and all(
+        address.kind == "read"
+        and records[address].get("role") == "value"
+        and records[records[address].get("use")].get("consumer") == consumer.address
+        and records[records[address].get("use")].get("producer")
+        == consumer.get("input")
+        and (ports is None or records[address].get("port") in ports)
+        for address in addresses
+    )
+
+
+def _ranked_compiled_filter(records, address, where, seen):
+    """`_ranked_filter` over records, each operation and parameter read once:
+    (the source ports of its `is not None` tests, each nullable, and the
+    source ports read by its `f == p` tests, each with a non-null Int
+    parameter), or None."""
+    if address in seen or address.kind != "operation":
+        return None
+    seen.add(address)
+    operator, operands = (
+        records[address].get("operator"),
+        records[address].get("operands"),
+    )
+    if operator == ("binary", "and"):
+        if len(operands) != 2:
+            return None
+        left, right = (
+            _ranked_compiled_filter(records, operand, where, seen)
+            for operand in operands
+        )
+        if left is None or right is None:
+            return None
+        return left[0] + right[0], left[1] + right[1]
+    if (
+        operator not in {("null_test", "is_not_null"), ("comparison", "==")}
+        or len(operands) != (1 if operator[0] == "null_test" else 2)
+        or not _compiled_reads(records, operands[:1], where)
+    ):
+        return None
+    port = records[records[operands[0]].get("port")]
+    if len(operands) == 1:
+        return ((port.address,), ()) if port.get("logical")[1] == "nullable" else None
+    right = operands[1]
+    if right in seen or right.kind != "parameter_read":
+        return None
+    seen.add(right)
+    parameter = records[records[right].get("parameter")]
+    if (parameter.get("tag"), parameter.get("nullable")) != ("Int", False):
+        return None
+    return (), (port,)
+
+
+def _compiled_bigint(records, port) -> bool:
+    """Whether a source port reads a non-null BIGINT field, by its record."""
+    physical = records[port.get("source")].get("physical")
+    if type(physical) is not str:
+        return False
+    described = json.loads(physical)
+    return (
+        described.get("storage") == {"kind": "my_bigint"}
+        and described.get("nullable") is False
+    )
+
+
+def ranked_records(records, entry, only=None):
+    """Compiled replay's `ranked_statement`, from the records alone: the
+    address of the one aggregate of a qualified statement, or None.
+
+    The entry's terminal is, by one key, a result ordered by that key
+    ascending, without DISTINCT or LIMIT, over the projection row, or,
+    GLOBAL, the projection row itself; the projection reads each aggregate
+    output and, by a key, the key once more for the order. The aggregate reads
+    a source, or a WHERE row over a source whose predicate is
+    `_ranked_compiled_filter`'s: it tests each nullable order key at most
+    once for `is not None` and compares at most one field, the key or, GLOBAL,
+    a non-null BIGINT field, with the one parameter, which nothing else reads.
+    The aggregate computes only `first` and `last`, each of one read ordered
+    by the same reads in the same directions. No other unit, relation read or
+    operation is in the records, and every unit is the entry declaration's. A
+    relation alias leaves no record, so this reads it as the source it names.
+    O(1) unless
+    the terminal leads to one aggregate (``only``, when given), then linear
+    in the records once."""
+    owner, terminal = entry.get("declaration"), records[entry.get("terminal")]
+    result = terminal if terminal.address.kind == "result" else None
+    projection = records[result.get("input")] if result is not None else terminal
+    if (
+        entry.get("requests") != ()
+        or entry.get("retained") != ()
+        or projection.address.kind != "row"
+        or projection.get("stage") != "projection"
+        or projection.get("predicate") is not None
+        or projection.get("input").kind != "aggregate"
+    ):
+        return None
+    aggregate = records[projection.get("input")]
+    if only is not None and aggregate.address != only:
+        return None
+    where = records[aggregate.get("input")]
+    source = records[where.get("input")] if where.address.kind == "row" else where
+    units = [
+        u for u in (result, projection, aggregate, where) if u not in (None, source)
+    ]
+    keys, values = aggregate.get("keys"), aggregate.get("values")
+    outputs = aggregate.get("outputs")
+    if (
+        source.address.kind != "source"
+        or where is not source
+        and (
+            where.get("stage") != "where"
+            or where.get("predicate") is None
+            or not _compiled_reads(records, where.get("values"), where)
+        )
+        or any(unit.get("owner") != owner for unit in units)
+        or len(keys) > 1
+        or aggregate.get("mode") != ("grouped" if keys else "global")
+        or not _compiled_reads(records, keys, aggregate)
+        or not values
+        or len(outputs) != len(keys) + len(values)
+        or not _compiled_reads(
+            records,
+            projection.get("values")[: len(outputs)],
+            projection,
+            outputs,
+        )
+        or tuple(
+            records[read].get("port")
+            for read in projection.get("values")[: len(outputs)]
+        )
+        != outputs
+    ):
+        return None
+    for value in values:
+        record = records[value]
+        if (
+            value.kind != "aggregate_value"
+            or record.get("function") not in ORDERED_VALUE_FUNCTIONS
+            or not _compiled_reads(records, record.get("arguments"), aggregate)
+            or len(record.get("arguments")) != 1
+            or not record.get("order_by")
+            or not _compiled_reads(
+                records,
+                tuple(records[item].get("value") for item in record.get("order_by")),
+                aggregate,
+            )
+        ):
+            return None
+    if keys:
+        if result is None:
+            return None
+        extra = projection.get("values")[len(outputs) :]
+        ordering = result.get("ordering")
+        if (
+            result.get("distinct") is not False
+            or result.get("limit") is not None
+            or result.get("limit_literal") is not None
+            or len(extra) != 1
+            or not _compiled_reads(records, extra, projection, outputs[:1])
+            or not _compiled_reads(
+                records,
+                result.get("projection"),
+                result,
+                projection.get("outputs")[: len(outputs)],
+            )
+            or len(ordering) != 1
+            or ordering[0][1] != "asc"
+            or not _compiled_reads(
+                records, ordering[0][:1], result, projection.get("outputs")
+            )
+            or records[records[ordering[0][0]].get("port")].get("source") != extra[0]
+        ):
+            return None
+    elif result is not None or len(projection.get("values")) != len(outputs):
+        return None
+    seen: set = set()
+    found = (
+        ((), ())
+        if where is source
+        else _ranked_compiled_filter(records, where.get("predicate"), where, seen)
+    )
+    if found is None:
+        return None
+    tested, compared = found
+
+    def origin(read):
+        # The source port an aggregate read reads, through the WHERE row.
+        port = records[read].get("port")
+        if where is source:
+            return port
+        return records[records[port].get("source")].get("port")
+
+    lists = {
+        tuple(
+            (origin(records[item].get("value")), records[item].get("direction"))
+            for item in records[value].get("order_by")
+        )
+        for value in values
+    }
+    order = {port for fields in lists for port, _ in fields}
+    if (
+        len(lists) != 1
+        or len(set(tested)) != len(tested)
+        or not order.issuperset(tested)
+        or len(compared) > 1
+        or len(compared) != sum(address.kind == "parameter" for address in records)
+        or any(
+            port.address != origin(keys[0])
+            if keys
+            else not _compiled_bigint(records, port)
+            for port in compared
+        )
+    ):
+        return None
+    counted = sum(
+        address.kind in _RANKED_UNIT_RECORDS
+        or address.kind in {"operation", "parameter_read", "source"}
+        for address in records
+    )
+    if counted != len(units) + 1 + len(seen):
+        return None
+    return aggregate.address
+
+
+def _ranked_compiled_stage(records, record, arguments) -> bool:
+    """A compiled MySQL aggregation that `ranked_records` names, by at most
+    one non-null BIGINT key read (`ranked_inputs` over resolved inputs)."""
+    keys = [
+        argument
+        for address, (argument, _, _) in zip(
+            record.get("outputs"), arguments, strict=True
+        )
+        if records[records[address].get("source")].address.kind == "read"
+    ]
+    return all(
+        type(key) is rows.SQLStageReference and ranked_key(key.realization, group=True)
+        for key in keys
+    )
+
+
 def build_compiled_stage(plan, record, arguments):
     """Realize resolved aggregate inputs with the same R12/R13 laws."""
     from pietto._project.project_compiled_schema import Address, CompiledError
@@ -1844,6 +2492,7 @@ def build_compiled_stage(plan, record, arguments):
     keys: list[Any] = []
     values: list[AggregateValueColumn] = []
     columns: list[Any] = []
+    ranked = None
     for index, (address, supplied) in enumerate(
         zip(record.get("outputs"), arguments, strict=True)
     ):
@@ -1943,11 +2592,24 @@ def build_compiled_stage(plan, record, arguments):
                 ):
                     raise CompiledError("COMPILED_AGGREGATE_ARGUMENT")
             elif function in ORDERED_VALUE_FUNCTIONS:
-                family = records[Address("target", 0)].get("family")
+                # A MySQL `first` or `last` is ranked only in the statement
+                # `ranked_records` names, by a non-null BIGINT key at most.
+                if ranked is None:
+                    ranked = (
+                        family == "mysql"
+                        and ranked_records(
+                            records,
+                            records[plan.ir.completed.root.description.query],
+                            record.address,
+                        )
+                        is not None
+                        and _ranked_compiled_stage(records, record, arguments)
+                    )
                 if (
                     delimiters
                     or not order_by
-                    or argument_problem(function, argument, family) is not None
+                    or argument_problem(function, argument, family, ranked=ranked)
+                    is not None
                     or any(
                         order_key_problem(
                             function, family, rows.realization_of(order.value, family)
