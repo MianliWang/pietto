@@ -2074,9 +2074,11 @@ def realize_rows(request):
     for value in sorted(plan.collects, key=lambda c: c.export.position):
         collect_reads.setdefault(value.block, []).append(value)
     collected = {value.producer for value in plan.collects}
-    # A header parameter type without a carrier on this target (MySQL Decimal,
-    # Date, Timestamp, UUID until its differential) is refused at its
-    # declaration, read or not, before any placeholder is allocated.
+    # A header parameter type without a carrier on this target is refused at
+    # its declaration, read or not, before any placeholder is allocated; so is
+    # each MySQL Decimal, Date and Timestamp one unless every such read is in
+    # its cell (rows.mysql_typed_cells).
+    closed = family == "mysql" and not rows.mysql_typed_cells(plan)
     problems.extend(
         Blocker(
             "PIE-B1003",
@@ -2086,6 +2088,8 @@ def realize_rows(request):
         )
         for parameter in plan.parameters
         if parameters.parameter_physical(family, parameter.tag) is None
+        or closed
+        and parameter.tag in parameters.HEADER_PHYSICAL[family]
     )
     problems.extend(ordered_inline_read_blockers(plan, family))
     if problems:

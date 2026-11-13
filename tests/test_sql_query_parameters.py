@@ -10,6 +10,7 @@ for a binding; nothing in the SQL text depends on a value.
 from __future__ import annotations
 
 import json
+import re
 from collections import Counter
 from dataclasses import replace
 from pathlib import Path
@@ -20,7 +21,11 @@ import pytest
 import _pietto_sql_emission as probe
 from _pietto_sql_query_parameters import PROTOCOL
 from _pietto_sql_query_parameters import parameterized_case as _case
-from _pietto_sql_query_parameters import typed_case
+from _pietto_sql_query_parameters import (
+    MYSQL_TYPED_OPEN,
+    MYSQL_TYPED_REFUSED,
+    typed_case,
+)
 import _pietto_target_conformance_cases as conformance
 from pietto._project import project_sql_emission_parameters as parameters
 from pietto._project.project_sql_emission import serialize_project_sql_emission
@@ -1647,7 +1652,13 @@ def test_a_decimal_parameter_keeps_the_existing_decimal_laws(
 @pytest.mark.parametrize(
     ("body", "columns"),
     (
-        (None, [14, 32, 50, 61]),
+        (
+            "query result(since: Timestamp, day: Date | None, key: UUID, "
+            "floor: Decimal(9, 2)):\n    from rows\n"
+            "    where since <= ts and day == d2 and key == u and floor <= money\n"
+            "    select:\n        id\n",
+            [14, 32, 50, 61],
+        ),
         (
             "query result(low: Int, day: Date | None):\n    from rows\n"
             "    where id > low\n    select:\n        id\n",
@@ -1657,12 +1668,12 @@ def test_a_decimal_parameter_keeps_the_existing_decimal_laws(
     ids=("read", "unread"),
 )
 def test_mysql_refuses_each_typed_parameter_at_its_declaration(
-    tmp_path: Path, body: str | None, columns: list[int]
+    tmp_path: Path, body: str, columns: list[int]
 ) -> None:
-    """D73.14: MySQL has no Decimal, Date, Timestamp or UUID parameter carrier
-    until a later MySQL catch-up, so each such declaration, read or not, is PIE-B1003 at its own
-    span before any placeholder is allocated; the other parameters keep theirs."""
-    checked, outcome = typed_case(tmp_path, "mysql", *(() if body is None else (body,)))
+    """Outside its cells (S09), each MySQL Decimal, Date, Timestamp or UUID
+    declaration, read or not, is PIE-B1003 at its own span before any
+    placeholder is allocated; the other parameters keep theirs."""
+    checked, outcome = typed_case(tmp_path, "mysql", body)
     assert checked.verified and outcome.status == "BLOCKED"
     document = _document(outcome)
     assert [
@@ -1689,3 +1700,155 @@ def test_mysql_refuses_each_typed_parameter_at_its_declaration(
         )
         for column in columns
     ]
+
+
+MYSQL_TYPED_WHERE = (
+    " WHERE (((`s0`.`ts` >= CAST(? AS DATETIME(6)))"
+    " AND (`s0`.`d2` = CAST(? AS DATE)))"
+    " AND (`s0`.`money` >= CAST(? AS DECIMAL(9,2))))"
+)
+MYSQL_ANCHORS = {"Timestamp": "DATETIME(6)", "Date": "DATE", "Decimal": "DECIMAL(9,2)"}
+
+
+def _mysql_typed(root: Path, body: str, *, main: bool = False) -> Any:
+    """The MySQL emission of ``body``, or with ``main`` the one of main, which
+    has no MySQL Decimal, Date or Timestamp carrier."""
+    if not main:
+        return typed_case(root, "mysql", body)[1]
+    with pytest.MonkeyPatch.context() as patch:
+        patch.setitem(parameters.HEADER_PHYSICAL, "mysql", {})
+        return typed_case(root, "mysql", body)[1]
+
+
+def _uses(document: dict[str, Any]) -> list[tuple[str, int, int]]:
+    return [
+        (u["physical_type"], u["owner"]["parameter"], u["server_index"])
+        for u in document["parameter_uses"]
+    ]
+
+
+def test_mysql_typed_parameters_cast_to_their_source_carrier_in_their_cells(
+    tmp_path: Path,
+) -> None:
+    """S09: in a WHERE comparison with a source field of its type, each MySQL
+    Decimal(p, s), Date or Timestamp read is one `?` in its source carrier, a
+    Decimal one with its declared precision and scale, with no binding
+    obligation; main refuses each declaration."""
+    outcome = _mysql_typed(tmp_path / "candidate", MYSQL_TYPED_OPEN["where"])
+    assert outcome.status == "VERIFIED"
+    document = probe.decode_public(serialize_project_sql_emission(outcome))
+    assert MYSQL_TYPED_WHERE in document["sql"]
+    assert [(p["name"], p["tag"], p["nullable"]) for p in document["parameters"]] == [
+        ("since", "Timestamp", False),
+        ("day", "Date", True),
+        ("floor", "Decimal", False),
+    ]
+    assert _uses(document) == [
+        ("my_datetime", 0, 1),
+        ("my_date", 1, 2),
+        ("my_decimal", 2, 3),
+    ]
+    assert document["binding_obligations"] == []
+    main = _mysql_typed(tmp_path / "main", MYSQL_TYPED_OPEN["where"], main=True)
+    assert main.status == "BLOCKED"
+    assert {b.detail for b in main.blockers} == {
+        "query_parameter_type_not_admitted_on_target"
+    }
+
+
+@pytest.mark.parametrize(
+    ("operator", "sql"),
+    (("==", "="), ("!=", "<>"), ("<", "<"), ("<=", "<="), (">", ">"), (">=", ">=")),
+)
+def test_each_mysql_typed_comparison_and_select_item_is_a_cell(
+    tmp_path: Path, operator: str, sql: str
+) -> None:
+    """Every comparison operator of a cell, for each type, and each type as
+    a whole SELECT item: one `?` per read in SQL order, WHERE before SELECT,
+    a header parameter read twice taking two server indexes."""
+    body = (
+        "query result(since: Timestamp, day: Date, floor: Decimal(9, 2)):\n"
+        f"    from rows\n    where ts {operator} since and d {operator} day"
+        f" and money {operator} floor\n"
+        "    select:\n        id\n        a = since\n        b = day\n"
+        "        e = floor\n"
+    )
+    outcome = _mysql_typed(tmp_path, body)
+    assert outcome.status == "VERIFIED", outcome.blockers
+    document = probe.decode_public(serialize_project_sql_emission(outcome))
+    for field, tag in (("ts", "Timestamp"), ("d", "Date")):
+        assert (
+            f"(`s0`.`{field}` {sql} CAST(? AS {MYSQL_ANCHORS[tag]}))" in document["sql"]
+        )
+    assert f"(`s0`.`money` {sql} CAST(? AS DECIMAL(9,2)))" in document["sql"]
+    for label, tag in (("a", "Timestamp"), ("b", "Date")):
+        assert f"CAST(? AS {MYSQL_ANCHORS[tag]}) AS `{label}`" in document["sql"]
+    assert "CAST(? AS DECIMAL(9,2)) AS `e`" in document["sql"]
+    assert [owner for _, owner, _ in _uses(document)] == [0, 1, 2] * 2
+    assert [index for _, _, index in _uses(document)] == list(range(1, 7))
+
+
+@pytest.mark.parametrize(
+    ("items", "owners"),
+    ((("a = day", "b = floor"), [0, 1]), (("a = floor", "b = day"), [1, 0])),
+    ids=("ab", "ba"),
+)
+def test_mysql_typed_reads_follow_the_sql_order_with_mysql_multiplicity(
+    tmp_path: Path, items: tuple[str, str], owners: list[int]
+) -> None:
+    """The native occurrences follow the SQL, also with the reads reversed,
+    and one Date read twice in an `or` is two `?`, never one deduplicated
+    index."""
+    body = (
+        "query result(day: Date, floor: Decimal(9, 2)):\n    from rows\n"
+        "    select:\n        id\n" + "".join(f"        {i}\n" for i in items)
+    )
+    outcome = _mysql_typed(tmp_path / "order", body)
+    assert outcome.status == "VERIFIED"
+    document = probe.decode_public(serialize_project_sql_emission(outcome))
+    assert [owner for _, owner, _ in _uses(document)] == owners
+    outcome = _mysql_typed(tmp_path / "twice", MYSQL_TYPED_OPEN["twice"])
+    assert outcome.status == "VERIFIED"
+    document = probe.decode_public(serialize_project_sql_emission(outcome))
+    assert (
+        "((`s0`.`d` = CAST(? AS DATE)) OR (`s0`.`d` = CAST(? AS DATE)))"
+        in document["sql"]
+    )
+    assert _uses(document) == [("my_date", 0, 1), ("my_date", 0, 2)]
+
+
+@pytest.mark.parametrize("shape", sorted(MYSQL_TYPED_OPEN))
+def test_mysql_typed_cells_open_only_statements_main_refuses(
+    tmp_path: Path, shape: str
+) -> None:
+    """Each body in its cells emits, where main refuses it at its typed
+    declarations."""
+    body = MYSQL_TYPED_OPEN[shape]
+    assert _mysql_typed(tmp_path / "candidate", body).status == "VERIFIED"
+    main = _mysql_typed(tmp_path / "main", body, main=True)
+    assert main.status == "BLOCKED"
+    assert {b.detail for b in main.blockers} == {
+        "query_parameter_type_not_admitted_on_target"
+    }
+
+
+@pytest.mark.parametrize("shape", sorted(MYSQL_TYPED_REFUSED))
+def test_a_refused_mysql_typed_statement_reports_mains_document(
+    tmp_path: Path, shape: str
+) -> None:
+    """D77.24, D77.37: a body outside the cells, in them but refused by
+    another rule, or declaring a UUID (S09 withdrew its MySQL carrier),
+    reports main's whole document, each typed declaration PIE-B1003 in
+    header order and nothing else."""
+    body = MYSQL_TYPED_REFUSED[shape]
+    outcome = _mysql_typed(tmp_path / "candidate", body)
+    main = _mysql_typed(tmp_path / "main", body, main=True)
+    assert outcome.status == main.status == "BLOCKED"
+    assert serialize_project_sql_emission(outcome) == serialize_project_sql_emission(
+        main
+    )
+    (header,) = (line for line in body.splitlines() if line.startswith("query result("))
+    typed = re.findall(r": (?:Date|Timestamp|UUID|Decimal)\b", header)
+    assert [b.detail for b in outcome.blockers] == [
+        "query_parameter_type_not_admitted_on_target"
+    ] * len(typed)

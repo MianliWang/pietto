@@ -42,9 +42,11 @@ SQL_TYPES = {
 }
 
 
-# Header-parameter carriers no literal or slot has: PostgreSQL only. MySQL has
-# none until its differential (a later MySQL catch-up), so a MySQL declaration of one of these
-# types is refused before any placeholder is allocated.
+# Header-parameter carriers no literal or slot has. A MySQL declaration of one
+# of these types opens only in its cells (rows.mysql_typed_cells) and is
+# refused before any placeholder is allocated otherwise. MySQL has no UUID
+# carrier: S09's run read CAST(? AS BINARY(16)) back as VARBINARY (253), not
+# my_uuid_bytes (254), so its opening is withdrawn (D77.07).
 HEADER_PHYSICAL = {
     "postgres": {
         "Decimal": "pg_numeric",
@@ -52,13 +54,20 @@ HEADER_PHYSICAL = {
         "Timestamp": "pg_timestamp",
         "UUID": "pg_uuid",
     },
-    "mysql": {},
+    "mysql": {
+        "Decimal": "my_decimal",
+        "Date": "my_date",
+        "Timestamp": "my_datetime",
+    },
 }
 HEADER_SQL_TYPES = {
     "pg_numeric": "pg_catalog.numeric",
     "pg_date": "pg_catalog.date",
     "pg_timestamp": "pg_catalog.timestamp",
     "pg_uuid": "pg_catalog.uuid",
+    "my_decimal": "DECIMAL",
+    "my_date": "DATE",
+    "my_datetime": "DATETIME(6)",
 }
 
 
@@ -408,7 +417,7 @@ def anchor_suffix(physical, storage=None):
     sql_type = (
         SQL_TYPES[physical] if physical in SQL_TYPES else HEADER_SQL_TYPES[physical]
     )
-    if physical == "pg_numeric":
+    if physical in ("pg_numeric", "my_decimal"):
         if storage is None:
             raise ValueError("Decimal anchor carrier")
         sql_type += f"({storage['precision']},{storage['scale']})"

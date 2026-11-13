@@ -2627,10 +2627,25 @@ exports and binds, but `execute()` refuses it when it prepares the result and
 `save()` when it describes the binding
 (PIE-R1004 `QUERY_NOT_EXECUTABLE`, detail `MEANING_OUTPUT`, or
 `MEANING_UNAVAILABLE` in a collected `let` beside a `Timestamp` or `UUID`
-source field). MySQL has no carrier for these four types yet: emitting a
-query that declares one, read or not, is BLOCKED with PIE-B1003
-`query_parameter_type_not_admitted_on_target` at each such declaration, until
-a later MySQL catch-up.
+source field).
+
+MySQL project SQL (unreleased, Phase77 S09) writes a `Decimal(p, s)`, `Date`
+or `Timestamp` read as `CAST(? AS DECIMAL(p,s))`, `CAST(? AS DATE)` or
+`CAST(? AS DATETIME(6))`, one `?` per read in rendering order, and sends the
+value as its canonical text, in two positions only, those its native
+qualification matched: as the whole value of a SELECT item of the emitted
+query, or as the right operand of `==`, `!=`, `<`, `<=`, `>` or `>=` whose
+left operand is a field of the query's source with the parameter's type, in
+a comparison that the WHERE reaches through `and` and `or` alone
+(`where ts >= since and (d == day or d == other)`). The query reads its one
+source directly through one WHERE at most, with no `let`, JOIN, GROUP BY or
+other aggregate, window, HAVING, QUALIFY, DISTINCT, ORDER BY, LIMIT or read of
+another relation, declares no `UUID` parameter and reads every such parameter
+it declares. MySQL has no `UUID` parameter carrier. Emitting any other MySQL
+query that declares one of these four types, read or not, is BLOCKED with
+PIE-B1003 `query_parameter_type_not_admitted_on_target` at each such
+declaration, as before; a query whose reads all sit in those positions but
+that another rule refuses reports that same list.
 
 A read, or a `let` binding or output whose value reads one, is available
 beneath unary, binary, comparison, null-test, BETWEEN, conditional,

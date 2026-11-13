@@ -116,7 +116,8 @@ VARIANTS = {
         "let_bind",
         # Decimal, Date and Timestamp, then UUID, header
         # parameters over the Q1 meaning sources (PostgreSQL; MySQL refuses
-        # these types until a later MySQL catch-up).
+        # them: `date_of(ratio) == day` and `unset is None` sit outside the
+        # MySQL typed cells).
         "typed_timestamp",
         "typed_uuid",
     ),
@@ -5254,8 +5255,8 @@ MIGRATED_TO_SUCCESS = (
 # PostgreSQL alone admits the published restricted FULL domain; MySQL keeps its
 # typed non-support, so these variants are per-target.
 PER_TARGET_STATUS = {
-    # D73.14: Decimal, Date, Timestamp and UUID header parameters
-    # are PostgreSQL only; MySQL refuses each declaration until a later MySQL catch-up.
+    # D73.14: MySQL refuses each Decimal, Date, Timestamp and UUID
+    # declaration of these variants, whose reads sit outside its typed cells.
     ("Q_query_parameters", "typed_timestamp"): {
         "postgres": "VERIFIED",
         "mysql": "BLOCKED",
@@ -6629,8 +6630,8 @@ def parameter_text(tag, value):
 
 def _binding_value(family, tag, value):
     """One caller binding of a v2 header parameter, exactly as the driver sends it."""
-    if tag in PARAMETER_PHYSICAL:
-        return family == "postgres" and parameter_text(tag, value) is not None
+    if tag in PARAMETER_PHYSICAL[family]:
+        return parameter_text(tag, value) is not None
     if tag == "Bool":
         return type(value) is bool
     if tag == "Int":
@@ -6682,7 +6683,7 @@ def decoded_arguments(document, bindings=None):
             key = ("parameter", owner["parameter"])
             parameter = header[owner["parameter"]]
             tag, decoded = parameter["tag"], bindings[parameter["name"]]
-            if tag in PARAMETER_PHYSICAL and decoded is not None:
+            if tag in PARAMETER_PHYSICAL[family] and decoded is not None:
                 # The anchor casts the value's canonical text.
                 decoded = parameter_text(tag, decoded)
         if family == "mysql" and tag == "Bool" and decoded is not None:
@@ -15827,13 +15828,20 @@ def _decode_fixed_public(document, limits):
 
 
 PARAMETERIZED_FORMAT = "pietto.sql-emission.v2"
-# Header parameter carriers beyond the fixed-value tags: PostgreSQL only
-# (MySQL refuses these types until its differential).
+# Header parameter carriers beyond the fixed-value tags, by family (MySQL
+# emits them only in its typed cells).
 PARAMETER_PHYSICAL = {
-    "Decimal": "pg_numeric",
-    "Date": "pg_date",
-    "Timestamp": "pg_timestamp",
-    "UUID": "pg_uuid",
+    "postgres": {
+        "Decimal": "pg_numeric",
+        "Date": "pg_date",
+        "Timestamp": "pg_timestamp",
+        "UUID": "pg_uuid",
+    },
+    "mysql": {
+        "Decimal": "my_decimal",
+        "Date": "my_date",
+        "Timestamp": "my_datetime",
+    },
 }
 BINDING_OBLIGATION_KINDS = frozenset({"int_range_representable", "text_result_width"})
 # A window offset, bucket count or position (S04w): its subject is the window
@@ -15914,11 +15922,8 @@ def _decode_parameterized_public(document, limits):
             and type(parameter["name"]) is str
             and bool(parameter["name"])
             and parameter["name"] not in names
-            and (
-                parameter["tag"] in {"Bool", "Int", "Float", "Text"}
-                or family == "postgres"
-                and parameter["tag"] in PARAMETER_PHYSICAL
-            )
+            and parameter["tag"]
+            in {"Bool", "Int", "Float", "Text", *PARAMETER_PHYSICAL[family]}
             and type(parameter["nullable"]) is bool
         )
         names.add(parameter["name"])
@@ -15975,8 +15980,8 @@ def _decode_parameterized_public(document, limits):
             interval["role"] == tag
             and use["physical_type"]
             == (
-                PARAMETER_PHYSICAL[tag]
-                if tag in PARAMETER_PHYSICAL
+                PARAMETER_PHYSICAL[family][tag]
+                if tag in PARAMETER_PHYSICAL[family]
                 else _fixed_physical(family, tag)
             )
         )
@@ -16833,6 +16838,9 @@ def temporal_case(
         + body
     )
     files = {"main.pietto": source, **(modules or {})}
+    directory.mkdir(parents=True, exist_ok=True)
+    # The contract beside the modules, for a public compile of the project.
+    (directory / "contract.json").write_bytes(encoded(contract))
     return build_case(directory, files, encoded(contract).decode(), policy)
 
 

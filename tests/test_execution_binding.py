@@ -14,8 +14,11 @@ from pietto._project.project_completed_semantics import (
 from pietto._project.project_sql_plan import ProjectSQLPlan
 
 from _pietto_execution_binding import bind, proof_artifact, template
+from _pietto_sql_query_parameters import MYSQL_TYPED_OPEN, typed_case
 import _pietto_results_product as product
 import _pietto_sql_emission as probe
+import _pietto_target_conformance_cases as conformance
+import _pietto_target_conformance_observation as observation
 from pietto._project.project_sql_emission import serialize_project_sql_emission
 from pietto._project import project_execution_template as binding
 from pietto._project import project_execution_binding_verification as checking
@@ -1030,6 +1033,97 @@ def test_a_typed_value_is_checked_by_its_binding(typed_witnesses, variant, name,
     only when declared nullable. Nothing is coerced or rounded."""
     t, _ = typed_witnesses[variant]
     values = {**_typed_values(variant), name: value}
+    ordinal = [p.name for p in t.parameters].index(name)
+    with pytest.raises(
+        binding.BindingError,
+        match=f"^BINDING_PARAMETER:{ordinal}:{t.parameters[ordinal].tag}$",
+    ):
+        binding.bind_values(t, (), _named(t, *(values[p.name] for p in t.parameters)))
+
+
+@pytest.fixture(scope="module")
+def mysql_typed(tmp_path_factory):
+    """The MySQL S09 templates of the WHERE and mixed cell bodies, built once,
+    each with its independently decoded public document."""
+    result = {}
+    for shape in ("where", "mixed"):
+        _, outcome = typed_case(
+            tmp_path_factory.mktemp(f"mysql-{shape}"), "mysql", MYSQL_TYPED_OPEN[shape]
+        )
+        assert outcome.status == "VERIFIED" and outcome.artifact is not None
+        document = probe.decode_public(serialize_project_sql_emission(outcome))
+        result[shape] = binding.prepare_live_template(outcome.artifact), document
+    return result
+
+
+@pytest.mark.parametrize(
+    ("shape", "values", "wire"),
+    (
+        (
+            "where",
+            {
+                "since": datetime(2026, 11, 8, 1, 2, 3, 1),
+                "day": None,
+                "floor": Decimal("12.30"),
+            },
+            ("2026-11-08 01:02:03.000001", None, "12.3"),
+        ),
+        (
+            "mixed",
+            {"low": 3, "day": None, "floor": Decimal("-0.010")},
+            (3, None, "-0.01", "-0.01", None),
+        ),
+    ),
+)
+def test_a_mysql_typed_template_sends_one_native_argument_per_read(
+    mysql_typed, shape, values, wire
+):
+    """S09: MySQL sends each Decimal, Date or Timestamp read as its canonical
+    text, which its anchor casts, one argument per `?` in SQL order and a
+    NULL once per read; the caller's typed values stay as given, and the
+    conformance runner's own decoder and receipt records agree."""
+    t, document = mysql_typed[shape]
+    supplied = tuple(values[p.name] for p in t.parameters)
+    accepted = binding.bind_values(t, (), _named(t, *supplied))
+    checking.verify_binding(accepted)
+    assert accepted.artifact.rendered.sql == t.artifact.rendered.sql
+    assert accepted.parameters == supplied
+    assert accepted.arguments == wire == probe.decoded_arguments(document, values)
+    assert conformance.parameter_records(document, values) == [
+        observation.scalar(item) for item in wire
+    ]
+
+
+@pytest.mark.parametrize(
+    ("name", "value"),
+    [
+        ("since", datetime(1970, 1, 1, tzinfo=timezone.utc)),
+        ("since", date(1970, 1, 1)),
+        ("since", datetime(999, 12, 31)),
+        ("since", datetime(9999, 12, 31, 23, 59, 59, 499_999 + 1)),
+        ("since", "1970-01-01 00:00:00"),
+        ("since", None),
+        ("day", datetime(1970, 1, 1)),
+        ("day", "1970-01-01"),
+        ("day", date(999, 12, 31)),
+        ("floor", Decimal("0.001")),
+        ("floor", Decimal("10000000")),
+        ("floor", Decimal("NaN")),
+        ("floor", Decimal("-Infinity")),
+        ("floor", 0),
+        ("floor", "0"),
+    ],
+)
+def test_a_mysql_typed_value_is_checked_by_its_binding(mysql_typed, name, value):
+    """The MySQL template checks each value as PostgreSQL does, before any
+    native argument exists: nothing is coerced, rounded or clamped."""
+    t, _ = mysql_typed["where"]
+    values = {
+        "since": datetime(1970, 1, 1),
+        "day": date(1970, 1, 1),
+        "floor": Decimal("0"),
+        name: value,
+    }
     ordinal = [p.name for p in t.parameters].index(name)
     with pytest.raises(
         binding.BindingError,

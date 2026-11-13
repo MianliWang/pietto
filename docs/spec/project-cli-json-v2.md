@@ -583,7 +583,14 @@ v1 reader rejects v2 by its tag. v2 is v1 with these differences:
   `Timestamp` or `UUID`, whose `parameter_uses[i].physical_type` is
   `pg_numeric`, `pg_date`, `pg_timestamp` or `pg_uuid`; a Decimal's precision
   and scale are those of its declaration and of its anchor cast
-  `pg_catalog.numeric(p,s)`; these reads have no binding obligation.
+  `pg_catalog.numeric(p,s)`. On MySQL `tag` is also `Decimal`, `Date` or
+  `Timestamp` in the positions that
+  [Query header parameters](../language.md#query-header-parameters-in-explicit-module-projects)
+  lists ([unreleased](../release-notes.d/77-s09-mysql-typed-parameters.md)),
+  whose `physical_type` is `my_decimal`, `my_date` or `my_datetime` and whose
+  read is the anchor cast `CAST(? AS DECIMAL(p,s))`, with the declaration's
+  precision and scale, `CAST(? AS DATE)` or `CAST(? AS DATETIME(6))`; MySQL
+  has no `UUID` tag. These reads have no binding obligation.
 - `parameter_uses[i]` names its owner instead of a slot:
   `{"use", "owner": {"kind": "slot", "slot": i} | {"kind": "parameter",
   "parameter": j}, "server_index", "physical_type", "range"}`. Reads and

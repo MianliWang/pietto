@@ -499,6 +499,310 @@ def _mysql_compiled_capture_read(
     )
 
 
+# The MySQL cells of a Decimal(p, s), Date or Timestamp header parameter (the
+# MySQL carriers of HEADER_PHYSICAL) that the Phase77 S09 candidate
+# qualification preregisters. A read is the whole value of a SELECT item of
+# the emitted query, or the right operand of a comparison whose left operand
+# is a field of its source with the parameter's type, which the query's WHERE
+# reaches through `and` and `or` alone. The query reads its one source
+# directly, through one WHERE at most. Emission and the
+# live verifier (plan) and compiled replay (records) each derive the cells
+# from their own record; a statement opens its typed declarations only when
+# each is read and every read is in a cell. The pure boundary refuses every
+# header parameter.
+MYSQL_TYPED_COMPARISONS = frozenset({"==", "!=", "<", "<=", ">", ">="})
+_MYSQL_TYPED_OPERATORS = frozenset(("comparison", o) for o in MYSQL_TYPED_COMPARISONS)
+# Plan fields a cell's plan may fill; every other field must be empty.
+_MYSQL_TYPED_PLAN_FIELDS = frozenset(
+    {
+        "literal_policy",
+        "parameters",
+        "literal_sites",
+        "literal_slots",
+        "bind_uses",
+        "fixed_envelope",
+        "scope",
+        "bindings",
+        "sources",
+        "blocks",
+        "input_uses",
+        "source_ports",
+        "input_ports",
+        "all_exports",
+        "exports",
+        "projections",
+        "boundaries",
+        "symbols",
+        "origins",
+        "demands",
+        "expression_sites",
+        "expressions",
+        "operands",
+        "stage_ports",
+        "filters",
+        "result_ports",
+        "result_exports",
+    }
+)
+# Compiled record kinds a cell's bundle may hold: its units, values and their
+# metadata. Any other unit, read or request leaves every typed read outside
+# its cell.
+_MYSQL_TYPED_RECORDS = frozenset(
+    {
+        "entry",
+        "target",
+        "premise",
+        "expression_context",
+        "policy",
+        "declaration",
+        "source",
+        "source_unique",
+        "provider",
+        "field",
+        "use",
+        "port",
+        "literal",
+        "null_literal",
+        "read",
+        "operation",
+        "site",
+        "slot",
+        "native_use",
+        "parameter",
+        "parameter_read",
+        "row",
+        "requirement_origin",
+        "requirement",
+        "requirement_link",
+        "output",
+    }
+)
+
+
+def mysql_typed_cells(plan) -> bool:
+    """Whether every Decimal, Date and Timestamp header parameter of a
+    MySQL plan is read and each read is in its cell, as above; never while
+    emission derives as main (AS_MAIN). One pass over the plan's
+    expressions and operand edges, then one over the WHERE's `and` and `or`
+    nodes."""
+    from pietto._project.project_sql_plan import (
+        ProjectSQLBoundary,
+        ProjectSQLBoundaryReason,
+    )
+
+    if AS_MAIN.get():
+        return False
+    typed = parameters.HEADER_PHYSICAL["mysql"]
+    declared = {id(p) for p in plan.parameters if p.tag in typed}
+    if not declared:
+        return True
+    reads = [
+        e
+        for e in plan.expressions
+        if type(e) is row.ProjectSQLParameterRead and e.parameter.tag in typed
+    ]
+    owner = plan.scope.selected_owner
+    body = owner.definition
+    stage = row.ProjectSQLStageKind
+    if (
+        {id(read.parameter) for read in reads} != declared
+        or any(
+            getattr(plan, name)
+            for name in plan.__dataclass_fields__
+            if name not in _MYSQL_TYPED_PLAN_FIELDS
+        )
+        or len(plan.sources) != 1
+        or len(plan.bindings.definitions) != 2
+        or tuple(block.kind for block in plan.blocks)
+        not in ((stage.PROJECTION,), (stage.WHERE, stage.PROJECTION))
+        or any(
+            type(block.boundary) is not ProjectSQLBoundary
+            or block.boundary.reason is not ProjectSQLBoundaryReason.SOURCE_INPUT
+            for block in plan.blocks
+        )
+        or any(getattr(body, name, None) is not None for name in _MYSQL_CELL_CLAUSES)
+        or getattr(body, "let_clause", None) is not None
+        or getattr(body, "join_clauses", ())
+        or getattr(body, "join_filters", ())
+        or getattr(body, "named_windows", ())
+    ):
+        return False
+    expressions = plan.expressions
+
+    def at(reference):
+        # The expression a reference names, read by its position.
+        position = getattr(reference, "position", None)
+        found = (
+            expressions[position]
+            if type(position) is int and 0 <= position < len(expressions)
+            else None
+        )
+        return found if found is not None and found.ref is reference else None
+
+    parents: dict[Any, list[Any]] = {}
+    for operand in plan.operands:
+        parents.setdefault(operand.child, []).append(operand.parent)
+    # The comparisons each WHERE predicate reaches through `and` and `or`
+    # alone, every node named once, by its parent; each node is visited once.
+    compared = set()
+    pending = [(f.predicate, None) for f in plan.filters]
+    while pending:
+        reference, parent = pending.pop()
+        node = at(reference)
+        if node is None or parents.get(reference, []) != (
+            [] if parent is None else [parent]
+        ):
+            continue
+        if type(node) is row.ProjectSQLBinary and node.expression.operator in (
+            "and",
+            "or",
+        ):
+            pending.extend(((node.left, reference), (node.right, reference)))
+        elif type(node) is row.ProjectSQLComparison:
+            compared.add(reference)
+    ports = {p.ref: p for p in plan.stage_ports}
+    inputs = {p.ref for p in plan.input_ports}
+    projected = {p.expression for p in plan.projections}
+    for read in reads:
+        site, above = read.site, parents.get(read.ref, [])
+        if type(site) is not row.ProjectSQLExpressionSite or site.owner is not owner:
+            return False
+        if site.role is row.ProjectSQLExpressionRole.SELECT:
+            if (
+                above
+                or read.ref not in projected
+                or site.occurrence.expression is not read.expression
+            ):
+                return False
+            continue
+        comparison = at(above[0]) if len(above) == 1 else None
+        field = at(getattr(comparison, "left", None))
+        port = ports.get(getattr(field, "port", None))
+        if (
+            site.role is not row.ProjectSQLExpressionRole.WHERE
+            or above[0] not in compared
+            or type(comparison) is not row.ProjectSQLComparison
+            or comparison.right is not read.ref
+            or comparison.expression.operator not in MYSQL_TYPED_COMPARISONS
+            or type(field) is not row.ProjectSQLReference
+            or port is None
+            or port.kind is not row.ProjectSQLStagePortKind.INPUT
+            or port.source not in inputs
+            or value_tag(field) != read.parameter.tag
+        ):
+            return False
+    return True
+
+
+def mysql_compiled_typed_cells(records, entry) -> bool:
+    """mysql_typed_cells from the compiled records alone. Each typed read is
+    named once (a port repeats its row's value, a native use its occurrence
+    and a requirement only anchors it, so none counts): by the entry's
+    terminal projection row, or as the right operand of a comparison over a
+    read of a source port of the same type, which `and` and `or` operations
+    alone lead to the predicate of the one WHERE row under it. Those rows are
+    the only ones and stand over the one source; every record kind is one of
+    _MYSQL_TYPED_RECORDS. One pass over the records, then one over the
+    WHERE's operations."""
+    from pietto._project.project_compiled_schema import Address
+
+    typed = parameters.HEADER_PHYSICAL["mysql"]
+    named: dict[Any, list[Any]] = {}
+    declared, reads, units, kinds = set(), [], [], set()
+    for address, record in records.items():
+        kind = address.kind
+        kinds.add(kind)
+        if kind == "parameter" and record.get("tag") in typed:
+            declared.add(address)
+        elif (
+            kind == "parameter_read"
+            and records[record.get("parameter")].get("tag") in typed
+        ):
+            reads.append(address)
+        elif kind in ("row", "source"):
+            units.append(record)
+        if kind in ("requirement", "port", "native_use"):
+            continue
+        pending = list(record.values)
+        while pending:
+            item = pending.pop()
+            if type(item) is tuple:
+                pending.extend(item)
+            elif type(item) is Address and item.kind in ("operation", "parameter_read"):
+                named.setdefault(item, []).append(address)
+    if not declared:
+        return True
+    owner = entry.get("declaration")
+    terminal = records[entry.get("terminal")]
+    sources = [u for u in units if u.address.kind == "source"]
+    below = [
+        u for u in units if u.address.kind == "row" and u.address != terminal.address
+    ]
+    source = sources[0] if len(sources) == 1 else None
+    where = below[0] if below else None
+    if (
+        not kinds <= _MYSQL_TYPED_RECORDS
+        or {records[read].get("parameter") for read in reads} != declared
+        or source is None
+        or len(below) > 1
+        or terminal.address.kind != "row"
+        or terminal.get("stage") != "projection"
+        or terminal.get("owner") != owner
+        or terminal.get("input") != (where or source).address
+        or where is not None
+        and (
+            where.address.kind != "row"
+            or where.get("stage") != "where"
+            or where.get("owner") != owner
+            or where.get("input") != source.address
+        )
+    ):
+        return False
+    # The comparisons the WHERE row's predicate reaches through `and` and
+    # `or` operations alone, every operation named once, by its parent.
+    compared = set()
+    pending = [] if where is None else [(where.get("predicate"), where.address)]
+    while pending:
+        address, parent = pending.pop()
+        if (
+            type(address) is not Address
+            or address.kind != "operation"
+            or named.get(address) != [parent]
+        ):
+            continue
+        operator = records[address].get("operator")
+        if operator in (("binary", "and"), ("binary", "or")):
+            pending.extend(
+                (child, address) for child in records[address].get("operands")
+            )
+        elif operator in _MYSQL_TYPED_OPERATORS:
+            compared.add(address)
+    for read in reads:
+        above = named.get(read, [])
+        if above == [terminal.address]:
+            continue
+        if where is None or len(above) != 1 or above[0] not in compared:
+            return False
+        operands = records[above[0]].get("operands")
+        field = (
+            records[operands[0]]
+            if len(operands) == 2 and operands[0].kind == "read"
+            else None
+        )
+        port = None if field is None else records[field.get("port")]
+        if (
+            field is None
+            or port is None
+            or operands[1] != read
+            or field.get("use") != where.get("use")
+            or port.get("owner") != source.address
+            or port.get("logical")[0]
+            != records[records[read].get("parameter")].get("tag")
+        ):
+            return False
+    return True
+
+
 TEXT_WIDTH_OBLIGATION = "text_result_width"
 TEXT_PROFILE = {
     "postgres": ("UTF8", "C", "NO PAD"),

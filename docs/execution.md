@@ -951,9 +951,11 @@ each parameter as `(name, tag, nullable)` in declaration order, for example
   other value, a string included, is `PIE-R1006`
   `BINDING_PARAMETER:<ordinal>:<tag>`. Each such value is sent as its
   canonical text, which the statement's own anchor casts (`postgres_rows` and
-  `postgres_adbc` alike): a Decimal without exponent or trailing zero
-  (`Decimal("12.50")` is sent as `12.5`, `-0.00` as `0`), an ISO date, an ISO
-  timestamp with a space and six fractional digits, and the lower-case UUID.
+  `postgres_adbc` alike, and, unreleased (Phase77 S09), `mysql_rows` for a
+  MySQL `Decimal`, `Date` or `Timestamp` read): a Decimal without exponent or
+  trailing zero (`Decimal("12.50")` is sent as `12.5`, `-0.00` as `0`), an ISO
+  date, an ISO timestamp with a space and six fractional digits, and the
+  lower-case UUID.
 - `query.parameters` names such a parameter by its type name alone, for
   example `('floor', 'Decimal', False)`.
 - A value-dependent check that the template could not decide, listed as the

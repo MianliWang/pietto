@@ -297,9 +297,9 @@ the ride's unique key, so the order never ties. Grouping by that list counts the
 members who rode from the same stations in the same order. See
 [grouping by a collected list](style.md#grouping-by-a-collected-list).
 
-MySQL refuses the parameter types `Date`, `Decimal`, `Timestamp` and `UUID`,
-project aggregate windows and collected lists (PIE-B1003); emit this project
-with `--dialect postgres`.
+MySQL refuses the `Date` parameters of `rides_between`, project aggregate
+windows and collected lists (PIE-B1003); emit this project with `--dialect
+postgres`.
 
 ## Two modules
 

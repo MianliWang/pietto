@@ -28,7 +28,11 @@ from pietto.semantic.relation_limits import MAX_RELATION_LIMIT, valid_resolved_l
 
 from pathlib import Path
 from typing import Any
-from _pietto_sql_query_parameters import typed_case
+from _pietto_sql_query_parameters import (
+    MYSQL_TYPED_OPEN,
+    MYSQL_TYPED_REFUSED,
+    typed_case,
+)
 from _pietto_sql_emission import LPAD_NOW_PAIRS, LPAD_NOW_REFUSALS, lpad_now_world
 from pietto._project.project_sql_emission import serialize_project_sql_emission
 
@@ -2839,9 +2843,12 @@ def test_a_typed_root_records_each_parameter_kind_and_its_decimal_carrier(tmp_pa
         wire.decode(old)
 
 
-def test_a_mysql_root_never_declares_a_typed_parameter(tmp_path):
+def test_a_mysql_typed_parameter_outside_its_cells_never_replays(tmp_path):
     """The family's own carriers bound the header tags a bundle may name:
-    MySQL has no Decimal, Date, Timestamp or UUID parameter (D73.14)."""
+    MySQL's admit Decimal, Date and Timestamp (S09) and no UUID (D77.07).
+    Compiled replay then derives the cells from the records, so `low`
+    relabelled as Date or Decimal, read in `low + 1` and against Int fields,
+    fails replay, its template and load_bundle."""
     built = _parameterized(tmp_path, "mysql", "bind")
     description = built.root.description
     low = next(r for r in description.records if r.address.kind == "parameter")
@@ -2850,8 +2857,12 @@ def test_a_mysql_root_never_declares_a_typed_parameter(tmp_path):
             description,
             lambda r: _set(_set(r, "tag", tag), "decimal", decimal) if r is low else r,
         )
-        with pytest.raises(wire.CompiledError, match="^COMPILED_PARAMETER$"):
-            verify_description(changed)
+        if tag == "UUID":
+            with pytest.raises(wire.CompiledError, match="^COMPILED_PARAMETER$"):
+                verify_description(changed)
+            continue
+        verify_description(changed)
+        _assert_bundle_loads_or_refused(built, wire.encode(changed), True)
 
 
 @pytest.mark.parametrize(
@@ -4397,3 +4408,249 @@ def test_compiled_replay_counts_the_rendered_parameter_markers(tmp_path, monkeyp
         ):
             with pytest.raises(wire.CompiledError, match=f"^{refusal}$"):
                 replay()
+
+
+@pytest.mark.parametrize("shape", sorted(MYSQL_TYPED_OPEN))
+def test_mysql_typed_cells_replay_their_sql_from_the_bundle(tmp_path, shape):
+    """S09: compiled replay derives the same MySQL typed cells from the
+    records alone; the loaded bundle emits the live SQL and native uses, its
+    template prepares, and the pure boundary leaves the template outside its
+    schema, as it leaves every header parameter."""
+    import _pietto_sql_emission_portable as portable
+    from pietto._project import project_sql_emission_rows as rows
+    from pietto._project.project_compiled_lowering import emit_compiled
+    from pietto._project.project_execution_template import prepare_compiled_template
+
+    _, outcome = typed_case(tmp_path, "mysql", MYSQL_TYPED_OPEN[shape])
+    artifact = outcome.artifact
+    assert artifact is not None, outcome.blockers
+    loaded = _loaded(artifact)
+    assert rows.mysql_compiled_typed_cells(
+        loaded.records, loaded.records[loaded.description.query]
+    )
+    replayed = emit_compiled(loaded, tuple(v.value for v in artifact.fixed_values))
+    assert replayed.rendered.sql == artifact.rendered.sql
+    assert [(u.physical_type, u.server_index) for u in replayed.parameter_uses] == [
+        (u.physical_type, u.server_index) for u in artifact.parameter_uses
+    ]
+    prepare_compiled_template(loaded)
+    observed = portable.export_emission_observation(artifact, artifact.request)
+    assert observed.status is portable.ObservationStatus.OUTSIDE_SCHEMA
+
+
+# The refused bodies that another rule still refuses when the plan law admits
+# every MySQL typed read, or that declare a UUID, which has no MySQL carrier:
+# no artifact exists to forge.
+_TYPED_UNFORGEABLE = frozenset(
+    {"in_list", "coalesce", "add_months", "decimal_conflict", "decimal_arithmetic"}
+    | {shape for shape in MYSQL_TYPED_REFUSED if shape.startswith("uuid_")}
+)
+
+
+@pytest.mark.parametrize("shape", sorted(MYSQL_TYPED_REFUSED))
+def test_forged_mysql_typed_reads_outside_their_cells_fail_every_reader(
+    tmp_path, monkeypatch, shape
+):
+    """An artifact of each refused body, emitted while the plan law admits
+    every MySQL typed read, with its observation and compiled bundle, fails
+    plain verification and the live template (plan), the pure boundary
+    (document) and compiled replay and its template (records) once the law is
+    back."""
+    import _pietto_sql_emission_portable as portable
+    from pietto._project import project_sql_emission_rows as rows
+
+    with monkeypatch.context() as patch:
+        patch.setattr(rows, "mysql_typed_cells", lambda plan: True)
+        _, outcome = typed_case(tmp_path, "mysql", MYSQL_TYPED_REFUSED[shape])
+        artifact = outcome.artifact
+        if shape in _TYPED_UNFORGEABLE:
+            assert artifact is None and outcome.blockers
+            return
+        assert artifact is not None, outcome.blockers
+        observed = portable.export_emission_observation(artifact, artifact.request)
+        loaded = _loaded(artifact)
+    _assert_every_reader_refuses(artifact, observed, loaded, None)
+
+
+@pytest.mark.parametrize(
+    "shape", sorted(s for s in MYSQL_TYPED_REFUSED if s.startswith("uuid_"))
+)
+def test_a_forged_mysql_uuid_parameter_fails_every_reader(tmp_path, monkeypatch, shape):
+    """S09 withdrew MySQL's UUID parameter carrier (D77.07). An artifact of
+    each former UUID cell, emitted while the carrier is back, with its
+    compiled bundle, fails plain verification and the live template (plan)
+    and compiled loading and load_bundle (records) once the carrier is gone.
+    The pure boundary (document) refuses it as outside its schema even while
+    the carrier is back, since it admits no header parameter."""
+    import pietto.execution as execution
+    from pietto._project import project_sql_emission_parameters as parameters
+    import _pietto_sql_emission_portable as portable
+    from pietto._project.project_compiled_build import build_compiled
+    from pietto._project.project_compiled_loading import load_compiled
+    from pietto._project.project_execution_template import (
+        BindingError,
+        prepare_live_template,
+    )
+    from pietto._project.project_sql_emission_verification import (
+        verify_project_sql_emission,
+    )
+
+    with monkeypatch.context() as patch:
+        patch.setitem(parameters.HEADER_PHYSICAL["mysql"], "UUID", "my_uuid_bytes")
+        patch.setitem(parameters.HEADER_SQL_TYPES, "my_uuid_bytes", "BINARY(16)")
+        _, outcome = typed_case(tmp_path, "mysql", MYSQL_TYPED_REFUSED[shape])
+        artifact = outcome.artifact
+        assert artifact is not None, outcome.blockers
+        observed = portable.export_emission_observation(artifact, artifact.request)
+        built = build_compiled(artifact)
+    assert not verify_project_sql_emission(artifact, artifact.request).verified
+    with pytest.raises(BindingError, match="^BINDING_ARTIFACT$"):
+        prepare_live_template(artifact)
+    assert observed.status is portable.ObservationStatus.OUTSIDE_SCHEMA
+    with pytest.raises(wire.CompiledError, match="^COMPILED_PARAMETER$"):
+        load_compiled(
+            built.payload,
+            expected_pin=built.pin,
+            accepted_producer=built.producer,
+            accepted_compatibility=built.compatibility,
+        )
+    with pytest.raises(execution.RequestRejected) as rejected:
+        execution.load_bundle(
+            built.payload,
+            expected_pin=built.pin,
+            accepted_producer=built.producer,
+            accepted_compatibility=built.compatibility[-1],
+        )
+    # Verification refuses the bytes at load (BUNDLE_NOT_ACCEPTED).
+    assert (rejected.value.code, rejected.value.detail) == (
+        "PIE-R1008",
+        "COMPILED_PARAMETER",
+    )
+
+
+def _swapped_comparison(record):
+    if (
+        record.address.kind == "operation"
+        and record.get("operator")[0] == "comparison"
+        and record.get("operands")[1].kind == "parameter_read"
+    ):
+        left, right = record.get("operands")
+        return _with_field(record, "operands", (right, left))
+    return record
+
+
+def _claimed(kind, name, value):
+    def change(record):
+        if record.address.kind == kind:
+            return _with_field(record, name, value)
+        return record
+
+    return change
+
+
+@pytest.mark.parametrize(
+    "change,detail",
+    (
+        (_swapped_comparison, "COMPILED_PHYSICAL_DOMAIN"),
+        (_claimed("parameter", "tag", "Timestamp"), "COMPILED_PHYSICAL_DOMAIN"),
+        (_claimed("native_use", "physical", "my_datetime"), "COMPILED_PLAN_USES"),
+    ),
+    ids=("parameter_left", "parameter_tag", "native_carrier"),
+)
+def test_a_tampered_mysql_typed_bundle_fails_replay_and_load_bundle(
+    tmp_path, change, detail
+):
+    """A forger's bundle of `d == day or d == day` whose comparisons read the
+    parameter on the left, whose Date parameter claims Timestamp, or whose
+    native uses claim the Timestamp carrier, under its own pin, fails
+    compiled replay, its template and load_bundle; the untouched bundle
+    loads."""
+    import pietto.execution as execution
+    from pietto._project.project_compiled_build import build_compiled
+    from pietto._project.project_compiled_loading import load_compiled
+    from pietto._project.project_compiled_lowering import emit_compiled
+    from pietto._project.project_execution_template import prepare_compiled_template
+
+    _, outcome = typed_case(tmp_path, "mysql", MYSQL_TYPED_OPEN["twice"])
+    built = build_compiled(outcome.artifact)
+    _assert_bundle_loads_or_refused(built, built.payload, False)
+    payload = _reencoded(built.payload, change)
+    pin = wire.content_pin(payload)
+    loaded = load_compiled(
+        payload,
+        expected_pin=pin,
+        accepted_producer=built.producer,
+        accepted_compatibility=built.compatibility,
+    )
+    for replay in (
+        lambda: emit_compiled(loaded, ()),
+        lambda: prepare_compiled_template(loaded),
+    ):
+        with pytest.raises(wire.CompiledError, match=f"^{detail}$"):
+            replay()
+    with pytest.raises(execution.RequestRejected) as rejected:
+        execution.load_bundle(
+            payload,
+            expected_pin=pin,
+            accepted_producer=built.producer,
+            accepted_compatibility=built.compatibility[-1],
+        )
+    assert (rejected.value.code, rejected.value.detail) == ("PIE-R1004", detail)
+
+
+class _IndexedExpressions(_CountedExpressions):
+    """_CountedExpressions that also count each item read by its index."""
+
+    def __getitem__(self, index):
+        self.yielded += 1
+        return super().__getitem__(index)
+
+
+def _typed_chain(k):
+    """k comparisons of one Date parameter chained by `and`, and k SELECT
+    items reading it."""
+    where = " and ".join(["d == day"] * k)
+    items = "".join(f"        a{i} = day\n" for i in range(k))
+    return (
+        f"query result(day: Date):\n    from rows\n    where {where}\n"
+        f"    select:\n        id\n{items}"
+    )
+
+
+def test_mysql_typed_cells_are_derived_in_linear_work(tmp_path, monkeypatch):
+    """PERF-2 (S09): the plan law reads each plan expression a bounded number
+    of times and compiled replay looks each record up a bounded number of
+    times, however long the `and` chain above the comparisons; emission and
+    its verification ask the plan law as often for 32 reads as for 4."""
+    from pietto._project import project_sql_emission_rows as rows
+
+    law, seen = rows.mysql_typed_cells, []
+
+    def counted(plan):
+        wrapped = _CountedPlan(plan)
+        wrapped.expressions = _IndexedExpressions(plan.expressions)
+        found = law(wrapped)
+        seen.append((wrapped.expressions.yielded / len(plan.expressions), found))
+        return found
+
+    calls, reads, compiled = {}, {}, {}
+    for k in (4, 8, 16, 32):
+        seen.clear()
+        with monkeypatch.context() as patch:
+            patch.setattr(rows, "mysql_typed_cells", counted)
+            _, outcome = typed_case(tmp_path / f"k{k}", "mysql", _typed_chain(k))
+        assert outcome.status == "VERIFIED", outcome.blockers
+        assert seen and all(found for _, found in seen)
+        calls[k], reads[k] = len(seen), max(ratio for ratio, _ in seen)
+        loaded = _loaded(outcome.artifact)
+        records = _CountedRecords(loaded.records)
+        assert rows.mysql_compiled_typed_cells(
+            records, loaded.records[loaded.description.query]
+        )
+        compiled[k] = records.count / len(loaded.records)
+    assert calls[32] == calls[4]
+    # Linear work: the share of reads among records grows with k, so the
+    # ratio rises toward a constant; a quadratic climb would double it.
+    for k in (8, 16, 32):
+        assert reads[k] <= min(reads[k // 2] + 0.15, 3)
+        assert compiled[k] <= min(compiled[k // 2] + 0.15, 3)

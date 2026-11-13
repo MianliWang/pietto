@@ -1665,7 +1665,7 @@ def parameter_records(document, bindings=None):
                 continue
             if tag in {"Int", "Float"}:
                 payload = str(payload) if tag == "Int" else payload.hex()
-            elif tag in emission.PARAMETER_PHYSICAL:
+            elif tag in emission.PARAMETER_PHYSICAL[document["target"]["family"]]:
                 tag, payload = "Text", emission.parameter_text(tag, payload)
         else:
             value = document["fixed_values"][owner["slot"]]

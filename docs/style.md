@@ -1008,8 +1008,10 @@ Not this:
 - `floor: Decimal(10, 2)` compared with a `Decimal(9, 2)` field: the same
   precision and scale (PIE-B1005 at `emit-sql`); and `amount + floor`: compare,
   do not compute (PIE-B1003).
-- a Decimal, Date, Timestamp or UUID parameter on MySQL: emit with
-  `--dialect postgres` (PIE-B1003 at each declaration).
+- a UUID parameter on MySQL, or a Decimal, Date or Timestamp one outside the
+  positions that
+  [Query header parameters](language.md#query-header-parameters-in-explicit-module-projects)
+  lists: emit with `--dialect postgres` (PIE-B1003 at each declaration).
 - `parameters={"day": "2024-01-31"}`, `date(999, 12, 31)`, a `date` for a
   `Timestamp`, an aware `datetime`, `Decimal("10.001")` for `Decimal(9, 2)`,
   `Decimal("NaN")`, `10`, a UUID's text: pass the exact Python type within

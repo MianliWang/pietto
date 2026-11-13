@@ -2876,6 +2876,10 @@ def derive_compiled_semantics(root, values, parameters=None):
         if family == "mysql"
         else {}
     )
+    if family == "mysql" and not physical.mysql_compiled_typed_cells(
+        records, records[root.description.query]
+    ):
+        raise CompiledError("COMPILED_PHYSICAL_DOMAIN")
     if len(values) != len(slots):
         raise CompiledError("COMPILED_BINDING_SLOTS")
     replacements = {}
@@ -4255,6 +4259,13 @@ def verify_compiled_semantics(value):
         )
         if family == "mysql"
         else {}
+    )
+    need(
+        family != "mysql"
+        or physical.mysql_compiled_typed_cells(
+            records, records[value.root.description.query]
+        ),
+        "SEMANTIC_DOMAIN",
     )
     slots = tuple(r for r in records.values() if r.address.kind == "slot")
     need(

@@ -686,8 +686,8 @@ def verify_emission_generation(value, target, expected):
             ] * reads or not reads:
                 raise ValueError("wrong Collect refusal taxonomy")
         elif status == "BLOCKED" and record["id"] == "Q_query_parameters":
-            # D73.14: MySQL refuses each Decimal, Date, Timestamp
-            # and UUID header declaration once, in header order.
+            # MySQL refuses each Decimal, Date, Timestamp and UUID header
+            # declaration once, in header order, outside its typed cells.
             declared = {"typed_timestamp": 3, "typed_uuid": 2}[record["variant"]]
             if [(b["code"], b["subject"]["detail"]) for b in document["blockers"]] != [
                 ("PIE-B1003", "query_parameter_type_not_admitted_on_target")

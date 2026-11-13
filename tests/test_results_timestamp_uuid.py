@@ -1001,3 +1001,65 @@ def test_a_timestamp_output_without_source_meaning_is_refused_before_it_runs(
             parameters=parameters,
         )
     assert (saved.value.code, saved.value.detail) == ("PIE-R1004", "MEANING_OUTPUT")
+
+
+def test_a_mysql_timestamp_parameter_output_is_refused_before_it_runs(
+    tmp_path, monkeypatch
+):
+    """S09: a MySQL Timestamp parameter selected as a whole SELECT item emits
+    in its cell and compiles, and execute() and save() still refuse it while
+    they prepare the result, before any connection or workspace access, as
+    on PostgreSQL. (MySQL has no UUID parameter carrier.)"""
+    import pietto.execution as execution
+    from pietto._project import project_job_workspace as private_workspace
+    from _pietto_sql_query_parameters import typed_case
+
+    def forbidden(*arguments, **keywords):
+        raise AssertionError("a refused save opened workspace state")
+
+    monkeypatch.setattr(private_workspace, "open_workspace", forbidden)
+    parameters: dict[str, object] = {"start": datetime(2026, 1, 2)}
+    _, outcome = typed_case(
+        tmp_path,
+        "mysql",
+        "query result(start: Timestamp):\n    from rows\n    select:\n"
+        "        id\n        since = start\n",
+    )
+    assert outcome.status == "VERIFIED", outcome.blockers
+    query = execution.compile_query(
+        tmp_path / "mysql",
+        module="main.pietto",
+        kind="query",
+        name="result",
+        dialect="mysql",
+        emission_contract="contract.json",
+    )
+    access = execution.MySQLAccess(
+        "127.0.0.1", 9, "app", "reader", "pw", "/ca.pem", "reader"
+    )
+    premise = execution.MySQLDeploymentPremise(schemas=("phase66",))
+    with pytest.raises(execution.RequestRejected) as refused:
+        execution.execute(
+            query,
+            route="mysql_rows",
+            access=access,
+            premise=premise,
+            parameters=parameters,
+        )
+    assert (refused.value.code, refused.value.detail) == ("PIE-R1004", "MEANING_OUTPUT")
+    # The workspace and saved-result names are Linux-only (docs/execution.md).
+    pytest.importorskip("fcntl", reason="save() needs the POSIX job runtime")
+    workspace = object.__new__(execution.WorkspaceRef)
+    object.__setattr__(workspace, "root", "/not-opened")
+    object.__setattr__(workspace, "identity", "ws-" + "0" * 32)
+    with pytest.raises(execution.RequestRejected) as saved:
+        execution.save(
+            workspace,
+            query,
+            operation=execution.new_operation(),
+            route="mysql_rows",
+            access=access,
+            premise=premise,
+            parameters=parameters,
+        )
+    assert (saved.value.code, saved.value.detail) == ("PIE-R1004", "MEANING_OUTPUT")
