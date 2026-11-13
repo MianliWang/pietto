@@ -1121,7 +1121,8 @@ field (`price * 2.0`, `-price`), a `Float` window `partition by` or
 `order by` key, and `group by`, `order by`, `select distinct:` and the set
 forms other than UNION ALL over a window `percent_rank` or `cume_dist`
 result (MySQL has no project `string_agg` or FULL JOIN). It also reports
-BLOCKED `group by` and
+BLOCKED `group by` over a `Float` outside the one-source forms that
+[Float values](language.md#float-values) lists (unreleased),
 `select distinct:` over a `Float`, a Float UNION DISTINCT, INTERSECT or
 EXCEPT, and a Float `==` or `!=` whose two operands both read rows (a JOIN
 `on`, a WHERE comparison across inputs, a correlated

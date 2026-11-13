@@ -1149,6 +1149,58 @@ def test_a_tampered_compiled_mysql_float_cell_is_refused(tmp_path, monkeypatch):
         semantics.verify_compiled_semantics(derived)
 
 
+_KEY_CELL_FORMS = {**float_cells.KEY_FORMS, **float_cells.KEY_SAME_CLASS}
+
+
+@pytest.mark.parametrize("name", sorted(_KEY_CELL_FORMS))
+def test_mysql_float_key_cells_replay_from_compiled_input(tmp_path, name):
+    """Phase77 S07: compiled replay re-derives each GROUP BY cell from the
+    bundle's own records and renders the emitted SQL; so does the live
+    template."""
+    original = float_cells.build(tmp_path, "mysql", _KEY_CELL_FORMS[name][1])
+    assert original.status == "VERIFIED" and original.artifact is not None
+    _compare(original.artifact, refinement=False)
+    _live(original.artifact)
+
+
+@pytest.mark.parametrize(
+    "name",
+    (
+        "group.fwf",
+        "group_mixed_nullability",
+        "group_where",
+        "group_select_reordered",
+        "group_upstream",
+    ),
+)
+def test_a_compiled_mysql_float_key_outside_its_cell_is_refused(
+    tmp_path, monkeypatch, name
+):
+    """A bundle whose emission bypassed the S07 cell law: compiled replay
+    re-derives the cell from the records and refuses it, and the independent
+    emission verifier refuses a replay whose derivation was forged past that
+    law."""
+    from pietto._project import project_completed_semantics as semantics
+    from pietto._project.project_compiled_schema import CompiledError
+    from pietto._project.project_compiled_verification import (
+        verify_compiled_emission,
+    )
+
+    _, built, _ = float_cells.forged_key_artifact(
+        tmp_path, float_cells.KEY_REFUSED[name][0], monkeypatch
+    )
+    root = _loaded(built)
+    with pytest.raises(CompiledError, match="^COMPILED_GROUP_KEY$"):
+        emit_compiled(root, ())
+    with monkeypatch.context() as patch:
+        patch.setattr(
+            semantics, "_compiled_float_key_cell", lambda records: ("group", ("H",))
+        )
+        candidate = emit_compiled(root, ())
+    with pytest.raises(CompiledError, match="^COMPILED_EMISSION_GROUP_KEY$"):
+        verify_compiled_emission(candidate, candidate.request)
+
+
 @pytest.mark.parametrize("target", ("postgres", "mysql"))
 def test_a_compiled_float_membership_of_two_row_reads_is_refused_on_mysql(
     tmp_path, target, monkeypatch

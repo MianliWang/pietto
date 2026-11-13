@@ -737,7 +737,6 @@ def verify_emission_generation(value, target, expected):
                     "avg_float": "PIE-B1004",
                     "inline_arguments": "PIE-B1002",
                     "count_distinct_tuple": "PIE-B1003",
-                    "float_key": "PIE-B1003",
                     "bool_domain_key": "PIE-B1002",
                     "decimal_parameter_key": "PIE-B1002",
                     # Slice9: R16 keeps the null and ordering modifiers outside

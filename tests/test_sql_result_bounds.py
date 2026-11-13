@@ -18,6 +18,7 @@ from typing import Any, cast
 import pytest
 
 import _pietto_sql_emission as probe
+import _pietto_sql_float_cells as float_cells
 from pietto._project import project_sql_emission_results as resulting
 from pietto._project.project_sql_emission import serialize_project_sql_emission
 from pietto._project.project_sql_emission_rendering import (
@@ -930,3 +931,19 @@ def test_timestamp_date_and_uuid_keys_order_a_result(tmp_path, target):
         f" {q}t0{q}.{q}c0{q} AS {q}key{q} FROM {q}p0{q} AS {q}t0{q}"
         f" ORDER BY {q}t0{q}.{q}c1{q} DESC"
     )
+
+
+@pytest.mark.parametrize(
+    "name",
+    sorted(
+        n
+        for n in float_cells.KEY_REFUSED
+        if n.startswith(("distinct", "distribution_distinct"))
+    ),
+)
+def test_mysql_float_distinct_fields_keep_their_refusal(tmp_path, name):
+    """Phase77 S07 (D77.39): every MySQL Float DISTINCT keeps main's blockers
+    (the S07 paired forms, which the raw campaign judged
+    PRIMITIVE_OBSERVATION_ONLY, wide keys, other clauses, inputs and select
+    lists), and the program emits on PostgreSQL."""
+    float_cells.assert_key_refused(tmp_path, name)

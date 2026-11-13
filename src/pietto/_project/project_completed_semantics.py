@@ -2809,6 +2809,161 @@ def _ranked_values(records, entry, family):
     return frozenset(() if aggregate is None else records[aggregate].get("values"))
 
 
+# The record kinds a Phase77 S07 cell's bundle may hold; any other (a let,
+# parameter, window, JOIN, WHERE, order, result, set, ...) is never a cell.
+_FLOAT_KEY_KINDS = frozenset(
+    {
+        "entry",
+        "target",
+        "premise",
+        "policy",
+        "declaration",
+        "source",
+        "source_unique",
+        "field",
+        "port",
+        "use",
+        "read",
+        "site",
+        "literal",
+        "row",
+        "output",
+        "requirement",
+        "requirement_origin",
+        "requirement_link",
+        "aggregate",
+        "aggregate_value",
+    }
+)
+
+
+def _compiled_float_key_cell(records):
+    """The Phase77 S07 cell (rows.MYSQL_FLOAT_KEY_CELLS) of a bundle,
+    re-derived from its own records as emission derives it from its plan:
+    one source, an aggregate over it grouped by one to three direct reads
+    with one `count()` of no argument, and one projection row reading the
+    aggregate's outputs in order. The keys read different fields whose
+    carriers (rows.mysql_float_key_carrier) give the cell; the declarations
+    are the source's and the statement's relations and the source's types (a
+    unique key's shape, a field's type arguments), none with a `let`, the
+    only literals are the connector's and those type arguments, and the
+    bundle holds no other record kind (_FLOAT_KEY_KINDS). None outside every
+    cell. A
+    relation alias `let`, an unused named window or an inlined `def`, which
+    emission refuses, changes the records only in source positions, so this
+    reader cannot tell it from the direct program."""
+    from pietto._project import project_sql_emission_rows as physical
+
+    by_kind: dict[str, list] = {}
+    for record in records.values():
+        by_kind.setdefault(record.address.kind, []).append(record)
+    sources, rows = by_kind.get("source", []), by_kind.get("row", [])
+    entries = by_kind.get("entry", [])
+    aggregates = by_kind.get("aggregate", [])
+    values = by_kind.get("aggregate_value", [])
+    declarations = by_kind.get("declaration", [])
+    if (
+        not set(by_kind) <= _FLOAT_KEY_KINDS
+        or len(aggregates) != 1
+        or len(values) != 1
+        or len(sources) != 1
+        or len(rows) != 1
+        or len(entries) != 1
+        or [item.get("namespace") for item in declarations].count("relation") != 2
+        or any(
+            item.get("namespace") not in ("relation", "type")
+            or item.get("let") is not None
+            for item in declarations
+        )
+        or any(
+            record.get("site") not in records
+            or records[record.get("site")].get("role")
+            not in ("connector", "type_argument")
+            for record in by_kind.get("literal", ())
+        )
+    ):
+        return None
+    source, projection = sources[0], rows[0]
+    aggregate, value = aggregates[0], values[0]
+    keys, outputs = aggregate.get("keys"), aggregate.get("outputs")
+
+    def at(address, name):
+        record = records.get(address)
+        return None if record is None else record.get(name)
+
+    def reads_port(item, port):
+        read = records.get(item)
+        return (
+            read is not None
+            and read.address.kind == "read"
+            and read.get("role") == "value"
+            and read.get("port") == port
+        )
+
+    def field(item):
+        # A direct read of a source port: (port address, field record).
+        read = records.get(item)
+        if read is None or read.address.kind != "read" or read.get("role") != "value":
+            return None
+        port = records.get(read.get("port"))
+        if port is None or port.get("owner") != source.address:
+            return None
+        return port.address, records.get(port.get("source"))
+
+    if (
+        aggregate.get("mode") != "grouped"
+        or aggregate.get("input") != source.address
+        or not 0 < len(keys) <= 3
+        or aggregate.get("values") != (value.address,)
+        or value.get("function") != "count"
+        or value.get("arguments")
+        or value.get("order_by")
+        or len(outputs) != len(keys) + 1
+        or tuple(at(port, "source") for port in outputs) != (*keys, value.address)
+        or projection.get("input") != aggregate.address
+        or len(projection.get("values")) != len(outputs)
+        or not all(
+            reads_port(item, port)
+            for item, port in zip(projection.get("values"), outputs, strict=True)
+        )
+        or projection.get("stage") != "projection"
+        or projection.get("predicate") is not None
+        or entries[0].get("terminal") != projection.address
+    ):
+        return None
+    found = tuple(field(item) for item in keys)
+    reads = tuple(item for item in found if item is not None and item[1] is not None)
+    if len(reads) != len(keys) or len({port for port, _ in reads}) != len(reads):
+        return None
+    cell = (
+        "group",
+        tuple(
+            physical.mysql_float_key_carrier(
+                record.get("logical")[0], record.get("physical")
+            )
+            for _, record in reads
+        ),
+    )
+    return cell if cell in physical.MYSQL_FLOAT_KEY_CELLS else None
+
+
+def compiled_float_key_admitted(records, realization) -> bool:
+    """Whether a compiled MySQL Float GROUP BY key emits: its carrier is the
+    finite binary64 DOUBLE and the bundle is an S07 cell
+    (_compiled_float_key_cell)."""
+    from pietto._project import project_sql_emission_rows as physical
+    from pietto._project.project_compiled_schema import Address
+
+    target = records.get(Address("target", 0))
+    return (
+        target is not None
+        and target.get("family") == "mysql"
+        and realization is not None
+        and physical.float_carrier(realization, "mysql")
+        and _compiled_float_key_cell(records) is not None
+    )
+
+
 def _ordered_value_type(records, record, typed):
     """The result type of one compiled aggregate value: a `first` or `last` of
     an aggregation without GROUP BY may read an empty input, which gives None;

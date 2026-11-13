@@ -12,6 +12,7 @@ from typing import Any
 import pytest
 
 import _pietto_sql_emission as probe
+import _pietto_sql_float_cells as float_cells
 from pietto._project import project_sql_emission_aggregation as grouping
 from pietto._project.project_sql_emission_ast import SQLRowQuery
 from pietto._project.project_sql_emission import serialize_project_sql_emission
@@ -1964,9 +1965,20 @@ def test_joined_grouped_aggregates_keep_the_same_parity(tmp_path, target):
 @pytest.mark.parametrize("target", TARGETS)
 def test_a_float_determinant_groups_by_float_equality_on_postgres(tmp_path, target):
     """F2/F4: a PostgreSQL Float key groups -0.0 with 0.0 by the target's own
-    GROUP BY; MySQL keeps one group-key blocker at the GROUP BY item."""
+    GROUP BY; MySQL does so only in the Phase77 S07 cells, such as this one
+    Float key with its count, and keeps one group-key blocker at the GROUP BY
+    item beside another aggregate."""
     outcome = emit(tmp_path, target, "V_aggregate_blocked", "float_key")
     if target == "mysql":
+        assert outcome.status == "VERIFIED", outcome.blockers
+        assert " GROUP BY `s0`.`ratio value`" in public(outcome)["sql"]
+        outcome = emit_source(
+            tmp_path / "beside",
+            target,
+            "query result:\n    from agg\n    group by:\n        ratio\n"
+            "    select:\n        r = ratio\n        total = count()\n"
+            "        top = max(rid)\n",
+        )
         assert outcome.status == "BLOCKED"
         (blocker,) = public(outcome)["blockers"]
         # At the GROUP BY item `ratio`, line 14.
@@ -1993,17 +2005,24 @@ def test_a_float_determinant_groups_by_float_equality_on_postgres(tmp_path, targ
 
 def test_the_verifier_refuses_a_mysql_float_group_key_artifact(tmp_path, monkeypatch):
     """A MySQL artifact built while the group-key law admitted every Float is
-    refused by verify_project_sql_emission once the law is the real one."""
+    refused by verify_project_sql_emission once the law is the real one (here
+    a Float key beside another aggregate, outside every Phase77 S07 cell)."""
     strict = grouping.group_key_problem
     with monkeypatch.context() as patched:
         patched.setattr(
             grouping,
             "group_key_problem",
-            lambda realization: (
+            lambda realization, **_: (
                 None if realization.tag == "Float" else strict(realization)
             ),
         )
-        outcome = emit(tmp_path, "mysql", "V_aggregate_blocked", "float_key")
+        outcome = emit_source(
+            tmp_path,
+            "mysql",
+            "query result:\n    from agg\n    group by:\n        ratio\n"
+            "    select:\n        r = ratio\n        total = count()\n"
+            "        top = max(rid)\n",
+        )
     artifact = outcome.artifact
     assert outcome.status == "VERIFIED" and artifact is not None, outcome.blockers
     checked = verify_project_sql_emission(artifact, artifact.request)
@@ -2646,3 +2665,85 @@ def test_a_tampered_mysql_float_statistic_observation_is_refused(tmp_path, edit)
         json.dumps(document, ensure_ascii=False, separators=(",", ":")) + "\n"
     ).encode()
     assert pure.parse_emission_observation(data).status is not pure.Status.OK
+
+
+_GROUP_FORMS = {
+    **{
+        name: form
+        for name, form in float_cells.KEY_FORMS.items()
+        if form[0][0] == "group"
+    },
+    **{
+        name: form
+        for name, form in float_cells.KEY_SAME_CLASS.items()
+        if form[0][0] == "group"
+    },
+}
+
+
+@pytest.mark.parametrize("name", sorted(_GROUP_FORMS))
+def test_mysql_float_group_key_cells_emit_the_postgresql_statement(tmp_path, name):
+    """Phase77 S07 (D77.39): each paired GROUP BY form of the S07 native
+    qualification and each program of its class emits on MySQL the
+    PostgreSQL statement in MySQL spelling, whose text with identifiers
+    erased is its probe's; emission, compiled replay and the pure boundary
+    each derive its cell, and the live verifier and pure accept it."""
+    float_cells.assert_key_cell_emits(tmp_path, *_GROUP_FORMS[name])
+
+
+@pytest.mark.parametrize(
+    "name",
+    sorted(
+        n
+        for n in float_cells.KEY_REFUSED
+        if n.startswith(("group", "count_distinct", "distribution_group"))
+    ),
+)
+def test_other_mysql_float_group_keys_keep_their_refusal(tmp_path, name):
+    """Every other MySQL Float GROUP BY keeps main's blockers (wide keys and
+    others outside the cells, other clauses, inputs and select lists), and
+    the program emits on PostgreSQL."""
+    float_cells.assert_key_refused(tmp_path, name)
+
+
+def test_a_refused_mysql_float_group_key_cell_reports_main_blockers(
+    tmp_path, monkeypatch
+):
+    """D77.37: the GROUP BY cell form group.h refused by another check (an
+    unreviewed target release, a later correspondence check) reports
+    main's whole blocker list."""
+    float_cells.assert_refused_key_cell_reports_main(tmp_path, "group.h", monkeypatch)
+
+
+@pytest.mark.parametrize(
+    "name",
+    (
+        "group.hwh",
+        "group_mixed_nullability",
+        "group_width_255",
+        "group_other_aggregate",
+        "group_where",
+        "group_select_reordered",
+        "group_key_unselected",
+        "group_upstream",
+    ),
+)
+def test_a_mysql_float_group_key_forged_past_its_cell_is_refused(
+    tmp_path, monkeypatch, name
+):
+    """Emission forced to admit a GROUP BY outside every cell: the live
+    verifier refuses it from its plan and the pure boundary from the
+    document."""
+    float_cells.assert_forged_key_refused(
+        tmp_path, float_cells.KEY_REFUSED[name][0], monkeypatch
+    )
+
+
+def _reversed_keys(records):
+    (stage,) = (r for r in records if r["ref"][0] == "aggregate_stage")
+    stage["fields"]["keys"].reverse()
+
+
+def test_a_tampered_mysql_float_group_key_document_is_refused(tmp_path):
+    """group.hh with its GROUP BY keys reversed against its select list."""
+    float_cells.assert_tampered_key_refused(tmp_path, "group.hh", _reversed_keys)

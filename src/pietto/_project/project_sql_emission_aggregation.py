@@ -424,14 +424,23 @@ def grouping_problem(realization: rows.Realization):
     return None
 
 
-def group_key_problem(realization: rows.Realization, *, distribution: bool = True):
+def group_key_problem(
+    realization: rows.Realization,
+    *,
+    distribution: bool = True,
+    float_key_cell: bool = False,
+):
     """A GROUP BY key: the grouping law, or a PostgreSQL Float, a window
     distribution result too (E6) unless ``distribution`` is false. Floats group
     by float equality (-0.0 == 0.0); MySQL kept -0.0 and 0.0 in two groups over
-    a wide key in the real-database campaign, so its Float keys stay refused."""
+    a wide key in the real-database campaign, so its Float keys stay refused
+    outside the Phase77 S07 cells (``float_key_cell``, the reader's own
+    derivation of rows.MYSQL_FLOAT_KEY_CELLS)."""
     if realization.tag != "Float":
         return grouping_problem(realization)
-    if rows.float_carrier(realization, "postgres", distribution=distribution):
+    if rows.float_carrier(realization, "postgres", distribution=distribution) or (
+        float_key_cell and rows.float_carrier(realization, "mysql")
+    ):
         return None
     return "PIE-B1003", "group_key_type_outside_reviewed_comparison_domain"
 
@@ -1831,7 +1840,10 @@ def build_stage(
                 None,
                 (("PIE-B1002", "group_key_logical_type_or_null_drift", key.ref, None),),
             )
-        problem = group_key_problem(read.realization)
+        problem = group_key_problem(
+            read.realization,
+            float_key_cell=rows.mysql_float_key_admitted(request, read.realization),
+        )
         if problem is not None:
             item = getattr(key.source, "item", None)
             return None, None, ((*problem, key.ref, getattr(item, "span", None)),)
@@ -2476,6 +2488,9 @@ def _ranked_compiled_stage(records, record, arguments) -> bool:
 def build_compiled_stage(plan, record, arguments):
     """Realize resolved aggregate inputs with the same R12/R13 laws."""
     from pietto._project.project_compiled_schema import Address, CompiledError
+    from pietto._project.project_completed_semantics import (
+        compiled_float_key_admitted,
+    )
     from pietto._project.project_sql_emission_ast import SQLSymbol
 
     records = plan.ir.completed.root.records
@@ -2513,7 +2528,13 @@ def build_compiled_stage(plan, record, arguments):
         if expression.address.kind == "read":
             if (
                 type(argument) is not rows.SQLStageReference
-                or group_key_problem(argument.realization) is not None
+                or group_key_problem(
+                    argument.realization,
+                    float_key_cell=compiled_float_key_admitted(
+                        records, argument.realization
+                    ),
+                )
+                is not None
                 or delimiters
                 or order_by_values
             ):

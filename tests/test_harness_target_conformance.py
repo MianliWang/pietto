@@ -2757,7 +2757,8 @@ BIG = cases.BIG
 def test_every_postgres_float_cell_has_one_merged_class_oracle():
     """Each F_float_values program and each Float witness that now emits on
     PostgreSQL has exactly one oracle, which accepts an observation built from
-    the seeds; MySQL runs only the Branch B cells."""
+    the seeds; MySQL runs only the Branch B cells and the Phase77 S07 cells
+    of one Float key."""
     emission = facility.emission
     float_keys = {
         (emission.FLOAT_CASE, v) for v in emission.VARIANTS[emission.FLOAT_CASE]
@@ -2776,6 +2777,7 @@ def test_every_postgres_float_cell_has_one_merged_class_oracle():
             "VERIFIED"
             if key[0] == emission.FLOAT_CASE
             and key[1] in emission.FLOAT_ON_BOTH_TARGETS
+            or key in emission.MIGRATED_TO_SUCCESS
             else "BLOCKED"
         )
         assert len(labels) == len(logical)

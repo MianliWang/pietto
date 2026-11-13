@@ -4938,6 +4938,9 @@ def verify_export(description, artifact, *, guarded=None, refinement=None):
 def _verify_compiled_emission(artifact, request):
     """Original typed SQL carriers checked against the complete compiled plan."""
     import json
+    from pietto._project.project_completed_semantics import (
+        compiled_float_key_admitted,
+    )
     from pietto._project.project_sql_emission import CompiledEmissionArtifact
     from pietto._project.project_guard_preparation import (
         CompiledGuardedArtifact,
@@ -5998,7 +6001,13 @@ def _verify_compiled_emission(artifact, request):
                     need(
                         record.address.kind == "aggregate"
                         and column.key.ref is refs[expression]
-                        and grouping.group_key_problem(column.read.realization) is None,
+                        and grouping.group_key_problem(
+                            column.read.realization,
+                            float_key_cell=compiled_float_key_admitted(
+                                records, column.read.realization
+                            ),
+                        )
+                        is None,
                         "EMISSION_GROUP_KEY",
                     )
                     origin = column.column.aggregate

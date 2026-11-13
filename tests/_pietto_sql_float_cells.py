@@ -45,15 +45,46 @@ _FIELDS["Same4"] = (*_FIELDS["Same"], ("f4", "ratio", True, None))
 _FIELDS["Turned"] = tuple(_FIELDS["Same"][i] for i in (1, 0, 2))
 _FIELDS["Keyed"] = (*_FIELDS["Same"], ("kw", "text", False, 1000))
 _FIELDS["Wide"] = (*_FIELDS["Probe"][:2], ("kv", "text", False, 4000))
-_TYPES = {"id": "Int", "ratio": "Float", "text": "Text"}
-_SHAPES = "".join(
-    f"shape {shape}:\n"
-    + "".join(
-        f"    {label}: {_TYPES[model]}{' | None' if nullable else ''}\n"
-        for label, model, nullable, _ in fields
-    )
-    for shape, fields in _FIELDS.items()
+# Phase77 S07: `s7` holds the fields of the native qualification's `s7`
+# tables in their order; `t7` adds, for refusals and unread-field programs,
+# NOT NULL Text keys of 255 and 32 characters and a nullable 64-character one.
+_FIELDS["S7"] = (
+    ("id", "id", None, None),
+    ("g", "id", None, None),
+    ("f1", "ratio", True, None),
+    ("f2", "ratio", True, None),
+    ("h1", "ratio", False, None),
+    ("h2", "ratio", False, None),
+    ("kn", "text", False, 64),
+    ("kw", "text", False, 1000),
 )
+_FIELDS["T7"] = (
+    *_FIELDS["S7"],
+    ("kx", "text", False, 255),
+    ("k3", "text", False, 32),
+    ("kz", "text", True, 64),
+)
+_TYPES = {"id": "Int", "ratio": "Float", "text": "Text", "money": "Decimal(9, 2)"}
+
+
+def _shape(shape, extra=""):
+    return (
+        f"shape {shape}:\n"
+        + "".join(
+            f"    {label}: {_TYPES[model]}{' | None' if nullable else ''}\n"
+            for label, model, nullable, _ in _FIELDS[shape]
+        )
+        + extra
+    )
+
+
+_SHAPES = "".join(_shape(shape) for shape in _FIELDS)
+# Phase77 S07 same-class sources, whose shapes only the programs that read
+# them declare, so no other program's text changes: `u7` is `s7` with a
+# unique key and `d7` `s7` with an unread Decimal(9, 2) field.
+_FIELDS["U7"] = _FIELDS["S7"]
+_FIELDS["D7"] = (*_FIELDS["S7"], ("dz", "money", False, None))
+_READ_SHAPES = {"U7": _shape("U7", "    u7_key = unique(id)\n"), "D7": _shape("D7")}
 # Each source as (name, shape, table).
 _SOURCES = (
     ("f6o", "Probe", "f6o"),
@@ -68,17 +99,24 @@ _SOURCES = (
     ("f6r", "Turned", "f6r"),
     ("f6k", "Keyed", "f6k"),
     ("f6w", "Wide", "f6w"),
+    ("s7", "S7", "s7"),
+    ("t7", "T7", "t7"),
+    ("u7", "U7", "u7"),
+    ("d7", "D7", "d7"),
 )
 
 
-def world(target, body):
+def world(target, body, release=None):
     """The probe sources ``body`` names, then ``body``: (source, contract).
 
     A ``body`` that declares header parameters (``result(``) also gets the
-    native parameter protocol they need."""
+    native parameter protocol they need; ``release`` replaces the contract's
+    target release."""
     contract = json.loads(
         probe.parameterized_fixture(target, "", protocol="result(" in body)["contract"]
     )
+    if release is not None:
+        contract["target"]["release"] = release
     base = contract["sources"][0]
     fields = {item["name"]: item for item in base["fields"]}
     header, sources = _SHAPES, []
@@ -101,13 +139,14 @@ def world(target, body):
                     field["representation"]["storage"]["length"] = width
             source["fields"].append(field)
         sources.append(source)
+        header += _READ_SHAPES.get(shape, "")
         header += f'source {name}: {shape} = {target}.table("{name}.locator")\n'
     contract["sources"] = sources
     return header + body, probe.encoded(contract).decode()
 
 
-def build(directory, target, body):
-    source, contract = world(target, body)
+def build(directory, target, body, release=None):
+    source, contract = world(target, body, release)
     checked, outcome = probe.build_case(directory, source, contract)
     assert checked.verified
     return outcome
@@ -639,3 +678,642 @@ REFUSED = {
         [_PAIR],
     ),
 }
+
+
+# Phase77 S07 (D77.39): the paired forms of the S07 native qualification
+# (reauthor/s07 manifest `pietto_forms`) that the MySQL Float key cells
+# (rows.MYSQL_FLOAT_KEY_CELLS) hold, as {name: (cell, body)}, restated here
+# because tests never read `.cache`; a lane check compared them byte for byte.
+# Only the GROUP BY forms were judged CANDIDATE_EMISSION_EXPERIMENT_READY.
+_KEY_FIELDS = {"h": "h1", "f": "f1", "n": "kn", "w": "kw"}
+_KEY_CARRIERS = {"h": "H", "f": "F", "n": "N"}
+
+
+def key_body(template, keys, source="s7"):
+    """The paired Pietto form of ``template`` over ``keys`` (field names)."""
+    names = "".join(f"        {key}\n" for key in keys)
+    if template == "group":
+        return (
+            f"query result:\n    from {source}\n    group by:\n{names}"
+            f"    select:\n{names}        n = count()\n"
+        )
+    if template == "distinct":
+        return f"query result:\n    from {source}\n    select distinct:\n{names}"
+    return (
+        f"table a:\n    from {source}\n    select:\n{names}"
+        "query result:\n    union distinct:\n        from a\n        from a\n"
+    )
+
+
+def _keys(keyset):
+    second = {"h": "h2", "f": "f2"}
+    return tuple(
+        second[letter] if letter in keyset[:position] else _KEY_FIELDS[letter]
+        for position, letter in enumerate(keyset)
+    )
+
+
+KEY_FORMS = {
+    f"group.{keyset}": (
+        ("group", tuple(_KEY_CARRIERS[letter] for letter in keyset)),
+        key_body("group", _keys(keyset)),
+    )
+    for keyset in ("h", "f", "hh", "ff", "hnh", "fnf")
+}
+# The paired forms that keep main's refusal: the DISTINCT and UNION DISTINCT
+# forms, which the raw campaign judged PRIMITIVE_OBSERVATION_ONLY (no on-disk
+# deduplication witnessed), and the wide-key controls (D77.08), whose text
+# with identifiers erased equals their narrow forms'.
+REFUSED_KEY_FORMS = {
+    f"{template}.{keyset}": key_body(template, _keys(keyset))
+    for template in ("group", "distinct", "union_distinct")
+    for keyset in ("h", "f", "hh", "ff", "hnh", "fnf", "hwh", "fwf")
+    if f"{template}.{keyset}" not in KEY_FORMS
+}
+
+
+def erased(sql):
+    """A MySQL statement with every quoted identifier replaced by ?."""
+    import re
+
+    return re.sub(r"`[^`]*`", "?", sql)
+
+
+def _probe(template, count):
+    """The S07 probe of ``template`` (group) over ``count`` keys (MySQL
+    `many` variant, identifiers erased), restated from the manifest."""
+    assert template == "group"
+    items = ", ".join(["?.? AS ?"] * count)
+    return (
+        f"WITH ? ({', '.join(['?'] * (count + 1))}) AS (SELECT {items}, COUNT(*)"
+        f" AS ? FROM ?.? AS ? GROUP BY {', '.join(['?.?'] * count)}) SELECT"
+        f" {items}, ?.? AS ? FROM ? AS ?"
+    )
+
+
+KEY_PROBES = {
+    name: _probe(cell[0], len(cell[1])) for name, (cell, _) in KEY_FORMS.items()
+}
+# Programs of the same class: a table or query declaration, other output
+# names, other fields of the same carriers in another order, a source with
+# unread fields the statement never writes, one with a unique key and one
+# with an unread Decimal field.
+KEY_SAME_CLASS = {
+    "group_table": (
+        ("group", ("H",)),
+        "table result:\n    from s7\n    group by:\n        h1\n"
+        "    select:\n        h1\n        n = count()\n",
+    ),
+    "group_renamed": (
+        ("group", ("H", "H")),
+        "query result:\n    from s7\n    group by:\n        h2\n        h1\n"
+        "    select:\n        a = h2\n        b = h1\n        c = count()\n",
+    ),
+    "group_unread_fields": (("group", ("F",)), key_body("group", ("f2",), "t7")),
+    "group_unique_key": (("group", ("H",)), key_body("group", ("h1",), "u7")),
+    "group_unread_decimal": (
+        ("group", ("F", "N", "F")),
+        key_body("group", ("f1", "kn", "f2"), "d7"),
+    ),
+}
+_GROUP = ("PIE-B1003", "group_key_type_outside_reviewed_comparison_domain")
+_DISTINCT = ("PIE-B1003", "distinct_field_comparison_domain_unsupported")
+_SET = ("PIE-B1003", "set_row_equivalence_domain_unsupported")
+_COUNT_DISTINCT = ("PIE-B1003", "count_distinct_argument_outside_reviewed_int_domain")
+_IDENT = "def ident(x: Float) -> Float:\n    return x\n\n"
+_IDI = "def idi(x: Int) -> Int:\n    return x\n\n"
+_W = "table w:\n    from s7\n    select:\n        id\n        p = cume_dist() window(order by g)\n\n"
+
+
+def _grouped(*lines, parameters=None):
+    return query(*lines, declaration="query", parameters=parameters)
+
+
+def _union(
+    *lines, tail="query result:\n    union distinct:\n        from a\n        from a\n"
+):
+    return "table a:\n" + "".join(f"    {line}\n" for line in lines) + tail
+
+
+_GROUP_H1 = ("group by:", "    h1", "select:", "    h1", "    n = count()")
+# Every other MySQL Float key, DISTINCT field or set column keeps main's
+# whole blocker list (code, detail, suggestion and location; a lane check
+# compared each with 0.1.11), and the program emits on PostgreSQL.
+KEY_REFUSED = {
+    **{
+        name: (
+            body,
+            [
+                _GROUP
+                if name.startswith("group")
+                else _DISTINCT
+                if name.startswith("distinct")
+                else _SET
+            ],
+        )
+        for name, body in REFUSED_KEY_FORMS.items()
+    },
+    # The DISTINCT and UNION DISTINCT programs of the same class.
+    "distinct_table": (
+        key_body("distinct", ("f2", "kn", "f1")).replace(
+            "query result", "table result"
+        ),
+        [_DISTINCT],
+    ),
+    "distinct_unread_fields": (key_body("distinct", ("h2",), "t7"), [_DISTINCT]),
+    "union_query_operand": (
+        key_body("union_distinct", ("h1", "h2")).replace("table a", "query a"),
+        [_SET],
+    ),
+    "union_unread_fields": (key_body("union_distinct", ("f2", "f1"), "t7"), [_SET]),
+    # Keys outside every cell: carriers, order, count, Text width, nullability.
+    "group_mixed_nullability": (key_body("group", ("h1", "f1")), [_GROUP]),
+    "group_text_first": (key_body("group", ("kn", "h1", "h2")), [_GROUP]),
+    "group_float_text": (key_body("group", ("h1", "kn")), [_GROUP]),
+    "group_four_keys": (key_body("group", ("h1", "h2", "f1", "f2")), [_GROUP]),
+    "group_width_255": (key_body("group", ("h1", "kx", "h2"), "t7"), [_GROUP]),
+    "group_width_32": (key_body("group", ("h1", "k3", "h2"), "t7"), [_GROUP]),
+    "group_nullable_text": (key_body("group", ("h1", "kz", "h2"), "t7"), [_GROUP]),
+    "group_int_key": (key_body("group", ("h1", "id")), [_GROUP]),
+    # Another aggregate, clause, input, declaration or select list.
+    "group_other_aggregate": (
+        _grouped("from s7", *_GROUP_H1, "    m = max(id)"),
+        [_GROUP],
+    ),
+    "group_count_argument": (
+        _grouped(
+            "from s7", "group by:", "    h1", "select:", "    h1", "    n = count(h2)"
+        ),
+        [_GROUP],
+    ),
+    "group_where": (_grouped("from s7", "where id > 1", *_GROUP_H1), [_GROUP]),
+    "group_relation_alias": (_grouped("let s = s7", "from s", *_GROUP_H1), [_GROUP]),
+    "group_named_window": (
+        _grouped("from s7", "let w = window(order by id)", *_GROUP_H1),
+        [_GROUP],
+    ),
+    "group_def": (
+        _IDENT
+        + _grouped(
+            "from s7",
+            "group by:",
+            "    h1",
+            "select:",
+            "    x = ident(h1)",
+            "    n = count()",
+        ),
+        [_GROUP],
+    ),
+    "group_def_count": (
+        _IDI + _grouped("from s7", *_GROUP_H1[:4], "    n = idi(count())"),
+        [_GROUP],
+    ),
+    "group_parameter": (_grouped("from s7", *_GROUP_H1, parameters="p: Int"), [_GROUP]),
+    "group_order_by": (_grouped("from s7", *_GROUP_H1, "order by h1"), [_GROUP]),
+    "group_limit": (_grouped("from s7", *_GROUP_H1, "limit 2"), [_GROUP]),
+    "group_upstream": (
+        "table a:\n    from s7\n    select:\n        h1\n\n"
+        + _grouped("from a", *_GROUP_H1),
+        [_GROUP],
+    ),
+    "group_join": (
+        _grouped(
+            "from s7",
+            "inner join t7 on t7.id == s7.id",
+            "group by:",
+            "    s7.h1",
+            "select:",
+            "    h = s7.h1",
+            "    n = count()",
+        ),
+        [_GROUP],
+    ),
+    "group_select_reordered": (
+        _grouped(
+            "from s7",
+            "group by:",
+            "    h1",
+            "    h2",
+            "select:",
+            "    h2",
+            "    h1",
+            "    n = count()",
+        ),
+        [_GROUP],
+    ),
+    "group_count_first": (
+        _grouped(
+            "from s7",
+            "group by:",
+            "    h1",
+            "    h2",
+            "select:",
+            "    n = count()",
+            "    h1",
+            "    h2",
+        ),
+        [_GROUP],
+    ),
+    "group_key_unselected": (
+        _grouped(
+            "from s7",
+            "group by:",
+            "    h1",
+            "    h2",
+            "select:",
+            "    h1",
+            "    n = count()",
+        ),
+        [_GROUP],
+    ),
+    # D77.39: count_distinct and distribution keys stay refused (window
+    # keys keep their own tests in test_sql_windows.py).
+    "group_count_distinct": (
+        _grouped(
+            "from s7",
+            "group by:",
+            "    kn",
+            "select:",
+            "    kn",
+            "    n = count_distinct(f1)",
+        ),
+        [_COUNT_DISTINCT],
+    ),
+    "count_distinct_global": (
+        _grouped("from s7", "select:", "    n = count_distinct(h1)"),
+        [_COUNT_DISTINCT],
+    ),
+    "distribution_group": (
+        _W
+        + _grouped(
+            "from w", "group by:", "    p", "select:", "    p", "    n = count()"
+        ),
+        [_GROUP],
+    ),
+    "distribution_distinct": (
+        _W + _grouped("from w", "select distinct:", "    p"),
+        [_DISTINCT],
+    ),
+    "distinct_mixed_nullability": (key_body("distinct", ("f1", "h1")), [_DISTINCT]),
+    "distinct_width_255": (key_body("distinct", ("f1", "kx", "f2"), "t7"), [_DISTINCT]),
+    "distinct_nullable_text": (
+        key_body("distinct", ("f1", "kz", "f2"), "t7"),
+        [_DISTINCT],
+    ),
+    "distinct_int_item": (key_body("distinct", ("f1", "id")), [_DISTINCT]),
+    "distinct_where": (
+        _grouped("from s7", "where id > 1", "select distinct:", "    f1"),
+        [_DISTINCT],
+    ),
+    "distinct_order_by": (
+        _grouped("from s7", "select distinct:", "    f1", "order by f1"),
+        [_DISTINCT],
+    ),
+    "distinct_limit": (
+        _grouped("from s7", "select distinct:", "    f1", "limit 2"),
+        [_DISTINCT],
+    ),
+    "distinct_let": (
+        _grouped("from s7", "let k = f1", "select distinct:", "    k"),
+        [_DISTINCT],
+    ),
+    "distinct_relation_alias": (
+        _grouped("let s = s7", "from s", "select distinct:", "    f1"),
+        [_DISTINCT],
+    ),
+    "distinct_named_window": (
+        _grouped(
+            "from s7", "let w = window(order by id)", "select distinct:", "    f1"
+        ),
+        [_DISTINCT],
+    ),
+    "distinct_def": (
+        _IDENT + _grouped("from s7", "select distinct:", "    x = ident(h1)"),
+        [_DISTINCT],
+    ),
+    "distinct_parameter": (
+        _grouped("from s7", "select distinct:", "    f1", parameters="p: Int"),
+        [_DISTINCT],
+    ),
+    "distinct_same_field": (
+        _grouped("from s7", "select distinct:", "    a = f1", "    b = f1"),
+        [_DISTINCT],
+    ),
+    "distinct_literal": (
+        _grouped("from s7", "select distinct:", "    f1", "    n = 1"),
+        [_DISTINCT],
+    ),
+    "distinct_upstream": (
+        "table a:\n    from s7\n    select:\n        f1\n\n"
+        + _grouped("from a", "select distinct:", "    f1"),
+        [_DISTINCT],
+    ),
+    "distinct_beside_refused": (
+        _grouped("from s7", "select distinct:", "    f1", "    q = h1 / h2"),
+        [("PIE-B1003", "float_division_not_realized")],
+    ),
+    "union_mixed_nullability": (key_body("union_distinct", ("h1", "f1")), [_SET]),
+    "union_width_255": (key_body("union_distinct", ("h1", "kx", "h2"), "t7"), [_SET]),
+    "union_two_tables": (
+        "table b:\n    from s7\n    select:\n        h1\n"
+        + _union(
+            "from s7",
+            "select:",
+            "    h1",
+            tail="query result:\n    union distinct:\n        from a\n        from b\n",
+        ),
+        [_SET],
+    ),
+    "union_three_operands": (
+        key_body("union_distinct", ("h1",)) + "        from a\n",
+        [_SET],
+    ),
+    "union_where": (_union("from s7", "where id > 1", "select:", "    h1"), [_SET]),
+    "union_let": (_union("from s7", "let k = h1", "select:", "    k"), [_SET]),
+    "union_relation_alias": (
+        _union("let s = s7", "from s", "select:", "    h1"),
+        [_SET],
+    ),
+    "union_def": (_IDENT + _union("from s7", "select:", "    x = ident(h1)"), [_SET]),
+    "union_distinct_operand": (
+        _union("from s7", "select distinct:", "    h1"),
+        [_DISTINCT],
+    ),
+    "union_window_operand": (
+        _union(
+            "from s7", "select:", "    h1", "    n = row_number() window(order by id)"
+        ),
+        [_SET],
+    ),
+    # D77.08: Float INTERSECT and EXCEPT stay refused, either quantifier.
+    **{
+        f"{kind}_{quantifier}": (
+            key_body("union_distinct", ("h1",)).replace(
+                "union distinct", f"{kind} {quantifier}"
+            ),
+            [_SET],
+        )
+        for kind in ("intersect", "except")
+        for quantifier in ("distinct", "all")
+    },
+}
+# main's suggestion of each refusal above, and the line (in the body) and
+# column of each one not at line 4, column 9: the first Float key or
+# DISTINCT field, the count_distinct, or the set body.
+_SUGGESTIONS = {
+    "count_distinct_argument_outside_reviewed_int_domain": (
+        "Use the aggregate's reviewed direct argument carrier, or keep it in"
+        " check/plan; do not coerce its input to force emission."
+    ),
+    "float_division_not_realized": (
+        "Use an already supported scalar form with its reviewed operand"
+        " carriers, or keep this expression in check/plan. Do not use a cast"
+        " or a different contract to force emission."
+    ),
+    "set_row_equivalence_domain_unsupported": (
+        "Use Int, Bool, Text, Decimal or Float with exact matching carriers."
+        " On MySQL a Float set, a window distribution result included, is"
+        " limited to UNION ALL, and Timestamp to UNION ALL/DISTINCT; keep"
+        " other unreviewed set carriers in check --project."
+    ),
+    **dict.fromkeys(
+        (
+            "distinct_field_comparison_domain_unsupported",
+            "group_key_type_outside_reviewed_comparison_domain",
+        ),
+        "Use a reviewed direct projection or grouping/order/set form with"
+        " matching carriers, or keep this declaration in check/plan; do not"
+        " widen equality or coerce operands to force emission.",
+    ),
+}
+_KEY_REFUSED_AT = {
+    "distinct_beside_refused": (5, 9),
+    "distinct_def": (7, 9),
+    "distinct_let": (5, 9),
+    "distinct_named_window": (5, 9),
+    "distinct_relation_alias": (5, 9),
+    "distinct_upstream": (9, 9),
+    "distinct_where": (5, 9),
+    "distribution_distinct": (10, 9),
+    "distribution_group": (10, 9),
+    "except_all": (6, 5),
+    "except_distinct": (6, 5),
+    "group_count_distinct": (7, 9),
+    "group_def": (7, 9),
+    "group_def_count": (7, 9),
+    "group_join": (5, 9),
+    "group_named_window": (5, 9),
+    "group_relation_alias": (5, 9),
+    "group_text_first": (5, 9),
+    "group_upstream": (9, 9),
+    "group_where": (5, 9),
+    "intersect_all": (6, 5),
+    "intersect_distinct": (6, 5),
+    "union_def": (9, 5),
+    "union_distinct.f": (6, 5),
+    "union_distinct.ff": (7, 5),
+    "union_distinct.fnf": (8, 5),
+    "union_distinct.fwf": (8, 5),
+    "union_distinct.h": (6, 5),
+    "union_distinct.hh": (7, 5),
+    "union_distinct.hnh": (8, 5),
+    "union_distinct.hwh": (8, 5),
+    "union_let": (7, 5),
+    "union_mixed_nullability": (7, 5),
+    "union_query_operand": (7, 5),
+    "union_relation_alias": (7, 5),
+    "union_three_operands": (6, 5),
+    "union_two_tables": (10, 5),
+    "union_unread_fields": (7, 5),
+    "union_where": (7, 5),
+    "union_width_255": (8, 5),
+    "union_window_operand": (7, 5),
+}
+_RELEASE = (
+    "PIE-B1003",
+    "target_release_not_reviewed",
+    'the reviewed mysql release is "8.4.12"',
+    None,
+    None,
+)
+# D77.37 rule two: main's refusal of a cell form's Float key, which the form
+# reports again whenever another check refuses it.
+KEY_FORM_REFUSAL = {"group.h": (*_GROUP, _SUGGESTIONS[_GROUP[1]], 4, 9)}
+
+
+def refusals(outcome, body):
+    """The public blockers of ``outcome``, emitted from ``body`` in its MySQL
+    world, as (code, detail, suggestion, line in ``body``, column)."""
+    from pietto._project.project_sql_emission import serialize_project_sql_emission
+
+    offset = world("mysql", body)[0].count("\n") - body.count("\n")
+    public = probe.decode_public(serialize_project_sql_emission(outcome))
+    return [
+        (
+            item["code"],
+            item["subject"]["detail"],
+            item["suggestion"],
+            *(
+                (None, None)
+                if item["location"] is None
+                else (item["location"]["line"] - offset, item["location"]["column"])
+            ),
+        )
+        for item in public["blockers"]
+    ]
+
+
+def key_cells(artifact):
+    """The S07 cell each reader derives from its own input: emission from its
+    plan, compiled replay from the bundle's records, the pure boundary from
+    the emission document."""
+    from pietto._project import project_completed_semantics as semantics
+    import _pietto_sql_emission_portable as portable
+    import _pietto_sql_emission_pure_boundary as pure
+    from pietto._project import project_sql_emission_rows as rows
+    from pietto._project.project_compiled_build import build_compiled
+    from pietto._project.project_compiled_loading import load_compiled
+
+    built = build_compiled(artifact)
+    root = load_compiled(
+        built.payload,
+        expected_pin=built.pin,
+        accepted_producer=built.producer,
+        accepted_compatibility=built.compatibility,
+    )
+    observed = portable.export_emission_observation(artifact, artifact.request)
+    assert observed.canonical_bytes is not None
+    document = pure._decode(json.loads(observed.canonical_bytes))[0]
+    return (
+        rows.mysql_float_key_cell(artifact.request),
+        semantics._compiled_float_key_cell(root.records),
+        pure._mysql_float_key_cell(pure._Doc(document)),
+    )
+
+
+def assert_key_cell_emits(directory, cell, body):
+    """``body`` emits on MySQL the PostgreSQL statement in MySQL spelling,
+    whose text with identifiers erased is the cell's probe; the live verifier
+    and the pure boundary accept both; every reader derives ``cell``."""
+    import _pietto_sql_emission_portable as portable
+    import _pietto_sql_emission_pure_boundary as pure
+    from pietto._project.project_sql_emission import serialize_project_sql_emission
+    from pietto._project.project_sql_emission_verification import (
+        verify_project_sql_emission,
+    )
+
+    emitted = {}
+    for target in ("postgres", "mysql"):
+        outcome = build(directory / target, target, body)
+        assert outcome.status == "VERIFIED", serialize_project_sql_emission(outcome)
+        artifact = outcome.artifact
+        assert artifact is not None
+        assert verify_project_sql_emission(artifact, artifact.request).verified
+        observed = portable.export_emission_observation(artifact, artifact.request)
+        assert observed.canonical_bytes is not None
+        assert (
+            pure.parse_emission_observation(observed.canonical_bytes).status
+            is pure.Status.OK
+        )
+        emitted[target] = artifact.rendered.sql.decode("utf-8")
+    assert emitted["mysql"] == (
+        emitted["postgres"].replace('"', "`").replace("`public`", "`phase66`")
+    )
+    assert erased(emitted["mysql"]) == _probe(cell[0], len(cell[1]))
+    assert key_cells(artifact) == (cell, cell, cell)
+
+
+def assert_key_refused(directory, name):
+    """KEY_REFUSED ``name`` keeps main's blocker on MySQL (code, detail,
+    suggestion, line and column) and emits on PostgreSQL."""
+    body, ((code, detail),) = KEY_REFUSED[name]
+    assert build(directory / "postgres", "postgres", body).status == "VERIFIED"
+    outcome = build(directory / "mysql", "mysql", body)
+    assert outcome.status == "BLOCKED" and outcome.artifact is None
+    assert refusals(outcome, body) == [
+        (code, detail, _SUGGESTIONS[detail], *_KEY_REFUSED_AT.get(name, (4, 9)))
+    ]
+
+
+def assert_refused_key_cell_reports_main(directory, name, monkeypatch):
+    """D77.37 rule two: the cell form ``name`` refused for another reason
+    reports main's whole blocker list. Under a contract naming the
+    unreviewed MySQL release 8.4.11 emission_blockers (also read by the live
+    verifier and guarded preparation) and the outcome give the release
+    blocker and main's refusal of the Float key; refused by a check later
+    than emission_blockers (row query correspondence), main's refusal."""
+    from pietto._project import project_sql_emission as emission
+
+    body, main = KEY_FORMS[name][1], KEY_FORM_REFUSAL[name]
+    seen = []
+    blockers = emission.emission_blockers
+    monkeypatch.setattr(
+        emission,
+        "emission_blockers",
+        lambda request: seen.append(blockers(request)) or seen[-1],
+    )
+    outcome = build(directory / "release", "mysql", body, "8.4.11")
+    assert [(b.code, b.detail) for b in seen[0]] == [_RELEASE[:2], main[:2]]
+    assert refusals(outcome, body) == [_RELEASE, main]
+    monkeypatch.setattr(emission, "verify_row_query", lambda request, query: False)
+    assert refusals(build(directory / "late", "mysql", body), body) == [main]
+
+
+def forged_key_artifact(directory, body, monkeypatch):
+    """A MySQL artifact of ``body`` with its compiled bundle and emission
+    document, each made while emission (and the live verifier these run)
+    took every statement for an S07 cell."""
+    import _pietto_sql_emission_portable as portable
+    from pietto._project import project_sql_emission_rows as rows
+    from pietto._project.project_compiled_build import build_compiled
+
+    with monkeypatch.context() as patch:
+        patch.setattr(rows, "mysql_float_key_cell", lambda request: ("group", ("H",)))
+        outcome = build(directory, "mysql", body)
+        artifact = outcome.artifact
+        assert outcome.status == "VERIFIED" and artifact is not None
+        observed = portable.export_emission_observation(artifact, artifact.request)
+        assert observed.canonical_bytes is not None
+        return artifact, build_compiled(artifact), observed.canonical_bytes
+
+
+def assert_forged_key_refused(directory, body, monkeypatch):
+    """Emission forced past the S07 cell law: the live verifier refuses the
+    artifact from its plan and the pure boundary the document, each by its
+    own derivation, whose tables restate emission's."""
+    import _pietto_sql_emission_pure_boundary as pure
+    from pietto._project import project_sql_emission_rows as rows
+    from pietto._project.project_sql_emission_verification import (
+        verify_project_sql_emission,
+    )
+
+    artifact, _, document = forged_key_artifact(directory, body, monkeypatch)
+    assert verify_project_sql_emission(artifact, artifact.request).issues == (
+        "plan_ast_correspondence",
+    )
+    refused = pure.parse_emission_observation(document)
+    assert (refused.status, refused.detail) == (
+        pure.Status.INVALID_RELATION,
+        "MySQL Float key cell",
+    )
+    assert pure._MYSQL_FLOAT_KEY_CELLS == rows.MYSQL_FLOAT_KEY_CELLS
+    assert pure._MYSQL_FLOAT_KEY_CARRIERS == rows.MYSQL_FLOAT_KEY_CARRIERS
+
+
+def assert_tampered_key_refused(directory, name, tamper):
+    """The document of the cell form ``name``, rewritten by ``tamper`` into a
+    statement no cell holds, is refused by the pure boundary."""
+    import _pietto_sql_emission_portable as portable
+    import _pietto_sql_emission_pure_boundary as pure
+
+    artifact = build(directory, "mysql", KEY_FORMS[name][1]).artifact
+    assert artifact is not None
+    observed = portable.export_emission_observation(artifact, artifact.request)
+    assert observed.canonical_bytes is not None
+    document = json.loads(observed.canonical_bytes)
+    tamper(document["records"])
+    refused = pure.parse_emission_observation(json.dumps(document))
+    assert (refused.status, refused.detail) == (
+        pure.Status.INVALID_RELATION,
+        "MySQL Float key cell",
+    )

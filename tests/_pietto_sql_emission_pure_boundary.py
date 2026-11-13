@@ -1259,6 +1259,182 @@ def _mysql_float_cell(doc, ref):
     return cell
 
 
+# Phase77 S07: the MySQL Float GROUP BY cells as (template, key carriers in
+# order) and the carriers as (tag, contract representation), restated from
+# the emitter's MYSQL_FLOAT_KEY_CELLS and MYSQL_FLOAT_KEY_CARRIERS because
+# this module imports no compiler.
+_MYSQL_FLOAT_KEY_CELLS = frozenset(
+    ("group", keys)
+    for keys in (
+        ("H",),
+        ("F",),
+        ("H", "H"),
+        ("F", "F"),
+        ("H", "N", "H"),
+        ("F", "N", "F"),
+    )
+)
+_MYSQL_FLOAT_KEY_CARRIERS = {
+    "F": (
+        "Float",
+        {
+            "domain": {"format": "binary64", "kind": "finite_float"},
+            "nullable": True,
+            "storage": {"kind": "my_double"},
+        },
+    ),
+    "H": (
+        "Float",
+        {
+            "domain": {"format": "binary64", "kind": "finite_float"},
+            "nullable": False,
+            "storage": {"kind": "my_double"},
+        },
+    ),
+    "N": (
+        "Text",
+        {
+            "domain": {
+                "collation": "utf8mb4_0900_bin",
+                "encoding": "utf8mb4",
+                "kind": "text",
+                "max_characters": 64,
+                "padding": "NO PAD",
+            },
+            "nullable": False,
+            "storage": {"kind": "my_varchar", "length": 64},
+        },
+    ),
+}
+# The record kinds a cell's document may hold; any other is never a cell.
+_MYSQL_FLOAT_KEY_KINDS = frozenset(
+    {
+        "artifact",
+        "association",
+        "bound_field",
+        "bound_source",
+        "event",
+        "generated_requirement",
+        "origin",
+        "original_requirement",
+        "owner",
+        "premise",
+        "realization",
+        "rendered",
+        "request",
+        "row_body",
+        "row_scan",
+        "scope_definition",
+        "scope_use",
+        "sql_symbol",
+        "stage_column",
+        "terminal_binding",
+        "sql_row_query",
+        "row_stage_use",
+        "aggregate_stage",
+        "aggregate_key_column",
+        "aggregate_value_column",
+        "aggregate_projection_column",
+        "aggregate_origin",
+    }
+)
+
+
+def _mysql_float_key_carrier(doc, field):
+    """The emitter's mysql_float_key_carrier of a bound field, restated."""
+    logical = doc[field]["logical"]
+    try:
+        described = _json(doc[field]["representation"])
+    except _Reject:
+        return None
+    if logical.get("kind") != "builtin":
+        return None
+    for symbol, carrier in _MYSQL_FLOAT_KEY_CARRIERS.items():
+        if carrier == (logical.get("name"), described):
+            return symbol
+    return None
+
+
+def _mysql_float_key_cell(doc):
+    """The S07 cell of the document from its own structure, as emission
+    derives it from its plan: an aggregate body scanning the one bound
+    source, grouping by one to three key columns with one `count()` of no
+    argument, then a projection reading its outputs in order. Each key is a
+    direct read of a different field of the bound source, and its carrier
+    gives the cell; the document holds no other record kind
+    (_MYSQL_FLOAT_KEY_KINDS). None outside every cell. A relation alias
+    `let`, an unused named window or an inlined `def`, which emission
+    refuses, changes the document only in source positions and source bytes,
+    so this reader cannot tell it from the direct program."""
+    artifacts = doc.all("artifact")
+    if len(artifacts) != 1:
+        return None
+    ast = doc[artifacts[0]]["ast"]
+    if ast.kind != "sql_row_query":
+        return None
+    units = tuple(doc[ast]["bodies"])
+    sources = doc.all("bound_source")
+    if (
+        not set(doc.kinds) <= _MYSQL_FLOAT_KEY_KINDS
+        or len(units) != 2
+        or units[0].kind != "row_body"
+        or units[1].kind != "row_body"
+        or len(sources) != 1
+    ):
+        return None
+    body, unit = doc[units[0]], doc[units[1]]
+    scan, terminals = body["scan"], tuple(body["terminals"])
+    if (
+        scan.kind != "row_scan"
+        or doc[scan]["realization"] != sources[0]
+        or body["predicate"] is not None
+        or body["block_kind"] != "aggregate"
+        or body["aggregation"] is None
+    ):
+        return None
+    stage = doc[body["aggregation"]]
+    keys, values = tuple(stage["keys"]), tuple(stage["values"])
+    if (
+        stage["mode"] != "grouped"
+        or not 0 < len(keys) <= 3
+        or len(values) != 1
+        or tuple(body["columns"]) != (*keys, *values)
+        or unit["block_kind"] != "projection"
+        or unit["predicate"] is not None
+        or unit["aggregation"] is not None
+        or unit["scan"].kind != "row_stage_use"
+        or doc[unit["scan"]]["body"] != units[0]
+        or tuple(doc[doc[c]["read"]]["terminal"] for c in unit["columns"]) != terminals
+    ):
+        return None
+    value = doc[values[0]]
+    if (
+        value["function"],
+        value["argument"],
+        value["distinct"],
+        tuple(value["order_by"]),
+        tuple(value["extra_arguments"]),
+    ) != ("count", None, False, (), ()):
+        return None
+    fields = []
+    for read in (doc[column]["read"] for column in keys):
+        stage = doc[read]
+        if (
+            stage["field"] is None
+            or stage["source_port"] is None
+            or stage["literal"] is not None
+            or stage["aggregate"] is not None
+            or stage["window"] is not None
+            or stage["field"] not in doc[sources[0]]["fields"]
+        ):
+            return None
+        fields.append(stage["field"])
+    if len(set(fields)) != len(fields):
+        return None
+    cell = ("group", tuple(_mysql_float_key_carrier(doc, f) for f in fields))
+    return cell if cell in _MYSQL_FLOAT_KEY_CELLS else None
+
+
 def _is_pg_text(realization, *, nullable=None, maximum=None) -> bool:
     return _is_realization(
         realization,
@@ -3417,6 +3593,15 @@ class _Check:
                 _require(
                     stage["mode"] == "grouped" or reads_aggregate,
                     "global aggregate composition leaf",
+                )
+        if self.family == "mysql":
+            # Phase77 S07: a MySQL Float group key emits only in a qualified
+            # cell.
+            keyed = [doc[c]["read"] for c in doc.all("aggregate_key_column")]
+            if any(doc[doc[item]["realization"]]["tag"] == "Float" for item in keyed):
+                _require(
+                    _mysql_float_key_cell(doc) in _MYSQL_FLOAT_KEY_CELLS,
+                    "MySQL Float key cell",
                 )
         for ref in doc.all("join_body"):
             join = doc[ref]

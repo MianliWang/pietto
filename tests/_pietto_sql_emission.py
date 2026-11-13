@@ -339,6 +339,8 @@ FLOAT_ON_BOTH_TARGETS = frozenset(
         "fo_ascending",
         "fo_descending",
         "fo_limit",
+        # Phase77 S07: the GROUP BY of one Float field is a cell.
+        "fg_ratio",
     }
 )
 SET_CASES = frozenset(
@@ -569,6 +571,17 @@ def _pg_float_key(realization) -> bool:
         realization["tag"] == "Float"
         and realization["storage"] == {"kind": "pg_float8"}
         and realization["domain"] == {"kind": "float64"}
+    )
+
+
+def _float_key(realization) -> bool:
+    """A GROUP BY key carrier: PostgreSQL's (_pg_float_key) or, since Phase77
+    S07, MySQL's finite binary64 DOUBLE, which the product readers admit only
+    in their S07 cells."""
+    return _pg_float_key(realization) or (
+        realization["tag"] == "Float"
+        and realization["storage"] == {"kind": "my_double"}
+        and realization["domain"] == FINITE_FLOAT
     )
 
 
@@ -5229,6 +5242,8 @@ def source_files(source):
 # The retained source purpose and the historical outcome are unchanged history;
 # the variant name is not status authority.
 MIGRATED_TO_SUCCESS = (
+    # Phase77 S07: the GROUP BY of one Float field is a cell.
+    ("V_aggregate_blocked", "float_key"),
     ("L_emission_blocked", "where_later"),
     # Q1 admits the exact qualified Timestamp and UUID source carriers.
     ("L_emission_blocked", "timestamp_meaning"),
@@ -5349,16 +5364,15 @@ PER_TARGET_STATUS = {
     },
     # Phase72 Lane E (Branch B): MySQL keeps Float GROUP BY, DISTINCT, UNION
     # DISTINCT and `==` between two row reads refused (it kept -0.0 and 0.0
-    # apart beside a wide key), and refuses Float INTERSECT/EXCEPT and VALUES;
-    # PostgreSQL emits each of these programs (relation ORDER is open on
-    # both, FLOAT_ON_BOTH_TARGETS).
+    # apart beside a wide key) outside the Phase77 S06 and S07 cells, and
+    # refuses Float INTERSECT/EXCEPT and VALUES; PostgreSQL emits each of
+    # these programs (relation ORDER is open on both, FLOAT_ON_BOTH_TARGETS).
     **{
         key: {"postgres": "VERIFIED", "mysql": "BLOCKED"}
         for key in (
             ("V_row_blocked", "float_comparison"),
             # E4: PostgreSQL emits Float field arithmetic (MySQL Phase77).
             ("V_row_blocked", "float_arithmetic"),
-            ("V_aggregate_blocked", "float_key"),
             ("V_result_blocked", "float_distinct"),
             ("V_set_blocked", "float_intersect_all"),
             *(
@@ -12550,9 +12564,7 @@ def _decode_fixed_public(document, limits):
                                 for k in ("precision", "scale")
                             )
                         )
-                        and (
-                            realization["tag"] != "Float" or _pg_float_key(realization)
-                        ),
+                        and (realization["tag"] != "Float" or _float_key(realization)),
                         "group determinant comparison domain",
                     )
                     origin = {

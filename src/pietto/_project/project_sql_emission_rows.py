@@ -3053,6 +3053,217 @@ def mysql_float_cell(request, expression):
     return cell
 
 
+# Phase77 S07 (D77.39): the MySQL Float GROUP BY statements of the S07
+# native qualification judged CANDIDATE_EMISSION_EXPERIMENT_READY
+# (reauthor/s07, the paired forms group.* over h, f, hh, ff, hnh and fnf), as
+# (template, key carriers in order). Each reads one source directly, groups
+# by the keys and selects them in that order, then `count()`. A carrier is
+# the fixture column's whole realization (MYSQL_FLOAT_KEY_CARRIERS).
+# Emission and the live verifier call mysql_float_key_cell on their plan;
+# compiled replay (records) and the pure boundary (document) each derive the
+# cell from their own input. Every other MySQL Float key keeps its refusal: a
+# wide or other Text key, other carriers, keys or order, another select item
+# or clause, a let, a named window, a header parameter, a `def` call, another
+# upstream query, every DISTINCT and UNION DISTINCT (the raw campaign showed
+# no on-disk deduplication for them, PRIMITIVE_OBSERVATION_ONLY), and the
+# count_distinct, window and distribution forms that D77.39 keeps refused.
+# A relation alias `let` (read or not), an unused named window and an
+# inlined `def` change the records and the document only in source positions
+# and source bytes, so only emission and the live verifier see and refuse
+# them.
+_MYSQL_FLOAT_KEY_SETS = (
+    ("H",),
+    ("F",),
+    ("H", "H"),
+    ("F", "F"),
+    ("H", "N", "H"),
+    ("F", "N", "F"),
+)
+MYSQL_FLOAT_KEY_CELLS = frozenset(("group", keys) for keys in _MYSQL_FLOAT_KEY_SETS)
+# (tag, contract representation) of each S07 key carrier: "F" the nullable
+# and "H" the non-null finite binary64 DOUBLE, "N" the NOT NULL utf8mb4_0900_bin
+# VARCHAR(64). The wide VARCHAR(1000) key stays refused (D77.08).
+MYSQL_FLOAT_KEY_CARRIERS = {
+    "F": (
+        "Float",
+        {"domain": FINITE_FLOAT, "nullable": True, "storage": {"kind": "my_double"}},
+    ),
+    "H": (
+        "Float",
+        {"domain": FINITE_FLOAT, "nullable": False, "storage": {"kind": "my_double"}},
+    ),
+    "N": (
+        "Text",
+        {
+            "domain": {
+                "collation": "utf8mb4_0900_bin",
+                "encoding": "utf8mb4",
+                "kind": "text",
+                "max_characters": 64,
+                "padding": "NO PAD",
+            },
+            "nullable": False,
+            "storage": {"kind": "my_varchar", "length": 64},
+        },
+    ),
+}
+# The plan parts a cell's plan may hold; every other part is empty.
+_MYSQL_FLOAT_KEY_PARTS = frozenset(
+    {
+        "literal_sites",
+        "sources",
+        "blocks",
+        "input_uses",
+        "source_ports",
+        "input_ports",
+        "all_exports",
+        "exports",
+        "boundaries",
+        "symbols",
+        "origins",
+        "demands",
+        "stage_ports",
+        "result_ports",
+        "result_exports",
+        "aggregations",
+        "group_keys",
+        "aggregates",
+        "aggregate_projections",
+    }
+)
+
+
+def mysql_float_key_carrier(tag, representation) -> str | None:
+    """The S07 carrier symbol of a field of logical ``tag`` whose contract
+    representation is exactly one of MYSQL_FLOAT_KEY_CARRIERS; else None."""
+    try:
+        value = json.loads(representation)
+    except (TypeError, ValueError):
+        return None
+    for symbol, carrier in MYSQL_FLOAT_KEY_CARRIERS.items():
+        if carrier == (tag, value):
+            return symbol
+    return None
+
+
+def mysql_float_key_cell(request):
+    """The S07 cell (MYSQL_FLOAT_KEY_CELLS) of the statement, from the plan,
+    the contract fields its keys read and the declarations as written; None
+    outside every cell and while emission derives as main (AS_MAIN).
+
+    The plan holds only a cell's parts (_MYSQL_FLOAT_KEY_PARTS), one source,
+    and an aggregate block over it and a projection: one GROUP BY of one to
+    three keys and one `count()` with no argument, selected as the keys in
+    their GROUP BY order and then the count. Each key reads a different
+    contract field directly, whose carrier (mysql_float_key_carrier) gives
+    the cell. As written, the one declaration of the statement is a table
+    or query with no `let` and no named window, and no select item calls a
+    `def` (inlined_arguments).
+    """
+    if AS_MAIN.get():
+        return None
+    import dataclasses
+
+    from pietto._project.module_catalog import authored_definitions
+    from pietto._project.project_sql_emission_aggregation import function_name
+    from pietto._project.project_sql_plan import (
+        ProjectSQLBoundary,
+        ProjectSQLBoundaryReason,
+    )
+    from pietto.ast_nodes import QueryDef, SourceDef, TableDef, inlined_arguments
+
+    plan = request.plan
+    if not plan.aggregations or any(
+        getattr(plan, item.name)
+        for item in dataclasses.fields(plan)
+        if item.name not in _MYSQL_FLOAT_KEY_PARTS
+        and type(getattr(plan, item.name)) is tuple
+    ):
+        return None
+    blocks = plan.blocks
+    named = tuple(
+        item.entry.owner
+        for item in plan.bindings.definitions
+        if type(item.entry.owner.definition) is not SourceDef
+    )
+    if (
+        len(plan.sources) != 1
+        or len(plan.input_uses) != 1
+        or len(named) != 1
+        or tuple(block.kind for block in blocks)
+        != (row.ProjectSQLStageKind.AGGREGATE, row.ProjectSQLStageKind.PROJECTION)
+        or any(
+            type(block.boundary) is not ProjectSQLBoundary
+            or block.boundary.reason is not ProjectSQLBoundaryReason.SOURCE_INPUT
+            for block in blocks
+        )
+    ):
+        return None
+    keys, aggregates = plan.group_keys, plan.aggregates
+    # Each select item reads, through its projection port, one aggregate
+    # result: the keys in their GROUP BY order, then the count.
+    ports = {port.ref: port.source for port in plan.stage_ports}
+    if (
+        not 0 < len(keys) <= 3
+        or len(plan.aggregations) != 1
+        or len(aggregates) != 1
+        or aggregates[0].arguments
+        or aggregates[0].order_by
+        or function_name(aggregates[0].source) != "count"
+        or len(plan.aggregate_projections) != len(keys) + 1
+        or any(
+            ports.get(projection.input) is not result
+            for projection, result in zip(
+                plan.aggregate_projections,
+                (*(key.result for key in keys), aggregates[0].result),
+                strict=True,
+            )
+        )
+    ):
+        return None
+    found = tuple(_mysql_float_field(request, key.input) for key in keys)
+    fields = tuple(item[1] for item in found if item is not None)
+    if len(fields) != len(keys) or len({id(field) for field in fields}) != len(fields):
+        return None
+    (owner,) = named
+    written = authored_definitions(
+        plan.scope.completed.semantic_result.modules[owner.module_position]
+    )[owner.declaration_position]
+    if (
+        type(written) not in {TableDef, QueryDef}
+        or written.naming_declarations
+        or written.named_windows
+        or written.let_clause is not None
+        or any(
+            inlined_arguments(projection.semantic.item.expression)
+            for projection in plan.aggregate_projections
+        )
+    ):
+        return None
+    cell = (
+        "group",
+        tuple(
+            mysql_float_key_carrier(
+                getattr(field.field.evidence.resolved_type, "name", None),
+                field.representation,
+            )
+            for field in fields
+        ),
+    )
+    return cell if cell in MYSQL_FLOAT_KEY_CELLS else None
+
+
+def mysql_float_key_admitted(request, realization) -> bool:
+    """Whether a MySQL Float GROUP BY key of the statement emits: its carrier
+    is the finite binary64 DOUBLE and the statement is an S07 cell
+    (mysql_float_key_cell)."""
+    return (
+        request.family == "mysql"
+        and float_carrier(realization, "mysql")
+        and mysql_float_key_cell(request) is not None
+    )
+
+
 def resolved_comparison_realization(
     family,
     tag,

@@ -1111,10 +1111,15 @@ A finite Float compares, groups, deduplicates, orders and joins by Float
 equality (`-0.0 == 0.0`) on PostgreSQL, in every set form included; after
 `0.1.10` it is also a window partition and order key, a `string_agg` order
 key and a FULL JOIN equality there. On MySQL, comparisons with a literal or a
-header parameter, ordering inequalities, `in`, `nullif` and UNION ALL emit;
-Float GROUP BY, DISTINCT, relation ORDER, UNION DISTINCT, INTERSECT, EXCEPT
-and an `==` or `!=` between two row reads are BLOCKED with `PIE-B1003`. A
-window `percent_rank`/`cume_dist` result compares on both targets; after
-`0.1.10` PostgreSQL also takes it as a DISTINCT, GROUP BY, ORDER and window
-key and in the equivalence set forms, which MySQL keeps BLOCKED. A merged row
-shows the value of some member of its class.
+header parameter, ordering inequalities, `in` and `not in` (a literal list
+only when its value or all of its options read no row), `nullif`, relation
+ORDER BY and UNION ALL emit, and, unreleased, so do a Float GROUP BY key in
+the one-source forms and an `==`, `!=` or `same_value` between two row reads
+in the same-row and JOIN forms that
+[Float values](../language.md#float-values) lists; every other Float GROUP
+BY, DISTINCT, UNION DISTINCT, INTERSECT, EXCEPT and `==`, `!=` or
+`same_value` between two row reads is BLOCKED with `PIE-B1003`. A window
+`percent_rank`/`cume_dist` result compares on both targets; after `0.1.10`
+PostgreSQL also takes it as a DISTINCT, GROUP BY, ORDER and window key and
+in the equivalence set forms, which MySQL keeps BLOCKED. A merged row shows
+the value of some member of its class.

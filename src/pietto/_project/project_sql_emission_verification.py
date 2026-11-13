@@ -2513,7 +2513,11 @@ def _verify_aggregate_body(
             or not _same_read(column.read, read)
             or retained is None
             or (read.realization.tag, read.realization.nullable) != retained
-            or grouping.group_key_problem(read.realization) is not None
+            or grouping.group_key_problem(
+                read.realization,
+                float_key_cell=rows.mysql_float_key_admitted(request, read.realization),
+            )
+            is not None
             or column.label != label
             or column.symbol.position != index + 1
             or column.symbol.binding is not export.ref

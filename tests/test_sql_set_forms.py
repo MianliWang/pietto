@@ -16,6 +16,7 @@ from typing import Any
 import pytest
 
 import _pietto_sql_emission as probe
+import _pietto_sql_float_cells as float_cells
 from pietto._project import project_sql_emission_sets as setting
 from pietto._project.project_sql_emission import serialize_project_sql_emission
 from pietto._project.project_sql_emission_rendering import render_join_sql
@@ -701,3 +702,19 @@ def test_timestamp_set_emission_opens_only_union(tmp_path, target, kind, quantif
     damaged = dict(doc, sql=doc["sql"].replace(" UNION ", " INTERSECT "))
     with pytest.raises(ValueError):
         probe.decode_public(probe.encoded(damaged))
+
+
+@pytest.mark.parametrize(
+    "name",
+    sorted(
+        n
+        for n in float_cells.KEY_REFUSED
+        if n.startswith(("union", "intersect", "except"))
+    ),
+)
+def test_mysql_float_union_distinct_columns_keep_their_refusal(tmp_path, name):
+    """Phase77 S07 (D77.39): every MySQL Float UNION DISTINCT, INTERSECT and
+    EXCEPT keeps main's blockers (the S07 paired forms, which the raw
+    campaign judged PRIMITIVE_OBSERVATION_ONLY, wide keys, other clauses,
+    inputs and select lists), and the program emits on PostgreSQL."""
+    float_cells.assert_key_refused(tmp_path, name)

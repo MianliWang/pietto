@@ -1261,6 +1261,22 @@ def test_the_comparison_row_read_fact_is_required():
 
 
 @pytest.mark.parametrize("name", tuple(FLOAT_CARRIERS))
+def test_a_mysql_float_key_cell_admits_only_the_finite_double(name):
+    """Phase77 S07: a reader's own S07 cell admits MySQL's finite DOUBLE as a
+    GROUP BY key, nothing else: no MySQL distribution result or unreviewed
+    carrier, and no other aggregate argument."""
+    from pietto._project import project_sql_emission_aggregation as aggregation
+
+    value = FLOAT_CARRIERS[name]
+    keyed = name in {"pg", "pg_distribution", "my"}
+    assert (aggregation.group_key_problem(value, float_key_cell=True) is None) is keyed
+    assert (
+        aggregation.resolved_argument_problem("count_distinct", True, value, "mysql")
+        is not None
+    )
+
+
+@pytest.mark.parametrize("name", tuple(FLOAT_CARRIERS))
 def test_float_equivalence_admits_postgres_keys_and_order_each_finite(name):
     """Group keys, DISTINCT, the equivalence set forms, window partition and
     order keys, string_agg order keys and FULL JOIN equalities admit only the

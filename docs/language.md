@@ -592,7 +592,7 @@ first column give every rule.
 | `add_months(d, n)` ([Expressions](#expressions)) | `CAST((d + make_interval(months => CAST(n AS integer))) AS date)` | `DATE_ADD(d, INTERVAL n MONTH)` | emitted; a `None` argument refused (PIE-B1003) | refused (PIE-B1003) |
 | `now()` ([Expressions](#expressions)) | `(statement_timestamp() AT TIME ZONE 'UTC')`, in SELECT items and WHERE | `UTC_TIMESTAMP(6)`, in SELECT items and WHERE | emitted, compiled and bound as a template | unreleased: also as `date_of(now())`, only in the qualified SELECT position the `now()` paragraph of [Expressions](#expressions) gives; refused elsewhere (PIE-B1003) |
 | Always-null numbers, D-12 ([Expressions](#expressions)) | typed NULL casts | typed NULL casts | `Int` arithmetic with `None`; `Float` and `Decimal` refused | as PostgreSQL |
-| `Float` equality ([Float values](#float-values)) | comparisons and GROUP BY; DISTINCT and set forms are project-only | as PostgreSQL; GROUP BY beside a wide `Text` key may split `-0.0` and `0.0` | comparisons, GROUP BY, DISTINCT, ORDER BY, every set form, window `partition by` and `order by`, `string_agg` order keys and FULL JOIN equalities, also over a window `percent_rank` or `cume_dist` result | comparisons with a literal or header parameter, ordering inequalities, `in` and `not in` (a literal list only when its value or all of its options read no row), `nullif`, relation ORDER BY and UNION ALL; `==`, `!=` and `same_value` of two `Float` fields in the unreleased qualified same-row and JOIN forms of [Float values](#float-values); the other forms refused (PIE-B1003) |
+| `Float` equality ([Float values](#float-values)) | comparisons and GROUP BY; DISTINCT and set forms are project-only | as PostgreSQL; GROUP BY beside a wide `Text` key may split `-0.0` and `0.0` | comparisons, GROUP BY, DISTINCT, ORDER BY, every set form, window `partition by` and `order by`, `string_agg` order keys and FULL JOIN equalities, also over a window `percent_rank` or `cume_dist` result | comparisons with a literal or header parameter, ordering inequalities, `in` and `not in` (a literal list only when its value or all of its options read no row), `nullif`, relation ORDER BY and UNION ALL; `==`, `!=` and `same_value` of two `Float` fields in the unreleased qualified same-row and JOIN forms, and GROUP BY of one to three keys in the unreleased qualified one-source forms, of [Float values](#float-values); the other forms refused (PIE-B1003) |
 | JOIN aggregates without fan-out ([Aggregates](#aggregates-and-grouping)) | accepted | accepted | accepted | accepted; `sum(Int)` stays PIE-B1004 |
 | Top-level constants and `--set` ([Top-level constants](#top-level-constants)) | literals; `DATE '...'`, `TIMESTAMP '...'` | as PostgreSQL | refused (PIE-S2392) | refused (PIE-S2392) |
 | Project aggregate arguments ([Aggregates](#aggregates-and-grouping)): `count`/`count_distinct` of `Text`, `Bool`, `Float`, `Decimal`; `min`/`max` of `Float`, `Decimal`; `sum`/`avg` of `Float`; a row expression argument (`sum(qty * 2)`) | emitted (unchanged) | emitted (unchanged) | emitted, also an argument holding a scalar call over JOIN rows (`count(lower(r.label))`); direct `sum(Decimal(p, s))` emits as checked `numeric(p + 19, s)` only for `p + 19 <= 65`; Decimal `avg` and other Decimal sum shapes stay PIE-B1004 | as PostgreSQL, except `count_distinct` of a `Float` (PIE-B1003), `sum`/`avg` of a `Float`, `sum` of a `Decimal`, and `sum` of an `Int` such as `sum(qty * 2)` (PIE-B1004), and over JOIN rows an argument holding a scalar call (PIE-B1003); an `Int` expression not proved to fit BIGINT is PIE-B1002 first |
@@ -741,6 +741,28 @@ included, is PIE-B1003 `comparison_type_pair_not_admitted`. A statement of
 these forms that emission refuses for another reason, such as an output
 label past 256 characters, reports the blockers it has without the forms,
 this PIE-B1003 included.
+
+MySQL deduplicates GROUP BY rows in an internal temporary table, which kept
+`-0.0` and `0.0` apart beside a `VARCHAR(1000)` key. MySQL project emission
+therefore emits a Float GROUP BY key only in the forms its native
+qualification matched under this contract (unreleased, Phase77 S07): a query
+over one source that groups by the keys and selects exactly those keys in
+that order and then `count()`. The keys are different fields read
+directly, as `x`, `x, y` or `x, k, y`, where `x` and `y` are Float fields
+both non-null or both nullable and `k` is a NOT NULL binary `Text` field of
+width 64. The statement holds nothing else: no other select item,
+aggregate, clause, JOIN or upstream query, no header parameter, no `let` (a
+relation alias included, read or not), no named window and no `def` call;
+fields it does not read and the source's unique keys do not matter. Every
+other Float key keeps PIE-B1003
+`group_key_type_outside_reviewed_comparison_domain`: a wider, narrower or
+nullable `Text` key, other keys or key orders, another select item or
+clause, and a window `percent_rank` or `cume_dist` result. A MySQL
+Float DISTINCT (`distinct_field_comparison_domain_unsupported`), UNION
+DISTINCT (`set_row_equivalence_domain_unsupported`), `count_distinct` of a
+Float and a Float window key stay refused as well. A statement of these
+forms that emission refuses for another reason reports the blockers it has
+without the forms, this PIE-B1003 included.
 
 ## Sources and relations
 
