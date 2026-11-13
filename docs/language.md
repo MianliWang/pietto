@@ -518,13 +518,13 @@ cutoff: Date = "2024-01-31"
 The name is a plain name (not a keyword or soft keyword), the type is exactly
 `Bool`, `Int`, `Float`, `Text`, `Date` or `Timestamp` (never `| None`, no
 `Decimal` yet), and the value is one literal of that type: `True` or `False`;
-an integer, or a number with a decimal point for `Float`, optionally after a
-minus sign; a Text literal; for `Date` the Text literal `"YYYY-MM-DD"` from
-1000-01-01 to 9999-12-31 and for `Timestamp` `"YYYY-MM-DD HH:MM:SS"` with up
-to six fractional digits from 1000-01-01 00:00:00 to 9999-12-31
-23:59:59.499999 (the civil Timestamp interval). Anything else, `date(...)`,
-`Float(...)`, `None` or arithmetic included, is PIE-S2391; a repeated
-constant name is PIE-S2001.
+an integer from -9223372036854775808 to 9223372036854775807, or a number with
+a decimal point for `Float`, optionally after a minus sign; a Text literal;
+for `Date` the Text literal `"YYYY-MM-DD"` from 1000-01-01 to 9999-12-31 and
+for `Timestamp` `"YYYY-MM-DD HH:MM:SS"` with up to six fractional digits from
+1000-01-01 00:00:00 to 9999-12-31 23:59:59.499999 (the civil Timestamp
+interval). Anything else, `date(...)`, `Float(...)`, `None` or arithmetic
+included, is PIE-S2391; a repeated constant name is PIE-S2001.
 
 A bare name equal to a constant reads it anywhere a value is read: WHERE,
 lets, SELECT items, `def` bodies, `any(...)` predicates, JOIN conditions,
@@ -548,7 +548,8 @@ only reads a constant names its output (`as_of = cutoff`).
 `--set NAME=VALUE` on `check`, `emit-sql` and `explain` (repeatable) changes
 one constant for that run. The VALUE is read as a literal of the declared
 type, never as source text: `True`/`true`/`False`/`false`; digits with
-optional `_` and a leading `-` (`Float` needs a decimal point); any UTF-8
+optional `_` and a leading `-` (`Float` needs a decimal point, and an `Int`
+lies from -9223372036854775808 to 9223372036854775807); any UTF-8
 text for `Text` (no quotes); `YYYY-MM-DD` and `YYYY-MM-DD HH:MM:SS[.ffffff]`.
 The SQL is byte-identical to writing the value in the file. `--set` never
 decides whether the file is valid: an initializer that is not one literal of
@@ -2759,7 +2760,13 @@ when_false`. The conditional binds loosest and nests to the right, so
 n > 0 else "c")`. There is no `case when ... end` form and no `||` operator;
 both are syntax errors (PIE-P1000), and `+` does not join `Text` values
 (PIE-S2105): write `concat(a, b)`. Numeric literals may contain separators such as `1_000` and `1_000.25_0`;
-they retain the existing length and finite-value bounds. `lower <= value <= upper`
+they retain the existing length and finite-value bounds. In a single file
+an `Int` literal, with a sign written directly before it, lies in the signed
+64-bit range from -9223372036854775808 to 9223372036854775807, or a file
+with no other error reports PIE-S2364 at it, beside a `Decimal` or `Float`
+value too (write such a `Float` with a decimal point); a warning is no such
+error, so an `lpad` width or `substr` index beyond the range is PIE-S2385 and
+PIE-S2364. `lower <= value <= upper`
 uses the existing inclusive-range semantics, including NULL bounds, and other
 admitted comparison chains preserve source order. For a half-open range, such
 as the timestamps of one month, write `start <= ts < stop`, which includes

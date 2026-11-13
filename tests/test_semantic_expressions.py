@@ -42,6 +42,7 @@ from pietto.semantic import (
     ValueTypeKind,
     analyze,
 )
+from pietto.semantic.analyzer import analyze_project_namespace
 from pietto.semantic.expressions import type_relation_expressions
 from pietto.semantic.row_lookup import (
     bare_candidates,
@@ -52,6 +53,17 @@ from pietto.semantic.row_lookup import (
 
 from _pietto_semantic_expressions import expression_facts
 
+SOURCE_64 = """shape Row:
+    id: Int
+
+source rows: Row = postgres.table("rows")
+
+query q:
+    from rows
+    select:
+        id
+        {}
+"""
 SOURCE = (
     "shape User:\n"
     "    id: UUID\n"
@@ -2325,3 +2337,56 @@ def test_float_constructor_arity_errors_are_known_and_source_ordered() -> None:
         ("PIE-S2104", "Invalid arguments for constructor Float: expected 1, got 2", 6),
         ("PIE-S2104", "Invalid arguments for constructor Float: expected 1, got 0", 6),
     ]
+
+
+def test_a_single_file_int_literal_is_signed_64_bit() -> None:
+    source = SOURCE_64.format(
+        "a = 9223372036854775807\n        b = -9223372036854775808\n"
+        "        c = 9223372036854775808\n        d = -9223372036854775809\n"
+        "        e = +9223372036854775808\n"
+        "        f = id + 99999999999999999999 if id > 0 else 0"
+    )
+    parsed = parse_source(source)
+    assert parsed.ast is not None
+
+    errors = [
+        (item.code, item.location.line, item.location.column, item.message)
+        for item in analyze(parsed.ast).diagnostics
+        if item.severity is Severity.ERROR
+    ]
+
+    outside = "is outside the signed 64-bit range from -9223372036854775808 to "
+    assert errors == [
+        (
+            "PIE-S2364",
+            line,
+            column,
+            f"Int literal {value} {outside}9223372036854775807.",
+        )
+        for line, column, value in (
+            (12, 13, "9223372036854775808"),
+            (13, 13, "-9223372036854775809"),
+            (14, 13, "9223372036854775808"),
+            (15, 18, "99999999999999999999"),
+        )
+    ]
+    # A limit out of range keeps its own error alone.
+    limited = parse_source(
+        SOURCE_64.format("a = 1") + "    limit 9223372036854775808\n"
+    )
+    assert limited.ast is not None
+    assert [item.code for item in analyze(limited.ast).diagnostics] == ["PIE-S2307"]
+    # A warning is no other error: an lpad width or substr index beyond the
+    # range is PIE-S2385 and PIE-S2364.
+    for call, column in (
+        ('lpad("x", 99999999999999999999, "0")', 23),
+        ('substr("x", 99999999999999999999, 1)', 25),
+    ):
+        called = parse_source(SOURCE_64.format(f"a = {call}"))
+        assert called.ast is not None
+        assert [
+            (item.code, item.location.column)
+            for item in analyze(called.ast).diagnostics
+        ] == [("PIE-S2385", 13), ("PIE-S2364", column)]
+    # A project writes its own SQL and reports none of them.
+    assert not analyze_project_namespace(parsed.ast).diagnostics

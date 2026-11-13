@@ -1,5 +1,6 @@
 """Single-file top-level constants: declaration checks, `--set` values and
-the substitution of every read by its value.
+the substitution of every read by its value, and the signed 64-bit range of
+every single-file Int literal.
 
 A constant ``cutoff: Date = "2024-01-31"`` is one literal of a closed type,
 read by its bare name anywhere a value is read except in a source's
@@ -40,6 +41,7 @@ from pietto.semantic.inline_functions import _RESERVED_NAMES, _rebuild, _tree_no
 __all__ = (
     "CONSTANT_CODE",
     "constant_diagnostics",
+    "int_literal_diagnostics",
     "override_constants",
     "substitute_constants",
 )
@@ -53,7 +55,8 @@ _TYPE_MESSAGE = (
 # How each type's one literal is written: in source, and as a `--set` value.
 _SOURCE_FORMS = {
     "Bool": "`True` or `False`",
-    "Int": "an integer such as `10` or `-10`",
+    "Int": "an integer such as `10` or `-10`, from -9223372036854775808 to "
+    "9223372036854775807",
     "Float": "a number with a decimal point such as `1.5` or `-1.5`",
     "Text": 'a Text literal such as `"EU"`',
     "Date": 'a Text literal `"YYYY-MM-DD"` from 1000-01-01 to 9999-12-31',
@@ -62,7 +65,8 @@ _SOURCE_FORMS = {
 }
 _VALUE_FORMS = {
     "Bool": "True or False",
-    "Int": "an integer such as 10 or -10",
+    "Int": "an integer such as 10 or -10, from -9223372036854775808 to "
+    "9223372036854775807",
     "Float": "a number with a decimal point such as 1.5 or -1.5",
     "Text": "UTF-8 text",
     "Date": "YYYY-MM-DD from 1000-01-01 to 9999-12-31",
@@ -113,6 +117,10 @@ def _admitted_type(declared: TypeExpr) -> str | None:
     return None
 
 
+def _int64(value: object) -> bool:
+    return type(value) is int and -(1 << 63) <= value < 1 << 63
+
+
 def _number(
     text: str, pattern: re.Pattern[str], kind: type[int] | type[float]
 ) -> int | float | None:
@@ -156,7 +164,7 @@ def _source_value(type_name: str, expression: Expression) -> _Value | None:
     if type_name == "Bool":
         return value if type(value) is bool else None
     if type_name == "Int":
-        return sign * value if type(value) is int else None
+        return sign * value if type(value) is int and _int64(sign * value) else None
     if type_name == "Float":
         return sign * value if type(value) is float else None
     if type(value) is not str:
@@ -170,7 +178,8 @@ def _set_value(type_name: str, text: str) -> _Value | None:
     if type_name == "Bool":
         return {"True": True, "true": True, "False": False, "false": False}.get(text)
     if type_name == "Int":
-        return _number(text, _INT, int)
+        value = _number(text, _INT, int)
+        return value if _int64(value) else None
     if type_name == "Float":
         return _number(text, _FLOAT, float)
     if type_name == "Text":
@@ -417,6 +426,39 @@ def _declared_names(script: Script) -> frozenset[str]:
                 found.add(child)
             pending.append(child)
     return frozenset(found)
+
+
+def int_literal_diagnostics(script: Script) -> tuple[Diagnostic, ...]:
+    """PIE-S2364 at each Int literal of a single file outside the signed
+    64-bit range, a sign written directly before it included, as a VALUES
+    cell is read: SQL would compute such a value as a decimal or fail."""
+
+    signed: set[int] = set()
+    found: list[Diagnostic] = []
+    for node in _tree_nodes(script):
+        if (
+            type(node) is UnaryExpr
+            and type(cast(UnaryExpr, node).operand) is LiteralExpr
+        ):
+            unary = cast(UnaryExpr, node)
+            signed.add(id(unary.operand))
+            value = cast(LiteralExpr, unary.operand).value
+            if unary.operator == "-" and type(value) is int:
+                value = -value
+        elif type(node) is LiteralExpr and id(node) not in signed:
+            value = cast(LiteralExpr, node).value
+        else:
+            continue
+        if type(value) is int and not _int64(value):
+            found.append(
+                _error(
+                    "PIE-S2364",
+                    f"Int literal {value} is outside the signed 64-bit range "
+                    "from -9223372036854775808 to 9223372036854775807.",
+                    cast(Node, node).span,
+                )
+            )
+    return tuple(found)
 
 
 def _error(code: str, message: str, span: Span) -> Diagnostic:

@@ -79,7 +79,11 @@ from pietto.semantic.expressions import (
     type_shape_predicates,
     type_source_connector_arguments,
 )
-from pietto.semantic.constants import constant_diagnostics, substitute_constants
+from pietto.semantic.constants import (
+    constant_diagnostics,
+    int_literal_diagnostics,
+    substitute_constants,
+)
 from pietto.semantic.existence_generators import (
     AnyUseInfo,
     AnyValueInfo,
@@ -370,6 +374,19 @@ def _analyze_script(
                 parsed,
                 shared=not single_file,
             )
+            # Only an otherwise valid file: a limit, window frame or window
+            # count out of range keeps its own error alone. A warning is no
+            # error, so an lpad width beyond it is PIE-S2385 and PIE-S2364.
+            if single_file and not any(
+                item.severity is Severity.ERROR for item in diagnostics
+            ):
+                diagnostics = tuple(
+                    merge(
+                        diagnostics,
+                        int_literal_diagnostics(parsed),
+                        key=_diagnostic_order,
+                    )
+                )
             warnings = habit_warnings(
                 parsed,
                 result.script or script,

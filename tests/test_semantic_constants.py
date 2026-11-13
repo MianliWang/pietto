@@ -70,7 +70,7 @@ def test_a_date_or_timestamp_read_is_typed_as_declared() -> None:
         (
             ("limit_n", "1.0"),
             "--set limit_n: constant limit_n has type Int; write an integer such as "
-            "10 or -10",
+            "10 or -10, from -9223372036854775808 to 9223372036854775807",
         ),
         (
             ("lo", "2"),
@@ -143,6 +143,32 @@ def test_a_timestamp_constant_is_one_civil_timestamp(
     assert (errors == []) is accepted
 
 
+@pytest.mark.parametrize(
+    ("value", "accepted"),
+    [
+        ("9223372036854775807", True),
+        ("-9223372036854775808", True),
+        ("9223372036854775808", False),
+        ("-9223372036854775809", False),
+        ("True", False),
+    ],
+)
+def test_an_int_constant_or_set_value_is_signed_64_bit(
+    value: str, accepted: bool
+) -> None:
+    errors = _errors(
+        f"n: Int = {value}\n\nquery q:\n    from events\n    select:\n"
+        "        id\n        v = n\n"
+    )
+    assert [code for code, *_ in errors] == ([] if accepted else ["PIE-S2391"])
+    script = parsed(SHAPE.format(dialect="postgres") + CONSTANTS + QUERY)
+    if accepted:
+        override_constants(script, (("limit_n", value),))
+    else:
+        with pytest.raises(ValueError, match="^--set limit_n: constant limit_n"):
+            override_constants(script, (("limit_n", value),))
+
+
 TYPE_ERROR = (
     "A constant is `Bool`, `Int`, `Float`, `Text`, `Date` or `Timestamp`, "
     "without `| None`."
@@ -197,7 +223,8 @@ def test_declarations_that_are_not_one_literal_of_a_constant_type() -> None:
             "PIE-S2391",
             13,
             10,
-            "Constant `g` takes one `Int` literal: an integer such as `10` or `-10`.",
+            "Constant `g` takes one `Int` literal: an integer such as `10` or `-10`, "
+            "from -9223372036854775808 to 9223372036854775807.",
         ),
         ("PIE-S2001", 17, 1, "Duplicate symbol name in constant namespace: h"),
     ]
