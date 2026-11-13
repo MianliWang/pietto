@@ -146,7 +146,9 @@ extend these operations rather than bypassing them.
 
 Phase68 [S14](https://github.com/MianliWang/pietto/blob/8e7c43f1852b2c26318b3217268a1f7416f44965/docs/phases/phase-68/slice-14.md) recovers extraction through the S10
 common entry, the real route owners and S06 `Enumeration` from position 0; it
-adds no seek, frontier import, source table, scheduler or second encoder. The
+adds no seek, frontier import, source table, scheduler or second encoder. Its one
+import is the recorded statement time of a generation that reads `now()`, which
+the new owner's pages bind as a parameter. The
 read-only S10 bridge `compiled_source_description` projects an open owner's own
 checked qualification. Continuation, reconciliation and end rows extend the S11
 fenced operation pattern in the explicit v4 workspace, new chunks reuse the S12

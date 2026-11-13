@@ -114,7 +114,27 @@ def page_query(tmp_path):
     )
 
 
-def observed_enumerator(query, *, size=2, environment=None):
+@pytest.fixture
+def now_query(tmp_path):
+    """`page_query` that also selects `seen = now()`."""
+    from _pietto_sql_emission import fixture, build_case
+    from _pietto_execution_refinement import capabilities
+    from pietto._project.project_refinement import TieRefinement, prepare_refinement
+
+    base = fixture("postgres")
+    source = (
+        base["source"].split("table result:", 1)[0]
+        + "table result:\n    from rows\n    select:\n        id\n"
+        + "        seen = now()\n"
+    )
+    _, result = build_case(tmp_path, source, base["contract"])
+    assert result.status == "VERIFIED"
+    return prepare_refinement(
+        result.artifact, capabilities(result.artifact), policy=TieRefinement()
+    )
+
+
+def observed_enumerator(query, *, size=2, environment=None, clock=None):
     from pietto._project.project_execution import ExecutionLimits
     from pietto._project.project_execution_source import (
         ObservedSource,
@@ -147,15 +167,23 @@ def observed_enumerator(query, *, size=2, environment=None):
         role=req.role,
         environment=environment or ("18.6", "repeatable read", True, "UTF8"),
     )
-    return Enumeration(query, admission, limits=ExecutionLimits(batch_rows=size))
+    return Enumeration(
+        query, admission, limits=ExecutionLimits(batch_rows=size), clock=clock
+    )
 
 
 def page_metadata(query):
     from types import SimpleNamespace
 
-    names = (query.output.columns[0].label,) + query.units[-1].key_names
+    names = tuple(c.label for c in query.output.columns) + query.units[-1].key_names
     return tuple(
-        SimpleNamespace(name=n, type_code=20, null_ok=None, precision=None, scale=None)
+        SimpleNamespace(
+            name=n,
+            type_code=1114 if n == "seen" else 20,
+            null_ok=None,
+            precision=None,
+            scale=None,
+        )
         for n in names
     )
 
@@ -218,6 +246,52 @@ def test_bad_pages_do_not_advance(page_query, damage):
     with pytest.raises(ValueError):
         stream.check_page(page, metadata, rows, terminal=terminal)
     assert stream.progress == (0, 0, False, True)
+
+
+def test_every_page_of_an_attempt_binds_its_one_statement_time(now_query):
+    """The statement time is part of the attempt: both pages bind it, and a
+    change between pages or before a page is checked is refused."""
+    from datetime import datetime
+
+    from _pietto_execution_refinement import CLOCK
+
+    seen = datetime.fromisoformat(CLOCK)
+    stream = observed_enumerator(now_query, clock=CLOCK)
+    first = stream.request_page()
+    assert first.native.arguments == (2, CLOCK)
+    stream.commit_page(
+        stream.check_page(
+            first,
+            page_metadata(now_query),
+            ((7, seen, 0, 1), (8, seen, 0, 2)),
+            terminal="NORMAL",
+        )
+    )
+    second = stream.request_page()
+    assert second.native.arguments == (0, 2, 2, CLOCK)
+    stream.clock = "2026-11-13 10:00:01.000000"
+    with pytest.raises(ValueError, match="^REFINEMENT_ATTEMPT_CHANGED$"):
+        stream.check_page(second, page_metadata(now_query), (), terminal="NORMAL")
+    stream = observed_enumerator(now_query, clock=CLOCK)
+    stream.clock = "2026-11-13 10:00:01.000000"
+    with pytest.raises(ValueError, match="^REFINEMENT_ATTEMPT_CHANGED$"):
+        stream.request_page()
+
+
+def test_a_time_is_bound_only_where_now_is_read(page_query, now_query):
+    """A query that reads `now()` needs the time, one that does not refuses
+    it, and so does a guarded attempt: a guard statement never binds one."""
+    from pietto._project.project_refinement_enumeration import Enumeration
+
+    from _pietto_execution_refinement import CLOCK
+
+    for query, clock, guards in (
+        (now_query, None, None),
+        (page_query, CLOCK, None),
+        (now_query, CLOCK, object()),
+    ):
+        with pytest.raises(ValueError, match="^REFINEMENT_STATEMENT_CLOCK$"):
+            Enumeration(query, None, _guards=guards, clock=clock)
 
 
 def test_arbitrary_internal_frontier_is_not_completed_prefix(page_query):

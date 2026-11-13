@@ -142,8 +142,11 @@ extraction specification and owner-linked stable source description were written
 with its first capture may continue; a recovery needs a fresh process-local,
 purpose-scoped acceptance and a new attempt whose real owner requalifies the
 complete source vector and guards. Stored descriptions, barrier rows and
-persisted success are compared, never trusted as authority. Complete coverage is
-not a transaction ACK, delivery, sink effect or generation publication.
+persisted success are compared, never trusted as authority. Recovery imports one
+recorded value from the extraction specification, the statement time of a
+generation that reads `now()`, and binds it only as a parameter; it has no fresh
+comparator. Complete coverage is not a transaction ACK, delivery, sink effect or
+generation publication.
 
 
 ## Cooperative-delivery identity

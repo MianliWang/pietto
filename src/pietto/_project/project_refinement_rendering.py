@@ -138,8 +138,46 @@ def null_equal(left, right):
     )
 
 
+def _now(value):
+    """Whether ``value`` is a `now()` read, the statement clock."""
+    return (
+        type(value) is rows.SQLOperation
+        and value.kind == "scalar_call"
+        and value.original.callee_symbol.name == "now"
+        and not value.operands
+    )
+
+
+class _ClockWriter(_Writer):
+    """Writes each `now()` read as the one parameter bound to an R2
+    generation's recorded statement time; the emitted SQL is unchanged."""
+
+    __slots__ = ("clock_index", "clock_reads")
+
+    def __init__(self, request, index):
+        super().__init__(request)
+        self.clock_index, self.clock_reads = index, 0
+
+    def scalar(self, value, alias):
+        if not _now(value):
+            return super().scalar(value, alias)
+        start, reference = self.offset, value.original.ref
+        self.emit(
+            "CAST($" + str(self.clock_index), "syntax", "scalar_call_open", reference
+        )
+        self.emit(
+            parameters.anchor_suffix("pg_timestamp"),
+            "syntax",
+            "scalar_call_close",
+            reference,
+        )
+        self.enclose("scalar_call", reference, start)
+        self.clock_reads += 1
+
+
 def _parameters(value):
-    if type(value) is rows.SQLParameterRead:
+    """The parameter and `now()` leaves of one original value, in text order."""
+    if type(value) is rows.SQLParameterRead or _now(value):
         return (value,)
     if type(value) is rows.SQLOperation:
         return tuple(p for child in value.operands for p in _parameters(child))
@@ -152,11 +190,14 @@ def _parameters(value):
     )
 
 
-def render(statement, artifact, page_values=(), *, _guards=None):
-    """Render checked syntax with distinct original-slot and page-use domains."""
+def render(statement, artifact, page_values=(), *, _guards=None, clock=None):
+    """Render checked syntax with distinct original-slot and page-use domains;
+    ``clock`` is the statement time an R2 page binds at every `now()` read."""
     request = artifact.request
     family = request.family
-    w = _Writer(request)
+    if clock is not None and (_guards is not None or family != "postgres"):
+        # A guard statement and MySQL SQL never bind a statement time.
+        raise ValueError("REFINEMENT_STATEMENT_CLOCK")
     subject = request.plan.scope
     uses = []
     from pietto._project.project_execution_binding_verification import (
@@ -167,12 +208,32 @@ def render(statement, artifact, page_values=(), *, _guards=None):
     original_arguments = artifact_arguments(artifact)
     original_indices = tuple(u.server_index for u in artifact.parameter_uses)
     page_base = max(original_indices, default=0)
+    clock_index = page_base + len(page_values) + 1
+    w = _Writer(request) if clock is None else _ClockWriter(request, clock_index)
 
     def emit(text):
         w.emit(text, "syntax", "refinement", subject)
 
     def ident(value):
         w.identifier(value, "refinement", subject)
+
+    def original_uses(value):
+        for leaf in _parameters(value):
+            if _now(leaf):
+                if clock is None:
+                    raise ValueError("REFINEMENT_STATEMENT_CLOCK")
+                uses.append(ParameterUse("clock", 0, clock_index, clock))
+                continue
+            use = leaf.use
+            uses.append(
+                ParameterUse(
+                    "original",
+                    use_owner(use),
+                    use.server_index if family == "postgres" else len(uses) + 1,
+                    original_arguments[use.server_index - 1],
+                    use,
+                )
+            )
 
     def separated(items, fn, separator=", "):
         for i, item in enumerate(items):
@@ -240,34 +301,13 @@ def render(statement, artifact, page_values=(), *, _guards=None):
         elif k == "original_scalar":
             original, alias = a
             w.scalar(original, alias)
-            for parameter in _parameters(original):
-                use = parameter.use
-                uses.append(
-                    ParameterUse(
-                        "original",
-                        use_owner(use),
-                        use.server_index if family == "postgres" else len(uses) + 1,
-                        original_arguments[use.server_index - 1],
-                        use,
-                    )
-                )
+            original_uses(original)
         elif k == "original_aggregate":
             from pietto._project.project_sql_emission_rendering import _aggregate_value
 
             _aggregate_value(w, a[0], a[1])
             if a[0].argument is not None:
-                for p in _parameters(a[0].argument):
-                    uses.append(
-                        ParameterUse(
-                            "original",
-                            use_owner(p.use),
-                            p.use.server_index
-                            if family == "postgres"
-                            else len(uses) + 1,
-                            original_arguments[p.use.server_index - 1],
-                            p.use,
-                        )
-                    )
+                original_uses(a[0].argument)
         elif k == "window":
             original, alias, partitions, orders, whole_frame = a
             emit(SPELLING[original.function] + "(")
@@ -435,6 +475,11 @@ def render(statement, artifact, page_values=(), *, _guards=None):
             emit(")")
         emit(" ")
     query(statement.query)
+    if clock is not None and not (
+        type(w) is _ClockWriter
+        and 0 < w.clock_reads == sum(u.domain == "clock" for u in uses)
+    ):
+        raise ValueError("REFINEMENT_STATEMENT_CLOCK")
     if family == "postgres":
         by_index = {}
         for use in uses:

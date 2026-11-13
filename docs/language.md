@@ -3408,7 +3408,8 @@ makes a call of that name PIE-S2103: the call means the built-in.
 `now()` takes no argument and is a `Timestamp` that is never None: the start
 of the running SQL statement in UTC, without a time zone, with microseconds.
 All `now()` reads of one statement are one value, whichever rows and clauses
-read it; each new execution of the SQL reads a new value. The session time
+read it; each new execution of the SQL reads a new value (an R2 generation is
+one execution; see below). The session time
 zone does not change it: PostgreSQL SQL converts the statement start to UTC
 itself (`statement_timestamp() AT TIME ZONE 'UTC'`, not PostgreSQL `now()`,
 which is the transaction start), and single-file MySQL SQL is
@@ -3419,15 +3420,30 @@ column that stores local time differs from `now()` by the local offset. MySQL
 project SQL refuses `now()` with PIE-B1003
 `scalar_call_signature_not_admitted`.
 
-`now()` is evaluated when the SQL runs, never when Pietto checks, emits,
-explains, compiles or loads it: emitted SQL, compiled bundles and golden
-fixtures hold the expression, never a value. A saved result keeps the values
-of the run that saved it, so a replay or a verified export shows those values
-and does not read `now()` again. `relay_live` (PIE-R1004
-`STATEMENT_SNAPSHOT_ENTRY`) and R2 `save_recoverable`/`recover` (PIE-R1004
-`PUBLIC_R2_STATEMENT_SNAPSHOT`) for now refuse a query that reads `now()`,
-before any workspace or sink work, because a resumed attempt would read
-another statement's value. Selected as an output, `now()` has the civil
+`now()` is evaluated when the SQL runs (an R2 generation reads one recorded
+value; see below), never when Pietto checks, emits, explains, compiles or
+loads it: emitted SQL, compiled bundles and golden fixtures hold the
+expression, never a value. A saved result keeps the values of the run that
+saved it, so a replay or a verified export shows those values and does not
+read `now()` again. `relay_live` runs one statement, as `save` does, so the
+rows its sink receives hold one `now()` value. An R2 generation is one
+statement for `now()`, although R2 reads it in pages and `recover` reads it
+again: `save_recoverable` reads the server's UTC statement time once, in its
+own transaction before its first page, and records it with the generation;
+every page of that attempt and of each later `recover` reads that recorded
+value, however much later it runs. `recover` reads its data in its own later
+snapshot while `now()` keeps the recorded value. On PostgreSQL, R2 reads
+`now()` as the whole value of a SELECT item and as a side of a comparison, in
+a SELECT item or in a WHERE built with `and` and `or`, in any stage. When
+`save_recoverable` and `recover` prepare a query that reads `now()`, they
+check its SQL and refuse one that R2 does not read, such as one with
+`date_of(now())`, `coalesce(t, now())`, `t <= now() <= u` or
+`now() in (t, u)`, before any workspace or connection (PIE-R1004
+`PUBLIC_R2_STATEMENT_SNAPSHOT`; `recover` makes this check when its restated
+values and parameters bind). On MySQL, `save_recoverable` and `recover`
+refuse a query that reads `now()` with PIE-R1004
+`PUBLIC_R2_STATEMENT_SNAPSHOT` before any workspace or connection. Selected
+as an output, `now()` has the civil
 meaning of a `Timestamp` source field (see
 [Timestamp and UUID source meaning](#timestamp-and-uuid-source-meaning)),
 which the statement's UTC start always has, beside `Timestamp` source fields

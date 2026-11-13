@@ -64,38 +64,42 @@ def test_relay_requires_a_sink_before_opening_the_workspace(query):
 
 
 @pytest.mark.parametrize(
-    ("writer", "item", "detail", "save_code"),
+    ("writer", "item", "refusal", "save_code"),
     (
         (
             api.write_example,
             "day = date_of(now())",
-            "STATEMENT_SNAPSHOT_ENTRY",
+            ("PIE-R1001", "REFERENCE_SINK_ROOT"),
             "PIE-R1009",
         ),
-        (api.write_example, "seen = now()", "STATEMENT_SNAPSHOT_ENTRY", "PIE-R1009"),
+        (
+            api.write_example,
+            "seen = now()",
+            ("PIE-R1001", "REFERENCE_SINK_ROOT"),
+            "PIE-R1009",
+        ),
         (
             api.write_example,
             "c = coalesce(now(), now())",
-            "MEANING_OUTPUT",
+            ("PIE-R1004", "MEANING_OUTPUT"),
             "PIE-R1004",
         ),
         (
             api.write_temporal_example,
             "stamp\n        seen = now()",
-            "STATEMENT_SNAPSHOT_ENTRY",
+            ("PIE-R1001", "REFERENCE_SINK_ROOT"),
             "PIE-R1009",
         ),
     ),
     ids=("read", "output", "computed", "output-beside-source"),
 )
-def test_relay_refuses_a_now_read_before_the_sink_or_workspace(
-    tmp_path, writer, item, detail, save_code
+def test_relay_runs_a_now_read_as_one_statement(
+    tmp_path, writer, item, refusal, save_code
 ):
-    """A relay of a query that reads `now()` is refused before any sink or
-    workspace work; a plain save of it is not (its saved rows keep the
-    value), so it reaches the workspace. An expression over `now()` selected
-    as an output has no meaning, so both refuse it first, while they prepare
-    the result."""
+    """A relay runs one statement, as a plain save does, so a query that
+    reads `now()` goes on to its sink and workspace checks like any other.
+    An expression over `now()` selected as an output has no meaning, so both
+    refuse it first, while they prepare the result."""
     project = writer(tmp_path / "project")
     main = project / "main.pietto"
     main.write_text(
@@ -134,7 +138,7 @@ def test_relay_refuses_a_now_read_before_the_sink_or_workspace(
             sink_budget_bytes=private_workspace.DEFAULT_BUDGET,
             values=values,
         )
-    assert (refused.value.code, refused.value.detail) == ("PIE-R1004", detail)
+    assert (refused.value.code, refused.value.detail) == refusal
     with pytest.raises(execution.RequestRejected) as saved:
         execution.save(
             workspace,

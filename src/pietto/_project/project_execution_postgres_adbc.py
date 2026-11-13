@@ -46,6 +46,7 @@ from pietto._project.project_guard_runtime import (
 from pietto._project.project_refinement_enumeration import (
     RefinedExecutionRequest,
     Enumeration,
+    attempt_clock,
     refinement_state,
     verify_refined_execution,
     atom,
@@ -350,6 +351,7 @@ class PostgresADBCExecution:
                     self.source_admissions,
                     limits=self.request.limits,
                     _guards=self.guards,
+                    clock=self._statement_clock(),
                 )
             self._verify()
             self._delivery = "OPEN"
@@ -358,6 +360,12 @@ class PostgresADBCExecution:
             self._claim_terminal("FAILED")
             self._failed(error, "admission")
             raise
+
+    def _statement_clock(self):
+        """The R2 attempt's statement time, at most one control read."""
+        return attempt_clock(
+            self.refined_request, lambda sql: read_control(self, sql, maximum=1)[1]
+        )
 
     def _parameters(self, purpose):
         if purpose == "page":
@@ -371,17 +379,25 @@ class PostgresADBCExecution:
             )
             kinds = {}
             for use in native.uses:
-                kinds[use.index] = (
-                    use_tag(use.original)
-                    if use.domain == "original"
-                    else "Int"
-                    if page.frontier is None or use.owner == len(coordinates)
-                    else coordinates[use.owner].tag
-                )
+                if use.domain == "original":
+                    kinds[use.index] = use_tag(use.original)
+                elif use.domain == "page":
+                    kinds[use.index] = (
+                        "Int"
+                        if page.frontier is None or use.owner == len(coordinates)
+                        else coordinates[use.owner].tag
+                    )
+                elif use.domain == "clock":
+                    # Canonical Timestamp text that the page's CAST reads.
+                    kinds[use.index] = "Timestamp"
+                else:
+                    raise ExecutionError("POSTGRES_ADBC_PARAMETER_TYPES")
         elif self.guards is not None:
             native = self.guards.native
             kinds = {}
             for use in native.uses:
+                if use.domain not in ("original", "guard"):
+                    raise ExecutionError("POSTGRES_ADBC_PARAMETER_TYPES")
                 kinds[use.index] = (
                     use_tag(use.original) if use.domain == "original" else "Int"
                 )

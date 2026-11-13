@@ -17,6 +17,7 @@ files or collects garbage.
 from __future__ import annotations
 
 from dataclasses import dataclass, field
+import json
 import os
 import time
 from typing import Any
@@ -78,10 +79,25 @@ def _extracting(workspace: Workspace) -> None:
         raise JobStoreError("WORKSPACE_EXTRACTION_FORMAT")
 
 
-def specification(refinement, output, route: str, isolation: str) -> str:
-    """The immutable extraction specification of a refined compiled output."""
+def specification(
+    refinement, output, route: str, isolation: str, clock: str | None = None
+) -> str:
+    """The immutable extraction specification of a refined compiled output;
+    ``clock`` is the statement time of a generation that reads `now()`."""
+    from pietto._project.project_refinement_verification import reads_now
+    from pietto._project.project_sql_emission_parameters import parameter_value
+
+    if (clock is not None) != reads_now(refinement):
+        raise JobStoreError("EXTRACTION_SPECIFICATION")
+    if clock is not None:
+        try:
+            parameter_value("Timestamp", clock)
+        except ValueError:
+            raise JobStoreError("EXTRACTION_SPECIFICATION") from None
+    time = {} if clock is None else {"statement_time": clock}
     return _json(
         {
+            **time,
             "chunk": chunks.FORMAT,
             "contract": contract_digest(output),
             "coordinates": chunks.COORDINATES,
@@ -110,6 +126,18 @@ def specification(refinement, output, route: str, isolation: str) -> str:
     )
 
 
+def recorded_time(text: str):
+    """The statement time a stored specification records, or None; readers
+    recompute the whole specification with it, so it is checked there."""
+    try:
+        document = json.loads(text)
+    except (TypeError, ValueError):
+        raise JobStoreError("EXTRACTION_SPECIFICATION") from None
+    if type(document) is not dict:
+        raise JobStoreError("EXTRACTION_SPECIFICATION")
+    return document.get("statement_time")
+
+
 def describe(owner) -> str:
     """Canonical bounded text of an open owner's stable source description."""
     from pietto._project.project_execution import compiled_source_description
@@ -124,8 +152,9 @@ def describe(owner) -> str:
     return text
 
 
-def _fresh(owner) -> None:
-    """A newly opened refined owner: enumeration at position 0, nothing delivered."""
+def _fresh(owner) -> str | None:
+    """A newly opened refined owner: enumeration at position 0, nothing
+    delivered; its statement time, the one its pages bind."""
     enumeration = getattr(owner, "enumeration", None)
     if (
         getattr(owner, "refined_request", None) is None
@@ -135,6 +164,7 @@ def _fresh(owner) -> None:
         or owner._closed
     ):
         raise JobStoreError("EXTRACTION_OWNER_STATE")
+    return enumeration.clock
 
 
 def begin_extraction(
@@ -148,13 +178,14 @@ def begin_extraction(
     """
     workspace = publisher.use()
     _extracting(workspace)
-    _fresh(owner)
+    clock = _fresh(owner)
     request = owner.request
     text = specification(
         owner.refined_request.refinement,
         request.output,
         request.route,
         request.isolation,
+        clock,
     )
     return _begin(publisher, attempt, owner, operation, (text, describe(owner)))
 
@@ -180,6 +211,8 @@ class RecoveryAcceptance:
     known: int | None
     seconds: int
     accepted_at: float
+    # The recorded statement time every recovered page binds, or None.
+    clock: str | None
     binding: Any = field(repr=False)
     _snapshot: Any = field(repr=False)
     _output: Any = field(repr=False)
@@ -329,7 +362,7 @@ def continuation_replay_request(
     text, qualification, isolation = read(
         workspace, lambda c: _recovery_metadata(c, job, generation)
     )
-    if specification(refinement, output, route, isolation) != text:
+    if specification(refinement, output, route, isolation, recorded_time(text)) != text:
         raise JobStoreError("EXTRACTION_SPECIFICATION")
     if checkpoint is None:
         return _recovery_request(job, generation, checkpoint, None, qualification)
@@ -391,7 +424,8 @@ def accept_recovery(
         return row, snapshot, known_extent(c, workspace, generation)
 
     (text, description, isolation), snapshot, known = read(workspace, body)
-    if specification(refinement, output, route, isolation) != text:
+    clock = recorded_time(text)
+    if specification(refinement, output, route, isolation, clock) != text:
         raise JobStoreError("EXTRACTION_SPECIFICATION")
     _verify_saved(workspace, snapshot, output, refinement, route)
     if any(m.start == m.stop for m in snapshot.members):
@@ -413,6 +447,7 @@ def accept_recovery(
         known,
         seconds,
         accepted_at,
+        clock,
         binding,
         snapshot,
         output,
@@ -494,13 +529,16 @@ def begin_continuation(
         != (acceptance.route, acceptance.isolation)
     ):
         raise JobStoreError("ATTEMPT_OWNER")
-    _fresh(owner)
+    # The owner's pages bind this time, so equality proves they bind the
+    # recorded one before any page is published.
+    clock = _fresh(owner)
     if (
         specification(
             owner.refined_request.refinement,
             request.output,
             request.route,
             request.isolation,
+            clock,
         )
         != acceptance._specification
     ):

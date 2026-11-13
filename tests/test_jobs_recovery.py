@@ -28,11 +28,40 @@ from pietto._project.project_job_store_verification import verify_store
 from pietto._project.project_job_workspace import JobStoreError
 
 op = probe.op
+# One valid statement time, as the first attempt of a `now()` generation reads it.
+CLOCK = "2026-11-13 10:00:00.123456"
+LATER = "2026-11-13 10:00:01.000000"
 
 
 @pytest.fixture(scope="module")
 def built(tmp_path_factory):
     return probe.refined_template(tmp_path_factory.mktemp("s14") / "bound")
+
+
+@pytest.fixture(scope="module")
+def now_built(tmp_path_factory):
+    directory = tmp_path_factory.mktemp("s14-now")
+    return probe.refined_template(
+        directory / "bound", artifact=probe.now_artifact(directory / "source")
+    )
+
+
+@pytest.fixture
+def now_setup(tmp_path, now_built, monkeypatch):
+    """`setup` for a query that selects `seen = now()`, in its own workspace."""
+    if not qualified(tmp_path):
+        yield None
+        return
+    probe.synthetic(monkeypatch)
+    s13.arrow_free(monkeypatch)
+    template, compiled, values = now_built
+    workspace, job, publisher, binding, record, generation = probe.store(
+        tmp_path / "now-workspace", template, values
+    )
+    yield workspace, job, publisher, binding, generation, compiled, values
+    for item in (publisher, workspace):
+        if not item._closed:
+            item.close()
 
 
 @pytest.fixture
@@ -155,11 +184,157 @@ def test_initial_basis_is_registered_with_the_first_capture(setup):
     )
     assert spec["contract"] == session.contract and spec["sources"]
     assert all(len(source) == 11 for source in spec["sources"])
+    # Only a generation whose query reads `now()` records a statement time.
+    assert "statement_time" not in spec
     assert json.loads(spec["scheme"])["choice"] == "structural_occurrence_ascending"
     # One original capture per generation; a second begin cannot certify anything.
     with pytest.raises(JobStoreError, match="ATTEMPT_OPEN"):
         s.open_attempt(publisher, generation, binding, operation=op())
     assert verify_store(workspace)["extractions"] == 1
+
+
+def test_a_now_generation_records_the_time_every_recovery_binds(now_setup):
+    """The first capture records the attempt's statement time; a recovery
+    accepts it and continues only with an owner whose pages bind it, and the
+    R1 readers rebuild the recorded shape with it."""
+    if now_setup is None:
+        return
+    from pietto._project.project_execution import compiled_output
+
+    workspace, job, publisher, binding, generation, compiled, values = now_setup
+    probe.extract(publisher, generation, binding, [2], clock=CLOCK)
+    (text,) = workspace.use().execute("SELECT specification FROM extraction").fetchone()
+    assert json.loads(text)["statement_time"] == CLOCK
+    snapshot = c.checkpoint_snapshot(workspace, job, generation)
+    x.continuation_replay_request(
+        workspace,
+        job,
+        generation,
+        checkpoint=snapshot.checkpoint,
+        values=values,
+        **probe.trust(compiled),
+    )
+    fresh, acceptance, attempt = probe.recover(
+        workspace, job, generation, compiled, values, previous=publisher
+    )
+    assert acceptance.clock == CLOCK
+    for clock in (LATER, None):
+        owner = probe.owner(acceptance.binding, clock=clock)
+        with pytest.raises(JobStoreError, match="^EXTRACTION_SPECIFICATION$"):
+            x.begin_continuation(fresh, acceptance, attempt, owner, operation=op())
+    x.begin_continuation(
+        fresh,
+        acceptance,
+        attempt,
+        probe.owner(acceptance.binding, clock=CLOCK),
+        operation=op(),
+    )
+    output, _refinement, _program = compiled_output(binding)
+    assert c._recorded_refinement(binding, output, "postgres_rows", "stable", text)
+    c.verified_stored_output(workspace, job, generation, binding, "postgres_rows")
+    verify_store(workspace)
+    fresh.close()
+
+
+def test_every_recovery_reader_refuses_a_changed_statement_time(
+    setup, now_setup, monkeypatch
+):
+    """A missing, added or non-canonical time is a changed specification for
+    the replay projection and the acceptance alike; so is a time given to a
+    specification whose query does not read `now()`, or none to one that
+    does."""
+    if setup is None or now_setup is None:
+        return
+    from pietto._project.project_execution import compiled_output
+    from pietto._project.project_job_store import _json
+
+    cases = []
+    for fixture, clock in ((now_setup, CLOCK), (setup, None)):
+        workspace, job, publisher, binding, generation, compiled, values = fixture
+        probe.extract(publisher, generation, binding, [2], clock=clock)
+        cases.append((workspace, job, generation, compiled, values))
+        output, refinement, _program = compiled_output(binding)
+        with pytest.raises(JobStoreError, match="^EXTRACTION_SPECIFICATION$"):
+            x.specification(
+                refinement,
+                output,
+                "postgres_rows",
+                "stable",
+                LATER if clock is None else None,
+            )
+    stored = {
+        case[1]: case[0]
+        .use()
+        .execute("SELECT specification FROM extraction")
+        .fetchone()[0]
+        for case in cases
+    }
+    damaged = []
+    now_job, plain_job = cases[0][1], cases[1][1]
+    for value in (
+        None,
+        CLOCK.replace(" ", "T"),
+        CLOCK[:19],
+        "2026-11-13 10:00:00.0",
+        "0999-12-31 23:59:59.000000",
+        CLOCK + "\n",
+        CLOCK.replace("1", "\u0661"),
+        "infinity",
+        CLOCK + "+00:00",
+        CLOCK + "Z",
+    ):
+        document = json.loads(stored[now_job])
+        if value is None:
+            del document["statement_time"]
+        else:
+            document["statement_time"] = value
+        damaged.append((now_job, _json(document)))
+    damaged.append(
+        (plain_job, _json({**json.loads(stored[plain_job]), "statement_time": CLOCK}))
+    )
+    original = x._recovery_metadata
+    for job_identity, text in damaged:
+        monkeypatch.setattr(
+            x,
+            "_recovery_metadata",
+            lambda c, job, generation, text=text: (
+                text,
+                *original(c, job, generation)[1:],
+            ),
+        )
+        workspace, job, generation, compiled, values = next(
+            case for case in cases if case[1] == job_identity
+        )
+        snapshot = c.checkpoint_snapshot(workspace, job, generation)
+        with pytest.raises(JobStoreError, match="^EXTRACTION_SPECIFICATION$"):
+            x.continuation_replay_request(
+                workspace,
+                job,
+                generation,
+                checkpoint=snapshot.checkpoint,
+                values=values,
+                **probe.trust(compiled),
+            )
+        with pytest.raises(JobStoreError, match="^EXTRACTION_SPECIFICATION$"):
+            probe.accept(workspace, job, generation, compiled, values)
+
+
+def test_the_opened_gate_returns_the_time_its_pages_bind():
+    """`begin_extraction` and `begin_continuation` take the time from the
+    enumeration that binds it, never from the request that supplied it."""
+    from types import SimpleNamespace
+
+    enumeration = SimpleNamespace(clock=CLOCK, progress=(0, 0, False, False))
+    owner = SimpleNamespace(
+        refined_request=SimpleNamespace(clock=LATER),
+        enumeration=enumeration,
+        _payloads=None,
+        _closed=False,
+    )
+    assert x._fresh(owner) == CLOCK
+    enumeration.progress = (2, 1, False, False)
+    with pytest.raises(JobStoreError, match="^EXTRACTION_OWNER_STATE$"):
+        x._fresh(owner)
 
 
 def test_ordinary_capture_on_v4_has_no_continuation_rights(setup):

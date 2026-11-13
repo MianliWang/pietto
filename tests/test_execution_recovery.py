@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import json
 from types import SimpleNamespace
 
 import pytest
@@ -676,3 +677,146 @@ def test_recover_refuses_its_other_inputs_first_whatever_the_restatement(
         # Equal for one query, different or unbindable for the other.
         for parameters in (SAVED, {"low": 5}, {"low": 6}, {"low": True}, None):
             assert _recover(workspace, query, parameters, **overrides) == refusal
+
+
+def test_public_recover_binds_the_recorded_statement_time(tmp_path, monkeypatch):
+    """A `now()` generation's public recover hands the recorded time through
+    the replay projection and both acceptances to its new owner's request;
+    without the recorded time it is refused as a changed specification."""
+    import _pietto_execution_recovery_probe as probe
+    import _pietto_execution_saved_read_probe as s13
+    from _pietto_execution_jobs_probe import qualified
+    from _pietto_execution_refinement import CLOCK, now_project
+    import pietto.execution as execution
+    from pietto._project import project_job_runtime as runtime
+    from pietto._project import project_job_workspace as private_workspace
+    from pietto._project.project_execution import ExecutionLimits, PostgresAccess
+    from pietto._project.project_execution_template import bind_values
+
+    if not qualified(tmp_path):
+        return
+    probe.synthetic(monkeypatch)
+    s13.arrow_free(monkeypatch)
+    query = execution.compile_query(
+        now_project(
+            tmp_path / "project",
+            "table snap:\n    from items\n    select:\n        id\n"
+            "        seen = now()\n",
+        ),
+        module="main.pietto",
+        kind="table",
+        name="snap",
+        dialect="postgres",
+        emission_contract="contract.json",
+    )
+    template = query._template
+    inputs = tuple(
+        execution.R2SourceInput(
+            s.namespace,
+            s.name,
+            "provider",
+            "v1",
+            "r1",
+            s.namespace,
+            "registry",
+            "SELECT 1",
+            ("id",),
+            "pietto_query",
+            "retained",
+        )
+        for s in template.artifact.request.sources
+    )
+    opened = private_workspace.create_workspace(
+        str(tmp_path / "workspace"), format=private_workspace.FORMAT_V7
+    )
+    try:
+        job = store.register_job(opened, template, operation=store.new_operation()).get(
+            "job"
+        )
+        publisher = store.claim_publisher(opened, job, operation=store.new_operation())
+        binding = bind_values(template, ())
+        record = store.register_binding(
+            publisher, binding, operation=store.new_operation()
+        ).get("binding")
+        generation = store.register_generation(
+            publisher,
+            record,
+            binding,
+            route="postgres_rows",
+            isolation="stable",
+            operation=store.new_operation(),
+        ).get("generation")
+        prepared = public_r2.proposal.prepare_live_refinement(query, binding, inputs)
+        owner = runtime._owner(
+            binding,
+            runtime.NativeSource(
+                "postgres_rows",
+                PostgresAccess("127.0.0.1", 9, "db", "pietto_query", "pw", "disable"),
+                ("fixture", "pg_catalog"),
+                ExecutionLimits(),
+                refinement=prepared.refinement,
+                live_r2=prepared.witness,
+            ),
+        )
+        probe.CLOCKS[owner] = CLOCK
+        attempt = store.open_attempt(
+            publisher, generation, binding, operation=store.new_operation()
+        )
+        extraction.begin_extraction(
+            publisher, attempt, owner, operation=store.new_operation()
+        )
+        # The first attempt's process ends here, before any page.
+        probe.takeover(opened, job, publisher).close()
+        workspace = WorkspaceRef(opened.root, opened.identity)
+    finally:
+        opened.close()
+
+    class Stopped(Exception):
+        pass
+
+    seen = []
+    original = runtime._owner
+
+    def stopped(binding, source):
+        result = original(binding, source)
+        seen.append((source.clock, result.refined_request.clock))
+        raise Stopped
+
+    monkeypatch.setattr(runtime, "_owner", stopped)
+    root = template.artifact.request.verification.completed.root
+    arguments: dict[str, Any] = dict(
+        job=job,
+        generation=generation,
+        checkpoint=None,
+        query=query,
+        source_requirements=inputs,
+        route="postgres_rows",
+        access=execution.PostgresAccess("127.0.0.1", 9, "db", "pietto_query", "pw"),
+        premise=execution.PostgresDeploymentPremise(("fixture", "pg_catalog")),
+        limits=execution.ExecutionLimits(),
+        expected_pin=root.expected_pin,
+        accepted_producer=root.accepted_producer,
+        accepted_compatibility=root.accepted_compatibility[-1],
+        purpose="now-recovery",
+        seconds=60,
+    )
+    # The runtime records the stopped attempt as failed.
+    reply = public_r2.recover(
+        workspace, operation=execution.new_operation(), **arguments
+    )
+    assert reply.terminal == "FAILED" and seen == [(CLOCK, CLOCK)]
+    metadata = extraction._recovery_metadata
+
+    def without_time(c, job, generation):
+        text, *rest = metadata(c, job, generation)
+        document = json.loads(text)
+        del document["statement_time"]
+        return (store._json(document), *rest)
+
+    monkeypatch.setattr(extraction, "_recovery_metadata", without_time)
+    with pytest.raises(RequestRejected) as refused:
+        public_r2.recover(workspace, operation=execution.new_operation(), **arguments)
+    assert (refused.value.code, refused.value.detail) == (
+        "PIE-R1009",
+        "EXTRACTION_SPECIFICATION",
+    )

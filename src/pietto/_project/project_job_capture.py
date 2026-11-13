@@ -1387,7 +1387,11 @@ def _recorded_refinement(binding, output, route, isolation, text):
         RetainedSourceRequirement,
         verify_requirement,
     )
-    from pietto._project.project_job_extraction import SPECIFICATION, specification
+    from pietto._project.project_job_extraction import (
+        SPECIFICATION,
+        recorded_time,
+        specification,
+    )
     from pietto._project.project_refinement import TieRefinement, _prepare_refinement
 
     try:
@@ -1397,7 +1401,7 @@ def _recorded_refinement(binding, output, route, isolation, text):
     if (
         type(document) is not dict
         or _json(document) != text
-        or set(document)
+        or set(document) - {"statement_time"}
         != {
             "chunk",
             "contract",
@@ -1465,7 +1469,7 @@ def _recorded_refinement(binding, output, route, isolation, text):
         )
     except ValueError:
         raise JobStoreError("EXTRACTION_SPECIFICATION") from None
-    if specification(refinement, output, route, isolation) != text:
+    if specification(refinement, output, route, isolation, recorded_time(text)) != text:
         raise JobStoreError("EXTRACTION_SPECIFICATION")
     return refinement
 
@@ -1480,7 +1484,7 @@ def verified_stored_output(
     native execution permission.
     """
     from pietto._project.project_execution import compiled_output
-    from pietto._project.project_job_extraction import specification
+    from pietto._project.project_job_extraction import recorded_time, specification
 
     output, refinement, _program = compiled_output(binding)
     recorded = None
@@ -1498,7 +1502,10 @@ def verified_stored_output(
         text, isolation = recorded
         if refinement is None:
             refinement = _recorded_refinement(binding, output, route, isolation, text)
-        elif specification(refinement, output, route, isolation) != text:
+        elif (
+            specification(refinement, output, route, isolation, recorded_time(text))
+            != text
+        ):
             raise JobStoreError("EXTRACTION_SPECIFICATION")
     return arrow_output(job, generation, output, refinement, route)
 

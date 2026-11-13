@@ -364,7 +364,11 @@ block (`exists`, `scalar`, `in` or another `any`)
 let with `capture` lines LATERAL, with or without its ORDER BY and LIMIT
 (`REFINEMENT_LATERAL_JOIN`). These checks read the live query alone, so
 `recover` makes them in this order also when its restated `values` or
-`parameters` cannot bind. Ordinary execution on every route, an ordinary
+`parameters` cannot bind. Last, on PostgreSQL, they refuse a query that reads
+`now()` and whose SQL R2 does not read (see the R2 boundary below) with
+`PUBLIC_R2_STATEMENT_SNAPSHOT`. This check renders the bound query, so
+`recover` makes it only when its restated values and parameters bind.
+Ordinary execution on every route, an ordinary
 `save` and bundles accept them. Before all of these R2 checks,
 `save_recoverable`, and `recover` when its restated values and parameters
 bind, refuse a result wider than one batch (see [Results](#results)) with
@@ -394,13 +398,17 @@ row count, and a continuation page one value per recovery coordinate wherever
 its predicate reads it. `save_recoverable` and `recover` refuse a query whose
 largest page would bind more placeholders than the contract's `parameters`
 resource limit with `PIE-R1004` (`REFINEMENT_RESOURCE_LIMIT`) when they prepare
-it, before any workspace access or connection.
+it, before any workspace access or connection. A query that reads `now()`
+binds one more placeholder at each `now()` read, the generation's recorded
+statement time, and these count toward the `parameters` limit.
 
 Each R2 attempt takes the caller's values, access and deployment premise anew.
 `recover` also takes fresh caller-held scalar `expected_pin`,
 `accepted_producer` and `accepted_compatibility` inputs; `save_recoverable`
 uses the current live query's records. Neither call derives R2 authority,
-values, trust, or a premise from inspection metadata.
+values, trust, or a premise from inspection metadata. `recover` binds the
+generation's recorded statement time, the one value it takes from the
+workspace, as a parameter; nothing fresh is compared with it.
 
 `publish_saved_generation(workspace, *, job, generation, checkpoint, closing,
 purpose, route, isolation, values, expected_pin, accepted_producer,
@@ -1633,11 +1641,13 @@ or a successful semantic check alone establishes none of those premises.
   produce, are refused (`PIE-R1004`).
 - R2 checks every page against its own reading of native SQL. Its existing
   unsupported expression domain includes conditional CASE, BETWEEN,
-  literal-list IN, CAST, scalar calls and NOT. Modern source spellings such as
-  an inclusive comparison chain or `Float(value)` still lower to the
-  corresponding SQL operations and do not remove this boundary. An R2 attempt
-  whose statement contains such an unsupported form fails closed at its first
-  page.
+  literal-list IN, CAST, scalar calls other than `now()` and NOT. Modern
+  source spellings such as an inclusive comparison chain or `Float(value)`
+  still lower to the corresponding SQL operations and do not remove this
+  boundary. An R2 attempt whose statement contains such an unsupported form
+  fails closed at its first page. A query that reads `now()` is checked for
+  these forms when it is prepared, and refused before any workspace access or
+  connection.
 - R2 refines a `where any(...)` or `where not any(...)` test, the rewrite of
   a retired `semi join` or `anti join`, as the JOIN it replaces only when it
   is an AND-composed part of a WHERE. `save_recoverable` and `recover` refuse

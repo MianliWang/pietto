@@ -407,7 +407,9 @@ def reconcile(workspace: Workspace, owner: RuntimeOwner, *, limit: int = 256) ->
 @dataclass(frozen=True, slots=True, eq=False)
 class NativeSource:
     """Explicit in-process host inputs of one native attempt; never stored or
-    pickled. The premise is rebuilt over the worker's own fresh binding."""
+    pickled. The premise is rebuilt over the worker's own fresh binding.
+    ``clock`` is no host input: a recovery takes it from the accepted
+    extraction specification."""
 
     route: str
     access: Any = field(repr=False)
@@ -416,6 +418,7 @@ class NativeSource:
     isolation: str = "stable"
     refinement: Any = field(default=None, repr=False)
     live_r2: Any = field(default=None, repr=False)
+    clock: str | None = None
 
     def __reduce_ex__(self, protocol):
         raise JobStoreError("RUNTIME_SOURCE_COPY")
@@ -1512,6 +1515,7 @@ class Runtime:
             unit.source,
             refinement=acceptance._refinement,
             live_r2=acceptance._live_r2,
+            clock=acceptance.clock,
         )
         owner = self._native(
             record, context, acceptance.binding, acceptance.route, source
@@ -1727,7 +1731,7 @@ def _owner(binding, source: NativeSource):
         )
         if binding.guarded is None:
             request = RefinedExecutionRequest(
-                execution, source.refinement, source.live_r2
+                execution, source.refinement, source.live_r2, source.clock
             )
             verify_refined_execution(request)
         else:

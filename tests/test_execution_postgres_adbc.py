@@ -131,8 +131,18 @@ def test_compiled_adbc_uses_its_fresh_route_bound_premise(artifact):
 
 def test_guard_and_page_statements_send_each_parameter_with_its_type(tmp_path):
     """Each `$n` of a guard statement and of a refinement page of a query with
-    parameters has its declared type, also for a NULL; controls are Int."""
+    parameters has its declared type, also for a NULL; controls are Int, the
+    statement time of a page that reads `now()` is Timestamp text, and any
+    other domain is refused."""
     from types import SimpleNamespace
+
+    from _pietto_execution_refinement import (
+        CLOCK,
+        frontier,
+        live_refinement,
+        now_project,
+    )
+    from pietto._project.project_refinement_rendering import ParameterUse
 
     from _pietto_execution_guard_cases import DIRECT, planned
     from pietto._project.project_compiled_build import build_compiled
@@ -180,26 +190,63 @@ def test_guard_and_page_statements_send_each_parameter_with_its_type(tmp_path):
             (3, None, 1, 1),
             ("Int", "Text", "Int", "Int"),
         )
+
+    def page(query, start=None, clock=None):
+        enumeration = object.__new__(Enumeration)
+        vars(enumeration).update(
+            verify=lambda: None,
+            query=query,
+            limits=ExecutionLimits(),
+            clock=clock,
+            _frontier=start,
+            _pending=None,
+            _complete=False,
+            _pages=0,
+        )
+        result = enumeration.request_page()
+        vars(owner).update(
+            refined_request=SimpleNamespace(refinement=query), last_page=result
+        )
+        return result
+
     # The first page: its row limit (the default 256) is the last `$n`.
-    enumeration = object.__new__(Enumeration)
-    vars(enumeration).update(
-        verify=lambda: None,
-        query=refinement,
-        limits=ExecutionLimits(),
-        _frontier=None,
-        _pending=None,
-        _complete=False,
-        _pages=0,
-    )
-    page = enumeration.request_page()
-    vars(owner).update(
-        refined_request=SimpleNamespace(refinement=refinement), last_page=page
-    )
+    first = page(refinement)
     assert owner._parameters("page") == (
-        page.native.sql,
+        first.native.sql,
         (3, None, 256),
         ("Int", "Text", "Int"),
     )
+    seen = live_refinement(
+        now_project(
+            tmp_path / "now",
+            "table seen:\n    from items\n    select:\n        id\n"
+            "        seen = now()\n",
+        ),
+        "seen",
+    )
+    first = page(seen, clock=CLOCK)
+    assert owner._parameters("page") == (
+        first.native.sql,
+        (256, CLOCK),
+        ("Int", "Timestamp"),
+    )
+    page(seen, frontier(seen), CLOCK)
+    assert owner._parameters("page")[1:] == (
+        (*frontier(seen), 256, CLOCK),
+        ("Int", "Int", "Int", "Timestamp"),
+    )
+    other = SimpleNamespace(
+        sql=b"", arguments=(1,), uses=(ParameterUse("other", 0, 1, 1),)
+    )
+    vars(owner).update(last_page=SimpleNamespace(native=other, frontier=None))
+    with pytest.raises(ExecutionError, match="^POSTGRES_ADBC_PARAMETER_TYPES$"):
+        owner._parameters("page")
+    clock = SimpleNamespace(
+        sql=b"", arguments=(CLOCK,), uses=(ParameterUse("clock", 0, 1, CLOCK),)
+    )
+    vars(owner).update(refined_request=None, guards=SimpleNamespace(native=clock))
+    with pytest.raises(ExecutionError, match="^POSTGRES_ADBC_PARAMETER_TYPES$"):
+        owner._parameters("guard")
 
 
 @pytest.mark.parametrize(

@@ -1096,43 +1096,53 @@ def verify_refinement(value):
     # D70.07: the largest page, a continuation whose predicate reads every
     # coordinate, fits the placeholder limit before any page is requested.
     largest = _page_statement(value, bool(_page_coordinates(value)))
-    _need(_placeholders(largest) <= limits["parameters"], "RESOURCE_LIMIT")
+    _need(len(_placeholders(largest)) <= limits["parameters"], "RESOURCE_LIMIT")
     return value.units[-1]
 
 
 def _placeholders(statement):
-    """The placeholder occurrences rendering ``statement`` writes."""
+    """The placeholder occurrences rendering ``statement`` writes: the
+    parameter and `now()` leaves of its original values and its controls."""
     from pietto._project.project_refinement_rendering import _parameters
 
-    pending, total = [statement], 0
+    pending, found = [statement], []
     while pending:
         node = pending.pop()
         if type(node) is tuple:
             pending.extend(node)
         elif type(node) is Expr and node.kind == "original_scalar":
-            total += len(_parameters(node.args[0]))
+            found.extend(_parameters(node.args[0]))
         elif type(node) is Expr and node.kind == "original_aggregate":
             argument = node.args[0].argument
-            total += 0 if argument is None else len(_parameters(argument))
+            found.extend(() if argument is None else _parameters(argument))
         elif type(node) is Expr and node.kind in (
             "page",
             "page_limit",
             "guard_control",
         ):
-            total += 1
+            found.append(node)
         elif type(node) in _SYNTAX:
             pending.extend(getattr(node, f.name) for f in fields(node))
-    return total
+    return found
+
+
+def reads_now(value):
+    """Whether refinement ``value`` reads `now()`: its pages then bind the
+    attempt's one statement time."""
+    from pietto._project.project_refinement_rendering import _now
+
+    return any(_now(leaf) for leaf in _placeholders(value.statement))
 
 
 class _Bytes:
     """Recognize the one checked closed syntax, never parse caller SQL into authority."""
 
-    def __init__(self, native, artifact, controls):
+    def __init__(self, native, artifact, controls, clock=None):
         self.native = native
         self.artifact = artifact
         self.family = artifact.request.family
         self.controls = controls
+        self.clock = clock
         self.text = native.sql.decode("utf-8")
         self.position = 0
         self.uses = []
@@ -1200,6 +1210,7 @@ class _Bytes:
 
     def scalar(self, value, alias):
         from pietto._project import project_sql_emission_parameters as p
+        from pietto._project.project_refinement_rendering import _now
         from pietto._project.project_sql_emission_rows import (
             SQLStageReference,
             SQLOperation,
@@ -1210,6 +1221,13 @@ class _Bytes:
             self.identifier(alias if value.scope is None else value.scope.name)
             self.take(".")
             self.identifier(value.column.name)
+        elif _now(value):
+            _need(
+                self.clock is not None and self.family == "postgres", "STATEMENT_CLOCK"
+            )
+            self.take("CAST(")
+            self.parameter("clock", 0, self.base + len(self.controls) + 1, self.clock)
+            self.take(p.anchor_suffix("pg_timestamp"))
         elif type(value) is SQLOperation:
             self.take("(")
             if value.kind == "sign":
@@ -1563,8 +1581,9 @@ def _page_statement(value, continuation):
 
 
 @entry
-def verify_native(native, value, *, frontier=None, size=None):
+def verify_native(native, value, *, frontier=None, size=None, clock=None):
     verify_refinement(value)
+    _need((clock is not None) == reads_now(value), "STATEMENT_CLOCK")
     _need(
         type(native) is NativeStatement
         and type(native.sql) is bytes
@@ -1584,5 +1603,5 @@ def verify_native(native, value, *, frontier=None, size=None):
         and len(native.uses) <= limits["parameters"],
         "RESOURCE_LIMIT",
     )
-    _Bytes(native, value.original, controls).run()
+    _Bytes(native, value.original, controls, clock).run()
     return controls

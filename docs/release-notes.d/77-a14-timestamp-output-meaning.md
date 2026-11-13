@@ -35,11 +35,10 @@ to their sink and workspace checks for a parameter output. Beside
 (`MEANING_OUTPUT`).
 
 After: `pa.schema(result)` has `seen: timestamp[us] not null` in both
-programs and `save` reaches the workspace; `relay_live` and
-`save_recoverable` for now refuse `seen = now()` with their two snapshot
-details, also beside source fields. The other outputs get `MEANING_OUTPUT`
-from all four, before those snapshot refusals and before the `PIE-R1002` of
-a deployment premise that names the wrong schema.
+programs and `save` reaches the workspace; what `relay_live` and
+`save_recoverable` do with `seen = now()` is in the section on their `now()`
+reads below. The other outputs get `MEANING_OUTPUT` from all four, before
+the `PIE-R1002` of a deployment premise that names the wrong schema.
 
 `date_of(now())` and a WHERE comparison with `now()` run as before, and a
 MySQL project still refuses `now()` with `PIE-B1003`

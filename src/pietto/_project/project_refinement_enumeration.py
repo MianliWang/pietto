@@ -15,6 +15,7 @@ from typing import Any
 from uuid import UUID
 
 from pietto._project.project_execution import (
+    ExecutionError,
     ExecutionLimits,
     ExecutionRequest,
     prepare_execution,
@@ -30,13 +31,22 @@ from pietto._project.project_refinement import RefinedQuery
 from pietto._project.project_refinement_order import before, check_coordinates, compare
 from pietto._project.project_refinement_rendering import Expr, render
 from pietto._project.project_refinement_verification import (
+    reads_now,
     verify_refinement,
     verify_native,
 )
 from pietto._project.project_result_output import source_read_columns
+from pietto._project.project_sql_emission_parameters import parameter_value
 from pietto._project.project_sql_emission_rows import Realization
 
 __all__: tuple[str, ...] = ()
+
+# The server's UTC statement time as canonical Timestamp text, read once per
+# R2 attempt that reads `now()`, in its transaction before its first page.
+CLOCK_SQL = (
+    "SELECT pg_catalog.to_char(pg_catalog.statement_timestamp() AT TIME ZONE"
+    " 'UTC', 'YYYY-MM-DD HH24:MI:SS.US')"
+)
 
 
 @dataclass(frozen=True, slots=True, eq=False)
@@ -44,6 +54,8 @@ class RefinedExecutionRequest:
     execution: ExecutionRequest = field(repr=False)
     refinement: RefinedQuery = field(repr=False)
     live_r2: Any = field(default=None, repr=False)
+    # A recovery's recorded statement time, from the accepted specification.
+    clock: str | None = None
 
 
 def prepare_refined_execution(
@@ -100,6 +112,31 @@ def verify_refined_execution(request, *, _guarded=None):
         from pietto._project.project_refinement import verify_live_r2_witness
 
         verify_live_r2_witness(request.live_r2, request)
+    if request.clock is not None:
+        try:
+            parameter_value("Timestamp", request.clock)
+        except ValueError:
+            raise ValueError("REFINEMENT_STATEMENT_CLOCK") from None
+        if not reads_now(q):
+            raise ValueError("REFINEMENT_STATEMENT_CLOCK")
+
+
+def attempt_clock(request, read):
+    """The statement time an R2 attempt binds at every `now()` read: none when
+    its query reads no `now()`, a recovery's recorded one, or else the one
+    ``read(CLOCK_SQL)`` of the server, before the first page."""
+    if not reads_now(request.refinement):
+        return None
+    if request.clock is not None:
+        return request.clock
+    # A cancellation or driver failure of the read keeps its own code.
+    rows = read(CLOCK_SQL)
+    try:
+        ((text,),) = rows
+        parameter_value("Timestamp", text)
+    except (TypeError, ValueError):
+        raise ExecutionError("EXECUTION_CONTEXT") from None
+    return text
 
 
 def atom(value):
@@ -189,8 +226,15 @@ class CheckedPage:
 
 
 class Enumeration:
-    def __init__(self, query, admissions, *, limits=ExecutionLimits(), _guards=None):
+    def __init__(
+        self, query, admissions, *, limits=ExecutionLimits(), _guards=None, clock=None
+    ):
         verify_refinement(query)
+        if (clock is None) == reads_now(query) or (
+            clock is not None and _guards is not None
+        ):
+            # Every page binds one statement time; a guard statement never.
+            raise ValueError("REFINEMENT_STATEMENT_CLOCK")
         verify_execution_limits(limits)
         if type(admissions) is not SourceAdmissions:
             raise ValueError("REFINEMENT_SOURCE_ADMISSION")
@@ -229,7 +273,8 @@ class Enumeration:
                 raise ValueError("GUARD_REFINEMENT_OWNER")
             _guards.require_fulfilled(_guards.context.owner, refinement=query)
         self.query, self.admissions, self.limits = query, admissions, limits
-        self._roots = (query, admissions, limits)
+        self.clock = clock
+        self._roots = (query, admissions, limits, clock)
         self._captured = (refinement_state(query), limits_state(limits))
         self._reads = reads
         self._pending = self._checked = None
@@ -271,6 +316,7 @@ class Enumeration:
             self.query,
             self.admissions,
             self.limits,
+            self.clock,
         ) or self._captured != (
             refinement_state(self.query),
             limits_state(self.limits),
@@ -324,7 +370,7 @@ class Enumeration:
             limit=Expr("page_limit", (len(controls) - 1, "Int", None, None)),
         )
         statement = replace(self.query.statement, query=terminal)
-        native = render(statement, self.query.original, controls)
+        native = render(statement, self.query.original, controls, clock=self.clock)
         if (
             len(native.sql)
             + sum(_size(v, self.limits.max_bytes) for v in native.arguments)
@@ -332,7 +378,11 @@ class Enumeration:
         ):
             raise ValueError("REFINEMENT_RESOURCE_LIMIT")
         verify_native(
-            native, self.query, frontier=self._frontier, size=self.limits.batch_rows
+            native,
+            self.query,
+            frontier=self._frontier,
+            size=self.limits.batch_rows,
+            clock=self.clock,
         )
         page = PageRequest(
             self, self._pages, self._frontier, self.limits.batch_rows, native
@@ -376,6 +426,7 @@ class Enumeration:
             self.query,
             frontier=self._frontier,
             size=self.limits.batch_rows,
+            clock=self.clock,
         )
 
     def check_page(self, page, metadata, rows, *, terminal):

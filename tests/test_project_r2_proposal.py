@@ -407,41 +407,88 @@ def test_r2_refuses_a_computed_group_key_before_any_workspace(tmp_path, monkeypa
     }
 
 
-@pytest.mark.parametrize("temporal", (False, True), ids=("plain", "beside-source"))
-def test_r2_refuses_a_now_read_before_any_workspace(tmp_path, monkeypatch, temporal):
-    """A resumed R2 attempt would read another statement's `now()`, so a
-    query that reads it is no R2 shape in the first version, also beside a
-    Timestamp source field."""
+# The body of `table snap: from items`, whether the program has Timestamp
+# source fields, and the PIE-R1004 detail of both R2 calls (None: they reach
+# the workspace).
+NOW_FORMS = {
+    # On PostgreSQL R2 reads these `now()` reads.
+    "seen": ("    select:\n        id\n        seen = now()\n", False, None),
+    "seen_beside_source": (
+        "    select:\n        id\n        seen = now()\n",
+        True,
+        None,
+    ),
+    "where": ("    where stamp <= now()\n    select:\n        id\n", True, None),
+    "comparison_item": (
+        "    select:\n        id\n        late = stamp <= now()\n",
+        True,
+        None,
+    ),
+    "or": (
+        "    where stamp == now() or opt == now()\n    select:\n        id\n",
+        True,
+        None,
+    ),
+    # Their SQL is SQL R2 does not read, as in 0.1.11.
+    "date_of": (
+        "    select:\n        id\n        day = date_of(now())\n",
+        True,
+        "PUBLIC_R2_STATEMENT_SNAPSHOT",
+    ),
+    "coalesce": (
+        "    where coalesce(opt, now()) <= stamp\n    select:\n        id\n",
+        True,
+        "PUBLIC_R2_STATEMENT_SNAPSHOT",
+    ),
+    "lower_beside": (
+        "    select:\n        id\n        l = lower(label)\n        seen = now()\n",
+        True,
+        "PUBLIC_R2_STATEMENT_SNAPSHOT",
+    ),
+    # A `now()` read in a conditional sum's test.
+    "conditional_sum": (
+        "    group by:\n        label\n    select:\n        label\n"
+        "        n = sum(o.id for o in group if o.stamp <= now())\n",
+        True,
+        "PUBLIC_R2_STATEMENT_SNAPSHOT",
+    ),
+    # Without `now()` that check is not made: its first page fails later.
+    "lower_alone": ("    select:\n        id\n        l = lower(label)\n", True, None),
+    # The check is the last of preparation: another refusal comes first.
+    "computed_key": (
+        "    let big = id > 5\n    where date_of(now()) <= date_of(stamp)\n"
+        "    group by:\n        big\n    select:\n        flag = big\n"
+        "        total = count()\n",
+        True,
+        "PUBLIC_R2_COMPUTED_GROUP_KEY",
+    ),
+    "computed_output": (
+        "    select:\n        id\n        c = coalesce(now(), now())\n",
+        True,
+        "MEANING_OUTPUT",
+    ),
+}
+
+
+def _now_query(directory, body, temporal, header="table snap:"):
     import _pietto_execution_api as api
     import pietto.execution as execution
-    from pietto._project import project_job_workspace as private_workspace
-    from pietto._project.project_execution_template import bind_values
 
-    def forbidden(*arguments, **keywords):
-        raise AssertionError("a refused R2 request opened workspace state")
-
-    monkeypatch.setattr(private_workspace, "open_workspace", forbidden)
     writer = api.write_temporal_example if temporal else api.write_example
-    project = writer(Path(tmp_path) / "now")
+    project = writer(Path(directory) / "now")
     main = project / "main.pietto"
     main.write_text(
-        main.read_text(encoding="utf-8")
-        + "table snap:\n    from items\n    where id > 0\n    select:\n"
-        "        id\n        seen = now()\n",
+        main.read_text(encoding="utf-8") + header + "\n    from items\n" + body,
         encoding="utf-8",
     )
     query = execution.compile_query(
         project,
         module="main.pietto",
-        kind="table",
+        kind=header.split()[0],
         name="snap",
         dialect="postgres",
         emission_contract="contract.json",
     )
-    values = tuple(
-        slot.original.site.position.literal.value for slot in query._template.slots
-    )
-    binding = bind_values(query._template, tuple(zip(query._template.slots, values)))
     inputs = tuple(
         execution.R2SourceInput(
             s.namespace,
@@ -456,31 +503,128 @@ def test_r2_refuses_a_now_read_before_any_workspace(tmp_path, monkeypatch, tempo
             "pietto_query",
             "retained",
         )
-        for s in binding.artifact.request.sources
+        for s in query._template.artifact.request.sources
     )
-    with pytest.raises(ValueError, match="^PUBLIC_R2_STATEMENT_SNAPSHOT$"):
-        proposal.prepare_live_refinement(query, binding, inputs)
+    return query, inputs
+
+
+def _r2_calls(query, inputs, **restated):
+    """`save_recoverable` and `recover` of ``query`` over an unopenable
+    workspace, with its own trust records."""
+    import pietto.execution as execution
+
     workspace = object.__new__(execution.WorkspaceRef)
     object.__setattr__(workspace, "root", "/not-opened")
     object.__setattr__(workspace, "identity", "ws-" + "0" * 32)
-    with pytest.raises(execution.RequestRejected) as rejected:
-        execution.save_recoverable(
-            workspace,
-            query,
-            source_requirements=inputs,
-            operation=execution.new_operation(),
-            route="postgres_rows",
-            access=execution.PostgresAccess("127.0.0.1", 9, "db", "pietto_query", "pw"),
-            premise=execution.PostgresDeploymentPremise(
-                schemas=("fixture", "pg_catalog")
-            ),
-            limits=execution.ExecutionLimits(),
-            values=values,
-        )
-    assert (rejected.value.code, rejected.value.detail) == (
-        "PIE-R1004",
-        "PUBLIC_R2_STATEMENT_SNAPSHOT",
+    root = query._template.artifact.request.verification.completed.root
+    common: dict[str, Any] = dict(
+        query=query,
+        source_requirements=inputs,
+        route="postgres_rows",
+        access=execution.PostgresAccess("127.0.0.1", 9, "db", "pietto_query", "pw"),
+        premise=execution.PostgresDeploymentPremise(schemas=("fixture", "pg_catalog")),
+        limits=execution.ExecutionLimits(),
+        values=tuple(
+            slot.original.site.position.literal.value for slot in query._template.slots
+        ),
+        **restated,
     )
+    return (
+        lambda: execution.save_recoverable(
+            workspace, operation=execution.new_operation(), **common
+        ),
+        lambda: execution.recover(
+            workspace,
+            job="job-" + "0" * 32,
+            generation="gen-" + "0" * 32,
+            checkpoint=None,
+            operation=execution.new_operation(),
+            expected_pin=root.expected_pin,
+            accepted_producer=root.accepted_producer,
+            accepted_compatibility=root.accepted_compatibility[-1],
+            purpose="r2-now",
+            seconds=60,
+            **common,
+        ),
+    )
+
+
+@pytest.mark.parametrize("form", NOW_FORMS)
+def test_r2_reads_now_on_postgres(tmp_path, form):
+    """R2 runs a `now()` read that it reads in its SQL; it refuses one whose
+    SQL it does not read before any workspace, after its other refusals."""
+    import pietto.execution as execution
+    from pietto._project.project_execution_template import bind_values
+
+    body, temporal, detail = NOW_FORMS[form]
+    query, inputs = _now_query(tmp_path, body, temporal)
+    if detail != "MEANING_OUTPUT":
+        template = query._template
+        binding = bind_values(
+            template,
+            tuple((s, s.original.site.position.literal.value) for s in template.slots),
+        )
+        if detail is None:
+            assert proposal.prepare_live_refinement(query, binding, inputs)
+        else:
+            with pytest.raises(ValueError, match="^" + detail + "$"):
+                proposal.prepare_live_refinement(query, binding, inputs)
+    for call in _r2_calls(query, inputs):
+        with pytest.raises(execution.RequestRejected) as rejected:
+            call()
+        if detail is None:
+            assert rejected.value.code == "PIE-R1009"
+        else:
+            assert (rejected.value.code, rejected.value.detail) == (
+                "PIE-R1004",
+                detail,
+            )
+
+
+def test_r2_checks_now_sql_only_when_restated_values_bind(tmp_path):
+    """`recover` renders the first page with the restated values, so with
+    values that do not bind it goes on to the workspace, which refuses it
+    (here the unopenable one, by its parent), never connecting."""
+    import pietto.execution as execution
+
+    query, inputs = _now_query(
+        tmp_path,
+        "    where id > low\n    select:\n        id\n        day = date_of(now())\n",
+        True,
+        header="query snap(low: Int):",
+    )
+    for parameters, refusal in (
+        ({"low": 1}, ("PIE-R1004", "PUBLIC_R2_STATEMENT_SNAPSHOT")),
+        ({"low": "x"}, ("PIE-R1009", "WORKSPACE_PARENT")),
+    ):
+        _save, recover = _r2_calls(query, inputs, parameters=parameters)
+        with pytest.raises(execution.RequestRejected) as rejected:
+            recover()
+        assert (rejected.value.code, rejected.value.detail) == refusal
+
+
+def test_mysql_r2_refuses_now_in_its_place(tmp_path):
+    """MySQL R2 has no statement time yet: it refuses a query that reads
+    `now()` where 0.1.11 did, before the computed-key refusal, while
+    PostgreSQL makes its check last."""
+    from pietto._project.project_refinement import _live_shape
+
+    query, inputs = _now_query(tmp_path, NOW_FORMS["computed_key"][0], True)
+    artifact = query._template.artifact
+    requirements = proposal.retained_requirements(artifact, inputs)
+    for family, detail in (
+        ("mysql", "PUBLIC_R2_STATEMENT_SNAPSHOT"),
+        ("postgres", "PUBLIC_R2_COMPUTED_GROUP_KEY"),
+    ):
+        relabelled = SimpleNamespace(
+            request=SimpleNamespace(
+                family=family,
+                verification=artifact.request.verification,
+                sources=artifact.request.sources,
+            )
+        )
+        with pytest.raises(ValueError, match="^" + detail + "$"):
+            _live_shape(relabelled, requirements)
 
 
 def test_a_reused_let_refines_like_its_module_level_equivalent(tmp_path):

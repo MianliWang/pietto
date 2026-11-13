@@ -6,7 +6,14 @@ from typing import cast
 import pytest
 
 from _pietto_sql_window import select_body
-from _pietto_execution_refinement import capabilities, refined
+from _pietto_execution_refinement import (
+    CLOCK,
+    capabilities,
+    frontier,
+    live_refinement,
+    now_project,
+    refined,
+)
 from pietto._project.project_execution import PostgresAccess, ExecutionLimits
 from pietto._project.project_refinement import TieRefinement, prepare_refinement
 from pietto._project.project_refinement_enumeration import (
@@ -112,6 +119,9 @@ def test_refined_request_cannot_borrow_an_equal_looking_original_root(tmp_path):
                 execution=replace(request.execution, source_requirement=a.sources[0]),
             )
         )
+    # A query that reads no `now()` binds no statement time.
+    with pytest.raises(ValueError, match="^REFINEMENT_STATEMENT_CLOCK$"):
+        verify_refined_execution(replace(request, clock=CLOCK))
     assert (
         request.execution.artifact is a.original
         and request.execution.output is a.output
@@ -165,3 +175,185 @@ def test_source_generated_bound_values_keep_original_and_page_uses_separate(
         verify_native(native, query, frontier=None, size=2)
         assert {use.domain for use in native.uses} == {"original", "page"}
         assert query.output.binding is binding
+
+
+NOW_READS = {
+    "where": (
+        "table snap:\n    from items\n    where stamp <= now()\n"
+        "    select:\n        id\n",
+        None,
+    ),
+    "two_reads": (
+        "table snap:\n    from items\n    select:\n        id\n"
+        "        seen = now()\n        again = now()\n",
+        None,
+    ),
+    "comparison_item": (
+        "table snap:\n    from items\n    select:\n        id\n"
+        "        late = stamp <= now()\n",
+        None,
+    ),
+    # Original parameters before and after the read keep their text order.
+    "parameters": (
+        "query snap(low: Int, high: Int):\n    from items\n"
+        "    where id > low and stamp <= now() and id < high\n"
+        "    select:\n        id\n",
+        {"low": 1, "high": 9},
+    ),
+    "upstream": (
+        "query a:\n    from items\n    select:\n        id\n        seen = now()\n"
+        "table snap:\n    from a\n    select:\n        id\n        seen\n",
+        None,
+    ),
+}
+
+
+@pytest.mark.parametrize("shape", NOW_READS)
+def test_r2_pages_bind_one_statement_clock_for_every_now_read(tmp_path, shape):
+    """Every `now()` read of an R2 page is the one placeholder that binds the
+    generation's statement time, on its first page and on a continuation."""
+    from pietto._project.project_refinement_rendering import render
+    from pietto._project.project_refinement_verification import (
+        _placeholders,
+        page_syntax,
+        verify_native,
+    )
+
+    text, parameters = NOW_READS[shape]
+    kind = "query" if parameters else "table"
+    query = live_refinement(
+        now_project(tmp_path / "project", text),
+        "snap",
+        kind=kind,
+        parameters=parameters,
+    )
+    originals = len(query.original.parameter_uses)
+    for start in (None, frontier(query)):
+        statement, controls = page_syntax(query, start, 2)
+        native = render(statement, query.original, controls, clock=CLOCK)
+        index = originals + len(controls) + 1
+        sql = native.sql.decode()
+        clocks = [u for u in native.uses if u.domain == "clock"]
+        assert "statement_timestamp" not in sql
+        assert sql.count("CAST($" + str(index) + " AS pg_catalog.timestamp)") == len(
+            clocks
+        )
+        assert clocks and {(u.index, u.owner, u.value) for u in clocks} == {
+            (index, 0, CLOCK)
+        }
+        assert native.arguments[index - 1 :] == (CLOCK,)
+        assert native.arguments.count(CLOCK) == 1
+        assert len(_placeholders(statement)) == len(native.uses)
+        verify_native(native, query, frontier=start, size=2, clock=CLOCK)
+        with pytest.raises(ValueError, match="^REFINEMENT_PARAMETER_VALUE$"):
+            verify_native(
+                native, query, frontier=start, size=2, clock="2026-11-13 10:00:01.0"
+            )
+        with pytest.raises(ValueError, match="^REFINEMENT_STATEMENT_CLOCK$"):
+            verify_native(native, query, frontier=start, size=2)
+        with pytest.raises(ValueError, match="^REFINEMENT_STATEMENT_CLOCK$"):
+            render(statement, query.original, controls)
+        with pytest.raises(ValueError, match="^REFINEMENT_STATEMENT_CLOCK$"):
+            render(statement, query.original, controls, _guards=object(), clock=CLOCK)
+
+
+def test_a_statement_clock_needs_a_now_read_that_r2_reads(tmp_path):
+    """A query without `now()` binds no statement time; a `now()` inside
+    another call is SQL R2 does not read, refused as such, never an
+    IndexError."""
+    from pietto._project.project_refinement_rendering import render
+    from pietto._project.project_refinement_verification import (
+        page_syntax,
+        verify_native,
+    )
+
+    project = now_project(
+        tmp_path / "project",
+        "table plain:\n    from items\n    select:\n        id\n"
+        "table day:\n    from items\n    select:\n        id\n"
+        "        day = date_of(now())\n",
+    )
+    plain = live_refinement(project, "plain")
+    statement, controls = page_syntax(plain, None, 2)
+    with pytest.raises(ValueError, match="^REFINEMENT_STATEMENT_CLOCK$"):
+        render(statement, plain.original, controls, clock=CLOCK)
+    native = render(statement, plain.original, controls)
+    with pytest.raises(ValueError, match="^REFINEMENT_STATEMENT_CLOCK$"):
+        verify_native(native, plain, size=2, clock=CLOCK)
+    day = live_refinement(project, "day")
+    statement, controls = page_syntax(day, None, 2)
+    native = render(statement, day.original, controls, clock=CLOCK)
+    with pytest.raises(ValueError, match="^REFINEMENT_NATIVE_SQL$"):
+        verify_native(native, day, size=2, clock=CLOCK)
+
+
+def test_each_now_read_charges_the_parameter_limit(tmp_path):
+    """D70.07: each `now()` read of the largest page is one more placeholder
+    within the contract's `parameters` limit."""
+    import json
+
+    from pietto._project.project_refinement_rendering import render
+    from pietto._project.project_refinement_verification import page_syntax
+
+    def prepared(directory, parameters=None):
+        project = now_project(directory, NOW_READS["two_reads"][0])
+        if parameters is not None:
+            path = project / "contract.json"
+            contract = json.loads(path.read_text(encoding="utf-8"))
+            contract["environment"].append(
+                {
+                    "key": "resource_limits",
+                    "scope": "statement",
+                    "value": {"parameters": parameters},
+                }
+            )
+            path.write_text(json.dumps(contract), encoding="utf-8")
+        return live_refinement(project, "snap")
+
+    query = prepared(tmp_path / "open")
+    statement, controls = page_syntax(query, frontier(query), 2)
+    largest = len(render(statement, query.original, controls, clock=CLOCK).uses)
+    prepared(tmp_path / "fits", largest)
+    with pytest.raises(ValueError, match="^REFINEMENT_RESOURCE_LIMIT$"):
+        prepared(tmp_path / "exceeds", largest - 1)
+
+
+@pytest.mark.parametrize(
+    ("item", "refusal"),
+    (("seen = now()", None), ("day = date_of(now())", "PUBLIC_R2_STATEMENT_SNAPSHOT")),
+)
+def test_a_compiled_refinement_policy_gets_the_same_now_check(tmp_path, item, refusal):
+    """A live template whose compiled policy fixes its refinement is refused,
+    last in R2 preparation, for a `now()` read whose SQL R2 does not read."""
+    from _pietto_sql_emission import build_case, fixture
+    from pietto._project.project_execution_template import (
+        bind_values,
+        prepare_live_template,
+    )
+    from pietto._project.project_refinement import (
+        compiled_source_requirements,
+        prepare_live_r2_refinement,
+    )
+
+    base = fixture("postgres")
+    source = base["source"].split("table result:", 1)[0]
+    source += "table result:\n    from rows\n    select:\n        id\n"
+    _checked, result = build_case(
+        tmp_path, source + "        " + item + "\n", base["contract"]
+    )
+    artifact = result.artifact
+    refinement = prepare_refinement(
+        artifact, capabilities(artifact), policy=TieRefinement()
+    )
+    template = prepare_live_template(artifact, refinement=refinement)
+    binding = bind_values(
+        template,
+        tuple((s, s.original.site.position.literal.value) for s in template.slots),
+    )
+    requirements = compiled_source_requirements(binding.artifact)
+    if refusal is None:
+        # The policy branch issues no witness.
+        assert prepare_live_r2_refinement(template, binding, requirements)[1] is None
+    else:
+        with pytest.raises(ValueError, match="^" + refusal + "$"):
+            prepare_live_r2_refinement(template, binding, requirements)

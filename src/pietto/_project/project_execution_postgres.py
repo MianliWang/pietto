@@ -37,6 +37,7 @@ from pietto._project.project_execution_source import (
 from pietto._project.project_refinement_enumeration import (
     RefinedExecutionRequest,
     Enumeration,
+    attempt_clock,
     refinement_state,
     verify_refined_execution,
 )
@@ -292,6 +293,17 @@ class PostgresExecution:
         if self._cancel.is_set():
             raise ExecutionError("EXECUTION_CANCELED")
         self._remaining()
+
+    def _statement_clock(self):
+        """The R2 attempt's statement time, at most one control read."""
+
+        def read(sql):
+            self._checkpoint()
+            with self._connection.cursor() as control:
+                control.execute(sql)
+                return control.fetchall()
+
+        return attempt_clock(self.refined_request, read)
 
     def _claim_terminal(self, terminal):
         with self._lock:
@@ -689,6 +701,7 @@ class PostgresExecution:
                     self.source_admissions,
                     limits=self.request.limits,
                     _guards=self.guards,
+                    clock=self._statement_clock(),
                 )
                 self._owned_enumeration = self.enumeration
             self._remaining()

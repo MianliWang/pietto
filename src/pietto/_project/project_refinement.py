@@ -284,7 +284,7 @@ def _computed_group_key(artifact):
 def _live_shape(artifact, requirements):
     """The R2 checks of the template's own structure, which read no value;
     a policy refinement's complete requirements, or None."""
-    from pietto._project.project_compiled_schema import Address, NOW_OPERATOR
+    from pietto._project.project_compiled_schema import Address
 
     records = artifact.request.verification.completed.root.records
     from pietto._project.project_execution_nested import collection_operations
@@ -292,11 +292,8 @@ def _live_shape(artifact, requirements):
     if collection_operations(records):
         # A collected child row has no recovery coordinate in Phase71.
         raise ValueError("PUBLIC_R2_COLLECTION")
-    if any(
-        address.kind == "operation" and record.get("operator") == NOW_OPERATOR
-        for address, record in records.items()
-    ):
-        # A resumed attempt would read another statement's `now()`.
+    if artifact.request.family == "mysql" and _compiled_now(artifact):
+        # MySQL R2 has no qualified statement time yet.
         raise ValueError("PUBLIC_R2_STATEMENT_SNAPSHOT")
     if _computed_group_key(artifact):
         raise ValueError("PUBLIC_R2_COMPUTED_GROUP_KEY")
@@ -319,6 +316,18 @@ def _live_shape(artifact, requirements):
         requirements, artifact.request.sources, family=artifact.request.family
     )
     return None
+
+
+def _compiled_now(artifact):
+    """Whether the compiled records of ``artifact`` read `now()`."""
+    from pietto._project.project_compiled_schema import NOW_OPERATOR
+
+    return any(
+        address.kind == "operation" and record.get("operator") == NOW_OPERATOR
+        for address, record in (
+            artifact.request.verification.completed.root.records.items()
+        )
+    )
 
 
 def check_live_r2_refinement(template, requirements):
@@ -347,16 +356,15 @@ def prepare_live_r2_refinement(template, binding, requirements, *, reanchor=Fals
 
         output = prepare_guarded_output(binding.guarded, binding=binding)
     if expected is not None:
-        return (
-            prepare_refinement(
-                artifact,
-                expected,
-                policy=TieRefinement(),
-                output=output,
-                binding=binding,
-            ),
-            None,
+        value = prepare_refinement(
+            artifact,
+            expected,
+            policy=TieRefinement(),
+            output=output,
+            binding=binding,
         )
+        _readable_now(value)
+        return value, None
     value = _prepare_refinement(
         artifact,
         requirements,
@@ -364,9 +372,36 @@ def prepare_live_r2_refinement(template, binding, requirements, *, reanchor=Fals
         output=output,
         binding=binding,
     )
+    _readable_now(value)
     witness = LiveR2Witness(template, binding, value, requirements, reanchor)
     _LIVE_R2_WITNESSES.add(witness)
     return value, witness
+
+
+# Any valid statement time renders the same SQL shape as the recorded one.
+_TRIAL_CLOCK = "2000-01-01 00:00:00.000000"
+
+
+def _readable_now(value):
+    """Refuse, last in preparation, a query that reads `now()` and whose
+    first page R2 does not read: its first page would fail closed after a
+    workspace and a connection."""
+    from pietto._project.project_refinement_rendering import render
+    from pietto._project.project_refinement_verification import (
+        page_syntax,
+        verify_native,
+    )
+
+    # The compiled records, not the statement: a `now()` read the statement
+    # does not render as a clock read must still be refused here.
+    if not _compiled_now(value.original):
+        return
+    try:
+        statement, controls = page_syntax(value, None, 1)
+        native = render(statement, value.original, controls, clock=_TRIAL_CLOCK)
+        verify_native(native, value, size=1, clock=_TRIAL_CLOCK)
+    except ValueError:
+        raise ValueError("PUBLIC_R2_STATEMENT_SNAPSHOT") from None
 
 
 def _prepare_refinement(artifact, sources, *, policy, output, binding):

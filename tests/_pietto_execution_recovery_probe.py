@@ -2,7 +2,8 @@
 
 Ordinary tests have no Arrow and no database. Their owners are real compiled S10
 refined PostgreSQL owners that never connect. SYNTHETIC_OPEN_OWNER replaces only
-the opened-owner gate and its native source description, ARROW_FREE_MEMBER_CHECK
+the opened-owner gate, with the statement time it returns, and its native source
+description, ARROW_FREE_MEMBER_CHECK
 replaces only the saved members' Arrow value check (bounded bytes, digest and
 descriptor still run), and ARROW_FREE_PAGE_STEP feeds the REAL reconciliation step
 synthetic page slices whose saved-value comparison is skipped. Every SQLite
@@ -29,13 +30,30 @@ op = s12.op
 # SYNTHETIC_OPEN_OWNER descriptions per never-connected owner; a test changes
 # one to model a changed fresh qualification.
 DESCRIPTIONS: weakref.WeakKeyDictionary = weakref.WeakKeyDictionary()
+# SYNTHETIC_OPEN_OWNER statement times per never-connected owner (default None).
+CLOCKS: weakref.WeakKeyDictionary = weakref.WeakKeyDictionary()
 SYNTHETIC = '["SYNTHETIC_OPEN_OWNER"]'
 # Saved extents the skipped comparison would have checked, per attempt identity.
 COMPARED: dict[str, list] = {}
 
 
-def refined_template(directory, *, entry="bundle", target="postgres"):
-    """S06 R2_bound with fixture source requirements as a current S10 template."""
+def now_artifact(directory):
+    """The emission fixture's `rows` with `select: id, seen = now()`."""
+    from _pietto_sql_emission import build_case, fixture
+
+    base = fixture("postgres")
+    source = (
+        base["source"].split("table result:", 1)[0]
+        + "table result:\n    from rows\n    select:\n        id\n"
+        + "        seen = now()\n"
+    )
+    _checked, result = build_case(Path(directory), source, base["contract"])
+    return result.artifact
+
+
+def refined_template(directory, *, entry="bundle", target="postgres", artifact=None):
+    """S06 R2_bound, or ``artifact``, with fixture source requirements as a
+    current S10 template."""
     from _pietto_execution_source_assurance_cases import original
     from pietto._project.project_compiled_build import build_compiled
     from pietto._project.project_execution_source import RetainedSourceRequirement
@@ -46,7 +64,8 @@ def refined_template(directory, *, entry="bundle", target="postgres"):
     )
     from pietto._project.project_refinement import TieRefinement, prepare_refinement
 
-    artifact = original(Path(directory), target, "R2_bound", "range")
+    if artifact is None:
+        artifact = original(Path(directory), target, "R2_bound", "range")
     assert artifact is not None
     # S06's fixture declarations (labels only; no native admission here).
     requirements = tuple(
@@ -166,7 +185,7 @@ def synthetic(monkeypatch=None):
     from pietto._project import project_job_extraction as x
 
     patches = (
-        (x, "_fresh", lambda owner: None),
+        (x, "_fresh", lambda owner: CLOCKS.get(owner)),
         (x, "describe", synthetic_describe),
         (x, "_verify_saved", arrow_free_members),
         (c.CaptureSession, "_encode", synthetic_frame_step),
@@ -179,9 +198,13 @@ def synthetic(monkeypatch=None):
             monkeypatch.setattr(target, name, value)
 
 
-def owner(binding, *, batch_rows=2):
-    """A real compiled refined PostgresExecution that never connects."""
-    return s12.pg_owner(binding, batch_rows=batch_rows)
+def owner(binding, *, batch_rows=2, clock=None):
+    """A real compiled refined PostgresExecution that never connects; its
+    synthetic opened gate returns ``clock``."""
+    result = s12.pg_owner(binding, batch_rows=batch_rows)
+    if clock is not None:
+        CLOCKS[result] = clock
+    return result
 
 
 def wires(start, rows):
@@ -205,7 +228,9 @@ def stage_refined(session, rows, *, terminal=None):
     )
 
 
-def extract(publisher, generation, binding, sizes, *, order=None, eof=False):
+def extract(
+    publisher, generation, binding, sizes, *, order=None, eof=False, clock=None
+):
     """An initial R2 capture of synthetic pages, published in `order`.
 
     Without `eof` the attempt stays open (a crashed original); with it the
@@ -215,7 +240,9 @@ def extract(publisher, generation, binding, sizes, *, order=None, eof=False):
     from pietto._project import project_job_store as s
 
     attempt = s.open_attempt(publisher, generation, binding, operation=op())
-    session = x.begin_extraction(publisher, attempt, owner(binding), operation=op())
+    session = x.begin_extraction(
+        publisher, attempt, owner(binding, clock=clock), operation=op()
+    )
     staged = [stage_refined(session, rows) for rows in sizes]
     if not sizes and eof:
         staged = [stage_refined(session, 0, terminal="EOF")]
