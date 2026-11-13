@@ -1068,9 +1068,11 @@ is the count premise `0` to `9223372036854775807`, the sum's the signed
 64-bit range, bounded by its checked CAST, whose R13 requirement carries the
 evidence `{"overflow": "target_checked_signed64_narrowing"}` (a sum outside
 signed 64 bits fails with SQLSTATE 22003). MySQL project SQL keeps both
-BLOCKED: the count with `PIE-B1003`
-(`conditional_count_not_admitted_on_target`), the sum with `PIE-B1004`
-(`sum_int_aggregate_range_proof_missing`). Compiled bundles and live
+BLOCKED, except the count in a statement that is one of three paired forms
+with only its names changed
+([unreleased](release-notes.d/77-s10-mysql-group-tests.md)): the count with
+`PIE-B1003` (`conditional_count_not_admitted_on_target`), the sum with
+`PIE-B1004` (`sum_int_aggregate_range_proof_missing`). Compiled bundles and live
 templates carry them unchanged: the compiled `aggregate_value` function is
 `filtered_count` with the test as its one argument, or `filtered_sum` with
 the field read, then the test.
@@ -1084,10 +1086,11 @@ group)`, is BLOCKED on both targets with `PIE-B1003`
 as `any(o.paid for o in group)`: a test that reads no field is the same for
 every row.``). The result is a non-null `Bool` (`pg_bool`, domain `bool01`)
 with no R13 evidence. MySQL project SQL keeps it BLOCKED with `PIE-B1003`
-`group_test_not_admitted_on_target` (suggestion `MySQL has no group any or
-all yet; emit with --dialect postgres.`). Compiled bundles and live templates
-carry it unchanged: the compiled `aggregate_value` function is `group_any` or
-`group_all` with the test as its one argument.
+`group_test_not_admitted_on_target` (suggestion `MySQL has no group any or all
+yet; emit with --dialect postgres.`), except in those three paired forms.
+Compiled bundles and live templates carry it unchanged: the compiled
+`aggregate_value` function is `group_any` or `group_all` with the test as its
+one argument.
 
 PostgreSQL projects also emit signed-`Int` `/` and `%`, same-type `Float`
 `/` and exact binary64 `%`, and a static `Text` literal default of `lag` or

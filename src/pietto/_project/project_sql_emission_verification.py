@@ -2274,14 +2274,24 @@ def _aggregate_result_realization(family, function, argument, retained):
             },
         )
     if function in grouping.GROUP_TEST_FUNCTIONS:
-        # A PostgreSQL count compared with 0: a computed Bool, never NULL.
-        if family != "postgres" or tag != "Bool" or nullable is not False:
+        # A target count compared with 0: a computed Bool, never NULL. Its
+        # argument law admits MySQL only in a paired S10 form.
+        if family not in rows.BOOL_RESULT or tag != "Bool" or nullable is not False:
             raise ValueError("group test result domain")
-        return rows.Realization("Bool", {"kind": "pg_bool"}, False, {"kind": "bool01"})
+        return rows.Realization(
+            "Bool", {"kind": rows.BOOL_RESULT[family]}, False, {"kind": "bool01"}
+        )
     if function in grouping.FILTERED_FUNCTIONS:
-        # A PostgreSQL conditional count, or conditional sum narrowed by its
-        # checked CAST: never NULL, 0 when no row matches.
-        if family != "postgres" or tag != "Int" or nullable is not False:
+        # A conditional count, the target's own (on MySQL as its argument law
+        # admits it), or a PostgreSQL conditional sum narrowed by its checked
+        # CAST: never NULL, 0 when no row matches.
+        if (
+            family not in grouping.COUNT_STORAGE
+            or family == "mysql"
+            and function != "filtered_count"
+            or tag != "Int"
+            or nullable is not False
+        ):
             raise ValueError("conditional aggregate result domain")
         low, high = (
             (0, grouping.COUNT_MAX)
@@ -2290,7 +2300,7 @@ def _aggregate_result_realization(family, function, argument, retained):
         )
         return rows.Realization(
             "Int",
-            {"kind": "pg_int8"},
+            {"kind": grouping.COUNT_STORAGE[family]},
             False,
             {"kind": "int_range", "min": str(low), "max": str(high)},
             (low, high),
@@ -2648,6 +2658,7 @@ def _verify_aggregate_body(
                     argument,
                     argument if column.delimiter is None else column.delimiter,
                     request.family,
+                    paired=pairing.project_form(request) is not None,
                 )
                 if function in grouping.FILTERED_FUNCTIONS
                 else grouping.argument_problem(

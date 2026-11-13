@@ -1313,7 +1313,7 @@ def test_live_refinement_refuses_a_lateral_join_after_its_source_closure(
 
 def test_r2_refuses_a_paired_mysql_form_before_any_workspace(tmp_path):
     """A MySQL statement opened as a qualification-pack form is that form
-    only, so R2 refuses to refine it (Phase77 S16)."""
+    only, so R2 refuses to refine it (Phase77 S16, S10)."""
     import _pietto_sql_paired as paired_forms
     import pietto.execution as execution
     from pietto._project.project_execution_template import bind_values
@@ -1331,6 +1331,7 @@ def test_r2_refuses_a_paired_mysql_form_before_any_workspace(tmp_path):
     directory = paired_forms.project(tmp_path / "paired", 1)
     query = compiled(directory)
     binding = bind_values(query._template, ())
+    s10 = compiled(paired_forms.project(tmp_path / "s10", 3))
     inputs = tuple(
         execution.R2SourceInput(
             s.namespace,
@@ -1351,6 +1352,8 @@ def test_r2_refuses_a_paired_mysql_form_before_any_workspace(tmp_path):
         proposal.prepare_live_refinement(query, binding, inputs)
     with pytest.raises(ValueError, match="^PUBLIC_R2_PAIRED_FORM$"):
         proposal.check_live_refinement(query, inputs)
+    with pytest.raises(ValueError, match="^PUBLIC_R2_PAIRED_FORM$"):
+        proposal.check_live_refinement(s10, inputs)
     # The same query without its Text defaults is no form and R2 checks it.
     main = directory / "main.pietto"
     text = main.read_text(encoding="utf-8")

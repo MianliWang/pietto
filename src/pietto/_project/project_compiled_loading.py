@@ -107,20 +107,26 @@ def load_compiled(
         or description.producer != accepted_producer
     ):
         raise CompiledError("COMPILED_COMPATIBILITY")
-    root = CompiledProjectInput(
-        description,
-        expected_pin,
-        accepted_producer,
-        accepted_compatibility,
-    )
-    from pietto._project.project_sql_emission_paired import compiled_form, sql_form
+    from pietto._project import project_sql_emission_paired as pairing
 
-    form = compiled_form(root.records)
-    if form is not None:
-        from pietto._project.project_compiled_lowering import emit_compiled
+    def load():
+        return CompiledProjectInput(
+            description, expected_pin, accepted_producer, accepted_compatibility
+        )
 
-        # Rule two: records of a paired form whose SQL is not the form's are
-        # unpaired, so they keep main's refusal of their MySQL Text default.
-        if sql_form(emit_compiled(root, ()).rendered.sql) != form:
-            raise CompiledError("COMPILED_WINDOW_STATIC")
-    return root
+    form = pairing.compiled_form({r.address: r for r in description.records})
+    if form is None:
+        return load()
+    from pietto._project.project_compiled_lowering import emit_compiled
+
+    # Rule two: records of a paired form that another check refuses, or whose
+    # SQL is not the form's, load as before Wave A, so they keep main's refusal
+    # here or, where main refuses them later, in `emit_compiled`.
+    try:
+        root = load()
+        if pairing.sql_form(emit_compiled(root, ()).rendered.sql) == form:
+            return root
+    except Exception:
+        pass
+    with pairing.closed():
+        return load()

@@ -4955,6 +4955,7 @@ def _verify_compiled_emission(artifact, request):
     from pietto._project import project_sql_emission_parameters as parameters
     from pietto._project import project_sql_emission_rows as rows
     from pietto._project import project_sql_emission_aggregation as grouping
+    from pietto._project import project_sql_emission_paired as pairing
     from pietto._project import project_sql_emission_windows as windowing
     from pietto._project.project_query_block_ir import CompiledIRReference
     from pietto._project.project_sql_emission_verification import verify_row_bytes
@@ -6182,6 +6183,7 @@ def _verify_compiled_emission(artifact, request):
                                 if column.delimiter is None
                                 else column.delimiter,
                                 request.family,
+                                paired=pairing.compiled_form(records) is not None,
                             )
                             is None
                             if function in grouping.FILTERED_FUNCTIONS

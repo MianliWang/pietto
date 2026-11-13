@@ -9,6 +9,7 @@ from typing import Any
 from pietto._project import project_sql_plan_aggregation as aggregation
 from pietto._project import project_sql_plan_expressions as plan_expressions
 from pietto._project import project_sql_emission_nested as collecting
+from pietto._project import project_sql_emission_paired as pairing
 from pietto._project import project_sql_emission_rows as rows
 from pietto._project import project_sql_emission_unnest as unnesting
 from pietto._project.model import ProjectResolvedTypeKind, ProjectRowFieldNullability
@@ -870,20 +871,24 @@ def result_realization(family: str, function: str, argument, retained):
             None,
         )
     if function in GROUP_TEST_FUNCTIONS:
-        # A count compared with 0: a computed Bool, never NULL.
-        if family != "postgres" or tag != "Bool" or nullable is not False:
+        # A count compared with 0: a computed Bool, never NULL. Its argument law
+        # admits MySQL only in a paired S10 form.
+        if family not in rows.BOOL_RESULT or tag != "Bool" or nullable is not False:
             return None, ("PIE-B1002", "group_test_result_not_non_null_bool")
         return rows._bool(family, False), None
     if function in FILTERED_FUNCTIONS:
-        # A conditional count is the target's own count; a conditional sum
-        # narrows to bigint with its checked CAST and is 0 for no match.
-        if family != "postgres" or tag != "Int" or nullable is not False:
+        # A conditional count is the target's own count (on MySQL as its
+        # argument law admits it); a conditional sum narrows to bigint with
+        # its checked CAST and is 0 for no match.
+        if tag != "Int" or nullable is not False:
             return None, ("PIE-B1002", function + "_result_not_non_null_int")
-        if function == "filtered_count":
+        if function == "filtered_count" and family in COUNT_STORAGE:
             return (
-                rows._checked_int({"kind": "pg_int8"}, 0, COUNT_MAX, False),
+                rows._checked_int({"kind": COUNT_STORAGE[family]}, 0, COUNT_MAX, False),
                 None,
             )
+        if family != "postgres":
+            return None, ("PIE-B1002", function + "_result_not_non_null_int")
         return rows._checked_int({"kind": "pg_int8"}, *rows.SIGNED64, False), None
     if function in COUNTING_FUNCTIONS:
         if tag != "Int" or nullable is not False:
@@ -1257,14 +1262,15 @@ def mysql_compiled_spread_cell(records, entry):
     return value.address
 
 
-def filtered_problem(function: str, argument, test, family: str):
+def filtered_problem(function: str, argument, test, family: str, *, paired=False):
     """The argument law of a conditional count, ``filtered_count`` over its
     test alone, of a test of the group, ``group_any`` or ``group_all`` over
     its test alone, and of a conditional sum, ``filtered_sum`` of one Int field
     over its test: each a row value that reads a field, the test a Bool.
     A test that reads no field (`if True`) is the same for every row.
-    PostgreSQL only: MySQL has no conditional count or test of a group yet,
-    and its SUM of an integer is DECIMAL, as for `sum(Int)`."""
+    PostgreSQL only, but for MySQL in a statement its reader pairs with an S10
+    form (``paired``, `project_sql_emission_paired`), which holds no
+    conditional sum: MySQL's SUM of an integer is DECIMAL, as for `sum(Int)`."""
     for value in (argument, test):
         if type(value) is not rows.SQLStageReference and not (
             type(value) is rows.SQLOperation
@@ -1285,9 +1291,13 @@ def filtered_problem(function: str, argument, test, family: str):
         problem = resolved_argument_problem("sum", True, argument.realization, family)
         if problem is not None:
             return problem
-    elif family != "postgres":
+    elif family != "postgres" and not paired:
         return "PIE-B1003", _target_detail(function)
-    if family != "postgres" or rows.realization_of(test, family).tag != "Bool":
+    if (
+        family != "postgres"
+        and not paired
+        or rows.realization_of(test, family).tag != "Bool"
+    ):
         return "PIE-B1003", _domain_detail(function)
     return None
 
@@ -1308,7 +1318,7 @@ def _domain_detail(function: str) -> str:
     )
 
 
-def resolved_filtered_problem(function: str, inputs, family: str):
+def resolved_filtered_problem(function: str, inputs, family: str, *, paired=False):
     """`filtered_problem` over already-resolved inputs, each an (address
     kind, realization) pair, as a compiled input holds them."""
     if len(inputs) != (2 if function == "filtered_sum" else 1) or any(
@@ -1322,10 +1332,10 @@ def resolved_filtered_problem(function: str, inputs, family: str):
         problem = resolved_argument_problem("sum", True, realization, family)
         if problem is not None:
             return problem
-    elif family != "postgres":
+    elif family != "postgres" and not paired:
         return "PIE-B1003", _target_detail(function)
     test = inputs[-1][1]
-    if family != "postgres" or test is None or test.tag != "Bool":
+    if family != "postgres" and not paired or test is None or test.tag != "Bool":
         return "PIE-B1003", _domain_detail(function)
     return None
 
@@ -1982,7 +1992,13 @@ def build_stage(
                         assert problem is not None
                         return None, (*problem, value.ref, location)
                     delimiter = test
-                problem = filtered_problem(function, argument, test, request.family)
+                problem = filtered_problem(
+                    function,
+                    argument,
+                    test,
+                    request.family,
+                    paired=pairing.project_form(request) is not None,
+                )
             else:
                 problem = argument_problem(
                     function,
@@ -2592,6 +2608,7 @@ def build_compiled_stage(plan, record, arguments):
                         argument,
                         delimiters[0] if delimiters else argument,
                         records[Address("target", 0)].get("family"),
+                        paired=pairing.compiled_form(records) is not None,
                     )
                     is not None
                 ):

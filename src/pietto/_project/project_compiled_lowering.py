@@ -31,6 +31,7 @@ from pietto._project import project_sql_emission_ast as ast
 from pietto._project import project_sql_emission_parameters as parameters
 from pietto._project import project_sql_emission_rows as rows
 from pietto._project import project_sql_emission_nested as collecting
+from pietto._project import project_sql_emission_paired as pairing
 from pietto._project import project_sql_emission_results as resulting
 from pietto._project.project_sql_emission_scopes import (
     ScopeDefinition,
@@ -57,7 +58,23 @@ class CompiledSubject:
 
 @entry
 def emit_compiled(root, values, named=None):
-    """``named`` (header values) None emits the unbound template."""
+    """``named`` (header values) None emits the unbound template. Rule two
+    (Phase77 Wave A): records of a paired form emit their form's SQL, names
+    aside, or else what they emit with the pairing closed, as before."""
+    form = pairing.compiled_form(root.records)
+    if form is None:
+        return _emit_compiled(root, values, named)
+    try:
+        artifact = _emit_compiled(root, values, named)
+        if pairing.sql_form(artifact.rendered.sql) == form:
+            return artifact
+    except Exception:
+        pass
+    with pairing.closed():
+        return _emit_compiled(root, values, named)
+
+
+def _emit_compiled(root, values, named=None):
     completed = derive_compiled_semantics(root, values, named)
     ir = build_compiled_query_block_ir(completed)
     plan = build_compiled_sql_plan(ir)

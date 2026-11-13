@@ -1,9 +1,11 @@
-"""The Phase77 Wave A qualification pack's S16 forms, copied verbatim.
+"""The Phase77 Wave A qualification pack's paired forms, copied verbatim.
 
-PAIRS.md 5.4 gives the three paired bodies (`{name}` is the selected query's
-name), 4.3 the MySQL world `rows_ntext` they read and the pack's
-`mysql/plan.py` the MySQL contract its `compile_sql` runs with. `project`
-writes one form with only its names changed.
+PAIRS.md 5.4 and 5.6 give the paired bodies (`{name}` is the selected query's
+name), 4.3 and 4.6 the MySQL worlds `rows_ntext` and `agg` they read, and the
+pack's `mysql/plan.py` the MySQL contract its `compile_sql` runs with. `FORMS`
+is in the order of `project_sql_emission_paired.FORMS`: S16 P-S16-1..3, then
+S10 bodies A (P-S10-1, 5), B (P-S10-2) and C (P-S10-3, 4). `project` writes
+one form with only its names changed.
 """
 
 import json
@@ -18,40 +20,17 @@ HEADER = (
     "    ratio: Float\n"
     'source rows: Row = mysql.table("opaque.locator.not.sql")\n'
 )
-BODIES = (
-    "query {name}:\n"
-    "    from rows\n"
-    "    select:\n"
-    "        id\n"
-    '        previous_empty = lag(text, 1, "") window(order by id)\n'
-    '        following_unicode = lead(text, 1, "雪") window(order by id)\n'
-    "        following_null = lead(text, 1) window(order by id)\n",
-    "query {name}:\n"
-    "    from rows\n"
-    "    select:\n"
-    "        id\n"
-    '        previous = lag(text, 1, "雪") window(order by id)\n'
-    '        following = lead(text, 1, "a\'b") window(order by id)\n',
-    "query {name}:\n"
-    "    from rows\n"
-    "    select:\n"
-    "        id\n"
-    "        plain = text\n"
-    '        lag_empty = lag(text, 1, "") window(order by id)\n'
-    '        lead_snow = lead(text, 1, "雪") window(order by id)\n'
-    '        lead_quote = lead(text, 1, "a\'b") window(order by id)\n'
-    "        lead_none = lead(text, 1) window(order by id)\n",
-)
-# Per form: the SQL fragments and the public nullability PAIRS.md 5.4 pairs.
-SQL = (
-    ("X''", "X'e99baa'"),
-    ("X'e99baa'", "X'612762'"),
-    ("X''", "X'e99baa'", "X'612762'"),
-)
-NULLABLE = (
-    [False, True, True, True],
-    [False, True, True],
-    [False, True, True, True, True, True],
+AGG_HEADER = (
+    "shape Agg:\n"
+    "    key: Int | None\n"
+    "    value: Int | None\n"
+    "    flag: Bool | None\n"
+    "    label: Text\n"
+    "    amount: Decimal(9, 2)\n"
+    "    ratio: Float\n"
+    "    rid: Int\n"
+    "    agg_row = unique(rid)\n"
+    'source agg: Agg = mysql.table("aggregate.locator.not.sql")\n'
 )
 _TEXT = {
     "collation": "utf8mb4_0900_bin",
@@ -61,31 +40,132 @@ _TEXT = {
     "padding": "NO PAD",
 }
 _INT = {"kind": "int_range", "max": "9007199254740993", "min": "-9007199254740993"}
-FIELDS = (
-    ("id", "order.id", {"kind": "my_bigint"}, False, _INT),
-    ("flag", "flag value", {"kind": "my_bool01"}, True, {"kind": "bool01"}),
-    ("text", 'text `"é', {"kind": "my_varchar", "length": 64}, True, _TEXT),
-    (
-        "money",
-        "amount value",
+# Per logical type: the pack's MySQL storage and domain (mysql/plan.py).
+STORAGE = {
+    "Int": ({"kind": "my_bigint"}, _INT),
+    "Bool": ({"kind": "my_bool01"}, {"kind": "bool01"}),
+    "Text": ({"kind": "my_varchar", "length": 64}, _TEXT),
+    "Decimal": (
         {"kind": "my_decimal", "precision": 9, "scale": 2},
-        False,
         {"kind": "decimal", "precision": 9, "scale": 2},
     ),
-    (
-        "ratio",
-        "ratio value",
-        {"kind": "my_double"},
-        False,
-        {"format": "binary64", "kind": "finite_float"},
+    "Float": ({"kind": "my_double"}, {"format": "binary64", "kind": "finite_float"}),
+}
+# Per world: its header, its source, its (field, pack column, logical type,
+# nullable) and the pack's namespace and table.
+WORLDS = {
+    "rows_ntext": (
+        HEADER,
+        "rows",
+        (
+            ("id", "order.id", "Int", False),
+            ("flag", "flag value", "Bool", True),
+            ("text", 'text `"é', "Text", True),
+            ("money", "amount value", "Decimal", False),
+            ("ratio", "ratio value", "Float", False),
+        ),
+        ("phase66", "phase66 source é"),
     ),
+    "agg": (
+        AGG_HEADER,
+        "agg",
+        (
+            ("key", "group key", "Int", True),
+            ("value", "value é", "Int", True),
+            ("flag", "flag value", "Bool", True),
+            ("label", 'text `"é', "Text", False),
+            ("amount", "amount value", "Decimal", False),
+            ("ratio", "ratio value", "Float", False),
+            ("rid", "row id", "Int", False),
+        ),
+        ("phase66", "phase66 agg é"),
+    ),
+}
+_S10_TESTS = (
+    "        n = sum(1 for o in group if o.flag)\n"
+    "        a = all(o.flag for o in group)\n"
+    '        b = any(o.label == "a" for o in group)\n'
+)
+_S10_GROUPED = "query {name}:\n    from agg\n    group by:\n        key\n    select:\n"
+# Per form: its world and its body.
+FORMS = (
+    (
+        "rows_ntext",
+        "query {name}:\n"
+        "    from rows\n"
+        "    select:\n"
+        "        id\n"
+        '        previous_empty = lag(text, 1, "") window(order by id)\n'
+        '        following_unicode = lead(text, 1, "雪") window(order by id)\n'
+        "        following_null = lead(text, 1) window(order by id)\n",
+    ),
+    (
+        "rows_ntext",
+        "query {name}:\n"
+        "    from rows\n"
+        "    select:\n"
+        "        id\n"
+        '        previous = lag(text, 1, "雪") window(order by id)\n'
+        '        following = lead(text, 1, "a\'b") window(order by id)\n',
+    ),
+    (
+        "rows_ntext",
+        "query {name}:\n"
+        "    from rows\n"
+        "    select:\n"
+        "        id\n"
+        "        plain = text\n"
+        '        lag_empty = lag(text, 1, "") window(order by id)\n'
+        '        lead_snow = lead(text, 1, "雪") window(order by id)\n'
+        '        lead_quote = lead(text, 1, "a\'b") window(order by id)\n'
+        "        lead_none = lead(text, 1) window(order by id)\n",
+    ),
+    ("agg", _S10_GROUPED + _S10_TESTS),
+    ("agg", _S10_GROUPED + "        k = key\n" + _S10_TESTS),
+    ("agg", "query {name}:\n    from agg\n    select:\n" + _S10_TESTS),
+)
+S16 = range(3)
+S10 = range(3, 6)
+_S10_SQL = (
+    "COUNT(CASE WHEN `s0`.`{flag}` THEN 1 END)",
+    "(COUNT(CASE WHEN `s0`.`{flag}` THEN NULL ELSE 1 END) = 0)",
+    "`s0`.`{label}` = CAST(X'61' AS CHAR CHARACTER SET utf8mb4)"
+    " COLLATE utf8mb4_0900_bin",
+    "THEN 1 END) > 0)",
+)
+# Per form: the SQL fragments the pack's MySQL half preregisters (PAIRS.md 5.4
+# and 5.6), `{field}` standing for the field's physical column; the public
+# nullability and the logical type of each public column PAIRS.md pairs.
+SQL = (
+    ("X''", "X'e99baa'"),
+    ("X'e99baa'", "X'612762'"),
+    ("X''", "X'e99baa'", "X'612762'"),
+    _S10_SQL,
+    _S10_SQL,
+    _S10_SQL,
+)
+NULLABLE = (
+    [False, True, True, True],
+    [False, True, True],
+    [False, True, True, True, True, True],
+    [False, False, False],
+    [True, False, False, False],
+    [False, False, False],
+)
+LOGICAL = (
+    ("Int", "Text", "Text", "Text"),
+    ("Int", "Text", "Text"),
+    ("Int", "Text", "Text", "Text", "Text", "Text"),
+    ("Int", "Bool", "Bool"),
+    ("Int", "Int", "Bool", "Bool"),
+    ("Int", "Bool", "Bool"),
 )
 ENVIRONMENT = (
     ("client_encoding", "utf8mb4"),
     ("operator_environment", "builtin_only"),
     ("identifier_case", "lower_case_table_names=0"),
 )
-# ASCII names for every name of the three forms.
+# ASCII names for every name of the forms, none a name the SQL generates.
 NAMES = {
     "Row": "Item",
     "id": "k",
@@ -105,16 +185,47 @@ NAMES = {
     "lead_snow": "lsn",
     "lead_quote": "lq",
     "lead_none": "lno",
+    # The form's shape and source are equal ignoring case, and so are these.
+    "Agg": "Entry",
+    "key": "bucket",
+    "value": "qty",
+    "label": "tag",
+    "amount": "price",
+    "rid": "row_no",
+    "agg_row": "entry_key",
+    "agg": "entry",
+    "n": "cnt",
+    "a": "every_f",
+    "b": "some_tag",
+    "k": "bkt",
+    "o": "e",
 }
-PHYSICAL = ("app", "items", ("c_id", "c_flag", "c_body", "c_cash", "c_share"))
-_WORD = re.compile(r"\b(" + "|".join(sorted(NAMES, key=len, reverse=True)) + r")\b")
+_COLUMNS = ("c_id", "c_flag", "c_body", "c_cash", "c_share", "c_f", "c_g")
+# A name outside a string literal; a string literal is kept.
+_WORD = re.compile(
+    r'"(?:[^"\\]|\\.)*"|\b(?:' + "|".join(sorted(NAMES, key=len, reverse=True)) + r")\b"
+)
+_LOCATOR = re.compile(r'(?<=mysql\.table\(")[^"]*')
 
 
-def contract(physical=("phase66", "phase66 source é", None), names=None):
-    """The pack's contract; ``physical`` and ``names`` rename its names."""
+def physical_names(form, namespace="app", table="items", columns=_COLUMNS):
+    """(namespace, table, columns) for form ``form``: one column per field."""
+    return namespace, table, tuple(columns[: len(WORLDS[FORMS[form][0]][2])])
+
+
+PHYSICAL = physical_names(0)
+
+
+def contract(form=0, physical=None, names=None):
+    """The pack's contract of ``form``; ``physical`` and ``names`` rename its
+    names, by default the pack's namespace, table and columns."""
     names = names or {}
-    namespace, table, columns = physical
-    columns = columns or tuple(field[1] for field in FIELDS)
+    _, source, fields, (namespace, table) = WORLDS[FORMS[form][0]]
+    namespace, table, columns = physical or (
+        namespace,
+        table,
+        tuple(field[1] for field in fields),
+    )
     return {
         "environment": [
             {"key": key, "scope": "statement", "value": value}
@@ -129,13 +240,13 @@ def contract(physical=("phase66", "phase66 source é", None), names=None):
                         "name": names.get(name, name),
                         "ordinal": ordinal,
                         "representation": {
-                            "domain": dict(domain),
+                            "domain": dict(STORAGE[logical][1]),
                             "nullable": nullable,
-                            "storage": dict(storage),
+                            "storage": dict(STORAGE[logical][0]),
                         },
                     }
-                    for ordinal, ((name, _, storage, nullable, domain), column) in (
-                        enumerate(zip(FIELDS, columns, strict=True))
+                    for ordinal, ((name, _, logical, nullable), column) in (
+                        enumerate(zip(fields, columns, strict=True))
                     )
                 ],
                 "premises": [
@@ -147,7 +258,7 @@ def contract(physical=("phase66", "phase66 source é", None), names=None):
                 "selector": {
                     "kind": "source",
                     "module": "main.pietto",
-                    "name": names.get("rows", "rows"),
+                    "name": names.get(source, source),
                 },
             }
         ],
@@ -155,15 +266,19 @@ def contract(physical=("phase66", "phase66 source é", None), names=None):
     }
 
 
+def pack(form):
+    """Form ``form``'s module as the pack writes it."""
+    world, body = FORMS[form]
+    return WORLDS[world][0] + body.format(name="result")
+
+
 def module(form, names=NAMES, locator="app.items"):
     """Form ``form``'s module with ``names`` and ``locator`` written over."""
-    text = HEADER.replace("opaque.locator.not.sql", locator) + BODIES[form].format(
-        name="result"
-    )
+    text = _LOCATOR.sub(locator, pack(form), count=1)
     return _WORD.sub(lambda match: names.get(match[0], match[0]), text)
 
 
-def project(directory, form, *, names=NAMES, locator="app.items", physical=PHYSICAL):
+def project(directory, form, *, names=NAMES, locator="app.items", physical=None):
     """Write form ``form`` as a one-module MySQL project in ``directory``."""
     directory.mkdir(parents=True, exist_ok=True)
     (directory / "pietto.toml").write_text(
@@ -173,6 +288,7 @@ def project(directory, form, *, names=NAMES, locator="app.items", physical=PHYSI
         module(form, names, locator), encoding="utf-8", newline="\n"
     )
     (directory / "contract.json").write_text(
-        json.dumps(contract(physical, names)), encoding="utf-8"
+        json.dumps(contract(form, physical or physical_names(form), names)),
+        encoding="utf-8",
     )
     return directory

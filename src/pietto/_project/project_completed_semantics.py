@@ -3433,6 +3433,8 @@ def derive_compiled_semantics(root, values, parameters=None):
                     # Its fraction is a literal, never a read.
                     raise CompiledError("COMPILED_AGGREGATE_ARGUMENT")
                 if function in grouping.FILTERED_FUNCTIONS:
+                    from pietto._project import project_sql_emission_paired as pairing
+
                     inputs = tuple(facts[operand] for operand in operands)
                     if (
                         physical_required
@@ -3442,6 +3444,7 @@ def derive_compiled_semantics(root, values, parameters=None):
                                 (item.address.kind, item.realization) for item in inputs
                             ),
                             family,
+                            paired=pairing.compiled_form(records) is not None,
                         )
                         is not None
                     ):
@@ -4860,6 +4863,8 @@ def verify_compiled_semantics(value):
                         "SEMANTIC_AGGREGATE_ARGUMENT",
                     )
                 elif physical_required and function in grouping.FILTERED_FUNCTIONS:
+                    from pietto._project import project_sql_emission_paired as pairing
+
                     need(
                         grouping.resolved_filtered_problem(
                             function,
@@ -4867,6 +4872,7 @@ def verify_compiled_semantics(value):
                                 (item.address.kind, item.realization) for item in inputs
                             ),
                             family,
+                            paired=pairing.compiled_form(records) is not None,
                         )
                         is None,
                         "SEMANTIC_AGGREGATE_ARGUMENT",

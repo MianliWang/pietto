@@ -564,7 +564,11 @@ A PostgreSQL test of a group has the aggregate column `function`
 roles `aggregate_open`, `aggregate_filter_open`, `aggregate_filter_then`,
 `aggregate_filter_one` (`any` only), `aggregate_filter_close` and
 `aggregate_close`. The result is a non-null `pg_bool` (`bool01`); its R13
-`aggregate` requirement carries no evidence.
+`aggregate` requirement carries no evidence. A MySQL conditional count and
+test of a group, emitted only in three paired forms
+([unreleased](../release-notes.d/77-s10-mysql-group-tests.md)), carry the
+same function, spelling and roles; the count is a non-null `my_bigint` and
+the test a non-null `my_signed_bool`.
 
 A PostgreSQL `count_distinct(a, b, ...)` column, whose provenance `function`
 is `count_distinct_tuple` (one argument stays `count_distinct`), is written
