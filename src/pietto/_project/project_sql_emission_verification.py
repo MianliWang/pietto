@@ -62,6 +62,7 @@ from pietto._project import project_sql_emission_parameters as parameters
 from pietto._project import project_sql_emission_rows as rows
 from pietto._project import project_sql_emission_joins as joining
 from pietto._project import project_sql_emission_aggregation as grouping
+from pietto._project import project_sql_emission_paired as pairing
 from pietto._project import project_sql_emission_windows as windowing
 from pietto._project import project_sql_emission_results as resulting
 from pietto._project import project_sql_emission_nested as nested
@@ -2108,7 +2109,7 @@ def resolved_window_value_result(family, carrier, origin, default, retained):
     if family == "mysql" and tag == "Bool":
         raise ValueError("MySQL Bool window value result outside Phase66")
     if tag == "Text":
-        width = windowing.text_default_width(default)
+        width = windowing.text_default_width(default, family)
         if default not in {None, "NULL"} and width is None:
             raise ValueError("window Text default")
         domain = dict(carrier.domain)
@@ -2974,6 +2975,7 @@ def _verify_window_column(request, column, window, export, columns, definitions,
         columns,
         family=request.family,
         native=native,
+        paired=pairing.project_form(request) is not None,
     )
     if expected is None or problem is not None:
         return False

@@ -3804,6 +3804,13 @@ class _Check:
                         <= 2147483647,
                         "postgres window structural argument range",
                     )
+            elif column["function"] in {"lag", "lead"}:
+                # A MySQL default is the third argument whatever its role says.
+                _require(
+                    tuple(argument["role"] for argument in arguments)
+                    == ("value", "offset", "default")[: len(arguments)],
+                    "window structural argument roles",
+                )
             if column["function"] not in _VALUE_WINDOWS:
                 continue
             reads = [

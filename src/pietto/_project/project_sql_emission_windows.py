@@ -14,11 +14,13 @@ SQL text is authority here.
 from __future__ import annotations
 
 from dataclasses import dataclass, replace
+import re
 from typing import Any
 
 from pietto._project import project_sql_plan_windows as windows
 from pietto._project import project_sql_emission_rows as rows
 from pietto._project import project_sql_emission_aggregation as grouping
+from pietto._project import project_sql_emission_paired as pairing
 from pietto._project import project_sql_emission_parameters as parameters
 from pietto.ast_nodes import ParameterRefExpr
 from pietto.semantic.model import EffectiveNullability, TypeKind, ValueTypeKind
@@ -643,9 +645,10 @@ def _integer_literal(value) -> str | None:
 
 
 def _text_literal(value, family) -> str | None:
-    """One retained PostgreSQL Text default, escaped by the literal owner."""
+    """One static Text default, escaped by the literal owner; MySQL's only in
+    a statement its reader pairs (`project_sql_emission_paired`)."""
 
-    if family != "postgres" or type(value) is not str or "\x00" in value:
+    if family not in {"postgres", "mysql"} or type(value) is not str or "\x00" in value:
         return None
     try:
         return parameters.scalar_token("Text", value, family)
@@ -653,11 +656,20 @@ def _text_literal(value, family) -> str | None:
         return None
 
 
-def text_default_width(default: str | None) -> int | None:
-    """Character width of the fixed E'\\ooo' Text default token, if any."""
+def text_default_width(default: str | None, family: str) -> int | None:
+    """Character width of the fixed Text default token of ``family``, if any:
+    PostgreSQL's E'\\ooo' or MySQL's X'..', never the other target's."""
 
     if default is None or default == "NULL":
         return None
+    if family == "mysql":
+        if re.fullmatch(r"X'(?:[0-9a-f]{2})*'", default) is None:
+            return None
+        octets = bytes.fromhex(default[2:-1])
+        try:
+            return None if 0 in octets else len(octets.decode("utf-8"))
+        except UnicodeDecodeError:
+            return None
     if not (default.startswith("E'") and default.endswith("'")):
         return None
     encoded = default[2:-1]
@@ -720,14 +732,17 @@ def parameter_argument(family, policy, item, native):
     return rows.SQLParameterRead(item, use, use.physical_type, realization), None
 
 
-def independent_arguments(policy, items, uses, available, *, family=None, native=None):
+def independent_arguments(
+    policy, items, uses, available, *, family=None, native=None, paired=False
+):
     """Realize this occurrence's arguments from their retained authority.
 
     A value argument is an established pre-window port. An offset, default,
     bucket or position is a structural static value the analyzer already froze,
     so it is emitted as an exact literal rather than re-extracted from source
     text or reclassified as a caller-bindable slot. A header-parameter read is
-    a native placeholder whose use ``native`` maps by argument reference.
+    a native placeholder whose use ``native`` maps by argument reference. A
+    MySQL Text default is a literal only in a ``paired`` statement.
     """
 
     ports = {u.role_position: u for u in uses if u.role.value == "window_argument"}
@@ -763,7 +778,9 @@ def independent_arguments(policy, items, uses, available, *, family=None, native
                 realized.append(WindowArgument(item.position, role, literal="NULL"))
                 continue
             raw = getattr(fact.expression, "value", None)
-            literal = _integer_literal(raw) or _text_literal(raw, family)
+            literal = _integer_literal(raw) or (
+                _text_literal(raw, family) if family != "mysql" or paired else None
+            )
             if literal is None:
                 return None, (
                     "PIE-B1003",
@@ -881,6 +898,7 @@ def build_stage(
     """
 
     target = request.family
+    paired = pairing.project_form(request) is not None
     columns: list[WindowColumn] = []
     definitions: list[WindowDefinition] = []
     # One generated definition per retained named declaration and complete
@@ -988,6 +1006,7 @@ def build_stage(
             available,
             family=target,
             native=native,
+            paired=paired,
         )
         if realized is None:
             assert problem is not None
@@ -1288,7 +1307,7 @@ def resolved_value_result(family, carrier, origin, default, retained):
             "mysql_bool_window_result_representation_not_supported_in_phase66",
         )
     if tag == "Text":
-        width = text_default_width(default)
+        width = text_default_width(default, family)
         if default not in {None, "NULL"} and width is None:
             return None, ("PIE-B1003", "window_default_literal_kind_not_realized_yet")
         domain = dict(carrier.domain)
@@ -1536,8 +1555,8 @@ def resolved_arguments(function, arguments, records, family):
         elif (
             address.kind == "literal"
             and role == "default"
-            and family == "postgres"
             and record.get("tag") == "Text"
+            and (family == "postgres" or pairing.compiled_form(records) is not None)
         ):
             value = record.get("value").value
         else:

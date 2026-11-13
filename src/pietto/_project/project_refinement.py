@@ -288,6 +288,11 @@ def _live_shape(artifact, requirements):
 
     records = artifact.request.verification.completed.root.records
     from pietto._project.project_execution_nested import collection_operations
+    from pietto._project.project_sql_emission_paired import compiled_form
+
+    if compiled_form(records) is not None:
+        # A paired statement opens only as its own form, never refined.
+        raise ValueError("PUBLIC_R2_PAIRED_FORM")
 
     if collection_operations(records):
         # A collected child row has no recovery coordinate in Phase71.

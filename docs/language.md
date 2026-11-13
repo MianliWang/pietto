@@ -2826,7 +2826,8 @@ interval: an offset from 0 and a bucket count or position from 1, up to
 2147483647 on PostgreSQL and 9223372036854775807 on MySQL (binding obligation
 `structural_count_interval`), and a binding outside it is refused before
 execution. A Bool or Text value argument and a non-Int default are refused at
-emission (PIE-B1003), as the same default literals are.
+emission (PIE-B1003), as the same default literals are, except a static `Text`
+literal default ([emission rules](project-package.md#emission-rules)).
 
 ## Expressions
 

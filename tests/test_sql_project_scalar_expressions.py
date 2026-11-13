@@ -43,11 +43,20 @@ def test_text_window_default_tokens_accept_only_ascii_octal_utf8() -> None:
         },
     }
     valid = "E'\\351\\233\\252'"
-    assert windowing.text_default_width(valid) == 1
+    assert windowing.text_default_width(valid, "postgres") == 1
+    # Each target reads only its own token.
+    assert windowing.text_default_width("X'e99baa'", "mysql") == 1
+    assert windowing.text_default_width("X''", "mysql") == 0
+    assert windowing.text_default_width(valid, "mysql") is None
+    assert windowing.text_default_width("X'e99baa'", "postgres") is None
+    assert all(
+        windowing.text_default_width(token, "mysql") is None
+        for token in ("X'00'", "X'e99b'", "X'E99BAA'", "X'e9 9baa'", "X'e'", "'snow'")
+    )
     assert windowing._text_literal("a\x00b", "postgres") is None
     assert windowing._text_literal("\ud800", "postgres") is None
     assert all(
-        windowing.text_default_width(token) is None
+        windowing.text_default_width(token, "postgres") is None
         and pure._window_value_representation("postgres", {}, carrier, token, {})
         is None
         for token in (

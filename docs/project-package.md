@@ -1093,8 +1093,10 @@ PostgreSQL projects also emit signed-`Int` `/` and `%`, same-type `Float`
 `/` and exact binary64 `%`, and a static `Text` literal default of `lag` or
 `lead`, when their physical realization and required evidence close. A zero
 divisor raises the PostgreSQL error 22012; Float arithmetic can also fail
-with checked 22003. MySQL projects keep these forms refused. Nonliteral
-Text defaults remain refused.
+with checked 22003. MySQL projects keep these forms refused, except the
+`Text` literal default in a statement that is one of three paired forms
+with only its names changed ([unreleased](release-notes.d/77-s16-mysql-text-window-defaults.md), qualified).
+Nonliteral Text defaults remain refused.
 
 `check --project` also accepts the following forms, which
 `emit-sql --project` reports BLOCKED on both dialects whatever the contract

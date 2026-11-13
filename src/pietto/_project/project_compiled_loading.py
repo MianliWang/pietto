@@ -107,9 +107,20 @@ def load_compiled(
         or description.producer != accepted_producer
     ):
         raise CompiledError("COMPILED_COMPATIBILITY")
-    return CompiledProjectInput(
+    root = CompiledProjectInput(
         description,
         expected_pin,
         accepted_producer,
         accepted_compatibility,
     )
+    from pietto._project.project_sql_emission_paired import compiled_form, sql_form
+
+    form = compiled_form(root.records)
+    if form is not None:
+        from pietto._project.project_compiled_lowering import emit_compiled
+
+        # Rule two: records of a paired form whose SQL is not the form's are
+        # unpaired, so they keep main's refusal of their MySQL Text default.
+        if sql_form(emit_compiled(root, ()).rendered.sql) != form:
+            raise CompiledError("COMPILED_WINDOW_STATIC")
+    return root

@@ -1309,3 +1309,53 @@ def test_live_refinement_refuses_a_lateral_join_after_its_source_closure(
         )
         == before
     )
+
+
+def test_r2_refuses_a_paired_mysql_form_before_any_workspace(tmp_path):
+    """A MySQL statement opened as a qualification-pack form is that form
+    only, so R2 refuses to refine it (Phase77 S16)."""
+    import _pietto_sql_paired as paired_forms
+    import pietto.execution as execution
+    from pietto._project.project_execution_template import bind_values
+
+    def compiled(directory):
+        return execution.compile_query(
+            directory,
+            module="main.pietto",
+            kind="query",
+            name="q16",
+            dialect="mysql",
+            emission_contract="contract.json",
+        )
+
+    directory = paired_forms.project(tmp_path / "paired", 1)
+    query = compiled(directory)
+    binding = bind_values(query._template, ())
+    inputs = tuple(
+        execution.R2SourceInput(
+            s.namespace,
+            s.name,
+            "provider",
+            "v1",
+            "r1",
+            s.namespace,
+            "registry",
+            "SELECT 1",
+            ("c_id",),
+            "pietto_query",
+            "retained",
+        )
+        for s in binding.artifact.request.sources
+    )
+    with pytest.raises(ValueError, match="^PUBLIC_R2_PAIRED_FORM$"):
+        proposal.prepare_live_refinement(query, binding, inputs)
+    with pytest.raises(ValueError, match="^PUBLIC_R2_PAIRED_FORM$"):
+        proposal.check_live_refinement(query, inputs)
+    # The same query without its Text defaults is no form and R2 checks it.
+    main = directory / "main.pietto"
+    text = main.read_text(encoding="utf-8")
+    for default in (', "雪")', ', "a\'b")'):
+        assert text.count(default) == 1
+        text = text.replace(default, ")")
+    main.write_text(text, encoding="utf-8", newline="\n")
+    proposal.check_live_refinement(compiled(directory), inputs)

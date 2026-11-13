@@ -39,6 +39,7 @@ from pietto._project.project_sql_emission_ast import (
     row_parameter_leaves,
 )
 from pietto._project import project_sql_emission_aggregation as grouping
+from pietto._project import project_sql_emission_paired as pairing
 from pietto._project import project_sql_emission_windows as windowing
 from pietto._project import project_sql_emission_results as resulting
 from pietto._project import project_sql_emission_nested as collecting
@@ -164,11 +165,20 @@ def realize_project_sql(request):
             ),
         )
     # Rule two: a refused MySQL statement reports main's blockers, also when
-    # a check after emission_blockers refuses it.
+    # a check after emission_blockers refuses it; so does a paired statement
+    # whose emission does not give its form's SQL, names aside.
+    form = pairing.project_form(request)
     outcome = rows.as_main_if_refused(
         request,
         lambda: _realize_prepared_sql(request),
-        lambda outcome: outcome.status == "BLOCKED",
+        lambda outcome: (
+            outcome.status == "BLOCKED"
+            or form is not None
+            and (
+                outcome.status != "VERIFIED"
+                or pairing.sql_form(outcome.artifact.rendered.sql) != form
+            )
+        ),
     )
     return replace(outcome, family=request.family)
 

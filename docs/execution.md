@@ -362,12 +362,16 @@ WHERE, that reads a let with `capture` lines, or whose predicate reads a
 block (`exists`, `scalar`, `in` or another `any`)
 (`REFINEMENT_EXPRESSION_BLOCK_READ`), then a query with a JOIN that reads a
 let with `capture` lines LATERAL, with or without its ORDER BY and LIMIT
-(`REFINEMENT_LATERAL_JOIN`). These checks read the live query alone, so
-`recover` makes them in this order also when its restated `values` or
-`parameters` cannot bind. Last, on PostgreSQL, they refuse a query that reads
-`now()` and whose SQL R2 does not read (see the R2 boundary below) with
-`PUBLIC_R2_STATEMENT_SNAPSHOT`. This check renders the bound query, so
-`recover` makes it only when its restated values and parameters bind.
+(`REFINEMENT_LATERAL_JOIN`). Before these five shapes, they refuse a MySQL
+query in one of the paired forms (unreleased, Wave A
+[S16](release-notes.d/77-s16-mysql-text-window-defaults.md)) with
+`PUBLIC_R2_PAIRED_FORM`, since its refined statement is no form. These checks
+read the live query alone, so `recover` makes them in this order also when
+its restated `values` or `parameters` cannot bind. Last, on PostgreSQL, they
+refuse a query that reads `now()` and whose SQL R2 does not read (see the R2
+boundary below) with `PUBLIC_R2_STATEMENT_SNAPSHOT`. This check renders the
+bound query, so `recover` makes it only when its restated values and
+parameters bind.
 Ordinary execution on every route, an ordinary
 `save` and bundles accept them. Before all of these R2 checks,
 `save_recoverable`, and `recover` when its restated values and parameters

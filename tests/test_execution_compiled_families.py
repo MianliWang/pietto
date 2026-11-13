@@ -1,11 +1,13 @@
 """Complete original named families are the source-side differential reference."""
 
+import hashlib
 import json
 
 import pytest
 
 import _pietto_sql_emission as emission
 import _pietto_sql_float_cells as float_cells
+import _pietto_sql_paired as paired_forms
 from _pietto_execution_binding import proof_artifact
 from _pietto_execution_compiled import retained_unmapped_source
 from _pietto_execution_refinement import capabilities
@@ -43,6 +45,8 @@ from _pietto_sql_emission import S05_POSTGRES_BODY
 from _pietto_sql_emission import emit_aggregate_composition
 import _pietto_sql_emission_portable as portable
 import _pietto_sql_emission_pure_boundary as pure
+from pietto._project import project_compiled_schema as compiled_schema
+from pietto._project import project_sql_emission_paired as pairing
 from pietto._project.project_sql_emission_ast import SQLRowQuery
 from pietto._project.project_sql_emission_verification import (
     verify_project_sql_emission,
@@ -5469,3 +5473,360 @@ def test_postgres_string_agg_orders_by_a_float_key(tmp_path):
         accepted_compatibility=built.compatibility,
     )
     assert emit_compiled(loaded, ()).rendered.sql == outcome.artifact.rendered.sql
+
+
+# Phase77 S16: a MySQL project emits a lag/lead Text literal default only in
+# a statement that is one of the qualification pack's three paired forms with
+# only its names changed; everything else keeps its 0.1.11 output.
+_LONG = {key: (value + "_" * 63)[:63] for key, value in paired_forms.NAMES.items()}
+_LONG_PHYSICAL = ("n" * 63, "t" * 63, tuple(f"c{i}" + "_" * 61 for i in range(5)))
+_KEPT = [("PIE-B1003", "window_default_literal_kind_not_realized_yet")]
+
+
+def _paired_compile(directory, *, name="q16", policy="preserve", kind="query"):
+    from pietto.compiler import compile_sql
+
+    return compile_sql(
+        str(directory),
+        module="main.pietto",
+        kind=kind,
+        name=name,
+        dialect="mysql",
+        emission_contract="contract.json",
+        literal_policy=policy,
+    )
+
+
+def _sha(text):
+    return hashlib.sha256(text.encode("utf-8")).hexdigest()
+
+
+@pytest.mark.parametrize("form", range(3))
+@pytest.mark.parametrize("width", ("short", "long"))
+def test_mysql_emits_the_paired_text_default_forms(tmp_path, form, width):
+    """Each digest the readers compare is recomputed from the pack's text."""
+    from pietto.execution import compile_query, export_bundle, load_bundle
+
+    pack = paired_forms.HEADER + paired_forms.BODIES[form].format(name="result")
+    text = pairing.project_text(
+        "main.pietto",
+        pack,
+        json.dumps(paired_forms.contract()),
+        ("result", "query"),
+        pairing._Names(),
+    )
+    assert _sha(text) == pairing.FORMS[form][0]
+    names, physical = (
+        (paired_forms.NAMES, paired_forms.PHYSICAL)
+        if width == "short"
+        else (_LONG, _LONG_PHYSICAL)
+    )
+    locator = "app.items" if width == "short" else "s" * 63 + "." + "t" * 63
+    directory = paired_forms.project(
+        tmp_path / "p", form, names=names, locator=locator, physical=physical
+    )
+    if width == "long":
+        # As `pietto fmt` writes it: an empty line between declarations.
+        main = directory / "main.pietto"
+        text = main.read_text(encoding="utf-8")
+        # A carriage return unpairs a file, so Windows must not write one.
+        main.write_text(
+            text.replace("\nsource", "\n\nsource").replace("\nquery", "\n\nquery"),
+            encoding="utf-8",
+            newline="\n",
+        )
+    result = _paired_compile(directory, name=names["result"])
+    assert result.status == "VERIFIED", result.document
+    document = json.loads(result.document)
+    sql = document["sql"]
+    assert all(token in sql for token in paired_forms.SQL[form]) and "E'" not in sql
+    assert [c["nullable"] for c in document["columns"]] == paired_forms.NULLABLE[form]
+    assert all(
+        c["representation"]["storage"] == {"kind": "my_varchar", "length": 64}
+        for c in document["columns"][1:]
+    )
+    assert _sha(pairing.sql_text(sql.encode())) == pairing.FORMS[form][1]
+    query = compile_query(
+        directory,
+        module="main.pietto",
+        kind="query",
+        name=names["result"],
+        dialect="mysql",
+        emission_contract="contract.json",
+    )
+    bundle = export_bundle(query)
+    records = {r.address: r for r in compiled_schema.decode(bundle.payload).records}
+    assert (
+        _sha(pairing.compiled_text(records, pairing._Names())),
+        len(records),
+    ) == pairing.FORMS[form][2:]
+    loaded = load_bundle(
+        bundle.payload,
+        expected_pin=bundle.pin,
+        accepted_producer=bundle.producer,
+        accepted_compatibility=bundle.compatibility,
+    )
+    assert loaded._template.artifact.rendered.sql.decode() == sql
+
+
+def _swap(text, old, new):
+    assert text.count(old) >= 1
+    return text.replace(old, new)
+
+
+_UNPAIRED = {
+    "non_ascii_column": (1, lambda t: t, {"contract": ("column", "c_bödy")}),
+    # Letters that fold to ASCII ones ignoring case: Kelvin sign, long s, i.
+    "kelvin_column": (1, lambda t: t, {"contract": ("column", "c_\u212a")}),
+    "kelvin_locator": (1, lambda t: _swap(t, '"app.', '"\u212aapp.'), None),
+    "long_s_locator": (1, lambda t: _swap(t, '"app.', '"\u017fapp.'), None),
+    "dotless_i_locator": (1, lambda t: _swap(t, '.items"', '.\u0131tems"'), None),
+    "long_label": (1, lambda t: _swap(t, "prv", "p" * 64), None),
+    "pietto_prefix": (1, lambda t: _swap(t, "prv", "__PIETTO_prv"), None),
+    "case_twin_labels": (0, lambda t: _swap(t, "fu =", "PE ="), None),
+    "one_part_locator": (1, lambda t: _swap(t, '"app.items"', '"items"'), None),
+    "three_part_locator": (1, lambda t: _swap(t, '"app.items"', '"a.b.items"'), None),
+    "other_default": (1, lambda t: _swap(t, '"雪"', '"雨"'), None),
+    "wider_default": (1, lambda t: _swap(t, '"雪"', '"雪雪"'), None),
+    "swapped_functions": (
+        1,
+        lambda t: _swap(_swap(_swap(t, "lag(", "@("), "lead(", "lag("), "@(", "lead("),
+        None,
+    ),
+    "offset_two": (
+        1,
+        lambda t: _swap(t, 'lag(body, 1, "雪")', 'lag(body, 2, "雪")'),
+        None,
+    ),
+    "descending": (
+        1,
+        lambda t: _swap(t, "(order by k)\n", "(order by k desc)\n"),
+        None,
+    ),
+    "extra_item": (
+        1,
+        lambda t: t + "        again = lead(body, 1) window(order by k)\n",
+        None,
+    ),
+    "dropped_item": (1, lambda t: t[: t.index("        fol =")], None),
+    "reordered_items": (
+        1,
+        lambda t: _swap(
+            t,
+            '        prv = lag(body, 1, "雪") window(order by k)\n'
+            '        fol = lead(body, 1, "a\'b") window(order by k)\n',
+            '        fol = lead(body, 1, "a\'b") window(order by k)\n'
+            '        prv = lag(body, 1, "雪") window(order by k)\n',
+        ),
+        None,
+    ),
+    "comment": (1, lambda t: _swap(t, "query q16:\n", "# note\nquery q16:\n"), None),
+    "spaces_only_line": (1, lambda t: _swap(t, "query q16:", "    \nquery q16:"), None),
+    "trailing_space": (
+        1,
+        lambda t: _swap(t, "    from items\n", "    from items \n"),
+        None,
+    ),
+    "extra_query": (
+        1,
+        lambda t: t + "\nquery other:\n    from items\n    select:\n        k\n",
+        None,
+    ),
+    "type_alias": (
+        1,
+        lambda t: "type Key = Int\n" + _swap(t, "    k: Int\n", "    k: Key\n"),
+        None,
+    ),
+    "table_kind": (
+        1,
+        lambda t: _swap(t, "query q16:", "table q16:"),
+        {"kind": "table"},
+    ),
+    "bind_safe": (1, lambda t: t, {"policy": "bind-safe"}),
+    "second_module": (
+        1,
+        lambda t: t,
+        {"module": 'shape S:\n    a: Int\n\nsource s: S = mysql.table("app.s")\n'},
+    ),
+    "contract_width": (1, lambda t: t, {"contract": ("max_characters", 32)}),
+    "contract_premise": (1, lambda t: t, {"contract": ("premise", None)}),
+    "contract_order": (1, lambda t: t, {"contract": ("order", None)}),
+}
+
+
+@pytest.mark.parametrize("case", sorted(_UNPAIRED))
+def test_mysql_unpaired_text_defaults_keep_the_main_output(tmp_path, case):
+    """Every other statement reports its whole output from before S16."""
+    form, edit, options = _UNPAIRED[case]
+    options = options or {}
+    directory = paired_forms.project(tmp_path / "p", form)
+    main = directory / "main.pietto"
+    main.write_text(
+        edit(main.read_text(encoding="utf-8")), encoding="utf-8", newline="\n"
+    )
+    if "module" in options:
+        (directory / "other.pietto").write_text(options["module"], newline="\n")
+    if "contract" in options:
+        contract = json.loads((directory / "contract.json").read_text())
+        change, value = options["contract"]
+        if change == "max_characters":
+            field = contract["sources"][0]["fields"][2]["representation"]
+            field["domain"]["max_characters"] = value
+            field["storage"]["length"] = value
+        elif change == "column":
+            contract["sources"][0]["fields"][2]["column"] = value
+        elif change == "premise":
+            contract["environment"].append(
+                {
+                    "key": "parameter_protocol",
+                    "scope": "statement",
+                    "value": "mysql_prepared",
+                }
+            )
+        else:
+            contract["environment"].reverse()
+        (directory / "contract.json").write_text(json.dumps(contract))
+    arguments = {k: v for k, v in options.items() if k in {"kind", "policy"}}
+    result = _paired_compile(directory, **arguments)
+    with pairing.closed():
+        before = _paired_compile(directory, **arguments)
+    assert result.document == before.document
+    blockers = json.loads(result.document).get("blockers") or []
+    assert [(b["code"], b["subject"]["detail"]) for b in blockers] == _KEPT
+
+
+def test_mysql_paired_statement_without_its_sql_keeps_the_main_output(
+    tmp_path, monkeypatch
+):
+    """Rule two: a paired statement that does not end as its form's SQL, as
+    here after a refused live verification or other SQL, reports the output
+    it has without the pairing."""
+    from pietto._project import project_sql_emission as emitting
+    from pietto._project.project_sql_emission_verification import (
+        EmissionVerification,
+    )
+
+    directory = paired_forms.project(tmp_path / "p", 1)
+    with pairing.closed():
+        before = _paired_compile(directory).document
+    assert [
+        (b["code"], b["subject"]["detail"]) for b in json.loads(before)["blockers"]
+    ] == _KEPT
+    with monkeypatch.context() as patch:
+        patch.setattr(pairing, "sql_form", lambda sql: None)
+        assert _paired_compile(directory).document == before
+    with monkeypatch.context() as patch:
+        patch.setattr(
+            emitting,
+            "verify_project_sql_emission",
+            lambda artifact, request: EmissionVerification(("forced",)),
+        )
+        assert _paired_compile(directory).document == before
+    assert _paired_compile(directory).status == "VERIFIED"
+
+
+def test_mysql_live_verifier_pairs_the_statement_itself(tmp_path, monkeypatch):
+    """A statement that emission alone takes for a form, and so emits with
+    its Text defaults, is refused by the live verifier's own reading."""
+    from types import SimpleNamespace
+
+    from pietto._project import project_sql_emission_windows as windowing
+
+    directory = paired_forms.project(tmp_path / "p", 1)
+    main = directory / "main.pietto"
+    main.write_text(
+        _swap(main.read_text(encoding="utf-8"), '"雪"', '"雨"'),
+        encoding="utf-8",
+        newline="\n",
+    )
+    monkeypatch.setattr(
+        windowing,
+        "pairing",
+        SimpleNamespace(
+            project_form=lambda request: 1, compiled_form=pairing.compiled_form
+        ),
+    )
+    blockers = json.loads(_paired_compile(directory).document).get("blockers")
+    assert [(b["code"], b["subject"]["detail"]) for b in blockers or []] == [
+        ("PIE-B1008", "plan_ast_correspondence")
+    ]
+
+
+@pytest.mark.parametrize(
+    "old,new",
+    (
+        ('["Text","雪"]', '["Text","雨"]'),
+        ('"c5"', '"c9"'),
+        ('"lag"', '"lead"'),
+        ("c_body", "c_\u212a"),
+        # Still the form's records, but `c2` is also a name the SQL generates.
+        ("c_body", "c2"),
+    ),
+)
+def test_mysql_forged_paired_bundles_are_refused(tmp_path, old, new):
+    """Each keeps main's refusal of a MySQL Text default bundle."""
+    from pietto.execution import (
+        RequestRejected,
+        compile_query,
+        export_bundle,
+        load_bundle,
+    )
+
+    directory = paired_forms.project(tmp_path / "p", 1)
+    bundle = export_bundle(
+        compile_query(
+            directory,
+            module="main.pietto",
+            kind="query",
+            name="q16",
+            dialect="mysql",
+            emission_contract="contract.json",
+        )
+    )
+    payload = bundle.payload.replace(old.encode(), new.encode())
+    assert payload != bundle.payload
+    with pytest.raises(RequestRejected) as rejected:
+        load_bundle(
+            payload,
+            expected_pin=compiled_schema.content_pin(payload),
+            accepted_producer=bundle.producer,
+            accepted_compatibility=bundle.compatibility,
+        )
+    assert (rejected.value.code, rejected.value.failure.detail) == (
+        "PIE-R1008",
+        "COMPILED_WINDOW_STATIC",
+    )
+
+
+def test_pure_reads_a_mysql_lag_default_by_its_position(tmp_path):
+    """The pure reader refuses a MySQL Text default, also one whose role a
+    forged document relabels."""
+    directory = paired_forms.project(tmp_path / "p", 1)
+    names = dict(paired_forms.NAMES, result="result")
+    paired_forms.project(directory, 1, names=names)
+    contract = (directory / "contract.json").read_text()
+    source = (directory / "main.pietto").read_text(encoding="utf-8")
+    _, outcome = probe.build_case(tmp_path / "case", source, contract)
+    assert outcome.status == "VERIFIED", outcome.blockers
+    artifact = outcome.artifact
+    observed = portable.export_emission_observation(artifact, artifact.request)
+    assert observed.canonical_bytes is not None
+    genuine = pure.parse_emission_observation(observed.canonical_bytes)
+    assert (genuine.status, genuine.detail) == (
+        pure.Status.INVALID_RELATION,
+        "window value result representation",
+    )
+    document = json.loads(observed.canonical_bytes)
+    for record in document["records"]:
+        if (
+            record["ref"][0] == "window_argument"
+            and record["fields"]["role"] == "default"
+        ):
+            record["fields"]["role"] = "offset"
+    forged = pure.parse_emission_observation(
+        json.dumps(document, ensure_ascii=False, separators=(",", ":")).encode()
+    )
+    assert (forged.status, forged.detail) == (
+        pure.Status.INVALID_RELATION,
+        "window structural argument roles",
+    )
