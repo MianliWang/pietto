@@ -97,6 +97,51 @@ PROJECT_EMIT_ARGUMENTS = (
     "contract.json",
 )
 
+# The arrow-ready cell's one real `duckdb_arrow` query, so natural CI holds
+# DuckDB native evidence on CPython 3.12 and 3.13 (D79.07).
+DUCKDB_SOURCE = """shape Item:
+    id: Int
+    label: Text | None
+
+source items: Item = duckdb.arrow("items")
+
+query result(min_id: Int):
+    from items
+    where id >= min_id
+    select:
+        id
+        label
+"""
+DUCKDB_CONTRACT = """{
+  "format": "pietto.emission-contract.v1",
+  "target": {"family": "duckdb", "release": "2.0.0"},
+  "sources": [{
+    "selector": {"module": "main.pietto", "kind": "source", "name": "items"},
+    "relation": {"namespace": "arrow", "name": "items"},
+    "scan": "arrow_registration",
+    "fields": [
+      {"ordinal": 0, "name": "id", "column": "id",
+       "representation": {"storage": {"kind": "arrow_int64"}, "nullable": false,
+                          "domain": {"kind": "int_range", "min": "0", "max": "100"}}},
+      {"ordinal": 1, "name": "label", "column": "label",
+       "representation": {"storage": {"kind": "arrow_string"}, "nullable": true,
+                          "domain": {"kind": "text", "max_characters": 64,
+                                     "encoding": "UTF8", "collation": "C",
+                                     "padding": "NO PAD"}}}
+    ],
+    "premises": [
+      {"key": "row_domain_matches", "scope": "source", "value": true},
+      {"key": "read_only_object", "scope": "source", "value": true}
+    ]
+  }],
+  "environment": [
+    {"key": "client_encoding", "scope": "statement", "value": "UTF8"},
+    {"key": "operator_environment", "scope": "statement", "value": "builtin_only"},
+    {"key": "parameter_protocol", "scope": "statement", "value": "duckdb_prepared"}
+  ]
+}
+"""
+
 # The extras of each installed cell. A bare --extra-env path is the arrow-ready
 # cell, which carries the pinned DuckDB (D79.07); `interop-X=PATH` builds
 # pietto[arrow,interop-X] (D80.05). Each cell is pre-seeded with only the
@@ -1520,6 +1565,52 @@ def _installed_check(wheel: Path, extra: str) -> None:
                 "version": target.version,
                 "path": str(_installed_path(Path(target.locate_file(metadata[0])))),
             }
+        if extra == "execute-duckdb":
+            execution = importlib.import_module("pietto.execution")
+            with tempfile.TemporaryDirectory(prefix="pietto-duckdb-") as temporary:
+                root = Path(temporary)
+                (root / "pietto.toml").write_text(PROJECT_EMIT_CONFIG, encoding="utf-8")
+                (root / "main.pietto").write_text(DUCKDB_SOURCE, encoding="utf-8")
+                (root / "contract.json").write_text(DUCKDB_CONTRACT, encoding="utf-8")
+                query = execution.compile_query(
+                    root,
+                    module="main.pietto",
+                    kind="query",
+                    name="result",
+                    dialect="duckdb",
+                    emission_contract="contract.json",
+                )
+            table = pa.table(
+                {
+                    "id": pa.array([3, 1, 2], pa.int64()),
+                    "label": pa.array(["c", "a", None], pa.string()),
+                }
+            )
+            handle = execution.execute(
+                query,
+                route="duckdb_arrow",
+                access=execution.DuckDBArrowInput("items", table),
+                premise=None,
+                parameters={"min_id": 2},
+            )
+            with handle as result:
+                batches = [pa.record_batch(batch) for batch in result]
+            # B1 results are bags, so the rows are compared sorted.
+            rows = sorted(
+                (row["id"], row["label"])
+                for batch in batches
+                for row in batch.to_pylist()
+            )
+            if (
+                rows != [(2, None), (3, "c")]
+                or handle.outcome.end != "COMPLETE"
+                or any(
+                    [(f.name, f.nullable) for f in batch.schema]
+                    != [("id", False), ("label", True)]
+                    for batch in batches
+                )
+            ):
+                raise SmokeFailure("installed DuckDB Arrow query result differs")
     print(
         json.dumps(
             {
@@ -1532,6 +1623,7 @@ def _installed_check(wheel: Path, extra: str) -> None:
                 "dependencies": dependencies,
                 "lazy_import": True,
                 "missing_arrow": extra == "core",
+                "duckdb_arrow_query": extra == "execute-duckdb",
             },
             sort_keys=True,
         )
