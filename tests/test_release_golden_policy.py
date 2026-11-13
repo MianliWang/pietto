@@ -187,9 +187,9 @@ def test_real_audit_runs_from_outside_the_repository(tmp_path: Path) -> None:
     )
 
     assert result.returncode == 0, result.stderr
-    assert "verified 41 fixtures" in result.stdout
-    assert "34 SQL byte-exact" in result.stdout
-    assert "7 JSON structural" in result.stdout
+    assert "verified 43 fixtures" in result.stdout
+    assert "35 SQL byte-exact" in result.stdout
+    assert "8 JSON structural" in result.stdout
 
 
 def test_slice4_keeps_prior_commands_independent_and_later_slices_absent() -> None:

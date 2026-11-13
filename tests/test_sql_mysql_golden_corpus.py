@@ -12,6 +12,7 @@ from pietto.parser_api import parse_file
 from pietto.semantic import analyze
 from pietto.sql import SqlResult, emit_postgres_sql
 from pietto.sql.mysql import emit_mysql_sql
+from pietto.sql.sqlite import emit_sqlite_sql
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
 GOLDEN_ROOT = REPO_ROOT / "tests" / "fixtures" / "golden"
@@ -94,7 +95,7 @@ def test_postgres_output_still_matches_every_existing_sql_golden(
     assert _render_artifacts(result) == (GOLDEN_ROOT / golden_name).read_bytes()
 
 
-def test_postgres_public_backend_and_mysql_private_backend_remain_distinct() -> None:
+def test_postgres_public_backend_and_private_backends_remain_distinct() -> None:
     assert set(sql_api.__all__) == {
         "SqlArtifact",
         "SqlArtifactKind",
@@ -102,8 +103,12 @@ def test_postgres_public_backend_and_mysql_private_backend_remain_distinct() -> 
         "emit_postgres_sql",
     }
     assert not hasattr(sql_api, "emit_mysql_sql")
+    assert not hasattr(sql_api, "emit_sqlite_sql")
     assert "return mysql_backend.emit_mysql_sql" in _read("src/pietto/cli.py")
-    assert cli.main(["emit-sql", "missing.pietto", "--dialect", "sqlite"]) == 2
+    # D78.01: the CLI dispatches the SQLite backend, which pietto.sql does not
+    # export.
+    assert cli._select_sql_emitter("sqlite") is emit_sqlite_sql
+    assert cli.main(["emit-sql", "missing.pietto", "--dialect", "oracle"]) == 2
 
 
 def test_mysql_failures_preserve_artifact_and_diagnostic_order() -> None:

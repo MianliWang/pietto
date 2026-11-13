@@ -97,10 +97,17 @@ def test_each_header_line_is_refused_with_its_hint() -> None:
     assert all(
         item.message == f"{_RETIRED}{item.suggestion}" for item in result.diagnostics
     )
-    # A dialect the CLI does not accept gets no `--dialect` advice.
+    # Each dialect the CLI accepts gets its `--dialect` advice, and another
+    # dialect none.
     assert [
-        item.suggestion for item in parse_source("dialect sqlite\n").diagnostics
-    ] == [f"Delete the header line `dialect sqlite`{_NO_EFFECT}"]
+        item.suggestion
+        for source in ("dialect sqlite\n", "dialect oracle\n")
+        for item in parse_source(source).diagnostics
+    ] == [
+        f"Delete the header line `dialect sqlite`{_NO_EFFECT[:-1]}; "
+        "`emit-sql` takes `--dialect sqlite`.",
+        f"Delete the header line `dialect oracle`{_NO_EFFECT}",
+    ]
 
 
 @pytest.mark.parametrize(

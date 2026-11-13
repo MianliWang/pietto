@@ -13,7 +13,11 @@ REPO_ROOT = Path(__file__).resolve().parents[1]
 
 
 def test_connector_catalog_is_exact_and_static() -> None:
-    assert connector_module.SINGLE_FILE_CONNECTORS == ("postgres.table", "mysql.table")
+    assert connector_module.SINGLE_FILE_CONNECTORS == (
+        "postgres.table",
+        "mysql.table",
+        "sqlite.table",
+    )
     assert connector_module.LEGACY_FLAT_CONNECTORS == ("postgres.table", "mysql.table")
     assert connector_module.EXPLICIT_MODULE_CONNECTORS == (
         "postgres.table",
@@ -61,8 +65,8 @@ def test_mysql_backend_remains_private_when_cli_enabled() -> None:
     assert not hasattr(sql_api, "emit_sql")
     assert "mysql.table" not in cli_source
     assert "return mysql_backend.emit_mysql_sql" in cli_source
-    assert '_ENABLED_SQL_DIALECTS = ("postgres", "mysql")' in cli_source
-    assert cli.main(["emit-sql", "missing.pietto", "--dialect", "sqlite"]) == 2
+    assert '_ENABLED_SQL_DIALECTS = ("postgres", "mysql", "sqlite")' in cli_source
+    assert cli.main(["emit-sql", "missing.pietto", "--dialect", "oracle"]) == 2
 
 
 def test_dependencies_and_sqlglot_boundary_are_unchanged() -> None:

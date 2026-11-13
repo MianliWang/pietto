@@ -513,14 +513,14 @@ def test_emit_json_backend_and_usage_exit_matrix(
                 "emit-sql",
                 str(path),
                 "--dialect",
-                "sqlite",
+                "oracle",
                 "--format=json",
             ]
         )
         == 2
     )
     dialect_error = _read_json_document(capsys, command="emit-sql")
-    assert dialect_error["dialect"] == "sqlite"
+    assert dialect_error["dialect"] == "oracle"
     assert (
         cast(list[dict[str, object]], dialect_error["cli_errors"])[0]["kind"]
         == "unsupported_dialect"

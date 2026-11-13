@@ -33,7 +33,7 @@ CHECK_USAGE = (
 )
 EXPLAIN_USAGE = CHECK_USAGE.replace("pietto check", "pietto explain")
 EMIT_USAGE = (
-    "usage: pietto emit-sql [-h] --dialect {postgres,mysql} [--output OUTPUT]"
+    "usage: pietto emit-sql [-h] --dialect {postgres,mysql,sqlite} [--output OUTPUT]"
     " [--format {text,json}] [--check-mode {loose,checked,strict}]"
     " [--set NAME=VALUE] path\npietto emit-sql: error: "
 )

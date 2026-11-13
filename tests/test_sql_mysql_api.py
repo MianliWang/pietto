@@ -241,10 +241,10 @@ def test_mysql_backend_is_cli_dispatched_without_public_export() -> None:
 
     assert "import pietto.sql.mysql as mysql_backend" in cli_source
     assert "return mysql_backend.emit_mysql_sql" in cli_source
-    assert '_ENABLED_SQL_DIALECTS = ("postgres", "mysql")' in cli_source
+    assert '_ENABLED_SQL_DIALECTS = ("postgres", "mysql", "sqlite")' in cli_source
     assert "mysql.table" in runtime_source
     assert "def _select_sql_emitter(" in runtime_source
-    assert cli.main(["emit-sql", "missing.pietto", "--dialect", "sqlite"]) == 2
+    assert cli.main(["emit-sql", "missing.pietto", "--dialect", "oracle"]) == 2
 
 
 def test_mysql_backend_has_no_sqlglot_runtime_or_forbidden_stage_imports() -> None:

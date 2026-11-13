@@ -1,0 +1,32 @@
+{
+  "schema_version": 1,
+  "command": "emit-sql",
+  "ok": true,
+  "path": "tests/fixtures/sqlite/single_file.pietto",
+  "dialect": "sqlite",
+  "diagnostics": [],
+  "cli_errors": [],
+  "artifacts": [
+    {
+      "kind": "relation",
+      "name": "active_accounts",
+      "sql": "SELECT\n    `accounts`.`id` AS `id`,\n    `accounts`.`name` AS `label`,\n    `accounts`.`score` AS `score`\nFROM `accounts`\nWHERE `accounts`.`active` AND (`accounts`.`score` IS NOT NULL)"
+    },
+    {
+      "kind": "relation",
+      "name": "ranked_names",
+      "sql": "SELECT\n    `accounts`.`id` AS `id`,\n    `accounts`.`name` AS `name`,\n    `accounts`.`active` = FALSE AS `flagged`,\n    'account' AS `kind`,\n    1.5 AS `weight`,\n    9223372036854775807 AS `rank`\nFROM `accounts`\nWHERE ((`accounts`.`name` >= 'M') OR (`accounts`.`name` = 'O''Neil `é`')) AND (NOT (`accounts`.`score` < 0.5))\nORDER BY\n    `accounts`.`score` DESC NULLS FIRST,\n    `accounts`.`name` ASC NULLS LAST,\n    `accounts`.`id` ASC NULLS LAST\nLIMIT 20"
+    },
+    {
+      "kind": "relation",
+      "name": "region_counts",
+      "sql": "SELECT\n    `accounts`.`region` AS `region`,\n    COUNT(*) AS `accounts`,\n    COUNT(`accounts`.`score`) AS `scored`,\n    MIN(`accounts`.`id`) AS `low`,\n    MAX(`accounts`.`score`) AS `high`\nFROM `accounts`\nWHERE `accounts`.`region` IS NOT NULL\nGROUP BY\n    `accounts`.`region`\nORDER BY\n    COUNT(*) DESC NULLS FIRST,\n    `accounts`.`region` ASC NULLS LAST"
+    },
+    {
+      "kind": "relation",
+      "name": "totals",
+      "sql": "SELECT\n    COUNT(*) AS `rows`,\n    MAX(`accounts`.`id`) AS `top`\nFROM `accounts`"
+    }
+  ],
+  "output": null
+}

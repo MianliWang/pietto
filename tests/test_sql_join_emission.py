@@ -2426,6 +2426,7 @@ def test_appending_a_join_keeps_every_existing_golden_artifact(
         (REPO_ROOT / input_path)
         .read_text()
         .replace("mysql.table", "postgres.table")
+        .replace("sqlite.table", "postgres.table")
         .replace("postgres.table", f"{dialect}.table")
     )
     original = _compile_source(source)

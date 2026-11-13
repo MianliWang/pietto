@@ -20,6 +20,7 @@ from pietto.ir.diagnostics import join_explain_diagnostics
 import pietto.sql as sql_api
 import pietto.sql.mysql as mysql_backend
 import pietto.sql.mysql_paired as mysql_paired
+import pietto.sql.sqlite as sqlite_backend
 from pietto import cli_json
 from pietto.source_format import FormatRefusedError, format_file, format_source
 from pietto.source_migration import migrate_file
@@ -53,7 +54,7 @@ _EXIT_DIAGNOSTIC_ERROR = 1
 _EXIT_USAGE_ERROR = 2
 _FORMAT_TEXT = "text"
 _FORMAT_JSON = "json"
-_ENABLED_SQL_DIALECTS = ("postgres", "mysql")
+_ENABLED_SQL_DIALECTS = ("postgres", "mysql", "sqlite")
 _CHECK_MODES = tuple(mode.value for mode in semantic_api.CheckMode)
 _CHECK_MODE_HELP = "check mode (default: checked)"
 _PROJECT_EMIT_SQL_USAGE = (
@@ -694,10 +695,18 @@ def _run_emit_sql_json_command(arguments: Sequence[str]) -> int:
 
 
 def _emitted(
-    emitter: _SqlEmitter, script_ir: ir_api.ScriptIR, source: str | None
+    emitter: _SqlEmitter,
+    script_ir: ir_api.ScriptIR,
+    script: Script,
+    source: str | None,
 ) -> sql_api.SqlResult:
-    """The backend's SQL; MySQL emits a paired S25 file it refuses."""
+    """The backend's SQL over the IR of ``script``; MySQL emits a paired S25
+    file it refuses, and the SQLite one also learns of a top-level constant,
+    which the IR holds as its literals."""
 
+    if emitter is sqlite_backend.emit_sqlite_sql:
+        constant = next((item.name for item in script.constants), None)
+        return sqlite_backend.emit_sqlite_sql(script_ir, constant=constant)
     result = emitter(script_ir)
     if emitter is mysql_backend.emit_mysql_sql and result.diagnostics:
         return mysql_paired.emit_paired(script_ir, source) or result
@@ -719,6 +728,8 @@ def _select_sql_emitter(dialect: str) -> _SqlEmitter | None:
         return sql_api.emit_postgres_sql
     if dialect == "mysql":
         return mysql_backend.emit_mysql_sql
+    if dialect == "sqlite":
+        return sqlite_backend.emit_sqlite_sql
     raise AssertionError(f"enabled SQL dialect has no emitter: {dialect}")
 
 
@@ -1587,7 +1598,7 @@ def _run_emit_sql_json(
         )
         return _EXIT_USAGE_ERROR
 
-    sql_result = _emitted(emitter, ir_result.ir, parse_result.source)
+    sql_result = _emitted(emitter, ir_result.ir, script, parse_result.source)
     diagnostics = (*diagnostics, *sql_result.diagnostics)
     if _has_errors(sql_result.diagnostics):
         _print_emit_sql_json(
@@ -1736,7 +1747,7 @@ def _run_emit_sql(
         _print_cli_error(path, "IR builder produced no IR")
         return _EXIT_DIAGNOSTIC_ERROR
 
-    sql_result = _emitted(emitter, ir_result.ir, parse_result.source)
+    sql_result = _emitted(emitter, ir_result.ir, script, parse_result.source)
     _render_diagnostics(sql_result.diagnostics, fallback_path=path)
     has_backend_errors = _has_errors(sql_result.diagnostics)
     if output_path is None:
@@ -1754,7 +1765,8 @@ def _run_emit_sql(
 
 def _print_emit_sql_usage_error(message: str) -> None:
     _write_stderr(
-        "usage: pietto emit-sql [-h] --dialect {postgres,mysql} [--output OUTPUT]"
+        "usage: pietto emit-sql [-h] --dialect"
+        f" {{{','.join(_ENABLED_SQL_DIALECTS)}}} [--output OUTPUT]"
         " [--format {text,json}] [--check-mode {loose,checked,strict}]"
         " [--set NAME=VALUE] path\n"
         f"pietto emit-sql: error: {_escape_cli_text(message)}\n"

@@ -489,7 +489,8 @@ def _header_hint(keyword: str, value: str, line: str = "it") -> str:
             f"Delete {line}; in a single file pass `--check-mode {value}` instead; "
             "a project never applied it."
         )
-    if keyword == "dialect" and value in ("postgres", "mysql"):  # the CLI's set
+    # The CLI's single-file dialect set.
+    if keyword == "dialect" and value in ("postgres", "mysql", "sqlite"):
         return f"Delete {line}; it has no effect; `emit-sql` takes `--dialect {value}`."
     return f"Delete {line}; it has no effect."
 

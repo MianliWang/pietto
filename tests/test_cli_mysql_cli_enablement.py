@@ -212,10 +212,10 @@ def test_unknown_text_and_json_dialects_still_exit_two_before_parsing(
 
     monkeypatch.setattr(cli.parser_api, "parse_file", unexpected_parse)
 
-    assert cli.main(["emit-sql", "missing.pietto", "--dialect", "sqlite"]) == 2
+    assert cli.main(["emit-sql", "missing.pietto", "--dialect", "oracle"]) == 2
     text = capsys.readouterr()
     assert text.out == ""
-    assert "invalid choice: 'sqlite'" in text.err
+    assert "invalid choice: 'oracle'" in text.err
 
     assert (
         cli.main(
@@ -223,14 +223,14 @@ def test_unknown_text_and_json_dialects_still_exit_two_before_parsing(
                 "emit-sql",
                 "missing.pietto",
                 "--dialect",
-                "sqlite",
+                "oracle",
                 "--format=json",
             ]
         )
         == 2
     )
     document = _read_json(capsys)
-    assert document["dialect"] == "sqlite"
+    assert document["dialect"] == "oracle"
     error = cast(list[dict[str, object]], document["cli_errors"])[0]
     assert error["kind"] == "unsupported_dialect"
 

@@ -1,0 +1,53 @@
+shape Account:
+    id: Int
+    name: Text
+    active: Bool
+    score: Float | None
+    region: Text | None
+
+source accounts: Account = sqlite.table("accounts")
+
+table active_accounts:
+    from accounts
+    where active and score is not None
+    select:
+        id
+        label = name
+        score
+
+query ranked_names:
+    from accounts
+    where (name >= "M" or name == "O'Neil `é`") and not (score < 0.5)
+    select:
+        id
+        name
+        flagged = active == False
+        kind = "account"
+        weight = 1.5
+        rank = 9223372036854775807
+    order by:
+        score desc
+        name
+        id
+    limit 20
+
+query region_counts:
+    from accounts
+    where region is not None
+    group by:
+        region
+    select:
+        region
+        accounts = count()
+        scored = count(score)
+        low = min(id)
+        high = max(score)
+    order by:
+        accounts desc
+        region
+
+query totals:
+    from accounts
+    select:
+        rows = count()
+        top = max(id)

@@ -20,23 +20,32 @@ from pietto.semantic.model import TypeKind, ValueType, ValueTypeKind
 
 _POSTGRES_TABLE = "postgres.table"
 _MYSQL_TABLE = "mysql.table"
+_SQLITE_TABLE = "sqlite.table"
 _DUCKDB_ARROW = "duckdb.arrow"
 # The built-in connectors of each compilation mode. A single file's set grows
 # with its emitters; a LEGACY_FLAT project emits no SQL and keeps its own set,
 # so a single-file-only connector (D78.01) stays unknown there. `duckdb.arrow`
 # is project-only (AD78.03), so only an EXPLICIT_MODULES project knows it.
-SINGLE_FILE_CONNECTORS = (_POSTGRES_TABLE, _MYSQL_TABLE)
+SINGLE_FILE_CONNECTORS = (_POSTGRES_TABLE, _MYSQL_TABLE, _SQLITE_TABLE)
 LEGACY_FLAT_CONNECTORS = (_POSTGRES_TABLE, _MYSQL_TABLE)
 EXPLICIT_MODULE_CONNECTORS = (_POSTGRES_TABLE, _MYSQL_TABLE, _DUCKDB_ARROW)
 # The connectors whose one argument is a non-empty string literal.
 _LITERAL_KEY_CONNECTORS = (_MYSQL_TABLE, _DUCKDB_ARROW)
+# The table names a single-file connector string spells; a `sqlite.table`
+# string names a bare table only (D78.01).
+_TABLE_NAME_FORMS = {
+    _POSTGRES_TABLE: ("<table>", "<schema>.<table>"),
+    _MYSQL_TABLE: ("<table>", "<schema>.<table>"),
+    _SQLITE_TABLE: ("<table>",),
+}
 
 
 def check_table_names(
     script: Script,
     reported: Sequence[Diagnostic],
 ) -> list[Diagnostic]:
-    """Require one `<table>` or `<schema>.<table>` string per single-file connector.
+    """Require one `<table>` or `<schema>.<table>` string per single-file
+    connector, and one `<table>` string per `sqlite.table`.
 
     Single-file IR copies the argument as a static string, so an argument that
     is not a string literal is reported at the argument, unless `reported` (the
@@ -83,6 +92,7 @@ def check_table_names(
                 )
             continue
         argument = connector.arguments[0]
+        forms = _TABLE_NAME_FORMS[connector_name]
         if not isinstance(argument, LiteralExpr) or not isinstance(argument.value, str):
             if not _has_start_within(starts, connector):
                 diagnostics.append(
@@ -90,7 +100,8 @@ def check_table_names(
                         argument,
                         message=(
                             f"Invalid source connector arguments for {connector_name}: "
-                            'expected a string literal "<table>" or "<schema>.<table>"'
+                            "expected a string literal "
+                            + " or ".join(f'"{form}"' for form in forms)
                         ),
                     )
                 )
@@ -98,7 +109,7 @@ def check_table_names(
         if connector_name == _MYSQL_TABLE and not argument.value:
             continue
         parts = argument.value.split(".")
-        if (len(parts) == 1 and parts[0]) or (len(parts) == 2 and all(parts)):
+        if len(parts) <= len(forms) and all(parts):
             if connector_name != _MYSQL_TABLE or not _mysql_check_refuses(parts):
                 continue
             problem = (
@@ -106,7 +117,7 @@ def check_table_names(
                 "/, \\ or a character outside the Basic Multilingual Plane"
             )
         else:
-            problem = "expected <table> or <schema>.<table>"
+            problem = f"expected {' or '.join(forms)}"
         diagnostics.append(
             _connector_diagnostic(
                 argument,

@@ -317,11 +317,11 @@ def test_emit_sql_unsupported_dialect_is_usage_error(
 
     monkeypatch.setattr(cli.parser_api, "parse_file", unexpected_parse)
 
-    assert cli.main(["emit-sql", str(path), "--dialect", "sqlite"]) == 2
+    assert cli.main(["emit-sql", str(path), "--dialect", "oracle"]) == 2
 
     captured = capsys.readouterr()
     assert captured.out == ""
-    assert "invalid choice: 'sqlite'" in captured.err
+    assert "invalid choice: 'oracle'" in captured.err
 
 
 def test_emit_sql_requires_explicit_dialect(

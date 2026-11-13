@@ -46,6 +46,7 @@ SQL_FIXTURES = frozenset(
         "emit_sql_min_max_aggregate.sql",
         "emit_sql_order_limit_composition.sql",
         "emit_sql_sum_avg_aggregate.sql",
+        "emit_sqlite_single_file.sql",
     }
 )
 JSON_FIXTURES = frozenset(
@@ -54,6 +55,7 @@ JSON_FIXTURES = frozenset(
         "check_types.json",
         "emit_mysql_compatibility_ordering_metadata.json",
         "emit_sql_active_users.json",
+        "emit_sqlite_single_file.json",
         "phase12_mysql_order_limit_composition.json",
         "project_explain_v1_failure.json",
         "project_explain_v1_success.json",
@@ -168,6 +170,8 @@ FIXTURE_INPUTS: dict[str, tuple[str, ...]] = {
     "emit_sql_sum_avg_aggregate.sql": (
         "tests/fixtures/phase20/postgres_sum_avg_aggregate.pietto",
     ),
+    "emit_sqlite_single_file.json": ("tests/fixtures/sqlite/single_file.pietto",),
+    "emit_sqlite_single_file.sql": ("tests/fixtures/sqlite/single_file.pietto",),
     "phase12_mysql_order_limit_composition.json": (
         "tests/fixtures/phase12/mysql_order_limit_composition.pietto",
     ),
@@ -187,6 +191,7 @@ REFERENCE_TESTS = (
     Path("tests/test_sql_decimal_aggregate_sql.py"),
     Path("tests/test_sql_join_emission.py"),
     Path("tests/test_project_explain_json.py"),
+    Path("tests/test_sql_sqlite_emission.py"),
 )
 
 

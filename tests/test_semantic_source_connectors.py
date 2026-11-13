@@ -130,18 +130,12 @@ def test_duckdb_arrow_follows_the_mysql_table_rule_for_untyped_arguments(
         assert mysql == [("PIE-S2102", "Unknown field: missing")]
 
 
-def test_a_single_file_connector_stays_unknown_in_a_legacy_flat_project(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    """D78.01: SQLite B1 has no project mode, so a connector that a single
-    file gains, as `sqlite.table` would, stays unknown in a LEGACY_FLAT
-    project, whose connector set is its own."""
+def test_a_single_file_connector_stays_unknown_in_a_legacy_flat_project() -> None:
+    """D78.01: SQLite B1 has no project mode, so `sqlite.table`, which a
+    single file knows, stays unknown in a LEGACY_FLAT project, whose
+    connector set is its own."""
     from pietto.semantic import analyzer
-    from pietto.semantic import source_connectors as connectors
 
-    widened = (*connectors.SINGLE_FILE_CONNECTORS, "sqlite.table")
-    monkeypatch.setattr(analyzer, "SINGLE_FILE_CONNECTORS", widened)
-    monkeypatch.setattr(connectors, "SINGLE_FILE_CONNECTORS", widened)
     script = _parse(
         SHAPE + 'source users: UserRow = sqlite.table("users")\n', path="main.pietto"
     )
@@ -501,11 +495,85 @@ def test_invalid_mysql_table_arguments_report_pie_s2306(
 
 
 def test_unknown_source_connector_reports_pie_s2306() -> None:
-    result = analyze(_parse(SHAPE + 'source users: UserRow = sqlite.table("users")\n'))
+    result = analyze(_parse(SHAPE + 'source users: UserRow = oracle.table("users")\n'))
 
     assert [
         (diagnostic.code, diagnostic.message) for diagnostic in result.diagnostics
-    ] == [("PIE-S2306", "Unknown source connector: sqlite.table")]
+    ] == [("PIE-S2306", "Unknown source connector: oracle.table")]
+
+
+SQLITE_ARGUMENTS = "Invalid source connector arguments for sqlite.table"
+
+
+@pytest.mark.parametrize(
+    ("argument", "message", "at_argument"),
+    [
+        ('"users"', None, False),
+        ('"   "', None, False),
+        ('"main.users"', f"{SQLITE_ARGUMENTS}: expected <table>", True),
+        ('"a.b.c"', f"{SQLITE_ARGUMENTS}: expected <table>", True),
+        ('""', f"{SQLITE_ARGUMENTS}: expected <table>", True),
+        ("", SQLITE_ARGUMENTS, False),
+        ('"users", "extra"', SQLITE_ARGUMENTS, False),
+        ("1", SQLITE_ARGUMENTS, False),
+        (
+            "main.users",
+            f'{SQLITE_ARGUMENTS}: expected a string literal "<table>"',
+            True,
+        ),
+        ("None", f'{SQLITE_ARGUMENTS}: expected a string literal "<table>"', True),
+        (
+            'concat("a", "b")',
+            f'{SQLITE_ARGUMENTS}: expected a string literal "<table>"',
+            True,
+        ),
+    ],
+)
+def test_sqlite_table_names_one_bare_table_in_a_single_file(
+    tmp_path: Path, argument: str, message: str | None, at_argument: bool
+) -> None:
+    """D78.01: a single file's `sqlite.table` names one bare table; a project
+    has no such connector and refuses a string literal one on the whole call."""
+    from pietto.semantic.analyzer import analyze_project_namespace
+    from _pietto_project_join import (
+        _completed,
+    )
+
+    text = SHAPE + f"source users: UserRow = sqlite.table({argument})\n"
+    script = _parse(text, path="main.pietto")
+    source = script.definitions[-1]
+    assert isinstance(source, SourceDef)
+    assert isinstance(source.connector, CallExpr)
+
+    diagnostics = analyze(script).diagnostics
+
+    assert [(d.code, d.severity, d.message) for d in diagnostics] == (
+        [] if message is None else [("PIE-S2306", Severity.ERROR, message)]
+    )
+    span = source.connector.arguments[0].span if at_argument else source.connector.span
+    assert all(
+        (
+            d.location.line,
+            d.location.column,
+            d.location.end_line,
+            d.location.end_column,
+        )
+        == (span.line, span.column, span.end_line, span.end_column)
+        for d in diagnostics
+    )
+    if argument.startswith('"'):
+        unknown = [("PIE-S2306", "Unknown source connector: sqlite.table")]
+        for project in (analyze_project_namespace(script), _completed(tmp_path, text)):
+            assert [(d.code, d.message) for d in project.diagnostics] == unknown
+            assert all(
+                (d.location.line, d.location.column, d.location.end_column)
+                == (
+                    source.connector.span.line,
+                    source.connector.span.column,
+                    source.connector.span.end_column,
+                )
+                for d in project.diagnostics
+            )
 
 
 def test_mysql_connector_name_matching_is_exact() -> None:

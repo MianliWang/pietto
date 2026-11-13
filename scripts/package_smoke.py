@@ -359,6 +359,9 @@ def _required_runtime_files(prefix: str) -> frozenset[str]:
         f"{prefix}/ir/__init__.py",
         f"{prefix}/sql/postgres.py",
         f"{prefix}/sql/mysql.py",
+        f"{prefix}/sql/sqlite.py",
+        f"{prefix}/sql/sqlite_relations.py",
+        f"{prefix}/sql/sqlite_render.py",
     }
     required.update(f"{prefix}/generated/{name}" for name in GENERATED_FILES)
     return frozenset(required)
