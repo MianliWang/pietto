@@ -1341,6 +1341,9 @@ class ProjectModuleWindowOutputFact:
                     "PIE-S2102",
                     "PIE-S2103",
                     "PIE-S2104",
+                    # An aggregate window's ordinary argument rules.
+                    "PIE-S2311",
+                    "PIE-S2315",
                 }
                 or not _window_diagnostic_location_is_owned(
                     diagnostic,

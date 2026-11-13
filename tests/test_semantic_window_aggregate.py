@@ -713,7 +713,8 @@ def test_a_project_aggregate_window_reads_only_direct_fields(tmp_path, capsys):
 def test_a_project_refuses_what_a_single_file_refuses_at_the_call(tmp_path, capsys):
     """A QUALIFY window of a query with aggregates and no GROUP BY, also over
     JOIN rows, is PIE-S2103 at the call in a project as in a single file, and
-    an argument the ordinary aggregate rules refuse keeps their PIE-S2104."""
+    an argument the ordinary aggregate rules refuse keeps their PIE-S2104,
+    PIE-S2311 or PIE-S2315, also over JOIN rows."""
 
     source = _PROJECT_HEADER + (
         "query hidden:\n    from rows\n    select:\n        total = sum(amount)\n"
@@ -726,6 +727,14 @@ def test_a_project_refuses_what_a_single_file_refuses_at_the_call(tmp_path, caps
         "    qualify:\n        sum(other.amount) window(order by rows.id) > 1\n"
         "query literal:\n    from rows\n    select:\n        id\n"
         "        n = count(1) window(order by id)\n"
+        "query nested:\n    from rows\n    select:\n        id\n"
+        "        n = sum(count()) window(order by id)\n"
+        "query unadmitted:\n    from rows\n    select:\n        id\n"
+        "        n = sum(None) window(order by id)\n"
+        "query joined_nested:\n    from rows\n    let other = rows\n"
+        "    inner join other on rows.id == other.id\n"
+        "    select:\n        id = rows.id\n"
+        "        n = max(other.amount + sum(other.amount)) window(order by rows.id)\n"
     )
     hidden = (
         "Unsupported window computation for function {}: a query with "
@@ -742,6 +751,9 @@ def test_a_project_refuses_what_a_single_file_refuses_at_the_call(tmp_path, caps
                 ("PIE-S2103", hidden.format("row_number"), 18, 9),
                 ("PIE-S2103", hidden.format("sum"), 26, 9),
                 ("PIE-S2104", "Invalid arguments for function count", 31, 13),
+                ("PIE-S2311", "Nested aggregate count() is not supported", 36, 17),
+                ("PIE-S2315", _UNADMITTED.format("sum"), 41, 13),
+                ("PIE-S2311", "Nested aggregate sum() is not supported", 48, 32),
             ],
         )
     )
