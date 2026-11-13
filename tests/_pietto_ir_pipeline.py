@@ -14,7 +14,7 @@ from pietto._project.project_ir_evaluation_context import (
     ProjectIREvaluationContextStage,
     build_project_ir_evaluation_context_stage,
 )
-from pietto._project.project_ir_inspection import (
+from _pietto_ir_inspection import (
     ProjectIRInspection,
     ProjectIRInspectionProduct,
     build_project_ir_inspection,

@@ -10,7 +10,7 @@ import pytest
 import pietto
 import pietto._project as project_package
 import _pietto_project_package as package_upstream
-from pietto._project.package_graph import (
+from _pietto_project_graph_model import (
     PackageGraphDeclaration,
     PackageGraphDeclarationRef,
     PackageGraphModule,
@@ -33,7 +33,7 @@ from pietto._project.package_loader import (
 
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
-SOURCE = REPO_ROOT / "src/pietto/_project/package_graph.py"
+SOURCE = REPO_ROOT / "tests/_pietto_project_graph_model.py"
 SPEC = REPO_ROOT / "docs/spec/phase59-slice7-package-to-module-attribution-bridge-v1.md"
 
 

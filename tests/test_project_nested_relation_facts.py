@@ -29,7 +29,7 @@ from pietto._project.project_completed_semantics import (
 )
 from pietto._project.project_ir import ProjectIRSnapshotScope
 from pietto._project.project_ir_construction import ProjectIRAllocationState
-from pietto._project.project_ir_pipeline import build_project_ir_pipeline
+from _pietto_ir_pipeline import build_project_ir_pipeline
 from pietto._project.project_row_equivalence import same_canonical_type
 from pietto._project.project_row_keys import build_project_row_keys
 from pietto._project.project_value_fds import build_project_value_fds

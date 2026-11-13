@@ -52,6 +52,7 @@ HELPERS = (
     "_pietto_sql_nested_collect",
     "_pietto_results_nested_ipc_oracle",
     "_pietto_results_nested_ipc",
+    "_pietto_results_correspondence",
 )
 RECEIPT_HELPERS = (
     "_pietto_target_conformance_observation",

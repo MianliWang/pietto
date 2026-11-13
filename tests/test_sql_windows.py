@@ -674,8 +674,8 @@ def test_independent_verifiers_reject_coherent_faulty_builder_arguments(
     from pietto._project import project_sql_emission as emission
     from pietto._project import project_sql_emission_windows as windowing
     from pietto._project import project_sql_emission_verification as verification
-    from pietto._project import project_sql_emission_portable as portable
-    from pietto._project import project_sql_emission_pure_boundary as pure
+    import _pietto_sql_emission_portable as portable
+    import _pietto_sql_emission_pure_boundary as pure
     from pietto._project.project_sql_emission_contract import (
         prepare_project_sql_emission,
     )
@@ -950,8 +950,8 @@ def _observed(outcome, edit=None) -> str:
     """The private emission observation of a VERIFIED artifact, after an
     optional edit of its decoded document, as the independent pure consumer
     decodes it."""
-    from pietto._project import project_sql_emission_portable as portable
-    from pietto._project import project_sql_emission_pure_boundary as pure
+    import _pietto_sql_emission_portable as portable
+    import _pietto_sql_emission_pure_boundary as pure
 
     observed = portable.export_emission_observation(
         outcome.artifact, outcome.artifact.request
@@ -1069,8 +1069,8 @@ def test_independent_readers_reject_decimal_sum_window_artifacts(
     from pietto._project import project_sql_emission as emission
     from pietto._project import project_sql_emission_windows as windowing
     from pietto._project import project_sql_emission_verification as verification
-    from pietto._project import project_sql_emission_portable as portable
-    from pietto._project import project_sql_emission_pure_boundary as pure
+    import _pietto_sql_emission_portable as portable
+    import _pietto_sql_emission_pure_boundary as pure
     from pietto._project.project_sql_emission_contract import (
         prepare_project_sql_emission,
     )

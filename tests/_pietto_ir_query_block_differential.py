@@ -16,11 +16,11 @@ from pietto._project.project_completed_semantics import (
 from pietto._project.check import check_project_parse_only
 from pietto._project.model import build_empty_project_semantic_result
 from pietto._project.project_ir import _declaration_identity
-from pietto._project.project_ir_inspection import build_project_ir_inspection
+from _pietto_ir_inspection import build_project_ir_inspection
 from pietto._project.project_ir_verification import (
     build_project_ir_analysis_bundle,
 )
-from pietto._project.project_phase62_inspection import (
+from _pietto_ir_query_inspection import (
     build_project_phase62_inspection,
 )
 from pietto._project.project_phase62_verification import (

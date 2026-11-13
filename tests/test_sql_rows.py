@@ -8,8 +8,8 @@ import pytest
 
 import _pietto_sql_emission as probe
 import _pietto_sql_float_cells as cells
-from pietto._project import project_sql_emission_portable as portable
-from pietto._project import project_sql_emission_pure_boundary as pure
+import _pietto_sql_emission_portable as portable
+import _pietto_sql_emission_pure_boundary as pure
 from pietto._project import project_sql_emission_rows as rows
 from pietto._project.project_sql_emission import (
     serialize_project_sql_emission,

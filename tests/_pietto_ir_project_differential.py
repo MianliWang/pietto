@@ -11,9 +11,9 @@ import sys
 
 import pietto._project.project_ir as project_ir
 import pietto._project.project_ir_construction as construction
-import pietto._project.project_ir_inspection as inspection
+import _pietto_ir_inspection as inspection
 import pietto._project.project_ir_properties as properties
-import pietto._project.project_ir_pure_boundary as pure
+import _pietto_ir_pure_boundary as pure
 import pietto._project.project_ir_verification as verification
 from pietto._project import check as project_check
 from pietto._project.model import (
@@ -22,7 +22,7 @@ from pietto._project.model import (
     ProjectSemanticResult,
     build_empty_project_semantic_result,
 )
-from pietto._project.project_ir_pipeline import (
+from _pietto_ir_pipeline import (
     ProjectIRPipelineResult,
     build_project_ir_pipeline,
 )

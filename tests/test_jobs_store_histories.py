@@ -12,7 +12,7 @@ import _pietto_execution_jobs_probe as probe
 from pietto._project import project_job_store as s
 from pietto._project import project_job_workspace as w
 from pietto._project.project_execution_template import bind_values
-from pietto._project.project_job_store_verification import verify_store
+from _pietto_jobs_store_verification import verify_store
 from pietto._project.project_job_workspace import JobStoreError
 
 

@@ -14,13 +14,13 @@ import _pietto_project_capability_provenance as slice5
 import _pietto_project_package_why_not as slice6
 import _pietto_project_package_lineage as slice8
 
-from pietto._project.package_graph import (
+from _pietto_project_graph_model import (
     PackageGraphDependency,
     PackageGraphPackageRef,
     PackageGraphSelectorRef,
     PackageGraphSnapshot,
 )
-from pietto._project.package_graph_inspection import (
+from _pietto_project_graph_inspection import (
     PackageGraphInspectionDomain,
     PackageGraphInspectionLinkKind,
     PackageGraphInspectionRecordKind,
@@ -42,7 +42,7 @@ from pietto._project.package_graph_inspection import (
 
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
-SOURCE = REPO_ROOT / "src/pietto/_project/package_graph_inspection.py"
+SOURCE = REPO_ROOT / "tests/_pietto_project_graph_inspection.py"
 SPEC = (
     REPO_ROOT
     / "docs/spec/phase59-slice9-private-graph-integrity-inspection-query-canonical-pure-boundary-v1.md"
@@ -697,11 +697,6 @@ def test_private_boundary_has_no_ambient_io_public_or_persistence_surface() -> N
 
 
 def test_slice9_package_inventory_spec_and_lifecycle_are_private_and_exact() -> None:
-    smoke = (REPO_ROOT / "scripts/package_smoke.py").read_text(encoding="utf-8")
-    assert 'f"{prefix}/_project/package_graph_inspection.py"' in smoke
-    assert "installed private Phase 59 package graph inspection import" in smoke
-    assert "import pietto._project.package_graph_inspection" in smoke
-
     normalized = " ".join(SPEC.read_text(encoding="utf-8").split())
     for required in (
         "comprehensive referential integrity",

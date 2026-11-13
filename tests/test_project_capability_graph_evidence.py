@@ -29,7 +29,7 @@ from pietto._project.extension_catalog_inspection import (
 from pietto._project.package_capability_requirements import (
     _package_capability_requirement_binding,
 )
-from pietto._project.package_graph import (
+from _pietto_project_graph_model import (
     PackageGraphCapabilityEvaluationRef,
     PackageGraphCatalogEvidenceRef,
     PackageGraphOutcome,

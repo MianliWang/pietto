@@ -25,8 +25,8 @@ import _pietto_results_product as temporal_probe
 import _pietto_sql_emission as probe
 import _pietto_target_conformance_cases as cases
 from pietto._project import project_sql_emission_ast as sql_ast
-from pietto._project import project_sql_emission_portable as portable
-from pietto._project import project_sql_emission_pure_boundary as pure
+import _pietto_sql_emission_portable as portable
+import _pietto_sql_emission_pure_boundary as pure
 from pietto._project import project_sql_emission_rows as rows
 from pietto._project import project_sql_emission_verification as verification
 from pietto._project import project_sql_emission_windows as windowing

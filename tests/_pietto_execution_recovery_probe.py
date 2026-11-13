@@ -25,6 +25,11 @@ import _pietto_execution_capture_probe as s12
 import _pietto_execution_saved_read_probe as s13
 
 ROOT = Path(__file__).resolve().parents[1]
+# -I children start without tests/ on sys.path; the store verifier is a test helper.
+STORE_VERIFIER = f"""sys.path.append({str(ROOT / "tests")!r})
+from _pietto_jobs_store_verification import verify_store
+sys.path.pop()
+"""
 PREFIX = "pietto-phase68-slice14-"
 op = s12.op
 # SYNTHETIC_OPEN_OWNER descriptions per never-connected owner; a test changes
@@ -417,11 +422,14 @@ def child_config(workspace, job, record, generation, built, values, **extra):
 
 INTERRUPTED = "S14_EXTRACTION_ABANDONED_WITHOUT_TERMINAL"
 
-R2_SETUP = r"""
+R2_SETUP = (
+    r"""
 from pietto._project import project_job_store as s14s, project_job_workspace as s14w
 from pietto._project import project_job_capture as s14c, project_job_extraction as s14x
 from pietto._project import project_job_replay as s14r
-from pietto._project.project_job_store_verification import verify_store as s14verify
+"""
+    + STORE_VERIFIER
+    + r"""s14verify = verify_store
 import pyarrow as s14pa
 S14_CONFIG = config["s14"]
 S14_ROLE = S14_CONFIG["role"]
@@ -521,6 +529,7 @@ def S14_RECOVER(owner):
 def S14_LOOP(owner):
     return S14_CAPTURE(owner) if S14_ROLE == "capture" else S14_RECOVER(owner)
 """
+)
 
 R2_ATTEMPT = r"""
     if S14_ROLE == "capture":
@@ -1030,7 +1039,8 @@ def acquire_r2_group(
     return report
 
 
-HISTORY = r"""
+HISTORY = (
+    r"""
 import sys
 if sys.stdin.read(1) != "1":
     raise RuntimeError("registered worker gate required")
@@ -1046,8 +1056,9 @@ from pietto._project.project_execution_template import prepare_compiled_template
 from pietto._project import project_execution as ex
 from pietto._project import project_job_store as s, project_job_workspace as w
 from pietto._project import project_job_capture as c, project_job_extraction as x
-from pietto._project.project_job_store_verification import verify_store
-from pietto._project.project_execution_postgres import PostgresExecution
+"""
+    + STORE_VERIFIER
+    + r"""from pietto._project.project_execution_postgres import PostgresExecution
 from pietto._project.project_execution_postgres_adbc import PostgresADBCExecution
 from pietto._project.project_execution_mysql import MySQLExecution
 OWNERS = {"postgres_rows": PostgresExecution, "postgres_adbc": PostgresADBCExecution,
@@ -1228,6 +1239,7 @@ publisher.close()
 workspace.close()
 write_facts()
 """
+)
 
 
 def history_program():
@@ -2057,7 +2069,7 @@ def empty_refined_check(directory):
     from pietto._project import project_job_extraction as x
     from pietto._project import project_job_store as s
     from pietto._project.project_execution import compiled_output
-    from pietto._project.project_job_store_verification import verify_store
+    from _pietto_jobs_store_verification import verify_store
 
     directory = Path(directory)
     template, built, values = refined_template(directory / "bound")

@@ -17,7 +17,7 @@ import _pietto_project_graph_differential as graph_probe
 
 import pietto._project.check as project_check
 from pietto._project.model import build_empty_project_semantic_result
-from pietto._project.package_graph_inspection import (
+from _pietto_project_graph_inspection import (
     PackageGraphInspectionLinkKind,
     PackageGraphInspectionRecordKind,
     PackageGraphPureStatus,

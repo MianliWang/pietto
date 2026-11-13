@@ -1566,7 +1566,7 @@ def test_postgres_median_and_quantile_read_left_join_rows(tmp_path, grouped):
     sql = public(outcome)["sql"]
     assert f"PERCENTILE_CONT(0.5) {order}" in sql
     assert f"PERCENTILE_CONT(CAST('0.75' AS pg_catalog.float8)) {order}" in sql
-    from pietto._project import project_sql_emission_portable as portable
+    import _pietto_sql_emission_portable as portable
 
     artifact = outcome.artifact
     assert artifact is not None
@@ -1616,7 +1616,7 @@ def test_postgres_count_distinct_tuple_reads_left_join_rows(
         f"COUNT(DISTINCT CASE WHEN {first} IS NOT NULL AND {second} IS NOT NULL "
         f"THEN ROW({row}) END)"
     ) in public(outcome)["sql"]
-    from pietto._project import project_sql_emission_portable as portable
+    import _pietto_sql_emission_portable as portable
 
     artifact = outcome.artifact
     assert artifact is not None
@@ -2406,8 +2406,8 @@ def test_mysql_emits_a_float_statistic_of_one_nullable_field_alone(
     """The qualified primitive, uncast and outside SQRT, with a nullable
     DOUBLE result and the binary64 overflow evidence (MySQL raises 22003 on
     an overflow); the live, pure and public readers each accept it."""
-    from pietto._project import project_sql_emission_portable as portable
-    from pietto._project import project_sql_emission_pure_boundary as pure
+    import _pietto_sql_emission_portable as portable
+    import _pietto_sql_emission_pure_boundary as pure
 
     outcome = emit_nullable(
         tmp_path,
@@ -2527,8 +2527,8 @@ def test_a_forged_mysql_float_statistic_outside_its_cell_fails_every_reader(
     public decoder from the published document and the compiled readers from
     the records; the pure reader refuses from the observation document,
     except an unread header parameter, which that document does not record."""
-    from pietto._project import project_sql_emission_portable as portable
-    from pietto._project import project_sql_emission_pure_boundary as pure
+    import _pietto_sql_emission_portable as portable
+    import _pietto_sql_emission_pure_boundary as pure
     from pietto._project import project_sql_emission_verification as verification
     from pietto._project.project_compiled_build import build_compiled
     from pietto._project.project_compiled_loading import load_compiled
@@ -2629,8 +2629,8 @@ def _statistic_column(document):
 def test_a_tampered_mysql_float_statistic_observation_is_refused(tmp_path, edit):
     """The pure reader refuses a MySQL `stddev` observation whose spelling,
     result cast, overflow evidence or aggregation mode was changed."""
-    from pietto._project import project_sql_emission_portable as portable
-    from pietto._project import project_sql_emission_pure_boundary as pure
+    import _pietto_sql_emission_portable as portable
+    import _pietto_sql_emission_pure_boundary as pure
 
     outcome = emit_nullable(
         tmp_path, "mysql", STATISTIC_SELECT + "        d = stddev(ratio)\n"

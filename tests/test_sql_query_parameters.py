@@ -245,7 +245,7 @@ def test_an_unread_parameter_keeps_the_template_outside_the_observation(
     tmp_path: Path, target: str
 ) -> None:
     """The private observation has no parameter; it never drops an unread one."""
-    from pietto._project import project_sql_emission_portable as portable
+    import _pietto_sql_emission_portable as portable
 
     clauses = "    from rows\n    select:\n        record_id = id\n"
     template = _case(
@@ -959,7 +959,7 @@ FORGED_COUNT = {
 def test_verifiers_reject_forged_window_parameters(
     tmp_path: Path, target: str, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    from pietto._project import project_sql_emission_portable as portable
+    import _pietto_sql_emission_portable as portable
     from pietto._project import project_sql_emission_windows as windowing
     from pietto._project.project_sql_emission_ast import SQLRowQuery, row_value_roots
     from pietto._project.project_sql_emission_rendering import render_row_sql

@@ -4,7 +4,7 @@ from pathlib import Path
 from typing import cast
 
 
-from pietto._project.package_graph_inspection import (
+from _pietto_project_graph_inspection import (
     PackageGraphInspectionLink,
     PackageGraphInspectionRecord,
 )

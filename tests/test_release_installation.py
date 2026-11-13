@@ -645,7 +645,6 @@ def test_saved_and_metadata_owners_import_no_driver_or_arrow(tmp_path: Path):
     owners = (
         "project_job_workspace",
         "project_job_store",
-        "project_job_store_verification",
         "project_job_chunks",
         "project_job_capture",
         "project_job_replay",

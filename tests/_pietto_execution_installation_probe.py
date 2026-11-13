@@ -36,6 +36,11 @@ import _pietto_execution_publication_probe as s16
 import _pietto_execution_runtime_probe as s17
 
 ROOT = Path(__file__).resolve().parents[1]
+# -I children start without tests/ on sys.path; the store verifier is a test helper.
+STORE_VERIFIER = f"""sys.path.append({str(ROOT / "tests")!r})
+from _pietto_jobs_store_verification import verify_store
+sys.path.pop()
+"""
 PREFIX = "pietto-phase68-slice18-"
 RECIPES = {
     "core": (),
@@ -1152,15 +1157,17 @@ retain_raw({"after_cut": after_cut, "confirmed_after_cut": confirmed_after_cut,
     "origins": origins(), "prefix": sys.prefix})
 """
 
-SAVED = r"""
+SAVED = (
+    r"""
 from pietto._project import project_job_capture as c, project_job_replay as r
 from pietto._project import project_job_store as s, project_job_workspace as w
 from pietto._project import project_job_runtime as rt, project_job_collection as col
 from pietto._project import project_job_chunks as chunks, project_job_publication as p
 from pietto._project import project_execution as ex
 from pietto._project.project_compiled_schema import scalar_read
-from pietto._project.project_job_store_verification import verify_store
-def op():
+"""
+    + STORE_VERIFIER
+    + r"""def op():
     return s.new_operation()
 def trust(item):
     return dict(expected_pin=item["pin"], accepted_producer=item["producer"],
@@ -1376,6 +1383,7 @@ retain_raw({"results": results, "connections": connections,
     "installed_drivers": installed_drivers, "loaded_drivers": loaded,
     "origins": origins(), "prefix": sys.prefix})
 """
+)
 
 
 def _spawn_cut(directory, ledger, interpreter, program, config, name):

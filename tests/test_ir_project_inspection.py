@@ -16,9 +16,9 @@ import pietto._project.project_ir as project_ir
 import pietto._project.project_ir_composition as composition
 import pietto._project.project_ir_construction as construction
 import pietto._project.project_ir_evaluation_context as evaluation
-import pietto._project.project_ir_inspection as inspection
+import _pietto_ir_inspection as inspection
 import pietto._project.project_ir_operators as operators
-import pietto._project.project_ir_pure_boundary as pure
+import _pietto_ir_pure_boundary as pure
 import pietto._project.project_ir_verification as verification
 from pietto._project import check as project_check
 from pietto._project.model import (
@@ -491,12 +491,10 @@ def test_canonical_order_bytes_and_runtime_scope_identity_remain_separate(
         first.inspection.nodes[0]
         is first_bundle.stage.project_plan.structural_stage.nodes[0]
     )
-    source = (REPO_ROOT / "src/pietto/_project/project_ir_inspection.py").read_text(
+    source = (REPO_ROOT / "tests/_pietto_ir_inspection.py").read_text(encoding="utf-8")
+    pure_source = (REPO_ROOT / "tests/_pietto_ir_pure_boundary.py").read_text(
         encoding="utf-8"
     )
-    pure_source = (
-        REPO_ROOT / "src/pietto/_project/project_ir_pure_boundary.py"
-    ).read_text(encoding="utf-8")
     assert "_encode_document" not in source
     assert pure_source.count("def _encode_document") == 1
 
@@ -708,7 +706,7 @@ from pietto._project.project_ir import ProjectIRSnapshotScope
 from pietto._project.project_ir_composition import build_project_ir_project_plan
 from pietto._project.project_ir_construction import ProjectIRAllocationState
 from pietto._project.project_ir_evaluation_context import build_project_ir_evaluation_context_stage
-from pietto._project.project_ir_inspection import build_project_ir_inspection
+from _pietto_ir_inspection import build_project_ir_inspection
 from pietto._project.project_ir_verification import build_project_ir_analysis_bundle, verify_project_ir_stage
 
 semantic = build_empty_project_semantic_result(check.check_project_parse_only(Path(sys.argv[1])))
@@ -735,7 +733,10 @@ def test_inspection_serialization_is_hash_seed_cwd_independent_and_public_zero_d
         environment = os.environ.copy()
         environment["PYTHONHASHSEED"] = seed
         existing = environment.get("PYTHONPATH")
-        source_root = str(REPO_ROOT / "src")
+        # The probe imports test helpers as well as the package.
+        source_root = os.pathsep.join(
+            (str(REPO_ROOT / "src"), str(REPO_ROOT / "tests"))
+        )
         environment["PYTHONPATH"] = (
             source_root if not existing else os.pathsep.join((source_root, existing))
         )
@@ -785,7 +786,7 @@ def test_inspection_serialization_is_hash_seed_cwd_independent_and_public_zero_d
         assert "project_ir_inspection" not in text
         assert "project_ir_pure_boundary" not in text
         assert "ProjectIRInspection" not in text
-    production = (REPO_ROOT / "src/pietto/_project/project_ir_inspection.py").read_text(
+    production = (REPO_ROOT / "tests/_pietto_ir_inspection.py").read_text(
         encoding="utf-8"
     )
     assert "sha256" not in production

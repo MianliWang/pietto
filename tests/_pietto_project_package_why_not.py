@@ -6,7 +6,7 @@ from typing import cast
 
 import _pietto_project_package as package_upstream
 import _pietto_project_package_graph as model_upstream
-from pietto._project.package_graph import (
+from _pietto_project_graph_model import (
     PackageGraphDependency,
     PackageGraphOutcome,
     PackageGraphProvenancePath,
@@ -22,7 +22,7 @@ from pietto._project.package_inspection import (
 
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
-SOURCE = REPO_ROOT / "src/pietto/_project/package_graph.py"
+SOURCE = REPO_ROOT / "tests/_pietto_project_graph_model.py"
 SPEC = REPO_ROOT / "docs/spec/phase59-slice6-direct-transitive-why-not-provenance-v1.md"
 
 

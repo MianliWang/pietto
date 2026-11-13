@@ -17,8 +17,8 @@ import _pietto_target_conformance_facility as facility_tests
 from pietto._project import project_sql_emission as emitter
 from pietto._project import project_sql_emission_ast as sql_ast
 from pietto._project import project_sql_emission_joins as joins
-from pietto._project import project_sql_emission_portable as portable
-from pietto._project import project_sql_emission_pure_boundary as pure
+import _pietto_sql_emission_portable as portable
+import _pietto_sql_emission_pure_boundary as pure
 from pietto._project.project_sql_emission import serialize_project_sql_emission
 from pietto._project.project_sql_emission_rendering import render_join_sql
 from pietto._project.project_sql_emission_verification import (

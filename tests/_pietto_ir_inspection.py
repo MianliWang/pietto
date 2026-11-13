@@ -48,7 +48,7 @@ from pietto._project.project_ir_properties import (
     ProjectIRStageScalarFieldOutput,
     ProjectIRUnavailableProvidedProperty,
 )
-from pietto._project.project_ir_pure_boundary import (
+from _pietto_ir_pure_boundary import (
     PROJECT_IR_INSPECTION_FORMAT,
     PROJECT_IR_PURE_ABSENT,
     ProjectIRPortableRef,

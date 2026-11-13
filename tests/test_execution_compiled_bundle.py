@@ -2863,10 +2863,10 @@ def test_decimal_int_parameters_survive_compiled_replay(tmp_path, expression):
     from pietto._project.project_compiled_build import build_compiled
     from pietto._project.project_compiled_loading import load_compiled
     from pietto._project.project_compiled_lowering import emit_compiled
-    from pietto._project.project_sql_emission_portable import (
+    from _pietto_sql_emission_portable import (
         export_emission_observation,
     )
-    from pietto._project.project_sql_emission_portable import ObservationStatus
+    from _pietto_sql_emission_portable import ObservationStatus
 
     body = (
         "query result(value: Decimal(9, 2), factor: Int):\n    from rows\n    select:\n        total = "

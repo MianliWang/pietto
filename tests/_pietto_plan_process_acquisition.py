@@ -57,26 +57,6 @@ HISTORICAL_FAMILIES = ("phase58", "phase59", "phase60", "phase61", "phase62", "p
 PREVIOUS_FAMILIES = (*HISTORICAL_FAMILIES, "phase64")
 PHASE65_FAMILIES = (*PREVIOUS_FAMILIES, "phase65")
 CURRENT_FAMILIES = (*PHASE65_FAMILIES, "phase66")
-EXPECTED_SUPPORT_MANIFEST = (
-    "_pietto_differential_probe_batch.py",
-    "_pietto_project_explain_scenarios.py",
-    "_pietto_project_explain_differential_probe.py",
-    "_pietto_project_graph_differential.py",
-    "_pietto_ir_window_differential.py",
-    "_pietto_ir_project_differential.py",
-    "_pietto_ir_join_differential.py",
-    "_pietto_ir_query_block_differential.py",
-    "_pietto_ir_flat_differential.py",
-    "_pietto_plan_differential.py",
-    "_pietto_sql_emission.py",
-    "_pietto_sql_emission_differential.py",
-)
-# Copied support files that are not themselves family probes.
-SUPPORT_ONLY = (
-    "_pietto_differential_probe_batch.py",
-    "_pietto_project_explain_scenarios.py",
-    "_pietto_sql_emission.py",
-)
 
 
 def expected_request_manifest():

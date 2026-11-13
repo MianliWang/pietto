@@ -62,6 +62,15 @@ CURRENT_FAMILIES = (*PHASE65_FAMILIES, "phase66")
 EXPECTED_SUPPORT_MANIFEST = (
     "_pietto_differential_probe_batch.py",
     "_pietto_project_explain_scenarios.py",
+    "_pietto_project_graph_model.py",
+    "_pietto_project_graph_inspection.py",
+    "_pietto_ir_pure_boundary.py",
+    "_pietto_ir_inspection.py",
+    "_pietto_ir_pipeline.py",
+    "_pietto_ir_query_pure_boundary.py",
+    "_pietto_ir_query_inspection.py",
+    "_pietto_sql_emission_pure_boundary.py",
+    "_pietto_sql_emission_portable.py",
     "_pietto_project_explain_differential_probe.py",
     "_pietto_project_graph_differential.py",
     "_pietto_ir_window_differential.py",
@@ -77,6 +86,15 @@ EXPECTED_SUPPORT_MANIFEST = (
 SUPPORT_ONLY = (
     "_pietto_differential_probe_batch.py",
     "_pietto_project_explain_scenarios.py",
+    "_pietto_project_graph_model.py",
+    "_pietto_project_graph_inspection.py",
+    "_pietto_ir_pure_boundary.py",
+    "_pietto_ir_inspection.py",
+    "_pietto_ir_pipeline.py",
+    "_pietto_ir_query_pure_boundary.py",
+    "_pietto_ir_query_inspection.py",
+    "_pietto_sql_emission_pure_boundary.py",
+    "_pietto_sql_emission_portable.py",
     "_pietto_sql_emission.py",
 )
 

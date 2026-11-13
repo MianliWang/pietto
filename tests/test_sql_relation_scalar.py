@@ -15,8 +15,8 @@ from pathlib import Path
 import pytest
 
 import _pietto_sql_emission as probe
-from pietto._project import project_sql_emission_portable as portable
-from pietto._project import project_sql_emission_pure_boundary as pure
+import _pietto_sql_emission_portable as portable
+import _pietto_sql_emission_pure_boundary as pure
 from pietto._project import project_sql_emission_rows as rows
 from pietto._project.project_postgres_source_assurance import qualification_roots
 from pietto._project.project_sql_emission import serialize_project_sql_emission

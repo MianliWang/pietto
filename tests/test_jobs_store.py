@@ -30,7 +30,7 @@ from pietto._project.project_execution_template import (
     describe_compiled_binding,
     named_values,
 )
-from pietto._project.project_job_store_verification import verify_store
+from _pietto_jobs_store_verification import verify_store
 from pietto._project.project_job_workspace import JobStoreError
 
 

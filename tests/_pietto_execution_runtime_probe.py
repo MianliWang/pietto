@@ -28,6 +28,11 @@ import _pietto_execution_relay_probe as s15
 import _pietto_execution_publication_probe as s16
 
 ROOT = Path(__file__).resolve().parents[1]
+# -I children start without tests/ on sys.path; the store verifier is a test helper.
+STORE_VERIFIER = f"""sys.path.append({str(ROOT / "tests")!r})
+from _pietto_jobs_store_verification import verify_store
+sys.path.pop()
+"""
 PREFIX = "pietto-phase68-slice17-"
 op = s12.op
 trust = s13.trust
@@ -430,7 +435,7 @@ from pietto._project import project_job_workspace as w, project_job_publication 
 from pietto._project import project_job_replay as r, project_job_chunks as k
 from pietto._project import project_job_runtime as rt, project_job_collection as col
 from pietto._project import project_job_sink as sk
-from pietto._project.project_job_store_verification import verify_store
+from _pietto_jobs_store_verification import verify_store
 from pietto._project.project_execution_template import bind_values
 import _pietto_execution_capture_probe as s12
 import _pietto_execution_runtime_probe as probe
@@ -949,7 +954,8 @@ def old_runtime(directory, ledger, interpreter, old_wheel):
 # Native joined histories through the runtime (pinned native profile for
 # capture/R2/control, Arrow-only profile for saved use and collection).
 
-NATIVE_HEADER = r"""
+NATIVE_HEADER = (
+    r"""
 import sys
 if sys.stdin.read(1) != "1":
     raise RuntimeError("registered worker gate required")
@@ -968,8 +974,9 @@ from pietto._project import project_job_store as s, project_job_workspace as w
 from pietto._project import project_job_capture as c, project_job_extraction as x
 from pietto._project import project_job_runtime as rt, project_job_sink as sk
 from pietto._project import project_job_delivery as d
-from pietto._project.project_job_store_verification import verify_store
-route, role = config["route"], config["role"]
+"""
+    + STORE_VERIFIER
+    + r"""route, role = config["route"], config["role"]
 facts = {"role": role, "route": route, "pid": os.getpid()}
 def write_facts():
     origins = {}
@@ -1036,6 +1043,7 @@ def states(runtime, handles, workspace):
     return out
 policy = rt.Policy(workers=3, connections=3, queue=8, durable=128 * 1024 * 1024)
 """
+)
 
 NATIVE_CAPTURE = r"""
 main_trust = (config["pin"], config["producer"], tuple(config["compatibility"]))
@@ -1173,14 +1181,16 @@ workspace.close()
 write_facts()
 """
 
-NATIVE_SAVED = r"""
+NATIVE_SAVED = (
+    r"""
 from pietto._project import project_job_capture as c, project_job_replay as r
 from pietto._project import project_job_store as s, project_job_workspace as w
 from pietto._project import project_job_runtime as rt, project_job_collection as col
 from pietto._project import project_job_chunks as chunks
 from pietto._project.project_compiled_schema import scalar_read
-from pietto._project.project_job_store_verification import verify_store
-import sqlite3, threading
+"""
+    + STORE_VERIFIER
+    + r"""import sqlite3, threading
 def op():
     return s.new_operation()
 def unit(workspace, mode, item, generation, job, **fields):
@@ -1280,6 +1290,7 @@ retain_raw({"results": results, "connections": connections,
     "installed_drivers": installed_drivers, "loaded_drivers": loaded,
     "origins": origins, "prefix": sys.prefix})
 """
+)
 
 NATIVE_TUNING = r"""
 from pietto._project import project_job_chunks as chunks

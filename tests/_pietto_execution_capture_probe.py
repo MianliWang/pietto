@@ -18,6 +18,11 @@ import os
 import sys
 
 ROOT = Path(__file__).resolve().parents[1]
+# -I children start without tests/ on sys.path; the store verifier is a test helper.
+STORE_VERIFIER = f"""sys.path.append({str(ROOT / "tests")!r})
+from _pietto_jobs_store_verification import verify_store
+sys.path.pop()
+"""
 PREFIX = "pietto-phase68-slice12-"
 # Actual PostgreSQL type OIDs of the seven-scalar fixture's nine result columns.
 SEVEN_CODES = (1114, 1114, 2950, 2950, 23, 16, 701, 25, 1700)
@@ -505,7 +510,8 @@ for route, plan in config["plan"]:
 workspace.close()
 """
 
-CORE_ONLY = r"""
+CORE_ONLY = (
+    r"""
 import sys
 if sys.stdin.read(1) != "1":
     raise RuntimeError("registered worker gate required")
@@ -513,8 +519,9 @@ import json
 from pathlib import Path
 config = json.loads(Path(sys.argv[1]).read_text())
 from pietto._project import project_job_capture as c, project_job_workspace as w
-from pietto._project.project_job_store_verification import verify_store
-workspace = w.open_workspace(config["workspace"], expected_identity=config["workspace_identity"])
+"""
+    + STORE_VERIFIER
+    + r"""workspace = w.open_workspace(config["workspace"], expected_identity=config["workspace_identity"])
 snapshots = {}
 for generation in config["generations"]:
     snapshot = c.checkpoint_snapshot(workspace, config["job"], generation)
@@ -531,6 +538,7 @@ Path(config["raw"]).write_text(json.dumps({"summary": summary, "optional": optio
     "files": {k: len(v) for k, v in files.items()}, "package": str(package),
     "prefix": sys.prefix}))
 """
+)
 
 OLD_RUNTIME = r"""
 import sys
@@ -627,7 +635,7 @@ def bridge(
     from _pietto_target_conformance_resources import Resources, clean_environment
     from pietto._project import project_job_workspace as w
     from pietto._project.project_compiled_build import build_compiled
-    from pietto._project.project_job_store_verification import verify_store
+    from _pietto_jobs_store_verification import verify_store
 
     cells = tuple(cells)
     if (
@@ -1042,7 +1050,7 @@ sys.path.insert(0, config["tests"])
 import _pietto_execution_capture_probe as probe
 from pietto._project import project_job_capture as c, project_job_store as s
 from pietto._project import project_job_workspace as w
-from pietto._project.project_job_store_verification import verify_store
+from _pietto_jobs_store_verification import verify_store
 base = Path(config["directory"])
 templates = {p: probe.seven_template(base / ("build-" + str(p)), precision=p) for p in (39, 65)}
 cases = {}
@@ -1382,7 +1390,7 @@ def representatives(
     from _pietto_execution_deployment_probe import event
     from _pietto_execution_capture_check import check_representative_store
     from pietto._project import project_job_workspace as w
-    from pietto._project.project_job_store_verification import verify_store
+    from _pietto_jobs_store_verification import verify_store
 
     event(
         ledger,

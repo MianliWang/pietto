@@ -21,7 +21,7 @@ from pietto._project import project_job_capture as c
 from pietto._project import project_job_publication as p
 from pietto._project import project_job_store as s
 from pietto._project import project_job_workspace as w
-from pietto._project.project_job_store_verification import verify_store
+from _pietto_jobs_store_verification import verify_store
 
 op = probe.op
 

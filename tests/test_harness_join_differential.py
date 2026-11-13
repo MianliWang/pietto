@@ -9,7 +9,7 @@ import pytest
 
 
 import _pietto_ir_join_differential as probe
-from pietto._project import project_bag_null_oracle as oracle
+import _pietto_ir_bag_null_oracle as oracle
 
 from _pietto_project_join_differential import (
     REPO_ROOT,

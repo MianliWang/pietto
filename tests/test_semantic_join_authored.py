@@ -24,7 +24,7 @@ from pietto._project.project_ir_construction import (
     ProjectIRNonConcreteSingleRelationFragment,
     build_project_ir_single_relation_fragment,
 )
-from pietto._project.project_ir_pipeline import build_project_ir_pipeline
+from _pietto_ir_pipeline import build_project_ir_pipeline
 from pietto._project.project_ir_verification import ProjectIRVerificationStatus
 from pietto.ast_nodes import AuthoredJoinKind, QueryDef, Script, TableDef
 from pietto.parser_api import parse_source

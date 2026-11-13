@@ -25,7 +25,7 @@ from pietto._project.package_capability_requirements import (
 from pietto._project.package_extension_signature_selectors import (
     _package_extension_signature_requirement_selectors,
 )
-from pietto._project.package_graph import (
+from _pietto_project_graph_model import (
     PackageGraphOutcome,
     PackageGraphSnapshot,
     _build_package_graph,

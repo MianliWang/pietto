@@ -785,8 +785,8 @@ def test_only_private_window_strategy_is_new_compiler_capability_consumer() -> N
     config_rel = "src/pietto/_project/config.py"
     model_rel = "src/pietto/_project/model.py"
     package_manifest_rel = "src/pietto/_project/package_manifest.py"
-    package_graph_rel = "src/pietto/_project/package_graph.py"
-    package_graph_inspection_rel = "src/pietto/_project/package_graph_inspection.py"
+    package_graph_rel = "tests/_pietto_project_graph_model.py"
+    package_graph_inspection_rel = "tests/_pietto_project_graph_inspection.py"
     package_requirements_rel = "src/pietto/_project/package_capability_requirements.py"
     package_selectors_rel = (
         "src/pietto/_project/package_extension_signature_selectors.py"
@@ -810,7 +810,6 @@ def test_only_private_window_strategy_is_new_compiler_capability_consumer() -> N
                 config_rel,
                 model_rel,
                 package_manifest_rel,
-                package_graph_rel,
                 package_requirements_rel,
                 project_environment_rel,
                 "src/pietto/_project/project_sql_plan_target_assessment.py",
@@ -863,8 +862,6 @@ def test_only_private_window_strategy_is_new_compiler_capability_consumer() -> N
                     config_rel,
                     model_rel,
                     package_manifest_rel,
-                    package_graph_rel,
-                    package_graph_inspection_rel,
                     package_requirements_rel,
                     package_selectors_rel,
                     project_environment_rel,

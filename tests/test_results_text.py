@@ -11,7 +11,7 @@ from pietto._project import project_result_binding as binding
 from pietto._project import project_result_contract as contract
 from pietto._project.project_sql_emission import emit_project_sql
 from pietto._project.project_result_contract_portable import export_result_contract
-from pietto._project.project_result_contract_correspondence import verify_bound_export
+from _pietto_results_correspondence import verify_bound_export
 
 
 @pytest.fixture(scope="module")

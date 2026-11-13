@@ -54,8 +54,8 @@ def _summary(view) -> dict[str, object]:
 
 
 def observation(workspace: Path) -> dict[str, object]:
-    from pietto._project import project_sql_emission_portable as portable
-    from pietto._project import project_sql_emission_pure_boundary as pure
+    import _pietto_sql_emission_portable as portable
+    import _pietto_sql_emission_pure_boundary as pure
     from pietto._project.project_sql_emission import serialize_project_sql_emission
 
     cases = []

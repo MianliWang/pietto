@@ -100,7 +100,6 @@ OWNERS = tuple(
         "project_execution_mysql_native",
         "project_job_workspace",
         "project_job_store",
-        "project_job_store_verification",
         "project_job_chunks",
         "project_job_capture",
         "project_job_replay",

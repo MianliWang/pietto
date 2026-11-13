@@ -6,7 +6,7 @@ from typing import cast
 
 import pytest
 
-from pietto._project.package_graph import (
+from _pietto_project_graph_model import (
     PackageGraphOutcome,
     PackageGraphRequirementDeclaration,
     PackageGraphRequirementRef,
@@ -23,7 +23,7 @@ import _pietto_project_extension_selectors as selector_upstream
 
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
-SOURCE = REPO_ROOT / "src/pietto/_project/package_graph.py"
+SOURCE = REPO_ROOT / "tests/_pietto_project_graph_model.py"
 SPEC = REPO_ROOT / "docs/spec/phase59-slice4-requirement-selector-attribution-v1.md"
 
 

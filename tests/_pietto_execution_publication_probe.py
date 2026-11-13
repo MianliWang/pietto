@@ -25,6 +25,11 @@ import _pietto_execution_capture_probe as s12
 import _pietto_execution_saved_read_probe as s13
 
 ROOT = Path(__file__).resolve().parents[1]
+# -I children start without tests/ on sys.path; the store verifier is a test helper.
+STORE_VERIFIER = f"""sys.path.append({str(ROOT / "tests")!r})
+from _pietto_jobs_store_verification import verify_store
+sys.path.pop()
+"""
 PREFIX = "pietto-phase68-slice16-"
 op = s12.op
 SIMULATED_QUALIFICATION = "SIMULATED_QUALIFICATION"
@@ -295,7 +300,7 @@ sys.path.append(config["tests"])
 from pietto._project import project_job_capture as c, project_job_store as s
 from pietto._project import project_job_workspace as w, project_job_publication as p
 from pietto._project import project_job_replay as r, project_job_chunks as k
-from pietto._project.project_job_store_verification import verify_store
+from _pietto_jobs_store_verification import verify_store
 import _pietto_execution_publication_probe as probe
 def op():
     return s.new_operation()
@@ -697,7 +702,8 @@ def suite(directory, ledger, interpreter, *, origin, wheel=None, old_wheel=None)
 # Native joined histories (pinned native capture/R2 profile + Arrow-only
 # publication profile). Nothing runs at import.
 
-NATIVE = r"""
+NATIVE = (
+    r"""
 import sys
 if sys.stdin.read(1) != "1":
     raise RuntimeError("registered worker gate required")
@@ -716,8 +722,9 @@ from pietto._project import project_job_store as s, project_job_workspace as w
 from pietto._project import project_job_capture as c, project_job_extraction as x
 from pietto._project import project_job_delivery as d, project_job_sink as k
 from pietto._project import project_job_publication as p
-from pietto._project.project_job_store_verification import verify_store
-from pietto._project.project_execution_postgres import PostgresExecution
+"""
+    + STORE_VERIFIER
+    + r"""from pietto._project.project_execution_postgres import PostgresExecution
 from pietto._project.project_execution_postgres_adbc import PostgresADBCExecution
 from pietto._project.project_execution_mysql import MySQLExecution
 OWNERS = {"postgres_rows": PostgresExecution, "postgres_adbc": PostgresADBCExecution,
@@ -941,15 +948,18 @@ publisher.close()
 workspace.close()
 write_facts()
 """
+)
 
-PUBLISH = r"""
+PUBLISH = (
+    r"""
 from pietto._project import project_job_capture as c, project_job_replay as r
 from pietto._project import project_job_store as s, project_job_workspace as w
 from pietto._project import project_job_publication as p, project_job_chunks as chunks
 from pietto._project import project_job_delivery as d
 from pietto._project.project_compiled_schema import scalar_read
-from pietto._project.project_job_store_verification import verify_store
-def op():
+"""
+    + STORE_VERIFIER
+    + r"""def op():
     return s.new_operation()
 def coordinate_damage(item):
     # A private copy whose first refined member loses one coordinate (coherent
@@ -1089,6 +1099,7 @@ retain_raw({"results": results, "connections": connections,
     "installed_drivers": installed_drivers, "loaded_drivers": loaded,
     "origins": origins, "prefix": sys.prefix})
 """
+)
 
 # Distinctions per (route, origin): an ordinary seven-scalar result, an
 # ordinary and a refined empty result and a guarded result, each captured by a

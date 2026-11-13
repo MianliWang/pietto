@@ -11,18 +11,18 @@ from pathlib import Path
 
 import pytest
 
+import _pietto_project_graph_model as package_graph
 import _pietto_project_package as package
 import _pietto_sql_emission as probe
 from pietto import cli
 from pietto._project import (
     check,
-    package_graph,
     project_compiled_build,
     project_sql_emission_cli as emission_cli,
     project_sql_emission_contract,
 )
 from pietto._project.model import build_empty_project_semantic_result
-from pietto._project.package_graph import PackageGraphOutcome, _build_package_graph
+from _pietto_project_graph_model import PackageGraphOutcome, _build_package_graph
 from pietto._project.package_inspection import _build_package_inspection_fact_set
 from pietto._project.project_sql_emission_cli import emit_project
 from pietto._project.project_sql_plan_literals import ProjectSQLLiteralPolicy

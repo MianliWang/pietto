@@ -23,7 +23,7 @@ from pietto._project.capability_matrix import CapabilityCheckingTargetContext
 from pietto._project.extension_catalog_inspection import (
     ExtensionCatalogInspectionProviderOccurrence,
 )
-from pietto._project.package_graph import (
+from _pietto_project_graph_model import (
     PackageGraphCapabilityEvaluation,
     PackageGraphCapabilityEvaluationRef,
     PackageGraphCatalogEvidence,
@@ -48,7 +48,7 @@ from pietto.semantic.capability_facts import CapabilityDomain, CapabilityKey
 
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
-SOURCE = REPO_ROOT / "src/pietto/_project/package_graph.py"
+SOURCE = REPO_ROOT / "tests/_pietto_project_graph_model.py"
 SPEC = REPO_ROOT / "docs/spec/phase59-slice6-direct-transitive-why-not-provenance-v1.md"
 
 

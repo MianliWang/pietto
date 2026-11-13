@@ -26,7 +26,7 @@ from pietto._project.package_capability_requirements import (
 from pietto._project.package_extension_signature_selectors import (
     _package_extension_signature_requirement_selectors,
 )
-from pietto._project.package_graph import (
+from _pietto_project_graph_model import (
     PackageGraphExpressionLineageKind,
     PackageGraphOutcome,
     PackageGraphSnapshot,
@@ -35,7 +35,7 @@ from pietto._project.package_graph import (
     _derive_package_graph_why_not,
     _package_graph_direct_provenance_steps,
 )
-from pietto._project.package_graph_inspection import (
+from _pietto_project_graph_inspection import (
     PackageGraphInspectionLinkKind,
     _inspect_package_graph,
     _inspection_ref,

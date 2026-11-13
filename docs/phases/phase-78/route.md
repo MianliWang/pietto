@@ -160,7 +160,7 @@ Qualification is in process (D78.03): the standard-library `sqlite3` on
 `STRICT` fixtures, only on the measured build, with no Docker, engine lock
 or network. Each cell records the source, emitted SQL bytes, fixture data and
 raw result. Oracles are Pietto-owned expected results written before the
-run, `src/pietto/_project/project_bag_null_oracle.py`, and byte replays of
+run, `tests/_pietto_ir_bag_null_oracle.py`, and byte replays of
 existing PostgreSQL outputs in the D76.09 (1) shape: re-emit the PostgreSQL
 statement, compare bytes, and reuse its saved result only when the bytes are
 unchanged. A new PostgreSQL run is authorized only to produce these replays,

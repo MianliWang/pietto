@@ -13,9 +13,9 @@ import pytest
 import _pietto_ir_query_block_differential as probe
 from pietto._project import project_query_block_ir_inspection as inspection
 from pietto._project import project_query_block_ir_pure_boundary as pure
-from pietto._project.project_ir_pure_boundary import PROJECT_IR_INSPECTION_FORMAT
+from _pietto_ir_pure_boundary import PROJECT_IR_INSPECTION_FORMAT
 from pietto._project.project_ir import _declaration_identity
-from pietto._project.project_phase62_pure_boundary import (
+from _pietto_ir_query_pure_boundary import (
     PROJECT_PHASE62_INSPECTION_FORMAT,
 )
 from pietto._project.project_query_block_ir import (

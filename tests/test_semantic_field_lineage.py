@@ -10,7 +10,7 @@ import pytest
 import _pietto_semantic_identity as semantic_upstream
 import _pietto_project_package as package_upstream
 
-from pietto._project.package_graph import (
+from _pietto_project_graph_model import (
     PackageGraphCurrentWindowLineage,
     PackageGraphDeclarationRef,
     PackageGraphExpressionLineage,
@@ -38,7 +38,7 @@ from pietto._project.window_semantics import WindowDependencyRole
 
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
-SOURCE = REPO_ROOT / "src/pietto/_project/package_graph.py"
+SOURCE = REPO_ROOT / "tests/_pietto_project_graph_model.py"
 SPEC = REPO_ROOT / "docs/spec/phase59-slice8-semantic-field-lineage-integration-v1.md"
 
 

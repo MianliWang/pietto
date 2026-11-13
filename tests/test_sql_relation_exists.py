@@ -583,9 +583,9 @@ def test_a_capturing_let_is_emitted_inside_its_exists_read(
     # The private observation carries the inline bodies and captured fields
     # and corresponds; the plan transport has no capture record yet and
     # refuses the plan instead of dropping its captures.
-    from pietto._project import project_sql_emission_pure_boundary as pure
+    import _pietto_sql_emission_pure_boundary as pure
     from pietto._project import project_sql_plan_portable as transport
-    from pietto._project.project_sql_emission_portable import (
+    from _pietto_sql_emission_portable import (
         ObservationStatus,
         export_emission_observation,
         verify_emission_observation,

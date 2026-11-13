@@ -6,7 +6,7 @@ from pathlib import Path
 from _pietto_project_join import _source as _join_source
 import pietto._project.project_ir as project_ir
 import pietto._project.project_ir_construction as construction
-import pietto._project.project_ir_pipeline as pipeline
+import _pietto_ir_pipeline as pipeline
 from pietto._project import check as project_check
 from pietto._project.project_final_outputs import (
     ProjectCompletedEffectiveOutput,

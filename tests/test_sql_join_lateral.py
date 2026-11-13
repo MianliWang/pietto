@@ -373,7 +373,7 @@ def test_forged_lateral_bytes_fail_the_byte_verifier(
 def test_private_observations_of_a_lateral_artifact_fail_closed(
     tmp_path: Path, target: str, top_k: bool
 ) -> None:
-    from pietto._project.project_sql_emission_portable import (
+    from _pietto_sql_emission_portable import (
         ObservationStatus,
         export_emission_observation,
     )

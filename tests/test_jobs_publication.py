@@ -31,7 +31,7 @@ from pietto._project import project_job_publication as p
 from pietto._project import project_job_replay as r
 from pietto._project import project_job_store as s
 from pietto._project import project_job_workspace as w
-from pietto._project.project_job_store_verification import verify_store
+from _pietto_jobs_store_verification import verify_store
 from pietto._project.project_job_workspace import JobStoreError
 
 op = probe.op
@@ -1379,7 +1379,7 @@ def test_verifier_rejects_coordinated_publication_damage(setup, damage, monkeypa
     view = SimpleNamespace(
         **{name: getattr(x.workspace, name) for name in ("identity", "format")}
     )
-    from pietto._project import project_job_store_verification as v
+    import _pietto_jobs_store_verification as v
 
     def read_copy(_workspace, body):
         raw = sqlite3.connect(target)

@@ -237,7 +237,7 @@ def test_a_project_writes_first_and_last_as_a_file_does(tmp_path, grouped) -> No
     assert [
         r["evidence"] for r in data["requirements"] if r["kind"] == "aggregate"
     ] == [[], []]
-    from pietto._project import project_sql_emission_portable as portable
+    import _pietto_sql_emission_portable as portable
 
     artifact = outcome.artifact
     assert artifact is not None

@@ -6,9 +6,9 @@ from pathlib import Path
 
 import pietto
 import pietto._project as project_package
-import pietto._project.package_graph as package_graph
+import _pietto_project_graph_model as package_graph
 from pietto._project.model import ProjectDiscoveryErrorKind
-from pietto._project.package_graph import (
+from _pietto_project_graph_model import (
     PackageGraphOutcome,
     PackageGraphResult,
     _build_package_graph,
@@ -23,7 +23,7 @@ import _pietto_project_package as upstream
 
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
-SOURCE = REPO_ROOT / "src/pietto/_project/package_graph.py"
+SOURCE = REPO_ROOT / "tests/_pietto_project_graph_model.py"
 SPEC = REPO_ROOT / "docs/spec/phase59-slice3-canonical-package-graph-construction-v1.md"
 
 

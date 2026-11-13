@@ -13,9 +13,9 @@ import pietto
 import pietto._project as project_package
 import pietto._project.project_ir as project_ir
 import pietto._project.project_ir_construction as construction
-import pietto._project.project_ir_inspection as inspection
+import _pietto_ir_inspection as inspection
 import pietto._project.project_ir_operators as operators
-import pietto._project.project_ir_pipeline as pipeline
+import _pietto_ir_pipeline as pipeline
 import pietto._project.project_ir_verification as verification
 from pietto._project import check as project_check
 from pietto._project.model import (
@@ -416,7 +416,7 @@ from pietto._project import check
 from pietto._project.model import build_empty_project_semantic_result
 from pietto._project.project_ir import ProjectIRSnapshotScope
 from pietto._project.project_ir_construction import ProjectIRAllocationState
-from pietto._project.project_ir_pipeline import build_project_ir_pipeline
+from _pietto_ir_pipeline import build_project_ir_pipeline
 
 semantic = build_empty_project_semantic_result(check.check_project_parse_only(Path(sys.argv[1])))
 result = build_project_ir_pipeline(
@@ -438,7 +438,10 @@ def test_pipeline_is_hash_seed_cwd_independent_private_and_immutable(
         cwd.mkdir()
         environment = os.environ.copy()
         environment["PYTHONHASHSEED"] = seed
-        source_root = str(REPO_ROOT / "src")
+        # The probe imports test helpers as well as the package.
+        source_root = os.pathsep.join(
+            (str(REPO_ROOT / "src"), str(REPO_ROOT / "tests"))
+        )
         existing = environment.get("PYTHONPATH")
         environment["PYTHONPATH"] = (
             source_root if not existing else os.pathsep.join((source_root, existing))

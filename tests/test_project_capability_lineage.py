@@ -11,7 +11,7 @@ import pytest
 from pietto._project.module_semantic_fact_preservation import (
     ProjectModuleCandidateBucketStatus,
 )
-from pietto._project.package_graph_inspection import (
+from _pietto_project_graph_inspection import (
     PackageGraphInspectionLinkKind,
     PackageGraphInspectionRecordKind,
     _inspect_package_graph,

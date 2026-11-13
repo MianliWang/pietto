@@ -60,7 +60,7 @@ from pietto._project.project_current_joins import (
 )
 from pietto._project.project_ir import ProjectIRSnapshotScope
 from pietto._project.project_ir_construction import ProjectIRAllocationState
-from pietto._project.project_ir_pipeline import build_project_ir_pipeline
+from _pietto_ir_pipeline import build_project_ir_pipeline
 from pietto._project.project_ir_properties import ProjectIRJoinedRowField
 from pietto.ast_nodes import QueryDef
 from pietto._project.project_query_block_ir import (

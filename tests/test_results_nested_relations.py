@@ -23,7 +23,7 @@ import _pietto_results_product as probe
 from pietto._project import project_job_delivery as delivery
 from pietto._project import project_result_binding as p
 from pietto._project import project_result_contract as c
-from pietto._project import project_result_contract_correspondence as runtime
+import _pietto_results_correspondence as runtime
 from pietto._project import project_result_contract_portable as writer
 from pietto._project import project_result_contract_pure_boundary as pure
 from pietto._project import project_result_ipc as ipc

@@ -213,7 +213,8 @@ def native_alternative(p, batch):
 
 
 def authority(p, root, built):
-    from pietto._project import project_result_contract_correspondence as runtime
+    p._helper("_pietto_results_correspondence")
+    import _pietto_results_correspondence as runtime
     from pietto._project import project_result_contract_portable as writer
     from pietto._project import project_result_contract_pure_boundary as pure
     from pietto._project import project_result_binding as binding
@@ -267,9 +268,10 @@ def authority(p, root, built):
 
 def ordered(p, root):
     root.mkdir(parents=True, exist_ok=True)
+    p._helper("_pietto_results_correspondence")
     from pietto._project import project_result_contract_portable as writer
     from pietto._project import project_result_contract_pure_boundary as pure
-    from pietto._project import project_result_contract_correspondence as runtime
+    import _pietto_results_correspondence as runtime
 
     result = {}
     for name in ("descriptors", "imported"):

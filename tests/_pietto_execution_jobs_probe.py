@@ -11,6 +11,11 @@ import subprocess
 import sys
 
 ROOT = Path(__file__).resolve().parents[1]
+# -I children start without tests/ on sys.path; the store verifier is a test helper.
+STORE_VERIFIER = f"""sys.path.append({str(ROOT / "tests")!r})
+from _pietto_jobs_store_verification import verify_store
+sys.path.pop()
+"""
 PREFIX = "pietto-phase68-slice11-"
 SENTINEL = "S11-SENTINEL-6b1f0c4e"
 STORAGE_CLASS_VARIABLE = "PIETTO_STORAGE_CLASS"
@@ -360,7 +365,8 @@ publisher.close()
 workspace.close()
 """
 
-CORE_ONLY = r"""
+CORE_ONLY = (
+    r"""
 import sys
 if sys.stdin.read(1) != "1":
     raise RuntimeError("registered worker gate required")
@@ -368,8 +374,9 @@ import json
 from pathlib import Path
 config = json.loads(Path(sys.argv[1]).read_text())
 from pietto._project import project_job_store as s, project_job_workspace as w
-from pietto._project.project_job_store_verification import verify_store
-workspace = w.open_workspace(config["workspace"], expected_identity=config["workspace_identity"])
+"""
+    + STORE_VERIFIER
+    + r"""workspace = w.open_workspace(config["workspace"], expected_identity=config["workspace_identity"])
 template = s.load_job(workspace, config["job"], expected_pin=config["pin"],
     accepted_producer=config["producer"],
     accepted_compatibility=tuple(config["compatibility"]))
@@ -390,6 +397,7 @@ Path(config["raw"]).write_text(json.dumps({"summary": summary, "optional": optio
     "package": str(package), "outside": outside, "prefix": sys.prefix,
     "values": list(binding.values)}))
 """
+)
 
 
 def bridge(directory, ledger, interpreter, *, target, cells, wheel=None, core=None):
@@ -412,7 +420,7 @@ def bridge(directory, ledger, interpreter, *, target, cells, wheel=None, core=No
     from _pietto_target_conformance_resources import Resources, clean_environment
     from pietto._project import project_job_workspace as w
     from pietto._project.project_compiled_build import build_compiled
-    from pietto._project.project_job_store_verification import verify_store
+    from _pietto_jobs_store_verification import verify_store
 
     cells = tuple(cells)
     if (

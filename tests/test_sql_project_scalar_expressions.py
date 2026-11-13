@@ -8,8 +8,8 @@ import pytest
 import _pietto_sql_emission as probe
 import _pietto_results_product as temporal_probe
 from pietto._project import project_sql_emission_parameters as parameters
-from pietto._project import project_sql_emission_portable as portable
-from pietto._project import project_sql_emission_pure_boundary as pure
+import _pietto_sql_emission_portable as portable
+import _pietto_sql_emission_pure_boundary as pure
 from pietto._project import project_sql_emission_rows as rows
 from pietto._project import project_sql_emission_windows as windowing
 from pietto._project.project_sql_emission import (

@@ -2,7 +2,6 @@ from __future__ import annotations
 
 import ast
 from dataclasses import FrozenInstanceError, fields
-import runpy
 from typing import cast
 
 import pytest
@@ -10,7 +9,7 @@ import pytest
 import pietto
 import pietto._project as project_package
 from pietto._project.model import ProjectDiscoveryError, ProjectDiscoveryErrorKind
-from pietto._project.package_graph import (
+from _pietto_project_graph_model import (
     PackageGraphAggregateLineageState,
     PackageGraphCapabilityEvaluation,
     PackageGraphCapabilityEvaluationRef,
@@ -437,20 +436,6 @@ def test_public_project_explain_and_package_smoke_boundaries_are_structural() ->
             for alias in node.names
         }
         assert "pietto._project.package_graph" not in imports
-
-    smoke = runpy.run_path(str(PACKAGE_SMOKE))
-    required_runtime_files = cast(object, smoke["_required_runtime_files"])
-    assert callable(required_runtime_files)
-    assert "pietto/_project/package_graph.py" in required_runtime_files("pietto")  # type: ignore[operator]
-
-    smoke_tree = ast.parse(PACKAGE_SMOKE.read_text(encoding="utf-8"))
-    literals = {
-        node.value
-        for node in ast.walk(smoke_tree)
-        if isinstance(node, ast.Constant) and isinstance(node.value, str)
-    }
-    assert "installed private Phase 59 package graph import" in literals
-    assert "import pietto._project.package_graph" in literals
 
 
 def test_slice2_spec_freezes_exact_model_scope_and_lifecycle() -> None:

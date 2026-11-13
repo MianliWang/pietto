@@ -20,6 +20,11 @@ import _pietto_execution_capture_probe as s12
 import _pietto_execution_saved_read_probe as s13
 
 ROOT = Path(__file__).resolve().parents[1]
+# -I children start without tests/ on sys.path; the store verifier is a test helper.
+STORE_VERIFIER = f"""sys.path.append({str(ROOT / "tests")!r})
+from _pietto_jobs_store_verification import verify_store
+sys.path.pop()
+"""
 PREFIX = "pietto-phase68-slice15-"
 op = s12.op
 # position -> salt: a test may change one occurrence's synthetic row.
@@ -273,7 +278,7 @@ sys.path.append(config["tests"])
 from pietto._project import project_job_capture as c, project_job_store as s
 from pietto._project import project_job_workspace as w, project_job_delivery as d
 from pietto._project import project_job_sink as k, project_job_replay as r
-from pietto._project.project_job_store_verification import verify_store
+from _pietto_jobs_store_verification import verify_store
 def op():
     return s.new_operation()
 def sink_rows(handle):
@@ -640,7 +645,8 @@ def suite(directory, ledger, interpreter, *, origin, wheel=None, old_wheel=None)
 # Native joined histories (pinned native capture/R2 profile + Arrow-only
 # delivery profile). Nothing runs at import.
 
-NATIVE = r"""
+NATIVE = (
+    r"""
 import sys
 if sys.stdin.read(1) != "1":
     raise RuntimeError("registered worker gate required")
@@ -658,8 +664,9 @@ from pietto._project import project_execution as ex
 from pietto._project import project_job_store as s, project_job_workspace as w
 from pietto._project import project_job_capture as c, project_job_extraction as x
 from pietto._project import project_job_delivery as d, project_job_sink as k
-from pietto._project.project_job_store_verification import verify_store
-from pietto._project.project_execution_postgres import PostgresExecution
+"""
+    + STORE_VERIFIER
+    + r"""from pietto._project.project_execution_postgres import PostgresExecution
 from pietto._project.project_execution_postgres_adbc import PostgresADBCExecution
 from pietto._project.project_execution_mysql import MySQLExecution
 OWNERS = {"postgres_rows": PostgresExecution, "postgres_adbc": PostgresADBCExecution,
@@ -818,6 +825,7 @@ publisher.close()
 workspace.close()
 write_facts()
 """
+)
 
 ADOPT = r"""
 results = {}
@@ -864,13 +872,15 @@ for item in config["stores"]:
 write({"results": results})
 """
 
-BRIDGE = r"""
+BRIDGE = (
+    r"""
 from pietto._project import project_job_capture as c, project_job_replay as r
 from pietto._project import project_job_store as s, project_job_workspace as w
 from pietto._project import project_job_delivery as d, project_job_sink as k
 from pietto._project.project_compiled_schema import scalar_read
-from pietto._project.project_job_store_verification import verify_store
-def op():
+"""
+    + STORE_VERIFIER
+    + r"""def op():
     return s.new_operation()
 def sink_rows(handle):
     return [list(r) for r in handle.use().execute(
@@ -949,6 +959,7 @@ retain_raw({"results": results, "connections": connections,
     "installed_drivers": installed_drivers, "loaded_drivers": loaded,
     "origins": origins, "prefix": sys.prefix})
 """
+)
 
 
 def native(

@@ -12,7 +12,7 @@ from pietto._project import project_arrow_result as arrow
 from pietto._project import project_result_binding as producer
 from pietto._project import project_result_contract as contract
 from pietto._project import project_result_contract_portable as writer
-from pietto._project import project_result_contract_correspondence as correspondence
+import _pietto_results_correspondence as correspondence
 from pietto._project import project_result_contract_pure_boundary as pure
 
 

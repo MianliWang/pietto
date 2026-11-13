@@ -12,13 +12,13 @@ import _pietto_project_package_lineage as graph_upstream
 from pietto._project.module_semantic_fact_preservation import (
     ProjectModuleCandidateBucketStatus,
 )
-from pietto._project.package_graph import (
+from _pietto_project_graph_model import (
     PackageGraphFieldRef,
     PackageGraphNamedWindowRef,
     PackageGraphWindowSemanticProvenance,
     _package_graph_direct_provenance_steps,
 )
-from pietto._project.package_graph_inspection import (
+from _pietto_project_graph_inspection import (
     PackageGraphInspectionLink,
     PackageGraphInspectionLinkKind,
     PackageGraphInspectionRecord,

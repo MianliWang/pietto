@@ -9,10 +9,8 @@ from typing import Any
 
 import pytest
 
-from pietto._project import (
-    project_query_block_ir_inspection,
-    project_sql_emission_portable,
-)
+import _pietto_sql_emission_portable as project_sql_emission_portable
+from pietto._project import project_query_block_ir_inspection
 from pietto._project.check import check_project_parse_only
 from pietto._project.model import (
     ProjectModuleRowFieldKind,
@@ -37,7 +35,7 @@ from pietto._project.project_completed_semantics import (
 from pietto._project.project_current_joins import current_forward_at_most_one
 from pietto._project.project_ir import ProjectIRSnapshotScope
 from pietto._project.project_ir_construction import ProjectIRAllocationState
-from pietto._project.project_ir_pipeline import build_project_ir_pipeline
+from _pietto_ir_pipeline import build_project_ir_pipeline
 from pietto._project.project_ir_composition import build_project_ir_project_plan
 from pietto._project.project_ir_evaluation_context import (
     build_project_ir_evaluation_context_stage,

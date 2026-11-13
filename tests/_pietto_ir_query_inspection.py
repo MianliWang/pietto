@@ -49,7 +49,7 @@ from pietto._project.project_multifact import (
     ProjectMultiFactAnalysis,
     ProjectMultiFactNonConcreteRegionSubject,
 )
-from pietto._project.project_phase62_pure_boundary import (
+from _pietto_ir_query_pure_boundary import (
     PROJECT_PHASE62_INSPECTION_FORMAT,
     PROJECT_PHASE62_PURE_ABSENT,
     ProjectPhase62PortableRef,

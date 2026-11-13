@@ -3,7 +3,7 @@ from __future__ import annotations
 from pathlib import Path
 
 
-from pietto._project.package_graph import (
+from _pietto_project_graph_model import (
     PackageGraphDependency,
     PackageGraphDependencyRef,
     PackageGraphPackage,
@@ -26,7 +26,7 @@ from pietto.errors import Diagnostic, Severity, SourceLocation
 
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
-SOURCE = REPO_ROOT / "src/pietto/_project/package_graph.py"
+SOURCE = REPO_ROOT / "tests/_pietto_project_graph_model.py"
 SPEC = (
     REPO_ROOT
     / "docs/spec/phase59-slice2-private-package-graph-model-snapshot-identity-v1.md"

@@ -11,7 +11,7 @@ import sys
 
 import pytest
 
-from pietto._project import project_bag_null_oracle as oracle
+import _pietto_ir_bag_null_oracle as oracle
 from pietto._project import project_phase62_verification as verification
 from pietto._project.model import ProjectRowFieldNullability
 from pietto._project.project_current_joins import ProjectCurrentBinaryJoin
@@ -36,7 +36,7 @@ from _pietto_project_aggregate import (
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
 VERIFIER_SOURCE = REPO_ROOT / "src/pietto/_project/project_phase62_verification.py"
-ORACLE_SOURCE = REPO_ROOT / "src/pietto/_project/project_bag_null_oracle.py"
+ORACLE_SOURCE = REPO_ROOT / "tests/_pietto_ir_bag_null_oracle.py"
 
 
 def test_slice13_owners_are_private() -> None:

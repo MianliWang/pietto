@@ -14,9 +14,9 @@ from typing import Any
 import pytest
 
 import _pietto_sql_emission as emission
-from pietto._project import project_sql_emission_portable as portable
+import _pietto_sql_emission_portable as portable
 from pietto._project import project_sql_emission_portable_schema as schema
-from pietto._project import project_sql_emission_pure_boundary as pure
+import _pietto_sql_emission_pure_boundary as pure
 
 SEEDS = ("0", "1", "7", "4294967295")
 SUPPORTED_INTERPRETERS = ((3, 12), (3, 13))
@@ -252,18 +252,21 @@ def test_schema_shared_emission_constants():
 def test_pure_and_schema_import_closure_is_data_only():
     code = (
         "import sys\n"
-        "import pietto._project.project_sql_emission_pure_boundary\n"
+        "import _pietto_sql_emission_pure_boundary\n"
         "print('\\n'.join(sorted(m for m in sys.modules if m.split('.')[0] in "
         "('pietto', 'antlr4', 'psycopg', 'mysql'))))\n"
     )
     result = subprocess.run(
-        (sys.executable, "-c", code), capture_output=True, text=True, check=True
+        (sys.executable, "-c", code),
+        cwd=Path(__file__).parent,
+        capture_output=True,
+        text=True,
+        check=True,
     )
     assert result.stdout.split() == [
         "pietto",
         "pietto._project",
         "pietto._project.project_sql_emission_portable_schema",
-        "pietto._project.project_sql_emission_pure_boundary",
     ]
 
 
@@ -2155,9 +2158,9 @@ def test_process_registry_and_independent_manifests():
     assert batch.FAMILY_AMBIENT["phase66"] == "PIETTO_PHASE66_SLICE14_AMBIENT"
     assert "phase66" not in batch.CLI_SESSION_FAMILIES
     assert batch.PHASE66_MODULES == (
-        "pietto._project.project_sql_emission_portable",
+        "_pietto_sql_emission_portable",
         "pietto._project.project_sql_emission_portable_schema",
-        "pietto._project.project_sql_emission_pure_boundary",
+        "_pietto_sql_emission_pure_boundary",
     )
     assert process.RELOCATION_SUPPORT_MANIFEST[-2:] == (
         "_pietto_sql_emission.py",
@@ -2181,6 +2184,13 @@ def test_process_registry_and_independent_manifests():
         assert len(actual) == total and len(process.cell_plan(interpreters)) == cells
         historical = [r for r in actual if r[0] != "phase66"]
         assert len(historical) == total - 6 * len(interpreters)
+
+
+def _phase66_origin(name: str, child: Path, source_root: Path) -> Path:
+    # Test helpers load beside the cell's batch child; product modules from its source.
+    if name.startswith("_pietto_"):
+        return child.parent / (name + ".py")
+    return source_root / "src" / Path(*name.split(".")).with_suffix(".py")
 
 
 def test_acquired_phase66_cells_same_child_origins_and_identical_bytes(
@@ -2216,11 +2226,9 @@ def test_acquired_phase66_cells_same_child_origins_and_identical_bytes(
     for request in process.family_requests("phase66", store.interpreters):
         origins = store.phase66_module_import_origins(request.cell)
         assert tuple(origins) == batch.PHASE66_MODULES
-        _, source_root = store._cell_child(request.cell)
+        child, source_root = store._cell_child(request.cell)
         for name, origin in origins.items():
-            expected_file = (
-                source_root / "src" / Path(*name.split(".")).with_suffix(".py")
-            )
+            expected_file = _phase66_origin(name, child, source_root)
             assert origin == expected_file.resolve()
             if request.cell.mode != "checkout":
                 assert not origin.is_relative_to(process.REPO_ROOT)
@@ -2295,12 +2303,7 @@ def test_standalone_forward_reverse_batches_beside_older_families(
         assert tuple(payload["module_import_origins"]) == batch.PHASE65_MODULES
         assert tuple(payload["phase66_module_import_origins"]) == batch.PHASE66_MODULES
         for name, origin in payload["phase66_module_import_origins"].items():
-            assert (
-                Path(origin)
-                == (
-                    source_root / "src" / Path(*name.split(".")).with_suffix(".py")
-                ).resolve()
-            )
+            assert Path(origin) == _phase66_origin(name, child, source_root).resolve()
     broken = tmp_path / "broken"
     (broken / "postgres" / "N_imported_chain").mkdir(parents=True)
     (broken / "postgres" / "N_imported_chain" / "bag").write_text("not a directory")

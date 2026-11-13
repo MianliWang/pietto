@@ -21,7 +21,6 @@ RESULT_OWNERS = (
     "project_arrow_result",
     "project_result_contract_pure_boundary",
     "project_result_contract_portable",
-    "project_result_contract_correspondence",
     "project_scalar_meaning",
     "project_result_reader",
     "project_arrow_interop",

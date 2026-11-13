@@ -4,8 +4,8 @@ from dataclasses import fields
 
 import pietto
 import pietto._project as project_package
-import pietto._project.package_graph as graph
-import pietto._project.package_graph_inspection as graph_inspection
+import _pietto_project_graph_model as graph
+import _pietto_project_graph_inspection as graph_inspection
 
 
 def test_identity_domains_and_private_snapshot_boundary_remain_exact() -> None:

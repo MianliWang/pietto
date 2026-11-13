@@ -71,7 +71,6 @@ PRODUCTS = (
     "project_arrow_result",
     "project_result_contract_pure_boundary",
     "project_result_contract_portable",
-    "project_result_contract_correspondence",
     "project_scalar_meaning",
     "project_result_reader",
     "project_arrow_interop",
@@ -766,10 +765,11 @@ class CoercibleScalar:
 
 
 def run_scalar_cases(root):
+    _helper("_pietto_results_correspondence")
     from decimal import Decimal
     from pietto._project import project_arrow_result as a, project_result_binding as p
     from pietto._project.project_result_contract_portable import export_result_contract
-    from pietto._project.project_result_contract_correspondence import (
+    from _pietto_results_correspondence import (
         verify_bound_export,
     )
     from pietto._project import project_result_contract_pure_boundary as pure
@@ -1464,9 +1464,10 @@ class CoercibleText:
 
 
 def run_text_cases(root):
+    _helper("_pietto_results_correspondence")
     from pietto._project import project_arrow_result as a, project_result_binding as p
     from pietto._project.project_result_contract_portable import export_result_contract
-    from pietto._project.project_result_contract_correspondence import (
+    from _pietto_results_correspondence import (
         verify_bound_export,
     )
     from pietto._project import project_result_contract_pure_boundary as pure
@@ -2515,10 +2516,11 @@ def decimal_context_snapshot(context):
 
 
 def run_decimal_cases(root):
+    _helper("_pietto_results_correspondence")
     from decimal import Decimal, localcontext, getcontext, ROUND_DOWN, ROUND_UP, Rounded
     from pietto._project import project_arrow_result as a, project_result_binding as p
     from pietto._project.project_result_contract_portable import export_result_contract
-    from pietto._project.project_result_contract_correspondence import (
+    from _pietto_results_correspondence import (
         verify_bound_export,
     )
     from pietto._project import project_result_contract_pure_boundary as pure
@@ -3918,6 +3920,7 @@ def meaning_snapshot(bundle):
 
 
 def run_temporal_cases(root):
+    _helper("_pietto_results_correspondence")
     from datetime import datetime, date, timezone, timedelta
     from uuid import UUID
     from pietto._project import (
@@ -3931,7 +3934,7 @@ def run_temporal_cases(root):
         verify_project_sql_emission,
     )
     from pietto._project.project_result_contract_portable import export_result_contract
-    from pietto._project.project_result_contract_correspondence import (
+    from _pietto_results_correspondence import (
         verify_bound_export,
         verify_contract_correspondence,
     )
@@ -5317,10 +5320,11 @@ def finite_observe(binding, rows, **kwargs):
 
 
 def run_finite_cases(root):
+    _helper("_pietto_results_correspondence")
     from pietto._project import project_arrow_result as a
     from pietto._project import project_result_binding as p
     from pietto._project.project_result_contract_portable import export_result_contract
-    from pietto._project.project_result_contract_correspondence import (
+    from _pietto_results_correspondence import (
         verify_bound_export,
         verify_contract_correspondence,
     )
@@ -10615,8 +10619,9 @@ def contract_fixture(root, name):
 
 
 def contract_documents(root):
+    _helper("_pietto_results_correspondence")
     from pietto._project.project_result_contract_portable import export_result_contract
-    from pietto._project.project_result_contract_correspondence import (
+    from _pietto_results_correspondence import (
         verify_bound_export,
     )
 
@@ -10841,10 +10846,11 @@ def malformed_contract_cases(documents):
 
 
 def run_contract_cases(root, built):
+    _helper("_pietto_results_correspondence")
     from unittest.mock import patch
     from pietto._project import project_result_contract as c
     from pietto._project import project_result_contract_portable as writer
-    from pietto._project import project_result_contract_correspondence as runtime
+    import _pietto_results_correspondence as runtime
     from pietto._project import project_result_contract_pure_boundary as pure
     from pietto._project import project_result_binding as binding
     from pietto._project import project_arrow_result as arrow

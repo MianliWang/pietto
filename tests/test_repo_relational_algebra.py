@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from pietto._project.project_bag_null_oracle import (
+from _pietto_ir_bag_null_oracle import (
     ProjectBagNullEntry,
     ProjectBagNullEqualityCorrespondence,
     ProjectBagNullJoinKind,

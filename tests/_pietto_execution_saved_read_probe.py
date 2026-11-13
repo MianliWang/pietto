@@ -19,6 +19,11 @@ import _pietto_execution_capture_probe as s12
 from pietto._project.project_job_replay import Delivery, SavedScopeEnd
 
 ROOT = Path(__file__).resolve().parents[1]
+# -I children start without tests/ on sys.path; the store verifier is a test helper.
+STORE_VERIFIER = f"""sys.path.append({str(ROOT / "tests")!r})
+from _pietto_jobs_store_verification import verify_store
+sys.path.pop()
+"""
 PREFIX = "pietto-phase68-slice13-"
 op = s12.op
 
@@ -305,12 +310,14 @@ DRIVERS = ("psycopg", "adbc_driver_manager", "adbc_driver_postgresql", "mysql")
 installed_drivers = sorted(n for n in DRIVERS if importlib.util.find_spec(n) is not None)
 """
 
-REPLAY = r"""
+REPLAY = (
+    r"""
 from pietto._project import project_job_capture as c, project_job_replay as r
 from pietto._project import project_job_store as s, project_job_workspace as w
 from pietto._project import project_job_chunks as k
-from pietto._project.project_job_store_verification import verify_store
-cases = config["cases"]
+"""
+    + STORE_VERIFIER
+    + r"""cases = config["cases"]
 results = []
 
 def opened(case):
@@ -506,6 +513,7 @@ retain_raw({"results": results, "forbidden_calls": forbidden_calls,
     "connections": connections, "installed_drivers": installed_drivers,
     "loaded_drivers": loaded, "origins": origins, "prefix": sys.prefix})
 """
+)
 
 
 def replay_program():

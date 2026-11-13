@@ -41,8 +41,8 @@ from typing import Any
 import _pietto_sql_emission as probe
 from _pietto_sql_emission import S05_POSTGRES_BODY
 from _pietto_sql_emission import emit_aggregate_composition
-from pietto._project import project_sql_emission_portable as portable
-from pietto._project import project_sql_emission_pure_boundary as pure
+import _pietto_sql_emission_portable as portable
+import _pietto_sql_emission_pure_boundary as pure
 from pietto._project.project_sql_emission_ast import SQLRowQuery
 from pietto._project.project_sql_emission_verification import (
     verify_project_sql_emission,
@@ -4487,8 +4487,8 @@ def test_a_relationship_over_query_rows_replays_as_its_written_on(tmp_path, sour
 def test_decimal_multiply_and_sign_close_project_readers(
     tmp_path, expression, precision
 ):
-    from pietto._project import project_sql_emission_portable as portable
-    from pietto._project import project_sql_emission_pure_boundary as pure
+    import _pietto_sql_emission_portable as portable
+    import _pietto_sql_emission_pure_boundary as pure
 
     body = f"table result:\n    from rows\n    select:\n        result = {expression}\n"
     item = emission.parameterized_fixture("postgres", body, protocol=False)
@@ -4632,8 +4632,8 @@ def test_compiled_aggregate_composition_keeps_two_query_expression_boundaries(
         CompiledError, match="^COMPILED_AGGREGATE_COMPOSITION_EXPRESSION$"
     ):
         verify_description(description)
-    from pietto._project import project_sql_emission_portable as portable
-    from pietto._project import project_sql_emission_pure_boundary as pure
+    import _pietto_sql_emission_portable as portable
+    import _pietto_sql_emission_pure_boundary as pure
 
     data = portable.export_emission_observation(
         artifact, artifact.request

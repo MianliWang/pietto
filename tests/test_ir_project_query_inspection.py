@@ -9,8 +9,8 @@ import pytest
 
 from pietto._project import project_query_block_ir_inspection as inspection
 from pietto._project import project_query_block_ir_pure_boundary as pure
-from pietto._project import project_phase62_inspection as base_inspection
-from pietto._project import project_phase62_pure_boundary as base_pure
+import _pietto_ir_query_inspection as base_inspection
+import _pietto_ir_query_pure_boundary as base_pure
 from pietto._project.project_phase62_verification import (
     build_project_phase62_analysis_bundle,
 )

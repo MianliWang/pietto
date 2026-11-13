@@ -24,7 +24,7 @@ from pietto._project import project_job_extraction as x
 from pietto._project import project_job_replay as r
 from pietto._project import project_job_store as s
 from pietto._project import project_job_workspace as w
-from pietto._project.project_job_store_verification import verify_store
+from _pietto_jobs_store_verification import verify_store
 from pietto._project.project_job_workspace import JobStoreError
 
 op = probe.op

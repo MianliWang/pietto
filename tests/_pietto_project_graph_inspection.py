@@ -5,7 +5,7 @@ from __future__ import annotations
 from dataclasses import dataclass, fields as dataclass_fields, is_dataclass
 from enum import StrEnum
 
-import pietto._project.package_graph as graph
+import _pietto_project_graph_model as graph
 from pietto._project.model import _classify_project_definition
 from pietto.ast_nodes import AuthoredWindowFrameKind, LiteralExpr
 

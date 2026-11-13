@@ -344,7 +344,7 @@ def test_conditional_meaning_codec_and_independent_live_correspondence(
 ):
     from pietto._project import project_result_contract_portable as writer
     from pietto._project import project_result_contract_pure_boundary as pure
-    from pietto._project import project_result_contract_correspondence as runtime
+    import _pietto_results_correspondence as runtime
 
     checked, bundle, _, neutral, _ = products[target]
     exported = writer.export_result_contract(neutral, checked)
@@ -731,7 +731,7 @@ def test_plan_authority_without_source_meaning_carries_the_clock(tmp_path):
     the portable document then describes the clock without any scalar
     meaning."""
     from pietto._project import project_result_contract_portable as writer
-    from pietto._project import project_result_contract_correspondence as runtime
+    import _pietto_results_correspondence as runtime
 
     checked = probe.build_neutral(
         tmp_path / "plain",
@@ -803,7 +803,7 @@ def clocked(tmp_path_factory):
 
 def test_now_and_source_outputs_keep_their_own_meanings(clocked):
     from pietto._project import project_result_contract_portable as writer
-    from pietto._project import project_result_contract_correspondence as runtime
+    import _pietto_results_correspondence as runtime
 
     checked, bundle, built = clocked
     clock = meaning.STATEMENT_CLOCK
@@ -862,7 +862,7 @@ def test_clock_correspondence_reads_the_verified_leaves(
     which the verified leaves do not read or whose law differs."""
     from pietto._project import project_result_contract_portable as writer
     from pietto._project import project_result_contract_pure_boundary as pure
-    from pietto._project import project_result_contract_correspondence as runtime
+    import _pietto_results_correspondence as runtime
 
     checked, _, built = clocked
     if damage == "dangling-clock":

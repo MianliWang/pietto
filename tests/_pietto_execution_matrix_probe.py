@@ -36,6 +36,11 @@ from typing import Any
 from _pietto_execution_recovery_probe import _write_private
 
 ROOT = Path(__file__).resolve().parents[1]
+# -I children start without tests/ on sys.path; the store verifier is a test helper.
+STORE_VERIFIER = f"""sys.path.append({str(ROOT / "tests")!r})
+from _pietto_jobs_store_verification import verify_store
+sys.path.pop()
+"""
 PREFIX = "pietto-phase68-slice19-"
 CELLS = (
     ("source", "live"),
@@ -602,13 +607,15 @@ J02_HOOK = r"""
         d.StreamSession.confirm = cut_confirm
 """
 
-J02_ADOPT = r"""
+J02_ADOPT = (
+    r"""
 from pietto._project import project_job_capture as c, project_job_store as s
 from pietto._project import project_job_workspace as w, project_job_delivery as d
 from pietto._project import project_job_sink as k
 from pietto._project.project_compiled_schema import scalar_read
-from pietto._project.project_job_store_verification import verify_store
-def op():
+"""
+    + STORE_VERIFIER
+    + r"""def op():
     return s.new_operation()
 def effects(handle):
     return [list(row) for row in handle.use().execute("SELECT position, digest,"
@@ -686,6 +693,7 @@ retain_raw({"results": results, "connections": connections,
     "installed_drivers": installed_drivers, "loaded_drivers": loaded,
     "origins": origins, "prefix": sys.prefix})
 """
+)
 
 J01_HISTORIES = (
     "B_holes",

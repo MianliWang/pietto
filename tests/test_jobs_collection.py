@@ -33,7 +33,7 @@ from pietto._project import project_job_publication as p
 from pietto._project import project_job_replay as r
 from pietto._project import project_job_store as s
 from pietto._project import project_job_workspace as w
-from pietto._project.project_job_store_verification import verify_store
+from _pietto_jobs_store_verification import verify_store
 from pietto._project.project_job_workspace import JobStoreError
 
 op = probe.op
@@ -938,7 +938,7 @@ def verify_copy(x, target):
         _retired=False,
     )
     try:
-        from pietto._project import project_job_store_verification as v
+        import _pietto_jobs_store_verification as v
 
         def read(_workspace, body):
             connection.execute("BEGIN")

@@ -22,7 +22,7 @@ import json
 from typing import Any
 
 from pietto._project import project_sql_emission_portable_schema as schema
-from pietto._project import project_sql_emission_pure_boundary as pure
+import _pietto_sql_emission_pure_boundary as pure
 from pietto._project import project_sql_emission_aggregation as grouping
 from pietto._project import project_sql_emission_ast as sql_ast
 from pietto._project import project_sql_emission_joins as joining

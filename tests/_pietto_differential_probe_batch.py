@@ -46,9 +46,9 @@ PHASE65_MODULES = (
     "pietto._project.project_sql_plan_portable_schema",
 )
 PHASE66_MODULES = (
-    "pietto._project.project_sql_emission_portable",
+    "_pietto_sql_emission_portable",
     "pietto._project.project_sql_emission_portable_schema",
-    "pietto._project.project_sql_emission_pure_boundary",
+    "_pietto_sql_emission_pure_boundary",
 )
 # Only these families reach the CLI through `_run_cli_pair`, so only these may
 # be served by one explicit CLI worker session.
