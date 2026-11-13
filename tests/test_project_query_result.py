@@ -2122,14 +2122,15 @@ def test_a_chain_operand_error_is_reported_once_in_each_module(
     ] == [("main.pietto", 6, "PIE-S2104"), ("models.pietto", 9, "PIE-S2104")]
 
 
-def test_project_and_single_file_checks_refuse_range_offsets_alike(
+def test_project_and_single_file_checks_refuse_frame_offsets_alike(
     tmp_path: Path,
     capsys: pytest.CaptureFixture[str],
 ) -> None:
-    # Both checks reject invalid offsets in selected, JOIN and QUALIFY windows.
+    # Both checks reject invalid ROWS, GROUPS and RANGE offsets in selected,
+    # JOIN and QUALIFY windows; before, the project passed ROWS and GROUPS.
     # A well-typed RANGE offset also gives the single-file emission warning.
     root = _project(
-        tmp_path / "range-offsets",
+        tmp_path / "frame-offsets",
         "shape Order:\n"
         "    id: Int\n"
         "    customer_id: Int\n"
@@ -2165,6 +2166,22 @@ def test_project_and_single_file_checks_refuse_range_offsets_alike(
         "        d = last_value(orders.amount) window(\n"
         "            order by orders.id\n"
         "            range -1 preceding)\n"
+        "        e = last_value(orders.amount) window(\n"
+        "            order by orders.id\n"
+        '            rows between "x" preceding and current row)\n'
+        "        f = last_value(orders.amount) window(\n"
+        "            order by orders.id\n"
+        "            groups between -1 preceding and current row)\n"
+        "query joined_qualified:\n"
+        "    from orders\n"
+        "    let customer = customers\n"
+        "    inner join customer on order_customer(orders, customer)\n"
+        "    select:\n"
+        "        order_id = orders.id\n"
+        "    qualify:\n"
+        "        last_value(orders.amount) window(\n"
+        "            order by orders.id\n"
+        "            rows between 1.5 preceding and current row) > 0\n"
         "query qualified:\n"
         "    from orders\n"
         "    select:\n"
@@ -2182,13 +2199,27 @@ def test_project_and_single_file_checks_refuse_range_offsets_alike(
     project = _public_facts(_read_json(capsys)["diagnostics"])
     assert cli.main(["check", str(root / "main.pietto"), "--format", "json"]) == 1
     single_file = _public_facts(_read_json(capsys)["diagnostics"])
-    message = (
-        "Invalid window frame for function last_value: RANGE offsets must be "
-        "nonnegative integer literals up to 9223372036854775807"
-    )
+    refusals = [
+        (
+            "PIE-S2104",
+            "error",
+            f"Invalid window frame for function last_value: {unit} offsets must "
+            "be nonnegative integer literals up to 9223372036854775807",
+            line,
+            column,
+        )
+        for unit, line, column in (
+            ("RANGE", 18, 13),
+            ("RANGE", 21, 13),
+            ("RANGE", 33, 13),
+            ("ROWS", 36, 13),
+            ("GROUPS", 39, 13),
+            ("ROWS", 49, 9),
+            ("RANGE", 59, 18),
+        )
+    ]
     assert single_file == [
-        ("PIE-S2104", "error", message, 18, 13),
-        ("PIE-S2104", "error", message, 21, 13),
+        *refusals[:2],
         (
             "PIE-S2385",
             "warning",
@@ -2198,13 +2229,9 @@ def test_project_and_single_file_checks_refuse_range_offsets_alike(
             24,
             13,
         ),
-        ("PIE-S2104", "error", message, 33, 13),
-        ("PIE-S2104", "error", message, 43, 18),
+        *refusals[2:],
     ]
-    assert project == [
-        ("PIE-S2104", "error", message, line, column)
-        for line, column in ((18, 13), (21, 13), (33, 13), (43, 18))
-    ]
+    assert project == refusals
 
 
 def test_project_and_single_file_checks_refuse_decimal_quotient_uses_alike(

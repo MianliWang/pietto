@@ -5043,13 +5043,13 @@ explicit ROWS, RANGE or GROUPS frame on them is PIE-S2104. `first_value`,
 `last_value`, and `nth_value` are frame-sensitive and use a concrete Pietto
 effective frame even when source omits one. A `GROUPS` frame requires an
 `ORDER BY`; aggregate windows without one report PIE-S2104. In a selected
-window, named windows included, single-file checks require each ROWS, GROUPS or RANGE
-offset to be, once `let` names are inlined, a nonnegative `Int` literal up to
-9223372036854775807, and refuse a literal `ntile` count, `lag`/`lead` offset or
-`nth_value` position above that value (PIE-S2104); PostgreSQL emission also
-requires those three to fit signed `int32` (PIE-B1000). An EXPLICIT_MODULES
-project check requires the same of each RANGE offset of any window, a QUALIFY
-window included (PIE-S2104), since no target emits another RANGE offset. The
+window, named windows included, and in a QUALIFY window, single-file and
+project checks require each ROWS, GROUPS or RANGE offset to be, once `let`
+names are inlined, a nonnegative `Int` literal up to 9223372036854775807
+(PIE-S2104), since no target emits another offset; single-file checks also
+refuse a literal `ntile` count, `lag`/`lead` offset or `nth_value` position
+above that value (PIE-S2104), and PostgreSQL emission also requires those
+three to fit signed `int32` (PIE-B1000). The
 result of `lag`, `lead`, `first_value`, `last_value` and `nth_value` has the
 type of its value,
 or of the `lag`/`lead` default when the value is `None`, an enum's included,

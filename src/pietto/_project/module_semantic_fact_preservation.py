@@ -6730,14 +6730,13 @@ def _window_output_facts(
         elif quiet:
             analysis = _quiet_let_reading_window(analysis, diagnostics)
         elif isinstance(analysis, (WindowExpressionAnalysis, AggregateWindowAnalysis)):
-            # A RANGE offset is checked as in a single file (PIE-S2104).
+            # A frame offset is checked as in a single file (PIE-S2104).
             refused = _window_literal_range_diagnostics(
                 expression,
                 analysis,
                 semantic_input,
                 let_expressions or {},
                 set(),
-                units=frozenset({ast.WindowFrameUnit.RANGE}),
                 counts=False,
             )
             if refused:
@@ -6746,7 +6745,7 @@ def _window_output_facts(
                     occurrence=analysis.semantic_fact.occurrence,
                     expression=expression,
                     identity=expression.identity,
-                    reason="window RANGE offset is not a nonnegative Int literal",
+                    reason="window frame offset is not a nonnegative Int literal",
                 )
         analysis = _project_window_analysis_boundary(item, analysis)
         signature = _find_window_signature(capabilities, expression.identity)

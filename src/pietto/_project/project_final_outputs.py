@@ -280,7 +280,6 @@ from pietto.ast_nodes import (
     SourceDef,
     TableDef,
     WindowExpr,
-    WindowFrameUnit,
     WindowUseKind,
 )
 from pietto.errors import Diagnostic, Severity, SourceLocation
@@ -5695,14 +5694,13 @@ def _hidden_no_join_window(
                 reason="window input reads a nested relation field",
             )
     elif isinstance(analysis, (WindowComputationAnalysis, AggregateWindowComputation)):
-        # A RANGE offset is checked as in a single file (PIE-S2104).
+        # A frame offset is checked as in a single file (PIE-S2104).
         refused = _window_literal_range_diagnostics(
             expression,
             analysis,
             scope.row_schema,
             input_context.let_scope.binding_expressions,
             set(),
-            units=frozenset({WindowFrameUnit.RANGE}),
             counts=False,
         )
         if refused:
@@ -5710,7 +5708,7 @@ def _hidden_no_join_window(
             analysis = WindowComputationUnsupported(
                 expression=expression,
                 identity=expression.identity,
-                reason="window RANGE offset is not a nonnegative Int literal",
+                reason="window frame offset is not a nonnegative Int literal",
             )
     return ProjectNoJoinHiddenWindowComputation(
         scope=scope,

@@ -40,10 +40,8 @@ TARGETS = ("postgres", "mysql")
 I64_MIN = -(1 << 63)
 I64_MAX = (1 << 63) - 1
 WIDE = (-9007199254740993, 9007199254740993)
-OFFSET_MISSING = ("PIE-B1004", "window_frame_offset_evidence_missing")
-OFFSET_WIDE = ("PIE-B1002", "window_frame_offset_out_of_signed64_range")
 BOUNDARY_WIDE = ("PIE-B1002", "window_range_boundary_out_of_signed64_range")
-# A RANGE offset that is not a nonnegative Int literal up to signed64 fails the
+# A frame offset that is not a nonnegative Int literal up to signed64 fails the
 # project check (PIE-S2104), so emission stops before planning it.
 CHECK_FAILED = [
     ("PIE-B1003", "semantic_result_unsuccessful"),
@@ -417,12 +415,12 @@ def test_missing_or_contradictory_key_domains_are_internal_evidence_faults():
         ("rows between 0 preceding and current row", None),
         ("rows between 1 preceding and current row", None),
         (f"rows between {I64_MAX} preceding and current row", None),
-        (f"rows between {I64_MAX + 1} preceding and current row", OFFSET_WIDE),
-        (f"rows between {10**30} preceding and current row", OFFSET_WIDE),
+        (f"rows between {I64_MAX + 1} preceding and current row", CHECK_FAILED),
+        (f"rows between {10**30} preceding and current row", CHECK_FAILED),
         ("rows between 2 preceding and 3 following", None),
-        (f"rows between 2 preceding and {I64_MAX + 1} following", OFFSET_WIDE),
-        ("rows between -1 preceding and current row", OFFSET_MISSING),
-        ("rows between id preceding and current row", OFFSET_MISSING),
+        (f"rows between 2 preceding and {I64_MAX + 1} following", CHECK_FAILED),
+        ("rows between -1 preceding and current row", CHECK_FAILED),
+        ("rows between id preceding and current row", CHECK_FAILED),
         ("range between 1 preceding and current row", None),
         (f"range between {I64_MAX} preceding and current row", BOUNDARY_WIDE),
         (f"range between {I64_MAX + 1} preceding and current row", CHECK_FAILED),
@@ -441,6 +439,16 @@ def test_finite_offsets_over_the_published_key(target, frame, refusal):
     else:
         assert outcome.status == "BLOCKED" and outcome.artifact is None
         assert _refusal(outcome) == (refusal if refusal is CHECK_FAILED else [refusal])
+
+
+@pytest.mark.parametrize("target", TARGETS)
+def test_a_let_name_offset_passes_check_but_lacks_offset_evidence(target):
+    body = _window("first_value(id)", "rows between o preceding and current row")
+    outcome = _build(
+        _item(target, body.replace("    select:", "    let o = 2\n    select:"))
+    )
+    assert outcome.status == "BLOCKED" and outcome.artifact is None
+    assert _refusal(outcome) == [("PIE-B1004", "window_frame_offset_evidence_missing")]
 
 
 @pytest.mark.parametrize("target", TARGETS)
@@ -474,10 +482,8 @@ def test_the_five_reported_huge_offsets_are_no_longer_verified(target, call, fra
     assert outcome.status == "BLOCKED" and outcome.artifact is None
     if frame.startswith("range between 9223"):
         assert _refusal(outcome) == [BOUNDARY_WIDE]
-    elif frame.startswith("range "):
-        assert _refusal(outcome) == CHECK_FAILED
     else:
-        assert _refusal(outcome) == [OFFSET_WIDE]
+        assert _refusal(outcome) == CHECK_FAILED
 
 
 @pytest.mark.parametrize("target", TARGETS)
@@ -490,17 +496,6 @@ def test_counts_never_depend_on_the_order_key_storage(target):
     ):
         outcome = _build(_item(target, _window("first_value(id)", frame), key=narrow))
         assert outcome.status == "VERIFIED", (frame, _refusal(outcome))
-    outcome = _build(
-        _item(
-            target,
-            _window(
-                "first_value(id)",
-                f"rows between {I64_MAX + 1} preceding and current row",
-            ),
-            key=narrow,
-        )
-    )
-    assert _refusal(outcome) == [OFFSET_WIDE]
 
 
 def test_groups_share_the_count_domain_only_where_admitted():
@@ -512,8 +507,8 @@ def test_groups_share_the_count_domain_only_where_admitted():
     too_wide = _build(
         _item("postgres", _window("first_value(id)", frame.format(I64_MAX + 1)))
     )
-    assert _refusal(too_wide) == [OFFSET_WIDE]
-    for offset in (1, I64_MAX + 1):
+    assert _refusal(too_wide) == CHECK_FAILED
+    for offset in (1, I64_MAX):
         mysql = _build(_item("mysql", _window("first_value(id)", frame.format(offset))))
         assert _refusal(mysql) == [
             ("PIE-B1003", "window_frame_groups_approved_non_support_on_mysql")

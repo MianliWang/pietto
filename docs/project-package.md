@@ -119,9 +119,8 @@ check does and skips the refusals that only single-file SQL needs: a field of
 an alias of an enum is typed as that enum (so `lag` over it passes); a `let`
 name selected unaliased in a relation with GROUP BY (`lo` for `lo = lower(t)`),
 an expression past the let
-inline expansion limit (PIE-S2328), a ROWS or GROUPS frame offset other than a
-nonnegative Int literal up to 9223372036854775807, a window count literal
-above that value, an ungrouped ORDER BY key that is a bare constant other
+inline expansion limit (PIE-S2328), a window count literal
+above 9223372036854775807, an ungrouped ORDER BY key that is a bare constant other
 than an integer literal, such as `-1` or `"a"`, and a `min` or `max` whose
 argument is a `let` name in a relation without GROUP BY (`m = max(w)` with
 `w = amount`) all pass it (the key `1` is PIE-P1000 in every check); and a

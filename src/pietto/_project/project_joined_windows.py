@@ -1162,7 +1162,7 @@ def _analyze_site(
             diagnostics=tuple(diagnostics),
         )
     assert isinstance(semantic, (WindowComputationAnalysis, AggregateWindowComputation))
-    # A RANGE offset is checked as in a single file (PIE-S2104).
+    # A frame offset is checked as in a single file (PIE-S2104).
     refused = _window_literal_range_diagnostics(
         expression,
         semantic,
@@ -1172,7 +1172,6 @@ def _analyze_site(
             for value in namespace.aggregation.input_filter.namespace.let_values
         },
         set(),
-        units=frozenset({WindowFrameUnit.RANGE}),
         counts=False,
     )
     if refused:
@@ -1184,7 +1183,7 @@ def _analyze_site(
             semantic_failure=WindowComputationUnsupported(
                 expression=expression,
                 identity=expression.identity,
-                reason="window RANGE offset is not a nonnegative Int literal",
+                reason="window frame offset is not a nonnegative Int literal",
             ),
             diagnostics=(*diagnostics, *refused),
         )

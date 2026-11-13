@@ -46,7 +46,6 @@ from pietto.ast_nodes import (
     TypeExpr,
     UnaryExpr,
     WindowExpr,
-    WindowFrameUnit,
     inlined_arguments,
     with_inlined_argument,
 )
@@ -1272,8 +1271,8 @@ def type_relation_expressions(
     ``let_diagnostics`` are the relation `let:` diagnostics; a window frame
     offset that reads a binding with one of them reports no PIE-S2104.
     Without ``single_file`` the checks that only single-file SQL needs are
-    skipped: the ROWS and GROUPS frame offset and window count literal ranges
-    and a bare constant ungrouped ORDER BY key.
+    skipped: the window count literal ranges and a bare constant ungrouped
+    ORDER BY key.
     ``let_part_types`` are the types of the parts of the `let:` values where
     they are bound (`LetValues.part_types`).
     """
@@ -1457,7 +1456,6 @@ def type_relation_expressions(
                     analysis, (WindowExpressionAnalysis, AggregateWindowAnalysis)
                 ):
                     window_analyses[item.expression] = analysis
-                    # A project checks only RANGE offsets, as explicit modules do.
                     diagnostics.extend(
                         _window_literal_range_diagnostics(
                             item.expression,
@@ -1465,9 +1463,6 @@ def type_relation_expressions(
                             input_schema,
                             let_expressions or {},
                             erroneous_lets,
-                            units=frozenset(WindowFrameUnit)
-                            if single_file
-                            else frozenset({WindowFrameUnit.RANGE}),
                             counts=single_file,
                         )
                     )
@@ -1598,18 +1593,16 @@ def type_relation_expressions(
                     analysis, (WindowExpressionAnalysis, AggregateWindowAnalysis)
                 ):
                     window_analyses[window] = analysis
-                    if single_file:
-                        diagnostics.extend(
-                            _window_literal_range_diagnostics(
-                                window,
-                                analysis,
-                                input_schema,
-                                let_expressions or {},
-                                erroneous_lets,
-                                units=frozenset(WindowFrameUnit),
-                                counts=True,
-                            )
+                    diagnostics.extend(
+                        _window_literal_range_diagnostics(
+                            window,
+                            analysis,
+                            input_schema,
+                            let_expressions or {},
+                            erroneous_lets,
+                            counts=single_file,
                         )
+                    )
                     result = analysis.semantic_fact.result
                     if (
                         result.kind is WindowResultAvailabilityKind.CONCRETE
@@ -1963,14 +1956,13 @@ def _window_literal_range_diagnostics(
     let_expressions: Mapping[str, Expression],
     erroneous_lets: set[str],
     *,
-    units: frozenset[WindowFrameUnit] = frozenset(WindowFrameUnit),
     counts: bool = True,
 ) -> list[Diagnostic]:
     """Refuse window literals that no SQL target accepts, before emission.
 
-    A ROWS, GROUPS or RANGE offset of one of ``units``, after the `let:`
-    inlining emission performs, must be a nonnegative signed 64-bit Int
-    literal (no target emits another RANGE offset), and with ``counts`` a
+    A ROWS, GROUPS or RANGE offset, after the `let:` inlining emission
+    performs, must be a nonnegative signed 64-bit Int literal (no target
+    emits another offset), and with ``counts`` a
     count argument may not exceed that range; the narrower PostgreSQL int4
     count range is checked when PostgreSQL SQL is emitted. An offset that
     reads a `let:` name in `erroneous_lets` already has its error. Without
@@ -1987,20 +1979,16 @@ def _window_literal_range_diagnostics(
         for bound in (frame.start, frame.end)
         if bound is not None and bound.offset is not None
     )
-    if (
-        unit is not None
-        and unit in units
-        and any(
-            not (
-                type(value) is LiteralExpr
-                and type(value.value) is int
-                and 0 <= value.value <= _SIGNED64_MAX
-            )
-            and not _reads_erroneous_let(
-                offset, input_schema, let_expressions, erroneous_lets
-            )
-            for offset, value in offsets
+    if unit is not None and any(
+        not (
+            type(value) is LiteralExpr
+            and type(value.value) is int
+            and 0 <= value.value <= _SIGNED64_MAX
         )
+        and not _reads_erroneous_let(
+            offset, input_schema, let_expressions, erroneous_lets
+        )
+        for offset, value in offsets
     ):
         messages.append(
             f"Invalid window frame for function {name}: "

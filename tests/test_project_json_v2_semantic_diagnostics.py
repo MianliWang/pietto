@@ -516,8 +516,6 @@ _LEGACY_FLAT_SINGLE_FILE_SQL_LIMITS = (
     "query windows:\n    from src\n    select:\n        id\n"
     "        p = lag(s) window(order by id)\n"
     "        b = lag(n, 9223372036854775808) window(order by id)\n"
-    "        f = first_value(n) window(order by id rows between "
-    "9223372036854775808 preceding and current row)\n"
     "query ordered:\n    from src\n    select:\n        id\n    order by:\n        -1\n"
     "query plain:\n    from src\n    select:\n        a = id + t\n"
 )
@@ -550,9 +548,20 @@ _LEGACY_FLAT_GROUPED_LET = _FLAT_HEAD + (
     "        p = lag(c) window(order by g)\n"
     "query plain:\n    from src\n    select:\n        a = id + t\n"
 )
-_LEGACY_FLAT_RANGE_OFFSETS = _FLAT_HEAD + (
+_LEGACY_FLAT_FRAME_OFFSETS = _FLAT_HEAD + (
     "query q:\n    from src\n    select:\n        id\n"
     '        f = first_value(n) window(order by id range "abc" preceding)\n'
+    '        r = first_value(n) window(order by id rows between "x" preceding '
+    "and current row)\n"
+    "        g = first_value(n) window(order by id groups between -1 preceding "
+    "and current row)\n"
+    "        h = first_value(n) window(order by id rows between 1.5 preceding "
+    "and current row)\n"
+    "        w = first_value(n) window(order by id rows between "
+    "9223372036854775808 preceding and current row)\n"
+    "query ranked:\n    from src\n    select:\n        id\n"
+    "    qualify first_value(n) window(order by id rows between 0 preceding "
+    'and "x" following) > 1\n'
 )
 _LEGACY_FLAT_LET_EXTREMA = _FLAT_HEAD + (
     "query extrema:\n    from src\n    let w = n\n    let e = id + t\n"
@@ -583,7 +592,7 @@ _LEGACY_FLAT_JOIN_REFUSALS = {
         ),
         (
             _LEGACY_FLAT_SINGLE_FILE_SQL_LIMITS,
-            [("PIE-S2105", ("main.pietto", 53, 13, 53, 19), _PLUS_TEXT)],
+            [("PIE-S2105", ("main.pietto", 52, 13, 52, 19), _PLUS_TEXT)],
         ),
         (
             _LEGACY_FLAT_GROUPED_LET,
@@ -630,14 +639,22 @@ _LEGACY_FLAT_JOIN_REFUSALS = {
             [("PIE-S2105", ("main.pietto", 9, 13, 9, 19), _PLUS_TEXT)],
         ),
         (
-            _LEGACY_FLAT_RANGE_OFFSETS,
+            _LEGACY_FLAT_FRAME_OFFSETS,
             [
                 (
                     "PIE-S2104",
-                    ("main.pietto", 10, 13, 10, 27),
-                    "Invalid window frame for function first_value: RANGE "
+                    ("main.pietto", line, 13, line, 27),
+                    f"Invalid window frame for function first_value: {unit} "
                     "offsets must be nonnegative integer literals up to "
                     "9223372036854775807",
+                )
+                for line, unit in (
+                    (10, "RANGE"),
+                    (11, "ROWS"),
+                    (12, "GROUPS"),
+                    (13, "ROWS"),
+                    (14, "ROWS"),
+                    (19, "ROWS"),
                 )
             ],
         ),
@@ -649,7 +666,7 @@ _LEGACY_FLAT_JOIN_REFUSALS = {
         "connectors",
         "shared_refusals",
         "let_extrema",
-        "range_offsets",
+        "frame_offsets",
     ),
 )
 def test_a_legacy_flat_check_refuses_what_an_explicit_module_check_refuses(
@@ -663,15 +680,16 @@ def test_a_legacy_flat_check_refuses_what_an_explicit_module_check_refuses(
     in the current syntax: windows over JOIN binding fields, a computed `let:`
     group key and its maximum, and windows over relations that read them
     pass, and so do the forms that only single-file SQL refuses (a selected
-    `let:` name, the let inline limit, ROWS and GROUPS window literal ranges,
+    `let:` name, the let inline limit, window count literal ranges,
     a constant ORDER BY key, a window over an alias of an enum, a `min` or
     `max` of a `let:` name without GROUP BY, and connector table names that
     are not one string `<table>` or `<schema>.<table>`), except an ORDER BY
     key written as a constant in a relation without JOIN inputs, which an
     explicit-module check refuses (PIE-S2380); a connector argument
     of another type or count, a let/output conflict, a
-    window value of no concrete type, a default of another type and a RANGE
-    offset that is not a nonnegative Int literal are refused in both modes."""
+    window value of no concrete type, a default of another type and a frame
+    offset that is not a nonnegative Int literal up to signed64, of a selected
+    or a QUALIFY window, are refused in both modes."""
     for schema_version in (1, 2):
         root = _project_root(
             tmp_path / f"v{schema_version}",
@@ -693,7 +711,7 @@ _EXPLICIT_MODULE_REFUSALS = {
     _LEGACY_FLAT_SINGLE_FILE_SQL_LIMITS: [
         (
             "PIE-S2380",
-            ("main.pietto", 49, 9, 49, 11),
+            ("main.pietto", 48, 9, 48, 11),
             "Constant ORDER BY key: a target reads a bare constant key as a "
             "column position or rejects it",
         )

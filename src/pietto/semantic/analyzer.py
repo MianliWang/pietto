@@ -242,9 +242,8 @@ def analyze_project_namespace(script: Script) -> SemanticResult:
     selected unaliased also in a relation with GROUP BY, and there is no let
     inline expansion limit (PIE-S2328), no refusal of a bare constant
     ungrouped ORDER BY key other than an integer literal (which the parser
-    refuses, PIE-P1000), no ROWS or GROUPS frame offset or window count
-    literal range check (a RANGE offset of a selected window is checked, as
-    in an explicit-module check, and one of a QUALIFY window is not), no
+    refuses, PIE-P1000), no window count literal range check (a frame
+    offset is checked, as in a single file), no
     refusal of a `min` or `max` whose argument is a `let:`
     name in a relation without GROUP BY (PIE-S2315) and no connector
     table-name check, so source connectors get the diagnostics of an
