@@ -1647,7 +1647,7 @@ def test_mysql_r2_of_a_form_that_0111_compiled_does_not_change(tmp_path, form):
     the workspace, or to the refusal it had."""
     from pietto._project import project_public_execution as composition
     from pietto._project import project_sql_emission_paired as pairing
-    from pietto._project.project_sql_emission import serialize_project_sql_emission
+    from pietto._project.project_sql_emission_cli import serialize_emission
 
     world, body, refusal = MYSQL_0111_FORMS[form]
     query = _world_query(tmp_path, world, body)
@@ -1664,7 +1664,7 @@ def test_mysql_r2_of_a_form_that_0111_compiled_does_not_change(tmp_path, form):
             "contract.json",
             "preserve",
         )
-    assert serialize_project_sql_emission(outcome) == query.emission
+    assert serialize_emission(outcome) == query.emission
 
 
 def test_mysql_r2_decides_each_query_of_a_module_alone(tmp_path):

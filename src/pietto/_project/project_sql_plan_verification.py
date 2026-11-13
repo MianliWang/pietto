@@ -118,6 +118,7 @@ from pietto.ast_nodes import (
 )
 from pietto.errors import Severity
 from pietto.semantic.expressions import query_parameter_value_type
+from pietto.semantic.source_connectors import EXPLICIT_MODULE_CONNECTORS
 from pietto._project.query_parameters import reads_header
 
 from pietto._project import project_sql_plan_expressions as row
@@ -335,7 +336,7 @@ def _binding_structure(
             or source.source is not entry
             or source.declaration is not ast
             or source.connector is not connector
-            or spelling not in {"postgres.table", "mysql.table"}
+            or spelling not in EXPLICIT_MODULE_CONNECTORS
             or source.module
             is not scope.completed.semantic_result.modules[entry.owner.module_position]
         ):

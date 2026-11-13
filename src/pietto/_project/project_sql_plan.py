@@ -75,6 +75,7 @@ from pietto.semantic.catalog import is_builtin_function_name
 from pietto.semantic.aggregates import semantic_aggregate_call_name
 from pietto.semantic.generators import generator_of
 from pietto.semantic.expressions import query_parameter_value_type
+from pietto.semantic.source_connectors import EXPLICIT_MODULE_CONNECTORS
 from pietto._project.query_parameters import declared_decimal, reads_header
 from pietto.ir.model import SymbolId, SymbolNamespace
 
@@ -391,7 +392,7 @@ def _static_connector(source: SourceDef) -> CallExpr | None:
         if isinstance(call.callee, NameExpr)
         else ".".join(call.callee.parts)
     )
-    return call if spelling in {"postgres.table", "mysql.table"} else None
+    return call if spelling in EXPLICIT_MODULE_CONNECTORS else None
 
 
 def _blockers(

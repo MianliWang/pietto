@@ -10,8 +10,15 @@ import os
 import re
 
 from pietto._project import project_public_execution as composition
-from pietto._project.project_sql_emission import serialize_project_sql_emission
-from pietto._project.project_sql_emission_cli import DIALECTS, _render_failure
+from pietto._project.project_duckdb_emission import (
+    DuckDBTemplate,
+    prepare_duckdb_live_template,
+)
+from pietto._project.project_sql_emission_cli import (
+    DIALECTS,
+    _render_failure,
+    serialize_emission,
+)
 from pietto.execution._errors import (
     CompileRejected,
     RequestRejected,
@@ -223,7 +230,12 @@ def compile_query(
         refusal = request_failure(caught)
     else:
         try:
-            template = composition.live_template(outcome)
+            # AD78.03: a DuckDB query becomes its adapter's live template.
+            template = (
+                prepare_duckdb_live_template
+                if dialect == "duckdb"
+                else composition.live_template
+            )(outcome)
         except Exception as caught:
             refusal = request_failure(caught, preparing=True)
         else:
@@ -232,7 +244,7 @@ def compile_query(
 
 
 def _compiled(outcome, template, dialect, main_emits):
-    emission = serialize_project_sql_emission(outcome)
+    emission = serialize_emission(outcome)
     if template is None:
         text = _render_failure(json.loads(emission), dialect).rstrip("\n")
         raise CompileRejected(outcome.status, emission, text)
@@ -241,9 +253,14 @@ def _compiled(outcome, template, dialect, main_emits):
 
 def _query(template, origin, emission, main_emits=None):
     query = object.__new__(CompiledQuery)
+    facts = (
+        template.facts()
+        if type(template) is DuckDBTemplate
+        else composition.query_facts(template)
+    )
     for slot, value in zip(
         CompiledQuery.__slots__,
-        (template, origin, emission, main_emits, *composition.query_facts(template)),
+        (template, origin, emission, main_emits, *facts),
         strict=True,
     ):
         object.__setattr__(query, slot, value)

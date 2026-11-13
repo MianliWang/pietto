@@ -3481,6 +3481,7 @@ def _relationships(document, declared):
                     family = {
                         "postgres.table": "postgresql",
                         "mysql.table": "mysql",
+                        "duckdb.arrow": "duckdb",
                     }.get(spelling)
                     require(
                         item["outcomes"]

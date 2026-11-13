@@ -52,7 +52,10 @@ from pietto._project.project_execution_template import (
     bind_values,
     compatible_compiled_values,
 )
-from pietto._project.project_sql_emission import serialize_project_sql_emission
+from pietto._project.project_sql_emission import (
+    EmissionOutcome,
+    serialize_project_sql_emission,
+)
 from pietto._project.project_sql_emission_cli import POLICIES, emit_project
 from pietto._project.project_sql_emission_contract import canonical
 from pietto.execution import _errors as errors
@@ -3393,7 +3396,8 @@ def _witness_round_trip(project, dialect, policy):
         "contract.json",
         POLICIES[policy],
     )
-    assert outcome.status == "VERIFIED" and outcome.artifact is not None, outcome
+    assert type(outcome) is EmissionOutcome and outcome.status == "VERIFIED"
+    assert outcome.artifact is not None, outcome
     query = execution.compile_query(
         project,
         module="main.pietto",

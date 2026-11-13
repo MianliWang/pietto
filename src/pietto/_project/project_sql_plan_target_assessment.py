@@ -430,6 +430,16 @@ class ProjectSQLTargetAssessment:
         raise TypeError("Target assessments require canonical construction.")
 
 
+def prepare_database_target_request(
+    family: str, release: str
+) -> ProjectSQLTargetRequest:
+    """The profile-free request of one exact database target, as the project
+    emission commands assess it (the DuckDB adapter, AD78.03)."""
+    return prepare_project_sql_target_request(
+        CapabilityProfileTarget(CapabilityProfileTargetKind.DATABASE, family, release)
+    )
+
+
 def _profile_occurrences(request):
     composition = request.composition
     if type(composition) is CapabilityProfileCompositionSuccess:
@@ -440,11 +450,16 @@ def _profile_occurrences(request):
 def _family(demand):
     callee = demand.source.connector.callee
     if type(callee) is NameExpr:
-        return {"postgres.table": "postgresql", "mysql.table": "mysql"}.get(callee.name)
+        return {
+            "postgres.table": "postgresql",
+            "mysql.table": "mysql",
+            "duckdb.arrow": "duckdb",
+        }.get(callee.name)
     if type(callee) is DottedNameExpr:
         bridge: Mapping[tuple[str, ...], str] = {
             ("postgres", "table"): "postgresql",
             ("mysql", "table"): "mysql",
+            ("duckdb", "arrow"): "duckdb",
         }
         return bridge.get(callee.parts)
     return None
@@ -754,11 +769,14 @@ def _check_outcomes(aspect, request):
             else {
                 "postgres.table": ("postgres", "table"),
                 "mysql.table": ("mysql", "table"),
+                "duckdb.arrow": ("duckdb", "arrow"),
             }.get(callee.name)
         )
         matches = (
-            parts == ("postgres", "table") and request.target.family == "postgresql"
-        ) or (parts == ("mysql", "table") and request.target.family == "mysql")
+            (parts == ("postgres", "table") and request.target.family == "postgresql")
+            or (parts == ("mysql", "table") and request.target.family == "mysql")
+            or (parts == ("duckdb", "arrow") and request.target.family == "duckdb")
+        )
         return states == ((S.SATISFIED,) if matches else (S.NEGATIVE,))
     if proposition.key is None:
         return states == (S.UNMAPPED,)

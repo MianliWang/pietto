@@ -384,13 +384,15 @@ def test_no_adapter_family_reaches_the_postgres_mysql_pipeline(
     assert [call for call in calls if call[0] == family] == []
     assert set(families) - {None} <= PIPELINE_FAMILIES
     # AD78.03 admits `duckdb` as a project dialect, so its requests passed the
-    # argument checks and the firewall stopped them; D78.01 leaves `sqlite`
-    # out of project mode, so its requests stop at the argument checks.
+    # argument checks and its own adapter verified them; D78.01 leaves
+    # `sqlite` out of project mode, so its requests stop at the argument checks.
     assert "usage" not in _error_kinds(documents["postgres"])
     assert refusals["postgres"] == []
     if family == "duckdb":
         assert "usage" not in _error_kinds(documents[family])
         assert refusals[family] == []
+        statuses = {d["status"] for d in documents[family] if isinstance(d, dict)}
+        assert "VERIFIED" in statuses
     else:
         assert _error_kinds(documents[family]) == {"usage"}
         assert set(refusals[family]) == {("PIE-R1002", "PUBLIC_COMPILE_ARGUMENT")}

@@ -16,7 +16,7 @@ import stat
 from collections.abc import Iterable, Sequence
 from dataclasses import dataclass, replace
 from pathlib import Path
-from typing import Any, NoReturn
+from typing import Any, Literal, NoReturn, overload
 
 from pietto import _batch_output
 from pietto._output_file import (
@@ -41,6 +41,11 @@ from pietto._project.path_trust import (
 from pietto._project.project_completed_semantics import (
     ProjectConcreteCompletedSemanticResult,
     build_project_completed_semantic_result,
+)
+from pietto._project.project_duckdb_emission import (
+    DuckDBEmission,
+    emit_duckdb_sql,
+    serialize_duckdb_emission,
 )
 from pietto._project.project_query_block_ir import build_project_query_block_ir
 from pietto._project.project_query_block_ir_verification import (
@@ -69,8 +74,9 @@ from pietto.semantic.analyzer import recursion_limit_diagnostic
 
 __all__: tuple[str, ...] = ()
 
-# The project emission dialects. AD78.03: only a family of the contract
-# reader's RELEASES reaches the PostgreSQL/MySQL tail of `_emit_owner`.
+# The project emission dialects. AD78.03: `duckdb` goes to its own adapter,
+# and only a family of the contract reader's RELEASES reaches the
+# PostgreSQL/MySQL tail of `_emit_owner`.
 DIALECTS = ("postgres", "mysql", "duckdb")
 _DIALECT_CHOICES = "{" + ",".join(DIALECTS) + "}"
 
@@ -266,10 +272,10 @@ def run_project_emit_sql(arguments: Sequence[str]) -> ProjectEmitResult:
             )
 
     def finish(
-        outcome: EmissionOutcome,
+        outcome: EmissionOutcome | DuckDBEmission,
         protected: Sequence[tuple[Path, tuple[int, int]]] = (),
     ) -> ProjectEmitResult:
-        data = serialize_project_sql_emission(outcome)
+        data = serialize_emission(outcome)
         document = json.loads(data)
         written = False
         if document["status"] == "VERIFIED" and output is not None:
@@ -379,6 +385,24 @@ def _normalized_failure(
     )
 
 
+_Protected = tuple[tuple[Path, tuple[int, int]], ...]
+
+
+@overload
+def emit_project(
+    project: str | os.PathLike[str],
+    module: str,
+    kind: str,
+    name: str,
+    dialect: Literal["postgres", "mysql"],
+    contract: str,
+    policy: ProjectSQLLiteralPolicy,
+    *,
+    read_sources_only: bool = False,
+) -> tuple[EmissionOutcome, _Protected]: ...
+
+
+@overload
 def emit_project(
     project: str | os.PathLike[str],
     module: str,
@@ -389,7 +413,20 @@ def emit_project(
     policy: ProjectSQLLiteralPolicy,
     *,
     read_sources_only: bool = False,
-) -> tuple[EmissionOutcome, tuple[tuple[Path, tuple[int, int]], ...]]:
+) -> tuple[EmissionOutcome | DuckDBEmission, _Protected]: ...
+
+
+def emit_project(
+    project: str | os.PathLike[str],
+    module: str,
+    kind: str,
+    name: str,
+    dialect: str,
+    contract: str,
+    policy: ProjectSQLLiteralPolicy,
+    *,
+    read_sources_only: bool = False,
+) -> tuple[EmissionOutcome | DuckDBEmission, _Protected]:
     """Run the verified emission pipeline once for one selected owner.
 
     Returns the outcome and the identities of the configuration, sources and
@@ -413,7 +450,7 @@ def emit_project_as_main(
     dialect: str,
     contract: str,
     policy: ProjectSQLLiteralPolicy,
-) -> tuple[EmissionOutcome, bool | None]:
+) -> tuple[EmissionOutcome | DuckDBEmission, bool | None]:
     """`emit_project` for the public compile entry, with whether `main`
     emits the statement too (rule two, D77.37): None unless it is a VERIFIED
     MySQL statement, which is derived once more, as `main` derives it, from
@@ -436,7 +473,7 @@ def _emit_selected(
     read_sources_only: bool,
     *,
     as_main: bool = False,
-) -> tuple[EmissionOutcome, tuple[tuple[Path, tuple[int, int]], ...], bool | None]:
+) -> tuple[EmissionOutcome | DuckDBEmission, _Protected, bool | None]:
     context, common = _prepare_emission_context(project, contract)
     if common is not None:
         return common, (), None
@@ -632,13 +669,21 @@ def _prepare_emission_context(
     ), None
 
 
+def serialize_emission(outcome: EmissionOutcome | DuckDBEmission) -> bytes:
+    """The document of an outcome; AD78.03: a DuckDB outcome has its own
+    adapter's serializer."""
+    if isinstance(outcome, DuckDBEmission) or outcome.family == "duckdb":
+        return serialize_duckdb_emission(outcome)
+    return serialize_project_sql_emission(outcome)
+
+
 def _emit_owner(
     context: _EmissionContext,
     owner: Any,
     dialect: str,
     policy: ProjectSQLLiteralPolicy,
     read_sources_only: bool = False,
-) -> EmissionOutcome:
+) -> EmissionOutcome | DuckDBEmission:
     """Run the existing per-owner plan, verification, preparation and realization tail."""
     try:
         try:
@@ -658,6 +703,31 @@ def _emit_owner(
                 InputError(
                     "emission_selector", "Project planning roots are unavailable."
                 ),
+            )
+        if dialect == "duckdb":
+            try:
+                duckdb = emit_duckdb_sql(
+                    checked,
+                    context.contract_bytes,
+                    policy,
+                    read_sources_only=read_sources_only,
+                )
+            except UnicodeEncodeError:
+                if not context.unnamed:
+                    raise
+                return _emission_failure(
+                    "INPUT_REJECTED",
+                    context.diagnostics,
+                    _unnamed_path(context.unnamed[0]),
+                )
+            if duckdb.status == "VERIFIED":
+                return duckdb
+            return _normalized_failure(
+                duckdb.status,
+                duckdb.diagnostics,
+                duckdb.cli_errors,
+                blockers=duckdb.blockers,
+                family=duckdb.family,
             )
         if dialect not in RELEASES:
             # AD78.03: the tail below never receives another family; the
@@ -853,7 +923,7 @@ def _run_project_emit_sql_batch(
     for index, owner in enumerate(owners):
         outcome = _emit_owner(context, owner, dialect, policy)
         statuses.add(outcome.status)
-        document = serialize_project_sql_emission(outcome)
+        document = serialize_emission(outcome)
         del outcome
         item = _BatchItem(
             document,

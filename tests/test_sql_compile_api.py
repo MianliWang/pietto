@@ -19,6 +19,7 @@ from typing import Any
 
 import pytest
 
+import _pietto_sql_duckdb as duckdb
 import _pietto_sql_emission as probe
 from pietto import cli, execution
 from pietto._project import project_public_execution
@@ -108,6 +109,28 @@ def test_single_emission_is_the_command_document(
     )
     # The guide reads the statement as the document's top-level "sql".
     assert ("sql" in document) == (status == "VERIFIED")
+
+
+def test_duckdb_emission_is_the_command_document(tmp_path: Path) -> None:
+    """AD78.03: the DuckDB adapter's documents are the command's bytes."""
+    root = duckdb.write(tmp_path / "duckdb", duckdb.filtered(">="), duckdb.contract())
+    values = single("duckdb", kind="query")
+    document = same(compile_sql(root, **values), space_argv(root, values, batch=False))
+    assert (document["status"], document["format"]) == (
+        "VERIFIED",
+        "pietto.sql-emission.v2",
+    )
+    batch = {"dialect": "duckdb", "emission_contract": "contract.json"}
+    emission = compile_all_sql(root, **batch)
+    assert same(emission, space_argv(root, batch, batch=True))["status"] == "VERIFIED"
+    blocked = compile_sql(root, **values, literal_policy="bind-safe")
+    assert (
+        same(
+            blocked,
+            space_argv(root, values | {"literal_policy": "bind-safe"}, batch=False),
+        )["status"]
+        == "BLOCKED"
+    )
 
 
 @pytest.mark.parametrize("target", TARGETS)
