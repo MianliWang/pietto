@@ -1151,8 +1151,9 @@ BLOCKED `group by` over a `Float` outside the one-source forms that
 EXCEPT, and a Float `==` or `!=` whose two operands both read rows (a JOIN
 `on`, a WHERE comparison across inputs, a correlated
 `any`/`exists`/scalar/capture predicate, or two fields of one row, such as
-`price == cost` or `not (price != cost)`) outside the same-row and JOIN
-forms that [Float values](language.md#float-values) lists, and a Float `in`
+`price == cost` or `not (price != cost)`) outside the same-row, JOIN and
+`not any(...)` forms that [Float values](language.md#float-values) lists,
+and a Float `in`
 or `not in`
 literal list whose value and one of its options both read rows, such as
 `price in (cost, 0.0)`, as each option stands for an `==` with the value,

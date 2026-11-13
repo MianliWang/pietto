@@ -48,9 +48,9 @@
   reads. That includes `any(z.v == o.v for z in z)` and
   `any(not (z.v != o.v) for z in z)`, which returned outer rows twice through
   a materialized semijoin beside a 1000-character key (the Phase72 B10
-  class), and `not any(z.v == o.v for z in z)` and
-  `any(z.v != o.v for z in z)`, which matched but stay refused until the
-  owner's retained-exception disposition (D77.07). It also includes a RIGHT
+  class), and `any(z.v != o.v for z in z)`, which matched but stays refused
+  (D77.29); `not any(z.v == o.v for z in z)` emits in the forms of
+  [Float NOT EXISTS](77-r02-mysql-float-anti-exists.md). It also includes a RIGHT
   JOIN, an INNER `!=`, a LEFT `not (!=)`, a key that is not such a `Text` key
   of one width on both sides or comes first, the same field or table on both
   sides, a non-null `Float` field, any other SELECT item, and the comparison

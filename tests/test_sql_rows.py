@@ -653,7 +653,7 @@ def test_a_null_safe_join_condition_has_no_form_on_either_target(tmp_path, targe
         # Forms outside the cell table the pure boundary restates.
         *("not_equal", "inner_not_equal"),
         # A Float read inside `any(...)` reads a row too.
-        *("semi_exists", "anti_not_exists", "semi_exists_ne", "semi_exists_not_ne"),
+        *("semi_exists", "semi_exists_ne", "semi_exists_not_ne"),
     ),
 )
 def test_a_mysql_float_row_comparison_forged_past_its_cell_is_refused(
@@ -739,6 +739,183 @@ def _crossed_on_fields(records):
 def test_a_tampered_mysql_float_cell_document_is_refused(tmp_path, join, tamper):
     body = cells.query("from f6o", join, "select:", "    oid = f6o.id")
     artifact = cells.build(tmp_path, "mysql", body).artifact
+    assert artifact is not None
+    observed = portable.export_emission_observation(artifact, artifact.request)
+    assert observed.canonical_bytes is not None
+    document = json.loads(observed.canonical_bytes)
+    tamper(document["records"])
+    refused = pure.parse_emission_observation(json.dumps(document))
+    assert (refused.status, refused.detail) == (
+        pure.Status.INVALID_RELATION,
+        "MySQL Float row comparison cell",
+    )
+
+
+@pytest.mark.parametrize("name", cells.R02_ACCEPTED)
+def test_mysql_r02_anti_forms_emit_the_postgresql_statement(tmp_path, name):
+    """Phase77 R02: each `not any(...)` form of the candidate emission
+    experiment (the Float `==` alone, beside a 64- or a 1000-character key)
+    and each program of its class (a binder `let`, operands swapped, `i`'s
+    fields renamed, O's fields reordered) emits on MySQL the PostgreSQL
+    statement in MySQL spelling, and the live verifier and the pure boundary
+    accept both."""
+    _, body = cells.R02_ACCEPTED[name]
+    emitted = {}
+    for target in ("postgres", "mysql"):
+        outcome = cells.r02_build(
+            tmp_path / target, target, body, controls=name not in cells.R02_FORMS
+        )
+        assert outcome.status == "VERIFIED", serialize_project_sql_emission(outcome)
+        artifact = outcome.artifact
+        assert artifact is not None
+        assert verify_project_sql_emission(artifact, artifact.request).verified
+        observed = portable.export_emission_observation(artifact, artifact.request)
+        assert observed.canonical_bytes is not None
+        assert (
+            pure.parse_emission_observation(observed.canonical_bytes).status
+            is pure.Status.OK
+        )
+        emitted[target] = artifact.rendered.sql.decode("utf-8")
+    assert emitted["mysql"] == _mysql_spelling(emitted["postgres"])
+    assert emitted["mysql"].count("NOT EXISTS (SELECT 1 FROM ") == 1
+
+
+@pytest.mark.parametrize("name", (*cells.R02_REFUSED, *cells.R02_ALSO_REFUSED))
+def test_other_mysql_anti_programs_keep_their_refusal(tmp_path, name):
+    """Every other program of R02's controls, and seven more, keeps main's one
+    PIE-B1003 on MySQL, and still emits on PostgreSQL."""
+    body = {**cells.R02_REFUSED, **cells.R02_ALSO_REFUSED}[name]
+    postgres = cells.r02_build(tmp_path / "postgres", "postgres", body, controls=True)
+    assert postgres.status == "VERIFIED"
+    outcome = cells.r02_build(tmp_path / "mysql", "mysql", body, controls=True)
+    public = probe.decode_public(serialize_project_sql_emission(outcome))
+    assert outcome.status == "BLOCKED" and outcome.artifact is None
+    assert [(b["code"], b["subject"]["detail"]) for b in public["blockers"]] == [
+        ("PIE-B1003", "comparison_type_pair_not_admitted")
+    ]
+
+
+def test_a_mysql_anti_cell_refused_for_another_reason_keeps_mains_list(tmp_path):
+    """Rule two (D77.37): an R02 form whose output label is past 256
+    characters reports main's whole blocker list, the comparison's PIE-B1003
+    first."""
+    _, body = cells.R02_FORMS["r02_anti_float"]
+    body = body.replace("        v\n", "        " + "r" * 257 + " = v\n")
+    outcome = cells.r02_build(tmp_path, "mysql", body)
+    public = probe.decode_public(serialize_project_sql_emission(outcome))
+    assert [(b["code"], b["subject"]["detail"]) for b in public["blockers"]] == [
+        ("PIE-B1003", "comparison_type_pair_not_admitted"),
+        ("PIE-B1002", "output_label_unrepresentable"),
+    ]
+
+
+def _forged_anti(directory, monkeypatch, body):
+    """A MySQL artifact emitted while the cell law admits every comparison as
+    an ANTI cell, and its exported document."""
+    with monkeypatch.context() as patch:
+        patch.setattr(
+            rows,
+            "mysql_float_cell",
+            lambda request, expression: ("anti", "none", "=="),
+        )
+        outcome = cells.r02_build(directory, "mysql", body, controls=True)
+        artifact = outcome.artifact
+        assert outcome.status == "VERIFIED" and artifact is not None
+        observed = portable.export_emission_observation(artifact, artifact.request)
+    assert observed.canonical_bytes is not None
+    return artifact, observed.canonical_bytes
+
+
+@pytest.mark.parametrize(
+    "name",
+    (
+        *("semi_exists", "semi_exists_kw", "semi_exists_not_ne", "semi_exists_ne"),
+        *("anti_ne", "anti_not_ne", "anti_same_value", "anti_key_first"),
+        *("anti_two_keys", "anti_key_mixed_width", "anti_outer_extra_field"),
+        *("anti_key_255", "anti_nullable_key", "anti_int_key", "anti_nonnull_float"),
+        *("anti_mixed_float", "anti_same_table", "anti_extra_conjunct"),
+        *("anti_inner_extra_test", "anti_as_value", "anti_beside_join"),
+        *("anti_upstream", "inner_on_outer_table", "anti_inner_floats"),
+        *("anti_inner_key_both_sides", "anti_outer_key_both_sides"),
+        "anti_upstream_binder",
+    ),
+)
+def test_a_mysql_anti_comparison_forged_past_its_cell_is_refused(
+    tmp_path, monkeypatch, name
+):
+    """Emission forced to admit an R02 control. The live verifier refuses it
+    from its plan, by the emission blockers it derives again and, with those
+    bypassed, by its own comparison law; the pure boundary refuses it from
+    the document's own structure."""
+    from pietto._project import project_sql_emission_verification as verification
+
+    artifact, document = _forged_anti(
+        tmp_path, monkeypatch, {**cells.R02_REFUSED, **cells.R02_ALSO_REFUSED}[name]
+    )
+    assert verify_project_sql_emission(artifact, artifact.request).issues == (
+        "plan_ast_correspondence",
+    )
+    with monkeypatch.context() as patch:
+        patch.setattr(verification, "emission_blockers", lambda request: ())
+        assert verify_project_sql_emission(artifact, artifact.request).issues == (
+            "plan_ast_correspondence",
+        )
+    refused = pure.parse_emission_observation(document)
+    assert (refused.status, refused.detail) == (
+        pure.Status.INVALID_RELATION,
+        "MySQL Float row comparison cell",
+    )
+
+
+@pytest.mark.parametrize(
+    "name",
+    (
+        *("source_only_unread_let", "source_only_unused_window"),
+        *("source_only_def_call", "unread_alias_beside_binder", "outer_alias"),
+    ),
+)
+def test_a_forged_anti_source_only_difference_is_refused_live(
+    tmp_path, monkeypatch, name
+):
+    """An unread relation `let`, an unused named window or a def call changes
+    the document only in source positions and bytes; emission and the live
+    verifier, which read the declaration as written, refuse it."""
+    artifact, _ = _forged_anti(
+        tmp_path, monkeypatch, {**cells.R02_REFUSED, **cells.R02_ALSO_REFUSED}[name]
+    )
+    assert verify_project_sql_emission(artifact, artifact.request).issues == (
+        "plan_ast_correspondence",
+    )
+
+
+def _anti_inner_on_outer_table(records):
+    """`i`'s bound source names `o`'s table."""
+    outer, inner = (r["fields"] for r in records if r["ref"][0] == "bound_source")
+    inner["name"] = outer["name"]
+
+
+def _anti_outer_key_nullable(records):
+    """`o`'s `kn`, which no form reads, is nullable: O has other carriers."""
+    (field,) = (r["fields"] for r in records if r["ref"] == ["bound_field", 2])
+    representation = json.loads(field["representation"])
+    representation["nullable"] = True
+    field["representation"] = json.dumps(
+        representation, separators=(",", ":"), sort_keys=True
+    )
+
+
+@pytest.mark.parametrize(
+    "tamper",
+    (
+        # The `==` read as `!=`, which no ANTI cell holds.
+        _rewritten("sql_operation", "operator", "!="),
+        _anti_inner_on_outer_table,
+        _anti_outer_key_nullable,
+    ),
+)
+def test_a_tampered_mysql_anti_cell_document_is_refused(tmp_path, tamper):
+    _, body = cells.R02_FORMS["r02_anti_float"]
+    artifact = cells.r02_build(tmp_path, "mysql", body).artifact
     assert artifact is not None
     observed = portable.export_emission_observation(artifact, artifact.request)
     assert observed.canonical_bytes is not None

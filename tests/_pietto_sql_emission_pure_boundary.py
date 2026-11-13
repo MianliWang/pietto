@@ -13,6 +13,7 @@ here imports the compiler, and a decoded view is never emission input.
 
 from __future__ import annotations
 
+from collections import Counter
 from collections.abc import Mapping
 from dataclasses import dataclass
 from enum import StrEnum
@@ -972,7 +973,12 @@ _MYSQL_FLOAT_ROW_CELLS = frozenset(
         ),
         *(
             (kind, key, form)
-            for kind, form in (("inner", "=="), ("inner", "not !="), ("left", "=="))
+            for kind, form in (
+                ("inner", "=="),
+                ("inner", "not !="),
+                ("left", "=="),
+                ("anti", "=="),
+            )
             for key in ("none", "text")
         ),
     }
@@ -980,11 +986,13 @@ _MYSQL_FLOAT_ROW_CELLS = frozenset(
 # The fields of each source of a cell as carriers (_mysql_float_carrier) in
 # declaration order, restated from the emitter's MYSQL_FLOAT_CELL_TABLES:
 # exactly those of the qualification's tables, `f6s` (id, f1, f2) for a
-# same-row cell, `f6o` and `f6i` (id, v, kn, kw) for a JOIN cell.
+# same-row cell, `f6o` and `f6i` (id, v, kn, kw) for a JOIN cell, and (in any
+# order) the outer source's for an ANTI cell (Phase77 R02).
 _MYSQL_FLOAT_CELL_TABLES = {
     "same_row": ("int", "float", "float"),
     "inner": ("int", "float", 64, 1000),
     "left": ("int", "float", 64, 1000),
+    "anti": ("int", "float", 64, 1000),
 }
 # The record kinds a cell's document may hold; any other is never a cell.
 _MYSQL_FLOAT_CELL_KINDS = frozenset(
@@ -1022,6 +1030,10 @@ _MYSQL_FLOAT_CELL_KINDS = frozenset(
         "sql_operation",
         "sql_stage_reference",
     }
+)
+# The kinds only an ANTI cell's document adds: its one `any(...)` read.
+_MYSQL_FLOAT_ANTI_KINDS = frozenset(
+    {"sql_any_read", "sql_any_reference", "sql_block_target"}
 )
 
 
@@ -1084,8 +1096,9 @@ def _mysql_float_carrier(representation):
 
 def _mysql_float_read(doc, value):
     """(carrier, source, stage column) of a reference that reads a source field
-    directly, its carrier from _mysql_float_carrier; None otherwise."""
-    if value.kind != "sql_stage_reference":
+    directly (an ANTI cell's `any(...)` reference included), its carrier from
+    _mysql_float_carrier; None otherwise."""
+    if value.kind not in ("sql_stage_reference", "sql_any_reference"):
         return None
     stage = doc[doc[value]["column"]]
     owners = tuple(
@@ -1116,14 +1129,21 @@ def _mysql_float_cell(doc, ref):
     width of different inputs, every other SELECT item a non-null BIGINT Int
     (also a qualified Float beside a WHERE or a JOIN), each source the
     fields of a qualification table (_MYSQL_FLOAT_CELL_TABLES); the document
-    holds no other operation or record kind. None outside every cell. A
+    holds no other operation or record kind. ANTI (Phase77 R02): one source O
+    under a WHERE and a projection, the whole WHERE `not` over one `exists`
+    read of a block target over another bound source I of another table,
+    whose predicate is the tree or, before `and`, one `==` of two Text keys;
+    each `==` reads one field of I under that target and one of O, and O has
+    the fields of its table in any order. None outside every cell. A
     relation alias `let`, an unused named window or an inlined `def`, which
     emission refuses, changes the document only in source positions and
     source bytes, so this reader cannot tell it from the direct program."""
     operations = doc.all("sql_operation")
     artifacts = doc.all("artifact")
+    anti = doc.all("sql_any_read")
     if (
-        not set(doc.kinds) <= _MYSQL_FLOAT_CELL_KINDS
+        not set(doc.kinds)
+        <= _MYSQL_FLOAT_CELL_KINDS | (_MYSQL_FLOAT_ANTI_KINDS if anti else set())
         or len(operations) > 4
         or len(artifacts) != 1
     ):
@@ -1195,6 +1215,31 @@ def _mysql_float_cell(doc, ref):
             selected = tuple(value for value in values if value.kind != "sql_operation")
         shape = ("same_row", place)
         sources = (doc[doc[bodies[0]]["scan"]]["realization"],)
+        if anti:
+            exists = operation(root, "not", "not", 1)
+            read = doc[anti[0]]
+            producer = doc[read["target"]]["producer"]
+            if (
+                place != "where"
+                or exists is None
+                or producer.kind != "bound_source"
+                or len(
+                    {
+                        (doc[item]["namespace"], doc[item]["name"])
+                        for item in (*sources, producer)
+                    }
+                )
+                != 2
+            ):
+                return None
+            root, place = read["predicate"], "none"
+            sides = operation(root, "logical", "and", 2)
+            if sides is not None:
+                root, key = sides
+                keys, place = operation(key, "comparison", "==", 2), "text"
+                if keys is None:
+                    return None
+            shape = ("anti", place)
     else:
         return None
     if body["block_kind"] != "projection" or body["predicate"] is not None:
@@ -1213,7 +1258,7 @@ def _mysql_float_cell(doc, ref):
     if (
         form is None
         or len(operands) != 2
-        or len(operations) != 1 + negated + 2 * bool(keys)
+        or len(operations) != 1 + negated + 2 * bool(keys) + bool(anti)
     ):
         return None
     found = tuple(
@@ -1226,15 +1271,18 @@ def _mysql_float_cell(doc, ref):
     owners = tuple(owner for _, owner, _ in reads)
     cell = (*shape, "not " + form if negated else form)
     allowed = ("int",) if shape[1] == "select" else ("int", "float")
-    if (
-        any(
-            tuple(
-                _mysql_float_carrier(doc[field]["representation"])
-                for field in doc[source]["fields"]
-            )
-            != _MYSQL_FLOAT_CELL_TABLES[shape[0]]
-            for source in sources
+    table = _MYSQL_FLOAT_CELL_TABLES[shape[0]]
+
+    def held(source):
+        found = tuple(
+            _mysql_float_carrier(doc[field]["representation"])
+            for field in doc[source]["fields"]
         )
+        # ANTI: O's fields in any order; I's other fields never reach the SQL.
+        return Counter(found) if anti else found
+
+    if (
+        any(held(source) != (Counter(table) if anti else table) for source in sources)
         or carriers[:2] != ("float", "float")
         or doc[reads[0][2]]["source_port"] == doc[reads[1][2]]["source_port"]
         or any(carrier not in allowed for carrier in carriers[2 + len(keys) :])
@@ -1247,7 +1295,7 @@ def _mysql_float_cell(doc, ref):
             )
             for _, owner, column in reads[: 2 + len(keys)]
         )
-        or inputs is not None
+        or (inputs is not None or anti)
         and owners[0] == owners[1]
         or keys
         and (

@@ -17,6 +17,7 @@ and `r01v`, a nullable Float `v` alone.
 
 from copy import deepcopy
 import json
+import re
 
 import _pietto_sql_emission as probe
 
@@ -690,24 +691,14 @@ REFUSED = {
         ),
         [_PAIR],
     ),
-    # The qualification's SEMI and ANTI shapes: semi_exists, semi_exists_not_ne
-    # (and semi_in) returned outer rows twice; anti_not_exists and
-    # semi_exists_ne matched but stay refused for the D77.07 packet.
+    # The qualification's SEMI shapes: semi_exists, semi_exists_not_ne (and
+    # semi_in) returned outer rows twice; semi_exists_ne matched but stays
+    # refused (D77.29). Its anti_not_exists is an R02 form (R02_FORMS).
     "semi_exists": (
         query(
             "let z = f6i",
             "from f6o",
             "where any(z.v == f6o.v for z in z)",
-            "select:",
-            "    id",
-        ),
-        [_PAIR],
-    ),
-    "anti_not_exists": (
-        query(
-            "let z = f6i",
-            "from f6o",
-            "where not any(z.v == f6o.v for z in z)",
             "select:",
             "    id",
         ),
@@ -1373,3 +1364,318 @@ def assert_tampered_key_refused(directory, name, tamper):
         pure.Status.INVALID_RELATION,
         "MySQL Float key cell",
     )
+
+
+# Phase77 R02 (anti_not_exists, D77.30): the world, forms, same-class program
+# and refusal controls of its candidate emission experiment's preregistration,
+# from which the experiment's projects are materialized. `o` and `i` are its
+# outer and inner tables (an `id`, a nullable Float `v`, NOT NULL binary Text
+# keys `kn` (64) and `kw` (1000)); for refusals only, `wo` and `wj` (one
+# table) and `wi` add a NOT NULL Text `kx` (255), a nullable Text `kz` (64)
+# and a non-null Float `nv`, `ri` renames `i`'s fields without `kn`, `oj`
+# is `o`'s table again, `ro` holds `o`'s fields in another order and `tw`
+# a second nullable Float `w` beside `id`, `v` and `kw`.
+_R02_FIELDS = {
+    "Probe": (
+        ("id", "id", False, None),
+        ("v", "ratio", True, None),
+        ("kn", "text", False, 64),
+        ("kw", "text", False, 1000),
+    ),
+    "Renamed": (
+        ("rid", "id", False, None),
+        ("rv", "ratio", True, None),
+        ("rkw", "text", False, 1000),
+    ),
+}
+_R02_FIELDS["Reordered"] = tuple(_R02_FIELDS["Probe"][i] for i in (3, 1, 0, 2))
+_R02_FIELDS["Twin"] = (
+    *_R02_FIELDS["Probe"][:2],
+    ("w", "ratio", True, None),
+    _R02_FIELDS["Probe"][3],
+)
+_R02_FIELDS["Wide"] = (
+    *_R02_FIELDS["Probe"],
+    ("kx", "text", False, 255),
+    ("kz", "text", True, 64),
+    ("nv", "ratio", False, None),
+)
+# Each source as (name, shape, table); the forms' world holds `o` and `i` only.
+_R02_SOURCES = (
+    ("o", "Probe", "r02 outer"),
+    ("i", "Probe", "r02 inner"),
+    ("wo", "Wide", "r02 wide outer"),
+    ("wi", "Wide", "r02 wide inner"),
+    ("wj", "Wide", "r02 wide outer"),
+    ("ri", "Renamed", "r02 renamed inner"),
+    ("oj", "Probe", "r02 outer"),
+    ("ro", "Reordered", "r02 reordered outer"),
+    ("tw", "Twin", "r02 twin inner"),
+)
+
+
+def r02_world(target, body, *, controls=False):
+    """The R02 world's shapes, the sources ``body`` names, then ``body``:
+    (source, contract). Without ``controls`` only `Probe`, `o` and `i`."""
+    contract = json.loads(
+        probe.parameterized_fixture(target, "", protocol=False)["contract"]
+    )
+    base = contract["sources"][0]
+    fields = {item["name"]: item for item in base["fields"]}
+    shapes = (
+        ("Probe", "Wide", "Renamed", "Reordered", "Twin") if controls else ("Probe",)
+    )
+    header = [
+        line
+        for shape in shapes
+        for line in (
+            f"shape {shape}:",
+            *(
+                f"    {label}: {_TYPES[model]}{' | None' if nullable else ''}"
+                for label, model, nullable, _ in _R02_FIELDS[shape]
+            ),
+        )
+    ]
+    named, chosen = [], []
+    for name, shape, table in _R02_SOURCES:
+        if shape not in shapes or re.search(rf"\b{name}\b", body) is None:
+            continue
+        named.append(
+            f'source {name}: {shape} = {target}.table("{name}.locator.not.sql")'
+        )
+        source = deepcopy(base)
+        source["selector"]["name"] = name
+        source["relation"]["namespace"] = (
+            "public" if target == "postgres" else "phase66"
+        )
+        source["relation"]["name"] = table
+        source["fields"] = []
+        for ordinal, (label, model, nullable, width) in enumerate(_R02_FIELDS[shape]):
+            field = deepcopy(fields[model])
+            field["name"] = field["column"] = label
+            field["ordinal"] = ordinal
+            field["representation"]["nullable"] = nullable
+            if width is not None:
+                field["representation"]["domain"]["max_characters"] = width
+                if "length" in field["representation"]["storage"]:
+                    field["representation"]["storage"]["length"] = width
+            source["fields"].append(field)
+        chosen.append(source)
+    contract["sources"] = chosen
+    source = "\n".join(header) + "\n" + "\n".join(named) + "\n" + body
+    return source, probe.encoded(contract).decode()
+
+
+def r02_build(directory, target, body, *, controls=False):
+    source, contract = r02_world(target, body, controls=controls)
+    checked, outcome = probe.build_case(directory, source, contract)
+    assert checked.verified
+    return outcome
+
+
+def _r02(*lines):
+    return "table result:\n" + "".join(f"    {line}\n" for line in lines)
+
+
+_R02_ITEMS = ("select:", "    id", "    v")
+# The forms, as (template, body): the Float equality alone and beside the
+# narrow or the wide key, and the wide key's program of the same class (a
+# query, a relation alias `let` read as the binder, operands swapped).
+R02_FORMS = {
+    "r02_anti_float": (
+        "T02-float",
+        _r02("from o", "where not any(z.v == o.v for z in i)", *_R02_ITEMS),
+    ),
+    "r02_anti_kn": (
+        "T02-kn",
+        _r02(
+            "from o",
+            "where not any(z.v == o.v and z.kn == o.kn for z in i)",
+            *_R02_ITEMS,
+        ),
+    ),
+    "r02_anti_kw": (
+        "T02-kw",
+        _r02(
+            "from o",
+            "where not any(z.v == o.v and z.kw == o.kw for z in i)",
+            *_R02_ITEMS,
+        ),
+    ),
+    "r02_anti_kw_same_class": (
+        "T02-kw",
+        "query result:\n    let z = i\n    from o\n"
+        "    where not any(o.v == z.v and o.kw == z.kw for z in z)\n"
+        "    select:\n        id\n",
+    ),
+}
+# Compile-only programs of a template: `i`'s fields named apart from `o`'s.
+R02_SAME_CLASS = {
+    "anti_kw_renamed": (
+        "T02-kw",
+        _r02(
+            "from o",
+            "where not any(z.rv == o.v and z.rkw == o.kw for z in ri)",
+            *_R02_ITEMS,
+        ),
+    ),
+}
+# Every other program keeps main's refusal on MySQL, and emits on PostgreSQL:
+# the SEMI shapes, other operators and keys, fields outside the cell, other
+# clauses or places, and the three differences only the declaration as
+# written shows (an unread relation let, an unused named window, a def call).
+R02_REFUSED = {
+    "semi_exists": _r02(
+        "from o", "where any(z.v == o.v for z in i)", "select:", "    id"
+    ),
+    "semi_exists_kw": _r02(
+        "from o",
+        "where any(z.v == o.v and z.kw == o.kw for z in i)",
+        "select:",
+        "    id",
+    ),
+    "semi_exists_not_ne": _r02(
+        "from o", "where any(not (z.v != o.v) for z in i)", "select:", "    id"
+    ),
+    "semi_exists_ne": _r02(
+        "from o", "where any(z.v != o.v for z in i)", "select:", "    id"
+    ),
+    "anti_ne": _r02(
+        "from o", "where not any(z.v != o.v for z in i)", "select:", "    id"
+    ),
+    "anti_not_ne": _r02(
+        "from o", "where not any(not (z.v != o.v) for z in i)", "select:", "    id"
+    ),
+    "anti_same_value": _r02(
+        "from o", "where not any(same_value(z.v, o.v) for z in i)", "select:", "    id"
+    ),
+    "anti_key_first": _r02(
+        "from o",
+        "where not any(z.kw == o.kw and z.v == o.v for z in i)",
+        "select:",
+        "    id",
+    ),
+    "anti_two_keys": _r02(
+        "from o",
+        "where not any(z.v == o.v and z.kn == o.kn and z.kw == o.kw for z in i)",
+        "select:",
+        "    id",
+    ),
+    "anti_key_mixed_width": _r02(
+        "from o",
+        "where not any(z.v == o.v and z.kn == o.kw for z in i)",
+        "select:",
+        "    id",
+    ),
+    "anti_outer_extra_field": _r02(
+        "from wo", "where not any(z.v == wo.v for z in i)", "select:", "    id"
+    ),
+    "anti_key_255": _r02(
+        "from wo",
+        "where not any(z.v == wo.v and z.kx == wo.kx for z in wi)",
+        "select:",
+        "    id",
+    ),
+    "anti_nullable_key": _r02(
+        "from wo",
+        "where not any(z.v == wo.v and z.kz == wo.kz for z in wi)",
+        "select:",
+        "    id",
+    ),
+    "anti_int_key": _r02(
+        "from o",
+        "where not any(z.v == o.v and z.id == o.id for z in i)",
+        "select:",
+        "    id",
+    ),
+    "anti_nonnull_float": _r02(
+        "from wo", "where not any(z.nv == wo.nv for z in wi)", "select:", "    id"
+    ),
+    "anti_mixed_float": _r02(
+        "from wo", "where not any(z.nv == wo.v for z in wi)", "select:", "    id"
+    ),
+    "anti_same_table": _r02(
+        "from wo", "where not any(z.v == wo.v for z in wj)", "select:", "    id"
+    ),
+    "anti_extra_conjunct": _r02(
+        "from o",
+        "where not any(z.v == o.v for z in i) and o.id > 0",
+        "select:",
+        "    id",
+    ),
+    "anti_inner_extra_test": _r02(
+        "from o",
+        "where not any(z.v == o.v and z.id > 0 for z in i)",
+        "select:",
+        "    id",
+    ),
+    "anti_as_value": _r02(
+        "from o", "select:", "    id", "    r = not any(z.v == o.v for z in i)"
+    ),
+    "anti_beside_join": _r02(
+        "from o",
+        "inner join wj on wj.id == o.id",
+        "where not any(z.v == o.v for z in i)",
+        "select:",
+        "    id = o.id",
+    ),
+    "anti_upstream": "query base:\n    from o\n    select:\n        id\n        v\n"
+    + _r02("from base", "where not any(z.v == base.v for z in i)", "select:", "    id"),
+    "source_only_unread_let": "query result:\n    let z = i\n    let u = i\n    from o\n"
+    "    where not any(o.v == z.v and o.kw == z.kw for z in z)\n"
+    "    select:\n        id\n",
+    "source_only_unused_window": _r02(
+        "from o",
+        "let w = window(order by id)",
+        "where not any(z.v == o.v for z in i)",
+        *_R02_ITEMS,
+    ),
+    "source_only_def_call": "def eqv(a: Float | None, b: Float | None) -> Bool | None:"
+    " return a == b\n\n"
+    + _r02("from o", "where not any(eqv(z.v, o.v) for z in i)", *_R02_ITEMS),
+}
+# Beyond the preregistered program of its class: O's fields in another
+# order (outer_fields: any order).
+R02_ALSO_ACCEPTED = {
+    "anti_outer_reordered": (
+        "T02-kw",
+        _r02(
+            "from ro",
+            "where not any(z.v == ro.v and z.kw == ro.kw for z in i)",
+            *_R02_ITEMS,
+        ),
+    ),
+}
+R02_ACCEPTED = {**R02_FORMS, **R02_SAME_CLASS, **R02_ALSO_ACCEPTED}
+# Beyond the preregistered controls: a relation `let` that is not the binder
+# (unread beside a direct binder, or naming `o`), `i` over `o`'s table, a
+# binder over an upstream query of all of `i`'s fields, and an `==` whose
+# two sides read one source: two Floats of I (a NOT EXISTS that reads no
+# field of O), or a key of I or of O on both sides.
+R02_ALSO_REFUSED = {
+    "unread_alias_beside_binder": "query result:\n    let u = i\n    from o\n"
+    "    where not any(z.v == o.v for z in i)\n    select:\n        id\n",
+    "outer_alias": "query result:\n    let p = o\n    from p\n"
+    "    where not any(z.v == p.v for z in i)\n    select:\n        id\n",
+    "inner_on_outer_table": _r02(
+        "from o", "where not any(z.v == o.v for z in oj)", "select:", "    id"
+    ),
+    "anti_upstream_binder": "query base:\n    from i\n    select:\n"
+    "        id\n        v\n        kn\n        kw\n"
+    + _r02("from o", "where not any(z.v == o.v for z in base)", "select:", "    id"),
+    "anti_inner_floats": _r02(
+        "from o", "where not any(z.v == z.w for z in tw)", "select:", "    id"
+    ),
+    "anti_inner_key_both_sides": _r02(
+        "from o",
+        "where not any(z.v == o.v and z.kw == z.kw for z in i)",
+        "select:",
+        "    id",
+    ),
+    "anti_outer_key_both_sides": _r02(
+        "from o",
+        "where not any(z.v == o.v and o.kw == o.kw for z in i)",
+        "select:",
+        "    id",
+    ),
+}

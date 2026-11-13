@@ -3835,13 +3835,18 @@ def _reads_row(value) -> bool:
 # ("select") or the whole WHERE ("where"). JOIN: an INNER `==` or `not (!=)`,
 # or a LEFT `==`, of a nullable Float field of each of two sources as the
 # whole ON ("none") or before `and` one `==` of two Text keys ("text"); an ON
-# `same_value` has no PostgreSQL form. Emission and the live verifier call
+# `same_value` has no PostgreSQL form. ANTI (Phase77 R02, the anti_not_exists
+# shape s06-float-b10 and its candidate emission experiment matched): the
+# whole WHERE is `not any(P for z in I)`, P a `==` of a nullable Float field
+# of I and one of the outer source O, alone ("none") or before `and` one `==`
+# of a Text key of each ("text"). Emission and the live verifier call
 # mysql_float_cell on their plan; compiled replay (records) and the pure
 # boundary (document) each derive the cell from their own input. Every other
 # MySQL Float comparison of two row reads keeps its refusal. A relation alias
-# `let` (read or not), an unused named window and an inlined `def` change the
-# records and the document only in source positions and source bytes, so only
-# emission and the live verifier see and refuse them.
+# `let` (read or not; ANTI admits only one that is its binder), an unused
+# named window and an inlined `def` change the records and the document only
+# in source positions and source bytes, so only emission and the live
+# verifier see and refuse them.
 _SAME_ROW_FORMS = ("==", "!=", "not !=", "same_value", "not same_value")
 MYSQL_FLOAT_ROW_CELLS = frozenset(
     {
@@ -3852,7 +3857,12 @@ MYSQL_FLOAT_ROW_CELLS = frozenset(
         ),
         *(
             (kind, key, form)
-            for kind, form in (("inner", "=="), ("inner", "not !="), ("left", "=="))
+            for kind, form in (
+                ("inner", "=="),
+                ("inner", "not !="),
+                ("left", "=="),
+                ("anti", "=="),
+            )
             for key in ("none", "text")
         ),
     }
@@ -3864,11 +3874,14 @@ MYSQL_FLOAT_CELL_KEY_WIDTHS = (64, 1000)
 # (mysql_float_cell_carrier) in declaration order, which the CTE of a WHERE or
 # JOIN cell writes: exactly those of the qualification's tables, `f6s`
 # (id, f1, f2) for a same-row cell and `f6o` and `f6i` (id, v, kn, kw) for a
-# JOIN cell. A source of any other fields or order is never a cell.
+# JOIN cell. A source of any other fields or order is never a cell. ANTI
+# checks O only, its fields in any order (the R02 whitelist); I's other fields
+# never reach the SQL.
 MYSQL_FLOAT_CELL_TABLES = {
     "same_row": ("int", "float", "float"),
     "inner": ("int", "float", 64, 1000),
     "left": ("int", "float", 64, 1000),
+    "anti": ("int", "float", 64, 1000),
 }
 # The plan parts a cell's plan may hold; every other part is empty.
 _MYSQL_FLOAT_PLAN_PARTS = frozenset(
@@ -3897,6 +3910,7 @@ _MYSQL_FLOAT_PLAN_PARTS = frozenset(
         "join_inputs",
         "join_ports",
         "join_tails",
+        "expression_block_uses",
     }
 )
 
@@ -3959,13 +3973,17 @@ def _mysql_float_shape(plan, expression):
     item, and every other SELECT item is a field reference. JOIN: one INNER
     or LEFT JOIN of two different sources, read directly, with no retained
     equality, under one projection of joined references; the whole ON is the
-    tree, or `and` of the tree and a `==` of two references (``keys``). The
-    tree is ``expression`` (`==`, `!=` or `same_value` of two references) or
-    `not` over it, and the plan holds no other expression. The query as
-    written declares no `let` (a relation alias such as `let i = f6i`, read
-    or not, which the plan resolves to its source) and no named window, and
+    tree, or `and` of the tree and a `==` of two references (``keys``). ANTI:
+    one source under a WHERE and a projection of field references; the whole
+    WHERE is `not` over one `any(...)` that reads the plan's one expression
+    block use, whose predicate is the tree, or `and` of the tree and a `==`
+    of two references (``keys``). The tree is ``expression`` (`==`, `!=` or `same_value` of two
+    references) or `not` over it, and the plan holds no other expression. The
+    query as written declares no `let` (a relation alias such as `let i =
+    f6i`, read or not, which the plan resolves to its source; ANTI admits one
+    alias that its `any(...)` reads as its binder) and no named window, and
     no expression comes from an inlined `def`. The length checks come first:
-    a plan with more than eight expressions beside its SELECT items is never
+    a plan with more than nine expressions beside its SELECT items is never
     a cell, so each plan is scanned for a bounded number of calls.
     """
     import dataclasses
@@ -3976,15 +3994,23 @@ def _mysql_float_shape(plan, expression):
         ProjectSQLBoundaryReason,
     )
     from pietto._project.project_sql_plan_joins import ProjectSQLJoinTail
-    from pietto.ast_nodes import AuthoredJoinKind, QueryDef, TableDef, inlined_arguments
+    from pietto.ast_nodes import (
+        AnyExpr,
+        AuthoredJoinKind,
+        QueryDef,
+        TableDef,
+        UnaryExpr,
+        inlined_arguments,
+    )
 
     expressions, blocks, joins = plan.expressions, plan.blocks, plan.joins
+    uses = plan.expression_block_uses
     if (
-        len(expressions) > len(plan.projections) + 8
+        len(expressions) > len(plan.projections) + 9
         or len(joins) > 1
         or len(plan.filters) > (0 if joins else 1)
         or not 0 < len(blocks) <= (1 if joins else 2)
-        or len(plan.sources) != (2 if joins else 1)
+        or len(plan.sources) != (2 if joins or uses else 1)
         or any(
             getattr(plan, item.name)
             for item in dataclasses.fields(plan)
@@ -4004,7 +4030,9 @@ def _mysql_float_shape(plan, expression):
         return found if found is not None and found.ref is ref else None
 
     roots = tuple(at(item.expression) for item in plan.projections)
-    keys, parts = (), 0
+    # Every path below binds kind and shape before reading them; the checker
+    # cannot tell that `joins or uses` holds exactly where they are unbound.
+    keys, parts, kind, shape = (), 0, "same_row", ("same_row", "select")
     if joins:
         join, inputs = joins[0], plan.join_inputs
         kind = {AuthoredJoinKind.INNER: "inner", AuthoredJoinKind.LEFT: "left"}.get(
@@ -4030,19 +4058,6 @@ def _mysql_float_shape(plan, expression):
             row.ProjectSQLJoinedReference,
             at(join.on),
         )
-        place = "none"
-        if type(root) is row.ProjectSQLBinary and root.expression.operator == "and":
-            key = at(root.right)
-            if (
-                type(key) is not row.ProjectSQLComparison
-                or key.expression.operator != "=="
-            ):
-                return None
-            keys = (at(key.left), at(key.right))
-            if any(type(side) is not reference for side in keys):
-                return None
-            root, place, parts = at(root.left), "text", 4
-        shape = (kind, place)
     else:
         stages = (
             (row.ProjectSQLStageKind.WHERE, row.ProjectSQLStageKind.PROJECTION)
@@ -4063,6 +4078,35 @@ def _mysql_float_shape(plan, expression):
             if len(trees) != 1:
                 return None
             root, shape = trees[0], ("same_row", "select")
+        if uses:
+            exists = (
+                at(root.operand)
+                if type(root) is row.ProjectSQLUnary
+                and root.expression.operator == "not"
+                else None
+            )
+            if not plan.filters or type(exists) is not row.ProjectSQLAny:
+                return None
+            root, reference, kind, parts = (
+                at(exists.predicate),
+                row.ProjectSQLAnyReference,
+                "anti",
+                2,
+            )
+    if joins or uses:
+        place = "none"
+        if type(root) is row.ProjectSQLBinary and root.expression.operator == "and":
+            key = at(root.right)
+            if (
+                type(key) is not row.ProjectSQLComparison
+                or key.expression.operator != "=="
+            ):
+                return None
+            keys = (at(key.left), at(key.right))
+            if any(type(side) is not reference for side in keys):
+                return None
+            root, place, parts = at(root.left), "text", parts + 4
+        shape = (kind, place)
     node, negated = root, False
     if type(root) is row.ProjectSQLUnary and root.expression.operator == "not":
         node, negated = at(root.operand), True
@@ -4093,11 +4137,27 @@ def _mysql_float_shape(plan, expression):
     written = authored_definitions(
         plan.scope.completed.semantic_result.modules[owner.module_position]
     )[owner.declaration_position]
+    if type(written) not in {TableDef, QueryDef}:
+        return None
+    lets, tree = (
+        written.naming_declarations,
+        getattr(written.where_clause, "expression", None),
+    )
+    # The plan's `any(...)` names the source an alias resolves to; the binder
+    # an ANTI `let` must be is the one its WHERE names as written.
+    binder = (
+        tree.operand.relation_name
+        if uses
+        and type(tree) is UnaryExpr
+        and tree.operator == "not"
+        and type(tree.operand) is AnyExpr
+        else None
+    )
     if (
-        type(written) not in {TableDef, QueryDef}
-        or written.naming_declarations
-        or written.named_windows
+        written.named_windows
         or any(inlined_arguments(item.expression) for item in expressions)
+        or lets
+        and (len(lets) != 1 or lets[0].name != binder)
     ):
         return None
     cell = (*shape, "not " + form if negated else form)
@@ -4140,13 +4200,36 @@ def mysql_float_cell(request, expression):
     qualified keys of one width of different inputs, and other SELECT items
     that read a carrier mysql_float_cell_items admits; each source has the
     fields of a qualification table (MYSQL_FLOAT_CELL_TABLES). None outside
-    every cell, and while emission derives as main (AS_MAIN)."""
+    every cell, and while emission derives as main (AS_MAIN). ANTI: each
+    `==` reads a field of the binder source I and one of the outer source O,
+    and only O's fields are checked, in any order."""
     shape = None if AS_MAIN.get() else _mysql_float_shape(request.plan, expression)
     if shape is None:
         return None
     cell, operands, keys, selected = shape
+    plan = request.plan
+    binder = plan.expression_block_uses[0] if cell[0] == "anti" else None
+    exports = tuple(
+        item.exports
+        for item in plan.bindings.definitions
+        if binder is not None and item.ref is binder.producer
+    )
+
+    def read_port(item):
+        # A binder field reads I's export at its position, as any_column does.
+        if type(item) is not row.ProjectSQLAnyReference or item.use is None:
+            return item.port
+        if (
+            len(exports) != 1
+            or item.position is None
+            or item.position >= len(exports[0])
+        ):
+            return None
+        return exports[0][item.position].ref
+
     found = tuple(
-        _mysql_float_field(request, item.port) for item in (*operands, *keys, *selected)
+        _mysql_float_field(request, read_port(item))
+        for item in (*operands, *keys, *selected)
     )
     reads = tuple(item for item in found if item is not None)
     if len(reads) != len(found):
@@ -4163,14 +4246,29 @@ def mysql_float_cell(request, expression):
     )
     tables = {(source.namespace, source.name) for source in sources}
     allowed = mysql_float_cell_items(cell)
+    checked = tuple(
+        source
+        for source in sources
+        if binder is None
+        or not any(
+            item.ref is binder.producer and item.source.owner is source.owner
+            for item in plan.sources
+        )
+    )
+    table = MYSQL_FLOAT_CELL_TABLES[cell[0]]
+
+    def held(source):
+        found = tuple(mysql_float_cell_carrier(f.representation) for f in source.fields)
+        # ANTI: O's fields in any order (the R02 whitelist).
+        return found if binder is None else Counter(found)
+
     if (
         # Only a plan source with no contract source, or one source read
         # twice (a relation alias `let`, which _mysql_float_shape refuses).
         len(sources) != len(request.plan.sources)
         or any(
-            tuple(mysql_float_cell_carrier(f.representation) for f in source.fields)
-            != MYSQL_FLOAT_CELL_TABLES[cell[0]]
-            for source in sources
+            held(source) != (table if binder is None else Counter(table))
+            for source in checked
         )
         or carriers[:2] != ("float", "float")
         or ports[0] is ports[1]

@@ -1207,6 +1207,78 @@ def test_a_compiled_mysql_float_key_outside_its_cell_is_refused(
         verify_compiled_emission(candidate, candidate.request)
 
 
+@pytest.mark.parametrize("name", float_cells.R02_ACCEPTED)
+def test_mysql_r02_anti_cells_replay_from_compiled_input(tmp_path, name):
+    """Phase77 R02: compiled replay re-derives each ANTI cell from the
+    bundle's own records and renders the emitted SQL; so does the live
+    template."""
+    _, body = float_cells.R02_ACCEPTED[name]
+    original = float_cells.r02_build(
+        tmp_path, "mysql", body, controls=name not in float_cells.R02_FORMS
+    )
+    assert original.status == "VERIFIED" and original.artifact is not None
+    _compare(original.artifact, refinement=False)
+    _live(original.artifact)
+
+
+@pytest.mark.parametrize(
+    "name",
+    (
+        *("semi_exists", "semi_exists_kw", "anti_ne", "anti_not_ne"),
+        *("anti_same_value", "anti_key_first", "anti_two_keys"),
+        *("anti_key_mixed_width", "anti_outer_extra_field", "anti_key_255"),
+        *("anti_nullable_key", "anti_int_key", "anti_nonnull_float"),
+        *("anti_mixed_float", "anti_same_table", "anti_extra_conjunct"),
+        *("anti_inner_extra_test", "anti_as_value", "anti_beside_join"),
+        *("anti_upstream", "semi_exists_not_ne", "semi_exists_ne"),
+        *("inner_on_outer_table", "anti_inner_floats"),
+        *("anti_inner_key_both_sides", "anti_outer_key_both_sides"),
+        "anti_upstream_binder",
+    ),
+)
+def test_a_compiled_mysql_anti_comparison_outside_its_cell_is_refused(
+    tmp_path, monkeypatch, name
+):
+    """A bundle of an R02 control whose emission bypassed the cell law:
+    derivation re-derives the cell from the records and refuses it, and the
+    independent verifier refuses a derivation forged past that law."""
+    from pietto._project import project_completed_semantics as semantics
+    from pietto._project import project_sql_emission_rows as physical
+    from pietto._project.project_compiled_schema import CompiledError
+
+    with monkeypatch.context() as patch:
+        patch.setattr(
+            physical,
+            "mysql_float_cell",
+            lambda request, expression: ("anti", "none", "=="),
+        )
+        original = float_cells.r02_build(
+            tmp_path,
+            "mysql",
+            {**float_cells.R02_REFUSED, **float_cells.R02_ALSO_REFUSED}[name],
+            controls=True,
+        )
+        assert original.status == "VERIFIED"
+        built = build_compiled(original.artifact)
+    root = _loaded(built)
+    with pytest.raises(CompiledError, match="^COMPILED_PHYSICAL_DOMAIN$"):
+        emit_compiled(root, ())
+    with monkeypatch.context() as patch:
+        patch.setattr(
+            semantics,
+            "_compiled_float_cell",
+            lambda records, address: ("anti", "none", "=="),
+        )
+        derived = semantics.derive_compiled_semantics(root, ())
+    refusal = (
+        (CompiledError, "^COMPILED_SEMANTIC_DOMAIN$")
+        if name == "anti_same_value"
+        else (ValueError, "comparison_type_pair_not_admitted")
+    )
+    with pytest.raises(refusal[0], match=refusal[1]):
+        semantics.verify_compiled_semantics(derived)
+
+
 @pytest.mark.parametrize("target", ("postgres", "mysql"))
 def test_a_compiled_float_membership_of_two_row_reads_is_refused_on_mysql(
     tmp_path, target, monkeypatch
