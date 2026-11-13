@@ -2,6 +2,7 @@
 
 from collections import Counter
 from datetime import date
+from functools import cache
 from typing import Any, cast
 
 from pietto.ast_nodes import CallExpr
@@ -426,7 +427,16 @@ def _verify_lists(records, family) -> None:
     """A list operation (S06) first reads one collected field of its row
     (a ``value`` read of a collection port); each ``element`` read lies in
     exactly one list operation's body or test, over that operation's Collect."""
-    reached: dict[Address, int] = {}
+
+    @cache
+    def has_element(address):
+        if address.kind == "operation":
+            return any(map(has_element, records[address].get("operands")))
+        return address.kind == "read" and records[address].get("role") == "element"
+
+    # One set for every list: a body shared by many lists is walked once.
+    seen: set[Address] = set()
+    doubled = False
     for record in records.values():
         if record.address.kind != "operation" or record.get("operator")[0] != "list":
             continue
@@ -444,6 +454,12 @@ def _verify_lists(records, family) -> None:
         pending = list(operands)
         while pending:
             address = pending.pop()
+            if address in seen:
+                # A second path, in this list or another, reaches every
+                # element read below it again.
+                doubled |= has_element(address)
+                continue
+            seen.add(address)
             current = records[address]
             if address.kind == "operation":
                 need(current.get("operator")[0] != "list", "LIST_NESTED")
@@ -451,10 +467,10 @@ def _verify_lists(records, family) -> None:
             elif address.kind == "read" and current.get("role") == "element":
                 use = records[current.get("use")]
                 need(use.get("operation") == collect.address, "ELEMENT_READ_SCOPE")
-                reached[address] = reached.get(address, 0) + 1
     need(
-        all(
-            reached.get(address) == 1
+        not doubled
+        and all(
+            address in seen
             for address, r in records.items()
             if address.kind == "read" and r.get("role") == "element"
         ),
@@ -644,7 +660,9 @@ def _verify_parameter_owners(records, entry) -> None:
     its own relation lets (D70.01); no other declaration reads the header."""
     header = records[entry.get("declaration")]
     origin = tuple(header.get(n) for n in ("module", "module_position", "position"))
-    found = set()
+    # A record reads the same values under every unit of one owner class, so
+    # each class expands a shared record once.
+    found, expanded = set(), {False: set(), True: set()}
     for unit in records.values():
         if unit.address.kind not in ("row", "join", "aggregate", "window", "result"):
             continue
@@ -654,7 +672,7 @@ def _verify_parameter_owners(records, entry) -> None:
             and tuple(owner.get(n) for n in ("module", "module_position", "position"))
             == origin
         )
-        pending = list(unit.values)
+        pending, seen = list(unit.values), expanded[reads_header]
         while pending:
             value = pending.pop()
             if type(value) is tuple:
@@ -662,11 +680,12 @@ def _verify_parameter_owners(records, entry) -> None:
             elif type(value) is Address and value.kind == "parameter_read":
                 need(reads_header, "PARAMETER_OWNER")
                 found.add(value)
-            elif type(value) is Address and value.kind in (
-                "operation",
-                "aggregate_value",
-                "window_value",
+            elif (
+                type(value) is Address
+                and value.kind in ("operation", "aggregate_value", "window_value")
+                and value not in seen
             ):
+                seen.add(value)
                 pending.extend(records[value].values)
     need(found == {a for a in records if a.kind == "parameter_read"}, "PARAMETER_OWNER")
 
@@ -749,6 +768,59 @@ def verify_description(value: Description) -> None:
     for record in records.values():
         for address in _references(record.values):
             need(address in records, "MISSING_REFERENCE")
+    # Ref depth and repeated scalar expansion are bounded before any check
+    # walks an expression or builds a dialect tree; a cycle or a compact DAG
+    # cannot allocate an endless or exponential tree.
+    costs, depths, active_values = {}, {}, set()
+    for address in records:
+        if address.kind not in (
+            "literal",
+            "null_literal",
+            "parameter_read",
+            "read",
+            "operation",
+        ):
+            continue
+        stack = [(address, False)]
+        while stack:
+            current, returning = stack.pop()
+            if current in costs:
+                continue
+            record = records[current]
+            children = record.get("operands") if current.kind == "operation" else ()
+            refs(children, AGGREGATE_ROW_VALUES)
+            if not returning:
+                need(current not in active_values, "EXPRESSION_CYCLE")
+                active_values.add(current)
+                stack.append((current, True))
+                stack.extend((child, False) for child in reversed(children))
+                continue
+            active_values.remove(current)
+            costs[current] = (
+                2
+                if current.kind in ("literal", "null_literal", "parameter_read")
+                else 1
+            ) + sum(costs[c] for c in children)
+            depths[current] = 1 + max((depths[c] for c in children), default=0)
+            need(
+                costs[current] <= MAX_RECORDS
+                and depths[current] <= MAX_EXPRESSION_DEPTH,
+                "EXPRESSION_EXPANSION",
+            )
+    roots = []
+    for record in records.values():
+        kind = record.address.kind
+        if kind == "row":
+            roots.extend(refs(record.get("values"), AGGREGATE_ROW_VALUES))
+        if kind in ("row", "join") and record.get("predicate") is not None:
+            roots.append(ref(record.get("predicate"), AGGREGATE_ROW_VALUES))
+        if kind == "aggregate_value":
+            roots.extend(refs(record.get("arguments"), AGGREGATE_ROW_VALUES))
+            roots.extend(
+                ref(order.get("value"), AGGREGATE_ROW_VALUES)
+                for order in refs(record.get("order_by"), {"aggregate_order"})
+            )
+    need(sum(costs[r.address] for r in roots) <= MAX_RECORDS, "EXPRESSION_EXPANSION")
     target = records[Address("target", 0)]
     family, release, contract, profile = target.values
     from pietto._project.project_sql_emission_contract import RELEASES
@@ -1374,12 +1446,15 @@ def verify_description(value: Description) -> None:
                 "AGGREGATE_PORTS",
             )
 
-            def same_preaggregate_scope(value):
-                if value.address.kind == "read":
+            # A value listed twice or an operand read twice is checked once.
+            @cache
+            def same_preaggregate_scope(address):
+                value = records[address]
+                if address.kind == "read":
                     return value.get("use") == use.address
-                if value.address.kind in {"literal", "null_literal", "parameter_read"}:
+                if address.kind in {"literal", "null_literal", "parameter_read"}:
                     return True
-                if value.address.kind != "operation":
+                if address.kind != "operation":
                     return False
                 role, _token = value.get("operator")
                 if role not in {
@@ -1395,22 +1470,17 @@ def verify_description(value: Description) -> None:
                     "cast",
                 }:
                     return False
-                return all(
-                    same_preaggregate_scope(ref(operand, AGGREGATE_ROW_VALUES))
-                    for operand in value.get("operands")
-                )
+                # The operand graph's bound checked every operand already.
+                return all(map(same_preaggregate_scope, value.get("operands")))
 
+            unique = {v.address: v for v in values}.values()
             reads = (
-                *keys,
-                *(records[a] for v in values for a in v.get("arguments")),
-                *(
-                    records[records[o].get("value")]
-                    for v in values
-                    for o in v.get("order_by")
-                ),
+                *get("keys"),
+                *(a for v in unique for a in v.get("arguments")),
+                *(records[o].get("value") for v in unique for o in v.get("order_by")),
             )
             need(
-                all(same_preaggregate_scope(value) for value in reads),
+                all(map(same_preaggregate_scope, reads)),
                 "AGGREGATE_SCOPE",
             )
         elif kind == "aggregate_value":
@@ -2162,11 +2232,8 @@ def verify_description(value: Description) -> None:
             roots.append((relation.get("predicate"), "on"))
         for root, role in roots:
             pending: list[tuple[Address, tuple[tuple[str, int], ...]]] = [(root, ())]
-            visits = 0
             while pending:
                 address, ancestry = pending.pop()
-                visits += 1
-                need(visits <= MAX_RECORDS, "LITERAL_ANCESTRY_EXPANSION")
                 current = records[address]
                 if address.kind == "operation":
                     parent = current.get("operator")[0]
@@ -2185,56 +2252,6 @@ def verify_description(value: Description) -> None:
                     located_slots.add(address)
     need(located_slots == set(bound_literals), "SLOT_EXECUTION_CLOSURE")
 
-    # Ref depth and repeated scalar expansion are bounded before constructing
-    # dialect trees; a compact DAG cannot allocate an exponential tree.
-    costs, depths, active_values = {}, {}, set()
-    for address in records:
-        if address.kind not in (
-            "literal",
-            "null_literal",
-            "parameter_read",
-            "read",
-            "operation",
-        ):
-            continue
-        stack = [(address, False)]
-        while stack:
-            current, returning = stack.pop()
-            if current in costs:
-                continue
-            record = records[current]
-            children = record.get("operands") if current.kind == "operation" else ()
-            if not returning:
-                need(current not in active_values, "EXPRESSION_CYCLE")
-                active_values.add(current)
-                stack.append((current, True))
-                stack.extend((child, False) for child in reversed(children))
-                continue
-            active_values.remove(current)
-            costs[current] = (
-                2
-                if current.kind in ("literal", "null_literal", "parameter_read")
-                else 1
-            ) + sum(costs[c] for c in children)
-            depths[current] = 1 + max((depths[c] for c in children), default=0)
-            need(
-                costs[current] <= MAX_RECORDS
-                and depths[current] <= MAX_EXPRESSION_DEPTH,
-                "EXPRESSION_EXPANSION",
-            )
-    roots = []
-    for record in records.values():
-        kind = record.address.kind
-        if kind == "row":
-            roots.extend(record.get("values"))
-        if kind in ("row", "join") and record.get("predicate") is not None:
-            roots.append(record.get("predicate"))
-        if kind == "aggregate_value":
-            roots.extend(record.get("arguments"))
-            roots.extend(
-                records[order].get("value") for order in record.get("order_by")
-            )
-    need(sum(costs[a] for a in roots) <= MAX_RECORDS, "EXPRESSION_EXPANSION")
     _verify_parameter_owners(records, entry)
     policy = records[Address("policy", 0)]
     need(

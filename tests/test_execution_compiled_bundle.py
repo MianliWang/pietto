@@ -668,6 +668,102 @@ def test_a_repinned_row_never_loads_under_another_stage(tmp_path, target, name):
                 assert rejected.value.detail == "COMPILED_ROW_SHAPE"
 
 
+OPERAND_GRAPH = """table result:
+    from rows
+    where lower(text) != "x" and (%s)
+    group by text
+    select:
+        text
+        n = count(lower(text))
+""" % " or ".join(['text == "a"'] * 18)
+
+
+@pytest.mark.parametrize("target", ("postgres", "mysql"))
+def test_a_repinned_operand_cycle_or_dag_is_refused_before_any_walk(tmp_path, target):
+    """The operand graph is proven acyclic and its tree expansion bounded
+    before any check walks it: a re-pinned cycle or doubling DAG in a row
+    predicate or an aggregate argument is refused at once, not after
+    exhausting time, memory or the stack."""
+    import _pietto_sql_emission as probe
+    from pietto._project.project_compiled_build import build_compiled
+    from pietto._project.project_compiled_loading import load_compiled
+
+    item = probe.parameterized_fixture(target, OPERAND_GRAPH)
+    _, outcome = probe.build_case(
+        tmp_path, item["source"], item["contract"], item["policy"]
+    )
+    built = build_compiled(outcome.artifact)
+    description = built.root.description
+    operations = [r for r in description.records if r.address.kind == "operation"]
+    (counted,) = (
+        a
+        for r in description.records
+        if r.address.kind == "aggregate_value"
+        for a in r.get("arguments")
+    )
+    (row,) = (
+        r
+        for r in operations
+        if r.get("operator")[1] == "lower" and r.address != counted
+    )
+    chain = {
+        r.address
+        for r in operations
+        if r.get("operator")[1] == "or" and r.get("operands")[0].kind == "operation"
+    }
+    (where,) = (
+        r
+        for r in description.records
+        if r.address.kind == "row" and r.get("predicate") is not None
+    )
+    forgeries = {
+        # Each `or` reads its left operand twice: 17 operations unfold to
+        # 2**17 comparisons.
+        "row_dag": lambda r: (
+            _set(r, "operands", (r.get("operands")[0],) * 2)
+            if r.address in chain
+            else r
+        ),
+        "aggregate_cycle": lambda r: (
+            _set(r, "operands", (counted,)) if r.address == counted else r
+        ),
+        "not_an_address": lambda r: (
+            _set(r, "operands", (0,)) if r.address == counted else r
+        ),
+        "row_cycle": lambda r: _set(r, "operands", (row.address,)) if r is row else r,
+        # A row value that names a port is no expression root.
+        "root_not_value": lambda r: (
+            _set(r, "values", (r.get("outputs")[0], *r.get("values")[1:]))
+            if r is where
+            else r
+        ),
+        # The predicate unfolds to fewer than a hundred records; read 2048
+        # times as row values, it is bounded by every reference, not once.
+        "shared_roots": lambda r: (
+            _set(r, "values", (r.get("predicate"),) * 2048) if r is where else r
+        ),
+    }
+    refused = {}
+    for name, change in forgeries.items():
+        raw = wire.encode(_forged(description, change))
+        with pytest.raises(wire.CompiledError) as caught:
+            load_compiled(
+                raw,
+                expected_pin=wire.content_pin(raw),
+                accepted_producer=built.producer,
+                accepted_compatibility=built.compatibility,
+            )
+        refused[name] = str(caught.value)
+    assert refused == {
+        "row_dag": "COMPILED_EXPRESSION_EXPANSION",
+        "aggregate_cycle": "COMPILED_EXPRESSION_CYCLE",
+        "not_an_address": "COMPILED_REFERENCE",
+        "row_cycle": "COMPILED_EXPRESSION_CYCLE",
+        "root_not_value": "COMPILED_REFERENCE",
+        "shared_roots": "COMPILED_EXPRESSION_EXPANSION",
+    }
+
+
 @pytest.mark.parametrize("target", ("postgres", "mysql"))
 def test_only_the_entry_query_and_its_lets_read_the_header(tmp_path, target):
     """A let's read travels in the v2 root and binds; a re-pinned root that
@@ -750,7 +846,7 @@ def test_only_the_entry_query_and_its_lets_read_the_header(tmp_path, target):
             return _set(record, "operands", (inner.get("operands")[0], read))
         return record
 
-    forged = wire.Description(
+    swapped = wire.Description(
         description.compatibility,
         description.producer,
         description.query,
@@ -759,14 +855,54 @@ def test_only_the_entry_query_and_its_lets_read_the_header(tmp_path, target):
             for member, records_ in description.members
         ),
     )
-    raw = wire.encode(forged)
-    with pytest.raises(wire.CompiledError, match="^COMPILED_PARAMETER_OWNER$"):
-        load_compiled(
-            raw,
-            expected_pin=wire.content_pin(raw),
-            accepted_producer=forged.producer,
-            accepted_compatibility=forged.compatibility,
-        )
+
+    # `t` aggregates the entry's `low + 1`. Records of two kinds may come in
+    # either order, so moving the aggregate last lets the entry's row walk
+    # the shared operation first; `t` must still be refused.
+    _, outcome = probe.build_case(
+        tmp_path / "order",
+        item["source"].split("query result(", 1)[0]
+        + "table t:\n    from rows\n    group by plain\n    select:\n        plain\n"
+        "        n = max(id)\nquery result(low: Int):\n    from t\n"
+        "    where n > low + 1\n    select:\n        plain\n",
+        item["contract"],
+        item["policy"],
+    )
+    ordered = build_compiled(outcome.artifact).root.description
+    (shared,) = (
+        r
+        for r in ordered.records
+        if r.address.kind == "operation"
+        and any(o.kind == "parameter_read" for o in r.get("operands"))
+    )
+    (value,) = (r for r in ordered.records if r.address.kind == "aggregate_value")
+    (aggregate,) = (r for r in ordered.records if r.address.kind == "aggregate")
+    moved = wire.Description(
+        ordered.compatibility,
+        ordered.producer,
+        ordered.query,
+        tuple(
+            (
+                member,
+                tuple(
+                    _set(r, "arguments", (shared.address,)) if r is value else r
+                    for r in records_
+                    if r is not aggregate
+                )
+                + ((aggregate,) if member == "structure" else ()),
+            )
+            for member, records_ in ordered.members
+        ),
+    )
+    for forged in (swapped, moved):
+        raw = wire.encode(forged)
+        with pytest.raises(wire.CompiledError, match="^COMPILED_PARAMETER_OWNER$"):
+            load_compiled(
+                raw,
+                expected_pin=wire.content_pin(raw),
+                accepted_producer=forged.producer,
+                accepted_compatibility=forged.compatibility,
+            )
 
 
 @pytest.mark.parametrize("target", ("postgres", "mysql"))

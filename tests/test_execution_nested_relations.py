@@ -1682,6 +1682,39 @@ def test_a_list_operation_bundle_lowers_to_the_live_statement(
         verify_description(
             _changed(build.root.description, _set(summed, operator=("list", "len")))
         )
+    # A test that reads itself is refused before the list body walk.
+    test = next(records[a] for a in summed.get("operands") if a.kind == "operation")
+    looped = _set(test, operands=(test.address, *test.get("operands")[1:]))
+    with pytest.raises(CompiledError, match="^COMPILED_EXPRESSION_CYCLE$"):
+        verify_description(_changed(build.root.description, looped))
+    # A body that reaches its test along two paths reaches every element
+    # read below it twice, though the shared test is walked once.
+    read, value, _ = summed.get("operands")
+    element, literal = test.get("operands")
+    both = _set(test, operands=(element, value))
+    twice = _set(summed, operands=(read, test.address, test.address))
+    with pytest.raises(CompiledError, match="^COMPILED_ELEMENT_READ_SCOPE$"):
+        verify_description(_changed(build.root.description, both, twice))
+    # A literal the test reads twice has no element read below it.
+    shared = _set(
+        test, operator=("membership", "in"), operands=(element, literal, literal)
+    )
+    try:
+        verify_description(_changed(build.root.description, shared))
+    except CompiledError as error:
+        assert str(error) != "COMPILED_ELEMENT_READ_SCOPE"
+    # Another list that reads this test's element read reaches it a second
+    # time; a test that reads no element leaves its read in no list.
+    other = next(
+        records[r.get("operands")[-1]]
+        for r in lists
+        if r is not summed and r.get("operands")[-1].kind == "operation"
+    )
+    crossed = _set(other, operands=(other.get("operands")[0], element))
+    orphaned = _set(test, operands=(literal, literal))
+    for forged in (crossed, orphaned):
+        with pytest.raises(CompiledError, match="^COMPILED_ELEMENT_READ_SCOPE$"):
+            verify_description(_changed(build.root.description, forged))
 
 
 def test_a_list_operation_compiles_and_its_bundle_loads(tmp_path):
