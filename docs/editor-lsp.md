@@ -102,8 +102,8 @@ The Phase75 acceptance used the Pietto extension for VS Code `0.2.0`, commit
 `pietto.projectRoots` as the `projectRoots` initialization option. Its
 acceptance, which the [Phase75 route](phases/phase-75/route.md) requires, ran
 in VS Code 1.145.2 on the batch-1 head `ff1aa713`. The independent extension
-has since published its `0.3.0` SQL-preview code; [status](status.md) records
-that repository state separately from the owner's Marketplace upload. Follow
+has since published newer versions; [status](status.md) records its current
+repository state separately from the owner's Marketplace upload. Follow
 its repository's installation instructions or use a generic LSP client as
 the next section shows. The extension `0.1.0` accepted only Pietto `0.1.2`.
 

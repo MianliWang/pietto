@@ -74,7 +74,11 @@ then writes the section's status, highlights, upgrading and known limitations.
 aimed at issues between slices: shared owners, edits that conflict or depend
 on their order, and documents or fragments that disagree. Only a finding of
 medium or worse severity opens a second round. Each slice is still checked by
-its own independent verifier before it is delivered.
+its own independent verifier before it is delivered. A check whose findings
+are all low counts as clean: the lows are fixed in the same commit without
+another round, and the batch audit and Gate 2 cover the fixes, except a fix
+that changes public output, a diagnostic, SQL or a frozen experiment, which
+gets its own review or is deferred (D77.51).
 
 **Database campaigns.** A real-database campaign holds one of its engine's
 three slot locks for the whole run, so up to three PostgreSQL and three MySQL

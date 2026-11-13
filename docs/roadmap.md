@@ -155,18 +155,15 @@ Gate 1 records the weighing against the
 [semantic metadata artifact v1](spec/semantic-metadata-artifact-v1.md) (ED.06),
 in four layers (check, SQL emission, execution, result reading) and three
 states (unsupported, unknown, not qualified), read alike by editors and AI
-tools, with each backend filling its own profile; and the extension's model
-view, rebuilt on the column view.
+tools, with each backend filling its own profile.
 
 The owner's VS Code extension (`MianliWang/pietto-vscode-extension`) takes
 its diagnostics from `pietto lsp` and versions apart from Pietto, with a
-minimum Pietto version that its own checks enforce: `0.2.0` stays, small
-changes ship as `0.2.x`, `0.3.0` comes only with a user-visible editor
-feature, and no Marketplace pre-release channel is used. PostgreSQL SQL
-preview is the feature now published on the independent `0.3.0` line (see
-[status](status.md)). It gets a CI in its
-repository, which needs its own authorization, and its Marketplace timing is
-the owner's. Each Pietto phase that changes the grammar or the built-in
+minimum Pietto version that its own checks enforce: small changes ship as
+patch versions, a minor version comes only with a user-visible editor
+feature, and no Marketplace pre-release channel is used. Its current version
+is in [status](status.md), and its Marketplace timing is the owner's. Each
+Pietto phase that changes the grammar or the built-in
 catalog carries the extension sync, made by the lead, and the sync script
 stops reading the private `pietto.parser_api._parse_migration_source`.
 

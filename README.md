@@ -363,14 +363,14 @@ starts; none of it is a promise or a date.
 
 | Release | Planned |
 | --- | --- |
-| `0.1.12` | The rest of the MySQL deep adaptation |
+| `0.1.12` | The rest of the MySQL deep adaptation; `now()` as an output column, and `now()` in `relay_live` and R2 |
 | `0.2.0` | SQLite and DuckDB adaptation (`0.2.0` needs only the limited local DuckDB analysis path, not a complete third dialect); pandas, Polars, NumPy, SciPy and Matplotlib interoperability and the Python user surface |
 | `0.2.x` | Real-database, differential, metamorphic, fuzz and performance assurance; a diagnostic review; the CPython and Windows support decisions |
 | `1.0.0rc1` | A freeze of the public schemas, API, CLI, syntax and support matrix |
 | `1.0` | The stable release; a breaking change then waits for `2.0` |
 
-The editor support ships on its own extension versions; capability facts and
-the extension's model view are still ahead.
+The editor support ships on its own extension versions; capability facts are
+still ahead.
 
 ## Documentation
 
