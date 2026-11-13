@@ -164,7 +164,8 @@ decision and adds no product law; a change to one goes back to the owner.
 6. **S09 UUID** (D77.13, `IMPLEMENTATION_FREEDOM`). How a MySQL UUID header
    parameter reaches the existing `my_uuid_bytes` carrier is the lead's
    choice, provided the public typed value stays canonical lower-case UUID
-   text and NULL, errors and the stored bytes are unchanged.
+   text and NULL, errors and the stored bytes are unchanged. (Revised by
+   D77.57: MySQL `UUID` header parameters are withdrawn.)
 
 | PERF | Requirement | Evidence |
 | --- | --- | --- |
@@ -239,7 +240,7 @@ emulation and `string_agg`.
 | S01–S03 | Checked `Int`, `sum(Int)`, conditional/JOIN/two-level sums | Signed-64 decision; literal and parameter boundary probes; independent result reader; the re-run numeric R4 PostgreSQL reference (D77.15). |
 | S04–S05 | `Int` statistics and finite Float aggregates | Per-operation type/NULL/extreme oracle; their material is re-authored (D77.15). |
 | S06–S07 | Float row equality, `same_value`, grouping, DISTINCT, sets and `count_distinct` | The existing Float contract (Gate 1 item 1, D77.08; no new zero policy) and bag/multiplicity controls. |
-| S09, S12 | Typed parameters, selected text/date/`now` forms | Per-form four-layer capability matrix and target qualification; S09 follows D77.13 with its material re-authored (D77.15). S12's PostgreSQL half waits for the `0.1.12` slice in which `now()` outputs execute (D77.42), and MySQL `now()` opens only when the Pietto `mysql_rows` reader witness of S12's MySQL preregistration passes (D77.44). |
+| S09, S12 | Typed parameters, selected text/date/`now` forms | Per-form four-layer capability matrix and target qualification; S09 follows D77.13 (revised by D77.57: MySQL `UUID` header parameters withdrawn) with its material re-authored (D77.15). S12's PostgreSQL half waits for the `0.1.12` slice in which `now()` outputs execute (D77.42), and MySQL `now()` opens only when the Pietto `mysql_rows` reader witness of S12's MySQL preregistration passes (D77.44). |
 | S13 | Ordered `first`/`last` | Selected order/tie/NULL contract and refusal controls. |
 | S15, S19, S20 | Phase76 MySQL E/N/D residuals | The Gate 1 residual matrix (D77.10) on the Gate 0 head; do not reimplement completed PostgreSQL forms. |
 | S21–S24 | Moved to the separate nested work package (D77.32) | Not Phase77 work; that package's Gate 1 sets its matrix and order. |

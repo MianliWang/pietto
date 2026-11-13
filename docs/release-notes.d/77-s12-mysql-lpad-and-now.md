@@ -40,6 +40,14 @@
   sha256 of each record as sorted-key JSON without its `identity` field,
   first 16 digits, the same on both sides: PostgreSQL `193c8dd954adfcf4`,
   MySQL `289be8f576d3a36b`).
+- R2 `save_recoverable` and `recover` refuse a query with `now()` or
+  `date_of(now())` in the position above, `lpad` beside it or not, with
+  PIE-R1004 `PUBLIC_R2_STATEMENT_SNAPSHOT`, as every MySQL query that reads
+  `now()`, before any workspace access or connection. The SQL of `lpad`
+  has a conditional CASE, so R2 prepares a query with `lpad` and no
+  `now()`, and its attempt fails closed at its first page: the `SaveReply`
+  of `save_recoverable` and of `recover` has the `terminal` `FAILED` (see
+  the [R2 boundary](../execution.md#known-limitations)).
 - Every other MySQL project `lpad` and `now()` keeps the refusal it has
   without this note. Most often that is PIE-B1003
   `scalar_call_signature_not_admitted` at the `let`, clause or select item
@@ -72,6 +80,7 @@ changes):
 | --- | --- | --- | --- |
 | PIE-B1003 | MySQL project, `lpad(s, width, fill)` in the position above, also written through a `def`, in parentheses or over a row input alias | `scalar_call_signature_not_admitted` | none: the statement emits |
 | PIE-B1003 | MySQL project, `now()` or `date_of(now())` in the position above, also as a `def` argument | `scalar_call_signature_not_admitted` | none: the statement emits |
+| PIE-R1004 | R2 `save_recoverable` or `recover` of a query with `now()` or `date_of(now())` in the position above | not reachable: the query did not compile | `PUBLIC_R2_STATEMENT_SNAPSHOT` |
 
 A statement with a call in the position above that emission refuses for
 another reason, such as a select of `lpad(text, 5, "0")`, `now()` and

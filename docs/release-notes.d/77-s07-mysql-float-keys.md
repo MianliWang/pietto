@@ -31,6 +31,11 @@
   first 16 digits, the same on both sides: `sql.json` `7861de97a43d65cd`,
   `controls.json` `3efcb9977df291ac`, the PostgreSQL compile record
   `ebb510d9d3a33587` and the MySQL one `bb7e9f753fccd6b3`).
+- R2 `save_recoverable`, and `recover` when its restated values and
+  parameters bind, refuse a query in these forms with PIE-R1004
+  `REFINEMENT_COMPARISON_DOMAIN` while they prepare it, before any
+  workspace access or connection (see the
+  [R2 boundary](../execution.md#known-limitations)).
 - Kept refused on MySQL as in `0.1.11`, with PIE-B1003
   `group_key_type_outside_reviewed_comparison_domain`: a `Text` key of width
   1000 (the MySQL 8.4.12 deduplication kept `-0.0` and `0.0` apart beside
@@ -56,3 +61,4 @@ changes; MySQL projects, no message text changed):
 | Code | Case | Before | After |
 | --- | --- | --- | --- |
 | PIE-B1003 | `group by` one to three keys of the forms above, selected in order and then `count()` | `group_key_type_outside_reviewed_comparison_domain` at the GROUP BY item | none: the statement emits |
+| PIE-R1004 | R2 `save_recoverable` of such a query, or its `recover` with restated values and parameters that bind | not reachable: the query did not compile | `REFINEMENT_COMPARISON_DOMAIN` |

@@ -1655,6 +1655,31 @@ or a successful semantic check alone establishes none of those premises.
   fails closed at its first page. A query that reads `now()` is checked for
   these forms when it is prepared, and refused before any workspace access or
   connection.
+- On MySQL, R2 refines a query of the unreleased Phase77
+  [S09](release-notes.d/77-s09-mysql-typed-parameters.md) forms as any
+  other query: each typed parameter keeps its `CAST(? AS DATE)`,
+  `CAST(? AS DATETIME(6))` or `CAST(? AS DECIMAL(p,s))` read inside the
+  refined input, in a comparison or as a selected value; this parameter
+  read is not the unsupported CAST above. No native qualification has run
+  these refined statements. A `Timestamp` parameter selected as an output
+  is refused with PIE-R1004 `MEANING_OUTPUT`, as in `save()`. When they
+  prepare it, `save_recoverable`, and `recover` when its restated values
+  and parameters bind, refuse a query of the unreleased
+  [S07](release-notes.d/77-s07-mysql-float-keys.md) `Float` GROUP BY key
+  forms with PIE-R1004 `REFINEMENT_COMPARISON_DOMAIN` before any workspace
+  access or connection. The MySQL SQL of the unreleased
+  [S12](release-notes.d/77-s12-mysql-lpad-and-now.md) `lpad` forms and of
+  the [S13](release-notes.d/77-s13-mysql-first-and-last.md) `first` and
+  `last` forms contains a conditional CASE, so R2 prepares such a query
+  that reads no `now()`, and its attempt fails closed at its first page, as
+  above: `save_recoverable` records the job and generation, connects,
+  starts its read-only transaction and admits the sources, then rolls back
+  without sending a page and returns a `SaveReply` whose `terminal` is
+  `FAILED`; `recover` of that generation makes one more such attempt with
+  the same terminal. An S12 query that reads `now()`, with or without
+  `lpad`, keeps instead the MySQL `PUBLIC_R2_STATEMENT_SNAPSHOT` refusal of
+  every query that reads `now()`, before any workspace access or
+  connection.
 - R2 refines a `where any(...)` or `where not any(...)` test, the rewrite of
   a retired `semi join` or `anti join`, as the JOIN it replaces only when it
   is an AND-composed part of a WHERE. `save_recoverable` and `recover` refuse
