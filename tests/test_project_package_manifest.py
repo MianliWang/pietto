@@ -852,6 +852,7 @@ def test_post_parse_multi_error_order_is_complete_and_field_order_invariant() ->
         "/absolute",
         "//server/share",
         "C:/drive",
+        "é:x.pietto",
         "https://example.test/path",
         "scheme:value",
         "a\\b",

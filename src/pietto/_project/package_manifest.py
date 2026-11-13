@@ -14,6 +14,7 @@ from pietto._project.model import (
     ProjectDiscoveryErrorKind,
     ProjectRootPackageActivation,
 )
+from pietto._project.module_carrier import _is_normalized_project_relative_path
 from pietto.semantic.capability_facts import CapabilityDomain, CapabilityKey
 from pietto.semantic.capability_profiles import (
     CapabilityRequirementCollection,
@@ -2013,8 +2014,9 @@ def _is_valid_content_digest_pin(value: object) -> bool:
 
 
 def _is_valid_asset_path(value: str) -> bool:
-    return _is_valid_relative_path(value) and all(
-        part not in {".", ".."} for part in value.split("/")
+    # Asset paths of every kind take the ProjectModuleIdentity path rule.
+    return _is_valid_relative_path(value) and _is_normalized_project_relative_path(
+        value
     )
 
 
