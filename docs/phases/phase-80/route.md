@@ -313,6 +313,34 @@ the batch also carries a Phase77 repair, counted on Phase77's ledger, that
 returns PIE-B1003 refusals of project `/` and `%` instead of crashing. D77.14,
 a rule for a whole documentation and tool batch, does not cover it.
 
+The lead's rulings of 2026-11-13 on the integration chain
+`refs/pietto-candidates/p78-80-batch` (`85577f75`), IMPLEMENTATION_FREEDOM
+or DERIVED_MECHANICAL, accept these write-set deviations as reviewed:
+
+- S01 (`a2dc2236`) carries the seam that the later slices share:
+  `src/pietto/interop/__init__.py`, `_common.py`, `docs/interop.md`,
+  `tests/_pietto_results_interop.py` and `tests/test_results_interop.py`,
+  which the lane revised as one.
+- On the commits between S01 and S05, a `to_*` function whose module a later
+  slice adds raises `ModuleNotFoundError`; the batch's commits take the batch
+  head's CI.
+- PK-80 is two commits: PK's `d53d8917`, whose one approved lock resolved
+  its extras with Phase79 S05's, and `dee6fd46`, whose wheel file list and
+  consumer steps need the interop modules. Against the IB1 order above,
+  `d53d8917` comes first on the chain, before Phase79 S01 and this route's
+  S01, and `dee6fd46` follows S05; the rulings name only the split, so
+  these positions are recorded for the lead.
+
+PK seals with the batch Gate 2, with `d53d8917` as its commit, and PK and IB1
+are not split into an earlier batch.
+
+**Replay of 2026-11-14.** After `0.1.12` was published, the chain was
+replayed onto `ab594829` in the same order, each slice still one commit
+with its release-note fragment. The rulings above name the commits of
+`85577f75` on `a015afcf`; on the replayed chain PK `d53d8917` is
+`0dd333e4`, S01 `a2dc2236` is `3933b756` and PK-80 `dee6fd46` is
+`2a18113e`.
+
 ## Budget
 
 The cumulative Phase80 ceiling is `C240/F720/D8400/S20`:

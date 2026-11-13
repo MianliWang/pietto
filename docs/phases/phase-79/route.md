@@ -220,6 +220,54 @@ entries, serially on S02's integrated lines and on Phase78's ledger, so the
 lines have one writer at a time. Under AD78.02 (sheet Q7 A′), SQLite B1
 publishes after Phase79 B1.
 
+**Write sets as integrated.** The integration chain on `a015afcf` holds S02
+as `05d73042` and S03 as `51c93d91`. The lead's ruling in the lane's third
+round (2026-11-10) moved two items. The plan's admission of `duckdb.arrow`
+belongs to S03, which therefore writes `project_sql_plan.py`,
+`project_sql_plan_verification.py` and `project_sql_plan_pure_boundary.py`,
+Phase77 hot files that S03 replays at each Phase77 published-batch boundary.
+`FAMILIES` and `RELEASES` gain no `duckdb`: the target identity
+`{"family": "duckdb", "release": "2.0.0"}` and the scan `arrow_registration`
+live in the adapter's own contract reader (S03), which narrows S02. Against
+the rows above:
+
+- S02 also writes `_project/project_completed_semantics.py` and
+  `semantic/analyzer.py`, where each mode passes its own connector set, and
+  the tests `tests/test_parser_format.py` (the `fmt` witness),
+  `tests/test_sql_mysql_connector_semantic_surface.py` (the exact sets),
+  `tests/test_cli_project_emit_sql.py` and
+  `tests/test_execution_api_queries.py` (the dialect sets). Its firewall is
+  in `tests/test_repo_static_checks.py`. It writes neither plan module,
+  `FAMILIES`, `RELEASES`, `MAX_PARAMETERS`, the scan value,
+  `tests/test_project_capability_target_matrix.py` nor
+  `tests/test_sql_emission_closure.py`. Until S03 it refuses `duckdb` at
+  the emission-contract gate (`target/family`).
+- S03 also writes `_project/project_sql_plan_target_assessment.py`, whose
+  family mapping must agree with the pure boundary's, and the tests
+  `tests/test_plan_target_profiles.py`, the new helper
+  `tests/_pietto_sql_duckdb.py`, `tests/test_repo_static_checks.py` (the
+  firewall's DuckDB liveness) and `tests/test_execution_api_queries.py`
+  (one type narrowing). Its dispatch is in `project_sql_emission_cli.py` and
+  `execution/_query.py`; `compiler._emit` needs no hunk because it calls
+  the CLI path, and the `cli.py` dialect lines are S02's.
+- S04, `5f923e19` on the chain, also writes `execution/_errors.py` (the
+  details `DUCKDB_DRIVER_PROFILE` of PIE-R2002 and `DUCKDB_SESSION_CONTEXT`
+  of PIE-R2006, and the error class docstrings), S03's
+  `_project/project_duckdb_emission.py` (the live template's code identity
+  and `execution_facts`), the storage-kind module
+  `_project/project_duckdb_result.py`, the specification with the owner's
+  later answers, the error-class sentence of `docs/execution.md` and this
+  route's initiation-gate check 13. It writes neither
+  `project_job_store.py` nor `project_execution.py`: their route sets stay
+  unchanged and refuse `duckdb_arrow` with PIE-R1003
+  `PUBLIC_ROUTE_UNAVAILABLE`, as the specification states. Of the tests
+  named in its row it writes neither `tests/test_execution_api_queries.py`
+  (S02's and S03's) nor `tests/test_execution_api_results.py`. The storage
+  module's docstring still waits for S23, where D77.32 now names the
+  remaining Phase77 slices that change the readers. The lead records these
+  deviations (lead, 2026-11-13); `p78-80-integ` `97156c76`, which holds
+  S04 as it stands, was reviewed CLEAN.
+
 A ruling from the lead that `duckdb.arrow` changes the built-in catalog makes
 the extension sync of D76.12 part of the closeout. That sync is only prepared:
 sheet Q4 is not approved, and nothing here pushes to the extension
@@ -314,6 +362,42 @@ the batch also carries a Phase77 repair, counted on Phase77's ledger, that
 returns PIE-B1003 refusals of project `/` and `%` instead of crashing. D77.14,
 a rule for a whole documentation and tool batch, does not cover it.
 
+The lead's rulings of 2026-11-13 on the integration chain
+`refs/pietto-candidates/p78-80-batch` (`85577f75`), IMPLEMENTATION_FREEDOM
+or DERIVED_MECHANICAL:
+
+- S06's preparation commit `3ad00138` stays off the chain. S06 seals as a
+  fresh commit on the then-current head, with the helpers of its frozen
+  preregistration v5 or a later one, and the preparation ref is deleted
+  after that.
+- The batch Gate 2 also runs the two DuckDB owner files,
+  `tests/test_sql_duckdb_emission.py` and
+  `tests/test_execution_api_duckdb_arrow.py`, in an `execute-duckdb`
+  environment, recorded as one extra pytest start; its offline uv cache
+  takes `duckdb` from PK's round-14 cache first.
+- PK seals with the batch Gate 2, and `d53d8917` is PK's commit. PK and the
+  Phase80 batch IB1 are not split into an earlier batch.
+- The width refusal before connection that `5dfed383` added runs in
+  `compiled_output`, which `duckdb_arrow` does not reach. The item is closed
+  without a DuckDB check, and S08 limits the 64-field statement of
+  `docs/execution.md` to the PostgreSQL and MySQL routes.
+- The wheel's required-file list in `scripts/package_smoke.py` does not name
+  the Phase78 and Phase79 runtime modules; this low finding is fixed in
+  passing at the next restack (D77.51).
+- S07 (`aacb6dab`) is on the chain before S06, which has no commit there,
+  although S07 depends on S06. At the chain's replay after the second
+  `0.1.12` batch is published, S06's commit goes below S07, and S07
+  replays on top of it (lead, 2026-11-13T19:02Z).
+
+**Replay of 2026-11-14.** After `0.1.12` was published, the chain was
+replayed onto `ab594829` in the same order, each slice still one commit
+with its release-note fragment, and S06 still has no commit on it. The
+write sets, rulings and midpoint record of this route name the commits of
+`85577f75` on `a015afcf`; on the replayed chain PK `d53d8917` is
+`0dd333e4`, S01 `a548374d` is `97c1377e`, S02 `05d73042` is `3d25e016`,
+S03 `51c93d91` is `134a566b`, S04 `5f923e19` is `57ba2d79` and S07
+`aacb6dab` is `471e4915`. Phase80's commits are mapped in its route.
+
 ## Budget, midpoint and stops
 
 The cumulative ceiling is `C240/F720/D8200/S8`: `C120/F360/D4100/S4`,
@@ -346,6 +430,158 @@ when all of these hold:
 - the replay count and the CI health of the newest head are recorded;
 - new helpers and owners are listed for the acquisition reserve;
 - the sheet Q2 option-C check of PL.04 is done.
+
+**Midpoint record (2026-11-13).** The midpoint passed with this record.
+S06's preparation came before it, with its preregistration drafts from
+2026-11-11, the freeze of v4 on 2026-11-12 and of v5 on 2026-11-13, and its
+preparation commit `3ad00138` with the frozen helpers, and so did S07
+(`aacb6dab`), which is on the chain, so the midpoint was not held where the
+route puts it, before S06 opens (lead, 2026-11-13). S06 has run no cell,
+and the lead's notes of 2026-11-13 at about 17:40Z list this record among
+what S06's run still lacks, so the midpoint holds before S06 runs. Its
+preregistration v5 is frozen in the S06 lane's folder on the integration
+host (`FROZEN.sha256` `c2163a86…`), and its preparation commit is off the
+chain. The run folders described here are owner-held working records
+outside Git on the integration host.
+
+- S00 and S01. The S00 cells ran offline on 2026-11-10 in the probe's
+  environment, CPython 3.13.13 without network, on `ab972f36`
+  (the S00 summary in the S00 and S01 run folder of 2026-11-10T14:32:15Z,
+  whose `MANIFEST.sha256` checks 24 of 24 files). The installed identity
+  is proven (68 `RECORD` entries, none mismatched). No native parameter
+  ceiling was observed at or below 262,144, so the contract keeps 65,535.
+  Every D79.06 setting is set, locked and read back on the pin, and every
+  tamper is refused. Extension loading, external access, caller-frame
+  scans and spill are each refused. `Table.nbytes` is measured, at exactly
+  16 MiB and one byte above.
+  S01 is bound as `a548374d`, the chain's first Phase79-only commit, after
+  PK's `d53d8917`, which carries S05; S04
+  (`5f923e19`) revised the specification with the owner's later answers,
+  and the chain's specification (sha256 `b5559597…`) is the one v5 binds.
+- S02 and S03. On the batch tree `85577f75`, at 2026-11-13T17:42:55Z with
+  `-n 8`, eleven files passed with 988 tests and no skip (the first pytest
+  output of the midpoint run folder of 2026-11-13T17:42:44Z):
+  `tests/test_semantic_source_connectors.py`,
+  `tests/test_project_capability_target_matrix.py`,
+  `tests/test_sql_emission_closure.py`, `tests/test_parser_format.py`,
+  `tests/test_sql_mysql_connector_semantic_surface.py`,
+  `tests/test_plan_target_profiles.py`,
+  `tests/test_sql_duckdb_emission.py`, `tests/test_sql_compile_api.py`,
+  `tests/test_cli_project_emit_sql.py`,
+  `tests/test_execution_api_queries.py` and
+  `tests/test_repo_static_checks.py`. Ruff passed, and both `pyright`
+  configurations reported 0 errors once given the run's interpreter; the
+  first `pyright` pass, without it, could not resolve the imports of the
+  tests configuration and is kept.
+- Goldens and firewall. `a015afcf..85577f75` adds only Phase78's
+  `emit_sqlite_single_file.sql` and `.json` goldens; no PostgreSQL or MySQL
+  golden changes, and no Phase79 commit touches `tests/fixtures/golden/`.
+  On `85577f75`, `scripts/check_goldens.py` verified 43 fixtures (35 SQL
+  byte-exact, 8 JSON structural), and the firewall's three nodes passed:
+  `test_postgres_mysql_tables_admit_no_adapter_family` and
+  `test_no_adapter_family_reaches_the_postgres_mysql_pipeline` for `duckdb`
+  and `sqlite`.
+- Ledger. By the row sum of the owner-held Phase79 ledger through the
+  stacking repair at 2026-11-13T17:20Z, before this record, Phase79 has used
+  C at most 15, F71, D2,349 and S0 of `C240/F720/D8200/S8`. PK's ledger
+  stands at C0, F18, D616 and S0 of `C80/F240/D2400/S8`, half of it
+  Phase79's. Phase79's cumulative total, the D2,349 used plus D1,214 to
+  D2,438 still to come by the basis below, projects to about D3,563 to
+  D4,787 before any replay, and to at most about D5,587 with the whole D800
+  replay reserve, inside D8200. The record as first written projected
+  D3,450 to D4,650 and left no basis. At the lead's dispatch (lead,
+  2026-11-13) the record's lane rebuilt this basis from the ledger's
+  measured rows and the lanes' counts of one D per Bash call; the lead has
+  not yet checked it:
+  - this record with its reviews, fixes and amendments, D350 to D400: its
+    rows at 17:59Z and 18:19Z came to D207, and the lane that amended it
+    and that lane's review then used 70 and 61 Bash calls;
+  - S04's result-reader wiring with its review, D156 to D507: two to three
+    rounds at the D78 to D169 of S04's full earlier rounds;
+  - S06's run, integrity audit, seal and review, D192 to D648: three to six
+    rounds at about the D64 to D108 of its preregistration rounds;
+  - S08, D300 to D450: its allocation of D300 and at most one more review
+    round;
+  - Phase79's share of the batch Gate 2 and audit, D216 to D433: a quarter
+    to a half of one batch's work, which cost D865 in E-C's EB1 (ED.10).
+- Replays and CI health. Phase79 has replayed once: the lane's work on
+  `ab972f36` was integrated onto `a015afcf` on 2026-11-13 as
+  `refs/pietto-candidates/p78-80-integ`, then stacked on the same base as
+  `p78-80-batch` `85577f75`; the rehearsal onto `864411cb` on 2026-11-12
+  made no candidate. Besides that rehearsal, no published head between
+  `ab972f36` and `a015afcf`, among them `a503167f`, `864411cb`, `4ef90859`
+  and `d03d6e4b`, had a replay of its own, although the Slices note has S03
+  replay at each Phase77 published-batch boundary: the lane met them in the
+  one integration on `a015afcf`. The newest published head is `a015afcf`,
+  with natural CI `43416974151`, push/main attempt 1, created at 11:25:39Z:
+  21 of 21 jobs passed, the first starting at 11:25:41Z and the last ending
+  at 11:43:45Z, a wall time of 1084 s from the first job's start, with a job
+  sum of 9582 s. Its health was read on 2026-11-13 at 17:51Z through the
+  owner's read-only token (PL.07; kept in the midpoint run folder): the
+  15 `ci-health-*` artifacts match their API digests, and the workflow
+  report verifies with `scripts/ci_workloads.py` of `a015afcf`. It says
+  INSUFFICIENT_EVIDENCE with a WATCH screen. Its history is available, with
+  three earlier natural main runs accepted (heads `864411cb`, `4ef90859` and
+  `d03d6e4b`), none comparable: each differs in runner and test set on both
+  Pythons. Each Python collected 27,799 nodes, 27,774 passed and 25
+  skipped. The only alert that needs no history is again the structural
+  `FEWER_UNITS_THAN_WORKERS` of the plan-portability and
+  emission-portability partitions on both Pythons. The other signals are
+  provisional: `LONG_INDIVISIBLE_NODE` 18 times, the same nine harness nodes
+  on both Pythons as at the E-C midpoint, and shard imbalance at REVIEW for
+  3.12 (715.7 s against a median of 424.35 s, 1.69) and WATCH for 3.13
+  (1.35). The cost is partial. Health is advisory, and Phase79 takes no
+  action on it.
+- Acquisition reserve. New and changed tests since the integration base
+  `a015afcf`, by slice, for S08's B1 acquisition consolidation:
+  - S02 `05d73042`: new
+    `test_only_explicit_module_projects_know_duckdb_arrow`,
+    `test_duckdb_arrow_follows_the_mysql_table_rule_for_untyped_arguments`
+    and `test_a_single_file_connector_stays_unknown_in_a_legacy_flat_project`
+    (`tests/test_semantic_source_connectors.py`),
+    `test_fmt_keeps_a_duckdb_arrow_source_as_written`
+    (`tests/test_parser_format.py`),
+    `test_project_dialects_are_postgres_mysql_and_duckdb`
+    (`tests/test_cli_project_emit_sql.py`),
+    `test_compile_query_takes_duckdb_as_a_dialect_argument`
+    (`tests/test_execution_api_queries.py`), and the firewall's two tests
+    (`tests/test_repo_static_checks.py`); changed: the exact connector sets
+    of `tests/test_sql_mysql_connector_semantic_surface.py`.
+  - S03 `51c93d91`: the new owner `tests/test_sql_duckdb_emission.py` (20
+    tests) with the new helper `tests/_pietto_sql_duckdb.py`; new
+    `test_duckdb_emission_prints_writes_and_batches_its_own_document`
+    (`tests/test_cli_project_emit_sql.py`),
+    `test_duckdb_emission_is_the_command_document`
+    (`tests/test_sql_compile_api.py`) and
+    `test_a_duckdb_arrow_source_is_the_duckdb_family_through_the_pure_boundary`
+    (`tests/test_plan_target_profiles.py`); changed: the blocker-suggestion
+    reader of `tests/test_cli_project_emit_sql.py`, the firewall, and
+    `_witness_round_trip` in `tests/test_execution_api_queries.py`.
+  - S04 `5f923e19`: the new owner `tests/test_execution_api_duckdb_arrow.py`
+    (27 tests in 28 nodes; without PyArrow 22 of the nodes skip in the
+    midpoint run folder's fourth pytest output) with the new helper
+    `tests/_pietto_execution_duckdb.py`; changed: the public alpha names in
+    `tests/test_execution_api_errors.py` and one subprocess flag in
+    `tests/test_results_optional_arrow.py`.
+  - PK `d53d8917`: five new tests of the extra cells and their allowlists in
+    `tests/test_release_installation.py`, and changed helpers
+    `tests/_pietto_execution_installation_check.py`,
+    `tests/_pietto_repo_package.py` and `tests/_pietto_results_consumer.py`.
+    S07 `aacb6dab` changes no test.
+  - Pending S06, off the chain: v5's four frozen helpers
+    `tests/_pietto_execution_duckdb_native_cases.py`, `_oracle.py`,
+    `_probe.py` and `_check.py`, and the harness self-test in
+    `tests/test_harness_execution_api.py`.
+
+  Whether any acquisition repeats was not measured; S08's consolidation
+  owns that.
+- Option C. S21–S24 left Phase77 under D77.32, and none is published. The
+  `0.1.11` cut has happened (release commit `d03d6e4b`, tag `v0.1.11`,
+  below `a015afcf`). Sheet Q2 option C, an earlier `0.1.11` cut, has no
+  remaining object, and B1 still publishes after the cut under PL.04. The
+  lead records the item as disposed (lead, 2026-11-13). D77.32 had the lead
+  bring option C back to the owner at the midpoint; because the cut has
+  happened, the lead does not, and that step of D77.32 is not carried out.
 
 **Unfreeze conditions.** Each of these needs the owner:
 
