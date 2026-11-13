@@ -97,7 +97,7 @@ arguments included, records the results below and in the comparison matrix.
 | Binary `*` | `Decimal` / `Int`, `Int` / `Decimal` | currently accepted as `Decimal UNKNOWN`; PostgreSQL projects use `Decimal(p+19,s)` while `p+19 <= 65`; MySQL projects remain refused |
 | Binary `+` / `-` / `*` | `Decimal` / `Float`, `Float` / `Decimal` | currently rejected with existing `PIE-S2105` (`` a Decimal does not mix with a Float in `+`, `-` or `*` ``, also as the JSON `suggestion`); a dotted literal such as `1.5` is a `Float` operand |
 | Modulo `%` | `Int` / `Int` | currently accepted as `Int UNKNOWN` |
-| Modulo `%` | `Float` / `Float` | currently accepted as `Float UNKNOWN`; truncating-quotient remainder (`math.fmod`), with the dividend sign including zero; PostgreSQL project emission requires its exact binary64 lowering; single-file emission and MySQL remain refused |
+| Modulo `%` | `Float` / `Float` | currently accepted as `Float UNKNOWN`; truncating-quotient remainder (`math.fmod`), with the dividend sign including zero; PostgreSQL project emission requires its exact binary64 lowering; single-file emission and MySQL remain refused, apart from the unreleased (Phase77 S15) MySQL cell that the [language reference](../language.md) states |
 | Modulo `%` | all other known operand pairs | currently rejected with existing `PIE-S2105`; `%` requires two Int operands or two Float operands |
 | Division `/` | `Int` / `Int` | currently accepted as `Int UNKNOWN`: SQL division truncating toward zero; PostgreSQL emits `a / b` and MySQL emits `a DIV b` |
 | Division `/` | `Int` / `Float`, `Float` / `Int`, `Float` / `Float` | currently accepted as `Float UNKNOWN`; a bare `/` on both targets, with no inserted cast |

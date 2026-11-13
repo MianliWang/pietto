@@ -1109,8 +1109,11 @@ PostgreSQL projects also emit signed-`Int` `/` and `%`, same-type `Float`
 divisor raises the PostgreSQL error 22012; Float arithmetic can also fail
 with checked 22003. MySQL projects keep these forms refused, except the
 `Text` literal default in a statement that is one of three paired forms
-with only its names changed ([unreleased](release-notes.d/77-s16-mysql-text-window-defaults.md), qualified).
-Nonliteral Text defaults remain refused.
+with only its names changed ([unreleased](release-notes.d/77-s16-mysql-text-window-defaults.md), qualified),
+and `Int %` over two `BIGINT` fields and `Float %` over two `DOUBLE` fields
+in the unreleased (Phase77 S15) cell that the [language page](language.md)
+states, where a zero divisor returns NULL. Nonliteral Text defaults remain
+refused.
 
 `check --project` also accepts the following forms, which
 `emit-sql --project` reports BLOCKED on both dialects whatever the contract

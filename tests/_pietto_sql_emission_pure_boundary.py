@@ -1761,10 +1761,11 @@ _MYSQL_CELL_KINDS = frozenset(
 )
 
 
-def _mysql_cells(doc) -> tuple[frozenset, frozenset]:
-    """The S01 operations and S02 sum columns in their MySQL cells, as
-    emission derives them from the plan (mysql_checked_cell,
-    mysql_sum_query), here from the document alone; a relation alias or a
+def _mysql_cells(doc) -> tuple[frozenset, frozenset, frozenset]:
+    """The S01 operations, S02 sum columns and S15 `%` operations in their
+    MySQL cells, as emission derives them from the plan (mysql_checked_cell,
+    mysql_sum_query, mysql_remainder_cells), here from the document alone; a
+    relation alias or a
     window, read or not, and an imported source leave a direct read's
     document apart from source positions and the source digest, so only
     emission refuses them. Every
@@ -1775,10 +1776,18 @@ def _mysql_cells(doc) -> tuple[frozenset, frozenset]:
     BIGINT source fields; an S02 sum reads a nullable BIGINT source field,
     its aggregate has one non-null Int source field key at most and sums,
     counts and mins only, and the final body only projects the aggregate's
-    columns. The bound of three bodies only ends the walk early: the block
-    kinds and the chain that holds every body imply it."""
+    columns. S15 cells need one projection body straight over the scan,
+    each of whose columns is a read of a source field of its tag's carrier
+    (_mysql_remainder_carrier) or a `%` named once over two such reads of
+    its own tag; any other column closes them. The bound of three bodies
+    only ends the walk early: the block kinds and the chain that holds every
+    body imply it."""
 
-    empty: tuple[frozenset, frozenset] = (frozenset(), frozenset())
+    empty: tuple[frozenset, frozenset, frozenset] = (
+        frozenset(),
+        frozenset(),
+        frozenset(),
+    )
     if not _MYSQL_CELL_KINDS.issuperset(doc.kinds):
         return empty
     bodies = doc.all("row_body")
@@ -1841,7 +1850,30 @@ def _mysql_cells(doc) -> tuple[frozenset, frozenset]:
                 )
             ):
                 operations.add(value)
-        return frozenset(operations), frozenset()
+        remainders = set()
+        for column in final["columns"] if kinds == ["projection"] else ():
+            value = doc[column]["value"] if column.kind == "row_value_column" else None
+            if type(value) is Ref and value.kind == "sql_operation":
+                operation = doc[value]
+                if not (
+                    named.get(column) == 1
+                    and named.get(value) == 1
+                    and operation["kind"] == "arithmetic"
+                    and operation["operator"] == "%"
+                    and len(operation["operands"]) == 2
+                    and {
+                        _mysql_remainder_carrier(doc, item)
+                        for item in operation["operands"]
+                    }
+                    == {doc[operation["realization"]]["tag"]}
+                ):
+                    remainders.clear()
+                    break
+                remainders.add(value)
+            elif _mysql_remainder_carrier(doc, value) is None:
+                remainders.clear()
+                break
+        return frozenset(operations), frozenset(), frozenset(remainders)
     stage = doc[doc[aggregate]["aggregation"]]
     if (
         len(stage["keys"]) > 1
@@ -1863,12 +1895,38 @@ def _mysql_cells(doc) -> tuple[frozenset, frozenset]:
             and realization["nullable"] is False
         ):
             return empty
-    return frozenset(), frozenset(
-        value
-        for value in stage["values"]
-        if doc[value]["function"] == "sum"
-        and _mysql_field_read(doc, doc[value]["argument"])
-        and _mysql_checked_carrier(doc, doc[value]["argument"])
+    return (
+        frozenset(),
+        frozenset(
+            value
+            for value in stage["values"]
+            if doc[value]["function"] == "sum"
+            and _mysql_field_read(doc, doc[value]["argument"])
+            and _mysql_checked_carrier(doc, doc[value]["argument"])
+        ),
+        frozenset(),
+    )
+
+
+# S15: the carrier of each operand of a MySQL `%` cell and of each field
+# read beside one.
+_MYSQL_REMAINDER_CARRIERS = {
+    "Int": {"kind": "my_bigint"},
+    "Float": {"kind": "my_double"},
+}
+
+
+def _mysql_remainder_carrier(doc, ref) -> str | None:
+    """The tag of a read of a source field of that tag's S15 carrier."""
+
+    if not _mysql_field_read(doc, ref):
+        return None
+    realization = doc[doc[ref]["realization"]]
+    tag = realization["tag"]
+    return (
+        tag
+        if _MYSQL_REMAINDER_CARRIERS.get(tag) == dict(realization["storage"])
+        else None
     )
 
 
@@ -3278,6 +3336,7 @@ class _Check:
             "MySQL Float block membership",
         )
         cells = _mysql_scalar_cells(doc) if family == "mysql" else {}
+        mysql_remainders = _mysql_cells(doc)[2] if family == "mysql" else frozenset()
         for ref in doc.all("sql_operation"):
             op = doc[ref]
             _require(op["kind"] in schema.OPERATORS, "operation kind")
@@ -3302,6 +3361,35 @@ class _Check:
                 _require(
                     _mysql_float_cell(doc, ref) in _MYSQL_FLOAT_ROW_CELLS,
                     "MySQL Float row comparison cell",
+                )
+            if (
+                family == "mysql"
+                and op["kind"] == "arithmetic"
+                and op["operator"] == "%"
+            ):
+                # S15: a MySQL `%` only in its cell, NULL for a zero divisor.
+                _require(
+                    ref in mysql_remainders,
+                    "MySQL Float remainder cell"
+                    if result["tag"] == "Float"
+                    else "MySQL Int remainder cell",
+                )
+                _require(
+                    result["nullable"] is not False
+                    and (
+                        _is_float(result, family)
+                        or _is_realization(
+                            result,
+                            "Int",
+                            {"kind": "my_bigint"},
+                            {
+                                "kind": "int_range",
+                                "min": str(_I64_MIN),
+                                "max": str(_I64_MAX),
+                            },
+                        )
+                    ),
+                    "MySQL remainder carrier",
                 )
             if family == "postgres" and result["tag"] == "Decimal":
                 operands = tuple(
@@ -6331,7 +6419,11 @@ class _ProvenIntRanges:
                         self.terminals[terminal] = (*producers, column)
         self.values: dict[Ref, tuple[int, int] | object] = {}
         self.visiting: set[Ref] = set()
-        self.mysql_checked = _mysql_cells(doc)[0] if family == "mysql" else frozenset()
+        self.mysql_checked, _, self.mysql_remainders = (
+            _mysql_cells(doc)
+            if family == "mysql"
+            else (frozenset(), frozenset(), frozenset())
+        )
 
     def value(self, ref: Ref) -> tuple[int, int] | object:
         if self.family != "postgres":
@@ -6720,7 +6812,8 @@ class _ProvenIntRanges:
         BIGINT fields, whose physical range is all of signed 64 bits, relies
         on MySQL's checked BIGINT operator; any other MySQL operation claims
         no target check."""
-        if ref not in self.mysql_checked:
+        if ref not in self.mysql_checked or ref in self.mysql_remainders:
+            # An S15 `%` stays inside signed 64 bits: |l % r| < |r|.
             return None
         op = self.doc[ref]
         full = (_I64_MIN, _I64_MAX)

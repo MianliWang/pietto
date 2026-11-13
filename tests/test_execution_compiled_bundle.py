@@ -3364,6 +3364,7 @@ def test_each_compiled_layer_refuses_cells_its_predecessors_forged(
         return (
             frozenset(a for a in records if a.kind == "operation"),
             frozenset(a for a in records if a.kind == "aggregate_value"),
+            frozenset(),
         )
 
     monkeypatch.setattr(rows, "mysql_compiled_cells", cells)
@@ -3448,13 +3449,14 @@ def test_the_mysql_compiled_cell_law_refuses_each_edited_record(tmp_path, edit):
     )
     records, query = _numeric_records(tmp_path, body)
     native = (
-        (frozenset({_A("operation", 1)}), frozenset())
+        (frozenset({_A("operation", 1)}), frozenset(), frozenset())
         if edit.startswith("s01")
-        else (frozenset(), frozenset({_A("aggregate_value", 0)}))
+        else (frozenset(), frozenset({_A("aggregate_value", 0)}), frozenset())
     )
     assert rows.mysql_compiled_cells(records, records[query]) == native
     edited = _COMPILED_LAW_EDITS[edit](records)
     assert rows.mysql_compiled_cells(edited, edited[query]) == (
+        frozenset(),
         frozenset(),
         frozenset(),
     )
@@ -3604,13 +3606,17 @@ def test_the_mysql_pure_cell_law_refuses_each_edited_record(tmp_path, edit):
     assert view is not None
     records = dict(view.records)
     native = (
-        (frozenset({pure.Ref("sql_operation", 1)}), frozenset())
+        (frozenset({pure.Ref("sql_operation", 1)}), frozenset(), frozenset())
         if s01
-        else (frozenset(), frozenset({pure.Ref("aggregate_value_column", 0)}))
+        else (
+            frozenset(),
+            frozenset({pure.Ref("aggregate_value_column", 0)}),
+            frozenset(),
+        )
     )
     assert pure._mysql_cells(pure._Doc(records)) == native
     edited = pure._Doc(_PURE_LAW_EDITS[edit](records))
-    assert pure._mysql_cells(edited) == (frozenset(), frozenset())
+    assert pure._mysql_cells(edited) == (frozenset(), frozenset(), frozenset())
 
 
 def test_the_mysql_pure_cell_law_ends_at_a_fourth_body(tmp_path):
@@ -3642,7 +3648,11 @@ def test_the_mysql_pure_cell_law_ends_at_a_fourth_body(tmp_path):
             ref = pure.Ref("row_body", index)
             records[ref] = pure.Record(ref, body)
         Counted.reads = 0
-        assert pure._mysql_cells(Counted(records)) == (frozenset(), frozenset())
+        assert pure._mysql_cells(Counted(records)) == (
+            frozenset(),
+            frozenset(),
+            frozenset(),
+        )
         counts.append(Counted.reads)
     assert counts[0] == counts[1]
 
@@ -5584,3 +5594,284 @@ def test_tampered_mysql_s03_forms_fail_compiled_and_pure_readers(tmp_path, tampe
         _numeric_document(document(json.loads(observed.canonical_bytes)))
     )
     assert (refused.status, refused.detail) == (pure.Status.INVALID_RELATION, detail)
+
+
+# Phase77 S15: MySQL Int % and Float % cells (template T15-1).
+# The forged shapes: a `%` cell beside an S01 cell, a comparison or a direct
+# read of a DECIMAL, text or INT field, under a WHERE without a literal, and
+# over an INT operand; Float ones beside the S01 cell, the comparison and
+# under the WHERE.
+_REMAINDER_FORGED = (
+    "beside_s01",
+    "beside_comparison",
+    "under_where",
+    "beside_decimal",
+    "beside_text",
+    "beside_narrow",
+    "narrow_operand",
+    "float_beside_s01",
+    "float_beside_comparison",
+    "float_under_where",
+)
+
+
+def _remainder_cells_opened(patch, verifier=False):
+    """The emission law with every `%` item of a projection counted as an S15
+    cell and its operand carrier relaxed to the tag; with ``verifier`` the
+    live verifier's own operand carrier check is relaxed too."""
+    from pietto._project import project_sql_emission_rows as rows
+    from pietto._project import project_sql_emission_verification as verification
+    from pietto._project.project_sql_plan_expressions import ProjectSQLBinary
+
+    def opened(plan, items, columns):
+        return frozenset(
+            expression.ref
+            for item in items
+            if type(expression := rows._planned(plan, item.expression))
+            is ProjectSQLBinary
+            and expression.expression.operator == "%"
+        )
+
+    def tag_only(tag, values):
+        return all(value.tag == tag for value in values)
+
+    patch.setattr(rows, "mysql_remainder_cells", opened)
+    patch.setattr(rows, "mysql_remainder_operands", tag_only)
+    if verifier:
+        patch.setattr(verification, "_mysql_remainder_operands", tag_only)
+
+
+@pytest.mark.parametrize("shape", _REMAINDER_FORGED)
+def test_forged_mysql_remainder_cells_fail_every_reader(tmp_path, monkeypatch, shape):
+    """An artifact of each forged shape, emitted while every `%` item counts
+    as an S15 cell over any operand of its tag, with its observation and
+    compiled bundle exported under that law, fails plain verification and the
+    live template (plan), compiled replay and its template (records: the S15
+    set they derive is empty, so the `%` is COMPILED_PHYSICAL_DOMAIN) and the
+    pure boundary (document: its own Int or Float remainder detail) once the
+    law is back. The INT operand needs the live verifier's own carrier check
+    relaxed as well, which otherwise refuses the patched emission."""
+    import _pietto_sql_emission_portable as portable
+    import _pietto_sql_emission_pure_boundary as pure
+    from pietto._project import project_sql_emission_rows as rows
+    from pietto._project.project_compiled_build import build_compiled
+    from pietto._project.project_compiled_lowering import emit_compiled
+    from pietto._project.project_execution_template import (
+        BindingError,
+        prepare_compiled_template,
+        prepare_live_template,
+    )
+    from pietto._project.project_sql_emission_verification import (
+        verify_project_sql_emission,
+    )
+
+    body = _pietto_sql_emission.REMAINDER_REFUSALS[shape]
+    with monkeypatch.context() as patch:
+        _remainder_cells_opened(patch)
+        _, outcome = _pietto_sql_emission.remainder_world(
+            tmp_path / "forged", "mysql", body, side=True
+        )
+        if shape == "narrow_operand":
+            assert outcome.artifact is None
+            assert [(b.code, b.detail) for b in outcome.blockers] == [
+                ("PIE-B1008", "plan_ast_correspondence")
+            ]
+            _remainder_cells_opened(patch, verifier=True)
+            _, outcome = _pietto_sql_emission.remainder_world(
+                tmp_path / "relaxed", "mysql", body, side=True
+            )
+        artifact = outcome.artifact
+        assert artifact is not None, outcome.blockers
+        observed = portable.export_emission_observation(artifact, artifact.request)
+        loaded = _numeric_loaded(artifact)
+        description = wire.decode(build_compiled(artifact).payload)
+    assert not verify_project_sql_emission(artifact, artifact.request).verified
+    with pytest.raises(BindingError, match="^BINDING_ARTIFACT$"):
+        prepare_live_template(artifact)
+    records = {record.address: record for record in description.records}
+    assert rows.mysql_compiled_cells(records, records[description.query])[2] == (
+        frozenset()
+    )
+    for replay in (
+        lambda: emit_compiled(loaded, ()),
+        lambda: prepare_compiled_template(loaded),
+    ):
+        with pytest.raises(wire.CompiledError, match="^COMPILED_PHYSICAL_DOMAIN$"):
+            replay()
+    assert observed.canonical_bytes is not None
+    refused = pure.parse_emission_observation(observed.canonical_bytes)
+    assert (refused.status, refused.detail) == (
+        pure.Status.INVALID_RELATION,
+        "MySQL Float remainder cell"
+        if shape.startswith("float")
+        else "MySQL Int remainder cell",
+    )
+
+
+def _remainder_records(tmp_path, form="s15_mod_cells"):
+    from pietto._project.project_compiled_build import build_compiled
+
+    _, outcome = _pietto_sql_emission.remainder_world(
+        tmp_path, "mysql", _pietto_sql_emission.REMAINDER_CELLS[form]
+    )
+    assert outcome.artifact is not None, outcome.blockers
+    description = wire.decode(build_compiled(outcome.artifact).payload)
+    return (
+        {record.address: record for record in description.records},
+        description.query,
+        outcome.artifact,
+    )
+
+
+def _physical_storage(storage):
+    def edit(records):
+        field = records[_A("field", 2)]
+        physical = json.loads(field.get("physical"))
+        physical["storage"] = storage
+        values = list(field.values)
+        values[wire.FIELDS["field"].index("physical")] = json.dumps(physical)
+        return {**records, field.address: wire.Record(field.address, tuple(values))}
+
+    return edit
+
+
+# Each edit of the native s15_mod_cells bundle that the compiled S15 law
+# refuses: the Int `%` (operation 0) made a `/`, one operand of its own Float
+# tag, the field `b` it reads an INT, and the terminal over a WHERE row.
+_REMAINDER_LAW_EDITS = {
+    "operator": _record_edit(_A("operation", 0), operator=("binary", "/")),
+    "operand_tag": _record_edit(
+        _A("operation", 0), operands=(_A("read", 3), _A("read", 6))
+    ),
+    "narrow_field": _physical_storage({"kind": "my_int"}),
+    "terminal_stage": _record_edit(_A("row", 0), stage="where"),
+}
+
+
+@pytest.mark.parametrize("edit", sorted(_REMAINDER_LAW_EDITS))
+def test_the_mysql_compiled_remainder_law_refuses_each_edited_record(tmp_path, edit):
+    """Compiled replay's S15 law finds exactly the two native `%` cells, and
+    none once one record changes."""
+    from pietto._project import project_sql_emission_rows as rows
+
+    records, query, _ = _remainder_records(tmp_path)
+    cells = rows.mysql_compiled_cells(records, records[query])[2]
+    assert cells == {
+        address
+        for address, record in records.items()
+        if address.kind == "operation" and record.get("operator") == ("binary", "%")
+    }
+    assert len(cells) == 2
+    edited = _REMAINDER_LAW_EDITS[edit](records)
+    assert rows.mysql_compiled_cells(edited, edited[query])[2] == frozenset()
+
+
+@pytest.mark.parametrize("edit", ("operator", "operand_carrier", "where_body"))
+def test_the_mysql_pure_remainder_law_refuses_each_edited_record(tmp_path, edit):
+    """The pure boundary's S15 law finds exactly the two native `%` cells of
+    the document, and none once its `%` is a `/`, an operand's realization a
+    narrow INT, or its one body a WHERE."""
+    import _pietto_sql_emission_portable as portable
+    import _pietto_sql_emission_pure_boundary as pure
+
+    _, _, artifact = _remainder_records(tmp_path)
+    exported = portable.export_emission_observation(artifact, artifact.request)
+    assert exported.canonical_bytes is not None
+    view = pure.parse_emission_observation(exported.canonical_bytes).view
+    assert view is not None
+    records = dict(view.records)
+    cells = pure._mysql_cells(pure._Doc(records))[2]
+    operations = [ref for ref in records if ref.kind == "sql_operation"]
+    assert cells == set(operations) and len(cells) == 2
+    first = records[operations[0]]
+    if edit == "operator":
+        records[first.ref] = pure.Record(first.ref, {**first.fields, "operator": "/"})
+    elif edit == "operand_carrier":
+        operand = records[first.fields["operands"][0]]
+        realization = records[operand.fields["realization"]]
+        records[realization.ref] = pure.Record(
+            realization.ref, {**realization.fields, "storage": {"kind": "my_int"}}
+        )
+    else:
+        (body,) = [ref for ref in records if ref.kind == "row_body"]
+        records[body] = pure.Record(
+            body, {**records[body].fields, "block_kind": "where"}
+        )
+    assert pure._mysql_cells(pure._Doc(records))[2] == frozenset()
+
+
+def test_mysql_remainder_cells_are_derived_once_per_compiled_and_pure_reader(
+    tmp_path, monkeypatch
+):
+    """Compiled replay derives its S15 cells from the records, and the pure
+    boundary from the document, a fixed number of times however many cells
+    the statement holds (P76-PERF-2)."""
+    import _pietto_sql_emission_portable as portable
+    import _pietto_sql_emission_pure_boundary as pure
+    from pietto._project import project_sql_emission_rows as rows
+    from pietto._project.project_compiled_lowering import emit_compiled
+
+    counts = []
+    for count in (1, 40):
+        body = "table result:\n    from nums\n    select:\n" + "".join(
+            f"        r{index} = a % b\n        m{index} = x % y\n"
+            for index in range(count)
+        )
+        _, outcome = _pietto_sql_emission.remainder_world(
+            tmp_path / str(count), "mysql", body
+        )
+        artifact = outcome.artifact
+        assert artifact is not None, outcome.blockers
+        loaded = _numeric_loaded(artifact)
+        exported = portable.export_emission_observation(artifact, artifact.request)
+        assert exported.canonical_bytes is not None
+        compiled, document = [], []
+        with monkeypatch.context() as patch:
+            for module, name, calls in (
+                (rows, "mysql_compiled_cells", compiled),
+                (pure, "_mysql_cells", document),
+            ):
+                patch.setattr(
+                    module,
+                    name,
+                    lambda *args, _law=getattr(module, name), _calls=calls: (
+                        _calls.append(args) or _law(*args)
+                    ),
+                )
+            assert emit_compiled(loaded, ()).rendered.sql == artifact.rendered.sql
+            parsed = pure.parse_emission_observation(exported.canonical_bytes)
+            assert parsed.status is pure.Status.OK, parsed.detail
+        counts.append((len(compiled), len(document)))
+    assert counts[0] == counts[1]
+    assert all(count > 0 for count in counts[0])
+
+
+def test_a_mysql_remainder_bundle_keeps_its_record_identity(tmp_path):
+    """A record swapped for an equal one between two verifications of an S15
+    bundle is COMPILED_INPUT_CHANGED, not a value change (P76-PERF-1)."""
+    from dataclasses import replace
+
+    _, _, artifact = _remainder_records(tmp_path)
+    loaded = _numeric_loaded(artifact)
+    loaded.verify()
+    description = loaded.description
+    group = next(
+        index for index, (_, records) in enumerate(description.members) if records
+    )
+    name, records = description.members[group]
+    original = description.members
+    object.__setattr__(
+        description,
+        "members",
+        (
+            *original[:group],
+            (name, (replace(records[0]), *records[1:])),
+            *original[group + 1 :],
+        ),
+    )
+    try:
+        with pytest.raises(wire.CompiledError, match="^COMPILED_INPUT_CHANGED$"):
+            loaded.verify()
+    finally:
+        object.__setattr__(description, "members", original)
+    loaded.verify()

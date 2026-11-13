@@ -343,7 +343,13 @@ DISTRIBUTION = """query ranked:
 """
 FLOAT_REFUSALS = (
     ("mysql", "rows", "ratio / 2.0", "float_division_not_realized"),
-    ("mysql", "rows", "ratio % ratio", "float_remainder_exact_binary64_not_realized"),
+    # S15 opens a MySQL `%` over fields only as a whole SELECT item.
+    (
+        "mysql",
+        "rows",
+        "ratio % ratio * ratio",
+        "float_remainder_exact_binary64_not_realized",
+    ),
     ("postgres", "ranked", "f / 2.0", "float_division_not_realized"),
     ("postgres", "ranked", "f % 2.0", "float_remainder_exact_binary64_not_realized"),
 )

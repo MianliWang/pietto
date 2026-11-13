@@ -3305,3 +3305,55 @@ def test_public_having_bridge_pairs_actual_parent_operands(tmp_path, mutation):
     assert changed > 0
     with pytest.raises(ValueError):
         probe.decode_public(json.dumps(document).encode())
+
+
+# Phase77 S15: MySQL `Int %` and `Float %` in their cell (template T15-1).
+
+
+@pytest.mark.parametrize("target", TARGETS)
+@pytest.mark.parametrize("form", sorted(probe.REMAINDER_CELLS))
+def test_mysql_remainder_cells_emit_the_bare_operator(tmp_path, form, target):
+    """Each open form of the S15 candidate emission experiment emits on both
+    targets, the same bytes under either literal policy and with no
+    parameter: on MySQL the bare `(l % r)` over its two column reads, which
+    every reader accepts; on PostgreSQL its existing SQL, the Float `%`
+    through the exact binary64 lowering."""
+    sql = set()
+    for policy in ("preserve_literals", "bind_safe_literals"):
+        _, outcome = probe.remainder_world(
+            tmp_path / policy, target, probe.REMAINDER_CELLS[form], policy
+        )
+        assert outcome.status == "VERIFIED", outcome.blockers
+        assert outcome.artifact is not None and not outcome.artifact.fixed_values
+        if target == "mysql":
+            probe.numeric_readers_accept(outcome)
+        sql.add(outcome.artifact.rendered.sql.decode())
+    (emitted,) = sql
+    if target == "mysql":
+        assert emitted == probe.REMAINDER_CELL_SQL[form]
+    else:
+        assert ("__pietto_s04_operands" in emitted) is (
+            "float" in form or "cells" in form
+        )
+
+
+@pytest.mark.parametrize("policy", ("preserve_literals", "bind_safe_literals"))
+@pytest.mark.parametrize("form", sorted(probe.REMAINDER_DIVISION_BLOCKERS))
+def test_mysql_float_division_forms_keep_main_refusal(tmp_path, form, policy):
+    """MySQL `Float /` stays refused (owner 2026-11-13T00:21Z), and an S15
+    cell beside it keeps its own refusal (s15_all_cells): each of the
+    experiment's four `Float /` forms reports main's blockers, object for
+    object."""
+    _, outcome = probe.remainder_world(
+        tmp_path, "mysql", probe.REMAINDER_DIVISIONS[form], policy
+    )
+    assert outcome.status == "BLOCKED" and outcome.artifact is None
+    assert [
+        (
+            blocker["code"],
+            blocker["subject"]["detail"],
+            blocker["location"]["line"],
+            blocker["location"]["column"],
+        )
+        for blocker in json.loads(serialize_project_sql_emission(outcome))["blockers"]
+    ] == probe.REMAINDER_DIVISION_BLOCKERS[form]

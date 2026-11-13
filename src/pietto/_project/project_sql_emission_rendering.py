@@ -1074,9 +1074,9 @@ class _Writer:
             value.kind == "arithmetic"
             and value.original.expression.operator == "%"
             and value.realization.tag == "Float"
+            # S15: a MySQL cell is the plain `(l % r)`.
+            and self.request.family == "postgres"
         ):
-            if self.request.family != "postgres":
-                raise ValueError("unrenderable float remainder")
             self.emit(
                 FLOAT_REMAINDER_PREFIX, "syntax", "float_remainder_open", reference
             )

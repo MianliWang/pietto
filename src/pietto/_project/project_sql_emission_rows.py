@@ -334,6 +334,98 @@ def mysql_sum_cell(aggregate, argument) -> bool:
     )
 
 
+# Phase77 S15 (template T15-1, D77.24): the carrier of each operand of a
+# MySQL `%` cell and of each field read beside one.
+MYSQL_REMAINDER_CARRIERS = {
+    "Int": {"kind": "my_bigint"},
+    "Float": {"kind": "my_double"},
+}
+
+
+def mysql_remainder_operands(tag, values) -> bool:
+    """The operand carrier of an S15 cell: two fields of ``tag``'s
+    MYSQL_REMAINDER_CARRIERS storage, the carriers the qualification probed."""
+
+    return len(values) == 2 and all(
+        value.tag == tag
+        and value.storage == MYSQL_REMAINDER_CARRIERS.get(tag)
+        and not value.binding
+        for value in values
+    )
+
+
+def _planned(plan, reference):
+    """The plan expression ``reference`` names, or None."""
+
+    position = getattr(reference, "position", None)
+    if type(position) is not int or not 0 <= position < len(plan.expressions):
+        return None
+    expression = plan.expressions[position]
+    return expression if expression.ref is reference else None
+
+
+def _mysql_remainder_read(columns, expression) -> str | None:
+    """The tag of a direct read, as written, of a source field whose realized
+    column (``columns``) has its tag's MYSQL_REMAINDER_CARRIERS storage."""
+
+    from pietto.ast_nodes import inlined_arguments
+
+    column = (
+        columns.get(expression.port)
+        if type(expression) is row.ProjectSQLReference
+        # A `def` argument reads as the field it inlines (D77.24, T15-1).
+        and not inlined_arguments(expression.expression)
+        else None
+    )
+    if column is None or not mysql_field_column(column):
+        return None
+    realization = column.realization
+    return (
+        realization.tag
+        if MYSQL_REMAINDER_CARRIERS.get(realization.tag) == realization.storage
+        and not realization.binding
+        else None
+    )
+
+
+def mysql_remainder_cells(plan, items, columns) -> frozenset:
+    """S15: the `%` cells of a MySQL projection stage, asked once per stage.
+    The query is mysql_checked_query's without a WHERE, and each SELECT item
+    (``items``, over the realized ``columns``) is, as its whole value, either
+    a direct read of a source field of a MYSQL_REMAINDER_CARRIERS carrier or a
+    `%` over two such reads of its own tag, none of them a `def` argument;
+    one item of any other kind closes every cell of the statement. The work
+    is linear in the items."""
+
+    from pietto.ast_nodes import inlined_arguments
+
+    if (
+        not mysql_checked_query(plan, aggregate=False)
+        or plan.blocks[0].kind is not row.ProjectSQLStageKind.PROJECTION
+    ):
+        return frozenset()
+    cells = set()
+    for item in items:
+        expression = _planned(plan, getattr(item, "expression", None))
+        site = getattr(expression, "site", None)
+        if not (
+            type(site) is row.ProjectSQLExpressionSite
+            and site.role is row.ProjectSQLExpressionRole.SELECT
+            and site.occurrence.expression is getattr(expression, "expression", None)
+        ) or inlined_arguments(site.occurrence.expression):
+            return frozenset()
+        if type(expression) is row.ProjectSQLBinary:
+            if expression.expression.operator != "%" or {
+                _mysql_remainder_read(columns, _planned(plan, operand))
+                for operand in (expression.left, expression.right)
+            } != {value_tag(expression)}:
+                return frozenset()
+            cells.add(expression.ref)
+        elif _mysql_remainder_read(columns, expression) is None:
+            return frozenset()
+    return frozenset(cells)
+
+
 # The compiled record kinds a cell's bundle may hold (D77.24 whitelist), the
 # source's metadata and any literal or WHERE predicate call included; any
 # other kind (a parameter, slot, native use, block, capture or ANY read,
@@ -381,10 +473,11 @@ _MYSQL_CHECKED_OPERATORS = frozenset(
 )
 
 
-def mysql_compiled_cells(records, entry) -> tuple[frozenset, frozenset]:
-    """Compiled replay's S01 operations and S02 aggregate values in their
-    cells, from the records alone, as emission derives them from the plan
-    (mysql_checked_cell, mysql_sum_query). A relation alias or a window,
+def mysql_compiled_cells(records, entry) -> tuple[frozenset, frozenset, frozenset]:
+    """Compiled replay's S01 operations, S02 aggregate values and S15 `%`
+    operations in their cells, from the records alone, as emission derives
+    them from the plan (mysql_checked_cell, mysql_sum_query,
+    mysql_remainder_cells). A relation alias or a window,
     read or not, and an imported source leave a direct read's records apart
     from source positions and the source digest, so only emission refuses
     them.
@@ -399,9 +492,17 @@ def mysql_compiled_cells(records, entry) -> tuple[frozenset, frozenset]:
     repeats its row's value), over reads of marked ports. An S02 value is a
     sum over a read of a marked port; its aggregate has one key at most, a
     read of a marked non-null Int port, holds sums, counts and mins only
-    (MYSQL_SUM_STAGE_FUNCTIONS), and the terminal row only reads its ports."""
+    (MYSQL_SUM_STAGE_FUNCTIONS), and the terminal row only reads its ports.
+    S15 cells need a terminal straight over the source, each of whose values
+    is a read of a marked port whose field's physical storage is its tag's
+    MYSQL_REMAINDER_CARRIERS one, or a `%` that no other counted record
+    names over two such reads of its own tag; any other value closes them."""
 
-    empty: tuple[frozenset, frozenset] = (frozenset(), frozenset())
+    empty: tuple[frozenset, frozenset, frozenset] = (
+        frozenset(),
+        frozenset(),
+        frozenset(),
+    )
     owner = entry.get("declaration")
     terminal = records[entry.get("terminal")]
     if terminal.address.kind != "row" or terminal.get("stage") != "projection":
@@ -472,21 +573,61 @@ def mysql_compiled_cells(records, entry) -> tuple[frozenset, frozenset]:
             )
         ):
             return empty
-        return frozenset(), frozenset(
-            value
-            for value in aggregate.get("values")
-            if records[value].get("function") == "sum"
-            and len(records[value].get("arguments")) == 1
-            and field(records[value].get("arguments")[0])
+        return (
+            frozenset(),
+            frozenset(
+                value
+                for value in aggregate.get("values")
+                if records[value].get("function") == "sum"
+                and len(records[value].get("arguments")) == 1
+                and field(records[value].get("arguments")[0])
+            ),
+            frozenset(),
         )
-    return frozenset(
-        value
-        for value in terminal.get("values")
-        if named.get(value) == [terminal.address]
-        and records[value].get("operator") in _MYSQL_CHECKED_OPERATORS
-        and records[value].get("operands")
-        and all(field(item) for item in records[value].get("operands"))
-    ), frozenset()
+
+    def carrier(address) -> str | None:
+        """S15: the tag of a read of a marked port whose field's physical
+        storage is that tag's MYSQL_REMAINDER_CARRIERS one."""
+        if not field(address):
+            return None
+        source = records[records[address].get("port")].get("source")
+        if source is None or source.kind != "field":
+            return None
+        try:
+            storage = json.loads(records[source].get("physical"))["storage"]
+            tag = records[source].get("logical")[0]
+        except (KeyError, IndexError, TypeError, ValueError):
+            return None
+        return tag if MYSQL_REMAINDER_CARRIERS.get(tag) == storage else None
+
+    remainders = set()
+    for value in terminal.get("values") if where is None else ():
+        operation = records[value] if value.kind == "operation" else None
+        if (
+            carrier(value) is None
+            if operation is None
+            else named.get(value) != [terminal.address]
+            or operation.get("operator") != ("binary", "%")
+            or {carrier(item) for item in operation.get("operands")}
+            != {operation.get("logical")[0]}
+            or len(operation.get("operands")) != 2
+        ):
+            remainders.clear()
+            break
+        if operation is not None:
+            remainders.add(value)
+    return (
+        frozenset(
+            value
+            for value in terminal.get("values")
+            if named.get(value) == [terminal.address]
+            and records[value].get("operator") in _MYSQL_CHECKED_OPERATORS
+            and records[value].get("operands")
+            and all(field(item) for item in records[value].get("operands"))
+        ),
+        frozenset(),
+        frozenset(remainders),
+    )
 
 
 # The MySQL project cells of lpad and now() that the Phase77 native
@@ -2697,8 +2838,11 @@ def build_row_value(
     uses,
     *,
     reference_type: ReferenceNode = row.ProjectSQLReference,
+    mysql_cells: frozenset = frozenset(),
 ) -> tuple[Any, None] | tuple[None, tuple[str, str]]:
-    """Realize one admitted tree; return (value, None) or (None, (code, detail))."""
+    """Realize one admitted tree; return (value, None) or (None, (code, detail)).
+    ``mysql_cells`` are the stage's S15 cells (mysql_remainder_cells), each
+    the whole value of an item, so no nested value takes them."""
     plan = request.plan
     family = request.family
     position = getattr(reference, "position", None)
@@ -2842,7 +2986,14 @@ def build_row_value(
         )
     if type(expression) is row.ProjectSQLBinary:
         return _binary(
-            request, columns, expression, tag, nullable, uses, reference_type
+            request,
+            columns,
+            expression,
+            tag,
+            nullable,
+            uses,
+            reference_type,
+            expression.ref in mysql_cells,
         )
     if type(expression) is row.ProjectSQLComparison:
         return _comparison(
@@ -3283,7 +3434,7 @@ def _operands(
 
 
 def _binary(
-    request, columns, expression, tag, nullable, uses, reference_type
+    request, columns, expression, tag, nullable, uses, reference_type, remainder
 ) -> tuple[Any, None] | tuple[None, tuple[str, str]]:
     operator = expression.expression.operator
     if operator not in (*ARITHMETIC, *LOGICAL):
@@ -3319,6 +3470,7 @@ def _binary(
         ),
         mysql_checked=request.family == "mysql"
         and mysql_checked_cell(request.plan, expression, values),
+        mysql_remainder=remainder,
     )
     if checked is None:
         assert problem is not None
@@ -3340,9 +3492,20 @@ def resolved_binary_realization(
     decimal_operand_origins: tuple[str | None, ...] | None = None,
     float_values: tuple[float, float] | None = None,
     mysql_checked: bool = False,
+    mysql_remainder: bool = False,
 ):
     """Original range/domain law over resolved operands; no name resolution.
-    ``mysql_checked`` marks an S01 cell (mysql_checked_cell)."""
+    ``mysql_checked`` marks an S01 cell (mysql_checked_cell),
+    ``mysql_remainder`` an S15 one (mysql_remainder_cells)."""
+    # S15: a MySQL `%` cell over two fields of its tag's carrier; MySQL
+    # returns NULL for a zero divisor, so the result is never non-null.
+    remainder = (
+        mysql_remainder
+        and family == "mysql"
+        and operator == "%"
+        and nullable is not False
+        and mysql_remainder_operands(tag, (left, right))
+    )
     if operator in LOGICAL:
         if tag != "Bool" or left.tag != "Bool" or right.tag != "Bool":
             return None, ("PIE-B1003", "logical_operands_require_bool")
@@ -3424,6 +3587,10 @@ def resolved_binary_realization(
             None,
         )
     if tag == left.tag == right.tag == "Float":
+        if remainder:
+            return Realization(
+                "Float", {"kind": "my_double"}, nullable, FINITE_FLOAT
+            ), None
         if operator == "%":
             if not (
                 family == "postgres"
@@ -3488,6 +3655,22 @@ def resolved_binary_realization(
     if tag != "Int" or left.tag != "Int" or right.tag != "Int":
         return None, ("PIE-B1003", "arithmetic_requires_signed_int_operands")
     if operator in {"/", "%"}:
+        if remainder:
+            # |l % r| < |r|; MySQL's `MIN % -1` is 0.
+            return (
+                Realization(
+                    "Int",
+                    {"kind": "my_bigint"},
+                    nullable,
+                    {
+                        "kind": "int_range",
+                        "min": str(SIGNED64[0]),
+                        "max": str(SIGNED64[1]),
+                    },
+                    SIGNED64,
+                ),
+                None,
+            )
         if family != "postgres":
             return None, ("PIE-B1003", "binary_operator_not_admitted")
         # PostgreSQL's int8 operators preserve the value or raise; no MySQL

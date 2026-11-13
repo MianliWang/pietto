@@ -410,3 +410,25 @@ def test_data_only_transport_checks_calls_and_raw_values(route):
             damaged["raw"]["api_calls"][0]["sql"] = "foreign"
         with pytest.raises(ValueError):
             check_transport(damaged, route, "synthetic", [])
+
+
+def test_mysql_remainder_cells_decode_a_zero_divisor_null(tmp_path):
+    """Phase77 S15: a native MySQL row of a `%` cell, LONGLONG for the Int
+    one and DOUBLE for the Float one, decodes NULL (a zero divisor) as None,
+    as their nullability is unknown; an `INT` type code is refused."""
+    import _pietto_sql_emission as emission
+
+    _, outcome = emission.remainder_world(
+        tmp_path, "mysql", emission.REMAINDER_CELLS["s15_mod_cells"]
+    )
+    output = prepare_output(outcome.artifact)
+    metadata = [
+        [column.label, code, None, None, None, None, int(bool(index)), 0, 63]
+        for index, (column, code) in enumerate(zip(output.columns, (8, 8, 5, 8, 5)))
+    ]
+    metadata[0][7] = 4097
+    rows = [(1, None, None, None, None), (2, -7, -7.5, -1, -1.5)]
+    assert decode_native_rows(output, "mysql_rows", metadata, rows)[1] == tuple(rows)
+    metadata[3][1] = 3
+    with pytest.raises(ResultError):
+        bind_native_output(output, "mysql_rows", metadata)

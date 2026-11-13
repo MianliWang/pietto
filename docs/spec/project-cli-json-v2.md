@@ -493,7 +493,8 @@ After `0.1.10`, a project `Float / Float` or `Float % Float` that is not
 emitted is BLOCKED with the additive PIE-B1003 detail
 `float_division_not_realized` or `float_remainder_exact_binary64_not_realized`,
 located as `binary_operator_not_admitted` is and with its suggestion: a MySQL
-one, and a PostgreSQL one with an operand whose carrier is not the reviewed
+one (a `Float %` outside the unreleased (Phase77 S15) cell that the
+[language page](../language.md) states), and a PostgreSQL one with an operand whose carrier is not the reviewed
 finite `pg_float8` carrier, such as a `percent_rank` or `cume_dist` result
 read from another relation, whose window distribution carrier is admitted for
 comparisons but not for `/` or `%`. On either target, one with an operand

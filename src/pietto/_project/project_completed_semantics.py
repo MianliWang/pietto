@@ -3076,10 +3076,10 @@ def derive_compiled_semantics(root, values, parameters=None):
     ):
         raise CompiledError("COMPILED_PHYSICAL_DOMAIN")
     ranked = _ranked_values(records, records[root.description.query], family)
-    mysql_checked, mysql_sums = (
+    mysql_checked, mysql_sums, mysql_remainders = (
         physical.mysql_compiled_cells(records, records[root.description.query])
         if family == "mysql"
-        else (frozenset(), frozenset())
+        else (frozenset(), frozenset(), frozenset())
     )
     mysql_s03 = (
         physical.mysql_s03_compiled(records, records[root.description.query])
@@ -4224,6 +4224,7 @@ def derive_compiled_semantics(root, values, parameters=None):
                                 else None
                             ),
                             mysql_checked=ref in mysql_checked,
+                            mysql_remainder=ref in mysql_remainders,
                         )
                     elif role == "comparison":
                         realized, problem = (
@@ -4493,10 +4494,10 @@ def verify_compiled_semantics(value):
         "SEMANTIC_DOMAIN",
     )
     ranked = _ranked_values(records, records[value.root.description.query], family)
-    mysql_checked, mysql_sums = (
+    mysql_checked, mysql_sums, mysql_remainders = (
         physical.mysql_compiled_cells(records, records[value.root.description.query])
         if family == "mysql"
-        else (frozenset(), frozenset())
+        else (frozenset(), frozenset(), frozenset())
     )
     mysql_s03 = (
         physical.mysql_s03_compiled(records, records[value.root.description.query])
@@ -5759,6 +5760,7 @@ def verify_compiled_semantics(value):
                             and inputs[0].realization.tag == "Float"
                             else None,
                             mysql_checked=current in mysql_checked,
+                            mysql_remainder=current in mysql_remainders,
                         )
                 else:
                     realization = None

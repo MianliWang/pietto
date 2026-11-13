@@ -1957,3 +1957,129 @@ def test_the_mysql_sum_cell_law_refuses_each_edited_input(tmp_path, edit):
             None,
             ("PIE-B1002", "sum_result_logical_type_or_argument_drift"),
         )
+
+
+# --------------------------------------------------------------------------
+# Phase77 S15: MySQL Int % and Float % in their cell (template T15-1)
+# --------------------------------------------------------------------------
+
+_INT64_DOMAIN = {
+    "kind": "int_range",
+    "min": str(-(1 << 63)),
+    "max": str((1 << 63) - 1),
+}
+
+
+def test_mysql_remainder_cells_realize_their_carriers(tmp_path):
+    """An Int `%` cell is a `my_bigint` over all of signed 64 bits and a Float
+    one a finite `my_double`; MySQL returns NULL for a zero divisor, so both
+    are of unknown nullability. Neither carries R13 evidence; the field reads
+    beside them keep their source carriers."""
+    _, outcome = probe.remainder_world(
+        tmp_path, "mysql", probe.REMAINDER_CELLS["s15_mod_cells"]
+    )
+    document = json.loads(serialize_project_sql_emission(outcome))
+    assert [
+        (column["label"], column["representation"]) for column in document["columns"]
+    ] == [
+        (
+            "id",
+            {
+                "storage": {"kind": "my_bigint"},
+                "nullable": False,
+                "domain": _INT64_DOMAIN,
+            },
+        ),
+        (
+            "a",
+            {
+                "storage": {"kind": "my_bigint"},
+                "nullable": True,
+                "domain": _INT64_DOMAIN,
+            },
+        ),
+        (
+            "x",
+            {
+                "storage": {"kind": "my_double"},
+                "nullable": True,
+                "domain": rows.FINITE_FLOAT,
+            },
+        ),
+        (
+            "r",
+            {
+                "storage": {"kind": "my_bigint"},
+                "nullable": "unknown",
+                "domain": _INT64_DOMAIN,
+            },
+        ),
+        (
+            "m",
+            {
+                "storage": {"kind": "my_double"},
+                "nullable": "unknown",
+                "domain": rows.FINITE_FLOAT,
+            },
+        ),
+    ]
+    assert not [
+        item
+        for item in document["requirements"]
+        if any("target_checked" in str(part) for part in item["evidence"])
+    ]
+
+
+@pytest.mark.parametrize("policy", ("preserve_literals", "bind_safe_literals"))
+@pytest.mark.parametrize("shape", sorted(probe.REMAINDER_REFUSALS))
+def test_mysql_remainder_outside_its_cell_keeps_main_refusal(tmp_path, shape, policy):
+    """Every other MySQL `%` keeps main's refusal, the whole statement's
+    blockers object for object (owner 2026-11-13T00:20Z): a `%` beside an S01
+    cell, `abs`, a comparison, an `Int /` or a `Float /`, under a WHERE
+    without a literal, beside a direct read of a DECIMAL, text or `INT`
+    field, over an `INT` operand or a literal, nested, or through a `def`
+    (as the cell, an argument or an item beside it)."""
+    _, outcome = probe.remainder_world(
+        tmp_path, "mysql", probe.REMAINDER_REFUSALS[shape], policy, side=True
+    )
+    assert outcome.status == "BLOCKED" and outcome.artifact is None
+    assert numeric_blockers(outcome) == probe.REMAINDER_REFUSAL_BLOCKERS[shape]
+
+
+def test_mysql_remainder_cells_are_derived_once_per_projection(tmp_path, monkeypatch):
+    """Emission and its verification ask for a projection's S15 cells a fixed
+    number of times however many cells it holds, and the per-item check runs
+    exactly twice as often for twice the items (P76-PERF-2)."""
+    from pietto._project.project_sql_emission_verification import (
+        verify_project_sql_emission,
+    )
+
+    counts = {}
+    for count in (1, 20, 40):
+        cells, reads = [], []
+        with monkeypatch.context() as patch:
+            for name, calls in (
+                ("mysql_remainder_cells", cells),
+                ("_mysql_remainder_read", reads),
+            ):
+                patch.setattr(
+                    rows,
+                    name,
+                    lambda *args, _law=getattr(rows, name), _calls=calls: (
+                        _calls.append(args) or _law(*args)
+                    ),
+                )
+            body = "table result:\n    from nums\n    select:\n" + "".join(
+                f"        r{index} = a % b\n" for index in range(count)
+            )
+            _, outcome = probe.remainder_world(tmp_path / str(count), "mysql", body)
+            emitted = len(cells), len(reads)
+            assert outcome.artifact is not None, outcome.blockers
+            assert verify_project_sql_emission(
+                outcome.artifact, outcome.artifact.request
+            ).verified
+        counts[count] = (emitted, (len(cells) - emitted[0], len(reads) - emitted[1]))
+    assert counts[1][0][0] == counts[40][0][0] > 0
+    assert counts[1][1][0] == counts[40][1][0] > 0
+    assert counts[40][0][1] == 2 * counts[20][0][1] > 0
+    assert counts[40][1][1] == 2 * counts[20][1][1] > 0

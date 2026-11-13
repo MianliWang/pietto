@@ -2944,9 +2944,29 @@ In PostgreSQL project emission, `Float % Float` is the finite binary64
 truncating-quotient remainder (`fmod`): its magnitude is less than the
 divisor's and its sign, including zero's sign, follows the dividend. It uses
 an exact binary64-unit lowering, not PostgreSQL's nonexistent float8 `%` or a
-Float-to-Decimal conversion. Single-file PostgreSQL and every MySQL Float `%`
-stay refused until separately qualified; mixed Int/Float and Decimal `%` are
-also refused.
+Float-to-Decimal conversion. `Int % Int` is the remainder of the truncating
+`Int` division, so its sign follows the dividend (`7 % 2` is `1`, `-7 % 2` is
+`-1`, `7 % -2` is `1`). A zero divisor raises 22012 on PostgreSQL.
+
+A MySQL project emits `Int % Int` over two `BIGINT` fields and
+`Float % Float` over two `DOUBLE` fields in one unreleased (Phase77 S15)
+cell only: the `%` is the whole value of a SELECT item of the `query` or
+`table` that `emit-sql --project` emits, its operands are fields of a source
+declared in the query's own module, read by name (`a` or `nums.a`, also in
+parentheses), and every other SELECT item is a direct read of a `BIGINT` or
+`DOUBLE` field of that source or another such `%`. As written the query
+reads that source directly and holds no `let`, WHERE, window, JOIN,
+GROUP BY or aggregate, HAVING, DISTINCT, ORDER BY, LIMIT, header parameter
+(read or not), bind-safe `?`, set operand or read of another relation, and
+no operand or item is a `def` argument. The SQL is the bare `(a % b)`, which
+MySQL computes as `fmod` for `DOUBLE`; a zero divisor returns NULL there,
+so the result's nullability is unknown. Single-file PostgreSQL and MySQL
+Float `%`, every other MySQL `%` (a literal operand, `(a % b) + n`, a `%`
+beside `s = a + b`, beside a comparison or beside a `DECIMAL`, text or `INT`
+field, or under a WHERE), mixed Int/Float and Decimal `%` stay refused, and a
+statement still refused reports exactly the blockers it has without this
+cell. MySQL `Float /` stays refused (PIE-B1003 `float_division_not_realized`)
+and MySQL project `Int /` too.
 
 ```pietto PIE-S2106
 shape Order:

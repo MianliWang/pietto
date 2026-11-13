@@ -1489,6 +1489,20 @@ def _row_realization(request, expression, operands, operand_values):
         # S01: emission's blockers, which verification re-derives first, leave
         # a MySQL target-checked sign or arithmetic only in its cell.
         mysql_checked=request.family == "mysql" and kind in {"unary", "binary"},
+        # S15: and a MySQL `%` only in its cell.
+        mysql_remainder=request.family == "mysql" and kind == "binary",
+    )
+
+
+def _mysql_remainder_operands(tag, operands) -> bool:
+    """Independent S15 operand carrier: two BIGINT (Int) or DOUBLE (Float)
+    fields of the result's tag."""
+    return len(operands) == 2 and all(
+        item.tag == tag
+        and item.storage
+        == {"Int": {"kind": "my_bigint"}, "Float": {"kind": "my_double"}}.get(tag)
+        and not item.binding
+        for item in operands
     )
 
 
@@ -1506,13 +1520,24 @@ def resolved_row_realization(
     rows_both_sides=None,
     float_cell=None,
     mysql_checked=False,
+    mysql_remainder=False,
 ):
     """Existing independent physical-law checker over closed resolved inputs.
 
     A comparison requires ``rows_both_sides`` and takes ``float_cell`` (see
-    the shared comparison law). ``mysql_checked`` marks an S01 cell, which its
-    caller derives.
+    the shared comparison law). ``mysql_checked`` marks an S01 cell and
+    ``mysql_remainder`` an S15 one, which its caller derives.
     """
+    # S15: a MySQL `%` over two fields of one BIGINT or DOUBLE carrier, NULL
+    # for a zero divisor.
+    remainder = (
+        mysql_remainder
+        and family == "mysql"
+        and kind == "binary"
+        and operator == "%"
+        and nullable is not False
+        and _mysql_remainder_operands(tag, operands)
+    )
     if kind == "null_test":
         if tag != "Bool" or nullable is not False:
             raise ValueError("null test result")
@@ -1666,13 +1691,14 @@ def resolved_row_realization(
         and all(item.tag == "Float" for item in operands)
     ):
         if kind == "binary" and operator in {"/", "%"}:
-            if family != "postgres" or not all(
-                _float_carrier(item, "postgres") for item in operands
+            if not remainder and (
+                family != "postgres"
+                or not all(_float_carrier(item, "postgres") for item in operands)
             ):
                 raise ValueError("float division or remainder")
             return rows.Realization(
                 "Float",
-                {"kind": "pg_float8"},
+                {"kind": "pg_float8" if family == "postgres" else "my_double"},
                 nullable,
                 {"kind": "finite_float", "format": "binary64"},
             )
@@ -1703,11 +1729,11 @@ def resolved_row_realization(
     if tag != "Int" or any(item.tag != "Int" for item in operands):
         raise ValueError("arithmetic domain")
     if kind == "binary" and operator in {"/", "%"}:
-        if family != "postgres":
+        if family != "postgres" and not remainder:
             raise ValueError("integer division or remainder")
         return rows.Realization(
             "Int",
-            {"kind": "pg_int8"},
+            {"kind": "pg_int8" if family == "postgres" else "my_bigint"},
             nullable,
             {
                 "kind": "int_range",
@@ -7996,9 +8022,9 @@ def verify_row_bytes(query, rendered):
                 value.kind == "arithmetic"
                 and value.original.expression.operator == "%"
                 and value.realization.tag == "Float"
+                # S15: a MySQL cell is the plain `(l % r)`.
+                and query.request.family == "postgres"
             ):
-                if query.request.family != "postgres":
-                    raise ValueError("unrenderable float remainder")
                 take(
                     "syntax", "float_remainder_open", reference, FLOAT_REMAINDER_PREFIX
                 )

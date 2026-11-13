@@ -2543,6 +2543,12 @@ def realize_rows(request):
                     if len(items) != len(exports):
                         add("PIE-B1001", "stage_export_denominator", block.ref)
                         return None
+            # S15: the stage's MySQL `%` cells, derived once for all its items.
+            mysql_cells = (
+                rows.mysql_remainder_cells(plan, items, readable)
+                if family == "mysql" and kind == "projection"
+                else frozenset()
+            )
             for offset, (item, export) in enumerate(zip(items, exports, strict=True)):
                 position = len(columns)
                 label = export.identity.name if final else f"c{position}"
@@ -2662,6 +2668,7 @@ def realize_rows(request):
                     reference_type=grouping.ProjectSQLResultReference
                     if kind == "projection" and stage is not None
                     else reference_type,
+                    mysql_cells=mysql_cells,
                 )
                 if value is None:
                     # Every unsupported value in this body keeps its own cause.

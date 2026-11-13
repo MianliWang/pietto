@@ -10454,7 +10454,18 @@ def _decode_fixed_public(document, limits):
                     "nullable": nullable,
                     "domain": {"kind": "finite_float", "format": "binary64"},
                 }
-                if None in values or node["operator"] == " / ":
+                if family == "mysql" and node["operator"] == " % ":
+                    # S15: a cell over two DOUBLE fields, MySQL's `fmod`; the
+                    # readers under test derive the rest of the cell.
+                    _need(
+                        all(
+                            item["storage"] == {"kind": "my_double"}
+                            and item["domain"] == FINITE_FLOAT
+                            for item in operands
+                        ),
+                        "MySQL Float remainder operands",
+                    )
+                elif None in values or node["operator"] == " / ":
                     # E4: no literal fold proves the result finite; PostgreSQL's
                     # checked float8 operator refuses an infinity (22003).
                     _need(
@@ -10479,6 +10490,28 @@ def _decode_fixed_public(document, limits):
                     }[node["operator"]]
                     _need(math.isfinite(value), "finite Float result")
                     result["float_value"] = value
+            elif family == "mysql" and node["operator"] == " % ":
+                # S15: a cell over two BIGINT fields, inside signed 64 bits;
+                # the readers under test derive the rest of the cell.
+                _need(
+                    all(
+                        item["tag"] == "Int"
+                        and item["storage"] == {"kind": "my_bigint"}
+                        for item in operands
+                    ),
+                    "MySQL Int remainder operands",
+                )
+                result = {
+                    "tag": "Int",
+                    "storage": {"kind": "my_bigint"},
+                    "nullable": nullable,
+                    "domain": {
+                        "kind": "int_range",
+                        "min": str(I64_MIN),
+                        "max": str(I64_MAX),
+                    },
+                    "proven_int_range": (I64_MIN, I64_MAX),
+                }
             elif node["operator"] in {" / ", " % "}:
                 _need(
                     family == "postgres"
@@ -18203,5 +18236,244 @@ S03_REFUSAL_BLOCKERS = {
     ],
     "t2_upstream_subset": [
         ("PIE-B1004", "sum_int_aggregate_range_proof_missing", 22, 9),
+    ],
+}
+
+
+# Phase77 S15: the candidate emission experiment's world (its forms.json
+# `world`): `id`, `n` and `d` non-null and `a` and `b` nullable BIGINT over all
+# of signed 64 bits, `u` and `v` non-null and `x` and `y` nullable finite
+# DOUBLE. ``side=True`` (MySQL only) adds the refusal probes' narrow INT `k`,
+# DECIMAL(9, 2) `c` and VARCHAR(64) `t`.
+_REMAINDER_FIELDS = (
+    ("id", "Int", False),
+    ("a", "Int", True),
+    ("b", "Int", True),
+    ("n", "Int", False),
+    ("d", "Int", False),
+    ("x", "Float", True),
+    ("y", "Float", True),
+    ("u", "Float", False),
+    ("v", "Float", False),
+)
+_REMAINDER_SIDE_FIELDS = (
+    ("k", "Int", False),
+    ("c", "Decimal(9, 2)", True),
+    ("t", "Text", True),
+)
+_REMAINDER_SELECT = "table result:\n    from nums\n    select:\n"
+_REMAINDER_BODY = _REMAINDER_SELECT + "        id\n"
+
+
+def remainder_world(directory, target, body, policy="preserve_literals", side=False):
+    """``body`` after the S15 world's header (main.pietto is the experiment's
+    form source when ``body`` is one of REMAINDER_CELLS)."""
+    fields = _REMAINDER_FIELDS + (_REMAINDER_SIDE_FIELDS if side else ())
+    assert target == "mysql" or not side
+    int64 = {"kind": "int_range", "min": str(-(1 << 63)), "max": str((1 << 63) - 1)}
+    physical = {
+        "Int": ({"kind": "pg_int8" if target == "postgres" else "my_bigint"}, int64),
+        "Float": (
+            {"kind": "pg_float8" if target == "postgres" else "my_double"},
+            {"kind": "finite_float", "format": "binary64"},
+        ),
+        "k": (
+            {"kind": "my_int"},
+            {"kind": "int_range", "min": str(-(1 << 31)), "max": str((1 << 31) - 1)},
+        ),
+        "c": (
+            {"kind": "my_decimal", "precision": 9, "scale": 2},
+            {"kind": "decimal", "precision": 9, "scale": 2},
+        ),
+        "t": (
+            {"kind": "my_varchar", "length": 64},
+            {
+                "kind": "text",
+                "max_characters": 64,
+                "encoding": "utf8mb4",
+                "collation": "utf8mb4_0900_bin",
+                "padding": "NO PAD",
+            },
+        ),
+    }
+    carriers = {
+        name: physical[name if name in physical else tag] for name, tag, _ in fields
+    }
+    mysql = target == "mysql"
+    contract = {
+        "format": "pietto.emission-contract.v1",
+        "target": {"family": target, "release": "8.4.12" if mysql else "18.6"},
+        "sources": [
+            {
+                "selector": {"module": "main.pietto", "kind": "source", "name": "nums"},
+                "relation": {
+                    "namespace": "phase66" if mysql else "public",
+                    "name": "s15 nums",
+                },
+                "scan": "relation_rows",
+                "premises": [
+                    {"key": "row_domain_matches", "scope": "source", "value": True},
+                    {"key": "read_only_object", "scope": "source", "value": True},
+                ],
+                "fields": [
+                    {
+                        "ordinal": ordinal,
+                        "name": name,
+                        "column": name,
+                        "representation": {
+                            "storage": carriers[name][0],
+                            "nullable": nullable,
+                            "domain": carriers[name][1],
+                        },
+                    }
+                    for ordinal, (name, tag, nullable) in enumerate(fields)
+                ],
+            }
+        ],
+        "environment": [
+            {
+                "key": "client_encoding",
+                "scope": "statement",
+                "value": "utf8mb4" if mysql else "UTF8",
+            },
+            {
+                "key": "operator_environment",
+                "scope": "statement",
+                "value": "builtin_only",
+            },
+            {
+                "key": "identifier_case",
+                "scope": "statement",
+                "value": "lower_case_table_names=0" if mysql else "quoted_exact",
+            },
+            {
+                "key": "parameter_protocol",
+                "scope": "statement",
+                "value": "mysql_prepared" if mysql else "postgres_extended",
+            },
+        ],
+    }
+    header = "".join(
+        f"    {name}: {tag}{' | None' if nullable else ''}\n"
+        for name, tag, nullable in fields
+    )
+    source = (
+        f"shape Num:\n{header}"
+        f'source nums: Num = {target}.table("opaque.locator.not.sql")\n{body}'
+    )
+    return build_case(
+        directory, {"main.pietto": source}, encoded(contract).decode(), policy
+    )
+
+
+# The experiment's open forms (P-S15-1..3, 7..10), each a MySQL S15 cell, the
+# SQL each emits (also the experiment's byte source), and its four MySQL
+# `Float /` forms (P-S15-4..6, 11), which keep main's refusal.
+REMAINDER_CELLS = {
+    "s15_int_mod_nullable": _REMAINDER_BODY + "        r = a % b\n",
+    "s15_int_mod_nonnull": _REMAINDER_BODY + "        r = n % d\n",
+    "s15_int_mod_mixed": _REMAINDER_BODY + "        r1 = a % d\n        r2 = n % b\n",
+    "s15_float_mod_nullable": _REMAINDER_BODY + "        r = x % y\n",
+    "s15_float_mod_nonnull": _REMAINDER_BODY + "        r = u % v\n",
+    "s15_float_mod_mixed": _REMAINDER_BODY + "        r1 = x % v\n        r2 = u % y\n",
+    "s15_mod_cells": _REMAINDER_BODY
+    + "        a\n        x\n        r = a % b\n        m = x % y\n",
+}
+REMAINDER_DIVISIONS = {
+    "s15_float_div_nullable": _REMAINDER_BODY + "        q = x / y\n",
+    "s15_float_div_nonnull": _REMAINDER_BODY + "        q = u / v\n",
+    "s15_float_div_mixed": _REMAINDER_BODY + "        q1 = x / v\n        q2 = u / y\n",
+    "s15_all_cells": _REMAINDER_BODY
+    + "        a\n        x\n        r = a % b\n        q = x / y\n        m = x % y\n",
+}
+# The MySQL SQL of each open form, under either literal policy (PostgreSQL's
+# keeps main's bytes; its Float `%` is the exact binary64 lowering).
+REMAINDER_CELL_SQL = {
+    "s15_int_mod_nullable": "SELECT `s0`.`id` AS `id`, (`s0`.`a` % `s0`.`b`) AS `r` FROM `phase66`.`s15 nums` AS `s0`",
+    "s15_int_mod_nonnull": "SELECT `s0`.`id` AS `id`, (`s0`.`n` % `s0`.`d`) AS `r` FROM `phase66`.`s15 nums` AS `s0`",
+    "s15_int_mod_mixed": "SELECT `s0`.`id` AS `id`, (`s0`.`a` % `s0`.`d`) AS `r1`, (`s0`.`n` % `s0`.`b`) AS `r2` FROM `phase66`.`s15 nums` AS `s0`",
+    "s15_float_mod_nullable": "SELECT `s0`.`id` AS `id`, (`s0`.`x` % `s0`.`y`) AS `r` FROM `phase66`.`s15 nums` AS `s0`",
+    "s15_float_mod_nonnull": "SELECT `s0`.`id` AS `id`, (`s0`.`u` % `s0`.`v`) AS `r` FROM `phase66`.`s15 nums` AS `s0`",
+    "s15_float_mod_mixed": "SELECT `s0`.`id` AS `id`, (`s0`.`x` % `s0`.`v`) AS `r1`, (`s0`.`u` % `s0`.`y`) AS `r2` FROM `phase66`.`s15 nums` AS `s0`",
+    "s15_mod_cells": "SELECT `s0`.`id` AS `id`, `s0`.`a` AS `a`, `s0`.`x` AS `x`, (`s0`.`a` % `s0`.`b`) AS `r`, (`s0`.`x` % `s0`.`y`) AS `m` FROM `phase66`.`s15 nums` AS `s0`",
+}
+_REMAINDER_WHERE = "table result:\n    from nums\n    where n == d\n    select:\n"
+_REMAINDER_IDENTITY = "def f(p: Int | None) -> Int | None: return p\n"
+# Refused MySQL bodies over remainder_world(side=True), each `%` outside its
+# cell, with the blockers (code, detail, line, column) main reports for them
+# under either literal policy (observed on 0.1.11, byte for byte the same
+# documents as the candidate's). The first ten are the forged shapes.
+REMAINDER_REFUSALS = {
+    "beside_s01": _REMAINDER_SELECT + "        r = a % b\n        s = a + b\n",
+    "beside_comparison": _REMAINDER_SELECT + "        r = a % b\n        e = n == d\n",
+    "under_where": _REMAINDER_WHERE + "        r = a % b\n",
+    "beside_decimal": _REMAINDER_SELECT + "        c\n        r = a % b\n",
+    "beside_text": _REMAINDER_SELECT + "        t\n        r = a % b\n",
+    "beside_narrow": _REMAINDER_SELECT + "        k\n        r = a % b\n",
+    "narrow_operand": _REMAINDER_SELECT + "        r = k % a\n",
+    "float_beside_s01": _REMAINDER_SELECT + "        m = x % y\n        s = a + b\n",
+    "float_beside_comparison": _REMAINDER_SELECT
+    + "        m = x % y\n        e = n == d\n",
+    "float_under_where": _REMAINDER_WHERE + "        m = x % y\n",
+    "def_cell": "def m(p: Int | None, q: Int | None) -> Int | None: return p % q\n"
+    + _REMAINDER_SELECT
+    + "        r = m(a, b)\n",
+    "def_beside": _REMAINDER_IDENTITY
+    + _REMAINDER_SELECT
+    + "        f(a)\n        r = a % b\n",
+    "def_argument": _REMAINDER_IDENTITY + _REMAINDER_SELECT + "        r = f(a % b)\n",
+    "literal_operand": _REMAINDER_SELECT + "        r = a % 2\n",
+    "nested": _REMAINDER_SELECT + "        r = (a % b) + n\n",
+    "beside_abs": _REMAINDER_SELECT + "        r = a % b\n        s = abs(a)\n",
+    "beside_int_division": _REMAINDER_SELECT + "        r = a % b\n        q = a / b\n",
+    "beside_float_division": _REMAINDER_SELECT
+    + "        r = a % b\n        q = x / y\n",
+}
+_INT_MOD = ("PIE-B1003", "binary_operator_not_admitted")
+_FLOAT_MOD = ("PIE-B1003", "float_remainder_exact_binary64_not_realized")
+REMAINDER_REFUSAL_BLOCKERS = {
+    "beside_s01": [
+        (*_INT_MOD, 18, 9),
+        ("PIE-B1002", "arithmetic_outside_physical_range", 19, 9),
+    ],
+    "beside_comparison": [(*_INT_MOD, 18, 9)],
+    "under_where": [(*_INT_MOD, 19, 9)],
+    "beside_decimal": [(*_INT_MOD, 19, 9)],
+    "beside_text": [(*_INT_MOD, 19, 9)],
+    "beside_narrow": [(*_INT_MOD, 19, 9)],
+    "narrow_operand": [(*_INT_MOD, 18, 9)],
+    "float_beside_s01": [
+        (*_FLOAT_MOD, 18, 9),
+        ("PIE-B1002", "arithmetic_outside_physical_range", 19, 9),
+    ],
+    "float_beside_comparison": [(*_FLOAT_MOD, 18, 9)],
+    "float_under_where": [(*_FLOAT_MOD, 19, 9)],
+    "def_cell": [(*_INT_MOD, 19, 9)],
+    "def_beside": [(*_INT_MOD, 20, 9)],
+    "def_argument": [(*_INT_MOD, 19, 9)],
+    "literal_operand": [(*_INT_MOD, 18, 9)],
+    "nested": [(*_INT_MOD, 18, 9)],
+    "beside_abs": [
+        (*_INT_MOD, 18, 9),
+        ("PIE-B1002", "abs_result_outside_physical_range", 19, 9),
+    ],
+    "beside_int_division": [(*_INT_MOD, 18, 9), (*_INT_MOD, 19, 9)],
+    "beside_float_division": [
+        (*_INT_MOD, 18, 9),
+        ("PIE-B1003", "float_division_not_realized", 19, 9),
+    ],
+}
+# The four MySQL `Float /` forms over remainder_world, as main refuses them.
+REMAINDER_DIVISION_BLOCKERS = {
+    "s15_float_div_nullable": [("PIE-B1003", "float_division_not_realized", 16, 9)],
+    "s15_float_div_nonnull": [("PIE-B1003", "float_division_not_realized", 16, 9)],
+    "s15_float_div_mixed": [
+        ("PIE-B1003", "float_division_not_realized", 16, 9),
+        ("PIE-B1003", "float_division_not_realized", 17, 9),
+    ],
+    "s15_all_cells": [
+        (*_INT_MOD, 18, 9),
+        ("PIE-B1003", "float_division_not_realized", 19, 9),
+        (*_FLOAT_MOD, 20, 9),
     ],
 }
