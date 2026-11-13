@@ -705,7 +705,7 @@ HOLD 则给出 focused continuation 或 consolidated decision sheet。执行代�
 [Slice13](https://github.com/MianliWang/pietto/blob/8e7c43f1852b2c26318b3217268a1f7416f44965/docs/phases/phase-67/slice-13.md) 通过唯一 `pietto[arrow]` 选择精确
 `pyarrow==26.0.1`（已发布 `0.1.10` 为 `26.0.0`），默认 locked setup 与既有core `.venv` 保持Arrow-free。
 两compiler/package jobs由 `scripts/package_smoke.py --dist-dir ... --extra-env ...`
-各构建或消费同一个wheel/sdist，先在全新core环境验证无PyArrow、lazy imports、真实缺依赖
+各构建一个wheel/sdist，先在全新core环境验证无PyArrow、lazy imports、真实缺依赖
 拒绝及原CLI/SQL，再在另一个全新prefix以候选wheel的 `[arrow]` 安装。hash-pinned
 requirements仅预置并校验tested dependencies，随后wheel extra完整解析，不使用 `--no-deps`
 绕过selector。独立SDK9、product102/100及原22份neutral全文仍走既有required reports。

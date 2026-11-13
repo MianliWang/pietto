@@ -1585,10 +1585,12 @@ def main(argv: list[str] | None = None) -> int:
                 parser.error("--installed-check requires --wheel")
             _installed_check(args.wheel, args.installed_check)
             return 0
-        if args.extra_env is not None and (
-            args.extra_env.exists() or args.extra_env.is_symlink()
+        for path, name in (
+            (args.extra_env, "extra environment"),
+            (args.dist_dir, "dist directory"),
         ):
-            raise SmokeFailure("extra environment must begin at a new owned path")
+            if path is not None and (path.exists() or path.is_symlink()):
+                raise SmokeFailure(f"{name} must begin at a new owned path")
         contract = _project_contract()
         with tempfile.TemporaryDirectory(prefix="pietto-package-smoke-") as temporary:
             temporary_root = Path(temporary)
@@ -1597,23 +1599,21 @@ def main(argv: list[str] | None = None) -> int:
             )
             venv_dir = temporary_root / "venv"
             scratch_dir = temporary_root / "scratch"
-            build = not dist_dir.exists()
-            dist_dir.mkdir(exist_ok=True)
+            dist_dir.mkdir()
             scratch_dir.mkdir()
 
-            if build:
-                _run_command(
-                    "build sdist and wheel",
-                    (
-                        "uv",
-                        "build",
-                        "--sdist",
-                        "--wheel",
-                        "--out-dir",
-                        str(dist_dir),
-                    ),
-                    cwd=REPO_ROOT,
-                )
+            _run_command(
+                "build sdist and wheel",
+                (
+                    "uv",
+                    "build",
+                    "--sdist",
+                    "--wheel",
+                    "--out-dir",
+                    str(dist_dir),
+                ),
+                cwd=REPO_ROOT,
+            )
             sdist, wheel = _find_artifacts(dist_dir)
             print(f"[package-smoke] built sdist: {sdist.name}")
             print(f"[package-smoke] built wheel: {wheel.name}")

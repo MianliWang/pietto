@@ -56,6 +56,30 @@ def test_smoke_uses_temporary_build_venv_and_external_scratch_directories() -> N
     assert "cwd=scratch_dir" in inspect.getsource(smoke._run_installed_cli)
 
 
+def test_main_refuses_an_existing_or_symlink_dist_dir_before_any_build(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    def forbidden(*args: object, **kwargs: object) -> None:
+        pytest.fail("an existing dist directory reached the build or its artifacts")
+
+    monkeypatch.setattr(smoke, "_run_command", forbidden)
+    monkeypatch.setattr(smoke, "_find_artifacts", forbidden)
+    stale = tmp_path / "stale"
+    stale.mkdir()
+    (stale / "pietto-0.0.0-py3-none-any.whl").write_bytes(b"stale")
+    link = tmp_path / "link"
+    link.symlink_to(tmp_path / "absent", target_is_directory=True)
+    for dist in (stale, link):
+        assert smoke.main(["--dist-dir", str(dist)]) == 1
+        assert "dist directory must begin at a new owned path" in (
+            capsys.readouterr().err
+        )
+    assert [path.name for path in stale.iterdir()] == ["pietto-0.0.0-py3-none-any.whl"]
+    assert not (tmp_path / "absent").exists()
+
+
 def test_builds_sdist_and_wheel_and_installs_a_non_editable_wheel() -> None:
     source = inspect.getsource(smoke.main)
 
