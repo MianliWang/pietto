@@ -2603,6 +2603,203 @@ def _compiled_reads_row(records, address) -> bool:
     return any(_compiled_reads_row(records, child) for child in record.get("operands"))
 
 
+# The record kinds a Phase77 S06 cell's bundle may hold; any other (a let,
+# parameter, aggregate, window, result, set, block read, ...) is never a cell.
+_FLOAT_CELL_KINDS = frozenset(
+    {
+        "entry",
+        "target",
+        "premise",
+        "policy",
+        "declaration",
+        "source",
+        "source_unique",
+        "field",
+        "port",
+        "use",
+        "read",
+        "operation",
+        "site",
+        "literal",
+        "row",
+        "join",
+        "join_value",
+        "output",
+        "requirement",
+        "requirement_origin",
+        "requirement_link",
+    }
+)
+
+
+def _compiled_float_cell(records, address):
+    """The cell (rows.MYSQL_FLOAT_ROW_CELLS) of the MySQL Float comparison or
+    `same_value` call at ``address``, re-derived from the bundle's own records
+    as emission derives it from its plan (Phase77 S06): one source under a
+    projection, or under a WHERE and a projection, the tree the whole WHERE or
+    one SELECT item's whole value; or one INNER or LEFT JOIN of two sources of
+    different tables under one projection, the tree its whole ON or, before
+    `and`, one `==` of two Text keys of different inputs. The tree is the
+    operation at ``address`` or `not` over it, its two operands read
+    different qualified Float fields (of different inputs in a JOIN), the
+    keys qualified keys of one width, every other SELECT item reads a carrier
+    rows.mysql_float_cell_items admits, each source has the fields of a
+    qualification table (rows.MYSQL_FLOAT_CELL_TABLES), every read is a
+    direct read of a source field and the bundle holds no other operation,
+    literal or unit.
+    None outside every cell. A relation alias `let`, an unused named window
+    or an inlined `def`, which emission refuses, changes the records only in
+    source positions, so this reader cannot tell it from the direct program."""
+    from pietto._project import project_sql_emission_rows as physical
+
+    by_kind: dict[str, list] = {}
+    for record in records.values():
+        by_kind.setdefault(record.address.kind, []).append(record)
+    sources, joins, rows = (by_kind.get(kind, []) for kind in ("source", "join", "row"))
+    if (
+        not set(by_kind) <= _FLOAT_CELL_KINDS
+        or len(by_kind.get("operation", ())) > 4
+        or len(by_kind.get("entry", ())) != 1
+        or any(
+            record.get("site") not in records
+            or records[record.get("site")].get("role") != "connector"
+            for record in by_kind.get("literal", ())
+        )
+    ):
+        return None
+
+    def operation(item):
+        record = records.get(item)
+        return (
+            record
+            if record is not None and record.address.kind == "operation"
+            else None
+        )
+
+    if joins:
+        if len(joins) != 1 or len(sources) != 2 or len(rows) != 1:
+            return None
+        join, projection = joins[0], rows[0]
+        inputs = join.get("inputs")
+        producers = {records[use].get("producer") for use in inputs}
+        root = operation(join.get("predicate"))
+        if (
+            join.get("kind") not in ("inner", "left")
+            or join.get("equalities")
+            or len(inputs) != 2
+            or producers != {source.address for source in sources}
+            or len({(s.get("namespace"), s.get("name")) for s in sources}) != 2
+            or projection.get("stage") != "projection"
+            or projection.get("input") != join.address
+            or root is None
+        ):
+            return None
+        selected, keys, place = projection.get("values"), (), "none"
+        if root.get("operator") == ("binary", "and"):
+            if len(root.get("operands")) != 2:
+                return None
+            root, key = (operation(item) for item in root.get("operands"))
+            if key is None or key.get("operator") != ("comparison", "=="):
+                return None
+            keys, place = key.get("operands"), "text"
+        shape = (join.get("kind"), place)
+    else:
+        if len(sources) != 1 or len(rows) not in (1, 2):
+            return None
+        projection, upstream, place = rows[-1], sources[0].address, "select"
+        if len(rows) == 2:
+            where = rows[0]
+            if where.get("stage") != "where" or where.get("input") != upstream:
+                return None
+            root = operation(where.get("predicate"))
+            upstream, place = where.address, "where"
+            selected = projection.get("values")
+        else:
+            trees = tuple(
+                item for item in projection.get("values") if item.kind == "operation"
+            )
+            root = operation(trees[0]) if len(trees) == 1 else None
+            selected = tuple(
+                item for item in projection.get("values") if item.kind != "operation"
+            )
+        if (
+            projection.get("stage") != "projection"
+            or projection.get("input") != upstream
+        ):
+            return None
+        shape, keys = ("same_row", place), ()
+    if root is None or projection.get("predicate") is not None:
+        return None
+    negated = root.get("operator") == ("not", "not") and len(root.get("operands")) == 1
+    node = operation(root.get("operands")[0]) if negated else root
+    if node is None or node.address != address or len(node.get("operands")) != 2:
+        return None
+    form = {
+        ("comparison", "=="): "==",
+        ("comparison", "!="): "!=",
+        ("scalar_call", "same_value"): "same_value",
+    }.get(node.get("operator"))
+    if form is None or len(by_kind["operation"]) != 1 + negated + 2 * bool(keys):
+        return None
+
+    def field(item):
+        # A read of a source port, or of a WHERE row's or JOIN's port that
+        # carries one through its own read or JOIN value.
+        for _ in range(3):
+            read = records.get(item)
+            if (
+                read is None
+                or read.address.kind != "read"
+                or read.get("role") != "value"
+            ):
+                return None
+            port = records[read.get("port")]
+            owner, carried = records[port.get("owner")], records[port.get("source")]
+            if owner.address.kind == "source":
+                return port, carried
+            if owner.address.kind == "join" and carried.address.kind == "join_value":
+                item = carried.get("input")
+            elif owner.address.kind == "row" and carried.address.kind == "read":
+                item = carried.address
+            else:
+                return None
+        return None
+
+    found = tuple(field(item) for item in (*node.get("operands"), *keys, *selected))
+    reads = tuple(item for item in found if item is not None)
+    if len(reads) != len(found):
+        return None
+    carriers = tuple(
+        physical.mysql_float_cell_carrier(record.get("physical")) for _, record in reads
+    )
+    owners = tuple(port.get("owner") for port, _ in reads)
+    cell = (*shape, "not " + form if negated else form)
+    allowed = physical.mysql_float_cell_items(cell)
+    if (
+        any(
+            tuple(
+                physical.mysql_float_cell_carrier(records[item].get("physical"))
+                for item in source.get("fields")
+            )
+            != physical.MYSQL_FLOAT_CELL_TABLES[cell[0]]
+            for source in sources
+        )
+        or carriers[:2] != ("float", "float")
+        or reads[0][0].address == reads[1][0].address
+        or any(carrier not in allowed for carrier in carriers[2 + len(keys) :])
+        or joins
+        and owners[0] == owners[1]
+        or keys
+        and (
+            carriers[2] != carriers[3]
+            or carriers[2] not in physical.MYSQL_FLOAT_CELL_KEY_WIDTHS
+            or owners[2] == owners[3]
+        )
+    ):
+        return None
+    return cell
+
+
 def _ordered_value_type(records, record, typed):
     """The result type of one compiled aggregate value: a `first` or `last` of
     an aggregation without GROUP BY may read an empty input, which gives None;
@@ -3714,6 +3911,9 @@ def derive_compiled_semantics(root, values, parameters=None):
                                 _compiled_reads_row(records, child)
                                 for child in operands
                             ),
+                            float_cell=_compiled_float_cell(records, ref)
+                            if family == "mysql" and token == "same_value"
+                            else None,
                         )
                     elif role == "conditional":
                         realized, problem = physical.resolved_conditional_realization(
@@ -3816,6 +4016,11 @@ def derive_compiled_semantics(root, values, parameters=None):
                                     _compiled_reads_row(records, child)
                                     for child in operands
                                 ),
+                                float_cell=_compiled_float_cell(records, ref)
+                                if family == "mysql"
+                                and token in ("==", "!=")
+                                and inputs[0].tag == "Float"
+                                else None,
                             )
                         )
                     elif role in {"null_test", "exists"}:
@@ -5093,6 +5298,9 @@ def verify_compiled_semantics(value):
                                     _compiled_reads_row(records, child)
                                     for child in children
                                 ),
+                                float_cell=_compiled_float_cell(records, current)
+                                if family == "mysql" and token == "same_value"
+                                else None,
                             )
                         )
                         need(
@@ -5274,6 +5482,13 @@ def verify_compiled_semantics(value):
                                 if role == "comparison"
                                 else None
                             ),
+                            float_cell=_compiled_float_cell(records, current)
+                            if family == "mysql"
+                            and role == "comparison"
+                            and token in ("==", "!=")
+                            and inputs[0].realization is not None
+                            and inputs[0].realization.tag == "Float"
+                            else None,
                         )
                 else:
                     realization = None

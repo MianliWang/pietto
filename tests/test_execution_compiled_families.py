@@ -5,6 +5,7 @@ import json
 import pytest
 
 import _pietto_sql_emission as emission
+import _pietto_sql_float_cells as float_cells
 from _pietto_execution_binding import proof_artifact
 from _pietto_execution_compiled import retained_unmapped_source
 from _pietto_execution_refinement import capabilities
@@ -997,7 +998,7 @@ def test_a_compiled_float_equality_of_two_row_reads_is_refused_on_mysql(
         patch.setattr(
             physical,
             "resolved_comparison_realization",
-            lambda *args, operator, rows_both_sides: law(
+            lambda *args, operator, rows_both_sides, **_: law(
                 *args, operator=operator, rows_both_sides=False
             ),
         )
@@ -1005,6 +1006,147 @@ def test_a_compiled_float_equality_of_two_row_reads_is_refused_on_mysql(
     # The verifier's own comparison law raises its PIE-B1003 detail.
     with pytest.raises(ValueError, match="comparison_type_pair_not_admitted"):
         verify_compiled_semantics(derived)
+
+
+@pytest.mark.parametrize(
+    "body",
+    (*(body for _, _, body in float_cells.QUALIFIED), *float_cells.SAME_CLASS.values()),
+    ids=(
+        *(
+            " ".join((*cell, key or "")).strip()
+            for cell, key, _ in float_cells.QUALIFIED
+        ),
+        *float_cells.SAME_CLASS,
+    ),
+)
+def test_mysql_float_row_cells_replay_from_compiled_input(tmp_path, body):
+    """Phase77 S06: compiled replay re-derives each qualified cell from the
+    bundle's own records and renders the emitted SQL; so does the live
+    template."""
+    original = float_cells.build(tmp_path, "mysql", body)
+    assert original.status == "VERIFIED" and original.artifact is not None
+    _compare(original.artifact, refinement=False)
+    _live(original.artifact)
+
+
+def _float_cell_bundle(directory, body, monkeypatch):
+    """A MySQL bundle built while emission admits every Float comparison of
+    two row reads, as if its cell law were bypassed."""
+    from pietto._project import project_sql_emission_rows as physical
+
+    with monkeypatch.context() as patch:
+        patch.setattr(
+            physical,
+            "mysql_float_cell",
+            lambda request, expression: ("same_row", "select", "=="),
+        )
+        original = float_cells.build(directory, "mysql", body)
+        assert original.status == "VERIFIED"
+        return build_compiled(original.artifact)
+
+
+def _loaded(built, description=None):
+    from pietto._project.project_compiled_schema import content_pin, encode
+
+    raw = built.payload if description is None else encode(description)
+    return load_compiled(
+        raw,
+        expected_pin=built.pin if description is None else content_pin(raw),
+        accepted_producer=built.producer,
+        accepted_compatibility=built.compatibility,
+    )
+
+
+@pytest.mark.parametrize(
+    "name",
+    (
+        *("same_field", "float_item", "key_first", "same_table", "semi_exists"),
+        *("two_joins", "parameter_select"),
+        *("same_value_same_field", "same_value_float_item"),
+        *("join_same_side", "key_same_side", "mixed_key_widths"),
+        *("non_null_operand", "nullable_key", "int_key", "key_width_255"),
+        *("unselected_key_same_row", "unselected_wide_text"),
+        *("unselected_nullable_float", "reordered_fields", "same_row_table_joined"),
+        *("not_equal", "inner_not_equal"),
+    ),
+)
+def test_a_compiled_mysql_float_comparison_outside_its_cell_is_refused(
+    tmp_path, monkeypatch, name
+):
+    """A bundle whose emission bypassed the cell law: derivation re-derives
+    the cell from the records and refuses it, and the independent verifier
+    refuses a derivation forged past that law (a `same_value` call as its
+    scalar-call domain, a comparison by the law's detail)."""
+    from pietto._project import project_completed_semantics as semantics
+    from pietto._project.project_compiled_schema import CompiledError
+
+    built = _float_cell_bundle(tmp_path, float_cells.REFUSED[name][0], monkeypatch)
+    root = _loaded(built)
+    with pytest.raises(CompiledError, match="^COMPILED_PHYSICAL_DOMAIN$"):
+        emit_compiled(root, ())
+    with monkeypatch.context() as patch:
+        patch.setattr(
+            semantics,
+            "_compiled_float_cell",
+            lambda records, address: ("same_row", "select", "=="),
+        )
+        derived = semantics.derive_compiled_semantics(root, ())
+    refusal = (
+        (CompiledError, "^COMPILED_SEMANTIC_DOMAIN$")
+        if name.startswith("same_value")
+        else (ValueError, "comparison_type_pair_not_admitted")
+    )
+    with pytest.raises(refusal[0], match=refusal[1]):
+        semantics.verify_compiled_semantics(derived)
+
+
+def test_a_tampered_compiled_mysql_float_cell_is_refused(tmp_path, monkeypatch):
+    """A qualified `not (f1 != f2)` bundle rewritten to `not (f1 == f2)`, which
+    no cell holds: derivation refuses it, and the independent verifier
+    refuses a derivation forged past the cell law."""
+    from pietto._project import project_completed_semantics as semantics
+    from pietto._project.project_compiled_schema import (
+        FIELDS,
+        CompiledError,
+        Record,
+    )
+
+    body = float_cells.query("from f6s", "select:", "    r = not (f1 != f2)")
+    built = build_compiled(float_cells.build(tmp_path, "mysql", body).artifact)
+    (comparison,) = (
+        r
+        for r in built.root.description.records
+        if r.address.kind == "operation" and r.get("operator") == ("comparison", "!=")
+    )
+    values = list(comparison.values)
+    values[FIELDS["operation"].index("operator")] = ("comparison", "==")
+    forged = Record(comparison.address, tuple(values))
+    root = _loaded(
+        built,
+        replace(
+            built.root.description,
+            members=tuple(
+                (
+                    name,
+                    tuple(
+                        forged if r.address == forged.address else r for r in members
+                    ),
+                )
+                for name, members in built.root.description.members
+            ),
+        ),
+    )
+    with pytest.raises(CompiledError, match="^COMPILED_PHYSICAL_DOMAIN$"):
+        semantics.derive_compiled_semantics(root, ())
+    with monkeypatch.context() as patch:
+        patch.setattr(
+            semantics,
+            "_compiled_float_cell",
+            lambda records, address: ("same_row", "select", "not !="),
+        )
+        derived = semantics.derive_compiled_semantics(root, ())
+    with pytest.raises(ValueError, match="comparison_type_pair_not_admitted"):
+        semantics.verify_compiled_semantics(derived)
 
 
 @pytest.mark.parametrize("target", ("postgres", "mysql"))
@@ -3286,7 +3428,7 @@ def test_repinned_cross_family_comparison_refuses_derivation_and_verification(
         patch.setattr(
             physical,
             "resolved_comparison_realization",
-            lambda family, tag, nullable, left, right, *, operator, rows_both_sides: (
+            lambda family, tag, nullable, left, right, **_: (
                 physical._bool(family, False),
                 None,
             ),

@@ -1127,7 +1127,9 @@ BLOCKED `group by` and
 EXCEPT, and a Float `==` or `!=` whose two operands both read rows (a JOIN
 `on`, a WHERE comparison across inputs, a correlated
 `any`/`exists`/scalar/capture predicate, or two fields of one row, such as
-`price == cost` or `not (price != cost)`), and a Float `in` or `not in`
+`price == cost` or `not (price != cost)`) outside the same-row and JOIN
+forms that [Float values](language.md#float-values) lists, and a Float `in`
+or `not in`
 literal list whose value and one of its options both read rows, such as
 `price in (cost, 0.0)`, as each option stands for an `==` with the value;
 PostgreSQL emits them. A comparison with a literal or a header parameter

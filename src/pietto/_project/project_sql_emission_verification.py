@@ -1339,7 +1339,10 @@ def _float_literal_value(value):
 
 
 def _row_realization(request, expression, operands, operand_values):
-    """Read original logical evidence, then independently check the resolved law."""
+    """Read original logical evidence, then independently check the resolved law.
+
+    A MySQL Float comparison of two row reads takes its cell from the plan,
+    by the function emission calls (rows.mysql_float_cell)."""
     kind = {
         row.ProjectSQLIsNull: "null_test",
         row.ProjectSQLComparison: "comparison",
@@ -1363,6 +1366,18 @@ def _row_realization(request, expression, operands, operand_values):
         in {"null_test", "between", "scalar_call", "conditional", "membership", "cast"}
         else expression.expression.operator
     )
+    rows_both_sides = all(_reads_row(value) for value in operand_values)
+    float_cell = (
+        rows.mysql_float_cell(request, expression)
+        if request.family == "mysql"
+        and rows_both_sides
+        and (
+            operator in {"==", "!="}
+            or kind == "scalar_call"
+            and expression.callee_symbol.name == "same_value"
+        )
+        else None
+    )
     if kind == "scalar_call":
         result, problem = rows.resolved_scalar_call_realization(
             request.family,
@@ -1373,7 +1388,8 @@ def _row_realization(request, expression, operands, operand_values):
             static_values=tuple(
                 rows._static_literal_value(value) for value in operand_values
             ),
-            rows_both_sides=all(_reads_row(value) for value in operand_values),
+            rows_both_sides=rows_both_sides,
+            float_cell=float_cell,
         )
         if result is None:
             raise ValueError(problem)
@@ -1431,7 +1447,8 @@ def _row_realization(request, expression, operands, operand_values):
                 operands[0],
                 operands[1],
                 operator,
-                rows_both_sides=all(_reads_row(value) for value in operand_values),
+                rows_both_sides=rows_both_sides,
+                float_cell=float_cell,
             )
         if result is None:
             raise ValueError(problem)
@@ -1477,10 +1494,12 @@ def resolved_row_realization(
     decimal_operand_origins: tuple[str | None, ...] | None = None,
     float_values=None,
     rows_both_sides=None,
+    float_cell=None,
 ):
     """Existing independent physical-law checker over closed resolved inputs.
 
-    A comparison requires ``rows_both_sides`` (see the shared comparison law).
+    A comparison requires ``rows_both_sides`` and takes ``float_cell`` (see
+    the shared comparison law).
     """
     if kind == "null_test":
         if tag != "Bool" or nullable is not False:
@@ -1500,6 +1519,7 @@ def resolved_row_realization(
             right,
             operator,
             rows_both_sides=rows_both_sides,
+            float_cell=float_cell,
         )
         if result is None:
             raise ValueError(problem)

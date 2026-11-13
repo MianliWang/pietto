@@ -953,6 +953,306 @@ def _is_float(realization, family: str) -> bool:
     )
 
 
+# Phase77 S06: the MySQL Float comparisons of two row reads that the native
+# qualification judged READY, as (shape, place, form), restated from the
+# emitter's cell table because this module imports no compiler.
+_MYSQL_FLOAT_ROW_CELLS = frozenset(
+    {
+        *(
+            ("same_row", place, form)
+            for place in ("select", "where")
+            for form in ("==", "!=", "not !=", "same_value", "not same_value")
+        ),
+        *(
+            (kind, key, form)
+            for kind, form in (("inner", "=="), ("inner", "not !="), ("left", "=="))
+            for key in ("none", "text")
+        ),
+    }
+)
+# The fields of each source of a cell as carriers (_mysql_float_carrier) in
+# declaration order, restated from the emitter's MYSQL_FLOAT_CELL_TABLES:
+# exactly those of the qualification's tables, `f6s` (id, f1, f2) for a
+# same-row cell, `f6o` and `f6i` (id, v, kn, kw) for a JOIN cell.
+_MYSQL_FLOAT_CELL_TABLES = {
+    "same_row": ("int", "float", "float"),
+    "inner": ("int", "float", 64, 1000),
+    "left": ("int", "float", 64, 1000),
+}
+# The record kinds a cell's document may hold; any other is never a cell.
+_MYSQL_FLOAT_CELL_KINDS = frozenset(
+    {
+        "artifact",
+        "association",
+        "bound_field",
+        "bound_source",
+        "event",
+        "generated_requirement",
+        "origin",
+        "original_requirement",
+        "owner",
+        "premise",
+        "realization",
+        "rendered",
+        "request",
+        "scope_definition",
+        "scope_use",
+        "sql_symbol",
+        "stage_column",
+        "terminal_binding",
+        "sql_row_query",
+        "sql_join_query",
+        "row_body",
+        "row_scan",
+        "row_stage_use",
+        "row_join_use",
+        "row_value_column",
+        "row_carry_column",
+        "row_predicate",
+        "join_body",
+        "join_input",
+        "join_column",
+        "sql_operation",
+        "sql_stage_reference",
+    }
+)
+
+
+def _reads_row(doc, value) -> bool:
+    """The emitter's row-read test: a field (also inside ANY), captured or
+    block read."""
+    if value.kind in {
+        "sql_stage_reference",
+        "sql_any_reference",
+        "sql_captured_reference",
+        "sql_block_read",
+    }:
+        return True
+    if value.kind == "sql_operation":
+        return any(_reads_row(doc, child) for child in doc[value]["operands"])
+    if value.kind == "sql_unary":
+        return _reads_row(doc, doc[value]["operand"])
+    return False
+
+
+def _mysql_float_carrier(representation):
+    """The emitter's mysql_float_cell_carrier, restated: "float" for the
+    nullable binary64 DOUBLE, "int" for a non-null BIGINT Int, the width for
+    a NOT NULL binary VARCHAR(64) or (1000); else None."""
+    try:
+        described = _json(representation)
+    except _Reject:
+        return None
+    if type(described) is not dict:
+        return None
+    if described == {
+        "domain": {"format": "binary64", "kind": "finite_float"},
+        "nullable": True,
+        "storage": {"kind": "my_double"},
+    }:
+        return "float"
+    domain = described.get("domain")
+    if (
+        described.get("storage") == {"kind": "my_bigint"}
+        and described.get("nullable") is False
+        and type(domain) is dict
+        and domain.get("kind") == "int_range"
+    ):
+        return "int"
+    for width in (64, 1000):
+        if described == {
+            "domain": {
+                "collation": "utf8mb4_0900_bin",
+                "encoding": "utf8mb4",
+                "kind": "text",
+                "max_characters": width,
+                "padding": "NO PAD",
+            },
+            "nullable": False,
+            "storage": {"kind": "my_varchar", "length": width},
+        }:
+            return width
+    return None
+
+
+def _mysql_float_read(doc, value):
+    """(carrier, source, stage column) of a reference that reads a source field
+    directly, its carrier from _mysql_float_carrier; None otherwise."""
+    if value.kind != "sql_stage_reference":
+        return None
+    stage = doc[doc[value]["column"]]
+    owners = tuple(
+        ref for ref in doc.all("bound_source") if stage["field"] in doc[ref]["fields"]
+    )
+    if (
+        stage["field"] is None
+        or stage["source_port"] is None
+        or stage["literal"] is not None
+        or stage["aggregate"] is not None
+        or stage["window"] is not None
+        or len(owners) != 1
+    ):
+        return None
+    carrier = _mysql_float_carrier(doc[stage["field"]]["representation"])
+    return carrier, owners[0], doc[value]["column"]
+
+
+def _mysql_float_cell(doc, ref):
+    """The cell of the MySQL Float comparison or `same_value` call ``ref``
+    from the document's own structure, as emission derives it from its plan:
+    one source under a projection, or under a WHERE and a projection, the
+    tree the whole WHERE or one SELECT item's whole value; or one INNER or
+    LEFT JOIN of two bound sources of different tables under one projection,
+    the tree its whole ON or, before `and`, one `==` of two Text keys. The
+    tree is ``ref`` or `not` over it; its operands read different qualified
+    Float fields (one of each JOIN input), the keys qualified keys of one
+    width of different inputs, every other SELECT item a non-null BIGINT Int
+    (also a qualified Float beside a WHERE or a JOIN), each source the
+    fields of a qualification table (_MYSQL_FLOAT_CELL_TABLES); the document
+    holds no other operation or record kind. None outside every cell. A
+    relation alias `let`, an unused named window or an inlined `def`, which
+    emission refuses, changes the document only in source positions and
+    source bytes, so this reader cannot tell it from the direct program."""
+    operations = doc.all("sql_operation")
+    artifacts = doc.all("artifact")
+    if (
+        not set(doc.kinds) <= _MYSQL_FLOAT_CELL_KINDS
+        or len(operations) > 4
+        or len(artifacts) != 1
+    ):
+        return None
+
+    def operation(value, kind, operator, count):
+        found = value.kind == "sql_operation" and (
+            doc[value]["kind"],
+            doc[value]["operator"],
+            len(doc[value]["operands"]),
+        ) == (kind, operator, count)
+        return doc[value]["operands"] if found else None
+
+    ast, keys, inputs = doc[artifacts[0]]["ast"], (), None
+    if ast.kind == "sql_join_query":
+        units = doc[ast]["units"]
+        if [unit.kind for unit in units] != ["join_body", "row_body"]:
+            return None
+        join, body = doc[units[0]], doc[units[1]]
+        inputs = join["inputs"]
+        producers = tuple(doc[item]["producer"] for item in inputs)
+        if (
+            join["join_kind"] not in ("inner", "left")
+            or join["equalities"]
+            or len(inputs) != 2
+            or any(item.kind != "bound_source" for item in producers)
+            or len({(doc[s]["namespace"], doc[s]["name"]) for s in producers}) != 2
+            or body["scan"].kind != "row_join_use"
+            or doc[body["scan"]]["body"] != units[0]
+        ):
+            return None
+        root, place = join["predicate"], "none"
+        if root is None:
+            return None
+        sides = operation(root, "logical", "and", 2)
+        if sides is not None:
+            root, key = sides
+            keys, place = operation(key, "comparison", "==", 2), "text"
+            if keys is None:
+                return None
+        shape = (join["join_kind"], place)
+        selected = tuple(doc[column]["value"] for column in body["columns"])
+        sources = producers
+    elif ast.kind == "sql_row_query":
+        bodies = doc[ast]["bodies"]
+        if (
+            len(bodies) not in (1, 2)
+            or doc[bodies[0]]["scan"].kind != "row_scan"
+            or doc[doc[bodies[0]]["scan"]]["realization"].kind != "bound_source"
+        ):
+            return None
+        body = doc[bodies[-1]]
+        values = tuple(doc[column]["value"] for column in body["columns"])
+        if len(bodies) == 2:
+            where = doc[bodies[0]]
+            if (
+                where["block_kind"] != "where"
+                or where["predicate"] is None
+                or body["scan"].kind != "row_stage_use"
+                or doc[body["scan"]]["body"] != bodies[0]
+            ):
+                return None
+            root, place, selected = doc[where["predicate"]]["value"], "where", values
+        else:
+            trees = tuple(value for value in values if value.kind == "sql_operation")
+            if len(trees) != 1:
+                return None
+            root, place = trees[0], "select"
+            selected = tuple(value for value in values if value.kind != "sql_operation")
+        shape = ("same_row", place)
+        sources = (doc[doc[bodies[0]]["scan"]]["realization"],)
+    else:
+        return None
+    if body["block_kind"] != "projection" or body["predicate"] is not None:
+        return None
+    inner = operation(root, "not", "not", 1)
+    node = root if inner is None else inner[0]
+    if node != ref:
+        return None
+    operands = doc[node]["operands"]
+    form = {
+        ("comparison", "=="): "==",
+        ("comparison", "!="): "!=",
+        ("scalar_call", "same_value"): "same_value",
+    }.get((doc[node]["kind"], doc[node]["operator"]))
+    negated = inner is not None
+    if (
+        form is None
+        or len(operands) != 2
+        or len(operations) != 1 + negated + 2 * bool(keys)
+    ):
+        return None
+    found = tuple(
+        _mysql_float_read(doc, value) for value in (*operands, *keys, *selected)
+    )
+    reads = tuple(item for item in found if item is not None)
+    if len(reads) != len(found):
+        return None
+    carriers = tuple(carrier for carrier, _, _ in reads)
+    owners = tuple(owner for _, owner, _ in reads)
+    cell = (*shape, "not " + form if negated else form)
+    allowed = ("int",) if shape[1] == "select" else ("int", "float")
+    if (
+        any(
+            tuple(
+                _mysql_float_carrier(doc[field]["representation"])
+                for field in doc[source]["fields"]
+            )
+            != _MYSQL_FLOAT_CELL_TABLES[shape[0]]
+            for source in sources
+        )
+        or carriers[:2] != ("float", "float")
+        or doc[reads[0][2]]["source_port"] == doc[reads[1][2]]["source_port"]
+        or any(carrier not in allowed for carrier in carriers[2 + len(keys) :])
+        or inputs is not None
+        and any(
+            # The ON reads each JOIN input's own scan columns, one per input.
+            not any(
+                doc[item]["producer"] == owner and column in doc[item]["columns"]
+                for item in inputs
+            )
+            for _, owner, column in reads[: 2 + len(keys)]
+        )
+        or inputs is not None
+        and owners[0] == owners[1]
+        or keys
+        and (
+            carriers[2] != carriers[3]
+            or carriers[2] not in (64, 1000)
+            or owners[2] == owners[3]
+        )
+    ):
+        return None
+    return cell
+
+
 def _is_pg_text(realization, *, nullable=None, maximum=None) -> bool:
     return _is_realization(
         realization,
@@ -1806,6 +2106,24 @@ class _Check:
                 op["operator"] in schema.OPERATORS[op["kind"]], "operation operator"
             )
             result = doc[op["realization"]]
+            if (
+                family == "mysql"
+                and (op["kind"], op["operator"])
+                in {
+                    ("comparison", "=="),
+                    ("comparison", "!="),
+                    ("scalar_call", "same_value"),
+                }
+                and len(op["operands"]) == 2
+                and all(_value_tag(doc, child) == "Float" for child in op["operands"])
+                and all(_reads_row(doc, child) for child in op["operands"])
+            ):
+                # Phase77 S06: MySQL picks its own join and semijoin plans for a
+                # Float equality of two row reads; only a qualified cell emits.
+                _require(
+                    _mysql_float_cell(doc, ref) in _MYSQL_FLOAT_ROW_CELLS,
+                    "MySQL Float row comparison cell",
+                )
             if family == "postgres" and result["tag"] == "Decimal":
                 operands = tuple(
                     _value_realization(doc, child) for child in op["operands"]

@@ -7,6 +7,9 @@ import json
 import pytest
 
 import _pietto_sql_emission as probe
+import _pietto_sql_float_cells as cells
+from pietto._project import project_sql_emission_portable as portable
+from pietto._project import project_sql_emission_pure_boundary as pure
 from pietto._project import project_sql_emission_rows as rows
 from pietto._project.project_sql_emission import (
     serialize_project_sql_emission,
@@ -445,6 +448,206 @@ def test_float_comparisons_with_rows_on_both_sides(
         (b["code"], b["subject"]["detail"], b["location"]["column"])
         for b in public["blockers"]
     ] == [("PIE-B1003", detail, 9)]
+
+
+def _mysql_spelling(sql):
+    """A PostgreSQL statement in MySQL's quoting, schema and null-safe equality."""
+    return (
+        sql.replace('"', "`")
+        .replace("`public`", "`phase66`")
+        .replace(" IS NOT DISTINCT FROM ", " <=> ")
+    )
+
+
+@pytest.mark.parametrize(
+    "body",
+    (
+        *(body for _, _, body in cells.QUALIFIED),
+        *cells.SAME_CLASS.values(),
+    ),
+    ids=(
+        *(" ".join((*cell, key or "")).strip() for cell, key, _ in cells.QUALIFIED),
+        *cells.SAME_CLASS,
+    ),
+)
+def test_mysql_float_row_cells_emit_the_postgresql_statement(tmp_path, body):
+    """Phase77 S06: each form s06-float-b10 judged READY (same row, INNER and
+    LEFT JOIN, alone and beside a qualified Text key) and each program of its
+    class emits on MySQL the PostgreSQL statement in MySQL spelling, and the
+    live verifier and the pure boundary accept both."""
+    emitted = {}
+    for target in ("postgres", "mysql"):
+        outcome = cells.build(tmp_path / target, target, body)
+        assert outcome.status == "VERIFIED", serialize_project_sql_emission(outcome)
+        artifact = outcome.artifact
+        assert artifact is not None
+        assert verify_project_sql_emission(artifact, artifact.request).verified
+        observed = portable.export_emission_observation(artifact, artifact.request)
+        assert observed.canonical_bytes is not None
+        assert (
+            pure.parse_emission_observation(observed.canonical_bytes).status
+            is pure.Status.OK
+        )
+        emitted[target] = artifact.rendered.sql.decode("utf-8")
+    assert emitted["mysql"] == _mysql_spelling(emitted["postgres"])
+
+
+@pytest.mark.parametrize("name", sorted(cells.REFUSED))
+def test_other_mysql_float_row_comparisons_keep_their_refusal(tmp_path, name):
+    """Every other program keeps main's PIE-B1003 detail on MySQL at each such
+    comparison, and still emits on PostgreSQL."""
+    body, expected = cells.REFUSED[name]
+    assert cells.build(tmp_path / "postgres", "postgres", body).status == "VERIFIED"
+    outcome = cells.build(tmp_path / "mysql", "mysql", body)
+    public = probe.decode_public(serialize_project_sql_emission(outcome))
+    assert outcome.status == "BLOCKED" and outcome.artifact is None
+    assert [(b["code"], b["subject"]["detail"]) for b in public["blockers"]] == expected
+
+
+def test_a_mysql_float_row_cell_refused_for_another_reason_keeps_mains_list(
+    tmp_path,
+):
+    """Rule two (D77.37): a cell's statement that an output label past 256
+    characters refuses reports main's whole blocker list, the comparison's
+    PIE-B1003 first, as main `a015afcf` does."""
+    body = cells.query(
+        "from f6s", "select:", "    id", "    " + "r" * 257 + " = f1 == f2"
+    )
+    outcome = cells.build(tmp_path, "mysql", body)
+    public = probe.decode_public(serialize_project_sql_emission(outcome))
+    assert [(b["code"], b["subject"]["detail"]) for b in public["blockers"]] == [
+        ("PIE-B1003", "comparison_type_pair_not_admitted"),
+        ("PIE-B1002", "output_label_unrepresentable"),
+    ]
+
+
+@pytest.mark.parametrize("target", ("postgres", "mysql"))
+def test_a_null_safe_join_condition_has_no_form_on_either_target(tmp_path, target):
+    """The qualification's null-safe JOIN matched, but `same_value` in an ON
+    has no PostgreSQL form, so MySQL opens none either."""
+    body = cells.query(
+        "from f6o",
+        "inner join f6i on same_value(f6i.v, f6o.v)",
+        "select:",
+        "    v = f6o.v",
+    )
+    outcome = cells.build(tmp_path, target, body)
+    public = probe.decode_public(serialize_project_sql_emission(outcome))
+    assert outcome.status == "BLOCKED"
+    assert ("PIE-B1003", "match_condition_not_in_row_domain") in [
+        (b["code"], b["subject"]["detail"]) for b in public["blockers"]
+    ]
+
+
+@pytest.mark.parametrize(
+    "name",
+    (
+        *("same_field", "float_item", "key_first", "same_table", "upstream_query"),
+        *("same_value_same_field", "same_value_float_item"),
+        *("join_same_side", "key_same_side", "mixed_key_widths"),
+        # Carriers outside the cell: an operand, a key, a source's fields.
+        *("non_null_operand", "nullable_key", "int_key", "key_width_255"),
+        *("unselected_key_same_row", "unselected_wide_text"),
+        *("unselected_nullable_float", "reordered_fields", "same_row_table_joined"),
+        # Forms outside the cell table the pure boundary restates.
+        *("not_equal", "inner_not_equal"),
+        # A Float read inside `any(...)` reads a row too.
+        *("semi_exists", "anti_not_exists", "semi_exists_ne", "semi_exists_not_ne"),
+    ),
+)
+def test_a_mysql_float_row_comparison_forged_past_its_cell_is_refused(
+    tmp_path, monkeypatch, name
+):
+    """Emission forced to admit a program outside every cell. The live
+    verifier refuses it from its plan, by the emission blockers it derives
+    again and, with those bypassed, by its own comparison law; both call
+    mysql_float_cell, as emission does. The pure boundary refuses it from the
+    document's own structure, by the cell table it restates."""
+    from pietto._project import project_sql_emission_verification as verification
+
+    with monkeypatch.context() as patch:
+        patch.setattr(
+            rows,
+            "mysql_float_cell",
+            lambda request, expression: ("same_row", "select", "=="),
+        )
+        outcome = cells.build(tmp_path, "mysql", cells.REFUSED[name][0])
+        artifact = outcome.artifact
+        assert outcome.status == "VERIFIED" and artifact is not None
+        observed = portable.export_emission_observation(artifact, artifact.request)
+    assert observed.canonical_bytes is not None
+    assert verify_project_sql_emission(artifact, artifact.request).issues == (
+        "plan_ast_correspondence",
+    )
+    with monkeypatch.context() as patch:
+        patch.setattr(verification, "emission_blockers", lambda request: ())
+        assert verify_project_sql_emission(artifact, artifact.request).issues == (
+            "plan_ast_correspondence",
+        )
+    refused = pure.parse_emission_observation(observed.canonical_bytes)
+    assert (refused.status, refused.detail) == (
+        pure.Status.INVALID_RELATION,
+        "MySQL Float row comparison cell",
+    )
+    assert pure._MYSQL_FLOAT_ROW_CELLS == rows.MYSQL_FLOAT_ROW_CELLS
+    assert pure._MYSQL_FLOAT_CELL_TABLES == rows.MYSQL_FLOAT_CELL_TABLES
+
+
+def _rewritten(kind, field, value):
+    """Rewrite the one ``kind`` record whose ``field`` is INNER or `==`."""
+
+    def tamper(records):
+        (record,) = (
+            r
+            for r in records
+            if r["ref"][0] == kind and r["fields"].get(field) in ("inner", "==")
+        )
+        record["fields"][field] = value
+
+    return tamper
+
+
+def _crossed_on_fields(records):
+    """Each Float column the ON compares claims the other input's field."""
+    fields = {tuple(r["ref"]): r["fields"] for r in records}
+    (join,) = (r["fields"] for r in records if r["ref"][0] == "join_body")
+    left, right = (
+        fields[tuple(fields[tuple(operand)]["column"])]
+        for operand in fields[tuple(join["predicate"])]["operands"]
+    )
+    left["field"], right["field"] = right["field"], left["field"]
+
+
+@pytest.mark.parametrize(
+    "join,tamper",
+    (
+        # An INNER `not (!=)` read as a LEFT JOIN, which only `==` qualifies.
+        (
+            "inner join f6i on not (f6i.v != f6o.v)",
+            _rewritten("join_body", "join_kind", "left"),
+        ),
+        # A LEFT `==` read as `!=`.
+        (
+            "left join f6i on f6i.v == f6o.v",
+            _rewritten("sql_operation", "operator", "!="),
+        ),
+        # An ON that reads no column of each input's own scan.
+        ("inner join f6i on f6i.v == f6o.v", _crossed_on_fields),
+    ),
+)
+def test_a_tampered_mysql_float_cell_document_is_refused(tmp_path, join, tamper):
+    body = cells.query("from f6o", join, "select:", "    oid = f6o.id")
+    artifact = cells.build(tmp_path, "mysql", body).artifact
+    assert artifact is not None
+    observed = portable.export_emission_observation(artifact, artifact.request)
+    assert observed.canonical_bytes is not None
+    document = json.loads(observed.canonical_bytes)
+    tamper(document["records"])
+    refused = pure.parse_emission_observation(json.dumps(document))
+    assert (refused.status, refused.detail) == (
+        pure.Status.INVALID_RELATION,
+        "MySQL Float row comparison cell",
+    )
 
 
 @pytest.mark.parametrize("target", ("postgres", "mysql"))

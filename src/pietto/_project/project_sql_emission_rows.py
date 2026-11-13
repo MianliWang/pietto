@@ -1955,6 +1955,7 @@ def _comparison(
             request.family, tag, nullable, left, right
         )
     else:
+        rows_both_sides = all(_reads_row(value) for value in values)
         checked, problem = resolved_comparison_realization(
             request.family,
             tag,
@@ -1962,7 +1963,13 @@ def _comparison(
             left,
             right,
             operator,
-            rows_both_sides=all(_reads_row(value) for value in values),
+            rows_both_sides=rows_both_sides,
+            float_cell=mysql_float_cell(request, expression)
+            if request.family == "mysql"
+            and rows_both_sides
+            and left.tag == "Float"
+            and operator in ("==", "!=")
+            else None,
         )
     if checked is None:
         assert problem is not None
@@ -2002,6 +2009,366 @@ def _reads_row(value) -> bool:
     )
 
 
+# The MySQL project Float comparisons of two row reads that the Phase77 S06
+# native qualification (s06-float-b10) judged READY, as (shape, place, form).
+# Same row: `==`, `!=`, `not (!=)`, `same_value` or `not same_value(...)` of
+# two nullable Float fields of one source, as the whole value of a SELECT item
+# ("select") or the whole WHERE ("where"). JOIN: an INNER `==` or `not (!=)`,
+# or a LEFT `==`, of a nullable Float field of each of two sources as the
+# whole ON ("none") or before `and` one `==` of two Text keys ("text"); an ON
+# `same_value` has no PostgreSQL form. Emission and the live verifier call
+# mysql_float_cell on their plan; compiled replay (records) and the pure
+# boundary (document) each derive the cell from their own input. Every other
+# MySQL Float comparison of two row reads keeps its refusal. A relation alias
+# `let` (read or not), an unused named window and an inlined `def` change the
+# records and the document only in source positions and source bytes, so only
+# emission and the live verifier see and refuse them.
+_SAME_ROW_FORMS = ("==", "!=", "not !=", "same_value", "not same_value")
+MYSQL_FLOAT_ROW_CELLS = frozenset(
+    {
+        *(
+            ("same_row", place, form)
+            for place in ("select", "where")
+            for form in _SAME_ROW_FORMS
+        ),
+        *(
+            (kind, key, form)
+            for kind, form in (("inner", "=="), ("inner", "not !="), ("left", "=="))
+            for key in ("none", "text")
+        ),
+    }
+)
+# The qualified Text key widths: the NOT NULL VARCHAR(64) `kn` and
+# VARCHAR(1000) `kw` of `f6o` and `f6i`.
+MYSQL_FLOAT_CELL_KEY_WIDTHS = (64, 1000)
+# The fields of each source of a cell, selected or not, as carriers
+# (mysql_float_cell_carrier) in declaration order, which the CTE of a WHERE or
+# JOIN cell writes: exactly those of the qualification's tables, `f6s`
+# (id, f1, f2) for a same-row cell and `f6o` and `f6i` (id, v, kn, kw) for a
+# JOIN cell. A source of any other fields or order is never a cell.
+MYSQL_FLOAT_CELL_TABLES = {
+    "same_row": ("int", "float", "float"),
+    "inner": ("int", "float", 64, 1000),
+    "left": ("int", "float", 64, 1000),
+}
+# The plan parts a cell's plan may hold; every other part is empty.
+_MYSQL_FLOAT_PLAN_PARTS = frozenset(
+    {
+        "literal_sites",
+        "sources",
+        "blocks",
+        "input_uses",
+        "source_ports",
+        "input_ports",
+        "all_exports",
+        "exports",
+        "projections",
+        "boundaries",
+        "symbols",
+        "origins",
+        "demands",
+        "expression_sites",
+        "expressions",
+        "operands",
+        "stage_ports",
+        "filters",
+        "result_ports",
+        "result_exports",
+        "joins",
+        "join_inputs",
+        "join_ports",
+        "join_tails",
+    }
+)
+
+
+def mysql_float_cell_carrier(representation) -> str | int | None:
+    """The carrier of a field whose contract representation the
+    qualification's tables held: "float" for the nullable binary64 DOUBLE,
+    "int" for a non-null BIGINT Int, the width for a NOT NULL
+    binary-collation VARCHAR(64) or (1000); else None."""
+    try:
+        value = json.loads(representation)
+    except (TypeError, ValueError):
+        return None
+    if type(value) is not dict:
+        return None
+    if value == {
+        "domain": FINITE_FLOAT,
+        "nullable": True,
+        "storage": {"kind": "my_double"},
+    }:
+        return "float"
+    domain = value.get("domain")
+    if (
+        value.get("storage") == {"kind": "my_bigint"}
+        and value.get("nullable") is False
+        and type(domain) is dict
+        and domain.get("kind") == "int_range"
+    ):
+        return "int"
+    for width in MYSQL_FLOAT_CELL_KEY_WIDTHS:
+        if value == {
+            "domain": {
+                "collation": "utf8mb4_0900_bin",
+                "encoding": "utf8mb4",
+                "kind": "text",
+                "max_characters": width,
+                "padding": "NO PAD",
+            },
+            "nullable": False,
+            "storage": {"kind": "my_varchar", "length": width},
+        }:
+            return width
+    return None
+
+
+def mysql_float_cell_items(cell) -> tuple[str, ...]:
+    """The carriers the other SELECT items of ``cell`` may read directly, as
+    in the qualified statements: a non-null BIGINT id beside a SELECT item
+    cell, also the nullable DOUBLE values beside a WHERE or a JOIN."""
+    return ("int",) if cell[1] == "select" else ("int", "float")
+
+
+def _mysql_float_shape(plan, expression):
+    """The structural cell of ``expression`` from the plan, with the reference
+    expressions it reads: (cell, operands, keys, selected), or None.
+
+    The plan holds its sources and one query only (_MYSQL_FLOAT_PLAN_PARTS).
+    Same row: one source under a projection, or under a WHERE and a
+    projection; the tree is the whole WHERE or the whole value of one SELECT
+    item, and every other SELECT item is a field reference. JOIN: one INNER
+    or LEFT JOIN of two different sources, read directly, with no retained
+    equality, under one projection of joined references; the whole ON is the
+    tree, or `and` of the tree and a `==` of two references (``keys``). The
+    tree is ``expression`` (`==`, `!=` or `same_value` of two references) or
+    `not` over it, and the plan holds no other expression. The query as
+    written declares no `let` (a relation alias such as `let i = f6i`, read
+    or not, which the plan resolves to its source) and no named window, and
+    no expression comes from an inlined `def`. The length checks come first:
+    a plan with more than eight expressions beside its SELECT items is never
+    a cell, so each plan is scanned for a bounded number of calls.
+    """
+    import dataclasses
+
+    from pietto._project.module_catalog import authored_definitions
+    from pietto._project.project_sql_plan import (
+        ProjectSQLBoundary,
+        ProjectSQLBoundaryReason,
+    )
+    from pietto._project.project_sql_plan_joins import ProjectSQLJoinTail
+    from pietto.ast_nodes import AuthoredJoinKind, QueryDef, TableDef, inlined_arguments
+
+    expressions, blocks, joins = plan.expressions, plan.blocks, plan.joins
+    if (
+        len(expressions) > len(plan.projections) + 8
+        or len(joins) > 1
+        or len(plan.filters) > (0 if joins else 1)
+        or not 0 < len(blocks) <= (1 if joins else 2)
+        or len(plan.sources) != (2 if joins else 1)
+        or any(
+            getattr(plan, item.name)
+            for item in dataclasses.fields(plan)
+            if item.name not in _MYSQL_FLOAT_PLAN_PARTS
+            and type(getattr(plan, item.name)) is tuple
+        )
+    ):
+        return None
+
+    def at(ref):
+        position = getattr(ref, "position", None)
+        found = (
+            expressions[position]
+            if type(position) is int and 0 <= position < len(expressions)
+            else None
+        )
+        return found if found is not None and found.ref is ref else None
+
+    roots = tuple(at(item.expression) for item in plan.projections)
+    keys, parts = (), 0
+    if joins:
+        join, inputs = joins[0], plan.join_inputs
+        kind = {AuthoredJoinKind.INNER: "inner", AuthoredJoinKind.LEFT: "left"}.get(
+            join.kind
+        )
+        sources = tuple(source.ref for source in plan.sources)
+        if (
+            kind is None
+            or join.equalities
+            or len(inputs) != 2
+            or inputs[0].producer is inputs[1].producer
+            or any(
+                item.predecessor is not None
+                or not any(item.producer is source for source in sources)
+                for item in inputs
+            )
+            or blocks[0].kind is not row.ProjectSQLStageKind.PROJECTION
+            or type(blocks[0].boundary) is not ProjectSQLJoinTail
+        ):
+            return None
+        reference, items, root = (
+            row.ProjectSQLMatchReference,
+            row.ProjectSQLJoinedReference,
+            at(join.on),
+        )
+        place = "none"
+        if type(root) is row.ProjectSQLBinary and root.expression.operator == "and":
+            key = at(root.right)
+            if (
+                type(key) is not row.ProjectSQLComparison
+                or key.expression.operator != "=="
+            ):
+                return None
+            keys = (at(key.left), at(key.right))
+            if any(type(side) is not reference for side in keys):
+                return None
+            root, place, parts = at(root.left), "text", 4
+        shape = (kind, place)
+    else:
+        stages = (
+            (row.ProjectSQLStageKind.WHERE, row.ProjectSQLStageKind.PROJECTION)
+            if plan.filters
+            else (row.ProjectSQLStageKind.PROJECTION,)
+        )
+        if tuple(block.kind for block in blocks) != stages or any(
+            type(block.boundary) is not ProjectSQLBoundary
+            or block.boundary.reason is not ProjectSQLBoundaryReason.SOURCE_INPUT
+            for block in blocks
+        ):
+            return None
+        reference = items = row.ProjectSQLReference
+        if plan.filters:
+            root, shape = at(plan.filters[0].predicate), ("same_row", "where")
+        else:
+            trees = tuple(value for value in roots if type(value) is not items)
+            if len(trees) != 1:
+                return None
+            root, shape = trees[0], ("same_row", "select")
+    node, negated = root, False
+    if type(root) is row.ProjectSQLUnary and root.expression.operator == "not":
+        node, negated = at(root.operand), True
+    if node is not expression:
+        return None
+    if type(node) is row.ProjectSQLComparison and node.expression.operator in (
+        "==",
+        "!=",
+    ):
+        form, operands = node.expression.operator, (node.left, node.right)
+    elif (
+        type(node) is row.ProjectSQLScalarCall
+        and node.callee_symbol.namespace is SymbolNamespace.CALLABLE
+        and node.callee_symbol.name == "same_value"
+        and len(node.arguments) == 2
+    ):
+        form, operands = "same_value", node.arguments
+    else:
+        return None
+    operands = tuple(at(item) for item in operands)
+    selected = tuple(value for value in roots if type(value) is items)
+    if (
+        any(type(item) is not reference for item in operands)
+        or len(expressions) != len(selected) + 3 + negated + parts
+    ):
+        return None
+    owner = plan.scope.selected_owner
+    written = authored_definitions(
+        plan.scope.completed.semantic_result.modules[owner.module_position]
+    )[owner.declaration_position]
+    if (
+        type(written) not in {TableDef, QueryDef}
+        or written.naming_declarations
+        or written.named_windows
+        or any(inlined_arguments(item.expression) for item in expressions)
+    ):
+        return None
+    cell = (*shape, "not " + form if negated else form)
+    return cell, operands, keys, selected
+
+
+def _mysql_float_field(request, ref):
+    """The source port and contract field a reference port reads directly:
+    stage, JOIN and input ports lead to one source port, at most four steps
+    away (a projection after a WHERE). None otherwise."""
+    plan = request.plan
+    for _ in range(5):
+        for port in plan.source_ports:
+            if port.ref is ref:
+                fields = tuple(
+                    field
+                    for source in request.sources
+                    for field in source.fields
+                    if field.field is port.field
+                )
+                return (port, fields[0]) if len(fields) == 1 else None
+        step = None
+        for item in (*plan.stage_ports, *plan.join_ports):
+            if item.ref is ref:
+                step = item.source
+        for item in plan.input_ports:
+            if item.ref is ref:
+                step = item.producer_port
+        if step is None:
+            return None
+        ref = step
+    return None
+
+
+def mysql_float_cell(request, expression):
+    """The cell of one MySQL Float comparison or `same_value` call of two row
+    reads, from the plan (_mysql_float_shape) and the contract fields its
+    references read: two different qualified Float fields, of different JOIN
+    inputs over two different tables in a JOIN cell, whose Text key compares
+    qualified keys of one width of different inputs, and other SELECT items
+    that read a carrier mysql_float_cell_items admits; each source has the
+    fields of a qualification table (MYSQL_FLOAT_CELL_TABLES). None outside
+    every cell, and while emission derives as main (AS_MAIN)."""
+    shape = None if AS_MAIN.get() else _mysql_float_shape(request.plan, expression)
+    if shape is None:
+        return None
+    cell, operands, keys, selected = shape
+    found = tuple(
+        _mysql_float_field(request, item.port) for item in (*operands, *keys, *selected)
+    )
+    reads = tuple(item for item in found if item is not None)
+    if len(reads) != len(found):
+        return None
+    ports = tuple(port for port, _ in reads)
+    carriers = tuple(
+        mysql_float_cell_carrier(field.representation) for _, field in reads
+    )
+    owners = tuple(port.owner for port in ports)
+    sources = tuple(
+        source
+        for source in request.sources
+        if any(source.owner is item.source.owner for item in request.plan.sources)
+    )
+    tables = {(source.namespace, source.name) for source in sources}
+    allowed = mysql_float_cell_items(cell)
+    if (
+        # Only a plan source with no contract source, or one source read
+        # twice (a relation alias `let`, which _mysql_float_shape refuses).
+        len(sources) != len(request.plan.sources)
+        or any(
+            tuple(mysql_float_cell_carrier(f.representation) for f in source.fields)
+            != MYSQL_FLOAT_CELL_TABLES[cell[0]]
+            for source in sources
+        )
+        or carriers[:2] != ("float", "float")
+        or ports[0] is ports[1]
+        or any(carrier not in allowed for carrier in carriers[2 + len(keys) :])
+        or cell[0] != "same_row"
+        and (owners[0] is owners[1] or len(tables) != 2)
+        or keys
+        and (
+            carriers[2] != carriers[3]
+            or carriers[2] not in MYSQL_FLOAT_CELL_KEY_WIDTHS
+            or owners[2] is owners[3]
+        )
+    ):
+        return None
+    return cell
+
+
 def resolved_comparison_realization(
     family,
     tag,
@@ -2011,15 +2378,17 @@ def resolved_comparison_realization(
     operator: str | None = None,
     *,
     rows_both_sides: bool,
+    float_cell=None,
 ):
     """Original comparison-domain law over already resolved physical inputs.
 
     ``rows_both_sides`` is required: MySQL picks its own join and semijoin
     plans for a Float ``==`` whose operands both read rows, and a semijoin
-    forced to materialize over a wide key returned outer rows twice (narrow
-    keys and every JOIN tried matched -0.0 with 0.0; real-database campaign,
-    Phase72 B10), so it stays refused there. So does ``!=``: MySQL's parser
-    turns ``NOT (x <> y)``, also through De Morgan, into the equality ``x = y``.
+    forced to materialize over a wide key returned outer rows twice (Phase72
+    B10, reproduced by the Phase77 S06 campaign), so it stays refused there
+    outside the qualified cells (MYSQL_FLOAT_ROW_CELLS, ``float_cell``). So
+    does ``!=``: MySQL's parser turns ``NOT (x <> y)``, also through De
+    Morgan, into the equality ``x = y``.
     """
     if tag != "Bool":
         return None, ("PIE-B1002", "comparison_result_not_bool")
@@ -2043,6 +2412,11 @@ def resolved_comparison_realization(
         or family == "mysql"
         and operator in {"==", "!="}
         and rows_both_sides
+        and not (
+            float_cell in MYSQL_FLOAT_ROW_CELLS
+            and float_carrier(left, family)
+            and float_carrier(right, family)
+        )
     ):
         return None, ("PIE-B1003", "comparison_type_pair_not_admitted")
     if left.tag == "Text" and _text_domain(left) != _text_domain(right):
@@ -2098,6 +2472,7 @@ def _scalar_call(
         assert problem is not None
         return None, problem
     realized = tuple(realization_of(value, request.family) for value in values)
+    rows_both_sides = all(_reads_row(value) for value in values)
     checked, problem = resolved_scalar_call_realization(
         request.family,
         expression.callee_symbol,
@@ -2105,7 +2480,12 @@ def _scalar_call(
         nullable,
         realized,
         static_values=tuple(_static_literal_value(value) for value in values),
-        rows_both_sides=all(_reads_row(value) for value in values),
+        rows_both_sides=rows_both_sides,
+        float_cell=mysql_float_cell(request, expression)
+        if request.family == "mysql"
+        and rows_both_sides
+        and expression.callee_symbol.name == "same_value"
+        else None,
     )
     if checked is None:
         assert problem is not None
@@ -2336,12 +2716,21 @@ def _static_literal_value(value):
 
 
 def resolved_scalar_call_realization(
-    family, symbol, tag, nullable, values, *, static_values=None, rows_both_sides=True
+    family,
+    symbol,
+    tag,
+    nullable,
+    values,
+    *,
+    static_values=None,
+    rows_both_sides=True,
+    float_cell=None,
 ):
     """Admit only a canonical builtin identity with its proved physical result.
 
     ``rows_both_sides`` is the comparison law's row-read fact (default: the
-    refusing one); `same_value` is admitted exactly where `==` is.
+    refusing one) and ``float_cell`` its MySQL Float cell; `same_value` is
+    admitted exactly where `==` is.
     """
     if symbol.namespace is SymbolNamespace.CALLABLE and symbol.name == "now":
         # The statement's start as a UTC microsecond civil Timestamp, on
@@ -2597,7 +2986,14 @@ def resolved_scalar_call_realization(
             return None, ("PIE-B1003", "scalar_call_signature_not_admitted")
         left, right = values
         return resolved_comparison_realization(
-            family, tag, nullable, left, right, "==", rows_both_sides=rows_both_sides
+            family,
+            tag,
+            nullable,
+            left,
+            right,
+            "==",
+            rows_both_sides=rows_both_sides,
+            float_cell=float_cell,
         )
     if (
         name in {"contains", "starts_with", "ends_with"}
