@@ -5535,12 +5535,13 @@ def test_postgres_string_agg_orders_by_a_float_key(tmp_path):
     assert emit_compiled(loaded, ()).rendered.sql == outcome.artifact.rendered.sql
 
 
-# Phase77 Wave A (S16, S10): a MySQL project emits a lag/lead Text literal
-# default, or a conditional count and tests of a group, only in a statement that
-# is one of its slice's paired qualification-pack forms with only its names
-# changed; everything else keeps its 0.1.11 output.
+# Phase77 Wave A (S16, S10, S08): a MySQL project emits a lag/lead Text literal
+# default, a conditional count and tests of a group, or count, min and max over
+# a window only in a statement that is one of its slice's paired
+# qualification-pack forms with only its names changed; everything else keeps
+# its 0.1.11 output.
 _LONG = {key: (value + "_" * 63)[:63] for key, value in paired_forms.NAMES.items()}
-_LONG_COLUMNS = tuple(f"c{i}" + "_" * 61 for i in range(7))
+_LONG_COLUMNS = tuple(f"c{i}" + "_" * 61 for i in range(8))
 _S10_KEPT = [
     ("PIE-B1003", "conditional_count_not_admitted_on_target"),
     ("PIE-B1003", "group_test_not_admitted_on_target"),
@@ -5551,7 +5552,14 @@ _S10_KEPT = [
 def _kept(form):
     if form in paired_forms.S16:
         return [("PIE-B1003", "window_default_literal_kind_not_realized_yet")]
+    if form in paired_forms.S08:
+        return [("PIE-B1003", "window_aggregate_approved_non_support_on_mysql")]
     return _S10_KEPT
+
+
+def _kind(form):
+    """The kind, query or table, of form ``form``'s selected definition."""
+    return paired_forms.FORMS[form][1].split(" ", 1)[0]
 
 
 def _paired_compile(directory, *, name="q16", policy="preserve", kind="query"):
@@ -5568,13 +5576,13 @@ def _paired_compile(directory, *, name="q16", policy="preserve", kind="query"):
     )
 
 
-def _paired_query(directory, name="q16"):
+def _paired_query(directory, name="q16", kind="query"):
     from pietto.execution import compile_query
 
     return compile_query(
         directory,
         module="main.pietto",
-        kind="query",
+        kind=kind,
         name=name,
         dialect="mysql",
         emission_contract="contract.json",
@@ -5599,11 +5607,12 @@ def test_mysql_emits_the_paired_forms(tmp_path, form, width):
     are equal ignoring case) and with others."""
     from pietto.execution import export_bundle, load_bundle
 
+    kind = _kind(form)
     text = pairing.project_text(
         "main.pietto",
         paired_forms.pack(form),
         json.dumps(paired_forms.contract(form)),
-        ("result", "query"),
+        ("result", kind),
         pairing._Names(),
         _fixed(form),
     )
@@ -5626,13 +5635,11 @@ def test_mysql_emits_the_paired_forms(tmp_path, form, width):
         # As `pietto fmt` writes it: an empty line between declarations.
         main = directory / "main.pietto"
         text = main.read_text(encoding="utf-8")
+        for word in ("source", "query", "table"):
+            text = text.replace(f"\n{word} ", f"\n\n{word} ")
         # A carriage return unpairs a file, so Windows must not write one.
-        main.write_text(
-            text.replace("\nsource", "\n\nsource").replace("\nquery", "\n\nquery"),
-            encoding="utf-8",
-            newline="\n",
-        )
-    result = _paired_compile(directory, name=names["result"])
+        main.write_text(text, encoding="utf-8", newline="\n")
+    result = _paired_compile(directory, name=names["result"], kind=kind)
     assert result.status == "VERIFIED", result.document
     document = json.loads(result.document)
     sql = document["sql"]
@@ -5641,16 +5648,16 @@ def test_mysql_emits_the_paired_forms(tmp_path, form, width):
     assert all(token.format_map(columns) in sql for token in paired_forms.SQL[form])
     assert "E'" not in sql
     assert [c["nullable"] for c in document["columns"]] == paired_forms.NULLABLE[form]
-    # A conditional count is a BIGINT, a test of a group a computed signed Bool;
-    # a lag/lead and a group key keep the value's carrier.
+    # A count is a BIGINT, a test of a group a computed signed Bool; an
+    # extreme, a lag/lead and a group key keep the value's carrier.
     assert [c["representation"]["storage"] for c in document["columns"]] == [
         {"kind": "my_signed_bool"}
-        if logical == "Bool"
+        if logical == "Bool" and form in paired_forms.S10
         else paired_forms.STORAGE[logical][0]
         for logical in paired_forms.LOGICAL[form]
     ]
     assert _sha(pairing.sql_text(sql.encode())) == pairing.FORMS[form][1]
-    bundle = export_bundle(_paired_query(directory, names["result"]))
+    bundle = export_bundle(_paired_query(directory, names["result"], kind))
     records = {r.address: r for r in compiled_schema.decode(bundle.payload).records}
     assert (
         _sha(pairing.compiled_text(records, pairing._Names())),
@@ -5667,7 +5674,9 @@ def test_mysql_emits_the_paired_forms(tmp_path, form, width):
 
 def test_paired_forms_keep_each_keyword_apart_from_names():
     """A slice's keywords are exactly the words of its forms that are no
-    names: another word in a keyword's place gives another reduction."""
+    names, S08's also S16's: another word in a keyword's place, the frame's
+    `rows` among them, gives another reduction."""
+    frame = " rows between "
     for forms, fixed in pairing.SLICES:
         seen = set()
         for form in forms:
@@ -5682,17 +5691,29 @@ def test_paired_forms_keep_each_keyword_apart_from_names():
                 other = re.sub(rf"\b{word}\b", "zz", text)
                 reduction = pairing._module(other, pairing._Names(), fixed)
                 assert reduction != reduced, (form, word)
+            if frame in text:
+                other = text.replace(frame, " zz between ")
+                assert pairing._module(other, pairing._Names(), fixed) != reduced
             seen |= words
-        assert seen == fixed
+        s16 = pairing.SLICES[0][1]
+        assert seen == fixed - (s16 - seen if forms == paired_forms.S08 else set())
+
+
+# S08's own keywords, which stay names in S16's and S10's forms.
+_S08_WORDS = (
+    "count min max partition preceding current row let group qualify inner join"
+    " on Timestamp Date UUID"
+).split()
 
 
 @pytest.mark.parametrize(
     "form,key,word",
     (
         *((1, "previous", word) for word in ("sum", "all", "any", "unique")),
-        (1, "text", "group"),
-        *((3, "n", word) for word in ("lag", "lead", "order")),
+        *((1, key, word) for key in ("previous", "text") for word in _S08_WORDS),
+        *((3, "n", word) for word in ("lag", "lead", "order", "count", "partition")),
         (3, "value", "lag"),
+        *((6, "w", word) for word in ("sum", "all", "any")),
     ),
 )
 def test_mysql_forms_take_another_slice_keywords_as_names(tmp_path, form, key, word):
@@ -5700,7 +5721,7 @@ def test_mysql_forms_take_another_slice_keywords_as_names(tmp_path, form, key, w
     named still pairs."""
     names = dict(paired_forms.NAMES, **{key: word})
     directory = paired_forms.project(tmp_path / "p", form, names=names)
-    result = _paired_compile(directory)
+    result = _paired_compile(directory, kind=_kind(form))
     assert result.status == "VERIFIED", result.document
 
 
@@ -5892,6 +5913,100 @@ _UNPAIRED.update(
             ),
             None,
         ),
+        # S08: each window shape, function, frame and argument other than a
+        # form's.
+        "s08_descending": (
+            6,
+            lambda t: _swap(
+                t, "            order by k\n", "            order by k desc\n"
+            ),
+            None,
+        ),
+        "s08_other_frame": (
+            7,
+            lambda t: _swap(t, "rows between 1 preceding", "rows between 2 preceding"),
+            None,
+        ),
+        # The omitted frame written out: the same SQL, but not the form's text.
+        "s08_frame_written_out": (
+            6,
+            lambda t: _swap(
+                t,
+                "            order by k\n        )",
+                "            order by k\n"
+                "            range between unbounded preceding and current row\n"
+                "        )",
+            ),
+            None,
+        ),
+        "s08_max_for_min": (
+            8,
+            lambda t: _swap(t, "win = min(k)", "win = max(k)"),
+            None,
+        ),
+        "s08_sum": (7, lambda t: _swap(t, "win = min(k)", "win = sum(k)"), None),
+        "s08_avg": (7, lambda t: _swap(t, "win = min(k)", "win = avg(k)"), None),
+        "s08_extra_item": (
+            6,
+            lambda t: t + "        again = count() window(order by k)\n",
+            None,
+        ),
+        "s08_dropped_item": (14, lambda t: t[: t.index("        hiday2 =")], None),
+        "s08_reordered_items": (
+            13,
+            lambda t: _swap(
+                t,
+                "        cat = count(stamp) window(order by k)\n"
+                "        cday = count(day) window(order by k)\n",
+                "        cday = count(day) window(order by k)\n"
+                "        cat = count(stamp) window(order by k)\n",
+            ),
+            None,
+        ),
+        "s08_left_join": (12, lambda t: _swap(t, "inner join", "left join"), None),
+        "s08_join_left_side": (
+            12,
+            lambda t: _swap(t, "max(twin.k)", "max(items.k)"),
+            None,
+        ),
+        "s08_qualify_two": (11, lambda t: _swap(t, ") > 1", ") > 2"), None),
+        "s08_grouped_by_flag": (
+            10,
+            lambda t: _swap(
+                t, "max(lo) window(order by lo)", "max(lo) window(order by f)"
+            ),
+            None,
+        ),
+        "s08_time_order_key": (
+            13,
+            lambda t: _swap(
+                t,
+                "cat = count(stamp) window(order by k)",
+                "cat = count(stamp) window(order by stamp)",
+            ),
+            None,
+        ),
+        "s08_peer_key_id": (
+            16,
+            lambda t: _swap(
+                t,
+                "cnt = count() window(order by rank_key)",
+                "cnt = count() window(order by k)",
+            ),
+            None,
+        ),
+        "s08_nullable_uuid": (
+            13,
+            lambda t: _swap(t, "    ident: UUID\n", "    ident: UUID | None\n"),
+            {"contract": ("nullable", 7)},
+        ),
+        "s08_keyword_label": (6, lambda t: _swap(t, "win =", "count ="), None),
+        "s08_query_kind": (
+            6,
+            lambda t: _swap(t, "table q16:", "query q16:"),
+            {"kind": "query"},
+        ),
+        "s08_bind_safe": (6, lambda t: t, {"policy": "bind-safe"}),
     }
 )
 
@@ -5930,7 +6045,8 @@ def test_mysql_unpaired_statements_keep_the_main_output(tmp_path, case):
         else:
             contract["environment"].reverse()
         (directory / "contract.json").write_text(json.dumps(contract))
-    arguments = {k: v for k, v in options.items() if k in {"kind", "policy"}}
+    arguments = {"kind": _kind(form)}
+    arguments.update((k, v) for k, v in options.items() if k in {"kind", "policy"})
     result = _paired_compile(directory, **arguments)
     with pairing.closed():
         before = _paired_compile(directory, **arguments)
@@ -5941,7 +6057,7 @@ def test_mysql_unpaired_statements_keep_the_main_output(tmp_path, case):
     )
 
 
-@pytest.mark.parametrize("form", (1, 3))
+@pytest.mark.parametrize("form", (1, 3, 7))
 def test_mysql_paired_statement_without_its_sql_keeps_the_main_output(
     tmp_path, monkeypatch, form
 ):
@@ -5953,36 +6069,47 @@ def test_mysql_paired_statement_without_its_sql_keeps_the_main_output(
         EmissionVerification,
     )
 
+    kind = _kind(form)
     directory = paired_forms.project(tmp_path / "p", form)
     with pairing.closed():
-        before = _paired_compile(directory).document
+        before = _paired_compile(directory, kind=kind).document
     assert [
         (b["code"], b["subject"]["detail"]) for b in json.loads(before)["blockers"]
     ] == _kept(form)
     with monkeypatch.context() as patch:
         patch.setattr(pairing, "sql_form", lambda sql: None)
-        assert _paired_compile(directory).document == before
+        assert _paired_compile(directory, kind=kind).document == before
     with monkeypatch.context() as patch:
         patch.setattr(
             emitting,
             "verify_project_sql_emission",
             lambda artifact, request: EmissionVerification(("forced",)),
         )
-        assert _paired_compile(directory).document == before
-    assert _paired_compile(directory).status == "VERIFIED"
+        assert _paired_compile(directory, kind=kind).document == before
+    assert _paired_compile(directory, kind=kind).status == "VERIFIED"
 
 
-def test_mysql_live_verifier_pairs_the_statement_itself(tmp_path, monkeypatch):
+@pytest.mark.parametrize(
+    "form,old,new",
+    (
+        (1, '"雪"', '"雨"'),
+        (6, "            order by k\n", "            order by k desc\n"),
+    ),
+)
+def test_mysql_live_verifier_pairs_the_statement_itself(
+    tmp_path, monkeypatch, form, old, new
+):
     """A statement that emission alone takes for a form, and so emits with
-    its Text defaults, is refused by the live verifier's own reading."""
+    its Text defaults or its aggregate window, is refused by the live
+    verifier's own reading."""
     from types import SimpleNamespace
 
     from pietto._project import project_sql_emission_windows as windowing
 
-    directory = paired_forms.project(tmp_path / "p", 1)
+    directory = paired_forms.project(tmp_path / "p", form)
     main = directory / "main.pietto"
     main.write_text(
-        _swap(main.read_text(encoding="utf-8"), '"雪"', '"雨"'),
+        _swap(main.read_text(encoding="utf-8"), old, new),
         encoding="utf-8",
         newline="\n",
     )
@@ -5990,10 +6117,11 @@ def test_mysql_live_verifier_pairs_the_statement_itself(tmp_path, monkeypatch):
         windowing,
         "pairing",
         SimpleNamespace(
-            project_form=lambda request: 1, compiled_form=pairing.compiled_form
+            project_form=lambda request: form, compiled_form=pairing.compiled_form
         ),
     )
-    blockers = json.loads(_paired_compile(directory).document).get("blockers")
+    document = _paired_compile(directory, kind=_kind(form)).document
+    blockers = json.loads(document).get("blockers")
     assert [(b["code"], b["subject"]["detail"]) for b in blockers or []] == [
         ("PIE-B1008", "plan_ast_correspondence")
     ]
@@ -6061,17 +6189,19 @@ def test_mysql_each_compiled_s10_check_pairs_the_bundle_itself(
     assert calls
 
 
-# The place of the requirement origin of form 3's `mysql.table` literal.
+# The place of the requirement origin of form 3's and form 7's `mysql.table`
+# literal.
 _S10_ORIGIN = '["main.pietto",10,35,10,46]'
+_S08_ORIGIN = '["main.pietto",8,1,15,10]'
 # A target contract's encoding as a bundle spells it, and a lone surrogate.
 _ENCODING = '\\"value\\":\\"utf8mb4\\"}'
 _SURROGATE = '\\"value\\":\\"\\\\ud800\\"}'
 
 
-def _paired_payload(directory, old, new):
+def _paired_payload(directory, form, old, new):
     from pietto.execution import export_bundle
 
-    bundle = export_bundle(_paired_query(directory))
+    bundle = export_bundle(_paired_query(directory, kind=_kind(form)))
     payload = bundle.payload.replace(old.encode(), new.encode())
     assert payload != bundle.payload
     return bundle, payload
@@ -6107,17 +6237,26 @@ def _load_refusal(bundle, payload):
         # malformed place is a form's records: main's refusal of its place.
         (3, _S10_ORIGIN, "[]", False),
         (3, _S10_ORIGIN, '["main.pietto"]', True),
+        (7, '"min"', '"max"', False),
+        (15, "c_g", "c_K", False),
+        (15, "c_g", "c2", True),
+        # An S08 requirement origin without a place is no form, and one with a
+        # malformed place is a form's records that a check after the window's
+        # refuses: main's refusal, from the window check.
+        (7, _S08_ORIGIN, "[]", False),
+        (7, _S08_ORIGIN, '["main.pietto"]', True),
         # A contract the records cannot spell in UTF-8 is no form.
         (1, _ENCODING, _SURROGATE, False),
         (3, _ENCODING, _SURROGATE, False),
+        (7, _ENCODING, _SURROGATE, False),
     ),
 )
 def test_mysql_forged_paired_bundles_are_refused(tmp_path, form, old, new, paired):
-    """Each keeps main's refusal of a MySQL Text default, conditional count or
-    test of a group bundle, also one whose records are a form's but whose SQL
-    is not or that another check refuses."""
+    """Each keeps main's refusal of a MySQL Text default, conditional count,
+    test of a group or aggregate window bundle, also one whose records are a
+    form's but whose SQL is not or that another check refuses."""
     directory = paired_forms.project(tmp_path / "p", form)
-    bundle, payload = _paired_payload(directory, old, new)
+    bundle, payload = _paired_payload(directory, form, old, new)
     records = {r.address: r for r in compiled_schema.decode(payload).records}
     assert (pairing.compiled_form(records) == form) is paired
     assert _load_refusal(bundle, payload) == (
@@ -6125,9 +6264,54 @@ def test_mysql_forged_paired_bundles_are_refused(tmp_path, form, old, new, paire
         if new == _SURROGATE
         else ("PIE-R1008", "COMPILED_WINDOW_STATIC")
         if form in paired_forms.S16
+        else ("PIE-R1008", "COMPILED_WINDOW_FUNCTION")
+        if form in paired_forms.S08
         else ("PIE-R1008", "COMPILED_REQUIREMENT_LOCATION")
         if old == _S10_ORIGIN
         else ("PIE-R1004", "COMPILED_AGGREGATE_ARGUMENT")
+    )
+
+
+@pytest.mark.parametrize("form", (1, 7))
+def test_mysql_paired_bundle_failing_open_loads_as_main(tmp_path, monkeypatch, form):
+    """Rule two on loading: a form's records whose open load ends in any
+    other outcome, here an unexpected error, get main's refusal."""
+    from pietto.execution import export_bundle
+
+    directory = paired_forms.project(tmp_path / "p", form)
+    bundle = export_bundle(_paired_query(directory, kind=_kind(form)))
+
+    def fail(sql):
+        raise RuntimeError("forced")
+
+    monkeypatch.setattr(pairing, "sql_form", fail)
+    detail = (
+        "COMPILED_WINDOW_STATIC"
+        if form in paired_forms.S16
+        else "COMPILED_WINDOW_FUNCTION"
+    )
+    assert _load_refusal(bundle, bundle.payload) == ("PIE-R1008", detail)
+
+
+def test_mysql_compiled_window_stage_pairs_the_bundle_itself(tmp_path, monkeypatch):
+    """A bundle that only the window arguments' check takes for a form is
+    refused by the window stage's own reading of its aggregate."""
+    from types import SimpleNamespace
+
+    from pietto._project import project_sql_emission_windows as windowing
+
+    directory = paired_forms.project(tmp_path / "p", 7)
+    bundle, payload = _paired_payload(directory, 7, '"min"', '"max"')
+    monkeypatch.setattr(
+        windowing,
+        "pairing",
+        SimpleNamespace(
+            compiled_form=lambda records: 7, project_form=pairing.project_form
+        ),
+    )
+    assert _load_refusal(bundle, payload) == (
+        "PIE-R1004",
+        "COMPILED_WINDOW_AGGREGATE_CASTS",
     )
 
 
@@ -6178,4 +6362,15 @@ def test_pure_keeps_refusing_mysql_conditional_counts(tmp_path, form):
     assert (observed.status, observed.detail) == (
         pure.Status.INVALID_RELATION,
         "conditional aggregate shape",
+    )
+
+
+@pytest.mark.parametrize("form", paired_forms.S08)
+def test_pure_keeps_refusing_mysql_aggregate_windows(tmp_path, form):
+    """The pure reader judges a paired S08 document on its own: as before, it
+    refuses every MySQL aggregate window."""
+    observed = pure.parse_emission_observation(_pure_document(tmp_path, form))
+    assert (observed.status, observed.detail) == (
+        pure.Status.INVALID_RELATION,
+        "window aggregate",
     )

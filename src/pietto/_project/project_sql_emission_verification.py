@@ -3019,7 +3019,8 @@ def _verify_window_column(request, column, window, export, columns, definitions,
     ):
         return False
     aggregate = function in windowing.AGGREGATE
-    if aggregate and request.family != "postgres":
+    paired = pairing.project_form(request) is not None
+    if aggregate and request.family != "postgres" and not paired:
         return False
     policy = policies.get(window.ref)
     if policy is None:
@@ -3064,7 +3065,7 @@ def _verify_window_column(request, column, window, export, columns, definitions,
         columns,
         family=request.family,
         native=native,
-        paired=pairing.project_form(request) is not None,
+        paired=paired,
     )
     if expected is None or problem is not None:
         return False

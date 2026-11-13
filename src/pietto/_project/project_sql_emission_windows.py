@@ -925,7 +925,7 @@ def build_stage(
         location = getattr(getattr(window.source, "item", None), "span", None)
         if function is None or function not in SPELLING:
             return None, None, (*unsupported_function(function), window.ref, location)
-        if function in AGGREGATE and target != "postgres":
+        if function in AGGREGATE and target != "postgres" and not paired:
             return None, None, (*aggregate_target_problem(target), window.ref, location)
         policy = policies.get(window.ref)
         if policy is None:
@@ -1523,7 +1523,11 @@ def resolved_arguments(function, arguments, records, family):
     )
     if tuple(role for role, _ in arguments) != expected:
         raise CompiledError("COMPILED_WINDOW_ROLES")
-    if function in AGGREGATE and family != "postgres":
+    if (
+        function in AGGREGATE
+        and family != "postgres"
+        and pairing.compiled_form(records) is None
+    ):
         raise CompiledError("COMPILED_WINDOW_FUNCTION")
     result = []
     for role, address in arguments:

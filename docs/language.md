@@ -598,7 +598,7 @@ first column give every rule.
 | Project aggregate arguments ([Aggregates](#aggregates-and-grouping)): `count`/`count_distinct` of `Text`, `Bool`, `Float`, `Decimal`; `min`/`max` of `Float`, `Decimal`; `sum`/`avg` of `Float`; a row expression argument (`sum(qty * 2)`) | emitted (unchanged) | emitted (unchanged) | emitted, also an argument holding a scalar call over JOIN rows (`count(lower(r.label))`); direct `sum(Decimal(p, s))` emits as checked `numeric(p + 19, s)` only for `p + 19 <= 65`; Decimal `avg` and other Decimal sum shapes stay PIE-B1004 | as PostgreSQL, except `count_distinct` of a `Float` (PIE-B1003), `sum`/`avg` of a `Float`, `sum` of a `Decimal`, and `sum` of an `Int` such as `sum(qty * 2)` (PIE-B1004) outside the unreleased sum cell of [Aggregates](#aggregates-and-grouping), and over JOIN rows an argument holding a scalar call (PIE-B1003); an `Int` expression not proved to fit BIGINT is PIE-B1002 first |
 | `count_distinct(a, b, ...)` ([Aggregates](#aggregates-and-grouping)) | `COUNT(DISTINCT CASE WHEN a IS NOT NULL AND b IS NOT NULL THEN ROW(a, b) END)` | `COUNT(DISTINCT a, b)` | as PostgreSQL single file, `schema_version = 2` (PIE-S2334 in a `schema_version = 1` project), also over JOIN rows | refused (PIE-B1003 `count_distinct_tuple_not_admitted_on_target`) |
 | `len(c.xs)`, `sum(o.f for o in c.xs ...)`, `any(t for o in c.xs)` ([Nested relations](#nested-relations-collect-and-unnest)) | `sum` and `any` refused at check (PIE-S2334; a single file collects no list); `len(c.xs)` has no list to read (PIE-S2102 for an unknown field, or only the Collect's own refusals) | as PostgreSQL | the count column; `sum` and `any` a scalar subquery over `pg_catalog.unnest` of the list's arrays | refused (PIE-B1003 `collect_not_admitted_on_target`) |
-| `min(x)`, `max(x)` of a `Timestamp` or `Date` ([Aggregates](#aggregates-and-grouping)) | emitted (unchanged) | emitted (unchanged) | emitted (unchanged) | emitted as on PostgreSQL: `MIN(x)` and `MAX(x)` keep `DATETIME(6)`, microseconds kept, and `DATE`, NULL for an empty input; over a window refused (PIE-B1003), as every MySQL aggregate window |
+| `min(x)`, `max(x)` of a `Timestamp` or `Date` ([Aggregates](#aggregates-and-grouping)) | emitted (unchanged) | emitted (unchanged) | emitted (unchanged) | emitted as on PostgreSQL: `MIN(x)` and `MAX(x)` keep `DATETIME(6)`, microseconds kept, and `DATE`, NULL for an empty input; over a window refused (PIE-B1003), as every MySQL aggregate window outside the paired forms ([unreleased](release-notes.d/77-s08-mysql-aggregate-windows.md)) |
 | `asof left join`, `asof inner join` ([Backward asof JOIN](#backward-asof-join)) | emitted | emitted, except in a relation with a FULL JOIN (PIE-B1000) outside seven qualified files ([unreleased](release-notes.d/77-s25-mysql-asof-beside-full.md)) | emitted in a table or query without a relation `let NAME:` block whose FROM is not a table function, elsewhere refused (PIE-S2336); a `let NAME:` block as the joined input is PIE-S2386, where a single file refuses the block itself (PIE-S2345); an aggregate after it only where its `on` keys match a unique key (PIE-S2333) | as PostgreSQL |
 
 ## Types and shapes
@@ -5186,7 +5186,10 @@ with `OVER`; a `Decimal` or `Float` `sum` or `avg` is PIE-B1004 and another
 argument outside the reviewed domain PIE-B1003, as for the grouped aggregate.
 Project MySQL SQL refuses each aggregate window with PIE-B1003
 (`window_aggregate_approved_non_support_on_mysql`) until its real-database
-differential. Aggregate windows do not accept `ignore nulls`, `respect nulls`,
+differential, except `count`, `min` and `max` in a statement that is one of
+eleven paired forms with only its names changed
+([unreleased](release-notes.d/77-s08-mysql-aggregate-windows.md)).
+Aggregate windows do not accept `ignore nulls`, `respect nulls`,
 `from first`, or `from last`; each reports PIE-S2104 rather than being omitted
 from emitted SQL. PostgreSQL and MySQL
 preserve an omitted frame: with `ORDER BY` its default is peer-inclusive `RANGE

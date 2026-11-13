@@ -15,7 +15,7 @@ is. A paired statement whose emission does not give its form's SQL, names
 aside, reports main's output, derived again as main (rows.AS_MAIN, which
 `closed` sets); so do loading and compiled emission for a bundle whose
 records are a form but that another check refuses, or whose SQL is not the
-form's.
+form's. Records a reader cannot read, checked yet or not, are no form.
 """
 
 from contextlib import contextmanager
@@ -33,9 +33,14 @@ __all__: tuple[str, ...] = ()
 # s16_quote_default, P-S16-3 s16_x_metadata. S10 conditional counts and tests
 # of a group, one form per body: P-S10-1 and 5 s10_grouped and
 # s10_empty_grouped, P-S10-2 s10_keyed, P-S10-3 and 4 s10_ungrouped and
-# s10_empty_ungrouped. Each form holds one slice's construct only, so a form
-# opens no other slice. Per form: the sha256 of the module and contract, of the
-# emitted SQL and of the compiled records, and the number of compiled records.
+# s10_empty_ungrouped. S08 count, min and max windows: P-S08-1..7
+# s08_count_star, s08_min_rows_frame, s08_min_partition,
+# s08_count_named_window, s08_grouped_window, s08_qualify_count,
+# s08_join_window, then P-S08T-1..4 s08_temporal_candidate,
+# s08_temporal_nullable, s08_temporal_partition, s08_temporal_peers. Each form
+# holds one slice's construct only, so a form opens no other slice. Per form:
+# the sha256 of the module and contract, of the emitted SQL and of the
+# compiled records, and the number of compiled records.
 FORMS = (
     (
         "9e74ea22bb430348248b9b5dc0ef1c38f4c829020dd6015cd6e4703d0efb71a2",
@@ -73,17 +78,81 @@ FORMS = (
         "b80218928139e48c915505367a036dcd878a990b6601eb1b9c0315eb5e89ae62",
         231,
     ),
+    (
+        "de3911508cfe1d23303aa7e861e3363f3cdf44d69c011eb6435caf1ee2883daf",
+        "20bf9012ca0cae87d5708529d4007bcc060a8554d56f77c21d52759aadf71e5d",
+        "101a7c578cb380ecaf06648523cc2f30e5c0be3d7071e5981634679e2db4f4ab",
+        200,
+    ),
+    (
+        "5adfa74a35a6dd0ec935c99ec81415a52c33e25f6c3577c0b7feec7cd3c67524",
+        "d0f2bbf5b730b9f70eb80ae780a756bc1f602d30f3ed6d574f892a3be3927a86",
+        "215da21f96f9346560072783a72acfa6dcdbfe9462162b36d149e92bd6ec141f",
+        207,
+    ),
+    (
+        "a79412e1f82795e327940e49a3dc3060aa87ffe0fecb41e21145e40cc1025494",
+        "5e2086cb34cbc57578302c4909f1006612dee675aada25613f01bca086a32bde",
+        "8f06627b7ffe33783597e907aec10cead021997d047c7052a232ec505527442a",
+        208,
+    ),
+    (
+        "cdd8cffc59776430ff0af07d1a9f9900924e7ef3585bd9a7c83896bc86cfd4a4",
+        "7a7d9b6ddbf9bb8d0db9bb9ee81ed48f490a0bf3c1e1665343fd675149b464ae",
+        "8bfc2193ad925bedc5eb4208405b1e3e5a028e325effba460a77fc22573a30eb",
+        189,
+    ),
+    (
+        "c8cff8bd5d5e451001493d8c28fb84162ef8e9f8bf7a27eff53079059cad8bde",
+        "142d52ad17d5b6baf2a44a8b0d32f49526cdb153d87dc36cd6c18f82ebb9fc83",
+        "de86612652c05e457ec911c20ad7fe91a40be91515e04f36cb874f9b0041f2f4",
+        269,
+    ),
+    (
+        "2450c149e7e9958e1d812d099f1b8d4ed07013f0af4eda5272394f5b03c26d8d",
+        "1b4b8f9d3a0c37992c9137f1a5df87c924320e6815b5d87c2b45f2819fee0444",
+        "841064d42d1424736f00640ab21ddf33cf453fbb7a91221ad9bed194b6329d94",
+        272,
+    ),
+    (
+        "a0852ecfce5d589a31c0301db57d2c44a3b7ff3c5a01e2dd606797b656618ba6",
+        "bea589009b5b55b492b54397f7e5567f36ee3980edb2566f61e96ee7541df254",
+        "4fdb3952bc52b824485085e7a2f78f31ae18bd48e8fb6d6121fcaa140335de5d",
+        431,
+    ),
+    (
+        "6f5d496f6380c0c71e81d7a65160fa17900f311b23b57a87761a4bf86940f0b4",
+        "027502870da4e06e56aef5ca37b1577cf1f776dc60ca701b80db95e2686ce33b",
+        "d4f0b198b0b2ddb72b744d8ef2fe2ab316dc0be77eae8cc61e3b337fb844a17a",
+        418,
+    ),
+    (
+        "44c054b3cd6bf99fb7ce49e2d378b4227b915e678fbc92bbecb03e20b45dc37d",
+        "18b4efe0b94c4c2402877a1771a923114fc0a780e27cb88a6715f5a04ba15148",
+        "ece468bbccbc6cabef3203e3474b4b0523014368b8714ce544848346d28e1a6e",
+        482,
+    ),
+    (
+        "83dfc6a6161a7903a96c1a0a621f26e1a6f4bcbced44636505434a28c7d0949b",
+        "11d908f358e6ceea85dc7395edc019f54b9eaf74ccce6e9c188c5e411c5784b0",
+        "0995a3c402c6c3cee26fb948b4ad89d851afb4c7464ded238cdb9cfd301313c3",
+        451,
+    ),
+    (
+        "d7124d90bbd7589a188bace72c7d93f0f5359dc37ed2807dab67e8d911084d06",
+        "97079b6933f625e435c748773e941127c6b36deaa338ec53354537813c4ac969",
+        "5c4960a8164bc48aa2ebaee92d4ed399762bbe5de224da5fb63813bdb0842170",
+        478,
+    ),
+)
+_S16_FIXED = frozenset(
+    "shape source query from select window order by lag lead mysql table"
+    " Int Bool Text Decimal Float None".split()
 )
 # Per slice: its forms and its keywords, the words of its forms that are no
-# names there; another slice's keywords stay names.
+# names there (S08's: S16's and its own); another slice's keywords stay names.
 SLICES = (
-    (
-        range(3),
-        frozenset(
-            "shape source query from select window order by lag lead mysql table"
-            " Int Bool Text Decimal Float None".split()
-        ),
-    ),
+    (range(3), _S16_FIXED),
     (
         range(3, 6),
         frozenset(
@@ -91,10 +160,22 @@ SLICES = (
             " mysql table Int Bool Text Decimal Float None".split()
         ),
     ),
+    (
+        range(6, 17),
+        _S16_FIXED
+        | frozenset(
+            "count min max partition between preceding and current row let group"
+            " qualify inner join on Timestamp Date UUID".split()
+        ),
+    ),
 )
 # re.ASCII: IGNORECASE alone lets the Kelvin sign match k (D77.36 ASCII names).
 _NAME = re.compile(r"(?!__pietto)[A-Za-z_][A-Za-z0-9_]{0,62}", re.ASCII | re.IGNORECASE)
-_TOKEN = re.compile(r'(?<=mysql\.table\()"([^"\\\n]*)"|"(?:[^"\\\n]|\\.)*"|[^\W\d]\w*')
+# The frame keyword `rows` (group 2) is no name, unlike the forms' source `rows`;
+# no S16 or S10 form has a frame, so no such statement with one pairs either way.
+_TOKEN = re.compile(
+    r'(?<=mysql\.table\()"([^"\\\n]*)"|"(?:[^"\\\n]|\\.)*"|(rows)(?= between )|[^\W\d]\w*'
+)
 _QUOTED = re.compile(r"`(?:[^`]|``)*`")
 _COMPILED_NAMES = {
     "source": (("namespace", "S"), ("name", "R")),
@@ -144,7 +225,7 @@ def _module(text, names, fixed):
     def token(match):
         if match[1] is not None:
             return '"' + names("L", match[1]) + '"'
-        if match[0][0] == '"' or match[0] in fixed:
+        if match[2] is not None or match[0][0] == '"' or match[0] in fixed:
             return match[0]
         return names("N", match[0])
 
@@ -267,6 +348,7 @@ def compiled_form(records):
         return None
     names = _Names()
     try:
+        # Loading asks before any check, so even the digest's UTF-8 may fail.
         return _form(2, compiled_text(records, names), names)
     except (ValueError, TypeError, LookupError, AttributeError, RecursionError):
         return None

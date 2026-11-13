@@ -614,7 +614,10 @@ argument cast of `sum`, the `float8` one of `avg`), `window_result_cast_open`
 and `window_result_cast_close` (the `int8` result cast of `sum`) and
 `window_row_count` (the `*` of `count()`, written `COUNT(*)`). Documents
 without an aggregate window are unchanged; MySQL refuses every aggregate
-window (PIE-B1003 `window_aggregate_approved_non_support_on_mysql`).
+window (PIE-B1003 `window_aggregate_approved_non_support_on_mysql`) except
+`count`, `min` and `max` in eleven paired forms, whose documents carry the
+same function and roles
+([unreleased](../release-notes.d/77-s08-mysql-aggregate-windows.md)).
 
 `Int` arithmetic with a `None` operand (D-12, kind `arithmetic`) writes that
 NULL as `CAST(NULL AS pg_catalog.int8)` on PostgreSQL and

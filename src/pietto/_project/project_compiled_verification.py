@@ -6587,6 +6587,7 @@ def verify_compiled_result_unit(
 
 
 def verify_compiled_window_stage(body, record, request, produced, sources):
+    from pietto._project import project_sql_emission_paired as pairing
     from pietto._project import project_sql_emission_windows as windowing
     from pietto._project.project_sql_emission_verification import (
         _window_result_realization,
@@ -6804,12 +6805,16 @@ def verify_compiled_window_stage(body, record, request, produced, sources):
             == (expected.tag, expected.storage, expected.nullable, expected.domain),
             "WINDOW_REALIZATION",
         )
-        # An aggregate over a window: PostgreSQL, R13's argument law and Q1's
-        # casts over its one Int argument; every other window has no cast.
+        # An aggregate over a window: PostgreSQL or a paired MySQL form (count,
+        # min, max), R13's argument law, and Q1's casts of a sum or avg over
+        # its one Int argument; every other window has no cast.
         need(
             (
                 function not in windowing.AGGREGATE
-                or request.family == "postgres"
+                or (
+                    request.family == "postgres"
+                    or pairing.compiled_form(records) is not None
+                )
                 and all(
                     windowing.grouping.resolved_argument_problem(
                         function, True, argument.read.realization, request.family
