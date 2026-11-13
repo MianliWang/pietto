@@ -12,10 +12,6 @@ from _pietto_ci_workflow import job as _job
 REPO_ROOT = Path(__file__).resolve().parents[1]
 WORKFLOW_PATH = REPO_ROOT / ".github/workflows/ci.yml"
 PYTHON_VERSION_PATH = REPO_ROOT / ".python-version"
-PRIMARY = (("3.12", "twelve"), ("3.13", "thirteen"))
-# Exact setup-python patch per logical family. Reports compare the full
-# python_version, so every producer and consumer of a family moves together.
-SETUP_PATCH = {"3.12": "3.12.14", "3.13": "3.13.15"}
 EXPECTED_JOBS = (
     "checks_twelve",
     "runtime_twelve",
@@ -25,23 +21,6 @@ EXPECTED_JOBS = (
     "python_thirteen",
     "target_conformance",
     "target_conformance_aggregate",
-)
-EXPECTED_PINS = {
-    job: [SETUP_PATCH["3.12" if job.endswith("_twelve") else "3.13"]]
-    for job in EXPECTED_JOBS
-}
-ACTIONS = {
-    "actions/checkout": ("3d3c42e5aac5ba805825da76410c181273ba90b1", "v7.0.1"),
-    "actions/setup-python": ("6d4fd22b20465ccc0f7354476588e8df7c9ca0e0", "v7.1.0"),
-    "actions/setup-java": ("b843ebf9b913146b38da2eaa7aeddf76074ae1ad", "v6.1.0"),
-    "astral-sh/setup-uv": ("68559e99cc807c1eb7e9238fd43a15bba460eec2", "v10.3.3"),
-    "actions/upload-artifact": ("cf430e030ddbb5b0abf93d22962f4752f3646cd9", "v7.0.2"),
-    "actions/download-artifact": ("9000827ccba6bdab643e8b6fd33ac0654aef8333", "v8.0.2"),
-}
-AUXILIARY = (
-    "uv run python scripts/check_generated.py",
-    "uv run python scripts/check_goldens.py",
-    "uv run python scripts/package_smoke.py",
 )
 
 
