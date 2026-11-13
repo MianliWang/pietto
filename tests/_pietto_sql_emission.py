@@ -1155,6 +1155,42 @@ def scalar_pair_world(target, body, policy="preserve_literals"):
     return header + body, encoded(contract).decode()
 
 
+def fieldless_world(target, body, refusal=None):
+    """Sources `rows` and `rows2`, whose shape declares only a check and so
+    no field, and `items` with the published fixture's `id` field, then
+    ``body``. Returns the source and the contract. ``refusal`` is one
+    contract change main already refuses: `read_only` drops the
+    `read_only_object` premise of `rows`, `naming` the `identifier_case`
+    declaration, and `sql_bytes` or `artifact_bytes` sets that limit to 200."""
+    contract = json.loads(parameterized_fixture(target, "", protocol=False)["contract"])
+    base = contract["sources"][0]
+    sources = []
+    for name, fields in (("rows", []), ("rows2", []), ("items", base["fields"][:1])):
+        source = deepcopy(base)
+        source["selector"]["name"] = source["relation"]["name"] = name
+        source["fields"] = fields
+        sources.append(source)
+    contract["sources"] = sources
+    environment = contract["environment"]
+    if refusal == "read_only":
+        premises = sources[0]["premises"]
+        premises[:] = [p for p in premises if p["key"] != "read_only_object"]
+    elif refusal == "naming":
+        environment[:] = [e for e in environment if e["key"] != "identifier_case"]
+    elif refusal is not None:
+        environment.append(
+            {"key": "resource_limits", "scope": "statement", "value": {refusal: 200}}
+        )
+    header = (
+        "shape Row:\n    always = check(True)\nshape Item:\n    id: Int\n"
+        + "".join(
+            f'source {name}: {shape} = {target}.table("{name}.locator")\n'
+            for name, shape in (("rows", "Row"), ("rows2", "Row"), ("items", "Item"))
+        )
+    )
+    return header + body, encoded(contract).decode()
+
+
 # The bodies of the preregistered native qualification pairs of MySQL project
 # `lpad` and `now()` (D74.09), keyed by form id: P-S12-1..6 in the world
 # `s12_words` (scalar_words_world), P-S12-7 in `s12_pair` (scalar_pair_world).

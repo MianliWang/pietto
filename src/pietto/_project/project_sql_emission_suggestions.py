@@ -495,6 +495,7 @@ _ACTIONS = {
     "pvariance_int_not_admitted_on_target": "Emit this Int pvariance for PostgreSQL, or keep it in check/plan: MySQL computes an integer variance in DOUBLE, which loses Int accuracy; casting the input does not restore it.",
     "pstdev_int_not_admitted_on_target": "Emit this Int pstdev for PostgreSQL, or keep it in check/plan: MySQL computes an integer deviation in DOUBLE, which loses Int accuracy; casting the input does not restore it.",
     "window_aggregate_approved_non_support_on_mysql": "Emit this aggregate window for PostgreSQL, or keep it in check/plan: a project's MySQL aggregate window awaits its real-database differential.",
+    "zero_column_stage_not_admitted_on_target": "Give the source's shape a field and map it in the contract, or keep this declaration in check/plan: a WHERE or JOIN carries every field of its input, and its CTE cannot have an empty column list (MySQL has no SELECT without a column).",
 }
 for _details, _action in _GROUPS:
     for _detail in _details:

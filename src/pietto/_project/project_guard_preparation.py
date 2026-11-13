@@ -217,9 +217,10 @@ def prepare_guarded_request(request) -> GuardedPreparation[EmissionArtifact]:
         # removed, semantic root cloned, or VERIFIED outcome manufactured.
         realized = realize_rows(request)
         query: Any = realized.query
-        if query is None:
+        if query is None or realized.fieldless:
             raise GuardPreparationError(
-                "GUARD_PREPARATION_BLOCKED", blockers=realized.problems
+                "GUARD_PREPARATION_BLOCKED",
+                blockers=realized.problems or realized.fieldless,
             )
         rendered = (
             render_join_sql(query)

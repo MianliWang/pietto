@@ -304,6 +304,100 @@ def test_filter_preserves_bag_multiplicity_of_surviving_rows(built, target):
     assert surviving[0] == surviving[1]
 
 
+@pytest.mark.parametrize("target", ("postgres", "mysql"))
+@pytest.mark.parametrize(
+    "read",
+    (
+        "cte",
+        "inline",
+        "order",
+        "later",
+        "read_only",
+        "naming",
+        "sql_bytes",
+        "artifact_bytes",
+    ),
+)
+def test_a_where_over_rows_without_fields_emits_only_inline_on_postgresql(
+    tmp_path, target, read
+):
+    """A WHERE over a source whose shape has no field carries no column. A
+    CTE header cannot be empty and MySQL has no SELECT without a column, so
+    only PostgreSQL's inline read of a capturing let writes that stage. The
+    stage is refused at its WHERE, several in statement order (the later
+    let `a` has the first CTE), only where the statement would otherwise
+    verify: an overflow in the select, a missing contract premise and a
+    resource limit each keep main's own blocker."""
+    cte = "query result:\n    from rows\n    where 1 == 1\n    select:\n        n = count()\n"
+    body = {
+        "cte": cte,
+        "inline": "query result:\n    let e:\n        capture items\n"
+        "        from rows\n        where items.id > 0\n        select:\n"
+        "            k = 1\n    from items\n    where exists e\n"
+        "    select:\n        id\n",
+        "order": "query result:\n    let b:\n        from rows2\n"
+        "        where 2 == 2\n        select:\n            k = 1\n"
+        "    let a:\n        from rows\n        where 1 == 1\n        select:\n"
+        "            k = 2\n    from a\n    let r = b\n    cross join r\n"
+        "    select:\n        n = count()\n",
+        "later": "query result:\n    from rows\n    where 1 == 1\n"
+        "    select:\n        k = 9223372036854775807 + 1\n",
+    }.get(read, cte)
+    refusal = None if read in ("cte", "inline", "order", "later") else read
+    source, contract = probe.fieldless_world(target, body, refusal)
+    checked, outcome = probe.build_case(tmp_path, source, contract)
+    assert checked.verified
+    if target == "postgres" and read == "inline":
+        assert outcome.status == "VERIFIED" and outcome.artifact is not None
+        assert "(SELECT  FROM " in outcome.artifact.rendered.sql.decode("utf-8")
+        return
+    assert outcome.status == "BLOCKED" and outcome.artifact is None
+    public = probe.decode_public(serialize_project_sql_emission(outcome))
+    lines = source.splitlines()
+    zero = ("PIE-B1003", "zero_column_stage_not_admitted_on_target", "select_block")
+    assert [
+        (
+            b["code"],
+            b["subject"]["detail"],
+            b["subject"]["reference"]["kind"],
+            b["location"] and lines[b["location"]["line"] - 1].strip(),
+        )
+        for b in public["blockers"]
+    ] == {
+        "order": [(*zero, "where 1 == 1"), (*zero, "where 2 == 2")],
+    }.get(read) or [
+        {
+            "cte": (*zero, "where 1 == 1"),
+            "inline": (*zero, "where items.id > 0"),
+            "later": (
+                "PIE-B1002",
+                "arithmetic_outside_physical_range",
+                "projection",
+                "k = 9223372036854775807 + 1",
+            ),
+            "read_only": (
+                "PIE-B1001",
+                "read_only_object_declaration_required",
+                "definition",
+                None,
+            ),
+            "naming": (
+                "PIE-B1004",
+                "identifier_case_declaration_missing",
+                "selected_plan",
+                None,
+            ),
+            "sql_bytes": ("PIE-B1007", "sql_byte_limit", "selected_plan", None),
+            "artifact_bytes": (
+                "PIE-B1007",
+                "public_artifact_byte_limit",
+                "selected_plan",
+                None,
+            ),
+        }[read]
+    ]
+
+
 # --------------------------------------------------------------------------
 # Finite range checking
 # --------------------------------------------------------------------------

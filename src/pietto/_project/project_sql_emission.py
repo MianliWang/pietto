@@ -293,6 +293,9 @@ def _realize_row_query(request, diagnostics):
             diagnostics,
             blockers=(Blocker("PIE-B1007", "public_artifact_byte_limit"),),
         )
+    if realization.fieldless:
+        # Refused only where main verified, so a refused statement keeps main's.
+        return EmissionOutcome("BLOCKED", diagnostics, blockers=realization.fieldless)
     return outcome
 
 

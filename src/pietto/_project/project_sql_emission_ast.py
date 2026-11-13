@@ -1357,12 +1357,14 @@ class SQLJoinQuery:
 class JoinRealization:
     problems: tuple[Blocker, ...]
     query: SQLJoinQuery | None
+    fieldless: tuple[Blocker, ...] = ()
 
 
 @dataclass(frozen=True, slots=True, eq=False)
 class RowRealization:
     problems: tuple[Blocker, ...]
     query: SQLRowQuery | None
+    fieldless: tuple[Blocker, ...] = ()
 
 
 def definition_blocks(request):
@@ -2051,6 +2053,9 @@ def realize_rows(request):
     plan = request.plan
     family = request.family
     problems: list[Blocker] = []
+    # Stages and JOINs without a column: the query is still built, and its
+    # caller refuses it only where it would otherwise verify it.
+    fieldless: list[Blocker] = []
 
     def add(code, detail, subject=None, location=None):
         problems.append(Blocker(code, detail, subject, location))
@@ -2774,6 +2779,19 @@ def realize_rows(request):
                 return None
             # An inline body is neither final nor a CTE: it has no unit name.
             named = not final and captures is None
+            if not columns and (named or family == "mysql"):
+                # A stage over rows without fields: a CTE header cannot be empty,
+                # and MySQL has no SELECT without a column; PostgreSQL inlines one.
+                fieldless.append(
+                    Blocker(
+                        "PIE-B1003",
+                        "zero_column_stage_not_admitted_on_target",
+                        block.ref,
+                        None
+                        if predicate is None
+                        else predicate.original.site.occurrence.span,
+                    )
+                )
             body = RowBody(
                 definition,
                 block,
@@ -2993,6 +3011,16 @@ def realize_rows(request):
                 assert problem is not None
                 add(*problem[:2], *problem[2:])
                 return RowRealization(tuple(problems), None)
+            if not unit.cte_columns:
+                # A JOIN of inputs without fields: its CTE header would be empty.
+                fieldless.append(
+                    Blocker(
+                        "PIE-B1003",
+                        "zero_column_stage_not_admitted_on_target",
+                        join.ref,
+                        None if join.site is None else join.site.occurrence.span,
+                    )
+                )
             units.append(unit)
             by_join[join.ref] = unit
             nodes += _join_node_count(unit)
@@ -3004,8 +3032,12 @@ def realize_rows(request):
     nodes += 3 * len(bodies) + 2 * sum(len(b.columns) for b in bodies)
     nodes += sum(2 + len(b.columns) for b in bodies if not b.final)
     if plan.joins or plan.set_bodies or plan.values_bodies:
-        return JoinRealization((), SQLJoinQuery(request, tuple(units), nodes))
-    return RowRealization((), SQLRowQuery(request, tuple(bodies), nodes))
+        return JoinRealization(
+            (), SQLJoinQuery(request, tuple(units), nodes), tuple(fieldless)
+        )
+    return RowRealization(
+        (), SQLRowQuery(request, tuple(bodies), nodes), tuple(fieldless)
+    )
 
 
 def _block_target(request, block_use, by_definition, source_refs):

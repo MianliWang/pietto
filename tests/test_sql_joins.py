@@ -130,6 +130,79 @@ def test_a_mysql_full_rejection_does_not_refuse_its_neighbours(tmp_path, kind):
     )
 
 
+@pytest.mark.parametrize("target", TARGETS)
+@pytest.mark.parametrize(
+    "form",
+    ("cross", "left", "where", "items", "later", "read_only", "naming", "sql_bytes"),
+)
+def test_a_join_of_inputs_without_fields_is_refused(tmp_path, target, form):
+    """A JOIN carries every field of both inputs. With none its CTE header
+    would be empty, which no target writes; one field on a side emits. The
+    JOIN is refused at its ON clause, if any, with each such later WHERE,
+    only where the statement would otherwise verify: an overflow in the
+    select, a missing contract premise and a resource limit each keep
+    main's own blocker."""
+    join = {
+        "cross": "let r = rows2\n    cross join r",
+        "left": "let r = rows2\n    left join r on True",
+        "where": "let r = rows2\n    cross join r\n    where True",
+        "items": "let r = items\n    cross join r",
+        "later": "let r = rows2\n    cross join r",
+    }.get(form, "let r = rows2\n    left join r on True")
+    value = "9223372036854775807 + 1" if form == "later" else "count()"
+    source, contract = probe.fieldless_world(
+        target,
+        f"query result:\n    from rows\n    {join}\n    select:\n        n = {value}\n",
+        form if form in ("read_only", "naming", "sql_bytes") else None,
+    )
+    _, outcome = probe.build_case(tmp_path, source, contract)
+    doc = public(outcome)
+    if form == "items":
+        assert doc["status"] == "VERIFIED"
+        return
+    assert doc["status"] == "BLOCKED"
+    lines = source.splitlines()
+    zero = ("PIE-B1003", "zero_column_stage_not_admitted_on_target", "join")
+    assert [
+        (
+            b["code"],
+            b["subject"]["detail"],
+            b["subject"]["reference"]["kind"],
+            b["location"] and lines[b["location"]["line"] - 1].strip(),
+        )
+        for b in doc["blockers"]
+    ] == {
+        "cross": [(*zero, None)],
+        "left": [(*zero, "left join r on True")],
+        "where": [(*zero, None), (*zero[:2], "select_block", "where True")],
+        "later": [
+            (
+                "PIE-B1002",
+                "arithmetic_outside_physical_range",
+                "projection",
+                "n = 9223372036854775807 + 1",
+            )
+        ],
+        "read_only": [
+            (
+                "PIE-B1001",
+                "read_only_object_declaration_required",
+                "definition",
+                None,
+            )
+        ],
+        "naming": [
+            (
+                "PIE-B1004",
+                "identifier_case_declaration_missing",
+                "selected_plan",
+                None,
+            )
+        ],
+        "sql_bytes": [("PIE-B1007", "sql_byte_limit", "selected_plan", None)],
+    }[form]
+
+
 # --------------------------------------------------------------------------
 # Outer nulling, derived by the consumer from the parsed structure
 # --------------------------------------------------------------------------

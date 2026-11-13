@@ -11,7 +11,12 @@ from pietto._project.project_guard_preparation import (
     GuardPreparationError,
     verify_preparation,
 )
-from pietto._project import project_sql_emission_ast, project_sql_emission_rows
+from pietto._project import (
+    project_guard_preparation,
+    project_sql_emission_ast,
+    project_sql_emission_rows,
+)
+from pietto._project.project_sql_emission_contract import Blocker
 from pietto._project.project_single_match import ProjectSingleMatchState
 from pietto._project.project_sql_plan import ProjectSQLPlan
 from pietto._project.project_sql_emission_ast import SQLJoinQuery
@@ -66,6 +71,22 @@ def test_real_unproved_prepares_pending_without_old_verified_authority(
         match=r"^Emission inspection requires the exact runtime artifact and its request\.$",
     ):
         prepare_output(guarded.artifact)
+
+
+def test_pending_preparation_refuses_a_stage_without_fields(tmp_path, monkeypatch):
+    """A stage or JOIN without a column has no SQL; the pending preparation
+    refuses it with that realization's blockers before rendering any."""
+    checked, contract = planned(tmp_path)
+    realize = project_guard_preparation.realize_rows
+    zero = (Blocker("PIE-B1003", "zero_column_stage_not_admitted_on_target"),)
+    monkeypatch.setattr(
+        project_guard_preparation,
+        "realize_rows",
+        lambda request: replace(realize(request), fieldless=zero),
+    )
+    with pytest.raises(GuardPreparationError, match="^GUARD_PREPARATION_BLOCKED$") as e:
+        prepare_guarded(checked, contract)
+    assert e.value.blockers is zero
 
 
 def test_pending_scope_keeps_all_occurrences_and_rejects_foreign_or_missing(tmp_path):
