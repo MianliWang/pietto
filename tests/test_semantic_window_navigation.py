@@ -1237,21 +1237,111 @@ def test_navigation_ir_lowering_reaches_window_call_ir(case: int) -> None:
 # Phase 53 Slice 13 reader migration.
 
 
-def test_unknown_bounded_navigation_expression_fails_closed() -> None:
+@pytest.mark.parametrize("kind", ("unknown", "any", "generator", "collect", "captured"))
+def test_an_expression_no_window_value_reads_is_no_direct_field(kind: str) -> None:
+    """Every other node, including those the parser never places in a
+    window value, is refused as no direct field rather than raising."""
+
     from pietto import ast_nodes as ast
     from pietto.semantic.window_navigation_analysis import _is_bounded_value_expression
 
     class UnknownExpression(ast.Expression):
         pass
 
-    with pytest.raises(ValueError, match="Unsupported"):
-        _is_bounded_value_expression(
-            UnknownExpression(
-                span=ast.Span(path=None, line=1, column=1, end_line=1, end_column=2)
-            ),
-            "rows",
-            allow_qualified_fields=False,
+    span = ast.Span(path=None, line=1, column=1, end_line=1, end_column=2)
+    expression = {
+        "unknown": lambda: UnknownExpression(span=span),
+        "any": lambda: ast.AnyExpr(
+            span=span,
+            predicate=ast.LiteralExpr(span=span, value=True),
+            binding_name="z",
+            binding_span=span,
+            relation_name="rows",
+            relation_span=span,
+        ),
+        "generator": lambda: ast.GeneratorExpr(
+            span=span,
+            body=ast.NameExpr(span=span, name="id"),
+            binding_name="z",
+            binding_span=span,
+            source=("rows",),
+            source_span=span,
+            condition=None,
+        ),
+        "collect": lambda: ast.CollectRelationExpr(span=span, relation_name="rows"),
+        "captured": lambda: ast.CapturedFieldExpr(
+            span=span, capture="rows", field="id", ordinal=0
+        ),
+    }[kind]()
+    assert not _is_bounded_value_expression(
+        expression, "rows", allow_qualified_fields=False
+    )
+
+
+_ANY_WINDOW = """shape Order:
+    id: Int
+    amount: Int
+source orders: Order = postgres.table("orders")
+source refunds: Order = postgres.table("refunds")
+query q:
+    from orders
+    select:
+        id
+        w = {call} window(order by id)
+"""
+
+
+@pytest.mark.parametrize(
+    ("call", "function", "role"),
+    (
+        ("lag(any(r.id == 1 for r in refunds))", "lag", "value"),
+        ("lead(amount, 1, any(r.id == 1 for r in refunds))", "lead", "default"),
+        ("first_value(any(r.id == 1 for r in refunds))", "first_value", "value"),
+        ("nth_value(any(r.id == 1 for r in refunds), 2)", "nth_value", "value"),
+    ),
+)
+def test_an_any_test_as_window_value_or_default_is_refused_at_the_call(
+    tmp_path: Path,
+    capsys: pytest.CaptureFixture[str],
+    call: str,
+    function: str,
+    role: str,
+) -> None:
+    """An `any(...)` test is no direct field: PIE-S2104 at the call in a
+    single file, and a project fails closed at the call, never raising."""
+
+    from pietto import cli
+
+    source = _ANY_WINDOW.format(call=call)
+    parsed = parse_source(source)
+    assert parsed.ast is not None and parsed.diagnostics == ()
+    assert [
+        (d.code, d.message, d.location.line, d.location.column)
+        for d in analyze(parsed.ast).diagnostics
+    ] == [
+        (
+            "PIE-S2104",
+            f"Invalid arguments for function {function}: {role} must be a direct "
+            "field or Bool, Text, Int, Float, or NULL literal",
+            10,
+            13,
         )
+    ]
+    (tmp_path / "pietto.toml").write_text(
+        'schema_version = 2\n\n[sources]\ninclude = ["*.pietto"]\n', encoding="utf-8"
+    )
+    (tmp_path / "main.pietto").write_text(source, encoding="utf-8")
+    code = cli.main(["check", "--project", str(tmp_path), "--format", "json"])
+    document = json.loads(capsys.readouterr().out)
+    # A project reads a window over `any` as a call (PIE-S2103); only its
+    # place is asserted here.
+    assert (
+        code,
+        [
+            (d["severity"], d["location"]["line"], d["location"]["column"])
+            for d in document["diagnostics"]
+        ],
+    ) == (1, [("error", 10, 13)])
 
 
 _LET_WINDOW = """shape Order:
