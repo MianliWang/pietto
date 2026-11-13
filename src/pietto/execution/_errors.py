@@ -246,11 +246,13 @@ _ATTEMPT = {
     "POSTGRES_DRIVER_LIBRARY": "PIE-R2002",
     "POSTGRES_ADBC_DRIVER_PROFILE": "PIE-R2002",
     "POSTGRES_ADBC_DRIVER_LIBRARY": "PIE-R2002",
+    "DUCKDB_DRIVER_PROFILE": "PIE-R2002",
     "EXECUTION_AMBIENT_CONNECTION_PROFILE": "PIE-R2003",
     "EXECUTION_TARGET_VERSION": "PIE-R2005",
     "EXECUTION_CONTEXT": "PIE-R2006",
     "EXECUTION_CONNECTION": "PIE-R2006",
     "POSTGRES_SOURCE_NATIVE_CONTEXT": "PIE-R2006",
+    "DUCKDB_SESSION_CONTEXT": "PIE-R2006",
     # The shared source qualification names an object outside the premise.
     "POSTGRES_ADBC_DEPLOYMENT_PREMISE_SCOPE": "PIE-R2007",
     "MYSQL_SOURCE_TEMPORAL_UUID_QUALIFICATION": "PIE-R2007",
@@ -340,12 +342,16 @@ class ExecutionError(Exception):
 
 
 class RequestRejected(ExecutionError):
-    """PIE-R1xxx: refused before any connection; there is no attempt."""
+    """PIE-R1xxx: refused before any connection; there is no attempt. The
+    environment and dependency checks that execute() runs itself raise their
+    PIE-R2xxx code here too: PIE-R2003 on ``mysql_rows`` and
+    ``postgres_adbc``, PIE-R2001 and PIE-R2002 of the loaded PyArrow on
+    ``duckdb_arrow``."""
 
 
 class AttemptFailed(ExecutionError):
-    """PIE-R2xxx and PIE-R3xxx: the attempt failed and is closed; ``outcome``
-    is its final state."""
+    """PIE-R2xxx and PIE-R3xxx once an attempt opens: the attempt failed and
+    is closed; ``outcome`` is its final state."""
 
 
 class HandleMisuse(ExecutionError):

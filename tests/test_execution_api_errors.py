@@ -340,6 +340,7 @@ def test_public_surface_is_exactly_the_alpha_names():
         "AttemptFailed",
         "CompileRejected",
         "CompiledQuery",
+        "DuckDBArrowInput",
         "ExecutionError",
         "ExecutionLimits",
         "Failure",

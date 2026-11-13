@@ -363,7 +363,7 @@ else:
     raise AssertionError('missing dependency accepted')
 """ % (RESULT_OWNERS,)
     result = subprocess.run(
-        [sys.executable, "-I", "-c", code],
+        [sys.executable, "-I", "-B", "-c", code],
         cwd=tmp_path,
         env={**os.environ, "PYTHONPATH": str(tmp_path)},
         capture_output=True,

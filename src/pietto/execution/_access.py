@@ -4,8 +4,10 @@ and reads no environment. execute() checks them, never a constructor."""
 from __future__ import annotations
 
 from dataclasses import dataclass
+from typing import Any
 
 __all__ = [
+    "DuckDBArrowInput",
     "ExecutionLimits",
     "MySQLAccess",
     "MySQLDeploymentPremise",
@@ -135,6 +137,33 @@ class MySQLDeploymentPremise:
         raise TypeError(
             "MySQLDeploymentPremise is a per-call commitment;"
             " it cannot be pickled or copied"
+        )
+
+
+@dataclass(frozen=True, slots=True, eq=False)
+class DuckDBArrowInput:
+    """The one Arrow table of one ``duckdb_arrow`` execute() call.
+
+    ``name`` is the ``duckdb.arrow`` key, which must equal the contract's
+    ``relation.name``; ``table`` is a ``pyarrow.Table`` that the caller
+    keeps. Constructing it checks nothing, imports nothing and does no I/O:
+    execute() checks it and copies the admitted columns before it returns.
+    repr() shows the name and the table's type name only, never its
+    contents, and the object refuses pickle and copy.
+    """
+
+    name: str
+    table: Any
+
+    def __repr__(self) -> str:
+        return (
+            f"DuckDBArrowInput(name={self.name!r}, table=<{type(self.table).__name__}>)"
+        )
+
+    def __reduce_ex__(self, protocol):
+        raise TypeError(
+            "DuckDBArrowInput holds a caller-owned table; it cannot be pickled"
+            " or copied"
         )
 
 

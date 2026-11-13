@@ -818,8 +818,11 @@ server's `sqlstate` and the exception class as `cause`. Code against `code`;
 `detail` may change between alpha releases. A `scalar` read of more than one
 row is the database's own runtime error: `PIE-R3003` with `sqlstate` `21000`,
 in no promised order relative to other runtime errors of the statement.
-`RequestRejected` (PIE-R1xxx) means nothing connected; `AttemptFailed`
-(PIE-R2xxx and PIE-R3xxx) ends the attempt and carries its `outcome`;
+`RequestRejected` (PIE-R1xxx) means nothing connected; it also carries the
+PIE-R2xxx refusals of the checks that `execute()` runs itself: `PIE-R2003`
+on `mysql_rows` and `postgres_adbc`, and `PIE-R2001` and `PIE-R2002` of the
+loaded PyArrow on `duckdb_arrow`. `AttemptFailed` (PIE-R2xxx and PIE-R3xxx
+once an attempt opens) ends the attempt and carries its `outcome`;
 `HandleMisuse` (PIE-R4xxx) leaves the attempt unchanged.
 `execute()` first checks that `query`, `route`, `access`, `premise` and
 `limits` are given and have the right type and that `isolation` is given, in

@@ -277,12 +277,15 @@ def export_bundle(query: CompiledQuery) -> QueryBundle:
     parameters exports its unbound template as a
     ``pietto.compiled-execution.v2`` bundle; every load binds it afresh.
     Raises RequestRejected for a query that is None (PIE-R1001) or not a
-    CompiledQuery (PIE-R1002).
+    CompiledQuery (PIE-R1002), and for a ``duckdb`` query, which has no
+    bundle (PIE-R1004), before anything is built.
     """
     if query is None:
         raise RequestRejected(failure("PIE-R1001", "PUBLIC_QUERY_REQUIRED"))
     if type(query) is not CompiledQuery:
         raise RequestRejected(failure("PIE-R1002", "PUBLIC_QUERY_TYPE"))
+    if type(query._template) is DuckDBTemplate:
+        raise RequestRejected(failure("PIE-R1004", "DUCKDB_BUNDLE_ENTRY"))
     try:
         facts = composition.export_facts(query._template)
     except Exception as caught:

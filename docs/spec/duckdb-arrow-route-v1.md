@@ -197,9 +197,10 @@ meaning is unchanged. There is no premise type for this route, no
 `execute_local` and no new limit.
 
 These checks run in `execute()`, in this order, and the first failure is
-raised as `RequestRejected` with its PIE-R1xxx code (check 12's code is the
-owner's choice, below): nothing has connected, as
-[the error classes](../execution.md#errors) say. Checks 1–11 import nothing;
+raised as `RequestRejected`: nothing has connected (see
+[the error classes](../execution.md#errors)). Its code is a PIE-R1xxx code,
+except that check 12 refuses with `PIE-R2001` or `PIE-R2002` (below).
+Checks 1–11 import nothing;
 check 12 verifies the PyArrow that the caller already loaded before the
 capture uses it, and no check imports DuckDB:
 
@@ -216,39 +217,28 @@ capture uses it, and no check imports DuckDB:
 | 9 | `access.name` equals the contract's `relation.name` | `PIE-R1002` `DUCKDB_ARROW_SCHEMA` |
 | 10 | `isolation` is exactly `"stable"` | `PIE-R1002` `EXECUTION_ISOLATION` |
 | 11 | The values of `limits` | `PIE-R1002` `EXECUTION_LIMITS` |
-| 12 | The loaded PyArrow is the installed `pyarrow` `26.0.1` distribution's own files | `PIE-R1002` `DUCKDB_ARROW_DEPENDENCY` (*derived*; option 1 below, the default) |
+| 12 | The loaded PyArrow is the installed `pyarrow` `26.0.1` distribution's own files | `PIE-R2001` `ARROW_DEPENDENCY_MISSING`; `PIE-R2002` `ARROW_DEPENDENCY_VERSION` |
 | 13 | The capture admits the table (next section) | `PIE-R1002` `DUCKDB_ARROW_CAPTURE_LIMIT`, `DUCKDB_ARROW_SCHEMA` |
 
 Check 12 runs in `execute()` because the capture uses PyArrow before anything
-connects. It refuses a PyArrow that is absent from the installed
-distributions, of another version or not that distribution's own files. Its
-code is the owner's choice (see [open items](#open-items)); until the owner
-decides, it is this page's fail-closed default, option 1. Each option changes
-public text, and S08 applies only the hunks of the chosen one (see
-[shared-page hunks](#shared-page-hunks)):
+connects. A PyArrow whose distribution is not installed is refused with
+`PIE-R2001` `ARROW_DEPENDENCY_MISSING`; one of another version, not that
+distribution's own files or that cannot be loaded, with `PIE-R2002`
+`ARROW_DEPENDENCY_VERSION`. These are the codes that the other Arrow routes
+give their PyArrow, with this route's own details, raised here from
+`execute()` as `RequestRejected`; the owner chose the codes on 2026-11-11
+over a new `PIE-R1002` detail. The `PIE-R2001` and `PIE-R2002` rows of
+[diagnostics](diagnostics.md) already cover the selected route's PyArrow and
+hold. The class sentence of [the errors section](../execution.md#errors)
+(`RequestRejected` (PIE-R1xxx) means nothing connected) changes to admit
+them, and to name its precedent: `PIE-R2003`
+`EXECUTION_AMBIENT_CONNECTION_PROFILE`, which `mysql_rows` and
+`postgres_adbc` already raise as `RequestRejected`, because their ambient
+check runs while `execute()` prepares the attempt. The docstrings of
+`RequestRejected` and `AttemptFailed` in `src/pietto/execution/_errors.py`
+repeat that sentence where `help()` shows it, and change with it.
 
-- **Option 1, the default:** `PIE-R1002` `DUCKDB_ARROW_DEPENDENCY`. The class
-  sentence of [the errors section](../execution.md#errors) holds. Three rows
-  of [diagnostics](diagnostics.md) change: `PIE-R1002`, whose meaning is an
-  input's wrong type or unsupported value, adds a loaded PyArrow that is not
-  the pinned distribution on `duckdb_arrow`; `PIE-R2001` and `PIE-R2002`,
-  which cover the selected route's PyArrow today, leave out the PyArrow of
-  `duckdb_arrow`.
-- **Option 2:** the existing `PIE-R2001` `ARROW_DEPENDENCY_MISSING` and
-  `PIE-R2002` `ARROW_DEPENDENCY_VERSION`, raised from `execute()` as
-  `RequestRejected`. The diagnostics rows hold, and the class sentence
-  (`RequestRejected` (PIE-R1xxx) means nothing connected) changes to admit
-  them. The docstrings of `RequestRejected` ("PIE-R1xxx: refused before any
-  connection") and `AttemptFailed` ("PIE-R2xxx and PIE-R3xxx: the attempt
-  failed and is closed") in `src/pietto/execution/_errors.py` repeat that
-  sentence where `help()` shows it, so they change with it. A PIE-R2xxx code
-  raised as `RequestRejected` has a precedent that neither the sentence nor
-  the docstrings name today: `PIE-R2003`
-  `EXECUTION_AMBIENT_CONNECTION_PROFILE` on `mysql_rows` and `postgres_adbc`,
-  whose ambient check runs while `execute()` prepares the attempt.
-
-Under either option, three passages of `docs/execution.md` gain a
-`duckdb_arrow` clause:
+Three passages of `docs/execution.md` also gain a `duckdb_arrow` clause:
 
 - the `execute()` entry ("the driver and the environment are checked when the
   attempt opens, except MySQL's refused OpenSSL names");
@@ -263,8 +253,7 @@ Under either option, three passages of `docs/execution.md` gain a
 
 On `duckdb_arrow` the PyArrow check runs in `execute()`, before the capture,
 and the driver check when the attempt opens, as step 1 of
-[the session](#session-and-attempt). The lead leans to option 2; the owner
-decides.
+[the session](#session-and-attempt).
 
 `execute()` returns an unopened `ResultHandle` only after the capture copy
 exists. The PostgreSQL and MySQL routes keep their required premises and
@@ -294,15 +283,22 @@ raised; no detail carries a value, a name or a count.
 3. **Values**, per source field in shape order, over the selected column: a
    non-null field has `null_count == 0`; an `Int` lies inside the declared
    `int_range`; a `Float` has no NaN, +Inf or -Inf; a `Text` value is valid
-   UTF-8 under full validation, holds no NUL character and has at most the
-   declared `max_characters` code points. Otherwise `DUCKDB_ARROW_SCHEMA`.
-   PyArrow keeps a field's declared nullability only as metadata, so the
-   null count is what is checked.
+   UTF-8 under full validation and has at most the declared `max_characters`
+   code points. Otherwise `DUCKDB_ARROW_SCHEMA`. PyArrow keeps a field's
+   declared nullability only as metadata, so the null count is what is
+   checked. A NUL is admitted anywhere in a `Text` value, counts as one code
+   point, and reaches DuckDB and the caller unchanged (the owner's choice of
+   2026-11-11; see the NUL row of [pin facts](#pin-facts)).
 4. **Copy.** The capture is a new table of the selected columns only, in
    shape order, named `c0`, `c1` and so on, whose buffers are disjoint from
    the caller's and hold no unselected rows or columns. Changing the caller's
    buffers afterwards (a NumPy array that a column wraps without a copy, for
-   example) does not change it.
+   example) does not change it. The route checks that its copy's buffers are
+   disjoint from the caller's; a copy that shares one breaks an internal
+   invariant, not a rule about the input, so `execute()` refuses it with the
+   unclassified `PIE-R1999` `DUCKDB_ARROW_CAPTURE_COPY`, which is not one of
+   the input refusals above and which the pinned PyArrow's copy is not
+   expected to reach (see [pin facts](#pin-facts)).
 
 `-0.0` is admitted under the `Float` value contract, where `-0.0 == 0.0`; on
 `2.0.0` DuckDB delivered its sign bit unchanged (*derived*, inform). Each
@@ -320,12 +316,12 @@ reused. Every failure from here on is an `AttemptFailed` (AD79.01).
    `EXECUTION_DEPENDENCY_MISSING` or `PIE-R2002` `EXECUTION_DRIVER_VERSION`.
    The engine's `pragma_version()` row reports version `v2.0.0` and source
    id `d54cbbe3df`; otherwise `PIE-R2002` `DUCKDB_DRIVER_PROFILE`
-   (*derived*).
+   (accepted by the owner).
 2. **Settings.** The route sets each value below with `SET`, in table order,
    on a fresh connection, then reads every row of both read-back lists from
    `duckdb_settings()` before the first statement. A `SET` that fails or a
    read-back that differs is `PIE-R2006` `DUCKDB_SESSION_CONTEXT`
-   (*derived*), and the route runs nothing.
+   (accepted by the owner), and the route runs nothing.
 3. **Statement.** The route registers the capture as `pietto_arrow_0`, runs
    the compiled statement once, with the bound parameter if it has one, and
    reads the result as Arrow through the relation API (`sql(...,
@@ -341,9 +337,14 @@ reused. Every failure from here on is an `AttemptFailed` (AD79.01).
    refuses a NULL in a non-null field before it binds a `ResultBatch`;
    otherwise `PIE-R3005`. Batches then follow `ExecutionLimits` as on the
    other routes (`PIE-R3004`).
-5. **End.** Unregistration and close run on success, early close,
-   cancellation, deadline, result failure and setup failure. A failed close
-   is `PIE-R3006`, with the failed step as its `PIE-R5001` entry.
+5. **End.** Whatever ends the attempt (success, early close, cancellation,
+   deadline, result failure or setup failure), the route unregisters the
+   capture if it was registered, then closes the connection if one was
+   opened. A failure while the session is set up or the capture registered
+   therefore closes the connection without unregistering, and an attempt
+   that ends before it connects (a missing or mismatched driver, or a
+   cancellation before the session opens) does neither. A failed close is
+   `PIE-R3006`, with the failed step as its `PIE-R5001` entry.
 
 | Setting | Value set | Read back |
 | --- | --- | --- |
@@ -406,14 +407,42 @@ statement that needs more memory fails, because nothing can spill
 DuckDB errors become the existing `AttemptFailed` and `Failure` (AD79.01):
 `phase` names the step, `cause` is the exception class name, and `sqlstate`
 is `None`; no vendor code is kept. No DuckDB message enters any Pietto text.
+The lead stated AD79.01 to the owner as inform on 2026-11-11.
 
 | Event | Failure |
 | --- | --- |
 | A DuckDB error while the statement runs or its result is read, an integer overflow and `OutOfMemoryException` included | `PIE-R3003` |
 | The caller cancels the attempt; the route interrupts the connection (`InterruptException` on `2.0.0`) | `PIE-R3009` |
 | `limits.seconds` expires; the route interrupts the connection | `PIE-R3001` |
-| A DuckDB error while the session is set up or the capture registered | `PIE-R2006` `DUCKDB_SESSION_CONTEXT` (*derived*) |
-| Returned types, labels, nullability or values do not match the compiled result | `PIE-R3005` |
+| A DuckDB error while the session is set up or the capture registered | `PIE-R2006` `DUCKDB_SESSION_CONTEXT` (accepted by the owner) |
+| Returned types, labels, nullability or values do not match the compiled result | `PIE-R3005` `DUCKDB_RESULT_CHECK` |
+
+`phase` is `driver` for the distribution check of step 1, `session` for the
+engine profile, step 2 and the registration, `query` for step 3, `result`
+for the binding of step 4, `delivery` for a batch, `finalization` for the end
+after the last batch, and `consumer` for an exception of the caller's own
+code. A failed cleanup step's `PIE-R5001` entry names `unregister` or
+`close`.
+
+The attempt's `outcome` takes the existing values. The statement runs, and
+its whole result is read, when the handle is first entered; batches are then
+cut from that result. `transaction` is `NOT_STARTED` until the statement
+starts, `UNKNOWN` while it runs, and `COMMIT_ACK` once `to_arrow_table()` has
+returned the whole result, because the statement ran in its own auto-commit
+transaction, which ended then. A statement that fails, or that a
+cancellation or the deadline interrupts before `to_arrow_table()` returns,
+leaves `UNKNOWN`. When the route observes the deadline or a cancellation only
+after `to_arrow_table()` has returned, the attempt still ends with no batch,
+and `transaction` stays `COMMIT_ACK` (the owner's choice): the deadline is
+`PIE-R3001` with `phase` `query`, and the cancellation is `PIE-R3009` with no
+`phase`, as for any cancellation. `cleanup` is
+`LOCAL_CLOSED_REMOTE_UNOBSERVED` once step 5 has run and none of its steps
+failed, since there is no server whose end could be observed, and `FAILED`
+when one did. The owner accepted these values, the details
+`DUCKDB_RESULT_CHECK` and `DUCKDB_ARROW_CAPTURE_COPY` and these phase names
+on 2026-11-11, and chose `COMMIT_ACK` for the late observation the same day;
+it then accepted the details `DUCKDB_DRIVER_PROFILE` and
+`DUCKDB_SESSION_CONTEXT`.
 
 ## Other entry points
 
@@ -585,9 +614,24 @@ outside Git. CPython 3.12 comes from the packaging lane and natural CI.
   `combine_chunks` of one chunk shared the caller's buffers and
   `Array.copy_to` copied the whole parent buffer. S04 chooses the copy and
   verifies it.
-- **Values.** NUL inside a string round-trips through DuckDB; invalid UTF-8
-  passes `Array.validate()` but fails `validate(full=True)`; `-0.0` keeps its
-  sign bit through projection, filter and `to_arrow_table()`.
+- **Values.** Invalid UTF-8 passes `Array.validate()` but fails
+  `validate(full=True)`; `-0.0` keeps its sign bit through projection, filter
+  and `to_arrow_table()`.
+- **NUL.** On 2026-11-11, before the route admitted NUL, in the same
+  environment: `Text` values with a NUL at the start, in the middle or at the
+  end, values of only NUL (1, 3 and 40 of them), values of at most and of
+  more than 12 bytes, multibyte text, `""` and NULL went through the route's
+  own settings, copy and statement bytes (the projection and the filtered
+  `<>` form), `to_arrow_table()`, the result binding and the batches, in one
+  chunk and as 6,000 rows in three and four chunks, and came back with every
+  byte and code point; `strlen` and `length` counted them all. Written into
+  DuckDB storage (`CREATE TABLE ... AS` from the registration, and `INSERT`
+  with a bound `str`), they read back unchanged; `=` and `<>` against a bound
+  `str` parameter, with and without `CAST(... AS VARCHAR)`, `DISTINCT`,
+  `GROUP BY` and an equality join all agreed with a Python oracle, so `'a'`,
+  `'a\0'` and `'a\0b'` stayed distinct. The route compares no `Text` (B1
+  projects it only), so the comparisons describe the engine, not a route
+  form.
 - **SQL form.** The form of [SQL](#sql), registered as `pietto_arrow_0`
   under the settings above, agreed with a Python oracle written before the run
   for each of the six operators and the parameters -2^63, -1, 0, 7 and
@@ -609,24 +653,19 @@ until then this page is their only statement.
 - `docs/spec/diagnostics.md`: the `PIE-R1001` row adds `premise=None` on
   `duckdb_arrow`; the `PIE-S2306` row names `duckdb.arrow`; the `PIE-B1001`,
   `PIE-B1003`, `PIE-R1002`, `PIE-R1004`, `PIE-R2002` and `PIE-R2006` rows
-  name the new details above. Under option 1 of check 12 (see
-  [execute API](#execute-api)), the default, the `PIE-R1002` row adds a
-  loaded PyArrow that is not the pinned distribution on `duckdb_arrow`, and
-  the `PIE-R2001` and `PIE-R2002` rows leave out the PyArrow of
-  `duckdb_arrow` (*derived*). Under option 2 these three rows take no
-  PyArrow change.
+  name the new details above. The `PIE-R2001` and `PIE-R2002` rows already
+  cover the selected route's PyArrow, so check 12 (see
+  [execute API](#execute-api)) changes neither.
 - `docs/execution.md`: a "DuckDB Arrow" route section (install, the input, the
-  settings, the capture, the failures) and the support-matrix row. Under
-  either option, the three passages named under [execute API](#execute-api)
-  state the `duckdb_arrow` order: the `execute()` entry and the attempt-open
-  order of the errors section put PyArrow in `execute()` and the driver when
-  the attempt opens, and the request-check paragraph adds the
-  `duckdb_arrow`/`duckdb` pair, check 9 after `access`, and checks 12 and 13
-  after `limits` (*derived*). Under option 1 the class
-  sentence (`RequestRejected` (PIE-R1xxx) means nothing connected) stays;
-  under option 2 it admits `PIE-R2001` and `PIE-R2002` from `execute()` on
-  `duckdb_arrow`, and the `PIE-R2003` that `mysql_rows` and `postgres_adbc`
-  already raise there.
+  settings, the capture, the failures) and the support-matrix row. The three
+  passages named under [execute API](#execute-api) state the `duckdb_arrow`
+  order: the `execute()` entry and the attempt-open order of the errors
+  section put PyArrow in `execute()` and the driver when the attempt opens,
+  and the request-check paragraph adds the `duckdb_arrow`/`duckdb` pair,
+  check 9 after `access`, and checks 12 and 13 after `limits` (*derived*).
+  The class sentence (`RequestRejected` (PIE-R1xxx) means nothing connected)
+  admits `PIE-R2001` and `PIE-R2002` from `execute()` on `duckdb_arrow`, and
+  the `PIE-R2003` that `mysql_rows` and `postgres_adbc` already raise there.
 - `docs/project-package.md`: `--dialect {postgres,mysql,duckdb}` and the
   DuckDB columns of the contract value and premise tables.
 - `docs/language.md`: `duckdb.arrow` among the source connectors.
@@ -634,18 +673,14 @@ until then this page is their only statement.
 - `docs/spec/project-cli-json-v2.md`: `duckdb` as a `dialect` value.
 
 S04 gives the `execute()` docstring ("The driver and environment are checked
-when the attempt opens") the same `duckdb_arrow` clause. Under option 2, S04
-also revises the `RequestRejected` and `AttemptFailed` docstrings in
-`src/pietto/execution/_errors.py` to match the revised class sentence; under
-option 1 they stay.
+when the attempt opens") the same `duckdb_arrow` clause, and revises the
+`RequestRejected` and `AttemptFailed` docstrings in
+`src/pietto/execution/_errors.py` to match the revised class sentence.
 
 ## Open items
 
 | Item | Owner | Latest point |
 | --- | --- | --- |
-| The D79.01 refusal mapping, the D79.04 `-0.0` admission and this page's *derived* rows, stated as inform: the `arrow` namespace; the storage and domain spellings; the premises and `premise_not_admitted_on_target`; the domain check at capture, and examining only the table fields that source fields name; Pietto-owned identifiers; admitting `--all` and `compile_all_sql`; `MAX_PARAMETERS` 65,535 in place of the DuckDB value that D79.05 expected; `columns` 4,096, the MySQL value; the settings beyond D79.06 (`allow_extension_repositories`, `allow_persistent_secrets`, the two progress-bar settings and the four `arrow_*` settings) and the fixed `threads` 1 and `memory_limit` 256 MiB; the closed order of compile refusals with its reused details, including the codes outside D79.01's list (`PIE-B1002`, `PIE-B1004` to `PIE-B1008`, and `PIE-R2001`, `PIE-R2002` with the existing driver details); the new details `PIE-R1002` `DUCKDB_ARROW_DEPENDENCY` (option 1 of check 12), `PIE-R2002` `DUCKDB_DRIVER_PROFILE` and `PIE-R2006` `DUCKDB_SESSION_CONTEXT`; the shared-page revisions that option 1 needs | The lead | Before this page binds |
-| Check 12's code for a PyArrow that is not the pinned distribution (see [execute API](#execute-api)). Option 1, this page's fail-closed default: `PIE-R1002` `DUCKDB_ARROW_DEPENDENCY`, which revises the `PIE-R1002`, `PIE-R2001` and `PIE-R2002` rows of diagnostics. Option 2: `PIE-R2001`/`PIE-R2002` raised from `execute()` as `RequestRejected`, which revises the class sentence of `docs/execution.md` and the `RequestRejected` and `AttemptFailed` docstrings in `src/pietto/execution/_errors.py`, with `PIE-R2003` on `mysql_rows` and `postgres_adbc` as precedent. Both revise the `duckdb_arrow` order in three passages of `docs/execution.md`, so neither keeps every public sentence. The lead leans to option 2 | The owner | Before S04 seals |
-| NUL in `Text` input, refused until decided | The owner | Before the B1 batch Gate 2 |
-| AD79.01, stated as inform | The lead | Before S04 seals |
+| The D79.01 refusal mapping, the D79.04 `-0.0` admission and this page's *derived* rows, stated as inform: the `arrow` namespace; the storage and domain spellings; the premises and `premise_not_admitted_on_target`; the domain check at capture, and examining only the table fields that source fields name; Pietto-owned identifiers; admitting `--all` and `compile_all_sql`; `MAX_PARAMETERS` 65,535 in place of the DuckDB value that D79.05 expected; `columns` 4,096, the MySQL value; the settings beyond D79.06 (`allow_extension_repositories`, `allow_persistent_secrets`, the two progress-bar settings and the four `arrow_*` settings) and the fixed `threads` 1 and `memory_limit` 256 MiB; the closed order of compile refusals with its reused details, including the codes outside D79.01's list (`PIE-B1002`, `PIE-B1004` to `PIE-B1008`, and `PIE-R2001`, `PIE-R2002` with the existing driver details) | The lead | Before this page binds |
 | Whether `duckdb.arrow` changes the built-in catalog (D76.12) | The lead, at S02 | Before the B1 batch push |
 | The release-note fragment `79-s01-duckdb-arrow-route.md` describes B1 as the batch delivers it. Each later slice checks and edits its own lines there and adds no second B1 fragment: S03 the emission and blocker lines, S04 the execute, capture and session lines, S05 the install and pin line, S07 the qualified platforms after S06. The batch audit compares the fragment with this page | Each slice; the batch audit | Before each slice seals; the B1 batch audit |

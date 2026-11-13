@@ -12,6 +12,9 @@ export_bundle() turns a compiled query into bytes and three trust records;
 load_bundle() loads such bytes only under the records you pass,
 execute(..., values=...) binds explicit values to a bind-safe query's slots,
 and execute(..., parameters=...) binds a query's declared parameters by name.
+A ``duckdb`` query runs in process over one Arrow table you pass, with
+execute(query, route="duckdb_arrow", access=DuckDBArrowInput(name, table),
+premise=None).
 
 This is an alpha interface: names, fields and PIE-R codes may change with
 documented notes. Importing it loads no database driver, no PyArrow and no
@@ -27,6 +30,7 @@ from typing import TYPE_CHECKING
 import importlib
 
 from pietto.execution._access import (
+    DuckDBArrowInput,
     ExecutionLimits,
     MySQLAccess,
     MySQLDeploymentPremise,
@@ -147,6 +151,7 @@ __all__ = [
     "AttemptFailed",
     "CompileRejected",
     "CompiledQuery",
+    "DuckDBArrowInput",
     "ExecutionError",
     "ExecutionLimits",
     "Failure",

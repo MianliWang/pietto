@@ -959,9 +959,11 @@ def serialize_duckdb_emission(outcome: Any) -> bytes:
 
 @dataclass(frozen=True, slots=True, eq=False)
 class DuckDBTemplate:
-    """The live query of a VERIFIED DuckDB document; S04 executes it."""
+    """The live query of a VERIFIED DuckDB document and the installed code
+    identity it was compiled with; the `duckdb_arrow` route executes it."""
 
     emission: DuckDBArtifact
+    compatibility: tuple[Any, ...]
 
     def __repr__(self) -> str:
         return "DuckDBTemplate(emission=...)"
@@ -997,4 +999,68 @@ def prepare_duckdb_live_template(outcome: Any) -> DuckDBTemplate | None:
         return None
     if type(outcome) is not DuckDBEmission or not verify_artifact(outcome.artifact):
         raise ValueError("BINDING_ARTIFACT")
-    return DuckDBTemplate(outcome.artifact)
+    from pietto._project.project_compiled_loading import supported_compatibility
+
+    return DuckDBTemplate(outcome.artifact, supported_compatibility())
+
+
+@dataclass(frozen=True, slots=True)
+class DuckDBSourceField:
+    """One source field in shape order: its contract column, logical type,
+    compiled nullability and declared domain bounds (`int_range` of an
+    `Int`, `max_characters` of a `Text`)."""
+
+    column: str
+    tag: str
+    nullable: bool
+    bounds: tuple[int, int] | None
+    max_characters: int | None
+
+
+@dataclass(frozen=True, slots=True)
+class DuckDBExecutionFacts:
+    """What the `duckdb_arrow` route reads of one verified artifact: the
+    contract's `relation.name`, the rendered statement, the source fields,
+    each result column's (label, source field position) in result order and
+    the header parameters as (name, tag, nullable)."""
+
+    key: str
+    sql: str
+    fields: tuple[DuckDBSourceField, ...]
+    result: tuple[tuple[str, int], ...]
+    parameters: tuple[tuple[str, str, bool], ...]
+
+
+def execution_facts(template: object) -> DuckDBExecutionFacts:
+    """The facts of a live template whose artifact verifies afresh; any other
+    value is BINDING_ARTIFACT. A result column reads its source field
+    directly (rule 7), so it has that field's type and nullability."""
+    if type(template) is not DuckDBTemplate or not verify_artifact(template.emission):
+        raise ValueError("BINDING_ARTIFACT")
+    artifact = template.emission
+    plan = artifact.checked.plan
+    (source,) = plan.sources
+    ports = _ports(plan, source)
+    (entry,) = (s for s in artifact.contract.sources if s.owner is source.source.owner)
+    fields = []
+    for field in sorted(entry.fields, key=lambda f: f.ordinal):
+        tag = _type_name(ports[field.ordinal])
+        domain = field.representation["domain"]
+        if tag is None or type(field.representation["nullable"]) is not bool:
+            raise ValueError("BINDING_ARTIFACT")
+        fields.append(
+            DuckDBSourceField(
+                field.column,
+                tag,
+                field.representation["nullable"],
+                (int(domain["min"]), int(domain["max"])) if tag == "Int" else None,
+                domain["max_characters"] if tag == "Text" else None,
+            )
+        )
+    return DuckDBExecutionFacts(
+        entry.name,
+        artifact.sql.decode("utf-8"),
+        tuple(fields),
+        tuple((column.label, column.field) for column in artifact.ast.columns),
+        template.facts()[7],
+    )

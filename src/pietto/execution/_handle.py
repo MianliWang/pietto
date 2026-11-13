@@ -10,7 +10,9 @@ import weakref
 
 from pietto._project import project_execution as ex
 from pietto._project import project_public_execution as composition
+from pietto.execution import _duckdb as duckdb_route
 from pietto.execution._access import (
+    DuckDBArrowInput,
     ExecutionLimits,
     MySQLAccess,
     MySQLDeploymentPremise,
@@ -39,7 +41,7 @@ __all__ = [
     "execute",
 ]
 
-ROUTES = ("postgres_rows", "postgres_adbc", "mysql_rows")
+ROUTES = ("postgres_rows", "postgres_adbc", "mysql_rows", "duckdb_arrow")
 
 
 @dataclass(frozen=True, slots=True)
@@ -274,7 +276,12 @@ class ResultHandle:
     def __arrow_c_schema__(self):
         """The Arrow schema of this attempt's batches, without I/O."""
         try:
-            return composition.result_schema(self._owner).__arrow_c_schema__()
+            schema = (
+                self._owner.schema()
+                if type(self._owner) is duckdb_route.DuckDBAttempt
+                else composition.result_schema(self._owner)
+            )
+            return schema.__arrow_c_schema__()
         except Exception as caught:
             refusal = schema_failure(caught)
         raise HandleMisuse(refusal, attempt=self._owner.attempt)
@@ -392,12 +399,21 @@ def _refuse(code, detail):
     return RequestRejected(failure(code, detail))
 
 
+def _handle(owner, route):
+    handle = object.__new__(ResultHandle)
+    handle._owner = owner
+    handle._route = route
+    handle._finalizer = None
+    handle._recorded = None
+    return handle
+
+
 def execute(
     query: CompiledQuery,
     *,
     route: str,
-    access: PostgresAccess | MySQLAccess,
-    premise: PostgresDeploymentPremise | MySQLDeploymentPremise,
+    access: PostgresAccess | MySQLAccess | DuckDBArrowInput,
+    premise: PostgresDeploymentPremise | MySQLDeploymentPremise | None,
     limits: ExecutionLimits = ExecutionLimits(),
     isolation: str = "stable",
     values: tuple | None = None,
@@ -406,8 +422,9 @@ def execute(
     """Prepare one attempt of ``query`` and return its unopened ResultHandle.
 
     ``route``, ``access`` and ``premise`` have no default; ``None`` is refused
-    (PIE-R1001). ``route`` must fit the query's selected dialect. ``isolation``
-    is ``stable`` (REPEATABLE READ READ ONLY)
+    (PIE-R1001), except that ``premise`` is None on ``duckdb_arrow``.
+    ``route`` must fit the query's selected dialect. ``isolation`` is
+    ``stable`` (REPEATABLE READ READ ONLY on the PostgreSQL and MySQL routes)
     or ``serializable``. ``values`` is None, which binds the values the query
     was compiled with, or a tuple with exactly one value of its slot's exact
     type for each of ``query.slots``; nothing is converted. ``parameters``
@@ -422,11 +439,28 @@ def execute(
     tuple and ``parameters`` is None or a dict with string keys
     (PIE-R1002); then the query is bound afresh to the values and
     parameters (PIE-R1006, PIE-R1004) and the installed code identity is
-    read again (PIE-R1005); then a result wider than one batch is refused
-    (PIE-R1004 LIMIT); then the values of premise, access, isolation
-    (its type included) and limits, in that order. The first failure is
-    raised as RequestRejected. The driver and environment are checked when
-    the attempt opens. Each call is a new attempt.
+    read again (PIE-R1005); then, on the PostgreSQL and MySQL routes, a
+    result wider than one batch is refused (PIE-R1004 LIMIT), then the
+    values of premise, access, isolation (its type included) and limits, in
+    that order. The first failure is raised as RequestRejected. The driver
+    and environment are checked when the attempt opens. Each call is a new
+    attempt.
+
+    On ``route="duckdb_arrow"`` (a ``duckdb`` query), ``access`` is a
+    DuckDBArrowInput and ``premise`` is None (another value is PIE-R1002),
+    since the route takes no deployment premise, and ``isolation`` is
+    exactly ``stable``, the owned capture snapshot. After the binding and
+    code identity checks (PIE-R1006, PIE-R1004, PIE-R1005), these checks
+    take the place of the premise, access, isolation and limits values, in
+    this order: the input's name is a non-empty string and its table a
+    ``pyarrow.Table`` already loaded, the name equals the contract's
+    ``relation.name``, then isolation and limits; then the loaded PyArrow
+    is the pinned distribution (PIE-R2001 when it is not installed,
+    otherwise PIE-R2002, raised here as RequestRejected), and the table's
+    selected columns are admitted and copied (PIE-R1002 details
+    ``DUCKDB_ARROW_*``). The handle
+    is returned only after that copy exists. The pinned duckdb and the
+    session are checked when the attempt opens.
     """
     if query is None:
         raise _refuse("PIE-R1001", "PUBLIC_QUERY_REQUIRED")
@@ -440,41 +474,67 @@ def execute(
         "postgres_rows": "postgres",
         "postgres_adbc": "postgres",
         "mysql_rows": "mysql",
+        "duckdb_arrow": "duckdb",
     }.get(route)
     if dialect is None or query.dialect != dialect:
         raise _refuse("PIE-R1003", "PUBLIC_ROUTE_UNAVAILABLE")
     if access is None:
         raise _refuse("PIE-R1001", "PUBLIC_ACCESS_REQUIRED")
-    access_type = PostgresAccess if route.startswith("postgres_") else MySQLAccess
-    premise_type = (
-        PostgresDeploymentPremise
-        if route.startswith("postgres_")
-        else MySQLDeploymentPremise
-    )
-    if type(access) is not access_type:
-        raise _refuse("PIE-R1002", "PUBLIC_ACCESS_TYPE")
-    if premise is None:
-        raise _refuse("PIE-R1001", "PUBLIC_PREMISE_REQUIRED")
-    if type(premise) is not premise_type:
-        raise _refuse("PIE-R1002", "PUBLIC_PREMISE_TYPE")
+    if route == "duckdb_arrow":
+        # D79.03: the route's one input, and no deployment premise.
+        if type(access) is not DuckDBArrowInput:
+            raise _refuse("PIE-R1002", "PUBLIC_ACCESS_TYPE")
+        if premise is not None:
+            raise _refuse("PIE-R1002", "PUBLIC_PREMISE_TYPE")
+    else:
+        access_type = PostgresAccess if route.startswith("postgres_") else MySQLAccess
+        premise_type = (
+            PostgresDeploymentPremise
+            if route.startswith("postgres_")
+            else MySQLDeploymentPremise
+        )
+        if type(access) is not access_type:
+            raise _refuse("PIE-R1002", "PUBLIC_ACCESS_TYPE")
+        if premise is None:
+            raise _refuse("PIE-R1001", "PUBLIC_PREMISE_REQUIRED")
+        if type(premise) is not premise_type:
+            raise _refuse("PIE-R1002", "PUBLIC_PREMISE_TYPE")
     if limits is None:
         raise _refuse("PIE-R1001", "PUBLIC_LIMITS_REQUIRED")
     if type(limits) is not ExecutionLimits:
         raise _refuse("PIE-R1002", "PUBLIC_LIMITS_TYPE")
     if isolation is None:
         raise _refuse("PIE-R1001", "PUBLIC_ISOLATION_REQUIRED")
-    access = cast(Any, access)
-    premise = cast(Any, premise)
+    request_access: Any = access
+    request_premise: Any = premise
     if values is not None and type(values) is not tuple:
         raise _refuse("PIE-R1002", "PUBLIC_VALUES_TYPE")
     if parameters is not None and (
         type(parameters) is not dict or any(type(k) is not str for k in parameters)
     ):
         raise _refuse("PIE-R1002", "PUBLIC_PARAMETERS_TYPE")
+    if route == "duckdb_arrow":
+        owner, refusal = duckdb_route.prepare(
+            query._template,
+            access,
+            limits=ex.ExecutionLimits(
+                limits.batch_rows,
+                limits.batch_bytes,
+                limits.max_rows,
+                limits.max_bytes,
+                limits.seconds,
+            ),
+            isolation=isolation,
+            values=values,
+            parameters=parameters,
+        )
+        if refusal is not None:
+            raise RequestRejected(refusal)
+        return _handle(owner, route)
     if (
         route == "mysql_rows"
-        and type(access.host) is str
-        and (access.host.startswith(("/", "@")) or "," in access.host)
+        and type(request_access.host) is str
+        and (request_access.host.startswith(("/", "@")) or "," in request_access.host)
     ):
         raise _refuse("PIE-R1002", "EXECUTION_ACCESS_PROFILE")
     try:
@@ -499,7 +559,7 @@ def execute(
                     postgres_access.ca_file,
                 ),
                 route=route,
-                schemas=premise.schemas,
+                schemas=request_premise.schemas,
                 limits=private_limits,
                 isolation=isolation,
                 values=values,
@@ -518,7 +578,7 @@ def execute(
                     postgres_access.sslmode,
                     postgres_access.ca_file,
                 ),
-                schemas=premise.schemas,
+                schemas=request_premise.schemas,
                 limits=private_limits,
                 isolation=isolation,
                 values=values,
@@ -540,7 +600,7 @@ def execute(
                     verify_identity=True,
                     loopback_tls_exception=False,
                 ),
-                schemas=premise.schemas,
+                schemas=request_premise.schemas,
                 limits=private_limits,
                 isolation=isolation,
                 values=values,
@@ -549,10 +609,5 @@ def execute(
     except Exception as caught:
         refusal = request_failure(caught, preparing=True)
     else:
-        handle = object.__new__(ResultHandle)
-        handle._owner = owner
-        handle._route = route
-        handle._finalizer = None
-        handle._recorded = None
-        return handle
+        return _handle(owner, route)
     raise RequestRejected(refusal)
