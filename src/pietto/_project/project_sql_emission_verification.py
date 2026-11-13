@@ -6146,7 +6146,12 @@ def verify_row_query(request, query, *, _guarded=None):
             or (type(query) is SQLJoinQuery)
             != bool(plan.joins or plan.set_bodies or plan.values_bodies)
             or (
-                joining.admitted_join_shape(plan, request.family)
+                joining.admitted_join_shape(
+                    plan,
+                    request.family,
+                    # This reader's own S14 pairing check.
+                    paired=pairing.project_form(request) is not None,
+                )
                 if joined
                 else admitted_row_shape(plan)
             )

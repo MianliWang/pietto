@@ -5535,11 +5535,12 @@ def test_postgres_string_agg_orders_by_a_float_key(tmp_path):
     assert emit_compiled(loaded, ()).rendered.sql == outcome.artifact.rendered.sql
 
 
-# Phase77 Wave A (S16, S10, S08, S11): a MySQL project emits a lag/lead Text
-# literal default, a conditional count and tests of a group, count, min and max
-# over a window, or a distinct-tuple count only in a statement that is one of
-# its slice's paired qualification-pack forms with only its names changed;
-# everything else keeps its 0.1.11 output.
+# Phase77 Wave A (S16, S10, S08, S11, S14): a MySQL project emits a lag/lead
+# Text literal default, a conditional count and tests of a group, count, min and
+# max over a window, a distinct-tuple count, or a conditional beside a JOIN and
+# a scalar call in an aggregate argument over JOIN rows only in a statement
+# that is one of its slice's paired qualification-pack forms with only its
+# names changed; everything else keeps its 0.1.11 output.
 _LONG = {key: (value + "_" * 63)[:63] for key, value in paired_forms.NAMES.items()}
 _LONG_COLUMNS = tuple(f"c{i}" + "_" * 61 for i in range(8))
 _S10_KEPT = [
@@ -5550,6 +5551,12 @@ _S10_KEPT = [
 
 
 _S11_KEPT = ("PIE-B1003", "count_distinct_tuple_not_admitted_on_target")
+_S14_SHAPE = ("PIE-B1003", "join_shape_not_admitted_in_slice7")
+# A conditional beside a JOIN, then a scalar call in an aggregate argument.
+_S14_KEPT = (
+    [("PIE-B1003", "scalar_projection_requires_later_slice")] * 2 + [_S14_SHAPE],
+    [("PIE-B1003", "operator_not_implemented_in_slice6"), _S14_SHAPE],
+)
 
 
 def _kept(form):
@@ -5559,7 +5566,13 @@ def _kept(form):
         return [("PIE-B1003", "window_aggregate_approved_non_support_on_mysql")]
     if form in paired_forms.S11:
         return [_S11_KEPT] * paired_forms.FORMS[form][1].count("count_distinct(")
+    if form in paired_forms.S14:
+        return _S14_KEPT["group by" in paired_forms.FORMS[form][1]]
     return _S10_KEPT
+
+
+def _policy(form):
+    return "bind-safe" if form in paired_forms.BIND_SAFE else "preserve"
 
 
 def _kind(form):
@@ -5581,7 +5594,7 @@ def _paired_compile(directory, *, name="q16", policy="preserve", kind="query"):
     )
 
 
-def _paired_query(directory, name="q16", kind="query"):
+def _paired_query(directory, name="q16", kind="query", policy="preserve"):
     from pietto.execution import compile_query
 
     return compile_query(
@@ -5591,6 +5604,7 @@ def _paired_query(directory, name="q16", kind="query"):
         name=name,
         dialect="mysql",
         emission_contract="contract.json",
+        literal_policy=policy,
     )
 
 
@@ -5612,12 +5626,12 @@ def test_mysql_emits_the_paired_forms(tmp_path, form, width):
     and source are equal ignoring case) and with others."""
     from pietto.execution import export_bundle, load_bundle
 
-    kind = _kind(form)
+    kind, policy = _kind(form), _policy(form)
     text = pairing.project_text(
         "main.pietto",
         paired_forms.pack(form),
         json.dumps(paired_forms.contract(form)),
-        ("result", kind),
+        ("result", kind) + ("bind_safe_literals",) * (policy == "bind-safe"),
         pairing._Names(),
         _fixed(form),
     )
@@ -5646,11 +5660,11 @@ def test_mysql_emits_the_paired_forms(tmp_path, form, width):
         # As `pietto fmt` writes it: an empty line between declarations.
         main = directory / "main.pietto"
         text = main.read_text(encoding="utf-8")
-        for word in ("source", "query", "table"):
+        for word in ("source", "query", "table", "def"):
             text = text.replace(f"\n{word} ", f"\n\n{word} ")
         # A carriage return unpairs a file, so Windows must not write one.
         main.write_text(text, encoding="utf-8", newline="\n")
-    result = _paired_compile(directory, name=names["result"], kind=kind)
+    result = _paired_compile(directory, name=names["result"], kind=kind, policy=policy)
     assert result.status == "VERIFIED", result.document
     document = json.loads(result.document)
     sql = document["sql"]
@@ -5672,7 +5686,7 @@ def test_mysql_emits_the_paired_forms(tmp_path, form, width):
         for logical in paired_forms.LOGICAL[form]
     ]
     assert _sha(pairing.sql_text(sql.encode())) == pairing.FORMS[form][1]
-    bundle = export_bundle(_paired_query(directory, names["result"], kind))
+    bundle = export_bundle(_paired_query(directory, names["result"], kind, policy))
     records = {r.address: r for r in compiled_schema.decode(bundle.payload).records}
     assert (
         _sha(pairing.compiled_text(records, pairing._Names())),
@@ -5735,6 +5749,12 @@ _S08_WORDS = (
         *((1, "previous", word) for word in ("count_distinct", "join", "let")),
         *((3, "n", word) for word in ("left", "inner")),
         (3, "value", "on"),
+        *((1, "previous", word) for word in ("count", "lower", "len", "where")),
+        (17, "d", "trim"),
+        *((28, "b", word) for word in ("lag", "any", "order", "partition")),
+        (30, "n", "sum"),
+        (30, "lhs", "lead"),
+        (6, "w", "lower"),
     ),
 )
 def test_mysql_forms_take_another_slice_keywords_as_names(tmp_path, form, key, word):
@@ -6176,6 +6196,105 @@ _UNPAIRED.update(
 )
 
 
+_S14_ON = "on left_side.k == rt.k"
+_S14_E3_ITEMS = (
+    "        cnt = count(lower(rt.tag))\n",
+    "        day = count_distinct(trim(rt.tag))\n",
+)
+_UNPAIRED.update(
+    {
+        "s14_other_bound": (28, lambda t: _swap(t, "v <= 3", "v <= 4"), None),
+        "s14_other_result": (28, lambda t: _swap(t, "else 2", "else 5"), None),
+        "s14_other_compared": (
+            28,
+            lambda t: _swap(t, "tier(k) == 2", "tier(k) == 1"),
+            None,
+        ),
+        "s14_written_out": (
+            28,
+            lambda t: _swap(t, "tier(k) == 2", "(1 if k <= 3 else 2) == 2"),
+            None,
+        ),
+        "s14_parameter_named_as_field": (
+            28,
+            lambda t: _swap(
+                t,
+                "tier(v: Int) -> Int: return 1 if v",
+                "tier(k: Int) -> Int: return 1 if k",
+            ),
+            None,
+        ),
+        "s14_def_dropped": (
+            30,
+            lambda t: _swap(t, t[t.index("def tier") : t.index("query q16")], ""),
+            None,
+        ),
+        "s14_inner_join": (28, lambda t: _swap(t, "left join", "inner join"), None),
+        "s14_left_join": (29, lambda t: _swap(t, "inner join", "left join"), None),
+        "s14_swapped_on": (
+            28,
+            lambda t: _swap(t, _S14_ON, "on rt.k == left_side.k"),
+            None,
+        ),
+        "s14_join_without_let": (
+            28,
+            lambda t: _swap(
+                _swap(
+                    _swap(t, "    let rt = picked\n", ""),
+                    "join rt on",
+                    "join picked on",
+                ),
+                "rt.",
+                "picked.",
+            ),
+            None,
+        ),
+        "s14_pred_selects_more": (
+            28,
+            lambda t: _swap(
+                t, "        tag\nquery", "        tag\n        bucket\nquery"
+            ),
+            None,
+        ),
+        "s14_other_call": (
+            30,
+            lambda t: _swap(t, "count(lower(rt.tag))", "count(trim(rt.tag))"),
+            None,
+        ),
+        "s14_dropped_item": (30, lambda t: _swap(t, _S14_E3_ITEMS[1], ""), None),
+        "s14_extra_item": (
+            31,
+            lambda t: t + "        again = count(lower(rt.tag))\n",
+            None,
+        ),
+        "s14_reordered_items": (
+            30,
+            lambda t: _swap(
+                t, "".join(_S14_E3_ITEMS), "".join(reversed(_S14_E3_ITEMS))
+            ),
+            None,
+        ),
+        "s14_case_twin_labels": (
+            28,
+            lambda t: _swap(t, "some_tag =", "EVERY_F ="),
+            None,
+        ),
+        "s14_kelvin_column": (30, lambda t: t, {"contract": ("column", "c_\u212a")}),
+        "s14_preserve": (31, lambda t: t, {"policy": "preserve"}),
+        "s14_bind_safe": (28, lambda t: t, {"policy": "bind-safe"}),
+        "s14_no_protocol": (31, lambda t: t, {"contract": ("protocol", None)}),
+        "s14_protocol": (30, lambda t: t, {"contract": ("premise", None)}),
+        "s14_extra_query": (
+            29,
+            lambda t: (
+                t + "\nquery other:\n    from left_side\n    select:\n        k\n"
+            ),
+            None,
+        ),
+    }
+)
+
+
 @pytest.mark.parametrize("case", sorted(_UNPAIRED))
 def test_mysql_unpaired_statements_keep_the_main_output(tmp_path, case):
     """Every other statement reports its whole output from before Wave A."""
@@ -6205,6 +6324,8 @@ def test_mysql_unpaired_statements_keep_the_main_output(tmp_path, case):
             contract["sources"][1]["relation"]["namespace"] = value
         elif change == "sources":
             contract["sources"].reverse()
+        elif change == "protocol":
+            assert contract["environment"].pop()["key"] == "parameter_protocol"
         elif change == "premise":
             contract["environment"].append(
                 {
@@ -6216,7 +6337,7 @@ def test_mysql_unpaired_statements_keep_the_main_output(tmp_path, case):
         else:
             contract["environment"].reverse()
         (directory / "contract.json").write_text(json.dumps(contract))
-    arguments = {"kind": _kind(form)}
+    arguments = {"kind": _kind(form), "policy": _policy(form)}
     arguments.update((k, v) for k, v in options.items() if k in {"kind", "policy"})
     result = _paired_compile(directory, **arguments)
     with pairing.closed():
@@ -6250,7 +6371,7 @@ def test_mysql_s11_variant_that_is_another_form_emits_it(tmp_path, form, edit, o
     assert json.loads(result.document)["sql"] == json.loads(expected.document)["sql"]
 
 
-@pytest.mark.parametrize("form", (1, 3, 7, 17, 25))
+@pytest.mark.parametrize("form", (1, 3, 7, 17, 25, 28, 30, 31))
 def test_mysql_paired_statement_without_its_sql_keeps_the_main_output(
     tmp_path, monkeypatch, form
 ):
@@ -6262,24 +6383,24 @@ def test_mysql_paired_statement_without_its_sql_keeps_the_main_output(
         EmissionVerification,
     )
 
-    kind = _kind(form)
+    arguments = {"kind": _kind(form), "policy": _policy(form)}
     directory = paired_forms.project(tmp_path / "p", form)
     with pairing.closed():
-        before = _paired_compile(directory, kind=kind).document
+        before = _paired_compile(directory, **arguments).document
     assert [
         (b["code"], b["subject"]["detail"]) for b in json.loads(before)["blockers"]
     ] == _kept(form)
     with monkeypatch.context() as patch:
         patch.setattr(pairing, "sql_form", lambda sql: None)
-        assert _paired_compile(directory, kind=kind).document == before
+        assert _paired_compile(directory, **arguments).document == before
     with monkeypatch.context() as patch:
         patch.setattr(
             emitting,
             "verify_project_sql_emission",
             lambda artifact, request: EmissionVerification(("forced",)),
         )
-        assert _paired_compile(directory, kind=kind).document == before
-    assert _paired_compile(directory, kind=kind).status == "VERIFIED"
+        assert _paired_compile(directory, **arguments).document == before
+    assert _paired_compile(directory, **arguments).status == "VERIFIED"
 
 
 @pytest.mark.parametrize(
@@ -6387,6 +6508,175 @@ def test_mysql_each_compiled_aggregate_check_pairs_the_bundle_itself(
     assert calls
 
 
+@pytest.mark.parametrize("form", (28, 30, 31))
+@pytest.mark.parametrize(
+    "filename,function",
+    (
+        ("project_sql_emission_ast.py", "_emission_blockers"),
+        ("project_sql_emission_verification.py", "verify_row_query"),
+    ),
+)
+def test_mysql_each_live_join_shape_check_pairs_the_statement_itself(
+    tmp_path, monkeypatch, form, filename, function
+):
+    """Emission's and the live verifier's JOIN shape checks each read the S14
+    pairing themselves: when one alone finds no form, the statement keeps
+    main's output."""
+    directory = paired_forms.project(tmp_path / "p", form)
+    arguments = {"kind": _kind(form), "policy": _policy(form)}
+    with pairing.closed():
+        before = _paired_compile(directory, **arguments).document
+    calls = _not_from(monkeypatch, "project_form", filename, function)
+    assert _paired_compile(directory, **arguments).document == before
+    assert calls
+
+
+# The compiled replay's S14 law: a conditional beside a JOIN, then a scalar
+# call in an aggregate argument over JOIN rows.
+_S14_LAW = {
+    28: "COMPILED_OPERATOR",
+    30: "COMPILED_AGGREGATE_ARGUMENT",
+    31: "COMPILED_OPERATOR",
+}
+
+
+@pytest.mark.parametrize("form", sorted(_S14_LAW))
+def test_mysql_compiled_s14_law_pairs_the_bundle_itself(tmp_path, monkeypatch, form):
+    """The replay refuses a MySQL conditional beside a JOIN and a scalar call
+    in an aggregate argument over JOIN rows, which main's replay took, unless
+    its own reading of the records finds an S14 form."""
+    from pietto.execution import export_bundle
+
+    directory = paired_forms.project(tmp_path / "p", form)
+    bundle = export_bundle(
+        _paired_query(directory, kind=_kind(form), policy=_policy(form))
+    )
+    calls = _not_from(
+        monkeypatch,
+        "compiled_form",
+        "project_completed_semantics.py",
+        "derive_compiled_semantics",
+    )
+    assert _load_refusal(bundle, bundle.payload) == ("PIE-R1004", _S14_LAW[form])
+    assert calls
+
+
+# MySQL statements main emits: a def that inlines to a conditional at the
+# JOIN query's own SELECT item, and with no JOIN a conditional and a scalar
+# call in an aggregate argument.
+_S14_MAIN = {
+    "joined_select": "query q16:\n    from left_side\n    let rt = right_side\n"
+    "    left join rt on left_side.k == rt.k\n"
+    "    select:\n        every_f = left_side.k\n        some_tag = tier(left_side.k)\n",
+    "no_join_conditional": "query q16:\n    from right_side\n    where tier(k) == 2\n"
+    "    select:\n        k\n",
+    "no_join_call": "query q16:\n    from right_side\n    group by k\n"
+    "    select:\n        every_f = k\n        cnt = count(lower(tag))\n",
+}
+
+
+@pytest.mark.parametrize("case", sorted(_S14_MAIN))
+def test_mysql_compiled_s14_law_keeps_what_main_emits(tmp_path, case):
+    """The law reads only the S14 positions: what main emits on MySQL still
+    replays."""
+    from pietto.execution import export_bundle, load_bundle
+
+    directory = paired_forms.project(tmp_path / "p", 28)
+    main = directory / "main.pietto"
+    text = main.read_text(encoding="utf-8")
+    main.write_text(text[: text.index("query picked:")] + _S14_MAIN[case])
+    result = _paired_compile(directory)
+    assert result.status == "VERIFIED", result.document
+    bundle = export_bundle(_paired_query(directory))
+    loaded = load_bundle(
+        bundle.payload,
+        expected_pin=bundle.pin,
+        accepted_producer=bundle.producer,
+        accepted_compatibility=bundle.compatibility,
+    )
+    sql = json.loads(result.document)["sql"]
+    assert loaded._template.artifact.rendered.sql.decode() == sql
+
+
+def test_mysql_compiled_s14_law_reads_the_executed_statement_only(tmp_path):
+    """The law judges the records the statement executes: the same conditional
+    outside them, as a retained relation's would be, is not its concern."""
+    from pietto.execution import export_bundle
+    from pietto._project import project_sql_emission_joins as joining
+    from pietto._project.project_compiled_schema import selected_records
+
+    bundle = export_bundle(_paired_query(paired_forms.project(tmp_path / "p", 28)))
+    description = compiled_schema.decode(bundle.payload)
+    records = {r.address: r for r in description.records}
+    executable = selected_records(records, records[description.query])
+    assert joining.compiled_sited_problem(records, executable) == "COMPILED_OPERATOR"
+    joined = {records[a].get("owner") for a in executable if a.kind == "join"}
+    rows = {a for a in executable if a.kind == "row"}
+    beside = {a for a in rows if records[a].get("owner") not in joined}
+    assert beside and beside != rows
+    assert joining.compiled_sited_problem(records, executable - beside) is None
+
+
+_S14_JOINED = (
+    "query result:\n    from lhs\n    let r = pred\n"
+    "    left join r on lhs.id == r.id\n"
+    "    select:\n        a = lhs.id\n        b = r.b\n"
+)
+# PostgreSQL statements at each S14 position, by where the conditional or
+# call sits: a SELECT item, not only a WHERE, and below an operator.
+_S14_POSITIONS = {
+    "select_of_the_joined_query": (
+        "query pred:\n    from rhs\n    select:\n        id\n        b = band(id)\n"
+        + _S14_JOINED,
+        "COMPILED_OPERATOR",
+    ),
+    "select_of_a_query_reading_joined_rows": (
+        "query joined:\n    from lhs\n    let r = rhs\n"
+        "    inner join r on lhs.id == r.id\n"
+        "    select:\n        a = lhs.id\n        label = r.label\n"
+        "query result:\n    from joined\n    select:\n        a\n        b = band(a)\n",
+        "COMPILED_OPERATOR",
+    ),
+    "select_of_a_capturing_let_read_lateral": (
+        "query result:\n    let m:\n        capture lhs\n        from rhs\n"
+        "        where rhs.key == lhs.key\n"
+        "        select:\n            id\n            b = band(rhs.id)\n"
+        "    from lhs\n    let m1 = m\n    left join m1 on True\n"
+        "    select:\n        a = lhs.id\n        b = m1.b\n",
+        "COMPILED_OPERATOR",
+    ),
+    "a_call_below_an_operator_in_an_aggregate_argument": (
+        "query result:\n    from lhs\n    let r = rhs\n"
+        "    left join r on lhs.id == r.id\n    group by lhs.id\n"
+        "    select:\n        a = lhs.id\n        n = count(len(r.label) + 1)\n",
+        "COMPILED_AGGREGATE_ARGUMENT",
+    ),
+    "a_comparison": (
+        "query pred:\n    from rhs\n    select:\n        id\n        b = id >= 2\n"
+        + _S14_JOINED,
+        None,
+    ),
+}
+
+
+@pytest.mark.parametrize("case", sorted(_S14_POSITIONS))
+def test_mysql_compiled_s14_law_reads_every_position(tmp_path, case):
+    """The law finds a conditional in any row value of a definition beside
+    the JOIN and a scalar call anywhere in an aggregate argument, as the
+    records PostgreSQL emits there hold them; a comparison is no concern."""
+    from pietto._project import project_sql_emission_joins as joining
+    from pietto._project.project_compiled_schema import selected_records
+
+    body, expected = _S14_POSITIONS[case]
+    item = emission.labelled_join_witness("postgres", body)
+    _, outcome = emission.build_case(tmp_path, item["source"], item["contract"])
+    assert outcome.artifact is not None, outcome.blockers
+    description = compiled_schema.decode(build_compiled(outcome.artifact).payload)
+    records = {r.address: r for r in description.records}
+    executable = selected_records(records, records[description.query])
+    assert joining.compiled_sited_problem(records, executable) == expected
+
+
 # The place of the requirement origin of form 3's and form 7's `mysql.table`
 # literal.
 _S10_ORIGIN = '["main.pietto",10,35,10,46]'
@@ -6452,13 +6742,20 @@ def _load_refusal(bundle, payload):
         (25, "c_body", "c_\u212a", False),
         (25, "c_body", "c2", True),
         (25, _ENCODING, _SURROGATE, False),
+        (28, '["Int","3"]', '["Int","4"]', False),
+        (28, "c_body", "c_\u212a", False),
+        (28, "c_body", "c2", True),
+        (30, '"lower"', '"upper"', False),
+        (30, "c_body", "c_\u212a", False),
+        (30, "c_body", "c2", True),
     ),
 )
 def test_mysql_forged_paired_bundles_are_refused(tmp_path, form, old, new, paired):
     """Each keeps main's refusal of a MySQL Text default, conditional count,
-    test of a group, aggregate window or distinct-tuple count bundle, also one
-    whose records are a form's but whose SQL is not or that another check
-    refuses."""
+    test of a group, aggregate window or distinct-tuple count bundle, or the
+    S14 law's of a conditional beside a JOIN or a call in an aggregate argument
+    over JOIN rows, also of one whose records are a form's but whose SQL is
+    not or that another check refuses."""
     directory = paired_forms.project(tmp_path / "p", form)
     bundle, payload = _paired_payload(directory, form, old, new)
     records = {r.address: r for r in compiled_schema.decode(payload).records}
@@ -6472,7 +6769,7 @@ def test_mysql_forged_paired_bundles_are_refused(tmp_path, form, old, new, paire
         if form in paired_forms.S08
         else ("PIE-R1008", "COMPILED_REQUIREMENT_LOCATION")
         if old == _S10_ORIGIN
-        else ("PIE-R1004", "COMPILED_AGGREGATE_ARGUMENT")
+        else ("PIE-R1004", _S14_LAW.get(form, "COMPILED_AGGREGATE_ARGUMENT"))
     )
 
 
@@ -6556,6 +6853,15 @@ def test_pure_reads_a_mysql_lag_default_by_its_position(tmp_path):
         pure.Status.INVALID_RELATION,
         "window structural argument roles",
     )
+
+
+@pytest.mark.parametrize("form", (28, 29, 30))
+def test_pure_reads_paired_s14_documents_as_before(tmp_path, form):
+    """The pure reader judges an S14 document by its own laws, as before:
+    none of them reads a conditional beside a JOIN or a call in an aggregate
+    argument over JOIN rows, so it takes the paired forms' documents."""
+    observed = pure.parse_emission_observation(_pure_document(tmp_path, form))
+    assert observed.status is pure.Status.OK
 
 
 @pytest.mark.parametrize("form", (*paired_forms.S10, *paired_forms.S11))

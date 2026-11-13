@@ -650,7 +650,9 @@ every table, query or `let` that has no JOIN of its own: one the JOIN reads
 (a query whose WHERE calls a def that inlines to a conditional, a capturing
 `let` read LATERAL) and one that reads the JOIN's rows. MySQL keeps such a
 statement BLOCKED (`scalar_projection_requires_later_slice`,
-`operator_not_implemented_in_slice6`, `join_shape_not_admitted_in_slice7`).
+`operator_not_implemented_in_slice6`, `join_shape_not_admitted_in_slice7`),
+except in a statement that is one of four paired forms with only its names
+changed ([unreleased](release-notes.d/77-s14-mysql-joined-expressions.md)).
 Other JOIN expression sites (a joined `let`, WHERE or ON) and JOIN kinds
 retain their existing limits. Timestamp UNION ALL/DISTINCT uses the
 existing exact civil-microsecond carrier; Timestamp INTERSECT/EXCEPT and other
@@ -987,11 +989,12 @@ aggregate argument that holds a scalar call such as `lower`, `trim` or `len`
 `count(t)` stays BLOCKED with `operator_not_implemented_in_slice6` and
 `join_shape_not_admitted_in_slice7`: a joined `let` admits such a call only
 directly in a SELECT item. MySQL keeps the aggregate argument BLOCKED too,
-with the same two details. MySQL emits the same
-`count`, `count_distinct`, `min` and `max` forms, with a non-null `my_bigint`
-count and the argument's own nullable carrier for an extreme, and the same row
-expression arguments (`count(lower(label))`), except that it keeps BLOCKED
-`count_distinct` of a `Float`
+with the same two details, outside two paired forms
+([unreleased](release-notes.d/77-s14-mysql-joined-expressions.md)). MySQL
+emits the same `count`, `count_distinct`, `min` and `max` forms, with a
+non-null `my_bigint` count and the argument's own nullable carrier for an
+extreme, and the same row expression arguments (`count(lower(label))`),
+except that it keeps BLOCKED `count_distinct` of a `Float`
 (`count_distinct_argument_outside_reviewed_int_domain`: MySQL kept `-0.0` and
 `0.0` apart in deduplication beside a wide key), `sum`, `avg` and, outside
 the one shape below, `stddev` of a `Float`

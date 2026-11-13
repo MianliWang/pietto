@@ -137,19 +137,20 @@ SITED = {
 }
 
 
-def sited_admitted(expression, family) -> bool:
+def sited_admitted(expression, family, paired=False) -> bool:
     """A JOIN plan renders these forms at a joined SELECT item. PostgreSQL also
     renders them, by the single-input rules, in a definition with no JOIN of
     its own (one the JOIN reads, or one that reads its rows), and a call inside
-    an aggregate argument; joined LET, WHERE and ON sites keep their limits,
-    and MySQL keeps all of them until its own differential."""
+    an aggregate argument; joined LET, WHERE and ON sites keep their limits.
+    MySQL keeps all of them, except as PostgreSQL in a statement its reader
+    pairs with an S14 form (``paired``, `project_sql_emission_paired`)."""
     site = expression.site
     if type(site) is row.ProjectSQLJoinedSite:
         return (
             type(expression) in SITED
             and site.role is row.ProjectSQLExpressionRole.SELECT
         )
-    if family != "postgres":
+    if family != "postgres" and not paired:
         return False
     return type(expression) is plan_aggregation.ProjectSQLAggregateArgumentCall or (
         type(expression) in SITED
@@ -165,8 +166,50 @@ def sited_admitted(expression, family) -> bool:
     )
 
 
-def admitted_join_shape(plan, family) -> bool:
-    """Ordered JOIN chains over admitted inputs with the existing row tail."""
+def _holds(records, values, role) -> bool:
+    """Whether these record values, through operation operands, hold an
+    operation of ``role``."""
+    pending, seen = list(values), set()
+    while pending:
+        value = pending.pop()
+        if type(value) is tuple:
+            pending.extend(value)
+        elif getattr(value, "kind", None) == "operation" and value not in seen:
+            seen.add(value)
+            if records[value].get("operator")[0] == role:
+                return True
+            pending.extend(records[value].get("operands"))
+    return False
+
+
+def compiled_sited_problem(records, executable):
+    """`sited_admitted` for MySQL compiled records at the S14 positions: in a
+    statement with a JOIN, a conditional in a row of a definition with no
+    JOIN of its own, or a scalar call in an aggregate argument. The caller
+    opens them only in a paired S14 form; the replay's other laws stand."""
+    joined = {records[a].get("owner") for a in executable if a.kind == "join"}
+    if not joined:
+        return None
+    for record in records.values():
+        kind = record.address.kind
+        if record.address not in executable:
+            continue
+        if kind == "aggregate_value" and _holds(
+            records, record.get("arguments"), "scalar_call"
+        ):
+            return "COMPILED_AGGREGATE_ARGUMENT"
+        if (
+            kind == "row"
+            and record.get("owner") not in joined
+            and _holds(records, record.values, "conditional")
+        ):
+            return "COMPILED_OPERATOR"
+    return None
+
+
+def admitted_join_shape(plan, family, *, paired=False) -> bool:
+    """Ordered JOIN chains over admitted inputs with the existing row tail;
+    ``paired`` as for `sited_admitted`."""
     if not plan.joins or not resulting.boundaries_admitted(plan):
         return False
     if not setting.bodies_admitted(plan):
@@ -195,7 +238,7 @@ def admitted_join_shape(plan, family) -> bool:
             grouping.ProjectSQLResultReference,
             plan_windows.ProjectSQLWindowReference,
         }
-        and not sited_admitted(expression, family)
+        and not sited_admitted(expression, family, paired)
         for expression in plan.expressions
     ):
         return False

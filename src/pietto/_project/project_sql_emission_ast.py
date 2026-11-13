@@ -27,6 +27,7 @@ from pietto._project import project_sql_emission_nested as collecting
 from pietto._project import project_sql_emission_unnest as unnesting
 from pietto._project import project_sql_emission_sets as setting
 from pietto._project import project_sql_emission_values as valuing
+from pietto._project import project_sql_emission_paired as pairing
 from pietto._project import project_sql_plan_windows as plan_windows
 from pietto._project.project_sql_plan_nested import ProjectSQLCollect
 from pietto._project.project_sql_emission_contract import (
@@ -633,7 +634,12 @@ def _emission_blockers(request: PreparedEmission, _guarded):
         and not refused
         and (
             admitted_row_shape(plan)
-            or joining.admitted_join_shape(plan, request.family)
+            or joining.admitted_join_shape(
+                plan,
+                request.family,
+                # This reader's own S14 pairing check.
+                paired=pairing.project_form(request) is not None,
+            )
         )
     ):
         realization = realize_rows(request)

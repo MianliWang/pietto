@@ -1,13 +1,14 @@
 """The Phase77 Wave A qualification pack's paired forms, copied verbatim.
 
-PAIRS.md 5.1, 5.4, 5.5, 5.6, 5.7 and 5.9 give the paired bodies (`{name}` is
-the selected definition's name), 4.1, 4.3, 4.5, 4.6 and 4.9 the MySQL worlds
-`agg_keys`, `rows_ntext`, `temporal`, `agg` and `rows` they read, and the
-pack's `mysql/plan.py` the MySQL contract its `compile_sql` runs with. `FORMS`
-is in the order of `project_sql_emission_paired.FORMS`: S16 P-S16-1..3, S10
-bodies A (P-S10-1, 5), B (P-S10-2) and C (P-S10-3, 4), S08 P-S08-1..7 and
-P-S08T-1..4, then S11 P-S11-1..8 and bodies D (P-S11B-1, 4), E (P-S11B-2)
-and F (P-S11B-3). `project` writes one form with only its names changed.
+PAIRS.md 5.1, 5.4, 5.5, 5.6, 5.7, 5.8 and 5.9 give the paired bodies
+(`{name}` is the selected definition's name), 4.1, 4.3, 4.5, 4.6, 4.8 and 4.9
+the MySQL worlds `agg_keys`, `rows_ntext`, `temporal`, `agg`, `join` and
+`rows` they read, and the pack's `mysql/plan.py` the MySQL contract its
+`compile_sql` runs with. `FORMS` is in the order of
+`project_sql_emission_paired.FORMS`: S16 P-S16-1..3, S10 bodies A (P-S10-1,
+5), B (P-S10-2) and C (P-S10-3, 4), S08 P-S08-1..7 and P-S08T-1..4, S11
+P-S11-1..8 and bodies D (P-S11B-1, 4), E (P-S11B-2) and F (P-S11B-3), then
+S14 P-S14-1..4. `project` writes one form with only its names changed.
 """
 
 import json
@@ -47,6 +48,16 @@ AGG_HEADER = (
     'source agg: Agg = mysql.table("aggregate.locator.not.sql")\n'
 )
 KEYS_SOURCE = 'source keys: Agg = mysql.table("keys.locator.not.sql")\n'
+JOIN_HEADER = (
+    "shape Row:\n"
+    "    id: Int\n"
+    "    key: Int | None\n"
+    "    label: Text | None\n"
+    "    row_key = unique(id)\n"
+    'source lhs: Row = mysql.table("lhs")\n'
+    'source rhs: Row = mysql.table("rhs")\n'
+    "def band(x: Int) -> Int: return 1 if x <= 3 else 2\n"
+)
 _TEXT = {
     "collation": "utf8mb4_0900_bin",
     "encoding": "utf8mb4",
@@ -104,6 +115,16 @@ WORLDS = {
         _AGG_FIELDS,
         ("phase66", ("phase66 agg é", "phase66 agg keys é")),
     ),
+    "join": (
+        JOIN_HEADER,
+        ("lhs", "rhs"),
+        (
+            ("id", "order.id", "Int", False),
+            ("key", "key value", "Int", True),
+            ("label", "label", "Text", True),
+        ),
+        ("phase66", ("phase66 lhs é", "phase66 rhs é")),
+    ),
     "rows": (
         HEADER.replace("    text: Text | None\n", "    text: Text\n"),
         ("rows",),
@@ -154,6 +175,11 @@ def _s11_join(join, members, key=None, kind="query"):
     return body + f"        d = count_distinct({members})\n"
 
 
+# PAIRS.md 5.8: P-S14-1, 2 and 4 read this query beside their own.
+_S14_PRED = (
+    "query pred:\n    from rhs\n    where band(id) == 2\n"
+    "    select:\n        id\n        label\n"
+)
 _S11_TUPLES = (
     "table {name}:\n    from agg\n    select:\n"
     "        text_flag = count_distinct(label, flag)\n"
@@ -321,11 +347,41 @@ FORMS = (
         "query {name}:\n    from agg\n    group by:\n        key\n    select:\n"
         "        k = key\n        n = count_distinct(label, flag)\n",
     ),
+    (
+        "join",
+        _S14_PRED + "query {name}:\n    from lhs\n    let r = pred\n"
+        "    left join r on lhs.id == r.id\n"
+        "    select:\n        a = lhs.id\n        b = r.label\n",
+    ),
+    (
+        "join",
+        _S14_PRED + "query {name}:\n    from pred\n    let l = lhs\n"
+        "    inner join l on l.id == pred.id\n"
+        "    select:\n        a = pred.id\n        b = l.label\n",
+    ),
+    (
+        "join",
+        "query {name}:\n    from lhs\n    let r = rhs\n"
+        "    left join r on lhs.id == r.id\n    group by lhs.id\n"
+        "    select:\n        a = lhs.id\n        n = count(lower(r.label))\n"
+        "        d = count_distinct(trim(r.label))\n        l = count(len(r.label))\n"
+        "        c = count(lower(trim(r.label)))\n",
+    ),
+    (
+        "join",
+        _S14_PRED + "query {name}:\n    from lhs\n    let r = pred\n"
+        "    left join r on lhs.id == r.id\n    group by lhs.id\n"
+        "    select:\n        a = lhs.id\n        n = count(lower(r.label))\n",
+    ),
 )
 S16 = range(3)
 S10 = range(3, 6)
 S08 = range(6, 17)
 S11 = range(17, 28)
+S14 = range(28, 32)
+# P-S14-4 runs with bind-safe literals and a contract that declares the
+# MySQL parameter protocol; every other form preserves its literals.
+BIND_SAFE = (31,)
 
 
 def _over(after, *calls):
@@ -347,6 +403,15 @@ _S10_SQL = (
 _S11_PLAIN = "COUNT(DISTINCT `t1`.`c3`, `t1`.`c13`, `t1`.`c10`) AS `c1`"
 _S11_ALIAS = "COUNT(DISTINCT `t1`.`c3`, `t1`.`c14`, `t1`.`c13`) AS `c1`"
 _S11_TEXT_FLAG = "COUNT(DISTINCT `s0`.`{label}`, `s0`.`{flag}`)"
+# The inlined `band(id) == 2` of P-S14-1, 2 and 4, preserved and bound.
+_S14_WHERE = (
+    "WHERE ((CASE WHEN (`s0`.`{id}` <= CAST(3 AS SIGNED)) THEN CAST(1 AS SIGNED)"
+    " ELSE CAST(2 AS SIGNED) END) = CAST(2 AS SIGNED))"
+)
+_S14_BOUND = (
+    "WHERE ((CASE WHEN (`s0`.`{id}` <= CAST(? AS SIGNED)) THEN CAST(? AS SIGNED)"
+    " ELSE CAST(? AS SIGNED) END) = CAST(? AS SIGNED))"
+)
 # Per form: the SQL fragments the pack's MySQL half preregisters (PAIRS.md 5.1,
 # 5.4, 5.5, 5.6, 5.7 and 5.9), `{field}` standing for the field's physical
 # column; the public nullability and the logical type of each public column
@@ -415,6 +480,16 @@ SQL = (
     ),
     ("COUNT(DISTINCT `s0`.`{key}`, `s0`.`{value}`)",),
     (_S11_TEXT_FLAG,),
+    (_S14_WHERE, " LEFT JOIN "),
+    (_S14_WHERE, " INNER JOIN "),
+    (
+        "COUNT(LOWER(",
+        "COUNT(DISTINCT TRIM(",
+        "COUNT(CAST(CHAR_LENGTH(",
+        "COUNT(LOWER(TRIM(",
+        " LEFT JOIN ",
+    ),
+    (_S14_BOUND, " LEFT JOIN ", "COUNT(LOWER("),
 )
 NULLABLE = (
     [False, True, True, True],
@@ -441,6 +516,10 @@ NULLABLE = (
     [False, False, False],
     [False],
     [True, False],
+    [False, True],
+    [False, True],
+    [False] * 5,
+    [False, False],
 )
 LOGICAL = (
     ("Int", "Text", "Text", "Text"),
@@ -465,6 +544,10 @@ LOGICAL = (
     ("Int", "Int", "Int"),
     ("Int", "Int", "Int"),
     ("Int",),
+    ("Int", "Int"),
+    ("Int", "Text"),
+    ("Int", "Text"),
+    ("Int",) * 5,
     ("Int", "Int"),
 )
 ENVIRONMENT = (
@@ -543,6 +626,14 @@ NAMES = {
     "int_text": "it",
     "all_three": "a3",
     "int_int": "ii",
+    "lhs": "left_side",
+    "rhs": "right_side",
+    "row_key": "item_key",
+    "band": "tier",
+    "x": "v",
+    "pred": "picked",
+    "l": "ll",
+    "c": "cc",
 }
 _COLUMNS = ("c_id", "c_flag", "c_body", "c_cash", "c_share", "c_f", "c_g", "c_h")
 # A name outside a string literal; a string literal and the frame keyword
@@ -572,10 +663,11 @@ def contract(form=0, physical=None, names=None):
         tables,
         tuple(field[1] for field in fields),
     )
+    protocol = (("parameter_protocol", "mysql_prepared"),) * (form in BIND_SAFE)
     return {
         "environment": [
             {"key": key, "scope": "statement", "value": value}
-            for key, value in ENVIRONMENT
+            for key, value in ENVIRONMENT + protocol
         ],
         "format": "pietto.emission-contract.v1",
         "sources": [

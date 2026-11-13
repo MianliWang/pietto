@@ -366,8 +366,9 @@ let with `capture` lines LATERAL, with or without its ORDER BY and LIMIT
 query in one of the paired forms (unreleased, Wave A
 [S16](release-notes.d/77-s16-mysql-text-window-defaults.md),
 [S10](release-notes.d/77-s10-mysql-group-tests.md),
-[S08](release-notes.d/77-s08-mysql-aggregate-windows.md) and
-[S11](release-notes.d/77-s11-mysql-count-distinct-tuple.md)) with
+[S08](release-notes.d/77-s08-mysql-aggregate-windows.md),
+[S11](release-notes.d/77-s11-mysql-count-distinct-tuple.md) and
+[S14](release-notes.d/77-s14-mysql-joined-expressions.md)) with
 `PUBLIC_R2_PAIRED_FORM`, since its refined statement is no form. These checks
 read the live query alone, so `recover` makes them in this order also when
 its restated `values` or `parameters` cannot bind. Last, on PostgreSQL, they

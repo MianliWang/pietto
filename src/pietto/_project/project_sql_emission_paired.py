@@ -2,20 +2,21 @@
 
 MySQL opens a Wave A construct only in a statement that is byte for byte one
 form the slice's qualification pack runs on both PostgreSQL and MySQL, with
-only its names changed. Each reader reduces its own input to those bytes
-without names and compares their digest with the form's: emission and the
-live verifier the selected module and the request's contract, compiled replay
-the bundle's records. A name is an ASCII identifier of at most 63 bytes that
-does not start with `__pietto`, and two names of a kind are equal ignoring
-case exactly where the form's names in their places are; a table locator has
-exactly two such parts. In a module, a word that is one of its slice's
-keywords is that keyword, never a name; a bundle's records hold each name in
-a field of its own, so there a name is read by its place, whatever word it
-is. A paired statement whose emission does not give its form's SQL, names
-aside, reports main's output, derived again as main (rows.AS_MAIN, which
-`closed` sets); so do loading and compiled emission for a bundle whose
-records are a form but that another check refuses, or whose SQL is not the
-form's. Records a reader cannot read, checked yet or not, are no form.
+only its names changed, under the literal policy the pack runs it with. Each
+reader reduces its own input to those bytes without names and compares their
+digest with the form's: emission and the live verifier the selected module and
+the request's contract, compiled replay the bundle's records. A name is an
+ASCII identifier of at most 63 bytes that does not start with `__pietto`, and
+two names of a kind are equal ignoring case exactly where the form's names in
+their places are; a table locator has exactly two such parts. In a module, a
+word that is one of its slice's keywords is that keyword, never a name; a
+bundle's records hold each name in a field of its own, so there a name is
+read by its place, whatever word it is. A paired statement whose emission
+does not give its form's SQL, names aside, reports main's output, derived
+again as main (rows.AS_MAIN, which `closed` sets); so do loading and compiled
+emission for a bundle whose records are a form but that another check
+refuses, or whose SQL is not the form's. Records a reader cannot read,
+checked yet or not, are no form.
 """
 
 from contextlib import contextmanager
@@ -42,10 +43,13 @@ __all__: tuple[str, ...] = ()
 # s11_join_left_alias, s11_join_inner, s11_join_inner_alias,
 # s11_join_text_bykey, s11_join_text_bykey_inner, s11_join_global and
 # s11_join_collapse, P-S11B-1 and 4 s11_tuples and s11_empty, P-S11B-2
-# s11_int_pair, P-S11B-3 s11_grouped. Each form holds one slice's construct
-# only, so a form opens no other slice. Per form: the sha256 of the module and
-# contract, of the emitted SQL and of the compiled records, and the number of
-# compiled records.
+# s11_int_pair, P-S11B-3 s11_grouped. S14 conditionals beside a JOIN and
+# scalar calls in aggregate arguments over JOIN rows: P-S14-1 to 4
+# s14_e2_joined_pred, s14_e2_from_pred, s14_e3_aggregate_calls and
+# s14_e2e3_bind_safe, the last with bind-safe literals. Each form holds one
+# slice's construct only, so a form opens no other slice. Per form: the sha256
+# of the module and contract, of the emitted SQL and of the compiled records,
+# and the number of compiled records.
 FORMS = (
     (
         "9e74ea22bb430348248b9b5dc0ef1c38f4c829020dd6015cd6e4703d0efb71a2",
@@ -215,6 +219,30 @@ FORMS = (
         "ef3974b8d111ff425d048e8553be1497d626fc52f6677dd25c3862ec8847ee11",
         184,
     ),
+    (
+        "6e43ebcc66430199692e91fa47626d136a892e9d481ef216b86bf76a1c436fa7",
+        "8eebe70498ba3932c8a2a9060c62d0222f8f7fb94e83ea571e3a47a4438c66da",
+        "f7a95c1f54dc670055255e1c7e4f1e4a7eec7741274d744362505802fd33eacd",
+        372,
+    ),
+    (
+        "e85faf2ccfc2686eeb8ea2ce100a088df99d112e5438f742e94f3bd81b473ac2",
+        "4de1e6acd6d0f00d68c64aa8aa5037f6a746d1bec013a18933768bfb6e914274",
+        "71008d02aaa1a763bf12874600e89f07218c6d65991b6cc02814e4cf529d1a31",
+        372,
+    ),
+    (
+        "543f18dfe3438701e53cda050739dc62d7777d0669ad6e37ff8708283ea1c6e1",
+        "58583d9d3e705bd09299c0d752586af5af05ba0d20e523e4c5d6372d78b7ad3b",
+        "46a278ed9c417b1eca38cfd9eb3dd0544885d81d43b9d8f2ad81ea715ff5f63f",
+        437,
+    ),
+    (
+        "8260af7bb423fe7e41cfd2ec7cf4c1fc858245b18873851c396172805a71dec5",
+        "a9197853110bed0c152a03f7af47a90de532aac1666b9e6861f459ed619e649d",
+        "a66c32d9ddd99645754c4fc57dfc7e9af968e48d161d9bf445d1987461f7dfed",
+        459,
+    ),
 )
 _S16_FIXED = frozenset(
     "shape source query from select window order by lag lead mysql table"
@@ -244,6 +272,14 @@ SLICES = (
         frozenset(
             "shape source query table from let left inner join on group by select"
             " count_distinct unique mysql Int Bool Text Decimal Float None".split()
+        ),
+    ),
+    (
+        range(28, 32),
+        frozenset(
+            "shape source query from where let left inner join on group by select"
+            " count count_distinct lower trim len def return if else unique mysql"
+            " table Int Text None".split()
         ),
     ),
 )
@@ -336,15 +372,16 @@ def _form(column, text, names, forms=range(len(FORMS))):
 
 
 def project_text(path, source, contract, selected, names, fixed):
-    """One module's bytes, its contract and its selected (name, kind), names
-    and `fixed`, one slice's keywords, aside."""
+    """One module's bytes, its contract and its selected (name, kind), with
+    the literal policy when it is not preserve, names and `fixed`, one
+    slice's keywords, aside."""
     return "\0".join(
         (
             names("M", path),
             _module(source, names, fixed),
             _contract(contract, names),
             names("N", selected[0]),
-            selected[1],
+            *selected[1:],
         )
     )
 
@@ -358,9 +395,11 @@ def project_form(request):
         result = checked.completed.semantic_result
         owner = checked.selected_owner.identity
         (snapshot,) = result.trusted_source_snapshots
+        selected = (owner.declared_name, owner.declaration_kind.value)
+        if checked.literal_policy is not ProjectSQLLiteralPolicy.PRESERVE_LITERALS:
+            selected += (checked.literal_policy.value,)
         if (
-            checked.literal_policy is not ProjectSQLLiteralPolicy.PRESERVE_LITERALS
-            or len(result.modules) != 1
+            len(result.modules) != 1
             or owner.module_path != snapshot.path
             # Every paired module is far shorter; this bounds each call's work.
             or len(snapshot.source_text) > 8192
@@ -372,7 +411,7 @@ def project_form(request):
                 snapshot.path,
                 snapshot.source_text,
                 request.accepted_bytes,
-                (owner.declared_name, owner.declaration_kind.value),
+                selected,
                 names,
                 fixed,
             )
