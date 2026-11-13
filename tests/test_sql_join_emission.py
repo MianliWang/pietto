@@ -2717,7 +2717,8 @@ def _s25_emit(
     tmp_path: Path, capsys: pytest.CaptureFixture[str], source: str, *options: str
 ) -> tuple[int, str]:
     path = tmp_path / "shop.pietto"
-    path.write_text(source, encoding="utf-8")
+    # A carriage return unpairs a file, so Windows must not write one.
+    path.write_text(source, encoding="utf-8", newline="\n")
     code = cli.main(["emit-sql", str(path), "--dialect", "mysql", *options])
     return code, capsys.readouterr().out
 

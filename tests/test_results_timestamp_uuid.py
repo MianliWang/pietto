@@ -984,6 +984,9 @@ def test_a_timestamp_output_without_source_meaning_is_refused_before_it_runs(
     query = _compiled(project, kind, name)
     with pytest.raises(execution.RequestRejected) as refused:
         _executed(query, schemas, parameters)
+    assert (refused.value.code, refused.value.detail) == ("PIE-R1004", "MEANING_OUTPUT")
+    # The workspace and saved-result names are Linux-only (docs/execution.md).
+    pytest.importorskip("fcntl", reason="save() needs the POSIX job runtime")
     workspace = object.__new__(execution.WorkspaceRef)
     object.__setattr__(workspace, "root", "/not-opened")
     object.__setattr__(workspace, "identity", "ws-" + "0" * 32)
@@ -997,5 +1000,4 @@ def test_a_timestamp_output_without_source_meaning_is_refused_before_it_runs(
             premise=execution.PostgresDeploymentPremise(schemas),
             parameters=parameters,
         )
-    for error in (refused.value, saved.value):
-        assert (error.code, error.detail) == ("PIE-R1004", "MEANING_OUTPUT")
+    assert (saved.value.code, saved.value.detail) == ("PIE-R1004", "MEANING_OUTPUT")
