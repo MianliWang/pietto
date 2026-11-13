@@ -57,6 +57,12 @@ jobs:
             --extra-env "interop-numpy=$RUNNER_TEMP/interop-numpy" \
             --extra-env "interop-scipy=$RUNNER_TEMP/interop-scipy" \
             --extra-env "interop-matplotlib=$RUNNER_TEMP/interop-matplotlib"
+      - name: Run real isolated interop consumers
+        run: |
+          "$RUNNER_TEMP/arrow-ready/bin/python" -I tests/_pietto_results_interop.py --cell arrow --report "$RUNNER_TEMP/interop-reports/interop-arrow-$GITHUB_RUN_ID-$GITHUB_RUN_ATTEMPT-3.12.json"
+          for cell in pandas polars numpy scipy matplotlib; do
+            "$RUNNER_TEMP/interop-$cell/bin/python" -I tests/_pietto_results_interop.py --cell "$cell" --report "$RUNNER_TEMP/interop-reports/interop-$cell-$GITHUB_RUN_ID-$GITHUB_RUN_ATTEMPT-3.12.json"
+          done
       - name: Run real isolated Arrow readiness consumer
         run: |
           "$RUNNER_TEMP/arrow-ready/bin/python" -I tests/_pietto_results_arrow_compatibility.py --report "$RUNNER_TEMP/arrow-reports/arrow-readiness-$GITHUB_RUN_ID-$GITHUB_RUN_ATTEMPT-3.12.json"
@@ -435,6 +441,12 @@ jobs:
             --extra-env "interop-numpy=$RUNNER_TEMP/interop-numpy" \
             --extra-env "interop-scipy=$RUNNER_TEMP/interop-scipy" \
             --extra-env "interop-matplotlib=$RUNNER_TEMP/interop-matplotlib"
+      - name: Run real isolated interop consumers
+        run: |
+          "$RUNNER_TEMP/arrow-ready/bin/python" -I tests/_pietto_results_interop.py --cell arrow --report "$RUNNER_TEMP/interop-reports/interop-arrow-$GITHUB_RUN_ID-$GITHUB_RUN_ATTEMPT-3.13.json"
+          for cell in pandas polars numpy scipy matplotlib; do
+            "$RUNNER_TEMP/interop-$cell/bin/python" -I tests/_pietto_results_interop.py --cell "$cell" --report "$RUNNER_TEMP/interop-reports/interop-$cell-$GITHUB_RUN_ID-$GITHUB_RUN_ATTEMPT-3.13.json"
+          done
       - name: Run real isolated Arrow readiness consumer
         run: |
           "$RUNNER_TEMP/arrow-ready/bin/python" -I tests/_pietto_results_arrow_compatibility.py --report "$RUNNER_TEMP/arrow-reports/arrow-readiness-$GITHUB_RUN_ID-$GITHUB_RUN_ATTEMPT-3.13.json"

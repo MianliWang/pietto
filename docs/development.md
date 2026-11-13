@@ -1186,10 +1186,14 @@ class is exhausted rather than after the queue drains. The
 records the queue and its attempts; the accepted campaign is recorded in that
 interlude's evidence instance.
 
-`consumer` is the local entry for CI-only installed consumers: with explicit
-`GITHUB_RUN_ID`/`GITHUB_RUN_ATTEMPT` labels it runs package smoke with
-`--extra-env`, the Arrow readiness and installed result-product consumers with
-their `ci_validation.py` checks, and the real-consumer `prepare`/`replay`/`verify`.
+`consumer` is the local entry for CI-only installed consumers other than the
+interop cells: with explicit `GITHUB_RUN_ID`/`GITHUB_RUN_ATTEMPT` labels it runs
+package smoke with the arrow-ready `--extra-env` cell, the Arrow readiness and
+installed result-product consumers with their `ci_validation.py` checks, and the
+real-consumer `prepare`/`replay`/`verify`. The five `interop-X` package smoke
+cells and their `tests/_pietto_results_interop.py` consumers run in
+`checks_twelve` and `checks_thirteen`; a local run of them uses those jobs'
+commands.
 Replay consumes archived receipts only under their original identity, which equals
 local `HEAD` only before the next commit; nothing is rewritten and the reports are
 LOCAL provenance. The caller names the receipts: `--receipts DIR`,

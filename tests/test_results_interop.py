@@ -12,10 +12,12 @@ from pathlib import Path
 import platform
 import subprocess
 import sys
+import tomllib
 from typing import Any
 
 import pytest
 
+from _pietto_ci_workflow import job
 import _pietto_results_interop as consumer
 import pietto.interop as interop
 
@@ -297,3 +299,24 @@ def test_the_report_checker_refuses_every_incomplete_or_changed_report(cell) -> 
         assert json.dumps(report) != json.dumps(valid), name
     with pytest.raises(ValueError, match="^interop cell$"):
         consumer.verify_report(valid, cell="pyarrow", python="3.13", checkout="c" * 40)
+
+
+def test_each_python_job_runs_every_interop_cell_at_its_extra_pin() -> None:
+    extras = tomllib.loads((ROOT / "pyproject.toml").read_text(encoding="utf-8"))
+    extras = extras["project"]["optional-dependencies"]
+    targets = [cell for cell in consumer.CELLS if cell != "arrow"]
+    for target in targets:
+        assert extras[consumer.EXTRA[target]] == [f"{target}=={consumer.PINS[target]}"]
+    workflow = (ROOT / ".github/workflows/ci.yml").read_text(encoding="utf-8")
+    run = '/bin/python" -I tests/_pietto_results_interop.py --cell '
+    for python, word in (("3.12", "twelve"), ("3.13", "thirteen")):
+        checks = job(workflow, "checks_" + word)
+        for target in targets:
+            extra = consumer.EXTRA[target]
+            assert f'--extra-env "{extra}=$RUNNER_TEMP/{extra}"' in checks
+        step = checks.split("- name: Run real isolated interop consumers\n")[1]
+        step = step.split("\n      - name: ")[0]
+        assert f'"$RUNNER_TEMP/arrow-ready{run}arrow ' in step
+        assert f"for cell in {' '.join(targets)}; do" in step
+        assert f'"$RUNNER_TEMP/interop-$cell{run}"$cell" ' in step
+        assert step.count(f"-{python}.json") == 2
