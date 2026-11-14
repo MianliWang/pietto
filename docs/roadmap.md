@@ -187,7 +187,9 @@ The existing PostgreSQL/MySQL emitters retain their SQL-byte and semantic
 authority; sqlglot is not a runtime dependency. Phase numbers stay unchanged.
 On 2026-11-10 AD78.02 revised that schedule: Phase78 SQLite B1 is implemented
 in parallel with Phase77 and Phase79 and publishes after Phase79 DuckDB B1,
-and AD78.03 fixes the third-dialect seam the two share. The
+and AD78.03 fixes the third-dialect seam the two share. On 2026-11-14 both
+B1 batches were published together in one fast-forward push, ending at
+`94b4097a`, which meets that order (PL.32). The
 [Phase78 route](phases/phase-78/route.md) and the
 [Phase79 route](phases/phase-79/route.md) bind each B1's supported forms,
 pinned dependencies, error ownership and qualification; this architecture

@@ -14,11 +14,14 @@ third-dialect seam AD78.03 and the failure rule AD79.01 in the
 those decisions that this page fixes; the lead states them to the owner as
 inform before this page binds (see [open items](#open-items)).
 
-Construction state: PLANNED. S02 lands the shared connector and dialect sets
-and the family firewall, S03 the independent adapter with the DuckDB target
-identity, S04 the execution route, S05 the `execute-duckdb` extra and S06 the
-native qualification. Until S04 lands the route, a compiled DuckDB query does
-not execute.
+Construction state: PUBLISHED. S02 landed the shared connector and dialect
+sets and the family firewall, S03 the independent adapter with the DuckDB
+target identity, S04 the execution route, S05 the `execute-duckdb` extra and
+S06 the native qualification, and S08 applied the shared-page hunks below.
+B1 reached `main` on 2026-11-14 in one fast-forward push ending at
+`94b4097a` and ships in `0.2.0`; the
+[B1 audit](../phases/phase-79/completion-audit.md) records its Gate 2 and
+natural CI.
 
 ## Admission
 
@@ -647,8 +650,7 @@ outside Git. CPython 3.12 comes from the packaging lane and natural CI.
 
 ## Shared-page hunks
 
-S08 applies these to the shared pages at integration, one page at a time;
-until then this page is their only statement.
+S08 applied these to the shared pages at integration, one page at a time.
 
 - `docs/spec/diagnostics.md`: the `PIE-R1001` row adds `premise=None` on
   `duckdb_arrow`; the `PIE-S2306` row names `duckdb.arrow`; the `PIE-B1001`,
@@ -681,6 +683,6 @@ when the attempt opens") the same `duckdb_arrow` clause, and revises the
 
 | Item | Owner | Latest point |
 | --- | --- | --- |
-| The D79.01 refusal mapping, the D79.04 `-0.0` admission and this page's *derived* rows, stated as inform: the `arrow` namespace; the storage and domain spellings; the premises and `premise_not_admitted_on_target`; the domain check at capture, and examining only the table fields that source fields name; Pietto-owned identifiers; admitting `--all` and `compile_all_sql`; `MAX_PARAMETERS` 65,535 in place of the DuckDB value that D79.05 expected; `columns` 4,096, the MySQL value; the settings beyond D79.06 (`allow_extension_repositories`, `allow_persistent_secrets`, the two progress-bar settings and the four `arrow_*` settings) and the fixed `threads` 1 and `memory_limit` 256 MiB; the closed order of compile refusals with its reused details, including the codes outside D79.01's list (`PIE-B1002`, `PIE-B1004` to `PIE-B1008`, and `PIE-R2001`, `PIE-R2002` with the existing driver details) | The lead | Before this page binds |
-| Whether `duckdb.arrow` changes the built-in catalog (D76.12) | The lead, at S02 | Before the B1 batch push |
-| The release-note fragment `79-s01-duckdb-arrow-route.md` describes B1 as the batch delivers it. Each later slice checks and edits its own lines there and adds no second B1 fragment: S03 the emission and blocker lines, S04 the execute, capture and session lines, S05 the install and pin line, S07 the qualified platforms after S06. The batch audit compares the fragment with this page | Each slice; the batch audit | Before each slice seals; the B1 batch audit |
+| The D79.01 refusal mapping, the D79.04 `-0.0` admission and this page's *derived* rows, stated as inform: the `arrow` namespace; the storage and domain spellings; the premises and `premise_not_admitted_on_target`; the domain check at capture, and examining only the table fields that source fields name; Pietto-owned identifiers; admitting `--all` and `compile_all_sql`; `MAX_PARAMETERS` 65,535 in place of the DuckDB value that D79.05 expected; `columns` 4,096, the MySQL value; the settings beyond D79.06 (`allow_extension_repositories`, `allow_persistent_secrets`, the two progress-bar settings and the four `arrow_*` settings) and the fixed `threads` 1 and `memory_limit` 256 MiB; the closed order of compile refusals with its reused details, including the codes outside D79.01's list (`PIE-B1002`, `PIE-B1004` to `PIE-B1008`, and `PIE-R2001`, `PIE-R2002` with the existing driver details) | The lead | Before this page binds. Closed: stated to the owner on 2026-11-11, before S01 bound and S04 sealed; they stand with this page's derived items (D79.12; the B1 audit's [route deferrals](../phases/phase-79/completion-audit.md#route-deferrals-due-at-b1)) |
+| Whether `duckdb.arrow` changes the built-in catalog (D76.12) | The lead, at S02 | Before the B1 batch push. Closed before that push: it does not, since no input of the extension's language sync changes, so B1 needs no extension sync (D79.16) |
+| The release-note fragment `79-s01-duckdb-arrow-route.md` describes B1 as the batch delivers it. Each later slice checks and edits its own lines there and adds no second B1 fragment: S03 the emission and blocker lines, S04 the execute, capture and session lines, S05 the install and pin line, S07 the qualified platforms after S06. The batch audit compares the fragment with this page | Each slice; the batch audit | Before each slice seals; the B1 batch audit. Closed: the batch audit of 2026-11-14 compared the fragment with this page and found one low, the sentence on PostgreSQL and MySQL output, which the first documentation commit after the push scoped to this route |

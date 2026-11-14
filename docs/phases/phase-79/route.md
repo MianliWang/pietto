@@ -408,7 +408,11 @@ S03 `51c93d91` is `134a566b`, S04 `5f923e19` is `57ba2d79` and S07
 **S06 run and seal (2026-11-14).** The run dispatch came after the
 batch Gate 2 of a tree holding `cf460bda` and PK had passed
 (16:31:26Z to 16:42:21Z), so PK stood sealed for U2 and U3 (the lead's
-ruling that PK seals with the batch Gate 2). The lane was rebound to
+ruling that PK seals with the batch Gate 2). That Gate 2 was INT1's, which
+stands for its own tree only (PL.31); the batch Gate 2 that seals PK is the
+first `0.2.0` push's, from 21:43:45Z to 21:52:57Z that day, after the run,
+and PK's commit `0dd333e4` is the same in both, so U2 and U3 installed
+PK's sealed contents. The lane was rebound to
 `cf460bda` without a v6: the frozen files, the specification digest,
 the decisions, the pins and the locked closure were unchanged, and an
 offline review found the compiled shapes and refusals of the cell path

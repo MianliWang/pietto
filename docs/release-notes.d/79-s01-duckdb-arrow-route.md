@@ -53,7 +53,9 @@ execution guide.
   and 3.13; the qualified platforms are CPython 3.12 and 3.13 on Linux x86-64
   with glibc 2.28 or later. The core install is unchanged and still needs no
   PyArrow or DuckDB.
-- PostgreSQL and MySQL SQL bytes, contracts and diagnostics are unchanged.
+- This route changes no PostgreSQL or MySQL SQL bytes or contracts, and no
+  diagnostic of theirs except the refusal of a project `duckdb.arrow` source
+  above.
   The refusal of a result wider than the 64 Arrow fields of one batch
   (`PIE-R1004` `LIMIT`) stays on the PostgreSQL and MySQL routes;
   `duckdb_arrow` does not make it.

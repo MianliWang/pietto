@@ -298,7 +298,7 @@ resets the ledger.
 
 ## B1 record
 
-B1 is a batch candidate. Its lane side was ready in round 15 on the lane
+B1 is published (item 13). Its lane side was ready in round 15 on the lane
 base `ab972f36`. On 2026-11-13 the lead integrated S01–S04 as one commit
 each on the published `main` `a015afcf`, after the `0.1.11` release commit
 `d03d6e4b`, above the commits of the shared lane PK, Phase79 S01–S04 and
@@ -310,13 +310,14 @@ release-note fragment, `78-s01`, which S02–S04 share (PL.04); unless it
 says otherwise, this record names the commits of the chain on `a015afcf`.
 Phase80 S06 (IB2) is not in the chain, since its route lands it after
 IB1's natural CI; B1 does not wait for it. DuckDB B1 is
-Phase79 S00–S08; S06 and S08 are not below SQLite in that chain: S06 is only
-a candidate commit off it, and S08 is not written. Under AD78.03 the shared
+Phase79 S00–S08; at the replay onto `a015afcf`, S06 and S08 were not below
+SQLite in that chain: S06 was only a candidate commit off it, and S08 was
+not yet written. Under AD78.03 the shared
 connector and dialect-set hunks of S02 were replayed onto the integrated
 Phase79 S02 lines (six files, ten conflicting hunks, resolved by the
 integration rehearsal's rules), and the family firewall passed on the
-integrated tree. Nothing is pushed: the lead runs B1's Gate 2 on the
-integration host on B1's batch tree. B1 publishes after the `0.1.11` cut
+integrated tree. The lead ran B1's Gate 2 on the integration host on the
+batch tree (items 12 and 13). B1 publishes after the `0.1.11` cut
 (PL.04) and after DuckDB B1 (AD78.02; checklist item 27), so only once
 Phase79 S06–S08 have published or lie below S01. Whether one push that
 carries both B1 batches meets AD78.02 needs the lead's or the owner's
@@ -327,7 +328,7 @@ above S01–S04, and the whole chain publishes in one fast-forward push
 
 | Slice | State | Evidence |
 | --- | --- | --- |
-| Q0 | Build triple and probe cells measured. SQLite `3.53.1` with the qualified source id under the integration venv's CPython 3.13.13 and the host's user-local CPython 3.12.13 and 3.13.13; the host's system CPython 3.14.4 links `3.46.1`, not qualified. The raw cells cover STRICT types, NaN and ±Inf, ±0, NULLS placement, Text order, Bool storage, aggregate types, Int extremes and quoting | the Q0 summary of the lane's Q0 and S01 run of 2026-11-10; Gate 0 rebind: `ab972f36` with natural CI `42831340276`, 21 of 21 jobs ([Starting point](#starting-point)); that CI's health and alerts were not read (NOT_OBSERVED, PL.07). The re-measured Phase77 overlap that this route's opening leaves to the package's first implementation batch is NOT_RECORDED: B1 did not measure it again (owner: the Phase78 lead, who records it or its omission before B1's Gate 2 seal) |
+| Q0 | Build triple and probe cells measured. SQLite `3.53.1` with the qualified source id under the integration venv's CPython 3.13.13 and the host's user-local CPython 3.12.13 and 3.13.13; the host's system CPython 3.14.4 links `3.46.1`, not qualified. The raw cells cover STRICT types, NaN and ±Inf, ±0, NULLS placement, Text order, Bool storage, aggregate types, Int extremes and quoting | the Q0 summary of the lane's Q0 and S01 run of 2026-11-10; Gate 0 rebind: `ab972f36` with natural CI `42831340276`, 21 of 21 jobs ([Starting point](#starting-point)); that CI's health and alerts were not read (NOT_OBSERVED, PL.07). The re-measured Phase77 overlap that this route's opening leaves to the package's first implementation batch is NOT_RECORDED: B1 did not measure it again (owner: the Phase78 lead; this cell is the record of the omission, and the first push's Gate 2 sealed the tree that carries it) |
 | S01 | `language.md` SQLite section and the fragment `78-s01-sqlite-single-file.md`, lane-reviewed; integrated as one commit; the fragment stayed off the chain until `0.1.12` was published and joined this commit in the replay of 2026-11-14 (PL.04; [status](../../status.md)) | `p78-review-s01-20261110`, `p78-s01-fix2-review-20261110` |
 | S02 | `src/pietto/sql/sqlite*.py`, CLI dialect, connector entries, CLI JSON and diagnostics rows, goldens and `tests/test_sql_sqlite_emission.py`, lane-reviewed; integrated as one commit. Upstream `check` now refuses an `Int` literal outside the signed 64-bit range (PIE-S2364), so the emitter test's case for it and that item of the PIE-B1000 list were dropped at integration | `lane-p78-s02-20261110T175728Z`, `r4-review-p78-s02`, `r5-review-p78-s02` |
 | S03 | `tests/test_sql_sqlite_native.py`: 105 cells (76 matrix, 20 BAG/NULL oracle, 5 Python oracle, 4 premise controls), all agreeing with their prewritten oracles on the first native run; a coverage law over 109 (clause, type, operator) forms derived from the emitter's vocabulary; a per-test runtime witness; the runner-acceptance row 9 and the `development.md` section. Native runs: CPython 3.13.13 only, class `qualified`, `sqlite_build` refusal null, 46 compile options. Integrated as one commit and sealed on 2026-11-13: on the integrated tree the three SQLite owners passed (220 tests: 136 native, 40 emission, 44 entrypoint; 105 `cell` and 4 `golden` properties, `sqlite_build` refusal null, 46 compile options), and the replay test binds the integrated PostgreSQL bytes | `lane-p78-s03r7-20261110T205022Z` (its first and third pytest junit outputs hold the `cell` properties), reviews `r6-review-p78-s03`, `r7-review-p78-s03`; round 8 fixed review r7's two low findings (witness wording, ledger file count); round 9 (`r9-p78`): `scripts/validate.py` declares `--pietto-sqlite-class=qualified` (D78.07), the importer scan of `tests/test_sql_sqlite_emission.py` resolves relative imports, and the PostgreSQL replay is preregistered but not run (in the lane's ignored working folder); round 10 (`r10-p78`): `scripts/validate.py` refuses a conflicting `PIETTO_SQLITE_CLASS` before any gate, and the replay preregistration is v2 (in the same ignored working folder, v1 kept), still not run; rounds 11 to 13 (`r11-p78` to `r13-run-p78`): v2.1 and v2.2 reviewed, v2.2's run void by a driver defect before any container, v2.3 reviewed CLEAN and its run `PASS`; round 14 (`r14-p78`): the result landed as `tests/fixtures/sqlite/postgres_replay_v1.json` with `test_each_postgres_replay_binds_the_bytes_it_ran`, and S03 is sealed on the lane side (the lane's S03 seal record); round 15 (`r15-p78`): review r14's three low findings fixed and the two hours summed over the campaign's attempts; integration run `p78close-20261113T155742Z` (its first pytest output and junit) |
@@ -369,11 +370,11 @@ S03 write-set cell names both.
 | 6 | A failed cell is first a question about its judge (74-1) | No cell failed on the first native run or since |
 | 7 | A form without a passing cell ships refused (73-6) | Met by the coverage law on the measured build: every emitted (clause, type, operator) form has a cell |
 | 8 | VR2: whole Gate 2 on the integration host; natural CI is no new bootstrap; Teach split void (S03) | Lane side done: B1 changes three VR2 rule paths (`docs/development.md`, the runner-acceptance specification, `scripts/validate.py`) and not `ci/workloads.toml`. Gate 2 is the lead's, on the integration host, on B1's batch tree, whose publication order item 13 states; `scripts/validate.py` joins the VR2 paths B1 changes, with the same rule. Runner row 9's Teach column stays Not observed: the owner kept the default on 2026-11-11 (D78.09), no observation and no claim |
-| 9 | B1 acquisition review against the B1 base (S04) | Below; its bounded profile is pending the final natural CI health |
+| 9 | B1 acquisition review against the B1 base (S04) | Below; its bounded profile, from the health of the final natural exact-head CI, [`43645308189`](https://github.com/MianliWang/pietto/actions/runs/43645308189), is that review's last item |
 | 10 | Docs owners (S04) | Passed on the final round-9 tree: review r9's first pytest output (632 passed, the seven `test_repo_*` owners among them). Round 10 changed `docs/development.md`, `scripts/validate.py` and the entrypoint test; the same 17 files passed on the round-10 tree (round 10's first pytest output, 636 passed). Round 14 changed `docs/development.md` again (the replay paragraph) and added the replay fixture and test; the same 17 files passed on the round-14 tree (round 14's second pytest output, 637 passed; an earlier start that round ended in a pytest usage error before collection and is kept). Round 15 changed the replay test and the fixture's `regeneration` text; the same 17 files passed on the round-15 tree (round 15's first pytest output, 637 passed). On the first integrated S04 tree, `5c31ff86`, 14 files passed (the integration run's second pytest output, 580 passed): eleven of those 17 and `tests/test_project_explain.py`, `tests/test_semantic_source_connectors.py` and `tests/test_sql_mysql_connector_semantic_surface.py`. The other six were not rerun there: `tests/test_ci_loadfile_scheduling.py`, `tests/test_ci_validation_typing_stages.py`, `tests/test_ci_validation_workload_scheduling.py`, `tests/test_ci_workflow.py`, `tests/test_harness_validation_resource_guard.py` and `tests/test_harness_validation_runner_receiver.py`. All of them rerun at Gate 2 on the batch tree |
-| 11 | CI health and alerts read (S04) | Pending (lead): no read yet; until the read-only token of PL.07 is in place on the integration host, each read records NOT_OBSERVED |
-| 12 | Gate 2 duration recorded (S04) | Pending; no Gate 2 has run on B1's batch tree |
-| 13 | S01–S04 accepted on the integration tree; Gate 2 on the batch tree; publication after the `0.1.11` cut and DuckDB B1 under its own push authorization, with green natural exact-head CI (B1 closure) | Pending (lead and owner): S01–S04 are commits of the integration candidate chain, which no Gate 2 has accepted yet. The `0.1.11` cut has passed (PL.04), but DuckDB B1 is not yet below SQLite B1: the chain holds Phase79 S01–S05 (S05 in the PK commit) and S07 below S01, while S06 and S08 are not below it. B1 publishes only once those slices have published or lie below it (AD78.02); whether one push that carries both B1 batches meets AD78.02 needs the lead's or the owner's ruling, and a change of that order needs the owner (unfreeze conditions). The owner answered on 2026-11-14 that one fast-forward push carrying both, with Phase79 S06 and S08 above S01–S04, meets it (PL.32) |
+| 11 | CI health and alerts read (S04) | The lead's read of the health of the first push's natural exact-head CI, [`43645308189`](https://github.com/MianliWang/pietto/actions/runs/43645308189): INSUFFICIENT_EVIDENCE with a WATCH screen, given in full with the profile in the last item of the [B1 acquisition review](#b1-acquisition-review); what the read cannot observe is NOT_OBSERVED with its reason (PL.07) |
+| 12 | Gate 2 duration recorded (S04) | Met: the batch Gate 2 ran on 2026-11-14 from 21:43:45Z to 21:52:57Z on tree `58f5e2810fe016c63def144a8eec81e1389c6248`, with `--pietto-sqlite-class=qualified`: `scripts/validate.py` took 542.2 s, of which pytest took 489.42 s with 20 workers (30,779 passed, 65 skipped); the package smoke and the DuckDB extra start followed it |
+| 13 | S01–S04 accepted on the integration tree; Gate 2 on the batch tree; publication after the `0.1.11` cut and DuckDB B1 under its own push authorization, with green natural exact-head CI (B1 closure) | Published: S01–S04 are four of the 23 commits on `ab594829` that were fast-forward pushed together under PL.31 on 2026-11-14 at 21:54:54Z, ending at `94b4097a5ec3e1fa5936e352d5b63bf84ec4d688` (tree `58f5e2810fe016c63def144a8eec81e1389c6248`), after the `0.1.11` cut (PL.04). Phase79 S06 and S08 sit above them in that push, so SQLite B1 reached `main` only together with the complete DuckDB B1, which meets AD78.02 by the owner's answer (PL.32). Gate 2 on that tree: item 12; its batch audit's one real bug, the owner-answer times of PL.30–PL.32, was fixed before that Gate 2, with no real bug left. Natural exact-head CI: [`43645308189`](https://github.com/MianliWang/pietto/actions/runs/43645308189), push/main attempt 1, passed all 21 jobs |
 | 14 | Midpoint record after S02 (route) | Not recorded. S03 opened in the lane on 2026-11-10, before S02 reached an integration tree, so the midpoint was not held where the route puts it; S02 first reached one on 2026-11-13, over the integrated Phase79 S02. This record claims no midpoint |
 | 15 | D78.02 and D78.04 stated to the owner as inform before S02 seals | Met: first stated in the lead's list of pending owner items of 2026-11-10 (item 11), which records no time; the owner took both as inform on 2026-11-11 (D78.09) |
 | 16 | Extension sync input of `sqlite.table` (D76.12, S01) | Read in S04, not in S01: the extension's `tests/sync_language.py` (extension `041797e`) reads the keywords of `grammar/Pietto.g4`, the built-in names of `src/pietto/semantic/catalog.py`, `aggregates.py` and `window_semantics.py`, and the `pietto` blocks of `README.md`, `docs/language.md`, `docs/style.md` and `docs/worked-example.md` and every `examples/**/*.pietto` file. B1 changes no grammar and none of those modules, so `sqlite.table` is no catalog change under D76.12 and B1 needs no sync patch; B1 adds no `pietto` block and no example either, so the extension's corpus is unchanged |
@@ -432,8 +433,90 @@ are the per-test sums of round-7 pytest 1 (`-n 8`): emission 2.40 s, native
   the acquisition owner decides with the rest of this list.
 - No consolidation was applied, so there is no structural or wall-time
   improvement to report. The bounded profile of step 4 (the ten slowest
-  in-process nodes of the final natural CI health under cProfile) is
-  pending that health.
+  in-process nodes of the final natural CI health under cProfile):
+  natural exact-head CI
+  [`43645308189`](https://github.com/MianliWang/pietto/actions/runs/43645308189)
+  of `94b4097a`, push/main attempt 1, ran from 21:54:59Z to 22:14:04Z on
+  2026-11-14 (1,145 s) and passed all 21 jobs, which took 11,094 s in all
+  (jobs API, start to completion, without queueing); the longest was
+  Windows 3.12 at 1,132 s. Its health was read at 22:15Z through the owner's
+  read-only token (PL.07): the 15 `ci-health` artifacts match the digests
+  the API lists, the workflow summary passes `verify_workflow_health` of
+  that head's `scripts/ci_workloads.py`, and the `[ci-health]` lines of the
+  aggregate job's log agree. The status is INSUFFICIENT_EVIDENCE with a
+  WATCH screen. History read 4 candidates and accepted 3 (`43603167533`,
+  `43600539878`, `43590596831`) with none rejected, but none is comparable:
+  each differs in its test set (345 more nodes now) and in the runner
+  images of its shards.
+  Each Python collected 30,844 nodes; 30,795 passed and 49 were skipped. The
+  only alert that needs no history is the structural
+  `FEWER_UNITS_THAN_WORKERS` that predates Gate 0 (plan- and
+  emission-portability, 3 nodes on 4 workers, on both Pythons). The
+  provisional ones are `SHARD_IMBALANCE_REVIEW` on both Pythons (longest
+  over median 1.54 on 3.12 and 1.82 on 3.13, general-runtime-1 the longest
+  each time) and `LONG_INDIVISIBLE_NODE` 18 times, the same nine
+  child-process nodes on each Python as at Gate 0. There is no finish-spread,
+  startup, cost or repeat signal; the health's own cost is partial, as
+  always, because it is written before Windows 3.12 and the aggregate job
+  finish. The general-runtime shards that ran on runner image
+  `20261111.370.1` (all three on 3.12, general-runtime-1 on 3.13) took 878
+  to 1,029 s, and the two on `20261111.127.1` took 531 to 538 s; the cause
+  is not established.
+
+  The Python 3.13 health records 126 slowest nodes: 30 for each of the
+  shared-acquisition and three general-runtime partitions and 3 for each
+  portability partition. Ranked by setup, call and teardown time, 15 nodes
+  above the tenth in-process one were left out because their time is spent
+  in child processes, of the same kinds and number as in the E-C profile:
+  the differential process cells of `test_harness_ir_differential.py`,
+  `test_harness_plan_conformance.py` (its setup is that acquisition),
+  `test_harness_plan_portability.py` and
+  `test_harness_sql_emission_portability.py`; the six checkout, relocated
+  and installed standalone batches of the two portability files; the two
+  fresh source-free processes of `test_execution_compiled_source_free.py`;
+  and three nodes of `test_harness_execution_api.py` whose module fixture
+  starts a fresh `-I` worker for each consumer case. One more is set apart:
+  `test_harness_execution_api.py::test_the_duckdb_native_checker_accepts_honest_units_and_refuses_each_fabricated_shape`
+  (23.8 s, Runtime 3.13 / general-runtime-3), new with Phase79 S06, starts
+  one fresh `-I` oracle interpreter and then checks in process; its split
+  between the two is not observed.
+
+  | Node | Job | 3.13 s | 3.12 s | Where the time is |
+  | --- | --- | ---: | ---: | --- |
+  | `test_harness_target_conformance.py::test_data_only_receipt_controls_have_nonempty_positive_denominators[mysql]` | Runtime 3.13 / general-runtime-1 | 182.2 | 208.9 | setup, 178.1 s: the module fixture `valid_receipts` |
+  | `test_harness_target_conformance.py::test_receipt_corruption_is_rejected_without_any_resource[postgres-missing]` | Runtime 3.13 / general-runtime-3 | 113.0 | 197.7 | setup, 110.4 s: the same fixture |
+  | `test_harness_target_conformance.py::test_data_only_receipt_controls_have_nonempty_positive_denominators[postgres]` | Runtime 3.13 / general-runtime-2 | 111.8 | 195.4 | setup, 108.7 s: the same fixture |
+  | `test_harness_sql_emission_portability.py::test_every_admitted_artifact_exports_corresponds_and_decodes[postgres]` | Runtime 3.13 / shared-acquisition | 108.6 | 130.1 | call |
+  | `test_harness_sql_emission_portability.py::test_every_admitted_artifact_exports_corresponds_and_decodes[mysql]` | Runtime 3.13 / shared-acquisition | 98.8 | 117.7 | call |
+  | `test_harness_target_conformance.py::test_empty_text_anchor_requires_the_observed_var_string_type` | Runtime 3.13 / general-runtime-1 | 44.3 | 56.1 | call; the fixture was already built on its worker |
+  | `test_repo_reader_acquisition.py::test_shared_facts_match_legacy_text_ast_import_and_identifier_acquisition` | Runtime 3.13 / general-runtime-3 | 32.6 | 59.0 | call |
+  | `test_execution_compiled_bundle.py::test_mysql_lpad_and_now_cells_are_derived_in_linear_work[pair-_beside_a_capture]` | Runtime 3.13 / general-runtime-1 | 28.0 | 32.8 | call |
+  | `test_repo_test_layout.py::test_no_test_reads_the_mutable_status_or_roadmap` | Runtime 3.13 / general-runtime-1 | 26.6 | 30.2 | call |
+  | `test_execution_compiled_bundle.py::test_mysql_lpad_and_now_cells_are_derived_in_linear_work[words-_chained_lets]` | Runtime 3.13 / general-runtime-2 | 22.7 | 37.1 | call |
+
+  Seven of the ten ids are in the E-C profile of `43181411369`. New are the
+  two `test_mysql_lpad_and_now_cells_are_derived_in_linear_work` cells, which
+  by their source compile and export MySQL programs of m × m cells for m
+  of 4, 8 and 16 to prove a linear-work count law, and
+  `test_repo_test_layout.py::test_no_test_reads_the_mutable_status_or_roadmap`,
+  which by its source reads the string literals of every test file through
+  the shared repository facts. The two `test_sql_values.py` bound nodes
+  (20.7 s and 19.9 s) and
+  `test_semantic_capability_facts.py::test_private_module_has_only_authorized_window_strategy_compiler_consumer`
+  (21.2 s) left the list. On Python 3.12 the same seven lead and the two
+  `lpad` and `now()` cells follow; its tenth in-process node is
+  `test_sql_values.py::test_the_static_values_bound_is_no_emission_guarantee[postgres-1000-64-blockers2]`
+  (31.5 s), and `test_repo_test_layout.py` is the twelfth.
+
+  The cProfile half of step 4 is NOT_OBSERVED (PL.07): this reading ran no
+  pytest, so none of the ten ran alone under cProfile, no verifier-runs,
+  call-count or self-time finding is recorded, and no performance claim
+  rests on the table. The Windows jobs are outside partition health by
+  design, so their nodes are not ranked. GitHub's rendered Job Summary has
+  no REST endpoint and was not read; the summary was regenerated from the
+  artifact with `summary_markdown`, the function CI writes it with. Health
+  is advisory, and nothing here changes scheduling, topology or test
+  selection.
 
 Ledger: the rows of the lead's Phase78 ledger sum to about `C8/F55/D1830/S0`
 through its row of 16:01Z on 2026-11-13, before Gate 2 (C counts its upper
@@ -442,7 +525,7 @@ total of about D4463 instead, about D137 below the cap; which figure holds
 is pending the lead's ruling before Gate 2. The owner chose D2300 on
 2026-11-11 (D78.06), so D78.05's D1500 stop point no longer applies, and on
 2026-11-12 doubled every budget (PL.09; Phase78 from `C80/F240/D2300/S3`).
-Gate 2 duration: pending.
+Gate 2 duration: item 12.
 
 ## B2 handoff
 

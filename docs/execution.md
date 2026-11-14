@@ -58,10 +58,11 @@ and `mysql_rows`, against MySQL 8.4.12. Both PostgreSQL routes use the same
 explicit TCP inputs and deployment premise; `postgres_adbc` selects only its
 pinned ADBC driver closure. `duckdb_arrow` runs one limited query in process
 over an Arrow table that you supply, on DuckDB `2.0.0`, with no connection or
-premise (see [DuckDB Arrow route](#duckdb-arrow-route)). The only qualified
-native profile recorded here is
-CPython 3.13.13 on Linux x86-64 with the lock's exact artifacts on the
-qualified integration host. Windows native execution is `NOTRUN`; an offline
+premise (see [DuckDB Arrow route](#duckdb-arrow-route)). For the PostgreSQL
+and MySQL routes the only qualified native profile recorded here is CPython
+3.13.13 on Linux x86-64 with the lock's exact artifacts on the qualified
+integration host; `duckdb_arrow` is qualified on CPython 3.13.13 and 3.12.13
+(see the support matrix). Windows native execution is `NOTRUN`; an offline
 Windows compiler-project check is not native execution, job, or database
 support. Saved-result workflows are local workspace APIs, and the reference
 sink is a local bounded endpoint. There is no CLI command that connects to a
