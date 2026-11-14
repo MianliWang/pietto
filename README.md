@@ -31,7 +31,7 @@ available only from the explicit alpha Python API described below.
 
 **Version 0.1.12, public alpha.** Pietto is pre-release. Before 1.0 a release
 may carry breaking changes: it lists them at the top of its
-[release notes](https://github.com/MianliWang/pietto/blob/v0.1.12/docs/release-notes.md),
+[release notes](https://github.com/MianliWang/pietto/blob/main/docs/release-notes.md),
 and compiled bundles and saved jobs are not migrated between versions.
 
 ## Install
@@ -55,7 +55,7 @@ verified with CPython 3.12 and 3.13 on Linux x86-64, and CI also runs the
 platform-neutral tests on Windows x86-64. The version's
 [GitHub release](https://github.com/MianliWang/pietto/releases) attaches the
 same wheel and sdist with `SHA256SUMS`
-([checking them](https://github.com/MianliWang/pietto/blob/v0.1.12/docs/project-package.md#installing-a-release)).
+([checking them](https://github.com/MianliWang/pietto/blob/main/docs/project-package.md#installing-a-release)).
 
 The compiler and CLI need only the core package. The optional extras serve the
 alpha Python APIs, for example `pip install "pietto[execute-postgres]"`:
@@ -68,7 +68,7 @@ alpha Python APIs, for example `pip install "pietto[execute-postgres]"`:
 | `pietto[execute-postgres-adbc]` | the `postgres_adbc` route |
 
 Each extra pins exact versions
-([execution install](https://github.com/MianliWang/pietto/blob/v0.1.12/docs/execution.md#install)),
+([execution install](https://github.com/MianliWang/pietto/blob/main/docs/execution.md#install)),
 and every execution extra includes the Arrow pin. Extras combine, for example
 `pip install "pietto[execute-postgres,execute-mysql]"`. Installing an extra
 never selects a route, grants execution, opens a source or qualifies storage.
@@ -173,10 +173,10 @@ default) or `strict`; `pietto --help` lists every command.
 
 ## What works now
 
-[Capabilities by mode and target](https://github.com/MianliWang/pietto/blob/v0.1.12/docs/capabilities.md)
+[Capabilities by mode and target](https://github.com/MianliWang/pietto/blob/main/docs/capabilities.md)
 shows, for each feature family, what `check` and `emit-sql` do in a single
 file and in a project, on PostgreSQL and on MySQL; the
-[language reference](https://github.com/MianliWang/pietto/blob/v0.1.12/docs/language.md)
+[language reference](https://github.com/MianliWang/pietto/blob/main/docs/language.md)
 gives every rule and limit.
 
 **Single files** (`check FILE`, `emit-sql FILE`, `fmt`, `explain FILE`):
@@ -188,7 +188,7 @@ gives every rule and limit.
 - INNER, LEFT, RIGHT, FULL and CROSS JOINs, `asof left join` and
   `asof inner join`, `any(...)` and `not any(...)` filters, and reusable
   `relationship` predicates, within the
-  [single-file JOIN limits](https://github.com/MianliWang/pietto/blob/v0.1.12/docs/language.md#single-file-joins).
+  [single-file JOIN limits](https://github.com/MianliWang/pietto/blob/main/docs/language.md#single-file-joins).
   An aggregate over JOIN rows must be one that `check` proves free of JOIN
   fan-out.
 - `pietto fmt` formats a file; `pietto explain FILE` prints the semantic
@@ -238,25 +238,25 @@ release.
   and workspace symbols, links on import paths, formatting of the open buffer
   and completion of keywords, builtin names and the names a file writes; the
   Pietto extension for VS Code uses it
-  ([editor support](https://github.com/MianliWang/pietto/blob/v0.1.12/docs/editor-lsp.md)).
+  ([editor support](https://github.com/MianliWang/pietto/blob/main/docs/editor-lsp.md)).
 - `pietto.compiler.compile_sql(...)` and `compile_all_sql(...)` return the
   `emit-sql --project ... --format json` document as bytes, without a
   subprocess
-  ([Python compile API](https://github.com/MianliWang/pietto/blob/v0.1.12/docs/spec/python-compile-api-v1.md)).
+  ([Python compile API](https://github.com/MianliWang/pietto/blob/main/docs/spec/python-compile-api-v1.md)).
 - `pietto.execution` runs a compiled project query through the
   `postgres_rows` or `postgres_adbc` route (PostgreSQL 18.6) or the
   `mysql_rows` route (MySQL 8.4.12), with explicit access and a deployment
   premise, and returns typed Arrow batches with the attempt's factual terminal
   state. It never accepts SQL text. It also offers local saved-result
   workflows; its qualified native profile is CPython 3.13.13 on Linux x86-64
-  ([execution](https://github.com/MianliWang/pietto/blob/v0.1.12/docs/execution.md)).
+  ([execution](https://github.com/MianliWang/pietto/blob/main/docs/execution.md)).
 
 ## Project SQL emission
 
 `emit-sql --project` compiles a `table` or `query` of an explicit-module
 project into the versioned `pietto.sql-emission.v1` JSON artifact
 (`pietto.sql-emission.v2` for a VERIFIED query with header parameters, see
-[project CLI JSON v2](https://github.com/MianliWang/pietto/blob/v0.1.12/docs/spec/project-cli-json-v2.md#emit-sql-result))
+[project CLI JSON v2](https://github.com/MianliWang/pietto/blob/main/docs/spec/project-cli-json-v2.md#emit-sql-result))
 for one selected dialect. The physical relation and column names, storage types and
 value premises come from an emission contract that you write for your
 database; the compiler never connects to it.
@@ -349,16 +349,16 @@ needs named stages (a `WITH` clause), for example for `where`, `group by`, a
 JOIN or a set operation, also needs the statement premise
 `{"key": "identifier_case", "scope": "statement", "value": "quoted_exact"}`
 in `environment`.
-[Project SQL emission](https://github.com/MianliWang/pietto/blob/v0.1.12/docs/project-package.md#project-sql-emission)
+[Project SQL emission](https://github.com/MianliWang/pietto/blob/main/docs/project-package.md#project-sql-emission)
 lists every premise with its PostgreSQL and MySQL values and the forms that
 project emission refuses, gives a MySQL contract and describes `--all`, and
 the
-[worked example](https://github.com/MianliWang/pietto/blob/v0.1.12/docs/worked-example.md)
+[worked example](https://github.com/MianliWang/pietto/blob/main/docs/worked-example.md)
 builds a larger project step by step.
 
 ## Roadmap
 
-The [roadmap](https://github.com/MianliWang/pietto/blob/v0.1.12/docs/roadmap.md)
+The [roadmap](https://github.com/MianliWang/pietto/blob/main/docs/roadmap.md)
 assigns future work to phases, and each phase sets its own scope when it
 starts; none of it is a promise or a date.
 
@@ -374,29 +374,29 @@ still ahead.
 
 ## Documentation
 
-- [Language reference](https://github.com/MianliWang/pietto/blob/v0.1.12/docs/language.md)
-- [Style](https://github.com/MianliWang/pietto/blob/v0.1.12/docs/style.md)
-- [A worked example](https://github.com/MianliWang/pietto/blob/v0.1.12/docs/worked-example.md)
-- [Capabilities by mode and target](https://github.com/MianliWang/pietto/blob/v0.1.12/docs/capabilities.md)
-- [Project and package](https://github.com/MianliWang/pietto/blob/v0.1.12/docs/project-package.md)
-- [Execution (alpha)](https://github.com/MianliWang/pietto/blob/v0.1.12/docs/execution.md)
-- [Editor support (alpha)](https://github.com/MianliWang/pietto/blob/v0.1.12/docs/editor-lsp.md)
-- [Release notes](https://github.com/MianliWang/pietto/blob/v0.1.12/docs/release-notes.md)
-- [Roadmap](https://github.com/MianliWang/pietto/blob/v0.1.12/docs/roadmap.md)
-- [Development](https://github.com/MianliWang/pietto/blob/v0.1.12/docs/development.md)
+- [Language reference](https://github.com/MianliWang/pietto/blob/main/docs/language.md)
+- [Style](https://github.com/MianliWang/pietto/blob/main/docs/style.md)
+- [A worked example](https://github.com/MianliWang/pietto/blob/main/docs/worked-example.md)
+- [Capabilities by mode and target](https://github.com/MianliWang/pietto/blob/main/docs/capabilities.md)
+- [Project and package](https://github.com/MianliWang/pietto/blob/main/docs/project-package.md)
+- [Execution (alpha)](https://github.com/MianliWang/pietto/blob/main/docs/execution.md)
+- [Editor support (alpha)](https://github.com/MianliWang/pietto/blob/main/docs/editor-lsp.md)
+- [Release notes](https://github.com/MianliWang/pietto/blob/main/docs/release-notes.md)
+- [Roadmap](https://github.com/MianliWang/pietto/blob/main/docs/roadmap.md)
+- [Development](https://github.com/MianliWang/pietto/blob/main/docs/development.md)
 
 Public contracts:
-[CLI JSON v1](https://github.com/MianliWang/pietto/blob/v0.1.12/docs/spec/cli-json-v1.md),
-[diagnostics](https://github.com/MianliWang/pietto/blob/v0.1.12/docs/spec/diagnostics.md),
-[project JSON v2](https://github.com/MianliWang/pietto/blob/v0.1.12/docs/spec/project-cli-json-v2.md),
-[semantic metadata artifact v1](https://github.com/MianliWang/pietto/blob/v0.1.12/docs/spec/semantic-metadata-artifact-v1.md),
-[configuration](https://github.com/MianliWang/pietto/blob/v0.1.12/docs/spec/pietto-config-v1.md)
-and [golden fixtures](https://github.com/MianliWang/pietto/blob/v0.1.12/docs/spec/golden-fixture-policy-v1.md).
+[CLI JSON v1](https://github.com/MianliWang/pietto/blob/main/docs/spec/cli-json-v1.md),
+[diagnostics](https://github.com/MianliWang/pietto/blob/main/docs/spec/diagnostics.md),
+[project JSON v2](https://github.com/MianliWang/pietto/blob/main/docs/spec/project-cli-json-v2.md),
+[semantic metadata artifact v1](https://github.com/MianliWang/pietto/blob/main/docs/spec/semantic-metadata-artifact-v1.md),
+[configuration](https://github.com/MianliWang/pietto/blob/main/docs/spec/pietto-config-v1.md)
+and [golden fixtures](https://github.com/MianliWang/pietto/blob/main/docs/spec/golden-fixture-policy-v1.md).
 Alpha contracts:
-[relation column view](https://github.com/MianliWang/pietto/blob/v0.1.12/docs/spec/project-relation-columns-v1.md),
-[Python compile API](https://github.com/MianliWang/pietto/blob/v0.1.12/docs/spec/python-compile-api-v1.md),
-[LSP diagnostics v1](https://github.com/MianliWang/pietto/blob/v0.1.12/docs/spec/lsp-diagnostics-v1.md)
-and [LSP editor facts v1](https://github.com/MianliWang/pietto/blob/v0.1.12/docs/spec/lsp-editor-facts-v1.md).
+[relation column view](https://github.com/MianliWang/pietto/blob/main/docs/spec/project-relation-columns-v1.md),
+[Python compile API](https://github.com/MianliWang/pietto/blob/main/docs/spec/python-compile-api-v1.md),
+[LSP diagnostics v1](https://github.com/MianliWang/pietto/blob/main/docs/spec/lsp-diagnostics-v1.md)
+and [LSP editor facts v1](https://github.com/MianliWang/pietto/blob/main/docs/spec/lsp-editor-facts-v1.md).
 
 ## Install from a checkout
 
@@ -422,10 +422,10 @@ uv pip install --python /tmp/pietto-arrow/bin/python "./dist/pietto-0.1.12-py3-n
 ## License
 
 Pietto is released under the
-[MIT License](https://github.com/MianliWang/pietto/blob/v0.1.12/LICENSE).
+[MIT License](https://github.com/MianliWang/pietto/blob/main/LICENSE).
 Third-party material in the wheel, the sdist and the source archive is listed
-in [THIRD_PARTY_NOTICES.md](https://github.com/MianliWang/pietto/blob/v0.1.12/THIRD_PARTY_NOTICES.md),
+in [THIRD_PARTY_NOTICES.md](https://github.com/MianliWang/pietto/blob/main/THIRD_PARTY_NOTICES.md),
 with the original license texts in
-[LICENSES/](https://github.com/MianliWang/pietto/tree/v0.1.12/LICENSES).
+[LICENSES/](https://github.com/MianliWang/pietto/tree/main/LICENSES).
 The Pietto logo artwork in `docs/assets/brand/` is © Mianli Wang, all rights
 reserved, and is not covered by the MIT License that applies to the code.
