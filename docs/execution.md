@@ -373,10 +373,11 @@ query in one of the paired forms (Wave A
 `PUBLIC_R2_PAIRED_FORM`, since its refined statement is no form. These checks
 read the live query alone, so `recover` makes them in this order also when
 its restated `values` or `parameters` cannot bind. Last, on PostgreSQL, they
-refuse a query that reads `now()` and whose SQL R2 does not read (see the R2
-boundary below) with `PUBLIC_R2_STATEMENT_SNAPSHOT`. This check renders the
-bound query, so `recover` makes it only when its restated values and
-parameters bind.
+render the bound query's first page and refuse a query whose SQL R2 does not
+read (see the R2 boundary below) with `REFINEMENT_NATIVE_SQL`, or with
+`PUBLIC_R2_STATEMENT_SNAPSHOT` when the query reads `now()`. This check
+renders the bound query, so `recover` makes it only when its restated values
+and parameters bind.
 Ordinary execution on every route, an ordinary
 `save` and bundles accept them. Last, on MySQL, `save_recoverable` and
 `recover` refuse a query in a form that `0.1.11` refused, one that
@@ -1668,13 +1669,23 @@ or a successful semantic check alone establishes none of those premises.
   produce, are refused (`PIE-R1004`).
 - R2 checks every page against its own reading of native SQL. Its existing
   unsupported expression domain includes conditional CASE, BETWEEN,
-  literal-list IN, CAST, scalar calls other than `now()` and NOT. Modern
+  literal-list IN, CAST, scalar calls other than `now()` and NOT, and R2 does
+  not read the null-safe comparison of `same_value` wherever it appears (a
+  SELECT item, WHERE, a `let` or a JOIN `on`), an ordered `first` or `last`,
+  or a window function argument that reads a header parameter either. Modern
   source spellings such as an inclusive comparison chain or `Float(value)`
   still lower to the corresponding SQL operations and do not remove this
-  boundary. An R2 attempt whose statement contains such an unsupported form
-  fails closed at its first page. A query that reads `now()` is checked for
-  these forms when it is prepared, and refused before any workspace access or
-  connection.
+  boundary. On PostgreSQL, `save_recoverable` and `recover` render the first
+  page when they prepare a query and refuse one whose statement contains such
+  a form with PIE-R1004 `REFINEMENT_NATIVE_SQL` (`PUBLIC_R2_STATEMENT_SNAPSHOT`
+  for a query that reads `now()`) before any workspace access or connection.
+  It is the last of their preparation checks, so a query that another of them
+  refuses keeps that refusal, and `recover` makes it before its trust check
+  (`PUBLIC_R2_TRUST`) and only when its restated values and parameters bind;
+  otherwise the workspace refuses the restatement. On MySQL, an R2 attempt of
+  a query that `0.1.11` compiled and whose statement contains such a form
+  still fails closed at its first page, with `terminal` `FAILED` and no
+  public reason.
 - On MySQL, `save_recoverable` and `recover` refuse a query in a form that
   `0.1.11` refused, the forms that Phase77 opens in `0.1.12`, with
   PIE-R1004 `PUBLIC_R2_UNQUALIFIED_FORM` before any workspace access or
@@ -1689,8 +1700,8 @@ or a successful semantic check alone establishes none of those premises.
   parameter selected as an output (`MEANING_OUTPUT`, as in `save()`).
   `recover` makes the check also when its restated values or parameters
   cannot bind. This check does not apply to ordinary execution, an ordinary
-  `save` or bundles, and R2 of a MySQL query that `0.1.11` compiled, or of
-  any PostgreSQL query, does not change.
+  `save`, bundles or PostgreSQL, and R2 of a MySQL query that `0.1.11`
+  compiled does not change.
 - R2 refines a `where any(...)` or `where not any(...)` test, the rewrite of
   a retired `semi join` or `anti join`, as the JOIN it replaces only when it
   is an AND-composed part of a WHERE. `save_recoverable` and `recover` refuse

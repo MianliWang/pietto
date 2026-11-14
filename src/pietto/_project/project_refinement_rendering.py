@@ -316,6 +316,9 @@ def render(statement, artifact, page_values=(), *, _guards=None, clock=None):
                     emit(", ")
                 if arg.read is not None:
                     expression(ref(alias, arg.read.name))
+                elif arg.literal is None:
+                    # A header-parameter argument has no refined spelling yet.
+                    raise ValueError("REFINEMENT_NATIVE_SQL")
                 else:
                     emit(arg.literal)
             emit(") OVER (")

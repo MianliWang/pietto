@@ -455,8 +455,12 @@ NOW_FORMS = {
         True,
         "PUBLIC_R2_STATEMENT_SNAPSHOT",
     ),
-    # Without `now()` that check is not made: its first page fails later.
-    "lower_alone": ("    select:\n        id\n        l = lower(label)\n", True, None),
+    # Without `now()` that SQL is refused as well, with its own detail.
+    "lower_alone": (
+        "    select:\n        id\n        l = lower(label)\n",
+        True,
+        "REFINEMENT_NATIVE_SQL",
+    ),
     # The check is the last of preparation: another refusal comes first.
     "computed_key": (
         "    let big = id > 5\n    where date_of(now()) <= date_of(stamp)\n"
@@ -1667,6 +1671,50 @@ def test_mysql_r2_of_a_form_that_0111_compiled_does_not_change(tmp_path, form):
     assert serialize_emission(outcome) == query.emission
 
 
+_NATIVE_SQL = ("PIE-R1004", "REFINEMENT_NATIVE_SQL")
+# PostgreSQL forms with the R2 refusal each meets: SQL whose first page R2
+# does not read, S06's `same_value` in a JOIN `on` and in a WHERE and a
+# scalar call of its existing unsupported domain, and that JOIN over `==`,
+# which it reads.
+POSTGRES_FIRST_PAGES = {
+    "S06_nullsafe_join": (
+        "nullsafe",
+        nullsafe_cells.program("postgres", "inner", "S1", "int"),
+        _NATIVE_SQL,
+    ),
+    "same_value_where": (
+        "words",
+        'table result:\n    from words\n    where same_value(ntext, "a")\n'
+        "    select:\n        id\n",
+        _NATIVE_SQL,
+    ),
+    "upper": (
+        "words",
+        "table result:\n    from words\n    select:\n        id\n        u = upper(text)\n",
+        _NATIVE_SQL,
+    ),
+    "S06_equality_join": (
+        "nullsafe",
+        nullsafe_cells.program("postgres", "inner", "S1", "int", function=False),
+        _WORKSPACE,
+    ),
+}
+
+
+@pytest.mark.parametrize("form", POSTGRES_FIRST_PAGES)
+def test_postgresql_r2_refuses_a_first_page_it_does_not_read(tmp_path, form):
+    """PostgreSQL R2 renders and reads its first page when it prepares the
+    query: a page it would not read is refused before any job, workspace
+    access or connection, with or without a job, and before `recover`'s trust
+    check; one it reads goes on to the workspace."""
+    world, body, refusal = POSTGRES_FIRST_PAGES[form]
+    query = _world_query(tmp_path, world, body, dialect="postgres")
+    assert _r2_refusals(query) == (refusal, refusal)
+    assert _r2_refusals(query, job="job-" + "1" * 32) == (refusal, refusal)
+    trust = ("PIE-R1008", "PUBLIC_R2_TRUST") if refusal == _WORKSPACE else refusal
+    assert _r2_refusals(query, pin="0" * 64)[1] == trust
+
+
 def test_mysql_r2_decides_each_query_of_a_module_alone(tmp_path):
     """A query that 0.1.11 compiled keeps R2 beside one it refused."""
     import pietto.execution as execution
@@ -1799,7 +1847,8 @@ def test_mysql_r2_refuses_a_query_whose_main_derivation_fails(
 def test_only_a_verified_mysql_compile_derives_as_main(tmp_path, monkeypatch):
     """compile_query reads the project once and derives a VERIFIED MySQL
     statement once more; PostgreSQL, a refused statement and the command do
-    not, and PostgreSQL R2 of the same forms does not change."""
+    not, and PostgreSQL R2 of the same forms refuses none as unqualified: it
+    refuses a first page that it does not read and goes on otherwise."""
     import pietto.execution as execution
     from pietto._project import project_sql_emission_cli as emission_cli
 
@@ -1858,7 +1907,10 @@ def test_only_a_verified_mysql_compile_derives_as_main(tmp_path, monkeypatch):
             )
         )
     assert (calls["_emit_owner"], calls["_prepare_emission_context"]) == (1, 1)
-    for world, form in (("floats", "S06_same_value"), ("r02", "R02")):
+    for world, form, refusal in (
+        ("floats", "S06_same_value", _NATIVE_SQL),
+        ("r02", "R02", _WORKSPACE),
+    ):
         twin, seen = counts(
             lambda: _world_query(
                 tmp_path / form,
@@ -1868,4 +1920,4 @@ def test_only_a_verified_mysql_compile_derives_as_main(tmp_path, monkeypatch):
             )
         )
         assert (twin._main_emits, seen) == (None, (1, 1))
-        assert _r2_refusals(twin) == (_WORKSPACE,) * 2
+        assert _r2_refusals(twin) == (refusal,) * 2

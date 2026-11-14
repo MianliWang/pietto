@@ -368,7 +368,7 @@ def prepare_live_r2_refinement(template, binding, requirements, *, reanchor=Fals
             output=output,
             binding=binding,
         )
-        _readable_now(value)
+        _readable_first_page(value)
         return value, None
     value = _prepare_refinement(
         artifact,
@@ -377,7 +377,7 @@ def prepare_live_r2_refinement(template, binding, requirements, *, reanchor=Fals
         output=output,
         binding=binding,
     )
-    _readable_now(value)
+    _readable_first_page(value)
     witness = LiveR2Witness(template, binding, value, requirements, reanchor)
     _LIVE_R2_WITNESSES.add(witness)
     return value, witness
@@ -387,26 +387,32 @@ def prepare_live_r2_refinement(template, binding, requirements, *, reanchor=Fals
 _TRIAL_CLOCK = "2000-01-01 00:00:00.000000"
 
 
-def _readable_now(value):
-    """Refuse, last in preparation, a query that reads `now()` and whose
-    first page R2 does not read: its first page would fail closed after a
-    workspace and a connection."""
+def _readable_first_page(value):
+    """Refuse, last in preparation, a PostgreSQL query whose first page R2
+    does not read: that page would fail closed after a workspace and a
+    connection. On MySQL a `now()` read is refused earlier and a form that
+    no native qualification covers after this (D77.67); a MySQL form that
+    `0.1.11` compiled still meets its first page."""
     from pietto._project.project_refinement_rendering import render
     from pietto._project.project_refinement_verification import (
         page_syntax,
         verify_native,
     )
 
+    if value.original.request.family == "mysql":
+        return
     # The compiled records, not the statement: a `now()` read the statement
     # does not render as a clock read must still be refused here.
-    if not _compiled_now(value.original):
-        return
+    now = _compiled_now(value.original)
+    clock = _TRIAL_CLOCK if now else None
     try:
         statement, controls = page_syntax(value, None, 1)
-        native = render(statement, value.original, controls, clock=_TRIAL_CLOCK)
-        verify_native(native, value, size=1, clock=_TRIAL_CLOCK)
+        native = render(statement, value.original, controls, clock=clock)
+        verify_native(native, value, size=1, clock=clock)
     except ValueError:
-        raise ValueError("PUBLIC_R2_STATEMENT_SNAPSHOT") from None
+        raise ValueError(
+            "PUBLIC_R2_STATEMENT_SNAPSHOT" if now else "REFINEMENT_NATIVE_SQL"
+        ) from None
 
 
 def _prepare_refinement(artifact, sources, *, policy, output, binding):

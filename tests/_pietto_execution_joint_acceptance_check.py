@@ -41,6 +41,8 @@ VALUES_BASIS = ("PIE-R1004", "PUBLIC_R2_VALUES_COORDINATE_BASIS")
 SERIES_BASIS = ("PIE-R1004", "PUBLIC_R2_TABLE_FUNCTION_COORDINATE_BASIS")
 BLOCK_READ = ("PIE-R1004", "REFINEMENT_EXPRESSION_BLOCK_READ")
 LATERAL = ("PIE-R1004", "REFINEMENT_LATERAL_JOIN")
+# PostgreSQL R2 refuses a query whose first page it does not read.
+NATIVE_SQL = ("PIE-R1004", "REFINEMENT_NATIVE_SQL")
 # R2 accepts the shape before any workspace, but it has fewer than nine rows,
 # so no prefix fails to recover: only the probes run.
 PROBED = "probed"
@@ -88,16 +90,22 @@ def _cell(expected: Any, authority: str) -> tuple:
     return expected, authority
 
 
-def _plain_routes(authority: str, r2: Any = OK) -> dict[str, dict[str, tuple]]:
-    """Every operation on every route, R2 as given."""
+def _plain_routes(
+    authority: str, r2: Any = OK, postgres_r2: Any = None
+) -> dict[str, dict[str, tuple]]:
+    """Every operation on every route, R2 as given (``postgres_r2`` on the
+    PostgreSQL routes, if given)."""
     return {
         route: {
             "execute": _cell(OK, authority),
             "save": _cell(OK, authority),
-            "r2": _cell(r2, authority),
+            "r2": _cell(
+                r2 if postgres_r2 is None or owner == "mysql" else postgres_r2,
+                authority,
+            ),
             "relay_live": _cell(OK, authority),
         }
-        for route in ROUTES
+        for route, owner in ROUTES.items()
     }
 
 
@@ -211,7 +219,7 @@ ORACLES: dict[str, dict[str, Any]] = {
     "param_result": {
         "compile": (V2, [["low", "Int", False], ["label", "Text", True]], [], 2, 4),
         "bundle": _cell(OK, POSITIONS),
-        "routes": _plain_routes(POSITIONS, r2=PROBED),
+        "routes": _plain_routes(POSITIONS, r2=PROBED, postgres_r2=NATIVE_SQL),
         "rows": [[_row(1, 1, "a", 1), _row(BIG, BIG, "a", 2)], []],
         "negatives": {"obligation": BINDING_INVALID},
         "vectors": {},
@@ -232,7 +240,7 @@ ORACLES: dict[str, dict[str, Any]] = {
             4,
         ),
         "bundle": _cell(OK, WINDOWS),
-        "routes": _plain_routes(WINDOWS, r2=PROBED),
+        "routes": _plain_routes(WINDOWS, r2=PROBED, postgres_r2=NATIVE_SQL),
         "rows": [
             [
                 _row(0, -1, 1, 1),
