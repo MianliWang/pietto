@@ -244,7 +244,7 @@ before its owner's Gate 1 takes it.
 | A new built-in table function | the first Gate 1 that names a case; Phase82 freeze input (D74.12) |
 | Database-native array and JSON columns; the `postgres_adbc` nested route | a later Phase80 Gate 1 (D80.06); the Phase82 freeze (D76.11) |
 | MySQL nested output and `JSON_TABLE` | the separate nested work package, at its own Gate 1 (D71.05, D77.32) |
-| pandas and Polars nesting; the Arrow data-analysis example; `compile_queries(...)`; `round` of a `Float` with digits | a later Phase80 Gate 1 (J25, D75.03, D76.05, D80.06) |
+| pandas and Polars nesting; the Arrow data-analysis example; `compile_queries(...)`; `round` of a `Float` with digits | a later Phase80 Gate 1 (J25, D75.03, D76.05, D80.06): nesting after the nested work package that took Phase77 S24 (D77.32); the example, whose inputs Phase79 B1 and Phase80 S02 deliver; `compile_queries(...)` after the forged-compiled trust decision below; `round` at the Phase82 freeze ([Phase80 audit](phases/phase-80/completion-audit.md#handoff)) |
 | Nested fuzz and high-intensity differential work; a readability and compile-time benchmark | Phase81 (J25) |
 | The nested public format | the Phase82 freeze |
 | Multi-level collections and the refused nested combinations; a capture let that reads another capture let | the NestedRelation semantic owner and the ProjectSQLPlan owner; the scope and capture semantic owner; each at its first admission Gate 1 |
@@ -274,11 +274,12 @@ each completion audit adds the freeze inputs of its phase here.
 | `pietto lsp`, editor partial analysis and the five editor-only messages; whether `pietto.cli.main(argv)` is a documented entry point | only the diagnostic protocol freezes; the messages get a catalog without PIE codes; the entry point is decided | D75.09–D75.12, Phase76 handoff |
 | The E-C alpha surfaces of `pietto lsp` (formatting of the open buffer, workspace symbols, import-path document links, completion from the static vocabulary and the open buffer's identifiers, and the hover and definition facts of LSP editor facts v1); the VS Code extension's use of `pietto.cli.main(argv)` to start the server | each surface freezes with its alpha contract or changes before the freeze; the entry point is decided with the `pietto lsp` row above | ED.03, ED.09, ED.11 |
 | `pietto.sql.emit_postgres_sql` | stays public and enters the API inventory | owner, 2026-11-07 |
+| `pietto.interop`: its five adapters (six functions), the D80.03 admission table with nested fields refused, the D80.04 exception order, and the five `interop-*` extras with their pins | the surface freezes with its alpha contract or changes before the freeze; pandas and Polars nesting is admitted by a Gate 1 before then or stays refused | D80.02–D80.06, D80.08, AD80.01; [Phase80 audit](phases/phase-80/completion-audit.md) |
 | The header rule and its tokens retained by Phase76 | removed under the migration/hint compatibility contract | D75.06, D76.12; [Phase76 audit](phases/phase-76/completion-audit.md) |
 | The nested public format; grouping extensions, automatic fan-out repair and a public aggregate state | frozen, or kept unsupported | Phase71 route, Phase74 handoff |
 | `def` and `relationship` items in PACKAGE_ROOT modules; a built-in table function | admitted, or kept refused | D74.07, D74.12 |
-| PostgreSQL extension functions, the function/plugin SPI, user-written table functions, database-native array and JSON columns, the `postgres_adbc` nested route | the 1.0 support matrix lists each one no Gate 1 took as not supported | D76.11 |
-| Project `matches(...)`; `Decimal` division and `avg`; `round` of a `Float` with digits | a contract, or a refusal that stays | D76.03, D76.05 |
+| PostgreSQL extension functions, the function/plugin SPI, user-written table functions, database-native array and JSON columns, the `postgres_adbc` nested route | the 1.0 support matrix lists each one no Gate 1 took as not supported | D76.11, D80.06 |
+| Project `matches(...)`; `Decimal` division and `avg`; `round` of a `Float` with digits | a contract, or a refusal that stays | D76.03, D76.05, D80.06 |
 | The PostgreSQL TLS profile of `PostgresAccess.ca_file` | a support-matrix row | D76.07 |
 | Single files and projects | `language.md` states the rule before the freeze: single files open project-only forms one at a time, DISTINCT first, with no promise that they stay a subset of projects | owner, 2026-11-07 |
 | Bundles and saved jobs across versions; an upgrade-impact tool | the 1.0 compatibility and migration policy, and whether the tool comes before 1.0 | D76.13, Phase76 reminder 7 |

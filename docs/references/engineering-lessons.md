@@ -455,3 +455,26 @@ failed histories.
    its script was edited restarted finished agents instead of replaying
    them. A changed workflow starts as a new continuation that names the
    completed results it reads.
+
+## Phase80
+
+The [completion audit](../phases/phase-80/completion-audit.md) keeps the
+evidence behind these lessons.
+
+- **80-1 — Check what a `-I` child imports.** `-I` ignores `PYTHONPATH` and
+  `PYTHONDONTWRITEBYTECODE`, so a child of a venv whose `.pth` names another
+  checkout tests and writes into that checkout. Run such children from an
+  environment installed from the tree under test.
+- **80-2 — Gate a test by its entry point's platform.** A collected test that
+  calls a platform-gated entry point carries the same predicate; otherwise
+  the other platforms' CI jobs fail on it.
+- **80-3 — Admit before the target sees the value.** A target library may
+  panic instead of raising a Python error, as Polars 2.1.0 does on
+  decimal256. Admission runs first; a target's failure is not a refusal.
+- **80-4 — Plan shared resolutions as one commit.** One lock that resolves
+  several packages' extras, or one seam that holds several slices' cases,
+  cannot be split per slice at integration. The route names such commits,
+  or gives each slice its own files, before the lanes start.
+- **80-5 — Record the midpoint where the closure can read it.** Parallel
+  lanes can meet the midpoint inputs without any record holding them, and
+  the closing audit then reconstructs them.

@@ -16,7 +16,9 @@ contract that declares every premise
 states what that example did. The [language reference](language.md) gives
 every rule and limit, and
 [Feature support by target](language.md#feature-support-by-target) gives the
-SQL of each function added after 0.1.8.
+SQL of each function added after 0.1.8. Converting a result batch for pandas,
+Polars, NumPy, SciPy or Matplotlib is no `check` or `emit-sql` feature;
+[Python interoperability](interop.md) gives what each adapter admits.
 
 - **yes**: `check` accepts it, and `emit-sql` prints SQL (single file, exit 0)
   or a VERIFIED artifact (project, exit 0).

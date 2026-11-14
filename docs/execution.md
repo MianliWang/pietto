@@ -1292,7 +1292,9 @@ server's order and duplicates; only an `order by` fixes that order.
 `pa.schema(result)` returns this schema before any row, including for an
 empty result, without opening the handle. Pass batches rather than a handle to
 libraries: a library that accepts an iterable can iterate a handle and thereby
-open and consume its attempt.
+open and consume its attempt. `pietto.interop` converts one batch into a pandas
+or Polars DataFrame, a NumPy array, a SciPy CSR array or a Matplotlib artist
+([Python interoperability](interop.md)).
 
 `batch_rows` and `batch_bytes` bound one batch; `max_rows` and `max_bytes` bound
 the whole attempt. All are finite positive integers; their defaults are 256
