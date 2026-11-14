@@ -94,10 +94,10 @@ arguments included, records the results below and in the comparison matrix.
 | Binary `+` / `-` / `*` | `Int` / `Float`, `Float` / `Int`, `Float` / `Float` | currently accepted as `Float UNKNOWN` |
 | Binary `+` / `-` / `*` | `Decimal` / `Decimal` | currently accepted as `Decimal UNKNOWN` |
 | Binary `+` / `-` | `Decimal` / `Int`, `Int` / `Decimal` | currently accepted as `Decimal UNKNOWN`; an integer literal such as `2` is an `Int` operand |
-| Binary `*` | `Decimal` / `Int`, `Int` / `Decimal` | currently accepted as `Decimal UNKNOWN`; PostgreSQL projects use `Decimal(p+19,s)` while `p+19 <= 65`; MySQL projects remain refused, except in a statement that is one of fourteen paired forms with only its names changed ([unreleased](../release-notes.d/77-s17-mysql-decimal-arithmetic.md)) |
+| Binary `*` | `Decimal` / `Int`, `Int` / `Decimal` | currently accepted as `Decimal UNKNOWN`; PostgreSQL projects use `Decimal(p+19,s)` while `p+19 <= 65`; MySQL projects remain refused, except in a statement that is one of fourteen paired forms with only its names changed ([0.1.12](../release-notes.md#decimal-and-int-arithmetic-and-signs-in-fourteen-mysql-project-forms)) |
 | Binary `+` / `-` / `*` | `Decimal` / `Float`, `Float` / `Decimal` | currently rejected with existing `PIE-S2105` (`` a Decimal does not mix with a Float in `+`, `-` or `*` ``, also as the JSON `suggestion`); a dotted literal such as `1.5` is a `Float` operand |
 | Modulo `%` | `Int` / `Int` | currently accepted as `Int UNKNOWN` |
-| Modulo `%` | `Float` / `Float` | currently accepted as `Float UNKNOWN`; truncating-quotient remainder (`math.fmod`), with the dividend sign including zero; PostgreSQL project emission requires its exact binary64 lowering; single-file emission and MySQL remain refused, apart from the unreleased (Phase77 S15) MySQL cell that the [language reference](../language.md) states |
+| Modulo `%` | `Float` / `Float` | currently accepted as `Float UNKNOWN`; truncating-quotient remainder (`math.fmod`), with the dividend sign including zero; PostgreSQL project emission requires its exact binary64 lowering; single-file emission and MySQL remain refused, apart from the `0.1.12` (Phase77 S15) MySQL cell that the [language reference](../language.md) states |
 | Modulo `%` | all other known operand pairs | currently rejected with existing `PIE-S2105`; `%` requires two Int operands or two Float operands |
 | Division `/` | `Int` / `Int` | currently accepted as `Int UNKNOWN`: SQL division truncating toward zero; PostgreSQL emits `a / b` and MySQL emits `a DIV b` |
 | Division `/` | `Int` / `Float`, `Float` / `Int`, `Float` / `Float` | currently accepted as `Float UNKNOWN`; a bare `/` on both targets, with no inserted cast |
@@ -142,7 +142,7 @@ their existing refusal. Qualified `Decimal * Int` parameters participate in
 the PostgreSQL product rule. MySQL Decimal/Int and
 different-scale Decimal project forms remain refused, except in a statement
 that is one of fourteen paired forms with only its names changed
-([unreleased](../release-notes.d/77-s17-mysql-decimal-arithmetic.md)).
+([0.1.12](../release-notes.md#decimal-and-int-arithmetic-and-signs-in-fourteen-mysql-project-forms)).
 Decimal division stays deferred, there are no Decimal literals, and no cast
 reads or produces a Decimal (`cast(Int as Float)` is the only cast).
 Inside `sum` and `avg`, a `Decimal * Decimal` or `Decimal * Int` argument passes `check`, and

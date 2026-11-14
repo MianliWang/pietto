@@ -1,5 +1,2465 @@
 # Pietto release notes
 
+## MySQL project catch-up public alpha release notes — 0.1.12
+
+**Status:** These notes cover `0.1.12`, the public alpha prepared from its
+release commit, which follows the Phase77 batches and changes only version
+owners and documentation. It is published only when the tag `v0.1.12`, the
+versioned GitHub pre-release and PyPI carry its accepted wheel and sdist;
+this document neither creates those channels nor substitutes for their byte
+verification. As for earlier releases, the compiler and package are covered
+on CPython 3.12 and 3.13 for Linux x86-64. CI also runs the
+platform-neutral tests with CPython 3.12 and 3.13 on Windows x86-64, and
+batch `emit-sql --project ROOT --all --output DIR` stays Linux-only; other
+platforms and Python versions are not covered.
+
+`0.1.12` is the release of Phase77, the MySQL catch-up, and of the Wave A
+work package. MySQL projects now emit many forms that PostgreSQL projects
+already emit, each only in the shapes that its own two-database run matched;
+outside them MySQL keeps its `0.1.11` refusal, and the known limitations
+list what MySQL still refuses. Projects on both targets also emit
+`same_value` in a JOIN `on`, in the statements that its two-database run
+qualified. The release also runs `now()` selected as an output and in
+`relay_live` and PostgreSQL R2, fails a MySQL read at once when the server
+sends an error after rows, and repairs project emission over rows without
+fields, project window frame offsets, single-file MySQL `Text` literals and
+table names, and MySQL `Float` membership in a let with `capture` lines. It
+retires no source spelling of `0.1.11`, and the execution extras keep their
+`0.1.11` pins. Each subsection below lists the changes against `0.1.11` that
+a program can observe, its compatibility rows and the new refusals: the
+execution changes and repairs first, then the new forms from "Float NOT
+EXISTS in MySQL projects" on; the last one lists the known limitations. The
+sections from 0.1.11 down describe published files.
+
+### Highlights
+
+- **MySQL projects catch up.** Checked `Int` `+`, `-`, `*`, sign and `abs`;
+  a guarded `sum(Int)`, also conditional, over a JOIN and in two levels;
+  `Int %`, `Float %` and an `Int /` that its literal proves; `stddev`,
+  `variance`, `pvariance` and `pstdev` of a nullable `Float`; `Float` `==`,
+  `!=` and `same_value` of two row reads, `Float` NOT EXISTS and `Float`
+  GROUP BY keys; `Decimal`, `Date` and `Timestamp` query parameters; `lpad`
+  and `now()`; and `first` and `last`. Each opens only in the forms that its
+  two-database run matched.
+- **Paired MySQL forms.** `count`, `min` and `max` over a window, the
+  conditional count and the tests of a group, `count_distinct(a, b, ...)`, a
+  conditional beside a JOIN and a call in an aggregate argument, `Text`
+  defaults of `lag` and `lead`, and `Decimal` and `Int` arithmetic emit in the
+  statements that their qualification packs pair across PostgreSQL and
+  MySQL, names aside.
+- **Null-safe JOINs.** `same_value(a, b)` in a JOIN `on` emits on PostgreSQL
+  and MySQL in the qualified forms, as `IS NOT DISTINCT FROM` and `<=>`.
+- **MySQL single files** emit an asof JOIN beside a FULL JOIN in seven
+  qualified files.
+- **`now()` in execution.** A PostgreSQL query can select `now()` as an
+  output, `relay_live` runs queries that read `now()`, and PostgreSQL R2
+  records one statement time and binds it in every page and every later
+  `recover`.
+- **MySQL reads.** A server error after the first rows fails the attempt at
+  once, with the server's SQLSTATE (PIE-R3003).
+- **Repairs.** Project SQL no longer reports VERIFIED a statement over rows
+  without fields that no database parses; a project `check` refuses window
+  frame offsets as a single file does; single-file MySQL writes a `Text`
+  literal with a backslash or a control character in hexadecimal and refuses
+  the table names that project SQL refuses; a MySQL `Float` `in` over a let
+  with `capture` lines, which could return rows twice, is refused; and the
+  wheel no longer ships twelve modules that only tests use.
+
+### Upgrading from 0.1.11
+
+- A `0.1.11` source file needs no `pietto migrate` step.
+- **New refusals.** These programs were accepted by `0.1.11`:
+  - A MySQL project `where v in m` or `where v not in m`, with a `Float` `v`
+    and a let `m` with `capture` lines, is BLOCKED (PIE-B1003
+    `membership_type_pair_not_admitted`): MySQL could return such rows
+    twice. A compiled MySQL artifact that holds such a read is refused when
+    it is replayed. See
+    [MySQL `Float` membership in a let with `capture` lines](#mysql-float-membership-in-a-let-with-capture-lines).
+  - A project WHERE or JOIN over a source whose shape declares no field is
+    BLOCKED (PIE-B1003 `zero_column_stage_not_admitted_on_target`) on both
+    targets: `0.1.11` reported it VERIFIED with SQL that no database
+    parses. On MySQL, a capturing `let` whose `exists`, `in`, `scalar` or
+    LATERAL read reads such rows is refused the same way. For such a
+    statement `compile_query` now raises `CompileRejected` with this
+    blocker, where `0.1.11` raised `RequestRejected` (PIE-R1004
+    `QUERY_NOT_EXECUTABLE`, `detail` `COMPILED_SOURCE_FIELDS`); neither
+    class derives from the other. See
+    [Project SQL refuses a WHERE or JOIN over rows without fields](#project-sql-refuses-a-where-or-join-over-rows-without-fields).
+  - A project `check` refuses a ROWS or GROUPS window frame offset that is
+    not a nonnegative `Int` literal up to 9223372036854775807 (PIE-S2104),
+    as a single file does, and `emit-sql --project` then refuses every
+    object of that project. A schema_version = 1 project now also checks
+    the RANGE offset of a QUALIFY window, as a schema_version = 2 project
+    did. See
+    [Project checks refuse window frame offsets as a single file does](#project-checks-refuse-window-frame-offsets-as-a-single-file-does).
+  - A single-file `mysql.table` string with a part that ends with a space or
+    holds `/`, `\` or a character outside the Basic Multilingual Plane fails
+    `check` with PIE-S2306, so the file emits SQL for neither dialect. See
+    [Single-file MySQL Text literals and table names](#single-file-mysql-text-literals-and-table-names).
+- **SQL text changes.** Single-file MySQL SQL writes a `Text` literal that
+  holds a backslash or a control character as `_utf8mb4 X'...'`, which MySQL
+  reads the same in every `sql_mode`. PostgreSQL and MySQL statements that
+  `0.1.11` refused emit in the forms that the subsections below state (on
+  PostgreSQL, the qualified `same_value` in a JOIN `on`).
+- **Execution.**
+  - A PostgreSQL query that selects `now()` as an output now runs; `0.1.11`
+    returned a handle whose schema export raised `HandleMisuse` (PIE-R4004).
+    A `Timestamp` or `UUID` parameter, or another expression over `now()`,
+    selected as an output in a program without a `Timestamp` or `UUID`
+    source field is refused with PIE-R1004 (`MEANING_OUTPUT`) while it is
+    prepared, before any workspace access or connection.
+  - `relay_live` runs a query that reads `now()` as one statement, so
+    PIE-R1004 no longer has the `detail` `STATEMENT_SNAPSHOT_ENTRY`.
+    PostgreSQL `save_recoverable` and `recover` run one where R2 reads
+    `now()`: a generation records the server's statement time as
+    `statement_time` and binds it at each read, one more placeholder toward
+    the `parameters` limit. A PostgreSQL query that reads `now()` and has
+    another R2 refusal now gets that refusal instead of
+    `PUBLIC_R2_STATEMENT_SNAPSHOT`.
+  - On MySQL, `save_recoverable` and `recover` refuse, with PIE-R1004 and
+    the new `detail` `PUBLIC_R2_UNQUALIFIED_FORM`, a query in a form that
+    `0.1.11` refused (see the known limitations). A reader that lists
+    `detail` values must add it.
+  - On `mysql_rows`, a server error after the first rows fails the attempt
+    when the read reaches it, with PIE-R3003, the server's SQLSTATE, `end`
+    `FAILED` and `transaction` `ROLLBACK_ACK`. `0.1.11` waited for the read
+    timeout (PIE-R3003 without a SQLSTATE, or PIE-R3001 `DEADLINE`) or
+    reported PIE-R3999 `MYSQL_ROWSET_ARITY`. A cancel or deadline that the
+    server reports as error 1317 during the read now ends it there:
+    `cancel_observed` can be true where it was false, and a deadline's
+    PIE-R3001 carries SQLSTATE `70100`.
+  - `load_bundle` refuses a MySQL bundle with a JOIN and either a
+    conditional in a definition without a JOIN of its own or a scalar call
+    in an aggregate argument, unless its records and SQL are one of the
+    paired forms (PIE-R1004 `COMPILED_OPERATOR` or
+    `COMPILED_AGGREGATE_ARGUMENT`). `0.1.11` loaded such a bundle, which
+    none of its emissions wrote.
+- **Compiled bundles and saved jobs.** As with every release, those made
+  under `0.1.11` or earlier are refused by code identity; new bundles keep
+  the version marks `(8, 1, 8, 1)`. Keep an exact `pietto==0.1.11`
+  environment for retained `0.1.11` bundles and saved jobs, or recompile
+  from source.
+- **Private modules.** `pietto._project.package_graph` and eleven other
+  private modules that only tests use are no longer installed; importing one
+  raises `ModuleNotFoundError`.
+- Tools that compare exact diagnostics, SQL text or JSON must expect the
+  changes listed below: the new blocker `detail`
+  `zero_column_stage_not_admitted_on_target`, the new suggestion of the
+  MySQL `first_last_not_admitted_on_target`, the `detail`
+  `STATEMENT_SNAPSHOT_ENTRY`, which is no longer produced, the changed
+  refusals of the statements and bundles in the tables below, and, in the
+  statements that now emit on MySQL, R13 requirements with the existing
+  evidence values `target_checked_signed64_narrowing` and
+  `target_checked_binary64_overflow`.
+- The output of `fmt` and the alpha surfaces `pietto lsp`, `pietto.compiler`
+  and the relation-column document may still change before the Phase82
+  freeze; each change is listed in these release notes.
+
+### `now()` outputs run; other Timestamp and UUID outputs without a source are refused
+
+A PostgreSQL query can now select `now()` as an output: `execute()` and
+`save` run it, and its column is `timestamp[us]` with the civil meaning of a
+`Timestamp` source field, which the statement's UTC start has, beside
+`Timestamp` source fields or without any. Such an output is a SELECT item
+whose whole value is the call, also as a `def` argument or in a collected
+`let`, or a column that another relation selected from it, which keeps that
+meaning wherever a source field's is kept, such as through `max`, whose
+result admits NULL. The 0.1.10 notes said that `execute()` and `save()`
+accept a query that reads `now()`; for `now()` selected as an output that
+never held.
+
+A `Timestamp` or `UUID` parameter, or another expression over `now()` such
+as `coalesce(now(), now())`, selected as an output, also in a relation that
+`collect` reads, now gets `PIE-R1004` (`detail` `MEANING_OUTPUT`) from
+`execute()`, `save`, `save_recoverable` and `relay_live` while they prepare
+it, before any workspace access or connection, when the program has no
+`Timestamp` or `UUID` source field. Beside such a source field they already
+refused it, with the same `detail`, or with `MEANING_UNAVAILABLE` in a
+relation that `collect` reads: the output has no meaning that its result
+could carry.
+
+Before (measured at `d03d6e4b`, 0.1.11, on Linux with CPython 3.13.13 and
+PyArrow 26.0.1, without a database): over a source of `Int` and `Text`
+fields, `execute()` of `select: id, seen = now()` returned a handle, and
+`pa.schema(result)` raised `HandleMisuse` `PIE-R4004` (`SCHEMA_EXPORT`,
+`cause=AttributeError`). Its message blames PyArrow, which was not the cause.
+`c = coalesce(now(), now())` and a `Timestamp` or `UUID` parameter output
+did the same, and `save` reached the workspace. `relay_live` and
+`save_recoverable` refused both `now()` forms with `PIE-R1004`
+(`STATEMENT_SNAPSHOT_ENTRY` and `PUBLIC_R2_STATEMENT_SNAPSHOT`) and went on
+to their sink and workspace checks for a parameter output. Beside
+`Timestamp` source fields all four refused `seen = now()` with `PIE-R1004`
+(`MEANING_OUTPUT`).
+
+After: `pa.schema(result)` has `seen: timestamp[us] not null` in both
+programs and `save` reaches the workspace; what `relay_live` and
+`save_recoverable` do with `seen = now()` is in the section on their `now()`
+reads below. The other outputs get `MEANING_OUTPUT` from all four, before
+the `PIE-R1002` of a deployment premise that names the wrong schema.
+
+`date_of(now())` and a WHERE comparison with `now()` run as before, and a
+MySQL project still refuses `now()` with `PIE-B1003`
+(`scalar_call_signature_not_admitted`) outside the position of "MySQL
+project `lpad` and `now()`". No PIE code or detail is added; SQL output, CLI
+JSON v1, project JSON v2, saved-result formats and the format and records of
+compiled bundles are unchanged.
+
+### `relay_live` and PostgreSQL R2 run queries that read `now()`
+
+`relay_live` now runs a query that reads `now()`. It runs one statement, as
+`save` does, so the rows its sink receives hold one `now()` value, and the
+`detail` `STATEMENT_SNAPSHOT_ENTRY` of `PIE-R1004` is no longer produced.
+
+On PostgreSQL, on both routes, `save_recoverable` and `recover` now run a
+query that reads `now()` where R2 reads it: as the whole value of a SELECT
+item, or as a side of a comparison in a SELECT item or in a WHERE built with
+`and` and `or`, in any stage. An R2 generation is one statement for
+`now()`: `save_recoverable` reads the server's UTC statement time once, in
+its own transaction before its first page, records it with the generation,
+and every page of that attempt and of each later `recover` binds that value
+however much later it runs. `recover` still reads its data in its own later
+snapshot, so the suffix it adds can hold rows committed after that time
+whose value compares as before it. The generation's extraction
+specification records the time as `statement_time`, and `recover` binds it
+as a parameter: it is the one value `recover` takes from the workspace
+without a fresh value to compare it with. A query that reads `now()` binds
+one more placeholder at each read, which counts toward the contract's
+`parameters` limit.
+
+A PostgreSQL query that reads `now()` and whose SQL R2 does not read, such
+as one with `date_of(now())`, `coalesce(t, now())`, `t <= now() <= u` or
+`now() in (t, u)`, or one that also selects `lower(x)`, is still refused with
+`PIE-R1004` (`detail` `PUBLIC_R2_STATEMENT_SNAPSHOT`) before any workspace
+access or connection. That check is now the last step of R2 preparation, so
+a query that reads `now()` and has another R2 refusal, such as
+`PUBLIC_R2_COMPUTED_GROUP_KEY` or `REFINEMENT_RESOURCE_LIMIT`, gets that
+refusal instead. It renders the bound query, so `recover` makes it only when
+its restated values and parameters bind; otherwise it goes on to the
+workspace, which refuses it with `PIE-R1009` (`BINDING_VECTOR` when the named
+generation exists) without a connection. On
+MySQL, `save_recoverable` and `recover` still refuse a query that reads
+`now()` with `PUBLIC_R2_STATEMENT_SNAPSHOT` at its former place. That
+`detail` now means a query that reads `now()` passed to R2 on MySQL, or on
+PostgreSQL one whose SQL R2 does not read.
+
+Before (measured at `d03d6e4b`, 0.1.11, on Linux with CPython 3.13.13,
+without a database): over a source of `Int` and `Text` fields, `relay_live`
+refused `select: id, seen = now()` and `day = date_of(now())` with
+`PIE-R1004` (`STATEMENT_SNAPSHOT_ENTRY`) and `save_recoverable` refused them
+with `PIE-R1004` (`PUBLIC_R2_STATEMENT_SNAPSHOT`). Beside `Timestamp` source
+fields both refused `where stamp <= now()` and `day = date_of(now())` the
+same way. `save_recoverable` refused a query that groups by its own `let`
+value and has `where date_of(now()) <= date_of(stamp)` with
+`PUBLIC_R2_STATEMENT_SNAPSHOT`, and so did `recover` of a query with a
+parameter and `date_of(now())` whose restated parameter did not bind.
+
+After: `relay_live` goes on to its sink checks for all of them (here
+`PIE-R1001` `REFERENCE_SINK_ROOT`, as for a query without `now()`).
+`save_recoverable` goes on to the workspace for `seen = now()`, with or
+without `Timestamp` source fields, and for `where stamp <= now()`, and still
+refuses `day = date_of(now())` with `PUBLIC_R2_STATEMENT_SNAPSHOT`. The
+grouped query gets `PUBLIC_R2_COMPUTED_GROUP_KEY`, and the restatement that
+does not bind goes on to the workspace.
+
+The PostgreSQL native qualification passed on 2026-11-13: run
+`now-resume-pg-20261113T163002Z-6b47a88871e31b73ad57ccac`, on PostgreSQL 18.6
+over `postgres_rows` and `postgres_adbc`, gave `pass: true` with no reason
+against for every cell (R2-0 to R2-4 and the `relay_live` cell), and the run
+was accepted. It bound this change as first committed on the `now()` output
+change (tree `2520fd61`). D77.50 carries it to the commit that integrates
+this change: the experiment's compile record, apart from its record of the
+installed code and each form's trust record (the bundle's `compatibility`
+and `producer`, which name that code, and its pin, a digest of the bundle
+bytes that hold both), the bundles without `compatibility` and `producer`,
+and its page record are byte-identical there (sha256, first 16 digits, the
+same on both sides: compile record `6324cbe6e6318cf0`, page record
+`209c750b3c22d769`). MySQL R2 has no run, and keeps its refusal.
+
+No PIE code or detail is added; emitted SQL, CLI JSON v1, project JSON v2
+and the format and records of compiled bundles are unchanged. A generation
+that does not read `now()` records the same specification as before.
+
+### Project SQL refuses a WHERE or JOIN over rows without fields
+
+Project SQL emission wrote a WHERE over a source whose shape declares no
+field, such as a shape with only `always = check(True)`, and a JOIN of two
+such sources, as a CTE with an empty column list,
+`WITH "p0" () AS (SELECT  FROM ...)`, and reported it VERIFIED on
+PostgreSQL and MySQL; neither database parses it. Such a statement is now
+BLOCKED with PIE-B1003 `zero_column_stage_not_admitted_on_target`, once per
+such WHERE or JOIN in statement order, the order of their CTEs, which may
+differ from source order: a WHERE reports its stage at that WHERE, and a JOIN
+reports the JOIN at its ON clause, or without a location when it has
+none; an `any` filter written before a later JOIN is such a JOIN, at
+its condition. MySQL has no SELECT without a column, so on MySQL a
+capturing `let` that reads such rows inside its `exists`, `in`, `scalar` or
+LATERAL read is refused the same way; PostgreSQL runs that inline SELECT
+and keeps emitting it. A source like this read without a WHERE, through a
+`let` value or by an aggregate alone emits as before.
+
+Changed diagnostics (programs whose SQL no database parsed; every other
+program is unchanged):
+
+| Entry | Before (`0.1.11`, measured at `0541765a`) | After |
+| --- | --- | --- |
+| `pietto emit-sql --project` | `VERIFIED` with that SQL, exit 0 | `BLOCKED` with the blocker above, exit 1 |
+| `pietto.compiler.compile_sql` | a `VERIFIED` document with that SQL | a `BLOCKED` document with the blocker above |
+| `pietto.execution.compile_query` | `RequestRejected` with PIE-R1004 `QUERY_NOT_EXECUTABLE` (detail `COMPILED_SOURCE_FIELDS`) | `CompileRejected` with the blocker above |
+
+`check --project` and single-file SQL are unchanged. A statement that
+another blocker refuses keeps exactly the blockers it had: this one is
+reported only when nothing else in the statement is refused. The MySQL
+refusal of a `Float` `in` or `not in` read of a let with `capture` lines,
+new in this release ([its note](#mysql-float-membership-in-a-let-with-capture-lines)),
+yields to this one: a statement with both reports this blocker alone. A
+query that reads a source without fields stays not executable, as before:
+one that still emits SQL is refused by `compile_query` with that
+PIE-R1004, so no execution entry ever sent this SQL to a database.
+
+### A MySQL server error after the first rows fails with its SQLSTATE
+
+On the `mysql_rows` route, a server error that MySQL sends after some rows of
+the result now fails the attempt as soon as the read reaches it, without
+waiting for the read timeout: `PIE-R3003` with the server's SQLSTATE and the
+driver's error class as `cause`. Batches delivered before it stay delivered;
+the batch being read is not. Such errors include a value out of range (error
+1690, SQLSTATE `22003`), the error 1242 of a `scalar` read of more than one row
+(SQLSTATE `21000`, as documented for every route) and the server's own
+`max_execution_time` timeout (error 3024, SQLSTATE `HY000`). Pietto sets no
+server-side statement limit on `mysql_rows`, so that timeout is `PIE-R3003`,
+not `PIE-R3002`.
+
+Before, the pinned mysql-connector-python 26.10.0 kept the previous row when
+an error packet followed it within one batch read. If the error was the
+batch's last packet, the previous row was delivered a second time as data.
+Wherever the error came in the batch, it was lost:
+
+- The reader waited for its read timeout (up to 10 s), and the attempt failed
+  with `PIE-R3003` without a SQLSTATE (`cause` `ReadTimeoutError`), or with
+  `PIE-R3001`, `end` `DEADLINE` and `transaction` `UNKNOWN` when the attempt's
+  deadline (`limits.seconds`) passed during that wait. Both are now
+  `PIE-R3003` with the server's SQLSTATE, `end` `FAILED` and `transaction`
+  `ROLLBACK_ACK`.
+- A guard read or a page read, which may return only a known number of rows,
+  could count the repeated row as one row too many and fail with `PIE-R3999`
+  (`detail` `MYSQL_ROWSET_ARITY`, no SQLSTATE) instead; it now fails with
+  `PIE-R3003` and the server's SQLSTATE.
+- A cancel or deadline that the server reports as error 1317 while the rows
+  are read now ends the read when the read reaches that error.
+  `cancel_observed` can then be true where it was false, and a deadline's
+  `PIE-R3001` carries SQLSTATE `70100` and that error's class as `cause`,
+  not the error of the connection that the deadline shut down.
+
+Measured on MySQL 8.4.12 with the server's `max_execution_time` of 10 s, the
+default `batch_rows` of 256 and `limits.seconds` 60: a read of 300,000 rows
+that outlasted the server's limit delivered 101,632 rows both before and after
+this change. Before, the attempt failed 10 s after the last of them with
+`sqlstate` `None`; now it fails without the wait with `sqlstate` `HY000` and
+`cause` `DatabaseError`.
+
+Each row is now read with its own driver call. That costs about 0.7 µs more
+per row in the reader alone; a whole read of 200,000 rows with `batch_rows`
+4096 took 5.3–6.9 s before and 5.4–7.0 s after (five runs each). No
+diagnostic code is added, no CLI JSON v1 or outcome shape changes, and the
+PostgreSQL routes are not affected.
+
+### R2 refuses the MySQL forms that `0.1.11` refused
+
+On MySQL, `save_recoverable` and `recover` refuse a query in a form that
+`0.1.11` refused, one of the forms this release opens on MySQL, with
+`PIE-R1004` (`detail` `PUBLIC_R2_UNQUALIFIED_FORM`) before any workspace
+access or connection: no native qualification has run R2's refined
+statement of any of them. This check does not apply to `execute()`,
+`save()` or bundles, and R2 of a PostgreSQL query or of a MySQL query that
+`0.1.11` compiled does not change.
+
+The check is R2's last, so a query that another R2 check refuses keeps
+that refusal: a paired form (`PUBLIC_R2_PAIRED_FORM`), a query that reads
+`now()` (`PUBLIC_R2_STATEMENT_SNAPSHOT`), a `Float` GROUP BY key form
+(`REFINEMENT_COMPARISON_DOMAIN`) when R2 prepares it, and a `Timestamp`
+parameter selected as an output (`MEANING_OUTPUT`, as in `save()`) when
+its values and parameters bind. `recover` makes the check also when its
+restated values or parameters cannot bind (see the
+[R2 boundary](execution.md#known-limitations)).
+
+Changed diagnostics (programs refused in `0.1.11`; no accepted program
+changes):
+
+| Code | Case | Before | After |
+| --- | --- | --- | --- |
+| PIE-R1004 | R2 `save_recoverable` or `recover` of a MySQL query in a form this release opens: [`Float` statistics](#mysql-float-statistics-of-one-nullable-field), [`Float` row equality](#float-equality-of-two-row-reads-in-mysql-projects), [typed header parameters](#mysql-project-decimal-date-and-timestamp-parameters), [`lpad`](#mysql-project-lpad-and-now), [`first` and `last`](#mysql-project-first-and-last), [checked `Int` and `sum(Int)`](#mysql-project-checked-int-arithmetic-and-sumint), [conditionals, JOINs and two-level sums](#mysql-project-conditional-join-and-two-level-sumint), [`%`](#mysql-project-int--and-float-), [`Int /` proved by its literal](#mysql-project-int--proved-by-its-literal), [`Float` `not any`](#float-not-exists-in-mysql-projects) and [`same_value` in a JOIN `on`](#null-safe-same_value-in-a-project-join-on) | not reachable: the query did not compile | `PUBLIC_R2_UNQUALIFIED_FORM` |
+| PIE-R1004 | R2 `recover`, with restated values or parameters that cannot bind, of a MySQL query with [`Float` GROUP BY keys](#float-group-by-keys-in-mysql-projects) or a `Timestamp` [header parameter](#mysql-project-decimal-date-and-timestamp-parameters) selected as an output | not reachable: the query did not compile | `PUBLIC_R2_UNQUALIFIED_FORM` |
+
+### Project checks refuse window frame offsets as a single file does
+
+A project `check`, of either schema version, now refuses a ROWS or GROUPS
+window frame offset that is not, once `let` names are inlined, a
+nonnegative `Int` literal up to 9223372036854775807, such as `"x"`, `-1`,
+`1.5` or `9223372036854775808`, in a selected, named or QUALIFY window, a
+JOIN window of a schema_version = 2 project included, as a single file does:
+PIE-S2104 `Invalid window frame for function first_value: ROWS offsets must
+be nonnegative integer literals up to 9223372036854775807` (`GROUPS` for a
+GROUPS frame) at the call. A schema_version = 1 project now also checks a
+RANGE offset of a QUALIFY window, as a schema_version = 2 project already
+did.
+
+Changed diagnostics. A schema_version = 1 project emits no SQL, so its
+`check` now refuses a program it passed. `emit-sql --project` checks the
+whole project first, so it now refuses such a program with that error in
+place of an emission blocker, and also refuses any other object of the same
+project, which emitted SQL before.
+
+| Command | Before (`0.1.11`, measured at `a015afcf`) | After |
+| --- | --- | --- |
+| `pietto check --project` | no error, exit 0 | the PIE-S2104 error, exit 1 |
+| `pietto emit-sql --project` of the object with the offset | `BLOCKED` with an emission blocker, such as PIE-B1004 `window_frame_offset_evidence_missing`, PIE-B1002 `window_frame_offset_out_of_signed64_range` above signed64 or, on MySQL, PIE-B1003 `window_frame_groups_approved_non_support_on_mysql`, exit 1 | `BLOCKED` with no blocker and the PIE-S2104 error in `diagnostics`, exit 1 |
+| `pietto emit-sql --project` of another object | the SQL, exit 0 | `BLOCKED` with no blocker and the PIE-S2104 error in `diagnostics`, exit 1 |
+
+An offset that reads a `let` binding with an error of its own reports
+nothing more. Window count literals above 9223372036854775807 stay refused in
+single files only. No diagnostic code is new, the CLI JSON and project JSON
+shapes are unchanged, and a project without such an offset emits the same
+SQL.
+
+### Single-file MySQL Text literals and table names
+
+- Single-file MySQL SQL wrote a backslash in a Text literal as `\\` and a
+  line feed, carriage return, tab, backspace or Ctrl-Z as a backslash
+  escape, which MySQL reads as another value under the `sql_mode`
+  `NO_BACKSLASH_ESCAPES`: a WHERE test then compared the column with
+  another value. A Text literal that holds a backslash or a control
+  character is now written as its UTF-8 bytes in hexadecimal with the
+  `_utf8mb4` introducer, as project MySQL SQL writes its Text literals in
+  hexadecimal. MySQL reads it the same in every `sql_mode` and compares it
+  under the column's collation, as any other literal. Another Text literal
+  is unchanged, and no PostgreSQL or project Text literal changes.
+- A single-file `mysql.table` string with a part that ends with a space or
+  holds `/`, `\` or a character outside the Basic Multilingual Plane now
+  fails `check` with PIE-S2306 at the string, as project SQL emission
+  refuses such a name; MySQL `emit-sql` wrote it before. `check` knows no
+  dialect, so a file that declares such a source no longer emits
+  PostgreSQL SQL either, even when no statement reads that source. As for
+  any `check` error, `emit-sql` of such a file reports only the `check`
+  diagnostics, also for a statement that emission refused before. A string
+  with a part that holds NUL or has more than 64 characters still passes
+  `check`, even when its other part would fail it, and keeps its PIE-B1000
+  from MySQL `emit-sql`. No PIE code is added and no JSON shape changes.
+
+Changed single-file MySQL SQL (measured at `a015afcf`):
+
+| Pietto | Before | After |
+| --- | --- | --- |
+| `where name == "a\\b\nc"` | ``WHERE `name` = 'a\\b\nc'`` | ``WHERE `name` = _utf8mb4 X'615c620a63'`` |
+| `tag = "it's \\ ok"` | `` 'it''s \\ ok' AS `tag` `` | `` _utf8mb4 X'69742773205c206f6b' AS `tag` `` |
+| `"\b\n\r\t"` | `'\b\n\r\t'` | `_utf8mb4 X'080a0d09'` |
+| `"O'Reilly"`, `"你好"` | unchanged | unchanged |
+
+New refusals (programs accepted before):
+
+| Code | Case | Before | After |
+| --- | --- | --- | --- |
+| PIE-S2306 | `mysql.table("𠀀.users")`, `mysql.table("app.users ")`, `mysql.table("   ")`, `mysql.table("app/users")` | `check` passes; MySQL `emit-sql` writes ``FROM `𠀀`.`users` `` and the like | `Invalid source connector arguments for mysql.table: a table or database name must not end with a space or hold /, \ or a character outside the Basic Multilingual Plane` |
+| PIE-S2306 | a file whose `table q` reads `postgres.table("app.users")` and that declares an unread `mysql.table("app/users")` source | `check` passes; PostgreSQL `emit-sql` writes `FROM "app"."users"` | the same PIE-S2306 at the `mysql.table` string |
+
+Changed diagnostics (programs refused before):
+
+| Program | Before | After |
+| --- | --- | --- |
+| PostgreSQL `emit-sql` of a `table q` that reads `mysql.table("app/users")` | PIE-B1000 `PostgreSQL SQL emission is not implemented for RelationIR: q. PostgreSQL relation emission requires postgres.table(Text)` | PIE-S2306 at the `mysql.table` string |
+| `emit-sql` for either dialect of another statement that emission refused, in a file that declares such a `mysql.table` source, such as a MySQL `table q` that reads `postgres.table("app.users")` | that statement's own refusal, here PIE-B1000 `MySQL SQL emission is not implemented for RelationIR: q. MySQL relation emission requires mysql.table(Text)` | only the file's PIE-S2306 |
+
+### The wheel no longer ships modules that only tests use
+
+Twelve private modules under `pietto._project` that no command, the Python
+compile API or `pietto.execution` imports, about 22,000 lines, now live
+under `tests/` as test helpers: `package_graph`,
+`package_graph_inspection`, `project_bag_null_oracle`,
+`project_ir_inspection`, `project_ir_pipeline`, `project_ir_pure_boundary`,
+`project_job_store_verification`, `project_phase62_inspection`,
+`project_phase62_pure_boundary`, `project_result_contract_correspondence`,
+`project_sql_emission_portable` and `project_sql_emission_pure_boundary`.
+An installed Pietto refuses `import pietto._project.package_graph` and the
+other eleven with `ModuleNotFoundError`. These modules were private, and no
+command, diagnostic, JSON document or SQL output changes.
+
+### MySQL `Float` membership in a let with `capture` lines
+
+- Fixed: MySQL project SQL (`emit-sql --project`, `compile_query`) emitted
+  a `Float` `v in m` or `v not in m` written in a WHERE whose `m` is a let
+  with `capture` lines, a correlated `IN` subquery. MySQL may flatten it
+  into a semijoin, and its `Float` equality then gave wrong rows: in the
+  Phase77 R01 qualification cells on MySQL 8.4.12, with the semijoin
+  materialized beside a `VARCHAR(1000)` key (`where kw == o.kw` in the
+  let), the outer rows whose `v` is `-0.0` or `0.0` came back twice in a
+  fixture whose matching inner rows held both `-0.0` and `0.0`.
+  PostgreSQL returned each row once. Every such read is now BLOCKED with
+  PIE-B1003 `membership_type_pair_not_admitted` at the read, whatever its
+  key, for `in` and `not in`, a nullable or non-null value, a literal or
+  `None`.
+- The same read as a SELECT item (`select: f = v in m`) emits as before,
+  and so does a read of a let without `capture` lines or of a source
+  (`where v in m` over `let m: from i`, `where v in iv`) and a correlated
+  read of another type. PostgreSQL emits every form as before.
+- A statement that emission refuses for another reason, such as an
+  unreviewed MySQL release, reports the blockers it has without this one.
+  A compiled MySQL artifact that holds such a read is refused when it is
+  replayed. No PIE code is added and no JSON shape changes.
+
+New refusals (programs accepted before):
+
+| Code | Case | Before | After |
+| --- | --- | --- | --- |
+| PIE-B1003 | MySQL project `where v in m` or `where v not in m`, `v` a `Float` field and `m` a let of `capture o`, `from i`, `where kw == o.kw` (or `kn == o.kn`), `select: v` | VERIFIED: ``WHERE (`s1`.`v` IN (SELECT `e0`.`c0` FROM (SELECT `t1`.`c1` AS `c0` FROM (SELECT ... WHERE (`s0`.`kw` = `s1`.`kw`)) AS `t1`) AS `e0`))`` | BLOCKED PIE-B1003 `membership_type_pair_not_admitted` at `v in m` |
+
+### Float NOT EXISTS in MySQL projects
+
+- `emit-sql --project --dialect mysql` now emits a `Float` `==` of two row
+  reads inside `not any(...)` in the forms the Phase77 R02 candidate
+  emission experiment covers on MySQL 8.4.12 and nothing else: the whole
+  WHERE of a query over one source `o` is `not any(z.v == o.v for z in i)`,
+  or `not any(z.v == o.v and z.k == o.k for z in i)`, where `v` is a
+  nullable `Float` field of `o` and of a source `i` over another table and
+  `k` a NOT NULL binary-collation `Text` key of width 64 or 1000 on each
+  side, after the `Float` `==`; each `==` may have its operands in either
+  order. The query has no other expression, clause, JOIN or header
+  parameter, reads no other query, declares no named window and no `let`
+  except one relation alias of `i` that the `any(...)` reads
+  (`let z = i` with `for z in z`), calls no `def`, and selects only `o`'s
+  non-null `Int` (BIGINT) and nullable `Float` fields. `o` has, selected or
+  not (the WHERE's CTE writes them all), exactly a non-null `Int`
+  (BIGINT), a nullable `Float` and NOT NULL binary `Text` fields of width 64
+  and 1000, in any order; `i`'s other fields never reach the SQL. The
+  statement is the PostgreSQL one in MySQL spelling, one
+  `NOT EXISTS (SELECT 1 FROM ...)`, and compiled replay and the live
+  template carry the same SQL.
+- The form keeps the [Float values](language.md#float-values) contract:
+  an outer row is kept exactly when no inner row makes the condition true,
+  once, `-0.0 == 0.0`, a NULL `v` keeps its row, and stored bits are kept.
+  The opening rests on the 2026-11-11 Phase77 `s06-float-b10` matrix, where
+  `anti_not_exists` matched 90 of 90 cells with the wide-key semijoin
+  materialization witnessed in EXPLAIN, and on the R02 candidate emission
+  experiment over Pietto's own statements. The lost Phase72 B10 record was
+  not reconstructed or replayed. PostgreSQL output is unchanged.
+- R2 `save_recoverable` and `recover` refuse a query of these forms with
+  PIE-R1004 (`detail` `PUBLIC_R2_UNQUALIFIED_FORM`) before any workspace
+  access or connection, since no native qualification has run its refined
+  statement (see the [R2 boundary](execution.md#known-limitations)).
+- The candidate emission experiment passed on 2026-11-14 in its eighth
+  freeze, one run per database, each judged `QUALIFIED` with no reason
+  against: PostgreSQL 18.6
+  `r02-pg-20261114T015508Z-60cf4c2ca867beefd88ddd59` and MySQL 8.4.12
+  `r02-my-20261114T015508Z-0ff6ea11ac361c2ba8fe8910`. The four forms
+  matched, the PostgreSQL reference matched, and the pair judgment
+  accepted the three templates (the bare `Float` `==` and the 64- and
+  1000-character keys) for opening. The seventh freeze's run is void and
+  carries nothing: its harness wrote each record in sorted key order,
+  which its judge read as the execution order, so no run of it could
+  qualify. The runs bound this change as first committed on the head of
+  the first `0.1.12` batch (tree `299b8225`). D77.50 carries them to the
+  commit that integrates this change: the experiment's projects, emitted
+  SQL and compile-only observations are byte-identical there, and both
+  halves' compile records are identical apart from the harness's install
+  identity (sha256, first 16 digits, the same on both sides: `sql.json`
+  `2559a63fe3378b44`, `compile-check.json` `bfe31e92338b5416`, compile
+  records as sorted-key JSON without their `identity` field PostgreSQL
+  `47273b5ec14413f7` and MySQL `ea93a59401231227`).
+- Kept refused on MySQL with PIE-B1003 `comparison_type_pair_not_admitted`:
+  every other `Float` comparison of two row reads inside `any(...)` or
+  `not any(...)`, such as `any(...)` itself, `!=`, `not (!=)` or
+  `same_value` inside it, a key before the `Float` `==` or a second key, a
+  key of another width or of two widths, a nullable or `Int` key, a
+  non-null `Float` operand, another test inside or beside the
+  `not any(...)`, `not any(...)` as a SELECT value, beside a JOIN or over an
+  upstream query, `i` over `o`'s table, an outer source with any other
+  field, and a query that declares another `let` (also one it never reads)
+  or a named window or calls a `def`. A statement of the forms above that
+  emission refuses for another reason, such as an output label past 256
+  characters, reports the earlier blockers, this PIE-B1003 included.
+
+Changed diagnostics (programs refused before; no accepted program changes;
+MySQL projects, no message text changed):
+
+| Code | Case | Before | After |
+| --- | --- | --- | --- |
+| PIE-B1003 | `where not any(z.v == o.v for z in i)`, alone or with `and z.k == o.k` of a NOT NULL binary `Text` key of width 64 or 1000, over an outer source of exactly an `Int`, a nullable `Float` and those two keys | `comparison_type_pair_not_admitted` at the `where` | none: the statement emits |
+
+### MySQL project `Int /` proved by its literal
+
+- A MySQL project now emits `Int / Int` where an `Int` literal proves the
+  quotient, in two shapes only: a literal dividend over a field, such as
+  `100 / b` (the literal is never the smallest `Int`), and a field over a
+  literal divisor of 2 or more, such as `b / 2`. The field is a `SMALLINT`,
+  `INT` or `BIGINT` field, nullable or not, of a source declared in the
+  query's own module, read by name (`b` or `nums.b`), and the `/` is the
+  whole value of a SELECT item of the `query` or `table` that
+  `emit-sql --project` emits; the field and the literal may each stand in
+  parentheses, such as `b / (2)`.
+  Every other SELECT item of that query is a direct read of such a field or
+  another such `/`. As written the query reads that source directly and
+  holds no `let`, WHERE, window, JOIN, GROUP BY or aggregate, HAVING,
+  DISTINCT, ORDER BY, LIMIT, header parameter (read or not), set operand or
+  read of another relation, and no operand or item comes from a `def`, as
+  its argument or as the body of a call such as `two()` of a `def` that
+  returns `2`; a literal may be a bind-safe `?`.
+- The SQL is the bare `(l DIV r)`, MySQL's integer division, which
+  truncates toward zero as PostgreSQL's `Int /` does; a literal operand is
+  `CAST(100 AS SIGNED)`, or `CAST(? AS SIGNED)` under bind-safe. MySQL
+  returns NULL for a zero divisor where PostgreSQL raises 22012, so the
+  result's nullability is unknown: an `Int` (`my_bigint`, all of signed 64
+  bits), with no R13 evidence.
+- A field proves nothing, neither by its storage nor by its declared
+  `int_range` or a `value_domain` premise: MySQL fails `INT64_MIN DIV 1`
+  with error 1690 although the quotient fits, and a column the contract
+  states as `INT` may hold that value. So the proof reads only the literal,
+  and every literal divisor is 2 or more.
+- Under bind-safe, `execute(values=...)` derives the statement again with
+  the bound values and applies the same rule to them: a divisor slot bound
+  to 1, 0 or a negative value, or a dividend slot bound to a negative value,
+  is PIE-R1004 `BINDING_INVALID` on MySQL, before any connection.
+  PostgreSQL binds them as before.
+- PostgreSQL SQL and every other public PostgreSQL output are unchanged.
+  Compiled bundles and live templates replay the same SQL. Emission derives
+  the cells once per projection, and plain verification re-derives
+  emission's refusals; compiled replay derives them from its records. Plain
+  and compiled verification also check each cell's operands against a
+  second, separate statement of the rule. A `def` spelling leaves the
+  cell's records apart from source positions and the source digest, so only
+  emission and plain verification refuse it.
+- R2 `save_recoverable` and `recover` refuse a MySQL query of these forms
+  with PIE-R1004 (`detail` `PUBLIC_R2_UNQUALIFIED_FORM`) before any
+  workspace access or connection, since no native qualification has run
+  its refined statement (see the
+  [R2 boundary](execution.md#known-limitations)).
+- Native evidence: the six forms open together. The candidate emission
+  experiment ran the emitted SQL of its six forms on both databases under
+  both literal policies, each statement one binary prepared statement in
+  a read-only transaction, over a seed loaded forward and in reverse and
+  over four one-row cells of a zero divisor or the smallest `Int`. It
+  passed on 2026-11-14, one accepted run per database with all 48 of its
+  entries matched: PostgreSQL 18.6
+  `r08-pg-20261114T100717Z-613a6e541cc6fabd1125fa4d`, which ran the SQL
+  text through libpq rather than through Pietto's reader, and MySQL
+  8.4.12 `r08-my-20261114T100834Z-ff559ebee9874e638372fa89`. An earlier
+  PostgreSQL run stopped in its harness before any statement reached the
+  database; it is void and was not replaced by a rerun of its freeze
+  (D77.74). The runs bound this change as first committed (tree
+  `571e559e`). D77.50 carries them to the commit that integrates this
+  change: the experiment's projects and emitted SQL, its 164 observations
+  of the forms and the 35 refusal controls and both halves' compile
+  records are identical there apart from the harness's install identity
+  and the observed commit's identity (sha256, first 16 digits, the same on
+  both sides: MySQL `sql.json` `c6beddc7adf5577e`, PostgreSQL `sql.json`
+  `098d02c13babb711`, observations `b6458f3546bc915e`, compile records as
+  sorted-key JSON without their `identity` field PostgreSQL
+  `f130129297e79554` and MySQL `cff9ce1e24e09d0a`).
+- Every other MySQL project `Int /` keeps the refusal it has without this
+  note, object for object (PIE-B1003 `binary_operator_not_admitted`): a
+  field over a field, whatever the storages, declared domains or
+  `value_domain` premises, such as `b / i`, `i / b` or `t / s`; a literal
+  divisor below 2 (`b / 1`, `b / 0`) or under a sign (`b / -2`); a literal
+  over a literal (`100 / 7`); a nested, signed or `abs` operand
+  (`(i + 1) / b`, `b / (2 + 1)`, `-i / 2`, `abs(i) / 2`); a
+  header-parameter operand; an operand from a `def`
+  (`b / idn(2)`, `two() / b`); a `/` inside another operation
+  (`b / 2 + d`, `b / 2 / t`), in a WHERE or a `let`; one beside an item of
+  any other kind, such as `p = i + j`, an S01 cell `p = b + b` or an S15
+  cell `r = b % d`; and one in a query with a WHERE, over an upstream query
+  or over a JOIN.
+
+A statement still refused reports exactly the blockers it has without this
+note, object for object, a cell's own included: selecting `q = b / 2`
+beside `p = b + b` keeps PIE-B1003 `binary_operator_not_admitted` at `q`
+and PIE-B1002 `arithmetic_outside_physical_range` at `p`.
+
+### MySQL project checked `Int` arithmetic and `sum(Int)`
+
+- A MySQL project now emits `+`, `-`, `*`, unary `-` and `abs` whose `Int`
+  operands are nullable `BIGINT` fields of a source declared in the query's
+  own module, read by its own name (`a` or `rows.a`), as the whole value of
+  a SELECT item of the `query` or `table` that `emit-sql --project` emits.
+  Parentheses and any `def` whose inlined body is the operation, such as
+  `add(a, b)`, `idf(a + b)` or `idf(a) + b` beside
+  `def idf(x: Int | None) -> Int | None: return x`, count as it: the plan
+  holds the inlined operation. Its other
+  SELECT items may be any form the query emits without this note. The query
+  reads its source through one WHERE at most, of any predicate it emits
+  without this note, and as written holds no `let` (a value, a carried
+  field, or a relation alias such as `let x = rows`, read by `from x` or not
+  read at all), window, JOIN, GROUP BY or aggregate, HAVING, DISTINCT,
+  ORDER BY, LIMIT, header parameter (read or not), bind-safe `?`, set
+  operand or read of another relation (an imported source, aliased or not,
+  included). The SQL is the
+  operation itself, such as `(a + b)`, `(-a)` or `ABS(b)`: MySQL's `BIGINT`
+  operators raise error 1690 (SQLSTATE 22003) outside signed 64 bits, as
+  PostgreSQL's raise 22003, and never return a wrapped value. The result is
+  an `Int` (`my_signed_int`) whose range is the part of its exact range
+  inside signed 64 bits, and the requirement of one whose exact range
+  leaves signed 64 bits carries the evidence
+  `target_checked_signed64_narrowing`, as PostgreSQL's checked `bigint`
+  operation does.
+- A MySQL project now emits a direct `sum` of a nullable `BIGINT` field of
+  a source declared in the query's own module, read by its own name (`a` or
+  `rows.a`), as the whole value of a SELECT item of the emitted `query` or
+  `table`; parentheses and any `def` whose inlined body is the field, as in
+  `sum((a))` or `sum(idf(a))`, count as it.
+  The query reads its source through one WHERE at most, groups by at most
+  one non-null `Int` field of that source or not at all, and selects only
+  that key (under any name, or not at all) and direct aggregates; its
+  aggregation holds `sum`, `count` and `min` only. As written it holds no
+  `let` (a relation alias or a window, read or not, included), window,
+  JOIN, HAVING, DISTINCT, ORDER BY, LIMIT, header parameter (read or not),
+  bind-safe `?` or read of another relation (an imported source, aliased or
+  not, included). The SQL is
+  `CASE WHEN SUM(x) > 9223372036854775807 THEN CAST(9223372036854775807 AS
+  SIGNED) + CAST(1 AS SIGNED) WHEN SUM(x) < -9223372036854775808 THEN
+  CAST(-9223372036854775808 AS SIGNED) - CAST(1 AS SIGNED) ELSE CAST(SUM(x)
+  AS SIGNED) END`: in range it is the exact sum, and outside it the `BIGINT`
+  arithmetic of its branch raises error 1690 (SQLSTATE 22003), never a
+  clamped value. The result is a nullable `Int`, NULL for no or only NULL
+  values, and its R13 requirement carries the evidence
+  `target_checked_signed64_narrowing`.
+- PostgreSQL SQL and every other public PostgreSQL output are unchanged.
+  Compiled bundles and live templates replay the same SQL. Emission derives
+  these cells from the plan and the authored declaration, and plain
+  verification re-derives emission's refusals from the same two; compiled
+  replay derives them from its records. A relation alias or a window, read
+  or not, and an imported source leave the direct read's records apart
+  from source positions and the source digest, so only emission and plain
+  verification refuse them.
+- R2 `save_recoverable` and `recover` refuse a query of these cells with
+  PIE-R1004 (`detail` `PUBLIC_R2_UNQUALIFIED_FORM`) before any workspace
+  access or connection, since no native qualification has run its refined
+  statement (see the [R2 boundary](execution.md#known-limitations)).
+- The raw MySQL 8.4.12 primitives behind these forms (BIGINT `+`, `-`,
+  `*`, sign and `ABS`, and that guarded `SUM`) matched the signed 64-bit
+  `Int` outcome beside PostgreSQL 18.6. The candidate emission experiment
+  then ran the emitted SQL of its twelve forms on both databases and
+  passed on 2026-11-13 in its seventh freeze: run
+  `20261113T234234Z-0feefcaca55ad4d5810b6bf1` judged every form
+  `EMITTED_FORM_MATCHED` with no receipt problem, each of the five S01
+  families and both S02 guard outcomes matched, and the verdict was
+  `MATCHED`. The run bound this change on the fix for a MySQL rows read at
+  a server error after rows (tree `41bcd78a`). D77.50 carries it to the
+  commit that integrates this change: the experiment's projects and
+  emitted SQL are byte-identical there (`sql.json` sha256, first 16
+  digits, `2fb135896e786fdd`), and its compile record is identical apart
+  from the harness's install identity (the sha256 of the record as
+  sorted-key JSON without its `identity` field, first 16 digits, the same
+  on both sides: `7aa75d65897ea63d`).
+- Every other MySQL project `Int` operation that may leave signed 64 bits
+  and every other MySQL `sum(Int)` keeps the refusal it has without this
+  note, object for object. Among them are `a + 1`, `n + a` or `abs(n)` over
+  a non-null `BIGINT` `n`, an `INT` operand beside a `BIGINT` one,
+  `a + b + a`, `-(a + b)`, `abs(-a)`, a conditional or `coalesce` around the
+  operation, the operation in a `let`, a WHERE or an aggregate argument, an
+  operand carried by a `let`, and a query that declares a relation alias,
+  read, chained or not read at all, or a window, read or not, a query that
+  reads an imported source, aliased or not, and one with ORDER BY, LIMIT,
+  DISTINCT, a
+  header parameter read or not, a bind-safe `?`, a JOIN, a set operand or
+  an upstream query
+  (PIE-B1002 `arithmetic_outside_physical_range`,
+  `unary_result_outside_physical_range` or
+  `abs_result_outside_physical_range`). Among the sums are a `sum` of a
+  non-null or `INT` field or of a `let` name, beside a nullable or second
+  group key or beside an aggregate other than `sum`, `count` and `min`
+  (such as `avg`), with a relation alias or a window read or not, over an
+  imported source, under HAVING, ORDER BY
+  or LIMIT, with a header parameter read or not or over an upstream query,
+  and a conditional sum (PIE-B1004 `sum_int_aggregate_range_proof_missing`);
+  a sum of an operation, such as `sum(a + b)`, keeps that operation's
+  PIE-B1002, and a sum inside another expression stays PIE-B1003
+  `aggregate_composition_not_admitted_on_target`. MySQL
+  project `Int` `/` stays refused (D77.23) outside the R08 cell of
+  [its subsection](#mysql-project-int--proved-by-its-literal), and `Int` `%` outside the
+  S15 cell of [its subsection](#mysql-project-int--and-float-).
+
+A statement still refused reports exactly the blockers it has without this
+note, object for object, a cell's own included: selecting `s = a + b` beside
+`t = a + 1` keeps PIE-B1002 `arithmetic_outside_physical_range` at both, and
+`x = sum(a)` beside `y = sum(a + b)` keeps PIE-B1004
+`sum_int_aggregate_range_proof_missing` at `x` and PIE-B1002 at `y`.
+
+### MySQL project conditional, JOIN and two-level `sum(Int)`
+
+- A MySQL project now emits each `sum` of an `Int` of a statement that is,
+  names aside, one of the nine forms that the
+  [language page](language.md) states: the conditional sums C1 to C4
+  (`sum(o.amount for o in group if o.flag)` per `INT` key over a nullable
+  or a non-null `BIGINT`, `if not o.flag` and `if o.flag is None` without a
+  key, and `if o.id > L` for an `Int` literal `L` of 0 or more under
+  `preserve_literals`), the sums over one JOIN J1 to J3 (an INNER JOIN
+  grouped by an `INT` field of the joined side summing a FROM field, a LEFT
+  JOIN grouped by the FROM side's unique key, and an `INT` field for J3,
+  summing a joined field) and the two-level route T1 and T2 (per order,
+  then per customer). The selected definition's SELECT items are a subset
+  of its form's with one sum at least, and T1's or T2's `per_order` selects
+  exactly its form's items; each is in any order, under any names, in a
+  `query` or a `table`.
+- A `sum` there is the guarded `SUM` of the S02 cell, a nullable `Int`
+  (`my_signed_int`): `CASE WHEN SUM(x) > 9223372036854775807 THEN
+  CAST(9223372036854775807 AS SIGNED) + CAST(1 AS SIGNED) WHEN SUM(x) <
+  -9223372036854775808 THEN CAST(-9223372036854775808 AS SIGNED) - CAST(1 AS
+  SIGNED) ELSE CAST(SUM(x) AS SIGNED) END`. A conditional sum is
+  `COALESCE(` that guard over `CASE WHEN TEST THEN x END`, `, 0)`, a non-null
+  `Int`, 0 when no row's test is True. In range each is the exact sum;
+  outside it the `BIGINT` arithmetic of its branch raises error 1690
+  (SQLSTATE 22003), never a clamped value. Each R13 requirement carries the
+  evidence `target_checked_signed64_narrowing`.
+- PostgreSQL SQL and every other public PostgreSQL output are unchanged.
+  Compiled bundles and live templates replay the same SQL. Emission reduces
+  the statement as written over its bound contract to the form, and plain
+  verification re-derives emission's refusals; compiled replay reduces its
+  records to the same form law. A relation alias, an imported source, a
+  read qualified by its source's name and parentheses leave the form's
+  records apart from source positions and the source digest, so only
+  emission and plain verification refuse them.
+- R2 `save_recoverable` and `recover` refuse a query of these forms with
+  PIE-R1004 (`detail` `PUBLIC_R2_UNQUALIFIED_FORM`) before any workspace
+  access or connection, since no native qualification has run its refined
+  statement (see the [R2 boundary](execution.md#known-limitations)).
+- The raw MySQL 8.4.12 primitives behind these forms, each form's guarded
+  statement over its own seeded tables, matched the signed 64-bit `Int`
+  outcome beside PostgreSQL 18.6. The candidate emission experiment then
+  ran the emitted SQL of the nine forms on both databases and passed on
+  2026-11-14 in its second freeze: run
+  `20261114T004403Z-5079c228d8f801082cb39673` judged every form
+  `EMITTED_FORM_MATCHED`, both its safe and its overflow half included,
+  with no receipt problem, the conditional, JOIN and two-level families
+  matched, and the verdict was `MATCHED`. The run bound this change as
+  stacked on S01's (tree `69d42812`). D77.50 carries it to the commit that
+  integrates this change: the experiment's projects and emitted SQL are
+  byte-identical there (`sql.json` sha256, first 16 digits,
+  `76be71ac71ae8a02`), and its compile record is identical apart from the
+  harness's install identity (the sha256 of the record as sorted-key JSON
+  without its `identity` field, first 16 digits, the same on both sides:
+  `9539a21293f93a07`).
+- Every other MySQL project `sum(Int)` keeps the refusal it has without this
+  note, object for object (PIE-B1004 `sum_int_aggregate_range_proof_missing`
+  where that is its blocker). Among them are a test other than `F`,
+  `not F`, `F is None` and `I > L`, a compound test, a negative literal,
+  C3 under `bind_safe_literals`, an `INT` argument, a conditional sum beside
+  `count()` or a direct sum, WHERE, ORDER BY, HAVING, LIMIT, DISTINCT, a
+  header parameter, a relation alias, an imported source, a read qualified
+  by its source's name in C1 to C4, parentheses, a JOIN of another kind,
+  key, carrier or ON order, two sums over a JOIN, a JOIN or two-level form
+  over a source with any field beyond the language page's two tables (the
+  JOIN carries every field), an upstream query that is not T1's or T2's
+  own, a third level, and the [style page](style.md)'s two-level example,
+  whose `amount` is non-null.
+
+Changed diagnostics: a MySQL statement whose only blockers in `0.1.11` were
+PIE-B1004 `sum_int_aggregate_range_proof_missing` at sums of these forms
+is now VERIFIED with those blockers gone. A statement still refused
+reports exactly the blockers it has without this note, object for object,
+such a sum's own included: a form beside `extra = sum(amount) + 1` keeps
+the one PIE-B1003 `aggregate_composition_not_admitted_on_target` that
+`0.1.11` reports.
+
+### MySQL `Float` statistics of one nullable field
+
+MySQL project SQL (`emit-sql --project`) now emits `stddev(x)`, `variance(x)`,
+`pvariance(x)` and `pstdev(x)` of a `Float` in one shape only: the single
+select item of a query or table whose only other clause is `from` one source,
+with no `let`, JOIN, `where`, `group by`, window, `order by`, `limit`,
+DISTINCT, set operation or header parameter (read or not), and whose argument
+is one direct field of that source declared `Float | None` (a nullable
+`DOUBLE` column), as in
+
+```pietto
+query spread:
+    from orders
+    select:
+        d = stddev(ratio)
+```
+
+They are written as MySQL's own `STDDEV_SAMP(x)`, `VAR_SAMP(x)`, `VAR_POP(x)`
+and `STDDEV_POP(x)`, with no cast and no `SQRT`. The result is a nullable
+`Float` (`my_double`, `finite_float`): None for fewer than two values
+(`stddev`, `variance`) or for none (`pvariance`, `pstdev`). Its R13
+requirement carries the evidence
+`{"overflow": "target_checked_binary64_overflow"}`: in the Phase77
+qualification of these four primitives on MySQL 8.4.12, each result met the
+bounds that [Aggregates](language.md#aggregates-and-grouping) states for a
+`Float`, and where the sum of squares overflowed MySQL failed the statement
+with SQLSTATE 22003 (error 1690), as PostgreSQL does, also where the
+deviation itself is finite. Compiled bundles replay the form; the compiled
+record format is unchanged. PostgreSQL output is unchanged.
+
+The shape is that of the emitted statement: the query may be read by another
+relation, or sit beside a declaration with a header parameter, and its SQL is
+the same. Every other MySQL shape keeps its refusal. These keep the `0.1.11`
+refusal PIE-B1004 `float_aggregate_finite_result_proof_missing`: a `Float`
+field that is not nullable, another aggregate beside it, `group by`,
+`where`, a relation `let` (`let x = orders`, read through `from x`, in a
+chain, or never read), an upstream table or query, a JOIN, `limit`, DISTINCT,
+a header parameter (read or not), `union all`, `intersect all` or
+`except all`, and a query or table that reads the form from another
+relation. A scalar call over the result, such as
+`coalesce(stddev(ratio), 0.0)`, is refused as every MySQL aggregate
+composition is, with PIE-B1003 `aggregate_composition_not_admitted_on_target`.
+`sum` and `avg` of a `Float` stay PIE-B1004 on MySQL: there, an overflowing
+`SUM` or `AVG` returned an infinity instead of failing. Each retained refusal
+is a D77.07 exception. A statement in the shape above that emission refuses
+for another reason, such as an output label past 256 characters, reports
+the `0.1.11` blockers, this PIE-B1004 included.
+
+R2 `save_recoverable` and `recover` refuse a query of this form with
+PIE-R1004 (`detail` `PUBLIC_R2_UNQUALIFIED_FORM`) before any workspace
+access or connection, since no native qualification has run its refined
+statement (see the [R2 boundary](execution.md#known-limitations)).
+
+The candidate emission experiment passed on 2026-11-13: run
+`run-20261113T020637Z-be4ccbf718489cd6311774fb`, on PostgreSQL 18.6 and
+MySQL 8.4.12, ran the 32 emitted statements, and its judge found
+`CANDIDATE_EMISSION_MATCHED` with no reason against; the run was accepted.
+It bound this change as first committed (tree `4285cd82`). D77.45 and D77.50
+carry it to the commit that integrates this change: the experiment's 39
+compile documents are byte-identical there, and so are the 32 documents it
+ran (sha256 of each set, first 16 digits, the same on both sides:
+PostgreSQL forms `723cda85014e9b58`, MySQL forms `6510f71d873d188d`, run
+documents `3db6c5daec220708` and `a0c7e14af218cc4b`).
+
+### Changed diagnostics
+
+Programs refused in `0.1.11`; no accepted program changes:
+
+| Code | Case | Before | After |
+| --- | --- | --- | --- |
+| PIE-B1004 | MySQL project, `stddev`, `variance`, `pvariance` or `pstdev` of one nullable `Float` field in the shape above | `float_aggregate_finite_result_proof_missing` | none: VERIFIED |
+
+### Float equality of two row reads in MySQL projects
+
+- `emit-sql --project --dialect mysql` now emits a `Float` comparison whose
+  two operands both read rows, in the forms the Phase77 S06 native
+  qualification matched on MySQL 8.4.12 and nothing else:
+  - `a == b`, `a != b`, `not (a != b)`, `same_value(a, b)` or
+    `not same_value(a, b)` of two different nullable `Float` fields of the
+    one source a query reads, as the whole value of one SELECT item
+    (`r = f1 == f2`) or as its whole WHERE (`where f1 != f2`);
+  - an INNER JOIN on `==` or `not (!=)`, or a LEFT JOIN on `==`, of a
+    nullable `Float` field of each of two sources over different tables, as
+    the whole `on` or followed by `and` one `==` of a NOT NULL binary-collation
+    `Text` key of width 64 or 1000 on each side
+    (`inner join i on i.v == o.v and i.k == o.k`).
+
+  The query has no other expression, clause, JOIN or header parameter,
+  reads no other query, declares no `let` (a relation alias such as
+  `let i = items` included, read or not) and no named window, and none of
+  its expressions is a `def` call. Its other SELECT items read a non-null
+  `Int` (BIGINT) field, and beside a WHERE or a JOIN also a nullable `Float`
+  field. Its sources have, selected or not (the CTE of a WHERE or a JOIN
+  writes them all), exactly the fields of the qualification's tables in
+  their order: a non-null `Int` (BIGINT) and two nullable `Float` fields for
+  a same-row form; a non-null `Int` (BIGINT), a nullable `Float` and NOT
+  NULL binary `Text` fields of width 64 and 1000 for each JOIN input.
+  Operands and keys may be written in either order and the `Float`
+  comparison comes first in the `on`. The statement is the PostgreSQL one
+  in MySQL spelling, with `<=>` for `same_value`, and compiled replay and
+  the live template carry the same SQL.
+- The forms keep the existing [Float values](language.md#float-values)
+  contract (`-0.0 == 0.0`, stored bits kept, joins keep bag multiplicity),
+  which the raw MySQL statements matched under the default, hash and
+  nested-loop JOIN strategies, beside a 64- and a 1000-character key.
+  PostgreSQL output is unchanged.
+- R2 `save_recoverable` and `recover` refuse a query of these forms with
+  PIE-R1004 (`detail` `PUBLIC_R2_UNQUALIFIED_FORM`) before any workspace
+  access or connection, since no native qualification has run its refined
+  statement (see the [R2 boundary](execution.md#known-limitations)).
+- The candidate emission experiment passed on 2026-11-13: one run per
+  database, PostgreSQL 18.6 (`postgres-20261113T160609Z-6419e80a65ff82e4`)
+  and MySQL 8.4.12 (`mysql-20261113T160609Z-263ec360bd590fc7`), each judged
+  its 25 forms MATCHED with no reason against, and the pair judgment found
+  the 25 forms and 21 cells `CANDIDATE_EMISSION_QUALIFIED` with no reason
+  against. The runs bound this change as first committed on the `0.1.11`
+  release commit (tree `ae0bce0a`). D77.50 carries them to the commit that
+  integrates this change: the experiment's projects, emitted SQL and
+  refusal controls are byte-identical there (sha256, first 16 digits, the
+  same on both sides: `sql.json` `618237d3cc7d2984`, `controls.json`
+  `8415451073599485`).
+- Kept refused on MySQL with PIE-B1003 `comparison_type_pair_not_admitted`,
+  as in `0.1.11`: every other `Float` `==`, `!=` or `same_value` of two row
+  reads. That includes `any(z.v == o.v for z in z)` and
+  `any(not (z.v != o.v) for z in z)`, which returned outer rows twice through
+  a materialized semijoin beside a 1000-character key (the Phase72 B10
+  class), and `any(z.v != o.v for z in z)`, which matched but stays refused
+  (D77.29); `not any(z.v == o.v for z in z)` emits in the forms of
+  [Float NOT EXISTS](#float-not-exists-in-mysql-projects). It also includes a RIGHT
+  JOIN, an INNER `!=`, a LEFT `not (!=)`, a key that is not such a `Text` key
+  of one width on both sides or comes first, the same field or table on both
+  sides, a non-null `Float` field, any other SELECT item, and the comparison
+  beside or under anything else (`not (a == b)`, `or`, a second comparison,
+  ORDER BY, LIMIT, DISTINCT, a window, a WHERE after the JOIN, a second
+  JOIN, an upstream query, a `union all` operand), a query that declares a
+  header parameter, a `let` (also a relation alias, a chain of them or one
+  the query never reads) or a named window, or that calls a `def`, and a
+  query whose source has other fields, read or not, or the same fields in
+  another order (a `Decimal`, a `Text` of width 255 or 4000, a third
+  `Float`, a nullable key, or the same-row table as a JOIN input).
+  A null-safe `same_value` `on` opens only in the cells of
+  [its own subsection](#null-safe-same_value-in-a-project-join-on), none of them `Float` on
+  MySQL. A statement of the
+  forms above that emission refuses for another reason, such as an output
+  label past 256 characters, reports the `0.1.11` blockers, this PIE-B1003
+  included.
+
+Changed diagnostics (programs refused in `0.1.11`; no accepted program
+changes; MySQL projects, no message text changed):
+
+| Code | Case | Before | After |
+| --- | --- | --- | --- |
+| PIE-B1003 | `r = f1 == f2` (also `!=`, `not (!=)`, `same_value`, `not same_value`) as a SELECT item, or as the WHERE, of two nullable `Float` fields of one source | `comparison_type_pair_not_admitted` at the SELECT item or the `where` | none: the statement emits |
+| PIE-B1003 | `inner join i on i.v == o.v` (also `not (!=)`, and `left join` on `==`), alone or followed by `and i.k == o.k` of a NOT NULL binary `Text` key of width 64 or 1000 | `comparison_type_pair_not_admitted` at the `on` | none: the statement emits |
+
+### Null-safe `same_value` in a project JOIN `on`
+
+- `emit-sql --project` now emits `same_value(a, b)` in a JOIN `on`, in the
+  statements the Phase77 null-safe JOIN qualification matched on both
+  PostgreSQL 18.6 and MySQL 8.4.12 (D77.41, D77.52), and in no other:
+  - a query that reads two sources over different tables directly in one
+    INNER, LEFT or RIGHT JOIN and holds nothing else: no WHERE, ORDER BY,
+    LIMIT, GROUP BY, DISTINCT, window, second JOIN, `let` (a relation alias
+    such as `let r = rhs` included, read or not), header parameter, named
+    window, `def` call or other query;
+  - each source declares no key and has, selected or not (the JOIN's CTE
+    writes them all), exactly a non-null `Int` (BIGINT) `id`, a nullable
+    `v` and, as the `on` needs, a non-null `Int` (BIGINT) `k` or a nullable
+    `w` of `v`'s type, in that order and under any names;
+  - `v` and `w` are an `Int` (BIGINT), a `Text` of 64 characters in the
+    binary collation, a `Decimal(12, 2)`, a `Date`, a `Timestamp`, a `UUID`
+    or, on PostgreSQL only, a `Float`, the same on both sides;
+  - each field's representation in the emission contract (storage, width
+    or precision, and domain) is exactly the qualification's: an `Int` is
+    `pg_int8` or `my_bigint` with the domain `int_range` from
+    -9007199254740993 to 9007199254740993, so a wider one, such as the
+    whole 64-bit range, is refused;
+  - the SELECT reads every field of the left input and then of the right,
+    in order, under any names;
+  - with `o` the preserved side (the left input of an INNER JOIN) and `i`
+    the other, the whole `on` is one of `same_value(o.v, i.v)`,
+    `same_value(i.v, o.v)`, `same_value(o.v, i.v) and o.k == i.k`,
+    `o.k == i.k and same_value(o.v, i.v)`,
+    `same_value(o.v, i.v) and same_value(o.w, i.w)`,
+    `not same_value(o.v, i.v)` and `same_value(o.v, i.v) or o.k == i.k`.
+
+```pietto
+shape Row:
+    id: Int
+    v: Text | None
+
+source lhs: Row = postgres.table("lhs")
+
+source rhs: Row = postgres.table("rhs")
+
+query result:
+    from lhs
+    left join rhs on same_value(lhs.v, rhs.v)
+    select:
+        l_id = lhs.id
+        l_v = lhs.v
+        r_id = rhs.id
+        r_v = rhs.v
+```
+
+- The statement is the one the same program emits with `==`, each
+  `same_value` written `(x IS NOT DISTINCT FROM y)` on PostgreSQL and
+  `(x <=> y)` on MySQL; compiled replay and the live template carry the
+  same SQL. The laws of `same_value` hold as written: two `None` keys
+  match, pairs keep bag multiplicity, and LEFT and RIGHT pad only a row
+  with no pair. An INNER JOIN does not make the operands of `same_value`
+  non-null, as it does those of `==`, so their columns stay nullable.
+  PostgreSQL cannot hash or merge `IS NOT DISTINCT FROM`: an `on` with no
+  `==` joined to it by `and` (an `==` under `or` does not count) runs as a
+  nested loop. Pietto promises no plan.
+- After a LEFT JOIN on `same_value`, `r.v is None` does not tell an
+  unmatched row: a left row whose `v` is `None` pairs with every right row
+  whose `v` is `None`. Test a non-null field of the right side instead.
+- R2 `save_recoverable` and `recover` refuse a MySQL query of these forms
+  with PIE-R1004 (`detail` `PUBLIC_R2_UNQUALIFIED_FORM`) before any
+  workspace access or connection, since no native qualification has run
+  its refined statement. On PostgreSQL they prepare such a query as any
+  other, and its R2 attempt fails closed at its first page, since R2 does
+  not read the null-safe comparison of its statement (see the
+  [R2 boundary](execution.md#known-limitations)).
+- Native evidence: the raw campaign of 2026-11-13 ran each statement in the
+  form Pietto emits, on six fixtures (with and without `None` keys, one side
+  empty, rows inserted in reverse) and, for the first and third forms
+  above, on physical NOT NULL columns and plain and unique indexes of the
+  other side, under the default, forced hash and forced nested-loop JOIN
+  methods on MySQL, and on PostgreSQL under the default method, with the
+  nested-loop and merge methods forced as well for the third and fourth
+  forms. Its six runs (`s06ns-{inner,left,right}-{postgres,mysql}`) are
+  QUALIFIED: 3,990 MySQL and 2,184 PostgreSQL probes, every cell
+  MATCHED on both databases, 126 cells ready on both and the 21 `Float`
+  cells on PostgreSQL, whose MySQL rows are evidence only (D77.52 O7).
+- Its candidate emission experiment of 2026-11-13 ran the SQL this change
+  emits for every cell, unchanged, on both databases under the default
+  method. Its six runs are QUALIFIED: 1,260 PostgreSQL and 1,080 MySQL
+  probes, every cell MATCHED, the 126 cells on both databases and the
+  21 `Float` cells on PostgreSQL. The runs bound this change as first
+  committed on the head of the first `0.1.12` batch (tree `5bfe4d3e`).
+  D77.50 carries them to the commit that integrates this change: the
+  emission of the experiment's 2,340 probes and the pairing of its 273
+  cells with the `==` statement are byte-identical there (sha256 of each
+  map as compact sorted-key JSON, first 16 digits, the same on both
+  sides: emission `c88bef0dfad8c8fe`, pairing `6b43453511a348e3`).
+- Kept refused, with the `0.1.11` blockers in full (PIE-B1003
+  `match_condition_not_in_row_domain` beside
+  `scalar_projection_requires_later_slice` for each SELECT item and
+  `join_shape_not_admitted_in_slice7`): every other `same_value` in an
+  `on`. That includes a FULL JOIN, `any(...)` before a later JOIN, a
+  literal, computed or same-side operand, `same_value(lhs.id, rhs.id)` over
+  fields declared non-null, a `Bool`, an `Int` (INTEGER), a `Text` of
+  another width, two sides of different widths or `Decimal` parameters, a
+  MySQL `Float`, a source with another field (selected or not) or a
+  declared key, a SELECT of some fields only, in another order or with a
+  field twice, a relation alias `let` (`let r = rhs` and then
+  `left join r on ...`), a WHERE after the JOIN (`where r.id is None`
+  too), ORDER BY, a second JOIN before or after it, a header parameter and
+  a `def` call. `==` in an `on` admits literal and computed operands, but
+  `same_value` there admits one field of each side only. A statement of
+  the emitted forms that emission refuses for another reason, such as an
+  output label past 256 characters, a column name too long for the target
+  or a resource limit, reports the whole list `0.1.11` reports for it
+  (rule two, D77.37), which names that reason only where `0.1.11` does:
+  the label and the column name, not the resource limit. So a MySQL
+  `Float` pair is
+  `comparison_type_pair_not_admitted` in a select item or WHERE and this
+  list in an `on`.
+
+Changed diagnostics (programs refused in `0.1.11`; no accepted program
+changes; projects, no message text changed):
+
+| Code | Case | Before | After |
+| --- | --- | --- | --- |
+| PIE-B1003 | `left join rhs on same_value(lhs.v, rhs.v)` (also INNER, RIGHT and the other six forms above) over the sources and SELECT above | `match_condition_not_in_row_domain` at the `on`, beside `scalar_projection_requires_later_slice` for each SELECT item and `join_shape_not_admitted_in_slice7` | none: the statement emits |
+
+### Float GROUP BY keys in MySQL projects
+
+- `emit-sql --project --dialect mysql` now emits a `Float` GROUP BY key in
+  the forms the Phase77 S07 native qualification judged ready on MySQL
+  8.4.12, and nothing else: a query over one source read directly that
+  groups by the keys and selects exactly those keys in that order and then
+  `count()` (`group by: price` / `select: price, n = count()`).
+
+  The keys are different fields, as `x`, `x, y` or `x, k, y`, where `x` and
+  `y` are `Float` fields both non-null or both nullable and `k` is a NOT NULL
+  binary-collation `Text` field of width 64. The statement holds no other
+  select item, aggregate, clause, JOIN, upstream query or header parameter,
+  declares no `let` (a relation alias such as `let s = items` included, read
+  or not) and no named window, and calls no `def`. Fields the statement does
+  not read and the source's unique keys do not matter, and a table or query
+  declaration and any output or field names give the same statement. The
+  statement is the PostgreSQL one in MySQL spelling, and compiled replay and
+  the live template carry the same SQL.
+- The forms keep the existing [Float values](language.md#float-values)
+  contract (`-0.0 == 0.0`, each group one member's value). PostgreSQL
+  output is unchanged.
+- The candidate emission experiment passed on 2026-11-13: one run per
+  database, PostgreSQL 18.6 (`postgres-20261113T170618Z-f4eb8fe512b2c208`)
+  and MySQL 8.4.12 (`mysql-20261113T170618Z-e0b38b159641d81d`), each
+  judged its 8 forms MATCHED with no reason against, and the pair judgment
+  found the 8 forms and 6 cells `CANDIDATE_EMISSION_QUALIFIED` with no
+  reason against. The runs bound this change as first committed on the S06
+  change (tree `3e8a3a92`). D77.50 carries them to the commit that
+  integrates this change: the experiment's projects, emitted SQL, refusal
+  controls and both runs' compile records are byte-identical there (sha256,
+  first 16 digits, the same on both sides: `sql.json` `7861de97a43d65cd`,
+  `controls.json` `3efcb9977df291ac`, the PostgreSQL compile record
+  `ebb510d9d3a33587` and the MySQL one `bb7e9f753fccd6b3`).
+- R2 `save_recoverable`, and `recover` when its restated values and
+  parameters bind, refuse a query in these forms with PIE-R1004
+  `REFINEMENT_COMPARISON_DOMAIN` while they prepare it, before any
+  workspace access or connection. A `recover` whose restated values or
+  parameters cannot bind prepares none and refuses such a query with
+  PIE-R1004 (`detail` `PUBLIC_R2_UNQUALIFIED_FORM`), since no native
+  qualification has run its refined statement (see the
+  [R2 boundary](execution.md#known-limitations)).
+- Kept refused on MySQL as in `0.1.11`, with PIE-B1003
+  `group_key_type_outside_reviewed_comparison_domain`: a `Text` key of width
+  1000 (the MySQL 8.4.12 deduplication kept `-0.0` and `0.0` apart beside
+  it), 255 or 32, or a nullable one; a non-null and a nullable `Float`
+  together, the `Text` key first or last, four keys, an `Int` key; another
+  aggregate, a `count` with an argument, a key not selected or selected in
+  another order, `count()` before the keys; a WHERE, ORDER BY or LIMIT, a
+  JOIN, an upstream query, a header parameter, a `let`, a relation alias, a
+  named window or a `def` call; and a window `percent_rank` or `cume_dist`
+  result as a key. A MySQL `Float` DISTINCT
+  (`distinct_field_comparison_domain_unsupported`) and UNION DISTINCT
+  (`set_row_equivalence_domain_unsupported`), whose native qualification
+  witnessed no on-disk deduplication, `Float` INTERSECT and EXCEPT, a
+  `count_distinct` of a `Float`
+  (`count_distinct_argument_outside_reviewed_int_domain`) and a `Float`
+  window key stay refused as well. A refused statement, one of the forms
+  above refused for another reason (an unreviewed target release, say)
+  included, reports the blockers `0.1.11` reports.
+
+Changed diagnostics (programs refused in `0.1.11`; no accepted program
+changes; MySQL projects, no message text changed):
+
+| Code | Case | Before | After |
+| --- | --- | --- | --- |
+| PIE-B1003 | `group by` one to three keys of the forms above, selected in order and then `count()` | `group_key_type_outside_reviewed_comparison_domain` at the GROUP BY item | none: the statement emits |
+| PIE-R1004 | R2 `save_recoverable` of such a query, or its `recover` with restated values and parameters that bind | not reachable: the query did not compile | `REFINEMENT_COMPARISON_DOMAIN` |
+
+### `count`, `min` and `max` over a window in eleven MySQL project forms
+
+A MySQL project now emits `count()`, `count(x)` of an `Int`, `Timestamp`,
+`Date` or `UUID` field and `min(x)` and `max(x)` of an `Int`, `Timestamp` or
+`Date` field over a window in a statement that is, byte for byte, one of the
+eleven forms that the Phase77 qualification pack pairs across PostgreSQL
+18.6 and MySQL 8.4.12, with only its names changed. One of them is:
+
+```pietto
+shape Row:
+    id: Int
+    g: Int | None
+    tier: Int
+    ts: Timestamp
+    ts2: Timestamp | None
+    d: Date
+    d2: Date | None
+    u: UUID
+
+source rows: Row = mysql.table("app.rows")
+
+table result:
+    from rows
+    select:
+        id
+        n = count() window(order by tier)
+        n_u = count(u) window(order by tier)
+        n_d2 = count(d2) window(order by tier)
+        low_id = min(id) window(order by tier)
+        high_ts = max(ts) window(order by tier)
+        high_d2 = max(d2) window(order by tier)
+```
+
+- Three other forms read the same shape and source in a `table`:
+  `count_timestamp = count(ts)`, `count_date = count(d)`, `count_uuid =
+  count(u)`, `low_timestamp = min(ts)` and `high_date = max(d)`, each
+  `window(order by id)`; `id` then `count_ts2 = count(ts2)`, `count_d2 =
+  count(d2)`, `high_timestamp = max(ts)`, `low_date = min(d)`, `low_ts2 =
+  min(ts2)` and `high_d2 = max(d2)`, each `window(order by id)`; and `id`
+  then `n_ts = count(ts)` and `high_ts = max(ts)` over `window(partition by
+  g order by id rows between 1 preceding and current row)`, `high_d2 =
+  max(d2)`, `low_d = min(d)` and `n_u = count(u)` over `window(partition by
+  g)`.
+- Seven read `shape Row` with `id: Int`, `flag: Bool | None`, `text: Text`,
+  `money: Decimal(9, 2)` and `ratio: Float` from `source rows`. Six are
+  `table` forms: `id` and `w = count()` over `window(order by id)`; `id` and
+  `w = min(id)` over `window(order by id rows between 1 preceding and
+  current row)` or over `window(partition by flag order by id)`; `let recent
+  = window(partition by flag order by id)` and `n = count() window recent`;
+  `group by: flag` then `flag`, `low = min(id)`, `high = max(low)` and `n =
+  count()`, both over `window(order by low)`; and `id` with `qualify:
+  count(id) window(order by id) > 1`. The seventh is a `query` that writes
+  `let other = rows` and `inner join other on rows.id == other.id`, then
+  selects `id = rows.id` and `high = max(other.id) window(partition by
+  rows.flag order by rows.id)`. Each window and each item is written on the
+  lines and in the order that the pack writes it; `pietto fmt` keeps them.
+- The SQL is the plain aggregate with `OVER`, `COUNT(*) OVER` for
+  `count()`, and the omitted frame reads `RANGE BETWEEN UNBOUNDED PRECEDING
+  AND CURRENT ROW`, as on PostgreSQL. A count is a non-null `BIGINT`
+  (`my_bigint`); an extreme is nullable and keeps its argument's carrier,
+  `my_bigint`, `my_datetime` with 6 fractional digits or `my_date`.
+  Compiled bundles and live templates replay the same SQL. PostgreSQL SQL is
+  unchanged.
+- The rest must match too, as for the `Text` defaults of `lag` and `lead`.
+  The project has that one module, which holds only those declarations
+  (empty lines aside), and the literal policy is `preserve`. The emission
+  contract is the pack's: target `mysql` `8.4.12`; the statement premises
+  `client_encoding` `utf8mb4`, `operator_environment` `builtin_only` and
+  `identifier_case` `lower_case_table_names=0`, in that order; one source
+  entry with the pack's field representations (`my_bigint`, `my_bool01`,
+  `my_varchar` of length 64 in `utf8mb4_0900_bin`, `my_decimal(9, 2)`,
+  `my_double`, `my_datetime` with 6 fractional digits, `my_date` and
+  `my_uuid_bytes` with `standard_bytes`) and the premises
+  `row_domain_matches` and `read_only_object`. A name follows the same rules
+  as there. It is also none of the words `shape`, `source`, `query`,
+  `table`, `from`, `select`, `window`, `order`, `by`, `lag`, `lead`,
+  `mysql`, `Int`, `Bool`, `Text`, `Decimal`, `Float` and `None`, which are
+  no names in the `lag` and `lead` forms either, and none of `count`,
+  `min`, `max`, `partition`, `between`, `preceding`, `and`, `current`,
+  `row`, `let`, `group`, `qualify`, `inner`, `join`, `on`, `Timestamp`,
+  `Date` and `UUID`, which those forms still take as names. Each word is
+  meant in exactly this case, so `Count` is a name. The `rows` of a frame is
+  such a word too, the source `rows` a name.
+- Every other MySQL project aggregate window keeps PIE-B1003
+  `window_aggregate_approved_non_support_on_mysql` with its whole `0.1.11`
+  output: `sum` and `avg`, another function, argument, frame, ORDER BY or
+  PARTITION BY key, `desc`, the omitted frame written out, another JOIN, a
+  `Timestamp`, `Date` or `UUID` argument in a named, QUALIFY, grouped or
+  JOIN window, and a paired statement whose emission does not give its
+  form's SQL, names aside. So the detail change that D77.11 planned for a
+  `count` of a `Text`, `Bool`, `Float` or `Decimal` and a `min` or `max` of
+  a `Float` or `Decimal` is not made. `load_bundle` keeps its `0.1.11`
+  refusal, PIE-R1008, of every other bundle with a MySQL aggregate window,
+  also of one whose records are a form's but whose SQL is not or that
+  another check refuses, each with its `0.1.11` detail. R2
+  `save_recoverable` and `recover` refuse a paired query with PIE-R1004
+  `PUBLIC_R2_PAIRED_FORM`, before any workspace work.
+- The native qualification passed on 2026-11-13: in one run of each half of
+  the pack, PostgreSQL 18.6 and MySQL 8.4.12, the eleven forms matched the
+  expected rows on both databases, and the MySQL half's three refusal
+  controls, a `sum` and an `avg` over a window and a `count` over a window
+  of a computed `let`, kept their `0.1.11` refusal. The PostgreSQL run
+  `20261113T194605Z-ceea90a7ee8b576d598342bb` (verdict `pass` true, no
+  reason) and the MySQL run `wave-a-mysql-20261113T194605Z` (acceptance
+  `pass` true, no reason) bound this change as first committed on the `lag`
+  and `lead` `Text` defaults on the head of the first `0.1.12` batch (tree
+  `f0029580`), and their pairing summaries pair the eleven forms. D77.50
+  carries them to the commit that integrates this change: the records both
+  halves' compile steps export, the 83 forms of the PostgreSQL pack and the
+  MySQL forms and controls, are identical there apart from the harness's
+  install identity and the MySQL record's clock (the sha256 of each record
+  as sorted-key JSON without its `identity` field and, for MySQL, its
+  `started` and `finished` times, first 16 digits, the same on both sides:
+  `b523f386dfc68ddd` and `78cb7016d87578cc`).
+
+Changed diagnostics (programs refused in `0.1.11`; no accepted program
+changes):
+
+| Code | Case | Before | After |
+| --- | --- | --- | --- |
+| PIE-B1003 | MySQL project, one of the eleven forms above with only its names changed | `window_aggregate_approved_non_support_on_mysql` | none: the statement emits |
+| PIE-R1004 | R2 `save_recoverable` or `recover` of such a query | not reachable: the query did not compile | `PUBLIC_R2_PAIRED_FORM` |
+
+### MySQL project `Decimal`, `Date` and `Timestamp` parameters
+
+- A MySQL project now emits a query header parameter of type
+  `Decimal(p, s)`, `Date` or `Timestamp` in two positions: as the whole
+  value of a SELECT item of the query that `emit-sql --project` emits, or
+  as the right operand of `==`, `!=`, `<`, `<=`, `>` or `>=` whose left
+  operand is a field of that query's source with the parameter's type, in
+  a comparison that the WHERE reaches through `and` and `or` alone. The
+  query reads its one source directly, through one WHERE at most, with no
+  `let`, JOIN, GROUP BY or other aggregate, window, HAVING, QUALIFY,
+  DISTINCT, ORDER BY, LIMIT or read of another relation, declares no
+  `UUID` parameter and reads every such parameter it declares. Each read
+  is one `?` in rendering order, also when one parameter is read twice:
+  `CAST(? AS DECIMAL(p,s))`, `CAST(? AS DATE)` or
+  `CAST(? AS DATETIME(6))`. A bound value travels as its canonical text;
+  the public typed values, their binding checks and NULL are unchanged,
+  and each value is checked before any statement is prepared. Compiled
+  bundles and live templates replay the same SQL. PostgreSQL SQL and every
+  other public PostgreSQL output are unchanged.
+- The `0.1.11` notes say that a MySQL project refuses these three
+  parameter types and `UUID` with PIE-B1003
+  `query_parameter_type_not_admitted_on_target`; for the three, that now
+  holds only outside the positions above.
+- The candidate emission experiment passed on 2026-11-13: run
+  `run-20261113T184243Z-f8031e2d653b4bcbfbaa584f`, on PostgreSQL 18.6 and
+  MySQL 8.4.12, ran its 26 forms with 90 bindings on each database,
+  directly and through Pietto's reader, and its judge found
+  `CANDIDATE_EMISSION_MATCHED` with no reason against; the run was
+  accepted. It bound this change as first
+  committed (tree `436ef88d`). D77.50 carries it to the commit that
+  integrates this change: the experiment's compile records, its SQL and
+  refusal controls included, are identical there apart from the harness's
+  install identity (the sha256 of each record as sorted-key JSON without
+  its `identity` field, first 16 digits, the same on both sides: PostgreSQL
+  `76501ec0a5e6e478`, MySQL `cf49944a24eae1a7`).
+- A MySQL `UUID` header parameter stays refused as a retained exception
+  (D77.07), read or not and in any position, and so does every other typed
+  declaration of a query that declares one. The S09 candidate emission
+  experiment found MySQL returning its `CAST(? AS BINARY(16))` output as
+  `VARBINARY` (column type 253), as the MySQL manual states for
+  `CAST(... AS BINARY(N))`, while Pietto describes a MySQL `UUID` column
+  as `BINARY(16)` (254), so its MySQL opening was withdrawn. A new
+  preregistered experiment is needed to open it.
+- Every other MySQL query that declares one of these types, read or not,
+  keeps the refusal it has without this note: PIE-B1003
+  `query_parameter_type_not_admitted_on_target` at each such declaration.
+  Examples are a parameter on the left of its comparison, under `not`,
+  `between`, `in`, `is None` or a call, compared with a `let` value or
+  another parameter, declared and never read, or read in a query with a
+  `let`, an ORDER BY, LIMIT, DISTINCT, GROUP BY, window or JOIN, or that
+  reads another query. A query whose reads all sit in the positions above
+  but that another rule refuses, such as a `Decimal(10, 2)` parameter
+  compared with a `Decimal(9, 2)` field or `add_months` in another SELECT
+  item, reports that same list, as without this note.
+- A `Timestamp` parameter selected as an output still emits, compiles,
+  exports and binds on MySQL, and `execute()`, `save()`, R2
+  `save_recoverable`, and `recover` when its restated values and
+  parameters bind, still refuse it with PIE-R1004 (`detail`
+  `MEANING_OUTPUT`); a `recover` whose restated values or parameters
+  cannot bind refuses it with PIE-R1004 (`detail`
+  `PUBLIC_R2_UNQUALIFIED_FORM`; see the
+  [R2 boundary](execution.md#known-limitations)).
+- R2 `save_recoverable` and `recover` refuse any other query of these forms
+  with PIE-R1004 (`detail` `PUBLIC_R2_UNQUALIFIED_FORM`) before any
+  workspace access or connection, since no native qualification has run its
+  refined statement (see the
+  [R2 boundary](execution.md#known-limitations)).
+
+Changed diagnostics (programs refused in `0.1.11`; no accepted program
+changes):
+
+| Code | Case | Before | After |
+| --- | --- | --- | --- |
+| PIE-B1003 | MySQL project, a `Decimal(p, s)`, `Date` or `Timestamp` header parameter read only in the positions above, in a query that declares no `UUID` parameter | `query_parameter_type_not_admitted_on_target` at each such declaration | none: the query emits |
+
+Every refused query reports the list it reports without this note, object
+for object.
+
+### Conditional counts and tests of a group in three MySQL project forms
+
+A MySQL project now emits the conditional count of a group,
+`sum(1 for o in group if TEST)`, and the tests of a group,
+`any(TEST for o in group)` and `all(TEST for o in group)`, in a statement
+that is, byte for byte, one of the three forms that the Phase77
+qualification pack pairs across PostgreSQL 18.6 and MySQL 8.4.12, with only
+its names changed. One of them is:
+
+```pietto
+shape Agg:
+    key: Int | None
+    value: Int | None
+    flag: Bool | None
+    label: Text
+    amount: Decimal(9, 2)
+    ratio: Float
+    rid: Int
+    agg_row = unique(rid)
+
+source agg: Agg = mysql.table("app.agg")
+
+query result:
+    from agg
+    group by:
+        key
+    select:
+        n = sum(1 for o in group if o.flag)
+        a = all(o.flag for o in group)
+        b = any(o.label == "a" for o in group)
+```
+
+- The other two forms hold the same shape and source; their query also
+  selects `k = key` first, or has no `group by`. The pack runs the grouped
+  and the ungrouped form over rows and over an empty table.
+- The count is `COUNT(CASE WHEN TEST THEN 1 END)`, a non-null `BIGINT`
+  (`my_bigint`, from 0 to 9223372036854775807); the tests are
+  `(COUNT(CASE WHEN TEST THEN 1 END) > 0)` and
+  `(COUNT(CASE WHEN TEST THEN NULL ELSE 1 END) = 0)`, each a non-null
+  `my_signed_bool`, as on PostgreSQL. `"a"` is
+  `CAST(X'61' AS CHAR CHARACTER SET utf8mb4) COLLATE utf8mb4_0900_bin`.
+  Compiled bundles and live templates replay the same SQL. PostgreSQL SQL is
+  unchanged.
+- The rest must match too. The project has that one module, which holds
+  only those three declarations (empty lines aside), and the literal policy
+  is `preserve`. The emission contract is the pack's: target `mysql`
+  `8.4.12`; the statement premises `client_encoding` `utf8mb4`,
+  `operator_environment` `builtin_only` and `identifier_case`
+  `lower_case_table_names=0`, in that order; one source entry with the
+  pack's field representations (`my_bigint`, `my_bigint`, `my_bool01`,
+  `my_varchar` of length 64 in `utf8mb4_0900_bin`, `my_decimal(9, 2)`,
+  `my_double`, `my_bigint`) and the premises `row_domain_matches` and
+  `read_only_object`. A name (of the module file, the shape, a field, the
+  unique key, the source, the query, a label, the generator's member, the
+  physical namespace, table or a column) is an ASCII identifier of at most
+  63 bytes that does not start with `__pietto` in any case; the
+  `mysql.table` locator is two such names joined by a dot. Two names that
+  are both columns, or both Pietto names, are equal ignoring case exactly
+  where the form's are: the shape and the source, `Agg` and `agg` above,
+  stay so, and no other two are. A word the forms use as a keyword, such as
+  `sum`, `any` or `group`, is no name there, and a name the SQL quotes may
+  not be one the SQL also generates, such as `p0`, `s0`, `t1` or `c0`.
+- Every other MySQL project conditional count or test of a group keeps
+  PIE-B1003 `conditional_count_not_admitted_on_target` or
+  `group_test_not_admitted_on_target`, with its whole `0.1.11` output, and
+  so does a paired statement whose emission does not give its form's SQL,
+  names aside. `load_bundle` keeps its `0.1.11` refusal, PIE-R1004
+  `COMPILED_AGGREGATE_ARGUMENT`, of every other bundle with a MySQL
+  conditional count or test of a group, also of one whose records are a
+  form's but whose SQL is not. R2 `save_recoverable` and `recover` refuse a
+  paired query with PIE-R1004 `PUBLIC_R2_PAIRED_FORM`, as for the `Text`
+  defaults of `lag` and `lead`.
+- The native qualification passed on 2026-11-13: in one run of each half of
+  the pack, PostgreSQL 18.6 and MySQL 8.4.12, the three forms over rows and
+  the two over an empty table matched the expected rows on both databases,
+  and the MySQL half's refusal control, a conditional sum, kept its `0.1.11`
+  refusal. The PostgreSQL run `20261113T172552Z-3974c1056495735a24c2ba22`
+  (verdict `pass` true, no reason) and the MySQL run
+  `wave-a-mysql-20261113T172552Z` (acceptance `pass` true, no reason) bound
+  this change as first committed on the `lag` and `lead` `Text` defaults on
+  the `0.1.11` release commit (tree `38976207`), and their pairing summaries
+  pair the five forms. D77.50 carries them to the commit that integrates
+  this change: the records both halves' compile steps export, the 83 forms
+  of the PostgreSQL pack and the MySQL forms and control, are identical
+  there apart from the harness's install identity and the MySQL record's
+  clock (the sha256 of each record as sorted-key JSON without its
+  `identity` field and, for MySQL, its `started` and `finished` times,
+  first 16 digits, the same on both sides: `b523f386dfc68ddd` and
+  `2bef424d5b336d83`).
+
+Changed diagnostics (programs refused in `0.1.11`; no accepted program
+changes):
+
+| Code | Case | Before | After |
+| --- | --- | --- | --- |
+| PIE-B1003 | MySQL project, one of the three forms above with only its names changed | `conditional_count_not_admitted_on_target`, then `group_test_not_admitted_on_target` twice | none: the query emits |
+| PIE-R1004 | R2 `save_recoverable` or `recover` of such a query | not reachable: the query did not compile | `PUBLIC_R2_PAIRED_FORM` |
+
+### Distinct counts of several columns in eleven MySQL project forms
+
+A MySQL project now emits `count_distinct(a, b, ...)` of two or more fields
+as MySQL's own `COUNT(DISTINCT a, b)` in a statement that is, byte for byte,
+one of the eleven forms that the Phase77 qualification pack pairs across
+PostgreSQL 18.6 and MySQL 8.4.12, with only its names changed. One of them
+is:
+
+```pietto
+shape Agg:
+    key: Int | None
+    value: Int | None
+    flag: Bool | None
+    label: Text
+    amount: Decimal(9, 2)
+    ratio: Float
+    rid: Int
+    agg_row = unique(rid)
+
+source agg: Agg = mysql.table("app.agg")
+
+source keys: Agg = mysql.table("app.keys")
+
+query result:
+    from keys
+    let r = agg
+    left join r on keys.rid == r.rid
+    let lb = r.label
+    group by:
+        keys.rid
+    select:
+        k = keys.rid
+        d = count_distinct(keys.label, r.rid, r.label)
+```
+
+- Seven other forms hold the same shape and sources and read the same
+  JOIN with the same `let` lines: the query above with `inner join`, and
+  each of the two with `d = count_distinct(keys.label, lb, r.rid)`; grouped
+  by `keys.key`, selecting `k = keys.key` and
+  `d = count_distinct(keys.label, lb)`, with `left join` or `inner join`,
+  and with `left join` and then `e = count_distinct(r.key, keys.label)`;
+  and `table result` with no `group by`, selecting only
+  `d = count_distinct(lb, keys.key)`.
+- Three forms have only the shape and `source agg`: `table result` from
+  `agg` selecting `text_flag = count_distinct(label, flag)`,
+  `int_text = count_distinct(key, label)` and
+  `all_three = count_distinct(key, flag, label)`; `table result` selecting
+  only `int_int = count_distinct(key, value)`; and `query result` grouped by
+  `key`, selecting `k = key` and `n = count_distinct(label, flag)`. The pack
+  runs the first of them over rows and over an empty table.
+- Each count is `COUNT(DISTINCT a, b)` with its fields in the written order,
+  which skips a row in which any field is NULL and compares a `Text` field
+  by its bytes, with NO PAD (`utf8mb4_0900_bin`). It is a non-null `BIGINT`
+  (`my_bigint`, from 0 to 9223372036854775807) with no R13 evidence. Its
+  project JSON column keeps the provenance `function` `count_distinct_tuple`
+  and has the `syntax` roles `aggregate_distinct` and `aggregate_separator`
+  between the fields, without PostgreSQL's tuple roles. Compiled bundles and
+  live templates replay the same SQL. PostgreSQL SQL is unchanged.
+- The rest must match too. The project has that one module, which holds
+  only the shape, the source or sources and that one definition (empty lines
+  aside), and the literal policy is `preserve`. The emission contract is the
+  pack's: target `mysql` `8.4.12`; the statement premises
+  `client_encoding` `utf8mb4`, `operator_environment` `builtin_only` and
+  `identifier_case` `lower_case_table_names=0`, in that order; one source
+  entry per source, in the module's order, with the pack's field
+  representations (`my_bigint`, `my_bigint`, `my_bool01`, `my_varchar` of
+  length 64 in `utf8mb4_0900_bin`, `my_decimal(9, 2)`, `my_double`,
+  `my_bigint`) and the premises `row_domain_matches` and `read_only_object`.
+  A name (of the module file, the shape, a field, the unique key, a source,
+  the definition, a `let`, a label, the physical namespace, a table or a
+  column) is an ASCII identifier of at most 63 bytes that does not start
+  with `__pietto` in any case; a `mysql.table` locator is two such names
+  joined by a dot. Two names that are both columns, both tables, both
+  namespaces, both locators or both Pietto names are equal exactly where
+  the form's are, and equal ignoring case exactly where the form's are: the
+  two tables of a JOIN form are in one namespace and have the same columns,
+  the shape and the source `agg` stay equal ignoring case, and no other two
+  names are. A word the forms use as a keyword, such as `count_distinct`,
+  `left` or `join`, is no name there, and a name the SQL quotes may not be
+  one the SQL also generates, such as `p0`, `m0`, `s0`, `t1` or `c0`.
+- Every other MySQL project `count_distinct` of several fields keeps
+  PIE-B1003 `count_distinct_tuple_not_admitted_on_target`, with its whole
+  `0.1.11` output, and so does a paired statement whose emission does not
+  give its form's SQL, names aside. `load_bundle` keeps its `0.1.11`
+  refusal, PIE-R1004 `COMPILED_AGGREGATE_ARGUMENT`, of every other bundle
+  with a MySQL `count_distinct` of several fields, also of one whose records
+  are a form's but whose SQL is not. R2 `save_recoverable` and `recover`
+  refuse a paired query with PIE-R1004 `PUBLIC_R2_PAIRED_FORM`, as for the
+  other paired forms.
+- The native qualification passed on 2026-11-13: in one run of each half of
+  the pack, PostgreSQL 18.6 and MySQL 8.4.12, the eleven forms matched the
+  expected rows on both databases, the first `agg` form also over an empty
+  table, and the MySQL half's four refusal controls, a `Decimal` and `Float`
+  pair and a field written twice, bare, through a `let` name or qualified,
+  kept their `0.1.11` refusal. The PostgreSQL run
+  `20261113T184428Z-39f2d1b0857c0cf1a46c3b37` (verdict `pass` true, no
+  reason) and the MySQL run `wave-a-mysql-20261113T184428Z` (acceptance
+  `pass` true, no reason) bound this change as first committed on the
+  conditional counts and the `lag` and `lead` `Text` defaults on the
+  `0.1.11` release commit (tree `4e1aca88`), and their pairing summaries
+  pair the twelve form runs. D77.50 carries them to the commit that
+  integrates this change: the records both halves' compile steps export,
+  the 83 forms of the PostgreSQL pack and the MySQL forms and controls, are
+  identical there apart from the harness's install identity and the MySQL
+  record's clock (the sha256 of each record as sorted-key JSON without its
+  `identity` field and, for MySQL, its `started` and `finished` times,
+  first 16 digits, the same on both sides: `b523f386dfc68ddd` and
+  `c98f507fe3baa050`).
+
+Changed diagnostics (programs refused in `0.1.11`; no accepted program
+changes):
+
+| Code | Case | Before | After |
+| --- | --- | --- | --- |
+| PIE-B1003 | MySQL project, one of the eleven forms above with only its names changed | `count_distinct_tuple_not_admitted_on_target`, once for each `count_distinct` | none: the definition emits |
+| PIE-R1004 | R2 `save_recoverable` or `recover` of such a query | not reachable: the query did not compile | `PUBLIC_R2_PAIRED_FORM` |
+
+### MySQL project `lpad` and `now()`
+
+- A MySQL project now emits `lpad(s, width, fill)`, `now()` and
+  `date_of(now())` in one position: as the whole value of a SELECT item of
+  the query that `emit-sql --project` emits. `s` is a field of that query's
+  source, read directly, through a row input alias (`let x = words` before
+  `from x`) or through row `let` names that only rename it
+  (`let t = text`), or a `Text` literal; `width` is an `Int` literal from 0
+  to 256 and `fill` a one-character literal. A `def` call counts as the body
+  it expands to, and parentheses change nothing. The query reads its source
+  through row `let`, WHERE and window stages only, with no JOIN, GROUP BY or
+  other aggregate, HAVING, QUALIFY, DISTINCT, ORDER BY or LIMIT, no header
+  parameter of its own, no bind-safe `?` and no read of another relation,
+  except one `scalar` read of a capturing relation `let` as the whole value
+  of another SELECT item, in a query without row `let`, WHERE or window
+  stages, where that relation `let` reads a captured field and its own
+  source directly, through a WHERE at most. The SQL is `CASE WHEN
+  CHAR_LENGTH(s) >= width THEN s ELSE LPAD(s, width, 'f') END`, which never
+  truncates, `UTC_TIMESTAMP(6)` and `DATE(UTC_TIMESTAMP(6))`; PostgreSQL SQL
+  and every other public PostgreSQL output are unchanged. The width bound
+  keeps `LPAD` within the least `max_allowed_packet`, 1024 bytes, four per
+  utf8mb4 character, above which MySQL returns NULL. Compiled bundles and
+  live templates replay the same SQL.
+- The `0.1.11` notes say that a MySQL project still refuses `now()` with
+  PIE-B1003 `scalar_call_signature_not_admitted`; that now holds only
+  outside the position above.
+- The native qualification passed on 2026-11-13 in two halves on one tree
+  and wheel, each accepted with no reason against: the PostgreSQL 18.6 run
+  `s12-pg-20261113T161835Z-dfe5b0fcd12124d982c6d84c` and the MySQL 8.4.12
+  run `s12-my-20261113T180139Z-0df8a7e9b5e881d384243993`, which also ran
+  Pietto's own `mysql_rows` reader on the `now()` outputs. The MySQL
+  package ran in its seventh freeze, after the fifth-round run failed on a
+  wrong preregistered cleanup expectation; the PostgreSQL half ran once,
+  and its package did not change. The cross-half comparison found the
+  seven forms paired: every digest of each pairing summary equal and the
+  nullability the design gives. The runs bound this change as first
+  committed (tree `2e20e0a5`). D77.50 carries them to the commit that
+  integrates this change: the records both halves' compile steps export
+  are identical there apart from the harness's install identity (the
+  sha256 of each record as sorted-key JSON without its `identity` field,
+  first 16 digits, the same on both sides: PostgreSQL `193c8dd954adfcf4`,
+  MySQL `289be8f576d3a36b`).
+- R2 `save_recoverable` and `recover` refuse a query with `now()` or
+  `date_of(now())` in the position above, `lpad` beside it or not, with
+  PIE-R1004 `PUBLIC_R2_STATEMENT_SNAPSHOT`, as every MySQL query that reads
+  `now()`, before any workspace access or connection. They refuse a query
+  with `lpad` and no `now()` with PIE-R1004 `PUBLIC_R2_UNQUALIFIED_FORM`
+  before any workspace access or connection, since no native qualification
+  has run its refined statement (see the
+  [R2 boundary](execution.md#known-limitations)).
+- Every other MySQL project `lpad` and `now()` keeps the refusal it has
+  without this note. Most often that is PIE-B1003
+  `scalar_call_signature_not_admitted` at the `let`, clause or select item
+  that holds the call: for example a width above 256, negative or not a
+  literal; a text that a `let` computes, a conditional or a read of a
+  capturing `let`; a call inside another expression, in a `let` or in a
+  WHERE; and a call in a query that has a JOIN, an ORDER BY, LIMIT,
+  DISTINCT, QUALIFY, a `Bool`, `Int`, `Float` or `Text` header parameter, a
+  bind-safe `?` or a read of another relation outside the one position
+  above, or that reads an upstream query. An `lpad` select item that an
+  ORDER BY names is PIE-B1003 `order`. A select item of a grouped query
+  that checking admits is PIE-B1003
+  `aggregate_composition_not_admitted_on_target`, as "Scalars around
+  aggregate results" in the `0.1.11` notes says, and a grouped query with
+  no aggregate in its SELECT is refused at check. A query that another
+  refusal stops first reports that refusal instead, for example a JOIN
+  shape or window aggregate that a MySQL project refuses, a
+  `Decimal(p, s)`, `Date`, `Timestamp` or `UUID` header parameter, a table
+  function input, `Int` arithmetic outside its physical range (PIE-B1002)
+  or a capturing `let` whose body has an ORDER BY or LIMIT. `now()` in a
+  `let`, a GROUP BY or ORDER BY key and the other positions that checking
+  refuses stays PIE-S2387. MySQL project `concat` and `add_months` stay
+  refused as without this note; `add_months` is a retained exception
+  (D77.07).
+
+Changed diagnostics (programs refused in `0.1.11`; no accepted program
+changes):
+
+| Code | Case | Before | After |
+| --- | --- | --- | --- |
+| PIE-B1003 | MySQL project, `lpad(s, width, fill)` in the position above, also written through a `def`, in parentheses or over a row input alias | `scalar_call_signature_not_admitted` | none: the statement emits |
+| PIE-B1003 | MySQL project, `now()` or `date_of(now())` in the position above, also as a `def` argument | `scalar_call_signature_not_admitted` | none: the statement emits |
+| PIE-R1004 | R2 `save_recoverable` or `recover` of a query with `now()` or `date_of(now())` in the position above | not reachable: the query did not compile | `PUBLIC_R2_STATEMENT_SNAPSHOT` |
+
+A statement with a call in the position above that emission refuses for
+another reason, such as a select of `lpad(text, 5, "0")`, `now()` and
+`concat(text, "x")`, reports the `0.1.11` blockers, those of the calls in
+the position included (D77.37). Every other refusal is the one the query has
+without this note, object for object.
+
+### MySQL project `first` and `last`
+
+- A MySQL project now emits `first(x, order by k, id)` and `last(...)` only in
+  the forms that [Aggregates](language.md#aggregates-and-grouping) lists: a
+  query over one source by its own name, directly or through a WHERE of
+  `f is not None` tests, each of a nullable order key of a `first` or `last`
+  and each key once, and at most one `f == p` test, which compares the GROUP
+  BY key or, without GROUP BY, a non-null `Int` (BIGINT) field with the
+  query's one header parameter, a non-null `Int` (a query with a header
+  parameter has this test); grouped by one non-null `Int` (BIGINT) field,
+  selected first and ordered by it ascending, or with no GROUP BY and no
+  ORDER BY; whose other select items are bare `first` and `last` of
+  nullable `Int` (BIGINT), `Float` (DOUBLE), `Text` (VARCHAR(32) or
+  VARCHAR(64), binary) or `Decimal` (DECIMAL(65,30)) fields, all ordered by
+  one key list of `Int` (BIGINT) fields and of nullable `Text` fields of that
+  VARCHAR that the WHERE proves never None, field for field and direction
+  for direction. The SQL is `MAX(CASE WHEN t.r1 = 1 THEN t.x END)` over a
+  derived table with one `ROW_NUMBER() OVER (PARTITION BY ... ORDER BY ...)`
+  per `first` or `last`, `last` with every direction flipped. The result keeps
+  the value's carrier and is nullable. Compiled bundles and live templates
+  replay the same SQL. PostgreSQL SQL and every other public PostgreSQL output
+  are unchanged.
+- They follow the raw Phase77 campaign, which matched the primitive for
+  these four carriers only and ranked every value of a statement by one key
+  list, both ways. The candidate emission experiment passed on 2026-11-13
+  in the second attempt of its campaign: run
+  `02-20261113T185329Z-d31401e667e5ee10e6596b70`, on PostgreSQL 18.6 and
+  MySQL 8.4.12, judged `READY` with its 11 executed forms equal to the
+  oracle on both databases and the generalized forms refused. The first
+  attempt was `UNQUALIFIED`: the experiment's own MySQL seed table
+  declared `TINYINT(1)`, which MySQL 8.4 warns about. The experiment's
+  table and relay were fixed, and the second attempt ran against this
+  change unchanged. The runs bound this change as first committed (tree
+  `3a3906fd`). D77.50 carries them to the commit that integrates this
+  change: the experiment's compile record, its SQL and refusal controls
+  included, is byte-identical there (sha256 of the file, first 16 digits,
+  the same on both sides: `ec2ecfb838900176`).
+- R2 `save_recoverable` and `recover` refuse a query of these forms with
+  PIE-R1004 (`detail` `PUBLIC_R2_UNQUALIFIED_FORM`) before any workspace
+  access or connection, since no native qualification has run its refined
+  statement (see the [R2 boundary](execution.md#known-limitations)).
+- Emission and its verifier refuse a relation alias (`let base = rows` then
+  `from base`) from the plan. Compiled bundles and observation documents keep
+  no trace of the alias: its SQL is the direct read's byte for byte, and its
+  records and document differ from the direct read's only in the source
+  text's positions and digest, so they cannot refuse it themselves. An
+  observation of a query with a header parameter stays `OUTSIDE_SCHEMA`.
+- Every other MySQL project `first` and `last` keeps the refusal it has without
+  this note, PIE-B1003 `first_last_not_admitted_on_target` at its select item,
+  with the suggestion below: for example a `Bool`, `Date`, `Timestamp` or `UUID`
+  value, whose column metadata MySQL changed, a non-null value, a DECIMAL other
+  than (65,30), a VARCHAR other than 32 or 64 characters, a nullable or `Text`
+  group key, two group keys, a `Float` or non-null `Text` order key, `first`
+  and `last` ordered by different key lists or directions, another
+  aggregate beside it, a grouped query without ORDER BY or ordered descending
+  or by a result, the key selected after a result, LIMIT, DISTINCT, a relation
+  alias, an `is not None` test of a field that orders no `first` or `last`,
+  of a non-null field or of one key twice, any other WHERE test, a second
+  `== p` test, a header parameter that is not a non-null `Int`, is compared
+  with another field than the group key (without GROUP BY, than a non-null
+  BIGINT field) or is read in no test, a row `let` or a set operation. A
+  query in the forms above that emission refuses for another reason keeps
+  this refusal of each call: beside that refusal for an output label longer
+  than 256 characters or a column name MySQL cannot write, and alone for the
+  contract's SQL or artifact byte limit, which a query refused before its
+  SQL is written never reaches. A query that check refuses, such as PIE-S2104
+  for a `first` over a table or query, reports that refusal instead. These
+  refusals are retained exceptions (D77.07). A MySQL single file still
+  refuses every `first` and `last` with PIE-B1000.
+
+Changed diagnostics (programs refused in `0.1.11`; no accepted program
+changes):
+
+| Code | Case | Before | After |
+| --- | --- | --- | --- |
+| PIE-B1003 | MySQL project, `first` or `last` in the forms above | `first_last_not_admitted_on_target`, one per call at its select item | none: the query emits |
+| PIE-B1003 | MySQL project, every other `first` or `last` | `first_last_not_admitted_on_target` with the suggestion `Emit this first or last for PostgreSQL, or keep it in check/plan: MySQL has no ordered first or last yet.` | the same blocker, code, location and order, with the suggestion `Emit this first or last for PostgreSQL, or keep it in check/plan: this first or last form is not admitted on MySQL yet.` |
+
+The Before column was measured with `emit-sql --project` on the `0.1.11`
+release (`d03d6e4b`). Every other refusal is the one the query has without
+this note, object for object, the suggestion above aside.
+
+### Conditionals beside a JOIN and calls in aggregate arguments in four MySQL project forms
+
+A MySQL project now emits a statement with a JOIN whose other query has a
+conditional (a `def` that inlines to one) in its WHERE, or whose aggregate
+argument over the JOIN's rows holds a scalar call, in a statement that is,
+byte for byte, one of the four forms that the Phase77 qualification pack
+pairs across PostgreSQL 18.6 and MySQL 8.4.12, with only its names changed.
+One of them is:
+
+```pietto
+shape Row:
+    id: Int
+    key: Int | None
+    label: Text | None
+    row_key = unique(id)
+
+source lhs: Row = mysql.table("app.lhs")
+
+source rhs: Row = mysql.table("app.rhs")
+
+def band(x: Int) -> Int: return 1 if x <= 3 else 2
+
+query pred:
+    from rhs
+    where band(id) == 2
+    select:
+        id
+        label
+
+query result:
+    from lhs
+    let r = pred
+    left join r on lhs.id == r.id
+    select:
+        a = lhs.id
+        b = r.label
+```
+
+- The other three forms hold the same shape, sources and `def`. One has the
+  same `pred` and a `query result` from `pred` with `let l = lhs`,
+  `inner join l on l.id == pred.id`, selecting `a = pred.id` and
+  `b = l.label`. One has no `pred`: its `query result` reads `from lhs`,
+  `let r = rhs`, `left join r on lhs.id == r.id` and `group by lhs.id`, and
+  selects `a = lhs.id`, `n = count(lower(r.label))`,
+  `d = count_distinct(trim(r.label))`, `l = count(len(r.label))` and
+  `c = count(lower(trim(r.label)))`. The last has the same `pred`, the LEFT
+  JOIN of `r = pred` with that `group by`, and selects `a = lhs.id` and
+  `n = count(lower(r.label))`.
+- `pred`'s WHERE is written as it is without the JOIN, as
+  `WHERE ((CASE WHEN (... <= CAST(3 AS SIGNED)) THEN CAST(1 AS SIGNED) ELSE
+  CAST(2 AS SIGNED) END) = CAST(2 AS SIGNED))`, and each call inside its
+  aggregate, as `COUNT(LOWER(...))`, `COUNT(DISTINCT TRIM(...))`,
+  `COUNT(CAST(CHAR_LENGTH(...) AS SIGNED))` and `COUNT(LOWER(TRIM(...)))`.
+  Each count is a non-null `my_bigint`, `a` the key's `my_bigint` and `b`
+  the label's nullable `my_varchar`. Compiled bundles and live templates
+  replay the same SQL. PostgreSQL SQL is unchanged.
+- The rest must match too. The project has that one module, which holds
+  only those declarations (empty lines aside). The literal policy is
+  `preserve`, except for the last form, which the pack runs with
+  `bind-safe`, its four `Int` literals as server parameters. The emission
+  contract is the pack's: target `mysql` `8.4.12`; the statement premises
+  `client_encoding` `utf8mb4`, `operator_environment` `builtin_only` and
+  `identifier_case` `lower_case_table_names=0`, and for the last form then
+  `parameter_protocol` `mysql_prepared`, in that order; one source entry
+  per source, in the module's order, with the pack's field representations
+  (`my_bigint`, `my_bigint`, `my_varchar` of length 64 in
+  `utf8mb4_0900_bin`) and the premises `row_domain_matches` and
+  `read_only_object`. A name (of the module file, the shape, a field, the
+  unique key, a source, the `def` and its parameter, a definition, a `let`,
+  a label, the physical namespace, a table or a column) is an ASCII
+  identifier of at most 63 bytes that does not start with `__pietto` in any
+  case; a `mysql.table` locator is two such names joined by a dot. Two names
+  that are both columns, both tables, both namespaces, both locators or
+  both Pietto names are equal, also ignoring case, exactly where the form's
+  are: the two tables are in one namespace and have the same columns, and
+  no other two names are. A word the forms use as a keyword, such as
+  `where`, `count` or `lower`, is no name there, and a name the SQL quotes
+  may not be one the SQL also generates, such as `p0`, `m0`, `s0`, `t1` or
+  `c0`.
+- Every other such MySQL statement keeps its whole `0.1.11` output, and so
+  does a paired statement whose emission does not give its form's SQL,
+  names aside. R2 `save_recoverable` and `recover` refuse a paired query
+  with PIE-R1004 `PUBLIC_R2_PAIRED_FORM`, as for the other paired forms.
+- `load_bundle` and compiled replay now read these positions themselves: a
+  MySQL bundle whose statement has a JOIN and either a conditional in a
+  definition with no JOIN of its own or a scalar call in an aggregate
+  argument loads only when its records are one of the forms' and its SQL is
+  that form's. `0.1.11` loaded such a bundle, which none of its emissions
+  wrote.
+- The native qualification passed on 2026-11-13: in one run of each half of
+  the pack, PostgreSQL 18.6 and MySQL 8.4.12, the four forms matched the
+  expected rows on both databases, the last with its four server
+  parameters, and the MySQL half's refusal control, a `def` call in the
+  JOIN's ON, kept its `0.1.11` refusal. The PostgreSQL run
+  `20261113T201550Z-b1113cacc0fbfe3dcac90c19` (verdict `pass` true, no
+  reason) and the MySQL run `wave-a-mysql-20261113T201550Z` (acceptance
+  `pass` true, no reason) bound this change as first committed on the
+  distinct-tuple counts, the conditional counts and the `lag` and `lead`
+  `Text` defaults on the `0.1.11` release commit (tree `4db49248`), and
+  their pairing summaries pair the four forms. D77.50 carries them to the
+  commit that integrates this change: the records both halves' compile
+  steps export, the 83 forms of the PostgreSQL pack and the MySQL forms and
+  control, are identical there apart from the harness's install identity
+  and the MySQL record's clock (the sha256 of each record as sorted-key
+  JSON without its `identity` field and, for MySQL, its `started` and
+  `finished` times, first 16 digits, the same on both sides:
+  `b523f386dfc68ddd` and `5a2d04329d58c687`).
+
+Changed diagnostics (programs refused in `0.1.11`; no accepted program
+changes):
+
+| Code | Case | Before | After |
+| --- | --- | --- | --- |
+| PIE-B1003 | MySQL project, one of the first two forms above with only its names changed | `scalar_projection_requires_later_slice` twice, then `join_shape_not_admitted_in_slice7` | none: the definition emits |
+| PIE-B1003 | MySQL project, one of the last two forms above with only its names changed | `operator_not_implemented_in_slice6`, then `join_shape_not_admitted_in_slice7` | none: the definition emits |
+| PIE-R1004 | R2 `save_recoverable` or `recover` of such a query | not reachable: the query did not compile | `PUBLIC_R2_PAIRED_FORM` |
+| PIE-R1004 | `load_bundle` of a MySQL bundle described above that is no form's and that `0.1.11` refused at a replay check that now runs after the reading of these positions (one that runs before it keeps its detail) | that check's detail | `COMPILED_OPERATOR` for the conditional, `COMPILED_AGGREGATE_ARGUMENT` for the call; with both, the first in the bundle's record order (`COMPILED_OPERATOR` in a bundle shaped like the last form) |
+
+New refusals (bundles `0.1.11` loaded, which none of its emissions wrote):
+
+| Code | Case | Before | After |
+| --- | --- | --- | --- |
+| PIE-R1004 | `load_bundle` of a MySQL bundle described above that is no form's | loaded | `COMPILED_OPERATOR` for the conditional, `COMPILED_AGGREGATE_ARGUMENT` for the call; with both, the first in the bundle's record order (`COMPILED_OPERATOR` in a bundle shaped like the last form) |
+
+### MySQL project `Int %` and `Float %`
+
+- A MySQL project now emits `Int % Int` whose operands are two `BIGINT`
+  fields, nullable or not, and `Float % Float` whose operands are two
+  `DOUBLE` fields, nullable or not, of a source declared in the query's own
+  module, read by name (`a` or `nums.a`, also in parentheses), as the whole
+  value of a SELECT item of the `query` or `table` that
+  `emit-sql --project` emits. Every other SELECT item of that query is a
+  direct read of a `BIGINT` or `DOUBLE` field of the same source or another
+  such `%`. As written the query reads that source directly and holds no
+  `let`, WHERE, window, JOIN, GROUP BY or aggregate, HAVING, DISTINCT,
+  ORDER BY, LIMIT, header parameter (read or not), bind-safe `?`, set
+  operand or read of another relation, and no operand or item is a `def`
+  argument.
+- The SQL is the bare `(a % b)`, with no CAST, CASE or guard. MySQL computes
+  the `DOUBLE` remainder as `fmod` and returns NULL for a zero divisor where
+  PostgreSQL raises 22012, so the result's nullability is unknown: an
+  `Int` (`my_bigint`, all of signed 64 bits) or a finite binary64 `Float`
+  (`my_double`), with no R13 evidence.
+- PostgreSQL SQL and every other public PostgreSQL output are unchanged.
+  Compiled bundles and live templates replay the same SQL. Emission derives
+  the cells once per projection, and plain verification re-derives
+  emission's refusals; compiled replay derives them from its records. A
+  `def` spelling leaves the direct read's records apart from source
+  positions and the source digest, so only emission and plain verification
+  refuse it.
+- R2 `save_recoverable` and `recover` refuse a query of these forms with
+  PIE-R1004 (`detail` `PUBLIC_R2_UNQUALIFIED_FORM`) before any workspace
+  access or connection, since no native qualification has run its refined
+  statement (see the [R2 boundary](execution.md#known-limitations)).
+- The raw MySQL 8.4.12 primitives behind these forms (`BIGINT` `%` and
+  `DOUBLE` `%`) matched the PostgreSQL 18.6 outcome apart from the zero
+  divisor above. The candidate emission experiment then ran the emitted
+  SQL of its seven forms on both databases and passed on 2026-11-13 in its
+  eighth freeze, one run per database, each with no reason against and
+  accepted: PostgreSQL 18.6
+  `s15c-pg-20261113T160648Z-b012c65cf778b3a13e2e71da` and MySQL 8.4.12
+  `s15c-my-20261113T160648Z-6be83f52cdb53c5093a20372`. The runs bound this
+  change as first committed (tree `eedeb14e`). D77.50 carries them to the
+  commit that integrates this change: the experiment's projects and
+  emitted SQL, its 90 refusal-control observations and both halves'
+  compile records are identical there apart from the harness's install
+  identity and the observed commit's identity (sha256, first 16 digits,
+  the same on both sides: MySQL `sql.json` `1913d75af0758d4c`, PostgreSQL
+  `sql.json` `2af3cb86fd11f7a9`, controls `1f36dad509c962b1`, compile
+  records as sorted-key JSON without their `identity` field PostgreSQL
+  `31462b5ccbf56ef8` and MySQL `cd53c18851072c60`).
+- Every other MySQL project `%` keeps the refusal it has without this note,
+  object for object (PIE-B1003 `binary_operator_not_admitted` for `Int`,
+  `float_remainder_exact_binary64_not_realized` for `Float`): a literal or
+  header-parameter operand such as `a % 2`, `INT` or `DECIMAL` operands,
+  `(a % b) + n`, `x % y % u`, a `%` in a `let` or a WHERE, beside
+  `s = a + b`, beside a comparison or a function call, beside a `DECIMAL`,
+  text or `INT` field, under a WHERE, with ORDER BY, LIMIT or DISTINCT, over
+  an upstream query or a JOIN, or through a `def`. MySQL project `Float /`
+  stays refused (PIE-B1003 `float_division_not_realized`), and so does
+  `Int /` (PIE-B1003 `binary_operator_not_admitted`, D77.23) outside the
+  R08 cell of [its subsection](#mysql-project-int--proved-by-its-literal).
+
+A statement still refused reports exactly the blockers it has without this
+note, object for object, a cell's own included: selecting `r = a % b`
+beside `q = x / y` keeps PIE-B1003 `binary_operator_not_admitted` at `r` and
+`float_division_not_realized` at `q`.
+
+### `Text` literal defaults of `lag` and `lead` in three MySQL project forms
+
+A MySQL project now emits a static `Text` literal default of `lag` or
+`lead` in a statement that is, byte for byte, one of the three forms that
+the Phase77 qualification pack pairs across PostgreSQL 18.6 and MySQL 8.4.12,
+with only its names changed. One of them is:
+
+```pietto
+shape Row:
+    id: Int
+    flag: Bool | None
+    text: Text | None
+    money: Decimal(9, 2)
+    ratio: Float
+
+source rows: Row = mysql.table("app.rows")
+
+query result:
+    from rows
+    select:
+        id
+        previous = lag(text, 1, "雪") window(order by id)
+        following = lead(text, 1, "a'b") window(order by id)
+```
+
+- The other two forms hold the same shape and source; their query selects
+  `id`, `previous_empty = lag(text, 1, "")`, `following_unicode =
+  lead(text, 1, "雪")` and `following_null = lead(text, 1)`, or `id`,
+  `plain = text`, `lag_empty = lag(text, 1, "")`, `lead_snow = lead(text,
+  1, "雪")`, `lead_quote = lead(text, 1, "a'b")` and `lead_none =
+  lead(text, 1)`, each window `window(order by id)`, in that order.
+- The default is the hexadecimal literal of its UTF-8 bytes: `X''`,
+  `X'e99baa'` and `X'612762'`. The result keeps the value's `Text` carrier,
+  a nullable `VARCHAR(64)`, and compiled bundles and live templates replay
+  the same SQL. PostgreSQL SQL is unchanged.
+- The rest must match too. The project has that one module, which holds
+  only those three declarations (empty lines aside), and the literal policy
+  is `preserve`. The emission contract is the pack's: target `mysql`
+  `8.4.12`; the statement premises `client_encoding` `utf8mb4`,
+  `operator_environment` `builtin_only` and `identifier_case`
+  `lower_case_table_names=0`, in that order; one source entry with the
+  pack's field representations (`my_bigint`, `my_bool01`, `my_varchar` of
+  length 64 in `utf8mb4_0900_bin`, `my_decimal(9, 2)`, `my_double`) and the
+  premises `row_domain_matches` and `read_only_object`. A name (of the
+  module file, the shape, a field, the source, the query, a label, the
+  physical namespace, table or a column) is an ASCII identifier of at most
+  63 bytes that does not start with `__pietto` in any case; the
+  `mysql.table` locator is two such names joined by a dot. Two different
+  names may not be equal ignoring case when both are columns or both are
+  Pietto names, which are the shape, field, source, query and label names
+  together. A name the SQL quotes (an output label, the physical
+  namespace, the table or a column) may not be one the SQL also generates,
+  such as `p0`, `s0`, `t1` or `c0`, since the SQL then differs from the
+  form's. Compiled replay reads the bundle's own records the same way, and
+  their SQL must also be the form's SQL, names aside.
+- Every other MySQL project `Text` literal default keeps PIE-B1003
+  `window_default_literal_kind_not_realized_yet`, with its whole `0.1.11`
+  output, and so does a paired statement whose emission does not give its
+  form's SQL, names aside. `load_bundle` keeps its `0.1.11` refusal,
+  PIE-R1008, of every other bundle with a MySQL `Text` default, also of
+  one whose records are a form's but whose SQL is not. R2
+  `save_recoverable` and `recover` refuse a paired query with PIE-R1004
+  `PUBLIC_R2_PAIRED_FORM`, before any workspace work: its refined
+  statement is not one of the forms.
+- The native qualification passed on 2026-11-13: in one run of each half of
+  the pack, PostgreSQL 18.6 and MySQL 8.4.12, the three forms matched the
+  expected rows on both databases, and the MySQL half's two refusal
+  controls, a field and a parameter default, kept their `0.1.11` refusal.
+  The MySQL run `wave-a-mysql-20261113T162813Z` ran in the MySQL half's
+  third freeze; the second-freeze run, which compared the driver's undecoded
+  `Text` bytes with text values, was not accepted. The PostgreSQL run
+  `20261113T140358Z-de1e2ec4d68dc2628eaf363f` (verdict `pass` true, no
+  reason) and that MySQL run (acceptance `pass` true, no reason) bound this
+  change as first committed on the `0.1.11` release commit (tree
+  `34d2ce5d`), and their pairing summaries pair the three forms. D77.50
+  carries them to the commit that integrates this change: the records both
+  halves' compile steps export, the 83 forms of the PostgreSQL pack and the
+  MySQL forms and controls, are identical there apart from the harness's
+  install identity and the MySQL record's clock (the sha256 of each record
+  as sorted-key JSON without its `identity` field and, for MySQL, its
+  `started` and `finished` times, first 16 digits, the same on both sides:
+  `b523f386dfc68ddd` and `cd2b9c6a9ed33830`).
+
+Changed diagnostics (programs refused in `0.1.11`; no accepted program
+changes):
+
+| Code | Case | Before | After |
+| --- | --- | --- | --- |
+| PIE-B1003 | MySQL project, one of the three forms above with only its names changed | `window_default_literal_kind_not_realized_yet` | none: the query emits |
+| PIE-R1004 | R2 `save_recoverable` or `recover` of such a query | not reachable: the query did not compile | `PUBLIC_R2_PAIRED_FORM` |
+
+### Decimal and Int arithmetic and signs in fourteen MySQL project forms
+
+A MySQL project now emits a `Decimal` plus or minus an `Int` in either
+order, a `Decimal` plus or minus a `Decimal` of another scale, a `Decimal`
+times an `Int` in either order and a unary `+` or `-` of a `Decimal` in a
+statement that is, byte for byte, one of the fourteen forms that the
+Phase77 qualification pack pairs across PostgreSQL 18.6 and MySQL 8.4.12,
+with only its names changed. One of them is:
+
+```pietto
+shape Row:
+    id: Int
+    flag: Bool | None
+    text: Text
+    money: Decimal(9, 2)
+    ratio: Float
+
+source rows: Row = mysql.table("app.rows")
+
+table result:
+    from rows
+    select:
+        added = money + id
+        subtracted = money - id
+```
+
+- Nine other forms hold the same shape and source and a `table result`
+  from `rows` that selects `added = id + money` and
+  `subtracted = id - money`, or one item `result = money * id`,
+  `result = id * money`, `result = money * 2`, `result = -money`,
+  `result = +money` or `result = -(money * id)`; or the shape with
+  `ratio: Decimal(8, 3)`, selecting `added = money + ratio` and
+  `subtracted = money - ratio`; or the shape with `money: Decimal(46, 30)`,
+  selecting `result = money * id`. As in the pack, such an item's label is
+  the definition's own name. The last four forms hold the first shape and
+  source and a `query result(factor: Int)` from `rows` that selects
+  `total = money + factor`, `total = factor - money`,
+  `total = money * factor` or `total = factor * money`; the pack runs each
+  with the arguments 7, 9223372036854775807 and -9223372036854775808.
+- MySQL writes each operation without a result cast, as `(a + b)`,
+  `(a * CAST(2 AS SIGNED))` or `(-a)`, and the header parameter as the
+  server parameter `CAST(? AS SIGNED)`. Each result takes the carrier a
+  PostgreSQL project takes ([project guide](project-package.md#emission-rules)):
+  `my_decimal(22, 2)` for a sum or difference with an `Int`,
+  `my_decimal(28, 2)` for a product with an `Int`, `my_decimal(11, 3)` for
+  the two scales and `my_decimal(65, 30)` for the wide product; a sign
+  keeps its operand's carrier, `my_decimal(9, 2)` for a field and
+  `my_decimal(28, 2)` for `-(money * id)`. MySQL itself declares the result
+  column of each form with a `CAST(... AS SIGNED)` operand, the four with a
+  header parameter and `money * 2`, one digit wider, as `DECIMAL(23, 2)` or
+  `DECIMAL(29, 2)`; every value fits the stated carrier. A binary
+  operation's column is `nullable` `unknown`, and a sign
+  keeps its operand's. Compiled bundles and live templates replay the same
+  SQL. PostgreSQL SQL is unchanged.
+- The rest must match too. The project has that one module, which holds
+  only the shape, the source and that one definition (empty lines aside),
+  and the literal policy is `preserve`. The emission contract is the pack's:
+  target `mysql` `8.4.12`; the statement premises `client_encoding`
+  `utf8mb4`, `operator_environment` `builtin_only` and `identifier_case`
+  `lower_case_table_names=0`, and for the four forms with a header
+  parameter then `parameter_protocol` `mysql_prepared`, in that order; one
+  source entry with the pack's field representations (`my_bigint`,
+  `my_bool01`, `my_varchar` of length 64 in `utf8mb4_0900_bin`, the
+  shape's `my_decimal` and `my_double` or `my_decimal(8, 3)`) and the
+  premises `row_domain_matches` and `read_only_object`. A name (of the
+  module file, the shape, a field, the source, the definition, the header
+  parameter, a label, the physical namespace, the table or a column) is an
+  ASCII identifier of at most 63 bytes that does not start with `__pietto`
+  in any case; a `mysql.table` locator is two such names joined by a dot.
+  Two names that are both columns, both tables, both namespaces, both
+  locators or both Pietto names are equal, also ignoring case, exactly
+  where the form's are. A word the forms use as a keyword, such as `table`,
+  `select` or `Decimal`, is no name there, and a name the SQL quotes may
+  not be one the SQL also generates, such as `s0`.
+- Every other MySQL project statement with such an operation keeps its
+  whole `0.1.11` output, and so does a paired statement whose emission does
+  not give its form's SQL, names aside. `load_bundle` keeps its `0.1.11`
+  refusal, PIE-R1004 `COMPILED_PHYSICAL_DOMAIN`, or `COMPILED_UNARY_DOMAIN`
+  for a sign of a field, of every other bundle with such a MySQL operation,
+  also of one whose records are a form's but whose SQL is not. R2
+  `save_recoverable` and `recover` refuse a paired query with PIE-R1004
+  `PUBLIC_R2_PAIRED_FORM`, as for the other paired forms.
+- The native qualification passed on 2026-11-14. The PostgreSQL half of
+  the pack ran once on 2026-11-13 and was accepted: run
+  `20261113T214055Z-72eabeeffb3e386dc9825de4` (verdict `pass` true, no
+  reason) bound this change as first committed on the S14, S11, S10 and
+  S16 changes (tree `d455776d`). The MySQL half's first run, on the same
+  tree, failed only on the native length of the four header-parameter
+  forms' total column, which its package had derived from the public
+  carrier, while MySQL 8.4.12 takes `CAST(? AS SIGNED)` into `Decimal`
+  arithmetic as 20 integer digits; the SQL and every value matched. That
+  run is kept and carries nothing. The MySQL half was frozen again as a
+  changed experiment with MySQL's own lengths and ran once: run
+  `wave-a-mysql-20261114T005229Z` (acceptance `pass` true, no reason)
+  bound this change rebased onto the S14, S11 and S08 changes (tree
+  `c059e5c4`), where D77.50 carried the PostgreSQL run, and the two runs
+  pair all 22 pairs of the pack's S17 to S19 scope. D77.50 carries both to
+  the commit that integrates this change: the records both halves' compile
+  steps export, the 83 forms of the PostgreSQL pack and the 27 MySQL forms
+  and controls, are identical there apart from the harness's install
+  identity and the MySQL record's clock (the sha256 of each record as
+  sorted-key JSON without its `identity` field and, for MySQL, its
+  `started` and `finished` times, first 16 digits, the same on both sides:
+  `b523f386dfc68ddd` and `1545fd52f5781fbf`).
+
+Changed diagnostics (programs refused in `0.1.11`; no accepted program
+changes):
+
+| Code | Case | Before | After |
+| --- | --- | --- | --- |
+| PIE-B1003 | MySQL project, one of the fourteen forms above with only its names changed | for each SELECT item, `arithmetic_requires_signed_int_operands` for a sum or difference with an `Int`, `decimal_scale_mismatch` for the two scales, `binary_operator_not_admitted` for a product, also under a sign, and `unary_sign_requires_int_operand` for a sign of a field | none: the definition emits |
+| PIE-R1004 | R2 `save_recoverable` or `recover` of such a query | not reachable: the query did not compile | `PUBLIC_R2_PAIRED_FORM` |
+
+### An asof JOIN beside a FULL JOIN in seven MySQL single files
+
+Single-file `emit-sql --dialect mysql` now emits an asof JOIN in a relation
+with a FULL JOIN, which MySQL emulates with UNION ALL, in a file that is,
+byte for byte, one of seven forms of the Phase77 qualification pack, which
+pairs PostgreSQL 18.6 with MySQL 8.4.12, with only its names changed. One of
+them is:
+
+```text
+shape Order:
+    id: Int
+    product_id: Int
+    region: Text
+    ordered_at: Timestamp
+    ordered_on: Date
+    week_start: Timestamp
+    score: Float
+    amount: Int
+
+shape Price:
+    product_id: Int
+    region: Text
+    valid_from: Timestamp
+    valid_to: Timestamp
+    valid_on: Date
+    amount_cents: Int
+    score: Float
+    price_key = unique(product_id, valid_from)
+
+shape PriceOn:
+    product_id: Int
+    valid_on: Date
+    valid_from: Timestamp
+    amount_cents: Int
+    on_key = unique(product_id, valid_on)
+
+shape Price3:
+    product_id: Int
+    region: Text
+    valid_from: Timestamp
+    amount_cents: Int
+    p3_key = unique(product_id, region, valid_from)
+
+shape PriceId:
+    id: Int
+    product_id: Int
+    valid_from: Timestamp
+    id_key = unique(id)
+
+shape PriceTwo:
+    id: Int
+    product_id: Int
+    region: Text
+    valid_from: Timestamp
+    a_key = unique(id)
+    b_key = unique(product_id, region, valid_from)
+
+shape PriceNone:
+    product_id: Int
+    valid_from: Timestamp
+
+shape Rate:
+    valid_from: Timestamp
+    amount_cents: Int
+    rate_key = unique(valid_from)
+
+shape PriceKeyed:
+    id: Int
+    product_id: Int
+    valid_from: Timestamp
+    price_key = unique(id)
+
+relationship order_price(o: Order, p: Price):
+    o.product_id == p.product_id
+
+source orders: Order = mysql.table("shop.orders")
+source prices: Price = mysql.table("shop.prices")
+source prices_on: PriceOn = mysql.table("shop.prices_on")
+source prices3: Price3 = mysql.table("shop.prices3")
+source prices_id: PriceId = mysql.table("shop.prices_id")
+source prices_two: PriceTwo = mysql.table("shop.prices_two")
+source prices_none: PriceNone = mysql.table("shop.prices_none")
+source rates: Rate = mysql.table("shop.rates")
+source prices_keyed: PriceKeyed = mysql.table("shop.prices_keyed")
+
+table price_table:
+    from prices
+    select product_id = prices.product_id, valid_from = prices.valid_from
+
+query q:
+    from orders
+    let p2 = prices_id
+    full join p2 on orders.id == p2.id
+    let price = prices
+    asof left join price on orders.product_id == price.product_id and orders.ordered_at >= price.valid_from
+    let p3 = prices_id
+    full join p3 on orders.id == p3.id
+    select order_id = orders.id, c = price.amount_cents
+```
+
+- The other six files hold the same shapes, relationship, sources and
+  table, and one query `q` that reads `from orders` and then has:
+  - `let p2 = prices_id`, `full join p2 on orders.id == p2.id`,
+    `let price = prices` and `asof left join price on orders.product_id ==
+    price.product_id and orders.ordered_at >= price.valid_from`, or the
+    same with `asof inner join`;
+  - `let price = prices`, that asof left or inner join, `let p2 =
+    prices_id` and `full join p2 on orders.id == p2.id`;
+  - the FULL JOIN on `p2`, `let price = prices` and the asof inner join,
+    then `select order_id = orders.id, full_id = p2.id, c =
+    price.amount_cents`, or, with `let p3 = prices_id` and `full join p3 on
+    orders.id == p3.id` after it, `select order_id = orders.id,
+    first_full_id = p2.id, second_full_id = p3.id, c = price.amount_cents`.
+
+  The other queries end with `select order_id = orders.id, c =
+  price.amount_cents`.
+- The SQL is the FULL JOIN emulation with the asof JOIN's `LATERAL` latest
+  row: an asof JOIN after a FULL JOIN reads the `__pietto_full` derived-table
+  ports, and an earlier one is written in each UNION ALL branch, whose
+  right-only branch tests the row it reads for NULL. The branches choose the
+  same latest row only while the source's declared unique holds. PostgreSQL
+  SQL is unchanged.
+- A name (of a shape, field, constraint, relationship or its parameter,
+  source, table, query, binding or label, or a part of a `mysql.table`
+  locator) is an ASCII identifier of at most 63 bytes that does not start
+  with `__pietto` in any case. Two names are equal ignoring case exactly
+  when the names they replace are, as `Price` and `price` are, and each
+  locator is two names joined by a dot. Empty lines and the final newline do
+  not count; a comment, a line of spaces, other spacing, a carriage return, a
+  byte order mark, another clause or another definition does.
+- Only single-file `emit-sql --dialect mysql`, with text or JSON output,
+  pairs a file. Every other single file keeps PIE-B1000 with its whole
+  `0.1.11` output, and so does a paired file whose emission does not give
+  its form's SQL, names aside. A FULL JOIN whose `on` reads the asof JOIN's
+  row, such as `full join p2 on price.product_id == p2.id` after it, stays
+  refused.
+- The native qualification passed on 2026-11-13: in one run of each half of
+  the pack, PostgreSQL 18.6 and MySQL 8.4.12, the seven files and the asof
+  JOIN alone, which `0.1.11` already emits, matched the expected rows on
+  both databases, and the MySQL half's refusal control, that FULL JOIN whose
+  `on` reads the asof row, kept its `0.1.11` refusal. The runs,
+  PostgreSQL `20261113T141451Z-20218a248bc183f4b57d4402` (verdict `pass`
+  true, no reason) and MySQL `wave-a-mysql-20261113T141451Z` (acceptance
+  `pass` true, no reason), bound this change as first committed on the
+  `0.1.11` release commit (tree `bc4c08f8`). D77.50 carries them to the
+  commit that integrates this change: the documents both halves' compile
+  steps export, the 83 forms of the PostgreSQL pack and the nine MySQL
+  files, are byte-identical there (sha256, first 16 digits, the same on
+  both sides: `b523f386dfc68ddd` and `93336282f3619e97`).
+
+Changed diagnostics (programs refused in `0.1.11`; no accepted program
+changes):
+
+| Code | Case | Before | After |
+| --- | --- | --- | --- |
+| PIE-B1000 | single file, `emit-sql --dialect mysql`, one of the seven files above with only its names changed | `MySQL SQL emission is not implemented for RelationIR: <name>. MySQL has no ASOF JOIN in a relation with a FULL JOIN yet; emit with --dialect postgres` | none: the file emits |
+
+### Known limitations of 0.1.12
+
+- **R2 on MySQL refuses the forms this release opens.** On MySQL,
+  `save_recoverable` and `recover` refuse every query in a form that
+  `0.1.11` refused, before any workspace access or connection: with
+  PIE-R1004 `PUBLIC_R2_UNQUALIFIED_FORM`, or with an earlier R2 refusal of
+  the query (`PUBLIC_R2_PAIRED_FORM` for a paired form,
+  `PUBLIC_R2_STATEMENT_SNAPSHOT` for `now()`, `REFINEMENT_COMPARISON_DOMAIN`
+  for `Float` GROUP BY keys, `MEANING_OUTPUT` for a `Timestamp` parameter
+  selected as an output). No native qualification has run R2's refined
+  statement of any of them. This R2 check does not apply to `execute()`,
+  `save()` or bundles. On MySQL, R2 also refuses every query that reads
+  `now()`; on PostgreSQL it refuses one whose SQL R2 does not read, and an
+  R2 attempt of a null-safe `same_value` JOIN fails closed at its first
+  page, with `terminal` `FAILED` and no public reason.
+- **MySQL refusals.** MySQL support trails PostgreSQL: a form opens on MySQL
+  only after a two-database run passes, and only in the shapes that run
+  matched; outside them MySQL emission refuses it with a PIE-B code and
+  writes no SQL. These forms are refused on MySQL in `0.1.12`; the
+  [capability page](capabilities.md) and the subsections above give the
+  codes of most of them:
+  - in single files and projects: `median` and `quantile` (MySQL has no
+    interpolated percentile), `string_agg` (`GROUP_CONCAT` truncates
+    silently), a GROUPS frame with an offset bound, and EXCLUDE CURRENT ROW,
+    GROUP or TIES;
+  - in single files: `first` and `last`; the conditional sum
+    `sum(o.f for o in group if ...)`; `stddev`, `variance`, `pvariance` and
+    `pstdev` of an `Int`; a window key that names a computed `Text` `let`;
+    and an asof JOIN in a relation with a FULL JOIN, outside the seven files
+    above;
+  - in projects, in every form: `stddev`, `variance`, `pvariance` and
+    `pstdev` of an `Int`; `Float` arithmetic other than between two
+    literals, a sign on a `Float` value and `Float /`; `count_distinct`,
+    `sum` and `avg` of a `Float`; `select distinct` over a `Float`, `Float`
+    `union distinct`, `intersect` and `except`, a `Float` window key and a
+    `percent_rank` or `cume_dist` result as a key; a `Float` literal list
+    whose value and an option both read rows, and a `Float` `in` or `not in`
+    in a WHERE over a let with `capture` lines; `UUID` query parameters;
+    `sum` and `avg` over a window; scalar calls or arithmetic around
+    aggregate results; a direct `sum` of a `Decimal`; an `in` or cast in a
+    query that a JOIN reads or that reads JOIN rows; `max(a, b)` and
+    `min(a, b)` of two `Date` values; `add_months`, `concat`, `round` with
+    digits, `date_trunc` and `Text(x)` of an `Int`; typed `values(...)` and
+    `generate_series`; FULL JOIN, which is not planned; and collected lists
+    and nested results, which leave Phase77 for a separate work package;
+  - in projects, outside the forms that the subsections above open: `Int`
+    arithmetic not proved to fit signed 64 bits, `Int /`, `Int %` and `sum`
+    of an `Int`, also conditional, over a JOIN or in two levels; `Float %`;
+    `stddev`, `variance`, `pvariance` and `pstdev` of a `Float`; a `Float`
+    GROUP BY key; `==`, `!=` and `same_value` of two `Float` row reads, also
+    inside `any(...)` and `not any(...)`; `Decimal(p, s)`, `Date` and
+    `Timestamp` query parameters; the conditional count, `any` and `all`
+    over a group, `count`, `min` and `max` over a window and
+    `count_distinct(a, b, ...)`; `first` and `last`; `Decimal` plus or minus
+    an `Int` or another scale, `Decimal * Int` and a sign on a `Decimal`; a
+    conditional or scalar call beside a JOIN; `lag` and `lead` with a `Text`
+    literal default; `lpad` and `now()`; and `same_value` in a JOIN `on`,
+    never of a `Float`.
+
+  `sum` of an `Int` and nested results are approved exceptions to the MySQL
+  cadence: Phase77, the target of `sum` of an `Int`, opened it only in the
+  forms that its subsections state, and its other forms stay refused with no
+  target until the owner sets one; nested results wait for the separate
+  nested work package. `stddev` of an `Int` is one too and has no target
+  release. FULL JOIN, a GROUPS frame with an offset bound, an EXCLUDE
+  clause, `median`, `quantile` and `string_agg` are out of scope for MySQL.
+  No Phase77 slice took typed `values(...)`, `generate_series`, `round` with
+  digits, `date_trunc`, `Text(x)` of an `Int`, a `Float` literal list over
+  two row reads, or the single-file conditional sum and window key that
+  names a computed `Text` `let`; the `Float` membership over a let with
+  `capture` lines is this release's repair. Every other form above is a
+  retained exception that Phase77 kept refused (D77.07); D77.29 records many
+  of them as R01, R03 to R07, R09, R11, R12, R14 and R16 to R18.
+- **Not in this release.** The SQLite and DuckDB work of Phase78 and
+  Phase79 and the Python interoperability of Phase80 are not part of
+  `0.1.12`; the [roadmap](roadmap.md) plans them for `0.2.0`.
+- On MySQL, `lower`, `upper` and `replace` give NULL when the result would
+  exceed the server's `max_allowed_packet`, although Pietto types the result
+  from its arguments.
+- Single-file MySQL fails the smallest `Int` `/` 1 with error 1690, where
+  PostgreSQL returns the value; the [language page](language.md#expressions)
+  names only the overflow of dividing it by -1.
+- On both targets, execution refuses a `Timestamp` or `UUID` parameter, or
+  a `Timestamp` expression over `now()` that does not keep the call's
+  meaning, such as `coalesce(now(), now())`, selected as an output
+  (PIE-R1004 `MEANING_OUTPUT`, or `MEANING_UNAVAILABLE` in a relation that
+  `collect` reads beside a `Timestamp` or `UUID` source field): such an
+  output has no meaning that its result could carry.
+- On both targets, `lpad` refuses a query parameter as its text or width,
+  which its SQL writes more than once (PIE-S2355), a retained exception that
+  D77.29 records as R13.
+- `Float % Float` is accepted by `check` but refused by single-file
+  `emit-sql` on both targets (PIE-B1000); a PostgreSQL project emits it, and
+  a MySQL project in the one cell above.
+- Window forms of `variance`, `pvariance`, `pstdev`,
+  `count_distinct(a, b, ...)`, `first` and `last` are refused, and
+  `any(... for o in group)` and `all(... for o in group)` take no window.
+  The conditional count and sum, `any`, `all`, `first` and `last` over JOIN
+  rows are refused (PIE-S2334): join in one query, then group it in another
+  that reads it with `from`.
+- A project FULL or CROSS JOIN that reads a `Timestamp`, `Date` or `UUID`
+  field (a `select` item, a `where` operand, a group key or a window key) is
+  BLOCKED (PIE-B1003 `scalar_meaning_requires_field_projection`) on both
+  targets while an input has a `Timestamp` or `UUID` field.
+- A project `same_value` in a JOIN `on` emits only in the qualified
+  statements of its subsection; every other one is BLOCKED (PIE-B1003
+  `match_condition_not_in_row_domain`) on both targets. A project WHERE or
+  JOIN over a source whose shape declares no field is BLOCKED (PIE-B1003
+  `zero_column_stage_not_admitted_on_target`) on both targets.
+- `max(a, b)` and `min(a, b)` of two numeric types, such as an `Int` and a
+  `Float`, are refused (PIE-S2104), and six or more nested values stop at
+  PIE-S2399; a project `max(a, b)` of two `Bool` values is refused
+  (PIE-B1003) on both targets. `add_months` takes a `Date` only.
+- `pietto lsp` publishes no backend refusal (`PIE-B...`) and discovers no
+  root (roots come only from `projectRoots`); hover, definition and
+  completion cover only the uses that the `0.1.11` notes list. A root nested
+  inside another root through a symbolic link publishes its modules under
+  both spellings without the overlap message.
+- The known limitations of 0.1.11 that the subsections above do not change
+  still hold.
+
 ## Project arithmetic, aggregate composition and editor navigation public alpha release notes — 0.1.11
 
 **Status:** These notes cover `0.1.11`, the public alpha prepared from its

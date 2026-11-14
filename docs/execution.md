@@ -1,15 +1,15 @@
 # Execution (public alpha)
 
-**Version:** This document describes the `0.1.11` public alpha API. The
-accepted `0.1.11` files are published on its versioned GitHub pre-release and
-PyPI channels.
+**Version:** This document describes the public alpha API of the `0.1.12`
+candidate. Release availability is established only when the exact accepted
+files appear on the versioned GitHub pre-release and PyPI `0.1.12` channels.
 The published `0.1.2` distributions select `pyarrow==25.0.1`; the published
 `0.1.3`, `0.1.4`, `0.1.5`, `0.1.6`, `0.1.7`, `0.1.8`, `0.1.9`
 and `0.1.10` distributions select `pyarrow==26.0.0`, and the published
-`0.1.11` distributions select `pyarrow==26.0.1`. The published `0.1.5` distributions select
+`0.1.11` distributions and `0.1.12` select `pyarrow==26.0.1`. The published `0.1.5` distributions select
 `mysql-connector-python==26.7.0`, `adbc-driver-postgresql==1.12.0` and
 `adbc-driver-manager==1.12.0`; the published `0.1.6`, `0.1.7`, `0.1.8`,
-`0.1.9`, `0.1.10` and `0.1.11` distributions select `mysql-connector-python==26.10.0` and
+`0.1.9`, `0.1.10` and `0.1.11` distributions and `0.1.12` select `mysql-connector-python==26.10.0` and
 `1.13.0` of both ADBC packages. The historical `0.1.1` wheel does not provide this alpha surface.
 
 The dependency maintenance of `0.1.11` pins `pyarrow==26.0.1` and
@@ -88,7 +88,7 @@ execution or a supported Windows profile.
 
 ## Install
 
-The `0.1.11` distribution exposes `pietto.execution`. Install the extra of the
+The `0.1.12` distribution exposes `pietto.execution`. Install the extra of the
 route you use from PyPI into a fresh virtual environment:
 
 ```bash
@@ -116,9 +116,9 @@ An environment that keeps the pins of an earlier release, such as `pyarrow
 upgrading `pietto` alone does not upgrade an extra's packages, so reinstall
 with the extra, for example `pip install -U "pietto[execute-postgres]"`.
 The published 3.3.5/26.0.0 extras were verified on CPython 3.13.13, Linux
-x86-64, with the lock's exact artifacts; the 3.3.8/26.0.1 of `0.1.11` passed
-the maintenance runs listed at the top of this guide. Other platforms,
-interpreters and driver versions are not covered.
+x86-64, with the lock's exact artifacts; the 3.3.8/26.0.1 that `0.1.11` and
+`0.1.12` select passed the maintenance runs listed at the top of this guide.
+Other platforms, interpreters and driver versions are not covered.
 
 Pietto source examples below use the modern syntax of this checkout. Installed
 release documentation remains the authority for that release's source surface;
@@ -263,7 +263,7 @@ except RequestRejected as error:
 
 ### Saved-result API
 
-These APIs are public alpha in `0.1.11`. They do not add a CLI database
+These APIs are public alpha in `0.1.12`. They do not add a CLI database
 command. Existing `check`, `emit-sql`, text output and JSON output keep their
 contracts: JSON uses `ensure_ascii=True` and one trailing newline, while
 `--output` reports its clear output error through the established CLI result
@@ -363,13 +363,13 @@ block (`exists`, `scalar`, `in` or another `any`)
 (`REFINEMENT_EXPRESSION_BLOCK_READ`), then a query with a JOIN that reads a
 let with `capture` lines LATERAL, with or without its ORDER BY and LIMIT
 (`REFINEMENT_LATERAL_JOIN`). Before these five shapes, they refuse a MySQL
-query in one of the paired forms (unreleased, Wave A
-[S16](release-notes.d/77-s16-mysql-text-window-defaults.md),
-[S10](release-notes.d/77-s10-mysql-group-tests.md),
-[S08](release-notes.d/77-s08-mysql-aggregate-windows.md),
-[S11](release-notes.d/77-s11-mysql-count-distinct-tuple.md),
-[S14](release-notes.d/77-s14-mysql-joined-expressions.md) and
-[S17](release-notes.d/77-s17-mysql-decimal-arithmetic.md)) with
+query in one of the paired forms (Wave A
+[S16](release-notes.md#text-literal-defaults-of-lag-and-lead-in-three-mysql-project-forms),
+[S10](release-notes.md#conditional-counts-and-tests-of-a-group-in-three-mysql-project-forms),
+[S08](release-notes.md#count-min-and-max-over-a-window-in-eleven-mysql-project-forms),
+[S11](release-notes.md#distinct-counts-of-several-columns-in-eleven-mysql-project-forms),
+[S14](release-notes.md#conditionals-beside-a-join-and-calls-in-aggregate-arguments-in-four-mysql-project-forms) and
+[S17](release-notes.md#decimal-and-int-arithmetic-and-signs-in-fourteen-mysql-project-forms)) with
 `PUBLIC_R2_PAIRED_FORM`, since its refined statement is no form. These checks
 read the live query alone, so `recover` makes them in this order also when
 its restated `values` or `parameters` cannot bind. Last, on PostgreSQL, they
@@ -379,8 +379,8 @@ bound query, so `recover` makes it only when its restated values and
 parameters bind.
 Ordinary execution on every route, an ordinary
 `save` and bundles accept them. Last, on MySQL, `save_recoverable` and
-`recover` refuse a query in a form that `0.1.11` refused, one that the
-unreleased Phase77 opened, with `PUBLIC_R2_UNQUALIFIED_FORM` (see the R2
+`recover` refuse a query in a form that `0.1.11` refused, one that
+Phase77 opened in `0.1.12`, with `PUBLIC_R2_UNQUALIFIED_FORM` (see the R2
 boundary below); `compile_query` records which forms those are, so
 `recover` makes this check also when its restated values or parameters
 cannot bind. Before all of these R2 checks,
@@ -927,7 +927,7 @@ The values:
   bits may likewise report SQLSTATE 22003, with no promise of when it does.
   A result wholly outside signed 64 bits, as that of `-2**63` under
   the minus, is still refused.
-- In the unreleased MySQL project `Int /` cell (see [Language](language.md)),
+- In the MySQL project `Int /` cell (see [Language](language.md)),
   a divisor slot takes only 2 or more and a dividend slot only 0 or more,
   whatever the contract's domains; any other value is `PIE-R1004`
   `BINDING_INVALID`. PostgreSQL binds it as before.
@@ -972,7 +972,7 @@ each parameter as `(name, tag, nullable)` in declaration order, for example
   other value, a string included, is `PIE-R1006`
   `BINDING_PARAMETER:<ordinal>:<tag>`. Each such value is sent as its
   canonical text, which the statement's own anchor casts (`postgres_rows` and
-  `postgres_adbc` alike, and, unreleased (Phase77 S09), `mysql_rows` for a
+  `postgres_adbc` alike, and, since `0.1.12` (Phase77 S09), `mysql_rows` for a
   MySQL `Decimal`, `Date` or `Timestamp` read): a Decimal without exponent or
   trailing zero (`Decimal("12.50")` is sent as `12.5`, `-0.00` as `0`), an ISO
   date, an ISO timestamp with a space and six fractional digits, and the
@@ -1647,12 +1647,13 @@ or a successful semantic check alone establishes none of those premises.
   environment that built it); there is no migration between versions. The
   identity is read from the installed files at each call, so restart running
   processes after the installed code changes.
-  A bundle or saved-job record made under `0.1.10` or earlier is refused under
-  `0.1.11` by the changed code identity. The old bytes are preserved; use their
+  A bundle or saved-job record made under `0.1.11` or earlier is refused under
+  `0.1.12` by the changed code identity. The old bytes are preserved; use their
   matching old environment. Pietto supplies no migration or rewrite.
-  `0.1.11` changes compiled marks from `(7, 1, 7, 1)`
-  to `(8, 1, 8, 1)` once. Keep `pietto==0.1.10` for its retained bundles
-  and jobs; a new matching environment requires recompilation from source.
+  `0.1.11` changed compiled marks from `(7, 1, 7, 1)` to `(8, 1, 8, 1)`
+  once, and `0.1.12` keeps them. Keep `pietto==0.1.11` for its retained
+  bundles and jobs; a new matching environment requires recompilation from
+  source.
   Recompiling does not convert saved results or rerun a query. Reading old
   results follows their separate format, code-identity and trust contract;
   rerunning is a new database execution (see
@@ -1672,16 +1673,16 @@ or a successful semantic check alone establishes none of those premises.
   these forms when it is prepared, and refused before any workspace access or
   connection.
 - On MySQL, `save_recoverable` and `recover` refuse a query in a form that
-  `0.1.11` refused, the forms that the unreleased Phase77 opens, with
+  `0.1.11` refused, the forms that Phase77 opens in `0.1.12`, with
   PIE-R1004 `PUBLIC_R2_UNQUALIFIED_FORM` before any workspace access or
   connection: no native qualification has run R2's refined statement of any
   of them. It is the last R2 check, so a query that another one refuses
   keeps that refusal: a paired form (`PUBLIC_R2_PAIRED_FORM`), a query that
   reads `now()` (`PUBLIC_R2_STATEMENT_SNAPSHOT`), an
-  [S07](release-notes.d/77-s07-mysql-float-keys.md) `Float` GROUP BY key
+  [S07](release-notes.md#float-group-by-keys-in-mysql-projects) `Float` GROUP BY key
   form (`REFINEMENT_COMPARISON_DOMAIN`) when they prepare it, and, when its
   values and parameters bind, an
-  [S09](release-notes.d/77-s09-mysql-typed-parameters.md) `Timestamp`
+  [S09](release-notes.md#mysql-project-decimal-date-and-timestamp-parameters) `Timestamp`
   parameter selected as an output (`MEANING_OUTPUT`, as in `save()`).
   `recover` makes the check also when its restated values or parameters
   cannot bind. This check does not apply to ordinary execution, an ordinary

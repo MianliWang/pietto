@@ -69,6 +69,9 @@ changes the same notes edits the fragment. The release commit runs
 puts `## T — X` above the previous release in `docs/release-notes.md`, follows
 it with the fragments ordered by phase, slice and topic, and deletes them; it
 then writes the section's status, highlights, upgrading and known limitations.
+Between releases, README links to repository files stay on `blob/main` and
+`tree/main`; the release commit pins them to `vX.Y.Z`, and the post-release
+documentation commit moves them back to `main`.
 
 **Batch audit.** The audit of a batch is one round over the whole batch,
 aimed at issues between slices: shared owners, edits that conflict or depend

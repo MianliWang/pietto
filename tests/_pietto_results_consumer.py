@@ -661,7 +661,7 @@ def origin_observation() -> dict[str, Any]:
     if (
         url.scheme != "file"
         or url.netloc
-        or distribution.version != "0.1.11"
+        or distribution.version != "0.1.12"
         or sorted(distribution.metadata.get_all("Provides-Extra") or ())
         != ["arrow", "execute-mysql", "execute-postgres", "execute-postgres-adbc"]
     ):

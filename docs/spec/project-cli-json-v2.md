@@ -418,14 +418,14 @@ the statement may fail while PostgreSQL plans or executes it and never returns
 a wrong value; whether and when it fails depends on the execution plan. A consumer that requires a
 statically proved range refuses a document with this evidence. Every other
 requirement's `evidence` is unchanged, and no MySQL document carries it
-outside the unreleased cells below.
+outside the `0.1.12` cells below.
 
 The additive `ranges` roles for these PostgreSQL forms are
 `expression_range` role `int8_widen`, and `syntax` roles `int8_widen_open`,
 `int8_widen_close`, `aggregate_result_cast_open` and
 `aggregate_result_cast_close`.
 
-Unreleased (Phase77 S01/S02), a MySQL document carries the same evidence in
+Since `0.1.12` (Phase77 S01/S02), a MySQL document carries the same evidence in
 the cells that the [language page](../language.md) states. A sign, `+`, `-`,
 `*` or `abs` over nullable `BIGINT` fields (kind `arithmetic` or
 `scalar_call`, rule R05) whose exact range leaves signed 64 bits ends its
@@ -493,7 +493,7 @@ After `0.1.10`, a project `Float / Float` or `Float % Float` that is not
 emitted is BLOCKED with the additive PIE-B1003 detail
 `float_division_not_realized` or `float_remainder_exact_binary64_not_realized`,
 located as `binary_operator_not_admitted` is and with its suggestion: a MySQL
-one (a `Float %` outside the unreleased (Phase77 S15) cell that the
+one (a `Float %` outside the `0.1.12` (Phase77 S15) cell that the
 [language page](../language.md) states), and a PostgreSQL one with an operand whose carrier is not the reviewed
 finite `pg_float8` carrier, such as a `percent_rank` or `cume_dist` result
 read from another relation, whose window distribution carrier is admitted for
@@ -531,7 +531,7 @@ the authored direction. Its R13 `aggregate` requirement carries no evidence.
 
 A MySQL `first` or `last` aggregate column, emitted only in the forms that
 [Aggregates](../language.md#aggregates-and-grouping) lists
-([unreleased](../release-notes.d/77-s13-mysql-first-and-last.md)), has the
+([0.1.12](../release-notes.md#mysql-project-first-and-last)), has the
 `spelling` `MAX`, no `argument_cast` or `result_cast`, no `delimiter` and its
 internal order in `order_by` with each authored direction. It is written
 `MAX(CASE WHEN t.r1 = 1 THEN t.x END)` over a derived table `(SELECT t.x, ...,
@@ -591,7 +591,7 @@ roles `aggregate_open`, `aggregate_filter_open`, `aggregate_filter_then`,
 `aggregate_close`. The result is a non-null `pg_bool` (`bool01`); its R13
 `aggregate` requirement carries no evidence. A MySQL conditional count and
 test of a group, emitted only in three paired forms
-([unreleased](../release-notes.d/77-s10-mysql-group-tests.md)), carry the
+([0.1.12](../release-notes.md#conditional-counts-and-tests-of-a-group-in-three-mysql-project-forms)), carry the
 same function, spelling and roles; the count is a non-null `my_bigint` and
 the test a non-null `my_signed_bool`.
 
@@ -606,7 +606,7 @@ each field read twice. The additive `ranges` roles for this form are the
 existing `aggregate_separator` (`, `) between the fields inside `ROW(`. Its R13
 `aggregate` requirement carries no evidence. A MySQL one, emitted only in
 eleven paired forms
-([unreleased](../release-notes.d/77-s11-mysql-count-distinct-tuple.md)), is
+([0.1.12](../release-notes.md#distinct-counts-of-several-columns-in-eleven-mysql-project-forms)), is
 written `COUNT(DISTINCT a, b)` with the same `function`, each field read once,
 `aggregate_separator` between the fields and none of the four tuple roles;
 the count is a non-null `my_bigint`.
@@ -622,7 +622,7 @@ without an aggregate window are unchanged; MySQL refuses every aggregate
 window (PIE-B1003 `window_aggregate_approved_non_support_on_mysql`) except
 `count`, `min` and `max` in eleven paired forms, whose documents carry the
 same function and roles
-([unreleased](../release-notes.d/77-s08-mysql-aggregate-windows.md)).
+([0.1.12](../release-notes.md#count-min-and-max-over-a-window-in-eleven-mysql-project-forms)).
 
 `Int` arithmetic with a `None` operand (D-12, kind `arithmetic`) writes that
 NULL as `CAST(NULL AS pg_catalog.int8)` on PostgreSQL and
@@ -654,7 +654,7 @@ v1 reader rejects v2 by its tag. v2 is v1 with these differences:
   `pg_catalog.numeric(p,s)`. On MySQL `tag` is also `Decimal`, `Date` or
   `Timestamp` in the positions that
   [Query header parameters](../language.md#query-header-parameters-in-explicit-module-projects)
-  lists ([unreleased](../release-notes.d/77-s09-mysql-typed-parameters.md)),
+  lists ([0.1.12](../release-notes.md#mysql-project-decimal-date-and-timestamp-parameters)),
   whose `physical_type` is `my_decimal`, `my_date` or `my_datetime` and whose
   read is the anchor cast `CAST(? AS DECIMAL(p,s))`, with the declaration's
   precision and scale, `CAST(? AS DATE)` or `CAST(? AS DATETIME(6))`; MySQL
@@ -1150,7 +1150,7 @@ equality (`-0.0 == 0.0`) on PostgreSQL, in every set form included; after
 key and a FULL JOIN equality there. On MySQL, comparisons with a literal or a
 header parameter, ordering inequalities, `in` and `not in` (a literal list
 only when its value or all of its options read no row), `nullif`, relation
-ORDER BY and UNION ALL emit, and, unreleased, so do a Float GROUP BY key in
+ORDER BY and UNION ALL emit, and, since `0.1.12`, so do a Float GROUP BY key in
 the one-source forms and an `==`, `!=` or `same_value` between two row reads
 in the same-row and JOIN forms that
 [Float values](../language.md#float-values) lists; every other Float GROUP

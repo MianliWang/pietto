@@ -580,26 +580,26 @@ first column give every rule.
 | Feature | PostgreSQL single file | MySQL single file | PostgreSQL project | MySQL project |
 | --- | --- | --- | --- | --- |
 | `concat(a, b)` ([Expressions](#expressions)) | `(a \|\| b)` | `CONCAT(a, b)` | emitted; refused for only `None` (PIE-B1003) or a binding-width `Text` (PIE-B1004) | refused (PIE-B1003) |
-| `same_value(a, b)` ([Expressions](#expressions)) | `(a IS NOT DISTINCT FROM b)` | `(a <=> b)` | select items, WHERE and `let`, select items after a JOIN; `Float` where `==` is, not `Bool`, not in a WHERE after a JOIN, and in a JOIN `on` only in the unreleased null-safe JOIN statements of [Expressions](#expressions) | as PostgreSQL, a `Float` only beside an operand that reads no row or of two `Float` fields in the unreleased qualified forms of [Float values](#float-values) (other two row `Float` operands PIE-B1003), no `Float` in a JOIN `on`, and not a GROUP BY key or DISTINCT column |
-| `stddev(x)` ([Aggregates](#aggregates-and-grouping)) | `Int` and `Float` | `Float` (`STDDEV_SAMP`); `Int` refused (PIE-B1000) | `Int` and `Float` | refused: `Int` PIE-B1003, `Float` PIE-B1004, except unreleased `STDDEV_SAMP` as the only select item of a global aggregate over one direct nullable `Float` field of one source with no `let`, other clause or header parameter |
-| `variance(x)`, `pvariance(x)`, `pstdev(x)` ([Aggregates](#aggregates-and-grouping)) | `Int` and `Float` (`VAR_SAMP`, `VAR_POP`, `SQRT` of `VAR_POP`) | `Float` (`VAR_SAMP`, `VAR_POP`, `STDDEV_POP`); `Int` refused (PIE-B1000) | `Int` and `Float` | refused: `Int` PIE-B1003, `Float` PIE-B1004, except unreleased `VAR_SAMP`, `VAR_POP`, `STDDEV_POP` in the shape of `stddev` |
+| `same_value(a, b)` ([Expressions](#expressions)) | `(a IS NOT DISTINCT FROM b)` | `(a <=> b)` | select items, WHERE and `let`, select items after a JOIN; `Float` where `==` is, not `Bool`, not in a WHERE after a JOIN, and in a JOIN `on` only in the null-safe JOIN statements of [Expressions](#expressions) | as PostgreSQL, a `Float` only beside an operand that reads no row or of two `Float` fields in the qualified forms of [Float values](#float-values) (other two row `Float` operands PIE-B1003), no `Float` in a JOIN `on`, and not a GROUP BY key or DISTINCT column |
+| `stddev(x)` ([Aggregates](#aggregates-and-grouping)) | `Int` and `Float` | `Float` (`STDDEV_SAMP`); `Int` refused (PIE-B1000) | `Int` and `Float` | refused: `Int` PIE-B1003, `Float` PIE-B1004, except `STDDEV_SAMP` as the only select item of a global aggregate over one direct nullable `Float` field of one source with no `let`, other clause or header parameter |
+| `variance(x)`, `pvariance(x)`, `pstdev(x)` ([Aggregates](#aggregates-and-grouping)) | `Int` and `Float` (`VAR_SAMP`, `VAR_POP`, `SQRT` of `VAR_POP`) | `Float` (`VAR_SAMP`, `VAR_POP`, `STDDEV_POP`); `Int` refused (PIE-B1000) | `Int` and `Float` | refused: `Int` PIE-B1003, `Float` PIE-B1004, except `VAR_SAMP`, `VAR_POP`, `STDDEV_POP` in the shape of `stddev` |
 | `median(x)`, `quantile(x, q)` ([Aggregates](#aggregates-and-grouping)) | `Int` and `Float` (`PERCENTILE_CONT ... WITHIN GROUP`) | refused (PIE-B1000) | `Int`; `Float` refused (PIE-B1004) | refused (PIE-B1003) |
-| `first(x, order by k, id)`, `last(...)` ([Aggregates](#aggregates-and-grouping)) | `(ARRAY_AGG(x ORDER BY k ASC, id ASC))[1]`; `last` flips every direction | refused (PIE-B1000) | as a file; the value keeps its carrier; a key orders as a relation ORDER BY key (R19), else PIE-B1003 `first_last_order_key_outside_reviewed_order_domain` | unreleased: `MAX(CASE WHEN <rank> = 1 THEN x END)` over a `ROW_NUMBER()` derived table, only in the qualified forms that [Aggregates](#aggregates-and-grouping) lists; otherwise refused (PIE-B1003 `first_last_not_admitted_on_target`) |
-| `sum(1 for o in group if t)`, `sum(o.f for o in group if t)` ([Aggregates](#aggregates-and-grouping)) | `COUNT(CASE WHEN t THEN 1 END)`; `COALESCE(CAST(SUM(CASE WHEN t THEN CAST(f AS pg_catalog.int8) END) AS pg_catalog.int8), 0)` | count `COUNT(CASE WHEN t THEN 1 END)`; sum refused (PIE-B1000) | as PostgreSQL single file, `schema_version = 2` (PIE-S2334 in a `schema_version = 1` project); no JOIN inputs | refused: count PIE-B1003 outside three paired forms ([unreleased](release-notes.d/77-s10-mysql-group-tests.md)), sum PIE-B1004, except unreleased: the guarded `SUM` of the S03 conditional sums ([Aggregates](#aggregates-and-grouping)) |
+| `first(x, order by k, id)`, `last(...)` ([Aggregates](#aggregates-and-grouping)) | `(ARRAY_AGG(x ORDER BY k ASC, id ASC))[1]`; `last` flips every direction | refused (PIE-B1000) | as a file; the value keeps its carrier; a key orders as a relation ORDER BY key (R19), else PIE-B1003 `first_last_order_key_outside_reviewed_order_domain` | `MAX(CASE WHEN <rank> = 1 THEN x END)` over a `ROW_NUMBER()` derived table, only in the qualified forms that [Aggregates](#aggregates-and-grouping) lists; otherwise refused (PIE-B1003 `first_last_not_admitted_on_target`) |
+| `sum(1 for o in group if t)`, `sum(o.f for o in group if t)` ([Aggregates](#aggregates-and-grouping)) | `COUNT(CASE WHEN t THEN 1 END)`; `COALESCE(CAST(SUM(CASE WHEN t THEN CAST(f AS pg_catalog.int8) END) AS pg_catalog.int8), 0)` | count `COUNT(CASE WHEN t THEN 1 END)`; sum refused (PIE-B1000) | as PostgreSQL single file, `schema_version = 2` (PIE-S2334 in a `schema_version = 1` project); no JOIN inputs | refused: count PIE-B1003 outside three paired forms ([0.1.12](release-notes.md#conditional-counts-and-tests-of-a-group-in-three-mysql-project-forms)), sum PIE-B1004, except the guarded `SUM` of the S03 conditional sums ([Aggregates](#aggregates-and-grouping)) |
 | `any(t for o in group)`, `all(t for o in group)` ([Aggregates](#aggregates-and-grouping)) | `(COUNT(CASE WHEN t THEN 1 END) > 0)`; `(COUNT(CASE WHEN t THEN NULL ELSE 1 END) = 0)` | as PostgreSQL, an integer 0/1 | as PostgreSQL single file, `schema_version = 2` (PIE-S2334 in a `schema_version = 1` project); no JOIN inputs | refused (PIE-B1003 `group_test_not_admitted_on_target`) outside the same paired forms |
 | `max(a, b)`, `min(a, b)` ([Expressions](#expressions)) | `CASE WHEN` of `<`/`>` and `IS NOT NULL`; `Int`, `Decimal`, `Float`, `Text`, `Date`, `Timestamp`, `UUID`, `Bool` | as PostgreSQL; a `Bool` result arrives as an integer 0, 1 or NULL, as every computed `Bool` does on MySQL | `Int`, `Decimal`, `Float`, `Text`, `Date`, `Timestamp`, `UUID` as their comparison and conditional are; `Bool` refused (PIE-B1003) | as PostgreSQL project, except `Date`, refused (PIE-B1003) |
-| `lpad(s, width, fill)` ([Expressions](#expressions)) | `CASE WHEN length(s) >= width THEN s ELSE lpad(...) END`; a literal width outside the signed 32-bit range refused (PIE-S2385 at check) | `CASE WHEN CHAR_LENGTH(s) >= width THEN s ELSE LPAD(...) END` | emitted for a width proven in the signed 32-bit range; refused otherwise (PIE-B1002, PIE-B1004) | unreleased: only in the qualified SELECT position the `lpad` paragraph of [Expressions](#expressions) gives; refused elsewhere (PIE-B1003) |
+| `lpad(s, width, fill)` ([Expressions](#expressions)) | `CASE WHEN length(s) >= width THEN s ELSE lpad(...) END`; a literal width outside the signed 32-bit range refused (PIE-S2385 at check) | `CASE WHEN CHAR_LENGTH(s) >= width THEN s ELSE LPAD(...) END` | emitted for a width proven in the signed 32-bit range; refused otherwise (PIE-B1002, PIE-B1004) | only in the qualified SELECT position the `lpad` paragraph of [Expressions](#expressions) gives; refused elsewhere (PIE-B1003) |
 | `add_months(d, n)` ([Expressions](#expressions)) | `CAST((d + make_interval(months => CAST(n AS integer))) AS date)` | `DATE_ADD(d, INTERVAL n MONTH)` | emitted; a `None` argument refused (PIE-B1003) | refused (PIE-B1003) |
-| `now()` ([Expressions](#expressions)) | `(statement_timestamp() AT TIME ZONE 'UTC')`, in SELECT items and WHERE | `UTC_TIMESTAMP(6)`, in SELECT items and WHERE | emitted, compiled and bound as a template | unreleased: also as `date_of(now())`, only in the qualified SELECT position the `now()` paragraph of [Expressions](#expressions) gives; refused elsewhere (PIE-B1003) |
+| `now()` ([Expressions](#expressions)) | `(statement_timestamp() AT TIME ZONE 'UTC')`, in SELECT items and WHERE | `UTC_TIMESTAMP(6)`, in SELECT items and WHERE | emitted, compiled and bound as a template | also as `date_of(now())`, only in the qualified SELECT position the `now()` paragraph of [Expressions](#expressions) gives; refused elsewhere (PIE-B1003) |
 | Always-null numbers, D-12 ([Expressions](#expressions)) | typed NULL casts | typed NULL casts | `Int` arithmetic with `None`; `Float` and `Decimal` refused | as PostgreSQL |
-| `Float` equality ([Float values](#float-values)) | comparisons and GROUP BY; DISTINCT and set forms are project-only | as PostgreSQL; GROUP BY beside a wide `Text` key may split `-0.0` and `0.0` | comparisons, GROUP BY, DISTINCT, ORDER BY, every set form, window `partition by` and `order by`, `string_agg` order keys and FULL JOIN equalities, also over a window `percent_rank` or `cume_dist` result | comparisons with a literal or header parameter, ordering inequalities, `in` and `not in` (a literal list only when its value or all of its options read no row, a read of a let with `capture` lines only as a SELECT item (unreleased)), `nullif`, relation ORDER BY and UNION ALL; `==`, `!=` and `same_value` of two `Float` fields in the unreleased qualified same-row, JOIN and `not any(...)` forms, and GROUP BY of one to three keys in the unreleased qualified one-source forms, of [Float values](#float-values); the other forms refused (PIE-B1003) |
-| JOIN aggregates without fan-out ([Aggregates](#aggregates-and-grouping)) | accepted | accepted | accepted | accepted; `sum(Int)` stays PIE-B1004, except unreleased: the guarded `SUM` of the S03 JOIN and two-level forms ([Aggregates](#aggregates-and-grouping)) |
+| `Float` equality ([Float values](#float-values)) | comparisons and GROUP BY; DISTINCT and set forms are project-only | as PostgreSQL; GROUP BY beside a wide `Text` key may split `-0.0` and `0.0` | comparisons, GROUP BY, DISTINCT, ORDER BY, every set form, window `partition by` and `order by`, `string_agg` order keys and FULL JOIN equalities, also over a window `percent_rank` or `cume_dist` result | comparisons with a literal or header parameter, ordering inequalities, `in` and `not in` (a literal list only when its value or all of its options read no row, a read of a let with `capture` lines only as a SELECT item (since `0.1.12`)), `nullif`, relation ORDER BY and UNION ALL; `==`, `!=` and `same_value` of two `Float` fields in the qualified same-row, JOIN and `not any(...)` forms, and GROUP BY of one to three keys in the qualified one-source forms, of [Float values](#float-values); the other forms refused (PIE-B1003) |
+| JOIN aggregates without fan-out ([Aggregates](#aggregates-and-grouping)) | accepted | accepted | accepted | accepted; `sum(Int)` stays PIE-B1004, except the guarded `SUM` of the S03 JOIN and two-level forms ([Aggregates](#aggregates-and-grouping)) |
 | Top-level constants and `--set` ([Top-level constants](#top-level-constants)) | literals; `DATE '...'`, `TIMESTAMP '...'` | as PostgreSQL | refused (PIE-S2392) | refused (PIE-S2392) |
-| Project aggregate arguments ([Aggregates](#aggregates-and-grouping)): `count`/`count_distinct` of `Text`, `Bool`, `Float`, `Decimal`; `min`/`max` of `Float`, `Decimal`; `sum`/`avg` of `Float`; a row expression argument (`sum(qty * 2)`) | emitted (unchanged) | emitted (unchanged) | emitted, also an argument holding a scalar call over JOIN rows (`count(lower(r.label))`); direct `sum(Decimal(p, s))` emits as checked `numeric(p + 19, s)` only for `p + 19 <= 65`; Decimal `avg` and other Decimal sum shapes stay PIE-B1004 | as PostgreSQL, except `count_distinct` of a `Float` (PIE-B1003), `sum`/`avg` of a `Float`, `sum` of a `Decimal`, and `sum` of an `Int` such as `sum(qty * 2)` (PIE-B1004) outside the unreleased sum cell of [Aggregates](#aggregates-and-grouping), and over JOIN rows an argument holding a scalar call (PIE-B1003) outside two paired forms ([unreleased](release-notes.d/77-s14-mysql-joined-expressions.md)); an `Int` expression not proved to fit BIGINT is PIE-B1002 first |
-| `count_distinct(a, b, ...)` ([Aggregates](#aggregates-and-grouping)) | `COUNT(DISTINCT CASE WHEN a IS NOT NULL AND b IS NOT NULL THEN ROW(a, b) END)` | `COUNT(DISTINCT a, b)` | as PostgreSQL single file, `schema_version = 2` (PIE-S2334 in a `schema_version = 1` project), also over JOIN rows | refused (PIE-B1003 `count_distinct_tuple_not_admitted_on_target`) outside eleven paired forms ([unreleased](release-notes.d/77-s11-mysql-count-distinct-tuple.md)) |
+| Project aggregate arguments ([Aggregates](#aggregates-and-grouping)): `count`/`count_distinct` of `Text`, `Bool`, `Float`, `Decimal`; `min`/`max` of `Float`, `Decimal`; `sum`/`avg` of `Float`; a row expression argument (`sum(qty * 2)`) | emitted (unchanged) | emitted (unchanged) | emitted, also an argument holding a scalar call over JOIN rows (`count(lower(r.label))`); direct `sum(Decimal(p, s))` emits as checked `numeric(p + 19, s)` only for `p + 19 <= 65`; Decimal `avg` and other Decimal sum shapes stay PIE-B1004 | as PostgreSQL, except `count_distinct` of a `Float` (PIE-B1003), `sum`/`avg` of a `Float`, `sum` of a `Decimal`, and `sum` of an `Int` such as `sum(qty * 2)` (PIE-B1004) outside the sum cell of [Aggregates](#aggregates-and-grouping), and over JOIN rows an argument holding a scalar call (PIE-B1003) outside two paired forms ([0.1.12](release-notes.md#conditionals-beside-a-join-and-calls-in-aggregate-arguments-in-four-mysql-project-forms)); an `Int` expression not proved to fit BIGINT is PIE-B1002 first |
+| `count_distinct(a, b, ...)` ([Aggregates](#aggregates-and-grouping)) | `COUNT(DISTINCT CASE WHEN a IS NOT NULL AND b IS NOT NULL THEN ROW(a, b) END)` | `COUNT(DISTINCT a, b)` | as PostgreSQL single file, `schema_version = 2` (PIE-S2334 in a `schema_version = 1` project), also over JOIN rows | refused (PIE-B1003 `count_distinct_tuple_not_admitted_on_target`) outside eleven paired forms ([0.1.12](release-notes.md#distinct-counts-of-several-columns-in-eleven-mysql-project-forms)) |
 | `len(c.xs)`, `sum(o.f for o in c.xs ...)`, `any(t for o in c.xs)` ([Nested relations](#nested-relations-collect-and-unnest)) | `sum` and `any` refused at check (PIE-S2334; a single file collects no list); `len(c.xs)` has no list to read (PIE-S2102 for an unknown field, or only the Collect's own refusals) | as PostgreSQL | the count column; `sum` and `any` a scalar subquery over `pg_catalog.unnest` of the list's arrays | refused (PIE-B1003 `collect_not_admitted_on_target`) |
-| `min(x)`, `max(x)` of a `Timestamp` or `Date` ([Aggregates](#aggregates-and-grouping)) | emitted (unchanged) | emitted (unchanged) | emitted (unchanged) | emitted as on PostgreSQL: `MIN(x)` and `MAX(x)` keep `DATETIME(6)`, microseconds kept, and `DATE`, NULL for an empty input; over a window refused (PIE-B1003), as every MySQL aggregate window outside the paired forms ([unreleased](release-notes.d/77-s08-mysql-aggregate-windows.md)) |
-| `asof left join`, `asof inner join` ([Backward asof JOIN](#backward-asof-join)) | emitted | emitted, except in a relation with a FULL JOIN (PIE-B1000) outside seven qualified files ([unreleased](release-notes.d/77-s25-mysql-asof-beside-full.md)) | emitted in a table or query without a relation `let NAME:` block whose FROM is not a table function, elsewhere refused (PIE-S2336); a `let NAME:` block as the joined input is PIE-S2386, where a single file refuses the block itself (PIE-S2345); an aggregate after it only where its `on` keys match a unique key (PIE-S2333) | as PostgreSQL |
+| `min(x)`, `max(x)` of a `Timestamp` or `Date` ([Aggregates](#aggregates-and-grouping)) | emitted (unchanged) | emitted (unchanged) | emitted (unchanged) | emitted as on PostgreSQL: `MIN(x)` and `MAX(x)` keep `DATETIME(6)`, microseconds kept, and `DATE`, NULL for an empty input; over a window refused (PIE-B1003), as every MySQL aggregate window outside the paired forms ([0.1.12](release-notes.md#count-min-and-max-over-a-window-in-eleven-mysql-project-forms)) |
+| `asof left join`, `asof inner join` ([Backward asof JOIN](#backward-asof-join)) | emitted | emitted, except in a relation with a FULL JOIN (PIE-B1000) outside seven qualified files ([0.1.12](release-notes.md#an-asof-join-beside-a-full-join-in-seven-mysql-single-files)) | emitted in a table or query without a relation `let NAME:` block whose FROM is not a table function, elsewhere refused (PIE-S2336); a `let NAME:` block as the joined input is PIE-S2386, where a single file refuses the block itself (PIE-S2345); an aggregate after it only where its `on` keys match a unique key (PIE-S2333) | as PostgreSQL |
 
 ## Types and shapes
 
@@ -720,7 +720,7 @@ MySQL plans its own joins and semijoins for a Float `==` whose two operands
 read rows, and a materialized semijoin beside a `VARCHAR(1000)` key returned
 outer rows twice (Phase72 B10, reproduced in Phase77). MySQL project emission
 therefore emits a `==`, `!=` or `same_value` of two Float row reads only in
-the forms its native qualification matched under this contract (unreleased,
+the forms its native qualification matched under this contract (since `0.1.12`,
 Phase77 S06): `a == b`, `a != b`, `not (a != b)`,
 `same_value(a, b)` or `not same_value(a, b)` of two different nullable Float
 fields of a query's one source, as one SELECT item's whole value or as the
@@ -736,7 +736,7 @@ selected or not (the CTE of a WHERE or a JOIN writes them all), exactly the
 fields of the qualification's tables in their order: a non-null `Int`
 (BIGINT) and two nullable Floats for a same-row form; a non-null `Int`
 (BIGINT), a nullable Float and NOT NULL binary `Text` fields of width 64 and
-1000 for each JOIN input. One more form matched (unreleased, Phase77 R02):
+1000 for each JOIN input. One more form matched (since `0.1.12`, Phase77 R02):
 a WHERE that is all `not any(z.v == o.v for z in i)`, or
 `not any(z.v == o.v and z.k == o.k for z in i)`, over a nullable Float
 field of the outer source `o` and of another table `i`, the `==` of a NOT
@@ -767,8 +767,8 @@ has without this one.
 MySQL deduplicates GROUP BY rows in an internal temporary table, which kept
 `-0.0` and `0.0` apart beside a `VARCHAR(1000)` key. MySQL project emission
 therefore emits a Float GROUP BY key only in the forms its native
-qualification matched under this contract (unreleased, Phase77 S07): a query
-over one source that groups by the keys and selects exactly those keys in
+qualification matched under this contract (since `0.1.12`, Phase77 S07): a
+query over one source that groups by the keys and selects exactly those keys in
 that order and then `count()`. The keys are different fields read
 directly, as `x`, `x, y` or `x, k, y`, where `x` and `y` are Float fields
 both non-null or both nullable and `k` is a NOT NULL binary `Text` field of
@@ -1757,7 +1757,7 @@ query order_prices:
   relation with a FULL JOIN, which MySQL emulates with UNION ALL
   (PIE-B1000), except in a file that is one of seven qualified forms with
   only its names changed
-  ([unreleased](release-notes.d/77-s25-mysql-asof-beside-full.md)). Each
+  ([0.1.12](release-notes.md#an-asof-join-beside-a-full-join-in-seven-mysql-single-files)). Each
   database finds the latest row fastest with an index
   on the joined table's keys and time, such as `(product_id, valid_from)`.
 - **Projects.** An explicit-module project checks an asof JOIN with the same
@@ -2674,8 +2674,8 @@ exports and binds, but `execute()` refuses it when it prepares the result and
 `MEANING_UNAVAILABLE` in a collected `let` beside a `Timestamp` or `UUID`
 source field).
 
-MySQL project SQL (unreleased, Phase77 S09) writes a `Decimal(p, s)`, `Date`
-or `Timestamp` read as `CAST(? AS DECIMAL(p,s))`, `CAST(? AS DATE)` or
+MySQL project SQL (since `0.1.12`, Phase77 S09) writes a `Decimal(p, s)`,
+`Date` or `Timestamp` read as `CAST(? AS DECIMAL(p,s))`, `CAST(? AS DATE)` or
 `CAST(? AS DATETIME(6))`, one `?` per read in rendering order, and sends the
 value as its canonical text, in two positions only, those its native
 qualification matched: as the whole value of a SELECT item of the emitted
@@ -2931,7 +2931,7 @@ carrier rules in the [project guide](project-package.md#emission-rules):
 multiplication produces `Decimal(p + 19, s)` only when `p + 19 <= 65`, and
 a sign preserves `(p, s)`. MySQL projects retain their refusal, except in
 a statement that is one of fourteen paired forms with only its names changed
-([unreleased](release-notes.d/77-s17-mysql-decimal-arithmetic.md)).
+([0.1.12](release-notes.md#decimal-and-int-arithmetic-and-signs-in-fourteen-mysql-project-forms)).
 Decimal/Float arithmetic remains PIE-S2105; this rule does not introduce a
 Decimal literal or a project Decimal division or average.
 
@@ -2961,7 +2961,7 @@ Float-to-Decimal conversion. `Int % Int` is the remainder of the truncating
 `-1`, `7 % -2` is `1`). A zero divisor raises 22012 on PostgreSQL.
 
 A MySQL project emits `Int % Int` over two `BIGINT` fields and
-`Float % Float` over two `DOUBLE` fields in one unreleased (Phase77 S15)
+`Float % Float` over two `DOUBLE` fields in one `0.1.12` (Phase77 S15)
 cell only: the `%` is the whole value of a SELECT item of the `query` or
 `table` that `emit-sql --project` emits, its operands are fields of a source
 declared in the query's own module, read by name (`a` or `nums.a`, also in
@@ -2980,7 +2980,7 @@ statement still refused reports exactly the blockers it has without this
 cell. MySQL `Float /` stays refused (PIE-B1003 `float_division_not_realized`)
 and MySQL project `Int /` too, outside the cell below.
 
-A MySQL project emits `Int / Int` in one unreleased (Phase77 R08) cell only,
+A MySQL project emits `Int / Int` in one `0.1.12` (Phase77 R08) cell only,
 where an `Int` literal proves the quotient: a literal dividend over a field
 (`100 / b`), or a field over a literal divisor of 2 or more (`b / 2`). The
 field is a `SMALLINT`, `INT` or `BIGINT` field of a source declared in the
@@ -3303,8 +3303,8 @@ admits no built-in call yet, so there `same_value` is PIE-B1003, as
 `contains` is, with `scalar_projection_requires_later_slice` and
 `join_shape_not_admitted_in_slice7`.
 
-In a JOIN `on`, a project emits `same_value` (unreleased,
-[fragment](release-notes.d/77-s06-nullsafe-join.md)) only in the
+In a JOIN `on`, a project emits `same_value` (since `0.1.12`,
+[its note](release-notes.md#null-safe-same_value-in-a-project-join-on)) only in the
 statements the Phase77 null-safe JOIN qualification matched on PostgreSQL
 18.6 and MySQL 8.4.12. The query reads two sources over different tables
 directly in one INNER, LEFT or RIGHT JOIN and holds nothing else: no WHERE,
@@ -3557,7 +3557,7 @@ whose proven range leaves the signed 32-bit range, such as an `Int` field
 stored as `bigint` (PIE-B1002 `lpad_width_outside_physical_range`), a text or
 width with no proven bound, a `None` width included (PIE-B1004 `lpad_result_bound_missing`), and a
 `None` text (PIE-B1003 `scalar_call_signature_not_admitted`).
-MySQL project SQL (unreleased, Phase77 S12) emits the same `CASE WHEN
+MySQL project SQL (since `0.1.12`, Phase77 S12) emits the same `CASE WHEN
 CHAR_LENGTH(s) >= width THEN s ELSE LPAD(s, width, 'f') END` in one position
 only, the one its native qualification matched. The call is the whole value
 of a SELECT item (a `def` call counts as the body it expands to, and
@@ -3622,7 +3622,7 @@ column that stores local time differs from `now()` by the local offset. MySQL
 project SQL emits `UTC_TIMESTAMP(6)`, and `DATE(UTC_TIMESTAMP(6))` for
 `date_of(now())`, only as the whole value of a SELECT item (a `def` call counts
 as the body it expands to) of a query that meets the conditions the `lpad`
-paragraph above lists (unreleased, Phase77 S12).
+paragraph above lists (since `0.1.12`, Phase77 S12).
 Every other MySQL project `now()` that checking admits, in a WHERE or in
 another SELECT position, keeps the refusal it had before, as that paragraph
 says of `lpad`.
@@ -4233,7 +4233,7 @@ value: the statement then fails even over no rows, or with the operation in a
 branch no row takes. A range wholly outside signed 64 bits, as that of a
 constant such as `9223372036854775807 + 1`, stays PIE-B1002, as such an
 operation could only fail, and MySQL keeps PIE-B1002 for any result not
-proved to fit signed 64 bits outside one unreleased (Phase77 S01) cell: `+`,
+proved to fit signed 64 bits outside one `0.1.12` (Phase77 S01) cell: `+`,
 `-`, `*`, unary `-` or `abs` whose operands are nullable `BIGINT` fields of
 a source declared in the query's own module, read by its own name (`a` or
 `rows.a`), as the whole value of a SELECT item (parentheses and any `def`
@@ -4271,7 +4271,7 @@ SQLSTATE 22003, never a wrong value, by the same rule. Project SQL on MySQL repo
 `sum(Int)` BLOCKED with `PIE-B1004` (`sum_int_aggregate_range_proof_missing`),
 as `CAST(DECIMAL AS SIGNED)` would clamp an out-of-range sum, although
 `check --project` accepts it and single-file MySQL `emit-sql` emits `SUM`,
-except in one unreleased (Phase77 S02) cell: a direct `sum` of a nullable
+except in one `0.1.12` (Phase77 S02) cell: a direct `sum` of a nullable
 `BIGINT` field of a source declared in the query's own module, read by its
 own name (`a` or `rows.a`), as the whole value of a SELECT item of the
 emitted `query` or `table` (parentheses and any `def` whose inlined body is
@@ -4293,7 +4293,7 @@ nullable `Int`, NULL for no or only NULL values. A statement still refused
 reports exactly the blockers it has without either cell, a cell's own
 included, so `s = a + b` beside `t = a + 1` keeps both PIE-B1002.
 
-Unreleased (Phase77 S03), MySQL project SQL also emits each `sum` of an
+Since `0.1.12` (Phase77 S03), MySQL project SQL also emits each `sum` of an
 `Int` of a statement that is, names aside, one of nine forms its
 qualification ran on both databases, the selected definition's SELECT items
 a subset of its form's with one sum at least and T1's or T2's `per_order`
@@ -4417,7 +4417,7 @@ measured; a MySQL project refuses it with PIE-B1003
 `count_distinct_tuple_not_admitted_on_target`, except in a statement that is
 one of eleven paired forms with only its names changed, where it emits
 `COUNT(DISTINCT a, b)`
-([unreleased](release-notes.d/77-s11-mysql-count-distinct-tuple.md)). A
+([0.1.12](release-notes.md#distinct-counts-of-several-columns-in-eleven-mysql-project-forms)). A
 `schema_version = 1` project refuses it with PIE-S2334
 (``count_distinct(a, b, ...): a schema_version = 1
 project has no count_distinct of several columns in the current syntax; set
@@ -4450,7 +4450,7 @@ emits an aggregate argument that holds a scalar call such as `lower`
 in a SELECT item. MySQL applies the same rules, except that it keeps such an
 aggregate argument over JOIN rows BLOCKED (`operator_not_implemented_in_slice6`)
 outside two paired forms with only their names changed
-([unreleased](release-notes.d/77-s14-mysql-joined-expressions.md));
+([0.1.12](release-notes.md#conditionals-beside-a-join-and-calls-in-aggregate-arguments-in-four-mysql-project-forms));
 on MySQL an `Int` expression must first be proved to fit BIGINT
 (`arithmetic_outside_physical_range` otherwise).
 
@@ -4532,7 +4532,7 @@ stddev`, `def variance`, `def pvariance` or `def pstdev` is PIE-S2398, as a
 def. Semantic Metadata Artifact v1 lists none of the four, as it lists no
 `string_agg`.
 
-MySQL project SQL (unreleased, Phase77 S05) emits the four of a `Float` as
+MySQL project SQL (since `0.1.12`, Phase77 S05) emits the four of a `Float` as
 those same four primitives, uncast, in one shape only: the single select item
 of a query or table whose only other clause is `from` one source, with no
 `let`, JOIN, `where`, `group by`, window, `order by`, `limit`, DISTINCT, set
@@ -4668,7 +4668,7 @@ placement never enters, and `ARRAY_AGG` keeps a None value and is NULL over no r
 A schema_version = 2 project checks the same rules and emits the same shape
 (`spelling` `ARRAY_AGG`). A MySQL single file is refused with PIE-B1000 (`MySQL
 has no ordered first or last yet; emit with --dialect postgres`). A MySQL
-project (unreleased, Phase77 S13) emits SQL only in the forms below and
+project (since `0.1.12`, Phase77 S13) emits SQL only in the forms below and
 refuses every other `first` and `last` with PIE-B1003 `first_last_not_admitted_on_target`.
 A schema_version = 1 project has no `first(...)` or `last(...)`
 (PIE-S2334, `set schema_version = 2 to check it`). `any_value`, `nth`, `head`,
@@ -4843,14 +4843,14 @@ project SQL refuses it (PIE-B1003 `conditional_test_reads_no_field`). MySQL
 project SQL keeps both BLOCKED: the count with PIE-B1003
 `conditional_count_not_admitted_on_target`, the sum with PIE-B1004
 `sum_int_aggregate_range_proof_missing`, as `sum(Int)`, except the
-unreleased S03 conditional sums stated above. The test of a group
+S03 conditional sums stated above. The test of a group
 is written in project SQL as in a single file, a non-null `pg_bool` with no
 R13 evidence; a test that reads no field (`any(True for o in group)`) is
 PIE-B1003 `group_test_reads_no_field` on both targets, and MySQL project SQL
 keeps it BLOCKED with PIE-B1003 `group_test_not_admitted_on_target`. MySQL
 project SQL emits the count and the tests of a group in a statement that is
 one of three paired forms with only its names changed
-([unreleased](release-notes.d/77-s10-mysql-group-tests.md)).
+([0.1.12](release-notes.md#conditional-counts-and-tests-of-a-group-in-three-mysql-project-forms)).
 
 `count(x)` of a `Bool` field counts every row whose `x` is not None, False
 included; outside a window call a single-file check warns about it
@@ -5047,7 +5047,7 @@ relations: single files emit it on PostgreSQL and MySQL; an
 EXPLICIT_MODULES project emits, compiles and binds it on PostgreSQL, while
 its MySQL emission blocks each Int `sum` (PIE-B1004
 `sum_int_aggregate_range_proof_missing`), as for any project MySQL Int
-`sum` outside its cell, except the unreleased S03 forms T1 and T2 stated
+`sum` outside its cell, except the S03 forms T1 and T2 stated
 above. The style page's example, whose `amount` is non-null, is not T1 and
 stays refused on MySQL.
 
@@ -5280,7 +5280,7 @@ Project MySQL SQL refuses each aggregate window with PIE-B1003
 (`window_aggregate_approved_non_support_on_mysql`) until its real-database
 differential, except `count`, `min` and `max` in a statement that is one of
 eleven paired forms with only its names changed
-([unreleased](release-notes.d/77-s08-mysql-aggregate-windows.md)).
+([0.1.12](release-notes.md#count-min-and-max-over-a-window-in-eleven-mysql-project-forms)).
 Aggregate windows do not accept `ignore nulls`, `respect nulls`,
 `from first`, or `from last`; each reports PIE-S2104 rather than being omitted
 from emitted SQL. PostgreSQL and MySQL

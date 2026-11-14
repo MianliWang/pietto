@@ -237,7 +237,8 @@ Each row is the authoritative Python 3.13 run on the exact batch tree, with
 
 The suite grew by 2,789 tests, and a full run on 20 workers went from about
 280 s to 556 s of pytest. The batch that carries this audit records its own
-Gate 2 in status.
+Gate 2 in its release commit's message, and the post-release documentation
+commit adds it to status.
 
 ## Lessons
 

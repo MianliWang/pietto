@@ -1233,7 +1233,7 @@ is refused (PIE-S2387). If a column holds local time, comparing it with
 `now()` is off by the local offset from UTC. Of the positions above, a MySQL
 project emits `now()` and `date_of(now())` only in the SELECT items that the
 `now()` paragraph of [Expressions](language.md#expressions) lists
-(unreleased); in a WHERE and in the other
+(since `0.1.12`); in a WHERE and in the other
 SELECT items it keeps the refusal it had before, as that paragraph says.
 
 ## The first or last value of a group: `first` and `last`
@@ -1279,7 +1279,7 @@ skipped, as pandas' `groupby().first()` skips it. To keep the whole latest row,
 not one value, write `qualify row_number() window(partition by k order by t desc,
 id desc) == 1`. A MySQL single file does not emit `first` or `last`; a MySQL
 project emits them only in the forms that
-[Aggregates](language.md#aggregates-and-grouping) lists (unreleased).
+[Aggregates](language.md#aggregates-and-grouping) lists (since `0.1.12`).
 
 ## The rows of each group: group, then collect
 

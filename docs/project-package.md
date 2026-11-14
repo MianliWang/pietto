@@ -652,7 +652,7 @@ every table, query or `let` that has no JOIN of its own: one the JOIN reads
 statement BLOCKED (`scalar_projection_requires_later_slice`,
 `operator_not_implemented_in_slice6`, `join_shape_not_admitted_in_slice7`),
 except in a statement that is one of four paired forms with only its names
-changed ([unreleased](release-notes.d/77-s14-mysql-joined-expressions.md)).
+changed ([0.1.12](release-notes.md#conditionals-beside-a-join-and-calls-in-aggregate-arguments-in-four-mysql-project-forms)).
 Other JOIN expression sites (a joined `let`, WHERE or ON) and JOIN kinds
 retain their existing limits. Timestamp UNION ALL/DISTINCT uses the
 existing exact civil-microsecond carrier; Timestamp INTERSECT/EXCEPT and other
@@ -831,7 +831,7 @@ its authored direction and target NULL/collation behavior; hidden-input reuse
 is rejected. Q2 accepts only independently proved numeric realizations:
 signed-range Int arithmetic and direct `avg(Int)` with an input range and a
 target Float carrier, and, on PostgreSQL, the `Int` results its checked
-`bigint` operations bound, as on MySQL in the unreleased (Phase77 S01/S02)
+`bigint` operations bound, as on MySQL in the `0.1.12` (Phase77 S01/S02)
 cells that the [language page](language.md) states. PostgreSQL emits
 `sum(Int)` of a direct `Int` input as
 `CAST(SUM(CAST(x AS pg_catalog.int8)) AS pg_catalog.int8)`: the sum
@@ -858,7 +858,7 @@ same checked `sum(Int)` spelling, so a sum of a `bigint` column outside signed
 MySQL keeps project `sum(Int)` BLOCKED with `PIE-B1004`,
 as its `CAST(DECIMAL AS SIGNED)` would clamp an out-of-range sum, and Int
 arithmetic not proved to fit signed 64 bits BLOCKED with `PIE-B1002`,
-outside the unreleased (Phase77 S01/S02) cells and S03 forms that the
+outside the `0.1.12` (Phase77 S01/S02) cells and S03 forms that the
 [language page](language.md) states.
 PostgreSQL admits exact Decimal/Int addition and subtraction and addition
 or subtraction of Decimals with different scales. Let `s = max(s1, s2)`;
@@ -881,7 +881,7 @@ Existing Decimal/Decimal multiplication retains its SQL. Project Decimal
 division and project Decimal average remain refused. MySQL project forms
 added by these rules remain refused, except in a statement that is one of
 fourteen paired forms with only its names changed
-([unreleased](release-notes.d/77-s17-mysql-decimal-arithmetic.md)).
+([0.1.12](release-notes.md#decimal-and-int-arithmetic-and-signs-in-fourteen-mysql-project-forms)).
 
 PostgreSQL project `sum(Decimal(p, s))` emits only for a direct qualified
 Decimal field with `p + 19 <= 65` and `s <= 30`. It is
@@ -992,7 +992,7 @@ aggregate argument that holds a scalar call such as `lower`, `trim` or `len`
 `join_shape_not_admitted_in_slice7`: a joined `let` admits such a call only
 directly in a SELECT item. MySQL keeps the aggregate argument BLOCKED too,
 with the same two details, outside two paired forms
-([unreleased](release-notes.d/77-s14-mysql-joined-expressions.md)). MySQL
+([0.1.12](release-notes.md#conditionals-beside-a-join-and-calls-in-aggregate-arguments-in-four-mysql-project-forms)). MySQL
 emits the same `count`, `count_distinct`, `min` and `max` forms, with a
 non-null `my_bigint` count and the argument's own nullable carrier for an
 extreme, and the same row expression arguments (`count(lower(label))`),
@@ -1002,10 +1002,10 @@ except that it keeps BLOCKED `count_distinct` of a `Float`
 the one shape below, `stddev` of a `Float`
 (`float_aggregate_finite_result_proof_missing`), `sum` of an `Int`
 (`sum_int_aggregate_range_proof_missing`, so `sum(qty * 2)` too) outside the
-unreleased (Phase77 S02) cell of a direct nullable `BIGINT` field and the
+`0.1.12` (Phase77 S02) cell of a direct nullable `BIGINT` field and the
 S03 JOIN and two-level forms that the [language page](language.md) states,
 and an `Int` row expression not proved
-to fit signed 64 bits (`PIE-B1002`) outside its unreleased (Phase77 S01)
+to fit signed 64 bits (`PIE-B1002`) outside its `0.1.12` (Phase77 S01)
 cell there.
 
 PostgreSQL project SQL emits `stddev`, `variance`, `pvariance` and `pstdev` of
@@ -1024,7 +1024,7 @@ overflows (about |x| > 1e154) even when the result itself is finite. MySQL
 project SQL keeps all four BLOCKED for an `Int` argument with `PIE-B1003`
 (`stddev_int_not_admitted_on_target`, `variance_int_not_admitted_on_target`,
 `pvariance_int_not_admitted_on_target`, `pstdev_int_not_admitted_on_target`).
-Of a `Float` it emits them (unreleased, Phase77 S05) in one shape only: the
+Of a `Float` it emits them (since `0.1.12`, Phase77 S05) in one shape only: the
 single select item of a query or table whose only other clause is `from` one
 source, with no `let`, JOIN, `where`, `group by`, window, `order by`, `limit`,
 DISTINCT, set operation or header parameter (read or not), over one direct
@@ -1083,9 +1083,9 @@ evidence `{"overflow": "target_checked_signed64_narrowing"}` (a sum outside
 signed 64 bits fails with SQLSTATE 22003). MySQL project SQL keeps both
 BLOCKED, except the count in a statement that is one of three paired forms
 with only its names changed
-([unreleased](release-notes.d/77-s10-mysql-group-tests.md)): the count with
+([0.1.12](release-notes.md#conditional-counts-and-tests-of-a-group-in-three-mysql-project-forms)): the count with
 `PIE-B1003` (`conditional_count_not_admitted_on_target`), the sum with
-`PIE-B1004` (`sum_int_aggregate_range_proof_missing`), outside the unreleased
+`PIE-B1004` (`sum_int_aggregate_range_proof_missing`), outside the `0.1.12`
 (Phase77 S03) conditional sum forms that the [language page](language.md)
 states, where it is a non-null `my_signed_int` from S02's guarded `SUM`
 under `COALESCE(..., 0)` with the same R13 evidence. Compiled bundles and live
@@ -1114,11 +1114,11 @@ PostgreSQL projects also emit signed-`Int` `/` and `%`, same-type `Float`
 divisor raises the PostgreSQL error 22012; Float arithmetic can also fail
 with checked 22003. MySQL projects keep these forms refused, except the
 `Text` literal default in a statement that is one of three paired forms
-with only its names changed ([unreleased](release-notes.d/77-s16-mysql-text-window-defaults.md), qualified),
+with only its names changed ([0.1.12](release-notes.md#text-literal-defaults-of-lag-and-lead-in-three-mysql-project-forms), qualified),
 `Int %` over two `BIGINT` fields and `Float %` over two `DOUBLE` fields
-in the unreleased (Phase77 S15) cell that the [language page](language.md)
+in the `0.1.12` (Phase77 S15) cell that the [language page](language.md)
 states, where a zero divisor returns NULL, and `Int /` of an `Int` literal
-over a field or of a field over a literal of 2 or more in the unreleased
+over a field or of a field over a literal of 2 or more in the `0.1.12`
 (Phase77 R08) cell that it states, as `(l DIV r)`; a field's storage,
 declared `int_range` or `value_domain` premise proves nothing there.
 Nonliteral Text defaults remain refused.
@@ -1149,7 +1149,7 @@ field (`price * 2.0`, `-price`), a `Float` window `partition by` or
 forms other than UNION ALL over a window `percent_rank` or `cume_dist`
 result (MySQL has no project `string_agg` or FULL JOIN). It also reports
 BLOCKED `group by` over a `Float` outside the one-source forms that
-[Float values](language.md#float-values) lists (unreleased),
+[Float values](language.md#float-values) lists (since `0.1.12`),
 `select distinct:` over a `Float`, a Float UNION DISTINCT, INTERSECT or
 EXCEPT, and a Float `==` or `!=` whose two operands both read rows (a JOIN
 `on`, a WHERE comparison across inputs, a correlated
@@ -1162,7 +1162,7 @@ literal list whose value and one of its options both read rows, such as
 `price in (cost, 0.0)`, as each option stands for an `==` with the value,
 and a Float `in` or `not in` read of a let with `capture` lines in a WHERE,
 such as `where price in m`, as MySQL may flatten it into a semijoin
-(unreleased; `0.1.11` emitted it);
+(since `0.1.12`; `0.1.11` emitted it);
 PostgreSQL emits them. A comparison with a literal or a header parameter
 (`price == 0.0`, `price == p`), a literal list whose value reads no row or
 whose options read none (`0.0 in (price, cost)`, `price in (0.0, -0.0)`)
@@ -1207,7 +1207,7 @@ also offers an automatic source archive under the same name as the sdist,
 `pietto-0.1.11.tar.gz`; it is a snapshot of the v0.1.11 repository tag, not the
 sdist, and it is not listed in `SHA256SUMS`.
 
-Version `0.1.11` rejects bundles and saved jobs produced by `0.1.10` or earlier
+Version `0.1.12` rejects bundles and saved jobs produced by `0.1.11` or earlier
 by code identity; Pietto neither migrates nor rewrites those bytes, so retained
 state needs its matching old environment (see
 [execution](execution.md#known-limitations)). The Pietto extension for VS Code
@@ -1221,9 +1221,9 @@ A generic LSP client is also available as
 describes. The historical extension `0.1.0` accepted only the `0.1.2` wheel
 or its baseline fingerprint and refuses `0.1.10`.
 
-`0.1.11` changes compiled version marks once, from
-`(7, 1, 7, 1)` to `(8, 1, 8, 1)`.
-Keep an exact `pietto==0.1.10` environment for retained `0.1.10` bundles and
+`0.1.11` changed compiled version marks once, from
+`(7, 1, 7, 1)` to `(8, 1, 8, 1)`, and `0.1.12` keeps them.
+Keep an exact `pietto==0.1.11` environment for retained `0.1.11` bundles and
 saved jobs. The new environment refuses incompatible records with a typed
 failure and does not migrate or rewrite them. Recompile from original
 source, contracts and parameters to create new records in that environment.
@@ -1240,7 +1240,7 @@ published `0.1.10` adds `26.0.0`); it changes
 available dependencies, not the public Python API or CLI. Phase67 result
 modules remain private under `pietto._project`; Phase69 exposes the three
 execution routes and saved-result APIs as public alpha under
-`pietto.execution`. Package/CLI version is `0.1.11` and `requires-python`
+`pietto.execution`. Package/CLI version is `0.1.12` and `requires-python`
 stays `>=3.12`. Its versioned GitHub pre-release and PyPI listing determine
 distribution availability once the accepted files are available.
 The extra matrix is CPython3.12/3.13 on Linux x86-64: the published `0.1.10`
