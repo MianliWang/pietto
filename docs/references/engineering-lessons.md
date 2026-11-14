@@ -414,3 +414,44 @@ source, runtime and publication boundaries behind these lessons.
   cannot establish matching package bytes. A collector that saves only at the
   end has no adoptable partial result after timeout. Final CI health selects
   the required quiet-host profile; earlier timing preparation is not a result.
+
+## Phase77
+
+These apply from the Phase78 lanes on; the
+[Phase77 completion audit](../phases/phase-77/completion-audit.md) keeps the
+failed histories.
+
+1. An opening reaches every route of its form. Phase77 opened MySQL forms
+   for `emit-sql` and `execute()`, and a later survey found R2 running 68 of
+   them through refined statements that no native run had covered and
+   failing 169 at their first page with no public reason. A slice that opens
+   a form states what each route that can reach it does (emission, compiled
+   replay, execution, `save`, R2) and tests that statement.
+2. Test rule two with statements refused for another reason. S05 and S06
+   reported `main`'s blockers for their own refusals but not for a
+   257-character label beside them, which only the stacked batch's
+   comparison found. Each opening's refusal tests include a statement that
+   `main` refuses for an unrelated reason, on both targets.
+3. A Linux Gate 2 does not see Windows test failures. The first `0.1.12`
+   batch passed 28,107 tests on Linux and failed 26 on each Windows job: a
+   helper wrote files with `Path.write_text`, which adds carriage returns on
+   Windows, and a test reached a Linux-only `fcntl`. A test that compares
+   bytes writes bytes, and one that needs a platform module skips where it
+   is missing, as its neighbours do.
+4. Run the launch path before a freeze. Native runs that the audit lists
+   were void or unqualified through their own experiment: a TLS fact turned
+   into a string, a seed table that warned, a wrong preregistered cleanup
+   terminal or native length, sorted record keys, a judge that read another
+   record shape than its client wrote, `Text` bytes compared undecoded, and
+   a slot suffix starting with `-` that `argparse` read as an option. A
+   freeze's self-check runs the real launch command with its real arguments
+   and judges records that the real client wrote; a void run is kept and a
+   new freeze fixes the harness.
+5. Check the engine before dispatching. After a host restart the Docker
+   Engine stayed down for about six hours, and every lane that needed it
+   stopped at its precheck, one by one. The integrator checks each engine
+   endpoint before it dispatches database work.
+6. Continue an edited workflow fresh. A multi-lane workflow resumed after
+   its script was edited restarted finished agents instead of replaying
+   them. A changed workflow starts as a new continuation that names the
+   completed results it reads.

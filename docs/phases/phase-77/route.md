@@ -84,6 +84,7 @@ admits a specific form.
 3. `ARCHITECTURE_DECISION`, escalating if observable behavior changes: a
    `sum(Int)` strategy that preserves signed-64 value, NULL and overflow
    behavior. Exact MySQL `DECIMAL` accumulation is not itself a Pietto `Int`.
+   AD77.03 selects the guarded `SUM` that S01 and S03 emit.
 4. The selected scope includes `first`/`last`; the same-relation ASOF/FULL
    backlog (S25) left with Wave A (D77.35). Preserve their existing order, tie
    and NULL rules. A proposed cadence exception or changed meaning, rather than

@@ -12,11 +12,11 @@ What is published, at which commit and with which natural CI, is in
 [status](status.md). Each phase's route, completion audit and handoff are
 under `docs/phases/`, the [release notes](release-notes.md) describe every
 release, and Git history keeps the earlier text of this roadmap. The
-[Phase76 completion audit](phases/phase-76/completion-audit.md) records its
-delivered scope and Phase77 handoff; Git and natural CI own its publication.
-D76.01–D76.18 and the technical reminders that reach beyond Phase76 remain in
-the [decision record](decisions.md#phase76--owner-decisions-2026-11-07) and the
-sections below.
+[Phase77 completion audit](phases/phase-77/completion-audit.md) records its
+delivered scope and next-phase handoff; Git and natural CI own its
+publication. D77.01–D77.75 and AD77.01–AD77.03 remain in the
+[decision record](decisions.md), and the open items that reach beyond
+Phase77 are written into the sections below.
 
 Durable cross-phase product and architecture laws enter through [product
 architecture](architecture/product-architecture-v1.md), the [phase initiation
@@ -81,7 +81,9 @@ query optimizer; their Gate 1 resolves it, by narrowing the row or by an
 owner change of `AGENTS.md`, before any work starts. The editor line is a
 work package of its own beside these phases (see below).
 
-Phase77 follows its [route](phases/phase-77/route.md). On 2026-11-10 the owner
+Phase77's implementation is complete under its
+[completion audit](phases/phase-77/completion-audit.md), whose handoff
+names Phase78 next. On 2026-11-10 the owner
 approved the Gate 1 of Phase78 SQLite B1, Phase79 DuckDB B1, Phase80 and the
 editor core work package E-C, which run beside Phase77 under the shared rows
 PL.01–PL.06 of the
@@ -211,7 +213,11 @@ several shards (F3) is authorized as its own maintenance batch, with its
 evidence under the
 [CI workload governance](architecture/ci-workload-governance-v1.md). The
 import time of `pietto.execution` may be fixed before Phase80. Each
-completion audit records the Gate 2 duration.
+completion audit records the Gate 2 duration. The pure verifier fidelity
+repair (PL.20, D77.54) continues as its own maintenance work beside the
+phases. Phase77's ten-node profile of its final CI health is owed by the
+lead before the Gate 2 seal of the batch that publishes its audit, or is
+recorded there as not observed (PL.07) with the reason.
 
 ### Deferred subjects
 
@@ -239,6 +245,10 @@ before its owner's Gate 1 takes it.
 | Conversions other than `Float(value)` and `Text(value)` of an `Int` | their later owner; unscheduled |
 | The header rule and its tokens in the grammar | Phase76 retained them under the `migrate` and per-line PIE-P1000 byte-compatibility fallback; removal belongs to the Phase82 freeze (D76.12) |
 | SQL-to-Pietto conversion | the tentative candidate 105 below |
+| MySQL `same_value` of `Float` values in a JOIN `on` (D77.52 O7); `Float` arithmetic and sign on fields (E4); a MySQL `UUID` header parameter (D77.57) | the owner, in the D77.07 packet; each keeps its refusal with no target until answered (D77.16, D77.29) |
+| A public reason for an R2 job that fails at its first page with `terminal` `FAILED` | the owner; unchanged until answered (D77.66, D77.67) |
+| `verify_project_sql_plan` runs without a memo, 4 to 29 times per case | `_project/project_sql_plan_verification.py` and its emission callers, at the latest the phase-end consolidation of the next phase that changes project SQL emission; a memo needs the owner ([Phase77 S26](phases/phase-77/route.md#s26-closure-record)) |
+| A project root configured through a symbolic link, which `pietto lsp` misreads for a file opened under the real path (audit finding 14) | authorized under PL.18's terms (PL.23) and not delivered; the language server's owner, with no batch yet |
 
 ## Phase82 freeze ledger
 
@@ -265,6 +275,9 @@ each completion audit adds the freeze inputs of its phase here.
 | The CPython matrix and the Windows claim | frozen as Phase81 decides them | owner, 2026-11-07 |
 | Compiled replay and live analysis give different JOIN key and grain facts for equal SQL bytes | an ARCHITECTURE_DECISION of the semantic and ProjectIR owner, with the lead integrating every reader, before any slice consumes those facts | Phase74 handoff, Phase76 reminder 8 |
 | A forged compiled `median(id * 2)` loads with consistent SQL | a trust decision of the compiled and verifier owner, coordinated by the lead, before the first new consumer of compiled admission and at the latest before `compile_queries(...)` | Phase74 handoff, Phase76 reminder 8 |
+| The fixed civil `Timestamp` meaning of a `now()` output; the statement time that R2 records and `recover` binds | each freezes with the result contract and the R2 workspace, or changes before the freeze | D77.42, D77.49; [Phase77 audit](phases/phase-77/completion-audit.md) |
+| MySQL R2 refuses every form that `0.1.11` refused (`PUBLIC_R2_UNQUALIFIED_FORM`, by rule two) and every paired form (`PUBLIC_R2_PAIRED_FORM`) | a support-matrix row for R2 by target, or narrowed by forms that a native R2 qualification covers | D77.46, D77.67, D77.68 |
+| MySQL forms that open only byte for byte as a paired form (Wave A) | the 1.0 support matrix states them as paired forms, or a structural rule replaces them | D77.36; [Phase77 audit](phases/phase-77/completion-audit.md) |
 
 ## Project-mode follow-up
 
