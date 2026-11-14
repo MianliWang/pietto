@@ -12,6 +12,7 @@ empty frame of the same types, and the frame stays usable after the batch is
 closed.
 
 A conversion that would change a field's type is refused with `ValueError`,
-never cast. Install them with `pietto[arrow,interop-pandas]`
+never cast, and `to_pandas` refuses a batch with a repeated field label the
+same way before converting it. Install them with `pietto[arrow,interop-pandas]`
 (`pandas==3.1.1`) or
 `pietto[arrow,interop-polars]` (`polars==2.1.0`).

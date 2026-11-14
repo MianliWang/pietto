@@ -75,11 +75,13 @@ Every call checks in this order and raises the first failure:
 2. `HandleMisuse` `PIE-R4002` for a closed batch, as any export of it.
 3. `ValueError` for an ordinal outside the batch, then a field the function
    does not admit (its type, or a nullable field where a non-nullable one is
-   needed), then a SciPy shape, then values: SciPy coordinates and the
-   Matplotlib integer range. An admission message names the field by
-   ordinal and label and, for a nullable field, the Pietto-side fix, such as
-   `coalesce`; a coordinate or range message names the record, and a range
-   message also the field's ordinal.
+   needed), then, in `to_pandas`, a field whose label an earlier field
+   already has, whatever their types, then a SciPy shape, then values: SciPy
+   coordinates and the Matplotlib integer range. An admission message names
+   the field by ordinal and label and, for a nullable field, the Pietto-side
+   fix, such as `coalesce`; a repeated label's message also names the earlier
+   field's ordinal; a coordinate or range message names the record, and a
+   range message also the field's ordinal.
 4. `ModuleNotFoundError` when the function's extra is not installed, naming
    that extra; its `name` is the missing library.
 5. The target library's own failures, which are not wrapped.
@@ -127,7 +129,9 @@ nullable Int, an object column or pandas' default string dtype. A null stays
 `<NA>`. pandas' default `to_pandas()` would turn a nullable
 Int into float64, losing `2**63 - 1`, which is why the call always maps
 through `ArrowDtype`. Any other index or column dtype is refused with
-`ValueError`, never cast.
+`ValueError`, never cast. So is a batch with a repeated field label, before
+the call imports pandas, because PyArrow would give the repeated columns one
+type or fail to convert them: give each field its own label.
 
 ## Polars
 

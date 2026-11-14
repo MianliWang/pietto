@@ -211,6 +211,10 @@ def _damaged(cell: str):
         yield "lost after close", lambda r: r["cases"][f"{cell}_after_close"][0].pop()
         if cell == "pandas":
             yield "short index accepted", lambda r: r["cases"]["pandas_drift"].pop(1)
+            yield (
+                "same-type labels accepted",
+                lambda r: r["cases"]["pandas_labels"][1].__setitem__(0, "frame"),
+            )
 
 
 def _damaged_numpy():

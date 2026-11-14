@@ -72,7 +72,10 @@ conditions:
    package smoke built the core and `execute-duckdb` cells; natural CI
    [`43645308189`](https://github.com/MianliWang/pietto/actions/runs/43645308189),
    push/main attempt 1, whose two check jobs run the interop cells, passed
-   all 21 jobs.
+   all 21 jobs. The D80.08
+   repair after IB1 changes `to_pandas` and adds a shared case to every
+   cell, so after it the ten cells take the Gate 2 and natural CI of IB2's
+   batch head, as IB2 does in condition 2.
 2. **IB1 and IB2 are on `main` with green natural exact-head CI.** IB1:
    [`43645308189`](https://github.com/MianliWang/pietto/actions/runs/43645308189),
    push/main attempt 1, passed all 21 jobs. IB2 is this commit and takes
@@ -95,10 +98,10 @@ gave on 2026-11-14 (PL.31).
   then PIE-R4002 for a closed batch, then `ValueError`, then
   `ModuleNotFoundError`, then the target's own errors, unwrapped. Admission
   runs before any target import, so a refused call leaves the batch open and
-  no artist on the Axes. `to_pandas` also refuses an index other than a
-  `RangeIndex` of the row count and a column dtype other than its mapping,
-  which catches repeated labels of different types; repeated labels of one
-  type pass (D80.08; see open items). The package imports none of PyArrow,
+  no artist on the Axes. `to_pandas` also refuses a repeated field label at
+  admission, whatever the fields' types, and after the conversion an index
+  other than a `RangeIndex` of the row count and a column dtype other than
+  its mapping (D80.08; see open items). The package imports none of PyArrow,
   its targets or `pietto.execution` at import (AD80.01).
 - **Packaging (PK-80).** `interop-pandas` (`pandas==3.1.1`),
   `interop-polars` (`polars==2.1.0`), `interop-numpy` (`numpy==2.5.4`),
@@ -311,10 +314,14 @@ the DuckDB extra start (21:53:36Z to 21:53:48Z) followed it.
   the page of the published release, and neither `0.1.11` nor `0.1.12` has
   an `interop-*` extra. The line waits for the release that ships them: the
   `0.2.0` release commit, after this audit in the same push, adds it.
-- **D80.08 and repeated labels.** D80.08 says `to_pandas` refuses duplicate
-  field labels; the code refuses them only when the dtype check sees a
-  changed type, so repeated labels of one type pass. Whether the code or
-  the decision's wording changes is the owner's decision.
+- **D80.08 and repeated labels.** Closed. D80.08 says `to_pandas` refuses
+  duplicate field labels, but IB1's code refused them only when the dtype
+  check saw a changed type, so repeated labels of one type passed. The lead
+  ruled that D80.08 stands and the code deviated, and the commit after this
+  audit in the same push refuses every repeated label at admission, before
+  the pandas import, with no new PIE code. That check runs before the
+  conversion, since PyArrow itself fails on some repeats during it; the
+  dtype check still runs after the conversion.
 - **Deferred candidates.** D80.06 gives them to a later Phase80 Gate 1;
   this audit closes Phase80, so the owner decides who takes them.
 

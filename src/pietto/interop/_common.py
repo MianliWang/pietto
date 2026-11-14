@@ -135,6 +135,18 @@ def admit_frame(name: str, pa: Any, data: Any) -> None:
             )
 
 
+def distinct_labels(name: str, data: Any) -> None:
+    # PyArrow gives repeated labels one pandas type, or fails casting them.
+    first: dict[str, int] = {}
+    for ordinal, item in enumerate(data.schema):
+        earlier = first.setdefault(item.name, ordinal)
+        if earlier != ordinal:
+            raise ValueError(
+                f"{name}: field {ordinal} ({item.name!r}) repeats the label of"
+                f" field {earlier}; {name} admits only distinct labels"
+            )
+
+
 def admit_column(
     name: str,
     pa: Any,

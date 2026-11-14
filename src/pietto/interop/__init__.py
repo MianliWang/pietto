@@ -11,12 +11,12 @@ labels are never looked up. Errors come in one fixed order: ``TypeError`` for
 an argument type (``ax`` is checked only when Matplotlib is installed, so
 without it a wrong ``ax`` fails later), ``HandleMisuse`` PIE-R4002 for a
 closed batch, ``ValueError``
-for an ordinal, field, shape, coordinate or value the adapter does not admit,
-and ``ModuleNotFoundError`` when the target's extra is not installed; the
-target library's own failures are not wrapped. After the conversion, the
-dtypes of a pandas, Polars or NumPy result, the pandas index and the SciPy
-type, shape, dtypes, entry count and order are compared with what
-docs/interop.md states, and a mismatch is refused with ``ValueError``; no
+for an ordinal, field, repeated label, shape, coordinate or value the adapter
+does not admit, and ``ModuleNotFoundError`` when the target's extra is not
+installed; the target library's own failures are not wrapped. After the
+conversion, the dtypes of a pandas, Polars or NumPy result, the pandas index
+and the SciPy type, shape, dtypes, entry count and order are compared with
+what docs/interop.md states, and a mismatch is refused with ``ValueError``; no
 value, and nothing in a Matplotlib artist, is compared. A refused call leaves
 the batch open and draws nothing.
 
@@ -56,12 +56,14 @@ def to_pandas(batch: ResultBatch) -> pandas.DataFrame:
     ``pandas.ArrowDtype`` of the field's exact Arrow type, and a RangeIndex.
 
     Int, Bool, Float, Text, Decimal (decimal128), Date and zone-less Timestamp
-    fields are admitted, nullable or not; any other field is refused.
+    fields are admitted, nullable or not; any other field, and a repeated
+    field label, is refused.
     """
     name = "to_pandas"
     common.check_batch(name, batch)
     pa, data = common.read(batch)
     common.admit_frame(name, pa, data)
+    common.distinct_labels(name, data)
     module = common.target(name, "pandas")
     from pietto.interop import _pandas
 

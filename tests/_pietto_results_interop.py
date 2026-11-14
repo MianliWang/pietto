@@ -318,10 +318,13 @@ def fixtures(root):
     decimal = p.decimal_fixture(root / "decimal", "postgres", 38, 2)[3]
     finite = p.finite_fixture(root / "finite", "postgres")[4]
     temporal = p.temporal_fixture(root / "temporal", "postgres")[4]
-    labels = tuple(
-        a.ArrowFieldLabelRequest(f.field, "same") if i < 2 else None
-        for i, f in enumerate(numeric.fields)
-    )
+
+    def labels(*ordinals):
+        return tuple(
+            a.ArrowFieldLabelRequest(f.field, "same") if i in ordinals else None
+            for i, f in enumerate(numeric.fields)
+        )
+
     return {
         "numeric": (a.bind_arrow(numeric), NUMERIC_ROWS["values"]),
         "scalar": (a.bind_arrow(scalar), p.scalar_rows("postgres")),
@@ -342,8 +345,13 @@ def fixtures(root):
             a.bind_arrow(nested.real(p, root / "nested", nested.IBT)),
             list(nested.ROWS),
         ),
+        # Fields 0 and 1 differ in type; fields 0 and 3 are both int64.
         "labels": (
-            a.bind_arrow(numeric, field_labels=labels),
+            a.bind_arrow(numeric, field_labels=labels(0, 1)),
+            NUMERIC_ROWS["values"],
+        ),
+        "same_type_labels": (
+            a.bind_arrow(numeric, field_labels=labels(0, 3)),
             NUMERIC_ROWS["values"],
         ),
     }
@@ -541,11 +549,14 @@ def common_cases(cell, fx):
     temporal = batch(*fx["temporal"])
     text = batch(*fx["text32"])
     dated = batch(*fx["date"])
+    labelled = batch(*fx["labels"])
     observations["admission"] = [
         refusal(lambda: interop.to_pandas(finite), finite),
         refusal(lambda: interop.to_polars(finite), finite),
         refusal(lambda: interop.to_pandas(nested), nested),
         refusal(lambda: interop.to_polars(temporal), temporal),
+        # A repeated label is refused before the target import in every cell.
+        refusal(lambda: interop.to_pandas(labelled), labelled),
         refusal(lambda: interop.to_numpy(numeric, 3), numeric),
         refusal(lambda: interop.to_numpy(text, 0), text),
         refusal(lambda: interop.to_numpy(dated, 0), dated),
@@ -673,18 +684,23 @@ def frame_cases(cell, fx):
     counted = batch(*fx["numeric"])
     observations["reads"] = exports(counted, lambda: len(convert(counted)))
 
-    labelled = batch(*fx["labels"])
-    try:
-        frame = convert(labelled)
-    except Exception as exc:  # a refused changed type, or the target's own failure
-        observations["labels"] = [
-            "raised",
-            type(exc).__module__,
-            type(exc).__name__,
-            str(exc) if type(exc) is ValueError else None,
-        ]
-    else:
-        observations["labels"] = ["frame", [str(c) for c in frame.columns]]
+    observations["labels"] = []
+    for key in ("labels", "same_type_labels"):
+        labelled = batch(*fx[key])
+        try:
+            frame = convert(labelled)
+        except Exception as exc:  # a refused label, or the target's own failure
+            observations["labels"].append(
+                [
+                    "raised",
+                    type(exc).__module__,
+                    type(exc).__name__,
+                    str(exc) if type(exc) is ValueError else None,
+                    labelled.closed,
+                ]
+            )
+        else:
+            observations["labels"].append(["frame", [str(c) for c in frame.columns]])
 
     finite, nested = batch(*fx["finite"]), batch(*fx["nested"])
     observations["refusals"] = [
@@ -875,6 +891,10 @@ def expected_common(cell):
                 "to_polars: field 2 ('key_value') has Arrow type extension<arrow.uuid>;"
                 f" to_polars {FRAME_ADMITS}"
             ),
+            _value_error(
+                "to_pandas: field 1 ('same') repeats the label of field 0;"
+                " to_pandas admits only distinct labels"
+            ),
             _value_error(f"to_numpy: column {nullable}"),
             _value_error(
                 "to_numpy: column field 0 ('renamed') has Arrow type string;"
@@ -969,18 +989,23 @@ def expected_frames(cell, inputs):
     expected["order"] = oracle(rows, MATRIX["numeric"])
     count = len(inputs["numeric"][1])
     expected["reads"] = [count, {"array": 1, "schema": 0}, False, count, []]
-    # Repeated labels: PyArrow gives both pandas columns the second one's type.
-    expected["labels"] = (
-        [
-            "raised",
-            "builtins",
-            "ValueError",
-            "to_pandas: field 0 ('same') became double[pyarrow] instead of"
-            " int64[pyarrow]; to_pandas never returns a changed type",
-        ]
-        if cell == "pandas"
-        else ["raised", "polars.exceptions", "DuplicateError", None]
-    )
+    # Repeated labels, of two types and of one type: to_pandas refuses both
+    # before PyArrow converts them; Polars raises its own error.
+    expected["labels"] = [
+        (
+            [
+                "raised",
+                "builtins",
+                "ValueError",
+                f"to_pandas: field {ordinal} ('same') repeats the label of"
+                " field 0; to_pandas admits only distinct labels",
+                False,
+            ]
+            if cell == "pandas"
+            else ["raised", "polars.exceptions", "DuplicateError", None, False]
+        )
+        for ordinal in (1, 3)
+    ]
     convert = "to_pandas" if cell == "pandas" else "to_polars"
     expected["refusals"] = [
         _value_error(

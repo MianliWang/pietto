@@ -10,7 +10,7 @@ def convert(name: str, pandas: Any, data: Any) -> Any:
     frame = data.to_pandas(types_mapper=pandas.ArrowDtype, ignore_metadata=True)
     if type(frame.index) is not pandas.RangeIndex or len(frame.index) != len(data):
         raise ValueError(f"{name}: pandas built another index than a RangeIndex")
-    # PyArrow maps the types of repeated labels by label; a changed type is refused.
+    # A changed type, as after a pin drift, is refused.
     for ordinal, (item, dtype) in enumerate(
         zip(data.schema, frame.dtypes, strict=True)
     ):
