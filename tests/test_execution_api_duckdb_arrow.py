@@ -115,6 +115,20 @@ def _engine() -> Any:
     return pa
 
 
+# One compile of each B1 query per module for the cells that only read it; a
+# cell that changes its query or needs its own project compiles afresh.
+@pytest.fixture(scope="module")
+def filtered_query(tmp_path_factory: pytest.TempPathFactory) -> execution.CompiledQuery:
+    return compiled(tmp_path_factory.mktemp("filtered") / "p")
+
+
+@pytest.fixture(scope="module")
+def projection_query(
+    tmp_path_factory: pytest.TempPathFactory,
+) -> execution.CompiledQuery:
+    return projection(tmp_path_factory.mktemp("projection") / "p")
+
+
 def _refusal(query: Any, **arguments: Any) -> tuple[str, str | None]:
     arguments = {"route": "duckdb_arrow", "premise": None, **arguments}
     with pytest.raises(execution.RequestRejected) as refused:
@@ -413,14 +427,14 @@ def test_checks_nine_to_thirteen_refuse_in_order_and_import_no_duckdb(
 
 
 def test_check_twelve_refuses_a_pyarrow_that_is_not_the_pinned_distribution(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    filtered_query: execution.CompiledQuery, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     """The other Arrow routes' codes, raised from `execute()` as
     RequestRejected before the capture: PIE-R2001 when the distribution is
     not installed, PIE-R2002 for another version, files it does not own or
     a PyArrow that cannot be loaded."""
     pa = _pyarrow()
-    query = compiled(tmp_path / "p")
+    query = filtered_query
     arguments: dict[str, Any] = {
         "access": execution.DuckDBArrowInput("orders", orders(pa)),
         "parameters": {"min_amount": 1},
@@ -458,12 +472,12 @@ class _Sharing:
 
 
 def test_the_capture_refuses_a_copy_that_shares_the_callers_buffers(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    filtered_query: execution.CompiledQuery, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     """Step 4's own check, a defensive invariant: a copy whose buffers
     overlap the caller's is refused before any handle exists."""
     pa = _pyarrow()
-    query = compiled(tmp_path / "p")
+    query = filtered_query
     verified = route._pyarrow
 
     def sharing() -> Any:
@@ -530,10 +544,10 @@ def _forged(pa: Any) -> dict[str, Any]:
 
 
 def test_the_capture_refuses_every_forged_table_before_any_session(
-    tmp_path: Path,
+    filtered_query: execution.CompiledQuery,
 ) -> None:
     pa = _pyarrow()
-    query = compiled(tmp_path / "p")
+    query = filtered_query
     for name, table in _forged(pa).items():
         refused = _refusal(
             query,
@@ -572,11 +586,13 @@ def test_an_int_outside_the_declared_range_is_refused(tmp_path: Path) -> None:
             )
 
 
-def test_the_limits_count_the_whole_table_before_the_schema(tmp_path: Path) -> None:
+def test_the_limits_count_the_whole_table_before_the_schema(
+    filtered_query: execution.CompiledQuery,
+) -> None:
     """65,536 rows and 16 MiB of `Table.nbytes` are admitted, one more of
     either is not; an unselected column counts but is never examined."""
     pa = _pyarrow()
-    query = compiled(tmp_path / "p")
+    query = filtered_query
     rows = ((1, 5, None, True, 0.0),) * route.MAX_ROWS
     full = orders(pa, rows)
     _handle(pa, query, full, parameters={"min_amount": 1}).close()
@@ -595,12 +611,14 @@ def test_the_limits_count_the_whole_table_before_the_schema(tmp_path: Path) -> N
     assert _refusal(query, access=access, parameters={"min_amount": 1}) == limit
 
 
-def test_the_capture_is_an_owned_copy_of_the_selected_columns(tmp_path: Path) -> None:
+def test_the_capture_is_an_owned_copy_of_the_selected_columns(
+    filtered_query: execution.CompiledQuery,
+) -> None:
     """Named c0..c4 in shape order, without the unselected column or rows,
     in buffers disjoint from the caller's, so a later change of the caller's
     buffer does not reach it."""
     pa = _pyarrow()
-    query = compiled(tmp_path / "p")
+    query = filtered_query
     memory = bytearray((7).to_bytes(8, "little") * 4)
     ids = pa.Array.from_buffers(pa.int64(), 4, [None, pa.py_buffer(memory)])
     rows = ((0, 5, "a", True, 1.0),) * 4
@@ -676,7 +694,7 @@ NUL_NOTES = (
 
 
 def test_a_nul_in_text_reaches_duckdb_and_the_caller_unchanged(
-    tmp_path: Path,
+    projection_query: execution.CompiledQuery, tmp_path: Path
 ) -> None:
     """The capture admits a NUL anywhere in a Text value, copies it as is,
     and the projection and the filtered query deliver every value byte for
@@ -684,7 +702,7 @@ def test_a_nul_in_text_reaches_duckdb_and_the_caller_unchanged(
     pa = _engine()
     rows = tuple((k, k % 3, note, True, 1.0) for k, note in enumerate(NUL_NOTES))
     table = orders(pa, rows)
-    query = projection(tmp_path / "p")
+    query = projection_query
     handle = _handle(pa, query, table)
     assert handle._owner._capture.column(2).to_pylist() == list(NUL_NOTES)
     handle.close()
@@ -702,13 +720,13 @@ def test_a_nul_in_text_reaches_duckdb_and_the_caller_unchanged(
 
 
 def test_batches_have_the_compiled_schema_and_follow_the_limits(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    projection_query: execution.CompiledQuery, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     """`to_arrow_table()` marks every field nullable; the route restores the
     compiled nullability, and `pyarrow.schema(handle)` needs no I/O. Success
     and a refused batch each unregister the capture and close the session."""
     pa = _engine()
-    query = projection(tmp_path / "p")
+    query = projection_query
     calls, _hooks = _recorded(monkeypatch)
     handle = _handle(pa, query, limits=execution.ExecutionLimits(batch_rows=2))
     schema = pa.schema(handle)
@@ -752,12 +770,12 @@ def test_batches_have_the_compiled_schema_and_follow_the_limits(
 
 
 def test_close_and_cancel_before_and_after_the_session_opens(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    projection_query: execution.CompiledQuery, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     """Before the session opens, neither connects; after, an early close and
     a consumer's exception each unregister the capture and close."""
     pa = _engine()
-    query = projection(tmp_path / "p")
+    query = projection_query
     calls, _hooks = _recorded(monkeypatch)
     handle = _handle(pa, query)
     handle.close()
@@ -881,14 +899,14 @@ def _stopped(owner: Any, threads: _Threads, calls: list[tuple[str, ...]]) -> Non
 
 
 def test_cancel_and_the_deadline_interrupt_a_running_statement(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    projection_query: execution.CompiledQuery, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     """Each acts once the statement runs inside the engine, however long the
     session setup took: a cancel, then the deadline timer that the attempt
     armed when it opened, fired at that point instead of waited for. Each
     attempt's resend thread stops with its statement."""
     pa = _engine()
-    query = projection(tmp_path / "p")
+    query = projection_query
     calls, _hooks, running, tripped = _running(monkeypatch)
     threads = _resends(monkeypatch)
     handle = _slow(_handle(pa, query))
@@ -946,7 +964,9 @@ def test_cancel_and_the_deadline_interrupt_a_running_statement(
 
 @pytest.mark.parametrize("deadline", [False, True], ids=["cancel", "deadline"])
 def test_an_interrupt_sent_before_the_statement_starts_still_stops_it(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, deadline: bool
+    projection_query: execution.CompiledQuery,
+    monkeypatch: pytest.MonkeyPatch,
+    deadline: bool,
 ) -> None:
     """A cancel, or the deadline timer's callback, that reaches the connection
     after the attempt marked its statement running but before the engine
@@ -959,7 +979,7 @@ def test_an_interrupt_sent_before_the_statement_starts_still_stops_it(
     handle = _slow(
         _handle(
             pa,
-            projection(tmp_path / "p"),
+            projection_query,
             limits=execution.ExecutionLimits(seconds=600.0),
         )
     )
@@ -988,7 +1008,7 @@ def test_an_interrupt_sent_before_the_statement_starts_still_stops_it(
 
 
 def test_a_deadline_that_passes_during_the_statement_stops_before_the_result(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    projection_query: execution.CompiledQuery, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     """The check after the statement: the deadline passed while it ran, before
     the timer fired (the route's clock moves on there), so the attempt ends
@@ -999,7 +1019,7 @@ def test_a_deadline_that_passes_during_the_statement_stops_before_the_result(
     monkeypatch.setattr(route, "time", SimpleNamespace(monotonic=lambda: clock[0]))
     calls, hooks = _recorded(monkeypatch)
     hooks["statement"] = lambda: clock.__setitem__(0, 3600.0)
-    handle = _handle(pa, projection(tmp_path / "p"))
+    handle = _handle(pa, projection_query)
     failure = _failed(handle)
     assert (
         failure.code,
@@ -1012,7 +1032,7 @@ def test_a_deadline_that_passes_during_the_statement_stops_before_the_result(
 
 
 def test_a_cancel_after_the_result_was_read_stops_before_the_result(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    projection_query: execution.CompiledQuery, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     """A cancel that arrives at the check after the statement, once the
     statement has ended: nothing is interrupted, the attempt ends with no
@@ -1020,7 +1040,7 @@ def test_a_cancel_after_the_result_was_read_stops_before_the_result(
     read, so its transaction is COMMIT_ACK."""
     pa = _engine()
     calls, _hooks = _recorded(monkeypatch)
-    handle = _handle(pa, projection(tmp_path / "p"))
+    handle = _handle(pa, projection_query)
     owner = handle._owner
     check = owner._checkpoint
     seen: list[tuple[bool, bool]] = []
@@ -1053,14 +1073,14 @@ def test_a_cancel_after_the_result_was_read_stops_before_the_result(
 
 
 def test_setup_failures_refuse_the_route_before_its_statement(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    projection_query: execution.CompiledQuery, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     """A driver that is absent or another release, an engine of another
     profile, a setting that fails or reads back otherwise, a registration
     that fails: the statement never runs, and a session that was opened is
     closed (AD79.01; the spec's session steps 1, 2 and 5)."""
     pa = _engine()
-    query = projection(tmp_path / "p")
+    query = projection_query
     calls, hooks = _recorded(monkeypatch)
     closed = [("connect", ":memory:"), ("close",)]
 
@@ -1132,13 +1152,13 @@ def test_setup_failures_refuse_the_route_before_its_statement(
 
 
 def test_statement_and_result_failures_are_attempt_failures(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    projection_query: execution.CompiledQuery, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     """A DuckDB error is PIE-R3003 with its class name and no SQLSTATE; a
     result that does not fit the compiled one is PIE-R3005. Each unregisters
     the capture and closes the session."""
     pa = _engine()
-    query = projection(tmp_path / "p")
+    query = projection_query
     calls, _hooks = _recorded(monkeypatch)
     relation = 'FROM temp.main."pietto_arrow_0"'
     cases = [
@@ -1185,13 +1205,13 @@ def test_statement_and_result_failures_are_attempt_failures(
 
 
 def test_the_result_binding_refuses_a_value_that_fails_full_validation(
-    tmp_path: Path,
+    projection_query: execution.CompiledQuery,
 ) -> None:
     """Step 4's defensive check: a result whose labels, types and nulls fit
     the compiled one but whose text is not valid UTF-8 is refused
     (DUCKDB_RESULT_CHECK, PIE-R3005 on the route); with valid text it binds."""
     pa = _pyarrow()
-    facts = adapter.execution_facts(projection(tmp_path / "p")._template)
+    facts = adapter.execution_facts(projection_query._template)
     ids = pa.array([1], pa.int64())
     valid = pa.table({"id": ids, "note": pa.array(["a"], pa.string())})
     bound = reader.bind_duckdb_result(pa, valid, facts)
@@ -1237,7 +1257,9 @@ def test_the_session_settings_are_the_spec_table_in_its_order() -> None:
     )
 
 
-def test_the_session_holds_every_spec_value_once_it_is_set_up(tmp_path: Path) -> None:
+def test_the_session_holds_every_spec_value_once_it_is_set_up(
+    projection_query: execution.CompiledQuery, tmp_path: Path
+) -> None:
     """Read from the attempt's own connection after its setup: every row of
     both lists has the spec's value, the lock refuses a change, and a local
     file that a default connection reads cannot be read."""
@@ -1254,7 +1276,7 @@ def test_the_session_holds_every_spec_value_once_it_is_set_up(tmp_path: Path) ->
         default.close()
     expected: dict[str, str | None] = {n: v for n, _set, v in SESSION_TABLE}
     expected.update(SESSION_UNCHANGED)
-    handle = _handle(pa, projection(tmp_path / "p"))
+    handle = _handle(pa, projection_query)
     with handle as result:
         connection = handle._owner._connection
         settings = connection.sql("SELECT name, value FROM duckdb_settings()")
@@ -1290,7 +1312,9 @@ print(json.dumps({"seen": seen, "loaded": loaded}))
 
 
 def test_a_shadowed_or_unowned_duckdb_module_is_refused_before_any_session(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    projection_query: execution.CompiledQuery,
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     """Step 1's origin checks of `_duckdb`: a copy that shadows it on the
     path is refused before anything is imported (in a fresh interpreter,
@@ -1331,7 +1355,7 @@ def test_a_shadowed_or_unowned_duckdb_module_is_refused_before_any_session(
         return owners(distribution, module)
 
     monkeypatch.setattr(route, "owner_versions", unowned)
-    failure = _failed(_handle(pa, projection(tmp_path / "q")))
+    failure = _failed(_handle(pa, projection_query))
     assert (failure.code, failure.detail) == ("PIE-R2002", "EXECUTION_DRIVER_VERSION")
     assert calls == []
 
@@ -1348,9 +1372,11 @@ class _FailingClose:
         raise RuntimeError("close failed")
 
 
-def test_a_failed_close_is_a_finalization_failure(tmp_path: Path) -> None:
+def test_a_failed_close_is_a_finalization_failure(
+    projection_query: execution.CompiledQuery,
+) -> None:
     pa = _engine()
-    query = projection(tmp_path / "p")
+    query = projection_query
     handle = _handle(pa, query)
     with pytest.raises(execution.AttemptFailed) as failed:
         with handle as result:
@@ -1369,10 +1395,12 @@ def test_a_failed_close_is_a_finalization_failure(tmp_path: Path) -> None:
     ]
 
 
-def test_other_entry_points_refuse_a_duckdb_query(tmp_path: Path) -> None:
+def test_other_entry_points_refuse_a_duckdb_query(
+    filtered_query: execution.CompiledQuery, tmp_path: Path
+) -> None:
     """No bundle, saved result, recovery, relay or job: each refuses before it
     builds or opens anything (the workspace below does not exist)."""
-    query = compiled(tmp_path / "p")
+    query = filtered_query
     with pytest.raises(execution.RequestRejected) as refused:
         execution.export_bundle(query)
     assert (refused.value.code, refused.value.detail) == (

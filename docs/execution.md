@@ -56,7 +56,10 @@ for the attempt's whole lifetime.
 The alpha covers `postgres_rows` and `postgres_adbc`, against PostgreSQL 18.6,
 and `mysql_rows`, against MySQL 8.4.12. Both PostgreSQL routes use the same
 explicit TCP inputs and deployment premise; `postgres_adbc` selects only its
-pinned ADBC driver closure. The only qualified native profile recorded here is
+pinned ADBC driver closure. `duckdb_arrow` runs one limited query in process
+over an Arrow table that you supply, on DuckDB `2.0.0`, with no connection or
+premise (see [DuckDB Arrow route](#duckdb-arrow-route)). The only qualified
+native profile recorded here is
 CPython 3.13.13 on Linux x86-64 with the lock's exact artifacts on the
 qualified integration host. Windows native execution is `NOTRUN`; an offline
 Windows compiler-project check is not native execution, job, or database
@@ -77,6 +80,7 @@ Linux-only (see [Known limitations](#known-limitations)).
 | `postgres_rows` | PostgreSQL 18.6; `psycopg[binary]==3.3.8`; `pyarrow==26.0.1` (the published `0.1.10` selects `3.3.5` and `26.0.0`) | One TCP host, `PostgresAccess`, `PostgresDeploymentPremise`, and SCRAM-SHA-256; TLS `require`, or `verify-full` against a caller-supplied `ca_file`. | Linux x86-64, CPython 3.13.13 with 3.3.5/26.0.0; the new pins passed the maintenance runs listed above. | Windows native execution; another PostgreSQL release, libpq closure or TLS profile (client certificates, revocation lists, `verify-ca`, a system CA store). |
 | `mysql_rows` | MySQL 8.4.12; `mysql-connector-python==26.10.0`; `pyarrow==26.0.1` (the published `0.1.10` selects `26.0.0`) | One TCP host, `MySQLAccess`, `MySQLDeploymentPremise`, and caller-supplied CA with certificate and server-identity verification. | Linux x86-64, CPython 3.13.13 with 26.0.0; the new pin passed the maintenance runs listed above. | Windows native execution; another MySQL release, connector version or provider profile. |
 | `postgres_adbc` | PostgreSQL 18.6; `adbc-driver-postgresql==1.13.0`; `adbc-driver-manager==1.13.0`; `pyarrow==26.0.1` (the published `0.1.10` selects `26.0.0`) | PostgreSQL TCP access, deployment premise, SCRAM profile with the same two TLS profiles as `postgres_rows`, and the selected driver closure. | Linux x86-64, CPython 3.13.13 with 26.0.0; the new pin passed the maintenance runs listed above. | Windows native execution; another ADBC/libpq closure, PostgreSQL release, TLS profile or platform. |
+| `duckdb_arrow` | DuckDB `2.0.0` in process; `duckdb==2.0.0`; `pyarrow==26.0.1` | A query compiled with `--dialect duckdb` from one `duckdb.arrow` source, `DuckDBArrowInput(name, table)` and `premise=None`. | Linux x86-64, CPython 3.13.13 and 3.12.13 with the locked closure: the in-process native matrix of Phase79 S06, every unit accepted on its first attempt on 2026-11-14 (D79.07); and the `arrow-ready` cell of natural CI on CPython 3.12 and 3.13. | Any form beyond the [DuckDB Arrow route](spec/duckdb-arrow-route-v1.md); another DuckDB release, Windows, macOS and platforms other than Linux x86-64 with glibc 2.28 or later. |
 
 The qualified profile is the integration host with the lock's exact artifacts.
 Installing an extra selects no route, grants no execution, opens no source and
@@ -100,6 +104,7 @@ pip install "pietto[execute-postgres]"
 | `execute-postgres` | `postgres_rows` | `psycopg[binary]==3.3.8` (the published `0.1.10` selects `3.3.5`) |
 | `execute-postgres-adbc` | `postgres_adbc` | `adbc-driver-postgresql==1.13.0`, `adbc-driver-manager==1.13.0` |
 | `execute-mysql` | `mysql_rows` | `mysql-connector-python==26.10.0` |
+| `execute-duckdb` | `duckdb_arrow` | `duckdb==2.0.0` |
 
 Each extra also selects `pyarrow==26.0.1` (the published `0.1.10` selects
 `26.0.0`), because captured results are Arrow IPC; saved-result use without any database driver needs only `pietto[arrow]`.
@@ -705,7 +710,9 @@ and fresh trust, source, value and deployment inputs.
   any connection and returns an unopened handle; the driver and the environment
   are checked when the attempt opens, except MySQL's refused OpenSSL names,
   which are checked while its bridge is prepared before the private native
-  module imports `ssl`. `route`, `access` and `premise` have no
+  module imports `ssl`. On `duckdb_arrow` the loaded PyArrow is checked by
+  `execute()` itself, before it copies the input, and the driver when the
+  attempt opens. `route`, `access` and `premise` have no
   default. There is no parameter that takes SQL text. Each call binds afresh and
   is a new attempt with its own `attempt` identifier. `isolation` is `stable`
   (REPEATABLE READ READ ONLY) or `serializable` (SERIALIZABLE READ ONLY).
@@ -829,18 +836,24 @@ once an attempt opens) ends the attempt and carries its `outcome`;
 `limits` are given and have the right type and that `isolation` is given, in
 this order; right after the route's type it checks that the route is
 the selected route and the query was compiled for its selected dialect
-(`postgres_rows` or `postgres_adbc`/`postgres`, or `mysql_rows`/`mysql`,
-`PIE-R1003`). It
+(`postgres_rows` or `postgres_adbc`/`postgres`, `mysql_rows`/`mysql`, or
+`duckdb_arrow`/`duckdb`, `PIE-R1003`). It
 then checks that `values` is `None` or a tuple and `parameters` is `None` or a
 dict with string keys (`PIE-R1002`), binds the query to the values and
 parameters (`PIE-R1006`, `PIE-R1004`), reads the installed code identity
-again (`PIE-R1005`), refuses a result wider than one batch (`PIE-R1004`
-`LIMIT`, see [Results](#results)) and checks the values of `premise`,
-`access`, `isolation` (its type included) and `limits`, in this order, and
-raises the first refusal.
+again (`PIE-R1005`), refuses a result wider than one batch on the PostgreSQL
+and MySQL routes (`PIE-R1004` `LIMIT`, see [Results](#results)) and checks
+the values of `premise`, `access`, `isolation` (its type included) and
+`limits`, in this order, and raises the first refusal. On `duckdb_arrow` the
+input name is checked against the contract's relation name right after
+`access`, and the loaded PyArrow (`PIE-R2001`, `PIE-R2002`) and the capture
+(`PIE-R1002`) after `limits`, in the order of the
+[DuckDB Arrow route](spec/duckdb-arrow-route-v1.md#execute-api).
 When an attempt opens, refused environment variables run first; then the
 pinned driver and its selected implementation; then pinned PyArrow; all run
-before a connection. `pyarrow.schema(result)` can instead raise `HandleMisuse`
+before a connection. On `duckdb_arrow`, `execute()` has already checked
+PyArrow, and the attempt checks the pinned driver before its session.
+`pyarrow.schema(result)` can instead raise `HandleMisuse`
 `PIE-R4004` when it cannot export the schema, without changing the attempt.
 
 `load_bundle()` checks `payload`, `expected_pin`, `accepted_producer` and
@@ -1291,8 +1304,9 @@ is refused whole (`PIE-R3004`); it is never truncated, and batches already
 delivered remain valid. Only `outcome.end == "COMPLETE"` means every row was
 delivered.
 
-One batch holds at most 64 Arrow fields, and a collected field counts once
-for itself and once for each of its child fields. `execute()`, `save`,
+On the PostgreSQL and MySQL routes one batch holds at most 64 Arrow fields,
+and a collected field counts once for itself and once for each of its child
+fields; `duckdb_arrow` does not make this check. `execute()`, `save`,
 `save_recoverable` and `relay_live` refuse a query whose result needs more
 with `PIE-R1004` (`detail` `LIMIT`) while they prepare it, before any
 workspace access or connection; `compile_query`, `export_bundle` and
@@ -1379,6 +1393,41 @@ label: string not null
 COMPLETE 4 [2, 2, 3, 5]
 PIE-R3004 FAILED 2
 ```
+
+## DuckDB Arrow route
+
+`duckdb_arrow` runs one read-only query of an explicit-module project over
+one Arrow table that your program supplies, in process, on DuckDB `2.0.0`.
+The [DuckDB Arrow route](spec/duckdb-arrow-route-v1.md) states every rule; in
+short:
+
+- **Install.** `pip install "pietto[execute-duckdb]"` adds `duckdb==2.0.0`
+  and `pyarrow==26.0.1`. Another installed `duckdb` is refused when the
+  attempt opens (`PIE-R2002`).
+- **Query.** A direct projection of one `duckdb.arrow("key")` source, with at
+  most one comparison of an `Int` field with one non-null `Int` parameter,
+  compiled with `--dialect duckdb` and `--literal-policy preserve`. Results
+  are bags: there is no ordering.
+- **Input.** `access=DuckDBArrowInput(name, table)`, whose `name` is the
+  source's key, and `premise=None`. `DuckDBArrowInput` does no I/O and cannot
+  be copied or pickled. `isolation` is `"stable"`.
+- **Capture.** `execute()` copies the selected columns before it returns, so
+  a later change of your buffers does not reach the query. It refuses a table
+  of more than 65,536 rows or 16 MiB (`DUCKDB_ARROW_CAPTURE_LIMIT`), and a
+  column, type, null, NaN, infinity, invalid UTF-8 or out-of-domain value that
+  does not fit the compiled source (`DUCKDB_ARROW_SCHEMA`), both `PIE-R1002`.
+- **Session.** Each attempt opens its own `:memory:` database, turns off
+  extension install and load, external access, caller-frame scans and
+  temporary spill, sets one engine thread and a 256 MiB memory limit, locks
+  the configuration and reads every value back (`PIE-R2006`), runs the
+  compiled statement once and closes.
+- **Failures.** DuckDB errors become `AttemptFailed` with the existing codes
+  (`PIE-R3003`, `PIE-R3009` for a cancellation, `PIE-R3001` for the deadline)
+  and no DuckDB message; a result that does not match the compiled one is
+  `PIE-R3005`.
+- **Elsewhere.** `export_bundle` refuses a DuckDB query (`PIE-R1004`), and
+  `save`, `save_recoverable`, `recover`, `relay_live` and the job store do
+  not take the route (`PIE-R1003`).
 
 ## Connection and trust requirements
 

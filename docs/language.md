@@ -921,6 +921,18 @@ connector: its check refuses `sqlite.table("users")` with `PIE-S2306`
 `Unknown source connector: sqlite.table` on the whole call, as it refuses
 every connector it does not know.
 
+An explicit-module project also knows `duckdb.arrow("key")`, the source of
+the limited DuckDB path: one Arrow table that a program supplies when it runs
+the query with `execute(route="duckdb_arrow")`. Its one argument is a
+non-empty string literal, used exactly as written, which names that table;
+any other argument fails `check --project` with `PIE-S2306` `Invalid source
+connector arguments for duckdb.arrow` on the call, except one of unknown type,
+which reports only its own diagnostic, as for `mysql.table`; `pietto fmt`
+keeps the spelling. A single file or a legacy-flat project does
+not know it (`PIE-S2306` `Unknown source connector: duckdb.arrow`). Only
+`emit-sql --project --dialect duckdb` admits such a source, in the forms of
+the [DuckDB Arrow route](spec/duckdb-arrow-route-v1.md).
+
 Tables and queries share this ordered clause shape:
 
 ```text

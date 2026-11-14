@@ -191,7 +191,12 @@ and AD78.03 fixes the third-dialect seam the two share. The
 [Phase78 route](phases/phase-78/route.md) and the
 [Phase79 route](phases/phase-79/route.md) bind each B1's supported forms,
 pinned dependencies, error ownership and qualification; this architecture
-decision does not open a dialect by itself.
+decision does not open a dialect by itself. `0.2.0` carries DuckDB B1
+only: the owner answered on 2026-11-14 that it needs no B2 (`group by` with
+`count`, `sum`, `min` and `max`, then `order by` and `limit`), after the
+owner's `0.2.0` request of that day (PL.31, PL.33). The
+[Phase79 B1 audit](phases/phase-79/completion-audit.md#phase79-b2-handoff)
+hands B2 over, and it opens only through its own Gate 1.
 
 ### Phase81 scope
 
@@ -285,6 +290,8 @@ each completion audit adds the freeze inputs of its phase here.
 | MySQL R2 refuses every form that `0.1.11` refused (`PUBLIC_R2_UNQUALIFIED_FORM`, by rule two) and every paired form (`PUBLIC_R2_PAIRED_FORM`) | a support-matrix row for R2 by target, or narrowed by forms that a native R2 qualification covers | D77.46, D77.67, D77.68 |
 | MySQL forms that open only byte for byte as a paired form (Wave A) | the 1.0 support matrix states them as paired forms, or a structural rule replaces them | D77.36; [Phase77 audit](phases/phase-77/completion-audit.md) |
 | SQLite single-file SQL: `emit-sql FILE --dialect sqlite`, the successful CLI JSON v1 `dialect` value `"sqlite"`, the `sqlite.table("name")` spelling with its PIE-S2306 texts, the PIE-B1000 SQLite reasons and the declared premises | frozen, kept alpha, or kept unsupported; the 1.0 support matrix lists the qualified SQLite build and every other build as not qualified | D78.01–D78.04; Phase78 B1 closeout |
+| The DuckDB Arrow route: the `duckdb.arrow("key")` spelling with its PIE-S2306 texts, the project dialect `duckdb`, the contract target `{"family": "duckdb", "release": "2.0.0"}` with `scan` `"arrow_registration"`, the `arrow` namespace and the `arrow_*` storage kinds, the DuckDB compile refusals and their order, `execute(route="duckdb_arrow")` with `DuckDBArrowInput` and `premise=None`, the capture limits, the session settings, the detail words and the `execute-duckdb` extra | frozen, kept alpha, or kept unsupported; the 1.0 support matrix lists `duckdb` `2.0.0` with `pyarrow` `26.0.1` on the qualified platforms and every other release and platform as not qualified | D79.01–D79.15, AD79.01; [Phase79 B1 audit](phases/phase-79/completion-audit.md) |
+| `RequestRejected` also carries the PIE-R2xxx refusals of the checks that `execute()` runs itself (`PIE-R2003` on `mysql_rows` and `postgres_adbc`, `PIE-R2001` and `PIE-R2002` of the loaded PyArrow on `duckdb_arrow`), and the PIE-R1004 width refusal (`LIMIT`) covers only the PostgreSQL and MySQL routes | each freezes with the execution error classes, or changes before the freeze | D79.11; [Phase79 B1 audit](phases/phase-79/completion-audit.md) |
 
 ## Project-mode follow-up
 

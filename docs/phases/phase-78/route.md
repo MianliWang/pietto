@@ -305,10 +305,11 @@ each on the published `main` `a015afcf`, after the `0.1.11` release commit
 S07, and Phase80 IB1 (S01–S05 and PK-80) in the same candidate chain; the PK
 commit carries Phase79 S05. On 2026-11-14, after `0.1.12` was published, the
 chain was replayed onto the published `main` `ab594829` in the same order,
-each slice still one commit, and each slice's release-note fragment joined
-its commit (PL.04); unless it says otherwise, this record names the commits
-of the chain on `a015afcf`. Phase80 S06 (IB2) is not in the chain, since its
-route lands it after IB1's natural CI; B1 does not wait for it. DuckDB B1 is
+each slice still one commit, and S01's commit carries B1's only
+release-note fragment, `78-s01`, which S02–S04 share (PL.04); unless it
+says otherwise, this record names the commits of the chain on `a015afcf`.
+Phase80 S06 (IB2) is not in the chain, since its route lands it after
+IB1's natural CI; B1 does not wait for it. DuckDB B1 is
 Phase79 S00–S08; S06 and S08 are not below SQLite in that chain: S06 is only
 a candidate commit off it, and S08 is not written. Under AD78.03 the shared
 connector and dialect-set hunks of S02 were replayed onto the integrated
@@ -320,6 +321,9 @@ integration host on B1's batch tree. B1 publishes after the `0.1.11` cut
 Phase79 S06–S08 have published or lie below S01. Whether one push that
 carries both B1 batches meets AD78.02 needs the lead's or the owner's
 ruling, and a change of that order needs the owner (unfreeze conditions).
+The owner answered on 2026-11-14 that it does: Phase79 S06 and S08 sit
+above S01–S04, and the whole chain publishes in one fast-forward push
+(PL.32).
 
 | Slice | State | Evidence |
 | --- | --- | --- |
@@ -369,7 +373,7 @@ S03 write-set cell names both.
 | 10 | Docs owners (S04) | Passed on the final round-9 tree: review r9's first pytest output (632 passed, the seven `test_repo_*` owners among them). Round 10 changed `docs/development.md`, `scripts/validate.py` and the entrypoint test; the same 17 files passed on the round-10 tree (round 10's first pytest output, 636 passed). Round 14 changed `docs/development.md` again (the replay paragraph) and added the replay fixture and test; the same 17 files passed on the round-14 tree (round 14's second pytest output, 637 passed; an earlier start that round ended in a pytest usage error before collection and is kept). Round 15 changed the replay test and the fixture's `regeneration` text; the same 17 files passed on the round-15 tree (round 15's first pytest output, 637 passed). On the first integrated S04 tree, `5c31ff86`, 14 files passed (the integration run's second pytest output, 580 passed): eleven of those 17 and `tests/test_project_explain.py`, `tests/test_semantic_source_connectors.py` and `tests/test_sql_mysql_connector_semantic_surface.py`. The other six were not rerun there: `tests/test_ci_loadfile_scheduling.py`, `tests/test_ci_validation_typing_stages.py`, `tests/test_ci_validation_workload_scheduling.py`, `tests/test_ci_workflow.py`, `tests/test_harness_validation_resource_guard.py` and `tests/test_harness_validation_runner_receiver.py`. All of them rerun at Gate 2 on the batch tree |
 | 11 | CI health and alerts read (S04) | Pending (lead): no read yet; until the read-only token of PL.07 is in place on the integration host, each read records NOT_OBSERVED |
 | 12 | Gate 2 duration recorded (S04) | Pending; no Gate 2 has run on B1's batch tree |
-| 13 | S01–S04 accepted on the integration tree; Gate 2 on the batch tree; publication after the `0.1.11` cut and DuckDB B1 under its own push authorization, with green natural exact-head CI (B1 closure) | Pending (lead and owner): S01–S04 are commits of the integration candidate chain, which no Gate 2 has accepted yet. The `0.1.11` cut has passed (PL.04), but DuckDB B1 is not yet below SQLite B1: the chain holds Phase79 S01–S05 (S05 in the PK commit) and S07 below S01, while S06 and S08 are not below it. B1 publishes only once those slices have published or lie below it (AD78.02); whether one push that carries both B1 batches meets AD78.02 needs the lead's or the owner's ruling, and a change of that order needs the owner (unfreeze conditions) |
+| 13 | S01–S04 accepted on the integration tree; Gate 2 on the batch tree; publication after the `0.1.11` cut and DuckDB B1 under its own push authorization, with green natural exact-head CI (B1 closure) | Pending (lead and owner): S01–S04 are commits of the integration candidate chain, which no Gate 2 has accepted yet. The `0.1.11` cut has passed (PL.04), but DuckDB B1 is not yet below SQLite B1: the chain holds Phase79 S01–S05 (S05 in the PK commit) and S07 below S01, while S06 and S08 are not below it. B1 publishes only once those slices have published or lie below it (AD78.02); whether one push that carries both B1 batches meets AD78.02 needs the lead's or the owner's ruling, and a change of that order needs the owner (unfreeze conditions). The owner answered on 2026-11-14 that one fast-forward push carrying both, with Phase79 S06 and S08 above S01–S04, meets it (PL.32) |
 | 14 | Midpoint record after S02 (route) | Not recorded. S03 opened in the lane on 2026-11-10, before S02 reached an integration tree, so the midpoint was not held where the route puts it; S02 first reached one on 2026-11-13, over the integrated Phase79 S02. This record claims no midpoint |
 | 15 | D78.02 and D78.04 stated to the owner as inform before S02 seals | Met: first stated in the lead's list of pending owner items of 2026-11-10 (item 11), which records no time; the owner took both as inform on 2026-11-11 (D78.09) |
 | 16 | Extension sync input of `sqlite.table` (D76.12, S01) | Read in S04, not in S01: the extension's `tests/sync_language.py` (extension `041797e`) reads the keywords of `grammar/Pietto.g4`, the built-in names of `src/pietto/semantic/catalog.py`, `aggregates.py` and `window_semantics.py`, and the `pietto` blocks of `README.md`, `docs/language.md`, `docs/style.md` and `docs/worked-example.md` and every `examples/**/*.pietto` file. B1 changes no grammar and none of those modules, so `sqlite.table` is no catalog change under D76.12 and B1 needs no sync patch; B1 adds no `pietto` block and no example either, so the extension's corpus is unchanged |

@@ -388,12 +388,18 @@ or DERIVED_MECHANICAL:
 - S07 (`aacb6dab`) is on the chain before S06, which has no commit there,
   although S07 depends on S06. At the chain's replay after the second
   `0.1.12` batch is published, S06's commit goes below S07, and S07
-  replays on top of it (lead, 2026-11-13T19:02Z).
+  replays on top of it (lead, 2026-11-13T19:02Z). The owner's answer of
+  2026-11-14 overrides this ruling: S06 sits above S07 in the one push
+  that publishes both B1 batches (PL.32).
 
 **Replay of 2026-11-14.** After `0.1.12` was published, the chain was
-replayed onto `ab594829` in the same order, each slice still one commit
-with its release-note fragment, and S06 still has no commit on it. The
-write sets, rulings and midpoint record of this route name the commits of
+replayed onto `ab594829` in the same order, each slice still one commit,
+B1's only release-note fragment in S01's commit, and S06 still has no
+commit on it. At this replay each slice's own commit added its runtime
+modules to the wheel's required-file list in `scripts/package_smoke.py`
+(the LD6 entry above, D77.51): S03 `134a566b` and S04 `57ba2d79` the
+DuckDB modules, Phase78 S02 `07ef0cf3` the SQLite ones. The write sets,
+rulings and midpoint record of this route name the commits of
 `85577f75` on `a015afcf`; on the replayed chain PK `d53d8917` is
 `0dd333e4`, S01 `a548374d` is `97c1377e`, S02 `05d73042` is `3d25e016`,
 S03 `51c93d91` is `134a566b`, S04 `5f923e19` is `57ba2d79` and S07
@@ -415,13 +421,15 @@ cells; U0 ran C01, C02a and C15 and recorded a skip line for each of the
 other 15. U2 and U3 installed the wheel built from `cf460bda` (sha256
 `6faff95a…` on both interpreters) offline with the locked closure, and
 that install's package smoke first ran S07's real `duckdb_arrow` query.
-S06 is sealed as a fresh commit on `cf460bda`: v5's four helpers byte
-for byte, which widen the row's write set as v5 asked the lead to
-confirm, the harness self-test, and runner-acceptance row 10 with its
+S06 was sealed as a fresh commit on `cf460bda` (`ff74023e`): v5's four
+helpers byte for byte, which widen the row's write set as v5 asked the
+lead to confirm, the harness self-test, and runner-acceptance row 10 with its
 `development.md` section. `tests/test_execution_api_duckdb_arrow.py`
 gains no cell, because the native cells are the probe's. The run's
 records are owner-held working records outside Git on the integration
-host.
+host. By the owner's order answer (PL.32) the commit was restacked
+unchanged on the Phase77 follow-ups as `1abbc7d5`, and the run carries to
+it under D77.50, which that commit's message records.
 
 ## Budget, midpoint and stops
 
@@ -686,7 +694,7 @@ Failed candidates, probes and runs stay in the ledger.
 | --- | --- | --- |
 | Whether `0.2.0` needs B2 | The owner | The B1 audit (S08), before any `0.2.0` request |
 | NUL in `Text` input: admitted by the owner on 2026-11-11 (D79.13); new qualification cells must first prove that DuckDB and the result reading handle it | Phase79's qualification | Before the B1 batch Gate 2 |
-| Wiring the result reader | S04 | Done on 2026-11-14, after the `0.1.12` publication carried the last Phase77 slices that change the result readers, and before S06 (D77.32, lead; owner, 2026-11-14): `project_result_binding.py` closes the DuckDB storage kinds of each type, and `project_execution_reader.py` binds the route's result |
+| Wiring the result reader | S04 | Done on 2026-11-14, after the `0.1.12` publication carried the last Phase77 slices that change the result readers, and before S06 (D77.32, lead; owner, 2026-11-14, D77.83 (c)): `project_result_binding.py` closes the DuckDB storage kinds of each type, and `project_execution_reader.py` binds the route's result |
 | Extension sync for `duckdb.arrow` (D76.12) | The lead rules at S02; a push needs a separate extension authorization | Before the B1 batch push |
 | Whether SQLite B2 reuses a generalized firewall or builds its own pipeline | The Phase78 B2 Gate 1 | Before any B2 code |
 | sqlglot as a test oracle (IMPLEMENTATION_FREEDOM under AD78.01) | The first Phase79 slice beyond projection and filter | Its Gate 1 |

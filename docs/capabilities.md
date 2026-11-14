@@ -4,7 +4,9 @@ This page shows, for each feature family, whether `check` accepts it and
 `emit-sql` emits it in a single file (`check FILE`, `emit-sql FILE --dialect
 ...`) and in an explicit-module project (`schema_version = 2`,
 `check --project ROOT`, `emit-sql --project ROOT`), for PostgreSQL and MySQL;
-SQLite single files have a [section of their own](#sqlite-single-files).
+SQLite single files and the limited DuckDB path of projects have sections of
+their own ([SQLite single files](#sqlite-single-files),
+[DuckDB local path](#duckdb-local-path)).
 It describes `0.1.12`, whose
 [release notes](release-notes.md#mysql-project-catch-up-public-alpha-release-notes--0112)
 give each change. Each row was recorded by running one
@@ -144,3 +146,42 @@ refused alike for every target.
   identity, and every other build, the SQLite of hosted CI, Windows and macOS
   included, is not qualified
   ([SQLite target validation](development.md#sqlite-target-validation)).
+
+## DuckDB local path
+
+An explicit-module project can compile one limited query over a
+`duckdb.arrow("key")` source with `emit-sql --project ... --dialect duckdb`,
+`compile_sql` or `compile_query`, and run it in process over an Arrow table
+that the program supplies with `execute(route="duckdb_arrow")`
+([DuckDB Arrow route](spec/duckdb-arrow-route-v1.md)); no release carries it
+yet. Each row was recorded by running one plain example through
+`check --project` and `emit-sql --project --dialect duckdb`, with a DuckDB
+contract that declares every premise, and its cell follows the legend above.
+
+| Feature | Project, DuckDB | Stated in |
+| --- | --- | --- |
+| A direct projection of `Int`, `Text`, `Bool` and `Float` fields | yes | [Admission](spec/duckdb-arrow-route-v1.md#admission) |
+| One `where` comparison `IntField OP param` with `==`, `!=`, `<`, `<=`, `>` or `>=` and one non-null `Int` query parameter | yes | [Admission](spec/duckdb-arrow-route-v1.md#admission) |
+| A `where` with a literal (`amount > 5`), a comparison of a `Text` field, or two comparisons joined by `and` | BLOCKED PIE-B1003 `duckdb_filter_not_admitted` and `duckdb_parameter_not_admitted` | [Compile refusals](spec/duckdb-arrow-route-v1.md#compile-refusals) |
+| A parameter in a projection, or a nullable parameter | BLOCKED PIE-B1003 `duckdb_parameter_not_admitted` | [Compile refusals](spec/duckdb-arrow-route-v1.md#compile-refusals) |
+| A computed `select` value (`more = amount + 1`) | BLOCKED PIE-B1003 `duckdb_projection_not_admitted` | [Compile refusals](spec/duckdb-arrow-route-v1.md#compile-refusals) |
+| `order by`, `limit`, `distinct`, `group by` with aggregates, a table that reads another, a JOIN | BLOCKED PIE-B1003 `duckdb_relation_shape_not_admitted`, beside `duckdb_projection_not_admitted` for an aggregate and `duckdb_source_count_not_admitted` for a second source | [Compile refusals](spec/duckdb-arrow-route-v1.md#compile-refusals) |
+| A source field of type `Decimal`, `Date`, `Timestamp` or `UUID` | BLOCKED PIE-B1003 `duckdb_field_type_not_admitted`, beside the contract's own blocker for that field | [Compile refusals](spec/duckdb-arrow-route-v1.md#compile-refusals) |
+| `--literal-policy bind-safe` | BLOCKED PIE-B1003 `literal_policy_not_admitted_on_target` | [Compile refusals](spec/duckdb-arrow-route-v1.md#compile-refusals) |
+| A `postgres.table` or `mysql.table` source under `--dialect duckdb` | BLOCKED PIE-B1001 `source_family_mismatch`, beside PIE-B1006 `negative_original_target_evidence` | [Compile refusals](spec/duckdb-arrow-route-v1.md#compile-refusals) |
+| `duckdb.arrow("")` or another argument that is not one non-empty string literal | check PIE-S2306 | [Sources and relations](language.md#sources-and-relations) |
+
+- **Single files.** `check FILE` refuses `duckdb.arrow` with PIE-S2306
+  `Unknown source connector: duckdb.arrow`, and there is no single-file
+  `--dialect duckdb`. `pietto fmt` keeps the spelling.
+- **Execution.** `execute(route="duckdb_arrow")` takes
+  `DuckDBArrowInput(name, table)` and `premise=None`, copies the selected
+  columns of at most 65,536 rows and 16 MiB, and returns the usual
+  `ResultHandle`; results are bags. Bundles, saved results, relay, jobs and
+  R2 do not take the route ([execution](execution.md#duckdb-arrow-route)).
+- **Support.** The emission and the request checks are tested wherever CI
+  runs. The route needs the `execute-duckdb` extra (`duckdb==2.0.0`,
+  `pyarrow==26.0.1`); its native evidence is Phase79 S06's in-process
+  matrix, every unit accepted on 2026-11-14 (D79.07), on CPython 3.13.13
+  and 3.12.13, Linux x86-64, and the `arrow-ready` cell of natural CI.
+  Other DuckDB releases and platforms are not qualified.

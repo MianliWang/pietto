@@ -8,7 +8,6 @@ is read through `compile_sql`, which returns the bytes of `pietto emit-sql
 
 from __future__ import annotations
 
-import ast
 import dataclasses
 import json
 import subprocess
@@ -18,6 +17,7 @@ from typing import Any
 
 import pytest
 
+from _pietto_repo_facts import REPOSITORY_FACTS
 from _pietto_sql_duckdb import (
     FIELDS,
     HEADER,
@@ -634,9 +634,12 @@ def test_postgres_and_mysql_refuse_a_duckdb_source_as_another_family(
     assert ("PIE-B1001", "source_family_mismatch") in results[0][1]
 
 
-def _verified(tmp_path: Path) -> Any:
+@pytest.fixture(scope="module")
+def verified(tmp_path_factory: pytest.TempPathFactory) -> Any:
+    """One VERIFIED emission of the filtered query for the cells that only
+    read it, each forgery included: a forgery replaces, never mutates."""
     body = filtered(">=")
-    root = write(tmp_path / "p", body, contract())
+    root = write(tmp_path_factory.mktemp("verified") / "p", body, contract())
     outcome, _ = emission_cli.emit_project(
         root,
         "main.pietto",
@@ -651,8 +654,8 @@ def _verified(tmp_path: Path) -> Any:
     return root, outcome
 
 
-def test_compile_query_is_built_from_the_verified_document(tmp_path: Path) -> None:
-    root, outcome = _verified(tmp_path)
+def test_compile_query_is_built_from_the_verified_document(verified: Any) -> None:
+    root, outcome = verified
     query = execution.compile_query(
         root,
         **selected(filtered(">=")),
@@ -749,10 +752,10 @@ FORGERIES = {
 
 @pytest.mark.parametrize("forgery", FORGERIES)
 def test_a_forged_artifact_is_refused(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, forgery: str
+    verified: Any, monkeypatch: pytest.MonkeyPatch, forgery: str
 ) -> None:
     """Forgery: a VERIFIED outcome whose artifact was changed after emission."""
-    root, outcome = _verified(tmp_path)
+    root, outcome = verified
     artifact = outcome.artifact
     forged = dataclasses.replace(
         outcome,
@@ -793,14 +796,8 @@ def test_a_forged_artifact_is_refused(
 def test_the_adapter_imports_no_duckdb_pyarrow_or_sqlglot(tmp_path: Path) -> None:
     banned = {"duckdb", "pyarrow", "sqlglot"}
     for path in sorted((REPO_ROOT / "src/pietto/_project").glob("project_duckdb_*.py")):
-        for node in ast.walk(ast.parse(path.read_text(encoding="utf-8"))):
-            if isinstance(node, ast.Import):
-                names = [alias.name for alias in node.names]
-            elif isinstance(node, ast.ImportFrom):
-                names = [node.module or ""]
-            else:
-                continue
-            assert not {name.partition(".")[0] for name in names} & banned, path
+        imported = REPOSITORY_FACTS.python(path).imported_modules
+        assert not {name.partition(".")[0] for name in imported} & banned, path
     body = filtered(">=")
     root = write(tmp_path / "p", body, contract())
     script = (

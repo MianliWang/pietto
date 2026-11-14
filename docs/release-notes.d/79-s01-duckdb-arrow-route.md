@@ -12,7 +12,10 @@ and `scan` `"arrow_registration"`, and
 `execute(query, route="duckdb_arrow", access=DuckDBArrowInput(name="orders",
 table=t), premise=None)` returns the usual `ResultHandle` and `ResultBatch`.
 Results are bags: B1 has no ordering. See the
-[DuckDB Arrow route](../spec/duckdb-arrow-route-v1.md).
+[DuckDB Arrow route](../spec/duckdb-arrow-route-v1.md), the
+[DuckDB local path](../capabilities.md#duckdb-local-path) of the capability
+page and the [route section](../execution.md#duckdb-arrow-route) of the
+execution guide.
 
 - `execute()` copies the admitted columns before it returns, so later changes
   to the caller's buffers do not reach the query. A table of more than 65,536
@@ -51,5 +54,8 @@ Results are bags: B1 has no ordering. See the
   with glibc 2.28 or later. The core install is unchanged and still needs no
   PyArrow or DuckDB.
 - PostgreSQL and MySQL SQL bytes, contracts and diagnostics are unchanged.
+  The refusal of a result wider than the 64 Arrow fields of one batch
+  (`PIE-R1004` `LIMIT`) stays on the PostgreSQL and MySQL routes;
+  `duckdb_arrow` does not make it.
   Query bundles, saved results, relay, jobs, JOINs, aggregation, ordering and
   other types are not available on DuckDB in this version.
