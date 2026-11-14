@@ -49,7 +49,7 @@ if TYPE_CHECKING:
         ProjectParseCheckResult,
     )
 
-_FALLBACK_VERSION = "0.1.12"
+_FALLBACK_VERSION = "0.2.0"
 _EXIT_DIAGNOSTIC_ERROR = 1
 _EXIT_USAGE_ERROR = 2
 _FORMAT_TEXT = "text"

@@ -1,16 +1,17 @@
 # Execution (public alpha)
 
-**Version:** This document describes the public alpha API of the `0.1.12`
+**Version:** This document describes the public alpha API of the `0.2.0`
 candidate. Release availability is established only when the exact accepted
-files appear on the versioned GitHub pre-release and PyPI `0.1.12` channels.
+files appear on the versioned GitHub pre-release and PyPI `0.2.0` channels.
 The published `0.1.2` distributions select `pyarrow==25.0.1`; the published
 `0.1.3`, `0.1.4`, `0.1.5`, `0.1.6`, `0.1.7`, `0.1.8`, `0.1.9`
 and `0.1.10` distributions select `pyarrow==26.0.0`, and the published
-`0.1.11` distributions and `0.1.12` select `pyarrow==26.0.1`. The published `0.1.5` distributions select
+`0.1.11` and `0.1.12` distributions and `0.2.0` select `pyarrow==26.0.1`. The published `0.1.5` distributions select
 `mysql-connector-python==26.7.0`, `adbc-driver-postgresql==1.12.0` and
 `adbc-driver-manager==1.12.0`; the published `0.1.6`, `0.1.7`, `0.1.8`,
-`0.1.9`, `0.1.10` and `0.1.11` distributions and `0.1.12` select `mysql-connector-python==26.10.0` and
-`1.13.0` of both ADBC packages. The historical `0.1.1` wheel does not provide this alpha surface.
+`0.1.9`, `0.1.10`, `0.1.11` and `0.1.12` distributions and `0.2.0` select `mysql-connector-python==26.10.0` and
+`1.13.0` of both ADBC packages; `0.2.0` adds the `execute-duckdb` extra with
+`duckdb==2.0.0`. The historical `0.1.1` wheel does not provide this alpha surface.
 
 The dependency maintenance of `0.1.11` pins `pyarrow==26.0.1` and
 `psycopg[binary]==3.3.8`; the published `0.1.10` distributions select `26.0.0`
@@ -93,7 +94,7 @@ execution or a supported Windows profile.
 
 ## Install
 
-The `0.1.12` distribution exposes `pietto.execution`. Install the extra of the
+The `0.2.0` distribution exposes `pietto.execution`. Install the extra of the
 route you use from PyPI into a fresh virtual environment:
 
 ```bash
@@ -112,8 +113,10 @@ Each extra also selects `pyarrow==26.0.1` (the published `0.1.10` selects
 Extras combine, for example `pip install "pietto[execute-postgres,execute-mysql]"`,
 and a wheel built from the matching checkout takes the same extras (see
 [install from a checkout](../README.md#install-from-a-checkout)). Compiling,
-exporting and loading a bundle and an unopened `execute()` need none of these
-extras. Without the selected route closure, opening an attempt is refused before
+exporting and loading a bundle and an unopened `execute()` on the PostgreSQL
+and MySQL routes need none of these extras; on `duckdb_arrow`, `execute()`
+itself checks the loaded PyArrow. Without the selected route closure,
+opening an attempt is refused before
 any connection: an absent pinned driver with `PIE-R2001`
 (`EXECUTION_DEPENDENCY_MISSING`) and another installed version with the route's
 version refusal `PIE-R2002`; another installed driver is never a fallback.
@@ -122,8 +125,9 @@ An environment that keeps the pins of an earlier release, such as `pyarrow
 upgrading `pietto` alone does not upgrade an extra's packages, so reinstall
 with the extra, for example `pip install -U "pietto[execute-postgres]"`.
 The published 3.3.5/26.0.0 extras were verified on CPython 3.13.13, Linux
-x86-64, with the lock's exact artifacts; the 3.3.8/26.0.1 that `0.1.11` and
-`0.1.12` select passed the maintenance runs listed at the top of this guide.
+x86-64, with the lock's exact artifacts; the 3.3.8/26.0.1 that `0.1.11`,
+`0.1.12` and `0.2.0` select passed the maintenance runs listed at the top of
+this guide.
 Other platforms, interpreters and driver versions are not covered.
 
 Pietto source examples below use the modern syntax of this checkout. Installed
@@ -269,7 +273,7 @@ except RequestRejected as error:
 
 ### Saved-result API
 
-These APIs are public alpha in `0.1.12`. They do not add a CLI database
+These APIs are public alpha in `0.2.0`. They do not add a CLI database
 command. Existing `check`, `emit-sql`, text output and JSON output keep their
 contracts: JSON uses `ensure_ascii=True` and one trailing newline, while
 `--output` reports its clear output error through the established CLI result
@@ -1703,13 +1707,13 @@ or a successful semantic check alone establishes none of those premises.
   environment that built it); there is no migration between versions. The
   identity is read from the installed files at each call, so restart running
   processes after the installed code changes.
-  A bundle or saved-job record made under `0.1.11` or earlier is refused under
-  `0.1.12` by the changed code identity. The old bytes are preserved; use their
+  A bundle or saved-job record made under `0.1.12` or earlier is refused under
+  `0.2.0` by the changed code identity. The old bytes are preserved; use their
   matching old environment. Pietto supplies no migration or rewrite.
   `0.1.11` changed compiled marks from `(7, 1, 7, 1)` to `(8, 1, 8, 1)`
-  once, and `0.1.12` keeps them. Keep `pietto==0.1.11` for its retained
-  bundles and jobs; a new matching environment requires recompilation from
-  source.
+  once, and `0.1.12` and `0.2.0` keep them. Keep `pietto==0.1.12` for its
+  retained bundles and jobs; a new matching environment requires
+  recompilation from source.
   Recompiling does not convert saved results or rerun a query. Reading old
   results follows their separate format, code-identity and trust contract;
   rerunning is a new database execution (see

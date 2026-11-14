@@ -710,7 +710,7 @@ wheels = [
 
 [[package]]
 name = "pietto"
-version = "0.1.12"
+version = "0.2.0"
 source = { editable = "." }
 dependencies = [
     { name = "antlr4-python3-runtime" },

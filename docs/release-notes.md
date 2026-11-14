@@ -1,5 +1,543 @@
 # Pietto release notes
 
+## SQLite, DuckDB and Python interop public alpha release notes — 0.2.0
+
+**Status:** These notes cover `0.2.0`, the public alpha prepared from its
+release commit, which follows the Phase78, Phase79 and Phase80 batches and
+the Phase77 follow-up that refuses a PostgreSQL R2 first page it does not
+read, and changes only version owners and documentation. It is published
+only when the tag `v0.2.0`, the versioned GitHub pre-release and PyPI carry
+its accepted wheel and sdist; this document neither creates those channels
+nor substitutes for their byte verification. As for earlier releases, the
+compiler and package are covered on CPython 3.12 and 3.13 for Linux x86-64.
+CI also runs the platform-neutral tests with CPython 3.12 and 3.13 on
+Windows x86-64, and batch `emit-sql --project ROOT --all --output DIR` stays
+Linux-only; other platforms and Python versions are not covered.
+
+### Breaking changes against 0.1.12
+
+Before 1.0 a release may carry breaking changes. To keep the behaviour of
+`0.1.12`, pin that exact version, for example `pip install "pietto==0.1.12"`,
+or `pip install "pietto[execute-postgres]==0.1.12"` with an extra, or
+`pietto==0.1.12` in a requirements file. Recompiling, reading saved results
+and running again stay separate, as the upgrading steps below describe.
+
+- **Compiled bundles and saved jobs** made under `0.1.12` or earlier are
+  refused under `0.2.0` by code identity, as with every release;
+  new bundles keep the version marks `(8, 1, 8, 1)`. Pietto neither migrates
+  nor rewrites them: keep an exact `pietto==0.1.12` environment for retained
+  `0.1.12` bundles and saved jobs, or recompile from source.
+- **PostgreSQL R2 refuses earlier.** `save_recoverable` and `recover` of a
+  PostgreSQL query whose SQL R2 does not read are refused while they prepare
+  it, with PIE-R1004 `REFINEMENT_NATIVE_SQL`, before any workspace access or
+  connection; `0.1.12` registered the job and its generation, connected and
+  failed closed at the first page. `recover` of such a query with trust
+  records that do not match reports `REFINEMENT_NATIVE_SQL` where `0.1.12`
+  reported PIE-R1008 `PUBLIC_R2_TRUST`. See
+  [PostgreSQL R2 refuses a first page it does not read](#postgresql-r2-refuses-a-first-page-it-does-not-read).
+- **Changed diagnostic texts.** PIE-P1000 for a `dialect sqlite` header
+  line, in a single file, a project or a dependency package, now ends with
+  ``; `emit-sql` takes `--dialect sqlite`.``, and a malformed single-file
+  `sqlite.table` call (a dotted or empty name, a wrong argument count or
+  kind) gets the PIE-S2306 texts of
+  [SQLite single files](#sqlite-single-files) instead of
+  `Unknown source connector: sqlite.table`; a call with one bare table
+  name now checks. A project `duckdb.arrow("name")` source, which `0.1.12`
+  refused at `check` with PIE-S2306, now checks in an explicit-module
+  project, and its PostgreSQL and MySQL emission refuses it with PIE-B1001
+  beside PIE-B1006.
+- **New values in existing documents.** A successful CLI JSON v1 `emit-sql`
+  document may carry `"dialect": "sqlite"`, and a project emission document
+  may carry the contract target `{"family": "duckdb", "release": "2.0.0"}`
+  with `scan` `"arrow_registration"`. A reader that lists the values it
+  accepts must add them. PostgreSQL and MySQL SQL, contracts and their
+  documents are unchanged.
+
+### Highlights
+
+`0.2.0` is the release of Phase78, Phase79 and Phase80, with one Phase77
+follow-up for PostgreSQL R2: a third SQL dialect for single files, one local
+analysis path and the Python interoperability of `ResultBatch`. PostgreSQL
+and MySQL SQL, contracts and goldens are unchanged, and no MySQL form opens
+in this release; the known limitations list what MySQL still refuses. Each
+subsection below lists the changes against `0.1.12` that a program can
+observe, its compatibility rows and its new refusals, from the PostgreSQL R2
+change on; the last one lists the known limitations. The sections from
+0.1.12 down describe published files.
+
+- **SQLite single files (alpha).** `pietto emit-sql FILE --dialect sqlite`
+  writes SQLite SQL for a flat subset of one-table files, as text or CLI JSON
+  v1, qualified on one measured SQLite build (`3.53.1` with its source id and
+  compile options). Pietto writes the text only: it runs no SQLite statement.
+- **A local analysis path on DuckDB (alpha).** An explicit-module project can
+  run one read-only query over one Arrow table that the program supplies, in
+  process, on DuckDB `2.0.0`:
+  `execute(query, route="duckdb_arrow", access=DuckDBArrowInput(...), premise=None)`
+  returns the usual `ResultHandle` and `ResultBatch`. The query is a direct
+  projection, optionally filtered by one `Int` comparison with one `Int`
+  query parameter. Install it with `pip install "pietto[execute-duckdb]"`.
+  Its native qualification ran in process against the pinned `duckdb` and
+  `pyarrow` on CPython 3.12 and 3.13 for Linux x86-64, and every unit was
+  accepted on its first attempt.
+- **Python interoperability (alpha).** `pietto.interop` turns one open
+  `ResultBatch` into a pandas or Polars DataFrame, a NumPy array, a SciPy CSR
+  array or a Matplotlib line or scatter on the caller's Axes, keeping values
+  exactly, and row order and repeated rows too, except that a SciPy CSR array
+  is canonical: it sorts its entries and refuses a repeated coordinate. Any
+  conversion that would change a type is refused, and so is a repeated field
+  label in `to_pandas`. Five extras pin one target library each:
+  `pietto[arrow,interop-pandas]`, `interop-polars`, `interop-numpy`,
+  `interop-scipy` and `interop-matplotlib`.
+- **PostgreSQL R2** refuses a query whose SQL it does not read while it
+  prepares it, before any workspace access or connection.
+
+### Upgrading from 0.1.12
+
+- A `0.1.12` source file needs no `pietto migrate` step, and no source
+  spelling is retired.
+- **New refusals.** These calls were accepted by `0.1.12`: `save_recoverable`
+  and `recover` of a PostgreSQL query whose SQL R2 does not read, which now
+  fail with PIE-R1004 `REFINEMENT_NATIVE_SQL` while they prepare it (see the
+  breaking changes above). No program that `0.1.12` accepted is refused by
+  `check` or `emit-sql`.
+- **SQL text changes.** None for PostgreSQL and MySQL. `emit-sql FILE
+  --dialect sqlite` and `emit-sql --project ... --dialect duckdb`, usage
+  errors in `0.1.12`, now write SQL in the forms their subsections state.
+- **Programs refused before.** A single-file `sqlite.table("name")` source
+  now checks; a project `duckdb.arrow("name")` source, which `0.1.12`
+  refused at `check` with PIE-S2306, now checks in an explicit-module
+  project, and its PostgreSQL and MySQL emission refuses it with PIE-B1001
+  `source_family_mismatch` beside PIE-B1006
+  `negative_original_target_evidence`. Single files keep PIE-S2306 for
+  `duckdb.arrow`.
+- **Execution.** `premise=None` is accepted on `duckdb_arrow` only; the
+  PostgreSQL and MySQL routes keep their required premises. On
+  `duckdb_arrow`, a missing PyArrow (PIE-R2001) and another release or a
+  shadowing copy (PIE-R2002) are raised as `RequestRejected`, as PIE-R2003
+  already is on `mysql_rows` and `postgres_adbc`.
+- **Extras.** The core install is unchanged and still needs no PyArrow. The
+  existing extras keep their `0.1.12` pins (`pyarrow==26.0.1`,
+  `mysql-connector-python==26.10.0`, ADBC `1.13.0`). `execute-duckdb` pins
+  `pyarrow==26.0.1` and `duckdb==2.0.0`; each `interop-*` extra pins only its
+  target library and installs no PyArrow, so install it beside `arrow`.
+- **Compiled bundles and saved jobs.** See the breaking changes above.
+  Reading saved results follows their own format, code-identity and trust
+  contract, and running again is a new database execution; recompiling does
+  neither.
+- Tools that compare exact diagnostics, SQL text or JSON must expect the
+  changes listed below: the PIE-R1004 `REFINEMENT_NATIVE_SQL` refusals of
+  PostgreSQL R2, the PIE-P1000 and PIE-S2306 texts of SQLite single files,
+  the PIE-B1001 and PIE-B1006 refusal of a project `duckdb.arrow` source
+  under PostgreSQL and MySQL, the CLI JSON v1 `dialect` value `"sqlite"`, the
+  DuckDB contract target and the `duckdb_arrow` details of the DuckDB route.
+- The output of `fmt` and the alpha surfaces `pietto lsp`, `pietto.compiler`,
+  the relation-column document, SQLite single-file SQL, the
+  [DuckDB Arrow route](spec/duckdb-arrow-route-v1.md) and `pietto.interop`
+  may still change before the Phase82 freeze; each change is listed in these
+  release notes.
+
+### PostgreSQL R2 refuses a first page it does not read
+
+On PostgreSQL, on both routes, `save_recoverable` and `recover` now render
+the bound query's first page when they prepare it, and refuse a query whose
+SQL R2 does not read with `PIE-R1004` (`detail` `REFINEMENT_NATIVE_SQL`)
+before any workspace access or connection. Such a query was prepared as any
+other: its job and generation were registered, R2 connected, and the
+attempt failed closed at its first page. Such forms include those of the
+[R2 boundary](execution.md#known-limitations): conditional CASE, BETWEEN,
+literal-list IN, CAST, scalar calls other than `now()` and NOT, an ordered
+`first` or `last`, the null-safe comparison of `same_value` wherever it
+appears, in a SELECT item, WHERE, a `let` or
+[a JOIN `on`](#null-safe-same_value-in-a-project-join-on),
+and a window function argument that reads a header parameter, as
+`lag(id, k, f)` does with header parameters `k` and `f`, whose first page R2
+could not render.
+
+The check is the last of R2's preparation checks, so a query that another
+of them refuses keeps that refusal, and a query that reads `now()` keeps
+`PUBLIC_R2_STATEMENT_SNAPSHOT`. It comes before `recover`'s trust check, so
+`recover` of such a query with trust records that do not match now reports
+`REFINEMENT_NATIVE_SQL` where it reported `PIE-R1008` (`PUBLIC_R2_TRUST`).
+It renders the bound query, so `recover` makes it only when its restated
+values and parameters bind; otherwise the workspace refuses the
+restatement, as before. On MySQL, the refusal of the forms that `0.1.11`
+refused (`PUBLIC_R2_UNQUALIFIED_FORM`) does not change, and an R2 attempt
+of a query that `0.1.11` compiled and whose SQL R2 does not read still
+fails closed at its first page.
+
+Before (measured at `ab594829`, 0.1.12, on Linux with CPython 3.13.13,
+without a database, over a workspace that cannot be opened):
+`save_recoverable` and `recover` of a PostgreSQL query with
+`inner join rhs on same_value(lhs.v, rhs.v)`, or of one that selects
+`u = upper(text)`, went on to the workspace, which refused them with
+`PIE-R1009` (`WORKSPACE_PARENT`). After: both refuse them with `PIE-R1004`
+(`REFINEMENT_NATIVE_SQL`), with or without a `job`; the same JOIN on
+`lhs.v == rhs.v` still goes on to the workspace.
+
+Changed diagnostics (no accepted program changes; an R2 attempt that failed
+at its first page is refused before it starts):
+
+| Code | Case | Before | After |
+| --- | --- | --- | --- |
+| PIE-R1004 | R2 `save_recoverable` or `recover`, with values and parameters that bind, of a PostgreSQL query whose SQL R2 does not read and that does not read `now()` | the attempt failed closed at its first page | `REFINEMENT_NATIVE_SQL` |
+| PIE-R1004 | R2 `recover`, with values and parameters that bind and trust records that do not match, of a PostgreSQL query whose SQL R2 does not read and that does not read `now()` | `PIE-R1008` `PUBLIC_R2_TRUST` | `REFINEMENT_NATIVE_SQL` |
+
+No PIE code or detail name is added: `REFINEMENT_NATIVE_SQL` is the word
+R2's page reader already used, and it now reaches callers. Emitted SQL, CLI
+JSON v1, project JSON v2, the Python API and the format and records of
+compiled bundles are unchanged.
+
+### SQLite single files
+
+- `pietto emit-sql FILE --dialect sqlite`, a usage error before, writes
+  SQLite SQL for one file, as text or as CLI JSON v1, whose `dialect` gains
+  the successful value `"sqlite"`. It covers a flat subset: a table or query
+  reading one `sqlite.table("name")` source directly, with `where`,
+  `select`, `order by`, `limit`, `group by`, `count`, `min` and `max` over
+  `Int`, `Text`, `Bool` and `Float` fields (`min` and `max` of an `Int` or
+  `Float` field), with no arithmetic, a sign before a number included. The
+  SQL quotes each name in backticks and writes each field with its table
+  name, as in `` `users`.`id` ``.
+  The [SQLite rules](language.md#sqlite-single-files) state the premises
+  the SQL assumes (`STRICT` tables, `BINARY` collation, UTF-8, `Bool` as an
+  `INTEGER` 0 or 1, finite `REAL` values) and what each form means under
+  them.
+- Ascending keys end with `NULLS LAST` and descending keys with
+  `NULLS FIRST`, so NULL sorts last ascending and first descending, the
+  default that PostgreSQL documents for the PostgreSQL emitter's SQL;
+  SQLite's own default would put NULL first in ascending order.
+- Pietto writes the SQL text only. It runs no SQLite statement, opens no
+  database file and adds no dependency.
+
+```pietto
+shape User:
+    id: Int
+    name: Text
+    active: Bool
+
+source users: User = sqlite.table("users")
+
+query active_users:
+    from users
+    where active
+    select id, name
+    order by name
+    limit 10
+```
+
+Compatibility: PostgreSQL and MySQL output and CLI JSON schema version 1 are
+unchanged, and so is project mode: `emit-sql --project --dialect sqlite`
+stays a usage error, `compile_query(dialect="sqlite")` keeps PIE-R1002, and a
+project's `check` still refuses `sqlite.table("users")` with PIE-S2306
+`Unknown source connector: sqlite.table` on the whole call. Existing
+diagnostics are unchanged except these, for programs refused before as well;
+the PIE-S2306 ones are single-file only:
+
+| Code | Case | Before | After |
+| --- | --- | --- | --- |
+| PIE-P1000 | a `dialect sqlite` header line, also in a project or a dependency package; the message and its suggestion end with the hint | ``Delete the header line `dialect sqlite`; it has no effect.`` | ``Delete the header line `dialect sqlite`; it has no effect; `emit-sql` takes `--dialect sqlite`.`` |
+| PIE-S2306 | a `sqlite.table` call with one bare table name | `Unknown source connector: sqlite.table` on the whole call | none: the source checks |
+| PIE-S2306 | a `sqlite.table` string with a dot, or an empty string | `Unknown source connector: sqlite.table` on the whole call | `Invalid source connector arguments for sqlite.table: expected <table>` at the string |
+| PIE-S2306 | a `sqlite.table` call without exactly one argument, or with a non-`Text` argument such as `1`, and no argument reports an error of its own | `Unknown source connector: sqlite.table` on the whole call | `Invalid source connector arguments for sqlite.table` on the whole call |
+| PIE-S2306 | any other `sqlite.table` argument that is not a string literal, such as the unquoted dotted name `main.users`, `None` or `concat("a", "b")`, and no argument reports an error of its own | `Unknown source connector: sqlite.table` on the whole call | `Invalid source connector arguments for sqlite.table: expected a string literal "<table>"` at the argument |
+
+New refusals of `emit-sql --dialect sqlite` (a usage error before):
+
+| Code | Case | Text |
+| --- | --- | --- |
+| PIE-B1000 | a SQLite single-file form outside the subset, such as arithmetic or a signed literal, a comparison of an `Int` with a `Float`, `in`, `having`, a table or query that reads another, a JOIN, a window, a function call, a `Decimal`, `Date`, `Timestamp` or `UUID` field, or any table or query of a file that declares a top-level constant | `SQLite SQL emission is not implemented for RelationIR: <name>. <reason>` |
+
+Known limitations:
+
+- The SQL is qualified on one measured SQLite library only: release
+  `3.53.1` together with the source id and compile options that the
+  [SQLite rules](language.md#sqlite-single-files) refer to. A version
+  number alone is no identity, and no other build is qualified, the SQLite
+  of hosted CI, Windows and macOS included. The SQL text is the same
+  whatever library later runs it.
+- The SQL assumes and does not check its premises: `STRICT` tables,
+  `BINARY` collation, UTF-8, `Bool` as an `INTEGER` 0 or 1 and finite
+  `REAL` values. A `COLLATE NOCASE` column, a 2 in a `Bool` column or an
+  infinity in a `REAL` column changes what the SQL means.
+- Projects have no SQLite target, and Pietto has no route that runs SQLite
+  SQL or reads its result.
+- Beyond the refusals above, `sum`, `avg` and every aggregate other than
+  `count`, `min` and `max`, casts, conditional expressions, range
+  comparisons, `any(...)` reads and a `None` literal that `check` accepts
+  outside `is None` and `is not None`, such as `n = None` in `select`, are
+  refused with PIE-B1000 too. `== None` and `!= None` fail `check` with
+  PIE-S2105 for every target.
+
+### DuckDB Arrow route — limited local path (alpha)
+
+An explicit-module project can now run one read-only query over one Arrow
+table that the program supplies, in process, on DuckDB `2.0.0`. The source is
+declared `source orders: Order = duckdb.arrow("orders")`; the query is a
+direct projection of its `Int`, `Text`, `Bool` and finite `Float` fields,
+optionally filtered by one comparison of an `Int` field with one non-null
+`Int` query parameter. `pietto emit-sql --project ... --dialect duckdb`,
+`compile_sql`, `compile_all_sql` and `compile_query` accept the `duckdb`
+dialect with the contract target `{"family": "duckdb", "release": "2.0.0"}`
+and `scan` `"arrow_registration"`, and
+`execute(query, route="duckdb_arrow", access=DuckDBArrowInput(name="orders",
+table=t), premise=None)` returns the usual `ResultHandle` and `ResultBatch`.
+Results are bags: B1 has no ordering. See the
+[DuckDB Arrow route](spec/duckdb-arrow-route-v1.md), the
+[DuckDB local path](capabilities.md#duckdb-local-path) of the capability
+page and the [route section](execution.md#duckdb-arrow-route) of the
+execution guide.
+
+- `execute()` copies the admitted columns before it returns, so later changes
+  to the caller's buffers do not reach the query. A table of more than 65,536
+  rows or 16 MiB (`pyarrow.Table.nbytes`) is refused with `PIE-R1002`
+  `DUCKDB_ARROW_CAPTURE_LIMIT`; a name, column, type, null, NaN or infinity,
+  invalid UTF-8 or out-of-domain value that does not fit the compiled
+  query with `PIE-R1002` `DUCKDB_ARROW_SCHEMA`. A NUL inside a `Text` value
+  is admitted and reaches DuckDB and the result unchanged. Before the capture,
+  `execute()` refuses a loaded PyArrow that is not the installed `pyarrow`
+  `26.0.1` distribution's own files with the codes of the other Arrow
+  routes, `PIE-R2001` when it is not installed and `PIE-R2002` otherwise.
+  These are raised as `RequestRejected`, which on `mysql_rows` and
+  `postgres_adbc` already carries `PIE-R2003`: nothing has connected.
+- Each attempt opens its own `:memory:` session with extension install and
+  load, external access, caller-frame scans and temporary spill off, one
+  engine thread and a 256 MiB memory limit, then locks the configuration and
+  reads every value back; a session that cannot be proven is `PIE-R2006`.
+- `premise=None` is accepted on `duckdb_arrow` only; the PostgreSQL and MySQL
+  routes keep their required premises.
+- `emit-sql --project ... --dialect duckdb` prints the
+  `pietto.sql-emission.v1` document (`v2` for the filtered query with its
+  parameter), whose one `SELECT` reads only the registered capture
+  `temp.main."pietto_arrow_0"` by Pietto-owned column names; `compile_sql`
+  returns those bytes, and `compile_query` builds a query only from such a
+  VERIFIED document.
+- Unsupported shapes are BLOCKED with `PIE-B1003` and a suggestion. A
+  `duckdb.arrow` source under PostgreSQL or MySQL is refused as a source of
+  another family is today, with `PIE-B1001` `source_family_mismatch` beside
+  `PIE-B1006` `negative_original_target_evidence`, and so is a
+  `postgres.table` or `mysql.table` source under DuckDB. Single files keep
+  `PIE-S2306` for `duckdb.arrow`, and their output is unchanged.
+- Install it with `pip install "pietto[execute-duckdb]"`, which pins
+  `pyarrow==26.0.1` and `duckdb==2.0.0`; another installed `duckdb` is
+  refused with `PIE-R2002`. One `cp312-abi3` duckdb wheel serves CPython 3.12
+  and 3.13; the qualified platforms are CPython 3.12 and 3.13 on Linux x86-64
+  with glibc 2.28 or later. The core install is unchanged and still needs no
+  PyArrow or DuckDB.
+- This route changes no PostgreSQL or MySQL SQL bytes or contracts, and no
+  diagnostic of theirs except the refusal of a project `duckdb.arrow` source
+  above.
+  The refusal of a result wider than the 64 Arrow fields of one batch
+  (`PIE-R1004` `LIMIT`) stays on the PostgreSQL and MySQL routes;
+  `duckdb_arrow` does not make it.
+  Query bundles, saved results, relay, jobs, JOINs, aggregation, ordering and
+  other types are not available on DuckDB in this version.
+
+### Interop extras
+
+- Five new optional extras each install one conversion target for the
+  `pietto.interop` adapters, pinned exactly: `interop-pandas` installs
+  `pandas==3.1.1`, `interop-polars` installs `polars==2.1.0` (which itself
+  pins `polars-runtime-32==2.1.0`), `interop-numpy` installs `numpy==2.5.4`,
+  `interop-scipy` installs `scipy==1.18.1` and `interop-matplotlib` installs
+  `matplotlib==3.11.2`. Each extra pins only its target library; NumPy and
+  the targets' other dependencies come from the targets' own requirements.
+  There is no combined extra.
+- An interop extra installs no PyArrow, so install it beside `arrow`, for
+  example `pip install "pietto[arrow,interop-pandas]"`. Only the pins are
+  qualified, as `pietto[arrow,interop-X]` for each of the five extras on
+  CPython 3.12 and 3.13, Linux x86-64, glibc 2.28 or later. Another route
+  extra beside an interop extra is covered only on the assumption that it
+  carries the same PyArrow `26.0.1`. Windows, macOS and CPython 3.14 are not
+  claimed.
+- The core install is unchanged and still needs no PyArrow or target
+  library; the package metadata lists the five new extras.
+
+### Python interop package (alpha)
+
+The new alpha package `pietto.interop` names six functions that each turn one
+open `ResultBatch` into one library object: `to_pandas(batch)`,
+`to_polars(batch)`, `to_numpy(batch, column)`,
+`to_scipy_csr(batch, row, column, value, shape)`, and
+`plot_line(batch, x, y, *, ax)` and `plot_scatter(batch, x, y, *, ax)`.
+Field arguments are `int` field ordinals, never labels. Importing the package
+loads no PyArrow, no target library and no `pietto.execution`.
+
+Each call reads the batch once through `pyarrow.record_batch(batch)`, never
+closes it, and checks in one fixed order: `TypeError` for an argument type
+(for `ax` only when Matplotlib is installed), `HandleMisuse` `PIE-R4002` for
+a closed batch, `ValueError` for an ordinal, an unadmitted or nullable
+field, in `to_pandas` a repeated field label, a SciPy shape above 4096 or a
+negative, out-of-shape or repeated coordinate, or a Matplotlib integer beyond
+±2**53, and `ModuleNotFoundError`, naming the extra, when the target library
+is not installed. A refused call leaves the batch open. Decimal256, UUID and
+nested fields are refused by every function. No diagnostic code is added, and
+`pietto.compiler` and `pietto.execution` are unchanged. The
+[interop guide](interop.md) lists every refusal.
+
+### pandas and Polars DataFrames from a batch
+
+`pietto.interop.to_pandas(batch)` returns a pandas DataFrame whose columns
+keep field order, row order, repeated rows and null positions, with a
+`RangeIndex` and each column of dtype `pandas.ArrowDtype` of the field's exact
+Arrow type, so a nullable Int stays an exact integer. `to_polars(batch)`
+returns a Polars DataFrame with `Int16`, `Int32`, `Int64`, `Boolean`,
+`Float64`, `String`, `Decimal(p, s)`, `Date` and `Datetime("us")` columns.
+Both admit nullable and non-nullable Int, Bool, Float, Text, Decimal up to
+precision 38, Date and zone-less Timestamp fields; a typed empty batch gives an
+empty frame of the same types, and the frame stays usable after the batch is
+closed.
+
+A conversion that would change a field's type is refused with `ValueError`,
+never cast, and `to_pandas` refuses a batch with a repeated field label the
+same way before converting it. Install them with `pietto[arrow,interop-pandas]`
+(`pandas==3.1.1`) or
+`pietto[arrow,interop-polars]` (`polars==2.1.0`).
+
+### NumPy arrays from a batch
+
+`pietto.interop.to_numpy(batch, column)` returns one field of the batch as a
+NumPy array of shape `(num_rows,)`: `int16`, `int32` or `int64` for an Int
+field of that width, `bool` for a Bool field and `float64` for a Float field.
+The array keeps row order, repeated rows and every value bit for bit,
+including `2**63 - 1` and the sign of `-0.0`, and a typed empty batch gives
+shape `(0,)` with the same dtype. It is an owned, writable copy that shares no
+buffer with the batch, so writing to it leaves the batch unchanged and it stays
+usable after the batch is closed.
+
+Only a field that the schema declares non-nullable is admitted: a nullable
+field is refused with `ValueError` even when the batch holds no null, so
+`coalesce` it in Pietto first. Text, Decimal, Date, Timestamp, UUID and nested
+fields are refused, and a conversion that would change the field's dtype is
+refused, never cast. Install it with `pietto[arrow,interop-numpy]`
+(`numpy==2.5.4`).
+
+### SciPy CSR arrays from a batch
+
+`pietto.interop.to_scipy_csr(batch, row, column, value, shape)` returns a
+canonical `scipy.sparse.csr_array` with one stored entry per record: the
+`row` and `column` fields give its coordinate and the `value` field its value.
+Explicit zeros stay stored, column indices are sorted within each row, the
+index and index-pointer arrays are int32, and the data keeps the value
+field's width (int16, int32 or int64), so the same records in any order give
+the same arrays. A typed empty batch gives an array of the given shape with no
+entries, and the array stays usable after the batch is closed.
+
+A repeated coordinate is refused with `ValueError`, never summed, and so is a
+SciPy result of another type, shape, index dtype, data width, entry count or
+index order. Install it with `pietto[arrow,interop-scipy]` (`scipy==1.18.1`).
+
+### Matplotlib artists from a batch
+
+`pietto.interop.plot_line(batch, x, y, *, ax)` draws one
+`matplotlib.lines.Line2D` through `ax.plot`, and `plot_scatter(batch, x, y,
+*, ax)` one `matplotlib.collections.PathCollection` through `ax.scatter`, on
+the Axes the caller passes and on no other, from two fields the schema
+declares non-nullable: Float fields, or Int fields whose values all lie
+within ±2**53. Each field reaches Matplotlib as a float64 copy in row order,
+so the artist's `get_xydata()` or `get_offsets()` equals the source values
+bit for bit, `-0.0` included, keeps repeated rows, and stays usable after the
+batch is closed; a typed empty batch gives an artist with no points. Neither
+call imports `matplotlib.pyplot`, selects a backend, shows or saves.
+
+An `ax` that is not a `matplotlib.axes.Axes` is a `TypeError` before the
+batch is read; a Bool, Text or other field, a nullable field and an Int value
+beyond ±2**53 are refused with `ValueError` before anything is drawn. Install
+them with `pietto[arrow,interop-matplotlib]` (`matplotlib==3.11.2`).
+
+### Known limitations of 0.2.0
+
+- **The DuckDB path is limited.** It takes one `duckdb.arrow("name")` source
+  in an explicit-module project and one read-only query: a direct projection
+  of `Int`, `Text`, `Bool` and finite `Float` fields, optionally filtered by
+  one comparison of an `Int` field with one non-null `Int` query parameter.
+  Results are bags with no ordering. JOINs, aggregation, ORDER BY and LIMIT,
+  more parameters, other types, query bundles, saved results, relay and jobs
+  are not available on DuckDB, and an input table of more than 65,536 rows or
+  16 MiB is refused. The qualified platforms are CPython 3.12 and 3.13 on
+  Linux x86-64 with glibc 2.28 or later. `0.2.0` carries the first DuckDB
+  part only: `group by` with `count`, `sum`, `min` and `max`, then
+  `order by` and `limit`, are not part of it, and no later release is
+  promised for them.
+- **SQLite is SQL text only.** The SQL is qualified on one measured SQLite
+  library only, release `3.53.1` with its source id and compile options; no
+  other build is qualified, the SQLite of hosted CI, Windows and macOS
+  included. It assumes and does not check its premises (`STRICT` tables,
+  `BINARY` collation, UTF-8, `Bool` as an `INTEGER` 0 or 1, finite `REAL`
+  values). Projects have no SQLite target, and Pietto has no route that runs
+  SQLite SQL or reads its result.
+- **Interoperability is flat and exact.** `pietto.interop` admits only flat
+  fields: Decimal256, `UUID` and nested fields are refused by every function,
+  NumPy, SciPy and Matplotlib take only fields that the schema declares
+  non-nullable, and there is no combined extra. Only the exact pins are
+  qualified, as `pietto[arrow,interop-X]` on CPython 3.12 and 3.13, Linux
+  x86-64 with glibc 2.28 or later; Windows, macOS and CPython 3.14 are not
+  claimed.
+- **R2.** On PostgreSQL, R2 refuses every query whose SQL it does not read,
+  such as a conditional CASE, BETWEEN, a literal-list IN, CAST, scalar calls
+  other than `now()` and NOT, an ordered `first` or `last`, every null-safe
+  `same_value` and a window function argument that reads a header
+  parameter. On MySQL, R2 refuses the forms that `0.1.11` refused
+  (PIE-R1004 `PUBLIC_R2_UNQUALIFIED_FORM`) and every query that reads
+  `now()`, and an R2 attempt of a query that `0.1.11` compiled and whose SQL
+  R2 does not read still fails closed at its first page, with `terminal`
+  `FAILED` and no public reason.
+- **MySQL beyond the cadence.** MySQL support trails PostgreSQL (D76.10), and
+  `0.2.0` opens no MySQL form. These forms stay beyond the MySQL cadence under
+  J12 (3), each with its target: the MySQL project `sum` of an `Int` outside
+  the forms that `0.1.12` opened, and MySQL `Float` `+`, `-`, `*` and sign on
+  fields, wait for a MySQL catch-up phase after Phase80, which opens each
+  form only after its own two-database qualification; `stddev`, `variance`,
+  `pvariance` and `pstdev` of an `Int` have no target; nested results wait
+  for the separate nested work package; the MySQL `UUID` query header
+  parameter stays withdrawn with no target; and `same_value` of a `Float` in
+  a JOIN `on` stays refused, since its candidate is not part of `0.2.0`.
+- **MySQL refusals.** Outside the forms that a two-database run matched,
+  MySQL emission refuses a form with a PIE-B code and writes no SQL. These
+  forms are refused on MySQL in `0.2.0`, as in `0.1.12`; the
+  [capability page](capabilities.md) and the `0.1.12` subsections give the
+  codes of most of them:
+  - in single files and projects: `median` and `quantile` (MySQL has no
+    interpolated percentile), `string_agg` (`GROUP_CONCAT` truncates
+    silently), a GROUPS frame with an offset bound, and EXCLUDE CURRENT ROW,
+    GROUP or TIES;
+  - in single files: `first` and `last`; the conditional sum
+    `sum(o.f for o in group if ...)`; `stddev`, `variance`, `pvariance` and
+    `pstdev` of an `Int`; a window key that names a computed `Text` `let`;
+    and an asof JOIN in a relation with a FULL JOIN, outside seven qualified
+    files;
+  - in projects, in every form: `stddev`, `variance`, `pvariance` and
+    `pstdev` of an `Int`; `Float` arithmetic other than between two
+    literals, a sign on a `Float` value and `Float /`; `count_distinct`,
+    `sum` and `avg` of a `Float`; `select distinct` over a `Float`, `Float`
+    `union distinct`, `intersect` and `except`, a `Float` window key and a
+    `percent_rank` or `cume_dist` result as a key; a `Float` literal list
+    whose value and an option both read rows, and a `Float` `in` or `not in`
+    in a WHERE over a let with `capture` lines; `UUID` query parameters;
+    `sum` and `avg` over a window; scalar calls or arithmetic around
+    aggregate results; a direct `sum` of a `Decimal`; an `in` or cast in a
+    query that a JOIN reads or that reads JOIN rows; `max(a, b)` and
+    `min(a, b)` of two `Date` values; `add_months`, `concat`, `round` with
+    digits, `date_trunc` and `Text(x)` of an `Int`; typed `values(...)` and
+    `generate_series`; FULL JOIN, which is not planned; and collected lists
+    and nested results;
+  - in projects, outside the forms that `0.1.12` opened: `Int` arithmetic not
+    proved to fit signed 64 bits, `Int /`, `Int %` and `sum` of an `Int`,
+    also conditional, over a JOIN or in two levels; `Float %`; `stddev`,
+    `variance`, `pvariance` and `pstdev` of a `Float`; a `Float` GROUP BY
+    key; `==`, `!=` and `same_value` of two `Float` row reads, also inside
+    `any(...)` and `not any(...)`; `Decimal(p, s)`, `Date` and `Timestamp`
+    query parameters; the conditional count, `any` and `all` over a group,
+    `count`, `min` and `max` over a window and `count_distinct(a, b, ...)`;
+    `first` and `last`; `Decimal` plus or minus an `Int` or another scale,
+    `Decimal * Int` and a sign on a `Decimal`; a conditional or scalar call
+    beside a JOIN; `lag` and `lead` with a `Text` literal default; `lpad` and
+    `now()`; and `same_value` in a JOIN `on`, never of a `Float`.
+
+  FULL JOIN, a GROUPS frame with an offset bound, an EXCLUDE clause,
+  `median`, `quantile` and `string_agg` are out of scope for MySQL.
+- The known limitations of 0.1.12 that the subsections above do not change
+  still hold.
+
 ## MySQL project catch-up public alpha release notes — 0.1.12
 
 **Status:** These notes cover `0.1.12`, the public alpha prepared from its

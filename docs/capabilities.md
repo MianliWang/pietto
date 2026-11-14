@@ -7,8 +7,8 @@ This page shows, for each feature family, whether `check` accepts it and
 SQLite single files and the limited DuckDB path of projects have sections of
 their own ([SQLite single files](#sqlite-single-files),
 [DuckDB local path](#duckdb-local-path)).
-It describes `0.1.12`, whose
-[release notes](release-notes.md#mysql-project-catch-up-public-alpha-release-notes--0112)
+It describes `0.2.0`, whose
+[release notes](release-notes.md#sqlite-duckdb-and-python-interop-public-alpha-release-notes--020)
 give each change. Each row was recorded by running one
 plain example of the family through these commands, with a project emission
 contract that declares every premise
@@ -110,8 +110,8 @@ Also observed:
 
 `pietto emit-sql FILE --dialect sqlite` writes SQLite SQL for one file, as
 text or as CLI JSON v1 with `"dialect": "sqlite"`
-([SQLite single files](language.md#sqlite-single-files)); no release carries
-it yet. Each row was recorded by running one plain example through
+([SQLite single files](language.md#sqlite-single-files)), since `0.2.0`.
+Each row was recorded by running one plain example through
 `check FILE` and `emit-sql FILE --dialect sqlite`, and its cell follows the
 legend above. `check FILE` takes no dialect, so a form that it refuses is
 refused alike for every target.
@@ -155,8 +155,8 @@ An explicit-module project can compile one limited query over a
 `duckdb.arrow("key")` source with `emit-sql --project ... --dialect duckdb`,
 `compile_sql` or `compile_query`, and run it in process over an Arrow table
 that the program supplies with `execute(route="duckdb_arrow")`
-([DuckDB Arrow route](spec/duckdb-arrow-route-v1.md)); no release carries it
-yet. Each row was recorded by running one plain example through
+([DuckDB Arrow route](spec/duckdb-arrow-route-v1.md)), since `0.2.0`. Each
+row was recorded by running one plain example through
 `check --project` and `emit-sql --project --dialect duckdb`, with a DuckDB
 contract that declares every premise, and its cell follows the legend above.
 

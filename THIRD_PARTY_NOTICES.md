@@ -10,8 +10,8 @@ provided for attribution; it is not legal advice.
 
 ## Wheel and sdist
 
-For the 0.1.12 release candidate, these items are intended for
-`pietto-0.1.12-py3-none-any.whl` and `pietto-0.1.12.tar.gz`. The per-channel
+For the 0.2.0 release candidate, these items are intended for
+`pietto-0.2.0-py3-none-any.whl` and `pietto-0.2.0.tar.gz`. The per-channel
 inspection record determines their actual contents before release.
 Locations are repository paths; in the wheel they appear without the leading
 `src/`.
@@ -31,21 +31,35 @@ Dependencies are installed from their own distributions and are not bundled:
 - Optional extras: `pyarrow` (Apache-2.0); `psycopg` and `psycopg-binary`
   (LGPL-3.0-only); `mysql-connector-python` (GPLv2 with additional permissions,
   including the Universal FOSS Exception 1.0, per its license file);
-  `adbc-driver-postgresql` and `adbc-driver-manager` (Apache-2.0). The extras
-  also install `typing-extensions` (PSF-2.0), and on Windows `tzdata` (see its
-  own metadata).
+  `adbc-driver-postgresql` and `adbc-driver-manager` (Apache-2.0); `duckdb`
+  (MIT) in `execute-duckdb`; and the targets of the `interop-*` extras:
+  `pandas` (BSD-3-Clause), `polars` and `polars-runtime-32` (MIT), `numpy`
+  (BSD-3-Clause AND 0BSD AND MIT AND Zlib AND CC0-1.0), `scipy` (BSD) and
+  `matplotlib` (its own PSF-based license agreement). Each license is as its
+  distribution's metadata states it.
+- The extras also install, through these packages' own requirements:
+  `typing-extensions` (PSF-2.0); `tzdata` (see its own metadata), which
+  `execute-postgres` installs only on Windows and `interop-pandas` and
+  `interop-matplotlib` install on every platform through `python-dateutil`
+  (BSD-3-Clause); `numpy` for `interop-pandas`, `interop-scipy` and
+  `interop-matplotlib`; and for `interop-matplotlib`, `contourpy`
+  (BSD-3-Clause), `cycler` (BSD), `fonttools` (MIT), `kiwisolver` (BSD),
+  `packaging` (Apache-2.0 OR BSD-2-Clause), `pillow` (MIT-CMU) and
+  `pyparsing` (MIT).
 - In the CPython 3.13 manylinux x86-64 wheels that were inspected, several of
   these dependencies bundle or statically link further native libraries. The
   license files of `pyarrow`, `mysql-connector-python` and
   `adbc-driver-postgresql` describe theirs; `psycopg-binary` vendors 15 shared
   libraries (including libpq, OpenSSL, MIT Kerberos, OpenLDAP and Cyrus SASL)
-  that its LGPL-3.0 license file does not mention. Wheels for other platforms
-  were not inspected.
+  that its LGPL-3.0 license file does not mention. The wheels that
+  `execute-duckdb` and the `interop-*` extras install were not inspected for
+  bundled native libraries, and wheels for other platforms were not
+  inspected.
 
 ## GitHub source archive
 
 The archive of a tagged release contains the whole repository tree: everything
-listed above, plus the following. GitHub's automatic `v0.1.12` source tar.gz,
+listed above, plus the following. GitHub's automatic `v0.2.0` source tar.gz,
 when the tag is published, can have the same file name as that version's sdist;
 its contents include `tools/`, `tests/` and `docs/`. The existing `v0.1.1`
 archive belongs to its published commit and remains its own historical artifact.
