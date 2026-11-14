@@ -28,11 +28,16 @@
   Compiled bundles and live templates replay the same SQL. Emission reduces
   the statement as written over its bound contract to the form, and plain
   verification re-derives emission's refusals; compiled replay reduces its
-  records and the pure boundary its document to the same form law. A
-  relation alias, an imported source, a read qualified by its source's name
-  and parentheses leave the form's records and document apart from source
-  positions and the source digest, so only emission and plain verification
-  refuse them.
+  records to the same form law. A relation alias, an imported source, a
+  read qualified by its source's name and parentheses leave the form's
+  records apart from source positions and the source digest, so only
+  emission and plain verification refuse them.
+- R2 prepares a query of these forms, whose guarded sums are a conditional
+  CASE, and its attempt fails closed at its first page, as the lead's
+  survey on MySQL 8.4.12 on 2026-11-14 measured for all nine:
+  `save_recoverable` returns a `SaveReply` whose `terminal` is `FAILED`,
+  and `recover` of that generation fails the same way (see the
+  [R2 boundary](../execution.md#known-limitations)).
 - The raw MySQL 8.4.12 primitives behind these forms, each form's guarded
   statement over its own seeded tables, matched the signed 64-bit `Int`
   outcome beside PostgreSQL 18.6. The candidate emission experiment then

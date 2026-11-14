@@ -49,11 +49,19 @@
   Compiled bundles and live templates replay the same SQL. Emission derives
   these cells from the plan and the authored declaration, and plain
   verification re-derives emission's refusals from the same two; compiled
-  replay derives them from its records and the pure boundary from its
-  document. A relation alias or a window, read or not, and an imported
-  source leave the direct read's records and document apart from source
-  positions and the source digest, so only emission and plain verification
-  refuse them.
+  replay derives them from its records. A relation alias or a window, read
+  or not, and an imported source leave the direct read's records apart
+  from source positions and the source digest, so only emission and plain
+  verification refuse them.
+- R2 `save_recoverable` and `recover` refine a query of the `+`, `-`, `*`
+  and unary `-` cells as any other query, and no native qualification has
+  run those refined statements; in the lead's survey on MySQL 8.4.12 on
+  2026-11-14 each such attempt completed with the rows `execute()`
+  returns. R2 prepares a query with an `abs` cell, a scalar call, or a
+  guarded `sum(Int)`, a conditional CASE, and its attempt fails closed at
+  its first page: `save_recoverable` returns a `SaveReply` whose
+  `terminal` is `FAILED`, and `recover` of that generation fails the same
+  way (see the [R2 boundary](../execution.md#known-limitations)).
 - The raw MySQL 8.4.12 primitives behind these forms (BIGINT `+`, `-`,
   `*`, sign and `ABS`, and that guarded `SUM`) matched the signed 64-bit
   `Int` outcome beside PostgreSQL 18.6. The candidate emission experiment

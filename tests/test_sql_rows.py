@@ -405,6 +405,54 @@ def test_a_where_over_rows_without_fields_emits_only_inline_on_postgresql(
     ]
 
 
+def test_a_mysql_r01_read_yields_to_a_stage_over_rows_without_fields(tmp_path):
+    """A MySQL statement with an R01 `Float` `in` read of a let with
+    `capture` lines and a capturing let over rows without fields reports the
+    stage's refusal alone, at that let's WHERE: the R01 refusal yields to it
+    as to any refusal main makes (D77.62, D77.64). Without that let the
+    read keeps its own blocker."""
+    let_m = ("let m:", "    capture r01o", "    from r01i")
+    let_m += ("    where kw == r01o.kw", "    select:", "        v")
+    let_e = ("let e:", "    capture r01o", "    from nil", "    where r01o.id > 0")
+    let_e += ("    select:", "        k = 1")
+    reported = []
+    for lets, where in (
+        (let_m, "where v in m"),
+        (let_e + let_m, "where v in m and exists e"),
+    ):
+        body = cells.query(*lets, "from r01o", where, "select:", "    id")
+        source, contract = cells.world("mysql", body)
+        source = (
+            "shape Nil:\n    always = check(True)\n"
+            'source nil: Nil = mysql.table("nil.locator")\n' + source
+        )
+        document = json.loads(contract)
+        base = document["sources"][0]
+        document["sources"].append(
+            {
+                **base,
+                "selector": {**base["selector"], "name": "nil"},
+                "relation": {**base["relation"], "name": "phase77 nil"},
+                "fields": [],
+            }
+        )
+        _, outcome = probe.build_case(
+            tmp_path / str(len(reported)), source, probe.encoded(document).decode()
+        )
+        lines = source.splitlines()
+        public = probe.decode_public(serialize_project_sql_emission(outcome))
+        reported.append(
+            [
+                (b["subject"]["detail"], lines[b["location"]["line"] - 1].strip())
+                for b in public["blockers"]
+            ]
+        )
+    assert reported == [
+        [("membership_type_pair_not_admitted", "where v in m")],
+        [("zero_column_stage_not_admitted_on_target", "where r01o.id > 0")],
+    ]
+
+
 # --------------------------------------------------------------------------
 # Finite range checking
 # --------------------------------------------------------------------------
@@ -2221,6 +2269,24 @@ def test_mysql_remainder_outside_its_cell_keeps_main_refusal(tmp_path, shape, po
     )
     assert outcome.status == "BLOCKED" and outcome.artifact is None
     assert numeric_blockers(outcome) == probe.REMAINDER_REFUSAL_BLOCKERS[shape]
+
+
+def test_a_refused_mysql_remainder_query_reports_main_blockers_from_a_later_check(
+    tmp_path, monkeypatch
+):
+    """A statement of S15 cells that a check after the emission blockers
+    refuses (here plan correspondence) reports main's blockers at its Int
+    and its Float `%`, derived again with every cell shut (D77.37)."""
+    from pietto._project import project_sql_emission as emission
+
+    monkeypatch.setattr(emission, "verify_row_query", lambda request, query: False)
+    _, outcome = probe.remainder_world(
+        tmp_path, "mysql", probe.REMAINDER_CELLS["s15_mod_cells"]
+    )
+    assert numeric_blockers(outcome) == [
+        ("PIE-B1003", "binary_operator_not_admitted", 18, 9),
+        ("PIE-B1003", "float_remainder_exact_binary64_not_realized", 19, 9),
+    ]
 
 
 def test_mysql_remainder_cells_are_derived_once_per_projection(tmp_path, monkeypatch):

@@ -27,6 +27,14 @@
   materialization witnessed in EXPLAIN, and on the R02 candidate emission
   experiment over Pietto's own statements. The lost Phase72 B10 record was
   not reconstructed or replayed. PostgreSQL output is unchanged.
+- R2 `save_recoverable` and `recover` refine a query of these forms as any
+  other query: the refined statement reads the outer and the tested source
+  each through its own refined input and compares the `Float` and the keys
+  there. No native qualification, the candidate emission experiment
+  included, has run those refined statements; in the lead's survey on
+  MySQL 8.4.12 on 2026-11-14, over the experiment's fixture and four
+  variants of it, each such attempt completed with the rows `execute()`
+  returns (see the [R2 boundary](../execution.md#known-limitations)).
 - The candidate emission experiment passed on 2026-11-14 in its eighth
   freeze, one run per database, each judged `QUALIFIED` with no reason
   against: PostgreSQL 18.6

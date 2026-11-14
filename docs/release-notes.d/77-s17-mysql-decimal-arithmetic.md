@@ -46,9 +46,10 @@ table result:
   the two scales and `my_decimal(65, 30)` for the wide product; a sign
   keeps its operand's carrier, `my_decimal(9, 2)` for a field and
   `my_decimal(28, 2)` for `-(money * id)`. MySQL itself declares the result
-  column of the four forms with a header parameter one digit wider, as
-  `DECIMAL(23, 2)` or `DECIMAL(29, 2)`; every value fits the stated
-  carrier. A binary operation's column is `nullable` `unknown`, and a sign
+  column of each form with a `CAST(... AS SIGNED)` operand, the four with a
+  header parameter and `money * 2`, one digit wider, as `DECIMAL(23, 2)` or
+  `DECIMAL(29, 2)`; every value fits the stated carrier. A binary
+  operation's column is `nullable` `unknown`, and a sign
   keeps its operand's. Compiled bundles and live templates replay the same
   SQL. PostgreSQL SQL is unchanged.
 - The rest must match too. The project has that one module, which holds

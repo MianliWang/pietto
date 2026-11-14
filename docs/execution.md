@@ -1687,6 +1687,28 @@ or a successful semantic check alone establishes none of those premises.
   `lpad`, keeps instead the MySQL `PUBLIC_R2_STATEMENT_SNAPSHOT` refusal of
   every query that reads `now()`, before any workspace access or
   connection.
+- On MySQL, R2 also refines a query of these unreleased Phase77 forms as
+  any other query, and no native qualification has run their refined
+  statements: the [S05](release-notes.d/77-s05-mysql-float-statistics.md)
+  `Float` statistics, the
+  [S06](release-notes.d/77-s06-mysql-float-row-equality.md) `Float` `==`
+  and `!=` of one row, in a SELECT item or a WHERE, and of an INNER or
+  LEFT JOIN `on`, the
+  [S01](release-notes.d/77-s01-mysql-checked-int-and-sum.md) checked `Int`
+  `+`, `-`, `*` and unary `-`, the
+  [S15](release-notes.d/77-s15-mysql-remainder.md) `Int %` and `Float %`,
+  and the [R02](release-notes.d/77-r02-mysql-float-anti-exists.md) `Float`
+  `not any(...)` forms, whose refined statement reads the outer and the
+  tested source each through its own refined input. In the lead's survey
+  of the Phase77 MySQL forms on MySQL 8.4.12 on 2026-11-14, each such
+  attempt completed and returned the rows that `execute()` returns for the
+  same query and data. R2 prepares a query of the S06 forms that write
+  `not (a != b)`, `same_value`, whose MySQL `<=>` R2 does not read either,
+  or `not same_value`, of an S01 form with `abs`, a scalar call, and of the
+  S02 `sum(Int)` and
+  [S03](release-notes.d/77-s03-mysql-conditional-join-two-level-sums.md)
+  forms, whose guarded sums are a conditional CASE, and each such attempt
+  fails closed at its first page, as for S12's `lpad` above.
 - R2 refines a `where any(...)` or `where not any(...)` test, the rewrite of
   a retired `semi join` or `anti join`, as the JOIN it replaces only when it
   is an AND-composed part of a WHERE. `save_recoverable` and `recover` refuse

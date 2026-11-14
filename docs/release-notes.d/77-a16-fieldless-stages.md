@@ -27,7 +27,10 @@ program is unchanged):
 
 `check --project` and single-file SQL are unchanged. A statement that
 another blocker refuses keeps exactly the blockers it had: this one is
-reported only when nothing else in the statement is refused. A query that
-reads a source without fields stays not executable, as before: one that
-still emits SQL is refused by `compile_query` with that PIE-R1004, so no
-execution entry ever sent this SQL to a database.
+reported only when nothing else in the statement is refused. The MySQL
+refusal of a `Float` `in` or `not in` read of a let with `capture` lines,
+new in this release ([its note](77-r01-mysql-float-block-membership.md)),
+yields to this one: a statement with both reports this blocker alone. A
+query that reads a source without fields stays not executable, as before:
+one that still emits SQL is refused by `compile_query` with that
+PIE-R1004, so no execution entry ever sent this SQL to a database.
