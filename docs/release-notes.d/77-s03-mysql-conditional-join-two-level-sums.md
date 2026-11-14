@@ -32,12 +32,10 @@
   read qualified by its source's name and parentheses leave the form's
   records apart from source positions and the source digest, so only
   emission and plain verification refuse them.
-- R2 prepares a query of these forms, whose guarded sums are a conditional
-  CASE, and its attempt fails closed at its first page, as the lead's
-  survey on MySQL 8.4.12 on 2026-11-14 measured for all nine:
-  `save_recoverable` returns a `SaveReply` whose `terminal` is `FAILED`,
-  and `recover` of that generation fails the same way (see the
-  [R2 boundary](../execution.md#known-limitations)).
+- R2 `save_recoverable` and `recover` refuse a query of these forms with
+  PIE-R1004 (`detail` `PUBLIC_R2_UNQUALIFIED_FORM`) before any workspace
+  access or connection, since no native qualification has run its refined
+  statement (see the [R2 boundary](../execution.md#known-limitations)).
 - The raw MySQL 8.4.12 primitives behind these forms, each form's guarded
   statement over its own seeded tables, matched the signed 64-bit `Int`
   outcome beside PostgreSQL 18.6. The candidate emission experiment then

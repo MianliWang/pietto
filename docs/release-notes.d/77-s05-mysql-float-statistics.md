@@ -46,6 +46,11 @@ is a D77.07 exception. A statement in the shape above that emission refuses
 for another reason, such as an output label past 256 characters, reports
 the `0.1.11` blockers, this PIE-B1004 included.
 
+R2 `save_recoverable` and `recover` refuse a query of this form with
+PIE-R1004 (`detail` `PUBLIC_R2_UNQUALIFIED_FORM`) before any workspace
+access or connection, since no native qualification has run its refined
+statement (see the [R2 boundary](../execution.md#known-limitations)).
+
 The candidate emission experiment passed on 2026-11-13: run
 `run-20261113T020637Z-be4ccbf718489cd6311774fb`, on PostgreSQL 18.6 and
 MySQL 8.4.12, ran the 32 emitted statements, and its judge found

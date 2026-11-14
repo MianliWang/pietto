@@ -59,6 +59,7 @@ class CompiledQuery:
         "_template",
         "_origin",
         "_emission",
+        "_main_emits",
         "_module",
         "_kind",
         "_name",
@@ -214,7 +215,7 @@ def compile_query(
         },
     )
     try:
-        outcome = composition.emit_live(
+        outcome, main_emits = composition.emit_live(
             project, module, kind, name, dialect, emission_contract, literal_policy
         )
     except Exception as caught:
@@ -225,23 +226,23 @@ def compile_query(
         except Exception as caught:
             refusal = request_failure(caught, preparing=True)
         else:
-            return _compiled(outcome, template, dialect)
+            return _compiled(outcome, template, dialect, main_emits)
     raise RequestRejected(refusal)
 
 
-def _compiled(outcome, template, dialect):
+def _compiled(outcome, template, dialect, main_emits):
     emission = serialize_project_sql_emission(outcome)
     if template is None:
         text = _render_failure(json.loads(emission), dialect).rstrip("\n")
         raise CompileRejected(outcome.status, emission, text)
-    return _query(template, "live", emission)
+    return _query(template, "live", emission, main_emits)
 
 
-def _query(template, origin, emission):
+def _query(template, origin, emission, main_emits=None):
     query = object.__new__(CompiledQuery)
     for slot, value in zip(
         CompiledQuery.__slots__,
-        (template, origin, emission, *composition.query_facts(template)),
+        (template, origin, emission, main_emits, *composition.query_facts(template)),
         strict=True,
     ):
         object.__setattr__(query, slot, value)

@@ -34,7 +34,10 @@
 - R2 `save_recoverable`, and `recover` when its restated values and
   parameters bind, refuse a query in these forms with PIE-R1004
   `REFINEMENT_COMPARISON_DOMAIN` while they prepare it, before any
-  workspace access or connection (see the
+  workspace access or connection. A `recover` whose restated values or
+  parameters cannot bind prepares none and refuses such a query with
+  PIE-R1004 (`detail` `PUBLIC_R2_UNQUALIFIED_FORM`), since no native
+  qualification has run its refined statement (see the
   [R2 boundary](../execution.md#known-limitations)).
 - Kept refused on MySQL as in `0.1.11`, with PIE-B1003
   `group_key_type_outside_reviewed_comparison_domain`: a `Text` key of width

@@ -53,9 +53,17 @@
   compared with a `Decimal(9, 2)` field or `add_months` in another SELECT
   item, reports that same list, as without this note.
 - A `Timestamp` parameter selected as an output still emits, compiles,
-  exports and binds on MySQL, and `execute()`, `save()` and R2
-  `save_recoverable` and `recover` still refuse it with PIE-R1004 (`detail`
-  `MEANING_OUTPUT`; see the
+  exports and binds on MySQL, and `execute()`, `save()`, R2
+  `save_recoverable`, and `recover` when its restated values and
+  parameters bind, still refuse it with PIE-R1004 (`detail`
+  `MEANING_OUTPUT`); a `recover` whose restated values or parameters
+  cannot bind refuses it with PIE-R1004 (`detail`
+  `PUBLIC_R2_UNQUALIFIED_FORM`; see the
+  [R2 boundary](../execution.md#known-limitations)).
+- R2 `save_recoverable` and `recover` refuse any other query of these forms
+  with PIE-R1004 (`detail` `PUBLIC_R2_UNQUALIFIED_FORM`) before any
+  workspace access or connection, since no native qualification has run its
+  refined statement (see the
   [R2 boundary](../execution.md#known-limitations)).
 
 Changed diagnostics (programs refused in `0.1.11`; no accepted program

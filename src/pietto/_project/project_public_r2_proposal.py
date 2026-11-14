@@ -82,6 +82,7 @@ def prepare_live_refinement(query, binding, inputs):
     ):
         raise ValueError("PUBLIC_R2_LIVE_QUERY")
     prepared = _prepare_for_template(binding, inputs, query._template)
+    _refuse_unqualified(binding.artifact.request.family, query)
     _LIVE_R2_PREPARATIONS.add(prepared)
     return prepared
 
@@ -93,6 +94,15 @@ def check_live_refinement(query, inputs):
         raise ValueError("PUBLIC_R2_LIVE_QUERY")
     template = query._template
     check_live_r2_refinement(template, retained_requirements(template.artifact, inputs))
+    _refuse_unqualified(template.artifact.request.family, query)
+
+
+def _refuse_unqualified(family, query):
+    """R2's last check on MySQL: no native qualification has run the refined
+    statement of a form that `main` refuses, one that the unreleased Phase77
+    opened (D77.67); compile_query recorded whether `main` emits it (D77.68)."""
+    if family == "mysql" and getattr(query, "_main_emits", None) is not True:
+        raise ValueError("PUBLIC_R2_UNQUALIFIED_FORM")
 
 
 def _prepare_for_template(binding, inputs, template, *, reanchor=False):

@@ -35,10 +35,10 @@
   change: the experiment's compile record, its SQL and refusal controls
   included, is byte-identical there (sha256 of the file, first 16 digits,
   the same on both sides: `ec2ecfb838900176`).
-- The SQL of these forms has a conditional CASE, so R2 prepares such a
-  query and its attempt fails closed at its first page: the `SaveReply` of
-  `save_recoverable` and of `recover` has the `terminal` `FAILED` (see the
-  [R2 boundary](../execution.md#known-limitations)).
+- R2 `save_recoverable` and `recover` refuse a query of these forms with
+  PIE-R1004 (`detail` `PUBLIC_R2_UNQUALIFIED_FORM`) before any workspace
+  access or connection, since no native qualification has run its refined
+  statement (see the [R2 boundary](../execution.md#known-limitations)).
 - Emission and its verifier refuse a relation alias (`let base = rows` then
   `from base`) from the plan. Compiled bundles and observation documents keep
   no trace of the alias: its SQL is the direct read's byte for byte, and its

@@ -24,13 +24,10 @@
   `def` spelling leaves the direct read's records apart from source
   positions and the source digest, so only emission and plain verification
   refuse it.
-- R2 `save_recoverable` and `recover` refine a query of these forms as any
-  other query, and no native qualification has run those refined
-  statements; in the lead's survey on MySQL 8.4.12 on 2026-11-14, over the
-  experiment's seed rows and over all its cell rows, a zero divisor and
-  extreme values included, each such attempt completed with the rows
-  `execute()` returns (see the
-  [R2 boundary](../execution.md#known-limitations)).
+- R2 `save_recoverable` and `recover` refuse a query of these forms with
+  PIE-R1004 (`detail` `PUBLIC_R2_UNQUALIFIED_FORM`) before any workspace
+  access or connection, since no native qualification has run its refined
+  statement (see the [R2 boundary](../execution.md#known-limitations)).
 - The raw MySQL 8.4.12 primitives behind these forms (`BIGINT` `%` and
   `DOUBLE` `%`) matched the PostgreSQL 18.6 outcome apart from the zero
   divisor above. The candidate emission experiment then ran the emitted

@@ -43,11 +43,11 @@
 - R2 `save_recoverable` and `recover` refuse a query with `now()` or
   `date_of(now())` in the position above, `lpad` beside it or not, with
   PIE-R1004 `PUBLIC_R2_STATEMENT_SNAPSHOT`, as every MySQL query that reads
-  `now()`, before any workspace access or connection. The SQL of `lpad`
-  has a conditional CASE, so R2 prepares a query with `lpad` and no
-  `now()`, and its attempt fails closed at its first page: the `SaveReply`
-  of `save_recoverable` and of `recover` has the `terminal` `FAILED` (see
-  the [R2 boundary](../execution.md#known-limitations)).
+  `now()`, before any workspace access or connection. They refuse a query
+  with `lpad` and no `now()` with PIE-R1004 `PUBLIC_R2_UNQUALIFIED_FORM`
+  before any workspace access or connection, since no native qualification
+  has run its refined statement (see the
+  [R2 boundary](../execution.md#known-limitations)).
 - Every other MySQL project `lpad` and `now()` keeps the refusal it has
   without this note. Most often that is PIE-B1003
   `scalar_call_signature_not_admitted` at the `let`, clause or select item

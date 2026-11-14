@@ -20,20 +20,16 @@ __all__: tuple[str, ...] = ()
 
 def emit_live(project, module, kind, name, dialect, contract, policy):
     """The shared emission outcome, over the contract's sources the query
-    reads."""
-    from pietto._project.project_sql_emission_cli import POLICIES, emit_project
-
-    outcome, _protected = emit_project(
-        project,
-        module,
-        kind,
-        name,
-        dialect,
-        contract,
-        POLICIES[policy],
-        read_sources_only=True,
+    reads, and whether `main` emits it too (None unless the statement is a
+    VERIFIED MySQL one), which R2 reads."""
+    from pietto._project.project_sql_emission_cli import (
+        POLICIES,
+        emit_project_as_main,
     )
-    return outcome
+
+    return emit_project_as_main(
+        project, module, kind, name, dialect, contract, POLICIES[policy]
+    )
 
 
 def live_template(outcome):

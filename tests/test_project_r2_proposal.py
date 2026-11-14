@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import datetime
+import decimal
 import json
 from types import SimpleNamespace
 from pathlib import Path
@@ -508,21 +510,38 @@ def _now_query(directory, body, temporal, header="table snap:"):
     return query, inputs
 
 
-def _r2_calls(query, inputs, **restated):
+def _r2_calls(query, inputs, *, job=None, pin=None, **restated):
     """`save_recoverable` and `recover` of ``query`` over an unopenable
-    workspace, with its own trust records."""
+    workspace on its family's route, with its own trust records (``pin``
+    replaces the pin) and ``job`` for both, if given."""
     import pietto.execution as execution
 
     workspace = object.__new__(execution.WorkspaceRef)
     object.__setattr__(workspace, "root", "/not-opened")
     object.__setattr__(workspace, "identity", "ws-" + "0" * 32)
     root = query._template.artifact.request.verification.completed.root
+    schemas = sorted({s.namespace for s in query._template.artifact.request.sources})
+    route: dict[str, Any] = (
+        dict(
+            route="mysql_rows",
+            access=execution.MySQLAccess(
+                "127.0.0.1", 9, "db", "pietto_query", "pw", "/ca.pem", "pietto_query"
+            ),
+            premise=execution.MySQLDeploymentPremise(tuple(schemas)),
+        )
+        if query.dialect == "mysql"
+        else dict(
+            route="postgres_rows",
+            access=execution.PostgresAccess("127.0.0.1", 9, "db", "pietto_query", "pw"),
+            premise=execution.PostgresDeploymentPremise(
+                schemas=(*schemas, "pg_catalog")
+            ),
+        )
+    )
     common: dict[str, Any] = dict(
         query=query,
         source_requirements=inputs,
-        route="postgres_rows",
-        access=execution.PostgresAccess("127.0.0.1", 9, "db", "pietto_query", "pw"),
-        premise=execution.PostgresDeploymentPremise(schemas=("fixture", "pg_catalog")),
+        **route,
         limits=execution.ExecutionLimits(),
         values=tuple(
             slot.original.site.position.literal.value for slot in query._template.slots
@@ -531,15 +550,15 @@ def _r2_calls(query, inputs, **restated):
     )
     return (
         lambda: execution.save_recoverable(
-            workspace, operation=execution.new_operation(), **common
+            workspace, operation=execution.new_operation(), job=job, **common
         ),
         lambda: execution.recover(
             workspace,
-            job="job-" + "0" * 32,
+            job=job or "job-" + "0" * 32,
             generation="gen-" + "0" * 32,
             checkpoint=None,
             operation=execution.new_operation(),
-            expected_pin=root.expected_pin,
+            expected_pin=pin or root.expected_pin,
             accepted_producer=root.accepted_producer,
             accepted_compatibility=root.accepted_compatibility[-1],
             purpose="r2-now",
@@ -1372,3 +1391,458 @@ def test_r2_refuses_a_paired_mysql_form_before_any_workspace(tmp_path):
         text = text.replace(default, ")")
     main.write_text(text, encoding="utf-8", newline="\n")
     proposal.check_live_refinement(compiled(directory), inputs)
+
+
+def _world_query(directory, world, body, *, name="result", dialect="mysql"):
+    """compile_query of ``body`` in the world of a SQL helper that the slice's
+    own tests build it in, with the contract that helper accepted."""
+    import _pietto_execution_source_assurance_cases as assurance
+    import _pietto_sql_emission as emission
+    import _pietto_sql_float_cells as float_cells
+    import _pietto_sql_query_parameters as typed_parameters
+    import pietto.execution as execution
+
+    if world == "typed":
+        _, outcome = typed_parameters.typed_case(directory, dialect, body)
+        directory = directory / dialect
+    elif world in ("agg", "cross"):
+        item = (
+            emission.nullable_ratio_fixture(dialect, body)
+            if world == "agg"
+            else assurance.fixture(dialect, "R2_bound", "values")
+        )
+        source = item["source"]
+        if world == "cross":
+            source = source.partition("query result:\n")[0] + body
+        _, outcome = emission.build_case(directory, source, item["contract"])
+    elif world in ("floats", "r02"):
+        build = float_cells.build if world == "floats" else float_cells.r02_build
+        outcome = build(directory, dialect, body)
+    elif world == "words":
+        _, outcome = emission.lpad_now_world(directory, world, dialect, body)
+    else:
+        _, outcome = getattr(emission, world + "_world")(directory, dialect, body)
+    assert outcome.artifact is not None
+    (directory / "contract.json").write_bytes(outcome.artifact.request.accepted_bytes)
+    text = (directory / "main.pietto").read_text(encoding="utf-8")
+    return execution.compile_query(
+        directory,
+        module="main.pietto",
+        kind="table" if f"table {name}:" in text else "query",
+        name=name,
+        dialect=dialect,
+        emission_contract="contract.json",
+    )
+
+
+def _r2_inputs(query):
+    import pietto.execution as execution
+
+    return tuple(
+        execution.R2SourceInput(
+            s.namespace,
+            s.name,
+            "provider",
+            "v1",
+            "r1",
+            s.namespace,
+            "registry",
+            "SELECT 1",
+            ("id",),
+            "pietto_query",
+            "retained",
+        )
+        for s in query._template.artifact.request.sources
+    )
+
+
+_PARAMETER_VALUES = {
+    "Int": 1,
+    "Timestamp": datetime.datetime(2020, 1, 2, 3, 4, 5),
+    "Date": datetime.date(2020, 1, 2),
+    "Decimal": decimal.Decimal("1.50"),
+}
+
+
+def _r2_refusals(query, inputs=None, **restated):
+    """The (code, detail) of `save_recoverable` and `recover` of ``query``
+    over an unopenable workspace, which refuses with PIE-R1009 any call that
+    reaches it; neither imports a MySQL driver. Declared parameters bind."""
+    import sys
+
+    import pietto.execution as execution
+
+    if query.parameters and "parameters" not in restated:
+        restated["parameters"] = {
+            name: _PARAMETER_VALUES[tag] for name, tag, _ in query.parameters
+        }
+    driver = "mysql.connector" in sys.modules
+    refusals = []
+    for call in _r2_calls(
+        query, _r2_inputs(query) if inputs is None else inputs, **restated
+    ):
+        with pytest.raises(execution.RequestRejected) as rejected:
+            call()
+        refusals.append((rejected.value.code, rejected.value.detail))
+    assert ("mysql.connector" in sys.modules) == driver
+    return tuple(refusals)
+
+
+_UNQUALIFIED = ("PIE-R1004", "PUBLIC_R2_UNQUALIFIED_FORM")
+_WORKSPACE = ("PIE-R1009", "WORKSPACE_PARENT")
+_STATISTIC = "query result:\n    from agg\n    select:\n        d = pstdev(ratio)\n"
+_FIRST = (
+    "query result:\n    from agg\n    select:\n        f = first(value, order by rid)\n"
+)
+# One MySQL form of each slice that the unreleased Phase77 opened, with the
+# world its own tests build it in: S06 one that R2 executed refined and one
+# that failed at its first page, and S02 beside S01.
+PHASE77_MYSQL_FORMS = {
+    "S05": ("agg", _STATISTIC),
+    "S06_join": (
+        "floats",
+        "table result:\n    from f6o\n"
+        "    inner join f6i on f6i.v == f6o.v and f6i.kn == f6o.kn\n"
+        "    select:\n        oid = f6o.id\n        iv = f6i.v\n",
+    ),
+    "S06_same_value": (
+        "floats",
+        "table result:\n    from f6s\n    select:\n        id\n"
+        "        r = same_value(f1, f2)\n",
+    ),
+    "S09": (
+        "typed",
+        "query result(since: Timestamp, day: Date | None, floor: Decimal(9, 2)):\n"
+        "    from rows\n    where ts >= since and d2 == day and money >= floor\n"
+        "    select:\n        id\n",
+    ),
+    "S12_lpad": (
+        "words",
+        'table result:\n    from words\n    select:\n        id\n        p = lpad(text, 5, "0")\n',
+    ),
+    "S13": ("agg", _FIRST),
+    "S01": (
+        "numeric",
+        "query result:\n    from rows\n    select:\n        a\n        neg = -b\n",
+    ),
+    "S02": (
+        "numeric",
+        "query result:\n    from rows\n    select:\n        total = sum(a)\n",
+    ),
+    "S03": (
+        "s03",
+        "query result:\n    from orders\n    group by customer\n    select:\n"
+        "        customer\n        paid = sum(o.amount for o in group if o.flag)\n",
+    ),
+    "S15": (
+        "remainder",
+        "table result:\n    from nums\n    select:\n        id\n        r = a % b\n",
+    ),
+    "R02": (
+        "r02",
+        "table result:\n    from o\n    where not any(z.v == o.v for z in i)\n"
+        "    select:\n        id\n        v\n",
+    ),
+}
+# A neighbour of each that 0.1.11 already compiled, R2's cross JOIN of the
+# public journey, and an R01 class U form, with the R2 refusal each keeps.
+MYSQL_0111_FORMS = {
+    "S05": ("agg", _STATISTIC.replace("pstdev", "count"), _WORKSPACE),
+    "S06": (
+        "floats",
+        "table result:\n    from f6s\n    select:\n        id\n        r = f1 is None\n",
+        _WORKSPACE,
+    ),
+    "S07": (
+        "floats",
+        "query result:\n    from s7\n    group by:\n        g\n    select:\n"
+        "        g\n        n = count()\n",
+        _WORKSPACE,
+    ),
+    "S09": (
+        "typed",
+        "query result(p: Int):\n    from rows\n    where id == p\n    select:\n        id\n",
+        _WORKSPACE,
+    ),
+    "S12": (
+        "words",
+        "table result:\n    from words\n    select:\n        id\n        u = upper(text)\n",
+        _WORKSPACE,
+    ),
+    "S01": (
+        "numeric",
+        "query result:\n    from rows\n    select:\n        a\n        b2 = b\n",
+        _WORKSPACE,
+    ),
+    "S03": (
+        "s03",
+        "query result:\n    from orders\n    group by customer\n    select:\n"
+        "        customer\n        n = count()\n",
+        _WORKSPACE,
+    ),
+    "S15": (
+        "remainder",
+        "table result:\n    from nums\n    select:\n        id\n        r = a\n",
+        _WORKSPACE,
+    ),
+    "R02": (
+        "r02",
+        "table result:\n    from o\n    where not any(z.id == o.id for z in i)\n"
+        "    select:\n        id\n        v\n",
+        _WORKSPACE,
+    ),
+    "cross": (
+        "cross",
+        "query result:\n    from rows\n    let second = rows\n    cross join second\n"
+        "    where rows.id > 0\n    select:\n        record_id = rows.id\n"
+        "        shifted = second.id + 1\n",
+        _WORKSPACE,
+    ),
+    "R01_U": (
+        "floats",
+        "table result:\n    let m:\n        from r01i\n        select:\n            v\n"
+        "    from r01o\n    where v in m\n    select:\n        id\n        v\n",
+        ("PIE-R1004", "REFINEMENT_EXPRESSION_BLOCK_READ"),
+    ),
+}
+
+
+@pytest.mark.parametrize("form", PHASE77_MYSQL_FORMS)
+def test_mysql_r2_refuses_a_form_that_0111_refused(tmp_path, form):
+    """D77.67: no native qualification has run R2's refined statement of any
+    form that Phase77 opened on MySQL, so R2 refuses each before any
+    workspace access or connection, with or without a job."""
+    query = _world_query(tmp_path, *PHASE77_MYSQL_FORMS[form])
+    assert query._main_emits is False
+    assert _r2_refusals(query) == (_UNQUALIFIED, _UNQUALIFIED)
+    assert _r2_refusals(query, job="job-" + "1" * 32) == (_UNQUALIFIED,) * 2
+
+
+@pytest.mark.parametrize("form", MYSQL_0111_FORMS)
+def test_mysql_r2_of_a_form_that_0111_compiled_does_not_change(tmp_path, form):
+    """`main` emits it byte for byte as it is, so R2 goes on as before: to
+    the workspace, or to the refusal it had."""
+    from pietto._project import project_public_execution as composition
+    from pietto._project import project_sql_emission_paired as pairing
+    from pietto._project.project_sql_emission import serialize_project_sql_emission
+
+    world, body, refusal = MYSQL_0111_FORMS[form]
+    query = _world_query(tmp_path, world, body)
+    assert query._main_emits is True
+    assert _r2_refusals(query) == (refusal, refusal)
+    directory = tmp_path / "mysql" if world == "typed" else tmp_path
+    with pairing.closed():
+        outcome, _ = composition.emit_live(
+            directory,
+            "main.pietto",
+            query.kind,
+            "result",
+            "mysql",
+            "contract.json",
+            "preserve",
+        )
+    assert serialize_project_sql_emission(outcome) == query.emission
+
+
+def test_mysql_r2_decides_each_query_of_a_module_alone(tmp_path):
+    """A query that 0.1.11 compiled keeps R2 beside one it refused."""
+    import pietto.execution as execution
+
+    plain = "query plain:\n    from agg\n    select:\n        n = count(ratio)\n"
+    assert _r2_refusals(_world_query(tmp_path, "agg", plain + _STATISTIC)) == (
+        _UNQUALIFIED,
+        _UNQUALIFIED,
+    )
+    query = execution.compile_query(
+        tmp_path,
+        module="main.pietto",
+        kind="query",
+        name="plain",
+        dialect="mysql",
+        emission_contract="contract.json",
+    )
+    assert _r2_refusals(query) == (_WORKSPACE, _WORKSPACE)
+
+
+def test_mysql_r2_keeps_each_earlier_refusal_and_checks_an_unbound_recover(
+    tmp_path,
+):
+    """The check is R2's last, so a refusal before it keeps its detail. A
+    `recover` whose restated values or parameters cannot bind prepares no
+    refinement, so it meets the check there; a form that 0.1.11 compiled
+    goes on to the workspace."""
+    snapshot = _world_query(
+        tmp_path / "now",
+        "words",
+        "table result:\n    from words\n    select:\n        id\n        t = now()\n",
+    )
+    key = _world_query(
+        tmp_path / "key",
+        "floats",
+        "query result:\n    from s7\n    group by:\n        h1\n    select:\n"
+        "        h1\n        n = count()\n",
+    )
+    selected = _world_query(
+        tmp_path / "selected",
+        "typed",
+        "query result(since: Timestamp):\n    from rows\n    select:\n        id\n"
+        "        b = since\n",
+    )
+    for query, detail in (
+        (snapshot, "PUBLIC_R2_STATEMENT_SNAPSHOT"),
+        (key, "REFINEMENT_COMPARISON_DOMAIN"),
+        (selected, "MEANING_OUTPUT"),
+    ):
+        assert _r2_refusals(query) == (("PIE-R1004", detail),) * 2
+    typed = _world_query(tmp_path / "typed", *PHASE77_MYSQL_FORMS["S09"])
+    control = _world_query(tmp_path / "control", *MYSQL_0111_FORMS["S09"][:2])
+    for query, parameters, refusal in (
+        (key, {"x": 1}, _UNQUALIFIED),
+        (selected, {"since": "x"}, _UNQUALIFIED),
+        (typed, {"since": "x"}, _UNQUALIFIED),
+        (control, {"p": "x"}, _WORKSPACE),
+    ):
+        _save, recovered = _r2_refusals(query, parameters=parameters)
+        assert recovered == refusal
+
+
+def test_mysql_r2_checks_the_form_after_its_other_checks(tmp_path):
+    """A bundle, missing or reordered source declarations keep their
+    refusals; the check comes before the recovery's trust records."""
+    from dataclasses import replace
+
+    import pietto.execution as execution
+
+    query = _world_query(tmp_path, *PHASE77_MYSQL_FORMS["S05"])
+    bundle = execution.export_bundle(query)
+    loaded = execution.load_bundle(
+        bundle.payload,
+        expected_pin=bundle.pin,
+        accepted_producer=bundle.producer,
+        accepted_compatibility=bundle.compatibility,
+    )
+    renamed = tuple(replace(item, name="other") for item in _r2_inputs(query))
+    for refused, inputs, detail in (
+        (loaded, None, "PUBLIC_R2_LIVE_QUERY"),
+        (query, (), "PUBLIC_R2_SOURCE_CLOSURE"),
+        (query, renamed, "PUBLIC_R2_SOURCE_ORDER"),
+    ):
+        assert _r2_refusals(refused, inputs) == (("PIE-R1004", detail),) * 2
+    assert _r2_refusals(query, pin="0" * 64)[1] == _UNQUALIFIED
+
+
+@pytest.mark.parametrize("failure", ("raises", "INPUT_REJECTED"))
+def test_mysql_r2_refuses_a_query_whose_main_derivation_fails(
+    tmp_path, monkeypatch, failure
+):
+    """A derivation as `main` that raises or is not VERIFIED counts as
+    refused and changes nothing that compile_query returns; so does a query
+    without one."""
+    import pietto.execution as execution
+    from pietto._project import project_sql_emission_cli as emission_cli
+    from pietto._project import project_sql_emission_rows as rows
+    from pietto._project.project_sql_emission_contract import InputError
+
+    query = _world_query(tmp_path, *MYSQL_0111_FORMS["S05"][:2])
+    emit = emission_cli._emit_owner
+
+    def failing(*arguments):
+        if not rows.AS_MAIN.get():
+            return emit(*arguments)
+        if failure == "raises":
+            raise RuntimeError("main")
+        return emission_cli._emission_failure(
+            failure, (), InputError("emission_selector", "main")
+        )
+
+    monkeypatch.setattr(emission_cli, "_emit_owner", failing)
+    failed = execution.compile_query(
+        tmp_path,
+        module="main.pietto",
+        kind="query",
+        name="result",
+        dialect="mysql",
+        emission_contract="contract.json",
+    )
+    assert (failed._main_emits, failed.emission) == (False, query.emission)
+    forged = object.__new__(execution.CompiledQuery)
+    for slot in execution.CompiledQuery.__slots__:
+        object.__setattr__(forged, slot, getattr(query, slot))
+    object.__setattr__(forged, "_main_emits", None)
+    for refused in (failed, forged):
+        assert _r2_refusals(refused) == (_UNQUALIFIED,) * 2
+
+
+def test_only_a_verified_mysql_compile_derives_as_main(tmp_path, monkeypatch):
+    """compile_query reads the project once and derives a VERIFIED MySQL
+    statement once more; PostgreSQL, a refused statement and the command do
+    not, and PostgreSQL R2 of the same forms does not change."""
+    import pietto.execution as execution
+    from pietto._project import project_sql_emission_cli as emission_cli
+
+    calls = {"_emit_owner": 0, "_prepare_emission_context": 0}
+    for name in calls:
+
+        def counted(*arguments, _name=name, _call=getattr(emission_cli, name)):
+            calls[_name] += 1
+            return _call(*arguments)
+
+        monkeypatch.setattr(emission_cli, name, counted)
+
+    def counts(call):
+        calls.update(dict.fromkeys(calls, 0))
+        result = call()
+        return result, (calls["_emit_owner"], calls["_prepare_emission_context"])
+
+    directory = tmp_path / "mysql"
+    query, seen = counts(lambda: _world_query(directory, *PHASE77_MYSQL_FORMS["S05"]))
+    assert seen == (2, 1)
+    command, seen = counts(
+        lambda: emission_cli.run_project_emit_sql(
+            [
+                "--project",
+                str(directory),
+                "--module",
+                "main.pietto",
+                "--kind",
+                "query",
+                "--name",
+                "result",
+                "--dialect",
+                "mysql",
+                "--emission-contract",
+                "contract.json",
+            ]
+        )
+    )
+    assert (command.exit_code, seen) == (0, (1, 1))
+    main = directory / "main.pietto"
+    main.write_text(
+        main.read_text(encoding="utf-8").replace(
+            "    select:", "    where rid > 1\n    select:"
+        ),
+        encoding="utf-8",
+    )
+    with pytest.raises(execution.CompileRejected):
+        counts(
+            lambda: execution.compile_query(
+                directory,
+                module="main.pietto",
+                kind="query",
+                name="result",
+                dialect="mysql",
+                emission_contract="contract.json",
+            )
+        )
+    assert (calls["_emit_owner"], calls["_prepare_emission_context"]) == (1, 1)
+    for world, form in (("floats", "S06_same_value"), ("r02", "R02")):
+        twin, seen = counts(
+            lambda: _world_query(
+                tmp_path / form,
+                world,
+                PHASE77_MYSQL_FORMS[form][1],
+                dialect="postgres",
+            )
+        )
+        assert (twin._main_emits, seen) == (None, (1, 1))
+        assert _r2_refusals(twin) == (_WORKSPACE,) * 2

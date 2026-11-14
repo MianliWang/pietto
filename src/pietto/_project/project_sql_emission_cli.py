@@ -24,6 +24,7 @@ from pietto._output_file import (
     is_read_only,
     open_replacement,
 )
+from pietto._project import project_sql_emission_paired as pairing
 from pietto._project.check import check_project_parse_only
 from pietto._project.model import build_empty_project_semantic_result
 from pietto._project.module_carrier import ProjectCompilationMode
@@ -392,9 +393,47 @@ def emit_project(
     `read_sources_only`, so its artifact keeps only the contract's sources
     that the owner reads.
     """
+    outcome, protected, _ = _emit_selected(
+        project, module, kind, name, dialect, contract, policy, read_sources_only
+    )
+    return outcome, protected
+
+
+def emit_project_as_main(
+    project: str | os.PathLike[str],
+    module: str,
+    kind: str,
+    name: str,
+    dialect: str,
+    contract: str,
+    policy: ProjectSQLLiteralPolicy,
+) -> tuple[EmissionOutcome, bool | None]:
+    """`emit_project` for the public compile entry, with whether `main`
+    emits the statement too (rule two, D77.37): None unless it is a VERIFIED
+    MySQL statement, which is derived once more, as `main` derives it, from
+    the same project input in memory. A derivation that fails counts as not.
+    """
+    outcome, _, main_emits = _emit_selected(
+        project, module, kind, name, dialect, contract, policy, True, as_main=True
+    )
+    return outcome, main_emits
+
+
+def _emit_selected(
+    project: str | os.PathLike[str],
+    module: str,
+    kind: str,
+    name: str,
+    dialect: str,
+    contract: str,
+    policy: ProjectSQLLiteralPolicy,
+    read_sources_only: bool,
+    *,
+    as_main: bool = False,
+) -> tuple[EmissionOutcome, tuple[tuple[Path, tuple[int, int]], ...], bool | None]:
     context, common = _prepare_emission_context(project, contract)
     if common is not None:
-        return common, ()
+        return common, (), None
     assert context is not None
     owners = [
         owner
@@ -404,22 +443,44 @@ def emit_project(
         and owner.definition.name == name
     ]
     if not owners:
-        return _emission_failure(
-            "INPUT_REJECTED",
-            context.diagnostics,
-            InputError(
-                "emission_selector",
-                _absent_owner(context.modules, module, kind, context.owners),
+        return (
+            _emission_failure(
+                "INPUT_REJECTED",
+                context.diagnostics,
+                InputError(
+                    "emission_selector",
+                    _absent_owner(context.modules, module, kind, context.owners),
+                ),
             ),
-        ), ()
+            (),
+            None,
+        )
     if len(owners) != 1:
-        return _emission_failure(
-            "INPUT_REJECTED",
-            context.diagnostics,
-            InputError("emission_selector", "Selected owner is absent or ambiguous."),
-        ), ()
+        return (
+            _emission_failure(
+                "INPUT_REJECTED",
+                context.diagnostics,
+                InputError(
+                    "emission_selector", "Selected owner is absent or ambiguous."
+                ),
+            ),
+            (),
+            None,
+        )
     outcome = _emit_owner(context, owners[0], dialect, policy, read_sources_only)
-    return outcome, context.protected if outcome.status == "VERIFIED" else ()
+    if outcome.status != "VERIFIED":
+        return outcome, (), None
+    main_emits = None
+    if as_main and dialect == "mysql":
+        try:
+            with pairing.closed():
+                again = _emit_owner(
+                    context, owners[0], dialect, policy, read_sources_only
+                )
+            main_emits = again.status == "VERIFIED"
+        except Exception:
+            main_emits = False
+    return outcome, context.protected, main_emits
 
 
 @dataclass(frozen=True, slots=True)

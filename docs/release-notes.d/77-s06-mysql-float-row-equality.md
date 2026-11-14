@@ -32,6 +32,10 @@
   which the raw MySQL statements matched under the default, hash and
   nested-loop JOIN strategies, beside a 64- and a 1000-character key.
   PostgreSQL output is unchanged.
+- R2 `save_recoverable` and `recover` refuse a query of these forms with
+  PIE-R1004 (`detail` `PUBLIC_R2_UNQUALIFIED_FORM`) before any workspace
+  access or connection, since no native qualification has run its refined
+  statement (see the [R2 boundary](../execution.md#known-limitations)).
 - The candidate emission experiment passed on 2026-11-13: one run per
   database, PostgreSQL 18.6 (`postgres-20261113T160609Z-6419e80a65ff82e4`)
   and MySQL 8.4.12 (`mysql-20261113T160609Z-263ec360bd590fc7`), each judged

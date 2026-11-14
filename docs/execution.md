@@ -378,7 +378,12 @@ boundary below) with `PUBLIC_R2_STATEMENT_SNAPSHOT`. This check renders the
 bound query, so `recover` makes it only when its restated values and
 parameters bind.
 Ordinary execution on every route, an ordinary
-`save` and bundles accept them. Before all of these R2 checks,
+`save` and bundles accept them. Last, on MySQL, `save_recoverable` and
+`recover` refuse a query in a form that `0.1.11` refused, one that the
+unreleased Phase77 opened, with `PUBLIC_R2_UNQUALIFIED_FORM` (see the R2
+boundary below); `compile_query` records which forms those are, so
+`recover` makes this check also when its restated values or parameters
+cannot bind. Before all of these R2 checks,
 `save_recoverable`, and `recover` when its restated values and parameters
 bind, refuse a result wider than one batch (see [Results](#results)) with
 `PIE-R1004` (`LIMIT`).
@@ -1662,53 +1667,22 @@ or a successful semantic check alone establishes none of those premises.
   fails closed at its first page. A query that reads `now()` is checked for
   these forms when it is prepared, and refused before any workspace access or
   connection.
-- On MySQL, R2 refines a query of the unreleased Phase77
-  [S09](release-notes.d/77-s09-mysql-typed-parameters.md) forms as any
-  other query: each typed parameter keeps its `CAST(? AS DATE)`,
-  `CAST(? AS DATETIME(6))` or `CAST(? AS DECIMAL(p,s))` read inside the
-  refined input, in a comparison or as a selected value; this parameter
-  read is not the unsupported CAST above. No native qualification has run
-  these refined statements. A `Timestamp` parameter selected as an output
-  is refused with PIE-R1004 `MEANING_OUTPUT`, as in `save()`. When they
-  prepare it, `save_recoverable`, and `recover` when its restated values
-  and parameters bind, refuse a query of the unreleased
+- On MySQL, `save_recoverable` and `recover` refuse a query in a form that
+  `0.1.11` refused, the forms that the unreleased Phase77 opens, with
+  PIE-R1004 `PUBLIC_R2_UNQUALIFIED_FORM` before any workspace access or
+  connection: no native qualification has run R2's refined statement of any
+  of them. It is the last R2 check, so a query that another one refuses
+  keeps that refusal: a paired form (`PUBLIC_R2_PAIRED_FORM`), a query that
+  reads `now()` (`PUBLIC_R2_STATEMENT_SNAPSHOT`), an
   [S07](release-notes.d/77-s07-mysql-float-keys.md) `Float` GROUP BY key
-  forms with PIE-R1004 `REFINEMENT_COMPARISON_DOMAIN` before any workspace
-  access or connection. The MySQL SQL of the unreleased
-  [S12](release-notes.d/77-s12-mysql-lpad-and-now.md) `lpad` forms and of
-  the [S13](release-notes.d/77-s13-mysql-first-and-last.md) `first` and
-  `last` forms contains a conditional CASE, so R2 prepares such a query
-  that reads no `now()`, and its attempt fails closed at its first page, as
-  above: `save_recoverable` records the job and generation, connects,
-  starts its read-only transaction and admits the sources, then rolls back
-  without sending a page and returns a `SaveReply` whose `terminal` is
-  `FAILED`; `recover` of that generation makes one more such attempt with
-  the same terminal. An S12 query that reads `now()`, with or without
-  `lpad`, keeps instead the MySQL `PUBLIC_R2_STATEMENT_SNAPSHOT` refusal of
-  every query that reads `now()`, before any workspace access or
-  connection.
-- On MySQL, R2 also refines a query of these unreleased Phase77 forms as
-  any other query, and no native qualification has run their refined
-  statements: the [S05](release-notes.d/77-s05-mysql-float-statistics.md)
-  `Float` statistics, the
-  [S06](release-notes.d/77-s06-mysql-float-row-equality.md) `Float` `==`
-  and `!=` of one row, in a SELECT item or a WHERE, and of an INNER or
-  LEFT JOIN `on`, the
-  [S01](release-notes.d/77-s01-mysql-checked-int-and-sum.md) checked `Int`
-  `+`, `-`, `*` and unary `-`, the
-  [S15](release-notes.d/77-s15-mysql-remainder.md) `Int %` and `Float %`,
-  and the [R02](release-notes.d/77-r02-mysql-float-anti-exists.md) `Float`
-  `not any(...)` forms, whose refined statement reads the outer and the
-  tested source each through its own refined input. In the lead's survey
-  of the Phase77 MySQL forms on MySQL 8.4.12 on 2026-11-14, each such
-  attempt completed and returned the rows that `execute()` returns for the
-  same query and data. R2 prepares a query of the S06 forms that write
-  `not (a != b)`, `same_value`, whose MySQL `<=>` R2 does not read either,
-  or `not same_value`, of an S01 form with `abs`, a scalar call, and of the
-  S02 `sum(Int)` and
-  [S03](release-notes.d/77-s03-mysql-conditional-join-two-level-sums.md)
-  forms, whose guarded sums are a conditional CASE, and each such attempt
-  fails closed at its first page, as for S12's `lpad` above.
+  form (`REFINEMENT_COMPARISON_DOMAIN`) when they prepare it, and, when its
+  values and parameters bind, an
+  [S09](release-notes.d/77-s09-mysql-typed-parameters.md) `Timestamp`
+  parameter selected as an output (`MEANING_OUTPUT`, as in `save()`).
+  `recover` makes the check also when its restated values or parameters
+  cannot bind. This check does not apply to ordinary execution, an ordinary
+  `save` or bundles, and R2 of a MySQL query that `0.1.11` compiled, or of
+  any PostgreSQL query, does not change.
 - R2 refines a `where any(...)` or `where not any(...)` test, the rewrite of
   a retired `semi join` or `anti join`, as the JOIN it replaces only when it
   is an AND-composed part of a WHERE. `save_recoverable` and `recover` refuse
