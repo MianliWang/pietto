@@ -3042,6 +3042,185 @@ def compiled_float_key_admitted(records, realization) -> bool:
     )
 
 
+def _compiled_in_on(records, address) -> bool:
+    """Whether the operation at ``address`` lies in a JOIN's `on` tree."""
+    pending = [
+        record.get("predicate")
+        for record in records.values()
+        if record.address.kind == "join" and record.get("predicate") is not None
+    ]
+    seen = set()
+    while pending:
+        item = pending.pop()
+        if item == address:
+            return True
+        record = records.get(item)
+        if item in seen or record is None or record.address.kind != "operation":
+            continue
+        seen.add(item)
+        pending.extend(record.get("operands"))
+    return False
+
+
+def _compiled_nullsafe_cell(records, address):
+    """The cell (rows.NULLSAFE_JOIN_CELLS) of the JOIN `on` `same_value` call
+    at ``address``, re-derived from the bundle's own records as emission
+    derives it from its plan (rows.nullsafe_join_cell): one INNER, LEFT or
+    RIGHT JOIN of two sources of different tables, no source key, under one
+    projection whose values read every JOIN output in order; its whole `on`
+    one of rows.NULLSAFE_JOIN_STRUCTURES over direct reads of each input's
+    fields, the call one of its `same_value` operations; each source has the
+    fields rows.nullsafe_join_fields gives for the carrier of the left
+    input's second field; the bundle holds no other operation, literal or
+    unit. None outside every cell. A relation alias `let`, an unused named
+    window or an inlined `def`, which emission refuses, changes the records
+    only in source positions, so this reader cannot tell it from the direct
+    program."""
+    from pietto._project import project_sql_emission_rows as physical
+
+    by_kind: dict[str, list] = {}
+    for record in records.values():
+        by_kind.setdefault(record.address.kind, []).append(record)
+    sources, joins, rows = (by_kind.get(kind, []) for kind in ("source", "join", "row"))
+    targets = by_kind.get("target", ())
+    if (
+        not set(by_kind) <= _FLOAT_CELL_KINDS - {"source_unique"}
+        or len(by_kind.get("operation", ())) > 7
+        or len(by_kind.get("entry", ())) != 1
+        or len(targets) != 1
+        or len(joins) != 1
+        or len(sources) != 2
+        or len(rows) != 1
+        or any(
+            # A source's connector or a Decimal(p, s) type argument only.
+            record.get("site") not in records
+            or records[record.get("site")].get("role")
+            not in ("connector", "type_argument")
+            for record in by_kind.get("literal", ())
+        )
+    ):
+        return None
+    family, join, projection = targets[0].get("family"), joins[0], rows[0]
+    inputs = tuple(records[use] for use in join.get("inputs"))
+    kind = join.get("kind")
+    if (
+        kind not in ("inner", "left", "right")
+        or join.get("equalities")
+        or len(inputs) != 2
+        or tuple(item.get("producer") for item in inputs)
+        not in {
+            (sources[0].address, sources[1].address),
+            (sources[1].address, sources[0].address),
+        }
+        or len({(s.get("namespace"), s.get("name")) for s in sources}) != 2
+        or projection.get("stage") != "projection"
+        or projection.get("input") != join.address
+        or projection.get("predicate") is not None
+    ):
+        return None
+    sides = (
+        {"o": inputs[1], "i": inputs[0]}
+        if kind == "right"
+        else {
+            "o": inputs[0],
+            "i": inputs[1],
+        }
+    )
+    seen, calls = set(), []
+
+    def signature(item):
+        record = records.get(item)
+        if record is None or item in seen or record.address.kind != "operation":
+            return None
+        seen.add(item)
+        operator, operands = record.get("operator"), record.get("operands")
+        if operator in (("binary", "and"), ("binary", "or")) and len(operands) == 2:
+            return (operator[1], *(signature(child) for child in operands))
+        if operator == ("not", "not") and len(operands) == 1:
+            return ("not", signature(operands[0]))
+        if operator == ("scalar_call", "same_value"):
+            calls.append(item)
+        elif operator != ("comparison", "=="):
+            return None
+        return (operator[1], *(read(child) for child in operands))
+
+    def read(item):
+        record = records.get(item)
+        if (
+            record is None
+            or record.address.kind != "read"
+            or record.get("role") != "value"
+        ):
+            return None
+        for side, use in sides.items():
+            if record.get("use") == use.address and record.get("port") in use.get(
+                "ports"
+            ):
+                return (side, use.get("ports").index(record.get("port")))
+        return None
+
+    structure = physical.NULLSAFE_JOIN_STRUCTURES.get(signature(join.get("predicate")))
+    fields = tuple(
+        tuple(
+            records[item].get("physical")
+            for item in records[use.get("producer")].get("fields")
+        )
+        for use in inputs
+    )
+
+    def carried(item):
+        # A projection value reads a JOIN output whose value reads an input port.
+        read = records.get(item)
+        port = records.get(read.get("port")) if read is not None else None
+        value = records.get(port.get("source")) if port is not None else None
+        if (
+            read is None
+            or read.address.kind != "read"
+            or port is None
+            or port.get("owner") != join.address
+            or value is None
+            or value.address.kind != "join_value"
+        ):
+            return None
+        return records[value.get("input")].get("port")
+
+    carrier = next(
+        (
+            name
+            for name in physical.NULLSAFE_JOIN_CARRIERS.get(family, {})
+            if len(fields[0]) > 1
+            and _json_value(fields[0][1])
+            == physical.nullsafe_join_fields(family, "S1", name)[1]
+        ),
+        None,
+    )
+    if (
+        structure is None
+        or carrier is None
+        or address not in calls
+        or len(by_kind["operation"]) != len(seen)
+        or tuple(carried(item) for item in projection.get("values"))
+        != (*inputs[0].get("ports"), *inputs[1].get("ports"))
+        or any(
+            tuple(_json_value(item) for item in source)
+            != physical.nullsafe_join_fields(family, structure, carrier)
+            for source in fields
+        )
+        or (family, kind, structure, carrier) not in physical.NULLSAFE_JOIN_CELLS
+    ):
+        return None
+    return (family, kind, structure, carrier)
+
+
+def _json_value(text):
+    import json
+
+    try:
+        return json.loads(text)
+    except (TypeError, ValueError):
+        return None
+
+
 def _ordered_value_type(records, record, typed):
     """The result type of one compiled aggregate value: a `first` or `last` of
     an aggregation without GROUP BY may read an empty input, which gives None;
@@ -4200,6 +4379,13 @@ def derive_compiled_semantics(root, values, parameters=None):
                             cell=mysql_cells.get(ref),
                             mysql_checked=ref in mysql_checked,
                         )
+                        if (
+                            token == "same_value"
+                            and _compiled_in_on(records, ref)
+                            and _compiled_nullsafe_cell(records, ref) is None
+                        ):
+                            # A JOIN `on` `same_value` emits only in a cell.
+                            problem = ("PIE-B1003", "match_condition_not_in_row_domain")
                     elif role == "conditional":
                         realized, problem = physical.resolved_conditional_realization(
                             family, tag, nullable, inputs
@@ -5650,6 +5836,12 @@ def verify_compiled_semantics(value):
                         )
                         need(
                             realization is not None and problem is None,
+                            "SEMANTIC_DOMAIN",
+                        )
+                        need(
+                            token != "same_value"
+                            or not _compiled_in_on(records, current)
+                            or _compiled_nullsafe_cell(records, current) is not None,
                             "SEMANTIC_DOMAIN",
                         )
                     elif role == "conditional":

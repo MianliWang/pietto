@@ -2,6 +2,7 @@
 
 from dataclasses import replace
 import json
+import re
 
 import pytest
 
@@ -10,6 +11,7 @@ import _pietto_results_product as temporal_probe
 from pietto._project import project_sql_emission_parameters as parameters
 import _pietto_sql_emission_portable as portable
 import _pietto_sql_emission_pure_boundary as pure
+import _pietto_sql_nullsafe_cells as nullsafe
 from pietto._project import project_sql_emission_rows as rows
 from pietto._project import project_sql_emission_windows as windowing
 from pietto._project.project_sql_emission import (
@@ -2256,22 +2258,253 @@ def test_same_value_emission_admits_exactly_what_equality_admits(
         assert same[0] == "BLOCKED"
 
 
+def _public(outcome):
+    return probe.decode_public(serialize_project_sql_emission(outcome))
+
+
+def _nullsafe_sql(target, sql, structure):
+    """The `==` statement with each `v` and `w` comparison null-safe."""
+    q = '"' if target == "postgres" else "`"
+    column = r"{q}m[01]{q}\.{q}(?:v|w){q}".format(q=q)
+    replaced, count = re.subn(
+        f"({column}) = ({column})",
+        lambda match: match.group(1) + nullsafe.NULLSAFE[target] + match.group(2),
+        sql,
+    )
+    assert count == (2 if structure == "S3" else 1)
+    return replaced
+
+
+def _differences(left, right, path=()):
+    """(path, before, after) of each leaf where two public documents differ;
+    source positions, source bytes and the SQL are left out."""
+    if type(left) is not type(right):
+        yield path, left, right
+    elif type(left) is dict:
+        for key in sorted(left.keys() | right.keys()):
+            if key in {"start", "end", "column", "end_column", "sha256", "byte_count"}:
+                continue
+            if path == () and key == "sql":
+                continue
+            yield from _differences(left.get(key), right.get(key), (*path, key))
+    elif type(left) is list:
+        if len(left) != len(right):
+            yield (*path, "#len"), len(left), len(right)
+        else:
+            for index, pair in enumerate(zip(left, right)):
+                yield from _differences(*pair, (*path, index))
+    elif left != right:
+        yield path, left, right
+
+
+# The leaves the `==` and `same_value` documents of one cell differ in, per
+# `same_value` call: its node's ranges and requirements.
+_CALL_DIFFERENCES = (
+    (("ranges", "role"), "comparison_open", "scalar_call_open"),
+    (("ranges", "role"), "comparison_operator", "scalar_call_separator"),
+    (("ranges", "role"), "comparison_close", "scalar_call_close"),
+    (("ranges", "role"), "comparison", "scalar_call"),
+    (("requirements", "evidence", "#len"), 3, 4),
+    (("requirements", "rule"), "R05", "R04"),
+    (("requirements", "evidence", "callable"), None, "same_value"),
+    (("requirements", "evidence", "namespace"), None, "callable"),
+    (("requirements", "evidence", "operator"), "==", None),
+    (("requirements", "kind"), "comparison", "scalar_call"),
+    (("requirements", "subject", "kind"), "expression", "scalar_call"),
+    (("requirements", "subject", "position"), "*", "*"),
+)
+
+
 @pytest.mark.parametrize("target", TARGETS)
-def test_same_value_is_not_yet_a_project_join_match_condition(tmp_path, target):
-    # A JOIN `on` admits no built-in call yet; a joined SELECT does.
+@pytest.mark.parametrize("kind", nullsafe.KINDS)
+@pytest.mark.parametrize("structure", nullsafe.STRUCTURES)
+def test_project_join_on_same_value_cells_emit_the_equality_statement(
+    tmp_path, target, kind, structure
+):
+    """Phase77 S06 null-safe JOIN (D77.52): each qualified cell emits the
+    statement of the same program with `==`, each `v` and `w` comparison
+    written `IS NOT DISTINCT FROM` or `<=>`, and its public document differs
+    from that program's only in the call's own records and, under INNER, in
+    the nullability of the columns `==` proves non-null and `same_value` does
+    not. The live verifier and the pure boundary accept it."""
+    for cell in nullsafe.OPEN:
+        if cell[:3] != (target, kind, structure):
+            continue
+        carrier = cell[3]
+        equal, same = (
+            nullsafe.cell(tmp_path / f"{carrier}-{fn}", *cell, function=fn)
+            for fn in (False, True)
+        )
+        assert (equal.status, same.status) == ("VERIFIED", "VERIFIED"), cell
+        artifact = same.artifact
+        assert artifact is not None and equal.artifact is not None
+        assert artifact.rendered.sql.decode() == _nullsafe_sql(
+            target, equal.artifact.rendered.sql.decode(), structure
+        )
+        assert verify_project_sql_emission(artifact, artifact.request).verified
+        observed = portable.export_emission_observation(artifact, artifact.request)
+        assert observed.canonical_bytes is not None
+        assert (
+            pure.parse_emission_observation(observed.canonical_bytes).status
+            is pure.Status.OK
+        )
+        calls = 2 if structure == "S3" else 1
+        values = ("v", "w") if structure == "S3" else ("v",)
+        proved = kind == "inner" and structure in ("S1", "S1r", "S2", "S2r", "S3")
+        names = [
+            f"{side}_{name}" for side in "lr" for name in nullsafe.fields(structure)
+        ]
+        columns = [
+            ("columns", names.index(f"{side}_{name}"), *leaf)
+            for side in "lr"
+            for name in values
+            for leaf in (("nullable",), ("representation", "nullable"))
+        ]
+        found = sorted(
+            (
+                tuple(item for item in path if type(item) is str)
+                if path[0] != "columns"
+                else path,
+                *(("*", "*") if path[-1] == "position" else (before, after)),
+            )
+            for path, before, after in _differences(_public(equal), _public(same))
+        )
+        expected = sorted(
+            [*_CALL_DIFFERENCES * calls]
+            + ([(path, False, True) for path in columns] if proved else [])
+        )
+        assert found == expected, cell
+
+
+@pytest.mark.parametrize("target", TARGETS)
+def test_a_join_witness_null_safe_left_join_emits_its_pinned_statement(
+    tmp_path, target
+):
     item = probe.join_witness(
         target,
-        "query result:\n    from lhs\n    let r = rhs\n"
-        "    left join r on same_value(lhs.id, r.id)\n"
-        "    select:\n        a = lhs.id\n",
+        "query result:\n    from lhs\n"
+        "    left join rhs on same_value(lhs.key, rhs.key)\n"
+        "    select:\n        a = lhs.id\n        b = lhs.key\n"
+        "        c = rhs.id\n        d = rhs.key\n",
     )
     _, outcome = probe.build_case(
         tmp_path, item["source"], item["contract"], item["policy"]
     )
-    assert outcome.status == "BLOCKED"
-    assert "match_condition_not_in_row_domain" in [
-        blocker.detail for blocker in outcome.blockers
+    assert outcome.status == "VERIFIED"
+    sql = (
+        'WITH "p0" ("c0", "c1", "c2", "c3") AS (SELECT "m0"."order.id" AS "c0",'
+        ' "m0"."key value" AS "c1", "m1"."order.id" AS "c2", "m1"."key value"'
+        ' AS "c3" FROM "public"."phase66 lhs é" AS "m0" LEFT JOIN'
+        ' "public"."phase66 rhs é" AS "m1" ON ("m0"."key value" IS NOT DISTINCT'
+        ' FROM "m1"."key value")) SELECT "t0"."c0" AS "a", "t0"."c1" AS "b",'
+        ' "t0"."c2" AS "c", "t0"."c3" AS "d" FROM "p0" AS "t0"'
+    )
+    if target == "mysql":
+        sql = (
+            sql.replace('"', "`")
+            .replace("`public`", "`phase66`")
+            .replace(" IS NOT DISTINCT FROM ", " <=> ")
+        )
+    assert outcome.artifact is not None
+    assert outcome.artifact.rendered.sql.decode() == sql
+    assert [c["nullable"] for c in _public(outcome)["columns"]] == [
+        False,
+        True,
+        True,
+        True,
     ]
+
+
+# main's blockers (86dafa98) of an S1 INNER Int statement outside its cell:
+# one per SELECT item at its line, the `on`, then the JOIN.
+_MAINS = [
+    ("PIE-B1003", "scalar_projection_requires_later_slice", 10, 9),
+    ("PIE-B1003", "scalar_projection_requires_later_slice", 11, 9),
+    ("PIE-B1003", "scalar_projection_requires_later_slice", 12, 9),
+    ("PIE-B1003", "scalar_projection_requires_later_slice", 13, 9),
+    ("PIE-B1003", "match_condition_not_in_row_domain", 8, 20),
+    ("PIE-B1003", "join_shape_not_admitted_in_slice7", None, None),
+]
+
+
+@pytest.mark.parametrize(
+    "target,name",
+    [(t, name) for t in TARGETS for name in nullsafe.refused(t)],
+)
+def test_project_join_on_same_value_outside_its_cells_keeps_mains_blockers(
+    tmp_path, target, name
+):
+    """Every statement outside the cells, and a cell's statement refused for
+    another reason, reports main's whole blocker list (rule two, D77.37):
+    the list emission derives with every Phase77 cell shut (rows.AS_MAIN),
+    which is main's."""
+    source, contract = nullsafe.refused(target)[name]
+    refused = _public(nullsafe.build(tmp_path / "open", source, contract))
+    shut = _public(nullsafe.build(tmp_path / "main", source, contract, as_main=True))
+    assert refused["status"] == "BLOCKED"
+    assert refused["blockers"] == shut["blockers"]
+    if name in ("non_null_operand", "literal_operand"):
+        assert [
+            (
+                b["code"],
+                b["subject"]["detail"],
+                (b.get("location") or {}).get("line"),
+                (b.get("location") or {}).get("column"),
+            )
+            for b in refused["blockers"]
+        ] == _MAINS
+
+
+@pytest.mark.parametrize("target", TARGETS)
+@pytest.mark.parametrize(
+    "name,detail",
+    (
+        ("node_limit", "generated_structure_limit"),
+        ("long_column", "column_identifier_unrepresentable_or_colliding"),
+        ("long_label", "output_label_unrepresentable"),
+    ),
+)
+def test_a_null_safe_join_cell_refused_for_another_reason_reports_mains_list(
+    tmp_path, monkeypatch, target, name, detail
+):
+    """A cell's statement that emission refuses for another reason, after
+    realization: without rule two it would report that reason alone; with
+    it, main's whole list, that reason included where main reports it: the
+    label and the column name, not the resource limit."""
+    source, contract = nullsafe.refused(target)[name]
+    with monkeypatch.context() as patch:
+        patch.setattr(
+            rows, "as_main_if_refused", lambda request, derive, refused: derive()
+        )
+        alone = _public(nullsafe.build(tmp_path / "alone", source, contract))
+    details = [b["subject"]["detail"] for b in alone["blockers"]]
+    assert detail in details and "match_condition_not_in_row_domain" not in details
+    reported = _public(nullsafe.build(tmp_path / "law", source, contract))
+    details = [b["subject"]["detail"] for b in reported["blockers"]]
+    assert "match_condition_not_in_row_domain" in details
+    assert (detail in details) is (name != "node_limit")
+
+
+@pytest.mark.parametrize("target", TARGETS)
+@pytest.mark.parametrize("name", ("semi", "anti"))
+def test_same_value_inside_any_still_emits_beside_the_join_on_cells(
+    tmp_path, target, name
+):
+    """`any(...)` and `not any(...)` are no JOIN `on`: main's emission of a
+    `same_value` there stands, and the live verifier and the pure boundary,
+    which gate a JOIN `on` call, accept it (compiled replay: its own owner,
+    test_execution_compiled_families)."""
+    outcome = nullsafe.build(tmp_path, *nullsafe.membership(target)[name])
+    assert outcome.status == "VERIFIED"
+    artifact = outcome.artifact
+    assert artifact is not None
+    assert verify_project_sql_emission(artifact, artifact.request).verified
+    observed = portable.export_emission_observation(artifact, artifact.request)
+    assert observed.canonical_bytes is not None
+    assert (
+        pure.parse_emission_observation(observed.canonical_bytes).status
+        is pure.Status.OK
+    )
 
 
 NAMED_T0 = "table t0:\n    from rows\n    select:\n        id\n        e = {value}\n"

@@ -580,7 +580,7 @@ first column give every rule.
 | Feature | PostgreSQL single file | MySQL single file | PostgreSQL project | MySQL project |
 | --- | --- | --- | --- | --- |
 | `concat(a, b)` ([Expressions](#expressions)) | `(a \|\| b)` | `CONCAT(a, b)` | emitted; refused for only `None` (PIE-B1003) or a binding-width `Text` (PIE-B1004) | refused (PIE-B1003) |
-| `same_value(a, b)` ([Expressions](#expressions)) | `(a IS NOT DISTINCT FROM b)` | `(a <=> b)` | select items, WHERE and `let`, select items after a JOIN; `Float` where `==` is, not `Bool`, not in a JOIN `on` or a WHERE after a JOIN | as PostgreSQL, a `Float` only beside an operand that reads no row or of two `Float` fields in the unreleased qualified forms of [Float values](#float-values) (other two row `Float` operands PIE-B1003), and not a GROUP BY key or DISTINCT column |
+| `same_value(a, b)` ([Expressions](#expressions)) | `(a IS NOT DISTINCT FROM b)` | `(a <=> b)` | select items, WHERE and `let`, select items after a JOIN; `Float` where `==` is, not `Bool`, not in a WHERE after a JOIN, and in a JOIN `on` only in the unreleased null-safe JOIN statements of [Expressions](#expressions) | as PostgreSQL, a `Float` only beside an operand that reads no row or of two `Float` fields in the unreleased qualified forms of [Float values](#float-values) (other two row `Float` operands PIE-B1003), no `Float` in a JOIN `on`, and not a GROUP BY key or DISTINCT column |
 | `stddev(x)` ([Aggregates](#aggregates-and-grouping)) | `Int` and `Float` | `Float` (`STDDEV_SAMP`); `Int` refused (PIE-B1000) | `Int` and `Float` | refused: `Int` PIE-B1003, `Float` PIE-B1004, except unreleased `STDDEV_SAMP` as the only select item of a global aggregate over one direct nullable `Float` field of one source with no `let`, other clause or header parameter |
 | `variance(x)`, `pvariance(x)`, `pstdev(x)` ([Aggregates](#aggregates-and-grouping)) | `Int` and `Float` (`VAR_SAMP`, `VAR_POP`, `SQRT` of `VAR_POP`) | `Float` (`VAR_SAMP`, `VAR_POP`, `STDDEV_POP`); `Int` refused (PIE-B1000) | `Int` and `Float` | refused: `Int` PIE-B1003, `Float` PIE-B1004, except unreleased `VAR_SAMP`, `VAR_POP`, `STDDEV_POP` in the shape of `stddev` |
 | `median(x)`, `quantile(x, q)` ([Aggregates](#aggregates-and-grouping)) | `Int` and `Float` (`PERCENTILE_CONT ... WITHIN GROUP`) | refused (PIE-B1000) | `Int`; `Float` refused (PIE-B1004) | refused (PIE-B1003) |
@@ -3272,14 +3272,62 @@ relation's aggregate blockers. A set operation's own deduplication
 (`union distinct`, `intersect distinct`, `except distinct` over such a
 column) is not refused; it was not run on a database. MySQL returns
 `<=>` grouped or deduplicated as a 4-byte `INT`, not the declared
-`my_signed_bool`. PostgreSQL emits both. A JOIN `on` or a
-WHERE after a JOIN admits no built-in call yet, so there `same_value` is
-PIE-B1003, as `contains` is: in a JOIN `on` with
-`match_condition_not_in_row_domain` beside
-`scalar_projection_requires_later_slice` and
-`join_shape_not_admitted_in_slice7`, and in a WHERE after a JOIN with
-`scalar_projection_requires_later_slice` and
-`join_shape_not_admitted_in_slice7`. A query
+`my_signed_bool`. PostgreSQL emits both. A WHERE after a JOIN
+admits no built-in call yet, so there `same_value` is PIE-B1003, as
+`contains` is, with `scalar_projection_requires_later_slice` and
+`join_shape_not_admitted_in_slice7`.
+
+In a JOIN `on`, a project emits `same_value` (unreleased,
+[fragment](release-notes.d/77-s06-nullsafe-join.md)) only in the
+statements the Phase77 null-safe JOIN qualification matched on PostgreSQL
+18.6 and MySQL 8.4.12. The query reads two sources over different tables
+directly in one INNER, LEFT or RIGHT JOIN and holds nothing else: no WHERE,
+ORDER BY, LIMIT, GROUP BY, DISTINCT, window, second JOIN, `let` (a relation
+alias such as `let r = rhs` included), header parameter, named window,
+`def` call or other query. Each source declares no key and has, selected or
+not, exactly these fields in this order, under any names: a non-null `Int`
+(BIGINT) `id`, a nullable `v` and, as the `on` needs, a non-null `Int`
+(BIGINT) `k` or a nullable `w` of `v`'s type; `v` and `w` are an `Int`
+(BIGINT), a `Text` of 64 characters in the binary collation, a
+`Decimal(12, 2)`, a `Date`, a `Timestamp`, a `UUID` or, on PostgreSQL only,
+a `Float`. Each field's representation in the emission contract (storage,
+width or precision, and domain) is exactly the qualification's: an `Int` is
+`pg_int8` or `my_bigint` with the domain `int_range` from -9007199254740993
+to 9007199254740993, so a wider one, such as the whole 64-bit range, is
+refused. The SELECT reads every field of the left input and then of the
+right, in order. With `o` the preserved side (the left
+input of an INNER JOIN) and `i` the other, the whole `on` is
+`same_value(o.v, i.v)`, the same with its operands reversed,
+`same_value(o.v, i.v) and o.k == i.k`, `o.k == i.k and same_value(o.v, i.v)`,
+`same_value(o.v, i.v) and same_value(o.w, i.w)`, `not same_value(o.v, i.v)`
+or `same_value(o.v, i.v) or o.k == i.k`. The statement is the one the same
+program emits with `==`, each `same_value` written
+`(x IS NOT DISTINCT FROM y)` or `(x <=> y)`. An INNER JOIN does not make
+the operands of `same_value` non-null, as it does those of `==`. PostgreSQL
+cannot hash or merge `IS NOT DISTINCT FROM`, so an `on` with no `==`
+joined to it by `and` (an `==` under `or` does not count) runs as a nested
+loop; Pietto promises no plan. After a LEFT JOIN
+on `same_value`, `r.v is None` does not tell an unmatched row: a left row
+whose `v` is `None` pairs with every right row whose `v` is `None`, so test
+a non-null field of the right side instead.
+
+`==` in a JOIN `on` also admits literal and computed operands, but
+`same_value` there admits one field of each side only, an exception to
+`same_value` being admitted where `==` is. Every other `same_value` in an
+`on` keeps its `0.1.11` refusal, PIE-B1003 `match_condition_not_in_row_domain`
+beside `scalar_projection_requires_later_slice` and
+`join_shape_not_admitted_in_slice7`: a FULL JOIN, `any(...)` before a later
+JOIN, a literal, computed or same-side operand, a `Bool`, an operand
+declared non-null, another width, precision or type on either side, a
+source with another field or a declared key, any other SELECT, and every
+other clause, JOIN or query beside it. A statement of the emitted forms
+that emission refuses for another reason, such as an output label past 256
+characters, an identifier too long for the target or a resource limit,
+reports the whole list `0.1.11` reports for it too (rule two, D77.37),
+which names the reason only where `0.1.11` does: the label and the
+identifier, not the resource limit. So the same MySQL `Float` pair is
+`comparison_type_pair_not_admitted` in a select item or WHERE and this list
+in an `on`. A query
 header parameter is not yet a `same_value` operand: `where same_value(a, k)`
 is PIE-S2355 (`Query parameters are not available in this position`), while
 `where a == k` is admitted. A `having` condition admits no function call, so

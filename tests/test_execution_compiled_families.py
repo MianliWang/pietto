@@ -9,6 +9,7 @@ import pytest
 
 import _pietto_sql_emission as emission
 import _pietto_sql_float_cells as float_cells
+import _pietto_sql_nullsafe_cells as nullsafe
 import _pietto_sql_paired as paired_forms
 from _pietto_execution_binding import proof_artifact
 from _pietto_execution_compiled import retained_unmapped_source
@@ -1276,6 +1277,167 @@ def test_a_compiled_mysql_anti_comparison_outside_its_cell_is_refused(
         else (ValueError, "comparison_type_pair_not_admitted")
     )
     with pytest.raises(refusal[0], match=refusal[1]):
+        semantics.verify_compiled_semantics(derived)
+
+
+@pytest.mark.parametrize("target", nullsafe.TARGETS)
+@pytest.mark.parametrize("kind", nullsafe.KINDS)
+@pytest.mark.parametrize("structure", nullsafe.STRUCTURES)
+def test_null_safe_join_cells_replay_from_compiled_input(
+    tmp_path, target, kind, structure
+):
+    """Phase77 S06 null-safe JOIN: compiled replay re-derives each cell from
+    the bundle's own records, the independent verifier accepts it, and both
+    render the emitted SQL with the columns `same_value` leaves nullable; so
+    does the live template."""
+    from pietto._project import project_completed_semantics as semantics
+
+    for cell in nullsafe.OPEN:
+        if cell[:3] != (target, kind, structure):
+            continue
+        original = nullsafe.cell(tmp_path / cell[3], *cell)
+        assert original.status == "VERIFIED" and original.artifact is not None
+        _compare(original.artifact, refinement=False)
+        _live(original.artifact)
+        root = _loaded(build_compiled(original.artifact))
+        semantics.verify_compiled_semantics(
+            semantics.derive_compiled_semantics(root, ())
+        )
+        columns = prepare_output(emit_compiled(root, ())).columns
+        # Each input's `v`: `same_value` proves neither non-null, INNER too.
+        assert columns[1].realization.nullable is True
+        assert columns[len(columns) // 2 + 1].realization.nullable is True
+
+
+@pytest.mark.parametrize("target", nullsafe.TARGETS)
+@pytest.mark.parametrize("name", ("semi", "anti"))
+def test_same_value_inside_any_replays_beside_the_null_safe_join_cells(
+    tmp_path, target, name
+):
+    """`any(...)` and `not any(...)` are no JOIN `on`: compiled replay, which
+    gates each `same_value` of a JOIN's `on` tree, still derives, verifies
+    and renders main's emission of one there."""
+    from pietto._project import project_completed_semantics as semantics
+
+    original = nullsafe.build(tmp_path, *nullsafe.membership(target)[name])
+    assert original.status == "VERIFIED" and original.artifact is not None
+    _compare(original.artifact, refinement=False)
+    root = _loaded(build_compiled(original.artifact))
+    semantics.verify_compiled_semantics(semantics.derive_compiled_semantics(root, ()))
+
+
+def _nullsafe_bundle(directory, target, name, monkeypatch):
+    """A bundle built while emission admits every `same_value` call of a JOIN
+    `on`, as if its cell law were bypassed."""
+    from pietto._project import project_sql_emission_rows as physical
+    from pietto._project import project_sql_plan_expressions as plan_rows
+
+    with monkeypatch.context() as patch:
+        patch.setattr(
+            physical,
+            "nullsafe_join_calls",
+            lambda request: frozenset(
+                e.ref
+                for e in request.plan.expressions
+                if type(e) is plan_rows.ProjectSQLScalarCall
+                and e.callee_symbol.name == "same_value"
+            ),
+        )
+        original = nullsafe.build(directory, *nullsafe.refused(target)[name])
+        assert original.status == "VERIFIED"
+        return build_compiled(original.artifact)
+
+
+@pytest.mark.parametrize("target", nullsafe.TARGETS)
+@pytest.mark.parametrize(
+    "name",
+    (
+        *("same_table", "literal_operand", "same_side_operands"),
+        *("non_null_operand", "int4_carrier", "text_width_1000"),
+        *("text_domains_differ", "unselected_wide_text", "unselected_float"),
+        *("key_on_id", "key_on_v"),
+        *("select_subset", "select_reordered", "select_repeated"),
+        *("relation_alias_let_where", "left_where_is_none", "left_where_other"),
+        *("chain_after_left", "chain_before_equality", "semi_before_join"),
+        *("anti_before_join", "inner_order_by", "header_parameter", "mixed"),
+    ),
+)
+def test_a_compiled_null_safe_join_outside_its_cell_is_refused(
+    tmp_path, monkeypatch, target, name
+):
+    """A bundle whose emission bypassed the cell law: derivation re-derives
+    the cell from the records and refuses it, and the independent verifier
+    refuses a derivation forged past that law. A source key is a record
+    here (`source_unique`), so this reader sees it."""
+    from pietto._project import project_completed_semantics as semantics
+    from pietto._project.project_compiled_schema import CompiledError
+
+    root = _loaded(_nullsafe_bundle(tmp_path, target, name, monkeypatch))
+    with pytest.raises(CompiledError, match="^COMPILED_PHYSICAL_DOMAIN$"):
+        emit_compiled(root, ())
+    with monkeypatch.context() as patch:
+        patch.setattr(
+            semantics,
+            "_compiled_nullsafe_cell",
+            lambda records, address: (target, "inner", "S1", "int"),
+        )
+        derived = semantics.derive_compiled_semantics(root, ())
+    with pytest.raises(CompiledError, match="^COMPILED_SEMANTIC_DOMAIN$"):
+        semantics.verify_compiled_semantics(derived)
+
+
+@pytest.mark.parametrize("target", nullsafe.TARGETS)
+def test_a_tampered_compiled_null_safe_join_is_refused(tmp_path, monkeypatch, target):
+    """An S1 Int cell's bundle whose ON reads the left input's `id` for its
+    `v`, which no cell holds: derivation refuses it, and the independent
+    verifier refuses a derivation forged past the cell law."""
+    from pietto._project import project_completed_semantics as semantics
+    from pietto._project.project_compiled_schema import (
+        FIELDS,
+        CompiledError,
+        Record,
+    )
+
+    built = build_compiled(
+        nullsafe.cell(tmp_path, target, "inner", "S1", "int").artifact
+    )
+    records = {r.address: r for r in built.root.description.records}
+    (call,) = (
+        r
+        for r in records.values()
+        if r.address.kind == "operation"
+        and r.get("operator") == ("scalar_call", "same_value")
+    )
+    read = records[call.get("operands")[0]]
+    use = records[read.get("use")]
+    values = list(read.values)
+    values[FIELDS["read"].index("port")] = use.get("ports")[0]
+    forged = Record(read.address, tuple(values))
+    root = _loaded(
+        built,
+        replace(
+            built.root.description,
+            members=tuple(
+                (
+                    name,
+                    tuple(
+                        forged if r.address == forged.address else r for r in members
+                    ),
+                )
+                for name, members in built.root.description.members
+            ),
+        ),
+    )
+    with pytest.raises(CompiledError, match="^COMPILED_PHYSICAL_DOMAIN$"):
+        semantics.derive_compiled_semantics(root, ())
+    with monkeypatch.context() as patch:
+        patch.setattr(
+            semantics,
+            "_compiled_nullsafe_cell",
+            lambda records, address: (target, "inner", "S1", "int"),
+        )
+        derived = semantics.derive_compiled_semantics(root, ())
+    with pytest.raises(CompiledError, match="^COMPILED_SEMANTIC_DOMAIN$"):
         semantics.verify_compiled_semantics(derived)
 
 

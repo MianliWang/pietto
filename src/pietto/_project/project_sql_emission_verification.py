@@ -6156,6 +6156,7 @@ def verify_row_query(request, query, *, _guarded=None):
                 joining.admitted_join_shape(
                     plan,
                     request.family,
+                    rows.nullsafe_join_calls(request),
                     # This reader's own S14 pairing check.
                     paired=pairing.project_form(request) is not None,
                 )

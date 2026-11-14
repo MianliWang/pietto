@@ -1484,6 +1484,233 @@ def _mysql_float_key_cell(doc):
     return cell if cell in _MYSQL_FLOAT_KEY_CELLS else None
 
 
+# The JOIN `on` `same_value` cells, restated from the emitter's
+# NULLSAFE_JOIN_STRUCTURES, NULLSAFE_JOIN_CARRIERS and NULLSAFE_JOIN_CELLS
+# (Phase77 S06 null-safe JOIN, D77.52): the whole ON over `o`, the preserved
+# side (INNER: the left input), and `i`, as (side, field position) reads.
+_NULLSAFE_JOIN_STRUCTURES = {
+    ("same_value", ("o", 1), ("i", 1)): "S1",
+    ("same_value", ("i", 1), ("o", 1)): "S1r",
+    ("and", ("same_value", ("o", 1), ("i", 1)), ("==", ("o", 2), ("i", 2))): "S2",
+    ("and", ("==", ("o", 2), ("i", 2)), ("same_value", ("o", 1), ("i", 1))): "S2r",
+    (
+        "and",
+        ("same_value", ("o", 1), ("i", 1)),
+        ("same_value", ("o", 2), ("i", 2)),
+    ): "S3",
+    ("not", ("same_value", ("o", 1), ("i", 1))): "S4",
+    ("or", ("same_value", ("o", 1), ("i", 1)), ("==", ("o", 2), ("i", 2))): "S5",
+}
+_NULLSAFE_SAFE_INT = {
+    "kind": "int_range",
+    "min": "-9007199254740993",
+    "max": "9007199254740993",
+}
+_NULLSAFE_JOIN_CARRIERS = {
+    "postgres": {
+        "int": ({"kind": "pg_int8"}, _NULLSAFE_SAFE_INT),
+        "text": (
+            {"kind": "pg_text"},
+            {
+                "kind": "text",
+                "max_characters": 64,
+                "encoding": "UTF8",
+                "collation": "C",
+                "padding": "NO PAD",
+            },
+        ),
+        "decimal": (
+            {"kind": "pg_numeric", "precision": 12, "scale": 2},
+            {"kind": "decimal", "precision": 12, "scale": 2},
+        ),
+        "date": ({"kind": "pg_date"}, {"kind": "date"}),
+        "timestamp": (
+            {"kind": "pg_timestamp", "fractional_seconds": 6},
+            {"kind": "timestamp"},
+        ),
+        "uuid": ({"kind": "pg_uuid"}, {"kind": "uuid", "encoding": "standard_bytes"}),
+        "float": (
+            {"kind": "pg_float8"},
+            {"kind": "finite_float", "format": "binary64"},
+        ),
+    },
+    "mysql": {
+        "int": ({"kind": "my_bigint"}, _NULLSAFE_SAFE_INT),
+        "text": (
+            {"kind": "my_varchar", "length": 64},
+            {
+                "kind": "text",
+                "max_characters": 64,
+                "encoding": "utf8mb4",
+                "collation": "utf8mb4_0900_bin",
+                "padding": "NO PAD",
+            },
+        ),
+        "decimal": (
+            {"kind": "my_decimal", "precision": 12, "scale": 2},
+            {"kind": "decimal", "precision": 12, "scale": 2},
+        ),
+        "date": ({"kind": "my_date"}, {"kind": "date"}),
+        "timestamp": (
+            {"kind": "my_datetime", "fractional_seconds": 6},
+            {"kind": "timestamp"},
+        ),
+        "uuid": (
+            {"kind": "my_uuid_bytes"},
+            {"kind": "uuid", "encoding": "standard_bytes"},
+        ),
+    },
+}
+_NULLSAFE_JOIN_CELLS = frozenset(
+    (family, kind, structure, carrier)
+    for family, carriers in _NULLSAFE_JOIN_CARRIERS.items()
+    for kind in ("inner", "left", "right")
+    for structure in _NULLSAFE_JOIN_STRUCTURES.values()
+    for carrier in carriers
+)
+
+
+def _nullsafe_join_fields(family, structure, carrier):
+    """The representations of each source's fields in a cell: `id`, `v`
+    and, by structure, the Int key `k` (S2, S2r, S5) or the value `w` (S3)."""
+    storage, domain = _NULLSAFE_JOIN_CARRIERS[family][carrier]
+    key = {
+        "domain": _NULLSAFE_SAFE_INT,
+        "nullable": False,
+        "storage": _NULLSAFE_JOIN_CARRIERS[family]["int"][0],
+    }
+    value = {"domain": domain, "nullable": True, "storage": storage}
+    third = {"S2": (key,), "S2r": (key,), "S5": (key,), "S3": (value,)}
+    return (key, value, *third.get(structure, ()))
+
+
+def _on_operations(doc) -> frozenset:
+    """Every operation of a JOIN's `on` tree."""
+    pending = [
+        doc[ref]["predicate"]
+        for ref in doc.all("join_body")
+        if doc[ref]["predicate"] is not None
+    ]
+    seen = set()
+    while pending:
+        value = pending.pop()
+        if value in seen or value.kind != "sql_operation":
+            continue
+        seen.add(value)
+        pending.extend(doc[value]["operands"])
+    return frozenset(seen)
+
+
+def _nullsafe_join_cell(doc, ref, family):
+    """The cell of the JOIN `on` `same_value` call ``ref`` from the
+    document's own structure, as emission derives it from its plan: one
+    INNER, LEFT or RIGHT JOIN of two bound sources of different tables under
+    one projection whose columns read every JOIN input column, left then
+    right; its whole ON one of _NULLSAFE_JOIN_STRUCTURES over each input's
+    own scan columns, ``ref`` one of its `same_value` calls; each source the
+    fields _nullsafe_join_fields gives; every JOIN column as nullable as its
+    field unless the JOIN null-extends it, so `same_value` narrows none; the
+    document holds no other operation or record kind. None outside every
+    cell. A relation alias `let`, an unused named window or an inlined `def`,
+    which emission refuses, changes the document only in source positions
+    and source bytes, so this reader cannot tell it from the direct
+    program."""
+    artifacts = doc.all("artifact")
+    if not set(doc.kinds) <= _MYSQL_FLOAT_CELL_KINDS or len(artifacts) != 1:
+        return None
+    ast = doc[artifacts[0]]["ast"]
+    if ast.kind != "sql_join_query":
+        return None
+    units = doc[ast]["units"]
+    if [unit.kind for unit in units] != ["join_body", "row_body"]:
+        return None
+    join, body = doc[units[0]], doc[units[1]]
+    inputs, kind = join["inputs"], join["join_kind"]
+    producers = tuple(doc[item]["producer"] for item in inputs)
+    if (
+        kind not in ("inner", "left", "right")
+        or join["equalities"]
+        or join["predicate"] is None
+        or len(inputs) != 2
+        or any(item.kind != "bound_source" for item in producers)
+        or len({(doc[s]["namespace"], doc[s]["name"]) for s in producers}) != 2
+        or body["scan"].kind != "row_join_use"
+        or doc[body["scan"]]["body"] != units[0]
+        or body["block_kind"] != "projection"
+        or body["predicate"] is not None
+    ):
+        return None
+    sides = {"o": 1, "i": 0} if kind == "right" else {"o": 0, "i": 1}
+    seen, calls = set(), []
+
+    def signature(value):
+        if value.kind != "sql_operation" or value in seen:
+            return None
+        seen.add(value)
+        fields = doc[value]
+        token, operands = (fields["kind"], fields["operator"]), fields["operands"]
+        if token in (("logical", "and"), ("logical", "or")) and len(operands) == 2:
+            return (token[1], *(signature(child) for child in operands))
+        if token == ("not", "not") and len(operands) == 1:
+            return ("not", signature(operands[0]))
+        if token == ("scalar_call", "same_value"):
+            calls.append(value)
+        elif token != ("comparison", "=="):
+            return None
+        return (token[1], *(read(child) for child in operands))
+
+    def read(value):
+        if value.kind != "sql_stage_reference":
+            return None
+        for side, index in sides.items():
+            columns = doc[inputs[index]]["columns"]
+            if doc[value]["column"] in columns:
+                return (side, list(columns).index(doc[value]["column"]))
+        return None
+
+    structure = _NULLSAFE_JOIN_STRUCTURES.get(signature(join["predicate"]))
+    written = tuple(
+        tuple(_json(doc[field]["representation"]) for field in doc[s]["fields"])
+        for s in producers
+    )
+    carrier = next(
+        (
+            name
+            for name in _NULLSAFE_JOIN_CARRIERS.get(family, {})
+            if len(written[0]) > 1
+            and written[0][1] == _nullsafe_join_fields(family, "S1", name)[1]
+        ),
+        None,
+    )
+    stage = tuple(
+        doc[column]["source_port"] for item in inputs for column in doc[item]["columns"]
+    )
+    values = tuple(doc[column]["value"] for column in body["columns"])
+    if (
+        structure is None
+        or carrier is None
+        or ref not in calls
+        or len(doc.all("sql_operation")) != len(seen)
+        or any(value.kind != "sql_stage_reference" for value in values)
+        or tuple(doc[doc[value]["column"]]["source_port"] for value in values) != stage
+        or any(
+            item != _nullsafe_join_fields(family, structure, carrier)
+            for item in written
+        )
+        or any(
+            doc[doc[doc[column]["column"]]["realization"]]["nullable"]
+            is not (
+                bool(doc[column]["nulling"])
+                or doc[doc[doc[column]["read"]]["realization"]]["nullable"]
+            )
+            for column in join["columns"]
+        )
+        or (family, kind, structure, carrier) not in _NULLSAFE_JOIN_CELLS
+    ):
+        return None
+    return (family, kind, structure, carrier)
+
+
 def _is_pg_text(realization, *, nullable=None, maximum=None) -> bool:
     return _is_realization(
         realization,
@@ -3385,6 +3612,7 @@ class _Check:
         )
         cells = _mysql_scalar_cells(doc) if family == "mysql" else {}
         mysql_remainders = _mysql_cells(doc)[2] if family == "mysql" else frozenset()
+        on_operations = _on_operations(doc)
         for ref in doc.all("sql_operation"):
             op = doc[ref]
             _require(op["kind"] in schema.OPERATORS, "operation kind")
@@ -3438,6 +3666,15 @@ class _Check:
                         )
                     ),
                     "MySQL remainder carrier",
+                )
+            if (op["kind"], op["operator"]) == ("scalar_call", "same_value") and (
+                ref in on_operations
+            ):
+                # Phase77 S06 null-safe JOIN: an ON `same_value` emits only in
+                # a qualified cell.
+                _require(
+                    _nullsafe_join_cell(doc, ref, family) is not None,
+                    "null-safe JOIN condition cell",
                 )
             if family == "postgres" and result["tag"] == "Decimal":
                 operands = tuple(

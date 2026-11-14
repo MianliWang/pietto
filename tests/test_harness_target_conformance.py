@@ -1131,6 +1131,7 @@ def valid_receipts(
                         "W_join_shapes",
                         "W_join_values",
                         "V_join_full",
+                        "V_join_nullsafe",
                     }:
                         rows = cases.join_rows(record["variant"], target)
                         names = [

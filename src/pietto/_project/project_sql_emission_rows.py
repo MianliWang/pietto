@@ -40,22 +40,29 @@ COMPARISONS = {
 COMPARABLE = ("Int", "Text", "Decimal", "Timestamp", "Date", "Float")
 # One carrier's values order by their exact civil instant or day.
 TEMPORAL = ("Timestamp", "Date")
-# Rule two (D77.37, owner 2026-11-13T00:20Z): a MySQL statement that stays
+# Rule two (D77.37, owner 2026-11-13T00:20Z): a MySQL statement, or a JOIN
+# `on` `same_value` statement of a cell (nullsafe_join_cell), that stays
 # refused reports main's whole blocker list. While this is set, emission
-# derives as main does: every Phase77 MySQL cell is shut, and so is the R01
+# derives as main does: every Phase77 cell is shut, and so is the R01
 # refusal of mysql_float_memberships, which as_main_if_refused keeps for a
 # statement main emits.
 AS_MAIN = ContextVar("as_main", default=False)
 
 
 def as_main_if_refused(request, derive, refused):
-    """``derive()``; when ``refused`` holds of it for a MySQL statement,
-    ``derive()`` once more as main (AS_MAIN), unless it already is. When
-    main does not refuse it and its plan holds an R01 Float membership
-    (mysql_float_memberships), the first derivation stands: that refusal."""
+    """``derive()``; when ``refused`` holds of it for a MySQL statement or a
+    null-safe JOIN cell, ``derive()`` once more as main (AS_MAIN), unless it
+    already is. When main does not refuse it and its plan holds an R01 Float
+    membership (mysql_float_memberships), the first derivation stands: that
+    refusal."""
 
     result = derive()
-    if AS_MAIN.get() or request.family != "mysql" or not refused(result):
+    if (
+        AS_MAIN.get()
+        or not refused(result)
+        or request.family != "mysql"
+        and nullsafe_join_cell(request) is None
+    ):
         return result
     token = AS_MAIN.set(True)
     try:
@@ -3963,51 +3970,29 @@ def mysql_float_cell_items(cell) -> tuple[str, ...]:
     return ("int",) if cell[1] == "select" else ("int", "float")
 
 
-def _mysql_float_shape(plan, expression):
-    """The structural cell of ``expression`` from the plan, with the reference
-    expressions it reads: (cell, operands, keys, selected), or None.
-
-    The plan holds its sources and one query only (_MYSQL_FLOAT_PLAN_PARTS).
-    Same row: one source under a projection, or under a WHERE and a
-    projection; the tree is the whole WHERE or the whole value of one SELECT
-    item, and every other SELECT item is a field reference. JOIN: one INNER
-    or LEFT JOIN of two different sources, read directly, with no retained
-    equality, under one projection of joined references; the whole ON is the
-    tree, or `and` of the tree and a `==` of two references (``keys``). ANTI:
-    one source under a WHERE and a projection of field references; the whole
-    WHERE is `not` over one `any(...)` that reads the plan's one expression
-    block use, whose predicate is the tree, or `and` of the tree and a `==`
-    of two references (``keys``). The tree is ``expression`` (`==`, `!=` or `same_value` of two
-    references) or `not` over it, and the plan holds no other expression. The
-    query as written declares no `let` (a relation alias such as `let i =
-    f6i`, read or not, which the plan resolves to its source; ANTI admits one
-    alias that its `any(...)` reads as its binder) and no named window, and
-    no expression comes from an inlined `def`. The length checks come first:
-    a plan with more than nine expressions beside its SELECT items is never
-    a cell, so each plan is scanned for a bounded number of calls.
-    """
+def _unit_query(plan, joined: bool):
+    """The frame every Phase77 statement cell shares, as (at, kind): ``at``
+    gives the plan expression a ref names (or None), ``kind`` the JOIN kind
+    ("inner", "left" or "right"; None without a JOIN). The plan holds its
+    sources and one query only (_MYSQL_FLOAT_PLAN_PARTS), with at most nine
+    expressions beside its SELECT items, so each plan is scanned for a
+    bounded number of calls; ``joined``: one projection over one JOIN of two
+    different sources, read directly, with no retained equality and no
+    expression block; else one source under a projection, or under a WHERE
+    and a projection, and a second source only for the WHERE's expression
+    block. None otherwise."""
     import dataclasses
 
-    from pietto._project.module_catalog import authored_definitions
-    from pietto._project.project_sql_plan import (
-        ProjectSQLBoundary,
-        ProjectSQLBoundaryReason,
-    )
     from pietto._project.project_sql_plan_joins import ProjectSQLJoinTail
-    from pietto.ast_nodes import (
-        AnyExpr,
-        AuthoredJoinKind,
-        QueryDef,
-        TableDef,
-        UnaryExpr,
-        inlined_arguments,
-    )
+    from pietto.ast_nodes import AuthoredJoinKind
 
     expressions, blocks, joins = plan.expressions, plan.blocks, plan.joins
     uses = plan.expression_block_uses
     if (
         len(expressions) > len(plan.projections) + 9
-        or len(joins) > 1
+        or len(joins) != joined
+        or joins
+        and uses
         or len(plan.filters) > (0 if joins else 1)
         or not 0 < len(blocks) <= (1 if joins else 2)
         or len(plan.sources) != (2 if joins or uses else 1)
@@ -4029,34 +4014,111 @@ def _mysql_float_shape(plan, expression):
         )
         return found if found is not None and found.ref is ref else None
 
-    roots = tuple(at(item.expression) for item in plan.projections)
-    # Every path below binds kind and shape before reading them; the checker
-    # cannot tell that `joins or uses` holds exactly where they are unbound.
-    keys, parts, kind, shape = (), 0, "same_row", ("same_row", "select")
-    if joins:
-        join, inputs = joins[0], plan.join_inputs
-        kind = {AuthoredJoinKind.INNER: "inner", AuthoredJoinKind.LEFT: "left"}.get(
-            join.kind
+    if not joins:
+        return at, None
+    join, inputs = joins[0], plan.join_inputs
+    kind = {
+        AuthoredJoinKind.INNER: "inner",
+        AuthoredJoinKind.LEFT: "left",
+        AuthoredJoinKind.RIGHT: "right",
+    }.get(join.kind)
+    sources = tuple(source.ref for source in plan.sources)
+    if (
+        kind is None
+        or join.equalities
+        or len(inputs) != 2
+        or inputs[0].producer is inputs[1].producer
+        or any(
+            item.predecessor is not None
+            or not any(item.producer is source for source in sources)
+            for item in inputs
         )
-        sources = tuple(source.ref for source in plan.sources)
-        if (
-            kind is None
-            or join.equalities
-            or len(inputs) != 2
-            or inputs[0].producer is inputs[1].producer
-            or any(
-                item.predecessor is not None
-                or not any(item.producer is source for source in sources)
-                for item in inputs
-            )
-            or blocks[0].kind is not row.ProjectSQLStageKind.PROJECTION
-            or type(blocks[0].boundary) is not ProjectSQLJoinTail
-        ):
+        or blocks[0].kind is not row.ProjectSQLStageKind.PROJECTION
+        or type(blocks[0].boundary) is not ProjectSQLJoinTail
+    ):
+        return None
+    return at, kind
+
+
+def _unit_written(plan, anti: bool = False) -> bool:
+    """The selected query as written declares no `let` (a relation alias
+    such as `let i = f6i`, read or not, which the plan resolves to its
+    source) and no named window, and no plan expression comes from an
+    inlined `def`. With ``anti`` (an R02 ANTI cell) it may declare one
+    alias: the one its WHERE's `not any(...)` reads as its binder."""
+    from pietto._project.module_catalog import authored_definitions
+    from pietto.ast_nodes import (
+        AnyExpr,
+        QueryDef,
+        TableDef,
+        UnaryExpr,
+        inlined_arguments,
+    )
+
+    owner = plan.scope.selected_owner
+    written = authored_definitions(
+        plan.scope.completed.semantic_result.modules[owner.module_position]
+    )[owner.declaration_position]
+    if type(written) not in {TableDef, QueryDef}:
+        return False
+    lets, tree = (
+        written.naming_declarations,
+        getattr(written.where_clause, "expression", None),
+    )
+    # The plan's `any(...)` names the source an alias resolves to; the binder
+    # an ANTI `let` must be is the one its WHERE names as written.
+    binder = (
+        tree.operand.relation_name
+        if anti
+        and type(tree) is UnaryExpr
+        and tree.operator == "not"
+        and type(tree.operand) is AnyExpr
+        else None
+    )
+    return not (
+        written.named_windows
+        or any(inlined_arguments(item.expression) for item in plan.expressions)
+        or lets
+        and (len(lets) != 1 or lets[0].name != binder)
+    )
+
+
+def _mysql_float_shape(plan, expression):
+    """The structural cell of ``expression`` from the plan, with the reference
+    expressions it reads: (cell, operands, keys, selected), or None.
+
+    The frame is _unit_query's. Same row: the tree is the whole WHERE or the
+    whole value of one SELECT item, and every other SELECT item is a field
+    reference. JOIN: an INNER or LEFT JOIN under one projection of joined
+    references; the whole ON is the tree, or `and` of the tree and a `==` of
+    two references (``keys``). ANTI: one source under a WHERE and a
+    projection of field references; the whole WHERE is `not` over one
+    `any(...)` that reads the plan's one expression block use, whose
+    predicate is the tree, or `and` of the tree and a `==` of two references
+    (``keys``). The tree is ``expression`` (`==`, `!=` or `same_value` of two
+    references) or `not` over it, the plan holds no other expression, and
+    the query is as _unit_written requires (ANTI: with its binder alias).
+    """
+    from pietto._project.project_sql_plan import (
+        ProjectSQLBoundary,
+        ProjectSQLBoundaryReason,
+    )
+
+    frame = _unit_query(plan, len(plan.joins) == 1)
+    if frame is None:
+        return None
+    at, kind = frame
+    expressions, blocks = plan.expressions, plan.blocks
+    joins, uses = plan.joins, plan.expression_block_uses
+    roots = tuple(at(item.expression) for item in plan.projections)
+    keys, parts, shape = (), 0, ("same_row", "select")
+    if joins:
+        if kind not in ("inner", "left"):
             return None
         reference, items, root = (
             row.ProjectSQLMatchReference,
             row.ProjectSQLJoinedReference,
-            at(join.on),
+            at(joins[0].on),
         )
     else:
         stages = (
@@ -4131,33 +4193,7 @@ def _mysql_float_shape(plan, expression):
     if (
         any(type(item) is not reference for item in operands)
         or len(expressions) != len(selected) + 3 + negated + parts
-    ):
-        return None
-    owner = plan.scope.selected_owner
-    written = authored_definitions(
-        plan.scope.completed.semantic_result.modules[owner.module_position]
-    )[owner.declaration_position]
-    if type(written) not in {TableDef, QueryDef}:
-        return None
-    lets, tree = (
-        written.naming_declarations,
-        getattr(written.where_clause, "expression", None),
-    )
-    # The plan's `any(...)` names the source an alias resolves to; the binder
-    # an ANTI `let` must be is the one its WHERE names as written.
-    binder = (
-        tree.operand.relation_name
-        if uses
-        and type(tree) is UnaryExpr
-        and tree.operator == "not"
-        and type(tree.operand) is AnyExpr
-        else None
-    )
-    if (
-        written.named_windows
-        or any(inlined_arguments(item.expression) for item in expressions)
-        or lets
-        and (len(lets) != 1 or lets[0].name != binder)
+        or not _unit_written(plan, anti=bool(uses))
     ):
         return None
     cell = (*shape, "not " + form if negated else form)
@@ -4495,6 +4531,245 @@ def mysql_float_key_admitted(request, realization) -> bool:
         and float_carrier(realization, "mysql")
         and mysql_float_key_cell(request) is not None
     )
+
+
+# A JOIN `on` `same_value` statement that the Phase77 S06 null-safe JOIN
+# native qualification (PostgreSQL 18.6, MySQL 8.4.12) judged READY (unit C,
+# D77.41, D77.52): one INNER, LEFT or RIGHT JOIN of two sources over
+# different tables, read directly, that declare no key and hold exactly
+# `id` (a non-null BIGINT Int), `v` and, by structure, `k` (a non-null
+# BIGINT Int) or `w`; `v` and `w` are nullable on both sides with one
+# carrier of NULLSAFE_JOIN_CARRIERS; the whole ON is one of the seven
+# structures below over `o`, the preserved side (INNER: the left input),
+# and `i`, the other, each operand the field at that position of that side;
+# the SELECT items read every field of the left input, then of the right,
+# in order, and the query holds nothing else (_unit_query, _unit_written).
+# MySQL has no Float cell (O7). Emission and the live verifier call
+# nullsafe_join_cell on their plan; compiled replay (records) and the pure
+# boundary (document) each derive the cell from their own input.
+NULLSAFE_JOIN_STRUCTURES = {
+    ("same_value", ("o", 1), ("i", 1)): "S1",
+    ("same_value", ("i", 1), ("o", 1)): "S1r",
+    ("and", ("same_value", ("o", 1), ("i", 1)), ("==", ("o", 2), ("i", 2))): "S2",
+    ("and", ("==", ("o", 2), ("i", 2)), ("same_value", ("o", 1), ("i", 1))): "S2r",
+    (
+        "and",
+        ("same_value", ("o", 1), ("i", 1)),
+        ("same_value", ("o", 2), ("i", 2)),
+    ): "S3",
+    ("not", ("same_value", ("o", 1), ("i", 1))): "S4",
+    ("or", ("same_value", ("o", 1), ("i", 1)), ("==", ("o", 2), ("i", 2))): "S5",
+}
+# The third field of each source by structure: `k` an Int key, `w` a value.
+NULLSAFE_JOIN_THIRD = {"S2": "k", "S2r": "k", "S3": "w", "S5": "k"}
+_SAFE_INT = {
+    "kind": "int_range",
+    "min": "-9007199254740993",
+    "max": "9007199254740993",
+}
+# Each carrier's contract storage and domain, as the qualification's tables.
+NULLSAFE_JOIN_CARRIERS = {
+    "postgres": {
+        "int": ({"kind": "pg_int8"}, _SAFE_INT),
+        "text": (
+            {"kind": "pg_text"},
+            {
+                "kind": "text",
+                "max_characters": 64,
+                "encoding": "UTF8",
+                "collation": "C",
+                "padding": "NO PAD",
+            },
+        ),
+        "decimal": (
+            {"kind": "pg_numeric", "precision": 12, "scale": 2},
+            {"kind": "decimal", "precision": 12, "scale": 2},
+        ),
+        "date": ({"kind": "pg_date"}, {"kind": "date"}),
+        "timestamp": (
+            {"kind": "pg_timestamp", "fractional_seconds": 6},
+            {"kind": "timestamp"},
+        ),
+        "uuid": ({"kind": "pg_uuid"}, {"kind": "uuid", "encoding": "standard_bytes"}),
+        "float": ({"kind": "pg_float8"}, FINITE_FLOAT),
+    },
+    "mysql": {
+        "int": ({"kind": "my_bigint"}, _SAFE_INT),
+        "text": (
+            {"kind": "my_varchar", "length": 64},
+            {
+                "kind": "text",
+                "max_characters": 64,
+                "encoding": "utf8mb4",
+                "collation": "utf8mb4_0900_bin",
+                "padding": "NO PAD",
+            },
+        ),
+        "decimal": (
+            {"kind": "my_decimal", "precision": 12, "scale": 2},
+            {"kind": "decimal", "precision": 12, "scale": 2},
+        ),
+        "date": ({"kind": "my_date"}, {"kind": "date"}),
+        "timestamp": (
+            {"kind": "my_datetime", "fractional_seconds": 6},
+            {"kind": "timestamp"},
+        ),
+        "uuid": (
+            {"kind": "my_uuid_bytes"},
+            {"kind": "uuid", "encoding": "standard_bytes"},
+        ),
+    },
+}
+NULLSAFE_JOIN_CELLS = frozenset(
+    (family, kind, structure, carrier)
+    for family, carriers in NULLSAFE_JOIN_CARRIERS.items()
+    for kind in ("inner", "left", "right")
+    for structure in NULLSAFE_JOIN_STRUCTURES.values()
+    for carrier in carriers
+)
+
+
+def nullsafe_join_fields(family, structure, carrier):
+    """The contract representations of each source's fields in a cell."""
+    storage, domain = NULLSAFE_JOIN_CARRIERS[family][carrier]
+    key = {
+        "domain": _SAFE_INT,
+        "nullable": False,
+        "storage": NULLSAFE_JOIN_CARRIERS[family]["int"][0],
+    }
+    value = {"domain": domain, "nullable": True, "storage": storage}
+    third = NULLSAFE_JOIN_THIRD.get(structure, "")
+    return (key, value, *({"k": (key,), "w": (value,)}.get(third, ())))
+
+
+def nullsafe_join_cell(request):
+    """The cell (family, kind, structure, carrier) of a JOIN `on` `same_value`
+    statement, with its `same_value` calls: (cell, calls), from the plan, the
+    contract fields its references read and its sources hold, and the query
+    as written. None outside NULLSAFE_JOIN_CELLS, and while emission derives
+    as main (AS_MAIN)."""
+    plan = request.plan
+    frame = None if AS_MAIN.get() else _unit_query(plan, True)
+    if frame is None:
+        return None
+    at, kind = frame
+    join, inputs = plan.joins[0], plan.join_inputs
+    found = tuple(
+        next((s for s in request.sources if s.owner is p.source.owner), None)
+        for producer in (inputs[0].producer, inputs[1].producer)
+        for p in plan.sources
+        if p.ref is producer
+    )
+    sources = tuple(s for s in found if s is not None)
+    ports = tuple(
+        tuple(port for port in plan.source_ports if port.owner is producer)
+        for producer in (inputs[0].producer, inputs[1].producer)
+    )
+    if (
+        len(found) != 2
+        or len(sources) != 2
+        or (sources[0].namespace, sources[0].name)
+        == (sources[1].namespace, sources[1].name)
+        or any(
+            definition.entry.active_properties.relational.keys
+            for definition in plan.bindings.definitions
+            if any(definition.entry.owner is s.owner for s in sources)
+        )
+    ):
+        return None
+    sides = {"o": 1, "i": 0} if kind == "right" else {"o": 0, "i": 1}
+    seen, calls = set(), []
+
+    def signature(node):
+        if node is None or node.ref in seen:
+            return None
+        seen.add(node.ref)
+        if type(node) is row.ProjectSQLBinary and node.expression.operator in (
+            "and",
+            "or",
+        ):
+            return (
+                node.expression.operator,
+                signature(at(node.left)),
+                signature(at(node.right)),
+            )
+        if type(node) is row.ProjectSQLUnary and node.expression.operator == "not":
+            return ("not", signature(at(node.operand)))
+        if type(node) is row.ProjectSQLComparison and node.expression.operator == "==":
+            token, operands = "==", (node.left, node.right)
+        elif (
+            type(node) is row.ProjectSQLScalarCall
+            and node.callee_symbol.namespace is SymbolNamespace.CALLABLE
+            and node.callee_symbol.name == "same_value"
+            and len(node.arguments) == 2
+        ):
+            token, operands = "same_value", node.arguments
+            calls.append(node.ref)
+        else:
+            return None
+        return (token, *(read(at(item)) for item in operands))
+
+    def read(node):
+        if node is None or node.ref in seen:
+            return None
+        seen.add(node.ref)
+        found = (
+            _mysql_float_field(request, node.port)
+            if type(node) is row.ProjectSQLMatchReference
+            else None
+        )
+        for side, index in sides.items():
+            if found is not None and found[0] in ports[index]:
+                return (side, ports[index].index(found[0]))
+        return None
+
+    structure = NULLSAFE_JOIN_STRUCTURES.get(signature(at(join.on)))
+    selected = tuple(at(item.expression) for item in plan.projections)
+    reads = tuple(
+        _mysql_float_field(request, item.port)
+        if type(item) is row.ProjectSQLJoinedReference
+        else None
+        for item in selected
+    )
+    written = tuple(
+        tuple(json.loads(field.representation) for field in source.fields)
+        for source in sources
+    )
+    carrier = next(
+        (
+            name
+            for name, (storage, domain) in NULLSAFE_JOIN_CARRIERS.get(
+                request.family, {}
+            ).items()
+            if len(written[0]) > 1
+            and written[0][1]
+            == {"domain": domain, "nullable": True, "storage": storage}
+        ),
+        None,
+    )
+    if (
+        structure is None
+        or carrier is None
+        or len(plan.expressions) != len(selected) + len(seen)
+        or None in reads
+        or tuple(item[0] for item in reads if item is not None)
+        != (*ports[0], *ports[1])
+        or any(
+            item != nullsafe_join_fields(request.family, structure, carrier)
+            for item in written
+        )
+        or (request.family, kind, structure, carrier) not in NULLSAFE_JOIN_CELLS
+        or not _unit_written(plan)
+    ):
+        return None
+    return (request.family, kind, structure, carrier), frozenset(calls)
+
+
+def nullsafe_join_calls(request) -> frozenset:
+    """The JOIN `on` `same_value` calls emission admits (nullsafe_join_cell);
+    empty outside every cell and while emission derives as main."""
+    cell = nullsafe_join_cell(request)
+    return frozenset() if cell is None else cell[1]
 
 
 def resolved_comparison_realization(
@@ -4895,8 +5170,10 @@ def resolved_scalar_call_realization(
 
     ``rows_both_sides`` is the comparison law's row-read fact (default: the
     refusing one) and ``float_cell`` its MySQL Float cell; `same_value` is
-    admitted exactly where `==` is. ``cell`` is a MySQL lpad or now() call's
-    cell (mysql_scalar_cell). ``mysql_checked`` marks an S01 cell
+    admitted exactly where `==` is, except in a JOIN `on`, where it opens
+    only in a null-safe JOIN cell (nullsafe_join_cell) and only over one
+    field of each side. ``cell`` is a MySQL lpad or now() call's cell
+    (mysql_scalar_cell). ``mysql_checked`` marks an S01 cell
     (mysql_checked_cell) of `abs`.
     """
     if symbol.namespace is SymbolNamespace.CALLABLE and symbol.name == "now":

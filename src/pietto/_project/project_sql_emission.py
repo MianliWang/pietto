@@ -164,9 +164,10 @@ def realize_project_sql(request):
                 InputError("emission_selector", "Invalid prepared emission roots."),
             ),
         )
-    # Rule two: a refused MySQL statement reports main's blockers, also when
-    # a check after emission_blockers refuses it; so does a paired statement
-    # whose emission does not give its form's SQL, names aside.
+    # Rule two: a refused MySQL statement or null-safe JOIN cell statement
+    # reports main's blockers, also when a check after emission_blockers
+    # refuses it; so does a paired statement whose emission does not give
+    # its form's SQL, names aside.
     form = pairing.project_form(request)
     outcome = rows.as_main_if_refused(
         request,

@@ -14,6 +14,7 @@ import pytest
 pytest.importorskip("fcntl", reason="the live witness needs the POSIX job runtime")
 
 import _pietto_execution_jobs_probe as workspace_probe
+import _pietto_sql_nullsafe_cells as nullsafe_cells
 from pietto._project import project_public_r2_proposal as proposal
 
 
@@ -1420,6 +1421,9 @@ def _world_query(directory, world, body, *, name="result", dialect="mysql"):
         outcome = build(directory, dialect, body)
     elif world == "words":
         _, outcome = emission.lpad_now_world(directory, world, dialect, body)
+    elif world == "nullsafe":
+        contract = nullsafe_cells.contract(dialect, "S1", "int")
+        outcome = nullsafe_cells.build(directory, body, contract)
     else:
         _, outcome = getattr(emission, world + "_world")(directory, dialect, body)
     assert outcome.artifact is not None
@@ -1496,7 +1500,8 @@ _FIRST = (
 )
 # One MySQL form of each slice that the unreleased Phase77 opened, with the
 # world its own tests build it in: S06 one that R2 executed refined and one
-# that failed at its first page, and S02 beside S01.
+# that failed at its first page, S06's `same_value` in a JOIN `on`, and S02
+# beside S01.
 PHASE77_MYSQL_FORMS = {
     "S05": ("agg", _STATISTIC),
     "S06_join": (
@@ -1509,6 +1514,10 @@ PHASE77_MYSQL_FORMS = {
         "floats",
         "table result:\n    from f6s\n    select:\n        id\n"
         "        r = same_value(f1, f2)\n",
+    ),
+    "S06_nullsafe_join": (
+        "nullsafe",
+        nullsafe_cells.program("mysql", "inner", "S1", "int"),
     ),
     "S09": (
         "typed",
@@ -1551,6 +1560,11 @@ MYSQL_0111_FORMS = {
     "S06": (
         "floats",
         "table result:\n    from f6s\n    select:\n        id\n        r = f1 is None\n",
+        _WORKSPACE,
+    ),
+    "S06_nullsafe_join": (
+        "nullsafe",
+        nullsafe_cells.program("mysql", "inner", "S1", "int", function=False),
         _WORKSPACE,
     ),
     "S07": (

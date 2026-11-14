@@ -1357,6 +1357,28 @@ def join_rows(variant, target="postgres"):
             [NULL, NULL],
             [NULL, NULL],
         ]
+    if variant in {"inner_nulls", "left_nulls", "right_nulls"}:
+        # `same_value` over (row id, group key): left (10,1) (11,1) (12,2) (13,NULL)
+        # (14,3), right (10,0) (11,1) (98,1) (99,NULL). Each 1 matches both 1s and
+        # NULL matches NULL; LEFT adds 2 and 3, RIGHT adds 0, null-extended.
+        matched = [
+            [_int(a), _int(b), _int(c), _int(d)]
+            for a, b, c, d in (
+                ("10", "1", "11", "1"),
+                ("10", "1", "98", "1"),
+                ("11", "1", "11", "1"),
+                ("11", "1", "98", "1"),
+            )
+        ] + [[_int("13"), NULL, _int("99"), NULL]]
+        unmatched = {
+            "inner_nulls": [],
+            "left_nulls": [
+                [_int("12"), _int("2"), NULL, NULL],
+                [_int("14"), _int("3"), NULL, NULL],
+            ],
+            "right_nulls": [[NULL, NULL, _int("10"), _int("0")]],
+        }
+        return matched + unmatched[variant]
     if variant == "restricted":
         # FULL over the same retained left side: the matched BIG pairs plus the
         # two right-only rows. This corpus has no left-only partner, so the
@@ -2733,7 +2755,7 @@ def check_emission_variant(observation, document, target, case_id, variant_name)
         ):
             raise ValueError("VALUES typed BAG or metadata mismatch")
         return
-    if case_id in {"W_join_shapes", "W_join_values", "V_join_full"}:
+    if case_id in {"W_join_shapes", "W_join_values", "V_join_full", "V_join_nullsafe"}:
         expected_rows = join_rows(variant_name, target)
         if Counter(
             json.dumps(row, sort_keys=True) for row in observation["rows"]
@@ -2758,6 +2780,11 @@ def check_emission_variant(observation, document, target, case_id, variant_name)
             c["nullable"] for c in document["columns"]
         ] != [False, True, False, True, False, False, "unknown"]:
             raise ValueError("JOIN scalar projection nullability mismatch")
+        # `same_value` narrows no output, also under INNER (D77.52).
+        if case_id == "V_join_nullsafe" and [
+            c["nullable"] for c in document["columns"]
+        ] != [variant_name == "right_nulls", True, variant_name == "left_nulls", True]:
+            raise ValueError("null-safe JOIN nullability mismatch")
         return
     if (case_id, variant_name) in MIGRATED_JOIN_ROWS:
         expected_rows = MIGRATED_JOIN_ROWS[case_id, variant_name]

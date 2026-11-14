@@ -466,9 +466,10 @@ def field_premise_problems(premises, representation):
 
 
 def emission_blockers(request: PreparedEmission, *, _guarded=None):
-    """Every refusal of the statement; a refused MySQL statement reports
-    main's (rows.as_main_if_refused). Guard preparation defers the pending
-    enforcement, so only another blocker refuses a guarded statement."""
+    """Every refusal of the statement; a refused MySQL statement or null-safe
+    JOIN cell statement reports main's (rows.as_main_if_refused). Guard
+    preparation defers the pending enforcement, so only another blocker
+    refuses a guarded statement."""
     return rows.as_main_if_refused(
         request,
         lambda: (
@@ -637,6 +638,7 @@ def _emission_blockers(request: PreparedEmission, _guarded):
             or joining.admitted_join_shape(
                 plan,
                 request.family,
+                rows.nullsafe_join_calls(request),
                 # This reader's own S14 pairing check.
                 paired=pairing.project_form(request) is not None,
             )

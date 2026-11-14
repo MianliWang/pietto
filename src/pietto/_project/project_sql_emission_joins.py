@@ -143,7 +143,9 @@ def sited_admitted(expression, family, paired=False) -> bool:
     its own (one the JOIN reads, or one that reads its rows), and a call inside
     an aggregate argument; joined LET, WHERE and ON sites keep their limits.
     MySQL keeps all of them, except as PostgreSQL in a statement its reader
-    pairs with an S14 form (``paired``, `project_sql_emission_paired`)."""
+    pairs with an S14 form (``paired``, `project_sql_emission_paired`). A
+    JOIN `on` `same_value` of a qualified cell opens through
+    admitted_join_shape's ``nullsafe`` instead (rows.nullsafe_join_cell)."""
     site = expression.site
     if type(site) is row.ProjectSQLJoinedSite:
         return (
@@ -207,9 +209,12 @@ def compiled_sited_problem(records, executable):
     return None
 
 
-def admitted_join_shape(plan, family, *, paired=False) -> bool:
+def admitted_join_shape(plan, family, nullsafe=frozenset(), *, paired=False) -> bool:
     """Ordered JOIN chains over admitted inputs with the existing row tail;
-    ``paired`` as for `sited_admitted`."""
+    ``paired`` as for `sited_admitted`.
+
+    ``nullsafe`` holds the refs of the JOIN `on` `same_value` calls a cell
+    admits (rows.nullsafe_join_calls); every other call keeps its limits."""
     if not plan.joins or not resulting.boundaries_admitted(plan):
         return False
     if not setting.bodies_admitted(plan):
@@ -239,6 +244,7 @@ def admitted_join_shape(plan, family, *, paired=False) -> bool:
             plan_windows.ProjectSQLWindowReference,
         }
         and not sited_admitted(expression, family, paired)
+        and expression.ref not in nullsafe
         for expression in plan.expressions
     ):
         return False

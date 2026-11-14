@@ -9,6 +9,7 @@ import pytest
 
 import _pietto_sql_emission as probe
 import _pietto_sql_float_cells as cells
+import _pietto_sql_nullsafe_cells as nullsafe
 import _pietto_sql_emission_portable as portable
 import _pietto_sql_emission_pure_boundary as pure
 from pietto._project import project_sql_emission_aggregation as grouping
@@ -671,9 +672,9 @@ def test_a_mysql_float_row_cell_refused_for_another_reason_keeps_mains_list(
 
 
 @pytest.mark.parametrize("target", ("postgres", "mysql"))
-def test_a_null_safe_join_condition_has_no_form_on_either_target(tmp_path, target):
-    """The qualification's null-safe JOIN matched, but `same_value` in an ON
-    has no PostgreSQL form, so MySQL opens none either."""
+def test_a_float_world_null_safe_join_condition_keeps_its_refusal(tmp_path, target):
+    """A null-safe ON over the S06 Float world (Text keys beside `v`, one
+    column selected) is outside every null-safe JOIN cell on both targets."""
     body = cells.query(
         "from f6o",
         "inner join f6i on same_value(f6i.v, f6o.v)",
@@ -974,6 +975,115 @@ def test_a_tampered_mysql_anti_cell_document_is_refused(tmp_path, tamper):
         pure.Status.INVALID_RELATION,
         "MySQL Float row comparison cell",
     )
+
+
+# Programs outside every null-safe JOIN cell that emission, forced past the
+# cell law, emits: the pure boundary sees each in the document, except a
+# relation alias `let`, an inlined `def` and a source key, which change the
+# document only in source positions or not at all.
+NULLSAFE_FORGED = (
+    *("same_table", "literal_operand", "same_side_operands", "non_null_operand"),
+    *("int4_carrier", "text_width_1000", "text_domains_differ"),
+    *("unselected_wide_text", "unselected_float"),
+    *("select_subset", "select_reordered", "select_repeated"),
+    *("relation_alias_let_where", "left_where_is_none", "left_where_other"),
+    *("chain_after_left", "chain_before_equality"),
+    *("semi_before_join", "anti_before_join", "inner_order_by", "mixed"),
+)
+
+
+def _forged_nullsafe(directory, monkeypatch, source, contract):
+    """The artifact and its document when emission admits every `same_value`
+    call of a JOIN `on`, as if its cell law were bypassed."""
+    from pietto._project import project_sql_plan_expressions as plan_rows
+
+    with monkeypatch.context() as patch:
+        patch.setattr(
+            rows,
+            "nullsafe_join_calls",
+            lambda request: frozenset(
+                e.ref
+                for e in request.plan.expressions
+                if type(e) is plan_rows.ProjectSQLScalarCall
+                and e.callee_symbol.name == "same_value"
+            ),
+        )
+        outcome = nullsafe.build(directory, source, contract)
+        artifact = outcome.artifact
+        assert outcome.status == "VERIFIED" and artifact is not None
+        observed = portable.export_emission_observation(artifact, artifact.request)
+    assert observed.canonical_bytes is not None
+    return artifact, observed.canonical_bytes
+
+
+@pytest.mark.parametrize("target", ("postgres", "mysql"))
+@pytest.mark.parametrize("name", NULLSAFE_FORGED)
+def test_a_null_safe_join_condition_forged_past_its_cell_is_refused(
+    tmp_path, monkeypatch, target, name
+):
+    """Emission forced to admit a JOIN `on` `same_value` outside every cell.
+    The live verifier refuses it by the emission blockers it derives again
+    (nullsafe_join_cell, as emission calls it); the pure boundary refuses it
+    from the document's own structure, by the cell table it restates."""
+    artifact, document = _forged_nullsafe(
+        tmp_path, monkeypatch, *nullsafe.refused(target)[name]
+    )
+    assert verify_project_sql_emission(artifact, artifact.request).issues == (
+        "plan_ast_correspondence",
+    )
+    refused = pure.parse_emission_observation(document)
+    assert (refused.status, refused.detail) == (
+        pure.Status.INVALID_RELATION,
+        "null-safe JOIN condition cell",
+    )
+
+
+def test_the_pure_null_safe_join_tables_restate_emissions():
+    assert pure._NULLSAFE_JOIN_STRUCTURES == rows.NULLSAFE_JOIN_STRUCTURES
+    assert pure._NULLSAFE_JOIN_CARRIERS == rows.NULLSAFE_JOIN_CARRIERS
+    assert pure._NULLSAFE_JOIN_CELLS == rows.NULLSAFE_JOIN_CELLS
+    assert all(
+        pure._nullsafe_join_fields(*cell[0:1], *cell[2:])
+        == rows.nullsafe_join_fields(*cell[0:1], *cell[2:])
+        for cell in rows.NULLSAFE_JOIN_CELLS
+    )
+
+
+def _narrowed(records):
+    """An INNER S1 document whose left `v` column claims non-null."""
+    fields = {tuple(r["ref"]): r["fields"] for r in records}
+    (join,) = (r["fields"] for r in records if r["ref"][0] == "join_body")
+    column = fields[tuple(fields[tuple(join["columns"][1])]["column"])]
+    fields[tuple(column["realization"])]["nullable"] = False
+
+
+def _same_side(records):
+    """The ON's right operand reads the left input's `v`."""
+    fields = {tuple(r["ref"]): r["fields"] for r in records}
+    (join,) = (r["fields"] for r in records if r["ref"][0] == "join_body")
+    left, right = (
+        fields[tuple(operand)]
+        for operand in fields[tuple(join["predicate"])]["operands"]
+    )
+    right["column"], right["scope"] = left["column"], left["scope"]
+
+
+@pytest.mark.parametrize("target", ("postgres", "mysql"))
+@pytest.mark.parametrize(
+    "tamper",
+    (_rewritten("join_body", "join_kind", "full"), _narrowed, _same_side),
+    ids=("full", "narrowed", "same_side"),
+)
+def test_a_tampered_null_safe_join_document_is_refused(tmp_path, target, tamper):
+    artifact = nullsafe.cell(tmp_path, target, "inner", "S1", "int").artifact
+    assert artifact is not None
+    observed = portable.export_emission_observation(artifact, artifact.request)
+    assert observed.canonical_bytes is not None
+    document = json.loads(observed.canonical_bytes)
+    tamper(document["records"])
+    refused = pure.parse_emission_observation(json.dumps(document))
+    assert refused.status is pure.Status.INVALID_RELATION
+    assert refused.detail == "null-safe JOIN condition cell"
 
 
 @pytest.mark.parametrize("target", ("postgres", "mysql"))

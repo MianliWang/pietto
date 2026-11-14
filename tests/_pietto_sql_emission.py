@@ -152,6 +152,8 @@ VARIANTS = {
         "left_scalar_projections",
     ),
     "V_join_full": ("restricted", "null_keys"),
+    # Phase77 S06 (D77.52 O9): `same_value` in a JOIN `on`, unit C on both targets.
+    "V_join_nullsafe": ("inner_nulls", "left_nulls", "right_nulls"),
     "V_row_blocked": (
         "float_arithmetic",
         "float_comparison",
@@ -4845,6 +4847,9 @@ JOIN_LABELS = {
     "via_refined": ("a", "k"),
     "restricted": ("a", "b"),
     "null_keys": ("a", "b"),
+    **dict.fromkeys(
+        ("inner_nulls", "left_nulls", "right_nulls"), ("l_id", "l_v", "r_id", "r_v")
+    ),
 }
 # One filtered producer carrying, in one row, a retained source value, an authored
 # literal, a computed value and an ordered LET result. A LEFT row with no match
@@ -4983,6 +4988,22 @@ query result:
         a = sa.value
         b = r.rk
 """,
+    # D77.52 O9: the unit-C statement (two sources over different tables, no
+    # key, exactly `id` and a nullable Int `v`, every field selected in order)
+    # over left keys [1,1,2,NULL,3] and right keys [0,1,1,NULL]; for RIGHT the
+    # same text is the cell S1r.
+    **{
+        ("V_join_nullsafe", kind + "_nulls"): f"""query result:
+    from lhs
+    {kind} join rhs on same_value(lhs.v, rhs.v)
+    select:
+        l_id = lhs.id
+        l_v = lhs.v
+        r_id = rhs.id
+        r_v = rhs.v
+"""
+        for kind in ("inner", "left", "right")
+    },
     # G5 / C06 + G6: the declared relation's whole exposed domain, including a
     # duplicate key across parent and child, under BIND_SAFE with a bound data
     # literal and a structural LIMIT larger than the domain.
@@ -5099,6 +5120,24 @@ def corrective_fixture(target, case, variant):
                     _int_field(target, "rid", "row id", nullable=False, **wide),
                 ],
             ),
+        ]
+    elif case == "V_join_nullsafe":
+        header = (
+            "shape Side:\n    id: Int\n    v: Int | None\n"
+            f'source lhs: Side = {target}.table("lhs.locator.not.sql")\n'
+            f'source rhs: Side = {target}.table("rhs.locator.not.sql")\n'
+        )
+        sources = [
+            _declared_source(
+                target,
+                name,
+                AGGREGATE_RELATIONS[relation],
+                [
+                    _int_field(target, "id", "row id", nullable=False, **wide),
+                    _int_field(target, "v", "group key", nullable=True, **wide),
+                ],
+            )
+            for name, relation in (("lhs", "grouped"), ("rhs", "keys"))
         ]
     else:
         header = (

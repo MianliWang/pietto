@@ -66,7 +66,9 @@
   query whose source has other fields, read or not, or the same fields in
   another order (a `Decimal`, a `Text` of width 255 or 4000, a third
   `Float`, a nullable key, or the same-row table as a JOIN input).
-  `same_value` in an `on` has no form on either target. A statement of the
+  A null-safe `same_value` `on` opens only in the cells of
+  [its own fragment](77-s06-nullsafe-join.md), none of them `Float` on
+  MySQL. A statement of the
   forms above that emission refuses for another reason, such as an output
   label past 256 characters, reports the `0.1.11` blockers, this PIE-B1003
   included.
