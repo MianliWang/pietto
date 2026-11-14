@@ -34,7 +34,10 @@ from _pietto_sql_duckdb import PROJECTION, contract, filtered, write
 
 from pietto import execution
 from pietto._project import project_duckdb_emission as adapter
+from pietto._project import project_duckdb_contract as duckdb_contract
 from pietto._project import project_duckdb_result as results
+from pietto._project import project_execution_reader as reader
+from pietto._project import project_result_binding as binding
 from pietto._project.project_result_contract import ResultError
 from pietto.execution import _duckdb as route
 
@@ -1191,12 +1194,36 @@ def test_the_result_binding_refuses_a_value_that_fails_full_validation(
     facts = adapter.execution_facts(projection(tmp_path / "p")._template)
     ids = pa.array([1], pa.int64())
     valid = pa.table({"id": ids, "note": pa.array(["a"], pa.string())})
-    bound = results.bind_result(pa, valid, facts)
+    bound = reader.bind_duckdb_result(pa, valid, facts)
     assert bound.schema.equals(results.result_schema(pa, facts))
     invalid = pa.table({"id": ids, "note": _invalid_utf8(pa)})
     with pytest.raises(ResultError) as refused:
-        results.bind_result(pa, invalid, facts)
+        reader.bind_duckdb_result(pa, invalid, facts)
     assert refused.value.category == "DUCKDB_RESULT_CHECK"
+
+
+def test_the_shared_binding_closes_the_duckdb_storage_kinds() -> None:
+    """D77.32's wiring: the shared result binding holds one storage kind per
+    admitted type, the contract's own spellings, and each has its Arrow
+    type; PostgreSQL and MySQL keep theirs."""
+    pa = _pyarrow()
+    kinds = binding._storages("duckdb", False)
+    assert binding._storages("duckdb", True) == kinds
+    assert {tag: kind for tag, (kind,) in kinds.items()} == dict(
+        zip(("Int", "Bool", "Text", "Float"), duckdb_contract.STORAGES, strict=True)
+    )
+    assert [results.arrow_type(pa, tag) for tag in kinds] == [
+        pa.int64(),
+        pa.bool_(),
+        pa.float64(),
+        pa.string(),
+    ]
+    assert not {kind for (kind,) in kinds.values()} & {
+        kind
+        for family in ("postgres", "mysql")
+        for spelled in binding._storages(family, True).values()
+        for kind in spelled
+    }
 
 
 def test_the_session_settings_are_the_spec_table_in_its_order() -> None:

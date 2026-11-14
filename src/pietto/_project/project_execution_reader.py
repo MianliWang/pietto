@@ -277,6 +277,34 @@ def bind_stored_output(output, route):
     return _bind_output(output, route, None, stored=True)
 
 
+def bind_duckdb_result(pa, table, facts):
+    """The `duckdb_arrow` route's result under its compiled schema (D79.04),
+    else DUCKDB_RESULT_CHECK.
+
+    `to_arrow_table()` marks every field nullable, so the labels and their
+    order, each column's Arrow type of its field's DuckDB storage kind, no
+    NULL in a non-null field and full validation are checked before the
+    compiled nullability is restored. `pa` is the PyArrow the route verified.
+    """
+    from pietto._project.project_duckdb_result import result_schema
+
+    schema = result_schema(pa, facts)
+    if type(table) is not pa.Table or table.schema.names != schema.names:
+        raise ResultError("DUCKDB_RESULT_CHECK")
+    for column, field in zip(table.columns, schema, strict=True):
+        if (
+            type(column.type) is not type(field.type)
+            or not column.type.equals(field.type)
+            or (not field.nullable and column.null_count)
+        ):
+            raise ResultError("DUCKDB_RESULT_CHECK")
+        try:
+            column.validate(full=True)
+        except Exception:
+            raise ResultError("DUCKDB_RESULT_CHECK") from None
+    return pa.Table.from_arrays(table.columns, schema=schema)
+
+
 def _bind_output(output, route, metadata, *, stored):
     from pietto._project.project_result_output import (
         NestedOutputColumn,

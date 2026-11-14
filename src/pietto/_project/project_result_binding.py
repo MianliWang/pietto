@@ -557,6 +557,14 @@ def _storages(family, general):
             "Timestamp": ("my_datetime",),
             "UUID": ("my_uuid_bytes",),
         },
+        # D79.04: the duckdb_arrow route's kinds; project_duckdb_result gives
+        # each its Arrow type.
+        "duckdb": {
+            "Int": ("arrow_int64",),
+            "Bool": ("arrow_bool",),
+            "Float": ("arrow_float64",),
+            "Text": ("arrow_string",),
+        },
     }.get(family, {})
     if general and family == "mysql":
         storages = {

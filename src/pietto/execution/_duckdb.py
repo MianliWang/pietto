@@ -400,8 +400,12 @@ class DuckDBAttempt:
             self._transaction = "COMMIT_ACK"
             self._checkpoint()
             phase = "result"
+            from pietto._project import project_execution_reader as reader
+
             self._batches = results.DuckDBBatches(
-                self._pa, results.bind_result(self._pa, table, self.facts), self.limits
+                self._pa,
+                reader.bind_duckdb_result(self._pa, table, self.facts),
+                self.limits,
             )
             self._delivery = "OPEN"
             return self

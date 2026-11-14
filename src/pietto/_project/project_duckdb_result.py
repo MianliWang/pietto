@@ -2,13 +2,11 @@
 docs/spec/duckdb-arrow-route-v1.md, "Session and attempt", step 4).
 
 `to_arrow_table()` returns `int64`, `string`, `bool` and `double` columns and
-marks every field nullable. This owner checks the labels, their order and
-the types against the compiled result, restores its nullability, refuses a
-NULL in a non-null field or a value that fails full validation
-(`DUCKDB_RESULT_CHECK`, PIE-R3005), and cuts the batches under the attempt's
-limits (PIE-R3004). Phase77 S23 owns the shared result readers; this kind is
-wired into project_result_binding and project_execution_reader only after
-S23 is integrated, so until then the route's attempt calls it directly. It
+marks every field nullable. The shared result readers hold this kind (D77.32's
+wiring): project_result_binding closes the DuckDB storage kinds of each type,
+and project_execution_reader binds the result against the compiled schema
+built here (`DUCKDB_RESULT_CHECK`, PIE-R3005). This owner gives each kind its
+Arrow type and cuts the batches under the attempt's limits (PIE-R3004). It
 imports no PyArrow: the route passes the pinned module it verified.
 """
 
@@ -16,16 +14,24 @@ from __future__ import annotations
 
 from typing import Any
 
+from pietto._project.project_duckdb_contract import FAMILY
+from pietto._project.project_result_binding import _storages
 from pietto._project.project_result_contract import ResultError
 
 __all__: tuple[str, ...] = ()
 
-STORAGE = {"Int": "int64", "Text": "string", "Bool": "bool_", "Float": "float64"}
+ARROW = {
+    "arrow_int64": "int64",
+    "arrow_string": "string",
+    "arrow_bool": "bool_",
+    "arrow_float64": "float64",
+}
 
 
 def arrow_type(pa: Any, tag: str) -> Any:
-    """The Arrow type of one admitted logical type."""
-    return getattr(pa, STORAGE[tag])()
+    """The Arrow type of one admitted logical type's DuckDB storage kind."""
+    (kind,) = _storages(FAMILY, False)[tag]
+    return getattr(pa, ARROW[kind])()
 
 
 def result_schema(pa: Any, facts: Any) -> Any:
@@ -41,25 +47,6 @@ def result_schema(pa: Any, facts: Any) -> Any:
             for label, k in facts.result
         ]
     )
-
-
-def bind_result(pa: Any, table: Any, facts: Any) -> Any:
-    """The engine's result under the compiled schema, or DUCKDB_RESULT_CHECK."""
-    schema = result_schema(pa, facts)
-    if type(table) is not pa.Table or table.schema.names != schema.names:
-        raise ResultError("DUCKDB_RESULT_CHECK")
-    for column, field in zip(table.columns, schema, strict=True):
-        if (
-            type(column.type) is not type(field.type)
-            or not column.type.equals(field.type)
-            or (not field.nullable and column.null_count)
-        ):
-            raise ResultError("DUCKDB_RESULT_CHECK")
-        try:
-            column.validate(full=True)
-        except Exception:
-            raise ResultError("DUCKDB_RESULT_CHECK") from None
-    return pa.Table.from_arrays(table.columns, schema=schema)
 
 
 class DuckDBBatch:
