@@ -134,11 +134,15 @@ up in later batches; until then each MySQL path fails closed with a
 deterministic diagnostic. Semantics and IR stay dialect-neutral, a form opens
 on MySQL only after a passing two-database run (D74.09), and the capability
 page and the release notes list what MySQL refuses. Project `sum(Int)`
-(J12, D76.10) is an approved exception with the target Phase77; `stddev` of
-an `Int` (J12, D76.10) is one with no target phase (D77.34), and MySQL
-nested results (D71.05) one with the target of the separate later nested
-work package (D77.32). Each release request lists the MySQL forms beyond the
-cadence (D76.09).
+(J12, D76.10) is an approved exception with the target Phase77, which
+opened it only in the S01 and S03 forms. Its other forms take the
+fail-closed default (D77.16): they stay refused, each release lists them
+under J12 (3) as not yet met, and their target is an owner question in the
+D77.07 packet, with no new target phase until the owner answers.
+`stddev` of an `Int` (J12, D76.10) is one with no target phase (D77.34), and
+MySQL nested results (D71.05) one with the target of the separate later
+nested work package (D77.32). Each release request lists the MySQL forms
+beyond the cadence (D76.09).
 
 ### Editor work package
 

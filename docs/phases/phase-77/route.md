@@ -282,3 +282,203 @@ re-run is new evidence and never stands in for it. While the owner is away, a
 new owner-level question takes the fail-closed default: the refusal stays, the
 item is deferred and no public contract changes, and the question enters the
 D77.07 packet (D77.16).
+
+## S26 closure record
+
+S26 ran on 2026-11-14 on the published head of the fourth `0.1.12` batch,
+`e18d3673a4d4151d0bb73eafdfe8c68fe24745f8` (tree
+`9b7bc006fad6a2f9cff43e0bb91cee01c245a2e9`), whose natural CI had not
+finished, against the Phase baseline `f8ccd2c4`, the parent of the Gate 0
+batch. That head holds every Phase77 product slice that opens a form,
+S06's `same_value` in a JOIN `on` (D77.52) and every Wave A slice. S26
+changes only documentation: it opens no form and changes no refusal.
+Phase77 delivers no form of S04, S19 or S20, and the forms each slice left
+refused are listed below. Premise 3's `ARCHITECTURE_DECISION`, the
+`sum(Int)` strategy that S01 implemented as a guarded `SUM`, has no AD row
+yet; the lead records it, with the alternatives and premises considered,
+before S27's audit boundary.
+
+### Acquisition
+
+The review covers `f8ccd2c4..e18d3673` (74 commits, 57 of them changing
+tests, scripts or `src`) by the
+[phase-end acquisition consolidation](../../development.md#phase-end-acquisition-consolidation).
+Tests changed in 186 files (48,440 lines added, 832 removed); 12 of those
+files, about 24,400 lines today, are the test-only modules that PL.23's
+audit finding 19 moved out of the wheel (`3458ee3b`).
+
+- **New shared helpers.** Three, each the one owner of its slice's cells
+  and probe world, built in process in a test's own temporary directory,
+  with no process, database or state shared between tests:
+  `tests/_pietto_sql_float_cells.py` (S06 and R01's `Float` row-comparison
+  cells, read by seven test owners), `tests/_pietto_sql_nullsafe_cells.py`
+  (S06's JOIN `on` cells, four owners) and `tests/_pietto_sql_paired.py`
+  (Wave A's paired forms, two owners). Kept.
+- **Moved helpers.** The twelve modules of `3458ee3b` are a move, not new
+  acquisition. The move also changed thirteen native probe children in nine
+  `tests/_pietto_execution_*_probe.py` helpers, which now load
+  `verify_store` through `STORE_VERIFIER`; its message states that the
+  native jobs campaigns that run them did not run, Git records none since,
+  and natural CI does not run them. Recorded as not observed natively:
+  owner, those nine helpers; latest point, the next native jobs campaign,
+  which runs them before its result counts.
+- **New module fixtures.** Four, each building one project or template
+  under `tmp_path_factory` per worker, offline: `clocked`
+  (`tests/test_results_timestamp_uuid.py`), `refinements`
+  (`tests/test_execution_refinement_jit.py`), `now_built`
+  (`tests/test_jobs_recovery.py`) and `mysql_typed`
+  (`tests/test_execution_binding.py`). Their consumers only read what they
+  built. Kept.
+- **Processes and resources.** Three new `run_process` uses in
+  `tests/test_cli_lsp.py`, which the
+  [E-C audit](../../editor/ed03-completion-audit.md) reviewed; no other new
+  subprocess, database, container or `ci_workload` declaration.
+- **Repeated preparation.** Two low-value repetitions stay with their
+  reasons: the formatting corpus of `tests/test_cli_lsp.py` and
+  `tests/test_parser_format.py` (different oracles, and tests do not import
+  test modules), and the `Float` refusal inputs shared by the `emit-sql`
+  and compile API tests (independent consumers).
+- **Result.** No significant repeated acquisition: no consolidation and no
+  structural or wall-time gain (no gain).
+
+P76-PERF-4: the oracle `tests/test_repo_reader_acquisition.py` and
+`tests/_pietto_repo_facts.py` are unchanged since `f8ccd2c4`. Its corpus is
+every `*.py` under `src/pietto` plus its three named test files,
+`tests/test_repo_test_layout.py`,
+`tests/test_semantic_fail_closed_capability_lookup.py` and
+`tests/test_semantic_capability_facts.py`, which are unchanged since
+`f8ccd2c4`; the `src/pietto` files went from 349 at `f8ccd2c4` to 351 at
+`0.1.11` (two editor modules) and 342 at `e18d3673` (the twelve moved
+modules out; `project_sql_emission_paired.py`,
+`project_sql_emission_sum_forms.py` and `sql/mysql_paired.py` in). S26
+treats `3458ee3b` as a later change that touches the oracle: the corpus rule
+and the assertions are unchanged, the oracle finds the files itself, and it
+passed in the Gate 2 of every later batch. It is retained.
+
+P76-PERF-2, collected from the commits, fragments and decision rows:
+
+| Slice | Recorded |
+| --- | --- |
+| S01 (`65f75708`) | The S02 query fact is asked once per aggregation stage, the compiled cells once per stage or verification, and the pure law stops at a fourth body: linear in the sums. |
+| S03 (`adff0bce`) | Emission asks once per aggregation stage; compiled replay and the pure boundary derive the form a fixed number of times per reading. |
+| S09 (`271c6c14`) | Each law walks the WHERE's `and`/`or` nodes once: linear in the chain. |
+| S12 (`b768d63d`) | Emission's scan of a plan is counted once per plan. |
+| S15 (`2a6159b3`), R08 (`d0ea1db6`) | Emission derives the cells once per projection. |
+| R2's refusal (`75d658d1`) | A second derivation of a VERIFIED MySQL statement in `compile_query`: 16 to 33 percent of its time and up to 1.5 times its peak memory, accepted (D77.73). |
+| S05, S06, S07, S13, R01, R02, S06's JOIN `on`, the stages over rows without fields, the `now()` slices | No operation count or input-scale measure is recorded. S26 collects and does not measure for them. |
+
+The PIE-B1007 node limit stays 32768 and the compiled `VERSIONS` stay
+`(8, 1, 8, 1)`. The caches that Phase77 added are call-scoped, with one
+exception: S12 put `functools.lru_cache(maxsize=1)` on
+`_reads_captured_field(plan)` in `_project/project_sql_emission_rows.py`.
+The plan compares by identity and the cache holds the last plan, so the
+answer is the one computed without it, and the last plan stays alive. A new
+production cache goes to the owner (above); S26 refers it there and changes
+no code. P76-PERF-3 applies when the profile below reads verifier runs per
+top-level call.
+
+The ten-node profile of the development rules has not run: the fourth
+batch is Phase77's last product batch, and its natural CI had not finished.
+S27 runs it on that CI's health before its audit boundary, reuses the E-C
+review for nodes that did not change, and records the profile as not
+observed if the health cannot be read. The E-C audit's debt, a
+`verify_project_sql_plan` that is not memoized and runs 4 to 29 times per
+case, stays debt: a memo is a new production memo, which goes to the
+owner, and handing the verified plan to the five callers in
+`emit_project_sql` changes the path of every Phase77 cell after the
+product slices. Owner, `_project/project_sql_plan_verification.py` and its
+emission callers; latest point, the phase-end acquisition consolidation of
+the next phase that changes project SQL emission, which S27's handoff
+names.
+
+### Capabilities and cadence
+
+S26 ran one plain example of each form below through `check` and `emit-sql`,
+single file and project, PostgreSQL and MySQL, at `e18d3673`, and wrote the
+[capability page](../../capabilities.md) rows that were missing: `Float /`,
+`stddev` of an `Int`, `sum` and `avg` of a `Float`, `count_distinct` of a
+`Float`, `lpad` and `now()`, `add_months`, `concat`, `round` with digits
+and `date_trunc`, `Text(x)` of an `Int`, and a `Float` literal list over
+two row reads; it qualified the `avg`, `select distinct` and set-operation
+rows. Its checks of the `Float` arithmetic and sign, `sum(Decimal)`,
+`variance` of an `Int`, `string_agg`, `Float` window key,
+`count_distinct(a, b)`, aggregate window, `Decimal + Int`, `sum(Int)`,
+`values` and `generate_series` rows agreed with the page.
+
+Under the [MySQL cadence](../../roadmap.md#mysql-cadence) the `0.1.12`
+release request lists, under J12 (3), every MySQL refusal below (D76.09).
+S26 counts no phases per row: listing them all is the broad default. The
+approved exceptions are project `sum(Int)`, whose target Phase77 is met only
+in the S01 and S03 forms, `stddev` of an `Int`, which has no target
+(D77.34), and nested results, which belong to the nested work package
+(D77.32). No decision sets a target for the other `sum(Int)` forms, so they
+take the fail-closed default (D77.16): they stay refused, each release lists
+them under J12 (3) as an approved exception not yet met, and they have no
+new target phase until the owner answers. That question enters the D77.07
+packet. So does D77.52's O7, the separate decision on a MySQL `Float`
+`same_value` in a JOIN `on` after S06's publication, which has not been
+taken, so that form keeps its refusal by the same default. C04's E4 and
+C06's `UUID` enter the packet with their default, the refusal (D77.29). S26
+reports all four here.
+
+| MySQL project form | Code and detail | Disposition | Decisions |
+| --- | --- | --- | --- |
+| `Int` arithmetic not proved to fit 64 bits, outside S01's cell | PIE-B1002 `arithmetic_outside_physical_range` | S01 opened its cell; the rest kept | D77.29 (C02), D77.48 |
+| `sum` of an `Int` outside the S01 and S03 forms | PIE-B1004 `sum_int_aggregate_range_proof_missing` | approved exception, met only in the S01 and S03 forms; the rest kept by the default, with no target until the owner answers (D77.07 packet) | D77.16, D77.34, D77.53 |
+| `stddev`, `variance`, `pvariance`, `pstdev` of an `Int` (single files: PIE-B1000) | PIE-B1003 `<function>_int_not_admitted_on_target` | S04 kept whole (R04) | D77.29, D77.34 |
+| `sum`, `avg` of a `Float`; `stddev`, `variance`, `pvariance`, `pstdev` of a `Float` outside S05's shape | PIE-B1004 `float_aggregate_finite_result_proof_missing` | kept (R05, C03) | D77.29, D77.45 |
+| `==`, `!=` or `same_value` of two `Float` row reads outside S06's forms; such a test in `any(...)`, or in `not any(...)` outside R02's forms | PIE-B1003 `comparison_type_pair_not_admitted` | kept (R01, R03) | D77.29, D77.30, D77.47 |
+| A `Float` `x in name` or `x not in name` in a WHERE over a `let` with `capture` lines | PIE-B1003 `membership_type_pair_not_admitted` | refused by R01's repair | D77.28, D77.62 |
+| `same_value` in a JOIN `on` outside S06's cells, a MySQL `Float` among them | PIE-B1003 `match_condition_not_in_row_domain`, with the `0.1.11` list | kept (O6); `Float`: O7's separate decision not taken, kept by the default (D77.07 packet) | D77.16, D77.52, D77.71 |
+| A `Float` GROUP BY key outside S07's forms, or a `percent_rank` or `cume_dist` result as a key; `select distinct` of a `Float`; `union distinct`, `intersect`, `except` over `Float` rows | PIE-B1003 `group_key_type_outside_reviewed_comparison_domain`, `distinct_field_comparison_domain_unsupported`, `set_row_equivalence_domain_unsupported` | kept (R16) | D77.08, D77.29, D77.39 |
+| `count_distinct` of a `Float`; a `Float` window key | PIE-B1003 `count_distinct_argument_outside_reviewed_int_domain`; PIE-B1002 `window_partition_comparison_domain_unsupported`, `window_order_comparison_domain_unsupported` | kept even when qualified | D77.39 |
+| `Decimal(p, s)`, `Date`, `Timestamp` header parameters outside S09's cells; a `UUID` one, and every typed one in a query that declares a `UUID` | PIE-B1003 `query_parameter_type_not_admitted_on_target` | `UUID` withdrawn (C06); reopening needs a new preregistered run and an owner decision on its carrier | D77.29, D77.57 |
+| `lpad`, `now()` outside S12's position; `add_months`; `concat` | PIE-B1003 `scalar_call_signature_not_admitted` | kept (R11, R12, R14) | D77.29, D77.44, D77.56 |
+| `lpad` with a native parameter as its text or width (both targets) | PIE-S2355; PostgreSQL PIE-B1008 through an inline scalar | kept (R13) | D77.23, D77.29 |
+| `first`, `last` of a `Bool`, `UUID`, `Date` or `Timestamp`, by another key than an `Int` or `Text`, or outside S13's forms (single files: PIE-B1000) | PIE-B1003 `first_last_not_admitted_on_target` | kept (R06, R07) | D77.29, D77.40, D77.58 |
+| `Int /` outside R08's literal-proved forms | PIE-B1003 `binary_operator_not_admitted` | kept (R08) | D77.31, D77.33, D77.75 |
+| `Int %`, `Float %` outside S15's cell | PIE-B1003 `binary_operator_not_admitted`, `float_remainder_exact_binary64_not_realized` | kept (C04) | D77.29, D77.38 |
+| `Float /` | PIE-B1003 `float_division_not_realized` | kept | D77.38 |
+| `Float` arithmetic other than between two literals; a sign on a `Float` (E4) | PIE-B1003 `float_literal_operands_required`, `unary_sign_requires_int_operand` | kept by C04's default: S15 took no E4 cell to a run | D77.29 |
+| Direct `sum(Decimal)` (S19) | PIE-B1004 `decimal_aggregate_range_proof_missing` | S19 kept whole (R17) | D77.29 |
+| Scalar calls or arithmetic over direct aggregates (S20) | PIE-B1003 `aggregate_composition_not_admitted_on_target` | S20 kept whole (R09) | D77.29 |
+| Nested results: `collect`, `unnest`, lists of one row | PIE-B1003 `collect_not_admitted_on_target` | approved exception, nested work package | D77.32 |
+| Wave A forms outside their paired forms: the conditional count, `any` and `all` over a group, `count_distinct(a, b, ...)`, aggregate windows, a `Text` literal default of `lag` or `lead`, `Decimal` arithmetic and sign, the forms beside or over JOIN rows, `max` and `min` of two `Date` values, and a single-file asof JOIN beside a FULL JOIN (PIE-B1000) | `main`'s, as the capability page gives them | Wave A opened only its paired forms; no target | D77.29 (R18), D77.35, D77.36, D77.55 |
+| Typed `values(...)`; `generate_series` | PIE-B1003 `zero_physical_source_not_admitted_on_target`; `table_function_not_admitted_on_target` | no Phase77 slice | — |
+| `Text(x)` of an `Int`; `round` with digits; `date_trunc` | PIE-B1003 `cast_realization_not_admitted`; `scalar_call_signature_not_admitted` | no Phase77 slice | — |
+| A `Float` literal list whose value and an option both read rows | PIE-B1003 `membership_type_pair_not_admitted` | no Phase77 slice | — |
+| `string_agg`; `median` and `quantile` (single files: PIE-B1000) | PIE-B1003 `aggregate_function_not_promised_in_slice8`; `quantile_not_admitted_on_target` | out of scope | the route |
+| FULL JOIN on `Int` keys; on a `Float` equality | PIE-B1003 `mysql_full_join_approved_non_support`; `comparison_type_pair_not_admitted` | approved non-support, out of scope | the route |
+| A GROUPS frame with an offset bound; EXCLUDE CURRENT ROW, GROUP or TIES (single files: PIE-B1000) | PIE-B1003 `window_frame_groups_approved_non_support_on_mysql`; `window_frame_exclusion_approved_non_support_on_mysql` | approved non-support, out of scope | [language](../../language.md#single-files-and-projects) |
+
+The other single-file MySQL refusals of `0.1.11` (PIE-B1000) stay: the
+conditional sum and a window key that names a computed `Text` `let`.
+Beside these, the release lists as known limitations: R2 on MySQL refuses
+every form that `0.1.11` refused, with PIE-R1004 `PUBLIC_R2_UNQUALIFIED_FORM`
+or its earlier detail (D77.67, D77.68), and a MySQL query that reads `now()`
+with `PUBLIC_R2_STATEMENT_SNAPSHOT` (D77.49); on both targets a `now()`
+inside a computed output and a `Timestamp` or `UUID` parameter output are
+refused at execution with PIE-R1004 `MEANING_OUTPUT` (D77.42); MySQL
+`lower`, `upper` and `replace` give NULL past `max_allowed_packet` (R15,
+D77.29); and single-file MySQL fails `INT64_MIN DIV 1` with error 1690
+where PostgreSQL returns the value, while
+[language](../../language.md#expressions) names only the overflow of
+dividing by -1 (D77.55 (14)). The
+[execution limits](../../execution.md#known-limitations) and the fragments
+give their details.
+
+### Package closure
+
+At `e18d3673`, with Python 3.13.13 and no network, `uv lock --check`
+resolved 23 packages, and `uv build` made the wheel (sha256
+`5c1bf73f0f8ac37b86465f664a551be1eb2c90a935ea0cda10233fc1ef0fef74`) and
+the sdist (`6efb80d3d02df433165a6933a3e3597337ca74fbfbb2e29a530466e13d6318f8`),
+both still versioned `0.1.11`. `scripts/package_smoke.py`'s wheel and sdist
+inspections pass on them. The wheel holds the 346 tracked files under
+`src/pietto` and nothing else beside its metadata; the sdist's 369 members
+hold no tests or documentation. Since `0.1.11` the wheel lost the twelve
+test-only modules and gained the three modules named above. Since
+`f8ccd2c4` the grammar and `src/pietto/generated` are unchanged, and the
+dependencies changed only by M77.01's pins and the locked development
+`ruff`. The Gate 2 of each `0.1.12` batch ran the installed package smoke; the
+release commit's Gate 2 runs it on the `0.1.12` version.
