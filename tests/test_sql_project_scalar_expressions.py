@@ -3590,3 +3590,32 @@ def test_mysql_float_division_forms_keep_main_refusal(tmp_path, form, policy):
         )
         for blocker in json.loads(serialize_project_sql_emission(outcome))["blockers"]
     ] == probe.REMAINDER_DIVISION_BLOCKERS[form]
+
+
+# Phase77 R08: MySQL `Int /` in its cell (template T08-1).
+
+
+@pytest.mark.parametrize("target", TARGETS)
+@pytest.mark.parametrize("form", sorted(probe.DIVISION_CELLS))
+def test_mysql_division_cells_emit_div(tmp_path, form, target):
+    """Each open form of the R08 candidate emission experiment emits on both
+    targets under either literal policy: on MySQL each cell is the bare
+    `(l DIV r)` of its literal and column read, which every reader accepts,
+    a bind-safe template binding its fixed values; PostgreSQL keeps main's
+    bytes. Under bind-safe both fix the literals in slot order."""
+    policies = ("preserve_literals", "bind_safe_literals")
+    fixed = ((), probe.DIVISION_CELL_FIXED[form])
+    for policy, sql, values in zip(
+        policies, probe.DIVISION_CELL_SQL[target][form], fixed, strict=True
+    ):
+        _, outcome = probe.division_world(
+            tmp_path / policy, target, probe.DIVISION_CELLS[form], policy
+        )
+        assert outcome.status == "VERIFIED", outcome.blockers
+        assert outcome.artifact is not None
+        assert outcome.artifact.rendered.sql.decode() == sql
+        assert tuple(
+            (value.tag, value.value) for value in outcome.artifact.fixed_values
+        ) == tuple(("Int", value) for value in values)
+        if target == "mysql":
+            probe.numeric_readers_accept(outcome)

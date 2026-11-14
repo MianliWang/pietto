@@ -2978,7 +2978,33 @@ beside `s = a + b`, beside a comparison or beside a `DECIMAL`, text or `INT`
 field, or under a WHERE), mixed Int/Float and Decimal `%` stay refused, and a
 statement still refused reports exactly the blockers it has without this
 cell. MySQL `Float /` stays refused (PIE-B1003 `float_division_not_realized`)
-and MySQL project `Int /` too.
+and MySQL project `Int /` too, outside the cell below.
+
+A MySQL project emits `Int / Int` in one unreleased (Phase77 R08) cell only,
+where an `Int` literal proves the quotient: a literal dividend over a field
+(`100 / b`), or a field over a literal divisor of 2 or more (`b / 2`). The
+field is a `SMALLINT`, `INT` or `BIGINT` field of a source declared in the
+query's own module, read by name (`b` or `nums.b`); the field and the
+literal may each stand in parentheses (`(b) / (2)`). The `/` is the whole
+value of a SELECT item of the `query` or `table` that `emit-sql --project`
+emits, and every other SELECT item is a direct read of such a field or
+another such `/`. As
+written the query reads that source directly and holds no `let`, WHERE,
+window, JOIN, GROUP BY or aggregate, HAVING, DISTINCT, ORDER BY, LIMIT,
+header parameter (read or not), set operand or read of another relation,
+and no operand or item comes from a `def`, as its argument or as the body
+of a call; a literal may be a bind-safe `?`. The SQL is the bare
+`(l DIV r)`, a literal as `CAST(2 AS SIGNED)` or `CAST(? AS SIGNED)`;
+MySQL returns NULL for a zero divisor, so the result's nullability is
+unknown. A field proves nothing, neither by its storage nor
+by its declared `int_range` or a `value_domain` premise (MySQL fails the
+smallest `Int` `DIV 1` with error 1690), so a field over a field stays
+refused, and so do a literal divisor below 2 or under a sign (`b / 1`,
+`b / -2`), a literal over a literal, a nested, `abs`, header-parameter or
+`def` operand, and a `/` inside another operation, a WHERE or a `let`; a
+statement still refused reports exactly the blockers it has without this
+cell. Under bind-safe each binding derives the statement again: a divisor
+bound below 2 or a dividend bound below 0 is PIE-R1004 `BINDING_INVALID`.
 
 ```pietto PIE-S2106
 shape Order:

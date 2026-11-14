@@ -1089,7 +1089,8 @@ def test_a_tampered_null_safe_join_document_is_refused(tmp_path, target, tamper)
 @pytest.mark.parametrize("target", ("postgres", "mysql"))
 def test_typed_division_is_postgres_only_at_the_project_row_boundary(tmp_path, target):
     item = probe.fixture(target, "V_row_blocked", "modulo")
-    source = item["source"].replace("rest = id % 2", "half = id / 2")
+    # R08 opens a MySQL field over a literal of 2 or more only.
+    source = item["source"].replace("rest = id % 2", "half = id / 1")
     assert source != item["source"]
     checked, outcome = probe.build_case(
         tmp_path, source, item["contract"], item["policy"]
@@ -2426,6 +2427,138 @@ def test_mysql_remainder_cells_are_derived_once_per_projection(tmp_path, monkeyp
                 f"        r{index} = a % b\n" for index in range(count)
             )
             _, outcome = probe.remainder_world(tmp_path / str(count), "mysql", body)
+            emitted = len(cells), len(reads)
+            assert outcome.artifact is not None, outcome.blockers
+            assert verify_project_sql_emission(
+                outcome.artifact, outcome.artifact.request
+            ).verified
+        counts[count] = (emitted, (len(cells) - emitted[0], len(reads) - emitted[1]))
+    assert counts[1][0][0] == counts[40][0][0] > 0
+    assert counts[1][1][0] == counts[40][1][0] > 0
+    assert counts[40][0][1] == 2 * counts[20][0][1] > 0
+    assert counts[40][1][1] == 2 * counts[20][1][1] > 0
+
+
+# --------------------------------------------------------------------------
+# Phase77 R08: MySQL Int / in its cell (template T08-1)
+# --------------------------------------------------------------------------
+
+
+def test_mysql_division_cells_realize_their_carrier(tmp_path):
+    """An Int `/` cell is a `my_bigint` over all of signed 64 bits; MySQL
+    returns NULL for a zero divisor, so it is of unknown nullability, and it
+    carries no R13 evidence. The field reads beside it keep their carriers."""
+    _, outcome = probe.division_world(
+        tmp_path, "mysql", probe.DIVISION_CELLS["r08_literal_cells"]
+    )
+    document = json.loads(serialize_project_sql_emission(outcome))
+    cell = {"storage": {"kind": "my_bigint"}, "nullable": "unknown"}
+    field = {"storage": {"kind": "my_bigint"}, "nullable": False}
+    assert [
+        (column["label"], column["representation"]) for column in document["columns"]
+    ] == [
+        (label, {**(cell if label.startswith("q") else field), "domain": _INT64_DOMAIN})
+        for label in ("id", "d", "q1", "q2", "q3", "q4")
+    ]
+    assert not [
+        item
+        for item in document["requirements"]
+        if any("target_checked" in str(part) for part in item["evidence"])
+    ]
+
+
+@pytest.mark.parametrize("policy", ("preserve_literals", "bind_safe_literals"))
+@pytest.mark.parametrize("shape", sorted(probe.DIVISION_REFUSALS))
+def test_mysql_division_outside_its_cell_keeps_main_refusal(tmp_path, shape, policy):
+    """Every other MySQL `/` keeps main's refusal (owner 2026-11-13T00:20Z),
+    the whole statement's blockers in order, compared here as (code, detail,
+    line, column) only: a field over a
+    field whatever its storage, declared domain or `value_domain` premise
+    (which PostgreSQL takes), a literal divisor below 2 or under a sign, a
+    literal over a literal, a nested, signed, `abs` or header-parameter
+    operand, an operand of a `def`, a cell under another operation, in a
+    WHERE or `let`, beside an item of another kind (an S01 or S15 cell
+    included), under a WHERE, and read through an upstream definition or a
+    JOIN."""
+    premise = probe.DIVISION_PREMISES.get(shape)
+    body = probe.DIVISION_REFUSALS[shape]
+    _, outcome = probe.division_world(tmp_path, "mysql", body, policy, premise)
+    assert outcome.status == "BLOCKED" and outcome.artifact is None
+    assert numeric_blockers(outcome) == probe.DIVISION_REFUSAL_BLOCKERS.get(
+        shape, [("PIE-B1003", "binary_operator_not_admitted", 14, 9)]
+    )
+    if premise is not None:
+        _, outcome = probe.division_world(
+            tmp_path / "pg", "postgres", body, policy, premise
+        )
+        assert outcome.status == "VERIFIED", outcome.blockers
+
+
+def test_mysql_division_literals_are_read_on_the_lines_the_parser_reads(tmp_path):
+    """A lone CR ends a line, as for the parser: after one, a `def` body
+    keeps main's refusal although the next line holds a number token at its
+    columns, and literals written in their items open their cells."""
+    head = "def two() -> Int:\r    return 2\n" + probe.DIVISION_SELECT + "        id\n"
+    _, outcome = probe.division_world(
+        tmp_path / "def",
+        "mysql",
+        head + "        q = b / two()\n        r = b / 10000\n#               10000\n",
+    )
+    assert numeric_blockers(outcome) == [
+        ("PIE-B1003", "binary_operator_not_admitted", line, 9) for line in (16, 17)
+    ]
+    _, outcome = probe.division_world(
+        tmp_path / "written", "mysql", head + "        q = b / 2\n        r = b / 3\n"
+    )
+    assert outcome.status == "VERIFIED", outcome.blockers
+
+
+@pytest.mark.parametrize("policy", ("preserve_literals", "bind_safe_literals"))
+def test_a_refused_mysql_division_query_reports_main_blockers_from_a_later_check(
+    tmp_path, monkeypatch, policy
+):
+    """A statement of R08 cells that a check after the emission blockers
+    refuses (here plan correspondence) reports main's blocker at each `/`,
+    derived again with every cell shut (D77.37, rows.AS_MAIN)."""
+    from pietto._project import project_sql_emission as emission
+
+    monkeypatch.setattr(emission, "verify_row_query", lambda request, query: False)
+    _, outcome = probe.division_world(
+        tmp_path, "mysql", probe.DIVISION_CELLS["r08_literal_cells"], policy
+    )
+    assert numeric_blockers(outcome) == [
+        ("PIE-B1003", "binary_operator_not_admitted", line, 9)
+        for line in (15, 16, 17, 18)
+    ]
+
+
+def test_mysql_division_cells_are_derived_once_per_projection(tmp_path, monkeypatch):
+    """Emission and its verification ask for a projection's R08 cells a fixed
+    number of times however many cells it holds, and the per-item check runs
+    exactly twice as often for twice the items (P76-PERF-2)."""
+    from pietto._project.project_sql_emission_verification import (
+        verify_project_sql_emission,
+    )
+
+    counts = {}
+    for count in (1, 20, 40):
+        cells, reads = [], []
+        with monkeypatch.context() as patch:
+            for name, calls in (
+                ("mysql_division_cells", cells),
+                ("_mysql_division_read", reads),
+            ):
+                patch.setattr(
+                    rows,
+                    name,
+                    lambda *args, _law=getattr(rows, name), _calls=calls: (
+                        _calls.append(args) or _law(*args)
+                    ),
+                )
+            body = probe.DIVISION_SELECT + "".join(
+                f"        q{index} = b / 2\n" for index in range(count)
+            )
+            _, outcome = probe.division_world(tmp_path / str(count), "mysql", body)
             emitted = len(cells), len(reads)
             assert outcome.artifact is not None, outcome.blockers
             assert verify_project_sql_emission(

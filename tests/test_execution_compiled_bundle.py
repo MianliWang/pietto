@@ -3365,6 +3365,7 @@ def test_each_compiled_layer_refuses_cells_its_predecessors_forged(
             frozenset(a for a in records if a.kind == "operation"),
             frozenset(a for a in records if a.kind == "aggregate_value"),
             frozenset(),
+            frozenset(),
         )
 
     monkeypatch.setattr(rows, "mysql_compiled_cells", cells)
@@ -3407,9 +3408,19 @@ def _record_edit(address, copy=False, **changes):
 
 
 _A = wire.Address
+
+
+def _slot_added(records):
+    """A bind-safe slot record added, which only an R08 cell may hold."""
+    slot = _A("slot", 0)
+    return {**records, slot: wire.Record(slot, (None, _A("literal", 0), "Int"))}
+
+
 # D77.24: each edit of a native bundle that only one check of the compiled
 # S01/S02 law refuses (the S01 cell is operation 1, the S02 one value 0).
 _COMPILED_LAW_EDITS = {
+    "s01_slot": _slot_added,
+    "s02_slot": _slot_added,
     "s01_terminal_stage": _record_edit(_A("row", 1), stage="where"),
     "s01_input_not_source": _record_edit(_A("row", 0), input=_A("row", 1)),
     "s01_other_owner": _record_edit(_A("row", 0), owner=_A("declaration", 0)),
@@ -3449,13 +3460,19 @@ def test_the_mysql_compiled_cell_law_refuses_each_edited_record(tmp_path, edit):
     )
     records, query = _numeric_records(tmp_path, body)
     native = (
-        (frozenset({_A("operation", 1)}), frozenset(), frozenset())
+        (frozenset({_A("operation", 1)}), frozenset(), frozenset(), frozenset())
         if edit.startswith("s01")
-        else (frozenset(), frozenset({_A("aggregate_value", 0)}), frozenset())
+        else (
+            frozenset(),
+            frozenset({_A("aggregate_value", 0)}),
+            frozenset(),
+            frozenset(),
+        )
     )
     assert rows.mysql_compiled_cells(records, records[query]) == native
     edited = _COMPILED_LAW_EDITS[edit](records)
     assert rows.mysql_compiled_cells(edited, edited[query]) == (
+        frozenset(),
         frozenset(),
         frozenset(),
         frozenset(),
@@ -3606,17 +3623,28 @@ def test_the_mysql_pure_cell_law_refuses_each_edited_record(tmp_path, edit):
     assert view is not None
     records = dict(view.records)
     native = (
-        (frozenset({pure.Ref("sql_operation", 1)}), frozenset(), frozenset())
+        (
+            frozenset({pure.Ref("sql_operation", 1)}),
+            frozenset(),
+            frozenset(),
+            frozenset(),
+        )
         if s01
         else (
             frozenset(),
             frozenset({pure.Ref("aggregate_value_column", 0)}),
             frozenset(),
+            frozenset(),
         )
     )
     assert pure._mysql_cells(pure._Doc(records)) == native
     edited = pure._Doc(_PURE_LAW_EDITS[edit](records))
-    assert pure._mysql_cells(edited) == (frozenset(), frozenset(), frozenset())
+    assert pure._mysql_cells(edited) == (
+        frozenset(),
+        frozenset(),
+        frozenset(),
+        frozenset(),
+    )
 
 
 def test_the_mysql_pure_cell_law_ends_at_a_fourth_body(tmp_path):
@@ -3649,6 +3677,7 @@ def test_the_mysql_pure_cell_law_ends_at_a_fourth_body(tmp_path):
             records[ref] = pure.Record(ref, body)
         Counted.reads = 0
         assert pure._mysql_cells(Counted(records)) == (
+            frozenset(),
             frozenset(),
             frozenset(),
             frozenset(),
@@ -5723,9 +5752,9 @@ def _remainder_records(tmp_path, form="s15_mod_cells"):
     )
 
 
-def _physical_storage(storage):
+def _physical_storage(storage, position=2):
     def edit(records):
-        field = records[_A("field", 2)]
+        field = records[_A("field", position)]
         physical = json.loads(field.get("physical"))
         physical["storage"] = storage
         values = list(field.values)
@@ -5737,8 +5766,10 @@ def _physical_storage(storage):
 
 # Each edit of the native s15_mod_cells bundle that the compiled S15 law
 # refuses: the Int `%` (operation 0) made a `/`, one operand of its own Float
-# tag, the field `b` it reads an INT, and the terminal over a WHERE row.
+# tag, the field `b` it reads an INT, the terminal over a WHERE row, and a
+# bind-safe slot added.
 _REMAINDER_LAW_EDITS = {
+    "slot": _slot_added,
     "operator": _record_edit(_A("operation", 0), operator=("binary", "/")),
     "operand_tag": _record_edit(
         _A("operation", 0), operands=(_A("read", 3), _A("read", 6))
@@ -5875,3 +5906,296 @@ def test_a_mysql_remainder_bundle_keeps_its_record_identity(tmp_path):
     finally:
         object.__setattr__(description, "members", original)
     loaded.verify()
+
+
+# Phase77 R08: MySQL Int `/` cells (template T08-1). The forged shapes: a
+# field over a field (a storage, a declared domain or a value_domain premise
+# taken as proof), a literal divisor of 1 or 0 or under a sign, a literal
+# over a literal, a cell beside an S01 cell and one under a WHERE. A `def`
+# operand leaves the records and the document apart from source positions
+# and the source digest, so only emission and plain verification refuse it.
+_DIVISION_FORGED = (
+    *(
+        name
+        for name in _pietto_sql_emission.DIVISION_REFUSALS
+        if name.startswith(("storage_", "declared_", "value_domain_", "narrow_by_"))
+    ),
+    "bigint_by_one",
+    "literal_by_literal",
+    "beside_s01_cell",
+    "under_where",
+)
+
+
+def _division_cells_opened(patch):
+    """The emission law with every Int `/` item of a projection counted as an
+    R08 cell and both its law and the live verifier's taking any operands."""
+    from pietto._project import project_sql_emission_rows as rows
+    from pietto._project import project_sql_emission_verification as verification
+    from pietto._project.project_sql_plan_expressions import ProjectSQLBinary
+
+    def opened(plan, items, columns):
+        return frozenset(
+            expression.ref
+            for item in items
+            if type(expression := rows._planned(plan, item.expression))
+            is ProjectSQLBinary
+            and expression.expression.operator == "/"
+        )
+
+    patch.setattr(rows, "mysql_division_cells", opened)
+    patch.setattr(rows, "mysql_division_law", lambda left, right: True)
+    patch.setattr(verification, "_mysql_division_operands", lambda operands: True)
+
+
+@pytest.mark.parametrize("shape", _DIVISION_FORGED)
+def test_forged_mysql_division_cells_fail_every_reader(tmp_path, monkeypatch, shape):
+    """An artifact of each forged shape, emitted while every Int `/` item
+    counts as an R08 cell over any operands, with its observation and
+    compiled bundle exported under that law, fails plain verification and the
+    live template (plan), compiled replay and its template (records:
+    COMPILED_PHYSICAL_DOMAIN) and the pure boundary (document: its own Int
+    division detail) once the law is back; the independent public decoder
+    refuses the document where its operands are themselves forged."""
+    import _pietto_sql_emission_portable as portable
+    import _pietto_sql_emission_pure_boundary as pure
+    from pietto._project.project_compiled_lowering import emit_compiled
+    from pietto._project.project_execution_template import (
+        BindingError,
+        prepare_compiled_template,
+        prepare_live_template,
+    )
+    from pietto._project.project_sql_emission_verification import (
+        verify_project_sql_emission,
+    )
+
+    with monkeypatch.context() as patch:
+        _division_cells_opened(patch)
+        _, outcome = _pietto_sql_emission.division_world(
+            tmp_path,
+            "mysql",
+            _pietto_sql_emission.DIVISION_REFUSALS[shape],
+            premise=_pietto_sql_emission.DIVISION_PREMISES.get(shape),
+        )
+        artifact = outcome.artifact
+        assert artifact is not None, outcome.blockers
+        observed = portable.export_emission_observation(artifact, artifact.request)
+        public = serialize_project_sql_emission(outcome)
+        loaded = _numeric_loaded(artifact)
+    assert not verify_project_sql_emission(artifact, artifact.request).verified
+    with pytest.raises(BindingError, match="^BINDING_ARTIFACT$"):
+        prepare_live_template(artifact)
+    for replay in (
+        lambda: emit_compiled(loaded, ()),
+        lambda: prepare_compiled_template(loaded),
+    ):
+        with pytest.raises(wire.CompiledError, match="^COMPILED_PHYSICAL_DOMAIN$"):
+            replay()
+    assert observed.canonical_bytes is not None
+    refused = pure.parse_emission_observation(observed.canonical_bytes)
+    assert (refused.status, refused.detail) == (
+        pure.Status.INVALID_RELATION,
+        "MySQL Int division cell",
+    )
+    if shape not in {"beside_s01_cell", "under_where"}:
+        with pytest.raises(ValueError, match="^MySQL Int division operands$"):
+            _pietto_sql_emission.decode_public(public)
+
+
+@pytest.mark.parametrize("law", ("shared", "own"))
+def test_each_mysql_division_law_refuses_alone(tmp_path, monkeypatch, law):
+    """With the other law taking any operands, each one still refuses: the
+    shared law (emission, compiled derivation) or plain verification's own
+    (plain and compiled verification, where it raises on a fact derivation
+    admitted). `b / 1` stays main's refusal and its forged bundle replays
+    nowhere, and `100 / b` binds -5 through neither template."""
+    from pietto._project import project_sql_emission_rows as rows
+    from pietto._project import project_sql_emission_verification as verification
+    from pietto._project.project_compiled_lowering import emit_compiled
+    from pietto._project.project_execution_template import (
+        BindingError,
+        bind_values,
+        prepare_compiled_template,
+        prepare_live_template,
+    )
+
+    body = _pietto_sql_emission.DIVISION_REFUSALS["bigint_by_one"]
+    with monkeypatch.context() as patch:
+        _division_cells_opened(patch)
+        _, forged = _pietto_sql_emission.division_world(tmp_path / "f", "mysql", body)
+        assert forged.artifact is not None, forged.blockers
+        loaded = _numeric_loaded(forged.artifact)
+    _, genuine = _pietto_sql_emission.division_world(
+        tmp_path / "g",
+        "mysql",
+        _pietto_sql_emission.DIVISION_CELLS["r08_literal_by_bigint"],
+        "bind_safe_literals",
+    )
+    assert genuine.artifact is not None, genuine.blockers
+    if law == "shared":
+        monkeypatch.setattr(verification, "_mysql_division_operands", lambda _: True)
+        replay = pytest.raises(wire.CompiledError, match="^COMPILED_PHYSICAL_DOMAIN$")
+    else:
+        monkeypatch.setattr(rows, "mysql_division_law", lambda left, right: True)
+        replay = pytest.raises(ValueError, match="^integer division or remainder$")
+    _, outcome = _pietto_sql_emission.division_world(tmp_path / "e", "mysql", body)
+    assert [(b.code, b.detail) for b in outcome.blockers] == [
+        ("PIE-B1003", "binary_operator_not_admitted")
+    ]
+    with replay:
+        emit_compiled(loaded, ())
+    for template in (
+        prepare_live_template(genuine.artifact),
+        prepare_compiled_template(_numeric_loaded(genuine.artifact)),
+    ):
+        with pytest.raises(BindingError, match="^BINDING_INVALID$"):
+            bind_values(template, ((template.slots[0], -5),))
+
+
+def _division_records(tmp_path, policy="bind_safe_literals"):
+    from pietto._project.project_compiled_build import build_compiled
+
+    _, outcome = _pietto_sql_emission.division_world(
+        tmp_path,
+        "mysql",
+        _pietto_sql_emission.DIVISION_CELLS["r08_literal_cells"],
+        policy,
+    )
+    assert outcome.artifact is not None, outcome.blockers
+    description = wire.decode(build_compiled(outcome.artifact).payload)
+    return (
+        {record.address: record for record in description.records},
+        description.query,
+        outcome.artifact,
+    )
+
+
+# Each edit of the native bind-safe r08_literal_cells bundle that the
+# compiled R08 law refuses: the `b / 7` (operation 3) made a `%`, its literal
+# a Float, its operands two fields or two literals, the field `b` a DOUBLE,
+# the terminal over a WHERE row, and a slot of the source's Text literal.
+_DIVISION_LAW_EDITS = {
+    "operator": _record_edit(_A("operation", 3), operator=("binary", "%")),
+    "literal_tag": _record_edit(_A("literal", 4), tag="Float"),
+    "field_over_field": _record_edit(
+        _A("operation", 3), operands=(_A("read", 5), _A("read", 4))
+    ),
+    "literal_over_literal": _record_edit(
+        _A("operation", 3), operands=(_A("literal", 3), _A("literal", 4))
+    ),
+    "field_storage": _physical_storage({"kind": "my_double"}, 5),
+    "terminal_stage": _record_edit(_A("row", 0), stage="where"),
+    "stray_slot": _record_edit(_A("slot", 0), literal=_A("literal", 0)),
+}
+
+
+@pytest.mark.parametrize("edit", sorted(_DIVISION_LAW_EDITS))
+def test_the_mysql_compiled_division_law_refuses_each_edited_record(tmp_path, edit):
+    """Compiled replay's R08 law finds exactly the four native `/` cells, and
+    none once one record changes; their literal's value is the law's, which
+    replay runs on each binding."""
+    from pietto._project import project_sql_emission_rows as rows
+
+    records, query, _ = _division_records(tmp_path)
+    native = rows.mysql_compiled_cells(records, records[query])
+    assert native[:3] == (frozenset(), frozenset(), frozenset())
+    assert native[3] == {a for a in records if a.kind == "operation"}
+    assert len(native[3]) == 4
+    edited = _DIVISION_LAW_EDITS[edit](records)
+    assert rows.mysql_compiled_cells(edited, edited[query])[3] == frozenset()
+
+
+@pytest.mark.parametrize(
+    "edit",
+    (
+        "operator",
+        "divisor_value",
+        "dividend_value",
+        "carrier",
+        "where_body",
+        "stray_parameter",
+    ),
+)
+def test_the_mysql_pure_division_law_refuses_each_edited_record(tmp_path, edit):
+    """The pure boundary's R08 law, restated over the document, finds
+    exactly the four native `/` cells, and none once a `/` is a `%`, the
+    `i / 2` divisor 1, the `7 / s` dividend -1, an operand field a DOUBLE,
+    the one body a WHERE or a parameter no cell operand binds is added."""
+    import _pietto_sql_emission_portable as portable
+    import _pietto_sql_emission_pure_boundary as pure
+
+    _, _, artifact = _division_records(tmp_path, "preserve_literals")
+    exported = portable.export_emission_observation(artifact, artifact.request)
+    assert exported.canonical_bytes is not None
+    view = pure.parse_emission_observation(exported.canonical_bytes).view
+    assert view is not None
+    records = dict(view.records)
+    cells = pure._mysql_cells(pure._Doc(records))[3]
+    operations = [ref for ref in records if ref.kind == "sql_operation"]
+    assert cells == set(operations) and len(cells) == 4
+
+    def change(ref, **fields):
+        records[ref] = pure.Record(ref, {**records[ref].fields, **fields})
+
+    if edit == "operator":
+        change(operations[0], operator="%")
+    elif edit in ("divisor_value", "dividend_value"):
+        literal = pure.Ref("sql_literal", 3 if edit == "divisor_value" else 2)
+        wire_value = "1" if edit == "divisor_value" else "-1"
+        change(literal, value=pure.Fixed("Int", wire_value))
+    elif edit == "carrier":
+        operand = records[records[operations[0]].fields["operands"][0]]
+        change(operand.fields["realization"], storage={"kind": "my_double"})
+    elif edit == "where_body":
+        (body,) = [ref for ref in records if ref.kind == "row_body"]
+        change(body, block_kind="where")
+    else:
+        stray = pure.Ref("sql_parameter", 0)
+        records[stray] = pure.Record(stray, {})
+    assert pure._mysql_cells(pure._Doc(records))[3] == frozenset()
+
+
+def test_mysql_division_cells_are_derived_once_per_compiled_and_pure_reader(
+    tmp_path, monkeypatch
+):
+    """Compiled replay derives its R08 cells from the records, and the pure
+    boundary from the document, a fixed number of times however many cells
+    the statement holds (P76-PERF-2)."""
+    import _pietto_sql_emission_portable as portable
+    import _pietto_sql_emission_pure_boundary as pure
+    from pietto._project import project_sql_emission_rows as rows
+    from pietto._project.project_compiled_lowering import emit_compiled
+
+    counts = []
+    for count in (1, 40):
+        body = _pietto_sql_emission.DIVISION_SELECT + "".join(
+            f"        q{index} = b / 2\n        r{index} = 7 / s\n"
+            for index in range(count)
+        )
+        _, outcome = _pietto_sql_emission.division_world(
+            tmp_path / str(count), "mysql", body
+        )
+        artifact = outcome.artifact
+        assert artifact is not None, outcome.blockers
+        loaded = _numeric_loaded(artifact)
+        exported = portable.export_emission_observation(artifact, artifact.request)
+        assert exported.canonical_bytes is not None
+        compiled, document = [], []
+        with monkeypatch.context() as patch:
+            for module, name, calls in (
+                (rows, "mysql_compiled_cells", compiled),
+                (pure, "_mysql_cells", document),
+            ):
+                patch.setattr(
+                    module,
+                    name,
+                    lambda *args, _law=getattr(module, name), _calls=calls: (
+                        _calls.append(args) or _law(*args)
+                    ),
+                )
+            assert emit_compiled(loaded, ()).rendered.sql == artifact.rendered.sql
+            parsed = pure.parse_emission_observation(exported.canonical_bytes)
+            assert parsed.status is pure.Status.OK, parsed.detail
+        counts.append((len(compiled), len(document)))
+    assert counts[0] == counts[1]
+    assert all(count > 0 for count in counts[0])

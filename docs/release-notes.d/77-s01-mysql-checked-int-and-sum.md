@@ -97,8 +97,9 @@
   a sum of an operation, such as `sum(a + b)`, keeps that operation's
   PIE-B1002, and a sum inside another expression stays PIE-B1003
   `aggregate_composition_not_admitted_on_target`. MySQL
-  project `Int` `/` stays refused (D77.23), and `Int` `%` outside the S15
-  cell of [its fragment](77-s15-mysql-remainder.md).
+  project `Int` `/` stays refused (D77.23) outside the R08 cell of
+  [its fragment](77-r08-mysql-int-div-proofs.md), and `Int` `%` outside the
+  S15 cell of [its fragment](77-s15-mysql-remainder.md).
 
 A statement still refused reports exactly the blockers it has without this
 note, object for object, a cell's own included: selecting `s = a + b` beside

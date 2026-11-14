@@ -247,6 +247,10 @@ def operator_token(node):
     operator = node.original.expression.operator
     if node.kind == "comparison":
         return rows.COMPARISONS[operator]
+    if operator == "/" and node.realization.storage == {"kind": "my_bigint"}:
+        # R08: MySQL `/` of integers is DECIMAL; DIV truncates toward zero as
+        # PostgreSQL's integer `/` does.
+        return " DIV "
     return " " + (operator.upper() if node.kind == "logical" else operator) + " "
 
 

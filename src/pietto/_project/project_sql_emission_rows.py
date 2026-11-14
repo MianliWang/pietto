@@ -176,6 +176,9 @@ _MYSQL_CELL_PLAN_TABLES = frozenset(
         "symbols",
     }
 )
+# R08 (T08-1): the bind-safe slot tables a division cell's query may also
+# hold, a literal operand being a slot there.
+_MYSQL_SLOT_PLAN_TABLES = frozenset({"literal_slots", "bind_uses"})
 # The fields of a cell's authored `query` or `table` that may be set; any
 # other one (a `let`, relation alias or window, read or not, a JOIN,
 # DISTINCT, ORDER BY, LIMIT, header parameter, or a field a later grammar
@@ -212,9 +215,10 @@ def mysql_s03_operand(value) -> bool:
     )
 
 
-def mysql_checked_query(plan, *, aggregate: bool) -> bool:
+def mysql_checked_query(plan, *, aggregate: bool, slots: bool = False) -> bool:
     """A cell's query, from the plan and its authored `query` or `table`:
-    its non-empty tables are among _MYSQL_CELL_PLAN_TABLES, it reads a
+    its non-empty tables are among _MYSQL_CELL_PLAN_TABLES (and, with
+    ``slots``, _MYSQL_SLOT_PLAN_TABLES), it reads a
     source of its own module through one WHERE at most, then
     (``aggregate``) one aggregation of one GROUP BY key at most, then its
     projection, and as written it sets only _MYSQL_CELL_AUTHORED fields.
@@ -239,6 +243,7 @@ def mysql_checked_query(plan, *, aggregate: bool) -> bool:
             type(value := getattr(plan, name)) is tuple
             and value
             and name not in _MYSQL_CELL_PLAN_TABLES
+            and not (slots and name in _MYSQL_SLOT_PLAN_TABLES)
             for name in plan.__dataclass_fields__
         )
         or len(plan.group_keys) > 1
@@ -372,9 +377,9 @@ def _planned(plan, reference):
     return expression if expression.ref is reference else None
 
 
-def _mysql_remainder_read(columns, expression) -> str | None:
-    """The tag of a direct read, as written, of a source field whose realized
-    column (``columns``) has its tag's MYSQL_REMAINDER_CARRIERS storage."""
+def _mysql_read_realization(columns, expression) -> Realization | None:
+    """The realization of a direct read, as written, of a source field whose
+    realized column (``columns``) is not per binding, or None."""
 
     from pietto.ast_nodes import inlined_arguments
 
@@ -385,15 +390,40 @@ def _mysql_remainder_read(columns, expression) -> str | None:
         and not inlined_arguments(expression.expression)
         else None
     )
-    if column is None or not mysql_field_column(column):
+    if column is None or not mysql_field_column(column) or column.realization.binding:
         return None
-    realization = column.realization
+    return column.realization
+
+
+def _mysql_remainder_read(columns, expression) -> str | None:
+    """The tag of a direct read of a source field (_mysql_read_realization)
+    whose storage is its tag's MYSQL_REMAINDER_CARRIERS one."""
+
+    realization = _mysql_read_realization(columns, expression)
     return (
         realization.tag
-        if MYSQL_REMAINDER_CARRIERS.get(realization.tag) == realization.storage
-        and not realization.binding
+        if realization is not None
+        and MYSQL_REMAINDER_CARRIERS.get(realization.tag) == realization.storage
         else None
     )
+
+
+def _mysql_item_value(plan, item):
+    """The plan expression that is, as written, the whole value of SELECT
+    item ``item`` and no `def` argument, or None."""
+
+    from pietto.ast_nodes import inlined_arguments
+
+    expression = _planned(plan, getattr(item, "expression", None))
+    site = getattr(expression, "site", None)
+    if (
+        type(site) is row.ProjectSQLExpressionSite
+        and site.role is row.ProjectSQLExpressionRole.SELECT
+        and site.occurrence.expression is getattr(expression, "expression", None)
+        and not inlined_arguments(site.occurrence.expression)
+    ):
+        return expression
+    return None
 
 
 def mysql_remainder_cells(plan, items, columns) -> frozenset:
@@ -405,8 +435,6 @@ def mysql_remainder_cells(plan, items, columns) -> frozenset:
     one item of any other kind closes every cell of the statement. The work
     is linear in the items."""
 
-    from pietto.ast_nodes import inlined_arguments
-
     if (
         not mysql_checked_query(plan, aggregate=False)
         or plan.blocks[0].kind is not row.ProjectSQLStageKind.PROJECTION
@@ -414,13 +442,8 @@ def mysql_remainder_cells(plan, items, columns) -> frozenset:
         return frozenset()
     cells = set()
     for item in items:
-        expression = _planned(plan, getattr(item, "expression", None))
-        site = getattr(expression, "site", None)
-        if not (
-            type(site) is row.ProjectSQLExpressionSite
-            and site.role is row.ProjectSQLExpressionRole.SELECT
-            and site.occurrence.expression is getattr(expression, "expression", None)
-        ) or inlined_arguments(site.occurrence.expression):
+        expression = _mysql_item_value(plan, item)
+        if expression is None:
             return frozenset()
         if type(expression) is row.ProjectSQLBinary:
             if expression.expression.operator != "%" or {
@@ -434,11 +457,158 @@ def mysql_remainder_cells(plan, items, columns) -> frozenset:
     return frozenset(cells)
 
 
+# Phase77 R08 (template T08-1, D77.24, D77.27): the storages of the field
+# operand of a MySQL Int `/` cell and of each field read beside one.
+MYSQL_DIVISION_CARRIERS = (
+    {"kind": "my_smallint"},
+    {"kind": "my_int"},
+    {"kind": "my_bigint"},
+)
+
+
+def mysql_division_law(left, right) -> bool:
+    """R08's proof (D77.27), read only from the literal operand's own value,
+    never from a field's storage, declared domain or premise: shape b, a
+    literal dividend of 0 or more over a field; shape c, a field over a
+    literal divisor of 2 or more. A field operand has one of
+    MYSQL_DIVISION_CARRIERS; a literal is the single `my_signed_int` value an
+    Int literal token realizes, under bind-safe the bound one."""
+
+    def literal(value, low) -> bool:
+        bounds = proven_int_bounds(value)
+        return (
+            value.storage == {"kind": "my_signed_int"}
+            and not value.binding
+            and bounds is not None
+            and low <= bounds[0] == bounds[1]
+        )
+
+    def field(value) -> bool:
+        return (
+            value.tag == "Int"
+            and value.storage in MYSQL_DIVISION_CARRIERS
+            and not value.binding
+        )
+
+    return literal(left, 0) and field(right) or field(left) and literal(right, 2)
+
+
+def _mysql_division_read(columns, expression) -> bool:
+    """A direct read of an Int source field (_mysql_read_realization) of a
+    MYSQL_DIVISION_CARRIERS storage."""
+
+    realization = _mysql_read_realization(columns, expression)
+    return (
+        realization is not None
+        and realization.tag == "Int"
+        and realization.storage in MYSQL_DIVISION_CARRIERS
+    )
+
+
+def _mysql_division_literal(expression, written) -> bool:
+    """An Int literal token written in its item (``written``), a bind-safe
+    slot or not: never a sign over one, a typed NULL, a header parameter, a
+    `def` argument or the body of a `def` call, which inlining puts at the
+    call's text."""
+
+    from pietto.ast_nodes import inlined_arguments
+
+    return (
+        type(expression) in (row.ProjectSQLLiteral, row.ProjectSQLBoundLiteral)
+        and value_tag(expression) == "Int"
+        and type(expression.expression.value) is int
+        and not inlined_arguments(expression.expression)
+        and written(expression.expression.span)
+    )
+
+
+def _mysql_number_token(plan):
+    """Whether a span covers, in the trusted source text of the selected
+    definition's module, one number token on one line; the text is split
+    once, at the first question, into the lines the parser reads: after a
+    leading BOM, each ended by LF, CRLF or a lone CR."""
+
+    import re
+
+    result = plan.scope.completed.semantic_result
+    path = result.modules[plan.scope.selected_owner.module_position].path
+
+    @functools.cache
+    def lines() -> tuple[str, ...]:
+        for snapshot in result.trusted_source_snapshots:
+            if snapshot.path == path:
+                return tuple(
+                    re.split(r"\r\n|\r|\n", snapshot.source_text.removeprefix("\ufeff"))
+                )
+        return ()
+
+    def written(span) -> bool:
+        text = lines()
+        return (
+            span.path == path
+            and span.line == span.end_line
+            and 0 < span.line <= len(text)
+            and re.fullmatch(
+                "[0-9](?:_?[0-9])*",
+                text[span.line - 1][span.column - 1 : span.end_column - 1],
+            )
+            is not None
+        )
+
+    return written
+
+
+def mysql_division_cells(plan, items, columns) -> frozenset:
+    """R08: the Int `/` cells of a MySQL projection stage (template T08-1),
+    asked once per stage. The query is mysql_checked_query's without a WHERE,
+    bind-safe slots admitted, and each SELECT item (``items``, over the
+    realized ``columns``) is, as its whole value, either a direct read of an
+    Int source field of a MYSQL_DIVISION_CARRIERS storage or a `/` of an Int
+    literal token and one such read, in either order (shapes b and c, whose
+    proof mysql_division_law reads from the literal's value); nothing in one
+    comes from a `def`, and one item of any other kind, an S01 or S15 cell
+    included, closes every cell of the statement. The work is linear in the
+    items and the module's text."""
+
+    if (
+        not mysql_checked_query(plan, aggregate=False, slots=True)
+        or plan.blocks[0].kind is not row.ProjectSQLStageKind.PROJECTION
+    ):
+        return frozenset()
+    written = _mysql_number_token(plan)
+    cells = set()
+    for item in items:
+        expression = _mysql_item_value(plan, item)
+        if expression is None:
+            return frozenset()
+        if type(expression) is row.ProjectSQLBinary:
+            left, right = (
+                _planned(plan, operand)
+                for operand in (expression.left, expression.right)
+            )
+            if (
+                expression.expression.operator != "/"
+                or value_tag(expression) != "Int"
+                or not (
+                    _mysql_division_literal(left, written)
+                    and _mysql_division_read(columns, right)
+                    or _mysql_division_read(columns, left)
+                    and _mysql_division_literal(right, written)
+                )
+            ):
+                return frozenset()
+            cells.add(expression.ref)
+        elif not _mysql_division_read(columns, expression):
+            return frozenset()
+    return frozenset(cells)
+
+
 # The compiled record kinds a cell's bundle may hold (D77.24 whitelist), the
 # source's metadata and any literal or WHERE predicate call included; any
 # other kind (a parameter, slot, native use, block, capture or ANY read,
 # match, window, JOIN, result, set, VALUES, table function, Unnest, a legacy
-# scan, or a kind a later format adds) closes its cells.
+# scan, or a kind a later format adds) closes its cells. A bind-safe slot and
+# its native use close all but R08's (mysql_compiled_cells).
 _MYSQL_CELL_RECORDS = frozenset(
     {
         "aggregate",
@@ -481,11 +651,13 @@ _MYSQL_CHECKED_OPERATORS = frozenset(
 )
 
 
-def mysql_compiled_cells(records, entry) -> tuple[frozenset, frozenset, frozenset]:
-    """Compiled replay's S01 operations, S02 aggregate values and S15 `%`
-    operations in their cells, from the records alone, as emission derives
-    them from the plan (mysql_checked_cell, mysql_sum_query,
-    mysql_remainder_cells). A relation alias or a window,
+def mysql_compiled_cells(
+    records, entry
+) -> tuple[frozenset, frozenset, frozenset, frozenset]:
+    """Compiled replay's S01 operations, S02 aggregate values, S15 `%` and R08
+    `/` operations in their cells, from the records alone, as emission
+    derives them from the plan (mysql_checked_cell, mysql_sum_query,
+    mysql_remainder_cells, mysql_division_cells). A relation alias or a window,
     read or not, and an imported source leave a direct read's records apart
     from source positions and the source digest, so only emission refuses
     them.
@@ -504,9 +676,16 @@ def mysql_compiled_cells(records, entry) -> tuple[frozenset, frozenset, frozense
     S15 cells need a terminal straight over the source, each of whose values
     is a read of a marked port whose field's physical storage is its tag's
     MYSQL_REMAINDER_CARRIERS one, or a `%` that no other counted record
-    names over two such reads of its own tag; any other value closes them."""
+    names over two such reads of its own tag; any other value closes them.
+    R08 cells need the same terminal, each of whose values is a read of a
+    marked port whose Int field's physical storage is one of
+    MYSQL_DIVISION_CARRIERS, or a `/` that no other counted record names of an
+    Int literal record (a sign over one is an operation) and one such read,
+    in either order; any other value, or a bind-safe slot of another literal,
+    closes them. A slot or native use record closes every other cell."""
 
-    empty: tuple[frozenset, frozenset, frozenset] = (
+    empty: tuple[frozenset, frozenset, frozenset, frozenset] = (
+        frozenset(),
         frozenset(),
         frozenset(),
         frozenset(),
@@ -531,9 +710,14 @@ def mysql_compiled_cells(records, entry) -> tuple[frozenset, frozenset, frozense
     from pietto._project.project_compiled_schema import Address
 
     units = {unit.address for unit in chain}
-    marked, named = set(), {}
+    marked, named, slotted = set(), {}, set()
     for address, record in records.items():
         kind = address.kind
+        if kind == "slot":
+            slotted.add(record.get("literal"))
+            continue
+        if kind == "native_use":
+            continue
         if kind not in _MYSQL_CELL_RECORDS or (
             kind in {"row", "aggregate"} and address not in units
         ):
@@ -559,6 +743,8 @@ def mysql_compiled_cells(records, entry) -> tuple[frozenset, frozenset, frozense
         return address.kind == "read" and records[address].get("port") in marked
 
     if chain[1:2] and chain[1].address.kind == "aggregate":
+        if slotted:
+            return empty
         aggregate = chain[1]
         keys = aggregate.get("keys")
         if (
@@ -591,11 +777,12 @@ def mysql_compiled_cells(records, entry) -> tuple[frozenset, frozenset, frozense
                 and field(records[value].get("arguments")[0])
             ),
             frozenset(),
+            frozenset(),
         )
 
-    def carrier(address) -> str | None:
-        """S15: the tag of a read of a marked port whose field's physical
-        storage is that tag's MYSQL_REMAINDER_CARRIERS one."""
+    def physical(address) -> tuple[str, Any] | None:
+        """The tag and physical storage of the field a read of a marked port
+        reads."""
         if not field(address):
             return None
         source = records[records[address].get("port")].get("source")
@@ -606,7 +793,55 @@ def mysql_compiled_cells(records, entry) -> tuple[frozenset, frozenset, frozense
             tag = records[source].get("logical")[0]
         except (KeyError, IndexError, TypeError, ValueError):
             return None
-        return tag if MYSQL_REMAINDER_CARRIERS.get(tag) == storage else None
+        return tag, storage
+
+    def carrier(address) -> str | None:
+        """S15: the tag of a read of a marked port whose field's physical
+        storage is that tag's MYSQL_REMAINDER_CARRIERS one."""
+        read = physical(address)
+        if read is None:
+            return None
+        return read[0] if MYSQL_REMAINDER_CARRIERS.get(read[0]) == read[1] else None
+
+    def division_read(address) -> bool:
+        """R08: a read of a marked port of an Int field of a
+        MYSQL_DIVISION_CARRIERS storage."""
+        read = physical(address)
+        return (
+            read is not None and read[0] == "Int" and read[1] in MYSQL_DIVISION_CARRIERS
+        )
+
+    def literal(address) -> bool:
+        """R08: an Int literal token's record."""
+        return address.kind == "literal" and records[address].get("tag") == "Int"
+
+    divisions, operands = set(), set()
+    for value in terminal.get("values") if where is None else ():
+        operation = records[value] if value.kind == "operation" else None
+        pair = () if operation is None else operation.get("operands")
+        if (
+            not division_read(value)
+            if operation is None
+            else named.get(value) != [terminal.address]
+            or operation.get("operator") != ("binary", "/")
+            or operation.get("logical")[0] != "Int"
+            or len(pair) != 2
+            or not (
+                literal(pair[0])
+                and division_read(pair[1])
+                or division_read(pair[0])
+                and literal(pair[1])
+            )
+        ):
+            divisions.clear()
+            break
+        if operation is not None:
+            divisions.add(value)
+            operands.update(pair)
+    if not slotted <= operands:
+        divisions.clear()
+    if slotted:
+        return frozenset(), frozenset(), frozenset(), frozenset(divisions)
 
     remainders = set()
     for value in terminal.get("values") if where is None else ():
@@ -635,6 +870,7 @@ def mysql_compiled_cells(records, entry) -> tuple[frozenset, frozenset, frozense
         ),
         frozenset(),
         frozenset(remainders),
+        frozenset(divisions),
     )
 
 
@@ -2849,8 +3085,9 @@ def build_row_value(
     mysql_cells: frozenset = frozenset(),
 ) -> tuple[Any, None] | tuple[None, tuple[str, str]]:
     """Realize one admitted tree; return (value, None) or (None, (code, detail)).
-    ``mysql_cells`` are the stage's S15 cells (mysql_remainder_cells), each
-    the whole value of an item, so no nested value takes them."""
+    ``mysql_cells`` are the stage's S15 and R08 cells (mysql_remainder_cells,
+    mysql_division_cells), each the whole value of an item, so no nested
+    value takes them."""
     plan = request.plan
     family = request.family
     position = getattr(reference, "position", None)
@@ -3445,7 +3682,7 @@ def _operands(
 
 
 def _binary(
-    request, columns, expression, tag, nullable, uses, reference_type, remainder
+    request, columns, expression, tag, nullable, uses, reference_type, cell
 ) -> tuple[Any, None] | tuple[None, tuple[str, str]]:
     operator = expression.expression.operator
     if operator not in (*ARITHMETIC, *LOGICAL):
@@ -3481,7 +3718,8 @@ def _binary(
         ),
         mysql_checked=request.family == "mysql"
         and mysql_checked_cell(request.plan, expression, values),
-        mysql_remainder=remainder,
+        mysql_remainder=cell,
+        mysql_division=cell,
         # This reader's own S17 pairing check.
         paired=tag == "Decimal" and pairing.project_form(request) is not None,
     )
@@ -3506,11 +3744,13 @@ def resolved_binary_realization(
     float_values: tuple[float, float] | None = None,
     mysql_checked: bool = False,
     mysql_remainder: bool = False,
+    mysql_division: bool = False,
     paired: bool = False,
 ):
     """Original range/domain law over resolved operands; no name resolution.
     ``mysql_checked`` marks an S01 cell (mysql_checked_cell),
-    ``mysql_remainder`` an S15 one (mysql_remainder_cells). MySQL takes
+    ``mysql_remainder`` an S15 one (mysql_remainder_cells) and
+    ``mysql_division`` an R08 one (mysql_division_cells). MySQL takes
     Decimal and Int, Decimal of another scale and Decimal times Int as
     PostgreSQL does only in a statement its reader pairs with an S17 form
     (``paired``, `project_sql_emission_paired`)."""
@@ -3522,6 +3762,16 @@ def resolved_binary_realization(
         and operator == "%"
         and nullable is not False
         and mysql_remainder_operands(tag, (left, right))
+    )
+    # R08: a MySQL Int `/` cell whose literal operand proves it (D77.27);
+    # MySQL returns NULL for a zero divisor, as for S15.
+    division = (
+        mysql_division
+        and family == "mysql"
+        and operator == "/"
+        and tag == "Int"
+        and nullable is not False
+        and mysql_division_law(left, right)
     )
     if operator in LOGICAL:
         if tag != "Bool" or left.tag != "Bool" or right.tag != "Bool":
@@ -3673,8 +3923,9 @@ def resolved_binary_realization(
     if tag != "Int" or left.tag != "Int" or right.tag != "Int":
         return None, ("PIE-B1003", "arithmetic_requires_signed_int_operands")
     if operator in {"/", "%"}:
-        if remainder:
-            # |l % r| < |r|; MySQL's `MIN % -1` is 0.
+        if remainder or division:
+            # |l % r| < |r|; MySQL's `MIN % -1` is 0. R08's |l DIV r| is at
+            # most |l| < 2**63, or |l| / 2.
             return (
                 Realization(
                     "Int",

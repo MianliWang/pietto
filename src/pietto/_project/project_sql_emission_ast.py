@@ -2551,9 +2551,11 @@ def realize_rows(request):
                     if len(items) != len(exports):
                         add("PIE-B1001", "stage_export_denominator", block.ref)
                         return None
-            # S15: the stage's MySQL `%` cells, derived once for all its items.
+            # S15 and R08: the stage's MySQL `%` and `/` cells, derived once
+            # for all its items.
             mysql_cells = (
                 rows.mysql_remainder_cells(plan, items, readable)
+                | rows.mysql_division_cells(plan, items, readable)
                 if family == "mysql" and kind == "projection"
                 else frozenset()
             )

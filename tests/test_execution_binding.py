@@ -1130,3 +1130,53 @@ def test_a_mysql_typed_value_is_checked_by_its_binding(mysql_typed, name, value)
         match=f"^BINDING_PARAMETER:{ordinal}:{t.parameters[ordinal].tag}$",
     ):
         binding.bind_values(t, (), _named(t, *(values[p.name] for p in t.parameters)))
+
+
+# Phase77 R08: the slot of P-R08-1's `100 / b`, P-R08-3's `b / 2` and
+# P-R08-6's narrow `i / 2` (its fourth) under bind-safe, with the values that
+# break its law (a dividend below 0, a divisor below 2) and some that keep it.
+_DIVISION_SLOTS = {
+    "r08_literal_by_bigint": (0, (-5, -(2**63)), (0, 7)),
+    "r08_bigint_by_literal": (0, (1, 0, -2), (2, 3)),
+    "r08_literal_cells": (3, (1, 0, -2), (3,)),
+}
+
+
+@pytest.mark.parametrize("target", ("mysql", "postgres"))
+@pytest.mark.parametrize("form", sorted(_DIVISION_SLOTS))
+def test_a_mysql_division_slot_binds_only_inside_its_law(tmp_path, form, target):
+    """A binding derives the R08 cells again and runs their law on the bound
+    values, so on MySQL, through the live and the compiled template alike, a
+    bound dividend below 0 or divisor below 2 is BINDING_INVALID and one the
+    law keeps binds to the template's SQL; PostgreSQL binds every one."""
+    from pietto._project.project_compiled_build import build_compiled
+    from pietto._project.project_compiled_loading import load_compiled
+
+    _, outcome = probe.division_world(
+        tmp_path, target, probe.DIVISION_CELLS[form], "bind_safe_literals"
+    )
+    assert outcome.status == "VERIFIED" and outcome.artifact is not None
+    built = build_compiled(outcome.artifact)
+    loaded = load_compiled(
+        built.payload,
+        expected_pin=built.pin,
+        accepted_producer=built.producer,
+        accepted_compatibility=built.compatibility,
+    )
+    slot, broken, kept = _DIVISION_SLOTS[form]
+    fixed = [value.value for value in outcome.artifact.fixed_values]
+
+    def values(value):
+        return (*fixed[:slot], value, *fixed[slot + 1 :])
+
+    for t in (
+        binding.prepare_live_template(outcome.artifact),
+        binding.prepare_compiled_template(loaded),
+    ):
+        for value in broken if target == "mysql" else ():
+            with pytest.raises(binding.BindingError, match="^BINDING_INVALID$"):
+                bind(t, *values(value))
+        for value in kept + (broken if target == "postgres" else ()):
+            bound = bind(t, *values(value))
+            assert bound.arguments == values(value)
+            assert bound.artifact.rendered.sql == t.artifact.rendered.sql

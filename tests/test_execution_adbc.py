@@ -432,3 +432,25 @@ def test_mysql_remainder_cells_decode_a_zero_divisor_null(tmp_path):
     metadata[3][1] = 3
     with pytest.raises(ResultError):
         bind_native_output(output, "mysql_rows", metadata)
+
+
+def test_mysql_division_cells_decode_a_zero_divisor_null(tmp_path):
+    """Phase77 R08: a native MySQL row of a `/` cell, LONGLONG, decodes NULL
+    (a zero divisor, also of a non-null field) as None, as its nullability is
+    unknown; a NEWDECIMAL type code, what MySQL's `/` returns, is refused."""
+    import _pietto_sql_emission as emission
+
+    _, outcome = emission.division_world(
+        tmp_path, "mysql", emission.DIVISION_CELLS["r08_literal_dividends"]
+    )
+    output = prepare_output(outcome.artifact)
+    metadata = [
+        [column.label, 8, None, None, None, None, int(bool(index)), 0, 63]
+        for index, column in enumerate(output.columns)
+    ]
+    metadata[0][7] = 4097
+    rows = [(1, None, None, None), (2, -1, 2147483647, -32767)]
+    assert decode_native_rows(output, "mysql_rows", metadata, rows)[1] == tuple(rows)
+    metadata[1][1] = 246
+    with pytest.raises(ResultError):
+        bind_native_output(output, "mysql_rows", metadata)

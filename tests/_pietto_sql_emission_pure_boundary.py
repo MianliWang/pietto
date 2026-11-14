@@ -2036,10 +2036,16 @@ _MYSQL_CELL_KINDS = frozenset(
 )
 
 
-def _mysql_cells(doc) -> tuple[frozenset, frozenset, frozenset]:
-    """The S01 operations, S02 sum columns and S15 `%` operations in their
-    MySQL cells, as emission derives them from the plan (mysql_checked_cell,
-    mysql_sum_query, mysql_remainder_cells), here from the document alone; a
+# R08: the bind-safe slot kinds a division cell's document may also hold;
+# they close every other cell.
+_MYSQL_SLOT_KINDS = frozenset({"fixed_value", "native_use", "sql_parameter"})
+
+
+def _mysql_cells(doc) -> tuple[frozenset, frozenset, frozenset, frozenset]:
+    """The S01 operations, S02 sum columns, S15 `%` and R08 `/` operations in
+    their MySQL cells, as emission derives them from the plan
+    (mysql_checked_cell, mysql_sum_query, mysql_remainder_cells,
+    mysql_division_cells), here from the document alone; a
     relation alias or a
     window, read or not, and an imported source leave a direct read's
     document apart from source positions and the source digest, so only
@@ -2054,17 +2060,23 @@ def _mysql_cells(doc) -> tuple[frozenset, frozenset, frozenset]:
     columns. S15 cells need one projection body straight over the scan,
     each of whose columns is a read of a source field of its tag's carrier
     (_mysql_remainder_carrier) or a `%` named once over two such reads of
-    its own tag; any other column closes them. The bound of three bodies
-    only ends the walk early: the block kinds and the chain that holds every
-    body imply it."""
+    its own tag; any other column closes them. R08 cells need the same body,
+    each of whose columns is a read of an Int source field of a SMALLINT, INT
+    or BIGINT storage or a `/` named once of an unsigned Int literal and one
+    such read, the law restated here (_mysql_division_literal); a bind-safe
+    parameter of any other literal closes them, and any parameter closes
+    every other cell. The bound of three bodies only ends the walk early: the
+    block kinds and the chain that holds every body imply it."""
 
-    empty: tuple[frozenset, frozenset, frozenset] = (
+    empty: tuple[frozenset, frozenset, frozenset, frozenset] = (
+        frozenset(),
         frozenset(),
         frozenset(),
         frozenset(),
     )
-    if not _MYSQL_CELL_KINDS.issuperset(doc.kinds):
+    if not (_MYSQL_CELL_KINDS | _MYSQL_SLOT_KINDS).issuperset(doc.kinds):
         return empty
+    slotted = not _MYSQL_CELL_KINDS.issuperset(doc.kinds)
     bodies = doc.all("row_body")
     if len(bodies) > 3:
         return empty
@@ -2090,9 +2102,15 @@ def _mysql_cells(doc) -> tuple[frozenset, frozenset, frozenset]:
         aggregate = chain[1]
     elif kinds not in (["projection"], ["where", "projection"]):
         return empty
-    if any(
-        (doc[ref]["aggregation"] is not None) is not (ref == aggregate) for ref in chain
-    ) or len(doc.all("aggregate_stage")) != (aggregate is not None):
+    if (
+        any(
+            (doc[ref]["aggregation"] is not None) is not (ref == aggregate)
+            for ref in chain
+        )
+        or len(doc.all("aggregate_stage")) != (aggregate is not None)
+        or slotted
+        and aggregate is not None
+    ):
         return empty
     final = doc[chain[0]]
     if aggregate is None:
@@ -2148,7 +2166,45 @@ def _mysql_cells(doc) -> tuple[frozenset, frozenset, frozenset]:
             elif _mysql_remainder_carrier(doc, value) is None:
                 remainders.clear()
                 break
-        return frozenset(operations), frozenset(), frozenset(remainders)
+        divisions, leaves = set(), set()
+        for column in final["columns"] if kinds == ["projection"] else ():
+            value = doc[column]["value"] if column.kind == "row_value_column" else None
+            if type(value) is Ref and value.kind == "sql_operation":
+                operation = doc[value]
+                pair = operation["operands"]
+                if not (
+                    named.get(column) == 1
+                    and named.get(value) == 1
+                    and operation["kind"] == "arithmetic"
+                    and operation["operator"] == "/"
+                    and doc[operation["realization"]]["tag"] == "Int"
+                    and len(pair) == 2
+                    and (
+                        _mysql_division_literal(doc, pair[0], 0)
+                        and _mysql_division_read(doc, pair[1])
+                        or _mysql_division_read(doc, pair[0])
+                        and _mysql_division_literal(doc, pair[1], 2)
+                    )
+                ):
+                    divisions.clear()
+                    break
+                divisions.add(value)
+                leaves.update(
+                    doc[item]["operand"] for item in pair if item.kind == "sql_anchor"
+                )
+            elif not _mysql_division_read(doc, value):
+                divisions.clear()
+                break
+        if not leaves.issuperset(doc.all("sql_parameter")):
+            divisions.clear()
+        if slotted:
+            return frozenset(), frozenset(), frozenset(), frozenset(divisions)
+        return (
+            frozenset(operations),
+            frozenset(),
+            frozenset(remainders),
+            frozenset(divisions),
+        )
     stage = doc[doc[aggregate]["aggregation"]]
     if (
         len(stage["keys"]) > 1
@@ -2180,7 +2236,32 @@ def _mysql_cells(doc) -> tuple[frozenset, frozenset, frozenset]:
             and _mysql_checked_carrier(doc, doc[value]["argument"])
         ),
         frozenset(),
+        frozenset(),
     )
+
+
+def _mysql_division_read(doc, ref) -> bool:
+    """R08: a read of an Int source field of a SMALLINT, INT or BIGINT
+    storage."""
+
+    if not _mysql_field_read(doc, ref):
+        return False
+    realization = doc[doc[ref]["realization"]]
+    return realization["tag"] == "Int" and dict(realization["storage"]) in (
+        {"kind": "my_smallint"},
+        {"kind": "my_int"},
+        {"kind": "my_bigint"},
+    )
+
+
+def _mysql_division_literal(doc, ref, low) -> bool:
+    """R08's law, restated (D77.27): an unsigned Int literal, fixed or bound,
+    of value ``low`` or more (0 for a dividend, 2 for a divisor)."""
+
+    if type(ref) is not Ref or ref.kind != "sql_anchor":
+        return False
+    value = _literal_int(doc, ref)
+    return type(value) is int and value >= low
 
 
 # S15: the carrier of each operand of a MySQL `%` cell and of each field
@@ -3611,7 +3692,11 @@ class _Check:
             "MySQL Float block membership",
         )
         cells = _mysql_scalar_cells(doc) if family == "mysql" else {}
-        mysql_remainders = _mysql_cells(doc)[2] if family == "mysql" else frozenset()
+        _, _, mysql_remainders, mysql_divisions = (
+            _mysql_cells(doc)
+            if family == "mysql"
+            else (frozenset(), frozenset(), frozenset(), frozenset())
+        )
         on_operations = _on_operations(doc)
         for ref in doc.all("sql_operation"):
             op = doc[ref]
@@ -3675,6 +3760,28 @@ class _Check:
                 _require(
                     _nullsafe_join_cell(doc, ref, family) is not None,
                     "null-safe JOIN condition cell",
+                )
+            if (
+                family == "mysql"
+                and op["kind"] == "arithmetic"
+                and op["operator"] == "/"
+            ):
+                # R08: a MySQL `/` only in its Int cell, NULL for a zero
+                # divisor.
+                _require(ref in mysql_divisions, "MySQL Int division cell")
+                _require(
+                    result["nullable"] is not False
+                    and _is_realization(
+                        result,
+                        "Int",
+                        {"kind": "my_bigint"},
+                        {
+                            "kind": "int_range",
+                            "min": str(_I64_MIN),
+                            "max": str(_I64_MAX),
+                        },
+                    ),
+                    "MySQL division carrier",
                 )
             if family == "postgres" and result["tag"] == "Decimal":
                 operands = tuple(
@@ -5845,7 +5952,10 @@ class _Tokens:
             expected = {
                 "unary_open": "(" + operator,
                 "is_null_test": " " + operator.upper(),
-                "arithmetic_operator": " " + operator + " ",
+                # R08: a MySQL `/` is only ever an Int cell, MySQL's DIV.
+                "arithmetic_operator": " DIV "
+                if self.family == "mysql" and operator == "/"
+                else " " + operator + " ",
                 "logical_operator": " " + operator.upper() + " ",
                 "comparison_operator": schema.COMPARISON_SPELLING.get(operator),
             }[role]
@@ -6704,10 +6814,10 @@ class _ProvenIntRanges:
                         self.terminals[terminal] = (*producers, column)
         self.values: dict[Ref, tuple[int, int] | object] = {}
         self.visiting: set[Ref] = set()
-        self.mysql_checked, _, self.mysql_remainders = (
+        self.mysql_checked, _, self.mysql_remainders, _ = (
             _mysql_cells(doc)
             if family == "mysql"
-            else (frozenset(), frozenset(), frozenset())
+            else (frozenset(), frozenset(), frozenset(), frozenset())
         )
 
     def value(self, ref: Ref) -> tuple[int, int] | object:

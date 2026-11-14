@@ -1489,8 +1489,9 @@ def _row_realization(request, expression, operands, operand_values):
         # S01: emission's blockers, which verification re-derives first, leave
         # a MySQL target-checked sign or arithmetic only in its cell.
         mysql_checked=request.family == "mysql" and kind in {"unary", "binary"},
-        # S15: and a MySQL `%` only in its cell.
+        # S15 and R08: and a MySQL `%` or Int `/` only in its cell.
         mysql_remainder=request.family == "mysql" and kind == "binary",
+        mysql_division=request.family == "mysql" and kind == "binary",
         # This reader's own S17 pairing check.
         paired=tag == "Decimal" and pairing.project_form(request) is not None,
     )
@@ -1505,6 +1506,36 @@ def _mysql_remainder_operands(tag, operands) -> bool:
         == {"Int": {"kind": "my_bigint"}, "Float": {"kind": "my_double"}}.get(tag)
         and not item.binding
         for item in operands
+    )
+
+
+def _mysql_division_operands(operands) -> bool:
+    """Independent R08 law (D77.27): a literal dividend of 0 or more over an
+    Int field of a SMALLINT, INT or BIGINT storage, or such a field over a
+    literal divisor of 2 or more; a literal is the single SIGNED value an
+    Int literal token realizes, and no field proves anything."""
+
+    def literal(item, low):
+        bounds = item.proven_int_range
+        return (
+            item.storage == {"kind": "my_signed_int"}
+            and not item.binding
+            and bounds is not None
+            and low <= bounds[0] == bounds[1]
+        )
+
+    def field(item):
+        return (
+            item.storage
+            in ({"kind": "my_smallint"}, {"kind": "my_int"}, {"kind": "my_bigint"})
+            and not item.binding
+        )
+
+    return len(operands) == 2 and (
+        literal(operands[0], 0)
+        and field(operands[1])
+        or field(operands[0])
+        and literal(operands[1], 2)
     )
 
 
@@ -1523,13 +1554,15 @@ def resolved_row_realization(
     float_cell=None,
     mysql_checked=False,
     mysql_remainder=False,
+    mysql_division=False,
     paired=False,
 ):
     """Existing independent physical-law checker over closed resolved inputs.
 
     A comparison requires ``rows_both_sides`` and takes ``float_cell`` (see
-    the shared comparison law). ``mysql_checked`` marks an S01 cell and
-    ``mysql_remainder`` an S15 one, which its caller derives. MySQL takes the
+    the shared comparison law). ``mysql_checked`` marks an S01 cell,
+    ``mysql_remainder`` an S15 one and ``mysql_division`` an R08 one, which
+    its caller derives. MySQL takes the
     Decimal operations of an S17 form only when ``paired``
     (`project_sql_emission_paired`).
     """
@@ -1542,6 +1575,17 @@ def resolved_row_realization(
         and operator == "%"
         and nullable is not False
         and _mysql_remainder_operands(tag, operands)
+    )
+    # R08: a MySQL Int `/` that its literal operand proves, NULL for a zero
+    # divisor.
+    division = (
+        mysql_division
+        and family == "mysql"
+        and kind == "binary"
+        and operator == "/"
+        and tag == "Int"
+        and nullable is not False
+        and _mysql_division_operands(operands)
     )
     if kind == "null_test":
         if tag != "Bool" or nullable is not False:
@@ -1736,7 +1780,7 @@ def resolved_row_realization(
     if tag != "Int" or any(item.tag != "Int" for item in operands):
         raise ValueError("arithmetic domain")
     if kind == "binary" and operator in {"/", "%"}:
-        if family != "postgres" and not remainder:
+        if family != "postgres" and not remainder and not division:
             raise ValueError("integer division or remainder")
         return rows.Realization(
             "Int",

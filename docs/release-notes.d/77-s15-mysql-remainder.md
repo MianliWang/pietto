@@ -54,7 +54,8 @@
   text or `INT` field, under a WHERE, with ORDER BY, LIMIT or DISTINCT, over
   an upstream query or a JOIN, or through a `def`. MySQL project `Float /`
   stays refused (PIE-B1003 `float_division_not_realized`), and so does
-  `Int /` (PIE-B1003 `binary_operator_not_admitted`, D77.23).
+  `Int /` (PIE-B1003 `binary_operator_not_admitted`, D77.23) outside the
+  R08 cell of [its fragment](77-r08-mysql-int-div-proofs.md).
 
 A statement still refused reports exactly the blockers it has without this
 note, object for object, a cell's own included: selecting `r = a % b`

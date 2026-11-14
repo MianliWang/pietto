@@ -8037,6 +8037,7 @@ def _decode_fixed_public(document, limits):
         " - ": "-",
         " * ": "*",
         " / ": "/",
+        " DIV ": "/",
         " % ": "%",
         " AND ": "and",
         " OR ": "or",
@@ -9364,7 +9365,12 @@ def _decode_fixed_public(document, limits):
         if operator_role == "arithmetic_operator":
             _need(
                 role in {"binary_open", "decimal_arithmetic_open"}
-                and token in ARITHMETIC_TOKENS,
+                and (
+                    token in ARITHMETIC_TOKENS
+                    # R08: MySQL's integer division.
+                    or family == "mysql"
+                    and token == " DIV "
+                ),
                 "operator",
             )
             kind, enclosure = "arithmetic", "binary"
@@ -10539,6 +10545,55 @@ def _decode_fixed_public(document, limits):
                         for item in operands
                     ),
                     "MySQL Int remainder operands",
+                )
+                result = {
+                    "tag": "Int",
+                    "storage": {"kind": "my_bigint"},
+                    "nullable": nullable,
+                    "domain": {
+                        "kind": "int_range",
+                        "min": str(I64_MIN),
+                        "max": str(I64_MAX),
+                    },
+                    "proven_int_range": (I64_MIN, I64_MAX),
+                }
+            elif node["operator"] == " DIV ":
+                # R08: a MySQL Int `/` cell (D77.27), an unsigned Int literal
+                # of 0 or more over a SMALLINT, INT or BIGINT field, or such a
+                # field over one of 2 or more; the readers under test derive
+                # the rest of the cell.
+                def division_literal(item, low):
+                    value = item.get("value")
+                    return (
+                        value is not None
+                        and not item.get("null")
+                        and type(value["value"]) is int
+                        and value["value"] >= low
+                        and not any(r[0] == "unary" for r in value["requirements"])
+                    )
+
+                def division_field(item):
+                    return (
+                        "value" not in item
+                        and item["tag"] == "Int"
+                        and item["storage"]
+                        in (
+                            {"kind": "my_smallint"},
+                            {"kind": "my_int"},
+                            {"kind": "my_bigint"},
+                        )
+                    )
+
+                _need(
+                    family == "mysql"
+                    and nullable is not False
+                    and (
+                        division_literal(operands[0], 0)
+                        and division_field(operands[1])
+                        or division_field(operands[0])
+                        and division_literal(operands[1], 2)
+                    ),
+                    "MySQL Int division operands",
                 )
                 result = {
                     "tag": "Int",
@@ -17774,7 +17829,7 @@ def numeric_readers_accept(outcome):
     """Every reader accepts a VERIFIED artifact: plain verification (plan),
     the pure boundary (document), the independent public decoder, compiled
     replay and its template (records) and the live template, with the
-    emitted SQL byte for byte."""
+    emitted SQL byte for byte; a bind-safe template binds its fixed values."""
     import _pietto_sql_emission_portable as portable
     import _pietto_sql_emission_pure_boundary as pure
     from pietto._project.project_compiled_build import build_compiled
@@ -17810,13 +17865,15 @@ def numeric_readers_accept(outcome):
         accepted_producer=built.producer,
         accepted_compatibility=built.compatibility,
     )
-    assert emit_compiled(loaded, ()).rendered.sql == artifact.rendered.sql
+    fixed = tuple(value.value for value in artifact.fixed_values)
+    assert emit_compiled(loaded, fixed).rendered.sql == artifact.rendered.sql
     for template in (
         prepare_compiled_template(loaded),
         prepare_live_template(artifact),
     ):
-        assert template.slots == () and template.parameters == ()
-        assert bind_values(template, (), ()).artifact.rendered.sql == (
+        assert len(template.slots) == len(fixed) and template.parameters == ()
+        bound = tuple(zip(template.slots, fixed, strict=True))
+        assert bind_values(template, bound, ()).artifact.rendered.sql == (
             artifact.rendered.sql
         )
 
@@ -18304,6 +18361,69 @@ _REMAINDER_SELECT = "table result:\n    from nums\n    select:\n"
 _REMAINDER_BODY = _REMAINDER_SELECT + "        id\n"
 
 
+def _numeric_contract(target, sources):
+    """The S15 and R08 experiments' contract: each of ``sources`` as (source,
+    relation, fields, premises), its relation in `phase66` (MySQL) or
+    `public`, its ``fields`` as (name, nullable, storage, domain) and its
+    ``premises`` after the two that every source states."""
+    mysql = target == "mysql"
+    return {
+        "format": "pietto.emission-contract.v1",
+        "target": {"family": target, "release": "8.4.12" if mysql else "18.6"},
+        "sources": [
+            {
+                "selector": {"module": "main.pietto", "kind": "source", "name": source},
+                "relation": {
+                    "namespace": "phase66" if mysql else "public",
+                    "name": relation,
+                },
+                "scan": "relation_rows",
+                "premises": [
+                    {"key": "row_domain_matches", "scope": "source", "value": True},
+                    {"key": "read_only_object", "scope": "source", "value": True},
+                    *premises,
+                ],
+                "fields": [
+                    {
+                        "ordinal": ordinal,
+                        "name": name,
+                        "column": name,
+                        "representation": {
+                            "storage": storage,
+                            "nullable": nullable,
+                            "domain": domain,
+                        },
+                    }
+                    for ordinal, (name, nullable, storage, domain) in enumerate(fields)
+                ],
+            }
+            for source, relation, fields, premises in sources
+        ],
+        "environment": [
+            {
+                "key": "client_encoding",
+                "scope": "statement",
+                "value": "utf8mb4" if mysql else "UTF8",
+            },
+            {
+                "key": "operator_environment",
+                "scope": "statement",
+                "value": "builtin_only",
+            },
+            {
+                "key": "identifier_case",
+                "scope": "statement",
+                "value": "lower_case_table_names=0" if mysql else "quoted_exact",
+            },
+            {
+                "key": "parameter_protocol",
+                "scope": "statement",
+                "value": "mysql_prepared" if mysql else "postgres_extended",
+            },
+        ],
+    }
+
+
 def remainder_world(directory, target, body, policy="preserve_literals", side=False):
     """``body`` after the S15 world's header (main.pietto is the experiment's
     form source when ``body`` is one of REMAINDER_CELLS)."""
@@ -18338,60 +18458,17 @@ def remainder_world(directory, target, body, policy="preserve_literals", side=Fa
     carriers = {
         name: physical[name if name in physical else tag] for name, tag, _ in fields
     }
-    mysql = target == "mysql"
-    contract = {
-        "format": "pietto.emission-contract.v1",
-        "target": {"family": target, "release": "8.4.12" if mysql else "18.6"},
-        "sources": [
-            {
-                "selector": {"module": "main.pietto", "kind": "source", "name": "nums"},
-                "relation": {
-                    "namespace": "phase66" if mysql else "public",
-                    "name": "s15 nums",
-                },
-                "scan": "relation_rows",
-                "premises": [
-                    {"key": "row_domain_matches", "scope": "source", "value": True},
-                    {"key": "read_only_object", "scope": "source", "value": True},
-                ],
-                "fields": [
-                    {
-                        "ordinal": ordinal,
-                        "name": name,
-                        "column": name,
-                        "representation": {
-                            "storage": carriers[name][0],
-                            "nullable": nullable,
-                            "domain": carriers[name][1],
-                        },
-                    }
-                    for ordinal, (name, tag, nullable) in enumerate(fields)
-                ],
-            }
+    contract = _numeric_contract(
+        target,
+        [
+            (
+                "nums",
+                "s15 nums",
+                [(name, nullable, *carriers[name]) for name, tag, nullable in fields],
+                (),
+            )
         ],
-        "environment": [
-            {
-                "key": "client_encoding",
-                "scope": "statement",
-                "value": "utf8mb4" if mysql else "UTF8",
-            },
-            {
-                "key": "operator_environment",
-                "scope": "statement",
-                "value": "builtin_only",
-            },
-            {
-                "key": "identifier_case",
-                "scope": "statement",
-                "value": "lower_case_table_names=0" if mysql else "quoted_exact",
-            },
-            {
-                "key": "parameter_protocol",
-                "scope": "statement",
-                "value": "mysql_prepared" if mysql else "postgres_extended",
-            },
-        ],
-    }
+    )
     header = "".join(
         f"    {name}: {tag}{' | None' if nullable else ''}\n"
         for name, tag, nullable in fields
@@ -18514,5 +18591,301 @@ REMAINDER_DIVISION_BLOCKERS = {
         (*_INT_MOD, 18, 9),
         ("PIE-B1003", "float_division_not_realized", 19, 9),
         (*_FLOAT_MOD, 20, 9),
+    ],
+}
+
+
+# Phase77 R08: the candidate emission experiment's world (its forms.json
+# `world`, r08_nums: BIGINT `id`, `b` and `d`, INT `i` and `j` and SMALLINT
+# `s` and `t`, `i`, `s` and `b` nullable) and its refusal controls' sources
+# `more`, of the same shape, and `narrow` (non-null BIGINT `id`, `x` declared
+# over [-100, 100] and `y` over [2, 100], and INT `j`); every other field is
+# declared over exactly its storage's signed range.
+_DIVISION_SHAPES = {
+    "Num": (
+        ("id", 64, False, None),
+        ("i", 32, True, None),
+        ("j", 32, False, None),
+        ("s", 16, True, None),
+        ("t", 16, False, None),
+        ("b", 64, True, None),
+        ("d", 64, False, None),
+    ),
+    "Narrow": (
+        ("id", 64, False, None),
+        ("x", 64, False, (-100, 100)),
+        ("y", 64, False, (2, 100)),
+        ("j", 32, False, None),
+    ),
+}
+# Each source as (name, shape, locator), in declaration order.
+_DIVISION_SOURCES = (
+    ("nums", "Num", "opaque"),
+    ("more", "Num", "more"),
+    ("narrow", "Narrow", "narrow"),
+)
+_DIVISION_STORAGE = {
+    "postgres": {16: "pg_int2", 32: "pg_int4", 64: "pg_int8"},
+    "mysql": {16: "my_smallint", 32: "my_int", 64: "my_bigint"},
+}
+DIVISION_SELECT = "table result:\n    from nums\n    select:\n"
+
+
+def division_world(directory, target, body, policy="preserve_literals", premise=None):
+    """``body`` after the shapes and sources of the R08 world that it names,
+    as the experiment's observation writes them (main.pietto is the
+    experiment's form source when ``body`` is one of DIVISION_CELLS). With
+    ``premise``, the contract also states a `value_domain` premise of that
+    field equal to its declared domain, scoped to expression site 1: the
+    reads in the one cell item of a value_domain control."""
+    shapes, lines, sources = [], [], []
+    for name, shape, locator in _DIVISION_SOURCES:
+        if re.search(rf"\b{name}\b", body) is None:
+            continue
+        if shape not in shapes:
+            shapes.append(shape)
+        lines.append(
+            f'source {name}: {shape} = {target}.table("{locator}.locator.not.sql")\n'
+        )
+        selector = {"module": "main.pietto", "kind": "source", "name": name}
+        fields, premises = [], []
+        for field, bits, nullable, declared in _DIVISION_SHAPES[shape]:
+            low, high = declared or (-(1 << (bits - 1)), (1 << (bits - 1)) - 1)
+            domain = {"kind": "int_range", "min": str(low), "max": str(high)}
+            fields.append(
+                (field, nullable, {"kind": _DIVISION_STORAGE[target][bits]}, domain)
+            )
+            if field == premise:
+                premises.append(
+                    {
+                        "key": "value_domain",
+                        "scope": {
+                            "kind": "expression",
+                            "source": selector,
+                            "site": {"kind": "expression_site", "position": 1},
+                            "context": {"kind": "select_block", "position": 0},
+                        },
+                        "value": domain,
+                    }
+                )
+        sources.append((name, f"r08 {name}", fields, premises))
+    header = "".join(
+        f"shape {shape}:\n"
+        + "".join(
+            f"    {field}: Int{' | None' if nullable else ''}\n"
+            for field, _, nullable, _ in _DIVISION_SHAPES[shape]
+        )
+        for shape in shapes
+    )
+    return build_case(
+        directory,
+        {"main.pietto": header + "".join(lines) + body},
+        encoded(_numeric_contract(target, sources)).decode(),
+        policy,
+    )
+
+
+def _division_items(*items):
+    return DIVISION_SELECT + "".join(f"        {item}\n" for item in items)
+
+
+# The experiment's six forms (P-R08-1..6), each MySQL `/` a cell of shape b
+# (a literal over a field) or c (a field over a literal of 2 or more).
+DIVISION_CELLS = {
+    "r08_literal_by_bigint": _division_items("id", "q = 100 / b"),
+    "r08_literal_dividends": _division_items(
+        "id",
+        "q1 = 9223372036854775807 / d",
+        "q2 = 2147483647 / i",
+        "q3 = 32767 / t",
+    ),
+    "r08_bigint_by_literal": _division_items("id", "q = b / 2"),
+    "r08_bigint_by_literal_nonnull": _division_items("id", "q = d / 3"),
+    "r08_narrow_by_literal": _division_items(
+        "id", "q1 = s / 2", "q2 = j / 3", "q3 = t / 9223372036854775807"
+    ),
+    "r08_literal_cells": _division_items(
+        "id",
+        "d",
+        "q1 = d / 9223372036854775807",
+        "q2 = b / 7",
+        "q3 = 7 / s",
+        "q4 = i / 2",
+    ),
+}
+
+# Each form's SQL as (preserve, bind-safe) by target: MySQL's bare
+# `(l DIV r)`, PostgreSQL's main bytes (P76-PERF-1).
+DIVISION_CELL_SQL = {
+    "mysql": {
+        "r08_literal_by_bigint": (
+            "SELECT `s0`.`id` AS `id`, (CAST(100 AS SIGNED) DIV `s0`.`b`) AS `q` FROM `phase66`.`r08 nums` AS `s0`",
+            "SELECT `s0`.`id` AS `id`, (CAST(? AS SIGNED) DIV `s0`.`b`) AS `q` FROM `phase66`.`r08 nums` AS `s0`",
+        ),
+        "r08_literal_dividends": (
+            "SELECT `s0`.`id` AS `id`, (CAST(9223372036854775807 AS SIGNED) DIV `s0`.`d`) AS `q1`, (CAST(2147483647 AS SIGNED) DIV `s0`.`i`) AS `q2`, (CAST(32767 AS SIGNED) DIV `s0`.`t`) AS `q3` FROM `phase66`.`r08 nums` AS `s0`",
+            "SELECT `s0`.`id` AS `id`, (CAST(? AS SIGNED) DIV `s0`.`d`) AS `q1`, (CAST(? AS SIGNED) DIV `s0`.`i`) AS `q2`, (CAST(? AS SIGNED) DIV `s0`.`t`) AS `q3` FROM `phase66`.`r08 nums` AS `s0`",
+        ),
+        "r08_bigint_by_literal": (
+            "SELECT `s0`.`id` AS `id`, (`s0`.`b` DIV CAST(2 AS SIGNED)) AS `q` FROM `phase66`.`r08 nums` AS `s0`",
+            "SELECT `s0`.`id` AS `id`, (`s0`.`b` DIV CAST(? AS SIGNED)) AS `q` FROM `phase66`.`r08 nums` AS `s0`",
+        ),
+        "r08_bigint_by_literal_nonnull": (
+            "SELECT `s0`.`id` AS `id`, (`s0`.`d` DIV CAST(3 AS SIGNED)) AS `q` FROM `phase66`.`r08 nums` AS `s0`",
+            "SELECT `s0`.`id` AS `id`, (`s0`.`d` DIV CAST(? AS SIGNED)) AS `q` FROM `phase66`.`r08 nums` AS `s0`",
+        ),
+        "r08_narrow_by_literal": (
+            "SELECT `s0`.`id` AS `id`, (`s0`.`s` DIV CAST(2 AS SIGNED)) AS `q1`, (`s0`.`j` DIV CAST(3 AS SIGNED)) AS `q2`, (`s0`.`t` DIV CAST(9223372036854775807 AS SIGNED)) AS `q3` FROM `phase66`.`r08 nums` AS `s0`",
+            "SELECT `s0`.`id` AS `id`, (`s0`.`s` DIV CAST(? AS SIGNED)) AS `q1`, (`s0`.`j` DIV CAST(? AS SIGNED)) AS `q2`, (`s0`.`t` DIV CAST(? AS SIGNED)) AS `q3` FROM `phase66`.`r08 nums` AS `s0`",
+        ),
+        "r08_literal_cells": (
+            "SELECT `s0`.`id` AS `id`, `s0`.`d` AS `d`, (`s0`.`d` DIV CAST(9223372036854775807 AS SIGNED)) AS `q1`, (`s0`.`b` DIV CAST(7 AS SIGNED)) AS `q2`, (CAST(7 AS SIGNED) DIV `s0`.`s`) AS `q3`, (`s0`.`i` DIV CAST(2 AS SIGNED)) AS `q4` FROM `phase66`.`r08 nums` AS `s0`",
+            "SELECT `s0`.`id` AS `id`, `s0`.`d` AS `d`, (`s0`.`d` DIV CAST(? AS SIGNED)) AS `q1`, (`s0`.`b` DIV CAST(? AS SIGNED)) AS `q2`, (CAST(? AS SIGNED) DIV `s0`.`s`) AS `q3`, (`s0`.`i` DIV CAST(? AS SIGNED)) AS `q4` FROM `phase66`.`r08 nums` AS `s0`",
+        ),
+    },
+    "postgres": {
+        "r08_literal_by_bigint": (
+            'SELECT "s0"."id" AS "id", (CAST(100 AS pg_catalog.int8) / "s0"."b") AS "q" FROM "public"."r08 nums" AS "s0"',
+            'SELECT "s0"."id" AS "id", (CAST($1 AS pg_catalog.int8) / "s0"."b") AS "q" FROM "public"."r08 nums" AS "s0"',
+        ),
+        "r08_literal_dividends": (
+            'SELECT "s0"."id" AS "id", (CAST(9223372036854775807 AS pg_catalog.int8) / "s0"."d") AS "q1", (CAST(2147483647 AS pg_catalog.int8) / "s0"."i") AS "q2", (CAST(32767 AS pg_catalog.int8) / "s0"."t") AS "q3" FROM "public"."r08 nums" AS "s0"',
+            'SELECT "s0"."id" AS "id", (CAST($1 AS pg_catalog.int8) / "s0"."d") AS "q1", (CAST($2 AS pg_catalog.int8) / "s0"."i") AS "q2", (CAST($3 AS pg_catalog.int8) / "s0"."t") AS "q3" FROM "public"."r08 nums" AS "s0"',
+        ),
+        "r08_bigint_by_literal": (
+            'SELECT "s0"."id" AS "id", ("s0"."b" / CAST(2 AS pg_catalog.int8)) AS "q" FROM "public"."r08 nums" AS "s0"',
+            'SELECT "s0"."id" AS "id", ("s0"."b" / CAST($1 AS pg_catalog.int8)) AS "q" FROM "public"."r08 nums" AS "s0"',
+        ),
+        "r08_bigint_by_literal_nonnull": (
+            'SELECT "s0"."id" AS "id", ("s0"."d" / CAST(3 AS pg_catalog.int8)) AS "q" FROM "public"."r08 nums" AS "s0"',
+            'SELECT "s0"."id" AS "id", ("s0"."d" / CAST($1 AS pg_catalog.int8)) AS "q" FROM "public"."r08 nums" AS "s0"',
+        ),
+        "r08_narrow_by_literal": (
+            'SELECT "s0"."id" AS "id", ("s0"."s" / CAST(2 AS pg_catalog.int8)) AS "q1", ("s0"."j" / CAST(3 AS pg_catalog.int8)) AS "q2", ("s0"."t" / CAST(9223372036854775807 AS pg_catalog.int8)) AS "q3" FROM "public"."r08 nums" AS "s0"',
+            'SELECT "s0"."id" AS "id", ("s0"."s" / CAST($1 AS pg_catalog.int8)) AS "q1", ("s0"."j" / CAST($2 AS pg_catalog.int8)) AS "q2", ("s0"."t" / CAST($3 AS pg_catalog.int8)) AS "q3" FROM "public"."r08 nums" AS "s0"',
+        ),
+        "r08_literal_cells": (
+            'SELECT "s0"."id" AS "id", "s0"."d" AS "d", ("s0"."d" / CAST(9223372036854775807 AS pg_catalog.int8)) AS "q1", ("s0"."b" / CAST(7 AS pg_catalog.int8)) AS "q2", (CAST(7 AS pg_catalog.int8) / "s0"."s") AS "q3", ("s0"."i" / CAST(2 AS pg_catalog.int8)) AS "q4" FROM "public"."r08 nums" AS "s0"',
+            'SELECT "s0"."id" AS "id", "s0"."d" AS "d", ("s0"."d" / CAST($1 AS pg_catalog.int8)) AS "q1", ("s0"."b" / CAST($2 AS pg_catalog.int8)) AS "q2", (CAST($3 AS pg_catalog.int8) / "s0"."s") AS "q3", ("s0"."i" / CAST($4 AS pg_catalog.int8)) AS "q4" FROM "public"."r08 nums" AS "s0"',
+        ),
+    },
+}
+# Each form's bind-safe fixed values in slot order, on both targets: its
+# literal tokens from left to right.
+DIVISION_CELL_FIXED = {
+    "r08_literal_by_bigint": (100,),
+    "r08_literal_dividends": (9223372036854775807, 2147483647, 32767),
+    "r08_bigint_by_literal": (2,),
+    "r08_bigint_by_literal_nonnull": (3,),
+    "r08_narrow_by_literal": (2, 3, 9223372036854775807),
+    "r08_literal_cells": (9223372036854775807, 7, 7, 2),
+}
+_DIVISION_HEADER_QUERY = "query result(k: Int):\n    from nums\n    select:\n"
+_DIVISION_NARROW = "table result:\n    from narrow\n    select:\n        id\n"
+_IDENTITY_DEF = "def idn(x: Int) -> Int:\n    return x\n"
+_TWO_DEF = "def two() -> Int:\n    return 2\n"
+# The experiment's refusal controls (its forms.json refusal_controls, the
+# value_domain ones with DIVISION_PREMISES) and nine more: an operand of a
+# `def`, its argument or its body (one call over two lines), a cell under a
+# WHERE, and one beside a literal, a negation or an `abs` item. Each is a MySQL
+# `/` outside T08-1, with the blockers main reports for it as (code, detail,
+# line, column) under either literal policy: one PIE-B1003
+# `binary_operator_not_admitted` per item holding a `/` unless
+# DIVISION_REFUSAL_BLOCKERS says otherwise. No field proves anything: not its
+# storage, a declared domain or a premise.
+DIVISION_REFUSALS = {
+    "bigint_dividend": _division_items("id", "q = b / i"),
+    "bigint_dividend_nonnull": _division_items("id", "q = d / j"),
+    "storage_int_by_bigint": _division_items("id", "q = i / b"),
+    "storage_int_by_bigint_nonnull": _division_items("id", "q = j / d"),
+    "storage_int_by_int": _division_items("id", "q = j / i"),
+    "storage_small_by_small": _division_items("id", "q = t / s"),
+    "storage_small_by_bigint": _division_items("id", "q = s / d"),
+    "storage_int_by_small": _division_items("id", "q = i / t"),
+    "storage_all_cells": _division_items(
+        "id", "i", "t", "b", "q1 = i / b", "q2 = t / d", "q3 = j / s"
+    ),
+    "declared_narrow_dividend": _DIVISION_NARROW + "        q = x / j\n",
+    "declared_narrow_divisor": _DIVISION_NARROW + "        q = id / y\n",
+    "value_domain_dividend": _DIVISION_NARROW + "        q = x / x\n",
+    "value_domain_divisor": _DIVISION_NARROW + "        q = y / y\n",
+    "bigint_by_one": _division_items("id", "q = b / 1"),
+    "bigint_by_zero": _division_items("id", "q = b / 0"),
+    "bigint_by_negative_literal": _division_items("id", "q = b / -2"),
+    "narrow_by_one": _division_items("id", "q = i / 1"),
+    "narrow_by_zero": _division_items("id", "q = i / 0"),
+    "narrow_by_negative_literal": _division_items("id", "q = i / -2"),
+    "bigint_by_nested_literal": _division_items("id", "q = b / (2 + 1)"),
+    "literal_by_literal": _division_items("id", "q = 100 / 7"),
+    "nested_dividend": _division_items("id", "q = (i + 1) / b"),
+    "abs_dividend": _division_items("id", "q = abs(i) / 2"),
+    "negated_dividend": _division_items("id", "q = -i / 2"),
+    "nested_in_operation": _division_items("id", "q = b / 2 + d"),
+    "chain": _division_items("id", "q = b / 2 / t"),
+    "in_where": "table result:\n    from nums\n    where b / 2 == d\n    select:\n"
+    "        id\n",
+    "in_let": "table result:\n    from nums\n    let q = b / 2\n    select:\n"
+    "        id\n        q\n",
+    "header_dividend": _DIVISION_HEADER_QUERY + "        id\n        q = k / 2\n",
+    "header_divisor": _DIVISION_HEADER_QUERY + "        id\n        q = 100 / k\n",
+    "beside_narrow_sum": _division_items("id", "q = b / 2", "p = i + j"),
+    "beside_s01_cell": _division_items("id", "q = b / 2", "p = b + b"),
+    "beside_s15": _division_items("id", "q = b / 2", "r = b % d"),
+    "upstream": "query base:\n    from nums\n    select:\n        id\n        b\n"
+    "table result:\n    from base\n    select:\n        id\n        q = b / 2\n",
+    "join": "table result:\n    from nums\n    inner join more on more.id == nums.id\n"
+    "    select:\n        id = nums.id\n        q = nums.b / 2\n",
+    "def_argument_divisor": _IDENTITY_DEF + _division_items("id", "q = b / idn(2)"),
+    "def_argument_dividend": _IDENTITY_DEF + _division_items("id", "q = idn(100) / b"),
+    "def_body_divisor": _TWO_DEF + _division_items("id", "q = b / two()"),
+    "def_body_dividend": _TWO_DEF + _division_items("id", "q = two() / b"),
+    "def_body_multiline": "def _9() -> Int:\n    return 9\n"
+    + _division_items("id", "q = b / _9(\n                )"),
+    "under_where": "table result:\n    from nums\n    where id > 0\n    select:\n"
+    "        id\n        q = b / 2\n",
+    "beside_literal": _division_items("id", "q = b / 2", "c = 5"),
+    "beside_negation": _division_items("id", "q = b / 2", "n = -b"),
+    "beside_abs": _division_items("id", "q = b / 2", "a = abs(i)"),
+}
+DIVISION_PREMISES = {"value_domain_dividend": "x", "value_domain_divisor": "y"}
+_INT_DIVISION = ("PIE-B1003", "binary_operator_not_admitted")
+DIVISION_REFUSAL_BLOCKERS = {
+    "storage_all_cells": [
+        (*_INT_DIVISION, 17, 9),
+        (*_INT_DIVISION, 18, 9),
+        (*_INT_DIVISION, 19, 9),
+    ],
+    "in_where": [(*_INT_DIVISION, 12, 5)],
+    "in_let": [(*_INT_DIVISION, 12, 5)],
+    "beside_s01_cell": [
+        (*_INT_DIVISION, 14, 9),
+        ("PIE-B1002", "arithmetic_outside_physical_range", 15, 9),
+    ],
+    "beside_s15": [(*_INT_DIVISION, 14, 9), (*_INT_DIVISION, 15, 9)],
+    "upstream": [(*_INT_DIVISION, 19, 9)],
+    **dict.fromkeys(
+        (
+            "declared_narrow_dividend",
+            "declared_narrow_divisor",
+            "value_domain_dividend",
+            "value_domain_divisor",
+        ),
+        [(*_INT_DIVISION, 11, 9)],
+    ),
+    "join": [(*_INT_DIVISION, 16, 9)],
+    **dict.fromkeys(
+        (
+            "def_argument_divisor",
+            "def_argument_dividend",
+            "def_body_divisor",
+            "def_body_dividend",
+            "def_body_multiline",
+        ),
+        [(*_INT_DIVISION, 16, 9)],
+    ),
+    "under_where": [(*_INT_DIVISION, 15, 9)],
+    "beside_negation": [
+        (*_INT_DIVISION, 14, 9),
+        ("PIE-B1002", "unary_result_outside_physical_range", 15, 9),
     ],
 }

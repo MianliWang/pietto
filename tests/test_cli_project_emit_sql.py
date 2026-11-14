@@ -3044,8 +3044,9 @@ RANKED = """query ranked:
             "f % 2.0",
             "float_remainder_exact_binary64_not_realized",
         ),
-        # The form these are located and remedied as, still refused on MySQL.
-        ("mysql", "rows", "id / 2", "binary_operator_not_admitted"),
+        # The form these are located and remedied as, still refused on MySQL
+        # (R08 opens a field over a literal of 2 or more only).
+        ("mysql", "rows", "id / 1", "binary_operator_not_admitted"),
     ],
 )
 def test_project_float_division_and_remainder_are_deterministic_refusals(

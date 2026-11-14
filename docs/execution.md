@@ -927,6 +927,10 @@ The values:
   bits may likewise report SQLSTATE 22003, with no promise of when it does.
   A result wholly outside signed 64 bits, as that of `-2**63` under
   the minus, is still refused.
+- In the unreleased MySQL project `Int /` cell (see [Language](language.md)),
+  a divisor slot takes only 2 or more and a dividend slot only 0 or more,
+  whatever the contract's domains; any other value is `PIE-R1004`
+  `BINDING_INVALID`. PostgreSQL binds it as before.
 
 ## Parameters
 
