@@ -5535,12 +5535,13 @@ def test_postgres_string_agg_orders_by_a_float_key(tmp_path):
     assert emit_compiled(loaded, ()).rendered.sql == outcome.artifact.rendered.sql
 
 
-# Phase77 Wave A (S16, S10, S08, S11, S14): a MySQL project emits a lag/lead
-# Text literal default, a conditional count and tests of a group, count, min and
-# max over a window, a distinct-tuple count, or a conditional beside a JOIN and
-# a scalar call in an aggregate argument over JOIN rows only in a statement
-# that is one of its slice's paired qualification-pack forms with only its
-# names changed; everything else keeps its 0.1.11 output.
+# Phase77 Wave A (S16, S10, S08, S11, S14, S17): a MySQL project emits a
+# lag/lead Text literal default, a conditional count and tests of a group,
+# count, min and max over a window, a distinct-tuple count, a conditional
+# beside a JOIN and a scalar call in an aggregate argument over JOIN rows, or
+# Decimal and Int arithmetic and signs only in a statement that is one of its
+# slice's paired qualification-pack forms with only its names changed;
+# everything else keeps its 0.1.11 output.
 _LONG = {key: (value + "_" * 63)[:63] for key, value in paired_forms.NAMES.items()}
 _LONG_COLUMNS = tuple(f"c{i}" + "_" * 61 for i in range(8))
 _S10_KEPT = [
@@ -5559,7 +5560,23 @@ _S14_KEPT = (
 )
 
 
+_S17_KEPT = (
+    *(("arithmetic_requires_signed_int_operands",),) * 2,
+    *(("binary_operator_not_admitted",),) * 2,
+    *(("arithmetic_requires_signed_int_operands",) * 2,) * 2,
+    *(("binary_operator_not_admitted",),) * 3,
+    *(("unary_sign_requires_int_operand",),) * 2,
+    ("binary_operator_not_admitted",),
+    ("decimal_scale_mismatch",) * 2,
+    ("binary_operator_not_admitted",),
+)
+# Main's refusal of an S17 bundle: of a sign, of the other operations.
+_S17_LAW = {41: "COMPILED_UNARY_DOMAIN", 42: "COMPILED_UNARY_DOMAIN"}
+
+
 def _kept(form):
+    if form in paired_forms.S17:
+        return [("PIE-B1003", detail) for detail in _S17_KEPT[form - 32]]
     if form in paired_forms.S16:
         return [("PIE-B1003", "window_default_literal_kind_not_realized_yet")]
     if form in paired_forms.S08:
@@ -5678,10 +5695,13 @@ def test_mysql_emits_the_paired_forms(tmp_path, form, width):
         assert sql.count("COUNT(DISTINCT ") == _kept(form).count(_S11_KEPT)
     assert [c["nullable"] for c in document["columns"]] == paired_forms.NULLABLE[form]
     # A count is a BIGINT, a test of a group a computed signed Bool; an
-    # extreme, a lag/lead and a group key keep the value's carrier.
+    # extreme, a lag/lead and a group key keep the value's carrier, and
+    # Decimal arithmetic takes PostgreSQL's carrier.
     assert [c["representation"]["storage"] for c in document["columns"]] == [
         {"kind": "my_signed_bool"}
         if logical == "Bool" and form in paired_forms.S10
+        else paired_forms.storage(*logical)[0]
+        if type(logical) is tuple
         else paired_forms.STORAGE[logical][0]
         for logical in paired_forms.LOGICAL[form]
     ]
@@ -5755,6 +5775,9 @@ _S08_WORDS = (
         (30, "n", "sum"),
         (30, "lhs", "lead"),
         (6, "w", "lower"),
+        *((36, "added", word) for word in ("lag", "count_distinct", "where")),
+        (32, "factor", "group"),
+        (44, "ratio", "lower"),
     ),
 )
 def test_mysql_forms_take_another_slice_keywords_as_names(tmp_path, form, key, word):
@@ -6295,6 +6318,135 @@ _UNPAIRED.update(
 )
 
 
+_S17_ARITH = ("PIE-B1003", "arithmetic_requires_signed_int_operands")
+_S17_BINARY = ("PIE-B1003", "binary_operator_not_admitted")
+_S17_PROTOCOL = ("PIE-B1004", "parameter_protocol_declaration_missing")
+_S17_ITEMS = ("        plus = cash + k\n", "        minus = cash - k\n")
+_UNPAIRED.update(
+    {
+        "s17_minus_parameter": (
+            32,
+            lambda t: _swap(t, "cash + mult", "cash - mult"),
+            None,
+        ),
+        "s17_second_parameter": (
+            32,
+            lambda t: _swap(t, "(mult: Int)", "(mult: Int, other: Int)"),
+            None,
+        ),
+        "s17_nullable_parameter": (
+            32,
+            lambda t: _swap(t, "(mult: Int)", "(mult: Int | None)"),
+            None,
+        ),
+        "s17_no_protocol": (
+            32,
+            lambda t: t,
+            {"contract": ("protocol", None), "blockers": [_S17_ARITH, _S17_PROTOCOL]},
+        ),
+        "s17_protocol": (36, lambda t: t, {"contract": ("premise", None)}),
+        "s17_other_literal": (40, lambda t: _swap(t, "cash * 2", "cash * 3"), None),
+        "s17_literal_first": (40, lambda t: _swap(t, "cash * 2", "2 * cash"), None),
+        "s17_bind_safe": (
+            40,
+            lambda t: t,
+            {"policy": "bind-safe", "blockers": [_S17_BINARY, _S17_PROTOCOL]},
+        ),
+        # Check refuses a def's Decimal(p, s) (PIE-S2397), not this one.
+        "s17_through_def": (
+            38,
+            lambda t: _swap(
+                _swap(
+                    t,
+                    "table q16:",
+                    "def times(m: Decimal, n: Int) -> Decimal: return m * n\n"
+                    "table q16:",
+                ),
+                "cash * k",
+                "times(cash, k)",
+            ),
+            None,
+        ),
+        "s17_through_let": (
+            38,
+            lambda t: _swap(
+                _swap(t, "    from items\n", "    from items\n    let m = cash\n"),
+                "cash * k",
+                "m * k",
+            ),
+            None,
+        ),
+        "s17_swapped_item": (
+            36,
+            lambda t: _swap(t, "plus = cash + k", "plus = k + cash"),
+            None,
+        ),
+        "s17_dropped_item": (
+            36,
+            lambda t: _swap(t, _S17_ITEMS[1], ""),
+            {"blockers": [_S17_ARITH]},
+        ),
+        "s17_extra_item": (
+            38,
+            lambda t: t + "        again = cash * k\n",
+            {"blockers": [_S17_BINARY] * 2},
+        ),
+        "s17_reordered_items": (
+            36,
+            lambda t: _swap(t, "".join(_S17_ITEMS), "".join(reversed(_S17_ITEMS))),
+            None,
+        ),
+        # The pack names the column as the table; a renaming keeps that.
+        "s17_label_not_the_table": (38, lambda t: _swap(t, "q16 = ", "res = "), None),
+        "s17_case_twin_labels": (36, lambda t: _swap(t, "minus =", "PLUS ="), None),
+        "s17_query_kind": (
+            38,
+            lambda t: _swap(t, "table q16:", "query q16:"),
+            {"kind": "query"},
+        ),
+        "s17_where": (
+            38,
+            lambda t: _swap(t, "    from items\n", "    from items\n    where k > 1\n"),
+            None,
+        ),
+        "s17_nullable_money": (
+            38,
+            lambda t: _swap(
+                t, "    cash: Decimal(9, 2)\n", "    cash: Decimal(9, 2) | None\n"
+            ),
+            {"contract": ("nullable", 3)},
+        ),
+        "s17_other_scale": (
+            38,
+            lambda t: _swap(t, "Decimal(9, 2)", "Decimal(9, 3)"),
+            {"contract": ("money", {"scale": 3})},
+        ),
+        "s17_wider_product": (
+            45,
+            lambda t: _swap(t, "Decimal(46, 30)", "Decimal(47, 30)"),
+            {"contract": ("money", {"precision": 47})},
+        ),
+        "s17_other_world": (
+            38,
+            lambda t: _swap(t, "    share: Float\n", "    share: Decimal(8, 3)\n"),
+            {"contract": ("share", None)},
+        ),
+        "s17_kelvin_column": (36, lambda t: t, {"contract": ("column", "c_\u212a")}),
+        "s17_double_sign": (41, lambda t: _swap(t, "= -cash", "= -(-cash)"), None),
+        "s17_swapped_scales": (
+            44,
+            lambda t: _swap(t, "plus = cash + share", "plus = share + cash"),
+            None,
+        ),
+        "s17_extra_query": (
+            41,
+            lambda t: t + "\ntable other:\n    from items\n    select:\n        k\n",
+            None,
+        ),
+    }
+)
+
+
 @pytest.mark.parametrize("case", sorted(_UNPAIRED))
 def test_mysql_unpaired_statements_keep_the_main_output(tmp_path, case):
     """Every other statement reports its whole output from before Wave A."""
@@ -6318,6 +6470,17 @@ def test_mysql_unpaired_statements_keep_the_main_output(tmp_path, case):
             contract["sources"][0]["fields"][2]["column"] = value
         elif change == "nullable":
             contract["sources"][0]["fields"][value]["representation"]["nullable"] = True
+        elif change in {"money", "share"}:
+            # The S17 Decimal field's carrier, or `share` as `dec_ratio`'s.
+            field = contract["sources"][0]["fields"][3 if change == "money" else 4]
+            representation = field["representation"]
+            if change == "share":
+                value = {"kind": "decimal", "precision": 8, "scale": 3}
+                representation["storage"] = dict(value, kind="my_decimal")
+                representation["domain"] = value
+            else:
+                representation["storage"].update(value)
+                representation["domain"].update(value)
         elif change == "keys_column":
             contract["sources"][1]["fields"][2]["column"] = value
         elif change == "keys_namespace":
@@ -6355,23 +6518,28 @@ def test_mysql_unpaired_statements_keep_the_main_output(tmp_path, case):
         (17, lambda t: _swap(t, "left join", "inner join"), 19),
         (20, lambda t: _swap(t, "inner join", "left join"), 18),
         (24, lambda t: t[: t.index("        dist2 =")], 21),
+        (42, lambda t: _swap(t, "= +cash", "= -cash"), 41),
+        (38, lambda t: _swap(t, "cash * k", "k * cash"), 39),
+        (36, lambda t: _swap(t, "".join(_S17_ITEMS), "        q16 = cash * k\n"), 38),
     ),
 )
-def test_mysql_s11_variant_that_is_another_form_emits_it(tmp_path, form, edit, other):
-    """A JOIN kind or a SELECT list that makes one S11 form another emits as
-    that form does."""
+def test_mysql_variant_that_is_another_form_emits_it(tmp_path, form, edit, other):
+    """A JOIN kind, a SELECT list, an operator or an operand order that makes
+    one S11 or S17 form another emits as that form does."""
     directory = paired_forms.project(tmp_path / "p", form)
     main = directory / "main.pietto"
     main.write_text(
         edit(main.read_text(encoding="utf-8")), encoding="utf-8", newline="\n"
     )
-    result = _paired_compile(directory)
+    result = _paired_compile(directory, kind=_kind(form))
     assert result.status == "VERIFIED", result.document
-    expected = _paired_compile(paired_forms.project(tmp_path / "other", other))
+    expected = _paired_compile(
+        paired_forms.project(tmp_path / "other", other), kind=_kind(other)
+    )
     assert json.loads(result.document)["sql"] == json.loads(expected.document)["sql"]
 
 
-@pytest.mark.parametrize("form", (1, 3, 7, 17, 25, 28, 30, 31))
+@pytest.mark.parametrize("form", (1, 3, 7, 17, 25, 28, 30, 31, 32, 37, 41, 45))
 def test_mysql_paired_statement_without_its_sql_keeps_the_main_output(
     tmp_path, monkeypatch, form
 ):
@@ -6391,7 +6559,7 @@ def test_mysql_paired_statement_without_its_sql_keeps_the_main_output(
         (b["code"], b["subject"]["detail"]) for b in json.loads(before)["blockers"]
     ] == _kept(form)
     with monkeypatch.context() as patch:
-        patch.setattr(pairing, "sql_form", lambda sql: None)
+        patch.setattr(pairing, "sql_form", lambda sql, form: False)
         assert _paired_compile(directory, **arguments).document == before
     with monkeypatch.context() as patch:
         patch.setattr(
@@ -6677,6 +6845,139 @@ def test_mysql_compiled_s14_law_reads_every_position(tmp_path, case):
     assert joining.compiled_sited_problem(records, executable) == expected
 
 
+@pytest.mark.parametrize(
+    "form,filename,function",
+    (
+        *(
+            (form, "project_sql_emission_rows.py", "_binary")
+            for form in (32, 35, 36, 40, 43, 44)
+        ),
+        *(
+            (form, "project_sql_emission_rows.py", "build_row_value")
+            for form in (41, 43)
+        ),
+        *(
+            (form, "project_sql_emission_verification.py", "_row_realization")
+            for form in (32, 36, 38, 41, 42, 44, 45)
+        ),
+    ),
+)
+def test_mysql_each_live_s17_check_pairs_the_statement_itself(
+    tmp_path, monkeypatch, form, filename, function
+):
+    """Emission's arithmetic and sign laws and the live verifier's each read
+    the S17 pairing themselves: when one alone finds no form, the statement
+    keeps main's output."""
+    directory = paired_forms.project(tmp_path / "p", form)
+    kind = _kind(form)
+    with pairing.closed():
+        before = _paired_compile(directory, kind=kind).document
+    calls = _not_from(monkeypatch, "project_form", filename, function)
+    assert _paired_compile(directory, kind=kind).document == before
+    assert calls
+
+
+@pytest.mark.parametrize("form", (32, 36, 38, 41, 43, 44, 45))
+@pytest.mark.parametrize(
+    "function", ("derive_compiled_semantics", "verify_compiled_semantics")
+)
+def test_mysql_each_compiled_s17_check_pairs_the_bundle_itself(
+    tmp_path, monkeypatch, form, function
+):
+    """The semantics derivation and its verifier each read an S17 bundle's
+    pairing themselves: when one alone finds no form, the bundle keeps main's
+    refusal of a MySQL Decimal operation."""
+    from pietto.execution import export_bundle
+
+    directory = paired_forms.project(tmp_path / "p", form)
+    bundle = export_bundle(_paired_query(directory, kind=_kind(form)))
+    calls = _not_from(
+        monkeypatch, "compiled_form", "project_completed_semantics.py", function
+    )
+    assert _load_refusal(bundle, bundle.payload) == (
+        "PIE-R1004",
+        _S17_LAW.get(form, "COMPILED_PHYSICAL_DOMAIN"),
+    )
+    assert calls
+
+
+@pytest.mark.parametrize(
+    "form,old,new",
+    ((40, "cash * 2", "cash * 3"), (41, "= -cash", "= -(-cash)")),
+)
+def test_mysql_live_verifier_pairs_an_s17_statement_itself(
+    tmp_path, monkeypatch, form, old, new
+):
+    """A statement that emission alone takes for an S17 form, and so emits,
+    is refused by the live verifier's own reading."""
+    from types import SimpleNamespace
+
+    from pietto._project import project_sql_emission_rows as rowing
+
+    directory = paired_forms.project(tmp_path / "p", form)
+    main = directory / "main.pietto"
+    main.write_text(
+        _swap(main.read_text(encoding="utf-8"), old, new),
+        encoding="utf-8",
+        newline="\n",
+    )
+    monkeypatch.setattr(
+        rowing, "pairing", SimpleNamespace(project_form=lambda request: form)
+    )
+    blockers = json.loads(_paired_compile(directory, kind="table").document)
+    assert [(b["code"], b["subject"]["detail"]) for b in blockers["blockers"]] == [
+        ("PIE-B1008", "plan_ast_correspondence")
+    ]
+
+
+@pytest.mark.parametrize(
+    "function", ("derive_compiled_semantics", "verify_compiled_semantics")
+)
+@pytest.mark.parametrize(
+    "form,old,new",
+    ((40, '["Int","2"]', '["Int","3"]'), (41, "c_cash", "c_\u212a")),
+)
+def test_mysql_each_compiled_s17_check_refuses_a_bundle_by_itself(
+    tmp_path, monkeypatch, function, form, old, new
+):
+    """A forged S17 bundle that one compiled check alone takes for a form is
+    refused by the other's own reading: the verifier's finding has no public
+    detail (PIE-R1999), as for any derivation it does not confirm."""
+    directory = paired_forms.project(tmp_path / "p", form)
+    bundle, payload = _paired_payload(directory, form, old, new)
+    real = pairing.compiled_form
+
+    def reader(records):
+        code = sys._getframe(1).f_code
+        fooled = code.co_name == function and code.co_filename.endswith(
+            "project_completed_semantics.py"
+        )
+        return form if fooled and not pairing.rows.AS_MAIN.get() else real(records)
+
+    monkeypatch.setattr(pairing, "compiled_form", reader)
+    assert _load_refusal(bundle, payload) == (
+        ("PIE-R1999", None)
+        if function == "derive_compiled_semantics"
+        else ("PIE-R1004", _S17_LAW.get(form, "COMPILED_PHYSICAL_DOMAIN"))
+    )
+
+
+def test_paired_forms_differ_but_may_share_their_sql():
+    """Each form has its own module and records, while SQL forgets types and
+    so may be another form's: rule two checks a form's own SQL."""
+    for column in (0, 2):
+        assert len({form[column] for form in pairing.FORMS}) == len(pairing.FORMS)
+    # money * id over Decimal(9, 2) and Decimal(46, 30); money + id and + ratio.
+    assert pairing.FORMS[38][1] == pairing.FORMS[45][1]
+    assert pairing.FORMS[36][1] == pairing.FORMS[37][1] == pairing.FORMS[44][1]
+    sql = b"SELECT (`s0`.`c_cash` * `s0`.`c_id`) AS `q16` FROM `app`.`items` AS `s0`"
+    assert [form for form in paired_forms.S17 if pairing.sql_form(sql, form)] == [
+        38,
+        39,
+        45,
+    ]
+
+
 # The place of the requirement origin of form 3's and form 7's `mysql.table`
 # literal.
 _S10_ORIGIN = '["main.pietto",10,35,10,46]'
@@ -6748,6 +7049,15 @@ def _load_refusal(bundle, payload):
         (30, '"lower"', '"upper"', False),
         (30, "c_body", "c_\u212a", False),
         (30, "c_body", "c2", True),
+        # A header parameter's label is a name too: 64 bytes is none.
+        (32, '"mult"', '"' + "m" * 64 + '"', False),
+        (32, '["binary","+"]', '["binary","-"]', False),
+        (36, "c_cash", "c_\u212a", False),
+        # Still the form's records, but its SQL then reads another column.
+        (36, "c_cash", "s0", True),
+        (40, '["Int","2"]', '["Int","3"]', False),
+        (41, "c_cash", "c_\u212a", False),
+        (44, "c_share", "c_\u212a", False),
     ),
 )
 def test_mysql_forged_paired_bundles_are_refused(tmp_path, form, old, new, paired):
@@ -6769,6 +7079,8 @@ def test_mysql_forged_paired_bundles_are_refused(tmp_path, form, old, new, paire
         if form in paired_forms.S08
         else ("PIE-R1008", "COMPILED_REQUIREMENT_LOCATION")
         if old == _S10_ORIGIN
+        else ("PIE-R1004", _S17_LAW.get(form, "COMPILED_PHYSICAL_DOMAIN"))
+        if form in paired_forms.S17
         else ("PIE-R1004", _S14_LAW.get(form, "COMPILED_AGGREGATE_ARGUMENT"))
     )
 
@@ -6782,7 +7094,7 @@ def test_mysql_paired_bundle_failing_open_loads_as_main(tmp_path, monkeypatch, f
     directory = paired_forms.project(tmp_path / "p", form)
     bundle = export_bundle(_paired_query(directory, kind=_kind(form)))
 
-    def fail(sql):
+    def fail(sql, form):
         raise RuntimeError("forced")
 
     monkeypatch.setattr(pairing, "sql_form", fail)
@@ -6860,6 +7172,15 @@ def test_pure_reads_paired_s14_documents_as_before(tmp_path, form):
     """The pure reader judges an S14 document by its own laws, as before:
     none of them reads a conditional beside a JOIN or a call in an aggregate
     argument over JOIN rows, so it takes the paired forms' documents."""
+    observed = pure.parse_emission_observation(_pure_document(tmp_path, form))
+    assert observed.status is pure.Status.OK
+
+
+@pytest.mark.parametrize("form", (36, 37, 38, 40, 41, 43, 44, 45))
+def test_pure_reads_paired_s17_documents_as_before(tmp_path, form):
+    """The pure reader judges an S17 document by its own laws, as before: it
+    checks Decimal carriers only on PostgreSQL, so it takes the paired forms'
+    MySQL documents."""
     observed = pure.parse_emission_observation(_pure_document(tmp_path, form))
     assert observed.status is pure.Status.OK
 

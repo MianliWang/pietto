@@ -2919,9 +2919,11 @@ emit these expressions, including `sum(amount * n)` for a Decimal field
 `amount` and an Int field `n`. PostgreSQL projects require the qualified
 carrier rules in the [project guide](project-package.md#emission-rules):
 multiplication produces `Decimal(p + 19, s)` only when `p + 19 <= 65`, and
-a sign preserves `(p, s)`. MySQL projects retain their refusal. Decimal/Float
-arithmetic remains PIE-S2105; this rule does not introduce a Decimal literal
-or a project Decimal division or average.
+a sign preserves `(p, s)`. MySQL projects retain their refusal, except in
+a statement that is one of fourteen paired forms with only its names changed
+([unreleased](release-notes.d/77-s17-mysql-decimal-arithmetic.md)).
+Decimal/Float arithmetic remains PIE-S2105; this rule does not introduce a
+Decimal literal or a project Decimal division or average.
 
 `/` follows SQL division. `Int / Int` is an `Int` truncated toward zero (`7 /
 2` is `3`, `-7 / 2` is `-3`): PostgreSQL emits `a / b`, and MySQL, whose `/`

@@ -124,7 +124,7 @@ def load_compiled(
     # here or, where main refuses them later, in `emit_compiled`.
     try:
         root = load()
-        if pairing.sql_form(emit_compiled(root, ()).rendered.sql) == form:
+        if pairing.sql_form(emit_compiled(root, ()).rendered.sql, form):
             return root
     except Exception:
         pass

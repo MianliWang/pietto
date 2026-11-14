@@ -1,14 +1,17 @@
 """The Phase77 Wave A qualification pack's paired forms, copied verbatim.
 
-PAIRS.md 5.1, 5.4, 5.5, 5.6, 5.7, 5.8 and 5.9 give the paired bodies
-(`{name}` is the selected definition's name), 4.1, 4.3, 4.5, 4.6, 4.8 and 4.9
-the MySQL worlds `agg_keys`, `rows_ntext`, `temporal`, `agg`, `join` and
-`rows` they read, and the pack's `mysql/plan.py` the MySQL contract its
+PAIRS.md 5.1, 5.2, 5.4, 5.5, 5.6, 5.7, 5.8, 5.9 and 5.10 give the paired
+bodies (`{name}` is the selected definition's name), 4.1, 4.2, 4.3, 4.5,
+4.6, 4.8, 4.9, 4.10 and 4.11 the MySQL worlds `agg_keys`, `dec`,
+`rows_ntext`, `temporal`, `agg`, `join`, `rows`, `dec_ratio` and `dec_wide`
+they read, and the pack's `mysql/plan.py` the MySQL contract its
 `compile_sql` runs with. `FORMS` is in the order of
 `project_sql_emission_paired.FORMS`: S16 P-S16-1..3, S10 bodies A (P-S10-1,
 5), B (P-S10-2) and C (P-S10-3, 4), S08 P-S08-1..7 and P-S08T-1..4, S11
-P-S11-1..8 and bodies D (P-S11B-1, 4), E (P-S11B-2) and F (P-S11B-3), then
-S14 P-S14-1..4. `project` writes one form with only its names changed.
+P-S11-1..8 and bodies D (P-S11B-1, 4), E (P-S11B-2) and F (P-S11B-3), S14
+P-S14-1..4, then S17 bodies G to J (P-DEC-1..3, 4..6, 7..9 and 10..12, each
+run with three arguments) and P-DECB-1..10. `project` writes one form with
+only its names changed.
 """
 
 import json
@@ -48,6 +51,8 @@ AGG_HEADER = (
     'source agg: Agg = mysql.table("aggregate.locator.not.sql")\n'
 )
 KEYS_SOURCE = 'source keys: Agg = mysql.table("keys.locator.not.sql")\n'
+# PAIRS.md 4.2, the MySQL pack's `H_ROWS`; 4.10 and 4.11 change one type.
+DEC_HEADER = HEADER.replace("    text: Text | None\n", "    text: Text\n")
 JOIN_HEADER = (
     "shape Row:\n"
     "    id: Int\n"
@@ -92,9 +97,30 @@ STORAGE = {
     "Date": ({"kind": "my_date"}, {"kind": "date"}),
     "UUID": ({"kind": "my_uuid_bytes"}, {"encoding": "standard_bytes", "kind": "uuid"}),
 }
+
+
+def storage(logical, precision=9, scale=2):
+    """The pack's MySQL (storage, domain) of ``logical``; a Decimal's with its
+    precision and scale."""
+    if logical != "Decimal":
+        return STORAGE[logical]
+    return tuple(
+        {"kind": kind, "precision": precision, "scale": scale}
+        for kind in ("my_decimal", "decimal")
+    )
+
+
+_DEC_FIELDS = (
+    ("id", "order.id", "Int", False),
+    ("flag", "flag value", "Bool", True),
+    ("text", 'text `"é', "Text", False),
+    ("money", "amount value", "Decimal", False),
+    ("ratio", "ratio value", "Float", False),
+)
 # Per world: its header, its sources, their (field, pack column, logical type,
-# nullable) and the pack's namespace and tables. The sources of a world share
-# their shape, namespace and columns, as in the pack.
+# nullable, and a Decimal's precision and scale when not (9, 2)) and the
+# pack's namespace and tables. The sources of a world share their shape,
+# namespace and columns, as in the pack.
 WORLDS = {
     "rows_ntext": (
         HEADER,
@@ -114,6 +140,22 @@ WORLDS = {
         ("agg", "keys"),
         _AGG_FIELDS,
         ("phase66", ("phase66 agg é", "phase66 agg keys é")),
+    ),
+    "dec": (DEC_HEADER, ("rows",), _DEC_FIELDS, ("phase66", ("phase66 source é",))),
+    "dec_ratio": (
+        DEC_HEADER.replace("    ratio: Float\n", "    ratio: Decimal(8, 3)\n"),
+        ("rows",),
+        _DEC_FIELDS[:4] + (("ratio", "ratio value", "Decimal", False, 8, 3),),
+        ("phase66", ("phase66 source é",)),
+    ),
+    "dec_wide": (
+        DEC_HEADER.replace(
+            "    money: Decimal(9, 2)\n", "    money: Decimal(46, 30)\n"
+        ),
+        ("rows",),
+        _DEC_FIELDS[:3]
+        + (("money", "amount value", "Decimal", False, 46, 30), _DEC_FIELDS[4]),
+        ("phase66", ("phase66 source é",)),
     ),
     "join": (
         JOIN_HEADER,
@@ -373,15 +415,45 @@ FORMS = (
         "    left join r on lhs.id == r.id\n    group by lhs.id\n"
         "    select:\n        a = lhs.id\n        n = count(lower(r.label))\n",
     ),
+    *(
+        (
+            "dec",
+            "query {name}(factor: Int):\n    from rows\n    select:\n"
+            f"        total = {expression}\n",
+        )
+        for expression in ("money + factor", "factor - money")
+        + ("money * factor", "factor * money")
+    ),
+    *(
+        (world, "table {name}:\n    from rows\n    select:\n" + items)
+        for world, items in (
+            ("dec", "        added = money + id\n        subtracted = money - id\n"),
+            ("dec", "        added = id + money\n        subtracted = id - money\n"),
+            ("dec", "        result = money * id\n"),
+            ("dec", "        result = id * money\n"),
+            ("dec", "        result = money * 2\n"),
+            ("dec", "        result = -money\n"),
+            ("dec", "        result = +money\n"),
+            ("dec", "        result = -(money * id)\n"),
+            (
+                "dec_ratio",
+                "        added = money + ratio\n        subtracted = money - ratio\n",
+            ),
+            ("dec_wide", "        result = money * id\n"),
+        )
+    ),
 )
 S16 = range(3)
 S10 = range(3, 6)
 S08 = range(6, 17)
 S11 = range(17, 28)
 S14 = range(28, 32)
-# P-S14-4 runs with bind-safe literals and a contract that declares the
-# MySQL parameter protocol; every other form preserves its literals.
+S17 = range(32, 46)
+# P-S14-4 runs with bind-safe literals; every other form preserves its
+# literals. It and the S17 forms with a header parameter run with a
+# contract that declares the MySQL parameter protocol.
 BIND_SAFE = (31,)
+PROTOCOL = (31, 32, 33, 34, 35)
 
 
 def _over(after, *calls):
@@ -412,10 +484,22 @@ _S14_BOUND = (
     "WHERE ((CASE WHEN (`s0`.`{id}` <= CAST(? AS SIGNED)) THEN CAST(? AS SIGNED)"
     " ELSE CAST(? AS SIGNED) END) = CAST(? AS SIGNED))"
 )
+# P-DEC's operands (PAIRS.md 5.2), money and the argument, in each order.
+_S17_PARAMETER = tuple(
+    f"SELECT ({left} {operator} {right}) AS `"
+    for operator, (left, right) in (
+        ("+", ("`s0`.`{money}`", "CAST(? AS SIGNED)")),
+        ("-", ("CAST(? AS SIGNED)", "`s0`.`{money}`")),
+        ("*", ("`s0`.`{money}`", "CAST(? AS SIGNED)")),
+        ("*", ("CAST(? AS SIGNED)", "`s0`.`{money}`")),
+    )
+)
 # Per form: the SQL fragments the pack's MySQL half preregisters (PAIRS.md 5.1,
-# 5.4, 5.5, 5.6, 5.7 and 5.9), `{field}` standing for the field's physical
-# column; the public nullability and the logical type of each public column
-# PAIRS.md pairs.
+# 5.2, 5.4, 5.5, 5.6, 5.7 and 5.9), `{field}` standing for the field's
+# physical column, and for P-DECB-1 to 10, which the pack does not spell
+# (5.10), the candidate's own; the public nullability, and the logical type
+# of each public column PAIRS.md pairs, a Decimal with its precision and
+# scale.
 SQL = (
     ("X''", "X'e99baa'"),
     ("X'e99baa'", "X'612762'"),
@@ -490,6 +574,17 @@ SQL = (
         " LEFT JOIN ",
     ),
     (_S14_BOUND, " LEFT JOIN ", "COUNT(LOWER("),
+    *((fragment,) for fragment in _S17_PARAMETER),
+    ("(`s0`.`{money}` + `s0`.`{id}`)", "(`s0`.`{money}` - `s0`.`{id}`)"),
+    ("(`s0`.`{id}` + `s0`.`{money}`)", "(`s0`.`{id}` - `s0`.`{money}`)"),
+    ("(`s0`.`{money}` * `s0`.`{id}`)",),
+    ("(`s0`.`{id}` * `s0`.`{money}`)",),
+    ("(`s0`.`{money}` * CAST(2 AS SIGNED))",),
+    ("(-`s0`.`{money}`)",),
+    ("(+`s0`.`{money}`)",),
+    ("(-(`s0`.`{money}` * `s0`.`{id}`))",),
+    ("(`s0`.`{money}` + `s0`.`{ratio}`)", "(`s0`.`{money}` - `s0`.`{ratio}`)"),
+    ("(`s0`.`{money}` * `s0`.`{id}`)",),
 )
 NULLABLE = (
     [False, True, True, True],
@@ -520,6 +615,14 @@ NULLABLE = (
     [False, True],
     [False] * 5,
     [False, False],
+    # Binary arithmetic is UNKNOWN; a sign keeps its operand's nullability.
+    *(["unknown"],) * 4,
+    *(["unknown", "unknown"],) * 2,
+    *(["unknown"],) * 3,
+    *([False],) * 2,
+    ["unknown"],
+    ["unknown", "unknown"],
+    ["unknown"],
 )
 LOGICAL = (
     ("Int", "Text", "Text", "Text"),
@@ -549,6 +652,14 @@ LOGICAL = (
     ("Int", "Text"),
     ("Int",) * 5,
     ("Int", "Int"),
+    *((("Decimal", 22, 2),),) * 2,
+    *((("Decimal", 28, 2),),) * 2,
+    *((("Decimal", 22, 2),) * 2,) * 2,
+    *((("Decimal", 28, 2),),) * 3,
+    *((("Decimal", 9, 2),),) * 2,
+    (("Decimal", 28, 2),),
+    (("Decimal", 11, 3),) * 2,
+    (("Decimal", 65, 30),),
 )
 ENVIRONMENT = (
     ("client_encoding", "utf8mb4"),
@@ -634,6 +745,10 @@ NAMES = {
     "pred": "picked",
     "l": "ll",
     "c": "cc",
+    "factor": "mult",
+    "total": "tot",
+    "added": "plus",
+    "subtracted": "minus",
 }
 _COLUMNS = ("c_id", "c_flag", "c_body", "c_cash", "c_share", "c_f", "c_g", "c_h")
 # A name outside a string literal; a string literal and the frame keyword
@@ -663,7 +778,7 @@ def contract(form=0, physical=None, names=None):
         tables,
         tuple(field[1] for field in fields),
     )
-    protocol = (("parameter_protocol", "mysql_prepared"),) * (form in BIND_SAFE)
+    protocol = (("parameter_protocol", "mysql_prepared"),) * (form in PROTOCOL)
     return {
         "environment": [
             {"key": key, "scope": "statement", "value": value}
@@ -678,12 +793,12 @@ def contract(form=0, physical=None, names=None):
                         "name": names.get(name, name),
                         "ordinal": ordinal,
                         "representation": {
-                            "domain": dict(STORAGE[logical][1]),
+                            "domain": dict(storage(logical, *scale)[1]),
                             "nullable": nullable,
-                            "storage": dict(STORAGE[logical][0]),
+                            "storage": dict(storage(logical, *scale)[0]),
                         },
                     }
-                    for ordinal, ((name, _, logical, nullable), column) in (
+                    for ordinal, ((name, _, logical, nullable, *scale), column) in (
                         enumerate(zip(fields, columns, strict=True))
                     )
                 ],

@@ -46,10 +46,15 @@ __all__: tuple[str, ...] = ()
 # s11_int_pair, P-S11B-3 s11_grouped. S14 conditionals beside a JOIN and
 # scalar calls in aggregate arguments over JOIN rows: P-S14-1 to 4
 # s14_e2_joined_pred, s14_e2_from_pred, s14_e3_aggregate_calls and
-# s14_e2e3_bind_safe, the last with bind-safe literals. Each form holds one
-# slice's construct only, so a form opens no other slice. Per form: the sha256
-# of the module and contract, of the emitted SQL and of the compiled records,
-# and the number of compiled records.
+# s14_e2e3_bind_safe, the last with bind-safe literals. S17 Decimal and Int
+# arithmetic and signs: the bodies of P-DEC-1 to 3, 4 to 6, 7 to 9 and 10 to
+# 12 (dec_param_add, rsub, mul and rmul, each run with three arguments), then
+# P-DECB-1 to 10 dec_int_add_sub, dec_int_left_add_sub, dec_times_int,
+# dec_int_times, dec_times_literal, dec_neg, dec_pos, dec_neg_product,
+# dec_different_scale and dec_65_30_product. Each form holds one slice's
+# construct only, so a form opens no other slice. Per form: the sha256 of the
+# module and contract, of the emitted SQL and of the compiled records, and the
+# number of compiled records.
 FORMS = (
     (
         "9e74ea22bb430348248b9b5dc0ef1c38f4c829020dd6015cd6e4703d0efb71a2",
@@ -243,6 +248,90 @@ FORMS = (
         "a66c32d9ddd99645754c4fc57dfc7e9af968e48d161d9bf445d1987461f7dfed",
         459,
     ),
+    (
+        "40caa1266a743e2166d5e465c814b9e1a285b43f51af8209215aa8dd5e0e8235",
+        "635ecfed70203720d8c72120d91f9e6b8eb10edf4ec86db43e0a8e5fd596a4ce",
+        "4c1b533af76d474f1a5ac2b18837e5446e022083f33a8ba6c0f6f72e71d3a8e2",
+        117,
+    ),
+    (
+        "dd72417b56ca73af70976f74e9926c94b0401777c43a8ff331c097078156c4de",
+        "b93d96a4e3af14008a33f6aa991193ac4ac3d35e0e8ad7aee975efc23917ff55",
+        "c1c250e4054a6133795c8a6bc7b9a22f3d228433c03eaa387784f3e6e97029bc",
+        117,
+    ),
+    (
+        "579d8056f7ec143916478971f98fa1e5e9c6e36cc52068da7092d8ed8f42c1b1",
+        "9cd78230f2251c8fcf79ca9a04f62c138d7aa6f531d6d1c852d1dd6b99ab0ba9",
+        "07c541e3d347657cb9d18afca6a59083b4d8134a2f18a4c3c0055c236243c5bb",
+        117,
+    ),
+    (
+        "23ce96aab770f86ce902246df54a059549278c0a5b3d11fbd7cafdda50e389d0",
+        "19e4d10075ac7bbd6174f84d7fb8d93c4ef72051f59d7e43006c167166e6c5c1",
+        "9eaee2c133f7f2cacdf0e31c020aea8f456d3f55f8ee47b00ae30ccd22e38c06",
+        117,
+    ),
+    (
+        "f7038e7f1df3dd0cecb790ddab82201a6f5c8c75f0024b57c8f0dcd348e1ab9f",
+        "30dd692a4b854caab4dce7dc271abf30383e6fc7a4b055ca23deef1f76cbfd55",
+        "d76f7daeb94d9731a781720ce31293ac64cce75b65d73d98acdf089e9fa6e8e3",
+        143,
+    ),
+    (
+        "4da70bfc7f35f473807a539183766f4534e936fdbd759e71a645b5c567f91415",
+        "30dd692a4b854caab4dce7dc271abf30383e6fc7a4b055ca23deef1f76cbfd55",
+        "e25b79a6d443fbad47cce5e226d9e1d1a18745c713a7a924b26148e5f1b99f30",
+        143,
+    ),
+    (
+        "8390f4777f5452d51c383ba1837dff381258719d9752c6dd81eccf8af658ba31",
+        "252f666e6107df6ede389eaa68a64de8312a20dd522411a068094a1bf0c09a9a",
+        "08c1f1eba0d7676dc2decbccdb2bb52391163b9da7174083e53ad6edfd924ce9",
+        114,
+    ),
+    (
+        "0912b7609fc4355bbcddd38e2de4bbfc61113c30d342130a1554f4dfb2e58ed1",
+        "252f666e6107df6ede389eaa68a64de8312a20dd522411a068094a1bf0c09a9a",
+        "85b92a0f414c0c10ae4e6c1e6a2ea3cda56833cfa8f59351c9144da1ab19193b",
+        114,
+    ),
+    (
+        "23c7862c63c2e694d337e2d1c76ea45411598636295bd303bcec494396cff17d",
+        "28ad5a297191a8169e421e731e8a043333fd0b59446ea619a1f0ef0e1aca1b15",
+        "f8224592f0a543449ee50bbff134685ad4b931dd0e19c03def959d8fb1a5b7ec",
+        116,
+    ),
+    (
+        "32c4a9183f17dbfadb7a3a9757d4aedfeb6a38c5718c3588e03bd4733ff386d1",
+        "7937bcc9dce925e64edaad9549a3feb27aa0573cb15667f003c2d55bec7d21a0",
+        "6f423f9af60f056a6fee9fa43e747a174562c61349e07eec70649446537e9e43",
+        109,
+    ),
+    (
+        "ca89406b07efe4d0ec0af577a2fa622b55ba6031e66069ea9f9d252d323b2d40",
+        "1206701156d08579ec57c4c761c27565832dceb52c29835a725154f9ff011adf",
+        "79192e9e3a9252634d8b4f647bf50f1292496d4210152a3f30f6dbf293b75974",
+        109,
+    ),
+    (
+        "81446c3a1667dfc78a5d174195a12d7aa4cfb161ee835c8a0441ba1ea6488703",
+        "da93d68cf6329024336d679189e97d2baa9d419c7a072c9e8e91e4279d94487d",
+        "8d280ca7c9d7d6e269feca8a074cd70692ff6512a642fb44bd601021341a43a4",
+        119,
+    ),
+    (
+        "8e4f5b3b5785d988e7f7dde8e2613f4339d26cf4eef2c25d853bf1b8c791c963",
+        "30dd692a4b854caab4dce7dc271abf30383e6fc7a4b055ca23deef1f76cbfd55",
+        "7bee64d8ac28d5a2554052992157cfe9a09a24d4061ddd01c73476460303d803",
+        149,
+    ),
+    (
+        "97645bb9440b43f361b53030cbdcaf96d818eeae6db6b3083e332ddbef11c8c9",
+        "252f666e6107df6ede389eaa68a64de8312a20dd522411a068094a1bf0c09a9a",
+        "cd6d8a077228289c9e1cc9747f756c7c5227b7ea62b6bbcd759294661e944ff5",
+        114,
+    ),
 )
 _S16_FIXED = frozenset(
     "shape source query from select window order by lag lead mysql table"
@@ -282,6 +371,13 @@ SLICES = (
             " table Int Text None".split()
         ),
     ),
+    (
+        range(32, 46),
+        frozenset(
+            "shape source query table from select mysql Int Bool Text Decimal Float"
+            " None".split()
+        ),
+    ),
 )
 # re.ASCII: IGNORECASE alone lets the Kelvin sign match k (D77.36 ASCII names).
 _NAME = re.compile(r"(?!__pietto)[A-Za-z_][A-Za-z0-9_]{0,62}", re.ASCII | re.IGNORECASE)
@@ -297,6 +393,7 @@ _COMPILED_NAMES = {
     "declaration": (("module", "M"), ("label", "N")),
     "output": (("label", "N"),),
     "port": (("label", "N"),),
+    "parameter": (("label", "N"),),
 }
 
 
@@ -429,9 +526,10 @@ def sql_text(sql):
     return _QUOTED.sub(lambda m: seen.setdefault(m[0], f"`{len(seen)}`"), sql.decode())
 
 
-def sql_form(sql):
-    """The paired form whose SQL this is, names aside, or None."""
-    return _form(1, sql_text(sql), _Names())
+def sql_form(sql, form):
+    """Whether this is paired form ``form``'s SQL, names aside; two forms may
+    have one SQL, as `money * id` over another Decimal."""
+    return _form(1, sql_text(sql), _Names(), range(form, form + 1)) == form
 
 
 def compiled_text(records, names):

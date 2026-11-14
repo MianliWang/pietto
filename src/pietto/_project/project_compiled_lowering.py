@@ -66,7 +66,7 @@ def emit_compiled(root, values, named=None):
         return _emit_compiled(root, values, named)
     try:
         artifact = _emit_compiled(root, values, named)
-        if pairing.sql_form(artifact.rendered.sql) == form:
+        if pairing.sql_form(artifact.rendered.sql, form):
             return artifact
     except Exception:
         pass

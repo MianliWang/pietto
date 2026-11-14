@@ -14,6 +14,7 @@ from pietto._project import project_sql_plan_aggregation as aggregation
 from pietto._project import project_sql_plan_windows as plan_windows
 from pietto._project import project_sql_plan_expressions as row
 from pietto._project import project_sql_emission_parameters as parameters
+from pietto._project import project_sql_emission_paired as pairing
 from pietto._project.model import ProjectResolvedTypeKind
 from pietto._project.project_sql_emission_portable_schema import (
     MYSQL_PACKET_FLOOR_CHARACTERS,
@@ -2939,7 +2940,10 @@ def build_row_value(
         if problem is not None:
             return None, problem
         inner = realization_of(operand, family)
-        if tag == inner.tag == "Decimal" and family == "postgres":
+        if tag == inner.tag == "Decimal" and (
+            # This reader's own S17 pairing check.
+            family == "postgres" or pairing.project_form(request) is not None
+        ):
             if _decimal_parameters(family, inner) is None:
                 return None, ("PIE-B1004", "decimal_source_carrier_missing")
             return SQLOperation(
@@ -3471,6 +3475,8 @@ def _binary(
         mysql_checked=request.family == "mysql"
         and mysql_checked_cell(request.plan, expression, values),
         mysql_remainder=remainder,
+        # This reader's own S17 pairing check.
+        paired=tag == "Decimal" and pairing.project_form(request) is not None,
     )
     if checked is None:
         assert problem is not None
@@ -3493,10 +3499,14 @@ def resolved_binary_realization(
     float_values: tuple[float, float] | None = None,
     mysql_checked: bool = False,
     mysql_remainder: bool = False,
+    paired: bool = False,
 ):
     """Original range/domain law over resolved operands; no name resolution.
     ``mysql_checked`` marks an S01 cell (mysql_checked_cell),
-    ``mysql_remainder`` an S15 one (mysql_remainder_cells)."""
+    ``mysql_remainder`` an S15 one (mysql_remainder_cells). MySQL takes
+    Decimal and Int, Decimal of another scale and Decimal times Int as
+    PostgreSQL does only in a statement its reader pairs with an S17 form
+    (``paired``, `project_sql_emission_paired`)."""
     # S15: a MySQL `%` cell over two fields of its tag's carrier; MySQL
     # returns NULL for a zero divisor, so the result is never non-null.
     remainder = (
@@ -3540,9 +3550,10 @@ def resolved_binary_realization(
                 and left_scale == right_scale
             ):
                 return None, ("PIE-B1003", "decimal_direct_source_operands_required")
-            if family != "postgres" and "Int" in {left.tag, right.tag}:
+            mysql = family != "postgres" and not paired
+            if mysql and "Int" in {left.tag, right.tag}:
                 return None, ("PIE-B1003", "arithmetic_requires_signed_int_operands")
-            if family != "postgres" and left_scale != right_scale:
+            if mysql and left_scale != right_scale:
                 return None, ("PIE-B1003", "decimal_scale_mismatch")
             scale = max(left_scale, right_scale)
             precision = (
@@ -3551,7 +3562,7 @@ def resolved_binary_realization(
                 + scale
             )
         elif operator == "*" and {left.tag, right.tag} == {"Decimal", "Int"}:
-            if family != "postgres":
+            if family != "postgres" and not paired:
                 return None, ("PIE-B1003", "binary_operator_not_admitted")
             # |d| < 10**(p-s), |int64| < 10**19: the product needs at most
             # p+19 digits and retains s fractional digits, without rounding.

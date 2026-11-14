@@ -3030,6 +3030,7 @@ def derive_compiled_semantics(root, values, parameters=None):
     import json
     from pietto._project.project_sql_emission_contract import canonical
     from pietto._project.model import CompiledProjectInput
+    from pietto._project import project_sql_emission_paired as pairing
     from pietto._project import project_sql_emission_rows as physical
     from pietto._project.project_sql_emission_parameters import literal_representation
     from pietto._project.module_attribution import compiled_declarations
@@ -3088,7 +3089,6 @@ def derive_compiled_semantics(root, values, parameters=None):
     )
     if family != "postgres":
         from pietto._project import project_sql_emission_joins as joining
-        from pietto._project import project_sql_emission_paired as pairing
 
         problem = joining.compiled_sited_problem(records, executable)
         # This reader's own S14 pairing check.
@@ -3438,7 +3438,6 @@ def derive_compiled_semantics(root, values, parameters=None):
                     semantic_aggregate_result_value_type,
                 )
                 from pietto._project import project_sql_emission_aggregation as grouping
-                from pietto._project import project_sql_emission_paired as pairing
 
                 function = get("function")
                 if function not in grouping.SPELLING or not grouping.signature_arity(
@@ -4240,6 +4239,9 @@ def derive_compiled_semantics(root, values, parameters=None):
                             ),
                             mysql_checked=ref in mysql_checked,
                             mysql_remainder=ref in mysql_remainders,
+                            # This reader's own S17 pairing check.
+                            paired=tag == "Decimal"
+                            and pairing.compiled_form(records) is not None,
                         )
                     elif role == "comparison":
                         realized, problem = (
@@ -4286,7 +4288,11 @@ def derive_compiled_semantics(root, values, parameters=None):
                             if tag == "Int" and type(value) is int
                             else None,
                         )
-                    elif tag == "Decimal" and family == "postgres":
+                    elif tag == "Decimal" and (
+                        # This reader's own S17 pairing check.
+                        family == "postgres"
+                        or pairing.compiled_form(records) is not None
+                    ):
                         inner = inputs[0]
                         if physical._decimal_parameters(family, inner) is None:
                             raise CompiledError("COMPILED_UNARY_DOMAIN")
@@ -4395,6 +4401,7 @@ def verify_compiled_semantics(value):
     """Independently inspect derived facts; never invoke their constructor."""
     import json
     from pietto._project.project_sql_emission_contract import canonical
+    from pietto._project import project_sql_emission_paired as pairing
     from pietto._project import project_sql_emission_rows as physical
     from pietto._project.project_compiled_schema import Address, scalar_read_port
     from pietto._project.project_compiled_verification import need
@@ -4910,7 +4917,6 @@ def verify_compiled_semantics(value):
                     _aggregate_result_realization,
                 )
                 from pietto._project import project_sql_emission_aggregation as grouping
-                from pietto._project import project_sql_emission_paired as pairing
 
                 function = get("function")
                 need(
@@ -5783,6 +5789,9 @@ def verify_compiled_semantics(value):
                             else None,
                             mysql_checked=current in mysql_checked,
                             mysql_remainder=current in mysql_remainders,
+                            # This reader's own S17 pairing check.
+                            paired=typed.resolved_type.name == "Decimal"
+                            and pairing.compiled_form(records) is not None,
                         )
                 else:
                     realization = None

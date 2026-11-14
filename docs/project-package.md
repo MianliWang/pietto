@@ -877,9 +877,11 @@ borrow a row-count premise from SUM. Unary `+` and `-` keep `(p, s)` and
 operand nullability. Qualified Decimal/Int parameters use the same rule;
 Decimal parameter multiplication by another Decimal remains refused.
 Arithmetic uses its static digit proof, not SUM's overflow evidence.
-Existing Decimal/Decimal multiplication retains its SQL. MySQL project
-forms added by these rules, project Decimal division and project Decimal
-average remain refused.
+Existing Decimal/Decimal multiplication retains its SQL. Project Decimal
+division and project Decimal average remain refused. MySQL project forms
+added by these rules remain refused, except in a statement that is one of
+fourteen paired forms with only its names changed
+([unreleased](release-notes.d/77-s17-mysql-decimal-arithmetic.md)).
 
 PostgreSQL project `sum(Decimal(p, s))` emits only for a direct qualified
 Decimal field with `p + 19 <= 65` and `s <= 30`. It is

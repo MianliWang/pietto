@@ -1491,6 +1491,8 @@ def _row_realization(request, expression, operands, operand_values):
         mysql_checked=request.family == "mysql" and kind in {"unary", "binary"},
         # S15: and a MySQL `%` only in its cell.
         mysql_remainder=request.family == "mysql" and kind == "binary",
+        # This reader's own S17 pairing check.
+        paired=tag == "Decimal" and pairing.project_form(request) is not None,
     )
 
 
@@ -1521,12 +1523,15 @@ def resolved_row_realization(
     float_cell=None,
     mysql_checked=False,
     mysql_remainder=False,
+    paired=False,
 ):
     """Existing independent physical-law checker over closed resolved inputs.
 
     A comparison requires ``rows_both_sides`` and takes ``float_cell`` (see
     the shared comparison law). ``mysql_checked`` marks an S01 cell and
-    ``mysql_remainder`` an S15 one, which its caller derives.
+    ``mysql_remainder`` an S15 one, which its caller derives. MySQL takes the
+    Decimal operations of an S17 form only when ``paired``
+    (`project_sql_emission_paired`).
     """
     # S15: a MySQL `%` over two fields of one BIGINT or DOUBLE carrier, NULL
     # for a zero divisor.
@@ -1633,9 +1638,10 @@ def resolved_row_realization(
                 and left_scale == right_scale
             ):
                 raise ValueError("decimal direct source operands")
-            if family != "postgres" and any(item.tag == "Int" for item in operands):
+            mysql = family != "postgres" and not paired
+            if mysql and any(item.tag == "Int" for item in operands):
                 raise ValueError("decimal int target")
-            if family != "postgres" and left_scale != right_scale:
+            if mysql and left_scale != right_scale:
                 raise ValueError("decimal scale mismatch")
             scale = max(left_scale, right_scale)
             precision = (
@@ -1644,7 +1650,7 @@ def resolved_row_realization(
                 + scale
             )
         elif operator == "*" and {item.tag for item in operands} == {"Decimal", "Int"}:
-            if family != "postgres":
+            if family != "postgres" and not paired:
                 raise ValueError("decimal int target")
             precision, scale = (
                 (left_precision, left_scale)
@@ -1678,6 +1684,7 @@ def resolved_row_realization(
     if kind == "unary" and tag == "Decimal":
         if (
             family != "postgres"
+            and not paired
             or operator not in {"+", "-"}
             or len(operands) != 1
             or rows._decimal_parameters(family, operands[0]) is None

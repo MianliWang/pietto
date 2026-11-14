@@ -176,7 +176,7 @@ def realize_project_sql(request):
             or form is not None
             and (
                 outcome.status != "VERIFIED"
-                or pairing.sql_form(outcome.artifact.rendered.sql) != form
+                or not pairing.sql_form(outcome.artifact.rendered.sql, form)
             )
         ),
     )
