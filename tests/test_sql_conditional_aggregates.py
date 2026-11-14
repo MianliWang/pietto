@@ -3,6 +3,8 @@
 
 from __future__ import annotations
 
+import json
+
 import pytest
 
 import _pietto_sql_emission as probe
@@ -446,3 +448,40 @@ def test_a_project_refuses_a_group_test_that_reads_no_field(tmp_path, target) ->
         )
         for line in (16, 17)
     ]
+
+
+# Phase77 S03: conditional sums on MySQL.
+@pytest.mark.parametrize("policy", ("preserve_literals", "bind_safe_literals"))
+@pytest.mark.parametrize("target", ("postgres", "mysql"))
+@pytest.mark.parametrize("form", ("C1", "C2", "C3", "C4", "c3_zero", "c3_largest"))
+def test_mysql_conditional_sums_emit_the_guarded_sum(tmp_path, form, target, policy):
+    """S03: a MySQL project emits the paired conditional sums, `if F`
+    grouped by one INT key (C1 over a nullable, C4 over a non-null BIGINT),
+    `if not F` and `if F is None` (C2) and `if I > L` for a non-negative Int
+    literal L (C3, also over 0 and the largest Int), as COALESCE of S02's
+    guarded SUM of CASE WHEN test THEN x END, 0: a non-null Int, 0 when no
+    row matches, 1690 (SQLSTATE 22003) outside signed 64 bits. Under
+    bind_safe_literals C3 stays refused on MySQL with main's blocker, as the
+    qualification paired it preserved only; PostgreSQL's SQL is main's under
+    either policy. Every reader accepts each emitted form."""
+    body = probe.S03_FORMS.get(form) or probe.S03_SPELLINGS[form][1]
+    checked, outcome = probe.s03_world(tmp_path, target, body, policy)
+    assert checked.verified
+    if (
+        target == "mysql"
+        and policy == "bind_safe_literals"
+        and form.lower().startswith("c3")
+    ):
+        document = json.loads(serialize_project_sql_emission(outcome))
+        assert [
+            (item["code"], item["subject"]["detail"], item["location"]["line"])
+            for item in document["blockers"]
+        ] == [("PIE-B1004", "sum_int_aggregate_range_proof_missing", 18)]
+        return
+    if target == "mysql" or policy == "preserve_literals":
+        # The public decoder reads no bind-safe aggregate test literal (main).
+        probe.numeric_readers_accept(outcome)
+    assert outcome.artifact is not None
+    assert outcome.artifact.rendered.sql.decode() == probe.S03_FORM_SQL[form, target]
+    document = json.loads(serialize_project_sql_emission(outcome))
+    assert all(column["nullable"] is False for column in document["columns"])

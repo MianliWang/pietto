@@ -879,7 +879,8 @@ def result_realization(family: str, function: str, argument, retained):
     if function in FILTERED_FUNCTIONS:
         # A conditional count is the target's own count (on MySQL as its
         # argument law admits it); a conditional sum narrows to bigint with
-        # its checked CAST and is 0 for no match.
+        # its checked CAST (on MySQL, in an S03 cell, the guarded SUM) and is
+        # 0 for no match.
         if tag != "Int" or nullable is not False:
             return None, ("PIE-B1002", function + "_result_not_non_null_int")
         if function == "filtered_count" and family in COUNT_STORAGE:
@@ -887,9 +888,17 @@ def result_realization(family: str, function: str, argument, retained):
                 rows._checked_int({"kind": COUNT_STORAGE[family]}, 0, COUNT_MAX, False),
                 None,
             )
-        if family != "postgres":
+        if family != "postgres" and not (
+            family == "mysql"
+            and function == "filtered_sum"
+            and argument is not None
+            and rows.mysql_s03_operand(argument.realization)
+        ):
             return None, ("PIE-B1002", function + "_result_not_non_null_int")
-        return rows._checked_int({"kind": "pg_int8"}, *rows.SIGNED64, False), None
+        return (
+            rows._checked_int(rows.CHECKED_INT_STORAGE[family], *rows.SIGNED64, False),
+            None,
+        )
     if function in COUNTING_FUNCTIONS:
         if tag != "Int" or nullable is not False:
             return None, ("PIE-B1002", "count_result_not_non_null_int")
@@ -928,10 +937,7 @@ def result_realization(family: str, function: str, argument, retained):
             or tag != "Int"
             or nullable is not True
             or family != "postgres"
-            and not (
-                family == "mysql"
-                and rows.mysql_checked_operands((argument.realization,))
-            )
+            and not (family == "mysql" and rows.mysql_s03_operand(argument.realization))
         ):
             return None, ("PIE-B1002", "sum_result_logical_type_or_argument_drift")
         return (
@@ -1060,13 +1066,15 @@ def argument_problem(
     *,
     cell: bool = False,
     ranked=False,
+    mysql_s03: bool = False,
 ):
     """R13 admits one established V01 field per aggregate argument, or one
     admitted row expression, as a LET would lower it. Any other
     argument, such as a bare literal or parameter or an operation that reads no
     field (only a forged compiled input holds one), reads no row and is refused.
-    ``mysql_sum`` marks an S02 cell (rows.mysql_sum_cell); ``cell`` is the
-    caller's own derivation of the S05 cell."""
+    ``mysql_sum`` marks an S02 cell (rows.mysql_sum_cell), ``mysql_s03`` an
+    S03 one (project_sql_emission_sum_forms); ``cell`` is the caller's own
+    derivation of the S05 cell."""
     direct = type(argument) is rows.SQLStageReference
     if not direct and not (
         type(argument) is rows.SQLOperation
@@ -1083,6 +1091,7 @@ def argument_problem(
         mysql_sum,
         cell=cell,
         ranked=ranked,
+        mysql_s03=mysql_s03,
     )
 
 
@@ -1282,7 +1291,9 @@ def mysql_compiled_spread_cell(records, entry):
     return value.address
 
 
-def filtered_problem(function: str, argument, test, family: str, *, paired=False):
+def filtered_problem(
+    function: str, argument, test, family: str, *, paired=False, mysql_s03=False
+):
     """The argument law of a conditional count, ``filtered_count`` over its
     test alone, of a test of the group, ``group_any`` or ``group_all`` over
     its test alone, and of a conditional sum, ``filtered_sum`` of one Int field
@@ -1290,7 +1301,9 @@ def filtered_problem(function: str, argument, test, family: str, *, paired=False
     A test that reads no field (`if True`) is the same for every row.
     PostgreSQL only, but for MySQL in a statement its reader pairs with an S10
     form (``paired``, `project_sql_emission_paired`), which holds no
-    conditional sum: MySQL's SUM of an integer is DECIMAL, as for `sum(Int)`."""
+    conditional sum, and for a conditional sum in an S03 cell (``mysql_s03``),
+    the guarded SUM: elsewhere MySQL's SUM of an integer is DECIMAL, as for
+    `sum(Int)`."""
     for value in (argument, test):
         if type(value) is not rows.SQLStageReference and not (
             type(value) is rows.SQLOperation
@@ -1308,14 +1321,16 @@ def filtered_problem(function: str, argument, test, family: str, *, paired=False
     if function == "filtered_sum":
         if type(argument) is not rows.SQLStageReference:
             return "PIE-B1003", "aggregate_argument_not_a_direct_established_field"
-        problem = resolved_argument_problem("sum", True, argument.realization, family)
+        problem = resolved_argument_problem(
+            "sum", True, argument.realization, family, mysql_s03=mysql_s03
+        )
         if problem is not None:
             return problem
     elif family != "postgres" and not paired:
         return "PIE-B1003", _target_detail(function)
     if (
         family != "postgres"
-        and not paired
+        and not (paired or mysql_s03 and function == "filtered_sum")
         or rows.realization_of(test, family).tag != "Bool"
     ):
         return "PIE-B1003", _domain_detail(function)
@@ -1338,7 +1353,9 @@ def _domain_detail(function: str) -> str:
     )
 
 
-def resolved_filtered_problem(function: str, inputs, family: str, *, paired=False):
+def resolved_filtered_problem(
+    function: str, inputs, family: str, *, paired=False, mysql_s03=False
+):
     """`filtered_problem` over already-resolved inputs, each an (address
     kind, realization) pair, as a compiled input holds them."""
     if len(inputs) != (2 if function == "filtered_sum" else 1) or any(
@@ -1349,13 +1366,20 @@ def resolved_filtered_problem(function: str, inputs, family: str, *, paired=Fals
         kind, realization = inputs[0]
         if kind != "read":
             return "PIE-B1003", "aggregate_argument_not_a_direct_established_field"
-        problem = resolved_argument_problem("sum", True, realization, family)
+        problem = resolved_argument_problem(
+            "sum", True, realization, family, mysql_s03=mysql_s03
+        )
         if problem is not None:
             return problem
     elif family != "postgres" and not paired:
         return "PIE-B1003", _target_detail(function)
     test = inputs[-1][1]
-    if family != "postgres" and not paired or test is None or test.tag != "Bool":
+    if (
+        family != "postgres"
+        and not (paired or mysql_s03 and function == "filtered_sum")
+        or test is None
+        or test.tag != "Bool"
+    ):
         return "PIE-B1003", _domain_detail(function)
     return None
 
@@ -1399,6 +1423,7 @@ def resolved_argument_problem(
     *,
     cell: bool = False,
     ranked=False,
+    mysql_s03: bool = False,
 ):
     """The same R13 argument law for an already-resolved input port.
 
@@ -1485,11 +1510,16 @@ def resolved_argument_problem(
         # PostgreSQL sums exactly and narrows to bigint with its checked CAST;
         # MySQL's CAST(DECIMAL AS SIGNED) would clamp an out-of-range sum, so
         # only an S02 cell's guarded SUM over a nullable BIGINT field
-        # (MYSQL_SUM_GUARD) is admitted there.
-        if family == "postgres" or (
-            mysql_sum
+        # (MYSQL_SUM_GUARD) is admitted there, or an S03 one, whose form pins
+        # each argument's carrier (project_sql_emission_sum_forms).
+        if (
+            family == "postgres"
+            or mysql_sum
             and direct_reference
             and rows.mysql_checked_operands((realization,))
+            or mysql_s03
+            and direct_reference
+            and rows.mysql_s03_operand(realization)
         ):
             return None
         return "PIE-B1004", "sum_int_aggregate_range_proof_missing"
@@ -1589,9 +1619,9 @@ def result_cast(family: str, function: str, argument) -> str | None:
     if (
         family == "mysql"
         and argument is not None
-        and rows.mysql_checked_operands((argument.realization,))
+        and rows.mysql_s03_operand(argument.realization)
     ):
-        # S02: the guarded SUM (MYSQL_SUM_GUARD) has no cast of its own.
+        # S02, S03: the guarded SUM (MYSQL_SUM_GUARD) has no cast of its own.
         return None
     if family != "postgres" or argument is None:
         raise ValueError("SUM result cast requires a PostgreSQL Int argument")
@@ -1855,6 +1885,9 @@ def build_stage(
     mysql_sums = family == "mysql" and rows.mysql_sum_query(
         request.plan, tuple(available.get(key.input) for key in keys)
     )
+    # S03: whether the statement is a paired sum form, whose every sum and
+    # conditional sum is in its cell, asked once.
+    mysql_s03 = family == "mysql" and rows.mysql_s03_statement(request)
     for index, key in enumerate(keys):
         read = available.get(key.input)
         export = exports[index]
@@ -2067,6 +2100,7 @@ def build_stage(
                     test,
                     request.family,
                     paired=pairing.project_form(request) is not None,
+                    mysql_s03=mysql_s03,
                 )
             else:
                 problem = argument_problem(
@@ -2080,6 +2114,7 @@ def build_stage(
                     and function in SPREAD_FUNCTIONS
                     and mysql_spread_cell(request.plan, value, argument),
                     ranked=ranked,
+                    mysql_s03=mysql_s03,
                 )
             if problem is not None:
                 return None, (*problem, value.ref, location)
@@ -2606,6 +2641,21 @@ def build_compiled_stage(plan, record, arguments):
         )
         else frozenset()
     )
+    # S03: the statement's MySQL sums and conditional sums in their cells,
+    # derived once and only beside one.
+    mysql_s03 = (
+        rows.mysql_s03_compiled(
+            records, records[plan.ir.completed.root.description.query]
+        )
+        if records[Address("target", 0)].get("family") == "mysql"
+        and any(
+            records[address].get("source").kind == "aggregate_value"
+            and records[records[address].get("source")].get("function")
+            in ("sum", "filtered_sum")
+            for address in record.get("outputs")
+        )
+        else frozenset()
+    )
     keys: list[Any] = []
     values: list[AggregateValueColumn] = []
     columns: list[Any] = []
@@ -2695,6 +2745,7 @@ def build_compiled_stage(plan, record, arguments):
                         delimiters[0] if delimiters else argument,
                         records[Address("target", 0)].get("family"),
                         paired=pairing.compiled_form(records) is not None,
+                        mysql_s03=expression.address in mysql_s03,
                     )
                     is not None
                 ):
@@ -2762,6 +2813,7 @@ def build_compiled_stage(plan, record, arguments):
                     family,
                     expression.address in mysql_sums,
                     cell=expression.address == cell,
+                    mysql_s03=expression.address in mysql_s03,
                 )
                 is not None
             ):

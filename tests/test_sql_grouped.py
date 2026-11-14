@@ -2931,3 +2931,178 @@ def _reversed_keys(records):
 def test_a_tampered_mysql_float_group_key_document_is_refused(tmp_path):
     """group.hh with its GROUP BY keys reversed against its select list."""
     float_cells.assert_tampered_key_refused(tmp_path, "group.hh", _reversed_keys)
+
+
+# Phase77 S03: MySQL conditional, JOIN and two-level sums in their forms.
+def _s03_blockers(outcome):
+    return [
+        (
+            blocker["code"],
+            blocker["subject"]["detail"],
+            blocker["location"]["line"],
+            blocker["location"]["column"],
+        )
+        for blocker in json.loads(serialize_project_sql_emission(outcome))["blockers"]
+    ]
+
+
+@pytest.mark.parametrize("policy", ("preserve_literals", "bind_safe_literals"))
+@pytest.mark.parametrize("shape", sorted(probe.S03_REFUSALS))
+def test_mysql_sums_outside_the_s03_forms_keep_main_refusal(tmp_path, shape, policy):
+    """D77.24: every MySQL statement that is not, names aside, one of the
+    nine paired forms keeps main's blockers, object for object, under each
+    policy it is refused with (rule two, D77.37): a test other than `F`,
+    `not F`, `F is None` or `I > L`, a negative literal, an INT argument,
+    a sum beside count() or a direct sum, WHERE, ORDER BY, a row alias, an
+    upstream query or a third level, a JOIN of another kind, key or ON
+    order, two sums over a JOIN, an extra or a missing upstream item, two
+    fields under C2's tests, a qualified C key, parentheses, an imported source, and a
+    form beside a composed aggregate. PostgreSQL emits each as main does."""
+    if policy not in probe.S03_REFUSAL_POLICIES.get(shape, (policy,)):
+        pytest.skip("refused under its own policy only")
+    body = probe.S03_REFUSALS[shape]
+    _, outcome = probe.s03_world(tmp_path / "mysql", "mysql", body, policy)
+    assert outcome.status == "BLOCKED" and outcome.artifact is None
+    assert _s03_blockers(outcome) == probe.S03_REFUSAL_BLOCKERS[shape]
+
+
+@pytest.mark.parametrize("spelling", sorted(probe.S03_SPELLINGS))
+def test_mysql_s03_forms_are_paired_names_aliases_and_item_order_aside(
+    tmp_path, spelling
+):
+    """A `table` declaration, an aliased key, SELECT items in another order
+    and a subset of a form's items with one sum at least are the form, and
+    every reader accepts them."""
+    form, body = probe.S03_SPELLINGS[spelling]
+    _, outcome = probe.s03_world(tmp_path, "mysql", body)
+    probe.numeric_readers_accept(outcome)
+    assert outcome.artifact is not None
+    assert b"CASE WHEN SUM(" in outcome.artifact.rendered.sql
+
+
+@pytest.mark.parametrize("form", sorted(probe.S03_FORMS))
+def test_mysql_s03_forms_are_paired_under_other_names(tmp_path, form):
+    """Relations and fields renamed one to one (their columns kept) are the
+    same form: the SQL is the form's with the renamed output names."""
+    _, outcome = probe.s03_world(
+        tmp_path, "mysql", probe.S03_FORMS[form], names=probe.S03_RENAMES
+    )
+    probe.numeric_readers_accept(outcome)
+    assert outcome.artifact is not None
+    expected = probe.S03_FORM_SQL[form, "mysql"]
+    for old, new in probe.S03_RENAMES.items():
+        expected = expected.replace(" AS `%s`" % old, " AS `%s`" % new)
+    assert outcome.artifact.rendered.sql.decode() == expected
+
+
+def test_a_refused_s03_statement_reports_main_blockers_from_a_later_check(
+    tmp_path, monkeypatch
+):
+    """A paired JOIN form that a check after emission_blockers refuses (here
+    plan correspondence) is derived again with every cell shut and reports
+    main's blocker (owner 2026-11-13T00:20Z)."""
+    from pietto._project import project_sql_emission as emission
+
+    monkeypatch.setattr(emission, "verify_row_query", lambda request, query: False)
+    _, outcome = probe.s03_world(tmp_path, "mysql", probe.S03_FORMS["J2"])
+    assert _s03_blockers(outcome) == [
+        ("PIE-B1004", "sum_int_aggregate_range_proof_missing", 22, 9)
+    ]
+
+
+def test_mysql_s03_forms_are_derived_once_per_aggregation(tmp_path, monkeypatch):
+    """Emission asks whether its statement is a form once per aggregation,
+    and compiled replay and the pure boundary derive it a fixed number of
+    times per reading, with 1 conditional sum or 40 (P76-PERF-2): with the
+    shared form law open, so that both are accepted, every reader reduces
+    each statement as many times."""
+    import _pietto_sql_emission_pure_boundary as pure
+    from pietto._project import project_sql_emission_rows as rows
+    from pietto._project import project_sql_emission_sum_forms as sum_forms
+
+    forty = "".join(
+        "        s%d = sum(o.amount for o in group if o.flag)\n" % index
+        for index in range(40)
+    )
+    counts = []
+    for index, body in enumerate(
+        (
+            probe.S03_FORMS["C1"],
+            probe.S03_FORMS["C1"].replace(
+                "        paid = sum(o.amount for o in group if o.flag)\n", forty
+            ),
+        )
+    ):
+        calls = {"emission": 0, "compiled": 0, "pure": 0}
+        with monkeypatch.context() as patch:
+            patch.setattr(sum_forms, "paired", lambda levels, preserve: True)
+            for name, module, attribute in (
+                ("emission", rows, "mysql_s03_statement"),
+                ("compiled", rows, "mysql_s03_compiled"),
+                ("pure", pure, "_mysql_s03"),
+            ):
+                original = getattr(module, attribute)
+
+                def counted(*arguments, _original=original, _name=name):
+                    calls[_name] += 1
+                    return _original(*arguments)
+
+                patch.setattr(module, attribute, counted)
+            _, outcome = probe.s03_world(tmp_path / str(index), "mysql", body)
+            probe.numeric_readers_accept(outcome)
+        counts.append(calls)
+    assert counts[0] == counts[1]
+    assert all(counts[0].values())
+
+
+_S03_WIDER_BLOCKERS = {
+    "j2_wider_items": [("PIE-B1004", "sum_int_aggregate_range_proof_missing", 23, 9)],
+    "t1_wider_orders": [
+        ("PIE-B1004", "sum_int_aggregate_range_proof_missing", 31, 9),
+        ("PIE-B1004", "sum_int_aggregate_range_proof_missing", 32, 9),
+    ],
+}
+
+
+@pytest.mark.parametrize("shape", sorted(probe.S03_WIDER))
+def test_mysql_s03_join_forms_need_the_paired_tables_whole(tmp_path, shape):
+    """A JOIN form's SQL carries every field of both sources, so a source
+    with one more field is no form and keeps main's blockers, also in
+    compiled replay and the pure boundary when forged past emission; a
+    conditional form reads only its own fields and stays one."""
+    from pietto._project import project_compiled_schema as wire
+    import _pietto_sql_emission_portable as portable
+    import _pietto_sql_emission_pure_boundary as pure
+    from pietto._project import project_sql_emission_rows as rows
+    from pietto._project.project_compiled_build import build_compiled
+    from pietto._project.project_compiled_loading import load_compiled
+    from pietto._project.project_compiled_lowering import emit_compiled
+
+    form, extra = probe.S03_WIDER[shape]
+    body = probe.S03_FORMS[form]
+    _, outcome = probe.s03_world(tmp_path / "mysql", "mysql", body, extra=extra)
+    if shape not in _S03_WIDER_BLOCKERS:
+        probe.numeric_readers_accept(outcome)
+        return
+    assert _s03_blockers(outcome) == _S03_WIDER_BLOCKERS[shape]
+    with pytest.MonkeyPatch.context() as patch:
+        patch.setattr(rows, "mysql_s03_statement", lambda request: True)
+        _, forged = probe.s03_world(tmp_path / "forged", "mysql", body, extra=extra)
+        artifact = forged.artifact
+        assert artifact is not None
+        built = build_compiled(artifact)
+        observed = portable.export_emission_observation(artifact, artifact.request)
+    loaded = load_compiled(
+        built.payload,
+        expected_pin=built.pin,
+        accepted_producer=built.producer,
+        accepted_compatibility=built.compatibility,
+    )
+    with pytest.raises(wire.CompiledError, match="^COMPILED_AGGREGATE_ARGUMENT$"):
+        emit_compiled(loaded, ())
+    assert observed.canonical_bytes is not None
+    refused = pure.parse_emission_observation(observed.canonical_bytes)
+    assert (refused.status, refused.detail) == (
+        pure.Status.INVALID_RELATION,
+        "sum result",
+    )

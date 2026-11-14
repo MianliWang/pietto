@@ -192,6 +192,18 @@ def mysql_checked_operands(values) -> bool:
     )
 
 
+def mysql_s03_operand(value) -> bool:
+    """The argument carrier of a MySQL guarded SUM: a BIGINT, of a source
+    field, a count or a guarded SUM, never per binding. S02 narrows it to
+    mysql_checked_operands; an S03 form pins each argument's own."""
+
+    return (
+        value.tag == "Int"
+        and value.storage in ({"kind": "my_bigint"}, {"kind": "my_signed_int"})
+        and not value.binding
+    )
+
+
 def mysql_checked_query(plan, *, aggregate: bool) -> bool:
     """A cell's query, from the plan and its authored `query` or `table`:
     its non-empty tables are among _MYSQL_CELL_PLAN_TABLES, it reads a
@@ -1153,6 +1165,546 @@ def mysql_compiled_typed_cells(records, entry) -> bool:
         ):
             return False
     return True
+
+
+# Phase77 S03 (project_sql_emission_sum_forms): the plan tables a paired
+# statement may hold, and the fields of each of its definitions as written
+# that may be set; any other one (WHERE, a `let` block, window, HAVING,
+# DISTINCT, ORDER BY, LIMIT, header parameter, JOIN filter, or one a later
+# plan or grammar adds) keeps main's refusal.
+_MYSQL_S03_PLAN_TABLES = (_MYSQL_CELL_PLAN_TABLES - {"filters"}) | {
+    "aggregate_risks",
+    "join_inputs",
+    "join_ports",
+    "join_tails",
+    "joins",
+}
+_MYSQL_S03_AUTHORED = frozenset(
+    {
+        "span",
+        "name",
+        "from_clause",
+        "group_by_clause",
+        "select_items",
+        "join_clauses",
+        "naming_declarations",
+    }
+)
+_MYSQL_S03_RECORDS = _MYSQL_CELL_RECORDS | {"join", "join_value"}
+
+
+def mysql_s03_statement(request) -> bool:
+    """S03: whether this MySQL statement, as written over its bound contract,
+    is one of the paired sum forms (sum_forms.paired): its selected
+    definition reads sources, one JOIN of two at most, or one upstream
+    definition that does; every one is declared in the selected module, so
+    an imported source or definition, as a relation alias, keeps main's
+    refusal (D77.24). Its aggregates are the forms' own. Each call indexes
+    the selected module's definitions and the bound sources by name, then
+    reads two definitions of a few items at most: O(module definitions and
+    bound source fields), independent of the statement's sum count. No
+    statement is one while emission derives as main (AS_MAIN)."""
+
+    from pietto import ast_nodes as ast
+    from pietto._project import project_sql_emission_sum_forms as forms
+    from pietto._project.module_catalog import authored_definitions
+    from pietto._project.project_sql_emission_aggregation import function_name
+    from pietto._project.project_sql_plan_literals import ProjectSQLLiteralPolicy
+
+    plan = request.plan
+    if (
+        AS_MAIN.get()
+        or request.family != "mysql"
+        or any(
+            type(value := getattr(plan, name)) is tuple
+            and value
+            and name not in _MYSQL_S03_PLAN_TABLES
+            for name in plan.__dataclass_fields__
+        )
+    ):
+        return False
+    owner = plan.scope.selected_owner
+    module = plan.scope.completed.semantic_result.modules[owner.module_position]
+    if any(binding.module is not module for binding in plan.sources):
+        return False
+    relations = (
+        ast.SourceDef,
+        ast.QueryDef,
+        ast.TableDef,
+        ast.SetRelationDef,
+        ast.BlockRelationDef,
+    )
+    definitions = authored_definitions(module)
+    named: dict[str, Any] = {}
+    for definition in definitions:
+        if type(definition) in relations:
+            named[definition.name] = None if definition.name in named else definition
+    carriers: dict[str, dict[str, str | None]] = {}
+    layouts: dict[str, tuple] = {}
+    for source in request.sources:
+        name = json.loads(source.selector)["name"]
+        carriers[name] = (
+            {}
+            if name in carriers
+            else {
+                field.name: forms.carrier(field.representation)
+                for field in source.fields
+            }
+        )
+        layouts[name] = tuple(
+            forms.carrier(field.representation)
+            for field in sorted(source.fields, key=lambda field: field.ordinal)
+        )
+    read_sources: set[str] = set()
+
+    def column(side, source, field):
+        carrier = carriers.get(source, {}).get(field)
+        read_sources.add(source)
+        return None if carrier is None else (side, field, carrier)
+
+    def level(definition, upstream):
+        if type(definition) not in (ast.QueryDef, ast.TableDef) or any(
+            getattr(definition, name) not in (None, ())
+            for name in definition.__dataclass_fields__
+            if name not in _MYSQL_S03_AUTHORED
+        ):
+            return None
+        origin = definition.from_clause
+        if origin.binding_name is not None:
+            return None
+        join, sides = None, None
+
+        def read(expression):
+            """A column of this level: a bare name of the upstream's items or
+            of the FROM source, or `binding.field` of a JOIN's input."""
+            if sides is not None:
+                if (
+                    type(expression) is not ast.DottedNameExpr
+                    or len(expression.parts) != 2
+                    or expression.parts[0] not in sides
+                ):
+                    return None
+                side, source = sides[expression.parts[0]]
+                return column(side, source, expression.parts[1])
+            if type(expression) is not ast.NameExpr:
+                return None
+            if upstream is None:
+                return column("A", origin.source_name, expression.name)
+            item = upstream[1].get(expression.name)
+            return None if item is None else ("U", item, None)
+
+        if upstream is not None:
+            if (
+                origin.source_name != upstream[0]
+                or definition.join_clauses
+                or definition.naming_declarations
+            ):
+                return None
+        elif type(named.get(origin.source_name)) is not ast.SourceDef:
+            return None
+        elif definition.join_clauses or definition.naming_declarations:
+            if (
+                len(definition.join_clauses) != 1
+                or len(definition.naming_declarations) != 1
+            ):
+                return None
+            (clause,), (let,) = definition.join_clauses, definition.naming_declarations
+            on = None if clause.on_clause is None else clause.on_clause.expression
+            if not (
+                type(let) is ast.QueryLetDeclaration
+                and type(let.expression) is ast.NameExpr
+                and type(named.get(let.expression.name)) is ast.SourceDef
+                and let.expression.name != origin.source_name
+                and let.name != origin.source_name
+                and clause.kind
+                in (ast.AuthoredJoinKind.INNER, ast.AuthoredJoinKind.LEFT)
+                and clause.target_relation_name == let.name
+                and clause.target_binding_name == let.name
+                and clause.source_binding_name is None
+                and not clause.traversal_steps
+                and clause.uses_named_input is True
+                and clause.asof is False
+                and type(on) is ast.ComparisonExpr
+                and on.operator == "=="
+            ):
+                return None
+            sides = {
+                origin.source_name: ("A", origin.source_name),
+                let.name: ("B", let.expression.name),
+            }
+            assert type(on) is ast.ComparisonExpr and clause.on_clause is not None
+            left, right = read(on.left), read(on.right)
+            if (
+                left is None
+                or right is None
+                or not _ends(clause.on_clause, on)
+                or not _starts(on, on.left)
+                or not _ends(on, on.right)
+            ):
+                return None
+            join = (
+                str(clause.kind),
+                left,
+                right,
+                layouts.get(origin.source_name),
+                layouts.get(let.expression.name),
+            )
+        conditional = join is None and upstream is None
+        keys = []
+        for key in (
+            ()
+            if definition.group_by_clause is None
+            else definition.group_by_clause.items
+        ):
+            value = read(key.key)
+            if value is None or not _starts(key, key.key) or not _ends(key, key.key):
+                return None
+            keys.append(value)
+        items, outputs = [], {}
+        for selected in definition.select_items:
+            expression = selected.expression
+            item = _mysql_s03_item(expression, read, conditional)
+            if not _ends(selected, expression) or (
+                selected.alias is None and not _starts(selected, expression)
+            ):
+                item = None
+            name = selected.alias or (
+                expression.name
+                if type(expression) is ast.NameExpr
+                else expression.parts[-1]
+                if type(expression) is ast.DottedNameExpr
+                else None
+            )
+            if item is None or name is None or name in outputs:
+                return None
+            items.append(item)
+            outputs[name] = item
+        return (join, tuple(keys), tuple(items)), outputs
+
+    selected = definitions[owner.declaration_position]
+    if type(selected) not in (ast.QueryDef, ast.TableDef):
+        return False
+    upstream = named.get(selected.from_clause.source_name)
+    if type(upstream) in (ast.QueryDef, ast.TableDef):
+        first = level(upstream, None)
+        top = (
+            None
+            if first is None
+            else level(selected, (selected.from_clause.source_name, first[1]))
+        )
+        levels = None if top is None or first is None else (first[0], top[0])
+        relations_read = 2
+    else:
+        top = level(selected, None)
+        levels = None if top is None else (top[0],)
+        relations_read = 1
+    if levels is None:
+        return False
+    functions = sorted(
+        "filtered_sum" if item[0] == "fsum" else item[0]
+        for current in levels
+        for item in current[2]
+        if item[0] != "key"
+    )
+    return (
+        len(plan.bindings.definitions) == len(read_sources) + relations_read
+        and len(plan.sources) == len(read_sources)
+        and sorted(str(function_name(value.source)) for value in plan.aggregates)
+        == functions
+        and forms.paired(
+            levels, plan.literal_policy is ProjectSQLLiteralPolicy.PRESERVE_LITERALS
+        )
+    )
+
+
+def _starts(outer, inner) -> bool:
+    """``inner`` starts where ``outer`` does: no parenthesis opens between
+    them (D77.24: a parenthesized spelling is no paired form's)."""
+
+    return (outer.span.line, outer.span.column) == (
+        inner.span.line,
+        inner.span.column,
+    )
+
+
+def _ends(outer, inner) -> bool:
+    """``inner`` ends where ``outer`` does: no parenthesis closes between."""
+
+    return (outer.span.end_line, outer.span.end_column) == (
+        inner.span.end_line,
+        inner.span.end_column,
+    )
+
+
+def _mysql_s03_item(expression, read, conditional):
+    """One SELECT item as an S03 item (sum_forms), or None; a parenthesized
+    argument, test or operand is none (_starts, _ends)."""
+
+    from pietto import ast_nodes as ast
+
+    if type(expression) in (ast.NameExpr, ast.DottedNameExpr):
+        value = read(expression)
+        return None if value is None else ("key", value)
+    if (
+        type(expression) is not ast.CallExpr
+        or type(expression.callee) is not ast.NameExpr
+        or expression.aggregate_order_by
+        or len(expression.arguments) != 1
+    ):
+        return None
+    function, argument = expression.callee.name, expression.arguments[0]
+    # `name(` then the argument, then `)`, on one line.
+    if (
+        expression.span.line != expression.span.end_line
+        or (argument.span.line, argument.span.column)
+        != (expression.span.line, expression.span.column + len(function) + 1)
+        or (argument.span.end_line, argument.span.end_column + 1)
+        != (expression.span.end_line, expression.span.end_column)
+    ):
+        return None
+    if function == "sum" and type(argument) is ast.GeneratorExpr:
+        test = argument.condition
+        if (
+            not conditional
+            or argument.source != ("group",)
+            or argument.source_read is not None
+            or test is None
+            or not _starts(argument, argument.body)
+            or not _ends(argument, test)
+        ):
+            return None
+        if type(test) is ast.NameExpr:
+            parts = ("is", read(test))
+        elif (
+            type(test) is ast.UnaryExpr
+            and test.operator == "not"
+            and _ends(test, test.operand)
+        ):
+            parts = ("not", read(test.operand))
+        elif (
+            type(test) is ast.IsNullExpr
+            and test.negated is False
+            and _starts(test, test.value)
+        ):
+            parts = ("none", read(test.value))
+        elif (
+            type(test) is ast.ComparisonExpr
+            and test.operator == ">"
+            and type(test.right) is ast.LiteralExpr
+            and type(test.right.value) is int
+            and _starts(test, test.left)
+            and _ends(test, test.right)
+        ):
+            parts = (">", read(test.left), test.right.value)
+        else:
+            return None
+        value = read(argument.body)
+        return None if value is None or parts[1] is None else ("fsum", value, parts)
+    if function in ("sum", "count"):
+        value = read(argument)
+        return None if value is None else (function, value)
+    return None
+
+
+def mysql_s03_compiled(records, entry) -> frozenset:
+    """Compiled replay's S03 sums and conditional sums (their aggregate_value
+    addresses), from the records alone, as emission derives the statement
+    (mysql_s03_statement): every record is of a kind in _MYSQL_S03_RECORDS,
+    and the entry's terminal is a projection row over an aggregate of its
+    declaration, over a source, one JOIN of two sources, or the projection
+    row of one other declaration over its aggregate over such a JOIN; no
+    other row, aggregate or JOIN exists. An imported source or definition
+    and a relation alias leave the same records, so only emission refuses
+    them."""
+
+    from pietto._project import project_sql_emission_sum_forms as forms
+    from pietto._project.project_compiled_schema import Address
+
+    if any(address.kind not in _MYSQL_S03_RECORDS for address in records):
+        return frozenset()
+    units: set = set()
+    sums: list = []
+
+    def field(port):
+        return port.get("source"), forms.carrier(
+            records[port.get("source")].get("physical")
+        )
+
+    def operand(address, column):
+        """A conditional sum's test: a read, `not`, `is None` or `>` literal."""
+        if address.kind == "read":
+            value = column(address)
+            return None if value is None else ("is", value)
+        operation = records[address]
+        if address.kind != "operation":
+            return None
+        operator, operands = operation.get("operator"), operation.get("operands")
+        if (
+            operator in (("not", "not"), ("null_test", "is_null"))
+            and len(operands) == 1
+            and operands[0].kind == "read"
+        ):
+            value = column(operands[0])
+            kind = "not" if operator[0] == "not" else "none"
+            return None if value is None else (kind, value)
+        if (
+            operator == ("comparison", ">")
+            and len(operands) == 2
+            and operands[0].kind == "read"
+            and operands[1].kind == "literal"
+            and records[operands[1]].get("tag") == "Int"
+        ):
+            value = column(operands[0])
+            literal = records[operands[1]].get("value").value
+            return None if value is None else (">", value, literal)
+        return None
+
+    def level(row, owner, nested=False):
+        """The level of a projection row over its aggregate: (level, the
+        row's output ports to their items, the upstream level if any), or
+        None."""
+        if (
+            row.address.kind != "row"
+            or row.get("stage") != "projection"
+            or row.get("predicate") is not None
+            or row.get("owner") != owner
+        ):
+            return None
+        aggregate = records[row.get("input")]
+        if aggregate.address.kind != "aggregate" or aggregate.get("owner") != owner:
+            return None
+        below = records[aggregate.get("input")]
+        units.update((row.address, aggregate.address))
+        join, upstream, uses = None, None, []
+
+        def side(read):
+            """A read of a JOIN input's source port: its side and field."""
+            if read.kind != "read":
+                return None
+            use = records[records[read].get("use")]
+            port = records[records[read].get("port")]
+            if use not in uses or port.get("owner") != use.get("producer"):
+                return None
+            return ("AB"[use.get("ordinal")], *field(port))
+
+        def column(read):
+            """A read of this level's input: a source, JOIN or upstream port."""
+            if read.kind != "read":
+                return None
+            port = records[records[read].get("port")]
+            if below.address.kind == "source":
+                if port.get("owner") != below.address:
+                    return None
+                return ("A", *field(port))
+            if below.address.kind == "join":
+                value = port.get("source")
+                if port.get("owner") != below.address or value.kind != "join_value":
+                    return None
+                return side(records[value].get("input"))
+            assert upstream is not None
+            item = upstream[1].get(port.address)
+            return None if item is None else ("U", item, None)
+
+        if below.address.kind == "join":
+            uses = [records[use] for use in below.get("inputs")]
+            predicate = below.get("predicate")
+            operands = (
+                records[predicate].get("operands")
+                if predicate is not None and predicate.kind == "operation"
+                else ()
+            )
+            if (
+                below.get("owner") != owner
+                or below.get("equalities") != ()
+                or [use.get("ordinal") for use in uses] != [0, 1]
+                or any(use.get("producer").kind != "source" for use in uses)
+                or uses[0].get("producer") == uses[1].get("producer")
+                or len(operands) != 2
+                or records[predicate].get("operator") != ("comparison", "==")
+                or any(item.kind != "read" for item in operands)
+            ):
+                return None
+            units.add(below.address)
+            join = (
+                below.get("kind"),
+                side(operands[0]),
+                side(operands[1]),
+                *(
+                    tuple(
+                        forms.carrier(records[field].get("physical"))
+                        for field in records[use.get("producer")].get("fields")
+                    )
+                    for use in uses
+                ),
+            )
+            if None in join:
+                return None
+        elif below.address.kind == "row" and below.get("owner") != owner and not nested:
+            upstream = level(below, below.get("owner"), True)
+            if upstream is None:
+                return None
+        elif below.address.kind != "source":
+            return None
+        keys = tuple(column(key) for key in aggregate.get("keys"))
+        if None in keys:
+            return None
+        values = {}
+        for address in aggregate.get("values"):
+            value = records[address]
+            function, arguments = value.get("function"), value.get("arguments")
+            item = None
+            if (
+                function in ("sum", "count")
+                and len(arguments) == 1
+                and arguments[0].kind == "read"
+            ):
+                item = column(arguments[0])
+                item = None if item is None else (function, item)
+            elif (
+                function == "filtered_sum"
+                and len(arguments) == 2
+                and arguments[0].kind == "read"
+            ):
+                x, test = column(arguments[0]), operand(arguments[1], column)
+                item = None if x is None or test is None else ("fsum", x, test)
+            if item is None:
+                return None
+            values[address] = item
+            if function != "count":
+                sums.append(address)
+        outputs = {}
+        for address in aggregate.get("outputs"):
+            source = records[address].get("source")
+            if source in values:
+                outputs[address] = values[source]
+            elif source in aggregate.get("keys"):
+                outputs[address] = ("key", keys[aggregate.get("keys").index(source)])
+            else:
+                return None
+        items, ports = [], {}
+        if len(row.get("values")) != len(row.get("outputs")):
+            return None
+        for read, port in zip(row.get("values"), row.get("outputs"), strict=True):
+            item = (
+                outputs.get(records[read].get("port")) if read.kind == "read" else None
+            )
+            if item is None:
+                return None
+            items.append(item)
+            ports[port] = item
+        return (join, keys, tuple(items)), ports, upstream
+
+    top = level(records[entry.get("terminal")], entry.get("declaration"))
+    if top is None or any(
+        address.kind in {"row", "aggregate", "join"} and address not in units
+        for address in records
+    ):
+        return frozenset()
+    levels = (top[0],) if top[2] is None else (top[2][0], top[0])
+    preserve = records[Address("policy", 0)].get("literal_policy") == (
+        "preserve_literals"
+    )
+    return frozenset(sums) if forms.paired(levels, preserve) else frozenset()
 
 
 TEXT_WIDTH_OBLIGATION = "text_result_width"

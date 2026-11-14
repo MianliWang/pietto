@@ -2971,8 +2971,8 @@ _NUMERIC_UNFORGEABLE = {
     "chained": "PIE-B1008",
     "negated_sum": "PIE-B1008",
     "sum_argument": "PIE-B1004",
-    "sum_nonnull": "PIE-B1008",
-    "sum_narrow": "PIE-B1008",
+    # S03's guarded SUM result law takes any BIGINT; the cell laws refuse it.
+    "sum_narrow": "PIE-B1002",
     "sum_composed": "PIE-B1003",
     "sum_coalesced": "PIE-B1003",
     "sum_filtered": "PIE-B1004",
@@ -2980,7 +2980,6 @@ _NUMERIC_UNFORGEABLE = {
     "beside_two_refusals": "PIE-B1008",
     "beside_division": "PIE-B1003",
     "sum_beside_sum_argument": "PIE-B1004",
-    "sum_beside_sum_nonnull": "PIE-B1008",
 }
 
 
@@ -5370,3 +5369,218 @@ def test_mysql_typed_cells_are_derived_in_linear_work(tmp_path, monkeypatch):
     for k in (8, 16, 32):
         assert reads[k] <= min(reads[k // 2] + 0.15, 3)
         assert compiled[k] <= min(compiled[k // 2] + 0.15, 3)
+
+
+# Phase77 S03: MySQL conditional, JOIN and two-level sums in their forms.
+# Refused shapes that no artifact holds even with the form law open: an INT
+# argument (the guarded SUM's carrier law) and a composed aggregate.
+_S03_UNFORGEABLE = {
+    "ctl_c_narrow_argument": "PIE-B1004",
+    "c1_beside_composed": "PIE-B1003",
+}
+
+
+@pytest.mark.parametrize("shape", sorted(_pietto_sql_emission.S03_REFUSALS))
+def test_forged_mysql_s03_sums_fail_every_reader(tmp_path, monkeypatch, shape):
+    """An artifact of each refused S03 shape, emitted while every MySQL
+    statement counts as a paired form, with its observation and compiled
+    bundle exported under that law, fails plain verification and the live
+    template (plan), the pure boundary (document) and compiled replay and
+    its template (records) once the law is back. A relation alias,
+    parentheses and an imported source fail the plan's readers only: the
+    document and records are the form's apart from source positions and
+    the source digest (S03_ALIASES)."""
+    import _pietto_sql_emission_portable as portable
+    import _pietto_sql_emission_pure_boundary as pure
+    from pietto._project import project_sql_emission_rows as rows
+    from pietto._project.project_compiled_lowering import emit_compiled
+    from pietto._project.project_execution_template import (
+        BindingError,
+        prepare_compiled_template,
+        prepare_live_template,
+    )
+    from pietto._project.project_sql_emission_verification import (
+        verify_project_sql_emission,
+    )
+
+    (policy,) = _pietto_sql_emission.S03_REFUSAL_POLICIES.get(
+        shape, ("preserve_literals",)
+    )
+    with monkeypatch.context() as patch:
+        patch.setattr(
+            rows, "mysql_s03_statement", lambda request: request.family == "mysql"
+        )
+        _, outcome = _pietto_sql_emission.s03_world(
+            tmp_path / "forged",
+            "mysql",
+            _pietto_sql_emission.S03_REFUSALS[shape],
+            policy,
+        )
+        artifact = outcome.artifact
+        if shape in _S03_UNFORGEABLE:
+            assert artifact is None
+            assert {
+                blocker["code"]
+                for blocker in json.loads(serialize_project_sql_emission(outcome))[
+                    "blockers"
+                ]
+            } == {_S03_UNFORGEABLE[shape]}
+            return
+        assert artifact is not None, outcome.blockers
+        observed = portable.export_emission_observation(artifact, artifact.request)
+        loaded = _numeric_loaded(artifact)
+    assert not verify_project_sql_emission(artifact, artifact.request).verified
+    with pytest.raises(BindingError, match="^BINDING_ARTIFACT$"):
+        prepare_live_template(artifact)
+    assert observed.canonical_bytes is not None
+    parsed = pure.parse_emission_observation(observed.canonical_bytes)
+    if shape in _pietto_sql_emission.S03_ALIASES:
+        form = _pietto_sql_emission.S03_ALIASES[shape]
+        assert (
+            artifact.rendered.sql.decode()
+            == (_pietto_sql_emission.S03_FORM_SQL[form, "mysql"])
+        )
+        assert parsed.status is pure.Status.OK
+        assert emit_compiled(loaded, ()).rendered.sql == artifact.rendered.sql
+        return
+    assert parsed.status is pure.Status.INVALID_RELATION
+    assert parsed.detail in {"sum result", "conditional aggregate shape"}
+    for replay in (
+        lambda: emit_compiled(loaded, ()),
+        lambda: prepare_compiled_template(loaded),
+    ):
+        with pytest.raises(wire.CompiledError, match="^COMPILED_AGGREGATE_ARGUMENT$"):
+            replay()
+
+
+def _s03_record_edit(kind, name, change):
+    """A record rewriter: ``change(value, record)`` of field ``name`` of each
+    record of ``kind``, or the record kept when it returns None."""
+
+    def edit(record):
+        if record.address.kind != kind:
+            return record
+        values = list(record.values)
+        index = wire.FIELDS[kind].index(name)
+        changed = change(values[index], record)
+        if changed is None:
+            return record
+        values[index] = changed
+        return wire.Record(record.address, tuple(values))
+
+    return edit
+
+
+def _s03_document_edit(kind, name, change):
+    def edit(doc):
+        for record in doc["records"]:
+            if record["ref"][0] == kind:
+                changed = change(record["fields"][name], record["fields"])
+                if changed is not None:
+                    record["fields"][name] = changed
+        return doc
+
+    return edit
+
+
+# Per tamper: the form, its records' and its document's edit, and the pure
+# boundary's detail.
+_S03_TAMPERS = {
+    "join_kind": (
+        "J1",
+        _s03_record_edit("join", "kind", lambda value, record: "left"),
+        _s03_document_edit("join_body", "join_kind", lambda value, fields: "left"),
+        "sum result",
+    ),
+    "on_order": (
+        "J2",
+        _s03_record_edit(
+            "operation",
+            "operands",
+            lambda value, record: (
+                tuple(reversed(value))
+                if record.get("operator") == ("comparison", "==")
+                else None
+            ),
+        ),
+        _s03_document_edit(
+            "sql_operation",
+            "operands",
+            lambda value, fields: (
+                list(reversed(value)) if fields["operator"] == "==" else None
+            ),
+        ),
+        "sum result",
+    ),
+    "test_operator": (
+        "C3",
+        _s03_record_edit(
+            "operation",
+            "operator",
+            lambda value, record: (
+                ("comparison", ">=") if value == ("comparison", ">") else None
+            ),
+        ),
+        _s03_document_edit(
+            "sql_operation",
+            "operator",
+            lambda value, fields: ">=" if value == ">" else None,
+        ),
+        "conditional aggregate shape",
+    ),
+    "key_carrier": (
+        "C1",
+        _s03_record_edit(
+            "field",
+            "physical",
+            lambda value, record: (
+                value.replace('"my_int"', '"my_bigint"')
+                if record.get("label") == "customer"
+                else None
+            ),
+        ),
+        _s03_document_edit(
+            "bound_field",
+            "representation",
+            lambda value, fields: (
+                value.replace('"my_int"', '"my_bigint"')
+                if fields["name"] == "customer"
+                else None
+            ),
+        ),
+        "conditional aggregate shape",
+    ),
+}
+
+
+@pytest.mark.parametrize("tamper", sorted(_S03_TAMPERS))
+def test_tampered_mysql_s03_forms_fail_compiled_and_pure_readers(tmp_path, tamper):
+    """A forger who rewrites a native S03 bundle or observation so that the
+    JOIN's kind, the order of its ON operands, C3's test operator or C1's
+    key carrier differ from the form gets compiled replay and the pure
+    boundary to refuse it; the untouched bytes pass."""
+    import _pietto_sql_emission_portable as portable
+    import _pietto_sql_emission_pure_boundary as pure
+    from pietto._project.project_compiled_lowering import emit_compiled
+
+    form, records, document, detail = _S03_TAMPERS[tamper]
+    _, outcome = _pietto_sql_emission.s03_world(
+        tmp_path, "mysql", _pietto_sql_emission.S03_FORMS[form]
+    )
+    artifact = outcome.artifact
+    assert artifact is not None
+    observed = portable.export_emission_observation(artifact, artifact.request)
+    assert observed.canonical_bytes is not None
+    assert emit_compiled(_numeric_loaded(artifact), ()).rendered.sql == (
+        artifact.rendered.sql
+    )
+    assert (
+        pure.parse_emission_observation(observed.canonical_bytes).status
+        is pure.Status.OK
+    )
+    with pytest.raises(wire.CompiledError):
+        emit_compiled(_numeric_loaded(artifact, _numeric_rewritten(records)), ())
+    refused = pure.parse_emission_observation(
+        _numeric_document(document(json.loads(observed.canonical_bytes)))
+    )
+    assert (refused.status, refused.detail) == (pure.Status.INVALID_RELATION, detail)

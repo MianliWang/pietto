@@ -23,6 +23,7 @@ from types import MappingProxyType
 from typing import Any, cast
 
 from pietto._project import project_sql_emission_portable_schema as schema
+from pietto._project import project_sql_emission_sum_forms as sum_forms
 
 __all__: tuple[str, ...] = ()
 
@@ -1871,6 +1872,242 @@ def _mysql_cells(doc) -> tuple[frozenset, frozenset]:
     )
 
 
+# S03 (project_sql_emission_sum_forms): the record kinds a paired statement's
+# document may hold besides a cell's: one JOIN of two sources, or one named
+# upstream definition.
+_MYSQL_S03_KINDS = _MYSQL_CELL_KINDS | {
+    "join_body",
+    "join_column",
+    "join_input",
+    "row_join_use",
+    "row_named_use",
+    "sql_join_query",
+}
+_NON_NEGATIVE = re.compile(r"0|[1-9][0-9]*")
+
+
+def _mysql_s03(doc) -> frozenset:
+    """The S03 sum and conditional sum columns of a paired MySQL statement,
+    from the document alone, as emission derives the statement from what is
+    written (mysql_s03_statement): every record is of a kind in
+    _MYSQL_S03_KINDS, and the one final projection body stands over an
+    aggregate body of its definition, over a source scan, one JOIN of two
+    sources, or the named use of another definition's projection over its
+    aggregate over such a JOIN; no other body exists. An imported source or
+    definition and a relation alias leave the same document, so only
+    emission refuses them."""
+
+    if not _MYSQL_S03_KINDS.issuperset(doc.kinds):
+        return frozenset()
+    bodies = doc.all("row_body")
+    finals = [ref for ref in bodies if doc[ref]["final"] is True]
+    if len(finals) != 1 or len(bodies) > 4:
+        return frozenset()
+    requests = doc.all("request")
+    preserve = (
+        len(requests) == 1 and doc[requests[0]]["literal_policy"] == "preserve_literals"
+    )
+    used: set = set()
+    sums: list = []
+
+    def carrier(field):
+        return sum_forms.carrier(doc[field]["representation"])
+
+    def test(ref, column):
+        """A conditional sum's test: a read, `not`, `is None` or `>` literal."""
+        if type(ref) is not Ref:
+            return None
+        if ref.kind == "sql_stage_reference":
+            value = column(doc[ref]["column"])
+            return None if value is None else ("is", value)
+        if ref.kind != "sql_operation":
+            return None
+        operation = doc[ref]
+        operands = operation["operands"]
+        if not operands or operands[0].kind != "sql_stage_reference":
+            return None
+        value = column(doc[operands[0]]["column"])
+        kind = (operation["kind"], operation["operator"], len(operands))
+        if value is None:
+            return None
+        if kind == ("not", "not", 1):
+            return "not", value
+        if kind == ("null_test", "is null", 1):
+            return "none", value
+        if kind != ("comparison", ">", 2) or operands[1].kind != "sql_anchor":
+            return None
+        anchor = doc[operands[1]]
+        literal = anchor["operand"]
+        if anchor["tag"] != "Int" or literal.kind != "sql_literal":
+            return None
+        written = doc[literal]["value"]
+        if (
+            type(written) is not Fixed
+            or written.tag != "Int"
+            or type(written.wire) is not str
+            or not _NON_NEGATIVE.fullmatch(written.wire)
+        ):
+            return None
+        return ">", value, int(written.wire)
+
+    def level(final, nested):
+        """The level of a projection body over its aggregate body: (level,
+        its terminals to their items, the upstream level if any), or None."""
+        projection = doc[final]
+        scan = projection["scan"]
+        if (
+            projection["block_kind"] != "projection"
+            or projection["predicate"] is not None
+            or projection["window"] is not None
+            or projection["aggregation"] is not None
+            or scan.kind != "row_stage_use"
+        ):
+            return None
+        below = doc[scan]["body"]
+        body = doc[below]
+        if (
+            below in used
+            or final in used
+            or body["block_kind"] != "aggregate"
+            or body["predicate"] is not None
+            or body["window"] is not None
+            or body["aggregation"] is None
+            or body["definition"] != projection["definition"]
+        ):
+            return None
+        used.update((final, below))
+        scan = body["scan"]
+        join, upstream = None, None
+        sides = {}
+
+        def side(stage):
+            """A stage column of a source field: its side and field."""
+            value = doc[stage]
+            if not _mysql_field_column(doc, stage) or value["field"] not in sides:
+                return None
+            return sides[value["field"]], value["field"], carrier(value["field"])
+
+        def column(stage):
+            """A column this level reads: a source, JOIN or upstream one."""
+            terminal = doc[stage]["terminal"]
+            if scan.kind == "row_named_use":
+                assert upstream is not None
+                item = upstream[1].get(terminal)
+                return None if item is None else ("U", item, None)
+            expected = "source_port" if scan.kind == "row_scan" else "join_port"
+            return side(stage) if terminal.kind == expected else None
+
+        if scan.kind == "row_scan":
+            sides = {field: "A" for field in doc[doc[scan]["realization"]]["fields"]}
+        elif scan.kind == "row_join_use":
+            joined = doc[doc[scan]["body"]]
+            inputs = [doc[item] for item in joined["inputs"]]
+            predicate = joined["predicate"]
+            operands = (
+                doc[predicate]["operands"]
+                if type(predicate) is Ref and predicate.kind == "sql_operation"
+                else ()
+            )
+            if (
+                len(inputs) != 2
+                or joined["equalities"]
+                or [item["ordinal"] for item in inputs] != [0, 1]
+                or any(item["producer"].kind != "bound_source" for item in inputs)
+                or inputs[0]["producer"] == inputs[1]["producer"]
+                or len(operands) != 2
+                or doc[predicate]["kind"] != "comparison"
+                or doc[predicate]["operator"] != "=="
+                or any(item.kind != "sql_stage_reference" for item in operands)
+            ):
+                return None
+            sides = {
+                field: side
+                for side, item in zip("AB", inputs, strict=True)
+                for field in doc[item["producer"]]["fields"]
+            }
+            join = (
+                joined["join_kind"],
+                side(doc[operands[0]]["column"]),
+                side(doc[operands[1]]["column"]),
+                *(
+                    tuple(carrier(field) for field in doc[item["producer"]]["fields"])
+                    for item in inputs
+                ),
+            )
+            if None in join:
+                return None
+        elif scan.kind == "row_named_use" and not nested:
+            upper = doc[scan]["body"]
+            if doc[upper]["definition"] == body["definition"]:
+                return None
+            upstream = level(upper, True)
+            if upstream is None:
+                return None
+        else:
+            return None
+        stage = doc[body["aggregation"]]
+        keys = tuple(column(doc[key]["read"]) for key in stage["keys"])
+        if None in keys:
+            return None
+        outputs = {}
+        if len(body["columns"]) != len(body["terminals"]) or len(
+            projection["columns"]
+        ) != len(projection["terminals"]):
+            return None
+        for ref, terminal in zip(body["columns"], body["terminals"], strict=True):
+            current = doc[ref]
+            if ref.kind == "aggregate_key_column":
+                item = ("key", column(current["read"]))
+            elif (
+                ref.kind != "aggregate_value_column"
+                or current["distinct"]
+                or current["order_by"]
+                or current["extra_arguments"]
+                or type(current["argument"]) is not Ref
+                or current["argument"].kind != "sql_stage_reference"
+            ):
+                return None
+            else:
+                value = column(doc[current["argument"]]["column"])
+                function = current["function"]
+                if function in ("sum", "count") and current["delimiter"] is None:
+                    item = (function, value)
+                elif function == "filtered_sum":
+                    condition = test(current["delimiter"], column)
+                    item = ("fsum", value, condition) if condition else (function, None)
+                else:
+                    return None
+                if function != "count":
+                    sums.append(ref)
+            if item[1] is None:
+                return None
+            outputs[terminal] = item
+        if [item for item in outputs.values() if item[0] == "key"] != [
+            ("key", key) for key in keys
+        ]:
+            return None
+        items, ports = [], {}
+        for ref, terminal in zip(
+            projection["columns"], projection["terminals"], strict=True
+        ):
+            item = (
+                outputs.get(doc[doc[ref]["read"]]["terminal"])
+                if ref.kind == "aggregate_projection_column"
+                else None
+            )
+            if item is None:
+                return None
+            items.append(item)
+            ports[terminal] = item
+        return (join, keys, tuple(items)), ports, upstream
+
+    top = level(finals[0], False)
+    if top is None or len(used) != len(bodies):
+        return frozenset()
+    levels = (top[0],) if top[2] is None else (top[2][0], top[0])
+    return frozenset(sums) if sum_forms.paired(levels, preserve) else frozenset()
+
+
 def _mysql_checked_carrier(doc, ref) -> bool:
     """The S01/S02 operand carrier: a nullable MySQL BIGINT."""
 
@@ -3410,6 +3647,7 @@ class _Check:
         mysql_sums = _mysql_cells(doc)[1] if family == "mysql" else frozenset()
         # A MySQL `first` or `last` only in the S13 statement class.
         self.ranked = _ranked_stage(doc, family)
+        mysql_s03 = _mysql_s03(doc) if family == "mysql" else frozenset()
         for ref in doc.all("aggregate_value_column"):
             column = doc[ref]
             expected = {
@@ -3488,7 +3726,7 @@ class _Check:
                         )
                         == "Int"
                         or family == "mysql"
-                        and ref in mysql_sums
+                        and (ref in mysql_sums or ref in mysql_s03)
                     )
                     and _is_realization(
                         doc[doc[column["column"]]["realization"]],
@@ -3550,15 +3788,16 @@ class _Check:
                     "string_agg typed inputs",
                 )
             elif column["function"] in {"filtered_count", "filtered_sum"}:
-                # PostgreSQL only: a Bool test, of a sum in the delimiter slot
-                # after its Int argument; a non-null bigint result, a count's
-                # bounded by the count premise, a sum's by its checked CAST.
+                # PostgreSQL only, but for an S03 MySQL conditional sum: a
+                # Bool test, of a sum in the delimiter slot after its Int
+                # argument; a non-null bigint result, a count's bounded by the
+                # count premise, a sum's by its checked CAST or guarded SUM.
                 counted = column["function"] == "filtered_count"
                 test = column["argument"] if counted else column["delimiter"]
                 low = 0 if counted else -(1 << 63)
                 result = doc[doc[column["column"]]["realization"]]
                 _require(
-                    family == "postgres"
+                    (family == "postgres" or family == "mysql" and ref in mysql_s03)
                     and test is not None
                     and (_value_realization(doc, test) or {}).get("tag") == "Bool"
                     and (counted or column["delimiter"] is not None)
@@ -3574,7 +3813,11 @@ class _Check:
                     and _is_realization(
                         result,
                         "Int",
-                        {"kind": "pg_int8"},
+                        {
+                            "kind": "pg_int8"
+                            if family == "postgres"
+                            else "my_signed_int"
+                        },
                         {
                             "kind": "int_range",
                             "min": str(low),
@@ -4775,6 +5018,28 @@ class _Tokens:
                     ("aggregate_test_close", " > 0)" if tested else " = 0)"),
                 ]
                 _require(aggregate_tokens == expected, "group test token sequence")
+            elif self.family == "mysql" and column["function"] == "filtered_sum":
+                # S03: COALESCE(the guarded SUM of CASE WHEN test THEN x END, 0).
+                case = [
+                    ("aggregate_filter_open", "CASE WHEN "),
+                    ("aggregate_filter_then", " THEN "),
+                    ("aggregate_filter_close", " END"),
+                ]
+                expected = [("aggregate_zero_open", "COALESCE(")]
+                for role in (
+                    "aggregate_guard_open",
+                    "aggregate_guard_high",
+                    "aggregate_guard_low",
+                ):
+                    expected += [(role, schema.SYNTAX[role]), *case]
+                expected += [
+                    ("aggregate_guard_close", schema.SYNTAX["aggregate_guard_close"]),
+                    ("aggregate_zero_close", ", 0)"),
+                ]
+                _require(
+                    aggregate_tokens == expected,
+                    "guarded conditional sum token sequence",
+                )
             elif column["function"] in {"filtered_count", "filtered_sum"}:
                 counted = column["function"] == "filtered_count"
                 expected = [] if counted else [("aggregate_zero_open", "COALESCE(")]

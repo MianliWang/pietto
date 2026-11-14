@@ -1206,6 +1206,29 @@ def _aggregate_value(w: _Writer, column, alias) -> None:
     """One aggregate occurrence: its own spelling over its own exact argument."""
     reference = column.aggregate.ref
     start = w.offset
+    if w.request.family == "mysql" and column.function == "filtered_sum":
+        # S03: COALESCE(the guarded SUM of CASE WHEN test THEN x END, 0).
+        test = column.delimiter
+        if (
+            column.distinct
+            or column.order_by
+            or test is None
+            or column.argument_cast
+            or column.result_cast
+        ):
+            raise ValueError("unrenderable MySQL conditional sum")
+        w.emit("COALESCE(", "syntax", "aggregate_zero_open", reference)
+        for position, (role, text) in enumerate(MYSQL_SUM_GUARD):
+            if position:
+                w.emit("CASE WHEN ", "syntax", "aggregate_filter_open", reference)
+                w.scalar(test, alias)
+                w.emit(" THEN ", "syntax", "aggregate_filter_then", reference)
+                w.scalar(column.argument, alias)
+                w.emit(" END", "syntax", "aggregate_filter_close", reference)
+            w.emit(text, "syntax", role, reference)
+        w.emit(", 0)", "syntax", "aggregate_zero_close", reference)
+        w.enclose("aggregate", reference, start)
+        return
     if mysql_sum_guarded(w.request.family, column):
         if column.distinct or column.argument_cast or column.result_cast:
             raise ValueError("unrenderable MySQL sum")

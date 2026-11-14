@@ -267,6 +267,8 @@ def test_pure_and_schema_import_closure_is_data_only():
         "pietto",
         "pietto._project",
         "pietto._project.project_sql_emission_portable_schema",
+        # S03's form law, shared with the emitter, imports only json.
+        "pietto._project.project_sql_emission_sum_forms",
     ]
 
 

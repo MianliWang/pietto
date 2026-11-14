@@ -856,7 +856,7 @@ same checked `sum(Int)` spelling, so a sum of a `bigint` column outside signed
 MySQL keeps project `sum(Int)` BLOCKED with `PIE-B1004`,
 as its `CAST(DECIMAL AS SIGNED)` would clamp an out-of-range sum, and Int
 arithmetic not proved to fit signed 64 bits BLOCKED with `PIE-B1002`,
-outside the unreleased (Phase77 S01/S02) cells that the
+outside the unreleased (Phase77 S01/S02) cells and S03 forms that the
 [language page](language.md) states.
 PostgreSQL admits exact Decimal/Int addition and subtraction and addition
 or subtraction of Decimals with different scales. Let `s = max(s1, s2)`;
@@ -997,8 +997,9 @@ expression arguments (`count(lower(label))`), except that it keeps BLOCKED
 the one shape below, `stddev` of a `Float`
 (`float_aggregate_finite_result_proof_missing`), `sum` of an `Int`
 (`sum_int_aggregate_range_proof_missing`, so `sum(qty * 2)` too) outside the
-unreleased (Phase77 S02) cell of a direct nullable `BIGINT` field that the
-[language page](language.md) states, and an `Int` row expression not proved
+unreleased (Phase77 S02) cell of a direct nullable `BIGINT` field and the
+S03 JOIN and two-level forms that the [language page](language.md) states,
+and an `Int` row expression not proved
 to fit signed 64 bits (`PIE-B1002`) outside its unreleased (Phase77 S01)
 cell there.
 
@@ -1079,7 +1080,10 @@ BLOCKED, except the count in a statement that is one of three paired forms
 with only its names changed
 ([unreleased](release-notes.d/77-s10-mysql-group-tests.md)): the count with
 `PIE-B1003` (`conditional_count_not_admitted_on_target`), the sum with
-`PIE-B1004` (`sum_int_aggregate_range_proof_missing`). Compiled bundles and live
+`PIE-B1004` (`sum_int_aggregate_range_proof_missing`), outside the unreleased
+(Phase77 S03) conditional sum forms that the [language page](language.md)
+states, where it is a non-null `my_signed_int` from S02's guarded `SUM`
+under `COALESCE(..., 0)` with the same R13 evidence. Compiled bundles and live
 templates carry them unchanged: the compiled `aggregate_value` function is
 `filtered_count` with the test as its one argument, or `filtered_sum` with
 the field read, then the test.

@@ -467,8 +467,8 @@ def test_the_two_level_route_counts_per_key_then_sums_on_postgresql_only(
     tmp_path, target
 ):
     """PostgreSQL emits the count per lhs key and the checked sums over its
-    rows, VERIFIED; MySQL blocks each `sum` of Int (PIE-B1004), as for any
-    project MySQL Int sum."""
+    rows, VERIFIED; MySQL blocks each `sum` of Int (PIE-B1004): this route
+    groups by a nullable key and sums a key column, no S03 form (D77.24)."""
 
     source = _PROVED_HEADER.format(target=target) + _TWO_LEVEL
     item = probe.join_witness(target, {"main.pietto": source})
@@ -2412,3 +2412,38 @@ def test_a_full_join_outside_its_reviewed_rule_is_refused_at_its_on_clause(
     assert outcome.status == "BLOCKED" and outcome.artifact is None
     on_clause = (11, 17, 11, 17 + len(f"on {condition}"))
     assert located(outcome) == [("PIE-B1003", detail, on_clause)]
+
+
+# Phase77 S03: sums over one JOIN and the two-level route on MySQL.
+_S03_NULLABLE = {
+    "J1": [False, True],
+    "J2": [False, True],
+    "J3": [False, False, True],
+    "T1": [False, True, True],
+    "T2": [False, True],
+}
+
+
+@pytest.mark.parametrize("policy", ("preserve_literals", "bind_safe_literals"))
+@pytest.mark.parametrize("target", ("postgres", "mysql"))
+@pytest.mark.parametrize("form", sorted(_S03_NULLABLE))
+def test_mysql_join_and_two_level_sums_emit_the_guarded_sum(
+    tmp_path, form, target, policy
+):
+    """S03: a MySQL project emits the paired JOIN forms (J1 an INNER JOIN
+    grouped by an INT field of the joined side summing a FROM field, J2 and
+    J3 a LEFT JOIN grouped by the FROM side's unique key, and an INT field
+    for J3, summing a joined field) and the two-level route (T1 counts per
+    order then sums its amount and count per customer, T2 sums J3 per
+    customer), each sum S02's guarded SUM: never a clamped value, 1690
+    (SQLSTATE 22003) outside signed 64 bits. Each sum is a nullable Int.
+    PostgreSQL's SQL is main's; every reader accepts both."""
+    checked, outcome = probe.s03_world(tmp_path, target, probe.S03_FORMS[form], policy)
+    assert checked.verified
+    probe.numeric_readers_accept(outcome)
+    assert outcome.artifact is not None
+    assert outcome.artifact.rendered.sql.decode() == probe.S03_FORM_SQL[form, target]
+    document = json.loads(serialize_project_sql_emission(outcome))
+    assert [column["nullable"] for column in document["columns"]] == (
+        _S03_NULLABLE[form]
+    )

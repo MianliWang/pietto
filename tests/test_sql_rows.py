@@ -1935,7 +1935,8 @@ def test_the_mysql_sum_cell_law_refuses_each_edited_input(tmp_path, edit):
     sums hold the native `group by k` cell and refuse it once one input
     changes: a key that is no non-null Int source field, a SELECT item that
     computes, a sum whose fact is no result fact, or a computed argument;
-    and the sum result law refuses a non-null BIGINT argument."""
+    and the sum result law refuses an INT argument (S03 sums a non-null
+    BIGINT count, so the cell laws, not the result law, pin the carrier)."""
     seen = probe.numeric_law_inputs(tmp_path, probe.NUMERIC_CELLS["s02_grouped"])
     plan, keys = seen["mysql_sum_query"]
     aggregate, argument = seen["mysql_sum_cell"]
@@ -1949,10 +1950,10 @@ def test_the_mysql_sum_cell_law_refuses_each_edited_input(tmp_path, edit):
         )
     else:
         assert grouping.result_realization("mysql", "sum", argument, ("Int", True))[0]
-        nonnull = SimpleNamespace(
-            realization=replace(argument.realization, nullable=False)
+        narrow = SimpleNamespace(
+            realization=replace(argument.realization, storage={"kind": "my_int"})
         )
-        assert grouping.result_realization("mysql", "sum", nonnull, ("Int", True)) == (
+        assert grouping.result_realization("mysql", "sum", narrow, ("Int", True)) == (
             None,
             ("PIE-B1002", "sum_result_logical_type_or_argument_drift"),
         )

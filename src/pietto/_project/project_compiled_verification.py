@@ -4984,6 +4984,14 @@ def _verify_compiled_emission(artifact, request):
         if request.family == "mysql"
         else frozenset()
     )
+    # S03: the MySQL sums and conditional sums in their cells, likewise.
+    mysql_s03 = (
+        rows.mysql_s03_compiled(
+            records, records[plan.ir.completed.root.description.query]
+        )
+        if request.family == "mysql"
+        else frozenset()
+    )
     guarded = records[Address("policy", 0)].get("guarded")
     need(
         type(artifact)
@@ -6192,6 +6200,7 @@ def _verify_compiled_emission(artifact, request):
                                 else column.delimiter,
                                 request.family,
                                 paired=pairing.compiled_form(records) is not None,
+                                mysql_s03=expression in mysql_s03,
                             )
                             is None
                             if function in grouping.FILTERED_FUNCTIONS
@@ -6202,6 +6211,7 @@ def _verify_compiled_emission(artifact, request):
                                 expression in mysql_sums,
                                 cell=expression == spread_cell,
                                 ranked=ranked,
+                                mysql_s03=expression in mysql_s03,
                             )
                             is None
                         ),

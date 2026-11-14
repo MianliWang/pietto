@@ -3081,6 +3081,11 @@ def derive_compiled_semantics(root, values, parameters=None):
         if family == "mysql"
         else (frozenset(), frozenset())
     )
+    mysql_s03 = (
+        physical.mysql_s03_compiled(records, records[root.description.query])
+        if family == "mysql"
+        else frozenset()
+    )
     if len(values) != len(slots):
         raise CompiledError("COMPILED_BINDING_SLOTS")
     replacements = {}
@@ -3481,6 +3486,7 @@ def derive_compiled_semantics(root, values, parameters=None):
                             ),
                             family,
                             paired=pairing.compiled_form(records) is not None,
+                            mysql_s03=ref in mysql_s03,
                         )
                         is not None
                     ):
@@ -3503,6 +3509,7 @@ def derive_compiled_semantics(root, values, parameters=None):
                                 ref in mysql_sums,
                                 cell=ref == spread_cell,
                                 ranked=record.address in ranked,
+                                mysql_s03=ref in mysql_s03,
                             )
                             is not None
                         )
@@ -4491,6 +4498,11 @@ def verify_compiled_semantics(value):
         if family == "mysql"
         else (frozenset(), frozenset())
     )
+    mysql_s03 = (
+        physical.mysql_s03_compiled(records, records[value.root.description.query])
+        if family == "mysql"
+        else frozenset()
+    )
     slots = tuple(r for r in records.values() if r.address.kind == "slot")
     need(
         type(value.values) is tuple and len(slots) == len(value.values),
@@ -4927,6 +4939,7 @@ def verify_compiled_semantics(value):
                             ),
                             family,
                             paired=pairing.compiled_form(records) is not None,
+                            mysql_s03=current in mysql_s03,
                         )
                         is None,
                         "SEMANTIC_AGGREGATE_ARGUMENT",
@@ -4942,6 +4955,7 @@ def verify_compiled_semantics(value):
                             current in mysql_sums,
                             cell=current == spread_cell,
                             ranked=record.address in ranked,
+                            mysql_s03=current in mysql_s03,
                         )
                         is None,
                         "SEMANTIC_AGGREGATE_ARGUMENT",

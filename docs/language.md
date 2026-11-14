@@ -585,7 +585,7 @@ first column give every rule.
 | `variance(x)`, `pvariance(x)`, `pstdev(x)` ([Aggregates](#aggregates-and-grouping)) | `Int` and `Float` (`VAR_SAMP`, `VAR_POP`, `SQRT` of `VAR_POP`) | `Float` (`VAR_SAMP`, `VAR_POP`, `STDDEV_POP`); `Int` refused (PIE-B1000) | `Int` and `Float` | refused: `Int` PIE-B1003, `Float` PIE-B1004, except unreleased `VAR_SAMP`, `VAR_POP`, `STDDEV_POP` in the shape of `stddev` |
 | `median(x)`, `quantile(x, q)` ([Aggregates](#aggregates-and-grouping)) | `Int` and `Float` (`PERCENTILE_CONT ... WITHIN GROUP`) | refused (PIE-B1000) | `Int`; `Float` refused (PIE-B1004) | refused (PIE-B1003) |
 | `first(x, order by k, id)`, `last(...)` ([Aggregates](#aggregates-and-grouping)) | `(ARRAY_AGG(x ORDER BY k ASC, id ASC))[1]`; `last` flips every direction | refused (PIE-B1000) | as a file; the value keeps its carrier; a key orders as a relation ORDER BY key (R19), else PIE-B1003 `first_last_order_key_outside_reviewed_order_domain` | unreleased: `MAX(CASE WHEN <rank> = 1 THEN x END)` over a `ROW_NUMBER()` derived table, only in the qualified forms that [Aggregates](#aggregates-and-grouping) lists; otherwise refused (PIE-B1003 `first_last_not_admitted_on_target`) |
-| `sum(1 for o in group if t)`, `sum(o.f for o in group if t)` ([Aggregates](#aggregates-and-grouping)) | `COUNT(CASE WHEN t THEN 1 END)`; `COALESCE(CAST(SUM(CASE WHEN t THEN CAST(f AS pg_catalog.int8) END) AS pg_catalog.int8), 0)` | count `COUNT(CASE WHEN t THEN 1 END)`; sum refused (PIE-B1000) | as PostgreSQL single file, `schema_version = 2` (PIE-S2334 in a `schema_version = 1` project); no JOIN inputs | refused: count PIE-B1003 outside three paired forms ([unreleased](release-notes.d/77-s10-mysql-group-tests.md)), sum PIE-B1004 |
+| `sum(1 for o in group if t)`, `sum(o.f for o in group if t)` ([Aggregates](#aggregates-and-grouping)) | `COUNT(CASE WHEN t THEN 1 END)`; `COALESCE(CAST(SUM(CASE WHEN t THEN CAST(f AS pg_catalog.int8) END) AS pg_catalog.int8), 0)` | count `COUNT(CASE WHEN t THEN 1 END)`; sum refused (PIE-B1000) | as PostgreSQL single file, `schema_version = 2` (PIE-S2334 in a `schema_version = 1` project); no JOIN inputs | refused: count PIE-B1003 outside three paired forms ([unreleased](release-notes.d/77-s10-mysql-group-tests.md)), sum PIE-B1004, except unreleased: the guarded `SUM` of the S03 conditional sums ([Aggregates](#aggregates-and-grouping)) |
 | `any(t for o in group)`, `all(t for o in group)` ([Aggregates](#aggregates-and-grouping)) | `(COUNT(CASE WHEN t THEN 1 END) > 0)`; `(COUNT(CASE WHEN t THEN NULL ELSE 1 END) = 0)` | as PostgreSQL, an integer 0/1 | as PostgreSQL single file, `schema_version = 2` (PIE-S2334 in a `schema_version = 1` project); no JOIN inputs | refused (PIE-B1003 `group_test_not_admitted_on_target`) outside the same paired forms |
 | `max(a, b)`, `min(a, b)` ([Expressions](#expressions)) | `CASE WHEN` of `<`/`>` and `IS NOT NULL`; `Int`, `Decimal`, `Float`, `Text`, `Date`, `Timestamp`, `UUID`, `Bool` | as PostgreSQL; a `Bool` result arrives as an integer 0, 1 or NULL, as every computed `Bool` does on MySQL | `Int`, `Decimal`, `Float`, `Text`, `Date`, `Timestamp`, `UUID` as their comparison and conditional are; `Bool` refused (PIE-B1003) | as PostgreSQL project, except `Date`, refused (PIE-B1003) |
 | `lpad(s, width, fill)` ([Expressions](#expressions)) | `CASE WHEN length(s) >= width THEN s ELSE lpad(...) END`; a literal width outside the signed 32-bit range refused (PIE-S2385 at check) | `CASE WHEN CHAR_LENGTH(s) >= width THEN s ELSE LPAD(...) END` | emitted for a width proven in the signed 32-bit range; refused otherwise (PIE-B1002, PIE-B1004) | unreleased: only in the qualified SELECT position the `lpad` paragraph of [Expressions](#expressions) gives; refused elsewhere (PIE-B1003) |
@@ -593,7 +593,7 @@ first column give every rule.
 | `now()` ([Expressions](#expressions)) | `(statement_timestamp() AT TIME ZONE 'UTC')`, in SELECT items and WHERE | `UTC_TIMESTAMP(6)`, in SELECT items and WHERE | emitted, compiled and bound as a template | unreleased: also as `date_of(now())`, only in the qualified SELECT position the `now()` paragraph of [Expressions](#expressions) gives; refused elsewhere (PIE-B1003) |
 | Always-null numbers, D-12 ([Expressions](#expressions)) | typed NULL casts | typed NULL casts | `Int` arithmetic with `None`; `Float` and `Decimal` refused | as PostgreSQL |
 | `Float` equality ([Float values](#float-values)) | comparisons and GROUP BY; DISTINCT and set forms are project-only | as PostgreSQL; GROUP BY beside a wide `Text` key may split `-0.0` and `0.0` | comparisons, GROUP BY, DISTINCT, ORDER BY, every set form, window `partition by` and `order by`, `string_agg` order keys and FULL JOIN equalities, also over a window `percent_rank` or `cume_dist` result | comparisons with a literal or header parameter, ordering inequalities, `in` and `not in` (a literal list only when its value or all of its options read no row, a read of a let with `capture` lines only as a SELECT item (unreleased)), `nullif`, relation ORDER BY and UNION ALL; `==`, `!=` and `same_value` of two `Float` fields in the unreleased qualified same-row and JOIN forms, and GROUP BY of one to three keys in the unreleased qualified one-source forms, of [Float values](#float-values); the other forms refused (PIE-B1003) |
-| JOIN aggregates without fan-out ([Aggregates](#aggregates-and-grouping)) | accepted | accepted | accepted | accepted; `sum(Int)` stays PIE-B1004 |
+| JOIN aggregates without fan-out ([Aggregates](#aggregates-and-grouping)) | accepted | accepted | accepted | accepted; `sum(Int)` stays PIE-B1004, except unreleased: the guarded `SUM` of the S03 JOIN and two-level forms ([Aggregates](#aggregates-and-grouping)) |
 | Top-level constants and `--set` ([Top-level constants](#top-level-constants)) | literals; `DATE '...'`, `TIMESTAMP '...'` | as PostgreSQL | refused (PIE-S2392) | refused (PIE-S2392) |
 | Project aggregate arguments ([Aggregates](#aggregates-and-grouping)): `count`/`count_distinct` of `Text`, `Bool`, `Float`, `Decimal`; `min`/`max` of `Float`, `Decimal`; `sum`/`avg` of `Float`; a row expression argument (`sum(qty * 2)`) | emitted (unchanged) | emitted (unchanged) | emitted, also an argument holding a scalar call over JOIN rows (`count(lower(r.label))`); direct `sum(Decimal(p, s))` emits as checked `numeric(p + 19, s)` only for `p + 19 <= 65`; Decimal `avg` and other Decimal sum shapes stay PIE-B1004 | as PostgreSQL, except `count_distinct` of a `Float` (PIE-B1003), `sum`/`avg` of a `Float`, `sum` of a `Decimal`, and `sum` of an `Int` such as `sum(qty * 2)` (PIE-B1004) outside the unreleased sum cell of [Aggregates](#aggregates-and-grouping), and over JOIN rows an argument holding a scalar call (PIE-B1003); an `Int` expression not proved to fit BIGINT is PIE-B1002 first |
 | `count_distinct(a, b, ...)` ([Aggregates](#aggregates-and-grouping)) | `COUNT(DISTINCT CASE WHEN a IS NOT NULL AND b IS NOT NULL THEN ROW(a, b) END)` | `COUNT(DISTINCT a, b)` | as PostgreSQL single file, `schema_version = 2` (PIE-S2334 in a `schema_version = 1` project), also over JOIN rows | refused (PIE-B1003 `count_distinct_tuple_not_admitted_on_target`) |
@@ -4186,6 +4186,42 @@ raises error 1690 (SQLSTATE 22003), never a clamped value; the result is a
 nullable `Int`, NULL for no or only NULL values. A statement still refused
 reports exactly the blockers it has without either cell, a cell's own
 included, so `s = a + b` beside `t = a + 1` keeps both PIE-B1002.
+
+Unreleased (Phase77 S03), MySQL project SQL also emits each `sum` of an
+`Int` of a statement that is, names aside, one of nine forms its
+qualification ran on both databases, the selected definition's SELECT items
+a subset of its form's with one sum at least and T1's or T2's `per_order`
+exactly its form's, each in any order and under any names: over
+a source `orders` (non-null `BIGINT` `id` with a declared unique key, `INT`
+`customer`, nullable `BIGINT` `amount`, non-null `BIGINT` `nn`, nullable
+`Bool` `flag`) and a source `items` (non-null `BIGINT` `id` and `order_id`,
+nullable `BIGINT` `qty`), exactly these fields in this order for J1 to T2,
+whose JOIN carries every field of both, C1 `from orders group by customer` selecting
+`customer` and `sum(o.amount for o in group if o.flag)`, C4 the same over
+`o.nn`, C2 `from orders` selecting `sum(o.amount for o in group if not
+o.flag)` and `sum(o.amount for o in group if o.flag is None)`, C3 `from
+orders` selecting `sum(o.amount for o in group if o.id > L)` for an `Int`
+literal `L` of 0 or more under `preserve_literals` only, J1 `from items`,
+`let o = orders`, `inner join o on o.id == items.order_id`, `group by
+o.customer` selecting `o.customer` and `sum(items.qty)`, J2 `from orders`,
+`let i = items`, `left join i on i.order_id == orders.id`, `group by
+orders.id` selecting `orders.id` and `sum(i.qty)`, J3 as J2 grouped by
+`orders.id, orders.customer` selecting both and `sum(i.qty)`, and the
+two-level route: T1 over `per_order`, J2's JOIN grouped by `orders.id,
+orders.customer, orders.amount` selecting those three and
+`count(i.id)`, grouped by `customer` and selecting `customer`,
+`sum(amount)` and `sum(lines)`, and T2 over J3 grouped by `customer`
+selecting `customer` and `sum(qty)`. Each source and definition is declared
+in the selected module and read by its own name, each read and test written
+plainly: a relation alias, an imported source or definition, a read
+qualified by its source's name in C1 to C4, parentheses, another test,
+`let`, JOIN kind, ON order, key or carrier, WHERE, HAVING, ORDER BY, LIMIT,
+DISTINCT, a header parameter, a third level or another aggregate keeps
+PIE-B1004 `sum_int_aggregate_range_proof_missing`. A `sum` there is S02's
+guarded `SUM`, a nullable `Int`; a conditional sum is `COALESCE(` that
+guard over `CASE WHEN TEST THEN x END`, `, 0)`, a non-null `Int`, 0 when no
+row's test is True. A statement still refused reports exactly the blockers
+it has without these forms.
 PostgreSQL project `sum` of a direct qualified `Decimal(p, s)` field uses
 `CAST(SUM(x) AS pg_catalog.numeric(p + 19, s))` when `p + 19 <= 65` and
 `s <= 30`; an oversized sum raises SQLSTATE 22003. This is a checked result
@@ -4694,7 +4730,8 @@ carry them unchanged. A test that reads no field (`if True`) checks, but
 project SQL refuses it (PIE-B1003 `conditional_test_reads_no_field`). MySQL
 project SQL keeps both BLOCKED: the count with PIE-B1003
 `conditional_count_not_admitted_on_target`, the sum with PIE-B1004
-`sum_int_aggregate_range_proof_missing`, as `sum(Int)`. The test of a group
+`sum_int_aggregate_range_proof_missing`, as `sum(Int)`, except the
+unreleased S03 conditional sums stated above. The test of a group
 is written in project SQL as in a single file, a non-null `pg_bool` with no
 R13 evidence; a test that reads no field (`any(True for o in group)`) is
 PIE-B1003 `group_test_reads_no_field` on both targets, and MySQL project SQL
@@ -4898,7 +4935,9 @@ relations: single files emit it on PostgreSQL and MySQL; an
 EXPLICIT_MODULES project emits, compiles and binds it on PostgreSQL, while
 its MySQL emission blocks each Int `sum` (PIE-B1004
 `sum_int_aggregate_range_proof_missing`), as for any project MySQL Int
-`sum` outside its cell.
+`sum` outside its cell, except the unreleased S03 forms T1 and T2 stated
+above. The style page's example, whose `amount` is non-null, is not T1 and
+stays refused on MySQL.
 
 GROUP BY accepts fields and `let` names that rename fields. Self-join keys
 such as `customers.id` and `peer.id` remain distinct; a bare and qualified

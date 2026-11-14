@@ -2247,6 +2247,17 @@ def resolved_window_integer_result(family, realization, origin, default):
     return {"kind": storage}, {"kind": "int_range", "min": str(low), "max": str(high)}
 
 
+def _mysql_guarded_argument(realization) -> bool:
+    """Independent image of a MySQL guarded SUM's argument: a BIGINT of a
+    source field, a count or a guarded SUM, never per binding; emission's
+    blockers, which verification re-derives first, pin each cell's own."""
+    return (
+        realization.tag == "Int"
+        and realization.storage in ({"kind": "my_bigint"}, {"kind": "my_signed_int"})
+        and not realization.binding
+    )
+
+
 def _aggregate_result_realization(family, function, argument, retained):
     """Independently re-derive one aggregate result's own physical realization."""
     tag, nullable = retained
@@ -2303,12 +2314,18 @@ def _aggregate_result_realization(family, function, argument, retained):
         )
     if function in grouping.FILTERED_FUNCTIONS:
         # A conditional count, the target's own (on MySQL as its argument law
-        # admits it), or a PostgreSQL conditional sum narrowed by its checked
-        # CAST: never NULL, 0 when no row matches.
+        # admits it), or a conditional sum narrowed by its checked CAST (on
+        # MySQL, S03's guarded SUM of a BIGINT): never NULL, 0 when no row
+        # matches.
         if (
             family not in grouping.COUNT_STORAGE
             or family == "mysql"
             and function != "filtered_count"
+            and not (
+                function == "filtered_sum"
+                and argument is not None
+                and _mysql_guarded_argument(argument.realization)
+            )
             or tag != "Int"
             or nullable is not False
         ):
@@ -2320,7 +2337,11 @@ def _aggregate_result_realization(family, function, argument, retained):
         )
         return rows.Realization(
             "Int",
-            {"kind": grouping.COUNT_STORAGE[family]},
+            {
+                "kind": "my_signed_int"
+                if family == "mysql" and function == "filtered_sum"
+                else grouping.COUNT_STORAGE[family]
+            },
             False,
             {"kind": "int_range", "min": str(low), "max": str(high)},
             (low, high),
@@ -2365,10 +2386,8 @@ def _aggregate_result_realization(family, function, argument, retained):
             or nullable is not True
             or family != "postgres"
             and not (
-                # S02: the guarded SUM over a nullable BIGINT field.
-                family == "mysql"
-                and argument.realization.storage == {"kind": "my_bigint"}
-                and argument.realization.nullable is True
+                # S02, S03: the guarded SUM of a BIGINT.
+                family == "mysql" and _mysql_guarded_argument(argument.realization)
             )
         ):
             raise ValueError("sum result domain")
@@ -2685,19 +2704,23 @@ def _verify_aggregate_body(
                     argument if column.delimiter is None else column.delimiter,
                     request.family,
                     paired=pairing.project_form(request) is not None,
+                    # S03: emission's blockers, which verification re-derives
+                    # first, leave a MySQL conditional sum only in its cell.
+                    mysql_s03=request.family == "mysql",
                 )
                 if function in grouping.FILTERED_FUNCTIONS
                 else grouping.argument_problem(
                     function,
                     argument,
                     request.family,
-                    # S02: emission's blockers, which verification re-derives
-                    # first, leave a MySQL sum(Int) only in its cell.
+                    # S02, S03: emission's blockers, which verification
+                    # re-derives first, leave a MySQL sum(Int) only in its cell.
                     request.family == "mysql" and function == "sum",
                     cell=request.family == "mysql"
                     and function in grouping.SPREAD_FUNCTIONS
                     and grouping.mysql_spread_cell(request.plan, value, argument),
                     ranked=ranked,
+                    mysql_s03=request.family == "mysql" and function == "sum",
                 )
             ) is not None:
                 raise ValueError("aggregate argument outside its admitted domain")
@@ -8604,6 +8627,40 @@ def verify_row_bytes(query, rendered):
                 take("syntax", "aggregate_guard_close", reference, ") AS SIGNED) END")
                 spans.append(("aggregate", reference, start, offset))
                 return
+            if query.request.family == "mysql" and column.function == "filtered_sum":
+                # S03: COALESCE(the guarded SUM of CASE WHEN test THEN x END, 0).
+                if (
+                    column.distinct
+                    or column.order_by
+                    or column.delimiter is None
+                    or column.argument_cast
+                    or column.result_cast
+                ):
+                    raise ValueError("MySQL conditional sum shape")
+                take("syntax", "aggregate_zero_open", reference, "COALESCE(")
+                for role, text in (
+                    ("aggregate_guard_open", "CASE WHEN SUM("),
+                    (
+                        "aggregate_guard_high",
+                        ") > 9223372036854775807 THEN CAST(9223372036854775807 AS"
+                        " SIGNED) + CAST(1 AS SIGNED) WHEN SUM(",
+                    ),
+                    (
+                        "aggregate_guard_low",
+                        ") < -9223372036854775808 THEN CAST(-9223372036854775808"
+                        " AS SIGNED) - CAST(1 AS SIGNED) ELSE CAST(SUM(",
+                    ),
+                ):
+                    take("syntax", role, reference, text)
+                    take("syntax", "aggregate_filter_open", reference, "CASE WHEN ")
+                    scalar(column.delimiter, alias)
+                    take("syntax", "aggregate_filter_then", reference, " THEN ")
+                    scalar(column.argument, alias)
+                    take("syntax", "aggregate_filter_close", reference, " END")
+                take("syntax", "aggregate_guard_close", reference, ") AS SIGNED) END")
+                take("syntax", "aggregate_zero_close", reference, ", 0)")
+                spans.append(("aggregate", reference, start, offset))
+                return
             if column.function in grouping.GROUP_TEST_FUNCTIONS:
                 take("syntax", "aggregate_test_open", reference, "(")
             root = grouping.rooted(query.request.family, column.function)
@@ -9980,7 +10037,7 @@ def verify_row_generated_requirements(request, query, generated):
                         and argument_tag == "Float"
                         else (TARGET_CHECKED,)
                         if request.family == "mysql"
-                        and column.function == "sum"
+                        and column.function in {"sum", "filtered_sum"}
                         and argument_tag == "Int"
                         else ()
                         if request.family != "postgres"
