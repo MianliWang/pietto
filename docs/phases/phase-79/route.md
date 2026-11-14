@@ -399,6 +399,30 @@ write sets, rulings and midpoint record of this route name the commits of
 S03 `51c93d91` is `134a566b`, S04 `5f923e19` is `57ba2d79` and S07
 `aacb6dab` is `471e4915`. Phase80's commits are mapped in its route.
 
+**S06 run and seal (2026-11-14).** The run dispatch came after the
+batch Gate 2 of a tree holding `cf460bda` and PK had passed
+(16:31:26Z to 16:42:21Z), so PK stood sealed for U2 and U3 (the lead's
+ruling that PK seals with the batch Gate 2). The lane was rebound to
+`cf460bda` without a v6: the frozen files, the specification digest,
+the decisions, the pins and the locked closure were unchanged, and an
+offline review found the compiled shapes and refusals of the cell path
+the same on `97156c76` and `cf460bda`. Attempt `s06-20261114T164751Z`
+ran preregistration v5 (sha256 `c54db430…`, `FROZEN.sha256`
+`c2163a86…`) from 16:48:40Z to 16:54:03Z, in process with no Docker and
+no engine lock, and the checker judged U0, U1, U2 and U3 each ACCEPTED
+on its first attempt, with no void and no rerun. U1 to U3 ran all 18
+cells; U0 ran C01, C02a and C15 and recorded a skip line for each of the
+other 15. U2 and U3 installed the wheel built from `cf460bda` (sha256
+`6faff95a…` on both interpreters) offline with the locked closure, and
+that install's package smoke first ran S07's real `duckdb_arrow` query.
+S06 is sealed as a fresh commit on `cf460bda`: v5's four helpers byte
+for byte, which widen the row's write set as v5 asked the lead to
+confirm, the harness self-test, and runner-acceptance row 10 with its
+`development.md` section. `tests/test_execution_api_duckdb_arrow.py`
+gains no cell, because the native cells are the probe's. The run's
+records are owner-held working records outside Git on the integration
+host.
+
 ## Budget, midpoint and stops
 
 The cumulative ceiling is `C240/F720/D8200/S8`: `C120/F360/D4100/S4`,

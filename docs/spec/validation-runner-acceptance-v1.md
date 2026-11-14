@@ -190,6 +190,7 @@ because rows 0 and 0b are not satisfied.
 | 7 | Package, Arrow and installed consumers | The build backend and the locked dependency wheels, the pinned pyarrow included, from the package index or, on a runner without network, from an offline cache or wheelhouse | Satisfied | Not planned | — |
 | 8 | Steps that need GitHub credentials or network | Authorized GitHub credentials and network access | Satisfied | Not satisfied: holds no credentials (R10); compute nodes have no network (observed 2026-10-09T03:29Z) | — |
 | 9 | SQLite single-file native qualification | Linux; the interpreter that runs pytest links the exact SQLite build of D78.03, release `3.53.1` with its source id and compile options together; in process on `:memory:`, with no storage, Docker or network premise | Satisfied: CPython 3.13.13 links that build (observed 2026-11-10 by Phase78 Q0 and the S03 cells) | Not observed | — |
+| 10 | DuckDB in-process native qualification | Linux x86-64 with glibc 2.28 or later; CPython 3.13.13 or 3.12.13 with the locked `[arrow,execute-duckdb]` closure, `duckdb` `2.0.0` and `pyarrow` `26.0.1` from the hashed allowlist; in process, with no storage, Docker, engine lock or network premise | Satisfied: CPython 3.13.13 and 3.12.13 with the installed wheel and that closure (observed 2026-11-14 by the Phase79 S06 units) | Not observed | — |
 
 The observed storage profile decides row 3; a declared storage environment
 class never satisfies it. The authoritative validator declares the `qualified`
@@ -219,6 +220,15 @@ pytest gate, so a Gate 2 validation never passes on a runner that does not
 satisfy row 9 and never counts its native cells as skips;
 [Development](../development.md#sqlite-target-validation) owns the class and
 its declaration.
+
+The observed installation decides row 10: each unit records its interpreter
+and the installed `duckdb` and `pyarrow` distributions with their files
+before its first cell, and rows 3, 4 and 9 are not borrowed. Row 10 is not a
+pytest gate. Its matrix is a preregistered run whose verdicts come only from
+saved outputs; they stand for the frozen helpers, the specification and the
+pins that the run bound, and a change to any of them needs a new
+preregistration and a new run.
+[Development](../development.md#duckdb-native-qualification) owns the method.
 
 Within a Gate 2 validation, native campaigns and installed consumers (rows 4
 and 7) are produced and adopted only where their premises hold; as of

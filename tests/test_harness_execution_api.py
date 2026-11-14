@@ -28,11 +28,45 @@ import pytest
 import _pietto_execution_api as api
 import _pietto_execution_api_check as check
 import _pietto_execution_api_probe as probe
+import _pietto_execution_duckdb_native_check as duckdb_native_check
 import _pietto_execution_joint_acceptance as joint
 import _pietto_execution_joint_acceptance_check as joint_check
 import _pietto_execution_rows_probe as rows_probe
 
 ROOT = Path(__file__).resolve().parents[1]
+DUCKDB_ORACLE = (
+    "import sys; sys.path.insert(0, sys.argv[1]);"
+    "import _pietto_execution_duckdb_native_oracle as oracle; oracle.main(sys.argv[2:])"
+)
+
+
+def test_the_duckdb_native_checker_accepts_honest_units_and_refuses_each_fabricated_shape(
+    tmp_path,
+):
+    """The Phase79 S06 checker before any native output is read: the oracle,
+    in a fresh interpreter with no DuckDB loaded, writes the expected values;
+    each unit's honest literal report is ACCEPTED and every fabricated shape
+    of the preregistration gets its refusal, VOID or DEGRADED instead."""
+    target = tmp_path / "expected.json"
+    result = subprocess.run(
+        [
+            sys.executable,
+            "-I",
+            "-B",
+            "-c",
+            DUCKDB_ORACLE,
+            str(ROOT / "tests"),
+            str(target),
+        ],
+        capture_output=True,
+        text=True,
+        timeout=300,
+    )
+    assert result.returncode == 0, result.stderr
+    expected = json.loads(target.read_text(encoding="utf-8"))
+    verdicts = duckdb_native_check.self_test(expected)
+    accepted = [name for name, verdict in verdicts if verdict["verdict"] == "ACCEPTED"]
+    assert accepted == [f"honest {unit}" for unit in expected["units"]]
 
 
 def test_mysql_consumer_checker_accepts_its_literal_facts_and_refuses_damage():

@@ -371,6 +371,43 @@ changed entries run again under a reviewed preregistration delta and
 D78.08's conditions, and a reviewed edit replaces only those entries and
 the source block; every unchanged entry keeps its saved rows.
 
+## DuckDB native qualification
+
+The [DuckDB Arrow route](spec/duckdb-arrow-route-v1.md) is qualified in
+process (D79.07) by a matrix preregistered and frozen before any cell ran.
+`tests/_pietto_execution_duckdb_native_cases.py` names its fixtures and
+cells: dependency identity, the request checks, the capture's caps, types
+and values, every comparison operator, caller mutation after the call, the
+read-back of each session setting, close, cancellation, deadline and setup
+failure, the absence of any extension, file or network effect, and result
+labels and multiplicity. `_pietto_execution_duckdb_native_oracle.py`
+writes the expected values without DuckDB or PyArrow.
+`_pietto_execution_duckdb_native_probe.py unit` runs one installation unit:
+U0 without the extra, which runs only the refusals and records a skip line
+for every other cell; U1 the tree's code with the pinned `duckdb` and
+`pyarrow`; U2 and U3 the wheel built from the tree, installed with the
+locked `[arrow,execute-duckdb]` closure by `scripts/package_smoke.py
+--extra-env`, on CPython 3.13.13 and 3.12.13. A unit records its runtime
+and package identity, checks the frozen copies and the specification
+digest, runs the checker's self-test and regenerates the oracle, then runs
+each cell in a fresh `-I -B` interpreter, the no-effect cell in a network
+namespace with empty `HOME`, `TMPDIR` and working directory.
+`_pietto_execution_duckdb_native_check.py` judges only the saved outputs:
+ACCEPTED, DEGRADED, the first law that refused, or VOID, which keeps every
+output; a void or failed attempt is never rerun under its run id. No
+Docker, engine lock or network access is used.
+
+On every runner, `tests/test_harness_execution_api.py` regenerates the
+oracle in a fresh interpreter with no DuckDB and requires the checker to
+accept each unit's honest report and refuse every fabricated shape. The
+four helpers are the bytes the accepted run froze: a change to one of them,
+to the specification or to a pin needs a new preregistration and a new
+run. The route's pytest owner `tests/test_execution_api_duckdb_arrow.py`
+skips its cells that need PyArrow or the pinned `duckdb` without the extra,
+and natural CI's arrow-ready cell runs one real `duckdb_arrow` query.
+[Validation runner acceptance](spec/validation-runner-acceptance-v1.md)
+row 10 states where the premise holds.
+
 ## Explicit target conformance
 
 After the Phase66 Slice2 infrastructure publication, applicable acceptance needs
