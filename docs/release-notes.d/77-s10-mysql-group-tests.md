@@ -69,8 +69,7 @@ query result:
   conditional count or test of a group, also of one whose records are a
   form's but whose SQL is not. R2 `save_recoverable` and `recover` refuse a
   paired query with PIE-R1004 `PUBLIC_R2_PAIRED_FORM`, as for the `Text`
-  defaults of `lag` and `lead`. The pure emission reader still refuses every
-  MySQL conditional count and test of a group.
+  defaults of `lag` and `lead`.
 - The native qualification passed on 2026-11-13: in one run of each half of
   the pack, PostgreSQL 18.6 and MySQL 8.4.12, the three forms over rows and
   the two over an empty table matched the expected rows on both databases,
