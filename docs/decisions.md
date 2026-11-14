@@ -1449,3 +1449,27 @@ their text.
 | Decision | Selected direction | Boundary |
 | --- | --- | --- |
 | D79.16 `duckdb.arrow` and the extension sync (lead) | The lead rules under D76.12 that `duckdb.arrow` is no built-in catalog change, so DuckDB B1 needs no extension sync, as Phase78 read `sqlite.table` (its acceptance item 16). The extension's language-sync test reads the keywords of `grammar/Pietto.g4`, the built-in names of `src/pietto/semantic/catalog.py`, `aggregates.py` and `window_semantics.py`, and the `pietto` blocks of `README.md`, `docs/language.md`, `docs/style.md`, `docs/worked-example.md` and every `examples/**/*.pietto` file. From `v0.1.12` to the head of the first `0.2.0` push, none of those files changes except `README.md` and `docs/language.md`, outside their blocks: the 2, 34, 30 and 4 `pietto` blocks of the four documents are the same. The connector is named in `src/pietto/semantic/source_connectors.py`, which is no sync input, and the extension's grammar names no connector. | It settles the Phase79 route's deferral and the specification's open item, whose text the first documentation commit after this batch publishes updates. No extension patch, push or tag is needed or authorized, and `0.2.0` carries no extension (PL.31). Each push's head is checked again before it is pushed. Not taken: an extension sync for a connector name that no sync input holds. |
+
+## Phase77–80 — the lead's rulings for the second `0.2.0` push (2026-11-14)
+
+The first `0.2.0` push (PL.31, PL.32) was fast-forward published on
+2026-11-14 at 21:54:54Z, ending at
+`94b4097a5ec3e1fa5936e352d5b63bf84ec4d688`. These rows record the lead's
+rulings for the second push, which follows that push's natural CI. Each is
+the lead's, not an owner answer; the questions and the lead's records are
+working records outside Git, so each row states the facts it rests on. A
+row revises an earlier row only where it says so, and the earlier rows keep
+their text.
+
+### Shared by Phase77, the four packages and the extension lane
+
+| Decision | Selected direction | Boundary |
+| --- | --- | --- |
+| PL.35 What the second `0.2.0` push carries | Lead, 2026-11-14, under PL.31, which listed the second push as Phase80 IB2, the rest of Phase79's closeout record and the `0.2.0` release commit. The push also carries the repair that makes `to_pandas` refuse every repeated field label (D80.09), as part of finishing Phase80, and these rows. In order: Phase80 IB2, the completion audit, with the `AGENTS.md` alpha list of PL.34; the D80.08 repair; the first documentation commit after the first push, which records that push in the Phase78 and Phase79 records and updates the DuckDB Arrow route specification; these rows; and the `0.2.0` release commit (PL.36). Each is one commit, and the batch has one Gate 2, one batch audit and one natural CI on its head. | It adds to PL.31's list, which keeps its text; the gates of PL.31 stay. The repair reaches `main` before the tag `v0.2.0`, so `0.2.0` ships it. Not on `0.2.0`: the pure fidelity repair and the MySQL `Float` `same_value` in a JOIN `on` (D77.77), whose candidates wait for the owner's next direction (PL.31). |
+| PL.36 The `0.2.0` release commit | Lead, 2026-11-14, under PL.31: the release commit follows the other commits of the second push (PL.35), changes only version owners and documentation, and publishes with them as one batch. The version moves to `0.2.0`; the release-note fragments become the `0.2.0` section, titled `SQLite, DuckDB and Python interop public alpha release notes — 0.2.0`, which lists the breaking changes against `0.1.12` first with a pin to `0.1.12`, then its highlights, upgrading steps and known limitations, which list the MySQL forms beyond the cadence and the MySQL refusals (D76.09); and every README link to a repository file points at the tag `v0.2.0`, which the post-release documentation commit moves back to `main`. `0.2.0` carries DuckDB B1 only (PL.33), and its release notes name no Pietto extension for VS Code as accepted with `0.2.0`. | It revises no row. The release commit publishes nothing: `0.2.0` is published only when tag `v0.2.0`, the GitHub pre-release and PyPI carry its accepted wheel and sdist, and the tag and the uploads follow PL.31's gates. |
+
+### Phase80 interoperability
+
+| Decision | Selected direction | Boundary |
+| --- | --- | --- |
+| D80.09 Where D80.08's checks run (lead) | Lead, 2026-11-14. D80.08 stands as the owner decided it, and the code deviated: IB1's `to_pandas` refused a repeated field label only when the dtype check saw a changed type, so repeated labels of one type passed. The repair in the second `0.2.0` push (PL.35) refuses every repeated field label. D80.08's sentence "Both checks run after the conversion" now reads: the repeated-label refusal is an admission check, after the field types and before the pandas import, and the dtype refusal runs after the conversion. | It revises only that sentence of D80.08, which keeps its text; the two refusals, their `ValueError` family under D80.04, the absence of a new PIE code and the options not taken stand. The label check cannot run after the conversion: PyArrow itself fails on some repeats during it, such as a `Text` field then an `Int` field of the same label, and D80.04 leaves such failures unwrapped. The route's error order (`ValueError`, then `ModuleNotFoundError`, then the conversion) is unchanged. |

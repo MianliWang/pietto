@@ -3,7 +3,7 @@
 Phase80 adds `pietto.interop`: one-batch adapters to pandas, Polars, NumPy,
 SciPy and Matplotlib, their five extras and the guide
 [Python interoperability](../../interop.md), under its [route](route.md),
-D80.01–D80.08 and the shared PL rows of the
+D80.01–D80.09 and the shared PL rows of the
 [decision record](../../decisions.md#phase7880-and-editor-core-gate-1--owner-decisions-2026-11-10).
 This audit is S06. It checks the route's closure conditions, records the
 freeze-ledger inputs and the acquisition review, and ends with the handoff.
@@ -16,7 +16,7 @@ lifecycle authority, and the surface stays alpha until the
 | Step | Fact |
 | --- | --- |
 | Gate 0 | `main` at `ab972f362c433b234a74f542c5d274d22c8cdeae` (tree `821be1ccf7bb6f3e14b8d00d80f1f30d3cc087fe`), the published D77.04 head; natural exact-head CI `42831340276`, push/main attempt 1, passed all 21 jobs. The route left the read of that CI's eligible health and alerts and the re-measured Phase77 overlap to the first implementation batch; neither is recorded (see open items). |
-| Gate 1 | The owner approved the route on 2026-11-10 with the decision sheet's recommended answers: D80.01–D80.07, AD80.01 and PL.01–PL.06. Later rows: D80.08 (the two pandas refusals; the D80.02 wording stands), PL.09 (every ledger doubled), PL.10 (the one networked lock and the downloads the work needs), PL.13 (b) (the Phase80 batches after the `0.1.11` release commit are pushed without a new request), PL.15 (ledger auto-raise) and PL.17 (the pytest start condition). |
+| Gate 1 | The owner approved the route on 2026-11-10 with the decision sheet's recommended answers: D80.01–D80.07, AD80.01 and PL.01–PL.06. Later rows: D80.08 (the two pandas refusals; the D80.02 wording stands), D80.09 (where D80.08's checks run), PL.09 (every ledger doubled), PL.10 (the one networked lock and the downloads the work needs), PL.13 (b) (the Phase80 batches after the `0.1.11` release commit are pushed without a new request), PL.15 (ledger auto-raise) and PL.17 (the pytest start condition). |
 | P0b | The PyPI fetch and isolated install probe of PL.05 ran at 2026-11-10T11:32:46Z. The remaining cells ran offline in the probe's venv on CPython 3.13.13 at 2026-11-10T14:35Z; their results are in the P0b section below. |
 | Integration | After the `0.1.11` publication (PL.26) the PK, Phase79, Phase80 and Phase78 lanes were replayed in that order onto `main` at `a015afcf710aaa63b9aeb4b39e31ea0a1cb793b5` (tree `248d74f983d2a3f8b0d913e4fb679d6d17d180a3`) as a candidate of 14 commits, ending at `97156c76d49346af551718651faa3acc72dbfc40` (tree `dada3025e8373d6a40b48282632f68b3ed7035ed`), on which this audit was drafted. On 2026-11-13 Phase79 S07, after PK-80, and the Phase78 closeout (its S04), at the end, joined the chain, which became `85577f75` (tree `8c4b45934c4a9f00d650abe121c34c65b6e44c93`), 16 commits. After the `0.1.12` publication (PL.29) those 16 were replayed in their order onto `main` at `ab594829d0a6a97a3ca85becbdb5fd3e197be1b3` (tree `6685721d32e20beca217784b7679ce062cf2f85d`), each fragment in the commit of the slice that carries it, and Phase79's midpoint record, Phase79 S04's result-reader wiring (D77.83) and the Phase77 follow-up package (D77.80) went above them. With Phase79 S06 and S08, which complete DuckDB B1, that chain is the Phase78–80 integration batch: 23 commits on `ab594829`, fast-forward pushed together under PL.31 on 2026-11-14 at 21:54:54Z, ending at `94b4097a5ec3e1fa5936e352d5b63bf84ec4d688` (tree `58f5e2810fe016c63def144a8eec81e1389c6248`). AD78.02 lets Phase78 B1 publish only once all of DuckDB B1 has published or lies below it; PL.32 records, before the push, the order in which the batch meets that rule: S06 and S08 on top and one fast-forward push. |
 | IB1 | Phase80's commits in that batch: PK `0dd333e4` (the five extras, their hash allowlist, the lock and the installed cells, shared with Phase79 S05), S01 `3933b756`, S02 `b5e9a0f7`, S03 `7f9c8d01`, S04 `af43f81f`, S05 `e1067b22` and PK-80 `2a18113e` (the CI consumer steps and the wheel file list). The six Phase80 release-note fragments came with them into `docs/release-notes.d/`, for the `0.2.0` assembly. Gate 2: the Python 3.13 run on the batch's exact tree passed 30,779 tests with 65 skips (20 workers), its package smoke passed and the DuckDB extra start passed 92 tests; the batch audit's one real bug, the owner-answer times of PL.30–PL.32, was fixed before that Gate 2, with no real bug left. Natural exact-head CI: [`43645308189`](https://github.com/MianliWang/pietto/actions/runs/43645308189), push/main attempt 1, passed all 21 jobs. |
@@ -101,8 +101,8 @@ gave on 2026-11-14 (PL.31).
   no artist on the Axes. `to_pandas` also refuses a repeated field label at
   admission, whatever the fields' types, and after the conversion an index
   other than a `RangeIndex` of the row count and a column dtype other than
-  its mapping (D80.08; see open items). The package imports none of PyArrow,
-  its targets or `pietto.execution` at import (AD80.01).
+  its mapping (D80.08, D80.09; see open items). The package imports none of
+  PyArrow, its targets or `pietto.execution` at import (AD80.01).
 - **Packaging (PK-80).** `interop-pandas` (`pandas==3.1.1`),
   `interop-polars` (`polars==2.1.0`), `interop-numpy` (`numpy==2.5.4`),
   `interop-scipy` (`scipy==1.18.1`) and `interop-matplotlib`
@@ -317,11 +317,11 @@ the DuckDB extra start (21:53:36Z to 21:53:48Z) followed it.
 - **D80.08 and repeated labels.** Closed. D80.08 says `to_pandas` refuses
   duplicate field labels, but IB1's code refused them only when the dtype
   check saw a changed type, so repeated labels of one type passed. The lead
-  ruled that D80.08 stands and the code deviated, and the commit after this
-  audit in the same push refuses every repeated label at admission, before
-  the pandas import, with no new PIE code. That check runs before the
-  conversion, since PyArrow itself fails on some repeats during it; the
-  dtype check still runs after the conversion.
+  ruled that D80.08 stands and the code deviated (D80.09), and the commit
+  after this audit in the same push refuses every repeated label at
+  admission, before the pandas import, with no new PIE code. That check
+  runs before the conversion, since PyArrow itself fails on some repeats
+  during it; the dtype check still runs after the conversion.
 - **Deferred candidates.** D80.06 gives them to a later Phase80 Gate 1;
   this audit closes Phase80, so the owner decides who takes them.
 
