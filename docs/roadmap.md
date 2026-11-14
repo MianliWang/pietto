@@ -14,7 +14,7 @@ under `docs/phases/`, the [release notes](release-notes.md) describe every
 release, and Git history keeps the earlier text of this roadmap. The
 [Phase77 completion audit](phases/phase-77/completion-audit.md) records its
 delivered scope and next-phase handoff; Git and natural CI own its
-publication. D77.01–D77.75 and AD77.01–AD77.03 remain in the
+publication. D77.01–D77.83 and AD77.01–AD77.03 remain in the
 [decision record](decisions.md), and the open items that reach beyond
 Phase77 are written into the sections below.
 
@@ -103,8 +103,7 @@ gives each with its source.
 Phase76 and the repairs ready at its cut, and Phase77's remaining slices
 continue into `0.1.12` (PL.21) with two new slices, `now()` as an output
 column (D77.42) and `now()` in `relay_live` and R2 (D77.43, D77.49); `0.1.11` was published on 2026-11-13
-(PL.26), and `0.1.12` is published only when its tag, GitHub pre-release and
-PyPI carry the accepted files, under PL.27's gates. Phase78–80 ship as
+(PL.26), and `0.1.12` was published on 2026-11-14 (PL.29). Phase78–80 ship as
 `0.2.0` once its gate below is met; Phase81 uses `0.2.x`, Phase82 uses
 `1.0.0rc1` and Phase83 uses `1.0`. The extension follows its own version line.
 
@@ -138,13 +137,19 @@ deterministic diagnostic. Semantics and IR stay dialect-neutral, a form opens
 on MySQL only after a passing two-database run (D74.09), and the capability
 page and the release notes list what MySQL refuses. Project `sum(Int)`
 (J12, D76.10) is an approved exception with the target Phase77, which
-opened it only in the S01 and S03 forms. Its other forms take the
-fail-closed default (D77.16): they stay refused, each release lists them
-under J12 (3) as not yet met, and their target is an owner question in the
-D77.07 packet, with no new target phase until the owner answers.
+opened it only in the S01 and S03 forms. Its other forms stay refused, and
+each release lists them under J12 (3) as not yet met, until a MySQL
+catch-up phase after Phase80 opens them form by form, extending S01's
+guarded SUM, each with its own two-database qualification (D77.76). That
+phase also takes C04's E4, MySQL `Float` `+`, `-`, `*` and sign on fields,
+as a candidate experiment that opens a form only where its finite results
+match and its overflow fails on both databases (D77.78). The catch-up phase
+has no row in the table above yet; its Gate 1 sets its number, its place
+among the phases and its version line.
 `stddev` of an `Int` (J12, D76.10) is one with no target phase (D77.34), and
 MySQL nested results (D71.05) one with the target of the separate later
-nested work package (D77.32). Each release request lists the MySQL forms
+nested work package (D77.32). The MySQL `UUID` header parameter stays
+withdrawn, with no target (D77.79). Each release request lists the MySQL forms
 beyond the cadence (D76.09).
 
 ### Editor work package
@@ -246,8 +251,8 @@ before its owner's Gate 1 takes it.
 | Conversions other than `Float(value)` and `Text(value)` of an `Int` | their later owner; unscheduled |
 | The header rule and its tokens in the grammar | Phase76 retained them under the `migrate` and per-line PIE-P1000 byte-compatibility fallback; removal belongs to the Phase82 freeze (D76.12) |
 | SQL-to-Pietto conversion | the tentative candidate 105 below |
-| MySQL `same_value` of `Float` values in a JOIN `on` (D77.52 O7); `Float` arithmetic and sign on fields (E4); a MySQL `UUID` header parameter (D77.57) | the owner, in the D77.07 packet; each keeps its refusal with no target until answered (D77.16, D77.29) |
-| A public reason for an R2 job that fails at its first page with `terminal` `FAILED` | the owner; unchanged until answered (D77.66, D77.67) |
+| MySQL `same_value` of `Float` values in a JOIN `on` (D77.52 O7) | a narrow candidate experiment on S06's `<=>` facility in a small Phase77 follow-up package; it opens only the cells where both databases match and checks `-0.0` and `NULL` sides, and the form keeps its refusal until a run passes (D77.77) |
+| The other MySQL project `sum(Int)` forms; MySQL `Float` arithmetic and sign on fields (C04 E4) | the MySQL catch-up phase after Phase80, form by form with its own qualification (D77.76, D77.78; see [MySQL cadence](#mysql-cadence)) |
 | `verify_project_sql_plan` runs without a memo, 4 to 29 times per case | `_project/project_sql_plan_verification.py` and its emission callers, at the latest the phase-end consolidation of the next phase that changes project SQL emission; a memo needs the owner ([Phase77 S26](phases/phase-77/route.md#s26-closure-record)) |
 | A project root configured through a symbolic link, which `pietto lsp` misreads for a file opened under the real path (audit finding 14) | authorized under PL.18's terms (PL.23) and not delivered; the language server's owner, with no batch yet |
 
