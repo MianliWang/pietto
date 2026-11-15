@@ -1276,15 +1276,7 @@ def test_a_project_keeps_the_reads_a_shape_field_admits(
             "        select:\n            customer_id\n"
             "    from customers\n    let o = ords\n    cross join o\n"
             "    select:\n        i = customers.id\n",
-            [
-                ("PIE-S2105", _NUMERIC.format("+", "s"), 15, 15),
-                (
-                    "PIE-S2333",
-                    "Project relation semantic completion is unavailable: q",
-                    11,
-                    1,
-                ),
-            ],
+            [("PIE-S2105", _NUMERIC.format("+", "s"), 15, 15)],
         ),
         (
             "    let ords:\n        capture customers\n        from orders\n"

@@ -265,8 +265,47 @@ def test_lets_may_be_read_repeatedly_and_before_they_are_declared(
     assert _check(tmp_path / "deep", _chain(16)) == (0, [])
 
 
+OUTPUT_ORDER = (
+    "Unknown field: out; this project relation cannot order by a SELECT output "
+    "yet (restate its expression, or bind it with `let` and order by that name)"
+)
 # Every let read error in full: one diagnostic per problem and no cascade.
 READ_ERRORS = {
+    # A JOIN reads a let as a relation the project completes, which cannot
+    # order by a SELECT output yet; a let that another let reads first can.
+    "joined_output_order": (
+        "query q:\n    let m:\n        from rhs\n        select:\n"
+        "            out = id\n        order by:\n            out desc\n"
+        "    from lhs\n    cross join m\n    select:\n        a = lhs.id\n",
+        [("PIE-S2102", OUTPUT_ORDER, 12, 13)],
+    ),
+    # The JOIN keeps its own errors beside the let's.
+    "joined_output_order_on_error": (
+        "query q:\n    let m:\n        from rhs\n        select:\n"
+        "            out = id\n        order by:\n            out desc\n"
+        "    from lhs\n    inner join m on lhs.id == m.nosuch\n"
+        "    select:\n        a = lhs.id\n",
+        [
+            ("PIE-S2102", OUTPUT_ORDER, 12, 13),
+            ("PIE-S2335", "JOIN ON reference is unknown: m.nosuch", 14, 31),
+        ],
+    ),
+    "joined_where_error_on_error": (
+        "query q:\n    let m:\n        from rhs\n        where id + 'a' > 0\n"
+        "        select:\n            out = id\n"
+        "    from lhs\n    inner join m on lhs.id == m.nosuch\n"
+        "    select:\n        a = lhs.id\n",
+        [
+            (
+                "PIE-S2105",
+                "Invalid operands for operator +: expected numeric operands; use "
+                "`concat(...)` with `Text(n)` to join Text values",
+                9,
+                15,
+            ),
+            ("PIE-S2335", "JOIN ON reference is unknown: m.nosuch", 13, 31),
+        ],
+    ),
     "unread": (
         "query q:\n"
         + _let("a", "lhs")
@@ -346,6 +385,17 @@ READ_ERRORS = {
 def test_let_read_errors(tmp_path: Path, case: str) -> None:
     body, expected = READ_ERRORS[case]
     assert _check(tmp_path, body) == (1, expected)
+
+
+def test_a_let_that_another_let_reads_may_order_by_its_output(
+    tmp_path: Path,
+) -> None:
+    body = READ_ERRORS["joined_output_order"][0].replace(
+        "    from lhs\n    cross join m\n",
+        "    let n:\n        from m\n        select:\n            out\n"
+        "    from lhs\n    cross join n\n",
+    )
+    assert _check(tmp_path, body) == (0, [])
 
 
 def test_an_unread_let_keeps_its_own_static_checks(tmp_path: Path) -> None:
@@ -1098,14 +1148,6 @@ CAPTURE_DIAGNOSTICS = {
                 17,
                 26,
             ),
-            # A JOIN of a let with an error leaves its body incomplete, as for
-            # any let JOIN input.
-            (
-                "PIE-S2333",
-                "Project relation semantic completion is unavailable: q",
-                13,
-                1,
-            ),
         ],
     ),
 }
@@ -1276,12 +1318,6 @@ SCALAR_POSITION = (
 IN_POSITION = (
     "IN relation reference is available only in WHERE and in the SELECT of an "
     "ungrouped query, not in {}."
-)
-UNAVAILABLE = (
-    "PIE-S2333",
-    "Project relation semantic completion is unavailable: q",
-    6,
-    1,
 )
 GROUPED = "    group by:\n        key\n    select:\n        key\n        n = count()\n"
 
@@ -1892,18 +1928,18 @@ LATERAL_DIAGNOSTICS = {
         _top_k("cross", order="        order by:\n            count()\n"),
         [("PIE-S2370", LATERAL_BODY_SHAPE, 7, 5)],
     ),
-    # A known limitation: a key that is no field of the let's input, its own
-    # output or an unknown name, is only the declaration's PIE-S2333.
+    # A key that is no field of the let's input, its own output or an unknown
+    # name, is reported at the key, as at any let a JOIN reads (READ_ERRORS).
     "top_k_output_order": (
         _top_k("cross", order="        order by:\n            out desc\n").replace(
             "            id\n        order by:",
             "            out = id\n        order by:",
         ),
-        [UNAVAILABLE],
+        [("PIE-S2102", OUTPUT_ORDER, 14, 13)],
     ),
     "top_k_unknown_order": (
         _top_k("cross", order="        order by:\n            nope desc\n"),
-        [("PIE-S2102", "Unknown field: nope", 14, 13), UNAVAILABLE],
+        [("PIE-S2102", "Unknown field: nope", 14, 13)],
     ),
     "top_k_right": (_top_k("right"), [("PIE-S2372", JOIN_KIND, 18, 5)]),
     # LIMIT 1 over an ORDER BY whose key may tie (`id` is no declared key) is

@@ -54,7 +54,7 @@ EXCLUDED = {
     "window_order": (
         "table prod:\n    from rhs\n    select:\n        pid = id\n"
         "        at = row_number() window(order by id)\n"
-        "    order by:\n        pid\n"
+        "    order by:\n        id\n"
     ),
 }
 # Slice9's authorized window-producer completion route: this body now reaches
@@ -219,6 +219,77 @@ def test_a_later_owner_body_is_excluded_from_the_promotion(tmp_path, target, sha
     _, outcome = build(tmp_path / shape, target, source)
     assert outcome.status == "BLOCKED"
     assert [item.code for item in outcome.diagnostics] == ["PIE-S2333"]
+
+
+OUTPUT_ORDER = (
+    "PIE-S2102",
+    "Unknown field: pid; this project relation cannot order by a SELECT "
+    "output yet (restate its expression, or bind it with `let` and order "
+    "by that name)",
+)
+OUTPUT_ORDERED = PRODUCERS["literal"] + "    order by:\n        pid\n"
+UNKNOWN_ON = ("PIE-S2335", "JOIN ON reference is unknown: r.nosuch")
+# A relation with JOIN inputs reads each producer here only on the current
+# route, which stops with the producer's own error: that error is reported and
+# the reader adds no PIE-S2333 but keeps the errors of its JOIN conditions.
+STOPPED_ROUTE = {
+    "window_output_key": (
+        EXCLUDED["window_order"].replace(
+            "    order by:\n        id\n", "    order by:\n        pid\n"
+        )
+        + CONSUMER.format(kind="left"),
+        [OUTPUT_ORDER],
+    ),
+    "reader_on_error": (
+        OUTPUT_ORDERED
+        + CONSUMER.format(kind="left").replace("== r.pid", "== r.nosuch"),
+        [OUTPUT_ORDER, UNKNOWN_ON],
+    ),
+    # A relation with JOIN inputs reads its FROM on that route too.
+    "from_reader_with_join": (
+        OUTPUT_ORDERED
+        + (
+            "query c:\n    from prod\n    let l = lhs\n"
+            "    inner join l on l.id == prod.pid\n    select:\n        a = l.id\n"
+        ),
+        [OUTPUT_ORDER],
+    ),
+    "where_error_reader_on_error": (
+        PRODUCERS["literal"].replace(
+            "    select:", "    where id + 'a' > 0\n    select:"
+        )
+        + CONSUMER.format(kind="left").replace("== r.pid", "== r.nosuch"),
+        [
+            (
+                "PIE-S2105",
+                "Invalid operands for operator +: expected numeric operands; use "
+                "`concat(...)` with `Text(n)` to join Text values",
+            ),
+            UNKNOWN_ON,
+        ],
+    ),
+    # A reader without JOIN inputs reads the producer's base route.
+    "from_reader_error": (
+        OUTPUT_ORDERED
+        + CONSUMER.format(kind="left")
+        + "query other:\n    from prod\n    select:\n        z = nosuch\n",
+        [OUTPUT_ORDER, ("PIE-S2102", "Unknown field: nosuch")],
+    ),
+}
+
+
+@pytest.mark.parametrize("case", sorted(STOPPED_ROUTE))
+def test_a_stopped_current_route_reports_its_error_beside_each_reader_error(
+    tmp_path, case
+):
+    source, expected = STOPPED_ROUTE[case]
+    _, completed = _completed(tmp_path, "postgres", source)
+    assert type(_entry(completed, "prod")) is ProjectExistingEffectiveOutput
+    assert [
+        stop.owner.definition.name
+        for stop in completed.effective_outputs.joined_route_stops
+    ] == ["prod"]
+    assert [(item.code, item.message) for item in completed.diagnostics] == expected
 
 
 @pytest.mark.parametrize("target", TARGETS)

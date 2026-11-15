@@ -1066,7 +1066,10 @@ without JOIN inputs
 `check --project` accepts such a key and `emit-sql --project` blocks the table
 or query with PIE-B1003 `order`, and with JOIN inputs, or without them in a
 relation that a project completes itself, such as one with `any(...)` or
-QUALIFY, `check --project` reports the key with PIE-S2102 (restate the
+QUALIFY, or a relation `let` or a table or query that selects a value other
+than a field, without GROUP BY or aggregate, that a JOIN reads or that a
+relation with JOIN inputs reads with FROM,
+`check --project` reports the key with PIE-S2102 (restate the
 expression, or bind it with `let`, select that name and order by it). Without
 JOIN inputs or GROUP BY, `check --project` reports an ORDER BY key that reads
 an unknown field, also through a field of a shape (`home.nosuch`), or calls an
@@ -2287,8 +2290,9 @@ over that JOIN is refused as a possible fan-out (PIE-S2333), as over any JOIN
 that may repeat rows. An ORDER BY that
 reads a captured field or an aggregate is PIE-S2370 at the let. A key that is
 not a field of the let's input is not available either: an unknown name is
-PIE-S2102 at the key, and for one of the let's own SELECT outputs this alpha
-reports only PIE-S2333 at the declaration, with no diagnostic at the key. Project SQL
+PIE-S2102 `Unknown field: <name>` at the key, and so is one of the let's own
+SELECT outputs, whose message adds that this project relation cannot order
+by a SELECT output yet. Project SQL
 keeps both inside that JOIN's derived relation as one more derived table over
 the let's SELECT, which carries each ORDER BY key as an extra column:
 `LATERAL (SELECT ... FROM (SELECT ... FROM (SELECT ... WHERE ...) AS t<n>) AS

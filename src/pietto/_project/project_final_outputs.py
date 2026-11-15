@@ -2827,6 +2827,12 @@ class ProjectEffectiveOutputCompletion:
         compare=False,
         hash=False,
     )
+    # The stopped project route of each relation that a relation with JOIN
+    # inputs reads only on that route; the relation's entry keeps its base
+    # route.
+    joined_route_stops: tuple[ProjectEffectiveOutputCompletionTerminal, ...] = field(
+        default=(), repr=False, compare=False, hash=False
+    )
     owners: tuple[ProjectDeclarationOccurrence, ...]
     dependencies: tuple[ProjectCompletionDependency, ...]
     schedule: tuple[ProjectDeclarationOccurrence, ...]
@@ -2879,6 +2885,12 @@ class ProjectEffectiveOutputCompletion:
             raise TypeError("Completion overlay requires an exact replay-root tuple.")
         if len({id(root) for root in self.replay_roots}) != len(self.replay_roots):
             raise ValueError("Completion overlay cannot repeat one replay root.")
+        if type(self.joined_route_stops) is not tuple or any(
+            type(stop) is not ProjectEffectiveOutputCompletionTerminal
+            or not any(entry is stop.base_entry for entry in self.entries)
+            for stop in self.joined_route_stops
+        ):
+            raise ValueError("A joined-route stop must keep its exact base entry.")
         completion = (
             self.joined_qualifies.window_set.aggregation_set.filter_set.completion
         )
@@ -7708,7 +7720,8 @@ def _complete_no_join_output(
 def _joined_consumer(
     completion: ProjectCompletion, owner: ProjectDeclarationOccurrence
 ) -> bool:
-    """Whether one authored JOIN directly consumes this producer's output."""
+    """Whether a relation with JOIN inputs reads this producer, with a JOIN
+    or with FROM."""
 
     for dependency in completion.dependencies:
         if dependency.target is not owner:
@@ -7727,7 +7740,7 @@ def _promoted_scalar_producer(
     completion: ProjectCompletion,
     base_entry: ProjectExistingEffectiveOutput,
     upstream: ProjectEffectiveOutputCompletionEntry,
-) -> ProjectCompletedEffectiveOutput | None:
+) -> ProjectCompletedEffectiveOutput | ProjectEffectiveOutputCompletionTerminal | None:
     """Promote one existing no-JOIN producer body onto the current-input route.
 
     A current JOIN input keeps its exact value authority at its completed output
@@ -7740,7 +7753,10 @@ def _promoted_scalar_producer(
     concrete and whose every selected output is that stage's own grouped result.
     A window or QUALIFY stage, selected or hidden, and a relation ORDER or LIMIT
     barrier still keep their established base route, its diagnostics and its
-    historical properties, as does every other candidate.
+    historical properties, as does every other candidate. A replay that stops
+    is returned when a relation with JOIN inputs reads the producer, which it
+    reads on no other route; the producer keeps its base route for its other
+    readers.
     """
 
     definition = base_entry.owner.definition
@@ -7775,8 +7791,8 @@ def _promoted_scalar_producer(
         base_entry=base_entry,
         upstream_entry=cast(ProjectConcreteEffectiveOutputEntry, upstream),
     )
-    if type(replay) is not ProjectCompletedEffectiveOutput:
-        return None
+    if isinstance(replay, ProjectEffectiveOutputCompletionTerminal):
+        return replay if _joined_consumer(completion, base_entry.owner) else None
     root = replay.root
     # Hidden and unselected later-stage values count: a scalar-looking select list
     # does not prove the body introduces no window or QUALIFY stage.
@@ -8568,6 +8584,7 @@ def build_project_effective_output_completion(
         for owner in completion.topology.blocked_owners
     }
     replay_roots: list[ProjectNoJoinReplayRoot] = []
+    joined_route_stops: list[ProjectEffectiveOutputCompletionTerminal] = []
     current_state = (
         None
         if join_conditions is None
@@ -8711,6 +8728,11 @@ def build_project_effective_output_completion(
                     if current_needed and len(base_entry.dependencies) == 1
                     else None
                 )
+                if type(promoted) is ProjectEffectiveOutputCompletionTerminal:
+                    # The producer keeps its base route; its JOIN readers
+                    # follow the stop.
+                    joined_route_stops.append(promoted)
+                    promoted = None
                 entry: ProjectEffectiveOutputCompletionEntry = (
                     base_entry if promoted is None else promoted
                 )
@@ -8819,6 +8841,7 @@ def build_project_effective_output_completion(
         base=completion,
         joined_qualifies=joined_qualifies,
         replay_roots=tuple(replay_roots),
+        joined_route_stops=tuple(joined_route_stops),
         owners=completion.owners,
         dependencies=completion.dependencies,
         schedule=completion.schedule,

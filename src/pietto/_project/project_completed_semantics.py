@@ -1715,6 +1715,14 @@ def _final_diagnostics(
         is project_final_outputs.ProjectNonConcreteRelationOrdering
         and facts.ordering.reason in project_final_outputs.CHECKED_ORDER_REASONS
     }
+    # What stops the project route of a relation that a relation with JOIN
+    # inputs reads only on that route: reported with the relation, whose
+    # readers with JOIN inputs follow it and keep the errors of their JOIN
+    # conditions.
+    joined_stops = {
+        id(stop.owner): _entry_error_diagnostics(stop)
+        for stop in effective_outputs.joined_route_stops
+    }
     terminals = {
         id(entry.owner): entry
         for entry in effective_outputs.entries
@@ -1842,9 +1850,17 @@ def _final_diagnostics(
         entry: ProjectEffectiveOutputCompletionEntry,
     ) -> list[ProjectDeclarationOccurrence | bool]:
         """What stops this relation outside it: an input relation, or whether
-        an error already reports a name that does not resolve."""
+        an error already reports a name that does not resolve or what stops
+        the project route of an input that its JOIN reads."""
 
         found: list[ProjectDeclarationOccurrence | bool] = []
+        definition = entry.owner.definition
+        if isinstance(definition, (TableDef, QueryDef)) and definition.join_clauses:
+            found.extend(
+                bool(joined_stops.get(id(dependency.target)))
+                for dependency in effective_outputs.dependencies
+                if dependency.consumer is entry.owner
+            )
         facts = () if semantic_facts is None else semantic_facts.find_owner(entry.owner)
         if len(facts) == 1:
             reason = facts[0].base_row_fact.state.reason
@@ -2055,6 +2071,7 @@ def _final_diagnostics(
             for diagnostic in (
                 *_ordinary_row_diagnostics(entry.fragment.semantic_facts),
                 *ambiguous_orders.get(id(entry), ()),
+                *joined_stops.get(id(entry.owner), ()),
             ):
                 if id(diagnostic) not in retained_ids:
                     retained.append(diagnostic)
