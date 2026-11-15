@@ -144,9 +144,11 @@ catch-up phase after Phase80 opens them form by form, extending S01's
 guarded SUM, each with its own two-database qualification (D77.76). That
 phase also takes C04's E4, MySQL `Float` `+`, `-`, `*` and sign on fields,
 as a candidate experiment that opens a form only where its finite results
-match and its overflow fails on both databases (D77.78). The catch-up phase
-has no row in the table above yet; its Gate 1 sets its number, its place
-among the phases and its version line.
+match and its overflow fails on both databases (D77.78). It also takes
+MySQL R2's first page that ends `FAILED` without a public reason, which it
+measures on a real MySQL before it extends D77.80's precheck (PL.40, D19).
+The catch-up phase has no row in the table above yet; its Gate 1 sets its
+number, its place among the phases and its version line.
 `stddev` of an `Int` (J12, D76.10) is one with no target phase (D77.34), and
 MySQL nested results (D71.05) one with the target of the separate later
 nested work package (D77.32). The MySQL `UUID` header parameter stays
@@ -177,7 +179,9 @@ patch versions, a minor version comes only with a user-visible editor
 feature, and no Marketplace pre-release channel is used. Its current version
 is in [status](status.md), and its Marketplace timing is the owner's. Each
 Pietto phase that changes the grammar or the built-in
-catalog carries the extension sync, made by the lead.
+catalog carries the extension sync, made by the lead. The extension
+repository's small fixes join the extension changes that Phase81 decides,
+under one authorization (PL.40, D11).
 
 ### Third dialect
 
@@ -215,17 +219,34 @@ the README and the project guide state; those platforms use batch stdout, a
 single `--output FILE`, or `pietto.compiler.compile_all_sql(...)` with their
 own code writing the files. The Windows scope covers a path-based batch
 directory writer, a claim of CLI and compile support with execution NOTRUN,
-and a native Windows editor acceptance; until then the package keeps its
+and a native Windows editor acceptance, and that claim leaves out the extras
+(PL.40, D5); until then the package keeps its
 `Operating System :: OS Independent` classifier. Nullability v2 goes to
 Phase81 if it changes a public type contract, otherwise to `2.0`.
 
+From the `0.2.1` lanes (PL.44), Phase81's diagnostic review also takes four
+owner questions: the PIE-B1004 `identifier_case_declaration_missing` that a
+statement refused during realization still reports when its only `let` is
+an inline capturing one that reads another query; a `let` name inside an
+aggregate's expression argument; `min` and `max` of a `Text` or `Bool`
+`let`; and a `let` selected or projected under GROUP BY. It also takes two
+comments on diagnostic texts from the external audit of `0.2.0` (PL.40,
+D6). Its editor work takes the rest of the fault tolerance of `pietto lsp`
+(an internal error outside the analysis of a document or a root, such as
+while the server answers a request or stores and publishes an analysis,
+still ends the server, and a failed analysis leaves its old diagnostics on
+the new text) and the overlap diagnostic for a project
+root nested in another through a symbolic link.
+
 ### Tests and maintenance
 
-The third whole-tree test pass ends before the end of Phase78. The CI scheduler fix for module fixtures built in
-several shards (F3) is authorized as its own maintenance batch, with its
-evidence under the
-[CI workload governance](architecture/ci-workload-governance-v1.md). The
-import time of `pietto.execution` may be fixed before Phase80. Each
+The third whole-tree test pass ends before the end of Phase78. It and the
+CI scheduler fix for module fixtures built in several shards (F3), which is
+authorized with its evidence under the
+[CI workload governance](architecture/ci-workload-governance-v1.md), form
+batch 2 (M11–M14), one maintenance batch that `v0.2.1` does not carry,
+after its tag and before Phase81's Gate 0 (PL.40, D14). Phase81
+takes the import time of `pietto.execution` (PL.40, D15). Each
 completion audit records the Gate 2 duration. The pure verifier fidelity
 repair (PL.20, D77.54) continues as its own maintenance work beside the
 phases. Phase77's ten-node profile of its final CI health is owed by the
@@ -258,10 +279,8 @@ before its owner's Gate 1 takes it.
 | Conversions other than `Float(value)` and `Text(value)` of an `Int` | their later owner; unscheduled |
 | The header rule and its tokens in the grammar | Phase76 retained them under the `migrate` and per-line PIE-P1000 byte-compatibility fallback; removal belongs to the Phase82 freeze (D76.12) |
 | SQL-to-Pietto conversion | the tentative candidate 105 below |
-| MySQL `same_value` of `Float` values in a JOIN `on` (D77.52 O7) | a narrow candidate experiment on S06's `<=>` facility in a small Phase77 follow-up package; it opens only the cells where both databases match and checks `-0.0` and `NULL` sides, and the form keeps its refusal until a run passes (D77.77) |
 | The other MySQL project `sum(Int)` forms; MySQL `Float` arithmetic and sign on fields (C04 E4) | the MySQL catch-up phase after Phase80, form by form with its own qualification (D77.76, D77.78; see [MySQL cadence](#mysql-cadence)) |
-| `verify_project_sql_plan` runs without a memo, 4 to 29 times per case | `_project/project_sql_plan_verification.py` and its emission callers, at the latest the phase-end consolidation of the next phase that changes project SQL emission; a memo needs the owner ([Phase77 S26](phases/phase-77/route.md#s26-closure-record)) |
-| A project root configured through a symbolic link, which `pietto lsp` misreads for a file opened under the real path (audit finding 14) | authorized under PL.18's terms (PL.23) and not delivered; the language server's owner, with no batch yet |
+| `verify_project_sql_plan` runs without a memo, 4 to 29 times per case | `_project/project_sql_plan_verification.py` and its emission callers, in Phase81 (PL.40, D15); a memo needs the owner ([Phase77 S26](phases/phase-77/route.md#s26-closure-record)) |
 
 ## Phase82 freeze ledger
 
@@ -287,8 +306,10 @@ each completion audit adds the freeze inputs of its phase here.
 | Bundles and saved jobs across versions; an upgrade-impact tool | the 1.0 compatibility and migration policy, and whether the tool comes before 1.0 | D76.13, Phase76 reminder 7 |
 | Nullability v2 | Phase81 if it changes a public type contract, otherwise `2.0` | D73.13, owner, 2026-11-07 |
 | The CPython matrix and the Windows claim | frozen as Phase81 decides them | owner, 2026-11-07 |
+| The release notes' `0.x` history, which keeps its file layout until then | archived by the freeze (`1.0.0rc1`) | PL.40 (D10) |
 | Compiled replay and live analysis give different JOIN key and grain facts for equal SQL bytes | an ARCHITECTURE_DECISION of the semantic and ProjectIR owner, with the lead integrating every reader, before any slice consumes those facts | Phase74 handoff, Phase76 reminder 8 |
 | A forged compiled `median(id * 2)` loads with consistent SQL | a trust decision of the compiled and verifier owner, coordinated by the lead, before the first new consumer of compiled admission and at the latest before `compile_queries(...)` | Phase74 handoff, Phase76 reminder 8 |
+| The VS Code extension's sync script imports the generated lexer and parser from `pietto.generated` and two functions from `pietto.indentation`, modules that no public contract names | whether the script must stop importing them, and which public entry point replaces them if so | PL.38, PL.44 |
 | The fixed civil `Timestamp` meaning of a `now()` output; the statement time that R2 records and `recover` binds | each freezes with the result contract and the R2 workspace, or changes before the freeze | D77.42, D77.49; [Phase77 audit](phases/phase-77/completion-audit.md) |
 | MySQL R2 refuses every form that `0.1.11` refused (`PUBLIC_R2_UNQUALIFIED_FORM`, by rule two) and every paired form (`PUBLIC_R2_PAIRED_FORM`) | a support-matrix row for R2 by target, or narrowed by forms that a native R2 qualification covers | D77.46, D77.67, D77.68 |
 | MySQL forms that open only byte for byte as a paired form (Wave A) | the 1.0 support matrix states them as paired forms, or a structural rule replaces them | D77.36; [Phase77 audit](phases/phase-77/completion-audit.md) |

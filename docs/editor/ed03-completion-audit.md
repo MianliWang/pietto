@@ -310,8 +310,8 @@ written on 2026-11-15 on `22046a4f`, adds what they leave to it.
   batch audit found three low findings, and the batch audit of the repairs
   before the cut was clean with four low findings. The lead's records hold
   no editor batch check, package smoke or host check of EB2's head.
-- **Test owners.** The Gate 2 log records totals only. On the exact tree
-  `4ef90859`, `tests/test_cli_lsp.py` has 121 nodes and
+- **Test owners.** The Gate 2 log records totals only. On `4ef90859`
+  (tree `427b976f`), `tests/test_cli_lsp.py` has 121 nodes and
   `tests/test_project_editor_overlays.py` 9; a run of the two on 2026-11-15
   at 09:29Z (Python 3.13.13, 8 workers, temporary storage on ext4) passed
   all 130 with no skip. The two nodes beyond the 119 of EB2's integration
