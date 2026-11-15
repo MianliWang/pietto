@@ -24,37 +24,110 @@ Locations are repository paths; in the wheel they appear without the leading
 | PostgreSQL 18 interface data: node field lists, builtin function names with argument and result type OIDs, builtin type OIDs with their I/O function names | `src/pietto/_project/project_postgres_source_assurance_verification.py`, `src/pietto/_project/project_execution_reader.py` | PostgreSQL 18 | `LICENSES/PostgreSQL-18.6.txt` |
 | MySQL client/server protocol column-type codes | `src/pietto/_project/project_execution_reader.py` | MySQL protocol interface constants | No upstream text is copied |
 
-Dependencies are installed from their own distributions and are not bundled:
+Dependencies are installed from their own distributions and are not bundled.
+The table gives, for each version that `uv.lock` pins, the license fields of
+its core metadata as read on 2026-11-15 from every wheel the lock lists and
+from the sdist. Apart from line endings, whitespace and file paths inside
+license texts, they are the same in all of a package's wheels and in its
+sdist unless the row says otherwise.
 
-- `antlr4-python3-runtime==4.13.2` (required). Its distribution metadata says
-  `License: BSD`; its source headers refer to the ANTLR BSD 3-clause license.
-- Optional extras: `pyarrow` (Apache-2.0); `psycopg` and `psycopg-binary`
-  (LGPL-3.0-only); `mysql-connector-python` (GPLv2 with additional permissions,
-  including the Universal FOSS Exception 1.0, per its license file);
-  `adbc-driver-postgresql` and `adbc-driver-manager` (Apache-2.0); `duckdb`
-  (MIT) in `execute-duckdb`; and the targets of the `interop-*` extras:
-  `pandas` (BSD-3-Clause), `polars` and `polars-runtime-32` (MIT), `numpy`
-  (BSD-3-Clause AND 0BSD AND MIT AND Zlib AND CC0-1.0), `scipy` (BSD) and
-  `matplotlib` (its own PSF-based license agreement). Each license is as its
-  distribution's metadata states it.
-- The extras also install, through these packages' own requirements:
-  `typing-extensions` (PSF-2.0); `tzdata` (see its own metadata), which
-  `execute-postgres` installs only on Windows and `interop-pandas` and
-  `interop-matplotlib` install on every platform through `python-dateutil`
-  (BSD-3-Clause); `numpy` for `interop-pandas`, `interop-scipy` and
-  `interop-matplotlib`; and for `interop-matplotlib`, `contourpy`
-  (BSD-3-Clause), `cycler` (BSD), `fonttools` (MIT), `kiwisolver` (BSD),
-  `packaging` (Apache-2.0 OR BSD-2-Clause), `pillow` (MIT-CMU) and
-  `pyparsing` (MIT).
-- In the CPython 3.13 manylinux x86-64 wheels that were inspected, several of
-  these dependencies bundle or statically link further native libraries. The
-  license files of `pyarrow`, `mysql-connector-python` and
-  `adbc-driver-postgresql` describe theirs; `psycopg-binary` vendors 15 shared
-  libraries (including libpq, OpenSSL, MIT Kerberos, OpenLDAP and Cyrus SASL)
-  that its LGPL-3.0 license file does not mention. The wheels that
-  `execute-duckdb` and the `interop-*` extras install were not inspected for
-  bundled native libraries, and wheels for other platforms were not
-  inspected.
+| Distribution | Version | Installed by | License fields of the core metadata |
+| --- | --- | --- | --- |
+| `antlr4-python3-runtime` | 4.13.2 | every installation (required) | `License: BSD`. Its source headers refer to the ANTLR BSD 3-clause license. |
+| `pyarrow` | 26.0.1 | `arrow` and every `execute-*` extra | `License-Expression: Apache-2.0` |
+| `psycopg` | 3.3.8 | `execute-postgres` | `License-Expression: LGPL-3.0-only` |
+| `psycopg-binary` | 3.3.8 | `execute-postgres`, except on PyPy | `License-Expression: LGPL-3.0-only`. It has wheels only, no sdist. |
+| `mysql-connector-python` | 26.10.0 | `execute-mysql` | `License: GNU GPLv2 (with FOSS License Exception)` and the classifier `License :: OSI Approved :: GNU General Public License (GPL)`. Its license file grants GPLv2 with additional permissions, including the Universal FOSS Exception 1.0. |
+| `adbc-driver-postgresql` and `adbc-driver-manager` | 1.13.0 | `execute-postgres-adbc` | `License-Expression: Apache-2.0` |
+| `duckdb` | 2.0.0 | `execute-duckdb` | No `License` or `License-Expression` field; the classifier `License :: OSI Approved :: MIT License`. |
+| `pandas` | 3.1.1 | `interop-pandas` | `License-Expression: BSD-3-Clause`. Its 18 further license files cover code it vendors. |
+| `polars` | 2.1.0 | `interop-polars` | `License:` the MIT license text, with copyright lines for Ritchie Vink and, for some portions, NVIDIA CORPORATION & AFFILIATES; and the classifier `License :: OSI Approved :: MIT License`. |
+| `polars-runtime-32` | 2.1.0 | `interop-polars`, through `polars` | No `License` or `License-Expression` field; the classifier `License :: OSI Approved :: MIT License`. Its license file has the same text as that of `polars`. |
+| `numpy` | 2.5.4 | `interop-numpy`; through other packages, `interop-pandas`, `interop-scipy` and `interop-matplotlib` | `License-Expression: BSD-3-Clause AND 0BSD AND MIT AND Zlib AND CC0-1.0` |
+| `scipy` | 1.18.1 | `interop-scipy` | `License:` a full license text, and the classifier `License :: OSI Approved :: BSD License`. In the sdist the text is SciPy's own BSD 3-clause license. In the wheels the licenses of OpenBLAS, LAPACK and the GCC runtime library follow it, and in the wheels other than the Windows ones also that of libquadmath. |
+| `matplotlib` | 3.11.2 | `interop-matplotlib` | `License:` a full license text, and the classifier `License :: OSI Approved :: Python Software Foundation License`. In the sdist the text is Matplotlib's own PSF-based license agreements, for versions 1.3.0 and later and for earlier versions. In the wheels the licenses of the fonts, color schemes and code that they bundle follow them. |
+| `typing-extensions` | 4.16.0 | `execute-postgres-adbc`, through `adbc-driver-manager`; `execute-postgres` on Python 3.12, through `psycopg` | `License-Expression: PSF-2.0` |
+| `tzdata` | 2026.4 | `interop-pandas` and `interop-matplotlib` on every platform, through `python-dateutil`; `execute-postgres` on Windows, through `psycopg` | `License: Apache-2.0` |
+| `python-dateutil` | 4.0.0 | `interop-pandas` and `interop-matplotlib` | `License-Expression: BSD-3-Clause` |
+| `contourpy` | 1.4.0 | `interop-matplotlib` | `License-Expression: BSD-3-Clause` |
+| `cycler` | 0.12.1 | `interop-matplotlib` | `License:` a BSD 3-clause license text ("Copyright (c) 2015, matplotlib project"), and the classifier `License :: OSI Approved :: BSD License`. |
+| `fonttools` | 4.68.0 | `interop-matplotlib` | `License: MIT`. Its second license file covers material that the project includes: fonts for testing, under the SIL Open Font License 1.1; Adobe AGL and AGLFN, under a BSD 3-clause license; cu2qu (Copyright 2016 Google Inc.), under the Apache License 2.0; and code in `fontTools.misc.filesystem` derived from PyFilesystem2, under the MIT License. |
+| `kiwisolver` | 1.5.1 | `interop-matplotlib` | `License:` the Kiwi licensing terms (the Modified BSD License, Nucleic Development Team), and the classifier `License :: OSI Approved :: BSD License`. |
+| `packaging` | 26.2 | `interop-matplotlib` | `License-Expression: Apache-2.0 OR BSD-2-Clause` |
+| `pillow` | 13.0.0 | `interop-matplotlib` | `License-Expression: MIT-CMU` |
+| `pyparsing` | 3.3.3 | `interop-matplotlib` | `License-Expression: MIT` |
+
+In the CPython 3.13 manylinux x86-64 wheels that were inspected, several of
+these dependencies bundle or statically link further native libraries:
+
+- The license files of `pyarrow`, `mysql-connector-python`,
+  `adbc-driver-postgresql`, `adbc-driver-manager`, `pillow`, `numpy` and
+  `scipy` describe the native libraries that they bundle or link
+  statically; for `scipy` this holds only for its shared libraries (see
+  below). `pillow` vendors 18 shared libraries, among them libjpeg, libpng,
+  libtiff, libwebp, FreeType, HarfBuzz, Little CMS and OpenJPEG. `numpy`
+  and `scipy` vendor OpenBLAS (BSD-3-Clause, with LAPACK under
+  BSD-3-Clause-Open-MPI), the GCC runtime library (GPL-3.0-or-later WITH
+  GCC-exception-3.1) and libquadmath (LGPL-2.1-or-later); the
+  `License-Expression` of `numpy` does not include the licenses of LAPACK,
+  the GCC runtime library or libquadmath.
+- `matplotlib` links FreeType, HarfBuzz, libraqm, SheenBidi and Qhull into
+  its extension modules, and its license file describes them. Its
+  `_image`, `_path` and `backends/_backend_agg` modules also contain code
+  from Anti-Grain Geometry (AGG), whose `agg::` symbols they hold; its
+  license file does not mention AGG.
+- The extension modules of `scipy` also contain code from libraries that
+  SciPy vendors. Their symbols and strings show, among others, HiGHS,
+  SuperLU, UNU.RAN, ARPACK, PROPACK, Boost.Math, Cephes, Faddeeva,
+  BiasedUrn and fast_matrix_market; the license file of its wheels mentions
+  none of them. Qhull, DOP853, DUCC and uarray have their own license files
+  inside the package: `scipy/spatial/qhull_src/COPYING_QHULL.txt`,
+  `scipy/integrate/LICENSE_DOP`, `scipy/fft/_duccfft/LICENSE.md` and
+  `scipy/_lib/_uarray/LICENSE`.
+- `psycopg-binary` vendors 15 shared libraries (including libpq, OpenSSL,
+  MIT Kerberos, OpenLDAP and Cyrus SASL) that its LGPL-3.0 license file does
+  not mention.
+- `duckdb` has one extension module and no separate shared library. The
+  module also holds code from libraries that DuckDB vendors. Its symbols
+  include the namespaces `duckdb_apache` (Thrift), `duckdb_fastpforlib`,
+  `duckdb_fmt`, `duckdb_hll`, `duckdb_httplib`, `duckdb_lz4`,
+  `duckdb_mbedtls`, `duckdb_miniz`, `duckdb_moodycamel`, `duckdb_nanoarrow`,
+  `duckdb_parquet`, `duckdb_re2`, `duckdb_ska_sort`, `duckdb_skiplistlib`,
+  `duckdb_snappy`, `duckdb_yyjson` and `duckdb_zstd`, and utf8proc and FSST
+  functions. Its strings show jemalloc (as `duckdb_je_malloc`), the Brotli
+  dictionary and the SQL parser that DuckDB derives from PostgreSQL's
+  through libpg_query. This list is read from symbols and strings and may
+  be incomplete. Its license files, DuckDB's MIT license and the Apache-2.0
+  license of its `duckdb/experimental/spark` package, mention none of them.
+- `polars-runtime-32` has one extension module and no separate shared
+  library. Its wheel carries a CycloneDX 1.5 SBOM,
+  `sboms/polars-runtime-32.cyclonedx.json` in its `.dist-info`, that lists
+  360 Rust crates with an SPDX license expression for each; 343 have the
+  scope `required`, and 17 build-time dependencies such as `cc` and `cmake`
+  have the scope `excluded`. The required ones include `aws-lc-sys`
+  (AWS-LC), `ring`, `rustls`, `tokio`, `zstd-sys` (zstd 1.5.7), `lz4-sys`
+  (LZ4 1.10.0), `brotli` and `tikv-jemalloc-sys` (jemalloc 5.3.1). Its
+  only license file, the Polars MIT license, contains none of their license
+  texts.
+- The wheels of `pillow` and `scipy` also carry CycloneDX SBOMs in their
+  `.dist-info/sboms/`. That of `pillow` lists 24 components with SPDX
+  license identifiers; it includes optional libraries that the inspected
+  wheel does not bundle (libimagequant, FriBiDi) and omits some that it
+  does (for example libpng and liblzma). The SBOMs that auditwheel wrote
+  name only the system libraries that it copied in, without licenses:
+  libXau for `pillow`, and libgfortran and libquadmath for `scipy`.
+- Extension modules of `contourpy`, `matplotlib` and `scipy` contain code
+  compiled from pybind11, that of `duckdb` from nanobind and that of
+  `kiwisolver` from cppy; the license files of these packages do not mention
+  these binding libraries.
+- Apart from `pyarrow`, `pillow`, `numpy` and `scipy`, no wheel that
+  `execute-duckdb` or an `interop-*` extra installs bundles a shared
+  library: the extension modules of `duckdb`, `polars-runtime-32`, `pandas`,
+  `matplotlib`, `fonttools`, `kiwisolver` and `contourpy` are built from
+  their own sources and from third-party sources that they vendor, and the
+  other wheels are pure Python.
+
+Wheels for other platforms were not inspected for bundled native libraries.
 
 ## GitHub source archive
 
