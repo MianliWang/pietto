@@ -16,7 +16,7 @@ surfaces stay alpha until the [Phase82 freeze](../roadmap.md#phase82-freeze-ledg
 | Gate 1 | The owner approved the route on 2026-11-10 with the decision sheet's recommended answers: PL.01–PL.06 and ED.03–ED.06 in the [decision record](../decisions.md). On 2026-11-11 the owner added ED.07 (the editor defaults, M1's budget as inform) and PL.07 (the CI health token). |
 | EB1 | Four commits fast-forward pushed on 2026-11-10 at 21:00:30Z on `a503167f`: `26748232` (M1), `25e3dd47` (C1), `4a664902` (C2) and `ae48f00a` (its candidate record), ending at `ae48f00ae253dcde81050548b69fc297aad2c3f0` (tree `4c5cc7c0e4347930946e92fffa1616de10cfbc12`). One Python 3.13 Gate 2 on that tree passed 27,688 tests with 41 skips. Natural exact-head CI `42900771741`, push/main attempt 1, passed all 21 jobs. Its publication record `41e27e5c` (D77.14) passed natural CI `42917583571`. |
 | Midpoint | The EB1 health was read on 2026-11-11 between 10:21Z and 10:22Z through PL.07 (runs `42831340276`, `42900771741` and `42917583571`, each INSUFFICIENT_EVIDENCE with a WATCH screen; the only alert that needs no history is the structural `FEWER_UNITS_THAN_WORKERS` that predates Gate 0). The Phase77 overlap was measured again between 16:51Z and 17:10Z on `e0116e41`. The midpoint record, with ED.08 (M1's budget), ED.09 (the completion words) and the route changes it carries, ED.10 (the ledger and stop points), ED.11 (C4's scope) and PL.09 (every ledger doubled), is the documentation-only batch `864411cb2ab4a89deccd14904de3e35f67b04010` (D77.14); its natural exact-head CI `43181411369`, push/main attempt 1, started at 08:15:09Z on 2026-11-12, completed at 08:34:15Z and passed all 21 jobs. |
-| EB2 | C5, C4, Z1 and this audit (Z2), one commit each in that order on `864411cb`. The batch's Gate 2 on its final tree, its batch audit, its editor checks, its fast-forward push and natural exact-head CI on its head come after this audit is written; EB2's publication record (D77.14) records them and the commit identities. |
+| EB2 | C5, C4, Z1 and this audit (Z2), one commit each in that order on `864411cb`. The batch's Gate 2 on its final tree, its batch audit, its editor checks, its fast-forward push and natural exact-head CI on its head come after this audit is written; [EB2's publication record](#eb2-publication-record) records them and the commit identities. |
 
 ## Closure conditions
 
@@ -291,6 +291,78 @@ publication record records its duration.
   `42917583571` (its record) and `43181411369` (the midpoint) passed all 21
   jobs. Superseded lane trees and their rebase inputs stay outside Git.
 
+## EB2 publication record
+
+EB2 reached `main` without the documentation-only record (D77.14) that the
+sections above expect: its four commits end the repairs before the `0.1.11`
+cut and shipped in `0.1.11` (see the [status](../status.md)). This record,
+written on 2026-11-15 on `22046a4f`, adds what they leave to it.
+
+- **Commits, Gate 2 and CI.** `9264295a` (C5), `945f9ada` (C4), `3bf3aae3`
+  (Z1) and `4ef90859` (Z2) end the repairs before the cut at
+  `4ef90859ec9366088af1a74690fc35ee5344de7f` (tree
+  `427b976ff3228a73fdcb0c20fb1d9d4e957c377d`), fast-forward pushed on
+  `864411cb` on 2026-11-13 at 01:43:28Z. Its Python 3.13 Gate 2 on that tree
+  passed 27,758 tests with 41 skips in 504.2 s, 445.11 s of it pytest, at 8
+  workers. Natural exact-head CI `43347023208`, push/main attempt 1,
+  completed with success at 02:02:06Z and passed all 21 jobs, so closure
+  conditions 2 and 5 hold. By the lead's ledger, outside Git, EB2's own
+  batch audit found three low findings, and the batch audit of the repairs
+  before the cut was clean with four low findings. The lead's records hold
+  no editor batch check, package smoke or host check of EB2's head.
+- **Test owners.** The Gate 2 log records totals only. On the exact tree
+  `4ef90859`, `tests/test_cli_lsp.py` has 121 nodes and
+  `tests/test_project_editor_overlays.py` 9; a run of the two on 2026-11-15
+  at 09:29Z (Python 3.13.13, 8 workers, temporary storage on ext4) passed
+  all 130 with no skip. The two nodes beyond the 119 of EB2's integration
+  tree are the parameters that the PL.18 repair `f6505643` added before EB2
+  in the same batch. Gate 2 had no failure. Its log does not show whether
+  any of its 41 skips fell in these owners, whose only skips are on Windows
+  and where file names ignore letter case; its temporary storage was also
+  ext4. The health of the latest published head (below) counts 121 and 9
+  nodes per Python, on a tree whose `test_cli_lsp.py` is that of `4ef90859`
+  byte for byte and whose `test_project_editor_overlays.py` differs only in
+  two import lines.
+- **Closure condition 4: not complete.** Read on 2026-11-15 between 08:05:00Z
+  and 08:05:58Z through the owner's read-only token (PL.07): the health of the
+  latest published head `22046a4f`, whose natural exact-head CI `43677803825`,
+  push/main attempt 1, passed all 21 jobs. Its workflow report verifies and
+  says INSUFFICIENT_EVIDENCE with a WATCH screen; history is available, with
+  three accepted runs and no comparable sample. The alerts are the structural
+  `FEWER_UNITS_THAN_WORKERS` of the plan- and emission-portability partitions
+  on both Pythons; the provisional `SHARD_IMBALANCE_REVIEW` (3.12) and
+  `SHARD_IMBALANCE_WATCH` (3.13), which compare each Python's six partitions
+  and name no node; and 18 `LONG_INDIVISIBLE_NODE`, each on a harness node.
+  There is no cost signal or repeat confirmation, and the cost record is
+  partial without the target conformance aggregate job. No alert names an E-C
+  test owner. EB2's own run `43347023208` had no health read. E-C does not
+  close in this record (below), so this read is not the closeout's: the
+  closeout reads the eligible CI health and alerts of the latest published
+  head again when E-C closes.
+- **Connected layer of C5 and C4: NOT_RUN, open.** Neither the ED.09
+  word-suggestion check on `e61444f` nor a host check of the new hover and
+  definition facts has run. The host steps for those facts were never written.
+  This record changes only documentation and runs no VS Code host; that is its
+  scope, not a check that cannot run, so the connected layer stays an open E-C
+  item and is not claimed for C5 and C4. The extension's `0.4.0` completion
+  step with Pietto `0.1.11`, which the status records, stays related evidence;
+  none of its steps reads a hover or definition fact.
+- **Ledger.** The lead's E-C ledger, outside Git, has no row after the
+  sixteenth review round (2026-11-12 at 07:45Z): C at most 8, F 78, D 2,326
+  and S 0 of `C140/F420/D7800/S12` (PL.09). EB2's assembly, with its batch
+  audit and the ten-slowest profile (F 6, D 193), a further review of EB2 in
+  the lead's nineteenth round and its integration into the repairs before the
+  cut were counted on Phase77's ledger, the last two with no share for E-C.
+  With the assembly, and excluding the unapportioned shares of the
+  nineteenth round and the integration, E-C stands at C at most 8, F 84,
+  D 2,519 (about 32% of D7800) and S 0. These figures do not count this
+  record.
+
+With these facts closure conditions 1, 2, 3 and 5 hold, and condition 4
+is not complete. E-C stays open until a VS Code host check runs the
+connected layer of C5 and C4 and the closeout then reads the latest
+published head.
+
 ## Handoff to the next editor step
 
 - **Uses without a retained binding.** The other reads, `let` uses, `def`
@@ -313,3 +385,7 @@ publication record records its duration.
   to the [freeze ledger](../roadmap.md#phase82-freeze-ledger).
 - **The extension:** its documentation of the new surfaces waits for its own
   lane (Q4 is not approved).
+- **The connected layer of C5 and C4:** NOT_RUN in EB2's publication record
+  and an open E-C item. E-C closes after a VS Code host check runs the ED.09
+  word-suggestion check on `e61444f` and the hover and definition facts, and
+  the closeout then reads the latest published head (condition 4).
