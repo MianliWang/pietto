@@ -1679,9 +1679,9 @@ def test_mysql_r2_of_a_form_that_0111_compiled_does_not_change(tmp_path, form):
 
 _NATIVE_SQL = ("PIE-R1004", "REFINEMENT_NATIVE_SQL")
 # PostgreSQL forms with the R2 refusal each meets: SQL whose first page R2
-# does not read, S06's `same_value` in a JOIN `on` and in a WHERE and a
-# scalar call of its existing unsupported domain, and that JOIN over `==`,
-# which it reads.
+# does not read (S06's `same_value` in a JOIN `on` and in a WHERE, a scalar
+# call of its existing unsupported domain, a CASE, a CAST and a BETWEEN),
+# and that JOIN over `==`, which it reads.
 POSTGRES_FIRST_PAGES = {
     "S06_nullsafe_join": (
         "nullsafe",
@@ -1697,6 +1697,22 @@ POSTGRES_FIRST_PAGES = {
     "upper": (
         "words",
         "table result:\n    from words\n    select:\n        id\n        u = upper(text)\n",
+        _NATIVE_SQL,
+    ),
+    "case": (
+        "words",
+        "table result:\n    from words\n    select:\n        id\n"
+        "        c = 1 if id > 1 else 0\n",
+        _NATIVE_SQL,
+    ),
+    "cast": (
+        "words",
+        "table result:\n    from words\n    select:\n        id\n        f = Float(id)\n",
+        _NATIVE_SQL,
+    ),
+    "between": (
+        "words",
+        "table result:\n    from words\n    where 1 <= id <= 3\n    select:\n        id\n",
         _NATIVE_SQL,
     ),
     "S06_equality_join": (

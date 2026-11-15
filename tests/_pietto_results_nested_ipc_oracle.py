@@ -57,7 +57,8 @@ FRAMINGS = ("binding", "foreign", "unreframed")
 BINDINGS = ("nested", "nested_nullable", "flat")
 PROGRAM = "C6_siblings"
 SET = "FULL"
-# S02/S10 per-execution child-row cap; rebind when S10/S11 freeze theirs.
+# D71.07's per-execution child-row cap (the product's MAX_CHILD_ROWS), kept
+# literal so the oracle does not take it from the code it checks.
 CHILD_CAP = 1_048_576
 # Limits the over-cap stream fits so that only the child-row cap refuses it:
 # D71.07's default bytes per batch (the reader ceiling is 8 MiB), the session

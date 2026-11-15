@@ -1479,7 +1479,7 @@ class PackageGraphSnapshot:
             raise ValueError(
                 "Package graph dependency ref belongs to a foreign snapshot."
             )
-        # ponytail: local graphs use a linear scan; Slice 9 owns derived indexes.
+        # ponytail: local graphs use a linear scan; index only after measurement.
         for dependency in self.dependencies:
             if dependency.ref == ref:
                 return dependency
@@ -1495,7 +1495,7 @@ class PackageGraphSnapshot:
             raise TypeError("Requirement lookup requires a requirement ref.")
         if ref.scope is not self.scope:
             raise ValueError("Requirement ref belongs to a foreign snapshot.")
-        # ponytail: local attribution uses scans; Slice 9 owns derived indexes.
+        # ponytail: local attribution uses scans; index only after measurement.
         for requirement in self.requirements:
             if requirement.ref == ref:
                 return requirement
@@ -1523,7 +1523,7 @@ class PackageGraphSnapshot:
             raise TypeError("Capability evaluation lookup requires an exact ref.")
         if ref.scope is not self.scope:
             raise ValueError("Capability evaluation ref belongs to a foreign snapshot.")
-        # ponytail: local attribution uses scans; Slice 9 owns derived indexes.
+        # ponytail: local attribution uses scans; index only after measurement.
         for evaluation in self.capability_evaluations:
             if evaluation.ref == ref:
                 return evaluation
@@ -1539,7 +1539,7 @@ class PackageGraphSnapshot:
             raise TypeError("Catalog evidence lookup requires an exact ref.")
         if ref.scope is not self.scope:
             raise ValueError("Catalog evidence ref belongs to a foreign snapshot.")
-        # ponytail: local attribution uses scans; Slice 9 owns derived indexes.
+        # ponytail: local attribution uses scans; index only after measurement.
         for evidence in self.catalog_evidence:
             if evidence.ref == ref:
                 return evidence
@@ -1552,7 +1552,7 @@ class PackageGraphSnapshot:
             raise TypeError("Module lookup requires an exact module ref.")
         if ref.scope is not self.scope:
             raise ValueError("Module ref belongs to a foreign snapshot.")
-        # ponytail: local attribution uses scans; Slice 9 owns derived indexes.
+        # ponytail: local attribution uses scans; index only after measurement.
         for module in self.modules:
             if module.ref == ref:
                 return module
@@ -1568,7 +1568,7 @@ class PackageGraphSnapshot:
             raise TypeError("Declaration lookup requires an exact declaration ref.")
         if ref.scope is not self.scope:
             raise ValueError("Declaration ref belongs to a foreign snapshot.")
-        # ponytail: local attribution uses scans; Slice 9 owns derived indexes.
+        # ponytail: local attribution uses scans; index only after measurement.
         for declaration in self.declarations:
             if declaration.ref == ref:
                 return declaration
@@ -1581,7 +1581,7 @@ class PackageGraphSnapshot:
             raise TypeError("Field lookup requires an exact field ref.")
         if ref.scope is not self.scope:
             raise ValueError("Field ref belongs to a foreign snapshot.")
-        # ponytail: local attribution uses scans; Slice 9 owns derived indexes.
+        # ponytail: local attribution uses scans; index only after measurement.
         for graph_field in self.fields:
             if graph_field.ref == ref:
                 return graph_field
@@ -1594,7 +1594,7 @@ class PackageGraphSnapshot:
             raise TypeError("Let lookup requires an exact let ref.")
         if ref.scope is not self.scope:
             raise ValueError("Let ref belongs to a foreign snapshot.")
-        # ponytail: local attribution uses scans; Slice 9 owns derived indexes.
+        # ponytail: local attribution uses scans; index only after measurement.
         for binding in self.let_bindings:
             if binding.ref == ref:
                 return binding
@@ -1995,7 +1995,7 @@ def _derive_package_graph_provenance_paths(
     direct_steps = _package_graph_direct_provenance_steps(snapshot)
     paths: list[PackageGraphProvenancePath] = []
 
-    # ponytail: local snapshots enumerate paths directly; Slice 9 owns indexes.
+    # ponytail: local snapshots enumerate paths directly; index only after measurement.
     def extend(
         current: PackageGraphProvenanceRef,
         prefix: tuple[PackageGraphDirectProvenanceStep, ...],

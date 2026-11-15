@@ -288,9 +288,6 @@ def test_public_journey_refuses_route_bundle_identity_and_premise_before_source(
     tmp_path, monkeypatch
 ):
     import pietto.execution as execution
-
-    if not {"save", "create_workspace"} <= set(execution.__all__):
-        pytest.skip("S18 preflight waits for the integrated saved-result surface")
     import _pietto_execution_api as api
     import _pietto_execution_jobs_probe as workspace_probe
     from pietto._project import project_job_runtime as runtime
