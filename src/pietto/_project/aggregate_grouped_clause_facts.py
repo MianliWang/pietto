@@ -21,6 +21,7 @@ from pietto._project.aggregate_grouped_schema import (
 from pietto._project.let_scope_facts import (
     ProjectLetScopeFactsStatus,
     ProjectRelationLetScopeFacts,
+    admitted_let_expressions,
     build_project_relation_let_scope_facts,
     checked_let_values,
 )
@@ -64,9 +65,11 @@ from pietto.ast_nodes import (
 from pietto.errors import Diagnostic, Severity
 from pietto.semantic import group_by as semantic_group_by, relation_schemas
 from pietto.semantic.analyzer import _within
-from pietto.semantic import let_bindings, satisfying as semantic_satisfying
+from pietto.semantic import satisfying as semantic_satisfying
 from pietto.semantic.aggregates import (
     FLOAT_STATISTIC_AGGREGATE_NAMES,
+    MAX_AGGREGATE_NAME,
+    MIN_AGGREGATE_NAME,
     ORDERED_VALUE_AGGREGATE_NAMES,
     aggregate_argument_can_use_let_scope,
     aggregate_composition_leaves,
@@ -434,17 +437,30 @@ def _single_file_grouping_diagnostics(
     projection or a GROUP BY key and an aggregate's argument count
     (PIE-S2309), but no error of a projection without an aggregate, which
     the project types itself. A relation over a row of unknown type gets
-    none. One that reads a `let` name (but as a Float statistic's argument,
-    such as a `stddev` or `median` one, or in a `quantile` fraction), a
-    nested relation field, a relation, a captured field, a query parameter
-    or `any(...)` in those positions, which a project checks otherwise, gets
-    only its generators' errors (`_generator_errors`) and the refusals of its
-    `count_distinct(a, b, ...)`, `first` and `last` calls
-    (`_call_argument_errors`)."""
+    none. A `let:` name is read as its value, as a single file reads it, as
+    an aggregate's argument or outside one. One that reads a nested relation
+    field, a relation, a captured field, a query parameter or `any(...)` in
+    those positions, also through a `let:` name, or a `let:` name in a `min`
+    or `max` argument or inside an aggregate's expression argument
+    (`sum(d + 1)`, which a single file reads as no `let:` name), or that
+    selects or projects a `let:` name under GROUP BY that a single file
+    refuses (its PIE-S2329, or PIE-S2102 with a GROUP BY hint), which a
+    project checks otherwise, gets only its generators' errors
+    (`_generator_errors`) and the refusals of its `count_distinct(a, b, ...)`,
+    `first` and `last` calls (`_call_argument_errors`)."""
 
     if input_schema.is_unknown:
         return ()
-    lets = {} if let_scope_facts is None else dict(let_scope_facts.binding_expressions)
+    schema = project_row_schema_to_semantic_row_schema(input_schema)
+    lets = admitted_let_expressions(let_scope_facts, definition, schema)
+    # As in a single file, a `let:` name as an aggregate's direct argument is
+    # no unknown field: its binding's own error, or the PIE-S2329 that refused
+    # it, stands alone.
+    bound = (
+        set()
+        if definition.let_clause is None
+        else {binding.name for binding in definition.let_clause.bindings}
+    )
     # A read of a nested relation field reports its own PIE-S2805.
     nested = {
         name
@@ -452,12 +468,17 @@ def _single_file_grouping_diagnostics(
         if is_nested_relation_field(row_field)
     }
     # Each expression with whether it is in a `quantile` fraction, which is
-    # never read: a `let` name there is the single file's PIE-S2104 at it.
-    roots: list[tuple[Expression, bool]] = [
-        (item.expression, False) for item in definition.select_items
+    # never read: a `let` name there is the single file's PIE-S2104 at it;
+    # and whether it is in a `min` or `max` argument, where a project also
+    # admits a `let` name that a single file refuses, or in an aggregate's
+    # expression argument, where a single file reads no `let` name.
+    roots: list[tuple[Expression, bool, bool]] = [
+        (item.expression, False, False) for item in definition.select_items
     ]
     if definition.group_by_clause is not None:
-        roots.extend((item.key, False) for item in definition.group_by_clause.items)
+        roots.extend(
+            (item.key, False, False) for item in definition.group_by_clause.items
+        )
     # An admitted nested GROUP BY key, and a SELECT item naming it, is no
     # error (D73.05): the relation's other grouping errors are still checked.
     keyed = definition.group_by_clause is not None and any(
@@ -466,7 +487,7 @@ def _single_file_grouping_diagnostics(
     )
     admitted = {
         id(root)
-        for root, _ in roots
+        for root, _, _ in roots
         if keyed
         and (
             (type(root) is NameExpr and root.name in nested)
@@ -476,13 +497,14 @@ def _single_file_grouping_diagnostics(
     }
     if definition.order_by_clause is not None:
         roots.extend(
-            (item.expression, False) for item in definition.order_by_clause.items
+            (item.expression, False, False) for item in definition.order_by_clause.items
         )
     if definition.satisfying_clause is not None:
-        roots.append((definition.satisfying_clause.expression, False))
+        roots.append((definition.satisfying_clause.expression, False, False))
     otherwise = False
+    read: set[str] = set()
     while roots:
-        node, in_fraction = roots.pop()
+        node, in_fraction, wide = roots.pop()
         if (
             type(node) is CallExpr
             and semantic_aggregate_call_name(node) in FLOAT_STATISTIC_AGGREGATE_NAMES
@@ -497,9 +519,20 @@ def _single_file_grouping_diagnostics(
         if id(node) in admitted:
             continue
         if (
+            type(node) is NameExpr
+            and node.name in lets
+            and not in_fraction
+            and not wide
+        ):
+            # As in a single file, a `let:` name is checked as its value reads.
+            if node.name not in read:
+                read.add(node.name)
+                roots.append((lets[node.name], False, False))
+            continue
+        if (
             (
                 type(node) is NameExpr
-                and ((node.name in lets and not in_fraction) or node.name in nested)
+                and (node.name in nested or (wide and node.name in lets))
             )
             or (type(node) is DottedNameExpr and node.parts[-1] in nested)
             or type(node)
@@ -522,15 +555,34 @@ def _single_file_grouping_diagnostics(
             and len(node.arguments) == 2
             else None
         )
+        extremum = type(node) is CallExpr and semantic_aggregate_call_name(node) in {
+            MIN_AGGREGATE_NAME,
+            MAX_AGGREGATE_NAME,
+        }
+        # An aggregate's argument other than a name: a single file reads no
+        # `let` name in it (`sum(d + 1)`), whatever the binding.
+        expression_arguments = (
+            {
+                id(argument)
+                for argument in node.arguments
+                if type(argument) is not NameExpr and argument is not fraction
+            }
+            if type(node) is CallExpr and semantic_aggregate_call_name(node)
+            else set()
+        )
         roots.extend(
-            (child, in_fraction or child is fraction)
+            (
+                child,
+                in_fraction or child is fraction,
+                wide or extremum or id(child) in expression_arguments,
+            )
             for child in child_expressions(node)
         )
-    schema = project_row_schema_to_semantic_row_schema(input_schema)
     qualifier = (
         definition.from_clause.binding_name or definition.from_clause.source_name
     )
-    if otherwise:
+
+    def checked_otherwise() -> tuple[Diagnostic, ...]:
         return tuple(
             sorted(
                 (
@@ -544,6 +596,9 @@ def _single_file_grouping_diagnostics(
                 key=_order_key,
             )
         )
+
+    if otherwise:
+        return checked_otherwise()
     types: dict[Expression, ValueType] = (
         {} if let_scope_facts is None else dict(let_scope_facts.expression_value_types)
     )
@@ -563,8 +618,9 @@ def _single_file_grouping_diagnostics(
                         allow_aggregate_projection=True,
                         bare_value_types=None
                         if let_scope_facts is None
-                        else let_scope_facts.value_types,
+                        else let_scope_facts.binding_value_types,
                         bare_value_expressions=lets,
+                        suppressed_unknown_names=bound,
                     )
         infer_row_expression(
             item.expression,
@@ -575,8 +631,9 @@ def _single_file_grouping_diagnostics(
             field_qualifier=qualifier,
             bare_value_types=None
             if let_scope_facts is None
-            else let_scope_facts.value_types,
+            else let_scope_facts.binding_value_types,
             bare_value_expressions=lets,
+            suppressed_unknown_names=bound,
         )
         # Only an aggregate projection's own typing is the relation's
         # grouping error; any other read is checked where it is projected.
@@ -592,6 +649,26 @@ def _single_file_grouping_diagnostics(
         reported_errors=frozenset(typed),
         order_output_ports=True,
     )
+    # A projection without an aggregate whose `let:` name read a single file
+    # refuses (PIE-S2102 with a GROUP BY hint) and a project admits.
+    plain_lets: set[tuple[str | None, int, int]] = set()
+    pending = [
+        item.expression
+        for item in definition.select_items
+        if not contains_semantic_aggregate(item.expression)
+    ]
+    while pending:
+        node = pending.pop()
+        pending.extend(child_expressions(node))
+        if type(node) is NameExpr and node.name in lets:
+            plain_lets.add(_span_key(node))
+    if any(
+        item.code == "PIE-S2102"
+        and item.location is not None
+        and (item.location.path, item.location.line, item.location.column) in plain_lets
+        for item in projected
+    ):
+        return checked_otherwise()
     having: list[Diagnostic] = []
     if definition.satisfying_clause is not None:
         _, having = semantic_satisfying.check_satisfying_clauses(
@@ -633,9 +710,8 @@ def _single_file_grouping_diagnostics(
         Script(span=definition.span, header=None, definitions=(definition,))
     )
 
-    # An unknown field in an aggregate projection is reported after the
-    # relation's grouping errors, as a single file does; it reports no other
-    # error of the projection's own typing that is no grouping error.
+    # Of an aggregate projection's own typing, a single file reports its
+    # grouping errors and an unknown field, and no other error.
     def kept(diagnostic: Diagnostic) -> bool:
         return (
             diagnostic.severity is Severity.ERROR
@@ -679,16 +755,22 @@ def _single_file_grouping_diagnostics(
         )
         if item not in first
     ]
-    retained = (
-        *first,
-        *(item for item in typed if item.code == "PIE-S2102" and item not in tested),
-        *tested,
-        *(item for item in (*having, *limits) if kept(item)),
+    # The relation's errors in the single file's order.
+    retained = tuple(
+        sorted(
+            (
+                *first,
+                *(
+                    item
+                    for item in typed
+                    if item.code == "PIE-S2102" and item not in tested
+                ),
+                *tested,
+                *(item for item in (*having, *limits) if kept(item)),
+            ),
+            key=_order_key,
+        )
     )
-    if tested:
-        # A relation with a generator test's error, which 0.1.9 had no tier
-        # for, reports in the single file's order.
-        retained = tuple(sorted(retained, key=_order_key))
     # A single file names the type an aggregate's field argument is declared
     # with, a type alias included, where the project row holds the type that
     # the alias expands to.
@@ -827,17 +909,7 @@ def _call_argument_errors(
     `ordered_value_facts`). Such a call is checked by itself, whatever else
     the relation reads."""
 
-    lets = {} if let_scope_facts is None else dict(let_scope_facts.binding_expressions)
-    # As in a single file, a binding PIE-S2329 refused is no `let:` name of a
-    # `first` or `last`, so that its refusal stands alone.
-    refused = (
-        let_bindings._invalid_binding_names(
-            definition, schema, [], allow_unaliased_selected_let_outputs=True
-        )
-        if let_scope_facts is not None and let_scope_facts.diagnostics
-        else set()
-    )
-    ordered_lets = {name: lets[name] for name in lets if name not in refused}
+    lets = admitted_let_expressions(let_scope_facts, definition, schema)
     found: list[Diagnostic] = []
     for item in definition.select_items:
         pending = [item.expression]
@@ -851,7 +923,6 @@ def _call_argument_errors(
             if not ordered and not is_count_distinct_tuple(node):
                 continue
             assert type(node) is CallExpr
-            call_lets = ordered_lets if ordered else lets
             value = node.arguments[0] if ordered and node.arguments else None
             types: dict[Expression, ValueType] = (
                 {}
@@ -869,9 +940,9 @@ def _call_argument_errors(
                 if let_scope_facts is None
                 # A `let:` name as the value is typed as a single file types it.
                 else let_scope_facts.binding_value_types
-                if type(value) is NameExpr and value.name in call_lets
+                if type(value) is NameExpr and value.name in lets
                 else let_scope_facts.value_types,
-                bare_value_expressions=call_lets,
+                bare_value_expressions=lets,
             )
             found.extend(
                 semantic_group_by._aggregate_output_field(
@@ -880,7 +951,7 @@ def _call_argument_errors(
                     input_schema=schema,
                     output_name=item.alias,
                     expression_value_types=types,
-                    let_expansions=call_lets,
+                    let_expansions=lets,
                     type_expansions={},
                     let_extrema=False,
                 )[1]

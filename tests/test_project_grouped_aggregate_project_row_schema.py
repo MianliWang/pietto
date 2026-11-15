@@ -1958,15 +1958,176 @@ _TEST_OPERATOR = (
 def test_a_generator_test_error_is_reported_whatever_the_relation_reads(
     tmp_path, capsys, body, line
 ):
-    """A relation that reads a let, which the project checks otherwise, still
-    reports its generator test's error at the test, not PIE-S2333; a single
-    file reports it too (beside its own refusal of a computed let key)."""
+    """A relation that reads a let still reports its generator test's error at
+    the test, not PIE-S2333; a single file reports it too."""
     expected = (*_TEST_OPERATOR, line, 37, None)
     project, single = _project_and_file_diagnostics(tmp_path, capsys, 2, body)
     assert project == (1, [expected])
     assert expected in single[1]
     valid = body.replace("o.label > 1", "o.qty > 1")
     assert _project_and_file_diagnostics(tmp_path, capsys, 2, valid)[0] == (0, [])
+
+
+_LET_Q2 = "    let q2 = qty * 2\n"
+_SUM_Q2 = "    group by label\n    select:\n        label\n        m = sum(q2)\n"
+_REFUSED_W = "    group by label\n    select:\n        label\n        w = count()\n"
+_FAILING_TEST = "        n = sum(1 for o in group if o.label > 1)\n"
+
+
+@pytest.mark.parametrize(
+    ("body", "codes"),
+    (
+        (_LET_Q2 + _SUM_Q2 + "        c = count(nope)\n", ["PIE-S2102"]),
+        (
+            _LET_Q2 + _SUM_Q2 + "        c = sum(nope)\n" + _FAILING_TEST,
+            ["PIE-S2102", "PIE-S2105"],
+        ),
+        (
+            _LET_Q2
+            + _SUM_Q2
+            + "        s = sum(o.nope for o in group if o.label > 1)\n",
+            ["PIE-S2102", "PIE-S2105"],
+        ),
+        (_LET_Q2 + _SUM_Q2 + "        c = sum(label)\n", ["PIE-S2314"]),
+        (
+            _LET_Q2
+            + "    select:\n        m = sum(q2)\n"
+            + _FAILING_TEST
+            + "    limit -1\n",
+            ["PIE-S2105", "PIE-S2307"],
+        ),
+        (
+            _LET_Q2 + "    group by nope\n    select:\n        m = sum(q2)\n",
+            ["PIE-S2102"],
+        ),
+        (_LET_Q2 + _SUM_Q2 + "    order by nope\n", ["PIE-S2321"]),
+        (_LET_Q2 + _SUM_Q2 + "    having nope > 1\n", ["PIE-S2324"]),
+        # A computed or aliased `let` GROUP BY key is read as its value too.
+        (
+            "    let big = qty > 1\n    group by big\n    select:\n"
+            "        k = count()\n        c = sum(nope)\n" + _FAILING_TEST,
+            ["PIE-S2102", "PIE-S2105"],
+        ),
+        (
+            "    let k = label\n    group by k\n    select:\n        m = count()\n"
+            "    having nope > 1\n",
+            ["PIE-S2324"],
+        ),
+        # Beside a let/projection name conflict, a read of the refused `let`
+        # is not reported again; another `let` keeps its own type.
+        ("    let w = qty\n" + _REFUSED_W + "        m = stddev(w)\n", ["PIE-S2329"]),
+        (
+            "    let w = qty\n    select:\n        w = count()\n"
+            "        m = variance(w)\n",
+            ["PIE-S2329"],
+        ),
+        (
+            "    let w = qty\n" + _REFUSED_W + "        m = quantile(w, 0.5)\n",
+            ["PIE-S2329"],
+        ),
+        (
+            "    let w = qty + 1\n"
+            + _REFUSED_W
+            + "        m = count_distinct(w, id)\n",
+            ["PIE-S2329"],
+        ),
+        (
+            "    let k = qty\n    let w = id\n" + _REFUSED_W + "        m = sum(k)\n",
+            ["PIE-S2329"],
+        ),
+        (
+            "    let k = label\n    let w = id\n" + _REFUSED_W + "        m = sum(k)\n",
+            ["PIE-S2329", "PIE-S2314"],
+        ),
+        # A `let` with an error of its own reports that error alone.
+        (
+            "    let v = nosuch\n    group by label\n    select:\n        label\n"
+            "        m = stddev(v)\n",
+            ["PIE-S2102"],
+        ),
+        # The relation's errors come in source order, with or without a `let`.
+        (
+            "    group by label\n    select:\n        label\n        t = sum(nope)\n"
+            "        u = sum(label)\n",
+            ["PIE-S2102", "PIE-S2314"],
+        ),
+        (
+            _LET_Q2 + _SUM_Q2 + "        t = sum(nope)\n        u = sum(label)\n",
+            ["PIE-S2102", "PIE-S2314"],
+        ),
+    ),
+    ids=(
+        "count_unknown_field",
+        "sum_unknown_field_beside_a_test",
+        "generator_unknown_member",
+        "sum_of_text",
+        "limit_without_group_by",
+        "group_key_unknown_field",
+        "grouped_order_key",
+        "having_unknown_output",
+        "computed_let_key",
+        "aliased_let_key",
+        "stddev_of_a_refused_let",
+        "variance_of_a_refused_let",
+        "quantile_of_a_refused_let",
+        "count_distinct_of_a_refused_let",
+        "sum_beside_a_refused_let",
+        "sum_of_text_beside_a_refused_let",
+        "stddev_of_a_failing_let",
+        "source_order",
+        "source_order_beside_a_let",
+    ),
+)
+def test_a_relation_with_aggregates_reports_what_a_file_does(
+    tmp_path, capsys, body, codes
+):
+    """A relation with aggregates, also one that reads a `let` name, reports
+    the single file's diagnostics in its order, not the bare PIE-S2333."""
+    project, single = _project_and_file_diagnostics(tmp_path, capsys, 2, body)
+    assert project == single
+    assert [row[0] for row in project[1]] == codes
+
+
+_BY_LABEL = "    group by label\n    select:\n        label\n"
+_NOPE = "        c = sum(nope)\n"
+
+
+@pytest.mark.parametrize(
+    "body",
+    (
+        # A `let` name in an aggregate's expression argument, which a single
+        # file reads as no `let` name (PIE-S2102).
+        "    let k = label\n" + _BY_LABEL + "        m = count(k + 1)\n",
+        _LET_Q2 + _BY_LABEL + "        m = sum(q2 + 1)\n" + _NOPE,
+        # A `let` name in `max`, which a project admits and a file refuses.
+        _LET_Q2 + _BY_LABEL + "        m = max(q2)\n" + _NOPE,
+        # A query parameter read through a `let` GROUP BY key.
+        "    select:\n        id\nquery p(lim: Int):\n    from items\n"
+        "    let big = qty > lim\n    group by big\n    select:\n"
+        "        m = count()\n" + _NOPE,
+        # A grouped `let` name selected or projected, which a file refuses
+        # (PIE-S2329, PIE-S2102) and a project admits.
+        "    let k = qty\n    group by k\n    select:\n        k\n"
+        "        m = count()\n" + _NOPE,
+        "    let k = qty\n    group by k\n    select:\n        x = k\n"
+        "        m = count()\n" + _NOPE,
+    ),
+    ids=(
+        "expression_argument",
+        "expression_argument_beside_an_error",
+        "max_beside_an_error",
+        "parameter_through_a_let_key",
+        "selected_let_key",
+        "projected_let_key",
+    ),
+)
+def test_a_let_read_a_file_checks_otherwise_keeps_the_bare_fallback(
+    tmp_path, capsys, body
+):
+    """A relation that reads a `let` name where a single file does not read
+    it as its value reports the bare PIE-S2333 alone."""
+    project, _ = _project_and_file_diagnostics(tmp_path, capsys, 2, body)
+    assert [row[0] for row in project[1]] == ["PIE-S2333"]
 
 
 def test_a_generator_test_error_is_reported_beside_a_parameter(tmp_path, capsys):

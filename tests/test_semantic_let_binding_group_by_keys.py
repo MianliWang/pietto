@@ -388,12 +388,6 @@ def test_computed_let_keys_and_let_extrema_follow_their_mode_law(
     assert completed.ok and completed.diagnostics == ()
 
 
-UNAVAILABLE = (
-    "PIE-S2333",
-    "Project relation semantic completion is unavailable: grouped_orders",
-)
-
-
 @pytest.mark.parametrize(
     ("let_lines", "tail", "expected"),
     (
@@ -422,7 +416,12 @@ UNAVAILABLE = (
         (
             "    let alias = bucket\n",
             "    group by:\n        alias\n    select:\n        total = count()\n",
-            UNAVAILABLE,
+            (
+                "PIE-S2102",
+                "Unknown field: alias; a query cannot group by a computed `let` "
+                "value here yet: select alias in one query, then group by alias "
+                "in another that reads it with `from`",
+            ),
         ),
         (
             # A let name is no field of its input, as in a single file.
@@ -435,13 +434,16 @@ UNAVAILABLE = (
             "",
             "    group by:\n        bucket\n        bucket\n    select:\n"
             "        total = count()\n",
-            UNAVAILABLE,
+            ("PIE-S2317", "Duplicate GROUP BY key: bucket"),
         ),
         (
             "",
             "    group by:\n        bucket\n    select:\n        b = bucket\n"
             "        total = count()\n    having:\n        b > 0\n",
-            UNAVAILABLE,
+            (
+                "PIE-S2326",
+                "Having output is not a group-key or direct aggregate projection: b",
+            ),
         ),
     ),
     ids=(
@@ -459,6 +461,7 @@ def test_explicit_module_computed_keys_keep_their_documented_refusals(
     tail: str,
     expected: tuple[str, str],
 ) -> None:
+    """Each refusal is the diagnostic a single file reports."""
     (tmp_path / "pietto.toml").write_text(
         'schema_version = 2\n[sources]\ninclude = ["*.pietto"]\n', encoding="utf-8"
     )

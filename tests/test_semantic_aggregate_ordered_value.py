@@ -582,8 +582,8 @@ PROJECT_BODIES = (
     _grouped("first(o.plant for o in group)"),
     _joined("first(sales.plant, order by sales.id)"),
     *(body for body, _ in TWO_DEFECT_BODIES),
-    # A `let:` name in the call, which a project reads otherwise: a computed
-    # value or key, or a key the proof refuses, is the file's diagnostic alone.
+    # A `let:` name in the call: a computed value or key, or a key the proof
+    # refuses, is the file's diagnostic alone.
     _grouped("last(k, order by id)", where="    let k = lower(plant)\n"),
     "query q:\n    from sales\n    let k = lower(plant)\n    select:\n"
     "        v = last(k, order by id)\n",
@@ -600,6 +600,17 @@ PROJECT_BODIES = (
     _grouped("first(k, order by id)", where="    let k2 = plant\n    let k = k2\n")
     + "        k2 = count()\n",
     _grouped("last(k, order by sold_at)", where="    let k = plant\n    let v = pot\n"),
+    # An order key that reads a refused binding is no direct field.
+    _grouped("first(plant, order by k, id)", where="    let k = seq\n")
+    + "        k = count()\n",
+    _grouped("last(plant, order by k)", where="    let k = seq\n")
+    + "        k = count()\n",
+    # An order proof's error or JOIN refusal comes among its relation's other
+    # errors in source order.
+    _grouped("first(plant, order by sold_at)") + "        c = sum(nope)\n",
+    _grouped("first(plant, order by k, id)", where="    let k = seq\n")
+    + "        k = count()\n        c = sum(plant)\n",
+    _joined("first(sales.plant, order by sales.id)") + "        c = sum(sales.plant)\n",
     # A value that reads a binding with an error of its own, or one that reads
     # such a binding, has no known type: no proof runs, as in a file.
     _grouped("first(k, order by sold_at)", where="    let k = plantt\n"),
@@ -642,6 +653,95 @@ def test_a_schema_version_2_project_reports_what_a_file_does(
         )
     assert found[0] == found[1]
     assert (found[0][0] == 0) is (body == PROJECT_BODIES[0])
+
+
+# A project lists another relation's projection error first, as in `0.2.0`;
+# an order proof's error comes after its relation's errors that precede it in
+# source, just before the first of its relation's listed after all of those,
+# so before any listed between them, else last, as in `0.2.0`.
+OTHER = "query r:\n    from sales\n    select:\n        id\n        z = nope7\n"
+FIRST_X = _grouped("first(plant, order by sold_at)").replace("query q:", "query x:")
+
+
+@pytest.mark.parametrize(
+    ("body", "expected"),
+    [
+        (
+            _grouped("first(plant, order by sold_at)").replace(
+                "        v = ", "        c = sum(nope)\n        v = "
+            )
+            + OTHER,
+            [("PIE-S2102", LINE + 6), ("PIE-S2102", LINE), ("PIE-S2104", LINE + 1)],
+        ),
+        (
+            _grouped("first(plant, order by sold_at)")
+            + "        c = sum(nope)\n"
+            + OTHER,
+            [("PIE-S2102", LINE + 6), ("PIE-S2104", LINE), ("PIE-S2102", LINE + 1)],
+        ),
+        (
+            _grouped("first(plant, order by sold_at)") + OTHER,
+            [("PIE-S2102", LINE + 5), ("PIE-S2104", LINE)],
+        ),
+        (
+            _grouped("first(plant, order by sold_at)")
+            + FIRST_X.replace("        v = ", "        c = sum(nope)\n        v = "),
+            [("PIE-S2102", LINE + 6), ("PIE-S2104", LINE), ("PIE-S2104", LINE + 7)],
+        ),
+        (
+            _grouped("first(plant, order by sold_at)")
+            + FIRST_X
+            + "        c = sum(nope)\n",
+            [("PIE-S2104", LINE + 6), ("PIE-S2102", LINE + 7), ("PIE-S2104", LINE)],
+        ),
+        (
+            _grouped("first(plant, order by sold_at)").replace(
+                "        v = ", "        c = sum(nope)\n        v = "
+            )
+            + "        c = count()\n",
+            [("PIE-S2305", LINE + 2), ("PIE-S2102", LINE), ("PIE-S2104", LINE + 1)],
+        ),
+    ],
+)
+def test_a_project_lists_an_order_proof_error_within_its_relation(
+    tmp_path, capsys, body: str, expected: list
+) -> None:
+    from pietto import cli
+
+    (tmp_path / "pietto.toml").write_text(
+        'schema_version = 2\n[sources]\ninclude = ["*.pietto"]\n'
+    )
+    (tmp_path / "main.pietto").write_text(PREFIX + body)
+
+    assert cli.main(["check", "--project", str(tmp_path), "--format", "json"]) == 1
+    assert [
+        (row["code"], row["location"]["line"])
+        for row in json.loads(capsys.readouterr().out)["diagnostics"]
+    ] == expected
+
+
+def test_a_project_places_an_order_proof_error_among_its_own_files(
+    tmp_path, capsys
+) -> None:
+    from pietto import cli
+
+    (tmp_path / "pietto.toml").write_text(
+        'schema_version = 2\n[sources]\ninclude = ["*.pietto"]\n'
+    )
+    (tmp_path / "a.pietto").write_text(PREFIX + FIRST_X)
+    (tmp_path / "b.pietto").write_text(
+        PREFIX + FIRST_X.replace("        v = ", "        c = sum(nope)\n        v = ")
+    )
+
+    assert cli.main(["check", "--project", str(tmp_path), "--format", "json"]) == 1
+    assert [
+        (row["code"], row["location"]["path"], row["location"]["line"])
+        for row in json.loads(capsys.readouterr().out)["diagnostics"]
+    ] == [
+        ("PIE-S2102", "b.pietto", LINE),
+        ("PIE-S2104", "a.pietto", LINE),
+        ("PIE-S2104", "b.pietto", LINE + 1),
+    ]
 
 
 def test_a_schema_version_1_project_has_no_first_or_last(tmp_path, capsys) -> None:

@@ -28,7 +28,10 @@ from pietto.ast_nodes import (
     TableDef,
 )
 from pietto.semantic.expressions import LetValues, _let_names_with_diagnostics
-from pietto.semantic.let_bindings import analyze_relation_let_bindings
+from pietto.semantic.let_bindings import (
+    _invalid_binding_names,
+    analyze_relation_let_bindings,
+)
 from pietto.semantic.model import (
     LetScopeSemanticInfo,
     RowSchema,
@@ -382,6 +385,31 @@ def checked_let_values(
     return LetValues(
         values, _let_names_with_diagnostics(let_scope.definition, let_scope.diagnostics)
     )
+
+
+def admitted_let_expressions(
+    let_scope: ProjectRelationLetScopeFacts | None,
+    definition: _DerivedRelation,
+    schema: RowSchema,
+) -> dict[str, Expression]:
+    """Each `let:` name of ``let_scope`` read as its value, as a single file
+    admits them over the input row ``schema``: a binding PIE-S2329 refused is
+    none, so that its refusal stands alone."""
+
+    if let_scope is None:
+        return {}
+    refused = (
+        _invalid_binding_names(
+            definition, schema, [], allow_unaliased_selected_let_outputs=True
+        )
+        if let_scope.diagnostics
+        else set()
+    )
+    return {
+        name: value
+        for name, value in let_scope.binding_expressions.items()
+        if name not in refused
+    }
 
 
 def _upstream_non_concrete_facts(

@@ -77,20 +77,44 @@ aggregate projection or a GROUP BY key, an aggregate's argument count
 an aggregate argument whose type a field declares through an alias is named
 by that alias (`got Whatever`). A relation over a row of unknown type,
 or one that reads a relation, a captured field, a query parameter or
-`any(...)` in its SELECT items or ORDER BY, is still the bare PIE-S2333 at the
-relation, and so is one whose shape-typed field an aggregate reads; one that
-reads a nested relation field there reports PIE-S2805 for that read instead
-of these checks. Each error of a generator call in a SELECT item, the call's
-own (PIE-S2314) or else each error of its test (such as PIE-S2105 or
-PIE-S2202), is reported as a single file reports it whatever else the
-relation reads, a `let` name or a query parameter included, and so is the
-refusal of a `count_distinct(a, b, ...)` argument (PIE-S2104, PIE-S2314,
-PIE-S2315), a `let:` name in it read as its value; so is the refusal of a
-`first` or `last` value (PIE-S2314, PIE-S2315; PIE-S2104 without `order
-by`), a `let:` name read as its value; beside an error
-in a generator test, the relation's errors of these checks are in a single
-file's order. A relation that already reports an error of its own, a `first`
-or `last` order proof's PIE-S2104 included, gets no bare PIE-S2333 beside it.
+`any(...)` in its SELECT items, GROUP BY, ORDER BY or `having`, also through a
+`let` name, is still the bare PIE-S2333 at the relation, and so is one whose
+shape-typed field an aggregate reads. So is one that reads a `let` name in a
+`min` or `max` argument (which a project admits and a single file refuses
+with PIE-S2315; of a `Text` or `Bool` value, which both refuse, a single file
+with PIE-S2314) or inside the expression argument of an aggregate other than
+`first`, `last` or a several-column `count_distinct` (a single file reports
+PIE-S2102 `Unknown field: d` for `sum`, `avg`, `count` or `count_distinct`,
+as for `sum(d + 1)` or `sum(d if flag else 0)`, PIE-S2315 for `min`, `max`,
+`median`, `quantile` or a variance or standard deviation, as for
+`stddev(d + 1)`, and accepts `string_agg(lower(l), ",", order by id)`), and
+one that selects under GROUP BY a `let` name that a single file refuses
+there: a `let` that only renames
+a field, selected by its name under GROUP BY (PIE-S2329), or another
+projection without an aggregate that reads a `let` name, such as `x = k`
+after `let k = qty` (PIE-S2102 with a GROUP BY hint, or without one when the
+`let` has an error of its own, which a project then reports alone).
+One that reads a nested relation field there reports PIE-S2805 for that read
+instead of these checks. Each error of
+a generator call in a SELECT item, the call's own (PIE-S2314) or else each
+error of its test (such as PIE-S2105 or PIE-S2202), is reported as a single
+file reports it whatever else the relation reads, a `let` name or a query
+parameter included, and so is the refusal of a `count_distinct(a, b, ...)`
+argument (PIE-S2104, PIE-S2314, PIE-S2315), a `let:` name in it read as its
+value; so is the refusal of a `first` or `last` value (PIE-S2314, PIE-S2315;
+PIE-S2104 without `order by`), a `let:` name read as its value, but a value
+expression that reads a `let` name, such as `first(d + 1, order by id)`, is
+PIE-S2315 as for a field, where a single file reports PIE-S2102 `Unknown
+field: d`. The relation's errors of these checks are in a single file's
+order, which is source order. A `first` or `last` order proof's PIE-S2104 or
+PIE-S2334 comes after the errors of its relation that precede it in source,
+just before the first error of the relation listed after all of those, and
+so before any error of another relation that would otherwise come between
+them; with none listed after them it comes after the errors of the other
+checks, as in `0.2.0`. Errors of different relations otherwise keep the project's stage
+order, so another relation's projection error can come first. A relation
+that already reports an error of its own, a `first` or `last` order proof's
+PIE-S2104 included, gets no bare PIE-S2333 beside it.
 
 Residual: a project also reports the bare PIE-S2333 at some relations that a
 single file accepts or refuses with another code. A relation whose SELECT

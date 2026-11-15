@@ -561,12 +561,16 @@ class _ProjectCompletedSemanticRoots:
                 # A fallback without a cause adds nothing beside an order
                 # proof's error inside its relation (a `let:` order key), as
                 # beside an earlier stage's (`_final_diagnostics`).
-                *(
-                    diagnostic
-                    for diagnostic in reported
-                    if not _bare_fallback_beside(diagnostic, ordered)
+                *_in_source_order(
+                    [
+                        diagnostic
+                        for diagnostic in reported
+                        if not _bare_fallback_beside(
+                            diagnostic, (error for _, error in ordered)
+                        )
+                    ],
+                    ordered,
                 ),
-                *ordered,
                 *query_parameter_semantic_diagnostics(
                     self.semantic_result.module_relation_resolutions,
                     self.semantic_result.module_catalogs,
@@ -1006,6 +1010,34 @@ def _diagnostics_from_carrier(carrier: object | None) -> tuple[Diagnostic, ...]:
 
 
 _BARE_FALLBACK = "Project relation semantic completion is unavailable: "
+
+
+def _in_source_order(
+    reported: list[Diagnostic], ordered: Iterable[tuple[Span, Diagnostic]]
+) -> list[Diagnostic]:
+    """``reported`` with each of ``ordered`` just before the first diagnostic
+    inside its relation's span listed after every one there that precedes it
+    in source, else last, as in `0.2.0`: a single file lists an order proof's
+    error among its relation's in source order."""
+
+    for span, diagnostic in ordered:
+        assert diagnostic.location is not None
+        here = (diagnostic.location.line, diagnostic.location.column)
+        inside = [
+            (index, (item.location.line, item.location.column) < here)
+            for index, item in enumerate(reported)
+            if item.location is not None
+            and item.location.path == span.path
+            and (span.line, span.column)
+            <= (item.location.line, item.location.column)
+            < (span.end_line, span.end_column)
+        ]
+        last = max((index for index, earlier in inside if earlier), default=-1)
+        reported.insert(
+            next((index for index, _ in inside if index > last), len(reported)),
+            diagnostic,
+        )
+    return reported
 
 
 def _bare_fallback_beside(diagnostic: Diagnostic, errors: Iterable[Diagnostic]) -> bool:

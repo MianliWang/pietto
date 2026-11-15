@@ -13,9 +13,13 @@ from __future__ import annotations
 
 from collections.abc import Sequence
 
+from pietto._project.let_scope_facts import admitted_let_expressions
 from pietto._project.model import (
     ProjectRowFieldNullability,
     ProjectSemanticResult,
+)
+from pietto._project.row_expression_type_facts import (
+    project_row_schema_to_semantic_row_schema,
 )
 from pietto.ast_nodes import (
     CallExpr,
@@ -23,6 +27,7 @@ from pietto.ast_nodes import (
     QueryDef,
     ShapeDef,
     SourceDef,
+    Span,
     TableDef,
     UniqueDef,
 )
@@ -44,10 +49,11 @@ __all__ = ("ordered_value_project_diagnostics",)
 def ordered_value_project_diagnostics(
     semantic_result: ProjectSemanticResult,
     reported: Sequence[Diagnostic],
-) -> tuple[Diagnostic, ...]:
+) -> tuple[tuple[Span, Diagnostic], ...]:
     """PIE-S2334 at a `first` or `last` over JOIN rows and PIE-S2104 at the
     first key of its order that fails the proof, in module and source order,
-    for each call with no error in ``reported``."""
+    for each call with no error in ``reported``, each with the span of its
+    relation."""
 
     facts = semantic_result.module_semantic_facts
     if facts is None:
@@ -60,7 +66,7 @@ def ordered_value_project_diagnostics(
         if type(definition) is ShapeDef
         for item in definition.items
     }
-    found: list[Diagnostic] = []
+    found: list[tuple[Span, Diagnostic]] = []
     for environment in facts.environments:
         for relation in environment.relation_facts:
             definition = relation.owner.definition
@@ -75,7 +81,10 @@ def ordered_value_project_diagnostics(
                 and not ordered_value_reported(item.expression, reported)
             )
             if definition.join_clauses or definition.join_filters:
-                found.extend(ordered_value_join_diagnostic(call) for call in calls)
+                found.extend(
+                    (definition.span, ordered_value_join_diagnostic(call))
+                    for call in calls
+                )
                 continue
             if not calls:
                 continue
@@ -116,6 +125,11 @@ def ordered_value_project_diagnostics(
                 ).items()
                 if value_type.kind is ValueTypeKind.KNOWN
             }
+            admitted = admitted_let_expressions(
+                relation.let_scope_facts,
+                definition,
+                project_row_schema_to_semantic_row_schema(schema),
+            )
             for call in calls:
                 assert type(call) is CallExpr
                 value = call.arguments[0] if call.arguments else None
@@ -137,7 +151,7 @@ def ordered_value_project_diagnostics(
                     },
                     qualifier=definition.from_clause.binding_name
                     or definition.from_clause.source_name,
-                    lets=lets,
+                    lets=admitted,
                     where=definition,
                     group_keys=()
                     if definition.group_by_clause is None
@@ -146,5 +160,5 @@ def ordered_value_project_diagnostics(
                     source_keys=source,
                 )
                 if problem is not None:
-                    found.append(problem)
+                    found.append((definition.span, problem))
     return tuple(found)
