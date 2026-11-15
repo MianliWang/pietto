@@ -1,4 +1,4 @@
-# Phase79 route — B1 limited DuckDB path, Gate 1 approved, Gate 0 bound (health and overlap pending)
+# Phase79 route — B1 limited DuckDB path, Gate 1 approved, Gate 0 bound
 
 Phase79 owns the Phase 79 row of the [roadmap](../../roadmap.md#future-roadmap-v6):
 DuckDB deep adaptation, with the limited local analysis path that `0.2.0`
@@ -15,7 +15,7 @@ grants no commit, push, tag, release, package upload, extension-repository
 push or Marketplace action. B1 publishes only under its own later push
 authorization (PL.04). B1 is one vertical; it does not complete Phase79.
 
-Gate 0 binds the head and its natural CI; the read of that CI's eligible health and alerts and the re-measured Phase77 overlap are pending until the package's first implementation batch records them.
+Gate 0 binds the head and its natural CI. The route left the read of that CI's eligible health and alerts and the re-measured Phase77 overlap to the package's first implementation batch; B1 recorded neither. B1 read the health of the later head `a015afcf` at its midpoint ([Budget, midpoint and stops](#budget-midpoint-and-stops)), and the [B1 audit](completion-audit.md#baseline-and-publication-boundary) records the overlap as NOT_RECORDED.
 
 Before Gate 0, these runs happened besides paper records (PL.02). The PyPI
 metadata and hash fetch and isolated install probe of PL.05 (a), which sheet

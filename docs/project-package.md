@@ -1209,15 +1209,15 @@ The compiler and CLI were
 verified with CPython 3.12 and 3.13 on Linux x86-64; other platforms and
 Python versions are not covered by this evidence.
 
-The published `0.1.12` wheel and sdist on PyPI are byte-identical to the files
+The published `0.2.0` wheel and sdist on PyPI are byte-identical to the files
 attached to the
-[v0.1.12 GitHub pre-release](https://github.com/MianliWang/pietto/releases/tag/v0.1.12),
+[v0.2.0 GitHub pre-release](https://github.com/MianliWang/pietto/releases/tag/v0.2.0),
 together with `SHA256SUMS`, which lists the SHA-256 of the wheel
-`pietto-0.1.12-py3-none-any.whl` and the sdist `pietto-0.1.12.tar.gz`.
+`pietto-0.2.0-py3-none-any.whl` and the sdist `pietto-0.2.0.tar.gz`.
 To check files downloaded from that release, keep their names and run
 `sha256sum --ignore-missing -c SHA256SUMS` in the download directory. GitHub
 also offers an automatic source archive under the same name as the sdist,
-`pietto-0.1.12.tar.gz`; it is a snapshot of the v0.1.12 repository tag, not the
+`pietto-0.2.0.tar.gz`; it is a snapshot of the v0.2.0 repository tag, not the
 sdist, and it is not listed in `SHA256SUMS`. Earlier releases keep their own
 files and `SHA256SUMS` on their GitHub pre-releases.
 

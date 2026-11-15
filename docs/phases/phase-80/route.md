@@ -1,4 +1,4 @@
-# Phase80 route — Gate 1 approved, Gate 0 bound (health and overlap pending)
+# Phase80 route — Gate 1 approved, Gate 0 bound
 
 Phase80 owns the Phase 80 row of the
 [roadmap](../../roadmap.md#future-roadmap-v6): pandas, Polars, NumPy, SciPy
@@ -11,7 +11,7 @@ on its own ledger (PL.01, D80.07). No Phase80 code reaches `main` before the
 `0.1.11` cut (PL.04), and this route authorizes no commit, push, tag,
 release or package upload.
 
-Gate 0 binds the head and its natural CI; the read of that CI's eligible health and alerts and the re-measured Phase77 overlap are pending until the package's first implementation batch records them.
+Gate 0 binds the head and its natural CI. The route left the read of that CI's eligible health and alerts and the re-measured Phase77 overlap to the package's first implementation batch; Phase80 recorded neither, as the [completion audit](completion-audit.md#open-items) states.
 
 Before Gate 0, these runs happened besides paper records (PL.02). The PyPI
 metadata and hash fetch and isolated install probe of PL.05 (a), which sheet

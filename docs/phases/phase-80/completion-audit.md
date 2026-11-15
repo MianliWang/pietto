@@ -229,10 +229,12 @@ since Gate 0, under the
   provisional ones are `SHARD_IMBALANCE_REVIEW` on both Pythons (longest
   over median 1.54 on 3.12 and 1.82 on 3.13, general-runtime-1 the longest
   each time) and `LONG_INDIVISIBLE_NODE` 18 times, the same nine
-  child-process nodes on each Python as at Gate 0. There is no finish-spread,
-  startup, cost or repeat signal; the health's own cost is partial, as
-  always, because it is written before Windows 3.12 and the aggregate job
-  finish. The general-runtime shards that ran on runner image
+  child-process nodes on each Python as at Gate 0. Both comparisons with
+  Gate 0 rest on the editor core's read of the Gate 0 run `42831340276` on
+  2026-11-11; this package did not read that run's health. There is no
+  finish-spread, startup, cost or repeat signal; the health's own cost is
+  partial, as always, because it is written before Windows 3.12 and the
+  aggregate job finish. The general-runtime shards that ran on runner image
   `20261111.370.1` (all three on 3.12, general-runtime-1 on 3.13) took 878
   to 1,029 s, and the two on `20261111.127.1` took 531 to 538 s; the cause
   is not established.
@@ -302,7 +304,10 @@ the DuckDB extra start (21:53:36Z to 21:53:48Z) followed it.
 ## Open items
 
 - **Gate 0 reads.** The CI health read of `42831340276` and the re-measured
-  Phase77 overlap are not recorded.
+  Phase77 overlap are not recorded by Phase80. The editor core read that
+  run's health on 2026-11-11 (its
+  [route](../../editor/ed03-route.md#midpoint-unfreeze-and-closure)), and the
+  acquisition review's comparisons with Gate 0 rest on that read.
 - **Midpoint.** No midpoint record exists. Its inputs are in this audit: the
   P0b results above, the ledger figures below and the acquisition review.
   The PL.04 option-C check lapsed: the `0.1.11` cut came first (PL.21), and

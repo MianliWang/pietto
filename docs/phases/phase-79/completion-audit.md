@@ -307,10 +307,12 @@ emission-portability, 3 nodes on 4 workers, on both Pythons). The
 provisional ones are `SHARD_IMBALANCE_REVIEW` on both Pythons (longest
 over median 1.54 on 3.12 and 1.82 on 3.13, general-runtime-1 the longest
 each time) and `LONG_INDIVISIBLE_NODE` 18 times, the same nine
-child-process nodes on each Python as at Gate 0. There is no finish-spread,
-startup, cost or repeat signal; the health's own cost is partial, as
-always, because it is written before Windows 3.12 and the aggregate job
-finish. The general-runtime shards that ran on runner image
+child-process nodes on each Python as at Gate 0. Both comparisons with
+Gate 0 rest on the editor core's read of the Gate 0 run `42831340276` on
+2026-11-11; this package did not read that run's health. There is no
+finish-spread, startup, cost or repeat signal; the health's own cost is
+partial, as always, because it is written before Windows 3.12 and the
+aggregate job finish. The general-runtime shards that ran on runner image
 `20261111.370.1` (all three on 3.12, general-runtime-1 on 3.13) took 878
 to 1,029 s, and the two on `20261111.127.1` took 531 to 538 s; the cause
 is not established.

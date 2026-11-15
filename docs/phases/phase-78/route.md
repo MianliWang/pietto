@@ -1,4 +1,4 @@
-# Phase78 route — SQLite B1, Gate 1 approved, Gate 0 bound (health and overlap pending)
+# Phase78 route — SQLite B1, Gate 1 approved, Gate 0 bound
 
 Phase78 owns the Phase 78 row of the [roadmap](../../roadmap.md), SQLite deep
 adaptation. On 2026-11-10 (America/Toronto) the owner approved the Gate 1 of
@@ -14,7 +14,7 @@ No commit, push or release is authorized by this route; each batch push needs
 the owner's authorization. SQLite is not a `0.2.0` requirement (decision row
 "`0.2.0` and later versions"), and B1 closes as B1, not as Phase78.
 
-Gate 0 binds the head and its natural CI; the read of that CI's eligible health and alerts and the re-measured Phase77 overlap are pending until the package's first implementation batch records them.
+Gate 0 binds the head and its natural CI. The route left the read of that CI's eligible health and alerts and the re-measured Phase77 overlap to the package's first implementation batch; B1 recorded neither, as the Q0 row of the [B1 record](#b1-record) states.
 
 Before Gate 0, these runs happened besides paper records (PL.02). The PyPI
 metadata and hash fetch and isolated install probe of PL.05 (a), which sheet
@@ -455,10 +455,12 @@ are the per-test sums of round-7 pytest 1 (`-n 8`): emission 2.40 s, native
   provisional ones are `SHARD_IMBALANCE_REVIEW` on both Pythons (longest
   over median 1.54 on 3.12 and 1.82 on 3.13, general-runtime-1 the longest
   each time) and `LONG_INDIVISIBLE_NODE` 18 times, the same nine
-  child-process nodes on each Python as at Gate 0. There is no finish-spread,
-  startup, cost or repeat signal; the health's own cost is partial, as
-  always, because it is written before Windows 3.12 and the aggregate job
-  finish. The general-runtime shards that ran on runner image
+  child-process nodes on each Python as at Gate 0. Both comparisons with
+  Gate 0 rest on the editor core's read of the Gate 0 run `42831340276` on
+  2026-11-11; this package did not read that run's health. There is no
+  finish-spread, startup, cost or repeat signal; the health's own cost is
+  partial, as always, because it is written before Windows 3.12 and the
+  aggregate job finish. The general-runtime shards that ran on runner image
   `20261111.370.1` (all three on 3.12, general-runtime-1 on 3.13) took 878
   to 1,029 s, and the two on `20261111.127.1` took 531 to 538 s; the cause
   is not established.
@@ -521,8 +523,10 @@ are the per-test sums of round-7 pytest 1 (`-n 8`): emission 2.40 s, native
 Ledger: the rows of the lead's Phase78 ledger sum to about `C8/F55/D1830/S0`
 through its row of 16:01Z on 2026-11-13, before Gate 2 (C counts its upper
 bounds), against `C160/F480/D4600/S6`. Its row of 15:32Z states a running
-total of about D4463 instead, about D137 below the cap; which figure holds
-is pending the lead's ruling before Gate 2. The owner chose D2300 on
+total of about D4463 instead, about D137 below the cap. Before Gate 2 the
+lead ruled that the row sums hold, since that running total counted three
+subtotals twice; PL.30 apportions Phase78 at about D2,350 of 4,600 to 16:30Z
+on 2026-11-14. The owner chose D2300 on
 2026-11-11 (D78.06), so D78.05's D1500 stop point no longer applies, and on
 2026-11-12 doubled every budget (PL.09; Phase78 from `C80/F240/D2300/S3`).
 Gate 2 duration: item 12.
