@@ -117,6 +117,12 @@ URI schemes, and a `file:` URI that does not parse, such as
 `file://[::1/x.pietto` with an unclosed host bracket, map to no path and remain
 standalone documents.
 
+An opened document whose path lies under the real path of a configured root,
+but under no root as configured, takes that root's spelling, as when a root is
+a symbolic link and the editor opens a file under its target. Only the root is
+resolved, never the file's own links, and a path under the real paths of two
+or more roots keeps its spelling.
+
 One logical file may not choose a winner among aliases. If multiple configured
 roots select it, or a file that a root selects or publishes diagnostics for is
 open under multiple URIs, each relevant URI receives only the corresponding

@@ -158,6 +158,7 @@ class _Server:
         self.state = "new"
         self.exit_code: int | None = None
         self.roots: tuple[Path, ...] = ()
+        self.real_roots: tuple[Path, ...] = ()
         self.related = False
         self.hover_plaintext = False
         self.hierarchical_symbols = False
@@ -288,14 +289,14 @@ class _Server:
         normalized = tuple(Path(os.path.normpath(root)) for root in roots)
         # Two spellings of one directory, as through a symbolic link, are one.
         try:
-            real = {Path(os.path.realpath(root)) for root in normalized}
-            distinct = len(real) == len(roots)
+            real = tuple(Path(os.path.realpath(root)) for root in normalized)
         except ValueError:  # a path no file can have, as with a NUL
-            distinct = False
-        if not distinct:
+            real = ()
+        if len(set(real)) != len(roots):
             self._error(request_id, -32602, _ROOTS_ERROR)
             return
         self.roots = normalized
+        self.real_roots = real
         self.selections = [frozenset()] * len(normalized)
         self.extras = [frozenset()] * len(normalized)
         self.related = (
@@ -355,10 +356,10 @@ class _Server:
             text = item.get("text")
             if isinstance(text, str):
                 self.documents.pop(uri, None)
-                path = uri_to_path(uri)
+                path = _absolute_uri_path(uri)
                 document = _Document(
                     uri,
-                    Path(path) if path is not None and path.is_absolute() else None,
+                    self._root_spelling(path) if path is not None else None,
                     _LONE_SURROGATE.sub("\ufffd", text),
                     version,
                 )
@@ -401,6 +402,22 @@ class _Server:
         elif method == "textDocument/didClose" and document is not None:
             del self.documents[uri]
             self._touch(document)
+
+    def _root_spelling(self, path: Path) -> Path:
+        """`path` under a root's spelling where it lies under that root's
+        real path and under no root as spelled, as a file an editor opens
+        through a root's symbolic link target. Only the root is resolved,
+        never the file's own links; a path under two roots' real paths keeps
+        its spelling."""
+
+        if any(path.is_relative_to(root) for root in self.roots):
+            return path
+        spelled = [
+            root / path.relative_to(real)
+            for root, real in zip(self.roots, self.real_roots, strict=True)
+            if path.is_relative_to(real)
+        ]
+        return spelled[0] if len(spelled) == 1 else path
 
     def _touch(self, document: _Document) -> None:
         """Mark the units a document event can change, and make any analysis

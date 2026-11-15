@@ -2288,6 +2288,31 @@ def test_two_spellings_of_one_root_directory_are_not_distinct(tmp_path: Path) ->
     )
 
 
+@pytest.mark.parametrize("folded", [False, True])
+def test_a_file_open_under_a_linked_root_s_real_path_is_its_module(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, folded: bool
+) -> None:
+    root = project(tmp_path, models=MODELS, a=A_OK)
+    link = tmp_path / "link"
+    try:
+        link.symlink_to(root, target_is_directory=True)
+    except OSError as error:
+        pytest.skip(f"symlink directories are not supported: {error}")
+    uri = (root / "a.pietto").as_uri()
+    if folded:
+        # Where paths ignore letter case, as on Windows, so does the real
+        # path; VS Code sends file:///c%3A/... for C:\.
+        monkeypatch.setattr(_lsp, "Path", FoldedPath)
+        uri = uri[:8] + uri[8:].swapcase()
+    messages = session(init(link), [], [opened(uri, A_BAD, 1)], [changed(uri, A_OK, 2)])
+    # The buffer is the root's module, not a file checked alone.
+    assert [
+        (item.get("version"), [d["code"] for d in item["diagnostics"]])
+        for item in publishes(messages, uri)
+    ] == [(1, ["PIE-S2102"]), (2, [])]
+    assert publishes(messages, (link / "a.pietto").as_uri()) == []
+
+
 @pytest.mark.parametrize(
     "text",
     [
