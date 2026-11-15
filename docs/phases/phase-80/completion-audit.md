@@ -229,10 +229,12 @@ since Gate 0, under the
   provisional ones are `SHARD_IMBALANCE_REVIEW` on both Pythons (longest
   over median 1.54 on 3.12 and 1.82 on 3.13, general-runtime-1 the longest
   each time) and `LONG_INDIVISIBLE_NODE` 18 times, the same nine
-  child-process nodes on each Python as at Gate 0. Both comparisons with
-  Gate 0 rest on the editor core's read of the Gate 0 run `42831340276` on
-  2026-11-11; this package did not read that run's health. There is no
-  finish-spread, startup, cost or repeat signal; the health's own cost is
+  child-process nodes on each Python as in the Gate 0 run. Both comparisons
+  with Gate 0 rest on the editor core's midpoint read of the Gate 0 run
+  `42831340276` on 2026-11-11 (E-C route,
+  [midpoint](../../editor/ed03-route.md#midpoint-unfreeze-and-closure)), not
+  on a read at Gate 0; this package did not read that run's health. There is
+  no finish-spread, startup, cost or repeat signal; the health's own cost is
   partial, as always, because it is written before Windows 3.12 and the
   aggregate job finish. The general-runtime shards that ran on runner image
   `20261111.370.1` (all three on 3.12, general-runtime-1 on 3.13) took 878

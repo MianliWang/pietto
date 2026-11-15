@@ -177,8 +177,7 @@ patch versions, a minor version comes only with a user-visible editor
 feature, and no Marketplace pre-release channel is used. Its current version
 is in [status](status.md), and its Marketplace timing is the owner's. Each
 Pietto phase that changes the grammar or the built-in
-catalog carries the extension sync, made by the lead, and the sync script
-stops reading the private `pietto.parser_api._parse_migration_source`.
+catalog carries the extension sync, made by the lead.
 
 ### Third dialect
 
@@ -245,9 +244,9 @@ before its owner's Gate 1 takes it.
 | Automatic fan-out repair or reaggregation; a public aggregate state | the joined-aggregation and aggregation semantic owners, at the first Gate 1 that admits one or at a consumer; Phase82 freeze input |
 | PostgreSQL extension functions; the function/plugin SPI and user-written table functions | a Gate 1 with a named use case; Phase82 freeze input (D76.11) |
 | A new built-in table function | the first Gate 1 that names a case; Phase82 freeze input (D74.12) |
-| Database-native array and JSON columns; the `postgres_adbc` nested route | a later Phase80 Gate 1 (D80.06); the Phase82 freeze (D76.11) |
+| Database-native array and JSON columns; the `postgres_adbc` nested route | the Phase82 freeze, by its ledger row (D76.11, D80.06, PL.39) |
 | MySQL nested output and `JSON_TABLE` | the separate nested work package, at its own Gate 1 (D71.05, D77.32) |
-| pandas and Polars nesting; the Arrow data-analysis example; `compile_queries(...)`; `round` of a `Float` with digits | a later Phase80 Gate 1 (J25, D75.03, D76.05, D80.06): nesting after the nested work package that took Phase77 S24 (D77.32); the example, whose inputs Phase79 B1 and Phase80 S02 deliver; `compile_queries(...)` after the forged-compiled trust decision below; `round` at the Phase82 freeze ([Phase80 audit](phases/phase-80/completion-audit.md#handoff)) |
+| pandas and Polars nesting; the Arrow data-analysis example; `compile_queries(...)`; `round` of a `Float` with digits | the owner's answer of 2026-11-15 to the lead's `0.2.1` plan, and for the example the lead's ruling under the owner's later instruction that day (J25, D75.03, D76.05, D80.06, PL.39): nesting to a Gate 1 after the nested work package that took Phase77 S24 (D77.32), which admits it before the Phase82 freeze or leaves it refused by the `pietto.interop` ledger row; `compile_queries(...)` after the forged-compiled trust decision below, at the latest the Phase82 freeze; `round` to its Phase82 freeze ledger row; and the example, whose inputs Phase79 B1 and Phase80 S02 deliver, is delivered by the `0.2.1` interop guidance in [An Arrow table through DuckDB](interop.md#an-arrow-table-through-duckdb) |
 | Nested fuzz and high-intensity differential work; a readability and compile-time benchmark | Phase81 (J25) |
 | The nested public format | the Phase82 freeze |
 | Multi-level collections and the refused nested combinations; a capture let that reads another capture let | the NestedRelation semantic owner and the ProjectSQLPlan owner; the scope and capture semantic owner; each at its first admission Gate 1 |
