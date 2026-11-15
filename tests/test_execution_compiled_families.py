@@ -1386,6 +1386,113 @@ def test_a_compiled_null_safe_join_outside_its_cell_is_refused(
         semantics.verify_compiled_semantics(derived)
 
 
+# Forms compile_query refuses in a statement with a JOIN (sited_admitted),
+# over `labelled_join_witness` sources: an inclusive comparison chain, a
+# conditional, a scalar call and a cast in the WHERE of a definition with its
+# own JOIN, a membership test in its `on`, a chain in the QUALIFY of that
+# definition or of one reading its rows, and on MySQL also a chain and a
+# membership test in a definition with no JOIN of its own. MySQL refuses the
+# call for another reason.
+_JOINED = (
+    "query result:\n    from lhs\n    let r = rhs\n    inner join r on lhs.id == r.id"
+)
+_SELECT = "    select:\n        a = lhs.id\n"
+_READER = (
+    "query joined:\n    from lhs\n    let r = rhs\n    inner join r on lhs.id == r.id\n"
+    + _SELECT
+    + "query result:\n    from joined\n"
+)
+_READ = "    select:\n        a\n"
+_JOINED_SITES = {
+    "where_chain": _JOINED + "\n    where 1 <= lhs.id <= 3\n" + _SELECT,
+    "where_conditional": _JOINED
+    + "\n    where (1 if lhs.id > 2 else 0) == 1\n"
+    + _SELECT,
+    "where_call": _JOINED + "\n    where abs(lhs.id) > 2\n" + _SELECT,
+    "where_cast": _JOINED + "\n    where Float(lhs.id) > 1.5\n" + _SELECT,
+    "on_membership": _JOINED + " and lhs.id in (1, 2)\n" + _SELECT,
+    "joined_qualify": _JOINED
+    + "\n"
+    + _SELECT
+    + "        n = row_number() window(order by lhs.id)\n    qualify 1 <= n <= 3\n",
+    "reader_qualify": _READER
+    + _READ
+    + "        n = row_number() window(order by a)\n    qualify 1 <= n <= 3\n",
+    "reader_where_chain": _READER + "    where 1 <= a <= 3\n" + _READ,
+    "reader_let_membership": _READER
+    + "    let m = a in (1, 2)\n"
+    + _READ
+    + "        m\n",
+}
+_MYSQL_ONLY = ("reader_where_chain", "reader_let_membership")
+
+
+@pytest.mark.parametrize(
+    "target,name",
+    tuple(
+        (target, name)
+        for target in nullsafe.TARGETS
+        for name in ("joined_where", "joined_let", *_JOINED_SITES)
+        if (target, name) != ("mysql", "where_call")
+        and (target == "mysql" or name not in _MYSQL_ONLY)
+    ),
+)
+def test_a_compiled_joined_site_keeps_its_limits(tmp_path, monkeypatch, target, name):
+    """A bundle built past emission's law for a site of a statement with a
+    JOIN (`same_value` past its cell, the other forms past sited_admitted):
+    the replay and load_bundle refuse it."""
+    from pietto._project import project_sql_emission_joins as joining
+    from pietto._project.project_compiled_schema import CompiledError
+
+    if name in _JOINED_SITES:
+        item = emission.labelled_join_witness(target, _JOINED_SITES[name])
+        _, main = emission.build_case(
+            tmp_path / "main", item["source"], item["contract"]
+        )
+        assert main.status == "BLOCKED"
+        with monkeypatch.context() as patch:
+            patch.setattr(joining, "sited_admitted", lambda *args: True)
+            _, original = emission.build_case(
+                tmp_path / "forced", item["source"], item["contract"]
+            )
+            assert original.status == "VERIFIED", original.blockers
+            bundle = build_compiled(original.artifact)
+    else:
+        bundle = _nullsafe_bundle(tmp_path, target, name, monkeypatch)
+    with pytest.raises(CompiledError, match="^COMPILED_OPERATOR$"):
+        emit_compiled(_loaded(bundle), ())
+    public = replace(bundle, compatibility=bundle.compatibility[-1])
+    assert _load_refusal(public, bundle.payload) == ("PIE-R1004", "COMPILED_OPERATOR")
+
+
+@pytest.mark.parametrize(
+    "target,body",
+    (
+        ("postgres", _READER + "    where band(a) == 1\n" + _READ),
+        *(
+            (
+                target,
+                "query result:\n    from lhs\n"
+                "    where any(o.id == lhs.id for o in rhs)\n"
+                + _SELECT
+                + "        n = row_number() window(order by lhs.id)\n"
+                "    qualify 1 <= n <= 3\n",
+            )
+            for target in nullsafe.TARGETS
+        ),
+    ),
+)
+def test_a_compiled_form_beside_the_joined_sites_replays(tmp_path, target, body):
+    """The joined-site law spares a PostgreSQL WHERE conditional in a
+    definition reading JOIN rows, and a QUALIFY chain in a statement whose
+    only `any` is no JOIN: both replay their SQL."""
+    item = emission.labelled_join_witness(target, body)
+    _, outcome = emission.build_case(tmp_path, item["source"], item["contract"])
+    assert outcome.artifact is not None, outcome.blockers
+    replayed = emit_compiled(_loaded(build_compiled(outcome.artifact)), ())
+    assert replayed.rendered.sql == outcome.artifact.rendered.sql
+
+
 @pytest.mark.parametrize("target", nullsafe.TARGETS)
 def test_a_tampered_compiled_null_safe_join_is_refused(tmp_path, monkeypatch, target):
     """An S1 Int cell's bundle whose ON reads the left input's `id` for its

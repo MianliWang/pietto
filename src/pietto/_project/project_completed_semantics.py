@@ -3325,13 +3325,15 @@ def derive_compiled_semantics(root, values, parameters=None):
         if family == "mysql"
         else frozenset()
     )
-    if family != "postgres":
-        from pietto._project import project_sql_emission_joins as joining
+    from pietto._project import project_sql_emission_joins as joining
 
+    if family != "postgres":
         problem = joining.compiled_sited_problem(records, executable)
         # This reader's own S14 pairing check.
         if problem is not None and pairing.compiled_form(records) is None:
             raise CompiledError(problem)
+    if joining.compiled_joined_sited(records, executable):
+        raise CompiledError("COMPILED_OPERATOR")
     if len(values) != len(slots):
         raise CompiledError("COMPILED_BINDING_SLOTS")
     replacements = {}

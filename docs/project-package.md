@@ -643,20 +643,22 @@ Every emitted blocker includes an actionable `suggestion`, also rendered as its
 text hint. This is an additive change to failure documents after 0.1.6; older
 strict JSON readers must upgrade. VERIFIED documents gain no suggestion field.
 
-JOIN SELECT supports the already reviewed scalar calls, casts, conditional and
-membership expressions, and comparison chains. On PostgreSQL a statement with
-a JOIN also renders these forms, by the rules of a statement without one, in
-every table, query or `let` that has no JOIN of its own: one the JOIN reads
-(a query whose WHERE calls a def that inlines to a conditional, a capturing
-`let` read LATERAL) and one that reads the JOIN's rows. MySQL keeps such a
-statement BLOCKED (`scalar_projection_requires_later_slice`,
+JOIN SELECT supports the already reviewed scalar calls, casts,
+conditional and membership expressions, and comparison chains. On
+PostgreSQL a statement with a JOIN also renders these forms, by the
+rules of a statement without one, in every table, query or `let` that
+has no JOIN of its own, outside its QUALIFY: one the JOIN reads (a
+query whose WHERE calls a def that inlines to a conditional, a capturing
+`let` read LATERAL) and one that reads the JOIN's rows. MySQL keeps
+such a statement BLOCKED (`scalar_projection_requires_later_slice`,
 `operator_not_implemented_in_slice6`, `join_shape_not_admitted_in_slice7`),
 except in a statement that is one of four paired forms with only its names
 changed ([0.1.12](release-notes.md#conditionals-beside-a-join-and-calls-in-aggregate-arguments-in-four-mysql-project-forms)).
-Other JOIN expression sites (a joined `let`, WHERE or ON) and JOIN kinds
-retain their existing limits. Timestamp UNION ALL/DISTINCT uses the
-existing exact civil-microsecond carrier; Timestamp INTERSECT/EXCEPT and other
-unreviewed set carriers remain refused. A finite `Float` column takes part in
+Other JOIN expression sites (a joined `let`, WHERE or ON, and the
+QUALIFY of any definition of the statement) and JOIN kinds retain their
+existing limits. Timestamp UNION ALL/DISTINCT uses the existing exact
+civil-microsecond carrier; Timestamp INTERSECT/EXCEPT and other unreviewed
+set carriers remain refused. A finite `Float` column takes part in
 every set form on PostgreSQL, comparing by Float equality (`-0.0 == 0.0`; see
 [Float values](language.md#float-values)). On MySQL a Float set is UNION ALL
 only: INTERSECT and EXCEPT, either quantifier, are BLOCKED with `PIE-B1003`

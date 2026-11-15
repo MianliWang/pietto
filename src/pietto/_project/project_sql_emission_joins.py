@@ -141,7 +141,8 @@ def sited_admitted(expression, family, paired=False) -> bool:
     """A JOIN plan renders these forms at a joined SELECT item. PostgreSQL also
     renders them, by the single-input rules, in a definition with no JOIN of
     its own (one the JOIN reads, or one that reads its rows), and a call inside
-    an aggregate argument; joined LET, WHERE and ON sites keep their limits.
+    an aggregate argument; joined LET, WHERE and ON sites and every QUALIFY
+    keep their limits.
     MySQL keeps all of them, except as PostgreSQL in a statement its reader
     pairs with an S14 form (``paired``, `project_sql_emission_paired`). A
     JOIN `on` `same_value` of a qualified cell opens through
@@ -168,9 +169,9 @@ def sited_admitted(expression, family, paired=False) -> bool:
     )
 
 
-def _holds(records, values, role) -> bool:
+def _holds(records, values, roles, spared=()) -> bool:
     """Whether these record values, through operation operands, hold an
-    operation of ``role``."""
+    operation of one of ``roles`` whose operator is not ``spared``."""
     pending, seen = list(values), set()
     while pending:
         value = pending.pop()
@@ -178,15 +179,49 @@ def _holds(records, values, role) -> bool:
             pending.extend(value)
         elif getattr(value, "kind", None) == "operation" and value not in seen:
             seen.add(value)
-            if records[value].get("operator")[0] == role:
+            operator = records[value].get("operator")
+            if operator[0] in roles and operator not in spared:
                 return True
             pending.extend(records[value].get("operands"))
     return False
 
 
+# The compiled operator roles of SITED.
+SITED_ROLES = frozenset({"between", "conditional", "membership", "cast", "scalar_call"})
+
+
+def compiled_joined_sited(records, executable) -> bool:
+    """`sited_admitted` at the sites it refuses in either family, for compiled
+    records of a statement with a JOIN: a SITED form in a let or where row of
+    a definition with a JOIN of its own, in a qualify row of any definition,
+    or in a JOIN `on` tree. A JOIN `on` `same_value` is the replay's cell
+    law's concern instead."""
+    joined = {records[a].get("owner") for a in executable if a.kind == "join"}
+    if not joined:
+        return False
+    for address in executable:
+        record = records[address]
+        if address.kind == "join":
+            if _holds(
+                records, record.values, SITED_ROLES, {("scalar_call", "same_value")}
+            ):
+                return True
+        elif (
+            address.kind == "row"
+            and (
+                record.get("stage") == "qualify"
+                or record.get("owner") in joined
+                and record.get("stage") in {"let", "where"}
+            )
+            and _holds(records, record.values, SITED_ROLES)
+        ):
+            return True
+    return False
+
+
 def compiled_sited_problem(records, executable):
     """`sited_admitted` for MySQL compiled records at the S14 positions: in a
-    statement with a JOIN, a conditional in a row of a definition with no
+    statement with a JOIN, a SITED form in a row of a definition with no
     JOIN of its own, or a scalar call in an aggregate argument. The caller
     opens them only in a paired S14 form; the replay's other laws stand."""
     joined = {records[a].get("owner") for a in executable if a.kind == "join"}
@@ -197,13 +232,13 @@ def compiled_sited_problem(records, executable):
         if record.address not in executable:
             continue
         if kind == "aggregate_value" and _holds(
-            records, record.get("arguments"), "scalar_call"
+            records, record.get("arguments"), {"scalar_call"}
         ):
             return "COMPILED_AGGREGATE_ARGUMENT"
         if (
             kind == "row"
             and record.get("owner") not in joined
-            and _holds(records, record.values, "conditional")
+            and _holds(records, record.values, SITED_ROLES)
         ):
             return "COMPILED_OPERATOR"
     return None
