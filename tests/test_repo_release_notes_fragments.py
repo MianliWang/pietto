@@ -148,17 +148,173 @@ def test_assemble_relocates_fragment_links_without_touching_code_literals(
     assert "[Results](execution.md#results)" in notes
     assert "[Capabilities](capabilities.md)" in notes
     assert "[Self](#links) [Pietto](https://example.test/pietto)" in notes
-    assert "`[Inline](../language.md#literal)`" in notes
+    assert f"`[Inline](../language.md#literal)`\n\n{FENCE}markdown\n" in notes
     assert "[Fence](../execution.md#literal)" in notes
 
 
+# Forty code spans in one link text: a backtracking matcher takes hours on them.
+KEYS = " ".join(f"`k{index}`" for index in range(40))
+
+
+# Link text and code spans may run over the lines of one paragraph, but never
+# out of it: a blank line or a new block ends the paragraph, as in CommonMark.
+@pytest.mark.parametrize(
+    ("link", "relocated"),
+    [
+        (
+            "[the `../language.md` page](../language.md)",
+            "[the `../language.md` page](language.md)",
+        ),
+        (
+            "[the ``a`b`` page](../language.md)",
+            "[the ``a`b`` page](language.md)",
+        ),
+        ("[the `a\nb` page](../language.md)", "[the `a\nb` page](language.md)"),
+        ("[language\n  page](../language.md)", "[language\n  page](language.md)"),
+        ('[x](../language.md\n"t")', '[x](language.md\n"t")'),
+        ("`a\n[x](../language.md)`", "`a\n[x](../language.md)`"),
+        (
+            "``now()` x`` and\n[x](../language.md) `b`",
+            "``now()` x`` and\n[x](language.md) `b`",
+        ),
+        ("``a [x](../language.md) `b`", "``a [x](language.md) `b`"),
+        ("`a``b` [x](../language.md) `c`", "`a``b` [x](language.md) `c`"),
+        ("`a\n\n[x](../language.md) `b`", "`a\n\n[x](language.md) `b`"),
+        ("`a\n- [x](../language.md) `b`", "`a\n- [x](language.md) `b`"),
+        ("`a\n1. [x](../language.md) `b`", "`a\n1. [x](language.md) `b`"),
+        ("`a\n#### [x](../language.md) `b`", "`a\n#### [x](language.md) `b`"),
+        ("`a\n> [x](../language.md) `b`", "`a\n> [x](language.md) `b`"),
+        ("[x](../language.md\n\nnot a title)", "[x](../language.md\n\nnot a title)"),
+        ("`a\n  - [x](../language.md) `b`", "`a\n  - [x](language.md) `b`"),
+        ("`a\n2. [x](../language.md) `b`", "`a\n2. [x](../language.md) `b`"),
+        (
+            "`a\n- b `c\n2. [x](../language.md) `d`",
+            "`a\n- b `c\n2. [x](language.md) `d`",
+        ),
+        (
+            "`a\n- b\n\n  c `d\n2. [x](../language.md) `e`",
+            "`a\n- b\n\n  c `d\n2. [x](language.md) `e`",
+        ),
+        (
+            "`a\n#### b `c\n[x](../language.md) `d`",
+            "`a\n#### b `c\n[x](language.md) `d`",
+        ),
+        ("`a\n***\n[x](../language.md) `b`", "`a\n***\n[x](language.md) `b`"),
+        ("`a\n---\n[x](../language.md) `b`", "`a\n---\n[x](language.md) `b`"),
+        ("`a\n===\n[x](../language.md) `b`", "`a\n===\n[x](language.md) `b`"),
+        (
+            "[`a`] b [x](../language.md) `c` [y](../language.md#z)",
+            "[`a`] b [x](language.md) `c` [y](language.md#z)",
+        ),
+        (
+            "[a `b` [x] `c](../language.md)` [y](../language.md)",
+            "[a `b` [x] `c](../language.md)` [y](language.md)",
+        ),
+        (f"[{KEYS}] [x](../language.md)", f"[{KEYS}] [x](language.md)"),
+        (
+            f"`a\n{FENCE}\n[x](../language.md)\n{FENCE}\n[y](../language.md) `b`",
+            f"`a\n{FENCE}\n[x](../language.md)\n{FENCE}\n[y](language.md) `b`",
+        ),
+        (
+            "~~~\n`a\n~~~\n[x](../language.md) `b`",
+            "~~~\n`a\n~~~\n[x](language.md) `b`",
+        ),
+        (
+            f"1. `a\n   {FENCE}\n   b\n   {FENCE}\n   [x](../language.md) `c`",
+            f"1. `a\n   {FENCE}\n   b\n   {FENCE}\n   [x](language.md) `c`",
+        ),
+        ("`a\n**\n[x](../language.md) `b`", "`a\n**\n[x](../language.md) `b`"),
+        ("`a\n1) [x](../language.md) `b`", "`a\n1) [x](language.md) `b`"),
+        ("`a\n#x\n[x](../language.md) `b`", "`a\n#x\n[x](../language.md) `b`"),
+        ("[a] b](../language.md)", "[a] b](../language.md)"),
+        (
+            '[a](../language.md "[t](../language.md)")',
+            '[a](language.md "[t](../language.md)")',
+        ),
+        ("[a](`x`)", "[a](release-notes.d/`x`)"),
+        ("[a](`../language.md` b)", "[a](`../language.md` b)"),
+        ("[a](../language.md `b)` c", "[a](../language.md `b)` c"),
+    ],
+    ids=[
+        "inline-code",
+        "inline-code-with-backtick",
+        "inline-code-across-lines",
+        "across-lines",
+        "title-across-lines",
+        "code-across-lines",
+        "after-code-with-backtick",
+        "after-unclosed-run",
+        "after-code-with-run",
+        "after-blank-line",
+        "after-list-item",
+        "after-ordered-item",
+        "after-heading",
+        "after-quote",
+        "title-after-blank-line",
+        "after-indented-item",
+        "ordered-item-not-numbered-1",
+        "after-next-item",
+        "after-next-item-of-a-paragraph-in-a-list",
+        "after-heading-line",
+        "after-thematic-break",
+        "after-setext-dashes",
+        "after-setext-equals",
+        "after-bracketed-code",
+        "code-holding-link-syntax",
+        "forty-code-spans",
+        "after-fence",
+        "after-tilde-fence",
+        "after-indented-fence",
+        "after-two-stars",
+        "after-ordered-item-with-parenthesis",
+        "after-hash-without-space",
+        "bracket-before-link-text",
+        "title-holding-link-syntax",
+        "code-in-target",
+        "unquoted-title",
+        "title-into-code",
+    ],
+)
+def test_assemble_relocates_links_whose_text_holds_code_or_spans_lines(
+    tmp_path: Path, link: str, relocated: str
+) -> None:
+    root = _tree(tmp_path, {"76-s01-links.md": f"### Links\n\nSee {link}.\n"})
+
+    assert (
+        release_notes.assemble(root, "0.1.11", "New public alpha release notes") == []
+    )
+    notes = (root / "docs/release-notes.md").read_text(encoding="utf-8")
+    assert f"See {relocated}.\n" in notes
+
+
+@pytest.mark.parametrize(
+    "link",
+    [
+        "[Unreleased](release-notes.d/76-s01-a.md)",
+        "[`76-s01` notes](release-notes.d/76-s01-a.md)",
+        "[Unreleased\nnotes](release-notes.d/76-s01-a.md)",
+        "``now()` x`` and\n[Unreleased](release-notes.d/76-s01-a.md) `y`",
+        "| `x |\n| [Unreleased](release-notes.d/76-s01-a.md) `y` |",
+        "[`a`] b [Unreleased](release-notes.d/76-s01-a.md) `c` [y](other.md)",
+        "a \\`b\n[Unreleased](release-notes.d/76-s01-a.md) `c`",
+        "a `b\n<!-- c -->\n[Unreleased](release-notes.d/76-s01-a.md) `d`",
+    ],
+    ids=[
+        "plain",
+        "inline-code",
+        "across-lines",
+        "after-code-with-backtick",
+        "after-table-row",
+        "after-bracketed-code",
+        "after-escaped-backtick",
+        "after-html-line",
+    ],
+)
 def test_assemble_requires_documentation_to_migrate_fragment_links(
-    tmp_path: Path,
+    tmp_path: Path, link: str
 ) -> None:
     root = _tree(tmp_path, {"76-s01-a.md": "### A\n"})
-    (root / "docs/capabilities.md").write_text(
-        "[Unreleased](release-notes.d/76-s01-a.md)\n", encoding="utf-8"
-    )
+    (root / "docs/capabilities.md").write_text(f"{link}\n", encoding="utf-8")
 
     problems = release_notes.assemble(root, "0.1.11", "New public alpha release notes")
 

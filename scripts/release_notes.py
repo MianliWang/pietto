@@ -13,7 +13,7 @@ docs/release-notes.md, then deletes the fragments.
 from __future__ import annotations
 
 import argparse
-from collections.abc import Callable
+from collections.abc import Callable, Iterator
 import os
 import re
 import sys
@@ -30,7 +30,24 @@ VERSION = re.compile(r"\d+\.\d+\.\d+(?:(?:a|b|rc)\d+)?")
 HEADING = re.compile(r"(#+) ")
 BARE_CODE = re.compile(r"(?<!PIE-)\b[PSIB][0-9]{4}\b")
 BLOCK = re.compile(r"^```pietto([^\n]*)\n(.*?)^```$", re.MULTILINE | re.DOTALL)
-LINK = re.compile(
+# Code spans and links are found one paragraph at a time, as in CommonMark. A
+# quote or list item starts a new paragraph (an item numbered other than 1 only
+# inside a list), and a blank line, table row, heading, thematic break, setext
+# underline or fence line is a block of its own.
+NEW_BLOCK = re.compile(r"[ \t]*(?:>|[-*+][ \t]|1[.)][ \t])")
+ITEM = re.compile(r"[ \t]*(?:[-*+]|\d+[.)])[ \t]")
+OWN_LINE = re.compile(
+    r"[ \t]*(?:$|\||```[^`]*$|~~~|#{1,6}[ \t]"
+    r"|([-*_])(?:[ \t]*\1){2,}[ \t]*$|(?:=+|-+)[ \t]*$)"
+)
+TICKS = re.compile(r"`+")
+LABEL = re.compile(r"(?<!!)\[[^\]]+\]")
+DESTINATION = re.compile(
+    r"\((?P<target><[^>\n]+>|[^\s)\n]+)"
+    r"""(?:\s+(?:"[^"\n]*"|'[^'\n]*'|\([^)\n]*\)))?\)"""
+)
+# The line grammar of release 0.2.0, which the fragment-link check also runs.
+LINE_LINK = re.compile(
     r"(?<!!)\[[^\]\n]+\]\((?P<target><[^>\n]+>|[^\s)\n]+)(?P<tail>\s+[^)\n]+)?\)"
 )
 
@@ -86,22 +103,86 @@ def _problems(text: str) -> list[str]:
 def _rewrite_links_outside_code(
     text: str, rewrite: Callable[[re.Match[str]], str]
 ) -> str:
-    """Rewrite Markdown links, leaving fenced and inline code literal."""
-    fenced = False
-    lines: list[str] = []
+    """Rewrite Markdown links, leaving fenced and inline code literal.
+
+    ``rewrite`` gets the ``(target title)`` part of each link and returns its
+    replacement.
+    """
+    fenced = in_list = False
+    out: list[str] = []
+    paragraph: list[str] = []
+
+    def flush() -> None:
+        out.append(_rewrite_paragraph("".join(paragraph), rewrite))
+        paragraph.clear()
+
     for line in text.splitlines(keepends=True):
         if line.startswith("```"):
+            if not fenced:
+                flush()
             fenced = not fenced
-            lines.append(line)
+            out.append(line)
+        elif fenced:
+            out.append(line)
+        else:
+            if (
+                OWN_LINE.match(line)
+                or NEW_BLOCK.match(line)
+                or (in_list and ITEM.match(line))
+            ):
+                flush()
+            if not paragraph:
+                in_list = line.startswith((" ", "\t")) or bool(ITEM.match(line))
+            paragraph.append(line)
+            if OWN_LINE.match(line):
+                flush()
+    flush()
+    return "".join(out)
+
+
+def _rewrite_paragraph(text: str, rewrite: Callable[[re.Match[str]], str]) -> str:
+    """Rewrite the links of one paragraph, leaving its code spans literal."""
+    # A backtick run opens a code span that the next run of its own length
+    # closes, or else stays literal. Finding each run's closer from the end keeps
+    # the scan linear; links are then found with the code spans masked out.
+    runs = [run.span() for run in TICKS.finditer(text)]
+    closers: list[int | None] = [None] * len(runs)
+    nearest: dict[int, int] = {}
+    for index in reversed(range(len(runs))):
+        start, end = runs[index]
+        closers[index] = nearest.get(end - start)
+        nearest[end - start] = index
+    pieces: list[str] = []
+    done = index = 0
+    while index < len(runs):
+        closer = closers[index]
+        if closer is None:
+            index += 1
             continue
-        if fenced:
-            lines.append(line)
-            continue
-        pieces = line.split("`")
-        for index in range(0, len(pieces), 2):
-            pieces[index] = LINK.sub(rewrite, pieces[index])
-        lines.append("`".join(pieces))
-    return "".join(lines)
+        start, end = runs[index][0], runs[closer][1]
+        pieces += [text[done:start], " " * (end - start)]
+        done, index = end, closer + 1
+    masked = "".join(pieces) + text[done:]
+    out: list[str] = []
+    done = position = 0
+    while (closing := masked.find("]", position)) >= 0:
+        label = LABEL.search(masked, position, closing + 1)
+        position = closing + 1
+        if label and (destination := DESTINATION.match(text, position)):
+            out += [text[done:position], rewrite(destination)]
+            done = position = destination.end()
+    return "".join(out) + text[done:]
+
+
+def _line_links(text: str) -> Iterator[re.Match[str]]:
+    """The links of the 0.2.0 grammar: one line at a time, split at backticks."""
+    fenced = False
+    for line in text.splitlines():
+        if line.startswith("```"):
+            fenced = not fenced
+        elif not fenced:
+            for piece in line.split("`")[::2]:
+                yield from LINE_LINK.finditer(piece)
 
 
 def _link_target(match: re.Match[str]) -> str:
@@ -137,18 +218,26 @@ def _fragment_link_problems(root: Path, paths: list[Path]) -> list[str]:
             continue
         if document.resolve() in fragment_paths:
             continue
+        found: list[str] = []
 
         def reject(match: re.Match[str]) -> str:
             target = _link_target(match)
             location = target.split("#", 1)[0]
             if location and (document.parent / location).resolve() in fragment_paths:
-                problems.append(
+                found.append(
                     f"{document.relative_to(root)}: link to a release-note fragment "
                     "must be migrated to the assembled release-notes.md section"
                 )
             return match[0]
 
-        _rewrite_links_outside_code(document.read_text(encoding="utf-8"), reject)
+        text = document.read_text(encoding="utf-8")
+        _rewrite_links_outside_code(text, reject)
+        in_paragraphs = len(found)
+        for match in _line_links(text):
+            reject(match)
+        # Each grammar can miss a link the other sees: the larger count keeps the
+        # check from seeing fewer links than either.
+        problems += found[: max(in_paragraphs, len(found) - in_paragraphs)]
     return problems
 
 
