@@ -1282,11 +1282,16 @@ def _escape(value: str) -> str:
 
 def _diagnostic_line(diagnostic: dict[str, Any]) -> str:
     location = diagnostic["location"]
-    return (
-        f"{_escape(str(location['path']))}:{location['line']}:{location['column']}"
-        f" {_escape(diagnostic['code'])} {_escape(diagnostic['severity'])}:"
+    line = (
+        f"{_escape(diagnostic['code'])} {_escape(diagnostic['severity'])}:"
         f" {_escape(diagnostic['message'])}"
     )
+    if location is not None and location["path"] is not None:
+        line = (
+            f"{_escape(str(location['path']))}:{location['line']}:{location['column']}"
+            f" {line}"
+        )
+    return line
 
 
 def _record(value: object) -> str:

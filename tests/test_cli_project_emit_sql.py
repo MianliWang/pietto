@@ -13,6 +13,7 @@ from __future__ import annotations
 
 import ast
 import contextlib
+from dataclasses import replace
 import errno
 import io
 import json
@@ -50,6 +51,7 @@ from pietto._project.project_sql_emission import (
     serialize_project_sql_emission,
 )
 from pietto._project.project_sql_emission_contract import MAX_INPUT_BYTES
+from pietto.errors import Diagnostic, Severity, SourceLocation
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
 TARGETS = ("postgres", "mysql")
@@ -1959,6 +1961,37 @@ def test_failure_messages_never_echo_roots_or_raw_input(
         code, out, err = run(argv(root, target, format="text"))
         assert code == 1 and control not in err
         assert f"Unexpected '\\u{ord(control):04x}'" in err
+
+
+def test_a_diagnostic_without_a_path_has_no_location_in_text(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    root, _ = project(tmp_path, "postgres")
+    main = root / "main.pietto"
+    main.write_text(main.read_text(encoding="utf-8") + "table bad:\n")
+    pathless = Diagnostic(
+        code="PIE-S2338",
+        severity=Severity.ERROR,
+        message="Invalid single-match request: x.",
+        location=SourceLocation(path=None, line=1, column=1),
+    )
+    parse = emission_cli.check_project_parse_only
+
+    def with_pathless(root: Path) -> Any:
+        parsed = parse(root)
+        return replace(parsed, diagnostics=(*parsed.diagnostics, pathless))
+
+    monkeypatch.setattr(emission_cli, "check_project_parse_only", with_pathless)
+    code, out, _ = run(argv(root, "postgres"))
+    located = [d["location"] for d in failure(out)["diagnostics"]]
+    assert code == 1 and [place["path"] for place in located] == ["main.pietto", None]
+    code, out, err = run(argv(root, "postgres", format="text"))
+    head, first, *rest = err.splitlines()
+    assert (code, out, head) == (1, b"", "pietto.sql-emission.v1 BLOCKED")
+    assert first.startswith(
+        f"main.pietto:{located[0]['line']}:{located[0]['column']} PIE-"
+    )
+    assert rest == ["PIE-S2338 error: Invalid single-match request: x."]
 
 
 @pytest.mark.parametrize("target", TARGETS)

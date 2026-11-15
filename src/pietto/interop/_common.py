@@ -227,5 +227,5 @@ def target(name: str, module: str) -> Any:
         if missing.name != top:
             raise
     raise ModuleNotFoundError(
-        f"{name} needs {top}: install pietto[arrow,{EXTRAS[top]}]", name=top
+        f'{name} needs {top}: install "pietto[arrow,{EXTRAS[top]}]"', name=top
     )

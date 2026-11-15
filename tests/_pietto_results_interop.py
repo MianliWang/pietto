@@ -792,7 +792,7 @@ def _missing(name):
     return [
         name,
         "ModuleNotFoundError",
-        f"{name} needs {top}: install pietto[arrow,{EXTRA[top]}]",
+        f'{name} needs {top}: install "pietto[arrow,{EXTRA[top]}]"',
         top,
         False,
     ]
