@@ -22,7 +22,9 @@ from pietto._project.project_sql_emission_ast import (
     RowScan,
     RowStageUse,
     RowValueColumn,
+    SQLJoinQuery,
     SQLRowQuery,
+    planned_unit_count,
 )
 from pietto._project.project_sql_emission_verification import (
     resolved_row_realization,
@@ -1578,6 +1580,60 @@ def test_a_violated_text_premise_blocks_the_comparison(tmp_path, target):
     public = probe.decode_public(serialize_project_sql_emission(outcome))
     assert public["status"] == "BLOCKED" and outcome.artifact is None
     assert public["blockers"]
+
+
+@pytest.mark.parametrize("target", ("postgres", "mysql"))
+@pytest.mark.parametrize("value,premise", probe.WRONG_IDENTIFIER_CASES)
+def test_a_statement_refused_in_its_stages_still_checks_its_naming_premise(
+    tmp_path, target, value, premise
+):
+    """A statement refused while its stages are built has no query, so its
+    plan says whether it needs named stages: a grouped Float median
+    (PostgreSQL's unproved finite result, MySQL's quantile) reports its
+    refusal and then its missing or other identifier_case, and one stage
+    refused for an overflow reports no naming premise."""
+    contract = probe.with_identifier_case(stage_contract(target), value)
+    refusal = {
+        "postgres": ("PIE-B1004", "float_aggregate_finite_result_proof_missing"),
+        "mysql": ("PIE-B1003", "quantile_not_admitted_on_target"),
+    }[target]
+    for name, body, expected in (
+        (
+            "median",
+            "    from rows\n    group by id\n    select:\n"
+            "        id\n        m = median(ratio)\n",
+            [refusal, premise],
+        ),
+        (
+            "overflow",
+            "    from rows\n    select:\n        n = 9223372036854775807 + 1\n",
+            [("PIE-B1002", "arithmetic_outside_physical_range")],
+        ),
+    ):
+        _, outcome = probe.build_case(
+            tmp_path / name, row_source(target, body), contract, "preserve_literals"
+        )
+        assert [(b.code, b.detail) for b in outcome.blockers] == expected
+
+
+@pytest.mark.parametrize("target", ("postgres", "mysql"))
+def test_the_planned_unit_count_is_the_realized_unit_count(tmp_path, target):
+    """The units a refused statement counts from its plan alone are the units
+    realize_rows builds: result units over set operations, VALUES lets
+    joined to the selected relation, and inline correlated reads."""
+    for case, variant in (
+        ("L_let_relations", "diamond_limit"),
+        ("Q_values_rows", "reads"),
+        ("L_relation_exists", "correlated"),
+    ):
+        item = probe.fixture(target, case, variant)
+        _, outcome = probe.build_case(
+            tmp_path / case, item["source"], item["contract"], item["policy"]
+        )
+        query = outcome.artifact and outcome.artifact.ast
+        assert isinstance(query, (SQLJoinQuery, SQLRowQuery))
+        units = getattr(query, "units", query.bodies)
+        assert planned_unit_count(query.request) == len(units)
 
 
 @pytest.mark.parametrize("target", ("postgres", "mysql"))

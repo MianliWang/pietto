@@ -980,15 +980,18 @@ def test_a_selected_file_name_that_is_not_utf8_rejects_emission(
     )
     if target == "mysql":
         assert [item["subject"]["detail"] for item in document["blockers"]] == [
-            "decimal_aggregate_range_proof_missing"
+            "decimal_aggregate_range_proof_missing",
+            "identifier_case_declaration_missing",
         ]
     # AVG remains refused before source-path serialization on both targets.
     main.write_text(main.read_text().replace("n = sum(money)", "n = avg(money)"))
     code, out, err = run(changed(8, "counted", "query"))
     document = failure(out)
     assert (code, document["status"], document["cli_errors"]) == (1, "BLOCKED", [])
+    # Only the PostgreSQL contract above gained the identifier_case it needs.
     assert [item["subject"]["detail"] for item in document["blockers"]] == [
-        "decimal_aggregate_range_proof_missing"
+        "decimal_aggregate_range_proof_missing",
+        *(["identifier_case_declaration_missing"] if target == "mysql" else []),
     ]
     assert kinds(run(changed(8, "nosuch"))[1]) == [("emission_selector", None)]
     (root / "empty.json").write_text("{}")

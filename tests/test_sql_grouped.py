@@ -3010,6 +3010,34 @@ def test_a_refused_s03_statement_reports_main_blockers_from_a_later_check(
     ]
 
 
+@pytest.mark.parametrize("value,premise", probe.WRONG_IDENTIFIER_CASES)
+@pytest.mark.parametrize("form", ("C1", "C4", "J1", "s02_grouped"))
+def test_a_mysql_sum_form_without_its_naming_premise_reports_it_after_main(
+    tmp_path, monkeypatch, form, value, premise
+):
+    """A paired form or an S02 cell whose contract has no identifier_case or
+    another value is refused: it reports main's blockers (D77.37), here its
+    sum's refusal, and then the naming premise its named stages need, the
+    one premise between it and its SQL."""
+    build = probe.build_case
+    monkeypatch.setattr(
+        probe,
+        "build_case",
+        lambda directory, source, contract, *rest: build(
+            directory, source, probe.with_identifier_case(contract, value), *rest
+        ),
+    )
+    _, outcome = (
+        probe.s03_world(tmp_path, "mysql", probe.S03_FORMS[form])
+        if form in probe.S03_FORMS
+        else probe.numeric_world(tmp_path, "mysql", probe.NUMERIC_CELLS[form])
+    )
+    assert [(b.code, b.detail) for b in outcome.blockers] == [
+        ("PIE-B1004", "sum_int_aggregate_range_proof_missing"),
+        premise,
+    ]
+
+
 def test_mysql_s03_forms_are_derived_once_per_aggregation(tmp_path, monkeypatch):
     """Emission asks whether its statement is a form once per aggregation,
     and compiled replay and the pure boundary derive it a fixed number of

@@ -651,6 +651,27 @@ def encoded(value):
     ).encode()
 
 
+# Each identifier_case a contract gets wrong (None: no premise) and the
+# blocker a statement that needs named stages reports for it.
+WRONG_IDENTIFIER_CASES = (
+    ("backtick_exact", ("PIE-B1005", "identifier_case_declaration_mismatch")),
+    (None, ("PIE-B1004", "identifier_case_declaration_missing")),
+)
+
+
+def with_identifier_case(contract, value):
+    """The JSON ``contract`` with ``value`` as its one identifier_case, or none."""
+    data = json.loads(contract)
+    data["environment"] = [
+        p for p in data["environment"] if p["key"] != "identifier_case"
+    ]
+    if value is not None:
+        data["environment"].append(
+            {"key": "identifier_case", "scope": "statement", "value": value}
+        )
+    return encoded(data).decode()
+
+
 def fixture(target, case="G_emission_table_bag", variant="bag"):
     if (
         target not in {"postgres", "mysql"}

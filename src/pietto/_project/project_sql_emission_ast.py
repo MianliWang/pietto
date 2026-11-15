@@ -730,13 +730,16 @@ def _emission_blockers(request: PreparedEmission, _guarded):
     if realization is not None and realization.query is not None:
         query = realization.query
         nodes = query.nodes
-        generated_scopes = len(query.bodies) > 1
         units = getattr(query, "units", query.bodies)
         generated_scopes = len(units) > 1
         # A nested group is 1+F physical columns and a collected terminal's
         # ordinal one more (D-S08-6): PostgreSQL counts physical columns.
         if any(collecting.physical_width(unit) > limits["columns"] for unit in units):
             add("PIE-B1007", "generated_structure_limit", plan.scope)
+    elif realization is not None:
+        # A refused realization builds no query: its plan says whether the
+        # statement needs named stages, so its naming premise is still checked.
+        generated_scopes = generated_scopes or planned_unit_count(request) > 1
     if admitted and (
         any(len(d.terminals) > limits["columns"] for d in bodies)
         or nodes > limits["nodes"]
@@ -1396,6 +1399,31 @@ def definition_blocks(request):
         for definition in request.layout.definitions
         if definition.original.ref not in sources | pseudo
     )
+
+
+def planned_unit_count(request):
+    """How many generated units realize_rows builds, read from the plan alone."""
+    plan = request.plan
+    inline = {capture.inner for capture in plan.captures}
+    closed = {
+        **valuing.bodies_by_definition(plan),
+        **setting.bodies_by_definition(plan),
+    }
+    joins = joining.joined_definitions(plan)
+    results = resulting.boundaries_by_definition(plan)
+    count = 0
+    for definition, blocks in definition_blocks(request):
+        ref = definition.original.ref
+        if ref in inline:
+            continue
+        if ref in closed:
+            count += 1
+            continue
+        # A projection with ORDER BY or LIMIT adds one result unit over it.
+        ends = sum(b.kind.value == "projection" for b in blocks)
+        count += len(joins.get(ref, ())) + len(blocks)
+        count += ends if results.get(ref) else 0
+    return count
 
 
 def admitted_row_shape(plan):

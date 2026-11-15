@@ -139,7 +139,8 @@ def test_current_pg_range_refusal_prevents_refined_original_authority(tmp_path):
     _, result = probe.build_case(tmp_path, source, base["contract"])
     assert result.status == "BLOCKED" and result.artifact is None
     assert [b.detail for b in result.blockers] == [
-        "postgres_window_structural_argument_out_of_int32_range"
+        "postgres_window_structural_argument_out_of_int32_range",
+        "identifier_case_declaration_missing",
     ]
     with pytest.raises((ValueError, AttributeError)):
         prepare_refinement(result.artifact, (), policy=TieRefinement())
