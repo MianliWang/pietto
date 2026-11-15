@@ -151,6 +151,23 @@ COALESCE = (
     "is nullable in the schema; make it non-nullable in Pietto first,"
     " for example with coalesce"
 )
+# The fix each column refusal names after the rule, by the refused field's kind.
+TO_FRAME = "; to_pandas and to_polars admit it"
+NO_ADAPTER = "; no pietto.interop function admits it; leave it out of the query"
+AS_INT = "; make it an Int in the query, for example 1 if flag else 0"
+DISTINCT_LABELS = (
+    "admits only distinct labels, so give each field its own label in the query"
+)
+COORDINATES = "row field 4 ('i16') and column field 5 ('i32')"
+FILTER = "filter the record out with a where"
+FLOAT = (
+    "outside the float64-exact range of ±2**53; convert the field with"
+    f" Float(...) in the query to accept its rounding, or {FILTER}"
+)
+
+
+def pinned(top):
+    return f'install the versions that "pietto[arrow,{EXTRA[top]}]" pins'
 
 
 def _helper(name):
@@ -805,12 +822,10 @@ def expected_common(cell):
     plot = "admits only Int or Float fields"
     envelope = [
         _value_error(
-            f"plot_line: y field 0 has {B53 + 1} in record 1,"
-            " outside the float64-exact range of ±2**53"
+            f"plot_line: y field 0 ('i64') has {B53 + 1} in record 1, {FLOAT}"
         ),
         _value_error(
-            f"plot_scatter: x field 0 has {-B53 - 1} in record 0,"
-            " outside the float64-exact range of ±2**53"
+            f"plot_scatter: x field 0 ('i64') has {-B53 - 1} in record 0, {FLOAT}"
         ),
     ]
     if "matplotlib" not in CELLS[cell]:
@@ -865,7 +880,8 @@ def expected_common(cell):
                 " (0 <= ordinal < 6)"
             ),
             _value_error(
-                "to_scipy_csr: row, column and value must name distinct fields"
+                "to_scipy_csr: row, column and value must name distinct fields,"
+                " not fields 4, 4 and 0"
             ),
             _value_error(
                 "plot_line: y 6 is not a field ordinal of this batch (0 <= ordinal < 6)"
@@ -893,32 +909,35 @@ def expected_common(cell):
             ),
             _value_error(
                 "to_pandas: field 1 ('same') repeats the label of field 0;"
-                " to_pandas admits only distinct labels"
+                f" to_pandas {DISTINCT_LABELS}"
             ),
             _value_error(f"to_numpy: column {nullable}"),
             _value_error(
                 "to_numpy: column field 0 ('renamed') has Arrow type string;"
-                " to_numpy admits only Int, Bool or Float fields"
+                f" {NUMPY_ADMITS}{TO_FRAME}"
             ),
             _value_error(
                 "to_numpy: column field 0 ('event_date') has Arrow type date32[day];"
-                " to_numpy admits only Int, Bool or Float fields"
+                f" {NUMPY_ADMITS}{TO_FRAME}"
             ),
             _value_error(f"to_numpy: column field 1 ('selected_medium') {COALESCE}"),
             _value_error(
                 "to_scipy_csr: value field 1 ('f64') has Arrow type double;"
-                f" {scipy_ints}"
+                f" {scipy_ints}{TO_FRAME}"
             ),
             _value_error(
-                f"to_scipy_csr: row field 2 ('flag') has Arrow type bool; {scipy_ints}"
+                "to_scipy_csr: row field 2 ('flag') has Arrow type bool;"
+                f" {scipy_ints}{AS_INT}"
             ),
             _value_error(f"to_scipy_csr: column {nullable}"),
             _value_error(
-                f"plot_line: x field 2 ('flag') has Arrow type bool; plot_line {plot}"
+                "plot_line: x field 2 ('flag') has Arrow type bool;"
+                f" plot_line {plot}{AS_INT}"
             ),
             _value_error(f"plot_scatter: y {nullable}"),
             _value_error(
-                f"plot_line: x field 0 ('renamed') has Arrow type string; plot_line {plot}"
+                "plot_line: x field 0 ('renamed') has Arrow type string;"
+                f" plot_line {plot}{TO_FRAME}"
             ),
         ],
         "shape_coordinates": [
@@ -929,14 +948,25 @@ def expected_common(cell):
                 "to_scipy_csr: shape[1] is -1; each dimension must lie between 0 and 4096"
             ),
             _value_error(
-                "to_scipy_csr: record 0 has the coordinate (0, 1), outside the shape (0, 0)"
-            ),
-            _value_error("to_scipy_csr: record 1 has the negative coordinate (-1, 0)"),
-            _value_error(
-                "to_scipy_csr: record 1 has the coordinate (2, 4), outside the shape (3, 4)"
+                f"to_scipy_csr: record 0 has the coordinate (0, 1) in {COORDINATES},"
+                " outside the shape (0, 0); pass a shape that holds it, at most 4096"
+                f" in each dimension, or {FILTER} in the query"
             ),
             _value_error(
-                "to_scipy_csr: records 0 and 2 have the same coordinate (0, 1)"
+                "to_scipy_csr: record 1 has the negative coordinate (-1, 0) in"
+                f" {COORDINATES}; coordinates start at 0, so filter such records"
+                " out with a where in the query"
+            ),
+            _value_error(
+                f"to_scipy_csr: record 1 has the coordinate (2, 4) in {COORDINATES},"
+                " outside the shape (3, 4); pass a shape that holds it, at most 4096"
+                f" in each dimension, or {FILTER} in the query"
+            ),
+            _value_error(
+                "to_scipy_csr: records 0 and 2 have the same coordinate (0, 1) in"
+                f" {COORDINATES}; to_scipy_csr stores each coordinate once and never"
+                " sums, so give each coordinate one record in the query, for example"
+                " by grouping it by both fields"
             ),
         ],
         "envelope": envelope,
@@ -998,7 +1028,7 @@ def expected_frames(cell, inputs):
                 "builtins",
                 "ValueError",
                 f"to_pandas: field {ordinal} ('same') repeats the label of"
-                " field 0; to_pandas admits only distinct labels",
+                f" field 0; to_pandas {DISTINCT_LABELS}",
                 False,
             ]
             if cell == "pandas"
@@ -1020,9 +1050,11 @@ def expected_frames(cell, inputs):
     ]
     changed = (
         f"{convert}: field 0 ('i64') became %s instead of %s;"
-        f" {convert} never returns a changed type"
+        f" {convert} never returns a changed type; {pinned(cell)}"
     )
-    another = _value_error("to_pandas: pandas built another index than a RangeIndex")
+    another = _value_error(
+        f"to_pandas: pandas built another index than a RangeIndex; {pinned(cell)}"
+    )
     expected["drift"] = (
         [
             another,
@@ -1228,7 +1260,7 @@ def expected_numpy():
 
     rows = NUMPY_ROWS
     written = [rows[1], *rows[1:]]
-    refused = "to_numpy: column field %s has Arrow type %s; " + NUMPY_ADMITS
+    refused = "to_numpy: column field %s has Arrow type %s; " + NUMPY_ADMITS + "%s"
     nested = "list<item: struct<i: int64 not null, b: bool, t: string> not null>"
     expected = {
         "matrix": {
@@ -1246,20 +1278,29 @@ def expected_numpy():
         "labels": [column(NUMERIC_ROWS["values"], o) for o in (0, 1)],
         "refusals": [
             _value_error(f"to_numpy: column field 3 ('maybe') {COALESCE}"),
-            _value_error(refused % ("0 ('renamed')", "large_string")),
+            _value_error(refused % ("0 ('renamed')", "large_string", TO_FRAME)),
             _value_error(
-                refused % (f"0 ({_product().DECIMAL_LABELS[0]!r})", "decimal128(38, 2)")
+                refused
+                % (
+                    f"0 ({_product().DECIMAL_LABELS[0]!r})",
+                    "decimal128(38, 2)",
+                    TO_FRAME,
+                )
             ),
-            _value_error(refused % ("0 ('selected_0')", "timestamp[us]")),
+            _value_error(refused % ("0 ('selected_0')", "timestamp[us]", TO_FRAME)),
             _value_error(
-                refused % ("8 ('selected_wide_amount')", "decimal256(65, 30)")
+                refused
+                % ("8 ('selected_wide_amount')", "decimal256(65, 30)", NO_ADAPTER)
             ),
-            _value_error(refused % ("2 ('key_value')", "extension<arrow.uuid>")),
-            _value_error(refused % ("1 ('c')", nested)),
+            _value_error(
+                refused % ("2 ('key_value')", "extension<arrow.uuid>", NO_ADAPTER)
+            ),
+            _value_error(refused % ("1 ('c')", nested, NO_ADAPTER)),
         ],
         "drift": [
             _value_error(
-                f"to_numpy: field {changed}; to_numpy never returns a changed type"
+                f"to_numpy: field {changed}; to_numpy never returns a changed type;"
+                f" {pinned('numpy')}"
             )
             for changed in (
                 "0 ('i64') became float64 instead of int64",
@@ -1450,14 +1491,14 @@ def expected_scipy():
         dense[r[row]][r[column]] = r[value]
     unstored = _value_error(
         f"to_scipy_csr: scipy did not store the {len(SCIPY_ROWS['int64'])} records"
-        " once each in canonical order"
+        f" once each in canonical order; {pinned('scipy')}"
     )
 
     def retyped(indices, pointers, data):
         return _value_error(
             f"to_scipy_csr: scipy built {indices} indices, {pointers} index pointers"
             f" and {data} data instead of int32, int32 and int64; to_scipy_csr never"
-            " returns a changed type"
+            f" returns a changed type; {pinned('scipy')}"
         )
 
     return {
@@ -1473,15 +1514,16 @@ def expected_scipy():
         "scipy_bound": csr_oracle("int16", shape=(4096, 4096)),
         "scipy_drift": [
             _value_error(
-                "to_scipy_csr: scipy built a csr_matrix instead of a csr_array"
+                "to_scipy_csr: scipy built a csr_matrix instead of a csr_array;"
+                f" {pinned('scipy')}"
             ),
             _value_error(
                 f"to_scipy_csr: scipy built the shape ({shape[0] + 1}, {shape[1]})"
-                f" instead of {shape}"
+                f" instead of {shape}; {pinned('scipy')}"
             ),
             _value_error(
                 f"to_scipy_csr: scipy built the shape ({shape[0]}, {shape[1] + 1})"
-                f" instead of {shape}"
+                f" instead of {shape}; {pinned('scipy')}"
             ),
             retyped("int64", "int32", "int64"),
             retyped("int32", "int64", "int64"),
@@ -1681,13 +1723,13 @@ def expected_plots():
                 "plot_line: y 6 is not a field ordinal of this batch (0 <= ordinal < 6)"
             ),
             _value_error(
-                f"plot_scatter: x field 2 ('flag') has Arrow type bool; plot_scatter {plot}"
+                "plot_scatter: x field 2 ('flag') has Arrow type bool;"
+                f" plot_scatter {plot}{AS_INT}"
             ),
             _value_error(f"plot_line: x field 3 ('maybe') {COALESCE}"),
             _value_error(f"plot_scatter: y field 3 ('maybe') {COALESCE}"),
             _value_error(
-                f"plot_scatter: y field 0 has {B53 + 1} in record 1,"
-                " outside the float64-exact range of ±2**53"
+                f"plot_scatter: y field 0 ('i64') has {B53 + 1} in record 1, {FLOAT}"
             ),
             [0, 0, 0],
         ],

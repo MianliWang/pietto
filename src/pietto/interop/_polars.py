@@ -4,6 +4,8 @@ from __future__ import annotations
 
 from typing import Any
 
+from pietto.interop import _common as common
+
 
 def _mapped(pa: Any, polars: Any, data_type: Any) -> Any:
     for arrow, mapped in (
@@ -32,6 +34,7 @@ def convert(name: str, pa: Any, polars: Any, data: Any) -> Any:
         if type(dtype) is not type(mapped) or dtype != mapped:
             raise ValueError(
                 f"{name}: field {ordinal} ({item.name!r}) became {dtype} instead"
-                f" of {mapped}; {name} never returns a changed type"
+                f" of {mapped}; {name} never returns a changed type;"
+                f" {common.pinned('polars')}"
             )
     return frame

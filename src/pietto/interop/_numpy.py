@@ -4,6 +4,8 @@ from __future__ import annotations
 
 from typing import Any
 
+from pietto.interop import _common as common
+
 # Admission leaves only these Arrow types; each keeps its width in NumPy.
 DTYPES = {
     "int16": "int16",
@@ -23,6 +25,7 @@ def convert(name: str, numpy: Any, data: Any, column: int) -> Any:
     if array.dtype != wanted:
         raise ValueError(
             f"{name}: field {column} ({item.name!r}) became {array.dtype} instead"
-            f" of {wanted}; {name} never returns a changed type"
+            f" of {wanted}; {name} never returns a changed type;"
+            f" {common.pinned('numpy')}"
         )
     return array

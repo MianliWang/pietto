@@ -93,7 +93,10 @@ def field(name: str, data: Any, parameter: str, ordinal: int) -> Any:
 
 def distinct(name: str, ordinals: tuple[int, ...], parameters: str) -> None:
     if len(set(ordinals)) != len(ordinals):
-        raise ValueError(f"{name}: {parameters} must name distinct fields")
+        given = ", ".join(map(str, ordinals[:-1])) + f" and {ordinals[-1]}"
+        raise ValueError(
+            f"{name}: {parameters} must name distinct fields, not fields {given}"
+        )
 
 
 def kind(pa: Any, data_type: Any) -> str | None:
@@ -125,6 +128,11 @@ def _listed(kinds: tuple[str, ...]) -> str:
     return ", ".join(kinds[:-1]) + " or " + kinds[-1]
 
 
+def pinned(top: str) -> str:
+    """The fix for a target result of another type: the qualified pins."""
+    return f'install the versions that "pietto[arrow,{EXTRAS[top]}]" pins'
+
+
 def admit_frame(name: str, pa: Any, data: Any) -> None:
     for ordinal, item in enumerate(data.schema):
         if kind(pa, item.type) is None:
@@ -143,7 +151,8 @@ def distinct_labels(name: str, data: Any) -> None:
         if earlier != ordinal:
             raise ValueError(
                 f"{name}: field {ordinal} ({item.name!r}) repeats the label of"
-                f" field {earlier}; {name} admits only distinct labels"
+                f" field {earlier}; {name} admits only distinct labels, so give"
+                " each field its own label in the query"
             )
 
 
@@ -158,9 +167,15 @@ def admit_column(
     item = data.schema.field(ordinal)
     found = kind(pa, item.type)
     if found not in kinds:
+        if found is None:
+            instead = "no pietto.interop function admits it; leave it out of the query"
+        elif found == "Bool":
+            instead = "make it an Int in the query, for example 1 if flag else 0"
+        else:
+            instead = "to_pandas and to_polars admit it"
         raise ValueError(
             f"{name}: {parameter} field {ordinal} ({item.name!r}) has Arrow type"
-            f" {item.type}; {name} admits only {_listed(kinds)} fields"
+            f" {item.type}; {name} admits only {_listed(kinds)} fields; {instead}"
         )
     if item.nullable:
         raise ValueError(
@@ -184,6 +199,10 @@ def check_coordinates(
     name: str, data: Any, row: int, column: int, shape: tuple[int, int]
 ) -> None:
     first: dict[tuple[int, int], int] = {}
+    fields = (
+        f"row field {row} ({data.schema.field(row).name!r}) and column field"
+        f" {column} ({data.schema.field(column).name!r})"
+    )
     pairs = zip(
         data.column(row).to_pylist(), data.column(column).to_pylist(), strict=True
     )
@@ -191,17 +210,23 @@ def check_coordinates(
         if coordinate[0] < 0 or coordinate[1] < 0:
             raise ValueError(
                 f"{name}: record {record} has the negative coordinate {coordinate}"
+                f" in {fields}; coordinates start at 0, so filter such records out"
+                " with a where in the query"
             )
         if coordinate[0] >= shape[0] or coordinate[1] >= shape[1]:
             raise ValueError(
-                f"{name}: record {record} has the coordinate {coordinate},"
-                f" outside the shape {shape}"
+                f"{name}: record {record} has the coordinate {coordinate} in"
+                f" {fields}, outside the shape {shape}; pass a shape that holds it,"
+                f" at most {SHAPE_LIMIT} in each dimension, or filter the record out"
+                " with a where in the query"
             )
         earlier = first.setdefault(coordinate, record)
         if earlier != record:
             raise ValueError(
-                f"{name}: records {earlier} and {record} have the same"
-                f" coordinate {coordinate}"
+                f"{name}: records {earlier} and {record} have the same coordinate"
+                f" {coordinate} in {fields}; {name} stores each coordinate once and"
+                " never sums, so give each coordinate one record in the query, for"
+                " example by grouping it by both fields"
             )
 
 
@@ -212,9 +237,12 @@ def check_envelope(
         return
     for record, value in enumerate(data.column(ordinal).to_pylist()):
         if not -ENVELOPE <= value <= ENVELOPE:
+            label = data.schema.field(ordinal).name
             raise ValueError(
-                f"{name}: {parameter} field {ordinal} has {value} in record"
-                f" {record}, outside the float64-exact range of ±2**53"
+                f"{name}: {parameter} field {ordinal} ({label!r}) has {value} in"
+                f" record {record}, outside the float64-exact range of ±2**53;"
+                " convert the field with Float(...) in the query to accept its"
+                " rounding, or filter the record out with a where"
             )
 
 

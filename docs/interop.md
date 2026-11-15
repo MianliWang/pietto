@@ -43,6 +43,107 @@ version at run time. Another route extra beside an interop extra, such as
 `pietto[execute-postgres,interop-pandas]`, is expected to work because it
 selects the same PyArrow, but it is not tested on its own.
 
+## An Arrow table through DuckDB
+
+The [DuckDB Arrow route](execution.md#duckdb-arrow-route) runs a query over an
+Arrow table that your program holds, in process, so this example needs no
+database server. It needs `pip install "pietto[execute-duckdb,interop-pandas]"`,
+a route extra beside an interop extra as described above.
+
+A project directory holds three files. `pietto.toml`:
+
+```toml
+schema_version = 2
+
+[sources]
+include = ["*.pietto"]
+```
+
+`main.pietto` declares the table's shape, its source and one query:
+
+```pietto
+shape Reading:
+    station: Int
+    level: Float
+
+source readings: Reading = duckdb.arrow("readings")
+
+query high(floor: Int):
+    from readings
+    where station >= floor
+    select:
+        station
+        level
+```
+
+`contract.json` describes the table's columns by the rules of the
+[route](spec/duckdb-arrow-route-v1.md#emission-contract-values):
+
+```json
+{
+  "format": "pietto.emission-contract.v1",
+  "target": {"family": "duckdb", "release": "2.0.0"},
+  "sources": [{
+    "selector": {"module": "main.pietto", "kind": "source", "name": "readings"},
+    "relation": {"namespace": "arrow", "name": "readings"},
+    "scan": "arrow_registration",
+    "fields": [
+      {"ordinal": 0, "name": "station", "column": "station",
+       "representation": {"storage": {"kind": "arrow_int64"}, "nullable": false,
+                          "domain": {"kind": "int_range", "min": "0", "max": "1000"}}},
+      {"ordinal": 1, "name": "level", "column": "level",
+       "representation": {"storage": {"kind": "arrow_float64"}, "nullable": false,
+                          "domain": {"kind": "finite_float", "format": "binary64"}}}
+    ],
+    "premises": [
+      {"key": "row_domain_matches", "scope": "source", "value": true},
+      {"key": "read_only_object", "scope": "source", "value": true}
+    ]
+  }],
+  "environment": [
+    {"key": "client_encoding", "scope": "statement", "value": "UTF8"},
+    {"key": "operator_environment", "scope": "statement", "value": "builtin_only"},
+    {"key": "parameter_protocol", "scope": "statement", "value": "duckdb_prepared"}
+  ]
+}
+```
+
+`analyze.py`, run from that directory, builds the table, runs the query and
+converts each batch:
+
+```python
+import pyarrow as pa
+
+from pietto.execution import DuckDBArrowInput, compile_query, execute
+from pietto.interop import to_pandas
+
+readings = pa.table({"station": [1, 2, 3, 4], "level": [0.5, 1.5, 2.5, 3.5]})
+query = compile_query(".", module="main.pietto", kind="query", name="high",
+                      dialect="duckdb", emission_contract="contract.json")
+with execute(query, route="duckdb_arrow",
+             access=DuckDBArrowInput(name="readings", table=readings),
+             premise=None, parameters={"floor": 2}) as result:
+    for batch in result:
+        frame = to_pandas(batch)
+        batch.close()
+        print(frame.sort_values("station").to_string(index=False))
+        print(frame["level"].mean())
+```
+
+It prints:
+
+```text
+ station  level
+       2    1.5
+       3    2.5
+       4    3.5
+2.5
+```
+
+The route's results have no order, so the example sorts the frame. Both
+fields are non-nullable, so with their extras `to_numpy(batch, 1)` and
+`plot_line(batch, 0, 1, ax=ax)` take the same batch.
+
 ## Calls
 
 ```python
@@ -73,20 +174,29 @@ Every call checks in this order and raises the first failure:
    `HandleMisuse` `PIE-R4002` for a closed batch, otherwise with `ValueError`
    or `ModuleNotFoundError`.
 2. `HandleMisuse` `PIE-R4002` for a closed batch, as any export of it.
-3. `ValueError` for an ordinal outside the batch, then a field the function
-   does not admit (its type, or a nullable field where a non-nullable one is
-   needed), then, in `to_pandas`, a field whose label an earlier field
-   already has, whatever their types, then a SciPy shape, then values: SciPy
-   coordinates and the Matplotlib integer range. An admission message names
-   the field by ordinal and label and, for a nullable field, the Pietto-side
-   fix, such as `coalesce`; a repeated label's message also names the earlier
-   field's ordinal; a coordinate or range message names the record, and a
-   range message also the field's ordinal.
+3. `ValueError` for an ordinal outside the batch, then, in `to_scipy_csr`,
+   fields that are not distinct, then a field the function does not admit
+   (its type, or a nullable field where a non-nullable one is needed), then,
+   in `to_pandas`, a field whose label an earlier field already has,
+   whatever their types, then a SciPy shape, then values: SciPy coordinates
+   and the Matplotlib integer range. A message about a field's
+   type, nullability or label, a SciPy coordinate or the integer range names
+   the function, the field it is about by ordinal and label (both coordinate
+   fields for a SciPy coordinate), the rule the call breaks and a fix from
+   [Refusals and fixes](#refusals-and-fixes): a change to the query, such as
+   `coalesce` for a nullable field, or another function, such as `to_pandas`
+   for a `Text` field. A repeated label's message also names the earlier
+   field's ordinal, and a coordinate or range message names the record. A
+   message about an ordinal outside the batch or a SciPy shape names the
+   value given and the valid range, and one about SciPy fields that are not
+   distinct names the ordinals given.
 4. `ModuleNotFoundError` when the function's extra is not installed, naming
    that extra; its `name` is the missing library.
 5. The target library's own failures, which are not wrapped.
 6. `ValueError` when the target's result fails the comparison the function
-   makes after the conversion: the result is refused, never converted.
+   makes after the conversion: the result is refused, never converted. Its
+   message names the extra whose pinned versions to install, because only
+   those are qualified.
    `to_pandas` compares the index, a `RangeIndex` of the batch's row count,
    and each column's dtype; `to_polars` each column's dtype; `to_numpy` the
    array's dtype; and `to_scipy_csr` the array's type and shape, its index,
@@ -101,23 +211,58 @@ A refused call leaves the batch open and adds nothing to an Axes.
 
 ## Field admission
 
-| Arrow field | `to_pandas` | `to_polars` | `to_numpy` | `to_scipy_csr` | `plot_line`, `plot_scatter` |
-| --- | --- | --- | --- | --- | --- |
-| int16, int32, int64 (Int) | yes | yes | non-nullable | non-nullable | non-nullable, every value within ±2**53 |
-| bool | yes | yes | non-nullable | refused | refused |
-| float64 (Float) | yes | yes | non-nullable | refused | non-nullable |
-| string, large_string (Text) | yes | yes | refused | refused | refused |
-| decimal128 (Decimal up to precision 38) | yes | yes | refused | refused | refused |
-| date32 (Date) | yes | yes | refused | refused | refused |
-| timestamp[us] without a time zone | yes | yes | refused | refused | refused |
-| decimal256, UUID, nested | refused | refused | refused | refused | refused |
+What each function accepts, by the field's Pietto type and its Arrow type in
+the batch, for a field the schema declares non-nullable and for a nullable
+one (`T | None`). A letter names the row of
+[Refusals and fixes](#refusals-and-fixes) that says why and what to write
+instead.
+
+| Field (Arrow type) | `to_pandas`, `to_polars` | `to_numpy` | `to_scipy_csr` | `plot_line`, `plot_scatter` |
+| --- | --- | --- | --- | --- |
+| `Int` (int16, int32, int64) | yes; nullable too | yes; nullable: no (A) | yes; nullable: no (A) | yes, every value within ±2**53 (D); nullable: no (A) |
+| `Float` (float64) | yes; nullable too | yes; nullable: no (A) | no (B) | yes; nullable: no (A) |
+| `Bool` (bool) | yes; nullable too | yes; nullable: no (A) | no (C) | no (C) |
+| `Text` (string, large_string) | yes; nullable too | no (B) | no (B) | no (B) |
+| `Date` (date32) | yes; nullable too | no (B) | no (B) | no (B) |
+| `Timestamp` (timestamp[us], no time zone) | yes; nullable too | no (B) | no (B) | no (B) |
+| `Decimal` up to precision 38 (decimal128) | yes; nullable too | no (B) | no (B) | no (B) |
+| `Decimal` above precision 38 (decimal256) | no (E) | no (E) | no (E) | no (E) |
+| `UUID` (extension `arrow.uuid`) | no (E) | no (E) | no (E) | no (E) |
+| nested (a list of structs) | no (E) | no (E) | no (E) | no (E) |
 
 pandas and Polars admit nullable fields and keep each null where it is. The
 other functions read nullability from the schema, never from one batch's
-values, so two batches of one query get the same answer: `coalesce` a field
-in Pietto to make it non-nullable. Float values are finite by the result
-contract, so no function checks them. A batch with no rows returns the
-target's empty object with the same types.
+values, so two batches of one query get the same answer, even when a batch
+holds no null. Float values are finite by the result contract, so no function
+checks them. A batch with no rows returns the target's empty object with the
+same types.
+
+### Refusals and fixes
+
+Each fix below is a change to the query or a call of another function. The
+query forms compile on a PostgreSQL project. A MySQL project compiles them
+too, except the two aggregate forms, which it can block (`PIE-B1004` for
+`sum(v)` of an `Int`, `PIE-B1003` for `coalesce` of an aggregate). The DuckDB
+route admits only a direct projection with at most one `where` that compares
+an `Int` field with the query's parameter, so a `coalesce`, a conditional
+expression, `Float(...)` or an aggregate cannot be written there; the fix
+there is such a `where`, or `to_pandas` or `to_polars`.
+
+| | Refused | Why | What to do instead |
+| --- | --- | --- | --- |
+| A | A nullable field in `to_numpy`, `to_scipy_csr`, `plot_line` or `plot_scatter` | A null would make an Int array float64 with NaN, losing `2**63 - 1`, and a Bool array an object array; a Float null would become NaN. | Make the field non-nullable in the query: `level = coalesce(level, 0.0)`. The default has the field's type: `0.0` for a `Float`, `0` for an `Int`. A grouped `sum` is nullable too: for an `Int` field `v`, write `v = coalesce(sum(v), 0)`. |
+| B | `Text`, `Date`, `Timestamp` or `Decimal` in `to_numpy`, `to_scipy_csr` or a plot; `Float` in `to_scipy_csr` | These functions return or draw only exact numeric arrays: an Int, Bool or Float array for `to_numpy`, Int coordinates and values for `to_scipy_csr`, and float64 values for a plot. | Convert the batch with `to_pandas` or `to_polars`, which keep the field's type. |
+| C | `Bool` in `to_scipy_csr` or a plot | The same exact numeric arrays; a Bool is not an Int. | Make it an `Int` in the query: `ok = 1 if ok else 0`. |
+| D | An `Int` value beyond ±2**53 in a plot | A plot passes float64 values to Matplotlib, and float64 holds integers exactly only within ±2**53. | Convert the field in the query with `Float(n)` to accept the rounding, or filter such rows out with a `where`. |
+| E | `Decimal` above precision 38, `UUID` or a nested field anywhere | No function has a tested mapping for them. | Leave the field out of the query's select. Pietto has no conversion of them: `Text(id)` of a `UUID` is `PIE-S2105`. |
+
+The other refusals name their fix too: give a repeated field label its own
+label in the query (`to_pandas`); pass three distinct fields and a shape of at
+most 4096 in each dimension to `to_scipy_csr`; and for a coordinate that is
+negative, outside the shape or repeated, filter the record out with a `where`,
+pass a larger shape, or give each coordinate one record, for example by
+grouping the query by both coordinate fields and writing the `Int` value as
+`coalesce(sum(v), 0)`.
 
 ## pandas
 
@@ -223,8 +368,9 @@ field, or an Int field whose values all lie within ±2**53
 (9,007,199,254,740,992), where float64 holds every integer exactly. Every
 value is checked before anything is drawn, and a value beyond the bound, such
 as `2**53 + 1`, is refused with `ValueError` naming the parameter, the field's
-ordinal, the value and its record. Bool, Text and every other field is
-refused, and so is a nullable field even when this batch holds no null.
+ordinal and label, the value, its record and the fix (D in
+[Refusals and fixes](#refusals-and-fixes)). Bool, Text and every other field
+is refused, and so is a nullable field even when this batch holds no null.
 
 Each field becomes a float64 copy in row order, so repeated rows stay
 repeated and nothing is sorted. `plot_line` returns the one
