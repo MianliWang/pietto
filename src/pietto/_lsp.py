@@ -11,6 +11,7 @@ import re
 import string
 import sys
 import threading
+import traceback
 from dataclasses import dataclass
 from pathlib import Path, PurePath, PurePosixPath, PureWindowsPath
 from types import MappingProxyType
@@ -455,7 +456,11 @@ class _Server:
         kind, value = unit
         if kind == "root":
             assert isinstance(value, int)
-            checked, selections = self._check_root(value)
+            try:
+                checked, selections = self._check_root(value)
+            except Exception:
+                self._failed(unit)
+                return
             self._drain()
             if self._current(unit, epoch):
                 self._set_root_snapshot(unit, epoch, value, checked)
@@ -469,10 +474,14 @@ class _Server:
                 del self.dirty[unit]
                 self._sweep()
                 return
-            diagnostics, facts = _check_text_with_editor_facts(
-                document.text,
-                path=str(document.path) if document.path is not None else None,
-            )
+            try:
+                diagnostics, facts = _check_text_with_editor_facts(
+                    document.text,
+                    path=str(document.path) if document.path is not None else None,
+                )
+            except Exception:
+                self._failed(unit)
+                return
             self._drain()
             if self._current(unit, epoch):
                 self.snapshots[unit] = _EditorSnapshot(
@@ -492,6 +501,17 @@ class _Server:
                     document.version,
                 )
                 self._sweep()
+
+    def _failed(self, unit: _Key) -> None:
+        """End an analysis that an error inside Pietto stopped: it publishes
+        nothing and keeps no facts, and the session goes on."""
+
+        if sys.stderr is not None:
+            sys.stderr.write("pietto lsp: internal error; continuing\n")
+            traceback.print_exc(file=sys.stderr)
+            sys.stderr.flush()
+        del self.dirty[unit]
+        self.snapshots.pop(unit, None)
 
     def _current(self, unit: _Key, epoch: int) -> bool:
         if self.exit_code is not None or self.state != "running":

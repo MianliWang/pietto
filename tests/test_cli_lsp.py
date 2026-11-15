@@ -2313,6 +2313,55 @@ def test_a_file_open_under_a_linked_root_s_real_path_is_its_module(
     assert publishes(messages, (link / "a.pietto").as_uri()) == []
 
 
+ALONE = ["PIE-S2708", "PIE-S2301"]
+
+
+@pytest.mark.parametrize(
+    ("failing", "error", "sets"),
+    [
+        ("analyze", ValueError, [(2, ALONE)]),
+        # While its root has never been checked, the root selects no module,
+        # so the document is checked alone.
+        (
+            "check_project_editor_diagnostics",
+            RuntimeError,
+            [(1, ALONE), (2, ["PIE-S2102"])],
+        ),
+    ],
+)
+def test_an_internal_analysis_error_leaves_the_server_running(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+    failing: str,
+    error: type[Exception],
+    sets: list[tuple[int, list[str]]],
+) -> None:
+    root = project(tmp_path, models=MODELS, a=A_BAD)
+    uri = (root / "a.pietto").as_uri()
+
+    def fail(*args: object, **kwargs: object) -> None:
+        raise error("internal")
+
+    monkeypatch.setattr(_lsp, failing, fail)
+    roots = (root,) if failing == "check_project_editor_diagnostics" else ()
+    messages = session(
+        init(*roots),
+        [opened(uri, A_BAD, 1), request(5, "textDocument/hover", uri, 0, 0)],
+        [monkeypatch.undo, changed(uri, A_BAD, 2)],
+    )
+    # The failed analysis publishes nothing, a request that waited for it
+    # gets no result, and the next change is checked again.
+    assert response(messages, 5)["result"] is None
+    assert [
+        (item["uri"], item.get("version"), [d["code"] for d in item["diagnostics"]])
+        for item in publishes(messages)
+    ] == [(uri, version, codes) for version, codes in sets]
+    err = capsys.readouterr().err
+    assert err.startswith("pietto lsp: internal error")
+    assert f"{error.__name__}: internal" in err
+
+
 @pytest.mark.parametrize(
     "text",
     [
