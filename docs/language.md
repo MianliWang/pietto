@@ -4455,6 +4455,220 @@ guarded `SUM`, a nullable `Int`; a conditional sum is `COALESCE(` that
 guard over `CASE WHEN TEST THEN x END`, `, 0)`, a non-null `Int`, 0 when no
 row's test is True. A statement still refused reports exactly the blockers
 it has without these forms.
+
+<a id="mysql-project-sumint-forms"></a>
+**MySQL project `sum(Int)` forms at a glance.** This summary follows the
+paragraph above, which stays the rule. Put the module below as
+`shop.pietto` in a directory `shop`, beside the `pietto.toml` of the
+[worked example](worked-example.md) and a `contract.json` with the
+carriers and premises listed after the table. Then `pietto emit-sql
+--project shop --all --dialect mysql --emission-contract contract.json`
+reports each of its ten queries VERIFIED; `--module shop.pietto --kind query
+--name c1` in place of `--all` emits one of them. Names are free: any
+source, field, query or item name, `table` for `query`, and SELECT items in
+any order.
+
+```pietto
+shape Order:
+    id: Int
+    customer: Int
+    amount: Int | None
+    nn: Int
+    flag: Bool | None
+    order_key = unique(id)
+
+shape Item:
+    id: Int
+    order_id: Int
+    qty: Int | None
+
+source orders: Order = mysql.table("orders")
+
+source items: Item = mysql.table("items")
+
+query c1:
+    from orders
+    group by customer
+    select:
+        customer
+        paid = sum(o.amount for o in group if o.flag)
+
+query c2:
+    from orders
+    select:
+        unpaid = sum(o.amount for o in group if not o.flag)
+        unknown = sum(o.amount for o in group if o.flag is None)
+
+query c3:
+    from orders
+    select:
+        late = sum(o.amount for o in group if o.id > 3)
+
+query c4:
+    from orders
+    group by customer
+    select:
+        customer
+        flagged = sum(o.nn for o in group if o.flag)
+
+query j1:
+    from items
+    let o = orders
+    inner join o on o.id == items.order_id
+    group by o.customer
+    select:
+        customer = o.customer
+        qty = sum(items.qty)
+
+query j2:
+    from orders
+    let i = items
+    left join i on i.order_id == orders.id
+    group by orders.id
+    select:
+        id = orders.id
+        qty = sum(i.qty)
+
+query j3:
+    from orders
+    let i = items
+    left join i on i.order_id == orders.id
+    group by orders.id, orders.customer
+    select:
+        id = orders.id
+        customer = orders.customer
+        qty = sum(i.qty)
+
+query per_order:
+    from orders
+    let i = items
+    left join i on i.order_id == orders.id
+    group by orders.id, orders.customer, orders.amount
+    select:
+        id = orders.id
+        customer = orders.customer
+        amount = orders.amount
+        lines = count(i.id)
+
+query t1:
+    from per_order
+    group by customer
+    select:
+        customer
+        revenue = sum(amount)
+        lines = sum(lines)
+
+query t2:
+    from j3
+    group by customer
+    select:
+        customer
+        qty = sum(qty)
+```
+
+| Form | Query | Reads | `group by` | SELECT items | Each `sum` is |
+| --- | --- | --- | --- | --- | --- |
+| C1 | `c1` | `orders` | `customer` | `customer`, `sum(o.amount for o in group if o.flag)` | a non-null `Int`, 0 when no row's test is True |
+| C2 | `c2` | `orders` | none | `sum(o.amount for o in group if not o.flag)`, `sum(o.amount for o in group if o.flag is None)` | as in C1 |
+| C3 | `c3` | `orders` | none | `sum(o.amount for o in group if o.id > 3)`, any `Int` literal of 0 or more in place of `3` | as in C1 |
+| C4 | `c4` | `orders` | `customer` | `customer`, `sum(o.nn for o in group if o.flag)` | as in C1 |
+| J1 | `j1` | `items`, `let o = orders`, `inner join o on o.id == items.order_id` | `o.customer` | `o.customer`, `sum(items.qty)` | a nullable `Int`, NULL when every value it sums is NULL |
+| J2 | `j2` | `orders`, `let i = items`, `left join i on i.order_id == orders.id` | `orders.id` | `orders.id`, `sum(i.qty)` | as in J1 |
+| J3 | `j3` | as J2 | `orders.id, orders.customer` | `orders.id`, `orders.customer`, `sum(i.qty)` | as in J1 |
+| T1 | `t1` | `per_order`: J2's JOIN grouped by `orders.id, orders.customer, orders.amount`, selecting those three and `count(i.id)` | `customer` | `customer`, `sum(amount)`, `sum(lines)` | as in J1 |
+| T2 | `t2` | `j3`, a J3 query | `customer` | `customer`, `sum(qty)` | as in J1 |
+
+Each `sum` is emitted as the guarded `SUM` of the paragraph above. A query
+is one of the forms only under all of these conditions:
+
+- **Items.** The emitted query selects any of its row's SELECT items, each
+  at most once, one `sum` at least: `c1` without `customer` is C1 too.
+  T1's `per_order` and T2's `j3` select exactly their row's items.
+- **Declarations.** Each source and query is declared in the module of the
+  emitted query and read by its own name. An imported source or query, a
+  relation alias such as `let x = orders` read by `from x`, or a read
+  qualified by its source's name in C1 to C4, such as `group by
+  orders.customer`, keeps the refusal.
+- **Spelling.** Each read and test is written as its row writes it: no
+  parentheses, no other `let`, test, aggregate, group key, JOIN kind or ON
+  order, and no WHERE, HAVING, ORDER BY, LIMIT, DISTINCT, header parameter
+  or third level.
+- **Shapes.** `Order` declares `unique(id)`; without it, `check --project`
+  reports PIE-S2333 at J1, J2, J3 and `per_order`, whose aggregates may read
+  rows the JOIN repeats. J1 to T2 need both sources with exactly the fields
+  of the example, in its order, as their JOIN carries every field; C1 to C4
+  need only the fields they read, and admit others.
+- **Carriers.** Each field's `representation` in `contract.json` is exactly
+  the one below. Another `storage`, nullability or `domain`, such as an
+  `int_range` from `"0"` for `amount`, keeps the refusal.
+
+| Fields | `storage` | `nullable` | `domain` |
+| --- | --- | --- | --- |
+| `orders.id`, `orders.nn`, `items.id`, `items.order_id` | `my_bigint` | `false` | `int_range` from `"-9223372036854775808"` to `"9223372036854775807"` |
+| `orders.amount`, `items.qty` | `my_bigint` | `true` | the same `int_range` |
+| `orders.customer` | `my_int` | `false` | `int_range` from `"-2147483648"` to `"2147483647"` |
+| `orders.flag` | `my_bool01` | `true` | `bool01` |
+
+- **Literal policy.** C3 needs the default `--literal-policy preserve`:
+  under `bind-safe` it is PIE-B1004 `sum_int_aggregate_range_proof_missing`.
+  The other eight hold no literal and are unchanged.
+- **Premises.** Each source's `relation` is `{"namespace": "<its MySQL
+  database>", "name": "orders"}` (`"items"` for `items`): it needs a
+  `namespace`, though `mysql.table("orders")` names no database. Each
+  source has the premises `row_domain_matches` and `read_only_object`,
+  both `true`, and `environment` declares the three statement premises
+  below. The forms hold no placeholder, so they need no
+  `parameter_protocol`. The `target` is `{"family": "mysql", "release":
+  "8.4.12"}`; the [MySQL contract example](project-package.md#emission-contract-values)
+  shows the rest of the file.
+
+```json
+{
+  "environment": [
+    {"key": "client_encoding", "scope": "statement", "value": "utf8mb4"},
+    {"key": "operator_environment", "scope": "statement", "value": "builtin_only"},
+    {"key": "identifier_case", "scope": "statement", "value": "lower_case_table_names=0"}
+  ]
+}
+```
+
+A query is a form only over a contract that declares that `identifier_case`.
+With the key missing or with another value, such as `"quoted_exact"` or
+`"lower_case_table_names=1"`, each of the ten queries is BLOCKED (exit 1).
+A query with a `sum` reports the PIE-B1004
+`sum_int_aggregate_range_proof_missing` blockers it has outside the forms,
+at the SELECT item of each sum (T2's at that of `j3`), and its list ends
+with PIE-B1004 `identifier_case_declaration_missing` for a missing key or
+PIE-B1005 `identifier_case_declaration_mismatch` for another value. That
+last blocker has no source location, and its suggestion names the value
+to declare. Declaring that value is the whole fix: the query is then
+VERIFIED, without its sum blockers. `per_order`, which holds no sum,
+reports only the premise's blocker.
+
+Any other MySQL project `sum` of an `Int`, outside these forms and S02's
+cell, is BLOCKED with PIE-B1004 `sum_int_aggregate_range_proof_missing`.
+This refusal is by design, not a defect: MySQL sums a `BIGINT` as a
+`DECIMAL`, which `CAST(... AS SIGNED)` would clamp, so a MySQL project emits
+only the guarded `SUM` of that cell and these forms. A plain `sum(amount)`
+shows it: without its last line, the query below over the module's `orders`
+is S02's cell and VERIFIED; with `order by customer` it is BLOCKED with that
+one blocker, at `total = sum(amount)`.
+
+```text
+query totals:
+    from orders
+    group by customer
+    select:
+        customer
+        total = sum(amount)
+    order by customer
+```
+
+J2 with `inner join`, and T2 over a `j3` that also selects `n = count()`,
+are refused the same way. The blocker and its suggestion are the same for
+every such query and do not name the form it misses: compare the query with
+the table, or emit it with `--dialect postgres` and a PostgreSQL contract.
+
 PostgreSQL project `sum` of a direct qualified `Decimal(p, s)` field uses
 `CAST(SUM(x) AS pg_catalog.numeric(p + 19, s))` when `p + 19 <= 65` and
 `s <= 30`; an oversized sum raises SQLSTATE 22003. This is a checked result
