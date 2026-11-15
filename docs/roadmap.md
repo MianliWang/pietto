@@ -104,13 +104,14 @@ Phase76 and the repairs ready at its cut, and Phase77's remaining slices
 continue into `0.1.12` (PL.21) with two new slices, `now()` as an output
 column (D77.42) and `now()` in `relay_live` and R2 (D77.43, D77.49); `0.1.11` was published on 2026-11-13
 (PL.26), and `0.1.12` was published on 2026-11-14 (PL.29). Phase78–80 ship as
-`0.2.0`, which was published on 2026-11-15 (PL.36, PL.37). `0.2.1` carries
-the leftovers of Phase80 and earlier, with the MySQL `Float` `same_value` in
-a JOIN `on` (PL.40, PL.41, PL.43); its release commit follows that batch,
-and it is published only when its tag, GitHub pre-release and PyPI carry the
-accepted files, under PL.42's gates (PL.45). Phase81 uses `0.2.x` from
-`0.2.2` (PL.40), Phase82 uses `1.0.0rc1` and Phase83 uses `1.0`. The
-extension follows its own version line.
+`0.2.0`, which was published on 2026-11-15 (PL.36, PL.37), and `0.2.1`,
+which carries the leftovers of Phase80 and earlier with the MySQL `Float`
+`same_value` in a JOIN `on` (PL.43), was published the same day (PL.45,
+PL.46). Phase81 and the MySQL catch-up phase use `0.2.x` from `0.2.2`
+(PL.40). SQLite B2, DuckDB B2 and the interop relief each enter the `0.2.x`
+release that follows their Gate 2, `0.2.2` at the earliest (PL.47). Phase82
+uses `1.0.0rc1` and Phase83 uses `1.0`. The extension follows its own
+version line.
 
 `0.2.0` requires PostgreSQL and MySQL within the MySQL cadence below, one
 local analysis path (the limited DuckDB path of Phase79, not a complete third
@@ -206,7 +207,50 @@ only: the owner answered on 2026-11-14 that it needs no B2 (`group by` with
 `count`, `sum`, `min` and `max`, then `order by` and `limit`), after the
 owner's `0.2.0` request of that day (PL.31, PL.33). The
 [Phase79 B1 audit](phases/phase-79/completion-audit.md#phase79-b2-handoff)
-hands B2 over, and it opens only through its own Gate 1.
+hands B2 over.
+
+On 2026-11-15 the owner answered the Gate 1 sheets of both B2 parts
+(PL.47). Each starts at its own Gate 0 on the head where `v0.2.1` is
+published and the natural CI of its post-release documentation commit has
+passed. SQLite B2, Phase78's project mode, is a separate SQLite project
+adapter. Its first tier opens project mode with `having`, `count_distinct`
+and `avg` of an `Int`, which single files also gain, and a project `sum` of
+an `Int` only where the contract's `int_range` lies on one side of zero.
+Project SQL writes `COLLATE BINARY` at each `Text` comparison, ordering,
+grouping, deduplication and `min` or `max`,
+in place of D78.02's premise, which single files keep, and one PostgreSQL
+replay joins its in-process qualification. The tier also opens read-only
+execution of a caller's SQLite file of `STRICT` tables on the one qualified
+SQLite build, on Linux x86-64 with CPython 3.12.13 and 3.13.13: eleven
+defences, at most 256 MiB, 1,048,576 rows per source table and a run's
+default 20 seconds, and before each run a bounded check of the file's values
+and integrity that refuses text holding NUL. SQLite B2 integrates after
+batch 2, and
+Phase78 closes with its closeout slice S16. DuckDB B2 is Phase79's second
+slice, replayed onto batch 2's head: grouped `count`, `sum`, `min` and
+`max`, `having`, `order by` and `limit`, comparisons with literals, `and`,
+`or` and `not`, and filters with several parameters, with capture limits of
+1,048,576 rows and 256 MiB of the selected columns and a fixed
+`memory_limit` of 1 GiB in place of D79.04's, and refusal texts rewritten
+without "yet", which the owner sees before they bind. Both B2 parts write
+NULLS clauses that place NULL as PostgreSQL does. JOINs and the other forms of
+each second tier wait for that part's midpoint.
+
+### Interop relief
+
+The interop relief (IR) is a work package with its own ledger that widens
+D80.03's admission table (PL.47). `UUID` fields reach pandas and Polars as
+their 16 bytes, unchanged; `decimal256` reaches pandas only, and Polars
+keeps refusing it with a fix that names `to_pandas`; one level of nesting, a
+list of structs of admitted flat fields, reaches pandas and Polars, which
+revises PL.39 for that level, while deeper or other shapes stay refused;
+`to_numpy` takes a nullable `Float` with NaN at each null, while a nullable
+`Int` or `Bool` stays refused; the plots take nullable `Int` and `Float`
+fields, where a null breaks the line and draws no point; and `to_scipy_csr`
+takes `Float` values, stored as float64 with `-0.0` kept, beside its `Int`
+coordinates. IR starts at its own Gate 0 on the same head as the two B2
+parts, without waiting for batch 2, and the Windows claim still leaves out
+the extras (PL.40, D5).
 
 ### Phase81 scope
 
@@ -228,19 +272,47 @@ and a native Windows editor acceptance, and that claim leaves out the extras
 `Operating System :: OS Independent` classifier. Nullability v2 goes to
 Phase81 if it changes a public type contract, otherwise to `2.0`.
 
-From the `0.2.1` lanes (PL.44), Phase81's diagnostic review also takes four
-owner questions: the PIE-B1004 `identifier_case_declaration_missing` that a
+From the `0.2.1` lanes (PL.44), Phase81's diagnostic review also takes the
+owner question of the PIE-B1004 `identifier_case_declaration_missing` that a
 statement refused during realization still reports when its only `let` is
-an inline capturing one that reads another query; a `let` name inside an
-aggregate's expression argument; `min` and `max` of a `Text` or `Bool`
-`let`; and a `let` selected or projected under GROUP BY. It also takes two
-comments on diagnostic texts from the external audit of `0.2.0` (PL.40,
-D6). Its editor work takes the rest of the fault tolerance of `pietto lsp`
-(an internal error outside the analysis of a document or a root, such as
+an inline capturing one that reads another query. It also takes the
+MySQL one of the two comments on diagnostic texts from the external audit
+of `0.2.0` (PL.40, D6); the DuckDB one goes to DuckDB B2 (PL.47). Two
+items found while `0.2.1` was prepared, both as in `0.2.0`, join that
+review and its documentation check: the PIE-S2333 entry of the
+[diagnostics reference](spec/diagnostics.md) says that a relation's own
+checks are reported once the error of a relation it reads is fixed, but an
+order proof's PIE-S2104 and PIE-S2334 are reported before that; and a
+null-safe JOIN `on` statement whose contract has no `identifier_case` or
+another value is refused before its stages are built and reports that its
+shape is not admitted, not that premise. Its editor work takes the rest of
+the fault
+tolerance of `pietto lsp` (an internal error outside the analysis of a
+document or a root, such as
 while the server answers a request or stores and publishes an analysis,
 still ends the server, and a failed analysis leaves its old diagnostics on
 the new text) and the overlap diagnostic for a project
 root nested in another through a symbolic link.
+
+Phase81 also takes four items that the owner decided on 2026-11-15 for
+`let` names in aggregates and under GROUP BY (PL.48), in place of the
+three questions about them that PL.44 left to its diagnostic review. Items
+(1) and (4) are semantic extensions that both modes accept: (1) a `let`
+name inside an aggregate's expression argument is read by its value, so
+`sum`, `avg`, `count`, `count_distinct` and `string_agg` accept with a
+`let` name, as in `sum(d + 1)` after `let d = qty`, the arguments that they
+accept with a field, and other aggregates report what they report for the
+field; and
+(4) a `let` that only renames a field may be selected or projected in a
+relation with GROUP BY, as `k` or `x = k` after `let k = qty` and
+`group by k`. Item (3) is also a semantic extension: single files accept
+`min` and `max` of a numeric `let`, which projects already accept. Item
+(2) changes a diagnostic only: projects report the single-file PIE-S2314,
+not the bare PIE-S2333, for `min` or `max` of a `Text` or `Bool` `let`,
+and accept nothing more. Each extension takes a slice of its own with a
+two-database verification, and none lands before `0.2.2`; until then
+`0.2.1`'s behavior and the [diagnostics reference](spec/diagnostics.md)
+stand.
 
 ### Tests and maintenance
 
@@ -271,7 +343,7 @@ before its owner's Gate 1 takes it.
 | A new built-in table function | the first Gate 1 that names a case; Phase82 freeze input (D74.12) |
 | Database-native array and JSON columns; the `postgres_adbc` nested route | the Phase82 freeze, by its ledger row (D76.11, D80.06, PL.39) |
 | MySQL nested output and `JSON_TABLE` | the separate nested work package, at its own Gate 1 (D71.05, D77.32) |
-| pandas and Polars nesting; the Arrow data-analysis example; `compile_queries(...)`; `round` of a `Float` with digits | the owner's answer of 2026-11-15 to the lead's `0.2.1` plan, and for the example the lead's ruling under the owner's later instruction that day (J25, D75.03, D76.05, D80.06, PL.39): nesting to a Gate 1 after the nested work package that took Phase77 S24 (D77.32), which admits it before the Phase82 freeze or leaves it refused by the `pietto.interop` ledger row; `compile_queries(...)` after the forged-compiled trust decision below, at the latest the Phase82 freeze; `round` to its Phase82 freeze ledger row; and the example, whose inputs Phase79 B1 and Phase80 S02 deliver, is delivered by the `0.2.1` interop guidance in [An Arrow table through DuckDB](interop.md#an-arrow-table-through-duckdb) |
+| pandas and Polars nesting; the Arrow data-analysis example; `compile_queries(...)`; `round` of a `Float` with digits | the owner's answer of 2026-11-15 to the lead's `0.2.1` plan, and for the example the lead's ruling under the owner's later instruction that day (J25, D75.03, D76.05, D80.06, PL.39): one level of nesting to the interop relief (PL.47, which revises PL.39 for that level), and other nesting to a Gate 1 after the nested work package that took Phase77 S24 (D77.32), which admits it before the Phase82 freeze or leaves it refused by the `pietto.interop` ledger row; `compile_queries(...)` after the forged-compiled trust decision below, at the latest the Phase82 freeze; `round` to its Phase82 freeze ledger row; and the example, whose inputs Phase79 B1 and Phase80 S02 deliver, is delivered by the `0.2.1` interop guidance in [An Arrow table through DuckDB](interop.md#an-arrow-table-through-duckdb) |
 | Nested fuzz and high-intensity differential work; a readability and compile-time benchmark | Phase81 (J25) |
 | The nested public format | the Phase82 freeze |
 | Multi-level collections and the refused nested combinations; a capture let that reads another capture let | the NestedRelation semantic owner and the ProjectSQLPlan owner; the scope and capture semantic owner; each at its first admission Gate 1 |
@@ -299,7 +371,7 @@ each completion audit adds the freeze inputs of its phase here.
 | `pietto lsp`, editor partial analysis and the five editor-only messages; whether `pietto.cli.main(argv)` is a documented entry point | only the diagnostic protocol freezes; the messages get a catalog without PIE codes; the entry point is decided | D75.09–D75.12, Phase76 handoff |
 | The E-C alpha surfaces of `pietto lsp` (formatting of the open buffer, workspace symbols, import-path document links, completion from the static vocabulary and the open buffer's identifiers, and the hover and definition facts of LSP editor facts v1); the VS Code extension's use of `pietto.cli.main(argv)` to start the server | each surface freezes with its alpha contract or changes before the freeze; the entry point is decided with the `pietto lsp` row above | ED.03, ED.09, ED.11 |
 | `pietto.sql.emit_postgres_sql` | stays public and enters the API inventory | owner, 2026-11-07 |
-| `pietto.interop`: its five adapters (six functions), the D80.03 admission table with nested fields refused, the D80.04 exception order, and the five `interop-*` extras with their pins | the surface freezes with its alpha contract or changes before the freeze; pandas and Polars nesting is admitted by a Gate 1 before then or stays refused | D80.02–D80.06, D80.08, D80.09, AD80.01; [Phase80 audit](phases/phase-80/completion-audit.md) |
+| `pietto.interop`: its five adapters (six functions), the D80.03 admission table as the interop relief widens it, with nested fields beyond its one level refused, the D80.04 exception order, and the five `interop-*` extras with their pins | the surface freezes with its alpha contract or changes before the freeze; other pandas and Polars nesting is admitted by a Gate 1 before then or stays refused | D80.02–D80.06, D80.08, D80.09, AD80.01, PL.47; [Phase80 audit](phases/phase-80/completion-audit.md) |
 | The header rule and its tokens retained by Phase76 | removed under the migration/hint compatibility contract | D75.06, D76.12; [Phase76 audit](phases/phase-76/completion-audit.md) |
 | The nested public format; grouping extensions, automatic fan-out repair and a public aggregate state | frozen, or kept unsupported | Phase71 route, Phase74 handoff |
 | `def` and `relationship` items in PACKAGE_ROOT modules; a built-in table function | admitted, or kept refused | D74.07, D74.12 |

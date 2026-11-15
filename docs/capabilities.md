@@ -167,8 +167,10 @@ field with one non-null `Int` query parameter. JOINs, aggregation,
 or 16 MiB is refused, and it is qualified only with CPython 3.12 and 3.13 on
 Linux x86-64 with glibc 2.28 or later (see *Support* below). Releases since
 `0.2.0` carry this first part only. The next part, `group by` with `count`,
-`sum`, `min` and `max`, then `order by` and `limit`, is not scheduled: it
-opens only through its own Gate 1 ([roadmap](roadmap.md#third-dialect)).
+`sum`, `min` and `max`, `having`, `order by`, `limit` and wider `where`
+filters, is scheduled as Phase79's second slice (PL.47,
+[roadmap](roadmap.md#third-dialect)); until a release carries it, those
+forms stay refused.
 
 Each row was recorded by running one plain example through
 `check --project` and `emit-sql --project --dialect duckdb`, with a DuckDB

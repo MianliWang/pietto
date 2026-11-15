@@ -17,8 +17,10 @@ detail words and limits may change in any later release, each with a
 release-note line and no deprecation period.
 
 B1 does not complete Phase79. B2, `group by` with `count`, `sum`, `min` and
-`max`, then `order by` and `limit`, is not scheduled: it opens only through its
-own Gate 1 ([roadmap](../roadmap.md#third-dialect)).
+`max`, `having`, `order by`, `limit` and wider `where` filters, is scheduled as
+Phase79's second slice (PL.47, [roadmap](../roadmap.md#third-dialect)), with
+higher capture limits; until a release carries it, this page binds and those
+forms stay refused.
 
 The rules come from the Phase79 Gate 1 decisions D79.01–D79.08, the
 third-dialect seam AD78.03 and the failure rule AD79.01 in the

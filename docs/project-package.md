@@ -1213,15 +1213,15 @@ platform-neutral tests on Windows x86-64, which is no Windows support claim;
 other platforms and Python versions are not covered by this evidence
 ([platforms and qualification](capabilities.md#platforms-and-qualification)).
 
-The published `0.2.0` wheel and sdist on PyPI are byte-identical to the files
+The published `0.2.1` wheel and sdist on PyPI are byte-identical to the files
 attached to the
-[v0.2.0 GitHub pre-release](https://github.com/MianliWang/pietto/releases/tag/v0.2.0),
+[v0.2.1 GitHub pre-release](https://github.com/MianliWang/pietto/releases/tag/v0.2.1),
 together with `SHA256SUMS`, which lists the SHA-256 of the wheel
-`pietto-0.2.0-py3-none-any.whl` and the sdist `pietto-0.2.0.tar.gz`.
+`pietto-0.2.1-py3-none-any.whl` and the sdist `pietto-0.2.1.tar.gz`.
 To check files downloaded from that release, keep their names and run
 `sha256sum --ignore-missing -c SHA256SUMS` in the download directory. GitHub
 also offers an automatic source archive under the same name as the sdist,
-`pietto-0.2.0.tar.gz`; it is a snapshot of the v0.2.0 repository tag, not the
+`pietto-0.2.1.tar.gz`; it is a snapshot of the v0.2.1 repository tag, not the
 sdist, and it is not listed in `SHA256SUMS`. Earlier releases keep their own
 files and `SHA256SUMS` on their GitHub pre-releases.
 
@@ -1233,9 +1233,10 @@ shows diagnostics through `pietto lsp`. The extension's own version `0.2.1`
 (repository `MianliWang/pietto-vscode-extension`, commit `7fafa7c4`) was
 published to the Visual Studio Marketplace on 2026-11-07; the downloaded VSIX
 was checked byte-for-byte against the accepted local artifact that day. The
-extension's `0.4.0` VSIX was uploaded to the Marketplace on 2026-11-13, and the
-result of the Marketplace's verification of that upload is not recorded;
-[status](status.md) records the extension's repository state. Neither is a
+extension's `0.4.0` VSIX was uploaded to the Marketplace on 2026-11-13, and on
+2026-11-15 the owner reported that the Marketplace review had approved it,
+without giving the time of the approval; [status](status.md) records the
+extension's repository state. Neither is a
 claim about the latest Marketplace version.
 A generic LSP client is also available as
 [editor diagnostics](editor-lsp.md#vs-code-with-a-generic-lsp-client)
