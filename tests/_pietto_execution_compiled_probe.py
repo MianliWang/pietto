@@ -1058,6 +1058,7 @@ def collect_owned(request, *, control=None):
             events=observer.events,
             epoch=owner._epoch,
             initial_epoch=owner._initial_epoch,
+            packet_capacity=owner._mysql_packet_capacity,
             environment=owner.environment,
             role=base.access.account,
             sessions=[

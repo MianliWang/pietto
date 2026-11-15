@@ -1327,7 +1327,7 @@ def _damage(
     from pietto._project import project_job_capture as c
     from pietto._project import project_job_chunks as k
     from pietto._project import project_job_workspace as w
-    from pietto._project.project_arrow_result import _arrow
+    from pietto._project.project_arrow_result import _arrow, bind_arrow
     from pietto._project.project_result_ipc import IPCLimits, encode_ipc, open_ipc
 
     opened = w.open_workspace(workspace_root, expected_identity=identity)
@@ -1360,8 +1360,10 @@ def _damage(
             raise ValueError("S14_DAMAGE_COORDINATE_KIND")
         key[-1] = k.coordinate_wire(last + 1000)
     else:
+        # The product's stored reader opens frames through the same Arrow binding.
+        binding = bind_arrow(output.binding)
         session = open_ipc(
-            output.binding,
+            binding,
             frame,
             expected_rows=rows,
             ipc_limits=IPCLimits(k.MAX_FRAME_BYTES),
@@ -1378,7 +1380,7 @@ def _damage(
             columns.append(column)
         changed = pa.table(columns, schema=table.schema)
         frame = encode_ipc(
-            output.binding,
+            binding,
             pa.RecordBatchReader.from_batches(table.schema, changed.to_batches()),
             expected_rows=rows,
             ipc_limits=IPCLimits(k.MAX_FRAME_BYTES),

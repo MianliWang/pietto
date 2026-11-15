@@ -294,6 +294,7 @@ def attempt(
             outcome=asdict(owner.outcome),
             session=owner.session_id,
             context=owner.context,
+            packet_capacity=owner._mysql_packet_capacity,
             epoch=owner._epoch,
             guard_states=None if owner.guards is None else owner.guards.states,
             control_events=owner.control_events,
