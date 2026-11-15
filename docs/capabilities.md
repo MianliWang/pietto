@@ -6,7 +6,9 @@ This page shows, for each feature family, whether `check` accepts it and
 `check --project ROOT`, `emit-sql --project ROOT`), for PostgreSQL and MySQL;
 SQLite single files and the limited DuckDB path of projects have sections of
 their own ([SQLite single files](#sqlite-single-files),
-[DuckDB local path](#duckdb-local-path)).
+[DuckDB local path](#duckdb-local-path)), and
+[Platforms and qualification](#platforms-and-qualification) gathers what the
+other pages claim for each platform.
 It describes `0.2.0`, whose
 [release notes](release-notes.md#sqlite-duckdb-and-python-interop-public-alpha-release-notes--020)
 give each change. Each row was recorded by running one
@@ -193,9 +195,53 @@ contract that declares every premise, and its cell follows the legend above.
   columns of at most 65,536 rows and 16 MiB, and returns the usual
   `ResultHandle`; results are bags. Bundles, saved results, relay, jobs and
   R2 do not take the route ([execution](execution.md#duckdb-arrow-route)).
-- **Support.** The emission and the request checks are tested wherever CI
-  runs. The route needs the `execute-duckdb` extra (`duckdb==2.0.0`,
+- **Support.** The emission is tested wherever CI runs, Windows included;
+  the request checks run only on Linux, where CI runs the execution tests.
+  The route needs the `execute-duckdb` extra (`duckdb==2.0.0`,
   `pyarrow==26.0.1`); its native evidence is Phase79 S06's in-process
   matrix, every unit accepted on 2026-11-14 (D79.07), on CPython 3.13.13
   and 3.12.13, Linux x86-64, and the `arrow-ready` cell of natural CI.
   Other DuckDB releases and platforms are not qualified.
+
+## Platforms and qualification
+
+This section gathers the platform claims that the other pages make, for each
+capability on Linux x86-64, Windows x86-64 and macOS. It adds no claim: the
+pages in the last column, and for CI-tested cells the CI workflow, state each
+one with its limits. Phase81 decides the Windows scope and the CPython matrix
+([Phase81 scope](roadmap.md#phase81-scope)).
+
+- **qualified**: the page states that the capability was verified or
+  qualified there, only within the Python versions, pins and builds that the
+  cell names.
+- **CI-tested**: hosted CI runs the capability's tests there, on CPython 3.12
+  and 3.13, and that is no support claim. On Linux, CI runs every test area;
+  on Windows, it runs the parser, semantic, IR, plan, SQL, project, CLI and
+  results tests, with no optional extra installed (the two Windows jobs of
+  the [CI workflow](../.github/workflows/ci.yml),
+  [Phase81 scope](roadmap.md#phase81-scope)).
+- **not claimed**: no page claims it; the cell says where a page states that
+  it does not work.
+
+| Capability | Linux x86-64 | Windows x86-64 | macOS | Stated in |
+| --- | --- | --- | --- | --- |
+| Compiler and CLI: `check`, `emit-sql`, `fmt` and `explain` of single files and projects, with PostgreSQL and MySQL SQL | qualified: CPython 3.12 and 3.13 | CI-tested | not claimed | [Install](../README.md#install), [Installing a release](project-package.md#installing-a-release), the Windows row of the [0.1.10 decisions](decisions.md#0110-release--owner-decisions-2026-11-07) |
+| `emit-sql --project ROOT --all --output DIR` | qualified on supported Linux filesystems | not claimed: not supported; batch stdout, one `--output FILE` or `compile_all_sql(...)` instead | as Windows | [Project SQL emission](project-package.md#project-sql-emission), [What works now](../README.md#what-works-now), [Phase81 scope](roadmap.md#phase81-scope) |
+| Python compile API: `compile_sql`, `compile_all_sql` (alpha) | CI-tested | CI-tested | not claimed | [Python compile API](spec/python-compile-api-v1.md), the [CI workflow](../.github/workflows/ci.yml) |
+| `pietto lsp` (alpha) | CI-tested | CI-tested; a native Windows editor acceptance is Phase81 scope | not claimed | [Editor support](editor-lsp.md), [Phase81 scope](roadmap.md#phase81-scope), the [CI workflow](../.github/workflows/ci.yml) |
+| SQLite SQL text and goldens (`emit-sql FILE --dialect sqlite`) | CI-tested | CI-tested | not claimed | [SQLite single files](#sqlite-single-files) |
+| SQLite SQL text, as qualified by running it in process in the tests (Pietto runs no SQLite statement) | qualified only on release `3.53.1` with the source id and the 46 compile options that `tests/test_sql_sqlite_native.py` records, under CPython 3.13.13; every other build, the SQLite of hosted CI included, is not qualified | not claimed: not qualified | not claimed: not qualified | [SQLite single files](#sqlite-single-files), [SQLite target validation](development.md#sqlite-target-validation) |
+| PostgreSQL and MySQL execution: `postgres_rows`, `postgres_adbc` and `mysql_rows`, with the workspace and saved-result calls (alpha) | qualified: CPython 3.13.13 with the lock's exact artifacts on the qualified integration host, PostgreSQL 18.6 and MySQL 8.4.12; the workspace and saved-result calls also need the job store's exact SQLite build and ext4 mounted read-write | not claimed: native execution is `NOTRUN`, and the workspace and saved-result calls raise `ModuleNotFoundError` for `fcntl` | not claimed: the workspace and saved-result calls are Linux-only | [Support matrix](execution.md#support-matrix), [Known limitations](execution.md#known-limitations), row 3 of [Validation runner acceptance](spec/validation-runner-acceptance-v1.md) |
+| DuckDB emission (`--dialect duckdb`) | CI-tested | CI-tested | not claimed | [DuckDB local path](#duckdb-local-path) |
+| `duckdb_arrow` route with the `execute-duckdb` extra (alpha) | qualified: CPython 3.13.13 and 3.12.13 with `duckdb==2.0.0` and `pyarrow==26.0.1`, glibc 2.28 or later; CI runs the request checks and one real query | not claimed: not qualified | not claimed: not qualified | [Support matrix](execution.md#support-matrix), [DuckDB native qualification](development.md#duckdb-native-qualification) |
+| `pietto.interop` with an `interop-*` extra beside `arrow` (alpha) | qualified: only the pins of its table with `pyarrow==26.0.1`, CPython 3.12 and 3.13, glibc 2.28 or later | not claimed: not qualified; CI runs only the interop tests that need no PyArrow | not claimed: not qualified | [Installing](interop.md#installing), the [CI workflow](../.github/workflows/ci.yml) |
+
+- No page claims CPython 3.14, another Python implementation or another
+  processor architecture.
+- On Windows, trusted reads treat directory junctions as symbolic links, and
+  the fallbacks that reading sources and `fmt --write` use there do not
+  detect every directory race
+  ([Trusted source identity](project-package.md#trusted-source-identity),
+  [Formatting source](language.md#formatting-source)).
+- The package keeps its `Operating System :: OS Independent` classifier until
+  Phase81 decides the Windows scope.

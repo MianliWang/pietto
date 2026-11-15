@@ -1208,8 +1208,10 @@ each installed beside `arrow`, as in `pip install "pietto[arrow,interop-pandas]"
 and `execute-duckdb` for the [DuckDB Arrow route](execution.md#duckdb-arrow-route),
 which includes the Arrow pin.
 The compiler and CLI were
-verified with CPython 3.12 and 3.13 on Linux x86-64; other platforms and
-Python versions are not covered by this evidence.
+verified with CPython 3.12 and 3.13 on Linux x86-64, and CI also runs the
+platform-neutral tests on Windows x86-64, which is no Windows support claim;
+other platforms and Python versions are not covered by this evidence
+([platforms and qualification](capabilities.md#platforms-and-qualification)).
 
 The published `0.2.0` wheel and sdist on PyPI are byte-identical to the files
 attached to the
