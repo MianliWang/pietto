@@ -84,7 +84,7 @@ The first definition-capable facts are only these exact resolution paths:
 | Context | Use | Exact target |
 | --- | --- | --- |
 | Single file | `FromClause.span` | `SemanticModel.from_resolutions[from_clause]`, then that authored declaration's span |
-| Single file | `TypeExpr.span` | `SemanticModel.type_resolutions[type_expr].definition`; a builtin or unresolved type has no target |
+| Single file | `TypeExpr.span` at occurrence 0 | `SemanticModel.type_resolutions[type_expr].definition`; a builtin or unresolved type has no target |
 | Single file | a JOIN relation's field read: the span of a `NameExpr` or `DottedNameExpr` at occurrence 0 | `SemanticModel.relation_joins[relation].field_reads[expression]`, which names the input and its field; when that input is a `SourceDef`, the `RowField.definition` of that field in `source_row_schemas`, the shape field's span; another input has no target. Hover `field NAME` |
 | Single file | a relationship call: the span of `CallExpr.callee` at occurrence 0 | the call's `RelationshipCallInfo.template.declaration` in `SemanticModel.relationship_calls`. Hover `relationship NAME` |
 | Single file | a field read outside a JOIN relation, a `let` use, a `def` call or parameter, a relationship parameter, or a relationship call's argument | no fact. The model keeps a field read outside a JOIN relation and a `let` use only by name or as types (`let_scopes`, `expression_value_types`), inlines `def` calls before analysis, and keeps a relationship template's parameters only as shapes. A relationship call's argument does name a retained input occurrence (`RelationshipCallInfo.arguments`), but this version does not project it |

@@ -80,7 +80,12 @@ def single_file_editor_facts(
                 target=_declaration(target, path=path),
             )
         )
+    # Only the occurrence the author wrote: a copy that inlining a def,
+    # expanding a relationship call or rewriting max or min adds has
+    # occurrence above 0.
     for type_expr, resolved in model.type_resolutions.items():
+        if type_expr.span.occurrence:
+            continue
         # The hover shows the canonical type, as in a project; the target
         # stays the direct declaration, such as an alias. Analysis expands
         # every resolved type expression.
@@ -98,8 +103,6 @@ def single_file_editor_facts(
                 target=target,
             )
         )
-    # Only the occurrence the author wrote: a copy that inlining a def or
-    # expanding a relationship call adds has occurrence above 0.
     for joins in model.relation_joins.values():
         relations = {item.ordinal: item.relation for item in joins.inputs}
         for read_expression, read in joins.field_reads.items():

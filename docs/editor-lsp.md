@@ -18,15 +18,22 @@ Hover describes resolved type and `from` references, field and `let` reads
 and relationship calls. Go-to-definition follows their exact declaration,
 including supported imports and re-exports inside a configured schema-v2
 project. Builtin types have a hover description but no authored definition.
-A field read defines the shape field when its relation reads a source; a
-field of another relation, such as a relation let, has a hover but no
-definition. In a single file these are the field reads of a JOIN relation and
-relationship calls; in a project, the field and `let` reads of `let` values,
-`select` items and `where` of a relation without JOIN, and a `from` that reads
-a relation let. The outline lists named top-level declarations in source
-order, including `def` functions, relationship templates and single-file
-constants. Other reads, `def` calls and parameters, relationship parameters,
-and a `from` that reads a table-function input have no hover or definition.
+The type references with these facts are the base of a type alias and the type
+of a shape field and, in a single file, also the parameter and return types of
+a `constraint` or `derive` and the type that a conversion such as `Text(n)`
+names outside a `def` body. A field read defines the shape field when its
+relation reads a source; a field of another relation, such as a relation let,
+has a hover but no definition. In a single file these are the field reads of a
+JOIN relation and relationship calls; in a project, the field and `let` reads
+of `let` values, `select` items and `where` of a relation without JOIN, and a
+`from` that reads a relation let. The outline lists named top-level
+declarations in source order, including `def` functions, relationship templates
+and single-file constants. Other reads, `def` calls and parameters,
+relationship parameters, and a `from` that reads a table-function input have no
+hover or definition, and neither does any other type reference: the shape a
+source declares, a query header parameter's type, the type of a constant, of a
+`def` or relationship parameter, of a `def` result or of a VALUES column, and
+the type that a conversion in a `def` body names.
 
 Workspace symbols list the outline's declarations of every module of the
 configured roots and of every other open document: the roots in `projectRoots` order, each

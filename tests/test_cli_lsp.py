@@ -919,6 +919,49 @@ def test_single_file_join_field_reads_and_relationship_calls_define_their_target
     ] * 12
 
 
+def test_single_file_types_that_inlining_copies_have_no_facts() -> None:
+    """A conversion in a relationship template keeps its type fact where it is
+    written; the copies that expanding the call or inlining a def call adds
+    neither cover the call nor its arguments."""
+
+    text = """shape Order:
+    id: Int
+    customer_id: Int
+shape Customer:
+    id: Int
+    code: Text
+source orders: Order = postgres.table("shop.orders")
+source customers: Customer = postgres.table("shop.customers")
+relationship order_customer(order: Order, customer: Customer):
+    Text(order.customer_id) == customer.code
+def label(n: Int) -> Text: return Text(n)
+
+query labels:
+    from orders
+    let buyer = customers
+    inner join buyer on order_customer(orders, buyer)
+    select:
+        order_id = orders.id
+        tag = label(orders.customer_id)
+"""
+    diagnostics, facts = _lsp._check_text_with_editor_facts(text)
+    assert diagnostics == ()
+    assert [
+        ((use.location.line, use.location.column, use.location.end_column), use.detail)
+        for use in facts.uses
+    ] == [
+        ((14, 5, 16), "source orders"),
+        ((2, 9, 12), "builtin Int"),
+        ((3, 18, 21), "builtin Int"),
+        ((5, 9, 12), "builtin Int"),
+        ((6, 11, 15), "builtin Text"),
+        ((10, 5, 9), "builtin Text"),
+        ((18, 20, 29), "field id"),
+        ((19, 21, 39), "field customer_id"),
+        ((16, 25, 39), "relationship order_customer"),
+    ]
+
+
 @pytest.mark.parametrize("ending", ["\r\n", "\r"], ids=["crlf", "cr"])
 def test_definition_ranges_keep_utf16_bom_and_astral_coordinates(
     tmp_path: Path, ending: str

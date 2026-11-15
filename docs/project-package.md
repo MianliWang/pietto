@@ -1229,11 +1229,14 @@ Version `0.2.0` rejects bundles and saved jobs produced by `0.1.12` or earlier
 by code identity; Pietto neither migrates nor rewrites those bytes, so retained
 state needs its matching old environment (see
 [execution](execution.md#known-limitations)). The Pietto extension for VS Code
-shows diagnostics through `pietto lsp`. Version `0.2.1` (repository
-`MianliWang/pietto-vscode-extension`, commit `7fafa7c4`) was published to the
-Visual Studio Marketplace on 2026-11-07; the downloaded VSIX was checked
-byte-for-byte against the accepted local artifact that day. This records
-that publication, not a claim about the latest Marketplace version.
+shows diagnostics through `pietto lsp`. The extension's own version `0.2.1`
+(repository `MianliWang/pietto-vscode-extension`, commit `7fafa7c4`) was
+published to the Visual Studio Marketplace on 2026-11-07; the downloaded VSIX
+was checked byte-for-byte against the accepted local artifact that day. The
+extension's `0.4.0` VSIX was uploaded to the Marketplace on 2026-11-13, and the
+result of the Marketplace's verification of that upload is not recorded;
+[status](status.md) records the extension's repository state. Neither is a
+claim about the latest Marketplace version.
 A generic LSP client is also available as
 [editor diagnostics](editor-lsp.md#vs-code-with-a-generic-lsp-client)
 describes. The historical extension `0.1.0` accepted only the `0.1.2` wheel
