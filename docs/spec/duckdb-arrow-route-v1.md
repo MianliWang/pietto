@@ -3,10 +3,22 @@
 ## Status
 
 This is an **alpha** contract until the Phase82 freeze. It is Phase79's first
-vertical, B1: one local, read-only query over one Arrow table that the caller
-supplies, compiled for DuckDB `2.0.0` and run in process. Its names, fields,
+vertical, B1: a read-only executor of one projection over one Arrow table that
+the caller supplies, compiled for DuckDB `2.0.0` and run in process. It admits
+an explicit-module project only, one `duckdb.arrow` source, a direct
+projection of `Int`, `Text`, `Bool` and finite `Float` fields and at most one
+comparison of an `Int` field with one non-null `Int` query parameter
+([admission](#admission)). It has no JOIN, aggregation, `order by` or `limit`,
+and it refuses an input table of more than 65,536 rows or 16 MiB
+([capture](#capture)). It is qualified only for `duckdb` `2.0.0` with
+`pyarrow` `26.0.1` on CPython 3.12 and 3.13, Linux x86-64 with glibc 2.28 or
+later; every other release and platform is not qualified. Its names, fields,
 detail words and limits may change in any later release, each with a
-release-note line and no deprecation period. B1 does not complete Phase79.
+release-note line and no deprecation period.
+
+B1 does not complete Phase79. B2, `group by` with `count`, `sum`, `min` and
+`max`, then `order by` and `limit`, is not scheduled: it opens only through its
+own Gate 1 ([roadmap](../roadmap.md#third-dialect)).
 
 The rules come from the Phase79 Gate 1 decisions D79.01–D79.08, the
 third-dialect seam AD78.03 and the failure rule AD79.01 in the

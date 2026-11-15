@@ -58,7 +58,12 @@ same wheel and sdist with `SHA256SUMS`
 ([checking them](https://github.com/MianliWang/pietto/blob/main/docs/project-package.md#installing-a-release)).
 
 The compiler and CLI need only the core package. The optional extras serve the
-alpha Python APIs, for example `pip install "pietto[execute-postgres]"`:
+alpha Python APIs, and several combine in one install, for example typed Arrow
+results with pandas and NumPy output:
+
+```bash
+pip install "pietto[arrow,interop-pandas,interop-numpy]"
+```
 
 | Extra | For |
 | --- | --- |
@@ -78,9 +83,9 @@ Each extra pins exact versions
 and every execution extra includes the Arrow pin. An `interop-*` extra pins
 only its target library and installs no PyArrow, so install it beside
 `arrow`, as the table shows
-([Python interoperability](https://github.com/MianliWang/pietto/blob/main/docs/interop.md#installing)). Extras combine, for example
-`pip install "pietto[execute-postgres,execute-mysql]"`. Installing an extra
-never selects a route, grants execution, opens a source or qualifies storage.
+([Python interoperability](https://github.com/MianliWang/pietto/blob/main/docs/interop.md#installing)).
+Installing an extra never selects a route, grants execution, opens a source or
+qualifies storage.
 
 ## Quick start
 
@@ -266,11 +271,21 @@ release.
   3.13.13 on Linux x86-64
   ([execution](https://github.com/MianliWang/pietto/blob/main/docs/execution.md)).
 - A local analysis path on DuckDB (alpha): `execute(route="duckdb_arrow")`
-  runs one read-only query of an explicit-module project, a direct
-  projection optionally filtered by one `Int` comparison with one `Int`
-  parameter, over one Arrow table that the program supplies, in process on
-  DuckDB `2.0.0`, with the `execute-duckdb` extra
+  is a read-only executor of one projection over one Arrow table that the
+  program supplies, run in process on DuckDB `2.0.0` with the
+  `execute-duckdb` extra. It runs one query of an explicit-module project
+  that reads one `duckdb.arrow("key")` source: a direct projection of
+  `Int`, `Text`, `Bool` and finite `Float` fields, optionally filtered by
+  one comparison of an `Int` field with one non-null `Int` query
+  parameter. JOINs, aggregation, `order by` and `limit` are BLOCKED, and
+  an input table of more than 65,536 rows or 16 MiB is refused. It is
+  qualified only with CPython 3.12 and 3.13 on Linux x86-64 with glibc
+  2.28 or later
   ([DuckDB local path](https://github.com/MianliWang/pietto/blob/main/docs/capabilities.md#duckdb-local-path)).
+  The next DuckDB part, `group by` with `count`, `sum`, `min` and `max`,
+  then `order by` and `limit`, is not scheduled: it opens only through
+  its own Gate 1
+  ([roadmap](https://github.com/MianliWang/pietto/blob/main/docs/roadmap.md#third-dialect)).
 - `pietto.interop` (alpha) turns one open `ResultBatch` into a pandas or
   Polars DataFrame, a NumPy array, a SciPy CSR array or a Matplotlib line or
   scatter on the caller's Axes, keeping values exactly; any conversion that

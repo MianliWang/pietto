@@ -155,8 +155,20 @@ An explicit-module project can compile one limited query over a
 `duckdb.arrow("key")` source with `emit-sql --project ... --dialect duckdb`,
 `compile_sql` or `compile_query`, and run it in process over an Arrow table
 that the program supplies with `execute(route="duckdb_arrow")`
-([DuckDB Arrow route](spec/duckdb-arrow-route-v1.md)), since `0.2.0`. Each
-row was recorded by running one plain example through
+([DuckDB Arrow route](spec/duckdb-arrow-route-v1.md)), since `0.2.0`.
+
+The path is an alpha, read-only executor of one projection over one Arrow
+table: one `duckdb.arrow` source, a direct projection of `Int`, `Text`,
+`Bool` and finite `Float` fields, and at most one comparison of an `Int`
+field with one non-null `Int` query parameter. JOINs, aggregation,
+`order by` and `limit` are BLOCKED, an input table of more than 65,536 rows
+or 16 MiB is refused, and it is qualified only with CPython 3.12 and 3.13 on
+Linux x86-64 with glibc 2.28 or later (see *Support* below). Releases since
+`0.2.0` carry this first part only. The next part, `group by` with `count`,
+`sum`, `min` and `max`, then `order by` and `limit`, is not scheduled: it
+opens only through its own Gate 1 ([roadmap](roadmap.md#third-dialect)).
+
+Each row was recorded by running one plain example through
 `check --project` and `emit-sql --project --dialect duckdb`, with a DuckDB
 contract that declares every premise, and its cell follows the legend above.
 
