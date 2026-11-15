@@ -1,5 +1,675 @@
 # Pietto release notes
 
+## Maintenance public alpha release notes — 0.2.1
+
+**Status:** These notes cover `0.2.1`, the public alpha prepared from its
+release commit, which follows the batch of fixes, documentation and test
+maintenance for the work up to Phase80 and one MySQL form, `same_value` of
+two `Float` fields in a null-safe project JOIN `on`, on the published
+`0.2.0` head, and changes only version owners and documentation. It is
+published only when the tag `v0.2.1`, the versioned GitHub pre-release and
+PyPI carry its accepted wheel and sdist; this document neither creates
+those channels nor substitutes for their byte verification. As for
+earlier releases, the compiler and package are covered on CPython 3.12 and
+3.13 for Linux x86-64.
+CI also runs the platform-neutral tests with CPython 3.12 and 3.13 on
+Windows x86-64, and batch `emit-sql --project ROOT --all --output DIR` stays
+Linux-only; other platforms and Python versions are not covered.
+[Platforms and qualification](capabilities.md#platforms-and-qualification)
+gathers these claims for each capability.
+
+### Breaking changes against 0.2.0
+
+Before 1.0 a release may carry breaking changes. To keep the behaviour of
+`0.2.0`, pin that exact version, for example `pip install "pietto==0.2.0"`,
+or `pip install "pietto[execute-postgres]==0.2.0"` with an extra, or
+`pietto==0.2.0` in a requirements file. Recompiling, reading saved results
+and running again stay separate, as the upgrading steps below describe.
+
+- **Compiled bundles and saved jobs** made under `0.2.0` or earlier are
+  refused under `0.2.1` by code identity, as with every release:
+  `load_bundle` refuses such a bundle with PIE-R1005, and every call given
+  such a saved job but `inspect_job` refuses it with PIE-R1009
+  `JOB_COMPATIBILITY`. New bundles keep the version marks `(8, 1, 8, 1)`.
+  Pietto neither migrates nor rewrites them: keep an exact `pietto==0.2.0`
+  environment for retained `0.2.0` bundles and saved jobs, or recompile
+  from source.
+- **`identifier_case` blockers on refused statements.** A project statement
+  that emission refuses while it builds its stages, that needs named stages
+  (a `WITH` clause) all in its own definition and whose emission contract
+  has no `identifier_case` or another value now also reports PIE-B1004
+  `identifier_case_declaration_missing` or PIE-B1005
+  `identifier_case_declaration_mismatch`, on PostgreSQL and MySQL, where a
+  statement whose stages are built reports it: after the refusals found
+  while its stages are built and before any blocker of its sources, their
+  fields or its output labels. `0.2.0` reported only the other blockers,
+  for example PIE-B1004 `sum_int_aggregate_range_proof_missing` for a MySQL
+  `sum` of an `Int` outside its proved forms. No code is new, and the
+  status, exit code, JSON shape and SQL do not change. See
+  [Refused project statements report their identifier_case premise](#refused-project-statements-report-their-identifier_case-premise).
+- **Changed project diagnostics.** In an explicit-module project, a
+  relation that a JOIN reads now reports its own error, such as PIE-S2102
+  for an ORDER BY key that names its own SELECT output, in place of a bare
+  PIE-S2333 at the declaration that reads it; a table or query with
+  aggregates and no JOIN input that reads a `let` name now reports, in
+  source order, the errors that a single file reports of its aggregates,
+  grouping, grouped ORDER BY, `having` and LIMIT, in place of a bare
+  PIE-S2333; and such a relation lists these errors in source order with
+  or without a `let` read, a `first` or `last` order proof's error among
+  them. Only programs that `0.2.0` refused change, by the diagnostics
+  that their lists gain, lose or reorder; no code is new, and the JSON
+  shapes do not change. See
+  [A relation that a JOIN reads reports its own ORDER BY key](#a-relation-that-a-join-reads-reports-its-own-order-by-key)
+  and
+  [Project aggregate diagnostics as in a single file](#project-aggregate-diagnostics-as-in-a-single-file).
+- **Changed diagnostic texts.** The text output of
+  `emit-sql --project ... --format text` writes a diagnostic without a
+  source path as `CODE severity: message`, without a location, where
+  `0.2.0` wrote `None:line:column` before it. The JSON documents are
+  unchanged. See [Message fixes](#message-fixes).
+- **Changed interop messages.** Each `ValueError` of the alpha
+  `pietto.interop` about a field's type, nullability or label, a SciPy
+  coordinate, the plot integer range or a target result of another type now
+  names the rule that the call breaks and a fix, most of them newly, and
+  several gain a field label in the middle of the text; the
+  `ModuleNotFoundError` for a missing extra quotes the requirement, as in
+  `install "pietto[arrow,interop-pandas]"`. The exception classes, the
+  checks and their order are unchanged, but a program that matches a whole
+  message or its start sees the new text. See
+  [Interop refusals name their fix](#interop-refusals-name-their-fix) and
+  [Message fixes](#message-fixes).
+
+### Highlights
+
+`0.2.1` is a maintenance release of the work up to Phase80, with fixes that
+the external audit of `0.2.0` and the project's own review found, and it
+opens one MySQL form after its own two-database qualification: `same_value`
+of two `Float` fields in a null-safe project JOIN `on`. Emission contracts,
+goldens and PostgreSQL SQL are unchanged, and MySQL SQL changes only by the
+statements of that form, which `0.2.0` refused; the
+[diagnostics](spec/diagnostics.md) specification and the alpha LSP
+specifications record the changes below. Each subsection below lists
+the changes against `0.2.0` that a program can observe, its compatibility
+rows and its new refusals; the last one lists the known limitations. The
+sections from 0.2.0 down describe published files.
+
+- **MySQL `Float` in a null-safe project JOIN `on`.** `emit-sql --project`
+  emits a MySQL `same_value(a, b)` of two `Float` fields in a JOIN `on`, in
+  the null-safe JOIN statements that `0.1.12` opened for the other types,
+  after its own two-database qualification; every other MySQL `Float`
+  `same_value` in an `on` stays refused.
+- **`identifier_case` is reported when a statement is refused.** Project
+  SQL emission checks the `identifier_case` premise of a statement that it
+  refuses while it builds its stages, as the
+  [premise table](project-package.md#emission-contract-values) lists it, so
+  a wrong contract is reported before the statement's other refusals are
+  fixed. A statement refused before its stages are built, such as one whose
+  JOIN shape is not admitted, still does not report it.
+- **Loaded bundles keep the limits of a statement with a JOIN.**
+  `load_bundle` refuses a bundle whose records put a comparison chain, a
+  conditional, a membership test, a cast or a scalar call at a site of a
+  statement with a JOIN where `compile_query` refuses it, with PIE-R1004
+  `COMPILED_OPERATOR`; no bundle that `compile_query` writes holds one.
+- **Project diagnostics.** A relation that a JOIN reads reports its own
+  error, such as an ORDER BY key that names its own SELECT output, and a
+  table or query with aggregates that reads a `let` name reports the errors
+  that a single file reports, in source order, in place of a bare
+  PIE-S2333.
+- **Interop refusals name their fix.** Each refusal of `pietto.interop`
+  about a field states the rule and a fix, and the
+  [interop guide](interop.md#field-admission) gains a table of what each
+  function accepts and an
+  [end-to-end example](interop.md#an-arrow-table-through-duckdb) that runs
+  a query over an Arrow table on the DuckDB route and converts its result.
+- **Editor (alpha).** `pietto lsp` checks a file opened under the real path
+  of a project root that `projectRoots` names through a symbolic link as
+  that root's module; it keeps running when an internal error stops the
+  analysis of a document or a root; and its single-file hover over a `def`
+  call or a relationship call no longer shows the type of a conversion that
+  the body or the template writes.
+- **Message fixes.** The text output of `emit-sql --project` writes a
+  diagnostic without a source path without a location, and the interop
+  message for a missing library quotes its requirement, for example
+  `install "pietto[arrow,interop-pandas]"`.
+- **Documentation.** The DuckDB path states its scope and limits at each
+  entry ([DuckDB local path](capabilities.md#duckdb-local-path)); a
+  [quick reference](language.md#mysql-project-sumint-forms) gathers the
+  MySQL project `sum` of an `Int` forms with their premises; a
+  [platform summary](capabilities.md#platforms-and-qualification) gathers
+  the existing claims; the language reference states how project-only
+  forms open to single files; the saved-job refusal names PIE-R1009
+  `JOB_COMPATIBILITY`; the third-party notices quote each pinned
+  distribution's license metadata, package by package, with what the
+  CPython 3.13 Linux x86-64 wheels of the extras bundle; and the README
+  shows one install that combines interop extras.
+
+### Upgrading from 0.2.0
+
+- A `0.2.0` source file needs no `pietto migrate` step, and no source
+  spelling is retired.
+- **New refusals.** No program that `0.2.0` accepted is refused by `check`
+  or `emit-sql`; a statement that `0.2.0` refused stays refused, except the
+  MySQL statements below, and only its diagnostics change, as the breaking
+  changes above list. `load_bundle` now refuses, with PIE-R1004
+  `COMPILED_OPERATOR`, a bundle whose records put a comparison chain, a
+  conditional, a membership test, a cast or a scalar call at a site of a
+  statement with a JOIN where `compile_query` refuses it; `0.2.0` loaded
+  such a bundle, which none of its emissions wrote (see
+  [Loaded bundles keep the limits of the sites in a statement with a JOIN](#loaded-bundles-keep-the-limits-of-the-sites-in-a-statement-with-a-join)).
+- **SQL text changes.** None for PostgreSQL. On MySQL, the statements of
+  the next item are new SQL for statements that `0.2.0` refused; no SQL
+  that `0.2.0` emitted changes.
+- **Programs refused before.** `emit-sql --project` emits a MySQL
+  `same_value(a, b)` of two `Float` fields in a JOIN `on` of the null-safe
+  JOIN statements, which `0.2.0` refused with PIE-B1003
+  `match_condition_not_in_row_domain` (see
+  [MySQL `Float` in a null-safe project JOIN `on`](#mysql-float-in-a-null-safe-project-join-on)).
+- **Execution.** No route, premise or result changes.
+- **Extras.** The core install and every extra keep their `0.2.0` pins.
+  There is still no combined interop extra; one install combines several,
+  as the README now shows:
+  `pip install "pietto[arrow,interop-pandas,interop-numpy]"`.
+- **Compiled bundles and saved jobs.** See the breaking changes above.
+  Reading saved results follows their own format, code-identity and trust
+  contract, and running again is a new database execution; recompiling does
+  neither.
+- Tools that compare exact diagnostics, SQL text or JSON must expect the
+  changes listed below: the `identifier_case` blockers on refused project
+  statements, the project diagnostics of a relation that a JOIN reads and
+  of aggregates (source order, `let` reads), the PIE-R1004 details of
+  `load_bundle`, the new MySQL SQL of the null-safe `Float` JOIN `on`, the
+  text line of a diagnostic without a path and the `pietto.interop`
+  messages.
+- The output of `fmt` and the alpha surfaces `pietto lsp`, `pietto.compiler`,
+  the relation-column document, SQLite single-file SQL, the
+  [DuckDB Arrow route](spec/duckdb-arrow-route-v1.md) and `pietto.interop`
+  may still change before the Phase82 freeze; each change is listed in these
+  release notes.
+
+### MySQL `Float` in a null-safe project JOIN `on`
+
+- `emit-sql --project` now emits a MySQL `same_value(a, b)` of two `Float`
+  fields in a JOIN `on`, in the null-safe JOIN statements that `0.1.12`
+  opened for the other types (D77.77): the same query, sources, SELECT and
+  seven `on` forms, with `v` and `w` a nullable `Float` on both sides whose
+  emission contract representation is `my_double` with the domain
+  `finite_float` `binary64`. PostgreSQL emitted these statements already;
+  its SQL does not change.
+
+```pietto
+shape Row:
+    id: Int
+    v: Float | None
+
+source lhs: Row = mysql.table("lhs")
+
+source rhs: Row = mysql.table("rhs")
+
+query result:
+    from lhs
+    left join rhs on same_value(lhs.v, rhs.v)
+    select:
+        l_id = lhs.id
+        l_v = lhs.v
+        r_id = rhs.id
+        r_v = rhs.v
+```
+
+- The statement is the one an `Int` cell of the same form emits, byte for
+  byte, each `same_value` written `(x <=> y)`. A MySQL `Float` `==` of two
+  fields stays refused in the `on` of these statements (Phase72 B10), so
+  there is no `==` statement to pair with. `same_value` compares as Python
+  floats do: `-0.0` and `0.0` match and each output row keeps its own bits,
+  `None` matches `None`, and two finite values match only when they are
+  equal. MySQL `<=>` and PostgreSQL `IS NOT DISTINCT FROM` agree on every
+  value of the `finite_float` domain; a MySQL `DOUBLE` holds no NaN or
+  infinity, and PostgreSQL's `NaN`, which `IS NOT DISTINCT FROM` matches
+  with itself, is outside the domain. An INNER JOIN leaves both `v` columns
+  nullable.
+- Native evidence: the raw campaign of 2026-11-13 already ran the MySQL
+  form of every one of these statements on its six fixtures and physical
+  variants under the default, forced hash, forced nested-loop and forced
+  index methods, and every MySQL `Float` cell MATCHED, then as evidence
+  only (D77.52 O7). Its own candidate emission experiment of 2026-11-14
+  ran the SQL this change emits for each of the 21 statements (INNER, LEFT
+  and RIGHT, seven `on` forms each) on both databases under the same
+  methods, over the 2026-11-13 fixtures and three more value sets of the
+  largest finite values, the smallest normal value, subnormal values and
+  the neighbours of each. Its six runs
+  (`s06nf-{inner,left,right}-{postgres,mysql}`) are QUALIFIED: 2,280 MySQL
+  and 1,248 PostgreSQL probes, all 21 cells MATCHED on both databases in
+  every value set, and no PostgreSQL counterexample. The runs bound this
+  change as first committed on top of the published `0.1.12` (tree
+  `e086d7c8`). D77.50 carries them to the commit that integrates this
+  change: the emission of the experiment's 1,440 programs and its record
+  of each of the 21 cells' `==` statement on both databases in each of the
+  four value sets (168 entries, paired on PostgreSQL, refused on MySQL)
+  are byte-identical there (sha256 of each map as compact sorted-key JSON,
+  first 16 digits, the same on both sides: emission `298025fe37762dc7`,
+  pairing `ba2431eabbd33c91`).
+- Kept refused, with the `0.1.11` blockers in full: every MySQL `Float`
+  `same_value` in an `on` outside these statements, such as one followed
+  by a WHERE (`where rhs.id is None` too). R2 `save_recoverable` and
+  `recover` refuse a MySQL query of these statements with PIE-R1004
+  (`detail` `PUBLIC_R2_UNQUALIFIED_FORM`), as for the other types.
+
+Changed diagnostics (programs refused in `0.2.0`; no accepted program
+changes; MySQL projects, no message text changed):
+
+| Code | Case | Before | After |
+| --- | --- | --- | --- |
+| PIE-B1003 | `left join rhs on same_value(lhs.v, rhs.v)` over two nullable MySQL `Float` fields (also INNER, RIGHT and the other six forms) in the statements above | `match_condition_not_in_row_domain` at the `on`, beside `scalar_projection_requires_later_slice` for each SELECT item and `join_shape_not_admitted_in_slice7` | none: the statement emits |
+
+### Loaded bundles keep the limits of the sites in a statement with a JOIN
+
+`load_bundle` now refuses, on PostgreSQL and on MySQL, a bundle whose records
+put an inclusive comparison chain (`1 <= x <= 3`), a conditional, a
+membership test, a cast or a scalar call (such as `abs`) at a site where
+`compile_query` refuses these forms in a statement with a JOIN, with
+PIE-R1004 `COMPILED_OPERATOR`:
+
+- a `let` or `where` of a definition with its own JOIN;
+- a JOIN `on`, the test of a `where any(...)` before a JOIN included;
+- a `qualify` of any definition of the statement;
+- on MySQL, any `let`, `where`, `having` or SELECT item of a definition
+  with no JOIN of its own, except in the four paired forms
+  ([0.1.12](#conditionals-beside-a-join-and-calls-in-aggregate-arguments-in-four-mysql-project-forms));
+  `0.2.0` refused only a conditional there.
+
+A `same_value` call in a JOIN `on` is still judged by the null-safe JOIN cell
+rules, and one outside every cell is still refused with
+`COMPILED_PHYSICAL_DOMAIN`. `compile_query` refuses these forms at these
+sites, as the [project docs](project-package.md) say (other JOIN
+expression sites "retain their existing limits"), so no bundle it writes
+holds one; only bytes made some other way could. `0.2.0` loaded such a
+bundle and rendered its SQL, although the [execution docs](execution.md)
+say only queries `compile_query` can produce are loaded. Every check
+`load_bundle` makes before this one keeps its code and detail. On MySQL the
+check of a scalar call in an aggregate argument reads the records in the
+same pass, so a bundle with such a call and such a form in a row of a
+definition with no JOIN of its own reports the first of the two in its
+record order.
+
+Changed diagnostics (bundles `0.2.0` refused; no accepted program changes):
+
+| Code | Case | Before | After |
+| --- | --- | --- | --- |
+| PIE-R1004 | `load_bundle` of a bundle described above that `0.2.0` refused at a replay check that runs after this one, such as a JOIN `on` with such a form and a `same_value` outside every cell | that check's detail, such as `COMPILED_PHYSICAL_DOMAIN` | `COMPILED_OPERATOR` |
+| PIE-R1004 | on MySQL, `load_bundle` of a bundle outside the paired forms that `0.2.0` refused with `COMPILED_AGGREGATE_ARGUMENT` and that also holds a comparison chain, membership test, cast or scalar call in a row of a definition with no JOIN of its own | `COMPILED_AGGREGATE_ARGUMENT` | the detail of the first of the two in the bundle's record order |
+
+New refusals (bundles `0.2.0` loaded, which none of its emissions wrote):
+
+| Code | Case | Before | After |
+| --- | --- | --- | --- |
+| PIE-R1004 | `load_bundle` of a bundle described above | loaded | `COMPILED_OPERATOR` |
+
+No PIE code or detail name is added. What `compile_query`, `export_bundle`
+and `emit-sql` produce, its SQL bytes included, is unchanged, and so are CLI
+JSON v1, project JSON v2 and the Python API shapes. A forged compiled
+`median(id * 2)` still loads; that trust decision stays on the
+[roadmap](roadmap.md).
+
+### A relation that a JOIN reads reports its own ORDER BY key
+
+In an EXPLICIT_MODULES project, a relation `let` (a let with `capture` lines
+joined LATERAL, a top-k per left row, included), and a table or query that
+selects a value other than a field, such as a literal, a computation or a
+window result, is read by a JOIN, or with FROM by a relation with JOIN
+inputs, only once the project has completed it. An error that this
+completion finds in the relation's own body is now reported at that error,
+in place of a bare PIE-S2333 `Project relation semantic completion is
+unavailable: <name>` at the declaration that reads the relation. Most
+visibly, an ORDER BY key that names a SELECT output of that relation other
+than a window result, as `order by: out desc` after `out = id`, is now
+PIE-S2102 ``Unknown field: out; this project relation cannot order by a
+SELECT output yet (restate its expression, or bind it with `let` and order
+by that name)`` at the key, the rule and message of any relation that a
+project completes.
+
+A key that names a field of the relation's input is accepted as before when
+the relation has no window, GROUP BY or aggregate, and so is a let that
+orders by its own output when another let reads it and the JOIN reads that
+let. A window relation that a JOIN reads still gets only the bare PIE-S2333
+at the reader, as in `0.2.0`, when it is ordered by an input field or by its
+window result or has a LIMIT, and so does a grouped relation ordered by its
+output or with a LIMIT.
+
+Changed diagnostics (programs refused in `0.2.0`; no accepted program
+changes):
+
+| Case | Before (`0.2.0`) | After |
+| --- | --- | --- |
+| Such a let, table or query without GROUP BY or aggregate, ORDER BY key naming its own SELECT output other than a window result | PIE-S2333 at the declaration that reads it | the PIE-S2102 above, at the key |
+| Such a table or query, ORDER BY key calling an aggregate (`count()`) | PIE-S2333 at the declaration that reads it | PIE-S2308 at the key, as in a single file |
+| Such a let, table or query with another error of its own, such as an unknown or ambiguous ORDER BY key (PIE-S2102), an invalid operand in its WHERE (PIE-S2105) or a captured field not yet available (PIE-S2369) | that error and PIE-S2333 at the declaration that reads it | that error alone |
+| The relation of the first row, read by a JOIN with an error in its `on` (PIE-S2335) | the reader's error alone | the PIE-S2102 above and the reader's error |
+| The relation of the first row, read by an `inner join` without `on` | PIE-S2333 ``... (JOIN r: write `on` with the condition ...)`` at the JOIN | the PIE-S2102 above and that PIE-S2333 |
+| The relation of the first or third row, also read with FROM by a table or query without JOIN inputs that has an error of its own | PIE-S2333 at the declaration with the JOIN and the other query's error, beside the third row's error if any | the relation's error and the other query's error |
+
+`check --project` and `emit-sql --project` report the same list. A reader
+with JOIN inputs keeps the errors of its JOIN conditions, such as PIE-S2335
+in its `on`; its other checks are reported once the relation's error is
+fixed, as for any failed input (PIE-S2333). A relation without JOIN inputs
+that reads the failed relation with FROM reads it as before. A single
+file has no relation lets and accepts the table or query of the first row.
+No diagnostic code is new and the JSON shapes are unchanged.
+
+### Project aggregate diagnostics as in a single file
+
+In an EXPLICIT_MODULES (`schema_version = 2`) project, a table or query with
+aggregates and no JOIN input that reads a `let` name now reports the errors
+that a single file reports of its aggregates, grouping, grouped ORDER BY,
+`having` and LIMIT, in place of the bare PIE-S2333 `Project relation semantic
+completion is unavailable: <name>` at the declaration, where a single file
+reads the `let` name as its value; beside a generator test's error it no
+longer drops them. Such a relation, with or without a
+`let` read, lists these errors in source order, as a single file does,
+where `0.2.0` listed an aggregate's own error first. A project relation's
+`first` or `last` order proof error, which `0.2.0` listed after them, now
+comes after the errors of its relation that precede it in source, just
+before the first error of the relation listed after all of those, and so
+before any error of another relation that `0.2.0` listed between them; with
+none listed after them it still comes after the errors of the other checks.
+Errors of
+different relations otherwise keep the project's stage order, so another
+relation's projection error can still come first, as in `0.2.0`. Beside a
+`let` and projection name conflict (PIE-S2329), a read of the refused
+binding is no longer reported again, a binding with an error of its own that
+an aggregate reads as its direct argument is reported only at the binding,
+and the other bindings keep their types, as in a single file.
+
+Changed diagnostics (programs refused in `0.2.0`; no accepted program
+changes), each over a relation that reads `let q2 = qty * 2` in
+`m = sum(q2)` unless the row says otherwise:
+
+| Case | Before (`0.2.0`) | After |
+| --- | --- | --- |
+| `count(nope)` or `sum(nope)` | PIE-S2333 at the declaration | PIE-S2102 `Unknown field: nope` at the argument |
+| `sum(label)` of a `Text` field | PIE-S2333 at the declaration | PIE-S2314 at the call |
+| `limit -1` without GROUP BY | PIE-S2333 at the declaration | PIE-S2307 at the LIMIT |
+| An unknown GROUP BY key, grouped ORDER BY key or `having` output | PIE-S2333 at the declaration | PIE-S2102, PIE-S2321 or PIE-S2324 at it |
+| Such an error under a computed or aliased `let` GROUP BY key (`let big = qty > 1` then `group by big`, or `let k = label` then `group by k`) | PIE-S2333 at the declaration, or beside a generator test's error the test's PIE-S2105 alone | the single file's error at it |
+| A computed `let` GROUP BY key's own refusal (`let bucket = amount * 2`): a `let` alias of it as the key (`let alias = bucket`, then `group by alias`), the key listed twice, or a `having` reference to its selected output (`b = bucket`, then `having b > 0`) | PIE-S2333 at the declaration | the single file's PIE-S2102 ``Unknown field: alias; a query cannot group by a computed `let` value here yet: ...``, PIE-S2317 or PIE-S2326 at it |
+| `sum(nope)` or `limit -1` beside a generator test's error (`sum(1 for o in group if o.label > 1)`) | the test's PIE-S2105 alone | the PIE-S2102 or PIE-S2307 too, in source order |
+| `sum(o.nope for o in group if o.label > 1)` | the test's PIE-S2105 alone | PIE-S2102 `Unknown field: nope`, then the PIE-S2105 |
+| `stddev`, `variance`, `pvariance`, `pstdev`, `median` or `quantile` of a `let` that PIE-S2329 refused | the PIE-S2329, then PIE-S2315 and PIE-S2102 `Unknown field: <let>` at the call | the PIE-S2329 alone |
+| Such a call of a `let` with an error of its own (`let v = nosuch`) | that error, then PIE-S2102 `Unknown field: v` at the call | that error alone |
+| `count_distinct(w, id)` of a refused `let w = qty + 1` | the PIE-S2329, then PIE-S2315 at the argument | the PIE-S2329 alone |
+| An `order by` key of `first` or `last` that reads a refused `let` | the PIE-S2329 alone, or with PIE-S2104 `The order of first does not end in a unique key, ...` at the call | the PIE-S2329, then PIE-S2104 `Order key of first must be a direct field` at the key |
+| `sum(k)` of `let k = label` beside a refused `let` | the PIE-S2329 alone | the PIE-S2329, then PIE-S2314 at the call |
+| Grouped `t = sum(nope)` before `u = sum(label)`, with or without a `let` read | PIE-S2314 of `u`, then PIE-S2102 of `t` | in source order: PIE-S2102 of `t`, then PIE-S2314 of `u` |
+| A `first` or `last` order proof's PIE-S2104, or its PIE-S2334 over JOIN rows, before another error of the relation (`c = sum(nope)` after `v = first(plant, order by sold_at)`) | after the relation's other errors | after the relation's errors that precede it in source, before the next of its errors listed after them |
+
+`check --project` and `explain --project` report the same list. A relation
+is checked as in `0.2.0` when it reads a `let` name in the argument of `min`
+or `max` (which a project admits and a single file refuses with PIE-S2315;
+a `Text` or `Bool` one both refuse, a single file with PIE-S2314) or inside an
+aggregate's expression argument (`sum(d + 1)`, where a single file reports
+PIE-S2102 `Unknown field: d`); when it selects under GROUP BY a `let` name
+that a single file refuses there (`k` after `let k = label`, its PIE-S2329,
+or `x = k`, its PIE-S2102, with a GROUP BY hint unless the `let` has an error
+of its own, which a project then reports alone); or when it reads a query
+parameter, `any(...)`, a nested relation field, a relation or a captured
+field. A `let` read is checked as the value it names, so as for a field, an
+ORDER BY key error without GROUP BY (PIE-S2380, or PIE-S2102 for an unknown
+field) and an invalid operand beside an aggregate in a projection
+(PIE-S2105) are not reported beside the relation's other errors. No
+diagnostic code is new and the JSON shapes are unchanged.
+
+### Interop refusals name their fix
+
+Each `ValueError` of `pietto.interop` about a field's type, nullability or
+label, a SciPy coordinate, the plot integer range or a target result of
+another type now names the rule the call breaks and a fix, most of them
+newly, and names the field by ordinal and label where one is involved. The
+exception classes, the checks and their order are unchanged, and only the
+message texts change.
+Several messages gain a field label in the middle of the text, so a program
+that matches a whole message or its start sees the new text:
+
+- In `to_numpy`, `to_scipy_csr` and the plots, a field of a type the
+  function does not admit ends with the fix: `to_pandas and to_polars admit
+  it` for a `Text`, `Date`, `Timestamp`, `Decimal` or `Float` field they
+  keep; `make it an Int in the query, for example 1 if flag else 0` for a
+  `Bool` field in `to_scipy_csr` or a plot; and `no pietto.interop function
+  admits it; leave it out of the query` for a `decimal256`, `UUID` or
+  nested field. `to_pandas` and `to_polars` keep their `0.2.0` message,
+  which ends with `leave it out of the query`.
+- A repeated field label in `to_pandas` adds `so give each field its own label
+  in the query`.
+- `to_scipy_csr` names the ordinals of fields that are not distinct (`row,
+  column and value must name distinct fields, not fields 4, 4 and 0`), and a
+  coordinate refusal names both coordinate fields by ordinal and label, then
+  the fix: filter the record out with a `where`, pass a shape that holds it,
+  or, for a repeated coordinate, give each coordinate one record in the
+  query, for example by grouping it by both fields.
+- A plot's integer beyond ±2**53 names the field's label too and adds
+  `convert the field with Float(...) in the query to accept its rounding, or
+  filter the record out with a where`.
+- A refusal after the conversion, when the target's result has another type,
+  index, shape or entry count, ends with `install the versions that
+  "pietto[arrow,interop-X]" pins`, naming the function's extra.
+
+The [interop guide](interop.md#field-admission) now has a table of what
+each function accepts by field type and nullability, the reason for each
+refusal with the query form that avoids it, and an
+[end-to-end example](interop.md#an-arrow-table-through-duckdb) that runs a
+query over an Arrow table on the DuckDB route and converts the batch with
+`to_pandas`.
+
+### Refused project statements report their identifier_case premise
+
+Project SQL emission now checks the `identifier_case` statement premise of
+a statement that it refuses while it builds the statement's stages. Such a
+statement builds no SQL, so its plan says whether it needs named stages (a
+`WITH` clause), as the premise table of the project contract lists, for
+example for `where`, `group by`, `order by`, `limit`, a window, a JOIN, a
+relation `let`, a set operation or a read of another table. When it does, a
+missing `identifier_case` adds PIE-B1004
+`identifier_case_declaration_missing` and another value adds PIE-B1005
+`identifier_case_declaration_mismatch` where a statement whose stages are
+built already reports them: after the refusals found while its stages are
+built and before any blocker of its sources, their fields or its output
+labels. The query `c1` of the
+[quick reference](language.md#mysql-project-sumint-forms), over a contract
+without `identifier_case` and without `read_only_object` for `orders`,
+reports PIE-B1004 `sum_int_aggregate_range_proof_missing`, then PIE-B1004
+`identifier_case_declaration_missing`, then PIE-B1001
+`read_only_object_declaration_required`. Before, such a statement reported
+the premise only when it read another table or query; one whose named
+stages all sit in its own definition, such as an aggregate or a `where`
+over one table, reported only its other refusals, so a contract with a
+wrong `identifier_case` was still refused after they were fixed.
+
+A statement that emission refuses before it builds its stages, such as one
+whose JOIN shape it does not admit (PIE-B1003
+`join_shape_not_admitted_in_slice7`), still reports no `identifier_case`,
+as in `0.2.0`. So does a MySQL statement of
+[MySQL `Float` in a null-safe project JOIN `on`](#mysql-float-in-a-null-safe-project-join-on)
+whose contract has no `identifier_case` or another value: it reports the
+blockers that `0.2.0` reported for it, and with the rest of its contract
+right, declaring `lower_case_table_names=0` makes it verify.
+
+On MySQL this includes the conditional, JOIN and two-level `sum(Int)` forms
+and the `sum(Int)` cells. One of them with a missing or wrong
+`identifier_case` is refused and reports the blockers it has without those
+forms (D77.37): PIE-B1004 `sum_int_aggregate_range_proof_missing`, which
+said nothing of the premise, now followed by the premise's own blocker,
+the one change that makes it verify.
+
+Changed diagnostics (programs refused before; no accepted program changes):
+
+| Code | Case | Before | After |
+| --- | --- | --- | --- |
+| PIE-B1004, PIE-B1005 | a project statement on either family whose named stages all sit in its own definition, that emission refuses while it builds its stages, and whose contract has no `identifier_case` or another value, such as a MySQL `sum(Int)` form or a grouped `median` of a `Float` | only the other blockers, such as PIE-B1004 `sum_int_aggregate_range_proof_missing`, PIE-B1004 `float_aggregate_finite_result_proof_missing` or PIE-B1003 `quantile_not_admitted_on_target` | the same blockers, with PIE-B1004 `identifier_case_declaration_missing` or PIE-B1005 `identifier_case_declaration_mismatch` after the refusals found while its stages are built and before any blocker of its sources, their fields or its output labels |
+
+A refused statement that reads another table or query already reported the
+premise and is unchanged. No PIE code or detail name is added. The status
+stays `BLOCKED` and the exit code 1; a statement with one stage that reads
+no other table or query, such as a plain projection, reports no
+`identifier_case`. Emitted SQL, CLI JSON v1, project JSON v2 and the Python
+API shapes are unchanged.
+
+### Editor sessions that outlive an internal error
+
+The alpha `pietto lsp` server no longer stops when an error inside Pietto
+stops the analysis of an open document or of a project root. That analysis
+publishes no diagnostics and keeps no editor facts, the requests that waited
+for it are answered, the server writes `pietto lsp: internal error; continuing`
+and the traceback to standard error, and the next change of the document
+analyses it again. A failed root analysis publishes no diagnostics, so the
+root's diagnostics from an earlier analysis stay in place.
+
+Before (measured at `22046a4f` on Linux with CPython 3.13.13, with the
+analyzer made to raise `ValueError`): opening a document that no root selects
+ended the server with exit code 1 and the traceback on standard error, and
+later requests got no reply. An internal `ValueError` in a project root's
+check already published `project error: project_root: Project root could not
+be pinned.` and kept the session; that is unchanged, and any other internal
+error there no longer ends the server. After: the session goes on as above.
+The CLI commands, CLI JSON and PIE codes are unchanged. The surface is alpha
+until the Phase82 freeze.
+
+### Editor project roots through a symbolic link
+
+The alpha `pietto lsp` server now checks a file that the editor opens under
+the real path of a project root as that root's module when `projectRoots`
+names the root through a symbolic link. At initialization the server records
+each root's real path, and an opened document under that real path, but under
+no root as written, takes the root's spelling: the project check uses its
+buffer and publishes the project's diagnostics at the document's own URI.
+Only the root is resolved, never the file's own links, and a document under
+the real paths of two or more roots keeps its spelling. On Windows the real
+path is compared ignoring letter case, as for VS Code's `file:///c%3A/...`
+URIs. A module that is not open still publishes under the root's spelling.
+
+Before (measured at `22046a4f` on Linux with CPython 3.13.13): with
+`"projectRoots": ["/work/link"]`, where `/work/link` is a symbolic link to
+`/work/harbor`, opening `file:///work/harbor/a.pietto`, a module without
+errors that imports `models.pietto`, checked it alone as a single file and
+published a PIE-S2708 warning and a false PIE-S2301 `Unknown relation:
+users`. After: no diagnostic, as `pietto check --project /work/link`
+reports.
+
+A root nested in another root through a symbolic link still publishes the
+modules that both select under both spellings without the overlap
+diagnostic; that known limitation of `0.1.11` holds. Roots as written,
+the conflict diagnostics, the CLI commands, CLI JSON and PIE codes are
+unchanged. The surface is alpha until the Phase82 freeze.
+
+### Message fixes
+
+- `emit-sql --project ... --format text` writes a diagnostic that has no
+  source path as `CODE severity: message`, without a location, as it
+  already writes such a blocker; earlier releases wrote `None` as its path.
+  A diagnostic with a path keeps its `path:line:column` prefix, and the
+  JSON documents are unchanged.
+- The `ModuleNotFoundError` that a `pietto.interop` function raises when its
+  extra is not installed quotes the requirement it names, for example
+  `to_pandas needs pandas: install "pietto[arrow,interop-pandas]"`, so the
+  command can be pasted into a shell that expands brackets. Its `name` is
+  still the missing library.
+
+### Hover over a `def` call or a relationship call
+
+In a single file, the alpha `pietto lsp` server no longer answers hover over a
+`def` call or a relationship call's arguments with the type of a conversion
+that the `def` body or the relationship template writes, and a relationship
+call whose template writes a conversion now has its hover and definition, as
+other relationship calls do. Such a conversion keeps its hover where a
+relationship template writes it; one in a `def` body has none.
+
+Before (measured at `22046a4f` on Linux with CPython 3.13.13): with
+`def label_of(n: Int) -> Text: return Text(n)`, hover over `label_of` and over
+its argument in `label = label_of(customer_id)` showed `builtin Text` for the
+whole call. With a relationship template whose body writes
+`Text(order.customer_id)`, hover over the call's arguments showed
+`builtin Text` for the whole call, and the call's name had no hover or
+definition. After: the `def` call has no hover and its argument keeps only
+its own facts (`customer_id` there has none), the relationship call's
+arguments have none, and the call's name shows `relationship NAME` and
+defines the template. A conversion written in a `max` or `min` argument, such
+as each `Float` in `max(Float(id), Float(account_id))`, now shows its type,
+`builtin Float`; before, it had no hover, because the copies that `max` and
+`min` make kept its range. Projects, the CLI commands, CLI JSON and PIE codes
+are unchanged. The surface is alpha until the Phase82 freeze.
+
+### Known limitations of 0.2.1
+
+- **Editor.** A project root nested in another root through a symbolic link
+  still publishes the modules that both roots select under both spellings,
+  without the overlap diagnostic, as in `0.1.11` and later. An internal
+  error outside the analysis of a document or a root, such as while
+  `pietto lsp` answers a request or stores and publishes an analysis, still
+  ends the server.
+- **Project diagnostic order.** Errors of different relations keep the
+  project's stage order, not their source order, so another relation's
+  projection error can still come first, as in `0.2.0`. Since a `first` or
+  `last` order proof error now sits among its own relation's errors, some
+  pairs of errors of different relations change order against `0.2.0`
+  ([Project aggregate diagnostics as in a single file](#project-aggregate-diagnostics-as-in-a-single-file)).
+  The same subsection lists the relations that read a `let` name and are
+  still checked as in `0.2.0`, unlike a single file.
+- **MySQL beyond the cadence.** MySQL support trails PostgreSQL (D76.10), and
+  `0.2.1` opens one MySQL form, `same_value` of two `Float` fields in a
+  null-safe project JOIN `on`, after its own two-database qualification.
+  These forms stay beyond the MySQL cadence under J12 (3), each with its
+  target: the MySQL project `sum` of an `Int` outside the forms that
+  `0.1.12` opened, and MySQL `Float` `+`, `-`, `*` and sign on fields, wait
+  for a MySQL catch-up phase after Phase80, which opens each form only after
+  its own two-database qualification; `stddev`, `variance`, `pvariance` and
+  `pstdev` of an `Int` have no target; nested results wait for the separate
+  nested work package; and the MySQL `UUID` query header parameter stays
+  withdrawn with no target.
+- **MySQL refusals.** Outside the forms that a two-database run matched,
+  MySQL emission refuses a form with a PIE-B code and writes no SQL. These
+  forms are refused on MySQL in `0.2.1`, as in `0.2.0`; the
+  [capability page](capabilities.md) and the `0.1.12` subsections give the
+  codes of most of them:
+  - in single files and projects: `median` and `quantile` (MySQL has no
+    interpolated percentile), `string_agg` (`GROUP_CONCAT` truncates
+    silently), a GROUPS frame with an offset bound, and EXCLUDE CURRENT ROW,
+    GROUP or TIES;
+  - in single files: `first` and `last`; the conditional sum
+    `sum(o.f for o in group if ...)`; `stddev`, `variance`, `pvariance` and
+    `pstdev` of an `Int`; a window key that names a computed `Text` `let`;
+    and an asof JOIN in a relation with a FULL JOIN, outside seven qualified
+    files;
+  - in projects, in every form: `stddev`, `variance`, `pvariance` and
+    `pstdev` of an `Int`; `Float` arithmetic other than between two
+    literals, a sign on a `Float` value and `Float /`; `count_distinct`,
+    `sum` and `avg` of a `Float`; `select distinct` over a `Float`, `Float`
+    `union distinct`, `intersect` and `except`, a `Float` window key and a
+    `percent_rank` or `cume_dist` result as a key; a `Float` literal list
+    whose value and an option both read rows, and a `Float` `in` or `not in`
+    in a WHERE over a let with `capture` lines; `UUID` query parameters;
+    `sum` and `avg` over a window; scalar calls or arithmetic around
+    aggregate results; a direct `sum` of a `Decimal`; an `in` or cast in a
+    query that a JOIN reads or that reads JOIN rows; `max(a, b)` and
+    `min(a, b)` of two `Date` values; `add_months`, `concat`, `round` with
+    digits, `date_trunc` and `Text(x)` of an `Int`; typed `values(...)` and
+    `generate_series`; FULL JOIN, which is not planned; and collected lists
+    and nested results;
+  - in projects, outside the forms that `0.1.12` and `0.2.1` opened: `Int`
+    arithmetic not proved to fit signed 64 bits, `Int /`, `Int %` and `sum`
+    of an `Int`, also conditional, over a JOIN or in two levels; `Float %`;
+    `stddev`, `variance`, `pvariance` and `pstdev` of a `Float`; a `Float`
+    GROUP BY key; `==`, `!=` and `same_value` of two `Float` row reads, also
+    inside `any(...)` and `not any(...)`; `Decimal(p, s)`, `Date` and
+    `Timestamp` query parameters; the conditional count, `any` and `all`
+    over a group, `count`, `min` and `max` over a window and
+    `count_distinct(a, b, ...)`; `first` and `last`; `Decimal` plus or minus
+    an `Int` or another scale, `Decimal * Int` and a sign on a `Decimal`; a
+    conditional or scalar call beside a JOIN; `lag` and `lead` with a `Text`
+    literal default; `lpad` and `now()`; and `same_value` in a JOIN `on`, of
+    a `Float` too.
+
+  FULL JOIN, a GROUPS frame with an offset bound, an EXCLUDE clause,
+  `median`, `quantile` and `string_agg` are out of scope for MySQL.
+- The known limitations of 0.2.0 that the subsections above do not change
+  still hold, the scope of the [DuckDB local path](capabilities.md#duckdb-local-path),
+  SQLite single files, interoperability and R2 among them.
+
 ## SQLite, DuckDB and Python interop public alpha release notes — 0.2.0
 
 **Status:** These notes cover `0.2.0`, the public alpha prepared from its

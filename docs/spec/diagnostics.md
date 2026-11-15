@@ -177,8 +177,10 @@ project-only cases also remain:
   of a table, query or relation `let` with a JOIN, as a let with `capture`
   lines joined LATERAL is, the key is PIE-S2102 at the key, whose message
   adds that this project relation cannot order by a SELECT output yet, and
-  the reader gets no PIE-S2333. An unknown key (`nope desc`) reports
-  PIE-S2102 `Unknown field: nope` at the key alone.
+  the reader gets no PIE-S2333 but keeps the errors of its JOIN conditions,
+  such as the PIE-S2333 of a JOIN without `on`. An unknown key (`nope desc`)
+  reports PIE-S2102 `Unknown field: nope` at the key, beside only the errors
+  of its reader's JOIN conditions.
 - A source without a shape in a module that reports some other errors, such
   as a duplicate shape field (PIE-S2501) or an unknown field (PIE-S2102),
   gets no PIE-S2333, and so no `(source items has no shape, ...)` cause,

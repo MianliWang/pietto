@@ -104,9 +104,13 @@ Phase76 and the repairs ready at its cut, and Phase77's remaining slices
 continue into `0.1.12` (PL.21) with two new slices, `now()` as an output
 column (D77.42) and `now()` in `relay_live` and R2 (D77.43, D77.49); `0.1.11` was published on 2026-11-13
 (PL.26), and `0.1.12` was published on 2026-11-14 (PL.29). Phase78–80 ship as
-`0.2.0`, which was published on 2026-11-15 (PL.36, PL.37). Phase81 uses
-`0.2.x`, Phase82 uses `1.0.0rc1` and Phase83 uses `1.0`. The extension follows
-its own version line.
+`0.2.0`, which was published on 2026-11-15 (PL.36, PL.37). `0.2.1` carries
+the leftovers of Phase80 and earlier, with the MySQL `Float` `same_value` in
+a JOIN `on` (PL.40, PL.41, PL.43); its release commit follows that batch,
+and it is published only when its tag, GitHub pre-release and PyPI carry the
+accepted files, under PL.42's gates (PL.45). Phase81 uses `0.2.x` from
+`0.2.2` (PL.40), Phase82 uses `1.0.0rc1` and Phase83 uses `1.0`. The
+extension follows its own version line.
 
 `0.2.0` requires PostgreSQL and MySQL within the MySQL cadence below, one
 local analysis path (the limited DuckDB path of Phase79, not a complete third

@@ -1225,7 +1225,7 @@ also offers an automatic source archive under the same name as the sdist,
 sdist, and it is not listed in `SHA256SUMS`. Earlier releases keep their own
 files and `SHA256SUMS` on their GitHub pre-releases.
 
-Version `0.2.0` rejects bundles and saved jobs produced by `0.1.12` or earlier
+Version `0.2.1` rejects bundles and saved jobs produced by `0.2.0` or earlier
 by code identity; Pietto neither migrates nor rewrites those bytes, so retained
 state needs its matching old environment (see
 [execution](execution.md#known-limitations)). The Pietto extension for VS Code
@@ -1243,8 +1243,8 @@ describes. The historical extension `0.1.0` accepted only the `0.1.2` wheel
 or its baseline fingerprint and refuses `0.1.10`.
 
 `0.1.11` changed compiled version marks once, from
-`(7, 1, 7, 1)` to `(8, 1, 8, 1)`, and `0.1.12` and `0.2.0` keep them.
-Keep an exact `pietto==0.1.12` environment for retained `0.1.12` bundles and
+`(7, 1, 7, 1)` to `(8, 1, 8, 1)`, and `0.1.12`, `0.2.0` and `0.2.1` keep them.
+Keep an exact `pietto==0.2.0` environment for retained `0.2.0` bundles and
 saved jobs. The new environment refuses incompatible records with a typed
 failure and does not migrate or rewrite them. Recompile from original
 source, contracts and parameters to create new records in that environment.
@@ -1261,7 +1261,7 @@ published `0.1.10` adds `26.0.0`); it changes
 available dependencies, not the public Python API or CLI. Phase67 result
 modules remain private under `pietto._project`; Phase69 exposes the three
 execution routes and saved-result APIs as public alpha under
-`pietto.execution`. Package/CLI version is `0.2.0` and `requires-python`
+`pietto.execution`. Package/CLI version is `0.2.1` and `requires-python`
 stays `>=3.12`. Its versioned GitHub pre-release and PyPI listing determine
 distribution availability once the accepted files are available.
 The extra matrix is CPython3.12/3.13 on Linux x86-64: the published `0.1.10`

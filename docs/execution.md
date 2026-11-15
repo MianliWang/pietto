@@ -1,17 +1,17 @@
 # Execution (public alpha)
 
-**Version:** This document describes the public alpha API of the `0.2.0`
+**Version:** This document describes the public alpha API of the `0.2.1`
 candidate. Release availability is established only when the exact accepted
-files appear on the versioned GitHub pre-release and PyPI `0.2.0` channels.
+files appear on the versioned GitHub pre-release and PyPI `0.2.1` channels.
 The published `0.1.2` distributions select `pyarrow==25.0.1`; the published
 `0.1.3`, `0.1.4`, `0.1.5`, `0.1.6`, `0.1.7`, `0.1.8`, `0.1.9`
 and `0.1.10` distributions select `pyarrow==26.0.0`, and the published
-`0.1.11` and `0.1.12` distributions and `0.2.0` select `pyarrow==26.0.1`. The published `0.1.5` distributions select
+`0.1.11`, `0.1.12` and `0.2.0` distributions and `0.2.1` select `pyarrow==26.0.1`. The published `0.1.5` distributions select
 `mysql-connector-python==26.7.0`, `adbc-driver-postgresql==1.12.0` and
 `adbc-driver-manager==1.12.0`; the published `0.1.6`, `0.1.7`, `0.1.8`,
-`0.1.9`, `0.1.10`, `0.1.11` and `0.1.12` distributions and `0.2.0` select `mysql-connector-python==26.10.0` and
-`1.13.0` of both ADBC packages; `0.2.0` adds the `execute-duckdb` extra with
-`duckdb==2.0.0`. The historical `0.1.1` wheel does not provide this alpha surface.
+`0.1.9`, `0.1.10`, `0.1.11`, `0.1.12` and `0.2.0` distributions and `0.2.1` select `mysql-connector-python==26.10.0` and
+`1.13.0` of both ADBC packages; `0.2.0` added the `execute-duckdb` extra with
+`duckdb==2.0.0`, which `0.2.1` keeps. The historical `0.1.1` wheel does not provide this alpha surface.
 
 The dependency maintenance of `0.1.11` pins `pyarrow==26.0.1` and
 `psycopg[binary]==3.3.8`; the published `0.1.10` distributions select `26.0.0`
@@ -94,7 +94,7 @@ execution or a supported Windows profile.
 
 ## Install
 
-The `0.2.0` distribution exposes `pietto.execution`. Install the extra of the
+The `0.2.1` distribution exposes `pietto.execution`. Install the extra of the
 route you use from PyPI into a fresh virtual environment:
 
 ```bash
@@ -273,7 +273,7 @@ except RequestRejected as error:
 
 ### Saved-result API
 
-These APIs are public alpha in `0.2.0`. They do not add a CLI database
+These APIs are public alpha in `0.2.1`. They do not add a CLI database
 command. Existing `check`, `emit-sql`, text output and JSON output keep their
 contracts: JSON uses `ensure_ascii=True` and one trailing newline, while
 `--output` reports its clear output error through the established CLI result
@@ -1707,8 +1707,8 @@ or a successful semantic check alone establishes none of those premises.
   environment that built it); there is no migration between versions. The
   identity is read from the installed files at each call, so restart running
   processes after the installed code changes.
-  A bundle or saved-job record made under `0.1.12` or earlier is refused under
-  `0.2.0` by the changed code identity: `load_bundle` refuses such a bundle's
+  A bundle or saved-job record made under `0.2.0` or earlier is refused under
+  `0.2.1` by the changed code identity: `load_bundle` refuses such a bundle's
   records with `PIE-R1005`, and every call given such a `job` but
   `inspect_job` refuses it with `PIE-R1009` and `detail`
   `JOB_COMPATIBILITY`: `save` or `save_recoverable` with that `job`,
@@ -1717,8 +1717,8 @@ or a successful semantic check alone establishes none of those premises.
   preserved; use their matching old environment. Pietto supplies no
   migration or rewrite.
   `0.1.11` changed compiled marks from `(7, 1, 7, 1)` to `(8, 1, 8, 1)`
-  once, and `0.1.12` and `0.2.0` keep them. Keep `pietto==0.1.12` for its
-  retained bundles and jobs; a new matching environment requires
+  once, and `0.1.12`, `0.2.0` and `0.2.1` keep them. Keep `pietto==0.2.0` for
+  its retained bundles and jobs; a new matching environment requires
   recompilation from source.
   Recompiling does not convert saved results or rerun a query. Reading old
   results follows their separate format, code-identity and trust contract;
@@ -1749,7 +1749,8 @@ or a successful semantic check alone establishes none of those premises.
   still fails closed at its first page, with `terminal` `FAILED` and no
   public reason.
 - On MySQL, `save_recoverable` and `recover` refuse a query in a form that
-  `0.1.11` refused, the forms that Phase77 opens in `0.1.12`, with
+  `0.1.11` refused, the forms that Phase77 opens in `0.1.12` and the MySQL
+  `Float` `same_value` in a null-safe JOIN `on` that `0.2.1` opens, with
   PIE-R1004 `PUBLIC_R2_UNQUALIFIED_FORM` before any workspace access or
   connection: no native qualification has run R2's refined statement of any
   of them. It is the last R2 check, so a query that another one refuses
