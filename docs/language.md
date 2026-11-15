@@ -368,14 +368,21 @@ emission selects one table or query, one dialect and an emission contract.
 LEGACY_FLAT and PACKAGE_ROOT keep their existing narrower availability; modern
 spelling does not widen those project modes. Single-file commands refuse the
 project-only forms with an ERROR: PIE-S2334 for DISTINCT and set operations
-(at the FROM or JOIN for a set-operation input), and PIE-S2345 to PIE-S2352 for
+(at the FROM or JOIN for a set-operation input), PIE-S2345 to PIE-S2352 for
 relation lets, header parameters, VALUES bodies, relation reads, `capture`
-lines and table functions. Only an explicit-module project reads import and
-export statements: a single-file command reports each one as a PIE-S2708
-WARNING (`Module import is resolved only by check --project ROOT, in a
-schema_version = 2 project`), so an editor can check one module file alone,
-and a LEGACY_FLAT project check reports each one as a PIE-S2708 ERROR that
-asks for `schema_version = 2`.
+lines and table functions, and PIE-S2801 for `collect` reads and Unnest lets.
+Only an explicit-module project reads import and export statements: a
+single-file command reports each one as a PIE-S2708 WARNING (`Module import
+is resolved only by check --project ROOT, in a schema_version = 2 project`),
+so an editor can check one module file alone, and a LEGACY_FLAT project check
+reports each one as a PIE-S2708 ERROR that asks for `schema_version = 2`.
+
+The project-only forms open to single files one at a time, each by its own
+decision, DISTINCT first. Until a form opens, a single file refuses it with
+its PIE-S2334, PIE-S2345 to PIE-S2352 or PIE-S2801 ERROR above, whose message
+names EXPLICIT_MODULES projects (schema version 2); an import or export stays
+the PIE-S2708 WARNING. There is no promise that a project accepts everything
+a single file accepts.
 
 A LEGACY_FLAT project (`schema_version = 1`) checks no JOIN and no `any(...)`
 of the current syntax. Each JOIN, of any kind and whatever its target, is one
@@ -3143,7 +3150,9 @@ raises an error, while MySQL `/` and `DIV` return NULL. Single-file MySQL
 `CONCAT` and `REPLACE` also return NULL for a result longer than
 `max_allowed_packet`; Pietto still types them by their arguments. Dividing the smallest
 `Int` by -1 overflows the signed 64-bit range; what each target does then is
-not specified here. Division with a `Decimal` operand is not specified yet: it
+not specified here. Single-file MySQL emits `Int / 1` as `DIV 1` and fails
+the smallest `Int` `DIV 1` with error 1690, where PostgreSQL returns the
+value. Division with a `Decimal` operand is not specified yet: it
 has no result type and emits a bare `/`, so each target applies its own
 numeric division. The quotient is still a number, as are arithmetic over it
 and numbers, `abs` of it and a `coalesce`, `nullif` or conditional of such

@@ -1708,8 +1708,14 @@ or a successful semantic check alone establishes none of those premises.
   identity is read from the installed files at each call, so restart running
   processes after the installed code changes.
   A bundle or saved-job record made under `0.1.12` or earlier is refused under
-  `0.2.0` by the changed code identity. The old bytes are preserved; use their
-  matching old environment. Pietto supplies no migration or rewrite.
+  `0.2.0` by the changed code identity: `load_bundle` refuses such a bundle's
+  records with `PIE-R1005`, and every call given such a `job` but
+  `inspect_job` refuses it with `PIE-R1009` and `detail`
+  `JOB_COMPATIBILITY`: `save` or `save_recoverable` with that `job`,
+  `recover`, `retire_generation`, `open_saved_read`, `release_saved_read`,
+  `publish_saved_generation` and `verified_export`. The old bytes are
+  preserved; use their matching old environment. Pietto supplies no
+  migration or rewrite.
   `0.1.11` changed compiled marks from `(7, 1, 7, 1)` to `(8, 1, 8, 1)`
   once, and `0.1.12` and `0.2.0` keep them. Keep `pietto==0.1.12` for its
   retained bundles and jobs; a new matching environment requires
