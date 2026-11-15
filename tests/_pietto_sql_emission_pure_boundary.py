@@ -1559,6 +1559,10 @@ _NULLSAFE_JOIN_CARRIERS = {
             {"kind": "my_uuid_bytes"},
             {"kind": "uuid", "encoding": "standard_bytes"},
         ),
+        "float": (
+            {"kind": "my_double"},
+            {"kind": "finite_float", "format": "binary64"},
+        ),
     },
 }
 _NULLSAFE_JOIN_CELLS = frozenset(
@@ -3718,9 +3722,11 @@ class _Check:
                 and all(_reads_row(doc, child) for child in op["operands"])
             ):
                 # Phase77 S06: MySQL picks its own join and semijoin plans for a
-                # Float equality of two row reads; only a qualified cell emits.
+                # Float equality of two row reads; only a qualified cell emits,
+                # a JOIN `on` `same_value` call's in its null-safe JOIN cell.
                 _require(
-                    _mysql_float_cell(doc, ref) in _MYSQL_FLOAT_ROW_CELLS,
+                    _mysql_float_cell(doc, ref) in _MYSQL_FLOAT_ROW_CELLS
+                    or _nullsafe_join_cell(doc, ref, family) is not None,
                     "MySQL Float row comparison cell",
                 )
             if (

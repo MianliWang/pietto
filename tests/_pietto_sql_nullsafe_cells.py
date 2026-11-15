@@ -19,14 +19,13 @@ TARGETS = ("postgres", "mysql")
 KINDS = ("inner", "left", "right")
 STRUCTURES = ("S1", "S1r", "S2", "S2r", "S3", "S4", "S5")
 CARRIERS = ("int", "text", "decimal", "date", "timestamp", "uuid", "float")
-# MySQL has no Float cell (O7): its `==` is refused and its `<=>` evidence only.
+# Every cell is open on both targets; a MySQL Float cell's `==` stays refused.
 OPEN = tuple(
     (target, kind, structure, carrier)
     for target in TARGETS
     for kind in KINDS
     for structure in STRUCTURES
     for carrier in CARRIERS
-    if (target, carrier) != ("mysql", "float")
 )
 NULLSAFE = {"postgres": " IS NOT DISTINCT FROM ", "mysql": " <=> "}
 TYPES = {
@@ -568,8 +567,12 @@ def refused(target):
         ),
     }
     if target == "mysql":
-        items["mysql_float"] = (
-            program(target, "inner", "S1", "float"),
+        # A Float cell's program with a WHERE after its LEFT JOIN, which MySQL
+        # may plan as an antijoin: outside unit C.
+        items["mysql_float_where_is_none"] = (
+            program(target, "left", "S1", "float").replace(
+                "    select:\n", "    where rhs.id is None\n    select:\n"
+            ),
             contract(target, "S1", "float"),
         )
         items["mysql_float_beside"] = (

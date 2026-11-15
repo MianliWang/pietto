@@ -2326,7 +2326,9 @@ def test_project_join_on_same_value_cells_emit_the_equality_statement(
     written `IS NOT DISTINCT FROM` or `<=>`, and its public document differs
     from that program's only in the call's own records and, under INNER, in
     the nullability of the columns `==` proves non-null and `same_value` does
-    not. The live verifier and the pure boundary accept it."""
+    not. A MySQL Float cell, whose `==` stays refused, pairs with its
+    structure's Int cell instead. The live verifier and the pure boundary
+    accept it."""
     for cell in nullsafe.OPEN:
         if cell[:3] != (target, kind, structure):
             continue
@@ -2335,18 +2337,59 @@ def test_project_join_on_same_value_cells_emit_the_equality_statement(
             nullsafe.cell(tmp_path / f"{carrier}-{fn}", *cell, function=fn)
             for fn in (False, True)
         )
-        assert (equal.status, same.status) == ("VERIFIED", "VERIFIED"), cell
         artifact = same.artifact
-        assert artifact is not None and equal.artifact is not None
-        assert artifact.rendered.sql.decode() == _nullsafe_sql(
-            target, equal.artifact.rendered.sql.decode(), structure
-        )
+        assert same.status == "VERIFIED" and artifact is not None, cell
         assert verify_project_sql_emission(artifact, artifact.request).verified
         observed = portable.export_emission_observation(artifact, artifact.request)
         assert observed.canonical_bytes is not None
         assert (
             pure.parse_emission_observation(observed.canonical_bytes).status
             is pure.Status.OK
+        )
+        if (target, carrier) == ("mysql", "float"):
+            # Its `==` keeps its refusal (Phase72 B10): the same SQL as the
+            # Int cell, whose documents differ only in each value field's
+            # type and representation.
+            assert [(b.code, b.detail) for b in equal.blockers] == [
+                ("PIE-B1003", "comparison_type_pair_not_admitted")
+            ], cell
+            twin = nullsafe.cell(tmp_path / "float-int", target, kind, structure, "int")
+            assert twin.artifact is not None
+            assert artifact.rendered.sql == twin.artifact.rendered.sql
+            fields = nullsafe.fields(structure)
+            values = [
+                (side, index)
+                for side in (0, 1)
+                for index, name in enumerate(fields)
+                if name in ("v", "w")
+            ]
+            paths = [path for path, _, _ in _differences(_public(twin), _public(same))]
+            places = {path[:2] if path[0] == "columns" else path[:6] for path in paths}
+            assert places == {
+                ("columns", side * len(fields) + index) for side, index in values
+            } | {
+                ("request", "contract", "sources", side, "fields", index)
+                for side, index in values
+            }, cell
+            # Each differing leaf is a type or representation one, never `nullable`.
+            representation = {("representation", "storage", "kind")} | {
+                ("representation", "domain", key)
+                for key in ("kind", "format", "min", "max")
+            }
+            assert {
+                tuple(key for key in path if type(key) is str) for path in paths
+            } == {("columns", "logical_type", "name")} | {
+                (*owner, *leaf)
+                for owner in (
+                    ("columns",),
+                    ("request", "contract", "sources", "fields"),
+                )
+                for leaf in representation
+            }, cell
+            continue
+        assert equal.status == "VERIFIED" and equal.artifact is not None, cell
+        assert artifact.rendered.sql.decode() == _nullsafe_sql(
+            target, equal.artifact.rendered.sql.decode(), structure
         )
         calls = 2 if structure == "S3" else 1
         values = ("v", "w") if structure == "S3" else ("v",)

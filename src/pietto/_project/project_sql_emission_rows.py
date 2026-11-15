@@ -4489,7 +4489,13 @@ def mysql_float_cell(request, expression):
     fields of a qualification table (MYSQL_FLOAT_CELL_TABLES). None outside
     every cell, and while emission derives as main (AS_MAIN). ANTI: each
     `==` reads a field of the binder source I and one of the outer source O,
-    and only O's fields are checked, in any order."""
+    and only O's fields are checked, in any order. A JOIN `on` `same_value`
+    call of a null-safe JOIN cell has that cell (nullsafe_join_cell), of any
+    carrier: resolved_comparison_realization admits it for two Float
+    operands only, through float_carrier."""
+    nullsafe = nullsafe_join_cell(request)
+    if nullsafe is not None and expression.ref in nullsafe[1]:
+        return nullsafe[0]
     shape = None if AS_MAIN.get() else _mysql_float_shape(request.plan, expression)
     if shape is None:
         return None
@@ -4795,9 +4801,10 @@ def mysql_float_key_admitted(request, realization) -> bool:
 # and `i`, the other, each operand the field at that position of that side;
 # the SELECT items read every field of the left input, then of the right,
 # in order, and the query holds nothing else (_unit_query, _unit_written).
-# MySQL has no Float cell (O7). Emission and the live verifier call
-# nullsafe_join_cell on their plan; compiled replay (records) and the pure
-# boundary (document) each derive the cell from their own input.
+# A MySQL Float cell (D77.77, after D77.52 O7) is its `same_value`
+# calls' Float row cell too (mysql_float_cell). Emission and the live
+# verifier call nullsafe_join_cell on their plan; compiled replay (records)
+# and the pure boundary (document) each derive the cell from their own input.
 NULLSAFE_JOIN_STRUCTURES = {
     ("same_value", ("o", 1), ("i", 1)): "S1",
     ("same_value", ("i", 1), ("o", 1)): "S1r",
@@ -4869,6 +4876,7 @@ NULLSAFE_JOIN_CARRIERS = {
             {"kind": "my_uuid_bytes"},
             {"kind": "uuid", "encoding": "standard_bytes"},
         ),
+        "float": ({"kind": "my_double"}, FINITE_FLOAT),
     },
 }
 NULLSAFE_JOIN_CELLS = frozenset(
@@ -5040,7 +5048,9 @@ def resolved_comparison_realization(
     plans for a Float ``==`` whose operands both read rows, and a semijoin
     forced to materialize over a wide key returned outer rows twice (Phase72
     B10, reproduced by the Phase77 S06 campaign), so it stays refused there
-    outside the qualified cells (MYSQL_FLOAT_ROW_CELLS, ``float_cell``). So
+    outside the qualified cells (MYSQL_FLOAT_ROW_CELLS, or a JOIN `on`
+    `same_value` call's NULLSAFE_JOIN_CELLS cell, of any carrier, which the
+    two float_carrier checks narrow to Float; ``float_cell``). So
     does ``!=``: MySQL's parser turns ``NOT (x <> y)``, also through De
     Morgan, into the equality ``x = y``.
     """
@@ -5067,7 +5077,7 @@ def resolved_comparison_realization(
         and operator in {"==", "!="}
         and rows_both_sides
         and not (
-            float_cell in MYSQL_FLOAT_ROW_CELLS
+            (float_cell in MYSQL_FLOAT_ROW_CELLS or float_cell in NULLSAFE_JOIN_CELLS)
             and float_carrier(left, family)
             and float_carrier(right, family)
         )

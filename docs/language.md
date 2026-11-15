@@ -581,7 +581,7 @@ first column give every rule.
 | Feature | PostgreSQL single file | MySQL single file | PostgreSQL project | MySQL project |
 | --- | --- | --- | --- | --- |
 | `concat(a, b)` ([Expressions](#expressions)) | `(a \|\| b)` | `CONCAT(a, b)` | emitted; refused for only `None` (PIE-B1003) or a binding-width `Text` (PIE-B1004) | refused (PIE-B1003) |
-| `same_value(a, b)` ([Expressions](#expressions)) | `(a IS NOT DISTINCT FROM b)` | `(a <=> b)` | select items, WHERE and `let`, select items after a JOIN; `Float` where `==` is, not `Bool`, not in a WHERE after a JOIN, and in a JOIN `on` only in the null-safe JOIN statements of [Expressions](#expressions) | as PostgreSQL, a `Float` only beside an operand that reads no row or of two `Float` fields in the qualified forms of [Float values](#float-values) (other two row `Float` operands PIE-B1003), no `Float` in a JOIN `on`, and not a GROUP BY key or DISTINCT column |
+| `same_value(a, b)` ([Expressions](#expressions)) | `(a IS NOT DISTINCT FROM b)` | `(a <=> b)` | select items, WHERE and `let`, select items after a JOIN; `Float` where `==` is, not `Bool`, not in a WHERE after a JOIN, and in a JOIN `on` only in the null-safe JOIN statements of [Expressions](#expressions) | as PostgreSQL, a `Float` only beside an operand that reads no row or of two `Float` fields in the qualified forms of [Float values](#float-values) or in those null-safe JOIN statements (other two row `Float` operands PIE-B1003), and not a GROUP BY key or DISTINCT column |
 | `stddev(x)` ([Aggregates](#aggregates-and-grouping)) | `Int` and `Float` | `Float` (`STDDEV_SAMP`); `Int` refused (PIE-B1000) | `Int` and `Float` | refused: `Int` PIE-B1003, `Float` PIE-B1004, except `STDDEV_SAMP` as the only select item of a global aggregate over one direct nullable `Float` field of one source with no `let`, other clause or header parameter |
 | `variance(x)`, `pvariance(x)`, `pstdev(x)` ([Aggregates](#aggregates-and-grouping)) | `Int` and `Float` (`VAR_SAMP`, `VAR_POP`, `SQRT` of `VAR_POP`) | `Float` (`VAR_SAMP`, `VAR_POP`, `STDDEV_POP`); `Int` refused (PIE-B1000) | `Int` and `Float` | refused: `Int` PIE-B1003, `Float` PIE-B1004, except `VAR_SAMP`, `VAR_POP`, `STDDEV_POP` in the shape of `stddev` |
 | `median(x)`, `quantile(x, q)` ([Aggregates](#aggregates-and-grouping)) | `Int` and `Float` (`PERCENTILE_CONT ... WITHIN GROUP`) | refused (PIE-B1000) | `Int`; `Float` refused (PIE-B1004) | refused (PIE-B1003) |
@@ -593,7 +593,7 @@ first column give every rule.
 | `add_months(d, n)` ([Expressions](#expressions)) | `CAST((d + make_interval(months => CAST(n AS integer))) AS date)` | `DATE_ADD(d, INTERVAL n MONTH)` | emitted; a `None` argument refused (PIE-B1003) | refused (PIE-B1003) |
 | `now()` ([Expressions](#expressions)) | `(statement_timestamp() AT TIME ZONE 'UTC')`, in SELECT items and WHERE | `UTC_TIMESTAMP(6)`, in SELECT items and WHERE | emitted, compiled and bound as a template | also as `date_of(now())`, only in the qualified SELECT position the `now()` paragraph of [Expressions](#expressions) gives; refused elsewhere (PIE-B1003) |
 | Always-null numbers, D-12 ([Expressions](#expressions)) | typed NULL casts | typed NULL casts | `Int` arithmetic with `None`; `Float` and `Decimal` refused | as PostgreSQL |
-| `Float` equality ([Float values](#float-values)) | comparisons and GROUP BY; DISTINCT and set forms are project-only | as PostgreSQL; GROUP BY beside a wide `Text` key may split `-0.0` and `0.0` | comparisons, GROUP BY, DISTINCT, ORDER BY, every set form, window `partition by` and `order by`, `string_agg` order keys and FULL JOIN equalities, also over a window `percent_rank` or `cume_dist` result | comparisons with a literal or header parameter, ordering inequalities, `in` and `not in` (a literal list only when its value or all of its options read no row, a read of a let with `capture` lines only as a SELECT item (since `0.1.12`)), `nullif`, relation ORDER BY and UNION ALL; `==`, `!=` and `same_value` of two `Float` fields in the qualified same-row, JOIN and `not any(...)` forms, and GROUP BY of one to three keys in the qualified one-source forms, of [Float values](#float-values); the other forms refused (PIE-B1003) |
+| `Float` equality ([Float values](#float-values)) | comparisons and GROUP BY; DISTINCT and set forms are project-only | as PostgreSQL; GROUP BY beside a wide `Text` key may split `-0.0` and `0.0` | comparisons, GROUP BY, DISTINCT, ORDER BY, every set form, window `partition by` and `order by`, `string_agg` order keys and FULL JOIN equalities, also over a window `percent_rank` or `cume_dist` result | comparisons with a literal or header parameter, ordering inequalities, `in` and `not in` (a literal list only when its value or all of its options read no row, a read of a let with `capture` lines only as a SELECT item (since `0.1.12`)), `nullif`, relation ORDER BY and UNION ALL; `==`, `!=` and `same_value` of two `Float` fields in the qualified same-row, JOIN and `not any(...)` forms, and GROUP BY of one to three keys in the qualified one-source forms, of [Float values](#float-values), and `same_value` in the null-safe JOIN statements of [Expressions](#expressions); the other forms refused (PIE-B1003) |
 | JOIN aggregates without fan-out ([Aggregates](#aggregates-and-grouping)) | accepted | accepted | accepted | accepted; `sum(Int)` stays PIE-B1004, except the guarded `SUM` of the S03 JOIN and two-level forms ([Aggregates](#aggregates-and-grouping)) |
 | Top-level constants and `--set` ([Top-level constants](#top-level-constants)) | literals; `DATE '...'`, `TIMESTAMP '...'` | as PostgreSQL | refused (PIE-S2392) | refused (PIE-S2392) |
 | Project aggregate arguments ([Aggregates](#aggregates-and-grouping)): `count`/`count_distinct` of `Text`, `Bool`, `Float`, `Decimal`; `min`/`max` of `Float`, `Decimal`; `sum`/`avg` of `Float`; a row expression argument (`sum(qty * 2)`) | emitted (unchanged) | emitted (unchanged) | emitted, also an argument holding a scalar call over JOIN rows (`count(lower(r.label))`); direct `sum(Decimal(p, s))` emits as checked `numeric(p + 19, s)` only for `p + 19 <= 65`; Decimal `avg` and other Decimal sum shapes stay PIE-B1004 | as PostgreSQL, except `count_distinct` of a `Float` (PIE-B1003), `sum`/`avg` of a `Float`, `sum` of a `Decimal`, and `sum` of an `Int` such as `sum(qty * 2)` (PIE-B1004) outside the sum cell of [Aggregates](#aggregates-and-grouping), and over JOIN rows an argument holding a scalar call (PIE-B1003) outside two paired forms ([0.1.12](release-notes.md#conditionals-beside-a-join-and-calls-in-aggregate-arguments-in-four-mysql-project-forms)); an `Int` expression not proved to fit BIGINT is PIE-B1002 first |
@@ -830,8 +830,12 @@ only `o`'s `Int` (BIGINT) and Float fields; `o` has, in any order, exactly
 a non-null `Int` (BIGINT), a nullable Float and NOT NULL binary `Text`
 fields of width 64 and 1000, and `i`'s other fields are free. The one `let`
 it may declare is a relation alias of `i` that the `any(...)` reads (`let z
-= i` with `for z in z`). Every other form, `any(...)` and every other
-`not any(...)` included, is PIE-B1003 `comparison_type_pair_not_admitted`.
+= i` with `for z in z`). A `same_value` of two Float fields also emits in
+the JOIN `on` of the null-safe JOIN statements of [Expressions](#expressions)
+(D77.77); any other `same_value` in an `on` keeps the refusal that section
+gives, PIE-B1003 `match_condition_not_in_row_domain`. Every other form,
+`any(...)` and every other `not any(...)` included, is PIE-B1003
+`comparison_type_pair_not_admitted`.
 A statement of these forms that emission refuses for another reason, such
 as an output label past 256 characters, reports the blockers it has
 without the forms, this PIE-B1003 included.
@@ -3419,8 +3423,8 @@ not, exactly these fields in this order, under any names: a non-null `Int`
 (BIGINT) `id`, a nullable `v` and, as the `on` needs, a non-null `Int`
 (BIGINT) `k` or a nullable `w` of `v`'s type; `v` and `w` are an `Int`
 (BIGINT), a `Text` of 64 characters in the binary collation, a
-`Decimal(12, 2)`, a `Date`, a `Timestamp`, a `UUID` or, on PostgreSQL only,
-a `Float`. Each field's representation in the emission contract (storage,
+`Decimal(12, 2)`, a `Date`, a `Timestamp`, a `UUID` or a `Float` (on MySQL,
+see below). Each field's representation in the emission contract (storage,
 width or precision, and domain) is exactly the qualification's: an `Int` is
 `pg_int8` or `my_bigint` with the domain `int_range` from -9007199254740993
 to 9007199254740993, so a wider one, such as the whole 64-bit range, is
@@ -3440,6 +3444,21 @@ loop; Pietto promises no plan. After a LEFT JOIN
 on `same_value`, `r.v is None` does not tell an unmatched row: a left row
 whose `v` is `None` pairs with every right row whose `v` is `None`, so test
 a non-null field of the right side instead.
+
+A `Float` `v` or `w` compares as Python floats do on both targets:
+`-0.0` and `0.0` match and each row keeps its own bits, and two finite
+values match only when they are equal, so neighbours such as `1.0` and the
+next double, or the smallest subnormal and `0.0`, never do. MySQL `<=>` and
+PostgreSQL `IS NOT DISTINCT FROM` agree on every value of the contract's
+`finite_float` domain: a MySQL `DOUBLE` cannot hold NaN or an infinity, and
+the PostgreSQL `NaN` that `IS NOT DISTINCT FROM` matches with itself is
+outside that domain. A MySQL `Float` `==` of two fields stays refused in
+the `on` of these statements (Phase72 B10), so a MySQL `Float` statement
+is the one its form emits over `Int` fields, byte for byte. The MySQL
+`Float` statements opened after their own native campaign matched every
+one of them on both databases, with `-0.0`, `0.0`, `None`, the largest
+finite values, the smallest normal value and subnormal values beside their
+neighbours (D77.77).
 
 `==` in a JOIN `on` also admits literal and computed operands, but
 `same_value` there admits one field of each side only, an exception to

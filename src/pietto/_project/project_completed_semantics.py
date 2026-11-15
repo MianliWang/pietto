@@ -2692,9 +2692,14 @@ def _compiled_float_cell(records, address):
     field and the bundle holds no other operation, literal or unit.
     None outside every cell. A relation alias `let`, an unused named window
     or an inlined `def`, which emission refuses, changes the records only in
-    source positions, so this reader cannot tell it from the direct program."""
+    source positions, so this reader cannot tell it from the direct program.
+    A JOIN `on` `same_value` call of a null-safe JOIN cell has that cell
+    (_compiled_nullsafe_cell), as rows.mysql_float_cell gives it."""
     from pietto._project import project_sql_emission_rows as physical
 
+    nullsafe = _compiled_nullsafe_cell(records, address)
+    if nullsafe is not None:
+        return nullsafe
     by_kind: dict[str, list] = {}
     for record in records.values():
         by_kind.setdefault(record.address.kind, []).append(record)

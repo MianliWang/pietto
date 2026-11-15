@@ -1425,8 +1425,9 @@ def _world_query(directory, world, body, *, name="result", dialect="mysql"):
         outcome = build(directory, dialect, body)
     elif world == "words":
         _, outcome = emission.lpad_now_world(directory, world, dialect, body)
-    elif world == "nullsafe":
-        contract = nullsafe_cells.contract(dialect, "S1", "int")
+    elif world in ("nullsafe", "nullsafe_float"):
+        carrier = "float" if world == "nullsafe_float" else "int"
+        contract = nullsafe_cells.contract(dialect, "S1", carrier)
         outcome = nullsafe_cells.build(directory, body, contract)
     else:
         _, outcome = getattr(emission, world + "_world")(directory, dialect, body)
@@ -1504,8 +1505,9 @@ _FIRST = (
 )
 # One MySQL form of each slice that the unreleased Phase77 opened, with the
 # world its own tests build it in: S06 one that R2 executed refined and one
-# that failed at its first page, S06's `same_value` in a JOIN `on`, S02
-# beside S01, and R08's `Int /` over a literal divisor.
+# that failed at its first page, S06's `same_value` in a JOIN `on` (of an
+# Int and of a Float), S02 beside S01, and R08's `Int /` over a literal
+# divisor.
 PHASE77_MYSQL_FORMS = {
     "S05": ("agg", _STATISTIC),
     "S06_join": (
@@ -1522,6 +1524,10 @@ PHASE77_MYSQL_FORMS = {
     "S06_nullsafe_join": (
         "nullsafe",
         nullsafe_cells.program("mysql", "inner", "S1", "int"),
+    ),
+    "S06_nullsafe_join_float": (
+        "nullsafe_float",
+        nullsafe_cells.program("mysql", "inner", "S1", "float"),
     ),
     "S09": (
         "typed",
