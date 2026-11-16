@@ -34,7 +34,6 @@ HISTORY_WORD = re.compile(
 )
 # Recorded exceptions to the naming law, by name.
 NAMING_EXCEPTIONS = {
-    "test_sql_emission_closure.py": "named by a ci/workloads.toml file_costs entry",
     "_pietto_differential_harness.py": "differential helper family",
     "_pietto_differential_probe_batch.py": "differential helper family",
     "_pietto_differential_process_acquisition.py": "differential helper family",

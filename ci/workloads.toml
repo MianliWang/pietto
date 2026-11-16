@@ -162,7 +162,7 @@ path = "tests/test_jobs_delivery_histories.py"
 seconds = 30
 
 [[file_costs]]
-path = "tests/test_sql_emission_closure.py"
+path = "tests/test_sql_emission_verification.py"
 seconds = 20
 
 [[file_costs]]
