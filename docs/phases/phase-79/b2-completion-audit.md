@@ -6,10 +6,12 @@ tier 1 of PL.47 on the
 query over one `duckdb.arrow` source group with `count`, `sum`, `min` and
 `max`, filter groups with `having`, order and limit its rows, and compare
 fields and outputs with literals and parameters of four types, within higher
-capture limits. Its decisions are PL.47 and PL.50 beside B1's D79.01–D79.16,
-AD79.01 and AD78.03 in the [decision record](../../decisions.md). B2 is one
+capture limits. Its decisions are PL.47, PL.50 and PL.54 beside B1's
+D79.01–D79.16, AD79.01 and AD78.03 in the
+[decision record](../../decisions.md). B2 is one
 vertical: this audit closes B2's tier 1, not Phase79. It records delivery,
-qualification and the acquisition review, and hands over the tier-2 decision.
+qualification and the acquisition review, and hands tier 2 to the owner's
+plan (PL.54).
 The batch that publishes T08 determines B2's completion through its Gate 2
 seal and natural exact-head CI; this document does not certify its own
 publication, and the first documentation commit after that batch is
@@ -29,7 +31,8 @@ one commit per slice: the route `b6ee2f91`, T01 `862fa5f7`, T02 `73a93c55`,
 T03 `c2c9f7fb`, T04 `ab132a7f`, T05 `24a8864e`, T06 `d68bd072`, T07
 `bfe127bf` and T08, the commit that adds this audit. These are local
 candidate commits; a later replay changes their ids, and the batch's record
-names the published ones. Phase81's Gate 0 read the health of `851ad83f`
+names the published ones. The Phase81 Gate 0 that the owner then stopped
+(PL.54) read the health of `851ad83f`
 with the read-only token (PL.07) on 2026-11-16 at 06:31Z to 06:32Z:
 INSUFFICIENT_EVIDENCE with no comparable sample, current screen WATCH, and
 among its 24 advisory signals `SHARD_IMBALANCE_REVIEW` for the 3.13 runtime,
@@ -170,8 +173,11 @@ and jobs do not take the route, so B2 adds nothing to migrate.
 - **Midpoint.** The route places B2's midpoint after T02–T05 are integrated
   and before T06, with a record and the owner's tier-2 decision. The lane's
   dispatch ran T06 after T05 without that stop, and no midpoint record was
-  written; the lead reported the missing stop to the owner on 2026-11-16.
-  The tier-2 decision is therefore still the owner's (see the
+  written before T06; the lead reported the missing stop to the owner on
+  2026-11-16. The owner answered after T06–T08 had run, T06's
+  preregistration having been frozen and its run made before the answer:
+  tier 1 is pushed as it stands, and tier 2 goes into the owner's plan.
+  PL.54 records that answer as the midpoint's record (see the
   [handoff](#phase79-handoff)).
 
 ## B2 acquisition review
@@ -291,19 +297,20 @@ read-back. The route stays alpha until the Phase82 freeze rules on it.
 
 ## Phase79 handoff
 
-- **Tier 2, the owner's.** Several sources and JOINs with a multi-input
-  execute API (the sheet's Q3), `Date`, `Timestamp` and `Decimal`, and
-  computed columns wait for the owner's decision on the lead's midpoint
-  report, which was not made before T06 (above). If tier 2 does not open,
-  tier 1 closes as it stands, and the Phase82 freeze rules on each such form
-  by its ledger row.
+- **Tier 2, the owner's plan.** Several sources and JOINs with a
+  multi-input execute API (the sheet's Q3), `Date`, `Timestamp` and
+  `Decimal`, and computed columns go into the owner's plan for the later
+  phases, as the owner answered at B2's midpoint after T06–T08 had run
+  (above; PL.54). Tier 1 closes as it stands, and until a phase of that plan
+  opens such a form, the Phase82 freeze rules on each by its ledger row.
 - **Opened.** Grouping with `count`, `sum`, `min` and `max`, `having`,
   `order by` and `limit`, and `where` and `having` predicates over literals
   and parameters of `Int`, `Text`, `Bool` and `Float`, within 1,048,576 rows
   and 256 MiB of the selected columns.
 - **Kept refused, and why.** `sum` of a `Float`, since DuckDB returns an
   infinity on overflow and the checked spelling that T00 saw has no
-  qualification cells (the lead, at the midpoint or the Phase82 freeze);
+  qualification cells (the lead, by the Phase82 freeze, since the midpoint
+  answer did not rule on it);
   `avg` of an `Int` or a `Float`, beyond PL.47's tier and with the same
   overflow for a `Float` (the owner); a `Text`
   literal that holds NUL, since T00 saw only the parser keep it (the lead,

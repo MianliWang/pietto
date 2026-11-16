@@ -239,10 +239,16 @@ the `0.2.x` release that follows its Gate 2, `0.2.2` at the earliest
 1,048,576 rows and 256 MiB of the selected columns and a fixed
 `memory_limit` of 1 GiB in place of D79.04's, and refusal texts rewritten
 without "yet", in the version that the owner approved (PL.50). Both B2
-parts write NULLS clauses that place NULL as PostgreSQL does. JOINs and
-the other forms of each second tier wait for the owner's decision,
-SQLite's at its midpoint and DuckDB's on the lead's report, since DuckDB
-B2 ran without its midpoint stop.
+parts write NULLS clauses that place NULL as PostgreSQL does. At their
+midpoints the owner sent JOINs and the other forms of each second tier to
+the owner's plan for the later phases (PL.54). DuckDB B2's first tier
+publishes as one batch under PL.52; its midpoint was answered after T06–T08
+had run, since its dispatch had no stop there. SQLite B2 goes on
+with S11 and S12 of its first tier while R1, the tier's one PostgreSQL
+replay (PL.47), waits until Docker Desktop is available, and its closeout
+S16 follows R1. SQLite B2 also makes single-file SQLite SQL write `Bool`
+literals as `1` and `0`, a change to the bytes that `0.2.0` and `0.2.1`
+publish, which its release lists as incompatible (PL.54).
 
 ### Interop relief
 
@@ -264,13 +270,13 @@ D5).
 
 ### Phase81 scope
 
-The owner approved Phase81's Gate 1 on 2026-11-16 (PL.50), taking every
-recommendation of its sheet except that the release tools move into the
-repository. Its Gate 0 binds the head where batch 2 is pushed and its natural
-CI has passed. It runs beside SQLite B2, DuckDB B2, the interop relief and,
-after its own Gate 1, the MySQL catch-up phase, and its slices enter the
-`0.2.x` release that follows their Gate 2, `0.2.2` at the earliest. CPython
-3.14 gets full CI parity (30 jobs) and joins the verified profile. On Windows
+Phase81 waits for the owner's draft of the plan for the later phases, which
+bundles several phases for parallel scheduling and which the lead reviews
+(PL.54). On 2026-11-16 the owner answered the lead's Phase81 Gate 1 sheet
+(PL.50), taking every recommendation except that the release tools move
+into the repository; those answers are input to that plan, not an approved
+route. In them CPython 3.14 gets full CI parity (30 jobs) and joins the
+verified profile. On Windows
 x86-64 the CLI and `pietto.compiler` are declared supported with execution
 NOTRUN, batch directory output gets a writer that holds the new directory's
 handle, the extension repository's CI gains a native Windows job, and the
@@ -281,7 +287,8 @@ and severity within the existing codes. Nullability v2 gets a read-only
 review first, reported to the owner at the midpoint. The assurance work uses
 a bounded, seeded generator and shrinker with no new dependency and no
 network. The release tools move into `scripts/`, where CI runs only their
-dry run and self-tests. The ledger is `C206/F618/D11,950/S14`.
+dry run and self-tests. The sheet's ledger, `C206/F618/D11,950/S14`, and
+PL.52's push authorization for Phase81 are unused until the owner's plan.
 
 Phase81 decides the CPython matrix (3.14 into CI and the verified profile;
 until then 3.12 and 3.13, with no upper bound on `requires-python`), the
