@@ -1,6 +1,7 @@
 """The ``duckdb_arrow`` route (docs/spec/duckdb-arrow-route-v1.md; D79.03,
-D79.04, D79.06 and AD79.01): request checks 7 to 13 of execute(), the owned
-capture of the caller's table, and one attempt's private in-memory session.
+D79.04 as PL.47 revises it, D79.06 and AD79.01): request checks 7 to 13 of
+execute(), the owned capture of the caller's table, and one attempt's
+private in-memory session.
 
 Importing this module loads no DuckDB and no PyArrow. Checks 7 to 11 import
 nothing; check 12 verifies the PyArrow the caller already loaded (and the
@@ -36,8 +37,9 @@ __all__: tuple[str, ...] = ()
 PYARROW = ("pyarrow", "26.0.1", "pyarrow")
 DRIVER = ("duckdb", "2.0.0", "duckdb")
 ENGINE = [("v2.0.0", "d54cbbe3df")]
-MAX_ROWS = 65_536
-MAX_BYTES = 16 * 1024 * 1024
+MAX_ROWS = 1_048_576
+# Of the selected columns only (PL.47).
+MAX_BYTES = 256 * 1024 * 1024
 # DuckDB drops an interrupt that reaches the connection before its statement
 # starts, so a sent cancellation is sent again at this interval until the
 # statement ends.
@@ -68,7 +70,7 @@ SETTINGS = (
     ("enable_progress_bar", "false", "false"),
     ("enable_progress_bar_print", "false", "false"),
     ("max_temp_directory_size", "'0B'", "0 bytes"),
-    ("memory_limit", "'256MiB'", "256.0 MiB"),
+    ("memory_limit", "'1GiB'", "1.0 GiB"),
     ("python_enable_replacements", "false", "false"),
     ("python_scan_all_frames", "false", "false"),
     ("temp_directory", "''", ""),
@@ -91,8 +93,10 @@ UNCHANGED = (
     ("enable_logging", "0"),
     ("logging_storage", "memory"),
     ("access_mode", "automatic"),
+    # Text compares in code point order under it; the SQL writes no COLLATE.
+    ("default_collation", ""),
     ("worker_threads", "1"),
-    ("max_memory", "256.0 MiB"),
+    ("max_memory", "1.0 GiB"),
 )
 READ_BACK = (*((name, value) for name, _set, value in SETTINGS), *UNCHANGED)
 _ABSENT = object()
@@ -149,7 +153,7 @@ def _pyarrow():
 
 
 def _admitted(pc, field, column):
-    """Step 3 of the capture over one selected column."""
+    """Step 4 of the capture over one selected column."""
     try:
         column.validate(full=True)
     except Exception:
@@ -182,7 +186,7 @@ def _ranges(arrays):
 
 
 def _copy(pa, column):
-    """Step 4 for one column: a new array of its referenced values only,
+    """Step 5 for one column: a new array of its referenced values only,
     whose buffers are disjoint from the caller's."""
     chunks = column.chunks
     copy = pa.concat_arrays(chunks) if chunks else pa.array([], type=column.type)
@@ -197,7 +201,7 @@ def _copy(pa, column):
 def capture(pa, pc, table, fields):
     """Check 13 (the spec's "Capture"): the owned copy of the selected
     columns named c0, c1, ... in shape order, or the refusal's detail."""
-    if table.num_rows > MAX_ROWS or table.nbytes > MAX_BYTES:
+    if table.num_rows > MAX_ROWS:
         return None, "DUCKDB_ARROW_CAPTURE_LIMIT"
     schema = table.schema
     selected = []
@@ -210,6 +214,8 @@ def capture(pa, pc, table, fields):
         if type(actual) is not type(expected) or not actual.equals(expected):
             return None, "DUCKDB_ARROW_SCHEMA"
         selected.append(table.column(found[0]))
+    if sum(column.nbytes for column in selected) > MAX_BYTES:
+        return None, "DUCKDB_ARROW_CAPTURE_LIMIT"
     for field, column in zip(fields, selected, strict=True):
         if not _admitted(pc, field, column):
             return None, "DUCKDB_ARROW_SCHEMA"

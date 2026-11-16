@@ -58,8 +58,8 @@ ROOT = Path(__file__).resolve().parents[1]
 # its first batch.
 SLOW = 'SELECT count(*) AS "id", NULL AS "note" FROM pietto_running'
 WATCHDOG_SECONDS = 30.0
-# The spec's session table ("Session and attempt", D79.06) in its order: the
-# setting, the value set and the value read back.
+# The spec's session table ("Session and attempt", D79.06 and PL.47) in its
+# order: the setting, the value set and the value read back.
 SESSION_TABLE = (
     ("allow_community_extensions", "false", "false"),
     ("allow_extension_repositories", "'forbidden'", "forbidden"),
@@ -74,7 +74,7 @@ SESSION_TABLE = (
     ("enable_progress_bar", "false", "false"),
     ("enable_progress_bar_print", "false", "false"),
     ("max_temp_directory_size", "'0B'", "0 bytes"),
-    ("memory_limit", "'256MiB'", "256.0 MiB"),
+    ("memory_limit", "'1GiB'", "1.0 GiB"),
     ("python_enable_replacements", "false", "false"),
     ("python_scan_all_frames", "false", "false"),
     ("temp_directory", "''", ""),
@@ -98,8 +98,9 @@ SESSION_UNCHANGED = (
     ("enable_logging", "0"),
     ("logging_storage", "memory"),
     ("access_mode", "automatic"),
+    ("default_collation", ""),
     ("worker_threads", "1"),
-    ("max_memory", "256.0 MiB"),
+    ("max_memory", "1.0 GiB"),
 )
 OPENED = [("connect", ":memory:"), ("register", "pietto_arrow_0")]
 ENDED = [("unregister", "pietto_arrow_0"), ("close",)]
@@ -594,29 +595,48 @@ def test_an_int_outside_the_declared_range_is_refused(tmp_path: Path) -> None:
             )
 
 
-def test_the_limits_count_the_whole_table_before_the_schema(
+def test_the_limits_count_rows_first_and_then_only_the_selected_columns(
     filtered_query: execution.CompiledQuery,
 ) -> None:
-    """65,536 rows and 16 MiB of `Table.nbytes` are admitted, one more of
-    either is not; an unselected column counts but is never examined."""
+    """PL.47: 1,048,576 rows are admitted and one more is refused before the
+    schema; after the schema, the selected columns may measure 256 MiB of
+    `nbytes` together and one byte more is refused before their values; a
+    column that no source field names never counts."""
     pa = _pyarrow()
     query = filtered_query
+    arguments: dict[str, Any] = {"parameters": {"min_amount": 1}}
+    limit = ("PIE-R1002", "DUCKDB_ARROW_CAPTURE_LIMIT")
+    schema = ("PIE-R1002", "DUCKDB_ARROW_SCHEMA")
+    assert (route.MAX_ROWS, route.MAX_BYTES) == (1_048_576, 268_435_456)
     rows = ((1, 5, None, True, 0.0),) * route.MAX_ROWS
-    full = orders(pa, rows)
-    _handle(pa, query, full, parameters={"min_amount": 1}).close()
+    _handle(pa, query, orders(pa, rows), **arguments).close()
     over = orders(pa, rows + rows[:1]).drop_columns(["ok"])
     access = execution.DuckDBArrowInput("orders", over)
-    limit = ("PIE-R1002", "DUCKDB_ARROW_CAPTURE_LIMIT")
-    assert _refusal(query, access=access, parameters={"min_amount": 1}) == limit
-    small = orders(pa, rows[:1])
-    empty = small.append_column("pad", pa.array([b""], pa.binary()))
-    pad = route.MAX_BYTES - empty.nbytes
-    exact = small.append_column("pad", pa.array([b"x" * pad], pa.binary()))
-    assert exact.nbytes == route.MAX_BYTES
-    _handle(pa, query, exact, parameters={"min_amount": 1}).close()
-    above = small.append_column("pad", pa.array([b"x" * (pad + 1)], pa.binary()))
-    access = execution.DuckDBArrowInput("orders", above)
-    assert _refusal(query, access=access, parameters={"min_amount": 1}) == limit
+    assert _refusal(query, access=access, **arguments) == limit
+    # One row with a NULL in the non-null `id`, refused at its values when it
+    # passes the byte limit, so nothing is copied; each `note` references a
+    # prefix of one zero-filled buffer.
+    null_id = ((None, 5, "", True, 0.0),)
+    data = pa.py_buffer(bytearray(route.MAX_BYTES - orders(pa, null_id).nbytes + 1))
+
+    def note(size: int) -> Any:
+        offsets = pa.array([0, size], pa.int32()).buffers()[1]
+        return pa.StringArray.from_buffers(1, offsets, data)
+
+    exact = orders(pa, null_id, note=note(data.size - 1))
+    above = orders(pa, null_id, note=note(data.size))
+    assert exact.nbytes == route.MAX_BYTES and above.nbytes == route.MAX_BYTES + 1
+    unselected = exact.append_column("pad", note(data.size))
+    for table, refused in (
+        (exact, schema),
+        (unselected, schema),
+        (above, limit),
+        (above.drop_columns(["ok"]), schema),
+    ):
+        access = execution.DuckDBArrowInput("orders", table)
+        assert _refusal(query, access=access, **arguments) == refused
+    admitted = orders(pa, rows[:1]).append_column("pad", note(data.size))
+    _handle(pa, query, admitted, **arguments).close()
 
 
 def test_the_capture_is_an_owned_copy_of_the_selected_columns(

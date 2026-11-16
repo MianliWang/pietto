@@ -13,8 +13,9 @@ comparison of an `Int` field with one non-null `Int` query parameter
 `order by` and a static `limit`, and T04 `where` and `having` predicates
 that compare fields and outputs with literals and with any number of
 parameters of the four types, test for NULL and join the tests with `and`,
-`or` and `not`. It has no JOIN, and it refuses an input table
-of more than 65,536 rows or 16 MiB ([capture](#capture)). It is qualified only
+`or` and `not`; T05 raises the capture limits. It has no JOIN, and it refuses
+an input table of more than 1,048,576 rows or whose selected columns measure
+more than 256 MiB ([capture](#capture)). It is qualified only
 for `duckdb` `2.0.0` with `pyarrow` `26.0.1` on CPython 3.12 and 3.13, Linux
 x86-64 with glibc 2.28 or later; every other release and platform is not
 qualified. Its names, fields, detail words and limits may change in any later
@@ -223,9 +224,8 @@ verifier, and consumes `ProjectSQLPlan`).
   reaches a result. This checked cast is the target evidence of `sum`.
 - **Text order.** No `COLLATE` clause is written. `Text` compares, groups
   and orders by its UTF-8 bytes, which is code point order, under `2.0.0`'s
-  default collation, the empty string, which the lock keeps and, from B2's
-  slice T05, the session reads back
-  ([B2 capture and session](#b2-capture-and-session)). This is the
+  default collation, the empty string, which the lock keeps and the session
+  reads back ([session](#session-and-attempt)). This is the
   contract's collation `C` (*derived*).
 - **Literals** (*derived*). A signed literal ([admission](#admission)) is
   written as one literal with its sign, never as an operator. An `Int`
@@ -375,15 +375,12 @@ every refusal they have today.
 ## Capture
 
 The capture is admitted or refused before any session, with this fixed
-private policy (D79.04). Checks run in this order, and the first failure is
-raised; no detail carries a value, a name or a count.
+private policy (D79.04, whose limits and measure PL.47 revises). Checks run
+in this order, and the first failure is raised; no detail carries a value, a
+name or a count.
 
-1. **Limits.** The caller's whole table has at most 65,536 rows and
-   `pyarrow.Table.nbytes` at most 16 MiB (16,777,216), measured before any
-   copy; otherwise `DUCKDB_ARROW_CAPTURE_LIMIT`. `nbytes` counts the
-   referenced ranges of every column, validity bitmaps included, and counts a
-   buffer that two chunks or columns share once for each: it is a logical
-   admission measure with no physical or peak-memory guarantee.
+1. **Rows.** The caller's table has at most 1,048,576 rows; otherwise
+   `DUCKDB_ARROW_CAPTURE_LIMIT`.
 2. **Schema**, per source field in shape order: its `column` names exactly
    one field of the table, by exact string equality, so a name that no field
    or two fields of the table carry is refused; and that field's type is
@@ -391,9 +388,17 @@ raised; no detail carries a value, a name or a count.
    `dictionary`, `large_string`, `string_view`, extension, `null` and every
    other type are refused. Otherwise `DUCKDB_ARROW_SCHEMA`. A field of the
    table that no source field names is not examined, whatever its name (a
-   duplicate included) or type (*derived*): it counts toward the limits of
-   step 1 and is not copied.
-3. **Values**, per source field in shape order, over the selected column: a
+   duplicate included) or type (*derived*): it counts toward no byte limit
+   and is not copied.
+3. **Bytes.** The selected columns, the table fields that the source fields
+   name, measure at most 256 MiB (268,435,456 bytes) together, as the sum of
+   each selected column's `pyarrow` `nbytes` before any copy; otherwise
+   `DUCKDB_ARROW_CAPTURE_LIMIT`. `nbytes` counts the referenced ranges of
+   each chunk, validity bitmaps included, and counts a buffer that two chunks
+   share once for each: it is a logical admission measure with no physical
+   or peak-memory guarantee. The number of chunks is not limited, and the
+   capture's time and memory grow with it.
+4. **Values**, per source field in shape order, over the selected column: a
    non-null field has `null_count == 0`; an `Int` lies inside the declared
    `int_range`; a `Float` has no NaN, +Inf or -Inf; a `Text` value is valid
    UTF-8 under full validation and has at most the declared `max_characters`
@@ -402,7 +407,7 @@ raised; no detail carries a value, a name or a count.
    checked. A NUL is admitted anywhere in a `Text` value, counts as one code
    point, and reaches DuckDB and the caller unchanged (the owner's choice of
    2026-11-11; see the NUL row of [pin facts](#pin-facts)).
-4. **Copy.** The capture is a new table of the selected columns only, in
+5. **Copy.** The capture is a new table of the selected columns only, in
    shape order, named `c0`, `c1` and so on, whose buffers are disjoint from
    the caller's and hold no unselected rows or columns. Changing the caller's
    buffers afterwards (a NumPy array that a column wraps without a copy, for
@@ -412,6 +417,12 @@ raised; no detail carries a value, a name or a count.
    unclassified `PIE-R1999` `DUCKDB_ARROW_CAPTURE_COPY`, which is not one of
    the input refusals above and which the pinned PyArrow's copy is not
    expected to reach (see [pin facts](#pin-facts)).
+
+Because the bytes are measured over the selected columns, the schema check
+comes before the byte limit: a table whose selected columns exceed 256 MiB
+and whose schema also fails reports `DUCKDB_ARROW_SCHEMA`. B1 admitted at
+most 65,536 rows and 16 MiB of the whole table's `Table.nbytes`, both
+checked before the schema.
 
 `-0.0` is admitted under the `Float` value contract, where `-0.0 == 0.0`; on
 `2.0.0` DuckDB delivered its sign bit unchanged (*derived*, inform). Each
@@ -475,7 +486,7 @@ reused. Every failure from here on is an `AttemptFailed` (AD79.01).
 | `enable_progress_bar` | `false` (*derived*) | `false` |
 | `enable_progress_bar_print` | `false` (*derived*) | `false` |
 | `max_temp_directory_size` | `'0B'` | `0 bytes` |
-| `memory_limit` | `'256MiB'` (*derived* value) | `256.0 MiB` |
+| `memory_limit` | `'1GiB'` (PL.47) | `1.0 GiB` |
 | `python_enable_replacements` | `false` | `false` |
 | `python_scan_all_frames` | `false` | `false` |
 | `temp_directory` | `''` | the empty string |
@@ -483,8 +494,9 @@ reused. Every failure from here on is an `AttemptFailed` (AD79.01).
 | `enable_external_access` | `false`, after every row above | `false` |
 | `lock_configuration` | `true`, last | `true` |
 
-The rows marked *derived* go beyond the D79.06 items, and the values of
-`memory_limit` and `threads` are this page's choice within D79.06's "explicit".
+The rows marked *derived* go beyond the D79.06 items; the value of `threads`
+is this page's choice within D79.06's "explicit", and that of `memory_limit`
+is PL.47's.
 
 `enable_external_access = false` must come after `temp_directory`: on
 `2.0.0`, `SET temp_directory` after it fails with `Modifying the
@@ -502,19 +514,43 @@ setting above may change: `allowed_configs`, `allowed_directories`,
 `allowed_paths` and `extension_directories` `[]`; `custom_extension_repository`,
 `autoinstall_extension_repository`, `log_query_path`, `profiling_output` and
 `disabled_filesystems` the empty string; `enable_profiling` NULL;
-`enable_logging` `0`; `logging_storage` `memory`; `access_mode` `automatic`.
-`worker_threads` and `max_memory` are the aliases of `threads` and
-`memory_limit`, which the table changes from the host's values, and are read
-back as those values above: `1` and `256.0 MiB`.
+`enable_logging` `0`; `logging_storage` `memory`; `access_mode` `automatic`;
+`default_collation` the empty string, which the route does not set and under
+which `Text` compares in code point order (see [SQL](#sql); PL.47 adds this
+read-back to D79.06). `worker_threads` and `max_memory` are the aliases of
+`threads` and `memory_limit`, which the table changes from the host's values,
+and are read back as those values above: `1` and `1.0 GiB`.
 
 A `:memory:` database cannot be opened read-only on `2.0.0` (`Cannot launch
 in-memory database in read-only mode!`). The session is read-only because the
 route runs only the compiled `SELECT`.
 
-`threads = 1` gives each attempt one engine thread, and `memory_limit` is 16
-times the capture limit; both are fixed private policy (*derived*). A
-statement that needs more memory fails, because nothing can spill
-(`OutOfMemoryException` on `2.0.0`).
+`threads = 1` gives each attempt one engine thread (*derived*), and
+`memory_limit` is fixed at 1 GiB (PL.47), in place of B1's rule of 16 times
+the capture limit; both are fixed private policy. A statement that needs
+more memory fails with `PIE-R3003` (`OutOfMemoryException` on `2.0.0`), and
+nothing spills. `to_arrow_table()` reads the whole result before the
+batches, outside `memory_limit` and before any check of
+`ExecutionLimits.max_bytes` (64 MiB by default): a result beyond it is
+refused when its batches are cut (`PIE-R3004`), after it has been read
+whole. Besides the caller's table, one `execute()` therefore holds at its
+peak the copy of at most 256 MiB, at most 1 GiB in DuckDB and the whole read
+result, which no limit bounds: a field that the projection names k times is
+read k times. Only while the result is no larger than the selected columns
+is that about 1.5 GiB (*derived*), and nothing is guaranteed. Measured by
+T05 on 2026-11-16, through `execute()` on one Linux x86-64 host with CPython
+3.13.13, each case in its own process under `/usr/bin/time -v`, at
+1,048,576 rows whose selected columns, two `Int` and one 235-byte `Text`,
+measured 267,386,880 bytes: the whole process peaked at 1,276,808 KiB (about
+1.22 GiB) for a grouping on 1,048,576 distinct `Text` keys, 1,259,896 KiB
+for a full sort on that `Text` and 709,764 KiB for `count`, `sum` and `min`
+over the table, against 383,992 KiB for the interpreter, Pietto, PyArrow
+and the caller's table before DuckDB is imported, so about 0.85 GiB beyond
+them; each attempt took at most 0.53 s from its first entry to its last
+batch. Selecting the `Text` field eight times under the default limits
+peaked at 2,684,640 KiB (about 2.56 GiB), about 2.2 GiB beyond its own base
+case, and only then failed with `PIE-R3004`; a larger result can exhaust the
+host's memory before any refusal.
 
 ## Failures
 
@@ -739,7 +775,7 @@ outside Git. CPython 3.12 comes from the packaging lane and natural CI.
   `UnicodeDecodeError`, and `register()` then worked. On the cells' unfiltered
   projection (`select s from bad`), read through `register`, `sql(...)` and
   `to_arrow_table()`, DuckDB checked no UTF-8; the route's filtered,
-  parameterized read was not observed. Step 3 of the [capture](#capture),
+  parameterized read was not observed. Step 4 of the [capture](#capture),
   with its full validation, is the route's only UTF-8 check by design. The two paths did not
   fail alike, so this is no reason for step 3 of the session to use the
   relation API. Its reasons are that `execute(...).to_arrow_table()` warns,
@@ -834,8 +870,10 @@ they name. Each of B2's code slices T02–T05 moves the rows it lands from here
 into those sections, in its own commit, and the closeout T08 checks that
 nothing is left here. T02 moved grouping, the aggregates, `having`, the
 rewritten and new suggestions and their rules 5, 7, 7a, 7b and 10, T03
-`order by`, `limit` and rule 8a, and T04 the predicates, literals and
-parameters, their SQL and rules 8, 8b and 9.
+`order by`, `limit` and rule 8a, T04 the predicates, literals and
+parameters, their SQL and rules 8, 8b and 9, and T05 the capture limits,
+their measure and order, `memory_limit` and the `default_collation`
+read-back.
 
 The rules come from PL.47, the owner's answer of 2026-11-15 to the B2
 Gate 1 sheet, which revises D79.04's capture limits and this page's
@@ -846,43 +884,6 @@ consequences of those decisions and of the T00 probe
 ([B2 pin facts](#b2-pin-facts-t00)); the lead states them to the owner as
 inform. The owner saw the new and rewritten refusal texts before they bind
 (PL.47) and agreed to them as written (PL.50); T02 binds them in code.
-
-### B2 capture and session
-
-B2 keeps B1's [capture](#capture) and [session](#session-and-attempt),
-with these changes (PL.47 for the limits, *derived* for the rest):
-
-1. **Rows.** The caller's table has at most 1,048,576 rows; otherwise
-   `DUCKDB_ARROW_CAPTURE_LIMIT`. This is the first check.
-2. **Schema**, as B1's step 2, except that a table field that no source
-   field names counts toward no byte limit (step 3); it is still not copied.
-3. **Bytes.** The selected columns, the table fields that the source fields
-   name, measure at most 256 MiB (268,435,456 bytes) together, as the sum of
-   each selected column's `pyarrow` `nbytes` before any copy; otherwise
-   `DUCKDB_ARROW_CAPTURE_LIMIT`. A field that no source field names does not
-   count, and a column that two source fields name counts twice, as the copy
-   holds it twice. `nbytes` counts the referenced ranges and validity
-   bitmaps; it is a logical admission measure with no physical or
-   peak-memory guarantee.
-4. **Values** and 5. **Copy**, as B1's steps 3 and 4.
-
-Because the bytes are measured over the selected columns, the schema check
-now comes before the byte limit: a table whose selected columns exceed
-256 MiB and whose schema also fails reports `DUCKDB_ARROW_SCHEMA`.
-
-In the session, `memory_limit` is set to `'1GiB'` and read back as
-`1.0 GiB`, and its alias `max_memory` is read back as `1.0 GiB`; this fixed
-value replaces the rule that `memory_limit` is 16 times the capture limit.
-`default_collation` joins the values read back to their `2.0.0` value, the
-empty string, and is not set. `threads` stays 1, and every other row of
-both lists is unchanged. A statement that needs more memory fails with PIE-R3003
-(`OutOfMemoryException` on `2.0.0`), and nothing spills. `to_arrow_table()`
-still reads the whole result before the batches, outside `memory_limit`, and
-a result beyond `ExecutionLimits.max_bytes` (64 MiB by default) is refused
-when its batches are cut, as today (PIE-R3004). One `execute()` therefore
-holds the caller's table, the copy of at most 256 MiB, at most 1 GiB in
-DuckDB and the read result at its peak; T00 measured at most about 1.4 GiB
-for the whole process on one host, and that is no guarantee.
 
 ### B2 usability
 

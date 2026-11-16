@@ -114,3 +114,13 @@ query totals(min_total: Int):
   fields or selected outputs, such as order by total desc; computed keys are
   not available on DuckDB`. No DuckDB text says "yet" any more, and no
   PostgreSQL or MySQL text changes.
+- The capture limits rise from 65,536 rows and 16 MiB of the whole table to
+  1,048,576 rows and 256 MiB of the selected columns, the table fields that
+  the source's fields name, measured as the sum of their PyArrow `nbytes`; a
+  table field that no source field names no longer counts. The capture now
+  checks the rows, then the schema, then the bytes, so a table over a byte
+  limit whose schema also fails reports `DUCKDB_ARROW_SCHEMA` instead of
+  `DUCKDB_ARROW_CAPTURE_LIMIT`. DuckDB's `memory_limit` is 1 GiB in place
+  of 256 MiB, a statement beyond it still fails with `PIE-R3003`, and the
+  session also checks that `default_collation` is the empty string
+  (`PIE-R2006` `DUCKDB_SESSION_CONTEXT` otherwise).
