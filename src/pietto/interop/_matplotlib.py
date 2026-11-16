@@ -5,14 +5,14 @@ from __future__ import annotations
 from typing import Any
 
 # The kinds plot_line and plot_scatter admit, and those they admit nullable
-# too (D80.03).
+# too (D80.03, PL.47).
 ADMITS = ("Int", "Float")
-NULLABLE: tuple[str, ...] = ()
+NULLABLE = ("Int", "Float")
 
 
 def _float64(data: Any, ordinal: int) -> Any:
-    # Admission left a non-nullable Float field or an Int field whose values
-    # all lie within ±2**53, which float64 holds exactly; astype copies.
+    # Admission left a Float field or an Int field whose values all lie within
+    # ±2**53, which float64 holds exactly; a null becomes NaN; astype copies.
     return data.column(ordinal).to_numpy(zero_copy_only=False).astype("float64")
 
 

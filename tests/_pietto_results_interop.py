@@ -2028,6 +2028,21 @@ PLOT_ROWS = [
 ]
 # Point order follows input order: these rows are reversed, with a repeat.
 PLOT_ORDER = PLOT_ROWS[::-1] + [PLOT_ROWS[1]]
+# Nullable field 3 with a null before a value beyond 2**53: the null is
+# skipped, and the value keeps its record's number.
+PLOT_GAP = [[0, 0.0, True, None, 0, 0], [0, 0.0, True, B53 + 1, 0, 0]]
+# Numeric rows whose nullable field 3 holds no null, or only a null, and scalar
+# rows whose nullable Float field 5 holds nulls, -0.0 and the least subnormal.
+PLOT_NULLS = {
+    "full": [[0, 0.5, True, 7, 0, 1]],
+    "lone": [[0, 0.5, True, None, 0, 1]],
+    "ratio": [
+        [0, None, False, None, 0.1, None],
+        [1, 2, True, True, -0.0, 5e-324],
+        [2, None, False, None, 2.5, -0.0],
+        [0, None, False, None, 0.1, None],
+    ],
+}
 # Matplotlib 3.11.2's font cache, which docs/interop.md names.
 FONT_CACHE = "fontlist-v3.11.0.json"
 # Any of these modules would mean that pyplot or a backend was selected.
@@ -2100,6 +2115,7 @@ def plot_cases(fx):
     observations["empty"] = [
         drawn(interop.plot_line(hollow, 0, 1, ax=ax), ax),
         drawn(interop.plot_scatter(hollow, 5, 4, ax=ax), ax),
+        drawn(interop.plot_scatter(hollow, 3, 1, ax=ax), ax),
     ]
 
     ordered, ax = batch(fx["numeric"][0], PLOT_ORDER), axes()
@@ -2114,8 +2130,7 @@ def plot_cases(fx):
     numeric, closed = batch(*fx["numeric"]), batch(*fx["numeric"])
     closed.close()
     above = batch(fx["numeric"][0], NUMERIC_ROWS["above"])
-    # Field 3 holds no null in this batch, but the schema declares it nullable.
-    full = batch(fx["numeric"][0], [[0, 0.5, True, 7, 0, 1]])
+    gap = batch(fx["numeric"][0], PLOT_GAP)
     observations["refusals"] = [
         refusal(lambda: interop.plot_line(numeric, 0, 1, ax=object()), numeric),
         refusal(lambda: interop.plot_scatter(numeric, 0, 1, ax=figure), numeric),
@@ -2126,19 +2141,23 @@ def plot_cases(fx):
         refusal(lambda: interop.plot_line(numeric, 0, 6, ax=ax), numeric),
         refusal(lambda: interop.plot_scatter(numeric, 2, 1, ax=ax), numeric),
         refusal(lambda: interop.plot_scatter(above, 1, 0, ax=ax), above),
+        refusal(lambda: interop.plot_line(gap, 3, 1, ax=ax), gap),
+        [len(ax.lines), len(ax.collections), len(ax.get_children()) - children],
     ]
-    # PL.47's nullable Int and Float cells, refused while the plots admit no
-    # nullable kind; field 3 of full holds no null, but the schema declares it
-    # nullable.
-    scalar = batch(*fx["scalar"])
+
+    # PL.47's nullable Int and Float cells, on the line and the scatter.
+    ax = axes()
+    full = batch(fx["numeric"][0], PLOT_NULLS["full"])
+    lone = batch(fx["numeric"][0], PLOT_NULLS["lone"])
+    ratio = batch(fx["scalar"][0], PLOT_NULLS["ratio"])
     observations["nullable"] = [
-        refusal(lambda: interop.plot_line(numeric, 3, 1, ax=ax), numeric),
-        refusal(lambda: interop.plot_scatter(full, 0, 3, ax=ax), full),
-        refusal(lambda: interop.plot_scatter(scalar, 4, 5, ax=ax), scalar),
+        drawn(interop.plot_line(numeric, 3, 1, ax=ax), ax),
+        drawn(interop.plot_scatter(numeric, 1, 3, ax=ax), ax),
+        drawn(interop.plot_line(ratio, 5, 4, ax=ax), ax),
+        drawn(interop.plot_scatter(ratio, 4, 5, ax=ax), ax),
+        drawn(interop.plot_scatter(full, 0, 3, ax=ax), ax),
+        drawn(interop.plot_line(lone, 3, 1, ax=ax), ax),
     ]
-    observations["refusals"].append(
-        [len(ax.lines), len(ax.collections), len(ax.get_children()) - children]
-    )
 
     counted, ax = batch(*fx["numeric"]), axes()
     observations["inert"] = []
@@ -2157,6 +2176,7 @@ def plot_cases(fx):
     artists = (
         interop.plot_line(item, 0, 1, ax=ax),
         interop.plot_scatter(item, 5, 0, ax=ax),
+        interop.plot_line(item, 3, 0, ax=ax),
     )
     item.close()
     del item
@@ -2166,9 +2186,15 @@ def plot_cases(fx):
 
 
 def plotted(kind, rows, x, y):
-    """What drawn() gives for an artist of the producer rows' fields x and y."""
-    points = [[token(float(row[x])), token(float(row[y]))] for row in rows]
-    return [kind, True, True, "float64", [len(rows), 2], points]
+    """What drawn() gives for an artist of the producer rows' fields x and y: a
+    null is NaN on the line, and the scatter masks the whole record."""
+
+    def point(row):
+        if kind == "PathCollection" and None in (row[x], row[y]):
+            return [None, None]
+        return [token(float("nan" if v is None else v)) for v in (row[x], row[y])]
+
+    return [kind, True, True, "float64", [len(rows), 2], [point(r) for r in rows]]
 
 
 def expected_plots():
@@ -2190,6 +2216,7 @@ def expected_plots():
         "matplotlib_empty": [
             plotted("Line2D", [], 0, 1),
             plotted("PathCollection", [], 5, 4),
+            plotted("PathCollection", [], 3, 1),
         ],
         "matplotlib_order": [
             plotted("Line2D", PLOT_ORDER, 0, 1),
@@ -2211,6 +2238,9 @@ def expected_plots():
             _value_error(
                 f"plot_scatter: y field 0 ('i64') has {B53 + 1} in record 1, {FLOAT}"
             ),
+            _value_error(
+                f"plot_line: x field 3 ('maybe') has {B53 + 1} in record 1, {FLOAT}"
+            ),
             [0, 0, 0],
         ],
         "matplotlib_inert": [
@@ -2229,11 +2259,15 @@ def expected_plots():
         "matplotlib_after_close": [
             plotted("Line2D", PLOT_ROWS, 0, 1),
             plotted("PathCollection", PLOT_ROWS, 5, 0),
+            plotted("Line2D", PLOT_ROWS, 3, 0),
         ],
         "matplotlib_nullable": [
-            _value_error(f"plot_line: x field 3 ('maybe') {COALESCE}"),
-            _value_error(f"plot_scatter: y field 3 ('maybe') {COALESCE}"),
-            _value_error(f"plot_scatter: y field 5 ('maybe_ratio') {COALESCE}"),
+            plotted("Line2D", values, 3, 1),
+            plotted("PathCollection", values, 1, 3),
+            plotted("Line2D", PLOT_NULLS["ratio"], 5, 4),
+            plotted("PathCollection", PLOT_NULLS["ratio"], 4, 5),
+            plotted("PathCollection", PLOT_NULLS["full"], 0, 3),
+            plotted("Line2D", PLOT_NULLS["lone"], 3, 1),
         ],
     }
 

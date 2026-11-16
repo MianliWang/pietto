@@ -174,8 +174,9 @@ def _plotted(name: str, batch: object, x: int, y: int, ax: object) -> object:
 def plot_line(
     batch: ResultBatch, x: int, y: int, *, ax: matplotlib.axes.Axes
 ) -> matplotlib.lines.Line2D:
-    """One Line2D on the caller's Axes, through ``ax.plot``, from two
-    non-nullable Float fields or Int fields whose values lie within ±2**53."""
+    """One Line2D on the caller's Axes, through ``ax.plot``, from two Float
+    fields or Int fields whose values lie within ±2**53, nullable or not; a
+    null is drawn as NaN."""
     data = _plotted("plot_line", batch, x, y, ax)
     from pietto.interop import _matplotlib
 

@@ -337,7 +337,7 @@ def _damaged_plots():
     def case(name):
         return lambda r: r["cases"][f"matplotlib_{name}"]
 
-    draw, order = case("draw"), case("order")
+    draw, order, nullable = case("draw"), case("order"), case("nullable")
     yield "wrong pin", lambda r: r["versions"].update(matplotlib="0.0.0")
     yield "signed zero", lambda r: draw(r)[0][5][1][1].__setitem__(1, "0" * 16)
     yield "int dtype", lambda r: draw(r)[2].__setitem__(3, "int64")
@@ -351,7 +351,14 @@ def _damaged_plots():
     yield "two reads", lambda r: case("inert")(r)[0][2].update(array=2)
     yield "pyplot loaded", lambda r: case("inert")(r)[2].append("matplotlib.pyplot")
     yield "lost after close", lambda r: case("after_close")(r)[0][5].pop()
-    yield "nullable admitted", lambda r: case("nullable")(r).pop()
+    yield (
+        "null not NaN",
+        lambda r: nullable(r)[0][5][0].__setitem__(0, ["float", "0" * 16]),
+    )
+    yield (
+        "null record drawn",
+        lambda r: nullable(r)[1][5][0].__setitem__(1, ["int", "7"]),
+    )
 
 
 @pytest.mark.parametrize("cell", tuple(consumer.CELLS))
