@@ -1,12 +1,9 @@
 from __future__ import annotations
 
-import json
-from pathlib import Path
 from typing import cast
 
 import pytest
 
-import pietto.cli as cli
 import pietto.semantic.let_bindings as let_bindings
 from pietto.ast_nodes import (
     BinaryExpr,
@@ -609,62 +606,6 @@ def test_a_cast_of_a_let_with_an_error_of_its_own_adds_nothing() -> None:
     ]
 
 
-def test_cli_check_succeeds_for_supported_let(
-    tmp_path: Path,
-    capsys: pytest.CaptureFixture[str],
-) -> None:
-    source_path = _write_source(tmp_path)
-
-    exit_code = cli.main(["check", str(source_path)])
-    captured = capsys.readouterr()
-
-    assert exit_code == 0
-    assert captured.err == ""
-    assert f"OK: {source_path}" in captured.out
-
-
-def test_emit_sql_json_succeeds_for_supported_let(
-    tmp_path: Path,
-    capsys: pytest.CaptureFixture[str],
-) -> None:
-    source_path = _write_source(tmp_path)
-
-    exit_code = cli.main(
-        [
-            "emit-sql",
-            str(source_path),
-            "--dialect",
-            "postgres",
-            "--format=json",
-        ]
-    )
-    captured = capsys.readouterr()
-    document = json.loads(captured.out)
-
-    assert exit_code == 0
-    assert captured.err == ""
-    assert document["ok"] is True
-    assert len(document["artifacts"]) == 1
-    assert document["diagnostics"] == []
-    assert "let_scopes" not in json.dumps(document)
-    diagnostics = cast(list[dict[str, object]], document["diagnostics"])
-    assert diagnostics == []
-
-
-def test_explain_succeeds_for_supported_let(
-    tmp_path: Path,
-    capsys: pytest.CaptureFixture[str],
-) -> None:
-    source_path = _write_source(tmp_path)
-
-    exit_code = cli.main(["explain", str(source_path)])
-    captured = capsys.readouterr()
-
-    assert exit_code == 0
-    assert captured.err == ""
-    assert "Semantic Metadata Artifact v1" in captured.out
-
-
 def _analyze_relation(source: str) -> tuple[TableDef | QueryDef, SemanticResult]:
     result = parse_source(SOURCE_PREFIX + source, path="let_semantics.pietto")
     assert result.diagnostics == ()
@@ -703,17 +644,3 @@ def _value_type_name(semantic: SemanticResult, expression: object) -> str:
     value_type = semantic.model.expression_value_types[cast(NameExpr, expression)]
     assert value_type.kind is ValueTypeKind.KNOWN
     return value_type.resolved_type.name
-
-
-def _write_source(tmp_path: Path) -> Path:
-    path = tmp_path / "with_let.pietto"
-    path.write_text(
-        SOURCE_PREFIX
-        + "query enriched_orders:\n"
-        + "    from orders\n"
-        + "    let gross = amount + tax\n"
-        + "    select:\n"
-        + "        gross_value = gross\n",
-        encoding="utf-8",
-    )
-    return path

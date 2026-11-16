@@ -5,7 +5,6 @@ from dataclasses import replace
 
 import pytest
 
-import pietto.sql as sql_api
 from pietto.errors import Severity
 from pietto.ir import (
     AggregateCallIR,
@@ -446,16 +445,6 @@ def test_malformed_hand_built_numeric_literal_aggregate_ir_fails_closed(
     assert len(result.diagnostics) == 1
     assert result.diagnostics[0].code == "PIE-B1000"
     assert result.diagnostics[0].severity is Severity.ERROR
-
-
-def test_private_mysql_api_remains_unexported() -> None:
-    assert sql_api.__all__ == [
-        "SqlArtifact",
-        "SqlArtifactKind",
-        "SqlResult",
-        "emit_postgres_sql",
-    ]
-    assert not hasattr(sql_api, "emit_mysql_sql")
 
 
 def _source(

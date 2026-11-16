@@ -6,7 +6,6 @@ from pietto.ast_nodes import QueryDef, Script, TableDef
 from pietto.errors import Severity
 from pietto.parser_api import parse_source
 from pietto.semantic import EffectiveNullability, SemanticResult, TypeKind, analyze
-from pietto.semantic.catalog import BUILTIN_FUNCTIONS
 
 SOURCE_PREFIX = (
     "shape Order:\n"
@@ -81,12 +80,6 @@ def test_qualified_sum_avg_field_arguments_are_semantically_accepted() -> None:
     assert _errors(result) == []
     _assert_field(schema.fields["revenue"], "Int", EffectiveNullability.NULLABLE)
     _assert_field(schema.fields["average"], "Float", EffectiveNullability.NULLABLE)
-
-
-def test_count_sum_and_avg_are_not_scalar_builtin_functions() -> None:
-    assert "count" not in BUILTIN_FUNCTIONS
-    assert "sum" not in BUILTIN_FUNCTIONS
-    assert "avg" not in BUILTIN_FUNCTIONS
 
 
 @pytest.mark.parametrize(

@@ -2235,7 +2235,9 @@ def test_formatting_answers_at_once_and_calls_no_analysis(
         )
 
 
-def test_protocol_errors_over_a_process() -> None:
+def test_protocol_errors_over_a_process(
+    tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
     hover = {"jsonrpc": "2.0", "id": 1, "method": "textDocument/hover"}
     deep = b"[" * 100_000 + b"]" * 100_000
     data = (
@@ -2264,15 +2266,32 @@ def test_protocol_errors_over_a_process() -> None:
         (99, None),
         (6, -32600),
     ]
-    assert run_process(frame(INIT) + frame(EXIT))[0] == 1
-    assert run_process(frame(INIT))[0] == 1
-    # Past the int digit limit, and longer than the input: never a hang.
-    for length in (b"x", b"9" * 5000, b"1000000000000"):
-        code, messages, stderr = run_process(b"Content-Length: %b\r\n\r\n{}" % length)
-        assert (code, messages) == (1, [])
-        assert stderr.decode().splitlines() == [
-            "pietto lsp: invalid message header; stopping"
-        ]
+    refused = ["pietto lsp: invalid message header; stopping"]
+    code, messages, stderr = run_process(b"Content-Length: x\r\n\r\n{}")
+    assert (code, messages, stderr.decode().splitlines()) == (1, [], refused)
+    # In process: an exit before shutdown and an end of input before it stop
+    # with 1.
+    for script in (Script([INIT, EXIT]), Script([INIT])):
+        out = io.BytesIO()
+        assert _lsp._Server(script, out, "test").run() == 1
+        assert [message.get("id") for message in frames(out.getvalue())] == [0]
+    # The reader in process, bounded as the process is: a length past the int
+    # digit limit, and one longer than the input, stop it, never a hang. Its
+    # refusal is its last act, so no read outlives the stream.
+    stdin = tmp_path / "stdin"
+    for length in (b"9" * 5000, b"1000000000000"):
+        stdin.write_bytes(b"Content-Length: %b\r\n\r\n{}" % length)
+        out = io.BytesIO()
+        codes: list[int] = []
+        with stdin.open("rb") as stream:
+            worker = threading.Thread(
+                target=lambda: codes.append(_lsp.serve(stream, out, version="test")),
+                daemon=True,
+            )
+            worker.start()
+            worker.join(DEADLINE)
+        assert (codes, out.getvalue()) == ([1], b"")
+        assert capsys.readouterr().err.splitlines() == refused
 
 
 def initialize_with(options: object) -> list[Message]:

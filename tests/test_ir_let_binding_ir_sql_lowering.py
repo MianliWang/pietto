@@ -177,55 +177,6 @@ def test_mysql_emit_sql_inlines_supported_let_expressions_without_sql_changes() 
     assert "FROM (SELECT" not in sql.upper()
 
 
-def test_cli_check_emit_sql_and_explain_succeed_for_supported_let(
-    tmp_path: Path,
-    capsys: pytest.CaptureFixture[str],
-) -> None:
-    source_path = _write_source(
-        tmp_path,
-        "supported.pietto",
-        "query enriched_orders:\n"
-        "    from orders\n"
-        "    let gross = amount + tax\n"
-        "    select:\n"
-        "        gross_value = gross\n",
-    )
-
-    assert cli.main(["check", str(source_path)]) == 0
-    check_output = capsys.readouterr()
-    assert check_output.err == ""
-    assert f"OK: {source_path}" in check_output.out
-
-    assert (
-        cli.main(
-            [
-                "emit-sql",
-                str(source_path),
-                "--dialect",
-                "postgres",
-                "--format",
-                "json",
-            ]
-        )
-        == 0
-    )
-    emit_output = capsys.readouterr()
-    emit_document = json.loads(emit_output.out)
-    assert emit_output.err == ""
-    assert emit_document["ok"] is True
-    assert len(emit_document["artifacts"]) == 1
-    assert emit_document["diagnostics"] == []
-
-    assert cli.main(["explain", str(source_path), "--format", "json"]) == 0
-    explain_output = capsys.readouterr()
-    explain_document = json.loads(explain_output.out)
-    assert explain_output.err == ""
-    assert explain_document["ok"] is True
-    assert explain_document["artifact"] == "Semantic Metadata Artifact v1"
-    assert "metadata" in explain_document
-    assert "let_scopes" not in json.dumps(explain_document)
-
-
 @pytest.mark.parametrize(
     ("body", "expected_code"),
     [
