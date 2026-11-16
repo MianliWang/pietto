@@ -159,7 +159,9 @@ def test_windows_jobs_run_the_platform_neutral_areas_outside_coverage() -> None:
             'echo "UV_PYTHON=$pythonLocation/python.exe" >> "$GITHUB_ENV"',
             "uv sync --locked",
             "uv run pytest -n 4 --dist=loadfile ",
-            " tests/test_{parser,semantic,ir,plan,sql,project,cli,results}_*.py\n",
+            " tests/test_{parser,semantic,ir,plan,sql,project,cli,results}_*.py \\\n",
+            # The SQLite file route asserts its own refusal there (PL.59).
+            "            tests/test_execution_api_sqlite_file.py\n",
         ):
             assert job.count(fragment) == 1
         assert job.index("uv sync --locked") < job.index("uv run pytest")

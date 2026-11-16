@@ -811,7 +811,8 @@ jobs:
       - name: Run platform-neutral test areas
         run: |
           uv run pytest -n 4 --dist=loadfile -rfEs --durations=20 --basetemp "$RUNNER_TEMP/pytest" \
-            tests/test_{parser,semantic,ir,plan,sql,project,cli,results}_*.py
+            tests/test_{parser,semantic,ir,plan,sql,project,cli,results}_*.py \
+            tests/test_execution_api_sqlite_file.py
 
   windows_thirteen:
     name: Windows 3.13
@@ -845,7 +846,8 @@ jobs:
       - name: Run platform-neutral test areas
         run: |
           uv run pytest -n 4 --dist=loadfile -rfEs --durations=20 --basetemp "$RUNNER_TEMP/pytest" \
-            tests/test_{parser,semantic,ir,plan,sql,project,cli,results}_*.py
+            tests/test_{parser,semantic,ir,plan,sql,project,cli,results}_*.py \
+            tests/test_execution_api_sqlite_file.py
 
   target_conformance:
     name: Target ${{ matrix.target }}

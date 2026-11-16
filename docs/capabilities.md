@@ -247,7 +247,8 @@ one with its limits. Phase81 decides the Windows scope and the CPython matrix
 - **CI-tested**: hosted CI runs the capability's tests there, on CPython 3.12
   and 3.13, and that is no support claim. On Linux, CI runs every test area;
   on Windows, it runs the parser, semantic, IR, plan, SQL, project, CLI and
-  results tests, with no optional extra installed (the two Windows jobs of
+  results tests and those of the SQLite file route, which there assert its
+  refusal, with no optional extra installed (the two Windows jobs of
   the [CI workflow](../.github/workflows/ci.yml),
   [Phase81 scope](roadmap.md#phase81-scope)).
 - **not claimed**: no page claims it; the cell says where a page states that

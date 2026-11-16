@@ -5,7 +5,8 @@ read transaction, and the attempt's lifecycle (docs/spec/sqlite-project-v1.md,
 the measured SQLite build, under the SQLite class of the `native` fixture
 (lesson 80-2), and need PyArrow; each control cell shows the harm that its
 defence prevents, and a result is judged by its types as well as its values.
-The request checks run everywhere."""
+The request checks run everywhere, Windows CI included, where the two cells
+that need POSIX skip themselves."""
 
 from __future__ import annotations
 
@@ -341,13 +342,22 @@ def test_request_checks_refuse_in_order_before_any_file_opens(
     monkeypatch.setattr("pietto.sql.sqlite.QUALIFIED_SQLITE_BUILD", forged)
     assert _refusal(query, **good) == ("PIE-R2002", "SQLITE_BUILD")
     assert list(tmp_path.glob("absent*")) == []
-    # A relative path once the working directory is gone.
+
+
+@pytest.mark.skipif(
+    sys.platform == "win32", reason="Windows cannot remove the working directory"
+)
+def test_a_relative_path_is_refused_once_the_working_directory_is_gone(
+    filtered_query: execution.CompiledQuery,
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
     gone = tmp_path / "gone"
     gone.mkdir()
     monkeypatch.chdir(gone)
     gone.rmdir()
-    relative = good | {"access": execution.SQLiteFileInput("x.db")}
-    assert _refusal(query, **relative) == ("PIE-R1002", "EXECUTION_ACCESS")
+    relative = {"access": execution.SQLiteFileInput("x.db"), "parameters": ARGUMENTS}
+    assert _refusal(filtered_query, **relative) == ("PIE-R1002", "EXECUTION_ACCESS")
 
 
 def test_a_float_parameter_is_finite_before_any_file_opens(tmp_path: Path) -> None:
@@ -375,18 +385,26 @@ def test_a_forged_template_or_another_code_identity_is_refused(
     assert _refusal(forged, **good) == ("PIE-R1004", "BINDING_ARTIFACT")
 
 
-def test_other_entry_points_refuse_a_sqlite_query(
-    filtered_query: execution.CompiledQuery, tmp_path: Path
+def test_a_bundle_refuses_a_sqlite_query(
+    filtered_query: execution.CompiledQuery,
 ) -> None:
-    """No bundle, saved result, recovery, relay or job: each refuses before
-    it builds or opens anything (the workspace below does not exist)."""
-    query = filtered_query
     with pytest.raises(execution.RequestRejected) as refused:
-        execution.export_bundle(query)
+        execution.export_bundle(filtered_query)
     assert (refused.value.code, refused.value.detail) == (
         "PIE-R1004",
         "SQLITE_BUNDLE_ENTRY",
     )
+
+
+@pytest.mark.skipif(
+    sys.platform == "win32", reason="the workspace and job modules import fcntl"
+)
+def test_other_entry_points_refuse_a_sqlite_query(
+    filtered_query: execution.CompiledQuery, tmp_path: Path
+) -> None:
+    """No saved result, recovery, relay or job: each refuses before it
+    builds or opens anything (the workspace below does not exist)."""
+    query = filtered_query
     workspace = execution.WorkspaceRef(str(tmp_path / "absent"), "ws-" + "0" * 32)
     common: dict[str, Any] = {
         "operation": execution.new_operation(),
