@@ -292,7 +292,12 @@ def _damaged_numpy():
     yield "width accepted", lambda r: case("drift")(r).pop()
     yield "two reads", lambda r: case("inert")(r)[1].update(array=2)
     yield "lost after close", lambda r: case("after_close")(r).pop()
-    yield "nullable admitted early", lambda r: case("nullable")(r).pop()
+    nullable = case("nullable")
+    yield "null kept", lambda r: nullable(r)[0][2].__setitem__(1, ["float", "0" * 16])
+    yield "nullable sign", lambda r: nullable(r)[0][2][0].__setitem__(1, "0" * 16)
+    yield "nullable cast", lambda r: nullable(r)[1].__setitem__(0, "object")
+    yield "nullable shared", lambda r: nullable(r)[3].__setitem__(3, True)
+    yield "nullable Bool admitted", lambda r: nullable(r).pop()
 
 
 def _damaged_scipy():

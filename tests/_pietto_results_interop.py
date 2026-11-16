@@ -1549,6 +1549,17 @@ NUMPY_ROWS = [
     [2**63 - 1, -0.0, False, 2, 2**15 - 1, 2**31 - 1],
 ]
 NUMPY_ADMITS = "to_numpy admits only Int, Bool or Float fields"
+# Nullable Float field 5 of the scalar batch: signed zeros on both sides of a
+# null, a repeated -0.0, the least subnormal and the largest finite value.
+MAYBE_RATIO = [
+    -0.0,
+    None,
+    0.0,
+    float.fromhex("0x0.0000000000001p-1022"),
+    None,
+    -0.0,
+    float.fromhex("0x1.fffffffffffffp+1023"),
+]
 
 
 def numpy_cases(fx):
@@ -1638,9 +1649,41 @@ def numpy_cases(fx):
     gc.collect()
     observations["after_close"] = values(array)
 
-    # PL.47's nullable Float cell, refused while to_numpy admits no nullable kind.
-    scalar = batch(*fx["scalar"])
-    observations["nullable"] = [refusal(lambda: interop.to_numpy(scalar, 5), scalar)]
+    # PL.47's nullable Float: each null becomes NaN, here reported as None,
+    # and each value keeps its bits, whether or not the batch holds a null.
+    # Nullable Int and Bool fields stay refused.
+    def nulls(array):
+        return [None if math.isnan(v) else token(v) for v in array.tolist()]
+
+    scalar, rows = fx["scalar"]
+    held = batch(scalar, [r[:5] + [v] for r, v in zip(rows, MAYBE_RATIO, strict=True)])
+    full = batch(scalar, [r[:5] + [r[4]] for r in rows])
+    observations["nullable"] = [
+        [str(a.dtype), list(a.shape), nulls(a)]
+        for a in (interop.to_numpy(held, 5), interop.to_numpy(full, 5))
+    ]
+    array = interop.to_numpy(batch(scalar, []), 5)
+    observations["nullable"].append([str(array.dtype), list(array.shape)])
+    array = interop.to_numpy(held, 5)
+    stored = pa.record_batch(held).column(5).buffers()[1]
+    flags = [
+        array.flags.writeable,
+        array.flags.owndata,
+        array.base is None,
+        numpy.shares_memory(array, numpy.frombuffer(stored, dtype=numpy.uint8)),
+    ]
+    array[1] = array[0]
+    fresh = nulls(interop.to_numpy(held, 5))
+    observations["nullable"].append([*flags, nulls(array), fresh, held.closed])
+    array = interop.to_numpy(held, 5)
+    held.close()
+    del held
+    gc.collect()
+    observations["nullable"] += [
+        nulls(array),
+        refusal(lambda: interop.to_numpy(full, 1), full),
+        refusal(lambda: interop.to_numpy(full, 3), full),
+    ]
     return {f"numpy_{key}": value for key, value in observations.items()}
 
 
@@ -1653,6 +1696,7 @@ def expected_numpy():
     rows = NUMPY_ROWS
     written = [rows[1], *rows[1:]]
     refused = "to_numpy: column field %s has Arrow type %s; " + NUMPY_ADMITS + "%s"
+    ratio = [row[4] for row in _product().scalar_rows("postgres")]
     expected = {
         "matrix": {
             "fields": [
@@ -1701,7 +1745,21 @@ def expected_numpy():
         "inert": [column(rows, 0), {"array": 1, "schema": 0}, False, len(rows), []],
         "after_close": column(rows, 1),
         "nullable": [
-            _value_error(f"to_numpy: column field 5 ('maybe_ratio') {COALESCE}")
+            ["float64", [len(MAYBE_RATIO)], [token(v) for v in MAYBE_RATIO]],
+            ["float64", [len(ratio)], [token(v) for v in ratio]],
+            ["float64", [0]],
+            [
+                True,
+                True,
+                True,
+                False,
+                [token(v) for v in MAYBE_RATIO[:1] * 2 + MAYBE_RATIO[2:]],
+                [token(v) for v in MAYBE_RATIO],
+                False,
+            ],
+            [token(v) for v in MAYBE_RATIO],
+            _value_error(f"to_numpy: column field 1 ('maybe_integer') {COALESCE}"),
+            _value_error(f"to_numpy: column field 3 ('maybe_flag') {COALESCE}"),
         ],
     }
     return {f"numpy_{key}": value for key, value in expected.items()}

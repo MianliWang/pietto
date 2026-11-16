@@ -96,8 +96,9 @@ def to_polars(batch: ResultBatch) -> polars.DataFrame:
 
 
 def to_numpy(batch: ResultBatch, column: int) -> numpy.ndarray:
-    """An owned, writable copy of one non-nullable Int, Bool or Float field, of
-    shape ``(num_rows,)`` and the field's exact width."""
+    """An owned, writable copy of one non-nullable Int or Bool field, or one
+    Float field with NaN for each null, of shape ``(num_rows,)`` and the
+    field's exact width."""
     name = "to_numpy"
     common.check_batch(name, batch)
     common.check_ordinal(name, "column", column)
