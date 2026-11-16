@@ -153,7 +153,7 @@ _SUGGESTIONS = {
     ),
     "sqlite_projection_not_admitted": (
         "in a relation with group by or an aggregate, select group by keys,"
-        " aggregates, literals and parameters"
+        " aggregates and literals"
     ),
     "sqlite_group_key_not_admitted": "group by fields of the source",
     "sqlite_order_not_admitted": (
@@ -673,10 +673,7 @@ class _Rules:
             projection = view.projections.get(export.ref)
             if projection is None:
                 sites.append((export.ref, self.statement))
-            elif type(view.expression(projection.expression)) not in (
-                *_LITERALS,
-                expressions.ProjectSQLParameterRead,
-            ):
+            elif type(view.expression(projection.expression)) not in _LITERALS:
                 sites.append((projection.ref, projection.site.occurrence.span))
         self.first(11, "PIE-B1003", "sqlite_projection_not_admitted", sites)
 

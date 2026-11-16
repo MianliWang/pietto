@@ -30,10 +30,11 @@ S07 added the shared connector entry and the three family mappings, so a
 project's `check` accepts a `sqlite.table` source and PostgreSQL, MySQL and
 DuckDB emission refuse it as [compile refusals](#compile-refusals) states.
 S08 added the adapter and the T1 forms, so `emit-sql --project --dialect
-sqlite`, `compile_sql` and `compile_all_sql` emit them. S09 adds their native
-qualification, S10 the T2 aggregates in both modes, R1 the PostgreSQL replay,
-S11 the [execution](#execution) section and its route, S12 that route's
-qualification, and S16 closes the tier. Each slice edits the rows it lands.
+sqlite`, `compile_sql` and `compile_all_sql` emit them. S09 added their native
+qualification under CPython 3.13.13 and 3.12.13. S10 adds the T2 aggregates
+in both modes, R1 the PostgreSQL replay, S11 the [execution](#execution)
+section and its route, S12 that route's qualification, and S16 closes the
+tier. Each slice edits the rows it lands.
 Until S11, `compile_query(dialect="sqlite")` reports `PIE-R1002` and Pietto
 opens no SQLite file. No published release carries a form until the owner approves
 one: `0.2.1` and earlier refuse a project `sqlite.table` with `PIE-S2306`
@@ -48,7 +49,7 @@ one: `0.2.1` and earlier refuse a project `sqlite.table` with `PIE-S2306`
 | Columns | Source fields are `Int`, `Text`, `Bool` or `Float`, each with its compiled nullability. Results follow the projection. |
 | Expressions | In `select`, `where` and `having`: a field of the source, a literal, a query parameter, a comparison (`==`, `!=`, `<`, `<=`, `>`, `>=`) of two values of one type, `and`, `or`, `not`, `is None` and `is not None`; in `having` and in the `select` of an aggregated relation also an admitted aggregate. No arithmetic, a sign before a number included, no `in`, range comparison, conditional, cast, function call or `any(...)` read, and no `None` literal outside `is None` and `is not None`. |
 | Aggregates | `count()` and `count(x)`; `count_distinct(x)` of an `Int`, `Text` or `Bool` field; `min(x)` and `max(x)` of an `Int` or `Float` field; `avg(x)` of an `Int` field; and `sum(x)` of an `Int` field whose contract `int_range` lies on one side of zero (`min` of 0 or more, or `max` of 0 or less). Each reads one field of the source directly. |
-| Grouping and order | A `group by` key is a field of the source. In an aggregated relation a result field is a `group by` key, an admitted aggregate, a literal or a parameter, and an `order by` key is a selected `group by` key or aggregate; elsewhere an `order by` key is a field of the source. A `limit` is an `Int` literal from 0 to 9223372036854775807. |
+| Grouping and order | A `group by` key is a field of the source. In an aggregated relation a result field is a `group by` key, an admitted aggregate or a literal (`check` refuses a query parameter there with `PIE-S2355`), and an `order by` key is a selected `group by` key or aggregate; elsewhere an `order by` key is a field of the source. A `limit` is an `Int` literal from 0 to 9223372036854775807. |
 | Parameters | Query header parameters of type `Int`, `Text`, `Bool` or `Float`, optional or not, read in `select`, `where` or `having`. |
 | Literal policy | `preserve` only. |
 | Entry points | `pietto check --project`; `pietto emit-sql --project ... --dialect sqlite`, with or without `--all`; `compile_sql` and `compile_all_sql` with `dialect="sqlite"`. `compile_query` and `execute` wait for S11. |
@@ -325,7 +326,7 @@ table in it.
 | 8 | `PIE-B1003` | `sqlite_parameter_not_admitted` | A header parameter's type is not `Int`, `Text`, `Bool` or `Float` | The parameter declaration | `declare Int, Text, Bool or Float parameters, with or without None` |
 | 9 | `PIE-B1003` | `sqlite_expression_not_admitted` | An expression in `select`, `where` or `having` is outside the expressions of [admission](#admission), or is a `Text` literal that holds NUL | The expression | `use fields, literals, parameters, comparisons of two values of one type, and, or, not and is None; arithmetic, signs, in, ranges, conditionals, casts and function calls are not available on SQLite` |
 | 10 | `PIE-B1003` | `sqlite_aggregate_not_admitted` | An aggregate is outside the aggregates of [admission](#admission), reads anything but one field of the source directly, or appears anywhere but as a whole result field, a `having` operand or an `order by` key | The aggregate | `use count, count_distinct of an Int, Text or Bool field, min or max of an Int or Float field, or avg or sum of an Int field, each over one field of the source` |
-| 11 | `PIE-B1003` | `sqlite_projection_not_admitted` | In an aggregated relation, a result field is not a `group by` key, an admitted aggregate, a literal or a parameter | The result field | `in a relation with group by or an aggregate, select group by keys, aggregates, literals and parameters` |
+| 11 | `PIE-B1003` | `sqlite_projection_not_admitted` | In an aggregated relation, a result field is not a `group by` key, an admitted aggregate or a literal | The result field | `in a relation with group by or an aggregate, select group by keys, aggregates and literals` |
 | 12 | `PIE-B1003` | `sqlite_group_key_not_admitted` | A `group by` key is not a field of the source | The key | `group by fields of the source` |
 | 13 | `PIE-B1003` | `sqlite_order_not_admitted` | An `order by` key is not a field of the source, or, in an aggregated relation, not a selected `group by` key or aggregate | The key | `order by fields of the source, or, with group by or an aggregate, by selected keys and aggregates` |
 | 14 | `PIE-B1003` | `sqlite_limit_not_admitted` | The `limit` is not an `Int` literal from 0 to 9223372036854775807 | The `limit` | `write limit as an Int literal` |

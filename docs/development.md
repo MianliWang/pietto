@@ -284,8 +284,10 @@ bootstraps this procedure without rewriting closed Phase67/S03 history.
 ## SQLite target validation
 
 `tests/test_sql_sqlite_native.py` qualifies the SQL of
-[SQLite single files](language.md#sqlite-single-files) in process (D78.03).
-Each cell emits one program with the SQLite backend, runs the SQL with the
+[SQLite single files](language.md#sqlite-single-files) and
+[SQLite projects](language.md#sqlite-projects) in process (D78.03, PL.47).
+Each cell emits one program, as a single file with the SQLite backend or as a
+project module with the SQLite project adapter, runs the SQL with the
 standard-library `sqlite3` on a test-owned `:memory:` database of `STRICT`
 tables, and judges the raw result against an oracle written before the run: a
 literal expected result, the pure BAG/NULL equality oracle, or Python's own
@@ -301,9 +303,33 @@ cell per operator. Native errors, for a name the database lacks and for the
 `STRICT` and `NOT NULL` fixture premises, are judged by class, code,
 `sqlite_errorname` and text.
 
+Project cells run the program of each single-file law cell again as the
+module of an explicit-module project whose emission contract describes the
+fixture table, with the same oracle. Parameter cells add a query parameter of
+each type in `select` and `where`, an optional one bound to NULL and to a
+value, numbers given by first read rather than declaration, the signed 64-bit
+extremes, a negative zero and a decomposed accent; each value is bound at the
+`server_index` and carried by the `physical_type` of the document's
+`parameter_uses`. Aliased cells read a table whose name holds a backtick and
+whose contract maps each field to another column, with a backtick, a space,
+a double quote, a keyword or another field's name, so the SQL must name the
+contract's table and columns. Project SQL writes `COLLATE BINARY` where
+single files assume the `BINARY` collation, so each project cell that reads a
+`Text` field runs again on a `COLLATE NOCASE` column with the same oracle; the
+`Bool` and `REAL` premise controls keep their meaning in project mode. A
+second coverage law reads the adapter's SQL AST of each verified project
+artifact, which renders its bytes, requires a cell for each clause and type
+of every column, query parameter, comparison, NULL test, connective and key
+direction and for each literal type and aggregate in the adapter's
+vocabulary, and asserts that `COLLATE BINARY` stands exactly at each `Text`
+comparison and key and that each aliased statement names the contract's
+table and columns. A project record keeps the values it bound, and the judge
+refuses a record of other values.
+
 Each native test makes one native observation and records it as a user
 property: a cell its source, fixture, SQL bytes and raw rows (`cell`), a
-golden statement its name, fixture, SQL bytes and raw rows (`golden`), and a
+project cell these and its bound values (`project_cell`), a golden statement
+its name, fixture, SQL bytes and raw rows (`golden`), and a
 native error its source or insert, its SQL or parameters and the class, code,
 name and text (`native_error`, `premise_error`). The build observation is the
 `sqlite_build` property. A runtime witness fails a native test at teardown
@@ -316,9 +342,12 @@ PostgreSQL or MySQL statement runs.
 The target is one measured build: release `3.53.1` together with the source id
 and compile options that the test's `QUALIFIED_SQLITE_BUILD` records. A
 version alone is no identity, and the job store's constant is neither imported
-nor borrowed. The cells run only when the running library is that build. On
-any other build an explicit SQLite class decides what the observed refusal
-does, as the storage classes of the
+nor borrowed. PL.47 qualifies it under CPython 3.13.13 and 3.12.13, which
+link that build alike; the authoritative pytest gate runs the cells under
+3.13.13, and row 9 of validation runner acceptance records where each
+interpreter was observed. The cells run only when the running library is
+that build. On any other build an explicit SQLite class decides what the
+observed refusal does, as the storage classes of the
 [job store](#phase68-s11-job-store-validation) do for their own premise:
 
 - `hosted-refusal`: the asserted refusal is the result, and no cell runs;
@@ -341,8 +370,8 @@ observes the job store's build constant, not this one, so on another build
 that passes that pre-check the native tests fail the pytest gate, and the
 validation has started. On every runner
 the judge's self-test with fabricated outputs, the forged-build refusals, the
-class resolution, the Python oracle agreement and the coverage law run, and
-the law emits the program of each cell except the premise controls; so do the
+class resolution, the Python oracle agreement and the coverage laws run, and
+the laws emit the program of each cell except the premise controls; so do the
 SQL and golden byte tests of `tests/test_sql_sqlite_emission.py`. A cell
 emits its own program only under `hosted-refusal` or on the measured build:
 under `qualified` or `report` on another build the module fixture fails or

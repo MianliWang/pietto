@@ -1,19 +1,20 @@
-"""In-process qualification of SQLite single-file SQL (Phase78 B1, D78.03).
+"""In-process qualification of SQLite SQL (Phase78 B1 and B2, D78.03, PL.47).
 
-Each cell emits one single-file program with the SQLite backend, runs the SQL
-with the standard-library `sqlite3` on a test-owned `:memory:` database of
-`STRICT` tables, and judges the raw result against an oracle written before
-the run: a literal expected result, the pure BAG/NULL equality oracle, or
-Python's own comparison operators with NULL as unknown. Cells run only on the
-measured build, which its release, source id and compile options identify
-together. On any other build the SQLite class decides
-(`--pietto-sqlite-class` or `PIETTO_SQLITE_CLASS`): `hosted-refusal` keeps
-the asserted refusal after each cell has emitted its program, while
-`qualified` fails and `report` skips with a counted `PIETTO_NOT_RUN
-sqlite-native` line in the module fixture, before a cell emits anything.
-There only the coverage law (SQLite) and the PostgreSQL replay binding
-(PostgreSQL, the golden's statements too) emit programs, those of every cell
-except the premise controls, and the self-tests still run.
+Each cell emits one program, as a single file with the SQLite backend or as
+a project module with the SQLite project adapter, runs the SQL with the
+standard-library `sqlite3` on a test-owned `:memory:` database of `STRICT`
+tables, a project cell with its query parameters bound, and judges the raw
+result against an oracle written before the run: a literal expected result,
+the pure BAG/NULL equality oracle, or Python's own comparison operators with
+NULL as unknown. Cells run only on the measured build, which its release,
+source id and compile options identify together. On any other build the
+SQLite class decides (`--pietto-sqlite-class` or `PIETTO_SQLITE_CLASS`):
+`hosted-refusal` keeps the asserted refusal after each cell has emitted its
+program, while `qualified` fails and `report` skips with a counted
+`PIETTO_NOT_RUN sqlite-native` line in the module fixture, before a cell
+emits anything. There only the coverage laws (SQLite) and the PostgreSQL
+replay binding (PostgreSQL, the golden's statements too) emit programs, those
+of every cell except the premise controls, and the self-tests still run.
 """
 
 from __future__ import annotations
@@ -37,6 +38,10 @@ from typing import Any
 import pytest
 
 import _pietto_ir_bag_null_oracle as oracle
+import _pietto_sql_sqlite as project_files
+from pietto._project import project_sql_emission_cli as emission_cli
+from pietto._project import project_sqlite_emission as adapter
+from pietto._project import project_sqlite_sql as adapter_sql
 from pietto.errors import Severity
 from pietto.ir import LiteralIR, RelationIR, ScriptIR, build_ir
 from pietto.parser_api import parse_source
@@ -266,10 +271,24 @@ _PAIRS: tuple[tuple[object, ...], ...] = (
     (8, None, 1),
     (9, None, None),
 )
+# The `rows` table under a name with a backtick and with columns that are not
+# the field names; a project contract maps `id`, `n`, `s`, `b` and `x` to them.
+_ALIASED_TABLE = "t`x y"
+_ALIASED_COLUMNS = ("i`d", "N space", '\u00e9"q', "select", "n")
+_ALIASED_SCHEMA = (
+    "CREATE TABLE `t``x y` (`i``d` INTEGER NOT NULL, `N space` INTEGER, "
+    '`\u00e9"q` TEXT, `select` INTEGER, `n` REAL) STRICT'
+)
 _FIXTURES: dict[str, tuple[str, str, tuple[tuple[object, ...], ...]]] = {
     "rows": ("t", _SCHEMA, _ROWS),
     "bool-pairs": ("t", _PAIR_SCHEMA, _PAIRS),
     "nocase": ("t", _SCHEMA.replace("`s` TEXT", "`s` TEXT COLLATE NOCASE"), _ROWS),
+    "aliased": (_ALIASED_TABLE, _ALIASED_SCHEMA, _ROWS),
+    "aliased-nocase": (
+        _ALIASED_TABLE,
+        _ALIASED_SCHEMA.replace("q` TEXT", "q` TEXT COLLATE NOCASE"),
+        _ROWS,
+    ),
     "bool-two": (
         "t",
         _SCHEMA,
@@ -307,6 +326,7 @@ _HEADER = """shape Row:
 source t: Row = sqlite.table("t")
 
 """
+_ALIASED_HEADER = _HEADER.replace('sqlite.table("t")', 'sqlite.table("t`x y")')
 _PAIR_HEADER = """shape Pair:
     id: Int
     b: Bool | None
@@ -330,19 +350,23 @@ class _Cell:
     fixture: str = "rows"
     # The `where` condition of a cell that selects only `id`.
     condition: str | None = None
+    # A project cell's query arguments in declaration order; None for a file.
+    arguments: tuple[object, ...] | None = None
 
 
 @dataclass(frozen=True, slots=True)
 class _Record:
-    """What one native run returned for the SQL bytes it ran."""
+    """What one native run returned for the SQL bytes and parameters it ran."""
 
     sql: str
     columns: tuple[str, ...]
     rows: tuple[tuple[object, ...], ...]
+    parameters: tuple[object, ...] = ()
 
 
-def _q(*clauses: str, header: str = _HEADER) -> str:
-    return header + "query q:\n    from t\n" + "".join(f"    {c}\n" for c in clauses)
+def _q(*clauses: str, header: str = _HEADER, parameters: str = "") -> str:
+    head = f"query q{parameters}:\n    from t\n"
+    return header + head + "".join(f"    {c}\n" for c in clauses)
 
 
 def _b(head: str, *items: str) -> str:
@@ -922,6 +946,195 @@ def _python_cells() -> tuple[_Cell, ...]:
 _LAW_CELLS = _MATRIX + _oracle_cells() + _python_cells()
 _CELLS = _LAW_CELLS + _PREMISES
 
+# Query parameters of each type with their arguments; -0.0 keeps its sign.
+_PARAMETERS = (("n", 7), ("s", "a"), ("b", True), ("x", -0.0))
+
+
+def _carried(value: object) -> object:
+    """A bound argument as SQLite returns it: a `Bool` as 0 or 1."""
+
+    return int(value) if type(value) is bool else value
+
+
+def _parameter_cells() -> tuple[_Cell, ...]:
+    """Project cells that read query parameters, with expected values from
+    Python's operators: a parameter of each type in `select` (its value, each
+    comparison with its field and one with the parameter on the left) and in
+    `where`; an optional one bound to NULL and to a value; numbers given by
+    first read, not declaration; the signed 64-bit extremes; a decomposed
+    accent; and one in the `where` of an aggregated relation, since `check`
+    refuses a parameter as a grouped result (PIE-S2355)."""
+
+    position = tuple(_TYPES).index
+    spellings = tuple(adapter_sql.OPERATORS)
+    cells: list[_Cell] = []
+    for field, value in _PARAMETERS:
+        kind = _TYPES[field]
+        raws = [(row[0], _python_value(field, row[position(field)])) for row in _ROWS]
+        items = (
+            "got = v",
+            *(f"{_OUTPUTS[spelling]} = {field} {spelling} v" for spelling in spellings),
+            f"rev = v < {field}",
+        )
+        rows = tuple(
+            (
+                identifier,
+                _carried(value),
+                *(_sql_truth(_python_truth(raw, s, value)) for s in spellings),
+                _sql_truth(_python_truth(value, "<", raw)),
+            )
+            for identifier, raw in raws
+        )
+        columns = ("id", "got", *(_OUTPUTS[spelling] for spelling in spellings), "rev")
+        signature = f"(v: {kind})"
+        program = _q(_b("select", "id", *items), parameters=signature)
+        name = f"project-parameter-select-{kind.lower()}"
+        cells.append(_Cell(name, program, columns, rows, False, arguments=(value,)))
+        kept = (i for i, raw in raws if _python_truth(value, "<=", raw) is True)
+        program = _q(f"where v <= {field}", _b("select", "id"), parameters=signature)
+        name = f"project-parameter-where-{kind.lower()}"
+        cells.append(
+            _Cell(name, program, ("id",), _ids(*kept), False, arguments=(value,))
+        )
+    program = _q(
+        _b("select", "id", "missing = w is None", "eq = s == w"),
+        parameters="(w: Text | None)",
+    )
+    for name, value in (("null", None), ("bound", "a")):
+        rows = tuple(
+            (row[0], int(value is None), _sql_truth(_python_truth(row[2], "==", value)))
+            for row in _ROWS
+        )
+        cells.append(
+            _Cell(
+                f"project-parameter-optional-{name}",
+                program,
+                ("id", "missing", "eq"),
+                rows,
+                False,
+                arguments=(value,),
+            )
+        )
+    return (
+        *cells,
+        _Cell(
+            "project-parameter-numbered-by-first-read",
+            _q(
+                "where n >= lo and n <= hi",
+                _b("select", "id", "top = hi"),
+                parameters="(lo: Int, hi: Int)",
+            ),
+            ("id", "top"),
+            tuple((identifier, 7) for identifier in (3, 5, 6, 7, 9)),
+            False,
+            arguments=(0, 7),
+        ),
+        _Cell(
+            "project-parameter-int-extremes",
+            _q(
+                "where n == lo or n == hi",
+                _b("select", "id", "low = lo", "high = hi"),
+                parameters="(lo: Int, hi: Int)",
+            ),
+            ("id", "low", "high"),
+            ((1, INT_MIN, INT_MAX), (2, INT_MIN, INT_MAX)),
+            False,
+            arguments=(INT_MIN, INT_MAX),
+        ),
+        _Cell(
+            "project-parameter-text-decomposed",
+            _q("where s == v", _b("select", "id"), parameters="(v: Text)"),
+            ("id",),
+            _ids(4),
+            False,
+            arguments=("e\u0301",),
+        ),
+        _Cell(
+            "project-parameter-where-grouped",
+            _q(
+                "where s != v",
+                _b("group by", "b"),
+                _b("select", "b", "rows = count()"),
+                parameters="(v: Text)",
+            ),
+            ("b", "rows"),
+            ((0, 2), (1, 3), (None, 2)),
+            False,
+            arguments=("a",),
+        ),
+    )
+
+
+# Aliased cells (PL.47) read the `aliased` table, whose contract maps each
+# field to another column, so the SQL must name the contract's table and
+# columns; the read runs again on a `COLLATE NOCASE` column.
+_ALIASED_READ = _Cell(
+    "project-aliased-read",
+    _q(
+        'where s != "a" and n is not None',
+        _b("select", *_TYPES, 'low = s < "a"'),
+        _b("order by", "s desc", "id"),
+        header=_ALIASED_HEADER,
+    ),
+    (*_TYPES, "low"),
+    (
+        (6, 7, "\u4e2d", 1, 2.5, 0),
+        (7, 7, "\u4e2d", 1, 2.5, 0),
+        (3, 0, "\u00e9", None, 0.0, 0),
+        (2, INT_MAX, "A", 0, 1e300, 1),
+        (9, 1, "", 0, 1.0, 1),
+    ),
+    True,
+    "aliased",
+    arguments=(),
+)
+_ALIASED_CELLS = (
+    _ALIASED_READ,
+    replace(
+        _ALIASED_READ, name=f"{_ALIASED_READ.name}-nocase", fixture="aliased-nocase"
+    ),
+    _Cell(
+        "project-aliased-group-order-by-min",
+        _q(
+            "where x is not None",
+            _b("group by", "b"),
+            _b("select", "b", "rows = count()", "lo = min(n)", "hi = max(x)"),
+            _b("order by", "lo", "b"),
+            header=_ALIASED_HEADER,
+        ),
+        ("b", "rows", "lo", "hi"),
+        ((1, 4, INT_MIN, 2.5), (None, 1, 0, 0.0), (0, 2, 1, 1e300)),
+        True,
+        "aliased",
+        arguments=(),
+    ),
+)
+
+# Project cells (PL.47): each single-file law cell's program as a project
+# module, with the same oracle, and the parameter cells. Project SQL writes
+# `COLLATE BINARY` where single files assume it, so each of these that reads
+# `s` runs again on the `nocase` fixture with the same oracle; the `Bool` and
+# `REAL` premise controls keep their meaning, as the contract assumes them.
+_PROJECT_LAW_CELLS = (
+    *(replace(cell, name=f"project-{cell.name}", arguments=()) for cell in _LAW_CELLS),
+    *_parameter_cells(),
+)
+_PROJECT_CELLS = (
+    *_PROJECT_LAW_CELLS,
+    *(
+        replace(cell, name=f"{cell.name}-nocase", fixture="nocase")
+        for cell in _PROJECT_LAW_CELLS
+        if cell.fixture == "rows"
+        and re.search(r"\bs\b", cell.program.split("\nquery q", 1)[1])
+    ),
+    *(
+        replace(cell, name=f"project-{cell.name}", arguments=())
+        for cell in _PREMISES
+        if cell.fixture != "nocase"
+    ),
+    *_ALIASED_CELLS,
+)
+
 
 def _ir(program: str) -> ScriptIR:
     parsed = parse_source(program, path="native.pietto")
@@ -949,15 +1162,92 @@ def _emit(program: str) -> str:
     return sql
 
 
-def _run(fixture: str, sql: str) -> _Record:
+def _project_source(fixture: str) -> dict[str, Any]:
+    """The contract entry of a fixture's table: `id` is the one non-null
+    field, and an aliased fixture's fields read its own table and columns."""
+
+    columns = _FIXTURE_COLUMNS["bool-pairs" if fixture == "bool-pairs" else "rows"]
+    fields = tuple(
+        (column, _COLUMN_TYPES[column], column != "id") for column in columns
+    )
+    entry = project_files.source_entry("t", fields)
+    if fixture.startswith("aliased"):
+        entry["relation"]["name"] = _ALIASED_TABLE
+        for field, column in zip(entry["fields"], _ALIASED_COLUMNS, strict=True):
+            field["column"] = column
+    return entry
+
+
+@pytest.fixture(scope="module")
+def project_emit(
+    tmp_path_factory: pytest.TempPathFactory,
+) -> Callable[[_Cell], adapter.SQLiteArtifact]:
+    """Emits a project cell's program as the module `main.pietto` of an
+    explicit-module project whose contract describes the fixture table, once
+    per program and contract, and returns the verified artifact."""
+
+    emitted: dict[tuple[object, ...], adapter.SQLiteArtifact] = {}
+
+    def emit(cell: _Cell) -> adapter.SQLiteArtifact:
+        source = _project_source(cell.fixture)
+        key = (cell.program, json.dumps(source))
+        if key not in emitted:
+            document = project_files.contract(source)
+            path = tmp_path_factory.mktemp("sqlite-project") / "project"
+            project_files.write(path, cell.program, document, "")
+            outcome, _ = emission_cli.emit_project(
+                path,
+                "main.pietto",
+                "query",
+                "q",
+                "sqlite",
+                "contract.json",
+                emission_cli.POLICIES["preserve"],
+            )
+            assert type(outcome) is adapter.SQLiteEmission, (
+                cell.name,
+                outcome.diagnostics,
+                outcome.blockers,
+            )
+            assert outcome.artifact is not None, (cell.name, outcome.blockers)
+            emitted[key] = outcome.artifact
+        return emitted[key]
+
+    return emit
+
+
+_CARRIERS: dict[str, Callable[[Any], object]] = {
+    "sqlite_integer": int,
+    "sqlite_bool01": int,
+    "sqlite_text": str,
+    "sqlite_real": float,
+}
+
+
+def _binding(cell: _Cell, artifact: adapter.SQLiteArtifact) -> tuple[object, ...]:
+    """The values for `?1`, `?2`, ...: each read's argument, carried by its
+    `physical_type`, at the `server_index` the document gives it."""
+
+    assert cell.arguments is not None
+    bound: dict[int, object] = {}
+    for use in json.loads(artifact.document)["parameter_uses"]:
+        value = cell.arguments[use["owner"]["parameter"]]
+        carried = None if value is None else _CARRIERS[use["physical_type"]](value)
+        assert repr(bound.setdefault(use["server_index"], carried)) == repr(carried)
+    assert sorted(bound) == list(range(1, len(bound) + 1)), cell.name
+    return tuple(bound[number] for number in sorted(bound))
+
+
+def _run(fixture: str, sql: str, parameters: tuple[object, ...] = ()) -> _Record:
     table, schema, rows = _FIXTURES[fixture]
     with closing(sqlite3.connect(":memory:")) as connection:
         connection.execute(schema)
         marks = ", ".join("?" * len(rows[0]))
-        connection.executemany(f"INSERT INTO `{table}` VALUES ({marks})", rows)
-        cursor = connection.execute(sql)
+        quoted = table.replace("`", "``")
+        connection.executemany(f"INSERT INTO `{quoted}` VALUES ({marks})", rows)
+        cursor = connection.execute(sql, parameters)
         columns = tuple(item[0] for item in cursor.description)
-        return _Record(sql, columns, tuple(cursor.fetchall()))
+        return _Record(sql, columns, tuple(cursor.fetchall()), parameters)
 
 
 def _typed(row: object, width: int) -> tuple[tuple[str, str], ...]:
@@ -969,13 +1259,19 @@ def _typed(row: object, width: int) -> tuple[tuple[str, str], ...]:
     return tuple((type(value).__name__, repr(value)) for value in row)
 
 
-def _judge(cell: _Cell, sql: str, record: object) -> None:
-    """Judge only a record of a native run of exactly these SQL bytes."""
+def _judge(
+    cell: _Cell, sql: str, record: object, parameters: tuple[object, ...] = ()
+) -> None:
+    """Judge only a record of a native run of exactly these SQL bytes with
+    exactly these bound values."""
 
     if type(record) is not _Record:
         raise AssertionError(f"{cell.name}: no native record: {record!r}")
     if record.sql != sql:
         raise AssertionError(f"{cell.name}: the record ran other SQL bytes")
+    width = len(parameters)
+    if _typed(record.parameters, width) != _typed(parameters, width):
+        raise AssertionError(f"{cell.name}: the record bound other values")
     if record.columns != cell.columns:
         raise AssertionError(f"{cell.name}: columns {record.columns!r}")
     if type(record.rows) is not tuple:
@@ -997,6 +1293,25 @@ def test_each_cell_matches_its_prewritten_oracle(cell: _Cell, native: _Native) -
     record = _run(cell.fixture, sql)
     native.observe("cell", [cell.program, cell.fixture, sql, repr(record.rows)])
     _judge(cell, sql, record)
+
+
+@pytest.mark.parametrize("cell", _PROJECT_CELLS, ids=lambda cell: cell.name)
+def test_each_project_cell_matches_its_prewritten_oracle(
+    cell: _Cell,
+    native: _Native,
+    project_emit: Callable[[_Cell], adapter.SQLiteArtifact],
+) -> None:
+    artifact = project_emit(cell)
+    sql = artifact.sql.decode("utf-8")
+    parameters = _binding(cell, artifact)
+    if not native.qualified:
+        return
+    record = _run(cell.fixture, sql, parameters)
+    native.observe(
+        "project_cell",
+        [cell.program, cell.fixture, sql, repr(parameters), repr(record.rows)],
+    )
+    _judge(cell, sql, record, parameters)
 
 
 _GOLDEN = {
@@ -1465,6 +1780,12 @@ def test_the_judge_fails_every_fabricated_fail_open_shape() -> None:
         with pytest.raises(AssertionError):
             _judge(cell, sql, output)
 
+    bound = (7, -0.0)
+    _judge(bag, sql, replace(record(bag), parameters=bound), bound)
+    for parameters in ((), (7,), (7, 0.0), (7.0, -0.0), (7, -0.0, None), [7, -0.0]):
+        with pytest.raises(AssertionError):
+            _judge(bag, sql, replace(record(bag), parameters=parameters), bound)
+
 
 def _python_ids(cell: _Cell) -> tuple[tuple[object, ...], ...] | None:
     """The ids a bare Bool field, one comparison or one NULL test keeps by
@@ -1625,6 +1946,137 @@ def _missing_forms(cells: Sequence[_Cell]) -> set[str]:
     return _REQUIRED_FORMS - forms
 
 
-def test_every_emitted_form_has_a_native_cell() -> None:
+_VALUE_KINDS = {bool: "Bool", int: "Int", float: "Float", str: "Text"}
+_STORAGE_KINDS = {storage: kind for kind, storage in adapter.STORAGES.items()}
+_PREDICATES = (
+    adapter_sql.SQLiteComparison,
+    adapter_sql.SQLiteLogical,
+    adapter_sql.SQLiteNot,
+    adapter_sql.SQLiteIsNull,
+)
+
+
+def _project_forms(artifact: adapter.SQLiteArtifact) -> set[str]:
+    """The forms one verified project statement uses, read from the adapter's
+    SQL AST that renders its bytes: each column, parameter, literal,
+    comparison, NULL test, connective, aggregate and key with its clause and
+    type. It asserts that `COLLATE BINARY` is written exactly at each `Text`
+    comparison and key."""
+
+    ast = artifact.ast
+    uses = json.loads(artifact.document)["parameter_uses"]
+    parameters = {u["server_index"]: _STORAGE_KINDS[u["physical_type"]] for u in uses}
+    forms = {"limit"} if ast.limit is not None else set()
+
+    def kind(node: object) -> str:
+        if isinstance(node, _PREDICATES):
+            return "Bool"
+        if type(node) is adapter_sql.SQLiteColumn:
+            return _COLUMN_TYPES[ast.columns[node.field]]
+        if type(node) is adapter_sql.SQLiteParameter:
+            return parameters[node.number]
+        assert type(node) is adapter_sql.SQLiteLiteral, node
+        return _VALUE_KINDS[type(node.value)]
+
+    def walk(node: object, clause: str) -> None:
+        if type(node) is adapter_sql.SQLiteAggregate:
+            argument = "*" if node.argument is None else kind(node.argument)
+            forms.add(f"{node.function.lower()} {argument}")
+            return
+        if type(node) is adapter_sql.SQLiteLiteral:
+            forms.add(f"literal {kind(node)}")
+        elif type(node) is adapter_sql.SQLiteParameter:
+            forms.add(f"{clause} parameter {kind(node)}")
+        elif type(node) is adapter_sql.SQLiteColumn:
+            forms.add(f"{clause} {kind(node)}")
+        elif type(node) is adapter_sql.SQLiteComparison:
+            left = kind(node.left)
+            assert kind(node.right) == left, node
+            assert node.collate is (left == "Text"), node
+            forms.add(f"{clause} {left} {node.operator}")
+        elif type(node) is adapter_sql.SQLiteIsNull:
+            test = "IS NOT NULL" if node.negated else "IS NULL"
+            forms.add(f"{clause} {kind(node.operand)} {test}")
+        elif type(node) is adapter_sql.SQLiteLogical:
+            forms.add(f"{clause} Bool {node.operator}")
+        else:
+            assert type(node) is adapter_sql.SQLiteNot, node
+            forms.add(f"{clause} Bool NOT")
+        for name in ("left", "right", "operand"):
+            child = getattr(node, name, None)
+            if child is not None:
+                walk(child, clause)
+
+    for result in ast.results:
+        walk(result.value, "select")
+    if ast.where is not None:
+        walk(ast.where, "where")
+    for clause, keys in (("group by", ast.group_by), ("order by", ast.order_by)):
+        for key in keys:
+            walk(key.value, clause)
+            if type(key.value) is adapter_sql.SQLiteAggregate:
+                assert not key.collate, key
+                forms.add(f"{clause} aggregate")
+                continue
+            assert key.collate is (kind(key.value) == "Text"), key
+            if key.descending is not None:
+                direction = "desc" if key.descending else "asc"
+                forms.add(f"{clause} {kind(key.value)} {direction}")
+    return forms
+
+
+# The adapter's own vocabulary (PL.47): its value types, operators,
+# connectives, aggregate functions and key directions, and a query parameter
+# of each type in `select` and `where`, each per clause and type.
+_PROJECT_FORMS = {
+    *(
+        f"{clause} {kind}"
+        for clause in ("select", "where", "group by", "order by")
+        for kind in adapter.TYPES
+    ),
+    *(
+        f"{clause} parameter {kind}"
+        for clause in ("select", "where")
+        for kind in adapter.TYPES
+    ),
+    *(f"count {kind}" for kind in ("*", *adapter.TYPES)),
+    # Rule 10 admits min and max of an Int or Float field.
+    *(
+        f"{function} {kind}"
+        for function in adapter_sql.FUNCTIONS
+        if function != "count"
+        for kind in ("Int", "Float")
+    ),
+    "order by aggregate",
+    "limit",
+    *(f"literal {kind}" for kind in adapter.TYPES),
+    *(
+        f"{clause} {kind} {test}"
+        for clause in ("select", "where")
+        for kind in adapter.TYPES
+        for test in (*adapter_sql.OPERATORS.values(), "IS NULL", "IS NOT NULL")
+    ),
+    *(
+        f"{clause} Bool {connective}"
+        for clause in ("select", "where")
+        for connective in (*adapter_sql.LOGICAL.values(), "NOT")
+    ),
+    *(
+        f"order by {kind} {direction}"
+        for kind in adapter.TYPES
+        for direction in ("asc", "desc")
+    ),
+}
+
+
+def test_every_emitted_form_has_a_native_cell(
+    project_emit: Callable[[_Cell], adapter.SQLiteArtifact],
+) -> None:
     assert _missing_forms(_LAW_CELLS) == set()
-    assert len(_CELLS) == len({cell.name for cell in _CELLS})
+    artifacts = (project_emit(cell) for cell in _PROJECT_LAW_CELLS)
+    assert _PROJECT_FORMS - set().union(*map(_project_forms, artifacts)) == set()
+    for cell in _ALIASED_CELLS:
+        ast = project_emit(cell).ast
+        assert (ast.table, ast.columns) == (_ALIASED_TABLE, _ALIASED_COLUMNS)
+    names = [cell.name for cell in (*_CELLS, *_PROJECT_CELLS)]
+    assert len(names) == len(set(names))
