@@ -97,8 +97,10 @@ PROJECT_EMIT_ARGUMENTS = (
     "contract.json",
 )
 
-# The arrow-ready cell's one real `duckdb_arrow` query, so natural CI holds
-# DuckDB native evidence on CPython 3.12 and 3.13 (D79.07).
+# The arrow-ready cell's real `duckdb_arrow` queries, so natural CI holds
+# DuckDB native evidence on CPython 3.12 and 3.13 (D79.07): B1's filter, and
+# B2's grouped aggregate with `having`, `order by` with `limit`, and a filter
+# with a literal and two parameters.
 DUCKDB_SOURCE = """shape Item:
     id: Int
     label: Text | None
@@ -111,7 +113,66 @@ query result(min_id: Int):
     select:
         id
         label
+
+query grouped(min_n: Int):
+    from items
+    group by label
+    select:
+        label
+        n = count()
+        filled = count(label)
+        total = sum(id)
+        high = max(id)
+    having n >= min_n
+
+table ordered:
+    from items
+    select:
+        id
+        label
+    order by:
+        label desc
+        id
+    limit 3
+
+query filtered(low: Int, skip: Text):
+    from items
+    where id >= low and id != 3 and (label != skip or label is None)
+    select:
+        id
+        label
 """
+# Each query's kind, name and parameters, its rows over the check's table
+# (id 3, 1, 2, 6, 5, 4; label b, a, NULL, a, NULL, a), whether their order is
+# part of the result, and the result schema's field names and nullability.
+DUCKDB_ITEM = [("id", False), ("label", True)]
+DUCKDB_QUERIES = (
+    ("query", "result", {"min_id": 5}, [(6, "a"), (5, None)], False, DUCKDB_ITEM),
+    (
+        "query",
+        "grouped",
+        {"min_n": 2},
+        [("a", 3, 3, 11, 6), (None, 2, 0, 7, 5)],
+        False,
+        [
+            ("label", True),
+            ("n", False),
+            ("filled", False),
+            ("total", True),
+            ("high", True),
+        ],
+    ),
+    ("table", "ordered", None, [(2, None), (5, None), (3, "b")], True, DUCKDB_ITEM),
+    # Each condition of the filter drops a row that the others keep.
+    (
+        "query",
+        "filtered",
+        {"low": 3, "skip": "a"},
+        [(5, None)],
+        False,
+        DUCKDB_ITEM,
+    ),
+)
 DUCKDB_CONTRACT = """{
   "format": "pietto.emission-contract.v1",
   "target": {"family": "duckdb", "release": "2.0.0"},
@@ -1575,45 +1636,53 @@ def _installed_check(wheel: Path, extra: str) -> None:
                 (root / "pietto.toml").write_text(PROJECT_EMIT_CONFIG, encoding="utf-8")
                 (root / "main.pietto").write_text(DUCKDB_SOURCE, encoding="utf-8")
                 (root / "contract.json").write_text(DUCKDB_CONTRACT, encoding="utf-8")
-                query = execution.compile_query(
-                    root,
-                    module="main.pietto",
-                    kind="query",
-                    name="result",
-                    dialect="duckdb",
-                    emission_contract="contract.json",
-                )
+                queries = [
+                    execution.compile_query(
+                        root,
+                        module="main.pietto",
+                        kind=kind,
+                        name=name,
+                        dialect="duckdb",
+                        emission_contract="contract.json",
+                    )
+                    for kind, name, *_ in DUCKDB_QUERIES
+                ]
             table = pa.table(
                 {
-                    "id": pa.array([3, 1, 2], pa.int64()),
-                    "label": pa.array(["c", "a", None], pa.string()),
+                    "id": pa.array([3, 1, 2, 6, 5, 4], pa.int64()),
+                    "label": pa.array(["b", "a", None, "a", None, "a"], pa.string()),
                 }
             )
-            handle = execution.execute(
-                query,
-                route="duckdb_arrow",
-                access=execution.DuckDBArrowInput("items", table),
-                premise=None,
-                parameters={"min_id": 2},
-            )
-            with handle as result:
-                batches = [pa.record_batch(batch) for batch in result]
-            # B1 results are bags, so the rows are compared sorted.
-            rows = sorted(
-                (row["id"], row["label"])
-                for batch in batches
-                for row in batch.to_pylist()
-            )
-            if (
-                rows != [(2, None), (3, "c")]
-                or handle.outcome.end != "COMPLETE"
-                or any(
-                    [(f.name, f.nullable) for f in batch.schema]
-                    != [("id", False), ("label", True)]
-                    for batch in batches
-                )
+            for query, (_, name, parameters, expected, ordered, schema) in zip(
+                queries, DUCKDB_QUERIES, strict=True
             ):
-                raise SmokeFailure("installed DuckDB Arrow query result differs")
+                handle = execution.execute(
+                    query,
+                    route="duckdb_arrow",
+                    access=execution.DuckDBArrowInput("items", table),
+                    premise=None,
+                    parameters=parameters,
+                )
+                with handle as result:
+                    batches = [pa.record_batch(batch) for batch in result]
+                rows = [
+                    tuple(row.values())
+                    for batch in batches
+                    for row in batch.to_pylist()
+                ]
+                if not ordered:  # without `order by` a result is a bag
+                    rows, expected = Counter(rows), Counter(expected)
+                if (
+                    rows != expected
+                    or handle.outcome.end != "COMPLETE"
+                    or any(
+                        [(f.name, f.nullable) for f in batch.schema] != schema
+                        for batch in batches
+                    )
+                ):
+                    raise SmokeFailure(
+                        f"installed DuckDB Arrow query {name} result differs"
+                    )
     print(
         json.dumps(
             {

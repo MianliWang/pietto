@@ -410,7 +410,11 @@ four helpers are the bytes the accepted run froze: a change to one of them,
 to the specification or to a pin needs a new preregistration and a new
 run. The route's pytest owner `tests/test_execution_api_duckdb_arrow.py`
 skips its cells that need PyArrow or the pinned `duckdb` without the extra,
-and natural CI's arrow-ready cell runs one real `duckdb_arrow` query.
+as on every CI job, whose pytest environments install no extra, so B2's
+acceptance counts those skips beside the passes on the integration host;
+natural CI's arrow-ready cell runs four real `duckdb_arrow` queries
+instead: B1's filter, and B2's grouped aggregate with `having`, `order by`
+with `limit`, and filter with a literal and two parameters.
 [Validation runner acceptance](spec/validation-runner-acceptance-v1.md)
 row 10 states where the premise holds.
 
@@ -864,8 +868,9 @@ HOLD 则给出 focused continuation 或 consolidated decision sheet。执行代�
 两compiler/package jobs由 `scripts/package_smoke.py --dist-dir ... --extra-env ...`
 各构建一个wheel/sdist，先在全新core环境验证无PyArrow、lazy imports、真实缺依赖
 拒绝及原CLI/SQL，再在另一个全新prefix以候选wheel的 `[arrow,execute-duckdb]` 安装
-（D79.07；裸 `--extra-env PATH` 即该arrow-ready单元，其installed check另跑一次真实
-`duckdb_arrow` 查询并核对字面结果），每个 `--extra-env interop-X=PATH`
+（D79.07；裸 `--extra-env PATH` 即该arrow-ready单元，其installed check另跑四条真实
+`duckdb_arrow` 查询并核对字面结果：B1的过滤，B2的分组聚合加`having`、`order by`
+加`limit`、字面量与两参数过滤），每个 `--extra-env interop-X=PATH`
 另在全新prefix安装 `[arrow,interop-X]`（D80.05）；各单元只按自身locked closure取
 `ci/` 哈希允许清单中的块预装。hash-pinned
 requirements仅预置并校验tested dependencies，随后wheel extra完整解析，不使用 `--no-deps`
@@ -873,7 +878,7 @@ requirements仅预置并校验tested dependencies，随后wheel extra完整解�
 
 已发布 `0.1.10` 的实测矩阵只覆盖Linux x86-64、CPython3.12/3.13、PyArrow26.0.0；本checkout的PyArrow26.0.1由两compiler/package jobs在CPython3.12/3.13上检查；不是环境marker或其他平台
 支持承诺。安装日志记录exact wheel SHA、distribution metadata与resolved site-packages
-origins；raw/native闭合分别证明CI产物与既有native设施；除arrow-ready单元那次进程内
+origins；raw/native闭合分别证明CI产物与既有native设施；除arrow-ready单元那几条进程内
 DuckDB查询外，不宣称数据库执行安装测试。
 
 ## Slice14 fixture与captured-native replay
