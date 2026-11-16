@@ -611,7 +611,11 @@ The [Slice14 private emission observation contract](spec/phase66-slice14-private
 adds the private module `project_sql_emission_portable_schema` (the closed record table,
 limits and primitive encoders, data only) and two test helpers that the wheel does not ship:
 `tests/_pietto_sql_emission_pure_boundary.py` (bounded raw and parsed-mapping decoding,
-documented relations and the immutable range-lookup view; it imports only the schema) and
+documented relations, a records-only re-rendering that the SQL, tokens and ranges must
+equal, with its own copy of the pipeline's tables, scalar call templates and aggregate
+spellings (D77.54, PL.60), and the immutable range-lookup view; it imports only the
+schema and the shared MySQL sum form law (`project_sql_emission_sum_forms`), neither of
+which imports the compiler) and
 `tests/_pietto_sql_emission_portable.py` (runtime export from a verified artifact and
 independent runtime correspondence). The differential process registry gains the `phase66`
 matrix family, whose probe copies `_pietto_sql_emission.py`, `_pietto_sql_emission_differential.py`

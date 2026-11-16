@@ -83,7 +83,8 @@ correspondence or pure decoding.
 
 ## Pure consistency
 
-`project_sql_emission_pure_boundary` imports only the schema module.
+`project_sql_emission_pure_boundary` imports only the schema module and the shared MySQL
+sum form law `project_sql_emission_sum_forms`, neither of which imports the compiler.
 `parse_emission_observation(bytes | str)` and `evaluate_emission_observation(mapping)`
 return `Outcome(status, view, canonical_bytes, detail)` with statuses `ok`,
 `invalid_input`, `invalid_utf8`, `invalid_json`, `duplicate_key`, `unknown_format`,
@@ -115,6 +116,15 @@ its items; one original entry per demand position in order with expression and f
 demands present for every serialized expression and predicate; and the generated
 inventory re-enumerated independently from the serialized AST (kind, subject, rule,
 multiplicity and order) with exact statement premise sets and scoped field premises.
+Last, the SQL, its tokens and its expression ranges are exactly what the emitter writes for
+the records: a records-only re-rendering, which never imports the emitter, compares them
+token by token; any difference has detail `rendering`. Each record field it reads to choose
+the tokens is closed to the values that a field-by-field reading of the semantic checks,
+stage construction, AST assembly and emitter found it can take, names by their resolution
+and each read to the unit the pipeline reads. It proves the SQL's shape as far as that
+reading reached, not provenance, value domains, name spellings or a field it reads only as
+a token's subject, such as an ORDER item's port, and leaves the fields it does not read to
+the relations above.
 
 The view is immutable and offers records by reference or kind, `at(offset)` (end of SQL
 has no hit), `overlapping(start, end)` (an empty interval has none; an interior byte hits
@@ -140,7 +150,9 @@ process family's product is bounded to 8 MiB per request.
 ## Coverage
 
 All 297 VERIFIED generation inputs (postgres150, mysql147) export, correspond and decode
-with byte-identical canonical re-encoding, and together exercise every record kind. Outside
+with byte-identical canonical re-encoding, and together exercise every record kind. Forged
+documents in the portability owner pin the re-rendering's subchecks under both the full
+check and the re-rendering alone. Outside
 that corpus, real sources witness SET operands reading physical sources directly and an
 expression-scoped premise; multi-hop path JOINs (the only source of predecessor JOIN inputs)
 remain BLOCKED at admission and have no private document.
