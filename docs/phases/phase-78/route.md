@@ -735,11 +735,12 @@ reach `main` only in a batch that carries the slices they describe.
 | Tier 2 | S13 JOINs, S14 range-proved arithmetic, S15 windows | New adapter modules | As S08 and S09, with two replays | The midpoint and the owner | own ledger |
 
 Order: S05 → S06 → S07 → S08 → S09 → S10 → R1 → midpoint → S16, and
-S09 → S11 → S12 → S16. The first batch is 1a (S06 to S10 and R1), the second
-1b (S11, S12) with S16; each batch has one Gate 2 and one natural CI, and the
-two may merge when they are ready together. Every authoritative Gate 2 of a
-batch that changes the native qualification runs on the integration host with
-`--pietto-sqlite-class=qualified` (D78.07).
+S09 → S11 → S12 → S16. The first batch is S06 to S12, published while R1
+still waits for the Docker Engine, and the second R1 with S16 (PL.59, in
+place of the split into 1a, S06 to S10 with R1, and 1b, S11 and S12 with
+S16); each batch has one Gate 2 and one natural CI. Every authoritative
+Gate 2 of a batch that changes the native qualification runs on the
+integration host with `--pietto-sqlite-class=qualified` (D78.07).
 
 ### B2 single-writer order
 
@@ -938,7 +939,7 @@ Re-check of Q6a and Q6b against this record (S11). No answer is loosened:
 | --- | --- |
 | The second tier (T3 to T5, the sheet's Q4 arithmetic, windowed `sum`) | The owner at the midpoint; if approved, a follow-up package that the Phase78 completion audit hands over, with its own ledger; unclaimed items are unsupported at the Phase82 freeze |
 | Reminder 8 | Met by exclusion in the first tier; restated before T3 opens, or the semantic and ProjectIR owner's ARCHITECTURE_DECISION |
-| Naming a native error by its extended `sqlite_errorcode` beside `sqlite_errorname`, since a `STRICT` type error's name is `unknown` (D78.04 named them by name) | The lead, as an ARCHITECTURE_DECISION; S11 implements the rule of its dispatch (the code, and the message where the code is not enough) and the lead records it before the 1b batch audit |
+| Naming a native error by its extended `sqlite_errorcode` instead of `sqlite_errorname`, since a `STRICT` type error's name is `unknown` (D78.04 named them by name) | The lead, as an ARCHITECTURE_DECISION, D78.12, recorded after a first audit of S06–S12 found it missing and before the audit of the batch that publishes them; S11 implements it (the code, and the message where the code is not enough) |
 | Run-time guarded arithmetic, `Float` arithmetic, `/` and `%` | A later Gate 1 with a use case; Phase82 freeze input |
 | Admitting `Text` that holds NUL | A later SQLite execution Gate 1 |
 | Other builds, Windows and macOS | Not qualified (PL.40 D9 A, D5 A); the Phase82 support matrix |

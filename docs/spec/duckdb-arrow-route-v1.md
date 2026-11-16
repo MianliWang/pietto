@@ -26,8 +26,7 @@ B1 does not complete Phase79, and neither does B2, Phase79's second slice
 (PL.47, [roadmap](../roadmap.md#third-dialect)), which adds `group by` with
 `count`, `sum`, `min` and `max`, `having`, `order by`, `limit`, the wider
 `where` filters and the higher capture limits. No published release carries
-B2; it enters the `0.2.x` release that follows its Gate 2, `0.2.2` at the
-earliest (PL.47). B2's slice T01 wrote its rules as a section at the end of
+B2; its first tier, which this page specifies, enters `0.2.2` (PL.55). B2's slice T01 wrote its rules as a section at the end of
 this page before any B2 code; T02–T05 moved the rows they landed into the
 sections above, and T08 moved the rest and removed that section.
 

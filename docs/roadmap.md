@@ -258,7 +258,9 @@ had run, since its dispatch had no stop there. SQLite B2's first tier
 has S06–S12 implemented and natively qualified, while R1, the tier's one
 PostgreSQL replay (PL.47), has a lane of its own on Docker Desktop's Engine, but
 that lane stopped before any freeze, since the integration host could
-not reach the Engine (PL.56); its closeout S16 follows R1.
+not reach the Engine (PL.56); its closeout S16 follows R1. S06–S12
+publish as one batch ahead of R1 and S16, which follow as a later batch,
+and `0.2.2` waits for both (PL.59).
 SQLite B2 also makes single-file SQLite SQL write `Bool`
 literals as `1` and `0`, a change to the bytes that `0.2.0` and `0.2.1`
 publish, which its release lists as incompatible (PL.54).

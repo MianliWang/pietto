@@ -40,8 +40,9 @@ parameters, with the aggregates `count`, `count_distinct` (of an `Int`,
   the compatibility table below lists: the PIE-S2306 text of a project
   `sqlite.table` call with invalid arguments, the refusal of PostgreSQL,
   MySQL or DuckDB emission of a statement that reads a project
-  `sqlite.table` source, and the PIE-B1000 reason of a single-file relation
-  that stays refused.
+  `sqlite.table` source, the usage text of `emit-sql --project`, which now
+  names `sqlite`, and the PIE-B1000 reason of a single-file relation that
+  stays refused.
 
 Compatibility: PostgreSQL, MySQL and DuckDB SQL bytes and contracts are
 unchanged. These outputs change, for programs refused before as well:

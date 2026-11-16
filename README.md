@@ -217,6 +217,8 @@ gives every rule and limit.
   measured build
   ([SQLite single files](https://github.com/MianliWang/pietto/blob/main/docs/capabilities.md#sqlite-single-files),
   [SQLite file route](https://github.com/MianliWang/pietto/blob/main/docs/execution.md#sqlite-file-route)).
+  `0.2.0` and `0.2.1` carry only the single-file SQL; project mode and
+  the `sqlite_file` route enter `0.2.2`.
 
 **Projects**, a directory with a `pietto.toml` of `schema_version = 2`:
 
@@ -290,8 +292,8 @@ release.
   only with CPython 3.12 and 3.13 on Linux x86-64 with glibc 2.28 or later
   ([DuckDB local path](https://github.com/MianliWang/pietto/blob/main/docs/capabilities.md#duckdb-local-path)).
   `0.2.0` and `0.2.1` carry only the projection with one `Int` parameter
-  comparison, over at most 65,536 rows and 16 MiB; the rest is Phase79's
-  second slice, which enters the `0.2.x` release that follows its Gate 2
+  comparison, over at most 65,536 rows and 16 MiB; the rest is the first
+  tier of Phase79's second slice, which enters `0.2.2`
   ([roadmap](https://github.com/MianliWang/pietto/blob/main/docs/roadmap.md#third-dialect)).
 - `pietto.interop` (alpha) turns one open `ResultBatch` into a pandas or
   Polars DataFrame, a NumPy array, a SciPy CSR array or a Matplotlib line or
