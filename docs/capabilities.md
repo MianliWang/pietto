@@ -183,8 +183,7 @@ is refused, and it is qualified only with CPython 3.12 and
 at most one comparison of an `Int` field with one non-null `Int` parameter,
 over at most 65,536 rows and 16 MiB. Its second part, Phase79 B2 (PL.47),
 adds the grouping, `having`, `order by`, `limit`, the wider filters and the
-higher limits; no release carries it yet, and it enters the `0.2.x` release
-that follows its Gate 2, `0.2.2` at the earliest.
+higher limits; no release carries it yet, and it enters `0.2.2` (PL.55).
 
 Each row was recorded by running one plain example through
 `check --project` and `emit-sql --project --dialect duckdb`, with a DuckDB

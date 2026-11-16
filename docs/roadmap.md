@@ -112,8 +112,8 @@ PL.46). `0.2.2` carries all the work before Phase81, the MySQL catch-up
 included, and the owner has authorized its publication (PL.55, PL.56);
 Phase81's commits reach `main` only after the `0.2.2` release commit
 (PL.57).
-SQLite B2, DuckDB B2 and the interop relief each enter the `0.2.x`
-release that follows their Gate 2, `0.2.2` at the earliest (PL.47). Phase82
+The first tiers of SQLite B2 and DuckDB B2 and the interop relief enter
+`0.2.2` (PL.47, PL.55). Phase82
 and Phase83 also use `0.2.x`, and no release is called `1.0`: every release
 before Phase90 is a `0.2.x`, and Phase90, the Rust rewrite, releases as
 `0.3.0` (PL.51). The extension follows its own version line.
@@ -241,8 +241,8 @@ and integrity that refuses text holding NUL. SQLite B2 integrates after
 batch 2, and
 Phase78 closes with its closeout slice S16. DuckDB B2 is Phase79's second
 slice, replayed onto batch 2's head and implemented in T01–T08, which enter
-the `0.2.x` release that follows its Gate 2, `0.2.2` at the earliest
-([B2 audit](phases/phase-79/b2-completion-audit.md)): grouped `count`, `sum`, `min` and
+`0.2.2` (PL.55,
+[B2 audit](phases/phase-79/b2-completion-audit.md)): grouped `count`, `sum`, `min` and
 `max`, `having`, `order by` and `limit`, comparisons with literals, `and`,
 `or` and `not`, and filters with several parameters, with capture limits of
 1,048,576 rows and 256 MiB of the selected columns and a fixed
@@ -254,9 +254,9 @@ the owner's plan for the later phases (PL.54), where they come before
 the Phase82 freeze, each with its own Gate 1, and Phase79's completion
 audit waits for DuckDB's (PL.57, PL.58). DuckDB B2's first tier
 publishes as one batch under PL.52; its midpoint was answered after T06–T08
-had run, since its dispatch had no stop there. SQLite B2 goes on
-with S11 and S12 of its first tier while R1, the tier's one PostgreSQL
-replay (PL.47), has a lane of its own on Docker Desktop's Engine, but
+had run, since its dispatch had no stop there. SQLite B2's first tier
+has S06–S12 implemented and natively qualified, while R1, the tier's one
+PostgreSQL replay (PL.47), has a lane of its own on Docker Desktop's Engine, but
 that lane stopped before any freeze, since the integration host could
 not reach the Engine (PL.56); its closeout S16 follows R1.
 SQLite B2 also makes single-file SQLite SQL write `Bool`
@@ -267,7 +267,7 @@ publish, which its release lists as incompatible (PL.54).
 
 The interop relief (IR) is a work package with its own ledger that widens
 D80.03's admission table (PL.47). Its slices are implemented (PL.53) and
-enter the `0.2.x` release that follows its Gate 2, `0.2.2` at the earliest;
+enter `0.2.2` (PL.55);
 [Field admission](interop.md#field-admission) gives the widened table. `UUID`
 fields reach pandas and Polars as their 16 bytes, unchanged; `decimal256`
 reaches pandas only, and Polars keeps refusing it with a fix that names
