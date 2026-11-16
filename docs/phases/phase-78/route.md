@@ -1,4 +1,4 @@
-# Phase78 route — SQLite B1, Gate 1 approved, Gate 0 bound
+# Phase78 route — SQLite B1 published, B2 Gate 1 approved, Gate 0 bound
 
 Phase78 owns the Phase 78 row of the [roadmap](../../roadmap.md), SQLite deep
 adaptation. On 2026-11-10 (America/Toronto) the owner approved the Gate 1 of
@@ -13,6 +13,11 @@ Local implementation in worktrees is authorized from Gate 0 (PL.01, PL.02).
 No commit, push or release is authorized by this route; each batch push needs
 the owner's authorization. SQLite is not a `0.2.0` requirement (decision row
 "`0.2.0` and later versions"), and B1 closes as B1, not as Phase78.
+
+B1 is published ([B1 record](#b1-record)). On 2026-11-15 the owner approved
+the Gate 1 of the second vertical, B2 (PL.47); the [B2 route](#b2-route)
+binds its Gate 0, decisions, slices and rules, and Phase78 closes with B2's
+slice S16.
 
 Gate 0 binds the head and its natural CI. The route left the read of that CI's eligible health and alerts and the re-measured Phase77 overlap to the package's first implementation batch; B1 recorded neither, as the Q0 row of the [B1 record](#b1-record) states.
 
@@ -104,7 +109,7 @@ coverage, dependencies and the draft allocations of D78.05.
 | S02 | Single-file emitter and CLI dialect | New `src/pietto/sql/sqlite*.py`; `src/pietto/cli.py` (`_select_sql_emitter`); the SQLite entries, added only on top of the integrated Phase79 S02 lines and charged to this ledger (AD78.03), in `src/pietto/semantic/source_connectors.py` (`sqlite.table`), `src/pietto/ir/lowering.py`, the `cli.py` dialect set `_ENABLED_SQL_DIALECTS` and the `src/pietto/parser_api.py` header `dialect` hint set; `docs/spec/cli-json-v1.md`; `docs/spec/diagnostics.md` (the PIE-B1000 row); new `tests/test_sql_sqlite_emission.py`; new `tests/fixtures/golden/emit_sqlite_*` with `scripts/check_goldens.py`; in-place edits of `tests/test_sql_mysql_golden_corpus.py` and the existing header-hint owner; the S01 fragment | Focused pytest; Ruff; Pyright on `src` and on the changed tests (lesson 72-1); `scripts/check_goldens.py`, each new golden reviewed by a human with its input; repository-wide owners on the integrated tree (72-2); PostgreSQL and MySQL bytes of the existing goldens and documentation examples unchanged; each B1 form emits or refuses with its listed text; `tests/test_execution_api_postgres_rows.py:616` unchanged; the AD78.03 firewall still keeps `sqlite` out of the project PostgreSQL/MySQL pipeline | S01; Phase79 S02 in the integration tree | 30/90/800/1 |
 | S03 | In-process qualification | New `tests/test_sql_sqlite_native.py`; a flat `tests/_pietto_sql_sqlite_*.py` helper only if shared; `tests/conftest.py` if an environment class option is needed; `scripts/validate.py` (the `--pietto-sqlite-class=qualified` declaration, D78.07); `tests/test_ci_validation_entrypoint.py` (that gate's expected command); `tests/fixtures/sqlite/postgres_replay_v1.json` (the PostgreSQL replay result, D78.10); `docs/spec/validation-runner-acceptance-v1.md` (a new domain row); `docs/development.md` (SQLite target validation); `ci/workloads.toml` only if the CI workload governance requires a declaration | Native cells against oracles written before the run; a fabricated-output self-test fails every fail-open shape (72-4); PostgreSQL replays bind the bytes they ran (72-5); a forged non-qualified build is refused; skips are counted beside passes (75-3); a failed cell is first a question about its judge (74-1); a form without a passing cell ships refused (73-6). The runner-acceptance specification, `docs/development.md`, `scripts/validate.py` and `ci/workloads.toml` are VR2 acceptance rule paths, so the B1 batch runs its whole Gate 2 on the integration host, and under the owner's 2026-10-27 decision its natural CI is not recorded as a new bootstrap, so the Teach split stays void (PL.05, [validation runner acceptance](../../development.md#validation-runner-acceptance)) | S02 | 25/75/600/1 |
 | S04 | B1 closeout | `docs/capabilities.md` (a new SQLite section, not new columns); the fragment's known limitations; this route (B1 record and B2 handoff); the roadmap freeze ledger; `docs/status.md` | B1 acquisition review against the B1 base; docs owners; CI health and alerts read; Gate 2 duration recorded | S03; publication after DuckDB B1 | 10/30/250/0 |
-| B2 | Project mode | Its own Gate 1 | — | The AD78.03 seam (Phase79 S02 and S03); Phase77 S26/S27 | own ledger |
+| B2 | Project mode | Its own Gate 1, approved in PL.47; see the [B2 route](#b2-route) | — | The AD78.03 seam (Phase79 S02 and S03); Phase77 S26/S27 | own ledger |
 
 The dialect-owned qualified-build constant lands in S03, not in S01 as the
 sheet's draft row put it. This is IMPLEMENTATION_FREEDOM: B1 has no
@@ -537,6 +542,8 @@ Gate 2 duration: item 12.
 
 ## B2 handoff
 
+PL.47 answered this handoff; the [B2 route](#b2-route) binds it.
+
 - **Gate 1 first.** B2 (project mode) needs its own Gate 1. Before any B2
   code it decides whether SQLite generalizes the AD78.03 family firewall or
   builds its own pipeline. It depends on Phase79 S02 and S03 and on Phase77
@@ -573,3 +580,336 @@ Gate 2 duration: item 12.
   NULL while infinities are kept, a `STRICT` `REAL` column stores `-0.0` as
   `0.0`, `LIKE` folds ASCII case, and a double-quoted name that names no
   column reads as text.
+
+## B2 route
+
+On 2026-11-15, by about 21:14Z, the owner approved the Gate 1 of SQLite B2
+with the recommended answer of every question of the sheet that the lead
+drafted under PL.41 (PL.47; the sheet is a working record outside Git). B2
+means the first tier: 1a, project-mode SQLite SQL from a separate adapter
+with the T1 base and the T2 aggregates, which single files also gain except
+`sum`; and 1b, the read-only execution of a caller's SQLite file, whose
+answers serve as the separate trust Gate 1 that D78.01 requires. The second
+tier (JOINs, range-proved `Int` arithmetic, windows) is asked at the
+[B2 midpoint](#b2-midpoint-and-unfreeze) and gets a ledger of its own.
+Phase78 closes with S16. Local implementation in worktrees is authorized
+from Gate 0; no commit, push or release is authorized by this route, each
+push and each release needs the owner, and B2's first tier enters `0.2.2`
+(PL.47, PL.55). The
+[SQLite project specification](../../spec/sqlite-project-v1.md) holds the
+contract values, the order of compile refusals with every detail, and the
+handling of each SQLite difference.
+
+### B2 starting point
+
+Gate 0 is S05, on 2026-11-16 from 00:06:09Z to 00:13:13Z, on the newest
+published head after `v0.2.1` was published and the natural CI of its
+post-release documentation commit passed (PL.47, PL.02): `main` =
+`origin/main` = `8cb9d9de53e7ebf78a592ac85be206023c0f4dde`, tree
+`b2ad91b2b9065680a121c5a19146c1e339c4b5ce`, the commit that holds PL.46 to
+PL.48. The repository was clean, with no Git operation in progress, and the
+remote branch matched without a fetch. Its natural exact-head CI
+`43767179471`, push/main attempt 1, passed all 21 jobs and finished at
+22:21:37Z on 2026-11-15. Its health, read through the owner's read-only token
+(PL.07), passed `verify_workflow_health` of that tree's
+`scripts/ci_workloads.py` over its 15 `ci-health` artifacts: status
+INSUFFICIENT_EVIDENCE with a WATCH screen, history available with 3 samples
+accepted, none rejected and none comparable, cost incomplete. Health is
+advisory and does not hold Gate 0. Phase77 has its completion audit, so no
+Phase77 slice runs beside B2 and no overlap was measured again; the overlap
+that matters now is the second `0.2.1` maintenance batch (M11 to M14) and
+DuckDB B2, which the [single-writer order](#b2-single-writer-order) bounds.
+S05 did not read the Phase79 and Phase80 completion audits; S16 reads them.
+An earlier S05 attempt, begun at 22:29:35Z on 2026-11-15, stopped before it
+finished; its record is kept unchanged and is not evidence.
+
+Before Gate 0, PL.47 authorized offline probes outside the repository, in one
+process at the lowest priority, for writing the specifications only and not
+as qualification evidence; the SQLite probe ran on 2026-11-15 from 21:24Z to
+21:27Z. Earlier, during the Gate 1 drafting and before PL.47, the sheet's
+revision ran two in-memory `sqlite3` probes with no recorded authorization:
+they were unauthorized preparation, and their results are not evidence (as
+PL.02 records for B1's drafting probe). S05 ran the authorized probe's two
+scripts again, byte for byte, in the Gate 0 environment, and only that run is
+evidence.
+
+S05 observed, on CPython 3.13.13 in the integration venv and the host's
+user-local CPython 3.12.13 on Linux x86-64 (glibc 2.43):
+
+- **Build.** Both link SQLite `3.53.1` with the source id `2026-05-05
+  10:34:17 c88b22011a54b4f6fbd149e9f8e4de77658ce58143a1af0e3785e4e6475127e9`
+  and the same 46 compile options, the triple of `QUALIFIED_SQLITE` and of the
+  native tests' `QUALIFIED_SQLITE_BUILD` (D78.03).
+- **Probe cells.** All four runs ended with code 0 and an empty stderr. Apart
+  from their environment and timing sections, the two interpreters' outputs
+  are identical line for line (259 lines of the main probe, 12 of the
+  follow-up), and both equal the pre-Gate 0 outputs. Each row of the
+  specification's [differences table](../../spec/sqlite-project-v1.md#differences-from-postgresql-and-mysql)
+  states its observation, among them four cells the sheet added for Gate 0:
+  the compensated summation of `avg`, an index that changes a `sum` result,
+  `abs` and text casts of `-0.0`, and a `STRICT` `ANY` column. The
+  specification's [execution](../../spec/sqlite-project-v1.md#execution)
+  section lists the facts that S11 implements, among them the other four:
+  the `sqlite_errorname` `unknown` (code 3091) of a `STRICT` type error, the
+  authorizer's read with no database name for `count(*)`, a broken view
+  beside a sound table, and the default busy timeout of 5.01 s.
+- **Range evidence.** Through the DuckDB adapter, the independent adapter
+  that B2 follows, the declared `int_range` of a direct field reached the
+  adapter's facts unchanged (`0..1000000`, `-5000..0`, `-7..9`), and the
+  adapter imports from `project_sql_emission_*` only the names of the sheet's
+  whitelist. That reader's `_domain` takes no family, so the SQLite contract
+  reader reads a field's `int_range` the same way (*derived*, not measured on
+  SQLite); S08 locks the import whitelist with a test. The range proof of
+  derived expressions stays in the PostgreSQL/MySQL pipeline, for the second
+  tier.
+- **Timing.** Only on CPython 3.13 with a warm cache, on a table of
+  1,048,576 rows and 85 MiB: the value scan 0.193 s, `integrity_check` of the
+  table 1.411 s, a grouped query 0.486 s, Python-side UTF-8 decoding 0.14 s.
+  This is not evidence. S12 measures a 256 MiB file with a cold cache on both
+  interpreters; if the check and query do not fit 20 s there, the file cap
+  goes down and the deadline stays (PL.47).
+- **`avg` rounding.** SQLite's `AVG(CAST(x AS REAL))` uses compensated
+  summation. S05 found this within the existing rules, which leave the
+  summation of a binary64 average to the target, and recommended that the lead
+  decide it and inform the owner, as for the NULL order; the lead's ruling is
+  pending (specification open items).
+
+### B2 decisions adopted
+
+| Id | Adopted answer | Route consequence |
+| --- | --- | --- |
+| PL.47 (sheet Q1 B) | Gate 0 on the newest published head after `v0.2.1` and its post-release commit's CI; integration after the second maintenance batch; B2 is the first tier; Phase78 closes with S16; a second tier gets its own ledger; each release approved on its own, `0.2.2` at the earliest | Starting point; slices; budget |
+| PL.47 (Q1′ A) | Offline probes before Gate 0, for the specifications only | Starting point |
+| PL.47 (Q2 A) | A separate SQLite project adapter, `src/pietto/_project/project_sqlite_*.py`, that leaves the PostgreSQL/MySQL pipeline and the published DuckDB code unchanged. This is the shape AD78.03 left to this Gate 1, and AD78.03 stands. Imports follow a symbol whitelist: the plan-layer seam modules of AD78.03, and from `project_sql_emission_*` only the names that the DuckDB adapter imports today, with `blocker_suggestion` called with no family | S08; the firewall test checks the names |
+| PL.47 (Q3 b, Q3b A) | T1 in project mode; T2 (`having`, `count_distinct`, `avg(Int)`) in both modes; `sum(Int)` in project mode only where the contract's `int_range` lies on one side of zero | S08, S10; specification admission |
+| PL.47 (Q11 B) | Project SQL writes `COLLATE BINARY` at each `Text` comparison, ordering, grouping, deduplication and `min` or `max`; it revises D78.02's `BINARY` premise in project mode only, and single files keep it | S08, S10 |
+| PL.47 (Q5 B, Q6a A, Q6b (i)) | Tier 1b: the read-only `sqlite_file` route behind eleven defences, a file of at most 256 MiB, at most 1,048,576 rows per source table, the attempt within `ExecutionLimits.seconds`, results under the `ExecutionLimits` defaults, the `arrow` extra reused, and a bounded value and integrity check in the same read transaction before each run that refuses `Text` holding NUL; with Q6a and Q6b it is D78.01's trust Gate 1 | S11, S12 |
+| PL.47 (Q7 A″) | In-process qualification and one PostgreSQL replay, R1, in 1a on one PostgreSQL slot, which D78.08's authorization of B1's replay did not cover | [Qualification and replay](#b2-qualification-and-replay) |
+| PL.47 (Q8 A) | Qualified on Linux x86-64 with one SQLite build and CPython 3.13.13 and 3.12.13; other platforms emit SQL without executing it | S09, S12; support matrix |
+| PL.47 (Q10 A) | Ledger P78B2, which PL.15 now covers | [Budget](#b2-budget) |
+| PL.47 (lead) | NULLS clauses that place NULL as the PostgreSQL emitter does, as D78.02 did for single files | S08 |
+| Kept | D78.02 apart from that revision; D78.03 (one build triple; a version is no identity); D78.04 (no new `PIE-*` code, independent single-file modules, no general dialect registry); AD78.03 (the PostgreSQL/MySQL pipeline never receives `sqlite`; the shared connector and dialect lines have one writer at a time); D78.10 and D78.11; PL.02, PL.07, PL.15, PL.17; PL.40's D5 A, D9 A, D14 A and D15 A | Throughout |
+
+### B2 scope
+
+| B2 delivers | Not in B2 |
+| --- | --- |
+| Project `sqlite.table` sources; `emit-sql --project --dialect sqlite`, text and JSON v1/v2, with or without `--all`; `compile_sql` and `compile_all_sql`; the T1 forms and the T2 aggregates of the specification | The second tier until the midpoint and the owner; `Decimal`, `Date`, `Timestamp`, `UUID` and nested values; `Float` `sum` and `avg`; text functions and `LIKE`; `--literal-policy bind-safe` |
+| Single-file `having`, `count_distinct` and `avg(Int)` | single-file `sum(Int)`; any change to PostgreSQL, MySQL or DuckDB bytes |
+| Tier 1b: `compile_query(dialect="sqlite")` and the `sqlite_file` route over a caller's `STRICT` tables | writing, query bundles, saved results, relay, jobs and R2 on SQLite; a content digest of the file; another build or platform; sqlglot at run time (AD78.01); any parity claim across databases |
+
+### B2 slices
+
+Slice ids continue from S05 (B1 used Q0 and S01 to S04). Each slice is one
+commit; it binds its exact base tree, inputs, write set, commands and
+acceptance when it is expanded, and documentation changes with the slice
+that changes behavior. S06 writes the 1a release-note fragment
+`78-s06-sqlite-project-mode.md`, which S07 to S10 edit; S11 writes
+`78-s11-sqlite-file-route.md`, which S12 edits; S16 edits both. The
+fragments and the specification describe what their batch delivers, so they
+reach `main` only in a batch that carries the slices they describe.
+
+| Slice | Content | Write set | Checks and acceptance | Depends on | C/F/D/S |
+| --- | --- | --- | --- | --- | --- |
+| S05 | Gate 0 and the probe matrix | None in the repository | Done: [starting point](#b2-starting-point) | PL.47 | 0/0/200/0 |
+| S06 | Specification and route | New `docs/spec/sqlite-project-v1.md`; `AGENTS.md` (the alpha list); this route (this section and its pointers above); `docs/release-notes.d/78-s06-sqlite-project-mode.md` | `scripts/release_notes.py check`; `tests/test_repo_docs_links.py`, `tests/test_repo_release_notes_fragments.py`, `tests/test_repo_docs_examples.py` | S05 | 5/15/150/0 |
+| S07 | The shared seam, one commit (lesson 80-4) | `src/pietto/semantic/source_connectors.py` (`sqlite.table` in `EXPLICIT_MODULE_CONNECTORS`, its non-empty literal argument checked in explicit-module projects only); the three family mappings in `src/pietto/_project/project_sql_plan_target_assessment.py` (two) and `src/pietto/_project/project_sql_plan_pure_boundary.py` (one); `tests/test_repo_static_checks.py` (the firewall for both families, the SQLite branch still stopping at the argument check); the S07 [shared-page hunks](../../spec/sqlite-project-v1.md#shared-page-hunks) of `docs/language.md` and `docs/capabilities.md` | `tests/test_semantic_source_connectors.py`, `tests/test_project_capability_target_matrix.py` and the pure boundary's owner; a project `sqlite.table` checks, and PostgreSQL, MySQL and DuckDB emission refuse it as the specification states; single-file connector diagnostics unchanged | S06; the second maintenance batch integrated | 10/30/350/1 |
+| S08 | The T1 adapter, wiring and documentation | New `src/pietto/_project/project_sqlite_contract.py`, `project_sqlite_sql.py` and `project_sqlite_emission.py`; `src/pietto/_project/project_sql_emission_cli.py` (`DIALECTS`, dispatch, usage); `src/pietto/cli.py` (usage); `src/pietto/execution/_query.py`, so that `compile_query` keeps `PIE-R1002` for `sqlite` until S11; the S08 [shared-page hunks](../../spec/sqlite-project-v1.md#shared-page-hunks); new goldens | New owner `tests/test_sql_sqlite_project_emission.py`; `tests/test_sql_compile_api.py` and `tests/test_cli_project_emit_sql.py` in place; the firewall's SQLite emission branch flips while its `compile_query` branch still asserts `PIE-R1002`; the import whitelist test; PostgreSQL, MySQL and DuckDB goldens unchanged; Pyright on `src` and the changed tests (72-1); repository-wide owners on the integrated tree (72-2); a rule test with one statement refused for an unrelated reason (77-2); `compiler.py` unchanged, since `_emit` reaches the adapter through `run_project_emit_sql` | S07 | 30/90/900/1 |
+| S09 | T1 native qualification | `tests/test_sql_sqlite_native.py` (project cells; the coverage law reads the adapter's vocabulary too); `docs/spec/validation-runner-acceptance-v1.md` and `docs/development.md` only if their SQLite rows change | Native cells on CPython 3.13.13 and 3.12.13 against prewritten oracles; skips counted beside passes (75-3) | S08 | 15/50/480/1 |
+| S10 | T2 aggregates in both modes | The adapter's files; `src/pietto/sql/sqlite_relations.py`; the S10 shared-page hunks; the specification; goldens; the fragment | `tests/test_sql_sqlite_emission.py` and `tests/test_sql_sqlite_project_emission.py`, each form opened in the branch that refused it (74-4); native cells in `tests/test_sql_sqlite_native.py`, among them the `sum` order cells and `avg` against `math.fsum` divided by the count; `having` guards for aliases and bare columns | S09 | 15/45/500/1 |
+| R1 | PostgreSQL replay campaign | A reviewed preregistration delta outside Git; a new replay fixture under `tests/fixtures/sqlite/` and its test | [Qualification and replay](#b2-qualification-and-replay) | S10 | 5/15/300/0 |
+| — | Midpoint, after S10 integrates | This route | [Midpoint](#b2-midpoint-and-unfreeze) | S10 | in S16 |
+| S11 | The `sqlite_file` route | First the external reference record of untrusted SQLite files; new `src/pietto/execution/_sqlite.py`; `src/pietto/execution/_query.py`, `_access.py`, `_handle.py`, `__init__.py`; the bundle, job, saved and R2 refusals; result binding through its own storage module; `QUALIFIED_SQLITE_BUILD` moved to `src/pietto/sql/`; `docs/execution.md`; `README.md`; the `PIE-R1001` row of `docs/spec/diagnostics.md` at a time the lead schedules apart from Phase81's diagnostic review (P03, PL.58); the specification's execution section; its fragment | New owner `tests/test_execution_api_sqlite_file.py`; `tests/test_execution_api_queries.py`, `test_execution_api_errors.py` and `test_execution_api_results.py` in place; request checks before any file opens; admission before binding (80-3); tests gated by entry point and platform (80-2); `project_result_binding.py` and `project_execution_reader.py` edited serially with MySQL catch-up and R2 work | S09, beside S10 | 30/90/1,000/1 |
+| S12 | Native qualification of the route and its trust controls | `tests/test_execution_api_sqlite_file.py` (native classes); `tests/test_harness_execution_api.py` (the fabricated-output checker, shared with DuckDB B2's T06); the VR2 documents | Every defence and value check of PL.47 with a control cell on test-owned files, the cells the sheet lists and S05 added among them; the 256 MiB timing; Windows CI asserts the refusal | S11 | 25/75/1,000/1 |
+| S16 | First-tier closeout and the Phase78 completion audit | `docs/roadmap.md` (the freeze-ledger SQLite row, the deferral table); `docs/status.md`; this route (B2 record); new `docs/phases/phase-78/completion-audit.md` with the second-tier and next-phase handoff; `docs/references/engineering-lessons.md`; the fragments' known limitations | The acquisition review against B2's base; documentation owners; the Gate 2 duration; CI health read; the Phase79 and Phase80 completion audits read | R1, S12, and the third whole-tree pass of the second maintenance batch | 10/30/350/0 |
+| Tier 2 | S13 JOINs, S14 range-proved arithmetic, S15 windows | New adapter modules | As S08 and S09, with two replays | The midpoint and the owner | own ledger |
+
+Order: S05 → S06 → S07 → S08 → S09 → S10 → R1 → midpoint → S16, and
+S09 → S11 → S12 → S16. The first batch is 1a (S06 to S10 and R1), the second
+1b (S11, S12) with S16; each batch has one Gate 2 and one natural CI, and the
+two may merge when they are ready together. Every authoritative Gate 2 of a
+batch that changes the native qualification runs on the integration host with
+`--pietto-sqlite-class=qualified` (D78.07).
+
+### B2 single-writer order
+
+The lead fixes it; a later arrival rebases.
+
+- **Shared seam.** The connector set, the dialect sets and the three family
+  mappings change in S07 alone, in one commit (AD78.03, 80-4).
+- **Second maintenance batch first.** S07 and every later integration start
+  on the head that batch publishes, since it rewrites much of `tests/`; S06,
+  a documentation commit, is replayed onto it. New files come first and
+  shared hunks last, each step's changed lines compared before and after
+  (74-2, 75-1).
+- **Plan hot files.** `project_sql_plan_target_assessment.py` and
+  `project_sql_plan_pure_boundary.py`: SQLite S07 first; DuckDB B2's T02,
+  if it must touch them, after it; MySQL catch-up and pure-boundary repairs
+  serialize on them too.
+- **Shared pages.** `docs/language.md`, `docs/capabilities.md`,
+  `docs/project-package.md`, `docs/execution.md`, `docs/spec/diagnostics.md`,
+  `docs/roadmap.md`, `docs/status.md` and `README.md` have one writer at a
+  time at integration: SQLite S07, S08, S10, S11 and S16 and DuckDB B2's
+  T08 in the order they integrate. `docs/spec/diagnostics.md` is written at
+  times the lead schedules apart from Phase81's diagnostic review (P03,
+  PL.58).
+- **Shared tests and VR2 pages.** `tests/test_harness_execution_api.py`
+  (SQLite S12, DuckDB T06), `tests/test_sql_compile_api.py` (SQLite S08,
+  DuckDB T02 if needed) and `docs/development.md` have one writer at a time.
+- **Every integrated tree** reruns the repository-wide owners and the
+  AD78.03 firewall (72-2). The two B2 lines have no publication order: each
+  fails closed.
+
+### B2 qualification and replay
+
+Qualification is in process on the measured build, as for B1 (D78.03), now on
+CPython 3.13.13 and 3.12.13 (Q8): native cells over `:memory:` or test-owned
+files under the pytest base temporary directory, oracles written before the
+run, a fabricated-output self-test that fails every fail-open shape (72-4),
+skips counted beside passes (75-3), a failed cell first a question about its
+judge (74-1), and a form without a passing cell shipped refused (73-6).
+Native cells run on the integration host; Teach does not run them (D78.09),
+and hosted CI asserts the refusal and runs the byte and golden tests.
+
+R1 is one campaign after S10, under D78.08's conditions, which PL.47 extends
+to it: the pinned PostgreSQL 18.6 image on the Docker Engine, one owned
+container with `--pull=never --network none`, holding one of the three
+PostgreSQL slot locks. Its entries are T1's new project PostgreSQL bytes and
+every T2 form: `having`, `count_distinct`, `avg(Int)` and the one-sided
+`sum(Int)`. The `avg` entries pass on data whose sum does not depend on the
+order, and a cancelling case is recorded as an observed difference, not a
+failure, unless the lead's `avg` ruling says otherwise. The fixture's name is
+IMPLEMENTATION_FREEDOM.
+
+**Void rules** (D78.10, D78.11). The manifest, expectations, judge, driver,
+exit codes and void rules are frozen and reviewed before each attempt. The
+campaign ends with its first run that ends `PASS` or `FAILED`; before that
+it may contain void attempts, each kept and charged to P78B2. When a void
+attempt's cause lies in the frozen package or a reviewed runtime value, the
+next attempt waits for a revision that passed review; otherwise it runs the
+same package under a new run id. A run that never started is no attempt. The
+campaign's two hours are summed over all its attempts, void ones included; no
+attempt starts once they are spent, and each runs under the time that
+remains, less the driver's cleanup, as an outer limit
+(`timeout --foreground --preserve-status -s TERM`, never `-k`). A `FAILED`
+campaign runs again only after its integrity audit finds a judge defect and
+an erratum is written. Another campaign beyond R1 needs the owner.
+
+**Reuse and invalidation.** An entry of `postgres_replay_v1.json` or of R1's
+result keeps its saved rows only while its PostgreSQL bytes, fixture rows,
+oracle and carriers are unchanged (D78.10); a form that B2 adds has no replay
+until R1 runs it. A native cell binds the build triple it observed and the
+bytes it ran, so a byte change reruns it and a golden changes only with its
+review. A change of the connector set, the three family mappings or the
+dialect sets reruns their consumers: `check --project`, the PostgreSQL,
+MySQL and DuckDB emitters, `pietto lsp` through `check`, and the firewall.
+
+### B2 midpoint and unfreeze
+
+**Midpoint (after S10 integrates).** Each T1 and T2 form emits with a
+reviewed golden or refuses with its listed text; R1's result; the ledger's
+measured rate projects the first tier and records whether PL.15 raised a
+figure; the newest published head's CI health is read; S05's facts are
+restated (the range evidence, the integrity check and the UTF-8 check);
+1b's progress; the state of DuckDB B2 and of Phase81's diagnostic review
+(P03, PL.58); and the owner decides
+which second-tier items (T3 JOINs, T4 arithmetic with the sheet's Q4, T5
+windows, two replays) open and with what ledger. T3 first restates the
+roadmap's Reminder 8 (JOIN facts of compiled replay and live analysis, the
+forged compiled `median`) or gets the semantic and ProjectIR owner's
+ARCHITECTURE_DECISION; the first tier meets it by exclusion, since it opens
+no JOIN and refuses bundles. The midpoint record goes into this route's B2
+record (80-5).
+
+**Unfreeze conditions.** These need the owner: a form beyond PL.47's;
+a new `PIE-*` code or a public text outside the specification's tables; a
+dependency, extra or pin; a container run beyond R1, or any MySQL run;
+another build or platform; SQLite bundles, saved results, jobs or R2; a
+looser defence or value check; an extension-repository push; any ledger
+ceiling.
+
+### B2 risks
+
+1. **The caller's file.** Malformed files, objects posing as sources,
+   out-of-domain values and indexes that disagree with their table can give
+   wrong results or reach a library defect. The eleven defences, the value
+   and integrity check, S12's controls and a documented boundary that claims
+   no memory safety of the library bound it; 1b can be withdrawn at the
+   midpoint without touching 1a.
+2. **SQLite's numeric and text meaning.** Partial-sum overflow, collation,
+   identifier case and affinity differ from Pietto's rules. The
+   specification's differences table, the one-sided `sum`, the explicit
+   `COLLATE BINARY` and R1 bound it; a form measured otherwise stays refused.
+3. **Shared surfaces.** DuckDB B2, Phase81's diagnostic review (P03,
+   PL.58) and the second maintenance batch share pages, tests and the plan
+   hot files. New files first, the one-commit seam and the single-writer
+   order bound it.
+
+### B2 initiation-gate checklist
+
+| # | Field | Answer |
+| ---: | --- | --- |
+| 1 | Live authority | Gate 0 on `8cb9d9de` (tree `b2ad91b2`) with natural CI `43767179471` and its health (PL.07); PL.47 and the decisions it keeps; Phase79 and Phase80 completion audits read by S16; Phase78's own audit written by S16 |
+| 2 | User/product outcome | SQLite in project mode, the common aggregates, and an optional read-only run over a caller's file; not other builds, writing, other types, bundles, jobs, R2 or parity across databases |
+| 3 | Semantic reference model | Project semantics (`ProjectSQLPlan`), the Float value contract and checked `Int`; the PostgreSQL emitter's result for the same source is the reference (R1). Roots: AST, project semantic facts, the plan |
+| 4 | Identity model | Source occurrence; `sqlite.table` names one exact bare table, equal to the contract's `relation.name`; the dialect name is no qualification; target identity is family, release, source id and compile options; the run's input is the caller's path with its schema and values checked again in one snapshot each attempt, with no content digest |
+| 5 | Construction states | Refused, emitted (bytes and golden) or qualified (a passing native cell); only qualified forms publish |
+| 6 | Proof posture | Asserted: emission premises (`STRICT`, UTF-8, domains). Observed: S05's cells. Derived: SQL bytes, the one-sided `sum` equivalence, the SQLite range read. Verified: S09 and S12 cells, R1. Unknown: the 256 MiB timing (S12). Disproven: nothing |
+| 7 | Layer ownership | Semantic connector checks own the spelling; the plan layer is unchanged; `_project/project_sqlite_*` owns SQLite lowering, rendering, refusals and verification; the CLI and `compile_query` own dispatch; `execution/_sqlite.py` owns the route and file checks; tests own qualification |
+| 8 | Dependency direction | The symbol whitelist of the decisions table; no other pipeline module; the firewall test checks the names; the PostgreSQL/MySQL pipeline never receives `sqlite` |
+| 9 | Versioning and migration | CLI JSON v1 unchanged; project documents keep their v1/v2 envelopes with one more `family`; compiled records unchanged, so `VERSIONS` stays (D76.13); no migration |
+| 10 | Target requirements versus provider capabilities | Requirements are the premises and forms; provider evidence is the measured triple; other builds are not qualified, not unsupported |
+| 11 | Interchange | SQL text, CLI JSON and the compiled document cross the boundary, and in 1b a `ResultBatch`; the database file does not: Pietto reads it and copies nothing |
+| 12 | Execution | Only in 1b, owned by `execution/_sqlite.py`: in process, read-only, `premise=None`, `isolation="stable"`, its resources and effects listed in the specification |
+| 13 | Resource lifecycle | One connection and one read transaction per attempt, rolled back and closed in `finally`; deadline and cancel through the progress handler and `interrupt()`; tests keep files under the pytest base temporary directory |
+| 14 | Security and trust | The defences and value check of PL.47; no network, no extension loading, no writes, no SQL from the file executed; no claim of the library's memory safety |
+| 15 | Algorithms and data structures | The existing plan walk and a direct tree renderer in the DuckDB adapter's shape; nothing new |
+| 16 | Complexity posture | Emission linear in the plan; the run's check linear in the source tables plus the integrity check, under 256 MiB, 1,048,576 rows per table and `ExecutionLimits.seconds` |
+| 17 | Invalidation | [Reuse and invalidation](#b2-qualification-and-replay) |
+| 18 | Cache | None; each qualification run and each attempt observes and checks again |
+| 19 | Concurrency | One unshared connection per attempt; one connection per test cell, safe under xdist; lanes under PL.01 and PL.03; R1 under the slot locks |
+| 20 | Diagnostics | No new code; `PIE-B1003`, `PIE-B1001`, `PIE-B1004` and `PIE-B1000` with the specification's details and reasons, in its rule order; S11's `PIE-R` details |
+| 21 | Inspection | `check` and `explain` stay read-only and dialect-neutral; no SQLite inspection command |
+| 22 | UX | One spelling, `sqlite.table("name")`, kept by `pietto fmt`; the specification's usability row; refusals name SQLite and the reason |
+| 23 | Conformance | The language guide's SQLite sections, the specification, the CLI and project JSON specifications, the contract tables, diagnostics, golden policy; the finite native matrix on the measured build |
+| 24 | Differential and fuzz assurance | Prewritten oracles, the BAG/NULL oracle, R1. Fuzzing and reduction are `NOT_APPLICABLE`: the forms are a closed finite set that the native matrix enumerates; owner of high-intensity assurance: Phase81 |
+| 25 | Packaging | No dependency, extra or lock change (`arrow` reused); no grammar change; new modules enter the wheel, so Gate 2 runs the package check |
+| 26 | Support matrix | Linux x86-64, CPython 3.13.13 and 3.12.13, one build; SQL text everywhere CI runs; D5 A stands for the extras |
+| 27 | Release, deprecation, and EOL | The `0.2.x` after its Gate 2, `0.2.2` at the earliest, each release approved by the owner; an alpha surface in the release notes and freeze ledger; rollback by revert; no deprecation |
+| 28 | Readiness and exact deferred owners | Prerequisites: Gate 0, S05, the second maintenance batch before S07; deferrals in the table below |
+| 29 | Slice route | [B2 slices](#b2-slices); non-goals in [B2 scope](#b2-scope) |
+| 30 | Repair and stop conditions | P78B2's ceilings with PL.15; stop at a ceiling, an unproved build or input identity, a needed code or text outside the specification, a dependency, a container run beyond R1, an extension push, a trust regression, or a replay that changes an existing meaning; failed candidates and runs are preserved; no commit or push without authorization |
+
+The usability row is the specification's. The external reference record of
+untrusted SQLite files, in the gate's eleven-item shape with its
+WHAT_NOT_TO_COPY, is S11's first step; 1a opens no file, so it is
+`NOT_APPLICABLE` before S11 (owner: S11).
+
+### B2 deferred owners
+
+| Item | Owner and latest point |
+| --- | --- |
+| The second tier (T3 to T5, the sheet's Q4 arithmetic, windowed `sum`) | The owner at the midpoint; if approved, a follow-up package that the Phase78 completion audit hands over, with its own ledger; unclaimed items are unsupported at the Phase82 freeze |
+| Reminder 8 | Met by exclusion in the first tier; restated before T3 opens, or the semantic and ProjectIR owner's ARCHITECTURE_DECISION |
+| The `avg(Int)` rounding ruling | The lead, before S10 seals |
+| Naming a native error by its extended `sqlite_errorcode` beside `sqlite_errorname`, since a `STRICT` type error's name is `unknown` (D78.04 named them by name) | The lead, as an ARCHITECTURE_DECISION, before S11 seals |
+| Run-time guarded arithmetic, `Float` arithmetic, `/` and `%` | A later Gate 1 with a use case; Phase82 freeze input |
+| Admitting `Text` that holds NUL | A later SQLite execution Gate 1 |
+| Other builds, Windows and macOS | Not qualified (PL.40 D9 A, D5 A); the Phase82 support matrix |
+| The SQLite capability-facts profile | The editor capability-facts Gate 1 |
+| SQLite bundles, saved results, relay, jobs and R2 | Later execution and recovery owners; Phase82 freeze input |
+| The third whole-tree test pass | The second maintenance batch (PL.40 D14 A), before the Phase78 completion audit |
+| `verify_project_sql_plan`'s memo | Phase81 (PL.40 D15 A) |
+
+### B2 budget
+
+P78B2 is B2's own cumulative ledger (PL.47): `C100/F300/D3,700/S5` for 1a
+(S05 to S10, R1 and S16) and `C60/F180/D2,300/S3` more for 1b, together
+`C160/F480/D6,000/S8`. These are ceilings, not targets; the slice allocations
+above are planning figures that sum to `C145/F440/D5,230/S6`. Under PL.15 a
+figure that reaches 80% of its ceiling gains half of itself, and the lead
+reports each raise; reaching a ceiling still stops the work for the owner.
+The sheet's drafting and the probes before Gate 0 move to P78B2 by the PL.06
+precedent. P78B2 closes with S16; a second tier gets its own ledger. The lead
+keeps the running ledger, and each lane reports its commands (D, D76.17) and
+pytest starts (F).

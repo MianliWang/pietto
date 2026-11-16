@@ -158,8 +158,9 @@ paths, formatting, and ordinary hashes do not require new authority.
   [golden fixtures](docs/spec/golden-fixture-policy-v1.md). Alpha until the
   Phase82 freeze: the [relation column view](docs/spec/project-relation-columns-v1.md),
   the [Python compile API](docs/spec/python-compile-api-v1.md),
-  [`pietto lsp`](docs/editor-lsp.md), [`pietto.interop`](docs/interop.md) and
-  the [DuckDB Arrow route](docs/spec/duckdb-arrow-route-v1.md).
+  [`pietto lsp`](docs/editor-lsp.md), [`pietto.interop`](docs/interop.md),
+  the [DuckDB Arrow route](docs/spec/duckdb-arrow-route-v1.md) and
+  [SQLite project mode](docs/spec/sqlite-project-v1.md).
 
 ## CI workloads and phase planning
 
