@@ -157,6 +157,54 @@ that corpus, real sources witness SET operands reading physical sources directly
 expression-scoped premise; multi-hop path JOINs (the only source of predecessor JOIN inputs)
 remain BLOCKED at admission and have no private document.
 
+Every line and branch of the re-rendering that does not refuse runs on a document the
+pipeline emits, and every template and spelling row renders on one, though not every such
+document is in CI. The exceptions are what no target emits: the separator between the
+PARTITION BY keys of a ranked `first` or `last`, since MySQL ranks over one key at most,
+and the MySQL rows of window aggregates and of aggregates that MySQL never emits or the
+check refuses there, which the re-rendering refuses wherever they occur. Each window
+offset, bucket and position renders at both ends of its interval on an emitted document
+in the portability owner.
+
+Of the 21 guards of S12's MySQL scalar cells whose mutants no resident test killed, seven
+are pinned in the portability owner by a forgery that only the guard refuses: the field
+operand's source port and its literal, aggregate and window origins, and the statement's
+fixed values, end to end; the operand's field and the source scan that ends a cell's
+stage chain while `_MysqlCellSql`, which refuses those two as well, stands aside. The
+other fourteen are defense in depth, each behind a relation that refused every forgery
+made against it. A forged terminal kind is refused first by the column name or the
+overlay carrier, and the re-rendering anchors the terminal to its CTE header. A
+parameter brings its native use and fixed value, so while the fixed-value guard stands
+the anchor operand guard and the parameter and native use guards change nothing; one of
+the three statement guards must stay. An aggregation on the final body is refused by the
+stage columns, and an aggregate body anywhere else cannot enter past PIE-S2370 and the
+row body count; a second block read fails that count, and a capturing let read twice is
+PIE-S2370. The capture read's final scan, producer finality and projection and its
+result body guard follow from the row body count and producer chain, the
+re-rendering's closure of unread CTEs and block read targets, and PIE-S2370. No forgery
+reached the producer body, JOIN body or set body guards: the aggregate capture shape is
+PIE-S2370, the JOIN probe's source did not parse and PIE-S2370 admits no JOIN in a
+capturing let's body, and the set shape writes no artifact; none was made for the guard
+that `date_of` reads `now()`, which changes the outcome only for an `lpad` operand that
+the semantic layer refuses. The fourteen mutants together agree with the candidate on 184
+forgeries, the 365 resident nodes that reach the cells and the 9,687 replayed documents.
+
+Of the 98 mutants of the fidelity design's kill table, each dropping or widening one
+subcheck of the re-rendering, 97 are killed offline by the portability owner's resident
+tests: four by the forgeries its tests build, and 93 by the 87 kept forgeries in
+`tests/fixtures/sql_emission_pure/`, each refused end to end and by its own subcheck alone.
+The design's forgery classes made 83 of them from documents the pipeline emits (two from an
+earlier pipeline's witnesses: a window ORDER with two keys and a CTE with no column); four
+are made by hand where no class reached the subcheck alone: a MySQL parameter with server
+index 0, two set columns that trade an operand's input, an EXISTS over an inline projection
+with no column, and a MySQL window body with 128 windows. Under 60 of those mutants a kept
+forgery passes end to end, under 32 only the re-rendering alone admits one, and the FULL
+JOIN operand kind mutant still refuses its forgery, a capture operand, but by the capture
+placement subcheck. The one left alive writes a window argument's separator by the
+argument's recorded position rather than its index; the re-rendering refuses an argument
+whose position is not its index before it writes any separator, so this mutant renders
+every document as the re-rendering does.
+
 ## Process family
 
 The `phase66` family runs `tests/_pietto_phase66_sql_emission_differential_probe.py`

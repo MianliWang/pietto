@@ -380,15 +380,17 @@ Batch 2 (M11–M16), one maintenance batch after the `v0.2.1` tag that
 `v0.2.1` does not carry, completed the third whole-tree test pass and the
 CI scheduler fix for module fixtures built in several shards (F3), under the
 [CI workload governance](architecture/ci-workload-governance-v1.md)
-(PL.40, D14; PL.49). The pass leaves three items to later owners (PL.49):
-the naming exception of `tests/_pietto_mysql_native_prepared.py` waits
-until a line refreezes the qualification packages that name it, the nested
-work package or a later one, since MC refreezes none of them (MC.13); the
-surviving mutants of Phase77 S12's allowlisted guards in
-`src/pietto/_project` go with the repeated MySQL cell derivation to the
-MySQL catch-up work package MC (MC.01); and those in the pure reader go to
-the pure verifier fidelity repair (PL.20, D77.54), which continues as its
-own maintenance work beside the phases. Phase81 takes the import time of
+(PL.40, D14; PL.49). The pass left three items to later owners (PL.49),
+and two remain: the naming exception of
+`tests/_pietto_mysql_native_prepared.py` waits until a line refreezes the
+qualification packages that name it, the nested work package or a later
+one, since MC refreezes none of them (MC.13); and the surviving mutants of
+Phase77 S12's allowlisted guards in `src/pietto/_project` go with the
+repeated MySQL cell derivation to the MySQL catch-up work package MC
+(MC.01). The pure verifier fidelity repair (PL.20, D77.54) settled those
+in the pure reader, as the
+[Slice14 contract](spec/phase66-slice14-private-emission-observation-process-integration-v1.md#coverage)
+records. Phase81 takes the import time of
 `pietto.execution` (PL.40, D15). Each completion audit records the Gate 2
 duration.
 
