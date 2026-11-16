@@ -29,8 +29,9 @@ available only from the explicit alpha Python API described below.
 
 ## Status
 
-**Version 0.2.1, public alpha.** Pietto is pre-release. Before 1.0 a release
-may carry breaking changes: it lists them at the top of its
+**Version 0.2.1, public alpha.** Pietto is pre-release. Until its public
+contracts are frozen, a release may carry breaking changes: it lists them at
+the top of its
 [release notes](https://github.com/MianliWang/pietto/blob/main/docs/release-notes.md),
 and compiled bundles and saved jobs are not migrated between versions.
 
@@ -407,8 +408,8 @@ starts; none of it is a promise or a date.
 | Release | Planned |
 | --- | --- |
 | `0.2.x` | Real-database, differential, metamorphic, fuzz and performance assurance; a diagnostic review; the CPython and Windows support decisions |
-| `1.0.0rc1` | A freeze of the public schemas, API, CLI, syntax and support matrix |
-| `1.0` | The stable release; a breaking change then waits for `2.0` |
+| later `0.2.x` | A freeze of the public schemas, API, CLI, syntax and support matrix; after it a release only adds compatibly |
+| `0.3.0` | The Rust rewrite; a breaking change waits for it |
 
 The editor support ships on its own extension versions; capability facts are
 still ahead.

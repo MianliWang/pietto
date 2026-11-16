@@ -66,8 +66,8 @@ map.
 | 79 | DuckDB deep adaptation, with the limited local analysis path that `0.2.0` requires |
 | 80 | pandas/Polars/NumPy/SciPy/Matplotlib interoperability and the Python user surface |
 | 81 | High-intensity real-DB/differential/metamorphic/fuzz/performance assurance, the diagnostic review, and the CPython, Windows and re-verification decisions |
-| 82 | Public schemas/API/CLI/syntax/support-matrix freeze, ruling on the [freeze ledger](#phase82-freeze-ledger) |
-| 83 | Stable 1.0 release audit and publication |
+| 82 | Public schemas/API/CLI/syntax/support-matrix freeze within `0.2.x`, ruling on the [freeze ledger](#phase82-freeze-ledger) |
+| 83 | Release audit and publication after the freeze, of the then `0.2.x` release |
 | 84 | Remote assets/registry/transport/signing/trust |
 | 85 | Dependency solver/canonical lockfile/reproducible resolution |
 | 86 | RDKit/geospatial/sparse/DLPack/device-framework adapters |
@@ -93,7 +93,8 @@ see the [Phase78 route](phases/phase-78/route.md), the
 [Phase80 route](phases/phase-80/route.md) and the
 [E-C route](editor/ed03-route.md).
 
-The owner's answers of 2026-11-07 settled the rules below; the
+The owner's answers of 2026-11-07 settled the rules below, and on
+2026-11-16 the owner changed their release numbers (PL.51); the
 [decision record](decisions.md#roadmap-after-0110--owner-decisions-2026-11-07)
 gives each with its source.
 
@@ -110,8 +111,9 @@ which carries the leftovers of Phase80 and earlier with the MySQL `Float`
 PL.46). Phase81 and the MySQL catch-up phase use `0.2.x` from `0.2.2`
 (PL.40). SQLite B2, DuckDB B2 and the interop relief each enter the `0.2.x`
 release that follows their Gate 2, `0.2.2` at the earliest (PL.47). Phase82
-uses `1.0.0rc1` and Phase83 uses `1.0`. The extension follows its own
-version line.
+and Phase83 also use `0.2.x`, and no release is called `1.0`: every release
+before Phase90 is a `0.2.x`, and Phase90, the Rust rewrite, releases as
+`0.3.0` (PL.51). The extension follows its own version line.
 
 `0.2.0` requires PostgreSQL and MySQL within the MySQL cadence below, one
 local analysis path (the limited DuckDB path of Phase79, not a complete third
@@ -119,20 +121,22 @@ dialect) and the Phase80 interoperability with five libraries and its Python
 surface. It does not require editor facts; the editor ships on its own
 extension versions.
 
-Before 1.0 a release may carry breaking changes: it lists them at the top of
-its release notes with a pin to the previous exact version and keeps
-recompiling, reading saved results and running again apart, and bundles and
-saved jobs are not migrated before the Phase82 compatibility decision
-(D76.13). The VS Code extension has versions of its own (see the editor work
-package). Each release is approved on its own.
+Until the Phase82 freeze a release may carry breaking changes: it lists them
+at the top of its release notes with a pin to the previous exact version and
+keeps recompiling, reading saved results and running again apart, and
+bundles and saved jobs are not migrated before the Phase82 compatibility
+decision (D76.13). The VS Code extension has versions of its own (see the
+editor work package). Each release is approved on its own.
 
-### After 1.0
+### After the Phase82 freeze
 
 Phase82 freezes concrete semantics and compatibility rules: each public
-contract states what a `1.x` release may add and what stays, and an addition
-that can break a working program or reader, such as a new reserved name or a
-JSON field, counts as a compatibility change. A breaking change waits for
-`2.0`. Phases 84–90 and the tentative owners below work inside those rules.
+contract states what a later `0.2.x` release may add and what stays, and an
+addition that can break a working program or reader, such as a new reserved
+name or a JSON field, counts as a compatibility change. After the freeze a
+`0.2.x` release only adds compatibly, and a breaking change waits for
+`0.3.0` (PL.51). Phases 84–90 and the tentative owners below work inside
+those rules.
 
 ### MySQL cadence
 
@@ -232,9 +236,9 @@ slice, replayed onto batch 2's head: grouped `count`, `sum`, `min` and
 `or` and `not`, and filters with several parameters, with capture limits of
 1,048,576 rows and 256 MiB of the selected columns and a fixed
 `memory_limit` of 1 GiB in place of D79.04's, and refusal texts rewritten
-without "yet", which the owner sees before they bind. Both B2 parts write
-NULLS clauses that place NULL as PostgreSQL does. JOINs and the other forms of
-each second tier wait for that part's midpoint.
+without "yet", in the version that the owner approved (PL.50). Both B2
+parts write NULLS clauses that place NULL as PostgreSQL does. JOINs and
+the other forms of each second tier wait for that part's midpoint.
 
 ### Interop relief
 
@@ -254,6 +258,25 @@ the extras (PL.40, D5).
 
 ### Phase81 scope
 
+The owner approved Phase81's Gate 1 on 2026-11-16 (PL.50), taking every
+recommendation of its sheet except that the release tools move into the
+repository. Its Gate 0 binds the head where batch 2 is pushed and its natural
+CI has passed. It runs beside SQLite B2, DuckDB B2, the interop relief and,
+after its own Gate 1, the MySQL catch-up phase, and its slices enter the
+`0.2.x` release that follows their Gate 2, `0.2.2` at the earliest. CPython
+3.14 gets full CI parity (30 jobs) and joins the verified profile. On Windows
+x86-64 the CLI and `pietto.compiler` are declared supported with execution
+NOTRUN, batch directory output gets a writer that holds the new directory's
+handle, the extension repository's CI gains a native Windows job, and the
+classifiers name Linux and Windows. A verification result is reused only
+inside one public call, and a stored or cross-process result is verified
+again when loaded. The diagnostic review fixes texts, hints, positions, order
+and severity within the existing codes. Nullability v2 gets a read-only
+review first, reported to the owner at the midpoint. The assurance work uses
+a bounded, seeded generator and shrinker with no new dependency and no
+network. The release tools move into `scripts/`, where CI runs only their
+dry run and self-tests. The ledger is `C206/F618/D11,950/S14`.
+
 Phase81 decides the CPython matrix (3.14 into CI and the verified profile;
 until then 3.12 and 3.13, with no upper bound on `requires-python`), the
 Windows scope and a re-verification policy that reuses a verification result
@@ -270,12 +293,13 @@ directory writer, a claim of CLI and compile support with execution NOTRUN,
 and a native Windows editor acceptance, and that claim leaves out the extras
 (PL.40, D5); until then the package keeps its
 `Operating System :: OS Independent` classifier. Nullability v2 goes to
-Phase81 if it changes a public type contract, otherwise to `2.0`.
+Phase81 if it changes a public type contract, otherwise to `0.3.0`.
 
-From the `0.2.1` lanes (PL.44), Phase81's diagnostic review also takes the
-owner question of the PIE-B1004 `identifier_case_declaration_missing` that a
-statement refused during realization still reports when its only `let` is
-an inline capturing one that reads another query. It also takes the
+From the `0.2.1` lanes (PL.44), Phase81's diagnostic review also drops,
+by Q7 (d) (a) of PL.50, the PIE-B1004 `identifier_case_declaration_missing`
+that a statement refused during realization still reports when its only
+`let` is an inline capturing one that reads another query, while the code
+stays. It also takes the
 MySQL one of the two comments on diagnostic texts from the external audit
 of `0.2.0` (PL.40, D6); the DuckDB one goes to DuckDB B2 (PL.47). Two
 items found while `0.2.1` was prepared, both as in `0.2.0`, join that
@@ -377,22 +401,22 @@ each completion audit adds the freeze inputs of its phase here.
 | The header rule and its tokens retained by Phase76 | removed under the migration/hint compatibility contract | D75.06, D76.12; [Phase76 audit](phases/phase-76/completion-audit.md) |
 | The nested public format; grouping extensions, automatic fan-out repair and a public aggregate state | frozen, or kept unsupported | Phase71 route, Phase74 handoff |
 | `def` and `relationship` items in PACKAGE_ROOT modules; a built-in table function | admitted, or kept refused | D74.07, D74.12 |
-| PostgreSQL extension functions, the function/plugin SPI, user-written table functions, database-native array and JSON columns, the `postgres_adbc` nested route | the 1.0 support matrix lists each one no Gate 1 took as not supported | D76.11, D80.06 |
+| PostgreSQL extension functions, the function/plugin SPI, user-written table functions, database-native array and JSON columns, the `postgres_adbc` nested route | the Phase82 support matrix lists each one no Gate 1 took as not supported | D76.11, D80.06, PL.51 |
 | Project `matches(...)`; `Decimal` division and `avg`; `round` of a `Float` with digits | a contract, or a refusal that stays | D76.03, D76.05, D80.06 |
 | The PostgreSQL TLS profile of `PostgresAccess.ca_file` | a support-matrix row | D76.07 |
 | Single files and projects | `language.md` states the rule before the freeze: single files open project-only forms one at a time, DISTINCT first, with no promise that they stay a subset of projects | owner, 2026-11-07 |
-| Bundles and saved jobs across versions; an upgrade-impact tool | the 1.0 compatibility and migration policy, and whether the tool comes before 1.0 | D76.13, Phase76 reminder 7 |
-| Nullability v2 | Phase81 if it changes a public type contract, otherwise `2.0` | D73.13, owner, 2026-11-07 |
+| Bundles and saved jobs across versions; an upgrade-impact tool | the Phase82 compatibility and migration policy, and whether the tool comes before the freeze | D76.13, Phase76 reminder 7, PL.51 |
+| Nullability v2 | Phase81 if it changes a public type contract, otherwise `0.3.0` | D73.13, owner, 2026-11-07, PL.50, PL.51 |
 | The CPython matrix and the Windows claim | frozen as Phase81 decides them | owner, 2026-11-07 |
-| The release notes' `0.x` history, which keeps its file layout until then | archived by the freeze (`1.0.0rc1`) | PL.40 (D10) |
+| The release notes' history before the freeze, which keeps its file layout until then | archived by the Phase82 freeze | PL.40 (D10), PL.51 |
 | Compiled replay and live analysis give different JOIN key and grain facts for equal SQL bytes | an ARCHITECTURE_DECISION of the semantic and ProjectIR owner, with the lead integrating every reader, before any slice consumes those facts | Phase74 handoff, Phase76 reminder 8 |
 | A forged compiled `median(id * 2)` loads with consistent SQL | a trust decision of the compiled and verifier owner, coordinated by the lead, before the first new consumer of compiled admission and at the latest before `compile_queries(...)` | Phase74 handoff, Phase76 reminder 8 |
 | The VS Code extension's sync script imports the generated lexer and parser from `pietto.generated` and two functions from `pietto.indentation`, modules that no public contract names | whether the script must stop importing them, and which public entry point replaces them if so | PL.38, PL.44 |
 | The fixed civil `Timestamp` meaning of a `now()` output; the statement time that R2 records and `recover` binds | each freezes with the result contract and the R2 workspace, or changes before the freeze | D77.42, D77.49; [Phase77 audit](phases/phase-77/completion-audit.md) |
 | MySQL R2 refuses every form that `0.1.11` refused (`PUBLIC_R2_UNQUALIFIED_FORM`, by rule two) and every paired form (`PUBLIC_R2_PAIRED_FORM`) | a support-matrix row for R2 by target, or narrowed by forms that a native R2 qualification covers | D77.46, D77.67, D77.68 |
-| MySQL forms that open only byte for byte as a paired form (Wave A) | the 1.0 support matrix states them as paired forms, or a structural rule replaces them | D77.36; [Phase77 audit](phases/phase-77/completion-audit.md) |
-| SQLite single-file SQL: `emit-sql FILE --dialect sqlite`, the successful CLI JSON v1 `dialect` value `"sqlite"`, the `sqlite.table("name")` spelling with its PIE-S2306 texts, the PIE-B1000 SQLite reasons and the declared premises | frozen, kept alpha, or kept unsupported; the 1.0 support matrix lists the qualified SQLite build and every other build as not qualified | D78.01–D78.04; Phase78 B1 closeout |
-| The DuckDB Arrow route: the `duckdb.arrow("key")` spelling with its PIE-S2306 texts, the project dialect `duckdb`, the contract target `{"family": "duckdb", "release": "2.0.0"}` with `scan` `"arrow_registration"`, the `arrow` namespace and the `arrow_*` storage kinds, the DuckDB compile refusals and their order, `execute(route="duckdb_arrow")` with `DuckDBArrowInput` and `premise=None`, the capture limits, the session settings, the detail words and the `execute-duckdb` extra | frozen, kept alpha, or kept unsupported; the 1.0 support matrix lists `duckdb` `2.0.0` with `pyarrow` `26.0.1` on the qualified platforms and every other release and platform as not qualified | D79.01–D79.15, AD79.01; [Phase79 B1 audit](phases/phase-79/completion-audit.md) |
+| MySQL forms that open only byte for byte as a paired form (Wave A) | the Phase82 support matrix states them as paired forms, or a structural rule replaces them | D77.36; [Phase77 audit](phases/phase-77/completion-audit.md) |
+| SQLite single-file SQL: `emit-sql FILE --dialect sqlite`, the successful CLI JSON v1 `dialect` value `"sqlite"`, the `sqlite.table("name")` spelling with its PIE-S2306 texts, the PIE-B1000 SQLite reasons and the declared premises | frozen, kept alpha, or kept unsupported; the Phase82 support matrix lists the qualified SQLite build and every other build as not qualified | D78.01–D78.04; Phase78 B1 closeout |
+| The DuckDB Arrow route: the `duckdb.arrow("key")` spelling with its PIE-S2306 texts, the project dialect `duckdb`, the contract target `{"family": "duckdb", "release": "2.0.0"}` with `scan` `"arrow_registration"`, the `arrow` namespace and the `arrow_*` storage kinds, the DuckDB compile refusals and their order, `execute(route="duckdb_arrow")` with `DuckDBArrowInput` and `premise=None`, the capture limits, the session settings, the detail words and the `execute-duckdb` extra | frozen, kept alpha, or kept unsupported; the Phase82 support matrix lists `duckdb` `2.0.0` with `pyarrow` `26.0.1` on the qualified platforms and every other release and platform as not qualified | D79.01–D79.15, AD79.01; [Phase79 B1 audit](phases/phase-79/completion-audit.md) |
 | `RequestRejected` also carries the PIE-R2xxx refusals of the checks that `execute()` runs itself (`PIE-R2003` on `mysql_rows` and `postgres_adbc`, `PIE-R2001` and `PIE-R2002` of the loaded PyArrow on `duckdb_arrow`), and the PIE-R1004 width refusal (`LIMIT`) covers only the PostgreSQL and MySQL routes | each freezes with the execution error classes, or changes before the freeze | D79.11; [Phase79 B1 audit](phases/phase-79/completion-audit.md) |
 
 ## Project-mode follow-up

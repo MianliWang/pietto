@@ -6,7 +6,7 @@ it does not add syntax, behavior, or a numbered Slice route.
 
 ## Product boundary
 
-Pietto is a gradual semantic SQL authoring DSL and compiler. Its intended 1.0
+Pietto is a gradual semantic SQL authoring DSL and compiler. Its intended
 core is a read/query/analytics semantic compiler with optional, explicit
 execution. Pietto is not itself a:
 
