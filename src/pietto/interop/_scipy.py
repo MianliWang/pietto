@@ -7,9 +7,11 @@ from typing import Any
 from pietto.interop import _common as common
 
 # The kinds to_scipy_csr admits as coordinates and as values, never nullable
-# (D80.03).
+# (D80.03); PL.47 adds Float values.
 COORDINATES = ("Int",)
-VALUES = ("Int",)
+VALUES = ("Int", "Float")
+# The data dtype each admitted value type keeps.
+DATA = {"int16": "int16", "int32": "int32", "int64": "int64", "double": "float64"}
 
 
 def convert(
@@ -22,7 +24,8 @@ def convert(
     shape: tuple[int, int],
 ) -> Any:
     # The coordinates are checked unique and inside the shape, so building
-    # from triplets sums nothing and stores every record, zeros included.
+    # from triplets sums nothing and stores every record as given, zeros and
+    # -0.0 included.
     # They lie below 4096, so int32 holds them exactly; SciPy would keep
     # int64 coordinates as int64 indices.
     rows, columns = (
@@ -42,7 +45,7 @@ def convert(
             f"{name}: scipy built the shape {built} instead of {shape};"
             f" {common.pinned('scipy')}"
         )
-    wanted = ("int32", "int32", f"int{data.schema.field(value).type.bit_width}")
+    wanted = ("int32", "int32", DATA[str(data.schema.field(value).type)])
     found = tuple(
         str(part.dtype) for part in (matrix.indices, matrix.indptr, matrix.data)
     )

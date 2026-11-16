@@ -1798,12 +1798,22 @@ SCIPY_ROWS = {
         [0, 0.0, True, None, 0, (1 << 31) - 1],
         [2, 0.0, True, None, 0, 0],
     ],
+    # PL.47's Float values: -0.0 and 0.0 each stored bit for bit, beside the
+    # least subnormal and the float64 extremes.
+    "float64": [
+        [0, -0.0, True, None, 2, 1],
+        [0, 1.7976931348623157e308, False, 7, 0, 3],
+        [0, 0.0, True, None, 1, 0],
+        [0, 5e-324, True, None, 0, 0],
+        [0, -1.7976931348623157e308, False, None, 2, 0],
+    ],
 }
 # The row, column and value ordinals and the shape of each width's call.
 SCIPY_CALLS = {
     "int64": (4, 5, 0, (4, 5)),
     "int16": (0, 5, 4, (2, 3)),
     "int32": (0, 4, 5, (3, 2)),
+    "float64": (4, 5, 1, (3, 4)),
 }
 
 
@@ -1832,12 +1842,13 @@ def scipy_cases(fx):
         observations["matrix"][width] = [csr(sparse, matrix), item.closed]
 
     seen: dict[str, int] = {}
-    for order in itertools.permutations(SCIPY_ROWS["int64"]):
-        matrix = interop.to_scipy_csr(
-            batch(binding, list(order)), *SCIPY_CALLS["int64"]
-        )
-        key = json.dumps(csr(sparse, matrix), sort_keys=True)
-        seen[key] = seen.get(key, 0) + 1
+    for width, rows in SCIPY_ROWS.items():
+        for order in itertools.permutations(rows):
+            matrix = interop.to_scipy_csr(
+                batch(binding, list(order)), *SCIPY_CALLS[width]
+            )
+            key = json.dumps(csr(sparse, matrix), sort_keys=True)
+            seen[key] = seen.get(key, 0) + 1
     observations["permutations"] = [[json.loads(k), n] for k, n in seen.items()]
 
     observations["empty"] = [
@@ -1919,10 +1930,22 @@ def scipy_cases(fx):
     gc.collect()
     observations["after_close"] = [csr(sparse, matrix), matrix.toarray().tolist()]
 
-    # PL.47's Float value cell, refused while to_scipy_csr admits only Int values.
-    floats = batch(binding, SCIPY_ROWS["int64"])
+    # Beside the float64 width above, a Bool value stays refused, a repeated
+    # coordinate stays refused with Float values, and float32 data built from
+    # Float values is refused as drift; the ±0.0 rows alone cast to float32
+    # without overflow.
+    floats = batch(binding, [r for r in SCIPY_ROWS["float64"] if r[1] == 0])
+    doubled = batch(binding, [SCIPY_ROWS["float64"][0], [0, 1.0, True, None, 2, 1]])
+    with mock.patch.object(sparse, "csr_array", retyped("data", "float32")):
+        narrowed = refusal(
+            lambda: interop.to_scipy_csr(floats, *SCIPY_CALLS["float64"]), floats
+        )
     observations["float_values"] = [
-        refusal(lambda: interop.to_scipy_csr(floats, 4, 5, 1, (4, 5)), floats)
+        refusal(lambda: interop.to_scipy_csr(floats, 4, 5, 2, (3, 4)), floats),
+        refusal(
+            lambda: interop.to_scipy_csr(doubled, *SCIPY_CALLS["float64"]), doubled
+        ),
+        narrowed,
     ]
     return {f"scipy_{key}": value for key, value in observations.items()}
 
@@ -1961,17 +1984,18 @@ def expected_scipy():
         f" once each in canonical order; {pinned('scipy')}"
     )
 
-    def retyped(indices, pointers, data):
+    def retyped(indices, pointers, data, wanted="int64"):
         return _value_error(
             f"to_scipy_csr: scipy built {indices} indices, {pointers} index pointers"
-            f" and {data} data instead of int32, int32 and int64; to_scipy_csr never"
-            f" returns a changed type; {pinned('scipy')}"
+            f" and {data} data instead of int32, int32 and {wanted}; to_scipy_csr"
+            f" never returns a changed type; {pinned('scipy')}"
         )
 
     return {
         "scipy_matrix": {width: [csr_oracle(width), False] for width in SCIPY_ROWS},
         "scipy_permutations": [
-            [csr_oracle("int64"), math.factorial(len(SCIPY_ROWS["int64"]))]
+            [csr_oracle(width), math.factorial(len(SCIPY_ROWS[width]))]
+            for width in SCIPY_ROWS
         ],
         "scipy_empty": [
             csr_oracle(width, [], hollow)
@@ -2008,9 +2032,16 @@ def expected_scipy():
         "scipy_after_close": [csr_oracle("int64"), dense],
         "scipy_float_values": [
             _value_error(
-                "to_scipy_csr: value field 1 ('f64') has Arrow type double;"
-                f" to_scipy_csr admits only Int fields{TO_FRAME}"
-            )
+                "to_scipy_csr: value field 2 ('flag') has Arrow type bool;"
+                f" to_scipy_csr admits only Int or Float fields{AS_INT}"
+            ),
+            _value_error(
+                "to_scipy_csr: records 0 and 1 have the same coordinate (2, 1) in"
+                f" {COORDINATES}; to_scipy_csr stores each coordinate once and never"
+                " sums, so give each coordinate one record in the query, for example"
+                " by grouping it by both fields"
+            ),
+            retyped("int32", "int32", "float32", "float64"),
         ],
     }
 

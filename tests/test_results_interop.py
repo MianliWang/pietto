@@ -323,6 +323,7 @@ def _damaged_scipy():
             deepcopy(cases(r)["scipy_permutations"][0])
         ),
     )
+    yield "float order unchecked", lambda r: cases(r)["scipy_permutations"].pop()
     yield "unbounded", lambda r: cases(r)["scipy_bound"]["indptr"].pop()
     yield "drift accepted", lambda r: cases(r)["scipy_drift"].pop()
     yield "columns accepted", lambda r: cases(r)["scipy_drift"].pop(2)
@@ -330,7 +331,13 @@ def _damaged_scipy():
     yield "data width accepted", lambda r: cases(r)["scipy_drift"].pop(5)
     yield "two reads", lambda r: cases(r)["scipy_inert"][1].update(array=2)
     yield "lost after close", lambda r: cases(r)["scipy_after_close"][1].pop()
-    yield "float values admitted", lambda r: cases(r)["scipy_float_values"].pop()
+    yield (
+        "lost sign",
+        lambda r: cases(r)["scipy_matrix"]["float64"][0]["data"].__setitem__(4, 0.0),
+    )
+    yield "bool value admitted", lambda r: cases(r)["scipy_float_values"].pop(0)
+    yield "float repeat admitted", lambda r: cases(r)["scipy_float_values"].pop(1)
+    yield "float width accepted", lambda r: cases(r)["scipy_float_values"].pop()
 
 
 def _damaged_plots():

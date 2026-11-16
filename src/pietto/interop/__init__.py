@@ -121,7 +121,8 @@ def to_scipy_csr(
     shape: tuple[int, int],
 ) -> scipy.sparse.csr_array:
     """A canonical ``csr_array`` that stores one entry per record, explicit
-    zeros included, from three distinct non-nullable Int fields.
+    zeros included, from three distinct non-nullable fields: Int row and
+    column coordinates and an Int or Float value.
 
     Each dimension of ``shape`` lies between 0 and 4096; a negative,
     out-of-shape or repeated coordinate is refused.
