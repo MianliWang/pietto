@@ -29,13 +29,13 @@ Construction state: IN PROGRESS. S06 wrote this page before any B2 code.
 S07 added the shared connector entry and the three family mappings, so a
 project's `check` accepts a `sqlite.table` source and PostgreSQL, MySQL and
 DuckDB emission refuse it as [compile refusals](#compile-refusals) states.
-S08 adds the adapter and the T1 forms, S09 their native qualification, S10
-the T2 aggregates in both modes, R1 the PostgreSQL replay, S11 the
-[execution](#execution) section and its route, S12 that route's
+S08 added the adapter and the T1 forms, so `emit-sql --project --dialect
+sqlite`, `compile_sql` and `compile_all_sql` emit them. S09 adds their native
+qualification, S10 the T2 aggregates in both modes, R1 the PostgreSQL replay,
+S11 the [execution](#execution) section and its route, S12 that route's
 qualification, and S16 closes the tier. Each slice edits the rows it lands.
-Until S08, `emit-sql --project --dialect sqlite` is a usage error; until S11,
-`compile_query(dialect="sqlite")` reports `PIE-R1002` and Pietto opens no
-SQLite file. No published release carries a form until the owner approves
+Until S11, `compile_query(dialect="sqlite")` reports `PIE-R1002` and Pietto
+opens no SQLite file. No published release carries a form until the owner approves
 one: `0.2.1` and earlier refuse a project `sqlite.table` with `PIE-S2306`
 `Unknown source connector: sqlite.table`.
 
@@ -190,7 +190,9 @@ artifact verifier, and consumes `ProjectSQLPlan`).
 
 - One `SELECT` statement with no `WITH`, subquery or second statement, its
   clauses in the order `SELECT`, `FROM`, `WHERE`, `GROUP BY`, `HAVING`,
-  `ORDER BY`, `LIMIT`.
+  `ORDER BY`, `LIMIT`, on one line, separated by single spaces, with no final
+  semicolon. An operand that is itself a comparison, `and`, `or`, `not` or
+  null test is in parentheses.
 - Every identifier is quoted in backticks, a backtick inside doubled: SQLite
   reads a double-quoted name that names no column as text, a backticked one
   never.
@@ -213,9 +215,13 @@ artifact verifier, and consumes `ProjectSQLPlan`).
   `MIN(x)` and `MAX(x)`, `avg(x)` is `AVG(CAST(x AS REAL))`, by the language's
   rule that an `Int` is cast to the target's binary64 before it is averaged,
   and `sum(x)` is `SUM(x)`.
-- Literals are written as single files write them: `TRUE` and `FALSE`, an
-  unsigned `Int`, an unsigned finite `Float` and a single-quoted `Text` with
-  each quote doubled. A `Text` literal that holds NUL is refused (rule 9).
+- A `Bool` literal is written `1` or `0`: SQLite reads `TRUE` and `FALSE` as
+  a column or result alias of that name when one exists, and the table may
+  have columns that the contract does not name. Other literals are written
+  as single files write them: an unsigned `Int`, an unsigned finite `Float`
+  and a single-quoted `Text` with each quote doubled. A `Text` literal that
+  holds NUL is refused (rule 9). No literal is a `GROUP BY` or `ORDER BY`
+  key, where SQLite reads a number as a result position.
 - Each parameter has one number, from 1 in the order of its first read in the
   SQL, and each read is written `?N` with it.
 - The artifact's `target` is the contract target. A SQL AST or a document
@@ -233,8 +239,23 @@ type's storage kind (`sqlite_integer`, `sqlite_bool01`, `sqlite_text` or
 `requirements` lists the plan's original demands with their target evidence
 under the rule `sqlite_b2` and, as v2 requires, the generated
 `query_parameter` requirement (rule `R04`) of each rendered read; and
-`ranges` cover the statement byte for byte, in order. S08 fixes each column's
-`correspondence` by the v1 rules and adds it here.
+`ranges` cover the statement byte for byte, in order, each with the plan
+object it renders as its `subject`.
+
+Each column has its export's logical type and nullability. A column that
+reads a source field, selected directly or as a `group by` key, has that
+field's contract `representation`; a `count` has the storage `sqlite_integer`
+and the `int_range` 0 to 9223372036854775807; a `min` or `max` has its
+field's storage and domain; and any other value has its type's storage kind
+and the widest domain of its type (an `int_range` of signed 64 bits,
+`bool01`, `finite_float`, or `text` with `max_characters` null), except that
+an `Int` literal's range is its value and a `Text` literal's
+`max_characters` is its length. Each column's `correspondence` names its
+`export`, its `projection` (an aggregate projection in an aggregated
+relation) and its `sql_symbol`, its position. A column that reads a source
+field also names `source`, `field` and `source_port`, with the `input_port`
+it reads outside aggregation or the `group_key` it is; an aggregate column
+names its `aggregate`; and any other column names its select `expression`.
 
 ## Differences from PostgreSQL and MySQL
 

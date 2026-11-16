@@ -637,10 +637,9 @@ among them arithmetic, a comparison of an `Int` with a `Float`, `in` and range
 comparisons, `having`, a table or query that reads another, `Decimal`, `Date`,
 `Timestamp`, `UUID` and nested values, JOINs, windows, function calls such as
 the `LIKE`-style text functions, and every table and query of a file that
-declares a top-level constant, which `--set` needs. A project has no SQLite
-target: `emit-sql --project --dialect sqlite` stays a usage error and
-`compile_query(dialect="sqlite")` keeps PIE-R1002. Pietto writes the SQL text
-only; it runs no SQLite statement and opens no database file.
+declares a top-level constant, which `--set` needs. A project's SQLite SQL
+has rules of its own ([SQLite projects](#sqlite-projects)). Pietto writes the
+SQL text only; it runs no SQLite statement and opens no database file.
 
 The SQL assumes, and does not check, these properties of the database it
 runs on:
@@ -690,6 +689,35 @@ These rules hold on one measured SQLite library, which its version, source id
 and compile options identify together. A version number alone is not that
 identity, and no other build is qualified; the SQL text is the same whatever
 library later runs it.
+
+### SQLite projects
+
+`pietto emit-sql --project ... --dialect sqlite`, with or without `--all`,
+and `compile_sql` and `compile_all_sql` with `dialect="sqlite"` write SQLite
+SQL for a table or query of an explicit-module project that reads one
+`sqlite.table` source ([SQLite project mode](spec/sqlite-project-v1.md),
+alpha). The forms are those of single files, `where`, `select`, `group by`,
+`order by`, `limit`, `count`, `min` and `max` over `Int`, `Text`, `Bool` and
+`Float` fields, with query header parameters of those four types too. The
+emission contract gives the table as the `relation` `{"namespace": "main",
+"name": NAME}`, where NAME is the `sqlite.table` string exactly, and each
+field's storage ([emission contract values](project-package.md#emission-contract-values));
+every other form, and a contract that does not fit, is BLOCKED with the
+details of the specification's
+[compile refusals](spec/sqlite-project-v1.md#compile-refusals).
+
+The SQL is one `SELECT` over `` `main`.`<table>` AS `s0` ``. It writes every
+field as `` `s0`.`<column>` ``, quotes every name in backticks, writes each
+parameter read as `?N`, numbered from 1 by its first read, and ends every
+ascending key with `NULLS LAST` and every descending key with `NULLS FIRST`,
+as single files do. Unlike single files, it writes a `Bool` literal as `1`
+or `0`, since SQLite reads `TRUE` and `FALSE` as a column or result alias of
+that name when one exists. It keeps the single-file premises above except the
+collation: project SQL writes `COLLATE BINARY` at each `Text` comparison,
+`group by` key and `order by` key, so a `COLLATE NOCASE` column still compares
+by its bytes, and the contract's `Text` collation `BINARY` names that
+comparison, not the column's. `compile_query(dialect="sqlite")` keeps
+PIE-R1002.
 
 ## Types and shapes
 
@@ -932,9 +960,10 @@ relation from its emission contract. An explicit-module project also knows
 argument fails `check --project` with `PIE-S2306` `Invalid source connector
 arguments for sqlite.table` on the call, except one of unknown type, which
 reports only its own diagnostic, as for `mysql.table`, and a string with a
-dot passes that check. A project has no SQLite target yet; PostgreSQL,
-MySQL and DuckDB emission refuse a statement that reads such a source with
-`PIE-B1001` `source_family_mismatch`, as a source of another family. A
+dot passes that check. Only `emit-sql --project --dialect sqlite` admits such
+a source, in the forms of [SQLite projects](#sqlite-projects); PostgreSQL,
+MySQL and DuckDB emission refuse a statement that reads it with `PIE-B1001`
+`source_family_mismatch`, as a source of another family. A
 legacy-flat project does not know `sqlite.table` (`PIE-S2306` `Unknown
 source connector: sqlite.table`).
 

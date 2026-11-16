@@ -93,9 +93,9 @@ pietto check --project ROOT --format json
 pietto explain --project ROOT
 pietto explain --project ROOT --format json
 pietto emit-sql --project ROOT --module LOGICAL_MODULE --kind {table,query} \
-    --name NAME --dialect {postgres,mysql,duckdb} --emission-contract FILE \
+    --name NAME --dialect {postgres,mysql,duckdb,sqlite} --emission-contract FILE \
     [--literal-policy {preserve,bind-safe}] [--format {text,json}] [--output FILE]
-pietto emit-sql --project ROOT --all --dialect {postgres,mysql,duckdb} \
+pietto emit-sql --project ROOT --all --dialect {postgres,mysql,duckdb,sqlite} \
     --emission-contract FILE [--module LOGICAL_MODULE] [--kind {table,query}] \
     [--name NAME] [--literal-policy {preserve,bind-safe}] [--format {text,json}] \
     [--output DIR]

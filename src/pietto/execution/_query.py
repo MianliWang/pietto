@@ -15,7 +15,6 @@ from pietto._project.project_duckdb_emission import (
     prepare_duckdb_live_template,
 )
 from pietto._project.project_sql_emission_cli import (
-    DIALECTS,
     _render_failure,
     serialize_emission,
 )
@@ -37,7 +36,8 @@ __all__ = [
 
 _CHOICES = {
     "kind": ("table", "query"),
-    "dialect": DIALECTS,
+    # No SQLite route yet: `sqlite` stays an invalid argument (PIE-R1002).
+    "dialect": ("postgres", "mysql", "duckdb"),
     "literal_policy": ("preserve", "bind-safe"),
 }
 _RECORD = re.compile("[0-9a-f]{64}")

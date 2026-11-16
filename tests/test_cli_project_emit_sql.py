@@ -707,7 +707,7 @@ def test_legacy_single_file_forms_are_unchanged(
         (["--kind", "view"], "invalid choice"),
         (["--literal-policy", "rebind"], "invalid choice"),
         (["--format", "yaml"], "invalid choice"),
-        (["--dialect", "sqlite"], "invalid choice"),
+        (["--dialect", "sqlserver"], "invalid choice"),
         (["--module", "a", "--module", "b"], "given more than once"),
         (["--format", "json", "--format", "json"], "given more than once"),
         (["--output", "a", "--output", "a"], "given more than once"),
@@ -756,26 +756,26 @@ def test_text_usage_error_uses_stderr_banner_and_help_opens_nothing(
     assert not root.exists()
 
 
-def test_project_dialects_are_postgres_mysql_and_duckdb(
+def test_project_dialects_are_postgres_mysql_duckdb_and_sqlite(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    # AD78.03 adds duckdb to the project dialects; D78.01 keeps sqlite out, a
-    # usage error above.
-    assert emission_cli.DIALECTS == ("postgres", "mysql", "duckdb")
-    choices = "--dialect {postgres,mysql,duckdb}"
+    # AD78.03 adds duckdb and PL.47 sqlite to the project dialects.
+    assert emission_cli.DIALECTS == ("postgres", "mysql", "duckdb", "sqlite")
+    choices = "--dialect {postgres,mysql,duckdb,sqlite}"
     assert choices in emission_cli.USAGE and choices in emission_cli.BATCH_USAGE
     monkeypatch.setenv("COLUMNS", "80")
     help_text = " ".join(run(["emit-sql", "--help"])[1].decode().split())
     assert help_text.count(choices) == 2  # the single and the batch form
-    # The argument parser takes duckdb; its adapter refuses the postgres
-    # contract's target family as contract structure.
+    # The argument parser takes each adapter dialect; its adapter refuses the
+    # postgres contract's target family as contract structure.
     root, _ = project(tmp_path, "postgres")
-    _, out, err = run(argv(root, "duckdb"))
-    assert err == "" and "usage" not in dict(kinds(out))
-    assert ("emission_contract_schema", "target/family") in kinds(out)
-    _, out, err = run(batch_argv(root, "duckdb"))
-    refused = json.loads(out)["failure"] or {"cli_errors": []}
-    assert err == "" and "usage" not in [e["kind"] for e in refused["cli_errors"]]
+    for dialect in ("duckdb", "sqlite"):
+        _, out, err = run(argv(root, dialect))
+        assert err == "" and "usage" not in dict(kinds(out))
+        assert ("emission_contract_schema", "target/family") in kinds(out)
+        _, out, err = run(batch_argv(root, dialect))
+        refused = json.loads(out)["failure"] or {"cli_errors": []}
+        assert err == "" and "usage" not in [e["kind"] for e in refused["cli_errors"]]
 
 
 def test_duckdb_emission_prints_writes_and_batches_its_own_document(
@@ -3183,11 +3183,12 @@ def test_project_float_division_and_remainder_are_deterministic_refusals(
 
 
 def _stated_blocker_details() -> tuple[
-    set[tuple[str, str]], list[str], set[tuple[str, str]]
+    set[tuple[str, str]], list[str], dict[str, set[tuple[str, str]]]
 ]:
     """Each (code, detail) pair the compiler's sources state, each place
-    whose detail this reading cannot tell, and apart the pairs the DuckDB
-    adapter states, which it serializes through its own suggestions.
+    whose detail this reading cannot tell, and apart the pairs each third
+    dialect's adapter states, which it serializes through its own
+    suggestions.
 
     A pair is a PIE-B1001 to PIE-B1008 literal followed by its detail in one
     call or tuple. The detail is a literal, either branch of a conditional,
@@ -3275,18 +3276,21 @@ def _stated_blocker_details() -> tuple[
             f"{emission}._realize_row_query",
         },
         "b.kind.value": {f"{emission}_contract.prepare_project_sql_emission"},
-        # The DuckDB adapter's premise keys are among these families' keys.
+        # The adapters' premise keys are among these families' keys.
         "key + '_declaration_missing'": {
             f"{emission}_ast.operator_premise_problems",
             "project_duckdb_emission.environment",
+            "project_sqlite_emission.environment",
         },
         "key + '_declaration_mismatch'": {
             f"{emission}_ast.operator_premise_problems",
             "project_duckdb_emission.environment",
+            "project_sqlite_emission.environment",
         },
         "key + '_declaration_required'": {
             f"{emission}_ast.source_premise_problems",
             "project_duckdb_emission.source",
+            "project_sqlite_emission.source",
         },
         "function + '_argument_outside_reviewed_int_domain'": {
             f"{emission}_aggregation.resolved_argument_problem",
@@ -3324,7 +3328,10 @@ def _stated_blocker_details() -> tuple[
     code = re.compile(r"PIE-B100[1-8]")
     suggestions = "project_sql_emission_suggestions.py"  # names, not states
     stated: set[tuple[str, str]] = set()
-    adapted: set[tuple[str, str]] = set()
+    adapted: dict[str, set[tuple[str, str]]] = {
+        "project_duckdb_emission": set(),
+        "project_sqlite_emission": set(),
+    }
     unread: list[str] = []
     used: set[tuple[str, str]] = set()
     for path in sorted(Path(cli.__file__).resolve().parent.rglob("*.py")):
@@ -3438,7 +3445,7 @@ def _stated_blocker_details() -> tuple[
                 found = details(detail)
                 if found is None:
                     unread.append(f"{path.name}:{head.lineno}: {ast.unparse(detail)}")
-                pairs = adapted if path.stem == "project_duckdb_emission" else stated
+                pairs = adapted.get(path.stem, stated)
                 pairs.update((str(head.value), item) for item in found or ())
         unread.extend(
             f"{path.name}:{node.lineno}: {node.value} without a detail"
@@ -3461,7 +3468,7 @@ def test_every_stated_blocker_detail_has_a_suggestion_on_each_target():
     """A detail without a suggestion would make serializing its BLOCKED
     document raise ValueError instead of reporting it, so each detail a
     producer can state is classified before any input reaches it."""
-    from pietto._project.project_duckdb_emission import suggestion
+    from pietto._project import project_duckdb_emission, project_sqlite_emission
     from pietto._project.project_sql_emission_suggestions import blocker_suggestion
 
     def classified(code: str, detail: str) -> bool:
@@ -3470,9 +3477,13 @@ def test_every_stated_blocker_detail_has_a_suggestion_on_each_target():
         except ValueError:
             return False
 
-    def adapter_classified(code: str, detail: str) -> bool:
+    def adapter_classified(stem: str, code: str, detail: str) -> bool:
+        adapter = {
+            "project_duckdb_emission": project_duckdb_emission,
+            "project_sqlite_emission": project_sqlite_emission,
+        }[stem]
         try:
-            return bool(suggestion(code, detail))
+            return bool(adapter.suggestion(code, detail))
         except ValueError:
             return False
 
@@ -3484,5 +3495,15 @@ def test_every_stated_blocker_detail_has_a_suggestion_on_each_target():
         ("PIE-B1001", "unnest_children_drift"),
     } <= stated
     assert sorted(pair for pair in stated if not classified(*pair)) == []
-    assert ("PIE-B1001", "duckdb_arrow_key_mismatch") in adapted
-    assert sorted(pair for pair in adapted if not adapter_classified(*pair)) == []
+    assert ("PIE-B1001", "duckdb_arrow_key_mismatch") in adapted[
+        "project_duckdb_emission"
+    ]
+    assert ("PIE-B1001", "sqlite_table_name_mismatch") in adapted[
+        "project_sqlite_emission"
+    ]
+    assert [
+        (stem, pair)
+        for stem, pairs in sorted(adapted.items())
+        for pair in sorted(pairs)
+        if not adapter_classified(stem, *pair)
+    ] == []

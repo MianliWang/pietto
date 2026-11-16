@@ -632,7 +632,8 @@ and fresh trust, source, value and deployment inputs.
   instead for an argument that is `None` (`PIE-R1001`) or invalid (`PIE-R1002`),
   checked before the project is read (where the command prints its usage
   error), and when a verified query cannot become an execution (`PIE-R1004`,
-  `PIE-R1005`).
+  `PIE-R1005`). `dialect="sqlite"` is invalid here although the command
+  accepts it, since Pietto runs no SQLite query.
 - `compile_query` checks the whole emission contract as the command does, so
   a contract the command refuses is refused in the same way, also for a source
   the query does not read. It then compiles the query with the query's

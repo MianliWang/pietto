@@ -393,20 +393,76 @@ def test_no_adapter_family_reaches_the_postgres_mysql_pipeline(
     # refused by the contract reader, and the family goes no further.
     assert [call for call in calls if call[0] == family] == []
     assert set(families) - {None} <= PIPELINE_FAMILIES
-    # AD78.03 admits `duckdb` as a project dialect, so its requests passed the
-    # argument checks and its own adapter verified them. A project checks a
-    # `sqlite.table` source (PL.47), but `sqlite` is not yet a project dialect,
-    # so its requests stop at the argument checks.
+    # AD78.03 admits `duckdb` and PL.47 `sqlite` as project dialects, so
+    # their requests passed the argument checks and their own adapters
+    # verified them. `compile_query` has no SQLite route yet and refuses the
+    # `sqlite` argument.
     assert "usage" not in _error_kinds(documents["postgres"])
     assert refusals["postgres"] == []
-    if family == "duckdb":
-        assert "usage" not in _error_kinds(documents[family])
-        assert refusals[family] == []
-        statuses = {d["status"] for d in documents[family] if isinstance(d, dict)}
-        assert "VERIFIED" in statuses
-    else:
-        assert _error_kinds(documents[family]) == {"usage"}
-        assert set(refusals[family]) == {("PIE-R1002", "PUBLIC_COMPILE_ARGUMENT")}
+    assert "usage" not in _error_kinds(documents[family])
+    statuses = {d["status"] for d in documents[family] if isinstance(d, dict)}
+    assert "VERIFIED" in statuses
+    assert set(refusals[family]) == (
+        {("PIE-R1002", "PUBLIC_COMPILE_ARGUMENT")} if family == "sqlite" else set()
+    )
+
+
+# PL.47: from the PostgreSQL/MySQL emission modules the SQLite adapter imports
+# only these names, the ones the DuckDB adapter imported when PL.47 was
+# answered; those modules branch on the family, so it never passes one.
+_SQLITE_PIPELINE_NAMES = {
+    "pietto._project.project_sql_emission_contract": {
+        *("MAX_DEPTH", "MAX_FIELDS", "MAX_INPUT_BYTES", "MAX_SOURCES"),
+        *("MAX_ARTIFACT_BYTES", "MAX_NODES", "MAX_PARAMETERS", "MAX_SQL_BYTES"),
+        *("CODES", "InputError", "Premise", "Blocker", "canonical", "unique_pairs"),
+        *("_domain", "_error", "_finite", "_integer", "_nonfinite", "_object"),
+        *("_selector", "_text", "validate_resolved_premise"),
+    },
+    "pietto._project.project_sql_emission_scopes": {"reference_source_ports"},
+    "pietto._project.project_sql_emission_suggestions": {"blocker_suggestion"},
+}
+
+
+def test_the_sqlite_adapter_imports_only_its_pipeline_whitelist() -> None:
+    import ast
+    import importlib.util
+
+    package = REPO_ROOT / "src/pietto/_project"
+    paths = sorted(package.glob("project_sqlite_*.py"))
+    assert package / "project_sqlite_emission.py" in paths
+    imported: dict[str, set[str]] = {}
+    calls = []
+    for path in paths:
+        for node in ast.walk(ast.parse(path.read_text(encoding="utf-8"))):
+            if isinstance(node, ast.Import):
+                names = [alias.name for alias in node.names]
+                assert not [n for n in names if "project_sql_emission" in n], path
+            elif isinstance(node, ast.ImportFrom):
+                # A relative import is checked as the absolute name it reads.
+                module = importlib.util.resolve_name(
+                    "." * node.level + (node.module or ""), "pietto._project"
+                )
+                names = [alias.name for alias in node.names]
+                assert not [n for n in names if n.startswith("project_sql_emission")]
+                if module.startswith("pietto._project.project_sql_emission"):
+                    imported.setdefault(module, set()).update(names)
+                for read in (module, *(f"{module}.{n}" for n in names)):
+                    assert not read.startswith("pietto.sql"), (path, read)
+                    assert "duckdb" not in read, (path, read)
+            elif (
+                isinstance(node, ast.Call)
+                and getattr(node.func, "id", None) == "blocker_suggestion"
+            ):
+                calls.append(node)
+    for module, names in imported.items():
+        assert names <= _SQLITE_PIPELINE_NAMES.get(module, set()), module
+    # Every suggestion is asked for with no family.
+    assert calls and all(
+        len(call.args) == 3
+        and isinstance(call.args[2], ast.Constant)
+        and call.args[2].value is None
+        for call in calls
+    )
 
 
 def _read(path: str) -> str:

@@ -69,15 +69,21 @@ from pietto._project.project_sql_emission_contract import (
 from pietto._project.project_sql_plan import build_project_sql_plan
 from pietto._project.project_sql_plan_literals import ProjectSQLLiteralPolicy
 from pietto._project.project_sql_plan_verification import verify_project_sql_plan
+from pietto._project.project_sqlite_emission import (
+    SQLiteEmission,
+    emit_sqlite_sql,
+    serialize_sqlite_emission,
+)
 from pietto._terminal_text import escape_unicode_controls
 from pietto.semantic.analyzer import recursion_limit_diagnostic
 
 __all__: tuple[str, ...] = ()
 
-# The project emission dialects. AD78.03: `duckdb` goes to its own adapter,
-# and only a family of the contract reader's RELEASES reaches the
-# PostgreSQL/MySQL tail of `_emit_owner`.
-DIALECTS = ("postgres", "mysql", "duckdb")
+# The project emission dialects. AD78.03: `duckdb` and `sqlite` go to their
+# own adapters, and only a family of the contract reader's RELEASES reaches
+# the PostgreSQL/MySQL tail of `_emit_owner`.
+DIALECTS = ("postgres", "mysql", "duckdb", "sqlite")
+_ADAPTERS = {"duckdb": emit_duckdb_sql, "sqlite": emit_sqlite_sql}
 _DIALECT_CHOICES = "{" + ",".join(DIALECTS) + "}"
 
 USAGE = (
@@ -272,7 +278,7 @@ def run_project_emit_sql(arguments: Sequence[str]) -> ProjectEmitResult:
             )
 
     def finish(
-        outcome: EmissionOutcome | DuckDBEmission,
+        outcome: EmissionOutcome | DuckDBEmission | SQLiteEmission,
         protected: Sequence[tuple[Path, tuple[int, int]]] = (),
     ) -> ProjectEmitResult:
         data = serialize_emission(outcome)
@@ -413,7 +419,7 @@ def emit_project(
     policy: ProjectSQLLiteralPolicy,
     *,
     read_sources_only: bool = False,
-) -> tuple[EmissionOutcome | DuckDBEmission, _Protected]: ...
+) -> tuple[EmissionOutcome | DuckDBEmission | SQLiteEmission, _Protected]: ...
 
 
 def emit_project(
@@ -426,7 +432,7 @@ def emit_project(
     policy: ProjectSQLLiteralPolicy,
     *,
     read_sources_only: bool = False,
-) -> tuple[EmissionOutcome | DuckDBEmission, _Protected]:
+) -> tuple[EmissionOutcome | DuckDBEmission | SQLiteEmission, _Protected]:
     """Run the verified emission pipeline once for one selected owner.
 
     Returns the outcome and the identities of the configuration, sources and
@@ -450,7 +456,7 @@ def emit_project_as_main(
     dialect: str,
     contract: str,
     policy: ProjectSQLLiteralPolicy,
-) -> tuple[EmissionOutcome | DuckDBEmission, bool | None]:
+) -> tuple[EmissionOutcome | DuckDBEmission | SQLiteEmission, bool | None]:
     """`emit_project` for the public compile entry, with whether `main`
     emits the statement too (rule two, D77.37): None unless it is a VERIFIED
     MySQL statement, which is derived once more, as `main` derives it, from
@@ -473,7 +479,7 @@ def _emit_selected(
     read_sources_only: bool,
     *,
     as_main: bool = False,
-) -> tuple[EmissionOutcome | DuckDBEmission, _Protected, bool | None]:
+) -> tuple[EmissionOutcome | DuckDBEmission | SQLiteEmission, _Protected, bool | None]:
     context, common = _prepare_emission_context(project, contract)
     if common is not None:
         return common, (), None
@@ -669,11 +675,15 @@ def _prepare_emission_context(
     ), None
 
 
-def serialize_emission(outcome: EmissionOutcome | DuckDBEmission) -> bytes:
-    """The document of an outcome; AD78.03: a DuckDB outcome has its own
-    adapter's serializer."""
+def serialize_emission(
+    outcome: EmissionOutcome | DuckDBEmission | SQLiteEmission,
+) -> bytes:
+    """The document of an outcome; AD78.03: a DuckDB or SQLite outcome has its
+    own adapter's serializer."""
     if isinstance(outcome, DuckDBEmission) or outcome.family == "duckdb":
         return serialize_duckdb_emission(outcome)
+    if isinstance(outcome, SQLiteEmission) or outcome.family == "sqlite":
+        return serialize_sqlite_emission(outcome)
     return serialize_project_sql_emission(outcome)
 
 
@@ -683,7 +693,7 @@ def _emit_owner(
     dialect: str,
     policy: ProjectSQLLiteralPolicy,
     read_sources_only: bool = False,
-) -> EmissionOutcome | DuckDBEmission:
+) -> EmissionOutcome | DuckDBEmission | SQLiteEmission:
     """Run the existing per-owner plan, verification, preparation and realization tail."""
     try:
         try:
@@ -704,9 +714,10 @@ def _emit_owner(
                     "emission_selector", "Project planning roots are unavailable."
                 ),
             )
-        if dialect == "duckdb":
+        adapter = _ADAPTERS.get(dialect)
+        if adapter is not None:
             try:
-                duckdb = emit_duckdb_sql(
+                adapted = adapter(
                     checked,
                     context.contract_bytes,
                     policy,
@@ -720,14 +731,14 @@ def _emit_owner(
                     context.diagnostics,
                     _unnamed_path(context.unnamed[0]),
                 )
-            if duckdb.status == "VERIFIED":
-                return duckdb
+            if adapted.status == "VERIFIED":
+                return adapted
             return _normalized_failure(
-                duckdb.status,
-                duckdb.diagnostics,
-                duckdb.cli_errors,
-                blockers=duckdb.blockers,
-                family=duckdb.family,
+                adapted.status,
+                adapted.diagnostics,
+                adapted.cli_errors,
+                blockers=adapted.blockers,
+                family=adapted.family,
             )
         if dialect not in RELEASES:
             # AD78.03: the tail below never receives another family; the

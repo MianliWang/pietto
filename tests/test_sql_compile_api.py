@@ -21,6 +21,7 @@ import pytest
 
 import _pietto_sql_duckdb as duckdb
 import _pietto_sql_emission as probe
+import _pietto_sql_sqlite as sqlite
 from pietto import cli, execution
 from pietto._project import project_public_execution
 from pietto._project import project_sql_emission_cli as emission_cli
@@ -121,6 +122,25 @@ def test_duckdb_emission_is_the_command_document(tmp_path: Path) -> None:
         "pietto.sql-emission.v2",
     )
     batch = {"dialect": "duckdb", "emission_contract": "contract.json"}
+    emission = compile_all_sql(root, **batch)
+    assert same(emission, space_argv(root, batch, batch=True))["status"] == "VERIFIED"
+    blocked = compile_sql(root, **values, literal_policy="bind-safe")
+    assert (
+        same(
+            blocked,
+            space_argv(root, values | {"literal_policy": "bind-safe"}, batch=False),
+        )["status"]
+        == "BLOCKED"
+    )
+
+
+def test_sqlite_emission_is_the_command_document(tmp_path: Path) -> None:
+    """PL.47: the SQLite adapter's documents are the command's bytes."""
+    root = sqlite.write(tmp_path / "sqlite", sqlite.PROJECTION, sqlite.contract())
+    values = single("sqlite", kind="table")
+    document = same(compile_sql(root, **values), space_argv(root, values, batch=False))
+    assert (document["status"], document["sql"]) == ("VERIFIED", sqlite.PROJECTION_SQL)
+    batch = {"dialect": "sqlite", "emission_contract": "contract.json"}
     emission = compile_all_sql(root, **batch)
     assert same(emission, space_argv(root, batch, batch=True))["status"] == "VERIFIED"
     blocked = compile_sql(root, **values, literal_policy="bind-safe")

@@ -210,8 +210,10 @@ gives every rule and limit.
   metadata of a file whose relations have no JOINs.
 - SQLite (alpha): `emit-sql FILE --dialect sqlite` writes SQLite SQL for a
   flat subset of one-table files, as text or CLI JSON v1, qualified on one
-  measured SQLite build; Pietto writes the text only and runs no SQLite
-  statement
+  measured SQLite build, and `emit-sql --project ... --dialect sqlite`
+  writes the same forms, with query parameters, for a project table or query
+  that reads one `sqlite.table` source; Pietto writes the text only and runs
+  no SQLite statement
   ([SQLite single files](https://github.com/MianliWang/pietto/blob/main/docs/capabilities.md#sqlite-single-files)).
 
 **Projects**, a directory with a `pietto.toml` of `schema_version = 2`:

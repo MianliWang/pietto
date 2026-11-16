@@ -604,7 +604,7 @@ Their historical-looking names do not make them lifecycle status authority;
 ## Project SQL emission
 
 `pietto emit-sql --project ROOT --module LOGICAL_MODULE --kind {table,query} --name NAME
---dialect {postgres,mysql,duckdb} --emission-contract FILE` compiles exactly one declaration of an
+--dialect {postgres,mysql,duckdb,sqlite} --emission-contract FILE` compiles exactly one declaration of an
 explicit-module project (`schema_version = 2`) into the `pietto.sql-emission.v1` artifact
 (`pietto.sql-emission.v2` for a VERIFIED query with header parameters, see
 [project CLI JSON v2](spec/project-cli-json-v2.md#emit-sql-result)).
@@ -693,27 +693,32 @@ values, absent selectors, BLOCKED and the batch limit are returned documents.
 ### Emission contract values
 
 The contract `target` is `{"family": "postgres", "release": "18.6"}`,
-`{"family": "mysql", "release": "8.4.12"}` or
-`{"family": "duckdb", "release": "2.0.0"}`. Its family must equal `--dialect`,
+`{"family": "mysql", "release": "8.4.12"}`,
+`{"family": "duckdb", "release": "2.0.0"}` or
+`{"family": "sqlite", "release": "3.53.1"}`. Its family must equal `--dialect`,
 or the command fails with `emission_contract_schema`; another release is
 BLOCKED with `PIE-B1003`. A DuckDB source has the `scan`
 `"arrow_registration"` and the `relation` `{"namespace": "arrow", "name":
 KEY}`, whose name is its `duckdb.arrow` key, and DuckDB emission admits only
 the limited forms of the [DuckDB Arrow route](spec/duckdb-arrow-route-v1.md).
+A SQLite source has the `scan` `"relation_rows"` and the `relation`
+`{"namespace": "main", "name": NAME}`, whose name is its `sqlite.table`
+string, and SQLite emission admits only the forms of
+[SQLite project mode](spec/sqlite-project-v1.md) (alpha).
 Each source field's `representation` gives its
 `storage`, its `nullable` (`false` for a non-null field, `true` for an optional
 one) and its `domain`:
 
-| Logical type | PostgreSQL `storage` | MySQL `storage` | DuckDB `storage` | `domain` |
-|---|---|---|---|---|
-| `Int` | `pg_int2`, `pg_int4`, `pg_int8` | `my_smallint`, `my_int`, `my_bigint` | `arrow_int64` | `int_range`, with string `min` and `max` inside the storage range |
-| `Bool` | `pg_bool` | `my_bool01` | `arrow_bool` | `bool01` |
-| `Text` | `pg_text` | `my_varchar`, with a `length` from `max_characters` to 16383 | `arrow_string` | `text`, with `max_characters`, `encoding` `UTF8` (MySQL `utf8mb4`), `collation` `C` (MySQL `utf8mb4_0900_bin`) and `padding` `NO PAD` |
-| `Decimal(p, s)` | `pg_numeric` | `my_decimal` | none | `decimal`; the storage and domain `precision` and `scale` are `p` and `s` |
-| `Float` | `pg_float8` | `my_double` | `arrow_float64` | `finite_float`, with `format` `binary64` |
-| `Timestamp` | `pg_timestamp` | `my_datetime` | none | `timestamp`; the storage has `fractional_seconds` 6 |
-| `Date` | `pg_date` | `my_date` | none | `date` |
-| `UUID` | `pg_uuid` | `my_uuid_bytes` | none | `uuid`, with `encoding` `standard_bytes` |
+| Logical type | PostgreSQL `storage` | MySQL `storage` | DuckDB `storage` | SQLite `storage` | `domain` |
+|---|---|---|---|---|---|
+| `Int` | `pg_int2`, `pg_int4`, `pg_int8` | `my_smallint`, `my_int`, `my_bigint` | `arrow_int64` | `sqlite_integer` | `int_range`, with string `min` and `max` inside the storage range |
+| `Bool` | `pg_bool` | `my_bool01` | `arrow_bool` | `sqlite_bool01` | `bool01` |
+| `Text` | `pg_text` | `my_varchar`, with a `length` from `max_characters` to 16383 | `arrow_string` | `sqlite_text` | `text`, with `max_characters`, `encoding` `UTF8` (MySQL `utf8mb4`, SQLite `UTF-8`), `collation` `C` (MySQL `utf8mb4_0900_bin`, SQLite `BINARY`) and `padding` `NO PAD` |
+| `Decimal(p, s)` | `pg_numeric` | `my_decimal` | none | none | `decimal`; the storage and domain `precision` and `scale` are `p` and `s` |
+| `Float` | `pg_float8` | `my_double` | `arrow_float64` | `sqlite_real` | `finite_float`, with `format` `binary64` |
+| `Timestamp` | `pg_timestamp` | `my_datetime` | none | none | `timestamp`; the storage has `fractional_seconds` 6 |
+| `Date` | `pg_date` | `my_date` | none | none | `date` |
+| `UUID` | `pg_uuid` | `my_uuid_bytes` | none | none | `uuid`, with `encoding` `standard_bytes` |
 
 `finite_float` excludes NaN and ±Infinity: `row_domain_matches` declares
 that every stored Float is finite. A row that holds one violates that premise
@@ -723,21 +728,21 @@ Premises declare facts about the database that the compiler cannot see. A
 source premise goes in that source's `premises` with `"scope": "source"`; a
 statement premise goes in `environment` with `"scope": "statement"`:
 
-| Key | Scope | PostgreSQL value | MySQL value | DuckDB value | Needed |
-|---|---|---|---|---|---|
-| `row_domain_matches` | source | `true` | `true` | `true` | on every source the statement reads; otherwise `PIE-B1001` |
-| `read_only_object` | source | `true` | `true` | `true` | on every source the statement reads; otherwise `PIE-B1001` |
-| `client_encoding` | statement | `"UTF8"` | `"utf8mb4"` | `"UTF8"` | whenever the statement reads a source |
-| `operator_environment` | statement | `"builtin_only"` | `"builtin_only"` | `"builtin_only"` | when the SQL computes more than the selected columns, for example a value, a filter, an ordering or a limit; on DuckDB only when the statement has a `where` or a `having` |
-| `identifier_case` | statement | `"quoted_exact"` | `"lower_case_table_names=0"` | none: BLOCKED with `PIE-B1003` `premise_not_admitted_on_target` | when the SQL needs named stages (a `WITH` clause), for example for `where`, `group by`, `order by`, `limit`, a window, a JOIN, a relation `let`, a set operation, or a read of another table |
-| `parameter_protocol` | statement | `"postgres_extended"` | `"mysql_prepared"` | `"duckdb_prepared"` | when the artifact has a placeholder: a literal under `--literal-policy bind-safe`, or a read of a header parameter |
+| Key | Scope | PostgreSQL value | MySQL value | DuckDB value | SQLite value | Needed |
+|---|---|---|---|---|---|---|
+| `row_domain_matches` | source | `true` | `true` | `true` | `true` | on every source the statement reads; otherwise `PIE-B1001` |
+| `read_only_object` | source | `true` | `true` | `true` | `true` | on every source the statement reads; otherwise `PIE-B1001` |
+| `client_encoding` | statement | `"UTF8"` | `"utf8mb4"` | `"UTF8"` | `"UTF-8"` | whenever the statement reads a source |
+| `operator_environment` | statement | `"builtin_only"` | `"builtin_only"` | `"builtin_only"` | `"builtin_only"` | when the SQL computes more than the selected columns, for example a value, a filter, an ordering or a limit; on DuckDB only when the statement has a `where` or a `having` |
+| `identifier_case` | statement | `"quoted_exact"` | `"lower_case_table_names=0"` | none: BLOCKED with `PIE-B1003` `premise_not_admitted_on_target` | none: BLOCKED as on DuckDB | when the SQL needs named stages (a `WITH` clause), for example for `where`, `group by`, `order by`, `limit`, a window, a JOIN, a relation `let`, a set operation, or a read of another table |
+| `parameter_protocol` | statement | `"postgres_extended"` | `"mysql_prepared"` | `"duckdb_prepared"` | `"sqlite_prepared"` | when the artifact has a placeholder: a literal under `--literal-policy bind-safe`, or a read of a header parameter |
 
 A needed statement premise that is missing is BLOCKED with `PIE-B1004`, and
 one with another value with `PIE-B1005`. A plain projection of source columns
 needs only the source premises and `client_encoding`. The statement premise
 `resource_limits` (an object that lowers `sql_bytes`, `artifact_bytes`,
 `nodes`, `parameters` or `columns`), `session_sql_mode` and
-`session_time_zone` are optional; a DuckDB contract that declares
+`session_time_zone` are optional; a DuckDB or SQLite contract that declares
 `session_sql_mode` or `session_time_zone` is BLOCKED like one that declares
 `identifier_case`. The field premises `value_domain`,
 `encoding`, `collation`, `padding` and `comparison_prefix_bytes` are optional

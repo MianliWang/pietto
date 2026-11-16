@@ -59,11 +59,11 @@ _CHECK_MODES = tuple(mode.value for mode in semantic_api.CheckMode)
 _CHECK_MODE_HELP = "check mode (default: checked)"
 _PROJECT_EMIT_SQL_USAGE = (
     "project mode: pietto emit-sql --project PATH --module LOGICAL_MODULE"
-    " --kind {table,query} --name NAME --dialect {postgres,mysql,duckdb}"
+    " --kind {table,query} --name NAME --dialect {postgres,mysql,duckdb,sqlite}"
     " --emission-contract FILE [--literal-policy {preserve,bind-safe}]"
     " [--format {text,json}] [--output FILE]. In project mode --output writes"
     " the JSON artifact in either --format. Project batch mode: pietto"
-    " emit-sql --project PATH --all --dialect {postgres,mysql,duckdb}"
+    " emit-sql --project PATH --all --dialect {postgres,mysql,duckdb,sqlite}"
     " --emission-contract FILE [--module LOGICAL_MODULE] [--kind {table,query}]"
     " [--name NAME] [--literal-policy {preserve,bind-safe}]"
     " [--format {text,json}] [--output DIR] emits every matching table and"
