@@ -82,7 +82,7 @@ Linux-only (see [Known limitations](#known-limitations)).
 | `postgres_rows` | PostgreSQL 18.6; `psycopg[binary]==3.3.8`; `pyarrow==26.0.1` (the published `0.1.10` selects `3.3.5` and `26.0.0`) | One TCP host, `PostgresAccess`, `PostgresDeploymentPremise`, and SCRAM-SHA-256; TLS `require`, or `verify-full` against a caller-supplied `ca_file`. | Linux x86-64, CPython 3.13.13 with 3.3.5/26.0.0; the new pins passed the maintenance runs listed above. | Windows native execution; another PostgreSQL release, libpq closure or TLS profile (client certificates, revocation lists, `verify-ca`, a system CA store). |
 | `mysql_rows` | MySQL 8.4.12; `mysql-connector-python==26.10.0`; `pyarrow==26.0.1` (the published `0.1.10` selects `26.0.0`) | One TCP host, `MySQLAccess`, `MySQLDeploymentPremise`, and caller-supplied CA with certificate and server-identity verification. | Linux x86-64, CPython 3.13.13 with 26.0.0; the new pin passed the maintenance runs listed above. | Windows native execution; another MySQL release, connector version or provider profile. |
 | `postgres_adbc` | PostgreSQL 18.6; `adbc-driver-postgresql==1.13.0`; `adbc-driver-manager==1.13.0`; `pyarrow==26.0.1` (the published `0.1.10` selects `26.0.0`) | PostgreSQL TCP access, deployment premise, SCRAM profile with the same two TLS profiles as `postgres_rows`, and the selected driver closure. | Linux x86-64, CPython 3.13.13 with 26.0.0; the new pin passed the maintenance runs listed above. | Windows native execution; another ADBC/libpq closure, PostgreSQL release, TLS profile or platform. |
-| `duckdb_arrow` | DuckDB `2.0.0` in process; `duckdb==2.0.0`; `pyarrow==26.0.1` | A query compiled with `--dialect duckdb` from one `duckdb.arrow` source, `DuckDBArrowInput(name, table)` and `premise=None`. | Linux x86-64, CPython 3.13.13 and 3.12.13 with the locked closure: the in-process native matrix of Phase79 S06, every unit accepted on its first attempt on 2026-11-14 (D79.07); and the `arrow-ready` cell of natural CI on CPython 3.12 and 3.13. | Any form beyond the [DuckDB Arrow route](spec/duckdb-arrow-route-v1.md); another DuckDB release, Windows, macOS and platforms other than Linux x86-64 with glibc 2.28 or later. |
+| `duckdb_arrow` | DuckDB `2.0.0` in process; `duckdb==2.0.0`; `pyarrow==26.0.1` | A query compiled with `--dialect duckdb` from one `duckdb.arrow` source, `DuckDBArrowInput(name, table)` and `premise=None`. | Linux x86-64, CPython 3.13.13 and 3.12.13 with the locked closure: the in-process native matrices of Phase79 S06 for B1 and T06 for B2, every unit accepted on its first attempt on 2026-11-14 (D79.07) and 2026-11-16 (PL.47); and the `arrow-ready` cell of natural CI on CPython 3.12 and 3.13. | Any form beyond the [DuckDB Arrow route](spec/duckdb-arrow-route-v1.md); another DuckDB release, Windows, macOS and platforms other than Linux x86-64 with glibc 2.28 or later. |
 
 The qualified profile is the integration host with the lock's exact artifacts.
 Installing an extra selects no route, grants no execution, opens no source and
@@ -1411,26 +1411,39 @@ short:
 - **Install.** `pip install "pietto[execute-duckdb]"` adds `duckdb==2.0.0`
   and `pyarrow==26.0.1`. Another installed `duckdb` is refused when the
   attempt opens (`PIE-R2002`).
-- **Query.** A direct projection of one `duckdb.arrow("key")` source, with at
-  most one comparison of an `Int` field with one non-null `Int` parameter,
-  compiled with `--dialect duckdb` and `--literal-policy preserve`. Results
-  are bags: there is no ordering.
+- **Query.** One `duckdb.arrow("key")` source of `Int`, `Text`, `Bool` and
+  finite `Float` fields, read directly or grouped with `count`, `sum`, `min`
+  and `max`, filtered in `where` and `having` by comparisons with literals
+  and with non-null parameters of those types, joined by `and` and `or`, a
+  `where` also with `not` and NULL tests, then ordered and limited, compiled
+  with `--dialect duckdb` and `--literal-policy preserve`. Without
+  `order by` a result is a bag; with it,
+  rows that tie have no promised order. `0.2.0` and `0.2.1` take only a
+  direct projection with at most one comparison of an `Int` field with one
+  `Int` parameter.
 - **Input.** `access=DuckDBArrowInput(name, table)`, whose `name` is the
   source's key, and `premise=None`. `DuckDBArrowInput` does no I/O and cannot
   be copied or pickled. `isolation` is `"stable"`.
 - **Capture.** `execute()` copies the selected columns before it returns, so
-  a later change of your buffers does not reach the query. It refuses a table
-  of more than 65,536 rows or 16 MiB (`DUCKDB_ARROW_CAPTURE_LIMIT`), and a
-  column, type, null, NaN, infinity, invalid UTF-8 or out-of-domain value that
-  does not fit the compiled source (`DUCKDB_ARROW_SCHEMA`), both `PIE-R1002`.
+  a later change of your buffers does not reach the query. It refuses, in
+  this order, a table of more than 1,048,576 rows
+  (`DUCKDB_ARROW_CAPTURE_LIMIT`), a column or type that does not fit the
+  compiled source (`DUCKDB_ARROW_SCHEMA`), selected columns of more than
+  256 MiB of PyArrow `nbytes` together (`DUCKDB_ARROW_CAPTURE_LIMIT`), and a
+  null, NaN, infinity, invalid UTF-8 or out-of-domain value
+  (`DUCKDB_ARROW_SCHEMA`), all `PIE-R1002`; a table field that the source
+  does not read does not count. `0.2.0` and `0.2.1` refuse more than 65,536
+  rows or 16 MiB of the whole table, before the schema.
 - **Session.** Each attempt opens its own `:memory:` database, turns off
   extension install and load, external access, caller-frame scans and
-  temporary spill, sets one engine thread and a 256 MiB memory limit, locks
-  the configuration and reads every value back (`PIE-R2006`), runs the
-  compiled statement once and closes.
+  temporary spill, sets one engine thread and a 1 GiB memory limit, locks
+  the configuration and reads every value back, `default_collation` as the
+  empty string included (`PIE-R2006`), runs the compiled statement once and
+  closes.
 - **Failures.** DuckDB errors become `AttemptFailed` with the existing codes
-  (`PIE-R3003`, `PIE-R3009` for a cancellation, `PIE-R3001` for the deadline)
-  and no DuckDB message; a result that does not match the compiled one is
+  (`PIE-R3003`, also for a `sum` outside signed 64 bits or a statement beyond
+  the memory limit, `PIE-R3009` for a cancellation, `PIE-R3001` for the
+  deadline) and no DuckDB message; a result that does not match the compiled one is
   `PIE-R3005`.
 - **Elsewhere.** `export_bundle` refuses a DuckDB query (`PIE-R1004`), and
   `save`, `save_recoverable`, `recover`, `relay_live` and the job store do

@@ -815,7 +815,7 @@ parameters joined by `and`, `or` and `not`, `is None` tests, and several
 parameters. `emit-sql --project --dialect duckdb` compiles it and
 `execute(route="duckdb_arrow")` runs it, within capture limits of 1,048,576
 rows and 256 MiB of the selected columns and a `memory_limit` fixed at
-1 GiB. The specification's [B2 section](../../spec/duckdb-arrow-route-v1.md#b2-pending)
+1 GiB. The [specification](../../spec/duckdb-arrow-route-v1.md#admission)
 binds the exact forms, SQL, refusals and limits.
 
 Success does not include new syntax, a new PIE code, a change to PostgreSQL

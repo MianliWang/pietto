@@ -43,8 +43,12 @@ literal as `TRUE` or `FALSE`, and each parameter read as
 document's `parameter_uses` has one entry per read with its parameter's
 `server_index`, and `physical_type` may now also be `duckdb_double`,
 `duckdb_varchar` or `duckdb_boolean`. See the
-[DuckDB Arrow route](../spec/duckdb-arrow-route-v1.md#admission). The example is
-a module of an explicit-module project; checked as a single file it reports
+[DuckDB Arrow route](../spec/duckdb-arrow-route-v1.md#admission), the
+[DuckDB local path](../capabilities.md#duckdb-local-path) and the route's
+[execution guide](../execution.md#duckdb-arrow-route). These forms are
+qualified as the projection is, with `duckdb` `2.0.0` and `pyarrow` `26.0.1`
+on CPython 3.12 and 3.13, Linux x86-64 with glibc 2.28 or later. The example
+is a module of an explicit-module project; checked as a single file it reports
 PIE-S2346 for its header parameter.
 
 ```pietto PIE-S2346
@@ -126,4 +130,9 @@ query totals(min_total: Int):
   `DUCKDB_ARROW_CAPTURE_LIMIT`. DuckDB's `memory_limit` is 1 GiB in place
   of 256 MiB, a statement beyond it still fails with `PIE-R3003`, and the
   session also checks that `default_collation` is the empty string
-  (`PIE-R2006` `DUCKDB_SESSION_CONTEXT` otherwise).
+  (`PIE-R2006` `DUCKDB_SESSION_CONTEXT` otherwise). Besides the caller's
+  table, one `execute()` can hold about 1.5 GiB at its peak while its
+  result is no larger than those columns, and a result beyond
+  `ExecutionLimits.max_bytes` (64 MiB by default) is refused with
+  `PIE-R3004` only after DuckDB has read it whole, so a larger result can
+  exhaust a small host's memory first.

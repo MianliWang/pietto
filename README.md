@@ -272,22 +272,23 @@ release.
   3.13.13 on Linux x86-64
   ([execution](https://github.com/MianliWang/pietto/blob/main/docs/execution.md)).
 - A local analysis path on DuckDB (alpha): `execute(route="duckdb_arrow")`
-  is a read-only executor of one projection over one Arrow table that the
+  is a read-only executor of one query over one Arrow table that the
   program supplies, run in process on DuckDB `2.0.0` with the
   `execute-duckdb` extra. It runs one query of an explicit-module project
-  that reads one `duckdb.arrow("key")` source: a direct projection of
-  `Int`, `Text`, `Bool` and finite `Float` fields, optionally filtered by
-  one comparison of an `Int` field with one non-null `Int` query
-  parameter. JOINs, aggregation, `order by` and `limit` are BLOCKED, and
-  an input table of more than 65,536 rows or 16 MiB is refused. It is
-  qualified only with CPython 3.12 and 3.13 on Linux x86-64 with glibc
-  2.28 or later
+  that reads one `duckdb.arrow("key")` source of `Int`, `Text`, `Bool`
+  and finite `Float` fields: a direct projection, or `group by` with
+  `count`, `sum`, `min` and `max` and a `having`, filtered by comparisons
+  with literals and query parameters joined by `and` and `or`, a `where`
+  also with `not`, with `order by` and `limit`. JOINs, computed values and other aggregates
+  are BLOCKED, and an input table of more than 1,048,576 rows, or whose
+  columns named by the source's fields measure more than 256 MiB together
+  (read by the query or not), is refused. It is qualified
+  only with CPython 3.12 and 3.13 on Linux x86-64 with glibc 2.28 or later
   ([DuckDB local path](https://github.com/MianliWang/pietto/blob/main/docs/capabilities.md#duckdb-local-path)).
-  The next DuckDB part, `group by` with `count`, `sum`, `min` and `max`,
-  `having`, `order by`, `limit` and wider `where` filters, is scheduled
-  as Phase79's second slice
-  ([roadmap](https://github.com/MianliWang/pietto/blob/main/docs/roadmap.md#third-dialect));
-  until a release carries it, those forms stay refused.
+  `0.2.0` and `0.2.1` carry only the projection with one `Int` parameter
+  comparison, over at most 65,536 rows and 16 MiB; the rest is Phase79's
+  second slice, which enters the `0.2.x` release that follows its Gate 2
+  ([roadmap](https://github.com/MianliWang/pietto/blob/main/docs/roadmap.md#third-dialect)).
 - `pietto.interop` (alpha) turns one open `ResultBatch` into a pandas or
   Polars DataFrame, a NumPy array, a SciPy CSR array or a Matplotlib line or
   scatter on the caller's Axes, keeping values exactly in the types and null

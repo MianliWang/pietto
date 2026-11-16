@@ -22,28 +22,41 @@ platform is not qualified. Its names, fields, detail words and limits may
 change in any later release, each with a release-note line and no deprecation
 period.
 
-B1 does not complete Phase79. B2, `group by` with `count`, `sum`, `min` and
-`max`, `having`, `order by`, `limit` and wider `where` filters, is scheduled as
-Phase79's second slice (PL.47, [roadmap](../roadmap.md#third-dialect)), with
-higher capture limits. No published release carries it. Each B2 code slice
-moves the rows it lands from the [B2 section](#b2-pending) at the end into the
-sections before it, which bind as the code then stands; the B2 section states
-what B2 has still to open, written before its code.
+B1 does not complete Phase79, and neither does B2, Phase79's second slice
+(PL.47, [roadmap](../roadmap.md#third-dialect)), which adds `group by` with
+`count`, `sum`, `min` and `max`, `having`, `order by`, `limit`, the wider
+`where` filters and the higher capture limits. No published release carries
+B2; it enters the `0.2.x` release that follows its Gate 2, `0.2.2` at the
+earliest (PL.47). B2's slice T01 wrote its rules as a section at the end of
+this page before any B2 code; T02–T05 moved the rows they landed into the
+sections above, and T08 moved the rest and removed that section.
 
 The rules come from the Phase79 Gate 1 decisions D79.01–D79.08, the
 third-dialect seam AD78.03 and the failure rule AD79.01 in the
-[decision record](../decisions.md). Rows marked *derived* are consequences of
-those decisions that this page fixes; the lead states them to the owner as
-inform before this page binds (see [open items](#open-items)).
+[decision record](../decisions.md). B2's come from PL.47, the owner's answer
+of 2026-11-15 to the B2 Gate 1 sheet, which revises D79.04's capture limits
+and this page's `memory_limit` rule; from the lead's choices that PL.47
+records, NULLS clauses that place NULL as the PostgreSQL emitter does (as
+D78.02 for SQLite) and B1's qualification framework; and from PL.50, the
+owner's agreement to the refusal texts as written. Rows marked *derived* are
+consequences of those decisions, and for B2 also of the T00 probe
+([B2 pin facts](#b2-pin-facts-t00)), that this page fixes; the lead states
+them to the owner as inform (see [open items](#open-items)).
 
-Construction state: PUBLISHED. S02 landed the shared connector and dialect
+Construction state: B1 PUBLISHED, B2 QUALIFIED. For B1, S02 landed the shared connector and dialect
 sets and the family firewall, S03 the independent adapter with the DuckDB
 target identity, S04 the execution route, S05 the `execute-duckdb` extra and
 S06 the native qualification, and S08 applied the shared-page hunks below.
 B1 reached `main` on 2026-11-14 in one fast-forward push ending at
 `94b4097a` and ships in `0.2.0`; the
 [B1 audit](../phases/phase-79/completion-audit.md) records its Gate 2 and
-natural CI.
+natural CI. B2 is not published: T02 landed grouping, the
+aggregates and `having`, T03 `order by` and `limit`, T04 the predicates,
+literals and parameters, and T05 the capture limits and the session; T06
+qualified them natively (preregistration v6, every unit accepted on its first
+attempt on 2026-11-16), T07 added B2's queries to the `arrow-ready` cell of
+natural CI, and T08 applied B2's shared-page hunks below. The
+[B2 audit](../phases/phase-79/b2-completion-audit.md) records them.
 
 ## Admission
 
@@ -816,82 +829,6 @@ outside Git. CPython 3.12 comes from the packaging lane and natural CI.
   bag, the relation API emitted no warning, and a 4,096-column projection
   ran.
 
-## Usability
-
-| Spelling | Canonical form | Works with | Errors | Discoverability |
-| --- | --- | --- | --- | --- |
-| `source orders: Order = duckdb.arrow("orders")` in an explicit-module module | As written; `pietto fmt` keeps it byte for byte | `check --project`; `emit-sql --project --dialect duckdb`; `compile_sql`, `compile_all_sql`, `compile_query`; `execute(route="duckdb_arrow", access=DuckDBArrowInput(name="orders", table=t), premise=None)` | Not one non-empty string literal: `PIE-S2306` `Invalid source connector arguments for duckdb.arrow`, except that an argument of unknown type reports only its own diagnostic, as for `mysql.table` (see [source connector](#source-connector)). A single file or legacy-flat project: `PIE-S2306` `Unknown source connector: duckdb.arrow`. Another dialect: `PIE-B1001` `source_family_mismatch`. An unsupported shape: `PIE-B1003` with a detail and suggestion above. An input that does not match: `PIE-R1002` `DUCKDB_ARROW_SCHEMA`; too large: `DUCKDB_ARROW_CAPTURE_LIMIT` | The source connectors of the language guide, this page, the capability page's DuckDB subsection and the release notes |
-
-## Shared-page hunks
-
-S08 applied these to the shared pages at integration, one page at a time.
-
-- `docs/spec/diagnostics.md`: the `PIE-R1001` row adds `premise=None` on
-  `duckdb_arrow`; the `PIE-S2306` row names `duckdb.arrow`; the `PIE-B1001`,
-  `PIE-B1003`, `PIE-R1002`, `PIE-R1004`, `PIE-R2002` and `PIE-R2006` rows
-  name the new details above. The `PIE-R2001` and `PIE-R2002` rows already
-  cover the selected route's PyArrow, so check 12 (see
-  [execute API](#execute-api)) changes neither.
-- `docs/execution.md`: a "DuckDB Arrow" route section (install, the input, the
-  settings, the capture, the failures) and the support-matrix row. The three
-  passages named under [execute API](#execute-api) state the `duckdb_arrow`
-  order: the `execute()` entry and the attempt-open order of the errors
-  section put PyArrow in `execute()` and the driver when the attempt opens,
-  and the request-check paragraph adds the `duckdb_arrow`/`duckdb` pair,
-  check 9 after `access`, and checks 12 and 13 after `limits` (*derived*).
-  The class sentence (`RequestRejected` (PIE-R1xxx) means nothing connected)
-  admits `PIE-R2001` and `PIE-R2002` from `execute()` on `duckdb_arrow`, and
-  the `PIE-R2003` that `mysql_rows` and `postgres_adbc` already raise there.
-- `docs/project-package.md`: `--dialect {postgres,mysql,duckdb}` and the
-  DuckDB columns of the contract value and premise tables.
-- `docs/language.md`: `duckdb.arrow` among the source connectors.
-- `docs/capabilities.md`: its own "DuckDB local path" subsection.
-- `docs/spec/project-cli-json-v2.md`: `duckdb` as a `dialect` value.
-
-S04 gives the `execute()` docstring ("The driver and environment are checked
-when the attempt opens") the same `duckdb_arrow` clause, and revises the
-`RequestRejected` and `AttemptFailed` docstrings in
-`src/pietto/execution/_errors.py` to match the revised class sentence.
-
-## Open items
-
-| Item | Owner | Latest point |
-| --- | --- | --- |
-| The D79.01 refusal mapping, the D79.04 `-0.0` admission and this page's *derived* rows, stated as inform: the `arrow` namespace; the storage and domain spellings; the premises and `premise_not_admitted_on_target`; the domain check at capture, and examining only the table fields that source fields name; Pietto-owned identifiers; admitting `--all` and `compile_all_sql`; `MAX_PARAMETERS` 65,535 in place of the DuckDB value that D79.05 expected; `columns` 4,096, the MySQL value; the settings beyond D79.06 (`allow_extension_repositories`, `allow_persistent_secrets`, the two progress-bar settings and the four `arrow_*` settings) and the fixed `threads` 1 and `memory_limit` 256 MiB; the closed order of compile refusals with its reused details, including the codes outside D79.01's list (`PIE-B1002`, `PIE-B1004` to `PIE-B1008`, and `PIE-R2001`, `PIE-R2002` with the existing driver details) | The lead | Before this page binds. Closed: stated to the owner on 2026-11-11, before S01 bound and S04 sealed; they stand with this page's derived items (D79.12; the B1 audit's [route deferrals](../phases/phase-79/completion-audit.md#route-deferrals-due-at-b1)) |
-| Whether `duckdb.arrow` changes the built-in catalog (D76.12) | The lead, at S02 | Before the B1 batch push. Closed before that push: it does not, since no input of the extension's language sync changes, so B1 needs no extension sync (D79.16) |
-| The release-note fragment `79-s01-duckdb-arrow-route.md` describes B1 as the batch delivers it. Each later slice checks and edits its own lines there and adds no second B1 fragment: S03 the emission and blocker lines, S04 the execute, capture and session lines, S05 the install and pin line, S07 the qualified platforms after S06. The batch audit compares the fragment with this page | Each slice; the batch audit | Before each slice seals; the B1 batch audit. Closed: the batch audit of 2026-11-14 compared the fragment with this page and found one low, the sentence on PostgreSQL and MySQL output, which the first documentation commit after the push scoped to this route |
-
-## B2 (pending)
-
-This section is B2's specification, written in its slice T01 before any B2
-code. **No published release carries B2.** The sections above bind as B2's
-code slices leave them, and every form they refuse stays refused with the
-texts they state; the rules below replace the rows of the sections above that
-they name. Each of B2's code slices T02–T05 moves the rows it lands from here
-into those sections, in its own commit, and the closeout T08 checks that
-nothing is left here. T02 moved grouping, the aggregates, `having`, the
-rewritten and new suggestions and their rules 5, 7, 7a, 7b and 10, T03
-`order by`, `limit` and rule 8a, T04 the predicates, literals and
-parameters, their SQL and rules 8, 8b and 9, and T05 the capture limits,
-their measure and order, `memory_limit` and the `default_collation`
-read-back.
-
-The rules come from PL.47, the owner's answer of 2026-11-15 to the B2
-Gate 1 sheet, which revises D79.04's capture limits and this page's
-`memory_limit` rule for B2, and from the lead's choices that PL.47 records:
-NULLS clauses as the PostgreSQL emitter places NULL (as D78.02 for SQLite)
-and B1's qualification framework. Rows marked *derived* are this page's
-consequences of those decisions and of the T00 probe
-([B2 pin facts](#b2-pin-facts-t00)); the lead states them to the owner as
-inform. The owner saw the new and rewritten refusal texts before they bind
-(PL.47) and agreed to them as written (PL.50); T02 binds them in code.
-
-### B2 usability
-
-| Spelling | Canonical form | Works with | Errors | Discoverability |
-| --- | --- | --- | --- | --- |
-| The existing `where`, `group by`, `having`, `order by` and `limit` clauses, aggregates, literals and parameters, in a query or table over a `duckdb.arrow` source | As written; B2 adds no spelling, and `pietto fmt` is unchanged | `check --project`; `emit-sql --project --dialect duckdb`; `compile_sql`, `compile_all_sql`, `compile_query`; `execute(route="duckdb_arrow", access=DuckDBArrowInput(name="orders", table=t), premise=None, parameters={...})` | A shape that B2 does not admit: `PIE-B1003` with a detail and suggestion of [compile refusals](#compile-refusals). An input beyond the limits: `PIE-R1002` `DUCKDB_ARROW_CAPTURE_LIMIT`. A sum outside signed 64 bits or a statement beyond `memory_limit`: `PIE-R3003`. A bound value of another type: `PIE-R1006` | This page, the capability page's DuckDB subsection and the release notes, from T08 |
-
 ### B2 pin facts (T00)
 
 T00 was an offline probe that PL.47 allowed before Gate 0, for writing
@@ -950,14 +887,71 @@ outside Git.
   256 MiB that sort and a grouping on 1,048,576 `Text` keys failed with
   `OutOfMemoryException`. The copy's `nbytes` equals the selected columns'.
 
-### B2 release notes and open items
+## Usability
 
-T01 changes nothing a program can observe, so it writes no release-note
-fragment. T02, the first slice that does, writes
-`docs/release-notes.d/79-t02-duckdb-grouping.md`; T03, T04, T05 and T08 check
-and edit their own lines there, and B2 adds no second fragment.
+| Spelling | Canonical form | Works with | Errors | Discoverability |
+| --- | --- | --- | --- | --- |
+| `source orders: Order = duckdb.arrow("orders")` in an explicit-module module | As written; `pietto fmt` keeps it byte for byte | `check --project`; `emit-sql --project --dialect duckdb`; `compile_sql`, `compile_all_sql`, `compile_query`; `execute(route="duckdb_arrow", access=DuckDBArrowInput(name="orders", table=t), premise=None)` | Not one non-empty string literal: `PIE-S2306` `Invalid source connector arguments for duckdb.arrow`, except that an argument of unknown type reports only its own diagnostic, as for `mysql.table` (see [source connector](#source-connector)). A single file or legacy-flat project: `PIE-S2306` `Unknown source connector: duckdb.arrow`. Another dialect: `PIE-B1001` `source_family_mismatch`. An unsupported shape: `PIE-B1003` with a detail and suggestion above. An input that does not match: `PIE-R1002` `DUCKDB_ARROW_SCHEMA`; too large: `DUCKDB_ARROW_CAPTURE_LIMIT` | The source connectors of the language guide, this page, the capability page's DuckDB subsection and the release notes |
+| The existing `where`, `group by`, `having`, `order by` and `limit` clauses, aggregates, literals and parameters, in a query or table over a `duckdb.arrow` source | As written; B2 adds no spelling, and `pietto fmt` is unchanged | `check --project`; `emit-sql --project --dialect duckdb`; `compile_sql`, `compile_all_sql`, `compile_query`; `execute(route="duckdb_arrow", access=DuckDBArrowInput(name="orders", table=t), premise=None, parameters={...})` | A shape that B2 does not admit: `PIE-B1003` with a detail and suggestion of [compile refusals](#compile-refusals). An input beyond the limits: `PIE-R1002` `DUCKDB_ARROW_CAPTURE_LIMIT`. A sum outside signed 64 bits or a statement beyond `memory_limit`: `PIE-R3003`. A bound value of another type: `PIE-R1006` | This page, the capability page's DuckDB subsection and the release notes |
+
+## Shared-page hunks
+
+S08 applied these to the shared pages at integration, one page at a time.
+
+- `docs/spec/diagnostics.md`: the `PIE-R1001` row adds `premise=None` on
+  `duckdb_arrow`; the `PIE-S2306` row names `duckdb.arrow`; the `PIE-B1001`,
+  `PIE-B1003`, `PIE-R1002`, `PIE-R1004`, `PIE-R2002` and `PIE-R2006` rows
+  name the new details above. The `PIE-R2001` and `PIE-R2002` rows already
+  cover the selected route's PyArrow, so check 12 (see
+  [execute API](#execute-api)) changes neither.
+- `docs/execution.md`: a "DuckDB Arrow" route section (install, the input, the
+  settings, the capture, the failures) and the support-matrix row. The three
+  passages named under [execute API](#execute-api) state the `duckdb_arrow`
+  order: the `execute()` entry and the attempt-open order of the errors
+  section put PyArrow in `execute()` and the driver when the attempt opens,
+  and the request-check paragraph adds the `duckdb_arrow`/`duckdb` pair,
+  check 9 after `access`, and checks 12 and 13 after `limits` (*derived*).
+  The class sentence (`RequestRejected` (PIE-R1xxx) means nothing connected)
+  admits `PIE-R2001` and `PIE-R2002` from `execute()` on `duckdb_arrow`, and
+  the `PIE-R2003` that `mysql_rows` and `postgres_adbc` already raise there.
+- `docs/project-package.md`: `--dialect {postgres,mysql,duckdb}` and the
+  DuckDB columns of the contract value and premise tables.
+- `docs/language.md`: `duckdb.arrow` among the source connectors.
+- `docs/capabilities.md`: its own "DuckDB local path" subsection.
+- `docs/spec/project-cli-json-v2.md`: `duckdb` as a `dialect` value.
+
+S04 gives the `execute()` docstring ("The driver and environment are checked
+when the attempt opens") the same `duckdb_arrow` clause, and revises the
+`RequestRejected` and `AttemptFailed` docstrings in
+`src/pietto/execution/_errors.py` to match the revised class sentence.
+
+B2's closeout T08 applied B2's hunks, one page at a time:
+
+- `docs/spec/diagnostics.md`: the `PIE-B1003` row names the details of
+  rules 7a, 7b, 8a and 8b in rule order; the `PIE-R1002` row the capture
+  limits of [capture](#capture), their measure and their check order; the
+  `PIE-R2006` row the `default_collation` read-back; and the `PIE-R3003` row
+  a `sum` outside signed 64 bits and a statement beyond `memory_limit` on
+  `duckdb_arrow`.
+- `docs/execution.md`: the query, capture, session and failure items of its
+  DuckDB Arrow route section and the native evidence of its support-matrix row.
+- `docs/project-package.md`: the DuckDB part of the `operator_environment`
+  row, which a DuckDB statement needs only with a `where` or a `having`.
+- `docs/capabilities.md` and `README.md`: the forms of the DuckDB local path,
+  each capability row run once through `check --project` and
+  `emit-sql --project --dialect duckdb` on T08's tree.
+- `docs/roadmap.md`: the Third dialect paragraph and the DuckDB Arrow
+  route's row of the Phase82 freeze ledger; `docs/status.md`: the sentence
+  on B2. `docs/language.md` needs none: its `duckdb.arrow` paragraph defers
+  to this page.
+
+## Open items
 
 | Item | Owner | Latest point |
 | --- | --- | --- |
-| This section's *derived* rows, stated as inform: the `Float` group key, `avg(Int)` and `sum` and `avg` of a `Float` left refused, the `Text` literal with NUL refused, predicates limited to comparisons of a read with a literal or a parameter (no comparison of two reads or of an `Int` with a `Float`, and no bare `Bool` test), a unary `-` on a number literal admitted as a signed literal since the project has no constants, the read-back of `default_collation` in place of `COLLATE`, qualified names, the literal and parameter spellings, the new `physical_type` values, the check order of the capture, no limit on the number of group keys, and T02's document columns of group keys and aggregates ([SQL](#sql)) | The lead | Before T02 seals |
-| Moving each row from this section into the sections above as its code lands | T02–T05; T08 checks | Before each slice seals; T08 |
+| The D79.01 refusal mapping, the D79.04 `-0.0` admission and this page's *derived* rows, stated as inform: the `arrow` namespace; the storage and domain spellings; the premises and `premise_not_admitted_on_target`; the domain check at capture, and examining only the table fields that source fields name; Pietto-owned identifiers; admitting `--all` and `compile_all_sql`; `MAX_PARAMETERS` 65,535 in place of the DuckDB value that D79.05 expected; `columns` 4,096, the MySQL value; the settings beyond D79.06 (`allow_extension_repositories`, `allow_persistent_secrets`, the two progress-bar settings and the four `arrow_*` settings) and the fixed `threads` 1 and `memory_limit` 256 MiB; the closed order of compile refusals with its reused details, including the codes outside D79.01's list (`PIE-B1002`, `PIE-B1004` to `PIE-B1008`, and `PIE-R2001`, `PIE-R2002` with the existing driver details) | The lead | Before this page binds. Closed: stated to the owner on 2026-11-11, before S01 bound and S04 sealed; they stand with this page's derived items (D79.12; the B1 audit's [route deferrals](../phases/phase-79/completion-audit.md#route-deferrals-due-at-b1)) |
+| Whether `duckdb.arrow` changes the built-in catalog (D76.12) | The lead, at S02 | Before the B1 batch push. Closed before that push: it does not, since no input of the extension's language sync changes, so B1 needs no extension sync (D79.16) |
+| The release-note fragment `79-s01-duckdb-arrow-route.md` describes B1 as the batch delivers it. Each later slice checks and edits its own lines there and adds no second B1 fragment: S03 the emission and blocker lines, S04 the execute, capture and session lines, S05 the install and pin line, S07 the qualified platforms after S06. The batch audit compares the fragment with this page | Each slice; the batch audit | Before each slice seals; the B1 batch audit. Closed: the batch audit of 2026-11-14 compared the fragment with this page and found one low, the sentence on PostgreSQL and MySQL output, which the first documentation commit after the push scoped to this route |
+| B2's *derived* rows, stated as inform: the `Float` group key, `avg(Int)` and `sum` and `avg` of a `Float` left refused, the `Text` literal with NUL refused, predicates limited to comparisons of a read with a literal or a parameter (no comparison of two reads or of an `Int` with a `Float`, and no bare `Bool` test), a unary `-` on a number literal admitted as a signed literal since the project has no constants, the read-back of `default_collation` in place of `COLLATE`, qualified names, the literal and parameter spellings, the new `physical_type` values, the check order of the capture, no limit on the number of group keys, and T02's document columns of group keys and aggregates ([SQL](#sql)) | The lead | Before T02 seals. Missed: T02 sealed first. The lead's status report to the owner of 2026-11-16 named the item overdue and listed part of it; the whole list is stated to the owner before B2's batch Gate 2 (the [B2 audit](../phases/phase-79/b2-completion-audit.md#route-items-due-at-b2)) |
+| B2's release-note fragment `79-t02-duckdb-grouping.md`, which T02 writes, since T01 changes nothing a program can observe. T03, T04, T05 and T08 check and edit their own lines there, and B2 adds no second fragment. B2's batch audit compares the fragment with this page | Each slice; B2's batch audit | Before each slice seals; B2's batch audit. T08 compared the fragment with this page, found no rule that differs, and added the links to the capability page and the execution guide and the qualified platforms |
+| Moving each row of the B2 section, which T01 wrote at the end of this page, into the sections above as its code lands | T02–T05; T08 checks | Before each slice seals; T08. Closed: T02–T05 moved their rows, and T08 moved the usability row, the T00 facts and these items and removed the section |

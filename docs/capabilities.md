@@ -11,7 +11,8 @@ their own ([SQLite single files](#sqlite-single-files),
 other pages claim for each platform.
 It describes `0.2.1`, whose
 [release notes](release-notes.md#maintenance-public-alpha-release-notes--021)
-give each change. Each row was recorded by running one
+give each change, and the DuckDB forms that no release carries yet
+([DuckDB local path](#duckdb-local-path)). Each row was recorded by running one
 plain example of the family through these commands, with a project emission
 contract that declares every premise
 ([project SQL emission](project-package.md#project-sql-emission)). A cell
@@ -159,31 +160,40 @@ An explicit-module project can compile one limited query over a
 that the program supplies with `execute(route="duckdb_arrow")`
 ([DuckDB Arrow route](spec/duckdb-arrow-route-v1.md)), since `0.2.0`.
 
-The path is an alpha, read-only executor of one projection over one Arrow
-table: one `duckdb.arrow` source, a direct projection of `Int`, `Text`,
-`Bool` and finite `Float` fields, and at most one comparison of an `Int`
-field with one non-null `Int` query parameter. JOINs, aggregation,
-`order by` and `limit` are BLOCKED, an input table of more than 65,536 rows
-or 16 MiB is refused, and it is qualified only with CPython 3.12 and 3.13 on
-Linux x86-64 with glibc 2.28 or later (see *Support* below). Releases since
-`0.2.0` carry this first part only. The next part, `group by` with `count`,
-`sum`, `min` and `max`, `having`, `order by`, `limit` and wider `where`
-filters, is scheduled as Phase79's second slice (PL.47,
-[roadmap](roadmap.md#third-dialect)); until a release carries it, those
-forms stay refused.
+The path is an alpha, read-only executor of one query over one Arrow table:
+one `duckdb.arrow` source, read directly or grouped with `count`, `sum`,
+`min` and `max`, filtered by comparisons with literals and query parameters,
+ordered and limited. JOINs, computed values and other aggregates are BLOCKED,
+an input table of more than 1,048,576 rows, or whose columns named by the
+source's fields measure more than 256 MiB together (read by the query or not),
+is refused, and it is qualified only with CPython 3.12 and
+3.13 on Linux x86-64 with glibc 2.28 or later (see *Support* below).
+`0.2.0` and `0.2.1` carry only its first part, B1: a direct projection with
+at most one comparison of an `Int` field with one non-null `Int` parameter,
+over at most 65,536 rows and 16 MiB. Its second part, Phase79 B2 (PL.47),
+adds the grouping, `having`, `order by`, `limit`, the wider filters and the
+higher limits; no release carries it yet, and it enters the `0.2.x` release
+that follows its Gate 2, `0.2.2` at the earliest.
 
 Each row was recorded by running one plain example through
 `check --project` and `emit-sql --project --dialect duckdb`, with a DuckDB
-contract that declares every premise, and its cell follows the legend above.
+contract that declares every premise, on the tree of B2's closeout, and its
+cell follows the legend above.
 
 | Feature | Project, DuckDB | Stated in |
 | --- | --- | --- |
 | A direct projection of `Int`, `Text`, `Bool` and `Float` fields | yes | [Admission](spec/duckdb-arrow-route-v1.md#admission) |
-| One `where` comparison `IntField OP param` with `==`, `!=`, `<`, `<=`, `>` or `>=` and one non-null `Int` query parameter | yes | [Admission](spec/duckdb-arrow-route-v1.md#admission) |
-| A `where` with a literal (`amount > 5`), a comparison of a `Text` field, or two comparisons joined by `and` | BLOCKED PIE-B1003 `duckdb_filter_not_admitted` and `duckdb_parameter_not_admitted` | [Compile refusals](spec/duckdb-arrow-route-v1.md#compile-refusals) |
-| A parameter in a projection, or a nullable parameter | BLOCKED PIE-B1003 `duckdb_parameter_not_admitted` | [Compile refusals](spec/duckdb-arrow-route-v1.md#compile-refusals) |
+| `where` comparisons of a field with a literal or a query parameter of the same type, `Int`, `Text`, `Bool` or `Float`, joined by `and`, `or` and `not`, and `is None` tests, with any number of non-null parameters of those types | yes | [Admission](spec/duckdb-arrow-route-v1.md#admission) |
+| A comparison of two fields (`amount > id`) or of an `Int` with a `Float`, a bare `Bool` field as a test (`where ok`), a computed side (`-amount > 3`), or a parameter tested with `is None` | BLOCKED PIE-B1003 `duckdb_filter_not_admitted`, beside `duckdb_parameter_not_admitted` for the parameter | [Compile refusals](spec/duckdb-arrow-route-v1.md#compile-refusals) |
+| A `Text` literal that holds NUL | BLOCKED PIE-B1003 `duckdb_text_literal_nul_not_admitted` | [Compile refusals](spec/duckdb-arrow-route-v1.md#compile-refusals) |
+| A nullable parameter, a parameter of another type such as `Decimal(10, 2)`, or a parameter in a projection | BLOCKED PIE-B1003 `duckdb_parameter_not_admitted`, beside `duckdb_filter_not_admitted` for a parameter of another type and `duckdb_projection_not_admitted` in a projection | [Compile refusals](spec/duckdb-arrow-route-v1.md#compile-refusals) |
+| `group by` source fields with `count()`, `count(field)`, `sum` of an `Int` field and `min` and `max` of an `Int` or `Float` field, or these aggregates without `group by` | yes | [Admission](spec/duckdb-arrow-route-v1.md#admission) |
+| A `having` that compares selected outputs with literals and parameters, joined by `and` and `or` | yes | [Admission](spec/duckdb-arrow-route-v1.md#admission) |
+| `avg`, `count_distinct` or `sum` of a `Float` | BLOCKED PIE-B1003 `duckdb_aggregate_not_admitted` | [Compile refusals](spec/duckdb-arrow-route-v1.md#compile-refusals) |
+| `order by` source fields, or in a grouped query selected outputs, ascending or descending, and a static `limit` | yes | [Admission](spec/duckdb-arrow-route-v1.md#admission) |
+| A computed `order by` key (`order by -amount`) | BLOCKED PIE-B1003 `duckdb_order_not_admitted` | [Compile refusals](spec/duckdb-arrow-route-v1.md#compile-refusals) |
 | A computed `select` value (`more = amount + 1`) | BLOCKED PIE-B1003 `duckdb_projection_not_admitted` | [Compile refusals](spec/duckdb-arrow-route-v1.md#compile-refusals) |
-| `order by`, `limit`, `distinct`, `group by` with aggregates, a table that reads another, a JOIN | BLOCKED PIE-B1003 `duckdb_relation_shape_not_admitted`, beside `duckdb_projection_not_admitted` for an aggregate and `duckdb_source_count_not_admitted` for a second source | [Compile refusals](spec/duckdb-arrow-route-v1.md#compile-refusals) |
+| `distinct`, a table that reads another, a JOIN | BLOCKED PIE-B1003 `duckdb_relation_shape_not_admitted`, beside `duckdb_source_count_not_admitted` and `duckdb_projection_not_admitted` for a JOIN of a second source | [Compile refusals](spec/duckdb-arrow-route-v1.md#compile-refusals) |
 | A source field of type `Decimal`, `Date`, `Timestamp` or `UUID` | BLOCKED PIE-B1003 `duckdb_field_type_not_admitted`, beside the contract's own blocker for that field | [Compile refusals](spec/duckdb-arrow-route-v1.md#compile-refusals) |
 | `--literal-policy bind-safe` | BLOCKED PIE-B1003 `literal_policy_not_admitted_on_target` | [Compile refusals](spec/duckdb-arrow-route-v1.md#compile-refusals) |
 | A `postgres.table` or `mysql.table` source under `--dialect duckdb` | BLOCKED PIE-B1001 `source_family_mismatch`, beside PIE-B1006 `negative_original_target_evidence` | [Compile refusals](spec/duckdb-arrow-route-v1.md#compile-refusals) |
@@ -193,16 +203,24 @@ contract that declares every premise, and its cell follows the legend above.
   `Unknown source connector: duckdb.arrow`, and there is no single-file
   `--dialect duckdb`. `pietto fmt` keeps the spelling.
 - **Execution.** `execute(route="duckdb_arrow")` takes
-  `DuckDBArrowInput(name, table)` and `premise=None`, copies the selected
-  columns of at most 65,536 rows and 16 MiB, and returns the usual
-  `ResultHandle`; results are bags. Bundles, saved results, relay, jobs and
-  R2 do not take the route ([execution](execution.md#duckdb-arrow-route)).
+  `DuckDBArrowInput(name, table)`, `premise=None` and the query's
+  parameters, copies the columns named by the source's fields, of at most
+  1,048,576 rows and 256 MiB, and returns the usual `ResultHandle`; results
+  are bags unless the query has `order by`, and a `sum` outside signed
+  64 bits fails with PIE-R3003. Besides your table, one `execute()` holds
+  about 1.5 GiB at its peak while its result is no larger than those
+  columns, and a result beyond `ExecutionLimits.max_bytes` (64 MiB by
+  default) is refused with PIE-R3004 only after it has been read whole
+  ([Session and attempt](spec/duckdb-arrow-route-v1.md#session-and-attempt)). Bundles, saved results, relay, jobs and R2 do not take the
+  route ([execution](execution.md#duckdb-arrow-route)).
 - **Support.** The emission is tested wherever CI runs, Windows included;
   the request checks run only on Linux, where CI runs the execution tests.
   The route needs the `execute-duckdb` extra (`duckdb==2.0.0`,
-  `pyarrow==26.0.1`); its native evidence is Phase79 S06's in-process
-  matrix, every unit accepted on 2026-11-14 (D79.07), on CPython 3.13.13
-  and 3.12.13, Linux x86-64, and the `arrow-ready` cell of natural CI.
+  `pyarrow==26.0.1`); its native evidence is Phase79's in-process matrix,
+  S06's for B1, every unit accepted on 2026-11-14 (D79.07), and T06's for
+  B2, every unit accepted on 2026-11-16 (PL.47), on CPython 3.13.13 and
+  3.12.13, Linux x86-64, and the `arrow-ready` cell of natural CI, which
+  runs one B1 and three B2 queries.
   Other DuckDB releases and platforms are not qualified.
 
 ## Platforms and qualification
@@ -235,7 +253,7 @@ one with its limits. Phase81 decides the Windows scope and the CPython matrix
 | SQLite SQL text, as qualified by running it in process in the tests (Pietto runs no SQLite statement) | qualified only on release `3.53.1` with the source id and the 46 compile options that `tests/test_sql_sqlite_native.py` records, under CPython 3.13.13; every other build, the SQLite of hosted CI included, is not qualified | not claimed: not qualified | not claimed: not qualified | [SQLite single files](#sqlite-single-files), [SQLite target validation](development.md#sqlite-target-validation) |
 | PostgreSQL and MySQL execution: `postgres_rows`, `postgres_adbc` and `mysql_rows`, with the workspace and saved-result calls (alpha) | qualified: CPython 3.13.13 with the lock's exact artifacts on the qualified integration host, PostgreSQL 18.6 and MySQL 8.4.12; the workspace and saved-result calls also need the job store's exact SQLite build and ext4 mounted read-write | not claimed: native execution is `NOTRUN`, and the workspace and saved-result calls raise `ModuleNotFoundError` for `fcntl` | not claimed: the workspace and saved-result calls are Linux-only | [Support matrix](execution.md#support-matrix), [Known limitations](execution.md#known-limitations), row 3 of [Validation runner acceptance](spec/validation-runner-acceptance-v1.md) |
 | DuckDB emission (`--dialect duckdb`) | CI-tested | CI-tested | not claimed | [DuckDB local path](#duckdb-local-path) |
-| `duckdb_arrow` route with the `execute-duckdb` extra (alpha) | qualified: CPython 3.13.13 and 3.12.13 with `duckdb==2.0.0` and `pyarrow==26.0.1`, glibc 2.28 or later; CI runs the request checks and one real query | not claimed: not qualified | not claimed: not qualified | [Support matrix](execution.md#support-matrix), [DuckDB native qualification](development.md#duckdb-native-qualification) |
+| `duckdb_arrow` route with the `execute-duckdb` extra (alpha) | qualified: CPython 3.13.13 and 3.12.13 with `duckdb==2.0.0` and `pyarrow==26.0.1`, glibc 2.28 or later; CI runs the request checks and four real queries | not claimed: not qualified | not claimed: not qualified | [Support matrix](execution.md#support-matrix), [DuckDB native qualification](development.md#duckdb-native-qualification) |
 | `pietto.interop` with an `interop-*` extra beside `arrow` (alpha) | qualified: only the pins of its table with `pyarrow==26.0.1`, CPython 3.12 and 3.13, glibc 2.28 or later | not claimed: not qualified; CI runs only the interop tests that need no PyArrow | not claimed: not qualified | [Installing](interop.md#installing), the [CI workflow](../.github/workflows/ci.yml) |
 
 - No page claims CPython 3.14, another Python implementation or another
