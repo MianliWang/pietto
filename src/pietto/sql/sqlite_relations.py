@@ -274,9 +274,6 @@ class _Statement:
         if isinstance(expression, LiteralIR):
             if expression.value is not None:
                 _value_type(expression.value_type, "a literal")
-            if keys is not None and type(expression.value) is bool:
-                # HAVING reads TRUE and FALSE as an output alias so named.
-                return "1" if expression.value else "0"
             return render_literal(expression.value)
         if isinstance(expression, ComparisonIR):
             operator = _COMPARISONS.get(expression.operator)

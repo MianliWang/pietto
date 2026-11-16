@@ -29,6 +29,19 @@ parameters, with the aggregates `count`, `count_distinct` (of an `Int`,
 - Single files gain `having`, `count_distinct` of an `Int`, `Text` or `Bool`
   field and `avg` of an `Int` field; their `sum` stays refused, since a file
   has no `int_range`.
+- Breaking: single-file SQLite SQL now writes a `Bool` literal as `1` or `0`,
+  where `0.2.1` wrote `TRUE` or `FALSE`. SQLite reads `TRUE` and `FALSE` as
+  a column of that name, in any letter case, when the table has one, and in
+  `WHERE` as an output so named, so such a statement could return wrong
+  rows. Every single-file statement with a `Bool` literal changes its SQL,
+  and its result only where such a name exists. To keep the `0.2.1` SQL,
+  pin that exact version, for example `pip install "pietto==0.2.1"`.
+- Breaking: only programs that `0.2.1` refused change their diagnostics, as
+  the compatibility table below lists: the PIE-S2306 text of a project
+  `sqlite.table` call with invalid arguments, the refusal of PostgreSQL,
+  MySQL or DuckDB emission of a statement that reads a project
+  `sqlite.table` source, and the PIE-B1000 reason of a single-file relation
+  that stays refused.
 - `compile_query(dialect="sqlite")` keeps PIE-R1002 in this tier, and
   Pietto runs no SQLite statement and opens no database file.
 
@@ -41,8 +54,8 @@ unchanged. These outputs change, for programs refused before as well:
 | PIE-S2306 | a project `sqlite.table` call without exactly one argument, or whose argument is not a non-empty string literal, and no argument reports an error of its own | `Unknown source connector: sqlite.table` | `Invalid source connector arguments for sqlite.table` on the call |
 | PIE-B1001 | PostgreSQL, MySQL or DuckDB emission of a statement that reads a project `sqlite.table` source | the `check` refusal above | `source_family_mismatch` beside PIE-B1006 `negative_original_target_evidence`, as for a `duckdb.arrow` source on PostgreSQL and MySQL and a `postgres.table` source on DuckDB, where it is DuckDB's rule 19 |
 | usage | `emit-sql --project ... --dialect sqlite` | a usage error naming `{postgres,mysql,duckdb}` | emits; the usage text names `{postgres,mysql,duckdb,sqlite}` |
-| PIE-B1000 | a single-file `having`, `count_distinct` of an `Int`, `Text` or `Bool` field, or `avg` of an `Int` field | refused | emits |
-| PIE-B1000 | a single-file `count_distinct` of a `Decimal`, `Date`, `Timestamp` or `UUID` field or `avg` of a `Decimal` field, or a `having` beside another refused form, other than a JOIN, a read of another table or query, a `qualify` or a named window | the reason `SQLite single-file SQL has no aggregate count_distinct yet`, `... no aggregate avg yet` or `... no having yet` | the existing reason of the field's type or of the other form |
+| SQL | a single-file `Bool` literal | `TRUE` or `FALSE` | `1` or `0` |
+| PIE-B1000 | a single-file relation whose refusal named its `having`, `count_distinct` or `avg` | the reason `SQLite single-file SQL has no having yet`, `... no aggregate count_distinct yet` or `... no aggregate avg yet` | emits, or the reason of the first form still refused in the backend's order, such as the field's type for `count_distinct` of a `Decimal`, `Date`, `Timestamp` or `UUID` field or `avg` of a `Decimal` field |
 
 New refusals of `emit-sql --project ... --dialect sqlite` (a usage error
 before): PIE-B1003 with the details `target_release_not_reviewed`,

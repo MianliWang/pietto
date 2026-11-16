@@ -10,7 +10,7 @@ WHERE `accounts`.`active` AND (`accounts`.`score` IS NOT NULL);
 SELECT
     `accounts`.`id` AS `id`,
     `accounts`.`name` AS `name`,
-    `accounts`.`active` = FALSE AS `flagged`,
+    `accounts`.`active` = 0 AS `flagged`,
     'account' AS `kind`,
     1.5 AS `weight`,
     9223372036854775807 AS `rank`

@@ -80,13 +80,15 @@ edited: `having`, with the expressions of the table above over `group by` keys
 and aggregates; `count_distinct` of an `Int`, `Text` or `Bool` field, written
 `COUNT(DISTINCT x)`; and `avg` of an `Int` field, written
 `AVG(CAST(x AS REAL))`. A single-file `HAVING` writes each key and aggregate
-itself, as project SQL does, and a `Bool` literal as `1` or `0`, since SQLite
-reads `TRUE` and `FALSE` as a column or output of that name when one exists.
-Elsewhere single files keep B1's `TRUE` and `FALSE`: the single-file rules
-add the premise that no source table has a column so named and state that a
-`where` beside an output so named returns wrong rows, a B1 defect that S10
-leaves unchanged. Single-file SQL keeps B1's premises, the `BINARY`
-collation among them, and writes no `COLLATE`. A
+itself, and single-file SQL writes every `Bool` literal as `1` or `0`, both
+as project SQL does. B1 wrote `TRUE` and `FALSE`, which SQLite reads as a
+column of that name, in any letter case, when the table has one, and in
+`WHERE` as an output so named, so a B1 statement could return wrong rows
+where the table has a column so named or, in `where`, beside an output so
+named. By the owner's ruling (PL.54) this changes published
+single-file bytes and the reviewed single-file golden; a statement without a
+`Bool` literal keeps its bytes. Single-file SQL keeps B1's premises, the
+`BINARY` collation among them, and writes no `COLLATE`. A
 file has no contract and no `int_range`, so `sum` of an `Int` stays refused
 with its `PIE-B1000` reason, unchanged. The new single-file refusals keep the
 existing `PIE-B1000` text, `SQLite SQL emission is not implemented for
@@ -97,7 +99,11 @@ RelationIR: <name>. <reason>`, with these reasons (*derived*):
 | `avg` of a `Float` field | `SQLite aggregate avg supports only Int fields` |
 | `count_distinct` of a `Float` field | `SQLite aggregate count_distinct supports only Int, Text and Bool fields` |
 
-Every other single-file text stays as it is.
+A relation refused before with the reason `... no having yet`,
+`... no aggregate count_distinct yet` or `... no aggregate avg yet` now
+emits, or takes the reason of the first form still refused in the backend's
+order, such as the field's type for `count_distinct` of a `Decimal` field.
+Every other single-file reason stays as it is.
 
 ## Source connector
 
@@ -484,8 +490,9 @@ integration, one page at a time, in the route's single-writer order.
   `docs/spec/diagnostics.md`, the `PIE-S2306`, `PIE-B1001` and `PIE-B1003`
   rows naming the details above, at a time the lead schedules apart from
   Phase81's diagnostic review (P03, PL.58); and the CLI usage strings.
-- S10: `docs/language.md`, the single-file aggregates, `having` and the
-  `avg` rounding; `docs/capabilities.md`, the SQLite table;
+- S10: `docs/language.md`, the single-file aggregates, `having`, the `avg`
+  rounding and the `Bool` literal written `1` or `0`;
+  `docs/capabilities.md`, the SQLite table;
   `docs/spec/diagnostics.md`, the `PIE-B1004` row naming SQLite's
   `sum_int_aggregate_range_proof_missing`.
 - S11: the execution pages, which its section names.

@@ -278,7 +278,7 @@ def test_each_comparison_and_none_test_emits_its_own_operator() -> None:
             "    `users`.`id` >= 6 AS `ge`,\n"
             "    `users`.`score` IS NULL AS `missing`,\n"
             "    `users`.`score` IS NOT NULL AS `present`,\n"
-            "    `users`.`active` = TRUE AS `yes`\n"
+            "    `users`.`active` = 1 AS `yes`\n"
             "FROM `users`\n"
             "WHERE (`users`.`score` IS NULL) AND (`users`.`name` <> 'x')",
         )
@@ -287,8 +287,8 @@ def test_each_comparison_and_none_test_emits_its_own_operator() -> None:
 
 def test_having_count_distinct_and_avg_emit_their_sql() -> None:
     """PL.47's single-file T2 forms: HAVING writes each selected aggregate and
-    GROUP BY key itself, never an output alias, and a Bool literal there as 1
-    or 0, which no output named TRUE or FALSE can shadow."""
+    GROUP BY key itself, never an output alias, and a Bool literal as 1 or 0,
+    as everywhere, which no output named TRUE or FALSE can shadow."""
 
     script_ir = _compile(
         HEADER + "query q:\n    from users\n    where score is not None\n"
@@ -442,8 +442,8 @@ def test_names_are_backtick_quoted_and_literals_unsigned() -> None:
 
     assert quote_identifier("a`b") == "`a``b`"
     assert [render_literal(value) for value in (True, False, 0, 2**63 - 1)] == [
-        "TRUE",
-        "FALSE",
+        "1",
+        "0",
         "0",
         "9223372036854775807",
     ]

@@ -695,7 +695,7 @@ user-local CPython 3.12.13 on Linux x86-64 (glibc 2.43):
 | B2 delivers | Not in B2 |
 | --- | --- |
 | Project `sqlite.table` sources; `emit-sql --project --dialect sqlite`, text and JSON v1/v2, with or without `--all`; `compile_sql` and `compile_all_sql`; the T1 forms and the T2 aggregates of the specification | The second tier until the midpoint and the owner; `Decimal`, `Date`, `Timestamp`, `UUID` and nested values; `Float` `sum` and `avg`; text functions and `LIKE`; `--literal-policy bind-safe` |
-| Single-file `having`, `count_distinct` and `avg(Int)` | single-file `sum(Int)`; any change to PostgreSQL, MySQL or DuckDB bytes |
+| Single-file `having`, `count_distinct` and `avg(Int)`; single-file `Bool` literals written `1` or `0` (PL.54) | single-file `sum(Int)`; any change to PostgreSQL, MySQL or DuckDB bytes |
 | Tier 1b: `compile_query(dialect="sqlite")` and the `sqlite_file` route over a caller's `STRICT` tables | writing, query bundles, saved results, relay, jobs and R2 on SQLite; a content digest of the file; another build or platform; sqlglot at run time (AD78.01); any parity claim across databases |
 
 ### B2 slices

@@ -338,6 +338,13 @@ _FIXTURES: dict[str, tuple[str, str, tuple[tuple[object, ...], ...]]] = {
         _SCHEMA,
         ((1, None, None, 2, None), (2, None, None, 1, None), (3, None, None, 0, None)),
     ),
+    # Columns named `true` and `false`, in mixed case, that no field declares
+    # and that hold the other Bool value.
+    "bool-named-columns": (
+        "t",
+        _SCHEMA.replace("`x` REAL", "`x` REAL, `True` INTEGER, `fAlSe` INTEGER"),
+        tuple((*row, 0, 1) for row in _ROWS),
+    ),
     "real-edges": (
         "t",
         _SCHEMA,
@@ -1166,7 +1173,35 @@ _T2_CELLS: tuple[_Cell, ...] = (
         True,
     ),
 )
-_CELLS = _LAW_CELLS + _PREMISES + _T2_CELLS
+# A Bool literal is written 1 or 0, so no output or column named `true` or
+# `false`, in any letter case, stands in for it in `where` or `select`, as
+# one stood in for B1's TRUE and FALSE. Each cell also runs as a project
+# module; they stay out of `_LAW_CELLS`, whose PostgreSQL replay binds, and
+# out of `_T2_CELLS`, which R1 replays.
+_BOOL_NAME_CELLS: tuple[_Cell, ...] = (
+    _Cell(
+        "bool-literals-beside-outputs-named-true-and-false",
+        _q(
+            "where b == True or b == False",
+            _b("select", "id", "TRUE = n", "FALSE = s", "yes = True", "no = False"),
+        ),
+        ("id", "TRUE", "FALSE", "yes", "no"),
+        tuple((*row[:3], 1, 0) for row in _ROWS if row[3] is not None),
+        False,
+    ),
+    _Cell(
+        "bool-literals-beside-columns-named-true-and-false",
+        _q(
+            "where b == True or b == False and n == 7",
+            _b("select", "id", "yes = True", "no = False"),
+        ),
+        ("id", "yes", "no"),
+        tuple((i, 1, 0) for i in (1, 4, 5, 6, 7)),
+        False,
+        "bool-named-columns",
+    ),
+)
+_CELLS = _LAW_CELLS + _PREMISES + _T2_CELLS + _BOOL_NAME_CELLS
 
 # Query parameters of each type with their arguments; -0.0 keeps its sign.
 _PARAMETERS = (("n", 7), ("s", "a"), ("b", True), ("x", -0.0))
@@ -1420,7 +1455,7 @@ _PROJECT_CELLS = (
     ),
     *(
         replace(cell, name=f"project-{cell.name}", arguments=())
-        for cell in _PREMISES
+        for cell in (*_PREMISES, *_BOOL_NAME_CELLS)
         if cell.fixture != "nocase"
     ),
     *_ALIASED_CELLS,
@@ -2180,7 +2215,7 @@ _COLUMN = re.compile(r"`t`\.`(\w+)`")
 _FLOAT = re.compile(r"(?<![\w.`])\d+(?:\.\d+(?:e[+-]\d+)?|e[+-]\d+)(?![\w.`])")
 _INT = re.compile(r"(?<![\w.`])\d+(?![\w.`])")
 # `@<type>` stands for an aggregate of that result type.
-_OPERAND = r"`t`\.`\w+`|@\w+|'\?'|TRUE|FALSE|\d+(?:\.\d+)?(?:e[+-]\d+)?"
+_OPERAND = r"`t`\.`\w+`|@\w+|'\?'|\d+(?:\.\d+)?(?:e[+-]\d+)?"
 _COMPARISON = re.compile(rf"({_OPERAND}) (<>|<=|>=|=|<|>) ({_OPERAND})")
 _NULL_TEST = re.compile(r"(`t`\.`\w+`) (IS NOT NULL|IS NULL)")
 
@@ -2204,8 +2239,6 @@ def _operand_type(operand: str) -> str:
         return _COLUMN_TYPES[column[1]]
     if operand == "'?'":
         return "Text"
-    if operand in ("TRUE", "FALSE"):
-        return "Bool"
     return "Float" if _FLOAT.fullmatch(operand) else "Int"
 
 
@@ -2229,6 +2262,10 @@ def _forms(sql: str) -> set[str]:
                 forms.add(f"order by {_COLUMN_TYPES[column]} {direction}")
         if clause not in ("SELECT", "WHERE", "HAVING"):
             continue
+        # shortcut: a Bool literal is 1 or 0 in the bytes, so each counts as
+        # literal Int too outside HAVING, and only one compared with a Bool
+        # operand counts as literal Bool; read the IR if the guards must
+        # tell them apart.
         for literal, pattern in (("Float", _FLOAT), ("Int", _INT)):
             if clause != "HAVING" and pattern.search(
                 _FLOAT.sub("", text) if literal == "Int" else text
@@ -2236,21 +2273,12 @@ def _forms(sql: str) -> set[str]:
                 forms.add(f"literal {literal}")
         if "'?'" in text:
             forms.add("literal Text")
-        if re.search(r"\b(TRUE|FALSE)\b", text):
-            forms.add("literal Bool")
         typed = _AGGREGATE.sub(lambda match: "@" + _aggregate_form(match)[1], text)
         for left, comparison, right in _COMPARISON.findall(typed):
             kinds = {_operand_type(left), _operand_type(right)}
-            if (
-                name == "having"
-                and kinds == {"Bool", "Int"}
-                and {left, right}
-                & {
-                    "0",
-                    "1",
-                }
-            ):
-                kinds = {"Bool"}  # HAVING writes a Bool literal as 1 or 0
+            if kinds == {"Bool", "Int"} and {left, right} & {"0", "1"}:
+                kinds = {"Bool"}  # a Bool literal is written 1 or 0
+                forms.add("literal Bool")
             assert len(kinds) == 1, sql
             forms.add(f"{name} {kinds.pop()} {comparison}")
         for operand, test in _NULL_TEST.findall(text):

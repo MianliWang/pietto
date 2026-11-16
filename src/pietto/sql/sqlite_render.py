@@ -29,7 +29,8 @@ def render_literal(value: object) -> str:
     """Render one unsigned Int, Float, Bool or Text literal for SQLite."""
 
     if isinstance(value, bool):
-        return "TRUE" if value else "FALSE"
+        # SQLite reads TRUE and FALSE as a column or output alias so named.
+        return "1" if value else "0"
     if isinstance(value, int):
         # unreachable from source (PIE-S2364; a sign is arithmetic); guards other IR
         if not 0 <= value <= _INT64_MAX:

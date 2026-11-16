@@ -626,13 +626,11 @@ of a `Text` or `Bool` field on every target
 field, and in a relation with an aggregate an ORDER BY key is a selected
 GROUP BY key or aggregate. A `having` condition reads selected GROUP BY keys
 and aggregates by their output names, as `check` requires; the SQL writes
-each key and aggregate itself, never its output name, and writes a `Bool`
-literal there as `1` or `0`. Elsewhere it writes `TRUE` or `FALSE`, which
-SQLite reads as a column of that name, in any letter case, when the table has
-one, and in WHERE also as an output so named: a relation with an output named
-`true` or `false` and a `Bool` literal in its `where` filters by that output,
-not by the literal, and returns wrong rows. A sign before a number, as in `+5`,
-`-5` or `-0.0`, is a unary `+` or `-` operator, so it is arithmetic too.
+each key and aggregate itself, never its output name. The SQL writes a
+`Bool` literal as `1` or `0`, never as `TRUE` or `FALSE`, which SQLite reads
+as a column of that name, in any letter case, when the table has one, and in
+WHERE and HAVING also as an output so named. A sign before a number, as in
+`+5`, `-5` or `-0.0`, is a unary `+` or `-` operator, so it is arithmetic too.
 `sqlite.table("users")` names one bare table; a string with a dot, which
 would name a schema or an attached database, fails `check` with PIE-S2306 at
 the string (see [Sources and relations](#sources-and-relations)). The SQL
@@ -663,11 +661,9 @@ runs on:
   value.
 - Every `REAL` value is finite. SQLite stores a NaN as NULL but keeps an
   infinity, which is not a Pietto value.
-- No table a source names has a column named `true` or `false`, in any
-  letter case, whether a field declares it or not.
 
-Under these premises, and outside the `where` case above, the SQL means what
-the rules of this page say, with these SQLite facts:
+Under these premises the SQL means what the rules of this page say, with
+these SQLite facts:
 
 - **Int.** The whole signed 64-bit range is kept, compares and is a `min` or
   `max` exactly, both extremes included. Arithmetic is refused: SQLite turns
@@ -677,8 +673,9 @@ the rules of this page say, with these SQLite facts:
   Unicode code point order: `"A" < "Z" < "a"`, `"a"` and `"A"` are different
   values, and so are a precomposed `"é"` and an `"e"` followed by a combining
   accent. A PostgreSQL or MySQL collation may order the same values otherwise.
-- **Bool.** SQLite's `TRUE` and `FALSE` are the integers 1 and 0, so a `Bool`
-  result arrives as an integer 0, 1 or NULL, as on MySQL.
+- **Bool.** SQLite has no Boolean value: a comparison is the integer 1 or 0,
+  as a `Bool` literal is written, so a `Bool` result arrives as an integer
+  0, 1 or NULL, as on MySQL.
 - **Float.** A `STRICT` `REAL` column does not keep the sign of a zero:
   SQLite stores `-0.0` as `0.0`. With signed literals and arithmetic refused,
   no value in SQLite single-file SQL is a negative zero, so the zero-sign
@@ -741,12 +738,10 @@ details of the specification's
 
 The SQL is one `SELECT` over `` `main`.`<table>` AS `s0` ``. It writes every
 field as `` `s0`.`<column>` ``, quotes every name in backticks, writes each
-parameter read as `?N`, numbered from 1 by its first read, and ends every
-ascending key with `NULLS LAST` and every descending key with `NULLS FIRST`,
-as single files do. Unlike single files, it writes a `Bool` literal as `1`
-or `0` everywhere, not only in `having`, since SQLite reads `TRUE` and
-`FALSE` as a column or result alias of that name when one exists. It keeps
-the single-file premises above except the collation: project SQL writes
+parameter read as `?N`, numbered from 1 by its first read, writes a `Bool`
+literal as `1` or `0`, and ends every ascending key with `NULLS LAST` and
+every descending key with `NULLS FIRST`, as single files do. It keeps the
+single-file premises above except the collation: project SQL writes
 `COLLATE BINARY` at each `Text` comparison, `group by` key, `order by` key
 and `count_distinct` argument, so a `COLLATE NOCASE` column still compares
 by its bytes, and the contract's `Text` collation `BINARY` names that

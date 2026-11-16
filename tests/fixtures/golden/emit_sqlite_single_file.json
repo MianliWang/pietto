@@ -15,7 +15,7 @@
     {
       "kind": "relation",
       "name": "ranked_names",
-      "sql": "SELECT\n    `accounts`.`id` AS `id`,\n    `accounts`.`name` AS `name`,\n    `accounts`.`active` = FALSE AS `flagged`,\n    'account' AS `kind`,\n    1.5 AS `weight`,\n    9223372036854775807 AS `rank`\nFROM `accounts`\nWHERE ((`accounts`.`name` >= 'M') OR (`accounts`.`name` = 'O''Neil `é`')) AND (NOT (`accounts`.`score` < 0.5))\nORDER BY\n    `accounts`.`score` DESC NULLS FIRST,\n    `accounts`.`name` ASC NULLS LAST,\n    `accounts`.`id` ASC NULLS LAST\nLIMIT 20"
+      "sql": "SELECT\n    `accounts`.`id` AS `id`,\n    `accounts`.`name` AS `name`,\n    `accounts`.`active` = 0 AS `flagged`,\n    'account' AS `kind`,\n    1.5 AS `weight`,\n    9223372036854775807 AS `rank`\nFROM `accounts`\nWHERE ((`accounts`.`name` >= 'M') OR (`accounts`.`name` = 'O''Neil `é`')) AND (NOT (`accounts`.`score` < 0.5))\nORDER BY\n    `accounts`.`score` DESC NULLS FIRST,\n    `accounts`.`name` ASC NULLS LAST,\n    `accounts`.`id` ASC NULLS LAST\nLIMIT 20"
     },
     {
       "kind": "relation",
