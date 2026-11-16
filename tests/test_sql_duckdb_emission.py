@@ -1311,7 +1311,7 @@ def _compare(left: Any, right: Any = _PARAMETER) -> Any:
     return duckdb_sql.DuckDBComparison(left, ">", right)
 
 
-def _literal(value: object) -> Any:
+def _literal(value: Any) -> Any:
     return _compare(_READ, duckdb_sql.DuckDBLiteral(value))
 
 
@@ -1334,13 +1334,20 @@ BROKEN_PREDICATES = {
     "field_beyond_the_source": _compare(duckdb_sql.DuckDBRead(5)),
     "other_operator": duckdb_sql.DuckDBComparison(_READ, "==", _PARAMETER),
     "null_test_of_a_literal": duckdb_sql.DuckDBNullTest(
-        duckdb_sql.DuckDBLiteral(1), False
+        duckdb_sql.DuckDBLiteral(1),  # pyright: ignore[reportArgumentType]
+        False,
     ),
-    "null_test_flag": duckdb_sql.DuckDBNullTest(_READ, 0),
+    "null_test_flag": duckdb_sql.DuckDBNullTest(
+        _READ,
+        0,  # pyright: ignore[reportArgumentType]
+    ),
     "not_of_two": duckdb_sql.DuckDBLogic("NOT", (_compare(_READ), _compare(_READ))),
     "and_of_one": duckdb_sql.DuckDBLogic("AND", (_compare(_READ),)),
     "xor": duckdb_sql.DuckDBLogic("XOR", (_compare(_READ), _compare(_READ))),
-    "operand_list": duckdb_sql.DuckDBLogic("NOT", [_compare(_READ)]),
+    "operand_list": duckdb_sql.DuckDBLogic(
+        "NOT",
+        [_compare(_READ)],  # pyright: ignore[reportArgumentType]
+    ),
     "bare_read": _READ,
 }
 
@@ -1425,6 +1432,7 @@ def test_a_literal_of_another_type_or_sign_is_refused(
         ("price == -0.0", (0.0,)),
         ("ok == True", (1, 1.0)),
     )
+    last: tuple[Any, Any, Path, str] | None = None
     for where, values in cases:
         body = f"table result:\n    from orders\n    where {where}\n    select:\n        id\n"
         root = write(tmp_path / where.split()[0], body, contract())
@@ -1451,6 +1459,9 @@ def test_a_literal_of_another_type_or_sign_is_refused(
             )
             forged = dataclasses.replace(artifact, **_rendered(artifact, ast))
             assert not adapter.verify_artifact(forged)
+            last = (outcome, forged, root, body)
+    assert last is not None
+    outcome, forged, root, body = last
     monkeypatch.setattr(
         project_public_execution,
         "emit_live",
