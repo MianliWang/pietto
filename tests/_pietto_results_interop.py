@@ -81,6 +81,8 @@ COMMON = (
     "missing_extra",
     "inert",
     "unwrapped_failure",
+    "kinds",
+    "envelope_nulls",
 )
 FRAME = (
     "matrix",
@@ -91,6 +93,7 @@ FRAME = (
     "refusals",
     "drift",
     "after_close",
+    "relief",
 )
 # No environment holds it: a target that imports it fails on its own import.
 ABSENT_DEPENDENCY = "pietto_interop_absent_dependency"
@@ -159,6 +162,37 @@ DISTINCT_LABELS = (
     "admits only distinct labels, so give each field its own label in the query"
 )
 COORDINATES = "row field 4 ('i16') and column field 5 ('i32')"
+NESTED = "list<item: struct<i: int64 not null, b: bool, t: string> not null>"
+# Arrow types and the admission row kind() gives each: PL.47 adds UUID,
+# decimal256 and one level of nesting, and every other shape stays refused.
+KINDS = [
+    ["int16", "Int"],
+    ["int8", None],
+    ["uint64", None],
+    ["float", None],
+    ["decimal128(38, 2)", "Decimal"],
+    ["decimal256(10, 2)", "Decimal256"],
+    ["date64[ms]", None],
+    ["timestamp[us, tz=UTC]", None],
+    ["timestamp[ns]", None],
+    ["extension<arrow.uuid>", "UUID"],
+    ["fixed_size_binary[16]", None],
+    ["binary", None],
+    [NESTED, "nested"],
+    [
+        "list<item: struct<u: extension<arrow.uuid>, d: decimal256(40, 2)> not null>",
+        "nested",
+    ],
+    ["list<item: struct<i: int64>>", None],
+    ["list<element: struct<i: int64> not null>", None],
+    ["large_list<item: struct<i: int64> not null>", None],
+    ["list<item: int64 not null>", None],
+    ["list<item: struct<> not null>", None],
+    ["list<item: struct<f: float> not null>", None],
+    ["list<item: struct<x: list<item: struct<i: int64> not null>> not null>", None],
+    ["struct<i: int64>", None],
+    ["null", None],
+]
 FILTER = "filter the record out with a where"
 FLOAT = (
     "outside the float64-exact range of ±2**53; convert the field with"
@@ -362,6 +396,10 @@ def fixtures(root):
             a.bind_arrow(nested.real(p, root / "nested", nested.IBT)),
             list(nested.ROWS),
         ),
+        "wide": (
+            p.decimal_arrow(p.decimal_fixture(root / "wide", "postgres", 65, 30)[3]),
+            p.decimal_rows("postgres", 65, 30),
+        ),
         # Fields 0 and 1 differ in type; fields 0 and 3 are both int64.
         "labels": (
             a.bind_arrow(numeric, field_labels=labels(0, 1)),
@@ -562,27 +600,24 @@ def common_cases(cell, fx):
     ]
 
     finite = batch(*fx["finite"])
-    nested = batch(*fx["nested"])
-    temporal = batch(*fx["temporal"])
     text = batch(*fx["text32"])
     dated = batch(*fx["date"])
     labelled = batch(*fx["labels"])
     observations["admission"] = [
         refusal(lambda: interop.to_pandas(finite), finite),
         refusal(lambda: interop.to_polars(finite), finite),
-        refusal(lambda: interop.to_pandas(nested), nested),
-        refusal(lambda: interop.to_polars(temporal), temporal),
         # A repeated label is refused before the target import in every cell.
         refusal(lambda: interop.to_pandas(labelled), labelled),
+        refusal(lambda: interop.to_polars(labelled), labelled),
         refusal(lambda: interop.to_numpy(numeric, 3), numeric),
         refusal(lambda: interop.to_numpy(text, 0), text),
         refusal(lambda: interop.to_numpy(dated, 0), dated),
         refusal(lambda: interop.to_numpy(finite, 1), finite),
-        refusal(lambda: interop.to_scipy_csr(numeric, 4, 5, 1, (9999, 4)), numeric),
+        refusal(lambda: interop.to_scipy_csr(numeric, 1, 5, 0, (9999, 4)), numeric),
         refusal(lambda: interop.to_scipy_csr(numeric, 2, 5, 0, (3, 4)), numeric),
         refusal(lambda: interop.to_scipy_csr(numeric, 4, 3, 0, (3, 4)), numeric),
         refusal(lambda: interop.plot_line(numeric, 2, 1, ax=ax), numeric),
-        refusal(lambda: interop.plot_scatter(numeric, 0, 3, ax=ax), numeric),
+        refusal(lambda: interop.plot_scatter(dated, 0, 0, ax=ax), dated),
         refusal(lambda: interop.plot_line(text, 0, 2, ax=ax), text),
     ]
 
@@ -664,7 +699,59 @@ def common_cases(cell, fx):
         *outcome,
         sorted(m for m in sys.modules if m.partition(".")[0] == top),
     ]
+
+    pa: Any = importlib.import_module("pyarrow")
+    common: Any = importlib.import_module("pietto.interop._common")
+    observations["kinds"] = [[str(t), common.kind(pa, t)] for t in kind_types(pa)]
+
+    # A null is skipped and keeps its record's number: field 3 is nullable.
+    def envelope(values):
+        item = batch(fx["numeric"][0], [[0, 0.0, True, v, 0, 1] for v in values])
+        data = pa.record_batch(item)
+        return lambda: common.check_envelope("plot_line", data, "y", 3, "Int"), item
+
+    held, outside = envelope([None, B53, None, -B53]), envelope([None, -B53 - 1])
+    observations["envelope_nulls"] = [held[0](), refusal(*outside)]
     return observations
+
+
+def kind_types(pa):
+    """The Arrow types of KINDS, in its order."""
+
+    def listed(*fields, name="item", nullable=False, large=False):
+        item = pa.field(name, pa.struct(list(fields)), nullable=nullable)
+        return (pa.large_list if large else pa.list_)(item)
+
+    one = pa.field("i", pa.int64())
+    return [
+        pa.int16(),
+        pa.int8(),
+        pa.uint64(),
+        pa.float32(),
+        pa.decimal128(38, 2),
+        pa.decimal256(10, 2),
+        pa.date64(),
+        pa.timestamp("us", "UTC"),
+        pa.timestamp("ns"),
+        pa.uuid(),
+        pa.binary(16),
+        pa.binary(),
+        listed(
+            pa.field("i", pa.int64(), nullable=False),
+            pa.field("b", pa.bool_()),
+            pa.field("t", pa.string()),
+        ),
+        listed(pa.field("u", pa.uuid()), pa.field("d", pa.decimal256(40, 2))),
+        listed(one, nullable=True),
+        listed(one, name="element"),
+        listed(one, large=True),
+        pa.list_(pa.field("item", pa.int64(), nullable=False)),
+        listed(),
+        listed(pa.field("f", pa.float32())),
+        listed(pa.field("x", listed(one))),
+        pa.struct([one]),
+        pa.null(),
+    ]
 
 
 def frame_cases(cell, fx):
@@ -719,10 +806,9 @@ def frame_cases(cell, fx):
         else:
             observations["labels"].append(["frame", [str(c) for c in frame.columns]])
 
-    finite, nested = batch(*fx["finite"]), batch(*fx["nested"])
+    finite = batch(*fx["finite"])
     observations["refusals"] = [
         refusal(lambda: convert(finite), finite),
-        refusal(lambda: convert(nested), nested),
         len(convert(batch(*fx["scalar"]))),
     ]
 
@@ -773,6 +859,11 @@ def frame_cases(cell, fx):
     del item
     gc.collect()
     observations["after_close"] = frame_columns(cell, frame)
+
+    # PL.47's UUID, decimal256 and nested cells, refused while the target's
+    # admitted kinds leave them out.
+    relief = [batch(*fx[name]) for name in ("temporal", "wide", "nested")]
+    observations["relief"] = [refusal(lambda b=b: convert(b), b) for b in relief]
     return {f"{cell}_{key}": value for key, value in observations.items()}
 
 
@@ -900,16 +991,12 @@ def expected_common(cell):
                 f" decimal256(65, 30); to_polars {FRAME_ADMITS}"
             ),
             _value_error(
-                "to_pandas: field 1 ('c') has Arrow type list<item: struct<i: int64"
-                f" not null, b: bool, t: string> not null>; to_pandas {FRAME_ADMITS}"
-            ),
-            _value_error(
-                "to_polars: field 2 ('key_value') has Arrow type extension<arrow.uuid>;"
-                f" to_polars {FRAME_ADMITS}"
-            ),
-            _value_error(
                 "to_pandas: field 1 ('same') repeats the label of field 0;"
                 f" to_pandas {DISTINCT_LABELS}"
+            ),
+            _value_error(
+                "to_polars: field 1 ('same') repeats the label of field 0;"
+                f" to_polars {DISTINCT_LABELS}"
             ),
             _value_error(f"to_numpy: column {nullable}"),
             _value_error(
@@ -922,7 +1009,7 @@ def expected_common(cell):
             ),
             _value_error(f"to_numpy: column field 1 ('selected_medium') {COALESCE}"),
             _value_error(
-                "to_scipy_csr: value field 1 ('f64') has Arrow type double;"
+                "to_scipy_csr: row field 1 ('f64') has Arrow type double;"
                 f" {scipy_ints}{TO_FRAME}"
             ),
             _value_error(
@@ -934,7 +1021,10 @@ def expected_common(cell):
                 "plot_line: x field 2 ('flag') has Arrow type bool;"
                 f" plot_line {plot}{AS_INT}"
             ),
-            _value_error(f"plot_scatter: y {nullable}"),
+            _value_error(
+                "plot_scatter: x field 0 ('event_date') has Arrow type date32[day];"
+                f" plot_scatter {plot}{TO_FRAME}"
+            ),
             _value_error(
                 "plot_line: x field 0 ('renamed') has Arrow type string;"
                 f" plot_line {plot}{TO_FRAME}"
@@ -990,6 +1080,13 @@ def expected_common(cell):
             False,
             [],
         ],
+        "kinds": KINDS,
+        "envelope_nulls": [
+            None,
+            _value_error(
+                f"plot_line: y field 3 ('maybe') has {-B53 - 1} in record 1, {FLOAT}"
+            ),
+        ],
     }
 
 
@@ -1019,32 +1116,24 @@ def expected_frames(cell, inputs):
     expected["order"] = oracle(rows, MATRIX["numeric"])
     count = len(inputs["numeric"][1])
     expected["reads"] = [count, {"array": 1, "schema": 0}, False, count, []]
-    # Repeated labels, of two types and of one type: to_pandas refuses both
-    # before PyArrow converts them; Polars raises its own error.
+    convert = "to_pandas" if cell == "pandas" else "to_polars"
+    # Repeated labels, of two types and of one type: both are refused before
+    # the target converts them.
     expected["labels"] = [
-        (
-            [
-                "raised",
-                "builtins",
-                "ValueError",
-                f"to_pandas: field {ordinal} ('same') repeats the label of"
-                f" field 0; to_pandas {DISTINCT_LABELS}",
-                False,
-            ]
-            if cell == "pandas"
-            else ["raised", "polars.exceptions", "DuplicateError", None, False]
-        )
+        [
+            "raised",
+            "builtins",
+            "ValueError",
+            f"{convert}: field {ordinal} ('same') repeats the label of"
+            f" field 0; {convert} {DISTINCT_LABELS}",
+            False,
+        ]
         for ordinal in (1, 3)
     ]
-    convert = "to_pandas" if cell == "pandas" else "to_polars"
     expected["refusals"] = [
         _value_error(
             f"{convert}: field 8 ('selected_wide_amount') has Arrow type"
             f" decimal256(65, 30); {convert} {FRAME_ADMITS}"
-        ),
-        _value_error(
-            f"{convert}: field 1 ('c') has Arrow type list<item: struct<i: int64"
-            f" not null, b: bool, t: string> not null>; {convert} {FRAME_ADMITS}"
         ),
         len(inputs["scalar"][1]),
     ]
@@ -1065,6 +1154,16 @@ def expected_frames(cell, inputs):
         else [_value_error(changed % ("Float64", "Int64"))]
     )
     expected["after_close"] = oracle(inputs["text64"][1], MATRIX["text64"])
+    expected["relief"] = [
+        _value_error(
+            f"{convert}: field {field} has Arrow type {t}; {convert} {FRAME_ADMITS}"
+        )
+        for field, t in (
+            ("2 ('key_value')", "extension<arrow.uuid>"),
+            ("0 ('renamed')", "decimal256(65, 30)"),
+            ("1 ('c')", NESTED),
+        )
+    ]
     return {f"{cell}_{key}": value for key, value in expected.items()}
 
 
@@ -1150,6 +1249,7 @@ NUMPY = (
     "drift",
     "inert",
     "after_close",
+    "nullable",
 )
 # The numeric batch's non-nullable fields and the dtype to_numpy keeps.
 NUMPY_FIELDS = ((0, "int64"), (1, "float64"), (2, "bool"), (4, "int16"), (5, "int32"))
@@ -1249,6 +1349,10 @@ def numpy_cases(fx):
     del kept
     gc.collect()
     observations["after_close"] = values(array)
+
+    # PL.47's nullable Float cell, refused while to_numpy admits no nullable kind.
+    scalar = batch(*fx["scalar"])
+    observations["nullable"] = [refusal(lambda: interop.to_numpy(scalar, 5), scalar)]
     return {f"numpy_{key}": value for key, value in observations.items()}
 
 
@@ -1261,7 +1365,6 @@ def expected_numpy():
     rows = NUMPY_ROWS
     written = [rows[1], *rows[1:]]
     refused = "to_numpy: column field %s has Arrow type %s; " + NUMPY_ADMITS + "%s"
-    nested = "list<item: struct<i: int64 not null, b: bool, t: string> not null>"
     expected = {
         "matrix": {
             "fields": [
@@ -1295,7 +1398,7 @@ def expected_numpy():
             _value_error(
                 refused % ("2 ('key_value')", "extension<arrow.uuid>", NO_ADAPTER)
             ),
-            _value_error(refused % ("1 ('c')", nested, NO_ADAPTER)),
+            _value_error(refused % ("1 ('c')", NESTED, NO_ADAPTER)),
         ],
         "drift": [
             _value_error(
@@ -1309,13 +1412,25 @@ def expected_numpy():
         ],
         "inert": [column(rows, 0), {"array": 1, "schema": 0}, False, len(rows), []],
         "after_close": column(rows, 1),
+        "nullable": [
+            _value_error(f"to_numpy: column field 5 ('maybe_ratio') {COALESCE}")
+        ],
     }
     return {f"numpy_{key}": value for key, value in expected.items()}
 
 
 # ---------------------------------------------------------------- SciPy
 
-SCIPY = ("matrix", "permutations", "empty", "bound", "drift", "inert", "after_close")
+SCIPY = (
+    "matrix",
+    "permutations",
+    "empty",
+    "bound",
+    "drift",
+    "inert",
+    "after_close",
+    "float_values",
+)
 I64 = 1 << 63
 # Numeric-fixture rows (i64, f64, flag, maybe, i16, i32), out of canonical
 # order, with explicit zeros and the extremes of each value width.
@@ -1457,6 +1572,12 @@ def scipy_cases(fx):
     del item
     gc.collect()
     observations["after_close"] = [csr(sparse, matrix), matrix.toarray().tolist()]
+
+    # PL.47's Float value cell, refused while to_scipy_csr admits only Int values.
+    floats = batch(binding, SCIPY_ROWS["int64"])
+    observations["float_values"] = [
+        refusal(lambda: interop.to_scipy_csr(floats, 4, 5, 1, (4, 5)), floats)
+    ]
     return {f"scipy_{key}": value for key, value in observations.items()}
 
 
@@ -1539,12 +1660,18 @@ def expected_scipy():
             [],
         ],
         "scipy_after_close": [csr_oracle("int64"), dense],
+        "scipy_float_values": [
+            _value_error(
+                "to_scipy_csr: value field 1 ('f64') has Arrow type double;"
+                f" to_scipy_csr admits only Int fields{TO_FRAME}"
+            )
+        ],
     }
 
 
 # ---------------------------------------------------------------- Matplotlib
 
-PLOT = ("draw", "empty", "order", "refusals", "inert", "after_close")
+PLOT = ("draw", "empty", "order", "refusals", "inert", "after_close", "nullable")
 # NUMERIC rows with the ±2**53 bound, values that float32 would round (2**53 - 1,
 # 0.1, the least subnormal), -0.0, the Int16 and Int32 bounds and a repeat.
 PLOT_ROWS = [
@@ -1652,11 +1779,20 @@ def plot_cases(fx):
         refusal(lambda: interop.plot_scatter(closed, 0, 1, ax=ax), closed),
         refusal(lambda: interop.plot_line(numeric, 0, 6, ax=ax), numeric),
         refusal(lambda: interop.plot_scatter(numeric, 2, 1, ax=ax), numeric),
+        refusal(lambda: interop.plot_scatter(above, 1, 0, ax=ax), above),
+    ]
+    # PL.47's nullable Int and Float cells, refused while the plots admit no
+    # nullable kind; field 3 of full holds no null, but the schema declares it
+    # nullable.
+    scalar = batch(*fx["scalar"])
+    observations["nullable"] = [
         refusal(lambda: interop.plot_line(numeric, 3, 1, ax=ax), numeric),
         refusal(lambda: interop.plot_scatter(full, 0, 3, ax=ax), full),
-        refusal(lambda: interop.plot_scatter(above, 1, 0, ax=ax), above),
-        [len(ax.lines), len(ax.collections), len(ax.get_children()) - children],
+        refusal(lambda: interop.plot_scatter(scalar, 4, 5, ax=ax), scalar),
     ]
+    observations["refusals"].append(
+        [len(ax.lines), len(ax.collections), len(ax.get_children()) - children]
+    )
 
     counted, ax = batch(*fx["numeric"]), axes()
     observations["inert"] = []
@@ -1726,8 +1862,6 @@ def expected_plots():
                 "plot_scatter: x field 2 ('flag') has Arrow type bool;"
                 f" plot_scatter {plot}{AS_INT}"
             ),
-            _value_error(f"plot_line: x field 3 ('maybe') {COALESCE}"),
-            _value_error(f"plot_scatter: y field 3 ('maybe') {COALESCE}"),
             _value_error(
                 f"plot_scatter: y field 0 ('i64') has {B53 + 1} in record 1, {FLOAT}"
             ),
@@ -1749,6 +1883,11 @@ def expected_plots():
         "matplotlib_after_close": [
             plotted("Line2D", PLOT_ROWS, 0, 1),
             plotted("PathCollection", PLOT_ROWS, 5, 0),
+        ],
+        "matplotlib_nullable": [
+            _value_error(f"plot_line: x field 3 ('maybe') {COALESCE}"),
+            _value_error(f"plot_scatter: y field 3 ('maybe') {COALESCE}"),
+            _value_error(f"plot_scatter: y field 5 ('maybe_ratio') {COALESCE}"),
         ],
     }
 

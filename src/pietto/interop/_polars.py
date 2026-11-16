@@ -6,6 +6,9 @@ from typing import Any
 
 from pietto.interop import _common as common
 
+# The kinds to_polars admits, nullable or not (D80.03).
+ADMITS = ("Int", "Bool", "Float", "Text", "Decimal", "Date", "Timestamp")
+
 
 def _mapped(pa: Any, polars: Any, data_type: Any) -> Any:
     for arrow, mapped in (

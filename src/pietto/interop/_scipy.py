@@ -6,6 +6,11 @@ from typing import Any
 
 from pietto.interop import _common as common
 
+# The kinds to_scipy_csr admits as coordinates and as values, never nullable
+# (D80.03).
+COORDINATES = ("Int",)
+VALUES = ("Int",)
+
 
 def convert(
     name: str,

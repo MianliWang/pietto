@@ -177,8 +177,8 @@ Every call checks in this order and raises the first failure:
 3. `ValueError` for an ordinal outside the batch, then, in `to_scipy_csr`,
    fields that are not distinct, then a field the function does not admit
    (its type, or a nullable field where a non-nullable one is needed), then,
-   in `to_pandas`, a field whose label an earlier field already has,
-   whatever their types, then a SciPy shape, then values: SciPy coordinates
+   in `to_pandas` and `to_polars`, a field whose label an earlier field
+   already has, whatever their types, then a SciPy shape, then values: SciPy coordinates
    and the Matplotlib integer range. A message about a field's
    type, nullability or label, a SciPy coordinate or the integer range names
    the function, the field it is about by ordinal and label (both coordinate
@@ -257,7 +257,7 @@ there is such a `where`, or `to_pandas` or `to_polars`.
 | E | `Decimal` above precision 38, `UUID` or a nested field anywhere | No function has a tested mapping for them. | Leave the field out of the query's select. Pietto has no conversion of them: `Text(id)` of a `UUID` is `PIE-S2105`. |
 
 The other refusals name their fix too: give a repeated field label its own
-label in the query (`to_pandas`); pass three distinct fields and a shape of at
+label in the query (`to_pandas`, `to_polars`); pass three distinct fields and a shape of at
 most 4096 in each dimension to `to_scipy_csr`; and for a coordinate that is
 negative, outside the shape or repeated, filter the record out with a `where`,
 pass a larger shape, or give each coordinate one record, for example by
@@ -293,7 +293,10 @@ one column per field in field order and these dtypes:
 | date32 | `Date` |
 | timestamp[us] | `Datetime("us")` |
 
-Any other output dtype is refused with `ValueError`, never cast.
+Any other output dtype is refused with `ValueError`, never cast. So is a
+batch with a repeated field label, before the call imports Polars, which
+would refuse it without naming either field's ordinal: give each field its
+own label.
 
 ## NumPy
 

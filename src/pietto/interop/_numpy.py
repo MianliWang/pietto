@@ -6,6 +6,9 @@ from typing import Any
 
 from pietto.interop import _common as common
 
+# The kinds to_numpy admits, and those it admits nullable too (D80.03).
+ADMITS = ("Int", "Bool", "Float")
+NULLABLE: tuple[str, ...] = ()
 # Admission leaves only these Arrow types; each keeps its width in NumPy.
 DTYPES = {
     "int16": "int16",

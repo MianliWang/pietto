@@ -4,6 +4,11 @@ from __future__ import annotations
 
 from typing import Any
 
+# The kinds plot_line and plot_scatter admit, and those they admit nullable
+# too (D80.03).
+ADMITS = ("Int", "Float")
+NULLABLE: tuple[str, ...] = ()
+
 
 def _float64(data: Any, ordinal: int) -> Any:
     # Admission left a non-nullable Float field or an Int field whose values

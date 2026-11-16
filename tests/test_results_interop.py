@@ -179,6 +179,8 @@ def _damaged(cell: str):
     yield "batch closed", lambda r: r["cases"]["inert"][-1].__setitem__(3, True)
     yield "two reads", lambda r: r["cases"]["inert"][-1][2].update(array=2)
     yield "wrapped", lambda r: r["cases"]["unwrapped_failure"].__setitem__(3, "pandas")
+    yield "shape admitted", lambda r: r["cases"]["kinds"][-1].__setitem__(1, "nested")
+    yield "null compared", lambda r: r["cases"]["envelope_nulls"].__setitem__(0, 1)
     if cell == "numpy":
         yield from _damaged_numpy()
     elif cell == "scipy":
@@ -209,12 +211,13 @@ def _damaged(cell: str):
         yield "reordered rows", lambda r: r["cases"][f"{cell}_order"][0].reverse()
         yield "frame reread", lambda r: r["cases"][f"{cell}_reads"][1].update(array=2)
         yield "lost after close", lambda r: r["cases"][f"{cell}_after_close"][0].pop()
+        yield (
+            "same-type labels accepted",
+            lambda r: r["cases"][f"{cell}_labels"][1].__setitem__(0, "frame"),
+        )
+        yield "relief admitted", lambda r: r["cases"][f"{cell}_relief"].pop()
         if cell == "pandas":
             yield "short index accepted", lambda r: r["cases"]["pandas_drift"].pop(1)
-            yield (
-                "same-type labels accepted",
-                lambda r: r["cases"]["pandas_labels"][1].__setitem__(0, "frame"),
-            )
 
 
 def _damaged_numpy():
@@ -237,6 +240,7 @@ def _damaged_numpy():
     yield "width accepted", lambda r: case("drift")(r).pop()
     yield "two reads", lambda r: case("inert")(r)[1].update(array=2)
     yield "lost after close", lambda r: case("after_close")(r).pop()
+    yield "nullable admitted early", lambda r: case("nullable")(r).pop()
 
 
 def _damaged_scipy():
@@ -269,6 +273,7 @@ def _damaged_scipy():
     yield "data width accepted", lambda r: cases(r)["scipy_drift"].pop(5)
     yield "two reads", lambda r: cases(r)["scipy_inert"][1].update(array=2)
     yield "lost after close", lambda r: cases(r)["scipy_after_close"][1].pop()
+    yield "float values admitted", lambda r: cases(r)["scipy_float_values"].pop()
 
 
 def _damaged_plots():
@@ -289,6 +294,7 @@ def _damaged_plots():
     yield "two reads", lambda r: case("inert")(r)[0][2].update(array=2)
     yield "pyplot loaded", lambda r: case("inert")(r)[2].append("matplotlib.pyplot")
     yield "lost after close", lambda r: case("after_close")(r)[0][5].pop()
+    yield "nullable admitted", lambda r: case("nullable")(r).pop()
 
 
 @pytest.mark.parametrize("cell", tuple(consumer.CELLS))

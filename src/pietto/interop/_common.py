@@ -20,10 +20,9 @@ from typing import Any
 SHAPE_LIMIT = 4096
 # Every integer of this magnitude or less is exact in float64.
 ENVELOPE = 2**53
-ARRAY = ("Int", "Bool", "Float")
-COORDINATE = ("Int",)
-PLOT = ("Int", "Float")
-FRAME = ("Int", "Bool", "Float", "Text", "Decimal", "Date", "Timestamp")
+# Each target module states the kinds its function admits; these two convert
+# whole batches, so a fix for a refused field can name them.
+FRAMES = ("to_pandas", "to_polars")
 EXTRAS = {
     "pandas": "interop-pandas",
     "polars": "interop-polars",
@@ -100,7 +99,9 @@ def distinct(name: str, ordinals: tuple[int, ...], parameters: str) -> None:
 
 
 def kind(pa: Any, data_type: Any) -> str | None:
-    """The D80.03 row of an exact Arrow type, or None when no adapter admits it."""
+    """The admission row of an exact Arrow type: D80.03's flat rows, PL.47's
+    UUID and decimal256, and "nested" for exactly one level of nesting, a list
+    of non-null structs of flat fields; None for any other type."""
     if data_type in (pa.int16(), pa.int32(), pa.int64()):
         return "Int"
     if data_type == pa.bool_():
@@ -111,6 +112,8 @@ def kind(pa: Any, data_type: Any) -> str | None:
         return "Text"
     if pa.types.is_decimal128(data_type):
         return "Decimal"
+    if pa.types.is_decimal256(data_type):
+        return "Decimal256"
     if data_type == pa.date32():
         return "Date"
     if (
@@ -119,7 +122,31 @@ def kind(pa: Any, data_type: Any) -> str | None:
         and data_type.tz is None
     ):
         return "Timestamp"
+    if data_type == pa.uuid():
+        return "UUID"
+    if (
+        pa.types.is_list(data_type)
+        and data_type.value_field.name == "item"
+        and not data_type.value_field.nullable
+        and pa.types.is_struct(data_type.value_type)
+        and data_type.value_type.num_fields > 0
+        and all(
+            kind(pa, item.type) not in (None, "nested") for item in data_type.value_type
+        )
+    ):
+        return "nested"
     return None
+
+
+def admits(pa: Any, data_type: Any, kinds: tuple[str, ...]) -> bool:
+    """Whether a function that admits these kinds admits the type; a nested
+    field also needs each of its fields' kinds."""
+    found = kind(pa, data_type)
+    if found == "nested":
+        return found in kinds and all(
+            kind(pa, item.type) in kinds for item in data_type.value_type
+        )
+    return found in kinds
 
 
 def _listed(kinds: tuple[str, ...]) -> str:
@@ -128,23 +155,45 @@ def _listed(kinds: tuple[str, ...]) -> str:
     return ", ".join(kinds[:-1]) + " or " + kinds[-1]
 
 
+def _rule(kinds: tuple[str, ...]) -> str:
+    notes = []
+    if "Decimal" in kinds and "Decimal256" not in kinds:
+        notes.append("Decimal up to precision 38")
+    if "nested" in kinds:
+        notes.append("a nested field is a list of non-null structs of the other types")
+    shown = tuple(k for k in kinds if k != "Decimal256")
+    return f"{_listed(shown)} fields" + (f" ({'; '.join(notes)})" if notes else "")
+
+
+def _frames(pa: Any, data_type: Any, name: str) -> str | None:
+    """The fix that names the other functions admitting the type, if any."""
+    from pietto.interop import _pandas, _polars
+
+    kinds = {"to_pandas": _pandas.ADMITS, "to_polars": _polars.ADMITS}
+    others = [f for f in FRAMES if f != name and admits(pa, data_type, kinds[f])]
+    if not others:
+        return None
+    return f"{' and '.join(others)} admit{'s' if len(others) == 1 else ''} it"
+
+
 def pinned(top: str) -> str:
     """The fix for a target result of another type: the qualified pins."""
     return f'install the versions that "pietto[arrow,{EXTRAS[top]}]" pins'
 
 
-def admit_frame(name: str, pa: Any, data: Any) -> None:
+def admit_frame(name: str, pa: Any, data: Any, kinds: tuple[str, ...]) -> None:
     for ordinal, item in enumerate(data.schema):
-        if kind(pa, item.type) is None:
+        if not admits(pa, item.type, kinds):
+            instead = _frames(pa, item.type, name) or "leave it out of the query"
             raise ValueError(
                 f"{name}: field {ordinal} ({item.name!r}) has Arrow type"
-                f" {item.type}; {name} admits only {_listed(FRAME)} fields"
-                " (Decimal up to precision 38); leave it out of the query"
+                f" {item.type}; {name} admits only {_rule(kinds)}; {instead}"
             )
 
 
 def distinct_labels(name: str, data: Any) -> None:
-    # PyArrow gives repeated labels one pandas type, or fails casting them.
+    # PyArrow gives repeated labels one pandas type, or fails casting them;
+    # Polars refuses them without naming either field's ordinal or a fix.
     first: dict[str, int] = {}
     for ordinal, item in enumerate(data.schema):
         earlier = first.setdefault(item.name, ordinal)
@@ -163,21 +212,23 @@ def admit_column(
     parameter: str,
     ordinal: int,
     kinds: tuple[str, ...],
+    nullable: tuple[str, ...] = (),
 ) -> str:
     item = data.schema.field(ordinal)
     found = kind(pa, item.type)
     if found not in kinds:
-        if found is None:
-            instead = "no pietto.interop function admits it; leave it out of the query"
-        elif found == "Bool":
+        if found == "Bool":
             instead = "make it an Int in the query, for example 1 if flag else 0"
         else:
-            instead = "to_pandas and to_polars admit it"
+            instead = (
+                _frames(pa, item.type, name)
+                or "no pietto.interop function admits it; leave it out of the query"
+            )
         raise ValueError(
             f"{name}: {parameter} field {ordinal} ({item.name!r}) has Arrow type"
-            f" {item.type}; {name} admits only {_listed(kinds)} fields; {instead}"
+            f" {item.type}; {name} admits only {_rule(kinds)}; {instead}"
         )
-    if item.nullable:
+    if item.nullable and found not in nullable:
         raise ValueError(
             f"{name}: {parameter} field {ordinal} ({item.name!r}) is nullable in"
             " the schema; make it non-nullable in Pietto first, for example with"
@@ -236,7 +287,8 @@ def check_envelope(
     if found != "Int":
         return
     for record, value in enumerate(data.column(ordinal).to_pylist()):
-        if not -ENVELOPE <= value <= ENVELOPE:
+        # A null is drawn as NaN, so only the values need the float64 range.
+        if value is not None and not -ENVELOPE <= value <= ENVELOPE:
             label = data.schema.field(ordinal).name
             raise ValueError(
                 f"{name}: {parameter} field {ordinal} ({label!r}) has {value} in"

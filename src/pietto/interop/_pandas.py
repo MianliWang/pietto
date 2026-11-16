@@ -6,6 +6,9 @@ from typing import Any
 
 from pietto.interop import _common as common
 
+# The kinds to_pandas admits, nullable or not (D80.03).
+ADMITS = ("Int", "Bool", "Float", "Text", "Decimal", "Date", "Timestamp")
+
 
 def convert(name: str, pandas: Any, data: Any) -> Any:
     # ignore_metadata keeps any pandas index metadata from choosing the index.

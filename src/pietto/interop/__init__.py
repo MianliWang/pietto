@@ -62,11 +62,11 @@ def to_pandas(batch: ResultBatch) -> pandas.DataFrame:
     name = "to_pandas"
     common.check_batch(name, batch)
     pa, data = common.read(batch)
-    common.admit_frame(name, pa, data)
-    common.distinct_labels(name, data)
-    module = common.target(name, "pandas")
     from pietto.interop import _pandas
 
+    common.admit_frame(name, pa, data, _pandas.ADMITS)
+    common.distinct_labels(name, data)
+    module = common.target(name, "pandas")
     return _pandas.convert(name, module, data)
 
 
@@ -74,16 +74,18 @@ def to_polars(batch: ResultBatch) -> polars.DataFrame:
     """A DataFrame with one column per field, in field order, of the Polars
     dtype docs/interop.md maps each admitted Arrow type to.
 
-    The fields to_pandas admits are admitted; any other output dtype than the
-    mapped one is refused, never cast.
+    The fields to_pandas admits are admitted; a repeated field label is
+    refused, and any other output dtype than the mapped one is refused, never
+    cast.
     """
     name = "to_polars"
     common.check_batch(name, batch)
     pa, data = common.read(batch)
-    common.admit_frame(name, pa, data)
-    module = common.target(name, "polars")
     from pietto.interop import _polars
 
+    common.admit_frame(name, pa, data, _polars.ADMITS)
+    common.distinct_labels(name, data)
+    module = common.target(name, "polars")
     return _polars.convert(name, pa, module, data)
 
 
@@ -95,10 +97,12 @@ def to_numpy(batch: ResultBatch, column: int) -> numpy.ndarray:
     common.check_ordinal(name, "column", column)
     pa, data = common.read(batch)
     common.field(name, data, "column", column)
-    common.admit_column(name, pa, data, "column", column, common.ARRAY)
-    module = common.target(name, "numpy")
     from pietto.interop import _numpy
 
+    common.admit_column(
+        name, pa, data, "column", column, _numpy.ADMITS, _numpy.NULLABLE
+    )
+    module = common.target(name, "numpy")
     return _numpy.convert(name, module, data, column)
 
 
@@ -124,13 +128,17 @@ def to_scipy_csr(
     for parameter, ordinal in (("row", row), ("column", column), ("value", value)):
         common.field(name, data, parameter, ordinal)
     common.distinct(name, (row, column, value), "row, column and value")
-    for parameter, ordinal in (("row", row), ("column", column), ("value", value)):
-        common.admit_column(name, pa, data, parameter, ordinal, common.COORDINATE)
+    from pietto.interop import _scipy
+
+    for parameter, ordinal, kinds in (
+        ("row", row, _scipy.COORDINATES),
+        ("column", column, _scipy.COORDINATES),
+        ("value", value, _scipy.VALUES),
+    ):
+        common.admit_column(name, pa, data, parameter, ordinal, kinds)
     common.check_shape_bounds(name, shape)
     common.check_coordinates(name, data, row, column, shape)
     module = common.target(name, "scipy.sparse")
-    from pietto.interop import _scipy
-
     return _scipy.convert(name, module, data, row, column, value, shape)
 
 
@@ -142,9 +150,13 @@ def _plotted(name: str, batch: object, x: int, y: int, ax: object) -> object:
     pa, data = common.read(batch)
     common.field(name, data, "x", x)
     common.field(name, data, "y", y)
-    found = (
-        common.admit_column(name, pa, data, "x", x, common.PLOT),
-        common.admit_column(name, pa, data, "y", y, common.PLOT),
+    from pietto.interop import _matplotlib
+
+    found = tuple(
+        common.admit_column(
+            name, pa, data, parameter, ordinal, _matplotlib.ADMITS, _matplotlib.NULLABLE
+        )
+        for parameter, ordinal in (("x", x), ("y", y))
     )
     common.check_envelope(name, data, "x", x, found[0])
     common.check_envelope(name, data, "y", y, found[1])
