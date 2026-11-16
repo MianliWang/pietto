@@ -258,6 +258,24 @@ its installed check, which now runs B2's queries beside B1's; the build and
 the installed closure are unchanged, and T07's package smoke on its own
 tree built a wheel with the same sha256, `969610d1…`.
 
+The published batch ends at `107df991` (tree `a348295c`), the lead's typing
+repair, first committed as `e1570b5e`, whose message alone was then amended
+with its Gate 2 line. Since T06's integrity audit was the lane's own, the
+lead had v6 re-checked independently, and the re-check judged it
+ACCEPTED_CONFIRMED: it checked the seven frozen digests, the start copies,
+the run commands, exit statuses and times, the record counts and the
+negative control, and its own re-judgment of the stored outputs with the
+frozen checker gave the stored verdicts. The specification's sha256
+moved after the freeze, from the frozen `38d8bfa2…` to `2bbb130e…` at
+T06's repair `d68bd072` and to `46fda42f…` at T08 `a5615003` and the published head,
+while `src`, `grammar`, `pyproject.toml` and `uv.lock` are the same Git
+objects and the frozen helpers are byte for byte the same, so D77.50
+carries the run to the published tree. That tree's `tests` differs from
+T08's only by the typing repair, in `tests/test_sql_duckdb_emission.py`,
+which is not a helper. The run's command record, written 4 s after the
+freeze, is among the run's digested evidence, as section 8 of the
+preregistration allows.
+
 ## Budget, failures and Gate 2
 
 B2 runs on Phase79's ledger, `C240/F720/D8200/S8` plus half of PK, raised

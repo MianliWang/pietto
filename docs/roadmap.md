@@ -108,8 +108,11 @@ column (D77.42) and `now()` in `relay_live` and R2 (D77.43, D77.49); `0.1.11` wa
 `0.2.0`, which was published on 2026-11-15 (PL.36, PL.37), and `0.2.1`,
 which carries the leftovers of Phase80 and earlier with the MySQL `Float`
 `same_value` in a JOIN `on` (PL.43), was published the same day (PL.45,
-PL.46). Phase81 and the MySQL catch-up phase use `0.2.x` from `0.2.2`
-(PL.40). SQLite B2, DuckDB B2 and the interop relief each enter the `0.2.x`
+PL.46). `0.2.2` carries all the work before Phase81, the MySQL catch-up
+included, and the owner has authorized its publication (PL.55, PL.56);
+Phase81's commits reach `main` only after the `0.2.2` release commit
+(PL.57).
+SQLite B2, DuckDB B2 and the interop relief each enter the `0.2.x`
 release that follows their Gate 2, `0.2.2` at the earliest (PL.47). Phase82
 and Phase83 also use `0.2.x`, and no release is called `1.0`: every release
 before Phase90 is a `0.2.x`, and Phase90, the Rust rewrite, releases as
@@ -247,12 +250,16 @@ the `0.2.x` release that follows its Gate 2, `0.2.2` at the earliest
 without "yet", in the version that the owner approved (PL.50). Both B2
 parts write NULLS clauses that place NULL as PostgreSQL does. At their
 midpoints the owner sent JOINs and the other forms of each second tier to
-the owner's plan for the later phases (PL.54). DuckDB B2's first tier
+the owner's plan for the later phases (PL.54), where they come before
+the Phase82 freeze, each with its own Gate 1, and Phase79's completion
+audit waits for DuckDB's (PL.57, PL.58). DuckDB B2's first tier
 publishes as one batch under PL.52; its midpoint was answered after T06–T08
 had run, since its dispatch had no stop there. SQLite B2 goes on
 with S11 and S12 of its first tier while R1, the tier's one PostgreSQL
-replay (PL.47), waits until Docker Desktop is available, and its closeout
-S16 follows R1. SQLite B2 also makes single-file SQLite SQL write `Bool`
+replay (PL.47), has a lane of its own on Docker Desktop's Engine, but
+that lane stopped before any freeze, since the integration host could
+not reach the Engine (PL.56); its closeout S16 follows R1.
+SQLite B2 also makes single-file SQLite SQL write `Bool`
 literals as `1` and `0`, a change to the bytes that `0.2.0` and `0.2.1`
 publish, which its release lists as incompatible (PL.54).
 
@@ -276,12 +283,14 @@ D5).
 
 ### Phase81 scope
 
-Phase81 waits for the owner's draft of the plan for the later phases, which
-bundles several phases for parallel scheduling and which the lead reviews
-(PL.54). On 2026-11-16 the owner answered the lead's Phase81 Gate 1 sheet
-(PL.50), taking every recommendation except that the release tools move
-into the repository; those answers are input to that plan, not an approved
-route. In them CPython 3.14 gets full CI parity (30 jobs) and joins the
+Phase81 follows the new route of the owner's draft plan for the later
+phases, which bundles several phases for parallel scheduling and which the
+lead reviewed, and waits for the owner's next revision of that draft before
+it starts (PL.54, PL.58). On 2026-11-16 the owner answered the lead's
+Phase81 Gate 1 sheet (PL.50), taking every recommendation except that the
+release tools move into the repository, and later adopted every answer
+again in that route (PL.58). In them CPython 3.14 gets full CI parity
+(30 jobs) and joins the
 verified profile. On Windows
 x86-64 the CLI and `pietto.compiler` are declared supported with execution
 NOTRUN, batch directory output gets a writer that holds the new directory's
@@ -293,8 +302,10 @@ and severity within the existing codes. Nullability v2 gets a read-only
 review first, reported to the owner at the midpoint. The assurance work uses
 a bounded, seeded generator and shrinker with no new dependency and no
 network. The release tools move into `scripts/`, where CI runs only their
-dry run and self-tests. The sheet's ledger, `C206/F618/D11,950/S14`, and
-PL.52's push authorization for Phase81 are unused until the owner's plan.
+dry run and self-tests. Phase81 keeps the sheet's ledger,
+`C206/F618/D11,950/S14`, under PL.15, and PL.52's push authorization
+applies to its batches once the `0.2.2` release commit is pushed, before
+which no Phase81 commit is pushed (PL.57, PL.58).
 
 Phase81 decides the CPython matrix (3.14 into CI and the verified profile;
 until then 3.12 and 3.13, with no upper bound on `requires-python`), the
@@ -353,7 +364,8 @@ relation with GROUP BY, as `k` or `x = k` after `let k = qty` and
 (2) changes a diagnostic only: projects report the single-file PIE-S2314,
 not the bare PIE-S2333, for `min` or `max` of a `Text` or `Bool` `let`,
 and accept nothing more. Each extension takes a slice of its own with a
-two-database verification, and none lands before `0.2.2`; until then
+two-database verification, and none lands before the `0.2.2` release
+commit (PL.57); until each lands,
 `0.2.1`'s behavior and the [diagnostics reference](spec/diagnostics.md)
 stand.
 
