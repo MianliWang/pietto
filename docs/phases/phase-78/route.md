@@ -141,7 +141,9 @@ order; any ledger cap.
 on the batch tree, and the batch publishes after the `0.1.11` cut and after
 DuckDB B1 under its own push authorization, with green natural exact-head CI.
 Phase78 closes later, after B2 and the third whole-tree test pass, with its
-completion audit and next-phase handoff.
+completion audit and next-phase handoff. The third whole-tree test pass ran
+outside Phase78, in batch 2, the maintenance batch after `0.2.1`, and meets
+that condition of Phase78's closure (PL.49).
 
 ## Dependencies and pins
 
