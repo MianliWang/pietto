@@ -163,7 +163,7 @@ def test_public_compile_and_bundle_accept_a_joined_computed_key(tmp_path):
 def test_compile_query_takes_duckdb_as_a_dialect_argument(tmp_path):
     """AD78.03: duckdb is a project dialect, so the documented project's
     postgres contract refuses the compile; it is not an argument error
-    (PIE-R1002), which sqlite stays under D78.01."""
+    (PIE-R1002)."""
     with pytest.raises(execution.CompileRejected):
         execution.compile_query(
             api.write_example(tmp_path / "example"),

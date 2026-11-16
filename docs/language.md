@@ -646,8 +646,9 @@ comparisons, `sum` and every aggregate not named above, `count_distinct` and
 `Timestamp`, `UUID` and nested values, JOINs, windows, function calls such as
 the `LIKE`-style text functions, and every table and query of a file that
 declares a top-level constant, which `--set` needs. A project's SQLite SQL
-has rules of its own ([SQLite projects](#sqlite-projects)). Pietto writes the
-SQL text only; it runs no SQLite statement and opens no database file.
+has rules of its own ([SQLite projects](#sqlite-projects)). For a single file
+Pietto writes the SQL text only; it runs no SQLite statement and opens no
+database file.
 
 The SQL assumes, and does not check, these properties of the database it
 runs on:
@@ -745,8 +746,9 @@ single-file premises above except the collation: project SQL writes
 `COLLATE BINARY` at each `Text` comparison, `group by` key, `order by` key
 and `count_distinct` argument, so a `COLLATE NOCASE` column still compares
 by its bytes, and the contract's `Text` collation `BINARY` names that
-comparison, not the column's. `compile_query(dialect="sqlite")` keeps
-PIE-R1002.
+comparison, not the column's. `compile_query(dialect="sqlite")` compiles
+such a query for the read-only
+[`sqlite_file` route](execution.md#sqlite-file-route).
 
 ## Types and shapes
 

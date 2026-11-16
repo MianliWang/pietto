@@ -18,6 +18,7 @@ from pietto._project.project_sql_emission_cli import (
     _render_failure,
     serialize_emission,
 )
+from pietto.execution._sqlite import SQLiteTemplate, prepare_sqlite_live_template
 from pietto.execution._errors import (
     CompileRejected,
     RequestRejected,
@@ -36,8 +37,7 @@ __all__ = [
 
 _CHOICES = {
     "kind": ("table", "query"),
-    # No SQLite route yet: `sqlite` stays an invalid argument (PIE-R1002).
-    "dialect": ("postgres", "mysql", "duckdb"),
+    "dialect": ("postgres", "mysql", "duckdb", "sqlite"),
     "literal_policy": ("preserve", "bind-safe"),
 }
 _RECORD = re.compile("[0-9a-f]{64}")
@@ -197,7 +197,7 @@ def compile_query(
 
     The arguments are those of ``pietto emit-sql --project``: the project
     root, the logical module, the declaration kind and name, the dialect
-    (``postgres``, ``mysql`` or ``duckdb``), the project-relative emission
+    (``postgres``, ``mysql``, ``duckdb`` or ``sqlite``), the project-relative emission
     contract and the literal policy (``preserve`` or ``bind-safe``).
     Compiling reads the project files and the installed Pietto and ANTLR
     runtime code; it never connects to a database or reads a schema. The
@@ -230,12 +230,12 @@ def compile_query(
         refusal = request_failure(caught)
     else:
         try:
-            # AD78.03: a DuckDB query becomes its adapter's live template.
-            template = (
-                prepare_duckdb_live_template
-                if dialect == "duckdb"
-                else composition.live_template
-            )(outcome)
+            # AD78.03: a DuckDB or SQLite query becomes its adapter's live
+            # template.
+            template = {
+                "duckdb": prepare_duckdb_live_template,
+                "sqlite": prepare_sqlite_live_template,
+            }.get(dialect, composition.live_template)(outcome)
         except Exception as caught:
             refusal = request_failure(caught, preparing=True)
         else:
@@ -255,7 +255,7 @@ def _query(template, origin, emission, main_emits=None):
     query = object.__new__(CompiledQuery)
     facts = (
         template.facts()
-        if type(template) is DuckDBTemplate
+        if type(template) in (DuckDBTemplate, SQLiteTemplate)
         else composition.query_facts(template)
     )
     for slot, value in zip(
@@ -277,8 +277,8 @@ def export_bundle(query: CompiledQuery) -> QueryBundle:
     parameters exports its unbound template as a
     ``pietto.compiled-execution.v2`` bundle; every load binds it afresh.
     Raises RequestRejected for a query that is None (PIE-R1001) or not a
-    CompiledQuery (PIE-R1002), and for a ``duckdb`` query, which has no
-    bundle (PIE-R1004), before anything is built.
+    CompiledQuery (PIE-R1002), and for a ``duckdb`` or ``sqlite`` query,
+    which has no bundle (PIE-R1004), before anything is built.
     """
     if query is None:
         raise RequestRejected(failure("PIE-R1001", "PUBLIC_QUERY_REQUIRED"))
@@ -286,6 +286,8 @@ def export_bundle(query: CompiledQuery) -> QueryBundle:
         raise RequestRejected(failure("PIE-R1002", "PUBLIC_QUERY_TYPE"))
     if type(query._template) is DuckDBTemplate:
         raise RequestRejected(failure("PIE-R1004", "DUCKDB_BUNDLE_ENTRY"))
+    if type(query._template) is SQLiteTemplate:
+        raise RequestRejected(failure("PIE-R1004", "SQLITE_BUNDLE_ENTRY"))
     try:
         facts = composition.export_facts(query._template)
     except Exception as caught:

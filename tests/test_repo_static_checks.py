@@ -395,16 +395,13 @@ def test_no_adapter_family_reaches_the_postgres_mysql_pipeline(
     assert set(families) - {None} <= PIPELINE_FAMILIES
     # AD78.03 admits `duckdb` and PL.47 `sqlite` as project dialects, so
     # their requests passed the argument checks and their own adapters
-    # verified them. `compile_query` has no SQLite route yet and refuses the
-    # `sqlite` argument.
+    # verified them, `compile_query` included.
     assert "usage" not in _error_kinds(documents["postgres"])
     assert refusals["postgres"] == []
     assert "usage" not in _error_kinds(documents[family])
     statuses = {d["status"] for d in documents[family] if isinstance(d, dict)}
     assert "VERIFIED" in statuses
-    assert set(refusals[family]) == (
-        {("PIE-R1002", "PUBLIC_COMPILE_ARGUMENT")} if family == "sqlite" else set()
-    )
+    assert refusals[family] == []
 
 
 # PL.47: from the PostgreSQL/MySQL emission modules the SQLite adapter imports

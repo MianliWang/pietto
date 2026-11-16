@@ -42,8 +42,6 @@ parameters, with the aggregates `count`, `count_distinct` (of an `Int`,
   MySQL or DuckDB emission of a statement that reads a project
   `sqlite.table` source, and the PIE-B1000 reason of a single-file relation
   that stays refused.
-- `compile_query(dialect="sqlite")` keeps PIE-R1002 in this tier, and
-  Pietto runs no SQLite statement and opens no database file.
 
 Compatibility: PostgreSQL, MySQL and DuckDB SQL bytes and contracts are
 unchanged. These outputs change, for programs refused before as well:

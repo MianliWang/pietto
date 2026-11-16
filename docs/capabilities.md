@@ -146,18 +146,21 @@ refused alike for every target.
   `sum_int_aggregate_range_proof_missing`
   ([SQLite projects](language.md#sqlite-projects), alpha). PostgreSQL, MySQL
   and DuckDB emission refuse such a source with PIE-B1001
-  `source_family_mismatch`, and `compile_query(dialect="sqlite")` keeps
-  PIE-R1002.
-- **Execution and result reading.** None: Pietto runs no SQLite statement,
-  opens no database file and reads no SQLite result.
+  `source_family_mismatch`.
+- **Execution and result reading.** `compile_query(dialect="sqlite")`
+  compiles such a project query, and the `sqlite_file` route runs it
+  read-only over one caller's file of `STRICT` tables, only on Linux x86-64
+  with the measured build ([SQLite file route](execution.md#sqlite-file-route),
+  alpha). A single file is never run.
 - **Support.** The SQL text and its goldens are tested wherever CI runs
   (CPython 3.12 and 3.13). The native cells qualify the SQL in process on one
   measured SQLite library only: release `3.53.1`, source id `2026-05-05
   10:34:17 c88b22011a54b4f6fbd149e9f8e4de77658ce58143a1af0e3785e4e6475127e9`
-  and the 46 compile options that `tests/test_sql_sqlite_native.py` records,
-  observed under CPython 3.13.13 on Linux. A version number alone is not that
-  identity, and every other build, the SQLite of hosted CI, Windows and macOS
-  included, is not qualified
+  and the 46 compile options that `QUALIFIED_SQLITE_BUILD` in
+  `src/pietto/sql/sqlite.py` records, observed under CPython 3.13.13 and
+  3.12.13 on Linux. A version number alone is not that identity, and every
+  other build, the SQLite of hosted CI, Windows and macOS included, is not
+  qualified
   ([SQLite target validation](development.md#sqlite-target-validation)).
 
 ## DuckDB local path
@@ -258,8 +261,9 @@ one with its limits. Phase81 decides the Windows scope and the CPython matrix
 | Python compile API: `compile_sql`, `compile_all_sql` (alpha) | CI-tested | CI-tested | not claimed | [Python compile API](spec/python-compile-api-v1.md), the [CI workflow](../.github/workflows/ci.yml) |
 | `pietto lsp` (alpha) | CI-tested | CI-tested; a native Windows editor acceptance is Phase81 scope | not claimed | [Editor support](editor-lsp.md), [Phase81 scope](roadmap.md#phase81-scope), the [CI workflow](../.github/workflows/ci.yml) |
 | SQLite SQL text and goldens (`emit-sql FILE --dialect sqlite`) | CI-tested | CI-tested | not claimed | [SQLite single files](#sqlite-single-files) |
-| SQLite SQL text, as qualified by running it in process in the tests (Pietto runs no SQLite statement) | qualified only on release `3.53.1` with the source id and the 46 compile options that `tests/test_sql_sqlite_native.py` records, under CPython 3.13.13; every other build, the SQLite of hosted CI included, is not qualified | not claimed: not qualified | not claimed: not qualified | [SQLite single files](#sqlite-single-files), [SQLite target validation](development.md#sqlite-target-validation) |
+| SQLite SQL text, as qualified by running it in process in the tests | qualified only on release `3.53.1` with the source id and the 46 compile options that `QUALIFIED_SQLITE_BUILD` in `src/pietto/sql/sqlite.py` records, under CPython 3.13.13 and 3.12.13; every other build, the SQLite of hosted CI included, is not qualified | not claimed: not qualified | not claimed: not qualified | [SQLite single files](#sqlite-single-files), [SQLite target validation](development.md#sqlite-target-validation) |
 | PostgreSQL and MySQL execution: `postgres_rows`, `postgres_adbc` and `mysql_rows`, with the workspace and saved-result calls (alpha) | qualified: CPython 3.13.13 with the lock's exact artifacts on the qualified integration host, PostgreSQL 18.6 and MySQL 8.4.12; the workspace and saved-result calls also need the job store's exact SQLite build and ext4 mounted read-write | not claimed: native execution is `NOTRUN`, and the workspace and saved-result calls raise `ModuleNotFoundError` for `fcntl` | not claimed: the workspace and saved-result calls are Linux-only | [Support matrix](execution.md#support-matrix), [Known limitations](execution.md#known-limitations), row 3 of [Validation runner acceptance](spec/validation-runner-acceptance-v1.md) |
+| `sqlite_file` route with the `arrow` extra (alpha) | runs only on release `3.53.1` with the measured source id and compile options; not yet natively qualified | not claimed: refused | not claimed: refused | [SQLite file route](execution.md#sqlite-file-route) |
 | DuckDB emission (`--dialect duckdb`) | CI-tested | CI-tested | not claimed | [DuckDB local path](#duckdb-local-path) |
 | `duckdb_arrow` route with the `execute-duckdb` extra (alpha) | qualified: CPython 3.13.13 and 3.12.13 with `duckdb==2.0.0` and `pyarrow==26.0.1`, glibc 2.28 or later; CI runs the request checks and four real queries | not claimed: not qualified | not claimed: not qualified | [Support matrix](execution.md#support-matrix), [DuckDB native qualification](development.md#duckdb-native-qualification) |
 | `pietto.interop` with an `interop-*` extra beside `arrow` (alpha) | qualified: only the pins of its table with `pyarrow==26.0.1`, CPython 3.12 and 3.13, glibc 2.28 or later | not claimed: not qualified; CI runs only the interop tests that need no PyArrow | not claimed: not qualified | [Installing](interop.md#installing), the [CI workflow](../.github/workflows/ci.yml) |

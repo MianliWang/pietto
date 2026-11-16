@@ -59,11 +59,15 @@ and `mysql_rows`, against MySQL 8.4.12. Both PostgreSQL routes use the same
 explicit TCP inputs and deployment premise; `postgres_adbc` selects only its
 pinned ADBC driver closure. `duckdb_arrow` runs one limited query in process
 over an Arrow table that you supply, on DuckDB `2.0.0`, with no connection or
-premise (see [DuckDB Arrow route](#duckdb-arrow-route)). For the PostgreSQL
+premise (see [DuckDB Arrow route](#duckdb-arrow-route)). `sqlite_file` runs
+one limited query in process over one SQLite file that you name, read-only,
+on one measured SQLite build (see [SQLite file route](#sqlite-file-route)).
+For the PostgreSQL
 and MySQL routes the only qualified native profile recorded here is CPython
 3.13.13 on Linux x86-64 with the lock's exact artifacts on the qualified
 integration host; `duckdb_arrow` is qualified on CPython 3.13.13 and 3.12.13
-(see the support matrix). Windows native execution is `NOTRUN`; an offline
+(see the support matrix), and `sqlite_file` runs only on Linux x86-64 with
+the measured SQLite build. Windows native execution is `NOTRUN`; an offline
 Windows compiler-project check is not native execution, job, or database
 support. Saved-result workflows are local workspace APIs, and the reference
 sink is a local bounded endpoint. There is no CLI command that connects to a
@@ -83,6 +87,7 @@ Linux-only (see [Known limitations](#known-limitations)).
 | `mysql_rows` | MySQL 8.4.12; `mysql-connector-python==26.10.0`; `pyarrow==26.0.1` (the published `0.1.10` selects `26.0.0`) | One TCP host, `MySQLAccess`, `MySQLDeploymentPremise`, and caller-supplied CA with certificate and server-identity verification. | Linux x86-64, CPython 3.13.13 with 26.0.0; the new pin passed the maintenance runs listed above. | Windows native execution; another MySQL release, connector version or provider profile. |
 | `postgres_adbc` | PostgreSQL 18.6; `adbc-driver-postgresql==1.13.0`; `adbc-driver-manager==1.13.0`; `pyarrow==26.0.1` (the published `0.1.10` selects `26.0.0`) | PostgreSQL TCP access, deployment premise, SCRAM profile with the same two TLS profiles as `postgres_rows`, and the selected driver closure. | Linux x86-64, CPython 3.13.13 with 26.0.0; the new pin passed the maintenance runs listed above. | Windows native execution; another ADBC/libpq closure, PostgreSQL release, TLS profile or platform. |
 | `duckdb_arrow` | DuckDB `2.0.0` in process; `duckdb==2.0.0`; `pyarrow==26.0.1` | A query compiled with `--dialect duckdb` from one `duckdb.arrow` source, `DuckDBArrowInput(name, table)` and `premise=None`. | Linux x86-64, CPython 3.13.13 and 3.12.13 with the locked closure: the in-process native matrices of Phase79 S06 for B1 and T06 for B2, every unit accepted on its first attempt on 2026-11-14 (D79.07) and 2026-11-16 (PL.47); and the `arrow-ready` cell of natural CI on CPython 3.12 and 3.13. | Any form beyond the [DuckDB Arrow route](spec/duckdb-arrow-route-v1.md); another DuckDB release, Windows, macOS and platforms other than Linux x86-64 with glibc 2.28 or later. |
+| `sqlite_file` | SQLite `3.53.1` with the measured source id and compile options, in process through the standard library's `sqlite3`; `pyarrow==26.0.1` | A query compiled with `--dialect sqlite` from one `sqlite.table` source, `SQLiteFileInput(path)` naming a file of `STRICT` tables and `premise=None`. | Linux x86-64; the native qualification of the route is S12's ([SQLite project mode](spec/sqlite-project-v1.md#execution)). | Any other SQLite build or platform, which `execute()` refuses; the library's memory safety on a malformed file; any form beyond [SQLite project mode](spec/sqlite-project-v1.md). |
 
 The qualified profile is the integration host with the lock's exact artifacts.
 Installing an extra selects no route, grants no execution, opens no source and
@@ -107,6 +112,7 @@ pip install "pietto[execute-postgres]"
 | `execute-postgres-adbc` | `postgres_adbc` | `adbc-driver-postgresql==1.13.0`, `adbc-driver-manager==1.13.0` |
 | `execute-mysql` | `mysql_rows` | `mysql-connector-python==26.10.0` |
 | `execute-duckdb` | `duckdb_arrow` | `duckdb==2.0.0` |
+| `arrow` | `sqlite_file` | nothing more: SQLite comes with Python |
 
 Each extra also selects `pyarrow==26.0.1` (the published `0.1.10` selects
 `26.0.0`), because captured results are Arrow IPC; saved-result use without any database driver needs only `pietto[arrow]`.
@@ -632,8 +638,7 @@ and fresh trust, source, value and deployment inputs.
   instead for an argument that is `None` (`PIE-R1001`) or invalid (`PIE-R1002`),
   checked before the project is read (where the command prints its usage
   error), and when a verified query cannot become an execution (`PIE-R1004`,
-  `PIE-R1005`). `dialect="sqlite"` is invalid here although the command
-  accepts it, since Pietto runs no SQLite query.
+  `PIE-R1005`).
 - `compile_query` checks the whole emission contract as the command does, so
   a contract the command refuses is refused in the same way, also for a source
   the query does not read. It then compiles the query with the query's
@@ -835,7 +840,8 @@ in no promised order relative to other runtime errors of the statement.
 `RequestRejected` (PIE-R1xxx) means nothing connected; it also carries the
 PIE-R2xxx refusals of the checks that `execute()` runs itself: `PIE-R2003`
 on `mysql_rows` and `postgres_adbc`, and `PIE-R2001` and `PIE-R2002` of the
-loaded PyArrow on `duckdb_arrow`. `AttemptFailed` (PIE-R2xxx and PIE-R3xxx
+loaded PyArrow on `duckdb_arrow`, and `PIE-R2002` `SQLITE_BUILD` on
+`sqlite_file`. `AttemptFailed` (PIE-R2xxx and PIE-R3xxx
 once an attempt opens) ends the attempt and carries its `outcome`;
 `HandleMisuse` (PIE-R4xxx) leaves the attempt unchanged.
 `execute()` first checks that `query`, `route`, `access`, `premise` and
@@ -854,11 +860,17 @@ the values of `premise`, `access`, `isolation` (its type included) and
 input name is checked against the contract's relation name right after
 `access`, and the loaded PyArrow (`PIE-R2001`, `PIE-R2002`) and the capture
 (`PIE-R1002`) after `limits`, in the order of the
-[DuckDB Arrow route](spec/duckdb-arrow-route-v1.md#execute-api).
+[DuckDB Arrow route](spec/duckdb-arrow-route-v1.md#execute-api). On
+`sqlite_file` the path (`PIE-R1002` `EXECUTION_ACCESS`), `isolation` and
+`limits` are checked after the binding, and then the platform and SQLite
+build (`PIE-R2002` `SQLITE_BUILD`); `execute()` opens no file
+([SQLite project mode](spec/sqlite-project-v1.md#request)).
 When an attempt opens, refused environment variables run first; then the
 pinned driver and its selected implementation; then pinned PyArrow; all run
 before a connection. On `duckdb_arrow`, `execute()` has already checked
-PyArrow, and the attempt checks the pinned driver before its session.
+PyArrow, and the attempt checks the pinned driver before its session. On
+`sqlite_file` the attempt checks pinned PyArrow, then the file, before it
+opens the file.
 `pyarrow.schema(result)` can instead raise `HandleMisuse`
 `PIE-R4004` when it cannot export the schema, without changing the attempt.
 
@@ -1447,6 +1459,61 @@ short:
   deadline) and no DuckDB message; a result that does not match the compiled one is
   `PIE-R3005`.
 - **Elsewhere.** `export_bundle` refuses a DuckDB query (`PIE-R1004`), and
+  `save`, `save_recoverable`, `recover`, `relay_live` and the job store do
+  not take the route (`PIE-R1003`).
+
+## SQLite file route
+
+`sqlite_file` runs one read-only query of an explicit-module project over
+one SQLite file that your program names, in process, through the standard
+library's `sqlite3` on the measured SQLite `3.53.1` build. The file's content
+is treated as untrusted. [SQLite project mode](spec/sqlite-project-v1.md#execution)
+states every rule; in short:
+
+- **Install.** `pip install "pietto[arrow]"` adds `pyarrow==26.0.1`; the
+  route needs no database driver. It runs only on Linux x86-64 with the
+  measured build: elsewhere, and with any other SQLite library, `execute()`
+  refuses (`PIE-R2002` `SQLITE_BUILD`) before any file opens.
+- **Query.** One `sqlite.table("name")` source read by the forms of
+  [admission](spec/sqlite-project-v1.md#admission), compiled with
+  `--dialect sqlite`. `compile_query(dialect="sqlite")` compiles it.
+- **Input.** `access=SQLiteFileInput(path)` and `premise=None`;
+  `SQLiteFileInput` does no I/O and cannot be copied or pickled.
+  `isolation` is `"stable"`. A `Text` parameter cannot hold NUL.
+- **The file.** A non-empty regular file of at most 256 MiB with its `-wal`
+  file, whose `-wal`, `-journal` and `-shm` files, where present, are
+  regular files, the `-shm` file with no other link, opened read-only
+  through its percent-encoded `file:` URI with `mode=ro`, in defensive
+  mode, with trusted schema, extensions and memory mapping off,
+  `query_only` on and an authorizer that allows only the reads, functions
+  and checks the attempt needs.
+- **The source.** In one read transaction, before the statement: a UTF-8
+  file; one `STRICT` table of `main` with exactly the contract's name and
+  columns of the types its fields read; `PRAGMA integrity_check` of the table
+  `ok`; at most 1,048,576 rows; and every value in its field's domain: no
+  NULL in a non-null field, an `Int` within its `int_range`, a `Bool` of 0
+  or 1, a finite `Float`, and `Text` that is valid UTF-8 without NUL and
+  within `max_characters`. A failed check is `PIE-R2007` (`SQLITE_*`
+  details) or, for the limits, `PIE-R3004`; a missing or irregular file is
+  `PIE-R2004`.
+- **Failures.** An error that SQLite raises is `PIE-R2004` before the first
+  read and `PIE-R3003` after it, with the detail `SQLITE_ERRORCODE_<n>` of
+  its extended result code, or `SQLITE_INTEGER_OVERFLOW` for a `sum` past
+  signed 64 bits, and no SQLite message. A deadline or `cancel()` interrupts
+  the running statement (`PIE-R3001`, `PIE-R3009`); a lock that your writer
+  holds until the deadline ends the attempt there (`PIE-R3001`), and while
+  the attempt waits for that lock `cancel()` takes effect only at the
+  deadline (`PIE-R3009`).
+- **Effects.** The whole result is read, the transaction committed and the
+  file closed before the first batch. Until then the attempt holds SQLite's
+  read lock: in rollback-journal mode your writers fail with
+  `database is locked` meanwhile. On a WAL file SQLite writes the `-shm`
+  file on every read: it creates missing `-wal` and `-shm` files and leaves
+  them, and rebuilds an existing `-shm` file in place when no other
+  connection has the file open; in a directory that cannot be written, a
+  WAL file whose `-wal` and `-shm` files are missing cannot be read
+  (`PIE-R2004`). Pietto writes nothing else.
+- **Elsewhere.** `export_bundle` refuses a SQLite query (`PIE-R1004`), and
   `save`, `save_recoverable`, `recover`, `relay_live` and the job store do
   not take the route (`PIE-R1003`).
 

@@ -32,12 +32,11 @@ DuckDB emission refuse it as [compile refusals](#compile-refusals) states.
 S08 added the adapter and the T1 forms, so `emit-sql --project --dialect
 sqlite`, `compile_sql` and `compile_all_sql` emit them. S09 added their native
 qualification under CPython 3.13.13 and 3.12.13. S10 added the T2
-aggregates in both modes with their native cells. R1 adds the PostgreSQL
-replay, S11 the [execution](#execution) section and its route, S12 that
-route's qualification, and S16 closes the tier. Each slice edits the rows it
-lands.
-Until S11, `compile_query(dialect="sqlite")` reports `PIE-R1002` and Pietto
-opens no SQLite file. No published release carries a form until the owner approves
+aggregates in both modes with their native cells. S11 added
+`compile_query(dialect="sqlite")` and the `sqlite_file` route of
+[execution](#execution). R1 adds the PostgreSQL replay, S12 the route's
+qualification, and S16 closes the tier. Each slice edits the rows it lands.
+No published release carries a form until the owner approves
 one: `0.2.1` and earlier refuse a project `sqlite.table` with `PIE-S2306`
 `Unknown source connector: sqlite.table`.
 
@@ -53,7 +52,7 @@ one: `0.2.1` and earlier refuse a project `sqlite.table` with `PIE-S2306`
 | Grouping and order | A `group by` key is a field of the source. In an aggregated relation a result field is a `group by` key, an admitted aggregate or a literal (`check` refuses a query parameter there with `PIE-S2355`), and an `order by` key is a selected `group by` key or aggregate; elsewhere an `order by` key is a field of the source. A `limit` is an `Int` literal from 0 to 9223372036854775807. |
 | Parameters | Query header parameters of type `Int`, `Text`, `Bool` or `Float`, optional or not, read in `select`, `where` or `having`. |
 | Literal policy | `preserve` only. |
-| Entry points | `pietto check --project`; `pietto emit-sql --project ... --dialect sqlite`, with or without `--all`; `compile_sql` and `compile_all_sql` with `dialect="sqlite"`. `compile_query` and `execute` wait for S11. |
+| Entry points | `pietto check --project`; `pietto emit-sql --project ... --dialect sqlite`, with or without `--all`; `compile_sql` and `compile_all_sql` with `dialect="sqlite"`; `compile_query` with `dialect="sqlite"`, and `execute` on the `sqlite_file` route ([execution](#execution)). |
 
 `having`, `count_distinct`, `avg` and `sum` are the T2 forms that S10
 landed. A `having` reads selected `group by` keys and aggregates by their
@@ -390,9 +389,9 @@ the command prints. A verified document's bytes come only from the adapter.
 
 ## Other entry points
 
-- Until S11, `compile_query(dialect="sqlite")` keeps `PIE-R1002`, so no
-  query bundle, saved result, relay, job or R2 path meets a SQLite query; S11
-  states each of their refusals.
+- `compile_query(dialect="sqlite")` compiles a query of this page, and
+  [execution](#execution) states where it runs and which entry points refuse
+  it.
 - `pietto explain --project` and every inspection stay non-executing and
   dialect-neutral, and no SQLite catalog is inspected.
 - `pietto lsp` reports what `check` reports, so a project `sqlite.table`
@@ -400,55 +399,170 @@ the command prints. A verified document's bytes come only from the adapter.
 
 ## Execution
 
-S11 writes this section: the `sqlite_file` route that PL.47 approves, as
-tier 1b. Its bounds are fixed there: a read-only open of the caller's file
-behind eleven defences, sources that are `STRICT` tables and not views,
-virtual or temporary tables, UTF-8, a file of at most 256 MiB, at most
-1,048,576 rows per source table, the whole attempt within
-`ExecutionLimits.seconds` (by default 20 seconds), results under the
-`ExecutionLimits` defaults, the `arrow` extra reused, and a bounded check of
-each source's value domains and of table and index integrity in the same
-read transaction before each run, which refuses `Text` that holds NUL.
-Until S11 lands, Pietto runs no SQLite statement and opens no SQLite file.
+`execute(query, route="sqlite_file", access=SQLiteFileInput(path),
+premise=None)` runs a query compiled with `dialect="sqlite"` once, in
+process and read-only, over one SQLite file that the caller names. This is
+tier 1b of PL.47; with Q6a and Q6b it is D78.01's trust Gate 1, and the
+[external reference record](../phases/phase-78/route.md#b2-external-reference-untrusted-sqlite-files)
+of untrusted SQLite files informs it. The file's bytes are untrusted:
+Pietto checks what it reads before the statement runs, but the memory
+safety of the SQLite library on a malformed file is no part of its
+guarantee. Pietto writes no database content and takes no content digest.
+It runs only on Linux x86-64 with the measured build of
+[status](#status); everywhere else `execute()` refuses before any file
+opens, while the SQL text stays the same.
 
-S05 observed these facts on the measured build; S11 implements each, and S12
-gives each a control cell:
+### Request
 
-- **Opening.** The URI is `Path.resolve().as_uri()` with `?mode=ro`, never a
-  plain `"file:" + path` and never `immutable=1`: plain concatenation let a
-  file named `weird?mode=rwc&immutable=1#frag.db` open, and create, a file
-  `weird` with those parameters, and an `immutable=1` reader ignored locks
-  and kept reading the old rows after a writer committed. `mode=ro` creates
-  no missing file. A 0-byte file and `/dev/null` open as an empty database,
-  so the path must be a regular file and a missing source table is refused.
-- **Size.** The 256 MiB cap counts the database file and its `-wal` file
-  together when one exists; a `-wal` file may be far larger than the main
-  file (10,304,152 bytes beside 4,096).
-- **Time.** Python's default busy timeout waited 5.01 s on a locked file, so
-  the timeout is set explicitly and counted inside `ExecutionLimits.seconds`.
-- **Read transaction.** In WAL mode a read transaction keeps its data and
-  schema while a writer inserts, alters or drops. In rollback-journal mode
-  it makes the caller's own writers fail with `database is locked` while it
-  lasts; the execution documentation states this.
-- **Authorizer.** A `count(*)` or `rowid` read reaches the callback as a READ
-  of the table with the column `''` and no database name (`None`), which an
-  allowlist that requires `main` refuses, so the allowlist admits that shape
-  for the source table. The callback answers only allow or DENY:
-  `SQLITE_IGNORE` silently reads a column as NULL.
-- **Objects.** A source column is declared `INT`, `INTEGER`, `REAL` or
-  `TEXT`, as the representation table requires; `ANY`, `BLOB` and a
-  generated column (`hidden` 2 or 3 in `PRAGMA table_xinfo`) are refused. A
-  broken view elsewhere in the file leaves `PRAGMA table_list(t)` and
-  `PRAGMA integrity_check(t)` working.
-- **Values.** `instr(x, char(0)) > 0` finds a NUL in `Text`, and no SQL form
-  detects invalid UTF-8, so each `Text` value is decoded in Python.
-  `integrity_check(t)` finds a planted index fault that `quick_check(t)`
-  misses and that makes a query return wrong rows.
-- **Errors.** A native error is named by `sqlite_errorcode`, extended code
-  included, and by its message where the code is not enough, never by
-  `sqlite_errorname` alone: a `STRICT` type error is named `unknown` (code
-  3091), and a `sum` overflow is `SQLITE_ERROR` (code 1) with the message
-  `integer overflow`.
+`SQLiteFileInput(path)` holds a `str` or `os.PathLike`; constructing it
+checks and reads nothing, and it refuses pickle and copy.
+`compile_query(dialect="sqlite")` compiles each form of
+[admission](#admission) with `literal_policy="preserve"`; `bind-safe` is the
+adapter's rule 3 refusal (`CompileRejected`). The `CompiledQuery` has no
+value slots and lists the header parameters. `export_bundle` refuses it
+(`PIE-R1004` `SQLITE_BUNDLE_ENTRY`), and `save`, `save_recoverable`,
+`recover`, `relay_live` and the job store do not take the route or the
+dialect (`PIE-R1003` `PUBLIC_ROUTE_UNAVAILABLE`).
+
+`execute()` opens no file. After its shared checks (the route `sqlite_file`
+for a `sqlite` query, else `PIE-R1003`; a `SQLiteFileInput`; `premise`
+None, else `PIE-R1002` `PUBLIC_PREMISE_TYPE`), it checks in this order:
+
+1. The binding (`PIE-R1006`): no `values` (`BINDING_SLOTS`), exactly the
+   declared parameters (`BINDING_PARAMETERS`), each of its exact type or None
+   when nullable, and a `Text` parameter without NUL
+   (`BINDING_PARAMETER:<i>:<tag>`); the artifact verifies afresh
+   (`PIE-R1004`); the installed code is the code that compiled it
+   (`PIE-R1005`).
+2. The path is a non-empty `str` without NUL after `os.fspath`
+   (`PIE-R1002` `EXECUTION_ACCESS`); a relative path is joined to the
+   working directory of this call (one that no longer exists is
+   `EXECUTION_ACCESS` too). The path is not normalized, so a `..` after a
+   symbolic link steps out of the link's target, as the operating system
+   reads it.
+3. `isolation` is `"stable"`, the attempt's one read transaction
+   (`PIE-R1002` `EXECUTION_ISOLATION`), and the limits are valid
+   (`PIE-R1002` `EXECUTION_LIMITS`).
+4. Defence 9: the platform is Linux x86-64 and the linked SQLite's release,
+   source id and compile options, read from a `:memory:` database, are the
+   measured build's (`PIE-R2002` `SQLITE_BUILD`, raised as
+   `RequestRejected`).
+
+### Attempt
+
+Entering the handle, or the first `next()`, runs these steps within
+`limits.seconds` of its start. Each refusal is `AttemptFailed`:
+
+1. PyArrow is the `arrow` extra's pinned `pyarrow==26.0.1` (`PIE-R2001`
+   `EXECUTION_DEPENDENCY_MISSING`, `PIE-R2002` `ARROW_DEPENDENCY_VERSION`).
+2. Defences 1 and 6 and the file limit: the path, as the operating system
+   reads it, is an existing regular file that is not empty and the same file
+   that it resolves to through symbolic links, and each of the
+   `-wal`, `-journal` and `-shm` files beside it that exists is a regular
+   file too, the `-shm` file with no other link (`PIE-R2004`
+   `SQLITE_FILE_TYPE`; `/dev/null` would open as an empty database, SQLite
+   deletes the `-wal` file beside a 0-byte one, it opens each of the three
+   files itself, where a FIFO would block it beyond the deadline, and it
+   truncates an `-shm` file in place); the file and its `-wal` file hold at
+   most 256 MiB together (`PIE-R3004` `SQLITE_FILE_LIMIT`; a `-wal` file can
+   be far larger than its database).
+3. Defences 1 to 3 and 7: one connection opens
+   `Path.resolve().as_uri() + "?mode=ro"`, which percent-encodes `?`, `#`,
+   `%`, `=` and `&` in the name, so a name cannot add URI parameters, never
+   with `immutable=1` (which ignores locks and reads old rows); `mode=ro`
+   creates no missing file. Defensive mode is on, trusted schema off,
+   extension loading off, `cell_size_check` on, `mmap_size` 0 and
+   `query_only` on, each read back (`PIE-R2006` `SQLITE_SESSION_CONTEXT`).
+   The progress handler is installed, then the busy timeout is set to the
+   time left (Python's default would wait 5 s), then the authorizer; `BEGIN`
+   and `PRAGMA schema_version`, the first read, open the read transaction
+   that every later step shares, so the checks and the statement see one
+   snapshot of schema and data.
+4. Defences 4 and 5 and the value check of Q6b (i), in that transaction:
+   `PRAGMA encoding` is `UTF-8` (`PIE-R2007` `SQLITE_FILE_ENCODING`);
+   `PRAGMA table_list` lists exactly one object of that name, in `main`,
+   named exactly as the contract's `relation.name`, of type `table` and
+   `STRICT` (`PIE-R2007` `SQLITE_SOURCE_OBJECT`: a missing table, a view, a
+   virtual or shadow table, a table that is not `STRICT`, or another letter
+   case); `PRAGMA table_xinfo` declares each contract column with exactly its
+   name, not hidden and not generated, as `INT` or `INTEGER` for an `Int` or
+   `Bool` field, `REAL` for a `Float` and `TEXT` for a `Text`, never `ANY`
+   or `BLOB` (`PIE-R2007` `SQLITE_SOURCE_COLUMNS`); `PRAGMA
+   integrity_check` of the table and its indexes reports `ok` before any of
+   its rows is read (`PIE-R2007` `SQLITE_SOURCE_INTEGRITY`; it finds an
+   index that disagrees with its table, which `quick_check` misses and
+   which makes a query return wrong rows); the table holds at most 1,048,576
+   rows (`PIE-R3004` `SQLITE_SOURCE_LIMIT`); and every row holds each
+   contract field's domain (`PIE-R2007` `SQLITE_SOURCE_VALUES`): one scan
+   checks the storage class by `typeof`, NULL only in a nullable field, an
+   `Int` within its `int_range`, a `Bool` of 0 or 1 and a finite `Float`,
+   and each `Text` value's bytes are decoded in Python, since no SQL form
+   finds invalid UTF-8, and must be UTF-8 without NUL and of at most
+   `max_characters` characters. A broken view elsewhere in the file leaves
+   these checks working.
+5. The compiled statement runs once with the parameters at `?1`, `?2`, ...;
+   its whole result is read, `COMMIT` ends the transaction and the
+   connection closes, so no lock is held while batches are delivered.
+6. Each value is checked against its result column before PyArrow sees it:
+   an `int` in signed 64 bits, an `int` 0 or 1 for a `Bool`, a `str`, a
+   finite `float`, or None in a nullable column (`PIE-R3005`
+   `SQLITE_RESULT_CHECK`); batches follow the `ExecutionLimits`
+   (`PIE-R3004`).
+
+The authorizer answers allow or `SQLITE_DENY`, never `SQLITE_IGNORE`, which
+would read a column as NULL. It allows reads of the source's contract
+columns in `main`; reads of no column (`count(*)`, `rowid`), whose database
+is `main` or, unqualified, None; `SELECT`; the functions `count`, `min`,
+`max`, `avg`, `sum`, `typeof` and `abs`; the five PRAGMA statements of step
+3 and 4, with no argument or the source's name, until the statement runs;
+and the transaction's `BEGIN`, `COMMIT` and `ROLLBACK`. Everything else is
+denied, `ATTACH`, writes and any access through a view or trigger included.
+
+The progress handler stops a running statement once the deadline passes or
+`cancel()` was called; `cancel()` also calls `interrupt()` while the
+connection is open, and the steps in Python check between batches of 4,096
+rows. The end is `DEADLINE` (`PIE-R3001`) or `CANCELLED` (`PIE-R3009`).
+The busy timeout is the time left, so a lock that the caller's writer holds
+until the deadline ends the attempt there too (`PIE-R3001`
+`SQLITE_ERRORCODE_5`); while the attempt waits for that lock, `cancel()`
+takes effect only at the deadline (`PIE-R3009`), since SQLite's busy
+handler does not see an interrupt. A failure inside the transaction closes a
+cursor that still holds rows, which would keep an interrupt alive, and sends
+`ROLLBACK` before the connection closes. An error that SQLite raises is
+`PIE-R2004` before the first read and `PIE-R3003` after it, and is named by
+its extended result code, `SQLITE_ERRORCODE_<n>`, never by
+`sqlite_errorname`, which calls a `STRICT` type error (code 3091)
+`unknown`; where the code is not enough, by its message: a `sum` past
+signed 64 bits is `SQLITE_INTEGER_OVERFLOW` (code 1, `integer overflow`).
+The message is never shown.
+
+The outcome's `transaction` is `COMMIT_ACK` once the result is read and
+`ROLLBACK_ACK` after a failure inside the transaction, and `cleanup` is
+`CLOSED`. Since the whole result is read when the attempt opens, an early
+`close()` ends `STOPPED_EARLY` with `COMMIT_ACK`.
+
+Effects. `execute()` imports `sqlite3` and opens one `:memory:` database.
+An opening attempt reads the file and its `-wal` file and holds SQLite's
+read lock until it closes the connection, at the latest at its deadline: in
+WAL mode the caller's writers go on and the attempt keeps its snapshot; in
+rollback-journal mode they fail with `database is locked` meanwhile. On a
+WAL file SQLite writes the `-shm` file, its shared index, on every read: it
+creates the `-wal` and `-shm` files when they are missing and leaves them,
+and when no other connection has the file open it truncates and rebuilds
+an existing `-shm` file (step 2 refuses one with another link, which would
+be rewritten too). Pietto creates and writes no other file and starts no
+thread.
+
+Known limits. The types and sizes of the file and of the files beside it
+are checked before it opens, so a file replaced or added between the check
+and the open is not detected (a FIFO put there would block the attempt
+beyond its deadline); the checks inside the transaction still read what was
+opened. In a directory that cannot be written, a WAL file whose `-wal` and
+`-shm` files are missing cannot be read (`PIE-R2004`
+`SQLITE_ERRORCODE_1544`). While the attempt waits for a lock that the
+caller holds, `cancel()` takes effect only at the deadline. `max_rows` and
+`max_bytes` bound delivery, not the result read when the attempt opens,
+which the source's row limit bounds.
 
 ## Qualification
 
@@ -495,13 +609,20 @@ integration, one page at a time, in the route's single-writer order.
   `docs/capabilities.md`, the SQLite table;
   `docs/spec/diagnostics.md`, the `PIE-B1004` row naming SQLite's
   `sum_int_aggregate_range_proof_missing`.
-- S11: the execution pages, which its section names.
+- S11: `docs/execution.md` (the route's section, the support matrix row and
+  the request checks), `README.md` (its SQLite entry), the sentences of
+  `docs/language.md` and `docs/capabilities.md` that said Pietto runs no
+  SQLite statement, and `docs/spec/diagnostics.md`, the `PIE-R1001`,
+  `PIE-R1002`, `PIE-R1004`, `PIE-R1006`, `PIE-R2002`, `PIE-R2004`,
+  `PIE-R2006`, `PIE-R2007`, `PIE-R3003` and `PIE-R3004` rows naming the
+  route's details,
+  at a time the lead schedules apart from Phase81's diagnostic review (P03,
+  PL.58).
 
 ## Open items
 
 | Item | Owner | Latest point |
 | --- | --- | --- |
 | This page's *derived* rows, stated as inform: the `main` namespace, the `sqlite_` and dot refusals and `sqlite_table_name_mismatch`; the `relation_rows` scan; the storage kinds and domain spellings (`UTF-8`, `BINARY`); the premise values and `premise_not_admitted_on_target`; the limits `columns` 2,000, `parameters` 32,766 and the depth 500; the SQL rules (`s0`, backticks, `?N`); the closed order of compile refusals with its new details and suggestions; the two new single-file reasons | The lead | Before this page binds, at the latest before S08 seals |
-| Whether the value check of S11 also checks each `Text` value's `max_characters`, which the domain states and Q6b's list does not name | S11 | Before S11 seals |
 | The release-note fragment `78-s06-sqlite-project-mode.md` describes tier 1a as its batch delivers it; S07 to S10 edit their lines there and add no second 1a fragment; S11 writes its own fragment for 1b | Each slice; the batch audit | Before each slice seals; the 1a batch audit compares the fragment with this page |
 | Whether `sqlite.table` changes the built-in catalog (D76.12): it adds no grammar and no catalog entry, so no extension sync is expected | S07 | Before the 1a batch push |

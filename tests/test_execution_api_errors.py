@@ -183,6 +183,14 @@ def test_value_and_bundle_refusal_text_is_fixed_vocabulary():
         (ex.ExecutionError("EXECUTION_FINALIZATION"), {}, "PIE-R3006"),
         (ex.ExecutionError("EXECUTION_REQUEST_CHANGED"), {}, "PIE-R3999"),
         (ex.ExecutionError("EXECUTION_REUSE"), {"deadline": True}, "PIE-R4001"),
+        (ex.ExecutionError("SQLITE_FILE_TYPE"), {"connected": False}, "PIE-R2004"),
+        (ex.ExecutionError("SQLITE_SESSION_CONTEXT"), {}, "PIE-R2006"),
+        (ex.ExecutionError("SQLITE_FILE_ENCODING"), {}, "PIE-R2007"),
+        (ex.ExecutionError("SQLITE_SOURCE_VALUES"), {}, "PIE-R2007"),
+        (ex.ExecutionError("SQLITE_SOURCE_INTEGRITY"), {}, "PIE-R2007"),
+        (ex.ExecutionError("SQLITE_FILE_LIMIT"), {}, "PIE-R3004"),
+        (ex.ExecutionError("SQLITE_SOURCE_LIMIT"), {}, "PIE-R3004"),
+        (ResultError("SQLITE_RESULT_CHECK"), {}, "PIE-R3005"),
     ),
 )
 def test_attempt_failures_are_classified_deterministically(error, facts, code):
@@ -195,6 +203,46 @@ def test_attempt_failures_are_classified_deterministically(error, facts, code):
     assert refusal.code == code
     assert refusal.phase == "read"
     assert refusal.cause == type(error).__name__
+
+
+def _sqlite_error(kind, message, code):
+    error = kind(message)
+    error.sqlite_errorcode = code
+    return error
+
+
+def test_an_error_sqlite_raised_is_named_by_its_extended_code():
+    """PL.47: the extended result code, and the message only for the one
+    SQLITE_ERROR the route expects at run time; the message is never shown,
+    and a foreign exception's code attribute is not read."""
+    import sqlite3
+
+    cases = [
+        (sqlite3.OperationalError, "integer overflow", 1, "SQLITE_INTEGER_OVERFLOW"),
+        (sqlite3.OperationalError, "no such table: t", 1, "SQLITE_ERRORCODE_1"),
+        (sqlite3.IntegrityError, "cannot store TEXT", 3091, "SQLITE_ERRORCODE_3091"),
+        (sqlite3.DatabaseError, "database disk image", 779, "SQLITE_ERRORCODE_779"),
+        (sqlite3.OperationalError, "interrupted", 9, "SQLITE_ERRORCODE_9"),
+    ]
+    for kind, message, code, detail in cases:
+        error = _sqlite_error(kind, message, code)
+        assert errors.native_word(error) == detail
+        for connected, expected in ((True, "PIE-R3003"), (False, "PIE-R2004")):
+            refusal = errors.attempt_failure(
+                error, phase="query", deadline=False, connected=connected, driver=True
+            )
+            assert (refusal.code, refusal.detail) == (expected, detail)
+            assert message not in str(refusal)
+    assert errors.native_word(sqlite3.ProgrammingError("closed")) is None
+    assert errors.native_word(_sqlite_error(DriverError, "x", 5)) is None
+    assert errors.native_word(_sqlite_error(sqlite3.OperationalError, "x", "5")) is None
+    deadline = errors.attempt_failure(
+        _sqlite_error(sqlite3.OperationalError, "interrupted", 9),
+        phase="source",
+        deadline=True,
+        connected=True,
+    )
+    assert (deadline.code, deadline.detail) == ("PIE-R3001", "SQLITE_ERRORCODE_9")
 
 
 def test_cancelled_deadline_and_server_timeout_have_distinct_runtime_codes():
@@ -362,6 +410,7 @@ def test_public_surface_is_exactly_the_alpha_names():
         "RequestRejected",
         "ResultBatch",
         "ResultHandle",
+        "SQLiteFileInput",
         "SaveCloseHandle",
         "SaveReply",
         "SavedBatch",

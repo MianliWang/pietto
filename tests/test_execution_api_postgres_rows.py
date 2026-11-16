@@ -613,7 +613,7 @@ def test_a_query_without_a_header_takes_no_parameter_name(query):
     (
         ({"module": None}, "PIE-R1001"),
         ({"kind": "view"}, "PIE-R1002"),
-        ({"dialect": "sqlite"}, "PIE-R1002"),
+        ({"dialect": "oracle"}, "PIE-R1002"),
         ({"literal_policy": "bind_safe"}, "PIE-R1002"),
         ({"literal_policy": None}, "PIE-R1001"),
         ({"emission_contract": Path("contract.json")}, "PIE-R1002"),

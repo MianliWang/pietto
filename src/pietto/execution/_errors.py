@@ -247,12 +247,15 @@ _ATTEMPT = {
     "POSTGRES_ADBC_DRIVER_PROFILE": "PIE-R2002",
     "POSTGRES_ADBC_DRIVER_LIBRARY": "PIE-R2002",
     "DUCKDB_DRIVER_PROFILE": "PIE-R2002",
+    "SQLITE_FILE_TYPE": "PIE-R2004",
     "EXECUTION_AMBIENT_CONNECTION_PROFILE": "PIE-R2003",
     "EXECUTION_TARGET_VERSION": "PIE-R2005",
     "EXECUTION_CONTEXT": "PIE-R2006",
     "EXECUTION_CONNECTION": "PIE-R2006",
     "POSTGRES_SOURCE_NATIVE_CONTEXT": "PIE-R2006",
     "DUCKDB_SESSION_CONTEXT": "PIE-R2006",
+    "SQLITE_SESSION_CONTEXT": "PIE-R2006",
+    "SQLITE_FILE_ENCODING": "PIE-R2007",
     # The shared source qualification names an object outside the premise.
     "POSTGRES_ADBC_DEPLOYMENT_PREMISE_SCOPE": "PIE-R2007",
     "MYSQL_SOURCE_TEMPORAL_UUID_QUALIFICATION": "PIE-R2007",
@@ -261,6 +264,8 @@ _ATTEMPT = {
     "POSTGRES_SOURCE_RESOURCE_LIMIT": "PIE-R3004",
     "GUARD_RESOURCE_LIMIT": "PIE-R3004",
     "LIMIT": "PIE-R3004",
+    "SQLITE_FILE_LIMIT": "PIE-R3004",
+    "SQLITE_SOURCE_LIMIT": "PIE-R3004",
     "EXECUTION_FINALIZATION": "PIE-R3006",
 }
 _ATTEMPT_PREFIXES = (
@@ -269,6 +274,7 @@ _ATTEMPT_PREFIXES = (
     ("POSTGRES_ADBC_TRANSACTION_", "PIE-R2006"),
     ("POSTGRES_TRANSACTION_", "PIE-R2006"),
     ("POSTGRES_SOURCE_", "PIE-R2007"),
+    ("SQLITE_SOURCE_", "PIE-R2007"),
 )
 
 
@@ -346,7 +352,7 @@ class RequestRejected(ExecutionError):
     environment and dependency checks that execute() runs itself raise their
     PIE-R2xxx code here too: PIE-R2003 on ``mysql_rows`` and
     ``postgres_adbc``, PIE-R2001 and PIE-R2002 of the loaded PyArrow on
-    ``duckdb_arrow``."""
+    ``duckdb_arrow``, and PIE-R2002 of the SQLite build on ``sqlite_file``."""
 
 
 class AttemptFailed(ExecutionError):
@@ -459,11 +465,25 @@ def bundle_failure(error):
     return failure(code, word, cause=type(error).__name__)
 
 
+def native_word(error):
+    """The detail of an error that SQLite raised: its extended result code
+    (``sqlite_errorcode``), and its message only where the code is not
+    enough, never ``sqlite_errorname`` (a STRICT type error's name is
+    ``unknown``). The message is read, never shown."""
+    code = getattr(error, "sqlite_errorcode", None)
+    if type(error).__module__ != "sqlite3" or type(code) is not int or code < 0:
+        return None
+    if code == 1 and getattr(error, "args", None) == ("integer overflow",):
+        return "SQLITE_INTEGER_OVERFLOW"
+    return f"SQLITE_ERRORCODE_{code}"
+
+
 def attempt_failure(error, *, phase, deadline, connected, driver=False):
     """Classify an exception that ended an attempt. A deadline wins over the
     exception it caused; before the session exists, an exception of the
     route's driver (`driver`) is a connection failure and any other one is
-    unclassified."""
+    unclassified. An error SQLite raised keeps its native name as the
+    detail."""
     word = category_word(error)
     state = sqlstate(error)
     if word == "EXECUTION_REUSE":
@@ -486,7 +506,13 @@ def attempt_failure(error, *, phase, deadline, connected, driver=False):
         code = "PIE-R3002"
     else:
         code = "PIE-R3003"
-    return failure(code, word, phase=phase, sqlstate=state, cause=type(error).__name__)
+    return failure(
+        code,
+        word or native_word(error),
+        phase=phase,
+        sqlstate=state,
+        cause=type(error).__name__,
+    )
 
 
 def record_failure(record, code):

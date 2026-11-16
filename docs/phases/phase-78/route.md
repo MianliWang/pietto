@@ -881,9 +881,46 @@ ceiling.
 | 30 | Repair and stop conditions | P78B2's ceilings with PL.15; stop at a ceiling, an unproved build or input identity, a needed code or text outside the specification, a dependency, a container run beyond R1, an extension push, a trust regression, or a replay that changes an existing meaning; failed candidates and runs are preserved; no commit or push without authorization |
 
 The usability row is the specification's. The external reference record of
-untrusted SQLite files, in the gate's eleven-item shape with its
-WHAT_NOT_TO_COPY, is S11's first step; 1a opens no file, so it is
-`NOT_APPLICABLE` before S11 (owner: S11).
+untrusted SQLite files is [below](#b2-external-reference-untrusted-sqlite-files);
+1a opens no file, so it was `NOT_APPLICABLE` before S11.
+
+### B2 external reference: untrusted SQLite files
+
+S11 wrote this record before its code, in the gate's eleven-item shape.
+
+| # | Field | Untrusted SQLite database files |
+| ---: | --- | --- |
+| 1 | Snapshot/date | 2026-11-16 (UTC). SQLite's own guidance on database files of uncertain provenance (its "Defense Against the Dark Arts" page, with its URI filename, WAL and authorizer pages) as the S11 lane knew it, not re-read, since the lane worked offline; the measured build `3.53.1` through S05's probe and S11's development runs on the integration host. Only S12's cells are qualification evidence |
+| 2 | Problem/constraints | A caller hands Pietto a file whose bytes no one vouches for: a malformed file can reach a library defect, its schema is SQL that SQLite parses when it opens the file, its objects can pose as tables, its values can break domains that a `STRICT` table does not enforce, and its indexes can disagree with their table. Pietto may only read it, in process, on one build, within the attempt's deadline |
+| 3 | Semantic/identity model | The file is named by its path; what counts is what one read transaction sees, checked again in every attempt, with no content digest. A source is one `STRICT` table of `main` with exactly the contract's name and columns. A native error is identified by its extended result code; `sqlite_errorname` is no identity |
+| 4 | Layering/dependency direction | Upstream puts the defences in the application around trusted SQL: open flags and URI parameters, `sqlite3_db_config`, PRAGMAs, an authorizer and a progress handler. Pietto keeps them in `execution/_sqlite.py`; besides its fixed checks, the adapter's verified statement is the only SQL it prepares |
+| 5 | Algorithms/data structures/complexity | `PRAGMA integrity_check` walks every page of the table and its indexes, linear in their size, and upstream advises it (or `quick_check`, which skips the comparison of indexes with their table) before any other statement. The value check is one scan of the table and a Python decode of each `Text` value |
+| 6 | Interface/version/capability model | The `mode=ro` URI; `SQLITE_DBCONFIG_DEFENSIVE`, `SQLITE_DBCONFIG_TRUSTED_SCHEMA` and `SQLITE_DBCONFIG_ENABLE_LOAD_EXTENSION`; `PRAGMA query_only`, `cell_size_check` and `mmap_size`; the authorizer, the progress handler, `sqlite3_interrupt`, the busy timeout, `sqlite3_limit` and `sqlite3_hard_heap_limit64`. CPython 3.12's `sqlite3` reaches each of them except the heap limit |
+| 7 | Testing/operational lifecycle | One connection and one read transaction per attempt, closed in `finally`; tests build their own files, malformed and hostile ones included, under the pytest base temporary directory; nothing outlives an attempt |
+| 8 | Pitfalls/migration costs | A URI built by concatenation lets a file name inject parameters (S05: `weird?mode=rwc&immutable=1#frag.db` created `weird`); `immutable=1` ignores locks and reads old rows; a 0-byte file and `/dev/null` open as empty databases, and opening a FIFO blocks; SQLite opens the `-wal`, `-journal` and `-shm` files beside the file itself, so a FIFO there blocks it too, and it deletes the `-wal` file beside a 0-byte database (S11's review); Python's default busy timeout waits 5 s; `SQLITE_IGNORE` reads a column as NULL silently; `count(*)` reaches the authorizer with no database name; in rollback-journal mode a reader blocks the caller's writers; a read-only reader of a WAL file creates its missing `-wal` and `-shm` files and leaves them (observed by S11), and truncates and rebuilds an existing `-shm` file, through a hard link too (S11's review); `integrity_check(name)` checks only that table and its indexes, and a numeric argument is an error limit, not a name; no application check proves the library's memory safety on malformed input |
+| 9 | Disposition | Adopt: the percent-encoded `mode=ro` URI, the regular-file check of the file and of the `-wal`, `-journal` and `-shm` files beside it, defensive mode with trusted schema off and no extension loading, `query_only`, `cell_size_check` on and `mmap_size` 0 (upstream's list for untrusted files, added by the re-check below), an allow-or-deny authorizer, the progress handler and `interrupt()`, a busy timeout inside the deadline, one read transaction, and `integrity_check` of the source before any of its rows is read. Adapt: the integrity check covers the source table and its indexes, not the whole file, since an attempt reads nothing else beyond the schema SQLite parses. Not adopted: `sqlite3_limit` reductions, since every statement is Pietto's own and the authorizer refuses `ATTACH`; the heap limit, which is process-wide and would bound every other SQLite user in the process, where the 256 MiB file cap bounds the input instead |
+| 10 | WHAT_NOT_TO_COPY | `immutable=1`; URI concatenation; `quick_check` as the integrity check; Python's default busy timeout; `SQLITE_IGNORE`; `sqlite_errorname` as an error's identity; SQLite messages as Pietto text; declared `NOT NULL`, `CHECK` or column types as proof of the values; a passing integrity check as proof of the domains; the job store's `QUALIFIED_SQLITE` constant as a shared owner |
+| 11 | Pietto owner affected | `execution/_sqlite.py`, `_project/project_sqlite_result.py`, the specification's [execution](../../spec/sqlite-project-v1.md#execution) section, `docs/execution.md`, S12's control cells |
+
+Re-check of Q6a and Q6b against this record (S11). No answer is loosened:
+
+1. `integrity_check` of the source runs right after the schema reads, before
+   the row count, the value scan and the statement; the sheet's Q6b (i)
+   listed it after the value scan, and upstream checks before reading.
+2. Defence 2 also sets `cell_size_check` on and `mmap_size` to 0, and reads
+   them back with the other settings.
+3. The integrity check stays scoped to the source table and its indexes
+   (row 9).
+4. A NUL in `Text` is found while each value's bytes are decoded in Python,
+   in the pass that checks UTF-8, instead of by `instr`; the refusal is the
+   same.
+5. The value check also checks each `Text` value's `max_characters`, which
+   the contract's domain states and the DuckDB route checks (D79.04); this
+   closes the specification's open item.
+6. A `Text` parameter that holds NUL is refused (`PIE-R1006`), since PL.47
+   admits no NUL in `Text`.
+7. The WAL companion files of row 8 are an effect the execution
+   documentation states; the database's own content is never written.
 
 ### B2 deferred owners
 
@@ -891,8 +928,7 @@ WHAT_NOT_TO_COPY, is S11's first step; 1a opens no file, so it is
 | --- | --- |
 | The second tier (T3 to T5, the sheet's Q4 arithmetic, windowed `sum`) | The owner at the midpoint; if approved, a follow-up package that the Phase78 completion audit hands over, with its own ledger; unclaimed items are unsupported at the Phase82 freeze |
 | Reminder 8 | Met by exclusion in the first tier; restated before T3 opens, or the semantic and ProjectIR owner's ARCHITECTURE_DECISION |
-| The `avg(Int)` rounding ruling | The lead, before S10 seals |
-| Naming a native error by its extended `sqlite_errorcode` beside `sqlite_errorname`, since a `STRICT` type error's name is `unknown` (D78.04 named them by name) | The lead, as an ARCHITECTURE_DECISION, before S11 seals |
+| Naming a native error by its extended `sqlite_errorcode` beside `sqlite_errorname`, since a `STRICT` type error's name is `unknown` (D78.04 named them by name) | The lead, as an ARCHITECTURE_DECISION; S11 implements the rule of its dispatch (the code, and the message where the code is not enough) and the lead records it before the 1b batch audit |
 | Run-time guarded arithmetic, `Float` arithmetic, `/` and `%` | A later Gate 1 with a use case; Phase82 freeze input |
 | Admitting `Text` that holds NUL | A later SQLite execution Gate 1 |
 | Other builds, Windows and macOS | Not qualified (PL.40 D9 A, D5 A); the Phase82 support matrix |

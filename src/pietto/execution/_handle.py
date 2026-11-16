@@ -11,6 +11,7 @@ import weakref
 from pietto._project import project_execution as ex
 from pietto._project import project_public_execution as composition
 from pietto.execution import _duckdb as duckdb_route
+from pietto.execution import _sqlite as sqlite_route
 from pietto.execution._access import (
     DuckDBArrowInput,
     ExecutionLimits,
@@ -18,6 +19,7 @@ from pietto.execution._access import (
     MySQLDeploymentPremise,
     PostgresAccess,
     PostgresDeploymentPremise,
+    SQLiteFileInput,
 )
 from pietto.execution._errors import (
     AttemptFailed,
@@ -41,7 +43,13 @@ __all__ = [
     "execute",
 ]
 
-ROUTES = ("postgres_rows", "postgres_adbc", "mysql_rows", "duckdb_arrow")
+ROUTES = ("postgres_rows", "postgres_adbc", "mysql_rows", "duckdb_arrow", "sqlite_file")
+# The in-process routes: one caller input, no deployment premise, their own
+# request checks and attempt.
+_LOCAL = {
+    "duckdb_arrow": (DuckDBArrowInput, duckdb_route),
+    "sqlite_file": (SQLiteFileInput, sqlite_route),
+}
 
 
 @dataclass(frozen=True, slots=True)
@@ -278,7 +286,8 @@ class ResultHandle:
         try:
             schema = (
                 self._owner.schema()
-                if type(self._owner) is duckdb_route.DuckDBAttempt
+                if type(self._owner)
+                in (duckdb_route.DuckDBAttempt, sqlite_route.SQLiteAttempt)
                 else composition.result_schema(self._owner)
             )
             return schema.__arrow_c_schema__()
@@ -412,7 +421,7 @@ def execute(
     query: CompiledQuery,
     *,
     route: str,
-    access: PostgresAccess | MySQLAccess | DuckDBArrowInput,
+    access: PostgresAccess | MySQLAccess | DuckDBArrowInput | SQLiteFileInput,
     premise: PostgresDeploymentPremise | MySQLDeploymentPremise | None,
     limits: ExecutionLimits = ExecutionLimits(),
     isolation: str = "stable",
@@ -422,7 +431,8 @@ def execute(
     """Prepare one attempt of ``query`` and return its unopened ResultHandle.
 
     ``route``, ``access`` and ``premise`` have no default; ``None`` is refused
-    (PIE-R1001), except that ``premise`` is None on ``duckdb_arrow``.
+    (PIE-R1001), except that ``premise`` is None on ``duckdb_arrow`` and
+    ``sqlite_file``.
     ``route`` must fit the query's selected dialect. ``isolation`` is
     ``stable`` (REPEATABLE READ READ ONLY on the PostgreSQL and MySQL routes)
     or ``serializable``. ``values`` is None, which binds the values the query
@@ -461,6 +471,19 @@ def execute(
     ``DUCKDB_ARROW_*``). The handle
     is returned only after that copy exists. The pinned duckdb and the
     session are checked when the attempt opens.
+
+    On ``route="sqlite_file"`` (a ``sqlite`` query), ``access`` is a
+    SQLiteFileInput and ``premise`` is None (another value is PIE-R1002),
+    and ``isolation`` is exactly ``stable``, the attempt's one read
+    transaction. A ``Text`` parameter holding NUL is PIE-R1006. After the
+    binding and code identity checks, these checks take the place of the
+    premise, access, isolation and limits values, in this order: the path
+    is a non-empty ``str`` or ``os.PathLike`` without NUL (PIE-R1002
+    EXECUTION_ACCESS), then isolation and limits; then the platform is
+    Linux x86-64 and the linked SQLite is the qualified build (PIE-R2002
+    SQLITE_BUILD, raised here as RequestRejected). No file is opened here;
+    the pinned PyArrow, the file and its source are checked when the
+    attempt opens (docs/spec/sqlite-project-v1.md, "Execution").
     """
     if query is None:
         raise _refuse("PIE-R1001", "PUBLIC_QUERY_REQUIRED")
@@ -475,14 +498,15 @@ def execute(
         "postgres_adbc": "postgres",
         "mysql_rows": "mysql",
         "duckdb_arrow": "duckdb",
+        "sqlite_file": "sqlite",
     }.get(route)
     if dialect is None or query.dialect != dialect:
         raise _refuse("PIE-R1003", "PUBLIC_ROUTE_UNAVAILABLE")
     if access is None:
         raise _refuse("PIE-R1001", "PUBLIC_ACCESS_REQUIRED")
-    if route == "duckdb_arrow":
-        # D79.03: the route's one input, and no deployment premise.
-        if type(access) is not DuckDBArrowInput:
+    if route in _LOCAL:
+        # D79.03 and PL.47: the route's one input, and no deployment premise.
+        if type(access) is not _LOCAL[route][0]:
             raise _refuse("PIE-R1002", "PUBLIC_ACCESS_TYPE")
         if premise is not None:
             raise _refuse("PIE-R1002", "PUBLIC_PREMISE_TYPE")
@@ -513,8 +537,8 @@ def execute(
         type(parameters) is not dict or any(type(k) is not str for k in parameters)
     ):
         raise _refuse("PIE-R1002", "PUBLIC_PARAMETERS_TYPE")
-    if route == "duckdb_arrow":
-        owner, refusal = duckdb_route.prepare(
+    if route in _LOCAL:
+        owner, refusal = _LOCAL[route][1].prepare(
             query._template,
             access,
             limits=ex.ExecutionLimits(

@@ -267,6 +267,7 @@ def driver_error(error):
         "adbc_driver_postgresql",
         "mysql",
         "psycopg",
+        "sqlite3",
     )
 
 

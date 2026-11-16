@@ -13,6 +13,7 @@ __all__ = [
     "MySQLDeploymentPremise",
     "PostgresAccess",
     "PostgresDeploymentPremise",
+    "SQLiteFileInput",
 ]
 
 
@@ -164,6 +165,24 @@ class DuckDBArrowInput:
         raise TypeError(
             "DuckDBArrowInput holds a caller-owned table; it cannot be pickled"
             " or copied"
+        )
+
+
+@dataclass(frozen=True, slots=True, eq=False)
+class SQLiteFileInput:
+    """The one SQLite database file of one ``sqlite_file`` execute() call.
+
+    ``path`` is a ``str`` or ``os.PathLike`` naming the caller's file.
+    Constructing it checks nothing and does no I/O: execute() checks the
+    value, and the attempt opens the file read-only when it opens. The
+    object refuses pickle and copy.
+    """
+
+    path: Any
+
+    def __reduce_ex__(self, protocol):
+        raise TypeError(
+            "SQLiteFileInput names a caller-owned file; it cannot be pickled or copied"
         )
 
 

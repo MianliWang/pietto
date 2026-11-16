@@ -340,7 +340,8 @@ Docker, engine lock, network access or new dependency is used, and no
 PostgreSQL or MySQL statement runs.
 
 The target is one measured build: release `3.53.1` together with the source id
-and compile options that the test's `QUALIFIED_SQLITE_BUILD` records. A
+and compile options that `QUALIFIED_SQLITE_BUILD` in `src/pietto/sql/sqlite.py`
+records. A
 version alone is no identity, and the job store's constant is neither imported
 nor borrowed. PL.47 qualifies it under CPython 3.13.13 and 3.12.13, which
 link that build alike; the authoritative pytest gate runs the cells under

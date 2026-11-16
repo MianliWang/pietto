@@ -476,8 +476,9 @@ def test_the_cli_alone_dispatches_the_sqlite_backend(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
 ) -> None:
     """AD78.03 and D78.04: single-file `--dialect sqlite` reaches the SQLite
-    emitter and never the PostgreSQL or MySQL one, and only the CLI and the
-    SQLite modules themselves import `pietto.sql.sqlite`."""
+    emitter and never the PostgreSQL or MySQL one, and only the CLI, the
+    SQLite modules themselves and the `sqlite_file` route, which reads the
+    measured build's identity there, import `pietto.sql.sqlite`."""
 
     from pietto import sql as sql_api
     from pietto.sql import mysql as mysql_backend
@@ -522,6 +523,7 @@ def test_the_cli_alone_dispatches_the_sqlite_backend(
                 importers.add(path.relative_to(REPO_ROOT).as_posix())
     assert importers == {
         "src/pietto/cli.py",
+        "src/pietto/execution/_sqlite.py",
         "src/pietto/sql/sqlite.py",
         "src/pietto/sql/sqlite_relations.py",
     }
@@ -540,7 +542,7 @@ def test_the_cli_alone_dispatches_the_sqlite_backend(
             if isinstance(node, ast.ImportFrom)
         }
         assert all(
-            module in {"__future__", "collections.abc", "math", "typing"}
+            module in {"__future__", "collections.abc", "dataclasses", "math", "typing"}
             or module.startswith(("pietto.ir", "pietto.errors", "pietto.sql.model"))
             or module.startswith("pietto.sql.sqlite")
             for module in modules

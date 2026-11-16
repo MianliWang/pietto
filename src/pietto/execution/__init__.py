@@ -14,7 +14,9 @@ execute(..., values=...) binds explicit values to a bind-safe query's slots,
 and execute(..., parameters=...) binds a query's declared parameters by name.
 A ``duckdb`` query runs in process over one Arrow table you pass, with
 execute(query, route="duckdb_arrow", access=DuckDBArrowInput(name, table),
-premise=None).
+premise=None), and a ``sqlite`` query in process over one SQLite file you
+name, opened read-only, with execute(query, route="sqlite_file",
+access=SQLiteFileInput(path), premise=None).
 
 This is an alpha interface: names, fields and PIE-R codes may change with
 documented notes. Importing it loads no database driver, no PyArrow and no
@@ -36,6 +38,7 @@ from pietto.execution._access import (
     MySQLDeploymentPremise,
     PostgresAccess,
     PostgresDeploymentPremise,
+    SQLiteFileInput,
 )
 from pietto.execution._errors import (
     AttemptFailed,
@@ -173,6 +176,7 @@ __all__ = [
     "RequestRejected",
     "ResultBatch",
     "ResultHandle",
+    "SQLiteFileInput",
     "SaveCloseHandle",
     "SaveReply",
     "SavedBatch",
