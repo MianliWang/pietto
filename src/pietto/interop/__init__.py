@@ -77,10 +77,12 @@ def to_polars(batch: ResultBatch) -> polars.DataFrame:
     """A DataFrame with one column per field, in field order, of the Polars
     dtype docs/interop.md maps each admitted Arrow type to.
 
-    Int, Bool, Float, Text, Decimal up to precision 38 (decimal128), Date and
-    zone-less Timestamp fields are admitted, nullable or not; any other field
-    and a repeated field label are refused, and any other output dtype than
-    the mapped one is refused, never cast.
+    Int, Bool, Float, Text, Decimal (decimal128), Date, zone-less Timestamp
+    and UUID fields are admitted, nullable or not, and so is one level of
+    nesting, a list of non-null structs of those fields; a UUID becomes its 16
+    bytes. A decimal256 field, alone or nested, any other field and a repeated
+    field label are refused, and any other output dtype than the mapped one is
+    refused, never cast.
     """
     name = "to_polars"
     common.check_batch(name, batch)

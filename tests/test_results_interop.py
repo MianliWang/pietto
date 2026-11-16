@@ -218,6 +218,8 @@ def _damaged(cell: str):
         yield "relief dropped", lambda r: r["cases"][f"{cell}_relief"].popitem()
         if cell == "pandas":
             yield from _damaged_pandas()
+        else:
+            yield from _damaged_polars()
 
 
 def _damaged_pandas():
@@ -245,6 +247,29 @@ def _damaged_pandas():
     yield "batch closed", lambda r: relief("nested_uuid")(r).update(open=False)
     yield "silent comparison", lambda r: ops(r)["equal"].__setitem__(1, False)
     yield "null keys unmatched", lambda r: ops(r).update(merged=9)
+
+
+def _damaged_polars():
+    def relief(name):
+        return lambda r: r["cases"]["polars_relief"][name]
+
+    yield (
+        "uuid as text",
+        lambda r: relief("temporal")(r)["types"].__setitem__(2, "String"),
+    )
+    yield (
+        "null container as empty",
+        lambda r: relief("outer")(r)["columns"][1].__setitem__(0, ["list", []]),
+    )
+    yield (
+        "untyped empty frame",
+        lambda r: relief("nested")(r)["empty"][0].__setitem__(1, "Null"),
+    )
+    yield (
+        "decimal256 child admitted",
+        lambda r: r["cases"]["polars_relief"].pop("nested_wide"),
+    )
+    yield "child drift accepted", lambda r: r["cases"]["polars_drift"].pop()
 
 
 def _damaged_numpy():

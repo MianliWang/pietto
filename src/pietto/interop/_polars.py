@@ -6,8 +6,19 @@ from typing import Any
 
 from pietto.interop import _common as common
 
-# The kinds to_polars admits, nullable or not (D80.03).
-ADMITS = ("Int", "Bool", "Float", "Text", "Decimal", "Date", "Timestamp")
+# The kinds to_polars admits, nullable or not (D80.03, PL.47). Polars cannot
+# read decimal256, alone or inside a nested field, so admission refuses it.
+ADMITS = (
+    "Int",
+    "Bool",
+    "Float",
+    "Text",
+    "Decimal",
+    "Date",
+    "Timestamp",
+    "UUID",
+    "nested",
+)
 
 
 def _mapped(pa: Any, polars: Any, data_type: Any) -> Any:
@@ -21,9 +32,20 @@ def _mapped(pa: Any, polars: Any, data_type: Any) -> Any:
         (pa.large_string(), polars.String()),
         (pa.date32(), polars.Date()),
         (pa.timestamp("us"), polars.Datetime("us")),
+        # A UUID is its 16 bytes, unchanged.
+        (pa.uuid(), polars.Binary()),
     ):
         if data_type == arrow:
             return mapped
+    if pa.types.is_list(data_type):
+        return polars.List(
+            polars.Struct(
+                [
+                    polars.Field(item.name, _mapped(pa, polars, item.type))
+                    for item in data_type.value_type
+                ]
+            )
+        )
     # Admission leaves only decimal128 here.
     return polars.Decimal(data_type.precision, data_type.scale)
 

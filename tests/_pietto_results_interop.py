@@ -148,24 +148,16 @@ POLARS = {
     "date32[day]": "Date",
     "timestamp[us]": "Datetime(time_unit='us', time_zone=None)",
 }
-# to_polars' rule and fix for a field that only to_pandas admits (PL.47).
-POLARS_ADMITS = (
-    "admits only Int, Bool, Float, Text, Decimal, Date or Timestamp fields"
-    " (Decimal up to precision 38); to_pandas admits it"
-)
+# The frame functions' rules (PL.47): only to_pandas admits decimal256.
 PANDAS_ADMITS = (
     "admits only Int, Bool, Float, Text, Decimal, Date, Timestamp, UUID or nested"
-    " fields (a nested field is a list of non-null structs of the other types);"
-    " leave it out of the query"
+    " fields (a nested field is a list of non-null structs of the other types)"
 )
-# The finite batch's first refused field: to_pandas still refuses a UUID
-# requested as binary16, and to_polars the decimal256 field that to_pandas admits.
-FINITE_REFUSED = {
-    "pandas": "to_pandas: field 11 ('selected_binary_identifier') has Arrow type"
-    f" fixed_size_binary[16]; to_pandas {PANDAS_ADMITS}",
-    "polars": "to_polars: field 8 ('selected_wide_amount') has Arrow type"
-    f" decimal256(65, 30); to_polars {POLARS_ADMITS}",
-}
+POLARS_ADMITS = (
+    "admits only Int, Bool, Float, Text, Decimal, Date, Timestamp, UUID or"
+    " nested fields (Decimal up to precision 38; a nested field is a list of"
+    " non-null structs of the other types)"
+)
 COALESCE = (
     "is nullable in the schema; make it non-nullable in Pietto first,"
     " for example with coalesce"
@@ -173,6 +165,15 @@ COALESCE = (
 # The fix each column refusal names after the rule, by the refused field's kind.
 TO_FRAME = "; to_pandas and to_polars admit it"
 TO_PANDAS = "; to_pandas admits it"
+LEAVE = "; leave it out of the query"
+# The finite batch's first refused field: to_pandas still refuses a UUID
+# requested as binary16, and to_polars the decimal256 field that to_pandas admits.
+FINITE_REFUSED = {
+    "pandas": "to_pandas: field 11 ('selected_binary_identifier') has Arrow type"
+    f" fixed_size_binary[16]; to_pandas {PANDAS_ADMITS}{LEAVE}",
+    "polars": "to_polars: field 8 ('selected_wide_amount') has Arrow type"
+    f" decimal256(65, 30); to_polars {POLARS_ADMITS}{TO_PANDAS}",
+}
 AS_INT = "; make it an Int in the query, for example 1 if flag else 0"
 DISTINCT_LABELS = (
     "admits only distinct labels, so give each field its own label in the query"
@@ -180,8 +181,11 @@ DISTINCT_LABELS = (
 COORDINATES = "row field 4 ('i16') and column field 5 ('i32')"
 NESTED = "list<item: struct<i: int64 not null, b: bool, t: string> not null>"
 UUID16 = "fixed_size_binary[16]"
-# PL.47's batches and each field's Arrow type as to_pandas holds it: a UUID,
-# nested too, as its 16 bytes; to_polars refuses each batch at the field given.
+NESTED_WIDE = "list<item: struct<d: decimal256(40, 2) not null> not null>"
+# PL.47's batches, each from a real producer, and each field's Arrow type as
+# to_pandas holds it: a UUID, nested too, as its 16 bytes. nested_kinds has a
+# child of each other admitted kind, and outer is an outer JOIN's, whose
+# missing container is null, not [].
 RELIEF = {
     "temporal": ["timestamp[us]", "timestamp[us]", UUID16, UUID16],
     "wide": ["decimal256(65, 30)", "decimal256(65, 30)"],
@@ -190,16 +194,31 @@ RELIEF = {
         "int64",
         f"list<item: struct<i: int64 not null, u: {UUID16}> not null>",
     ],
+    "nested_kinds": [
+        "int64",
+        "list<item: struct<i: int64 not null, r: double, a: decimal128(9, 2),"
+        f" s: timestamp[us], d: date32[day], u: {UUID16}> not null>",
+    ],
+    "nested_wide": ["int64", NESTED_WIDE],
     "outer": ["int64", "list<item: struct<id: int64 not null> not null>"],
 }
+# The Polars dtypes of the batches to_polars admits; it refuses the others at
+# the field given, since only to_pandas admits decimal256, alone or nested.
+POLARS_HELD = {
+    "temporal": ["Datetime(time_unit='us', time_zone=None)"] * 2 + ["Binary"] * 2,
+    "nested": ["Int64", "List(Struct({'i': Int64, 'b': Boolean, 't': String}))"],
+    "nested_uuid": ["Int64", "List(Struct({'i': Int64, 'u': Binary}))"],
+    "nested_kinds": [
+        "Int64",
+        "List(Struct({'i': Int64, 'r': Float64, 'a': Decimal(precision=9,"
+        " scale=2), 's': Datetime(time_unit='us', time_zone=None), 'd': Date,"
+        " 'u': Binary}))",
+    ],
+    "outer": ["Int64", "List(Struct({'id': Int64}))"],
+}
 POLARS_REFUSED = {
-    "temporal": "field 2 ('key_value') has Arrow type extension<arrow.uuid>",
     "wide": "field 0 ('renamed') has Arrow type decimal256(65, 30)",
-    "nested": f"field 1 ('c') has Arrow type {NESTED}",
-    "nested_uuid": "field 1 ('c') has Arrow type list<item: struct<i: int64 not"
-    " null, u: extension<arrow.uuid>> not null>",
-    "outer": "field 1 ('retained') has Arrow type list<item: struct<id: int64 not"
-    " null> not null>",
+    "nested_wide": f"field 1 ('c') has Arrow type {NESTED_WIDE}",
 }
 # Containers of (i, u) children: UUIDs with 0x00 and 0xff bytes, a null u, an
 # empty container and a repeated row.
@@ -209,6 +228,43 @@ NESTED_UUID_ROWS = [
     (1, ((1, B53), (UUID(int=1), None))),
     (3, ((-1,), (UUID(int=2**128 - 1),))),
 ]
+KIDS = (
+    ("i", "Int8", False),
+    ("r", "Float", True),
+    ("a", "Decimal", True),
+    ("s", "Timestamp", True),
+    ("d", "Date", True),
+    ("u", "UUID", True),
+)
+TOKEN = UUID("00112233-4455-6677-8899-aabbccddeeff")
+KIDS_ROW = (
+    7,
+    (
+        (1, 2),
+        (-0.0, None),
+        (Decimal("-12.50"), None),
+        (datetime(2000, 2, 29, 12, 0, 0, 1), None),
+        (date(1000, 1, 1), None),
+        (TOKEN, None),
+    ),
+)
+NESTED_KINDS_ROWS = [
+    KIDS_ROW,
+    (0, ((), (), (), (), (), ())),
+    KIDS_ROW,
+    (
+        9,
+        (
+            (3,),
+            (1.5,),
+            (Decimal("0.01"),),
+            (datetime(9999, 12, 31, 23, 59, 59, 499999),),
+            (date(9999, 12, 31),),
+            (UUID(int=2**128 - 1),),
+        ),
+    ),
+]
+NESTED_WIDE_ROWS = [(7, ((Decimal("1.00"),),))]
 # Outer-JOIN rows: a missing container (None), distinct from an empty one.
 OUTER_ROWS = [(1, None), (2, ((5, 6),)), (3, ((),)), (1, None), (2, ((5, 6),))]
 # Arrow types and the admission row kind() gives each: PL.47 adds UUID,
@@ -474,6 +530,16 @@ def fixtures(root):
                 )
             ),
             NESTED_UUID_ROWS,
+        ),
+        "nested_kinds": (
+            a.bind_arrow(nested.real(p, root / "nested_kinds", KIDS)),
+            NESTED_KINDS_ROWS,
+        ),
+        "nested_wide": (
+            a.bind_arrow(
+                nested.real(p, root / "nested_wide", (("d", "Decimal(40, 2)", False),))
+            ),
+            NESTED_WIDE_ROWS,
         ),
         "outer": (a.bind_arrow(outer_fixture(root / "outer")), OUTER_ROWS),
         # Fields 0 and 1 differ in type; fields 0 and 3 are both int64.
@@ -919,7 +985,7 @@ def frame_cases(cell, fx):
             return built(*args, **kwargs).astype({"i64": wider})
 
         drifts = [
-            mock.patch.object(compat, "table_to_dataframe", changed)
+            (mock.patch.object(compat, "table_to_dataframe", changed), drifted)
             for changed in (reindexed, shortened, recast)
         ]
     else:
@@ -930,11 +996,20 @@ def frame_cases(cell, fx):
             wider = polars.col("i64").cast(polars.Float64)
             return built(*args, **kwargs).with_columns(wider)
 
-        drifts = [mock.patch.object(polars, "from_arrow", recast)]
+        # A child of a nested field drifts while the field stays a list.
+        def inner(*args, **kwargs):
+            child = {"i": polars.Float64, "b": polars.Boolean, "t": polars.String}
+            wider = polars.col("c").cast(polars.List(polars.Struct(child)))
+            return built(*args, **kwargs).with_columns(wider)
+
+        drifts = [
+            (mock.patch.object(polars, "from_arrow", recast), drifted),
+            (mock.patch.object(polars, "from_arrow", inner), batch(*fx["nested"])),
+        ]
     observations["drift"] = []
-    for drift in drifts:
+    for drift, item in drifts:
         with drift:
-            observations["drift"].append(refusal(lambda: convert(drifted), drifted))
+            observations["drift"].append(refusal(lambda i=item: convert(i), item))
 
     item = batch(*fx["text64"])
     frame = convert(item)
@@ -1280,27 +1355,41 @@ def expected_frames(cell, inputs):
             _value_error(changed % ("double[pyarrow]", "int64[pyarrow]")),
         ]
         if cell == "pandas"
-        else [_value_error(changed % ("Float64", "Int64"))]
+        else [
+            _value_error(changed % ("Float64", "Int64")),
+            _value_error(
+                f"to_polars: field 1 ('c') became List(Struct({{'i': Float64, 'b':"
+                " Boolean, 't': String})) instead of List(Struct({'i': Int64, 'b':"
+                " Boolean, 't': String})); to_polars never returns a changed type;"
+                f" {pinned(cell)}"
+            ),
+        ]
     )
     expected["after_close"] = oracle(inputs["text64"][1], MATRIX["text64"])
-    if cell == "polars":
-        expected["relief"] = {
-            name: _value_error(f"to_polars: {field}; to_polars {POLARS_ADMITS}")
-            for name, field in POLARS_REFUSED.items()
-        }
-        return {f"{cell}_{key}": value for key, value in expected.items()}
     expected["relief"] = {}
     for name, types in RELIEF.items():
+        if cell == "polars" and name in POLARS_REFUSED:
+            expected["relief"][name] = _value_error(
+                f"to_polars: {POLARS_REFUSED[name]}; to_polars {POLARS_ADMITS}"
+                f"{TO_PANDAS}"
+            )
+            continue
         labels, rows = inputs[name]
-        shown = [f"{t}[pyarrow]" for t in types]
+        if cell == "pandas":
+            shown = [f"{t}[pyarrow]" for t in types]
+            index, empty = ["RangeIndex", 0, len(rows), 1], ["RangeIndex", 0, 0, 1]
+        else:
+            shown, index, empty = POLARS_HELD[name], None, None
         expected["relief"][name] = {
             "types": shown,
             "labels": labels,
-            "index": ["RangeIndex", 0, len(rows), 1],
+            "index": index,
             "open": True,
-            "empty": [shown, ["RangeIndex", 0, 0, 1], 0],
+            "empty": [shown, empty, 0],
             "columns": oracle(rows, types),
         }
+    if cell == "polars":
+        return {f"{cell}_{key}": value for key, value in expected.items()}
     expected["ops"] = {
         label: ops_oracle([scaled(row[i], RELIEF[name][i]) for row in inputs[name][1]])
         for name, label, i in (("temporal", "maybe_key", 3), ("wide", "optional", 1))
@@ -1377,6 +1466,11 @@ def relief_inputs(p):
         "wide": (list(p.DECIMAL_LABELS[:2]), p.decimal_rows("postgres", 65, 30)),
         "nested": (["renamed", "c"], records(n.ROWS, ("i", "b", "t"))),
         "nested_uuid": (["renamed", "c"], records(NESTED_UUID_ROWS, ("i", "u"))),
+        "nested_kinds": (
+            ["renamed", "c"],
+            records(NESTED_KINDS_ROWS, tuple(label for label, *_ in KIDS)),
+        ),
+        "nested_wide": (["renamed", "c"], records(NESTED_WIDE_ROWS, ("d",))),
         "outer": (["id", "retained"], records(OUTER_ROWS, ("id",))),
     }
 
@@ -1590,9 +1684,9 @@ def expected_numpy():
                 % ("8 ('selected_wide_amount')", "decimal256(65, 30)", TO_PANDAS)
             ),
             _value_error(
-                refused % ("2 ('key_value')", "extension<arrow.uuid>", TO_PANDAS)
+                refused % ("2 ('key_value')", "extension<arrow.uuid>", TO_FRAME)
             ),
-            _value_error(refused % ("1 ('c')", NESTED, TO_PANDAS)),
+            _value_error(refused % ("1 ('c')", NESTED, TO_FRAME)),
         ],
         "drift": [
             _value_error(
