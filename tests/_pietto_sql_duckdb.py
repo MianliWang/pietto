@@ -1,6 +1,6 @@
-"""A DuckDB B1 project and its contract (docs/spec/duckdb-arrow-route-v1.md):
+"""A DuckDB project and its contract (docs/spec/duckdb-arrow-route-v1.md):
 one `duckdb.arrow("orders")` source of the four admitted field types, and a
-contract that admits every B1 statement over it."""
+contract that admits every admitted statement over it."""
 
 from __future__ import annotations
 
@@ -54,6 +54,28 @@ PROJECTION = """table result:
         note
 """
 PROJECTION_SQL = 'SELECT "c0" AS "id", "c2" AS "note" FROM temp.main."pietto_arrow_0"'
+# Two keys, one nullable, each aggregate and a having on a label that is also
+# a capture column's name.
+GROUPED = """query result(min_total: Int):
+    from orders
+    group by note, ok
+    select:
+        note
+        ok
+        n = count()
+        filled = count(note)
+        c1 = sum(amount)
+        low = min(price)
+        high = max(id)
+    having c1 >= min_total
+"""
+GROUPED_SQL = (
+    'SELECT "c2" AS "note", "c3" AS "ok", count(*) AS "n", count("c2") AS "filled",'
+    ' CAST(sum("c1") AS BIGINT) AS "c1", min("c4") AS "low", max("c0") AS "high"'
+    ' FROM temp.main."pietto_arrow_0"'
+    ' GROUP BY "pietto_arrow_0"."c2", "pietto_arrow_0"."c3"'
+    ' HAVING CAST(sum("pietto_arrow_0"."c1") AS BIGINT) >= CAST($1 AS BIGINT)'
+)
 
 
 def filtered(operator: str, parameter: str = "min_amount: Int") -> str:

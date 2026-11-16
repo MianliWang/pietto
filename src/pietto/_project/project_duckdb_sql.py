@@ -1,9 +1,11 @@
 """The DuckDB adapter's own SQL AST and renderer (AD78.03).
 
-One B1 statement: a projection of the registered capture's columns, with at
-most one comparison of a column with the query's one parameter. Every
-identifier is Pietto-owned except the quoted result labels, so the SQL never
-holds the caller's key or column names (docs/spec/duckdb-arrow-route-v1.md).
+One statement over the registered capture: its columns, or with `group by`
+and aggregates their grouped values, with at most one comparison of a column
+with the query's one parameter in `where` and at most one of a selected value
+with it in `having`. Every identifier is Pietto-owned except the quoted result
+labels, so the SQL never holds the caller's key or column names
+(docs/spec/duckdb-arrow-route-v1.md).
 """
 
 from __future__ import annotations
@@ -14,15 +16,24 @@ __all__: tuple[str, ...] = ()
 
 RELATION = "pietto_arrow_0"
 OPERATORS = {"==": "=", "!=": "<>", "<": "<", "<=": "<=", ">": ">", ">=": ">="}
+# The text of each aggregate before and after its column; `count(*)` has none.
+AGGREGATES = {
+    "count": ("count(", ")"),
+    "sum": ("CAST(sum(", ") AS BIGINT)"),
+    "min": ("min(", ")"),
+    "max": ("max(", ")"),
+}
 
 
 @dataclass(frozen=True, slots=True)
 class DuckDBColumn:
-    """Result column `"c<field>" AS "<label>"`; `field` is the source field's
-    position in shape order."""
+    """Result column `<value> AS "<label>"`: `"c<field>"`, or the aggregate
+    `function` of it; `field` is the source field's position in shape order,
+    None only in `count(*)`."""
 
-    field: int
+    field: int | None
     label: str
+    function: str | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -35,27 +46,49 @@ class DuckDBComparison:
 
 
 @dataclass(frozen=True, slots=True)
+class DuckDBHaving:
+    """`<value> <operator> CAST($<placeholder> AS BIGINT)`, the selected value
+    restated with qualified names: a group key's `field`, or the aggregate
+    `function` of it."""
+
+    field: int | None
+    function: str | None
+    operator: str
+    placeholder: int
+
+
+@dataclass(frozen=True, slots=True)
 class DuckDBSelect:
     relation: str
     columns: tuple[DuckDBColumn, ...]
     where: DuckDBComparison | None
+    group_by: tuple[int, ...] = ()
+    having: DuckDBHaving | None = None
 
     @property
     def nodes(self) -> int:
-        return node_count(len(self.columns), self.where is not None)
+        return node_count(
+            len(self.columns),
+            sum(c.function is not None and c.field is not None for c in self.columns),
+            len(self.group_by),
+            (self.where is not None) + (self.having is not None),
+        )
 
 
-def node_count(columns: int, filtered: bool) -> int:
-    """The statement, its relation, a read and a label per column, and a
-    comparison with its read and placeholder."""
-    return 2 + 2 * columns + (3 if filtered else 0)
+def node_count(columns: int, arguments: int, keys: int, filters: int) -> int:
+    """The statement and its relation; a value and a label per column, and the
+    read of each column's aggregate that has one; a read per group key; and a
+    comparison, the value it reads and its placeholder per filter."""
+    return 2 + 2 * columns + arguments + keys + 3 * filters
 
 
 @dataclass(frozen=True, slots=True)
 class Token:
     """One rendered byte range; `subject` names its plan owner symbolically:
-    ("statement",), ("projection", i), ("export", i), ("source",),
-    ("filter",), ("left",), ("predicate",) or ("read",)."""
+    ("statement",), ("projection", i), ("export", i), ("aggregate", i),
+    ("argument", i), ("source",), ("filter",), ("left",), ("predicate",),
+    ("read",), ("aggregation",), ("group_key", i), ("having",),
+    ("having_left",), ("having_predicate",) or ("having_read",)."""
 
     start: int
     end: int
@@ -80,13 +113,37 @@ def render(ast: DuckDBSelect) -> tuple[bytes, tuple[Token, ...]]:
         tokens.append(Token(offset, offset + len(chunk), kind, role, subject))
         offset += len(chunk)
 
+    def value(
+        field: int | None,
+        function: str | None,
+        qualifier: str,
+        outer: tuple[object, ...],
+        inner: tuple[object, ...],
+    ) -> None:
+        column = None if field is None else qualifier + _quoted(f"c{field}")
+        if column is None:
+            emit("count(*)", "syntax", "aggregate", *outer)
+        elif function is None:
+            emit(column, "identifier", "column", *inner)
+        else:
+            before, after = AGGREGATES[function]
+            emit(before, "syntax", "aggregate_open", *outer)
+            emit(column, "identifier", "column", *inner)
+            emit(after, "syntax", "aggregate_close", *outer)
+
+    def compare(operator: str, placeholder: int, predicate: str, read: str) -> None:
+        emit(f" {operator} ", "syntax", "operator", predicate)
+        emit("CAST(", "syntax", "anchor_open", read)
+        emit(f"${placeholder}", "parameter", "parameter", read)
+        emit(" AS BIGINT)", "syntax", "anchor_close", read)
+
+    qualified = _quoted(ast.relation) + "."
     emit("SELECT ", "syntax", "select", "statement")
     for position, column in enumerate(ast.columns):
         if position:
             emit(", ", "syntax", "separator", "statement")
-        emit(
-            _quoted(f"c{column.field}"), "identifier", "column", "projection", position
-        )
+        read = ("projection" if column.function is None else "argument", position)
+        value(column.field, column.function, "", ("aggregate", position), read)
         emit(" AS ", "syntax", "alias", "projection", position)
         emit(_quoted(column.label), "identifier", "label", "export", position)
     emit(" FROM temp.main.", "syntax", "from", "statement")
@@ -95,10 +152,19 @@ def render(ast: DuckDBSelect) -> tuple[bytes, tuple[Token, ...]]:
         where = ast.where
         emit(" WHERE ", "syntax", "where", "filter")
         emit(_quoted(f"c{where.field}"), "identifier", "column", "left")
-        emit(f" {where.operator} ", "syntax", "operator", "predicate")
-        emit("CAST(", "syntax", "anchor_open", "read")
-        emit(f"${where.placeholder}", "parameter", "parameter", "read")
-        emit(" AS BIGINT)", "syntax", "anchor_close", "read")
+        compare(where.operator, where.placeholder, "predicate", "read")
+    if ast.group_by:
+        emit(" GROUP BY ", "syntax", "group_by", "aggregation")
+        for position, field in enumerate(ast.group_by):
+            if position:
+                emit(", ", "syntax", "separator", "aggregation")
+            value(field, None, qualified, (), ("group_key", position))
+    if ast.having is not None:
+        having = ast.having
+        emit(" HAVING ", "syntax", "having", "having")
+        left = ("having_left",)
+        value(having.field, having.function, qualified, left, left)
+        compare(having.operator, having.placeholder, "having_predicate", "having_read")
     return b"".join(chunks), tuple(tokens)
 
 
@@ -113,8 +179,12 @@ def ast_rules_hold(ast: DuckDBSelect, fields: int, labels: tuple[str, ...]) -> b
         return False
     if tuple(c.label for c in ast.columns) != labels:
         return False
-    reads = [c.field for c in ast.columns]
-    where = ast.where
+    if type(ast.group_by) is not tuple:
+        return False
+    reads: list[object] = list(ast.group_by)
+    values = [(c.field, c.function) for c in ast.columns]
+    grouped = bool(ast.group_by) or any(c.function is not None for c in ast.columns)
+    where, having = ast.where, ast.having
     if where is not None:
         if (
             type(where) is not DuckDBComparison
@@ -123,4 +193,23 @@ def ast_rules_hold(ast: DuckDBSelect, fields: int, labels: tuple[str, ...]) -> b
         ):
             return False
         reads.append(where.field)
+    if having is not None:
+        if (
+            type(having) is not DuckDBHaving
+            or not grouped
+            or having.operator not in OPERATORS.values()
+            or having.placeholder != 1
+        ):
+            return False
+        values.append((having.field, having.function))
+    for field, function in values:
+        if function is None:
+            # A grouped statement reads a field only through its group key.
+            if grouped and field not in ast.group_by:
+                return False
+            reads.append(field)
+        elif function not in AGGREGATES:
+            return False
+        elif field is not None or function != "count":
+            reads.append(field)
     return all(type(k) is int and 0 <= k < fields for k in reads)

@@ -1,4 +1,4 @@
-"""DuckDB B1 emission through its independent adapter (AD78.03).
+"""DuckDB emission through its independent adapter (AD78.03).
 
 The expected SQL bytes, blockers and suggestions are those of
 docs/spec/duckdb-arrow-route-v1.md, written before the runs. Every document
@@ -20,6 +20,8 @@ import pytest
 from _pietto_repo_facts import REPOSITORY_FACTS
 from _pietto_sql_duckdb import (
     FIELDS,
+    GROUPED,
+    GROUPED_SQL,
     HEADER,
     INT,
     PROJECTION,
@@ -137,10 +139,177 @@ def test_a_projection_names_only_pietto_owned_identifiers(tmp_path: Path) -> Non
     assert [c["nullable"] for c in document["columns"]] == [False, True]
 
 
+def _grouped(select: str, rest: str = "", head: str = "table result:") -> str:
+    """A statement over `orders` grouped by `note`, selecting it and `select`."""
+    return (
+        f"{head}\n    from orders\n    group by note\n    select:\n        note\n"
+        f"        {select}\n{rest}"
+    )
+
+
+GROUPED_FORMS = {
+    "global": (
+        "table result:\n    from orders\n    select:\n        n = count()\n"
+        "        top = max(price)\n",
+        'SELECT count(*) AS "n", max("c4") AS "top" FROM temp.main."pietto_arrow_0"',
+    ),
+    "float_key": (
+        "table result:\n    from orders\n    group by price\n    select:\n"
+        "        price\n        n = count(note)\n",
+        'SELECT "c4" AS "price", count("c2") AS "n" FROM temp.main."pietto_arrow_0"'
+        ' GROUP BY "pietto_arrow_0"."c4"',
+    ),
+    "where": (
+        filtered(">=")
+        .replace("    select:", "    group by note\n    select:")
+        .replace("        id\n        price\n", "        note\n        n = count()\n"),
+        'SELECT "c2" AS "note", count(*) AS "n" FROM temp.main."pietto_arrow_0"'
+        ' WHERE "c1" >= CAST($1 AS BIGINT) GROUP BY "pietto_arrow_0"."c2"',
+    ),
+    "having_count": (
+        _grouped("n = count()", "    having n > p\n", "query result(p: Int):"),
+        'SELECT "c2" AS "note", count(*) AS "n" FROM temp.main."pietto_arrow_0"'
+        ' GROUP BY "pietto_arrow_0"."c2" HAVING count(*) > CAST($1 AS BIGINT)',
+    ),
+    "having_key": (
+        "query result(p: Int):\n    from orders\n    group by id\n    select:\n"
+        "        c0 = id\n        s = sum(amount)\n    having c0 != p\n",
+        'SELECT "c0" AS "c0", CAST(sum("c1") AS BIGINT) AS "s"'
+        ' FROM temp.main."pietto_arrow_0" GROUP BY "pietto_arrow_0"."c0"'
+        ' HAVING "pietto_arrow_0"."c0" <> CAST($1 AS BIGINT)',
+    ),
+}
+
+
+@pytest.mark.parametrize("case", GROUPED_FORMS)
+def test_grouped_and_global_aggregates_read_qualified_names(
+    tmp_path: Path, case: str
+) -> None:
+    body, sql = GROUPED_FORMS[case]
+    status, document = emit(write(tmp_path / "p", body, contract()), body)
+    assert (status, document["sql"]) == ("VERIFIED", sql)
+    ends = [(r["start"], r["end"]) for r in document["ranges"]]
+    assert ends[0][0] == 0 and ends[-1][1] == len(sql.encode())
+    assert all(a[1] == b[0] for a, b in zip(ends, ends[1:]))
+
+
+def test_a_grouped_query_documents_each_key_and_aggregate(tmp_path: Path) -> None:
+    root = write(tmp_path / "p", GROUPED, contract())
+    status, document = emit(root, GROUPED)
+    assert (status, document["sql"]) == ("VERIFIED", GROUPED_SQL)
+    assert document["format"] == "pietto.sql-emission.v2"
+    columns = [
+        (
+            c["label"],
+            c["logical_type"]["name"],
+            c["nullable"],
+            c["correspondence"]["field"],
+            c["correspondence"].get("function"),
+            c["representation"]["storage"]["kind"],
+            c["representation"]["domain"].get("min"),
+        )
+        for c in document["columns"]
+    ]
+    least = str(-(2**63))
+    assert columns == [
+        ("note", "Text", True, 2, None, "arrow_string", None),
+        ("ok", "Bool", False, 3, None, "arrow_bool", None),
+        ("n", "Int", False, None, "count", "arrow_int64", "0"),
+        ("filled", "Int", False, 2, "count", "arrow_int64", "0"),
+        ("c1", "Int", True, 1, "sum", "arrow_int64", least),
+        ("low", "Float", True, 4, "min", "arrow_float64", None),
+        ("high", "Int", True, 0, "max", "arrow_int64", least),
+    ]
+    assert all(
+        c["representation"]["nullable"] is c["nullable"] for c in document["columns"]
+    )
+    (use,) = document["parameter_uses"]
+    assert GROUPED_SQL.encode()[use["range"]["start"] : use["range"]["end"]] == b"$1"
+    (parameter,) = document["parameters"]
+    (read,) = parameter["reads"]
+    (placeholder,) = (r for r in document["ranges"] if r["kind"] == "parameter")
+    assert read == placeholder["subject"] and read["kind"] == "expression"
+    query = execution.compile_query(
+        root, **selected(GROUPED), dialect="duckdb", emission_contract="contract.json"
+    )
+    assert adapter.execution_facts(query._template).result == (
+        ("note", "Text", True),
+        ("ok", "Bool", False),
+        ("n", "Int", False),
+        ("filled", "Int", False),
+        ("c1", "Int", True),
+        ("low", "Float", True),
+        ("high", "Int", True),
+    )
+    # Rule 16 counts the AST's nodes from the plan: the statement and its
+    # relation, a value and a label per column, the read in each of four
+    # aggregates, a read per key and the having's comparison, value and
+    # placeholder.
+    for nodes, expected in ((25, "VERIFIED"), (24, "BLOCKED")):
+        limited = contract()
+        limited["environment"].append(statement("resource_limits", {"nodes": nodes}))
+        status, emitted = emit(write(tmp_path / str(nodes), GROUPED, limited), GROUPED)
+        assert status == expected
+    assert blockers(emitted) == [("PIE-B1007", "generated_structure_limit")]
+
+
 SHAPES = {
     "order_by": (
         PROJECTION + "    order by:\n        id\n",
         [("PIE-B1003", "duckdb_relation_shape_not_admitted")],
+    ),
+    "grouped_order_by": (
+        _grouped("n = count()", "    order by:\n        n\n"),
+        [("PIE-B1003", "duckdb_relation_shape_not_admitted")],
+    ),
+    "avg": (
+        _grouped("mean = avg(amount)"),
+        [("PIE-B1003", "duckdb_aggregate_not_admitted")],
+    ),
+    "sum_of_a_float": (
+        _grouped("s = sum(price)"),
+        [("PIE-B1003", "duckdb_aggregate_not_admitted")],
+    ),
+    "computed_argument": (
+        _grouped("n = count(amount + 1)"),
+        [("PIE-B1003", "duckdb_aggregate_not_admitted")],
+    ),
+    "count_distinct": (
+        _grouped("n = count_distinct(id)"),
+        [("PIE-B1003", "duckdb_aggregate_not_admitted")],
+    ),
+    "computed_key": (
+        "table result:\n    from orders\n    let bucket = amount * 2\n"
+        "    group by bucket\n    select:\n        bucket\n        n = count()\n",
+        [
+            ("PIE-B1003", "duckdb_relation_shape_not_admitted"),
+            ("PIE-B1003", "duckdb_projection_not_admitted"),
+            ("PIE-B1003", "duckdb_grouping_not_admitted"),
+        ],
+    ),
+    "computed_output": (
+        _grouped("t = sum(amount) + 1"),
+        [("PIE-B1003", "duckdb_projection_not_admitted")],
+    ),
+    "having_literal": (
+        _grouped("n = count()", "    having n > 3\n"),
+        [
+            ("PIE-B1003", "duckdb_filter_not_admitted"),
+            ("PIE-B1003", "duckdb_parameter_not_admitted"),
+        ],
+    ),
+    "having_float": (
+        _grouped("low = min(price)", "    having low > p\n", "query result(p: Float):"),
+        [
+            ("PIE-B1003", "duckdb_filter_not_admitted"),
+            ("PIE-B1003", "duckdb_parameter_not_admitted"),
+        ],
+    ),
+    "where_and_having": (
+        _grouped("n = count()", "    having n > p\n", "query result(p: Int):").replace(
+            "    group by", "    where amount > p\n    group by"
+        ),
+        [("PIE-B1003", "duckdb_parameter_not_admitted")],
     ),
     "derived_source": (
         PROJECTION.replace("table result", "table base")
@@ -525,6 +694,52 @@ def test_suggestions_are_the_routes_or_the_existing_texts() -> None:
     ):
         text = adapter.suggestion("PIE-B1001", detail)
         assert text and "postgres:" not in text and "mysql:" not in text
+    # The texts the owner agreed to (PL.50), as the route's table states them.
+    for detail, text in B2_SUGGESTIONS.items():
+        assert adapter.suggestion("PIE-B1003", detail) == text
+
+
+B2_SUGGESTIONS = {
+    "duckdb_relation_shape_not_admitted": (
+        "DuckDB emission admits one source read with where, group by, having,"
+        " select, order by and limit; JOIN, windows, qualify, distinct, set"
+        " operations, relation lets and derived sources are not available on"
+        " DuckDB"
+    ),
+    "duckdb_projection_not_admitted": (
+        "select source fields directly, or group by keys and aggregates of"
+        " fields, such as select: customer, total = sum(amount); computed values"
+        " are not available on DuckDB"
+    ),
+    "duckdb_aggregate_not_admitted": (
+        "use count(), count(field), sum of an Int field, or min or max of an Int"
+        " or Float field; other aggregates, sum or avg of a Float and aggregates"
+        " of computed values are not available on DuckDB"
+    ),
+    "duckdb_grouping_not_admitted": (
+        "group by source fields, such as group by customer; computed keys are"
+        " not available on DuckDB"
+    ),
+    "duckdb_filter_not_admitted": (
+        "compare fields or selected outputs with literals or query parameters of"
+        " the same type, and join the tests with and, or and not, such as where"
+        " amount >= min_amount and note is not None"
+    ),
+    "duckdb_order_not_admitted": (
+        "order by source fields or selected outputs, such as order by total"
+        " desc; computed keys are not available on DuckDB"
+    ),
+    "duckdb_text_literal_nul_not_admitted": (
+        "remove NUL from the Text literal; DuckDB emission writes no NUL into SQL text"
+    ),
+    "duckdb_parameter_not_admitted": (
+        "declare non-null Int, Text, Bool or Float parameters and read each one"
+        " in a where or having comparison"
+    ),
+    "duckdb_field_type_not_admitted": (
+        "DuckDB emission reads Int, Text, Bool and Float fields"
+    ),
+}
 
 
 def test_a_field_out_of_shape_order_names_the_misplaced_fields(tmp_path: Path) -> None:
@@ -791,6 +1006,50 @@ def test_a_forged_artifact_is_refused(
         "PIE-R1004",
         "BINDING_ARTIFACT",
     )
+
+
+def test_a_forged_grouped_artifact_is_refused(tmp_path: Path) -> None:
+    """Forgery: a grouped AST that keeps every SQL rule, rendered and
+    documented afresh, does not correspond to the plan; one that breaks a
+    rule is refused by the rules themselves."""
+    root = write(tmp_path / "p", GROUPED, contract())
+    outcome, _ = emission_cli.emit_project(
+        root,
+        "main.pietto",
+        "query",
+        "result",
+        "duckdb",
+        "contract.json",
+        emission_cli.POLICIES["preserve"],
+        read_sources_only=True,
+    )
+    assert type(outcome) is adapter.DuckDBEmission and outcome.status == "VERIFIED"
+    artifact: Any = outcome.artifact
+    ast, plan = artifact.ast, artifact.checked.plan
+    fields, labels = len(plan.source_ports), adapter._labels(plan)
+    replace = dataclasses.replace
+    columns = list(ast.columns)
+    columns[5] = replace(columns[5], function="max")
+    for forged in (
+        replace(ast, columns=tuple(columns)),
+        replace(ast, group_by=ast.group_by[::-1]),
+        replace(ast, having=replace(ast.having, function="max")),
+        replace(ast, having=replace(ast.having, operator="<=")),
+    ):
+        assert duckdb_sql.ast_rules_hold(forged, fields, labels)
+        assert not adapter.verify_artifact(
+            replace(artifact, **_rendered(artifact, forged))
+        )
+    columns = list(ast.columns)
+    columns[2] = replace(columns[2], function="sum")
+    for broken in (
+        replace(ast, columns=tuple(columns)),
+        replace(ast, group_by=ast.group_by[:1]),
+        replace(ast, having=replace(ast.having, field=0, function=None)),
+        replace(ast, having=replace(ast.having, function="avg")),
+        replace(ast, group_by=(), having=None),
+    ):
+        assert not duckdb_sql.ast_rules_hold(broken, fields, labels)
 
 
 def test_the_adapter_imports_no_duckdb_pyarrow_or_sqlglot(tmp_path: Path) -> None:

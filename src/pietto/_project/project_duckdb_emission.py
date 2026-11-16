@@ -18,6 +18,7 @@ from typing import Any
 
 from pietto.ast_nodes import QueryDef, SourceDef, TableDef
 from pietto._project import project_sql_plan as plans
+from pietto._project import project_sql_plan_aggregation as aggregation
 from pietto._project import project_sql_plan_target_assessment as targets
 from pietto._project.model import ProjectResolvedTypeKind
 from pietto._project.project_duckdb_contract import (
@@ -32,6 +33,7 @@ from pietto._project.project_duckdb_sql import (
     RELATION,
     DuckDBColumn,
     DuckDBComparison,
+    DuckDBHaving,
     DuckDBSelect,
     Token,
     ast_rules_hold,
@@ -48,7 +50,10 @@ from pietto._project.project_sql_emission_contract import (
     Premise,
     canonical,
 )
-from pietto._project.project_sql_emission_scopes import reference_source_ports
+from pietto._project.project_sql_emission_scopes import (
+    reference_source_ports,
+    stage_origins,
+)
 from pietto._project.project_sql_emission_suggestions import blocker_suggestion
 from pietto._project.project_sql_plan_expressions import (
     ProjectSQLComparison,
@@ -69,17 +74,13 @@ PREMISES = {
     "parameter_protocol": "duckdb_prepared",
 }
 NOT_ADMITTED = ("identifier_case", "session_sql_mode", "session_time_zone")
-# Every plan collection that a B1 statement leaves empty.
+# Every plan collection that an admitted statement leaves empty.
 _EMPTY = (
     "let_values",
     "joins",
     "join_inputs",
     "relationship_matches",
     "single_matches",
-    "aggregations",
-    "group_keys",
-    "aggregates",
-    "aggregate_projections",
     "windows",
     "window_arguments",
     "window_projections",
@@ -99,7 +100,25 @@ _EMPTY = (
 _SHAPES = (
     (("relation_input", "final_projection"),),
     (("relation_input", "row_filter"), ("final_projection",)),
+    (("relation_input", "group_aggregate"), ("final_projection",)),
+    (("relation_input", "row_filter"), ("group_aggregate",), ("final_projection",)),
+    (("relation_input", "group_aggregate"), ("result_filter",), ("final_projection",)),
+    (
+        ("relation_input", "row_filter"),
+        ("group_aggregate",),
+        ("result_filter",),
+        ("final_projection",),
+    ),
 )
+_FILTERS = ("row_filter", "result_filter")
+# The argument types of each admitted aggregate (rule 7a).
+_AGGREGATES = {
+    "count": ((), ("Int",), ("Text",), ("Bool",), ("Float",)),
+    "sum": (("Int",),),
+    "min": (("Int",), ("Float",)),
+    "max": (("Int",), ("Float",)),
+}
+
 _SUGGESTIONS = {
     "target_release_not_reviewed": f'the reviewed duckdb release is "{RELEASE}"',
     "literal_policy_not_admitted_on_target": (
@@ -109,31 +128,46 @@ _SUGGESTIONS = {
         "remove this premise; the DuckDB route does not use it"
     ),
     "duckdb_relation_shape_not_admitted": (
-        "DuckDB emission admits a direct projection with at most one where"
-        " comparison; JOIN, group by, windows, order by, limit, distinct, set"
+        "DuckDB emission admits one source read with where, group by, having,"
+        " select, order by and limit; JOIN, windows, qualify, distinct, set"
         " operations, relation lets and derived sources are not available on"
-        " DuckDB yet"
+        " DuckDB"
     ),
     "duckdb_source_count_not_admitted": (
         "read exactly one duckdb.arrow source; the DuckDB route runs one query"
         " over one Arrow table"
     ),
     "duckdb_projection_not_admitted": (
-        "project source fields directly, such as select: id, amount; computed"
-        " values are not available on DuckDB yet"
+        "select source fields directly, or group by keys and aggregates of"
+        " fields, such as select: customer, total = sum(amount); computed values"
+        " are not available on DuckDB"
+    ),
+    "duckdb_aggregate_not_admitted": (
+        "use count(), count(field), sum of an Int field, or min or max of an Int"
+        " or Float field; other aggregates, sum or avg of a Float and aggregates"
+        " of computed values are not available on DuckDB"
+    ),
+    "duckdb_grouping_not_admitted": (
+        "group by source fields, such as group by customer; computed keys are"
+        " not available on DuckDB"
     ),
     "duckdb_filter_not_admitted": (
-        "write one comparison of an Int field with the query parameter, such as"
-        " where amount >= min_amount"
+        "compare fields or selected outputs with literals or query parameters of"
+        " the same type, and join the tests with and, or and not, such as where"
+        " amount >= min_amount and note is not None"
+    ),
+    "duckdb_order_not_admitted": (
+        "order by source fields or selected outputs, such as order by total"
+        " desc; computed keys are not available on DuckDB"
+    ),
+    "duckdb_text_literal_nul_not_admitted": (
+        "remove NUL from the Text literal; DuckDB emission writes no NUL into SQL text"
     ),
     "duckdb_parameter_not_admitted": (
-        "declare at most one non-null Int parameter and read it once, in the"
-        " where comparison"
+        "declare non-null Int, Text, Bool or Float parameters and read each one"
+        " in a where or having comparison"
     ),
-    "duckdb_field_type_not_admitted": (
-        "DuckDB emission reads Int, Text, Bool and Float fields; Text, Bool and"
-        " Float are projected only"
-    ),
+    "duckdb_field_type_not_admitted": "DuckDB emission reads Int, Text, Bool and Float fields",
     "source_identifier_unrepresentable": (
         'use the relation namespace "arrow"; the DuckDB route reads one'
         " registered Arrow table"
@@ -257,11 +291,124 @@ def _fits(name: str | None, representation: dict[str, Any]) -> bool:
     return name in expected and (storage, domain["kind"]) == expected[name]
 
 
+def _logical(value_type: Any) -> tuple[str, bool] | None:
+    """A known builtin value type's (name, nullable), else None."""
+    resolved = value_type.resolved_type
+    nullable = {"non_null": False, "nullable": True}.get(value_type.nullability.value)
+    if (
+        value_type.kind.value != "known"
+        or resolved is None
+        or resolved.kind.value != "builtin"
+        or nullable is None
+    ):
+        return None
+    return resolved.name, nullable
+
+
+class _Values:
+    """What the plan's values read: source ports, group keys and aggregates."""
+
+    def __init__(self, plan: Any) -> None:
+        self.plan = plan
+        self.refs = reference_source_ports(plan)
+        self.origins = stage_origins(plan)
+        self.sources = {port.ref: port for port in plan.source_ports}
+        owners = {item.ref: item for item in (*plan.group_keys, *plan.aggregates)}
+        # Each stage port that carries a group key's or aggregate's result
+        # unmodified; a port's source precedes it, as for stage_origins.
+        self.owners: dict[Any, Any] = {}
+        for port in plan.stage_ports:
+            owner = owners.get(port.source) or self.owners.get(port.source)
+            if owner is not None:
+                self.owners[port.ref] = owner
+
+    def direct(self, expression: Any) -> Any:
+        """The source port that `expression` reads directly, else None."""
+        if type(expression) is not ProjectSQLReference:
+            return None
+        found = self.refs.get(expression.ref)
+        return None if found is None else found[1]
+
+    def key(self, key: Any) -> Any:
+        """The source port that a group key reads directly, else None."""
+        port = self.origins.get(key.input)
+        return None if port is None else self.sources.get(port.producer_port)
+
+    def aggregate(self, aggregate: Any) -> tuple[str, Any] | None:
+        """(function, the source port it reads, None in count()) of an
+        aggregate that rule 7a admits, else None."""
+        source = aggregate.source
+        if type(source) is not aggregation.ProjectAggregateExpressionAnalysis:
+            return None
+        call = aggregation.aggregate_call(source)
+        function = aggregation.filtered_function(call) or source.fact.function
+        reads = tuple(
+            self.direct(self.plan.expressions[argument.position])
+            for argument in aggregate.arguments
+        )
+        types = tuple(None if read is None else _type_name(read) for read in reads)
+        if aggregate.order_by or types not in _AGGREGATES.get(function, ()):
+            return None
+        logical = _logical(aggregate.value_type)
+        expected = types[0] if function in ("min", "max") else "Int"
+        if logical is None or logical[0] != expected:
+            return None
+        return function, reads[0] if reads else None
+
+    def outputs(self) -> tuple[tuple[Any, Any, Any], ...]:
+        """Each result field's (projection, source port, group key or
+        aggregate): a direct read of a source field, through a group key when
+        the statement aggregates, has its port; an aggregate call has its
+        aggregate; any other value has neither (rule 7)."""
+        plan = self.plan
+        projections = {
+            p.export: p for p in (*plan.projections, *plan.aggregate_projections)
+        }
+        result = []
+        for export in plan.exports:
+            projection = projections.get(export.ref)
+            port = owner = None
+            if type(projection) is plans.ProjectSQLProjection:
+                if not plan.aggregations and projection.input_port is not None:
+                    expression = plan.expressions[projection.expression.position]
+                    port = self.direct(expression)
+            elif (
+                projection is not None
+                and aggregation.composition_fact(projection.source) is None
+            ):
+                owner = self.owners.get(projection.input)
+                if type(owner) is aggregation.ProjectSQLGroupKey:
+                    port = self.key(owner)
+            result.append((projection, port, owner))
+        return tuple(result)
+
+    def value(self, owner: Any) -> tuple[Any, str | None]:
+        """(source port, aggregate function) of a group key or of an aggregate
+        that rule 7a admits."""
+        if type(owner) is aggregation.ProjectSQLGroupKey:
+            return self.key(owner), None
+        function, port = self.aggregate(owner) or (None, None)
+        return port, function
+
+    def nodes(self) -> int:
+        """Rule 16: the nodes of the SQL AST that the plan admits."""
+        plan = self.plan
+        arguments = sum(
+            len(owner.arguments)
+            for _, _, owner in self.outputs()
+            if type(owner) is aggregation.ProjectSQLAggregate
+        )
+        return node_count(
+            len(plan.exports), arguments, len(plan.group_keys), len(plan.filters)
+        )
+
+
 class _Rules:
-    """Rules 1-29: at most one blocker per rule, at its first failing site."""
+    """Rules 1-29, with 7a and 7b keyed 7.1 and 7.2: at most one blocker per
+    rule, at its first failing site."""
 
     def __init__(self, checked: Any, contract: DuckDBContract, policy: Any) -> None:
-        self.found: dict[int, Blocker] = {}
+        self.found: dict[float, Blocker] = {}
         self.checked, self.contract = checked, contract
         self.statement = checked.selected_owner.definition.span
         premises = contract.premises
@@ -287,7 +434,7 @@ class _Rules:
             )
             return
         self.plan = plan
-        self.refs = reference_source_ports(plan)
+        self.values = _Values(plan)
         self.reads = tuple(
             e for e in plan.expressions if type(e) is ProjectSQLParameterRead
         )
@@ -302,7 +449,7 @@ class _Rules:
 
     def fail(
         self,
-        rule: int,
+        rule: float,
         code: str,
         detail: str,
         subject: object = None,
@@ -334,7 +481,8 @@ class _Rules:
             and len(plan.sources) == 1
             and len(plan.input_uses) == 1
             and operators in _SHAPES
-            and len(plan.filters) == (len(operators) == 2)
+            and len(plan.filters)
+            == sum(o in _FILTERS for block in operators for o in block)
             and not any(getattr(plan, name) for name in _EMPTY)
         ):
             definition = self.checked.selected_owner.definition
@@ -344,8 +492,6 @@ class _Rules:
                     clause
                     for clause in (
                         definition.let_clause,
-                        definition.group_by_clause,
-                        definition.satisfying_clause,
                         definition.qualify_clause,
                         definition.order_by_clause,
                         definition.limit_clause,
@@ -382,24 +528,13 @@ class _Rules:
                 second.declaration.span,
             )
 
-    def direct(self, expression: Any) -> Any:
-        """The source port that `expression` reads directly, else None."""
-        if type(expression) is not ProjectSQLReference:
-            return None
-        found = self.refs.get(expression.ref)
-        return None if found is None else found[1]
-
     def projections(self) -> None:
-        plan = self.plan
-        for export in plan.exports:
-            projection = next(
-                (p for p in plan.projections if p.export == export.ref), None
-            )
-            if (
-                projection is None
-                or projection.input_port is None
-                or self.direct(plan.expressions[projection.expression.position]) is None
-            ):
+        plan, values = self.plan, self.values
+        outputs = values.outputs()
+        for export, (projection, port, owner) in zip(
+            plan.exports, outputs, strict=True
+        ):
+            if port is None and type(owner) is not aggregation.ProjectSQLAggregate:
                 self.fail(
                     7,
                     "PIE-B1003",
@@ -407,11 +542,37 @@ class _Rules:
                     export.ref if projection is None else projection.ref,
                     self.statement
                     if projection is None
-                    else projection.site.occurrence.span,
+                    else projection.site.occurrence.span
+                    if type(projection) is plans.ProjectSQLProjection
+                    else projection.semantic.item.span,
                 )
+        for aggregate in sorted(plan.aggregates, key=lambda a: _key(self.site(a))):
+            if values.aggregate(aggregate) is None:
+                self.fail(
+                    7.1,
+                    "PIE-B1003",
+                    "duckdb_aggregate_not_admitted",
+                    aggregate.ref,
+                    self.site(aggregate),
+                )
+        for key in sorted(plan.group_keys, key=lambda k: _key(self.site(k))):
+            if values.key(key) is None:
+                self.fail(
+                    7.2,
+                    "PIE-B1003",
+                    "duckdb_grouping_not_admitted",
+                    key.ref,
+                    self.site(key),
+                )
+        selected = tuple(owner for _, _, owner in outputs if owner is not None)
         for position, filter_ in enumerate(plan.filters):
             predicate = plan.expressions[filter_.predicate.position]
-            if position or not self.comparison(predicate):
+            if not (
+                type(filter_.site) is aggregation.ProjectSQLAggregateSite
+                and self.having(predicate, selected)
+                if filter_.site.role.value == "satisfying"
+                else not position and self.comparison(predicate)
+            ):
                 self.fail(
                     8,
                     "PIE-B1003",
@@ -420,17 +581,44 @@ class _Rules:
                     filter_.site.occurrence.span,
                 )
 
+    def site(self, item: Any) -> Any:
+        """The call of an aggregate, or the item of a group key."""
+        node = getattr(item.source, "call", None) or getattr(item.source, "item", None)
+        return getattr(node, "span", None) or self.statement
+
     def comparison(self, predicate: Any) -> bool:
         if (
             type(predicate) is not ProjectSQLComparison
             or predicate.expression.operator not in OPERATORS
         ):
             return False
-        left = self.direct(self.plan.expressions[predicate.left.position])
+        left = self.values.direct(self.plan.expressions[predicate.left.position])
         right = self.plan.expressions[predicate.right.position]
         return (
             left is not None
             and _type_name(left) == "Int"
+            and type(right) is ProjectSQLParameterRead
+        )
+
+    def having(self, predicate: Any, selected: tuple[Any, ...]) -> bool:
+        """One comparison of a direct read of an Int selected output, on the
+        left, with a direct read of the parameter."""
+        if (
+            type(predicate) is not ProjectSQLComparison
+            or predicate.expression.operator not in OPERATORS
+        ):
+            return False
+        left = self.plan.expressions[predicate.left.position]
+        right = self.plan.expressions[predicate.right.position]
+        if type(left) is not aggregation.ProjectSQLResultReference:
+            return False
+        owner = self.values.owners.get(left.port)
+        logical = _logical(left.value_type)
+        return (
+            owner is not None
+            and any(owner is item for item in selected)
+            and logical is not None
+            and logical[0] == "Int"
             and type(right) is ProjectSQLParameterRead
         )
 
@@ -449,13 +637,18 @@ class _Rules:
         ):
             problem = (None, header[0].declaration.span)
         else:
-            predicate = plan.expressions[plan.filters[0].predicate.position]
+            predicates = tuple(
+                plan.expressions[f.predicate.position] for f in plan.filters
+            )
             if (
                 len(self.reads) != 1
-                or type(predicate) is not ProjectSQLComparison
                 or not any(
-                    plan.expressions[side.position] is self.reads[0]
-                    for side in (predicate.left, predicate.right)
+                    type(predicate) is ProjectSQLComparison
+                    and any(
+                        plan.expressions[side.position] is self.reads[0]
+                        for side in (predicate.left, predicate.right)
+                    )
+                    for predicate in predicates
                 )
                 or any(a.parameter is not None for a in plan.window_arguments)
             ):
@@ -492,7 +685,7 @@ class _Rules:
         if (
             any(len(_ports(plan, s)) > limits["columns"] for s in plan.sources)
             or len(plan.exports) > limits["columns"]
-            or node_count(len(plan.projections), bool(plan.filters)) > limits["nodes"]
+            or self.values.nodes() > limits["nodes"]
         ):
             self.fail(16, "PIE-B1007", "generated_structure_limit", at=True)
         self.limits = limits
@@ -599,7 +792,7 @@ class _Rules:
                 )
             sites = tuple(
                 expression.site
-                for expression, read in self.refs.values()
+                for expression, read in self.values.refs.values()
                 if read is port
             )
             domain = field.representation["domain"]
@@ -621,27 +814,33 @@ class _Rules:
 
 
 def _expected_ast(plan: Any) -> DuckDBSelect:
-    """The statement the plan admits, read from each projection's source port."""
+    """The statement the plan admits, read from the source ports, group keys
+    and aggregates that its values read."""
     (source,) = plan.sources
     index = {port.ref: k for k, port in enumerate(_ports(plan, source))}
-    projections = {p.export: p for p in plan.projections}
-    columns = tuple(
-        DuckDBColumn(index[projections[e.ref].source_port], e.identity.name)
-        for e in plan.exports
-    )
-    where = None
-    if plan.filters:
-        predicate = plan.expressions[plan.filters[0].predicate.position]
+    values = _Values(plan)
+
+    def field(port: Any) -> int | None:
+        return None if port is None else index[port.ref]
+
+    columns = []
+    for export, (_, port, owner) in zip(plan.exports, values.outputs(), strict=True):
+        function = None
+        if type(owner) is aggregation.ProjectSQLAggregate:
+            port, function = values.value(owner)
+        columns.append(DuckDBColumn(field(port), export.identity.name, function))
+    where = having = None
+    for filter_ in plan.filters:
+        predicate = plan.expressions[filter_.predicate.position]
+        operator = OPERATORS[predicate.expression.operator]
         left = plan.expressions[predicate.left.position]
-        (found,) = (
-            source_port
-            for expression, source_port in reference_source_ports(plan).values()
-            if expression is left
-        )
-        where = DuckDBComparison(
-            index[found.ref], OPERATORS[predicate.expression.operator], 1
-        )
-    return DuckDBSelect(RELATION, columns, where)
+        if filter_.site.role.value == "where":
+            where = DuckDBComparison(index[values.direct(left).ref], operator, 1)
+        else:
+            port, function = values.value(values.owners[left.port])
+            having = DuckDBHaving(field(port), function, operator, 1)
+    group_by = tuple(index[values.key(key).ref] for key in plan.group_keys)
+    return DuckDBSelect(RELATION, tuple(columns), where, group_by, having)
 
 
 def _labels(plan: Any) -> tuple[str, ...]:
@@ -665,24 +864,39 @@ def _location(value: Any) -> dict[str, Any] | None:
     }
 
 
-def _subjects(plan: Any) -> dict[tuple[object, ...], Any]:
-    """The plan owner of each symbolic token subject."""
+def _subjects(
+    plan: Any, outputs: tuple[tuple[Any, Any, Any], ...]
+) -> dict[tuple[object, ...], Any]:
+    """The plan owner of each symbolic token subject, given the plan's
+    `_Values` outputs."""
     (source,) = plan.sources
-    projections = {p.export: p for p in plan.projections}
     result: dict[tuple[object, ...], Any] = {
         ("statement",): plan.scope,
         ("source",): source.ref,
     }
-    for position, export in enumerate(plan.exports):
-        result["projection", position] = projections[export.ref].ref
+    for position, (export, (projection, _, owner)) in enumerate(
+        zip(plan.exports, outputs, strict=True)
+    ):
+        result["projection", position] = projection.ref
         result["export", position] = export.ref
-    if plan.filters:
-        filter_ = plan.filters[0]
+        if type(owner) is aggregation.ProjectSQLAggregate:
+            result["aggregate", position] = owner.ref
+            if owner.arguments:
+                result["argument", position] = owner.arguments[0]
+    for aggregation_ in plan.aggregations:
+        result["aggregation",] = aggregation_.ref
+    for position, key in enumerate(plan.group_keys):
+        result["group_key", position] = key.ref
+    for filter_ in plan.filters:
         predicate = plan.expressions[filter_.predicate.position]
-        result["filter",] = filter_.ref
-        result["predicate",] = predicate.ref
-        result["left",] = predicate.left
-        result["read",] = predicate.right
+        names = (
+            ("filter", "predicate", "left", "read")
+            if filter_.site.role.value == "where"
+            else ("having", "having_predicate", "having_left", "having_read")
+        )
+        refs = (filter_.ref, predicate.ref, predicate.left, predicate.right)
+        for name, ref in zip(names, refs, strict=True):
+            result[name,] = ref
     return result
 
 
@@ -694,8 +908,8 @@ def _document(artifact: DuckDBArtifact) -> bytes:
     ports = _ports(plan, source)
     (entry,) = (s for s in artifact.contract.sources if s.owner is source.source.owner)
     fields = {f.ordinal: f for f in entry.fields}
-    projections = {p.export: p for p in plan.projections}
-    subjects = _subjects(plan)
+    outputs = _Values(plan).outputs()
+    subjects = _subjects(plan, outputs)
     indexes = artifact.source_map.indexes
     ranges = []
     for token in artifact.tokens:
@@ -725,26 +939,53 @@ def _document(artifact: DuckDBArtifact) -> bytes:
             }
         )
     columns = []
-    for position, (column, export) in enumerate(
-        zip(artifact.ast.columns, plan.exports, strict=True)
+    for position, (column, export, (projection, _, item)) in enumerate(
+        zip(artifact.ast.columns, plan.exports, outputs, strict=True)
     ):
-        projection, field = projections[export.ref], fields[column.field]
+        read = None if column.field is None else ports[column.field]
+        correspondence: dict[str, Any] = {
+            "source": entry.selector,
+            "field": column.field,
+            "source_port": None if read is None else _ref(read.ref),
+        }
+        k, logical = column.field, None
+        if column.function is not None:
+            correspondence["aggregate"] = _ref(item.ref)
+            correspondence["function"] = column.function
+            logical = _logical(item.value_type)
+        elif item is not None:
+            correspondence["group_key"] = _ref(item.ref)
+        if column.function in ("count", "sum") or k is None:
+            # A count or a sum is a signed 64-bit Int, a count never negative.
+            name, nullable = logical or (None, None)
+            least = "0" if column.function == "count" else str(-(2**63))
+            representation = {
+                "storage": {"kind": "arrow_int64"},
+                "domain": {"kind": "int_range", "min": least, "max": str(2**63 - 1)},
+                "nullable": nullable,
+            }
+        else:
+            # A read, or a min or max, which keeps its field's type and domain.
+            representation = fields[k].representation
+            name, nullable = _type_name(ports[k]), representation["nullable"]
+            if column.function is not None:
+                name, nullable = logical or (None, None)
+                representation = representation | {"nullable": nullable}
+        input_port = (
+            projection.input_port
+            if type(projection) is plans.ProjectSQLProjection
+            else projection.input
+        )
         columns.append(
             {
                 "ordinal": position,
                 "label": column.label,
-                "logical_type": {
-                    "kind": "builtin",
-                    "name": _type_name(ports[column.field]),
-                    "parameters": None,
-                },
-                "nullable": field.representation["nullable"],
-                "representation": field.representation,
-                "correspondence": {
-                    "source": entry.selector,
-                    "field": column.field,
-                    "source_port": _ref(ports[column.field].ref),
-                    "input_port": _ref(projection.input_port),
+                "logical_type": {"kind": "builtin", "name": name, "parameters": None},
+                "nullable": nullable,
+                "representation": representation,
+                "correspondence": correspondence
+                | {
+                    "input_port": _ref(input_port),
                     "export": _ref(export.ref),
                     "projection": _ref(projection.ref),
                     "sql_symbol": position,
@@ -816,7 +1057,7 @@ def _document(artifact: DuckDBArtifact) -> bytes:
                 "name": p.declaration.name,
                 "tag": p.tag,
                 "nullable": p.value_type.nullability.value == "nullable",
-                "reads": [_ref(subjects["read",])],
+                "reads": [_ref(subjects[t.subject]) for t in placeholders],
             }
             for p in plan.parameters
         ]
@@ -838,8 +1079,7 @@ def verify_artifact(artifact: object) -> bool:
             or not ast_rules_hold(
                 artifact.ast, len(_ports(plan, source)), _labels(plan)
             )
-            or artifact.ast.nodes
-            != node_count(len(plan.projections), bool(plan.filters))
+            or artifact.ast.nodes != _Values(plan).nodes()
             or render(artifact.ast) != (artifact.sql, artifact.tokens)
         ):
             return False
@@ -868,9 +1108,10 @@ def emit_duckdb_sql(
 
     plan = checked.plan
     ast = _expected_ast(plan)
-    if not ast_rules_hold(
-        ast, len(_ports(plan, plan.sources[0])), _labels(plan)
-    ) or ast.nodes != node_count(len(plan.projections), bool(plan.filters)):
+    if (
+        not ast_rules_hold(ast, len(_ports(plan, plan.sources[0])), _labels(plan))
+        or ast.nodes != rules.values.nodes()
+    ):
         return blocked("PIE-B1008", "plan_ast_correspondence")
     sql, tokens = render(ast)
     if len(sql) > rules.limits["sql_bytes"]:
@@ -1021,20 +1262,21 @@ class DuckDBSourceField:
 class DuckDBExecutionFacts:
     """What the `duckdb_arrow` route reads of one verified artifact: the
     contract's `relation.name`, the rendered statement, the source fields,
-    each result column's (label, source field position) in result order and
+    each result column's (label, logical type, nullable) in result order and
     the header parameters as (name, tag, nullable)."""
 
     key: str
     sql: str
     fields: tuple[DuckDBSourceField, ...]
-    result: tuple[tuple[str, int], ...]
+    result: tuple[tuple[str, str, bool], ...]
     parameters: tuple[tuple[str, str, bool], ...]
 
 
 def execution_facts(template: object) -> DuckDBExecutionFacts:
     """The facts of a live template whose artifact verifies afresh; any other
-    value is BINDING_ARTIFACT. A result column reads its source field
-    directly (rule 7), so it has that field's type and nullability."""
+    value is BINDING_ARTIFACT. Each result column has the logical type and
+    nullability of its verified document's column: a read's are its source
+    field's, an aggregate's its result's (rules 7 and 7a)."""
     if type(template) is not DuckDBTemplate or not verify_artifact(template.emission):
         raise ValueError("BINDING_ARTIFACT")
     artifact = template.emission
@@ -1057,10 +1299,18 @@ def execution_facts(template: object) -> DuckDBExecutionFacts:
                 domain["max_characters"] if tag == "Text" else None,
             )
         )
+    result = tuple(
+        (c["label"], c["logical_type"]["name"], c["nullable"])
+        for c in json.loads(artifact.document)["columns"]
+    )
+    if any(
+        tag not in TYPES or type(nullable) is not bool for _, tag, nullable in result
+    ):
+        raise ValueError("BINDING_ARTIFACT")
     return DuckDBExecutionFacts(
         entry.name,
         artifact.sql.decode("utf-8"),
         tuple(fields),
-        tuple((column.label, column.field) for column in artifact.ast.columns),
+        result,
         template.facts()[7],
     )

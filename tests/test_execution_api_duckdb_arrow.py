@@ -30,7 +30,7 @@ from _pietto_execution_duckdb import (
     projection,
     run,
 )
-from _pietto_sql_duckdb import PROJECTION, contract, filtered, write
+from _pietto_sql_duckdb import GROUPED, PROJECTION, contract, filtered, write
 
 from pietto import execution
 from pietto._project import project_duckdb_emission as adapter
@@ -672,6 +672,54 @@ def test_each_operator_returns_the_oracle_bag_and_keeps_its_values(
     )
     rows, _ = run(pa, projection(tmp_path / "projection"), orders(pa))
     assert bag(rows) == bag([{"id": r[0], "note": r[2]} for r in ROWS])
+
+
+GROUPED_ROWS = (
+    (1, 5, "a", True, 1.5),
+    (2, 10, None, False, -0.0),
+    (3, 15, "a", True, 0.0),
+    (4, -7, None, False, -1.0),
+    (5, 20, "a", False, 2.5),
+    (6, 1, "a\x00", True, 3.0),
+)
+
+
+def test_a_grouped_query_returns_the_oracle_bag(tmp_path: Path) -> None:
+    """GROUPED's groups, aggregates and having against a Python oracle
+    computed before each run, NULL keys forming one group and `'a'` and
+    `'a\\0'` two; a sum outside signed 64 bits fails the statement, and an
+    aggregate without group by gives one row over no rows."""
+    pa = _engine()
+    query = compiled(tmp_path / "grouped", GROUPED)
+    groups: dict[tuple[Any, Any], list[tuple[Any, ...]]] = {}
+    for row in GROUPED_ROWS:
+        groups.setdefault((row[2], row[3]), []).append(row)
+    for minimum in (-(2**63), 15, 2**63 - 1):
+        expected = bag(
+            [
+                {
+                    "note": note,
+                    "ok": ok,
+                    "n": len(rows),
+                    "filled": sum(r[2] is not None for r in rows),
+                    "c1": sum(r[1] for r in rows),
+                    "low": min(r[4] for r in rows),
+                    "high": max(r[0] for r in rows),
+                }
+                for (note, ok), rows in groups.items()
+                if sum(r[1] for r in rows) >= minimum
+            ]
+        )
+        table = orders(pa, GROUPED_ROWS)
+        rows, handle = run(pa, query, table, parameters={"min_total": minimum})
+        assert bag(rows) == expected and handle.outcome.end == "COMPLETE"
+    overflow = ((1, 2**63 - 1, "a", True, 0.0), (2, 1, "a", True, 0.0))
+    handle = _handle(pa, query, orders(pa, overflow), parameters={"min_total": 0})
+    failure = _failed(handle)
+    assert (failure.code, failure.failure.phase) == ("PIE-R3003", "query")
+    body = "table result:\n    from orders\n    select:\n        n = count()\n"
+    rows, _ = run(pa, compiled(tmp_path / "global", body), orders(pa, ()))
+    assert rows == [{"n": 0}]
 
 
 # A NUL at the start, in the middle and at the end, values of only NUL (the

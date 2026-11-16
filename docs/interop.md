@@ -258,10 +258,11 @@ Each fix below is a change to the query or a call of another function. The
 query forms compile on a PostgreSQL project. A MySQL project compiles them
 too, except the two aggregate forms, which it can block (`PIE-B1004` for
 `sum(v)` of an `Int`, `PIE-B1003` for `coalesce` of an aggregate). The DuckDB
-route admits only a direct projection with at most one `where` that compares
-an `Int` field with the query's parameter, so a `coalesce`, a conditional
-expression, `Float(...)` or an aggregate cannot be written there; the fix
-there is such a `where`, or `to_pandas` or `to_polars`.
+route admits direct reads of fields, `group by` keys and the aggregates
+`count`, `sum` of an `Int` field, `min` and `max`, filtered by comparisons in
+`where` and `having`, but no computed value, so a `coalesce`, a conditional
+expression or `Float(...)` cannot be written there; the fix there is a
+`where`, or `to_pandas` or `to_polars`.
 
 | | Refused | Why | What to do instead |
 | --- | --- | --- | --- |

@@ -35,16 +35,12 @@ def arrow_type(pa: Any, tag: str) -> Any:
 
 
 def result_schema(pa: Any, facts: Any) -> Any:
-    """The compiled result: its labels in result order, each with the type
-    and nullability of the source field it reads."""
+    """The compiled result: its labels in result order, each with its logical
+    type's Arrow type and its nullability."""
     return pa.schema(
         [
-            pa.field(
-                label,
-                arrow_type(pa, facts.fields[k].tag),
-                nullable=facts.fields[k].nullable,
-            )
-            for label, k in facts.result
+            pa.field(label, arrow_type(pa, tag), nullable=nullable)
+            for label, tag, nullable in facts.result
         ]
     )
 
