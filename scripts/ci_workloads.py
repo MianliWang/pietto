@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from collections import Counter
 from datetime import datetime, timedelta, timezone
 import hashlib
 import html
@@ -218,7 +219,9 @@ def validate_policy(policy: dict[str, Any]) -> dict[str, Any]:
     placements = {}
     group_owners: dict[str, set[str]] = {}
     for row in policy["placements"]:
-        exact(row, {"kind", "family", "shards"}, "placement")
+        whole = row.get("whole_files") if type(row) is dict else None
+        optional = set() if whole is None else {"whole_files"}
+        exact(row, {"kind", "family", "shards"} | optional, "placement")
         targets = row["shards"]
         require(
             type(row["kind"]) is str
@@ -227,6 +230,20 @@ def validate_policy(policy: dict[str, Any]) -> dict[str, Any]:
             and targets
             and all(type(s) is str for s in targets),
             "malformed placement",
+        )
+        require(
+            whole is None
+            or (
+                type(whole) is list
+                and whole
+                and len(targets) > 1
+                and len(set(whole)) == len(whole)
+                and all(
+                    type(p) is str and re.fullmatch(r"tests/test_[A-Za-z0-9_]+\.py", p)
+                    for p in whole
+                )
+            ),
+            "malformed whole files",
         )
         key = (row["kind"], row["family"])
         require(
@@ -409,9 +426,17 @@ def place(
 ) -> dict[str, list[str]]:
     require(len(nodes) == len(indices), "missing resolved requirements")
     descriptors = table(policy)
-    placements = {(r["kind"], r["family"]): r["shards"] for r in policy["placements"]}
-    result: dict[str, list[str]] = {r["id"]: [] for r in policy["shards"]}
-    dealt: dict[tuple[str, str], int] = {}
+    placements = {(r["kind"], r["family"]): r for r in policy["placements"]}
+    # A whole file builds its module fixtures in one shard: whole files go to
+    # the shards in turn, then each other node to the target with fewest nodes.
+    # shortcut: the balance counts nodes, not seconds; weigh whole files if
+    # health shows their shard the longest run after run.
+    homes = {
+        (key, path): row["shards"][turn % len(row["shards"])]
+        for key, row in placements.items()
+        for turn, path in enumerate(row.get("whole_files", []))
+    }
+    routes = []
     for node, index in zip(nodes, indices, strict=True):
         row = descriptors[integer(index, 0, len(descriptors) - 1, "descriptor index")]
         key = (row[0], row[1])
@@ -419,9 +444,15 @@ def place(
             key in placements,
             "registered requirement has no approved placement: " + "/".join(key),
         )
-        targets = placements[key]
-        dealt[key] = dealt.get(key, -1) + 1
-        result[targets[dealt[key] % len(targets)]].append(node)
+        home = homes.get((key, node.split("::", 1)[0]))
+        routes.append((node, placements[key]["shards"], home))
+    load = Counter(home for _, _, home in routes if home)
+    result: dict[str, list[str]] = {r["id"]: [] for r in policy["shards"]}
+    for node, targets, home in routes:
+        if home is None:
+            home = min(targets, key=load.__getitem__)
+            load[home] += 1
+        result[home].append(node)
     return result
 
 

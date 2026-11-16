@@ -778,8 +778,8 @@ CI runtime 使用 `--durations=30 --durations-min=1`，另从实际 pytest repor
 
 [CI governance v1](architecture/ci-workload-governance-v1.md) 取代R1的当前placement；旧段落保留历史。
 当前六个分区是 shared-acquisition/loadfile、plan-portability/load、emission-portability/load、
-general-runtime-1/2/3/loadfile（general-runtime/default 按排序节点序号轮流拆成三份，
-见[插段记录](spec/post-phase68-performance-interlude-v1.md)）。普通local validator仍不改变selection；pytest.ini只注册marker。
+general-runtime-1/2/3/loadfile（general-runtime/default 拆成三份，拆法见上面的治理文档，
+三分片的来历见[插段记录](spec/post-phase68-performance-interlude-v1.md)）。普通local validator仍不改变selection；pytest.ini只注册marker。
 新special节点用ci_workload声明class/family/group/profile，registry负责placement；无placement即拒绝。
 新ordinary自动纳入实际U。添加测试时说明扩展的assurance、预计资源影响及正负检查，不要求精确秒数。
 

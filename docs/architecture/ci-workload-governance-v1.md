@@ -30,12 +30,16 @@ v1只作历史，不允许宽松fallback。coverage仍≤8MiB，所有旧semanti
 | shared-acquisition | compiler-differential cohort／named group | loadfile |
 | plan-portability | process-portability / plan | load |
 | emission-portability | process-portability / emission | load |
-| general-runtime-1 | general-runtime / default，排序后序号 i % 3 == 0 的节点 | loadfile |
-| general-runtime-2 | general-runtime / default，排序后序号 i % 3 == 1 的节点 | loadfile |
-| general-runtime-3 | general-runtime / default，排序后序号 i % 3 == 2 的节点 | loadfile |
+| general-runtime-1 | general-runtime / default 的一份（拆法见下段） | loadfile |
+| general-runtime-2 | general-runtime / default 的一份（拆法见下段） | loadfile |
+| general-runtime-3 | general-runtime / default 的一份（拆法见下段） | loadfile |
 
-placement以`shards`列出目标；列出多个shard时，该需求的节点按排序后的序号轮流分配（第i个到`shards[i % n]`），
-同一文件可分在两个job，每个job内仍按loadfile；有acquisition group的需求只能有一个shard，旧单值`shard`字段拒绝。
+placement以`shards`列出目标；列出多个shard时，可选的`whole_files`（经review的现有`tests/test_*.py`，非空、不重复，
+只用于多shard）按列出顺序轮流各占一个shard（第j个到`shards[j % n]`），整文件的module fixture只建一次；该需求的
+其余节点按排序顺序逐个发往当前节点最少的目标shard（并列取列在前者），没有whole file且这些shard不收别的placement时，即第i个到`shards[i % n]`。
+列表只收CI health显示在多个分片重复setup的文件；平衡按节点数，不按秒数，所以调用很重的whole file会让所在分片偏重。
+不在列表中的文件仍可分在多个job，每个job内仍按loadfile；有acquisition group的需求只能有一个shard，
+旧单值`shard`字段拒绝。改`whole_files`即改policy身份，health把前后样本作为policy差异呈现。
 
 托管CI每job资源选择≤4workers，无嵌套池。checks/runtime/targets/windows独立启动；共21realized jobs（每个Python六个runtime分片与一个Windows job）；保留两个Python
 completion contexts与strict target aggregate。共享lock/Ruff、双Pyright/generated/golden/installed和pins不变；

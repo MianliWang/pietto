@@ -36,12 +36,22 @@ family = "emission"
 acquisition_group = ""
 dependency_profile = "core"
 
-# A placement listing several shards deals that requirement's sorted nodes to
-# them in turn (node i goes to shards[i % n]); acquisition groups keep one shard.
+# A placement listing several shards sends each of its whole files to one shard,
+# the files in turn, and then deals every other sorted node to the shard holding
+# the fewest nodes (with no whole files and no other placement on those shards,
+# node i goes to shards[i % n]). A whole file builds each module fixture once;
+# the reviewed list names the files whose repeated setup the CI health shows in
+# several shards. Acquisition groups keep one shard.
 [[placements]]
 kind = "general-runtime"
 family = "default"
 shards = ["general-runtime-1", "general-runtime-2", "general-runtime-3"]
+whole_files = [
+    "tests/test_harness_target_conformance.py",
+    "tests/test_harness_execution_api.py",
+    "tests/test_sql_fixed_values.py",
+    "tests/test_sql_artifact_requirements.py",
+]
 
 [[placements]]
 kind = "shared-acquisition"
