@@ -3,7 +3,7 @@
 ## Status
 
 This is an **alpha** interface. Before the support-matrix freeze, its names,
-signatures and `SqlEmission` fields may change in any `0.1.x` release; each
+signatures and `SqlEmission` fields may change in any `0.2.x` release; each
 change gets a release-note line, with no deprecation period. The documents it
 returns are the existing [project CLI JSON v2](project-cli-json-v2.md#emit-sql-result)
 emission documents, whose own contract is unchanged.
