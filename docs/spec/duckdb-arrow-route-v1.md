@@ -12,14 +12,15 @@ comparison of an `Int` field with one non-null `Int` query parameter
 `sum`, `min` and `max` and a `having` of the same comparison, T03
 `order by` and a static `limit`, and T04 `where` and `having` predicates
 that compare fields and outputs with literals and with any number of
-parameters of the four types, test for NULL and join the tests with `and`,
-`or` and `not`; T05 raises the capture limits. It has no JOIN, and it refuses
-an input table of more than 1,048,576 rows or whose selected columns measure
-more than 256 MiB ([capture](#capture)). It is qualified only
-for `duckdb` `2.0.0` with `pyarrow` `26.0.1` on CPython 3.12 and 3.13, Linux
-x86-64 with glibc 2.28 or later; every other release and platform is not
-qualified. Its names, fields, detail words and limits may change in any later
-release, each with a release-note line and no deprecation period.
+parameters of the four types and join the tests with `and` and `or`, a
+`where` also with NULL tests and `not`; T05 raises the capture limits. It has
+no JOIN, and it refuses an input table of more than 1,048,576 rows or whose
+selected columns measure more than 256 MiB ([capture](#capture)). It is
+qualified only for `duckdb` `2.0.0` with `pyarrow` `26.0.1` on CPython 3.12
+and 3.13, Linux x86-64 with glibc 2.28 or later; every other release and
+platform is not qualified. Its names, fields, detail words and limits may
+change in any later release, each with a release-note line and no deprecation
+period.
 
 B1 does not complete Phase79. B2, `group by` with `count`, `sum`, `min` and
 `max`, `having`, `order by`, `limit` and wider `where` filters, is scheduled as
@@ -50,8 +51,8 @@ natural CI.
 | --- | --- |
 | Project and source | An explicit-module project (`schema_version = 2`) whose statement reads exactly one source declared `source x: Shape = duckdb.arrow("key")`. The key is one non-empty string literal, used exactly: no normalization, trimming or case folding. |
 | Relational shape | One read of that source, then at most one `where`, at most one `group by`, the final projection, at most one `having`, at most one `order by` and at most one `limit`. The `where` and the `having` are predicates, as the next row states. No relation `let`, derived source, second input, JOIN, window, `qualify`, `distinct`, set operation, typed VALUES body or table function. |
-| Predicates | A `where` reads source fields and a `having` reads the query's selected outputs. Each is built from comparisons `a <op> b`, where `<op>` is `==`, `!=`, `<`, `<=`, `>` or `>=`, one side is a direct read (of a source field in `where`, of a selected output in `having`), the other is a literal or a parameter read, and both have one type, `Int`, `Text`, `Bool` or `Float`; from `x is None` and `x is not None` of such a read; and from `and`, `or` and `not` of these. A comparison of two reads, or of an `Int` with a `Float`, and a bare `Bool` read used as a test, such as `where flag`, stay refused, while `where flag == True` is admitted (*derived*: PL.47 names comparisons with literals and parameters). |
-| Literals | `Int`, `Float`, `Text` and `Bool` literals. An explicit-module project has no constants (PIE-S2392, [Top-level constants](../language.md#top-level-constants)), and the language reads a sign before a number as a unary operator, so a unary `-` whose operand is an `Int` or `Float` literal is admitted as one signed literal, that literal's negation, such as `-5`, or `-0.0`, a negative zero (*derived*). Every other unary `-` or `+`, such as `-amount`, `+5` or `- -5`, is a computed value and stays refused. A `Text` literal that holds NUL is refused (rule 8b). |
+| Predicates | A `where` reads source fields and a `having` reads the query's selected outputs. Each is built from comparisons `a <op> b`, where `<op>` is `==`, `!=`, `<`, `<=`, `>` or `>=`, one side is a direct read (of a source field in `where`, of a selected output in `having`), the other is a literal or a parameter read, and both have one type, `Int`, `Text`, `Bool` or `Float`; in a `where` also from `x is None` and `x is not None` of such a read; and from `and` and `or` of these, and in a `where` also `not`. The language refuses a NULL test, `not` and a unary `-` or `+` in a `having` on every target (PIE-S2327), so a `having` compares outputs with unsigned literals and parameters only. A comparison of two reads, or of an `Int` with a `Float`, and a bare `Bool` read used as a test, such as `where flag`, stay refused, while `where flag == True` is admitted (*derived*: PL.47 names comparisons with literals and parameters). |
+| Literals | `Int`, `Float`, `Text` and `Bool` literals. An explicit-module project has no constants (PIE-S2392, [Top-level constants](../language.md#top-level-constants)), and the language reads a sign before a number as a unary operator, so in a `where` a unary `-` whose operand is an `Int` or `Float` literal is admitted as one signed literal, that literal's negation, such as `-5`, or `-0.0`, a negative zero (*derived*). Every other unary `-` or `+`, such as `-amount`, `+5` or `- -5`, is a computed value and stays refused; in a `having` the language refuses every unary operator (PIE-S2327), and a parameter carries a negative bound there. A `Text` literal that holds NUL is refused (rule 8b). |
 | Projection | Without `group by` or an aggregate: direct reads of source fields. With either: direct reads of `group by` keys and the aggregates `count()`, `count(f)`, `sum(f)` of an `Int` field `f`, and `min(f)` and `max(f)` of an `Int` or `Float` field `f`, each over a direct read of a source field. No computed value, and no other aggregate: `avg`, `count_distinct`, `sum` of a `Float` and the rest stay refused. |
 | Grouping | Each `group by` key is a direct read of a source field of one of the four types, optional or not. NULL keys form one group, and a `Float` key puts `-0.0` and `0.0` in one group (see [Float values](../language.md#float-values)). The number of keys has no limit of its own beyond `columns` and `nodes`. |
 | Order and limit | Each `order by` key has one of the four types and is ascending or descending. In a query without `group by` or an aggregate it is a direct read of a source field; a key that names an output other than the source field of that name, such as `order by label` after `label = note` or `order by more` after `more = amount + 1`, leaves the plan unavailable, so rule 5 refuses it. In a grouped query it is a selected output, the only key the language admits there (PIE-S2321). With an aggregate and no `group by` the language refuses any `order by` (PIE-S2333). The `limit` is the static non-negative `Int` that the language takes, from 0 to 2^63−1 (PIE-S2307; PIE-S2355 for a parameter). |

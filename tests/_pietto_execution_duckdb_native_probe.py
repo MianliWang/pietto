@@ -1,5 +1,5 @@
-"""The producer and runner of the Phase79 S06 native qualification
-(preregistration v5, sections 6 to 8).
+"""The producer and runner of the Phase79 DuckDB native qualification
+(preregistration v6, sections 6 to 8).
 
 `unit` runs one installation unit in the preregistered order: the run-start
 check, the run's frozen.sha256, the checker's self-test, the oracle's
@@ -13,6 +13,7 @@ from __future__ import annotations
 import argparse
 import base64
 import contextlib
+import functools
 import hashlib
 import importlib
 import importlib.metadata
@@ -44,7 +45,6 @@ NAMES = {
     "producer": "_pietto_execution_duckdb_native_probe.py",
     "checker": "_pietto_execution_duckdb_native_check.py",
 }
-S06 = Path(".cache/lane-p79/s06")
 SPEC = Path("docs/spec/duckdb-arrow-route-v1.md")
 ALLOWLIST = Path("ci/phase67-arrow-compatibility-requirements.txt")
 CHILD_SHA256 = "e88dafbbc7e4a06a442bc61f5c1ca4c5ea2909398d019f404861143bd600db77"
@@ -102,14 +102,14 @@ def _child(prereg: Path) -> bytes:
     return "".join(line + "\n" for line in lines[opening + 1 : closing]).encode()
 
 
-def _start(lane: Path, evidence: Path, erratum: str | None) -> list[str]:
-    """Section 0's run-start check and this run's frozen.sha256."""
-    frozen = lane / S06 / "frozen"
+def _start(frozen: Path, evidence: Path, erratum: str | None) -> list[str]:
+    """Section 0's run-start check and this run's frozen.sha256: the freeze
+    directory holds the frozen files, and its parent the working copy."""
     start = evidence / "start"
     start.mkdir()
     sources = {
-        "frozen-preregistration-v5.md": frozen / "preregistration-v5.md",
-        "lane-preregistration-v5.md": lane / S06 / "preregistration-v5.md",
+        "frozen-preregistration-v6.md": frozen / "preregistration-v6.md",
+        "working-preregistration-v6.md": frozen.parent / "preregistration-v6.md",
         "freeze-record.md": frozen / "freeze-record.md",
         "FROZEN.sha256": frozen / "FROZEN.sha256",
     }
@@ -125,25 +125,25 @@ def _start(lane: Path, evidence: Path, erratum: str | None) -> list[str]:
     )
     entry = _first_entry(start / "freeze-record.md")
     voids = [
-        f"{name} is not the v5 of the freeze record's first entry"
-        for name in ("frozen-preregistration-v5.md", "lane-preregistration-v5.md")
-        if digests[name] != entry.get("preregistration-v5.md")
+        f"{name} is not the v6 of the freeze record's first entry"
+        for name in ("frozen-preregistration-v6.md", "working-preregistration-v6.md")
+        if digests[name] != entry.get("preregistration-v6.md")
     ]
     if digests["FROZEN.sha256"] != entry.get("FROZEN.sha256"):
         voids.append("FROZEN.sha256 is not the one of the freeze record's first entry")
     if voids:
         return voids
     try:
-        child = _child(start / "frozen-preregistration-v5.md")
+        child = _child(start / "frozen-preregistration-v6.md")
     except StopIteration:
-        return ["no C02a child in the frozen v5"]
+        return ["no C02a child in the frozen v6"]
     (evidence / "c02a-child.py").write_bytes(child)
     files = {NAMES[role]: TESTS / NAMES[role] for role in NAMES}
     files.update(
         {
             "expected.json": frozen / "expected.json",
             "c02a-child.py": evidence / "c02a-child.py",
-            "preregistration-v5.md": start / "frozen-preregistration-v5.md",
+            "preregistration-v6.md": start / "frozen-preregistration-v6.md",
         }
     )
     sums = {name: _sha(path) for name, path in files.items()}
@@ -208,6 +208,8 @@ def unit_main(args: argparse.Namespace) -> int:
         raise SystemExit("U1 alone takes --site; U0 and U1 run the lane's own tree")
     if unit in ("U2", "U3") and not args.wheel:
         raise SystemExit("U2 and U3 take --tree and --wheel")
+    if not args.freeze:
+        raise SystemExit("every unit takes --freeze")
     evidence = Path(args.run).resolve() / unit
     evidence.mkdir(parents=True)
     for name in ("home", "tmp", "work", "shadow"):
@@ -217,12 +219,12 @@ def unit_main(args: argparse.Namespace) -> int:
     producer = str(TESTS / NAMES["producer"])
     argv1 = {"U0": [str(tree / "src")], "U1": [str(tree / "src"), site]}.get(unit, [])
     env = _env(evidence / "home", evidence / "tmp")
-    frozen = lane / S06 / "frozen"
+    frozen = Path(args.freeze).resolve()
 
     def remaining() -> float:
         return began + UNIT_SECONDS - time.monotonic()
 
-    voids = _start(lane, evidence, args.erratum)
+    voids = _start(frozen, evidence, args.erratum)
     if voids:
         return _void(evidence, voids)
     try:
@@ -603,6 +605,14 @@ class Context:
         self.work = self.evidence / "work" / f"{args.cell}-{os.getpid()}"
         self.work.mkdir(parents=True)
         self._queries: dict[tuple[str, str], Any] = {}
+        self._tables: dict[Any, Any] = {}
+        self._made = 0
+
+    def cached(self, key: Any, build: Any) -> Any:
+        """A large fixture built once per interpreter."""
+        if key not in self._tables:
+            self._tables[key] = build()
+        return self._tables[key]
 
     @property
     def pa(self) -> Any:
@@ -610,9 +620,9 @@ class Context:
 
     def query(self, project: str, body: str) -> Any:
         if (project, body) not in self._queries:
-            root = cases.write_project(
-                self.work / f"q{len(self._queries)}", project, body
-            )
+            # A refused compile leaves its directory, so each try has its own.
+            self._made += 1
+            root = cases.write_project(self.work / f"q{self._made}", project, body)
             self._queries[(project, body)] = self.execution.compile_query(
                 root,
                 module="main.pietto",
@@ -690,9 +700,11 @@ def _schema(schema: Any) -> list[list[Any]]:
     return [[field.name, str(field.type), field.nullable] for field in schema]
 
 
-def _attempt(ctx: Context, handle: Any, schema: bool = False) -> dict[str, Any]:
-    """Enter the handle and read every batch: rows as typed values, the
-    batches' schemas, the AttemptFailed and O."""
+def _attempt(
+    ctx: Context, handle: Any, schema: bool = False, digest: bool = False
+) -> dict[str, Any]:
+    """Enter the handle and read every batch: rows as typed values (or their
+    count and digest), the batches' schemas, the AttemptFailed and O."""
     pa = ctx.pa
     facts: dict[str, Any] = {}
     if schema:
@@ -713,7 +725,7 @@ def _attempt(ctx: Context, handle: Any, schema: bool = False) -> dict[str, Any]:
     facts.update(
         raised=raised,
         O=_outcome(handle),
-        rows=rows,
+        rows=cases.digest(rows) if digest else rows,
         batch_schemas=schemas,
         recorded=_recorded(handle),
     )
@@ -1032,23 +1044,32 @@ def c04(ctx: Context, sub: str) -> dict:
 
 
 def c05(ctx: Context, sub: str) -> dict:
+    """(a), (b), (g) MAX_ROWS and one row more, (g) also without `ok`; (c), (e)
+    five columns of exactly MAX_BYTES, (e) with an unselected column; (d),
+    (f) one byte more, (f) with a second `id`."""
     pa = ctx.pa
     query = ctx.query("P0", cases.q_body(">="))
     sizes: dict[str, Any] = {}
     target = None
-    if sub in ("a", "b"):
+    if sub in ("a", "b", "g"):
         table = cases.table(
-            pa, [(1, 5, None, True, 0.0)] * (cases.MAX_ROWS + (sub == "b"))
+            pa, [(1, 5, None, True, 0.0)] * (cases.MAX_ROWS + (sub != "a"))
         )
-    elif sub in ("c", "d"):
-        target = cases.MAX_BYTES + (sub == "d")
-        table = cases.sized(pa, target)
+        if sub == "g":
+            table = table.drop_columns(["ok"])
     else:
-        target = cases.MAX_BYTES + 1
-        table, sizes["five_nbytes"] = cases.padded(pa)
+        target = cases.MAX_BYTES + (sub in ("d", "f"))
+        table = ctx.cached(target, lambda: cases.sized(pa, target))
+        sizes["five_nbytes"] = table.nbytes
+        if sub == "e":
+            table = table.append_column("extra", pa.array([True] * cases.MAX_ROWS))
+        if sub == "f":
+            ids = pa.array(list(range(cases.MAX_ROWS)), pa.int64())
+            table = table.append_column("id", ids)
     sizes.update(rows=table.num_rows, nbytes=table.nbytes, columns=table.column_names)
     if target is not None and (
-        table.nbytes != target or sizes.get("five_nbytes", 0) > cases.MAX_BYTES
+        sizes["five_nbytes"] != target
+        or (sub == "e" and table.nbytes <= cases.MAX_BYTES)
     ):
         return {"fixture_miss": sizes}
     with _Recorder(ctx.route) as recorder:
@@ -1357,12 +1378,14 @@ def c11(ctx: Context, sub: str) -> dict:
             ],
             "calls": recorder.calls,
         }
-    if sub in ("L11a", "L11b"):
+    if sub in ("L11a", "L11b", "L13"):
         with _Recorder(route) as recorder:
             handle = ctx.handle(query, t5)
-            handle._owner._sql = (
-                cases.OVERFLOW_SQL if sub == "L11a" else cases.RELABEL_SQL
-            )
+            handle._owner._sql = {
+                "L11a": cases.OVERFLOW_SQL,
+                "L11b": cases.RELABEL_SQL,
+                "L13": cases.OOM_SQL,
+            }[sub]
             facts = _attempt(ctx, handle)
         facts["calls"] = recorder.calls
         return facts
@@ -1408,8 +1431,13 @@ def c14(ctx: Context, sub: str) -> dict:
 
 
 def c15(ctx: Context, sub: str) -> dict:
+    """B1's query on each entry point, then each B2 form ("form entry")."""
     x = ctx.execution
     query = ctx.query("P0", cases.q_body(">="))
+    if " " in sub:
+        form, sub = sub.split(" ", 1)
+        spec = cases.B2_FORMS[form]
+        query = ctx.query(spec["project"], cases.body(spec))
     if sub == "job_store":
         from pietto._project import project_job_store
 
@@ -1480,6 +1508,41 @@ def c16(ctx: Context, sub: str) -> dict:
     }
 
 
+def b2(cell: str, ctx: Context, sub: str) -> dict:
+    """One B2 statement (sections 4f-4k): its compile refusal, or one attempt
+    over the sub-case's table in its order with its parameters."""
+    spec = cases.B2[cell][sub]
+    try:
+        query = ctx.query(spec["project"], cases.body(spec))
+    except ctx.execution.CompileRejected as error:
+        document = json.loads(error.emission)
+        return {
+            "compile": error.status,
+            "blockers": [
+                [
+                    b.get("code"),
+                    b.get("reason"),
+                    (b.get("subject") or {}).get("detail"),
+                    b.get("location"),
+                    b.get("related"),
+                    b.get("suggestion"),
+                ]
+                for b in document.get("blockers") or []
+            ],
+        }
+    if spec["table"] == "CAPACITY":
+        table = ctx.cached("capacity", lambda: cases.capacity(ctx.pa))
+    else:
+        rows = cases.rows_of(spec["table"], sub.rsplit(" ", 1)[1])
+        table = cases.table(ctx.pa, rows)
+    with _Recorder(ctx.route) as recorder:
+        handle = ctx.handle(query, table, parameters=spec["values"])
+        began = time.monotonic()
+        facts = _attempt(ctx, handle, schema=True, digest=spec["digest"])
+    facts.update(elapsed=time.monotonic() - began, calls=recorder.calls)
+    return facts
+
+
 CELLS = {
     "C01": c01,
     "C02a": c02a,
@@ -1498,6 +1561,7 @@ CELLS = {
     "C14": c14,
     "C15": c15,
     "C16": c16,
+    **{cell: functools.partial(b2, cell) for cell in cases.B2},
 }
 
 
@@ -1556,7 +1620,16 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--unit", required=True, choices=cases.UNITS)
     for name in ("run", "lane", "tree", "site", "wheel", "erratum", "evidence"):
         parser.add_argument(f"--{name}")
-    for name in ("cell", "subs", "path", "argv1", "out", "host-netns", "dirs"):
+    for name in (
+        "cell",
+        "subs",
+        "path",
+        "argv1",
+        "out",
+        "host-netns",
+        "dirs",
+        "freeze",
+    ):
         parser.add_argument(f"--{name}")
     args = parser.parse_args(argv)
     command = {"unit": unit_main, "identity": identity_main, "cell": cell_main}

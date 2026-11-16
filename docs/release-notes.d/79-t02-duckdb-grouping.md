@@ -27,16 +27,19 @@ among ties at its boundary or without `order by`.
 
 `where` and `having` now compare fields and selected outputs with literals
 and with query parameters of the same type, `Int`, `Text`, `Bool` or
-`Float`, test them with `is None` and `is not None`, and join the tests with
-`and`, `or` and `not`. A query may declare any number of non-null parameters
-of those four types and read each one in such comparisons, as often as it
-needs; `execute(parameters=...)` still checks each value's exact type before
-DuckDB sees it (`PIE-R1006`). `emit-sql` writes an `Int` literal as
-`CAST(<n> AS BIGINT)`, a `Float` literal as `CAST('<r>' AS DOUBLE)` with
-`<r>` its shortest decimal, so `-0.0` stays a negative zero, a `Text` literal
-quoted with each `'` doubled, a `Bool` literal as `TRUE` or `FALSE`, and each
-parameter read as `CAST($n AS <type>)`, numbered in the order of first reads;
-a `-` before a number literal is part of the literal. The emission
+`Float`, and join the tests with `and` and `or`; a `where` also tests fields
+with `is None` and `is not None` and uses `not`. The language refuses those
+tests, `not` and a `-` before a number in a `having` (`PIE-S2327`), so a
+negative bound there is a parameter. A query may declare any number of
+non-null parameters of those four types and read each one in such
+comparisons, as often as it needs; `execute(parameters=...)` still checks
+each value's exact type before DuckDB sees it (`PIE-R1006`). `emit-sql`
+writes an `Int` literal as `CAST(<n> AS BIGINT)`, a `Float` literal as
+`CAST('<r>' AS DOUBLE)` with `<r>` its shortest decimal, so `-0.0` stays a
+negative zero, a `Text` literal quoted with each `'` doubled, a `Bool`
+literal as `TRUE` or `FALSE`, and each parameter read as
+`CAST($n AS <type>)`, numbered in the order of first reads; in a `where`, a
+`-` before a number literal is part of the literal. The emission
 document's `parameter_uses` has one entry per read with its parameter's
 `server_index`, and `physical_type` may now also be `duckdb_double`,
 `duckdb_varchar` or `duckdb_boolean`. See the

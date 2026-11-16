@@ -1,9 +1,12 @@
-"""The checker of the Phase79 S06 native qualification (preregistration v5,
-section 6). `check(report, expected)` returns ACCEPTED, DEGRADED (law 7
+"""The checker of the Phase79 DuckDB native qualification (preregistration
+v6, section 6). `check(report, expected)` returns ACCEPTED, DEGRADED (law 7
 only), VOID (a fixture size miss, or an L6 setup above its bound: that
 sub-cell only) or the first law that refused; `self_test(expected)` accepts
 the honest literal report of every unit and refuses each fabricated shape.
-Standard library only: it reads saved facts and judges them."""
+Rows compare as bags, as sequences of tie classes under `order by`, and as
+sub-multisets of the boundary class at a `limit`; a value of a class that
+holds both zeros may show either. Standard library only: it reads saved
+facts and judges them."""
 
 from __future__ import annotations
 
@@ -16,7 +19,15 @@ from typing import Any
 
 MISSING = object()
 PARTIAL = ("raised", "second_enter")
-LAWS = {"raised": 3, "O": 3, "schema": 4, "batch_schemas": 4, "capture_c2": 4}
+LAWS = {
+    "raised": 3,
+    "O": 3,
+    "compile": 3,
+    "blockers": 3,
+    "schema": 4,
+    "batch_schemas": 4,
+    "capture_c2": 4,
+}
 SITE = "/s06/probe/lib/python3.13/site-packages"
 
 
@@ -137,8 +148,67 @@ def _bag(arg: Any, got: Any, unit: str, identity: dict) -> bool:
     return isinstance(got, list) and sorted(map(_text, got)) == sorted(map(_text, arg))
 
 
+def _fits(got: Any, want: Any) -> bool:
+    """One row: each value literally equal, or one of a `$any` value's."""
+    return (
+        isinstance(got, list)
+        and len(got) == len(want)
+        and all(
+            any(_same(g, m) for m in w["$any"])
+            if isinstance(w, dict) and "$any" in w
+            else _same(g, w)
+            for g, w in zip(got, want, strict=True)
+        )
+    )
+
+
+def _inject(got: Any, want: list) -> bool:
+    """Whether each row of `got` matches its own row of `want`: `got` is a
+    sub-multiset of `want`."""
+    if not isinstance(got, list) or len(got) > len(want):
+        return False
+    used = [False] * len(want)
+
+    def place(i: int) -> bool:
+        if i == len(got):
+            return True
+        for j, row in enumerate(want):
+            if not used[j] and _fits(got[i], row):
+                used[j] = True
+                if place(i + 1):
+                    return True
+                used[j] = False
+        return False
+
+    return place(0)
+
+
+def _bag_any(arg: Any, got: Any, unit: str, identity: dict) -> bool:
+    return isinstance(got, list) and len(got) == len(arg) and _inject(got, arg)
+
+
+def _ordered(arg: Any, got: Any, unit: str, identity: dict) -> bool:
+    """The tie classes in order, each a bag; at a limit, the rows before the
+    boundary class are its whole predecessors and the rest a sub-multiset of
+    it; exactly min(limit, rows) rows."""
+    classes, limit = arg["classes"], arg["limit"]
+    total = sum(len(rows) for rows in classes)
+    wanted = total if limit is None else min(limit, total)
+    if not isinstance(got, list) or len(got) != wanted:
+        return False
+    at = 0
+    for rows in classes:
+        take = min(len(rows), wanted - at)
+        if take and not _inject(got[at : at + take], rows):
+            return False
+        at += take
+    return True
+
+
 MATCHERS = {
     "$bag": _bag,
+    "$bag_any": _bag_any,
+    "$ordered": _ordered,
     "$interrupted": _interrupted,
     "$settings": _settings,
     "$same": _same_k,
@@ -313,6 +383,16 @@ def check(report: Any, expected: dict) -> dict[str, Any]:
             voids.append(f"{where}: fixture size")
             continue
         want = expected["cells"][cell][sub]
+        if "either" in want:
+            if not any(
+                all(
+                    key in got and _matches(key, value, got[key], unit, identity)
+                    for key, value in alternative.items()
+                )
+                for alternative in want["either"]
+            ):
+                return _refused(unit, 3, f"{where}: neither outcome")
+            continue
         if "setup" in want:
             setup = got.get("setup")
             if not _number(setup) or setup > want["setup"]["$void_above"]:
@@ -407,8 +487,21 @@ def _satisfying(key: str, want: Any, unit: str, identity: dict) -> Any:
     tree = pietto["tree"]
     src = f"{tree}/src"
     argv1 = {"U0": [src], "U1": [src, identity["unit_root"]]}.get(unit, [])
+
+    def resolved(rows: list) -> list:
+        return [
+            [v["$any"][0] if isinstance(v, dict) and "$any" in v else v for v in row]
+            for row in rows
+        ]
+
+    def ordered() -> list:
+        rows = [row for rows in arg["classes"] for row in rows]
+        return resolved(rows if arg["limit"] is None else rows[: arg["limit"]])
+
     return {
         "$bag": lambda: copy.deepcopy(arg),
+        "$bag_any": lambda: resolved(arg),
+        "$ordered": ordered,
         "$interrupted": lambda: arg[0] + [["interrupt"]] + arg[1],
         "$settings": lambda: [["threads", "1"], *copy.deepcopy(arg)],
         "$same": lambda: {
@@ -433,8 +526,11 @@ def _satisfying(key: str, want: Any, unit: str, identity: dict) -> Any:
     }[name]()
 
 
-def honest(expected: dict, unit: str, observed: bool = True) -> dict[str, Any]:
-    """The literal report a passing unit writes."""
+def honest(
+    expected: dict, unit: str, observed: bool = True, alternative: int = 0
+) -> dict[str, Any]:
+    """The literal report a passing unit writes, with the given outcome of
+    each sub-case that admits two."""
     identity = honest_identity(expected, unit)
     records = []
     for cell, sub in declared(expected, unit):
@@ -444,6 +540,8 @@ def honest(expected: dict, unit: str, observed: bool = True) -> dict[str, Any]:
             facts = {"namespace": "NOT_OBSERVED", "reason": "unshare refused"}
         else:
             want = expected["cells"][cell][sub]
+            if "either" in want:
+                want = want["either"][alternative]
             facts = {
                 key: _satisfying(key, value, unit, identity)
                 for key, value in want.items()
@@ -1176,17 +1274,324 @@ def _shapes() -> list[tuple[str, str, Any, Any]]:
             2,
         ),
     ]
-    return shapes
+    return shapes + _b2_shapes()
+
+
+def _b2_shapes() -> list[tuple[str, str, Any, Any]]:
+    """v6: the shapes of B2's cells (section 6)."""
+    one = ["Int", "1"]
+    lower = [one, ["Float", "3ff8000000000000"]]
+    yet = (
+        "project source fields directly, such as select: id, amount; computed"
+        " values are not available on DuckDB yet"
+    )
+
+    def delivered(report: dict) -> None:
+        facts = _facts(report, "C17", "sum over forward")
+        o = ["COMPLETE", "COMMIT_ACK", "LOCAL_CLOSED_REMOTE_UNOBSERVED"]
+        facts.update(raised=None, O=[*o, False, False, False, False, 1])
+        facts["rows"] = [[["Int", str(-(2**63))]]]
+
+    def admitted(report: dict) -> None:
+        facts = _facts(report, "C20", "lit nul forward")
+        facts.clear()
+        facts.update(raised=None, rows=[])
+
+    def moved(blockers: list) -> list:
+        return [[*b[:3], {**b[3], "line": b[3]["line"] + 1}, *b[4:]] for b in blockers]
+
+    def memory(settings: list) -> list:
+        return [
+            ["memory_limit", "256.0 MiB"] if x[0] == "memory_limit" else x
+            for x in settings
+        ]
+
+    limit = {
+        "class": "RequestRejected",
+        "code": "PIE-R1002",
+        "detail": "DUCKDB_ARROW_CAPTURE_LIMIT",
+    }
+    return [
+        (
+            "ordered classes swapped",
+            "U1",
+            _edit("C19", "multi forward", "rows", lambda r: r[::-1]),
+            4,
+        ),
+        (
+            "a limit boundary row from the next class",
+            "U1",
+            _edit("C19", "tie boundary forward", "rows", lambda r: [*r[:-1], lower]),
+            4,
+        ),
+        (
+            "a limit boundary row doubled",
+            "U1",
+            _edit("C19", "tie boundary forward", "rows", lambda r: [*r[:-1], r[-2]]),
+            4,
+        ),
+        (
+            "NULL last in a descending order",
+            "U1",
+            _edit("C19", "amount desc forward", "rows", lambda r: r[2:] + r[:2]),
+            4,
+        ),
+        (
+            "B after a in Text order",
+            "U1",
+            _edit(
+                "C19",
+                "note asc forward",
+                "rows",
+                lambda r: [r[0], *r[2:5], r[1], *r[5:]],
+            ),
+            4,
+        ),
+        (
+            "a group missing",
+            "U1",
+            _edit("C17", "keys forward", "rows", lambda r: r[1:]),
+            4,
+        ),
+        (
+            "NULL keys in two groups",
+            "U1",
+            _edit(
+                "C17",
+                "text key forward",
+                "rows",
+                lambda r: (
+                    [x for x in r if x[0] is not None]
+                    + [[None, one, ["Int", "2"]], [None, one, ["Int", "5"]]]
+                ),
+            ),
+            4,
+        ),
+        (
+            "a and a NUL merged",
+            "U1",
+            _edit(
+                "C17",
+                "text key forward",
+                "rows",
+                lambda r: [x for x in r if x[0] != ["Text", "6100"]],
+            ),
+            4,
+        ),
+        (
+            "a Float key's zeros in two groups",
+            "U1",
+            _edit(
+                "C17",
+                "float key forward",
+                "rows",
+                lambda r: [
+                    *r,
+                    [["Float", "8000000000000000"], ["Int", "2"], ["Int", "10"]],
+                ],
+            ),
+            4,
+        ),
+        (
+            "a zero min shown as another value",
+            "U1",
+            _edit(
+                "C17",
+                "zero extremes forward",
+                "rows",
+                lambda r: [[x[0], ["Float", "3ff0000000000000"], x[2]] for x in r],
+            ),
+            4,
+        ),
+        ("an overflowing sum delivered", "U1", delivered, 3),
+        (
+            "an overflow of another cause",
+            "U1",
+            _edit(
+                "C17",
+                "sum over forward",
+                "raised",
+                _raised(cause="OutOfRangeException"),
+            ),
+            3,
+        ),
+        (
+            "limit 0 with a row",
+            "U1",
+            _set("C19", "limit 0 forward", "rows", [[one]]),
+            4,
+        ),
+        (
+            "a limit without order returning too few rows",
+            "U1",
+            _edit("C19", "no order limit forward", "rows", lambda r: r[:2]),
+            4,
+        ),
+        (
+            "a limit without order returning a row twice",
+            "U1",
+            _edit(
+                "C19", "no order limit forward", "rows", lambda r: [r[0], r[0], r[1]]
+            ),
+            4,
+        ),
+        (
+            "a rule-two blocker added",
+            "U0",
+            _edit(
+                "C22",
+                "A1",
+                "blockers",
+                lambda b: [*b, [*b[0][:2], "duckdb_order_not_admitted", None, []]],
+            ),
+            3,
+        ),
+        (
+            "a rule-two blocker at another site",
+            "U1",
+            _edit("C22", "B1", "blockers", moved),
+            3,
+        ),
+        (
+            "main's rule 7 suggestion",
+            "U2",
+            _edit("C22", "A3", "blockers", lambda b: [[*x[:5], yet] for x in b]),
+            3,
+        ),
+        (
+            "a rule-two statement verified",
+            "U3",
+            _set("C22", "A4", "compile", "VERIFIED"),
+            3,
+        ),
+        ("the NUL literal admitted", "U1", admitted, 3),
+        (
+            "the capacity digest differs",
+            "U1",
+            _edit("C21", "sort", "rows", lambda d: {**d, "sha256": "0" * 64}),
+            4,
+        ),
+        (
+            "a capacity sort cut short",
+            "U2",
+            _edit("C21", "sort", "rows", lambda d: {**d, "count": d["count"] - 1}),
+            4,
+        ),
+        ("an unselected column counted", "U1", _set("C05", "e", "raised", limit), 3),
+        (
+            "the byte limit before the schema",
+            "U1",
+            _edit("C05", "f", "raised", _raised(detail="DUCKDB_ARROW_CAPTURE_LIMIT")),
+            3,
+        ),
+        (
+            "the schema before the row limit",
+            "U1",
+            _edit("C05", "g", "raised", _raised(detail="DUCKDB_ARROW_SCHEMA")),
+            3,
+        ),
+        (
+            "an L13 statement that committed",
+            "U1",
+            _edit("C11", "L13", "O", lambda o: _replaced(o, 1, "COMMIT_ACK")),
+            3,
+        ),
+        (
+            "an L13 failure of another cause",
+            "U1",
+            _edit("C11", "L13", "raised", _raised(cause="InterruptException")),
+            3,
+        ),
+        (
+            "a B2 bundle exported",
+            "U0",
+            _set("C15", "grouped bundle", "raised", None),
+            3,
+        ),
+        (
+            "a B2 query's workspace created",
+            "U0",
+            _set("C15", "ordered save", "exists_after", [True, False]),
+            5,
+        ),
+        (
+            "a three-valued NULL kept",
+            "U1",
+            _edit(
+                "C20",
+                "3vl not forward",
+                "rows",
+                lambda r: [*r, [["Int", "12"], ["Text", ""]]],
+            ),
+            4,
+        ),
+        (
+            "a parameter read twice bound once",
+            "U1",
+            _edit("C20", "params s1 forward", "rows", lambda r: r[:-1]),
+            4,
+        ),
+        (
+            "a nullability flipped",
+            "U1",
+            _edit(
+                "C17",
+                "keys forward",
+                "schema",
+                lambda c: [[*c[0][:2], not c[0][2]], *c[1:]],
+            ),
+            4,
+        ),
+        (
+            "a label case-folded",
+            "U1",
+            _edit(
+                "C17",
+                "labels forward",
+                "schema",
+                lambda c: [[x[0].lower(), *x[1:]] for x in c],
+            ),
+            4,
+        ),
+        (
+            "default_collation not read back",
+            "U1",
+            _edit(
+                "C10",
+                "i",
+                "settings",
+                lambda s: [x for x in s if x[0] != "default_collation"],
+            ),
+            5,
+        ),
+        ("a 256 MiB memory_limit", "U1", _edit("C10", "i", "settings", memory), 5),
+    ]
+
+
+def _wrong_total(report: dict) -> None:
+    """The completed outcome of an out-of-range group's statement with a
+    wrong total, which neither admitted outcome allows."""
+    facts = _facts(report, "C17", "filtered overflow forward")
+    facts["rows"] = [[*row[:2], ["Int", "0"]] for row in facts["rows"]]
 
 
 def self_test(expected: dict) -> list[tuple[str, dict[str, Any]]]:
-    """Each unit's honest report is ACCEPTED; each fabricated shape gets the
-    verdict it must get and never ACCEPTED. Raises AssertionError otherwise."""
+    """Each unit's honest report is ACCEPTED, with either admitted outcome of
+    a sub-case that has two; each fabricated shape gets the verdict it must
+    get and never ACCEPTED. Raises AssertionError otherwise."""
     results = []
     for unit in expected["units"]:
         verdict = check(honest(expected, unit), expected)
         results.append((f"honest {unit}", verdict))
         assert verdict == {"unit": unit, "verdict": "ACCEPTED"}, (unit, verdict)
+    other = honest(expected, "U1", alternative=1)
+    verdict = check(other, expected)
+    results.append(("the other admitted outcome", verdict))
+    assert verdict == {"unit": "U1", "verdict": "ACCEPTED"}, verdict
+    _wrong_total(other)
+    verdict = check(other, expected)
+    results.append(("an out-of-range group's wrong total", verdict))
+    assert verdict["verdict"] == "REFUSED" and verdict["law"] == 3, verdict
     for name, unit, change, wanted in _shapes():
         report = honest(expected, unit)
         change(report)

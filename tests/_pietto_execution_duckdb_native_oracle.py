@@ -1,18 +1,23 @@
-"""The oracle of the Phase79 S06 native qualification (preregistration v4,
-sections 3, 4 and 4a-4e): every expected value, derived in pure Python from
-the fixtures of `_pietto_execution_duckdb_native_cases` and the values the
-preregistration states. Writes expected.json; loads no DuckDB."""
+"""The oracle of the Phase79 DuckDB native qualification (preregistration
+v6, sections 3, 4 and 4a-4k): every expected value, derived in pure Python
+from the fixtures of `_pietto_execution_duckdb_native_cases` and the values
+the preregistration states. B2's statements are evaluated here by Pietto's
+own laws (three-valued predicates, grouping under `==`, NULL placed as the
+PostgreSQL emitter places it, ties as classes), not by any product code.
+Writes expected.json; loads no DuckDB."""
 
 from __future__ import annotations
 
+import functools
 import json
 import operator
+import struct
 import sys
 from pathlib import Path
 
 import _pietto_execution_duckdb_native_cases as cases
 
-SPEC_SHA256 = "b555959784f18d51bcc11f08c2cc4d6d60fe9e23a2aaf8bf9f94fb5c37ec441a"
+SPEC_SHA256 = "38d8bfa2560f34375f0d231d7c794f84a2531caf28de0af4508240694f5d8e30"
 CHILD_SHA256 = "e88dafbbc7e4a06a442bc61f5c1ca4c5ea2909398d019f404861143bd600db77"
 LCRU = "LOCAL_CLOSED_REMOTE_UNOBSERVED"
 OPENED = [["connect", ":memory:"], ["register", "pietto_arrow_0"]]
@@ -45,7 +50,7 @@ TABLE_4E = {
     ">": ({1, 2, 3, 5}, {1, 2, 3, 5}, {1, 2, 3, 5}, {2, 3, 5}, set()),
     ">=": ({1, 2, 3, 4, 5}, {1, 2, 3, 5}, {1, 2, 3, 5}, {2, 3, 5}, {5}),
 }
-# Section 4a: the 35 rows read back, as duckdb_settings() returns them.
+# Section 4a: the 36 rows read back, as duckdb_settings() returns them.
 READ_BACK = (
     ("allow_community_extensions", "false"),
     ("allow_extension_repositories", "forbidden"),
@@ -60,7 +65,7 @@ READ_BACK = (
     ("enable_progress_bar", "false"),
     ("enable_progress_bar_print", "false"),
     ("max_temp_directory_size", "0 bytes"),
-    ("memory_limit", "256.0 MiB"),
+    ("memory_limit", "1.0 GiB"),
     ("python_enable_replacements", "false"),
     ("python_scan_all_frames", "false"),
     ("temp_directory", ""),
@@ -80,8 +85,9 @@ READ_BACK = (
     ("enable_logging", "0"),
     ("logging_storage", "memory"),
     ("access_mode", "automatic"),
+    ("default_collation", ""),
     ("worker_threads", "1"),
-    ("max_memory", "256.0 MiB"),
+    ("max_memory", "1.0 GiB"),
 )
 EXTENSIONS = ["core_functions", "icu", "json", "parquet"]
 # C02a's 25 pairs (section 4, C02a), in order.
@@ -309,7 +315,318 @@ def _c11():
             "O": outcome("FAILED", "COMMIT_ACK"),
             "calls": lived,
         },
+        "L13": {
+            "raised": failed("PIE-R3003", None, "query", "OutOfMemoryException"),
+            "O": outcome("FAILED", "UNKNOWN"),
+            "calls": lived,
+        },
     }
+
+
+# B2 (sections 4f-4k): Pietto's laws over the fixtures, in pure Python.
+INT64 = (-(2**63), 2**63 - 1)
+ARROW = {"Int": "int64", "Text": "string", "Bool": "bool", "Float": "double"}
+KINDS = {"id": "Int", "amount": "Int", "note": "Text", "ok": "Bool", "price": "Float"}
+TEXT_7 = (
+    "select source fields directly, or group by keys and aggregates of fields,"
+    " such as select: customer, total = sum(amount); computed values are not"
+    " available on DuckDB"
+)
+TEXT_8B = (
+    "remove NUL from the Text literal; DuckDB emission writes no NUL into SQL text"
+)
+HEADER_LINES = 9
+
+
+class Overflow(Exception):
+    """A sum outside signed 64 bits that the statement reads: it fails
+    (PIE-R3003)."""
+
+
+# The value of a sum outside signed 64 bits, which no row may show.
+OUT = object()
+
+
+def _optional(project, field):
+    return (
+        field == "note"
+        or (field == "amount" and cases.PROJECTS[project][1])
+        or (project == "PB" and field in ("ok", "price"))
+    )
+
+
+def _value(expr, row, values):
+    kind = expr[0]
+    if kind == "f":
+        value = row[expr[1]]
+        if value is OUT:
+            raise Overflow
+        return value
+    if kind == "p":
+        return values[expr[1]]
+    return expr[1]
+
+
+def _truth(expr, row, values):
+    """True, False or None (unknown), by three-valued logic."""
+    kind = expr[0]
+    if kind == "cmp":
+        a, b = _value(expr[2], row, values), _value(expr[3], row, values)
+        return None if a is None or b is None else COMPARE[expr[1]](a, b)
+    if kind == "null":
+        empty = _value(expr[1], row, values) is None
+        return not empty if expr[2] else empty
+    if kind == "not":
+        a = _truth(expr[1], row, values)
+        return None if a is None else not a
+    a, b = _truth(expr[1], row, values), _truth(expr[2], row, values)
+    if kind == "and":
+        return False if False in (a, b) else None if None in (a, b) else True
+    return True if True in (a, b) else None if None in (a, b) else False
+
+
+def _shown(values):
+    """A value of a class equal under `==`: a Float class that holds both
+    zeros shows either member."""
+    first = values[0]
+    if isinstance(first, float) and first == 0.0:
+        signs = {struct.pack(">d", v) for v in values}
+        if len(signs) == 2:
+            return {"$any": [cases.encode(0.0), cases.encode(-0.0)]}
+    return cases.encode(first)
+
+
+def _aggregate(item, rows):
+    """(the value to order and compare by, its encoding)."""
+    function, field = item[1], item[2]
+    if function == "count":
+        n = len(rows) if field is None else sum(r[field] is not None for r in rows)
+        return n, cases.encode(n)
+    seen = [r[field] for r in rows if r[field] is not None]
+    if not seen:
+        return None, None
+    if function == "sum":
+        total = sum(seen)
+        if not INT64[0] <= total <= INT64[1]:
+            return OUT, None
+        return total, cases.encode(total)
+    extreme = (min if function == "min" else max)(seen)
+    return extreme, _shown([v for v in seen if v == extreme])
+
+
+def _compare(keys, a, b):
+    """NULL last ascending and first descending, as the PostgreSQL emitter
+    places it; 0 for rows that tie on every key."""
+    for name, desc in keys:
+        x, y = a[name], b[name]
+        if x is OUT or y is OUT:
+            raise Overflow
+        if x is None or y is None:
+            order = (x is None) - (y is None)
+        else:
+            order = (x > y) - (x < y)
+        if order:
+            return -order if desc else order
+    return 0
+
+
+def _evaluate(spec, rows):
+    """The statement's rows as (raw values by label and field, encoded row),
+    and whether any group's sum left signed 64 bits."""
+    values = spec["values"] or {}
+    source = [dict(zip(cases.COLUMNS, row, strict=True)) for row in rows]
+    if spec["where"] is not None:
+        source = [r for r in source if _truth(spec["where"], r, values) is True]
+    aggregates = any(item[0] == "agg" for _label, item in spec["select"])
+    if not (spec["group"] or aggregates):
+        out = []
+        for r in source:
+            raw = {**r, **{label: r[item[1]] for label, item in spec["select"]}}
+            encoded = [cases.encode(raw[label]) for label, _item in spec["select"]]
+            out.append((raw, encoded))
+        return out, False
+    groups = {}
+    for r in source:
+        groups.setdefault(tuple(r[k] for k in spec["group"]), []).append(r)
+    if not spec["group"]:
+        groups = {(): source}
+    out = []
+    for members in groups.values():
+        raw, encoded = {}, []
+        for label, item in spec["select"]:
+            if item[0] == "agg":
+                value, shown = _aggregate(item, members)
+            else:
+                value = members[0][item[1]]
+                shown = _shown([m[item[1]] for m in members])
+            raw[label] = value
+            encoded.append(shown)
+        out.append((raw, encoded))
+    overflowed = any(v is OUT for raw, _encoded in out for v in raw.values())
+    if spec["having"] is not None:
+        out = [o for o in out if _truth(spec["having"], o[0], values) is True]
+    return out, overflowed
+
+
+def _schema(spec):
+    columns = []
+    for label, item in spec["select"]:
+        if item[0] == "agg":
+            kind = "Int" if item[1] in ("count", "sum") else KINDS[item[2]]
+            columns.append([label, ARROW[kind], item[1] != "count"])
+        else:
+            optional = _optional(spec["project"], item[1])
+            columns.append([label, ARROW[KINDS[item[1]]], optional])
+    return columns
+
+
+def _rows_expected(spec, out):
+    """Law 4's rows: a bag; the sequence of tie classes under `order by`, up
+    to the class at the limit; a limit without `order by` keeps any rows of
+    the bag. A row that a sum outside signed 64 bits reaches raises
+    Overflow."""
+    keys, limit = spec["order"], spec["limit"]
+    if keys:
+        ranked = sorted(
+            out, key=functools.cmp_to_key(lambda a, b: _compare(keys, a[0], b[0]))
+        )
+        classes = []
+        for raw, encoded in ranked:
+            if classes and _compare(keys, classes[-1][0], raw) == 0:
+                classes[-1][1].append((raw, encoded))
+            else:
+                classes.append((raw, [(raw, encoded)]))
+        kept, count = [], 0
+        for _first, members in classes:
+            if limit is not None and count >= limit:
+                break
+            kept.append(members)
+            count += len(members)
+        if any(
+            v is OUT for members in kept for raw, _ in members for v in raw.values()
+        ):
+            raise Overflow
+        rows = [[encoded for _raw, encoded in members] for members in kept]
+        return {"$ordered": {"classes": rows, "limit": limit}}
+    if any(v is OUT for raw, _encoded in out for v in raw.values()):
+        raise Overflow
+    rows = [encoded for _raw, encoded in out]
+    if limit is not None:
+        return {"$ordered": {"classes": [rows], "limit": limit}}
+    if any(isinstance(v, dict) for row in rows for v in row):
+        return {"$bag_any": rows}
+    return {"$bag": rows}
+
+
+def _completed(spec, out, rows=None):
+    schema = _schema(spec)
+    count = len(out) if spec["limit"] is None else min(len(out), spec["limit"])
+    batches = -(-count // 256)
+    return {
+        "raised": None,
+        "O": outcome("COMPLETE", "COMMIT_ACK", batches=batches),
+        "rows": _rows_expected(spec, out) if rows is None else rows,
+        "schema": schema,
+        "batch_schemas": [schema] if batches else [],
+    }
+
+
+def _overflowed(spec):
+    return {
+        "raised": failed("PIE-R3003", None, "query", "ConversionException"),
+        "O": outcome("FAILED", "UNKNOWN"),
+        "rows": [],
+        "schema": _schema(spec),
+    }
+
+
+def _statement(sub, spec):
+    if sub in cases.REFUSED:
+        return _blocked(spec, "duckdb_text_literal_nul_not_admitted", TEXT_8B)
+    order = sub.rsplit(" ", 1)[1]
+    out, overflowed = _evaluate(spec, cases.rows_of(spec["table"], order))
+    if sub not in cases.EITHER:
+        return _overflowed(spec) if overflowed else _completed(spec, out)
+    # The out-of-range group is removed by the having or lies beyond the
+    # limit: the statement fails, or it returns the other rows correctly
+    # (section 4f). Reading that group's sum is a fixture error here.
+    if not overflowed:
+        raise AssertionError(f"{sub}: no group overflows")
+    return {"either": [_overflowed(spec), _completed(spec, out)]}
+
+
+def _site(spec, text, offset):
+    """The span of `text`, less its first `offset` characters, in the line
+    of the statement that holds it."""
+    for number, line in enumerate(cases.body(spec).split("\n")):
+        found = line.find(text)
+        if found >= 0:
+            column = found + 1 + offset
+            return {
+                "path": "main.pietto",
+                "line": HEADER_LINES + 1 + number,
+                "column": column,
+                "end_line": HEADER_LINES + 1 + number,
+                "end_column": column + len(text) - offset,
+            }
+    raise AssertionError(f"{text!r} is not in the statement")
+
+
+def _blocked(spec, detail, suggestion):
+    """A compile refusal with one blocker: rule 7 at the computed output, or
+    rule 8b at the literal that holds NUL."""
+    if detail == "duckdb_projection_not_admitted":
+        raw = next(item[1] for _label, item in spec["select"] if item[0] == "raw")
+        site = _site(spec, raw, 0)
+    else:
+        site = _site(spec, cases.render(cases.NUL_LITERAL), len("note == "))
+    blocker = ["PIE-B1003", "UNSUPPORTED_RULE", detail, site, [], suggestion]
+    return {"compile": "BLOCKED", "blockers": [blocker]}
+
+
+def _ranked(rows):
+    return {"$ordered": {"classes": [[row] for row in rows], "limit": None}}
+
+
+def _capacity(sub, spec):
+    """C21 from the capacity rows' formulas (section 4h)."""
+    n = cases.MAX_ROWS
+    if sub == "count":
+        total = sum(k % 1000 - 500 for k in range(n))
+        row = [cases.encode(v) for v in (n, total, -3.0, n - 1)]
+        return _completed(spec, [None], {"$bag": [row]})
+    if sub == "group":
+        top = [
+            [cases.encode(cases.capacity_row(k)[2]), cases.encode(1)]
+            for k in (n - 1, n - 2)
+        ]
+        return _completed(spec, [None] * 2, _ranked(top))
+    if sub == "sort":
+        rows = [[cases.encode(k)] for k in range(n - 1, -1, -1)]
+        return _completed(spec, [None] * n, cases.digest(rows))
+    groups = {}
+    for k in range(n):
+        _id, amount, _note, ok, price = cases.capacity_row(k)
+        count, total, low = groups.get(ok, (0, 0, price))
+        groups[ok] = (count + 1, total + amount, min(low, price))
+    ranked = [
+        [cases.encode(ok), *(cases.encode(v) for v in groups[ok])]
+        for ok in (False, True)
+    ]
+    return _completed(spec, [None] * 2, _ranked(ranked))
+
+
+def _b2():
+    cells = {}
+    for cell, subs in cases.B2.items():
+        if cell == "C22":
+            detail = "duckdb_projection_not_admitted"
+            cells[cell] = {sub: _blocked(s, detail, TEXT_7) for sub, s in subs.items()}
+        elif cell == "C21":
+            cells[cell] = {sub: _capacity(sub, s) for sub, s in subs.items()}
+        else:
+            cells[cell] = {sub: _statement(sub, s) for sub, s in subs.items()}
+    return cells
 
 
 def expected():
@@ -377,7 +694,15 @@ def expected():
                 "calls": [["connect", ":memory:"], ["close"]],
             }
         },
-        "C05": {"a": handle, "b": limit, "c": handle, "d": limit, "e": limit},
+        "C05": {
+            "a": handle,
+            "b": limit,
+            "c": handle,
+            "d": limit,
+            "e": handle,
+            "f": {"raised": rejected("PIE-R1002", "DUCKDB_ARROW_SCHEMA"), **nothing},
+            "g": limit,
+        },
         "C06": {
             sub: {"raised": rejected("PIE-R1002", "DUCKDB_ARROW_SCHEMA"), **nothing}
             for sub in cases.C06_SUBS
@@ -429,12 +754,12 @@ def expected():
             },
         },
         "C15": {
-            "bundle": {"raised": rejected("PIE-R1004", "DUCKDB_BUNDLE_ENTRY")},
-            "save": unavailable,
-            "save_recoverable": unavailable,
-            "recover": unavailable,
-            "relay_live": unavailable,
-            "job_store": {"routes": {"$excludes": "duckdb_arrow"}},
+            sub: {"raised": rejected("PIE-R1004", "DUCKDB_BUNDLE_ENTRY")}
+            if sub.endswith("bundle")
+            else {"routes": {"$excludes": "duckdb_arrow"}}
+            if sub == "job_store"
+            else unavailable
+            for sub in cases.C15_SUBS
         },
         "C16": {
             "": {
@@ -446,6 +771,7 @@ def expected():
                 "second_enter": {"class": "HandleMisuse", "code": "PIE-R4001"},
             }
         },
+        **_b2(),
     }
     cells["C12"] = {
         "ns": {
@@ -465,7 +791,7 @@ def expected():
         if tuple(ordered[cell]) != subs:
             raise AssertionError(f"{cell} sub-cases differ from the fixtures")
     return {
-        "format": "pietto.s06-duckdb-native.expected.v1",
+        "format": "pietto.duckdb-native.expected.v6",
         "spec_sha256": SPEC_SHA256,
         "child_sha256": CHILD_SHA256,
         "units": list(cases.UNITS),

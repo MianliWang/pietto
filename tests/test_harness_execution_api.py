@@ -43,10 +43,12 @@ DUCKDB_ORACLE = (
 def test_the_duckdb_native_checker_accepts_honest_units_and_refuses_each_fabricated_shape(
     tmp_path,
 ):
-    """The Phase79 S06 checker before any native output is read: the oracle,
-    in a fresh interpreter with no DuckDB loaded, writes the expected values;
-    each unit's honest literal report is ACCEPTED and every fabricated shape
-    of the preregistration gets its refusal, VOID or DEGRADED instead."""
+    """The Phase79 DuckDB native checker (preregistration v6) before any
+    native output is read: the oracle, in a fresh interpreter with no DuckDB
+    loaded, writes the expected values; each unit's honest literal report is
+    ACCEPTED, with either admitted outcome where a sub-case has two, and
+    every fabricated shape of the preregistration gets its refusal, VOID or
+    DEGRADED instead."""
     target = tmp_path / "expected.json"
     result = subprocess.run(
         [
@@ -66,7 +68,8 @@ def test_the_duckdb_native_checker_accepts_honest_units_and_refuses_each_fabrica
     expected = json.loads(target.read_text(encoding="utf-8"))
     verdicts = duckdb_native_check.self_test(expected)
     accepted = [name for name, verdict in verdicts if verdict["verdict"] == "ACCEPTED"]
-    assert accepted == [f"honest {unit}" for unit in expected["units"]]
+    honest = [f"honest {unit}" for unit in expected["units"]]
+    assert accepted == [*honest, "the other admitted outcome"]
 
 
 def test_mysql_consumer_checker_accepts_its_literal_facts_and_refuses_damage():
