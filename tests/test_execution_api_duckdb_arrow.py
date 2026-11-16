@@ -30,7 +30,15 @@ from _pietto_execution_duckdb import (
     projection,
     run,
 )
-from _pietto_sql_duckdb import GROUPED, ORDERED, PROJECTION, contract, filtered, write
+from _pietto_sql_duckdb import (
+    GROUPED,
+    ORDERED,
+    PREDICATED,
+    PROJECTION,
+    contract,
+    filtered,
+    write,
+)
 
 from pietto import execution
 from pietto._project import project_duckdb_emission as adapter
@@ -672,6 +680,122 @@ def test_each_operator_returns_the_oracle_bag_and_keeps_its_values(
     )
     rows, _ = run(pa, projection(tmp_path / "projection"), orders(pa))
     assert bag(rows) == bag([{"id": r[0], "note": r[2]} for r in ROWS])
+
+
+def _and(a: bool | None, b: bool | None) -> bool | None:
+    return False if a is False or b is False else None if None in (a, b) else True
+
+
+def _or(a: bool | None, b: bool | None) -> bool | None:
+    return True if a is True or b is True else None if None in (a, b) else False
+
+
+def _not(a: bool | None) -> bool | None:
+    return None if a is None else not a
+
+
+def _eq(a: Any, b: Any) -> bool | None:
+    return None if a is None or b is None else a == b
+
+
+def _predicated(row: tuple[Any, ...], p: dict[str, Any]) -> bool:
+    """PREDICATED's `where` over one row in three-valued logic."""
+    id_, amount, note, ok, price = row
+    first = _and(p["low"] <= amount, _not(_eq(note, p["label"])))
+    second = _and(ok == p["flag"], price < p["cap"])
+    third = _and(_and(amount != p["low"], note is None), id_ > -3)
+    return _or(_or(first, second), third) is True
+
+
+PREDICATED_PARAMETERS = (
+    {"label": "a", "low": 10, "flag": True, "cap": 0.0},
+    {"label": "", "low": -(2**63), "flag": False, "cap": -0.5},
+    {"label": "é", "low": 2**63 - 1, "flag": True, "cap": 2.5},
+    {"label": "c", "low": 5, "flag": False, "cap": -1.0},
+)
+
+
+def test_parameters_bind_by_their_types_in_placeholder_order(tmp_path: Path) -> None:
+    """Each value is checked against its parameter's type before anything
+    reaches DuckDB, whose cast would take 1.5 as the BIGINT 2; the values
+    then go to the placeholders in the order of their first reads."""
+    query = compiled(tmp_path / "p", PREDICATED)
+    assert query.parameters == (
+        ("label", "Text", False),
+        ("low", "Int", False),
+        ("flag", "Bool", False),
+        ("cap", "Float", False),
+    )
+    facts = adapter.execution_facts(query._template)
+    assert facts.placeholders == (1, 0, 2, 3)
+    good = PREDICATED_PARAMETERS[0]
+    assert route._bound(facts, None, good) == (10, "a", True, 0.0)
+    access = execution.DuckDBArrowInput("orders", object())
+    for name, value, refusal in (
+        ("label", b"a", "0:Text"),
+        ("label", None, "0:Text"),
+        ("low", 1.5, "1:Int"),
+        ("low", True, "1:Int"),
+        ("flag", 1, "2:Bool"),
+        ("cap", 1, "3:Float"),
+        ("cap", math.inf, "3:Float"),
+        ("cap", math.nan, "3:Float"),
+    ):
+        assert _refusal(query, access=access, parameters={**good, name: value}) == (
+            "PIE-R1006",
+            f"BINDING_PARAMETER:{refusal}",
+        )
+
+
+def test_predicates_return_the_three_valued_oracle_bag(tmp_path: Path) -> None:
+    """PREDICATED over ROWS for each parameter set, against its oracle in
+    three-valued logic computed before the run, for both input orders."""
+    pa = _engine()
+    query = compiled(tmp_path / "p", PREDICATED)
+    for parameters in PREDICATED_PARAMETERS:
+        expected = bag(
+            [{"id": r[0], "note": r[2]} for r in ROWS if _predicated(r, parameters)]
+        )
+        for rows in (ROWS, ROWS[::-1]):
+            delivered, handle = run(pa, query, orders(pa, rows), parameters=parameters)
+            assert bag(delivered) == expected, parameters
+            assert handle.outcome.end == "COMPLETE"
+
+
+# Quotes, a backslash and multibyte text, both Int extremes, a negative zero
+# and floats whose shortest decimal has an exponent, each written as a literal.
+LITERAL_ROWS = (
+    (1, 5, "it's", True, 1.5),
+    (2, -(2**63), "a\\b", False, -0.0),
+    (3, 2**63 - 1, "é€", True, 0.0),
+    (4, 0, None, False, 0.000001),
+    (5, 7, 'say "hi"', True, 0.1),
+)
+LITERAL_CELLS = (
+    ("amount == -9223372036854775808", lambda r: r[1] == -(2**63)),
+    ("amount == 9223372036854775807", lambda r: r[1] == 2**63 - 1),
+    ("amount > -5 and amount < 6", lambda r: -5 < r[1] < 6),
+    ("price == -0.0", lambda r: r[4] == 0.0),
+    ("price == 0.000001 or price == 0.1", lambda r: r[4] in (0.000001, 0.1)),
+    (r'''note == "it's" or note == "a\\b"''', lambda r: r[2] in ("it's", "a\\b")),
+    ("note == 'say \"hi\"'", lambda r: r[2] == 'say "hi"'),
+    ('note > "z"', lambda r: r[2] is not None and r[2] > "z"),
+    ('not (note == "it\\\'s")', lambda r: r[2] is not None and r[2] != "it's"),
+    ("note is None or ok == False", lambda r: r[2] is None or not r[3]),
+    ("not (note is None) and amount > 0", lambda r: r[2] is not None and r[1] > 0),
+    ("ok != True and not (price > 0.05)", lambda r: not r[3] and not r[4] > 0.05),
+)
+
+
+def test_literals_return_the_oracle_bag(tmp_path: Path) -> None:
+    pa = _engine()
+    for position, (where, keep) in enumerate(LITERAL_CELLS):
+        body = PROJECTION.replace("    select:", f"    where {where}\n    select:")
+        query = compiled(tmp_path / str(position), body)
+        expected = bag([{"id": r[0], "note": r[2]} for r in LITERAL_ROWS if keep(r)])
+        for rows in (LITERAL_ROWS, LITERAL_ROWS[::-1]):
+            delivered, _ = run(pa, query, orders(pa, rows))
+            assert bag(delivered) == expected, where
 
 
 GROUPED_ROWS = (

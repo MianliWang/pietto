@@ -26,6 +26,8 @@ from _pietto_sql_duckdb import (
     INT,
     ORDERED,
     ORDERED_SQL,
+    PREDICATED,
+    PREDICATED_SQL,
     PROJECTION,
     PROJECTION_SQL,
     contract,
@@ -127,6 +129,89 @@ def test_a_filtered_query_is_one_select_over_the_registered_capture(
     assert all(a[1] == b[0] for a, b in zip(ends, ends[1:]))
 
 
+def test_predicates_number_each_parameter_at_its_first_read(tmp_path: Path) -> None:
+    """PREDICATED's placeholders in the order of first reads in the SQL, one
+    per parameter, each read cast to its type and documented as one use of
+    its parameter, whose reads list exactly those uses."""
+    status, document = emit(write(tmp_path / "p", PREDICATED, contract()), PREDICATED)
+    assert (status, document["sql"]) == ("VERIFIED", PREDICATED_SQL)
+    sql = document["sql"].encode()
+    uses = document["parameter_uses"]
+    assert [
+        (
+            sql[u["range"]["start"] : u["range"]["end"]],
+            u["use"],
+            u["owner"],
+            u["server_index"],
+            u["physical_type"],
+        )
+        for u in uses
+    ] == [
+        (b"$1", 0, {"kind": "parameter", "parameter": 1}, 1, "duckdb_bigint"),
+        (b"$2", 1, {"kind": "parameter", "parameter": 0}, 2, "duckdb_varchar"),
+        (b"$3", 2, {"kind": "parameter", "parameter": 2}, 3, "duckdb_boolean"),
+        (b"$4", 3, {"kind": "parameter", "parameter": 3}, 4, "duckdb_double"),
+        (b"$1", 4, {"kind": "parameter", "parameter": 1}, 1, "duckdb_bigint"),
+    ]
+    ranges = {(r["start"], r["end"]): r["subject"] for r in document["ranges"]}
+    for parameter in document["parameters"]:
+        assert parameter["reads"] == [
+            ranges[u["range"]["start"], u["range"]["end"]]
+            for u in uses
+            if u["owner"]["parameter"] == parameter["parameter"]
+        ]
+    assert [p["name"] for p in document["parameters"]] == [
+        "label",
+        "low",
+        "flag",
+        "cap",
+    ]
+    ends = [(r["start"], r["end"]) for r in document["ranges"]]
+    assert ends[0][0] == 0 and ends[-1][1] == len(sql)
+    assert all(a[1] == b[0] for a, b in zip(ends, ends[1:]))
+
+
+# Each literal written with its type and sign, null tests, and NOT of a test.
+FILTER_FORMS = {
+    "least_int": (
+        "amount > -9223372036854775808",
+        '"c1" > CAST(-9223372036854775808 AS BIGINT)',
+    ),
+    "greatest_int": (
+        "amount <= 9223372036854775807",
+        '"c1" <= CAST(9223372036854775807 AS BIGINT)',
+    ),
+    "negative_zero": ("price == -0.0", "\"c4\" = CAST('-0.0' AS DOUBLE)"),
+    "shortest_float": (
+        "price >= 0.000001 and price < 0.1",
+        "\"c4\" >= CAST('1e-06' AS DOUBLE) AND \"c4\" < CAST('0.1' AS DOUBLE)",
+    ),
+    "text": (
+        r'''note == "it's a \\ \"q\" é"''',
+        '"c2" = ' + "'it''s a \\ \"q\" é'",
+    ),
+    "bool": ("ok != False", '"c3" <> FALSE'),
+    "null_tests": (
+        "note is not None or not (ok == True)",
+        '"c2" IS NOT NULL OR (NOT "c3" = TRUE)',
+    ),
+    "literal_on_the_left": ("-5 < amount", 'CAST(-5 AS BIGINT) < "c1"'),
+}
+
+
+@pytest.mark.parametrize("case", FILTER_FORMS)
+def test_literals_keep_their_type_and_sign(tmp_path: Path, case: str) -> None:
+    where, sql = FILTER_FORMS[case]
+    body = (
+        f"table result:\n    from orders\n    where {where}\n    select:\n        id\n"
+    )
+    status, document = emit(write(tmp_path / "p", body, contract()), body)
+    prefix = 'SELECT "c0" AS "id" FROM temp.main."pietto_arrow_0" WHERE '
+    assert (status, document["sql"]) == ("VERIFIED", prefix + sql)
+    assert document["format"] == "pietto.sql-emission.v1"
+    assert document["parameter_uses"] == []
+
+
 def test_a_projection_names_only_pietto_owned_identifiers(tmp_path: Path) -> None:
     body = PROJECTION.replace("        note\n", "        label = note\n")
     key = source_entry()
@@ -179,6 +264,23 @@ GROUPED_FORMS = {
         'SELECT "c0" AS "c0", CAST(sum("c1") AS BIGINT) AS "s"'
         ' FROM temp.main."pietto_arrow_0" GROUP BY "pietto_arrow_0"."c0"'
         ' HAVING "pietto_arrow_0"."c0" <> CAST($1 AS BIGINT)',
+    ),
+    "having_literal_or_parameter": (
+        _grouped(
+            "n = count()", "    having n > 3 or note != p\n", "query result(p: Text):"
+        ),
+        'SELECT "c2" AS "note", count(*) AS "n" FROM temp.main."pietto_arrow_0"'
+        ' GROUP BY "pietto_arrow_0"."c2"'
+        ' HAVING count(*) > CAST(3 AS BIGINT) OR "pietto_arrow_0"."c2" <> CAST($1 AS VARCHAR)',
+    ),
+    # One parameter read in both, one placeholder.
+    "where_and_having": (
+        _grouped(
+            "low = min(price)", "    having low > p\n", "query result(p: Float):"
+        ).replace("    group by", "    where price < p\n    group by"),
+        'SELECT "c2" AS "note", min("c4") AS "low" FROM temp.main."pietto_arrow_0"'
+        ' WHERE "c4" < CAST($1 AS DOUBLE) GROUP BY "pietto_arrow_0"."c2"'
+        ' HAVING min("pietto_arrow_0"."c4") > CAST($1 AS DOUBLE)',
     ),
 }
 
@@ -305,15 +407,26 @@ def test_order_keys_restate_their_values_with_nulls_clauses(
     assert uses == ([b"$1"] if "$1" in sql else [])
 
 
-def test_order_keys_and_the_limit_count_toward_the_nodes(tmp_path: Path) -> None:
+def test_order_keys_predicates_and_the_limit_count_toward_the_nodes(
+    tmp_path: Path,
+) -> None:
     """GROUPED's 25 nodes, then a key and its value per order key and the
-    limit."""
-    for nodes, expected in ((32, "VERIFIED"), (31, "BLOCKED")):
+    limit; PREDICATED's 6 for the statement and its columns and 27 for its
+    predicate, one per logical operator, comparison, null test, read,
+    literal and placeholder."""
+    for body, nodes, expected in (
+        (ORDERED, 32, "VERIFIED"),
+        (ORDERED, 31, "BLOCKED"),
+        (PREDICATED, 33, "VERIFIED"),
+        (PREDICATED, 32, "BLOCKED"),
+    ):
         limited = contract()
         limited["environment"].append(statement("resource_limits", {"nodes": nodes}))
-        status, emitted = emit(write(tmp_path / str(nodes), ORDERED, limited), ORDERED)
+        root = write(tmp_path / f"{len(body)}-{nodes}", body, limited)
+        status, emitted = emit(root, body)
         assert status == expected
-    assert blockers(emitted) == [("PIE-B1007", "generated_structure_limit")]
+        if status == "BLOCKED":
+            assert blockers(emitted) == [("PIE-B1007", "generated_structure_limit")]
 
 
 def test_order_refusals_report_their_sites(tmp_path: Path) -> None:
@@ -382,25 +495,9 @@ SHAPES = {
         _grouped("t = sum(amount) + 1"),
         [("PIE-B1003", "duckdb_projection_not_admitted")],
     ),
-    "having_literal": (
-        _grouped("n = count()", "    having n > 3\n"),
-        [
-            ("PIE-B1003", "duckdb_filter_not_admitted"),
-            ("PIE-B1003", "duckdb_parameter_not_admitted"),
-        ],
-    ),
-    "having_float": (
-        _grouped("low = min(price)", "    having low > p\n", "query result(p: Float):"),
-        [
-            ("PIE-B1003", "duckdb_filter_not_admitted"),
-            ("PIE-B1003", "duckdb_parameter_not_admitted"),
-        ],
-    ),
-    "where_and_having": (
-        _grouped("n = count()", "    having n > p\n", "query result(p: Int):").replace(
-            "    group by", "    where amount > p\n    group by"
-        ),
-        [("PIE-B1003", "duckdb_parameter_not_admitted")],
+    "having_int_with_float": (
+        _grouped("n = count()", "    having n > 1.5\n"),
+        [("PIE-B1003", "duckdb_filter_not_admitted")],
     ),
     "derived_source": (
         PROJECTION.replace("table result", "table base")
@@ -411,22 +508,50 @@ SHAPES = {
         PROJECTION.replace("        note\n", "        more = amount + 1\n"),
         [("PIE-B1003", "duckdb_projection_not_admitted")],
     ),
-    "literal_filter": (
-        PROJECTION.replace("    select:", "    where amount > 3\n    select:"),
+    **{
+        name: (
+            PROJECTION.replace("    select:", f"    where {where}\n    select:"),
+            [("PIE-B1003", "duckdb_filter_not_admitted")],
+        )
+        for name, where in (
+            ("two_reads", "amount > id"),
+            ("int_with_float", "amount > 1.5"),
+            ("float_with_int", "price > 1"),
+            ("bare_bool", "ok"),
+            ("not_of_a_bare_bool", "not ok"),
+            ("computed_side", "-amount > 3"),
+            ("plus_sign", "amount > +5"),
+            ("double_sign", "amount > - -5"),
+            ("two_literals", "amount > 3 and 2 > 1"),
+        )
+    },
+    "parameter_null_test": (
+        filtered(">").replace("amount > min_amount", "min_amount is None"),
         [
             ("PIE-B1003", "duckdb_filter_not_admitted"),
             ("PIE-B1003", "duckdb_parameter_not_admitted"),
         ],
     ),
-    "parameter_on_the_left": (
-        filtered(">").replace("amount > min_amount", "min_amount < amount"),
-        [("PIE-B1003", "duckdb_filter_not_admitted")],
-    ),
-    "bool_comparison": (
-        filtered("==", "flag: Bool").replace("amount == min_amount", "ok == flag"),
+    "decimal_parameter": (
+        filtered(">", "min_amount: Decimal(10, 2)"),
         [
             ("PIE-B1003", "duckdb_filter_not_admitted"),
             ("PIE-B1003", "duckdb_parameter_not_admitted"),
+        ],
+    ),
+    "unread_parameter": (
+        filtered(">").replace("amount > min_amount", "amount > 3"),
+        [("PIE-B1003", "duckdb_parameter_not_admitted")],
+    ),
+    "nul_literal": (
+        PROJECTION.replace("    select:", '    where note == "a\x00b"\n    select:'),
+        [("PIE-B1003", "duckdb_text_literal_nul_not_admitted")],
+    ),
+    "nul_literal_in_a_projection": (
+        PROJECTION.replace("        note\n", '        more = "\x00"\n'),
+        [
+            ("PIE-B1003", "duckdb_projection_not_admitted"),
+            ("PIE-B1003", "duckdb_text_literal_nul_not_admitted"),
         ],
     ),
     "nullable_parameter": (
@@ -1122,10 +1247,11 @@ def test_a_forged_grouped_artifact_is_refused(tmp_path: Path) -> None:
     columns = list(ast.columns)
     columns[5] = replace(columns[5], function="max")
     first, *rest = ast.order_by
+    read = ast.having.left
     for forged in (
         replace(ast, columns=tuple(columns)),
         replace(ast, group_by=ast.group_by[::-1]),
-        replace(ast, having=replace(ast.having, function="max")),
+        replace(ast, having=replace(ast.having, left=replace(read, function="max"))),
         replace(ast, having=replace(ast.having, operator="<=")),
         replace(ast, order_by=ast.order_by[::-1]),
         replace(ast, order_by=(replace(first, descending=False), *rest)),
@@ -1143,8 +1269,8 @@ def test_a_forged_grouped_artifact_is_refused(tmp_path: Path) -> None:
     for broken in (
         replace(ast, columns=tuple(columns)),
         replace(ast, group_by=ast.group_by[:1]),
-        replace(ast, having=replace(ast.having, field=0, function=None)),
-        replace(ast, having=replace(ast.having, function="avg")),
+        replace(ast, having=replace(ast.having, left=duckdb_sql.DuckDBRead(0))),
+        replace(ast, having=replace(ast.having, left=replace(read, function="avg"))),
         replace(ast, group_by=(), having=None),
         replace(ast, order_by=(replace(first, field=1, function=None), *rest)),
         replace(ast, order_by=(replace(first, function="avg"), *rest)),
@@ -1169,6 +1295,213 @@ def test_a_forged_grouped_artifact_is_refused(tmp_path: Path) -> None:
         fields,
         ("id",),
     )
+
+
+def _where(predicate: Any) -> Any:
+    return duckdb_sql.DuckDBSelect(
+        duckdb_sql.RELATION, (duckdb_sql.DuckDBColumn(0, "id"),), predicate
+    )
+
+
+_READ = duckdb_sql.DuckDBRead(1)
+_PARAMETER = duckdb_sql.DuckDBParameter(1, "Int")
+
+
+def _compare(left: Any, right: Any = _PARAMETER) -> Any:
+    return duckdb_sql.DuckDBComparison(left, ">", right)
+
+
+def _literal(value: object) -> Any:
+    return _compare(_READ, duckdb_sql.DuckDBLiteral(value))
+
+
+# Predicates that break a rule of the route's SQL, each in a `where`.
+BROKEN_PREDICATES = {
+    "first_placeholder_2": _compare(_READ, duckdb_sql.DuckDBParameter(2, "Int")),
+    "placeholder_true": _compare(_READ, duckdb_sql.DuckDBParameter(True, "Int")),
+    "placeholder_two_types": duckdb_sql.DuckDBLogic(
+        "AND", (_compare(_READ), _compare(_READ, duckdb_sql.DuckDBParameter(1, "Text")))
+    ),
+    "placeholder_decimal": _compare(_READ, duckdb_sql.DuckDBParameter(1, "Decimal")),
+    "nul_literal": _literal("a\x00b"),
+    "surrogate_literal": _literal("\ud800"),
+    "int_beyond_64_bits": _literal(2**63),
+    "infinite_float": _literal(float("inf")),
+    "bytes_literal": _literal(b"x"),
+    "two_reads": _compare(_READ, duckdb_sql.DuckDBRead(0)),
+    "two_constants": _compare(_PARAMETER, duckdb_sql.DuckDBLiteral(3)),
+    "aggregate_in_where": _compare(duckdb_sql.DuckDBRead(1, "max")),
+    "field_beyond_the_source": _compare(duckdb_sql.DuckDBRead(5)),
+    "other_operator": duckdb_sql.DuckDBComparison(_READ, "==", _PARAMETER),
+    "null_test_of_a_literal": duckdb_sql.DuckDBNullTest(
+        duckdb_sql.DuckDBLiteral(1), False
+    ),
+    "null_test_flag": duckdb_sql.DuckDBNullTest(_READ, 0),
+    "not_of_two": duckdb_sql.DuckDBLogic("NOT", (_compare(_READ), _compare(_READ))),
+    "and_of_one": duckdb_sql.DuckDBLogic("AND", (_compare(_READ),)),
+    "xor": duckdb_sql.DuckDBLogic("XOR", (_compare(_READ), _compare(_READ))),
+    "operand_list": duckdb_sql.DuckDBLogic("NOT", [_compare(_READ)]),
+    "bare_read": _READ,
+}
+
+
+@pytest.mark.parametrize("case", BROKEN_PREDICATES)
+def test_the_sql_rules_refuse_a_broken_predicate(case: str) -> None:
+    assert duckdb_sql.ast_rules_hold(_where(_compare(_READ)), 5, ("id",))
+    assert not duckdb_sql.ast_rules_hold(_where(BROKEN_PREDICATES[case]), 5, ("id",))
+
+
+def test_a_forged_predicate_is_refused(tmp_path: Path) -> None:
+    """Forgery: predicates that keep every SQL rule, rendered and documented
+    afresh, but are not the plan's."""
+    root = write(tmp_path / "p", PREDICATED, contract())
+    outcome, _ = emission_cli.emit_project(
+        root,
+        "main.pietto",
+        "query",
+        "result",
+        "duckdb",
+        "contract.json",
+        emission_cli.POLICIES["preserve"],
+        read_sources_only=True,
+    )
+    assert type(outcome) is adapter.DuckDBEmission and outcome.status == "VERIFIED"
+    artifact: Any = outcome.artifact
+    replace, where = dataclasses.replace, artifact.ast.where
+    left, right = where.operands
+    last = right.operands[1]
+    tested = right.operands[0].operands[1]
+    for forged in (
+        replace(where, operator="AND"),
+        replace(where, operands=(replace(left, operator="AND"), right)),
+        replace(
+            where,
+            operands=(
+                left,
+                replace(
+                    right,
+                    operands=(
+                        right.operands[0],
+                        replace(last, right=duckdb_sql.DuckDBLiteral(-4)),
+                    ),
+                ),
+            ),
+        ),
+        replace(
+            where,
+            operands=(
+                left,
+                replace(
+                    right,
+                    operands=(
+                        replace(
+                            right.operands[0],
+                            operands=(
+                                right.operands[0].operands[0],
+                                replace(tested, negated=True),
+                            ),
+                        ),
+                        last,
+                    ),
+                ),
+            ),
+        ),
+    ):
+        ast = replace(artifact.ast, where=forged)
+        assert duckdb_sql.ast_rules_hold(ast, 5, adapter._labels(artifact.checked.plan))
+        assert not adapter.verify_artifact(
+            replace(artifact, **_rendered(artifact, ast))
+        )
+
+
+def test_a_literal_of_another_type_or_sign_is_refused(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Forgery: a literal swapped for an equal value of another type or sign,
+    rendered and documented afresh. The ASTs compare equal; the SQL does
+    not, and the artifact is refused."""
+    cases = (
+        ("amount == 1", (True, 1.0)),
+        ("price == -0.0", (0.0,)),
+        ("ok == True", (1, 1.0)),
+    )
+    for where, values in cases:
+        body = f"table result:\n    from orders\n    where {where}\n    select:\n        id\n"
+        root = write(tmp_path / where.split()[0], body, contract())
+        outcome, _ = emission_cli.emit_project(
+            root,
+            "main.pietto",
+            "table",
+            "result",
+            "duckdb",
+            "contract.json",
+            emission_cli.POLICIES["preserve"],
+            read_sources_only=True,
+        )
+        assert type(outcome) is adapter.DuckDBEmission and outcome.status == "VERIFIED"
+        artifact: Any = outcome.artifact
+        plan = artifact.checked.plan
+        for value in values:
+            right = duckdb_sql.DuckDBLiteral(value)
+            ast = dataclasses.replace(
+                artifact.ast, where=dataclasses.replace(artifact.ast.where, right=right)
+            )
+            assert ast == artifact.ast and duckdb_sql.ast_rules_hold(
+                ast, 5, adapter._labels(plan)
+            )
+            forged = dataclasses.replace(artifact, **_rendered(artifact, ast))
+            assert not adapter.verify_artifact(forged)
+    monkeypatch.setattr(
+        project_public_execution,
+        "emit_live",
+        lambda *arguments: (dataclasses.replace(outcome, artifact=forged), None),
+    )
+    with pytest.raises(execution.RequestRejected) as refused:
+        execution.compile_query(
+            root, **selected(body), dialect="duckdb", emission_contract="contract.json"
+        )
+    assert (refused.value.code, refused.value.detail) == (
+        "PIE-R1004",
+        "BINDING_ARTIFACT",
+    )
+
+
+def test_filter_and_parameter_refusals_report_their_sites(tmp_path: Path) -> None:
+    """Rule 8b at the literal; rule 9 at the declaration of the first
+    parameter in header order that fails, else at the statement."""
+    cases = (
+        (
+            PROJECTION.replace(
+                "    select:", '    where note == "x" or note == "a\x00b"\n    select:'
+            ),
+            ("PIE-B1003", "duckdb_text_literal_nul_not_admitted"),
+            (12, 34),
+        ),
+        (
+            filtered(">", "min_amount: Int, b: Int | None, c: Int"),
+            ("PIE-B1003", "duckdb_parameter_not_admitted"),
+            (10, 31),
+        ),
+        (
+            filtered(">", "c: Text, min_amount: Int"),
+            ("PIE-B1003", "duckdb_parameter_not_admitted"),
+            (10, 14),
+        ),
+        (
+            filtered(">=") + "        echo = min_amount\n",
+            ("PIE-B1003", "duckdb_parameter_not_admitted"),
+            (10, 1),
+        ),
+    )
+    for position, (body, expected, site) in enumerate(cases):
+        root = write(tmp_path / str(position), body, contract())
+        status, document = emit(root, body)
+        (blocker,) = (
+            b for b in document["blockers"] if b["subject"]["detail"] == expected[1]
+        )
+        location = blocker["location"]
+        assert (status, location["line"], location["column"]) == ("BLOCKED", *site)
+        assert blocker["suggestion"] == B2_SUGGESTIONS[expected[1]]
 
 
 def test_the_adapter_imports_no_duckdb_pyarrow_or_sqlglot(tmp_path: Path) -> None:

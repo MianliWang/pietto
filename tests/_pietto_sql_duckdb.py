@@ -86,6 +86,22 @@ ORDERED_SQL = GROUPED_SQL + (
     ' min("pietto_arrow_0"."c4") ASC NULLS LAST, "pietto_arrow_0"."c2" ASC NULLS LAST'
     " LIMIT 4"
 )
+# Parameters of the four types, first read in another order than declared and
+# one read twice, beside a signed literal, a null test and and, or and not.
+PREDICATED = (
+    "query result(label: Text, low: Int, flag: Bool, cap: Float):\n"
+    "    from orders\n"
+    "    where (low <= amount and not (note == label)) or (ok == flag and price"
+    " < cap) or (amount != low and note is None and id > -3)\n"
+    "    select:\n        id\n        note\n"
+)
+PREDICATED_SQL = (
+    'SELECT "c0" AS "id", "c2" AS "note" FROM temp.main."pietto_arrow_0" WHERE'
+    ' ((CAST($1 AS BIGINT) <= "c1" AND (NOT "c2" = CAST($2 AS VARCHAR)))'
+    ' OR ("c3" = CAST($3 AS BOOLEAN) AND "c4" < CAST($4 AS DOUBLE)))'
+    ' OR (("c1" <> CAST($1 AS BIGINT) AND "c2" IS NULL)'
+    ' AND "c0" > CAST(-3 AS BIGINT))'
+)
 
 
 def filtered(operator: str, parameter: str = "min_amount: Int") -> str:

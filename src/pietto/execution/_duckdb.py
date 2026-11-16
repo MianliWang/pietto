@@ -100,7 +100,9 @@ _ABSENT = object()
 
 def _bound(facts, values, parameters):
     """Check 7's binding: no value slots, and exactly the declared header
-    parameters, each of its exact type (BINDING_* words, PIE-R1006)."""
+    parameters, each of its exact type (BINDING_* words, PIE-R1006), before
+    any reaches DuckDB, whose cast would take ``1.5`` as the BIGINT 2. The
+    arguments come in placeholder order."""
     if values is not None and len(values) != 0:
         raise BindingError("BINDING_SLOTS")
     supplied = {} if parameters is None else parameters
@@ -114,7 +116,7 @@ def _bound(facts, values, parameters):
         ):
             raise BindingError(f"BINDING_PARAMETER:{ordinal}:{tag}")
         arguments.append(value)
-    return tuple(arguments)
+    return tuple(arguments[k] for k in facts.placeholders)
 
 
 def _owned(name):

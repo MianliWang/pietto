@@ -9,8 +9,11 @@ an explicit-module project only, one `duckdb.arrow` source, a direct
 projection of `Int`, `Text`, `Bool` and finite `Float` fields and at most one
 comparison of an `Int` field with one non-null `Int` query parameter
 ([admission](#admission)), and B2's slice T02 adds `group by` with `count`,
-`sum`, `min` and `max` and a `having` of the same comparison, and T03
-`order by` and a static `limit`. It has no JOIN, and it refuses an input table
+`sum`, `min` and `max` and a `having` of the same comparison, T03
+`order by` and a static `limit`, and T04 `where` and `having` predicates
+that compare fields and outputs with literals and with any number of
+parameters of the four types, test for NULL and join the tests with `and`,
+`or` and `not`. It has no JOIN, and it refuses an input table
 of more than 65,536 rows or 16 MiB ([capture](#capture)). It is qualified only
 for `duckdb` `2.0.0` with `pyarrow` `26.0.1` on CPython 3.12 and 3.13, Linux
 x86-64 with glibc 2.28 or later; every other release and platform is not
@@ -45,11 +48,13 @@ natural CI.
 | Admission | Exact limit |
 | --- | --- |
 | Project and source | An explicit-module project (`schema_version = 2`) whose statement reads exactly one source declared `source x: Shape = duckdb.arrow("key")`. The key is one non-empty string literal, used exactly: no normalization, trimming or case folding. |
-| Relational shape | One read of that source, then at most one `where`, at most one `group by`, the final projection, at most one `having`, at most one `order by` and at most one `limit`. The `where` is exactly one comparison `IntField <op> param`, where `<op>` is `==`, `!=`, `<`, `<=`, `>` or `>=`, `IntField` is a field of the source and `param` is the query's parameter; the `having` is exactly one comparison `IntOutput <op> param`, where `IntOutput` is a selected output of type `Int`. No relation `let`, derived source, second input, JOIN, window, `qualify`, `distinct`, set operation, typed VALUES body or table function. |
+| Relational shape | One read of that source, then at most one `where`, at most one `group by`, the final projection, at most one `having`, at most one `order by` and at most one `limit`. The `where` and the `having` are predicates, as the next row states. No relation `let`, derived source, second input, JOIN, window, `qualify`, `distinct`, set operation, typed VALUES body or table function. |
+| Predicates | A `where` reads source fields and a `having` reads the query's selected outputs. Each is built from comparisons `a <op> b`, where `<op>` is `==`, `!=`, `<`, `<=`, `>` or `>=`, one side is a direct read (of a source field in `where`, of a selected output in `having`), the other is a literal or a parameter read, and both have one type, `Int`, `Text`, `Bool` or `Float`; from `x is None` and `x is not None` of such a read; and from `and`, `or` and `not` of these. A comparison of two reads, or of an `Int` with a `Float`, and a bare `Bool` read used as a test, such as `where flag`, stay refused, while `where flag == True` is admitted (*derived*: PL.47 names comparisons with literals and parameters). |
+| Literals | `Int`, `Float`, `Text` and `Bool` literals. An explicit-module project has no constants (PIE-S2392, [Top-level constants](../language.md#top-level-constants)), and the language reads a sign before a number as a unary operator, so a unary `-` whose operand is an `Int` or `Float` literal is admitted as one signed literal, that literal's negation, such as `-5`, or `-0.0`, a negative zero (*derived*). Every other unary `-` or `+`, such as `-amount`, `+5` or `- -5`, is a computed value and stays refused. A `Text` literal that holds NUL is refused (rule 8b). |
 | Projection | Without `group by` or an aggregate: direct reads of source fields. With either: direct reads of `group by` keys and the aggregates `count()`, `count(f)`, `sum(f)` of an `Int` field `f`, and `min(f)` and `max(f)` of an `Int` or `Float` field `f`, each over a direct read of a source field. No computed value, and no other aggregate: `avg`, `count_distinct`, `sum` of a `Float` and the rest stay refused. |
 | Grouping | Each `group by` key is a direct read of a source field of one of the four types, optional or not. NULL keys form one group, and a `Float` key puts `-0.0` and `0.0` in one group (see [Float values](../language.md#float-values)). The number of keys has no limit of its own beyond `columns` and `nodes`. |
 | Order and limit | Each `order by` key has one of the four types and is ascending or descending. In a query without `group by` or an aggregate it is a direct read of a source field; a key that names an output other than the source field of that name, such as `order by label` after `label = note` or `order by more` after `more = amount + 1`, leaves the plan unavailable, so rule 5 refuses it. In a grouped query it is a selected output, the only key the language admits there (PIE-S2321). With an aggregate and no `group by` the language refuses any `order by` (PIE-S2333). The `limit` is the static non-negative `Int` that the language takes, from 0 to 2^63−1 (PIE-S2307; PIE-S2355 for a parameter). |
-| Parameter | A statement without `where` or `having` declares none. A filtered query declares exactly one non-null `Int` parameter and reads it exactly once, in the `where` or the `having` comparison. Values bind through the existing exact binding (`execute(parameters=...)`, PIE-R1006). |
+| Parameter | Any number of declared parameters, each non-null `Int`, `Text`, `Bool` or `Float`, each read at least once and only in `where` and `having` comparisons; one parameter may be read several times. Values bind through the existing exact binding (`execute(parameters=...)`, PIE-R1006). |
 | Columns | Source and result fields are `Int`, `Text`, `Bool` or finite `Float`, each with its compiled nullability, in source order. |
 | Literal policy | `preserve` only. |
 | Entry points | `pietto check --project`; `pietto emit-sql --project ... --dialect duckdb`, with or without `--all`; `compile_sql`, `compile_all_sql` and `compile_query` with `dialect="duckdb"`; `execute(route="duckdb_arrow")`. |
@@ -165,7 +170,7 @@ Premises (*derived*):
 | `read_only_object` | source | `true` | always; otherwise `PIE-B1001`. The capture is Pietto's own copy. |
 | `client_encoding` | statement | `"UTF8"` | always |
 | `operator_environment` | statement | `"builtin_only"` | when the statement has a `where` or a `having` |
-| `parameter_protocol` | statement | `"duckdb_prepared"` | when the statement has its parameter |
+| `parameter_protocol` | statement | `"duckdb_prepared"` | when the statement reads a parameter |
 | `resource_limits` | statement | as today | optional |
 
 A needed premise that is missing is BLOCKED with `PIE-B1004`, and one with
@@ -216,10 +221,36 @@ verifier, and consumes `ProjectSQLPlan`).
   `max("c<k>")`. DuckDB sums a `BIGINT` exactly as a `HUGEINT`, and the cast
   fails the statement when the sum leaves signed 64 bits, so no `HUGEINT`
   reaches a result. This checked cast is the target evidence of `sum`.
-- The `where` comparison is `"c<k>" <op> CAST($1 AS BIGINT)` and the
-  `having` comparison `<value> <op> CAST($1 AS BIGINT)`, with `=`, `<>`, `<`,
-  `<=`, `>` or `>=`. DuckDB types a bound Python `int` by its value
-  (`INTEGER` for 5), so the placeholder is cast.
+- **Text order.** No `COLLATE` clause is written. `Text` compares, groups
+  and orders by its UTF-8 bytes, which is code point order, under `2.0.0`'s
+  default collation, the empty string, which the lock keeps and, from B2's
+  slice T05, the session reads back
+  ([B2 capture and session](#b2-capture-and-session)). This is the
+  contract's collation `C` (*derived*).
+- **Literals** (*derived*). A signed literal ([admission](#admission)) is
+  written as one literal with its sign, never as an operator. An `Int`
+  literal is `CAST(<n> AS BIGINT)`, `<n>` its decimal digits with any minus
+  sign inside the cast, so `CAST(-9223372036854775808 AS BIGINT)` holds the
+  least value; `::` is never written. A `Float` literal is
+  `CAST('<r>' AS DOUBLE)`, `<r>` the shortest decimal that reads back as the
+  same finite binary64 value, with its sign, so `-0.0` stays a negative zero
+  (DuckDB types a bare `1.5` or `-0.0` as `DECIMAL(2,1)`, which loses the
+  sign of zero). A `Text` literal is `'...'` with each `'` doubled; a
+  backslash is an ordinary character there, and the execution cells compare
+  quotes, a backslash, multibyte text and both `Int` extremes written as
+  literals with their oracle. A `Bool` literal is `TRUE` or `FALSE`.
+- **Predicates.** A comparison keeps its sides where the source writes
+  them, with `=`, `<>`, `<`, `<=`, `>` or `>=`. `x is None` is `IS NULL`,
+  `x is not None` `IS NOT NULL`, and `and`, `or` and `not` are `AND`, `OR`
+  and `NOT`, with parentheses around every operand that is not a single
+  comparison or test.
+- **Parameters** (*derived*). Each parameter that the statement reads has
+  one placeholder `$n`, numbered from 1 in the order of its first read in
+  the SQL text, and every read is `CAST($n AS T)`, with `T` `BIGINT`,
+  `DOUBLE`, `VARCHAR` or `BOOLEAN` for `Int`, `Float`, `Text` and `Bool`.
+  DuckDB types a bound Python value by its value, and a cast alone would
+  take `1.5` as the `BIGINT` 2, so the exact binding's type check (PIE-R1006)
+  stays before any value reaches DuckDB.
 - Every ascending order key ends with `ASC NULLS LAST` and every descending
   key with `DESC NULLS FIRST`, so NULL sorts where the PostgreSQL emitter's
   SQL puts it (PL.47; D78.02 for SQLite). DuckDB's own default puts NULL last
@@ -233,10 +264,12 @@ verifier, and consumes `ProjectSQLPlan`).
   [compile refusals](#compile-refusals)).
 
 The VERIFIED document is the `pietto.sql-emission.v1` envelope, or `v2` when
-the statement reads its parameter, with these DuckDB values: `fixed_values` is
-empty; the parameter's one `parameter_uses` entry has `server_index` 1 and
-`physical_type` `duckdb_bigint`, the parameter's `reads` names the comparison
-side that reads it, and `binding_obligations` is empty; each column's
+the statement declares parameters, with these DuckDB values: `fixed_values` is
+empty; `parameter_uses` has one entry for each read, in SQL order, with the
+`server_index` of its parameter's placeholder and the `physical_type`
+`duckdb_bigint`, `duckdb_double`, `duckdb_varchar` or `duckdb_boolean`
+(*derived*), each parameter's `reads` names the comparison sides that read
+it, and `binding_obligations` is empty; each column's
 `correspondence` names the source field it reads; `requirements` lists the
 plan's original demands with their target evidence under the rule
 `duckdb_b1` and no generated requirement; and `ranges` cover the statement
@@ -403,7 +436,8 @@ reused. Every failure from here on is an `AttemptFailed` (AD79.01).
    read-back that differs is `PIE-R2006` `DUCKDB_SESSION_CONTEXT`
    (accepted by the owner), and the route runs nothing.
 3. **Statement.** The route registers the capture as `pietto_arrow_0`, runs
-   the compiled statement once, with the bound parameter if it has one, and
+   the compiled statement once, with each placeholder's value bound in
+   placeholder order, and
    reads the result as Arrow through the relation API (`sql(...,
    params=...).to_arrow_table()`). Every call goes to the connection that
    step 2 set up, never to a `cursor()`, which is a connection of its own
@@ -541,19 +575,23 @@ A DuckDB emission reports only the blockers of the table below, and no other
 `PIE-B10xx` detail (*derived*). A contract that breaks its schema is still
 `INPUT_REJECTED` with `emission_contract_schema` and has no blockers.
 
-- Rules 1–29, with rules 7a and 7b after rule 7 and rule 8a after rule 8, are
-  checked together. The document lists one blocker for each rule that fails,
-  in rule order, and none for a rule that holds.
+- Rules 1–29, with rules 7a and 7b after rule 7 and rules 8a and 8b after
+  rule 8, are checked together. The document lists one blocker for each rule
+  that fails, in rule order, and none for a rule that holds.
 - A rule that fails at several sites reports the first one only: source and
   stage sites in source order (path, line, column), source fields in shape
   order, and premises in contract order (`environment`, then each source's
   `premises`, in `sources` order).
 - A rule whose subject is absent holds: rule 7a needs an aggregate, 7b a
-  `group by`, 8a an `order by`, rules 8 and 13 a `where` or a `having`, rule
-  14 the parameter, and rules 21–29 a contract entry for the read source.
-  Rule 8 reports the first failing site, the `where` before the `having`.
+  `group by`, 8a an `order by`, 8b a `Text` literal, rules 8 and 13 a
+  `where` or a `having`, rule 14 a parameter read, and rules 21–29 a
+  contract entry for the read source. Rule 8 reports the first failing
+  site, the `where` before the `having`; rule 8b the first literal in
+  source order; rule 9 the declaration of the first parameter, in header
+  order, that is optional, of another type or read nowhere, else the
+  statement.
 - When the plan is unavailable, rule 5 reports at the plan's first blocker,
-  and rules 6–29, 7a, 7b and 8a included, are not checked.
+  and rules 6–29, 7a, 7b, 8a and 8b included, are not checked.
 - When the plan is available but rule 5 fails at a stage beyond the shape,
   such as a JOIN, a derived source or a set operation, rules 6–29 are still
   checked on the plan. A field read through that stage is not a direct read
@@ -582,9 +620,10 @@ that premise detail with the DuckDB value of the premise table in it.
 | 7 | `PIE-B1003` | `duckdb_projection_not_admitted` | A result field is neither a direct read of a source field (of a `group by` key, when the statement groups or aggregates) nor an aggregate call | The result field | `select source fields directly, or group by keys and aggregates of fields, such as select: customer, total = sum(amount); computed values are not available on DuckDB` |
 | 7a | `PIE-B1003` | `duckdb_aggregate_not_admitted` | An aggregate is not `count()`, `count(f)`, `sum(f)` of an `Int` field or `min(f)` or `max(f)` of an `Int` or `Float` field, over a direct read of a source field | The aggregate call | `use count(), count(field), sum of an Int field, or min or max of an Int or Float field; other aggregates, sum or avg of a Float and aggregates of computed values are not available on DuckDB` |
 | 7b | `PIE-B1003` | `duckdb_grouping_not_admitted` | A `group by` key is not a direct read of a source field | The key | `group by source fields, such as group by customer; computed keys are not available on DuckDB` |
-| 8 | `PIE-B1003` | `duckdb_filter_not_admitted` | The `where` is not one comparison of a direct read of an `Int` source field, on the left, with a direct read of the parameter, or the `having` is not one such comparison of a direct read of a selected `Int` output | The `where`, or the `having` | `compare fields or selected outputs with literals or query parameters of the same type, and join the tests with and, or and not, such as where amount >= min_amount and note is not None` |
+| 8 | `PIE-B1003` | `duckdb_filter_not_admitted` | The `where` or the `having` is not built as the predicates row above states | The `where`, or the `having` | `compare fields or selected outputs with literals or query parameters of the same type, and join the tests with and, or and not, such as where amount >= min_amount and note is not None` |
 | 8a | `PIE-B1003` | `duckdb_order_not_admitted` | An `order by` key is not a direct read of a source field or a selected output, as the order row above states | The key | `order by source fields or selected outputs, such as order by total desc; computed keys are not available on DuckDB` |
-| 9 | `PIE-B1003` | `duckdb_parameter_not_admitted` | A statement without `where` or `having` declares a parameter, or a filtered query declares other than one non-null `Int` parameter, or reads it other than once in a `where` or `having` comparison | The parameter declaration, or the statement | `declare non-null Int, Text, Bool or Float parameters and read each one in a where or having comparison` |
+| 8b | `PIE-B1003` | `duckdb_text_literal_nul_not_admitted` | A `Text` literal that the statement reads holds NUL | The literal | `remove NUL from the Text literal; DuckDB emission writes no NUL into SQL text` |
+| 9 | `PIE-B1003` | `duckdb_parameter_not_admitted` | A declared parameter is optional, is not `Int`, `Text`, `Bool` or `Float`, or is read nowhere or outside a `where` or `having` comparison | The parameter declaration, or the statement | `declare non-null Int, Text, Bool or Float parameters and read each one in a where or having comparison` |
 | 10 | `PIE-B1003` | `duckdb_field_type_not_admitted` | A field of a read source is not established as `Int`, `Text`, `Bool` or `Float`, optional or not | The source field | `DuckDB emission reads Int, Text, Bool and Float fields` |
 | 11 | `PIE-B1005` | `target_evidence_scope_conflict` | As on the other targets | As today | Existing |
 | 12 | `PIE-B1006` | `original_profile_composition_unresolved` | As on the other targets | As today | Existing |
@@ -612,13 +651,12 @@ that premise detail with the DuckDB value of the premise table in it.
 
 The suggestions are those the owner agreed to for B2 (PL.47, PL.50): those of
 rules 5 and 7, the only DuckDB texts that said "yet", drop it, and those of
-rules 5 and 7–10 name the forms B2 opens. Until B2's slice T04 lands, rules 8
-and 9 still refuse literals, `and`, `or`, `not` and the further parameters
-that these suggestions name. Rule 6's suggestion stands. Rule 16 counts the
-nodes of every form: the statement and its relation, a value and a label per
-column and the read inside each aggregate that has one, a read per group key,
-a comparison, its value and its placeholder per `where` or `having`, a key and
-its value per `order by` key, and the limit.
+rules 5 and 7–10 name the forms B2 opens. Rule 6's suggestion stands. Rule
+16 counts the nodes of every form: the statement and its relation, a value
+and a label per column and the read inside each aggregate that has one, a
+read per group key, one node per logical operator, comparison, null test,
+read, literal and placeholder of the `where` and the `having`, a key and its
+value per `order by` key, and the limit.
 
 PostgreSQL and MySQL emission of a `duckdb.arrow` source is BLOCKED with
 `PIE-B1001` `source_family_mismatch` where those emitters place that detail
@@ -729,9 +767,11 @@ outside Git. CPython 3.12 comes from the packaging lane and natural CI.
   with a bound `str`), they read back unchanged; `=` and `<>` against a bound
   `str` parameter, with and without `CAST(... AS VARCHAR)`, `DISTINCT`,
   `GROUP BY` and an equality join all agreed with a Python oracle, so `'a'`,
-  `'a\0'` and `'a\0b'` stayed distinct. The route compares no `Text` (B1
-  projects it only), so the comparisons describe the engine, not a route
-  form.
+  `'a\0'` and `'a\0b'` stayed distinct. B1 compared no `Text` (it projected
+  it only), so these comparisons described the engine, not a route form.
+  B2 compares `Text` reads with `Text` literals and parameters; a bound
+  parameter may hold NUL, and only a literal that holds NUL is refused
+  (rule 8b).
 - **SQL form.** The form of [SQL](#sql), registered as `pietto_arrow_0`
   under the settings above, agreed with a Python oracle written before the run
   for each of the six operators and the parameters -2^63, -1, 0, 7 and
@@ -793,8 +833,9 @@ texts they state; the rules below replace the rows of the sections above that
 they name. Each of B2's code slices T02–T05 moves the rows it lands from here
 into those sections, in its own commit, and the closeout T08 checks that
 nothing is left here. T02 moved grouping, the aggregates, `having`, the
-rewritten and new suggestions and their rules 5, 7, 7a, 7b and 10, and T03
-`order by`, `limit` and rule 8a.
+rewritten and new suggestions and their rules 5, 7, 7a, 7b and 10, T03
+`order by`, `limit` and rule 8a, and T04 the predicates, literals and
+parameters, their SQL and rules 8, 8b and 9.
 
 The rules come from PL.47, the owner's answer of 2026-11-15 to the B2
 Gate 1 sheet, which revises D79.04's capture limits and this page's
@@ -805,74 +846,6 @@ consequences of those decisions and of the T00 probe
 ([B2 pin facts](#b2-pin-facts-t00)); the lead states them to the owner as
 inform. The owner saw the new and rewritten refusal texts before they bind
 (PL.47) and agreed to them as written (PL.50); T02 binds them in code.
-
-### B2 admission
-
-B2 keeps the [admission](#admission) above and replaces these rows:
-
-| Admission | Exact limit |
-| --- | --- |
-| Predicates | A `where` reads source fields and a `having` reads the query's selected outputs. Each is built from comparisons `a <op> b`, where `<op>` is `==`, `!=`, `<`, `<=`, `>` or `>=`, one side is a direct read (of a source field in `where`, of a selected output in `having`), the other is a literal or a parameter read, and both have one type, `Int`, `Text`, `Bool` or `Float`; from `x is None` and `x is not None` of such a read; and from `and`, `or` and `not` of these. A comparison of two reads, or of an `Int` with a `Float`, and a bare `Bool` read used as a test, such as `where flag`, stay refused, while `where flag == True` is admitted (*derived*: PL.47 names comparisons with literals and parameters). |
-| Literals | `Int`, `Float`, `Text` and `Bool` literals. An explicit-module project has no constants (PIE-S2392, [Top-level constants](../language.md#top-level-constants)), and the language reads a sign before a number as a unary operator, so a unary `-` whose operand is an `Int` or `Float` literal is admitted as one signed literal, that literal's negation, such as `-5`, or `-0.0`, a negative zero (*derived*). Every other unary `-` or `+`, such as `-amount`, `+5` or `- -5`, is a computed value and stays refused. A `Text` literal that holds NUL is refused (rule 8b). |
-| Parameter | Any number of declared parameters, each non-null `Int`, `Text`, `Bool` or `Float`, each read at least once and only in `where` and `having` comparisons; one parameter may be read several times. Values bind through the existing exact binding (`execute(parameters=...)`, PIE-R1006). |
-
-### B2 SQL
-
-T04 owns the exact bytes and their goldens. Every form it writes
-satisfies the rules of [SQL](#sql) with these changes:
-
-- **Text order.** No `COLLATE` clause is written. `Text` compares, groups
-  and orders by its UTF-8 bytes, which is code point order, under `2.0.0`'s
-  default collation, the empty string, which the session reads back and the
-  lock keeps ([B2 capture and session](#b2-capture-and-session)). This is
-  the contract's collation `C` (*derived*).
-- **Literals** (*derived*). A signed literal ([B2 admission](#b2-admission))
-  is written as one literal with its sign, never as an operator. An `Int`
-  literal is `CAST(<n> AS BIGINT)`, `<n>` its decimal digits with any minus
-  sign inside the cast, so `CAST(-9223372036854775808 AS BIGINT)` holds the
-  least value; `::` is never written. A `Float` literal is
-  `CAST('<r>' AS DOUBLE)`, `<r>` the shortest decimal that reads back as the
-  same finite binary64 value, with its sign, so `-0.0` stays a negative zero
-  (DuckDB types a bare `1.5` or `-0.0` as `DECIMAL(2,1)`, which loses the
-  sign of zero). A `Text` literal is `'...'` with each `'` doubled. T00 did
-  not observe a backslash, nor a signed literal reaching the adapter, so
-  T04's cells check quotes, backslashes, multibyte text and both `Int`
-  extremes written as literals before it seals. A
-  `Bool` literal is `TRUE` or `FALSE`.
-- **Predicates.** `x is None` is `IS NULL`, `x is not None` `IS NOT NULL`,
-  and `and`, `or` and `not` are `AND`, `OR` and `NOT`, with parentheses
-  around every operand that is not a single comparison or test.
-- **Parameters** (*derived*). Each parameter that the statement reads has
-  one placeholder `$n`, numbered from 1 in the order of its first read in
-  the SQL text, and every read is `CAST($n AS T)`, with `T` `BIGINT`,
-  `DOUBLE`, `VARCHAR` or `BOOLEAN` for `Int`, `Float`, `Text` and `Bool`.
-  DuckDB types a bound Python value by its value, and a cast alone would
-  take `1.5` as the `BIGINT` 2, so the exact binding's type check (PIE-R1006)
-  stays before any value reaches DuckDB.
-
-The document keeps B1's [envelope](#sql), with these values (*derived*):
-one `parameter_uses` entry for each read, in SQL order, with the
-`server_index` of its parameter's placeholder and the `physical_type`
-`duckdb_bigint`, `duckdb_double`, `duckdb_varchar` or `duckdb_boolean`;
-`binding_obligations` empty; and `requirements` listing the plan's original
-demands with their target evidence under the rule `duckdb_b1`, so that B1's
-documents keep their bytes.
-
-### B2 compile refusals
-
-B2 keeps the [compile refusals](#compile-refusals) above and their rule
-numbers, inserts rule 8b after rule 8a, and replaces rules 8 and 9 as
-below; T02 already bound each suggestion of this table in code. Rule 8b is
-checked together with rules 1–29 and, like rules 6–29, not at all when the
-plan is unavailable. A rule whose subject is absent holds: rule 8b needs a
-`Text` literal. Every other rule, site and suggestion stands. A statement
-that B2 still refuses reports the details of this table.
-
-| # | Code | Detail | Fails when | Site | Suggestion |
-| ---: | --- | --- | --- | --- | --- |
-| 8 | `PIE-B1003` | `duckdb_filter_not_admitted` | The `where` or the `having` is not built as the predicates row above states | The `where`, or the `having` | `compare fields or selected outputs with literals or query parameters of the same type, and join the tests with and, or and not, such as where amount >= min_amount and note is not None` |
-| 8b | `PIE-B1003` | `duckdb_text_literal_nul_not_admitted` | A `Text` literal that the statement reads holds NUL | The literal | `remove NUL from the Text literal; DuckDB emission writes no NUL into SQL text` |
-| 9 | `PIE-B1003` | `duckdb_parameter_not_admitted` | A declared parameter is optional, is not `Int`, `Text`, `Bool` or `Float`, or is read nowhere or outside a `where` or `having` comparison | The parameter declaration, or the statement | `declare non-null Int, Text, Bool or Float parameters and read each one in a where or having comparison` |
 
 ### B2 capture and session
 
@@ -915,7 +888,7 @@ for the whole process on one host, and that is no guarantee.
 
 | Spelling | Canonical form | Works with | Errors | Discoverability |
 | --- | --- | --- | --- | --- |
-| The existing `where`, `group by`, `having`, `order by` and `limit` clauses, aggregates, literals and parameters, in a query or table over a `duckdb.arrow` source | As written; B2 adds no spelling, and `pietto fmt` is unchanged | `check --project`; `emit-sql --project --dialect duckdb`; `compile_sql`, `compile_all_sql`, `compile_query`; `execute(route="duckdb_arrow", access=DuckDBArrowInput(name="orders", table=t), premise=None, parameters={...})` | A shape that B2 does not admit: `PIE-B1003` with a detail and suggestion of [B2 compile refusals](#b2-compile-refusals) or of the B1 rules it keeps. An input beyond the limits: `PIE-R1002` `DUCKDB_ARROW_CAPTURE_LIMIT`. A sum outside signed 64 bits or a statement beyond `memory_limit`: `PIE-R3003`. A bound value of another type: `PIE-R1006` | This page, the capability page's DuckDB subsection and the release notes, from T08 |
+| The existing `where`, `group by`, `having`, `order by` and `limit` clauses, aggregates, literals and parameters, in a query or table over a `duckdb.arrow` source | As written; B2 adds no spelling, and `pietto fmt` is unchanged | `check --project`; `emit-sql --project --dialect duckdb`; `compile_sql`, `compile_all_sql`, `compile_query`; `execute(route="duckdb_arrow", access=DuckDBArrowInput(name="orders", table=t), premise=None, parameters={...})` | A shape that B2 does not admit: `PIE-B1003` with a detail and suggestion of [compile refusals](#compile-refusals). An input beyond the limits: `PIE-R1002` `DUCKDB_ARROW_CAPTURE_LIMIT`. A sum outside signed 64 bits or a statement beyond `memory_limit`: `PIE-R3003`. A bound value of another type: `PIE-R1006` | This page, the capability page's DuckDB subsection and the release notes, from T08 |
 
 ### B2 pin facts (T00)
 

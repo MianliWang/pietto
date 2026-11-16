@@ -1,4 +1,4 @@
-### DuckDB Arrow route — grouping, aggregates, `having`, `order by` and `limit`
+### DuckDB Arrow route — filters, grouping, aggregates, `having`, `order by` and `limit`
 
 A query or table over one `duckdb.arrow` source can now group its rows and
 aggregate them on DuckDB. `group by` takes direct reads of the source's
@@ -6,10 +6,10 @@ aggregate them on DuckDB. `group by` takes direct reads of the source's
 group, and a `Float` key puts `-0.0` and `0.0` in one group. The selected
 values are the keys and `count()`, `count(field)`, `sum` of an `Int` field
 and `min` and `max` of an `Int` or `Float` field; an aggregate without
-`group by` gives one row. A `having` may compare one selected `Int` output
-with the query's one non-null `Int` parameter, as `where` compares an `Int`
-field. `pietto emit-sql --project ... --dialect duckdb` writes them as
-`GROUP BY` and `HAVING` over qualified capture columns, `sum` as
+`group by` gives one row. A `having` filters the groups by their selected
+outputs, as `where` filters rows (below).
+`pietto emit-sql --project ... --dialect duckdb` writes them as `GROUP BY`
+and `HAVING` over qualified capture columns, `sum` as
 `CAST(sum(...) AS BIGINT)`, and `execute(route="duckdb_arrow")` runs them. A
 `sum` outside signed 64 bits fails the statement with `PIE-R3003` instead of
 returning a wrong value. Each aggregate's column in the emission document
@@ -23,7 +23,23 @@ takes. `emit-sql` writes `ORDER BY` over qualified capture columns or the
 restated aggregate, each key with `ASC NULLS LAST` or `DESC NULLS FIRST`, so
 NULL sorts where PostgreSQL puts it, and the limit as `LIMIT <n>`. Rows that
 tie on every key have no promised order, nor do the rows a `limit` keeps
-among ties at its boundary or without `order by`. See the
+among ties at its boundary or without `order by`.
+
+`where` and `having` now compare fields and selected outputs with literals
+and with query parameters of the same type, `Int`, `Text`, `Bool` or
+`Float`, test them with `is None` and `is not None`, and join the tests with
+`and`, `or` and `not`. A query may declare any number of non-null parameters
+of those four types and read each one in such comparisons, as often as it
+needs; `execute(parameters=...)` still checks each value's exact type before
+DuckDB sees it (`PIE-R1006`). `emit-sql` writes an `Int` literal as
+`CAST(<n> AS BIGINT)`, a `Float` literal as `CAST('<r>' AS DOUBLE)` with
+`<r>` its shortest decimal, so `-0.0` stays a negative zero, a `Text` literal
+quoted with each `'` doubled, a `Bool` literal as `TRUE` or `FALSE`, and each
+parameter read as `CAST($n AS <type>)`, numbered in the order of first reads;
+a `-` before a number literal is part of the literal. The emission
+document's `parameter_uses` has one entry per read with its parameter's
+`server_index`, and `physical_type` may now also be `duckdb_double`,
+`duckdb_varchar` or `duckdb_boolean`. See the
 [DuckDB Arrow route](../spec/duckdb-arrow-route-v1.md#admission). The example is
 a module of an explicit-module project; checked as a single file it reports
 PIE-S2346 for its header parameter.
@@ -37,6 +53,7 @@ source orders: Order = duckdb.arrow("orders")
 
 query totals(min_total: Int):
     from orders
+    where customer != "test" and amount > -5
     group by customer
     select:
         customer
@@ -61,7 +78,20 @@ query totals(min_total: Int):
   `duckdb_relation_shape_not_admitted` at the `order by`.
 - A grouped, aggregated, ordered or limited statement that was refused as a
   whole with `duckdb_relation_shape_not_admitted` now reports only the rules
-  it breaks, or none.
+  it breaks, or none, and so does a filter with literals, several parameters
+  or `and`, `or` and `not` that reported `duckdb_filter_not_admitted` and
+  `duckdb_parameter_not_admitted`.
+- A comparison of two reads or of an `Int` with a `Float`, a bare `Bool`
+  field used as a test (write `flag == True`), a computed side such as
+  `-amount` or `+5`, and a parameter tested with `is None` are still refused
+  with `duckdb_filter_not_admitted`. A parameter that is optional, of
+  another type, read nowhere or read outside a `where` or `having`
+  comparison is refused with `duckdb_parameter_not_admitted`, at the
+  declaration of the first such parameter or at the statement. A `Text`
+  literal that holds NUL is refused with the new detail
+  `duckdb_text_literal_nul_not_admitted` at the literal, with the suggestion
+  `remove NUL from the Text literal; DuckDB emission writes no NUL into SQL
+  text`.
 - The suggestions of five DuckDB refusals change, and scripts that match
   their text must follow. `duckdb_relation_shape_not_admitted` now reads
   `DuckDB emission admits one source read with where, group by, having,

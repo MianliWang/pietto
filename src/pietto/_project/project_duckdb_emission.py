@@ -33,11 +33,16 @@ from pietto._project.project_duckdb_sql import (
     RELATION,
     DuckDBColumn,
     DuckDBComparison,
-    DuckDBHaving,
+    DuckDBLiteral,
+    DuckDBLogic,
+    DuckDBNullTest,
     DuckDBOrderKey,
+    DuckDBParameter,
+    DuckDBRead,
     DuckDBSelect,
     Token,
     ast_rules_hold,
+    literal_holds,
     node_count,
     render,
 )
@@ -57,9 +62,14 @@ from pietto._project.project_sql_emission_scopes import (
 )
 from pietto._project.project_sql_emission_suggestions import blocker_suggestion
 from pietto._project.project_sql_plan_expressions import (
+    ProjectSQLBinary,
+    ProjectSQLBoundLiteral,
     ProjectSQLComparison,
+    ProjectSQLIsNull,
+    ProjectSQLLiteral,
     ProjectSQLParameterRead,
     ProjectSQLReference,
+    ProjectSQLUnary,
 )
 from pietto._project.project_sql_plan_inspection import inspect_project_sql_plan
 
@@ -69,6 +79,14 @@ FORMAT = "pietto.sql-emission.v1"
 PARAMETERIZED_FORMAT = "pietto.sql-emission.v2"
 COLUMNS = 4096
 TYPES = ("Int", "Text", "Bool", "Float")
+# The Python value type of each literal and parameter type.
+_VALUES = {"Int": int, "Text": str, "Bool": bool, "Float": float}
+PHYSICAL = {
+    "Int": "duckdb_bigint",
+    "Float": "duckdb_double",
+    "Text": "duckdb_varchar",
+    "Bool": "duckdb_boolean",
+}
 PREMISES = {
     "client_encoding": "UTF8",
     "operator_environment": "builtin_only",
@@ -305,6 +323,20 @@ def _logical(value_type: Any) -> tuple[str, bool] | None:
     return resolved.name, nullable
 
 
+def _operands(expression: Any) -> tuple[Any, ...]:
+    """The operands of a predicate node: `and`, `or` and `not`, a comparison
+    or a null test; any other expression is a leaf, a signed literal too."""
+    kind = type(expression)
+    operator = getattr(expression.expression, "operator", None)
+    if kind is ProjectSQLComparison or (
+        kind is ProjectSQLBinary and operator in ("and", "or")
+    ):
+        return expression.left, expression.right
+    if kind is ProjectSQLUnary and operator == "not":
+        return (expression.operand,)
+    return (expression.value,) if kind is ProjectSQLIsNull else ()
+
+
 class _Values:
     """What the plan's values read: source ports, group keys and aggregates."""
 
@@ -313,6 +345,11 @@ class _Values:
         self.refs = reference_source_ports(plan)
         self.origins = stage_origins(plan)
         self.sources = {port.ref: port for port in plan.source_ports}
+        self.index = {
+            port.ref: k
+            for source in plan.sources
+            for k, port in enumerate(_ports(plan, source))
+        }
         self.results = {port.ref: port for port in plan.result_ports}
         self.roots = {e.ref: e for e in plan.order_expressions}
         self.uses = {u.ref: u for u in plan.order_uses}
@@ -432,6 +469,118 @@ class _Values:
         function, port = self.aggregate(owner) or (None, None)
         return port, function
 
+    def predicate(
+        self, ref: Any, selected: tuple[Any, ...] | None, numbers: dict[int, int]
+    ) -> Any:
+        """The SQL predicate of a `where` (`selected` None) or of a `having`
+        over the `selected` group keys and aggregates, else None (rule 8).
+        Each parameter's placeholder is numbered at its first read, in SQL
+        order, into `numbers` (parameter ordinal to placeholder)."""
+        expression = self.plan.expressions[ref.position]
+        operands = _operands(expression)
+        kind = type(expression)
+        if kind is ProjectSQLComparison:
+            if expression.expression.operator not in OPERATORS:
+                return None
+            # (kind, node, type) of each side, in SQL order.
+            sides = []
+            for operand in operands:
+                read = self.read(operand, selected)
+                constant = None if read else self.constant(operand, numbers)
+                sides.append(
+                    ("read", *read)
+                    if read
+                    else ("constant", *constant)
+                    if constant
+                    else (None, None, None)
+                )
+            if {sides[0][0], sides[1][0]} != {"read", "constant"} or (
+                sides[0][2] != sides[1][2]
+            ):
+                return None
+            left, right = (side[1] for side in sides)
+            return DuckDBComparison(
+                left, OPERATORS[expression.expression.operator], right
+            )
+        if kind is ProjectSQLIsNull:
+            read = self.read(operands[0], selected)
+            negated = expression.expression.negated
+            return None if read is None else DuckDBNullTest(read[0], negated)
+        if not operands:
+            return None
+        nodes = tuple(self.predicate(o, selected, numbers) for o in operands)
+        if any(node is None for node in nodes):
+            return None
+        return DuckDBLogic(expression.expression.operator.upper(), nodes)
+
+    def read(
+        self, ref: Any, selected: tuple[Any, ...] | None
+    ) -> tuple[DuckDBRead, str] | None:
+        """(read, type) of a direct read of a source field in a `where`, or of
+        a selected output in a `having`."""
+        expression = self.plan.expressions[ref.position]
+        if selected is None:
+            port = self.direct(expression)
+            if port is None or (tag := _type_name(port)) is None:
+                return None
+            return DuckDBRead(self.index[port.ref]), tag
+        if type(expression) is not aggregation.ProjectSQLResultReference:
+            return None
+        owner = self.owners.get(expression.port)
+        logical = _logical(expression.value_type)
+        if (
+            owner is None
+            or not any(owner is item for item in selected)
+            or logical is None
+            or logical[0] not in TYPES
+        ):
+            return None
+        port, function = self.value(owner)
+        field = None if port is None else self.index[port.ref]
+        return DuckDBRead(field, function), logical[0]
+
+    def constant(
+        self, ref: Any, numbers: dict[int, int]
+    ) -> tuple[DuckDBLiteral | DuckDBParameter, str] | None:
+        """(node, type) of a literal, a signed number literal or a parameter
+        read of one of the four types."""
+        expression = self.plan.expressions[ref.position]
+        if type(expression) is ProjectSQLParameterRead:
+            tag, ordinal = expression.parameter.tag, expression.parameter.ordinal
+            if tag not in TYPES:
+                return None
+            number = numbers.setdefault(ordinal, len(numbers) + 1)
+            return DuckDBParameter(number, tag), tag
+        logical = _logical(expression.value_type)
+        signed = (
+            type(expression) is ProjectSQLUnary
+            and expression.expression.operator == "-"
+        )
+        if signed:
+            expression = self.plan.expressions[expression.operand.position]
+        if type(expression) is not ProjectSQLLiteral or logical is None:
+            return None
+        value: Any
+        tag, value = logical[0], expression.expression.value
+        if (
+            logical[1]
+            or tag not in TYPES
+            or _logical(expression.value_type) != logical
+            or type(value) is not _VALUES[tag]
+            or (signed and tag not in ("Int", "Float"))
+        ):
+            return None
+        value = -value if signed else value
+        # A Text literal that holds NUL is rule 8b's alone.
+        if tag != "Text" and not literal_holds(value):
+            return None
+        return DuckDBLiteral(value), tag
+
+    def size(self, ref: Any) -> int:
+        """Rule 16's nodes of a predicate, as `predicate` builds them."""
+        expression = self.plan.expressions[ref.position]
+        return 1 + sum(self.size(operand) for operand in _operands(expression))
+
     def nodes(self) -> int:
         """Rule 16: the nodes of the SQL AST that the plan admits."""
         plan = self.plan
@@ -444,15 +593,15 @@ class _Values:
             len(plan.exports),
             arguments,
             len(plan.group_keys),
-            len(plan.filters),
+            sum(self.size(f.predicate) for f in plan.filters),
             len(plan.order_items),
             len(plan.result_limits),
         )
 
 
 class _Rules:
-    """Rules 1-29, with 7a, 7b and 8a keyed 7.1, 7.2 and 8.1: at most one
-    blocker per rule, at its first failing site."""
+    """Rules 1-29, with 7a, 7b, 8a and 8b keyed 7.1, 7.2, 8.1 and 8.2: at
+    most one blocker per rule, at its first failing site."""
 
     def __init__(self, checked: Any, contract: DuckDBContract, policy: Any) -> None:
         self.found: dict[float, Blocker] = {}
@@ -616,12 +765,13 @@ class _Rules:
                 )
         selected = tuple(owner for _, _, owner in outputs if owner is not None)
         for position, filter_ in enumerate(plan.filters):
-            predicate = plan.expressions[filter_.predicate.position]
+            having = filter_.site.role.value == "satisfying"
             if not (
                 type(filter_.site) is aggregation.ProjectSQLAggregateSite
-                and self.having(predicate, selected)
-                if filter_.site.role.value == "satisfying"
-                else not position and self.comparison(predicate)
+                and values.predicate(filter_.predicate, selected, {}) is not None
+                if having
+                else not position
+                and values.predicate(filter_.predicate, None, {}) is not None
             ):
                 self.fail(
                     8,
@@ -639,79 +789,61 @@ class _Rules:
                     item.ref,
                     item.source.item.span,
                 )
+        literals: list[Any] = [
+            e
+            for e in plan.expressions
+            if type(e) in (ProjectSQLLiteral, ProjectSQLBoundLiteral)
+        ]
+        nul = [
+            e
+            for e in literals
+            if type(e.expression.value) is str and "\0" in e.expression.value
+        ]
+        for literal in sorted(nul, key=lambda e: _key(e.expression.span))[:1]:
+            self.fail(
+                8.2,
+                "PIE-B1003",
+                "duckdb_text_literal_nul_not_admitted",
+                literal.ref,
+                literal.expression.span,
+            )
 
     def site(self, item: Any) -> Any:
         """The call of an aggregate, or the item of a group key."""
         node = getattr(item.source, "call", None) or getattr(item.source, "item", None)
         return getattr(node, "span", None) or self.statement
 
-    def comparison(self, predicate: Any) -> bool:
-        if (
-            type(predicate) is not ProjectSQLComparison
-            or predicate.expression.operator not in OPERATORS
-        ):
-            return False
-        left = self.values.direct(self.plan.expressions[predicate.left.position])
-        right = self.plan.expressions[predicate.right.position]
-        return (
-            left is not None
-            and _type_name(left) == "Int"
-            and type(right) is ProjectSQLParameterRead
-        )
-
-    def having(self, predicate: Any, selected: tuple[Any, ...]) -> bool:
-        """One comparison of a direct read of an Int selected output, on the
-        left, with a direct read of the parameter."""
-        if (
-            type(predicate) is not ProjectSQLComparison
-            or predicate.expression.operator not in OPERATORS
-        ):
-            return False
-        left = self.plan.expressions[predicate.left.position]
-        right = self.plan.expressions[predicate.right.position]
-        if type(left) is not aggregation.ProjectSQLResultReference:
-            return False
-        owner = self.values.owners.get(left.port)
-        logical = _logical(left.value_type)
-        return (
-            owner is not None
-            and any(owner is item for item in selected)
-            and logical is not None
-            and logical[0] == "Int"
-            and type(right) is ProjectSQLParameterRead
-        )
-
     def parameters(self) -> None:
-        plan, header = self.plan, self.plan.parameters
-        problem: tuple[object, object] | None = None
-        if not plan.filters:
-            if header:
-                problem = (None, header[0].declaration.span)
-        elif len(header) != 1:
-            problem = (
-                (None, header[1].declaration.span) if header else (None, self.statement)
-            )
-        elif header[0].tag != "Int" or header[0].value_type.nullability.value != (
-            "non_null"
+        """Rule 9 at the declaration of the first parameter, in header order,
+        that is optional, of another type or read nowhere; else at the
+        statement when a read is no side of a `where` or `having`
+        comparison."""
+        plan = self.plan
+        placed = []
+        stack = [plan.expressions[f.predicate.position] for f in plan.filters]
+        while stack:
+            expression = stack.pop()
+            operands = [plan.expressions[o.position] for o in _operands(expression)]
+            if type(expression) is ProjectSQLComparison:
+                placed.extend(operands)
+            else:
+                stack.extend(operands)
+        ordinals = {read.parameter.ordinal for read in self.reads}
+        problem: tuple[object, object] | None = next(
+            (
+                (None, parameter.declaration.span)
+                for parameter in plan.parameters
+                if parameter.tag not in TYPES
+                or parameter.value_type.nullability.value != "non_null"
+                or parameter.ordinal not in ordinals
+            ),
+            None,
+        )
+        if problem is None and (
+            any(all(read is not p for p in placed) for read in self.reads)
+            or any(a.parameter is not None for a in plan.window_arguments)
         ):
-            problem = (None, header[0].declaration.span)
-        else:
-            predicates = tuple(
-                plan.expressions[f.predicate.position] for f in plan.filters
-            )
-            if (
-                len(self.reads) != 1
-                or not any(
-                    type(predicate) is ProjectSQLComparison
-                    and any(
-                        plan.expressions[side.position] is self.reads[0]
-                        for side in (predicate.left, predicate.right)
-                    )
-                    for predicate in predicates
-                )
-                or any(a.parameter is not None for a in plan.window_arguments)
-            ):
-                problem = (None, self.statement)
+            problem = (None, self.statement)
         if problem is not None:
             self.fail(9, "PIE-B1003", "duckdb_parameter_not_admitted", *problem)
         for source in sorted(plan.sources, key=lambda s: _key(s.declaration.span)):
@@ -889,17 +1021,17 @@ def _expected_ast(plan: Any) -> DuckDBSelect:
             port, function = values.value(owner)
         columns.append(DuckDBColumn(field(port), export.identity.name, function))
     where = having = None
-    for filter_ in plan.filters:
-        predicate = plan.expressions[filter_.predicate.position]
-        operator = OPERATORS[predicate.expression.operator]
-        left = plan.expressions[predicate.left.position]
+    outputs = values.outputs()
+    selected = tuple(owner for _, _, owner in outputs if owner is not None)
+    # Placeholders are numbered in SQL order: the `where` before the `having`.
+    numbers: dict[int, int] = {}
+    for filter_ in sorted(plan.filters, key=lambda f: f.site.role.value != "where"):
         if filter_.site.role.value == "where":
-            where = DuckDBComparison(index[values.direct(left).ref], operator, 1)
+            where = values.predicate(filter_.predicate, None, numbers)
         else:
-            port, function = values.value(values.owners[left.port])
-            having = DuckDBHaving(field(port), function, operator, 1)
+            having = values.predicate(filter_.predicate, selected, numbers)
     group_by = tuple(index[values.key(key).ref] for key in plan.group_keys)
-    order_by, outputs = [], values.outputs()
+    order_by = []
     for item in plan.order_items:
         port, function = values.order(item, outputs) or (None, None)
         descending = item.source.direction.value == "desc"
@@ -961,15 +1093,19 @@ def _subjects(
     for limit in plan.result_limits:
         result["limit",] = limit.ref
     for filter_ in plan.filters:
-        predicate = plan.expressions[filter_.predicate.position]
-        names = (
-            ("filter", "predicate", "left", "read")
-            if filter_.site.role.value == "where"
-            else ("having", "having_predicate", "having_left", "having_read")
-        )
-        refs = (filter_.ref, predicate.ref, predicate.left, predicate.right)
-        for name, ref in zip(names, refs, strict=True):
-            result[name,] = ref
+        where = filter_.site.role.value == "where"
+        result["filter" if where else "having",] = filter_.ref
+        # Each predicate node at its path of operand positions.
+        stack: list[tuple[tuple[object, ...], Any]] = [
+            (("predicate" if where else "having_predicate",), filter_.predicate)
+        ]
+        while stack:
+            path, ref = stack.pop()
+            expression = plan.expressions[ref.position]
+            result[path] = expression.ref
+            stack.extend(
+                ((*path, k), operand) for k, operand in enumerate(_operands(expression))
+            )
     return result
 
 
@@ -1081,6 +1217,13 @@ def _document(artifact: DuckDBArtifact) -> bytes:
         for i, demand in enumerate(artifact.assessment.assessment.demands)
     ]
     placeholders = [t for t in artifact.tokens if t.kind == "parameter"]
+    reads = [
+        plan.expressions[subjects[t.subject].position].parameter for t in placeholders
+    ]
+    # Each parameter's placeholder, numbered at its first read in SQL order.
+    numbers: dict[int, int] = {}
+    for read in reads:
+        numbers.setdefault(read.ordinal, len(numbers) + 1)
     document: dict[str, Any] = {
         "format": PARAMETERIZED_FORMAT if plan.parameters else FORMAT,
         "status": "VERIFIED",
@@ -1111,12 +1254,12 @@ def _document(artifact: DuckDBArtifact) -> bytes:
         "parameter_uses": [
             {
                 "use": i,
-                "owner": {"kind": "parameter", "parameter": 0},
-                "server_index": 1,
-                "physical_type": "duckdb_bigint",
+                "owner": {"kind": "parameter", "parameter": read.ordinal},
+                "server_index": numbers[read.ordinal],
+                "physical_type": PHYSICAL[read.tag],
                 "range": {"start": token.start, "end": token.end},
             }
-            for i, token in enumerate(placeholders)
+            for i, (token, read) in enumerate(zip(placeholders, reads, strict=True))
         ],
         "columns": columns,
         "ranges": ranges,
@@ -1130,7 +1273,11 @@ def _document(artifact: DuckDBArtifact) -> bytes:
                 "name": p.declaration.name,
                 "tag": p.tag,
                 "nullable": p.value_type.nullability.value == "nullable",
-                "reads": [_ref(subjects[t.subject]) for t in placeholders],
+                "reads": [
+                    _ref(subjects[t.subject])
+                    for t, read in zip(placeholders, reads, strict=True)
+                    if read.ordinal == p.ordinal
+                ],
             }
             for p in plan.parameters
         ]
@@ -1148,12 +1295,15 @@ def verify_artifact(artifact: object) -> bool:
         (source,) = plan.sources
         if (
             type(plan) is not plans.ProjectSQLPlan
-            or artifact.ast != _expected_ast(plan)
+            or artifact.ast != (expected := _expected_ast(plan))
             or not ast_rules_hold(
                 artifact.ast, len(_ports(plan, source)), _labels(plan)
             )
             or artifact.ast.nodes != _Values(plan).nodes()
             or render(artifact.ast) != (artifact.sql, artifact.tokens)
+            # Literals compare by value, 1, 1.0 and True alike, -0.0 and 0.0
+            # alike; their SQL does not.
+            or render(expected) != (artifact.sql, artifact.tokens)
         ):
             return False
         return _document(artifact) == artifact.document
@@ -1335,14 +1485,16 @@ class DuckDBSourceField:
 class DuckDBExecutionFacts:
     """What the `duckdb_arrow` route reads of one verified artifact: the
     contract's `relation.name`, the rendered statement, the source fields,
-    each result column's (label, logical type, nullable) in result order and
-    the header parameters as (name, tag, nullable)."""
+    each result column's (label, logical type, nullable) in result order,
+    the header parameters as (name, tag, nullable) and the header ordinal
+    of the parameter that each placeholder `$1`, `$2`, ... binds."""
 
     key: str
     sql: str
     fields: tuple[DuckDBSourceField, ...]
     result: tuple[tuple[str, str, bool], ...]
     parameters: tuple[tuple[str, str, bool], ...]
+    placeholders: tuple[int, ...]
 
 
 def execution_facts(template: object) -> DuckDBExecutionFacts:
@@ -1372,10 +1524,14 @@ def execution_facts(template: object) -> DuckDBExecutionFacts:
                 domain["max_characters"] if tag == "Text" else None,
             )
         )
+    document = json.loads(artifact.document)
     result = tuple(
         (c["label"], c["logical_type"]["name"], c["nullable"])
-        for c in json.loads(artifact.document)["columns"]
+        for c in document["columns"]
     )
+    bound = {
+        u["server_index"]: u["owner"]["parameter"] for u in document["parameter_uses"]
+    }
     if any(
         tag not in TYPES or type(nullable) is not bool for _, tag, nullable in result
     ):
@@ -1386,4 +1542,5 @@ def execution_facts(template: object) -> DuckDBExecutionFacts:
         tuple(fields),
         result,
         template.facts()[7],
+        tuple(bound[k] for k in sorted(bound)),
     )
